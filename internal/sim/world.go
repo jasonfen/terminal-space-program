@@ -101,7 +101,13 @@ func (w *World) Tick() {
 		return
 	}
 
-	simDelta := time.Duration(float64(w.Clock.BaseStep) * w.Clock.Warp())
+	// Apply SOI warp cap per plan §C21: if the current warp × base-step
+	// would force the integrator to exceed its 1024-sub-step cap, reduce
+	// effective warp this tick. Doesn't change the clock's displayed warp
+	// (user still sees the level they picked); just prevents numerical
+	// blow-up at pathologically high warps inside short-period orbits.
+	effWarp := w.clampedWarp()
+	simDelta := time.Duration(float64(w.Clock.BaseStep) * effWarp)
 	w.Clock.SimTime = w.Clock.SimTime.Add(simDelta)
 
 	if w.Craft != nil {
@@ -113,6 +119,31 @@ func (w *World) Tick() {
 		}
 	}
 }
+
+// clampedWarp returns min(selected warp, max warp allowed by the step-size
+// guard). max = (1024 sub-steps × period/100) / base_step.
+func (w *World) clampedWarp() float64 {
+	selected := w.Clock.Warp()
+	if w.Craft == nil {
+		return selected
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	period := orbitalPeriod(w.Craft.State, mu)
+	if math.IsInf(period, 0) || math.IsNaN(period) || period <= 0 {
+		return selected
+	}
+	maxStep := period / 100.0
+	maxSimDelta := 1024.0 * maxStep // seconds — our sub-step cap
+	maxWarp := maxSimDelta / w.Clock.BaseStep.Seconds()
+	if selected > maxWarp {
+		return maxWarp
+	}
+	return selected
+}
+
+// EffectiveWarp exposes the clamped warp for HUD display. Returns the same
+// as Clock.Warp() when the user isn't hitting the step-size guard.
+func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 
 // integrateSpacecraft sub-steps the Verlet integrator so that each
 // step dt obeys dt < period/100 (plan §Phase 1 numerical stability guard,
