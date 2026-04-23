@@ -86,17 +86,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		pos := w.BodyPosition(b)
 		v.canvas.Plot(pos)
 		if i == selectedIdx {
-			// Nudge four neighbors so selection stands out on a sparse braille grid.
-			nudges := []orbital.Vec3{
-				{X: 1 / v.canvas.Scale()},
-				{X: -1 / v.canvas.Scale()},
-				{Y: 1 / v.canvas.Scale()},
-				{Y: -1 / v.canvas.Scale()},
-			}
-			for _, n := range nudges {
-				v.canvas.Plot(pos.Add(n))
-			}
+			v.plotCluster(pos, 4)
 		}
+	}
+
+	// Spacecraft glyph — cluster of 8 dots centered on craft inertial pos.
+	// Only drawn when the view matches where the spacecraft lives.
+	if w.CraftVisibleHere() {
+		v.plotCluster(w.CraftInertial(), 8)
 	}
 
 	canvasStr := v.canvas.String()
@@ -114,6 +111,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
 	return title + "\n" + body + "\n" + footer
+}
+
+// plotCluster dots a cross of size n around a world point — useful for
+// highlighting a body or spacecraft on the sparse braille grid.
+func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
+	step := 1.0 / v.canvas.Scale()
+	for i := -n / 2; i <= n/2; i++ {
+		v.canvas.Plot(center.Add(orbital.Vec3{X: float64(i) * step}))
+		v.canvas.Plot(center.Add(orbital.Vec3{Y: float64(i) * step}))
+	}
 }
 
 // autoFit sets the canvas scale so the outermost body's apoapsis is visible.
@@ -138,10 +145,6 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	sys := w.System()
 
 	lines := []string{
-		v.theme.Primary.Render("SYSTEM"),
-		"  " + sys.Name,
-		"  " + fmt.Sprintf("%d bodies", len(sys.Bodies)),
-		"",
 		v.theme.Primary.Render("CLOCK"),
 		"  T+" + w.Clock.SimTime.Format("2006-01-02"),
 		"  " + fmt.Sprintf("warp: %.0fx", w.Clock.Warp()),
@@ -149,8 +152,32 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if w.Clock.Paused {
 		lines = append(lines, "  "+v.theme.Warning.Render("[PAUSED]"))
 	}
-	lines = append(lines, "")
-	lines = append(lines, v.theme.Primary.Render("SELECTED"))
+
+	// Spacecraft block — only in Sol per plan §MVP.
+	if w.CraftVisibleHere() {
+		c := w.Craft
+		lines = append(lines,
+			"",
+			v.theme.Primary.Render("VESSEL"),
+			"  "+c.Name,
+			"  primary:   "+c.Primary.EnglishName,
+			fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
+			fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+			fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
+			fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
+		)
+	} else if w.Craft != nil {
+		lines = append(lines, "",
+			v.theme.Dim.Render("VESSEL (in Sol — [s] to switch)"),
+		)
+	}
+
+	lines = append(lines, "", v.theme.Primary.Render("SYSTEM"),
+		"  "+sys.Name,
+		fmt.Sprintf("  %d bodies", len(sys.Bodies)),
+		"",
+		v.theme.Primary.Render("SELECTED"),
+	)
 
 	if selectedIdx >= 0 && selectedIdx < len(sys.Bodies) {
 		b := sys.Bodies[selectedIdx]
