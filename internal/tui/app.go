@@ -167,6 +167,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.ZoomOut):
 			a.orbitView.ZoomOut()
 			return a, nil
+		case key.Matches(m, a.keys.FocusNext):
+			a.world.CycleFocus(true)
+			return a, nil
+		case key.Matches(m, a.keys.FocusPrev):
+			a.world.CycleFocus(false)
+			return a, nil
+		case key.Matches(m, a.keys.FocusReset):
+			a.world.ResetFocus()
+			return a, nil
 		}
 	}
 	return a, nil

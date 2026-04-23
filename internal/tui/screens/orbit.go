@@ -25,9 +25,12 @@ type OrbitView struct {
 	canvas *widgets.Canvas
 	theme  Theme
 
-	// lastSystemIdx tracks the system the canvas was last fit to, so we
-	// re-FitTo only on a real switch (not every frame).
+	// lastSystemIdx + lastFocus track the (system, focus) pair the canvas
+	// was last fit to, so we re-FitTo only on a real change (not every
+	// frame). Focus fit keeps the camera on moving targets smoothly without
+	// reshooting the zoom level each tick.
 	lastSystemIdx int
+	lastFocus     sim.Focus
 	fitted        bool
 }
 
@@ -61,14 +64,19 @@ func (v *OrbitView) ZoomOut() { v.canvas.ZoomBy(1.0 / 1.25) }
 func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows int) string {
 	sys := w.System()
 
-	if v.lastSystemIdx != w.SystemIdx || !v.fitted {
+	// Refit only on system switch or focus-kind/idx change. When focused on
+	// a moving target (body or craft), we still re-center every frame
+	// below — this path only fires when the camera "target" changes, not
+	// when the target moves.
+	if v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus || !v.fitted {
 		v.lastSystemIdx = w.SystemIdx
+		v.lastFocus = w.Focus
 		v.fitted = true
-		v.autoFit(sys)
+		v.canvas.FitTo(w.FocusZoomRadius())
 	}
 
 	v.canvas.Clear()
-	v.canvas.Center(orbital.Vec3{}) // primary at origin
+	v.canvas.Center(w.FocusPosition())
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
 	for i := range sys.Bodies {
@@ -106,7 +114,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s", sys.Name))
 	footer := v.theme.Footer.Render(
-		"[q] quit  [s] next system  [←/→] body  [+/-] zoom  [i] info  [?] help  [.,] warp  [0] pause",
+		"[q] quit  [s] system  [←/→] body  [+/-] zoom  [f/F] focus  [g] sys-view  [i] info  [?] help  [.,] warp  [0] pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -121,21 +129,6 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 		v.canvas.Plot(center.Add(orbital.Vec3{X: float64(i) * step}))
 		v.canvas.Plot(center.Add(orbital.Vec3{Y: float64(i) * step}))
 	}
-}
-
-// autoFit sets the canvas scale so the outermost body's apoapsis is visible.
-func (v *OrbitView) autoFit(sys bodies.System) {
-	var maxR float64
-	for _, b := range sys.Bodies {
-		r := b.SemimajorAxisMeters() * (1 + b.Eccentricity)
-		if r > maxR {
-			maxR = r
-		}
-	}
-	if maxR == 0 {
-		maxR = 1e11 // 1/7 AU fallback
-	}
-	v.canvas.FitTo(maxR)
 }
 
 func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
@@ -156,6 +149,11 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if w.Clock.Paused {
 		lines = append(lines, "  "+v.theme.Warning.Render("[PAUSED]"))
 	}
+	lines = append(lines,
+		"",
+		v.theme.Primary.Render("FOCUS"),
+		"  "+w.FocusName(),
+	)
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
