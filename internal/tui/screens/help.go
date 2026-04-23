@@ -39,10 +39,12 @@ func (h *Help) Render() string {
 			{",", "warp down"},
 			{"0 / space", "pause / resume"},
 		}},
-		{"FLIGHT (v0.1 Phase 2)", [][2]string{
-			{"m", "open maneuver planner"},
+		{"FLIGHT", [][2]string{
+			{"m", "open maneuver planner (burn now)"},
 			{"enter", "commit burn"},
 			{"esc (in planner)", "cancel burn"},
+			{"n", "plan a node (T+5m prograde 50m/s)"},
+			{"N", "clear all planned nodes"},
 		}},
 	}
 

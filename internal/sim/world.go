@@ -27,6 +27,10 @@ type World struct {
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
 
+	// Nodes holds planned impulsive burns, sorted by TriggerTime. Each
+	// fires automatically when Clock.SimTime reaches its trigger.
+	Nodes []ManeuverNode
+
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
@@ -119,6 +123,7 @@ func (w *World) Tick() {
 
 	if w.Craft != nil {
 		w.integrateSpacecraft(simDelta)
+		w.executeDueNodes()
 		w.soiCheckCounter++
 		if w.soiCheckCounter >= 20 {
 			w.soiCheckCounter = 0
