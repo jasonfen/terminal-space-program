@@ -4,12 +4,15 @@ package screens
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -104,6 +107,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		v.plotCluster(w.CraftInertial(), 8)
 	}
 
+	// Planned maneuver nodes — cluster glyph at each node's inertial
+	// position, plus a dashed predicted trajectory from the first node's
+	// post-burn state. Only meaningful when the craft is visible here.
+	if w.CraftVisibleHere() {
+		v.drawNodes(w)
+	}
+
 	canvasStr := v.canvas.String()
 	canvasPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -114,7 +124,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s", sys.Name))
 	footer := v.theme.Footer.Render(
-		"[q] quit  [s] system  [←/→] body  [+/-] zoom  [f/F] focus  [g] sys-view  [i] info  [?] help  [.,] warp  [0] pause",
+		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -129,6 +139,53 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 		v.canvas.Plot(center.Add(orbital.Vec3{X: float64(i) * step}))
 		v.canvas.Plot(center.Add(orbital.Vec3{Y: float64(i) * step}))
 	}
+}
+
+// drawNodes plots every planned maneuver node at its projected inertial
+// position and draws a dashed predicted trajectory starting from the
+// first node's post-burn state. Sampling horizon is one orbit period
+// around the craft's primary — long enough to see the new ellipse.
+func (v *OrbitView) drawNodes(w *sim.World) {
+	if len(w.Nodes) == 0 || w.Craft == nil {
+		return
+	}
+	for _, n := range w.Nodes {
+		v.plotCluster(w.NodeInertialPosition(n), 6)
+	}
+
+	first := w.Nodes[0]
+	post := w.PostBurnState(first)
+	mu := w.Craft.Primary.GravitationalParameter()
+	// Horizon: 1 orbital period of the post-burn orbit, bounded so an
+	// escape trajectory doesn't blow up into an infinite line.
+	horizon := postBurnHorizon(post, mu)
+	if horizon <= 0 {
+		return
+	}
+	pts := planner.Predict(post, mu, horizon, 96)
+	primaryPos := w.BodyPosition(w.Craft.Primary)
+	for i, p := range pts {
+		if i%2 == 0 { // stride 2 → dashed
+			continue
+		}
+		v.canvas.Plot(primaryPos.Add(p))
+	}
+}
+
+// postBurnHorizon picks a sensible prediction window based on the
+// orbit's semimajor axis. Returns the orbital period for bound orbits,
+// or a time-of-flight covering ~10 primary-radii of travel for
+// hyperbolic (a ≤ 0) orbits so the preview is visible but finite.
+func postBurnHorizon(state physics.StateVector, mu float64) float64 {
+	a := physics.SemimajorAxis(state, mu)
+	if a > 0 && !math.IsNaN(a) {
+		return 2 * math.Pi * math.Sqrt(a*a*a/mu)
+	}
+	v := state.V.Norm()
+	if v <= 0 {
+		return 0
+	}
+	return 10 * state.R.Norm() / v
 }
 
 func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
@@ -185,6 +242,17 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		lines = append(lines, "",
 			v.theme.Dim.Render("VESSEL (in Sol — [s] to switch)"),
 		)
+	}
+
+	if len(w.Nodes) > 0 {
+		lines = append(lines, "", v.theme.Primary.Render("NODES"))
+		for i, n := range w.Nodes {
+			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+			lines = append(lines, fmt.Sprintf(
+				"  #%d T%+.0fs  %s  %.0f m/s",
+				i+1, dt, n.Mode.String(), n.DV,
+			))
+		}
 	}
 
 	lines = append(lines, "", v.theme.Primary.Render("SYSTEM"),
