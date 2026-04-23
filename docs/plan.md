@@ -8,17 +8,23 @@ status: v0 scaffold shipped; porting pending Go toolchain install
 # terminal-space-program — Implementation Plan
 
 > **Editor's note (pookiebot, 2026-04-23):** This plan was authored by fenbot
-> and handed off via sidechat msg 2196 under the working name `orbsim`. Three
-> gating open questions have since been closed by jason:
+> and handed off via sidechat msg 2196 under the working name `orbsim`. All
+> eight open questions have since been closed by jason:
 >
-> 1. **Repo name** → `terminal-space-program` (KSP-in-terminal play, jason msg 2209).
-> 2. **License** → MIT (jason msg 2211).
+> 1. **Repo name** → `terminal-space-program` (msg 2209).
+> 2. **License** → MIT (msg 2211).
 > 3. **Fork vs greenfield** → greenfield with `NOTICE.md` crediting furan917
->    and preserved MIT headers on lifted files (jason msg 2211).
+>    and preserved MIT headers on lifted files (msg 2211).
+> 4. **Time-warp UX** → discrete steps (msg 2216).
+> 5. **Starting scenario** → LEO-only for v0.1 (msg 2216).
+> 6. **Initial system filter** → all four systems shipped; spacecraft
+>    restricted to Sol for v0.1 (msg 2216).
+> 7. **Sim vs game** → sandbox for v0.1; missions deferred to v0.2 (msg 2216).
+> 8. **Release cadence** → tag `v0.1.0` at end-of-week-3 regardless of polish
+>    (msg 2216).
 >
 > Fenbot's original prose is preserved below; treat `orbsim` references in the
 > body as historical (module path is `github.com/jasonfen/terminal-space-program`).
-> Questions 4–8 are still open.
 
 ## Context
 
@@ -393,14 +399,16 @@ If any week slips, cut Phase 3 work (already deferred) before cutting polish. A 
 
 ## Open Questions for Jason
 
+All closed as of 2026-04-23. Historical text preserved below for context.
+
 1. ~~**Repo name.**~~ **Closed 2026-04-23 (msg 2209):** `terminal-space-program`.
 2. ~~**License.**~~ **Closed 2026-04-23 (msg 2211):** MIT.
 3. ~~**Fork vs greenfield.**~~ **Closed 2026-04-23 (msg 2211):** greenfield + `NOTICE.md`, MIT headers preserved on lifted files.
-4. **Time-warp UX.** Discrete steps (1×/10×/100×/…) like proposed here, or continuous dial? KSP does discrete; it's easier to keep numerically honest.
-5. **Starting scenario.** Should v0.1 always start in LEO around Earth, or offer a menu of scenarios (LEO / lunar transfer / Mars transfer already in-progress)? Lean toward LEO-only for MVP.
-6. **Initial system filter.** Ship with all four systems (Sol, Alpha Cen, TRAPPIST-1, Kepler-452) but restrict the spacecraft to Sol? Or Sol-only binary for v0.1 and add the others in v0.2?
-7. **"Sim" vs "game."** Should there be objectives/missions, or is this free-flight sandbox? Sandbox is cheaper to ship; missions are where it becomes fun long-term. (Recommend sandbox for v0.1; missions as a v0.2 design pass of its own.)
-8. **Release cadence.** Tag `v0.1.0` at end-of-week-3 regardless of polish level, or wait until it feels good? Recommend the former — shipping forces decisions.
+4. ~~**Time-warp UX.**~~ **Closed 2026-04-23 (msg 2216):** discrete steps (1×/10×/100×/1000×/10000×/100000×) per the recommendation.
+5. ~~**Starting scenario.**~~ **Closed 2026-04-23 (msg 2216):** LEO-only for v0.1.
+6. ~~**Initial system filter.**~~ **Closed 2026-04-23 (msg 2216):** ship all four systems (Sol, Alpha Cen, TRAPPIST-1, Kepler-452); spacecraft restricted to Sol for v0.1.
+7. ~~**"Sim" vs "game."**~~ **Closed 2026-04-23 (msg 2216):** sandbox for v0.1; missions deferred to a v0.2 design pass.
+8. ~~**Release cadence.**~~ **Closed 2026-04-23 (msg 2216):** tag `v0.1.0` at end-of-week-3 regardless of polish level — shipping forces decisions.
 
 ---
 
