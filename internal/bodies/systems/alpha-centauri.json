@@ -1,0 +1,99 @@
+{
+  "systemName": "Alpha Centauri",
+  "description": "Nearest star system with binary stars and potential planets",
+  "discoveryYear": "1689",
+  "distance": "4.37 light-years",
+  "galaxy": "Milky Way",
+  "bodies": [
+    {
+      "id": "alpha-centauri-a",
+      "name": "Alpha Centauri A",
+      "englishName": "Alpha Centauri A",
+      "bodyType": "Star",
+      "isPlanet": false,
+      "meanRadius": 855700,
+      "mass": {
+        "massValue": 1.1,
+        "massExponent": 30
+      },
+      "semimajorAxis": 0,
+      "sideralRotation": 528,
+      "density": 1.22,
+      "gravity": 294.0,
+      "discoveredBy": "Father Richaud",
+      "discoveryDate": "1689",
+      "moons": [],
+      "temperature": 5790,
+      "stellarClass": "G2V",
+      "age": 6000000000
+    },
+    {
+      "id": "alpha-centauri-b",
+      "name": "Alpha Centauri B",
+      "englishName": "Alpha Centauri B",
+      "bodyType": "Star",
+      "isPlanet": false,
+      "meanRadius": 631700,
+      "mass": {
+        "massValue": 0.907,
+        "massExponent": 30
+      },
+      "semimajorAxis": 0,
+      "sideralRotation": 936,
+      "density": 1.33,
+      "gravity": 227.0,
+      "discoveredBy": "Father Richaud",
+      "discoveryDate": "1689",
+      "moons": [],
+      "temperature": 5260,
+      "stellarClass": "K1V",
+      "age": 6000000000
+    },
+    {
+      "id": "proxima-centauri",
+      "name": "Proxima Centauri",
+      "englishName": "Proxima Centauri",
+      "bodyType": "Star",
+      "isPlanet": false,
+      "meanRadius": 106900,
+      "mass": {
+        "massValue": 0.1221,
+        "massExponent": 30
+      },
+      "semimajorAxis": 0,
+      "sideralRotation": 8304,
+      "density": 9.90,
+      "gravity": 17.0,
+      "discoveredBy": "Robert Innes",
+      "discoveryDate": "1915",
+      "moons": [],
+      "temperature": 3042,
+      "stellarClass": "M5.5Ve",
+      "age": 4850000000
+    },
+    {
+      "id": "proxima-centauri-b",
+      "name": "Proxima Centauri b",
+      "englishName": "Proxima Centauri b",
+      "bodyType": "Planet",
+      "isPlanet": true,
+      "meanRadius": 6990,
+      "mass": {
+        "massValue": 1.07,
+        "massExponent": 24
+      },
+      "semimajorAxis": 7264000,
+      "sideralOrbit": 11.1868,
+      "sideralRotation": 11.1868,
+      "density": 5.2,
+      "gravity": 9.8,
+      "eccentricity": 0.02,
+      "discoveredBy": "European Southern Observatory",
+      "discoveryDate": "2016",
+      "moons": [],
+      "equilibriumTemperature": 234,
+      "habitableZone": true,
+      "escapeVelocity": 11.3
+    }
+  ]
+}

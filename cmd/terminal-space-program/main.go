@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/tui"
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
@@ -12,7 +15,16 @@ func main() {
 		fmt.Printf("terminal-space-program %s (%s)\n", version.Version, version.Commit)
 		return
 	}
-	fmt.Fprintln(os.Stderr, "terminal-space-program: v0 scaffold, TUI not yet wired up.")
-	fmt.Fprintln(os.Stderr, "See https://github.com/jasonfen/terminal-space-program for roadmap.")
-	os.Exit(1)
+
+	app, err := tui.New()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+		os.Exit(1)
+	}
+
+	p := tea.NewProgram(app, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+		os.Exit(1)
+	}
 }

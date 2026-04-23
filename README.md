@@ -3,31 +3,36 @@
 Terminal-native orbital-mechanics rocket simulator. A take on Kerbal Space
 Program that lives in your terminal, distributed as a single static Go binary.
 
-> **Status:** v0 scaffold. Not yet runnable. See [MVP scope](#mvp-scope-v01)
-> and the [implementation plan](#implementation-plan).
-
-## Features (v0.1 target)
-
-- Physically-plausible solar system viewer — Sol, Alpha Centauri,
-  TRAPPIST-1, Kepler-452.
-- Fly a spacecraft through patched-conic two-body physics with
-  velocity-Verlet propagation.
-- Impulsive burns with prograde / retrograde / normal / radial modes.
-- Trajectory prediction preview.
-- KSP-style time-warp, up to 10,000×.
-- Bubble Tea TUI with drawille canvas rendering.
+```
+┌───────────────────────────────────────────────────────────┐
+│ terminal-space-program — Sol                              │
+│ ┌─────────────────────────────────────┐ ┌───────────────┐ │
+│ │    · ·                              │ │ CLOCK         │ │
+│ │  ·     ·                            │ │   T+2026-04-23│ │
+│ │ ·   ⊙   ·       · ⊕ ·               │ │   warp: 100x  │ │
+│ │  ·     ·                            │ │               │ │
+│ │    · ·                              │ │ VESSEL        │ │
+│ │                                     │ │   LEO-1       │ │
+│ │                                     │ │   alt: 200 km │ │
+│ └─────────────────────────────────────┘ │   v: 7.78 km/s│ │
+│ [q] quit [s] system [m] burn [?] help   └───────────────┘ │
+└───────────────────────────────────────────────────────────┘
+```
 
 ## Install
 
+Once v0.1.0 is cut and binaries are published:
+
 ```bash
-# v0.1 and later — once binaries are published:
+# Linux x86_64
 curl -L https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.tar.gz | tar xz
 ./terminal-space-program
 ```
 
-No Go toolchain required at install time. The project ships `CGO_ENABLED=0`
-static binaries for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, and
-windows/amd64.
+Replace `linux-amd64` with `linux-arm64`, `darwin-amd64`, `darwin-arm64`, or
+`windows-amd64` (use the `.zip` variant on Windows).
+
+No Go toolchain, no libc dance. `CGO_ENABLED=0` static binaries.
 
 ## Build from source
 
@@ -35,22 +40,56 @@ windows/amd64.
 git clone https://github.com/jasonfen/terminal-space-program
 cd terminal-space-program
 go build ./cmd/terminal-space-program
+./terminal-space-program
 ```
 
-Requires Go 1.22+.
+Requires Go 1.24+ (bubbletea dependency chain).
 
-## MVP scope (v0.1)
+## Keybindings
 
-- Phase 0 — viewer parity with existing references.
-- Phase 1 — spacecraft as a propagated body in Sol.
-- Phase 2 — impulsive burns + burn-planner screen + trajectory preview.
+| Key | Action |
+|---|---|
+| `q`, `Ctrl+C` | Quit |
+| `?` | Toggle help overlay |
+| `Esc` | Back / close |
+| `→` / `l` | Next body |
+| `←` / `h` | Previous body |
+| `s` | Switch system (Sol → Alpha Cen → TRAPPIST-1 → Kepler-452) |
+| `i` | Body info |
+| `+` / `-` | Zoom in / out |
+| `.` | Warp up (1× … 100000×) |
+| `,` | Warp down |
+| `0`, `Space` | Pause / resume |
+| `m` | Open maneuver planner |
+| `Tab` (in planner) | Cycle direction mode |
+| `Enter` (in planner) | Commit burn |
+| `Esc` (in planner) | Cancel burn |
 
-Deferred to v0.2+: finite-duration burns, Hohmann / Lambert planner,
-multi-system spacecraft, save/load, N-body perturbations.
+## Features (v0.1)
+
+- **Viewer.** Physically-plausible renderings of Sol, Alpha Centauri,
+  TRAPPIST-1, and Kepler-452. Planets move under time warp; orbit lines
+  drawn from the same Kepler math that places the planets.
+- **Spacecraft.** One vessel in low Earth orbit, propagated with
+  velocity-Verlet on a patched-conic two-body model. Energy-conservation
+  verified under 1% drift across 1000 orbits (we ship at ~1e-7%).
+- **Burns.** Impulsive burns with prograde / retrograde / normal± /
+  radial± modes, rocket-equation fuel accounting, and live shadow-
+  trajectory preview in the maneuver planner.
+- **Time warp.** Six discrete steps (1× → 100000×) with integrator-
+  aware clamping so sim-time can't outrun numerical stability.
+- **Single binary.** 5-target GoReleaser matrix (linux+darwin amd64/arm64,
+  windows amd64), `CGO_ENABLED=0`, `-ldflags "-s -w"`.
+
+### Deferred to v0.2+
+
+Finite-duration burns (impulsive only in v0.1), Hohmann / Lambert
+planner, multi-system spacecraft, save/load, N-body perturbations,
+config-file custom systems, mouse support.
 
 ## Implementation plan
 
-Full design doc: [`docs/plan.md`](docs/plan.md) (authored by fenbot, handed off via sidechat msg 2196). Summary:
+Full design doc: [`docs/plan.md`](docs/plan.md). Summary:
 
 - 4-phase physics progression (viewer → Verlet propagation → impulsive
   burns → maneuver library).
