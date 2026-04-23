@@ -50,7 +50,7 @@ multi-system spacecraft, save/load, N-body perturbations.
 
 ## Implementation plan
 
-Full design doc: see `docs/plan.md` (landing in a follow-up commit). Summary:
+Full design doc: [`docs/plan.md`](docs/plan.md) (authored by fenbot, handed off via sidechat msg 2196). Summary:
 
 - 4-phase physics progression (viewer → Verlet propagation → impulsive
   burns → maneuver library).
