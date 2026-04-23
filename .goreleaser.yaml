@@ -1,0 +1,66 @@
+version: 2
+
+project_name: terminal-space-program
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: tsp
+    main: ./cmd/terminal-space-program
+    binary: terminal-space-program
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/jasonfen/terminal-space-program/internal/version.Version={{.Version}}
+      - -X github.com/jasonfen/terminal-space-program/internal/version.Commit={{.ShortCommit}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+archives:
+  - id: default
+    builds:
+      - tsp
+    name_template: >-
+      {{ .ProjectName }}-{{ .Os }}-{{ .Arch }}
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  github:
+    owner: jasonfen
+    name: terminal-space-program
+  draft: false
+  prerelease: auto

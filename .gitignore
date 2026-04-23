@@ -1,0 +1,18 @@
+# Binaries
+/terminal-space-program
+/terminal-space-program.exe
+/dist/
+
+# Go test artifacts
+*.test
+*.out
+coverage.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
