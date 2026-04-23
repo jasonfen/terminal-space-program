@@ -61,12 +61,11 @@ func TestPredictPreservesRadiusForCircularOrbit(t *testing.T) {
 	}
 }
 
-// TestStubsReturnErr: planner/hohmann.go and planner/lambert.go must
-// return ErrNotImplemented rather than panicking or silently succeeding.
-func TestStubsReturnErr(t *testing.T) {
-	if _, _, _, err := HohmannTransfer(7e6, 4.2e7, 3.986e14); err == nil {
-		t.Error("HohmannTransfer returned nil error; stubbed implementation should return ErrNotImplemented")
-	}
+// TestLambertStubReturnsErr: LambertSolve is still stubbed in v0.2 slice-1
+// and must return ErrNotImplemented rather than panicking or silently
+// succeeding. HohmannTransfer has its own dedicated test file now
+// (hohmann_test.go) — it is no longer stubbed.
+func TestLambertStubReturnsErr(t *testing.T) {
 	if _, _, err := LambertSolve(
 		orbital.Vec3{X: 7e6}, orbital.Vec3{X: 4.2e7}, 1000, 3.986e14); err == nil {
 		t.Error("LambertSolve returned nil error; stubbed implementation should return ErrNotImplemented")
