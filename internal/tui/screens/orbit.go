@@ -156,6 +156,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
 		c := w.Craft
+		mu := c.Primary.GravitationalParameter()
+		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+		primaryR := c.Primary.RadiusMeters()
+		apoAlt := el.Apoapsis() - primaryR
+		periAlt := el.Periapsis() - primaryR
+		incDeg := el.I * 180.0 / 3.141592653589793
+
 		lines = append(lines,
 			"",
 			v.theme.Primary.Render("VESSEL"),
@@ -163,8 +170,14 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			"  primary:   "+c.Primary.EnglishName,
 			fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
 			fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+			fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
+			fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
+			fmt.Sprintf("  inclin.:   %.2f°", incDeg),
+			"",
+			v.theme.Primary.Render("PROPELLANT"),
 			fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
 			fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
+			fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
 		)
 	} else if w.Craft != nil {
 		lines = append(lines, "",
