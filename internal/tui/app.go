@@ -31,6 +31,8 @@ type App struct {
 	width, height int
 
 	orbitView *screens.OrbitView
+	bodyInfo  *screens.BodyInfo
+	help      *screens.Help
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -40,20 +42,23 @@ func New() (*App, error) {
 		return nil, err
 	}
 	th := DefaultTheme()
+	sth := screens.Theme{
+		Primary: th.Primary,
+		Warning: th.Warning,
+		Alert:   th.Alert,
+		Dim:     th.Dim,
+		HUDBox:  th.HUDBox,
+		Footer:  th.Footer,
+		Title:   th.Title,
+	}
 	return &App{
-		world:  w,
-		theme:  th,
-		keys:   DefaultKeymap(),
-		active: screenOrbit,
-		orbitView: screens.NewOrbitView(screens.Theme{
-			Primary: th.Primary,
-			Warning: th.Warning,
-			Alert:   th.Alert,
-			Dim:     th.Dim,
-			HUDBox:  th.HUDBox,
-			Footer:  th.Footer,
-			Title:   th.Title,
-		}),
+		world:     w,
+		theme:     th,
+		keys:      DefaultKeymap(),
+		active:    screenOrbit,
+		orbitView: screens.NewOrbitView(sth),
+		bodyInfo:  screens.NewBodyInfo(sth),
+		help:      screens.NewHelp(sth),
 	}, nil
 }
 
@@ -79,6 +84,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(m, a.keys.Quit):
 			return a, tea.Quit
+		case key.Matches(m, a.keys.Help):
+			if a.active == screenHelp {
+				a.active = screenOrbit
+			} else {
+				a.active = screenHelp
+			}
+			return a, nil
+		case key.Matches(m, a.keys.Back):
+			if a.active != screenOrbit {
+				a.active = screenOrbit
+			}
+			return a, nil
+		case key.Matches(m, a.keys.BodyInfo):
+			if a.active == screenOrbit {
+				a.active = screenBodyInfo
+			}
+			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
 			a.world.Clock.WarpUp()
 			return a, nil
@@ -120,5 +142,12 @@ func (a *App) View() string {
 	if a.width == 0 {
 		return "initializing…"
 	}
-	return a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+	switch a.active {
+	case screenHelp:
+		return a.help.Render()
+	case screenBodyInfo:
+		return a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
+	default:
+		return a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+	}
 }
