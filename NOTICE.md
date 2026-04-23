@@ -8,8 +8,10 @@
   architectural foundation. Specifically: the `Calculator` interface and its
   `SolarSystemCalculator` / `GenericCalculator` / `ExactCalculator` implementations,
   the `CelestialBody` struct with full Keplerian orbital elements, and the
-  bundled system data (Sol, Alpha Centauri, TRAPPIST-1, Kepler-452).
-  Licensed MIT © furan917. MIT header preserved on each lifted file.
+  bundled system data (Alpha Centauri, TRAPPIST-1, Kepler-452; `sol.json` is
+  original to this repo). Lifted at upstream commit
+  [`e632e6e`](https://github.com/furan917/go-solar-system/commit/e632e6e11729529fb13e0120ef1186c89b8f0824).
+  Licensed MIT © 2025 Francis. MIT header preserved on each lifted file.
 
 ## Design / visual inspiration (no code lifted)
 
