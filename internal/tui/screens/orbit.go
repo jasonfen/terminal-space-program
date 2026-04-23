@@ -144,10 +144,14 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	}
 	sys := w.System()
 
+	warpLine := fmt.Sprintf("  warp: %.0fx", w.Clock.Warp())
+	if eff := w.EffectiveWarp(); eff < w.Clock.Warp() {
+		warpLine += v.theme.Warning.Render(fmt.Sprintf(" (clamped to %.0fx)", eff))
+	}
 	lines := []string{
 		v.theme.Primary.Render("CLOCK"),
 		"  T+" + w.Clock.SimTime.Format("2006-01-02"),
-		"  " + fmt.Sprintf("warp: %.0fx", w.Clock.Warp()),
+		warpLine,
 	}
 	if w.Clock.Paused {
 		lines = append(lines, "  "+v.theme.Warning.Render("[PAUSED]"))
