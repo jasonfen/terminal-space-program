@@ -1,17 +1,13 @@
 package tui
 
 import (
-	"fmt"
-
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
-// screenID enumerates the active screen for the state machine in docs/plan.md
-// §TUI Design. Only OrbitView is wired in C6; BodyInfo/Maneuver/Help are
-// stubs until C9 / C20.
 type screenID int
 
 const (
@@ -23,18 +19,18 @@ const (
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
 // screen is active. Screens read from the shared world; they don't
-// mutate it (writes go through root-level messages like burnExecutedMsg).
+// mutate it.
 type App struct {
 	world  *sim.World
 	theme  Theme
 	keys   Keymap
 	active screenID
 
-	// selectedBody is the cursor index into the current system's body list
-	// (used by OrbitView arrow cycling and by BodyInfo).
 	selectedBody int
 
 	width, height int
+
+	orbitView *screens.OrbitView
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -43,11 +39,21 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	th := DefaultTheme()
 	return &App{
 		world:  w,
-		theme:  DefaultTheme(),
+		theme:  th,
 		keys:   DefaultKeymap(),
 		active: screenOrbit,
+		orbitView: screens.NewOrbitView(screens.Theme{
+			Primary: th.Primary,
+			Warning: th.Warning,
+			Alert:   th.Alert,
+			Dim:     th.Dim,
+			HUDBox:  th.HUDBox,
+			Footer:  th.Footer,
+			Title:   th.Title,
+		}),
 	}, nil
 }
 
@@ -56,9 +62,8 @@ func (a *App) Init() tea.Cmd {
 	return sim.TickCmd(a.world.Clock.BaseStep)
 }
 
-// Update routes every tea.Msg. Globals (quit, warp, system-cycle, tick)
-// are handled here; screen-scoped keys delegate to the active screen
-// (stubbed for C6).
+// Update routes every tea.Msg. Globals handled here; screen-scoped
+// keys delegate to the active screen.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case sim.TickMsg:
@@ -67,6 +72,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		a.width, a.height = m.Width, m.Height
+		a.orbitView.Resize(m.Width, m.Height)
 		return a, nil
 
 	case tea.KeyMsg:
@@ -98,34 +104,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedBody = (a.selectedBody - 1 + n) % n
 			}
 			return a, nil
+		case key.Matches(m, a.keys.ZoomIn):
+			a.orbitView.ZoomIn()
+			return a, nil
+		case key.Matches(m, a.keys.ZoomOut):
+			a.orbitView.ZoomOut()
+			return a, nil
 		}
 	}
 	return a, nil
 }
 
-// View renders the active screen. C6 is a placeholder text view — the
-// real canvas + HUD composition arrives in C7/C8.
+// View delegates to the active screen.
 func (a *App) View() string {
-	sys := a.world.System()
-	var selectedName string
-	if a.selectedBody < len(sys.Bodies) {
-		selectedName = sys.Bodies[a.selectedBody].EnglishName
+	if a.width == 0 {
+		return "initializing…"
 	}
-	pausedTag := ""
-	if a.world.Clock.Paused {
-		pausedTag = " [PAUSED]"
-	}
-	header := a.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s", sys.Name))
-	status := fmt.Sprintf(
-		"system: %s (%d/%d)  sim-time: %s  warp: %.0fx%s  selected: %s",
-		sys.Name,
-		a.world.SystemIdx+1, len(a.world.Systems),
-		a.world.Clock.SimTime.Format("2006-01-02 15:04"),
-		a.world.Clock.Warp(),
-		pausedTag,
-		selectedName,
-	)
-	footer := a.theme.Footer.Render("[q] quit  [s] next system  [←/→] body  [.,] warp  [0/space] pause")
-	return header + "\n\n" + status + "\n\n" + footer + "\n"
+	return a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 }
-
