@@ -33,6 +33,7 @@ type App struct {
 	orbitView *screens.OrbitView
 	bodyInfo  *screens.BodyInfo
 	help      *screens.Help
+	maneuver  *screens.Maneuver
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -59,6 +60,7 @@ func New() (*App, error) {
 		orbitView: screens.NewOrbitView(sth),
 		bodyInfo:  screens.NewBodyInfo(sth),
 		help:      screens.NewHelp(sth),
+		maneuver:  screens.NewManeuver(sth),
 	}, nil
 }
 
@@ -78,9 +80,36 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width, a.height = m.Width, m.Height
 		a.orbitView.Resize(m.Width, m.Height)
+		a.maneuver.Resize(m.Width, m.Height)
+		return a, nil
+
+	case screens.BurnExecutedMsg:
+		if a.world.Craft != nil {
+			a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
+		}
+		a.world.Clock.Paused = false
+		a.active = screenOrbit
 		return a, nil
 
 	case tea.KeyMsg:
+		// Maneuver screen has its own text input that eats most keys; we
+		// still honor global quit, and esc-to-cancel goes through the
+		// screen's handler so it can clean up.
+		if a.active == screenManeuver {
+			if key.Matches(m, a.keys.Quit) {
+				return a, tea.Quit
+			}
+			if key.Matches(m, a.keys.Back) {
+				a.world.Clock.Paused = false
+				a.active = screenOrbit
+				return a, nil
+			}
+			cmd, done := a.maneuver.HandleKey(m)
+			if done {
+				return a, cmd
+			}
+			return a, cmd
+		}
 		switch {
 		case key.Matches(m, a.keys.Quit):
 			return a, tea.Quit
@@ -99,6 +128,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.BodyInfo):
 			if a.active == screenOrbit {
 				a.active = screenBodyInfo
+			}
+			return a, nil
+		case key.Matches(m, a.keys.Maneuver):
+			if a.active == screenOrbit && a.world.CraftVisibleHere() {
+				a.active = screenManeuver
+				a.world.Clock.Paused = true
 			}
 			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
@@ -147,6 +182,8 @@ func (a *App) View() string {
 		return a.help.Render()
 	case screenBodyInfo:
 		return a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
+	case screenManeuver:
+		return a.maneuver.Render(a.world, a.width, a.height)
 	default:
 		return a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}

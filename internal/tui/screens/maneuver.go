@@ -1,0 +1,186 @@
+package screens
+
+import (
+	"fmt"
+	"math"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
+)
+
+// Maneuver is the burn-planning screen. Opening it pauses the sim (app.go
+// handles the pause); closing with Esc cancels, with Enter emits a
+// BurnExecutedMsg that the app applies to the spacecraft.
+//
+// Per plan §C20: live preview = shadow trajectory on a miniature canvas.
+// v0.1 scope: direction mode + Δv magnitude; finite burns / pitch-yaw are v0.2.
+type Maneuver struct {
+	theme    Theme
+	canvas   *widgets.Canvas
+	dvInput  textinput.Model
+	modeIdx  int
+}
+
+// BurnExecutedMsg is emitted when the user hits Enter. App consumes it.
+type BurnExecutedMsg struct {
+	Mode spacecraft.BurnMode
+	DV   float64
+}
+
+func NewManeuver(th Theme) *Maneuver {
+	ti := textinput.New()
+	ti.Placeholder = "0"
+	ti.CharLimit = 8
+	ti.Width = 10
+	ti.SetValue("100")
+	ti.Focus()
+
+	m := &Maneuver{
+		theme:   th,
+		canvas:  widgets.NewCanvas(60, 20),
+		dvInput: ti,
+	}
+	return m
+}
+
+// Resize handles terminal-size changes. Keep the maneuver canvas ≤ 60 cols
+// wide so the form panel sits cleanly alongside it.
+func (m *Maneuver) Resize(cols, rows int) {
+	canvasCols := cols * 6 / 10
+	if canvasCols < 20 {
+		canvasCols = 20
+	}
+	if canvasCols > 80 {
+		canvasCols = 80
+	}
+	m.canvas.Resize(canvasCols, rows-6)
+}
+
+// HandleKey routes planner-local keys. Returns (cmd, done) where done=true
+// means the app should exit the maneuver screen (commit or cancel).
+//
+// Key bindings:
+//   tab / shift+tab  — cycle direction modes
+//   enter            — commit burn → emits BurnExecutedMsg
+//   esc              — cancel → plain exit (app handles)
+//   anything else    — forwarded to dv text input
+func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "tab":
+		m.modeIdx = (m.modeIdx + 1) % len(spacecraft.AllBurnModes)
+		return nil, false
+	case "shift+tab":
+		m.modeIdx = (m.modeIdx - 1 + len(spacecraft.AllBurnModes)) % len(spacecraft.AllBurnModes)
+		return nil, false
+	case "enter":
+		dv := m.parsedDV()
+		if dv == 0 {
+			return nil, false // ignore — user needs to type a number
+		}
+		return func() tea.Msg {
+			return BurnExecutedMsg{
+				Mode: spacecraft.AllBurnModes[m.modeIdx],
+				DV:   dv,
+			}
+		}, true
+	}
+	var cmd tea.Cmd
+	m.dvInput, cmd = m.dvInput.Update(msg)
+	return cmd, false
+}
+
+func (m *Maneuver) parsedDV() float64 {
+	var dv float64
+	if _, err := fmt.Sscanf(m.dvInput.Value(), "%f", &dv); err != nil {
+		return 0
+	}
+	if dv < 0 {
+		dv = -dv
+	}
+	return dv
+}
+
+// Render composes the preview canvas + form panel.
+func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
+	if w.Craft == nil {
+		return "no spacecraft"
+	}
+
+	m.canvas.Clear()
+	m.canvas.Center(orbital.Vec3{})
+
+	// Draw current orbit from state elements (white/primary).
+	c := w.Craft
+	mu := c.Primary.GravitationalParameter()
+	currentEl := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	m.canvas.FitTo(math.Max(currentEl.Apoapsis(), c.State.R.Norm()) * 1.1)
+	m.canvas.DrawEllipseDotted(currentEl, 360, 4)
+
+	// Draw shadow trajectory after applying the current (mode, dv) pair.
+	dv := m.parsedDV()
+	mode := spacecraft.AllBurnModes[m.modeIdx]
+	dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
+	shadowState := physics.StateVector{
+		R: c.State.R,
+		V: c.State.V.Add(dir.Scale(dv)),
+		M: c.State.M,
+	}
+	// Propagate for the new orbital period (or 1 hour if hyperbolic).
+	shadowPeriod := orbitalPeriodOrFallback(shadowState, mu)
+	pts := planner.Predict(shadowState, mu, shadowPeriod, 256)
+	for _, p := range pts {
+		m.canvas.Plot(p)
+	}
+
+	// Plot planet (primary) at origin.
+	m.canvas.Plot(orbital.Vec3{})
+	// Plot craft (current position) with a cluster.
+	for i := -4; i <= 4; i++ {
+		step := 1.0 / m.canvas.Scale()
+		m.canvas.Plot(c.State.R.Add(orbital.Vec3{X: float64(i) * step}))
+		m.canvas.Plot(c.State.R.Add(orbital.Vec3{Y: float64(i) * step}))
+	}
+
+	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
+
+	form := m.renderForm(w, dv)
+	body := strings.Join([]string{canvasPanel, form}, "\n")
+
+	footer := m.theme.Footer.Render(
+		"[tab] cycle mode  [enter] commit  [esc] cancel  [backspace/digits] edit Δv",
+	)
+	return m.theme.Title.Render("maneuver planner") + "\n" + body + "\n" + footer
+}
+
+func (m *Maneuver) renderForm(w *sim.World, dv float64) string {
+	c := w.Craft
+	mode := spacecraft.AllBurnModes[m.modeIdx]
+	budget := c.RemainingDeltaV()
+	warn := ""
+	if dv > budget {
+		warn = m.theme.Alert.Render(fmt.Sprintf(" [EXCEEDS BUDGET by %.0f m/s]", dv-budget))
+	}
+	lines := []string{
+		m.theme.Primary.Render("BURN PLAN"),
+		"  mode:  " + m.theme.Warning.Render(mode.String()) + "  (tab to cycle)",
+		"  Δv:    " + m.dvInput.View() + " m/s" + warn,
+		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),
+	}
+	return strings.Join(lines, "\n")
+}
+
+func orbitalPeriodOrFallback(s physics.StateVector, mu float64) float64 {
+	a := physics.SemimajorAxis(s, mu)
+	if a <= 0 || math.IsNaN(a) || math.IsInf(a, 0) {
+		return 3600 // 1 hour for hyperbolic — enough to see the trajectory shape
+	}
+	return 2 * math.Pi * math.Sqrt(a*a*a/mu)
+}
