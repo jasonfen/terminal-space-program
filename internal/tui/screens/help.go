@@ -30,6 +30,9 @@ func (h *Help) Render() string {
 			{"s", "next system"},
 			{"i", "body info"},
 			{"+ / -", "zoom in / out"},
+			{"f", "next focus target"},
+			{"F", "previous focus target"},
+			{"g", "reset to system-wide view"},
 		}},
 		{"TIME", [][2]string{
 			{".", "warp up (1× … 100000×)"},

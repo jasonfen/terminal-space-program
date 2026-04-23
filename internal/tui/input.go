@@ -18,6 +18,9 @@ type Keymap struct {
 	ZoomIn     key.Binding
 	ZoomOut    key.Binding
 	Back       key.Binding
+	FocusNext  key.Binding
+	FocusPrev  key.Binding
+	FocusReset key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -35,5 +38,8 @@ func DefaultKeymap() Keymap {
 		ZoomIn:     key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "zoom in")),
 		ZoomOut:    key.NewBinding(key.WithKeys("-", "_"), key.WithHelp("-", "zoom out")),
 		Back:       key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+		FocusNext:  key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next focus")),
+		FocusPrev:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
+		FocusReset: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "focus: system")),
 	}
 }
