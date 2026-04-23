@@ -1,0 +1,169 @@
+{
+  "systemName": "Kepler-452",
+  "description": "Sun-like star with Earth's cousin planet",
+  "discoveryYear": "2015",
+  "distance": "1400 light-years",
+  "galaxy": "Milky Way",
+  "bodies": [
+    {
+      "id": "kepler-452",
+      "name": "Kepler-452",
+      "englishName": "Kepler-452",
+      "bodyType": "Star",
+      "isPlanet": false,
+      "meanRadius": 760230,
+      "mass": {
+        "massValue": 1.037,
+        "massExponent": 30
+      },
+      "semimajorAxis": 0,
+      "sideralRotation": 840,
+      "density": 0.93,
+      "gravity": 183.0,
+      "discoveredBy": "Kepler Space Telescope",
+      "discoveryDate": "2015",
+      "moons": [],
+      "temperature": 5757,
+      "stellarClass": "G2V",
+      "age": 6000000000
+    },
+    {
+      "id": "kepler-452b",
+      "name": "Kepler-452b",
+      "englishName": "Kepler-452b",
+      "bodyType": "Planet",
+      "isPlanet": true,
+      "meanRadius": 9584,
+      "mass": {
+        "massValue": 5.0,
+        "massExponent": 24
+      },
+      "semimajorAxis": 156400000,
+      "sideralOrbit": 384.843,
+      "sideralRotation": 384.843,
+      "density": 4.1,
+      "gravity": 19.6,
+      "eccentricity": 0.0,
+      "inclination": 89.806,
+      "discoveredBy": "Kepler Space Telescope",
+      "discoveryDate": "2015",
+      "moons": [
+        {
+          "id": "kepler-452b-moon1",
+          "name": "Kepler-452b I",
+          "englishName": "Kepler-452b I"
+        }
+      ],
+      "equilibriumTemperature": 265,
+      "habitableZone": true,
+      "escapeVelocity": 15.3
+    },
+    {
+      "id": "kepler-452c",
+      "name": "Kepler-452c",
+      "englishName": "Kepler-452c",
+      "bodyType": "Planet",
+      "isPlanet": true,
+      "meanRadius": 13200,
+      "mass": {
+        "massValue": 8.9,
+        "massExponent": 24
+      },
+      "semimajorAxis": 78200000,
+      "sideralOrbit": 125.4,
+      "sideralRotation": 125.4,
+      "density": 3.2,
+      "gravity": 21.1,
+      "eccentricity": 0.023,
+      "inclination": 89.9,
+      "discoveredBy": "Kepler Space Telescope",
+      "discoveryDate": "2015",
+      "moons": [],
+      "equilibriumTemperature": 375,
+      "habitableZone": false,
+      "escapeVelocity": 18.7
+    },
+    {
+      "id": "kepler-452d",
+      "name": "Kepler-452d",
+      "englishName": "Kepler-452d",
+      "bodyType": "Planet",
+      "isPlanet": true,
+      "meanRadius": 24800,
+      "mass": {
+        "massValue": 47.2,
+        "massExponent": 24
+      },
+      "semimajorAxis": 245600000,
+      "sideralOrbit": 612.8,
+      "sideralRotation": 17.3,
+      "density": 2.1,
+      "gravity": 24.7,
+      "eccentricity": 0.041,
+      "inclination": 89.2,
+      "discoveredBy": "Kepler Space Telescope",
+      "discoveryDate": "2015",
+      "moons": [
+        {
+          "id": "kepler-452d-moon1",
+          "name": "Kepler-452d I",
+          "englishName": "Kepler-452d I"
+        },
+        {
+          "id": "kepler-452d-moon2",
+          "name": "Kepler-452d II",
+          "englishName": "Kepler-452d II"
+        }
+      ],
+      "equilibriumTemperature": 201,
+      "habitableZone": false,
+      "escapeVelocity": 35.1
+    },
+    {
+      "id": "kepler-452e",
+      "name": "Kepler-452e",
+      "englishName": "Kepler-452e",
+      "bodyType": "Planet",
+      "isPlanet": true,
+      "meanRadius": 35600,
+      "mass": {
+        "massValue": 89.1,
+        "massExponent": 24
+      },
+      "semimajorAxis": 387400000,
+      "sideralOrbit": 1245.6,
+      "sideralRotation": 14.2,
+      "density": 1.7,
+      "gravity": 30.1,
+      "eccentricity": 0.067,
+      "inclination": 88.8,
+      "discoveredBy": "Kepler Space Telescope",
+      "discoveryDate": "2015",
+      "moons": [
+        {
+          "id": "kepler-452e-moon1",
+          "name": "Kepler-452e I",
+          "englishName": "Kepler-452e I"
+        },
+        {
+          "id": "kepler-452e-moon2",
+          "name": "Kepler-452e II",
+          "englishName": "Kepler-452e II"
+        },
+        {
+          "id": "kepler-452e-moon3",
+          "name": "Kepler-452e III",
+          "englishName": "Kepler-452e III"
+        },
+        {
+          "id": "kepler-452e-moon4",
+          "name": "Kepler-452e IV",
+          "englishName": "Kepler-452e IV"
+        }
+      ],
+      "equilibriumTemperature": 161,
+      "habitableZone": false,
+      "escapeVelocity": 61.2
+    }
+  ]
+}
