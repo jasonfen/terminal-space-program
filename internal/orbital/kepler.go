@@ -126,7 +126,8 @@ func ElementsFromState(r, v Vec3, mu float64) Elements {
 
 	// Argument of periapsis ω.
 	var argp float64
-	if nMag > 0 && eMag > 0 {
+	switch {
+	case nMag > 0 && eMag > 0:
 		dot := (n.X*eVec.X + n.Y*eVec.Y + n.Z*eVec.Z) / (nMag * eMag)
 		if dot > 1 {
 			dot = 1
@@ -135,6 +136,19 @@ func ElementsFromState(r, v Vec3, mu float64) Elements {
 		}
 		argp = math.Acos(dot)
 		if eVec.Z < 0 {
+			argp = 2*math.Pi - argp
+		}
+	case eMag > 0:
+		// Equatorial orbit — node vector is degenerate. Take the
+		// "longitude of periapsis" straight from the eccentricity
+		// vector's angle in the equatorial plane. Retrograde (i ≈ π)
+		// flips the sign so +Y periapsis renders the same way in
+		// perifocal-to-inertial composition.
+		argp = math.Atan2(eVec.Y, eVec.X)
+		if argp < 0 {
+			argp += 2 * math.Pi
+		}
+		if hMag > 0 && h.Z < 0 {
 			argp = 2*math.Pi - argp
 		}
 	}

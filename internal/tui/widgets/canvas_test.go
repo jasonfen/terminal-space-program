@@ -109,6 +109,26 @@ func TestDrawEllipseOffsetDottedTranslates(t *testing.T) {
 // as empty. drawille writes U+2800 for rows with no dots set; ignoring
 // it lets tests assert "nothing plotted" without caring about the
 // encoding.
+// TestPlotArrowProducesNonEmptyRender: the chevron glyph should paint
+// some pixels for any non-zero velocity. Zero velocity is a no-op
+// (direction is undefined) and must not panic.
+func TestPlotArrowProducesNonEmptyRender(t *testing.T) {
+	c := NewCanvas(20, 10)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+	c.PlotArrow(orbital.Vec3{}, orbital.Vec3{X: 1}, 4)
+	if onlyWhitespace(c.String()) {
+		t.Error("PlotArrow in +X direction rendered empty canvas")
+	}
+	// Zero velocity must not panic and must leave the canvas untouched.
+	c.Clear()
+	c.PlotArrow(orbital.Vec3{}, orbital.Vec3{}, 4)
+	if !onlyWhitespace(c.String()) {
+		t.Error("PlotArrow with zero velocity plotted pixels")
+	}
+}
+
 func onlyWhitespace(s string) bool {
 	for _, r := range s {
 		if r != ' ' && r != '\n' && r != '\t' && r != '⠀' {

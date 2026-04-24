@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.3.3**.
+Latest release: **v0.3.4**.
 
 ```bash
 # Linux x86_64
@@ -115,6 +115,25 @@ mass loss tracked from the rocket equation.
 A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
+
+## Features (v0.3.4)
+
+- **Finite burns by default for planted nodes.** Both `P` (auto-plant
+  Hohmann) and `n` (default-node) now set `Duration = Δv × mass /
+  thrust` so the burn runs through the RK4+mass-flow integrator that
+  landed in v0.2.1 — no more "burn appears instantaneous" surprise.
+  Manual entry in the maneuver planner still accepts `duration = 0`
+  for impulsive testing.
+- **Equatorial orbit rendering fix.** `ElementsFromState` now computes
+  argument of periapsis directly from the eccentricity-vector angle
+  (`atan2(eVec.Y, eVec.X)`) when the node vector is degenerate
+  (equatorial orbit, `i ≈ 0`). Before the fix, post-burn periapsis
+  rotation wasn't reflected in the rendered ellipse because ω stayed
+  pinned at 0 for all equatorial orbits.
+- **Directional vessel glyph.** The spacecraft now renders as a
+  chevron (">"-style arrow) rotated into its velocity direction
+  rather than an 8-dot cross. Reads as "I'm going this way" at a
+  glance without having to parse the orbit curve.
 
 ## Features (v0.3.3)
 
