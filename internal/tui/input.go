@@ -24,6 +24,7 @@ type Keymap struct {
 	PlanNode      key.Binding
 	ClearNodes    key.Binding
 	PlanTransfer  key.Binding
+	Porkchop      key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -47,5 +48,6 @@ func DefaultKeymap() Keymap {
 		PlanNode:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "plan node (T+5m prograde 50m/s)")),
 		ClearNodes:   key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "clear nodes")),
 		PlanTransfer: key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "plant Hohmann transfer to selected body")),
+		Porkchop:     key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "porkchop plot for selected body")),
 	}
 }

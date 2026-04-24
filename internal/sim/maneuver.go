@@ -110,6 +110,64 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	return &plan, nil
 }
 
+// PorkchopGrid computes a launch-window grid for a Hohmann-style
+// transfer to the target body. Axes: depDays (offsets from now) and
+// tofDays (time of flight). Each cell = total Δv (departure + capture,
+// m/s); NaN for cells where Lambert didn't converge.
+//
+// Uses the same parking-orbit and capture-orbit defaults as PlanTransfer
+// (craft's current |r| at departure, 200 km altitude at destination).
+func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]float64, error) {
+	sys := w.System()
+	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
+		return nil, errInvalidTransferTarget
+	}
+	if w.Craft == nil {
+		return nil, errNoCraftForTransfer
+	}
+	target := sys.Bodies[targetIdx]
+	if target.SemimajorAxis == 0 {
+		return nil, errInvalidTransferTarget
+	}
+
+	primary := sys.Bodies[0]
+	muSun := primary.GravitationalParameter()
+	rPark := w.Craft.State.R.Norm()
+	muDep := w.Craft.Primary.GravitationalParameter()
+	rCapture := target.RadiusMeters() + 200e3
+	muArr := target.GravitationalParameter()
+
+	// Build ephemerides that evaluate heliocentric r, v at arbitrary
+	// epochs. Reuses the existing Kepler/calculator machinery.
+	dep := w.bodyEphemeris(w.Craft.Primary)
+	arr := w.bodyEphemeris(target)
+	epoch0 := float64(w.Clock.SimTime.Unix())
+
+	grid := planner.PorkchopGrid(
+		muSun, dep, arr, epoch0,
+		depDays, tofDays,
+		muDep, rPark,
+		muArr, rCapture,
+	)
+	return grid, nil
+}
+
+// bodyEphemeris returns an EphemerisFn closure for a body: heliocentric
+// (r, v) evaluated at an arbitrary Unix-epoch timestamp.
+func (w *World) bodyEphemeris(b bodies.CelestialBody) planner.EphemerisFn {
+	return func(epoch float64) (orbital.Vec3, orbital.Vec3) {
+		t := time.Unix(int64(epoch), 0)
+		M := w.Calculator.CalculateMeanAnomaly(b, t)
+		E := orbital.SolveKepler(M, b.Eccentricity)
+		nu := orbital.TrueAnomaly(E, b.Eccentricity)
+		el := orbital.ElementsFromBody(b)
+		r := orbital.PositionAtTrueAnomaly(el, nu)
+		mu := w.Systems[0].Bodies[0].GravitationalParameter()
+		v := orbital.VelocityAtTrueAnomaly(el, nu, mu)
+		return r, v
+	}
+}
+
 func transferNodeToManeuver(tn planner.TransferNode, now time.Time) ManeuverNode {
 	mode := spacecraft.BurnPrograde
 	if tn.IsRetrograde {

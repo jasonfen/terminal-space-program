@@ -75,6 +75,53 @@ func TestLambertRoundTrip(t *testing.T) {
 	}
 }
 
+// TestLambertMultiRevN1: a long-duration transfer that couldn't fit in
+// the single-rev domain. Round-trip via Verlet should still land at r2
+// within integrator tolerance, confirming the N=1 branch returns a
+// physically meaningful v1.
+func TestLambertMultiRevN1(t *testing.T) {
+	r1 := orbital.Vec3{X: 7e6}
+	// Nudge r2 ~10° off antipodal so the transfer plane is well-defined.
+	r2 := orbital.Vec3{X: -1e7 * math.Cos(math.Pi*10/180), Y: 1e7 * math.Sin(math.Pi*10/180)}
+	mu := 398600e9
+
+	// Circular period at r≈8e6 is ~2π·sqrt(8e6³/μ) ≈ 7100 s. Pick
+	// dt = 20000 s — about 2.8 circular periods, comfortably into the
+	// N=1 domain while staying inside N=1's bracket.
+	dt := 20000.0
+
+	v1, _, err := LambertSolveRev(r1, r2, dt, mu, 1)
+	if err != nil {
+		t.Fatalf("LambertSolveRev N=1: %v", err)
+	}
+
+	// Round-trip: propagate (r1, v1) for dt via Verlet. Should land near r2.
+	state := physics.StateVector{R: r1, V: v1}
+	period := 2 * math.Pi * math.Sqrt(math.Pow(r1.Norm(), 3)/mu)
+	maxStep := period / 100.0
+	nSteps := int(math.Ceil(dt / maxStep))
+	if nSteps < 1000 {
+		nSteps = 1000 // multi-rev drifts more with Verlet, force fine sub-stepping
+	}
+	step := dt / float64(nSteps)
+	for i := 0; i < nSteps; i++ {
+		state = physics.StepVerlet(state, mu, step)
+	}
+	if d := state.R.Sub(r2).Norm() / r2.Norm(); d > 0.05 {
+		t.Errorf("N=1 round-trip: r mismatch %.2e (rel) — v1=%+v", d, v1)
+	}
+}
+
+// TestLambertMultiRevRejectsNegative: N < 0 should error rather than
+// panic or silently degrade to single-rev.
+func TestLambertMultiRevRejectsNegative(t *testing.T) {
+	r1 := orbital.Vec3{X: 7e6}
+	r2 := orbital.Vec3{X: -1e7}
+	if _, _, err := LambertSolveRev(r1, r2, 3600, 398600e9, -1); err == nil {
+		t.Error("expected error for nRev=-1")
+	}
+}
+
 // TestLambertEarthToMarsHohmann: a near-coplanar Hohmann-like transfer
 // from 1 AU circular to 1.524 AU circular. Lambert is genuinely
 // degenerate at exactly 180° (the transfer plane is undetermined) so we

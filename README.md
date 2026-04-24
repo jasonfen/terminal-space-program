@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.3.2**.
+Latest release: **v0.3.3**.
 
 ```bash
 # Linux x86_64
@@ -99,6 +99,7 @@ mass loss tracked from the rocket equation.
 | `n` | Plan a default node (T+5min, prograde, 50 m/s) |
 | `N` | Clear all planned nodes |
 | `P` | **Auto-plant Hohmann transfer to selected body** (v0.3.1) |
+| `k` | **Porkchop plot for selected body** (v0.3.3) |
 | `m` | Open maneuver planner |
 
 ### Maneuver planner (`m`)
@@ -114,6 +115,23 @@ mass loss tracked from the rocket equation.
 A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
+
+## Features (v0.3.3)
+
+- **Porkchop plot** (`k`). Press `k` on a selected target to open a
+  Δv heatmap gridded over departure day (0–365) and time of flight
+  (100–400 days). Each cell shows the total budget (departure Δv +
+  capture Δv) for a Lambert-derived Hohmann-style transfer starting
+  that day with that TOF. Intensity ramp `█▓▒░ ` from cheapest to most
+  expensive; `·` marks non-converged / infeasible cells. The cursor
+  (`←/→` dep, `↑/↓` tof) snaps to the minimum-Δv cell on open and
+  reads out the selected cell's total. Uses synthetic planar-circular
+  approximations of body orbits for the ephemeris so textbook Hohmann
+  alignment lands a cell that matches PlanHohmannTransfer within ~15%.
+- **Multi-revolution Lambert** (`LambertSolveRev(..., nRev int)`).
+  For N≥1, the universal-variables z-bracket starts at (2πN)². Single
+  branch per N (lower-z side); min-energy / multi-branch selection is
+  a v0.4 polish item if needed.
 
 ## Features (v0.3.2)
 
@@ -203,14 +221,13 @@ until the requested Δv is delivered, whichever first.
 - **Single binary.** 5-target GoReleaser matrix (linux+darwin amd64/arm64,
   windows amd64), `CGO_ENABLED=0`, `-ldflags "-s -w"`.
 
-### Deferred to v0.3.3+
-
-- **Porkchop plot** screen for real launch-window selection (the v0.3.1
-  auto-plant assumes ideal phasing).
-- **Lambert multi-revolution** branches and explicit retrograde handling.
-
 ### Deferred to v0.4+
 
+- **Enter-to-plant** from the porkchop cursor (reuses `PlanTransfer`
+  once it accepts explicit departure offsets).
+- **Explicit retrograde-flag** for Lambert (today both branches work,
+  but the selection is driven by the bracket starting point, not a
+  caller hint).
 - **Inclination-change planner** for out-of-plane corrections.
 - **Vessel position history trail** (distinct from current orbit
   ellipse).

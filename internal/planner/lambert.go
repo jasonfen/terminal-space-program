@@ -7,25 +7,39 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
-// LambertSolve solves Lambert's problem: given two position vectors and a
-// time of flight, find the velocity vectors at each endpoint that
-// connect them on a Keplerian orbit around a primary with gravitational
-// parameter mu.
-//
-// Single-rev, prograde transfer (Δθ measured CCW about +z). Multi-rev
-// branches and explicit retrograde handling are deferred to v0.3.2.
+// LambertSolve is the single-revolution (N=0) entry point to the
+// Lambert solver. Kept for backward-compat with v0.3.0–v0.3.2 callers;
+// new code should prefer LambertSolveRev with an explicit N.
+func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64) (v1, v2 orbital.Vec3, err error) {
+	return LambertSolveRev(r1, r2, dt, mu, 0)
+}
+
+// LambertSolveRev solves Lambert's problem for an N-revolution transfer:
+// given two position vectors, a time of flight, and a revolution count,
+// find the velocity vectors that connect them on a Keplerian orbit
+// completing exactly N full revs before reaching r2.
 //
 // Algorithm: Curtis "Orbital Mechanics for Engineering Students"
-// Algorithm 5.2 — universal-variables formulation. Newton-Raphson on
-// the universal variable z; the initial bracket is found by sweeping z
-// upward from 0 until F changes sign (handles cases where z₀=0 isn't a
-// good starting guess for Newton).
-func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64) (v1, v2 orbital.Vec3, err error) {
+// Algorithm 5.2 — universal-variables formulation, Newton-Raphson on
+// z. For N-rev transfers the lower bound on z shifts to (2πN)²
+// (each rev contributes (2π)² to the universal-variable domain);
+// the bracket sweep starts just past that lower bound.
+//
+// Single branch only — at N ≥ 1 there are typically two time-of-flight
+// solutions per N (a "long" and "short" transfer separated by the
+// minimum-energy critical z). This solver returns whichever branch the
+// bracket sweep lands in first, which is adequate for the porkchop
+// grid's coarse sampling. Multi-branch selection is a v0.4 polish item
+// if it comes up.
+func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int) (v1, v2 orbital.Vec3, err error) {
 	if dt <= 0 {
 		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: dt must be > 0")
 	}
 	if mu <= 0 {
 		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: mu must be > 0")
+	}
+	if nRev < 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: nRev must be ≥ 0")
 	}
 
 	r1m := r1.Norm()
@@ -76,12 +90,23 @@ func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64) (v1, v2 orbital.Vec3, err
 			A/8*(3*s/c*math.Sqrt(y)+A*math.Sqrt(c/y))
 	}
 
-	// Bracket: walk z upward (smaller a, slower transfer) until F flips
-	// to positive. Step matches Curtis suggestion (~0.1 in z-units).
-	z := 0.0
-	if !math.IsNaN(F(z)) && F(z) > 0 {
-		// Already past root in the positive direction — walk z negative
-		// (hyperbolic side) to find the bracket.
+	// Bracket: walk z upward until F flips to positive. For N-rev
+	// transfers the domain is z > (2πN)² — the N-rev branch lives
+	// entirely in the elliptic region bounded below by the critical
+	// value. Single-rev (N=0) starts from z=0 and may walk into the
+	// hyperbolic region (z < 0) if F(0) is already positive.
+	zLower := 4 * math.Pi * math.Pi * float64(nRev*nRev)
+	zUpper := 4 * math.Pi * math.Pi * float64((nRev+1)*(nRev+1))
+	if nRev == 0 {
+		zUpper = 4 * math.Pi * math.Pi
+	}
+	z := zLower
+	if nRev > 0 {
+		z += 0.01 // nudge past the lower critical value
+	}
+	if nRev == 0 && !math.IsNaN(F(z)) && F(z) > 0 {
+		// N=0 only: F(0) already positive → walk negative into the
+		// hyperbolic region to find the bracket.
 		for F(z) > 0 && z > -4*math.Pi*math.Pi {
 			z -= 0.1
 		}
@@ -92,8 +117,8 @@ func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64) (v1, v2 orbital.Vec3, err
 				break
 			}
 			z += 0.1
-			if z > 4*math.Pi*math.Pi {
-				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: bracket search failed")
+			if z >= zUpper {
+				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: bracket search failed — no solution in this rev band")
 			}
 		}
 	}

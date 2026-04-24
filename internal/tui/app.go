@@ -18,6 +18,7 @@ const (
 	screenBodyInfo
 	screenManeuver
 	screenHelp
+	screenPorkchop
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -37,6 +38,7 @@ type App struct {
 	bodyInfo  *screens.BodyInfo
 	help      *screens.Help
 	maneuver  *screens.Maneuver
+	porkchop  *screens.Porkchop
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -64,6 +66,7 @@ func New() (*App, error) {
 		bodyInfo:  screens.NewBodyInfo(sth),
 		help:      screens.NewHelp(sth),
 		maneuver:  screens.NewManeuver(sth),
+		porkchop:  screens.NewPorkchop(sth),
 	}, nil
 }
 
@@ -120,6 +123,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, cmd
 			}
 			return a, cmd
+		}
+		// Porkchop: ←/→/↑/↓ navigate cells, Esc returns.
+		if a.active == screenPorkchop {
+			if key.Matches(m, a.keys.Quit) {
+				return a, tea.Quit
+			}
+			_, done := a.porkchop.HandleKey(m)
+			if done {
+				a.active = screenOrbit
+			}
+			return a, nil
 		}
 		switch {
 		case key.Matches(m, a.keys.Quit):
@@ -206,6 +220,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// message in the HUD when planting fails.
 			}
 			return a, nil
+		case key.Matches(m, a.keys.Porkchop):
+			if a.active == screenOrbit && a.world.CraftVisibleHere() && a.selectedBody > 0 {
+				a.porkchop.Load(a.world, a.selectedBody)
+				a.active = screenPorkchop
+			}
+			return a, nil
 		case key.Matches(m, a.keys.ClearNodes):
 			a.world.ClearNodes()
 			return a, nil
@@ -226,6 +246,8 @@ func (a *App) View() string {
 		return a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
 	case screenManeuver:
 		return a.maneuver.Render(a.world, a.width, a.height)
+	case screenPorkchop:
+		return a.porkchop.Render(a.world, a.width, a.height)
 	default:
 		return a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}
