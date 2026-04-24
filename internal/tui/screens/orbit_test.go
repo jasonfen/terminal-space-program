@@ -62,7 +62,7 @@ func TestBodyPixelRadiusMonotonic(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			b := bodies.CelestialBody{MeanRadius: c.radius / 1000} // Radius field is in km
-			got := BodyPixelRadius(b, false)
+			got := BodyPixelRadius(b, false, 0)                   // scale=0 → tier path
 			if got != c.want {
 				t.Errorf("got pxRadius=%d, want %d (radius %.0f km)",
 					got, c.want, c.radius/1000)
@@ -76,13 +76,37 @@ func TestBodyPixelRadiusMonotonic(t *testing.T) {
 	}
 }
 
+// TestBodyPixelRadiusAdaptive: when scale × radius produces ≥ 4 px,
+// the function switches to true-size rendering (so a periapsis marker
+// inside the rendered Earth disk reads as a surface collision instead
+// of being hidden by tier bucketing).
+func TestBodyPixelRadiusAdaptive(t *testing.T) {
+	earth := bodies.CelestialBody{MeanRadius: 6378} // km
+
+	// Sol-wide zoom: 6378 km × ~1e-12 px/m → way below threshold,
+	// stays at terrestrial tier (2 px).
+	if got := BodyPixelRadius(earth, false, 1e-12); got != 2 {
+		t.Errorf("system zoom: got %d px, want 2 (tier)", got)
+	}
+	// FocusCraft-style zoom: scale ~2e-6 px/m → 6.378e6 m × 2e-6 ≈
+	// 13 px, well past the 4 px threshold. Should render true.
+	if got := BodyPixelRadius(earth, false, 2e-6); got < 8 {
+		t.Errorf("close zoom: got %d px, want true-size ≥ 8", got)
+	}
+	// Extreme zoom-in shouldn't blow past the cap (64 px) and let
+	// Earth fill the entire canvas.
+	if got := BodyPixelRadius(earth, false, 1); got != 64 {
+		t.Errorf("absurd zoom: got %d px, want capped at 64", got)
+	}
+}
+
 // TestBodyPixelRadiusPrimaryFlag: even a sub-star-sized body rendered
 // as system primary gets the star tier so the rendering distinguishes
 // it from planets.
 func TestBodyPixelRadiusPrimaryFlag(t *testing.T) {
 	small := bodies.CelestialBody{MeanRadius: 1000} // 1000 km = terrestrial
-	nonPrim := BodyPixelRadius(small, false)
-	prim := BodyPixelRadius(small, true)
+	nonPrim := BodyPixelRadius(small, false, 0)
+	prim := BodyPixelRadius(small, true, 0)
 	if prim <= nonPrim {
 		t.Errorf("primary flag should promote size: non-primary=%d primary=%d",
 			nonPrim, prim)
