@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.3.5**.
+Latest release: **v0.3.6**.
 
 ```bash
 # Linux x86_64
@@ -115,6 +115,21 @@ mass loss tracked from the rocket equation.
 A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
+
+## Features (v0.3.6)
+
+- **Adaptive body sizing.** `BodyPixelRadius` now switches to true-
+  scale rendering when the body's projected radius would be ≥ 4 px,
+  capped at 64 px so the Sun can't fill the canvas at extreme zoom.
+  Below the threshold it falls back to the existing tier buckets so
+  bodies stay visible at system-wide zoom (where true scale would be
+  sub-pixel). Practical effect: Earth fills its real radius on
+  FocusCraft, so a periapsis marker inside the rendered disk reads
+  visually as "you're going to hit the surface" — pre-fix, the 2 px
+  tier disk hid sub-orbital periapsis behind a token glyph.
+- **Periapsis-below-surface warning.** VESSEL HUD block renders
+  `PERIAPSIS BELOW SURFACE` in the Alert style whenever the craft's
+  computed periapsis altitude goes negative, regardless of zoom level.
 
 ## Features (v0.3.5)
 
