@@ -140,7 +140,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s", sys.Name))
 	footer := v.theme.Footer.Render(
-		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [P]plant [m]burn [i]info [?]help [.,]warp [0]pause",
+		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [P]plant [k]porkchop [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
