@@ -1,0 +1,105 @@
+package planner
+
+import (
+	"math"
+	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+)
+
+// TestLambertCurtisExample52 reproduces Curtis "Orbital Mechanics for
+// Engineering Students" Example 5.2 — a geocentric Lambert problem with
+// known v1, v2 published in the textbook. All values converted from km
+// to SI (m, m/s, m³/s²). Tolerance: 0.5% of |v|.
+func TestLambertCurtisExample52(t *testing.T) {
+	r1 := orbital.Vec3{X: 5000e3, Y: 10000e3, Z: 2100e3}
+	r2 := orbital.Vec3{X: -14600e3, Y: 2500e3, Z: 7000e3}
+	dt := 3600.0
+	mu := 398600e9 // 398 600 km³/s² → m³/s²
+
+	v1, v2, err := LambertSolve(r1, r2, dt, mu)
+	if err != nil {
+		t.Fatalf("LambertSolve: %v", err)
+	}
+
+	// Curtis published values (km/s → m/s).
+	wantV1 := orbital.Vec3{X: -5992.5, Y: 1925.4, Z: 3245.6}
+	wantV2 := orbital.Vec3{X: -3312.5, Y: -4196.6, Z: -385.29}
+
+	const relTol = 5e-3 // 0.5% — Curtis values rounded to 4 sig figs
+	if d := v1.Sub(wantV1).Norm() / wantV1.Norm(); d > relTol {
+		t.Errorf("v1 mismatch: got %+v, want %+v (rel err %.2e)", v1, wantV1, d)
+	}
+	if d := v2.Sub(wantV2).Norm() / wantV2.Norm(); d > relTol {
+		t.Errorf("v2 mismatch: got %+v, want %+v (rel err %.2e)", v2, wantV2, d)
+	}
+}
+
+// TestLambertRoundTrip: solve Lambert for (r1, r2, dt), then propagate
+// (r1, v1) forward by dt via Verlet sub-stepping. The resulting r should
+// be within integrator tolerance of r2. This catches sign errors or
+// branch-selection mistakes that the textbook check alone would miss.
+func TestLambertRoundTrip(t *testing.T) {
+	r1 := orbital.Vec3{X: 5000e3, Y: 10000e3, Z: 2100e3}
+	r2 := orbital.Vec3{X: -14600e3, Y: 2500e3, Z: 7000e3}
+	dt := 3600.0
+	mu := 398600e9
+
+	v1, _, err := LambertSolve(r1, r2, dt, mu)
+	if err != nil {
+		t.Fatalf("LambertSolve: %v", err)
+	}
+
+	// Sub-step Verlet at period/100 cadence.
+	state := physics.StateVector{R: r1, V: v1}
+	period := orbitalPeriod(state, mu)
+	maxStep := period / 100.0
+	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
+		maxStep = 1.0
+	}
+	nSteps := int(math.Ceil(dt / maxStep))
+	if nSteps < 200 {
+		nSteps = 200 // floor for short transfers — Verlet drift dominates
+	}
+	step := dt / float64(nSteps)
+	for i := 0; i < nSteps; i++ {
+		state = physics.StepVerlet(state, mu, step)
+	}
+
+	// 2% of |r2| accommodates Verlet-not-symplectic drift on a half-orbit
+	// transfer; the Lambert math itself is much tighter (caught by
+	// TestLambertCurtisExample52 above).
+	if d := state.R.Sub(r2).Norm() / r2.Norm(); d > 0.02 {
+		t.Errorf("round-trip: predicted r differs from r2 by %.2e (rel)", d)
+	}
+}
+
+// TestLambertEarthToMarsHohmann: a near-coplanar Hohmann-like transfer
+// from 1 AU circular to 1.524 AU circular. Lambert is genuinely
+// degenerate at exactly 180° (the transfer plane is undetermined) so we
+// nudge the geometry by 1° off antipodal — close enough that |v1| should
+// still match the analytical Hohmann perihelion velocity within 1.5%.
+func TestLambertEarthToMarsHohmann(t *testing.T) {
+	const AU = 1.495978707e11
+	const muSun = 1.32712440018e20
+
+	const dthetaOff = math.Pi - 0.0175 // 179°, just shy of antipodal
+	r1 := orbital.Vec3{X: AU}
+	r2 := orbital.Vec3{X: 1.524 * AU * math.Cos(dthetaOff), Y: 1.524 * AU * math.Sin(dthetaOff)}
+
+	a_t := (1 + 1.524) / 2 * AU
+	dt := math.Pi * math.Sqrt(a_t*a_t*a_t/muSun) // half-period of transfer ellipse
+
+	v1, _, err := LambertSolve(r1, r2, dt, muSun)
+	if err != nil {
+		t.Fatalf("LambertSolve: %v", err)
+	}
+
+	wantV1Mag := math.Sqrt(muSun * (2/AU - 1/a_t))
+	gotV1Mag := v1.Norm()
+	if d := math.Abs(gotV1Mag-wantV1Mag) / wantV1Mag; d > 0.015 {
+		t.Errorf("Earth→Mars Hohmann |v1|: got %.1f m/s, want %.1f m/s (rel %.2e)",
+			gotV1Mag, wantV1Mag, d)
+	}
+}
