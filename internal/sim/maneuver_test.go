@@ -224,6 +224,77 @@ func TestFiniteBurnEndsAtDurationWhenDVNotMet(t *testing.T) {
 	}
 }
 
+// TestPlanTransferLandsTwoNodes: PlanTransfer for a valid target body
+// should plant exactly two ManeuverNodes (departure + arrival) with
+// matching PrimaryIDs and a sensible time gap matching the returned
+// TransferDt. Validates the sim → planner integration end-to-end.
+func TestPlanTransferLandsTwoNodes(t *testing.T) {
+	w := mustWorld(t)
+
+	// Find Mars's index in Sol's body list.
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system — adjust if bodies changed")
+	}
+
+	plan, err := w.PlanTransfer(marsIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("PlanTransfer returned nil plan with nil error")
+	}
+	if len(w.Nodes) != 2 {
+		t.Fatalf("expected 2 planted nodes, got %d", len(w.Nodes))
+	}
+	if w.Nodes[0].PrimaryID != w.Craft.Primary.ID {
+		t.Errorf("first (departure) node PrimaryID = %q, want craft primary %q",
+			w.Nodes[0].PrimaryID, w.Craft.Primary.ID)
+	}
+	if w.Nodes[1].PrimaryID != sys.Bodies[marsIdx].ID {
+		t.Errorf("second (arrival) node PrimaryID = %q, want mars %q",
+			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
+	}
+	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime)
+	if gap != plan.TransferDt {
+		t.Errorf("planted-node time gap = %v, want plan.TransferDt = %v",
+			gap, plan.TransferDt)
+	}
+}
+
+// TestPlanTransferRejectsBadTargets: invalid index / system-primary /
+// out-of-range targets surface as errors without planting.
+func TestPlanTransferRejectsBadTargets(t *testing.T) {
+	w := mustWorld(t)
+	cases := []struct {
+		name string
+		idx  int
+	}{
+		{"system primary", 0},
+		{"negative index", -1},
+		{"out of range", 999},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			before := len(w.Nodes)
+			if _, err := w.PlanTransfer(c.idx); err == nil {
+				t.Errorf("expected error for %s", c.name)
+			}
+			if len(w.Nodes) != before {
+				t.Errorf("PlanTransfer planted nodes despite error path: %d → %d",
+					before, len(w.Nodes))
+			}
+		})
+	}
+}
+
 func mustWorld(t *testing.T) *World {
 	t.Helper()
 	w, err := NewWorld()

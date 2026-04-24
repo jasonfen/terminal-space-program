@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.2.0**.
+Latest release: **v0.3.1**.
 
 ```bash
 # Linux x86_64
@@ -45,82 +45,163 @@ go build ./cmd/terminal-space-program
 
 Requires Go 1.24+ (bubbletea dependency chain).
 
+## Quick tour
+
+You spawn in low Earth orbit at 200 km altitude. The left panel is the
+canvas — Sun at the center, planets on their actual orbits, your
+spacecraft as a small cluster. The right HUD shows clock, vessel state,
+selected body, planted nodes, and (when relevant) the Hohmann preview to
+the selected target. Time-warp with `.` / `,` to watch planets move; pause
+with `0` or space.
+
+To make something happen:
+
+1. Press `←`/`→` to scroll the cursor through bodies. Pick Mars.
+2. Press `P` to plant a Hohmann transfer — two nodes appear on the canvas
+   (one in Earth's frame, one in Mars's), the HUD lists them with their
+   Δv and time-to-fire.
+3. Time-warp forward. Watch the departure node fire when its trigger time
+   hits. Your trajectory unrolls past Earth's SOI, the predictor switches
+   frames, and the curve bends sunward as it should.
+4. The arrival node fires near Mars. (Phasing isn't enforced in v0.3.1 —
+   the sandbox assumes Mars is where you need it. Real launch-window
+   selection comes with the porkchop plot in v0.3.2.)
+
+For finite engine burns instead of instant Δv, press `m` to open the
+planner — set mode, Δv, and a non-zero duration. The integrator switches
+from Verlet (energy-conserving free flight) to RK4 (handles the non-
+conservative thrust force) and ticks the burn across multiple frames with
+mass loss tracked from the rocket equation.
+
 ## Keybindings
+
+### Global
 
 | Key | Action |
 |---|---|
 | `q`, `Ctrl+C` | Quit |
 | `?` | Toggle help overlay |
-| `Esc` | Back / close |
-| `→` / `l` | Next body |
-| `←` / `h` | Previous body |
+| `Esc` | Back / close panel |
 | `s` | Switch system (Sol → Alpha Cen → TRAPPIST-1 → Kepler-452) |
-| `i` | Body info |
+| `i` | Body info screen |
+| `0`, `Space` | Pause / resume sim |
+| `.` / `,` | Warp up / down (1× → 100000×; clamped to ≤10× during a burn) |
+
+### Orbit view
+
+| Key | Action |
+|---|---|
+| `→` / `l` | Cursor: next body |
+| `←` / `h` | Cursor: previous body |
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
 | `g` | Reset camera focus to system |
-| `.` | Warp up (1× … 100000×) |
-| `,` | Warp down |
-| `0`, `Space` | Pause / resume |
-| `m` | Open maneuver planner |
-| `n` | Plan a maneuver node |
+| `n` | Plan a default node (T+5min, prograde, 50 m/s) |
 | `N` | Clear all planned nodes |
-| `Tab` (in planner) | Cycle direction mode |
-| `Enter` (in planner) | Commit burn |
-| `Esc` (in planner) | Cancel burn |
+| `P` | **Auto-plant Hohmann transfer to selected body** (v0.3.1) |
+| `m` | Open maneuver planner |
+
+### Maneuver planner (`m`)
+
+| Key | Action |
+|---|---|
+| `Tab` / `Shift+Tab` | Cycle field focus (mode → Δv → duration) |
+| `←` / `→` | Cycle direction mode (when mode field is focused) |
+| digits / backspace | Edit Δv or duration value |
+| `Enter` | Commit burn |
+| `Esc` | Cancel and back to orbit view |
+
+A duration of `0` plants an impulsive burn (instant Δv). A non-zero
+duration starts a finite burn that runs for up to that many seconds, or
+until the requested Δv is delivered, whichever first.
+
+## Features (v0.3.1)
+
+- **Auto-plant Hohmann transfer** (`P`). Select a target body, press one
+  key, two nodes plant: a geocentric departure burn at parking-orbit
+  periapsis (raises apoapsis past Earth's SOI), and a destination-frame
+  arrival burn (drops into low capture orbit). Patched-conic Δv math
+  matches Curtis Example 8.3 within 5% for Earth → Mars.
+- **Multi-frame nodes.** Each `ManeuverNode` carries a `PrimaryID` tag
+  identifying which body's frame the burn was planned in. The orbit-view
+  glyph cluster grows for foreign-frame nodes so the player can see at a
+  glance which leg is which on auto-planted transfers.
+- **Frame-aware `PostBurnState`**. Returns the post-burn state plus the
+  ID of the primary that frame is relative to — critical for nodes that
+  fire after the trajectory crosses an SOI boundary.
+
+## Features (v0.3.0)
+
+- **Lambert solver**. `planner.LambertSolve(r1, r2, dt, mu)` reproduces
+  Curtis Example 5.2 within 0.5%; round-trip via Verlet returns to r2
+  within integrator tolerance. Single-rev prograde only — multi-rev
+  branches and explicit retrograde handling deferred to v0.3.2.
+- **SOI-aware predictor**. When a sub-step crosses a sphere-of-influence
+  boundary, the state is rebased to the new primary's frame and μ
+  switches for subsequent steps. The closing point of each outgoing
+  segment lands at the actual crossing — no time gap, join continuous
+  in inertial coords. Resolves the LEO reference-frame trap that v0.2's
+  predictor punted on (predicted post-escape trajectories were
+  geometrically wrong even though their coloring was correct).
+
+## Features (v0.2.1)
+
+- **Finite-duration burns**. `Spacecraft.Thrust` (1 kN default) drives
+  per-sub-step engine acceleration via an RK4 integrator path that
+  handles the non-conservative force cleanly (Verlet would silently
+  drift). Mass flow `dm/dt = -Thrust/(Isp·g0)` debits fuel each tick.
+  Burn ends on Δv delivered, fuel exhausted, or duration elapsed.
+- **Active-burn HUD**. Orbit screen renders a `BURN ACTIVE` block while
+  a burn is in flight (mode, Δv-to-go, T-remaining). Time-warp clamps
+  to ≤10× during a burn so the integrator keeps temporal resolution on
+  the burn window.
 
 ## Features (v0.2)
 
-Slice-1 of the v0.2 scope — "maneuver planning, closed loop."
-
-- **View focus / camera follow.** `f`/`F` cycles the camera target across
-  the system primary, every body, and the spacecraft (Sol only); `g`
-  resets to the system view. Focus keeps moving targets centered without
-  refitting the zoom on every frame.
-- **Maneuver nodes.** `n` plants a node on the current orbit; `N` clears
-  all pending nodes. Nodes are rendered on-canvas at their projected
-  inertial position and listed in the HUD. When sim-time reaches a
-  node's trigger time, its impulsive burn fires and the node pops.
+- **View focus / camera follow.** `f`/`F` cycles the camera target
+  across the system primary, every body, and the spacecraft (Sol only);
+  `g` resets to the system view.
+- **Maneuver nodes.** `n` plants a node on the current orbit; `N`
+  clears all pending nodes. Nodes render on-canvas at their projected
+  inertial position and list in the HUD; firing pops them automatically.
 - **SOI-segmented trajectory viz.** The predicted post-burn trajectory
-  is partitioned by dominant sphere-of-influence. Samples inside the
-  craft's home SOI render stride-2 dashed; samples that cross into a
-  foreign SOI render stride-1 solid so capture arcs read visually
-  distinct from cruise.
+  is partitioned by dominant SOI. Home-SOI samples render dashed,
+  foreign-SOI samples solid so capture arcs read visually distinct.
 - **Hohmann preview HUD.** When the cursor-selected body has orbital
   data, the SELECTED block renders reference heliocentric Δv1 / Δv2 /
-  transfer time computed off the system primary's GM and the craft's
-  current inertial radius. Earth → Mars lands within 10% of the
-  Curtis §6.2 textbook values.
+  transfer time. Earth → Mars matches Curtis §6.2 within 10%.
 
 ## Features (v0.1)
 
 - **Viewer.** Physically-plausible renderings of Sol, Alpha Centauri,
   TRAPPIST-1, and Kepler-452. Planets move under time warp; orbit lines
-  drawn from the same Kepler math that places the planets.
+  from the same Kepler math that places the planets.
 - **Spacecraft.** One vessel in low Earth orbit, propagated with
   velocity-Verlet on a patched-conic two-body model. Energy-conservation
   verified under 1% drift across 1000 orbits (we ship at ~1e-7%).
 - **Burns.** Impulsive burns with prograde / retrograde / normal± /
-  radial± modes, rocket-equation fuel accounting, and live shadow-
-  trajectory preview in the maneuver planner.
-- **Time warp.** Six discrete steps (1× → 100000×) with integrator-
-  aware clamping so sim-time can't outrun numerical stability.
+  radial± modes, rocket-equation fuel accounting, live shadow-trajectory
+  preview in the planner.
+- **Time warp.** Six discrete steps (1× → 100000×) with integrator-aware
+  clamping so sim-time can't outrun numerical stability.
 - **Single binary.** 5-target GoReleaser matrix (linux+darwin amd64/arm64,
   windows amd64), `CGO_ENABLED=0`, `-ldflags "-s -w"`.
 
-### Deferred to v0.3+
+### Deferred to v0.3.2+
 
-Finite-duration burns (impulsive only through v0.2), Lambert targeting
-with auto-plant nodes in the correct SOI frame, multi-system spacecraft,
-save/load, N-body perturbations, config-file custom systems, mouse
-support.
+- **Porkchop plot** screen for real launch-window selection (the v0.3.1
+  auto-plant assumes ideal phasing).
+- **Lambert multi-revolution** branches and explicit retrograde handling.
+- **Inclination-change planner** for out-of-plane corrections.
+- **Mid-course corrections**, **save/load**, **multi-system spacecraft**,
+  **N-body perturbations**, **config-file custom systems**, **mouse**.
 
 ## Implementation plan
 
 Full design doc: [`docs/plan.md`](docs/plan.md). Summary:
 
-- 4-phase physics progression (viewer → Verlet propagation → impulsive
-  burns → maneuver library).
+- Phased physics progression (viewer → Verlet → impulsive burns → finite
+  burns + RK4 → SOI-aware predictor + Lambert → auto-plant transfers).
 - Bubble Tea root model with screen-level sub-models (orbit / bodyinfo /
   maneuver / help).
 - GoReleaser single-workflow CI; release artifacts on tag push.
