@@ -1,10 +1,185 @@
 package planner
 
-import "github.com/jasonfen/terminal-space-program/internal/orbital"
+import (
+	"errors"
+	"math"
 
-// LambertSolve would solve Lambert's problem: given two position vectors
-// and a transfer time, return the initial velocity vector. Stubbed for
-// v0.1 per plan §MVP — Phase 3 scope.
-func LambertSolve(r1, r2 orbital.Vec3, dt float64, mu float64) (v1, v2 orbital.Vec3, err error) {
-	return orbital.Vec3{}, orbital.Vec3{}, ErrNotImplemented
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+)
+
+// LambertSolve solves Lambert's problem: given two position vectors and a
+// time of flight, find the velocity vectors at each endpoint that
+// connect them on a Keplerian orbit around a primary with gravitational
+// parameter mu.
+//
+// Single-rev, prograde transfer (Δθ measured CCW about +z). Multi-rev
+// branches and explicit retrograde handling are deferred to v0.3.2.
+//
+// Algorithm: Curtis "Orbital Mechanics for Engineering Students"
+// Algorithm 5.2 — universal-variables formulation. Newton-Raphson on
+// the universal variable z; the initial bracket is found by sweeping z
+// upward from 0 until F changes sign (handles cases where z₀=0 isn't a
+// good starting guess for Newton).
+func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64) (v1, v2 orbital.Vec3, err error) {
+	if dt <= 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: dt must be > 0")
+	}
+	if mu <= 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: mu must be > 0")
+	}
+
+	r1m := r1.Norm()
+	r2m := r2.Norm()
+	if r1m == 0 || r2m == 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: position vectors must be non-zero")
+	}
+
+	// Transfer angle. The sign of (r1 × r2)·z disambiguates [0, π] from
+	// (π, 2π) for prograde motion in the equatorial frame.
+	cosDtheta := (r1.X*r2.X + r1.Y*r2.Y + r1.Z*r2.Z) / (r1m * r2m)
+	if cosDtheta > 1 {
+		cosDtheta = 1
+	} else if cosDtheta < -1 {
+		cosDtheta = -1
+	}
+	crossZ := r1.X*r2.Y - r1.Y*r2.X
+	dtheta := math.Acos(cosDtheta)
+	if crossZ < 0 {
+		dtheta = 2*math.Pi - dtheta
+	}
+	sinDtheta := math.Sin(dtheta)
+	if math.Abs(sinDtheta) < 1e-12 {
+		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: degenerate transfer angle (0 or π)")
+	}
+
+	// Curtis (5.35).
+	A := sinDtheta * math.Sqrt(r1m*r2m/(1-cosDtheta))
+
+	yFn := func(z float64) float64 {
+		return r1m + r2m + A*(z*stumpffS(z)-1)/math.Sqrt(stumpffC(z))
+	}
+	F := func(z float64) float64 {
+		y := yFn(z)
+		if y < 0 {
+			return math.NaN()
+		}
+		return math.Pow(y/stumpffC(z), 1.5)*stumpffS(z) + A*math.Sqrt(y) - math.Sqrt(mu)*dt
+	}
+	Fprime := func(z float64) float64 {
+		y := yFn(z)
+		if math.Abs(z) < 1e-10 {
+			return math.Sqrt(2)/40*math.Pow(y, 1.5) + A/8*(math.Sqrt(y)+A*math.Sqrt(1/(2*y)))
+		}
+		c := stumpffC(z)
+		s := stumpffS(z)
+		return math.Pow(y/c, 1.5)*(1/(2*z)*(c-3*s/(2*c))+3*s*s/(4*c)) +
+			A/8*(3*s/c*math.Sqrt(y)+A*math.Sqrt(c/y))
+	}
+
+	// Bracket: walk z upward (smaller a, slower transfer) until F flips
+	// to positive. Step matches Curtis suggestion (~0.1 in z-units).
+	z := 0.0
+	if !math.IsNaN(F(z)) && F(z) > 0 {
+		// Already past root in the positive direction — walk z negative
+		// (hyperbolic side) to find the bracket.
+		for F(z) > 0 && z > -4*math.Pi*math.Pi {
+			z -= 0.1
+		}
+	} else {
+		for {
+			fv := F(z)
+			if !math.IsNaN(fv) && fv >= 0 {
+				break
+			}
+			z += 0.1
+			if z > 4*math.Pi*math.Pi {
+				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: bracket search failed")
+			}
+		}
+	}
+
+	// Newton-Raphson. Convergence: stop when the step in z is below
+	// tolStep (machine-precision-relative is more reliable than testing
+	// |F|, which sits at ~ε·sqrt(mu)·dt scale and bounces on noise).
+	const tolStep = 1e-12
+	const maxIter = 100
+	converged := false
+	for i := 0; i < maxIter; i++ {
+		fv := F(z)
+		if math.IsNaN(fv) {
+			return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: y went negative during iteration")
+		}
+		fp := Fprime(z)
+		if fp == 0 {
+			return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: Newton derivative vanished")
+		}
+		step := fv / fp
+		zNext := z - step
+		for yFn(zNext) < 0 {
+			zNext = (z + zNext) / 2
+			if math.Abs(zNext-z) < 1e-15 {
+				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: failed to recover from y<0 step")
+			}
+		}
+		if math.Abs(zNext-z) < tolStep {
+			z = zNext
+			converged = true
+			break
+		}
+		z = zNext
+	}
+	if !converged {
+		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: failed to converge in maxIter")
+	}
+
+	// Lagrange coefficients — Curtis (5.46).
+	y := yFn(z)
+	f := 1 - y/r1m
+	g := A * math.Sqrt(y/mu)
+	gdot := 1 - y/r2m
+	if g == 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: degenerate Lagrange g")
+	}
+
+	v1 = orbital.Vec3{
+		X: (r2.X - f*r1.X) / g,
+		Y: (r2.Y - f*r1.Y) / g,
+		Z: (r2.Z - f*r1.Z) / g,
+	}
+	v2 = orbital.Vec3{
+		X: (gdot*r2.X - r1.X) / g,
+		Y: (gdot*r2.Y - r1.Y) / g,
+		Z: (gdot*r2.Z - r1.Z) / g,
+	}
+	return v1, v2, nil
+}
+
+// stumpffC is the Stumpff C(z) function: C(z) = (1 − cos√z) / z for
+// elliptic z>0, (cosh√−z − 1) / −z for hyperbolic z<0, 1/2 at z=0.
+func stumpffC(z float64) float64 {
+	switch {
+	case z > 0:
+		sz := math.Sqrt(z)
+		return (1 - math.Cos(sz)) / z
+	case z < 0:
+		sz := math.Sqrt(-z)
+		return (math.Cosh(sz) - 1) / (-z)
+	default:
+		return 0.5
+	}
+}
+
+// stumpffS is the Stumpff S(z) function: S(z) = (√z − sin√z) / √z³ for
+// z>0, (sinh√−z − √−z) / √−z³ for z<0, 1/6 at z=0.
+func stumpffS(z float64) float64 {
+	switch {
+	case z > 0:
+		sz := math.Sqrt(z)
+		return (sz - math.Sin(sz)) / (sz * sz * sz)
+	case z < 0:
+		sz := math.Sqrt(-z)
+		return (math.Sinh(sz) - sz) / (sz * sz * sz)
+	default:
+		return 1.0 / 6.0
+	}
 }

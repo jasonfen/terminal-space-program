@@ -3,7 +3,6 @@ package sim
 import (
 	"math"
 
-	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
@@ -18,50 +17,43 @@ type SOISegment struct {
 }
 
 // PredictedSegments forward-integrates a post-burn state by totalSeconds
-// (sampled into `samples` points), converts each sample into inertial
-// coordinates, and partitions the trajectory into SOISegments whenever
-// the dominant SOI changes.
+// and partitions the trajectory into SOISegments. Pre-v0.3.0 the
+// predictor locked to the home primary's μ throughout, which made
+// post-escape segments geometrically wrong even though their coloring
+// was correct. v0.3.0: when a sub-step crosses a sphere-of-influence
+// boundary, rebase the state vector to the new primary's frame and
+// switch μ for subsequent steps. Output shape (a slice of SOISegments)
+// is unchanged so the renderer keeps working.
 //
-// Body positions are taken as a snapshot at Clock.SimTime — this ignores
-// planet motion during the preview and is accurate for short horizons
-// relative to the target body's orbital period. For a 1-period LEO
-// preview (≈ 90 min) this is trivially true. For interplanetary horizons
-// it's an approximation, flagged in the commit body.
+// Body positions are still snapshot at Clock.SimTime — accurate for
+// short horizons relative to target body orbital period; an
+// approximation flagged in commit history for interplanetary horizons.
 func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64, samples int) []SOISegment {
 	if w.Craft == nil || samples < 2 {
 		return nil
 	}
 
 	sys := w.System()
-	primary := sys.Bodies[0]
-	primaryPos := w.BodyPosition(primary) // should be zero — system primary is at origin
-
-	// Snapshot every other body's inertial position once.
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for _, b := range sys.Bodies {
 		positions[b.ID] = w.BodyPosition(b)
 	}
 
-	// Step the predictor around the craft's current primary (where the
-	// burn is applied). We track two frames: state is primary-relative;
-	// inertial = state + home-primary-inertial.
-	homePrimary := w.Craft.Primary
-	homePrimaryPos := positions[homePrimary.ID]
-	if homePrimary.ID == primary.ID {
-		homePrimaryPos = primaryPos
-	}
+	current := w.Craft.Primary
+	muNow := current.GravitationalParameter()
+	state := post
 
-	mu := homePrimary.GravitationalParameter()
-	period := orbitalPeriod(post, mu)
+	period := orbitalPeriod(state, muNow)
 	maxStep := period / 100.0
 	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
 		maxStep = 1.0
 	}
 	stepSecs := totalSeconds / float64(samples-1)
-	s := post
 
-	segments := []SOISegment{{PrimaryID: homePrimary.ID, Points: []orbital.Vec3{homePrimaryPos.Add(s.R)}}}
-	current := homePrimary.ID
+	segments := []SOISegment{{
+		PrimaryID: current.ID,
+		Points:    []orbital.Vec3{positions[current.ID].Add(state.R)},
+	}}
 
 	for i := 1; i < samples; i++ {
 		nSub := int(math.Ceil(stepSecs / maxStep))
@@ -73,49 +65,37 @@ func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64
 		}
 		dt := stepSecs / float64(nSub)
 		for j := 0; j < nSub; j++ {
-			s = physics.StepVerlet(s, mu, dt)
-		}
+			state = physics.StepVerlet(state, muNow, dt)
 
-		inertial := homePrimaryPos.Add(s.R)
-		prim := dominantSOI(sys, positions, inertial, homePrimary)
+			crossingInertial := positions[current.ID].Add(state.R)
+			cand := physics.FindPrimary(sys, crossingInertial, positions)
+			if cand.Body.ID != current.ID {
+				// Close the outgoing segment at the crossing so it
+				// terminates where the new segment begins (no time gap
+				// between the previous output sample and the rebase).
+				segments[len(segments)-1].Points = append(
+					segments[len(segments)-1].Points, crossingInertial)
 
-		if prim.ID != current {
-			segments = append(segments, SOISegment{PrimaryID: prim.ID})
-			current = prim.ID
+				vOld := w.bodyInertialVelocity(current)
+				vNew := w.bodyInertialVelocity(cand.Body)
+				state = physics.Rebase(state, positions[current.ID], cand.Inertial, vOld.Sub(vNew))
+				current = cand.Body
+				muNow = current.GravitationalParameter()
+
+				period = orbitalPeriod(state, muNow)
+				maxStep = period / 100.0
+				if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
+					maxStep = 1.0
+				}
+
+				segments = append(segments, SOISegment{
+					PrimaryID: current.ID,
+					Points:    []orbital.Vec3{positions[current.ID].Add(state.R)},
+				})
+			}
 		}
 		seg := &segments[len(segments)-1]
-		seg.Points = append(seg.Points, inertial)
+		seg.Points = append(seg.Points, positions[current.ID].Add(state.R))
 	}
 	return segments
-}
-
-// dominantSOI returns the body whose SOI contains the given inertial
-// position, preferring the smallest containing SOI. Falls back to the
-// home primary when no other SOI contains the point.
-func dominantSOI(
-	sys bodies.System,
-	positions map[string]orbital.Vec3,
-	r orbital.Vec3,
-	homePrimary bodies.CelestialBody,
-) bodies.CelestialBody {
-	primary := sys.Bodies[0]
-	best := homePrimary
-	bestSOI := math.Inf(1)
-	for i := 1; i < len(sys.Bodies); i++ {
-		b := sys.Bodies[i]
-		bPos, ok := positions[b.ID]
-		if !ok {
-			continue
-		}
-		soi := physics.SOIRadius(b, primary)
-		if soi == 0 {
-			continue
-		}
-		d := r.Sub(bPos).Norm()
-		if d <= soi && soi < bestSOI {
-			best = b
-			bestSOI = soi
-		}
-	}
-	return best
 }
