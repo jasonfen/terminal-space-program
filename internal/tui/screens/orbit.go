@@ -120,7 +120,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
 			v.canvas.DrawEllipseOffsetDotted(el, w.BodyPosition(c.Primary), 360, 3)
 		}
-		v.plotCluster(w.CraftInertial(), 8)
+		// Directional vessel glyph — chevron rotated into the craft's
+		// velocity frame so the player reads "which way am I going"
+		// without staring at raw r, v numbers.
+		v.canvas.PlotArrow(w.CraftInertial(), c.State.V, 5)
 	}
 
 	// Planned maneuver nodes — cluster glyph at each node's inertial

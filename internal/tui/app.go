@@ -203,10 +203,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PlanNode):
 			if a.world.CraftVisibleHere() {
+				const defaultDV = 50.0
+				dur := finiteBurnDuration(defaultDV, a.world.Craft.TotalMass(), a.world.Craft.Thrust)
 				a.world.PlanNode(sim.ManeuverNode{
 					TriggerTime: a.world.Clock.SimTime.Add(5 * time.Minute),
 					Mode:        spacecraft.BurnPrograde,
-					DV:          50,
+					DV:          defaultDV,
+					Duration:    dur,
 				})
 			}
 			return a, nil
@@ -232,6 +235,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return a, nil
+}
+
+// finiteBurnDuration returns the sim-time duration needed to deliver dv
+// at the given mass and engine thrust: Δt = dv × m / F. Zero (impulsive
+// fallback) when thrust is zero or the inputs are otherwise degenerate;
+// callers set that on ManeuverNode.Duration to opt out of the finite-
+// burn integrator branch. Uses mass at plant time — the integrator
+// tracks real mass loss once the burn starts, so this is only a
+// starting-point budget.
+func finiteBurnDuration(dv, mass, thrust float64) time.Duration {
+	if thrust <= 0 || mass <= 0 || dv <= 0 {
+		return 0
+	}
+	secs := dv * mass / thrust
+	return time.Duration(secs * float64(time.Second))
 }
 
 // View delegates to the active screen.

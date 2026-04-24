@@ -105,8 +105,10 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	}
 
 	now := w.Clock.SimTime
-	w.PlanNode(transferNodeToManeuver(plan.Departure, now))
-	w.PlanNode(transferNodeToManeuver(plan.Arrival, now))
+	mass := w.Craft.TotalMass()
+	thrust := w.Craft.Thrust
+	w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
+	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
 	return &plan, nil
 }
 
@@ -168,15 +170,26 @@ func (w *World) bodyEphemeris(b bodies.CelestialBody) planner.EphemerisFn {
 	}
 }
 
-func transferNodeToManeuver(tn planner.TransferNode, now time.Time) ManeuverNode {
+// transferNodeToManeuver converts a planner.TransferNode into a
+// sim.ManeuverNode, adding a realistic burn duration based on the
+// craft's thrust and current mass (Δt = Δv · m / F). If thrust is
+// zero or inputs are degenerate the node stays impulsive (Duration=0),
+// matching the legacy behavior.
+func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust float64) ManeuverNode {
 	mode := spacecraft.BurnPrograde
 	if tn.IsRetrograde {
 		mode = spacecraft.BurnRetrograde
+	}
+	var duration time.Duration
+	if thrust > 0 && mass > 0 && tn.DV > 0 {
+		secs := tn.DV * mass / thrust
+		duration = time.Duration(secs * float64(time.Second))
 	}
 	return ManeuverNode{
 		TriggerTime: now.Add(tn.OffsetTime),
 		Mode:        mode,
 		DV:          tn.DV,
+		Duration:    duration,
 		PrimaryID:   tn.PrimaryID,
 	}
 }

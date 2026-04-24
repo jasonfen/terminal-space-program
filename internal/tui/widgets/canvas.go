@@ -169,6 +169,50 @@ func (c *Canvas) RingOutline(center orbital.Vec3, pxRadius int) {
 	}
 }
 
+// PlotArrow draws a chevron-style arrow (">") at a world point, rotated
+// so the tip points in the direction of the supplied velocity vector.
+// The arrow's body is two diagonal "wings" meeting at the forward tip;
+// no filled stem, so the shape reads as a directional glyph without
+// overwhelming the rest of the canvas. `size` is the half-length in
+// pixels (total arrow width is roughly 2×size). Velocity magnitude is
+// irrelevant — only the direction is used.
+func (c *Canvas) PlotArrow(center, velocity orbital.Vec3, size int) {
+	vMag := velocity.Norm()
+	if vMag == 0 || size < 1 {
+		return
+	}
+	const cos45 = 0.7071067811865476
+	dx := velocity.X / vMag
+	dy := -velocity.Y / vMag // screen Y flipped
+	bx, by := -dx, -dy       // back-pointing unit
+	// Left wing direction: rotate back-unit by +45°.
+	lx := cos45 * (bx - by)
+	ly := cos45 * (bx + by)
+	// Right wing direction: rotate back-unit by -45°.
+	rx := cos45 * (bx + by)
+	ry := cos45 * (-bx + by)
+
+	cx, cy, _ := c.Project(center)
+	tipX := cx + int(math.Round(dx*float64(size)))
+	tipY := cy + int(math.Round(dy*float64(size)))
+	wingLen := int(float64(size) * 1.2)
+	if wingLen < 1 {
+		wingLen = 1
+	}
+	for t := 0; t <= wingLen; t++ {
+		plx := tipX + int(math.Round(lx*float64(t)))
+		ply := tipY + int(math.Round(ly*float64(t)))
+		if plx >= 0 && plx < c.pxW && ply >= 0 && ply < c.pxH {
+			c.dc.Set(plx, ply)
+		}
+		prx := tipX + int(math.Round(rx*float64(t)))
+		pry := tipY + int(math.Round(ry*float64(t)))
+		if prx >= 0 && prx < c.pxW && pry >= 0 && pry < c.pxH {
+			c.dc.Set(prx, pry)
+		}
+	}
+}
+
 // DrawEllipseDotted traces an ellipse defined by orbital elements. Dotted:
 // every `stride`th sample is plotted. stride=1 gives a solid curve.
 // Points are assumed to live in the system primary's inertial frame

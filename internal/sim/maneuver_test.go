@@ -269,6 +269,36 @@ func TestPlanTransferLandsTwoNodes(t *testing.T) {
 	}
 }
 
+// TestPlanTransferPlantsFiniteBurns: as of v0.3.4, auto-plant produces
+// finite burns sized from craft thrust + mass (Duration > 0). An all-
+// impulsive plant would feel instant to the player, defeating the
+// finite-burn machinery that v0.2.1 introduced.
+func TestPlanTransferPlantsFiniteBurns(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	if _, err := w.PlanTransfer(marsIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	if len(w.Nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(w.Nodes))
+	}
+	for i, n := range w.Nodes {
+		if n.Duration <= 0 {
+			t.Errorf("node %d Duration = %v, want > 0 (finite burn)", i, n.Duration)
+		}
+	}
+}
+
 // TestPlanTransferRejectsBadTargets: invalid index / system-primary /
 // out-of-range targets surface as errors without planting.
 func TestPlanTransferRejectsBadTargets(t *testing.T) {
