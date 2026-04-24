@@ -117,9 +117,74 @@ func (c *Canvas) Plot(w orbital.Vec3) {
 	}
 }
 
+// FillDisk fills a disk of the given pixel radius around a world coord.
+// Used for perceived body size on the orbit canvas — the physical
+// radius of a planet in world meters maps to far less than one pixel
+// at system-view zoom, so the renderer passes a size-tier pxRadius
+// (1 for moons, 2–4 for planets, 5+ for stars) rather than a true
+// world-space radius. Off-canvas portions of the disk are clipped.
+func (c *Canvas) FillDisk(center orbital.Vec3, pxRadius int) {
+	if pxRadius < 1 {
+		pxRadius = 1
+	}
+	cx, cy, _ := c.Project(center)
+	r2 := pxRadius * pxRadius
+	for dy := -pxRadius; dy <= pxRadius; dy++ {
+		for dx := -pxRadius; dx <= pxRadius; dx++ {
+			if dx*dx+dy*dy > r2 {
+				continue
+			}
+			px, py := cx+dx, cy+dy
+			if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+				continue
+			}
+			c.dc.Set(px, py)
+		}
+	}
+}
+
+// RingOutline draws a ring (outline only) at the given pixel radius
+// around a world coord. Distinguishes the system primary (hollow ring
+// plus a filled center dot) from planets (fully filled disks). Uses
+// Bresenham-style sampling on the pixel grid; off-canvas arcs are
+// clipped.
+func (c *Canvas) RingOutline(center orbital.Vec3, pxRadius int) {
+	if pxRadius < 1 {
+		pxRadius = 1
+	}
+	cx, cy, _ := c.Project(center)
+	// Sample enough angles to leave no gaps at small radii.
+	samples := pxRadius * 8
+	if samples < 16 {
+		samples = 16
+	}
+	for i := 0; i < samples; i++ {
+		theta := 2 * math.Pi * float64(i) / float64(samples)
+		px := cx + int(math.Round(float64(pxRadius)*math.Cos(theta)))
+		py := cy + int(math.Round(float64(pxRadius)*math.Sin(theta)))
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			continue
+		}
+		c.dc.Set(px, py)
+	}
+}
+
 // DrawEllipseDotted traces an ellipse defined by orbital elements. Dotted:
 // every `stride`th sample is plotted. stride=1 gives a solid curve.
+// Points are assumed to live in the system primary's inertial frame
+// (PositionAtTrueAnomaly output), which is correct for heliocentric
+// body orbits. For spacecraft orbiting a non-primary body, use
+// DrawEllipseOffsetDotted to translate into the system frame.
 func (c *Canvas) DrawEllipseDotted(el orbital.Elements, samples int, stride int) {
+	c.DrawEllipseOffsetDotted(el, orbital.Vec3{}, samples, stride)
+}
+
+// DrawEllipseOffsetDotted traces an ellipse with every point translated
+// by `offset` before plotting. Used for the vessel orbit around a non-
+// primary body (Earth in Sol view): the offset is Earth's heliocentric
+// position, so the ellipse is drawn in the same system frame as the
+// rest of the canvas.
+func (c *Canvas) DrawEllipseOffsetDotted(el orbital.Elements, offset orbital.Vec3, samples int, stride int) {
 	if samples < 16 {
 		samples = 16
 	}
@@ -131,7 +196,7 @@ func (c *Canvas) DrawEllipseDotted(el orbital.Elements, samples int, stride int)
 			continue
 		}
 		nu := 2 * math.Pi * float64(i) / float64(samples)
-		c.Plot(orbital.PositionAtTrueAnomaly(el, nu))
+		c.Plot(offset.Add(orbital.PositionAtTrueAnomaly(el, nu)))
 	}
 }
 

@@ -90,19 +90,36 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		v.canvas.DrawEllipseDotted(el, 360, 6)
 	}
 
-	// Plot each body (heavier mark for selected).
+	// Plot each body at its perceived-size disk. System primary (index 0)
+	// gets a hollow ring + filled center to distinguish it from planets.
+	// See BodyPixelRadius for the size-tier logic.
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
-		v.canvas.Plot(pos)
+		r := BodyPixelRadius(b, i == 0)
+		if i == 0 {
+			v.canvas.RingOutline(pos, r)
+			v.canvas.FillDisk(pos, 1)
+		} else {
+			v.canvas.FillDisk(pos, r)
+		}
 		if i == selectedIdx {
-			v.plotCluster(pos, 4)
+			v.plotCluster(pos, r+4)
 		}
 	}
 
-	// Spacecraft glyph — cluster of 8 dots centered on craft inertial pos.
-	// Only drawn when the view matches where the spacecraft lives.
+	// Spacecraft current-orbit ellipse + glyph. Orbit is the craft's
+	// live Keplerian ellipse in its home primary's frame, translated
+	// into the system frame so it renders alongside planet orbits.
+	// Only bound orbits (a > 0) render; hyperbolic escape trajectories
+	// are already shown by the maneuver-preview SOI-segmented trace.
 	if w.CraftVisibleHere() {
+		c := w.Craft
+		muCraft := c.Primary.GravitationalParameter()
+		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
+		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
+			v.canvas.DrawEllipseOffsetDotted(el, w.BodyPosition(c.Primary), 360, 3)
+		}
 		v.plotCluster(w.CraftInertial(), 8)
 	}
 
@@ -128,6 +145,29 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
 	return title + "\n" + body + "\n" + footer
+}
+
+// BodyPixelRadius returns the perceived-size pixel radius for a body on
+// the orbit canvas, bucketed by physical radius rather than projected
+// to true scale — even the Sun is a sub-pixel speck at Sol-wide zoom.
+// Size tiers keep the visual hierarchy readable: star > gas giant >
+// terrestrial > small body. The `isPrimary` flag is advisory (the
+// caller decides how to render; today that's a hollow ring for the
+// primary vs a filled disk for everything else).
+func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool) int {
+	r := b.RadiusMeters()
+	switch {
+	case isPrimary, r >= 1e8: // star-class
+		return 6
+	case r >= 2e7: // gas giant
+		return 4
+	case r >= 3e6: // terrestrial
+		return 2
+	case r > 0: // small body / moon / dwarf
+		return 1
+	default:
+		return 1
+	}
 }
 
 // plotCluster dots a cross of size n around a world point — useful for
