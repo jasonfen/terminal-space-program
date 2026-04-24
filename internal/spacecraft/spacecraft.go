@@ -18,7 +18,8 @@ type Spacecraft struct {
 	Name    string
 	DryMass float64 // kg
 	Fuel    float64 // kg
-	Isp     float64 // s — specific impulse, used post-v0.1 for finite burns
+	Isp     float64 // s — specific impulse, used by finite burns
+	Thrust  float64 // N — max engine thrust; zero disables finite burns
 
 	Primary bodies.CelestialBody
 	State   physics.StateVector
@@ -51,6 +52,7 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 		DryMass: 500,
 		Fuel:    500,
 		Isp:     300,
+		Thrust:  1000, // 1 kN — small enough that finite effects show up at realistic Δv
 		Primary: earth,
 		State: physics.StateVector{
 			R: orbital.Vec3{X: r},

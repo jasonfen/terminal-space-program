@@ -4,7 +4,10 @@ import (
 	"math"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
+
+const g0 = 9.80665
 
 // BurnMode enumerates the six direction modes from plan §Phase 2.
 type BurnMode int
@@ -98,7 +101,6 @@ func (s *Spacecraft) ApplyImpulsive(mode BurnMode, dv float64) {
 // consumeFuel deducts fuel assuming the rocket equation. fuelUsed =
 // m0 · (1 − exp(−dv / (Isp·g0))). Caps at available fuel.
 func (s *Spacecraft) consumeFuel(dvUsed float64) {
-	const g0 = 9.80665
 	if s.Isp <= 0 {
 		return
 	}
@@ -115,11 +117,48 @@ func (s *Spacecraft) consumeFuel(dvUsed float64) {
 // RemainingDeltaV estimates how much more Δv the current fuel supports,
 // from the rocket equation: Δv = Isp·g0·ln(m0/m_dry).
 func (s *Spacecraft) RemainingDeltaV() float64 {
-	const g0 = 9.80665
 	if s.DryMass == 0 || s.TotalMass() == 0 {
 		return 0
 	}
 	return s.Isp * g0 * math.Log(s.TotalMass()/s.DryMass)
+}
+
+// MassFlowRate returns the propellant mass-flow magnitude (kg/s) at the
+// configured thrust level: ṁ = Thrust/(Isp·g0). Zero if thrust or Isp is
+// zero. Used by the finite-burn integrator to step mass per sub-step.
+func (s *Spacecraft) MassFlowRate() float64 {
+	if s.Thrust <= 0 || s.Isp <= 0 {
+		return 0
+	}
+	return s.Thrust / (s.Isp * g0)
+}
+
+// ThrustAccelFn returns an RK4-compatible accel closure that adds engine
+// thrust along the given burn-mode direction on top of two-body gravity.
+// Direction is recomputed each sub-step from live (r, v), so prograde
+// follows the rotating velocity frame — the expected UX for held-prograde
+// burns.
+//
+// Mass is held constant for the closure (the integrator treats the
+// sub-step as ~constant-mass); the caller updates fuel via MassFlowRate
+// after the StepRK4 call. Thrust is gated to zero if fuel is empty.
+func (s *Spacecraft) ThrustAccelFn(mode BurnMode, mu float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+	mass := s.TotalMass()
+	thrust := s.Thrust
+	if s.Fuel <= 0 {
+		thrust = 0
+	}
+	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
+		gravity := physics.Accel(r, mu)
+		if thrust == 0 || mass == 0 {
+			return gravity
+		}
+		dir := DirectionUnit(mode, r, v)
+		if dir.Norm() == 0 {
+			return gravity
+		}
+		return gravity.Add(dir.Scale(thrust / mass))
+	}
 }
 
 // cross is the standard 3D cross product. Lifted here (rather than adding

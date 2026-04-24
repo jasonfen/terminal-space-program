@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,34 +22,58 @@ import (
 // BurnExecutedMsg that the app applies to the spacecraft.
 //
 // Per plan §C20: live preview = shadow trajectory on a miniature canvas.
-// v0.1 scope: direction mode + Δv magnitude; finite burns / pitch-yaw are v0.2.
+// v0.2.1: three fields — mode / Δv / duration. Duration zero = impulsive
+// (legacy v0.1 path); duration > 0 = finite burn.
 type Maneuver struct {
 	theme    Theme
 	canvas   *widgets.Canvas
 	dvInput  textinput.Model
+	durInput textinput.Model
 	modeIdx  int
+	focus    int // 0=mode, 1=dv, 2=duration
 }
 
 // BurnExecutedMsg is emitted when the user hits Enter. App consumes it.
+// Duration zero = impulsive (legacy path); >0 = finite burn.
 type BurnExecutedMsg struct {
-	Mode spacecraft.BurnMode
-	DV   float64
+	Mode     spacecraft.BurnMode
+	DV       float64
+	Duration time.Duration
 }
 
 func NewManeuver(th Theme) *Maneuver {
-	ti := textinput.New()
-	ti.Placeholder = "0"
-	ti.CharLimit = 8
-	ti.Width = 10
-	ti.SetValue("100")
-	ti.Focus()
+	dv := textinput.New()
+	dv.Placeholder = "0"
+	dv.CharLimit = 8
+	dv.Width = 10
+	dv.SetValue("100")
+
+	dur := textinput.New()
+	dur.Placeholder = "0"
+	dur.CharLimit = 6
+	dur.Width = 10
+	dur.SetValue("0")
 
 	m := &Maneuver{
-		theme:   th,
-		canvas:  widgets.NewCanvas(60, 20),
-		dvInput: ti,
+		theme:    th,
+		canvas:   widgets.NewCanvas(60, 20),
+		dvInput:  dv,
+		durInput: dur,
 	}
+	m.applyFocus()
 	return m
+}
+
+// applyFocus pushes focus state down to the bubbletea text inputs.
+func (m *Maneuver) applyFocus() {
+	m.dvInput.Blur()
+	m.durInput.Blur()
+	switch m.focus {
+	case 1:
+		m.dvInput.Focus()
+	case 2:
+		m.durInput.Focus()
+	}
 }
 
 // Resize handles terminal-size changes. Keep the maneuver canvas ≤ 60 cols
@@ -68,32 +93,52 @@ func (m *Maneuver) Resize(cols, rows int) {
 // means the app should exit the maneuver screen (commit or cancel).
 //
 // Key bindings:
-//   tab / shift+tab  — cycle direction modes
-//   enter            — commit burn → emits BurnExecutedMsg
-//   esc              — cancel → plain exit (app handles)
-//   anything else    — forwarded to dv text input
+//   tab / shift+tab    — cycle focus across mode / Δv / duration fields
+//   ←/→ (mode focused) — cycle direction modes
+//   enter              — commit burn → emits BurnExecutedMsg
+//   esc                — cancel → plain exit (app handles)
+//   digits/backspace   — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "tab":
-		m.modeIdx = (m.modeIdx + 1) % len(spacecraft.AllBurnModes)
+		m.focus = (m.focus + 1) % 3
+		m.applyFocus()
 		return nil, false
 	case "shift+tab":
-		m.modeIdx = (m.modeIdx - 1 + len(spacecraft.AllBurnModes)) % len(spacecraft.AllBurnModes)
+		m.focus = (m.focus + 2) % 3
+		m.applyFocus()
 		return nil, false
+	case "left":
+		if m.focus == 0 {
+			m.modeIdx = (m.modeIdx - 1 + len(spacecraft.AllBurnModes)) % len(spacecraft.AllBurnModes)
+			return nil, false
+		}
+	case "right":
+		if m.focus == 0 {
+			m.modeIdx = (m.modeIdx + 1) % len(spacecraft.AllBurnModes)
+			return nil, false
+		}
 	case "enter":
 		dv := m.parsedDV()
 		if dv == 0 {
 			return nil, false // ignore — user needs to type a number
 		}
+		dur := m.parsedDuration()
 		return func() tea.Msg {
 			return BurnExecutedMsg{
-				Mode: spacecraft.AllBurnModes[m.modeIdx],
-				DV:   dv,
+				Mode:     spacecraft.AllBurnModes[m.modeIdx],
+				DV:       dv,
+				Duration: dur,
 			}
 		}, true
 	}
 	var cmd tea.Cmd
-	m.dvInput, cmd = m.dvInput.Update(msg)
+	switch m.focus {
+	case 1:
+		m.dvInput, cmd = m.dvInput.Update(msg)
+	case 2:
+		m.durInput, cmd = m.durInput.Update(msg)
+	}
 	return cmd, false
 }
 
@@ -106,6 +151,16 @@ func (m *Maneuver) parsedDV() float64 {
 		dv = -dv
 	}
 	return dv
+}
+
+// parsedDuration returns the duration field as a time.Duration. The field
+// is in seconds; zero means impulsive.
+func (m *Maneuver) parsedDuration() time.Duration {
+	var secs float64
+	if _, err := fmt.Sscanf(m.durInput.Value(), "%f", &secs); err != nil || secs <= 0 {
+		return 0
+	}
+	return time.Duration(secs * float64(time.Second))
 }
 
 // Render composes the preview canvas + form panel.
@@ -155,7 +210,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	body := strings.Join([]string{canvasPanel, form}, "\n")
 
 	footer := m.theme.Footer.Render(
-		"[tab] cycle mode  [enter] commit  [esc] cancel  [backspace/digits] edit Δv",
+		"[tab] cycle field  [←/→] cycle mode  [enter] commit  [esc] cancel  [digits] edit",
 	)
 	return m.theme.Title.Render("maneuver planner") + "\n" + body + "\n" + footer
 }
@@ -164,15 +219,44 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64) string {
 	c := w.Craft
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	budget := c.RemainingDeltaV()
+	dur := m.parsedDuration()
+
 	warn := ""
 	if dv > budget {
 		warn = m.theme.Alert.Render(fmt.Sprintf(" [EXCEEDS BUDGET by %.0f m/s]", dv-budget))
 	}
+
+	// Mode line — highlight if focused, otherwise dim.
+	modeLabel := mode.String()
+	if m.focus == 0 {
+		modeLabel = m.theme.Warning.Render(modeLabel) + "  (←/→ to cycle)"
+	} else {
+		modeLabel = m.theme.Dim.Render(modeLabel)
+	}
+
+	burnDescr := "impulsive"
+	if dur > 0 {
+		// At constant thrust the analytical estimate is dv = thrust/mass × dur.
+		// Show what the engine actually *can* deliver in the requested duration.
+		mass := c.TotalMass()
+		var estDv float64
+		if mass > 0 {
+			estDv = c.Thrust / mass * dur.Seconds()
+		}
+		actual := math.Min(dv, estDv)
+		burnDescr = fmt.Sprintf("finite burn (%.0f N × %.1fs → est %.1f m/s, target %.0f m/s)",
+			c.Thrust, dur.Seconds(), actual, dv)
+	}
+
 	lines := []string{
 		m.theme.Primary.Render("BURN PLAN"),
-		"  mode:  " + m.theme.Warning.Render(mode.String()) + "  (tab to cycle)",
-		"  Δv:    " + m.dvInput.View() + " m/s" + warn,
+		"  mode:     " + modeLabel,
+		"  Δv:       " + m.dvInput.View() + " m/s" + warn,
+		"  duration: " + m.durInput.View() + " s",
+		"  → " + burnDescr,
+		"",
 		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),
+		fmt.Sprintf("  thrust: %.0f N  Isp: %.0f s", c.Thrust, c.Isp),
 	}
 	return strings.Join(lines, "\n")
 }

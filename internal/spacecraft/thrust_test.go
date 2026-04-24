@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // TestProgradeAtLEORaisesApoapsis: plan §C17 accept criterion. Starting
@@ -85,5 +86,78 @@ func TestRemainingDeltaV(t *testing.T) {
 	want := 300.0 * 9.80665 * math.Ln2
 	if math.Abs(got-want) > 1 {
 		t.Errorf("Δv_remaining = %.2f m/s, want %.2f m/s", got, want)
+	}
+}
+
+// TestMassFlowRate: at default Thrust=1000 N, Isp=300 s,
+// ṁ = 1000 / (300 · 9.80665) ≈ 0.340 kg/s.
+func TestMassFlowRate(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	got := sc.MassFlowRate()
+	want := 1000.0 / (300.0 * 9.80665)
+	if math.Abs(got-want) > 1e-6 {
+		t.Errorf("MassFlowRate = %.6f, want %.6f", got, want)
+	}
+}
+
+// TestMassFlowRateZeroWhenNoThrust: if engine has no thrust, ṁ must be 0
+// even when Isp is positive.
+func TestMassFlowRateZeroWhenNoThrust(t *testing.T) {
+	sc := &Spacecraft{Thrust: 0, Isp: 300}
+	if got := sc.MassFlowRate(); got != 0 {
+		t.Errorf("MassFlowRate with zero thrust = %v, want 0", got)
+	}
+}
+
+// TestThrustAccelFnAddsThrustOnTopOfGravity: at LEO with prograde mode,
+// the thrust component should equal Thrust/mass along the velocity unit
+// vector. Gravity component should match physics.Accel.
+func TestThrustAccelFnAddsThrustOnTopOfGravity(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	mu := earth.GravitationalParameter()
+	r := sc.State.R
+	v := sc.State.V
+	mass := sc.TotalMass()
+
+	accelFn := sc.ThrustAccelFn(BurnPrograde, mu)
+	got := accelFn(r, v, 0)
+
+	// Expected = gravity + (Thrust/mass) along v_hat.
+	gravity := orbital.Vec3{}
+	rMag := r.Norm()
+	gFactor := -mu / (rMag * rMag * rMag)
+	gravity.X = r.X * gFactor
+	gravity.Y = r.Y * gFactor
+	gravity.Z = r.Z * gFactor
+	vHat := v.Scale(1 / v.Norm())
+	want := gravity.Add(vHat.Scale(sc.Thrust / mass))
+
+	if got.Sub(want).Norm()/want.Norm() > 1e-9 {
+		t.Errorf("ThrustAccelFn: got %+v, want %+v", got, want)
+	}
+}
+
+// TestThrustAccelFnNoThrustWhenFuelEmpty: with Fuel=0, the closure must
+// return pure gravity even though Thrust is configured.
+func TestThrustAccelFnNoThrustWhenFuelEmpty(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	sc.Fuel = 0
+	mu := earth.GravitationalParameter()
+
+	accelFn := sc.ThrustAccelFn(BurnPrograde, mu)
+	got := accelFn(sc.State.R, sc.State.V, 0)
+
+	rMag := sc.State.R.Norm()
+	gFactor := -mu / (rMag * rMag * rMag)
+	want := orbital.Vec3{X: sc.State.R.X * gFactor, Y: sc.State.R.Y * gFactor, Z: sc.State.R.Z * gFactor}
+
+	if got.Sub(want).Norm() > 1e-9 {
+		t.Errorf("with empty fuel, got %+v, want pure gravity %+v", got, want)
 	}
 }

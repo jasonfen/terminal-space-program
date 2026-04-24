@@ -44,3 +44,23 @@ func TestWarpClampActuallyClampsVeryShortPeriod(t *testing.T) {
 		t.Errorf("expected clamp to reduce warp; got %.0f → %.0f", selected, effective)
 	}
 }
+
+// TestWarpCappedAt10xDuringActiveBurn: even at 100000× selected, an
+// in-flight finite burn must clamp to 10× per docs/plan.md §Time-warp UX.
+// Otherwise the integrator would skip past EndTime in a single tick and
+// the burn would lose all temporal resolution.
+func TestWarpCappedAt10xDuringActiveBurn(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.WarpIdx = len(WarpFactors) - 1 // 100000×
+	w.ActiveBurn = &ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
+
+	if eff := w.EffectiveWarp(); eff != 10 {
+		t.Errorf("active burn should cap warp to 10×, got %.0f", eff)
+	}
+
+	// And below the cap — selecting 1× during a burn stays at 1×.
+	w.Clock.WarpIdx = 0
+	if eff := w.EffectiveWarp(); eff != 1 {
+		t.Errorf("1× during burn should stay 1×, got %.0f", eff)
+	}
+}
