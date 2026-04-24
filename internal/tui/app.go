@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"time"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
@@ -166,6 +169,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.ZoomOut):
 			a.orbitView.ZoomOut()
+			return a, nil
+		case key.Matches(m, a.keys.FocusNext):
+			a.world.CycleFocus(true)
+			return a, nil
+		case key.Matches(m, a.keys.FocusPrev):
+			a.world.CycleFocus(false)
+			return a, nil
+		case key.Matches(m, a.keys.FocusReset):
+			a.world.ResetFocus()
+			return a, nil
+		case key.Matches(m, a.keys.PlanNode):
+			if a.world.CraftVisibleHere() {
+				a.world.PlanNode(sim.ManeuverNode{
+					TriggerTime: a.world.Clock.SimTime.Add(5 * time.Minute),
+					Mode:        spacecraft.BurnPrograde,
+					DV:          50,
+				})
+			}
+			return a, nil
+		case key.Matches(m, a.keys.ClearNodes):
+			a.world.ClearNodes()
 			return a, nil
 		}
 	}

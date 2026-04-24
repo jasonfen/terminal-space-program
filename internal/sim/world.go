@@ -23,6 +23,14 @@ type World struct {
 	// Nil when no primary is loaded (unreachable in v0.1).
 	Craft *spacecraft.Spacecraft
 
+	// Focus selects what the OrbitView canvas is centered on. Zero value
+	// (FocusSystem) matches v0.1.0 behavior.
+	Focus Focus
+
+	// Nodes holds planned impulsive burns, sorted by TriggerTime. Each
+	// fires automatically when Clock.SimTime reaches its trigger.
+	Nodes []ManeuverNode
+
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
@@ -58,9 +66,12 @@ func (w *World) System() bodies.System { return w.Systems[w.SystemIdx] }
 
 // CycleSystem advances to the next system (wraps). Recreates the calculator.
 // Spacecraft does not follow — remains in Sol per plan §MVP scope.
+// Resets focus to system-wide because body indices don't carry across
+// systems and the craft is only visible in Sol.
 func (w *World) CycleSystem() {
 	w.SystemIdx = (w.SystemIdx + 1) % len(w.Systems)
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
+	w.ResetFocus()
 }
 
 // CraftVisibleHere reports whether the spacecraft should be drawn in the
@@ -112,6 +123,7 @@ func (w *World) Tick() {
 
 	if w.Craft != nil {
 		w.integrateSpacecraft(simDelta)
+		w.executeDueNodes()
 		w.soiCheckCounter++
 		if w.soiCheckCounter >= 20 {
 			w.soiCheckCounter = 0

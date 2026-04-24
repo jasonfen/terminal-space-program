@@ -4,12 +4,14 @@ package screens
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -25,9 +27,12 @@ type OrbitView struct {
 	canvas *widgets.Canvas
 	theme  Theme
 
-	// lastSystemIdx tracks the system the canvas was last fit to, so we
-	// re-FitTo only on a real switch (not every frame).
+	// lastSystemIdx + lastFocus track the (system, focus) pair the canvas
+	// was last fit to, so we re-FitTo only on a real change (not every
+	// frame). Focus fit keeps the camera on moving targets smoothly without
+	// reshooting the zoom level each tick.
 	lastSystemIdx int
+	lastFocus     sim.Focus
 	fitted        bool
 }
 
@@ -61,14 +66,19 @@ func (v *OrbitView) ZoomOut() { v.canvas.ZoomBy(1.0 / 1.25) }
 func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows int) string {
 	sys := w.System()
 
-	if v.lastSystemIdx != w.SystemIdx || !v.fitted {
+	// Refit only on system switch or focus-kind/idx change. When focused on
+	// a moving target (body or craft), we still re-center every frame
+	// below — this path only fires when the camera "target" changes, not
+	// when the target moves.
+	if v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus || !v.fitted {
 		v.lastSystemIdx = w.SystemIdx
+		v.lastFocus = w.Focus
 		v.fitted = true
-		v.autoFit(sys)
+		v.canvas.FitTo(w.FocusZoomRadius())
 	}
 
 	v.canvas.Clear()
-	v.canvas.Center(orbital.Vec3{}) // primary at origin
+	v.canvas.Center(w.FocusPosition())
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
 	for i := range sys.Bodies {
@@ -96,6 +106,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		v.plotCluster(w.CraftInertial(), 8)
 	}
 
+	// Planned maneuver nodes — cluster glyph at each node's inertial
+	// position, plus a dashed predicted trajectory from the first node's
+	// post-burn state. Only meaningful when the craft is visible here.
+	if w.CraftVisibleHere() {
+		v.drawNodes(w)
+	}
+
 	canvasStr := v.canvas.String()
 	canvasPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -106,7 +123,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s", sys.Name))
 	footer := v.theme.Footer.Render(
-		"[q] quit  [s] next system  [←/→] body  [+/-] zoom  [i] info  [?] help  [.,] warp  [0] pause",
+		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -123,19 +140,58 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 	}
 }
 
-// autoFit sets the canvas scale so the outermost body's apoapsis is visible.
-func (v *OrbitView) autoFit(sys bodies.System) {
-	var maxR float64
-	for _, b := range sys.Bodies {
-		r := b.SemimajorAxisMeters() * (1 + b.Eccentricity)
-		if r > maxR {
-			maxR = r
+// drawNodes plots every planned maneuver node at its projected inertial
+// position and draws the post-burn predicted trajectory starting from
+// the first node. The trajectory is segmented by SOI: samples inside
+// the craft's home SOI use stride-2 (dashed); samples that cross into
+// another body's SOI use stride-1 (solid) so the crossing is visually
+// distinct at a glance.
+func (v *OrbitView) drawNodes(w *sim.World) {
+	if len(w.Nodes) == 0 || w.Craft == nil {
+		return
+	}
+	for _, n := range w.Nodes {
+		v.plotCluster(w.NodeInertialPosition(n), 6)
+	}
+
+	first := w.Nodes[0]
+	post := w.PostBurnState(first)
+	mu := w.Craft.Primary.GravitationalParameter()
+	horizon := postBurnHorizon(post, mu)
+	if horizon <= 0 {
+		return
+	}
+
+	segments := w.PredictedSegments(post, horizon, 96)
+	homeID := w.Craft.Primary.ID
+	for _, seg := range segments {
+		stride := 2
+		if seg.PrimaryID != homeID {
+			stride = 1 // foreign SOI — solid, eye-catching
+		}
+		for i, p := range seg.Points {
+			if stride > 1 && i%stride == 0 {
+				continue
+			}
+			v.canvas.Plot(p)
 		}
 	}
-	if maxR == 0 {
-		maxR = 1e11 // 1/7 AU fallback
+}
+
+// postBurnHorizon picks a sensible prediction window based on the
+// orbit's semimajor axis. Returns the orbital period for bound orbits,
+// or a time-of-flight covering ~10 primary-radii of travel for
+// hyperbolic (a ≤ 0) orbits so the preview is visible but finite.
+func postBurnHorizon(state physics.StateVector, mu float64) float64 {
+	a := physics.SemimajorAxis(state, mu)
+	if a > 0 && !math.IsNaN(a) {
+		return 2 * math.Pi * math.Sqrt(a*a*a/mu)
 	}
-	v.canvas.FitTo(maxR)
+	v := state.V.Norm()
+	if v <= 0 {
+		return 0
+	}
+	return 10 * state.R.Norm() / v
 }
 
 func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
@@ -156,6 +212,11 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if w.Clock.Paused {
 		lines = append(lines, "  "+v.theme.Warning.Render("[PAUSED]"))
 	}
+	lines = append(lines,
+		"",
+		v.theme.Primary.Render("FOCUS"),
+		"  "+w.FocusName(),
+	)
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
@@ -189,6 +250,17 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
+	if len(w.Nodes) > 0 {
+		lines = append(lines, "", v.theme.Primary.Render("NODES"))
+		for i, n := range w.Nodes {
+			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+			lines = append(lines, fmt.Sprintf(
+				"  #%d T%+.0fs  %s  %.0f m/s",
+				i+1, dt, n.Mode.String(), n.DV,
+			))
+		}
+	}
+
 	lines = append(lines, "", v.theme.Primary.Render("SYSTEM"),
 		"  "+sys.Name,
 		fmt.Sprintf("  %d bodies", len(sys.Bodies)),
@@ -207,6 +279,11 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			lines = append(lines, fmt.Sprintf("  a: %.3f AU", auVal))
 			lines = append(lines, fmt.Sprintf("  e: %.4f", b.Eccentricity))
 			lines = append(lines, fmt.Sprintf("  T: %.1f d", b.SideralOrbit))
+
+			if preview := w.HohmannPreviewFor(selectedIdx); preview.Valid || preview.Note != "" {
+				lines = append(lines, "", v.theme.Primary.Render("HOHMANN PREVIEW"))
+				lines = append(lines, preview.Format()...)
+			}
 		} else {
 			lines = append(lines, v.theme.Dim.Render("  (primary)"))
 		}
