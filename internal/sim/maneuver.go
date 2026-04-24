@@ -10,13 +10,28 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// ManeuverNode represents a planned impulsive burn that will fire when
+// ManeuverNode represents a planned burn that will fire when
 // World.Clock.SimTime reaches TriggerTime. Nodes are forward-looking only;
 // once fired, they are removed from World.Nodes.
+//
+// Duration controls finite vs impulsive: zero = instant Δv (legacy v0.1
+// path); non-zero = sustained engine burn lasting up to Duration or
+// until DV is delivered, whichever first. Finite-burn execution is
+// driven by World.ActiveBurn during subsequent ticks.
 type ManeuverNode struct {
 	TriggerTime time.Time
 	Mode        spacecraft.BurnMode
 	DV          float64
+	Duration    time.Duration
+}
+
+// ActiveBurn is the runtime state of an in-progress finite burn. Set by
+// executeDueNodes when a node with Duration>0 fires; cleared by the
+// integrator when DVRemaining hits zero or SimTime passes EndTime.
+type ActiveBurn struct {
+	Mode        spacecraft.BurnMode
+	DVRemaining float64
+	EndTime     time.Time
 }
 
 // PlanNode inserts a node into World.Nodes, keeping the slice sorted by
@@ -34,6 +49,13 @@ func (w *World) ClearNodes() { w.Nodes = nil }
 // executeDueNodes fires every node whose TriggerTime has passed, applying
 // the burn to the spacecraft in order. Called from Tick after sim-time
 // advances. Re-entrant: if two nodes fall in the same tick, both fire.
+//
+// Impulsive nodes (Duration==0) apply their Δv inline and are popped.
+// Finite nodes (Duration>0) start an ActiveBurn and are popped; the burn
+// then runs across subsequent ticks via the RK4 branch in
+// integrateSpacecraft. If a finite burn is already active when a new
+// finite node fires, the new one replaces it (last-write-wins; the
+// planner UI is responsible for not over-stacking).
 func (w *World) executeDueNodes() {
 	if w.Craft == nil {
 		return
@@ -43,7 +65,15 @@ func (w *World) executeDueNodes() {
 		if n.TriggerTime.After(w.Clock.SimTime) {
 			break
 		}
-		w.Craft.ApplyImpulsive(n.Mode, n.DV)
+		if n.Duration == 0 {
+			w.Craft.ApplyImpulsive(n.Mode, n.DV)
+		} else {
+			w.ActiveBurn = &ActiveBurn{
+				Mode:        n.Mode,
+				DVRemaining: n.DV,
+				EndTime:     n.TriggerTime.Add(n.Duration),
+			}
+		}
 		fired++
 	}
 	if fired > 0 {

@@ -130,6 +130,100 @@ func TestPropagateCraftPreservesCircularRadius(t *testing.T) {
 	}
 }
 
+// TestFiniteNodeStartsActiveBurn: a node with Duration > 0 should not
+// instantly mutate velocity; instead it sets World.ActiveBurn so the
+// integrator burn loop runs across subsequent ticks.
+func TestFiniteNodeStartsActiveBurn(t *testing.T) {
+	w := mustWorld(t)
+	vBefore := w.Craft.OrbitalSpeed()
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(-time.Second),
+		DV:          50,
+		Mode:        spacecraft.BurnPrograde,
+		Duration:    60 * time.Second,
+	})
+	w.executeDueNodes()
+
+	if w.ActiveBurn == nil {
+		t.Fatalf("expected ActiveBurn to be set after finite node fired")
+	}
+	if w.ActiveBurn.DVRemaining != 50 {
+		t.Errorf("DVRemaining = %g, want 50", w.ActiveBurn.DVRemaining)
+	}
+	if v := w.Craft.OrbitalSpeed(); math.Abs(v-vBefore) > 1e-9 {
+		t.Errorf("velocity changed by %g during executeDueNodes; finite burn should defer to integrator", v-vBefore)
+	}
+	if len(w.Nodes) != 0 {
+		t.Errorf("finite node should be popped from queue, got %d remaining", len(w.Nodes))
+	}
+}
+
+// TestFiniteBurnDeliversDeltaVAcrossTicks: across enough warp-1 ticks
+// for the requested duration, an active burn should deliver close to
+// the requested Δv, consume fuel, and clear ActiveBurn when done.
+func TestFiniteBurnDeliversDeltaVAcrossTicks(t *testing.T) {
+	w := mustWorld(t)
+	vBefore := w.Craft.OrbitalSpeed()
+	fuelBefore := w.Craft.Fuel
+
+	const targetDV = 5.0 // small enough to finish well within 60s budget
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime,
+		DV:          targetDV,
+		Mode:        spacecraft.BurnPrograde,
+		Duration:    60 * time.Second,
+	})
+
+	// Warp 1×, BaseStep 50 ms → 60s window = 1200 ticks. Add safety margin.
+	for i := 0; i < 2000 && w.ActiveBurn != nil || i == 0; i++ {
+		w.Tick()
+		if i > 0 && w.ActiveBurn == nil {
+			break
+		}
+	}
+
+	if w.ActiveBurn != nil {
+		t.Fatalf("ActiveBurn should be cleared after Δv delivered or duration elapsed; remaining=%g", w.ActiveBurn.DVRemaining)
+	}
+	dv := w.Craft.OrbitalSpeed() - vBefore
+	// Speed change isn't pure thrust Δv — gravity rotates v during the
+	// burn. Within a fraction of an orbital period the magnitude change
+	// should be within ~20% of target Δv (LEO period ≈ 5500s, burn ≈ 15s
+	// at our default 1 kN thrust to deliver 5 m/s on 1 ton craft).
+	if dv < targetDV*0.5 || dv > targetDV*1.5 {
+		t.Errorf("speed change after finite burn: got %.3f m/s, expected ~%.3f m/s", dv, targetDV)
+	}
+	if w.Craft.Fuel >= fuelBefore {
+		t.Errorf("fuel did not decrease: %g → %g", fuelBefore, w.Craft.Fuel)
+	}
+}
+
+// TestFiniteBurnEndsAtDurationWhenDVNotMet: if the engine cannot deliver
+// the requested Δv within the duration budget, the burn should still
+// terminate at EndTime.
+func TestFiniteBurnEndsAtDurationWhenDVNotMet(t *testing.T) {
+	w := mustWorld(t)
+	// Request way more Δv than the engine can produce in 1 second
+	// (1 kN / 1000 kg = 1 m/s² → ~1 m/s in 1 s; ask for 10 000).
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime,
+		DV:          10000,
+		Mode:        spacecraft.BurnPrograde,
+		Duration:    1 * time.Second,
+	})
+
+	// 50 ms base step × 30 ticks = 1.5 s — past the 1 s window.
+	for i := 0; i < 60; i++ {
+		w.Tick()
+		if w.ActiveBurn == nil {
+			break
+		}
+	}
+	if w.ActiveBurn != nil {
+		t.Errorf("burn should terminate at EndTime even if DV unmet; got DVRemaining=%g", w.ActiveBurn.DVRemaining)
+	}
+}
+
 func mustWorld(t *testing.T) *World {
 	t.Helper()
 	w, err := NewWorld()

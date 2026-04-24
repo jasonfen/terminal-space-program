@@ -27,9 +27,14 @@ type World struct {
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
 
-	// Nodes holds planned impulsive burns, sorted by TriggerTime. Each
-	// fires automatically when Clock.SimTime reaches its trigger.
+	// Nodes holds planned burns, sorted by TriggerTime. Each fires
+	// automatically when Clock.SimTime reaches its trigger.
 	Nodes []ManeuverNode
+
+	// ActiveBurn is non-nil while a finite-duration burn is mid-execution.
+	// Set by executeDueNodes when a Duration>0 node fires; cleared by
+	// integrateSpacecraft when DVRemaining hits zero or SimTime ≥ EndTime.
+	ActiveBurn *ActiveBurn
 
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
@@ -133,11 +138,17 @@ func (w *World) Tick() {
 }
 
 // clampedWarp returns min(selected warp, max warp allowed by the step-size
-// guard). max = (1024 sub-steps × period/100) / base_step.
+// guard, burn-warp cap if a finite burn is active). max = (1024 sub-steps
+// × period/100) / base_step. Active-burn cap = 10× per docs/plan.md
+// §Time-warp UX — finite burns at >10× warp would let the integrator
+// blast past the EndTime in a single tick and lose temporal resolution.
 func (w *World) clampedWarp() float64 {
 	selected := w.Clock.Warp()
 	if w.Craft == nil {
 		return selected
+	}
+	if w.ActiveBurn != nil && selected > 10 {
+		selected = 10
 	}
 	mu := w.Craft.Primary.GravitationalParameter()
 	period := orbitalPeriod(w.Craft.State, mu)
@@ -157,9 +168,12 @@ func (w *World) clampedWarp() float64 {
 // as Clock.Warp() when the user isn't hitting the step-size guard.
 func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 
-// integrateSpacecraft sub-steps the Verlet integrator so that each
-// step dt obeys dt < period/100 (plan §Phase 1 numerical stability guard,
-// hard-coded here; exposed as a configurable warp-clamp at C21).
+// integrateSpacecraft sub-steps the integrator so that each step dt obeys
+// dt < period/100 (plan §Phase 1 numerical stability guard, hard-coded
+// here; exposed as a configurable warp-clamp at C21). When ActiveBurn is
+// in flight, sub-steps run RK4 with engine thrust on top of gravity so
+// the non-conservative force is handled cleanly (Verlet would silently
+// drift); otherwise pure Verlet for energy-conserving free flight.
 func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	mu := w.Craft.Primary.GravitationalParameter()
 	period := orbitalPeriod(w.Craft.State, mu)
@@ -179,9 +193,65 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 		nSteps = 1024
 	}
 	dt := secs / float64(nSteps)
+	tickStart := w.Clock.SimTime.Add(-simDelta)
 	for i := 0; i < nSteps; i++ {
-		w.Craft.State = physics.StepVerlet(w.Craft.State, mu, dt)
+		if w.burnActiveAt(tickStart, dt, i) {
+			w.stepThrust(mu, dt)
+		} else {
+			w.Craft.State = physics.StepVerlet(w.Craft.State, mu, dt)
+		}
 	}
+	// Tear down the burn if it exhausted (Δv delivered, fuel gone, or
+	// EndTime passed during this tick).
+	if w.ActiveBurn != nil && w.burnExhausted() {
+		w.ActiveBurn = nil
+	}
+}
+
+// burnActiveAt reports whether sub-step i of the current tick should fire
+// the engine: ActiveBurn must exist, the sub-step must start before
+// EndTime, and DVRemaining + fuel must both be positive.
+func (w *World) burnActiveAt(tickStart time.Time, dt float64, i int) bool {
+	if w.ActiveBurn == nil {
+		return false
+	}
+	if w.ActiveBurn.DVRemaining <= 0 || w.Craft.Fuel <= 0 {
+		return false
+	}
+	subStart := tickStart.Add(time.Duration(float64(i) * dt * float64(time.Second)))
+	return subStart.Before(w.ActiveBurn.EndTime)
+}
+
+// stepThrust advances one RK4 sub-step with engine thrust, debits the
+// active-burn Δv budget by the analytical thrust contribution
+// (Thrust/mass × dt), and burns fuel via the configured mass flow.
+func (w *World) stepThrust(mu, dt float64) {
+	accelFn := w.Craft.ThrustAccelFn(w.ActiveBurn.Mode, mu)
+	w.Craft.State = physics.StepRK4(w.Craft.State, dt, accelFn, 0)
+
+	mass := w.Craft.TotalMass()
+	if mass > 0 {
+		dvApplied := (w.Craft.Thrust / mass) * dt
+		if dvApplied > w.ActiveBurn.DVRemaining {
+			dvApplied = w.ActiveBurn.DVRemaining
+		}
+		w.ActiveBurn.DVRemaining -= dvApplied
+	}
+	fuelBurned := w.Craft.MassFlowRate() * dt
+	if fuelBurned > w.Craft.Fuel {
+		fuelBurned = w.Craft.Fuel
+	}
+	w.Craft.Fuel -= fuelBurned
+	w.Craft.State.M = w.Craft.TotalMass()
+}
+
+// burnExhausted reports whether the active burn should be torn down: any
+// of Δv delivered, fuel empty, or sim-time past the duration window
+// terminates the burn.
+func (w *World) burnExhausted() bool {
+	return w.ActiveBurn.DVRemaining <= 0 ||
+		w.Craft.Fuel <= 0 ||
+		!w.Clock.SimTime.Before(w.ActiveBurn.EndTime)
 }
 
 // orbitalPeriod returns 2π√(a³/μ) or +Inf on unbound orbits. Used to
