@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.3.4**.
+Latest release: **v0.3.5**.
 
 ```bash
 # Linux x86_64
@@ -115,6 +115,20 @@ mass loss tracked from the rocket equation.
 A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
+
+## Features (v0.3.5)
+
+- **Punchier default engine.** `Thrust` on `NewInLEO` bumped from 1 kN
+  to 10 kN. 200 m/s `n` burn now takes 20 s sim-time instead of 200 s;
+  3.6 km/s Mars departure ≈ 6 min sim-time instead of 1 hr.
+- **Apoapsis / periapsis markers.** The orbit renderer now plants two
+  filled disks on the current orbit — larger disk at apoapsis (ν=π),
+  smaller at periapsis (ν=0). Low-eccentricity orbits (e < 0.1) are
+  near-circular in *shape* even when the apo/peri altitudes differ by
+  hundreds of km; the markers show the two extremes at a glance
+  without requiring the player to read altitudes off the HUD.
+- **`n` default Δv** bumped 50 → 200 m/s so a single press produces a
+  visibly-offset orbit (e ≈ 0.05) at default FocusCraft zoom.
 
 ## Features (v0.3.4)
 

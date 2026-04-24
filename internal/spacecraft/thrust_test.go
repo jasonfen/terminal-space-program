@@ -89,14 +89,14 @@ func TestRemainingDeltaV(t *testing.T) {
 	}
 }
 
-// TestMassFlowRate: at default Thrust=1000 N, Isp=300 s,
-// ṁ = 1000 / (300 · 9.80665) ≈ 0.340 kg/s.
+// TestMassFlowRate: at default Thrust=10000 N, Isp=300 s,
+// ṁ = 10000 / (300 · 9.80665) ≈ 3.399 kg/s.
 func TestMassFlowRate(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 	got := sc.MassFlowRate()
-	want := 1000.0 / (300.0 * 9.80665)
+	want := 10000.0 / (300.0 * 9.80665)
 	if math.Abs(got-want) > 1e-6 {
 		t.Errorf("MassFlowRate = %.6f, want %.6f", got, want)
 	}
