@@ -203,7 +203,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PlanNode):
 			if a.world.CraftVisibleHere() {
-				const defaultDV = 50.0
+				const defaultDV = 200.0
 				dur := finiteBurnDuration(defaultDV, a.world.Craft.TotalMass(), a.world.Craft.Thrust)
 				a.world.PlanNode(sim.ManeuverNode{
 					TriggerTime: a.world.Clock.SimTime.Add(5 * time.Minute),

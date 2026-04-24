@@ -45,7 +45,7 @@ func DefaultKeymap() Keymap {
 		FocusNext:  key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next focus")),
 		FocusPrev:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
 		FocusReset: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "focus: system")),
-		PlanNode:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "plan node (T+5m prograde 50m/s)")),
+		PlanNode:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "plan node (T+5m prograde 200m/s)")),
 		ClearNodes:   key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "clear nodes")),
 		PlanTransfer: key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "plant Hohmann transfer to selected body")),
 		Porkchop:     key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "porkchop plot for selected body")),
