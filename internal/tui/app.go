@@ -88,7 +88,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.BurnExecutedMsg:
 		if a.world.Craft != nil {
-			a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
+			if m.Duration == 0 {
+				a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
+			} else {
+				a.world.ActiveBurn = &sim.ActiveBurn{
+					Mode:        m.Mode,
+					DVRemaining: m.DV,
+					EndTime:     a.world.Clock.SimTime.Add(m.Duration),
+				}
+			}
 		}
 		a.world.Clock.Paused = false
 		a.active = screenOrbit

@@ -250,13 +250,30 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
+	if w.ActiveBurn != nil {
+		remaining := w.ActiveBurn.EndTime.Sub(w.Clock.SimTime).Seconds()
+		if remaining < 0 {
+			remaining = 0
+		}
+		lines = append(lines, "",
+			v.theme.Warning.Render("BURN ACTIVE"),
+			fmt.Sprintf("  mode:    %s", w.ActiveBurn.Mode.String()),
+			fmt.Sprintf("  Δv-to-go: %.1f m/s", w.ActiveBurn.DVRemaining),
+			fmt.Sprintf("  T-%.1fs remaining", remaining),
+		)
+	}
+
 	if len(w.Nodes) > 0 {
 		lines = append(lines, "", v.theme.Primary.Render("NODES"))
 		for i, n := range w.Nodes {
 			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+			kind := "imp"
+			if n.Duration > 0 {
+				kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
+			}
 			lines = append(lines, fmt.Sprintf(
-				"  #%d T%+.0fs  %s  %.0f m/s",
-				i+1, dt, n.Mode.String(), n.DV,
+				"  #%d T%+.0fs  %s  %.0f m/s  %s",
+				i+1, dt, n.Mode.String(), n.DV, kind,
 			))
 		}
 	}
