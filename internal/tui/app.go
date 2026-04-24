@@ -196,6 +196,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				})
 			}
 			return a, nil
+		case key.Matches(m, a.keys.PlanTransfer):
+			if a.world.CraftVisibleHere() && a.selectedBody > 0 {
+				_, _ = a.world.PlanTransfer(a.selectedBody)
+				// Errors silently ignored: the targeted body is the one
+				// the user selected with ←/→, so the only failure modes
+				// (system primary, equal radii) are handled by the input
+				// guard above. A future polish item is showing the error
+				// message in the HUD when planting fails.
+			}
+			return a, nil
 		case key.Matches(m, a.keys.ClearNodes):
 			a.world.ClearNodes()
 			return a, nil

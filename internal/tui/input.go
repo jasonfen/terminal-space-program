@@ -21,8 +21,9 @@ type Keymap struct {
 	FocusNext  key.Binding
 	FocusPrev  key.Binding
 	FocusReset key.Binding
-	PlanNode   key.Binding
-	ClearNodes key.Binding
+	PlanNode      key.Binding
+	ClearNodes    key.Binding
+	PlanTransfer  key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -43,7 +44,8 @@ func DefaultKeymap() Keymap {
 		FocusNext:  key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next focus")),
 		FocusPrev:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
 		FocusReset: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "focus: system")),
-		PlanNode:   key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "plan node (T+5m prograde 50m/s)")),
-		ClearNodes: key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "clear nodes")),
+		PlanNode:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "plan node (T+5m prograde 50m/s)")),
+		ClearNodes:   key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "clear nodes")),
+		PlanTransfer: key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "plant Hohmann transfer to selected body")),
 	}
 }

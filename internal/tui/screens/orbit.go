@@ -123,7 +123,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s", sys.Name))
 	footer := v.theme.Footer.Render(
-		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [m]burn [i]info [?]help [.,]warp [0]pause",
+		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [P]plant [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -150,20 +150,38 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	if len(w.Nodes) == 0 || w.Craft == nil {
 		return
 	}
+	homeID := w.Craft.Primary.ID
 	for _, n := range w.Nodes {
-		v.plotCluster(w.NodeInertialPosition(n), 6)
+		// Frame-distinct cluster size: home-frame nodes get a tight cross,
+		// foreign-frame (heliocentric or destination-SOI) get a larger
+		// one so the player can see at a glance which leg is which on
+		// auto-planted transfers.
+		size := 6
+		if n.PrimaryID != "" && n.PrimaryID != homeID {
+			size = 10
+		}
+		v.plotCluster(w.NodeInertialPosition(n), size)
 	}
 
 	first := w.Nodes[0]
-	post := w.PostBurnState(first)
+	post, postPrimaryID := w.PostBurnState(first)
+	// Use the mu of whichever primary the post-burn state is expressed in
+	// — usually craft's current primary (departure node), but may differ
+	// for nodes planted in a foreign frame (auto-plant arrival).
 	mu := w.Craft.Primary.GravitationalParameter()
+	if postPrimaryID != w.Craft.Primary.ID {
+		// Post-burn frame differs from the craft's home; PredictedSegments
+		// is not yet parameterised on start-frame, so skip the trajectory
+		// preview rather than render a wrong one. Glyphs (drawn above)
+		// still mark where the burn fires.
+		return
+	}
 	horizon := postBurnHorizon(post, mu)
 	if horizon <= 0 {
 		return
 	}
 
 	segments := w.PredictedSegments(post, horizon, 96)
-	homeID := w.Craft.Primary.ID
 	for _, seg := range segments {
 		stride := 2
 		if seg.PrimaryID != homeID {
