@@ -12,7 +12,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
-	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -142,9 +141,11 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 }
 
 // drawNodes plots every planned maneuver node at its projected inertial
-// position and draws a dashed predicted trajectory starting from the
-// first node's post-burn state. Sampling horizon is one orbit period
-// around the craft's primary — long enough to see the new ellipse.
+// position and draws the post-burn predicted trajectory starting from
+// the first node. The trajectory is segmented by SOI: samples inside
+// the craft's home SOI use stride-2 (dashed); samples that cross into
+// another body's SOI use stride-1 (solid) so the crossing is visually
+// distinct at a glance.
 func (v *OrbitView) drawNodes(w *sim.World) {
 	if len(w.Nodes) == 0 || w.Craft == nil {
 		return
@@ -156,19 +157,24 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	first := w.Nodes[0]
 	post := w.PostBurnState(first)
 	mu := w.Craft.Primary.GravitationalParameter()
-	// Horizon: 1 orbital period of the post-burn orbit, bounded so an
-	// escape trajectory doesn't blow up into an infinite line.
 	horizon := postBurnHorizon(post, mu)
 	if horizon <= 0 {
 		return
 	}
-	pts := planner.Predict(post, mu, horizon, 96)
-	primaryPos := w.BodyPosition(w.Craft.Primary)
-	for i, p := range pts {
-		if i%2 == 0 { // stride 2 → dashed
-			continue
+
+	segments := w.PredictedSegments(post, horizon, 96)
+	homeID := w.Craft.Primary.ID
+	for _, seg := range segments {
+		stride := 2
+		if seg.PrimaryID != homeID {
+			stride = 1 // foreign SOI — solid, eye-catching
 		}
-		v.canvas.Plot(primaryPos.Add(p))
+		for i, p := range seg.Points {
+			if stride > 1 && i%stride == 0 {
+				continue
+			}
+			v.canvas.Plot(p)
+		}
 	}
 }
 
@@ -273,6 +279,11 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			lines = append(lines, fmt.Sprintf("  a: %.3f AU", auVal))
 			lines = append(lines, fmt.Sprintf("  e: %.4f", b.Eccentricity))
 			lines = append(lines, fmt.Sprintf("  T: %.1f d", b.SideralOrbit))
+
+			if preview := w.HohmannPreviewFor(selectedIdx); preview.Valid || preview.Note != "" {
+				lines = append(lines, "", v.theme.Primary.Render("HOHMANN PREVIEW"))
+				lines = append(lines, preview.Format()...)
+			}
 		} else {
 			lines = append(lines, v.theme.Dim.Render("  (primary)"))
 		}
