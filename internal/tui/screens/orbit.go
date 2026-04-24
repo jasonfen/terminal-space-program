@@ -93,10 +93,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// Plot each body at its perceived-size disk. System primary (index 0)
 	// gets a hollow ring + filled center to distinguish it from planets.
 	// See BodyPixelRadius for the size-tier logic.
+	scale := v.canvas.Scale()
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
-		r := BodyPixelRadius(b, i == 0)
+		r := BodyPixelRadius(b, i == 0, scale)
 		if i == 0 {
 			v.canvas.RingOutline(pos, r)
 			v.canvas.FillDisk(pos, 1)
@@ -160,15 +161,34 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	return title + "\n" + body + "\n" + footer
 }
 
-// BodyPixelRadius returns the perceived-size pixel radius for a body on
-// the orbit canvas, bucketed by physical radius rather than projected
-// to true scale — even the Sun is a sub-pixel speck at Sol-wide zoom.
-// Size tiers keep the visual hierarchy readable: star > gas giant >
-// terrestrial > small body. The `isPrimary` flag is advisory (the
-// caller decides how to render; today that's a hollow ring for the
-// primary vs a filled disk for everything else).
-func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool) int {
+// BodyPixelRadius returns the body's render radius in pixels. When the
+// canvas is zoomed in enough that the body's true radius projects to
+// at least trueSizeThreshold pixels, render at true size — so the
+// rendered disk represents real surface, and a periapsis marker
+// inside it visually reads as a collision. When zoomed out, fall back
+// to a tier bucket so the body stays visible (true would be sub-pixel
+// at system-wide zoom).
+//
+// Pass scale=0 to force the tier-bucket path (used when projection
+// metadata isn't available).
+//
+// The `isPrimary` flag promotes a small body to star tier in the
+// fallback path so the system primary always renders bigger than its
+// planets even when its physical radius wouldn't otherwise put it
+// there.
+func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64) int {
+	const trueSizeThreshold = 4
+	const trueSizeCap = 64 // keep the Sun from filling the canvas at extreme zoom-in
 	r := b.RadiusMeters()
+	if scale > 0 && r > 0 {
+		truePx := int(math.Round(r * scale))
+		if truePx >= trueSizeThreshold {
+			if truePx > trueSizeCap {
+				truePx = trueSizeCap
+			}
+			return truePx
+		}
+	}
 	switch {
 	case isPrimary, r >= 1e8: // star-class
 		return 6
@@ -309,6 +329,11 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
 			fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
 			fmt.Sprintf("  inclin.:   %.2f°", incDeg),
+		)
+		if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
+			lines = append(lines, "  "+v.theme.Alert.Render("PERIAPSIS BELOW SURFACE"))
+		}
+		lines = append(lines,
 			"",
 			v.theme.Primary.Render("PROPELLANT"),
 			fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
