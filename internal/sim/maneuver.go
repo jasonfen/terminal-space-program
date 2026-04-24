@@ -127,9 +127,24 @@ func (w *World) PostBurnState(n ManeuverNode) physics.StateVector {
 // propagateCraft forward-integrates the craft's primary-relative state
 // dt seconds into the future without mutating live state. Used by
 // NodeInertialPosition and by OrbitView's predicted-trajectory preview.
+//
+// v0.3.0: SOI-aware. When a sub-step crosses an SOI boundary the state
+// is rebased to the new primary's frame and μ switches for subsequent
+// steps. The returned state is expressed relative to whichever primary
+// owns the spacecraft at dt — callers that need a stable frame should
+// add the relevant primary's inertial position themselves.
 func (w *World) propagateCraft(dt float64) physics.StateVector {
-	mu := w.Craft.Primary.GravitationalParameter()
-	period := orbitalPeriod(w.Craft.State, mu)
+	current := w.Craft.Primary
+	muNow := current.GravitationalParameter()
+	state := w.Craft.State
+
+	sys := w.System()
+	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
+	for _, b := range sys.Bodies {
+		positions[b.ID] = w.BodyPosition(b)
+	}
+
+	period := orbitalPeriod(state, muNow)
 	maxStep := period / 100.0
 	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
 		maxStep = 1.0
@@ -138,16 +153,22 @@ func (w *World) propagateCraft(dt float64) physics.StateVector {
 	if nSteps < 1 {
 		nSteps = 1
 	}
-	// Cap large propagation windows so a 10-period look-ahead doesn't
-	// grind. At 1024 sub-steps over `period` we still resolve each orbit
-	// at ≈10× the live-sim fidelity.
 	if nSteps > 1024 {
 		nSteps = 1024
 	}
 	step := dt / float64(nSteps)
-	state := w.Craft.State
 	for i := 0; i < nSteps; i++ {
-		state = physics.StepVerlet(state, mu, step)
+		state = physics.StepVerlet(state, muNow, step)
+
+		inertial := positions[current.ID].Add(state.R)
+		cand := physics.FindPrimary(sys, inertial, positions)
+		if cand.Body.ID != current.ID {
+			vOld := w.bodyInertialVelocity(current)
+			vNew := w.bodyInertialVelocity(cand.Body)
+			state = physics.Rebase(state, positions[current.ID], cand.Inertial, vOld.Sub(vNew))
+			current = cand.Body
+			muNow = current.GravitationalParameter()
+		}
 	}
 	return state
 }
