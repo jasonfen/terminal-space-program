@@ -117,8 +117,18 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		c := w.Craft
 		muCraft := c.Primary.GravitationalParameter()
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
+		primaryPos := w.BodyPosition(c.Primary)
 		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
-			v.canvas.DrawEllipseOffsetDotted(el, w.BodyPosition(c.Primary), 360, 3)
+			v.canvas.DrawEllipseOffsetDotted(el, primaryPos, 360, 3)
+			// Apoapsis / periapsis markers — render even for low-e
+			// orbits so the player sees WHERE the two extremes are
+			// when the ellipse shape alone is near-circular. Apoapsis
+			// gets a larger disk, periapsis smaller; distinct sizes
+			// read at a glance.
+			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
+			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
+			v.canvas.FillDisk(peri, 2)
+			v.canvas.FillDisk(apo, 3)
 		}
 		// Directional vessel glyph — chevron rotated into the craft's
 		// velocity frame so the player reads "which way am I going"

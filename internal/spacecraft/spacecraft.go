@@ -52,7 +52,7 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 		DryMass: 500,
 		Fuel:    500,
 		Isp:     300,
-		Thrust:  1000, // 1 kN — small enough that finite effects show up at realistic Δv
+		Thrust:  10000, // 10 kN — burns finish in seconds-to-minutes for sub-km/s Δv, ~minutes for km/s transfers
 		Primary: earth,
 		State: physics.StateVector{
 			R: orbital.Vec3{X: r},
