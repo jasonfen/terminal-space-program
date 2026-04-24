@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Once v0.1.0 is cut and binaries are published:
+Latest release: **v0.2.0**.
 
 ```bash
 # Linux x86_64
@@ -57,13 +57,40 @@ Requires Go 1.24+ (bubbletea dependency chain).
 | `s` | Switch system (Sol → Alpha Cen → TRAPPIST-1 → Kepler-452) |
 | `i` | Body info |
 | `+` / `-` | Zoom in / out |
+| `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
+| `g` | Reset camera focus to system |
 | `.` | Warp up (1× … 100000×) |
 | `,` | Warp down |
 | `0`, `Space` | Pause / resume |
 | `m` | Open maneuver planner |
+| `n` | Plan a maneuver node |
+| `N` | Clear all planned nodes |
 | `Tab` (in planner) | Cycle direction mode |
 | `Enter` (in planner) | Commit burn |
 | `Esc` (in planner) | Cancel burn |
+
+## Features (v0.2)
+
+Slice-1 of the v0.2 scope — "maneuver planning, closed loop."
+
+- **View focus / camera follow.** `f`/`F` cycles the camera target across
+  the system primary, every body, and the spacecraft (Sol only); `g`
+  resets to the system view. Focus keeps moving targets centered without
+  refitting the zoom on every frame.
+- **Maneuver nodes.** `n` plants a node on the current orbit; `N` clears
+  all pending nodes. Nodes are rendered on-canvas at their projected
+  inertial position and listed in the HUD. When sim-time reaches a
+  node's trigger time, its impulsive burn fires and the node pops.
+- **SOI-segmented trajectory viz.** The predicted post-burn trajectory
+  is partitioned by dominant sphere-of-influence. Samples inside the
+  craft's home SOI render stride-2 dashed; samples that cross into a
+  foreign SOI render stride-1 solid so capture arcs read visually
+  distinct from cruise.
+- **Hohmann preview HUD.** When the cursor-selected body has orbital
+  data, the SELECTED block renders reference heliocentric Δv1 / Δv2 /
+  transfer time computed off the system primary's GM and the craft's
+  current inertial radius. Earth → Mars lands within 10% of the
+  Curtis §6.2 textbook values.
 
 ## Features (v0.1)
 
@@ -81,11 +108,12 @@ Requires Go 1.24+ (bubbletea dependency chain).
 - **Single binary.** 5-target GoReleaser matrix (linux+darwin amd64/arm64,
   windows amd64), `CGO_ENABLED=0`, `-ldflags "-s -w"`.
 
-### Deferred to v0.2+
+### Deferred to v0.3+
 
-Finite-duration burns (impulsive only in v0.1), Hohmann / Lambert
-planner, multi-system spacecraft, save/load, N-body perturbations,
-config-file custom systems, mouse support.
+Finite-duration burns (impulsive only through v0.2), Lambert targeting
+with auto-plant nodes in the correct SOI frame, multi-system spacecraft,
+save/load, N-body perturbations, config-file custom systems, mouse
+support.
 
 ## Implementation plan
 
