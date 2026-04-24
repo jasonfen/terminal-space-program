@@ -52,6 +52,39 @@ func TestElementsFromStateEllipticalApoPeri(t *testing.T) {
 	}
 }
 
+// TestElementsEquatorialArgPeriapsis: equatorial elliptical orbit with
+// periapsis rotated to the +Y direction (ω = π/2 when Ω = 0). Pre-
+// v0.3.4 the node vector degenerated at i≈0 and ω stayed at 0,
+// freezing the rendered orbit at the initial-state orientation after
+// a burn rotated the real periapsis.
+func TestElementsEquatorialArgPeriapsis(t *testing.T) {
+	mu := 3.986e14
+	rPeri := 7e6
+	rApo := 4.2e7
+	aWant := (rPeri + rApo) / 2
+	vPeri := math.Sqrt(mu * (2/rPeri - 1/aWant))
+
+	// Start at +Y periapsis with retrograde-prograde tangent. Velocity
+	// at periapsis is perpendicular to r; for +Y periapsis the
+	// prograde tangent in the equatorial plane is -X (so h_z > 0).
+	el := ElementsFromState(
+		Vec3{Y: rPeri},
+		Vec3{X: -vPeri},
+		mu,
+	)
+
+	wantArg := math.Pi / 2
+	if d := math.Abs(el.Arg - wantArg); d > 1e-9 {
+		t.Errorf("equatorial ω = %.6f rad, want %.6f rad", el.Arg, wantArg)
+	}
+
+	// And the rendered periapsis position should land at +Y, not +X.
+	peri := PositionAtTrueAnomaly(el, 0)
+	if math.Abs(peri.X) > 1 || math.Abs(peri.Y-rPeri)/rPeri > 1e-6 {
+		t.Errorf("equatorial periapsis rendered at %+v, want ~(0, %g, 0)", peri, rPeri)
+	}
+}
+
 // TestInclinedOrbit: 30° inclination, circular, should produce i=30° and e≈0.
 func TestInclinedOrbit(t *testing.T) {
 	mu := 3.986e14
