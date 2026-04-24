@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.3.1**.
+Latest release: **v0.3.2**.
 
 ```bash
 # Linux x86_64
@@ -115,6 +115,22 @@ A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
 
+## Features (v0.3.2)
+
+- **Perceived body size.** Planets and moons render as filled disks
+  sized by physical-radius tier (moon / terrestrial / gas giant /
+  star) rather than single dots. The system primary gets a hollow ring
+  with a filled center to distinguish it from the planets that orbit it.
+  Sizes are bucketed for readability — even the Sun would be a sub-
+  pixel speck at Sol-wide zoom if rendered to true scale.
+- **Vessel orbit path.** The craft's *current* Keplerian orbit ellipse
+  is drawn live on the canvas (dotted, stride 3) so the player can see
+  their trajectory at a glance without mentally re-deriving it from a
+  velocity vector. Renders in the craft's home primary frame,
+  translated into the system frame so it sits alongside planet orbits.
+  Hyperbolic escape trajectories are still shown via the SOI-segmented
+  preview from the maneuver planner.
+
 ## Features (v0.3.1)
 
 - **Auto-plant Hohmann transfer** (`P`). Select a target body, press one
@@ -187,12 +203,18 @@ until the requested Δv is delivered, whichever first.
 - **Single binary.** 5-target GoReleaser matrix (linux+darwin amd64/arm64,
   windows amd64), `CGO_ENABLED=0`, `-ldflags "-s -w"`.
 
-### Deferred to v0.3.2+
+### Deferred to v0.3.3+
 
 - **Porkchop plot** screen for real launch-window selection (the v0.3.1
   auto-plant assumes ideal phasing).
 - **Lambert multi-revolution** branches and explicit retrograde handling.
+
+### Deferred to v0.4+
+
 - **Inclination-change planner** for out-of-plane corrections.
+- **Vessel position history trail** (distinct from current orbit
+  ellipse).
+- **Zoom-level LOD** for body size and orbit density.
 - **Mid-course corrections**, **save/load**, **multi-system spacecraft**,
   **N-body perturbations**, **config-file custom systems**, **mouse**.
 
