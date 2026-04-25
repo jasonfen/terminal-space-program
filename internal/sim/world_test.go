@@ -204,6 +204,41 @@ func TestCraftTrailGrowsAndCaps(t *testing.T) {
 	}
 }
 
+// TestCraftTrailFollowsPrimaryFrame: regression for the v0.5.4 fix.
+// Pre-fix the trail stored heliocentric inertial samples; LEO trail
+// samples taken minutes apart appeared displaced by Earth's motion
+// (~30 km/s × elapsed sim time). Storing primary-relative R + re-
+// translating via current BodyPosition keeps the trail aligned with
+// the craft's apparent orbit around its primary.
+//
+// Test: run enough ticks for several samples to land, then verify
+// that *every* sample's distance from current Earth position is
+// within LEO orbit radius (a few ×10^6 m), not the AU-scale offsets
+// produced by the heliocentric-trail bug.
+func TestCraftTrailFollowsPrimaryFrame(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.BaseStep = 60 * time.Second // 1 sample per tick (60s ≥ 10s interval)
+	for i := 0; i < trailCap; i++ {
+		w.Tick()
+	}
+	tr := w.CraftTrail()
+	if len(tr) != trailCap {
+		t.Fatalf("expected full trail (%d), got %d", trailCap, len(tr))
+	}
+	earthPos := w.BodyPosition(w.Craft.Primary)
+	craftR := w.Craft.State.R.Norm()
+	// Allow 2× LEO radius for trail spread over ticks; bug would
+	// produce 1e8+ m displacements.
+	maxAllowed := 2 * craftR
+	for i, p := range tr {
+		dist := p.Sub(earthPos).Norm()
+		if dist > maxAllowed {
+			t.Errorf("trail sample %d: distance from Earth %.3e m > %.3e m (heliocentric drift bug?)",
+				i, dist, maxAllowed)
+		}
+	}
+}
+
 // TestPausedTickDoesNothing: world.Clock.Paused must block both time
 // advancement and physics stepping.
 func TestPausedTickDoesNothing(t *testing.T) {
