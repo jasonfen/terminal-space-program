@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
@@ -181,6 +182,55 @@ func TestWarpLockPreservesCircularOrbit(t *testing.T) {
 	// Eccentricity must stay ~zero. Pre-fix: O(1e-3) random walk.
 	if endEl.E > 1e-9 {
 		t.Errorf("warp-lock eccentricity grew to %.3e (want < 1e-9)", endEl.E)
+	}
+}
+
+// TestWarpLockDetectsForeignSOIEntry: regression for v0.4.4. Place a
+// heliocentric craft already inside Mars's SOI (with craft.Primary
+// still set to Sun, simulating a craft that just crossed in). v0.4.3's
+// analytic warp path returned without SOI re-evaluation, so the primary
+// stayed Sun until the every-20-tick maybeSwitchPrimary throttle fired.
+// v0.4.4's keplerStepWithSOICheck calls FindPrimary between Kepler
+// chunks; one tick should be enough to switch primary.
+func TestWarpLockDetectsForeignSOIEntry(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	sun := sys.Bodies[0]
+	var mars bodies.CelestialBody
+	for _, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			mars = b
+			break
+		}
+	}
+	if mars.EnglishName == "" {
+		t.Skip("Mars not in loaded Sol system")
+	}
+
+	marsPos := w.BodyPosition(mars)
+	marsVel := w.bodyInertialVelocity(mars)
+	soi := physics.SOIRadius(mars, sun)
+
+	// Place craft 50% inside Mars's SOI, on the heliocentric +X side
+	// of Mars. Velocity = Mars's velocity + a small radial component
+	// so the craft is bound to Mars in the post-rebase frame.
+	w.Craft.Primary = sun
+	w.Craft.State.R = orbital.Vec3{X: marsPos.X + soi*0.5, Y: marsPos.Y, Z: marsPos.Z}
+	w.Craft.State.V = marsVel
+
+	// Bump to 1000× warp (well above 1× so warp-lock activates) but not
+	// so high we burn 20+ ticks of sim time waiting for the throttle.
+	for i := 0; i < 3; i++ {
+		w.Clock.WarpUp()
+	}
+	if w.Clock.Warp() != 1000 {
+		t.Fatalf("warp setup: got %.0f, want 1000", w.Clock.Warp())
+	}
+
+	w.Tick()
+	if w.Craft.Primary.ID != mars.ID {
+		t.Errorf("after 1 tick under warp lock, primary = %s, want Mars (SOI re-eval skipped between Kepler chunks)",
+			w.Craft.Primary.EnglishName)
 	}
 }
 
