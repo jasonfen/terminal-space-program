@@ -46,6 +46,11 @@ func (h *Help) Render() string {
 			{"n", "plan a node (T+5m prograde 50m/s)"},
 			{"N", "clear all planned nodes"},
 		}},
+		{"PERSISTENCE", [][2]string{
+			{"S", "save game (XDG_STATE_HOME)"},
+			{"L", "load game"},
+			{"q", "quit (autosaves)"},
+		}},
 	}
 
 	var b strings.Builder
