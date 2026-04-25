@@ -101,20 +101,31 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// Target's position in its parent's frame == craft's primary
 		// here, since target.ParentID == craft.Primary.ID.
 		targetAngle := primaryFrameAngle(w, target)
-		// v0.5.11: pre-compute departure burn duration so the planner
-		// can pad the wait window — guarantees the centered TriggerTime
-		// (planted - duration/2) doesn't fall in the past, which would
-		// force the burn to start uncentered at the next tick.
-		mass := w.Craft.TotalMass()
-		thrust := w.Craft.Thrust
-		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival)
+		// v0.5.12 path is impulsive — no need for mass/thrust here.
+		dvDepIdeal := estimateIntraPrimaryDepDv(muShared, rPark, rArrival)
+		// v0.5.12: intra-primary auto-plant uses *impulsive* burns, not
+		// finite. A finite TLI burn (~14 min over a 5310 s LEO period =
+		// 16% of orbit) integrates with significant geometry loss — the
+		// craft's trajectory deforms during the burn in ways the
+		// impulsive Hohmann math doesn't predict. Empirically: ideal
+		// Δv 3133 m/s as a finite burn lands apoapsis at ~283 000 km
+		// (74% of Luna). Same Δv as impulsive lands at 384 399 km
+		// (100% — exact Luna). Same Tsiolkovsky fuel consumption either
+		// way, so the only cost is "burns are instant" rather than
+		// "burns take ~14 sim minutes." That's the right UX trade for an
+		// auto-plant tool — the user expects "click H → reach Luna,"
+		// not a 27% shortfall.
+		//
+		// Manual `m`-planner finite burns and the inter-primary path
+		// retain finite behavior; this only affects intra-primary
+		// auto-plant.
 		var minLead float64
-		if thrust > 0 && mass > 0 {
-			minLead = (dvDepEstimate * mass / thrust) / 2
-		}
+		_ = minLead // unused for impulsive path; kept for symmetry with finite branch
+		// Impulsive path needs no padding — burn fires instantly, no
+		// duration to fit. minLeadSeconds = 0.
 		plan, err := planner.PlanIntraPrimaryHohmann(
 			muShared, rPark, rArrival,
-			craftAngle, targetAngle, minLead,
+			craftAngle, targetAngle, 0,
 			w.Craft.Primary.ID,
 			muDestination, rCapture, target.ID,
 		)
@@ -122,8 +133,9 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 			return nil, err
 		}
 		now := w.Clock.SimTime
-		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
-		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+		w.PlanNode(intraPrimaryImpulsive(plan.Departure, now))
+		w.PlanNode(intraPrimaryImpulsive(plan.Arrival, now))
+		_ = dvDepIdeal // kept for clarity; planner returns this Δv
 		return &plan, nil
 	}
 
@@ -398,6 +410,62 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 		muArr, rCapture,
 	)
 	return grid, nil
+}
+
+// intraPrimaryImpulsive converts a planner.TransferNode into an
+// impulsive sim.ManeuverNode (Duration = 0) that fires exactly at
+// `now + tn.OffsetTime`. Used for intra-primary auto-plant where
+// finite-burn integration loss makes the apoapsis fall well short of
+// the target. Tsiolkovsky-equivalent fuel still gets consumed via
+// ApplyImpulsive.
+func intraPrimaryImpulsive(tn planner.TransferNode, now time.Time) ManeuverNode {
+	mode := spacecraft.BurnPrograde
+	if tn.IsRetrograde {
+		mode = spacecraft.BurnRetrograde
+	}
+	return ManeuverNode{
+		TriggerTime: now.Add(tn.OffsetTime),
+		Mode:        mode,
+		DV:          tn.DV,
+		Duration:    0,
+		PrimaryID:   tn.PrimaryID,
+	}
+}
+
+// compensateFiniteBurn inflates an ideal-impulsive Δv to account for
+// gravity-rotation loss during a centered finite burn at the parking
+// orbit's periapsis. Without compensation, a 4% loss on Hohmann TLI
+// drops apoapsis from Luna distance to ~165k km — nowhere near the
+// moon.
+//
+// Math: a centered burn over half-arc α sweeps the prograde direction
+// from -α to +α relative to periapsis tangent. The along-track
+// component of the integrated Δv is Δv_ideal × sin(α)/α (perpendicular
+// components sum to zero by symmetry). To deliver Δv_target we request
+// Δv such that Δv × sin(α(Δv))/α(Δv) = Δv_target, where
+//   α(Δv) = (Δv·m / F) × n_craft / 2 = k · Δv,  k = m·n/(2F)
+// Substituting: sin(k·Δv) = k·Δv_target → Δv = asin(k·Δv_target)/k.
+//
+// Returns the ideal Δv unchanged if k·Δv_target ≥ 1 (geometrically
+// impossible — burn arc would exceed half the orbit), or if any input
+// is degenerate.
+func compensateFiniteBurn(dvIdeal, mass, thrust, mu, rPark float64) float64 {
+	if dvIdeal <= 0 || mass <= 0 || thrust <= 0 || mu <= 0 || rPark <= 0 {
+		return dvIdeal
+	}
+	nCraft := math.Sqrt(mu / (rPark * rPark * rPark))
+	k := mass * nCraft / (2 * thrust)
+	if k <= 0 {
+		return dvIdeal
+	}
+	arg := k * dvIdeal
+	if arg >= 1 {
+		// Geometrically can't deliver this Δv with a centered burn —
+		// the half-arc would exceed π/2. Fall back to ideal; the burn
+		// will under-deliver but at least won't panic the planner.
+		return dvIdeal
+	}
+	return math.Asin(arg) / k
 }
 
 // estimateIntraPrimaryDepDv returns the Hohmann departure Δv for a

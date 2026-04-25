@@ -472,6 +472,53 @@ func TestPlanTransferIntraPrimaryBurnIsCentered(t *testing.T) {
 	}
 }
 
+// TestIntraPrimaryHohmannReachesLunaApoapsis: v0.5.12 — end-to-end.
+// Plant Hohmann to Luna, simulate forward through the burn, check the
+// post-burn orbit's apoapsis lands at Luna's distance (within 5%).
+// Pre-v0.5.12 the finite-burn integration loss left apoapsis at ~74%
+// of Luna distance — craft never reached the moon. Switch to
+// impulsive burns delivers the planner's exact Δv → exact Hohmann
+// ellipse.
+func TestIntraPrimaryHohmannReachesLunaApoapsis(t *testing.T) {
+	w := mustWorld(t)
+	moonIdx := -1
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon missing from Sol")
+	}
+	if _, err := w.PlanTransfer(moonIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	dep := w.Nodes[0]
+	if dep.Duration != 0 {
+		t.Errorf("v0.5.12 intra-primary auto-plant must be impulsive; got Duration %v", dep.Duration)
+	}
+
+	// Crank warp and run until the departure burn fires.
+	for i := 0; i < 4; i++ {
+		w.Clock.WarpUp() // 10000×
+	}
+	for tick := 0; tick < 100000; tick++ {
+		w.Tick()
+		if w.Clock.SimTime.After(dep.TriggerTime) {
+			break
+		}
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	const lunaDist = 384399000.0
+	hit := el.Apoapsis() / lunaDist
+	if hit < 0.95 || hit > 1.05 {
+		t.Errorf("apoapsis = %.0f km (%.2f%% of Luna distance), want 95–105%%",
+			el.Apoapsis()/1000, hit*100)
+	}
+}
+
 // TestPlanTransferIntraPrimaryHohmannForMoon: v0.5.7 — PlanTransfer
 // must dispatch to PlanIntraPrimaryHohmann when target.ParentID matches
 // craft's primary. Sanity-check that Earth → Luna gives a realistic
