@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -24,8 +27,9 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 	}
 	cb := sys.Bodies[selectedIdx]
 
+	titleStyle := lipgloss.NewStyle().Foreground(render.ColorFor(cb)).Bold(true)
 	sections := []string{
-		b.theme.Title.Render(cb.EnglishName),
+		titleStyle.Render(cb.EnglishName),
 		b.theme.Dim.Render(fmt.Sprintf("%s in %s", cb.BodyType, sys.Name)),
 		"",
 		b.theme.Primary.Render("PHYSICAL"),
