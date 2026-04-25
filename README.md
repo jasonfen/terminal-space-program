@@ -96,7 +96,7 @@ mass loss tracked from the rocket equation.
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
 | `g` | Reset camera focus to system |
-| `n` | Plan a default node (T+5min, prograde, 50 m/s) |
+| `n` | Plan a default node (T+5min, prograde, 200 m/s) |
 | `N` | Clear all planned nodes |
 | `P` | **Auto-plant Hohmann transfer to selected body** (v0.3.1) |
 | `k` | **Porkchop plot for selected body** (v0.3.3); `Enter` on a cell plants that transfer (v0.4.1) |
@@ -117,6 +117,18 @@ mass loss tracked from the rocket equation.
 A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
+
+### Porkchop plot (`k`)
+
+| Key | Action |
+|---|---|
+| `←` / `→` | Departure-day cursor |
+| `↑` / `↓` | Time-of-flight cursor |
+| `Enter` | Plant Lambert transfer for selected cell (v0.4.1) |
+| `Esc` | Back to orbit view |
+
+Cursor opens snapped to the minimum-Δv cell. `·` glyphs mark cells
+where Lambert didn't converge — `Enter` on those is a no-op.
 
 ## Features (v0.4.1)
 
