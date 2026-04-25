@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.4.4 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.5.0 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.4.4)
+## 1. What works today (v0.5.0)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -88,6 +88,24 @@ features and the version sequence that delivers them.
 - Planned nodes: list with mode / Δv / time-to-fire / impulsive vs finite tag.
 - Selected body: name, type, semimajor axis, eccentricity, period, plus
   Hohmann preview when applicable.
+
+### Body hierarchy & moons (v0.5.0)
+- `bodies.Body.ParentID` enables arbitrary-depth `parent → child` refs.
+  Empty ParentID = top-level body (orbits the system primary).
+- `BodyPosition` recurses: moon position = parent's inertial position
+  + moon's position relative to parent.
+- `bodyInertialVelocity` recurses: moon's inertial velocity = parent's
+  inertial velocity + moon's velocity relative to parent.
+- `physics.FindPrimary` uses each body's actual parent for SOI sizing
+  (Luna→Earth, Phobos→Mars), so nested-SOI walks pick the innermost
+  containing body correctly. Also reaches into the warp-lock chunk
+  cap so foreign-SOI proximity stays accurate post-hierarchy.
+- Moon catalog: Luna, Phobos, Deimos, the four Galilean (Io, Europa,
+  Ganymede, Callisto), Titan, Enceladus — single-moon (Earth) and
+  multi-moon (Jupiter, Saturn) primaries both exercised.
+- Transfer planning to/from moons is **not** in v0.5.0 — `PlanTransfer`
+  still assumes shared primary; Earth → Luna pathing slips to v0.6
+  alongside the planner UX work.
 
 ### Systems loaded
 - **Sol** (playable — craft spawns here).
@@ -195,7 +213,8 @@ features and the version sequence that delivers them.
 | v0.4.1 ✓ | | Porkchop Enter-to-plant + `R`-refine mid-course correction |
 | v0.4.2 ✓ | | Per-sub-step SOI check in live integrator (high-warp orbit drift fix) |
 | v0.4.3 ✓ | | Warp-lock: analytic Kepler propagation when warp > 1× and no active burn (eliminates Verlet eccentricity drift) |
-| v0.4.4 ✓ | (current) | Sub-divided Kepler step: chunks the analytic warp path so foreign SOIs (e.g. Mars during a heliocentric transfer) aren't skipped |
+| v0.4.4 ✓ | | Sub-divided Kepler step: chunks the analytic warp path so foreign SOIs (e.g. Mars during a heliocentric transfer) aren't skipped |
+| **v0.5.0 ✓** | **(current)** | Body hierarchy: `ParentID`, recursive `BodyPosition`/`bodyInertialVelocity`, hierarchical `FindPrimary`. Major moons: Luna, Phobos, Deimos, Galilean ×4, Titan, Enceladus |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |

@@ -85,8 +85,11 @@ func (w *World) CraftVisibleHere() bool {
 	return w.Craft != nil && w.SystemIdx == 0
 }
 
-// BodyPosition returns the inertial position (m) of a body in the current
-// system at the current sim time. Primary (index 0) is anchored at origin.
+// BodyPosition returns the inertial position (m) of a body in the
+// current system at the current sim time. Primary (index 0) is
+// anchored at origin. Bodies with ParentID set (moons; v0.5.0+) are
+// resolved recursively as parent_position + position-relative-to-
+// parent, so Luna sits in Earth's frame, Io in Jupiter's, etc.
 func (w *World) BodyPosition(b bodies.CelestialBody) orbital.Vec3 {
 	if b.SemimajorAxis == 0 {
 		return orbital.Vec3{}
@@ -95,7 +98,17 @@ func (w *World) BodyPosition(b bodies.CelestialBody) orbital.Vec3 {
 	E := orbital.SolveKepler(M, b.Eccentricity)
 	nu := orbital.TrueAnomaly(E, b.Eccentricity)
 	el := orbital.ElementsFromBody(b)
-	return orbital.PositionAtTrueAnomaly(el, nu)
+	rRel := orbital.PositionAtTrueAnomaly(el, nu)
+	if b.ParentID == "" {
+		return rRel
+	}
+	sys := w.System()
+	parent := sys.ParentOf(b)
+	if parent == nil {
+		// Malformed ParentID — fall back to top-level treatment.
+		return rRel
+	}
+	return w.BodyPosition(*parent).Add(rRel)
 }
 
 // CraftInertial returns the spacecraft's inertial position (Sun-centered)
@@ -389,10 +402,23 @@ func (w *World) keplerStepWithSOICheck(simDelta time.Duration) bool {
 
 // chunkDtCap returns the maximum analytic-step duration for the
 // current craft primary, given craft speed. Bound by the smallest
-// foreign body's SOI radius / (4·speed) so no SOI can be traversed
-// without an intermediate FindPrimary check. +Inf when no foreign
-// SOI exists (single-body system) — caller treats that as "one chunk
-// covers the whole tick".
+// in-reach foreign body's SOI radius / (4·speed) so no plausibly-
+// reachable SOI can be traversed without an intermediate FindPrimary
+// check. +Inf when no foreign SOI is in reach.
+//
+// "In reach" = siblings of the craft's primary (same ParentID, e.g.
+// other planets when craft is in Earth SOI) plus direct children of
+// the craft's primary (e.g. Luna when craft is in Earth SOI). Tinier
+// distant SOIs (Phobos when craft is in Earth SOI, Galilean moons
+// when heliocentric) are excluded — too small to enter from a tick's
+// worth of travel given the parent-system geometry, and including
+// them tanks chunk counts (Phobos's 13 km SOI would force ~1024
+// chunks per tick from any planetary orbit).
+//
+// v0.5.0: pre-moons this just iterated all non-primary bodies. Adding
+// moons necessitates the in-reach filter; deeper "is this SOI
+// trajectory-reachable in dt" analysis is v0.5.x territory per
+// docs/integration-design.md §6.
 func chunkDtCap(sys bodies.System, currentPrimary bodies.CelestialBody, speed float64) float64 {
 	if speed <= 0 {
 		speed = 1.0
@@ -403,7 +429,16 @@ func chunkDtCap(sys bodies.System, currentPrimary bodies.CelestialBody, speed fl
 		if b.ID == primaryID || b.ID == currentPrimary.ID {
 			continue
 		}
-		soi := physics.SOIRadius(b, sys.Bodies[0])
+		isSibling := b.ParentID == currentPrimary.ParentID
+		isChild := b.ParentID == currentPrimary.ID
+		if !isSibling && !isChild {
+			continue
+		}
+		parent := sys.ParentOf(b)
+		if parent == nil {
+			continue
+		}
+		soi := physics.SOIRadius(b, *parent)
 		if soi <= 0 {
 			continue
 		}
@@ -458,6 +493,11 @@ func (w *World) maybeSwitchPrimary() {
 	w.Craft.Primary = newPrimary.Body
 }
 
+// bodyInertialVelocity returns the body's velocity in the system-
+// inertial frame. For top-level bodies that's velocity around the
+// system primary (μ = sun.GM). For moons (ParentID set) it's
+// parent's inertial velocity + the moon's velocity around its parent
+// (μ = parent.GM). v0.5.0+.
 func (w *World) bodyInertialVelocity(b bodies.CelestialBody) orbital.Vec3 {
 	if b.SemimajorAxis == 0 {
 		return orbital.Vec3{}
@@ -466,8 +506,17 @@ func (w *World) bodyInertialVelocity(b bodies.CelestialBody) orbital.Vec3 {
 	E := orbital.SolveKepler(M, b.Eccentricity)
 	nu := orbital.TrueAnomaly(E, b.Eccentricity)
 	el := orbital.ElementsFromBody(b)
-	// Velocity is relative to the SYSTEM primary (Sun). Use system primary's
-	// GM — fetch from Sol.
-	sunMu := w.Systems[0].Bodies[0].GravitationalParameter()
-	return orbital.VelocityAtTrueAnomaly(el, nu, sunMu)
+
+	sys := w.System()
+	parent := sys.ParentOf(b)
+	if parent == nil {
+		// Malformed ParentID — treat as top-level around system primary.
+		parent = sys.Primary()
+	}
+	mu := parent.GravitationalParameter()
+	vRel := orbital.VelocityAtTrueAnomaly(el, nu, mu)
+	if b.ParentID == "" {
+		return vRel
+	}
+	return w.bodyInertialVelocity(*parent).Add(vRel)
 }
