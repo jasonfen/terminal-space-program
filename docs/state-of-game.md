@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.3.6 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.4.1 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.3.6)
+## 1. What works today (v0.4.1)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -48,7 +48,16 @@ features and the version sequence that delivers them.
   with `Duration = Δv × mass / thrust`. Frame-aware via `ManeuverNode.PrimaryID`.
 - **`k` porkchop plot**: ASCII heatmap over departure-day × time-of-flight,
   intensity ramp `█▓▒░ ` cheap → expensive. Cursor navigates cells, snaps to
-  min-Δv on open. Read-only — no plant from cursor yet (deferred).
+  min-Δv on open. **Enter on a feasible cell plants that Lambert-based
+  transfer** (v0.4.1) via `World.PlanTransferAt`.
+- **`R` refine plan** (v0.4.1): re-runs Lambert from the craft's live
+  heliocentric state to the pending arrival node's target at the
+  existing arrival time; plants a prograde / retrograde mid-course
+  correction burn sized to `|v1_lambert − v_craft|` and replaces the
+  arrival burn's Δv with the refined `|v2_lambert − v_target|` capture.
+  Correction mode picked by alignment of the Δv vector with current
+  velocity (scalar-along-velocity; full vector corrections stay
+  deferred).
 
 ### Rendering (orbit canvas)
 - **Adaptive body sizing**: bodies render at true scale when `radius × scale
@@ -181,8 +190,9 @@ features and the version sequence that delivers them.
 
 | Version | Theme | Headline features |
 |---------|-------|-------------------|
-| v0.3.6 ✓ | (current) | Adaptive body sizing, peri-below-surface warning |
-| **v0.4** | **Persistence** | Save / load (v0.4.0); mid-course corrections + porkchop Enter-to-plant (v0.4.1) |
+| v0.3.6 ✓ | | Adaptive body sizing, peri-below-surface warning |
+| v0.4.0 ✓ | Persistence | Save / load with versioned envelope |
+| v0.4.1 ✓ | (current) | Porkchop Enter-to-plant + `R`-refine mid-course correction |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |

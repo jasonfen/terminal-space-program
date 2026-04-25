@@ -112,6 +112,198 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	return &plan, nil
 }
 
+// RefinePlan re-runs a heliocentric Lambert from the craft's current
+// state to the destination body at the pending arrival node's
+// TriggerTime, plants a mid-course correction burn at the current
+// sim-time for Δv = |v1_lambert − v_craft_heliocentric|, and replaces
+// the arrival node's Δv with |v2_lambert − v_target_heliocentric| via
+// CaptureBurnDeltaV. Closes the porkchop / PlanTransfer loop by giving
+// the player a way to correct drift during a coast.
+//
+// Returns (correctionDv, refinedArrivalDv, error). err != nil if no
+// pending arrival node exists (PlanTransfer / PlanTransferAt hasn't
+// been called, or arrival already fired) or Lambert fails to converge.
+//
+// The correction burn's mode (prograde vs retrograde) is picked by the
+// sign of (v1_lambert − v_craft) · v_craft: aligned → prograde, else
+// retrograde. This is a scalar approximation — full vector mid-course
+// correction would need a new burn mode; for v0.4.1 scalar-along-
+// velocity corrections are sufficient to close small drifts.
+func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
+	if w.Craft == nil {
+		return 0, 0, errNoCraftForTransfer
+	}
+	// Find the latest pending "arrival" node — one whose PrimaryID
+	// identifies a non-home body. PlanTransfer / PlanTransferAt plants
+	// arrival with PrimaryID = target.ID.
+	arrIdx := -1
+	for i := len(w.Nodes) - 1; i >= 0; i-- {
+		n := w.Nodes[i]
+		if n.PrimaryID != "" && n.PrimaryID != w.Craft.Primary.ID {
+			arrIdx = i
+			break
+		}
+	}
+	if arrIdx < 0 {
+		return 0, 0, errNoRefineTarget
+	}
+	arrNode := w.Nodes[arrIdx]
+	sys := w.System()
+	var target bodies.CelestialBody
+	targetFound := false
+	for _, b := range sys.Bodies {
+		if b.ID == arrNode.PrimaryID {
+			target = b
+			targetFound = true
+			break
+		}
+	}
+	if !targetFound {
+		return 0, 0, errNoRefineTarget
+	}
+
+	now := w.Clock.SimTime
+	tof := arrNode.TriggerTime.Sub(now).Seconds()
+	if tof <= 0 {
+		return 0, 0, errNoRefineTarget
+	}
+
+	primary := sys.Bodies[0]
+	muSun := primary.GravitationalParameter()
+
+	// Craft's heliocentric state now.
+	vCraftHelio := w.bodyInertialVelocity(w.Craft.Primary).Add(w.Craft.State.V)
+	rCraftHelio := w.BodyPosition(w.Craft.Primary).Add(w.Craft.State.R)
+
+	// Target's heliocentric state at arrival time.
+	arrEph := w.bodyEphemeris(target)
+	rArr, vArrBody := arrEph(float64(arrNode.TriggerTime.Unix()))
+
+	v1, v2, err := planner.LambertSolve(rCraftHelio, rArr, tof, muSun)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Correction burn: Δv to transition craft from v_current to v1.
+	dvVec := v1.Sub(vCraftHelio)
+	correctionDv = dvVec.Norm()
+	alignment := dvVec.X*vCraftHelio.X + dvVec.Y*vCraftHelio.Y + dvVec.Z*vCraftHelio.Z
+	correctionMode := spacecraft.BurnPrograde
+	if alignment < 0 {
+		correctionMode = spacecraft.BurnRetrograde
+	}
+
+	// Arrival burn: updated Δv based on refined Lambert v2.
+	vInfArr := v2.Sub(vArrBody).Norm()
+	muDest := target.GravitationalParameter()
+	rCapture := target.RadiusMeters() + 200e3
+	arrivalDv, err = planner.CaptureBurnDeltaV(vInfArr, muDest, rCapture)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	mass := w.Craft.TotalMass()
+	thrust := w.Craft.Thrust
+
+	// Plant the correction burn at now (tiny offset to avoid firing the
+	// same tick it lands if executeDueNodes has already run).
+	var correctionDur time.Duration
+	if thrust > 0 && mass > 0 && correctionDv > 0 {
+		correctionDur = time.Duration(correctionDv * mass / thrust * float64(time.Second))
+	}
+	if correctionDv > 0 {
+		w.PlanNode(ManeuverNode{
+			TriggerTime: now.Add(time.Second),
+			Mode:        correctionMode,
+			DV:          correctionDv,
+			Duration:    correctionDur,
+			PrimaryID:   w.Craft.Primary.ID,
+		})
+	}
+
+	// Rebuild the arrival node in place with refined Δv.
+	newArrival := ManeuverNode{
+		TriggerTime: arrNode.TriggerTime,
+		Mode:        arrNode.Mode,
+		DV:          arrivalDv,
+		PrimaryID:   arrNode.PrimaryID,
+	}
+	if thrust > 0 && mass > 0 && arrivalDv > 0 {
+		newArrival.Duration = time.Duration(arrivalDv * mass / thrust * float64(time.Second))
+	}
+	// Find arrNode again by index after PlanNode sorted the slice.
+	for i, n := range w.Nodes {
+		if n.TriggerTime.Equal(arrNode.TriggerTime) && n.PrimaryID == arrNode.PrimaryID {
+			w.Nodes[i] = newArrival
+			break
+		}
+	}
+	return correctionDv, arrivalDv, nil
+}
+
+// PlanTransferAt constructs a Lambert-based transfer for a specific
+// (departure-day, time-of-flight) pair — the cell selected on the
+// porkchop plot — and plants the resulting two-burn plan onto
+// World.Nodes. Parking and capture orbit parameters match PlanTransfer
+// / PorkchopGrid so a cell's planted Δv equals the cell's scored Δv
+// to within Lambert iteration tolerance.
+//
+// depDay / tofDay are in days; depDay is an offset from w.Clock.SimTime.
+// Used by the porkchop screen's Enter-to-plant path (v0.4.1).
+func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.TransferPlan, error) {
+	sys := w.System()
+	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
+		return nil, errInvalidTransferTarget
+	}
+	if w.Craft == nil {
+		return nil, errNoCraftForTransfer
+	}
+	if tofDay <= 0 {
+		return nil, errInvalidTransferTarget
+	}
+	target := sys.Bodies[targetIdx]
+	if target.SemimajorAxis == 0 {
+		return nil, errInvalidTransferTarget
+	}
+
+	primary := sys.Bodies[0]
+	muSun := primary.GravitationalParameter()
+	rPark := w.Craft.State.R.Norm()
+	muDep := w.Craft.Primary.GravitationalParameter()
+	rCapture := target.RadiusMeters() + 200e3
+	muArr := target.GravitationalParameter()
+
+	depEph := w.bodyEphemeris(w.Craft.Primary)
+	arrEph := w.bodyEphemeris(target)
+	const secondsPerDay = 86400.0
+	epoch0 := float64(w.Clock.SimTime.Unix())
+	tDep := epoch0 + depDay*secondsPerDay
+	tArr := tDep + tofDay*secondsPerDay
+	rDep, vDep := depEph(tDep)
+	rArr, vArr := arrEph(tArr)
+
+	depOffset := time.Duration(depDay * secondsPerDay * float64(time.Second))
+	plan, err := planner.PlanLambertTransfer(
+		muSun,
+		rDep, vDep,
+		rArr, vArr,
+		tofDay*secondsPerDay,
+		muDep, rPark, w.Craft.Primary.ID,
+		muArr, rCapture, target.ID,
+		depOffset,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	now := w.Clock.SimTime
+	mass := w.Craft.TotalMass()
+	thrust := w.Craft.Thrust
+	w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
+	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+	return &plan, nil
+}
+
 // PorkchopGrid computes a launch-window grid for a Hohmann-style
 // transfer to the target body. Axes: depDays (offsets from now) and
 // tofDays (time of flight). Each cell = total Δv (departure + capture,
@@ -197,6 +389,7 @@ func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust
 var (
 	errInvalidTransferTarget = transferError("invalid transfer target body")
 	errNoCraftForTransfer    = transferError("no craft to plan transfer for")
+	errNoRefineTarget        = transferError("no pending transfer to refine")
 )
 
 type transferError string

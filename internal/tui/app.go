@@ -141,6 +141,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			_, done := a.porkchop.HandleKey(m)
 			if done {
+				if tgt, depD, tofD, ok := a.porkchop.PendingPlant(); ok {
+					_, _ = a.world.PlanTransferAt(tgt, depD, tofD)
+				}
 				a.active = screenOrbit
 			}
 			return a, nil
@@ -248,6 +251,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.Load):
 			a.flashStatus("load", a.doLoad())
+			return a, nil
+		case key.Matches(m, a.keys.RefinePlan):
+			if a.world.CraftVisibleHere() {
+				corr, arr, err := a.world.RefinePlan()
+				if err != nil {
+					a.statusMsg = fmt.Sprintf("refine failed: %v", err)
+				} else {
+					a.statusMsg = fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr)
+				}
+				a.statusExpires = time.Now().Add(3 * time.Second)
+			}
 			return a, nil
 		}
 	}
