@@ -116,6 +116,85 @@ func PlanHohmannTransfer(
 	}, nil
 }
 
+// PlanIntraPrimaryHohmann constructs a Hohmann transfer for the case
+// where craft and target both orbit the same primary (e.g. craft in
+// LEO around Earth → Luna also around Earth). Pre-v0.5.7 PlanTransfer
+// assumed craft and target both heliocentric; for moon targets it
+// computed nonsense (Luna's parent-relative semimajor used as a
+// heliocentric distance).
+//
+// Inputs:
+//   - mu: GM of the shared primary (e.g. Earth's GM).
+//   - rDeparture: craft's |R| in primary's frame (e.g. LEO radius
+//     ≈ 6571 km for 200 km altitude).
+//   - rArrival: target's semimajor axis around primary (e.g. Luna's
+//     384 399 km).
+//   - departureID: identifier of the primary (for ManeuverNode
+//     PrimaryID labeling).
+//   - muTarget, rCapture, targetID: target body's GM, capture-orbit
+//     radius around target, and ID. Used for the SOI-entry braking
+//     burn — closing speed at rendezvous becomes v∞ relative to
+//     target, which CaptureBurnDeltaV converts to a circular-orbit
+//     insertion Δv.
+//
+// Departure burn: prograde Δv at periapsis raising apoapsis to
+// rArrival. Arrival burn: capture into target SOI at rArrival.
+//
+// Phasing not enforced — same caveat as PlanHohmannTransfer.
+func PlanIntraPrimaryHohmann(
+	mu float64,
+	rDeparture, rArrival float64,
+	departureID string,
+	muTarget, rCapture float64,
+	targetID string,
+) (TransferPlan, error) {
+	if mu <= 0 || rDeparture <= 0 || rArrival <= 0 {
+		return TransferPlan{}, errors.New("planintra: mu and radii must be positive")
+	}
+	if rDeparture == rArrival {
+		return TransferPlan{}, errors.New("planintra: departure and arrival radii are equal — no transfer")
+	}
+
+	aT := (rDeparture + rArrival) / 2
+	vDepCirc := math.Sqrt(mu / rDeparture)
+	vArrCirc := math.Sqrt(mu / rArrival)
+	vTransAtDep := math.Sqrt(mu * (2/rDeparture - 1/aT))
+	vTransAtArr := math.Sqrt(mu * (2/rArrival - 1/aT))
+
+	dvDep := vTransAtDep - vDepCirc
+	// Closing speed at rendezvous: target moves at vArrCirc, craft
+	// arrives with vTransAtArr. Outbound: target faster, craft is
+	// slower → target catches craft from "behind" relative to
+	// rendezvous geometry, vInf = vArrCirc - vTransAtArr.
+	vInfArr := math.Abs(vArrCirc - vTransAtArr)
+	dvArr, err := CaptureBurnDeltaV(vInfArr, muTarget, rCapture)
+	if err != nil {
+		return TransferPlan{}, err
+	}
+
+	// Coast time = half the transfer ellipse's period.
+	transferTime := math.Pi * math.Sqrt(aT*aT*aT/mu)
+
+	outbound := rArrival > rDeparture
+	return TransferPlan{
+		Departure: TransferNode{
+			Leg:          LegDeparture,
+			PrimaryID:    departureID,
+			DV:           math.Abs(dvDep),
+			OffsetTime:   0,
+			IsRetrograde: !outbound,
+		},
+		Arrival: TransferNode{
+			Leg:          LegArrival,
+			PrimaryID:    targetID,
+			DV:           dvArr,
+			OffsetTime:   time.Duration(transferTime * float64(time.Second)),
+			IsRetrograde: outbound,
+		},
+		TransferDt: time.Duration(transferTime * float64(time.Second)),
+	}, nil
+}
+
 // PlanLambertTransfer builds a two-burn transfer for an arbitrary
 // (departure-time, time-of-flight) pair using a single-rev Lambert
 // solve for the heliocentric coast. Unlike PlanHohmannTransfer which
