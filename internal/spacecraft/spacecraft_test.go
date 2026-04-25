@@ -12,8 +12,9 @@ func TestNewInLEO(t *testing.T) {
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 
-	if sc.TotalMass() != 1000 {
-		t.Errorf("total mass = %v, want 1000", sc.TotalMass())
+	// v0.5.6 default: ICPS-like 3500 kg dry + 25000 kg fuel.
+	if sc.TotalMass() != 28500 {
+		t.Errorf("total mass = %v, want 28500", sc.TotalMass())
 	}
 	// Altitude should be ~200 km.
 	alt := sc.Altitude()
