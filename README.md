@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.3.6**.
+Latest release: **v0.4.1**.
 
 ```bash
 # Linux x86_64
@@ -99,7 +99,9 @@ mass loss tracked from the rocket equation.
 | `n` | Plan a default node (T+5min, prograde, 50 m/s) |
 | `N` | Clear all planned nodes |
 | `P` | **Auto-plant Hohmann transfer to selected body** (v0.3.1) |
-| `k` | **Porkchop plot for selected body** (v0.3.3) |
+| `k` | **Porkchop plot for selected body** (v0.3.3); `Enter` on a cell plants that transfer (v0.4.1) |
+| `R` | **Refine plan** — re-Lambert from live state, plant mid-course correction + update arrival (v0.4.1) |
+| `S` / `L` | Save / load game (v0.4.0) |
 | `m` | Open maneuver planner |
 
 ### Maneuver planner (`m`)
@@ -116,7 +118,7 @@ A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
 
-## Features (v0.3.6)
+## Features (v0.4.1)
 
 - **Adaptive body sizing.** `BodyPixelRadius` now switches to true-
   scale rendering when the body's projected radius would be ≥ 4 px,
@@ -269,10 +271,8 @@ until the requested Δv is delivered, whichever first.
 - **Single binary.** 5-target GoReleaser matrix (linux+darwin amd64/arm64,
   windows amd64), `CGO_ENABLED=0`, `-ldflags "-s -w"`.
 
-### Deferred to v0.4+
+### Deferred to v0.5+
 
-- **Enter-to-plant** from the porkchop cursor (reuses `PlanTransfer`
-  once it accepts explicit departure offsets).
 - **Explicit retrograde-flag** for Lambert (today both branches work,
   but the selection is driven by the bracket starting point, not a
   caller hint).
@@ -280,8 +280,8 @@ until the requested Δv is delivered, whichever first.
 - **Vessel position history trail** (distinct from current orbit
   ellipse).
 - **Zoom-level LOD** for body size and orbit density.
-- **Mid-course corrections**, **save/load**, **multi-system spacecraft**,
-  **N-body perturbations**, **config-file custom systems**, **mouse**.
+- **Multi-system spacecraft**, **N-body perturbations**,
+  **config-file custom systems**, **mouse**.
 
 ## Implementation plan
 

@@ -333,3 +333,189 @@ func mustWorld(t *testing.T) *World {
 	}
 	return w
 }
+
+// TestPlanTransferAtPlantsTwoNodes: PlanTransferAt for an arbitrary
+// (depDay, tofDay) pair plants a departure + arrival with the correct
+// primaries, finite durations, and a time gap matching tofDay.
+func TestPlanTransferAtPlantsTwoNodes(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+
+	const depDay, tofDay = 30.0, 260.0
+	plan, err := w.PlanTransferAt(marsIdx, depDay, tofDay)
+	if err != nil {
+		t.Fatalf("PlanTransferAt: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("PlanTransferAt returned nil plan with nil error")
+	}
+	if len(w.Nodes) != 2 {
+		t.Fatalf("expected 2 planted nodes, got %d", len(w.Nodes))
+	}
+	if w.Nodes[0].PrimaryID != w.Craft.Primary.ID {
+		t.Errorf("departure PrimaryID = %q, want craft primary %q",
+			w.Nodes[0].PrimaryID, w.Craft.Primary.ID)
+	}
+	if w.Nodes[1].PrimaryID != sys.Bodies[marsIdx].ID {
+		t.Errorf("arrival PrimaryID = %q, want mars %q",
+			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
+	}
+	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime).Seconds()
+	wantGap := tofDay * 86400.0
+	if math.Abs(gap-wantGap) > 1.0 {
+		t.Errorf("planted-node gap = %.0f s, want %.0f s", gap, wantGap)
+	}
+	for i, n := range w.Nodes {
+		if n.Duration <= 0 {
+			t.Errorf("node %d Duration = %v, want > 0 (finite)", i, n.Duration)
+		}
+	}
+}
+
+// TestPlanTransferAtMatchesPorkchopGridCell: planting at an explicit
+// (depDay, tofDay) should produce total Δv within tolerance of the
+// porkchop grid's scored Δv for the same cell — the whole point of
+// Enter-to-plant is that the cursor's number is what gets planted.
+func TestPlanTransferAtMatchesPorkchopGridCell(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	depDays := []float64{30}
+	tofDays := []float64{260}
+	grid, err := w.PorkchopGrid(marsIdx, depDays, tofDays)
+	if err != nil {
+		t.Fatalf("PorkchopGrid: %v", err)
+	}
+	want := grid[0][0]
+	if math.IsNaN(want) {
+		t.Skip("porkchop cell did not converge — pick different depDay/tofDay")
+	}
+	plan, err := w.PlanTransferAt(marsIdx, depDays[0], tofDays[0])
+	if err != nil {
+		t.Fatalf("PlanTransferAt: %v", err)
+	}
+	got := plan.Departure.DV + plan.Arrival.DV
+	if math.Abs(got-want)/want > 1e-6 {
+		t.Errorf("plan Δv = %.3f m/s, grid cell Δv = %.3f m/s (rel diff %.2e)",
+			got, want, math.Abs(got-want)/want)
+	}
+}
+
+// TestPlanTransferAtRejectsBadInputs: out-of-range targets, zero TOF,
+// and system-primary index all error without planting.
+func TestPlanTransferAtRejectsBadInputs(t *testing.T) {
+	w := mustWorld(t)
+	cases := []struct {
+		name   string
+		idx    int
+		depDay float64
+		tofDay float64
+	}{
+		{"system primary", 0, 0, 100},
+		{"negative index", -1, 0, 100},
+		{"zero tof", 2, 0, 0},
+		{"negative tof", 2, 0, -5},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			before := len(w.Nodes)
+			if _, err := w.PlanTransferAt(c.idx, c.depDay, c.tofDay); err == nil {
+				t.Errorf("expected error for %s", c.name)
+			}
+			if len(w.Nodes) != before {
+				t.Errorf("planted nodes despite error path: %d → %d",
+					before, len(w.Nodes))
+			}
+		})
+	}
+}
+
+// TestRefinePlanErrorsWithoutArrival: RefinePlan with no pending
+// arrival node (fresh world, no transfer planted) returns an error
+// and doesn't mutate Nodes.
+func TestRefinePlanErrorsWithoutArrival(t *testing.T) {
+	w := mustWorld(t)
+	before := len(w.Nodes)
+	if _, _, err := w.RefinePlan(); err == nil {
+		t.Errorf("RefinePlan on empty-plan world: expected error")
+	}
+	if len(w.Nodes) != before {
+		t.Errorf("RefinePlan planted/removed nodes on error path: %d → %d",
+			before, len(w.Nodes))
+	}
+}
+
+// TestRefinePlanUpdatesArrivalAfterPlanTransferAt: after planting a
+// Lambert-based transfer via PlanTransferAt (so the planted Δv uses
+// real ephemerides rather than Hohmann abstract math), RefinePlan
+// immediately — before any drift — should give an arrival Δv close
+// to the original, because the Lambert re-solve uses the same
+// geometry. Also verifies the correction burn is inserted as a new
+// node.
+func TestRefinePlanUpdatesArrivalAfterPlanTransferAt(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	// depDay=0 so PlanTransferAt's Lambert r1 = Earth(t=0) matches the
+	// craft's heliocentric position when RefinePlan runs immediately.
+	// Any nonzero depDay would move Earth forward, and RefinePlan's
+	// r1 (craft_helio_now ≈ Earth_now) would not match — the two
+	// Lambert solutions would land on different trajectories and
+	// arrival Δv would diverge legitimately.
+	plan, err := w.PlanTransferAt(marsIdx, 0, 260)
+	if err != nil {
+		t.Fatalf("PlanTransferAt: %v", err)
+	}
+	origArr := plan.Arrival.DV
+	origNodeCount := len(w.Nodes)
+
+	corr, arr, err := w.RefinePlan()
+	if err != nil {
+		t.Fatalf("RefinePlan: %v", err)
+	}
+	if arr <= 0 {
+		t.Errorf("refined arrival Δv = %.3f, want > 0", arr)
+	}
+	if corr < 0 {
+		t.Errorf("correction Δv = %.3f, want ≥ 0", corr)
+	}
+	// RefinePlan ran Lambert with the same (r_craft ≈ Earth_now, r_mars_at_arrival,
+	// tof = 30+260 days − 0) geometry as PlanTransferAt, so arrival Δv
+	// should match exactly (same Lambert inputs → same Lambert v2).
+	if math.Abs(arr-origArr)/origArr > 1e-4 {
+		t.Errorf("refined arrival Δv = %.3f m/s, original = %.3f m/s (rel diff %.2e)",
+			arr, origArr, math.Abs(arr-origArr)/origArr)
+	}
+	if len(w.Nodes) != origNodeCount+1 {
+		t.Errorf("node count after refine = %d, want %d (orig + correction)",
+			len(w.Nodes), origNodeCount+1)
+	}
+}

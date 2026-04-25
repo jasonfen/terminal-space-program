@@ -27,6 +27,7 @@ type Keymap struct {
 	Porkchop      key.Binding
 	Save          key.Binding
 	Load          key.Binding
+	RefinePlan    key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -53,5 +54,6 @@ func DefaultKeymap() Keymap {
 		Porkchop:     key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "porkchop plot for selected body")),
 		Save:         key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save game")),
 		Load:         key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "load game")),
+		RefinePlan:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refine plan (re-Lambert arrival)")),
 	}
 }
