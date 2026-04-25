@@ -4,6 +4,8 @@ import (
 	"errors"
 	"math"
 	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // TransferLeg names which end of a TransferPlan a node belongs to —
@@ -111,5 +113,76 @@ func PlanHohmannTransfer(
 			IsRetrograde: outbound,
 		},
 		TransferDt: time.Duration(transferTime * float64(time.Second)),
+	}, nil
+}
+
+// PlanLambertTransfer builds a two-burn transfer for an arbitrary
+// (departure-time, time-of-flight) pair using a single-rev Lambert
+// solve for the heliocentric coast. Unlike PlanHohmannTransfer which
+// assumes 180° opposition geometry, this supports off-Hohmann launch
+// windows — the same geometry the porkchop grid scores, so Enter-to-
+// plant from the porkchop cursor is a direct call-through.
+//
+// Inputs: heliocentric state of departure body at t_dep, heliocentric
+// state of arrival body at t_dep + tof, transfer TOF in seconds, plus
+// the parking / capture orbit parameters used for the patched-conic
+// Δv identity (matching PlanHohmannTransfer + PorkchopGrid).
+//
+// depOffset is the wall-clock delay from "now" (sim-time at planning)
+// until the departure burn; it becomes the Departure node's OffsetTime.
+// The Arrival node's OffsetTime is depOffset + tof.
+//
+// Retrograde flags follow the same outbound/inbound rule as
+// PlanHohmannTransfer: outbound (|rArr| > |rDep|) gets a prograde
+// departure + retrograde arrival; inbound flips both. Lambert
+// geometry varies more than Hohmann's 180° opposition, but the
+// radius-based sign captures the common case well enough for the
+// porkchop cursor and we can revisit if off-Hohmann arrivals need
+// a sharper rule.
+func PlanLambertTransfer(
+	muSun float64,
+	rDep, vDepBody orbital.Vec3,
+	rArr, vArrBody orbital.Vec3,
+	tof float64,
+	muDeparture, rPark float64, departureID string,
+	muDestination, rCapture float64, destinationID string,
+	depOffset time.Duration,
+) (TransferPlan, error) {
+	if muSun <= 0 || tof <= 0 {
+		return TransferPlan{}, errors.New("planlambert: muSun and tof must be > 0")
+	}
+	v1, v2, err := LambertSolve(rDep, rArr, tof, muSun)
+	if err != nil {
+		return TransferPlan{}, err
+	}
+	vInfDep := v1.Sub(vDepBody)
+	vInfArr := v2.Sub(vArrBody)
+	dvDep, err := EscapeBurnDeltaV(vInfDep.Norm(), muDeparture, rPark)
+	if err != nil {
+		return TransferPlan{}, err
+	}
+	dvArr, err := CaptureBurnDeltaV(vInfArr.Norm(), muDestination, rCapture)
+	if err != nil {
+		return TransferPlan{}, err
+	}
+	outbound := rArr.Norm() > rDep.Norm()
+	depRetro := !outbound
+	arrRetro := outbound
+	return TransferPlan{
+		Departure: TransferNode{
+			Leg:          LegDeparture,
+			PrimaryID:    departureID,
+			DV:           dvDep,
+			OffsetTime:   depOffset,
+			IsRetrograde: depRetro,
+		},
+		Arrival: TransferNode{
+			Leg:          LegArrival,
+			PrimaryID:    destinationID,
+			DV:           dvArr,
+			OffsetTime:   depOffset + time.Duration(tof*float64(time.Second)),
+			IsRetrograde: arrRetro,
+		},
+		TransferDt: time.Duration(tof * float64(time.Second)),
 	}, nil
 }

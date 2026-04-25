@@ -18,15 +18,16 @@ import (
 // without touching lipgloss color config. Darker/heavier glyph = lower
 // total Δv ("cheaper" transfer). "·" marks infeasible / non-converged.
 type Porkchop struct {
-	theme       Theme
-	targetIdx   int
-	targetName  string
-	depDays     []float64
-	tofDays     []float64
-	grid        [][]float64
-	selDep      int
-	selTof      int
-	errMsg      string
+	theme        Theme
+	targetIdx    int
+	targetName   string
+	depDays      []float64
+	tofDays      []float64
+	grid         [][]float64
+	selDep       int
+	selTof       int
+	errMsg       string
+	plantPending bool
 }
 
 // NewPorkchop constructs an empty screen. Call Load(world, targetIdx)
@@ -70,7 +71,9 @@ func (p *Porkchop) Load(w *sim.World, targetIdx int) {
 }
 
 // HandleKey routes arrow keys within the grid. Returns done=true on
-// Esc to signal the app should return to orbit view.
+// Esc (cancel) or Enter (plant → app reads PendingPlant()) to signal
+// the app should return to orbit view. Enter also sets the plant
+// flag, checked by the app immediately after done=true.
 func (p *Porkchop) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "left":
@@ -89,10 +92,28 @@ func (p *Porkchop) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if p.selTof < len(p.tofDays)-1 {
 			p.selTof++
 		}
+	case "enter":
+		if p.grid != nil && p.selTof < len(p.grid) && p.selDep < len(p.grid[p.selTof]) &&
+			!math.IsNaN(p.grid[p.selTof][p.selDep]) {
+			p.plantPending = true
+			return nil, true
+		}
 	case "esc":
 		return nil, true
 	}
 	return nil, false
+}
+
+// PendingPlant returns the selected (targetIdx, depDay, tofDay) if the
+// user pressed Enter on a feasible cell; ok=false if no plant is
+// pending (Esc-close or infeasible cell). Consumes the pending flag —
+// next call returns ok=false until the user plants again.
+func (p *Porkchop) PendingPlant() (targetIdx int, depDay, tofDay float64, ok bool) {
+	if !p.plantPending {
+		return 0, 0, 0, false
+	}
+	p.plantPending = false
+	return p.targetIdx, p.depDays[p.selDep], p.tofDays[p.selTof], true
 }
 
 // Render draws the grid + axes + selection readout.
@@ -171,7 +192,7 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	}
 	b.WriteString("  (darker = cheaper; · = no solution)\n\n")
 
-	b.WriteString(p.theme.Footer.Render("[←/→] dep [↑/↓] tof [esc] back"))
+	b.WriteString(p.theme.Footer.Render("[←/→] dep [↑/↓] tof [enter] plant [esc] back"))
 	return b.String()
 }
 
