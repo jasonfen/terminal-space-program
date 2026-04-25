@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -346,6 +347,77 @@ func TestPorkchopGridRejectsSamePrimaryTarget(t *testing.T) {
 	if _, err := w.PorkchopGrid(moonIdx, []float64{0}, []float64{5}); err == nil {
 		t.Errorf("PorkchopGrid for Moon (same-primary) returned nil error — should be errSamePrimaryUseHohmann")
 	}
+}
+
+// TestPlanTransferIntraPrimaryPhasingMatchesArrival: v0.5.9 — the
+// phase-corrected planner picks a launch window such that, at the
+// arrival node's TriggerTime, the target body is within Luna-SOI-
+// scale distance of where the craft will be (apoapsis at rArrival).
+// Pre-v0.5.9 the plan fired immediately with no phase correction
+// and missed Luna's actual position by tens of millions of km.
+func TestPlanTransferIntraPrimaryPhasingMatchesArrival(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i := range sys.Bodies {
+		if sys.Bodies[i].ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon missing from Sol")
+	}
+	plan, err := w.PlanTransfer(moonIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer to Luna: %v", err)
+	}
+	moon := sys.Bodies[moonIdx]
+
+	// At arrival time, the craft will be at apoapsis ≈ rArrival in the
+	// burn-direction-perpendicular tangent. Approximate the craft's
+	// arrival position as a vector at angle (craftAngleNow +
+	// nCraft·waitTime + π) at distance rArrival around Earth.
+	waitSecs := plan.Departure.OffsetTime.Seconds()
+	transferSecs := plan.TransferDt.Seconds()
+	arrivalSimTime := w.Clock.SimTime.Add(plan.Arrival.OffsetTime)
+
+	mu := w.Craft.Primary.GravitationalParameter()
+	rDep := w.Craft.State.R.Norm()
+	craftAngleNow := math.Atan2(w.Craft.State.R.Y, w.Craft.State.R.X)
+	nCraft := math.Sqrt(mu / (rDep * rDep * rDep))
+	craftAtBurnAngle := craftAngleNow + nCraft*waitSecs
+	craftArrivalAngle := craftAtBurnAngle + math.Pi // apoapsis is opposite periapsis
+
+	// Where is Luna at arrival?
+	moonM := w.Calculator.CalculateMeanAnomaly(moon, arrivalSimTime)
+	moonE := orbital.SolveKepler(moonM, moon.Eccentricity)
+	moonNu := orbital.TrueAnomaly(moonE, moon.Eccentricity)
+	moonEl := orbital.ElementsFromBody(moon)
+	moonAtArrival := orbital.PositionAtTrueAnomaly(moonEl, moonNu)
+	moonAngleAtArrival := math.Atan2(moonAtArrival.Y, moonAtArrival.X)
+
+	// Phasing residual: difference in angular positions, wrapped to
+	// [-π, π]. Should be ~0 if phasing worked.
+	dTheta := craftArrivalAngle - moonAngleAtArrival
+	for dTheta > math.Pi {
+		dTheta -= 2 * math.Pi
+	}
+	for dTheta < -math.Pi {
+		dTheta += 2 * math.Pi
+	}
+	// Tolerance: 1° (0.017 rad). At Luna's distance, 1° = ~6700 km —
+	// within Luna's ~66 000 km SOI, so an actual rendezvous would
+	// capture. Pre-fix the angular gap was unconstrained.
+	if math.Abs(dTheta) > 0.017 {
+		t.Errorf("phasing residual = %.4f rad (%.2f°); want < 1°", dTheta, dTheta*180/math.Pi)
+	}
+	// Also: waitSecs must be non-negative and bounded by the synodic
+	// period (LEO + Luna ≈ 89 min). 7200s = 2h is generous.
+	if waitSecs < 0 || waitSecs > 7200 {
+		t.Errorf("waitSecs = %.1f s, want in [0, 7200]", waitSecs)
+	}
+	_ = transferSecs
 }
 
 // TestPlanTransferIntraPrimaryHohmannForMoon: v0.5.7 — PlanTransfer

@@ -89,11 +89,21 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	// The patched-conic inter-primary path is wrong for in-SOI targets
 	// (it adds an Earth-escape burn that isn't physically required —
 	// craft and target both stay inside the shared primary's SOI).
+	//
+	// v0.5.9: pass current craft + target angles so the planner can
+	// phase-correct the launch window. Without phasing, craft arrives
+	// at apoapsis but target is somewhere else along its orbit and
+	// the rendezvous misses.
 	if target.ParentID == w.Craft.Primary.ID {
 		muShared := w.Craft.Primary.GravitationalParameter()
 		rArrival := target.SemimajorAxisMeters()
+		craftAngle := math.Atan2(w.Craft.State.R.Y, w.Craft.State.R.X)
+		// Target's position in its parent's frame == craft's primary
+		// here, since target.ParentID == craft.Primary.ID.
+		targetAngle := primaryFrameAngle(w, target)
 		plan, err := planner.PlanIntraPrimaryHohmann(
 			muShared, rPark, rArrival,
+			craftAngle, targetAngle,
 			w.Craft.Primary.ID,
 			muDestination, rCapture, target.ID,
 		)
@@ -381,6 +391,20 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 	return grid, nil
 }
 
+// primaryFrameAngle returns body b's angular position around its
+// parent (radians, atan2 of position-vector y, x in the parent's
+// frame), evaluated at the world's current sim time. Used by the
+// phase-corrected intra-primary Hohmann to compute target lead
+// angles.
+func primaryFrameAngle(w *World, b bodies.CelestialBody) float64 {
+	M := w.Calculator.CalculateMeanAnomaly(b, w.Clock.SimTime)
+	E := orbital.SolveKepler(M, b.Eccentricity)
+	nu := orbital.TrueAnomaly(E, b.Eccentricity)
+	el := orbital.ElementsFromBody(b)
+	rRel := orbital.PositionAtTrueAnomaly(el, nu)
+	return math.Atan2(rRel.Y, rRel.X)
+}
+
 // bodyEphemeris returns an EphemerisFn closure for a body: heliocentric
 // (r, v) evaluated at an arbitrary Unix-epoch timestamp.
 //
@@ -457,7 +481,7 @@ var (
 	errInvalidTransferTarget = transferError("invalid transfer target body")
 	errNoCraftForTransfer    = transferError("no craft to plan transfer for")
 	errNoRefineTarget        = transferError("no pending transfer to refine")
-	errSamePrimaryUseHohmann = transferError("target shares craft's primary — use [P] auto-Hohmann instead of porkchop")
+	errSamePrimaryUseHohmann = transferError("target shares craft's primary — use [H] auto-Hohmann instead of porkchop")
 )
 
 type transferError string

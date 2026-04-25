@@ -129,6 +129,12 @@ func PlanHohmannTransfer(
 //     ≈ 6571 km for 200 km altitude).
 //   - rArrival: target's semimajor axis around primary (e.g. Luna's
 //     384 399 km).
+//   - craftAngleNow / targetAngleNow: current angular positions of
+//     craft and target around the shared primary (radians, atan2 of
+//     position-vector y, x in the primary's frame). Used for phase-
+//     corrected launch-window timing — the departure burn fires when
+//     target leads craft by (π − n_target · T_transfer), so craft
+//     arrives at apoapsis when target is also there. v0.5.9+.
 //   - departureID: identifier of the primary (for ManeuverNode
 //     PrimaryID labeling).
 //   - muTarget, rCapture, targetID: target body's GM, capture-orbit
@@ -139,11 +145,10 @@ func PlanHohmannTransfer(
 //
 // Departure burn: prograde Δv at periapsis raising apoapsis to
 // rArrival. Arrival burn: capture into target SOI at rArrival.
-//
-// Phasing not enforced — same caveat as PlanHohmannTransfer.
 func PlanIntraPrimaryHohmann(
 	mu float64,
 	rDeparture, rArrival float64,
+	craftAngleNow, targetAngleNow float64,
 	departureID string,
 	muTarget, rCapture float64,
 	targetID string,
@@ -162,10 +167,6 @@ func PlanIntraPrimaryHohmann(
 	vTransAtArr := math.Sqrt(mu * (2/rArrival - 1/aT))
 
 	dvDep := vTransAtDep - vDepCirc
-	// Closing speed at rendezvous: target moves at vArrCirc, craft
-	// arrives with vTransAtArr. Outbound: target faster, craft is
-	// slower → target catches craft from "behind" relative to
-	// rendezvous geometry, vInf = vArrCirc - vTransAtArr.
 	vInfArr := math.Abs(vArrCirc - vTransAtArr)
 	dvArr, err := CaptureBurnDeltaV(vInfArr, muTarget, rCapture)
 	if err != nil {
@@ -175,24 +176,68 @@ func PlanIntraPrimaryHohmann(
 	// Coast time = half the transfer ellipse's period.
 	transferTime := math.Pi * math.Sqrt(aT*aT*aT/mu)
 
+	// Phase-corrected launch window. Mean motions:
+	//   n_craft  = √(µ / r_dep³)   (parking orbit)
+	//   n_target = √(µ / r_arr³)   (target's circular orbit)
+	// At burn time, target should lead craft by:
+	//   Δθ_required = π − n_target · T_transfer   (mod 2π)
+	// Current phase difference: Δθ_now = θ_target − θ_craft (mod 2π)
+	// Phase difference evolves as Δθ(t) = Δθ_now + (n_target − n_craft)·t.
+	// Solve for smallest τ ≥ 0 such that Δθ(τ) ≡ Δθ_required (mod 2π).
+	nCraft := math.Sqrt(mu / (rDeparture * rDeparture * rDeparture))
+	nTarget := math.Sqrt(mu / (rArrival * rArrival * rArrival))
+	requiredDelta := wrapTau(math.Pi - nTarget*transferTime)
+	currentDelta := wrapTau(targetAngleNow - craftAngleNow)
+	relativeRate := nTarget - nCraft // negative when craft is faster (LEO is)
+	deltaToWait := requiredDelta - currentDelta
+	if relativeRate > 0 {
+		// Δθ increases over time — wait until next forward arrival at requiredDelta.
+		for deltaToWait < 0 {
+			deltaToWait += 2 * math.Pi
+		}
+	} else if relativeRate < 0 {
+		// Δθ decreases over time — wait until next backward arrival at requiredDelta.
+		for deltaToWait > 0 {
+			deltaToWait -= 2 * math.Pi
+		}
+	}
+	var waitTime float64
+	if relativeRate != 0 {
+		waitTime = deltaToWait / relativeRate
+	}
+	if waitTime < 0 {
+		waitTime = 0
+	}
+
 	outbound := rArrival > rDeparture
+	depOffset := time.Duration(waitTime * float64(time.Second))
 	return TransferPlan{
 		Departure: TransferNode{
 			Leg:          LegDeparture,
 			PrimaryID:    departureID,
 			DV:           math.Abs(dvDep),
-			OffsetTime:   0,
+			OffsetTime:   depOffset,
 			IsRetrograde: !outbound,
 		},
 		Arrival: TransferNode{
 			Leg:          LegArrival,
 			PrimaryID:    targetID,
 			DV:           dvArr,
-			OffsetTime:   time.Duration(transferTime * float64(time.Second)),
+			OffsetTime:   depOffset + time.Duration(transferTime*float64(time.Second)),
 			IsRetrograde: outbound,
 		},
 		TransferDt: time.Duration(transferTime * float64(time.Second)),
 	}, nil
+}
+
+// wrapTau normalises an angle to [0, 2π).
+func wrapTau(a float64) float64 {
+	const tau = 2 * math.Pi
+	a = math.Mod(a, tau)
+	if a < 0 {
+		a += tau
+	}
+	return a
 }
 
 // PlanLambertTransfer builds a two-burn transfer for an arbitrary
