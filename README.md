@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.5.12**.
+Latest release: **v0.5.13**.
 
 ```bash
 # Linux x86_64
@@ -130,7 +130,7 @@ until the requested Δv is delivered, whichever first.
 Cursor opens snapped to the minimum-Δv cell. `·` glyphs mark cells
 where Lambert didn't converge — `Enter` on those is a no-op.
 
-## Features (v0.5.12)
+## Features (v0.5.13)
 
 - **Adaptive body sizing.** `BodyPixelRadius` now switches to true-
   scale rendering when the body's projected radius would be ≥ 4 px,

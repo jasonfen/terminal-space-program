@@ -339,6 +339,16 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	}
 	sys := w.System()
 
+	// section emits a divider + colored section header, used in place of
+	// the v0.5.12 plain "" blank-line separators. Visually groups the
+	// HUD into scannable blocks. v0.5.13.
+	section := func(title string) []string {
+		return []string{
+			v.theme.Dim.Render(strings.Repeat("─", width-2)),
+			v.theme.Primary.Render(title),
+		}
+	}
+
 	warpLine := fmt.Sprintf("  warp: %.0fx", w.Clock.Warp())
 	if eff := w.EffectiveWarp(); eff < w.Clock.Warp() {
 		warpLine += v.theme.Warning.Render(fmt.Sprintf(" (clamped to %.0fx)", eff))
@@ -351,11 +361,8 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if w.Clock.Paused {
 		lines = append(lines, "  "+v.theme.Warning.Render("[PAUSED]"))
 	}
-	lines = append(lines,
-		"",
-		v.theme.Primary.Render("FOCUS"),
-		"  "+w.FocusName(),
-	)
+	lines = append(lines, section("FOCUS")...)
+	lines = append(lines, "  "+w.FocusName())
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
@@ -367,9 +374,8 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		periAlt := el.Periapsis() - primaryR
 		incDeg := el.I * 180.0 / 3.141592653589793
 
+		lines = append(lines, section("VESSEL")...)
 		lines = append(lines,
-			"",
-			v.theme.Primary.Render("VESSEL"),
 			"  "+c.Name,
 			"  primary:   "+c.Primary.EnglishName,
 			fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
@@ -379,11 +385,10 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  inclin.:   %.2f°", incDeg),
 		)
 		if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
-			lines = append(lines, "  "+v.theme.Alert.Render("PERIAPSIS BELOW SURFACE"))
+			lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
 		}
+		lines = append(lines, section("PROPELLANT")...)
 		lines = append(lines,
-			"",
-			v.theme.Primary.Render("PROPELLANT"),
 			fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
 			fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
 			fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
@@ -399,16 +404,17 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		if remaining < 0 {
 			remaining = 0
 		}
-		lines = append(lines, "",
-			v.theme.Warning.Render("BURN ACTIVE"),
-			fmt.Sprintf("  mode:    %s", w.ActiveBurn.Mode.String()),
+		lines = append(lines,
+			v.theme.Dim.Render(strings.Repeat("─", width-2)),
+			v.theme.Warning.Render("● BURN ACTIVE"),
+			fmt.Sprintf("  mode:     %s", w.ActiveBurn.Mode.String()),
 			fmt.Sprintf("  Δv-to-go: %.1f m/s", w.ActiveBurn.DVRemaining),
 			fmt.Sprintf("  T-%.1fs remaining", remaining),
 		)
 	}
 
 	if len(w.Nodes) > 0 {
-		lines = append(lines, "", v.theme.Primary.Render("NODES"))
+		lines = append(lines, section("NODES")...)
 		for i, n := range w.Nodes {
 			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 			kind := "imp"
@@ -422,12 +428,12 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
-	lines = append(lines, "", v.theme.Primary.Render("SYSTEM"),
+	lines = append(lines, section("SYSTEM")...)
+	lines = append(lines,
 		"  "+sys.Name,
 		fmt.Sprintf("  %d bodies", len(sys.Bodies)),
-		"",
-		v.theme.Primary.Render("SELECTED"),
 	)
+	lines = append(lines, section("SELECTED")...)
 
 	if selectedIdx >= 0 && selectedIdx < len(sys.Bodies) {
 		b := sys.Bodies[selectedIdx]
