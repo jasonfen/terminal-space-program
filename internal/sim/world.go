@@ -195,11 +195,13 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	period := orbitalPeriod(w.Craft.State, mu)
 	secs := simDelta.Seconds()
 
-	// Warp-lock fast path: analytic Kepler propagation when conditions
-	// are met. Falls back to Verlet sub-stepping otherwise.
+	// Warp-lock fast path: analytic Kepler propagation in chunks small
+	// enough that the craft can't outrun any other body's SOI per
+	// chunk (v0.4.4). Falls back to Verlet sub-stepping if the gate
+	// rejects (active burn, hyperbolic, warp=1) or any chunk's
+	// KeplerStep fails.
 	if w.canKeplerStep(simDelta) {
-		if newState, ok := physics.KeplerStep(w.Craft.State, mu, secs); ok {
-			w.Craft.State = newState
+		if w.keplerStepWithSOICheck(simDelta) {
 			return
 		}
 	}
@@ -300,13 +302,17 @@ func (w *World) burnExhausted() bool {
 }
 
 // canKeplerStep reports whether the analytic warp-lock fast path is
-// valid for this tick. Conditions (v0.4.3):
+// valid for this tick. Conditions (v0.4.4):
 //   - warp > 1× (else Verlet is fine and we want to avoid behavioral
 //     differences between paused/realtime and the live integrator)
 //   - no active burn (analytic propagation can't accommodate thrust)
 //   - bound orbit (e < 1) — KeplerStep itself rejects hyperbolic cases
-//   - apoapsis safely inside the primary's SOI (no boundary crossing
-//     during the analytic step)
+//
+// SOI containment is no longer gated here: keplerStepWithSOICheck
+// chunks the analytic step finely enough to detect crossings between
+// chunks (v0.4.4 fix for the v0.4.3 heliocentric-transfer-skips-Mars
+// bug). If e ≥ 1 we still fall back to Verlet so the per-sub-step SOI
+// path handles the non-conic case correctly.
 func (w *World) canKeplerStep(simDelta time.Duration) bool {
 	if w.ActiveBurn != nil {
 		return false
@@ -319,27 +325,94 @@ func (w *World) canKeplerStep(simDelta time.Duration) bool {
 	if el.E >= 1 || el.A <= 0 {
 		return false
 	}
-	apo := el.Apoapsis()
-	soi := w.craftPrimarySOI()
-	if soi <= 0 {
-		// System primary (Sun) — no enclosing SOI; any bound orbit stays
-		// in the heliocentric frame, so analytic is safe.
-		return true
-	}
-	// Conservative margin: apoapsis must be ≤ 0.95·SOI so a fractionally
-	// noisy ElementsFromState near the boundary still falls back to
-	// Verlet.
-	return apo < 0.95*soi
+	return true
 }
 
-// craftPrimarySOI returns the craft primary's SOI radius. Returns 0
-// for the system primary (no parent → no SOI bound).
-func (w *World) craftPrimarySOI() float64 {
+// keplerStepWithSOICheck propagates the craft analytically across the
+// tick by chunking simDelta into pieces small enough that the craft
+// can't outrun any non-current-primary body's SOI per chunk. Between
+// chunks, FindPrimary catches SOI crossings and rebases the state.
+//
+// Chunk size = min(simDelta, smallestForeignSOI / (4·speed)). The
+// factor of 4 leaves a 2× safety margin past the trivial "can't
+// traverse SOI in one chunk" bound — a bound orbit re-encountering
+// the same SOI region within a single tick would otherwise risk a
+// missed crossing at high warp.
+//
+// Returns ok=false if any chunk's KeplerStep fails (e.g. eccentricity
+// crossed into hyperbolic mid-propagation due to a primary switch);
+// caller then falls back to Verlet for the remaining time.
+func (w *World) keplerStepWithSOICheck(simDelta time.Duration) bool {
 	sys := w.System()
-	if w.Craft.Primary.ID == sys.Bodies[0].ID {
-		return 0
+	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
+	for _, b := range sys.Bodies {
+		positions[b.ID] = w.BodyPosition(b)
 	}
-	return physics.SOIRadius(w.Craft.Primary, sys.Bodies[0])
+
+	chunkCap := chunkDtCap(sys, w.Craft.Primary, w.Craft.State.V.Norm())
+
+	secs := simDelta.Seconds()
+	if chunkCap <= 0 || math.IsInf(chunkCap, 0) || math.IsNaN(chunkCap) {
+		chunkCap = secs
+	}
+	nChunks := int(math.Ceil(secs / chunkCap))
+	if nChunks < 1 {
+		nChunks = 1
+	}
+	// Safety cap matching the Verlet sub-step ceiling — a degenerate
+	// near-zero chunk size shouldn't blow up the loop.
+	if nChunks > 1024 {
+		nChunks = 1024
+	}
+	chunk := secs / float64(nChunks)
+
+	mu := w.Craft.Primary.GravitationalParameter()
+	for i := 0; i < nChunks; i++ {
+		newState, ok := physics.KeplerStep(w.Craft.State, mu, chunk)
+		if !ok {
+			return false
+		}
+		w.Craft.State = newState
+
+		inertial := positions[w.Craft.Primary.ID].Add(w.Craft.State.R)
+		cand := physics.FindPrimary(sys, inertial, positions)
+		if cand.Body.ID != w.Craft.Primary.ID {
+			vOld := w.bodyInertialVelocity(w.Craft.Primary)
+			vNew := w.bodyInertialVelocity(cand.Body)
+			w.Craft.State = physics.Rebase(w.Craft.State, positions[w.Craft.Primary.ID], cand.Inertial, vOld.Sub(vNew))
+			w.Craft.Primary = cand.Body
+			mu = w.Craft.Primary.GravitationalParameter()
+		}
+	}
+	return true
+}
+
+// chunkDtCap returns the maximum analytic-step duration for the
+// current craft primary, given craft speed. Bound by the smallest
+// foreign body's SOI radius / (4·speed) so no SOI can be traversed
+// without an intermediate FindPrimary check. +Inf when no foreign
+// SOI exists (single-body system) — caller treats that as "one chunk
+// covers the whole tick".
+func chunkDtCap(sys bodies.System, currentPrimary bodies.CelestialBody, speed float64) float64 {
+	if speed <= 0 {
+		speed = 1.0
+	}
+	primaryID := sys.Bodies[0].ID
+	cap := math.Inf(1)
+	for _, b := range sys.Bodies {
+		if b.ID == primaryID || b.ID == currentPrimary.ID {
+			continue
+		}
+		soi := physics.SOIRadius(b, sys.Bodies[0])
+		if soi <= 0 {
+			continue
+		}
+		dt := soi / (4 * speed)
+		if dt < cap {
+			cap = dt
+		}
+	}
+	return cap
 }
 
 // orbitalPeriod returns 2π√(a³/μ) or +Inf on unbound orbits. Used to
