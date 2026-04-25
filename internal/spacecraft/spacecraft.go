@@ -41,23 +41,33 @@ func (s *Spacecraft) OrbitalSpeed() float64 { return s.State.V.Norm() }
 // NewInLEO builds a spacecraft in a 200 km circular prograde parking orbit
 // around the provided primary (typically Earth). Orbit lies in the primary's
 // equatorial plane (z=0) with periapsis along +X, velocity along +Y.
-// Mass numbers: 500 kg dry + 500 kg fuel, Isp 300s — generic upper-stage
-// ballpark, good enough for a sandbox.
+//
+// Mass / propulsion numbers (v0.5.6) modeled on the SLS Interim Cryogenic
+// Propulsion Stage (ICPS) — the upper stage that performs trans-lunar
+// injection on Artemis II:
+//   - DryMass 3500 kg (close to ICPS empty mass 3490 kg)
+//   - Fuel 25000 kg (close to ICPS LH2/LOX capacity ~27220 kg)
+//   - Isp 462 s (RL-10C-3, ICPS's engine)
+//   - Thrust 108 kN (RL-10C-3 spec)
+//
+// Δv budget = 462 × g₀ × ln(28500/3500) ≈ 9.5 km/s — comfortable for a
+// LEO → TLI → LOI → TEI → Earth-return round trip with margin. Pre-v0.5.6
+// the default (500/500/Isp 300, ~2 km/s) couldn't even reach Luna one-way.
 func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	r := earth.RadiusMeters() + 200e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
 	return &Spacecraft{
-		Name:    "LEO-1",
-		DryMass: 500,
-		Fuel:    500,
-		Isp:     300,
-		Thrust:  10000, // 10 kN — burns finish in seconds-to-minutes for sub-km/s Δv, ~minutes for km/s transfers
+		Name:    "ICPS-1",
+		DryMass: 3500,
+		Fuel:    25000,
+		Isp:     462,
+		Thrust:  108000, // 108 kN — RL-10C-3 vacuum thrust
 		Primary: earth,
 		State: physics.StateVector{
 			R: orbital.Vec3{X: r},
 			V: orbital.Vec3{Y: v},
-			M: 1000,
+			M: 28500,
 		},
 	}
 }
