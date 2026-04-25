@@ -263,21 +263,12 @@ func TestPlanTransferLandsTwoNodes(t *testing.T) {
 		t.Errorf("second (arrival) node PrimaryID = %q, want mars %q",
 			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
 	}
-	// v0.5.10+ shifts each node's TriggerTime back by Duration/2 to
-	// center finite burns. Allow gap to differ from TransferDt by up to
-	// the longer of the two burn durations.
+	// v0.5.14+ TriggerTime is the burn center == planner OffsetTime;
+	// gap between consecutive node TriggerTimes equals TransferDt
+	// exactly (modulo nanoseconds).
 	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime)
-	tol := w.Nodes[0].Duration
-	if w.Nodes[1].Duration > tol {
-		tol = w.Nodes[1].Duration
-	}
-	diff := gap - plan.TransferDt
-	if diff < 0 {
-		diff = -diff
-	}
-	if diff > tol {
-		t.Errorf("planted-node time gap = %v, want plan.TransferDt = %v ± %v",
-			gap, plan.TransferDt, tol)
+	if gap != plan.TransferDt {
+		t.Errorf("planted-node time gap = %v, want plan.TransferDt = %v", gap, plan.TransferDt)
 	}
 }
 
@@ -431,13 +422,13 @@ func TestPlanTransferIntraPrimaryPhasingMatchesArrival(t *testing.T) {
 	_ = transferSecs
 }
 
-// TestPlanTransferIntraPrimaryBurnIsCentered: v0.5.11 — the planted
-// departure node's TriggerTime must satisfy
-//   trigger + Duration/2 ≈ now + planner_OffsetTime
-// i.e. the burn is centered on the planner's intended firing point.
-// Pre-v0.5.11 small phase wait times caused the trigger to be clamped
-// to "now", losing centering — burn started at trigger and ended past
-// the optimal point, falling short of Luna's altitude.
+// TestPlanTransferIntraPrimaryBurnIsCentered: v0.5.14+ — the planted
+// departure node's TriggerTime IS the burn-center (planner's intended
+// moment), and BurnStart = TriggerTime - Duration/2 must be ≥ now so
+// the integrator doesn't have to fire retroactively. Pre-v0.5.14
+// TriggerTime was the burn START and we asserted "TriggerTime + Dur/2
+// ≈ planner OffsetTime"; new semantics simplify to "TriggerTime ≈
+// planner OffsetTime".
 func TestPlanTransferIntraPrimaryBurnIsCentered(t *testing.T) {
 	w := mustWorld(t)
 	sys := w.System()
@@ -457,18 +448,14 @@ func TestPlanTransferIntraPrimaryBurnIsCentered(t *testing.T) {
 		t.Fatalf("PlanTransfer: %v", err)
 	}
 	dep := w.Nodes[0]
-	// burn-center sim time should equal now + plan.Departure.OffsetTime
 	wantCenter := now.Add(plan.Departure.OffsetTime)
-	gotCenter := dep.TriggerTime.Add(dep.Duration / 2)
-	delta := gotCenter.Sub(wantCenter)
+	delta := dep.TriggerTime.Sub(wantCenter)
 	if delta < -time.Second || delta > time.Second {
-		t.Errorf("burn center off by %v (trigger=%v, duration=%v, want_center=%v)",
-			delta, dep.TriggerTime, dep.Duration, wantCenter)
+		t.Errorf("trigger off by %v (trigger=%v, want_center=%v)",
+			delta, dep.TriggerTime, wantCenter)
 	}
-	// And TriggerTime must be ≥ now (the planner padded τ enough to
-	// avoid past-due triggers).
-	if dep.TriggerTime.Before(now) {
-		t.Errorf("departure TriggerTime %v before now %v — planner failed to pad", dep.TriggerTime, now)
+	if dep.BurnStart().Before(now) {
+		t.Errorf("BurnStart %v before now %v — planner failed to pad", dep.BurnStart(), now)
 	}
 }
 
@@ -609,18 +596,13 @@ func TestPlanTransferAtPlantsTwoNodes(t *testing.T) {
 		t.Errorf("arrival PrimaryID = %q, want mars %q",
 			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
 	}
-	// v0.5.10+ centers each finite burn around the planner's intended
-	// firing point by shifting TriggerTime back by Duration/2. Departure
-	// and arrival have different durations, so the planted-node gap
-	// differs from the planner's TOF by (depDur - arrDur)/2. Allow that
-	// drift, but bound it by either burn's duration.
+	// v0.5.14+ TriggerTime is the burn center == planner OffsetTime;
+	// gap between consecutive node TriggerTimes equals TOF exactly
+	// (modulo nanoseconds).
 	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime).Seconds()
 	wantGap := tofDay * 86400.0
-	durDep := w.Nodes[0].Duration.Seconds()
-	durArr := w.Nodes[1].Duration.Seconds()
-	tolerance := math.Max(durDep, durArr)
-	if math.Abs(gap-wantGap) > tolerance {
-		t.Errorf("planted-node gap = %.0f s, want %.0f ± %.0f s", gap, wantGap, tolerance)
+	if math.Abs(gap-wantGap) > 1.0 {
+		t.Errorf("planted-node gap = %.0f s, want %.0f s", gap, wantGap)
 	}
 	for i, n := range w.Nodes {
 		if n.Duration <= 0 {

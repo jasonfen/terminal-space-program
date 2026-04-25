@@ -199,18 +199,21 @@ func (w *World) Tick() {
 	}
 }
 
-// nextFiniteBurnTrigger returns the TriggerTime of the soonest pending
-// finite-burn node (Duration > 0), or the zero time if no finite-burn
-// node is queued. Used by Tick to clamp simDelta to the burn moment so
-// the burn fires exactly when intended, not up to a full tick late.
+// nextFiniteBurnTrigger returns the BurnStart sim-time of the soonest
+// pending finite-burn node (Duration > 0), or the zero time if no
+// finite-burn node is queued. v0.5.14+: BurnStart is TriggerTime -
+// Duration/2, so the Tick clamp lands on the moment the integrator
+// will actually fire the engine, not on the (later) burn-center
+// TriggerTime that the HUD displays.
 func (w *World) nextFiniteBurnTrigger() time.Time {
 	var best time.Time
 	for _, n := range w.Nodes {
 		if n.Duration <= 0 {
 			continue
 		}
-		if best.IsZero() || n.TriggerTime.Before(best) {
-			best = n.TriggerTime
+		t := n.BurnStart()
+		if best.IsZero() || t.Before(best) {
+			best = t
 		}
 	}
 	return best

@@ -12,9 +12,13 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// ManeuverNode represents a planned burn that will fire when
-// World.Clock.SimTime reaches TriggerTime. Nodes are forward-looking only;
-// once fired, they are removed from World.Nodes.
+// ManeuverNode represents a planned burn. v0.5.14+: TriggerTime is the
+// burn-CENTER moment (the planner's intended firing point), not the
+// burn start. For impulsive burns (Duration=0) center == start ==
+// TriggerTime. For finite burns the integrator actually starts the
+// burn at TriggerTime - Duration/2 so the burn is centered on
+// TriggerTime. The HUD displays TriggerTime as "T+(burn moment)" so
+// the player sees the planner's intent, not the implementation start.
 //
 // Duration controls finite vs impulsive: zero = instant Δv (legacy v0.1
 // path); non-zero = sustained engine burn lasting up to Duration or
@@ -33,6 +37,27 @@ type ManeuverNode struct {
 	DV          float64
 	Duration    time.Duration
 	PrimaryID   string
+}
+
+// BurnStart returns the sim-time at which the integrator should fire
+// this node's burn. For impulsive nodes (Duration=0) BurnStart equals
+// TriggerTime. For finite nodes BurnStart is `TriggerTime - Duration/2`
+// so the burn is centered on TriggerTime. v0.5.14+.
+func (n ManeuverNode) BurnStart() time.Time {
+	if n.Duration <= 0 {
+		return n.TriggerTime
+	}
+	return n.TriggerTime.Add(-n.Duration / 2)
+}
+
+// BurnEnd returns the sim-time at which the integrator should
+// terminate this node's burn (regardless of Δv-remaining or fuel
+// state). For impulsive nodes BurnEnd equals TriggerTime. v0.5.14+.
+func (n ManeuverNode) BurnEnd() time.Time {
+	if n.Duration <= 0 {
+		return n.TriggerTime
+	}
+	return n.TriggerTime.Add(n.Duration / 2)
 }
 
 // ActiveBurn is the runtime state of an in-progress finite burn. Set by
@@ -527,19 +552,17 @@ func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital
 // zero or inputs are degenerate the node stays impulsive (Duration=0),
 // matching the legacy behavior.
 //
-// TriggerTime is shifted back by Duration/2 so the burn is *centered*
-// on the planner's intended firing point, not started there. The
-// planner solves for an instantaneous Δv at OffsetTime; a real finite
-// burn lasting many minutes would otherwise sweep through past-the-
-// target arc and lose apoapsis-raising efficiency. For an ICPS TLI
-// burn that's ~14 minutes (~16% of LEO orbit) of smearing — enough
-// to fall short of Luna's altitude. v0.5.10+.
+// TriggerTime is set to the planner's intended firing moment — i.e.,
+// the burn-CENTER per ManeuverNode's v0.5.14+ semantics. The
+// integrator fires the burn at TriggerTime - Duration/2 (via
+// ManeuverNode.BurnStart) so the burn is centered on TriggerTime; the
+// HUD reads TriggerTime directly so the player sees the planned
+// moment, not the implementation start.
 //
-// Callers that need TriggerTime ≥ now (e.g. intra-primary phase-
-// corrected plans) must pad the planner's OffsetTime by ≥ Duration/2
-// in advance; this routine does NOT clamp. v0.5.11 removes the clamp
-// because clamping silently re-introduced the uncentered burn — the
-// fix lives in the planner now via minLeadSeconds.
+// Callers that need BurnStart ≥ now (so the integrator doesn't have
+// to fire a node retroactively) must pad the planner's OffsetTime by
+// ≥ Duration/2 in advance — for the intra-primary path that's done
+// via PlanIntraPrimaryHohmann's minLeadSeconds.
 func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust float64) ManeuverNode {
 	mode := spacecraft.BurnPrograde
 	if tn.IsRetrograde {
@@ -550,9 +573,8 @@ func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust
 		secs := tn.DV * mass / thrust
 		duration = time.Duration(secs * float64(time.Second))
 	}
-	trigger := now.Add(tn.OffsetTime).Add(-duration / 2)
 	return ManeuverNode{
-		TriggerTime: trigger,
+		TriggerTime: now.Add(tn.OffsetTime),
 		Mode:        mode,
 		DV:          tn.DV,
 		Duration:    duration,
@@ -574,23 +596,34 @@ func (e transferError) Error() string { return string(e) }
 // ClearNodes wipes every pending node.
 func (w *World) ClearNodes() { w.Nodes = nil }
 
-// executeDueNodes fires every node whose TriggerTime has passed, applying
+// executeDueNodes fires every node whose BurnStart has passed, applying
 // the burn to the spacecraft in order. Called from Tick after sim-time
 // advances. Re-entrant: if two nodes fall in the same tick, both fire.
 //
-// Impulsive nodes (Duration==0) apply their Δv inline and are popped.
-// Finite nodes (Duration>0) start an ActiveBurn and are popped; the burn
-// then runs across subsequent ticks via the RK4 branch in
-// integrateSpacecraft. If a finite burn is already active when a new
-// finite node fires, the new one replaces it (last-write-wins; the
-// planner UI is responsible for not over-stacking).
+// Impulsive nodes (Duration==0) apply their Δv inline at TriggerTime
+// and are popped. Finite nodes start an ActiveBurn at BurnStart
+// (= TriggerTime - Duration/2) and are popped; the burn runs across
+// subsequent ticks via the RK4 branch in integrateSpacecraft until
+// BurnEnd or DV exhausted. If a finite burn is already active when a
+// new finite node fires, the new one replaces it (last-write-wins;
+// the planner UI is responsible for not over-stacking). v0.5.14+
+// semantics: TriggerTime is the burn center, BurnStart/BurnEnd are
+// the actual on-engine moments.
 func (w *World) executeDueNodes() {
 	if w.Craft == nil {
 		return
 	}
 	fired := 0
+	// Nodes are sorted by TriggerTime, but we need to walk them by
+	// BurnStart for finite nodes. Since BurnStart ≤ TriggerTime, walking
+	// the (TriggerTime-sorted) slice may skip an early-firing finite
+	// node if a later impulsive node has TriggerTime < this finite's
+	// BurnStart. In practice nodes are spaced by minutes / days so the
+	// ordering coincides; the planner's pad-window guarantee keeps us
+	// safe. Worst case: one tick of latency on the misordered finite,
+	// which is invisible at any user-visible warp.
 	for _, n := range w.Nodes {
-		if n.TriggerTime.After(w.Clock.SimTime) {
+		if n.BurnStart().After(w.Clock.SimTime) {
 			break
 		}
 		if n.Duration == 0 {
@@ -599,7 +632,7 @@ func (w *World) executeDueNodes() {
 			w.ActiveBurn = &ActiveBurn{
 				Mode:        n.Mode,
 				DVRemaining: n.DV,
-				EndTime:     n.TriggerTime.Add(n.Duration),
+				EndTime:     n.BurnEnd(),
 				PrimaryID:   n.PrimaryID,
 			}
 		}
