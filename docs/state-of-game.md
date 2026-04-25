@@ -1,10 +1,13 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.5.15 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.5.15 (April 2026) — v0.5 cycle closed; v0.6 in scoping.
+Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
 features and the version sequence that delivers them.
+`docs/v0.5-release-notes.md` covers the v0.5.0 → v0.5.15 release series patch
+by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
@@ -103,9 +106,13 @@ features and the version sequence that delivers them.
 - Moon catalog: Luna, Phobos, Deimos, the four Galilean (Io, Europa,
   Ganymede, Callisto), Titan, Enceladus — single-moon (Earth) and
   multi-moon (Jupiter, Saturn) primaries both exercised.
-- Transfer planning to/from moons is **not** in v0.5.0 — `PlanTransfer`
-  still assumes shared primary; Earth → Luna pathing slips to v0.6
-  alongside the planner UX work.
+- Transfer planning to/from moons is **partially shipped**: same-primary
+  intra-primary transfers (craft in LEO → Luna, both around Earth) ship
+  in v0.5.7 via `planner.PlanIntraPrimaryHohmann`, with v0.5.9 adding
+  phase correction so the craft actually rendezvous with the target.
+  Full inter-SOI patched-conic capture (Earth → Mars-orbit insertion
+  through Phobos's SOI etc.) still slips to v0.6 alongside the planner
+  UX work.
 
 ### Systems loaded
 - **Sol** (playable — craft spawns here).
@@ -125,47 +132,29 @@ features and the version sequence that delivers them.
 - **Lambert multi-branch selection**. Today the multi-rev path returns the
   first root the bracket finds (lower-z side); a per-N "cheap" / "long" flag
   would expose both. Useful when porkchop multi-rev lands.
-- **Enter-to-plant from porkchop cursor**. Reuses `World.PlanTransfer` once
-  it accepts explicit (departure offset, TOF) params. Slated for v0.4.1.
 - **Explicit retrograde flag for `LambertSolve`**. Today direction is driven
   by the bracket starting point; a caller hint would be cleaner.
 
 ### Larger queued features
 - **Realistic finite-burn intra-primary auto-plant** (v0.6 target).
-  v0.5.12 ships intra-primary auto-plant (Earth → Luna etc) as
-  *impulsive* burns because the integrator's finite-burn path loses
-  ~27% of apoapsis-raise to geometry deformation over a 14-min TLI,
-  and a closed-form `sin(α)/α` compensation isn't accurate enough
-  (under-corrects, then over-corrects past escape if you inflate
-  more). Real spacecraft handle this via numerical pre-burn
-  iteration, multiple smaller perigee-raise burns, or higher-TWR
-  engines. The "right" implementation: finite-burn-aware planner
-  that integrates a candidate Δv, measures resulting apoapsis,
-  iterates Newton-style until it hits target. Composes naturally
-  with the v0.6 burn-at-next scheduler. Until then, auto-plant is
-  pragmatically impulsive (delivered Δv exact, mass loss correct
-  via Tsiolkovsky, just visually instant).
-- **Save / load** (v0.4.0 target). No state persistence today — close the
-  program and your orbit is gone. JSON state file at
-  `$XDG_STATE_HOME/terminal-space-program/save.json`, manual `S` / `L`, autosave on quit.
-- **Mid-course corrections** (v0.4.1 target). Auto-plant produces a single
-  two-impulse plan; no replanning during the coast. A "refine arrival"
-  key re-runs Lambert from the live state and updates the planted arrival
-  node; paired with porkchop Enter-to-plant so the cursor can feed the
-  same path.
+  v0.5.10's S-IVB-1 default + finite-burn return drops gravity-rotation
+  loss to <0.1% for the Earth → Luna profile, but the underlying
+  numerical-iteration planner is still v0.6 work for less-favorable
+  thrust profiles (low-TWR stages, longer burns). The "right"
+  implementation: finite-burn-aware planner that integrates a candidate
+  Δv, measures resulting apoapsis, iterates Newton-style until it hits
+  target. Composes naturally with the v0.6 burn-at-next scheduler.
+  Closes the remaining ~21% apoapsis over-shoot from asymmetric burn
+  termination once it lands.
 - **Mission system / objectives** (v0.6 target, see §3). Starter objectives
   such as "achieve a 1000 km circular orbit," "intercept Mars within Δv X."
 - **Burn-at-next scheduler** (v0.6 target). Event-relative maneuver nodes:
   fire at next periapsis / apoapsis / ascending node / descending node.
   Foundation for richer triggers (at-SOI-exit, at-fuel<X). v0.6 also
-  extends `PlanTransfer()` to handle Earth → Luna (and any planet → moon)
-  transfers — needs an inter-SOI capture pass that today's shared-primary
-  assumption skips.
-- **Body hierarchy + moons** (v0.5.0 target, see §3). Today's body model
-  is flat star → planet. v0.5.0 adds arbitrary-depth `ParentID` refs,
-  hierarchical SOI lookup, and recursive `BodyPosition()` so Luna,
-  Phobos/Deimos, the Galilean four, Titan, and Enceladus all orbit
-  their planets in a single release.
+  extends `PlanTransfer()` to handle the inter-SOI capture case (e.g.
+  Earth → a moon of Mars, or a Galilean satellite from heliocentric
+  cruise) — v0.5.7's intra-primary path covers same-parent transfers
+  but the cross-primary capture pass is still missing.
 - **Multi-system spacecraft**. The craft is currently locked to Sol. Allowing
   it to enter Alpha Cen / TRAPPIST / Kepler unlocks the system-cycle UX.
   Requires interstellar transfer math (or deus-ex-machina jump for now).
@@ -187,24 +176,20 @@ features and the version sequence that delivers them.
   and drag-to-edit on planted maneuver nodes.
 
 ### Visual / UX targets
-- **Color** (v0.5 target). The renderer is monochrome. Hardcoded palette
-  first; planets and the sun colored reminiscent of their actual appearance
-  (Sol gold-white, Mars rust, Jupiter banded ochre, Neptune deep blue), with
-  a temperature-based tint for non-Sol stars (TRAPPIST-1 red dwarf, Alpha
-  Cen A yellow). Promoted to user-configurable in v0.7 alongside the
-  systems config-file loader.
-- **Vessel position trail**. A fading dotted history of where the craft has
-  *actually* been, distinct from the current orbit ellipse.
 - **Maneuver node editing**. Nodes are plant-once today; adding drag/scrub
   on a planted node (adjust Δv, duration, fire-time in place) would make
-  the planner iterative rather than plant-and-replace.
-- **HUD typography polish**. Dense lipgloss panels could read cleaner with
-  better spacing, dividers, alignment.
-- **Body details on the canvas**. Today bodies are filled disks; texture
-  hints (poles, rings for Saturn, day/night terminator for Earth) would add
-  identity.
-- **Better porkchop axis labels**. Current implementation cuts off; needs a
-  proper axis-label renderer.
+  the planner iterative rather than plant-and-replace. v0.6's mouse work
+  delivers the input plumbing; the broader edit-in-place flow can land
+  later.
+- **HUD typography polish (residual)**. v0.5.13 added section dividers,
+  the active-burn ● indicator, and ⚠ alerts; remaining work is alignment
+  inside dense panels (vessel, propellant, planned-nodes blocks) and
+  consistent column widths across sections.
+- **Body details on the canvas (beyond rings + glyphs)**. v0.5.11 ships
+  Saturn rings; v0.5.12 ships per-type identity glyphs. Remaining
+  texture hints — day/night terminator for Earth, polar caps for Mars,
+  Jupiter banding, additional ringed-body data (Uranus, Neptune) —
+  would push body identity further.
 - **Active-burn flame animation**. The arrow glyph could pulse / extend
   while a burn is firing.
 
@@ -243,9 +228,9 @@ features and the version sequence that delivers them.
 | v0.5.12 ✓ | | Body-identity glyph overlays — `Canvas.SetCellOverlay` replaces the cell at a body's center with a Unicode glyph (☉ star / ◉ gas giant / ● terrestrial / ○ moon) so types read distinctly even at small pixel radius. `render.GlyphFor(b)` keys on BodyType + MeanRadius. Skips system primary (already has ring+dot draw). |
 | v0.5.13 ✓ | | HUD section dividers — replace blank-line separators with dim `─` rules across the HUD width. Active-burn block gets a leading ● indicator; peri-below-surface alert gets a leading ⚠. Section grouping much more scannable. |
 | v0.5.14 ✓ | | Porkchop axis labels — fix the v0.3.3 misalignment (lead-in width mismatch + label overflow past grid edge). Tick line `└────` under the grid, dep-day labels at every 5th column properly centered, dim "dep day" axis title. |
-| **v0.5.15 ✓** | **(current)** | Fix focus-change lockup at extreme zoom — Saturn rings call to `RingColoredOutline` was unbounded; focusing on a tiny body (Phobos SOI ≈ 20 m → scale 1.8 px/m) made the ring project to ~247M pixels and loop billions of times. Cap samples at 4× canvas pixel diagonal in both `RingOutline` and `RingColoredOutline`; skip drawing rings entirely when `outerPx > canvasReach`. |
-| **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
-| **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
+| **v0.5.15 ✓** | **(final v0.5 patch)** | Fix focus-change lockup at extreme zoom — Saturn rings call to `RingColoredOutline` was unbounded; focusing on a tiny body (Phobos SOI ≈ 20 m → scale 1.8 px/m) made the ring project to ~247M pixels and loop billions of times. Cap samples at 4× canvas pixel diagonal in both `RingOutline` and `RingColoredOutline`; skip drawing rings entirely when `outerPx > canvasReach`. |
+| **v0.5 ✓** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity. Cycle closed at v0.5.15 — see `docs/v0.5-release-notes.md`. |
+| **v0.6** | **(next) Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 
@@ -458,17 +443,35 @@ by target version:
 
 ## 5. Open questions for the next cycle
 
-None open. All v0.4 → v0.6 scoping questions are resolved (see §4
-current cycle). The next scoping round naturally re-opens at the v0.4
-ship boundary — expected new questions:
+We're now at the **v0.5 ship boundary**, with v0.6 (planner UX + missions
++ multiplayer design spike) the next cycle. The questions surfaced for
+the v0.4-boundary list partially resolved during v0.5; what's left,
+plus what v0.5 newly opened, framed for v0.6 scoping:
 
-- What the v0.5 `Body` schema needs to expose for the v0.7 config-file
-  loader (beyond moving the palette table into per-body JSON).
-- How `PlanTransfer()` extends to Earth → Luna once the hierarchy is in
-  (v0.6 work, surfaces during mid-course-correction integration).
-- Whether v0.6 missions persist in the `payload` block or alongside it
-  as a sibling (e.g. `{"version":1, ..., "payload":{...},
+- **`Body` schema for the v0.7 config-file loader** *(still open)*. What
+  the v0.5 hierarchy needs to expose — beyond promoting the palette
+  table to per-body JSON — for a clean external loader. Surfaces when
+  v0.7 starts; v0.6 should avoid schema decisions that paint into a
+  corner.
+- **Inter-SOI `PlanTransfer()` capture** *(partially answered)*. v0.5.7's
+  `PlanIntraPrimaryHohmann` covers same-parent transfers (LEO → Luna)
+  and v0.5.9 added phase correction. **Remaining**: cross-primary
+  capture — Earth heliocentric cruise → Mars-orbit insertion that
+  passes through (or rendezvous with) one of Mars's moons; or
+  heliocentric → a Galilean satellite. Needs a real patched-conic
+  capture pass, not just a shared-parent assumption flip. v0.6 work.
+- **Mission persistence shape** *(still open)*. Whether v0.6 missions
+  persist inside the v0.4 save's `payload` block or alongside it as a
+  sibling (e.g. `{"version":1, ..., "payload":{...},
   "missions":{...}}`) — affects save-schema ergonomics more than
-  correctness.
+  correctness, but worth deciding before missions land.
+- **Integration-design event-loop landing** *(newly open)*.
+  `docs/integration-design.md` (the v0.4.2–v0.4.4 contract) sketches an
+  event-driven outer loop unifying integrator and predictor; that work
+  stayed deferred so the v0.5 series could focus on moons + visuals.
+  Open: does it land *inside* v0.6 alongside the burn-at-next
+  scheduler (they touch the same control loop, so co-shipping is
+  natural), or stay its own follow-on after v0.6's planner UX is
+  bedded in?
 
 Update this doc on each minor/patch boundary so the snapshot stays current.
