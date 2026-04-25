@@ -114,10 +114,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
 		// radii project to pixel radii via the canvas scale; only
 		// draw when the outer ring would visibly clear the body's
-		// rendered disk.
+		// rendered disk. v0.5.15: skip if outerPx is beyond a sane
+		// canvas multiple — at extreme zoom the ring projects to
+		// millions of pixels and is entirely off-canvas anyway. The
+		// canvas has a samples cap as defense in depth.
 		if _, outerR, ok := render.BodyRings(b.ID); ok {
 			outerPx := int(outerR * scale)
-			if outerPx > r {
+			canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
+			if outerPx > r && outerPx < canvasReach {
 				v.canvas.RingColoredOutline(pos, outerPx, color)
 			}
 		}
