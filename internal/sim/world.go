@@ -40,17 +40,31 @@ type World struct {
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
 
-	// trail is a ring buffer of recent craft inertial positions for the
-	// vessel-position-trail render (v0.5.2). Capacity = trailCap; when
-	// full, new samples overwrite the oldest. trailLen ≤ trailCap is
-	// the live count. trailAccumSec is the sim-time accrued since the
-	// last sample — we sample at trailIntervalSec, not every tick, so
-	// trail length corresponds to ~trailCap × trailIntervalSec of sim
-	// history regardless of warp.
-	trail         [trailCap]orbital.Vec3
+	// trail is a ring buffer of recent craft samples for the vessel-
+	// position-trail render. Each sample stores the primary's body ID
+	// and the craft's position *in that primary's frame* (v0.5.4) — at
+	// render time the inertial position is reconstructed via
+	// BodyPosition(primary). Pre-v0.5.4 stored heliocentric inertial
+	// directly, which made the trail a heliocentric trace rather than
+	// following the craft's apparent orbit around its primary.
+	//
+	// trailLen ≤ trailCap is the live count. trailAccumSec is sim-time
+	// accrued since the last sample — we sample at trailIntervalSec,
+	// not every tick, so trail length covers ~trailCap × trailIntervalSec
+	// of sim history regardless of warp.
+	trail         [trailCap]trailSample
 	trailIdx      int
 	trailLen      int
 	trailAccumSec float64
+}
+
+// trailSample captures the craft's position in its primary's frame at
+// the moment of capture. The primary may differ across samples (an
+// SOI crossing changes which body the craft is bound to); each sample
+// is independently re-translated at render time.
+type trailSample struct {
+	primaryID string
+	relR      orbital.Vec3
 }
 
 const (
@@ -168,41 +182,69 @@ func (w *World) Tick() {
 	}
 }
 
-// maybeRecordTrail appends the craft's current inertial position to
-// the trail ring buffer when trailIntervalSec of sim time has elapsed
-// since the last sample. The sim-time gating means trail density
-// stays roughly constant across warp levels — at warp=1 we sample
-// every ~10 sim seconds (≈200 ticks), at warp=10000× every ~10
-// sim seconds (≈one tick). Either way the visible trail covers
-// trailCap × trailIntervalSec ≈ 33 minutes of sim history.
+// maybeRecordTrail appends the craft's current state (in its primary's
+// frame) to the trail ring buffer when trailIntervalSec of sim time
+// has elapsed since the last sample. Storing primary-relative R and
+// re-translating at render time keeps the trail aligned with the
+// craft's apparent orbit around its primary — pre-v0.5.4 we stored
+// heliocentric inertial directly, which made LEO trails appear to
+// drift through space at Earth's orbital speed (~30 km/s).
+//
+// The sim-time gating means trail density stays roughly constant
+// across warp levels — at warp=1 we sample every ~10 sim seconds
+// (≈200 ticks), at warp=10000× every ~10 sim seconds (≈one tick).
+// Either way the visible trail covers trailCap × trailIntervalSec
+// ≈ 33 minutes of sim history.
 func (w *World) maybeRecordTrail(secs float64) {
 	w.trailAccumSec += secs
 	if w.trailAccumSec < trailIntervalSec {
 		return
 	}
 	w.trailAccumSec = 0
-	w.trail[w.trailIdx] = w.CraftInertial()
+	w.trail[w.trailIdx] = trailSample{
+		primaryID: w.Craft.Primary.ID,
+		relR:      w.Craft.State.R,
+	}
 	w.trailIdx = (w.trailIdx + 1) % trailCap
 	if w.trailLen < trailCap {
 		w.trailLen++
 	}
 }
 
-// CraftTrail returns the trail samples in oldest-to-newest order. The
-// returned slice is a fresh copy — callers can iterate / reverse
-// safely. Empty when the craft has just spawned and hasn't accumulated
-// trailIntervalSec of sim time yet.
+// CraftTrail returns the trail samples in oldest-to-newest order,
+// each translated into current-tick inertial coordinates via
+// BodyPosition(sample.primary). The returned slice is a fresh copy —
+// callers can iterate / reverse safely. Empty when the craft has
+// just spawned and hasn't accumulated trailIntervalSec of sim time
+// yet.
+//
+// Note: the inertial positions returned here move with the body each
+// frame — a stationary LEO craft over 100 ticks produces samples whose
+// raw stored .relR is identical, but whose translated inertial drifts
+// with Earth. The trail effectively floats with the primary, which is
+// what the player sees (Earth is fixed at canvas center under
+// FocusBody, and the trail loops around it).
 func (w *World) CraftTrail() []orbital.Vec3 {
 	if w.trailLen == 0 {
 		return nil
 	}
+	sys := w.System()
 	out := make([]orbital.Vec3, w.trailLen)
 	start := w.trailIdx - w.trailLen
 	if start < 0 {
 		start += trailCap
 	}
 	for i := 0; i < w.trailLen; i++ {
-		out[i] = w.trail[(start+i)%trailCap]
+		s := w.trail[(start+i)%trailCap]
+		// Re-translate to current inertial. Primary lookup falls back
+		// to system primary if the recorded ID isn't found (e.g. a
+		// system swap removed the body — defensive, shouldn't normally
+		// happen).
+		var primaryPos orbital.Vec3
+		if b := sys.FindBody(s.primaryID); b != nil {
+			primaryPos = w.BodyPosition(*b)
+		}
+		out[i] = primaryPos.Add(s.relR)
 	}
 	return out
 }
