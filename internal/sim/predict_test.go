@@ -3,6 +3,7 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
@@ -75,6 +76,70 @@ func TestPredictedSegmentsBoundOrbitStaysInOneSegment(t *testing.T) {
 	}
 	if len(segs) > 0 && segs[0].PrimaryID != w.Craft.Primary.ID {
 		t.Errorf("LEO segment primary = %s, want %s", segs[0].PrimaryID, w.Craft.Primary.ID)
+	}
+}
+
+// TestIntegrateSpacecraftSwitchesPrimaryMidTick: regression for v0.4.2.
+// At high warp a single tick can cover an SOI crossing; the live
+// integrator must rebase to the new primary inside its sub-step loop,
+// not wait for maybeSwitchPrimary's per-20-tick throttle. Otherwise
+// post-crossing sub-steps integrate with the wrong μ and the live
+// orbit drifts off the predicted one.
+func TestIntegrateSpacecraftSwitchesPrimaryMidTick(t *testing.T) {
+	w := mustWorld(t)
+	homeID := w.Craft.Primary.ID
+
+	// 16 km/s y-velocity → hyperbolic Earth escape; ~3 days clears
+	// Earth SOI (~924 000 km) with margin.
+	w.Craft.State.V = orbital.Vec3{Y: 16000}
+
+	// Single tick covering 3 days of sim time. integrateSpacecraft
+	// caps sub-steps at 1024 and dt at period/100, but per-sub-step
+	// SOI check should still fire when the boundary is crossed
+	// regardless of how the dt is sized.
+	w.integrateSpacecraft(time.Duration(3 * 86400 * float64(time.Second)))
+
+	if w.Craft.Primary.ID == homeID {
+		t.Errorf("live integrator stayed in home primary %q after 3-day escape; SOI check did not fire mid-tick",
+			homeID)
+	}
+	// State should now be on a heliocentric scale, not 8e8 m geocentric.
+	if w.Craft.State.R.Norm() < 1e9 {
+		t.Errorf("post-tick |r|=%.3e m — looks like state wasn't rebased", w.Craft.State.R.Norm())
+	}
+}
+
+// TestIntegrateSpacecraftMatchesPredictorAcrossSOI: at high warp the
+// live integrator's end state should match the predictor's end state
+// (same Verlet sub-stepping, same SOI boundary handling). Pre-v0.4.2
+// the predictor's per-sub-step rebase didn't have a counterpart in
+// integrateSpacecraft, so the two could diverge by tens of thousands
+// of km after a mid-tick SOI crossing. The fix folds the same rebase
+// logic into the live integrator; their post-crossing states should
+// now match within a Verlet step's worth of motion.
+func TestIntegrateSpacecraftMatchesPredictorAcrossSOI(t *testing.T) {
+	w := mustWorld(t)
+	w.Craft.State.V = orbital.Vec3{Y: 16000}
+
+	// Snapshot starting state, run the predictor on it.
+	startState := w.Craft.State
+	predicted := w.propagateCraft(3 * 86400.0)
+
+	// Reset craft, run live integrator over the same dt. Don't advance
+	// Clock.SimTime — that would shift the body-position epoch and
+	// the predictor / live snapshots wouldn't be comparable. (In
+	// production Tick *does* advance SimTime first; the body-snapshot
+	// drift is a known approximation orthogonal to this test.)
+	w.Craft.State = startState
+	w.integrateSpacecraft(time.Duration(3 * 86400 * float64(time.Second)))
+
+	gap := w.Craft.State.R.Sub(predicted.R).Norm()
+	// The two paths share Verlet step + SOI-rebase math; allow 1e6 m
+	// (1000 km) for accumulated single-precision noise across 1024
+	// sub-steps. Pre-v0.4.2 the gap was 10⁷–10⁸ m (post-crossing wrong-
+	// frame integration) so even a generous bound catches the bug.
+	if gap > 1e6 {
+		t.Errorf("live vs predicted divergence after SOI crossing: %.3e m (>1e6)", gap)
 	}
 }
 
