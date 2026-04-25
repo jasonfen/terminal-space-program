@@ -12,6 +12,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -383,8 +384,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 
 	if selectedIdx >= 0 && selectedIdx < len(sys.Bodies) {
 		b := sys.Bodies[selectedIdx]
+		nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
 		lines = append(lines,
-			"  "+b.EnglishName,
+			"  "+nameStyle.Render(b.EnglishName),
 			"  "+b.BodyType,
 		)
 		if b.SemimajorAxis > 0 {
