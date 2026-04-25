@@ -131,6 +131,20 @@ features and the version sequence that delivers them.
   by the bracket starting point; a caller hint would be cleaner.
 
 ### Larger queued features
+- **Realistic finite-burn intra-primary auto-plant** (v0.6 target).
+  v0.5.12 ships intra-primary auto-plant (Earth → Luna etc) as
+  *impulsive* burns because the integrator's finite-burn path loses
+  ~27% of apoapsis-raise to geometry deformation over a 14-min TLI,
+  and a closed-form `sin(α)/α` compensation isn't accurate enough
+  (under-corrects, then over-corrects past escape if you inflate
+  more). Real spacecraft handle this via numerical pre-burn
+  iteration, multiple smaller perigee-raise burns, or higher-TWR
+  engines. The "right" implementation: finite-burn-aware planner
+  that integrates a candidate Δv, measures resulting apoapsis,
+  iterates Newton-style until it hits target. Composes naturally
+  with the v0.6 burn-at-next scheduler. Until then, auto-plant is
+  pragmatically impulsive (delivered Δv exact, mass loss correct
+  via Tsiolkovsky, just visually instant).
 - **Save / load** (v0.4.0 target). No state persistence today — close the
   program and your orbit is gone. JSON state file at
   `$XDG_STATE_HOME/terminal-space-program/save.json`, manual `S` / `L`, autosave on quit.
