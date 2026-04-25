@@ -27,6 +27,31 @@ func TestColorForKnownBodies(t *testing.T) {
 	}
 }
 
+// TestGlyphForBodyTypes: v0.5.12 — different body types resolve to
+// distinct identity glyphs. Star → ☉, gas giant → ◉, terrestrial → ●,
+// moon → ○.
+func TestGlyphForBodyTypes(t *testing.T) {
+	star := bodies.CelestialBody{BodyType: "Star"}
+	gas := bodies.CelestialBody{BodyType: "Planet", MeanRadius: 70000}
+	terr := bodies.CelestialBody{BodyType: "Planet", MeanRadius: 6371}
+	moon := bodies.CelestialBody{BodyType: "Moon"}
+	cases := []struct {
+		b    bodies.CelestialBody
+		want rune
+	}{
+		{star, '☉'},
+		{gas, '◉'},
+		{terr, '●'},
+		{moon, '○'},
+	}
+	for _, c := range cases {
+		got := GlyphFor(c.b)
+		if got != c.want {
+			t.Errorf("%+v → %q, want %q", c.b, got, c.want)
+		}
+	}
+}
+
 // TestBodyRingsForSaturn: v0.5.11 — Saturn has rendered rings; other
 // bodies don't.
 func TestBodyRingsForSaturn(t *testing.T) {

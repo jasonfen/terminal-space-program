@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.5.11 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.5.12 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.5.11)
+## 1. What works today (v0.5.12)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -239,7 +239,8 @@ features and the version sequence that delivers them.
 | v0.5.8 ✓ | | Keybind cleanup: `P` → porkchop (was `k`), `H` → Hohmann auto-plant (was `P`). Mnemonic: P/Porkchop, H/Hohmann. |
 | v0.5.9 ✓ | | Phase-corrected intra-primary Hohmann: `H` on a moon now waits for the next launch window (Luna leads craft by `π − n_target·T_transfer`) so the craft actually rendezvous with the target instead of arriving at empty apoapsis. Synodic period for LEO+Luna ≈ 89 min so the wait is short. Also fixes porkchop redirect-banner text from `[P]` to `[H]`. |
 | v0.5.10 ✓ | | Lunar-mission delivery pass: Tick clamps to finite-burn TriggerTime (no high-warp burn-fire lag); planner pads launch window so centered burns don't fire retroactively; default vessel swapped to S-IVB-1 (J-2 1023 kN, 11000+40000 kg, Δv 6.3 km/s, ~110s TLI); intra-primary auto-plant returns to finite burns; ManeuverNode.TriggerTime is now the burn *center* (engine fires Duration/2 earlier — HUD shows the planner's intended moment). |
-| **v0.5.11 ✓** | **(current)** | Saturn rings render — concentric outer ring at the B–A range (92k–137k km from Saturn), drawn in Saturn's palette color when zoom resolves the rings beyond the body disk. `render.BodyRings(id)` extensible for future ringed bodies. Face-on simplification (always concentric circles regardless of view angle). |
+| v0.5.11 ✓ | | Saturn rings render — concentric outer ring at the B–A range (92k–137k km from Saturn), drawn in Saturn's palette color when zoom resolves the rings beyond the body disk. `render.BodyRings(id)` extensible for future ringed bodies. Face-on simplification (always concentric circles regardless of view angle). |
+| **v0.5.12 ✓** | **(current)** | Body-identity glyph overlays — `Canvas.SetCellOverlay` replaces the cell at a body's center with a Unicode glyph (☉ star / ◉ gas giant / ● terrestrial / ○ moon) so types read distinctly even at small pixel radius. `render.GlyphFor(b)` keys on BodyType + MeanRadius. Skips system primary (already has ring+dot draw). |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
