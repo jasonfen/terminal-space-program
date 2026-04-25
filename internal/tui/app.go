@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
@@ -39,6 +41,12 @@ type App struct {
 	help      *screens.Help
 	maneuver  *screens.Maneuver
 	porkchop  *screens.Porkchop
+
+	// statusMsg flashes a one-line notice in the HUD footer for ~3
+	// seconds after save / load. Cleared by clearStatusAfter via a
+	// scheduled tea.Cmd.
+	statusMsg     string
+	statusExpires time.Time
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -111,6 +119,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// screen's handler so it can clean up.
 		if a.active == screenManeuver {
 			if key.Matches(m, a.keys.Quit) {
+				a.autosave()
 				return a, tea.Quit
 			}
 			if key.Matches(m, a.keys.Back) {
@@ -127,6 +136,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Porkchop: ←/→/↑/↓ navigate cells, Esc returns.
 		if a.active == screenPorkchop {
 			if key.Matches(m, a.keys.Quit) {
+				a.autosave()
 				return a, tea.Quit
 			}
 			_, done := a.porkchop.HandleKey(m)
@@ -137,6 +147,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(m, a.keys.Quit):
+			a.autosave()
 			return a, tea.Quit
 		case key.Matches(m, a.keys.Help):
 			if a.active == screenHelp {
@@ -232,9 +243,58 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.ClearNodes):
 			a.world.ClearNodes()
 			return a, nil
+		case key.Matches(m, a.keys.Save):
+			a.flashStatus("save", a.doSave())
+			return a, nil
+		case key.Matches(m, a.keys.Load):
+			a.flashStatus("load", a.doLoad())
+			return a, nil
 		}
 	}
 	return a, nil
+}
+
+// doSave writes the current world to the default save path.
+func (a *App) doSave() error {
+	path, err := save.DefaultPath()
+	if err != nil {
+		return err
+	}
+	return save.Save(a.world, path)
+}
+
+// doLoad replaces the live world with the one persisted at the default
+// save path. Failures leave the existing world untouched.
+func (a *App) doLoad() error {
+	path, err := save.DefaultPath()
+	if err != nil {
+		return err
+	}
+	w, err := save.Load(path)
+	if err != nil {
+		return err
+	}
+	a.world = w
+	a.active = screenOrbit
+	return nil
+}
+
+// autosave persists on quit. Errors are swallowed — the user is leaving
+// and there's no surface to flash a message on. Console-printable saves
+// can be wired later if needed.
+func (a *App) autosave() {
+	_ = a.doSave()
+}
+
+// flashStatus writes a transient message to the HUD footer.
+func (a *App) flashStatus(op string, err error) {
+	if err != nil {
+		a.statusMsg = fmt.Sprintf("%s failed: %v", op, err)
+	} else {
+		path, _ := save.DefaultPath()
+		a.statusMsg = fmt.Sprintf("%s ok — %s", op, path)
+	}
+	a.statusExpires = time.Now().Add(3 * time.Second)
 }
 
 // finiteBurnDuration returns the sim-time duration needed to deliver dv
@@ -252,21 +312,27 @@ func finiteBurnDuration(dv, mass, thrust float64) time.Duration {
 	return time.Duration(secs * float64(time.Second))
 }
 
-// View delegates to the active screen.
+// View delegates to the active screen, then overlays a transient
+// status line at the bottom for ~3s after a save / load.
 func (a *App) View() string {
 	if a.width == 0 {
 		return "initializing…"
 	}
+	var base string
 	switch a.active {
 	case screenHelp:
-		return a.help.Render()
+		base = a.help.Render()
 	case screenBodyInfo:
-		return a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
+		base = a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
 	case screenManeuver:
-		return a.maneuver.Render(a.world, a.width, a.height)
+		base = a.maneuver.Render(a.world, a.width, a.height)
 	case screenPorkchop:
-		return a.porkchop.Render(a.world, a.width, a.height)
+		base = a.porkchop.Render(a.world, a.width, a.height)
 	default:
-		return a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+		base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}
+	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
+		base += "\n" + a.theme.Footer.Render(a.statusMsg)
+	}
+	return base
 }
