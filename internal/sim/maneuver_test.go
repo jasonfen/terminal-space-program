@@ -325,6 +325,51 @@ func TestPlanTransferRejectsBadTargets(t *testing.T) {
 	}
 }
 
+// TestPorkchopGridForMoonTargetIsHeliocentric: regression for the
+// v0.5.5 fix. Pre-fix bodyEphemeris returned moon's parent-relative
+// position as if heliocentric, so PorkchopGrid for a moon target
+// solved Lambert with one endpoint near the system origin and
+// produced wildly wrong Δv (often <1 km/s — geometrically suspicious
+// for a heliocentric transfer to anything in Earth's vicinity).
+//
+// Sanity gate: the cheapest Δv on a Earth → Luna porkchop grid must
+// at minimum cover a typical Earth-escape (~3 km/s). If we see <1 km/s
+// the bug has regressed.
+func TestPorkchopGridForMoonTargetIsHeliocentric(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i := range sys.Bodies {
+		if sys.Bodies[i].ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon missing from Sol")
+	}
+	depDays := []float64{0, 5, 10}
+	tofDays := []float64{3, 5, 7}
+	grid, err := w.PorkchopGrid(moonIdx, depDays, tofDays)
+	if err != nil {
+		t.Fatalf("PorkchopGrid: %v", err)
+	}
+	best := math.Inf(1)
+	for _, row := range grid {
+		for _, v := range row {
+			if !math.IsNaN(v) && v < best {
+				best = v
+			}
+		}
+	}
+	if math.IsInf(best, 1) {
+		t.Fatal("entire porkchop grid was NaN — Lambert never converged")
+	}
+	if best < 1000 {
+		t.Errorf("Earth → Luna best porkchop Δv = %.1f m/s, suspiciously cheap (heliocentric-vs-parent-relative bug?)", best)
+	}
+}
+
 func mustWorld(t *testing.T) *World {
 	t.Helper()
 	w, err := NewWorld()
