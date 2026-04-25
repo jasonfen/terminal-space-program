@@ -174,6 +174,15 @@ func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 // in flight, sub-steps run RK4 with engine thrust on top of gravity so
 // the non-conservative force is handled cleanly (Verlet would silently
 // drift); otherwise pure Verlet for energy-conserving free flight.
+//
+// SOI check runs *inside* the sub-step loop (v0.4.2): when a sub-step
+// crosses a sphere-of-influence boundary, the state is rebased to the
+// new primary's frame and μ switches for subsequent steps. Mirrors
+// propagateCraftWithPrimary's predictor path. Pre-v0.4.2 only the
+// per-20-tick maybeSwitchPrimary throttle handled SOI transitions,
+// which left the live integrator propagating in the wrong frame for
+// up to a tick after a mid-tick crossing — visible as orbits diverging
+// from the predicted trajectory at high warp.
 func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	mu := w.Craft.Primary.GravitationalParameter()
 	period := orbitalPeriod(w.Craft.State, mu)
@@ -194,11 +203,31 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	}
 	dt := secs / float64(nSteps)
 	tickStart := w.Clock.SimTime.Add(-simDelta)
+
+	sys := w.System()
+	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
+	for _, b := range sys.Bodies {
+		positions[b.ID] = w.BodyPosition(b)
+	}
+
 	for i := 0; i < nSteps; i++ {
 		if w.burnActiveAt(tickStart, dt, i) {
 			w.stepThrust(mu, dt)
 		} else {
 			w.Craft.State = physics.StepVerlet(w.Craft.State, mu, dt)
+		}
+
+		// Per-sub-step SOI re-evaluation. If the craft crossed into
+		// another body's SOI during this dt, rebase to that frame so
+		// the next sub-step uses the right μ.
+		inertial := positions[w.Craft.Primary.ID].Add(w.Craft.State.R)
+		cand := physics.FindPrimary(sys, inertial, positions)
+		if cand.Body.ID != w.Craft.Primary.ID {
+			vOld := w.bodyInertialVelocity(w.Craft.Primary)
+			vNew := w.bodyInertialVelocity(cand.Body)
+			w.Craft.State = physics.Rebase(w.Craft.State, positions[w.Craft.Primary.ID], cand.Inertial, vOld.Sub(vNew))
+			w.Craft.Primary = cand.Body
+			mu = w.Craft.Primary.GravitationalParameter()
 		}
 	}
 	// Tear down the burn if it exhausted (Δv delivered, fuel gone, or

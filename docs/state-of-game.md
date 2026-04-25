@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.4.1 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.4.2 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.4.1)
+## 1. What works today (v0.4.2)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -192,7 +192,8 @@ features and the version sequence that delivers them.
 |---------|-------|-------------------|
 | v0.3.6 ✓ | | Adaptive body sizing, peri-below-surface warning |
 | v0.4.0 ✓ | Persistence | Save / load with versioned envelope |
-| v0.4.1 ✓ | (current) | Porkchop Enter-to-plant + `R`-refine mid-course correction |
+| v0.4.1 ✓ | | Porkchop Enter-to-plant + `R`-refine mid-course correction |
+| v0.4.2 ✓ | (current) | Per-sub-step SOI check in live integrator (high-warp orbit drift fix) |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
