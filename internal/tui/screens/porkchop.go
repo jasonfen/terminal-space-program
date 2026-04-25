@@ -148,6 +148,11 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	b.WriteString(p.theme.Title.Render(title))
 	b.WriteString("\n\n")
 
+	// Grid lead-in width: "tof XXXd │" = 4 + 3 + 2 + 1 = 10 chars
+	// (e.g. "tof 100d │"). v0.5.14 axis-label fix uses this constant
+	// so the dep-day labels under the grid line up properly.
+	const gridLead = 10
+
 	// Grid body. Y axis = tof (top = short, bottom = long), X axis = dep.
 	for j, tof := range p.tofDays {
 		b.WriteString(fmt.Sprintf("tof %3.0fd │", tof))
@@ -161,18 +166,32 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 		}
 		b.WriteString("│\n")
 	}
-	// X axis labels (every 5th column).
-	b.WriteString("         ")
-	for i, dep := range p.depDays {
-		if i%5 == 0 {
-			b.WriteString(fmt.Sprintf("%-5.0f", dep))
-		} else if i%5 != 0 && i%5 != 1 && i%5 != 2 && i%5 != 3 && i%5 != 4 {
-			// noop — above covers 0..4
+
+	// X axis tick line: "└" + dashes under each cell.
+	b.WriteString(strings.Repeat(" ", gridLead-1))
+	b.WriteString("└")
+	b.WriteString(strings.Repeat("─", len(p.depDays)))
+	b.WriteString("\n")
+
+	// X axis labels (every 5th column). Each label is exactly 5 chars
+	// wide so column alignment with the grid stays correct. Skip
+	// labels that would overflow past the grid right edge.
+	b.WriteString(strings.Repeat(" ", gridLead))
+	for i := 0; i < len(p.depDays); i++ {
+		if i%5 != 0 {
+			continue
 		}
+		if i+5 > len(p.depDays) {
+			// Final partial group — emit just the digits without padding.
+			b.WriteString(fmt.Sprintf("%.0f", p.depDays[i]))
+			break
+		}
+		b.WriteString(fmt.Sprintf("%-5.0f", p.depDays[i]))
 	}
-	b.WriteString("\n         ")
-	b.WriteString(strings.Repeat(" ", len(p.depDays)))
-	b.WriteString("\n         dep days\n\n")
+	b.WriteString("\n")
+	b.WriteString(strings.Repeat(" ", gridLead))
+	b.WriteString(p.theme.Dim.Render("dep day"))
+	b.WriteString("\n\n")
 
 	// Selection readout.
 	selDv := p.grid[p.selTof][p.selDep]
