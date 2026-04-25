@@ -111,6 +111,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		} else {
 			v.canvas.FillColoredDisk(pos, r, color)
 		}
+		// Draw rings for ringed bodies (v0.5.11). World-scale ring
+		// radii project to pixel radii via the canvas scale; only
+		// draw when the outer ring would visibly clear the body's
+		// rendered disk.
+		if _, outerR, ok := render.BodyRings(b.ID); ok {
+			outerPx := int(outerR * scale)
+			if outerPx > r {
+				v.canvas.RingColoredOutline(pos, outerPx, color)
+			}
+		}
 		if i == selectedIdx {
 			v.plotCluster(pos, r+4)
 		}

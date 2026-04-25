@@ -27,6 +27,17 @@ func TestColorForKnownBodies(t *testing.T) {
 	}
 }
 
+// TestBodyRingsForSaturn: v0.5.11 — Saturn has rendered rings; other
+// bodies don't.
+func TestBodyRingsForSaturn(t *testing.T) {
+	if _, _, ok := BodyRings("saturn"); !ok {
+		t.Error("BodyRings(\"saturn\") should return ok=true")
+	}
+	if _, _, ok := BodyRings("earth"); ok {
+		t.Error("BodyRings(\"earth\") should return ok=false (no rings)")
+	}
+}
+
 // TestStellarTintBuckets: spot-check that StellarTint returns
 // distinct colors across the temperature ladder. Catches accidental
 // collapse of the bucket boundaries (e.g. wrong threshold ordering).
