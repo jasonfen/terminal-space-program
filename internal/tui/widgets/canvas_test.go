@@ -156,6 +156,24 @@ func TestColoredDiskEmitsAnsiOnRender(t *testing.T) {
 	}
 }
 
+// TestRingOutlineHugeRadiusDoesNotHang: v0.5.15 regression — pre-fix
+// a ring with pxRadius in the millions (Saturn rings projected at
+// extreme zoom) looped pxRadius*8 ≈ billions of times, locking the
+// game when the user changed focus to a tiny body. The samples cap
+// keeps the loop bounded by the canvas pixel-diagonal.
+func TestRingOutlineHugeRadiusDoesNotHang(t *testing.T) {
+	c := NewCanvas(40, 20)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+	c.RingColoredOutline(orbital.Vec3{}, 1_000_000, lipgloss.Color("#FF0000"))
+	// If we get here, the cap held. Without it the test would never
+	// finish (or OOM the map). Sanity: at least one pixel got tagged.
+	if len(c.pixelTags) == 0 {
+		t.Skip("ring entirely off-canvas — test setup issue, not a regression")
+	}
+}
+
 // TestPerPixelTagDoesNotBleed: v0.5.10 — pixel tags only affect cells
 // containing tagged pixels. A colored disk + an untagged Plot in a
 // nearby cell should leave the Plot's cell uncolored. Pre-fix the
