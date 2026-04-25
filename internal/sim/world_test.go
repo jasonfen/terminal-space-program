@@ -160,6 +160,50 @@ func TestFindPrimaryGalileanMultiMoon(t *testing.T) {
 	}
 }
 
+// TestCraftTrailGrowsAndCaps: v0.5.2 — sampling at trailIntervalSec
+// of sim time, not per tick. Ticks at warp=1 should sparsely add to
+// the trail; once trailCap entries are recorded, the buffer stops
+// growing and oldest entries get overwritten in FIFO order.
+func TestCraftTrailGrowsAndCaps(t *testing.T) {
+	w, _ := NewWorld()
+	if got := len(w.CraftTrail()); got != 0 {
+		t.Fatalf("fresh world trail = %d, want 0", got)
+	}
+
+	// Force a known sim-time advance per Tick. BaseStep=50ms × warp=1
+	// gives 0.05 s per tick. Need 200 sim seconds per sample at the
+	// default interval — i.e., 200 ticks for one sample.
+	w.Clock.BaseStep = 1 * time.Second // sim-step 1s/tick at warp=1
+	// 11 ticks × 1 s = 11 s ≥ trailIntervalSec (10) → 1 sample.
+	for i := 0; i < 11; i++ {
+		w.Tick()
+	}
+	if got := len(w.CraftTrail()); got != 1 {
+		t.Errorf("after 11 sim seconds: trail = %d, want 1", got)
+	}
+
+	// Push past trailCap to verify the buffer caps and rotates.
+	for i := 0; i < trailCap*15; i++ {
+		w.Tick()
+	}
+	if got := len(w.CraftTrail()); got != trailCap {
+		t.Errorf("after >>trailCap samples: trail = %d, want %d", got, trailCap)
+	}
+
+	// Newest sample (last in returned slice) should equal the live
+	// craft inertial position within one sample's worth of motion —
+	// the most recent recorded sample was taken at most trailIntervalSec
+	// ago, so a small (sub-orbit-fraction) gap is expected for LEO.
+	tr := w.CraftTrail()
+	last := tr[len(tr)-1]
+	live := w.CraftInertial()
+	gap := last.Sub(live).Norm()
+	// LEO speed ~7.78 km/s; 10 sim seconds covers ~78 km. Allow 2x.
+	if gap > 200e3 {
+		t.Errorf("newest trail sample too far from live craft: %.1f km", gap/1000)
+	}
+}
+
 // TestPausedTickDoesNothing: world.Clock.Paused must block both time
 // advancement and physics stepping.
 func TestPausedTickDoesNothing(t *testing.T) {

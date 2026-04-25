@@ -110,6 +110,28 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 	}
 
+	// Vessel position trail (v0.5.2): a fading dotted history of
+	// where the craft has actually been, distinct from the current
+	// Keplerian orbit ellipse. Stride increases (sparser dots) for
+	// older samples to give a visual gradient — newest = densest.
+	if w.CraftVisibleHere() {
+		trail := w.CraftTrail()
+		// Draw oldest first (sparse stride 4) → newest (every point),
+		// so newer samples overdraw older ones at any cell collision.
+		for i, p := range trail {
+			// stride: 4 at oldest end, 1 at newest end. Linear ramp.
+			progress := float64(i) / float64(len(trail))
+			stride := 4 - int(3*progress)
+			if stride < 1 {
+				stride = 1
+			}
+			if i%stride != 0 {
+				continue
+			}
+			v.canvas.Plot(p)
+		}
+	}
+
 	// Spacecraft current-orbit ellipse + glyph. Orbit is the craft's
 	// live Keplerian ellipse in its home primary's frame, translated
 	// into the system frame so it renders alongside planet orbits.

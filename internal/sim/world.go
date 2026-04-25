@@ -39,7 +39,24 @@ type World struct {
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
+
+	// trail is a ring buffer of recent craft inertial positions for the
+	// vessel-position-trail render (v0.5.2). Capacity = trailCap; when
+	// full, new samples overwrite the oldest. trailLen ≤ trailCap is
+	// the live count. trailAccumSec is the sim-time accrued since the
+	// last sample — we sample at trailIntervalSec, not every tick, so
+	// trail length corresponds to ~trailCap × trailIntervalSec of sim
+	// history regardless of warp.
+	trail         [trailCap]orbital.Vec3
+	trailIdx      int
+	trailLen      int
+	trailAccumSec float64
 }
+
+const (
+	trailCap         = 200
+	trailIntervalSec = 10.0
+)
 
 // NewWorld loads the embedded systems, seeds clock at J2000 + 50 ms base
 // step, and spawns a spacecraft in LEO around Sol's Earth.
@@ -147,7 +164,47 @@ func (w *World) Tick() {
 			w.soiCheckCounter = 0
 			w.maybeSwitchPrimary()
 		}
+		w.maybeRecordTrail(simDelta.Seconds())
 	}
+}
+
+// maybeRecordTrail appends the craft's current inertial position to
+// the trail ring buffer when trailIntervalSec of sim time has elapsed
+// since the last sample. The sim-time gating means trail density
+// stays roughly constant across warp levels — at warp=1 we sample
+// every ~10 sim seconds (≈200 ticks), at warp=10000× every ~10
+// sim seconds (≈one tick). Either way the visible trail covers
+// trailCap × trailIntervalSec ≈ 33 minutes of sim history.
+func (w *World) maybeRecordTrail(secs float64) {
+	w.trailAccumSec += secs
+	if w.trailAccumSec < trailIntervalSec {
+		return
+	}
+	w.trailAccumSec = 0
+	w.trail[w.trailIdx] = w.CraftInertial()
+	w.trailIdx = (w.trailIdx + 1) % trailCap
+	if w.trailLen < trailCap {
+		w.trailLen++
+	}
+}
+
+// CraftTrail returns the trail samples in oldest-to-newest order. The
+// returned slice is a fresh copy — callers can iterate / reverse
+// safely. Empty when the craft has just spawned and hasn't accumulated
+// trailIntervalSec of sim time yet.
+func (w *World) CraftTrail() []orbital.Vec3 {
+	if w.trailLen == 0 {
+		return nil
+	}
+	out := make([]orbital.Vec3, w.trailLen)
+	start := w.trailIdx - w.trailLen
+	if start < 0 {
+		start += trailCap
+	}
+	for i := 0; i < w.trailLen; i++ {
+		out[i] = w.trail[(start+i)%trailCap]
+	}
+	return out
 }
 
 // clampedWarp returns min(selected warp, max warp allowed by the step-size
