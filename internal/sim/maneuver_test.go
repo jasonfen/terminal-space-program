@@ -325,17 +325,12 @@ func TestPlanTransferRejectsBadTargets(t *testing.T) {
 	}
 }
 
-// TestPorkchopGridForMoonTargetIsHeliocentric: regression for the
-// v0.5.5 fix. Pre-fix bodyEphemeris returned moon's parent-relative
-// position as if heliocentric, so PorkchopGrid for a moon target
-// solved Lambert with one endpoint near the system origin and
-// produced wildly wrong Δv (often <1 km/s — geometrically suspicious
-// for a heliocentric transfer to anything in Earth's vicinity).
-//
-// Sanity gate: the cheapest Δv on a Earth → Luna porkchop grid must
-// at minimum cover a typical Earth-escape (~3 km/s). If we see <1 km/s
-// the bug has regressed.
-func TestPorkchopGridForMoonTargetIsHeliocentric(t *testing.T) {
+// TestPorkchopGridRejectsSamePrimaryTarget: v0.5.7 — porkchop is
+// heliocentric Lambert, doesn't model in-SOI transfers correctly.
+// Same-primary moon targets must error out with errSamePrimaryUseHohmann
+// so the screen can redirect the user to [P] / PlanTransfer (which
+// dispatches to the intra-primary Hohmann path).
+func TestPorkchopGridRejectsSamePrimaryTarget(t *testing.T) {
 	w := mustWorld(t)
 	sys := w.System()
 	moonIdx := -1
@@ -348,25 +343,44 @@ func TestPorkchopGridForMoonTargetIsHeliocentric(t *testing.T) {
 	if moonIdx < 0 {
 		t.Skip("Moon missing from Sol")
 	}
-	depDays := []float64{0, 5, 10}
-	tofDays := []float64{3, 5, 7}
-	grid, err := w.PorkchopGrid(moonIdx, depDays, tofDays)
-	if err != nil {
-		t.Fatalf("PorkchopGrid: %v", err)
+	if _, err := w.PorkchopGrid(moonIdx, []float64{0}, []float64{5}); err == nil {
+		t.Errorf("PorkchopGrid for Moon (same-primary) returned nil error — should be errSamePrimaryUseHohmann")
 	}
-	best := math.Inf(1)
-	for _, row := range grid {
-		for _, v := range row {
-			if !math.IsNaN(v) && v < best {
-				best = v
-			}
+}
+
+// TestPlanTransferIntraPrimaryHohmannForMoon: v0.5.7 — PlanTransfer
+// must dispatch to PlanIntraPrimaryHohmann when target.ParentID matches
+// craft's primary. Sanity-check that Earth → Luna gives a realistic
+// trans-lunar injection Δv (~3 km/s departure) rather than the
+// pre-v0.5.7 nonsense from heliocentric Hohmann math interpreting
+// Luna's parent-relative semimajor as a heliocentric distance.
+func TestPlanTransferIntraPrimaryHohmannForMoon(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i := range sys.Bodies {
+		if sys.Bodies[i].ID == "moon" {
+			moonIdx = i
+			break
 		}
 	}
-	if math.IsInf(best, 1) {
-		t.Fatal("entire porkchop grid was NaN — Lambert never converged")
+	if moonIdx < 0 {
+		t.Skip("Moon missing from Sol")
 	}
-	if best < 1000 {
-		t.Errorf("Earth → Luna best porkchop Δv = %.1f m/s, suspiciously cheap (heliocentric-vs-parent-relative bug?)", best)
+	plan, err := w.PlanTransfer(moonIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer to Luna: %v", err)
+	}
+	// TLI Δv from 200 km LEO to Luna distance is ~3.1 km/s (geocentric
+	// Hohmann math). Capture into Luna SOI from closing speed ~0.8 km/s
+	// at Luna's altitude → Luna-orbit-insertion Δv ~0.7 km/s.
+	dep := plan.Departure.DV
+	arr := plan.Arrival.DV
+	if dep < 2500 || dep > 3500 {
+		t.Errorf("Earth → Luna departure Δv = %.0f m/s, want ~3100 (TLI)", dep)
+	}
+	if arr < 200 || arr > 1500 {
+		t.Errorf("Earth → Luna arrival Δv = %.0f m/s, want ~700 (Luna-orbit insertion)", arr)
 	}
 }
 

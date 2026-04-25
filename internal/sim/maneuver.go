@@ -80,20 +80,40 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		return nil, errInvalidTransferTarget
 	}
 
+	rPark := w.Craft.State.R.Norm()
+	rCapture := target.RadiusMeters() + 200e3
+	muDestination := target.GravitationalParameter()
+
+	// v0.5.7: if target shares the craft's primary (e.g. craft in LEO
+	// targeting Luna, both around Earth), use intra-primary Hohmann.
+	// The patched-conic inter-primary path is wrong for in-SOI targets
+	// (it adds an Earth-escape burn that isn't physically required —
+	// craft and target both stay inside the shared primary's SOI).
+	if target.ParentID == w.Craft.Primary.ID {
+		muShared := w.Craft.Primary.GravitationalParameter()
+		rArrival := target.SemimajorAxisMeters()
+		plan, err := planner.PlanIntraPrimaryHohmann(
+			muShared, rPark, rArrival,
+			w.Craft.Primary.ID,
+			muDestination, rCapture, target.ID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		now := w.Clock.SimTime
+		mass := w.Craft.TotalMass()
+		thrust := w.Craft.Thrust
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+		return &plan, nil
+	}
+
 	primary := sys.Bodies[0]
 	muSun := primary.GravitationalParameter()
 	rDeparture := w.CraftInertial().Norm()
 	rArrival := target.SemimajorAxisMeters()
 
-	// Parking-orbit radius at departure: craft's current |r| in its
-	// home primary's frame. Capture radius at destination: hold-over
-	// 200 km altitude default to mirror NewInLEO ergonomics — the
-	// game-balance question of "what circular orbit does the player
-	// want around Mars" is documented, not enforced.
-	rPark := w.Craft.State.R.Norm()
 	muDeparture := w.Craft.Primary.GravitationalParameter()
-	rCapture := target.RadiusMeters() + 200e3
-	muDestination := target.GravitationalParameter()
 
 	plan, err := planner.PlanHohmannTransfer(
 		muSun, rDeparture, rArrival,
@@ -265,6 +285,13 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	if target.SemimajorAxis == 0 {
 		return nil, errInvalidTransferTarget
 	}
+	// v0.5.7: porkchop / Lambert is heliocentric — invalid for in-SOI
+	// targets (moon of craft's primary). Caller (porkchop screen) shows
+	// a banner directing the user to `P` (PlanTransfer auto-plants the
+	// intra-primary Hohmann correctly).
+	if target.ParentID == w.Craft.Primary.ID {
+		return nil, errSamePrimaryUseHohmann
+	}
 
 	primary := sys.Bodies[0]
 	muSun := primary.GravitationalParameter()
@@ -311,6 +338,11 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 //
 // Uses the same parking-orbit and capture-orbit defaults as PlanTransfer
 // (craft's current |r| at departure, 200 km altitude at destination).
+//
+// v0.5.7: rejects same-primary targets (moon of craft's primary) with
+// errSamePrimaryUseHohmann — the heliocentric Lambert math doesn't
+// model in-SOI transfers. The porkchop screen surfaces the error as a
+// "use [P] for Hohmann" banner.
 func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]float64, error) {
 	sys := w.System()
 	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
@@ -322,6 +354,9 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 	target := sys.Bodies[targetIdx]
 	if target.SemimajorAxis == 0 {
 		return nil, errInvalidTransferTarget
+	}
+	if target.ParentID == w.Craft.Primary.ID {
+		return nil, errSamePrimaryUseHohmann
 	}
 
 	primary := sys.Bodies[0]
@@ -422,6 +457,7 @@ var (
 	errInvalidTransferTarget = transferError("invalid transfer target body")
 	errNoCraftForTransfer    = transferError("no craft to plan transfer for")
 	errNoRefineTarget        = transferError("no pending transfer to refine")
+	errSamePrimaryUseHohmann = transferError("target shares craft's primary — use [P] auto-Hohmann instead of porkchop")
 )
 
 type transferError string
