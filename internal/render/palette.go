@@ -117,6 +117,34 @@ func Style(b bodies.CelestialBody) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(ColorFor(b))
 }
 
+// GlyphFor returns the body-identity Unicode glyph for the given
+// body. Used as a single-cell overlay on top of the body's drawille
+// disk so different body types read distinctly even at small pixel-
+// radius. v0.5.12+.
+//
+//   - Star  → ☉ (sun symbol)
+//   - Gas giant (radius > 20 000 km) → ◉ (fisheye)
+//   - Terrestrial planet → ● (filled circle)
+//   - Moon → ○ (open circle)
+//
+// Returns 0 (zero rune) when no overlay is appropriate (e.g. system
+// primary already has a ring+dot draw style and shouldn't be
+// double-glyphed).
+func GlyphFor(b bodies.CelestialBody) rune {
+	switch b.BodyType {
+	case "Star":
+		return '☉'
+	case "Moon":
+		return '○'
+	case "Planet":
+		if b.MeanRadius > 20000 {
+			return '◉'
+		}
+		return '●'
+	}
+	return 0
+}
+
 // BodyRings returns the inner and outer ring radii (meters from body
 // center) for ringed bodies, or ok=false if the body has no
 // renderable rings. Numbers are face-on simplifications — our
