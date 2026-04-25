@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.5.1 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.5.2 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.5.1)
+## 1. What works today (v0.5.2)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -215,7 +215,8 @@ features and the version sequence that delivers them.
 | v0.4.3 ✓ | | Warp-lock: analytic Kepler propagation when warp > 1× and no active burn (eliminates Verlet eccentricity drift) |
 | v0.4.4 ✓ | | Sub-divided Kepler step: chunks the analytic warp path so foreign SOIs (e.g. Mars during a heliocentric transfer) aren't skipped |
 | v0.5.0 ✓ | | Body hierarchy: `ParentID`, recursive `BodyPosition`/`bodyInertialVelocity`, hierarchical `FindPrimary`. Major moons: Luna, Phobos, Deimos, Galilean ×4, Titan, Enceladus |
-| **v0.5.1 ✓** | **(current)** | Color palette (`internal/render/palette.go`): hand-picked body colors + temperature-keyed stellar tint + UI-tier (alert / warning / node / trajectory / SOI). Wired into HUD selected-body name + body-info title. Per-cell canvas coloring stays scoped for v0.5.3 body-identity work. |
+| v0.5.1 ✓ | | Color palette (`internal/render/palette.go`): hand-picked body colors + temperature-keyed stellar tint + UI-tier (alert / warning / node / trajectory / SOI). Wired into HUD selected-body name + body-info title. Per-cell canvas coloring stays scoped for v0.5.3 body-identity work. |
+| **v0.5.2 ✓** | **(current)** | Vessel position trail: 200-sample ring buffer of inertial positions, sampled every 10 sim seconds (warp-independent density). Renders as a fading-stride dot trail on the orbit canvas behind the live ellipse. |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
