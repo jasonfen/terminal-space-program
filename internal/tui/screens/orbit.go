@@ -15,6 +15,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
+	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
 // Theme is the subset of styles OrbitView needs. Passed in from tui.App.
@@ -179,7 +180,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	hud := v.renderHUD(w, selectedIdx, totalCols-v.canvas.Cols()-4)
 
-	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s", sys.Name))
+	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s — %s", version.Version, sys.Name))
 	footer := v.theme.Footer.Render(
 		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
