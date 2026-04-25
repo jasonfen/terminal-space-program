@@ -39,6 +39,14 @@ type Canvas struct {
 	// Per-pixel tagging keeps body color confined to the body's own
 	// pixels.
 	pixelTags map[[2]int]lipgloss.Color
+
+	// cellOverlays maps a cell coord → a Unicode glyph that replaces
+	// the drawille-derived char at String() time. v0.5.12+ — used by
+	// the orbit renderer to overlay body-identity glyphs (☉ ◉ ● ○)
+	// on top of the underlying braille so different body types read
+	// distinctly even at small pixel-radius. Overlay color comes from
+	// the cell's pixelTags as usual.
+	cellOverlays map[[2]int]rune
 }
 
 // NewCanvas builds a canvas sized to fit cols × rows terminal cells.
@@ -73,11 +81,33 @@ func (c *Canvas) Resize(cols, rows int) {
 	c.pxW, c.pxH = cols*2, rows*4
 }
 
-// Clear wipes the drawille buffer and per-pixel color tags. Call at
-// the start of every frame.
+// Clear wipes the drawille buffer, per-pixel color tags, and cell
+// overlays. Call at the start of every frame.
 func (c *Canvas) Clear() {
 	c.dc.Clear()
 	c.pixelTags = nil
+	c.cellOverlays = nil
+}
+
+// SetCellOverlay places a Unicode glyph at the cell containing the
+// given world coord, replacing whatever drawille would have rendered
+// there at String() time. Color comes from the cell's pixel tags
+// (FillColoredDisk etc) — combine with a tagged draw to get a
+// colored overlay. v0.5.12+ — used for body-identity glyphs (☉ ◉ ●
+// ○) so different body types read distinctly.
+func (c *Canvas) SetCellOverlay(w orbital.Vec3, glyph rune) {
+	px, py, ok := c.Project(w)
+	if !ok {
+		return
+	}
+	cellX, cellY := px/2, py/4
+	if cellX < 0 || cellX >= c.cols || cellY < 0 || cellY >= c.rows {
+		return
+	}
+	if c.cellOverlays == nil {
+		c.cellOverlays = make(map[[2]int]rune)
+	}
+	c.cellOverlays[[2]int{cellX, cellY}] = glyph
 }
 
 // FillColoredDisk fills a disk of the given pixel radius around a
@@ -348,7 +378,7 @@ func (c *Canvas) DrawEllipseOffsetDotted(el orbital.Elements, offset orbital.Vec
 // content (orbit lines, craft glyph) with the body's color.
 func (c *Canvas) String() string {
 	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
-	if len(c.pixelTags) == 0 {
+	if len(c.pixelTags) == 0 && len(c.cellOverlays) == 0 {
 		return c.joinRows(rows)
 	}
 	// Aggregate tags per cell: for each tagged pixel, accumulate a
@@ -384,11 +414,17 @@ func (c *Canvas) String() string {
 			line = rows[i]
 		}
 		// Colorize per-cell, padding short lines with spaces.
+		// Cell overlays (v0.5.12) replace the drawille char with a
+		// specific glyph at the same cell — used for body-identity
+		// markers (☉ ◉ ● ○).
 		runes := []rune(line)
 		for x := 0; x < c.cols; x++ {
 			var ch rune = ' '
 			if x < len(runes) {
 				ch = runes[x]
+			}
+			if overlay, ok := c.cellOverlays[[2]int{x, i}]; ok {
+				ch = overlay
 			}
 			color, hasColor := cellColor[[2]int{x, i}]
 			if hasColor && ch != ' ' {

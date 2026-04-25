@@ -121,6 +121,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				v.canvas.RingColoredOutline(pos, outerPx, color)
 			}
 		}
+		// Body-identity glyph overlay (v0.5.12). Skip the system
+		// primary — it already has the ring+dot draw style and a
+		// glyph would clash. Other bodies get ☉ / ◉ / ● / ○ based on
+		// type so they read distinctly even at small pixel radius.
+		if i != 0 {
+			if g := render.GlyphFor(b); g != 0 {
+				v.canvas.SetCellOverlay(pos, g)
+			}
+		}
 		if i == selectedIdx {
 			v.plotCluster(pos, r+4)
 		}
