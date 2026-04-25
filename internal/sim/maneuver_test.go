@@ -431,6 +431,47 @@ func TestPlanTransferIntraPrimaryPhasingMatchesArrival(t *testing.T) {
 	_ = transferSecs
 }
 
+// TestPlanTransferIntraPrimaryBurnIsCentered: v0.5.11 — the planted
+// departure node's TriggerTime must satisfy
+//   trigger + Duration/2 ≈ now + planner_OffsetTime
+// i.e. the burn is centered on the planner's intended firing point.
+// Pre-v0.5.11 small phase wait times caused the trigger to be clamped
+// to "now", losing centering — burn started at trigger and ended past
+// the optimal point, falling short of Luna's altitude.
+func TestPlanTransferIntraPrimaryBurnIsCentered(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i := range sys.Bodies {
+		if sys.Bodies[i].ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon missing from Sol")
+	}
+	now := w.Clock.SimTime
+	plan, err := w.PlanTransfer(moonIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	dep := w.Nodes[0]
+	// burn-center sim time should equal now + plan.Departure.OffsetTime
+	wantCenter := now.Add(plan.Departure.OffsetTime)
+	gotCenter := dep.TriggerTime.Add(dep.Duration / 2)
+	delta := gotCenter.Sub(wantCenter)
+	if delta < -time.Second || delta > time.Second {
+		t.Errorf("burn center off by %v (trigger=%v, duration=%v, want_center=%v)",
+			delta, dep.TriggerTime, dep.Duration, wantCenter)
+	}
+	// And TriggerTime must be ≥ now (the planner padded τ enough to
+	// avoid past-due triggers).
+	if dep.TriggerTime.Before(now) {
+		t.Errorf("departure TriggerTime %v before now %v — planner failed to pad", dep.TriggerTime, now)
+	}
+}
+
 // TestPlanTransferIntraPrimaryHohmannForMoon: v0.5.7 — PlanTransfer
 // must dispatch to PlanIntraPrimaryHohmann when target.ParentID matches
 // craft's primary. Sanity-check that Earth → Luna gives a realistic

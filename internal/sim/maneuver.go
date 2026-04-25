@@ -101,9 +101,20 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// Target's position in its parent's frame == craft's primary
 		// here, since target.ParentID == craft.Primary.ID.
 		targetAngle := primaryFrameAngle(w, target)
+		// v0.5.11: pre-compute departure burn duration so the planner
+		// can pad the wait window — guarantees the centered TriggerTime
+		// (planted - duration/2) doesn't fall in the past, which would
+		// force the burn to start uncentered at the next tick.
+		mass := w.Craft.TotalMass()
+		thrust := w.Craft.Thrust
+		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival)
+		var minLead float64
+		if thrust > 0 && mass > 0 {
+			minLead = (dvDepEstimate * mass / thrust) / 2
+		}
 		plan, err := planner.PlanIntraPrimaryHohmann(
 			muShared, rPark, rArrival,
-			craftAngle, targetAngle,
+			craftAngle, targetAngle, minLead,
 			w.Craft.Primary.ID,
 			muDestination, rCapture, target.ID,
 		)
@@ -111,8 +122,6 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 			return nil, err
 		}
 		now := w.Clock.SimTime
-		mass := w.Craft.TotalMass()
-		thrust := w.Craft.Thrust
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
 		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
 		return &plan, nil
@@ -391,6 +400,25 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 	return grid, nil
 }
 
+// estimateIntraPrimaryDepDv returns the Hohmann departure Δv for a
+// circular-to-circular transfer from rDep to rArr around a primary
+// with GM mu. Used by World.PlanTransfer to pre-size the burn
+// duration before calling the planner, so the planner can pad its
+// wait window enough to fit a centered finite burn.
+func estimateIntraPrimaryDepDv(mu, rDep, rArr float64) float64 {
+	if mu <= 0 || rDep <= 0 || rArr <= 0 || rDep == rArr {
+		return 0
+	}
+	aT := (rDep + rArr) / 2
+	vDepCirc := math.Sqrt(mu / rDep)
+	vTransAtDep := math.Sqrt(mu * (2/rDep - 1/aT))
+	dv := vTransAtDep - vDepCirc
+	if dv < 0 {
+		dv = -dv
+	}
+	return dv
+}
+
 // primaryFrameAngle returns body b's angular position around its
 // parent (radians, atan2 of position-vector y, x in the parent's
 // frame), evaluated at the world's current sim time. Used by the
@@ -461,15 +489,17 @@ func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital
 //
 // TriggerTime is shifted back by Duration/2 so the burn is *centered*
 // on the planner's intended firing point, not started there. The
-// planner solves for an instantaneous Δv at OffsetTime; a real
-// finite burn lasting many minutes would otherwise sweep through
-// past-the-target arc and lose apoapsis-raising efficiency. For an
-// ICPS TLI burn that's ~14 minutes (~16% of LEO orbit) of smearing —
-// enough to fall short of Luna's altitude. v0.5.10+.
+// planner solves for an instantaneous Δv at OffsetTime; a real finite
+// burn lasting many minutes would otherwise sweep through past-the-
+// target arc and lose apoapsis-raising efficiency. For an ICPS TLI
+// burn that's ~14 minutes (~16% of LEO orbit) of smearing — enough
+// to fall short of Luna's altitude. v0.5.10+.
 //
-// If the centered start time would fall before `now`, we clamp to
-// `now` rather than firing in the past — the burn still spreads but
-// at least doesn't get lost behind the integrator's clock.
+// Callers that need TriggerTime ≥ now (e.g. intra-primary phase-
+// corrected plans) must pad the planner's OffsetTime by ≥ Duration/2
+// in advance; this routine does NOT clamp. v0.5.11 removes the clamp
+// because clamping silently re-introduced the uncentered burn — the
+// fix lives in the planner now via minLeadSeconds.
 func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust float64) ManeuverNode {
 	mode := spacecraft.BurnPrograde
 	if tn.IsRetrograde {
@@ -481,9 +511,6 @@ func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust
 		duration = time.Duration(secs * float64(time.Second))
 	}
 	trigger := now.Add(tn.OffsetTime).Add(-duration / 2)
-	if trigger.Before(now) {
-		trigger = now
-	}
 	return ManeuverNode{
 		TriggerTime: trigger,
 		Mode:        mode,

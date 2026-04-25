@@ -145,10 +145,17 @@ func PlanHohmannTransfer(
 //
 // Departure burn: prograde Δv at periapsis raising apoapsis to
 // rArrival. Arrival burn: capture into target SOI at rArrival.
+//
+// minLeadSeconds (v0.5.11+): the planner pads the wait time τ by
+// integer synodic periods until τ ≥ minLeadSeconds. Callers pass
+// half the expected burn duration so the live integrator can center
+// the finite burn on the planner's intended firing point without the
+// trigger time falling in the past. Pass 0 to skip padding.
 func PlanIntraPrimaryHohmann(
 	mu float64,
 	rDeparture, rArrival float64,
 	craftAngleNow, targetAngleNow float64,
+	minLeadSeconds float64,
 	departureID string,
 	muTarget, rCapture float64,
 	targetID string,
@@ -207,6 +214,17 @@ func PlanIntraPrimaryHohmann(
 	}
 	if waitTime < 0 {
 		waitTime = 0
+	}
+
+	// Pad waitTime by integer synodic periods until it covers the
+	// caller's minLeadSeconds. Synodic period = 2π / |relativeRate|;
+	// each whole synodic period is another valid launch window with
+	// the same phase geometry, so phasing remains correct.
+	if minLeadSeconds > 0 && relativeRate != 0 {
+		synodic := 2 * math.Pi / math.Abs(relativeRate)
+		for waitTime < minLeadSeconds {
+			waitTime += synodic
+		}
 	}
 
 	outbound := rArrival > rDeparture
