@@ -348,18 +348,50 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 
 // bodyEphemeris returns an EphemerisFn closure for a body: heliocentric
 // (r, v) evaluated at an arbitrary Unix-epoch timestamp.
+//
+// Recurses through the v0.5.0 hierarchy (v0.5.5 fix): a moon's
+// heliocentric state = parent's heliocentric state + moon's state in
+// the parent's frame. Velocity uses the parent's μ, not the system
+// primary's. Pre-v0.5.5 this returned moon's parent-relative position
+// as if it were heliocentric, breaking PorkchopGrid + PlanTransferAt
+// for moon targets — Lambert solved from Earth_helio to ~origin and
+// quoted nonsense Δv (porkchop displayed ~380 m/s, plant produced
+// ~25 km/s, both wrong).
 func (w *World) bodyEphemeris(b bodies.CelestialBody) planner.EphemerisFn {
 	return func(epoch float64) (orbital.Vec3, orbital.Vec3) {
-		t := time.Unix(int64(epoch), 0)
-		M := w.Calculator.CalculateMeanAnomaly(b, t)
-		E := orbital.SolveKepler(M, b.Eccentricity)
-		nu := orbital.TrueAnomaly(E, b.Eccentricity)
-		el := orbital.ElementsFromBody(b)
-		r := orbital.PositionAtTrueAnomaly(el, nu)
-		mu := w.Systems[0].Bodies[0].GravitationalParameter()
-		v := orbital.VelocityAtTrueAnomaly(el, nu, mu)
-		return r, v
+		return w.bodyHelioStateAt(b, epoch)
 	}
+}
+
+// bodyHelioStateAt is the recursive worker behind bodyEphemeris.
+// Returns (heliocentric position, heliocentric velocity) of body b
+// at the given Unix epoch by recursively summing parent-relative
+// state up the hierarchy.
+func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital.Vec3, orbital.Vec3) {
+	if b.SemimajorAxis == 0 {
+		// System primary anchored at origin with zero velocity.
+		return orbital.Vec3{}, orbital.Vec3{}
+	}
+	t := time.Unix(int64(epoch), 0)
+	M := w.Calculator.CalculateMeanAnomaly(b, t)
+	E := orbital.SolveKepler(M, b.Eccentricity)
+	nu := orbital.TrueAnomaly(E, b.Eccentricity)
+	el := orbital.ElementsFromBody(b)
+	rRel := orbital.PositionAtTrueAnomaly(el, nu)
+
+	sys := w.System()
+	parent := sys.ParentOf(b)
+	if parent == nil {
+		parent = sys.Primary()
+	}
+	mu := parent.GravitationalParameter()
+	vRel := orbital.VelocityAtTrueAnomaly(el, nu, mu)
+
+	if b.ParentID == "" {
+		return rRel, vRel
+	}
+	rParent, vParent := w.bodyHelioStateAt(*parent, epoch)
+	return rParent.Add(rRel), vParent.Add(vRel)
 }
 
 // transferNodeToManeuver converts a planner.TransferNode into a
