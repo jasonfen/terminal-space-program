@@ -76,27 +76,27 @@ func TestBurnConsumesFuel(t *testing.T) {
 	}
 }
 
-// TestRemainingDeltaV: v0.5.6 default fuel 25000 kg / dry 3500 kg,
-// Isp 462s → Δv = 462 * 9.80665 * ln(28500/3500) ≈ 9510 m/s.
+// TestRemainingDeltaV: v0.5.13+ default fuel 40000 kg / dry 11000 kg,
+// Isp 421s → Δv = 421 * 9.80665 * ln(51000/11000) ≈ 6326 m/s.
 func TestRemainingDeltaV(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 	got := sc.RemainingDeltaV()
-	want := 462.0 * 9.80665 * math.Log(28500.0/3500.0)
+	want := 421.0 * 9.80665 * math.Log(51000.0/11000.0)
 	if math.Abs(got-want) > 1 {
 		t.Errorf("Δv_remaining = %.2f m/s, want %.2f m/s", got, want)
 	}
 }
 
-// TestMassFlowRate: v0.5.6 default Thrust 108000 N, Isp 462 s
-// (RL-10C-3) → ṁ = 108000 / (462 · 9.80665) ≈ 23.84 kg/s.
+// TestMassFlowRate: v0.5.13+ default Thrust 1 023 000 N, Isp 421 s
+// (J-2) → ṁ = 1 023 000 / (421 · 9.80665) ≈ 247.8 kg/s.
 func TestMassFlowRate(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 	got := sc.MassFlowRate()
-	want := 108000.0 / (462.0 * 9.80665)
+	want := 1023000.0 / (421.0 * 9.80665)
 	if math.Abs(got-want) > 1e-6 {
 		t.Errorf("MassFlowRate = %.6f, want %.6f", got, want)
 	}
