@@ -143,6 +143,47 @@ func TestIntegrateSpacecraftMatchesPredictorAcrossSOI(t *testing.T) {
 	}
 }
 
+// TestWarpLockPreservesCircularOrbit: regression for v0.4.3. At
+// 10000× warp the default 200×200 km circular LEO drifted to roughly
+// 209×191 km within a few real-time seconds because Verlet sub-steps
+// at coarse dt accumulated eccentricity (random walk in apo/peri).
+// With the warp lock (analytic Kepler propagation when warp > 1× and
+// no active burn), the orbit must hold its semimajor axis and
+// eccentricity essentially unchanged across many ticks.
+func TestWarpLockPreservesCircularOrbit(t *testing.T) {
+	w := mustWorld(t)
+
+	// Bump to 10000× warp.
+	for i := 0; i < 4; i++ {
+		w.Clock.WarpUp()
+	}
+	if w.Clock.Warp() != 10000 {
+		t.Fatalf("warp setup: got %.0f, want 10000", w.Clock.Warp())
+	}
+
+	mu := w.Craft.Primary.GravitationalParameter()
+	startEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+
+	// Run 600 ticks ≈ 10 real-time seconds at the default 50 ms base
+	// step → 600 × 0.5 s × 10000× = ~50 simulated days. That covers
+	// ~1000 LEO orbits — enough sub-step error pre-fix to drift
+	// eccentricity from ~0 to >1e-3.
+	for i := 0; i < 600; i++ {
+		w.Tick()
+	}
+
+	endEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+
+	// Semimajor axis must be conserved (analytic Kepler is exact).
+	if relErr := math.Abs(endEl.A-startEl.A) / startEl.A; relErr > 1e-9 {
+		t.Errorf("warp-lock semimajor drift: %.3e (rel)", relErr)
+	}
+	// Eccentricity must stay ~zero. Pre-fix: O(1e-3) random walk.
+	if endEl.E > 1e-9 {
+		t.Errorf("warp-lock eccentricity grew to %.3e (want < 1e-9)", endEl.E)
+	}
+}
+
 // TestPropagateCraftSOIAware: forward-integrate a hyperbolic escape via
 // propagateCraft and confirm the resulting state isn't expressed in the
 // original primary's frame anymore (i.e. |r| would have to be absurdly

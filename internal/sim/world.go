@@ -183,10 +183,26 @@ func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 // which left the live integrator propagating in the wrong frame for
 // up to a tick after a mid-tick crossing — visible as orbits diverging
 // from the predicted trajectory at high warp.
+//
+// "Warp lock" (v0.4.3): when warp > 1× AND no active burn AND the
+// orbit is bound with apoapsis comfortably inside the primary's SOI,
+// take a single analytic Kepler step instead of looping Verlet. Verlet
+// at coarse dt is symplectic but second-order — eccentricity does a
+// random walk that turns 200×200 km circular orbits into 209×190 km
+// after a few seconds at 10000× warp. KeplerStep is exact, so no drift.
 func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	mu := w.Craft.Primary.GravitationalParameter()
 	period := orbitalPeriod(w.Craft.State, mu)
 	secs := simDelta.Seconds()
+
+	// Warp-lock fast path: analytic Kepler propagation when conditions
+	// are met. Falls back to Verlet sub-stepping otherwise.
+	if w.canKeplerStep(simDelta) {
+		if newState, ok := physics.KeplerStep(w.Craft.State, mu, secs); ok {
+			w.Craft.State = newState
+			return
+		}
+	}
 
 	maxStep := period / 100.0
 	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
@@ -281,6 +297,49 @@ func (w *World) burnExhausted() bool {
 	return w.ActiveBurn.DVRemaining <= 0 ||
 		w.Craft.Fuel <= 0 ||
 		!w.Clock.SimTime.Before(w.ActiveBurn.EndTime)
+}
+
+// canKeplerStep reports whether the analytic warp-lock fast path is
+// valid for this tick. Conditions (v0.4.3):
+//   - warp > 1× (else Verlet is fine and we want to avoid behavioral
+//     differences between paused/realtime and the live integrator)
+//   - no active burn (analytic propagation can't accommodate thrust)
+//   - bound orbit (e < 1) — KeplerStep itself rejects hyperbolic cases
+//   - apoapsis safely inside the primary's SOI (no boundary crossing
+//     during the analytic step)
+func (w *World) canKeplerStep(simDelta time.Duration) bool {
+	if w.ActiveBurn != nil {
+		return false
+	}
+	if w.Clock.Warp() <= 1 {
+		return false
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	if el.E >= 1 || el.A <= 0 {
+		return false
+	}
+	apo := el.Apoapsis()
+	soi := w.craftPrimarySOI()
+	if soi <= 0 {
+		// System primary (Sun) — no enclosing SOI; any bound orbit stays
+		// in the heliocentric frame, so analytic is safe.
+		return true
+	}
+	// Conservative margin: apoapsis must be ≤ 0.95·SOI so a fractionally
+	// noisy ElementsFromState near the boundary still falls back to
+	// Verlet.
+	return apo < 0.95*soi
+}
+
+// craftPrimarySOI returns the craft primary's SOI radius. Returns 0
+// for the system primary (no parent → no SOI bound).
+func (w *World) craftPrimarySOI() float64 {
+	sys := w.System()
+	if w.Craft.Primary.ID == sys.Bodies[0].ID {
+		return 0
+	}
+	return physics.SOIRadius(w.Craft.Primary, sys.Bodies[0])
 }
 
 // orbitalPeriod returns 2π√(a³/μ) or +Inf on unbound orbits. Used to
