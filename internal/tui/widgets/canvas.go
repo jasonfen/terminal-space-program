@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/exrook/drawille-go"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -18,11 +19,22 @@ import (
 // map (x_world, y_world) → (px, py) via a single scale and the cached
 // center (panning is out-of-scope for v0.1 per plan C8 commit body).
 type Canvas struct {
-	cols, rows int     // terminal cells
-	pxW, pxH   int     // pixel grid (cols*2, rows*4)
+	cols, rows int          // terminal cells
+	pxW, pxH   int          // pixel grid (cols*2, rows*4)
 	centerW    orbital.Vec3 // world coord at pixel center
-	scale      float64 // pixels per meter
+	scale      float64      // pixels per meter
 	dc         drawille.Canvas
+
+	// colorRegions records cell-coordinate rectangles to colorize at
+	// String() time. v0.5.3+ — used by the orbit renderer to color
+	// body disks by palette without per-pixel color tagging.
+	// Last-written wins on overlap.
+	colorRegions []colorRegion
+}
+
+type colorRegion struct {
+	cellX, cellY, w, h int
+	color              lipgloss.Color
 }
 
 // NewCanvas builds a canvas sized to fit cols × rows terminal cells.
@@ -57,8 +69,38 @@ func (c *Canvas) Resize(cols, rows int) {
 	c.pxW, c.pxH = cols*2, rows*4
 }
 
-// Clear wipes the drawille buffer. Call at the start of every frame.
-func (c *Canvas) Clear() { c.dc.Clear() }
+// Clear wipes the drawille buffer and the per-cell color regions.
+// Call at the start of every frame.
+func (c *Canvas) Clear() {
+	c.dc.Clear()
+	c.colorRegions = c.colorRegions[:0]
+}
+
+// AddColoredDisk records a cell-region tag for the disk that
+// FillDisk(center, pxRadius) would draw. Use it after a body's
+// FillDisk to colorize the body's footprint at String() time.
+// Translates pixel-radius to cell-radius via the 2×4 braille grid
+// (rounded up so single-pixel disks still hit a full cell).
+func (c *Canvas) AddColoredDisk(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
+	cx, cy, _ := c.Project(center)
+	// Body cell footprint: convert pixel radius → cell radius. Add 1
+	// to ensure the disk's edge cells are included (drawille cells
+	// are 2 px wide × 4 px tall — round up generously so the rim of
+	// a body's pixels falls inside the colorized region).
+	cellRX := pxRadius/2 + 1
+	cellRY := pxRadius/4 + 1
+	cellX := cx/2 - cellRX
+	cellY := cy/4 - cellRY
+	w := 2*cellRX + 1
+	h := 2*cellRY + 1
+	c.colorRegions = append(c.colorRegions, colorRegion{
+		cellX: cellX,
+		cellY: cellY,
+		w:     w,
+		h:     h,
+		color: color,
+	})
+}
 
 // Cols / Rows expose the configured terminal cell dimensions.
 func (c *Canvas) Cols() int { return c.cols }
@@ -247,8 +289,65 @@ func (c *Canvas) DrawEllipseOffsetDotted(el orbital.Elements, offset orbital.Vec
 // String renders the canvas as a multi-line braille string, trimmed to
 // the configured cell dimensions. Pads short rows with spaces so the
 // rectangular shape is preserved (lipgloss borders need uniform width).
+//
+// When color regions are set (via AddColoredDisk), each cell inside a
+// region is wrapped in a lipgloss foreground color. Last-written
+// region wins on overlap; cells not in any region render uncolored.
+// Skips coloring blank cells so per-cell escape sequences don't
+// inflate output for empty space.
 func (c *Canvas) String() string {
 	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
+	if len(c.colorRegions) == 0 {
+		return c.joinRows(rows)
+	}
+	// Build per-cell color map (last-write-wins on overlap). Sparse —
+	// only set for cells inside any region.
+	cellColor := make(map[[2]int]lipgloss.Color)
+	for _, r := range c.colorRegions {
+		for dy := 0; dy < r.h; dy++ {
+			y := r.cellY + dy
+			if y < 0 || y >= c.rows {
+				continue
+			}
+			for dx := 0; dx < r.w; dx++ {
+				x := r.cellX + dx
+				if x < 0 || x >= c.cols {
+					continue
+				}
+				cellColor[[2]int{x, y}] = r.color
+			}
+		}
+	}
+	var b strings.Builder
+	for i := 0; i < c.rows; i++ {
+		var line string
+		if i < len(rows) {
+			line = rows[i]
+		}
+		// Colorize per-cell, padding short lines with spaces.
+		runes := []rune(line)
+		for x := 0; x < c.cols; x++ {
+			var ch rune = ' '
+			if x < len(runes) {
+				ch = runes[x]
+			}
+			color, hasColor := cellColor[[2]int{x, i}]
+			if hasColor && ch != ' ' {
+				b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(ch)))
+			} else {
+				b.WriteRune(ch)
+			}
+		}
+		if i < c.rows-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// joinRows is the uncolored fast path used when no color regions are
+// registered.
+func (c *Canvas) joinRows(rows []string) string {
 	var b strings.Builder
 	for i := 0; i < c.rows; i++ {
 		var line string
