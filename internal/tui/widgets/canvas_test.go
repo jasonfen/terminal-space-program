@@ -1,7 +1,10 @@
 package widgets
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
@@ -126,6 +129,31 @@ func TestPlotArrowProducesNonEmptyRender(t *testing.T) {
 	c.PlotArrow(orbital.Vec3{}, orbital.Vec3{}, 4)
 	if !onlyWhitespace(c.String()) {
 		t.Error("PlotArrow with zero velocity plotted pixels")
+	}
+}
+
+// TestColoredDiskEmitsAnsiOnRender: v0.5.3 — AddColoredDisk should
+// cause the corresponding cells to render with a lipgloss foreground
+// escape sequence. Sanity-check that the SGR (ESC [ 38 ;) substring
+// appears in the output when colored, and is absent when not.
+func TestColoredDiskEmitsAnsiOnRender(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1") // force lipgloss to emit ANSI in tests
+	c := NewCanvas(20, 10)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+	c.FillDisk(orbital.Vec3{}, 3)
+	uncolored := c.String()
+	if strings.Contains(uncolored, "\x1b[") {
+		t.Errorf("uncolored canvas contained ANSI escape: %q", uncolored)
+	}
+
+	c.Clear()
+	c.FillDisk(orbital.Vec3{}, 3)
+	c.AddColoredDisk(orbital.Vec3{}, 3, lipgloss.Color("#FF0000"))
+	colored := c.String()
+	if !strings.Contains(colored, "\x1b[") {
+		t.Error("colored canvas missing ANSI escape sequence")
 	}
 }
 
