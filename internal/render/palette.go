@@ -116,3 +116,20 @@ func StellarTint(tempK float64) lipgloss.Color {
 func Style(b bodies.CelestialBody) lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(ColorFor(b))
 }
+
+// BodyRings returns the inner and outer ring radii (meters from body
+// center) for ringed bodies, or ok=false if the body has no
+// renderable rings. Numbers are face-on simplifications — our
+// equatorial-plane projection always shows rings as concentric
+// circles, not the inclination-dependent ellipses real Saturn rings
+// project to.
+func BodyRings(bodyID string) (innerR, outerR float64, ok bool) {
+	switch bodyID {
+	case "saturn":
+		// Saturn's main ring system: inner edge of D ring ~67k km,
+		// outer edge of A ring ~140k km. Use B–A range for a single
+		// visible ring outline (the brightest part).
+		return 92000e3, 137000e3, true
+	}
+	return 0, 0, false
+}
