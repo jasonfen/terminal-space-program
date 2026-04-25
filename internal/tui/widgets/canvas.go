@@ -143,7 +143,15 @@ func (c *Canvas) FillColoredDisk(center orbital.Vec3, pxRadius int, color lipglo
 }
 
 // RingColoredOutline mirrors RingOutline but tags every set pixel
-// with the given color. Used for the system primary's hollow ring.
+// with the given color. Used for the system primary's hollow ring
+// and ring-system bodies (Saturn).
+//
+// v0.5.15: samples is hard-capped at 4× the canvas pixel diagonal —
+// at extreme zoom (e.g. focused on Phobos with Saturn's rings
+// projecting to hundreds of millions of pixels) the prior unbounded
+// `pxRadius * 8` would loop billions of times and lock the game.
+// The cap still produces dense enough sampling for the ring to look
+// smooth at any radius that contributes visible pixels to the canvas.
 func (c *Canvas) RingColoredOutline(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
 	if pxRadius < 1 {
 		pxRadius = 1
@@ -152,6 +160,10 @@ func (c *Canvas) RingColoredOutline(center orbital.Vec3, pxRadius int, color lip
 	samples := pxRadius * 8
 	if samples < 16 {
 		samples = 16
+	}
+	maxSamples := 4 * (c.pxW + c.pxH)
+	if samples > maxSamples {
+		samples = maxSamples
 	}
 	if c.pixelTags == nil {
 		c.pixelTags = make(map[[2]int]lipgloss.Color)
@@ -279,6 +291,13 @@ func (c *Canvas) RingOutline(center orbital.Vec3, pxRadius int) {
 	samples := pxRadius * 8
 	if samples < 16 {
 		samples = 16
+	}
+	// v0.5.15: cap samples at 4× canvas pixel diagonal so an extreme-
+	// zoom call (radius in millions of pixels from a misaligned focus
+	// + ring-system body) doesn't loop billions of times and lock.
+	maxSamples := 4 * (c.pxW + c.pxH)
+	if samples > maxSamples {
+		samples = maxSamples
 	}
 	for i := 0; i < samples; i++ {
 		theta := 2 * math.Pi * float64(i) / float64(samples)
