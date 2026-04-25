@@ -26,9 +26,16 @@ type Primary struct {
 }
 
 // FindPrimary picks the best primary for a spacecraft at inertial position
-// rInertial, given the system primary (e.g. Sun) and all other bodies with
-// their inertial positions. Rule: smallest SOI that contains the spacecraft
-// wins; default to the system primary if none contain it.
+// rInertial. Rule: smallest SOI that contains the spacecraft wins; default
+// to the system primary if none contain it.
+//
+// Each body's SOI is computed against its actual parent (v0.5.0+):
+// planets against the system primary, moons against their planet (per
+// CelestialBody.ParentID). Pre-v0.5.0 every body's SOI was computed
+// against the system primary, which silently treated moons as planets
+// — a Luna at 384k km from Earth had its SOI sized as if it orbited
+// the Sun at 384k km, an absurd value. Fixing this is what enables
+// the Earth-and-Luna nested-SOI walk.
 func FindPrimary(
 	system bodies.System,
 	rInertial orbital.Vec3,
@@ -44,7 +51,11 @@ func FindPrimary(
 		if !ok {
 			continue
 		}
-		soi := SOIRadius(b, primary)
+		parent := system.ParentOf(b)
+		if parent == nil {
+			parent = &primary
+		}
+		soi := SOIRadius(b, *parent)
 		if soi == 0 {
 			continue
 		}
