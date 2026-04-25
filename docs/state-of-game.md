@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.5.7 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.5.8 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.5.7)
+## 1. What works today (v0.5.8)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -43,10 +43,10 @@ features and the version sequence that delivers them.
   cycles fields, `←/→` cycles modes when mode field is focused, Δv > budget
   warns, duration 0 = impulsive, > 0 = finite.
 - **`n` quick-plant**: T+5 min prograde 200 m/s, finite (sized to thrust).
-- **`P` auto-plant Hohmann transfer**: select target body, one keystroke
+- **`H` auto-plant Hohmann transfer**: select target body, one keystroke
   plants two finite nodes (geocentric departure + destination-frame arrival)
   with `Duration = Δv × mass / thrust`. Frame-aware via `ManeuverNode.PrimaryID`.
-- **`k` porkchop plot**: ASCII heatmap over departure-day × time-of-flight,
+- **`P` porkchop plot**: ASCII heatmap over departure-day × time-of-flight,
   intensity ramp `█▓▒░ ` cheap → expensive. Cursor navigates cells, snaps to
   min-Δv on open. **Enter on a feasible cell plants that Lambert-based
   transfer** (v0.4.1) via `World.PlanTransferAt`.
@@ -221,7 +221,8 @@ features and the version sequence that delivers them.
 | v0.5.4 ✓ | | Vessel trail stores primary-relative R per sample (was: heliocentric inertial). Trail now follows the craft's apparent orbit around its primary; pre-fix it was a heliocentric trace drifting at Earth's orbital speed (~30 km/s). |
 | v0.5.5 ✓ | | `bodyEphemeris` now recurses through the v0.5.0 hierarchy. Pre-fix it returned moon's parent-relative position as if heliocentric, so PorkchopGrid + PlanTransferAt for moon targets quoted nonsense Δv (~380 m/s display, ~25 km/s plant). Fix folds in for both. |
 | v0.5.6 ✓ | | Default vessel is now an ICPS-like upper stage: 3500 kg dry + 25000 kg fuel, Isp 462 s (RL-10C-3), thrust 108 kN. Δv ~9.5 km/s — comfortable for a Earth → Luna round trip. Pre-v0.5.6 default (500/500/Isp 300, ~2 km/s) couldn't even reach Luna one-way. |
-| **v0.5.7 ✓** | **(current)** | Intra-primary Hohmann (`PlanIntraPrimaryHohmann`): when target shares craft's primary (e.g. Luna, both around Earth), `P` plants a geocentric Hohmann (~3.1 km/s TLI + ~0.7 km/s Luna-orbit insertion). Pre-v0.5.7 the heliocentric Hohmann/Lambert path treated Luna's parent-relative semimajor as heliocentric → wildly wrong Δv. Porkchop now rejects same-primary targets with a banner redirecting to `P`. |
+| v0.5.7 ✓ | | Intra-primary Hohmann (`PlanIntraPrimaryHohmann`): when target shares craft's primary (e.g. Luna, both around Earth), Hohmann plants a geocentric Hohmann (~3.1 km/s TLI + ~0.7 km/s Luna-orbit insertion). Pre-v0.5.7 the heliocentric Hohmann/Lambert path treated Luna's parent-relative semimajor as heliocentric → wildly wrong Δv. Porkchop rejects same-primary targets with a banner redirecting to Hohmann. |
+| **v0.5.8 ✓** | **(current)** | Keybind cleanup: `P` → porkchop (was `k`), `H` → Hohmann auto-plant (was `P`). Mnemonic: P/Porkchop, H/Hohmann. |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |

@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.5.7**.
+Latest release: **v0.5.8**.
 
 ```bash
 # Linux x86_64
@@ -98,8 +98,8 @@ mass loss tracked from the rocket equation.
 | `g` | Reset camera focus to system |
 | `n` | Plan a default node (T+5min, prograde, 200 m/s) |
 | `N` | Clear all planned nodes |
-| `P` | **Auto-plant Hohmann transfer to selected body** (v0.3.1) |
-| `k` | **Porkchop plot for selected body** (v0.3.3); `Enter` on a cell plants that transfer (v0.4.1) |
+| `H` | **Auto-plant Hohmann transfer to selected body** (v0.3.1; rebound from `P` in v0.5.8). For moon targets uses intra-primary geocentric Hohmann (v0.5.7). |
+| `P` | **Porkchop plot for selected body** (v0.3.3; rebound from `k` in v0.5.8); `Enter` on a cell plants that transfer (v0.4.1). Inter-primary only — moon targets show a banner redirecting to `H`. |
 | `R` | **Refine plan** — re-Lambert from live state, plant mid-course correction + update arrival (v0.4.1) |
 | `S` / `L` | Save / load game (v0.4.0) |
 | `m` | Open maneuver planner |
@@ -118,7 +118,7 @@ A duration of `0` plants an impulsive burn (instant Δv). A non-zero
 duration starts a finite burn that runs for up to that many seconds, or
 until the requested Δv is delivered, whichever first.
 
-### Porkchop plot (`k`)
+### Porkchop plot (`P`)
 
 | Key | Action |
 |---|---|
@@ -130,7 +130,7 @@ until the requested Δv is delivered, whichever first.
 Cursor opens snapped to the minimum-Δv cell. `·` glyphs mark cells
 where Lambert didn't converge — `Enter` on those is a no-op.
 
-## Features (v0.5.7)
+## Features (v0.5.8)
 
 - **Adaptive body sizing.** `BodyPixelRadius` now switches to true-
   scale rendering when the body's projected radius would be ≥ 4 px,
