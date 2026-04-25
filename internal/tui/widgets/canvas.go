@@ -25,16 +25,20 @@ type Canvas struct {
 	scale      float64      // pixels per meter
 	dc         drawille.Canvas
 
-	// colorRegions records cell-coordinate rectangles to colorize at
-	// String() time. v0.5.3+ — used by the orbit renderer to color
-	// body disks by palette without per-pixel color tagging.
-	// Last-written wins on overlap.
-	colorRegions []colorRegion
-}
-
-type colorRegion struct {
-	cellX, cellY, w, h int
-	color              lipgloss.Color
+	// pixelTags maps a pixel coord (px, py) → its render color. Set by
+	// the *Colored* draw helpers (FillColoredDisk, RingColoredOutline);
+	// the plain Plot / FillDisk / RingOutline / DrawEllipse / PlotArrow
+	// helpers leave pixels untagged. At String() time, each terminal
+	// cell picks its color from the most-common tag among its 2×4
+	// pixels; cells with no tagged pixels render in the default
+	// terminal color.
+	//
+	// v0.5.10+: replaces the v0.5.3 cell-rectangle approach, which
+	// colored a body's entire bounding box of cells — bleeding into
+	// orbit lines, craft glyphs, and apo/peri markers near a body.
+	// Per-pixel tagging keeps body color confined to the body's own
+	// pixels.
+	pixelTags map[[2]int]lipgloss.Color
 }
 
 // NewCanvas builds a canvas sized to fit cols × rows terminal cells.
@@ -69,37 +73,83 @@ func (c *Canvas) Resize(cols, rows int) {
 	c.pxW, c.pxH = cols*2, rows*4
 }
 
-// Clear wipes the drawille buffer and the per-cell color regions.
-// Call at the start of every frame.
+// Clear wipes the drawille buffer and per-pixel color tags. Call at
+// the start of every frame.
 func (c *Canvas) Clear() {
 	c.dc.Clear()
-	c.colorRegions = c.colorRegions[:0]
+	c.pixelTags = nil
 }
 
-// AddColoredDisk records a cell-region tag for the disk that
-// FillDisk(center, pxRadius) would draw. Use it after a body's
-// FillDisk to colorize the body's footprint at String() time.
-// Translates pixel-radius to cell-radius via the 2×4 braille grid
-// (rounded up so single-pixel disks still hit a full cell).
-func (c *Canvas) AddColoredDisk(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
+// FillColoredDisk fills a disk of the given pixel radius around a
+// world coord AND tags every set pixel with the given color. Used
+// for body rendering: the cells containing body pixels render in
+// the body's palette color, while cells that happen to overlap with
+// craft / orbit / marker pixels (untagged) stay default-colored.
+//
+// Replaces the v0.5.3 AddColoredDisk approach which painted the
+// body's entire cell-bounding-box, bleeding into nearby content.
+func (c *Canvas) FillColoredDisk(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
+	if pxRadius < 1 {
+		pxRadius = 1
+	}
 	cx, cy, _ := c.Project(center)
-	// Body cell footprint: convert pixel radius → cell radius. Add 1
-	// to ensure the disk's edge cells are included (drawille cells
-	// are 2 px wide × 4 px tall — round up generously so the rim of
-	// a body's pixels falls inside the colorized region).
-	cellRX := pxRadius/2 + 1
-	cellRY := pxRadius/4 + 1
-	cellX := cx/2 - cellRX
-	cellY := cy/4 - cellRY
-	w := 2*cellRX + 1
-	h := 2*cellRY + 1
-	c.colorRegions = append(c.colorRegions, colorRegion{
-		cellX: cellX,
-		cellY: cellY,
-		w:     w,
-		h:     h,
-		color: color,
-	})
+	r2 := pxRadius * pxRadius
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]lipgloss.Color)
+	}
+	for dy := -pxRadius; dy <= pxRadius; dy++ {
+		for dx := -pxRadius; dx <= pxRadius; dx++ {
+			if dx*dx+dy*dy > r2 {
+				continue
+			}
+			px, py := cx+dx, cy+dy
+			if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+				continue
+			}
+			c.dc.Set(px, py)
+			c.pixelTags[[2]int{px, py}] = color
+		}
+	}
+}
+
+// RingColoredOutline mirrors RingOutline but tags every set pixel
+// with the given color. Used for the system primary's hollow ring.
+func (c *Canvas) RingColoredOutline(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
+	if pxRadius < 1 {
+		pxRadius = 1
+	}
+	cx, cy, _ := c.Project(center)
+	samples := pxRadius * 8
+	if samples < 16 {
+		samples = 16
+	}
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]lipgloss.Color)
+	}
+	for i := 0; i < samples; i++ {
+		theta := 2 * math.Pi * float64(i) / float64(samples)
+		px := cx + int(math.Round(float64(pxRadius)*math.Cos(theta)))
+		py := cy + int(math.Round(float64(pxRadius)*math.Sin(theta)))
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			continue
+		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = color
+	}
+}
+
+// PlotColored sets a single pixel and tags it with the given color.
+// Used by callers that want a tagged dot (currently unused — Plot
+// stays untagged, which is what most callers want for orbit lines
+// and trail samples).
+func (c *Canvas) PlotColored(w orbital.Vec3, color lipgloss.Color) {
+	if px, py, ok := c.Project(w); ok {
+		c.dc.Set(px, py)
+		if c.pixelTags == nil {
+			c.pixelTags = make(map[[2]int]lipgloss.Color)
+		}
+		c.pixelTags[[2]int{px, py}] = color
+	}
 }
 
 // Cols / Rows expose the configured terminal cell dimensions.
@@ -290,33 +340,42 @@ func (c *Canvas) DrawEllipseOffsetDotted(el orbital.Elements, offset orbital.Vec
 // the configured cell dimensions. Pads short rows with spaces so the
 // rectangular shape is preserved (lipgloss borders need uniform width).
 //
-// When color regions are set (via AddColoredDisk), each cell inside a
-// region is wrapped in a lipgloss foreground color. Last-written
-// region wins on overlap; cells not in any region render uncolored.
-// Skips coloring blank cells so per-cell escape sequences don't
-// inflate output for empty space.
+// Per-pixel tags (set by FillColoredDisk / RingColoredOutline /
+// PlotColored) drive cell-level coloring: each terminal cell's color
+// is the most-frequent tag among its 8 (= 2×4) pixels. Cells whose
+// pixels are all untagged render in the default terminal color.
+// Pre-v0.5.10 used cell-rectangle tagging which over-painted nearby
+// content (orbit lines, craft glyph) with the body's color.
 func (c *Canvas) String() string {
 	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
-	if len(c.colorRegions) == 0 {
+	if len(c.pixelTags) == 0 {
 		return c.joinRows(rows)
 	}
-	// Build per-cell color map (last-write-wins on overlap). Sparse —
-	// only set for cells inside any region.
+	// Aggregate tags per cell: for each tagged pixel, accumulate a
+	// per-color count in the cell that contains it. Highest count
+	// wins. Ties go to whichever color appeared first (map iteration
+	// order is intentionally undefined; the tie-breaker is good enough
+	// since collisions are rare).
 	cellColor := make(map[[2]int]lipgloss.Color)
-	for _, r := range c.colorRegions {
-		for dy := 0; dy < r.h; dy++ {
-			y := r.cellY + dy
-			if y < 0 || y >= c.rows {
-				continue
-			}
-			for dx := 0; dx < r.w; dx++ {
-				x := r.cellX + dx
-				if x < 0 || x >= c.cols {
-					continue
-				}
-				cellColor[[2]int{x, y}] = r.color
+	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
+	for coord, color := range c.pixelTags {
+		cellX, cellY := coord[0]/2, coord[1]/4
+		key := [2]int{cellX, cellY}
+		if cellCounts[key] == nil {
+			cellCounts[key] = make(map[lipgloss.Color]int)
+		}
+		cellCounts[key][color]++
+	}
+	for key, counts := range cellCounts {
+		var bestColor lipgloss.Color
+		bestN := 0
+		for color, n := range counts {
+			if n > bestN {
+				bestN = n
+				bestColor = color
 			}
 		}
+		cellColor[key] = bestColor
 	}
 	var b strings.Builder
 	for i := 0; i < c.rows; i++ {

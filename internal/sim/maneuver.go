@@ -12,9 +12,13 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// ManeuverNode represents a planned burn that will fire when
-// World.Clock.SimTime reaches TriggerTime. Nodes are forward-looking only;
-// once fired, they are removed from World.Nodes.
+// ManeuverNode represents a planned burn. v0.5.14+: TriggerTime is the
+// burn-CENTER moment (the planner's intended firing point), not the
+// burn start. For impulsive burns (Duration=0) center == start ==
+// TriggerTime. For finite burns the integrator actually starts the
+// burn at TriggerTime - Duration/2 so the burn is centered on
+// TriggerTime. The HUD displays TriggerTime as "T+(burn moment)" so
+// the player sees the planner's intent, not the implementation start.
 //
 // Duration controls finite vs impulsive: zero = instant Δv (legacy v0.1
 // path); non-zero = sustained engine burn lasting up to Duration or
@@ -33,6 +37,27 @@ type ManeuverNode struct {
 	DV          float64
 	Duration    time.Duration
 	PrimaryID   string
+}
+
+// BurnStart returns the sim-time at which the integrator should fire
+// this node's burn. For impulsive nodes (Duration=0) BurnStart equals
+// TriggerTime. For finite nodes BurnStart is `TriggerTime - Duration/2`
+// so the burn is centered on TriggerTime. v0.5.14+.
+func (n ManeuverNode) BurnStart() time.Time {
+	if n.Duration <= 0 {
+		return n.TriggerTime
+	}
+	return n.TriggerTime.Add(-n.Duration / 2)
+}
+
+// BurnEnd returns the sim-time at which the integrator should
+// terminate this node's burn (regardless of Δv-remaining or fuel
+// state). For impulsive nodes BurnEnd equals TriggerTime. v0.5.14+.
+func (n ManeuverNode) BurnEnd() time.Time {
+	if n.Duration <= 0 {
+		return n.TriggerTime
+	}
+	return n.TriggerTime.Add(n.Duration / 2)
 }
 
 // ActiveBurn is the runtime state of an in-progress finite burn. Set by
@@ -101,9 +126,24 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// Target's position in its parent's frame == craft's primary
 		// here, since target.ParentID == craft.Primary.ID.
 		targetAngle := primaryFrameAngle(w, target)
+		// v0.5.13: back to finite burns. With the new S-IVB-1 vessel
+		// (J-2 thrust 1023 kN), TLI burn is ~110 s — half-arc 2.5°,
+		// finite-burn integration loss < 0.1%. Pre-v0.5.13 the ICPS-
+		// class vessel had a 10-min TLI that dropped apoapsis ~27% from
+		// the impulsive ideal, forcing the impulsive workaround.
+		// v0.6 finite-burn-aware planner will close the remaining gap
+		// for low-TWR vessels (e.g. when ICPS comes back as a test
+		// loadout).
+		mass := w.Craft.TotalMass()
+		thrust := w.Craft.Thrust
+		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival)
+		var minLead float64
+		if thrust > 0 && mass > 0 {
+			minLead = (dvDepEstimate * mass / thrust) / 2
+		}
 		plan, err := planner.PlanIntraPrimaryHohmann(
 			muShared, rPark, rArrival,
-			craftAngle, targetAngle,
+			craftAngle, targetAngle, minLead,
 			w.Craft.Primary.ID,
 			muDestination, rCapture, target.ID,
 		)
@@ -111,8 +151,6 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 			return nil, err
 		}
 		now := w.Clock.SimTime
-		mass := w.Craft.TotalMass()
-		thrust := w.Craft.Thrust
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
 		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
 		return &plan, nil
@@ -391,6 +429,61 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 	return grid, nil
 }
 
+// compensateFiniteBurn inflates an ideal-impulsive Δv to account for
+// gravity-rotation loss during a centered finite burn at the parking
+// orbit's periapsis. Without compensation, a 4% loss on Hohmann TLI
+// drops apoapsis from Luna distance to ~165k km — nowhere near the
+// moon.
+//
+// Math: a centered burn over half-arc α sweeps the prograde direction
+// from -α to +α relative to periapsis tangent. The along-track
+// component of the integrated Δv is Δv_ideal × sin(α)/α (perpendicular
+// components sum to zero by symmetry). To deliver Δv_target we request
+// Δv such that Δv × sin(α(Δv))/α(Δv) = Δv_target, where
+//   α(Δv) = (Δv·m / F) × n_craft / 2 = k · Δv,  k = m·n/(2F)
+// Substituting: sin(k·Δv) = k·Δv_target → Δv = asin(k·Δv_target)/k.
+//
+// Returns the ideal Δv unchanged if k·Δv_target ≥ 1 (geometrically
+// impossible — burn arc would exceed half the orbit), or if any input
+// is degenerate.
+func compensateFiniteBurn(dvIdeal, mass, thrust, mu, rPark float64) float64 {
+	if dvIdeal <= 0 || mass <= 0 || thrust <= 0 || mu <= 0 || rPark <= 0 {
+		return dvIdeal
+	}
+	nCraft := math.Sqrt(mu / (rPark * rPark * rPark))
+	k := mass * nCraft / (2 * thrust)
+	if k <= 0 {
+		return dvIdeal
+	}
+	arg := k * dvIdeal
+	if arg >= 1 {
+		// Geometrically can't deliver this Δv with a centered burn —
+		// the half-arc would exceed π/2. Fall back to ideal; the burn
+		// will under-deliver but at least won't panic the planner.
+		return dvIdeal
+	}
+	return math.Asin(arg) / k
+}
+
+// estimateIntraPrimaryDepDv returns the Hohmann departure Δv for a
+// circular-to-circular transfer from rDep to rArr around a primary
+// with GM mu. Used by World.PlanTransfer to pre-size the burn
+// duration before calling the planner, so the planner can pad its
+// wait window enough to fit a centered finite burn.
+func estimateIntraPrimaryDepDv(mu, rDep, rArr float64) float64 {
+	if mu <= 0 || rDep <= 0 || rArr <= 0 || rDep == rArr {
+		return 0
+	}
+	aT := (rDep + rArr) / 2
+	vDepCirc := math.Sqrt(mu / rDep)
+	vTransAtDep := math.Sqrt(mu * (2/rDep - 1/aT))
+	dv := vTransAtDep - vDepCirc
+	if dv < 0 {
+		dv = -dv
+	}
+	return dv
+}
+
 // primaryFrameAngle returns body b's angular position around its
 // parent (radians, atan2 of position-vector y, x in the parent's
 // frame), evaluated at the world's current sim time. Used by the
@@ -458,6 +551,18 @@ func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital
 // craft's thrust and current mass (Δt = Δv · m / F). If thrust is
 // zero or inputs are degenerate the node stays impulsive (Duration=0),
 // matching the legacy behavior.
+//
+// TriggerTime is set to the planner's intended firing moment — i.e.,
+// the burn-CENTER per ManeuverNode's v0.5.14+ semantics. The
+// integrator fires the burn at TriggerTime - Duration/2 (via
+// ManeuverNode.BurnStart) so the burn is centered on TriggerTime; the
+// HUD reads TriggerTime directly so the player sees the planned
+// moment, not the implementation start.
+//
+// Callers that need BurnStart ≥ now (so the integrator doesn't have
+// to fire a node retroactively) must pad the planner's OffsetTime by
+// ≥ Duration/2 in advance — for the intra-primary path that's done
+// via PlanIntraPrimaryHohmann's minLeadSeconds.
 func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust float64) ManeuverNode {
 	mode := spacecraft.BurnPrograde
 	if tn.IsRetrograde {
@@ -491,23 +596,34 @@ func (e transferError) Error() string { return string(e) }
 // ClearNodes wipes every pending node.
 func (w *World) ClearNodes() { w.Nodes = nil }
 
-// executeDueNodes fires every node whose TriggerTime has passed, applying
+// executeDueNodes fires every node whose BurnStart has passed, applying
 // the burn to the spacecraft in order. Called from Tick after sim-time
 // advances. Re-entrant: if two nodes fall in the same tick, both fire.
 //
-// Impulsive nodes (Duration==0) apply their Δv inline and are popped.
-// Finite nodes (Duration>0) start an ActiveBurn and are popped; the burn
-// then runs across subsequent ticks via the RK4 branch in
-// integrateSpacecraft. If a finite burn is already active when a new
-// finite node fires, the new one replaces it (last-write-wins; the
-// planner UI is responsible for not over-stacking).
+// Impulsive nodes (Duration==0) apply their Δv inline at TriggerTime
+// and are popped. Finite nodes start an ActiveBurn at BurnStart
+// (= TriggerTime - Duration/2) and are popped; the burn runs across
+// subsequent ticks via the RK4 branch in integrateSpacecraft until
+// BurnEnd or DV exhausted. If a finite burn is already active when a
+// new finite node fires, the new one replaces it (last-write-wins;
+// the planner UI is responsible for not over-stacking). v0.5.14+
+// semantics: TriggerTime is the burn center, BurnStart/BurnEnd are
+// the actual on-engine moments.
 func (w *World) executeDueNodes() {
 	if w.Craft == nil {
 		return
 	}
 	fired := 0
+	// Nodes are sorted by TriggerTime, but we need to walk them by
+	// BurnStart for finite nodes. Since BurnStart ≤ TriggerTime, walking
+	// the (TriggerTime-sorted) slice may skip an early-firing finite
+	// node if a later impulsive node has TriggerTime < this finite's
+	// BurnStart. In practice nodes are spaced by minutes / days so the
+	// ordering coincides; the planner's pad-window guarantee keeps us
+	// safe. Worst case: one tick of latency on the misordered finite,
+	// which is invisible at any user-visible warp.
 	for _, n := range w.Nodes {
-		if n.TriggerTime.After(w.Clock.SimTime) {
+		if n.BurnStart().After(w.Clock.SimTime) {
 			break
 		}
 		if n.Duration == 0 {
@@ -516,7 +632,7 @@ func (w *World) executeDueNodes() {
 			w.ActiveBurn = &ActiveBurn{
 				Mode:        n.Mode,
 				DVRemaining: n.DV,
-				EndTime:     n.TriggerTime.Add(n.Duration),
+				EndTime:     n.BurnEnd(),
 				PrimaryID:   n.PrimaryID,
 			}
 		}

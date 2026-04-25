@@ -42,32 +42,42 @@ func (s *Spacecraft) OrbitalSpeed() float64 { return s.State.V.Norm() }
 // around the provided primary (typically Earth). Orbit lies in the primary's
 // equatorial plane (z=0) with periapsis along +X, velocity along +Y.
 //
-// Mass / propulsion numbers (v0.5.6) modeled on the SLS Interim Cryogenic
-// Propulsion Stage (ICPS) — the upper stage that performs trans-lunar
-// injection on Artemis II:
-//   - DryMass 3500 kg (close to ICPS empty mass 3490 kg)
-//   - Fuel 25000 kg (close to ICPS LH2/LOX capacity ~27220 kg)
-//   - Isp 462 s (RL-10C-3, ICPS's engine)
-//   - Thrust 108 kN (RL-10C-3 spec)
+// Mass / propulsion numbers (v0.5.13+) modeled on the Saturn V S-IVB —
+// the J-2-powered third stage that performed trans-lunar injection for
+// every Apollo Moon mission:
+//   - DryMass 11000 kg (S-IVB empty was ~12 400 kg; rounded down for
+//     a no-payload solo profile)
+//   - Fuel 40000 kg (much less than real S-IVB's ~106 t — sized for
+//     Δv 6.3 km/s, enough for Luna round trip without over-provisioning)
+//   - Isp 421 s (J-2 vacuum)
+//   - Thrust 1023 kN (J-2 spec)
 //
-// Δv budget = 462 × g₀ × ln(28500/3500) ≈ 9.5 km/s — comfortable for a
-// LEO → TLI → LOI → TEI → Earth-return round trip with margin. Pre-v0.5.6
-// the default (500/500/Isp 300, ~2 km/s) couldn't even reach Luna one-way.
+// Δv budget = 421 × g₀ × ln(51000/11000) ≈ 6.3 km/s — Luna round trip
+// with margin. TLI burn time at this thrust ≈ 110 s (vs ~10 min for the
+// pre-v0.5.13 ICPS). The short burn keeps gravity-rotation finite-burn
+// loss < 0.1%, so the auto-plant Hohmann delivers near-exact apoapsis
+// without needing the impulsive workaround. Pre-v0.5.13 the ICPS-class
+// vessel had a 10-min TLI that lost ~27% of apoapsis-raise to
+// integration error.
+//
+// History: v0.5.6 ICPS-1, v0.5.13+ S-IVB-1. Apollo's actual TLI stage
+// is a better fit for the no-payload Luna-mission profile this default
+// targets.
 func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	r := earth.RadiusMeters() + 200e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
 	return &Spacecraft{
-		Name:    "ICPS-1",
-		DryMass: 3500,
-		Fuel:    25000,
-		Isp:     462,
-		Thrust:  108000, // 108 kN — RL-10C-3 vacuum thrust
+		Name:    "S-IVB-1",
+		DryMass: 11000,
+		Fuel:    40000,
+		Isp:     421,
+		Thrust:  1023000, // 1023 kN — J-2 vacuum thrust
 		Primary: earth,
 		State: physics.StateVector{
 			R: orbital.Vec3{X: r},
 			V: orbital.Vec3{Y: v},
-			M: 28500,
+			M: 51000,
 		},
 	}
 }
