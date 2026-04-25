@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.5.4 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.5.5 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.5.4)
+## 1. What works today (v0.5.5)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -218,7 +218,8 @@ features and the version sequence that delivers them.
 | v0.5.1 ✓ | | Color palette (`internal/render/palette.go`): hand-picked body colors + temperature-keyed stellar tint + UI-tier (alert / warning / node / trajectory / SOI). Wired into HUD selected-body name + body-info title. Per-cell canvas coloring stays scoped for v0.5.3 body-identity work. |
 | v0.5.2 ✓ | | Vessel position trail: 200-sample ring buffer of inertial positions, sampled every 10 sim seconds (warp-independent density). Renders as a fading-stride dot trail on the orbit canvas behind the live ellipse. |
 | v0.5.3 ✓ | | Per-cell canvas body coloring: `Canvas.AddColoredDisk` tags each body's cell footprint with its palette color; `String()` emits per-cell ANSI foregrounds. Body-identity glyphs / Saturn rings / HUD dividers / porkchop axis labels stay scoped for v0.5.x+. |
-| **v0.5.4 ✓** | **(current)** | Vessel trail stores primary-relative R per sample (was: heliocentric inertial). Trail now follows the craft's apparent orbit around its primary; pre-fix it was a heliocentric trace drifting at Earth's orbital speed (~30 km/s). |
+| v0.5.4 ✓ | | Vessel trail stores primary-relative R per sample (was: heliocentric inertial). Trail now follows the craft's apparent orbit around its primary; pre-fix it was a heliocentric trace drifting at Earth's orbital speed (~30 km/s). |
+| **v0.5.5 ✓** | **(current)** | `bodyEphemeris` now recurses through the v0.5.0 hierarchy. Pre-fix it returned moon's parent-relative position as if heliocentric, so PorkchopGrid + PlanTransferAt for moon targets quoted nonsense Δv (~380 m/s display, ~25 km/s plant). Fix folds in for both. |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
