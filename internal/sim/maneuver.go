@@ -458,6 +458,18 @@ func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital
 // craft's thrust and current mass (Δt = Δv · m / F). If thrust is
 // zero or inputs are degenerate the node stays impulsive (Duration=0),
 // matching the legacy behavior.
+//
+// TriggerTime is shifted back by Duration/2 so the burn is *centered*
+// on the planner's intended firing point, not started there. The
+// planner solves for an instantaneous Δv at OffsetTime; a real
+// finite burn lasting many minutes would otherwise sweep through
+// past-the-target arc and lose apoapsis-raising efficiency. For an
+// ICPS TLI burn that's ~14 minutes (~16% of LEO orbit) of smearing —
+// enough to fall short of Luna's altitude. v0.5.10+.
+//
+// If the centered start time would fall before `now`, we clamp to
+// `now` rather than firing in the past — the burn still spreads but
+// at least doesn't get lost behind the integrator's clock.
 func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust float64) ManeuverNode {
 	mode := spacecraft.BurnPrograde
 	if tn.IsRetrograde {
@@ -468,8 +480,12 @@ func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust
 		secs := tn.DV * mass / thrust
 		duration = time.Duration(secs * float64(time.Second))
 	}
+	trigger := now.Add(tn.OffsetTime).Add(-duration / 2)
+	if trigger.Before(now) {
+		trigger = now
+	}
 	return ManeuverNode{
-		TriggerTime: now.Add(tn.OffsetTime),
+		TriggerTime: trigger,
 		Mode:        mode,
 		DV:          tn.DV,
 		Duration:    duration,

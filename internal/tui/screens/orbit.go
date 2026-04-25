@@ -94,8 +94,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	// Plot each body at its perceived-size disk. System primary (index 0)
 	// gets a hollow ring + filled center to distinguish it from planets.
-	// Each body's cells are tagged with its palette color (v0.5.3) so
-	// the canvas emits per-cell ANSI foreground at String() time.
+	// Body pixels are tagged with the body's palette color (v0.5.10) —
+	// per-pixel tagging keeps the color confined to the body's actual
+	// disk, so orbit lines and craft glyphs sharing nearby cells stay
+	// default-colored.
 	// See BodyPixelRadius for the size-tier logic.
 	scale := v.canvas.Scale()
 	for i := range sys.Bodies {
@@ -104,12 +106,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		r := BodyPixelRadius(b, i == 0, scale)
 		color := render.ColorFor(b)
 		if i == 0 {
-			v.canvas.RingOutline(pos, r)
-			v.canvas.FillDisk(pos, 1)
+			v.canvas.RingColoredOutline(pos, r, color)
+			v.canvas.FillColoredDisk(pos, 1, color)
 		} else {
-			v.canvas.FillDisk(pos, r)
+			v.canvas.FillColoredDisk(pos, r, color)
 		}
-		v.canvas.AddColoredDisk(pos, r, color)
 		if i == selectedIdx {
 			v.plotCluster(pos, r+4)
 		}

@@ -263,10 +263,21 @@ func TestPlanTransferLandsTwoNodes(t *testing.T) {
 		t.Errorf("second (arrival) node PrimaryID = %q, want mars %q",
 			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
 	}
+	// v0.5.10+ shifts each node's TriggerTime back by Duration/2 to
+	// center finite burns. Allow gap to differ from TransferDt by up to
+	// the longer of the two burn durations.
 	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime)
-	if gap != plan.TransferDt {
-		t.Errorf("planted-node time gap = %v, want plan.TransferDt = %v",
-			gap, plan.TransferDt)
+	tol := w.Nodes[0].Duration
+	if w.Nodes[1].Duration > tol {
+		tol = w.Nodes[1].Duration
+	}
+	diff := gap - plan.TransferDt
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff > tol {
+		t.Errorf("planted-node time gap = %v, want plan.TransferDt = %v ± %v",
+			gap, plan.TransferDt, tol)
 	}
 }
 
@@ -501,10 +512,18 @@ func TestPlanTransferAtPlantsTwoNodes(t *testing.T) {
 		t.Errorf("arrival PrimaryID = %q, want mars %q",
 			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
 	}
+	// v0.5.10+ centers each finite burn around the planner's intended
+	// firing point by shifting TriggerTime back by Duration/2. Departure
+	// and arrival have different durations, so the planted-node gap
+	// differs from the planner's TOF by (depDur - arrDur)/2. Allow that
+	// drift, but bound it by either burn's duration.
 	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime).Seconds()
 	wantGap := tofDay * 86400.0
-	if math.Abs(gap-wantGap) > 1.0 {
-		t.Errorf("planted-node gap = %.0f s, want %.0f s", gap, wantGap)
+	durDep := w.Nodes[0].Duration.Seconds()
+	durArr := w.Nodes[1].Duration.Seconds()
+	tolerance := math.Max(durDep, durArr)
+	if math.Abs(gap-wantGap) > tolerance {
+		t.Errorf("planted-node gap = %.0f s, want %.0f ± %.0f s", gap, wantGap, tolerance)
 	}
 	for i, n := range w.Nodes {
 		if n.Duration <= 0 {
