@@ -168,6 +168,23 @@ func (w *World) Tick() {
 	// blow-up at pathologically high warps inside short-period orbits.
 	effWarp := w.clampedWarp()
 	simDelta := time.Duration(float64(w.Clock.BaseStep) * effWarp)
+
+	// v0.5.12: clamp simDelta to land exactly on the next finite-burn
+	// TriggerTime if it falls within this tick. At high warp the tick
+	// otherwise overshoots the trigger by hundreds of seconds — the
+	// burn fires late and EndTime (= TriggerTime + Duration) leaves a
+	// shrunken burn window. Without this clamp, even centered planning
+	// gets cut short and apoapsis falls way short. Pure free-flight
+	// ticks (no upcoming finite burn) are unaffected.
+	if w.Craft != nil {
+		nextBurn := w.nextFiniteBurnTrigger()
+		if !nextBurn.IsZero() {
+			until := nextBurn.Sub(w.Clock.SimTime)
+			if until > 0 && until < simDelta {
+				simDelta = until
+			}
+		}
+	}
 	w.Clock.SimTime = w.Clock.SimTime.Add(simDelta)
 
 	if w.Craft != nil {
@@ -180,6 +197,26 @@ func (w *World) Tick() {
 		}
 		w.maybeRecordTrail(simDelta.Seconds())
 	}
+}
+
+// nextFiniteBurnTrigger returns the BurnStart sim-time of the soonest
+// pending finite-burn node (Duration > 0), or the zero time if no
+// finite-burn node is queued. v0.5.14+: BurnStart is TriggerTime -
+// Duration/2, so the Tick clamp lands on the moment the integrator
+// will actually fire the engine, not on the (later) burn-center
+// TriggerTime that the HUD displays.
+func (w *World) nextFiniteBurnTrigger() time.Time {
+	var best time.Time
+	for _, n := range w.Nodes {
+		if n.Duration <= 0 {
+			continue
+		}
+		t := n.BurnStart()
+		if best.IsZero() || t.Before(best) {
+			best = t
+		}
+	}
+	return best
 }
 
 // maybeRecordTrail appends the craft's current state (in its primary's

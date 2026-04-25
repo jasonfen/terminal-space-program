@@ -1,6 +1,6 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.5.9 (April 2026). Updated at each minor / patch boundary.*
+*Snapshot at v0.5.10 (April 2026). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -8,7 +8,7 @@ features and the version sequence that delivers them.
 
 ---
 
-## 1. What works today (v0.5.9)
+## 1. What works today (v0.5.10)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -131,6 +131,20 @@ features and the version sequence that delivers them.
   by the bracket starting point; a caller hint would be cleaner.
 
 ### Larger queued features
+- **Realistic finite-burn intra-primary auto-plant** (v0.6 target).
+  v0.5.12 ships intra-primary auto-plant (Earth → Luna etc) as
+  *impulsive* burns because the integrator's finite-burn path loses
+  ~27% of apoapsis-raise to geometry deformation over a 14-min TLI,
+  and a closed-form `sin(α)/α` compensation isn't accurate enough
+  (under-corrects, then over-corrects past escape if you inflate
+  more). Real spacecraft handle this via numerical pre-burn
+  iteration, multiple smaller perigee-raise burns, or higher-TWR
+  engines. The "right" implementation: finite-burn-aware planner
+  that integrates a candidate Δv, measures resulting apoapsis,
+  iterates Newton-style until it hits target. Composes naturally
+  with the v0.6 burn-at-next scheduler. Until then, auto-plant is
+  pragmatically impulsive (delivered Δv exact, mass loss correct
+  via Tsiolkovsky, just visually instant).
 - **Save / load** (v0.4.0 target). No state persistence today — close the
   program and your orbit is gone. JSON state file at
   `$XDG_STATE_HOME/terminal-space-program/save.json`, manual `S` / `L`, autosave on quit.
@@ -223,7 +237,8 @@ features and the version sequence that delivers them.
 | v0.5.6 ✓ | | Default vessel is now an ICPS-like upper stage: 3500 kg dry + 25000 kg fuel, Isp 462 s (RL-10C-3), thrust 108 kN. Δv ~9.5 km/s — comfortable for a Earth → Luna round trip. Pre-v0.5.6 default (500/500/Isp 300, ~2 km/s) couldn't even reach Luna one-way. |
 | v0.5.7 ✓ | | Intra-primary Hohmann (`PlanIntraPrimaryHohmann`): when target shares craft's primary (e.g. Luna, both around Earth), Hohmann plants a geocentric Hohmann (~3.1 km/s TLI + ~0.7 km/s Luna-orbit insertion). Pre-v0.5.7 the heliocentric Hohmann/Lambert path treated Luna's parent-relative semimajor as heliocentric → wildly wrong Δv. Porkchop rejects same-primary targets with a banner redirecting to Hohmann. |
 | v0.5.8 ✓ | | Keybind cleanup: `P` → porkchop (was `k`), `H` → Hohmann auto-plant (was `P`). Mnemonic: P/Porkchop, H/Hohmann. |
-| **v0.5.9 ✓** | **(current)** | Phase-corrected intra-primary Hohmann: `H` on a moon now waits for the next launch window (Luna leads craft by `π − n_target·T_transfer`) so the craft actually rendezvous with the target instead of arriving at empty apoapsis. Synodic period for LEO+Luna ≈ 89 min so the wait is short. Also fixes porkchop redirect-banner text from `[P]` to `[H]`. |
+| v0.5.9 ✓ | | Phase-corrected intra-primary Hohmann: `H` on a moon now waits for the next launch window (Luna leads craft by `π − n_target·T_transfer`) so the craft actually rendezvous with the target instead of arriving at empty apoapsis. Synodic period for LEO+Luna ≈ 89 min so the wait is short. Also fixes porkchop redirect-banner text from `[P]` to `[H]`. |
+| **v0.5.10 ✓** | **(current)** | Lunar-mission delivery pass: Tick clamps to finite-burn TriggerTime (no high-warp burn-fire lag); planner pads launch window so centered burns don't fire retroactively; default vessel swapped to S-IVB-1 (J-2 1023 kN, 11000+40000 kg, Δv 6.3 km/s, ~110s TLI); intra-primary auto-plant returns to finite burns; ManeuverNode.TriggerTime is now the burn *center* (engine fires Duration/2 earlier — HUD shows the planner's intended moment). |
 | **v0.5** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity |
 | **v0.6** | **Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
