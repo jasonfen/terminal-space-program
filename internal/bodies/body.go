@@ -52,6 +52,13 @@ type CelestialBody struct {
 	// in degrees. Zero when unknown — flat-plane approximation.
 	LongitudeOfAscendingNode float64 `json:"longitudeOfAscendingNode,omitempty"`
 	ArgumentOfPeriapsis      float64 `json:"argumentOfPeriapsis,omitempty"`
+
+	// ParentID identifies this body's gravitational parent. Empty
+	// means "system primary" (e.g. the Sun for Sol bodies). Set on
+	// moons (e.g. Luna.ParentID = "earth"). Drives hierarchical
+	// BodyPosition recursion and FindPrimary's nested-SOI walk.
+	// v0.5.0+.
+	ParentID string `json:"parentId,omitempty"`
 }
 
 type Planet struct {

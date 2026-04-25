@@ -29,6 +29,22 @@ func (s *System) Primary() *CelestialBody {
 	return &s.Bodies[0]
 }
 
+// ParentOf returns the gravitational parent of body `b` in this system.
+// For top-level bodies (ParentID empty) the system primary (index 0) is
+// returned. Returns nil if b's ParentID is set but unresolvable, which
+// signals a malformed system.
+func (s *System) ParentOf(b CelestialBody) *CelestialBody {
+	if b.ParentID == "" {
+		return s.Primary()
+	}
+	for i := range s.Bodies {
+		if s.Bodies[i].ID == b.ParentID {
+			return &s.Bodies[i]
+		}
+	}
+	return nil
+}
+
 // FindBody returns a pointer to the body with matching id or englishName.
 // Case-insensitive on englishName; exact match on id.
 func (s *System) FindBody(query string) *CelestialBody {
