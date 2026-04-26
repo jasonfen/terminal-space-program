@@ -189,7 +189,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
 		primaryPos := w.BodyPosition(c.Primary)
 		scale := v.canvas.Scale()
-		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels {
+		orbitVisible := el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
+		if orbitVisible {
 			v.canvas.DrawEllipseOffsetDottedColored(el, primaryPos, 360, 3, render.ColorCurrentOrbit)
 			// Apoapsis / periapsis markers — render even for low-e
 			// orbits so the player sees WHERE the two extremes are
@@ -201,10 +202,21 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			v.canvas.FillDisk(peri, 2)
 			v.canvas.FillDisk(apo, 3)
 		}
-		// Directional vessel glyph — chevron rotated into the craft's
-		// velocity frame so the player reads "which way am I going"
-		// without staring at raw r, v numbers.
-		v.canvas.PlotArrow(w.CraftInertial(), c.State.V, 5)
+		// Vessel marker. When the orbit ellipse is rendering at a
+		// useful size, draw a directional chevron so the player reads
+		// "which way am I going" off the velocity frame. When the
+		// orbit's collapsed below minOrbitPixels (heliocentric zoom on
+		// a LEO craft), the chevron's 5-pixel spread sprawls across
+		// the parent body and reads as noise — replace it with a
+		// single bright disk that says "vehicle here." The disk color
+		// is distinct from every body palette entry and every
+		// maneuver-leg color so multi-craft views (future) stay
+		// disambiguable per craft.
+		if orbitVisible {
+			v.canvas.PlotArrow(w.CraftInertial(), c.State.V, 5)
+		} else {
+			v.canvas.FillColoredDisk(w.CraftInertial(), 1, render.ColorCraftMarker)
+		}
 	}
 
 	// Planned maneuver nodes — cluster glyph at each node's inertial

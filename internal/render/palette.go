@@ -24,6 +24,7 @@ var (
 	ColorPlannedNode  = lipgloss.Color("#5FD7FF") // maneuver-node markers
 	ColorTrajectory   = lipgloss.Color("#FFFFFF") // fallback trajectory preview
 	ColorCurrentOrbit = lipgloss.Color("#A8B8C8") // craft's live Keplerian ellipse — pale slate, distinct from any body palette and from maneuver-leg colors
+	ColorCraftMarker  = lipgloss.Color("#FFD93D") // craft icon when zoomed out (orbit too small to render) — saturated yellow distinct from Sun gold-white, amber leg, and every body color
 	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
 	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive
 )
