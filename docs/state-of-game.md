@@ -354,7 +354,10 @@ Full slice breakdown lives in `docs/v0.6-plan.md`. Summary:
   (heliocentric → moon-of-other-planet) stays out of v0.6.
 - **v0.6.4 — mouse selection.** Click-only. Targets: planet / moon /
   vessel / maneuver node on orbit canvas, porkchop cells, HUD panels.
-  No drag, no wheel-zoom. Click on a planted node opens `m` pre-filled.
+  No drag, no wheel-zoom. Click on a planted node opens `m` pre-filled;
+  click on a porkchop cell opens the planner with that transfer
+  pre-loaded; click on the orbit canvas opens the planner with a new
+  node staged at the click point.
 - **v0.6.5 — mission scaffold.** `internal/missions/` package + JSON
   data file with 2–3 starters. State stored as `Payload.Missions`
   (inside the payload, not a sibling block). Schema v1 → v2 with
