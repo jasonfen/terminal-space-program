@@ -23,9 +23,14 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
-// SchemaVersion is the on-disk version. v0.4.0 ships v1; later schema
-// changes bump and migrate.
-const SchemaVersion = 1
+// SchemaVersion is the on-disk version that Save writes today. v0.4.0
+// shipped v1; v0.6.0 bumped to v2 to add ManeuverNode.Event for the
+// burn-at-next scheduler. Load accepts any version in [1,
+// SchemaVersion]; missing fields on older saves deserialise to their
+// zero values, which match the v1 semantics (Event = TriggerAbsolute,
+// no Missions). Bumps that need real migration logic should add a
+// dedicated upgrade pass keyed off File.Version.
+const SchemaVersion = 2
 
 // File is the on-disk envelope.
 type File struct {
@@ -77,13 +82,18 @@ type Craft struct {
 	M         float64 `json:"m"`
 }
 
-// Node mirrors sim.ManeuverNode.
+// Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
+// omitempty so v1 saves round-trip cleanly: the field is absent on
+// disk and unmarshals to zero (TriggerAbsolute), which matches the
+// pre-v0.6 behaviour. v2 saves with non-zero Event encode the integer
+// directly.
 type Node struct {
 	TriggerTimeNano int64   `json:"trigger_time_unix_nano"`
 	Mode            int     `json:"mode"`
 	DV              float64 `json:"dv"`
 	DurationNano    int64   `json:"duration_nano"`
 	PrimaryID       string  `json:"primary_id"`
+	Event           int     `json:"event,omitempty"`
 }
 
 // ActiveBurn mirrors sim.ActiveBurn.
@@ -159,8 +169,12 @@ func Load(path string) (*sim.World, error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse save: %w", err)
 	}
-	if f.Version != SchemaVersion {
-		return nil, fmt.Errorf("%w: got %d, want %d", ErrSchemaMismatch, f.Version, SchemaVersion)
+	// v0.6.0: accept any version in [1, SchemaVersion]. New fields land
+	// on the wire as omitempty / zero-value-defaulting, so older saves
+	// just unmarshal with the defaults. Bumps that need real migration
+	// should switch on f.Version explicitly here.
+	if f.Version < 1 || f.Version > SchemaVersion {
+		return nil, fmt.Errorf("%w: got %d, want 1..%d", ErrSchemaMismatch, f.Version, SchemaVersion)
 	}
 	systems, err := bodies.LoadAll()
 	if err != nil {
@@ -202,12 +216,22 @@ func payloadFromWorld(w *sim.World) Payload {
 		}
 	}
 	for _, n := range w.Nodes {
+		// v0.6.0: an unresolved event-relative node has a zero
+		// time.Time TriggerTime (year 1 AD), which UnixNano renders as
+		// a large negative integer that round-trips back to year 1754
+		// rather than zero. Encode the unresolved case as 0 on the
+		// wire so the load path can detect it cleanly.
+		var trigNano int64
+		if !n.TriggerTime.IsZero() {
+			trigNano = n.TriggerTime.UnixNano()
+		}
 		p.Nodes = append(p.Nodes, Node{
-			TriggerTimeNano: n.TriggerTime.UnixNano(),
+			TriggerTimeNano: trigNano,
 			Mode:            int(n.Mode),
 			DV:              n.DV,
 			DurationNano:    int64(n.Duration),
 			PrimaryID:       n.PrimaryID,
+			Event:           int(n.Event),
 		})
 	}
 	if w.ActiveBurn != nil {
@@ -262,12 +286,22 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		}
 	}
 	for _, n := range p.Nodes {
+		// v0.6.0: an unresolved event-relative node serialises with
+		// TriggerTimeNano = 0 (zero time.Time → year 1 AD). Round-trip
+		// it back to a zero time.Time so the resolver picks it up on
+		// the next Tick. Resolved nodes (and all v1 saves) have non-
+		// zero TriggerTimeNano and round-trip identically.
+		var trig time.Time
+		if n.TriggerTimeNano != 0 {
+			trig = time.Unix(0, n.TriggerTimeNano).UTC()
+		}
 		w.Nodes = append(w.Nodes, sim.ManeuverNode{
-			TriggerTime: time.Unix(0, n.TriggerTimeNano).UTC(),
+			TriggerTime: trig,
 			Mode:        spacecraft.BurnMode(n.Mode),
 			DV:          n.DV,
 			Duration:    time.Duration(n.DurationNano),
 			PrimaryID:   n.PrimaryID,
+			Event:       sim.TriggerEvent(n.Event),
 		})
 	}
 	if p.ActiveBurn != nil {

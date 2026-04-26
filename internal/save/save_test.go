@@ -312,6 +312,83 @@ func TestStatePreservedAfterRoundtrip(t *testing.T) {
 	}
 }
 
+// TestV1SaveLoadsAsV2: a v1 save written before v0.6.0 (no Event
+// field on the wire) must load cleanly under SchemaVersion = 2 with
+// Event defaulting to TriggerAbsolute.
+func TestV1SaveLoadsAsV2(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.PlanNode(sim.ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          100,
+	})
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var f save.File
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	// Forge a v1-shaped envelope: drop the version, drop any event
+	// field on nodes (omitempty already does that for zero values, so
+	// the wire form is identical to a real v1 save when Event=0).
+	f.Version = 1
+	rewritten, _ := json.Marshal(f)
+	if err := os.WriteFile(path, rewritten, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load v1 save: %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("expected 1 node after load, got %d", len(got.Nodes))
+	}
+	if got.Nodes[0].Event != sim.TriggerAbsolute {
+		t.Errorf("v1 node loaded with Event=%v, want TriggerAbsolute", got.Nodes[0].Event)
+	}
+}
+
+// TestEventRoundtrip: an event-relative node with a non-zero Event
+// survives Save → Load with Event preserved and TriggerTime still
+// zero (resolver hasn't fired yet).
+func TestEventRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.PlanNode(sim.ManeuverNode{
+		Mode:  spacecraft.BurnPrograde,
+		DV:    50,
+		Event: sim.TriggerNextApo,
+	})
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(got.Nodes))
+	}
+	if got.Nodes[0].Event != sim.TriggerNextApo {
+		t.Errorf("Event lost in round-trip: got %v, want TriggerNextApo", got.Nodes[0].Event)
+	}
+	if !got.Nodes[0].TriggerTime.IsZero() {
+		t.Errorf("expected zero TriggerTime on unresolved node, got %v", got.Nodes[0].TriggerTime)
+	}
+}
+
 func vecEq(a, b orbital.Vec3) bool {
 	return a.X == b.X && a.Y == b.Y && a.Z == b.Z
 }
