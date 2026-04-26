@@ -22,23 +22,32 @@ import (
 // BurnExecutedMsg that the app applies to the spacecraft.
 //
 // Per plan §C20: live preview = shadow trajectory on a miniature canvas.
-// v0.2.1: three fields — mode / Δv / duration. Duration zero = impulsive
-// (legacy v0.1 path); duration > 0 = finite burn.
+// v0.2.1: three fields — mode / Δv / duration. v0.6.0: four fields —
+// mode / fire-at / Δv / duration. Duration zero = impulsive (legacy
+// v0.1 path); duration > 0 = finite burn. Fire-at = TriggerAbsolute
+// fires at T+5min (legacy quick-plant default); event-relative modes
+// resolve to the next periapsis/apoapsis/AN/DN at plant time.
 type Maneuver struct {
-	theme    Theme
-	canvas   *widgets.Canvas
-	dvInput  textinput.Model
-	durInput textinput.Model
-	modeIdx  int
-	focus    int // 0=mode, 1=dv, 2=duration
+	theme      Theme
+	canvas     *widgets.Canvas
+	dvInput    textinput.Model
+	durInput   textinput.Model
+	modeIdx    int
+	fireAtIdx  int
+	focus      int // 0=mode, 1=fireAt, 2=dv, 3=duration
 }
 
 // BurnExecutedMsg is emitted when the user hits Enter. App consumes it.
-// Duration zero = impulsive (legacy path); >0 = finite burn.
+// Duration zero = impulsive (legacy path); >0 = finite burn. Event
+// (v0.6.0+) selects the trigger model — TriggerAbsolute uses the
+// app-side default delay; event-relative modes leave TriggerTime zero
+// and let the World's lazy-freeze resolver compute it from the live
+// orbit on the first Tick after plant.
 type BurnExecutedMsg struct {
 	Mode     spacecraft.BurnMode
 	DV       float64
 	Duration time.Duration
+	Event    sim.TriggerEvent
 }
 
 func NewManeuver(th Theme) *Maneuver {
@@ -65,13 +74,14 @@ func NewManeuver(th Theme) *Maneuver {
 }
 
 // applyFocus pushes focus state down to the bubbletea text inputs.
+// Focus 0 = mode (cycle), 1 = fire-at (cycle), 2 = Δv, 3 = duration.
 func (m *Maneuver) applyFocus() {
 	m.dvInput.Blur()
 	m.durInput.Blur()
 	switch m.focus {
-	case 1:
-		m.dvInput.Focus()
 	case 2:
+		m.dvInput.Focus()
+	case 3:
 		m.durInput.Focus()
 	}
 }
@@ -93,29 +103,39 @@ func (m *Maneuver) Resize(cols, rows int) {
 // means the app should exit the maneuver screen (commit or cancel).
 //
 // Key bindings:
-//   tab / shift+tab    — cycle focus across mode / Δv / duration fields
-//   ←/→ (mode focused) — cycle direction modes
-//   enter              — commit burn → emits BurnExecutedMsg
-//   esc                — cancel → plain exit (app handles)
-//   digits/backspace   — forwarded to focused text input
+//   tab / shift+tab        — cycle focus across mode / fire-at / Δv / duration fields
+//   ←/→ (mode focused)     — cycle direction modes
+//   ←/→ (fire-at focused)  — cycle trigger events (Absolute / NextPeri / NextApo / NextAN / NextDN)
+//   enter                  — commit burn → emits BurnExecutedMsg
+//   esc                    — cancel → plain exit (app handles)
+//   digits/backspace       — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	const focusFields = 4
 	switch msg.String() {
 	case "tab":
-		m.focus = (m.focus + 1) % 3
+		m.focus = (m.focus + 1) % focusFields
 		m.applyFocus()
 		return nil, false
 	case "shift+tab":
-		m.focus = (m.focus + 2) % 3
+		m.focus = (m.focus + focusFields - 1) % focusFields
 		m.applyFocus()
 		return nil, false
 	case "left":
-		if m.focus == 0 {
+		switch m.focus {
+		case 0:
 			m.modeIdx = (m.modeIdx - 1 + len(spacecraft.AllBurnModes)) % len(spacecraft.AllBurnModes)
+			return nil, false
+		case 1:
+			m.fireAtIdx = (m.fireAtIdx - 1 + len(sim.AllTriggerEvents)) % len(sim.AllTriggerEvents)
 			return nil, false
 		}
 	case "right":
-		if m.focus == 0 {
+		switch m.focus {
+		case 0:
 			m.modeIdx = (m.modeIdx + 1) % len(spacecraft.AllBurnModes)
+			return nil, false
+		case 1:
+			m.fireAtIdx = (m.fireAtIdx + 1) % len(sim.AllTriggerEvents)
 			return nil, false
 		}
 	case "enter":
@@ -124,19 +144,21 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, false // ignore — user needs to type a number
 		}
 		dur := m.parsedDuration()
+		event := sim.AllTriggerEvents[m.fireAtIdx]
 		return func() tea.Msg {
 			return BurnExecutedMsg{
 				Mode:     spacecraft.AllBurnModes[m.modeIdx],
 				DV:       dv,
 				Duration: dur,
+				Event:    event,
 			}
 		}, true
 	}
 	var cmd tea.Cmd
 	switch m.focus {
-	case 1:
-		m.dvInput, cmd = m.dvInput.Update(msg)
 	case 2:
+		m.dvInput, cmd = m.dvInput.Update(msg)
+	case 3:
 		m.durInput, cmd = m.durInput.Update(msg)
 	}
 	return cmd, false
@@ -234,6 +256,15 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64) string {
 		modeLabel = m.theme.Dim.Render(modeLabel)
 	}
 
+	// Fire-at line — highlight if focused, otherwise dim.
+	fireAt := sim.AllTriggerEvents[m.fireAtIdx]
+	fireAtLabel := fireAt.String()
+	if m.focus == 1 {
+		fireAtLabel = m.theme.Warning.Render(fireAtLabel) + "  (←/→ to cycle)"
+	} else {
+		fireAtLabel = m.theme.Dim.Render(fireAtLabel)
+	}
+
 	burnDescr := "impulsive"
 	if dur > 0 {
 		// At constant thrust the analytical estimate is dv = thrust/mass × dur.
@@ -251,6 +282,7 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64) string {
 	lines := []string{
 		m.theme.Primary.Render("BURN PLAN"),
 		"  mode:     " + modeLabel,
+		"  fire at:  " + fireAtLabel,
 		"  Δv:       " + m.dvInput.View() + " m/s" + warn,
 		"  duration: " + m.durInput.View() + " s",
 		"  → " + burnDescr,

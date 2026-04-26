@@ -12,6 +12,52 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
+// TriggerEvent selects how a node's TriggerTime is determined. v0.6.0+.
+//
+// Absolute (zero value) preserves the v0.1–v0.5 semantics: TriggerTime
+// is set explicitly at plant time and never changes.
+//
+// The event-relative modes leave TriggerTime zero at plant time; the
+// resolver in executeDueNodes computes TriggerTime once at the first
+// Tick where the live orbit yields a future crossing (lazy freeze).
+// After resolution the node behaves like an Absolute node — TriggerTime
+// is frozen and the dispatch path is unchanged.
+type TriggerEvent int
+
+const (
+	TriggerAbsolute TriggerEvent = iota
+	TriggerNextPeri
+	TriggerNextApo
+	TriggerNextAN
+	TriggerNextDN
+)
+
+// String returns a human-readable label for the trigger event.
+func (e TriggerEvent) String() string {
+	switch e {
+	case TriggerAbsolute:
+		return "T+"
+	case TriggerNextPeri:
+		return "next peri"
+	case TriggerNextApo:
+		return "next apo"
+	case TriggerNextAN:
+		return "next AN"
+	case TriggerNextDN:
+		return "next DN"
+	}
+	return "?"
+}
+
+// AllTriggerEvents lists the trigger modes in canonical UI cycle order.
+var AllTriggerEvents = [...]TriggerEvent{
+	TriggerAbsolute,
+	TriggerNextPeri,
+	TriggerNextApo,
+	TriggerNextAN,
+	TriggerNextDN,
+}
+
 // ManeuverNode represents a planned burn. v0.5.14+: TriggerTime is the
 // burn-CENTER moment (the planner's intended firing point), not the
 // burn start. For impulsive burns (Duration=0) center == start ==
@@ -31,12 +77,27 @@ import (
 // a geocentric departure plus a heliocentric arrival; PrimaryID lets
 // the planner UI render a frame-distinct glyph and lets the burn-
 // execution layer warn if a node fires in an unexpected frame.
+//
+// Event (v0.6.0+) selects whether TriggerTime is absolute or resolved
+// from a live-orbit event. Zero value = TriggerAbsolute, preserving
+// pre-v0.6 semantics. For event-relative nodes TriggerTime is zero at
+// plant time and resolved on the first Tick where the orbit yields a
+// future crossing.
 type ManeuverNode struct {
 	TriggerTime time.Time
 	Mode        spacecraft.BurnMode
 	DV          float64
 	Duration    time.Duration
 	PrimaryID   string
+	Event       TriggerEvent
+}
+
+// IsResolved reports whether the node's TriggerTime has been set —
+// either because the node was planted with TriggerAbsolute or because
+// the lazy-freeze resolver has fired for an event-relative node.
+// Unresolved event-relative nodes have TriggerTime == zero.
+func (n ManeuverNode) IsResolved() bool {
+	return n.Event == TriggerAbsolute || !n.TriggerTime.IsZero()
 }
 
 // BurnStart returns the sim-time at which the integrator should fire
@@ -75,11 +136,83 @@ type ActiveBurn struct {
 
 // PlanNode inserts a node into World.Nodes, keeping the slice sorted by
 // TriggerTime. Past-dated nodes are allowed — they fire on the next Tick.
+//
+// v0.6.0: unresolved event-relative nodes (Event != Absolute and
+// TriggerTime not yet set by the lazy-freeze resolver) sort to the end
+// of the slice so they don't trip the dispatch path's "next due" walk
+// before resolveEventNodes runs.
 func (w *World) PlanNode(n ManeuverNode) {
 	w.Nodes = append(w.Nodes, n)
-	sort.Slice(w.Nodes, func(i, j int) bool {
-		return w.Nodes[i].TriggerTime.Before(w.Nodes[j].TriggerTime)
+	sortNodes(w.Nodes)
+}
+
+// sortNodes orders nodes by TriggerTime ascending, with unresolved
+// event-relative nodes pushed to the end. Used by PlanNode and by
+// resolveEventNodes after it freezes a previously-unresolved node.
+func sortNodes(nodes []ManeuverNode) {
+	sort.Slice(nodes, func(i, j int) bool {
+		ri, rj := nodes[i].IsResolved(), nodes[j].IsResolved()
+		if ri != rj {
+			return ri
+		}
+		return nodes[i].TriggerTime.Before(nodes[j].TriggerTime)
 	})
+}
+
+// resolveEventNodes attempts to resolve every unresolved event-relative
+// node against the craft's current orbit, freezing TriggerTime to the
+// next-event sim-time when a future crossing exists. Called once per
+// Tick before the warp-clamp + dispatch pass.
+//
+// Resolution failure (no future crossing — escape trajectory, equatorial
+// orbit asking for AN/DN, etc.) leaves the node unresolved; the helper
+// will retry on subsequent ticks. The retry cost is one
+// ElementsFromState call per unresolved node per tick — negligible.
+func (w *World) resolveEventNodes() {
+	if w.Craft == nil {
+		return
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	if mu == 0 {
+		return
+	}
+	state := orbital.Vec3State{R: w.Craft.State.R, V: w.Craft.State.V}
+	resolvedAny := false
+	for i := range w.Nodes {
+		n := &w.Nodes[i]
+		if n.IsResolved() {
+			continue
+		}
+		var dt float64
+		switch n.Event {
+		case TriggerNextPeri:
+			dt = orbital.TimeToPeriapsis(state, mu)
+		case TriggerNextApo:
+			dt = orbital.TimeToApoapsis(state, mu)
+		case TriggerNextAN:
+			dt = orbital.TimeToNodeCrossing(state, mu, true)
+		case TriggerNextDN:
+			dt = orbital.TimeToNodeCrossing(state, mu, false)
+		default:
+			continue
+		}
+		if dt < 0 {
+			continue // unreachable from current state — retry next tick
+		}
+		// TriggerTime is the burn-CENTER per v0.5.14 semantics; for
+		// finite burns the integrator fires at TriggerTime - Duration/2.
+		// We still anchor the *event* to the burn center, so the
+		// player's "fire at next periapsis" intent matches the moment
+		// the orbit reaches that ν.
+		n.TriggerTime = w.Clock.SimTime.Add(time.Duration(dt * float64(time.Second)))
+		if n.PrimaryID == "" {
+			n.PrimaryID = w.Craft.Primary.ID
+		}
+		resolvedAny = true
+	}
+	if resolvedAny {
+		sortNodes(w.Nodes)
+	}
 }
 
 // PlanTransfer constructs a Hohmann auto-plant to the body at the given
@@ -623,6 +756,12 @@ func (w *World) executeDueNodes() {
 	// safe. Worst case: one tick of latency on the misordered finite,
 	// which is invisible at any user-visible warp.
 	for _, n := range w.Nodes {
+		// v0.6.0: unresolved event-relative nodes have TriggerTime = 0
+		// (year 1 AD) which would fire immediately if we didn't guard.
+		// They sort to the end of the slice so we can break safely.
+		if !n.IsResolved() {
+			break
+		}
 		if n.BurnStart().After(w.Clock.SimTime) {
 			break
 		}

@@ -85,6 +85,93 @@ func TestClearNodesRemovesAll(t *testing.T) {
 	}
 }
 
+// TestPlanNodeUnresolvedSortsToEnd: an unresolved event-relative node
+// (Event != Absolute, TriggerTime zero) must not displace resolved
+// future nodes from the head of the slice — otherwise executeDueNodes
+// would see a year-1 BurnStart and fire it immediately.
+func TestPlanNodeUnresolvedSortsToEnd(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(60 * time.Second), DV: 10, Mode: spacecraft.BurnPrograde})
+	w.PlanNode(ManeuverNode{Event: TriggerNextPeri, DV: 20, Mode: spacecraft.BurnPrograde})
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(30 * time.Second), DV: 30, Mode: spacecraft.BurnPrograde})
+
+	if len(w.Nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(w.Nodes))
+	}
+	if w.Nodes[0].DV != 30 || w.Nodes[1].DV != 10 {
+		t.Errorf("resolved nodes mis-sorted: got DVs %g / %g, want 30 / 10",
+			w.Nodes[0].DV, w.Nodes[1].DV)
+	}
+	if w.Nodes[2].Event != TriggerNextPeri || !w.Nodes[2].TriggerTime.IsZero() {
+		t.Errorf("unresolved node should be at end with zero TriggerTime; got Event=%v t=%v",
+			w.Nodes[2].Event, w.Nodes[2].TriggerTime)
+	}
+}
+
+// TestResolveEventNodesFreezesNextPeri: planting a NextPeri node and
+// running the resolver should freeze TriggerTime to a future moment
+// within one orbital period of "now."
+func TestResolveEventNodesFreezesNextPeri(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{Event: TriggerNextPeri, DV: 50, Mode: spacecraft.BurnPrograde})
+
+	if !w.Nodes[0].TriggerTime.IsZero() {
+		t.Fatalf("precondition: expected zero TriggerTime on unresolved node")
+	}
+
+	w.resolveEventNodes()
+
+	n := w.Nodes[0]
+	if n.TriggerTime.IsZero() {
+		t.Fatalf("expected resolver to set TriggerTime, still zero")
+	}
+	if !n.TriggerTime.After(w.Clock.SimTime) {
+		t.Errorf("expected resolved TriggerTime > SimTime; got TriggerTime=%v SimTime=%v",
+			n.TriggerTime, w.Clock.SimTime)
+	}
+	// One orbit at LEO is ~90 min; resolution should be < that for any ν.
+	if dt := n.TriggerTime.Sub(w.Clock.SimTime); dt > 100*time.Minute {
+		t.Errorf("resolved TriggerTime too far in the future: %v (LEO period < 100 min)", dt)
+	}
+	if !n.IsResolved() {
+		t.Errorf("expected IsResolved() == true after resolver")
+	}
+}
+
+// TestResolveEventNodesIsIdempotent: running the resolver twice shouldn't
+// re-resolve an already-resolved node (the second pass is a no-op).
+func TestResolveEventNodesIsIdempotent(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{Event: TriggerNextApo, DV: 50, Mode: spacecraft.BurnPrograde})
+	w.resolveEventNodes()
+	first := w.Nodes[0].TriggerTime
+
+	// Advance the clock; resolver pass 2 must NOT update TriggerTime.
+	w.Clock.SimTime = w.Clock.SimTime.Add(30 * time.Second)
+	w.resolveEventNodes()
+	second := w.Nodes[0].TriggerTime
+
+	if !first.Equal(second) {
+		t.Errorf("resolver re-resolved already-frozen node: %v → %v", first, second)
+	}
+}
+
+// TestResolveEventNodesEquatorialAN: an equatorial orbit should leave a
+// NextAN node unresolved (no future crossing), with the resolver
+// retrying on later ticks rather than crashing.
+func TestResolveEventNodesEquatorialAN(t *testing.T) {
+	w := mustWorld(t)
+	// LEO state from NewWorld() is already equatorial.
+	w.PlanNode(ManeuverNode{Event: TriggerNextAN, DV: 10, Mode: spacecraft.BurnPrograde})
+
+	w.resolveEventNodes()
+
+	if w.Nodes[0].IsResolved() {
+		t.Errorf("equatorial orbit: expected NextAN to stay unresolved; got TriggerTime=%v",
+			w.Nodes[0].TriggerTime)
+	}
+}
+
 // TestNodeInertialPositionMatchesFuturePropagation verifies that the node
 // preview position equals what the craft's future state would have been
 // at that time if untouched — i.e., the preview is along the current
