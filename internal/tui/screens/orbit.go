@@ -420,15 +420,55 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if len(w.Nodes) > 0 {
 		lines = append(lines, section("NODES")...)
 		for i, n := range w.Nodes {
-			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 			kind := "imp"
 			if n.Duration > 0 {
 				kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
 			}
+			// v0.6.0: unresolved event-relative nodes have no
+			// TriggerTime yet — show the trigger label instead of T+.
+			if !n.IsResolved() {
+				lines = append(lines, fmt.Sprintf(
+					"  #%d %s  %s  %.0f m/s  %s",
+					i+1, n.Event.String(), n.Mode.String(), n.DV, kind,
+				))
+				continue
+			}
+			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 			lines = append(lines, fmt.Sprintf(
 				"  #%d T%+.0fs  %s  %.0f m/s  %s",
 				i+1, dt, n.Mode.String(), n.DV, kind,
 			))
+		}
+
+		// v0.6.1: PROJECTED ORBIT — apo/peri/AN/DN of the orbit after
+		// every planted node fires. Hidden when no resolved nodes.
+		if state, primary, ok := w.PredictedFinalOrbit(); ok {
+			mu := primary.GravitationalParameter()
+			ro := orbital.OrbitReadout(state.R, state.V, mu)
+			primaryR := primary.RadiusMeters()
+			lines = append(lines, section("PROJECTED ORBIT")...)
+			lines = append(lines, fmt.Sprintf("  primary:   %s", primary.EnglishName))
+			if ro.Hyperbolic {
+				lines = append(lines,
+					"  "+v.theme.Warning.Render("hyperbolic — escape trajectory"),
+					fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+					fmt.Sprintf("  e:         %.3f", ro.Eccentricity),
+				)
+			} else {
+				lines = append(lines,
+					fmt.Sprintf("  apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
+					fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+				)
+				const equatorialTol = 1e-3
+				if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
+					lines = append(lines, v.theme.Dim.Render("  AN/DN:     equatorial (undefined)"))
+				} else {
+					lines = append(lines,
+						fmt.Sprintf("  AN angle:  %.1f°", normalizeDeg(ro.AscNode*180/math.Pi)),
+						fmt.Sprintf("  DN angle:  %.1f°", normalizeDeg(ro.DescNode*180/math.Pi)),
+					)
+				}
+			}
 		}
 	}
 
@@ -463,4 +503,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 
 	content := strings.Join(lines, "\n")
 	return v.theme.HUDBox.Width(width).Render(content)
+}
+
+// normalizeDeg wraps an angle in degrees into [0, 360).
+func normalizeDeg(d float64) float64 {
+	d = math.Mod(d, 360)
+	if d < 0 {
+		d += 360
+	}
+	return d
 }

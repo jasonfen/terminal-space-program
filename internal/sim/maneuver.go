@@ -834,6 +834,55 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 	return state, primaryID
 }
 
+// PredictedFinalOrbit walks every planted node in trigger-time order
+// and returns the craft state immediately after the last node fires,
+// along with the primary body whose frame the state is relative to.
+// ok=false when there are no planted nodes (or no craft) — caller
+// should fall back to the live orbit.
+//
+// Chaining semantics: start from the live craft state at clock time;
+// for each node, propagate forward to the node's TriggerTime, apply
+// the burn (impulsive Δv in the node's mode direction — finite-burn
+// deformation is approximated as instantaneous since this is a HUD
+// readout, not a flight integrator), then advance the running clock.
+// Unresolved event-relative nodes are skipped — they'll resolve on a
+// future tick and appear in subsequent renders.
+//
+// SOI transitions during propagation are handled by the underlying
+// integrator; bodies are snapshotted at the *current* clock time, so
+// readouts on multi-day chains lose accuracy as planets move. That's
+// fine for a glance-at-the-HUD reading; the planner's actual
+// trajectory preview already has its own caveats around long
+// horizons.
+func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody, bool) {
+	if w.Craft == nil || len(w.Nodes) == 0 {
+		return physics.StateVector{}, bodies.CelestialBody{}, false
+	}
+	state := w.Craft.State
+	primary := w.Craft.Primary
+	clock := w.Clock.SimTime
+	any := false
+	for _, n := range w.Nodes {
+		if !n.IsResolved() {
+			continue
+		}
+		dt := n.TriggerTime.Sub(clock).Seconds()
+		if dt > 0 {
+			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			clock = n.TriggerTime
+		}
+		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		if dir.Norm() != 0 && n.DV != 0 {
+			state.V = state.V.Add(dir.Scale(n.DV))
+		}
+		any = true
+	}
+	if !any {
+		return physics.StateVector{}, bodies.CelestialBody{}, false
+	}
+	return state, primary, true
+}
+
 // propagateCraft forward-integrates the craft's primary-relative state
 // dt seconds into the future without mutating live state. Returns only
 // the state — used by callers that don't care which primary owns the
@@ -851,9 +900,20 @@ func (w *World) propagateCraft(dt float64) physics.StateVector {
 // the frame at dt — callers add BodyPosition(primary) to convert state.R
 // into inertial coords.
 func (w *World) propagateCraftWithPrimary(dt float64) (physics.StateVector, bodies.CelestialBody) {
-	current := w.Craft.Primary
+	return w.propagateStateWithPrimary(w.Craft.State, w.Craft.Primary, dt)
+}
+
+// propagateStateWithPrimary is the same SOI-aware integrator but
+// parameterised on the starting state and primary. Used by
+// PredictedFinalOrbit (v0.6.1) to chain through multiple planted
+// nodes without mutating live craft state. Body-position snapshots
+// are taken at the live Clock.SimTime — accurate over short horizons,
+// loses precision for multi-day chains where bodies have moved
+// appreciably; that's acceptable for a HUD readout.
+func (w *World) propagateStateWithPrimary(startState physics.StateVector, startPrimary bodies.CelestialBody, dt float64) (physics.StateVector, bodies.CelestialBody) {
+	current := startPrimary
 	muNow := current.GravitationalParameter()
-	state := w.Craft.State
+	state := startState
 
 	sys := w.System()
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))

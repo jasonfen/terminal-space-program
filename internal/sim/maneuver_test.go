@@ -156,6 +156,60 @@ func TestResolveEventNodesIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestPredictedFinalOrbitNoNodes: with nothing planted the helper
+// reports ok=false so the HUD can hide the section.
+func TestPredictedFinalOrbitNoNodes(t *testing.T) {
+	w := mustWorld(t)
+	if _, _, ok := w.PredictedFinalOrbit(); ok {
+		t.Errorf("expected ok=false when no nodes planted")
+	}
+}
+
+// TestPredictedFinalOrbitSingleProgradeBurn: planting a 50 m/s
+// prograde burn should raise the apoapsis above the live orbit's
+// apoapsis. Verifies the chain returns a sensible projection.
+func TestPredictedFinalOrbitSingleProgradeBurn(t *testing.T) {
+	w := mustWorld(t)
+	mu := w.Craft.Primary.GravitationalParameter()
+	liveEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	liveApo := liveEl.Apoapsis()
+
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+	})
+
+	state, primary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		t.Fatal("expected ok=true with a planted node")
+	}
+	if primary.ID != w.Craft.Primary.ID {
+		t.Errorf("primary frame: got %q, want %q (no SOI change in 60s)",
+			primary.ID, w.Craft.Primary.ID)
+	}
+	predicted := orbital.ElementsFromState(state.R, state.V, mu)
+	if predicted.Apoapsis() <= liveApo {
+		t.Errorf("prograde burn should raise apo: live=%.0f predicted=%.0f",
+			liveApo, predicted.Apoapsis())
+	}
+}
+
+// TestPredictedFinalOrbitSkipsUnresolvedNodes: an unresolved event-
+// relative node shouldn't contribute to the projection. Live + one
+// unresolved node = no contribution => ok=false.
+func TestPredictedFinalOrbitSkipsUnresolvedNodes(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{
+		Event: TriggerNextPeri,
+		Mode:  spacecraft.BurnPrograde,
+		DV:    50,
+	})
+	if _, _, ok := w.PredictedFinalOrbit(); ok {
+		t.Errorf("expected ok=false with only an unresolved node")
+	}
+}
+
 // TestResolveEventNodesEquatorialAN: an equatorial orbit should leave a
 // NextAN node unresolved (no future crossing), with the resolver
 // retrying on later ticks rather than crashing.
