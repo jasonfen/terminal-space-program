@@ -11,7 +11,6 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
-	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -172,7 +171,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
 		primaryPos := w.BodyPosition(c.Primary)
 		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
-			v.canvas.DrawEllipseOffsetDotted(el, primaryPos, 360, 3)
+			v.canvas.DrawEllipseOffsetDottedColored(el, primaryPos, 360, 3, render.ColorCurrentOrbit)
 			// Apoapsis / periapsis markers — render even for low-e
 			// orbits so the player sees WHERE the two extremes are
 			// when the ellipse shape alone is near-circular. Apoapsis
@@ -290,61 +289,35 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 
 	// v0.6.1: while a finite burn is firing the live craft state is
 	// mutated every integrator step; the dashed trajectory preview
-	// would otherwise rotate wildly each frame as PostBurnState
-	// chases the changing start state. Skip the preview and let the
-	// live ellipse + active-burn HUD block carry the visual load
-	// until the burn completes.
+	// would otherwise rotate wildly each frame. Skip the preview and
+	// let the live ellipse + active-burn HUD block carry the visual
+	// load until the burn completes.
 	if w.ActiveBurn != nil {
 		return
 	}
 
-	first := w.Nodes[0]
-	post, postPrimaryID := w.PostBurnState(first)
-	// Use the mu of whichever primary the post-burn state is expressed in
-	// — usually craft's current primary (departure node), but may differ
-	// for nodes planted in a foreign frame (auto-plant arrival).
-	mu := w.Craft.Primary.GravitationalParameter()
-	if postPrimaryID != w.Craft.Primary.ID {
-		// Post-burn frame differs from the craft's home; PredictedSegments
-		// is not yet parameterised on start-frame, so skip the trajectory
-		// preview rather than render a wrong one. Glyphs (drawn above)
-		// still mark where the burn fires.
-		return
-	}
-	horizon := postBurnHorizon(post, mu)
-	if horizon <= 0 {
-		return
-	}
-
-	segments := w.PredictedSegments(post, horizon, 96)
-	for _, seg := range segments {
-		stride := 2
-		if seg.PrimaryID != homeID {
-			stride = 1 // foreign SOI — solid, eye-catching
-		}
-		for i, p := range seg.Points {
-			if stride > 1 && i%stride == 0 {
-				continue
+	// v0.6.1: render each post-maneuver leg in its own color so the
+	// player can read which orbit belongs to which planted burn.
+	// PredictedLegs walks all resolved nodes, rebasing each into the
+	// node's intended frame (e.g. Hohmann arrival in Mars frame).
+	legs := w.PredictedLegs()
+	for _, leg := range legs {
+		samples := 96
+		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.HorizonSecs, samples)
+		legColor := render.ManeuverSegmentColor(leg.NodeIndex)
+		for _, seg := range segs {
+			stride := 2
+			if seg.PrimaryID != homeID {
+				stride = 1 // foreign SOI — solid, eye-catching
 			}
-			v.canvas.Plot(p)
+			for i, p := range seg.Points {
+				if stride > 1 && i%stride == 0 {
+					continue
+				}
+				v.canvas.PlotColored(p, legColor)
+			}
 		}
 	}
-}
-
-// postBurnHorizon picks a sensible prediction window based on the
-// orbit's semimajor axis. Returns the orbital period for bound orbits,
-// or a time-of-flight covering ~10 primary-radii of travel for
-// hyperbolic (a ≤ 0) orbits so the preview is visible but finite.
-func postBurnHorizon(state physics.StateVector, mu float64) float64 {
-	a := physics.SemimajorAxis(state, mu)
-	if a > 0 && !math.IsNaN(a) {
-		return 2 * math.Pi * math.Sqrt(a*a*a/mu)
-	}
-	v := state.V.Norm()
-	if v <= 0 {
-		return 0
-	}
-	return 10 * state.R.Norm() / v
 }
 
 func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {

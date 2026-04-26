@@ -19,13 +19,37 @@ import (
 // semantic colors across screens. Independent of the body palette so
 // editing one doesn't shift the other.
 var (
-	ColorAlert       = lipgloss.Color("#FF5F5F") // hard errors, peri-below-surface
-	ColorWarning     = lipgloss.Color("#FFAF00") // warp clamps, near-collision
-	ColorPlannedNode = lipgloss.Color("#5FD7FF") // maneuver-node markers
-	ColorTrajectory  = lipgloss.Color("#FFFFFF") // home-SOI trajectory preview
-	ColorForeignSOI  = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
-	ColorDim         = lipgloss.Color("#5F5F5F") // background / inactive
+	ColorAlert        = lipgloss.Color("#FF5F5F") // hard errors, peri-below-surface
+	ColorWarning      = lipgloss.Color("#FFAF00") // warp clamps, near-collision
+	ColorPlannedNode  = lipgloss.Color("#5FD7FF") // maneuver-node markers
+	ColorTrajectory   = lipgloss.Color("#FFFFFF") // fallback trajectory preview
+	ColorCurrentOrbit = lipgloss.Color("#FFFFFF") // craft's live Keplerian ellipse
+	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
+	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive
 )
+
+// maneuverSegmentPalette cycles through distinct colors per planted
+// maneuver node so the player can read which post-burn leg belongs
+// to which burn. Indices wrap around once exhausted; the cycle is
+// short enough that two-burn (Hohmann) and three-burn (Hohmann +
+// mid-course correction) plans get unique colors.
+var maneuverSegmentPalette = []lipgloss.Color{
+	lipgloss.Color("#5FD7FF"), // cyan — first maneuver leg
+	lipgloss.Color("#5FFF87"), // mint — second
+	lipgloss.Color("#FFAF00"), // amber — third
+	lipgloss.Color("#FF87D7"), // pink  — fourth
+}
+
+// ManeuverSegmentColor returns the color for the post-maneuver-N
+// orbit leg. N=0 is the orbit immediately after the first planted
+// burn fires; N=1 the orbit after the second; etc. Wraps around the
+// palette table.
+func ManeuverSegmentColor(n int) lipgloss.Color {
+	if n < 0 {
+		n = 0
+	}
+	return maneuverSegmentPalette[n%len(maneuverSegmentPalette)]
+}
 
 // bodyPalette maps a body's ID → its rendered color. IDs are the same
 // ones in the systems/*.json files (e.g. "earth", "moon", "io"). Keep

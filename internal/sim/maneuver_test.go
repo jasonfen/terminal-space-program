@@ -231,6 +231,71 @@ func TestPreviewBurnStateAbsolute(t *testing.T) {
 	}
 }
 
+// TestPredictedLegsHohmann: a two-burn Hohmann auto-plant should
+// yield exactly two legs — the transfer leg in Earth (or
+// heliocentric) frame and the captured leg in the destination
+// (Mars) frame. The transfer leg's horizon should match the time
+// gap to the arrival node; the arrival leg's horizon falls back to
+// one orbital period since there's no node after it.
+func TestPredictedLegsHohmann(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	if _, err := w.PlanTransfer(marsIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	legs := w.PredictedLegs()
+	if len(legs) != 2 {
+		t.Fatalf("expected 2 legs (departure + arrival), got %d", len(legs))
+	}
+	if legs[0].NodeIndex != 0 || legs[1].NodeIndex != 1 {
+		t.Errorf("leg NodeIndexes wrong: got %d / %d, want 0 / 1",
+			legs[0].NodeIndex, legs[1].NodeIndex)
+	}
+	if legs[1].Primary.ID != sys.Bodies[marsIdx].ID {
+		t.Errorf("arrival leg primary = %q, want Mars %q (rebase missed)",
+			legs[1].Primary.ID, sys.Bodies[marsIdx].ID)
+	}
+	// Transfer leg horizon should match the trigger-time gap.
+	wantHorizon := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime).Seconds()
+	if math.Abs(legs[0].HorizonSecs-wantHorizon) > 1.0 {
+		t.Errorf("transfer leg horizon = %.0f s, want %.0f s",
+			legs[0].HorizonSecs, wantHorizon)
+	}
+	if legs[1].HorizonSecs <= 0 {
+		t.Errorf("arrival leg horizon must be > 0, got %.0f", legs[1].HorizonSecs)
+	}
+}
+
+// TestPredictedLegsSuppressedDuringActiveBurn: same guard as
+// PredictedFinalOrbit — flailing values during burns shouldn't
+// drive flickering colored trajectory lines.
+func TestPredictedLegsSuppressedDuringActiveBurn(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+	})
+	w.ActiveBurn = &ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 100,
+		EndTime:     w.Clock.SimTime.Add(10 * time.Second),
+	}
+	if legs := w.PredictedLegs(); legs != nil {
+		t.Errorf("expected nil legs during active burn, got %d", len(legs))
+	}
+}
+
 // TestPredictedFinalOrbitHohmannLandsInDestinationFrame: a Hohmann
 // auto-plant to Mars plants two nodes — departure in Earth frame +
 // arrival in Mars frame. PredictedFinalOrbit must rebase into the

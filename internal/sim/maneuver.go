@@ -834,6 +834,80 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 	return state, primaryID
 }
 
+// PredictedLeg describes the trajectory leg following a single
+// planted maneuver node — the orbit the craft would fly between
+// this node firing and the next one (or for one orbital period if
+// there's no next node). v0.6.1 uses this to render each leg in a
+// distinct color so the player can read which orbit segment
+// belongs to which planted burn.
+type PredictedLeg struct {
+	NodeIndex   int                   // index into World.Nodes
+	State       physics.StateVector   // post-burn state in Primary's frame
+	Primary     bodies.CelestialBody  // frame the state is expressed in
+	HorizonSecs float64               // duration to predict for (until next node, or one period)
+}
+
+// PredictedLegs walks every resolved planted node and returns one
+// PredictedLeg per node, with the post-burn state expressed in the
+// node's intended frame (PrimaryID, falling back to the propagated
+// frame when unspecified). Returns nil during an active burn — the
+// live state is mutating and chained predictions would flail (see
+// PredictedFinalOrbit's same guard).
+func (w *World) PredictedLegs() []PredictedLeg {
+	if w.Craft == nil || len(w.Nodes) == 0 || w.ActiveBurn != nil {
+		return nil
+	}
+	state := w.Craft.State
+	primary := w.Craft.Primary
+	clock := w.Clock.SimTime
+	systems := w.Systems
+	legs := make([]PredictedLeg, 0, len(w.Nodes))
+	for i, n := range w.Nodes {
+		if !n.IsResolved() {
+			continue
+		}
+		dt := n.TriggerTime.Sub(clock).Seconds()
+		if dt > 0 {
+			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			clock = n.TriggerTime
+		}
+		// Frame rebase if the node was planted in a specific
+		// destination frame (matches PredictedFinalOrbit's behavior).
+		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
+			oldInertial := w.BodyPosition(primary)
+			newInertial := w.BodyPosition(target)
+			vOld := w.bodyInertialVelocity(primary)
+			vNew := w.bodyInertialVelocity(target)
+			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
+			primary = target
+		}
+		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		if dir.Norm() != 0 && n.DV != 0 {
+			state.V = state.V.Add(dir.Scale(n.DV))
+		}
+		// Horizon: until next planted node, else one orbital period.
+		var horizon float64
+		if i+1 < len(w.Nodes) && w.Nodes[i+1].IsResolved() {
+			horizon = w.Nodes[i+1].TriggerTime.Sub(clock).Seconds()
+		}
+		if horizon <= 0 {
+			mu := primary.GravitationalParameter()
+			horizon = orbitalPeriod(state, mu)
+			if horizon <= 0 || math.IsNaN(horizon) || math.IsInf(horizon, 0) {
+				// Hyperbolic / degenerate — fall back to a short fixed window.
+				horizon = 3600
+			}
+		}
+		legs = append(legs, PredictedLeg{
+			NodeIndex:   i,
+			State:       state,
+			Primary:     primary,
+			HorizonSecs: horizon,
+		})
+	}
+	return legs
+}
+
 // PreviewBurnState returns the craft state immediately after a
 // hypothetical burn with the given (mode, dv, event) parameters
 // would fire — without mutating world state. Used by the maneuver-
