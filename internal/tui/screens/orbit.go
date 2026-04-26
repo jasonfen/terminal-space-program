@@ -37,6 +37,16 @@ type OrbitView struct {
 	fitted        bool
 }
 
+// minOrbitPixels is the projected apoapsis size below which an orbit
+// (live or planted-leg) is suppressed at render time. v0.6.1: at
+// heliocentric zoom a 200-km LEO ellipse projects to a sub-cell
+// extent and every dotted sample piles onto a single cell, painting
+// a misleading blob on top of the parent body. Six pixels is just
+// large enough that ~6 evenly-spaced ellipse dots can resolve into
+// a recognisable shape; below that, hide the orbit and let the
+// vessel chevron / node markers carry the visual.
+const minOrbitPixels = 6.0
+
 // NewOrbitView constructs the screen with an initially-small canvas; a
 // Resize call from the root model sizes it to the terminal.
 func NewOrbitView(th Theme) *OrbitView {
@@ -165,12 +175,21 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// into the system frame so it renders alongside planet orbits.
 	// Only bound orbits (a > 0) render; hyperbolic escape trajectories
 	// are already shown by the maneuver-preview SOI-segmented trace.
+	//
+	// v0.6.1: orbits whose apoapsis projects to fewer than
+	// minOrbitPixels (≈ a body's pixel-tier diameter) are skipped at
+	// render time — at heliocentric zoom a 200-km LEO would otherwise
+	// pile every dotted sample onto a single cell, painting a bright
+	// blob over the parent body that doesn't read as an orbit. The
+	// vessel chevron stays drawn so the craft's presence is still
+	// communicated.
 	if w.CraftVisibleHere() {
 		c := w.Craft
 		muCraft := c.Primary.GravitationalParameter()
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
 		primaryPos := w.BodyPosition(c.Primary)
-		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
+		scale := v.canvas.Scale()
+		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels {
 			v.canvas.DrawEllipseOffsetDottedColored(el, primaryPos, 360, 3, render.ColorCurrentOrbit)
 			// Apoapsis / periapsis markers — render even for low-e
 			// orbits so the player sees WHERE the two extremes are
@@ -315,8 +334,22 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	// player can read which orbit belongs to which planted burn.
 	// PredictedLegs walks all resolved nodes, rebasing each into the
 	// node's intended frame (e.g. Hohmann arrival in Mars frame).
+	scale := v.canvas.Scale()
 	legs := w.PredictedLegs()
 	for _, leg := range legs {
+		// Skip legs whose orbit projects too small to convey shape
+		// (heliocentric view of a planet-frame leg). Same rule as
+		// the live ellipse — keeps the canvas from painting a
+		// blob on top of the parent body. Hyperbolic / a≤0 legs
+		// always render: their trajectories cover meaningful
+		// distance regardless of orbit size.
+		legMu := leg.Primary.GravitationalParameter()
+		legEl := orbital.ElementsFromState(leg.State.R, leg.State.V, legMu)
+		if legEl.A > 0 && !math.IsNaN(legEl.A) && !math.IsInf(legEl.A, 0) &&
+			legEl.Apoapsis()*scale < minOrbitPixels {
+			continue
+		}
+
 		samples := 96
 		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.HorizonSecs, samples)
 		legColor := render.ManeuverSegmentColor(leg.NodeIndex)
