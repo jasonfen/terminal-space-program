@@ -1,7 +1,7 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.5.15 (April 2026) — v0.5 cycle closed; v0.6 in scoping.
-Updated at each minor / patch boundary.*
+*Snapshot at v0.6.0 (April 2026) — v0.6 cycle in flight (burn-at-next
+scheduler shipped). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -11,7 +11,7 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.5.15)
+## 1. What works today (v0.6.0)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -42,9 +42,17 @@ by patch — this doc is the snapshot, those are the release notes.
   in 200 km LEO.
 
 ### Planning
-- **Manual planner** (`m`): three-field form (mode / Δv / duration). `Tab`
-  cycles fields, `←/→` cycles modes when mode field is focused, Δv > budget
-  warns, duration 0 = impulsive, > 0 = finite.
+- **Manual planner** (`m`): four-field form (mode / fire-at / Δv /
+  duration). `Tab` cycles fields, `←/→` cycles modes or trigger events
+  when those fields are focused, Δv > budget warns, duration 0 =
+  impulsive, > 0 = finite. v0.6.0+.
+- **Event-relative trigger nodes** (v0.6.0): `fire at` field selects
+  Absolute T+ or one of `next peri / next apo / next AN / next DN`.
+  Lazy-freeze resolver in `World.Tick` computes `TriggerTime` from the
+  live orbit on the first tick after plant, then freezes — past that
+  point dispatch is identical to absolute-time nodes. Equatorial /
+  hyperbolic / unreachable inputs leave the node unresolved; the
+  resolver retries each tick.
 - **`n` quick-plant**: T+5 min prograde 200 m/s, finite (sized to thrust).
 - **`H` auto-plant Hohmann transfer**: select target body, one keystroke
   plants two finite nodes (geocentric departure + destination-frame arrival)
@@ -149,15 +157,13 @@ by patch — this doc is the snapshot, those are the release notes.
   termination once it lands.
 - **Mission system / objectives** (v0.6 target, see §3). Starter objectives
   such as "achieve a 1000 km circular orbit," "intercept Mars within Δv X."
-- **Burn-at-next scheduler** (v0.6 target). Event-relative maneuver nodes:
-  fire at next periapsis / apoapsis / ascending node / descending node.
-  All four event modes ship together with `Absolute` as the fifth choice
-  in a single `fire at` cycle field — no advanced-trigger picker. v0.6
-  also extends `PlanTransfer()` to cover the **moon → parent** return
-  case (e.g. craft in Luna SOI returning to Earth) — v0.5.7's
-  intra-primary path covers parent → moon; the reverse-direction escape
-  burn is the v0.6.3 gap. Wider inter-SOI capture (heliocentric →
-  moon-of-other-planet) stays out of scope.
+- **`PlanTransfer()` moon → parent extension** (v0.6.3 target). v0.5.7's
+  intra-primary path covers parent → moon (LEO → Luna). The reverse —
+  craft in Luna SOI returning to Earth — slips to v0.6.3. Wider
+  inter-SOI capture (heliocentric → moon-of-other-planet) stays out
+  of scope. The v0.6.0 burn-at-next scheduler (now shipped, see §1
+  Planning) is the foundation `PlanTransfer` extensions can compose
+  against — e.g. "fire escape burn at next periapsis."
 - **Multi-system spacecraft**. The craft is currently locked to Sol. Allowing
   it to enter Alpha Cen / TRAPPIST / Kepler unlocks the system-cycle UX.
   Requires interstellar transfer math (or deus-ex-machina jump for now).
@@ -234,7 +240,8 @@ by patch — this doc is the snapshot, those are the release notes.
 | v0.5.14 ✓ | | Porkchop axis labels — fix the v0.3.3 misalignment (lead-in width mismatch + label overflow past grid edge). Tick line `└────` under the grid, dep-day labels at every 5th column properly centered, dim "dep day" axis title. |
 | **v0.5.15 ✓** | **(final v0.5 patch)** | Fix focus-change lockup at extreme zoom — Saturn rings call to `RingColoredOutline` was unbounded; focusing on a tiny body (Phobos SOI ≈ 20 m → scale 1.8 px/m) made the ring project to ~247M pixels and loop billions of times. Cap samples at 4× canvas pixel diagonal in both `RingOutline` and `RingColoredOutline`; skip drawing rings entirely when `outerPx > canvasReach`. |
 | **v0.5 ✓** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity. Cycle closed at v0.5.15 — see `docs/v0.5-release-notes.md`. |
-| **v0.6** | **(next) Planner UX + missions + MP design** | Burn-at-next scheduler (5-mode `fire at`), predicted-orbit HUD, finite-burn-aware iterative planner, moon → parent escape transfer, click-only mouse selection, mission scaffold, multiplayer design-doc spike. See `docs/v0.6-plan.md` for slice breakdown. |
+| **v0.6.0 ✓** | | Burn-at-next scheduler — `ManeuverNode.Event` enum (`Absolute / NextPeri / NextApo / NextAN / NextDN`); event-time helpers in `internal/orbital/events.go`; `World.resolveEventNodes` lazy-freeze resolver hooked into Tick before warp-clamp; `m` form gains `fire at` cycle field (focus 0/1/2/3); save schema bumps v1 → v2 with relaxed version check (v1 saves load with `Event = TriggerAbsolute`). |
+| **v0.6** | **(in flight) Planner UX + missions + MP design** | Predicted-orbit HUD (v0.6.1), finite-burn-aware iterative planner (v0.6.2), moon → parent escape transfer (v0.6.3), click-only mouse selection (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown. |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 
