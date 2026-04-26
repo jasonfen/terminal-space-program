@@ -228,7 +228,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
-	form := m.renderForm(w, dv)
+	form := m.renderForm(w, dv, shadowState, mu)
 	body := strings.Join([]string{canvasPanel, form}, "\n")
 
 	footer := m.theme.Footer.Render(
@@ -237,7 +237,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	return m.theme.Title.Render("maneuver planner") + "\n" + body + "\n" + footer
 }
 
-func (m *Maneuver) renderForm(w *sim.World, dv float64) string {
+func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, mu float64) string {
 	c := w.Craft
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	budget := c.RemainingDeltaV()
@@ -290,7 +290,51 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64) string {
 		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),
 		fmt.Sprintf("  thrust: %.0f N  Isp: %.0f s", c.Thrust, c.Isp),
 	}
+
+	// v0.6.1: PROJECTED ORBIT readout — apo / peri / AN / DN of the
+	// orbit produced by the current (mode, dv) pair. Updates live as
+	// the player tweaks the form, so they can see the headline orbit
+	// shape change without leaving the planner. Only shown when dv > 0
+	// — at zero Δv the projected orbit equals the live orbit, which
+	// the VESSEL block on the orbit screen already displays.
+	if dv > 0 {
+		ro := orbital.OrbitReadout(shadow.R, shadow.V, mu)
+		primaryR := c.Primary.RadiusMeters()
+		lines = append(lines, "", m.theme.Primary.Render("PROJECTED ORBIT"))
+		if ro.Hyperbolic {
+			lines = append(lines,
+				"  "+m.theme.Warning.Render("hyperbolic — escape trajectory"),
+				fmt.Sprintf("  new periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+				fmt.Sprintf("  e:             %.3f", ro.Eccentricity),
+			)
+		} else {
+			lines = append(lines,
+				fmt.Sprintf("  new apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
+				fmt.Sprintf("  new periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+			)
+			const equatorialTol = 1e-3
+			if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
+				lines = append(lines, m.theme.Dim.Render("  AN/DN:         equatorial (undefined)"))
+			} else {
+				lines = append(lines,
+					fmt.Sprintf("  new AN angle:  %.1f°", normalizeManeuverDeg(ro.AscNode*180/math.Pi)),
+					fmt.Sprintf("  new DN angle:  %.1f°", normalizeManeuverDeg(ro.DescNode*180/math.Pi)),
+				)
+			}
+		}
+	}
 	return strings.Join(lines, "\n")
+}
+
+// normalizeManeuverDeg wraps an angle in degrees into [0, 360). Local
+// to this package because the orbit screen's own helper isn't exported
+// — this avoids cross-screen coupling for a 4-line helper.
+func normalizeManeuverDeg(d float64) float64 {
+	d = math.Mod(d, 360)
+	if d < 0 {
+		d += 360
+	}
+	return d
 }
 
 func orbitalPeriodOrFallback(s physics.StateVector, mu float64) float64 {
