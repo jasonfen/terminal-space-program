@@ -264,6 +264,18 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 	}
 }
 
+// plotClusterColored is plotCluster with each cell tagged with the
+// given color. v0.6.1: maneuver-node markers share the color of
+// their resulting orbit leg, so the player sees node N at the
+// position where the post-burn orbit (also color N) begins.
+func (v *OrbitView) plotClusterColored(center orbital.Vec3, n int, color lipgloss.Color) {
+	step := 1.0 / v.canvas.Scale()
+	for i := -n / 2; i <= n/2; i++ {
+		v.canvas.PlotColored(center.Add(orbital.Vec3{X: float64(i) * step}), color)
+		v.canvas.PlotColored(center.Add(orbital.Vec3{Y: float64(i) * step}), color)
+	}
+}
+
 // drawNodes plots every planned maneuver node at its projected inertial
 // position and draws the post-burn predicted trajectory starting from
 // the first node. The trajectory is segmented by SOI: samples inside
@@ -275,7 +287,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		return
 	}
 	homeID := w.Craft.Primary.ID
-	for _, n := range w.Nodes {
+	for i, n := range w.Nodes {
 		// Frame-distinct cluster size: home-frame nodes get a tight cross,
 		// foreign-frame (heliocentric or destination-SOI) get a larger
 		// one so the player can see at a glance which leg is which on
@@ -284,7 +296,10 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		if n.PrimaryID != "" && n.PrimaryID != homeID {
 			size = 10
 		}
-		v.plotCluster(w.NodeInertialPosition(n), size)
+		// v0.6.1: each node's marker matches the color of its
+		// resulting orbit leg, so the cluster glyph and the
+		// post-burn dashed orbit read as a matched pair.
+		v.plotClusterColored(w.NodeInertialPosition(n), size, render.ManeuverSegmentColor(i))
 	}
 
 	// v0.6.1: while a finite burn is firing the live craft state is

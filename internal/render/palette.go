@@ -23,7 +23,7 @@ var (
 	ColorWarning      = lipgloss.Color("#FFAF00") // warp clamps, near-collision
 	ColorPlannedNode  = lipgloss.Color("#5FD7FF") // maneuver-node markers
 	ColorTrajectory   = lipgloss.Color("#FFFFFF") // fallback trajectory preview
-	ColorCurrentOrbit = lipgloss.Color("#FFFFFF") // craft's live Keplerian ellipse
+	ColorCurrentOrbit = lipgloss.Color("#A8B8C8") // craft's live Keplerian ellipse — pale slate, distinct from any body palette and from maneuver-leg colors
 	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
 	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive
 )
