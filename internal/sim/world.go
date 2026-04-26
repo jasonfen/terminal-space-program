@@ -161,6 +161,12 @@ func (w *World) Tick() {
 		return
 	}
 
+	// v0.6.0: resolve any event-relative nodes against the live orbit
+	// before the warp-clamp + dispatch pass, so freshly-resolved
+	// trigger times participate in the finite-burn warp clamp below.
+	// Resolution is idempotent: nodes already resolved are skipped.
+	w.resolveEventNodes()
+
 	// Apply SOI warp cap per plan §C21: if the current warp × base-step
 	// would force the integrator to exceed its 1024-sub-step cap, reduce
 	// effective warp this tick. Doesn't change the clock's displayed warp
@@ -209,6 +215,11 @@ func (w *World) nextFiniteBurnTrigger() time.Time {
 	var best time.Time
 	for _, n := range w.Nodes {
 		if n.Duration <= 0 {
+			continue
+		}
+		// v0.6.0: skip unresolved event-relative nodes; their
+		// TriggerTime hasn't been set yet by the resolver.
+		if !n.IsResolved() {
 			continue
 		}
 		t := n.BurnStart()

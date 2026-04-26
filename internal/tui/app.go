@@ -99,9 +99,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.BurnExecutedMsg:
 		if a.world.Craft != nil {
-			if m.Duration == 0 {
+			// v0.6.0: event-relative nodes go through PlanNode so the
+			// resolver can freeze TriggerTime against the live orbit on
+			// the next Tick. TriggerAbsolute with a finite duration
+			// also routes through PlanNode for consistent finite-burn
+			// dispatch (legacy fast-paths kept for impulsive Absolute
+			// to preserve v0.5 quick-fire semantics).
+			switch {
+			case m.Event != sim.TriggerAbsolute:
+				node := sim.ManeuverNode{
+					Mode:     m.Mode,
+					DV:       m.DV,
+					Duration: m.Duration,
+					Event:    m.Event,
+				}
+				a.world.PlanNode(node)
+			case m.Duration == 0:
 				a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
-			} else {
+			default:
 				a.world.ActiveBurn = &sim.ActiveBurn{
 					Mode:        m.Mode,
 					DVRemaining: m.DV,
