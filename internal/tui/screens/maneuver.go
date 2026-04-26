@@ -62,7 +62,12 @@ func NewManeuver(th Theme) *Maneuver {
 	dur.Placeholder = "0"
 	dur.CharLimit = 6
 	dur.Width = 10
-	dur.SetValue("0")
+	// v0.6.1: default to a 10 s finite burn rather than impulsive.
+	// Impulsive Δv is unphysical for a chemical engine and the
+	// PROJECTED ORBIT readout reflects a more realistic plan when
+	// the player picks a duration up front. They can still set 0 to
+	// fall back to the legacy impulsive path.
+	dur.SetValue("10")
 
 	m := &Maneuver{
 		theme:    th,
