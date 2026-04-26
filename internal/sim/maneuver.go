@@ -834,6 +834,62 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 	return state, primaryID
 }
 
+// PreviewBurnState returns the craft state immediately after a
+// hypothetical burn with the given (mode, dv, event) parameters
+// would fire — without mutating world state. Used by the maneuver-
+// planner screen so its shadow trajectory + PROJECTED ORBIT readout
+// reflect where the burn would *actually* fire, not where the craft
+// is sitting right now.
+//
+// For event != Absolute, the helper computes the time-of-flight to
+// the event using the same orbital helpers as the lazy-freeze
+// resolver, then propagates the craft forward via the SOI-aware
+// integrator before applying Δv. Returns ok=false when the event is
+// unreachable from the current orbit (hyperbolic, equatorial AN/DN,
+// etc.) so the caller can fall back to a current-position preview.
+//
+// Absolute event: dt is taken as zero — the absolute-time preview is
+// always "burn applied at current state," which matches the
+// planner's pre-v0.6 semantics. Real Absolute nodes fire at
+// TriggerTime + Duration/2 in flight; the planner doesn't yet know
+// which TriggerTime the user will choose, so previewing at "now" is
+// the least-surprising default.
+func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, event TriggerEvent) (physics.StateVector, bodies.CelestialBody, bool) {
+	if w.Craft == nil {
+		return physics.StateVector{}, bodies.CelestialBody{}, false
+	}
+	state := w.Craft.State
+	primary := w.Craft.Primary
+
+	if event != TriggerAbsolute {
+		mu := primary.GravitationalParameter()
+		ostate := orbital.Vec3State{R: state.R, V: state.V}
+		var dt float64
+		switch event {
+		case TriggerNextPeri:
+			dt = orbital.TimeToPeriapsis(ostate, mu)
+		case TriggerNextApo:
+			dt = orbital.TimeToApoapsis(ostate, mu)
+		case TriggerNextAN:
+			dt = orbital.TimeToNodeCrossing(ostate, mu, true)
+		case TriggerNextDN:
+			dt = orbital.TimeToNodeCrossing(ostate, mu, false)
+		}
+		if dt < 0 {
+			return physics.StateVector{}, bodies.CelestialBody{}, false
+		}
+		if dt > 0 {
+			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+		}
+	}
+
+	dir := spacecraft.DirectionUnit(mode, state.R, state.V)
+	if dir.Norm() != 0 && dv != 0 {
+		state.V = state.V.Add(dir.Scale(dv))
+	}
+	return state, primary, true
+}
+
 // PredictedFinalOrbit walks every planted node in trigger-time order
 // and returns the craft state immediately after the last node fires,
 // along with the primary body whose frame the state is relative to.

@@ -156,6 +156,81 @@ func TestResolveEventNodesIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestPreviewBurnStateAtNextApoRaisesPeriapsis: planting a prograde
+// burn "at next apoapsis" on an elliptical orbit should raise the
+// periapsis (not the apoapsis the craft is nowhere near). Pre-fix
+// the maneuver screen built shadowState at the *current* position,
+// so the readout always quoted apoapsis growth no matter what
+// fire-at the user picked.
+func TestPreviewBurnStateAtNextApoRaisesPeriapsis(t *testing.T) {
+	w := mustWorld(t)
+	mu := w.Craft.Primary.GravitationalParameter()
+
+	// Step 1: raise apoapsis with a 100 m/s prograde burn at the
+	// circular LEO start position. After this the orbit is
+	// elliptical with peri ≈ start radius, apo ≈ higher altitude.
+	w.Craft.ApplyImpulsive(spacecraft.BurnPrograde, 100)
+	pre := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	preApo := pre.Apoapsis()
+	prePeri := pre.Periapsis()
+	if preApo <= prePeri+1000 {
+		t.Fatalf("setup failed: expected elliptical orbit after burn, got apo=%.0f peri=%.0f",
+			preApo, prePeri)
+	}
+
+	// Step 2: preview a 100 m/s prograde at next apoapsis. This must
+	// raise periapsis (perigee-raise = circularise at higher alt) —
+	// NOT raise apoapsis again.
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, TriggerNextApo)
+	if !ok {
+		t.Fatalf("PreviewBurnState returned ok=false")
+	}
+	post := orbital.ElementsFromState(state.R, state.V, primary.GravitationalParameter())
+	postApo := post.Apoapsis()
+	postPeri := post.Periapsis()
+
+	if postPeri <= prePeri+100 {
+		t.Errorf("perigee should rise after prograde-at-apo: pre=%.1f km post=%.1f km",
+			prePeri/1000, postPeri/1000)
+	}
+	// The new perigee should land near the OLD apoapsis (within
+	// ~5%). At apoapsis a small prograde Δv raises perigee toward
+	// the apoapsis altitude as the orbit circularises higher up.
+	if math.Abs(postPeri-preApo)/preApo > 0.05 {
+		t.Errorf("expected new perigee ≈ old apoapsis: pre apo=%.1f km new peri=%.1f km",
+			preApo/1000, postPeri/1000)
+	}
+	// Apoapsis should stay close to its pre-burn value (it's the
+	// point we burned AT — burning prograde there just lifts the
+	// other side; apoapsis itself rises only marginally).
+	if math.Abs(postApo-preApo)/preApo > 0.10 {
+		t.Errorf("apoapsis should stay roughly same: pre=%.1f km post=%.1f km",
+			preApo/1000, postApo/1000)
+	}
+}
+
+// TestPreviewBurnStateAbsolute: with TriggerAbsolute the helper
+// returns the burn applied at the *current* state — preserving the
+// pre-v0.6 planner preview semantics.
+func TestPreviewBurnStateAbsolute(t *testing.T) {
+	w := mustWorld(t)
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 50, TriggerAbsolute)
+	if !ok {
+		t.Fatalf("PreviewBurnState(Absolute): ok=false")
+	}
+	if primary.ID != w.Craft.Primary.ID {
+		t.Errorf("Absolute should not change primary: got %q", primary.ID)
+	}
+	// Position unchanged; velocity bumped by 50 m/s in prograde dir.
+	if state.R != w.Craft.State.R {
+		t.Errorf("Absolute preview moved R: got %v, want %v", state.R, w.Craft.State.R)
+	}
+	dv := state.V.Sub(w.Craft.State.V).Norm()
+	if math.Abs(dv-50) > 0.01 {
+		t.Errorf("Absolute preview Δv: got %.3f, want 50.0", dv)
+	}
+}
+
 // TestPredictedFinalOrbitNoNodes: with nothing planted the helper
 // reports ok=false so the HUD can hide the section.
 func TestPredictedFinalOrbitNoNodes(t *testing.T) {

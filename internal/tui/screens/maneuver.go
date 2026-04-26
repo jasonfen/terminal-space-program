@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
@@ -201,20 +202,36 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	m.canvas.FitTo(math.Max(currentEl.Apoapsis(), c.State.R.Norm()) * 1.1)
 	m.canvas.DrawEllipseDotted(currentEl, 360, 4)
 
-	// Draw shadow trajectory after applying the current (mode, dv) pair.
+	// Draw shadow trajectory after applying the current (mode, dv,
+	// fire-at) triple. v0.6.1: when fire-at is event-relative, the
+	// world's PreviewBurnState propagates the craft to the event
+	// point before applying Δv — so a prograde burn at next apoapsis
+	// raises the *opposite* point (perigee), not the apoapsis the
+	// craft is nowhere near. Falls back to current-state preview if
+	// the event is unreachable (hyperbolic / equatorial AN/DN).
 	dv := m.parsedDV()
 	mode := spacecraft.AllBurnModes[m.modeIdx]
-	dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
-	shadowState := physics.StateVector{
-		R: c.State.R,
-		V: c.State.V.Add(dir.Scale(dv)),
-		M: c.State.M,
+	event := sim.AllTriggerEvents[m.fireAtIdx]
+	shadowState, shadowPrimary, ok := w.PreviewBurnState(mode, dv, event)
+	if !ok {
+		dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
+		shadowState = physics.StateVector{
+			R: c.State.R,
+			V: c.State.V.Add(dir.Scale(dv)),
+			M: c.State.M,
+		}
+		shadowPrimary = c.Primary
 	}
+	shadowMu := shadowPrimary.GravitationalParameter()
 	// Propagate for the new orbital period (or 1 hour if hyperbolic).
-	shadowPeriod := orbitalPeriodOrFallback(shadowState, mu)
-	pts := planner.Predict(shadowState, mu, shadowPeriod, 256)
+	shadowPeriod := orbitalPeriodOrFallback(shadowState, shadowMu)
+	pts := planner.Predict(shadowState, shadowMu, shadowPeriod, 256)
+	// If the propagation crossed an SOI the shadow is in a different
+	// frame; offset by the body-relative gap so the shadow renders
+	// in the canvas's primary-centred frame.
+	primaryGap := w.BodyPosition(shadowPrimary).Sub(w.BodyPosition(c.Primary))
 	for _, p := range pts {
-		m.canvas.Plot(p)
+		m.canvas.Plot(p.Add(primaryGap))
 	}
 
 	// Plot planet (primary) at origin.
@@ -228,7 +245,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
-	form := m.renderForm(w, dv, shadowState, mu)
+	form := m.renderForm(w, dv, shadowState, shadowPrimary, shadowMu)
 	body := strings.Join([]string{canvasPanel, form}, "\n")
 
 	footer := m.theme.Footer.Render(
@@ -237,7 +254,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	return m.theme.Title.Render("maneuver planner") + "\n" + body + "\n" + footer
 }
 
-func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, mu float64) string {
+func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, shadowPrimary bodies.CelestialBody, mu float64) string {
 	c := w.Craft
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	budget := c.RemainingDeltaV()
@@ -299,8 +316,11 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	// the VESSEL block on the orbit screen already displays.
 	if dv > 0 {
 		ro := orbital.OrbitReadout(shadow.R, shadow.V, mu)
-		primaryR := c.Primary.RadiusMeters()
+		primaryR := shadowPrimary.RadiusMeters()
 		lines = append(lines, "", m.theme.Primary.Render("PROJECTED ORBIT"))
+		if shadowPrimary.ID != c.Primary.ID {
+			lines = append(lines, fmt.Sprintf("  primary:       %s", shadowPrimary.EnglishName))
+		}
 		if ro.Hyperbolic {
 			lines = append(lines,
 				"  "+m.theme.Warning.Render("hyperbolic — escape trajectory"),
