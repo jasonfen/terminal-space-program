@@ -327,6 +327,28 @@ func TestPredictedFinalOrbitMatchesPreviewForResolvedNode(t *testing.T) {
 	}
 }
 
+// TestPredictedFinalOrbitSuppressedDuringActiveBurn: while a finite
+// burn is integrating, the live craft state mutates each tick and
+// chained predictions produce flailing numbers + a rotating
+// trajectory preview. PredictedFinalOrbit should return ok=false so
+// the HUD section hides until the burn completes.
+func TestPredictedFinalOrbitSuppressedDuringActiveBurn(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+	})
+	w.ActiveBurn = &ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 100,
+		EndTime:     w.Clock.SimTime.Add(10 * time.Second),
+	}
+	if _, _, ok := w.PredictedFinalOrbit(); ok {
+		t.Errorf("expected ok=false during active burn — projection should hide")
+	}
+}
+
 // TestPredictedFinalOrbitNoNodes: with nothing planted the helper
 // reports ok=false so the HUD can hide the section.
 func TestPredictedFinalOrbitNoNodes(t *testing.T) {

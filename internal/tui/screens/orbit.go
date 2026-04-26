@@ -288,6 +288,16 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		v.plotCluster(w.NodeInertialPosition(n), size)
 	}
 
+	// v0.6.1: while a finite burn is firing the live craft state is
+	// mutated every integrator step; the dashed trajectory preview
+	// would otherwise rotate wildly each frame as PostBurnState
+	// chases the changing start state. Skip the preview and let the
+	// live ellipse + active-burn HUD block carry the visual load
+	// until the burn completes.
+	if w.ActiveBurn != nil {
+		return
+	}
+
 	first := w.Nodes[0]
 	post, postPrimaryID := w.PostBurnState(first)
 	// Use the mu of whichever primary the post-burn state is expressed in

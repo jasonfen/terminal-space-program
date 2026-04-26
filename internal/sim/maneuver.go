@@ -914,6 +914,15 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 	if w.Craft == nil || len(w.Nodes) == 0 {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
+	// v0.6.1: during an active finite burn the live craft state is
+	// being mutated every integrator step. Chaining predictions
+	// through that state produces flailing numbers each render and
+	// a preview ellipse that rotates as fast as the engine fires.
+	// Suppress the projection until the burn completes — the live
+	// VESSEL block already shows the orbit changing in real time.
+	if w.ActiveBurn != nil {
+		return physics.StateVector{}, bodies.CelestialBody{}, false
+	}
 	state := w.Craft.State
 	primary := w.Craft.Primary
 	clock := w.Clock.SimTime
