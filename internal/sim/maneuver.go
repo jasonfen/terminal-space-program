@@ -918,6 +918,7 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 	primary := w.Craft.Primary
 	clock := w.Clock.SimTime
 	any := false
+	systems := w.Systems
 	for _, n := range w.Nodes {
 		if !n.IsResolved() {
 			continue
@@ -926,6 +927,23 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 		if dt > 0 {
 			state, primary = w.propagateStateWithPrimary(state, primary, dt)
 			clock = n.TriggerTime
+		}
+		// v0.6.1: a node planted in a non-default frame (the
+		// arrival burn of a Hohmann transfer is planted with
+		// PrimaryID = destination body) wants its Δv applied in
+		// THAT frame, not in whatever frame the chained
+		// propagation landed in. Without this rebase, an Earth →
+		// Mars Hohmann arrival fires its capture burn while the
+		// state is still heliocentric (the integrator hasn't yet
+		// crossed Mars's SOI at the rendezvous moment), and the
+		// post-burn orbit comes out as a heliocentric Sol orbit.
+		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
+			oldInertial := w.BodyPosition(primary)
+			newInertial := w.BodyPosition(target)
+			vOld := w.bodyInertialVelocity(primary)
+			vNew := w.bodyInertialVelocity(target)
+			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
+			primary = target
 		}
 		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {

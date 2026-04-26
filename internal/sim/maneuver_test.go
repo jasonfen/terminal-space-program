@@ -231,6 +231,102 @@ func TestPreviewBurnStateAbsolute(t *testing.T) {
 	}
 }
 
+// TestPredictedFinalOrbitHohmannLandsInDestinationFrame: a Hohmann
+// auto-plant to Mars plants two nodes — departure in Earth frame +
+// arrival in Mars frame. PredictedFinalOrbit must rebase into the
+// arrival node's PrimaryID before applying the capture Δv,
+// otherwise the propagation lands at Mars's heliocentric position
+// in Sol frame and the post-burn readout wrongly reports a
+// heliocentric (Sol-primary) orbit. Regression test for the bug
+// where PROJECTED ORBIT showed "primary: Sun" after a Hohmann
+// plant.
+func TestPredictedFinalOrbitHohmannLandsInDestinationFrame(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	if _, err := w.PlanTransfer(marsIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+
+	_, primary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		t.Fatalf("PredictedFinalOrbit returned ok=false after Hohmann plant")
+	}
+	wantID := sys.Bodies[marsIdx].ID
+	if primary.ID != wantID {
+		t.Errorf("post-Hohmann predicted orbit primary = %q, want %q (Mars). Δv was applied in the wrong frame.",
+			primary.ID, wantID)
+	}
+}
+
+// TestPredictedFinalOrbitMatchesPreviewForResolvedNode: planting a
+// NextApo node, running the resolver, and querying PredictedFinalOrbit
+// must agree with PreviewBurnState within float-noise. If these
+// diverge the maneuver-screen preview and the orbit-screen HUD show
+// inconsistent numbers — the user-visible "off proportion" symptom.
+func TestPredictedFinalOrbitMatchesPreviewForResolvedNode(t *testing.T) {
+	w := mustWorld(t)
+
+	// Step 1: nudge into elliptical orbit so we have a meaningful apo.
+	w.Craft.ApplyImpulsive(spacecraft.BurnPrograde, 100)
+
+	// Step 2: plant a NextApo node and resolve it.
+	w.PlanNode(ManeuverNode{
+		Event: TriggerNextApo,
+		Mode:  spacecraft.BurnPrograde,
+		DV:    100,
+	})
+	w.resolveEventNodes()
+	if !w.Nodes[0].IsResolved() {
+		t.Fatalf("resolver failed to freeze NextApo node on elliptical orbit")
+	}
+
+	// PreviewBurnState — what the maneuver screen shows.
+	previewState, previewPrimary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, TriggerNextApo)
+	if !ok {
+		t.Fatalf("PreviewBurnState ok=false")
+	}
+	previewMu := previewPrimary.GravitationalParameter()
+	previewRO := orbital.OrbitReadout(previewState.R, previewState.V, previewMu)
+
+	// PredictedFinalOrbit — what the orbit-screen HUD shows.
+	predState, predPrimary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		t.Fatalf("PredictedFinalOrbit ok=false")
+	}
+	predMu := predPrimary.GravitationalParameter()
+	predRO := orbital.OrbitReadout(predState.R, predState.V, predMu)
+
+	// Both should agree to within 1 km on apo and peri.
+	if math.Abs(previewRO.ApoMeters-predRO.ApoMeters) > 1000 {
+		t.Errorf("apoapsis mismatch: preview=%.1f km, predicted=%.1f km",
+			previewRO.ApoMeters/1000, predRO.ApoMeters/1000)
+	}
+	if math.Abs(previewRO.PeriMeters-predRO.PeriMeters) > 1000 {
+		t.Errorf("periapsis mismatch: preview=%.1f km, predicted=%.1f km",
+			previewRO.PeriMeters/1000, predRO.PeriMeters/1000)
+	}
+
+	// Sanity: this is the perigee-raise scenario. Predicted peri
+	// should be substantially higher than the pre-burn apoapsis is
+	// in altitude terms — i.e. peri ≈ apo (circularised).
+	mu := w.Craft.Primary.GravitationalParameter()
+	preEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	if math.Abs(predRO.PeriMeters-preEl.Apoapsis())/preEl.Apoapsis() > 0.05 {
+		t.Errorf("expected predicted peri ≈ pre-burn apo (circularised): pre apo=%.1f km, predicted peri=%.1f km",
+			preEl.Apoapsis()/1000, predRO.PeriMeters/1000)
+	}
+}
+
 // TestPredictedFinalOrbitNoNodes: with nothing planted the helper
 // reports ok=false so the HUD can hide the section.
 func TestPredictedFinalOrbitNoNodes(t *testing.T) {
