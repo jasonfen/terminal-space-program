@@ -110,9 +110,10 @@ by patch — this doc is the snapshot, those are the release notes.
   intra-primary transfers (craft in LEO → Luna, both around Earth) ship
   in v0.5.7 via `planner.PlanIntraPrimaryHohmann`, with v0.5.9 adding
   phase correction so the craft actually rendezvous with the target.
-  Full inter-SOI patched-conic capture (Earth → Mars-orbit insertion
-  through Phobos's SOI etc.) still slips to v0.6 alongside the planner
-  UX work.
+  The reverse direction — craft inside a moon's SOI returning to its
+  parent (Luna → Earth) — slips to v0.6.3 alongside the planner UX
+  work. Wider inter-SOI capture (heliocentric → moon-of-other-planet,
+  Phobos from Mars, Titan from heliocentric) is **not** in v0.6 scope.
 
 ### Systems loaded
 - **Sol** (playable — craft spawns here).
@@ -150,11 +151,13 @@ by patch — this doc is the snapshot, those are the release notes.
   such as "achieve a 1000 km circular orbit," "intercept Mars within Δv X."
 - **Burn-at-next scheduler** (v0.6 target). Event-relative maneuver nodes:
   fire at next periapsis / apoapsis / ascending node / descending node.
-  Foundation for richer triggers (at-SOI-exit, at-fuel<X). v0.6 also
-  extends `PlanTransfer()` to handle the inter-SOI capture case (e.g.
-  Earth → a moon of Mars, or a Galilean satellite from heliocentric
-  cruise) — v0.5.7's intra-primary path covers same-parent transfers
-  but the cross-primary capture pass is still missing.
+  All four event modes ship together with `Absolute` as the fifth choice
+  in a single `fire at` cycle field — no advanced-trigger picker. v0.6
+  also extends `PlanTransfer()` to cover the **moon → parent** return
+  case (e.g. craft in Luna SOI returning to Earth) — v0.5.7's
+  intra-primary path covers parent → moon; the reverse-direction escape
+  burn is the v0.6.3 gap. Wider inter-SOI capture (heliocentric →
+  moon-of-other-planet) stays out of scope.
 - **Multi-system spacecraft**. The craft is currently locked to Sol. Allowing
   it to enter Alpha Cen / TRAPPIST / Kepler unlocks the system-cycle UX.
   Requires interstellar transfer math (or deus-ex-machina jump for now).
@@ -172,15 +175,16 @@ by patch — this doc is the snapshot, those are the release notes.
   two-body stays the primary integrator. Previously on "excluded forever",
   softened here — only *realistic* multi-species drag stays out of scope.
 - **Mouse support** (v0.6 target, see §3). Currently keyboard-only;
-  v0.6 adds click-to-focus on bodies, click-to-plant on porkchop cells,
-  and drag-to-edit on planted maneuver nodes.
+  v0.6 adds click-only selection — click-to-focus on bodies, vessel,
+  maneuver nodes, plus click-to-plant on porkchop cells and click on
+  HUD panels. Drag-to-edit and wheel-zoom stay out of v0.6.
 
 ### Visual / UX targets
 - **Maneuver node editing**. Nodes are plant-once today; adding drag/scrub
   on a planted node (adjust Δv, duration, fire-time in place) would make
-  the planner iterative rather than plant-and-replace. v0.6's mouse work
-  delivers the input plumbing; the broader edit-in-place flow can land
-  later.
+  the planner iterative rather than plant-and-replace. v0.6 delivers
+  click-to-select on a planted node (opens the `m` form pre-filled);
+  drag-based in-place editing stays deferred.
 - **HUD typography polish (residual)**. v0.5.13 added section dividers,
   the active-burn ● indicator, and ⚠ alerts; remaining work is alignment
   inside dense panels (vessel, propellant, planned-nodes blocks) and
@@ -230,7 +234,7 @@ by patch — this doc is the snapshot, those are the release notes.
 | v0.5.14 ✓ | | Porkchop axis labels — fix the v0.3.3 misalignment (lead-in width mismatch + label overflow past grid edge). Tick line `└────` under the grid, dep-day labels at every 5th column properly centered, dim "dep day" axis title. |
 | **v0.5.15 ✓** | **(final v0.5 patch)** | Fix focus-change lockup at extreme zoom — Saturn rings call to `RingColoredOutline` was unbounded; focusing on a tiny body (Phobos SOI ≈ 20 m → scale 1.8 px/m) made the ring project to ~247M pixels and loop billions of times. Cap samples at 4× canvas pixel diagonal in both `RingOutline` and `RingColoredOutline`; skip drawing rings entirely when `outerPx > canvasReach`. |
 | **v0.5 ✓** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity. Cycle closed at v0.5.15 — see `docs/v0.5-release-notes.md`. |
-| **v0.6** | **(next) Planner UX + missions + MP design** | Burn-at-next scheduler, mission scaffold, multiplayer design-doc spike, mouse support |
+| **v0.6** | **(next) Planner UX + missions + MP design** | Burn-at-next scheduler (5-mode `fire at`), predicted-orbit HUD, finite-burn-aware iterative planner, moon → parent escape transfer, click-only mouse selection, mission scaffold, multiplayer design-doc spike. See `docs/v0.6-plan.md` for slice breakdown. |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 
@@ -324,49 +328,40 @@ has a full cast to colour.
 
 ### v0.6 — planner UX + missions + multiplayer design
 
-v0.6 bundles four related strands: richer maneuver planning (event-relative
-nodes + mouse), the mission scaffold that slipped out of v0.4, and the
-first written exploration of what multiplayer would look like.
+Full slice breakdown lives in `docs/v0.6-plan.md`. Summary:
 
-- **Burn-at-next scheduler.** Today maneuver nodes use absolute T+ time
-  only. Add an event-relative mode: "fire at next periapsis / apoapsis /
-  ascending node / descending node" computed from live orbit. Foundation
-  for richer triggers later ("at SOI exit", "when fuel < X"). Planner UX
-  is **hybrid**: common modes (T+ absolute, next peri, next apo) live in
-  the existing `m` form via a new `fire at` field; advanced triggers
-  (AN / DN, SOI-exit, fuel < X) sit behind a secondary event-trigger
-  picker reachable from `m`. Keeps the simple flow one form; gives the
-  advanced triggers a place to grow into without bloating `m`.
-- **Mouse support.** Promoted from "speculative v0.8+" because v0.6's
-  planner UX work is mouse-shaped: porkchop cells want click-to-plant
-  (composes with v0.4.1 Enter-to-plant), planted maneuver nodes want
-  drag-to-edit, and bodies want click-to-focus as a faster path than
-  cycling `f` / `F`. Bubble Tea exposes mouse events natively
-  (`tea.MouseMsg`); scope is click + drag + wheel-zoom on the orbit
-  canvas, click on HUD panels and porkchop cells. Keyboard remains
-  primary — every mouse action has a key equivalent. About 150–250
-  LOC + tests. Note: full *maneuver node editing* (in-place Δv /
-  duration / fire-time scrub with rich UX) stays in §2 backlog —
-  v0.6's mouse work delivers the input plumbing and a basic drag
-  interaction; the broader edit-in-place flow can land later.
-- **Mission scaffold.** `missions.go` with a couple of starter objectives
-  ("circularize at apoapsis," "visit Mars SOI"). Pure pass/fail check
-  against current state. Mission state persists via the v0.4.0 save format
-  (hence the `version` field shipping in v0.4). About 200 LOC + a
-  `missions.json` data file.
-- **Multiplayer design-doc spike.** Short `docs/multiplayer-design.md`
-  scoped to **networking + persistence**: transport choice, authority
-  model, what "shared sandbox" means for time warp, *and* a persistence /
-  save-slot story for shared sessions (host-authoritative snapshot vs.
-  per-player envelope, conflict resolution on rejoin, how the v0.4 save
-  schema accommodates a `session` block). The persistence half is
-  explicitly in scope so the v0.4 save envelope can be future-proofed
-  deliberately rather than retrofitted. Implementation roadmap (which
-  release ships networking, the v0.6.x → v0.9 path) stays **out of scope**
-  for the v0.6 spike — the doc records constraints, not a schedule.
-  Writing the design now lets v0.6 save-format decisions (and any v0.7
-  schema work) stay open to shared-session use cases without committing
-  code. Multiplayer leaves the "excluded forever" list because of this.
+- **v0.6.0 — burn-at-next scheduler.** Event-relative maneuver nodes
+  (`Absolute / NextPeri / NextApo / NextAN / NextDN`) wired as a single
+  `fire at` cycle field in the `m` form. Lazy-freeze resolver — the
+  event resolves once at the first Tick that yields a future trigger
+  time, then `TriggerTime` freezes. No advanced-trigger picker; all
+  five modes ship as the same field. Save schema bumps v1 → v2 with a
+  `Node.Event` field defaulting `absolute` for backwards-compat.
+- **v0.6.1 — predicted post-burn orbit HUD.** When ≥1 node is planted,
+  HUD shows the resulting orbit's AP/PE/AN/DN under the planned-nodes
+  block. Reuses `internal/sim/predict.go` for the post-burn state and
+  the orbital-elements helper introduced in v0.6.0.
+- **v0.6.2 — finite-burn-aware iterative planner.** Newton iteration
+  around the impulsive solver: integrate candidate Δv, measure
+  delivered apo, correct, repeat. v0.5.10's S-IVB-1 default + finite-
+  burn return drops loss to <0.1% on the current Earth → Luna profile;
+  v0.6.2 closes the underlying gap for low-TWR / longer-burn loadouts.
+- **v0.6.3 — moon → parent escape transfer.** New `PlanTransfer` path
+  for the case `target == craft.Primary.ParentID` (Luna → Earth).
+  Two-impulse: prograde escape burn at moon-orbit periapsis raising
+  apolune past moon SOI, then ballistic drop into parent frame. Player
+  circularizes manually post-SOI-exit. Wider inter-SOI capture
+  (heliocentric → moon-of-other-planet) stays out of v0.6.
+- **v0.6.4 — mouse selection.** Click-only. Targets: planet / moon /
+  vessel / maneuver node on orbit canvas, porkchop cells, HUD panels.
+  No drag, no wheel-zoom. Click on a planted node opens `m` pre-filled.
+- **v0.6.5 — mission scaffold.** `internal/missions/` package + JSON
+  data file with 2–3 starters. State stored as `Payload.Missions`
+  (inside the payload, not a sibling block). Schema v1 → v2 with
+  permissive load.
+- **v0.6.6 — multiplayer design-doc spike.** `docs/multiplayer-design.md`.
+  Networking + persistence constraints, no implementation, no schedule.
+  Multiplayer leaves the "excluded forever" list because of this.
 
 ### Excluded forever
 - **Full 3D rendering** — terminal native is the project ethos.
@@ -429,11 +424,21 @@ by target version:
 
 **v0.6 — planner UX + MP design**
 
-5. **Burn-scheduler UX.** Hybrid. Common triggers (T+ absolute, next
-   peri, next apo) live inside `m` via a new `fire at` field; advanced
-   triggers (AN / DN, SOI-exit, fuel < X) sit behind a secondary picker
-   reachable from `m`.
-6. **Multiplayer design scope.** Networking + persistence. The spike
+5. **Burn-scheduler UX.** All five modes (`Absolute / NextPeri / NextApo
+   / NextAN / NextDN`) ship as a single `fire at` cycle field in `m`.
+   No advanced-trigger picker. Lazy-freeze resolver — event-relative
+   nodes resolve `TriggerTime` once at the first Tick that yields a
+   future trigger, then freeze. *(Earlier cycle proposed a hybrid with
+   a secondary picker; consolidated to one cycle field during v0.6
+   scoping — see `docs/v0.6-plan.md`.)*
+6. **Cross-SOI `PlanTransfer` scope.** v0.6.3 covers **moon → parent**
+   (Luna → Earth) only. Wider inter-SOI capture (heliocentric →
+   moon-of-other-planet) stays deferred.
+7. **Mission persistence shape.** Inside `Payload.Missions` — schema
+   v1 → v2 with permissive load, not a sibling block.
+8. **Mouse scope.** Click-only selection (planet / moon / vessel /
+   maneuver node / porkchop cell / HUD panel). No drag, no wheel-zoom.
+9. **Multiplayer design scope.** Networking + persistence. The spike
    covers transport / authority / time-warp **and** a persistence /
    save-slot story for shared sessions, so the v0.4 save envelope is
    future-proofed deliberately. Implementation roadmap is explicitly
@@ -455,16 +460,15 @@ plus what v0.5 newly opened, framed for v0.6 scoping:
   corner.
 - **Inter-SOI `PlanTransfer()` capture** *(partially answered)*. v0.5.7's
   `PlanIntraPrimaryHohmann` covers same-parent transfers (LEO → Luna)
-  and v0.5.9 added phase correction. **Remaining**: cross-primary
-  capture — Earth heliocentric cruise → Mars-orbit insertion that
-  passes through (or rendezvous with) one of Mars's moons; or
-  heliocentric → a Galilean satellite. Needs a real patched-conic
-  capture pass, not just a shared-parent assumption flip. v0.6 work.
-- **Mission persistence shape** *(still open)*. Whether v0.6 missions
-  persist inside the v0.4 save's `payload` block or alongside it as a
-  sibling (e.g. `{"version":1, ..., "payload":{...},
-  "missions":{...}}`) — affects save-schema ergonomics more than
-  correctness, but worth deciding before missions land.
+  and v0.5.9 added phase correction. v0.6.3 will add the **moon →
+  parent** return direction (Luna → Earth). **Remaining beyond v0.6**:
+  fully cross-primary capture — heliocentric cruise → Mars-orbit
+  insertion through Phobos's SOI, or heliocentric → a Galilean
+  satellite. Needs a real patched-conic capture pass that v0.6.3 does
+  not attempt; deferred to v0.7+.
+- **Mission persistence shape** *(resolved)*. Inside `Payload.Missions`,
+  not a sibling block. Schema v1 → v2 with permissive load. See
+  `docs/v0.6-plan.md` v0.6.5.
 - **Integration-design event-loop landing** *(newly open)*.
   `docs/integration-design.md` (the v0.4.2–v0.4.4 contract) sketches an
   event-driven outer loop unifying integrator and predictor; that work
