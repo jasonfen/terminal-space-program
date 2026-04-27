@@ -298,6 +298,53 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		return &plan, nil
 	}
 
+	// v0.6.3: target is the craft's primary's parent (e.g., craft in
+	// Luna's SOI, target Earth). The pre-v0.6.3 fallthrough sent these
+	// to the heliocentric Hohmann path, which treated Earth's
+	// heliocentric semimajor axis as the destination radius around
+	// Luna and produced nonsensical Δv. The moon-escape planner instead
+	// targets a bound transfer ellipse whose apolune sits on Luna's
+	// SOI; the SOI-aware integrator then drops the craft into Earth's
+	// frame automatically. The arrival node is a zero-Δv frame marker
+	// — the player plants their own circularization once they see the
+	// post-escape Earth-frame trajectory.
+	if w.Craft.Primary.ParentID != "" && target.ID == w.Craft.Primary.ParentID {
+		moon := w.Craft.Primary
+		moonParent := sys.ParentOf(moon)
+		if moonParent == nil {
+			return nil, errInvalidTransferTarget
+		}
+		muMoon := moon.GravitationalParameter()
+		rSOI := physics.SOIRadius(moon, *moonParent)
+		if rSOI == 0 || rSOI <= rPark {
+			return nil, errInvalidTransferTarget
+		}
+		mass := w.Craft.TotalMass()
+		thrust := w.Craft.Thrust
+		// Pre-size the centered-finite-burn lead pad from the impulsive
+		// estimate, mirroring the intra-primary branch above.
+		aT := (rPark + rSOI) / 2
+		vCirc := math.Sqrt(muMoon / rPark)
+		vTransAtPeri := math.Sqrt(muMoon * (2/rPark - 1/aT))
+		dvEstimate := vTransAtPeri - vCirc
+		var minLead float64
+		if thrust > 0 && mass > 0 && dvEstimate > 0 {
+			minLead = (dvEstimate * mass / thrust) / 2
+		}
+		plan, err := planner.PlanMoonEscape(muMoon, rPark, rSOI, minLead, moon.ID, target.ID)
+		if err != nil {
+			return nil, err
+		}
+		// Reuse v0.6.2's iterator: target the SOI radius as apolune so
+		// finite-burn integration delivers the bound transfer ellipse
+		// the impulsive math designed.
+		refineFiniteDeparture(&plan, muMoon, rPark, mass, thrust, w.Craft.Isp, rSOI)
+		now := w.Clock.SimTime
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+		return &plan, nil
+	}
+
 	primary := sys.Bodies[0]
 	muSun := primary.GravitationalParameter()
 	rDeparture := w.CraftInertial().Norm()

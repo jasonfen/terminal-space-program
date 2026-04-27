@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -1145,5 +1146,128 @@ func TestRefinePlanUpdatesArrivalAfterPlanTransferAt(t *testing.T) {
 	if len(w.Nodes) != origNodeCount+1 {
 		t.Errorf("node count after refine = %d, want %d (orig + correction)",
 			len(w.Nodes), origNodeCount+1)
+	}
+}
+
+// TestPlanTransferMoonEscapePlantsTwoNodes (v0.6.3): with the craft in
+// low lunar orbit, PlanTransfer(earth) should plant a moon-frame
+// departure burn (Δv > 0, prograde) followed by an Earth-frame
+// zero-Δv SOI-exit marker. Pre-v0.6.3 the dispatch fell through to
+// the heliocentric Hohmann path, which treated Earth's heliocentric
+// semimajor axis as the destination radius around Luna and quoted
+// nonsense Δv.
+func TestPlanTransferMoonEscapePlantsTwoNodes(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx, earthIdx := -1, -1
+	for i, b := range sys.Bodies {
+		switch b.ID {
+		case "moon":
+			moonIdx = i
+		case "earth":
+			earthIdx = i
+		}
+	}
+	if moonIdx < 0 || earthIdx < 0 {
+		t.Skip("Earth/Moon missing from loaded Sol")
+	}
+	moon := sys.Bodies[moonIdx]
+	earth := sys.Bodies[earthIdx]
+
+	// Re-seat the craft into a 100-km circular low lunar orbit.
+	rPark := moon.RadiusMeters() + 100e3
+	muMoon := moon.GravitationalParameter()
+	vCirc := math.Sqrt(muMoon / rPark)
+	w.Craft.Primary = moon
+	w.Craft.State.R = orbital.Vec3{X: rPark}
+	w.Craft.State.V = orbital.Vec3{Y: vCirc}
+
+	plan, err := w.PlanTransfer(earthIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer(earth) from lunar orbit: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("PlanTransfer returned nil plan with nil error")
+	}
+	if len(w.Nodes) != 2 {
+		t.Fatalf("expected 2 planted nodes, got %d", len(w.Nodes))
+	}
+	dep, arr := w.Nodes[0], w.Nodes[1]
+	if dep.PrimaryID != moon.ID {
+		t.Errorf("departure PrimaryID = %q, want %q", dep.PrimaryID, moon.ID)
+	}
+	if arr.PrimaryID != earth.ID {
+		t.Errorf("arrival PrimaryID = %q, want %q", arr.PrimaryID, earth.ID)
+	}
+	if dep.DV <= 0 {
+		t.Errorf("departure Δv = %.3f m/s, want > 0", dep.DV)
+	}
+	if dep.Mode != spacecraft.BurnPrograde {
+		t.Errorf("departure Mode = %v, want BurnPrograde", dep.Mode)
+	}
+	if arr.DV != 0 {
+		t.Errorf("arrival is a frame marker — Δv should be 0, got %.3f", arr.DV)
+	}
+
+	// Sanity: planted Δv should match the bound-ellipse impulsive
+	// estimate within ≈5%. The iterator may refine the value; for a
+	// short LLO escape burn (≈30 s on the S-IVB-1) the impulsive
+	// guess is already very close.
+	rSOI := physics.SOIRadius(moon, earth)
+	if rSOI == 0 {
+		t.Fatal("SOIRadius(moon, earth) = 0 — body data missing mass / a")
+	}
+	aT := (rPark + rSOI) / 2
+	vTrans := math.Sqrt(muMoon * (2/rPark - 1/aT))
+	impulsiveDv := vTrans - vCirc
+	rel := math.Abs(dep.DV-impulsiveDv) / impulsiveDv
+	if rel > 0.05 {
+		t.Errorf("departure Δv %.1f m/s deviates >5%% from impulsive %.1f m/s (rel=%.4f)",
+			dep.DV, impulsiveDv, rel)
+	}
+
+	// Arrival's TriggerTime should sit at departure-center +
+	// half-period of the bound transfer ellipse (within 1 s).
+	gap := arr.TriggerTime.Sub(dep.TriggerTime).Seconds()
+	wantGap := math.Pi * math.Sqrt(aT*aT*aT/muMoon)
+	if math.Abs(gap-wantGap) > 1.0 {
+		t.Errorf("arrival − departure gap = %.1f s, want %.1f s (half-period)", gap, wantGap)
+	}
+}
+
+// TestPlanTransferMoonEscapeIntraPrimaryStillFires: regression guard —
+// the new moon-escape branch must not steal dispatch from the
+// intra-primary branch. From LEO targeting Luna (target.ParentID ==
+// craft.Primary.ID), the intra-primary Hohmann path must still fire
+// and plant a non-trivial geocentric departure.
+func TestPlanTransferMoonEscapeIntraPrimaryStillFires(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon missing from Sol")
+	}
+	plan, err := w.PlanTransfer(moonIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer(moon) from LEO: %v", err)
+	}
+	if plan.Departure.PrimaryID != "earth" {
+		t.Errorf("intra-primary departure PrimaryID = %q, want %q (LEO→Luna stays geocentric)",
+			plan.Departure.PrimaryID, "earth")
+	}
+	if plan.Arrival.PrimaryID != "moon" {
+		t.Errorf("intra-primary arrival PrimaryID = %q, want %q",
+			plan.Arrival.PrimaryID, "moon")
+	}
+	// Δv should be in TLI ballpark — well above the moon-escape
+	// figure (~30 m/s). Pick a generous lower bound.
+	if plan.Departure.DV < 2000 {
+		t.Errorf("LEO→Luna departure Δv = %.0f m/s, want ≥ 2000 (TLI scale)", plan.Departure.DV)
 	}
 }
