@@ -383,9 +383,16 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		modeLabel = m.theme.Dim.Render(modeLabel)
 	}
 
-	// Fire-at line — highlight if focused, otherwise dim.
+	// Fire-at line — highlight if focused, otherwise dim. v0.6.4
+	// click-to-edit appends the loaded TriggerTime as a relative
+	// countdown so "T+" alone doesn't read as "fire now" — the user
+	// has the schedule context they need to confirm the edit.
 	fireAt := sim.AllTriggerEvents[m.fireAtIdx]
 	fireAtLabel := fireAt.String()
+	if !m.loadedTriggerTime.IsZero() {
+		delta := m.loadedTriggerTime.Sub(w.Clock.SimTime)
+		fireAtLabel = fmt.Sprintf("%s %s", fireAtLabel, formatCountdown(delta))
+	}
 	if m.focus == 1 {
 		fireAtLabel = m.theme.Warning.Render(fireAtLabel) + "  (←/→ to cycle)"
 	} else {
@@ -467,6 +474,37 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// formatCountdown renders a relative duration as "T+1d3h", "T+14m32s",
+// or "T-5s" (past, in case the node is overdue). v0.6.4 click-to-
+// edit uses this to qualify the fire-at label so the player sees
+// when the loaded burn is scheduled. Two-component precision keeps
+// the line short — "1d3h" not "1d3h45m12s".
+func formatCountdown(d time.Duration) string {
+	prefix := "T+"
+	if d < 0 {
+		d = -d
+		prefix = "T-"
+	}
+	totalSecs := int64(d.Seconds())
+	if totalSecs == 0 {
+		return prefix + "0s"
+	}
+	days := totalSecs / 86400
+	hours := (totalSecs % 86400) / 3600
+	mins := (totalSecs % 3600) / 60
+	secs := totalSecs % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%s%dd%dh", prefix, days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%s%dh%dm", prefix, hours, mins)
+	case mins > 0:
+		return fmt.Sprintf("%s%dm%ds", prefix, mins, secs)
+	default:
+		return fmt.Sprintf("%s%ds", prefix, secs)
+	}
 }
 
 // normalizeManeuverDeg wraps an angle in degrees into [0, 360). Local
