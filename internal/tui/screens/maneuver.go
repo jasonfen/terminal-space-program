@@ -244,11 +244,21 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	// is visible at the same scale as the orbit. v0.6.3 polish: a
 	// single-pixel marker hid the body's surface and made low-orbit
 	// projections (e.g. low lunar orbit at 4× the moon radius) read
-	// as smaller than they really are. BodyPixelRadius shares the
-	// orbit-screen's size-tier logic so the moon disk on this canvas
-	// is consistent with what the player sees on the main view.
+	// as smaller than they really are.
+	//
+	// Uses true (radius × scale) projection with a 3-pixel floor and
+	// 64-pixel ceiling — the orbit-screen's BodyPixelRadius drops
+	// Luna-class moons (radius < 3e6 m) to 1 pixel under its size-
+	// tier fallback, which on this canvas reproduces the original
+	// "single dot" issue. Here the primary IS the view's focus, so
+	// always render at true scale.
 	primaryColor := render.ColorFor(c.Primary)
-	primaryPxR := BodyPixelRadius(c.Primary, false, m.canvas.Scale())
+	primaryPxR := int(math.Round(c.Primary.RadiusMeters() * m.canvas.Scale()))
+	if primaryPxR < 3 {
+		primaryPxR = 3
+	} else if primaryPxR > 64 {
+		primaryPxR = 64
+	}
 	m.canvas.FillColoredDisk(orbital.Vec3{}, primaryPxR, primaryColor)
 	// Plot craft (current position) with a cluster.
 	for i := -4; i <= 4; i++ {
