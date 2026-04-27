@@ -24,8 +24,8 @@ func TestWorldSpawnsSpacecraft(t *testing.T) {
 		t.Errorf("expected primary=Earth, got %s", w.Craft.Primary.EnglishName)
 	}
 	alt := w.Craft.Altitude()
-	if math.Abs(alt-200e3) > 1 {
-		t.Errorf("initial altitude %.1f m, want 200000", alt)
+	if math.Abs(alt-500e3) > 1 {
+		t.Errorf("initial altitude %.1f m, want 500000 (v0.6.1+)", alt)
 	}
 }
 
