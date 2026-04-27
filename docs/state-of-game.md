@@ -1,7 +1,8 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.6.0 (April 2026) — v0.6 cycle in flight (burn-at-next
-scheduler shipped). Updated at each minor / patch boundary.*
+*Snapshot at v0.6.1 (April 2026) — v0.6 cycle in flight (burn-at-next
+scheduler + predicted-orbit HUD shipped). Updated at each minor /
+patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -11,7 +12,7 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.6.0)
+## 1. What works today (v0.6.1)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -38,14 +39,23 @@ by patch — this doc is the snapshot, those are the release notes.
 - **Six burn modes**: prograde, retrograde, normal±, radial±. Direction is
   recomputed each sub-step from live (r, v) so held-prograde follows the
   rotating velocity frame.
-- Default vessel ("ICPS-1"): 3500 kg dry + 25000 kg fuel, Isp 462 s, Thrust 108 kN, spawned
-  in 200 km LEO.
+- Default vessel ("S-IVB-1", v0.5.10+): 11000 kg dry + 40000 kg fuel,
+  Isp 421 s, Thrust 1023 kN (J-2 vacuum). Δv budget ≈ 6.3 km/s,
+  comfortable for a Luna round trip. Spawns in a 500 km circular
+  prograde LEO (v0.6.1+; was 200 km), inclination 0°. NewWorld sets
+  `Focus = FocusCraft` so the camera is on the ship from tick 0.
 
 ### Planning
 - **Manual planner** (`m`): four-field form (mode / fire-at / Δv /
   duration). `Tab` cycles fields, `←/→` cycles modes or trigger events
   when those fields are focused, Δv > budget warns, duration 0 =
-  impulsive, > 0 = finite. v0.6.0+.
+  impulsive, > 0 = finite (default 10 s, v0.6.1+). The planner shows
+  a live PROJECTED ORBIT block with apo/peri/AN/DN of the resulting
+  orbit; the canvas dashed shadow trajectory and the form readout
+  both feed off `World.PreviewBurnState`, which propagates to the
+  fire-at event point before applying Δv (v0.6.1) — so a prograde
+  burn at next-apo previews the perigee-rise circularization, not a
+  spurious second apoapsis growth. v0.6.0+ form, v0.6.1 readout.
 - **Event-relative trigger nodes** (v0.6.0): `fire at` field selects
   Absolute T+ or one of `next peri / next apo / next AN / next DN`.
   Lazy-freeze resolver in `World.Tick` computes `TriggerTime` from the
@@ -75,19 +85,32 @@ by patch — this doc is the snapshot, those are the release notes.
   ≥ 4 px`, capped at 64 px; otherwise tier buckets (1 small / 2 terrestrial
   / 4 gas giant / 6 star). System primary is a hollow ring + filled center
   to distinguish from planets.
-- **Vessel orbit ellipse**: live Keplerian orbit drawn dotted (stride 3) in
-  the craft's primary frame, translated into the system frame for cross-frame
-  rendering. Hyperbolic / degenerate orbits skipped (the SOI-segmented
-  trajectory preview covers those).
-- **Apo / peri markers**: filled disks at ν=0 (peri, 2 px) and ν=π (apo, 3
-  px) so low-eccentricity orbits — visually near-circular — still show their
-  two extremes at a glance.
-- **Vessel arrow glyph**: chevron rotated into the velocity direction.
-- **SOI-segmented trajectory preview**: post-burn trajectory partitioned by
-  the dominant primary at each sample. Inside-home-SOI uses stride-2 dashed,
-  foreign SOI uses stride-1 solid. Continuity fixed at boundary crossings.
+- **Vessel orbit ellipse**: live Keplerian orbit drawn dotted (stride 3)
+  in the craft's primary frame, in `ColorCurrentOrbit` pale slate
+  (v0.6.1; was white — distinct from any body palette). Hyperbolic /
+  degenerate orbits skipped (the SOI-segmented preview covers those).
+  v0.6.1: ellipse hidden when `apoapsis × scale < minOrbitPixels` so
+  the orbit doesn't render as a one-cell blob over the parent body
+  at heliocentric zoom.
+- **Apo / peri markers**: filled disks at ν=0 (peri, 2 px) and ν=π (apo,
+  3 px) so low-eccentricity orbits still show their two extremes at a
+  glance. Hidden when the orbit ellipse is suppressed.
+- **Vessel marker**: 5-pixel chevron oriented along velocity when the
+  orbit ellipse is visible; swaps to a single bright `ColorCraftMarker`
+  disk at sub-orbit zoom (v0.6.1) so the craft reads as a recognisable
+  pixel rather than a sprawling chevron over the parent body.
+- **Per-leg colored trajectory preview** (v0.6.1): each planted node's
+  post-burn orbit renders in its own color from a 4-cycle palette
+  (cyan / mint / amber / pink). Node-marker clusters take the same
+  color so the (marker, post-burn-orbit) pair reads as a matched
+  group at a glance. Each leg's window runs from its node's burn
+  centre to the next node (or one full period if last). Frame-rebase:
+  legs planted in destination frames (Hohmann arrival in Mars frame)
+  predict from there instead of being skipped. Suppressed during
+  active burns (live state mutates each integrator step).
 - **Camera focus** (`f`/`F`/`g`): cycles system-wide / each body / craft.
-  FocusCraft auto-fits to ~3× current altitude.
+  FocusCraft auto-fits to ~3× current altitude. v0.6.1: NewWorld
+  spawns with `Focus = FocusCraft`.
 
 ### HUD
 - Clock + warp + paused indicator.
@@ -96,7 +119,15 @@ by patch — this doc is the snapshot, those are the release notes.
   goes negative.
 - Propellant: fuel, total mass, Δv budget remaining (rocket equation).
 - Active-burn block (when in flight): mode, Δv-to-go, T-remaining.
-- Planned nodes: list with mode / Δv / time-to-fire / impulsive vs finite tag.
+- Planned nodes: list with mode / Δv / time-to-fire / impulsive vs
+  finite tag. Unresolved event-relative nodes show their trigger label
+  ("next peri") instead of T+ until the resolver fires (v0.6.0+).
+- **Projected orbit** (v0.6.1, shown when ≥1 resolved node and no
+  active burn): apo / peri / AN / DN of the chained post-burn orbit
+  via `World.PredictedFinalOrbit`. Rebases into each node's intended
+  PrimaryID before applying its Δv, so a Hohmann arrival's projected
+  orbit reports as Mars-frame, not Sol-frame. Suppressed during
+  active burns to avoid flailing values as live state mutates.
 - Selected body: name, type, semimajor axis, eccentricity, period, plus
   Hohmann preview when applicable.
 
@@ -241,7 +272,8 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.5.15 ✓** | **(final v0.5 patch)** | Fix focus-change lockup at extreme zoom — Saturn rings call to `RingColoredOutline` was unbounded; focusing on a tiny body (Phobos SOI ≈ 20 m → scale 1.8 px/m) made the ring project to ~247M pixels and loop billions of times. Cap samples at 4× canvas pixel diagonal in both `RingOutline` and `RingColoredOutline`; skip drawing rings entirely when `outerPx > canvasReach`. |
 | **v0.5 ✓** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity. Cycle closed at v0.5.15 — see `docs/v0.5-release-notes.md`. |
 | **v0.6.0 ✓** | | Burn-at-next scheduler — `ManeuverNode.Event` enum (`Absolute / NextPeri / NextApo / NextAN / NextDN`); event-time helpers in `internal/orbital/events.go`; `World.resolveEventNodes` lazy-freeze resolver hooked into Tick before warp-clamp; `m` form gains `fire at` cycle field (focus 0/1/2/3); save schema bumps v1 → v2 with relaxed version check (v1 saves load with `Event = TriggerAbsolute`). |
-| **v0.6** | **(in flight) Planner UX + missions + MP design** | Predicted-orbit HUD (v0.6.1), finite-burn-aware iterative planner (v0.6.2), moon → parent escape transfer (v0.6.3), click-only mouse selection (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown. |
+| **v0.6.1 ✓** | | Predicted post-burn orbit HUD + maneuver UX polish — `orbital.OrbitReadout`, `World.PreviewBurnState` (event-aware shadow trajectory), `World.PredictedFinalOrbit` + `PredictedLegs` (chain through nodes, rebase into each node's intended frame so Hohmann arrival reports as Mars-frame). PROJECTED ORBIT HUD blocks on both the orbit screen and `m` form. Per-leg colored trajectory preview (cyan/mint/amber/pink cycle) with matched node-marker colors. `minOrbitPixels` gate hides sub-pixel ellipses + swaps craft chevron for bright `ColorCraftMarker` disk at large zoom. `ColorCurrentOrbit` → pale slate (distinct from any body palette). Default LEO 200 → 500 km, NewWorld spawns with `Focus = FocusCraft`, default burn duration 0 → 10 s. Active-burn guard suppresses projection while live state mutates. |
+| **v0.6** | **(in flight) Planner UX + missions + MP design** | Finite-burn-aware iterative planner (v0.6.2), moon → parent escape transfer (v0.6.3), click-only mouse selection (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown. |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 
@@ -337,17 +369,25 @@ has a full cast to colour.
 
 Full slice breakdown lives in `docs/v0.6-plan.md`. Summary:
 
-- **v0.6.0 — burn-at-next scheduler.** Event-relative maneuver nodes
-  (`Absolute / NextPeri / NextApo / NextAN / NextDN`) wired as a single
-  `fire at` cycle field in the `m` form. Lazy-freeze resolver — the
-  event resolves once at the first Tick that yields a future trigger
-  time, then `TriggerTime` freezes. No advanced-trigger picker; all
-  five modes ship as the same field. Save schema bumps v1 → v2 with a
-  `Node.Event` field defaulting `absolute` for backwards-compat.
-- **v0.6.1 — predicted post-burn orbit HUD.** When ≥1 node is planted,
-  HUD shows the resulting orbit's AP/PE/AN/DN under the planned-nodes
-  block. Reuses `internal/sim/predict.go` for the post-burn state and
-  the orbital-elements helper introduced in v0.6.0.
+- **v0.6.0 ✓ — burn-at-next scheduler.** Event-relative maneuver
+  nodes (`Absolute / NextPeri / NextApo / NextAN / NextDN`) wired as
+  a single `fire at` cycle field in the `m` form. Lazy-freeze
+  resolver — the event resolves once at the first Tick that yields
+  a future trigger time, then `TriggerTime` freezes. Save schema
+  bumps v1 → v2 with a `Node.Event` field defaulting `absolute` for
+  backwards-compat.
+- **v0.6.1 ✓ — predicted post-burn orbit HUD + maneuver UX polish.**
+  PROJECTED ORBIT block on the orbit screen (apo/peri/AN/DN of the
+  chained post-burn orbit via `World.PredictedFinalOrbit`). Same
+  block lives in the `m` form via `World.PreviewBurnState`, which
+  propagates to the fire-at event point before applying Δv (so a
+  prograde at next-apo correctly previews perigee-rise rather than
+  apoapsis growth). Per-leg colored trajectory preview with matched
+  node-marker colors. Hohmann arrival rebases into Mars frame so
+  the readout reports captured-orbit numbers, not heliocentric.
+  `minOrbitPixels` gate hides sub-pixel ellipses; craft chevron
+  swaps to a bright disk at large zoom. Default LEO 200 → 500 km;
+  spawn focus = craft; default burn duration 10 s.
 - **v0.6.2 — finite-burn-aware iterative planner.** Newton iteration
   around the impulsive solver: integrate candidate Δv, measure
   delivered apo, correct, repeat. v0.5.10's S-IVB-1 default + finite-
