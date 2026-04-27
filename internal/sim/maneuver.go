@@ -283,6 +283,15 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		if err != nil {
 			return nil, err
 		}
+		// v0.6.2: refine the departure Δv so the FINITE burn delivers
+		// the target apoapsis under integration. For the S-IVB-1
+		// default the impulsive guess is already < 0.1 % off so the
+		// iterator converges in 1-2 steps; for low-TWR loadouts where
+		// the burn arc is a non-trivial fraction of the parking
+		// orbit, the iterator catches errors of several percent.
+		// Iteration failure (max-iter, derivative collapse) silently
+		// falls back to the impulsive guess.
+		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, w.Craft.Isp, rArrival)
 		now := w.Clock.SimTime
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
 		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
@@ -596,6 +605,54 @@ func compensateFiniteBurn(dvIdeal, mass, thrust, mu, rPark float64) float64 {
 		return dvIdeal
 	}
 	return math.Asin(arg) / k
+}
+
+// refineFiniteDeparture replaces plan.Departure.DV with the value the
+// finite-burn-aware iterator says will actually deliver the target
+// apoapsis. v0.6.2 — for S-IVB-1's short LEO burn the impulsive
+// guess is already within 0.1 % so the iterator converges in 1-2
+// steps; for low-TWR loadouts (revived ICPS, future ion stages)
+// where the burn arc is a non-trivial fraction of the parking
+// orbit, the iterator catches errors of several percent.
+//
+// The departure burn in PlanIntraPrimaryHohmann always fires at
+// parking-orbit periapsis (= the craft's current position for a
+// circular orbit). Iteration uses a synthesized state at periapsis
+// — same |R|, tangent V matching circular-orbit speed — since the
+// burn dynamics are translation-invariant around the orbit.
+//
+// Iteration failure (max-iter or derivative collapse) leaves the
+// impulsive Δv untouched; falling back to the impulsive plan is
+// strictly better than failing the transfer.
+func refineFiniteDeparture(plan *planner.TransferPlan, mu, rPark, mass, thrust, isp, rArrival float64) {
+	if thrust <= 0 || mass <= 0 || isp <= 0 || plan.Departure.DV <= 0 {
+		return
+	}
+	parkV := math.Sqrt(mu / rPark)
+	parkState := physics.StateVector{
+		R: orbital.Vec3{X: rPark},
+		V: orbital.Vec3{Y: parkV},
+		M: mass,
+	}
+	mode := spacecraft.BurnPrograde
+	if plan.Departure.IsRetrograde {
+		mode = spacecraft.BurnRetrograde
+	}
+	direction := func(r, v orbital.Vec3) orbital.Vec3 {
+		return spacecraft.DirectionUnit(mode, r, v)
+	}
+	const tolMeters = 1000.0 // 1 km on apoapsis radius is well below display precision.
+	const maxIter = 8
+	refinedDv, _, err := planner.IterateForTarget(
+		parkState, mu, thrust, isp, plan.Departure.DV,
+		direction,
+		planner.TargetApoapsis(rArrival),
+		tolMeters, maxIter,
+	)
+	if err != nil {
+		return
+	}
+	plan.Departure.DV = refinedDv
 }
 
 // estimateIntraPrimaryDepDv returns the Hohmann departure Δv for a
