@@ -11,7 +11,6 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
-	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -37,6 +36,16 @@ type OrbitView struct {
 	lastFocus     sim.Focus
 	fitted        bool
 }
+
+// minOrbitPixels is the projected apoapsis size below which an orbit
+// (live or planted-leg) is suppressed at render time. v0.6.1: at
+// heliocentric zoom a 200-km LEO ellipse projects to a sub-cell
+// extent and every dotted sample piles onto a single cell, painting
+// a misleading blob on top of the parent body. Six pixels is just
+// large enough that ~6 evenly-spaced ellipse dots can resolve into
+// a recognisable shape; below that, hide the orbit and let the
+// vessel chevron / node markers carry the visual.
+const minOrbitPixels = 6.0
 
 // NewOrbitView constructs the screen with an initially-small canvas; a
 // Resize call from the root model sizes it to the terminal.
@@ -166,13 +175,23 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// into the system frame so it renders alongside planet orbits.
 	// Only bound orbits (a > 0) render; hyperbolic escape trajectories
 	// are already shown by the maneuver-preview SOI-segmented trace.
+	//
+	// v0.6.1: orbits whose apoapsis projects to fewer than
+	// minOrbitPixels (≈ a body's pixel-tier diameter) are skipped at
+	// render time — at heliocentric zoom a 200-km LEO would otherwise
+	// pile every dotted sample onto a single cell, painting a bright
+	// blob over the parent body that doesn't read as an orbit. The
+	// vessel chevron stays drawn so the craft's presence is still
+	// communicated.
 	if w.CraftVisibleHere() {
 		c := w.Craft
 		muCraft := c.Primary.GravitationalParameter()
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
 		primaryPos := w.BodyPosition(c.Primary)
-		if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
-			v.canvas.DrawEllipseOffsetDotted(el, primaryPos, 360, 3)
+		scale := v.canvas.Scale()
+		orbitVisible := el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
+		if orbitVisible {
+			v.canvas.DrawEllipseOffsetDottedColored(el, primaryPos, 360, 3, render.ColorCurrentOrbit)
 			// Apoapsis / periapsis markers — render even for low-e
 			// orbits so the player sees WHERE the two extremes are
 			// when the ellipse shape alone is near-circular. Apoapsis
@@ -183,10 +202,21 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			v.canvas.FillDisk(peri, 2)
 			v.canvas.FillDisk(apo, 3)
 		}
-		// Directional vessel glyph — chevron rotated into the craft's
-		// velocity frame so the player reads "which way am I going"
-		// without staring at raw r, v numbers.
-		v.canvas.PlotArrow(w.CraftInertial(), c.State.V, 5)
+		// Vessel marker. When the orbit ellipse is rendering at a
+		// useful size, draw a directional chevron so the player reads
+		// "which way am I going" off the velocity frame. When the
+		// orbit's collapsed below minOrbitPixels (heliocentric zoom on
+		// a LEO craft), the chevron's 5-pixel spread sprawls across
+		// the parent body and reads as noise — replace it with a
+		// single bright disk that says "vehicle here." The disk color
+		// is distinct from every body palette entry and every
+		// maneuver-leg color so multi-craft views (future) stay
+		// disambiguable per craft.
+		if orbitVisible {
+			v.canvas.PlotArrow(w.CraftInertial(), c.State.V, 5)
+		} else {
+			v.canvas.FillColoredDisk(w.CraftInertial(), 1, render.ColorCraftMarker)
+		}
 	}
 
 	// Planned maneuver nodes — cluster glyph at each node's inertial
@@ -265,6 +295,18 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 	}
 }
 
+// plotClusterColored is plotCluster with each cell tagged with the
+// given color. v0.6.1: maneuver-node markers share the color of
+// their resulting orbit leg, so the player sees node N at the
+// position where the post-burn orbit (also color N) begins.
+func (v *OrbitView) plotClusterColored(center orbital.Vec3, n int, color lipgloss.Color) {
+	step := 1.0 / v.canvas.Scale()
+	for i := -n / 2; i <= n/2; i++ {
+		v.canvas.PlotColored(center.Add(orbital.Vec3{X: float64(i) * step}), color)
+		v.canvas.PlotColored(center.Add(orbital.Vec3{Y: float64(i) * step}), color)
+	}
+}
+
 // drawNodes plots every planned maneuver node at its projected inertial
 // position and draws the post-burn predicted trajectory starting from
 // the first node. The trajectory is segmented by SOI: samples inside
@@ -276,7 +318,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		return
 	}
 	homeID := w.Craft.Primary.ID
-	for _, n := range w.Nodes {
+	for i, n := range w.Nodes {
 		// Frame-distinct cluster size: home-frame nodes get a tight cross,
 		// foreign-frame (heliocentric or destination-SOI) get a larger
 		// one so the player can see at a glance which leg is which on
@@ -285,56 +327,57 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		if n.PrimaryID != "" && n.PrimaryID != homeID {
 			size = 10
 		}
-		v.plotCluster(w.NodeInertialPosition(n), size)
+		// v0.6.1: each node's marker matches the color of its
+		// resulting orbit leg, so the cluster glyph and the
+		// post-burn dashed orbit read as a matched pair.
+		v.plotClusterColored(w.NodeInertialPosition(n), size, render.ManeuverSegmentColor(i))
 	}
 
-	first := w.Nodes[0]
-	post, postPrimaryID := w.PostBurnState(first)
-	// Use the mu of whichever primary the post-burn state is expressed in
-	// — usually craft's current primary (departure node), but may differ
-	// for nodes planted in a foreign frame (auto-plant arrival).
-	mu := w.Craft.Primary.GravitationalParameter()
-	if postPrimaryID != w.Craft.Primary.ID {
-		// Post-burn frame differs from the craft's home; PredictedSegments
-		// is not yet parameterised on start-frame, so skip the trajectory
-		// preview rather than render a wrong one. Glyphs (drawn above)
-		// still mark where the burn fires.
-		return
-	}
-	horizon := postBurnHorizon(post, mu)
-	if horizon <= 0 {
+	// v0.6.1: while a finite burn is firing the live craft state is
+	// mutated every integrator step; the dashed trajectory preview
+	// would otherwise rotate wildly each frame. Skip the preview and
+	// let the live ellipse + active-burn HUD block carry the visual
+	// load until the burn completes.
+	if w.ActiveBurn != nil {
 		return
 	}
 
-	segments := w.PredictedSegments(post, horizon, 96)
-	for _, seg := range segments {
-		stride := 2
-		if seg.PrimaryID != homeID {
-			stride = 1 // foreign SOI — solid, eye-catching
+	// v0.6.1: render each post-maneuver leg in its own color so the
+	// player can read which orbit belongs to which planted burn.
+	// PredictedLegs walks all resolved nodes, rebasing each into the
+	// node's intended frame (e.g. Hohmann arrival in Mars frame).
+	scale := v.canvas.Scale()
+	legs := w.PredictedLegs()
+	for _, leg := range legs {
+		// Skip legs whose orbit projects too small to convey shape
+		// (heliocentric view of a planet-frame leg). Same rule as
+		// the live ellipse — keeps the canvas from painting a
+		// blob on top of the parent body. Hyperbolic / a≤0 legs
+		// always render: their trajectories cover meaningful
+		// distance regardless of orbit size.
+		legMu := leg.Primary.GravitationalParameter()
+		legEl := orbital.ElementsFromState(leg.State.R, leg.State.V, legMu)
+		if legEl.A > 0 && !math.IsNaN(legEl.A) && !math.IsInf(legEl.A, 0) &&
+			legEl.Apoapsis()*scale < minOrbitPixels {
+			continue
 		}
-		for i, p := range seg.Points {
-			if stride > 1 && i%stride == 0 {
-				continue
+
+		samples := 96
+		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.HorizonSecs, samples)
+		legColor := render.ManeuverSegmentColor(leg.NodeIndex)
+		for _, seg := range segs {
+			stride := 2
+			if seg.PrimaryID != homeID {
+				stride = 1 // foreign SOI — solid, eye-catching
 			}
-			v.canvas.Plot(p)
+			for i, p := range seg.Points {
+				if stride > 1 && i%stride == 0 {
+					continue
+				}
+				v.canvas.PlotColored(p, legColor)
+			}
 		}
 	}
-}
-
-// postBurnHorizon picks a sensible prediction window based on the
-// orbit's semimajor axis. Returns the orbital period for bound orbits,
-// or a time-of-flight covering ~10 primary-radii of travel for
-// hyperbolic (a ≤ 0) orbits so the preview is visible but finite.
-func postBurnHorizon(state physics.StateVector, mu float64) float64 {
-	a := physics.SemimajorAxis(state, mu)
-	if a > 0 && !math.IsNaN(a) {
-		return 2 * math.Pi * math.Sqrt(a*a*a/mu)
-	}
-	v := state.V.Norm()
-	if v <= 0 {
-		return 0
-	}
-	return 10 * state.R.Norm() / v
 }
 
 func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
@@ -420,15 +463,55 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if len(w.Nodes) > 0 {
 		lines = append(lines, section("NODES")...)
 		for i, n := range w.Nodes {
-			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 			kind := "imp"
 			if n.Duration > 0 {
 				kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
 			}
+			// v0.6.0: unresolved event-relative nodes have no
+			// TriggerTime yet — show the trigger label instead of T+.
+			if !n.IsResolved() {
+				lines = append(lines, fmt.Sprintf(
+					"  #%d %s  %s  %.0f m/s  %s",
+					i+1, n.Event.String(), n.Mode.String(), n.DV, kind,
+				))
+				continue
+			}
+			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 			lines = append(lines, fmt.Sprintf(
 				"  #%d T%+.0fs  %s  %.0f m/s  %s",
 				i+1, dt, n.Mode.String(), n.DV, kind,
 			))
+		}
+
+		// v0.6.1: PROJECTED ORBIT — apo/peri/AN/DN of the orbit after
+		// every planted node fires. Hidden when no resolved nodes.
+		if state, primary, ok := w.PredictedFinalOrbit(); ok {
+			mu := primary.GravitationalParameter()
+			ro := orbital.OrbitReadout(state.R, state.V, mu)
+			primaryR := primary.RadiusMeters()
+			lines = append(lines, section("PROJECTED ORBIT")...)
+			lines = append(lines, fmt.Sprintf("  primary:   %s", primary.EnglishName))
+			if ro.Hyperbolic {
+				lines = append(lines,
+					"  "+v.theme.Warning.Render("hyperbolic — escape trajectory"),
+					fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+					fmt.Sprintf("  e:         %.3f", ro.Eccentricity),
+				)
+			} else {
+				lines = append(lines,
+					fmt.Sprintf("  apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
+					fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+				)
+				const equatorialTol = 1e-3
+				if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
+					lines = append(lines, v.theme.Dim.Render("  AN/DN:     equatorial (undefined)"))
+				} else {
+					lines = append(lines,
+						fmt.Sprintf("  AN angle:  %.1f°", normalizeDeg(ro.AscNode*180/math.Pi)),
+						fmt.Sprintf("  DN angle:  %.1f°", normalizeDeg(ro.DescNode*180/math.Pi)),
+					)
+				}
+			}
 		}
 	}
 
@@ -463,4 +546,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 
 	content := strings.Join(lines, "\n")
 	return v.theme.HUDBox.Width(width).Render(content)
+}
+
+// normalizeDeg wraps an angle in degrees into [0, 360).
+func normalizeDeg(d float64) float64 {
+	d = math.Mod(d, 360)
+	if d < 0 {
+		d += 360
+	}
+	return d
 }

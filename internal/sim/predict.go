@@ -3,6 +3,7 @@ package sim
 import (
 	"math"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
@@ -29,6 +30,15 @@ type SOISegment struct {
 // short horizons relative to target body orbital period; an
 // approximation flagged in commit history for interplanetary horizons.
 func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64, samples int) []SOISegment {
+	return w.PredictedSegmentsFrom(post, w.Craft.Primary, totalSeconds, samples)
+}
+
+// PredictedSegmentsFrom is the same trajectory predictor but
+// parameterised on the starting primary. v0.6.1: used by the
+// multi-leg colored preview, where each leg starts in its own node-
+// planted frame (e.g. Hohmann departure leg in Earth, arrival leg
+// in Mars). Output shape unchanged from PredictedSegments.
+func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, totalSeconds float64, samples int) []SOISegment {
 	if w.Craft == nil || samples < 2 {
 		return nil
 	}
@@ -39,7 +49,7 @@ func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64
 		positions[b.ID] = w.BodyPosition(b)
 	}
 
-	current := w.Craft.Primary
+	current := startPrimary
 	muNow := current.GravitationalParameter()
 	state := post
 

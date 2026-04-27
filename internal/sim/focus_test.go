@@ -4,16 +4,18 @@ import (
 	"testing"
 )
 
-func TestFocusDefaultsToSystem(t *testing.T) {
+// TestFocusDefaultsToCraft: v0.6.1 spawns the camera focused on the
+// craft so the live orbit + maneuver previews are immediately in
+// frame. Pre-v0.6.1 the default was FocusSystem, which dropped the
+// player into a heliocentric view where the craft's LEO collapsed
+// to a sub-pixel.
+func TestFocusDefaultsToCraft(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	if w.Focus.Kind != FocusSystem {
-		t.Errorf("default focus kind: got %v, want FocusSystem", w.Focus.Kind)
-	}
-	if name := w.FocusName(); name != "System-wide" {
-		t.Errorf("default FocusName: got %q, want System-wide", name)
+	if w.Focus.Kind != FocusCraft {
+		t.Errorf("default focus kind: got %v, want FocusCraft", w.Focus.Kind)
 	}
 }
 
@@ -22,8 +24,10 @@ func TestCycleFocusForwardWrapsThroughBodiesAndCraftAndBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	// Start at System. Cycle forward through every body, then Craft
-	// (visible in Sol), then back to System.
+	// Reset to FocusSystem before exercising the cycle so this test
+	// stays focused on cycling behavior rather than NewWorld's
+	// default-focus choice (covered by TestFocusDefaultsToCraft).
+	w.ResetFocus()
 	nBodies := len(w.System().Bodies)
 	expected := []Focus{{Kind: FocusSystem}}
 	for i := 0; i < nBodies; i++ {
@@ -45,6 +49,7 @@ func TestCycleFocusBackwardFromSystemLandsOnCraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	w.ResetFocus() // start from FocusSystem regardless of NewWorld default.
 	w.CycleFocus(false)
 	if w.Focus.Kind != FocusCraft {
 		t.Errorf("backward from system: got %+v, want FocusCraft", w.Focus)
@@ -100,6 +105,7 @@ func TestFocusPositionForSystemIsOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	w.ResetFocus() // override v0.6.1's FocusCraft default for this test.
 	p := w.FocusPosition()
 	if p.Norm() != 0 {
 		t.Errorf("FocusSystem position: got %+v, want origin", p)

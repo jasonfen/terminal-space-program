@@ -385,6 +385,27 @@ func (c *Canvas) DrawEllipseOffsetDotted(el orbital.Elements, offset orbital.Vec
 	}
 }
 
+// DrawEllipseOffsetDottedColored traces a dotted ellipse like
+// DrawEllipseOffsetDotted but tags each plotted pixel with the given
+// color. v0.6.1: used to color the live vessel orbit and each
+// post-maneuver leg distinctly so the player can read which orbit
+// belongs to which planted burn.
+func (c *Canvas) DrawEllipseOffsetDottedColored(el orbital.Elements, offset orbital.Vec3, samples int, stride int, color lipgloss.Color) {
+	if samples < 16 {
+		samples = 16
+	}
+	if stride < 1 {
+		stride = 1
+	}
+	for i := 0; i < samples; i++ {
+		if i%stride != 0 {
+			continue
+		}
+		nu := 2 * math.Pi * float64(i) / float64(samples)
+		c.PlotColored(offset.Add(orbital.PositionAtTrueAnomaly(el, nu)), color)
+	}
+}
+
 // String renders the canvas as a multi-line braille string, trimmed to
 // the configured cell dimensions. Pads short rows with spaces so the
 // rectangular shape is preserved (lipgloss borders need uniform width).

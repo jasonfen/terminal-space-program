@@ -38,9 +38,12 @@ func (s *Spacecraft) Altitude() float64 {
 // OrbitalSpeed returns |v| in the primary-relative frame.
 func (s *Spacecraft) OrbitalSpeed() float64 { return s.State.V.Norm() }
 
-// NewInLEO builds a spacecraft in a 200 km circular prograde parking orbit
+// NewInLEO builds a spacecraft in a 500 km circular prograde parking orbit
 // around the provided primary (typically Earth). Orbit lies in the primary's
 // equatorial plane (z=0) with periapsis along +X, velocity along +Y.
+// v0.6.1: bumped from 200 → 500 km — clears the visual zone close to the
+// Earth disk so the live orbit ellipse and craft glyph are immediately
+// distinguishable from the body when the camera spawns focused on the craft.
 //
 // Mass / propulsion numbers (v0.5.13+) modeled on the Saturn V S-IVB —
 // the J-2-powered third stage that performed trans-lunar injection for
@@ -64,7 +67,7 @@ func (s *Spacecraft) OrbitalSpeed() float64 { return s.State.V.Norm() }
 // is a better fit for the no-payload Luna-mission profile this default
 // targets.
 func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
-	r := earth.RadiusMeters() + 200e3
+	r := earth.RadiusMeters() + 500e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
 	return &Spacecraft{
