@@ -287,6 +287,83 @@ func abs(x float64) float64 {
 	return x
 }
 
+// TestIsBehindBodyDepthAndDisk (v0.6.4+): the helper returns true
+// only when both conditions hold — sample is behind the body's
+// camera-perpendicular plane AND the projected pixel coord falls
+// inside the body's disk. Two of three failure modes (in front, or
+// behind but outside the disk) must return false.
+func TestIsBehindBodyDepthAndDisk(t *testing.T) {
+	c := NewCanvas(60, 30)
+	c.SetScale(0.001) // 1 m → 0.001 px
+	c.Center(orbital.Vec3{})
+	// Right-view basis: depth axis = +X (toward camera).
+	c.SetBasis(Basis{X: orbital.Vec3{Y: 1}, Y: orbital.Vec3{Z: 1}})
+
+	// Body at origin with 100 px projected radius (= 100 km world).
+	body := orbital.Vec3{}
+	const bodyPxR = 100
+
+	cases := []struct {
+		name    string
+		sample  orbital.Vec3
+		want    bool
+		comment string
+	}{
+		{
+			name:    "front, on screen-axis with body",
+			sample:  orbital.Vec3{X: 50_000}, // depth +50 km → in front
+			want:    false,
+			comment: "depth ≥ 0 → never occluded",
+		},
+		{
+			name:    "behind, screen-coincident with body",
+			sample:  orbital.Vec3{X: -50_000}, // depth -50 km → behind
+			want:    true,
+			comment: "behind + same screen pos = inside disk",
+		},
+		{
+			name:    "behind, screen-far-from body",
+			sample:  orbital.Vec3{X: -50_000, Y: 200_000}, // off-disk laterally
+			want:    false,
+			comment: "behind but screen pos outside disk",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := c.IsBehindBody(tc.sample, body, bodyPxR)
+			if got != tc.want {
+				t.Errorf("got %v, want %v — %s", got, tc.want, tc.comment)
+			}
+		})
+	}
+}
+
+// TestDepthAxisCardinalBases (v0.6.4+): each cardinal-view basis
+// produces the expected camera-toward axis. Top → +Z, Right → +X,
+// Bottom → -Z, Left → -X. Catches sign / cross-product errors that
+// would silently invert the in-front / behind decision in side
+// views.
+func TestDepthAxisCardinalBases(t *testing.T) {
+	cases := []struct {
+		name string
+		b    Basis
+		want orbital.Vec3
+	}{
+		{"top", Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Y: 1}}, orbital.Vec3{Z: 1}},
+		{"right", Basis{X: orbital.Vec3{Y: 1}, Y: orbital.Vec3{Z: 1}}, orbital.Vec3{X: 1}},
+		{"bottom", Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Y: -1}}, orbital.Vec3{Z: -1}},
+		{"left", Basis{X: orbital.Vec3{Y: -1}, Y: orbital.Vec3{Z: 1}}, orbital.Vec3{X: -1}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.b.DepthAxis()
+			if abs(got.X-tc.want.X) > 1e-12 || abs(got.Y-tc.want.Y) > 1e-12 || abs(got.Z-tc.want.Z) > 1e-12 {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func onlyWhitespace(s string) bool {
 	for _, r := range s {
 		if r != ' ' && r != '\n' && r != '\t' && r != '⠀' {

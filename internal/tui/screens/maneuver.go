@@ -202,12 +202,30 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	m.canvas.SetBasis(viewBasis(w))
 	m.canvas.Center(orbital.Vec3{})
 
-	// Draw current orbit from state elements (white/primary).
 	c := w.Craft
 	mu := c.Primary.GravitationalParameter()
 	currentEl := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	m.canvas.FitTo(math.Max(currentEl.Apoapsis(), c.State.R.Norm()) * 1.1)
-	m.canvas.DrawEllipseDotted(currentEl, 360, 4)
+
+	// v0.6.3 disk-render + v0.6.4 side-view occlusion: draw the
+	// primary FIRST so the orbit + shadow + craft cluster can skip
+	// any back-half sample whose screen position falls inside the
+	// disk, leaving a clean gap where the body occludes them.
+	// True-scale radius × scale; 3-pixel floor (so Luna-class moons
+	// always read as a disk) and 64-pixel ceiling (extreme-zoom
+	// guard).
+	primaryColor := render.ColorFor(c.Primary)
+	primaryPxR := int(math.Round(c.Primary.RadiusMeters() * m.canvas.Scale()))
+	if primaryPxR < 3 {
+		primaryPxR = 3
+	} else if primaryPxR > 64 {
+		primaryPxR = 64
+	}
+	m.canvas.FillColoredDisk(orbital.Vec3{}, primaryPxR, primaryColor)
+
+	// Current orbit. Empty colour → uses Plot for back-compat with
+	// the existing white-on-default rendering of this canvas.
+	m.canvas.DrawEllipseOffsetOccluded(currentEl, orbital.Vec3{}, 360, 4, orbital.Vec3{}, primaryPxR, "")
 
 	// Draw shadow trajectory after applying the current (mode, dv,
 	// fire-at) triple. v0.6.1: when fire-at is event-relative, the
@@ -231,42 +249,24 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 		shadowPrimary = c.Primary
 	}
 	shadowMu := shadowPrimary.GravitationalParameter()
-	// Propagate for the new orbital period (or 1 hour if hyperbolic).
 	shadowPeriod := orbitalPeriodOrFallback(shadowState, shadowMu)
 	pts := planner.Predict(shadowState, shadowMu, shadowPeriod, 256)
-	// If the propagation crossed an SOI the shadow is in a different
-	// frame; offset by the body-relative gap so the shadow renders
-	// in the canvas's primary-centred frame.
 	primaryGap := w.BodyPosition(shadowPrimary).Sub(w.BodyPosition(c.Primary))
 	for _, p := range pts {
-		m.canvas.Plot(p.Add(primaryGap))
+		pp := p.Add(primaryGap)
+		if m.canvas.IsBehindBody(pp, orbital.Vec3{}, primaryPxR) {
+			continue
+		}
+		m.canvas.Plot(pp)
 	}
 
-	// Plot the primary at origin as a sized disk so its real radius
-	// is visible at the same scale as the orbit. v0.6.3 polish: a
-	// single-pixel marker hid the body's surface and made low-orbit
-	// projections (e.g. low lunar orbit at 4× the moon radius) read
-	// as smaller than they really are.
-	//
-	// Uses true (radius × scale) projection with a 3-pixel floor and
-	// 64-pixel ceiling — the orbit-screen's BodyPixelRadius drops
-	// Luna-class moons (radius < 3e6 m) to 1 pixel under its size-
-	// tier fallback, which on this canvas reproduces the original
-	// "single dot" issue. Here the primary IS the view's focus, so
-	// always render at true scale.
-	primaryColor := render.ColorFor(c.Primary)
-	primaryPxR := int(math.Round(c.Primary.RadiusMeters() * m.canvas.Scale()))
-	if primaryPxR < 3 {
-		primaryPxR = 3
-	} else if primaryPxR > 64 {
-		primaryPxR = 64
-	}
-	m.canvas.FillColoredDisk(orbital.Vec3{}, primaryPxR, primaryColor)
-	// Plot craft (current position) with a cluster.
-	for i := -4; i <= 4; i++ {
+	// Craft cluster — skip if behind primary in the active view.
+	if !m.canvas.IsBehindBody(c.State.R, orbital.Vec3{}, primaryPxR) {
 		step := 1.0 / m.canvas.Scale()
-		m.canvas.Plot(c.State.R.Add(orbital.Vec3{X: float64(i) * step}))
-		m.canvas.Plot(c.State.R.Add(orbital.Vec3{Y: float64(i) * step}))
+		for i := -4; i <= 4; i++ {
+			m.canvas.Plot(c.State.R.Add(orbital.Vec3{X: float64(i) * step}))
+			m.canvas.Plot(c.State.R.Add(orbital.Vec3{Y: float64(i) * step}))
+		}
 	}
 
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())

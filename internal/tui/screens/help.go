@@ -34,7 +34,7 @@ func (h *Help) Render() string {
 			{"f", "next focus target"},
 			{"F", "previous focus target"},
 			{"g", "reset to system-wide view"},
-			{"v", "cycle view (equatorial / orbit-perp)"},
+			{"v", "cycle view (top / right / bottom / left)"},
 		}},
 		{"TIME", [][2]string{
 			{".", "warp up (1× … 100000×)"},

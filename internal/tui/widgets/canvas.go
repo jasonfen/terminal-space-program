@@ -32,12 +32,27 @@ type Basis struct {
 	X, Y orbital.Vec3
 }
 
-// DefaultBasis is the equatorial projection: world X axis maps to
-// canvas X+, world Y axis to canvas Y+. Z drops.
+// DefaultBasis is the top-down projection: world X axis maps to
+// canvas X+, world Y axis to canvas Y+. Z drops. Pre-v0.6.4 the
+// only projection.
 func DefaultBasis() Basis {
 	return Basis{
 		X: orbital.Vec3{X: 1},
 		Y: orbital.Vec3{Y: 1},
+	}
+}
+
+// DepthAxis returns the unit vector pointing toward the camera, i.e.
+// "out of screen." Points with positive (world − center)·DepthAxis()
+// are in front of the basis plane through center; negative is
+// behind. Computed as basis.X × basis.Y so the cardinal-view axes
+// derive consistently from the X / Y choice. v0.6.4+: orbit-screen
+// uses this for back-of-body occlusion in side views.
+func (b Basis) DepthAxis() orbital.Vec3 {
+	return orbital.Vec3{
+		X: b.X.Y*b.Y.Z - b.X.Z*b.Y.Y,
+		Y: b.X.Z*b.Y.X - b.X.X*b.Y.Z,
+		Z: b.X.X*b.Y.Y - b.X.Y*b.Y.X,
 	}
 }
 
@@ -280,8 +295,7 @@ func (c *Canvas) Project(w orbital.Vec3) (int, int, bool) {
 // given pixel — assuming the world point lies in the basis plane
 // through centerW. v0.6.4+: paired with Project for view-aware mouse
 // hit-testing in v0.6.4's mouse work. The Z axis (out of screen) is
-// implicitly the orbit-normal direction in orbit-perpendicular mode
-// or world Z in equatorial mode; Unproject doesn't disambiguate, so
+// implicitly the depth direction; Unproject doesn't disambiguate, so
 // callers that need a 3D world point on a specific surface must do
 // their own ray-cast.
 func (c *Canvas) Unproject(px, py int) orbital.Vec3 {
@@ -290,6 +304,73 @@ func (c *Canvas) Unproject(px, py int) orbital.Vec3 {
 	return c.centerW.
 		Add(c.basis.X.Scale(relX)).
 		Add(c.basis.Y.Scale(relY))
+}
+
+// IsBehindBody reports whether a world point `samplePos` is occluded
+// by a body at `bodyPos` with screen-projected radius `bodyPxR`,
+// under the canvas's active basis. Two conditions must hold:
+//
+//  1. Negative depth: (samplePos − bodyPos) · DepthAxis() < 0 — the
+//     sample is on the camera-far side of the body's plane.
+//  2. Inside disk: the sample's projected pixel coord lies within
+//     `bodyPxR` pixels of the body's projected pixel coord.
+//
+// Used by the orbit + maneuver renders (v0.6.4+) to skip plots
+// behind a body in side views, so the body disk reads as opaque
+// and the orbit visibly passes around — not through — it.
+func (c *Canvas) IsBehindBody(samplePos, bodyPos orbital.Vec3, bodyPxR int) bool {
+	depthAxis := c.basis.DepthAxis()
+	rel := samplePos.Sub(bodyPos)
+	depth := rel.X*depthAxis.X + rel.Y*depthAxis.Y + rel.Z*depthAxis.Z
+	if depth >= 0 {
+		return false
+	}
+	spx, spy, ok := c.Project(samplePos)
+	if !ok {
+		return false
+	}
+	bpx, bpy, _ := c.Project(bodyPos)
+	dx := spx - bpx
+	dy := spy - bpy
+	return dx*dx+dy*dy <= bodyPxR*bodyPxR
+}
+
+// DrawEllipseOffsetOccluded plots a dotted ellipse but skips any
+// sample IsBehindBody-occluded by the supplied (bodyPos, bodyPxR).
+// Same shape as DrawEllipseOffsetDotted; v0.6.4+ side-view variant.
+// Pass an untagged stride to keep the existing colour helpers; this
+// helper writes through PlotColored when `color` is non-empty,
+// otherwise plain Plot.
+func (c *Canvas) DrawEllipseOffsetOccluded(
+	el orbital.Elements,
+	offset orbital.Vec3,
+	samples int,
+	stride int,
+	bodyPos orbital.Vec3,
+	bodyPxR int,
+	color lipgloss.Color,
+) {
+	if samples < 16 {
+		samples = 16
+	}
+	if stride < 1 {
+		stride = 1
+	}
+	for i := 0; i < samples; i++ {
+		if i%stride != 0 {
+			continue
+		}
+		nu := 2 * math.Pi * float64(i) / float64(samples)
+		p := offset.Add(orbital.PositionAtTrueAnomaly(el, nu))
+		if c.IsBehindBody(p, bodyPos, bodyPxR) {
+			continue
+		}
+		if color == "" {
+			c.Plot(p)
+		} else {
+			c.PlotColored(p, color)
+		}
+	}
 }
 
 // Plot sets the pixel at the given world coord. No-op if off-canvas.

@@ -212,32 +212,32 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		primaryPos := w.BodyPosition(c.Primary)
 		scale := v.canvas.Scale()
 		orbitVisible := el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
+		// v0.6.4: in side views, the spacecraft orbit can pass behind
+		// the primary body. The canvas's IsBehindBody / occluded-
+		// ellipse helpers skip back-half samples that fall inside
+		// the primary's projected disk — since the body disk has
+		// already been drawn (line ~115), the gap reads as natural
+		// occlusion. Apo / peri markers + the craft chevron use the
+		// same check.
+		primaryPxR := BodyPixelRadius(c.Primary, false, scale)
 		if orbitVisible {
-			v.canvas.DrawEllipseOffsetDottedColored(el, primaryPos, 360, 3, render.ColorCurrentOrbit)
-			// Apoapsis / periapsis markers — render even for low-e
-			// orbits so the player sees WHERE the two extremes are
-			// when the ellipse shape alone is near-circular. Apoapsis
-			// gets a larger disk, periapsis smaller; distinct sizes
-			// read at a glance.
+			v.canvas.DrawEllipseOffsetOccluded(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
-			v.canvas.FillDisk(peri, 2)
-			v.canvas.FillDisk(apo, 3)
+			if !v.canvas.IsBehindBody(peri, primaryPos, primaryPxR) {
+				v.canvas.FillDisk(peri, 2)
+			}
+			if !v.canvas.IsBehindBody(apo, primaryPos, primaryPxR) {
+				v.canvas.FillDisk(apo, 3)
+			}
 		}
-		// Vessel marker. When the orbit ellipse is rendering at a
-		// useful size, draw a directional chevron so the player reads
-		// "which way am I going" off the velocity frame. When the
-		// orbit's collapsed below minOrbitPixels (heliocentric zoom on
-		// a LEO craft), the chevron's 5-pixel spread sprawls across
-		// the parent body and reads as noise — replace it with a
-		// single bright disk that says "vehicle here." The disk color
-		// is distinct from every body palette entry and every
-		// maneuver-leg color so multi-craft views (future) stay
-		// disambiguable per craft.
-		if orbitVisible {
-			v.canvas.PlotArrow(w.CraftInertial(), c.State.V, 5)
-		} else {
-			v.canvas.FillColoredDisk(w.CraftInertial(), 1, render.ColorCraftMarker)
+		craftInertial := w.CraftInertial()
+		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
+			if orbitVisible {
+				v.canvas.PlotArrow(craftInertial, c.State.V, 5)
+			} else {
+				v.canvas.FillColoredDisk(craftInertial, 1, render.ColorCraftMarker)
+			}
 		}
 	}
 
@@ -580,24 +580,32 @@ func normalizeDeg(d float64) float64 {
 }
 
 // viewBasis returns the canvas projection basis for the world's
-// current ViewMode. Equatorial → DefaultBasis (drop Z). Orbit-
-// perpendicular → perifocal (x̂, ŷ) of the active craft's orbit.
-// Falls back to DefaultBasis when the orbit is degenerate (no craft,
-// e ≥ 1, a ≤ 0) so the projection stays well-defined. Single-craft
-// today; multi-craft will need an active-craft selector to
-// disambiguate (state-of-game.md §2 backlog).
+// current ViewMode. Four cardinal cases — Top (XY drop), Right (YZ),
+// Bottom (XY mirrored), Left (YZ mirrored). Each rotates the camera
+// 90° around the system; together they let the player see an
+// otherwise edge-on orbit from a side angle so the trajectory's
+// in-front-of / behind-the-body geometry reads at a glance.
 func viewBasis(w *sim.World) widgets.Basis {
-	if w.ViewMode != sim.ViewOrbitPerpendicular || w.Craft == nil {
-		return widgets.DefaultBasis()
+	switch w.ViewMode {
+	case sim.ViewRight:
+		// Camera at +X looking -X. Canvas X+ = world Y+, Y+ = world Z+.
+		return widgets.Basis{
+			X: orbital.Vec3{Y: 1},
+			Y: orbital.Vec3{Z: 1},
+		}
+	case sim.ViewBottom:
+		// Camera at -Z looking +Z. Canvas X+ = world X+, Y+ = world Y-
+		// (vertical mirror of Top).
+		return widgets.Basis{
+			X: orbital.Vec3{X: 1},
+			Y: orbital.Vec3{Y: -1},
+		}
+	case sim.ViewLeft:
+		// Camera at -X looking +X. Canvas X+ = world Y-, Y+ = world Z+.
+		return widgets.Basis{
+			X: orbital.Vec3{Y: -1},
+			Y: orbital.Vec3{Z: 1},
+		}
 	}
-	mu := w.Craft.Primary.GravitationalParameter()
-	if mu <= 0 {
-		return widgets.DefaultBasis()
-	}
-	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
-	if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
-		return widgets.DefaultBasis()
-	}
-	xHat, yHat := orbital.PerifocalBasis(el)
-	return widgets.Basis{X: xHat, Y: yHat}
+	return widgets.DefaultBasis() // ViewTop or any future mode
 }
