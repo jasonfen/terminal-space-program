@@ -1,8 +1,10 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.6.2 (April 2026) — v0.6 cycle in flight (burn-at-next
+*Snapshot at v0.6.3 (April 2026) — v0.6 cycle in flight (burn-at-next
 scheduler + predicted-orbit HUD + finite-burn-aware iterative
-planner shipped). Updated at each minor / patch boundary.*
+planner + moon → parent escape transfer shipped; mouse + view-mode
+switcher next, then missions and the multiplayer design-doc spike).
+Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -12,7 +14,7 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.6.2)
+## 1. What works today (v0.6.3)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -154,14 +156,19 @@ by patch — this doc is the snapshot, those are the release notes.
 - Moon catalog: Luna, Phobos, Deimos, the four Galilean (Io, Europa,
   Ganymede, Callisto), Titan, Enceladus — single-moon (Earth) and
   multi-moon (Jupiter, Saturn) primaries both exercised.
-- Transfer planning to/from moons is **partially shipped**: same-primary
-  intra-primary transfers (craft in LEO → Luna, both around Earth) ship
-  in v0.5.7 via `planner.PlanIntraPrimaryHohmann`, with v0.5.9 adding
-  phase correction so the craft actually rendezvous with the target.
-  The reverse direction — craft inside a moon's SOI returning to its
-  parent (Luna → Earth) — slips to v0.6.3 alongside the planner UX
-  work. Wider inter-SOI capture (heliocentric → moon-of-other-planet,
-  Phobos from Mars, Titan from heliocentric) is **not** in v0.6 scope.
+- Transfer planning to/from moons is **shipped both directions**:
+  same-primary intra-primary transfers (craft in LEO → Luna, both
+  around Earth) ship in v0.5.7 via `planner.PlanIntraPrimaryHohmann`,
+  with v0.5.9 adding phase correction so the craft actually
+  rendezvous with the target. The reverse — craft inside a moon's
+  SOI returning to its parent (Luna → Earth) — ships in v0.6.3 via
+  `planner.PlanMoonEscape`: bound transfer ellipse with apolune at
+  the moon's SOI radius, zero-Δv frame marker at SOI exit, player
+  plants their own circularization once they see the post-escape
+  parent-frame trajectory. The departure burn reuses v0.6.2's
+  `IterateForTarget` for finite-burn refinement. Wider inter-SOI
+  capture (heliocentric → moon-of-other-planet, Phobos from Mars,
+  Titan from heliocentric) is **not** in v0.6 scope.
 
 ### Systems loaded
 - **Sol** (playable — craft spawns here).
@@ -197,13 +204,11 @@ by patch — this doc is the snapshot, those are the release notes.
   termination once it lands.
 - **Mission system / objectives** (v0.6 target, see §3). Starter objectives
   such as "achieve a 1000 km circular orbit," "intercept Mars within Δv X."
-- **`PlanTransfer()` moon → parent extension** (v0.6.3 target). v0.5.7's
-  intra-primary path covers parent → moon (LEO → Luna). The reverse —
-  craft in Luna SOI returning to Earth — slips to v0.6.3. Wider
-  inter-SOI capture (heliocentric → moon-of-other-planet) stays out
-  of scope. The v0.6.0 burn-at-next scheduler (now shipped, see §1
-  Planning) is the foundation `PlanTransfer` extensions can compose
-  against — e.g. "fire escape burn at next periapsis."
+- ~~**`PlanTransfer()` moon → parent extension** (v0.6.3 target).~~
+  Shipped in v0.6.3 (`planner.PlanMoonEscape`, dispatch branch in
+  `sim.PlanTransfer` for `target.ID == w.Craft.Primary.ParentID`).
+  Wider inter-SOI capture (heliocentric → moon-of-other-planet)
+  remains out of scope.
 - **Multi-system spacecraft**. The craft is currently locked to Sol. Allowing
   it to enter Alpha Cen / TRAPPIST / Kepler unlocks the system-cycle UX.
   Requires interstellar transfer math (or deus-ex-machina jump for now).
@@ -220,10 +225,17 @@ by patch — this doc is the snapshot, those are the release notes.
   drag below ~150 km to enable reentry / aerobraking gameplay; patched-conic
   two-body stays the primary integrator. Previously on "excluded forever",
   softened here — only *realistic* multi-species drag stays out of scope.
-- **Mouse support** (v0.6 target, see §3). Currently keyboard-only;
-  v0.6 adds click-only selection — click-to-focus on bodies, vessel,
-  maneuver nodes, plus click-to-plant on porkchop cells and click on
-  HUD panels. Drag-to-edit and wheel-zoom stay out of v0.6.
+- **Mouse support + view-mode switcher** (v0.6.4 target, see §3).
+  Currently keyboard-only; v0.6.4 adds click-only selection
+  (click-to-focus on bodies, vessel, maneuver nodes, click-to-plant
+  on porkchop cells, click on HUD panels) and a `v` hot-key that
+  cycles between hard-coded camera presets (equatorial = current
+  default; orbit-perpendicular = camera along the active orbit's
+  angular-momentum vector for clean ellipse rendering on inclined
+  orbits). View-mode plumbing surfaced during v0.6.3 manual play —
+  the equatorial-only projection foreshortens at lunar inclinations
+  and made low-orbit projections hard to size at a glance. Drag-to-
+  edit, wheel-zoom, and free-rotation stay out of v0.6.
 
 ### Visual / UX targets
 - **Maneuver node editing**. Nodes are plant-once today; adding drag/scrub
@@ -283,7 +295,8 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.6.0 ✓** | | Burn-at-next scheduler — `ManeuverNode.Event` enum (`Absolute / NextPeri / NextApo / NextAN / NextDN`); event-time helpers in `internal/orbital/events.go`; `World.resolveEventNodes` lazy-freeze resolver hooked into Tick before warp-clamp; `m` form gains `fire at` cycle field (focus 0/1/2/3); save schema bumps v1 → v2 with relaxed version check (v1 saves load with `Event = TriggerAbsolute`). |
 | **v0.6.1 ✓** | | Predicted post-burn orbit HUD + maneuver UX polish — `orbital.OrbitReadout`, `World.PreviewBurnState` (event-aware shadow trajectory), `World.PredictedFinalOrbit` + `PredictedLegs` (chain through nodes, rebase into each node's intended frame so Hohmann arrival reports as Mars-frame). PROJECTED ORBIT HUD blocks on both the orbit screen and `m` form. Per-leg colored trajectory preview (cyan/mint/amber/pink cycle) with matched node-marker colors. `minOrbitPixels` gate hides sub-pixel ellipses + swaps craft chevron for bright `ColorCraftMarker` disk at large zoom. `ColorCurrentOrbit` → pale slate (distinct from any body palette). Default LEO 200 → 500 km, NewWorld spawns with `Focus = FocusCraft`, default burn duration 0 → 10 s. Active-burn guard suppresses projection while live state mutates. |
 | **v0.6.2 ✓** | | Finite-burn-aware iterative planner — `planner.SimulateFiniteBurn` (RK4 + Tsiolkovsky), `planner.IterateForTarget` (Newton iteration on commanded Δv with ±50 % step cap and `ErrFiniteBurnDiverged` fallback), `planner.TargetApoapsis` / `TargetPeriapsis` residual helpers. `sim.refineFiniteDeparture` wires the iterator into `H` auto-plant so Hohmann departures hit the requested apoapsis even on low-TWR loadouts where the impulsive guess loses several percent of energy to gravity-rotation. For S-IVB-1 the iterator converges in 1-2 steps (no-op); for low-TWR profiles it catches errors the impulsive math misses. |
-| **v0.6** | **(in flight) Planner UX + missions + MP design** | Moon → parent escape transfer (v0.6.3), click-only mouse selection (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown. |
+| **v0.6.3 ✓** | | Moon → parent escape transfer — `planner.PlanMoonEscape` (bound transfer ellipse with apolune at the moon's SOI radius, zero-Δv frame marker at SOI exit so the player plants their own circularization in the parent frame). New dispatch branch in `sim.PlanTransfer` for `target.ID == w.Craft.Primary.ParentID`; pre-v0.6.3 this fell through to the heliocentric Hohmann path and quoted nonsense Δv. Departure burn refines through v0.6.2's iterator with `TargetApoapsis(rSOI)`. Maneuver-screen mini-canvas now renders the primary as a sized disk (`FillColoredDisk` + `BodyPixelRadius`) instead of a single pixel, so low-orbit projections read at their real visual scale. |
+| **v0.6** | **(in flight) Planner UX + missions + MP design** | Click-only mouse selection + view-mode switcher (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown + status table. |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 

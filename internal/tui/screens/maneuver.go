@@ -13,6 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -215,9 +216,10 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	// craft is nowhere near. Falls back to current-state preview if
 	// the event is unreachable (hyperbolic / equatorial AN/DN).
 	dv := m.parsedDV()
+	dur := m.parsedDuration()
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	event := sim.AllTriggerEvents[m.fireAtIdx]
-	shadowState, shadowPrimary, ok := w.PreviewBurnState(mode, dv, event)
+	shadowState, shadowPrimary, ok := w.PreviewBurnState(mode, dv, dur, event)
 	if !ok {
 		dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
 		shadowState = physics.StateVector{
@@ -239,8 +241,26 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 		m.canvas.Plot(p.Add(primaryGap))
 	}
 
-	// Plot planet (primary) at origin.
-	m.canvas.Plot(orbital.Vec3{})
+	// Plot the primary at origin as a sized disk so its real radius
+	// is visible at the same scale as the orbit. v0.6.3 polish: a
+	// single-pixel marker hid the body's surface and made low-orbit
+	// projections (e.g. low lunar orbit at 4× the moon radius) read
+	// as smaller than they really are.
+	//
+	// Uses true (radius × scale) projection with a 3-pixel floor and
+	// 64-pixel ceiling — the orbit-screen's BodyPixelRadius drops
+	// Luna-class moons (radius < 3e6 m) to 1 pixel under its size-
+	// tier fallback, which on this canvas reproduces the original
+	// "single dot" issue. Here the primary IS the view's focus, so
+	// always render at true scale.
+	primaryColor := render.ColorFor(c.Primary)
+	primaryPxR := int(math.Round(c.Primary.RadiusMeters() * m.canvas.Scale()))
+	if primaryPxR < 3 {
+		primaryPxR = 3
+	} else if primaryPxR > 64 {
+		primaryPxR = 64
+	}
+	m.canvas.FillColoredDisk(orbital.Vec3{}, primaryPxR, primaryColor)
 	// Plot craft (current position) with a cluster.
 	for i := -4; i <= 4; i++ {
 		step := 1.0 / m.canvas.Scale()

@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -181,7 +183,7 @@ func TestPreviewBurnStateAtNextApoRaisesPeriapsis(t *testing.T) {
 	// Step 2: preview a 100 m/s prograde at next apoapsis. This must
 	// raise periapsis (perigee-raise = circularise at higher alt) —
 	// NOT raise apoapsis again.
-	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, TriggerNextApo)
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, 0, TriggerNextApo)
 	if !ok {
 		t.Fatalf("PreviewBurnState returned ok=false")
 	}
@@ -214,7 +216,7 @@ func TestPreviewBurnStateAtNextApoRaisesPeriapsis(t *testing.T) {
 // pre-v0.6 planner preview semantics.
 func TestPreviewBurnStateAbsolute(t *testing.T) {
 	w := mustWorld(t)
-	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 50, TriggerAbsolute)
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 50, 0, TriggerAbsolute)
 	if !ok {
 		t.Fatalf("PreviewBurnState(Absolute): ok=false")
 	}
@@ -356,7 +358,7 @@ func TestPredictedFinalOrbitMatchesPreviewForResolvedNode(t *testing.T) {
 	}
 
 	// PreviewBurnState — what the maneuver screen shows.
-	previewState, previewPrimary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, TriggerNextApo)
+	previewState, previewPrimary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, 0, TriggerNextApo)
 	if !ok {
 		t.Fatalf("PreviewBurnState ok=false")
 	}
@@ -1145,5 +1147,294 @@ func TestRefinePlanUpdatesArrivalAfterPlanTransferAt(t *testing.T) {
 	if len(w.Nodes) != origNodeCount+1 {
 		t.Errorf("node count after refine = %d, want %d (orig + correction)",
 			len(w.Nodes), origNodeCount+1)
+	}
+}
+
+// TestPlanTransferMoonEscapePlantsTwoNodes (v0.6.3): with the craft in
+// low lunar orbit, PlanTransfer(earth) should plant a moon-frame
+// departure burn (Δv > 0, prograde) followed by an Earth-frame
+// zero-Δv SOI-exit marker. Pre-v0.6.3 the dispatch fell through to
+// the heliocentric Hohmann path, which treated Earth's heliocentric
+// semimajor axis as the destination radius around Luna and quoted
+// nonsense Δv.
+func TestPlanTransferMoonEscapePlantsTwoNodes(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx, earthIdx := -1, -1
+	for i, b := range sys.Bodies {
+		switch b.ID {
+		case "moon":
+			moonIdx = i
+		case "earth":
+			earthIdx = i
+		}
+	}
+	if moonIdx < 0 || earthIdx < 0 {
+		t.Skip("Earth/Moon missing from loaded Sol")
+	}
+	moon := sys.Bodies[moonIdx]
+	earth := sys.Bodies[earthIdx]
+
+	// Re-seat the craft into a 100-km circular low lunar orbit.
+	rPark := moon.RadiusMeters() + 100e3
+	muMoon := moon.GravitationalParameter()
+	vCirc := math.Sqrt(muMoon / rPark)
+	w.Craft.Primary = moon
+	w.Craft.State.R = orbital.Vec3{X: rPark}
+	w.Craft.State.V = orbital.Vec3{Y: vCirc}
+
+	plan, err := w.PlanTransfer(earthIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer(earth) from lunar orbit: %v", err)
+	}
+	if plan == nil {
+		t.Fatal("PlanTransfer returned nil plan with nil error")
+	}
+	if len(w.Nodes) != 2 {
+		t.Fatalf("expected 2 planted nodes, got %d", len(w.Nodes))
+	}
+	dep, arr := w.Nodes[0], w.Nodes[1]
+	if dep.PrimaryID != moon.ID {
+		t.Errorf("departure PrimaryID = %q, want %q", dep.PrimaryID, moon.ID)
+	}
+	if arr.PrimaryID != earth.ID {
+		t.Errorf("arrival PrimaryID = %q, want %q", arr.PrimaryID, earth.ID)
+	}
+	if dep.DV <= 0 {
+		t.Errorf("departure Δv = %.3f m/s, want > 0", dep.DV)
+	}
+	if dep.Mode != spacecraft.BurnPrograde {
+		t.Errorf("departure Mode = %v, want BurnPrograde", dep.Mode)
+	}
+	if arr.DV != 0 {
+		t.Errorf("arrival is a frame marker — Δv should be 0, got %.3f", arr.DV)
+	}
+
+	// Sanity: planted Δv should match the bound-ellipse impulsive
+	// estimate within ≈5%. The iterator may refine the value; for a
+	// short LLO escape burn (≈30 s on the S-IVB-1) the impulsive
+	// guess is already very close.
+	rSOI := physics.SOIRadius(moon, earth)
+	if rSOI == 0 {
+		t.Fatal("SOIRadius(moon, earth) = 0 — body data missing mass / a")
+	}
+	aT := (rPark + rSOI) / 2
+	vTrans := math.Sqrt(muMoon * (2/rPark - 1/aT))
+	impulsiveDv := vTrans - vCirc
+	rel := math.Abs(dep.DV-impulsiveDv) / impulsiveDv
+	if rel > 0.05 {
+		t.Errorf("departure Δv %.1f m/s deviates >5%% from impulsive %.1f m/s (rel=%.4f)",
+			dep.DV, impulsiveDv, rel)
+	}
+
+	// Arrival's TriggerTime should sit at departure-center +
+	// half-period of the bound transfer ellipse (within 1 s).
+	gap := arr.TriggerTime.Sub(dep.TriggerTime).Seconds()
+	wantGap := math.Pi * math.Sqrt(aT*aT*aT/muMoon)
+	if math.Abs(gap-wantGap) > 1.0 {
+		t.Errorf("arrival − departure gap = %.1f s, want %.1f s (half-period)", gap, wantGap)
+	}
+}
+
+// seatLunaCaptureOrbit places the craft at apoapsis of a peri-40 km /
+// apo-8000 km moon-frame elliptical orbit — the typical post-Hohmann
+// capture geometry. Returns the moon body, parking peri/apo radii, and
+// peri velocity for follow-on assertions. Apoapsis placement is
+// deliberate: TimeToPeriapsis(state-at-peri) wraps to one full orbital
+// period (≈11 h here), and the velocity-Verlet integrator's drift
+// over that long a coast can mask the burn's actual orbital effect.
+// Apoapsis → next peri is half a period (≈5.5 h), well inside the
+// integrator's accurate regime.
+func seatLunaCaptureOrbit(t *testing.T, w *World) (moon bodies.CelestialBody, rPeri, rApo, vPeri float64, ok bool) {
+	t.Helper()
+	sys := w.System()
+	for _, b := range sys.Bodies {
+		if b.ID == "moon" {
+			moon = b
+			break
+		}
+	}
+	if moon.ID == "" {
+		return moon, 0, 0, 0, false
+	}
+	muMoon := moon.GravitationalParameter()
+	rPeri = moon.RadiusMeters() + 40e3
+	rApo = moon.RadiusMeters() + 8000e3
+	a := (rPeri + rApo) / 2
+	vPeri = math.Sqrt(muMoon * (2/rPeri - 1/a))
+	vApo := math.Sqrt(muMoon * (2/rApo - 1/a))
+	w.Craft.Primary = moon
+	// Apoapsis sits at -X (opposite peri); craft moves in -Y direction
+	// there so the next periapsis return is along +X.
+	w.Craft.State.R = orbital.Vec3{X: -rApo}
+	w.Craft.State.V = orbital.Vec3{Y: -vApo}
+	return moon, rPeri, rApo, vPeri, true
+}
+
+// TestPreviewBurnStateLongRetroAtLunaPeriCapsByDuration (v0.6.3
+// polish): mirrors the Luna-circularization playthrough Jason
+// reported. After a Hohmann + capture, the craft sits in a peri-40 km
+// / apo-~8000 km lunar orbit. Hand-entering 400 m/s retrograde at
+// next peri while leaving the form's default 10 s duration cannot
+// deliver the requested Δv — the in-flight burn terminates on
+// duration, not Δv. The preview must reflect that truncation: the
+// post-burn orbit must match what the live integrator will actually
+// produce, so the player isn't surprised by an AP drop smaller than
+// the projected number suggested.
+//
+// Also confirms that a long retrograde burn centered on periapsis
+// shifts PE by less than the finite-burn arc would predict (well
+// under 100 km for this profile) — Jason's "PE adjusts more than
+// expected" observation, expected to be small in physics.
+func TestPreviewBurnStateLongRetroAtLunaPeriCapsByDuration(t *testing.T) {
+	w := mustWorld(t)
+	moon, rPeri, _, vPeri, seated := seatLunaCaptureOrbit(t, w)
+	if !seated {
+		t.Skip("Moon missing from Sol")
+	}
+	muMoon := moon.GravitationalParameter()
+
+	// Default duration (matches the m form's default).
+	const duration = 10 * time.Second
+
+	// Sanity: max deliverable in 10 s for the S-IVB-1 default.
+	const g0 = 9.80665
+	mdot := w.Craft.Thrust / (w.Craft.Isp * g0)
+	massAfter := w.Craft.State.M - mdot*duration.Seconds()
+	if massAfter <= 0 {
+		t.Fatal("setup: 10 s burn would empty the tank — vessel mass too low for default")
+	}
+	maxDeliverable := w.Craft.Isp * g0 * math.Log(w.Craft.State.M/massAfter)
+	if maxDeliverable > 250 {
+		t.Fatalf("setup: maxDeliverable in %v = %.1f m/s; expected ~205 m/s for S-IVB-1 — vessel parameters changed?",
+			duration, maxDeliverable)
+	}
+
+	// Request 400 m/s — well above what 10 s can deliver.
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnRetrograde, 400, duration, TriggerNextPeri)
+	if !ok {
+		t.Fatalf("PreviewBurnState returned ok=false")
+	}
+	if primary.ID != moon.ID {
+		t.Fatalf("preview escaped Luna SOI? primary=%q", primary.ID)
+	}
+
+	post := orbital.ElementsFromState(state.R, state.V, muMoon)
+	postPeri := post.Periapsis()
+	postApo := post.Apoapsis()
+
+	// PE should stay close to its pre-burn value. Finite-burn
+	// deformation over a ~10 s arc at 1.2 mrad/s ω only twists the
+	// retrograde direction by ~0.7° — periapsis shift should be
+	// well under 100 km in practice.
+	periShift := math.Abs(postPeri - rPeri)
+	if periShift > 100e3 {
+		t.Errorf("PE shifted %.0f km — finite-burn deformation should be < 100 km; current orbit is symmetric around peri",
+			periShift/1000)
+	}
+
+	// AP must reflect *delivered* Δv, not the requested 400 m/s.
+	// Compute the impulsive AP that 400 m/s would have produced and
+	// the impulsive AP that maxDeliverable would have produced; the
+	// finite preview's AP must sit closer to the latter.
+	impPostV400 := vPeri - 400
+	impEps400 := 0.5*impPostV400*impPostV400 - muMoon/rPeri
+	impA400 := -muMoon / (2 * impEps400)
+	impApo400 := 2*impA400 - rPeri
+
+	impPostVCap := vPeri - maxDeliverable
+	impEpsCap := 0.5*impPostVCap*impPostVCap - muMoon/rPeri
+	impACap := -muMoon / (2 * impEpsCap)
+	impApoCap := 2*impACap - rPeri
+
+	dist400 := math.Abs(postApo - impApo400)
+	distCap := math.Abs(postApo - impApoCap)
+	if dist400 < distCap {
+		t.Errorf("preview AP %.0f km matched 400 m/s impulsive (%.0f km) more closely than truncated %.1f m/s impulsive (%.0f km) — duration cap not applied",
+			postApo/1000, impApo400/1000, maxDeliverable, impApoCap/1000)
+	}
+	// Preview AP should be within 5% of the truncated impulsive
+	// prediction. Finite-burn deformation nudges it slightly but
+	// not by 5%.
+	rel := math.Abs(postApo-impApoCap) / impApoCap
+	if rel > 0.05 {
+		t.Errorf("preview AP %.0f km diverges from truncated-impulsive %.0f km by %.1f%% — expected < 5%%",
+			postApo/1000, impApoCap/1000, rel*100)
+	}
+}
+
+// TestPreviewBurnStateFiniteVsImpulsiveAtLunaPeri (v0.6.3 polish): when
+// the requested Δv fits inside the duration window (200 m/s in 10 s
+// for the S-IVB-1), the finite-burn preview and the impulsive preview
+// should land within a few percent on AP — the burn arc is small
+// enough that the cosine-loss / off-tangential effect is bounded. PE
+// drift between the two should also be small for a burn centered on
+// periapsis. Catches regressions where the finite-burn integration
+// silently produces a wildly different orbit shape.
+func TestPreviewBurnStateFiniteVsImpulsiveAtLunaPeri(t *testing.T) {
+	w := mustWorld(t)
+	moon, _, _, _, seated := seatLunaCaptureOrbit(t, w)
+	if !seated {
+		t.Skip("Moon missing from Sol")
+	}
+	muMoon := moon.GravitationalParameter()
+
+	// 200 m/s in 10 s for S-IVB-1 — deliverable (max ≈ 205).
+	imp, _, ok := w.PreviewBurnState(spacecraft.BurnRetrograde, 200, 0, TriggerNextPeri)
+	if !ok {
+		t.Fatal("impulsive preview ok=false")
+	}
+	fin, _, ok := w.PreviewBurnState(spacecraft.BurnRetrograde, 200, 10*time.Second, TriggerNextPeri)
+	if !ok {
+		t.Fatal("finite preview ok=false")
+	}
+	impEl := orbital.ElementsFromState(imp.R, imp.V, muMoon)
+	finEl := orbital.ElementsFromState(fin.R, fin.V, muMoon)
+
+	apoRel := math.Abs(impEl.Apoapsis()-finEl.Apoapsis()) / impEl.Apoapsis()
+	if apoRel > 0.05 {
+		t.Errorf("AP impulsive vs finite differ by %.1f%% (imp=%.0f km, fin=%.0f km) — expected < 5%% for short burn",
+			apoRel*100, impEl.Apoapsis()/1000, finEl.Apoapsis()/1000)
+	}
+	periDelta := math.Abs(impEl.Periapsis() - finEl.Periapsis())
+	if periDelta > 50e3 {
+		t.Errorf("PE impulsive vs finite differ by %.0f km — expected < 50 km for ~10 s burn at peri", periDelta/1000)
+	}
+}
+
+// TestPlanTransferMoonEscapeIntraPrimaryStillFires: regression guard —
+// the new moon-escape branch must not steal dispatch from the
+// intra-primary branch. From LEO targeting Luna (target.ParentID ==
+// craft.Primary.ID), the intra-primary Hohmann path must still fire
+// and plant a non-trivial geocentric departure.
+func TestPlanTransferMoonEscapeIntraPrimaryStillFires(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon missing from Sol")
+	}
+	plan, err := w.PlanTransfer(moonIdx)
+	if err != nil {
+		t.Fatalf("PlanTransfer(moon) from LEO: %v", err)
+	}
+	if plan.Departure.PrimaryID != "earth" {
+		t.Errorf("intra-primary departure PrimaryID = %q, want %q (LEO→Luna stays geocentric)",
+			plan.Departure.PrimaryID, "earth")
+	}
+	if plan.Arrival.PrimaryID != "moon" {
+		t.Errorf("intra-primary arrival PrimaryID = %q, want %q",
+			plan.Arrival.PrimaryID, "moon")
+	}
+	// Δv should be in TLI ballpark — well above the moon-escape
+	// figure (~30 m/s). Pick a generous lower bound.
+	if plan.Departure.DV < 2000 {
+		t.Errorf("LEO→Luna departure Δv = %.0f m/s, want ≥ 2000 (TLI scale)", plan.Departure.DV)
 	}
 }
