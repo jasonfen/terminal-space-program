@@ -106,21 +106,38 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.BurnExecutedMsg:
 		if a.world.Craft != nil {
-			// v0.6.0: event-relative nodes go through PlanNode so the
-			// resolver can freeze TriggerTime against the live orbit on
-			// the next Tick. TriggerAbsolute with a finite duration
-			// also routes through PlanNode for consistent finite-burn
-			// dispatch (legacy fast-paths kept for impulsive Absolute
-			// to preserve v0.5 quick-fire semantics).
+			// v0.6.4 click-to-edit: replace the original node before
+			// planting so click → edit → Enter reads as "modify in
+			// place" rather than "duplicate." Removal must come first
+			// so PlanNode's sort handles the new node's position
+			// against the rest of the (post-removal) slice.
+			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.Nodes) {
+				a.world.Nodes = append(a.world.Nodes[:m.EditingIdx], a.world.Nodes[m.EditingIdx+1:]...)
+			}
 			switch {
+			case !m.TriggerTime.IsZero():
+				// LoadNode preserved a scheduled trigger — plant a real
+				// ManeuverNode at exactly that time, skipping the
+				// legacy "fire now" Absolute path that quick-plant
+				// uses. Event is forwarded so resolved-then-edited
+				// event-relative nodes keep their semantic label.
+				a.world.PlanNode(sim.ManeuverNode{
+					TriggerTime: m.TriggerTime,
+					Mode:        m.Mode,
+					DV:          m.DV,
+					Duration:    m.Duration,
+					Event:       m.Event,
+				})
 			case m.Event != sim.TriggerAbsolute:
-				node := sim.ManeuverNode{
+				// v0.6.0: event-relative nodes go through PlanNode so
+				// the resolver can freeze TriggerTime against the live
+				// orbit on the next Tick.
+				a.world.PlanNode(sim.ManeuverNode{
 					Mode:     m.Mode,
 					DV:       m.DV,
 					Duration: m.Duration,
 					Event:    m.Event,
-				}
-				a.world.PlanNode(node)
+				})
 			case m.Duration == 0:
 				a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
 			default:
@@ -131,8 +148,68 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		a.maneuver.ResetEditing()
 		a.world.Clock.Paused = false
 		a.active = screenOrbit
+		return a, nil
+
+	case tea.MouseMsg:
+		// v0.6.4: click-only selection. Left-press only; motion /
+		// release / wheel ignored. Per-screen routing: orbit's hit
+		// dispatch is most-specific-first (vessel → node → body →
+		// HUD); porkchop click sets the cell selection.
+		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {
+			return a, nil
+		}
+		switch a.active {
+		case screenOrbit:
+			hit := a.orbitView.HitAt(m.X, m.Y)
+			switch {
+			case hit.IsVessel:
+				if a.world.CraftVisibleHere() {
+					a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
+				}
+			case hit.NodeIdx > 0:
+				idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
+				if idx >= 0 && idx < len(a.world.Nodes) {
+					a.maneuver.LoadNode(idx, a.world.Nodes[idx])
+					a.world.Clock.Paused = true
+					a.active = screenManeuver
+				}
+			case hit.BodyID != "":
+				for i, b := range a.world.System().Bodies {
+					if b.ID == hit.BodyID {
+						a.selectedBody = i
+						break
+					}
+				}
+			case a.orbitView.IsCanvasClick(m.X, m.Y):
+				// Empty-canvas click → stage a new burn at the
+				// orbit point nearest the click. v0.6.4: the user
+				// can place a maneuver at a point along their
+				// trajectory without manually computing a T+
+				// offset. ProjectToOrbit returns time-of-flight
+				// from now to that point's true-anomaly; we open
+				// the form pre-staged with TriggerAbsolute and
+				// that schedule.
+				if dt, ok := a.orbitView.ProjectToOrbit(a.world, m.X, m.Y); ok && a.world.CraftVisibleHere() {
+					a.maneuver.LoadStaged(a.world.Clock.SimTime.Add(dt))
+					a.world.Clock.Paused = true
+					a.active = screenManeuver
+				}
+			case a.orbitView.IsHudClick(m.X):
+				// HUD click → open body info for the currently
+				// selected body. Coarse: doesn't try to identify
+				// which HUD section was clicked, just routes any
+				// HUD click to the info screen so the user has a
+				// pointer to the same view as `i`.
+				a.active = screenBodyInfo
+			}
+		case screenPorkchop:
+			if depIdx, tofIdx, ok := a.porkchop.HitCell(m.X, m.Y); ok {
+				a.porkchop.SetSelection(depIdx, tofIdx)
+			}
+		}
 		return a, nil
 
 	case tea.KeyMsg:
@@ -166,6 +243,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if key.Matches(m, a.keys.Back) {
+				a.maneuver.ResetEditing()
 				a.world.Clock.Paused = false
 				a.active = screenOrbit
 				return a, nil
@@ -214,6 +292,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.Maneuver):
 			if a.active == screenOrbit && a.world.CraftVisibleHere() {
+				// Pressing `m` opens for a NEW node — drop any
+				// click-to-edit state that may be lingering from a
+				// previous open.
+				a.maneuver.ResetEditing()
 				a.active = screenManeuver
 				a.world.Clock.Paused = true
 			}
@@ -294,6 +376,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.Load):
 			a.flashStatus("load", a.doLoad())
+			return a, nil
+		case key.Matches(m, a.keys.CycleView):
+			a.world.CycleViewMode()
+			a.statusMsg = fmt.Sprintf("view: %s", a.world.ViewMode)
+			a.statusExpires = time.Now().Add(2 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.RefinePlan):
 			if a.world.CraftVisibleHere() {

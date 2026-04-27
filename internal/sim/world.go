@@ -27,6 +27,12 @@ type World struct {
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
 
+	// ViewMode selects the canvas projection basis. v0.6.4+. Zero
+	// value (ViewEquatorial) matches the pre-v0.6.4 (X, Y)-drop
+	// projection. Set per-session via the `v` hot-key; not persisted
+	// to save (UI preference, not game state).
+	ViewMode ViewMode
+
 	// Nodes holds planned burns, sorted by TriggerTime. Each fires
 	// automatically when Clock.SimTime reaches its trigger.
 	Nodes []ManeuverNode

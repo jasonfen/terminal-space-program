@@ -169,6 +169,38 @@ func (el Elements) Periapsis() float64 { return el.A * (1 - el.E) }
 // return value is negative (hyperbolic) — callers should check.
 func (el Elements) Apoapsis() float64 { return el.A * (1 + el.E) }
 
+// PerifocalBasis returns the perifocal frame's x̂ and ŷ unit vectors
+// in inertial coordinates, given the orbit's (Ω, i, ω). x̂ points
+// toward periapsis; ŷ is 90° prograde from x̂ in the orbit plane.
+// Together they span the orbit plane — projecting an inertial point
+// onto (x̂, ŷ) gives its in-plane coordinates.
+//
+// v0.6.4+: used by the orbit-perpendicular view mode. Setting the
+// canvas basis to (x̂, ŷ) renders the orbit as a clean ellipse with
+// no foreshortening regardless of inclination. Out-of-plane points
+// project to their in-plane shadow (their orbit-normal component is
+// dropped).
+//
+// Standard reference: Vallado §2.6 perifocal-to-inertial rotation
+// matrix R_perifocal→inertial; the columns are (x̂, ŷ, ẑ_orbit) in
+// inertial coordinates. PerifocalBasis returns the first two columns.
+func PerifocalBasis(el Elements) (Vec3, Vec3) {
+	cosO, sinO := math.Cos(el.Omega), math.Sin(el.Omega)
+	cosI, sinI := math.Cos(el.I), math.Sin(el.I)
+	cosA, sinA := math.Cos(el.Arg), math.Sin(el.Arg)
+	xHat := Vec3{
+		X: cosO*cosA - sinO*cosI*sinA,
+		Y: sinO*cosA + cosO*cosI*sinA,
+		Z: sinI * sinA,
+	}
+	yHat := Vec3{
+		X: -cosO*sinA - sinO*cosI*cosA,
+		Y: -sinO*sinA + cosO*cosI*cosA,
+		Z: sinI * cosA,
+	}
+	return xHat, yHat
+}
+
 // Readout summarises the orbit's headline parameters for HUD use.
 // Distances are in metres from the primary's centre (not altitude);
 // caller subtracts body radius for altitude. Node angles are in
