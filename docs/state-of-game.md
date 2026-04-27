@@ -1,10 +1,10 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.6.3 (April 2026) — v0.6 cycle in flight (burn-at-next
+*Snapshot at v0.6.4 (April 2026) — v0.6 cycle in flight (burn-at-next
 scheduler + predicted-orbit HUD + finite-burn-aware iterative
-planner + moon → parent escape transfer shipped; mouse + view-mode
-switcher next, then missions and the multiplayer design-doc spike).
-Updated at each minor / patch boundary.*
+planner + moon → parent escape transfer + click-only mouse + 5-way
+view-mode switcher shipped; missions and the multiplayer design-doc
+spike remain). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -14,7 +14,7 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.6.3)
+## 1. What works today (v0.6.4)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -233,17 +233,15 @@ by patch — this doc is the snapshot, those are the release notes.
   drag below ~150 km to enable reentry / aerobraking gameplay; patched-conic
   two-body stays the primary integrator. Previously on "excluded forever",
   softened here — only *realistic* multi-species drag stays out of scope.
-- **Mouse support + view-mode switcher** (v0.6.4 target, see §3).
-  Currently keyboard-only; v0.6.4 adds click-only selection
-  (click-to-focus on bodies, vessel, maneuver nodes, click-to-plant
-  on porkchop cells, click on HUD panels) and a `v` hot-key that
-  cycles between hard-coded camera presets (equatorial = current
-  default; orbit-perpendicular = camera along the active orbit's
-  angular-momentum vector for clean ellipse rendering on inclined
-  orbits). View-mode plumbing surfaced during v0.6.3 manual play —
-  the equatorial-only projection foreshortens at lunar inclinations
-  and made low-orbit projections hard to size at a glance. Drag-to-
-  edit, wheel-zoom, and free-rotation stay out of v0.6.
+- ~~**Mouse support + view-mode switcher** (v0.6.4 target).~~ Shipped
+  in v0.6.4 — click-only selection on the orbit screen (vessel →
+  node → body → empty-canvas → HUD priority cascade), porkchop
+  cells clickable, click-to-edit on planted nodes preserves the
+  scheduled fire time and replaces in place, click on empty canvas
+  stages a new node at the orbit point nearest the click, plus a
+  `v` hot-key cycling Top → Right → Bottom → Left → OrbitFlat with
+  back-of-body occlusion in side views. Drag-to-edit, wheel-zoom,
+  and free-rotation remain out of scope.
 
 ### Visual / UX targets
 - **Maneuver node editing**. Nodes are plant-once today; adding drag/scrub
@@ -304,7 +302,8 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.6.1 ✓** | | Predicted post-burn orbit HUD + maneuver UX polish — `orbital.OrbitReadout`, `World.PreviewBurnState` (event-aware shadow trajectory), `World.PredictedFinalOrbit` + `PredictedLegs` (chain through nodes, rebase into each node's intended frame so Hohmann arrival reports as Mars-frame). PROJECTED ORBIT HUD blocks on both the orbit screen and `m` form. Per-leg colored trajectory preview (cyan/mint/amber/pink cycle) with matched node-marker colors. `minOrbitPixels` gate hides sub-pixel ellipses + swaps craft chevron for bright `ColorCraftMarker` disk at large zoom. `ColorCurrentOrbit` → pale slate (distinct from any body palette). Default LEO 200 → 500 km, NewWorld spawns with `Focus = FocusCraft`, default burn duration 0 → 10 s. Active-burn guard suppresses projection while live state mutates. |
 | **v0.6.2 ✓** | | Finite-burn-aware iterative planner — `planner.SimulateFiniteBurn` (RK4 + Tsiolkovsky), `planner.IterateForTarget` (Newton iteration on commanded Δv with ±50 % step cap and `ErrFiniteBurnDiverged` fallback), `planner.TargetApoapsis` / `TargetPeriapsis` residual helpers. `sim.refineFiniteDeparture` wires the iterator into `H` auto-plant so Hohmann departures hit the requested apoapsis even on low-TWR loadouts where the impulsive guess loses several percent of energy to gravity-rotation. For S-IVB-1 the iterator converges in 1-2 steps (no-op); for low-TWR profiles it catches errors the impulsive math misses. |
 | **v0.6.3 ✓** | | Moon → parent escape transfer — `planner.PlanMoonEscape` (bound transfer ellipse with apolune at the moon's SOI radius, zero-Δv frame marker at SOI exit so the player plants their own circularization in the parent frame). New dispatch branch in `sim.PlanTransfer` for `target.ID == w.Craft.Primary.ParentID`; pre-v0.6.3 this fell through to the heliocentric Hohmann path and quoted nonsense Δv. Departure burn refines through v0.6.2's iterator with `TargetApoapsis(rSOI)`. Maneuver-screen mini-canvas now renders the primary as a sized disk (true-scale `FillColoredDisk`, [3, 64] px clamp) so low-orbit projections read at their real visual scale (the orbit screen's `BodyPixelRadius` would have dropped Luna-class moons to 1 px under its size-tier fallback). `PreviewBurnState` is finite-burn-aware: takes `Duration`, caps delivered Δv via the rocket equation given the duration window, routes through `planner.SimulateFiniteBurn` so the projected orbit matches what the live integrator will actually deliver — pre-v0.6.3 the preview ignored both finite-burn deformation and the duration cap, so a "400 m/s in 10 s" request previewed full 400 m/s while the live burn delivered ~205 m/s. Quit confirm prompt on `q` (footer "Quit and save? [y/N]"); `ctrl+c` stays immediate. Orbit-canvas camera freezes for the duration of an `ActiveBurn` so the live orbit ellipse + apsidal markers + selected-body crosshair morph in place rather than sweeping past as focus-on-craft tracks the burning craft. |
-| **v0.6** | **(in flight) Planner UX + missions + MP design** | Click-only mouse selection + view-mode switcher (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown + status table. |
+| **v0.6.4 ✓** | | Click-only mouse + 5-way view modes — `Canvas.pixelTags` widened to `CellTag{Color, BodyID, NodeIdx, IsVessel}`; `Canvas.HitAt(col, row)` aggregates the 2×4 pixels per terminal cell. Click cascade on the orbit screen: vessel → node → body → empty-canvas → HUD. Click-to-edit nodes preserves the scheduled fire time and replaces in place via `Maneuver.LoadNode(idx, node)` + `BurnExecutedMsg.{TriggerTime, EditingIdx}`; the form's BURN PLAN header switches to `BURN PLAN — editing node N` and the fire-at line shows an absolute countdown (`T+14m32s` or `next peri (T+3h12m)`). Empty-canvas click → `OrbitView.ProjectToOrbit` finds the orbit ν nearest the click and stages a new node at that point's TriggerTime via `Maneuver.LoadStaged`. Porkchop cells clickable (cursor parity). View-mode `v` cycles Top → Right → Bottom → Left → OrbitFlat; side views render back-of-body occlusion via `Canvas.IsBehindBody` + `Canvas.DrawEllipseOffsetOccluded` so the spacecraft orbit + apo/peri markers + craft glyph hide behind the primary's projected disk; OrbitFlat projects onto the active craft's orbit plane via `orbital.PerifocalBasis` for clean ellipse rendering at any inclination. Maneuver screen reflowed to horizontal `JoinHorizontal` so canvas + form fit side-by-side. Quit confirm prompt on `q` (`ctrl+c` stays immediate). Burn-camera freeze pins canvas center for the duration of an `ActiveBurn`. |
+| **v0.6** | **(in flight) Planner UX + missions + MP design** | Mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown + status table. |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 
