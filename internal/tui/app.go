@@ -135,6 +135,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.active = screenOrbit
 		return a, nil
 
+	case tea.MouseMsg:
+		// v0.6.4: click-only selection. Body click on the orbit
+		// canvas → focus that body (sets selectedBody index). No
+		// drag, no wheel-zoom — those stay out of v0.6 per the
+		// scoping decisions. Right-click and motion ignored.
+		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {
+			return a, nil
+		}
+		if a.active != screenOrbit {
+			return a, nil
+		}
+		hit := a.orbitView.HitAt(m.X, m.Y)
+		if hit.BodyID != "" {
+			for i, b := range a.world.System().Bodies {
+				if b.ID == hit.BodyID {
+					a.selectedBody = i
+					break
+				}
+			}
+		}
+		return a, nil
+
 	case tea.KeyMsg:
 		// ctrl+c bypasses the quit-confirm dialog (standard interrupt
 		// convention). Honored from any screen.

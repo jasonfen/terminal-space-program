@@ -32,6 +32,19 @@ type Basis struct {
 	X, Y orbital.Vec3
 }
 
+// CellTag is the per-pixel record set by the *Colored* / *Tagged*
+// draw helpers. Color drives String()'s per-cell colorization;
+// BodyID / NodeIdx / IsVessel let HitAt resolve mouse clicks back
+// to a sim object. v0.6.4+. Zero value = untagged (no color, no
+// hit). NodeIdx 0 means "not a node" — planted nodes are 1-indexed
+// in the tag and decoded by callers.
+type CellTag struct {
+	Color    lipgloss.Color
+	BodyID   string
+	NodeIdx  int  // 0 = no node; otherwise 1 + Nodes-slice index
+	IsVessel bool
+}
+
 // DefaultBasis is the top-down projection: world X axis maps to
 // canvas X+, world Y axis to canvas Y+. Z drops. Pre-v0.6.4 the
 // only projection.
@@ -64,20 +77,24 @@ type Canvas struct {
 	basis      Basis        // world axes mapped to canvas X+/Y+ (v0.6.4+)
 	dc         drawille.Canvas
 
-	// pixelTags maps a pixel coord (px, py) → its render color. Set by
-	// the *Colored* draw helpers (FillColoredDisk, RingColoredOutline);
-	// the plain Plot / FillDisk / RingOutline / DrawEllipse / PlotArrow
-	// helpers leave pixels untagged. At String() time, each terminal
-	// cell picks its color from the most-common tag among its 2×4
-	// pixels; cells with no tagged pixels render in the default
-	// terminal color.
+	// pixelTags maps a pixel coord (px, py) → CellTag. Set by the
+	// *Colored* / *Tagged* draw helpers; plain Plot / FillDisk /
+	// RingOutline / DrawEllipse / PlotArrow leave pixels untagged.
+	//
+	// At String() time, each terminal cell picks its color from the
+	// most-common Color among its 2×4 pixels (cells with no tagged
+	// pixels render in the default terminal color). v0.6.4+: HitAt
+	// aggregates the same cell-level pixel set to answer "what's
+	// under cursor (col, row)?" for mouse hit-testing — bodies,
+	// vessel, planted nodes — using BodyID / NodeIdx / IsVessel
+	// fields on CellTag.
 	//
 	// v0.5.10+: replaces the v0.5.3 cell-rectangle approach, which
 	// colored a body's entire bounding box of cells — bleeding into
 	// orbit lines, craft glyphs, and apo/peri markers near a body.
 	// Per-pixel tagging keeps body color confined to the body's own
 	// pixels.
-	pixelTags map[[2]int]lipgloss.Color
+	pixelTags map[[2]int]CellTag
 
 	// cellOverlays maps a cell coord → a Unicode glyph that replaces
 	// the drawille-derived char at String() time. v0.5.12+ — used by
@@ -164,13 +181,22 @@ func (c *Canvas) SetCellOverlay(w orbital.Vec3, glyph rune) {
 // Replaces the v0.5.3 AddColoredDisk approach which painted the
 // body's entire cell-bounding-box, bleeding into nearby content.
 func (c *Canvas) FillColoredDisk(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
+	c.FillColoredDiskTagged(center, pxRadius, CellTag{Color: color})
+}
+
+// FillColoredDiskTagged is FillColoredDisk that records the supplied
+// CellTag (color + body / node / vessel hit fields) on every pixel
+// it sets. v0.6.4+: callers pass a tag with BodyID set so HitAt can
+// resolve mouse clicks back to bodies. Tag values default to "no
+// hit" so older draw paths that just need color stay untouched.
+func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag CellTag) {
 	if pxRadius < 1 {
 		pxRadius = 1
 	}
 	cx, cy, _ := c.Project(center)
 	r2 := pxRadius * pxRadius
 	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]lipgloss.Color)
+		c.pixelTags = make(map[[2]int]CellTag)
 	}
 	for dy := -pxRadius; dy <= pxRadius; dy++ {
 		for dx := -pxRadius; dx <= pxRadius; dx++ {
@@ -182,7 +208,7 @@ func (c *Canvas) FillColoredDisk(center orbital.Vec3, pxRadius int, color lipglo
 				continue
 			}
 			c.dc.Set(px, py)
-			c.pixelTags[[2]int{px, py}] = color
+			c.pixelTags[[2]int{px, py}] = tag
 		}
 	}
 }
@@ -198,6 +224,13 @@ func (c *Canvas) FillColoredDisk(center orbital.Vec3, pxRadius int, color lipglo
 // The cap still produces dense enough sampling for the ring to look
 // smooth at any radius that contributes visible pixels to the canvas.
 func (c *Canvas) RingColoredOutline(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
+	c.RingColoredOutlineTagged(center, pxRadius, CellTag{Color: color})
+}
+
+// RingColoredOutlineTagged is RingColoredOutline that records the
+// supplied CellTag on every pixel it sets. v0.6.4+ — same role as
+// FillColoredDiskTagged for ring-system bodies.
+func (c *Canvas) RingColoredOutlineTagged(center orbital.Vec3, pxRadius int, tag CellTag) {
 	if pxRadius < 1 {
 		pxRadius = 1
 	}
@@ -211,7 +244,7 @@ func (c *Canvas) RingColoredOutline(center orbital.Vec3, pxRadius int, color lip
 		samples = maxSamples
 	}
 	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]lipgloss.Color)
+		c.pixelTags = make(map[[2]int]CellTag)
 	}
 	for i := 0; i < samples; i++ {
 		theta := 2 * math.Pi * float64(i) / float64(samples)
@@ -221,21 +254,28 @@ func (c *Canvas) RingColoredOutline(center orbital.Vec3, pxRadius int, color lip
 			continue
 		}
 		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = color
+		c.pixelTags[[2]int{px, py}] = tag
 	}
 }
 
 // PlotColored sets a single pixel and tags it with the given color.
-// Used by callers that want a tagged dot (currently unused — Plot
-// stays untagged, which is what most callers want for orbit lines
-// and trail samples).
+// Used by callers that want a tagged dot (e.g. v0.6.1 maneuver-leg
+// preview). v0.6.4+: routed through PlotColoredTagged so tagged
+// variants of node-cluster / vessel-glyph plots can land hit-test
+// metadata while reusing the same path.
 func (c *Canvas) PlotColored(w orbital.Vec3, color lipgloss.Color) {
+	c.PlotColoredTagged(w, CellTag{Color: color})
+}
+
+// PlotColoredTagged is PlotColored with the full CellTag (color +
+// hit-test metadata) preserved on the pixel. v0.6.4+.
+func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 	if px, py, ok := c.Project(w); ok {
 		c.dc.Set(px, py)
 		if c.pixelTags == nil {
-			c.pixelTags = make(map[[2]int]lipgloss.Color)
+			c.pixelTags = make(map[[2]int]CellTag)
 		}
-		c.pixelTags[[2]int{px, py}] = color
+		c.pixelTags[[2]int{px, py}] = tag
 	}
 }
 
@@ -304,6 +344,84 @@ func (c *Canvas) Unproject(px, py int) orbital.Vec3 {
 	return c.centerW.
 		Add(c.basis.X.Scale(relX)).
 		Add(c.basis.Y.Scale(relY))
+}
+
+// HitAt aggregates the CellTag fields recorded on the 2×4 pixels
+// of the terminal cell at (col, row). Returns the most-common
+// non-empty BodyID among those pixels (with first-seen as the tie-
+// breaker). NodeIdx and IsVessel resolve the same way (most common
+// non-zero / true wins). Color falls out of the existing String()
+// aggregation and is not returned here. v0.6.4+: paired with the
+// app's MouseMsg dispatch so a click resolves to "what sim object
+// is this cell rendering?"
+//
+// (col, row) outside the canvas → zero-value CellTag (no hit).
+// Cells whose pixel set is entirely untagged also return zero —
+// the caller treats this as "click on empty canvas" and may then
+// Unproject for an in-orbit-plane world coord.
+func (c *Canvas) HitAt(col, row int) CellTag {
+	if col < 0 || col >= c.cols || row < 0 || row >= c.rows {
+		return CellTag{}
+	}
+	if len(c.pixelTags) == 0 {
+		return CellTag{}
+	}
+	bodyCounts := map[string]int{}
+	nodeCounts := map[int]int{}
+	vesselCount := 0
+	pxStart, pyStart := col*2, row*4
+	for dx := 0; dx < 2; dx++ {
+		for dy := 0; dy < 4; dy++ {
+			tag, ok := c.pixelTags[[2]int{pxStart + dx, pyStart + dy}]
+			if !ok {
+				continue
+			}
+			if tag.BodyID != "" {
+				bodyCounts[tag.BodyID]++
+			}
+			if tag.NodeIdx != 0 {
+				nodeCounts[tag.NodeIdx]++
+			}
+			if tag.IsVessel {
+				vesselCount++
+			}
+		}
+	}
+	hit := CellTag{}
+	if vesselCount > 0 {
+		hit.IsVessel = true
+	}
+	if best, n := mostCommonString(bodyCounts); n > 0 {
+		hit.BodyID = best
+	}
+	if best, n := mostCommonInt(nodeCounts); n > 0 {
+		hit.NodeIdx = best
+	}
+	return hit
+}
+
+func mostCommonString(counts map[string]int) (string, int) {
+	var best string
+	bestN := 0
+	for k, n := range counts {
+		if n > bestN {
+			bestN = n
+			best = k
+		}
+	}
+	return best, bestN
+}
+
+func mostCommonInt(counts map[int]int) (int, int) {
+	var best int
+	bestN := 0
+	for k, n := range counts {
+		if n > bestN {
+			bestN = n
+			best = k
+		}
+	}
+	return best, bestN
 }
 
 // IsBehindBody reports whether a world point `samplePos` is occluded
@@ -557,13 +675,16 @@ func (c *Canvas) String() string {
 	// since collisions are rare).
 	cellColor := make(map[[2]int]lipgloss.Color)
 	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
-	for coord, color := range c.pixelTags {
+	for coord, tag := range c.pixelTags {
+		if tag.Color == "" {
+			continue
+		}
 		cellX, cellY := coord[0]/2, coord[1]/4
 		key := [2]int{cellX, cellY}
 		if cellCounts[key] == nil {
 			cellCounts[key] = make(map[lipgloss.Color]int)
 		}
-		cellCounts[key][color]++
+		cellCounts[key][tag.Color]++
 	}
 	for key, counts := range cellCounts {
 		var bestColor lipgloss.Color

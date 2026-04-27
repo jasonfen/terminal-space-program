@@ -287,6 +287,57 @@ func abs(x float64) float64 {
 	return x
 }
 
+// TestHitAtResolvesBodyTag (v0.6.4+): a tagged disk drawn at a known
+// world coord is recoverable by HitAt at the cell containing the
+// disk's center. The test sets a 5-pixel disk and asserts the
+// center cell hits with the supplied BodyID.
+func TestHitAtResolvesBodyTag(t *testing.T) {
+	c := NewCanvas(40, 20) // pixel grid 80 × 80
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.FillColoredDiskTagged(orbital.Vec3{}, 5, CellTag{
+		Color:  lipgloss.Color("#FF0000"),
+		BodyID: "moon",
+	})
+	// Disk center maps to canvas pixel (40, 40), terminal cell (20, 10).
+	hit := c.HitAt(20, 10)
+	if hit.BodyID != "moon" {
+		t.Errorf("center cell hit BodyID = %q, want %q", hit.BodyID, "moon")
+	}
+}
+
+// TestHitAtUntaggedReturnsZero: a cell whose covered pixels carry
+// only color tags (no BodyID / NodeIdx / IsVessel) returns the
+// zero-value CellTag — used by the orbit screen to differentiate
+// "click on a sim object" from "click on empty canvas."
+func TestHitAtUntaggedReturnsZero(t *testing.T) {
+	c := NewCanvas(40, 20)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	// PlotColored only sets Color — no BodyID / NodeIdx / IsVessel.
+	c.PlotColored(orbital.Vec3{}, lipgloss.Color("#00FF00"))
+	hit := c.HitAt(20, 10)
+	if hit.BodyID != "" || hit.NodeIdx != 0 || hit.IsVessel {
+		t.Errorf("untagged cell hit non-zero CellTag: %+v", hit)
+	}
+}
+
+// TestHitAtOutOfBoundsReturnsZero: clicks outside the canvas
+// content area must not panic and must return zero. The mouse
+// dispatch uses this guard for clicks that fall on the title /
+// border / HUD regions.
+func TestHitAtOutOfBoundsReturnsZero(t *testing.T) {
+	c := NewCanvas(40, 20)
+	for _, p := range [][2]int{
+		{-1, 5}, {5, -1}, {40, 5}, {5, 20}, {1000, 1000},
+	} {
+		hit := c.HitAt(p[0], p[1])
+		if hit.BodyID != "" || hit.NodeIdx != 0 || hit.IsVessel {
+			t.Errorf("HitAt(%d, %d) = %+v, want zero", p[0], p[1], hit)
+		}
+	}
+}
+
 // TestIsBehindBodyDepthAndDisk (v0.6.4+): the helper returns true
 // only when both conditions hold — sample is behind the body's
 // camera-perpendicular plane AND the projected pixel coord falls

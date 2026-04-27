@@ -83,6 +83,16 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 func (v *OrbitView) ZoomIn()  { v.canvas.ZoomBy(1.25) }
 func (v *OrbitView) ZoomOut() { v.canvas.ZoomBy(1.0 / 1.25) }
 
+// HitAt translates a screen-space mouse coordinate (col, row) into a
+// CellTag from the orbit canvas. The orbit screen renders title (1
+// row) + canvasPanel (rounded border = 1 row top, 1 col left)
+// before the canvas content, so we offset (col-1, row-2). Returns a
+// zero-value CellTag when the click lands outside the canvas
+// content area, which the caller treats as "no hit." v0.6.4+.
+func (v *OrbitView) HitAt(screenCol, screenRow int) widgets.CellTag {
+	return v.canvas.HitAt(screenCol-1, screenRow-2)
+}
+
 // Render composes the frame: canvas on the left, HUD on the right.
 // selectedIdx is the index of the cursor-selected body in system.Bodies.
 func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows int) string {
@@ -136,11 +146,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		pos := w.BodyPosition(b)
 		r := BodyPixelRadius(b, i == 0, scale)
 		color := render.ColorFor(b)
+		// v0.6.4: tag body pixels with BodyID so HitAt resolves
+		// mouse clicks back to the body for click-to-focus.
+		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID}
 		if i == 0 {
-			v.canvas.RingColoredOutline(pos, r, color)
-			v.canvas.FillColoredDisk(pos, 1, color)
+			v.canvas.RingColoredOutlineTagged(pos, r, bodyTag)
+			v.canvas.FillColoredDiskTagged(pos, 1, bodyTag)
 		} else {
-			v.canvas.FillColoredDisk(pos, r, color)
+			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
 		}
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
 		// radii project to pixel radii via the canvas scale; only
