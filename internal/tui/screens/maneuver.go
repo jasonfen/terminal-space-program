@@ -387,11 +387,18 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	// click-to-edit appends the loaded TriggerTime as a relative
 	// countdown so "T+" alone doesn't read as "fire now" — the user
 	// has the schedule context they need to confirm the edit.
+	// Absolute mode replaces the bare "T+" with the countdown
+	// (which already carries the T+ prefix); event-relative modes
+	// keep the event name and parenthesize the countdown.
 	fireAt := sim.AllTriggerEvents[m.fireAtIdx]
 	fireAtLabel := fireAt.String()
 	if !m.loadedTriggerTime.IsZero() {
-		delta := m.loadedTriggerTime.Sub(w.Clock.SimTime)
-		fireAtLabel = fmt.Sprintf("%s %s", fireAtLabel, formatCountdown(delta))
+		countdown := formatCountdown(m.loadedTriggerTime.Sub(w.Clock.SimTime))
+		if fireAt == sim.TriggerAbsolute {
+			fireAtLabel = countdown
+		} else {
+			fireAtLabel = fmt.Sprintf("%s (%s)", fireAtLabel, countdown)
+		}
 	}
 	if m.focus == 1 {
 		fireAtLabel = m.theme.Warning.Render(fireAtLabel) + "  (←/→ to cycle)"
