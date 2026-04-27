@@ -80,6 +80,37 @@ func NewManeuver(th Theme) *Maneuver {
 	return m
 }
 
+// LoadNode pre-populates the form fields from an existing planted
+// node — used by the v0.6.4 click-to-edit flow on the orbit canvas.
+// Maps the node's BurnMode + TriggerEvent back to their cycle
+// indices and writes Δv / duration into the text inputs.
+//
+// Does not remove the original node from World.Nodes — opening the
+// form is a navigation aid, and the user's Enter still emits a fresh
+// BurnExecutedMsg that the app plants as a new node. A click → edit
+// → replace workflow is a follow-on (would need an editingIdx field
+// on Maneuver + matching dispatch in BurnExecutedMsg handling).
+func (m *Maneuver) LoadNode(n sim.ManeuverNode) {
+	m.modeIdx = 0
+	for i, mode := range spacecraft.AllBurnModes {
+		if mode == n.Mode {
+			m.modeIdx = i
+			break
+		}
+	}
+	m.fireAtIdx = 0
+	for i, ev := range sim.AllTriggerEvents {
+		if ev == n.Event {
+			m.fireAtIdx = i
+			break
+		}
+	}
+	m.dvInput.SetValue(fmt.Sprintf("%.0f", n.DV))
+	m.durInput.SetValue(fmt.Sprintf("%.1f", n.Duration.Seconds()))
+	m.focus = 0
+	m.applyFocus()
+}
+
 // applyFocus pushes focus state down to the bubbletea text inputs.
 // Focus 0 = mode (cycle), 1 = fire-at (cycle), 2 = Δv, 3 = duration.
 func (m *Maneuver) applyFocus() {

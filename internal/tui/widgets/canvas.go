@@ -565,6 +565,14 @@ func (c *Canvas) RingOutline(center orbital.Vec3, pxRadius int) {
 // pixels (total arrow width is roughly 2×size). Velocity magnitude is
 // irrelevant — only the direction is used.
 func (c *Canvas) PlotArrow(center, velocity orbital.Vec3, size int) {
+	c.PlotArrowTagged(center, velocity, size, CellTag{})
+}
+
+// PlotArrowTagged is PlotArrow that records `tag` on every pixel
+// it sets. v0.6.4+: callers pass IsVessel = true so HitAt resolves
+// chevron pixels back to "vessel was clicked." Tag's Color drives
+// per-cell colorization the same way as the other tagged helpers.
+func (c *Canvas) PlotArrowTagged(center, velocity orbital.Vec3, size int, tag CellTag) {
 	vMag := velocity.Norm()
 	if vMag == 0 || size < 1 {
 		return
@@ -587,17 +595,22 @@ func (c *Canvas) PlotArrow(center, velocity orbital.Vec3, size int) {
 	if wingLen < 1 {
 		wingLen = 1
 	}
+	tagSet := tag != (CellTag{})
+	if tagSet && c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	setPixel := func(px, py int) {
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			return
+		}
+		c.dc.Set(px, py)
+		if tagSet {
+			c.pixelTags[[2]int{px, py}] = tag
+		}
+	}
 	for t := 0; t <= wingLen; t++ {
-		plx := tipX + int(math.Round(lx*float64(t)))
-		ply := tipY + int(math.Round(ly*float64(t)))
-		if plx >= 0 && plx < c.pxW && ply >= 0 && ply < c.pxH {
-			c.dc.Set(plx, ply)
-		}
-		prx := tipX + int(math.Round(rx*float64(t)))
-		pry := tipY + int(math.Round(ry*float64(t)))
-		if prx >= 0 && prx < c.pxW && pry >= 0 && pry < c.pxH {
-			c.dc.Set(prx, pry)
-		}
+		setPixel(tipX+int(math.Round(lx*float64(t))), tipY+int(math.Round(ly*float64(t))))
+		setPixel(tipX+int(math.Round(rx*float64(t))), tipY+int(math.Round(ry*float64(t))))
 	}
 }
 

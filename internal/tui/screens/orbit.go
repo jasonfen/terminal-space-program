@@ -246,10 +246,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 		craftInertial := w.CraftInertial()
 		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
+			vesselTag := widgets.CellTag{Color: render.ColorCraftMarker, IsVessel: true}
 			if orbitVisible {
-				v.canvas.PlotArrow(craftInertial, c.State.V, 5)
+				v.canvas.PlotArrowTagged(craftInertial, c.State.V, 5, vesselTag)
 			} else {
-				v.canvas.FillColoredDisk(craftInertial, 1, render.ColorCraftMarker)
+				v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
 			}
 		}
 	}
@@ -335,10 +336,18 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 // their resulting orbit leg, so the player sees node N at the
 // position where the post-burn orbit (also color N) begins.
 func (v *OrbitView) plotClusterColored(center orbital.Vec3, n int, color lipgloss.Color) {
+	v.plotClusterTagged(center, n, widgets.CellTag{Color: color})
+}
+
+// plotClusterTagged is plotClusterColored that records the supplied
+// CellTag (color + hit-test metadata) on every pixel it sets. v0.6.4+
+// — node draws use this with NodeIdx so HitAt can resolve a click
+// back to the planted node it lands on.
+func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.CellTag) {
 	step := 1.0 / v.canvas.Scale()
 	for i := -n / 2; i <= n/2; i++ {
-		v.canvas.PlotColored(center.Add(orbital.Vec3{X: float64(i) * step}), color)
-		v.canvas.PlotColored(center.Add(orbital.Vec3{Y: float64(i) * step}), color)
+		v.canvas.PlotColoredTagged(center.Add(orbital.Vec3{X: float64(i) * step}), tag)
+		v.canvas.PlotColoredTagged(center.Add(orbital.Vec3{Y: float64(i) * step}), tag)
 	}
 }
 
@@ -365,7 +374,10 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		// v0.6.1: each node's marker matches the color of its
 		// resulting orbit leg, so the cluster glyph and the
 		// post-burn dashed orbit read as a matched pair.
-		v.plotClusterColored(w.NodeInertialPosition(n), size, render.ManeuverSegmentColor(i))
+		v.plotClusterTagged(w.NodeInertialPosition(n), size, widgets.CellTag{
+			Color:   render.ManeuverSegmentColor(i),
+			NodeIdx: i + 1, // 0 = none; planted node i is 1+i in the tag.
+		})
 	}
 
 	// v0.6.1: while a finite burn is firing the live craft state is

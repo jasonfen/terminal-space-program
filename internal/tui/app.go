@@ -136,10 +136,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.MouseMsg:
-		// v0.6.4: click-only selection. Body click on the orbit
-		// canvas → focus that body (sets selectedBody index). No
-		// drag, no wheel-zoom — those stay out of v0.6 per the
-		// scoping decisions. Right-click and motion ignored.
+		// v0.6.4: click-only selection. Left-press only; motion /
+		// release / wheel ignored. Hit dispatch order is most-
+		// specific-first: vessel → node → body.
 		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {
 			return a, nil
 		}
@@ -147,7 +146,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		hit := a.orbitView.HitAt(m.X, m.Y)
-		if hit.BodyID != "" {
+		switch {
+		case hit.IsVessel:
+			if a.world.CraftVisibleHere() {
+				a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
+			}
+		case hit.NodeIdx > 0:
+			idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
+			if idx >= 0 && idx < len(a.world.Nodes) {
+				a.maneuver.LoadNode(a.world.Nodes[idx])
+				a.world.Clock.Paused = true
+				a.active = screenManeuver
+			}
+		case hit.BodyID != "":
 			for i, b := range a.world.System().Bodies {
 				if b.ID == hit.BodyID {
 					a.selectedBody = i
