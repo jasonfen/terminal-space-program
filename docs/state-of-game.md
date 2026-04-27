@@ -212,6 +212,14 @@ by patch — this doc is the snapshot, those are the release notes.
 - **Multi-system spacecraft**. The craft is currently locked to Sol. Allowing
   it to enter Alpha Cen / TRAPPIST / Kepler unlocks the system-cycle UX.
   Requires interstellar transfer math (or deus-ex-machina jump for now).
+- **Multi-craft control selector**. Today the sim exposes one craft
+  (`World.Craft`); UI features that depend on "the active orbit" — focus,
+  the maneuver planner's PROJECTED ORBIT, v0.6.4's orbit-perpendicular
+  view-mode basis — implicitly point at it. When multiple craft come
+  online, those features need a craft-control selector key (e.g. `[`/`]`
+  cycle, or click-to-select on the orbit canvas) so "active craft" is
+  unambiguous and per-screen. Surfaces during v0.6.4 view-mode work as a
+  flagged future requirement.
 - **Inclination-change planner**. Today's burn modes don't expose a clean
   out-of-plane corrector. Adds a third burn at the line-of-nodes.
 - **N-body perturbations**. The sim is strict patched-conic; Lagrangian
