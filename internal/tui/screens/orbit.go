@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -106,6 +107,59 @@ func (v *OrbitView) IsCanvasClick(col, row int) bool {
 // panel (right of the canvas + its border).
 func (v *OrbitView) IsHudClick(col int) bool {
 	return col > v.canvas.Cols()+1
+}
+
+// ProjectToOrbit maps a screen-space click to the time-of-flight at
+// which the active craft reaches the orbit point nearest the click.
+// Used by the v0.6.4 empty-canvas mouse path to stage a new burn at
+// "this point along my orbit."
+//
+// Algorithm: sample 360 true-anomalies on the live craft orbit,
+// project each to canvas pixels, take the smallest screen distance
+// to the click pixel; convert that ν to a time-of-flight via
+// orbital.TimeToTrueAnomaly. ok=false for hyperbolic / no-craft
+// states or when no sample lands on-canvas.
+func (v *OrbitView) ProjectToOrbit(w *sim.World, screenCol, screenRow int) (time.Duration, bool) {
+	if w.Craft == nil {
+		return 0, false
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return 0, false
+	}
+	currentNu := orbital.TrueAnomalyFromState(w.Craft.State.R, w.Craft.State.V, mu, el)
+	primaryPos := w.BodyPosition(w.Craft.Primary)
+
+	clickCanvasCol := screenCol - 1 // strip border / title offsets
+	clickCanvasRow := screenRow - 2
+	bestNu := 0.0
+	bestDist := math.MaxFloat64
+	const samples = 360
+	for i := 0; i < samples; i++ {
+		nu := 2 * math.Pi * float64(i) / float64(samples)
+		p := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, nu))
+		px, py, ok := v.canvas.Project(p)
+		if !ok {
+			continue
+		}
+		col, row := px/2, py/4
+		dx := float64(col - clickCanvasCol)
+		dy := float64(row - clickCanvasRow)
+		d := dx*dx + dy*dy
+		if d < bestDist {
+			bestDist = d
+			bestNu = nu
+		}
+	}
+	if bestDist == math.MaxFloat64 {
+		return 0, false
+	}
+	dtSecs := orbital.TimeToTrueAnomaly(currentNu, bestNu, el.A, el.E, mu)
+	if dtSecs < 0 {
+		return 0, false
+	}
+	return time.Duration(dtSecs * float64(time.Second)), true
 }
 
 // Render composes the frame: canvas on the left, HUD on the right.

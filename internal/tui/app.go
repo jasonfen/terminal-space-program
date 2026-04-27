@@ -183,6 +183,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
+			case a.orbitView.IsCanvasClick(m.X, m.Y):
+				// Empty-canvas click → stage a new burn at the
+				// orbit point nearest the click. v0.6.4: the user
+				// can place a maneuver at a point along their
+				// trajectory without manually computing a T+
+				// offset. ProjectToOrbit returns time-of-flight
+				// from now to that point's true-anomaly; we open
+				// the form pre-staged with TriggerAbsolute and
+				// that schedule.
+				if dt, ok := a.orbitView.ProjectToOrbit(a.world, m.X, m.Y); ok && a.world.CraftVisibleHere() {
+					a.maneuver.LoadStaged(a.world.Clock.SimTime.Add(dt))
+					a.world.Clock.Paused = true
+					a.active = screenManeuver
+				}
 			case a.orbitView.IsHudClick(m.X):
 				// HUD click → open body info for the currently
 				// selected body. Coarse: doesn't try to identify

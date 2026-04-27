@@ -110,6 +110,27 @@ func (m *Maneuver) ResetEditing() {
 	m.loadedTriggerTime = time.Time{}
 }
 
+// LoadStaged opens the form for a NEW node staged at a specific
+// trigger time — used by the v0.6.4 empty-canvas mouse path to
+// "click a point on the orbit, plant a burn there." Distinct from
+// LoadNode in that there's no original to replace (editingIdx
+// stays at -1); the form simply previews and commits with the
+// staged TriggerTime so the new node fires at the click's
+// projected orbit position. Mode / fire-at fall back to defaults
+// (prograde / Absolute); Δv defaults to "100" so the form is
+// immediately usable, focus jumps to the Δv field so the player
+// can type a value without tabbing.
+func (m *Maneuver) LoadStaged(triggerTime time.Time) {
+	m.editingIdx = -1
+	m.loadedTriggerTime = triggerTime
+	m.modeIdx = 0   // prograde — the most common new-burn intent
+	m.fireAtIdx = 0 // TriggerAbsolute — the staged TriggerTime IS the absolute schedule
+	m.dvInput.SetValue("100")
+	m.durInput.SetValue("10")
+	m.focus = 2 // Δv input — player typically wants to set magnitude first
+	m.applyFocus()
+}
+
 // LoadNode pre-populates the form fields from an existing planted
 // node and records the click-to-edit state — used by the v0.6.4
 // orbit-canvas mouse path. Maps the node's BurnMode + TriggerEvent
