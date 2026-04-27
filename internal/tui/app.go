@@ -155,33 +155,45 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// v0.6.4: click-only selection. Left-press only; motion /
-		// release / wheel ignored. Hit dispatch order is most-
-		// specific-first: vessel → node → body.
+		// release / wheel ignored. Per-screen routing: orbit's hit
+		// dispatch is most-specific-first (vessel → node → body →
+		// HUD); porkchop click sets the cell selection.
 		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {
 			return a, nil
 		}
-		if a.active != screenOrbit {
-			return a, nil
-		}
-		hit := a.orbitView.HitAt(m.X, m.Y)
-		switch {
-		case hit.IsVessel:
-			if a.world.CraftVisibleHere() {
-				a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
-			}
-		case hit.NodeIdx > 0:
-			idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
-			if idx >= 0 && idx < len(a.world.Nodes) {
-				a.maneuver.LoadNode(idx, a.world.Nodes[idx])
-				a.world.Clock.Paused = true
-				a.active = screenManeuver
-			}
-		case hit.BodyID != "":
-			for i, b := range a.world.System().Bodies {
-				if b.ID == hit.BodyID {
-					a.selectedBody = i
-					break
+		switch a.active {
+		case screenOrbit:
+			hit := a.orbitView.HitAt(m.X, m.Y)
+			switch {
+			case hit.IsVessel:
+				if a.world.CraftVisibleHere() {
+					a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
 				}
+			case hit.NodeIdx > 0:
+				idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
+				if idx >= 0 && idx < len(a.world.Nodes) {
+					a.maneuver.LoadNode(idx, a.world.Nodes[idx])
+					a.world.Clock.Paused = true
+					a.active = screenManeuver
+				}
+			case hit.BodyID != "":
+				for i, b := range a.world.System().Bodies {
+					if b.ID == hit.BodyID {
+						a.selectedBody = i
+						break
+					}
+				}
+			case a.orbitView.IsHudClick(m.X):
+				// HUD click → open body info for the currently
+				// selected body. Coarse: doesn't try to identify
+				// which HUD section was clicked, just routes any
+				// HUD click to the info screen so the user has a
+				// pointer to the same view as `i`.
+				a.active = screenBodyInfo
+			}
+		case screenPorkchop:
+			if depIdx, tofIdx, ok := a.porkchop.HitCell(m.X, m.Y); ok {
+				a.porkchop.SetSelection(depIdx, tofIdx)
 			}
 		}
 		return a, nil

@@ -93,6 +93,21 @@ func (v *OrbitView) HitAt(screenCol, screenRow int) widgets.CellTag {
 	return v.canvas.HitAt(screenCol-1, screenRow-2)
 }
 
+// IsCanvasClick reports whether a screen-space (col, row) lands
+// inside the canvas content area (i.e. between the rounded-border
+// edges). v0.6.4 mouse dispatch uses this to distinguish "click on
+// orbit canvas" from "click on HUD" when no body / vessel / node
+// hit lands.
+func (v *OrbitView) IsCanvasClick(col, row int) bool {
+	return col >= 1 && col <= v.canvas.Cols() && row >= 2 && row <= v.canvas.Rows()+1
+}
+
+// IsHudClick reports whether a screen-space col lands on the HUD
+// panel (right of the canvas + its border).
+func (v *OrbitView) IsHudClick(col int) bool {
+	return col > v.canvas.Cols()+1
+}
+
 // Render composes the frame: canvas on the left, HUD on the right.
 // selectedIdx is the index of the cursor-selected body in system.Bodies.
 func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows int) string {
