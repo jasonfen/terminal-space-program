@@ -199,6 +199,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	}
 
 	m.canvas.Clear()
+	m.canvas.SetBasis(viewBasis(w))
 	m.canvas.Center(orbital.Vec3{})
 
 	// Draw current orbit from state elements (white/primary).

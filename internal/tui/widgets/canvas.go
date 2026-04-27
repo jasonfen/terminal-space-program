@@ -18,11 +18,35 @@ import (
 // World coordinates are inertial meters. The projection is ortho: drop Z,
 // map (x_world, y_world) → (px, py) via a single scale and the cached
 // center (panning is out-of-scope for v0.1 per plan C8 commit body).
+// Basis selects the world-space unit vectors that map to canvas X+
+// and Y+ on render. A point's screen position is:
+//
+//	screen.x = (world − center) · basis.X
+//	screen.y = (world − center) · basis.Y
+//
+// DefaultBasis (X = (1,0,0), Y = (0,1,0)) is the v0.1 equatorial
+// projection — drop Z, plot (X, Y). v0.6.4+ uses orbit-perpendicular
+// bases (perifocal x̂/ŷ from a craft's elements) so inclined orbits
+// project without foreshortening.
+type Basis struct {
+	X, Y orbital.Vec3
+}
+
+// DefaultBasis is the equatorial projection: world X axis maps to
+// canvas X+, world Y axis to canvas Y+. Z drops.
+func DefaultBasis() Basis {
+	return Basis{
+		X: orbital.Vec3{X: 1},
+		Y: orbital.Vec3{Y: 1},
+	}
+}
+
 type Canvas struct {
 	cols, rows int          // terminal cells
 	pxW, pxH   int          // pixel grid (cols*2, rows*4)
 	centerW    orbital.Vec3 // world coord at pixel center
 	scale      float64      // pixels per meter
+	basis      Basis        // world axes mapped to canvas X+/Y+ (v0.6.4+)
 	dc         drawille.Canvas
 
 	// pixelTags maps a pixel coord (px, py) → its render color. Set by
@@ -65,9 +89,15 @@ func NewCanvas(cols, rows int) *Canvas {
 		pxW:   cols * 2,
 		pxH:   rows * 4,
 		scale: 1,
+		basis: DefaultBasis(),
 		dc:    drawille.NewCanvas(),
 	}
 }
+
+// SetBasis swaps the projection basis. Called per-frame by render
+// code that wants a non-equatorial view; pass DefaultBasis() to
+// restore. v0.6.4+.
+func (c *Canvas) SetBasis(b Basis) { c.basis = b }
 
 // Resize updates the terminal-cell dimensions. Does not clear the canvas.
 func (c *Canvas) Resize(cols, rows int) {
@@ -236,12 +266,30 @@ func (c *Canvas) ZoomBy(factor float64) {
 // pixel location and ok=false if the point is off-canvas.
 func (c *Canvas) Project(w orbital.Vec3) (int, int, bool) {
 	rel := w.Sub(c.centerW)
-	px := int(math.Round(rel.X*c.scale)) + c.pxW/2
-	py := c.pxH/2 - int(math.Round(rel.Y*c.scale))
+	relX := rel.X*c.basis.X.X + rel.Y*c.basis.X.Y + rel.Z*c.basis.X.Z
+	relY := rel.X*c.basis.Y.X + rel.Y*c.basis.Y.Y + rel.Z*c.basis.Y.Z
+	px := int(math.Round(relX*c.scale)) + c.pxW/2
+	py := c.pxH/2 - int(math.Round(relY*c.scale))
 	if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
 		return px, py, false
 	}
 	return px, py, true
+}
+
+// Unproject returns the world coord whose Project would land at the
+// given pixel — assuming the world point lies in the basis plane
+// through centerW. v0.6.4+: paired with Project for view-aware mouse
+// hit-testing in v0.6.4's mouse work. The Z axis (out of screen) is
+// implicitly the orbit-normal direction in orbit-perpendicular mode
+// or world Z in equatorial mode; Unproject doesn't disambiguate, so
+// callers that need a 3D world point on a specific surface must do
+// their own ray-cast.
+func (c *Canvas) Unproject(px, py int) orbital.Vec3 {
+	relX := float64(px-c.pxW/2) / c.scale
+	relY := float64(c.pxH/2-py) / c.scale
+	return c.centerW.
+		Add(c.basis.X.Scale(relX)).
+		Add(c.basis.Y.Scale(relY))
 }
 
 // Plot sets the pixel at the given world coord. No-op if off-canvas.

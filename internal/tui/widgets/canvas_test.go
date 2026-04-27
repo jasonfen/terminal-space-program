@@ -211,6 +211,82 @@ func TestPerPixelTagDoesNotBleed(t *testing.T) {
 	}
 }
 
+// TestUnprojectRoundTripDefaultBasis: Project(world) → (px, py); the
+// pixel-rounding cost is at most one half-pixel of world distance,
+// so Unproject(Project(w)) ≈ w within that bound. Default basis case.
+// v0.6.4+.
+func TestUnprojectRoundTripDefaultBasis(t *testing.T) {
+	c := NewCanvas(60, 30)
+	c.SetScale(0.01)               // pixels per metre — 1 m ≈ 0.01 px
+	c.Center(orbital.Vec3{X: 1000}) // off-origin to exercise centerW
+	cases := []orbital.Vec3{
+		{X: 1000, Y: 0},
+		{X: 1500, Y: 250},
+		{X: 750, Y: -500},
+	}
+	for _, w := range cases {
+		px, py, ok := c.Project(w)
+		if !ok {
+			t.Errorf("project(%v) off-canvas — expected on-canvas for round-trip", w)
+			continue
+		}
+		got := c.Unproject(px, py)
+		// Tolerance: half-pixel of world distance = (1 / scale) / 2.
+		halfPxWorld := 0.5 / c.scale
+		if abs(got.X-w.X) > halfPxWorld || abs(got.Y-w.Y) > halfPxWorld {
+			t.Errorf("round-trip %v → (%d, %d) → %v exceeds %.1f tolerance",
+				w, px, py, got, halfPxWorld)
+		}
+	}
+}
+
+// TestUnprojectRoundTripPerifocalBasis: same round-trip invariant
+// against an arbitrary basis (orbit-perpendicular case). World
+// points are in the basis plane (xHat / yHat span); Project drops
+// the orbit-normal component, so the round-trip is exact-ish on the
+// (xHat, yHat) plane.
+func TestUnprojectRoundTripPerifocalBasis(t *testing.T) {
+	c := NewCanvas(60, 30)
+	c.SetScale(0.01)
+	c.Center(orbital.Vec3{})
+	// Inclined orbit: i = 30°, Ω = 45°, ω = 60°.
+	el := orbital.Elements{A: 1e6, E: 0.2, I: 30 * 3.14159265 / 180,
+		Omega: 45 * 3.14159265 / 180, Arg: 60 * 3.14159265 / 180}
+	xHat, yHat := orbital.PerifocalBasis(el)
+	c.SetBasis(Basis{X: xHat, Y: yHat})
+
+	// Test points are linear combinations of xHat and yHat (i.e.,
+	// they lie in the orbit plane).
+	combos := []struct{ a, b float64 }{
+		{1000, 0},
+		{500, 250},
+		{-300, 750},
+	}
+	for _, lc := range combos {
+		w := xHat.Scale(lc.a).Add(yHat.Scale(lc.b))
+		px, py, ok := c.Project(w)
+		if !ok {
+			continue
+		}
+		got := c.Unproject(px, py)
+		// `got` should equal w to within rounding. The basis is
+		// orthonormal, so the (a, b) coords are recovered exactly.
+		halfPxWorld := 0.5 / c.scale
+		dx := got.Sub(w)
+		if abs(dx.X) > halfPxWorld || abs(dx.Y) > halfPxWorld || abs(dx.Z) > halfPxWorld {
+			t.Errorf("round-trip in perifocal basis (%v) → got %v (diff %v) exceeds %.1f",
+				w, got, dx, halfPxWorld)
+		}
+	}
+}
+
+func abs(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 func onlyWhitespace(s string) bool {
 	for _, r := range s {
 		if r != ' ' && r != '\n' && r != '\t' && r != '⠀' {

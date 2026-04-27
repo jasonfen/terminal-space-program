@@ -100,6 +100,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	}
 
 	v.canvas.Clear()
+	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
 	if w.ActiveBurn != nil {
 		if v.burnFrozenCenter == nil {
@@ -576,4 +577,27 @@ func normalizeDeg(d float64) float64 {
 		d += 360
 	}
 	return d
+}
+
+// viewBasis returns the canvas projection basis for the world's
+// current ViewMode. Equatorial → DefaultBasis (drop Z). Orbit-
+// perpendicular → perifocal (x̂, ŷ) of the active craft's orbit.
+// Falls back to DefaultBasis when the orbit is degenerate (no craft,
+// e ≥ 1, a ≤ 0) so the projection stays well-defined. Single-craft
+// today; multi-craft will need an active-craft selector to
+// disambiguate (state-of-game.md §2 backlog).
+func viewBasis(w *sim.World) widgets.Basis {
+	if w.ViewMode != sim.ViewOrbitPerpendicular || w.Craft == nil {
+		return widgets.DefaultBasis()
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	if mu <= 0 {
+		return widgets.DefaultBasis()
+	}
+	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return widgets.DefaultBasis()
+	}
+	xHat, yHat := orbital.PerifocalBasis(el)
+	return widgets.Basis{X: xHat, Y: yHat}
 }
