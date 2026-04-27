@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -157,6 +158,12 @@ func (m *Maneuver) applyFocus() {
 // Resize handles terminal-size changes. Keep the maneuver canvas ≤ 60 cols
 // wide so the form panel sits cleanly alongside it.
 func (m *Maneuver) Resize(cols, rows int) {
+	// Horizontal layout (v0.6.4 fix): canvas on the left, form panel
+	// on the right. Sized so canvas + form sit side-by-side under
+	// the title and footer rather than stacking vertically — pre-fix
+	// the form's ~14 rows added on top of canvas rows-6 overflowed
+	// any terminal under ~36 rows tall, scrolling the title off the
+	// top in some renderers.
 	canvasCols := cols * 6 / 10
 	if canvasCols < 20 {
 		canvasCols = 20
@@ -164,7 +171,13 @@ func (m *Maneuver) Resize(cols, rows int) {
 	if canvasCols > 80 {
 		canvasCols = 80
 	}
-	m.canvas.Resize(canvasCols, rows-6)
+	// Reserve 3 rows for title (1) + footer (1) + a 1-row gap between
+	// title and the canvas-panel border.
+	canvasRows := rows - 3
+	if canvasRows < 6 {
+		canvasRows = 6
+	}
+	m.canvas.Resize(canvasCols, canvasRows)
 }
 
 // HandleKey routes planner-local keys. Returns (cmd, done) where done=true
@@ -334,7 +347,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
 	form := m.renderForm(w, dv, shadowState, shadowPrimary, shadowMu)
-	body := strings.Join([]string{canvasPanel, form}, "\n")
+	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, "  ", form)
 
 	footer := m.theme.Footer.Render(
 		"[tab] cycle field  [←/→] cycle mode  [enter] commit  [esc] cancel  [digits] edit",
