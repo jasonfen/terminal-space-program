@@ -13,6 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -239,8 +240,16 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 		m.canvas.Plot(p.Add(primaryGap))
 	}
 
-	// Plot planet (primary) at origin.
-	m.canvas.Plot(orbital.Vec3{})
+	// Plot the primary at origin as a sized disk so its real radius
+	// is visible at the same scale as the orbit. v0.6.3 polish: a
+	// single-pixel marker hid the body's surface and made low-orbit
+	// projections (e.g. low lunar orbit at 4× the moon radius) read
+	// as smaller than they really are. BodyPixelRadius shares the
+	// orbit-screen's size-tier logic so the moon disk on this canvas
+	// is consistent with what the player sees on the main view.
+	primaryColor := render.ColorFor(c.Primary)
+	primaryPxR := BodyPixelRadius(c.Primary, false, m.canvas.Scale())
+	m.canvas.FillColoredDisk(orbital.Vec3{}, primaryPxR, primaryColor)
 	// Plot craft (current position) with a cluster.
 	for i := -4; i <= 4; i++ {
 		step := 1.0 / m.canvas.Scale()
