@@ -1,8 +1,8 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.6.1 (April 2026) — v0.6 cycle in flight (burn-at-next
-scheduler + predicted-orbit HUD shipped). Updated at each minor /
-patch boundary.*
+*Snapshot at v0.6.2 (April 2026) — v0.6 cycle in flight (burn-at-next
+scheduler + predicted-orbit HUD + finite-burn-aware iterative
+planner shipped). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -12,7 +12,7 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.6.1)
+## 1. What works today (v0.6.2)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -67,6 +67,15 @@ by patch — this doc is the snapshot, those are the release notes.
 - **`H` auto-plant Hohmann transfer**: select target body, one keystroke
   plants two finite nodes (geocentric departure + destination-frame arrival)
   with `Duration = Δv × mass / thrust`. Frame-aware via `ManeuverNode.PrimaryID`.
+  v0.6.2: the departure Δv is refined through `planner.IterateForTarget`,
+  a Newton solver that adjusts commanded Δv against a finite-burn
+  RK4 integration of the burn until delivered apoapsis matches the
+  Hohmann target. For high-TWR loadouts (S-IVB-1) the impulsive
+  guess is already < 0.1 % off so the iterator converges in 1-2
+  steps — effectively a no-op. For low-TWR loadouts (revived ICPS,
+  future ion stages) it catches multi-percent gravity-rotation
+  losses the impulsive math misses. Iteration failure silently
+  falls back to the impulsive Δv.
 - **`P` porkchop plot**: ASCII heatmap over departure-day × time-of-flight,
   intensity ramp `█▓▒░ ` cheap → expensive. Cursor navigates cells, snaps to
   min-Δv on open. **Enter on a feasible cell plants that Lambert-based
@@ -273,7 +282,8 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.5 ✓** | **Moons + visual enhancement** | Body hierarchy + Luna/Phobos/Deimos/Galilean/Titan/Enceladus (v0.5.0), then color (palette.go, realistic palette), vessel trail, HUD polish, body identity. Cycle closed at v0.5.15 — see `docs/v0.5-release-notes.md`. |
 | **v0.6.0 ✓** | | Burn-at-next scheduler — `ManeuverNode.Event` enum (`Absolute / NextPeri / NextApo / NextAN / NextDN`); event-time helpers in `internal/orbital/events.go`; `World.resolveEventNodes` lazy-freeze resolver hooked into Tick before warp-clamp; `m` form gains `fire at` cycle field (focus 0/1/2/3); save schema bumps v1 → v2 with relaxed version check (v1 saves load with `Event = TriggerAbsolute`). |
 | **v0.6.1 ✓** | | Predicted post-burn orbit HUD + maneuver UX polish — `orbital.OrbitReadout`, `World.PreviewBurnState` (event-aware shadow trajectory), `World.PredictedFinalOrbit` + `PredictedLegs` (chain through nodes, rebase into each node's intended frame so Hohmann arrival reports as Mars-frame). PROJECTED ORBIT HUD blocks on both the orbit screen and `m` form. Per-leg colored trajectory preview (cyan/mint/amber/pink cycle) with matched node-marker colors. `minOrbitPixels` gate hides sub-pixel ellipses + swaps craft chevron for bright `ColorCraftMarker` disk at large zoom. `ColorCurrentOrbit` → pale slate (distinct from any body palette). Default LEO 200 → 500 km, NewWorld spawns with `Focus = FocusCraft`, default burn duration 0 → 10 s. Active-burn guard suppresses projection while live state mutates. |
-| **v0.6** | **(in flight) Planner UX + missions + MP design** | Finite-burn-aware iterative planner (v0.6.2), moon → parent escape transfer (v0.6.3), click-only mouse selection (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown. |
+| **v0.6.2 ✓** | | Finite-burn-aware iterative planner — `planner.SimulateFiniteBurn` (RK4 + Tsiolkovsky), `planner.IterateForTarget` (Newton iteration on commanded Δv with ±50 % step cap and `ErrFiniteBurnDiverged` fallback), `planner.TargetApoapsis` / `TargetPeriapsis` residual helpers. `sim.refineFiniteDeparture` wires the iterator into `H` auto-plant so Hohmann departures hit the requested apoapsis even on low-TWR loadouts where the impulsive guess loses several percent of energy to gravity-rotation. For S-IVB-1 the iterator converges in 1-2 steps (no-op); for low-TWR profiles it catches errors the impulsive math misses. |
+| **v0.6** | **(in flight) Planner UX + missions + MP design** | Moon → parent escape transfer (v0.6.3), click-only mouse selection (v0.6.4), mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown. |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 
@@ -388,11 +398,14 @@ Full slice breakdown lives in `docs/v0.6-plan.md`. Summary:
   `minOrbitPixels` gate hides sub-pixel ellipses; craft chevron
   swaps to a bright disk at large zoom. Default LEO 200 → 500 km;
   spawn focus = craft; default burn duration 10 s.
-- **v0.6.2 — finite-burn-aware iterative planner.** Newton iteration
-  around the impulsive solver: integrate candidate Δv, measure
-  delivered apo, correct, repeat. v0.5.10's S-IVB-1 default + finite-
-  burn return drops loss to <0.1% on the current Earth → Luna profile;
-  v0.6.2 closes the underlying gap for low-TWR / longer-burn loadouts.
+- **v0.6.2 ✓ — finite-burn-aware iterative planner.** Newton
+  iteration around the impulsive solver via `planner.IterateForTarget`
+  / `SimulateFiniteBurn`. Wired into intra-primary auto-plant
+  (`sim.refineFiniteDeparture`). For S-IVB-1's high-TWR profile the
+  iterator converges in 1-2 steps; for low-TWR loadouts it catches
+  multi-percent gravity-rotation errors the impulsive math misses.
+  `ErrFiniteBurnDiverged` fallback keeps unreachable targets from
+  breaking the auto-plant flow.
 - **v0.6.3 — moon → parent escape transfer.** New `PlanTransfer` path
   for the case `target == craft.Primary.ParentID` (Luna → Earth).
   Two-impulse: prograde escape burn at moon-orbit periapsis raising
