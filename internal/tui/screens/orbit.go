@@ -35,6 +35,17 @@ type OrbitView struct {
 	lastSystemIdx int
 	lastFocus     sim.Focus
 	fitted        bool
+
+	// burnFrozenCenter pins the canvas center for the duration of an
+	// active burn. Captured when ActiveBurn becomes non-nil, cleared
+	// when it returns to nil. v0.6.3 fix: focus-on-craft tracks the
+	// craft's live position every tick, and during a burn the craft
+	// is sweeping through periapsis at km/s — every other element
+	// (the selected-body cross, body disks, the live orbit ellipse,
+	// apsidal markers) sweeps the opposite direction in screen space,
+	// reading as the world rotating around the player. Holding the
+	// camera lets the player watch the burn modify the orbit instead.
+	burnFrozenCenter *orbital.Vec3
 }
 
 // minOrbitPixels is the projected apoapsis size below which an orbit
@@ -89,7 +100,17 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	}
 
 	v.canvas.Clear()
-	v.canvas.Center(w.FocusPosition())
+	center := w.FocusPosition()
+	if w.ActiveBurn != nil {
+		if v.burnFrozenCenter == nil {
+			snapshot := center
+			v.burnFrozenCenter = &snapshot
+		}
+		center = *v.burnFrozenCenter
+	} else if v.burnFrozenCenter != nil {
+		v.burnFrozenCenter = nil
+	}
+	v.canvas.Center(center)
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
 	for i := range sys.Bodies {
