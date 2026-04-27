@@ -30,13 +30,23 @@ import (
 // fires at T+5min (legacy quick-plant default); event-relative modes
 // resolve to the next periapsis/apoapsis/AN/DN at plant time.
 type Maneuver struct {
-	theme      Theme
-	canvas     *widgets.Canvas
-	dvInput    textinput.Model
-	durInput   textinput.Model
-	modeIdx    int
-	fireAtIdx  int
-	focus      int // 0=mode, 1=fireAt, 2=dv, 3=duration
+	theme    Theme
+	canvas   *widgets.Canvas
+	dvInput  textinput.Model
+	durInput textinput.Model
+	modeIdx   int
+	fireAtIdx int
+	focus     int // 0=mode, 1=fireAt, 2=dv, 3=duration
+
+	// editingIdx and loadedTriggerTime carry the v0.6.4 click-to-edit
+	// state. Default editingIdx = -1 (creating a new node). LoadNode
+	// sets them so the next BurnExecutedMsg can replace the original
+	// node in place AND preserve its scheduled trigger time —
+	// otherwise re-planting an Absolute-event node would lose its
+	// future TriggerTime and fall back to the legacy "fire now"
+	// quick-plant path.
+	editingIdx        int
+	loadedTriggerTime time.Time
 }
 
 // BurnExecutedMsg is emitted when the user hits Enter. App consumes it.
@@ -45,11 +55,20 @@ type Maneuver struct {
 // app-side default delay; event-relative modes leave TriggerTime zero
 // and let the World's lazy-freeze resolver compute it from the live
 // orbit on the first Tick after plant.
+//
+// v0.6.4+: TriggerTime non-zero forces the app to plant a real
+// ManeuverNode at exactly that time (skipping the legacy "fire now"
+// path used by quick-plant). Set by LoadNode so a click-to-edit
+// flow preserves the original schedule. EditingIdx ≥ 0 tells the
+// app to remove the original Nodes[idx] before planting, so the
+// edit reads as "replace in place" rather than "duplicate."
 type BurnExecutedMsg struct {
-	Mode     spacecraft.BurnMode
-	DV       float64
-	Duration time.Duration
-	Event    sim.TriggerEvent
+	Mode        spacecraft.BurnMode
+	DV          float64
+	Duration    time.Duration
+	Event       sim.TriggerEvent
+	TriggerTime time.Time
+	EditingIdx  int // -1 = creating a new node; ≥ 0 = replacing world.Nodes[idx]
 }
 
 func NewManeuver(th Theme) *Maneuver {
@@ -71,26 +90,35 @@ func NewManeuver(th Theme) *Maneuver {
 	dur.SetValue("10")
 
 	m := &Maneuver{
-		theme:    th,
-		canvas:   widgets.NewCanvas(60, 20),
-		dvInput:  dv,
-		durInput: dur,
+		theme:      th,
+		canvas:     widgets.NewCanvas(60, 20),
+		dvInput:    dv,
+		durInput:   dur,
+		editingIdx: -1,
 	}
 	m.applyFocus()
 	return m
 }
 
+// ResetEditing clears the click-to-edit state so the next commit
+// plants a fresh node rather than replacing one. Called on `m`-key
+// open (new-node intent) and after every BurnExecutedMsg / Esc so
+// the editingIdx doesn't leak across opens.
+func (m *Maneuver) ResetEditing() {
+	m.editingIdx = -1
+	m.loadedTriggerTime = time.Time{}
+}
+
 // LoadNode pre-populates the form fields from an existing planted
-// node — used by the v0.6.4 click-to-edit flow on the orbit canvas.
-// Maps the node's BurnMode + TriggerEvent back to their cycle
-// indices and writes Δv / duration into the text inputs.
-//
-// Does not remove the original node from World.Nodes — opening the
-// form is a navigation aid, and the user's Enter still emits a fresh
-// BurnExecutedMsg that the app plants as a new node. A click → edit
-// → replace workflow is a follow-on (would need an editingIdx field
-// on Maneuver + matching dispatch in BurnExecutedMsg handling).
-func (m *Maneuver) LoadNode(n sim.ManeuverNode) {
+// node and records the click-to-edit state — used by the v0.6.4
+// orbit-canvas mouse path. Maps the node's BurnMode + TriggerEvent
+// back to their cycle indices, writes Δv / duration into the text
+// inputs, and stores idx + TriggerTime so the next Enter commit
+// emits a BurnExecutedMsg with EditingIdx = idx + TriggerTime
+// = original schedule. The app then removes Nodes[idx] before
+// planting so the edit replaces in place AND preserves the
+// node's future trigger time.
+func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 	m.modeIdx = 0
 	for i, mode := range spacecraft.AllBurnModes {
 		if mode == n.Mode {
@@ -108,6 +136,8 @@ func (m *Maneuver) LoadNode(n sim.ManeuverNode) {
 	m.dvInput.SetValue(fmt.Sprintf("%.0f", n.DV))
 	m.durInput.SetValue(fmt.Sprintf("%.1f", n.Duration.Seconds()))
 	m.focus = 0
+	m.editingIdx = idx
+	m.loadedTriggerTime = n.TriggerTime
 	m.applyFocus()
 }
 
@@ -183,14 +213,15 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		dur := m.parsedDuration()
 		event := sim.AllTriggerEvents[m.fireAtIdx]
-		return func() tea.Msg {
-			return BurnExecutedMsg{
-				Mode:     spacecraft.AllBurnModes[m.modeIdx],
-				DV:       dv,
-				Duration: dur,
-				Event:    event,
-			}
-		}, true
+		msg := BurnExecutedMsg{
+			Mode:        spacecraft.AllBurnModes[m.modeIdx],
+			DV:          dv,
+			Duration:    dur,
+			Event:       event,
+			TriggerTime: m.loadedTriggerTime,
+			EditingIdx:  m.editingIdx,
+		}
+		return func() tea.Msg { return msg }, true
 	}
 	var cmd tea.Cmd
 	switch m.focus {

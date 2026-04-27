@@ -106,21 +106,38 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.BurnExecutedMsg:
 		if a.world.Craft != nil {
-			// v0.6.0: event-relative nodes go through PlanNode so the
-			// resolver can freeze TriggerTime against the live orbit on
-			// the next Tick. TriggerAbsolute with a finite duration
-			// also routes through PlanNode for consistent finite-burn
-			// dispatch (legacy fast-paths kept for impulsive Absolute
-			// to preserve v0.5 quick-fire semantics).
+			// v0.6.4 click-to-edit: replace the original node before
+			// planting so click → edit → Enter reads as "modify in
+			// place" rather than "duplicate." Removal must come first
+			// so PlanNode's sort handles the new node's position
+			// against the rest of the (post-removal) slice.
+			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.Nodes) {
+				a.world.Nodes = append(a.world.Nodes[:m.EditingIdx], a.world.Nodes[m.EditingIdx+1:]...)
+			}
 			switch {
+			case !m.TriggerTime.IsZero():
+				// LoadNode preserved a scheduled trigger — plant a real
+				// ManeuverNode at exactly that time, skipping the
+				// legacy "fire now" Absolute path that quick-plant
+				// uses. Event is forwarded so resolved-then-edited
+				// event-relative nodes keep their semantic label.
+				a.world.PlanNode(sim.ManeuverNode{
+					TriggerTime: m.TriggerTime,
+					Mode:        m.Mode,
+					DV:          m.DV,
+					Duration:    m.Duration,
+					Event:       m.Event,
+				})
 			case m.Event != sim.TriggerAbsolute:
-				node := sim.ManeuverNode{
+				// v0.6.0: event-relative nodes go through PlanNode so
+				// the resolver can freeze TriggerTime against the live
+				// orbit on the next Tick.
+				a.world.PlanNode(sim.ManeuverNode{
 					Mode:     m.Mode,
 					DV:       m.DV,
 					Duration: m.Duration,
 					Event:    m.Event,
-				}
-				a.world.PlanNode(node)
+				})
 			case m.Duration == 0:
 				a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
 			default:
@@ -131,6 +148,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		a.maneuver.ResetEditing()
 		a.world.Clock.Paused = false
 		a.active = screenOrbit
 		return a, nil
@@ -154,7 +172,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case hit.NodeIdx > 0:
 			idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
 			if idx >= 0 && idx < len(a.world.Nodes) {
-				a.maneuver.LoadNode(a.world.Nodes[idx])
+				a.maneuver.LoadNode(idx, a.world.Nodes[idx])
 				a.world.Clock.Paused = true
 				a.active = screenManeuver
 			}
@@ -199,6 +217,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if key.Matches(m, a.keys.Back) {
+				a.maneuver.ResetEditing()
 				a.world.Clock.Paused = false
 				a.active = screenOrbit
 				return a, nil
@@ -247,6 +266,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.Maneuver):
 			if a.active == screenOrbit && a.world.CraftVisibleHere() {
+				// Pressing `m` opens for a NEW node — drop any
+				// click-to-edit state that may be lingering from a
+				// previous open.
+				a.maneuver.ResetEditing()
 				a.active = screenManeuver
 				a.world.Clock.Paused = true
 			}
