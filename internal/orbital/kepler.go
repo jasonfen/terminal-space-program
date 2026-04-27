@@ -169,6 +169,46 @@ func (el Elements) Periapsis() float64 { return el.A * (1 - el.E) }
 // return value is negative (hyperbolic) — callers should check.
 func (el Elements) Apoapsis() float64 { return el.A * (1 + el.E) }
 
+// Readout summarises the orbit's headline parameters for HUD use.
+// Distances are in metres from the primary's centre (not altitude);
+// caller subtracts body radius for altitude. Node angles are in
+// radians, measured from the +X axis of the primary's frame; for
+// equatorial / circular orbits the corresponding fields are NaN
+// (callers render "—" or skip).
+//
+// Closed (elliptical) orbits set ApoMeters > 0; hyperbolic / escape
+// trajectories return ApoMeters < 0 and Hyperbolic = true so the HUD
+// can label appropriately.
+type Readout struct {
+	ApoMeters    float64
+	PeriMeters   float64
+	AscNode      float64 // longitude of ascending node Ω (rad)
+	DescNode     float64 // descending node = AscNode + π (rad)
+	Inclination  float64 // i (rad)
+	Eccentricity float64
+	Hyperbolic   bool
+}
+
+// OrbitReadout returns headline orbit parameters for a (state, μ)
+// pair. Mirrors the elements extraction used by the HUD's live-orbit
+// block; v0.6.1 uses it on PredictedFinalOrbit() output to render a
+// "PROJECTED ORBIT" subsection.
+func OrbitReadout(r, v Vec3, mu float64) Readout {
+	el := ElementsFromState(r, v, mu)
+	out := Readout{
+		ApoMeters:    el.Apoapsis(),
+		PeriMeters:   el.Periapsis(),
+		AscNode:      el.Omega,
+		DescNode:     el.Omega + math.Pi,
+		Inclination:  el.I,
+		Eccentricity: el.E,
+		Hyperbolic:   el.E >= 1,
+	}
+	// Node angle is undefined for equatorial orbits — callers detect
+	// via Inclination ≈ 0 / π.
+	return out
+}
+
 // ElementsFromBody pulls Keplerian elements from a bodies.CelestialBody,
 // converting stored km→m and deg→rad. Precise OrbitalElements overrides
 // the top-level fields when present.

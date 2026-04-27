@@ -156,6 +156,318 @@ func TestResolveEventNodesIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestPreviewBurnStateAtNextApoRaisesPeriapsis: planting a prograde
+// burn "at next apoapsis" on an elliptical orbit should raise the
+// periapsis (not the apoapsis the craft is nowhere near). Pre-fix
+// the maneuver screen built shadowState at the *current* position,
+// so the readout always quoted apoapsis growth no matter what
+// fire-at the user picked.
+func TestPreviewBurnStateAtNextApoRaisesPeriapsis(t *testing.T) {
+	w := mustWorld(t)
+	mu := w.Craft.Primary.GravitationalParameter()
+
+	// Step 1: raise apoapsis with a 100 m/s prograde burn at the
+	// circular LEO start position. After this the orbit is
+	// elliptical with peri ≈ start radius, apo ≈ higher altitude.
+	w.Craft.ApplyImpulsive(spacecraft.BurnPrograde, 100)
+	pre := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	preApo := pre.Apoapsis()
+	prePeri := pre.Periapsis()
+	if preApo <= prePeri+1000 {
+		t.Fatalf("setup failed: expected elliptical orbit after burn, got apo=%.0f peri=%.0f",
+			preApo, prePeri)
+	}
+
+	// Step 2: preview a 100 m/s prograde at next apoapsis. This must
+	// raise periapsis (perigee-raise = circularise at higher alt) —
+	// NOT raise apoapsis again.
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, TriggerNextApo)
+	if !ok {
+		t.Fatalf("PreviewBurnState returned ok=false")
+	}
+	post := orbital.ElementsFromState(state.R, state.V, primary.GravitationalParameter())
+	postApo := post.Apoapsis()
+	postPeri := post.Periapsis()
+
+	if postPeri <= prePeri+100 {
+		t.Errorf("perigee should rise after prograde-at-apo: pre=%.1f km post=%.1f km",
+			prePeri/1000, postPeri/1000)
+	}
+	// The new perigee should land near the OLD apoapsis (within
+	// ~5%). At apoapsis a small prograde Δv raises perigee toward
+	// the apoapsis altitude as the orbit circularises higher up.
+	if math.Abs(postPeri-preApo)/preApo > 0.05 {
+		t.Errorf("expected new perigee ≈ old apoapsis: pre apo=%.1f km new peri=%.1f km",
+			preApo/1000, postPeri/1000)
+	}
+	// Apoapsis should stay close to its pre-burn value (it's the
+	// point we burned AT — burning prograde there just lifts the
+	// other side; apoapsis itself rises only marginally).
+	if math.Abs(postApo-preApo)/preApo > 0.10 {
+		t.Errorf("apoapsis should stay roughly same: pre=%.1f km post=%.1f km",
+			preApo/1000, postApo/1000)
+	}
+}
+
+// TestPreviewBurnStateAbsolute: with TriggerAbsolute the helper
+// returns the burn applied at the *current* state — preserving the
+// pre-v0.6 planner preview semantics.
+func TestPreviewBurnStateAbsolute(t *testing.T) {
+	w := mustWorld(t)
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 50, TriggerAbsolute)
+	if !ok {
+		t.Fatalf("PreviewBurnState(Absolute): ok=false")
+	}
+	if primary.ID != w.Craft.Primary.ID {
+		t.Errorf("Absolute should not change primary: got %q", primary.ID)
+	}
+	// Position unchanged; velocity bumped by 50 m/s in prograde dir.
+	if state.R != w.Craft.State.R {
+		t.Errorf("Absolute preview moved R: got %v, want %v", state.R, w.Craft.State.R)
+	}
+	dv := state.V.Sub(w.Craft.State.V).Norm()
+	if math.Abs(dv-50) > 0.01 {
+		t.Errorf("Absolute preview Δv: got %.3f, want 50.0", dv)
+	}
+}
+
+// TestPredictedLegsHohmann: a two-burn Hohmann auto-plant should
+// yield exactly two legs — the transfer leg in Earth (or
+// heliocentric) frame and the captured leg in the destination
+// (Mars) frame. The transfer leg's horizon should match the time
+// gap to the arrival node; the arrival leg's horizon falls back to
+// one orbital period since there's no node after it.
+func TestPredictedLegsHohmann(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	if _, err := w.PlanTransfer(marsIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	legs := w.PredictedLegs()
+	if len(legs) != 2 {
+		t.Fatalf("expected 2 legs (departure + arrival), got %d", len(legs))
+	}
+	if legs[0].NodeIndex != 0 || legs[1].NodeIndex != 1 {
+		t.Errorf("leg NodeIndexes wrong: got %d / %d, want 0 / 1",
+			legs[0].NodeIndex, legs[1].NodeIndex)
+	}
+	if legs[1].Primary.ID != sys.Bodies[marsIdx].ID {
+		t.Errorf("arrival leg primary = %q, want Mars %q (rebase missed)",
+			legs[1].Primary.ID, sys.Bodies[marsIdx].ID)
+	}
+	// Transfer leg horizon should match the trigger-time gap.
+	wantHorizon := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime).Seconds()
+	if math.Abs(legs[0].HorizonSecs-wantHorizon) > 1.0 {
+		t.Errorf("transfer leg horizon = %.0f s, want %.0f s",
+			legs[0].HorizonSecs, wantHorizon)
+	}
+	if legs[1].HorizonSecs <= 0 {
+		t.Errorf("arrival leg horizon must be > 0, got %.0f", legs[1].HorizonSecs)
+	}
+}
+
+// TestPredictedLegsSuppressedDuringActiveBurn: same guard as
+// PredictedFinalOrbit — flailing values during burns shouldn't
+// drive flickering colored trajectory lines.
+func TestPredictedLegsSuppressedDuringActiveBurn(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+	})
+	w.ActiveBurn = &ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 100,
+		EndTime:     w.Clock.SimTime.Add(10 * time.Second),
+	}
+	if legs := w.PredictedLegs(); legs != nil {
+		t.Errorf("expected nil legs during active burn, got %d", len(legs))
+	}
+}
+
+// TestPredictedFinalOrbitHohmannLandsInDestinationFrame: a Hohmann
+// auto-plant to Mars plants two nodes — departure in Earth frame +
+// arrival in Mars frame. PredictedFinalOrbit must rebase into the
+// arrival node's PrimaryID before applying the capture Δv,
+// otherwise the propagation lands at Mars's heliocentric position
+// in Sol frame and the post-burn readout wrongly reports a
+// heliocentric (Sol-primary) orbit. Regression test for the bug
+// where PROJECTED ORBIT showed "primary: Sun" after a Hohmann
+// plant.
+func TestPredictedFinalOrbitHohmannLandsInDestinationFrame(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	if _, err := w.PlanTransfer(marsIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+
+	_, primary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		t.Fatalf("PredictedFinalOrbit returned ok=false after Hohmann plant")
+	}
+	wantID := sys.Bodies[marsIdx].ID
+	if primary.ID != wantID {
+		t.Errorf("post-Hohmann predicted orbit primary = %q, want %q (Mars). Δv was applied in the wrong frame.",
+			primary.ID, wantID)
+	}
+}
+
+// TestPredictedFinalOrbitMatchesPreviewForResolvedNode: planting a
+// NextApo node, running the resolver, and querying PredictedFinalOrbit
+// must agree with PreviewBurnState within float-noise. If these
+// diverge the maneuver-screen preview and the orbit-screen HUD show
+// inconsistent numbers — the user-visible "off proportion" symptom.
+func TestPredictedFinalOrbitMatchesPreviewForResolvedNode(t *testing.T) {
+	w := mustWorld(t)
+
+	// Step 1: nudge into elliptical orbit so we have a meaningful apo.
+	w.Craft.ApplyImpulsive(spacecraft.BurnPrograde, 100)
+
+	// Step 2: plant a NextApo node and resolve it.
+	w.PlanNode(ManeuverNode{
+		Event: TriggerNextApo,
+		Mode:  spacecraft.BurnPrograde,
+		DV:    100,
+	})
+	w.resolveEventNodes()
+	if !w.Nodes[0].IsResolved() {
+		t.Fatalf("resolver failed to freeze NextApo node on elliptical orbit")
+	}
+
+	// PreviewBurnState — what the maneuver screen shows.
+	previewState, previewPrimary, ok := w.PreviewBurnState(spacecraft.BurnPrograde, 100, TriggerNextApo)
+	if !ok {
+		t.Fatalf("PreviewBurnState ok=false")
+	}
+	previewMu := previewPrimary.GravitationalParameter()
+	previewRO := orbital.OrbitReadout(previewState.R, previewState.V, previewMu)
+
+	// PredictedFinalOrbit — what the orbit-screen HUD shows.
+	predState, predPrimary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		t.Fatalf("PredictedFinalOrbit ok=false")
+	}
+	predMu := predPrimary.GravitationalParameter()
+	predRO := orbital.OrbitReadout(predState.R, predState.V, predMu)
+
+	// Both should agree to within 1 km on apo and peri.
+	if math.Abs(previewRO.ApoMeters-predRO.ApoMeters) > 1000 {
+		t.Errorf("apoapsis mismatch: preview=%.1f km, predicted=%.1f km",
+			previewRO.ApoMeters/1000, predRO.ApoMeters/1000)
+	}
+	if math.Abs(previewRO.PeriMeters-predRO.PeriMeters) > 1000 {
+		t.Errorf("periapsis mismatch: preview=%.1f km, predicted=%.1f km",
+			previewRO.PeriMeters/1000, predRO.PeriMeters/1000)
+	}
+
+	// Sanity: this is the perigee-raise scenario. Predicted peri
+	// should be substantially higher than the pre-burn apoapsis is
+	// in altitude terms — i.e. peri ≈ apo (circularised).
+	mu := w.Craft.Primary.GravitationalParameter()
+	preEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	if math.Abs(predRO.PeriMeters-preEl.Apoapsis())/preEl.Apoapsis() > 0.05 {
+		t.Errorf("expected predicted peri ≈ pre-burn apo (circularised): pre apo=%.1f km, predicted peri=%.1f km",
+			preEl.Apoapsis()/1000, predRO.PeriMeters/1000)
+	}
+}
+
+// TestPredictedFinalOrbitSuppressedDuringActiveBurn: while a finite
+// burn is integrating, the live craft state mutates each tick and
+// chained predictions produce flailing numbers + a rotating
+// trajectory preview. PredictedFinalOrbit should return ok=false so
+// the HUD section hides until the burn completes.
+func TestPredictedFinalOrbitSuppressedDuringActiveBurn(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+	})
+	w.ActiveBurn = &ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 100,
+		EndTime:     w.Clock.SimTime.Add(10 * time.Second),
+	}
+	if _, _, ok := w.PredictedFinalOrbit(); ok {
+		t.Errorf("expected ok=false during active burn — projection should hide")
+	}
+}
+
+// TestPredictedFinalOrbitNoNodes: with nothing planted the helper
+// reports ok=false so the HUD can hide the section.
+func TestPredictedFinalOrbitNoNodes(t *testing.T) {
+	w := mustWorld(t)
+	if _, _, ok := w.PredictedFinalOrbit(); ok {
+		t.Errorf("expected ok=false when no nodes planted")
+	}
+}
+
+// TestPredictedFinalOrbitSingleProgradeBurn: planting a 50 m/s
+// prograde burn should raise the apoapsis above the live orbit's
+// apoapsis. Verifies the chain returns a sensible projection.
+func TestPredictedFinalOrbitSingleProgradeBurn(t *testing.T) {
+	w := mustWorld(t)
+	mu := w.Craft.Primary.GravitationalParameter()
+	liveEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	liveApo := liveEl.Apoapsis()
+
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+	})
+
+	state, primary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		t.Fatal("expected ok=true with a planted node")
+	}
+	if primary.ID != w.Craft.Primary.ID {
+		t.Errorf("primary frame: got %q, want %q (no SOI change in 60s)",
+			primary.ID, w.Craft.Primary.ID)
+	}
+	predicted := orbital.ElementsFromState(state.R, state.V, mu)
+	if predicted.Apoapsis() <= liveApo {
+		t.Errorf("prograde burn should raise apo: live=%.0f predicted=%.0f",
+			liveApo, predicted.Apoapsis())
+	}
+}
+
+// TestPredictedFinalOrbitSkipsUnresolvedNodes: an unresolved event-
+// relative node shouldn't contribute to the projection. Live + one
+// unresolved node = no contribution => ok=false.
+func TestPredictedFinalOrbitSkipsUnresolvedNodes(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{
+		Event: TriggerNextPeri,
+		Mode:  spacecraft.BurnPrograde,
+		DV:    50,
+	})
+	if _, _, ok := w.PredictedFinalOrbit(); ok {
+		t.Errorf("expected ok=false with only an unresolved node")
+	}
+}
+
 // TestResolveEventNodesEquatorialAN: an equatorial orbit should leave a
 // NextAN node unresolved (no future crossing), with the resolver
 // retrying on later ticks rather than crashing.

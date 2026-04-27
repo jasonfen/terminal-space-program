@@ -93,6 +93,13 @@ func NewWorld() (*World, error) {
 	earth := w.Systems[0].FindBody("Earth")
 	if earth != nil {
 		w.Craft = spacecraft.NewInLEO(*earth)
+		// v0.6.1: open with the camera focused on the craft. The
+		// system-wide view (FocusSystem) at heliocentric scale shows
+		// nothing useful for a craft in LEO — the player has to cycle
+		// focus before the orbit even renders. Spawning in
+		// FocusCraft puts the live orbit + maneuver previews in
+		// frame from the first tick.
+		w.Focus = Focus{Kind: FocusCraft}
 	}
 	return w, nil
 }
