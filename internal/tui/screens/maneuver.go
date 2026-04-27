@@ -406,8 +406,21 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 			c.Thrust, dur.Seconds(), actual, dv)
 	}
 
+	// v0.6.4 click-to-edit: surface the editing target inline in
+	// the form so the player sees "Enter replaces this node" at the
+	// field they're about to commit. Title-row variants ride above
+	// this and may wrap or get cropped by some renderers; the
+	// form-panel header is the unambiguous spot. Warning style
+	// (orange/yellow) for visual distinction from a fresh-plan
+	// Primary-style header.
+	headerStyle := m.theme.Primary
+	header := "BURN PLAN"
+	if m.editingIdx >= 0 {
+		headerStyle = m.theme.Warning
+		header = fmt.Sprintf("BURN PLAN — editing node %d", m.editingIdx+1)
+	}
 	lines := []string{
-		m.theme.Primary.Render("BURN PLAN"),
+		headerStyle.Render(header),
 		"  mode:     " + modeLabel,
 		"  fire at:  " + fireAtLabel,
 		"  Δv:       " + m.dvInput.View() + " m/s" + warn,
