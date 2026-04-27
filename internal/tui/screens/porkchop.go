@@ -116,6 +116,42 @@ func (p *Porkchop) PendingPlant() (targetIdx int, depDay, tofDay float64, ok boo
 	return p.targetIdx, p.depDays[p.selDep], p.tofDays[p.selTof], true
 }
 
+// HitCell maps a screen-space (col, row) onto the porkchop grid's
+// (depIdx, tofIdx). Title + blank line take rows 0 and 1; grid
+// starts at row 2. Each row begins with "tof XXXd │" = 10 chars
+// (gridLead) before the first cell. Returns ok=false when the
+// click lands outside the grid's pixel rectangle. v0.6.4 mouse
+// dispatch sets selDep / selTof from the result.
+func (p *Porkchop) HitCell(col, row int) (depIdx, tofIdx int, ok bool) {
+	const gridLead = 10 // matches Render's gridLead constant
+	if p.grid == nil {
+		return 0, 0, false
+	}
+	depIdx = col - gridLead
+	tofIdx = row - 2
+	if depIdx < 0 || depIdx >= len(p.depDays) {
+		return 0, 0, false
+	}
+	if tofIdx < 0 || tofIdx >= len(p.tofDays) {
+		return 0, 0, false
+	}
+	return depIdx, tofIdx, true
+}
+
+// SetSelection moves the cursor to (depIdx, tofIdx) — used by the
+// v0.6.4 mouse dispatch on click. Bounds-checked; out-of-range
+// indices are ignored.
+func (p *Porkchop) SetSelection(depIdx, tofIdx int) {
+	if depIdx < 0 || depIdx >= len(p.depDays) {
+		return
+	}
+	if tofIdx < 0 || tofIdx >= len(p.tofDays) {
+		return
+	}
+	p.selDep = depIdx
+	p.selTof = tofIdx
+}
+
 // Render draws the grid + axes + selection readout.
 func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	if p.errMsg != "" {

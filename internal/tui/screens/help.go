@@ -34,6 +34,7 @@ func (h *Help) Render() string {
 			{"f", "next focus target"},
 			{"F", "previous focus target"},
 			{"g", "reset to system-wide view"},
+			{"v", "cycle view (top / right / bottom / left / orbit-flat)"},
 		}},
 		{"TIME", [][2]string{
 			{".", "warp up (1× … 100000×)"},
@@ -51,6 +52,16 @@ func (h *Help) Render() string {
 			{"S", "save game (XDG_STATE_HOME)"},
 			{"L", "load game"},
 			{"q", "quit (confirm + autosave)"},
+		}},
+		{"MOUSE (orbit canvas)", [][2]string{
+			{"click body", "focus body (same as ←/→ to land on it)"},
+			{"click vessel", "focus craft"},
+			{"click node", "open planner pre-loaded for that node (edit-replace)"},
+			{"click empty", "open planner staged at projected orbit point"},
+			{"click HUD", "open body info"},
+		}},
+		{"MOUSE (porkchop)", [][2]string{
+			{"click cell", "select that (dep, tof) — press [enter] to plant"},
 		}},
 	}
 

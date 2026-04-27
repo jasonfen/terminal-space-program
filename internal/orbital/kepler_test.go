@@ -111,3 +111,82 @@ func TestTrueAnomalyConsistency(t *testing.T) {
 		t.Errorf("|ν| at E=π should be π, got %.12f", ν)
 	}
 }
+
+// TestPerifocalBasisEquatorialIdentity (v0.6.4+): an equatorial
+// circular orbit with Ω = ω = 0 has its perifocal x̂ aligned with
+// world +X and ŷ with world +Y. The basis equals the identity in
+// this degenerate case — equatorial-aligned cases are the frame
+// transformations new readers double-check first.
+func TestPerifocalBasisEquatorialIdentity(t *testing.T) {
+	el := Elements{A: 1e7, E: 0, I: 0, Omega: 0, Arg: 0}
+	xHat, yHat := PerifocalBasis(el)
+	expectPFVec(t, "xHat", xHat, Vec3{X: 1})
+	expectPFVec(t, "yHat", yHat, Vec3{Y: 1})
+}
+
+// TestPerifocalBasisOrthonormal: for arbitrary (Ω, i, ω) the
+// returned basis must be orthonormal. Catches sign / column-mix
+// errors in the rotation-matrix transcription that would foreshorten
+// or skew the orbit-perpendicular projection.
+func TestPerifocalBasisOrthonormal(t *testing.T) {
+	cases := []Elements{
+		{A: 1e7, E: 0.1, I: 30 * math.Pi / 180, Omega: 45 * math.Pi / 180, Arg: 60 * math.Pi / 180},
+		{A: 4e8, E: 0.05, I: 5.145 * math.Pi / 180, Omega: 125.08 * math.Pi / 180, Arg: 318.15 * math.Pi / 180},
+		{A: 1e6, E: 0.7, I: 90 * math.Pi / 180, Omega: 0, Arg: 0}, // polar
+	}
+	for _, el := range cases {
+		xHat, yHat := PerifocalBasis(el)
+		if math.Abs(xHat.Norm()-1) > 1e-9 {
+			t.Errorf("|xHat| = %.10f, want 1 for el=%+v", xHat.Norm(), el)
+		}
+		if math.Abs(yHat.Norm()-1) > 1e-9 {
+			t.Errorf("|yHat| = %.10f, want 1 for el=%+v", yHat.Norm(), el)
+		}
+		dot := xHat.X*yHat.X + xHat.Y*yHat.Y + xHat.Z*yHat.Z
+		if math.Abs(dot) > 1e-9 {
+			t.Errorf("xHat · yHat = %.10f, want 0 for el=%+v", dot, el)
+		}
+	}
+}
+
+// TestPerifocalBasisProjectsOrbitFlat: a point on the orbit at true
+// anomaly ν projects onto the perifocal basis with zero orbit-normal
+// component. The orbit is flat in (xHat, yHat) coords — exactly what
+// the orbit-perpendicular view mode exploits.
+func TestPerifocalBasisProjectsOrbitFlat(t *testing.T) {
+	el := Elements{A: 1e7, E: 0.2, I: 30 * math.Pi / 180, Omega: 45 * math.Pi / 180, Arg: 60 * math.Pi / 180}
+	xHat, yHat := PerifocalBasis(el)
+	// Orbit-normal direction = xHat × yHat.
+	zHat := Vec3{
+		X: xHat.Y*yHat.Z - xHat.Z*yHat.Y,
+		Y: xHat.Z*yHat.X - xHat.X*yHat.Z,
+		Z: xHat.X*yHat.Y - xHat.Y*yHat.X,
+	}
+	for _, nu := range []float64{0, math.Pi / 2, math.Pi, 1.7} {
+		r := PositionAtTrueAnomaly(el, nu)
+		px := r.X*xHat.X + r.Y*xHat.Y + r.Z*xHat.Z
+		py := r.X*yHat.X + r.Y*yHat.Y + r.Z*yHat.Z
+		pz := r.X*zHat.X + r.Y*zHat.Y + r.Z*zHat.Z
+		rMag := r.Norm()
+		if rMag == 0 {
+			continue
+		}
+		if math.Abs(pz)/rMag > 1e-9 {
+			t.Errorf("orbit-normal component at ν=%.2f: %.6f / %.0f m (rel %.2e)",
+				nu, pz, rMag, math.Abs(pz)/rMag)
+		}
+		recon := math.Sqrt(px*px + py*py)
+		if math.Abs(recon-rMag)/rMag > 1e-9 {
+			t.Errorf("ν=%.2f: in-plane projection %.0f m vs |r| %.0f m (rel %.2e)",
+				nu, recon, rMag, math.Abs(recon-rMag)/rMag)
+		}
+	}
+}
+
+func expectPFVec(t *testing.T, name string, got, want Vec3) {
+	t.Helper()
+	const tol = 1e-12
+	if math.Abs(got.X-want.X) > tol || math.Abs(got.Y-want.Y) > tol || math.Abs(got.Z-want.Z) > tol {
+		t.Errorf("%s = %+v, want %+v", name, got, want)
+	}
+}

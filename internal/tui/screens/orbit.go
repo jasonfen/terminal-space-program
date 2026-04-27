@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -83,6 +84,84 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 func (v *OrbitView) ZoomIn()  { v.canvas.ZoomBy(1.25) }
 func (v *OrbitView) ZoomOut() { v.canvas.ZoomBy(1.0 / 1.25) }
 
+// HitAt translates a screen-space mouse coordinate (col, row) into a
+// CellTag from the orbit canvas. The orbit screen renders title (1
+// row) + canvasPanel (rounded border = 1 row top, 1 col left)
+// before the canvas content, so we offset (col-1, row-2). Returns a
+// zero-value CellTag when the click lands outside the canvas
+// content area, which the caller treats as "no hit." v0.6.4+.
+func (v *OrbitView) HitAt(screenCol, screenRow int) widgets.CellTag {
+	return v.canvas.HitAt(screenCol-1, screenRow-2)
+}
+
+// IsCanvasClick reports whether a screen-space (col, row) lands
+// inside the canvas content area (i.e. between the rounded-border
+// edges). v0.6.4 mouse dispatch uses this to distinguish "click on
+// orbit canvas" from "click on HUD" when no body / vessel / node
+// hit lands.
+func (v *OrbitView) IsCanvasClick(col, row int) bool {
+	return col >= 1 && col <= v.canvas.Cols() && row >= 2 && row <= v.canvas.Rows()+1
+}
+
+// IsHudClick reports whether a screen-space col lands on the HUD
+// panel (right of the canvas + its border).
+func (v *OrbitView) IsHudClick(col int) bool {
+	return col > v.canvas.Cols()+1
+}
+
+// ProjectToOrbit maps a screen-space click to the time-of-flight at
+// which the active craft reaches the orbit point nearest the click.
+// Used by the v0.6.4 empty-canvas mouse path to stage a new burn at
+// "this point along my orbit."
+//
+// Algorithm: sample 360 true-anomalies on the live craft orbit,
+// project each to canvas pixels, take the smallest screen distance
+// to the click pixel; convert that ν to a time-of-flight via
+// orbital.TimeToTrueAnomaly. ok=false for hyperbolic / no-craft
+// states or when no sample lands on-canvas.
+func (v *OrbitView) ProjectToOrbit(w *sim.World, screenCol, screenRow int) (time.Duration, bool) {
+	if w.Craft == nil {
+		return 0, false
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return 0, false
+	}
+	currentNu := orbital.TrueAnomalyFromState(w.Craft.State.R, w.Craft.State.V, mu, el)
+	primaryPos := w.BodyPosition(w.Craft.Primary)
+
+	clickCanvasCol := screenCol - 1 // strip border / title offsets
+	clickCanvasRow := screenRow - 2
+	bestNu := 0.0
+	bestDist := math.MaxFloat64
+	const samples = 360
+	for i := 0; i < samples; i++ {
+		nu := 2 * math.Pi * float64(i) / float64(samples)
+		p := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, nu))
+		px, py, ok := v.canvas.Project(p)
+		if !ok {
+			continue
+		}
+		col, row := px/2, py/4
+		dx := float64(col - clickCanvasCol)
+		dy := float64(row - clickCanvasRow)
+		d := dx*dx + dy*dy
+		if d < bestDist {
+			bestDist = d
+			bestNu = nu
+		}
+	}
+	if bestDist == math.MaxFloat64 {
+		return 0, false
+	}
+	dtSecs := orbital.TimeToTrueAnomaly(currentNu, bestNu, el.A, el.E, mu)
+	if dtSecs < 0 {
+		return 0, false
+	}
+	return time.Duration(dtSecs * float64(time.Second)), true
+}
+
 // Render composes the frame: canvas on the left, HUD on the right.
 // selectedIdx is the index of the cursor-selected body in system.Bodies.
 func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows int) string {
@@ -100,6 +179,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	}
 
 	v.canvas.Clear()
+	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
 	if w.ActiveBurn != nil {
 		if v.burnFrozenCenter == nil {
@@ -135,11 +215,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		pos := w.BodyPosition(b)
 		r := BodyPixelRadius(b, i == 0, scale)
 		color := render.ColorFor(b)
+		// v0.6.4: tag body pixels with BodyID so HitAt resolves
+		// mouse clicks back to the body for click-to-focus.
+		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID}
 		if i == 0 {
-			v.canvas.RingColoredOutline(pos, r, color)
-			v.canvas.FillColoredDisk(pos, 1, color)
+			v.canvas.RingColoredOutlineTagged(pos, r, bodyTag)
+			v.canvas.FillColoredDiskTagged(pos, 1, bodyTag)
 		} else {
-			v.canvas.FillColoredDisk(pos, r, color)
+			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
 		}
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
 		// radii project to pixel radii via the canvas scale; only
@@ -211,32 +294,33 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		primaryPos := w.BodyPosition(c.Primary)
 		scale := v.canvas.Scale()
 		orbitVisible := el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
+		// v0.6.4: in side views, the spacecraft orbit can pass behind
+		// the primary body. The canvas's IsBehindBody / occluded-
+		// ellipse helpers skip back-half samples that fall inside
+		// the primary's projected disk — since the body disk has
+		// already been drawn (line ~115), the gap reads as natural
+		// occlusion. Apo / peri markers + the craft chevron use the
+		// same check.
+		primaryPxR := BodyPixelRadius(c.Primary, false, scale)
 		if orbitVisible {
-			v.canvas.DrawEllipseOffsetDottedColored(el, primaryPos, 360, 3, render.ColorCurrentOrbit)
-			// Apoapsis / periapsis markers — render even for low-e
-			// orbits so the player sees WHERE the two extremes are
-			// when the ellipse shape alone is near-circular. Apoapsis
-			// gets a larger disk, periapsis smaller; distinct sizes
-			// read at a glance.
+			v.canvas.DrawEllipseOffsetOccluded(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
-			v.canvas.FillDisk(peri, 2)
-			v.canvas.FillDisk(apo, 3)
+			if !v.canvas.IsBehindBody(peri, primaryPos, primaryPxR) {
+				v.canvas.FillDisk(peri, 2)
+			}
+			if !v.canvas.IsBehindBody(apo, primaryPos, primaryPxR) {
+				v.canvas.FillDisk(apo, 3)
+			}
 		}
-		// Vessel marker. When the orbit ellipse is rendering at a
-		// useful size, draw a directional chevron so the player reads
-		// "which way am I going" off the velocity frame. When the
-		// orbit's collapsed below minOrbitPixels (heliocentric zoom on
-		// a LEO craft), the chevron's 5-pixel spread sprawls across
-		// the parent body and reads as noise — replace it with a
-		// single bright disk that says "vehicle here." The disk color
-		// is distinct from every body palette entry and every
-		// maneuver-leg color so multi-craft views (future) stay
-		// disambiguable per craft.
-		if orbitVisible {
-			v.canvas.PlotArrow(w.CraftInertial(), c.State.V, 5)
-		} else {
-			v.canvas.FillColoredDisk(w.CraftInertial(), 1, render.ColorCraftMarker)
+		craftInertial := w.CraftInertial()
+		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
+			vesselTag := widgets.CellTag{Color: render.ColorCraftMarker, IsVessel: true}
+			if orbitVisible {
+				v.canvas.PlotArrowTagged(craftInertial, c.State.V, 5, vesselTag)
+			} else {
+				v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
+			}
 		}
 	}
 
@@ -321,10 +405,18 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 // their resulting orbit leg, so the player sees node N at the
 // position where the post-burn orbit (also color N) begins.
 func (v *OrbitView) plotClusterColored(center orbital.Vec3, n int, color lipgloss.Color) {
+	v.plotClusterTagged(center, n, widgets.CellTag{Color: color})
+}
+
+// plotClusterTagged is plotClusterColored that records the supplied
+// CellTag (color + hit-test metadata) on every pixel it sets. v0.6.4+
+// — node draws use this with NodeIdx so HitAt can resolve a click
+// back to the planted node it lands on.
+func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.CellTag) {
 	step := 1.0 / v.canvas.Scale()
 	for i := -n / 2; i <= n/2; i++ {
-		v.canvas.PlotColored(center.Add(orbital.Vec3{X: float64(i) * step}), color)
-		v.canvas.PlotColored(center.Add(orbital.Vec3{Y: float64(i) * step}), color)
+		v.canvas.PlotColoredTagged(center.Add(orbital.Vec3{X: float64(i) * step}), tag)
+		v.canvas.PlotColoredTagged(center.Add(orbital.Vec3{Y: float64(i) * step}), tag)
 	}
 }
 
@@ -351,7 +443,10 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		// v0.6.1: each node's marker matches the color of its
 		// resulting orbit leg, so the cluster glyph and the
 		// post-burn dashed orbit read as a matched pair.
-		v.plotClusterColored(w.NodeInertialPosition(n), size, render.ManeuverSegmentColor(i))
+		v.plotClusterTagged(w.NodeInertialPosition(n), size, widgets.CellTag{
+			Color:   render.ManeuverSegmentColor(i),
+			NodeIdx: i + 1, // 0 = none; planted node i is 1+i in the tag.
+		})
 	}
 
 	// v0.6.1: while a finite burn is firing the live craft state is
@@ -576,4 +671,49 @@ func normalizeDeg(d float64) float64 {
 		d += 360
 	}
 	return d
+}
+
+// viewBasis returns the canvas projection basis for the world's
+// current ViewMode. Four cardinal cases — Top (XY drop), Right (YZ),
+// Bottom (XY mirrored), Left (YZ mirrored) — plus orbit-flat, which
+// projects onto the active craft's orbit plane via the perifocal
+// (x̂, ŷ) basis so the orbit reads as a clean ellipse regardless of
+// inclination. Falls back to Top's basis when the orbit is degenerate
+// (no craft, e ≥ 1, a ≤ 0).
+//
+// Single-craft today; multi-craft will need an active-craft selector
+// to disambiguate "the active orbit" (state-of-game.md §2 backlog).
+func viewBasis(w *sim.World) widgets.Basis {
+	switch w.ViewMode {
+	case sim.ViewRight:
+		return widgets.Basis{
+			X: orbital.Vec3{Y: 1},
+			Y: orbital.Vec3{Z: 1},
+		}
+	case sim.ViewBottom:
+		return widgets.Basis{
+			X: orbital.Vec3{X: 1},
+			Y: orbital.Vec3{Y: -1},
+		}
+	case sim.ViewLeft:
+		return widgets.Basis{
+			X: orbital.Vec3{Y: -1},
+			Y: orbital.Vec3{Z: 1},
+		}
+	case sim.ViewOrbitFlat:
+		if w.Craft == nil {
+			return widgets.DefaultBasis()
+		}
+		mu := w.Craft.Primary.GravitationalParameter()
+		if mu <= 0 {
+			return widgets.DefaultBasis()
+		}
+		el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+		if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+			return widgets.DefaultBasis()
+		}
+		xHat, yHat := orbital.PerifocalBasis(el)
+		return widgets.Basis{X: xHat, Y: yHat}
+	}
+	return widgets.DefaultBasis() // ViewTop or any future mode
 }
