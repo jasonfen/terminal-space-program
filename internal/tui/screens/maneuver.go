@@ -339,7 +339,16 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	footer := m.theme.Footer.Render(
 		"[tab] cycle field  [←/→] cycle mode  [enter] commit  [esc] cancel  [digits] edit",
 	)
-	return m.theme.Title.Render("maneuver planner") + "\n" + body + "\n" + footer
+	title := "maneuver planner"
+	if m.editingIdx >= 0 {
+		// v0.6.4 click-to-edit: surface the editing target so the
+		// player knows Enter will replace this node, not duplicate.
+		// Node display index is 1-based to match user expectations
+		// (auto-plant labels nodes "departure" / "arrival" — for
+		// hand-edits we just show the slice position).
+		title = fmt.Sprintf("maneuver planner — editing node %d", m.editingIdx+1)
+	}
+	return m.theme.Title.Render(title) + "\n" + body + "\n" + footer
 }
 
 func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, shadowPrimary bodies.CelestialBody, mu float64) string {
