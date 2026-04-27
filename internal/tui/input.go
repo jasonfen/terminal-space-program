@@ -6,6 +6,7 @@ import "github.com/charmbracelet/bubbles/key"
 // that need additional keys define them locally.
 type Keymap struct {
 	Quit       key.Binding
+	QuitAsk    key.Binding
 	Help       key.Binding
 	BodyInfo   key.Binding
 	Maneuver   key.Binding
@@ -32,7 +33,8 @@ type Keymap struct {
 
 func DefaultKeymap() Keymap {
 	return Keymap{
-		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Quit:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit (immediate)")),
+		QuitAsk:    key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit (confirm)")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		BodyInfo:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "body info")),
 		Maneuver:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "maneuver")),
