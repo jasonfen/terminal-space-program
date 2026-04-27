@@ -216,9 +216,10 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	// craft is nowhere near. Falls back to current-state preview if
 	// the event is unreachable (hyperbolic / equatorial AN/DN).
 	dv := m.parsedDV()
+	dur := m.parsedDuration()
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	event := sim.AllTriggerEvents[m.fireAtIdx]
-	shadowState, shadowPrimary, ok := w.PreviewBurnState(mode, dv, event)
+	shadowState, shadowPrimary, ok := w.PreviewBurnState(mode, dv, dur, event)
 	if !ok {
 		dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
 		shadowState = physics.StateVector{
