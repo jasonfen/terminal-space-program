@@ -3,14 +3,14 @@ package sim
 import "testing"
 
 // TestCycleViewModeWraps: starts at the zero-value (ViewTop),
-// cycles forward through Top → Right → Bottom → Left → Top in
-// canonical order. v0.6.4+.
+// cycles forward through Top → Right → Bottom → Left → OrbitFlat →
+// Top in canonical order. v0.6.4+.
 func TestCycleViewModeWraps(t *testing.T) {
 	w := mustWorld(t)
 	if w.ViewMode != ViewTop {
 		t.Fatalf("default ViewMode = %v, want ViewTop", w.ViewMode)
 	}
-	want := []ViewMode{ViewRight, ViewBottom, ViewLeft, ViewTop}
+	want := []ViewMode{ViewRight, ViewBottom, ViewLeft, ViewOrbitFlat, ViewTop}
 	for i, expect := range want {
 		w.CycleViewMode()
 		if w.ViewMode != expect {

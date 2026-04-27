@@ -58,6 +58,6 @@ func DefaultKeymap() Keymap {
 		Save:         key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save game")),
 		Load:         key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "load game")),
 		RefinePlan:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refine plan (re-Lambert arrival)")),
-		CycleView:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (top / right / bottom / left)")),
+		CycleView:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (top / right / bottom / left / orbit-flat)")),
 	}
 }

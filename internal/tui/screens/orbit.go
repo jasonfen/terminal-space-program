@@ -581,31 +581,45 @@ func normalizeDeg(d float64) float64 {
 
 // viewBasis returns the canvas projection basis for the world's
 // current ViewMode. Four cardinal cases — Top (XY drop), Right (YZ),
-// Bottom (XY mirrored), Left (YZ mirrored). Each rotates the camera
-// 90° around the system; together they let the player see an
-// otherwise edge-on orbit from a side angle so the trajectory's
-// in-front-of / behind-the-body geometry reads at a glance.
+// Bottom (XY mirrored), Left (YZ mirrored) — plus orbit-flat, which
+// projects onto the active craft's orbit plane via the perifocal
+// (x̂, ŷ) basis so the orbit reads as a clean ellipse regardless of
+// inclination. Falls back to Top's basis when the orbit is degenerate
+// (no craft, e ≥ 1, a ≤ 0).
+//
+// Single-craft today; multi-craft will need an active-craft selector
+// to disambiguate "the active orbit" (state-of-game.md §2 backlog).
 func viewBasis(w *sim.World) widgets.Basis {
 	switch w.ViewMode {
 	case sim.ViewRight:
-		// Camera at +X looking -X. Canvas X+ = world Y+, Y+ = world Z+.
 		return widgets.Basis{
 			X: orbital.Vec3{Y: 1},
 			Y: orbital.Vec3{Z: 1},
 		}
 	case sim.ViewBottom:
-		// Camera at -Z looking +Z. Canvas X+ = world X+, Y+ = world Y-
-		// (vertical mirror of Top).
 		return widgets.Basis{
 			X: orbital.Vec3{X: 1},
 			Y: orbital.Vec3{Y: -1},
 		}
 	case sim.ViewLeft:
-		// Camera at -X looking +X. Canvas X+ = world Y-, Y+ = world Z+.
 		return widgets.Basis{
 			X: orbital.Vec3{Y: -1},
 			Y: orbital.Vec3{Z: 1},
 		}
+	case sim.ViewOrbitFlat:
+		if w.Craft == nil {
+			return widgets.DefaultBasis()
+		}
+		mu := w.Craft.Primary.GravitationalParameter()
+		if mu <= 0 {
+			return widgets.DefaultBasis()
+		}
+		el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+		if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+			return widgets.DefaultBasis()
+		}
+		xHat, yHat := orbital.PerifocalBasis(el)
+		return widgets.Basis{X: xHat, Y: yHat}
 	}
 	return widgets.DefaultBasis() // ViewTop or any future mode
 }

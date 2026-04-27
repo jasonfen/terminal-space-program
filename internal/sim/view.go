@@ -5,10 +5,11 @@ package sim
 // and the maneuver-planner mini-canvas share the same camera angle
 // without per-screen coordination.
 //
-// Four hard-coded cardinal views: Top (the pre-v0.6.4 XY drop) plus
-// three side views. Top → Right → Bottom → Left wraps around,
-// matching the player's mental model of rotating the camera around
-// the system.
+// Five modes: four hard-coded cardinal views (Top, Right, Bottom,
+// Left) plus the orbit-flat view that projects onto the active
+// craft's orbit plane regardless of inclination. Cycle order rolls
+// from Top through the cardinals and ends on orbit-flat before
+// wrapping.
 type ViewMode int
 
 const (
@@ -31,6 +32,14 @@ const (
 	// ViewLeft mirrors ViewRight horizontally — looking from -X
 	// toward origin. Canvas X+ = world Y-, canvas Y+ = world Z+.
 	ViewLeft
+	// ViewOrbitFlat projects onto the active craft's orbit plane
+	// via the perifocal (x̂, ŷ) basis. Inclined orbits render as
+	// clean ellipses with no foreshortening — the geometry the
+	// other views can't reveal because they're tied to world axes.
+	// Falls back to ViewTop's basis when the orbit is degenerate
+	// (no craft, e ≥ 1, a ≤ 0). Useful for reading the orbit's
+	// actual shape as if i = 0.
+	ViewOrbitFlat
 )
 
 // String returns a short human label for the view mode.
@@ -44,18 +53,22 @@ func (m ViewMode) String() string {
 		return "bottom"
 	case ViewLeft:
 		return "left"
+	case ViewOrbitFlat:
+		return "orbit-flat"
 	}
 	return "?"
 }
 
 // AllViewModes enumerates the modes in canonical cycle order.
-// Top → Right → Bottom → Left → Top — each cycle rotates the camera
-// 90° around the system in a consistent direction.
+// Top → Right → Bottom → Left → OrbitFlat → Top — cardinal cameras
+// first (each rotates 90° around the system), then the orbit-plane
+// projection as a punctuation mark.
 var AllViewModes = [...]ViewMode{
 	ViewTop,
 	ViewRight,
 	ViewBottom,
 	ViewLeft,
+	ViewOrbitFlat,
 }
 
 // CycleViewMode advances ViewMode to the next mode in cycle order.
