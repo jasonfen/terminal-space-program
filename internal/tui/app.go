@@ -47,6 +47,13 @@ type App struct {
 	// scheduled tea.Cmd.
 	statusMsg     string
 	statusExpires time.Time
+
+	// confirmingQuit drives the v0.6.3 quit-confirm overlay. When
+	// true, every key except y/Y (confirm) and n/N/esc/q (cancel) is
+	// dropped so accidental keystrokes can't fall through to the
+	// active screen. ctrl+c bypasses this entirely — standard
+	// interrupt convention beats the dialog.
+	confirmingQuit bool
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -129,13 +136,34 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
-		// Maneuver screen has its own text input that eats most keys; we
-		// still honor global quit, and esc-to-cancel goes through the
-		// screen's handler so it can clean up.
-		if a.active == screenManeuver {
-			if key.Matches(m, a.keys.Quit) {
+		// ctrl+c bypasses the quit-confirm dialog (standard interrupt
+		// convention). Honored from any screen.
+		if key.Matches(m, a.keys.Quit) {
+			a.autosave()
+			return a, tea.Quit
+		}
+		// While confirming a q-quit, intercept everything else: y/Y →
+		// commit, n/N/esc/q → cancel, anything else dropped so a
+		// stray keystroke can't accidentally exit the dialog by
+		// reaching the active screen below.
+		if a.confirmingQuit {
+			switch m.String() {
+			case "y", "Y":
 				a.autosave()
 				return a, tea.Quit
+			case "n", "N", "esc", "q":
+				a.confirmingQuit = false
+				return a, nil
+			}
+			return a, nil
+		}
+		// Maneuver screen has its own text input that eats most keys;
+		// q opens the quit-confirm before delegating, esc-to-cancel
+		// goes through the screen's handler so it can clean up.
+		if a.active == screenManeuver {
+			if key.Matches(m, a.keys.QuitAsk) {
+				a.confirmingQuit = true
+				return a, nil
 			}
 			if key.Matches(m, a.keys.Back) {
 				a.world.Clock.Paused = false
@@ -150,9 +178,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Porkchop: ←/→/↑/↓ navigate cells, Esc returns.
 		if a.active == screenPorkchop {
-			if key.Matches(m, a.keys.Quit) {
-				a.autosave()
-				return a, tea.Quit
+			if key.Matches(m, a.keys.QuitAsk) {
+				a.confirmingQuit = true
+				return a, nil
 			}
 			_, done := a.porkchop.HandleKey(m)
 			if done {
@@ -164,9 +192,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		switch {
-		case key.Matches(m, a.keys.Quit):
-			a.autosave()
-			return a, tea.Quit
+		case key.Matches(m, a.keys.QuitAsk):
+			a.confirmingQuit = true
+			return a, nil
 		case key.Matches(m, a.keys.Help):
 			if a.active == screenHelp {
 				a.active = screenOrbit
@@ -362,6 +390,9 @@ func (a *App) View() string {
 	}
 	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
 		base += "\n" + a.theme.Footer.Render(a.statusMsg)
+	}
+	if a.confirmingQuit {
+		base += "\n" + a.theme.Warning.Render("Quit and save? [y/N]")
 	}
 	return base
 }

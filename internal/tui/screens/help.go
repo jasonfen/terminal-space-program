@@ -20,7 +20,8 @@ func (h *Help) Render() string {
 		rows   [][2]string
 	}{
 		{"GLOBAL", [][2]string{
-			{"q / ctrl+c", "quit"},
+			{"q", "quit (confirm prompt)"},
+			{"ctrl+c", "quit (immediate)"},
 			{"?", "toggle this help"},
 			{"esc", "back / close"},
 		}},
@@ -49,7 +50,7 @@ func (h *Help) Render() string {
 		{"PERSISTENCE", [][2]string{
 			{"S", "save game (XDG_STATE_HOME)"},
 			{"L", "load game"},
-			{"q", "quit (autosaves)"},
+			{"q", "quit (confirm + autosave)"},
 		}},
 	}
 

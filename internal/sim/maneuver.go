@@ -298,6 +298,53 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		return &plan, nil
 	}
 
+	// v0.6.3: target is the craft's primary's parent (e.g., craft in
+	// Luna's SOI, target Earth). The pre-v0.6.3 fallthrough sent these
+	// to the heliocentric Hohmann path, which treated Earth's
+	// heliocentric semimajor axis as the destination radius around
+	// Luna and produced nonsensical Δv. The moon-escape planner instead
+	// targets a bound transfer ellipse whose apolune sits on Luna's
+	// SOI; the SOI-aware integrator then drops the craft into Earth's
+	// frame automatically. The arrival node is a zero-Δv frame marker
+	// — the player plants their own circularization once they see the
+	// post-escape Earth-frame trajectory.
+	if w.Craft.Primary.ParentID != "" && target.ID == w.Craft.Primary.ParentID {
+		moon := w.Craft.Primary
+		moonParent := sys.ParentOf(moon)
+		if moonParent == nil {
+			return nil, errInvalidTransferTarget
+		}
+		muMoon := moon.GravitationalParameter()
+		rSOI := physics.SOIRadius(moon, *moonParent)
+		if rSOI == 0 || rSOI <= rPark {
+			return nil, errInvalidTransferTarget
+		}
+		mass := w.Craft.TotalMass()
+		thrust := w.Craft.Thrust
+		// Pre-size the centered-finite-burn lead pad from the impulsive
+		// estimate, mirroring the intra-primary branch above.
+		aT := (rPark + rSOI) / 2
+		vCirc := math.Sqrt(muMoon / rPark)
+		vTransAtPeri := math.Sqrt(muMoon * (2/rPark - 1/aT))
+		dvEstimate := vTransAtPeri - vCirc
+		var minLead float64
+		if thrust > 0 && mass > 0 && dvEstimate > 0 {
+			minLead = (dvEstimate * mass / thrust) / 2
+		}
+		plan, err := planner.PlanMoonEscape(muMoon, rPark, rSOI, minLead, moon.ID, target.ID)
+		if err != nil {
+			return nil, err
+		}
+		// Reuse v0.6.2's iterator: target the SOI radius as apolune so
+		// finite-burn integration delivers the bound transfer ellipse
+		// the impulsive math designed.
+		refineFiniteDeparture(&plan, muMoon, rPark, mass, thrust, w.Craft.Isp, rSOI)
+		now := w.Clock.SimTime
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+		return &plan, nil
+	}
+
 	primary := sys.Bodies[0]
 	muSun := primary.GravitationalParameter()
 	rDeparture := w.CraftInertial().Norm()
@@ -966,11 +1013,11 @@ func (w *World) PredictedLegs() []PredictedLeg {
 }
 
 // PreviewBurnState returns the craft state immediately after a
-// hypothetical burn with the given (mode, dv, event) parameters
-// would fire — without mutating world state. Used by the maneuver-
-// planner screen so its shadow trajectory + PROJECTED ORBIT readout
-// reflect where the burn would *actually* fire, not where the craft
-// is sitting right now.
+// hypothetical burn with the given (mode, dv, duration, event)
+// parameters would fire — without mutating world state. Used by the
+// maneuver-planner screen so its shadow trajectory + PROJECTED ORBIT
+// readout reflect where the burn would *actually* fire, not where the
+// craft is sitting right now.
 //
 // For event != Absolute, the helper computes the time-of-flight to
 // the event using the same orbital helpers as the lazy-freeze
@@ -985,7 +1032,18 @@ func (w *World) PredictedLegs() []PredictedLeg {
 // TriggerTime + Duration/2 in flight; the planner doesn't yet know
 // which TriggerTime the user will choose, so previewing at "now" is
 // the least-surprising default.
-func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, event TriggerEvent) (physics.StateVector, bodies.CelestialBody, bool) {
+//
+// v0.6.3 polish: when duration > 0 the helper routes through
+// `planner.SimulateFiniteBurn` so the preview reflects finite-burn
+// deformation (off-tangential velocity rotation through the burn arc,
+// finite-burn cosine loss, etc.) rather than the impulsive
+// idealisation. The delivered Δv is also capped by the rocket-
+// equation maximum the duration window allows — so a 400 m/s request
+// with the form's default 10 s duration returns a preview reflecting
+// only what 10 s of thrust would actually deliver (≈205 m/s for the
+// S-IVB-1 default loadout), matching what the live integrator does
+// when the burn terminates on duration rather than Δv.
+func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration time.Duration, event TriggerEvent) (physics.StateVector, bodies.CelestialBody, bool) {
 	if w.Craft == nil {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
@@ -1014,8 +1072,39 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, event Tri
 		}
 	}
 
+	if dv == 0 {
+		return state, primary, true
+	}
+
+	thrust := w.Craft.Thrust
+	isp := w.Craft.Isp
+	useFinite := duration > 0 && thrust > 0 && isp > 0 && state.M > 0
+
+	if useFinite {
+		// Cap delivered Δv by what `duration` actually allows under
+		// the rocket equation. Pre-v0.6.3 the preview used the raw
+		// requested Δv; if the form's duration was too short to
+		// deliver it (the in-flight burn terminates on duration, not
+		// Δv) the projected orbit overshot what the player would see.
+		mdot := thrust / (isp * 9.80665)
+		massAfter := state.M - mdot*duration.Seconds()
+		effectiveDv := dv
+		if massAfter > 0 {
+			maxDv := isp * 9.80665 * math.Log(state.M/massAfter)
+			if effectiveDv > maxDv {
+				effectiveDv = maxDv
+			}
+		}
+		direction := func(r, v orbital.Vec3) orbital.Vec3 {
+			return spacecraft.DirectionUnit(mode, r, v)
+		}
+		mu := primary.GravitationalParameter()
+		state = planner.SimulateFiniteBurn(state, mu, thrust, isp, effectiveDv, direction)
+		return state, primary, true
+	}
+
 	dir := spacecraft.DirectionUnit(mode, state.R, state.V)
-	if dir.Norm() != 0 && dv != 0 {
+	if dir.Norm() != 0 {
 		state.V = state.V.Add(dir.Scale(dv))
 	}
 	return state, primary, true
