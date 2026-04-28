@@ -104,14 +104,16 @@ by patch — this doc is the snapshot, those are the release notes.
   ≥ 4 px`, capped at 64 px; otherwise tier buckets (1 small / 2 terrestrial
   / 4 gas giant / 6 star). System primary is a hollow ring + filled center
   to distinguish from planets.
-- **Textured Earth disk** (v0.7.2.1+): when `r ≥ 12 px`, Earth renders
-  per-pixel via `Canvas.FillTexturedDiskTagged` + `render.EarthPixelColor`.
-  Orthographic projection from (dx, dy) to (lat, lon) drives an
-  ellipse-table lookup classifying each pixel as cloud / land / ocean.
-  The body-identity glyph (●) is suppressed when the texture is active
-  so it doesn't blot the continent detail. Static — no rotation.
-  `render.BodyHasTexture(b, pxRadius)` is the dispatch hook for future
-  bodies.
+- **Textured body disks** (v0.7.2.1+): when `r ≥ 12 px`, Earth and
+  Moon render per-pixel via `Canvas.FillTexturedDiskTagged` +
+  `render.{Earth,Moon}PixelColor`. Orthographic projection from
+  (dx, dy) to (lat, lon) drives an ellipse-table lookup classifying
+  each pixel — Earth: cloud / land / ocean; Moon: bright crater
+  ray / mare / highland (canonical near-side layout). The body-
+  identity glyph (●) is suppressed when the texture is active so
+  it doesn't blot the surface detail. Static — no rotation tied to
+  sim time. `render.TextureFor(b, pxRadius)` is the dispatch hook
+  for future bodies (Mars caps, Jupiter banding, etc.).
 - **Vessel orbit ellipse**: live Keplerian orbit drawn dotted (stride 3)
   in the craft's primary frame, in `ColorCurrentOrbit` pale slate
   (v0.6.1; was white — distinct from any body palette). Hyperbolic /
@@ -381,6 +383,7 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.7.1 ✓** | | Per-body palette migration — `Color string` field on `CelestialBody` (`json:"color,omitempty"`), 18 entries inserted into `sol.json` from the legacy `bodyPalette` table (no visual change). `render.ColorFor` resolution order: (1) `b.Color`, (2) table fallback, (3) `StellarTint`, (4) bodyType default. Catalog hash changed → v0.7.0 saves reject on first load, same UX as v0.5.0's moons schema bump. Legacy table + `TestColorForJSONFieldMatchesPaletteTable` consistency check stay until v0.8 drops the table. |
 | **v0.7.2 ✓** | | User theme overrides — `theme.json` (optional `ui` + `bodies` blocks). UI overrides mutate the package-level `Color*` vars in place via `LoadTheme`; body overrides win over the v0.7.1 per-body `Color` field. `uiDefaults` captured at package init keeps `LoadTheme` idempotent. Malformed `theme.json` warns to stderr and falls back to defaults. |
 | **v0.7.2.1 ✓** | *(polish patch)* | Textured Earth disk — at `r ≥ 12 px`, Earth renders per-pixel through `Canvas.FillTexturedDiskTagged` + `render.EarthPixelColor`. Orthographic (dx,dy) → (lat,lon) projection feeds an ellipse-table lookup classifying cloud / land / ocean. Body-identity `●` glyph suppressed for textured bodies. Static (no rotation). `render.BodyHasTexture(b, r)` is the dispatch hook for future bodies. |
+| **v0.7.2.2 ✓** | *(polish patch)* | Textured Moon disk + dispatch refactor — Moon renders the canonical near-side mare layout (Crisium, Tranquillitatis, Imbrium, Procellarum, etc.) plus four bright rayed-crater accents (Tycho, Copernicus, Kepler, Aristarchus) via `render.MoonPixelColor`. New `BodyTextureMinRadius` (12 px) generalizes the threshold; new `BodyTexture` function type + `TextureFor(b, r)` lookup replace the body-specific switch in `orbit.go`. `EarthTextureMinRadius` retained as alias until v0.8 cleanup. |
 | v0.7.3 | | Manual flight controls — throttle (`Spacecraft.Throttle`, `z/x` keys), hold-to-burn (parallel `World.ManualBurn`), attitude hold (`w/s/a/d/q/e` mapped to existing `BurnMode`), per-node throttle override; save schema v3 → v4 |
 | v0.7.4 | | Inclination-change planner — picks AN/DN via `orbital.TimeToNodeCrossing`, computes `2·v·sin(Δi/2)` Δv, plants via existing `BurnNormalPlus` / `BurnNormalMinus` |
 | v0.7.5 | | Explicit retrograde flag for `LambertSolve` + `LambertSolveRev` + `PorkchopGrid` (unblocks multi-rev porkchop in v0.8+) |
