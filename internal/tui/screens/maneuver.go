@@ -362,6 +362,16 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 		}
 	}
 
+	// Mirror the orbit screen's bottom-right view-mode label so the
+	// player can tell which projection the preview is in without
+	// flipping back to the orbit screen. v0.7.4+.
+	viewLabel := "view: " + w.ViewMode.String()
+	labelCol := m.canvas.Cols() - len([]rune(viewLabel)) - 1
+	if labelCol < 0 {
+		labelCol = 0
+	}
+	m.canvas.SetCellLabel(labelCol, m.canvas.Rows()-1, viewLabel)
+
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
 	form := m.renderForm(w, dv, shadowState, shadowPrimary, shadowMu)

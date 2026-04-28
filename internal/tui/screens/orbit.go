@@ -344,6 +344,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		v.drawNodes(w)
 	}
 
+	// Stamp the active projection in the canvas's bottom-right corner
+	// so the indicator stays attached to the view it describes (was a
+	// HUD line under FOCUS until v0.7.4 — see orbit.go's renderHUD).
+	viewLabel := "view: " + w.ViewMode.String()
+	labelCol := v.canvas.Cols() - len([]rune(viewLabel)) - 1
+	if labelCol < 0 {
+		labelCol = 0
+	}
+	v.canvas.SetCellLabel(labelCol, v.canvas.Rows()-1, viewLabel)
+
 	canvasStr := v.canvas.String()
 	canvasPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -539,8 +549,6 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	}
 	lines = append(lines, section("FOCUS")...)
 	lines = append(lines, "  "+w.FocusName())
-	lines = append(lines, v.theme.Primary.Render("VIEW"))
-	lines = append(lines, "  "+w.ViewMode.String())
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
