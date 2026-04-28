@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -574,6 +575,30 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  Δv-to-go: %.1f m/s", w.ActiveBurn.DVRemaining),
 			fmt.Sprintf("  T-%.1fs remaining", remaining),
 		)
+	}
+
+	// v0.6.5: mission status. Surfaces the first in-progress mission, or
+	// a "ALL CLEAR" line when every loaded mission is in a terminal
+	// state. Hidden entirely when no missions are loaded (e.g. a future
+	// "free play" toggle, or a config-load failure).
+	if len(w.Missions) > 0 {
+		lines = append(lines, section("MISSION")...)
+		if active := w.ActiveMission(); active != nil {
+			lines = append(lines,
+				"  "+active.Name,
+				v.theme.Dim.Render("  "+active.Status.String()),
+			)
+		} else {
+			passed := 0
+			for _, m := range w.Missions {
+				if m.Status == missions.Passed {
+					passed++
+				}
+			}
+			lines = append(lines,
+				v.theme.Primary.Render(fmt.Sprintf("  %d/%d complete", passed, len(w.Missions))),
+			)
+		}
 	}
 
 	if len(w.Nodes) > 0 {

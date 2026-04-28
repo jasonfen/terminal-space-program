@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
@@ -255,5 +256,76 @@ func TestPausedTickDoesNothing(t *testing.T) {
 	}
 	if !w.Clock.SimTime.Equal(t0) {
 		t.Errorf("paused: sim-time advanced from %v to %v", t0, w.Clock.SimTime)
+	}
+}
+
+// TestNewWorldSeedsMissions: NewWorld populates World.Missions from
+// the embedded starter catalog with every mission InProgress.
+func TestNewWorldSeedsMissions(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if len(w.Missions) == 0 {
+		t.Fatal("NewWorld did not seed missions from default catalog")
+	}
+	for _, m := range w.Missions {
+		if m.Status != missions.InProgress {
+			t.Errorf("mission %q: expected InProgress at spawn, got %v", m.ID, m.Status)
+		}
+	}
+}
+
+// TestTickPassesCircularizeAtTarget: pumping the craft into a perfect
+// 1000 km circular Earth orbit and ticking once should mark the
+// circularize mission Passed via the Tick → evaluateMissions path.
+func TestTickPassesCircularizeAtTarget(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Force the craft into an exact 1000 km circular orbit.
+	mu := w.Craft.Primary.GravitationalParameter()
+	r := w.Craft.Primary.RadiusMeters() + 1_000_000
+	v := math.Sqrt(mu / r)
+	w.Craft.State = physics.StateVector{
+		R: orbital.Vec3{X: r},
+		V: orbital.Vec3{Y: v},
+		M: w.Craft.TotalMass(),
+	}
+	w.Tick()
+
+	var found *missions.Mission
+	for i := range w.Missions {
+		if w.Missions[i].Type == missions.TypeCircularize {
+			found = &w.Missions[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("circularize mission not present in default catalog")
+	}
+	if found.Status != missions.Passed {
+		t.Errorf("circularize at 1000 km: got %v, want Passed", found.Status)
+	}
+}
+
+// TestActiveMissionPicksFirstInProgress: ActiveMission walks the
+// mission slice in order and returns the first non-terminal entry.
+func TestActiveMissionPicksFirstInProgress(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if len(w.Missions) < 2 {
+		t.Skip("default catalog has fewer than 2 missions")
+	}
+	w.Missions[0].Status = missions.Passed
+	got := w.ActiveMission()
+	if got == nil {
+		t.Fatal("ActiveMission returned nil with one InProgress mission left")
+	}
+	if got.ID != w.Missions[1].ID {
+		t.Errorf("ActiveMission returned %q, want %q (first InProgress)", got.ID, w.Missions[1].ID)
 	}
 }
