@@ -288,6 +288,47 @@ by patch — this doc is the snapshot, those are the release notes.
   cycle, or click-to-select on the orbit canvas) so "active craft" is
   unambiguous and per-screen. Surfaces during v0.6.4 view-mode work as a
   flagged future requirement.
+- **Monopropellant / RCS mode** *(needs design — likely v0.8)*. Use
+  cases: micro orbit adjustments (sub-m/s precision), encounter
+  refinement, docking proximity ops. Surface notes from the v0.7.3
+  manual-flight UX discussion:
+  - **Separate propellant pool.** New `Spacecraft.Monoprop float64`
+    (kg) alongside `Fuel`. Real spacecraft carry ~50–200 kg
+    hydrazine; TSP could go ~50 kg for the S-IVB-1 default.
+  - **Separate thruster profile.** `RCSThrust` ~50 N total (vs.
+    main 1023 kN) at `RCSIsp` ~220 s (vs. main 421 s). Low thrust,
+    low Isp, total ~6 m/s of Δv across the tank — exactly the
+    regime needed for cm/s precision corrections.
+  - **Mode toggle** (`r`?). HUD shows which engine is armed; main
+    engine and RCS are mutually exclusive at fire time.
+  - **Pulse model.** Tap an attitude key in RCS mode = ~100 ms
+    monoprop pulse delivering a few cm/s. Lets you nudge orbital
+    elements without busting the integrator (continuous low-thrust
+    burns at high warp would be a separate problem).
+  - **Reuses the existing burn-mode abstraction.** Same six
+    directions (prograde / retrograde / normal± / radial±). No new
+    direction logic — RCS just dispatches to a different thruster
+    record at fire time.
+  - **Implication for the v0.7.3 keymap.** The current WASD/QE +
+    `b` layout works for both main engine (continuous burn) and
+    RCS (per-tap pulse) under a single mode toggle. The `b` engage
+    gate is only meaningful in main-engine mode; in RCS mode each
+    attitude tap fires a pulse directly (the gate is the toggle to
+    RCS in the first place).
+  - **Open design questions.**
+    1. **Docking model.** "Within X m at relative speed Y" → state
+       transition (cheap), or full proximity-ops simulation (much
+       more code)? Gates how much RCS infrastructure is worth
+       building.
+    2. **Encounter precision target.** What's the target Δv-budget
+       precision for "encounter refinement"? Drives RCSThrust /
+       Isp tuning.
+    3. **Sequencing vs multi-craft.** Docking implies two craft.
+       Does RCS land before, with, or after the multi-craft work?
+       The v0.6.6 multiplayer doc flagged multi-craft sequencing
+       as open question #1; this slots into the same conversation.
+    4. **Pulse quantum.** Fixed 100 ms? Tunable per-craft? Burst
+       count (tap = 1 pulse, hold = N pulses)?
 - **Inclination-change planner** *(claimed by v0.7.4)*. Today's burn
   modes don't expose a clean out-of-plane corrector. Adds a third burn
   at the line-of-nodes.
@@ -720,5 +761,16 @@ plus what v0.6 newly opened, framed for v0.7 scoping:
   render artifacts. Sequencing: do (1) / (3) belong as v0.7.2.x
   polish patches, or v0.8+? (2) can trickle one-body-per-patch
   like v0.5.11 / v0.5.12 did. (4) gates on (3).
+- **Monopropellant / RCS mode** *(newly open from v0.7.3 manual-
+  flight UX)*. Future system for sub-m/s precision burns —
+  micro orbit adjustments, encounter refinement, docking. Sketch
+  in §2: separate propellant pool (`Spacecraft.Monoprop`),
+  separate thruster profile (~50 N, Isp ~220 s, total Δv ~6 m/s),
+  mode toggle (`r`?), pulse model (tap = ~100 ms burst). Open
+  design questions: docking model (state-transition vs full
+  proximity ops), encounter precision target, sequencing relative
+  to multi-craft work, pulse quantum tuning. Likely v0.8 territory
+  — pairs with the multi-craft + multiplayer threads since
+  docking implies two craft.
 
 Update this doc on each minor/patch boundary so the snapshot stays current.
