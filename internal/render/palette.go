@@ -1,12 +1,11 @@
 // Package render holds the visual constant tables shared across screens
 // — body color palette, UI tier colors for status / nodes / trajectory.
 //
-// v0.5.1 source of truth per docs/state-of-game.md §3 v0.5: a hardcoded
-// table here, keyed by body name (or stellar tint by temperature for
-// non-Sol stars). The v0.7 config-file body loader will promote the
-// table to per-body JSON fields with a one-shot migration; in the
-// meantime this single file is the only place to edit when adding a
-// new body or retuning a color.
+// v0.7.1+: per-body color lives on bodies.CelestialBody.Color (a hex
+// string in systems/*.json). The hardcoded bodyPalette table here
+// stays as a backward-compat fallback for callers / tests that
+// construct CelestialBody literals without a Color field; v0.8 will
+// drop the table once v0.7.1+ saves are in the wild.
 package render
 
 import (
@@ -53,12 +52,17 @@ func ManeuverSegmentColor(n int) lipgloss.Color {
 }
 
 // bodyPalette maps a body's ID → its rendered color. IDs are the same
-// ones in the systems/*.json files (e.g. "earth", "moon", "io"). Keep
-// this table in sync with the moons + planets defined there.
+// ones in the systems/*.json files (e.g. "earth", "moon", "io").
 //
 // Picks reminiscent of each body's actual appearance in visible light.
 // Non-Sol stars use a temperature-keyed tint via StellarTint() rather
 // than a per-system entry here.
+//
+// As of v0.7.1 the canonical source for body color is each body's
+// JSON `color` field (loaded into CelestialBody.Color). This table is
+// retained as a backward-compat fallback for callers that construct
+// CelestialBody literals without a Color (e.g. test fixtures). v0.8
+// will drop it once v0.7.1+ saves are in the wild.
 var bodyPalette = map[string]lipgloss.Color{
 	// Sol & inner planets
 	"sun":     "#FFE9A6", // gold-white
@@ -91,11 +95,16 @@ var bodyPalette = map[string]lipgloss.Color{
 	"neptune": "#3D5BFF", // deep blue
 }
 
-// ColorFor returns the palette color for a body. Falls back to a
-// per-bodyType default for bodies not in the table (e.g. fictional
-// systems' planets), and finally to ColorTrajectory for unrecognised
-// types. Star colors come from StellarTint when temperature is set.
+// ColorFor returns the palette color for a body. Resolution order:
+//   1. b.Color (per-body JSON field, v0.7.1+) when non-empty.
+//   2. bodyPalette table (legacy hardcoded source-of-truth).
+//   3. StellarTint by temperature for stars without an explicit entry.
+//   4. Per-bodyType default.
+//   5. ColorTrajectory for unrecognised types.
 func ColorFor(b bodies.CelestialBody) lipgloss.Color {
+	if b.Color != "" {
+		return lipgloss.Color(b.Color)
+	}
 	if c, ok := bodyPalette[b.ID]; ok {
 		return c
 	}
