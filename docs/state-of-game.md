@@ -1,10 +1,11 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.6.4 (April 2026) — v0.6 cycle in flight (burn-at-next
+*Snapshot at v0.6.5 (April 2026) — v0.6 cycle in flight (burn-at-next
 scheduler + predicted-orbit HUD + finite-burn-aware iterative
 planner + moon → parent escape transfer + click-only mouse + 5-way
-view-mode switcher shipped; missions and the multiplayer design-doc
-spike remain). Updated at each minor / patch boundary.*
+view-mode switcher + mission scaffold + burn-input simplification
+shipped; multiplayer design-doc spike remains). Updated at each minor
+/ patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -14,7 +15,7 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.6.4)
+## 1. What works today (v0.6.5)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -48,16 +49,24 @@ by patch — this doc is the snapshot, those are the release notes.
   `Focus = FocusCraft` so the camera is on the ship from tick 0.
 
 ### Planning
-- **Manual planner** (`m`): four-field form (mode / fire-at / Δv /
-  duration). `Tab` cycles fields, `←/→` cycles modes or trigger events
-  when those fields are focused, Δv > budget warns, duration 0 =
-  impulsive, > 0 = finite (default 10 s, v0.6.1+). The planner shows
-  a live PROJECTED ORBIT block with apo/peri/AN/DN of the resulting
-  orbit; the canvas dashed shadow trajectory and the form readout
-  both feed off `World.PreviewBurnState`, which propagates to the
-  fire-at event point before applying Δv (v0.6.1) — so a prograde
-  burn at next-apo previews the perigee-rise circularization, not a
-  spurious second apoapsis growth. v0.6.0+ form, v0.6.1 readout.
+- **Manual planner** (`m`): three-field form (mode / fire-at / Δv).
+  `Tab` cycles fields, `←/→` cycles modes or trigger events when those
+  fields are focused, Δv > budget warns. Burn duration is **derived**
+  from Δv via the rocket-equation form `t = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`
+  in `spacecraft.BurnTimeForDV` (v0.6.5+) — pre-v0.6.5 the form
+  exposed Δv AND duration as independent inputs, but at fixed thrust +
+  mass the two are the same dial. The auto-plant Hohmann +
+  RefinePlan paths route through the same call so player- and
+  auto-planted burns size identically. The planner shows a live
+  PROJECTED ORBIT block with apo/peri/AN/DN of the resulting orbit;
+  the canvas dashed shadow trajectory and the form readout both feed
+  off `World.PreviewBurnState`, which propagates to the fire-at event
+  point before applying Δv (v0.6.1) — so a prograde burn at next-apo
+  previews the perigee-rise circularization, not a spurious second
+  apoapsis growth. Zero-thrust craft fall back to impulsive
+  (`BurnTimeForDV` returns 0); the legacy code path is preserved
+  through the API even though the form no longer surfaces it as an
+  input. v0.6.0+ form, v0.6.1 readout, v0.6.5 input simplification.
 - **Event-relative trigger nodes** (v0.6.0): `fire at` field selects
   Absolute T+ or one of `next peri / next apo / next AN / next DN`.
   Lazy-freeze resolver in `World.Tick` computes `TriggerTime` from the
@@ -125,6 +134,10 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ### HUD
 - Clock + warp + paused indicator.
+- Focus block: focused-target name + permanent **VIEW** sub-line
+  showing the active projection (top / right / bottom / left /
+  orbit-flat) — replaces the v0.6.4 toast that flashed for 2 s on
+  `v` press (v0.6.5+).
 - Vessel block: name, primary, altitude, velocity, apoapsis, periapsis,
   inclination, plus **PERIAPSIS BELOW SURFACE** alert when periapsis altitude
   goes negative.
@@ -139,8 +152,39 @@ by patch — this doc is the snapshot, those are the release notes.
   PrimaryID before applying its Δv, so a Hohmann arrival's projected
   orbit reports as Mars-frame, not Sol-frame. Suppressed during
   active burns to avoid flailing values as live state mutates.
+- **Mission** block (v0.6.5+, shown when at least one mission is
+  loaded): active mission name + status, or "N/total complete" once
+  every loaded mission reaches a terminal state. The first
+  `InProgress` mission in `World.Missions` is surfaced via
+  `World.ActiveMission`.
 - Selected body: name, type, semimajor axis, eccentricity, period, plus
   Hohmann preview when applicable.
+
+### Missions (v0.6.5)
+- `internal/missions` package: typed predicate machine over the
+  spacecraft's (primary, state, sim-time) tuple. Three predicate
+  kinds dispatched on `Mission.Type`:
+  - `circularize` — craft is in the named primary's frame, orbit is
+    bound, eccentricity ≤ cap, semimajor axis within ±tol of
+    `radius + altitude_m`.
+  - `orbit_insertion` — craft is in the named primary's frame on a
+    bound orbit (e < 1).
+  - `soi_flyby` — any tick where craft's current primary ID matches
+    the named body.
+- Three-state machine (`InProgress` → `Passed` | `Failed`) with sticky
+  terminal states; `Mission.Evaluate(EvalContext)` is idempotent on
+  Passed/Failed so the per-tick caller blindly walks the slice.
+- Embedded starter catalog (`internal/missions/missions.json` via
+  `go:embed`): "Circularize at 1000 km LEO" (e ≤ 0.005, ±5% on `a`),
+  "Luna orbit insertion" (bound orbit around moon), "Mars SOI
+  flyby". `missions.DefaultCatalog()` returns the parsed catalog.
+- `World.Missions` seeded at `NewWorld`, evaluated each Tick after
+  `executeDueNodes` so a burn that completes a circularization
+  passes on the same tick the burn ends.
+- Save schema v2 → v3 with `Payload.Missions []missions.Mission`
+  (omitempty). v1/v2 saves wire-out nil and get the embedded
+  catalog seeded fresh in `worldFromPayload` — older saves gain
+  the feature transparently. v3 saves round-trip status verbatim.
 
 ### Body hierarchy & moons (v0.5.0)
 - `bodies.Body.ParentID` enables arbitrary-depth `parent → child` refs.
@@ -202,8 +246,14 @@ by patch — this doc is the snapshot, those are the release notes.
   target. Composes naturally with the v0.6 burn-at-next scheduler.
   Closes the remaining ~21% apoapsis over-shoot from asymmetric burn
   termination once it lands.
-- **Mission system / objectives** (v0.6 target, see §3). Starter objectives
-  such as "achieve a 1000 km circular orbit," "intercept Mars within Δv X."
+- ~~**Mission system / objectives** (v0.6.5 target).~~ Shipped in
+  v0.6.5 — `internal/missions` package with three predicate kinds
+  (circularize / orbit_insertion / soi_flyby), embedded starter
+  catalog (1000 km LEO circularize, Luna orbit insertion, Mars SOI
+  flyby) loaded via `go:embed`, World.Missions evaluated each Tick,
+  save schema v2 → v3, MISSION HUD section. Mission editor /
+  scripting (custom user-authored objectives) stays deferred to a
+  later cycle.
 - ~~**`PlanTransfer()` moon → parent extension** (v0.6.3 target).~~
   Shipped in v0.6.3 (`planner.PlanMoonEscape`, dispatch branch in
   `sim.PlanTransfer` for `target.ID == w.Craft.Primary.ParentID`).
@@ -303,7 +353,8 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.6.2 ✓** | | Finite-burn-aware iterative planner — `planner.SimulateFiniteBurn` (RK4 + Tsiolkovsky), `planner.IterateForTarget` (Newton iteration on commanded Δv with ±50 % step cap and `ErrFiniteBurnDiverged` fallback), `planner.TargetApoapsis` / `TargetPeriapsis` residual helpers. `sim.refineFiniteDeparture` wires the iterator into `H` auto-plant so Hohmann departures hit the requested apoapsis even on low-TWR loadouts where the impulsive guess loses several percent of energy to gravity-rotation. For S-IVB-1 the iterator converges in 1-2 steps (no-op); for low-TWR profiles it catches errors the impulsive math misses. |
 | **v0.6.3 ✓** | | Moon → parent escape transfer — `planner.PlanMoonEscape` (bound transfer ellipse with apolune at the moon's SOI radius, zero-Δv frame marker at SOI exit so the player plants their own circularization in the parent frame). New dispatch branch in `sim.PlanTransfer` for `target.ID == w.Craft.Primary.ParentID`; pre-v0.6.3 this fell through to the heliocentric Hohmann path and quoted nonsense Δv. Departure burn refines through v0.6.2's iterator with `TargetApoapsis(rSOI)`. Maneuver-screen mini-canvas now renders the primary as a sized disk (true-scale `FillColoredDisk`, [3, 64] px clamp) so low-orbit projections read at their real visual scale (the orbit screen's `BodyPixelRadius` would have dropped Luna-class moons to 1 px under its size-tier fallback). `PreviewBurnState` is finite-burn-aware: takes `Duration`, caps delivered Δv via the rocket equation given the duration window, routes through `planner.SimulateFiniteBurn` so the projected orbit matches what the live integrator will actually deliver — pre-v0.6.3 the preview ignored both finite-burn deformation and the duration cap, so a "400 m/s in 10 s" request previewed full 400 m/s while the live burn delivered ~205 m/s. Quit confirm prompt on `q` (footer "Quit and save? [y/N]"); `ctrl+c` stays immediate. Orbit-canvas camera freezes for the duration of an `ActiveBurn` so the live orbit ellipse + apsidal markers + selected-body crosshair morph in place rather than sweeping past as focus-on-craft tracks the burning craft. |
 | **v0.6.4 ✓** | | Click-only mouse + 5-way view modes — `Canvas.pixelTags` widened to `CellTag{Color, BodyID, NodeIdx, IsVessel}`; `Canvas.HitAt(col, row)` aggregates the 2×4 pixels per terminal cell. Click cascade on the orbit screen: vessel → node → body → empty-canvas → HUD. Click-to-edit nodes preserves the scheduled fire time and replaces in place via `Maneuver.LoadNode(idx, node)` + `BurnExecutedMsg.{TriggerTime, EditingIdx}`; the form's BURN PLAN header switches to `BURN PLAN — editing node N` and the fire-at line shows an absolute countdown (`T+14m32s` or `next peri (T+3h12m)`). Empty-canvas click → `OrbitView.ProjectToOrbit` finds the orbit ν nearest the click and stages a new node at that point's TriggerTime via `Maneuver.LoadStaged`. Porkchop cells clickable (cursor parity). View-mode `v` cycles Top → Right → Bottom → Left → OrbitFlat; side views render back-of-body occlusion via `Canvas.IsBehindBody` + `Canvas.DrawEllipseOffsetOccluded` so the spacecraft orbit + apo/peri markers + craft glyph hide behind the primary's projected disk; OrbitFlat projects onto the active craft's orbit plane via `orbital.PerifocalBasis` for clean ellipse rendering at any inclination. Maneuver screen reflowed to horizontal `JoinHorizontal` so canvas + form fit side-by-side. Quit confirm prompt on `q` (`ctrl+c` stays immediate). Burn-camera freeze pins canvas center for the duration of an `ActiveBurn`. |
-| **v0.6** | **(in flight) Planner UX + missions + MP design** | Mission scaffold (v0.6.5), multiplayer design-doc spike (v0.6.6). See `docs/v0.6-plan.md` for slice breakdown + status table. |
+| **v0.6.5 ✓** | | Mission scaffold + burn-input simplification — new `internal/missions` package with three predicate kinds (`circularize` / `orbit_insertion` / `soi_flyby`) on a sticky three-state machine. Embedded `missions.json` starter catalog (1000 km LEO circularize, Luna orbit insertion, Mars SOI flyby) via `go:embed`. `World.Missions` seeded at `NewWorld`, evaluated each Tick after `executeDueNodes`. Save schema v2 → v3 with `Payload.Missions` (omitempty); v1/v2 saves seed the default catalog post-load so older saves gain the feature transparently. Orbit screen HUD gains a `MISSION` section + permanent `VIEW` sub-line under FOCUS (the v0.6.4 view-mode toast is gone). Maneuver planner drops the duration field; Δv now drives both the delivered Δv AND a rocket-equation-derived burn duration via `spacecraft.BurnTimeForDV(dv) = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`. Auto-plant Hohmann + RefinePlan paths unified on the same call so player- and auto-planted burns size identically (constant-mass `dv·m/F` scrubbed from five sites in `internal/sim/maneuver.go`). |
+| **v0.6** | **(in flight) Planner UX + missions + MP design** | Multiplayer design-doc spike (v0.6.6) remains. See `docs/v0.6-plan.md` for slice breakdown + status table. |
 | v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
 | v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
 
@@ -438,10 +489,16 @@ Full slice breakdown lives in `docs/v0.6-plan.md`. Summary:
   click on a porkchop cell opens the planner with that transfer
   pre-loaded; click on the orbit canvas opens the planner with a new
   node staged at the click point.
-- **v0.6.5 — mission scaffold.** `internal/missions/` package + JSON
-  data file with 2–3 starters. State stored as `Payload.Missions`
-  (inside the payload, not a sibling block). Schema v1 → v2 with
-  permissive load.
+- **v0.6.5 ✓ — mission scaffold + burn-input simplification.**
+  `internal/missions/` package with three predicate kinds (typed via
+  `Mission.Type` enum) on a sticky three-state machine; embedded
+  starter catalog via `go:embed`. `World.Missions` seeded at
+  `NewWorld`, evaluated each Tick. Save schema v2 → v3 with
+  permissive load — v1/v2 saves seed the default catalog post-load.
+  Orbit HUD gains MISSION + permanent VIEW sub-line. Folded in: the
+  maneuver form drops the duration field; Δv-only input via
+  `spacecraft.BurnTimeForDV` rocket-equation form, with the
+  auto-plant + RefinePlan paths unified on the same call.
 - **v0.6.6 — multiplayer design-doc spike.** `docs/multiplayer-design.md`.
   Networking + persistence constraints, no implementation, no schedule.
   Multiplayer leaves the "excluded forever" list because of this.
