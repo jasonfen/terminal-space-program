@@ -322,6 +322,40 @@ func TestHitAtUntaggedReturnsZero(t *testing.T) {
 	}
 }
 
+// TestPickDominantColorMajority (v0.7.2.3+): pickDominantColor
+// returns the color with the highest pixel count in a cell. Used by
+// String() to resolve the per-cell color from per-pixel tags.
+func TestPickDominantColorMajority(t *testing.T) {
+	counts := map[lipgloss.Color]int{
+		lipgloss.Color("#FF0000"): 5,
+		lipgloss.Color("#0000FF"): 3,
+	}
+	if got := pickDominantColor(counts); got != lipgloss.Color("#FF0000") {
+		t.Errorf("got %q, want #FF0000 (majority)", string(got))
+	}
+}
+
+// TestPickDominantColorTieBreak (v0.7.2.3+): equal pixel counts must
+// resolve deterministically. Documented contract: the lexicographic-
+// ally smaller color string wins. Pre-v0.7.2.3 the picker iterated
+// the map and used Go's randomized iteration order to pick — so the
+// "winner" of a tie flipped frame-to-frame, causing visible flicker
+// on textured-body cells (Earth coastlines, Moon mare boundaries).
+func TestPickDominantColorTieBreak(t *testing.T) {
+	counts := map[lipgloss.Color]int{
+		lipgloss.Color("#FF0000"): 4,
+		lipgloss.Color("#0000FF"): 4,
+	}
+	// Run many times — Go's map iteration is randomized per range.
+	// Each call must return the same answer regardless of seed.
+	for i := 0; i < 100; i++ {
+		got := pickDominantColor(counts)
+		if got != lipgloss.Color("#0000FF") {
+			t.Fatalf("iter %d: got %q, want #0000FF (lex-smaller)", i, string(got))
+		}
+	}
+}
+
 // TestHitAtOutOfBoundsReturnsZero: clicks outside the canvas
 // content area must not panic and must return zero. The mouse
 // dispatch uses this guard for clicks that fall on the title /
