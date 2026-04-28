@@ -18,12 +18,24 @@ const (
 	ColorEarthCloud = lipgloss.Color("#E8EFF5")
 )
 
-// EarthTextureMinRadius is the minimum body pixel radius at which
-// the per-pixel Earth texture renders. Below this, the body falls
-// back to a solid-color disk because (a) the disk has too few cells
-// to read a continent shape, and (b) the textured fill is more
+// BodyTextureMinRadius is the minimum body pixel radius at which the
+// per-pixel body textures render. Below this, the body falls back to
+// a solid-color disk because (a) the disk has too few cells to read
+// a continent / mare shape, and (b) the textured fill is more
 // expensive per pixel than a plain disk.
-const EarthTextureMinRadius = 12
+const BodyTextureMinRadius = 12
+
+// EarthTextureMinRadius is the legacy name for BodyTextureMinRadius,
+// preserved for callers / tests that referenced the Earth-specific
+// constant. Drop in v0.8 alongside other v0.7 cleanup.
+const EarthTextureMinRadius = BodyTextureMinRadius
+
+// BodyTexture returns the per-pixel surface color for a textured
+// body. Implementations live in body-specific files (earth.go,
+// moon.go, ...) and assume the caller has already gated the pixel
+// to inside the disk; for points within 1 px of the limb the
+// projection clamps cleanly.
+type BodyTexture func(dx, dy, pxRadius int) lipgloss.Color
 
 // continentEllipse approximates a land mass as a lat/lon-axis-aligned
 // ellipse. Rough enough to be recognisable but small enough that the
@@ -122,11 +134,27 @@ func inEllipse(lat, lon float64, c continentEllipse) bool {
 	return (dlat/c.aLat)*(dlat/c.aLat)+(dlon/c.aLon)*(dlon/c.aLon) < 1.0
 }
 
-// BodyHasTexture reports whether the body should use a per-pixel
-// textured fill at the given pixel radius, or the default solid-disk
-// fill. Today only Earth has a texture, and only above
-// EarthTextureMinRadius. Future bodies (Mars caps, Jupiter banding,
-// etc.) plug in here.
+// TextureFor returns the per-pixel texture function for the given
+// body, or nil if the body should render as a solid disk (small
+// radius, unsupported body). The dispatch hook for body-specific
+// surface rendering — Mars caps, Jupiter banding, Saturn cloud
+// bands plug in via additional cases here.
+func TextureFor(b bodies.CelestialBody, pxRadius int) BodyTexture {
+	if pxRadius < BodyTextureMinRadius {
+		return nil
+	}
+	switch b.ID {
+	case "earth":
+		return EarthPixelColor
+	case "moon":
+		return MoonPixelColor
+	}
+	return nil
+}
+
+// BodyHasTexture reports whether TextureFor would return non-nil.
+// Convenience wrapper for callers that just need the boolean
+// (e.g. "should I suppress the body-identity glyph?").
 func BodyHasTexture(b bodies.CelestialBody, pxRadius int) bool {
-	return b.ID == "earth" && pxRadius >= EarthTextureMinRadius
+	return TextureFor(b, pxRadius) != nil
 }
