@@ -28,9 +28,13 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 	cb := sys.Bodies[selectedIdx]
 
 	titleStyle := lipgloss.NewStyle().Foreground(render.ColorFor(cb)).Bold(true)
+	source := sys.Source
+	if source == "" {
+		source = "embedded"
+	}
 	sections := []string{
 		titleStyle.Render(cb.EnglishName),
-		b.theme.Dim.Render(fmt.Sprintf("%s in %s", cb.BodyType, sys.Name)),
+		b.theme.Dim.Render(fmt.Sprintf("%s in %s (source: %s)", cb.BodyType, sys.Name, source)),
 		"",
 		b.theme.Primary.Render("PHYSICAL"),
 		fmt.Sprintf("  Mean radius:     %.1f km", cb.MeanRadius),
