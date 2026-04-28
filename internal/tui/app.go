@@ -226,6 +226,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if depIdx, tofIdx, ok := a.porkchop.HitCell(m.X, m.Y); ok {
 				a.porkchop.SetSelection(depIdx, tofIdx)
 			}
+		case screenMenu:
+			if a.menu.HitBackButton(m.X, m.Y) {
+				a.active = screenOrbit
+				return a, nil
+			}
+		case screenMissions:
+			if a.missions.HitBackButton(m.X, m.Y) {
+				a.active = screenOrbit
+				return a, nil
+			}
 		}
 		return a, nil
 
@@ -564,9 +574,9 @@ func (a *App) View() string {
 	case screenPorkchop:
 		base = a.porkchop.Render(a.world, a.width, a.height)
 	case screenMenu:
-		base = a.menu.Render()
+		base = a.menu.Render(a.width)
 	case screenMissions:
-		base = a.missions.Render(a.world)
+		base = a.missions.Render(a.world, a.width)
 	default:
 		base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}
