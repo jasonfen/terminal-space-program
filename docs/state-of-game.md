@@ -323,11 +323,51 @@ by patch — this doc is the snapshot, those are the release notes.
   the active-burn ● indicator, and ⚠ alerts; remaining work is alignment
   inside dense panels (vessel, propellant, planned-nodes blocks) and
   consistent column widths across sections.
-- **Body details on the canvas (beyond rings + glyphs)**. v0.5.11 ships
-  Saturn rings; v0.5.12 ships per-type identity glyphs. Remaining
-  texture hints — day/night terminator for Earth, polar caps for Mars,
-  Jupiter banding, additional ringed-body data (Uranus, Neptune) —
-  would push body identity further.
+- **Body rendering — open scope** *(needs discussion)*. v0.5.11
+  shipped Saturn rings; v0.5.12 ships per-type identity glyphs;
+  v0.7.2.1 and v0.7.2.2 add per-pixel textures for Earth (continents
+  + cloud streaks) and Moon (canonical near-side maria + bright
+  rayed-crater accents) via the `render.TextureFor(b, r)` dispatch
+  hook + `Canvas.FillTexturedDiskTagged`. Several follow-on
+  directions, all sketched and none scoped — flagged for a
+  scoping pass before any of them lands:
+  1. **Surface rotation tied to sim time.** Today's textures are
+     static — Earth's continents and Moon's near-side layout are
+     fixed regardless of `Clock.SimTime`. Threading sim time into
+     the texture function (advancing `lon0` at sidereal rate —
+     15°/hr for Earth; tidally locked Moon would stay fixed) is
+     the obvious extension. Open: render-tick rate vs sim-tick rate?
+     At high warp the surface would visibly spin — intentional, or
+     distracting? Possibly clamped above some warp factor, like the
+     cloud / orbit preview already do.
+  2. **More features per body.** Mars polar caps + Olympus Mons,
+     Jupiter banding + GRS, Saturn cloud bands, Uranus / Neptune as
+     more than pale disks. Each is an ellipse-table edit + a switch
+     case in `TextureFor`; cumulative LOC is small but visual ROI
+     varies per body. Sequencing TBD — Mars first (most player-
+     visible during a Hohmann arrival) is the natural pick.
+  3. **Solar lighting + day/night terminator.** Today every body
+     renders fully lit. Computing the sun-vector at each body's
+     center and shading pixels by `cos(angle to sun)` would give a
+     proper terminator, dawn/dusk crescents, and lunar-phase
+     variation as the player orbits. Adds a (sun-pos, body-pos)
+     projection step per pixel — modest cost, big visual payoff.
+     Implies a partial-shadow color tier (or per-pixel brightness
+     scaling, which lipgloss doesn't directly support — would need
+     a per-cell ANSI 24-bit mix).
+  4. **Eclipses as render artifacts.** Solar eclipse: Moon's disk
+     obscures part of the Sun if the player happens to look at the
+     right alignment. Lunar eclipse: Earth's shadow falls on the
+     Moon during full-phase syzygy. Falls out almost for free if
+     (3) lands; without it, eclipse rendering is a one-off special
+     case. Either way, no current code path projects body-on-body
+     occlusion — the canvas draws each body independently.
+
+  Sequencing question: do (1) and (3) belong in the v0.7 cycle as
+  follow-on patches in the v0.7.2.x line, or are they v0.8 polish
+  behind multiplayer / manual flight? (2) is independent and can
+  trickle in patch-by-patch (one body per polish slice, like
+  v0.5.11 / v0.5.12 did). (4) gates on (3).
 - **Active-burn flame animation**. The arrow glyph could pulse / extend
   while a burn is firing.
 
@@ -670,5 +710,15 @@ plus what v0.6 newly opened, framed for v0.7 scoping:
   design spike, open question #1)*. The MP design doc flagged
   craft-control-selector sequencing as a question. Resolve before
   committing to a multi-craft v0.7 / v0.8 slice.
+- **Body rendering — rotation, lighting, eclipses** *(newly open
+  from v0.7.2.1 / v0.7.2.2)*. Earth + Moon now have per-pixel
+  textures but they're fully lit, statically oriented, and don't
+  occlude each other. Four follow-ons sketched in §2 ("Body
+  rendering — open scope"): (1) surface rotation tied to sim time,
+  (2) more features per body (Mars caps, Jupiter banding, etc.),
+  (3) solar lighting + day/night terminator, (4) eclipses as
+  render artifacts. Sequencing: do (1) / (3) belong as v0.7.2.x
+  polish patches, or v0.8+? (2) can trickle one-body-per-patch
+  like v0.5.11 / v0.5.12 did. (4) gates on (3).
 
 Update this doc on each minor/patch boundary so the snapshot stays current.
