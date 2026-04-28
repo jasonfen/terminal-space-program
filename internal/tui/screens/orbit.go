@@ -570,10 +570,23 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
 			fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
 			fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
+			fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
+		)
+		// v0.7.3+: held attitude block. Always shows so the player
+		// knows what direction the next manual burn will fire in.
+		lines = append(lines, section("ATTITUDE")...)
+		manualState := "idle"
+		if w.ManualBurn != nil {
+			elapsed := w.Clock.SimTime.Sub(w.ManualBurn.StartTime).Seconds()
+			manualState = fmt.Sprintf(v.theme.Warning.Render("● firing T+%.1fs"), elapsed)
+		}
+		lines = append(lines,
+			fmt.Sprintf("  hold:      %s", w.AttitudeMode.String()),
+			fmt.Sprintf("  manual:    %s", manualState),
 		)
 	} else if w.Craft != nil {
 		lines = append(lines, "",
-			v.theme.Dim.Render("VESSEL (in Sol — [s] to switch)"),
+			v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)"),
 		)
 	}
 

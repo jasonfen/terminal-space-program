@@ -277,11 +277,14 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			return nil, fmt.Errorf("%w: %q", ErrCraftPrimary, p.Craft.PrimaryID)
 		}
 		w.Craft = &spacecraft.Spacecraft{
-			Name:    p.Craft.Name,
-			DryMass: p.Craft.DryMass,
-			Fuel:    p.Craft.Fuel,
-			Isp:     p.Craft.Isp,
-			Thrust:  p.Craft.Thrust,
+			Name:     p.Craft.Name,
+			DryMass:  p.Craft.DryMass,
+			Fuel:     p.Craft.Fuel,
+			Isp:      p.Craft.Isp,
+			Thrust:   p.Craft.Thrust,
+			Throttle: 1.0, // v0.7.3+: Spacecraft.Throttle is transient
+			// (set live by `z`/`x`/Shift+ keys); not persisted, so
+			// every load defaults the engine to full open.
 			Primary: primary,
 			State: physics.StateVector{
 				R: vec3To(p.Craft.R),

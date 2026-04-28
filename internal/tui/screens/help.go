@@ -20,7 +20,7 @@ func (h *Help) Render() string {
 		rows   [][2]string
 	}{
 		{"GLOBAL", [][2]string{
-			{"q", "quit (confirm prompt)"},
+			{"Q", "quit (confirm prompt)"},
 			{"ctrl+c", "quit (immediate)"},
 			{"?", "toggle this help"},
 			{"esc", "back / close"},
@@ -28,7 +28,7 @@ func (h *Help) Render() string {
 		{"NAVIGATION", [][2]string{
 			{"→ / l", "next body"},
 			{"← / h", "previous body"},
-			{"s", "next system"},
+			{"tab", "next system"},
 			{"i", "body info"},
 			{"+ / -", "zoom in / out"},
 			{"f", "next focus target"},
@@ -41,12 +41,19 @@ func (h *Help) Render() string {
 			{",", "warp down"},
 			{"0 / space", "pause / resume"},
 		}},
-		{"FLIGHT", [][2]string{
+		{"FLIGHT (planted)", [][2]string{
 			{"m", "open maneuver planner (burn now)"},
 			{"enter", "commit burn"},
 			{"esc (in planner)", "cancel burn"},
-			{"n", "plan a node (T+5m prograde 50m/s)"},
+			{"n", "plan a node (T+5m prograde 200m/s)"},
 			{"N", "clear all planned nodes"},
+		}},
+		{"MANUAL FLIGHT", [][2]string{
+			{"z / x", "throttle full / cut"},
+			{"Z / X", "throttle +10% / -10%"},
+			{"w / s", "attitude prograde / retrograde"},
+			{"a / d", "attitude normal+ / normal-"},
+			{"q / e", "attitude radial+ / radial-"},
 		}},
 		{"PERSISTENCE", [][2]string{
 			{"S", "save game (XDG_STATE_HOME)"},

@@ -1438,3 +1438,115 @@ func TestPlanTransferMoonEscapeIntraPrimaryStillFires(t *testing.T) {
 		t.Errorf("LEO→Luna departure Δv = %.0f m/s, want ≥ 2000 (TLI scale)", plan.Departure.DV)
 	}
 }
+
+// TestStartManualBurnSetsState: StartManualBurn populates ManualBurn
+// when fuel + thrust + throttle > 0 and no ActiveBurn is in flight.
+func TestStartManualBurnSetsState(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 1.0
+	w.AttitudeMode = spacecraft.BurnPrograde
+	w.StartManualBurn()
+	if w.ManualBurn == nil {
+		t.Fatal("StartManualBurn did not set ManualBurn")
+	}
+	if !w.ManualBurn.StartTime.Equal(w.Clock.SimTime) {
+		t.Errorf("StartTime = %v, want SimTime %v", w.ManualBurn.StartTime, w.Clock.SimTime)
+	}
+}
+
+// TestStartManualBurnNoOpDuringActiveBurn: a planted ActiveBurn owns
+// the engine — StartManualBurn must not mutate state while one is in
+// flight. (The two paths share the integrator and would compete for
+// AttitudeMode vs ActiveBurn.Mode.)
+func TestStartManualBurnNoOpDuringActiveBurn(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 1.0
+	w.ActiveBurn = &ActiveBurn{Mode: spacecraft.BurnPrograde, DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
+	w.StartManualBurn()
+	if w.ManualBurn != nil {
+		t.Error("StartManualBurn should be a no-op while ActiveBurn != nil")
+	}
+}
+
+// TestStartManualBurnNoOpAtZeroThrottle: pressing an attitude key
+// with zero throttle must not start the engine — the player is
+// orienting, not firing.
+func TestStartManualBurnNoOpAtZeroThrottle(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 0
+	w.StartManualBurn()
+	if w.ManualBurn != nil {
+		t.Error("StartManualBurn should be a no-op when throttle = 0")
+	}
+}
+
+// TestSetThrottleZeroStopsManualBurn: cutting throttle (`x` key)
+// must end any in-flight manual burn so the player's "x = cut"
+// muscle memory works in one keypress.
+func TestSetThrottleZeroStopsManualBurn(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 1.0
+	w.AttitudeMode = spacecraft.BurnPrograde
+	w.StartManualBurn()
+	if w.ManualBurn == nil {
+		t.Fatal("setup: ManualBurn should be set")
+	}
+	w.SetThrottle(0)
+	if w.ManualBurn != nil {
+		t.Error("SetThrottle(0) should stop the manual burn")
+	}
+	if w.Craft.Throttle != 0 {
+		t.Errorf("Craft.Throttle = %v, want 0", w.Craft.Throttle)
+	}
+}
+
+// TestAdjustThrottleClampsToRange: ±10 % steps must clamp to [0, 1]
+// regardless of the requested delta, preserving the throttle invariant.
+func TestAdjustThrottleClampsToRange(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 0.5
+	w.AdjustThrottle(0.6) // would go to 1.1
+	if w.Craft.Throttle != 1.0 {
+		t.Errorf("clamp top: throttle = %v, want 1.0", w.Craft.Throttle)
+	}
+	w.AdjustThrottle(-1.5) // would go to -0.5
+	if w.Craft.Throttle != 0 {
+		t.Errorf("clamp bottom: throttle = %v, want 0", w.Craft.Throttle)
+	}
+}
+
+// TestWarpCappedAt10xDuringManualBurn: same clamp as ActiveBurn —
+// at high warp the integrator would lose temporal resolution on the
+// thrust path, just like a planted finite burn.
+func TestWarpCappedAt10xDuringManualBurn(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.WarpIdx = len(WarpFactors) - 1 // 100000×
+	w.Craft.Throttle = 1.0
+	w.AttitudeMode = spacecraft.BurnPrograde
+	w.StartManualBurn()
+	if eff := w.EffectiveWarp(); eff != 10 {
+		t.Errorf("manual burn should cap warp to 10×, got %.0f", eff)
+	}
+}
+
+// TestManualBurnEndsOnFuelExhaustion: simulate a long burn — once
+// fuel hits zero, the integrator's per-tick teardown clears
+// ManualBurn so the player isn't stuck in an "engine commanded but
+// nothing happens" UI state.
+func TestManualBurnEndsOnFuelExhaustion(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 1.0
+	w.Craft.Fuel = 1.0 // tiny — burns out almost immediately
+	w.AttitudeMode = spacecraft.BurnPrograde
+	w.StartManualBurn()
+	if w.ManualBurn == nil {
+		t.Fatal("setup: ManualBurn should be set")
+	}
+	// Run enough ticks to drain the fuel.
+	for i := 0; i < 200 && w.Craft.Fuel > 0; i++ {
+		w.Tick()
+	}
+	if w.ManualBurn != nil {
+		t.Errorf("ManualBurn should clear after fuel exhaustion; fuel=%v", w.Craft.Fuel)
+	}
+}

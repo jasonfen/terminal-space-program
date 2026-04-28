@@ -21,8 +21,34 @@ type Spacecraft struct {
 	Isp     float64 // s — specific impulse, used by finite burns
 	Thrust  float64 // N — max engine thrust; zero disables finite burns
 
+	// Throttle is the engine power factor in [0, 1]; effective
+	// thrust = Thrust * Throttle. v0.7.3+. Zero is a sentinel for
+	// "legacy / unset" (treated as 1.0 by EffectiveThrottle) so
+	// pre-v0.7.3 Spacecraft constructions and v3 saves keep firing
+	// at full thrust. New callers that need the engine off route
+	// through ManualBurn = nil rather than a zero throttle.
+	Throttle float64
+
 	Primary bodies.CelestialBody
 	State   physics.StateVector
+}
+
+// EffectiveThrottle returns Throttle clamped to [0, 1]. Zero means
+// "engine off" — that's the real value the player sees in the HUD
+// after pressing `x` (cut throttle), so it cannot be silently
+// promoted to 1.0. All Spacecraft constructors must set Throttle
+// explicitly (see NewInLEO and the save-load path); the test
+// fixtures that build literal Spacecraft{} use Thrust=0 so the
+// engine path is never entered and the throttle value is moot.
+func (s *Spacecraft) EffectiveThrottle() float64 {
+	t := s.Throttle
+	if t < 0 {
+		return 0
+	}
+	if t > 1 {
+		return 1
+	}
+	return t
 }
 
 // TotalMass returns dry + fuel.
@@ -71,12 +97,13 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
 	return &Spacecraft{
-		Name:    "S-IVB-1",
-		DryMass: 11000,
-		Fuel:    40000,
-		Isp:     421,
-		Thrust:  1023000, // 1023 kN — J-2 vacuum thrust
-		Primary: earth,
+		Name:     "S-IVB-1",
+		DryMass:  11000,
+		Fuel:     40000,
+		Isp:      421,
+		Thrust:   1023000, // 1023 kN — J-2 vacuum thrust
+		Throttle: 1.0,     // full throttle by default
+		Primary:  earth,
 		State: physics.StateVector{
 			R: orbital.Vec3{X: r},
 			V: orbital.Vec3{Y: v},
