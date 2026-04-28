@@ -72,6 +72,49 @@ func TestOrbitHUDRendersVesselAndPropellantSideBySide(t *testing.T) {
 	t.Errorf("expected VESSEL and PROPELLANT on the same row at width 180; got render:\n%s", out)
 }
 
+// TestOrbitTitleBarButtonHits: after rendering, the title-bar
+// hit-test ranges line up with the right-aligned [Menu] /
+// [Missions] buttons. Pre-render hits return false (col ranges are
+// zero); a wide-terminal render places both buttons at the right
+// edge so HitMenuButton / HitMissionsButton resolve there.
+func TestOrbitTitleBarButtonHits(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	v.Resize(180, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	_ = v.Render(w, 0, 180, 40)
+
+	// Buttons live on row 0; the right-aligned group ends at the
+	// rightmost column. Hit somewhere inside each range.
+	if !v.HitMenuButton((v.menuColStart+v.menuColEnd)/2, 0) {
+		t.Errorf("expected center of [Menu] range to register a hit")
+	}
+	if v.HitMenuButton(0, 0) {
+		t.Errorf("expected col 0 (left-aligned title text) to miss [Menu]")
+	}
+	if !v.HitMissionsButton((v.missionsColStart+v.missionsColEnd)/2, 0) {
+		t.Errorf("expected center of [Missions] range to register a hit")
+	}
+	if v.HitMissionsButton((v.menuColStart+v.menuColEnd)/2, 0) {
+		t.Errorf("expected [Menu]'s range to miss [Missions]")
+	}
+	// Row 1 should miss both — buttons are row-0 only.
+	if v.HitMenuButton((v.menuColStart+v.menuColEnd)/2, 1) {
+		t.Errorf("expected row 1 to miss [Menu]")
+	}
+}
+
 // TestOrbitHUDRendersSystemAndSelectedSideBySide: same horizontal-
 // pairing as VESSEL/PROPELLANT, applied to SYSTEM + SELECTED. Saves
 // another ~3 rows in the right-hand HUD when there's enough content

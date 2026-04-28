@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
-	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -48,6 +47,13 @@ type OrbitView struct {
 	// reading as the world rotating around the player. Holding the
 	// camera lets the player watch the burn modify the orbit instead.
 	burnFrozenCenter *orbital.Vec3
+
+	// titleBar tracks the column ranges of the right-aligned [Menu]
+	// and [Missions] click targets in the title bar (row 0). Set on
+	// each Render so HitAt-style hit-tests stay accurate after
+	// terminal resizes. v0.7.4+.
+	menuColStart, menuColEnd         int
+	missionsColStart, missionsColEnd int
 }
 
 // minOrbitPixels is the projected apoapsis size below which an orbit
@@ -362,13 +368,61 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	hud := v.renderHUD(w, selectedIdx, totalCols-v.canvas.Cols()-4)
 
-	title := v.theme.Title.Render(fmt.Sprintf("terminal-space-program — %s — %s", version.Version, sys.Name))
+	title := v.renderTitleBar(sys.Name, totalCols)
 	footer := v.theme.Footer.Render(
 		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
 	return title + "\n" + body + "\n" + footer
+}
+
+// renderTitleBar composes the orbit-screen title row: the existing
+// "terminal-space-program — vX — System" left-aligned, plus
+// right-aligned `[Menu]` and `[Missions]` clickable buttons. Stores
+// the cell ranges of each button so HitMenuButton / HitMissionsButton
+// can map subsequent clicks back to a screen action. v0.7.4+.
+func (v *OrbitView) renderTitleBar(systemName string, totalCols int) string {
+	left := fmt.Sprintf("terminal-space-program — %s — %s", version.Version, systemName)
+	const menuLabel = "[Menu]"
+	const missionsLabel = "[Missions]"
+	const gap = "  "
+	rightPlain := menuLabel + gap + missionsLabel
+
+	// Compute the absolute column where the right group starts so the
+	// hit-test ranges match what the player sees on screen.
+	leftRunes := len([]rune(left))
+	rightRunes := len([]rune(rightPlain))
+	pad := totalCols - leftRunes - rightRunes
+	if pad < 1 {
+		pad = 1
+	}
+	rightStart := leftRunes + pad
+
+	v.menuColStart = rightStart
+	v.menuColEnd = rightStart + len([]rune(menuLabel))
+	v.missionsColStart = v.menuColEnd + len([]rune(gap))
+	v.missionsColEnd = v.missionsColStart + len([]rune(missionsLabel))
+
+	rendered := v.theme.Title.Render(left) +
+		strings.Repeat(" ", pad) +
+		v.theme.Primary.Render(menuLabel) +
+		gap +
+		v.theme.Primary.Render(missionsLabel)
+	return rendered
+}
+
+// HitMenuButton reports whether a click at (col, row) lands on the
+// title bar's `[Menu]` button. Title bar lives on row 0 of the
+// rendered orbit view. v0.7.4+.
+func (v *OrbitView) HitMenuButton(col, row int) bool {
+	return row == 0 && col >= v.menuColStart && col < v.menuColEnd
+}
+
+// HitMissionsButton reports whether a click at (col, row) lands on
+// the title bar's `[Missions]` button. v0.7.4+.
+func (v *OrbitView) HitMissionsButton(col, row int) bool {
+	return row == 0 && col >= v.missionsColStart && col < v.missionsColEnd
 }
 
 // BodyPixelRadius returns the body's render radius in pixels. When the
@@ -650,29 +704,10 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
-	// v0.6.5: mission status. Surfaces the first in-progress mission, or
-	// a "ALL CLEAR" line when every loaded mission is in a terminal
-	// state. Hidden entirely when no missions are loaded (e.g. a future
-	// "free play" toggle, or a config-load failure).
-	if len(w.Missions) > 0 {
-		lines = append(lines, section("MISSION")...)
-		if active := w.ActiveMission(); active != nil {
-			lines = append(lines,
-				"  "+active.Name,
-				v.theme.Dim.Render("  "+active.Status.String()),
-			)
-		} else {
-			passed := 0
-			for _, m := range w.Missions {
-				if m.Status == missions.Passed {
-					passed++
-				}
-			}
-			lines = append(lines,
-				v.theme.Primary.Render(fmt.Sprintf("  %d/%d complete", passed, len(w.Missions))),
-			)
-		}
-	}
+	// v0.7.4+: mission status moved off the orbit HUD into a
+	// dedicated [Missions] screen reachable from the title bar
+	// button (and via the screenMissions wiring in app.Update).
+	// Keeps the right-hand HUD focused on flight state.
 
 	if len(w.Nodes) > 0 {
 		lines = append(lines, section("NODES")...)
