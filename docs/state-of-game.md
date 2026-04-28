@@ -231,8 +231,9 @@ by patch — this doc is the snapshot, those are the release notes.
 - **Lambert multi-branch selection**. Today the multi-rev path returns the
   first root the bracket finds (lower-z side); a per-N "cheap" / "long" flag
   would expose both. Useful when porkchop multi-rev lands.
-- **Explicit retrograde flag for `LambertSolve`**. Today direction is driven
-  by the bracket starting point; a caller hint would be cleaner.
+- **Explicit retrograde flag for `LambertSolve`** *(claimed by v0.7.5)*.
+  Today direction is driven by the bracket starting point; a caller
+  hint would be cleaner.
 
 ### Larger queued features
 - **Realistic finite-burn intra-primary auto-plant** (v0.6 target).
@@ -269,12 +270,14 @@ by patch — this doc is the snapshot, those are the release notes.
   cycle, or click-to-select on the orbit canvas) so "active craft" is
   unambiguous and per-screen. Surfaces during v0.6.4 view-mode work as a
   flagged future requirement.
-- **Inclination-change planner**. Today's burn modes don't expose a clean
-  out-of-plane corrector. Adds a third burn at the line-of-nodes.
+- **Inclination-change planner** *(claimed by v0.7.4)*. Today's burn
+  modes don't expose a clean out-of-plane corrector. Adds a third burn
+  at the line-of-nodes.
 - **N-body perturbations**. The sim is strict patched-conic; Lagrangian
   points and three-body trajectories aren't representable.
-- **Custom systems via config file**. `bodies/systems.go` is hardcoded; a
-  TOML or JSON loader unlocks modding.
+- **Custom systems via config file** *(claimed by v0.7.0)*.
+  `bodies/systems.go` is hardcoded; a JSON overlay loader at
+  `$XDG_CONFIG_HOME/.../systems/*.json` unlocks modding.
 - **Mission editor / scripting** (long-tail). Once basic missions exist,
   expose a config format so users can author custom objectives without
   touching Go.
@@ -313,8 +316,11 @@ by patch — this doc is the snapshot, those are the release notes.
 ### Polish / quality
 - **Race-detector CI**. Currently no `-race` because the local environment
   doesn't have cgo; CI could enable it with `CGO_ENABLED=1`.
-- **Throttle control**. Engine is on/off — adding a 0–100 % throttle field
-  would make finite burns more flexible.
+- **Throttle control** *(claimed by v0.7.3)*. Engine is on/off — adding
+  a 0–100 % `Throttle` field on `Spacecraft` (with `z/x` keys + ±10 %
+  step on Shift) plus a per-node throttle override in the `m` form
+  makes finite burns more flexible. Pairs with hold-to-burn manual
+  flight in the same slice.
 - **More integration tests** at the World tick level. Most tests are
   unit-scale.
 
@@ -355,8 +361,13 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.6.5 ✓** | | Mission scaffold + burn-input simplification — new `internal/missions` package with three predicate kinds (`circularize` / `orbit_insertion` / `soi_flyby`) on a sticky three-state machine. Embedded `missions.json` starter catalog (1000 km LEO circularize, Luna orbit insertion, Mars SOI flyby) via `go:embed`. `World.Missions` seeded at `NewWorld`, evaluated each Tick after `executeDueNodes`. Save schema v2 → v3 with `Payload.Missions` (omitempty); v1/v2 saves seed the default catalog post-load so older saves gain the feature transparently. Orbit screen HUD gains a `MISSION` section + permanent `VIEW` sub-line under FOCUS (the v0.6.4 view-mode toast is gone). Maneuver planner drops the duration field; Δv now drives both the delivered Δv AND a rocket-equation-derived burn duration via `spacecraft.BurnTimeForDV(dv) = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`. Auto-plant Hohmann + RefinePlan paths unified on the same call so player- and auto-planted burns size identically (constant-mass `dv·m/F` scrubbed from five sites in `internal/sim/maneuver.go`). |
 | **v0.6.6 ✓** | | Multiplayer design-doc spike — `docs/multiplayer-design.md`, ~1000 words covering Transport (WebSocket-for-MVP, escalate to QUIC if loss demands), Authority model (host-authoritative + warp-arbitration; lockstep as bit-identical-FP fallback), Persistence (`Session` inside `Payload`, schema v3 → v4 at real-slice time), Out of scope, and three open questions on multi-craft sequencing, warp-veto generalisation, and per-player vs shared missions. Pure prose; no code change. Closes the planned v0.6 cycle. |
 | **v0.6 ✓** | **Planner UX + missions + MP design** | Burn-at-next scheduler + predicted-orbit HUD + finite-burn-aware planner + moon → parent escape transfer + click-only mouse + 5-way view modes + mission scaffold + burn-input simplification + multiplayer design-doc spike. See `docs/v0.6-plan.md` for slice breakdown. |
-| v0.7 | Custom systems + modding *(speculative)* | Config-file body loader; promote color theme to user-configurable |
-| v0.8+ | Open *(speculative)* | N-body, multi-system spacecraft, multi-rev porkchop, mission editor/scripting, optional drag, maneuver node editing, multiplayer implementation |
+| v0.7.0 | Modding + manual flight + planner polish *(planned)* | External system catalog overlay — `$XDG_CONFIG_HOME/.../systems/*.json` merges with embedded set in `bodies.LoadAll` |
+| v0.7.1 | | Per-body palette migration — `Color` field on `CelestialBody`, fill from existing `bodyPalette` table; `ColorFor` prefers `b.Color` with table fallback |
+| v0.7.2 | | User theme overrides — `theme.json` with optional `ui` + `bodies` blocks layered over the v0.7.1 per-body field |
+| v0.7.3 | | Manual flight controls — throttle (`Spacecraft.Throttle`, `z/x` keys), hold-to-burn (parallel `World.ManualBurn`), attitude hold (`w/s/a/d/q/e` mapped to existing `BurnMode`), per-node throttle override; save schema v3 → v4 |
+| v0.7.4 | | Inclination-change planner — picks AN/DN via `orbital.TimeToNodeCrossing`, computes `2·v·sin(Δi/2)` Δv, plants via existing `BurnNormalPlus` / `BurnNormalMinus` |
+| v0.7.5 | | Explicit retrograde flag for `LambertSolve` + `LambertSolveRev` + `PorkchopGrid` (unblocks multi-rev porkchop in v0.8+) |
+| v0.8+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, multi-craft selector, N-body, multi-system spacecraft, mission editor/scripting, optional drag, maneuver node drag-to-edit |
 
 ### v0.4 — save / load + mid-course corrections
 
@@ -593,34 +604,51 @@ by target version:
 
 ## 5. Open questions for the next cycle
 
-We're now at the **v0.5 ship boundary**, with v0.6 (planner UX + missions
-+ multiplayer design spike) the next cycle. The questions surfaced for
-the v0.4-boundary list partially resolved during v0.5; what's left,
-plus what v0.5 newly opened, framed for v0.6 scoping:
+We're now at the **v0.6 ship boundary**, with v0.7 (modding + manual
+flight + planner polish) the next cycle. Slice breakdown lives in
+`docs/v0.7-plan.md`. The questions framed for the v0.5 → v0.6 boundary
+all resolved during v0.6 implementation (see §4); what carries forward,
+plus what v0.6 newly opened, framed for v0.7 scoping:
 
-- **`Body` schema for the v0.7 config-file loader** *(still open)*. What
-  the v0.5 hierarchy needs to expose — beyond promoting the palette
-  table to per-body JSON — for a clean external loader. Surfaces when
-  v0.7 starts; v0.6 should avoid schema decisions that paint into a
-  corner.
-- **Inter-SOI `PlanTransfer()` capture** *(partially answered)*. v0.5.7's
-  `PlanIntraPrimaryHohmann` covers same-parent transfers (LEO → Luna)
-  and v0.5.9 added phase correction. v0.6.3 will add the **moon →
-  parent** return direction (Luna → Earth). **Remaining beyond v0.6**:
-  fully cross-primary capture — heliocentric cruise → Mars-orbit
-  insertion through Phobos's SOI, or heliocentric → a Galilean
-  satellite. Needs a real patched-conic capture pass that v0.6.3 does
-  not attempt; deferred to v0.7+.
-- **Mission persistence shape** *(resolved)*. Inside `Payload.Missions`,
-  not a sibling block. Schema v1 → v2 with permissive load. See
-  `docs/v0.6-plan.md` v0.6.5.
-- **Integration-design event-loop landing** *(newly open)*.
-  `docs/integration-design.md` (the v0.4.2–v0.4.4 contract) sketches an
-  event-driven outer loop unifying integrator and predictor; that work
-  stayed deferred so the v0.5 series could focus on moons + visuals.
-  Open: does it land *inside* v0.6 alongside the burn-at-next
-  scheduler (they touch the same control loop, so co-shipping is
-  natural), or stay its own follow-on after v0.6's planner UX is
-  bedded in?
+- **`Body` schema additions for the v0.7 external loader** *(now in
+  scope)*. v0.7.0 lands the `$XDG_CONFIG_HOME/.../systems/*.json`
+  overlay loader; v0.7.1 promotes the `internal/render/palette.go`
+  table to per-body `Color` field. Whether `Rings` / `Glyph` overrides
+  ride per-body JSON or stay hardcoded in `render.BodyRings` /
+  `render.GlyphFor` is a v0.7.0 / v0.7.1 implementation question.
+- **Inter-SOI `PlanTransfer()` capture** *(partially answered, still
+  open beyond v0.7)*. v0.5.7's `PlanIntraPrimaryHohmann` covers
+  same-parent transfers (LEO → Luna), v0.5.9 added phase correction,
+  v0.6.3 added the moon → parent return direction (Luna → Earth).
+  **Remaining beyond v0.7**: fully cross-primary capture —
+  heliocentric cruise → Mars-orbit insertion through Phobos's SOI, or
+  heliocentric → a Galilean satellite. Needs a real patched-conic
+  capture pass; deferred to v0.8+.
+- **SOI-exit HUD surfacing** *(newly open from v0.6.3)*. The
+  parent-frame zero-Δv arrival marker that `PlanMoonEscape` plants
+  today only shows up as a "next-frame" trigger; a more explicit HUD
+  callout for the SOI transition would help users plan their
+  parent-frame circularization. Slice it into v0.7 polish or leave for
+  v0.8 — open.
+- **Caller-facing `IterateForTarget` toggle** *(newly open from
+  v0.6.2)*. The Newton-iterating finite-burn solver lives behind
+  `H` auto-plant only. Whether the `m` form should expose a "plan
+  with finite-burn iteration" toggle for player-planted burns is
+  a v0.7.3 / v0.7.4 polish question.
+- **Predictor adaptive sampling at high warp** *(carried from
+  `docs/integration-design.md` §10)*. The fixed 96-sample horizon
+  collapses to a smear at 10000× warp on LEO orbits. Adaptive
+  sampling (sample density inversely proportional to warp) is the
+  obvious fix; not yet sliced. Likely v0.8+ unless v0.7 surfaces
+  it as a player-visible regression.
+- **Theme override granularity** *(newly open for v0.7.2)*. Whether
+  per-body color overrides belong in the same `theme.json` as
+  UI-tier overrides (the v0.7.2 plan), or in a sibling
+  `bodies.json` overlay that can also tweak orbital parameters.
+  Resolve before v0.7.2 implementation.
+- **Multi-craft selector vs multiplayer** *(newly open from v0.6.6
+  design spike, open question #1)*. The MP design doc flagged
+  craft-control-selector sequencing as a question. Resolve before
+  committing to a multi-craft v0.7 / v0.8 slice.
 
 Update this doc on each minor/patch boundary so the snapshot stays current.
