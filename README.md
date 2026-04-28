@@ -45,6 +45,25 @@ go build ./cmd/terminal-space-program
 
 Requires Go 1.24+ (bubbletea dependency chain).
 
+## Custom systems
+
+Drop additional system JSON files into
+`$XDG_CONFIG_HOME/terminal-space-program/systems/` (or
+`~/.config/terminal-space-program/systems/` if `XDG_CONFIG_HOME` is
+unset) and they'll merge with the built-in catalog at startup. User
+files win on `systemName` match — e.g. dropping a `sol.json` there
+replaces the embedded Sol entirely. Otherwise they append. The
+body-info screen (`i`) shows `source: embedded | user` so you can
+tell which catalog a body came from.
+
+Schema mirrors the embedded files in
+`internal/bodies/systems/*.json`. Malformed user files print a
+warning to stderr at startup and are skipped — embedded systems
+always load. Save files carry a `body_catalog_hash` field, so a
+save taken on the embedded catalog rejects on first load after you
+add a custom system; that's by design (otherwise body references
+across saves could drift silently).
+
 ## Quick tour
 
 You spawn as **S-IVB-1** in a 500 km circular prograde LEO. The left
