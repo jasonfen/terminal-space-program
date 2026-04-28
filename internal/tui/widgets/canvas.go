@@ -213,6 +213,24 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 	}
 }
 
+// pickDominantColor returns the highest-count color in counts. Ties
+// break deterministically on the lexicographically smaller color
+// string so the chosen color is stable frame-to-frame regardless of
+// Go's randomized map iteration order. Without this tie-break,
+// textured-body cells with mixed-color pixel sets (v0.7.2.1+)
+// flicker as a different "first" color wins each render.
+func pickDominantColor(counts map[lipgloss.Color]int) lipgloss.Color {
+	var best lipgloss.Color
+	bestN := 0
+	for color, n := range counts {
+		if n > bestN || (n == bestN && string(color) < string(best)) {
+			bestN = n
+			best = color
+		}
+	}
+	return best
+}
+
 // FillTexturedDiskTagged fills a disk like FillColoredDiskTagged but
 // asks `texture` for the per-pixel color instead of using a single
 // uniform value from the supplied tag. The tag's BodyID / NodeIdx /
@@ -717,9 +735,13 @@ func (c *Canvas) String() string {
 	}
 	// Aggregate tags per cell: for each tagged pixel, accumulate a
 	// per-color count in the cell that contains it. Highest count
-	// wins. Ties go to whichever color appeared first (map iteration
-	// order is intentionally undefined; the tie-breaker is good enough
-	// since collisions are rare).
+	// wins. Ties break deterministically on the color string so the
+	// chosen color is stable frame-to-frame — Go's map iteration
+	// order is randomized per range, which used to cause visible
+	// flicker on textured bodies (v0.7.2.1+) where many cells legit-
+	// imately have multi-color pixel sets. Pre-v0.7.2.1 there were
+	// no multi-color cells in practice so the latent bug never
+	// surfaced.
 	cellColor := make(map[[2]int]lipgloss.Color)
 	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
 	for coord, tag := range c.pixelTags {
@@ -734,15 +756,7 @@ func (c *Canvas) String() string {
 		cellCounts[key][tag.Color]++
 	}
 	for key, counts := range cellCounts {
-		var bestColor lipgloss.Color
-		bestN := 0
-		for color, n := range counts {
-			if n > bestN {
-				bestN = n
-				bestColor = color
-			}
-		}
-		cellColor[key] = bestColor
+		cellColor[key] = pickDominantColor(counts)
 	}
 	var b strings.Builder
 	for i := 0; i < c.rows; i++ {
