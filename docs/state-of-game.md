@@ -1,10 +1,12 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.6.6 (April 2026) — v0.6 cycle complete (burn-at-next
-scheduler + predicted-orbit HUD + finite-burn-aware iterative planner
-+ moon → parent escape transfer + click-only mouse + 5-way view-mode
-switcher + mission scaffold + burn-input simplification + multiplayer
-design-doc spike all shipped). Updated at each minor / patch boundary.*
+*Snapshot at v0.7.4 (April 2026) — v0.6 cycle complete; v0.7 cycle
+through v0.7.4 shipped (modding chain v0.7.0–v0.7.2.3 + manual flight
+v0.7.3 + Esc-on-home menu polish v0.7.3.1–.3 + inclination-change
+planner v0.7.4 + a HUD compaction pass that moved the view indicator
+into the canvas, paired VESSEL/PROPELLANT and SYSTEM/SELECTED, and
+relocated MISSION into a dedicated [Missions] screen reachable from a
+title-bar button). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -466,7 +468,7 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.7.2.1 ✓** | *(polish patch)* | Textured Earth disk — at `r ≥ 12 px`, Earth renders per-pixel through `Canvas.FillTexturedDiskTagged` + `render.EarthPixelColor`. Orthographic (dx,dy) → (lat,lon) projection feeds an ellipse-table lookup classifying cloud / land / ocean. Body-identity `●` glyph suppressed for textured bodies. Static (no rotation). `render.BodyHasTexture(b, r)` is the dispatch hook for future bodies. |
 | **v0.7.2.2 ✓** | *(polish patch)* | Textured Moon disk + dispatch refactor — Moon renders the canonical near-side mare layout (Crisium, Tranquillitatis, Imbrium, Procellarum, etc.) plus four bright rayed-crater accents (Tycho, Copernicus, Kepler, Aristarchus) via `render.MoonPixelColor`. New `BodyTextureMinRadius` (12 px) generalizes the threshold; new `BodyTexture` function type + `TextureFor(b, r)` lookup replace the body-specific switch in `orbit.go`. `EarthTextureMinRadius` retained as alias until v0.8 cleanup. |
 | **v0.7.3 ✓** | | Manual flight controls — `Spacecraft.Throttle` field plumbed through `MassFlowRate` / `ThrustAccelFn` / `stepThrust`. `World.ManualBurn` parallels `ActiveBurn` (carries only `StartTime`); `World.AttitudeMode` drives manual-burn direction. Throttle keys `z` / `x` / `Shift+z` / `Shift+x`; attitude keys `w` / `s` / `a` / `d` / `q` / `e` (rebound `s`→`tab` for NextSystem and `q`→`Q` for QuitAsk to free WASD/QE). Warp clamp ≤10× during either burn type; Kepler warp-lock falls back to Verlet. PROPELLANT block adds throttle line; new ATTITUDE block. Per-node throttle override + save schema v3→v4 deferred to follow-up patch. |
-| v0.7.4 | | Inclination-change planner — picks AN/DN via `orbital.TimeToNodeCrossing`, computes `2·v·sin(Δi/2)` Δv, plants via existing `BurnNormalPlus` / `BurnNormalMinus` |
+| **v0.7.4 ✓** | | Inclination-change planner + HUD compaction pass + Hohmann-preview frame fix. New `planner.PlanInclinationChange` plants a single normal±-burn at the next AN/DN to rotate the orbital plane to a target inclination; Δv = 2·v_horizontal·sin(`Δi`/2) (exact at the node for any closed orbit). Physical AN/DN identification uses the current state's v.Z sign (robust to the ω-degeneracy that plagues circular orbits in events.go's label-based path). New `I` keybinding plants the burn against the selected body's inclination (or 0° equatorial when none) — same select-body-press-key UX as `H`/`P`. Inclination line added to PROJECTED ORBIT readouts (orbit HUD + maneuver form) so AN/DN burns no longer appear to do nothing. **HUD pass**: VESSEL+PROPELLANT side-by-side at half-width each (~6 row recovery); SYSTEM+SELECTED same shape (~3 rows); "view: <mode>" stamped via new `Canvas.SetCellLabel` overlay in the bottom-right corner of the orbit canvas (and mirrored on maneuver mini-canvas) — the FOCUS/VIEW HUD lines are gone; MISSION block removed in favour of a clickable `[Missions]` button in the orbit-screen title bar that opens a dedicated `screens.Missions` list (status glyphs ✓/✗/·); `[Menu]` companion button mirrors the existing Esc-on-home splash menu; menu screen reworked with clickable list buttons + Yes/No confirm sub-screens (keyboard direct path s/l/q preserved); `[Back]` button on menu and missions screens for a click-only return to orbit. **Frame fix**: `World.HohmannPreviewFor` now uses craft-primary GM + parent-relative radii for moon targets — pre-fix a LEO craft's Luna preview quoted Δv1 ≈ 28 km/s / Δv2 ≈ 242 km/s because it was computing a Hohmann from ~150M km (Earth's heliocentric distance) to ~384k km (Luna's parent-relative SMA). Same flavour as the v0.5.7 PlanTransfer fix; never propagated into the preview until now. |
 | v0.7.5 | | Explicit retrograde flag for `LambertSolve` + `LambertSolveRev` + `PorkchopGrid` (unblocks multi-rev porkchop in v0.8+) |
 | v0.8+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, multi-craft selector, N-body, multi-system spacecraft, mission editor/scripting, optional drag, maneuver node drag-to-edit |
 
