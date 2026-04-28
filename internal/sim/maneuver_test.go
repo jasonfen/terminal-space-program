@@ -961,6 +961,65 @@ func mustWorld(t *testing.T) *World {
 	return w
 }
 
+// TestPlanInclinationChangePlantsNormalBurn: from a 28.5° inclined LEO,
+// targeting equatorial drops a single normal-burn node at the next
+// node crossing — half-period away when the craft starts at the AN.
+// The planted node carries the planner's chosen Normal+/- mode, the
+// craft's primary as PrimaryID, and a finite Duration sized via
+// BurnTimeForDV.
+func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
+	w := mustWorld(t)
+	mu := w.Craft.Primary.GravitationalParameter()
+	r := w.Craft.State.R.Norm()
+	v := math.Sqrt(mu / r)
+	const inc = 28.5 * math.Pi / 180
+
+	// Tilt the craft into a 28.5° inclined LEO at the AN (rising
+	// through equator). Position along +x; velocity in the (y, z)
+	// plane.
+	w.Craft.State.R = orbital.Vec3{X: r}
+	w.Craft.State.V = orbital.Vec3{Y: v * math.Cos(inc), Z: v * math.Sin(inc)}
+
+	plan, err := w.PlanInclinationChange(0)
+	if err != nil {
+		t.Fatalf("PlanInclinationChange: %v", err)
+	}
+	if got := len(w.Nodes); got != 1 {
+		t.Fatalf("expected 1 planted node, got %d", got)
+	}
+	n := w.Nodes[0]
+	if n.Mode != spacecraft.BurnNormalPlus {
+		t.Errorf("Mode = %v, want BurnNormalPlus (DN, decrease)", n.Mode)
+	}
+	wantDV := 2 * v * math.Sin(inc/2)
+	if math.Abs(n.DV-wantDV) > 1 {
+		t.Errorf("Δv = %.1f m/s, want %.1f m/s", n.DV, wantDV)
+	}
+	if n.PrimaryID != w.Craft.Primary.ID {
+		t.Errorf("PrimaryID = %q, want %q", n.PrimaryID, w.Craft.Primary.ID)
+	}
+	if n.Duration <= 0 {
+		t.Errorf("expected finite Duration, got %v", n.Duration)
+	}
+	if !plan.AtAN && plan.NormalSign != +1 {
+		t.Errorf("plan inconsistent: AtAN=%v NormalSign=%d", plan.AtAN, plan.NormalSign)
+	}
+}
+
+// TestPlanInclinationChangeRejectsEquatorialDefault: the default
+// world spawns equatorial (i=0); PlanInclinationChange must surface
+// the planner's equatorial-orbit error rather than planting a node
+// with NaN/zero Δv.
+func TestPlanInclinationChangeRejectsEquatorialDefault(t *testing.T) {
+	w := mustWorld(t)
+	if _, err := w.PlanInclinationChange(28.5 * math.Pi / 180); err == nil {
+		t.Errorf("expected error from equatorial default state, got nil")
+	}
+	if len(w.Nodes) != 0 {
+		t.Errorf("equatorial reject left %d nodes planted, want 0", len(w.Nodes))
+	}
+}
+
 // TestPlanTransferAtPlantsTwoNodes: PlanTransferAt for an arbitrary
 // (depDay, tofDay) pair plants a departure + arrival with the correct
 // primaries, finite durations, and a time gap matching tofDay.

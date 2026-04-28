@@ -644,6 +644,44 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	return &plan, nil
 }
 
+// PlanInclinationChange plants a single normal-burn maneuver node
+// that rotates the craft's orbital plane to targetIncl (radians, in
+// [0, π]). The burn fires at the next ascending or descending node,
+// whichever comes sooner; the planner picks the BurnNormal+ /
+// BurnNormal- mode that drives inclination toward the target.
+//
+// Returns the planner's InclinationPlan (Δv + chosen node) for HUD
+// flashing; surfaces the planner's error untouched if the source
+// orbit is equatorial / hyperbolic / already-at-target.
+//
+// v0.7.4+. Composes with v0.6.0's burn-at-next scheduler — the planted
+// node uses an absolute TriggerTime (event resolver isn't needed
+// since the planner already computed the future event time).
+func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationPlan, error) {
+	if w.Craft == nil {
+		return nil, errNoCraftForTransfer
+	}
+	mu := w.Craft.Primary.GravitationalParameter()
+	state := orbital.Vec3State{R: w.Craft.State.R, V: w.Craft.State.V}
+	plan, err := planner.PlanInclinationChange(state, mu, targetIncl, w.Craft.Primary.ID)
+	if err != nil {
+		return nil, err
+	}
+	mode := spacecraft.BurnNormalPlus
+	if plan.NormalSign < 0 {
+		mode = spacecraft.BurnNormalMinus
+	}
+	now := w.Clock.SimTime
+	w.PlanNode(ManeuverNode{
+		TriggerTime: now.Add(plan.OffsetTime),
+		Mode:        mode,
+		DV:          plan.DV,
+		Duration:    w.Craft.BurnTimeForDV(plan.DV),
+		PrimaryID:   plan.PrimaryID,
+	})
+	return &plan, nil
+}
+
 // PorkchopGrid computes a launch-window grid for a Hohmann-style
 // transfer to the target body. Axes: depDays (offsets from now) and
 // tofDays (time of flight). Each cell = total Δv (departure + capture,
