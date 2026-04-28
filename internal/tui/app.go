@@ -23,6 +23,7 @@ const (
 	screenHelp
 	screenPorkchop
 	screenMenu
+	screenMissions
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -44,6 +45,7 @@ type App struct {
 	maneuver  *screens.Maneuver
 	porkchop  *screens.Porkchop
 	menu      *screens.Menu
+	missions  *screens.Missions
 
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
@@ -79,6 +81,7 @@ func New() (*App, error) {
 		maneuver:  screens.NewManeuver(sth),
 		porkchop:  screens.NewPorkchop(sth),
 		menu:      screens.NewMenu(sth),
+		missions:  screens.NewMissions(sth),
 	}, nil
 }
 
@@ -166,6 +169,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch a.active {
 		case screenOrbit:
+			// v0.7.4+: title-bar [Menu] / [Missions] buttons take
+			// priority over canvas / HUD hits, since they sit at
+			// row 0 above the body region.
+			if a.orbitView.HitMenuButton(m.X, m.Y) {
+				a.active = screenMenu
+				return a, nil
+			}
+			if a.orbitView.HitMissionsButton(m.X, m.Y) {
+				a.active = screenMissions
+				return a, nil
+			}
 			hit := a.orbitView.HitAt(m.X, m.Y)
 			switch {
 			case hit.IsVessel:
@@ -551,6 +565,8 @@ func (a *App) View() string {
 		base = a.porkchop.Render(a.world, a.width, a.height)
 	case screenMenu:
 		base = a.menu.Render()
+	case screenMissions:
+		base = a.missions.Render(a.world)
 	default:
 		base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}
