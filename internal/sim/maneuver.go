@@ -169,6 +169,18 @@ func (w *World) StopManualBurn() {
 	w.ManualBurn = nil
 }
 
+// ToggleManualBurn engages the engine if no manual burn is in flight
+// (and StartManualBurn's preconditions are met), else disengages. The
+// v0.7.3.2+ explicit-engage gate — bound to `b` so accidental
+// attitude-key presses can't fire the engine.
+func (w *World) ToggleManualBurn() {
+	if w.ManualBurn != nil {
+		w.StopManualBurn()
+		return
+	}
+	w.StartManualBurn()
+}
+
 // SetThrottle clamps the requested throttle to [0, 1] and applies it
 // to the spacecraft. Called by the v0.7.3+ throttle keys (z/x and
 // Shift+z/Shift+x). Setting throttle to 0 also stops any in-flight

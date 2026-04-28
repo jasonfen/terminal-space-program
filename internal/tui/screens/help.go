@@ -50,9 +50,10 @@ func (h *Help) Render() string {
 		{"MANUAL FLIGHT", [][2]string{
 			{"z / x", "throttle full / cut"},
 			{"Z / X", "throttle +10% / -10%"},
-			{"w / s", "attitude prograde / retrograde"},
-			{"a / d", "attitude normal+ / normal-"},
-			{"q / e", "attitude radial+ / radial-"},
+			{"w / s", "attitude prograde / retrograde (orient only)"},
+			{"a / d", "attitude normal+ / normal- (orient only)"},
+			{"q / e", "attitude radial+ / radial- (orient only)"},
+			{"b", "engage / cut manual burn"},
 		}},
 		{"PERSISTENCE", [][2]string{
 			{"S", "save game (XDG_STATE_HOME)"},
