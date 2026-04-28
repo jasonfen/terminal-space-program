@@ -173,6 +173,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// priority over canvas / HUD hits, since they sit at
 			// row 0 above the body region.
 			if a.orbitView.HitMenuButton(m.X, m.Y) {
+				a.menu.Reset()
 				a.active = screenMenu
 				return a, nil
 			}
@@ -227,9 +228,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.porkchop.SetSelection(depIdx, tofIdx)
 			}
 		case screenMenu:
-			if a.menu.HitBackButton(m.X, m.Y) {
-				a.active = screenOrbit
-				return a, nil
+			action := a.menu.HandleClick(m.X, m.Y)
+			if action != screens.MenuActionNone {
+				return a.applyMenuAction(action)
 			}
 		case screenMissions:
 			if a.missions.HitBackButton(m.X, m.Y) {
@@ -251,31 +252,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// then on; every other key is dropped so accidental presses
 		// can't fall through to the orbit screen.
 		if a.active == screenMenu {
-			switch a.menu.HandleKey(m.String()) {
-			case screens.MenuActionSave:
-				if err := a.doSave(); err != nil {
-					a.statusMsg = fmt.Sprintf("save failed: %v", err)
-				} else {
-					a.statusMsg = "saved"
-				}
-				a.statusExpires = time.Now().Add(3 * time.Second)
-				a.active = screenOrbit
-				return a, nil
-			case screens.MenuActionLoad:
-				if err := a.doLoad(); err != nil {
-					a.statusMsg = fmt.Sprintf("load failed: %v", err)
-				} else {
-					a.statusMsg = "loaded"
-				}
-				a.statusExpires = time.Now().Add(3 * time.Second)
-				a.active = screenOrbit
-				return a, nil
-			case screens.MenuActionQuit:
-				a.autosave()
-				return a, tea.Quit
-			case screens.MenuActionCancel:
-				a.active = screenOrbit
-				return a, nil
+			action := a.menu.HandleKey(m.String())
+			if action != screens.MenuActionNone {
+				return a.applyMenuAction(action)
 			}
 			return a, nil
 		}
@@ -322,6 +301,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// returns to orbit first, so a second Esc opens the
 			// menu.
 			if a.active == screenOrbit {
+				a.menu.Reset()
 				a.active = screenMenu
 				return a, nil
 			}
@@ -529,6 +509,42 @@ func (a *App) doLoad() error {
 // can be wired later if needed.
 func (a *App) autosave() {
 	_ = a.doSave()
+}
+
+// applyMenuAction dispatches a finalised MenuAction (Save / Load /
+// Quit / Cancel) regardless of whether the player drove it through
+// the keyboard or the click flow. Pulled out of the legacy inline
+// switch in v0.7.4 so HandleClick and HandleKey share the same
+// post-confirm side-effects (status flash, screen exit, autosave +
+// quit).
+func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
+	switch action {
+	case screens.MenuActionSave:
+		if err := a.doSave(); err != nil {
+			a.statusMsg = fmt.Sprintf("save failed: %v", err)
+		} else {
+			a.statusMsg = "saved"
+		}
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.active = screenOrbit
+		return a, nil
+	case screens.MenuActionLoad:
+		if err := a.doLoad(); err != nil {
+			a.statusMsg = fmt.Sprintf("load failed: %v", err)
+		} else {
+			a.statusMsg = "loaded"
+		}
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.active = screenOrbit
+		return a, nil
+	case screens.MenuActionQuit:
+		a.autosave()
+		return a, tea.Quit
+	case screens.MenuActionCancel:
+		a.active = screenOrbit
+		return a, nil
+	}
+	return a, nil
 }
 
 // flashStatus writes a transient message to the HUD footer.
