@@ -42,6 +42,36 @@ func TestOrbitViewRendersAllSystems(t *testing.T) {
 	}
 }
 
+// TestOrbitHUDRendersVesselAndPropellantSideBySide: when the HUD has
+// at least 36 cols of content room, the VESSEL and PROPELLANT block
+// headers share a row so the right-hand HUD doesn't get tall enough
+// to push the layout off-screen. Below that threshold the blocks
+// fall back to stacked rendering. v0.7.5+ height-saving change.
+func TestOrbitHUDRendersVesselAndPropellantSideBySide(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	v.Resize(180, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	out := v.Render(w, 0, 180, 40)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "VESSEL") && strings.Contains(line, "PROPELLANT") {
+			return
+		}
+	}
+	t.Errorf("expected VESSEL and PROPELLANT on the same row at width 180; got render:\n%s", out)
+}
+
 // TestBodyPixelRadiusMonotonic: perceived-size bucketing is monotonic
 // in physical radius. Tier 1 (small) < tier 2 (terrestrial) < tier 4
 // (gas giant) < tier 6 (star). System-primary flag promotes to star
