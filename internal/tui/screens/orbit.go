@@ -552,26 +552,64 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		periAlt := el.Periapsis() - primaryR
 		incDeg := el.I * 180.0 / 3.141592653589793
 
-		lines = append(lines, section("VESSEL")...)
-		lines = append(lines,
-			"  "+c.Name,
-			"  primary:   "+c.Primary.EnglishName,
-			fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
-			fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
-			fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
-			fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
-			fmt.Sprintf("  inclin.:   %.2f°", incDeg),
-		)
-		if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
-			lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+		// VESSEL + PROPELLANT side-by-side to reduce the HUD's vertical
+		// height. Each column gets roughly half the HUD width (with a
+		// 2-char gutter between); the section divider + header is per
+		// column so each block reads as its own pane. Falls back to
+		// stacked rendering when the HUD is too narrow to split (< 36
+		// cols of content) — labels would clip otherwise.
+		const minSplitWidth = 36
+		if width-2 >= minSplitWidth {
+			half := (width - 4) / 2 // gutter of 2 chars between columns
+			vesselLines := []string{
+				v.theme.Dim.Render(strings.Repeat("─", half)),
+				v.theme.Primary.Render("VESSEL"),
+				"  " + c.Name,
+				"  primary:   " + c.Primary.EnglishName,
+				fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
+				fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+				fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
+				fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
+				fmt.Sprintf("  inclin.:   %.2f°", incDeg),
+			}
+			if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
+				vesselLines = append(vesselLines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+			}
+			propLines := []string{
+				v.theme.Dim.Render(strings.Repeat("─", half)),
+				v.theme.Primary.Render("PROPELLANT"),
+				fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
+				fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
+				fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
+				fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
+			}
+			colStyle := lipgloss.NewStyle().Width(half)
+			vesselCol := colStyle.Render(strings.Join(vesselLines, "\n"))
+			propCol := colStyle.Render(strings.Join(propLines, "\n"))
+			combined := lipgloss.JoinHorizontal(lipgloss.Top, vesselCol, "  ", propCol)
+			lines = append(lines, strings.Split(combined, "\n")...)
+		} else {
+			lines = append(lines, section("VESSEL")...)
+			lines = append(lines,
+				"  "+c.Name,
+				"  primary:   "+c.Primary.EnglishName,
+				fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
+				fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+				fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
+				fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
+				fmt.Sprintf("  inclin.:   %.2f°", incDeg),
+			)
+			if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
+				lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+			}
+			lines = append(lines, section("PROPELLANT")...)
+			lines = append(lines,
+				fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
+				fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
+				fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
+				fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
+			)
 		}
-		lines = append(lines, section("PROPELLANT")...)
-		lines = append(lines,
-			fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
-			fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
-			fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
-			fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
-		)
 		// v0.7.3+: held attitude block. Always shows so the player
 		// knows what direction the next manual burn will fire in.
 		lines = append(lines, section("ATTITUDE")...)
