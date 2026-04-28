@@ -20,10 +20,9 @@ func (h *Help) Render() string {
 		rows   [][2]string
 	}{
 		{"GLOBAL", [][2]string{
-			{"Q", "quit (confirm prompt)"},
+			{"esc", "back / close (or quit-confirm if already on home)"},
 			{"ctrl+c", "quit (immediate)"},
 			{"?", "toggle this help"},
-			{"esc", "back / close"},
 		}},
 		{"NAVIGATION", [][2]string{
 			{"→ / l", "next body"},
