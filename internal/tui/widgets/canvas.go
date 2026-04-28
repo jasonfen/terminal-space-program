@@ -213,6 +213,40 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 	}
 }
 
+// FillTexturedDiskTagged fills a disk like FillColoredDiskTagged but
+// asks `texture` for the per-pixel color instead of using a single
+// uniform value from the supplied tag. The tag's BodyID / NodeIdx /
+// IsVessel fields still apply to every set pixel so HitAt resolves
+// clicks correctly; only the Color field is overwritten per pixel.
+//
+// Used for body-texture rendering (v0.7.2.1+) — Earth's continents +
+// cloud streaks, with future bodies plugging in via the same path.
+func (c *Canvas) FillTexturedDiskTagged(center orbital.Vec3, pxRadius int, texture func(dx, dy int) lipgloss.Color, tag CellTag) {
+	if pxRadius < 1 {
+		pxRadius = 1
+	}
+	cx, cy, _ := c.Project(center)
+	r2 := pxRadius * pxRadius
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	for dy := -pxRadius; dy <= pxRadius; dy++ {
+		for dx := -pxRadius; dx <= pxRadius; dx++ {
+			if dx*dx+dy*dy > r2 {
+				continue
+			}
+			px, py := cx+dx, cy+dy
+			if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+				continue
+			}
+			c.dc.Set(px, py)
+			t := tag
+			t.Color = texture(dx, dy)
+			c.pixelTags[[2]int{px, py}] = t
+		}
+	}
+}
+
 // RingColoredOutline mirrors RingOutline but tags every set pixel
 // with the given color. Used for the system primary's hollow ring
 // and ring-system bodies (Saturn).
