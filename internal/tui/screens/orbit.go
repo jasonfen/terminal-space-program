@@ -222,6 +222,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if i == 0 {
 			v.canvas.RingColoredOutlineTagged(pos, r, bodyTag)
 			v.canvas.FillColoredDiskTagged(pos, 1, bodyTag)
+		} else if render.BodyHasTexture(b, r) {
+			// Per-pixel textured fill (Earth continents + clouds, v0.7.2.1+).
+			// The tag's BodyID / hit fields still propagate; only the
+			// per-pixel color comes from the texture function.
+			pxR := r
+			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
+				return render.EarthPixelColor(dx, dy, pxR)
+			}, bodyTag)
 		} else {
 			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
 		}
@@ -243,7 +251,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// primary — it already has the ring+dot draw style and a
 		// glyph would clash. Other bodies get ☉ / ◉ / ● / ○ based on
 		// type so they read distinctly even at small pixel radius.
-		if i != 0 {
+		// Also skip when the body has a per-pixel texture rendering
+		// (v0.7.2.1+) — the glyph would blot the centre of the
+		// continent/cloud detail it's meant to highlight.
+		if i != 0 && !render.BodyHasTexture(b, r) {
 			if g := render.GlyphFor(b); g != 0 {
 				v.canvas.SetCellOverlay(pos, g)
 			}
