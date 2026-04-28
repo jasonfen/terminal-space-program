@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -41,6 +42,11 @@ type World struct {
 	// Set by executeDueNodes when a Duration>0 node fires; cleared by
 	// integrateSpacecraft when DVRemaining hits zero or SimTime ≥ EndTime.
 	ActiveBurn *ActiveBurn
+
+	// Missions are pass/fail objectives evaluated against World state
+	// each Tick. Seeded from the embedded starter catalog at NewWorld
+	// time; Status fields progress as the player flies. v0.6.5+.
+	Missions []missions.Mission
 
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
@@ -94,6 +100,13 @@ func NewWorld() (*World, error) {
 		Clock:     NewClock(bodies.J2000, 50*time.Millisecond),
 	}
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
+
+	// v0.6.5: seed missions from the embedded starter catalog. A failure
+	// to load the catalog is non-fatal — missions are an additive
+	// feature and shouldn't block worldgen if the JSON is malformed.
+	if cat, err := missions.DefaultCatalog(); err == nil {
+		w.Missions = missions.Clone(cat.Missions)
+	}
 
 	// Spawn spacecraft in LEO. v0.1: craft is always in Sol.
 	earth := w.Systems[0].FindBody("Earth")
@@ -215,7 +228,40 @@ func (w *World) Tick() {
 			w.maybeSwitchPrimary()
 		}
 		w.maybeRecordTrail(simDelta.Seconds())
+		w.evaluateMissions()
 	}
+}
+
+// evaluateMissions steps each mission's predicate against the live
+// craft state. Terminal-state missions are evaluated too, but their
+// status is sticky in missions.Mission.Evaluate. v0.6.5+.
+func (w *World) evaluateMissions() {
+	if len(w.Missions) == 0 || w.Craft == nil {
+		return
+	}
+	ctx := missions.EvalContext{
+		PrimaryID:      w.Craft.Primary.ID,
+		PrimaryRadiusM: w.Craft.Primary.RadiusMeters(),
+		PrimaryMu:      w.Craft.Primary.GravitationalParameter(),
+		State:          w.Craft.State,
+		SimTime:        w.Clock.SimTime,
+	}
+	for i := range w.Missions {
+		w.Missions[i].Status = w.Missions[i].Evaluate(ctx)
+	}
+}
+
+// ActiveMission returns the first in-progress mission, or nil if all
+// missions are passed/failed (or none are loaded). v0.6.5+. Used by
+// the HUD to surface a single-line status — multi-mission UX is a
+// follow-up.
+func (w *World) ActiveMission() *missions.Mission {
+	for i := range w.Missions {
+		if w.Missions[i].Status == missions.InProgress {
+			return &w.Missions[i]
+		}
+	}
+	return nil
 }
 
 // nextFiniteBurnTrigger returns the BurnStart sim-time of the soonest

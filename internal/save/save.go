@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -25,12 +26,14 @@ import (
 
 // SchemaVersion is the on-disk version that Save writes today. v0.4.0
 // shipped v1; v0.6.0 bumped to v2 to add ManeuverNode.Event for the
-// burn-at-next scheduler. Load accepts any version in [1,
+// burn-at-next scheduler; v0.6.5 bumped to v3 to add Payload.Missions
+// for the mission-scaffold slice. Load accepts any version in [1,
 // SchemaVersion]; missing fields on older saves deserialise to their
-// zero values, which match the v1 semantics (Event = TriggerAbsolute,
-// no Missions). Bumps that need real migration logic should add a
-// dedicated upgrade pass keyed off File.Version.
-const SchemaVersion = 2
+// zero values, which match the legacy semantics (Event =
+// TriggerAbsolute, Missions = nil → seeded from default catalog post-
+// load). Bumps that need real migration logic should add a dedicated
+// upgrade pass keyed off File.Version.
+const SchemaVersion = 3
 
 // File is the on-disk envelope.
 type File struct {
@@ -44,15 +47,16 @@ type File struct {
 // Payload carries the live simulation state. Anything derivable from
 // the catalog (Systems, Calculator) is reconstructed on Load.
 type Payload struct {
-	SystemIdx    int         `json:"system_idx"`
-	SimTimeNano  int64       `json:"sim_time_unix_nano"`
-	BaseStepNano int64       `json:"base_step_nano"`
-	WarpIdx      int         `json:"warp_idx"`
-	Paused       bool        `json:"paused"`
-	Focus        Focus       `json:"focus"`
-	Craft        *Craft      `json:"craft,omitempty"`
-	Nodes        []Node      `json:"nodes,omitempty"`
-	ActiveBurn   *ActiveBurn `json:"active_burn,omitempty"`
+	SystemIdx    int                `json:"system_idx"`
+	SimTimeNano  int64              `json:"sim_time_unix_nano"`
+	BaseStepNano int64              `json:"base_step_nano"`
+	WarpIdx      int                `json:"warp_idx"`
+	Paused       bool               `json:"paused"`
+	Focus        Focus              `json:"focus"`
+	Craft        *Craft             `json:"craft,omitempty"`
+	Nodes        []Node             `json:"nodes,omitempty"`
+	ActiveBurn   *ActiveBurn        `json:"active_burn,omitempty"`
+	Missions     []missions.Mission `json:"missions,omitempty"`
 }
 
 // Focus mirrors sim.Focus by value.
@@ -242,6 +246,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			PrimaryID:   w.ActiveBurn.PrimaryID,
 		}
 	}
+	p.Missions = missions.Clone(w.Missions)
 	return p
 }
 
@@ -311,6 +316,16 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			EndTime:     time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
 			PrimaryID:   p.ActiveBurn.PrimaryID,
 		}
+	}
+	// v0.6.5: missions persist with status. v3+ saves carry an explicit
+	// (possibly-empty) Missions slice; v1/v2 saves wire-out as nil and
+	// get the embedded starter catalog seeded fresh so older saves
+	// gain the new feature without a manual edit. A failed catalog
+	// load is non-fatal — missions are additive.
+	if p.Missions != nil {
+		w.Missions = missions.Clone(p.Missions)
+	} else if cat, err := missions.DefaultCatalog(); err == nil {
+		w.Missions = missions.Clone(cat.Missions)
 	}
 	return w, nil
 }
