@@ -1,0 +1,312 @@
+# Close out v0.6 docs + flesh out v0.7 backlog
+
+## Context
+
+v0.6.6 shipped (commits `73b2ded`, `1139ede` on `main`) and the v0.6 cycle
+is complete: planner UX, missions, multiplayer design spike. Three loose
+ends remain on the docs side that block the v0.7 cycle from starting from
+a fixed scope:
+
+1. `README.md` has uncommitted edits refreshing the v0.5.15 → v0.6.6 ship
+   boundary (install version, quick tour, keybindings, Features section,
+   Future plans). It's the standard end-of-cycle README pass that follows
+   each minor; just sitting unstaged.
+2. `docs/state-of-game.md` was refreshed in `73b2ded`, but §5 "Open
+   questions" is still framed from the **v0.5 ship boundary** ("We're now
+   at the v0.5 ship boundary, with v0.6 ... the next cycle"). The
+   carry-overs from `docs/v0.6-plan.md` §"Open questions for the next
+   cycle" haven't been folded in.
+3. There is no `docs/v0.7-plan.md` analog to the v0.6 plan. v0.7 is a
+   one-paragraph speculative section in the README ("custom systems +
+   theming") and a single line in §3's version-frame table. v0.6 had a
+   ~430-line plan with per-slice code surface, scoping questions, and a
+   sequencing graph; v0.7 should have the same rigor before
+   implementation starts.
+
+Outcome: the v0.6.6 ship-boundary delta is closed, v0.7 has a concrete
+slice breakdown the user can scope-review in one read, and §2 backlog +
+§3 version frame are aligned on what v0.7 claims vs what defers to v0.8+.
+
+This is a **docs-only** change. No Go code is modified.
+
+## Approach
+
+```
+README.md (commit staged v0.6.6 refresh)
+       │
+       ▼
+state-of-game.md §5 (rewrite Open Questions for v0.6→v0.7 boundary)
+       │                          │
+       │                          ▼
+       │           v0.7-plan.md (new file, modeled on v0.6-plan.md)
+       │                          │
+       └──────────┬───────────────┘
+                  ▼
+state-of-game.md §3 (version-frame table: v0.7.0–v0.7.5 rows)
+state-of-game.md §2 (backlog: mark v0.7-claimed items, leave v0.8+ tail)
+```
+
+### Step 1 — commit the staged README refresh
+
+`git diff README.md` already shows the full v0.6.6 refresh: install bumped
+to v0.6.6, S-IVB-1 in 500 km LEO in the ASCII mock, quick tour rewritten
+around `H` Hohmann auto-plant + `m` planner with Δv-only input, mouse
+keybindings table added, Features (v0.6) section replacing the per-version
+v0.1–v0.5.15 dump, Future plans section pointing to v0.7 / v0.8+ + small
+polish items.
+
+Append one sentence to **Future plans** linking the new
+`docs/v0.7-plan.md` ("Slice breakdown: `docs/v0.7-plan.md`.") so the
+README stays the entry point.
+
+Commit message style follows the existing pattern in `git log`:
+`docs: refresh README for v0.6.6 ship boundary`.
+
+### Step 2 — rewrite `state-of-game.md` §5 (Open questions)
+
+Drop the "We're now at the v0.5 ship boundary" framing. Reframe the
+section as **v0.6 → v0.7 boundary**, carrying forward:
+
+- **From `docs/v0.6-plan.md` §"Open questions for the next cycle":**
+  1. `Body` schema additions for v0.7's external loader (color field
+     promotion from `internal/render/palette.go`; whether `Rings` /
+     `Glyph` overrides ride per-body JSON or stay hardcoded in
+     `render.BodyRings`/`render.GlyphFor`).
+  2. SOI-exit HUD surfacing from v0.6.3's moon-escape arrival placeholder
+     (the parent-frame zero-Δv marker today only shows up as a
+     "next-frame" trigger; users have asked whether the HUD should call
+     out the SOI transition explicitly).
+  3. Whether v0.6.2's `IterateForTarget` deserves a caller-facing toggle
+     in the `m` form ("plan with finite-burn iteration") or stays an
+     internal call from auto-plant only.
+- **From `docs/integration-design.md` §10:**
+  4. Predictor adaptive sampling at high warp — the fixed 96-sample
+     horizon collapses to a smear at 10000× warp on LEO orbits.
+- **Newly surfaced for v0.7:**
+  5. Theme override granularity — whether per-body color overrides
+     belong in the same file as UI-tier overrides, or in a sibling
+     `bodies.json` overlay that can also tweak orbital parameters.
+  6. Multi-craft selector timing vs multiplayer — the v0.6.6 MP design
+     doc flagged this as a sequencing question (open question #1
+     there). Resolve before committing to a multi-craft v0.7 slice.
+
+Resolved-this-cycle items move into §4 "Resolved" with their answer
+(template matches v0.5 → v0.6 entries already there). Mission persistence
+shape, mouse scope, advanced trigger picker, etc. are all in §4 already
+from v0.5; add a v0.6 cycle subsection.
+
+### Step 3 — write `docs/v0.7-plan.md`
+
+Mirror the structure of `docs/v0.6-plan.md`: theme statement, status
+table, scope corrections vs `state-of-game.md`, resolved scoping
+questions, per-slice (code surface + estimate), sequencing graph,
+deferred-to-v0.8+ list, open questions for the next cycle.
+
+**Theme: modding + manual flight + planner polish.** Picks up the
+candidates the README already lists (custom systems + theming), folds in
+a **manual flight controls** slice (throttle + hold-to-burn + attitude
+hold — the v0.6 cycle had only planted-node burns, no real-time stick),
+and rounds out with two small polish items deferred from v0.6
+(inclination-change planner, explicit retrograde Lambert flag).
+Multiplayer implementation explicitly excluded — it's a v0.8+ candidate
+per the v0.6.6 design spike.
+
+**Slices:**
+
+- **v0.7.0 — external system catalog overlay.** Add a loader that reads
+  `$XDG_CONFIG_HOME/terminal-space-program/systems/*.json` and merges
+  them with the embedded set in `bodies.LoadAll`
+  (`internal/bodies/systems.go:67`). Conflict policy: user files win on
+  `system.Name` match, append otherwise. The existing
+  `body_catalog_hash` field in `internal/save/save.go:42` already guards
+  against universe drift, so save-rejection on first load with a
+  user-supplied system is the documented behavior. ~150 LOC + tests.
+
+- **v0.7.1 — palette migration to per-body JSON.** Add an optional
+  `Color string` field to `bodies.CelestialBody`
+  (`internal/bodies/body.go:62`); fill in colors on every embedded body
+  in `internal/bodies/systems/*.json` from the existing `bodyPalette`
+  table at `internal/render/palette.go:62`. Rewire
+  `render.ColorFor(b)` (`palette.go:98`) to prefer `b.Color` when set,
+  fall through to the existing table for backward compat (drop the
+  table next minor once v0.7.0 saves are in the wild). Catalog hash
+  changes — saves taken on the v0.6.6 schema reject on first load with
+  the catalog mismatch error path that already exists. ~200 LOC + JSON
+  edits.
+
+- **v0.7.2 — user theme overrides.** Read
+  `$XDG_CONFIG_HOME/terminal-space-program/theme.json` at startup. Schema:
+  `{"ui": {"alert": "#hex", "warning": "#hex", ...}, "bodies": {"earth":
+  "#hex", ...}}`. Both blocks optional. UI-tier values overlay the
+  constants at `palette.go:22-30`; body overrides win over the
+  per-body `Color` field landed in v0.7.1. ~100 LOC + tests.
+
+- **v0.7.3 — manual flight controls.** Today the only way to fire the
+  engine is via a planted `ManeuverNode`. v0.7.3 adds a real-time stick
+  layer on top:
+
+  - **Throttle.** `Spacecraft.Throttle float64` (default 1.0) on
+    `internal/spacecraft/spacecraft.go`; effective thrust = `Thrust *
+    Throttle` in the RK4 burn path (`internal/physics/rk4.go`) and
+    `BurnTimeForDV` (`internal/spacecraft/thrust.go`). New keys: `z`
+    full / `x` cut / `Shift+z`/`Shift+x` ±10 % step. HUD propellant
+    block adds a one-line throttle readout.
+  - **Hold-to-burn.** New `ManualBurn` field on `World` parallel to
+    `ActiveBurn`: while a hold key is pressed, the integrator routes
+    through the same RK4 thrust path used by planted nodes, debiting
+    fuel via the same `dm/dt = -Thrust·Throttle/(Isp·g₀)` rule. Release
+    ends the burn cleanly (mirrors `ActiveBurn.EndTime` discipline).
+    Warp clamps to ≤10× while a manual burn is active — same guard as
+    v0.1's planted-burn clamp; reuse the existing helper.
+  - **Attitude hold.** Six dedicated keys (`w`/`s` prograde/retrograde,
+    `a`/`d` normal±, `q`/`e` radial±) select the burn-mode direction
+    that hold-to-burn fires along. The mode-mapping reuses the existing
+    `BurnMode` enum + per-sub-step direction recompute in
+    `internal/physics/rk4.go` so prograde-hold tracks the rotating
+    velocity frame the same way planted prograde burns already do.
+    Persists as a `World.AttitudeMode spacecraft.BurnMode` so the HUD
+    can show the current hold direction.
+  - **Maneuver-form throttle field.** The `m` form gains a fourth
+    cycled field (mode / fire-at / Δv / throttle) so planted nodes can
+    carry a per-node throttle override; save schema bumps v3 → v4 with
+    `Node.Throttle float64,omitempty` (zero unmarshals as 1.0). v3
+    saves load with implicit throttle = 1.0.
+
+  Why this slice. It's the smallest piece of "control the ship like a
+  game" that's missing — node-driven burns are a planning surface, not
+  a flight surface. Keying off the existing `BurnMode` + RK4 thrust
+  paths means the integrator never sees something new; only the *what
+  starts/stops a burn* changes. ~350 LOC + tests.
+
+- **v0.7.4 — inclination-change planner.** New burn mode that fires
+  perpendicular to the current orbit plane at the line of nodes. Folds
+  into the existing `BurnMode` enum in
+  `internal/spacecraft/spacecraft.go` as `ModeNormal` already exists
+  (and `Antinormal`); the gap is a planner that picks AN/DN
+  automatically and computes combined-rotation Δv. Reuses
+  `orbital.TimeToNodeCrossing` from `internal/orbital/events.go`
+  (already shipped in v0.6.0 for the burn-at-next scheduler). ~150 LOC
+  + tests.
+
+- **v0.7.5 — explicit retrograde flag for `LambertSolve`.** Today
+  direction is driven by the bracket starting point in
+  `internal/planner/lambert.go`. Add a `retrograde bool` parameter (or
+  a sibling `LambertSolveRetrograde`); plumb through
+  `planner.PorkchopGrid` so multi-rev porkchop unblock in v0.8+ has
+  both branches. Current single-rev callers default to prograde. ~80
+  LOC + tests.
+
+**Deferred to v0.8+.** Race-detector CI (already in §2 backlog,
+unchanged), multiplayer implementation, multi-rev porkchop branches,
+N-body perturbations, multi-system spacecraft, multi-craft control
+selector, mission editor / scripting, optional simple atmospheric drag,
+drag-to-edit on planted nodes, body-detail rendering (Earth terminator,
+Mars caps, Jupiter banding, Uranus/Neptune ring data), active-burn
+flame animation, HUD typography polish (residual), predictor adaptive
+sampling at high warp.
+
+**Sequencing graph:**
+
+```
+v0.7.0 (overlay loader) ──> v0.7.1 (palette migration) ──> v0.7.2 (theme overrides)
+
+v0.7.3 (manual flight controls)   independent — any order
+v0.7.4 (inclination planner)      independent — any order
+v0.7.5 (retrograde Lambert flag)  independent — any order
+```
+
+v0.7.0 / v0.7.1 / v0.7.2 chain because v0.7.1's per-body `Color` field
+is the schema addition v0.7.0 locks in, and v0.7.2's body overrides
+overlay against it. v0.7.3 / v0.7.4 / v0.7.5 don't depend on the
+modding chain or each other; release order is the user's call.
+Suggested cadence: ship v0.7.3 (manual flight) early since it changes
+the moment-to-moment feel of the game, then the modding chain, then
+the remaining polish.
+
+**Open questions for v0.8+:** carry the §5 list above forward minus
+anything v0.7 resolves; add new questions surfaced during v0.7
+implementation (likely around throttle's interaction with `BurnTimeForDV`
+clamps and theme-file hot-reload).
+
+### Step 4 — update `state-of-game.md` §3 (Version frame)
+
+Replace the single-row v0.7 entry with six rows (`v0.7.0` … `v0.7.5`)
+matching the slice breakdown in step 3. Use the same column shape as the
+v0.6.x rows (Version | Theme | Headline features). Status column stays
+empty until shipped — match the pattern of v0.4-cycle entries before
+they shipped.
+
+### Step 5 — update `state-of-game.md` §2 (Backlog)
+
+Move v0.7-claimed items out of "Larger queued features" and "Polish /
+quality":
+
+- "Custom systems via config file" → claimed by v0.7.0.
+- "Inclination-change planner" → claimed by v0.7.4.
+- "Throttle control" → claimed by v0.7.3.
+- "Explicit retrograde flag for `LambertSolve`" → claimed by v0.7.5.
+
+Mark each with `(claimed by v0.7.x)` rather than deleting — keeps the
+prose context for why it was queued and links it to its slice.
+
+Items that **stay** in §2 unclaimed: race-detector CI, multi-craft
+selector, multi-system spacecraft, N-body perturbations, mission
+editor / scripting, optional drag, maneuver node drag-to-edit, HUD
+typography polish, body details, active-burn flame.
+
+## Critical files
+
+- `/home/user/repo/README.md` — already-staged v0.6.6 refresh; add one
+  sentence pointing to `docs/v0.7-plan.md` in Future plans.
+- `/home/user/repo/docs/state-of-game.md` — §5 rewrite, §3 version-frame
+  rows, §2 backlog tagging.
+- `/home/user/repo/docs/v0.7-plan.md` — new file.
+
+## Reused / referenced functions and utilities
+
+- `bodies.LoadAll` (`internal/bodies/systems.go:67`) — extension point
+  for v0.7.0 overlay loader.
+- `bodies.CelestialBody` (`internal/bodies/body.go:20-62`) — schema
+  the v0.7.1 `Color` field lands on.
+- `render.ColorFor` (`internal/render/palette.go:98`) — rewires to
+  prefer `b.Color`.
+- `render.bodyPalette` (`internal/render/palette.go:62`) — source of
+  truth being migrated.
+- `bodies.CatalogHash` (referenced from `internal/save/save.go:135`) —
+  already detects catalog drift; no extra work needed for v0.7.0
+  overlays.
+- `orbital.TimeToNodeCrossing` (`internal/orbital/events.go`) — reused
+  by v0.7.4 inclination planner.
+- `spacecraft.BurnTimeForDV` (`internal/spacecraft/thrust.go`) — modified
+  by v0.7.3 to factor throttle into the rocket-equation form.
+- `spacecraft.BurnMode` (`internal/spacecraft/spacecraft.go`) — reused
+  by v0.7.3 attitude-hold so manual-flight burns share the per-sub-step
+  direction-recompute behavior of planted burns in
+  `internal/physics/rk4.go`.
+- `sim.ActiveBurn` (`internal/sim/maneuver.go`) — structural template
+  for v0.7.3's parallel `ManualBurn` state on `World`.
+- `sim.tickWarpClamp` (or equivalent in `internal/sim/tick.go`) — reused
+  by v0.7.3 to apply the ≤10× clamp while a manual burn is held, the
+  same way planted burns already clamp.
+- `planner.LambertSolve` (`internal/planner/lambert.go`) — extended in
+  v0.7.5.
+- `docs/v0.6-plan.md` — structural template for `docs/v0.7-plan.md`.
+
+## Verification
+
+This is a docs-only PR. Code remains untouched, so:
+
+- `go build ./...` and `go test ./...` should pass unchanged (run them
+  anyway as a smoke test that the docs commits didn't accidentally touch
+  source files).
+- Render `README.md`, `docs/state-of-game.md`, and `docs/v0.7-plan.md`
+  on GitHub (or via `glow` / `mdcat` locally) to confirm the new
+  version-frame table rows align, the sequencing graph renders, and
+  internal links (`docs/v0.7-plan.md` from README, etc.) resolve.
+- Spot-check that every item moved from §2 backlog is paired with its
+  v0.7.x slice in §3 and `docs/v0.7-plan.md` (no orphans).
+- `git log --oneline -5` after commits should show the v0.6.6 README
+  refresh, the state-of-game §5/§3/§2 refresh, and the new v0.7 plan as
+  three separate commits — matches the per-cycle commit pattern in
+  history (`docs: v0.6 implementation plan` from `92b3bad` is the prior
+  analog).
