@@ -21,6 +21,7 @@ const (
 	screenManeuver
 	screenHelp
 	screenPorkchop
+	screenMenu
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -41,19 +42,13 @@ type App struct {
 	help      *screens.Help
 	maneuver  *screens.Maneuver
 	porkchop  *screens.Porkchop
+	menu      *screens.Menu
 
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
 	// scheduled tea.Cmd.
 	statusMsg     string
 	statusExpires time.Time
-
-	// confirmingQuit drives the v0.6.3 quit-confirm overlay. When
-	// true, every key except y/Y (confirm) and n/N/esc/q (cancel) is
-	// dropped so accidental keystrokes can't fall through to the
-	// active screen. ctrl+c bypasses this entirely — standard
-	// interrupt convention beats the dialog.
-	confirmingQuit bool
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -82,6 +77,7 @@ func New() (*App, error) {
 		help:      screens.NewHelp(sth),
 		maneuver:  screens.NewManeuver(sth),
 		porkchop:  screens.NewPorkchop(sth),
+		menu:      screens.NewMenu(sth),
 	}, nil
 }
 
@@ -219,23 +215,41 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
-		// ctrl+c bypasses the quit-confirm dialog (standard interrupt
+		// ctrl+c bypasses everything else (standard interrupt
 		// convention). Honored from any screen.
 		if key.Matches(m, a.keys.Quit) {
 			a.autosave()
 			return a, tea.Quit
 		}
-		// While confirming a q-quit, intercept everything else: y/Y →
-		// commit, n/N/esc/q → cancel, anything else dropped so a
-		// stray keystroke can't accidentally exit the dialog by
-		// reaching the active screen below.
-		if a.confirmingQuit {
-			switch m.String() {
-			case "y", "Y":
+		// v0.7.3.3+: Esc on the orbit (home) view opens the splash
+		// menu. The menu owns the save / load / quit dispatch from
+		// then on; every other key is dropped so accidental presses
+		// can't fall through to the orbit screen.
+		if a.active == screenMenu {
+			switch a.menu.HandleKey(m.String()) {
+			case screens.MenuActionSave:
+				if err := a.doSave(); err != nil {
+					a.statusMsg = fmt.Sprintf("save failed: %v", err)
+				} else {
+					a.statusMsg = "saved"
+				}
+				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.active = screenOrbit
+				return a, nil
+			case screens.MenuActionLoad:
+				if err := a.doLoad(); err != nil {
+					a.statusMsg = fmt.Sprintf("load failed: %v", err)
+				} else {
+					a.statusMsg = "loaded"
+				}
+				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.active = screenOrbit
+				return a, nil
+			case screens.MenuActionQuit:
 				a.autosave()
 				return a, tea.Quit
-			case "n", "N", "esc", "q":
-				a.confirmingQuit = false
+			case screens.MenuActionCancel:
+				a.active = screenOrbit
 				return a, nil
 			}
 			return a, nil
@@ -276,12 +290,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Back):
-			// v0.7.3.1: Esc on the home (orbit) view opens the
-			// quit-confirm prompt — the only path out short of
-			// Ctrl+C. From any other screen Esc returns to orbit
-			// first, so a second Esc fires the prompt.
+			// v0.7.3.3: Esc on the home (orbit) view opens the
+			// splash menu (save / load / quit). Replaces the
+			// v0.7.3.1 inline "Quit and save? [y/N]" footer prompt
+			// with a centered modal. From any other screen Esc
+			// returns to orbit first, so a second Esc opens the
+			// menu.
 			if a.active == screenOrbit {
-				a.confirmingQuit = true
+				a.active = screenMenu
 				return a, nil
 			}
 			a.active = screenOrbit
@@ -510,14 +526,13 @@ func (a *App) View() string {
 		base = a.maneuver.Render(a.world, a.width, a.height)
 	case screenPorkchop:
 		base = a.porkchop.Render(a.world, a.width, a.height)
+	case screenMenu:
+		base = a.menu.Render()
 	default:
 		base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}
 	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
 		base += "\n" + a.theme.Footer.Render(a.statusMsg)
-	}
-	if a.confirmingQuit {
-		base += "\n" + a.theme.Warning.Render("Quit and save? [y/N]")
 	}
 	return base
 }
