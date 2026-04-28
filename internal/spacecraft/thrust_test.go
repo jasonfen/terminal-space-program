@@ -111,6 +111,50 @@ func TestMassFlowRateZeroWhenNoThrust(t *testing.T) {
 	}
 }
 
+// TestBurnTimeForDVRocketEquation: at S-IVB-1 specs (51000 kg total,
+// 1023 kN thrust, Isp 421 s) a 100 m/s Δv requires
+//
+//	t = (m0/ṁ) · (1 - exp(-Δv/(Isp·g0)))
+//	  = (51000 / 247.84) · (1 - exp(-100/(421·9.80665)))
+//	  ≈ 4.92 s
+//
+// Validates the rocket-equation form vs a constant-mass approximation
+// (which would give 51000·100/1023000 ≈ 4.99 s — slightly higher).
+func TestBurnTimeForDVRocketEquation(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	got := sc.BurnTimeForDV(100).Seconds()
+	mDot := 1023000.0 / (421.0 * 9.80665)
+	want := (51000.0 / mDot) * (1 - math.Exp(-100.0/(421.0*9.80665)))
+	if math.Abs(got-want) > 1e-3 {
+		t.Errorf("BurnTimeForDV(100) = %.3f s, want %.3f s", got, want)
+	}
+}
+
+// TestBurnTimeForDVZeroDV: zero Δv input must yield zero duration so
+// the form's enter-on-empty / planner zero-Δv paths fall through to
+// the impulsive branch.
+func TestBurnTimeForDVZeroDV(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	if got := sc.BurnTimeForDV(0); got != 0 {
+		t.Errorf("BurnTimeForDV(0) = %v, want 0", got)
+	}
+}
+
+// TestBurnTimeForDVZeroThrust: a thrust-less craft must return 0 so
+// the App's switch falls into the impulsive branch (legacy path
+// preserved through the API even though the form no longer surfaces
+// it).
+func TestBurnTimeForDVZeroThrust(t *testing.T) {
+	sc := &Spacecraft{Thrust: 0, Isp: 421, Fuel: 100, DryMass: 1000}
+	if got := sc.BurnTimeForDV(50); got != 0 {
+		t.Errorf("BurnTimeForDV with zero thrust = %v, want 0", got)
+	}
+}
+
 // TestThrustAccelFnAddsThrustOnTopOfGravity: at LEO with prograde mode,
 // the thrust component should equal Thrust/mass along the velocity unit
 // vector. Gravity component should match physics.Accel.

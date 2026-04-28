@@ -26,18 +26,21 @@ import (
 //
 // Per plan §C20: live preview = shadow trajectory on a miniature canvas.
 // v0.2.1: three fields — mode / Δv / duration. v0.6.0: four fields —
-// mode / fire-at / Δv / duration. Duration zero = impulsive (legacy
-// v0.1 path); duration > 0 = finite burn. Fire-at = TriggerAbsolute
-// fires at T+5min (legacy quick-plant default); event-relative modes
-// resolve to the next periapsis/apoapsis/AN/DN at plant time.
+// mode / fire-at / Δv / duration. v0.6.5: three fields again — mode /
+// fire-at / Δv. Duration is no longer an independent input; the planner
+// derives it from Δv via the rocket equation at commit time, since at
+// fixed thrust + mass the two are the same dial — letting the player
+// set both was over-determined and the only effect of mismatch was a
+// truncated burn (planned Δv undelivered if duration was too short).
+// KSP-style: specify Δv, the engine takes as long as it takes.
 type Maneuver struct {
-	theme    Theme
-	canvas   *widgets.Canvas
-	dvInput  textinput.Model
-	durInput textinput.Model
+	theme   Theme
+	canvas  *widgets.Canvas
+	dvInput textinput.Model
+
 	modeIdx   int
 	fireAtIdx int
-	focus     int // 0=mode, 1=fireAt, 2=dv, 3=duration
+	focus     int // 0=mode, 1=fireAt, 2=dv
 
 	// editingIdx and loadedTriggerTime carry the v0.6.4 click-to-edit
 	// state. Default editingIdx = -1 (creating a new node). LoadNode
@@ -51,8 +54,7 @@ type Maneuver struct {
 }
 
 // BurnExecutedMsg is emitted when the user hits Enter. App consumes it.
-// Duration zero = impulsive (legacy path); >0 = finite burn. Event
-// (v0.6.0+) selects the trigger model — TriggerAbsolute uses the
+// Event (v0.6.0+) selects the trigger model — TriggerAbsolute uses the
 // app-side default delay; event-relative modes leave TriggerTime zero
 // and let the World's lazy-freeze resolver compute it from the live
 // orbit on the first Tick after plant.
@@ -63,10 +65,18 @@ type Maneuver struct {
 // flow preserves the original schedule. EditingIdx ≥ 0 tells the
 // app to remove the original Nodes[idx] before planting, so the
 // edit reads as "replace in place" rather than "duplicate."
+//
+// v0.6.5: Duration dropped from this message — the App computes it
+// on receipt via spacecraft.BurnTimeForDV(DV) using the live craft's
+// thrust + Isp + mass. Letting the player set both Δv AND duration
+// was over-determined: at fixed thrust + mass the two are the same
+// dial, and the only effect of mismatch was a truncated burn
+// (planned Δv undelivered if the duration was too short). Zero-thrust
+// craft return Duration = 0 from BurnTimeForDV, preserving the
+// impulsive code path even though the form no longer exposes it.
 type BurnExecutedMsg struct {
 	Mode        spacecraft.BurnMode
 	DV          float64
-	Duration    time.Duration
 	Event       sim.TriggerEvent
 	TriggerTime time.Time
 	EditingIdx  int // -1 = creating a new node; ≥ 0 = replacing world.Nodes[idx]
@@ -79,22 +89,10 @@ func NewManeuver(th Theme) *Maneuver {
 	dv.Width = 10
 	dv.SetValue("100")
 
-	dur := textinput.New()
-	dur.Placeholder = "0"
-	dur.CharLimit = 6
-	dur.Width = 10
-	// v0.6.1: default to a 10 s finite burn rather than impulsive.
-	// Impulsive Δv is unphysical for a chemical engine and the
-	// PROJECTED ORBIT readout reflects a more realistic plan when
-	// the player picks a duration up front. They can still set 0 to
-	// fall back to the legacy impulsive path.
-	dur.SetValue("10")
-
 	m := &Maneuver{
 		theme:      th,
 		canvas:     widgets.NewCanvas(60, 20),
 		dvInput:    dv,
-		durInput:   dur,
 		editingIdx: -1,
 	}
 	m.applyFocus()
@@ -126,7 +124,6 @@ func (m *Maneuver) LoadStaged(triggerTime time.Time) {
 	m.modeIdx = 0   // prograde — the most common new-burn intent
 	m.fireAtIdx = 0 // TriggerAbsolute — the staged TriggerTime IS the absolute schedule
 	m.dvInput.SetValue("100")
-	m.durInput.SetValue("10")
 	m.focus = 2 // Δv input — player typically wants to set magnitude first
 	m.applyFocus()
 }
@@ -156,7 +153,6 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 		}
 	}
 	m.dvInput.SetValue(fmt.Sprintf("%.0f", n.DV))
-	m.durInput.SetValue(fmt.Sprintf("%.1f", n.Duration.Seconds()))
 	m.focus = 0
 	m.editingIdx = idx
 	m.loadedTriggerTime = n.TriggerTime
@@ -164,15 +160,13 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 }
 
 // applyFocus pushes focus state down to the bubbletea text inputs.
-// Focus 0 = mode (cycle), 1 = fire-at (cycle), 2 = Δv, 3 = duration.
+// Focus 0 = mode (cycle), 1 = fire-at (cycle), 2 = Δv. v0.6.5 dropped
+// the duration field; the planner now derives burn time from Δv at
+// commit, so the form has one fewer focus stop.
 func (m *Maneuver) applyFocus() {
 	m.dvInput.Blur()
-	m.durInput.Blur()
-	switch m.focus {
-	case 2:
+	if m.focus == 2 {
 		m.dvInput.Focus()
-	case 3:
-		m.durInput.Focus()
 	}
 }
 
@@ -205,14 +199,14 @@ func (m *Maneuver) Resize(cols, rows int) {
 // means the app should exit the maneuver screen (commit or cancel).
 //
 // Key bindings:
-//   tab / shift+tab        — cycle focus across mode / fire-at / Δv / duration fields
+//   tab / shift+tab        — cycle focus across mode / fire-at / Δv fields
 //   ←/→ (mode focused)     — cycle direction modes
 //   ←/→ (fire-at focused)  — cycle trigger events (Absolute / NextPeri / NextApo / NextAN / NextDN)
-//   enter                  — commit burn → emits BurnExecutedMsg
+//   enter                  — commit burn → emits BurnExecutedMsg with rocket-equation duration
 //   esc                    — cancel → plain exit (app handles)
 //   digits/backspace       — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
-	const focusFields = 4
+	const focusFields = 3
 	switch msg.String() {
 	case "tab":
 		m.focus = (m.focus + 1) % focusFields
@@ -241,30 +235,42 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 	case "enter":
-		dv := m.parsedDV()
-		if dv == 0 {
-			return nil, false // ignore — user needs to type a number
+		// dv drives both the BurnExecutedMsg's Δv field AND its derived
+		// Duration via the rocket equation. Zero-thrust craft return
+		// Duration = 0 from BurnTimeForDV, falling back to the legacy
+		// impulsive path — preserving the impulsive capability through
+		// the API even though the form no longer exposes it directly.
+		cmd := m.commitCmd()
+		if cmd == nil {
+			return nil, false // zero Δv — ignore, user needs to type a number
 		}
-		dur := m.parsedDuration()
-		event := sim.AllTriggerEvents[m.fireAtIdx]
-		msg := BurnExecutedMsg{
-			Mode:        spacecraft.AllBurnModes[m.modeIdx],
-			DV:          dv,
-			Duration:    dur,
-			Event:       event,
-			TriggerTime: m.loadedTriggerTime,
-			EditingIdx:  m.editingIdx,
-		}
-		return func() tea.Msg { return msg }, true
+		return cmd, true
 	}
 	var cmd tea.Cmd
-	switch m.focus {
-	case 2:
+	if m.focus == 2 {
 		m.dvInput, cmd = m.dvInput.Update(msg)
-	case 3:
-		m.durInput, cmd = m.durInput.Update(msg)
 	}
 	return cmd, false
+}
+
+// commitCmd builds a BurnExecutedMsg from the current form values.
+// Caller (HandleKey on Enter) returns nil cmd to ignore commits with
+// zero Δv. Split out so the burn-time derivation lives in one place
+// and the form panel can preview the same number.
+func (m *Maneuver) commitCmd() tea.Cmd {
+	dv := m.parsedDV()
+	if dv == 0 {
+		return nil
+	}
+	event := sim.AllTriggerEvents[m.fireAtIdx]
+	msg := BurnExecutedMsg{
+		Mode:        spacecraft.AllBurnModes[m.modeIdx],
+		DV:          dv,
+		Event:       event,
+		TriggerTime: m.loadedTriggerTime,
+		EditingIdx:  m.editingIdx,
+	}
+	return func() tea.Msg { return msg }
 }
 
 func (m *Maneuver) parsedDV() float64 {
@@ -278,15 +284,6 @@ func (m *Maneuver) parsedDV() float64 {
 	return dv
 }
 
-// parsedDuration returns the duration field as a time.Duration. The field
-// is in seconds; zero means impulsive.
-func (m *Maneuver) parsedDuration() time.Duration {
-	var secs float64
-	if _, err := fmt.Sscanf(m.durInput.Value(), "%f", &secs); err != nil || secs <= 0 {
-		return 0
-	}
-	return time.Duration(secs * float64(time.Second))
-}
 
 // Render composes the preview canvas + form panel.
 func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
@@ -331,7 +328,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	// craft is nowhere near. Falls back to current-state preview if
 	// the event is unreachable (hyperbolic / equatorial AN/DN).
 	dv := m.parsedDV()
-	dur := m.parsedDuration()
+	dur := c.BurnTimeForDV(dv)
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	event := sim.AllTriggerEvents[m.fireAtIdx]
 	shadowState, shadowPrimary, ok := w.PreviewBurnState(mode, dv, dur, event)
@@ -389,7 +386,9 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	c := w.Craft
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	budget := c.RemainingDeltaV()
-	dur := m.parsedDuration()
+	// v0.6.5: duration is derived from Δv at render time (and again at
+	// commit), so the form preview matches what the App will plant.
+	dur := c.BurnTimeForDV(dv)
 
 	warn := ""
 	if dv > budget {
@@ -427,18 +426,14 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		fireAtLabel = m.theme.Dim.Render(fireAtLabel)
 	}
 
+	// v0.6.5: burn description shows the rocket-equation-derived
+	// duration. Zero-thrust craft fall back to "impulsive" since
+	// BurnTimeForDV returns 0 in that case; otherwise we surface
+	// the engine-on time the App will plant.
 	burnDescr := "impulsive"
 	if dur > 0 {
-		// At constant thrust the analytical estimate is dv = thrust/mass × dur.
-		// Show what the engine actually *can* deliver in the requested duration.
-		mass := c.TotalMass()
-		var estDv float64
-		if mass > 0 {
-			estDv = c.Thrust / mass * dur.Seconds()
-		}
-		actual := math.Min(dv, estDv)
-		burnDescr = fmt.Sprintf("finite burn (%.0f N × %.1fs → est %.1f m/s, target %.0f m/s)",
-			c.Thrust, dur.Seconds(), actual, dv)
+		burnDescr = fmt.Sprintf("finite burn — %.1fs at %.0f kN, Isp %.0f s",
+			dur.Seconds(), c.Thrust/1000, c.Isp)
 	}
 
 	// v0.6.4 click-to-edit: surface the editing target inline in
@@ -459,7 +454,6 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		"  mode:     " + modeLabel,
 		"  fire at:  " + fireAtLabel,
 		"  Δv:       " + m.dvInput.View() + " m/s" + warn,
-		"  duration: " + m.durInput.View() + " s",
 		"  → " + burnDescr,
 		"",
 		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),

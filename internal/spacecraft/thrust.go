@@ -2,6 +2,7 @@ package spacecraft
 
 import (
 	"math"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
@@ -131,6 +132,39 @@ func (s *Spacecraft) MassFlowRate() float64 {
 		return 0
 	}
 	return s.Thrust / (s.Isp * g0)
+}
+
+// BurnTimeForDV returns the engine-on duration required to deliver dv
+// at the craft's current mass + thrust + Isp, using the rocket-equation
+// form t = (m0/ṁ)·(1 − exp(−Δv/(Isp·g0))). Accounts for the mass loss
+// during the burn — at high Δv-fraction of the budget, a constant-mass
+// approximation underestimates the time by the integral of mass /
+// thrust, which matters for low-TWR vessels burning a large share of
+// their fuel.
+//
+// Returns 0 when no finite burn is possible: zero or non-positive Δv,
+// no thrust, no Isp, or Δv exceeding what the available fuel can
+// support (caller's exceeds-budget warning fires; the integrator caps
+// delivery at fuel exhaustion regardless of the duration the form
+// committed). v0.6.5+: replaces the prior UI-set duration field; the
+// planner now derives this so the player only specifies Δv.
+func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
+	if dv <= 0 || s.Isp <= 0 || s.Thrust <= 0 {
+		return 0
+	}
+	mDot := s.MassFlowRate()
+	if mDot <= 0 {
+		return 0
+	}
+	mass0 := s.TotalMass()
+	if mass0 <= 0 {
+		return 0
+	}
+	secs := (mass0 / mDot) * (1 - math.Exp(-dv/(s.Isp*g0)))
+	if secs <= 0 || math.IsNaN(secs) || math.IsInf(secs, 0) {
+		return 0
+	}
+	return time.Duration(secs * float64(time.Second))
 }
 
 // ThrustAccelFn returns an RK4-compatible accel closure that adds engine
