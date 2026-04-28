@@ -235,7 +235,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 		{"l", "[Load Game]", &m.loadBtn},
 		{"q", "[Quit]", &m.quitBtn},
 	}
-	for _, r := range rows {
+	for i, r := range rows {
 		const indent = "  "
 		colStart := len([]rune(indent))
 		colEnd := colStart + len([]rune(r.label))
@@ -247,6 +247,12 @@ func (m *Menu) renderList(rowOffset int) []string {
 		}
 		shortcut := m.theme.Dim.Render("  (" + r.key + ")")
 		lines = append(lines, indent+m.theme.Primary.Render(r.label)+shortcut)
+		// Blank row between buttons so they're easier to click
+		// individually — the v0.7.4 list was tight enough that
+		// adjacent rows blurred under thumbs / trackpads.
+		if i < len(rows)-1 {
+			lines = append(lines, "")
+		}
 	}
 
 	lines = append(lines, "")
