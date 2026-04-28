@@ -30,18 +30,32 @@ type Keymap struct {
 	Load          key.Binding
 	RefinePlan    key.Binding
 	CycleView     key.Binding
+
+	// v0.7.3+ manual flight controls.
+	ThrottleFull       key.Binding // engine to 100 %
+	ThrottleCut        key.Binding // engine off (also stops a manual burn)
+	ThrottleUp         key.Binding // +10 % step
+	ThrottleDown       key.Binding // -10 % step
+	AttitudePrograde   key.Binding
+	AttitudeRetrograde key.Binding
+	AttitudeNormalPlus  key.Binding
+	AttitudeNormalMinus key.Binding
+	AttitudeRadialOut  key.Binding
+	AttitudeRadialIn   key.Binding
 }
 
 func DefaultKeymap() Keymap {
 	return Keymap{
 		Quit:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit (immediate)")),
-		QuitAsk:    key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit (confirm)")),
+		// v0.7.3: QuitAsk moved q → Q to free `q` for AttitudeRadialOut.
+		QuitAsk:    key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "quit (confirm)")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		BodyInfo:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "body info")),
 		Maneuver:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "maneuver")),
 		NextBody:   key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next body")),
 		PrevBody:   key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev body")),
-		NextSystem: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "next system")),
+		// v0.7.3: NextSystem moved s → tab to free `s` for AttitudeRetrograde.
+		NextSystem: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next system")),
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
 		WarpDown:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "warp down")),
 		Pause:      key.NewBinding(key.WithKeys("0", " "), key.WithHelp("0/space", "pause")),
@@ -59,5 +73,16 @@ func DefaultKeymap() Keymap {
 		Load:         key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "load game")),
 		RefinePlan:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refine plan (re-Lambert arrival)")),
 		CycleView:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (top / right / bottom / left / orbit-flat)")),
+
+		ThrottleFull:        key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "throttle 100%")),
+		ThrottleCut:         key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "throttle 0% / cut burn")),
+		ThrottleUp:          key.NewBinding(key.WithKeys("Z"), key.WithHelp("Z", "throttle +10%")),
+		ThrottleDown:        key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "throttle -10%")),
+		AttitudePrograde:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "attitude: prograde")),
+		AttitudeRetrograde:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "attitude: retrograde")),
+		AttitudeNormalPlus:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "attitude: normal+")),
+		AttitudeNormalMinus: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "attitude: normal-")),
+		AttitudeRadialOut:   key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "attitude: radial+")),
+		AttitudeRadialIn:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "attitude: radial-")),
 	}
 }

@@ -131,7 +131,7 @@ func (s *Spacecraft) MassFlowRate() float64 {
 	if s.Thrust <= 0 || s.Isp <= 0 {
 		return 0
 	}
-	return s.Thrust / (s.Isp * g0)
+	return s.Thrust * s.EffectiveThrottle() / (s.Isp * g0)
 }
 
 // BurnTimeForDV returns the engine-on duration required to deliver dv
@@ -178,7 +178,7 @@ func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
 // after the StepRK4 call. Thrust is gated to zero if fuel is empty.
 func (s *Spacecraft) ThrustAccelFn(mode BurnMode, mu float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
 	mass := s.TotalMass()
-	thrust := s.Thrust
+	thrust := s.Thrust * s.EffectiveThrottle()
 	if s.Fuel <= 0 {
 		thrust = 0
 	}

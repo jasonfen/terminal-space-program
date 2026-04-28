@@ -134,6 +134,82 @@ type ActiveBurn struct {
 	PrimaryID   string
 }
 
+// ManualBurn is the runtime state of a v0.7.3+ player-held manual
+// burn. Mirrors ActiveBurn's role in the integrator dispatch but
+// carries no Δv budget, no end time, and no fixed mode — direction
+// comes from World.AttitudeMode (which the player can update on the
+// fly via the attitude keys), and the burn ends when StopManualBurn
+// is called or fuel runs out. StartTime is informational only,
+// surfaced in the HUD as the "manual burn elapsed" readout.
+type ManualBurn struct {
+	StartTime time.Time
+}
+
+// StartManualBurn opens the engine in the current AttitudeMode at the
+// current Spacecraft.Throttle. No-op if a planted ActiveBurn is in
+// flight (planted burns own the engine until they complete) or fuel
+// is empty. Idempotent: a second call while the manual burn is
+// already running leaves StartTime as the original.
+func (w *World) StartManualBurn() {
+	if w.ActiveBurn != nil || w.ManualBurn != nil {
+		return
+	}
+	if w.Craft == nil || w.Craft.Fuel <= 0 || w.Craft.Thrust <= 0 {
+		return
+	}
+	if w.Craft.EffectiveThrottle() <= 0 {
+		return
+	}
+	w.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
+}
+
+// StopManualBurn cuts the engine on the manual-burn path. No-op if
+// no manual burn is in flight. Does not touch a planted ActiveBurn.
+func (w *World) StopManualBurn() {
+	w.ManualBurn = nil
+}
+
+// SetThrottle clamps the requested throttle to [0, 1] and applies it
+// to the spacecraft. Called by the v0.7.3+ throttle keys (z/x and
+// Shift+z/Shift+x). Setting throttle to 0 also stops any in-flight
+// manual burn so the player's "x = cut" muscle memory works in one
+// keypress; planted burns keep running and consume their planned Δv
+// at whatever throttle the node carries (per-node throttle field
+// lands in v0.7.3 alongside the save schema bump to v4).
+func (w *World) SetThrottle(t float64) {
+	if w.Craft == nil {
+		return
+	}
+	if t < 0 {
+		t = 0
+	} else if t > 1 {
+		t = 1
+	}
+	w.Craft.Throttle = t
+	if t == 0 {
+		w.StopManualBurn()
+	}
+}
+
+// AdjustThrottle steps Spacecraft.Throttle by delta, clamped to
+// [0, 1]. Used by the v0.7.3+ Shift+z (+10 %) and Shift+x (-10 %)
+// keys.
+func (w *World) AdjustThrottle(delta float64) {
+	if w.Craft == nil {
+		return
+	}
+	w.SetThrottle(w.Craft.Throttle + delta)
+}
+
+// SetAttitudeMode updates the held attitude and, if a manual burn
+// is already in flight, the engine direction takes effect on the
+// next tick (the integrator recomputes per-sub-step direction from
+// live (r, v) the same way planted burns do). When no manual burn
+// is running, the new attitude is queued for the next StartManualBurn.
+func (w *World) SetAttitudeMode(mode spacecraft.BurnMode) {
+	w.AttitudeMode = mode
+}
+
 // PlanNode inserts a node into World.Nodes, keeping the slice sorted by
 // TriggerTime. Past-dated nodes are allowed — they fire on the next Tick.
 //

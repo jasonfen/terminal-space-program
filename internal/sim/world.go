@@ -43,6 +43,23 @@ type World struct {
 	// integrateSpacecraft when DVRemaining hits zero or SimTime ≥ EndTime.
 	ActiveBurn *ActiveBurn
 
+	// ManualBurn is non-nil while the player is holding the engine
+	// open via the v0.7.3+ manual-flight controls. Fires through the
+	// same RK4 thrust path as a planted finite burn, but driven by
+	// AttitudeMode + Spacecraft.Throttle instead of a ManeuverNode.
+	// Set when StartManualBurn is called; cleared by StopManualBurn
+	// or when fuel exhausts. Mutually exclusive with ActiveBurn — a
+	// planted burn takes priority and StartManualBurn no-ops if one
+	// is in flight.
+	ManualBurn *ManualBurn
+
+	// AttitudeMode is the held attitude for v0.7.3+ manual flight.
+	// Set by the orbit-screen attitude keys (w/s/a/d/q/e); read by
+	// the manual-burn integrator path. Updates take effect on the
+	// next tick — the integrator recomputes the per-sub-step
+	// direction from live (r, v) just like planted burns do.
+	AttitudeMode spacecraft.BurnMode
+
 	// Missions are pass/fail objectives evaluated against World state
 	// each Tick. Seeded from the embedded starter catalog at NewWorld
 	// time; Status fields progress as the player flies. v0.6.5+.
@@ -366,7 +383,7 @@ func (w *World) clampedWarp() float64 {
 	if w.Craft == nil {
 		return selected
 	}
-	if w.ActiveBurn != nil && selected > 10 {
+	if (w.ActiveBurn != nil || w.ManualBurn != nil) && selected > 10 {
 		selected = 10
 	}
 	mu := w.Craft.Primary.GravitationalParameter()
@@ -448,7 +465,7 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	}
 
 	for i := 0; i < nSteps; i++ {
-		if w.burnActiveAt(tickStart, dt, i) {
+		if w.thrustingAt(tickStart, dt, i) {
 			w.stepThrust(mu, dt)
 		} else {
 			w.Craft.State = physics.StepVerlet(w.Craft.State, mu, dt)
@@ -472,36 +489,53 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	if w.ActiveBurn != nil && w.burnExhausted() {
 		w.ActiveBurn = nil
 	}
+	// Manual burns end on fuel exhaustion only; the player ends them
+	// explicitly via StopManualBurn (e.g. on `x`).
+	if w.ManualBurn != nil && w.Craft.Fuel <= 0 {
+		w.ManualBurn = nil
+	}
 }
 
-// burnActiveAt reports whether sub-step i of the current tick should fire
-// the engine: ActiveBurn must exist, the sub-step must start before
-// EndTime, and DVRemaining + fuel must both be positive.
-func (w *World) burnActiveAt(tickStart time.Time, dt float64, i int) bool {
-	if w.ActiveBurn == nil {
+// thrustingAt reports whether sub-step i of the current tick should fire
+// the engine. Either ActiveBurn (planted finite burn) or ManualBurn
+// (v0.7.3+ player-held flight) qualifies; both share the same RK4 thrust
+// path. Fuel must be positive in either case.
+func (w *World) thrustingAt(tickStart time.Time, dt float64, i int) bool {
+	if w.Craft.Fuel <= 0 {
 		return false
 	}
-	if w.ActiveBurn.DVRemaining <= 0 || w.Craft.Fuel <= 0 {
-		return false
+	if w.ActiveBurn != nil {
+		if w.ActiveBurn.DVRemaining <= 0 {
+			return false
+		}
+		subStart := tickStart.Add(time.Duration(float64(i) * dt * float64(time.Second)))
+		return subStart.Before(w.ActiveBurn.EndTime)
 	}
-	subStart := tickStart.Add(time.Duration(float64(i) * dt * float64(time.Second)))
-	return subStart.Before(w.ActiveBurn.EndTime)
+	return w.ManualBurn != nil
 }
 
 // stepThrust advances one RK4 sub-step with engine thrust, debits the
 // active-burn Δv budget by the analytical thrust contribution
-// (Thrust/mass × dt), and burns fuel via the configured mass flow.
+// (Thrust×Throttle/mass × dt), and burns fuel via the configured mass
+// flow. Dispatches between ActiveBurn (planted node, fixed mode) and
+// ManualBurn (v0.7.3+, mode driven by World.AttitudeMode).
 func (w *World) stepThrust(mu, dt float64) {
-	accelFn := w.Craft.ThrustAccelFn(w.ActiveBurn.Mode, mu)
+	mode := w.AttitudeMode
+	if w.ActiveBurn != nil {
+		mode = w.ActiveBurn.Mode
+	}
+	accelFn := w.Craft.ThrustAccelFn(mode, mu)
 	w.Craft.State = physics.StepRK4(w.Craft.State, dt, accelFn, 0)
 
-	mass := w.Craft.TotalMass()
-	if mass > 0 {
-		dvApplied := (w.Craft.Thrust / mass) * dt
-		if dvApplied > w.ActiveBurn.DVRemaining {
-			dvApplied = w.ActiveBurn.DVRemaining
+	if w.ActiveBurn != nil {
+		mass := w.Craft.TotalMass()
+		if mass > 0 {
+			dvApplied := (w.Craft.Thrust * w.Craft.EffectiveThrottle() / mass) * dt
+			if dvApplied > w.ActiveBurn.DVRemaining {
+				dvApplied = w.ActiveBurn.DVRemaining
+			}
+			w.ActiveBurn.DVRemaining -= dvApplied
 		}
-		w.ActiveBurn.DVRemaining -= dvApplied
 	}
 	fuelBurned := w.Craft.MassFlowRate() * dt
 	if fuelBurned > w.Craft.Fuel {
@@ -533,7 +567,7 @@ func (w *World) burnExhausted() bool {
 // bug). If e ≥ 1 we still fall back to Verlet so the per-sub-step SOI
 // path handles the non-conic case correctly.
 func (w *World) canKeplerStep(simDelta time.Duration) bool {
-	if w.ActiveBurn != nil {
+	if w.ActiveBurn != nil || w.ManualBurn != nil {
 		return false
 	}
 	if w.Clock.Warp() <= 1 {
