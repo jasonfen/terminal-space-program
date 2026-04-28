@@ -217,6 +217,14 @@ by patch — this doc is the snapshot, those are the release notes.
 - **Sol** (playable — craft spawns here).
 - **Alpha Centauri**, **TRAPPIST-1**, **Kepler-452** (viewable; craft does
   not yet move between systems).
+- **User overlay** (v0.7.0+): JSON files in
+  `$XDG_CONFIG_HOME/terminal-space-program/systems/*.json` merge with
+  the embedded set via `bodies.LoadAllWithWarnings`. User files win on
+  `systemName` match (e.g. dropping a `sol.json` replaces the embedded
+  Sol entirely); otherwise they append. Body-info screen tags the
+  source so the player can tell which catalog a body came from.
+  Malformed user files print a warning to stderr at startup and are
+  skipped; embedded systems always load.
 
 ### Distribution
 - **GoReleaser** matrix: linux + darwin amd64/arm64, windows amd64.
@@ -361,7 +369,7 @@ by patch — this doc is the snapshot, those are the release notes.
 | **v0.6.5 ✓** | | Mission scaffold + burn-input simplification — new `internal/missions` package with three predicate kinds (`circularize` / `orbit_insertion` / `soi_flyby`) on a sticky three-state machine. Embedded `missions.json` starter catalog (1000 km LEO circularize, Luna orbit insertion, Mars SOI flyby) via `go:embed`. `World.Missions` seeded at `NewWorld`, evaluated each Tick after `executeDueNodes`. Save schema v2 → v3 with `Payload.Missions` (omitempty); v1/v2 saves seed the default catalog post-load so older saves gain the feature transparently. Orbit screen HUD gains a `MISSION` section + permanent `VIEW` sub-line under FOCUS (the v0.6.4 view-mode toast is gone). Maneuver planner drops the duration field; Δv now drives both the delivered Δv AND a rocket-equation-derived burn duration via `spacecraft.BurnTimeForDV(dv) = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`. Auto-plant Hohmann + RefinePlan paths unified on the same call so player- and auto-planted burns size identically (constant-mass `dv·m/F` scrubbed from five sites in `internal/sim/maneuver.go`). |
 | **v0.6.6 ✓** | | Multiplayer design-doc spike — `docs/multiplayer-design.md`, ~1000 words covering Transport (WebSocket-for-MVP, escalate to QUIC if loss demands), Authority model (host-authoritative + warp-arbitration; lockstep as bit-identical-FP fallback), Persistence (`Session` inside `Payload`, schema v3 → v4 at real-slice time), Out of scope, and three open questions on multi-craft sequencing, warp-veto generalisation, and per-player vs shared missions. Pure prose; no code change. Closes the planned v0.6 cycle. |
 | **v0.6 ✓** | **Planner UX + missions + MP design** | Burn-at-next scheduler + predicted-orbit HUD + finite-burn-aware planner + moon → parent escape transfer + click-only mouse + 5-way view modes + mission scaffold + burn-input simplification + multiplayer design-doc spike. See `docs/v0.6-plan.md` for slice breakdown. |
-| v0.7.0 | Modding + manual flight + planner polish *(planned)* | External system catalog overlay — `$XDG_CONFIG_HOME/.../systems/*.json` merges with embedded set in `bodies.LoadAll` |
+| **v0.7.0 ✓** | **Modding + manual flight + planner polish** | External system catalog overlay — `$XDG_CONFIG_HOME/.../systems/*.json` merges with embedded set via new `LoadAllWithWarnings`. `System.Source` (json:"-") tags entries `embedded` / `user`; bodyinfo screen shows the source. Conflict policy: user files win on `systemName`, otherwise append. Malformed user files surface as `LoadWarning` printed to stderr at startup; embedded systems always load. |
 | v0.7.1 | | Per-body palette migration — `Color` field on `CelestialBody`, fill from existing `bodyPalette` table; `ColorFor` prefers `b.Color` with table fallback |
 | v0.7.2 | | User theme overrides — `theme.json` with optional `ui` + `bodies` blocks layered over the v0.7.1 per-body field |
 | v0.7.3 | | Manual flight controls — throttle (`Spacecraft.Throttle`, `z/x` keys), hold-to-burn (parallel `World.ManualBurn`), attitude hold (`w/s/a/d/q/e` mapped to existing `BurnMode`), per-node throttle override; save schema v3 → v4 |
