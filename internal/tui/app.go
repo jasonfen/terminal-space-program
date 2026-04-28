@@ -393,12 +393,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 
-		// v0.7.3+ manual flight controls. Throttle keys mutate
-		// Spacecraft.Throttle; attitude keys mutate World.AttitudeMode
-		// AND start a manual burn if one isn't already in flight (so
-		// the player can fire the engine with one keypress when the
-		// throttle is non-zero). Cutting throttle (`x`) also stops
-		// any in-flight manual burn so muscle-memory works.
+		// v0.7.3+ manual flight controls. v0.7.3.2 split the engage
+		// path off from the attitude keys: tapping w/s/a/d/q/e
+		// orients only — actually firing the engine requires `b`.
+		// Pre-fix the attitude keys auto-started the burn, which
+		// was easy to trigger by accident.
 		case key.Matches(m, a.keys.ThrottleFull):
 			a.world.SetThrottle(1.0)
 			return a, nil
@@ -413,27 +412,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.AttitudePrograde):
 			a.world.SetAttitudeMode(spacecraft.BurnPrograde)
-			a.world.StartManualBurn()
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRetrograde):
 			a.world.SetAttitudeMode(spacecraft.BurnRetrograde)
-			a.world.StartManualBurn()
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeNormalPlus):
 			a.world.SetAttitudeMode(spacecraft.BurnNormalPlus)
-			a.world.StartManualBurn()
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeNormalMinus):
 			a.world.SetAttitudeMode(spacecraft.BurnNormalMinus)
-			a.world.StartManualBurn()
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialOut):
 			a.world.SetAttitudeMode(spacecraft.BurnRadialOut)
-			a.world.StartManualBurn()
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialIn):
 			a.world.SetAttitudeMode(spacecraft.BurnRadialIn)
-			a.world.StartManualBurn()
+			return a, nil
+		case key.Matches(m, a.keys.ToggleBurn):
+			a.world.ToggleManualBurn()
 			return a, nil
 		}
 	}

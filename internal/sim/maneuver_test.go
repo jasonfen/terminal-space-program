@@ -1550,3 +1550,34 @@ func TestManualBurnEndsOnFuelExhaustion(t *testing.T) {
 		t.Errorf("ManualBurn should clear after fuel exhaustion; fuel=%v", w.Craft.Fuel)
 	}
 }
+
+// TestToggleManualBurnEngagesAndDisengages: the v0.7.3.2+ engage gate.
+// Calling ToggleManualBurn with no burn in flight + throttle > 0 starts
+// one; calling it again stops the same burn. Mirrors the b-key UX.
+func TestToggleManualBurnEngagesAndDisengages(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 1.0
+	w.AttitudeMode = spacecraft.BurnPrograde
+
+	w.ToggleManualBurn()
+	if w.ManualBurn == nil {
+		t.Fatal("first toggle should engage manual burn")
+	}
+	w.ToggleManualBurn()
+	if w.ManualBurn != nil {
+		t.Error("second toggle should disengage manual burn")
+	}
+}
+
+// TestToggleManualBurnNoOpAtZeroThrottle: pressing `b` with throttle
+// at zero must not start the engine. Engage requires both attitude
+// (always set, since BurnPrograde is the zero value) AND non-zero
+// throttle.
+func TestToggleManualBurnNoOpAtZeroThrottle(t *testing.T) {
+	w, _ := NewWorld()
+	w.Craft.Throttle = 0
+	w.ToggleManualBurn()
+	if w.ManualBurn != nil {
+		t.Error("toggle with zero throttle should not start a burn")
+	}
+}

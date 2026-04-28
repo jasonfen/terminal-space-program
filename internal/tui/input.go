@@ -39,8 +39,8 @@ type Keymap struct {
 	CycleView     key.Binding
 
 	// v0.7.3+ manual flight controls.
-	ThrottleFull       key.Binding // engine to 100 %
-	ThrottleCut        key.Binding // engine off (also stops a manual burn)
+	ThrottleFull       key.Binding // throttle to 100 %
+	ThrottleCut        key.Binding // throttle 0 % (also stops a manual burn)
 	ThrottleUp         key.Binding // +10 % step
 	ThrottleDown       key.Binding // -10 % step
 	AttitudePrograde   key.Binding
@@ -49,6 +49,11 @@ type Keymap struct {
 	AttitudeNormalMinus key.Binding
 	AttitudeRadialOut  key.Binding
 	AttitudeRadialIn   key.Binding
+	// ToggleBurn (v0.7.3.2+): explicit engage / disengage gate for
+	// manual flight. Pre-v0.7.3.2 the attitude keys auto-started the
+	// engine, which made accidental burns easy. Now attitude keys
+	// only orient; firing requires an explicit `b` press.
+	ToggleBurn key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -94,5 +99,6 @@ func DefaultKeymap() Keymap {
 		AttitudeNormalMinus: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "attitude: normal-")),
 		AttitudeRadialOut:   key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "attitude: radial+")),
 		AttitudeRadialIn:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "attitude: radial-")),
+		ToggleBurn:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "engage / cut manual burn")),
 	}
 }
