@@ -72,6 +72,35 @@ func TestOrbitHUDRendersVesselAndPropellantSideBySide(t *testing.T) {
 	t.Errorf("expected VESSEL and PROPELLANT on the same row at width 180; got render:\n%s", out)
 }
 
+// TestOrbitHUDRendersSystemAndSelectedSideBySide: same horizontal-
+// pairing as VESSEL/PROPELLANT, applied to SYSTEM + SELECTED. Saves
+// another ~3 rows in the right-hand HUD when there's enough content
+// width.
+func TestOrbitHUDRendersSystemAndSelectedSideBySide(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	v.Resize(180, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	out := v.Render(w, 0, 180, 40)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "SYSTEM") && strings.Contains(line, "SELECTED") {
+			return
+		}
+	}
+	t.Errorf("expected SYSTEM and SELECTED on the same row at width 180; got render:\n%s", out)
+}
+
 // TestBodyPixelRadiusMonotonic: perceived-size bucketing is monotonic
 // in physical radius. Tier 1 (small) < tier 2 (terrestrial) < tier 4
 // (gas giant) < tier 6 (star). System-primary flag promotes to star
