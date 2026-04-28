@@ -15,16 +15,32 @@ import (
 // v0.7.4 to give the right-hand pane back to flight state.
 type Missions struct {
 	theme Theme
+
+	// backColStart / backColEnd track the [Back] click-target column
+	// range, recomputed on every Render so terminal-resize doesn't
+	// stale the hit-test. v0.7.4+.
+	backColStart, backColEnd int
 }
 
 func NewMissions(th Theme) *Missions { return &Missions{theme: th} }
 
 // Render returns the mission list with status indicators and a
 // progress summary. Empty-catalog worlds show a placeholder so the
-// player isn't faced with a blank screen.
-func (m *Missions) Render(w *sim.World) string {
+// player isn't faced with a blank screen. width is the terminal
+// width — used to right-align the [Back] button on row 0.
+func (m *Missions) Render(w *sim.World, width int) string {
+	const titleText = "missions"
+	const backLabel = "[Back]"
 	var b strings.Builder
-	b.WriteString(m.theme.Title.Render("missions"))
+	pad := width - len([]rune(titleText)) - len([]rune(backLabel))
+	if pad < 1 {
+		pad = 1
+	}
+	m.backColStart = len([]rune(titleText)) + pad
+	m.backColEnd = m.backColStart + len([]rune(backLabel))
+	b.WriteString(m.theme.Title.Render(titleText))
+	b.WriteString(strings.Repeat(" ", pad))
+	b.WriteString(m.theme.Primary.Render(backLabel))
 	b.WriteString("\n")
 	b.WriteString(m.theme.Dim.Render(strings.Repeat("─", 40)))
 	b.WriteString("\n\n")
@@ -78,4 +94,10 @@ func (m *Missions) Render(w *sim.World) string {
 	b.WriteString("\n")
 	b.WriteString(m.theme.Footer.Render("[esc] back to orbit"))
 	return b.String()
+}
+
+// HitBackButton reports whether a click at (col, row) lands on the
+// title-row [Back] button. v0.7.4+.
+func (m *Missions) HitBackButton(col, row int) bool {
+	return row == 0 && col >= m.backColStart && col < m.backColEnd
 }
