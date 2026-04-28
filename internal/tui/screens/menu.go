@@ -198,15 +198,19 @@ func (m *Menu) Render(width int) string {
 	m.yesBtn.set = false
 	m.noBtn.set = false
 
+	// rowOffset is the count of rows already in `lines` (the title row).
+	// The mode-specific helpers record buttonRange.row in absolute
+	// terms, so they need to know how many rows precede their output.
+	rowOffset := len(lines)
 	switch m.mode {
 	case menuModeList:
-		lines = append(lines, m.renderList()...)
+		lines = append(lines, m.renderList(rowOffset)...)
 	case menuModeConfirmSave:
-		lines = append(lines, m.renderConfirm("Save current game to disk?", "save")...)
+		lines = append(lines, m.renderConfirm(rowOffset, "Save current game to disk?", "save")...)
 	case menuModeConfirmLoad:
-		lines = append(lines, m.renderConfirm("Load saved game and discard current state?", "load")...)
+		lines = append(lines, m.renderConfirm(rowOffset, "Load saved game and discard current state?", "load")...)
 	case menuModeConfirmQuit:
-		lines = append(lines, m.renderConfirm("Quit (autosaves on exit)?", "quit")...)
+		lines = append(lines, m.renderConfirm(rowOffset, "Quit (autosaves on exit)?", "quit")...)
 	}
 
 	return strings.Join(lines, "\n")
@@ -214,8 +218,10 @@ func (m *Menu) Render(width int) string {
 
 // renderList composes the action-list mode body (everything below
 // the title row). Records the row + column span of each clickable
-// button so HandleClick can hit-test them.
-func (m *Menu) renderList() []string {
+// button so HandleClick can hit-test them. rowOffset is the number
+// of rows already rendered above this output (currently the title
+// row) so button rows are stored in absolute terms.
+func (m *Menu) renderList(rowOffset int) []string {
 	var lines []string
 	lines = append(lines, m.theme.Dim.Render("─── menu ───"))
 	lines = append(lines, "")
@@ -234,7 +240,7 @@ func (m *Menu) renderList() []string {
 		colStart := len([]rune(indent))
 		colEnd := colStart + len([]rune(r.label))
 		*r.btn = buttonRange{
-			row:      len(lines),
+			row:      rowOffset + len(lines),
 			colStart: colStart,
 			colEnd:   colEnd,
 			set:      true,
@@ -251,8 +257,8 @@ func (m *Menu) renderList() []string {
 // renderConfirm composes a confirm sub-screen body asking the player
 // to confirm the given action. label is the lowercase verb (save /
 // load / quit) shown in the divider header. Records [Yes] and [No]
-// click-target ranges.
-func (m *Menu) renderConfirm(prompt, label string) []string {
+// click-target ranges in absolute coordinates given rowOffset.
+func (m *Menu) renderConfirm(rowOffset int, prompt, label string) []string {
 	var lines []string
 	lines = append(lines, m.theme.Dim.Render("─── confirm "+label+" ───"))
 	lines = append(lines, "")
@@ -265,7 +271,7 @@ func (m *Menu) renderConfirm(prompt, label string) []string {
 	const gap = "   "
 	yesCol := len([]rune(indent))
 	noCol := yesCol + len([]rune(yesLabel)) + len([]rune(gap))
-	row := len(lines)
+	row := rowOffset + len(lines)
 	m.yesBtn = buttonRange{row: row, colStart: yesCol, colEnd: yesCol + len([]rune(yesLabel)), set: true}
 	m.noBtn = buttonRange{row: row, colStart: noCol, colEnd: noCol + len([]rune(noLabel)), set: true}
 	lines = append(lines,
