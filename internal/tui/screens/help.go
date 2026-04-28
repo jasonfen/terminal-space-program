@@ -20,7 +20,7 @@ func (h *Help) Render() string {
 		rows   [][2]string
 	}{
 		{"GLOBAL", [][2]string{
-			{"esc", "back / close (or quit-confirm if already on home)"},
+			{"esc", "back / close (or open save/load/quit menu on home)"},
 			{"ctrl+c", "quit (immediate)"},
 			{"?", "toggle this help"},
 		}},
