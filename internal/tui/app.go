@@ -379,8 +379,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.CycleView):
 			a.world.CycleViewMode()
-			a.statusMsg = fmt.Sprintf("view: %s", a.world.ViewMode)
-			a.statusExpires = time.Now().Add(2 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.RefinePlan):
 			if a.world.CraftVisibleHere() {

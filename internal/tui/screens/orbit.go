@@ -527,6 +527,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	}
 	lines = append(lines, section("FOCUS")...)
 	lines = append(lines, "  "+w.FocusName())
+	lines = append(lines, "  view: "+w.ViewMode.String())
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
