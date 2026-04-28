@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/save"
@@ -386,6 +387,76 @@ func TestEventRoundtrip(t *testing.T) {
 	}
 	if !got.Nodes[0].TriggerTime.IsZero() {
 		t.Errorf("expected zero TriggerTime on unresolved node, got %v", got.Nodes[0].TriggerTime)
+	}
+}
+
+// TestMissionsRoundtrip: a save written with progressed mission status
+// (e.g. one passed, one in-progress) round-trips with status preserved.
+func TestMissionsRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if len(w.Missions) == 0 {
+		t.Fatal("NewWorld did not seed default missions")
+	}
+	// Force the first mission into Passed so we can verify status
+	// persists across save/load.
+	w.Missions[0].Status = missions.Passed
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Missions) != len(w.Missions) {
+		t.Fatalf("missions count: got %d, want %d", len(got.Missions), len(w.Missions))
+	}
+	if got.Missions[0].Status != missions.Passed {
+		t.Errorf("first mission status: got %v, want Passed", got.Missions[0].Status)
+	}
+	if got.Missions[0].ID != w.Missions[0].ID {
+		t.Errorf("first mission ID: got %q, want %q", got.Missions[0].ID, w.Missions[0].ID)
+	}
+}
+
+// TestV2SaveLoadsAsV3: a pre-v0.6.5 save (no missions field on the
+// wire) loads cleanly under SchemaVersion = 3 with the default
+// catalog seeded by NewWorld preserved.
+func TestV2SaveLoadsAsV3(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Forge a v2 envelope: drop the missions field by zeroing it on
+	// the in-memory File and re-marshalling.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var f save.File
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	f.Version = 2
+	f.Payload.Missions = nil
+	rewritten, _ := json.Marshal(f)
+	if err := os.WriteFile(path, rewritten, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load v2 save: %v", err)
+	}
+	if len(got.Missions) == 0 {
+		t.Fatal("v2 save loaded with no missions; expected default-catalog seed from NewWorld")
 	}
 }
 

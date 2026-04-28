@@ -270,10 +270,12 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		mass := w.Craft.TotalMass()
 		thrust := w.Craft.Thrust
 		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival)
-		var minLead float64
-		if thrust > 0 && mass > 0 {
-			minLead = (dvDepEstimate * mass / thrust) / 2
-		}
+		// minLead = half the centred-finite-burn duration so the planner's
+		// OffsetTime sits ≥ Duration/2 ahead of now (BurnStart can't be
+		// retroactive). v0.6.5: rocket-equation form via BurnTimeForDV
+		// instead of constant-mass `Δv·m/F` so this matches the duration
+		// transferNodeToManeuver will actually plant.
+		minLead := w.Craft.BurnTimeForDV(dvDepEstimate).Seconds() / 2
 		plan, err := planner.PlanIntraPrimaryHohmann(
 			muShared, rPark, rArrival,
 			craftAngle, targetAngle, minLead,
@@ -293,8 +295,8 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// falls back to the impulsive guess.
 		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, w.Craft.Isp, rArrival)
 		now := w.Clock.SimTime
-		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
-		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
 		return &plan, nil
 	}
 
@@ -327,10 +329,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		vCirc := math.Sqrt(muMoon / rPark)
 		vTransAtPeri := math.Sqrt(muMoon * (2/rPark - 1/aT))
 		dvEstimate := vTransAtPeri - vCirc
-		var minLead float64
-		if thrust > 0 && mass > 0 && dvEstimate > 0 {
-			minLead = (dvEstimate * mass / thrust) / 2
-		}
+		minLead := w.Craft.BurnTimeForDV(dvEstimate).Seconds() / 2
 		plan, err := planner.PlanMoonEscape(muMoon, rPark, rSOI, minLead, moon.ID, target.ID)
 		if err != nil {
 			return nil, err
@@ -340,8 +339,8 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// the impulsive math designed.
 		refineFiniteDeparture(&plan, muMoon, rPark, mass, thrust, w.Craft.Isp, rSOI)
 		now := w.Clock.SimTime
-		w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
-		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
 		return &plan, nil
 	}
 
@@ -362,10 +361,8 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	}
 
 	now := w.Clock.SimTime
-	mass := w.Craft.TotalMass()
-	thrust := w.Craft.Thrust
-	w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
-	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+	w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
+	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
 	return &plan, nil
 }
 
@@ -459,21 +456,16 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 		return 0, 0, err
 	}
 
-	mass := w.Craft.TotalMass()
-	thrust := w.Craft.Thrust
-
 	// Plant the correction burn at now (tiny offset to avoid firing the
-	// same tick it lands if executeDueNodes has already run).
-	var correctionDur time.Duration
-	if thrust > 0 && mass > 0 && correctionDv > 0 {
-		correctionDur = time.Duration(correctionDv * mass / thrust * float64(time.Second))
-	}
+	// same tick it lands if executeDueNodes has already run). v0.6.5:
+	// duration via the rocket-equation form so it matches the
+	// transferNodeToManeuver path.
 	if correctionDv > 0 {
 		w.PlanNode(ManeuverNode{
 			TriggerTime: now.Add(time.Second),
 			Mode:        correctionMode,
 			DV:          correctionDv,
-			Duration:    correctionDur,
+			Duration:    w.Craft.BurnTimeForDV(correctionDv),
 			PrimaryID:   w.Craft.Primary.ID,
 		})
 	}
@@ -483,10 +475,8 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 		TriggerTime: arrNode.TriggerTime,
 		Mode:        arrNode.Mode,
 		DV:          arrivalDv,
+		Duration:    w.Craft.BurnTimeForDV(arrivalDv),
 		PrimaryID:   arrNode.PrimaryID,
-	}
-	if thrust > 0 && mass > 0 && arrivalDv > 0 {
-		newArrival.Duration = time.Duration(arrivalDv * mass / thrust * float64(time.Second))
 	}
 	// Find arrNode again by index after PlanNode sorted the slice.
 	for i, n := range w.Nodes {
@@ -561,10 +551,8 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	}
 
 	now := w.Clock.SimTime
-	mass := w.Craft.TotalMass()
-	thrust := w.Craft.Thrust
-	w.PlanNode(transferNodeToManeuver(plan.Departure, now, mass, thrust))
-	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, mass, thrust))
+	w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
+	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
 	return &plan, nil
 }
 
@@ -784,10 +772,10 @@ func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital
 }
 
 // transferNodeToManeuver converts a planner.TransferNode into a
-// sim.ManeuverNode, adding a realistic burn duration based on the
-// craft's thrust and current mass (Δt = Δv · m / F). If thrust is
-// zero or inputs are degenerate the node stays impulsive (Duration=0),
-// matching the legacy behavior.
+// sim.ManeuverNode, deriving a realistic burn duration from the
+// craft's current mass + thrust + Isp via the rocket equation
+// (spacecraft.BurnTimeForDV). Zero-thrust craft yield Duration = 0,
+// preserving the legacy impulsive path.
 //
 // TriggerTime is set to the planner's intended firing moment — i.e.,
 // the burn-CENTER per ManeuverNode's v0.5.14+ semantics. The
@@ -800,21 +788,20 @@ func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital
 // to fire a node retroactively) must pad the planner's OffsetTime by
 // ≥ Duration/2 in advance — for the intra-primary path that's done
 // via PlanIntraPrimaryHohmann's minLeadSeconds.
-func transferNodeToManeuver(tn planner.TransferNode, now time.Time, mass, thrust float64) ManeuverNode {
+//
+// v0.6.5: switched from constant-mass `Δv·m/F` to the rocket-equation
+// form. Single source of truth — same call the maneuver planner UX
+// uses — so player-input and auto-plant burns size identically.
+func transferNodeToManeuver(tn planner.TransferNode, now time.Time, craft *spacecraft.Spacecraft) ManeuverNode {
 	mode := spacecraft.BurnPrograde
 	if tn.IsRetrograde {
 		mode = spacecraft.BurnRetrograde
-	}
-	var duration time.Duration
-	if thrust > 0 && mass > 0 && tn.DV > 0 {
-		secs := tn.DV * mass / thrust
-		duration = time.Duration(secs * float64(time.Second))
 	}
 	return ManeuverNode{
 		TriggerTime: now.Add(tn.OffsetTime),
 		Mode:        mode,
 		DV:          tn.DV,
-		Duration:    duration,
+		Duration:    craft.BurnTimeForDV(tn.DV),
 		PrimaryID:   tn.PrimaryID,
 	}
 }

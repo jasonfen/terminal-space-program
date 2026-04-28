@@ -1,0 +1,34 @@
+{
+  "missions": [
+    {
+      "id": "leo-circularize-1000",
+      "name": "Circularize at 1000 km LEO",
+      "description": "Reach a circular orbit around Earth at 1000 km altitude (±5%, e ≤ 0.005).",
+      "type": "circularize",
+      "params": {
+        "primary_id": "earth",
+        "altitude_m": 1000000,
+        "altitude_tol_pct": 0.05,
+        "eccentricity_cap": 0.005
+      }
+    },
+    {
+      "id": "luna-orbit-insertion",
+      "name": "Luna orbit insertion",
+      "description": "Capture into a bound orbit around Earth's Moon.",
+      "type": "orbit_insertion",
+      "params": {
+        "primary_id": "moon"
+      }
+    },
+    {
+      "id": "mars-soi-flyby",
+      "name": "Mars SOI flyby",
+      "description": "Cross into Mars' sphere of influence.",
+      "type": "soi_flyby",
+      "params": {
+        "primary_id": "mars"
+      }
+    }
+  ]
+}
