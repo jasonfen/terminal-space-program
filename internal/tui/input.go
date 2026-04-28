@@ -6,6 +6,13 @@ import "github.com/charmbracelet/bubbles/key"
 // that need additional keys define them locally.
 type Keymap struct {
 	Quit       key.Binding
+	// QuitAsk used to live on `q` (then `Q` after v0.7.3 freed `q`
+	// for AttitudeRadialOut). v0.7.3.1 dropped the binding entirely:
+	// quit-confirm now lives on Esc when the home (orbit) view is
+	// active, since Esc is otherwise unused there. The field stays
+	// in the struct (and keeps a no-key binding) so callers that
+	// reference a.keys.QuitAsk continue to compile during the
+	// transition; remove in v0.8 cleanup.
 	QuitAsk    key.Binding
 	Help       key.Binding
 	BodyInfo   key.Binding
@@ -47,8 +54,11 @@ type Keymap struct {
 func DefaultKeymap() Keymap {
 	return Keymap{
 		Quit:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit (immediate)")),
-		// v0.7.3: QuitAsk moved q → Q to free `q` for AttitudeRadialOut.
-		QuitAsk:    key.NewBinding(key.WithKeys("Q"), key.WithHelp("Q", "quit (confirm)")),
+		// v0.7.3.1: QuitAsk no longer has a dedicated key — Esc on
+		// the home view opens the confirm prompt instead. Binding
+		// kept with no keys so the struct field stays stable; remove
+		// in v0.8 cleanup.
+		QuitAsk:    key.NewBinding(),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		BodyInfo:   key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "body info")),
 		Maneuver:   key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "maneuver")),

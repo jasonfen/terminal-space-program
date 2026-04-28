@@ -241,13 +241,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		// Maneuver screen has its own text input that eats most keys;
-		// q opens the quit-confirm before delegating, esc-to-cancel
-		// goes through the screen's handler so it can clean up.
+		// esc-to-cancel goes through the screen's handler so it can
+		// clean up.
 		if a.active == screenManeuver {
-			if key.Matches(m, a.keys.QuitAsk) {
-				a.confirmingQuit = true
-				return a, nil
-			}
 			if key.Matches(m, a.keys.Back) {
 				a.maneuver.ResetEditing()
 				a.world.Clock.Paused = false
@@ -262,10 +258,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Porkchop: ←/→/↑/↓ navigate cells, Esc returns.
 		if a.active == screenPorkchop {
-			if key.Matches(m, a.keys.QuitAsk) {
-				a.confirmingQuit = true
-				return a, nil
-			}
 			_, done := a.porkchop.HandleKey(m)
 			if done {
 				if tgt, depD, tofD, ok := a.porkchop.PendingPlant(); ok {
@@ -276,9 +268,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		switch {
-		case key.Matches(m, a.keys.QuitAsk):
-			a.confirmingQuit = true
-			return a, nil
 		case key.Matches(m, a.keys.Help):
 			if a.active == screenHelp {
 				a.active = screenOrbit
@@ -287,9 +276,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Back):
-			if a.active != screenOrbit {
-				a.active = screenOrbit
+			// v0.7.3.1: Esc on the home (orbit) view opens the
+			// quit-confirm prompt — the only path out short of
+			// Ctrl+C. From any other screen Esc returns to orbit
+			// first, so a second Esc fires the prompt.
+			if a.active == screenOrbit {
+				a.confirmingQuit = true
+				return a, nil
 			}
+			a.active = screenOrbit
 			return a, nil
 		case key.Matches(m, a.keys.BodyInfo):
 			if a.active == screenOrbit {
