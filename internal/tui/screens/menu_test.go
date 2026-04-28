@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -31,6 +32,65 @@ func TestMenuHandleKey(t *testing.T) {
 			t.Errorf("HandleKey(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
+}
+
+// TestMenuButtonRowsMatchRenderedLines: the row stored in each
+// buttonRange must equal the index of the line in the rendered
+// output that visually contains that button. Pre-fix, the helpers
+// recorded local row indices that didn't account for the title row
+// prepended by Render — clicks fired one row above the visual
+// button.
+func TestMenuButtonRowsMatchRenderedLines(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		Footer:  lipgloss.NewStyle(),
+	}
+	m := NewMenu(th)
+
+	// List state: Save / Load / Quit labels should be on the rows
+	// the buttonRange records.
+	out := m.Render(80)
+	lines := strings.Split(out, "\n")
+	for _, b := range []struct {
+		name  string
+		btn   buttonRange
+		label string
+	}{
+		{"save", m.saveBtn, "[Save Game]"},
+		{"load", m.loadBtn, "[Load Game]"},
+		{"quit", m.quitBtn, "[Quit]"},
+	} {
+		if b.btn.row >= len(lines) {
+			t.Errorf("%s: row %d out of bounds (len=%d)", b.name, b.btn.row, len(lines))
+			continue
+		}
+		if !strings.Contains(lines[b.btn.row], b.label) {
+			t.Errorf("%s: row %d = %q, expected to contain %q", b.name, b.btn.row, lines[b.btn.row], b.label)
+		}
+	}
+
+	// Confirm state: [Yes] / [No] on the same row recorded.
+	saveCol := (m.saveBtn.colStart + m.saveBtn.colEnd) / 2
+	m.HandleClick(saveCol, m.saveBtn.row)
+	out = m.Render(80)
+	lines = strings.Split(out, "\n")
+	if m.yesBtn.row >= len(lines) || !strings.Contains(lines[m.yesBtn.row], "[Yes]") {
+		t.Errorf("confirm Yes: row %d = %q, expected [Yes]", m.yesBtn.row,
+			lines[min(m.yesBtn.row, len(lines)-1)])
+	}
+	if m.noBtn.row >= len(lines) || !strings.Contains(lines[m.noBtn.row], "[No]") {
+		t.Errorf("confirm No: row %d = %q, expected [No]", m.noBtn.row,
+			lines[min(m.noBtn.row, len(lines)-1)])
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // TestMenuClickConfirmFlow: clicking Save / Load / Quit in the list
