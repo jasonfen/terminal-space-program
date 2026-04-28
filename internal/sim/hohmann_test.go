@@ -48,6 +48,47 @@ func TestHohmannPreviewForMarsApproximatesTextbookNumbers(t *testing.T) {
 	}
 }
 
+// TestHohmannPreviewForLunaIsIntraPrimary: from a LEO craft, a
+// preview targeting Luna must use the intra-primary frame
+// (Earth GM, parent-relative radii) — not the system primary's
+// heliocentric frame. Pre-fix, the preview computed a Hohmann
+// from the craft's solar distance (~150M km) to Luna's
+// Earth-relative SMA (~384k km), which produced Δv values of
+// ~28 km/s and ~242 km/s.
+func TestHohmannPreviewForLunaIsIntraPrimary(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	lunaIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" || b.ID == "luna" {
+			lunaIdx = i
+			break
+		}
+	}
+	if lunaIdx < 0 {
+		t.Skip("Luna not found in Sol system")
+	}
+
+	p := w.HohmannPreviewFor(lunaIdx)
+	if !p.Valid {
+		t.Fatalf("preview invalid: %s", p.Note)
+	}
+
+	// Earth → Luna Hohmann from a 500-km LEO (the v0.6.1+ default
+	// spawn altitude). Standard numbers are Δv1 ≈ 3.1 km/s
+	// (TLI from circular LEO) and Δv2 ≈ 0.7 km/s (Luna-orbit
+	// insertion at lunar SMA). Allow 30% tolerance — the preview
+	// uses the craft's live |R| as r1 and Luna's bare SMA as r2,
+	// which approximates a circular-to-circular insertion at
+	// Luna's distance.
+	if p.DV1 < 1500 || p.DV1 > 5000 {
+		t.Errorf("Δv1: got %.0f m/s, want ~3100 m/s (TLI)", p.DV1)
+	}
+	if p.DV2 < 200 || p.DV2 > 1500 {
+		t.Errorf("Δv2: got %.0f m/s, want ~700 m/s (Luna-orbit insertion)", p.DV2)
+	}
+}
+
 func TestHohmannPreviewForSystemPrimaryIsInvalid(t *testing.T) {
 	w := mustWorld(t)
 	// Index 0 in every system is the primary.
