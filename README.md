@@ -64,6 +64,28 @@ save taken on the embedded catalog rejects on first load after you
 add a custom system; that's by design (otherwise body references
 across saves could drift silently).
 
+## Theming
+
+Drop a `theme.json` at
+`$XDG_CONFIG_HOME/terminal-space-program/theme.json` (or
+`~/.config/terminal-space-program/theme.json`) to recolor either the
+UI tier or specific bodies:
+
+```json
+{
+  "ui":     {"alert": "#ff5f5f", "warning": "#ffaf00"},
+  "bodies": {"earth": "#3b82f6", "mars":    "#dc2626"}
+}
+```
+
+Both blocks are optional. UI keys match the lower-cased name of the
+package-level `Color*` var (e.g. `alert`, `warning`, `plannednode`,
+`trajectory`, `currentorbit`, `craftmarker`, `foreignsoi`, `dim`).
+Body keys match each body's `id` from `systems/*.json`. A body
+override wins over that body's per-body `color` field; UI overrides
+mutate the global tier colors at startup. Malformed `theme.json`
+prints a warning to stderr and falls back to defaults.
+
 ## Quick tour
 
 You spawn as **S-IVB-1** in a 500 km circular prograde LEO. The left
