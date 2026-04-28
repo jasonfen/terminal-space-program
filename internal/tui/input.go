@@ -32,6 +32,7 @@ type Keymap struct {
 	PlanNode      key.Binding
 	ClearNodes    key.Binding
 	PlanTransfer  key.Binding
+	PlanIncl      key.Binding // v0.7.4+: plane rotation toward selected body's inclination (or equatorial when none).
 	Porkchop      key.Binding
 	Save          key.Binding
 	Load          key.Binding
@@ -83,6 +84,7 @@ func DefaultKeymap() Keymap {
 		PlanNode:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "plan node (T+5m prograde 200m/s)")),
 		ClearNodes:   key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "clear nodes")),
 		PlanTransfer: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant Hohmann transfer to selected body")),
+		PlanIncl:     key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant inclination match (selected body / equatorial)")),
 		Porkchop:     key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot for selected body")),
 		Save:         key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save game")),
 		Load:         key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "load game")),

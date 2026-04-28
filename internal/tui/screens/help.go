@@ -46,6 +46,10 @@ func (h *Help) Render() string {
 			{"esc (in planner)", "cancel burn"},
 			{"n", "plan a node (T+5m prograde 200m/s)"},
 			{"N", "clear all planned nodes"},
+			{"H", "plant Hohmann transfer to selected body"},
+			{"I", "plant inclination match (selected body / equatorial)"},
+			{"P", "porkchop plot for selected body"},
+			{"R", "refine plan (re-Lambert arrival)"},
 		}},
 		{"MANUAL FLIGHT", [][2]string{
 			{"z / x", "throttle full / cut"},

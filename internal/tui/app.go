@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -377,6 +378,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// (system primary, equal radii) are handled by the input
 				// guard above. A future polish item is showing the error
 				// message in the HUD when planting fails.
+			}
+			return a, nil
+		case key.Matches(m, a.keys.PlanIncl):
+			if a.world.CraftVisibleHere() {
+				target := 0.0 // default: drop to equatorial of craft's primary
+				sys := a.world.System()
+				if a.selectedBody > 0 && a.selectedBody < len(sys.Bodies) {
+					b := sys.Bodies[a.selectedBody]
+					target = b.Inclination * math.Pi / 180
+				}
+				plan, err := a.world.PlanInclinationChange(target)
+				if err != nil {
+					a.statusMsg = fmt.Sprintf("inclination: %v", err)
+				} else {
+					nodeLabel := "DN"
+					if plan.AtAN {
+						nodeLabel = "AN"
+					}
+					a.statusMsg = fmt.Sprintf("inclination plan — %.1f m/s at next %s",
+						plan.DV, nodeLabel)
+				}
+				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Porkchop):
