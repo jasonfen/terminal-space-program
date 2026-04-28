@@ -707,6 +707,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				lines = append(lines,
 					fmt.Sprintf("  apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
 					fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+					fmt.Sprintf("  inclin.:   %.2f°", ro.Inclination*180/math.Pi),
 				)
 				const equatorialTol = 1e-3
 				if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
