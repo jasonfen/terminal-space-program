@@ -96,12 +96,16 @@ var bodyPalette = map[string]lipgloss.Color{
 }
 
 // ColorFor returns the palette color for a body. Resolution order:
-//   1. b.Color (per-body JSON field, v0.7.1+) when non-empty.
-//   2. bodyPalette table (legacy hardcoded source-of-truth).
-//   3. StellarTint by temperature for stars without an explicit entry.
-//   4. Per-bodyType default.
-//   5. ColorTrajectory for unrecognised types.
+//   1. theme.json `bodies` override (v0.7.2+) keyed by body ID.
+//   2. b.Color (per-body JSON field, v0.7.1+) when non-empty.
+//   3. bodyPalette table (legacy hardcoded source-of-truth).
+//   4. StellarTint by temperature for stars without an explicit entry.
+//   5. Per-bodyType default.
+//   6. ColorTrajectory for unrecognised types.
 func ColorFor(b bodies.CelestialBody) lipgloss.Color {
+	if hex, ok := bodyOverrides[b.ID]; ok {
+		return lipgloss.Color(hex)
+	}
 	if b.Color != "" {
 		return lipgloss.Color(b.Color)
 	}
