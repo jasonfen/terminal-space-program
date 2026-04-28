@@ -59,6 +59,12 @@ type CelestialBody struct {
 	// BodyPosition recursion and FindPrimary's nested-SOI walk.
 	// v0.5.0+.
 	ParentID string `json:"parentId,omitempty"`
+
+	// Color is the rendered display color as a hex string (e.g.
+	// "#5BB3FF"). When set, render.ColorFor prefers this over the
+	// hardcoded bodyPalette table; when empty, the table fallback +
+	// stellar-tint / bodyType-default chain still applies. v0.7.1+.
+	Color string `json:"color,omitempty"`
 }
 
 type Planet struct {
