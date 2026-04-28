@@ -172,6 +172,31 @@ func (c *Canvas) SetCellOverlay(w orbital.Vec3, glyph rune) {
 	c.cellOverlays[[2]int{cellX, cellY}] = glyph
 }
 
+// SetCellLabel writes text into consecutive cells starting at
+// (col, row), one rune per cell, going right. Out-of-bounds cells
+// are skipped silently. Used by the orbit / maneuver screens to
+// stamp HUD-style overlays directly into the canvas (e.g. a
+// "view: top" label in the bottom-right corner) so the indicator
+// stays attached to the projection it describes. v0.7.4+.
+//
+// Color comes from each cell's existing pixelTags — uncolored
+// (background-empty) cells render the label in the terminal
+// default, which is fine for the corner-overlay use case.
+func (c *Canvas) SetCellLabel(col, row int, text string) {
+	if c.cellOverlays == nil {
+		c.cellOverlays = make(map[[2]int]rune)
+	}
+	i := 0
+	for _, ch := range text {
+		x := col + i
+		i++
+		if x < 0 || x >= c.cols || row < 0 || row >= c.rows {
+			continue
+		}
+		c.cellOverlays[[2]int{x, row}] = ch
+	}
+}
+
 // FillColoredDisk fills a disk of the given pixel radius around a
 // world coord AND tags every set pixel with the given color. Used
 // for body rendering: the cells containing body pixels render in
