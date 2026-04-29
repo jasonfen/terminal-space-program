@@ -25,6 +25,7 @@ const (
 	screenPorkchop
 	screenMenu
 	screenMissions
+	screenSpawn // v0.8.2+: craft-type pick form on `n`.
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -47,6 +48,7 @@ type App struct {
 	porkchop  *screens.Porkchop
 	menu      *screens.Menu
 	missions  *screens.Missions
+	spawn     *screens.SpawnCraft
 
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
@@ -83,6 +85,7 @@ func New() (*App, error) {
 		porkchop:  screens.NewPorkchop(sth),
 		menu:      screens.NewMenu(sth),
 		missions:  screens.NewMissions(sth),
+		spawn:     screens.NewSpawnCraft(sth),
 	}, nil
 }
 
@@ -266,6 +269,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+		// v0.8.2+: spawn-craft form. Enter spawns the selected
+		// loadout; Esc cancels back to orbit.
+		if a.active == screenSpawn {
+			action := a.spawn.HandleKey(m.String())
+			switch action {
+			case screens.SpawnActionConfirm:
+				if c, err := a.world.SpawnCraft(sim.SpawnSpec{LoadoutID: a.spawn.SelectedLoadoutID()}); err == nil {
+					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
+					a.statusExpires = time.Now().Add(3 * time.Second)
+				}
+				a.active = screenOrbit
+			case screens.SpawnActionCancel:
+				a.active = screenOrbit
+			}
+			return a, nil
+		}
 		// Maneuver screen has its own text input that eats most keys;
 		// esc-to-cancel goes through the screen's handler so it can
 		// clean up.
@@ -371,15 +390,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.ResetFocus()
 			return a, nil
 		case key.Matches(m, a.keys.SpawnCraft):
-			// v0.8.1: minimal spawn — produces a sister copy of the
-			// active craft in a 500 km circular orbit around the same
-			// primary, offset 90° from the original. The full spawn
-			// form (parent body cycle, altitude knob, prograde toggle,
-			// craft type cycle once v0.8.2 lands) is a follow-up patch.
-			if c, err := a.world.SpawnSisterCraft(); err == nil {
-				a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
-				a.statusExpires = time.Now().Add(3 * time.Second)
-			}
+			// v0.8.2+: open the craft-type picker. Esc cancels;
+			// Enter spawns the selected loadout. Replaces the v0.8.1
+			// minimal "spawn-sister" keystroke that auto-cycled
+			// loadouts.
+			a.spawn.Reset()
+			a.active = screenSpawn
 			return a, nil
 		case key.Matches(m, a.keys.PlanTransfer):
 			if a.world.CraftVisibleHere() && a.selectedBody > 0 {
@@ -622,6 +638,8 @@ func (a *App) View() string {
 		base = a.porkchop.Render(a.world, a.width, a.height)
 	case screenMenu:
 		base = a.menu.Render(a.width)
+	case screenSpawn:
+		base = a.spawn.Render(a.width)
 	case screenMissions:
 		base = a.missions.Render(a.world, a.width)
 	default:
