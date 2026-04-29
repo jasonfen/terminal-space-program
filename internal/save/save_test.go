@@ -27,14 +27,14 @@ func TestRoundtrip(t *testing.T) {
 	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: 4}
 	w.ActiveCraft().Fuel = 412.5
 	w.ActiveCraft().State.V = w.ActiveCraft().State.V.Add(orbital.Vec3{Y: 25.5})
-	w.Nodes = append(w.Nodes, sim.ManeuverNode{
+	w.ActiveCraft().Nodes = append(w.ActiveCraft().Nodes, sim.ManeuverNode{
 		TriggerTime: w.Clock.SimTime.Add(5 * time.Minute),
 		Mode:        spacecraft.BurnPrograde,
 		DV:          200,
 		Duration:    20 * time.Second,
 		PrimaryID:   "earth",
 	})
-	w.ActiveBurn = &sim.ActiveBurn{
+	w.ActiveCraft().ActiveBurn = &sim.ActiveBurn{
 		Mode:        spacecraft.BurnRetrograde,
 		DVRemaining: 50,
 		EndTime:     w.Clock.SimTime.Add(8 * time.Second),
@@ -84,11 +84,11 @@ func TestRoundtrip(t *testing.T) {
 	if !vecEq(got.ActiveCraft().State.V, w.ActiveCraft().State.V) {
 		t.Errorf("Craft.State.V: got %v want %v", got.ActiveCraft().State.V, w.ActiveCraft().State.V)
 	}
-	if len(got.Nodes) != 1 || got.Nodes[0].DV != 200 || got.Nodes[0].PrimaryID != "earth" {
-		t.Errorf("Nodes: got %+v", got.Nodes)
+	if len(got.ActiveCraft().Nodes) != 1 || got.ActiveCraft().Nodes[0].DV != 200 || got.ActiveCraft().Nodes[0].PrimaryID != "earth" {
+		t.Errorf("Nodes: got %+v", got.ActiveCraft().Nodes)
 	}
-	if got.ActiveBurn == nil || got.ActiveBurn.DVRemaining != 50 {
-		t.Errorf("ActiveBurn: got %+v", got.ActiveBurn)
+	if got.ActiveCraft().ActiveBurn == nil || got.ActiveCraft().ActiveBurn.DVRemaining != 50 {
+		t.Errorf("ActiveBurn: got %+v", got.ActiveCraft().ActiveBurn)
 	}
 	if got.Calculator == nil {
 		t.Error("Calculator nil after Load — should be reconstructed via orbital.ForSystem")
@@ -111,11 +111,11 @@ func TestRoundtripEmptyState(t *testing.T) {
 	if got.ActiveCraft() == nil {
 		t.Fatal("Craft nil after roundtrip on default world")
 	}
-	if len(got.Nodes) != 0 {
-		t.Errorf("Nodes: expected empty, got %d", len(got.Nodes))
+	if len(got.ActiveCraft().Nodes) != 0 {
+		t.Errorf("Nodes: expected empty, got %d", len(got.ActiveCraft().Nodes))
 	}
-	if got.ActiveBurn != nil {
-		t.Errorf("ActiveBurn: expected nil, got %+v", got.ActiveBurn)
+	if got.ActiveCraft().ActiveBurn != nil {
+		t.Errorf("ActiveBurn: expected nil, got %+v", got.ActiveCraft().ActiveBurn)
 	}
 }
 
@@ -353,11 +353,11 @@ func TestV1SaveLoadsAsV2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load v1 save: %v", err)
 	}
-	if len(got.Nodes) != 1 {
-		t.Fatalf("expected 1 node after load, got %d", len(got.Nodes))
+	if len(got.ActiveCraft().Nodes) != 1 {
+		t.Fatalf("expected 1 node after load, got %d", len(got.ActiveCraft().Nodes))
 	}
-	if got.Nodes[0].Event != sim.TriggerAbsolute {
-		t.Errorf("v1 node loaded with Event=%v, want TriggerAbsolute", got.Nodes[0].Event)
+	if got.ActiveCraft().Nodes[0].Event != sim.TriggerAbsolute {
+		t.Errorf("v1 node loaded with Event=%v, want TriggerAbsolute", got.ActiveCraft().Nodes[0].Event)
 	}
 }
 
@@ -382,14 +382,14 @@ func TestEventRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(got.Nodes) != 1 {
-		t.Fatalf("expected 1 node, got %d", len(got.Nodes))
+	if len(got.ActiveCraft().Nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(got.ActiveCraft().Nodes))
 	}
-	if got.Nodes[0].Event != sim.TriggerNextApo {
-		t.Errorf("Event lost in round-trip: got %v, want TriggerNextApo", got.Nodes[0].Event)
+	if got.ActiveCraft().Nodes[0].Event != sim.TriggerNextApo {
+		t.Errorf("Event lost in round-trip: got %v, want TriggerNextApo", got.ActiveCraft().Nodes[0].Event)
 	}
-	if !got.Nodes[0].TriggerTime.IsZero() {
-		t.Errorf("expected zero TriggerTime on unresolved node, got %v", got.Nodes[0].TriggerTime)
+	if !got.ActiveCraft().Nodes[0].TriggerTime.IsZero() {
+		t.Errorf("expected zero TriggerTime on unresolved node, got %v", got.ActiveCraft().Nodes[0].TriggerTime)
 	}
 }
 

@@ -52,7 +52,7 @@ func TestWarpClampActuallyClampsVeryShortPeriod(t *testing.T) {
 func TestWarpCappedAt10xDuringActiveBurn(t *testing.T) {
 	w, _ := NewWorld()
 	w.Clock.WarpIdx = len(WarpFactors) - 1 // 100000×
-	w.ActiveBurn = &ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
+	w.ActiveCraft().ActiveBurn = &ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
 
 	if eff := w.EffectiveWarp(); eff != 10 {
 		t.Errorf("active burn should cap warp to 10×, got %.0f", eff)

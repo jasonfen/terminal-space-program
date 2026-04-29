@@ -188,7 +188,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.canvas.Clear()
 	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
-	if w.ActiveBurn != nil {
+	if w.ActiveCraft().ActiveBurn != nil {
 		if v.burnFrozenCenter == nil {
 			snapshot := center
 			v.burnFrozenCenter = &snapshot
@@ -545,11 +545,11 @@ func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.Ce
 // another body's SOI use stride-1 (solid) so the crossing is visually
 // distinct at a glance.
 func (v *OrbitView) drawNodes(w *sim.World) {
-	if len(w.Nodes) == 0 || w.ActiveCraft() == nil {
+	if len(w.ActiveCraft().Nodes) == 0 || w.ActiveCraft() == nil {
 		return
 	}
 	homeID := w.ActiveCraft().Primary.ID
-	for i, n := range w.Nodes {
+	for i, n := range w.ActiveCraft().Nodes {
 		// Frame-distinct cluster size: home-frame nodes get a tight cross,
 		// foreign-frame (heliocentric or destination-SOI) get a larger
 		// one so the player can see at a glance which leg is which on
@@ -572,7 +572,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	// would otherwise rotate wildly each frame. Skip the preview and
 	// let the live ellipse + active-burn HUD block carry the visual
 	// load until the burn completes.
-	if w.ActiveBurn != nil {
+	if w.ActiveCraft().ActiveBurn != nil {
 		return
 	}
 
@@ -727,13 +727,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		// knows what direction the next manual burn will fire in.
 		lines = append(lines, section("ATTITUDE")...)
 		manualState := "idle"
-		if w.ManualBurn != nil {
-			elapsed := w.Clock.SimTime.Sub(w.ManualBurn.StartTime).Seconds()
+		if w.ActiveCraft().ManualBurn != nil {
+			elapsed := w.Clock.SimTime.Sub(w.ActiveCraft().ManualBurn.StartTime).Seconds()
 			manualState = fmt.Sprintf(v.theme.Warning.Render("● firing T+%.1fs"), elapsed)
 		}
 		lines = append(lines,
-			fmt.Sprintf("  hold:      %s", w.AttitudeMode.String()),
-			fmt.Sprintf("  engine:    %s", w.EngineMode.String()),
+			fmt.Sprintf("  hold:      %s", w.ActiveCraft().AttitudeMode.String()),
+			fmt.Sprintf("  engine:    %s", w.ActiveCraft().EngineMode.String()),
 			fmt.Sprintf("  manual:    %s", manualState),
 		)
 	} else if w.ActiveCraft() != nil {
@@ -742,16 +742,16 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
-	if w.ActiveBurn != nil {
-		remaining := w.ActiveBurn.EndTime.Sub(w.Clock.SimTime).Seconds()
+	if w.ActiveCraft().ActiveBurn != nil {
+		remaining := w.ActiveCraft().ActiveBurn.EndTime.Sub(w.Clock.SimTime).Seconds()
 		if remaining < 0 {
 			remaining = 0
 		}
 		lines = append(lines,
 			v.theme.Dim.Render(strings.Repeat("─", width-2)),
 			v.theme.Warning.Render("● BURN ACTIVE"),
-			fmt.Sprintf("  mode:     %s", w.ActiveBurn.Mode.String()),
-			fmt.Sprintf("  Δv-to-go: %.1f m/s", w.ActiveBurn.DVRemaining),
+			fmt.Sprintf("  mode:     %s", w.ActiveCraft().ActiveBurn.Mode.String()),
+			fmt.Sprintf("  Δv-to-go: %.1f m/s", w.ActiveCraft().ActiveBurn.DVRemaining),
 			fmt.Sprintf("  T-%.1fs remaining", remaining),
 		)
 	}
@@ -788,9 +788,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
-	if len(w.Nodes) > 0 {
+	if len(w.ActiveCraft().Nodes) > 0 {
 		lines = append(lines, section("NODES")...)
-		for i, n := range w.Nodes {
+		for i, n := range w.ActiveCraft().Nodes {
 			kind := "imp"
 			if n.Duration > 0 {
 				kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())

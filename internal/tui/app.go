@@ -117,8 +117,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// place" rather than "duplicate." Removal must come first
 			// so PlanNode's sort handles the new node's position
 			// against the rest of the (post-removal) slice.
-			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.Nodes) {
-				a.world.Nodes = append(a.world.Nodes[:m.EditingIdx], a.world.Nodes[m.EditingIdx+1:]...)
+			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.ActiveCraft().Nodes) {
+				a.world.ActiveCraft().Nodes = append(a.world.ActiveCraft().Nodes[:m.EditingIdx], a.world.ActiveCraft().Nodes[m.EditingIdx+1:]...)
 			}
 			switch {
 			case !m.TriggerTime.IsZero():
@@ -153,7 +153,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if effThrottle <= 0 {
 					effThrottle = 1.0
 				}
-				a.world.ActiveBurn = &sim.ActiveBurn{
+				a.world.ActiveCraft().ActiveBurn = &sim.ActiveBurn{
 					Mode:        m.Mode,
 					DVRemaining: m.DV,
 					EndTime:     a.world.Clock.SimTime.Add(dur),
@@ -196,8 +196,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case hit.NodeIdx > 0:
 				idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
-				if idx >= 0 && idx < len(a.world.Nodes) {
-					a.maneuver.LoadNode(idx, a.world.Nodes[idx])
+				if idx >= 0 && idx < len(a.world.ActiveCraft().Nodes) {
+					a.maneuver.LoadNode(idx, a.world.ActiveCraft().Nodes[idx])
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
@@ -534,7 +534,7 @@ func (a *App) autosave() {
 // produces a sustained pulse train at the terminal's key-repeat rate.
 // v0.8.0+.
 func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
-	if a.world.EngineMode == spacecraft.EngineRCS {
+	if a.world.ActiveCraft().EngineMode == spacecraft.EngineRCS {
 		a.world.FireRCSPulse(mode)
 		return
 	}

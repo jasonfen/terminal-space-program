@@ -103,6 +103,14 @@ type Craft struct {
 	MonopropCapacity float64 `json:"monoprop_capacity,omitempty"`
 	RCSThrust        float64 `json:"rcs_thrust,omitempty"`
 	RCSIsp           float64 `json:"rcs_isp,omitempty"`
+	// v0.8.1+ — per-craft burn state. Pre-v5 saves had Nodes /
+	// ActiveBurn / etc. on the Payload (one shared list); the
+	// migration on load splits the singular into the active craft's
+	// fields.
+	Nodes        []Node      `json:"nodes,omitempty"`
+	ActiveBurn   *ActiveBurn `json:"active_burn,omitempty"`
+	AttitudeMode int         `json:"attitude_mode,omitempty"`
+	EngineMode   int         `json:"engine_mode,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -232,14 +240,16 @@ func payloadFromWorld(w *sim.World) Payload {
 			BodyIdx: w.Focus.BodyIdx,
 		},
 	}
-	// v0.8.1+: Crafts becomes the wire form. Pre-v0.8.1 saves used a
-	// single-pointer Craft field; the Phase-3 v4→v5 migration in
-	// save_migrate.go translates between them.
+	// v0.8.1+: Crafts becomes the wire form. Each craft carries its
+	// own Nodes / ActiveBurn / AttitudeMode / EngineMode (per-craft
+	// burn state). Pre-v5 saves had these on the Payload; the load
+	// path migrates the singular form into the active craft's
+	// fields.
 	for _, c := range w.Crafts {
 		if c == nil {
 			continue
 		}
-		p.Crafts = append(p.Crafts, Craft{
+		wc := Craft{
 			Name:             c.Name,
 			DryMass:          c.DryMass,
 			Fuel:             c.Fuel,
@@ -253,38 +263,36 @@ func payloadFromWorld(w *sim.World) Payload {
 			MonopropCapacity: c.MonopropCapacity,
 			RCSThrust:        c.RCSThrust,
 			RCSIsp:           c.RCSIsp,
-		})
+			AttitudeMode:     int(c.AttitudeMode),
+			EngineMode:       int(c.EngineMode),
+		}
+		for _, n := range c.Nodes {
+			var trigNano int64
+			if !n.TriggerTime.IsZero() {
+				trigNano = n.TriggerTime.UnixNano()
+			}
+			wc.Nodes = append(wc.Nodes, Node{
+				TriggerTimeNano: trigNano,
+				Mode:            int(n.Mode),
+				DV:              n.DV,
+				DurationNano:    int64(n.Duration),
+				PrimaryID:       n.PrimaryID,
+				Event:           int(n.Event),
+				Throttle:        n.Throttle,
+			})
+		}
+		if c.ActiveBurn != nil {
+			wc.ActiveBurn = &ActiveBurn{
+				Mode:        int(c.ActiveBurn.Mode),
+				DVRemaining: c.ActiveBurn.DVRemaining,
+				EndTimeNano: c.ActiveBurn.EndTime.UnixNano(),
+				PrimaryID:   c.ActiveBurn.PrimaryID,
+				Throttle:    c.ActiveBurn.Throttle,
+			}
+		}
+		p.Crafts = append(p.Crafts, wc)
 	}
 	p.ActiveCraftIdx = w.ActiveCraftIdx
-	for _, n := range w.Nodes {
-		// v0.6.0: an unresolved event-relative node has a zero
-		// time.Time TriggerTime (year 1 AD), which UnixNano renders as
-		// a large negative integer that round-trips back to year 1754
-		// rather than zero. Encode the unresolved case as 0 on the
-		// wire so the load path can detect it cleanly.
-		var trigNano int64
-		if !n.TriggerTime.IsZero() {
-			trigNano = n.TriggerTime.UnixNano()
-		}
-		p.Nodes = append(p.Nodes, Node{
-			TriggerTimeNano: trigNano,
-			Mode:            int(n.Mode),
-			DV:              n.DV,
-			DurationNano:    int64(n.Duration),
-			PrimaryID:       n.PrimaryID,
-			Event:           int(n.Event),
-			Throttle:        n.Throttle,
-		})
-	}
-	if w.ActiveBurn != nil {
-		p.ActiveBurn = &ActiveBurn{
-			Mode:        int(w.ActiveBurn.Mode),
-			DVRemaining: w.ActiveBurn.DVRemaining,
-			EndTimeNano: w.ActiveBurn.EndTime.UnixNano(),
-			PrimaryID:   w.ActiveBurn.PrimaryID,
-			Throttle:    w.ActiveBurn.Throttle,
-		}
-	}
 	p.Missions = missions.Clone(w.Missions)
 	return p
 }
@@ -310,10 +318,10 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	}
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
 
-	// v0.8.1+: load path translates the v1–v4 singular Craft field
-	// into the Crafts slice. v5 saves write Crafts directly; v1–v4
-	// saves arrive with p.Craft set and p.Crafts empty — fold the
-	// singleton in.
+	// v0.8.1+: load path translates the pre-v5 singular Craft field
+	// into the Crafts slice, and distributes pre-v5 payload-level
+	// Nodes / ActiveBurn into the active craft's fields. v5 saves
+	// arrive with everything already nested under each Craft.
 	wireCrafts := p.Crafts
 	if p.Craft != nil && len(wireCrafts) == 0 {
 		wireCrafts = []Craft{*p.Craft}
@@ -333,13 +341,13 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		if monoCap == 0 && rcsThrust == 0 && rcsIsp == 0 {
 			monoprop, monoCap, rcsThrust, rcsIsp = spacecraft.DefaultRCSLoadout(wc.DryMass)
 		}
-		w.Crafts = append(w.Crafts, &spacecraft.Spacecraft{
+		c := &spacecraft.Spacecraft{
 			Name:     wc.Name,
 			DryMass:  wc.DryMass,
 			Fuel:     wc.Fuel,
 			Isp:      wc.Isp,
 			Thrust:   wc.Thrust,
-			Throttle: 1.0, // v0.7.3+: Spacecraft.Throttle is transient.
+			Throttle: 1.0, // v0.7.3+: transient.
 			Monoprop:         monoprop,
 			MonopropCapacity: monoCap,
 			RCSThrust:        rcsThrust,
@@ -350,38 +358,67 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				V: vec3To(wc.V),
 				M: wc.M,
 			},
-		})
+			AttitudeMode: spacecraft.BurnMode(wc.AttitudeMode),
+			EngineMode:   spacecraft.EngineMode(wc.EngineMode),
+		}
+		// v0.8.1+: per-craft Nodes / ActiveBurn loaded directly from
+		// each Craft entry.
+		for _, n := range wc.Nodes {
+			var trig time.Time
+			if n.TriggerTimeNano != 0 {
+				trig = time.Unix(0, n.TriggerTimeNano).UTC()
+			}
+			c.Nodes = append(c.Nodes, sim.ManeuverNode{
+				TriggerTime: trig,
+				Mode:        spacecraft.BurnMode(n.Mode),
+				DV:          n.DV,
+				Duration:    time.Duration(n.DurationNano),
+				PrimaryID:   n.PrimaryID,
+				Event:       sim.TriggerEvent(n.Event),
+				Throttle:    n.Throttle,
+			})
+		}
+		if wc.ActiveBurn != nil {
+			c.ActiveBurn = &sim.ActiveBurn{
+				Mode:        spacecraft.BurnMode(wc.ActiveBurn.Mode),
+				DVRemaining: wc.ActiveBurn.DVRemaining,
+				EndTime:     time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
+				PrimaryID:   wc.ActiveBurn.PrimaryID,
+				Throttle:    wc.ActiveBurn.Throttle,
+			}
+		}
+		w.Crafts = append(w.Crafts, c)
 	}
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx
 	}
-	for _, n := range p.Nodes {
-		// v0.6.0: an unresolved event-relative node serialises with
-		// TriggerTimeNano = 0 (zero time.Time → year 1 AD). Round-trip
-		// it back to a zero time.Time so the resolver picks it up on
-		// the next Tick. Resolved nodes (and all v1 saves) have non-
-		// zero TriggerTimeNano and round-trip identically.
-		var trig time.Time
-		if n.TriggerTimeNano != 0 {
-			trig = time.Unix(0, n.TriggerTimeNano).UTC()
+	// Pre-v5 payload-level Nodes / ActiveBurn → active craft's
+	// fields. The migration assumes pre-v5 saves had a single craft
+	// (which is correct: pre-v5 World had a single Craft pointer).
+	if active := w.ActiveCraft(); active != nil {
+		for _, n := range p.Nodes {
+			var trig time.Time
+			if n.TriggerTimeNano != 0 {
+				trig = time.Unix(0, n.TriggerTimeNano).UTC()
+			}
+			active.Nodes = append(active.Nodes, sim.ManeuverNode{
+				TriggerTime: trig,
+				Mode:        spacecraft.BurnMode(n.Mode),
+				DV:          n.DV,
+				Duration:    time.Duration(n.DurationNano),
+				PrimaryID:   n.PrimaryID,
+				Event:       sim.TriggerEvent(n.Event),
+				Throttle:    n.Throttle,
+			})
 		}
-		w.Nodes = append(w.Nodes, sim.ManeuverNode{
-			TriggerTime: trig,
-			Mode:        spacecraft.BurnMode(n.Mode),
-			DV:          n.DV,
-			Duration:    time.Duration(n.DurationNano),
-			PrimaryID:   n.PrimaryID,
-			Event:       sim.TriggerEvent(n.Event),
-			Throttle:    n.Throttle, // 0 → EffectiveThrottle remaps to 1.0 for v1–v3 saves.
-		})
-	}
-	if p.ActiveBurn != nil {
-		w.ActiveBurn = &sim.ActiveBurn{
-			Mode:        spacecraft.BurnMode(p.ActiveBurn.Mode),
-			DVRemaining: p.ActiveBurn.DVRemaining,
-			EndTime:     time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
-			PrimaryID:   p.ActiveBurn.PrimaryID,
-			Throttle:    p.ActiveBurn.Throttle, // 0 → stepThrust defaults to 1.0
+		if p.ActiveBurn != nil && active.ActiveBurn == nil {
+			active.ActiveBurn = &sim.ActiveBurn{
+				Mode:        spacecraft.BurnMode(p.ActiveBurn.Mode),
+				DVRemaining: p.ActiveBurn.DVRemaining,
+				EndTime:     time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
+				PrimaryID:   p.ActiveBurn.PrimaryID,
+				Throttle:    p.ActiveBurn.Throttle,
+			}
 		}
 	}
 	// v0.6.5: missions persist with status. v3+ saves carry an explicit
