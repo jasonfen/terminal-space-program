@@ -30,14 +30,13 @@ import (
 // for the mission-scaffold slice; v0.7.6 bumped to v4 to add
 // per-node Throttle. v0.8.0 left the version at 4 — the new RCS
 // fields ride along as omitempty additions, with the loader filling
-// defaults for older saves. The first non-additive migration is
-// v0.8.1's v4 → v5 (Crafts slice). Load accepts any version in [1,
-// SchemaVersion]; missing fields on older saves deserialise to their
-// zero values, which match the legacy semantics (Event =
-// TriggerAbsolute, Missions = nil → seeded from default catalog post-
-// load). Bumps that need real migration logic should add a dedicated
-// upgrade pass keyed off File.Version.
-const SchemaVersion = 4
+// defaults for older saves. v0.8.1 bumped to v5 — the first
+// non-additive migration: `Craft *Craft` → `Crafts []Craft` +
+// `ActiveCraftIdx`. Load accepts any version in [1, SchemaVersion];
+// pre-v5 envelopes are translated to the slice form on load. Bumps
+// that need real migration logic should add a dedicated upgrade pass
+// keyed off File.Version.
+const SchemaVersion = 5
 
 // File is the on-disk envelope.
 type File struct {
@@ -50,17 +49,24 @@ type File struct {
 
 // Payload carries the live simulation state. Anything derivable from
 // the catalog (Systems, Calculator) is reconstructed on Load.
+//
+// v0.8.1 / schema v5: `Craft *Craft` (singular pointer) replaced by
+// `Crafts []Craft` (slice) + `ActiveCraftIdx`. Pre-v5 saves with a
+// non-nil singular `Craft` field are translated by `migrateV4ToV5`
+// in save_migrate.go on load.
 type Payload struct {
-	SystemIdx    int                `json:"system_idx"`
-	SimTimeNano  int64              `json:"sim_time_unix_nano"`
-	BaseStepNano int64              `json:"base_step_nano"`
-	WarpIdx      int                `json:"warp_idx"`
-	Paused       bool               `json:"paused"`
-	Focus        Focus              `json:"focus"`
-	Craft        *Craft             `json:"craft,omitempty"`
-	Nodes        []Node             `json:"nodes,omitempty"`
-	ActiveBurn   *ActiveBurn        `json:"active_burn,omitempty"`
-	Missions     []missions.Mission `json:"missions,omitempty"`
+	SystemIdx      int                `json:"system_idx"`
+	SimTimeNano    int64              `json:"sim_time_unix_nano"`
+	BaseStepNano   int64              `json:"base_step_nano"`
+	WarpIdx        int                `json:"warp_idx"`
+	Paused         bool               `json:"paused"`
+	Focus          Focus              `json:"focus"`
+	Craft          *Craft             `json:"craft,omitempty"` // v1–v4 singular form; migrated to Crafts on load.
+	Crafts         []Craft            `json:"crafts,omitempty"`
+	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
+	Nodes          []Node             `json:"nodes,omitempty"`
+	ActiveBurn     *ActiveBurn        `json:"active_burn,omitempty"`
+	Missions       []missions.Mission `json:"missions,omitempty"`
 }
 
 // Focus mirrors sim.Focus by value.
@@ -226,23 +232,30 @@ func payloadFromWorld(w *sim.World) Payload {
 			BodyIdx: w.Focus.BodyIdx,
 		},
 	}
-	if w.Craft != nil {
-		p.Craft = &Craft{
-			Name:             w.Craft.Name,
-			DryMass:          w.Craft.DryMass,
-			Fuel:             w.Craft.Fuel,
-			Isp:              w.Craft.Isp,
-			Thrust:           w.Craft.Thrust,
-			PrimaryID:        w.Craft.Primary.ID,
-			R:                vec3From(w.Craft.State.R),
-			V:                vec3From(w.Craft.State.V),
-			M:                w.Craft.State.M,
-			Monoprop:         w.Craft.Monoprop,
-			MonopropCapacity: w.Craft.MonopropCapacity,
-			RCSThrust:        w.Craft.RCSThrust,
-			RCSIsp:           w.Craft.RCSIsp,
+	// v0.8.1+: Crafts becomes the wire form. Pre-v0.8.1 saves used a
+	// single-pointer Craft field; the Phase-3 v4→v5 migration in
+	// save_migrate.go translates between them.
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
 		}
+		p.Crafts = append(p.Crafts, Craft{
+			Name:             c.Name,
+			DryMass:          c.DryMass,
+			Fuel:             c.Fuel,
+			Isp:              c.Isp,
+			Thrust:           c.Thrust,
+			PrimaryID:        c.Primary.ID,
+			R:                vec3From(c.State.R),
+			V:                vec3From(c.State.V),
+			M:                c.State.M,
+			Monoprop:         c.Monoprop,
+			MonopropCapacity: c.MonopropCapacity,
+			RCSThrust:        c.RCSThrust,
+			RCSIsp:           c.RCSIsp,
+		})
 	}
+	p.ActiveCraftIdx = w.ActiveCraftIdx
 	for _, n := range w.Nodes {
 		// v0.6.0: an unresolved event-relative node has a zero
 		// time.Time TriggerTime (year 1 AD), which UnixNano renders as
@@ -297,44 +310,50 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	}
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
 
-	if p.Craft != nil {
-		primary, ok := bodies.LookupByID(systems, p.Craft.PrimaryID)
+	// v0.8.1+: load path translates the v1–v4 singular Craft field
+	// into the Crafts slice. v5 saves write Crafts directly; v1–v4
+	// saves arrive with p.Craft set and p.Crafts empty — fold the
+	// singleton in.
+	wireCrafts := p.Crafts
+	if p.Craft != nil && len(wireCrafts) == 0 {
+		wireCrafts = []Craft{*p.Craft}
+	}
+	for _, wc := range wireCrafts {
+		primary, ok := bodies.LookupByID(systems, wc.PrimaryID)
 		if !ok {
-			return nil, fmt.Errorf("%w: %q", ErrCraftPrimary, p.Craft.PrimaryID)
+			return nil, fmt.Errorf("%w: %q", ErrCraftPrimary, wc.PrimaryID)
 		}
-		// v0.8.0+: pre-RCS saves (v3 and earlier wire-out, plus newly-
-		// constructed craft from older code paths) carry zero RCS
-		// fields. Populate from the dry-mass-keyed default loadout so
-		// older saves inherit RCS without a schema bump. Monoprop
-		// loads as full-tank for these — the player gets a brand-new
-		// RCS budget on first load post-upgrade.
-		monoprop := p.Craft.Monoprop
-		monoCap := p.Craft.MonopropCapacity
-		rcsThrust := p.Craft.RCSThrust
-		rcsIsp := p.Craft.RCSIsp
+		// v0.8.0+: pre-RCS saves (v3 and earlier wire-out) carry zero
+		// RCS fields. Populate from DefaultRCSLoadout(DryMass) so
+		// older saves inherit a full RCS budget without a schema bump.
+		monoprop := wc.Monoprop
+		monoCap := wc.MonopropCapacity
+		rcsThrust := wc.RCSThrust
+		rcsIsp := wc.RCSIsp
 		if monoCap == 0 && rcsThrust == 0 && rcsIsp == 0 {
-			monoprop, monoCap, rcsThrust, rcsIsp = spacecraft.DefaultRCSLoadout(p.Craft.DryMass)
+			monoprop, monoCap, rcsThrust, rcsIsp = spacecraft.DefaultRCSLoadout(wc.DryMass)
 		}
-		w.Craft = &spacecraft.Spacecraft{
-			Name:     p.Craft.Name,
-			DryMass:  p.Craft.DryMass,
-			Fuel:     p.Craft.Fuel,
-			Isp:      p.Craft.Isp,
-			Thrust:   p.Craft.Thrust,
-			Throttle: 1.0, // v0.7.3+: Spacecraft.Throttle is transient
-			// (set live by `z`/`x`/Shift+ keys); not persisted, so
-			// every load defaults the engine to full open.
+		w.Crafts = append(w.Crafts, &spacecraft.Spacecraft{
+			Name:     wc.Name,
+			DryMass:  wc.DryMass,
+			Fuel:     wc.Fuel,
+			Isp:      wc.Isp,
+			Thrust:   wc.Thrust,
+			Throttle: 1.0, // v0.7.3+: Spacecraft.Throttle is transient.
 			Monoprop:         monoprop,
 			MonopropCapacity: monoCap,
 			RCSThrust:        rcsThrust,
 			RCSIsp:           rcsIsp,
 			Primary:          primary,
 			State: physics.StateVector{
-				R: vec3To(p.Craft.R),
-				V: vec3To(p.Craft.V),
-				M: p.Craft.M,
+				R: vec3To(wc.R),
+				V: vec3To(wc.V),
+				M: wc.M,
 			},
-		}
+		})
+	}
+	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
+		w.ActiveCraftIdx = p.ActiveCraftIdx
 	}
 	for _, n := range p.Nodes {
 		// v0.6.0: an unresolved event-relative node serialises with

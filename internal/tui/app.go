@@ -105,13 +105,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case screens.BurnExecutedMsg:
-		if a.world.Craft != nil {
+		if a.world.ActiveCraft() != nil {
 			// v0.6.5: derive burn duration from Δv using the rocket
 			// equation against the live craft state, so the planner UX
 			// only has to specify Δv. Zero-thrust craft fall back to the
 			// legacy impulsive path (Duration = 0) — the API still
 			// supports that branch, just no longer through the form.
-			dur := a.world.Craft.BurnTimeForDV(m.DV)
+			dur := a.world.ActiveCraft().BurnTimeForDV(m.DV)
 			// v0.6.4 click-to-edit: replace the original node before
 			// planting so click → edit → Enter reads as "modify in
 			// place" rather than "duplicate." Removal must come first
@@ -147,7 +147,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Throttle: m.Throttle,
 				})
 			case dur == 0:
-				a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
+				a.world.ActiveCraft().ApplyImpulsive(m.Mode, m.DV)
 			default:
 				effThrottle := m.Throttle
 				if effThrottle <= 0 {
@@ -372,7 +372,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.PlanNode):
 			if a.world.CraftVisibleHere() {
 				const defaultDV = 200.0
-				dur := finiteBurnDuration(defaultDV, a.world.Craft.TotalMass(), a.world.Craft.Thrust)
+				dur := finiteBurnDuration(defaultDV, a.world.ActiveCraft().TotalMass(), a.world.ActiveCraft().Thrust)
 				a.world.PlanNode(sim.ManeuverNode{
 					TriggerTime: a.world.Clock.SimTime.Add(5 * time.Minute),
 					Mode:        spacecraft.BurnPrograde,

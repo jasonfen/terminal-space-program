@@ -13,7 +13,7 @@ import (
 // change — the player would expect `r` to mean "switch tools," not
 // "keep burning while I switch tools."
 func (w *World) CycleEngineMode() {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return
 	}
 	if w.EngineMode == spacecraft.EngineMain {
@@ -36,17 +36,17 @@ func (w *World) CycleEngineMode() {
 //
 // v0.8.0+.
 func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
-	if w.Craft == nil || w.EngineMode != spacecraft.EngineRCS {
+	if w.ActiveCraft() == nil || w.EngineMode != spacecraft.EngineRCS {
 		return false
 	}
 	if w.ActiveBurn != nil {
 		return false
 	}
-	dir := spacecraft.DirectionUnit(mode, w.Craft.State.R, w.Craft.State.V)
+	dir := spacecraft.DirectionUnit(mode, w.ActiveCraft().State.R, w.ActiveCraft().State.V)
 	if dir.Norm() == 0 {
 		return false
 	}
-	if !w.Craft.ApplyRCSPulse(mode) {
+	if !w.ActiveCraft().ApplyRCSPulse(mode) {
 		return false
 	}
 	w.AttitudeMode = mode
@@ -58,12 +58,12 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 // unit Δv direction; the renderer flips it to draw exhaust on the
 // opposite side of the craft chevron. v0.8.0+.
 func (w *World) recordRCSPuff(dir orbital.Vec3) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return
 	}
 	w.rcsPuffs[w.rcsPuffIdx] = rcsPuff{
-		primaryID: w.Craft.Primary.ID,
-		relR:      w.Craft.State.R,
+		primaryID: w.ActiveCraft().Primary.ID,
+		relR:      w.ActiveCraft().State.R,
 		dir:       dir,
 		at:        w.Clock.SimTime,
 	}

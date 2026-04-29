@@ -18,13 +18,13 @@ func TestWorldSpawnsSpacecraft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		t.Fatal("Craft is nil")
 	}
-	if w.Craft.Primary.EnglishName != "Earth" {
-		t.Errorf("expected primary=Earth, got %s", w.Craft.Primary.EnglishName)
+	if w.ActiveCraft().Primary.EnglishName != "Earth" {
+		t.Errorf("expected primary=Earth, got %s", w.ActiveCraft().Primary.EnglishName)
 	}
-	alt := w.Craft.Altitude()
+	alt := w.ActiveCraft().Altitude()
 	if math.Abs(alt-500e3) > 1 {
 		t.Errorf("initial altitude %.1f m, want 500000 (v0.6.1+)", alt)
 	}
@@ -35,8 +35,8 @@ func TestWorldSpawnsSpacecraft(t *testing.T) {
 // path, which is what the TUI exercises.
 func TestWorldIntegrationStableOverOrbits(t *testing.T) {
 	w, _ := NewWorld()
-	mu := w.Craft.Primary.GravitationalParameter()
-	r0 := w.Craft.State.R.Norm()
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	r0 := w.ActiveCraft().State.R.Norm()
 	a0 := r0 // circular
 
 	period := 2 * math.Pi * math.Sqrt(r0*r0*r0/mu)
@@ -53,8 +53,8 @@ func TestWorldIntegrationStableOverOrbits(t *testing.T) {
 	}
 
 	// Re-derive SMA from final state (vis-viva via physics package).
-	vf := w.Craft.State.V.Norm()
-	rf := w.Craft.State.R.Norm()
+	vf := w.ActiveCraft().State.V.Norm()
+	rf := w.ActiveCraft().State.R.Norm()
 	eps := 0.5*vf*vf - mu/rf
 	af := -mu / (2 * eps)
 
@@ -226,8 +226,8 @@ func TestCraftTrailFollowsPrimaryFrame(t *testing.T) {
 	if len(tr) != trailCap {
 		t.Fatalf("expected full trail (%d), got %d", trailCap, len(tr))
 	}
-	earthPos := w.BodyPosition(w.Craft.Primary)
-	craftR := w.Craft.State.R.Norm()
+	earthPos := w.BodyPosition(w.ActiveCraft().Primary)
+	craftR := w.ActiveCraft().State.R.Norm()
 	// Allow 2× LEO radius for trail spread over ticks; bug would
 	// produce 1e8+ m displacements.
 	maxAllowed := 2 * craftR
@@ -244,15 +244,15 @@ func TestCraftTrailFollowsPrimaryFrame(t *testing.T) {
 // advancement and physics stepping.
 func TestPausedTickDoesNothing(t *testing.T) {
 	w, _ := NewWorld()
-	r0 := w.Craft.State.R
+	r0 := w.ActiveCraft().State.R
 	t0 := w.Clock.SimTime
 	w.Clock.Paused = true
 	w.Clock.BaseStep = 50 * time.Millisecond
 	for i := 0; i < 10; i++ {
 		w.Tick()
 	}
-	if w.Craft.State.R != r0 {
-		t.Errorf("paused: craft moved from %v to %v", r0, w.Craft.State.R)
+	if w.ActiveCraft().State.R != r0 {
+		t.Errorf("paused: craft moved from %v to %v", r0, w.ActiveCraft().State.R)
 	}
 	if !w.Clock.SimTime.Equal(t0) {
 		t.Errorf("paused: sim-time advanced from %v to %v", t0, w.Clock.SimTime)
@@ -285,13 +285,13 @@ func TestTickPassesCircularizeAtTarget(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	// Force the craft into an exact 1000 km circular orbit.
-	mu := w.Craft.Primary.GravitationalParameter()
-	r := w.Craft.Primary.RadiusMeters() + 1_000_000
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	r := w.ActiveCraft().Primary.RadiusMeters() + 1_000_000
 	v := math.Sqrt(mu / r)
-	w.Craft.State = physics.StateVector{
+	w.ActiveCraft().State = physics.StateVector{
 		R: orbital.Vec3{X: r},
 		V: orbital.Vec3{Y: v},
-		M: w.Craft.TotalMass(),
+		M: w.ActiveCraft().TotalMass(),
 	}
 	w.Tick()
 
