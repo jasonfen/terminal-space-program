@@ -14,6 +14,47 @@ import (
 
 var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 
+// SpawnSpec describes a craft to spawn. v0.8.2 ships with just
+// LoadoutID; future patches add ParentBodyID, Altitude, and a
+// retrograde flag (see v0.8 plan §v0.8.1 spawn form). Empty
+// LoadoutID means "auto-pick" — the round-robin from
+// nextLoadoutID().
+type SpawnSpec struct {
+	LoadoutID string
+}
+
+// SpawnCraft adds a new craft to the slate using the given spec.
+// The new craft spawns 90° around the active craft's primary in
+// a 500 km circular prograde orbit (the v0.8.2 fixed parameters).
+// After spawn the new craft becomes active. v0.8.2+.
+func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
+	active := w.ActiveCraft()
+	if active == nil {
+		return nil, errNoActiveCraftToCopy
+	}
+	primary := active.Primary
+	mu := primary.GravitationalParameter()
+	r := primary.RadiusMeters() + 500e3
+	v := math.Sqrt(mu / r)
+
+	id := spec.LoadoutID
+	if id == "" {
+		id = w.nextLoadoutID()
+	}
+	c := spacecraft.NewFromLoadout(id)
+	c.Name = w.nextCraftName(c.Name)
+	c.Primary = primary
+	c.State = physics.StateVector{
+		R: orbital.Vec3{Y: r},
+		V: orbital.Vec3{X: -v},
+		M: c.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, c)
+	w.ActiveCraftIdx = len(w.Crafts) - 1
+	w.StopManualBurn()
+	return c, nil
+}
+
 // nextCraftName returns a name for the next spawned craft of the
 // given prototype name (e.g. "S-IVB-1"). The trailing `-N` suffix
 // is bumped so consecutive spawns become "S-IVB-2", "S-IVB-3", …
@@ -52,43 +93,13 @@ func splitNumericSuffix(name string) (string, int) {
 	return name[:idx], n
 }
 
-// SpawnSisterCraft adds a new craft to the slate, offset 90° around
-// the same primary as the active craft in a 500 km circular prograde
-// orbit. The new craft cycles through `spacecraft.LoadoutOrder` so
-// consecutive spawns produce visually-distinct vessels (S-IVB-1 →
-// ICPS → RCS-tug → Lander → wraps). After spawn the new craft
-// becomes active so the player can immediately fly it.
-//
-// v0.8.1 shipped a single-loadout sister spawn; v0.8.2 cycles
-// through the loadout catalog so multi-craft slates exercise the
-// new craft-type variety automatically. The full SpawnSpec form
-// (parent-body / altitude / direction / explicit loadout pick)
-// lands as a v0.8.2.x follow-up.
+// SpawnSisterCraft is the auto-pick variant of SpawnCraft: it
+// delegates with an empty SpawnSpec, which round-robins the
+// loadout cycle. Kept as a convenience for tests / the v0.8.1
+// rapid-spawn behaviour. v0.8.2+: the orbit screen routes
+// through a SpawnCraft form for explicit loadout pick.
 func (w *World) SpawnSisterCraft() (*spacecraft.Spacecraft, error) {
-	active := w.ActiveCraft()
-	if active == nil {
-		return nil, errNoActiveCraftToCopy
-	}
-	primary := active.Primary
-	mu := primary.GravitationalParameter()
-	r := primary.RadiusMeters() + 500e3
-	v := math.Sqrt(mu / r)
-
-	// Offset 90° around the primary — primary at the inertial
-	// origin, sister at +Y, prograde points toward -X.
-	loadoutID := w.nextLoadoutID()
-	sister := spacecraft.NewFromLoadout(loadoutID)
-	sister.Name = w.nextCraftName(sister.Name)
-	sister.Primary = primary
-	sister.State = physics.StateVector{
-		R: orbital.Vec3{Y: r},
-		V: orbital.Vec3{X: -v},
-		M: sister.TotalMass(),
-	}
-	w.Crafts = append(w.Crafts, sister)
-	w.ActiveCraftIdx = len(w.Crafts) - 1
-	w.StopManualBurn()
-	return sister, nil
+	return w.SpawnCraft(SpawnSpec{})
 }
 
 // nextLoadoutID picks the next loadout in the spawn-rotation —
