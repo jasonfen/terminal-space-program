@@ -551,6 +551,44 @@ func TestLegacySaveBackfillsRCS(t *testing.T) {
 	}
 }
 
+// TestMultiCraftRoundtrip: save → load preserves all craft in the
+// slate, the ActiveCraftIdx, and each craft's per-craft state.
+func TestMultiCraftRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnSisterCraft(); err != nil {
+		t.Fatalf("SpawnSisterCraft: %v", err)
+	}
+	if _, err := w.SpawnSisterCraft(); err != nil {
+		t.Fatalf("SpawnSisterCraft 2: %v", err)
+	}
+	wantCount := len(w.Crafts)
+	wantActive := w.ActiveCraftIdx
+	// Mutate the second craft so we can check it round-trips.
+	w.Crafts[1].Monoprop = 123.45
+	wantMono := w.Crafts[1].Monoprop
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Crafts) != wantCount {
+		t.Errorf("Crafts count = %d, want %d", len(got.Crafts), wantCount)
+	}
+	if got.ActiveCraftIdx != wantActive {
+		t.Errorf("ActiveCraftIdx = %d, want %d", got.ActiveCraftIdx, wantActive)
+	}
+	if len(got.Crafts) > 1 && got.Crafts[1].Monoprop != wantMono {
+		t.Errorf("Crafts[1].Monoprop = %v, want %v", got.Crafts[1].Monoprop, wantMono)
+	}
+}
+
 func vecEq(a, b orbital.Vec3) bool {
 	return a.X == b.X && a.Y == b.Y && a.Z == b.Z
 }

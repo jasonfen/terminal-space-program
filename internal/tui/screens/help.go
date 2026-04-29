@@ -44,7 +44,6 @@ func (h *Help) Render() string {
 			{"m", "open maneuver planner (burn now)"},
 			{"enter", "commit burn"},
 			{"esc (in planner)", "cancel burn"},
-			{"n", "plan a node (T+5m prograde 200m/s)"},
 			{"N", "clear all planned nodes"},
 			{"H", "plant Hohmann transfer to selected body"},
 			{"I", "plant inclination match (selected body / equatorial)"},
@@ -61,6 +60,7 @@ func (h *Help) Render() string {
 			{"r", "engine: main / rcs (RCS = monoprop pulse-fire on attitude keys)"},
 		}},
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
+			{"n", "spawn craft (sister copy of active in 500 km LEO around same primary)"},
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
 		}},
 		{"PERSISTENCE", [][2]string{

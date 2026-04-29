@@ -369,16 +369,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.FocusReset):
 			a.world.ResetFocus()
 			return a, nil
-		case key.Matches(m, a.keys.PlanNode):
-			if a.world.CraftVisibleHere() {
-				const defaultDV = 200.0
-				dur := finiteBurnDuration(defaultDV, a.world.ActiveCraft().TotalMass(), a.world.ActiveCraft().Thrust)
-				a.world.PlanNode(sim.ManeuverNode{
-					TriggerTime: a.world.Clock.SimTime.Add(5 * time.Minute),
-					Mode:        spacecraft.BurnPrograde,
-					DV:          defaultDV,
-					Duration:    dur,
-				})
+		case key.Matches(m, a.keys.SpawnCraft):
+			// v0.8.1: minimal spawn — produces a sister copy of the
+			// active craft in a 500 km circular orbit around the same
+			// primary, offset 90° from the original. The full spawn
+			// form (parent body cycle, altitude knob, prograde toggle,
+			// craft type cycle once v0.8.2 lands) is a follow-up patch.
+			if c, err := a.world.SpawnSisterCraft(); err == nil {
+				a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
+				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PlanTransfer):
