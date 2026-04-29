@@ -460,6 +460,84 @@ func TestV2SaveLoadsAsV3(t *testing.T) {
 	}
 }
 
+// TestRCSFieldsRoundtrip: the v0.8.0 RCS fields (monoprop, capacity,
+// thrust, isp) survive Save → Load unchanged.
+func TestRCSFieldsRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Craft.Monoprop = 17.5
+	w.Craft.MonopropCapacity = 50
+	w.Craft.RCSThrust = 440
+	w.Craft.RCSIsp = 220
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Craft.Monoprop != 17.5 {
+		t.Errorf("Monoprop = %v, want 17.5", got.Craft.Monoprop)
+	}
+	if got.Craft.MonopropCapacity != 50 {
+		t.Errorf("MonopropCapacity = %v, want 50", got.Craft.MonopropCapacity)
+	}
+	if got.Craft.RCSThrust != 440 {
+		t.Errorf("RCSThrust = %v, want 440", got.Craft.RCSThrust)
+	}
+	if got.Craft.RCSIsp != 220 {
+		t.Errorf("RCSIsp = %v, want 220", got.Craft.RCSIsp)
+	}
+}
+
+// TestLegacySaveBackfillsRCS: a save written before v0.8.0 has zero
+// RCS fields on the wire; the loader must backfill DefaultRCSLoadout
+// off DryMass so older saves inherit a full RCS budget without a
+// schema bump.
+func TestLegacySaveBackfillsRCS(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Forge a pre-v0.8.0 envelope: zero out the RCS fields on disk to
+	// simulate a v3-era save that never knew about monoprop.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var f save.File
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	f.Payload.Craft.Monoprop = 0
+	f.Payload.Craft.MonopropCapacity = 0
+	f.Payload.Craft.RCSThrust = 0
+	f.Payload.Craft.RCSIsp = 0
+	rewritten, _ := json.Marshal(f)
+	if err := os.WriteFile(path, rewritten, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Craft.RCSIsp == 0 || got.Craft.RCSThrust == 0 || got.Craft.MonopropCapacity == 0 {
+		t.Errorf("legacy save did not backfill RCS: %+v", got.Craft)
+	}
+	if got.Craft.Monoprop != got.Craft.MonopropCapacity {
+		t.Errorf("legacy save should ship full monoprop: %v / %v",
+			got.Craft.Monoprop, got.Craft.MonopropCapacity)
+	}
+}
+
 func vecEq(a, b orbital.Vec3) bool {
 	return a.X == b.X && a.Y == b.Y && a.Z == b.Z
 }

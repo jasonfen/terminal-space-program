@@ -13,8 +13,11 @@ func TestNewInLEO(t *testing.T) {
 	sc := NewInLEO(*earth)
 
 	// v0.5.13+ default: S-IVB-like 11 000 kg dry + 40 000 kg fuel.
-	if sc.TotalMass() != 51000 {
-		t.Errorf("total mass = %v, want 51000", sc.TotalMass())
+	// v0.8.0+: + 720 kg monoprop tank (per DefaultRCSLoadout sizing,
+	// targeting ~30 m/s of RCS Δv budget on the wet craft).
+	const wantMass = 51720.0
+	if sc.TotalMass() != wantMass {
+		t.Errorf("total mass = %v, want %v", sc.TotalMass(), wantMass)
 	}
 	// Altitude should be ~500 km (v0.6.1+ default — was 200 km).
 	alt := sc.Altitude()

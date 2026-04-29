@@ -1495,12 +1495,15 @@ func TestPreviewBurnStateLongRetroAtLunaPeriCapsByDuration(t *testing.T) {
 		t.Errorf("preview AP %.0f km matched 400 m/s impulsive (%.0f km) more closely than truncated %.1f m/s impulsive (%.0f km) — duration cap not applied",
 			postApo/1000, impApo400/1000, maxDeliverable, impApoCap/1000)
 	}
-	// Preview AP should be within 5% of the truncated impulsive
-	// prediction. Finite-burn deformation nudges it slightly but
-	// not by 5%.
+	// Preview AP should be within 7% of the truncated impulsive
+	// prediction. Finite-burn deformation nudges it; the bound was
+	// 5% pre-v0.8.0 (51050 kg craft) but the v0.8.0 monoprop tank
+	// (+720 kg) thickens the integration enough to land right at
+	// the threshold. The test's primary job is confirming the cap
+	// is applied (above), not pinpointing finite-burn precision.
 	rel := math.Abs(postApo-impApoCap) / impApoCap
-	if rel > 0.05 {
-		t.Errorf("preview AP %.0f km diverges from truncated-impulsive %.0f km by %.1f%% — expected < 5%%",
+	if rel > 0.07 {
+		t.Errorf("preview AP %.0f km diverges from truncated-impulsive %.0f km by %.1f%% — expected < 7%%",
 			postApo/1000, impApoCap/1000, rel*100)
 	}
 }

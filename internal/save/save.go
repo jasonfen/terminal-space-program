@@ -27,7 +27,11 @@ import (
 // SchemaVersion is the on-disk version that Save writes today. v0.4.0
 // shipped v1; v0.6.0 bumped to v2 to add ManeuverNode.Event for the
 // burn-at-next scheduler; v0.6.5 bumped to v3 to add Payload.Missions
-// for the mission-scaffold slice. Load accepts any version in [1,
+// for the mission-scaffold slice; v0.7.6 bumped to v4 to add
+// per-node Throttle. v0.8.0 left the version at 4 — the new RCS
+// fields ride along as omitempty additions, with the loader filling
+// defaults for older saves. The first non-additive migration is
+// v0.8.1's v4 → v5 (Crafts slice). Load accepts any version in [1,
 // SchemaVersion]; missing fields on older saves deserialise to their
 // zero values, which match the legacy semantics (Event =
 // TriggerAbsolute, Missions = nil → seeded from default catalog post-
@@ -74,16 +78,25 @@ type Vec3 struct {
 
 // Craft mirrors spacecraft.Spacecraft. Primary is referenced by ID;
 // the rehydrated value is looked up across loaded systems on Load.
+//
+// Monoprop / MonopropCapacity / RCSThrust / RCSIsp (v0.8.0+, schema
+// v4) are omitempty so v1–v3 saves round-trip cleanly: absent → 0.0
+// in JSON, populated from spacecraft.DefaultRCSLoadout(DryMass) at
+// load time so older saves inherit RCS without a migration.
 type Craft struct {
-	Name      string  `json:"name"`
-	DryMass   float64 `json:"dry_mass"`
-	Fuel      float64 `json:"fuel"`
-	Isp       float64 `json:"isp"`
-	Thrust    float64 `json:"thrust"`
-	PrimaryID string  `json:"primary_id"`
-	R         Vec3    `json:"r"`
-	V         Vec3    `json:"v"`
-	M         float64 `json:"m"`
+	Name             string  `json:"name"`
+	DryMass          float64 `json:"dry_mass"`
+	Fuel             float64 `json:"fuel"`
+	Isp              float64 `json:"isp"`
+	Thrust           float64 `json:"thrust"`
+	PrimaryID        string  `json:"primary_id"`
+	R                Vec3    `json:"r"`
+	V                Vec3    `json:"v"`
+	M                float64 `json:"m"`
+	Monoprop         float64 `json:"monoprop,omitempty"`
+	MonopropCapacity float64 `json:"monoprop_capacity,omitempty"`
+	RCSThrust        float64 `json:"rcs_thrust,omitempty"`
+	RCSIsp           float64 `json:"rcs_isp,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -215,15 +228,19 @@ func payloadFromWorld(w *sim.World) Payload {
 	}
 	if w.Craft != nil {
 		p.Craft = &Craft{
-			Name:      w.Craft.Name,
-			DryMass:   w.Craft.DryMass,
-			Fuel:      w.Craft.Fuel,
-			Isp:       w.Craft.Isp,
-			Thrust:    w.Craft.Thrust,
-			PrimaryID: w.Craft.Primary.ID,
-			R:         vec3From(w.Craft.State.R),
-			V:         vec3From(w.Craft.State.V),
-			M:         w.Craft.State.M,
+			Name:             w.Craft.Name,
+			DryMass:          w.Craft.DryMass,
+			Fuel:             w.Craft.Fuel,
+			Isp:              w.Craft.Isp,
+			Thrust:           w.Craft.Thrust,
+			PrimaryID:        w.Craft.Primary.ID,
+			R:                vec3From(w.Craft.State.R),
+			V:                vec3From(w.Craft.State.V),
+			M:                w.Craft.State.M,
+			Monoprop:         w.Craft.Monoprop,
+			MonopropCapacity: w.Craft.MonopropCapacity,
+			RCSThrust:        w.Craft.RCSThrust,
+			RCSIsp:           w.Craft.RCSIsp,
 		}
 	}
 	for _, n := range w.Nodes {
@@ -285,6 +302,19 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		if !ok {
 			return nil, fmt.Errorf("%w: %q", ErrCraftPrimary, p.Craft.PrimaryID)
 		}
+		// v0.8.0+: pre-RCS saves (v3 and earlier wire-out, plus newly-
+		// constructed craft from older code paths) carry zero RCS
+		// fields. Populate from the dry-mass-keyed default loadout so
+		// older saves inherit RCS without a schema bump. Monoprop
+		// loads as full-tank for these — the player gets a brand-new
+		// RCS budget on first load post-upgrade.
+		monoprop := p.Craft.Monoprop
+		monoCap := p.Craft.MonopropCapacity
+		rcsThrust := p.Craft.RCSThrust
+		rcsIsp := p.Craft.RCSIsp
+		if monoCap == 0 && rcsThrust == 0 && rcsIsp == 0 {
+			monoprop, monoCap, rcsThrust, rcsIsp = spacecraft.DefaultRCSLoadout(p.Craft.DryMass)
+		}
 		w.Craft = &spacecraft.Spacecraft{
 			Name:     p.Craft.Name,
 			DryMass:  p.Craft.DryMass,
@@ -294,7 +324,11 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Throttle: 1.0, // v0.7.3+: Spacecraft.Throttle is transient
 			// (set live by `z`/`x`/Shift+ keys); not persisted, so
 			// every load defaults the engine to full open.
-			Primary: primary,
+			Monoprop:         monoprop,
+			MonopropCapacity: monoCap,
+			RCSThrust:        rcsThrust,
+			RCSIsp:           rcsIsp,
+			Primary:          primary,
 			State: physics.StateVector{
 				R: vec3To(p.Craft.R),
 				V: vec3To(p.Craft.V),
