@@ -16,12 +16,12 @@ func (w *World) CycleEngineMode() {
 	if w.ActiveCraft() == nil {
 		return
 	}
-	if w.EngineMode == spacecraft.EngineMain {
+	if w.ActiveCraft().EngineMode == spacecraft.EngineMain {
 		w.StopManualBurn()
-		w.EngineMode = spacecraft.EngineRCS
+		w.ActiveCraft().EngineMode = spacecraft.EngineRCS
 		return
 	}
-	w.EngineMode = spacecraft.EngineMain
+	w.ActiveCraft().EngineMode = spacecraft.EngineMain
 }
 
 // FireRCSPulse delivers one RCSDvQuantum pulse in the given mode (the
@@ -36,10 +36,10 @@ func (w *World) CycleEngineMode() {
 //
 // v0.8.0+.
 func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
-	if w.ActiveCraft() == nil || w.EngineMode != spacecraft.EngineRCS {
+	if w.ActiveCraft() == nil || w.ActiveCraft().EngineMode != spacecraft.EngineRCS {
 		return false
 	}
-	if w.ActiveBurn != nil {
+	if w.ActiveCraft().ActiveBurn != nil {
 		return false
 	}
 	dir := spacecraft.DirectionUnit(mode, w.ActiveCraft().State.R, w.ActiveCraft().State.V)
@@ -49,7 +49,7 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	if !w.ActiveCraft().ApplyRCSPulse(mode) {
 		return false
 	}
-	w.AttitudeMode = mode
+	w.ActiveCraft().AttitudeMode = mode
 	w.recordRCSPuff(dir)
 	return true
 }

@@ -20,9 +20,9 @@ func TestPlanNodeKeepsSortedByTriggerTime(t *testing.T) {
 	w.PlanNode(ManeuverNode{TriggerTime: base.Add(120 * time.Second), DV: 30, Mode: spacecraft.BurnPrograde})
 
 	times := []time.Duration{
-		w.Nodes[0].TriggerTime.Sub(base),
-		w.Nodes[1].TriggerTime.Sub(base),
-		w.Nodes[2].TriggerTime.Sub(base),
+		w.ActiveCraft().Nodes[0].TriggerTime.Sub(base),
+		w.ActiveCraft().Nodes[1].TriggerTime.Sub(base),
+		w.ActiveCraft().Nodes[2].TriggerTime.Sub(base),
 	}
 	wanted := []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second}
 	for i := range times {
@@ -45,14 +45,14 @@ func TestExecuteDueNodesFiresPastNodesAndPopsThem(t *testing.T) {
 		DV:          50,
 		Mode:        spacecraft.BurnPrograde,
 	})
-	if len(w.Nodes) != 1 {
-		t.Fatalf("precondition: expected 1 node, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 1 {
+		t.Fatalf("precondition: expected 1 node, got %d", len(w.ActiveCraft().Nodes))
 	}
 
 	w.executeDueNodes()
 
-	if len(w.Nodes) != 0 {
-		t.Errorf("after executeDueNodes, expected 0 nodes, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 0 {
+		t.Errorf("after executeDueNodes, expected 0 nodes, got %d", len(w.ActiveCraft().Nodes))
 	}
 	// Fuel should have been consumed (rocket equation > 0 for any dv > 0
 	// with positive Isp).
@@ -69,11 +69,11 @@ func TestExecuteDueNodesLeavesFutureNodes(t *testing.T) {
 
 	w.executeDueNodes()
 
-	if len(w.Nodes) != 1 {
-		t.Fatalf("expected 1 surviving node, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 1 {
+		t.Fatalf("expected 1 surviving node, got %d", len(w.ActiveCraft().Nodes))
 	}
-	if w.Nodes[0].DV != 20 {
-		t.Errorf("surviving node: got dv=%g, want 20", w.Nodes[0].DV)
+	if w.ActiveCraft().Nodes[0].DV != 20 {
+		t.Errorf("surviving node: got dv=%g, want 20", w.ActiveCraft().Nodes[0].DV)
 	}
 }
 
@@ -82,8 +82,8 @@ func TestClearNodesRemovesAll(t *testing.T) {
 	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(10 * time.Second)})
 	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(20 * time.Second)})
 	w.ClearNodes()
-	if len(w.Nodes) != 0 {
-		t.Errorf("after ClearNodes: got %d nodes, want 0", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 0 {
+		t.Errorf("after ClearNodes: got %d nodes, want 0", len(w.ActiveCraft().Nodes))
 	}
 }
 
@@ -97,16 +97,16 @@ func TestPlanNodeUnresolvedSortsToEnd(t *testing.T) {
 	w.PlanNode(ManeuverNode{Event: TriggerNextPeri, DV: 20, Mode: spacecraft.BurnPrograde})
 	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(30 * time.Second), DV: 30, Mode: spacecraft.BurnPrograde})
 
-	if len(w.Nodes) != 3 {
-		t.Fatalf("expected 3 nodes, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 3 {
+		t.Fatalf("expected 3 nodes, got %d", len(w.ActiveCraft().Nodes))
 	}
-	if w.Nodes[0].DV != 30 || w.Nodes[1].DV != 10 {
+	if w.ActiveCraft().Nodes[0].DV != 30 || w.ActiveCraft().Nodes[1].DV != 10 {
 		t.Errorf("resolved nodes mis-sorted: got DVs %g / %g, want 30 / 10",
-			w.Nodes[0].DV, w.Nodes[1].DV)
+			w.ActiveCraft().Nodes[0].DV, w.ActiveCraft().Nodes[1].DV)
 	}
-	if w.Nodes[2].Event != TriggerNextPeri || !w.Nodes[2].TriggerTime.IsZero() {
+	if w.ActiveCraft().Nodes[2].Event != TriggerNextPeri || !w.ActiveCraft().Nodes[2].TriggerTime.IsZero() {
 		t.Errorf("unresolved node should be at end with zero TriggerTime; got Event=%v t=%v",
-			w.Nodes[2].Event, w.Nodes[2].TriggerTime)
+			w.ActiveCraft().Nodes[2].Event, w.ActiveCraft().Nodes[2].TriggerTime)
 	}
 }
 
@@ -117,13 +117,13 @@ func TestResolveEventNodesFreezesNextPeri(t *testing.T) {
 	w := mustWorld(t)
 	w.PlanNode(ManeuverNode{Event: TriggerNextPeri, DV: 50, Mode: spacecraft.BurnPrograde})
 
-	if !w.Nodes[0].TriggerTime.IsZero() {
+	if !w.ActiveCraft().Nodes[0].TriggerTime.IsZero() {
 		t.Fatalf("precondition: expected zero TriggerTime on unresolved node")
 	}
 
 	w.resolveEventNodes()
 
-	n := w.Nodes[0]
+	n := w.ActiveCraft().Nodes[0]
 	if n.TriggerTime.IsZero() {
 		t.Fatalf("expected resolver to set TriggerTime, still zero")
 	}
@@ -146,12 +146,12 @@ func TestResolveEventNodesIsIdempotent(t *testing.T) {
 	w := mustWorld(t)
 	w.PlanNode(ManeuverNode{Event: TriggerNextApo, DV: 50, Mode: spacecraft.BurnPrograde})
 	w.resolveEventNodes()
-	first := w.Nodes[0].TriggerTime
+	first := w.ActiveCraft().Nodes[0].TriggerTime
 
 	// Advance the clock; resolver pass 2 must NOT update TriggerTime.
 	w.Clock.SimTime = w.Clock.SimTime.Add(30 * time.Second)
 	w.resolveEventNodes()
-	second := w.Nodes[0].TriggerTime
+	second := w.ActiveCraft().Nodes[0].TriggerTime
 
 	if !first.Equal(second) {
 		t.Errorf("resolver re-resolved already-frozen node: %v → %v", first, second)
@@ -268,7 +268,7 @@ func TestPredictedLegsHohmann(t *testing.T) {
 			legs[1].Primary.ID, sys.Bodies[marsIdx].ID)
 	}
 	// Transfer leg horizon should match the trigger-time gap.
-	wantHorizon := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime).Seconds()
+	wantHorizon := w.ActiveCraft().Nodes[1].TriggerTime.Sub(w.ActiveCraft().Nodes[0].TriggerTime).Seconds()
 	if math.Abs(legs[0].HorizonSecs-wantHorizon) > 1.0 {
 		t.Errorf("transfer leg horizon = %.0f s, want %.0f s",
 			legs[0].HorizonSecs, wantHorizon)
@@ -288,7 +288,7 @@ func TestPredictedLegsSuppressedDuringActiveBurn(t *testing.T) {
 		Mode:        spacecraft.BurnPrograde,
 		DV:          50,
 	})
-	w.ActiveBurn = &ActiveBurn{
+	w.ActiveCraft().ActiveBurn = &ActiveBurn{
 		Mode:        spacecraft.BurnPrograde,
 		DVRemaining: 100,
 		EndTime:     w.Clock.SimTime.Add(10 * time.Second),
@@ -353,7 +353,7 @@ func TestPredictedFinalOrbitMatchesPreviewForResolvedNode(t *testing.T) {
 		DV:    100,
 	})
 	w.resolveEventNodes()
-	if !w.Nodes[0].IsResolved() {
+	if !w.ActiveCraft().Nodes[0].IsResolved() {
 		t.Fatalf("resolver failed to freeze NextApo node on elliptical orbit")
 	}
 
@@ -406,7 +406,7 @@ func TestPredictedFinalOrbitSuppressedDuringActiveBurn(t *testing.T) {
 		Mode:        spacecraft.BurnPrograde,
 		DV:          50,
 	})
-	w.ActiveBurn = &ActiveBurn{
+	w.ActiveCraft().ActiveBurn = &ActiveBurn{
 		Mode:        spacecraft.BurnPrograde,
 		DVRemaining: 100,
 		EndTime:     w.Clock.SimTime.Add(10 * time.Second),
@@ -480,9 +480,9 @@ func TestResolveEventNodesEquatorialAN(t *testing.T) {
 
 	w.resolveEventNodes()
 
-	if w.Nodes[0].IsResolved() {
+	if w.ActiveCraft().Nodes[0].IsResolved() {
 		t.Errorf("equatorial orbit: expected NextAN to stay unresolved; got TriggerTime=%v",
-			w.Nodes[0].TriggerTime)
+			w.ActiveCraft().Nodes[0].TriggerTime)
 	}
 }
 
@@ -546,17 +546,17 @@ func TestFiniteNodeStartsActiveBurn(t *testing.T) {
 	})
 	w.executeDueNodes()
 
-	if w.ActiveBurn == nil {
+	if w.ActiveCraft().ActiveBurn == nil {
 		t.Fatalf("expected ActiveBurn to be set after finite node fired")
 	}
-	if w.ActiveBurn.DVRemaining != 50 {
-		t.Errorf("DVRemaining = %g, want 50", w.ActiveBurn.DVRemaining)
+	if w.ActiveCraft().ActiveBurn.DVRemaining != 50 {
+		t.Errorf("DVRemaining = %g, want 50", w.ActiveCraft().ActiveBurn.DVRemaining)
 	}
 	if v := w.ActiveCraft().OrbitalSpeed(); math.Abs(v-vBefore) > 1e-9 {
 		t.Errorf("velocity changed by %g during executeDueNodes; finite burn should defer to integrator", v-vBefore)
 	}
-	if len(w.Nodes) != 0 {
-		t.Errorf("finite node should be popped from queue, got %d remaining", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 0 {
+		t.Errorf("finite node should be popped from queue, got %d remaining", len(w.ActiveCraft().Nodes))
 	}
 }
 
@@ -577,15 +577,15 @@ func TestFiniteBurnDeliversDeltaVAcrossTicks(t *testing.T) {
 	})
 
 	// Warp 1×, BaseStep 50 ms → 60s window = 1200 ticks. Add safety margin.
-	for i := 0; i < 2000 && w.ActiveBurn != nil || i == 0; i++ {
+	for i := 0; i < 2000 && w.ActiveCraft().ActiveBurn != nil || i == 0; i++ {
 		w.Tick()
-		if i > 0 && w.ActiveBurn == nil {
+		if i > 0 && w.ActiveCraft().ActiveBurn == nil {
 			break
 		}
 	}
 
-	if w.ActiveBurn != nil {
-		t.Fatalf("ActiveBurn should be cleared after Δv delivered or duration elapsed; remaining=%g", w.ActiveBurn.DVRemaining)
+	if w.ActiveCraft().ActiveBurn != nil {
+		t.Fatalf("ActiveBurn should be cleared after Δv delivered or duration elapsed; remaining=%g", w.ActiveCraft().ActiveBurn.DVRemaining)
 	}
 	dv := w.ActiveCraft().OrbitalSpeed() - vBefore
 	// Speed change isn't pure thrust Δv — gravity rotates v during the
@@ -617,12 +617,12 @@ func TestFiniteBurnEndsAtDurationWhenDVNotMet(t *testing.T) {
 	// 50 ms base step × 30 ticks = 1.5 s — past the 1 s window.
 	for i := 0; i < 60; i++ {
 		w.Tick()
-		if w.ActiveBurn == nil {
+		if w.ActiveCraft().ActiveBurn == nil {
 			break
 		}
 	}
-	if w.ActiveBurn != nil {
-		t.Errorf("burn should terminate at EndTime even if DV unmet; got DVRemaining=%g", w.ActiveBurn.DVRemaining)
+	if w.ActiveCraft().ActiveBurn != nil {
+		t.Errorf("burn should terminate at EndTime even if DV unmet; got DVRemaining=%g", w.ActiveCraft().ActiveBurn.DVRemaining)
 	}
 }
 
@@ -653,21 +653,21 @@ func TestPlanTransferLandsTwoNodes(t *testing.T) {
 	if plan == nil {
 		t.Fatal("PlanTransfer returned nil plan with nil error")
 	}
-	if len(w.Nodes) != 2 {
-		t.Fatalf("expected 2 planted nodes, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 2 {
+		t.Fatalf("expected 2 planted nodes, got %d", len(w.ActiveCraft().Nodes))
 	}
-	if w.Nodes[0].PrimaryID != w.ActiveCraft().Primary.ID {
+	if w.ActiveCraft().Nodes[0].PrimaryID != w.ActiveCraft().Primary.ID {
 		t.Errorf("first (departure) node PrimaryID = %q, want craft primary %q",
-			w.Nodes[0].PrimaryID, w.ActiveCraft().Primary.ID)
+			w.ActiveCraft().Nodes[0].PrimaryID, w.ActiveCraft().Primary.ID)
 	}
-	if w.Nodes[1].PrimaryID != sys.Bodies[marsIdx].ID {
+	if w.ActiveCraft().Nodes[1].PrimaryID != sys.Bodies[marsIdx].ID {
 		t.Errorf("second (arrival) node PrimaryID = %q, want mars %q",
-			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
+			w.ActiveCraft().Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
 	}
 	// v0.5.14+ TriggerTime is the burn center == planner OffsetTime;
 	// gap between consecutive node TriggerTimes equals TransferDt
 	// exactly (modulo nanoseconds).
-	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime)
+	gap := w.ActiveCraft().Nodes[1].TriggerTime.Sub(w.ActiveCraft().Nodes[0].TriggerTime)
 	if gap != plan.TransferDt {
 		t.Errorf("planted-node time gap = %v, want plan.TransferDt = %v", gap, plan.TransferDt)
 	}
@@ -693,10 +693,10 @@ func TestPlanTransferPlantsFiniteBurns(t *testing.T) {
 	if _, err := w.PlanTransfer(marsIdx); err != nil {
 		t.Fatalf("PlanTransfer: %v", err)
 	}
-	if len(w.Nodes) != 2 {
-		t.Fatalf("expected 2 nodes, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(w.ActiveCraft().Nodes))
 	}
-	for i, n := range w.Nodes {
+	for i, n := range w.ActiveCraft().Nodes {
 		if n.Duration <= 0 {
 			t.Errorf("node %d Duration = %v, want > 0 (finite burn)", i, n.Duration)
 		}
@@ -717,13 +717,13 @@ func TestPlanTransferRejectsBadTargets(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			before := len(w.Nodes)
+			before := len(w.ActiveCraft().Nodes)
 			if _, err := w.PlanTransfer(c.idx); err == nil {
 				t.Errorf("expected error for %s", c.name)
 			}
-			if len(w.Nodes) != before {
+			if len(w.ActiveCraft().Nodes) != before {
 				t.Errorf("PlanTransfer planted nodes despite error path: %d → %d",
-					before, len(w.Nodes))
+					before, len(w.ActiveCraft().Nodes))
 			}
 		})
 	}
@@ -848,7 +848,7 @@ func TestPlanTransferIntraPrimaryBurnIsCentered(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanTransfer: %v", err)
 	}
-	dep := w.Nodes[0]
+	dep := w.ActiveCraft().Nodes[0]
 	wantCenter := now.Add(plan.Departure.OffsetTime)
 	delta := dep.TriggerTime.Sub(wantCenter)
 	if delta < -time.Second || delta > time.Second {
@@ -882,7 +882,7 @@ func TestIntraPrimaryHohmannReachesLunaApoapsis(t *testing.T) {
 	if _, err := w.PlanTransfer(moonIdx); err != nil {
 		t.Fatalf("PlanTransfer: %v", err)
 	}
-	dep := w.Nodes[0]
+	dep := w.ActiveCraft().Nodes[0]
 	if dep.Duration <= 0 {
 		t.Errorf("v0.5.13+ intra-primary auto-plant must be finite (Duration > 0); got %v", dep.Duration)
 	}
@@ -894,7 +894,7 @@ func TestIntraPrimaryHohmannReachesLunaApoapsis(t *testing.T) {
 	burnEnd := dep.TriggerTime.Add(dep.Duration)
 	for tick := 0; tick < 200000; tick++ {
 		w.Tick()
-		if w.Clock.SimTime.After(burnEnd) && w.ActiveBurn == nil {
+		if w.Clock.SimTime.After(burnEnd) && w.ActiveCraft().ActiveBurn == nil {
 			break
 		}
 	}
@@ -1017,10 +1017,10 @@ func TestPerNodeThrottleCapturedOnFire(t *testing.T) {
 		Throttle:    0.5,
 	})
 	w.executeDueNodes()
-	if w.ActiveBurn == nil {
+	if w.ActiveCraft().ActiveBurn == nil {
 		t.Fatal("expected ActiveBurn to be set after planted finite node fired")
 	}
-	if got := w.ActiveBurn.Throttle; math.Abs(got-0.5) > 1e-9 {
+	if got := w.ActiveCraft().ActiveBurn.Throttle; math.Abs(got-0.5) > 1e-9 {
 		t.Errorf("ActiveBurn.Throttle = %.3f, want 0.5", got)
 	}
 }
@@ -1067,10 +1067,10 @@ func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanInclinationChange: %v", err)
 	}
-	if got := len(w.Nodes); got != 1 {
+	if got := len(w.ActiveCraft().Nodes); got != 1 {
 		t.Fatalf("expected 1 planted node, got %d", got)
 	}
-	n := w.Nodes[0]
+	n := w.ActiveCraft().Nodes[0]
 	if n.Mode != spacecraft.BurnNormalPlus {
 		t.Errorf("Mode = %v, want BurnNormalPlus (DN, decrease)", n.Mode)
 	}
@@ -1098,8 +1098,8 @@ func TestPlanInclinationChangeRejectsEquatorialDefault(t *testing.T) {
 	if _, err := w.PlanInclinationChange(28.5 * math.Pi / 180); err == nil {
 		t.Errorf("expected error from equatorial default state, got nil")
 	}
-	if len(w.Nodes) != 0 {
-		t.Errorf("equatorial reject left %d nodes planted, want 0", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 0 {
+		t.Errorf("equatorial reject left %d nodes planted, want 0", len(w.ActiveCraft().Nodes))
 	}
 }
 
@@ -1128,26 +1128,26 @@ func TestPlanTransferAtPlantsTwoNodes(t *testing.T) {
 	if plan == nil {
 		t.Fatal("PlanTransferAt returned nil plan with nil error")
 	}
-	if len(w.Nodes) != 2 {
-		t.Fatalf("expected 2 planted nodes, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 2 {
+		t.Fatalf("expected 2 planted nodes, got %d", len(w.ActiveCraft().Nodes))
 	}
-	if w.Nodes[0].PrimaryID != w.ActiveCraft().Primary.ID {
+	if w.ActiveCraft().Nodes[0].PrimaryID != w.ActiveCraft().Primary.ID {
 		t.Errorf("departure PrimaryID = %q, want craft primary %q",
-			w.Nodes[0].PrimaryID, w.ActiveCraft().Primary.ID)
+			w.ActiveCraft().Nodes[0].PrimaryID, w.ActiveCraft().Primary.ID)
 	}
-	if w.Nodes[1].PrimaryID != sys.Bodies[marsIdx].ID {
+	if w.ActiveCraft().Nodes[1].PrimaryID != sys.Bodies[marsIdx].ID {
 		t.Errorf("arrival PrimaryID = %q, want mars %q",
-			w.Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
+			w.ActiveCraft().Nodes[1].PrimaryID, sys.Bodies[marsIdx].ID)
 	}
 	// v0.5.14+ TriggerTime is the burn center == planner OffsetTime;
 	// gap between consecutive node TriggerTimes equals TOF exactly
 	// (modulo nanoseconds).
-	gap := w.Nodes[1].TriggerTime.Sub(w.Nodes[0].TriggerTime).Seconds()
+	gap := w.ActiveCraft().Nodes[1].TriggerTime.Sub(w.ActiveCraft().Nodes[0].TriggerTime).Seconds()
 	wantGap := tofDay * 86400.0
 	if math.Abs(gap-wantGap) > 1.0 {
 		t.Errorf("planted-node gap = %.0f s, want %.0f s", gap, wantGap)
 	}
-	for i, n := range w.Nodes {
+	for i, n := range w.ActiveCraft().Nodes {
 		if n.Duration <= 0 {
 			t.Errorf("node %d Duration = %v, want > 0 (finite)", i, n.Duration)
 		}
@@ -1209,13 +1209,13 @@ func TestPlanTransferAtRejectsBadInputs(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			before := len(w.Nodes)
+			before := len(w.ActiveCraft().Nodes)
 			if _, err := w.PlanTransferAt(c.idx, c.depDay, c.tofDay); err == nil {
 				t.Errorf("expected error for %s", c.name)
 			}
-			if len(w.Nodes) != before {
+			if len(w.ActiveCraft().Nodes) != before {
 				t.Errorf("planted nodes despite error path: %d → %d",
-					before, len(w.Nodes))
+					before, len(w.ActiveCraft().Nodes))
 			}
 		})
 	}
@@ -1226,13 +1226,13 @@ func TestPlanTransferAtRejectsBadInputs(t *testing.T) {
 // and doesn't mutate Nodes.
 func TestRefinePlanErrorsWithoutArrival(t *testing.T) {
 	w := mustWorld(t)
-	before := len(w.Nodes)
+	before := len(w.ActiveCraft().Nodes)
 	if _, _, err := w.RefinePlan(); err == nil {
 		t.Errorf("RefinePlan on empty-plan world: expected error")
 	}
-	if len(w.Nodes) != before {
+	if len(w.ActiveCraft().Nodes) != before {
 		t.Errorf("RefinePlan planted/removed nodes on error path: %d → %d",
-			before, len(w.Nodes))
+			before, len(w.ActiveCraft().Nodes))
 	}
 }
 
@@ -1267,7 +1267,7 @@ func TestRefinePlanUpdatesArrivalAfterPlanTransferAt(t *testing.T) {
 		t.Fatalf("PlanTransferAt: %v", err)
 	}
 	origArr := plan.Arrival.DV
-	origNodeCount := len(w.Nodes)
+	origNodeCount := len(w.ActiveCraft().Nodes)
 
 	corr, arr, err := w.RefinePlan()
 	if err != nil {
@@ -1286,9 +1286,9 @@ func TestRefinePlanUpdatesArrivalAfterPlanTransferAt(t *testing.T) {
 		t.Errorf("refined arrival Δv = %.3f m/s, original = %.3f m/s (rel diff %.2e)",
 			arr, origArr, math.Abs(arr-origArr)/origArr)
 	}
-	if len(w.Nodes) != origNodeCount+1 {
+	if len(w.ActiveCraft().Nodes) != origNodeCount+1 {
 		t.Errorf("node count after refine = %d, want %d (orig + correction)",
-			len(w.Nodes), origNodeCount+1)
+			len(w.ActiveCraft().Nodes), origNodeCount+1)
 	}
 }
 
@@ -1332,10 +1332,10 @@ func TestPlanTransferMoonEscapePlantsTwoNodes(t *testing.T) {
 	if plan == nil {
 		t.Fatal("PlanTransfer returned nil plan with nil error")
 	}
-	if len(w.Nodes) != 2 {
-		t.Fatalf("expected 2 planted nodes, got %d", len(w.Nodes))
+	if len(w.ActiveCraft().Nodes) != 2 {
+		t.Fatalf("expected 2 planted nodes, got %d", len(w.ActiveCraft().Nodes))
 	}
-	dep, arr := w.Nodes[0], w.Nodes[1]
+	dep, arr := w.ActiveCraft().Nodes[0], w.ActiveCraft().Nodes[1]
 	if dep.PrimaryID != moon.ID {
 		t.Errorf("departure PrimaryID = %q, want %q", dep.PrimaryID, moon.ID)
 	}
@@ -1589,13 +1589,13 @@ func TestPlanTransferMoonEscapeIntraPrimaryStillFires(t *testing.T) {
 func TestStartManualBurnSetsState(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 1.0
-	w.AttitudeMode = spacecraft.BurnPrograde
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
 	w.StartManualBurn()
-	if w.ManualBurn == nil {
+	if w.ActiveCraft().ManualBurn == nil {
 		t.Fatal("StartManualBurn did not set ManualBurn")
 	}
-	if !w.ManualBurn.StartTime.Equal(w.Clock.SimTime) {
-		t.Errorf("StartTime = %v, want SimTime %v", w.ManualBurn.StartTime, w.Clock.SimTime)
+	if !w.ActiveCraft().ManualBurn.StartTime.Equal(w.Clock.SimTime) {
+		t.Errorf("StartTime = %v, want SimTime %v", w.ActiveCraft().ManualBurn.StartTime, w.Clock.SimTime)
 	}
 }
 
@@ -1606,9 +1606,9 @@ func TestStartManualBurnSetsState(t *testing.T) {
 func TestStartManualBurnNoOpDuringActiveBurn(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 1.0
-	w.ActiveBurn = &ActiveBurn{Mode: spacecraft.BurnPrograde, DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
+	w.ActiveCraft().ActiveBurn = &ActiveBurn{Mode: spacecraft.BurnPrograde, DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
 	w.StartManualBurn()
-	if w.ManualBurn != nil {
+	if w.ActiveCraft().ManualBurn != nil {
 		t.Error("StartManualBurn should be a no-op while ActiveBurn != nil")
 	}
 }
@@ -1620,7 +1620,7 @@ func TestStartManualBurnNoOpAtZeroThrottle(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 0
 	w.StartManualBurn()
-	if w.ManualBurn != nil {
+	if w.ActiveCraft().ManualBurn != nil {
 		t.Error("StartManualBurn should be a no-op when throttle = 0")
 	}
 }
@@ -1631,13 +1631,13 @@ func TestStartManualBurnNoOpAtZeroThrottle(t *testing.T) {
 func TestSetThrottleZeroStopsManualBurn(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 1.0
-	w.AttitudeMode = spacecraft.BurnPrograde
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
 	w.StartManualBurn()
-	if w.ManualBurn == nil {
+	if w.ActiveCraft().ManualBurn == nil {
 		t.Fatal("setup: ManualBurn should be set")
 	}
 	w.SetThrottle(0)
-	if w.ManualBurn != nil {
+	if w.ActiveCraft().ManualBurn != nil {
 		t.Error("SetThrottle(0) should stop the manual burn")
 	}
 	if w.ActiveCraft().Throttle != 0 {
@@ -1667,7 +1667,7 @@ func TestWarpCappedAt10xDuringManualBurn(t *testing.T) {
 	w, _ := NewWorld()
 	w.Clock.WarpIdx = len(WarpFactors) - 1 // 100000×
 	w.ActiveCraft().Throttle = 1.0
-	w.AttitudeMode = spacecraft.BurnPrograde
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
 	w.StartManualBurn()
 	if eff := w.EffectiveWarp(); eff != 10 {
 		t.Errorf("manual burn should cap warp to 10×, got %.0f", eff)
@@ -1682,16 +1682,16 @@ func TestManualBurnEndsOnFuelExhaustion(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 1.0
 	w.ActiveCraft().Fuel = 1.0 // tiny — burns out almost immediately
-	w.AttitudeMode = spacecraft.BurnPrograde
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
 	w.StartManualBurn()
-	if w.ManualBurn == nil {
+	if w.ActiveCraft().ManualBurn == nil {
 		t.Fatal("setup: ManualBurn should be set")
 	}
 	// Run enough ticks to drain the fuel.
 	for i := 0; i < 200 && w.ActiveCraft().Fuel > 0; i++ {
 		w.Tick()
 	}
-	if w.ManualBurn != nil {
+	if w.ActiveCraft().ManualBurn != nil {
 		t.Errorf("ManualBurn should clear after fuel exhaustion; fuel=%v", w.ActiveCraft().Fuel)
 	}
 }
@@ -1702,14 +1702,14 @@ func TestManualBurnEndsOnFuelExhaustion(t *testing.T) {
 func TestToggleManualBurnEngagesAndDisengages(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 1.0
-	w.AttitudeMode = spacecraft.BurnPrograde
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
 
 	w.ToggleManualBurn()
-	if w.ManualBurn == nil {
+	if w.ActiveCraft().ManualBurn == nil {
 		t.Fatal("first toggle should engage manual burn")
 	}
 	w.ToggleManualBurn()
-	if w.ManualBurn != nil {
+	if w.ActiveCraft().ManualBurn != nil {
 		t.Error("second toggle should disengage manual burn")
 	}
 }
@@ -1722,7 +1722,7 @@ func TestToggleManualBurnNoOpAtZeroThrottle(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 0
 	w.ToggleManualBurn()
-	if w.ManualBurn != nil {
+	if w.ActiveCraft().ManualBurn != nil {
 		t.Error("toggle with zero throttle should not start a burn")
 	}
 }

@@ -123,6 +123,61 @@ func TestActiveCraftAccessor(t *testing.T) {
 	}
 }
 
+// TestBurnFiresOnPlantedCraftNotActive (v0.8.1 regression): when a
+// burn is planted on craft A, then the player switches to craft B
+// before the burn triggers, the burn must still fire on craft A.
+// Pre-fix the burn followed the active craft via a shared
+// World.Nodes / World.ActiveBurn — switching active would move the
+// in-flight burn to the wrong vessel.
+func TestBurnFiresOnPlantedCraftNotActive(t *testing.T) {
+	w, _ := NewWorld()
+	craftA := w.ActiveCraft()
+	speedAbefore := craftA.State.V.Norm()
+
+	if _, err := w.SpawnSisterCraft(); err != nil {
+		t.Fatalf("SpawnSisterCraft: %v", err)
+	}
+	craftB := w.ActiveCraft()
+	if craftA == craftB {
+		t.Fatal("active craft didn't change after spawn")
+	}
+	speedBbefore := craftB.State.V.Norm()
+
+	// Switch back to craft A and plant an impulsive prograde burn at
+	// now+1 second.
+	w.ActiveCraftIdx = 0
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(1 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+	})
+
+	// Switch to craft B and advance sim until the burn fires.
+	w.ActiveCraftIdx = 1
+	for i := 0; i < 200; i++ {
+		w.Tick()
+		if len(craftA.Nodes) == 0 {
+			break
+		}
+	}
+	if len(craftA.Nodes) != 0 {
+		t.Fatal("planted burn never fired")
+	}
+
+	// Compare speeds (|v| magnitude). Free flight conserves speed
+	// at any single moment in a circular orbit (kinetic energy is
+	// constant); only thrust changes |v|. Craft A's |v| should have
+	// jumped by ~50 m/s; craft B's |v| should be ~unchanged.
+	dvA := craftA.State.V.Norm() - speedAbefore
+	if dvA < 45 || dvA > 55 {
+		t.Errorf("craft A's |v| change = %.2f m/s, expected ~50 m/s prograde burn", dvA)
+	}
+	dvB := math.Abs(craftB.State.V.Norm() - speedBbefore)
+	if dvB > 1 {
+		t.Errorf("non-active craft B's |v| changed by %.2f m/s — burn leaked", dvB)
+	}
+}
+
 // TestSpawnSisterCraftPopulatesAndActivates: pressing `n`-equivalent
 // spawns a copy of the active craft, increments the slate count, and
 // activates the new one.
@@ -165,8 +220,8 @@ func TestMultiCraftIntegrateAdvancesBothByAFullTick(t *testing.T) {
 	w.Crafts[0].State.M = w.Crafts[0].TotalMass()
 	w.Crafts[1].State.M = w.Crafts[1].TotalMass()
 	w.Clock.SimTime = w.Clock.SimTime.Add(60 * time.Second)
-	w.integrateOneCraft(w.Crafts[0], 60*time.Second, true)
-	w.integrateOneCraft(w.Crafts[1], 60*time.Second, false)
+	w.integrateOneCraft(w.Crafts[0], 60*time.Second)
+	w.integrateOneCraft(w.Crafts[1], 60*time.Second)
 
 	d1 := w.Crafts[0].State.R.Sub(c1Before).Norm()
 	d2 := w.Crafts[1].State.R.Sub(c2Before).Norm()

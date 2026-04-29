@@ -43,38 +43,6 @@ type World struct {
 	// to save (UI preference, not game state).
 	ViewMode ViewMode
 
-	// Nodes holds planned burns, sorted by TriggerTime. Each fires
-	// automatically when Clock.SimTime reaches its trigger.
-	Nodes []ManeuverNode
-
-	// ActiveBurn is non-nil while a finite-duration burn is mid-execution.
-	// Set by executeDueNodes when a Duration>0 node fires; cleared by
-	// integrateSpacecraft when DVRemaining hits zero or SimTime ≥ EndTime.
-	ActiveBurn *ActiveBurn
-
-	// ManualBurn is non-nil while the player is holding the engine
-	// open via the v0.7.3+ manual-flight controls. Fires through the
-	// same RK4 thrust path as a planted finite burn, but driven by
-	// AttitudeMode + Spacecraft.Throttle instead of a ManeuverNode.
-	// Set when StartManualBurn is called; cleared by StopManualBurn
-	// or when fuel exhausts. Mutually exclusive with ActiveBurn — a
-	// planted burn takes priority and StartManualBurn no-ops if one
-	// is in flight.
-	ManualBurn *ManualBurn
-
-	// AttitudeMode is the held attitude for v0.7.3+ manual flight.
-	// Set by the orbit-screen attitude keys (w/s/a/d/q/e); read by
-	// the manual-burn integrator path. Updates take effect on the
-	// next tick — the integrator recomputes the per-sub-step
-	// direction from live (r, v) just like planted burns do.
-	AttitudeMode spacecraft.BurnMode
-
-	// EngineMode picks which propulsion system the live manual-flight
-	// inputs drive: main (high-thrust, fuel) or RCS (monoprop, pulse-
-	// fired). Toggled via the `r` key. Planted burns always use main.
-	// v0.8.0+.
-	EngineMode spacecraft.EngineMode
-
 	// rcsPuffs is a small ring of recent RCS pulses, surfaced by the
 	// orbit canvas as a fading marker for visual feedback. v0.8.0
 	// ships a placeholder visual; v0.8.2 replaces it with per-thruster
@@ -313,17 +281,16 @@ func (w *World) Tick() {
 	w.Clock.SimTime = w.Clock.SimTime.Add(simDelta)
 
 	if len(w.Crafts) > 0 {
-		// Integrate every craft in the slate. Active-burn / manual-
-		// burn / RCS pulses bind to the active craft; the rest free-
-		// fly under their own primary's gravity. Per-craft SOI
-		// tracking is built into integrateOneCraft (each craft owns
-		// Spacecraft.Primary independently).
-		activeIdx := w.ActiveCraftIdx
-		for i, c := range w.Crafts {
+		// Integrate every craft in the slate. Each craft owns its
+		// own Nodes / ActiveBurn / ManualBurn / AttitudeMode /
+		// EngineMode (v0.8.1+), so a planted burn fires on the craft
+		// it was planted for, regardless of which craft the player
+		// happens to be flying when it triggers.
+		for _, c := range w.Crafts {
 			if c == nil {
 				continue
 			}
-			w.integrateOneCraft(c, simDelta, i == activeIdx)
+			w.integrateOneCraft(c, simDelta)
 		}
 		w.executeDueNodes()
 		w.soiCheckCounter++
@@ -382,18 +349,24 @@ func (w *World) ActiveMission() *missions.Mission {
 // TriggerTime that the HUD displays.
 func (w *World) nextFiniteBurnTrigger() time.Time {
 	var best time.Time
-	for _, n := range w.Nodes {
-		if n.Duration <= 0 {
+	// v0.8.1+: walk every craft's node list — a planted burn on a
+	// non-active craft still needs to clamp warp to its trigger
+	// moment so the integrator doesn't overshoot.
+	for _, c := range w.Crafts {
+		if c == nil {
 			continue
 		}
-		// v0.6.0: skip unresolved event-relative nodes; their
-		// TriggerTime hasn't been set yet by the resolver.
-		if !n.IsResolved() {
-			continue
-		}
-		t := n.BurnStart()
-		if best.IsZero() || t.Before(best) {
-			best = t
+		for _, n := range c.Nodes {
+			if n.Duration <= 0 {
+				continue
+			}
+			if !n.IsResolved() {
+				continue
+			}
+			t := n.BurnStart()
+			if best.IsZero() || t.Before(best) {
+				best = t
+			}
 		}
 	}
 	return best
@@ -476,7 +449,12 @@ func (w *World) clampedWarp() float64 {
 	if w.ActiveCraft() == nil {
 		return selected
 	}
-	if (w.ActiveBurn != nil || w.ManualBurn != nil) && selected > 10 {
+	// Any craft in flight in a finite or manual burn forces the
+	// 10× cap — high warp during thrust would let the integrator
+	// blast past the EndTime in a single tick. Walking all crafts
+	// (not just the active one) catches a planted burn firing on a
+	// non-active craft while the player is flying another.
+	if w.anyCraftThrusting() && selected > 10 {
 		selected = 10
 	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
@@ -491,6 +469,22 @@ func (w *World) clampedWarp() float64 {
 		return maxWarp
 	}
 	return selected
+}
+
+// anyCraftThrusting reports whether any craft in the slate is
+// currently firing — either a planted finite burn or a held manual
+// burn. Used by clampedWarp to apply the 10× burn cap regardless of
+// which craft owns the burn. v0.8.1+.
+func (w *World) anyCraftThrusting() bool {
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		if c.ActiveBurn != nil || c.ManualBurn != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // EffectiveWarp exposes the clamped warp for HUD display. Returns the same
@@ -514,7 +508,7 @@ func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 // take a single analytic Kepler step instead of looping Verlet.
 // Multi-craft (v0.8.1+): each craft is integrated independently via
 // this helper. Tick loops over Crafts.
-func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Duration, isActive bool) {
+func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Duration) {
 	mu := c.Primary.GravitationalParameter()
 	period := orbitalPeriod(c.State, mu)
 	secs := simDelta.Seconds()
@@ -523,9 +517,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// enough that the craft can't outrun any other body's SOI per
 	// chunk. Falls back to Verlet sub-stepping if the gate rejects
 	// (active burn, hyperbolic, warp=1) or any chunk's KeplerStep
-	// fails. Active-burn gating only applies to the active craft —
-	// non-active craft are always thrust-free in v0.8.1.
-	if w.canKeplerStep(c, simDelta, isActive) {
+	// fails. Each craft owns its own ActiveBurn / ManualBurn so this
+	// gate is per-craft.
+	if w.canKeplerStep(c, simDelta) {
 		if w.keplerStepWithSOICheck(c, simDelta) {
 			return
 		}
@@ -554,7 +548,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	}
 
 	for i := 0; i < nSteps; i++ {
-		if isActive && w.thrustingAt(c, tickStart, dt, i) {
+		if w.thrustingAt(c, tickStart, dt, i) {
 			w.stepThrust(c, mu, dt)
 		} else {
 			c.State = physics.StepVerlet(c.State, mu, dt)
@@ -573,18 +567,15 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			mu = c.Primary.GravitationalParameter()
 		}
 	}
-	if !isActive {
-		return
-	}
 	// Tear down the burn if it exhausted (Δv delivered, fuel gone, or
 	// EndTime passed during this tick).
-	if w.ActiveBurn != nil && w.burnExhausted(c) {
-		w.ActiveBurn = nil
+	if c.ActiveBurn != nil && w.burnExhausted(c) {
+		c.ActiveBurn = nil
 	}
 	// Manual burns end on fuel exhaustion only; the player ends them
 	// explicitly via StopManualBurn (e.g. on `x`).
-	if w.ManualBurn != nil && c.Fuel <= 0 {
-		w.ManualBurn = nil
+	if c.ManualBurn != nil && c.Fuel <= 0 {
+		c.ManualBurn = nil
 	}
 }
 
@@ -598,14 +589,14 @@ func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt fl
 	if c.Fuel <= 0 {
 		return false
 	}
-	if w.ActiveBurn != nil {
-		if w.ActiveBurn.DVRemaining <= 0 {
+	if c.ActiveBurn != nil {
+		if c.ActiveBurn.DVRemaining <= 0 {
 			return false
 		}
 		subStart := tickStart.Add(time.Duration(float64(i) * dt * float64(time.Second)))
-		return subStart.Before(w.ActiveBurn.EndTime)
+		return subStart.Before(c.ActiveBurn.EndTime)
 	}
-	return w.ManualBurn != nil
+	return c.ManualBurn != nil
 }
 
 // stepThrust advances one RK4 sub-step with engine thrust, debits the
@@ -619,11 +610,11 @@ func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt fl
 // the live craft setting, so the player can tweak the throttle knob
 // during a coast without slowing an in-flight planted burn.
 func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
-	mode := w.AttitudeMode
+	mode := c.AttitudeMode
 	throttle := c.EffectiveThrottle()
-	if w.ActiveBurn != nil {
-		mode = w.ActiveBurn.Mode
-		throttle = w.ActiveBurn.Throttle
+	if c.ActiveBurn != nil {
+		mode = c.ActiveBurn.Mode
+		throttle = c.ActiveBurn.Throttle
 		if throttle <= 0 {
 			// Defensive fallback: legacy v3-save ActiveBurn with no
 			// captured throttle (loaded with zero) → treat as full
@@ -634,14 +625,14 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	accelFn := c.ThrustAccelFnAt(mode, mu, throttle)
 	c.State = physics.StepRK4(c.State, dt, accelFn, 0)
 
-	if w.ActiveBurn != nil {
+	if c.ActiveBurn != nil {
 		mass := c.TotalMass()
 		if mass > 0 {
 			dvApplied := (c.Thrust * throttle / mass) * dt
-			if dvApplied > w.ActiveBurn.DVRemaining {
-				dvApplied = w.ActiveBurn.DVRemaining
+			if dvApplied > c.ActiveBurn.DVRemaining {
+				dvApplied = c.ActiveBurn.DVRemaining
 			}
-			w.ActiveBurn.DVRemaining -= dvApplied
+			c.ActiveBurn.DVRemaining -= dvApplied
 		}
 	}
 	fuelBurned := c.MassFlowRateAt(throttle) * dt
@@ -656,9 +647,9 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 // of Δv delivered, fuel empty, or sim-time past the duration window
 // terminates the burn.
 func (w *World) burnExhausted(c *spacecraft.Spacecraft) bool {
-	return w.ActiveBurn.DVRemaining <= 0 ||
+	return c.ActiveBurn.DVRemaining <= 0 ||
 		c.Fuel <= 0 ||
-		!w.Clock.SimTime.Before(w.ActiveBurn.EndTime)
+		!w.Clock.SimTime.Before(c.ActiveBurn.EndTime)
 }
 
 // canKeplerStep reports whether the analytic warp-lock fast path is
@@ -673,12 +664,11 @@ func (w *World) burnExhausted(c *spacecraft.Spacecraft) bool {
 // chunks (v0.4.4 fix for the v0.4.3 heliocentric-transfer-skips-Mars
 // bug). If e ≥ 1 we still fall back to Verlet so the per-sub-step SOI
 // path handles the non-conic case correctly.
-func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration, isActive bool) bool {
-	// Active-burn / manual-burn gating only applies to the active
-	// craft. Non-active craft can always take the Kepler-warp fast
-	// path on bound orbits regardless of what the active craft is
-	// doing.
-	if isActive && (w.ActiveBurn != nil || w.ManualBurn != nil) {
+func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration) bool {
+	// Per-craft active-burn gating: a craft running its own burn or
+	// manual-fire can't use the analytic Kepler fast path. Other
+	// craft are unaffected.
+	if c.ActiveBurn != nil || c.ManualBurn != nil {
 		return false
 	}
 	if w.Clock.Warp() <= 1 {

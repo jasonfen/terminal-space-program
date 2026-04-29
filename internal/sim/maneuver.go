@@ -12,218 +12,89 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TriggerEvent selects how a node's TriggerTime is determined. v0.6.0+.
-//
-// Absolute (zero value) preserves the v0.1–v0.5 semantics: TriggerTime
-// is set explicitly at plant time and never changes.
-//
-// The event-relative modes leave TriggerTime zero at plant time; the
-// resolver in executeDueNodes computes TriggerTime once at the first
-// Tick where the live orbit yields a future crossing (lazy freeze).
-// After resolution the node behaves like an Absolute node — TriggerTime
-// is frozen and the dispatch path is unchanged.
-type TriggerEvent int
-
-const (
-	TriggerAbsolute TriggerEvent = iota
-	TriggerNextPeri
-	TriggerNextApo
-	TriggerNextAN
-	TriggerNextDN
+// Type aliases — the underlying types now live in
+// internal/spacecraft so each Spacecraft can own its own []Nodes,
+// ActiveBurn, ManualBurn without an import cycle. Aliases keep
+// existing `sim.ManeuverNode` / `sim.TriggerNextPeri` references
+// working unchanged. v0.8.1+.
+type (
+	TriggerEvent = spacecraft.TriggerEvent
+	ManeuverNode = spacecraft.ManeuverNode
+	ActiveBurn   = spacecraft.ActiveBurn
+	ManualBurn   = spacecraft.ManualBurn
 )
 
-// String returns a human-readable label for the trigger event.
-func (e TriggerEvent) String() string {
-	switch e {
-	case TriggerAbsolute:
-		return "T+"
-	case TriggerNextPeri:
-		return "next peri"
-	case TriggerNextApo:
-		return "next apo"
-	case TriggerNextAN:
-		return "next AN"
-	case TriggerNextDN:
-		return "next DN"
-	}
-	return "?"
-}
+const (
+	TriggerAbsolute = spacecraft.TriggerAbsolute
+	TriggerNextPeri = spacecraft.TriggerNextPeri
+	TriggerNextApo  = spacecraft.TriggerNextApo
+	TriggerNextAN   = spacecraft.TriggerNextAN
+	TriggerNextDN   = spacecraft.TriggerNextDN
+)
 
-// AllTriggerEvents lists the trigger modes in canonical UI cycle order.
-var AllTriggerEvents = [...]TriggerEvent{
-	TriggerAbsolute,
-	TriggerNextPeri,
-	TriggerNextApo,
-	TriggerNextAN,
-	TriggerNextDN,
-}
+// AllTriggerEvents re-exports the spacecraft-package canonical UI
+// cycle order so existing `sim.AllTriggerEvents` references keep
+// compiling.
+var AllTriggerEvents = spacecraft.AllTriggerEvents
 
-// ManeuverNode represents a planned burn. v0.5.14+: TriggerTime is the
-// burn-CENTER moment (the planner's intended firing point), not the
-// burn start. For impulsive burns (Duration=0) center == start ==
-// TriggerTime. For finite burns the integrator actually starts the
-// burn at TriggerTime - Duration/2 so the burn is centered on
-// TriggerTime. The HUD displays TriggerTime as "T+(burn moment)" so
-// the player sees the planner's intent, not the implementation start.
+// StartManualBurn opens the active craft's engine in its current
+// AttitudeMode at its current Throttle. No-op if a planted
+// ActiveBurn is already in flight on the active craft (planted
+// burns own the engine until they complete), fuel is empty, or
+// engine is in RCS mode. Idempotent.
 //
-// Duration controls finite vs impulsive: zero = instant Δv (legacy v0.1
-// path); non-zero = sustained engine burn lasting up to Duration or
-// until DV is delivered, whichever first. Finite-burn execution is
-// driven by World.ActiveBurn during subsequent ticks.
-//
-// PrimaryID is the body whose frame the burn was planned in (empty =
-// the craft's home primary at plant time, which is the v0.1 default
-// and keeps legacy nodes working). Auto-plant transfers (v0.3.1) plant
-// a geocentric departure plus a heliocentric arrival; PrimaryID lets
-// the planner UI render a frame-distinct glyph and lets the burn-
-// execution layer warn if a node fires in an unexpected frame.
-//
-// Event (v0.6.0+) selects whether TriggerTime is absolute or resolved
-// from a live-orbit event. Zero value = TriggerAbsolute, preserving
-// pre-v0.6 semantics. For event-relative nodes TriggerTime is zero at
-// plant time and resolved on the first Tick where the orbit yields a
-// future crossing.
-type ManeuverNode struct {
-	TriggerTime time.Time
-	Mode        spacecraft.BurnMode
-	DV          float64
-	Duration    time.Duration
-	PrimaryID   string
-	Event       TriggerEvent
-	// Throttle (v0.7.6+) is the engine throttle setting [0, 1] used
-	// for this node's burn. Zero (the JSON omitempty default) is
-	// remapped to 1.0 — full open — by EffectiveThrottle so v1–v3
-	// saves and pre-v0.7.6 plant paths keep their prior behaviour
-	// without explicit migrations. Per-node throttle decouples
-	// planted burns from live `Craft.Throttle` so adjusting throttle
-	// mid-coast doesn't slow an in-flight planted burn.
-	Throttle float64
-}
-
-// EffectiveThrottle returns the throttle to use when firing this
-// node's burn, mapping the JSON omitempty zero-default to 1.0 (full
-// open). v0.7.6+.
-func (n ManeuverNode) EffectiveThrottle() float64 {
-	if n.Throttle <= 0 {
-		return 1.0
-	}
-	if n.Throttle > 1 {
-		return 1.0
-	}
-	return n.Throttle
-}
-
-// IsResolved reports whether the node's TriggerTime has been set —
-// either because the node was planted with TriggerAbsolute or because
-// the lazy-freeze resolver has fired for an event-relative node.
-// Unresolved event-relative nodes have TriggerTime == zero.
-func (n ManeuverNode) IsResolved() bool {
-	return n.Event == TriggerAbsolute || !n.TriggerTime.IsZero()
-}
-
-// BurnStart returns the sim-time at which the integrator should fire
-// this node's burn. For impulsive nodes (Duration=0) BurnStart equals
-// TriggerTime. For finite nodes BurnStart is `TriggerTime - Duration/2`
-// so the burn is centered on TriggerTime. v0.5.14+.
-func (n ManeuverNode) BurnStart() time.Time {
-	if n.Duration <= 0 {
-		return n.TriggerTime
-	}
-	return n.TriggerTime.Add(-n.Duration / 2)
-}
-
-// BurnEnd returns the sim-time at which the integrator should
-// terminate this node's burn (regardless of Δv-remaining or fuel
-// state). For impulsive nodes BurnEnd equals TriggerTime. v0.5.14+.
-func (n ManeuverNode) BurnEnd() time.Time {
-	if n.Duration <= 0 {
-		return n.TriggerTime
-	}
-	return n.TriggerTime.Add(n.Duration / 2)
-}
-
-// ActiveBurn is the runtime state of an in-progress finite burn. Set by
-// executeDueNodes when a node with Duration>0 fires; cleared by the
-// integrator when DVRemaining hits zero or SimTime passes EndTime.
-// PrimaryID is propagated from the originating ManeuverNode (empty for
-// legacy nodes) — diagnostic only; the integrator always works in the
-// craft's current primary frame.
-type ActiveBurn struct {
-	Mode        spacecraft.BurnMode
-	DVRemaining float64
-	EndTime     time.Time
-	PrimaryID   string
-	// Throttle (v0.7.6+) is the throttle the originating ManeuverNode
-	// committed to. Captured at burn-start so adjusting live
-	// `Craft.Throttle` mid-coast doesn't slow a planted burn — the
-	// integrator scales thrust by ActiveBurn.Throttle (when > 0)
-	// rather than the spacecraft's live setting.
-	Throttle float64
-}
-
-// ManualBurn is the runtime state of a v0.7.3+ player-held manual
-// burn. Mirrors ActiveBurn's role in the integrator dispatch but
-// carries no Δv budget, no end time, and no fixed mode — direction
-// comes from World.AttitudeMode (which the player can update on the
-// fly via the attitude keys), and the burn ends when StopManualBurn
-// is called or fuel runs out. StartTime is informational only,
-// surfaced in the HUD as the "manual burn elapsed" readout.
-type ManualBurn struct {
-	StartTime time.Time
-}
-
-// StartManualBurn opens the engine in the current AttitudeMode at the
-// current Spacecraft.Throttle. No-op if a planted ActiveBurn is in
-// flight (planted burns own the engine until they complete) or fuel
-// is empty. Idempotent: a second call while the manual burn is
-// already running leaves StartTime as the original.
-//
-// v0.8.0+: gated to EngineMain — `b` in RCS mode is a no-op since
-// RCS firing happens via FireRCSPulse on the attitude keys, not via
-// a sustained burn.
+// v0.8.1+: per-active-craft. Each craft owns its own ManualBurn —
+// switching active craft mid-flight does not move the in-flight
+// engine to the new craft.
 func (w *World) StartManualBurn() {
-	if w.ActiveBurn != nil || w.ManualBurn != nil {
+	c := w.ActiveCraft()
+	if c == nil {
 		return
 	}
-	if w.ActiveCraft() == nil || w.ActiveCraft().Fuel <= 0 || w.ActiveCraft().Thrust <= 0 {
+	if c.ActiveBurn != nil || c.ManualBurn != nil {
 		return
 	}
-	if w.EngineMode != spacecraft.EngineMain {
+	if c.Fuel <= 0 || c.Thrust <= 0 {
 		return
 	}
-	if w.ActiveCraft().EffectiveThrottle() <= 0 {
+	if c.EngineMode != spacecraft.EngineMain {
 		return
 	}
-	w.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
+	if c.EffectiveThrottle() <= 0 {
+		return
+	}
+	c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
 }
 
-// StopManualBurn cuts the engine on the manual-burn path. No-op if
-// no manual burn is in flight. Does not touch a planted ActiveBurn.
+// StopManualBurn cuts the active craft's manual burn. No-op when
+// no manual burn is in flight on the active craft.
 func (w *World) StopManualBurn() {
-	w.ManualBurn = nil
+	if c := w.ActiveCraft(); c != nil {
+		c.ManualBurn = nil
+	}
 }
 
-// ToggleManualBurn engages the engine if no manual burn is in flight
-// (and StartManualBurn's preconditions are met), else disengages. The
-// v0.7.3.2+ explicit-engage gate — bound to `b` so accidental
-// attitude-key presses can't fire the engine.
+// ToggleManualBurn engages or disengages the active craft's manual
+// burn. v0.7.3.2+ explicit-engage gate.
 func (w *World) ToggleManualBurn() {
-	if w.ManualBurn != nil {
+	c := w.ActiveCraft()
+	if c == nil {
+		return
+	}
+	if c.ManualBurn != nil {
 		w.StopManualBurn()
 		return
 	}
 	w.StartManualBurn()
 }
 
-// SetThrottle clamps the requested throttle to [0, 1] and applies it
-// to the spacecraft. Called by the v0.7.3+ throttle keys (z/x and
-// Shift+z/Shift+x). Setting throttle to 0 also stops any in-flight
-// manual burn so the player's "x = cut" muscle memory works in one
-// keypress; planted burns keep running and consume their planned Δv
-// at whatever throttle the node carries (per-node throttle field
-// lands in v0.7.3 alongside the save schema bump to v4).
+// SetThrottle clamps the requested throttle to [0, 1] and applies
+// it to the active craft. Setting throttle to 0 also stops the
+// active craft's in-flight manual burn so the "x = cut" muscle
+// memory works in one keypress; planted burns keep running.
 func (w *World) SetThrottle(t float64) {
-	if w.ActiveCraft() == nil {
+	c := w.ActiveCraft()
+	if c == nil {
 		return
 	}
 	if t < 0 {
@@ -231,41 +102,43 @@ func (w *World) SetThrottle(t float64) {
 	} else if t > 1 {
 		t = 1
 	}
-	w.ActiveCraft().Throttle = t
+	c.Throttle = t
 	if t == 0 {
 		w.StopManualBurn()
 	}
 }
 
-// AdjustThrottle steps Spacecraft.Throttle by delta, clamped to
-// [0, 1]. Used by the v0.7.3+ Shift+z (+10 %) and Shift+x (-10 %)
-// keys.
+// AdjustThrottle steps the active craft's Throttle by delta, clamped
+// to [0, 1].
 func (w *World) AdjustThrottle(delta float64) {
-	if w.ActiveCraft() == nil {
+	c := w.ActiveCraft()
+	if c == nil {
 		return
 	}
-	w.SetThrottle(w.ActiveCraft().Throttle + delta)
+	w.SetThrottle(c.Throttle + delta)
 }
 
-// SetAttitudeMode updates the held attitude and, if a manual burn
-// is already in flight, the engine direction takes effect on the
-// next tick (the integrator recomputes per-sub-step direction from
-// live (r, v) the same way planted burns do). When no manual burn
-// is running, the new attitude is queued for the next StartManualBurn.
+// SetAttitudeMode updates the active craft's held attitude. If a
+// manual burn is already in flight on that craft, the engine
+// direction takes effect on the next tick. v0.8.1+: per-active-craft.
 func (w *World) SetAttitudeMode(mode spacecraft.BurnMode) {
-	w.AttitudeMode = mode
+	if c := w.ActiveCraft(); c != nil {
+		c.AttitudeMode = mode
+	}
 }
 
-// PlanNode inserts a node into World.Nodes, keeping the slice sorted by
-// TriggerTime. Past-dated nodes are allowed — they fire on the next Tick.
-//
-// v0.6.0: unresolved event-relative nodes (Event != Absolute and
-// TriggerTime not yet set by the lazy-freeze resolver) sort to the end
-// of the slice so they don't trip the dispatch path's "next due" walk
-// before resolveEventNodes runs.
+// PlanNode inserts a node into the active craft's Nodes slice,
+// keeping the slice sorted by TriggerTime. Past-dated nodes are
+// allowed — they fire on the next Tick. v0.8.1+: per-active-craft;
+// the planted burn fires on the craft it was planted for, regardless
+// of which craft the player is flying when it triggers.
 func (w *World) PlanNode(n ManeuverNode) {
-	w.Nodes = append(w.Nodes, n)
-	sortNodes(w.Nodes)
+	c := w.ActiveCraft()
+	if c == nil {
+		return
+	}
+	c.Nodes = append(c.Nodes, n)
+	sortNodes(c.Nodes)
 }
 
 // sortNodes orders nodes by TriggerTime ascending, with unresolved
@@ -290,18 +163,29 @@ func sortNodes(nodes []ManeuverNode) {
 // orbit asking for AN/DN, etc.) leaves the node unresolved; the helper
 // will retry on subsequent ticks. The retry cost is one
 // ElementsFromState call per unresolved node per tick — negligible.
+// resolveEventNodes walks every craft in the slate and resolves any
+// of its event-relative nodes against that craft's own orbit. Each
+// craft's nodes are independent — a periapsis-relative burn planted
+// on craft A resolves against craft A's orbit, not the active
+// craft's. v0.8.1+.
 func (w *World) resolveEventNodes() {
-	if w.ActiveCraft() == nil {
-		return
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		w.resolveEventNodesFor(c)
 	}
-	mu := w.ActiveCraft().Primary.GravitationalParameter()
+}
+
+func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
+	mu := c.Primary.GravitationalParameter()
 	if mu == 0 {
 		return
 	}
-	state := orbital.Vec3State{R: w.ActiveCraft().State.R, V: w.ActiveCraft().State.V}
+	state := orbital.Vec3State{R: c.State.R, V: c.State.V}
 	resolvedAny := false
-	for i := range w.Nodes {
-		n := &w.Nodes[i]
+	for i := range c.Nodes {
+		n := &c.Nodes[i]
 		if n.IsResolved() {
 			continue
 		}
@@ -321,19 +205,14 @@ func (w *World) resolveEventNodes() {
 		if dt < 0 {
 			continue // unreachable from current state — retry next tick
 		}
-		// TriggerTime is the burn-CENTER per v0.5.14 semantics; for
-		// finite burns the integrator fires at TriggerTime - Duration/2.
-		// We still anchor the *event* to the burn center, so the
-		// player's "fire at next periapsis" intent matches the moment
-		// the orbit reaches that ν.
 		n.TriggerTime = w.Clock.SimTime.Add(time.Duration(dt * float64(time.Second)))
 		if n.PrimaryID == "" {
-			n.PrimaryID = w.ActiveCraft().Primary.ID
+			n.PrimaryID = c.Primary.ID
 		}
 		resolvedAny = true
 	}
 	if resolvedAny {
-		sortNodes(w.Nodes)
+		sortNodes(c.Nodes)
 	}
 }
 
@@ -513,8 +392,8 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 	// identifies a non-home body. PlanTransfer / PlanTransferAt plants
 	// arrival with PrimaryID = target.ID.
 	arrIdx := -1
-	for i := len(w.Nodes) - 1; i >= 0; i-- {
-		n := w.Nodes[i]
+	for i := len(w.ActiveCraft().Nodes) - 1; i >= 0; i-- {
+		n := w.ActiveCraft().Nodes[i]
 		if n.PrimaryID != "" && n.PrimaryID != w.ActiveCraft().Primary.ID {
 			arrIdx = i
 			break
@@ -523,7 +402,7 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 	if arrIdx < 0 {
 		return 0, 0, errNoRefineTarget
 	}
-	arrNode := w.Nodes[arrIdx]
+	arrNode := w.ActiveCraft().Nodes[arrIdx]
 	sys := w.System()
 	var target bodies.CelestialBody
 	targetFound := false
@@ -603,9 +482,9 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 		PrimaryID:   arrNode.PrimaryID,
 	}
 	// Find arrNode again by index after PlanNode sorted the slice.
-	for i, n := range w.Nodes {
+	for i, n := range w.ActiveCraft().Nodes {
 		if n.TriggerTime.Equal(arrNode.TriggerTime) && n.PrimaryID == arrNode.PrimaryID {
-			w.Nodes[i] = newArrival
+			w.ActiveCraft().Nodes[i] = newArrival
 			break
 		}
 	}
@@ -716,11 +595,11 @@ type FrameTransition struct {
 // PlanHohmannTransfer both label arrival nodes in their target's
 // frame, which is exactly what this surfaces. v0.7.6+.
 func (w *World) NextFrameTransition() (FrameTransition, bool) {
-	if w.ActiveCraft() == nil || len(w.Nodes) == 0 {
+	if w.ActiveCraft() == nil || len(w.ActiveCraft().Nodes) == 0 {
 		return FrameTransition{}, false
 	}
 	current := w.ActiveCraft().Primary.ID
-	for i, n := range w.Nodes {
+	for i, n := range w.ActiveCraft().Nodes {
 		if !n.IsResolved() {
 			continue
 		}
@@ -1040,39 +919,35 @@ type transferError string
 
 func (e transferError) Error() string { return string(e) }
 
-// ClearNodes wipes every pending node.
-func (w *World) ClearNodes() { w.Nodes = nil }
-
-// executeDueNodes fires every node whose BurnStart has passed, applying
-// the burn to the spacecraft in order. Called from Tick after sim-time
-// advances. Re-entrant: if two nodes fall in the same tick, both fire.
-//
-// Impulsive nodes (Duration==0) apply their Δv inline at TriggerTime
-// and are popped. Finite nodes start an ActiveBurn at BurnStart
-// (= TriggerTime - Duration/2) and are popped; the burn runs across
-// subsequent ticks via the RK4 branch in integrateSpacecraft until
-// BurnEnd or DV exhausted. If a finite burn is already active when a
-// new finite node fires, the new one replaces it (last-write-wins;
-// the planner UI is responsible for not over-stacking). v0.5.14+
-// semantics: TriggerTime is the burn center, BurnStart/BurnEnd are
-// the actual on-engine moments.
-func (w *World) executeDueNodes() {
-	if w.ActiveCraft() == nil {
-		return
+// ClearNodes wipes every pending node from the active craft. v0.8.1+:
+// per-active-craft (was global pre-v0.8.1).
+func (w *World) ClearNodes() {
+	if c := w.ActiveCraft(); c != nil {
+		c.Nodes = nil
 	}
+}
+
+// executeDueNodes fires every craft's due nodes onto themselves.
+// Called from Tick after sim-time advances. Each craft's nodes are
+// independent — a planted burn fires on the craft it was planted
+// for, regardless of which craft the player is currently flying.
+// v0.8.1+.
+func (w *World) executeDueNodes() {
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		w.executeDueNodesFor(c)
+	}
+}
+
+// executeDueNodesFor fires the given craft's due nodes onto itself.
+// Impulsive nodes (Duration==0) apply their Δv inline; finite nodes
+// start the craft's ActiveBurn. Both popped from the craft's own
+// Nodes slice. v0.8.1+.
+func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 	fired := 0
-	// Nodes are sorted by TriggerTime, but we need to walk them by
-	// BurnStart for finite nodes. Since BurnStart ≤ TriggerTime, walking
-	// the (TriggerTime-sorted) slice may skip an early-firing finite
-	// node if a later impulsive node has TriggerTime < this finite's
-	// BurnStart. In practice nodes are spaced by minutes / days so the
-	// ordering coincides; the planner's pad-window guarantee keeps us
-	// safe. Worst case: one tick of latency on the misordered finite,
-	// which is invisible at any user-visible warp.
-	for _, n := range w.Nodes {
-		// v0.6.0: unresolved event-relative nodes have TriggerTime = 0
-		// (year 1 AD) which would fire immediately if we didn't guard.
-		// They sort to the end of the slice so we can break safely.
+	for _, n := range c.Nodes {
 		if !n.IsResolved() {
 			break
 		}
@@ -1080,9 +955,9 @@ func (w *World) executeDueNodes() {
 			break
 		}
 		if n.Duration == 0 {
-			w.ActiveCraft().ApplyImpulsive(n.Mode, n.DV)
+			c.ApplyImpulsive(n.Mode, n.DV)
 		} else {
-			w.ActiveBurn = &ActiveBurn{
+			c.ActiveBurn = &ActiveBurn{
 				Mode:        n.Mode,
 				DVRemaining: n.DV,
 				EndTime:     n.BurnEnd(),
@@ -1093,7 +968,7 @@ func (w *World) executeDueNodes() {
 		fired++
 	}
 	if fired > 0 {
-		w.Nodes = w.Nodes[fired:]
+		c.Nodes = c.Nodes[fired:]
 	}
 }
 
@@ -1169,15 +1044,15 @@ type PredictedLeg struct {
 // live state is mutating and chained predictions would flail (see
 // PredictedFinalOrbit's same guard).
 func (w *World) PredictedLegs() []PredictedLeg {
-	if w.ActiveCraft() == nil || len(w.Nodes) == 0 || w.ActiveBurn != nil {
+	if w.ActiveCraft() == nil || len(w.ActiveCraft().Nodes) == 0 || w.ActiveCraft().ActiveBurn != nil {
 		return nil
 	}
 	state := w.ActiveCraft().State
 	primary := w.ActiveCraft().Primary
 	clock := w.Clock.SimTime
 	systems := w.Systems
-	legs := make([]PredictedLeg, 0, len(w.Nodes))
-	for i, n := range w.Nodes {
+	legs := make([]PredictedLeg, 0, len(w.ActiveCraft().Nodes))
+	for i, n := range w.ActiveCraft().Nodes {
 		if !n.IsResolved() {
 			continue
 		}
@@ -1202,8 +1077,8 @@ func (w *World) PredictedLegs() []PredictedLeg {
 		}
 		// Horizon: until next planted node, else one orbital period.
 		var horizon float64
-		if i+1 < len(w.Nodes) && w.Nodes[i+1].IsResolved() {
-			horizon = w.Nodes[i+1].TriggerTime.Sub(clock).Seconds()
+		if i+1 < len(w.ActiveCraft().Nodes) && w.ActiveCraft().Nodes[i+1].IsResolved() {
+			horizon = w.ActiveCraft().Nodes[i+1].TriggerTime.Sub(clock).Seconds()
 		}
 		if horizon <= 0 {
 			mu := primary.GravitationalParameter()
@@ -1342,7 +1217,7 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 // trajectory preview already has its own caveats around long
 // horizons.
 func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody, bool) {
-	if w.ActiveCraft() == nil || len(w.Nodes) == 0 {
+	if w.ActiveCraft() == nil || len(w.ActiveCraft().Nodes) == 0 {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
 	// v0.6.1: during an active finite burn the live craft state is
@@ -1351,7 +1226,7 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 	// a preview ellipse that rotates as fast as the engine fires.
 	// Suppress the projection until the burn completes — the live
 	// VESSEL block already shows the orbit changing in real time.
-	if w.ActiveBurn != nil {
+	if w.ActiveCraft().ActiveBurn != nil {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
 	state := w.ActiveCraft().State
@@ -1359,7 +1234,7 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 	clock := w.Clock.SimTime
 	any := false
 	systems := w.Systems
-	for _, n := range w.Nodes {
+	for _, n := range w.ActiveCraft().Nodes {
 		if !n.IsResolved() {
 			continue
 		}
