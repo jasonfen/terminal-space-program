@@ -339,10 +339,17 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				activeColor = lipgloss.Color(c.Color)
 			}
 			vesselTag := widgets.CellTag{Color: activeColor, IsVessel: true}
-			if orbitVisible {
-				v.canvas.PlotArrowTagged(craftInertial, c.State.V, 5, vesselTag)
-			} else {
-				v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
+			// v0.8.2+: active craft uses its loadout glyph just like
+			// non-active ones — the v0.7.x chevron-arrow rendering
+			// read as crusty next to the new ▲/◆/●/▼ markers, so the
+			// glyph wins for visual consistency. The colored dot
+			// underneath gives the cell a stable hit-test tag for
+			// click-on-vessel.
+			v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
+			if c.Glyph != "" {
+				if g := []rune(c.Glyph); len(g) > 0 {
+					v.canvas.SetCellOverlay(craftInertial, g[0])
+				}
 			}
 		}
 
