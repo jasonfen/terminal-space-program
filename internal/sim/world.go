@@ -60,6 +60,20 @@ type World struct {
 	// direction from live (r, v) just like planted burns do.
 	AttitudeMode spacecraft.BurnMode
 
+	// EngineMode picks which propulsion system the live manual-flight
+	// inputs drive: main (high-thrust, fuel) or RCS (monoprop, pulse-
+	// fired). Toggled via the `r` key. Planted burns always use main.
+	// v0.8.0+.
+	EngineMode spacecraft.EngineMode
+
+	// rcsPuffs is a small ring of recent RCS pulses, surfaced by the
+	// orbit canvas as a fading marker for visual feedback. v0.8.0
+	// ships a placeholder visual; v0.8.2 replaces it with per-thruster
+	// glyphs once craft visual differentiation lands.
+	rcsPuffs    [rcsPuffCap]rcsPuff
+	rcsPuffIdx  int
+	rcsPuffLen  int
+
 	// Missions are pass/fail objectives evaluated against World state
 	// each Tick. Seeded from the embedded starter catalog at NewWorld
 	// time; Status fields progress as the player flies. v0.6.5+.
@@ -99,7 +113,23 @@ type trailSample struct {
 const (
 	trailCap         = 200
 	trailIntervalSec = 10.0
+
+	// rcsPuffCap is the number of recent RCS pulses retained for
+	// visual feedback; rcsPuffTTL is how long (sim seconds) each puff
+	// remains visible before the canvas drops it. v0.8.0+.
+	rcsPuffCap = 12
+	rcsPuffTTL = 3.0
 )
+
+// rcsPuff captures one fired RCS pulse for the canvas-side renderer.
+// Stored in the craft's primary frame so the puff floats with the
+// craft as the system moves. v0.8.0+ placeholder; v0.8.2 replaces.
+type rcsPuff struct {
+	primaryID string
+	relR      orbital.Vec3
+	dir       orbital.Vec3 // unit anti-thrust direction (where exhaust goes)
+	at        time.Time    // sim-time when the pulse fired
+}
 
 // NewWorld loads the embedded systems, seeds clock at J2000 + 50 ms base
 // step, and spawns a spacecraft in LEO around Sol's Earth.
@@ -245,6 +275,7 @@ func (w *World) Tick() {
 			w.maybeSwitchPrimary()
 		}
 		w.maybeRecordTrail(simDelta.Seconds())
+		w.pruneRCSPuffs()
 		w.evaluateMissions()
 	}
 }

@@ -177,11 +177,18 @@ type ManualBurn struct {
 // flight (planted burns own the engine until they complete) or fuel
 // is empty. Idempotent: a second call while the manual burn is
 // already running leaves StartTime as the original.
+//
+// v0.8.0+: gated to EngineMain — `b` in RCS mode is a no-op since
+// RCS firing happens via FireRCSPulse on the attitude keys, not via
+// a sustained burn.
 func (w *World) StartManualBurn() {
 	if w.ActiveBurn != nil || w.ManualBurn != nil {
 		return
 	}
 	if w.Craft == nil || w.Craft.Fuel <= 0 || w.Craft.Thrust <= 0 {
+		return
+	}
+	if w.EngineMode != spacecraft.EngineMain {
 		return
 	}
 	if w.Craft.EffectiveThrottle() <= 0 {

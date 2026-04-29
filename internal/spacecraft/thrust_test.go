@@ -77,13 +77,16 @@ func TestBurnConsumesFuel(t *testing.T) {
 }
 
 // TestRemainingDeltaV: v0.5.13+ default fuel 40000 kg / dry 11000 kg,
-// Isp 421s → Δv = 421 * 9.80665 * ln(51000/11000) ≈ 6326 m/s.
+// Isp 421s → Δv = 421 * 9.80665 * ln(51050/(11000+50)) ≈ 6314 m/s.
+// v0.8.0+: monoprop is dead weight to the main engine, so the
+// floor is dry+monoprop rather than just dry — slightly lower Δv
+// budget vs the pre-RCS 6326 m/s.
 func TestRemainingDeltaV(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 	got := sc.RemainingDeltaV()
-	want := 421.0 * 9.80665 * math.Log(51000.0/11000.0)
+	want := 421.0 * 9.80665 * math.Log(sc.TotalMass()/(sc.DryMass+sc.Monoprop))
 	if math.Abs(got-want) > 1 {
 		t.Errorf("Δv_remaining = %.2f m/s, want %.2f m/s", got, want)
 	}
@@ -111,22 +114,21 @@ func TestMassFlowRateZeroWhenNoThrust(t *testing.T) {
 	}
 }
 
-// TestBurnTimeForDVRocketEquation: at S-IVB-1 specs (51000 kg total,
-// 1023 kN thrust, Isp 421 s) a 100 m/s Δv requires
+// TestBurnTimeForDVRocketEquation: at S-IVB-1 specs (51050 kg total
+// with v0.8.0+ monoprop, 1023 kN thrust, Isp 421 s) a 100 m/s Δv
+// requires
 //
 //	t = (m0/ṁ) · (1 - exp(-Δv/(Isp·g0)))
-//	  = (51000 / 247.84) · (1 - exp(-100/(421·9.80665)))
-//	  ≈ 4.92 s
+//	  ≈ 4.93 s
 //
-// Validates the rocket-equation form vs a constant-mass approximation
-// (which would give 51000·100/1023000 ≈ 4.99 s — slightly higher).
+// Validates the rocket-equation form vs a constant-mass approximation.
 func TestBurnTimeForDVRocketEquation(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 	got := sc.BurnTimeForDV(100).Seconds()
 	mDot := 1023000.0 / (421.0 * 9.80665)
-	want := (51000.0 / mDot) * (1 - math.Exp(-100.0/(421.0*9.80665)))
+	want := (sc.TotalMass() / mDot) * (1 - math.Exp(-100.0/(421.0*9.80665)))
 	if math.Abs(got-want) > 1e-3 {
 		t.Errorf("BurnTimeForDV(100) = %.3f s, want %.3f s", got, want)
 	}

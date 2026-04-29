@@ -461,25 +461,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.AdjustThrottle(-0.1)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudePrograde):
-			a.world.SetAttitudeMode(spacecraft.BurnPrograde)
+			a.handleAttitudeKey(spacecraft.BurnPrograde)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRetrograde):
-			a.world.SetAttitudeMode(spacecraft.BurnRetrograde)
+			a.handleAttitudeKey(spacecraft.BurnRetrograde)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeNormalPlus):
-			a.world.SetAttitudeMode(spacecraft.BurnNormalPlus)
+			a.handleAttitudeKey(spacecraft.BurnNormalPlus)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeNormalMinus):
-			a.world.SetAttitudeMode(spacecraft.BurnNormalMinus)
+			a.handleAttitudeKey(spacecraft.BurnNormalMinus)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialOut):
-			a.world.SetAttitudeMode(spacecraft.BurnRadialOut)
+			a.handleAttitudeKey(spacecraft.BurnRadialOut)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialIn):
-			a.world.SetAttitudeMode(spacecraft.BurnRadialIn)
+			a.handleAttitudeKey(spacecraft.BurnRadialIn)
 			return a, nil
 		case key.Matches(m, a.keys.ToggleBurn):
 			a.world.ToggleManualBurn()
+			return a, nil
+		case key.Matches(m, a.keys.CycleEngine):
+			a.world.CycleEngineMode()
 			return a, nil
 		}
 	}
@@ -516,6 +519,21 @@ func (a *App) doLoad() error {
 // can be wired later if needed.
 func (a *App) autosave() {
 	_ = a.doSave()
+}
+
+// handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
+// it just sets the held attitude (the v0.7.3.2 explicit-engage UX
+// stays — `b` actually fires the engine). In EngineRCS mode the same
+// keypress fires one RCS pulse in addition to setting the attitude,
+// so each tap nudges the craft by the RCS Δv quantum and a held key
+// produces a sustained pulse train at the terminal's key-repeat rate.
+// v0.8.0+.
+func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
+	if a.world.EngineMode == spacecraft.EngineRCS {
+		a.world.FireRCSPulse(mode)
+		return
+	}
+	a.world.SetAttitudeMode(mode)
 }
 
 // applyMenuAction dispatches a finalised MenuAction (Save / Load /

@@ -10,6 +10,68 @@ import (
 
 const g0 = 9.80665
 
+// EngineMode selects which propulsion system the manual-flight path
+// drives: the main engine (high-thrust, fuel) or the monopropellant
+// RCS thrusters (low-thrust, monoprop, pulse-fired). v0.8.0+.
+//
+// Planted maneuver nodes always use the main engine; EngineMode only
+// gates the live manual-flight inputs (attitude keys + b).
+type EngineMode int
+
+const (
+	EngineMain EngineMode = iota
+	EngineRCS
+)
+
+// String returns the HUD label for the engine mode.
+func (e EngineMode) String() string {
+	switch e {
+	case EngineMain:
+		return "main"
+	case EngineRCS:
+		return "rcs"
+	}
+	return "?"
+}
+
+// RCSDvQuantum is the per-pulse Δv applied when an attitude key fires
+// in RCS mode. Sized at 0.1 m/s per scoping decision #7 — small enough
+// for sub-m/s precision proximity work, large enough that a held key
+// at terminal-default ~5 Hz key-repeat delivers usable corrections in
+// a few seconds. v0.8.0+.
+const RCSDvQuantum = 0.1
+
+// ApplyRCSPulse delivers one RCSDvQuantum of Δv in the given burn
+// direction, debiting monoprop via the rocket equation against the
+// RCSIsp engine. No-op if monoprop is empty or RCSThrust / RCSIsp are
+// unconfigured (legacy save with zero RCS fields, mid-load before the
+// loader populates defaults). v0.8.0+.
+func (s *Spacecraft) ApplyRCSPulse(mode BurnMode) bool {
+	if s.RCSIsp <= 0 || s.RCSThrust <= 0 || s.Monoprop <= 0 {
+		return false
+	}
+	dir := DirectionUnit(mode, s.State.R, s.State.V)
+	if dir.Norm() == 0 {
+		return false
+	}
+	dv := RCSDvQuantum
+	// Rocket equation against monoprop pool only — main fuel
+	// untouched. m0 = TotalMass; m1 = m0 · exp(-Δv / (Isp·g0)).
+	m0 := s.TotalMass()
+	if m0 <= 0 {
+		return false
+	}
+	massFrac := 1.0 - math.Exp(-dv/(s.RCSIsp*g0))
+	monoBurned := m0 * massFrac
+	if monoBurned > s.Monoprop {
+		monoBurned = s.Monoprop
+	}
+	s.Monoprop -= monoBurned
+	mAfter := s.TotalMass()
+	s.State = physics.StepRCSPulse(s.State, dir, dv, mAfter)
+	return true
+}
+
 // BurnMode enumerates the six direction modes from plan §Phase 2.
 type BurnMode int
 
@@ -115,13 +177,17 @@ func (s *Spacecraft) consumeFuel(dvUsed float64) {
 	s.State.M = s.TotalMass()
 }
 
-// RemainingDeltaV estimates how much more Δv the current fuel supports,
-// from the rocket equation: Δv = Isp·g0·ln(m0/m_dry).
+// RemainingDeltaV estimates how much more Δv the main engine's fuel
+// supports via the rocket equation: Δv = Isp·g0·ln(m0/m_after_fuel).
+// Monoprop is not burned through the main engine, so it counts as
+// dead weight in the m_after_fuel term — the floor is dry+monoprop,
+// not dry alone. v0.8.0+: pre-monoprop the floor was just DryMass.
 func (s *Spacecraft) RemainingDeltaV() float64 {
-	if s.DryMass == 0 || s.TotalMass() == 0 {
+	floor := s.DryMass + s.Monoprop
+	if floor == 0 || s.TotalMass() == 0 {
 		return 0
 	}
-	return s.Isp * g0 * math.Log(s.TotalMass()/s.DryMass)
+	return s.Isp * g0 * math.Log(s.TotalMass()/floor)
 }
 
 // MassFlowRate returns the propellant mass-flow magnitude (kg/s) at

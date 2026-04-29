@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.7.6**.
+Latest release: **v0.8.0**.
 
 ```bash
 # Linux x86_64
@@ -129,11 +129,15 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `w` / `s` | Attitude prograde / retrograde |
 | `a` / `d` | Attitude normal+ / normal- |
 | `q` / `e` | Attitude radial+ / radial- |
-| `b` | Engage / cut manual burn (with throttle > 0) |
+| `b` | Engage / cut manual burn (main engine, throttle > 0) |
+| `r` | Engine: main / RCS (v0.8.0+) |
 
-Attitude keys orient only — pressing `b` is what fires the engine.
-Throttle setting and held attitude both show in the HUD's
-ATTITUDE / PROPELLANT blocks.
+Attitude keys orient only in main mode — pressing `b` is what fires
+the engine. In RCS mode the attitude keys *also* fire one 0.1 m/s
+monoprop pulse per keypress (held keys produce a sustained pulse
+train at the terminal's key-repeat rate). The HUD's ATTITUDE block
+shows the armed engine; the PROPELLANT block shows monoprop level
+and remaining RCS Δv.
 
 ### Mouse
 
@@ -206,6 +210,13 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   planted-node planner. Throttle, six attitude modes, and an
   explicit `b` engage so accidental attitude-key presses can't
   fire the engine.
+- **RCS / monopropellant mode** (v0.8.0+). `r` toggles between the
+  main engine and a precision-maneuver monoprop thruster pool.
+  In RCS mode each attitude keypress fires a fixed 0.1 m/s pulse
+  off the monoprop budget (~30 m/s on the default S-IVB-1) — the
+  proximity-ops thruster v0.8.3 docking will lean on. Each pulse
+  drops a fading puff marker on the canvas (placeholder visual;
+  v0.8.2 replaces with per-thruster glyphs).
 - **Predicted post-burn orbit**. PROJECTED ORBIT block on both
   the orbit screen and `m` form chains every planted node, frame-
   rebases per node (so a Hohmann arrival reads in the destination
@@ -231,8 +242,9 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   title-bar button.
 - **Persistence**. Save / load to JSON at
   `$XDG_STATE_HOME/terminal-space-program/save.json`. Schema
-  v4 round-trips clock, focus, craft, planted nodes (with
-  per-node throttle), active burn, and missions.
+  v4 round-trips clock, focus, craft (incl. v0.8.0+ RCS pool),
+  planted nodes (with per-node throttle), active burn, and
+  missions.
 - **Modding**. Custom systems via JSON overlay, per-body color
   via `theme.json` (see *Custom systems* and *Theming* below).
 - **Multi-system viewing**. Sol, Alpha Centauri, TRAPPIST-1, and
@@ -291,6 +303,7 @@ prints a warning to stderr and falls back to defaults.
 | v0.5 | Moons + visuals | Body hierarchy + major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus); per-body color, vessel trail, HUD polish. |
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
+| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft, docking, drag, sim-time rotation queued. |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -301,7 +314,7 @@ v0.6 / v0.7 / v0.8 plans: [`docs/v0.6-plan.md`](docs/v0.6-plan.md), [`docs/v0.7-
 v0.8 — **multi-craft polish**. Slice breakdown in
 [`docs/v0.8-plan.md`](docs/v0.8-plan.md):
 
-- v0.8.0 — RCS / monopropellant mode for sub-m/s precision burns.
+- ~~v0.8.0 — RCS / monopropellant mode for sub-m/s precision burns~~ **shipped.**
 - v0.8.1 — multi-craft foundation (selector + save schema v4 → v5
   with typed migrations + keystroke spawn).
 - v0.8.2 — craft types (propulsion loadouts, roles, visual

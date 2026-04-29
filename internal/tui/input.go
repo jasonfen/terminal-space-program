@@ -55,6 +55,12 @@ type Keymap struct {
 	// engine, which made accidental burns easy. Now attitude keys
 	// only orient; firing requires an explicit `b` press.
 	ToggleBurn key.Binding
+
+	// CycleEngine (v0.8.0+): flip between main engine and RCS /
+	// monoprop precision thrusters. Bound to `r` for "RCS." In RCS
+	// mode the attitude keys (w/s/a/d/q/e) also fire one pulse per
+	// keypress in addition to setting the held attitude.
+	CycleEngine key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -102,5 +108,6 @@ func DefaultKeymap() Keymap {
 		AttitudeRadialOut:   key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "attitude: radial+")),
 		AttitudeRadialIn:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "attitude: radial-")),
 		ToggleBurn:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "engage / cut manual burn")),
+		CycleEngine:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "engine: main / rcs")),
 	}
 }
