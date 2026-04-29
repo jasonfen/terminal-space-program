@@ -40,7 +40,7 @@ func (w *World) HohmannPreviewFor(bodyIdx int) HohmannPreview {
 	if target.SemimajorAxis == 0 {
 		return HohmannPreview{TargetName: target.EnglishName, Note: "system primary — no orbital radius"}
 	}
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return HohmannPreview{TargetName: target.EnglishName, Note: "no spacecraft"}
 	}
 	if !w.CraftVisibleHere() {
@@ -49,15 +49,15 @@ func (w *World) HohmannPreviewFor(bodyIdx int) HohmannPreview {
 
 	var mu, r1, r2 float64
 	switch {
-	case target.ParentID == w.Craft.Primary.ID:
+	case target.ParentID == w.ActiveCraft().Primary.ID:
 		// Intra-primary: craft and target both orbit the craft's
 		// primary. Mirrors PlanIntraPrimaryHohmann's frame —
 		// shared-primary GM, craft's parent-relative |R|, target's
 		// parent-relative SMA. Phasing is ignored (display-only).
-		mu = w.Craft.Primary.GravitationalParameter()
-		r1 = w.Craft.State.R.Norm()
+		mu = w.ActiveCraft().Primary.GravitationalParameter()
+		r1 = w.ActiveCraft().State.R.Norm()
 		r2 = target.SemimajorAxisMeters()
-	case w.Craft.Primary.ParentID != "" && target.ID == w.Craft.Primary.ParentID:
+	case w.ActiveCraft().Primary.ParentID != "" && target.ID == w.ActiveCraft().Primary.ParentID:
 		// Moon → parent (e.g. Luna craft + Earth target). The actual
 		// transfer is a moon-escape ellipse, not a two-impulse
 		// circular Hohmann; surfacing fake Δv would mislead. Direct

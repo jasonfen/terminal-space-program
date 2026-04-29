@@ -14,16 +14,16 @@ func TestCycleEngineMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	if w.EngineMode != spacecraft.EngineMain {
-		t.Fatalf("default engine = %v, want EngineMain", w.EngineMode)
+	if w.ActiveCraft().EngineMode != spacecraft.EngineMain {
+		t.Fatalf("default engine = %v, want EngineMain", w.ActiveCraft().EngineMode)
 	}
 	w.CycleEngineMode()
-	if w.EngineMode != spacecraft.EngineRCS {
-		t.Errorf("after first toggle = %v, want EngineRCS", w.EngineMode)
+	if w.ActiveCraft().EngineMode != spacecraft.EngineRCS {
+		t.Errorf("after first toggle = %v, want EngineRCS", w.ActiveCraft().EngineMode)
 	}
 	w.CycleEngineMode()
-	if w.EngineMode != spacecraft.EngineMain {
-		t.Errorf("after second toggle = %v, want EngineMain", w.EngineMode)
+	if w.ActiveCraft().EngineMode != spacecraft.EngineMain {
+		t.Errorf("after second toggle = %v, want EngineMain", w.ActiveCraft().EngineMode)
 	}
 }
 
@@ -35,20 +35,20 @@ func TestFireRCSPulseGatesOnEngineMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	v0 := w.Craft.OrbitalSpeed()
+	v0 := w.ActiveCraft().OrbitalSpeed()
 
 	if w.FireRCSPulse(spacecraft.BurnPrograde) {
 		t.Error("FireRCSPulse fired in EngineMain mode")
 	}
-	if w.Craft.OrbitalSpeed() != v0 {
-		t.Errorf("|v| changed on gated pulse: %v → %v", v0, w.Craft.OrbitalSpeed())
+	if w.ActiveCraft().OrbitalSpeed() != v0 {
+		t.Errorf("|v| changed on gated pulse: %v → %v", v0, w.ActiveCraft().OrbitalSpeed())
 	}
 
 	w.CycleEngineMode() // → EngineRCS
 	if !w.FireRCSPulse(spacecraft.BurnPrograde) {
 		t.Fatal("FireRCSPulse did not fire in EngineRCS mode")
 	}
-	got := w.Craft.OrbitalSpeed()
+	got := w.ActiveCraft().OrbitalSpeed()
 	want := v0 + spacecraft.RCSDvQuantum
 	if math.Abs(got-want) > 1e-9 {
 		t.Errorf("post-pulse |v| = %.6f, want %.6f", got, want)
@@ -61,8 +61,8 @@ func TestFireRCSPulseUpdatesAttitudeMode(t *testing.T) {
 	w, _ := NewWorld()
 	w.CycleEngineMode()
 	w.FireRCSPulse(spacecraft.BurnRetrograde)
-	if w.AttitudeMode != spacecraft.BurnRetrograde {
-		t.Errorf("AttitudeMode = %v, want Retrograde", w.AttitudeMode)
+	if w.ActiveCraft().AttitudeMode != spacecraft.BurnRetrograde {
+		t.Errorf("AttitudeMode = %v, want Retrograde", w.ActiveCraft().AttitudeMode)
 	}
 }
 
@@ -87,12 +87,12 @@ func TestStartManualBurnGatesOnEngineMode(t *testing.T) {
 	w, _ := NewWorld()
 	w.CycleEngineMode() // → RCS
 	w.StartManualBurn()
-	if w.ManualBurn != nil {
+	if w.ActiveCraft().ManualBurn != nil {
 		t.Error("StartManualBurn engaged a sustained burn in RCS mode")
 	}
 	w.CycleEngineMode() // → main
 	w.StartManualBurn()
-	if w.ManualBurn == nil {
+	if w.ActiveCraft().ManualBurn == nil {
 		t.Error("StartManualBurn failed to engage in main mode")
 	}
 }

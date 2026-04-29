@@ -46,6 +46,25 @@ type Spacecraft struct {
 
 	Primary bodies.CelestialBody
 	State   physics.StateVector
+
+	// v0.8.1+ — per-craft mission/flight state. Pre-v0.8.1 these
+	// lived on World, which meant a single planted burn was shared
+	// across all craft and the in-flight ActiveBurn followed
+	// whichever craft was active at integrator time. Per-craft
+	// ownership ties planted nodes + live engine state to the craft
+	// they were planted for, regardless of which craft the player
+	// is currently flying.
+	//
+	// Nodes are sorted by TriggerTime ascending (sim package owns
+	// the sort helper). ActiveBurn / ManualBurn are mutually
+	// exclusive — a planted finite burn or a held manual burn, not
+	// both. AttitudeMode + EngineMode are the live manual-flight
+	// state.
+	Nodes        []ManeuverNode
+	ActiveBurn   *ActiveBurn
+	ManualBurn   *ManualBurn
+	AttitudeMode BurnMode
+	EngineMode   EngineMode
 }
 
 // EffectiveThrottle returns Throttle clamped to [0, 1]. Zero means

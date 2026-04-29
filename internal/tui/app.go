@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -105,20 +106,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case screens.BurnExecutedMsg:
-		if a.world.Craft != nil {
+		if a.world.ActiveCraft() != nil {
 			// v0.6.5: derive burn duration from Δv using the rocket
 			// equation against the live craft state, so the planner UX
 			// only has to specify Δv. Zero-thrust craft fall back to the
 			// legacy impulsive path (Duration = 0) — the API still
 			// supports that branch, just no longer through the form.
-			dur := a.world.Craft.BurnTimeForDV(m.DV)
+			dur := a.world.ActiveCraft().BurnTimeForDV(m.DV)
 			// v0.6.4 click-to-edit: replace the original node before
 			// planting so click → edit → Enter reads as "modify in
 			// place" rather than "duplicate." Removal must come first
 			// so PlanNode's sort handles the new node's position
 			// against the rest of the (post-removal) slice.
-			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.Nodes) {
-				a.world.Nodes = append(a.world.Nodes[:m.EditingIdx], a.world.Nodes[m.EditingIdx+1:]...)
+			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.ActiveCraft().Nodes) {
+				a.world.ActiveCraft().Nodes = append(a.world.ActiveCraft().Nodes[:m.EditingIdx], a.world.ActiveCraft().Nodes[m.EditingIdx+1:]...)
 			}
 			switch {
 			case !m.TriggerTime.IsZero():
@@ -147,13 +148,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Throttle: m.Throttle,
 				})
 			case dur == 0:
-				a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
+				a.world.ActiveCraft().ApplyImpulsive(m.Mode, m.DV)
 			default:
 				effThrottle := m.Throttle
 				if effThrottle <= 0 {
 					effThrottle = 1.0
 				}
-				a.world.ActiveBurn = &sim.ActiveBurn{
+				a.world.ActiveCraft().ActiveBurn = &sim.ActiveBurn{
 					Mode:        m.Mode,
 					DVRemaining: m.DV,
 					EndTime:     a.world.Clock.SimTime.Add(dur),
@@ -196,8 +197,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case hit.NodeIdx > 0:
 				idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
-				if idx >= 0 && idx < len(a.world.Nodes) {
-					a.maneuver.LoadNode(idx, a.world.Nodes[idx])
+				if idx >= 0 && idx < len(a.world.ActiveCraft().Nodes) {
+					a.maneuver.LoadNode(idx, a.world.ActiveCraft().Nodes[idx])
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
@@ -369,16 +370,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.FocusReset):
 			a.world.ResetFocus()
 			return a, nil
-		case key.Matches(m, a.keys.PlanNode):
-			if a.world.CraftVisibleHere() {
-				const defaultDV = 200.0
-				dur := finiteBurnDuration(defaultDV, a.world.Craft.TotalMass(), a.world.Craft.Thrust)
-				a.world.PlanNode(sim.ManeuverNode{
-					TriggerTime: a.world.Clock.SimTime.Add(5 * time.Minute),
-					Mode:        spacecraft.BurnPrograde,
-					DV:          defaultDV,
-					Duration:    dur,
-				})
+		case key.Matches(m, a.keys.SpawnCraft):
+			// v0.8.1: minimal spawn — produces a sister copy of the
+			// active craft in a 500 km circular orbit around the same
+			// primary, offset 90° from the original. The full spawn
+			// form (parent body cycle, altitude knob, prograde toggle,
+			// craft type cycle once v0.8.2 lands) is a follow-up patch.
+			if c, err := a.world.SpawnSisterCraft(); err == nil {
+				a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
+				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PlanTransfer):
@@ -484,6 +484,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.CycleEngine):
 			a.world.CycleEngineMode()
 			return a, nil
+		case key.Matches(m, a.keys.NextCraft):
+			a.world.CycleActiveCraft(1)
+			return a, nil
+		case key.Matches(m, a.keys.PrevCraft):
+			a.world.CycleActiveCraft(-1)
+			return a, nil
 		}
 	}
 	return a, nil
@@ -529,7 +535,7 @@ func (a *App) autosave() {
 // produces a sustained pulse train at the terminal's key-repeat rate.
 // v0.8.0+.
 func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
-	if a.world.EngineMode == spacecraft.EngineRCS {
+	if a.world.ActiveCraft().EngineMode == spacecraft.EngineRCS {
 		a.world.FireRCSPulse(mode)
 		return
 	}
@@ -621,8 +627,26 @@ func (a *App) View() string {
 	default:
 		base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}
+	// v0.8.1+: overlay the status message on top of an existing row
+	// rather than appending a new line. Appending grew the rendered
+	// height by one row and pushed the terminal to scroll the view
+	// every time the message expired / re-fired. The orbit screen's
+	// footer (last row) is the natural target — short-lived status
+	// lines are flight-state messages and live on the same band as
+	// the keybind hints.
 	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
-		base += "\n" + a.theme.Footer.Render(a.statusMsg)
+		base = overlayLastLine(base, a.theme.Warning.Render(a.statusMsg))
 	}
 	return base
+}
+
+// overlayLastLine replaces the final \n-delimited row of base with
+// overlay, preserving the rendered height. v0.8.1+: used by the
+// status-message flash to avoid growing the screen.
+func overlayLastLine(base, overlay string) string {
+	idx := strings.LastIndex(base, "\n")
+	if idx < 0 {
+		return overlay
+	}
+	return base[:idx+1] + overlay
 }
