@@ -742,18 +742,39 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
-	if w.ActiveCraft().ActiveBurn != nil {
-		remaining := w.ActiveCraft().ActiveBurn.EndTime.Sub(w.Clock.SimTime).Seconds()
-		if remaining < 0 {
-			remaining = 0
+	// v0.8.1+: walk every craft and surface any in-flight burn so a
+	// burn on a non-active craft doesn't silently sneak by. The
+	// active craft's burn keeps the prior multi-line treatment for
+	// quick scan; non-active burns get one compact line each.
+	burning := []int{}
+	for i, c := range w.Crafts {
+		if c != nil && c.ActiveBurn != nil {
+			burning = append(burning, i)
 		}
+	}
+	if len(burning) > 0 {
 		lines = append(lines,
 			v.theme.Dim.Render(strings.Repeat("─", width-2)),
-			v.theme.Warning.Render("● BURN ACTIVE"),
-			fmt.Sprintf("  mode:     %s", w.ActiveCraft().ActiveBurn.Mode.String()),
-			fmt.Sprintf("  Δv-to-go: %.1f m/s", w.ActiveCraft().ActiveBurn.DVRemaining),
-			fmt.Sprintf("  T-%.1fs remaining", remaining),
+			v.theme.Warning.Render("● BURNS"),
 		)
+		for _, i := range burning {
+			c := w.Crafts[i]
+			ab := c.ActiveBurn
+			remaining := ab.EndTime.Sub(w.Clock.SimTime).Seconds()
+			if remaining < 0 {
+				remaining = 0
+			}
+			tag := fmt.Sprintf("craft %d", i+1)
+			if i == w.ActiveCraftIdx {
+				tag = v.theme.Warning.Render(tag + " (active)")
+			} else {
+				tag = v.theme.Dim.Render(tag)
+			}
+			lines = append(lines,
+				fmt.Sprintf("  %s — %s, Δv %.0f m/s, T-%.0fs",
+					tag, ab.Mode.String(), ab.DVRemaining, remaining),
+			)
+		}
 	}
 
 	// v0.7.4+: mission status moved off the orbit HUD into a
@@ -788,27 +809,48 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
-	if len(w.ActiveCraft().Nodes) > 0 {
+	// v0.8.1+: list nodes for every craft in the slate. The active
+	// craft's nodes appear at full intensity; other crafts' nodes
+	// fall in the Dim style with a `craft N:` prefix so the player
+	// can see at a glance who has burns queued.
+	hasAnyNodes := false
+	for _, c := range w.Crafts {
+		if c != nil && len(c.Nodes) > 0 {
+			hasAnyNodes = true
+			break
+		}
+	}
+	if hasAnyNodes {
 		lines = append(lines, section("NODES")...)
-		for i, n := range w.ActiveCraft().Nodes {
-			kind := "imp"
-			if n.Duration > 0 {
-				kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
-			}
-			// v0.6.0: unresolved event-relative nodes have no
-			// TriggerTime yet — show the trigger label instead of T+.
-			if !n.IsResolved() {
-				lines = append(lines, fmt.Sprintf(
-					"  #%d %s  %s  %.0f m/s  %s",
-					i+1, n.Event.String(), n.Mode.String(), n.DV, kind,
-				))
+		multiCraft := len(w.Crafts) > 1
+		for ci, c := range w.Crafts {
+			if c == nil || len(c.Nodes) == 0 {
 				continue
 			}
-			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
-			lines = append(lines, fmt.Sprintf(
-				"  #%d T%+.0fs  %s  %.0f m/s  %s",
-				i+1, dt, n.Mode.String(), n.DV, kind,
-			))
+			isActive := ci == w.ActiveCraftIdx
+			for i, n := range c.Nodes {
+				kind := "imp"
+				if n.Duration > 0 {
+					kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
+				}
+				prefix := fmt.Sprintf("  #%d", i+1)
+				if multiCraft {
+					prefix = fmt.Sprintf("  c%d#%d", ci+1, i+1)
+				}
+				var line string
+				if !n.IsResolved() {
+					line = fmt.Sprintf("%s %s  %s  %.0f m/s  %s",
+						prefix, n.Event.String(), n.Mode.String(), n.DV, kind)
+				} else {
+					dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+					line = fmt.Sprintf("%s T%+.0fs  %s  %.0f m/s  %s",
+						prefix, dt, n.Mode.String(), n.DV, kind)
+				}
+				if !isActive {
+					line = v.theme.Dim.Render(line)
+				}
+				lines = append(lines, line)
+			}
 		}
 
 		// v0.6.1: PROJECTED ORBIT — apo/peri/AN/DN of the orbit after
