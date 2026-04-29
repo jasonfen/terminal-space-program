@@ -90,6 +90,27 @@ type ManeuverNode struct {
 	Duration    time.Duration
 	PrimaryID   string
 	Event       TriggerEvent
+	// Throttle (v0.7.6+) is the engine throttle setting [0, 1] used
+	// for this node's burn. Zero (the JSON omitempty default) is
+	// remapped to 1.0 — full open — by EffectiveThrottle so v1–v3
+	// saves and pre-v0.7.6 plant paths keep their prior behaviour
+	// without explicit migrations. Per-node throttle decouples
+	// planted burns from live `Craft.Throttle` so adjusting throttle
+	// mid-coast doesn't slow an in-flight planted burn.
+	Throttle float64
+}
+
+// EffectiveThrottle returns the throttle to use when firing this
+// node's burn, mapping the JSON omitempty zero-default to 1.0 (full
+// open). v0.7.6+.
+func (n ManeuverNode) EffectiveThrottle() float64 {
+	if n.Throttle <= 0 {
+		return 1.0
+	}
+	if n.Throttle > 1 {
+		return 1.0
+	}
+	return n.Throttle
 }
 
 // IsResolved reports whether the node's TriggerTime has been set —
@@ -132,6 +153,12 @@ type ActiveBurn struct {
 	DVRemaining float64
 	EndTime     time.Time
 	PrimaryID   string
+	// Throttle (v0.7.6+) is the throttle the originating ManeuverNode
+	// committed to. Captured at burn-start so adjusting live
+	// `Craft.Throttle` mid-coast doesn't slow a planted burn — the
+	// integrator scales thrust by ActiveBurn.Throttle (when > 0)
+	// rather than the spacecraft's live setting.
+	Throttle float64
 }
 
 // ManualBurn is the runtime state of a v0.7.3+ player-held manual
@@ -997,6 +1024,7 @@ func (w *World) executeDueNodes() {
 				DVRemaining: n.DV,
 				EndTime:     n.BurnEnd(),
 				PrimaryID:   n.PrimaryID,
+				Throttle:    n.EffectiveThrottle(),
 			}
 		}
 		fired++

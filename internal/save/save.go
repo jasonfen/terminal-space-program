@@ -33,7 +33,7 @@ import (
 // TriggerAbsolute, Missions = nil → seeded from default catalog post-
 // load). Bumps that need real migration logic should add a dedicated
 // upgrade pass keyed off File.Version.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // File is the on-disk envelope.
 type File struct {
@@ -90,7 +90,9 @@ type Craft struct {
 // omitempty so v1 saves round-trip cleanly: the field is absent on
 // disk and unmarshals to zero (TriggerAbsolute), which matches the
 // pre-v0.6 behaviour. v2 saves with non-zero Event encode the integer
-// directly.
+// directly. Throttle (v0.7.6+, schema v4) is omitempty so v1–v3
+// saves round-trip cleanly — absent → 0.0 in JSON, mapped to 1.0
+// (full throttle, the prior universal behaviour) in worldFromPayload.
 type Node struct {
 	TriggerTimeNano int64   `json:"trigger_time_unix_nano"`
 	Mode            int     `json:"mode"`
@@ -98,14 +100,19 @@ type Node struct {
 	DurationNano    int64   `json:"duration_nano"`
 	PrimaryID       string  `json:"primary_id"`
 	Event           int     `json:"event,omitempty"`
+	Throttle        float64 `json:"throttle,omitempty"`
 }
 
-// ActiveBurn mirrors sim.ActiveBurn.
+// ActiveBurn mirrors sim.ActiveBurn. Throttle (v0.7.6+, schema v4)
+// is omitempty so v1–v3 saves with an in-flight burn round-trip
+// cleanly: absent → 0.0 unmarshals → world.go's stepThrust defaults
+// to 1.0 (the universal pre-v0.7.6 behaviour).
 type ActiveBurn struct {
 	Mode        int     `json:"mode"`
 	DVRemaining float64 `json:"dv_remaining"`
 	EndTimeNano int64   `json:"end_time_unix_nano"`
 	PrimaryID   string  `json:"primary_id"`
+	Throttle    float64 `json:"throttle,omitempty"`
 }
 
 // Errors returned by Load.
@@ -236,6 +243,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			DurationNano:    int64(n.Duration),
 			PrimaryID:       n.PrimaryID,
 			Event:           int(n.Event),
+			Throttle:        n.Throttle,
 		})
 	}
 	if w.ActiveBurn != nil {
@@ -244,6 +252,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			DVRemaining: w.ActiveBurn.DVRemaining,
 			EndTimeNano: w.ActiveBurn.EndTime.UnixNano(),
 			PrimaryID:   w.ActiveBurn.PrimaryID,
+			Throttle:    w.ActiveBurn.Throttle,
 		}
 	}
 	p.Missions = missions.Clone(w.Missions)
@@ -310,6 +319,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Duration:    time.Duration(n.DurationNano),
 			PrimaryID:   n.PrimaryID,
 			Event:       sim.TriggerEvent(n.Event),
+			Throttle:    n.Throttle, // 0 → EffectiveThrottle remaps to 1.0 for v1–v3 saves.
 		})
 	}
 	if p.ActiveBurn != nil {
@@ -318,6 +328,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			DVRemaining: p.ActiveBurn.DVRemaining,
 			EndTime:     time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
 			PrimaryID:   p.ActiveBurn.PrimaryID,
+			Throttle:    p.ActiveBurn.Throttle, // 0 → stepThrust defaults to 1.0
 		}
 	}
 	// v0.6.5: missions persist with status. v3+ saves carry an explicit

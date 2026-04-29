@@ -517,27 +517,40 @@ func (w *World) thrustingAt(tickStart time.Time, dt float64, i int) bool {
 // stepThrust advances one RK4 sub-step with engine thrust, debits the
 // active-burn Δv budget by the analytical thrust contribution
 // (Thrust×Throttle/mass × dt), and burns fuel via the configured mass
-// flow. Dispatches between ActiveBurn (planted node, fixed mode) and
-// ManualBurn (v0.7.3+, mode driven by World.AttitudeMode).
+// flow. Dispatches between ActiveBurn (planted node, fixed mode +
+// throttle captured at fire-time) and ManualBurn (v0.7.3+, mode and
+// throttle driven by live World.AttitudeMode + Craft.Throttle).
+//
+// v0.7.6+: planted burns honour their per-node throttle rather than
+// the live craft setting, so the player can tweak the throttle knob
+// during a coast without slowing an in-flight planted burn.
 func (w *World) stepThrust(mu, dt float64) {
 	mode := w.AttitudeMode
+	throttle := w.Craft.EffectiveThrottle()
 	if w.ActiveBurn != nil {
 		mode = w.ActiveBurn.Mode
+		throttle = w.ActiveBurn.Throttle
+		if throttle <= 0 {
+			// Defensive fallback: legacy v3-save ActiveBurn with no
+			// captured throttle (loaded with zero) → treat as full
+			// open, matching the pre-v0.7.6 universal behaviour.
+			throttle = 1.0
+		}
 	}
-	accelFn := w.Craft.ThrustAccelFn(mode, mu)
+	accelFn := w.Craft.ThrustAccelFnAt(mode, mu, throttle)
 	w.Craft.State = physics.StepRK4(w.Craft.State, dt, accelFn, 0)
 
 	if w.ActiveBurn != nil {
 		mass := w.Craft.TotalMass()
 		if mass > 0 {
-			dvApplied := (w.Craft.Thrust * w.Craft.EffectiveThrottle() / mass) * dt
+			dvApplied := (w.Craft.Thrust * throttle / mass) * dt
 			if dvApplied > w.ActiveBurn.DVRemaining {
 				dvApplied = w.ActiveBurn.DVRemaining
 			}
 			w.ActiveBurn.DVRemaining -= dvApplied
 		}
 	}
-	fuelBurned := w.Craft.MassFlowRate() * dt
+	fuelBurned := w.Craft.MassFlowRateAt(throttle) * dt
 	if fuelBurned > w.Craft.Fuel {
 		fuelBurned = w.Craft.Fuel
 	}
