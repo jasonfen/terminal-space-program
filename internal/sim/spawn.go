@@ -52,16 +52,18 @@ func splitNumericSuffix(name string) (string, int) {
 	return name[:idx], n
 }
 
-// SpawnSisterCraft adds a sister copy of the active craft to the
-// slate, offset 90° around the same primary in a 500 km circular
-// prograde orbit. After spawn, the new craft becomes the active
-// one so the player can immediately fly it.
+// SpawnSisterCraft adds a new craft to the slate, offset 90° around
+// the same primary as the active craft in a 500 km circular prograde
+// orbit. The new craft cycles through `spacecraft.LoadoutOrder` so
+// consecutive spawns produce visually-distinct vessels (S-IVB-1 →
+// ICPS → RCS-tug → Lander → wraps). After spawn the new craft
+// becomes active so the player can immediately fly it.
 //
-// v0.8.1 ships this as the minimum-viable multi-craft spawn — one
-// keystroke (`n`) drops a fresh craft into the slate. The proper
-// SpawnSpec form (parent body cycle / altitude knob / prograde
-// toggle / craft-type cycle) is a follow-up patch. Returns the
-// newly-spawned craft so callers can flash a status message.
+// v0.8.1 shipped a single-loadout sister spawn; v0.8.2 cycles
+// through the loadout catalog so multi-craft slates exercise the
+// new craft-type variety automatically. The full SpawnSpec form
+// (parent-body / altitude / direction / explicit loadout pick)
+// lands as a v0.8.2.x follow-up.
 func (w *World) SpawnSisterCraft() (*spacecraft.Spacecraft, error) {
 	active := w.ActiveCraft()
 	if active == nil {
@@ -72,36 +74,49 @@ func (w *World) SpawnSisterCraft() (*spacecraft.Spacecraft, error) {
 	r := primary.RadiusMeters() + 500e3
 	v := math.Sqrt(mu / r)
 
-	// Offset 90° around the primary from the original — primary
-	// position at +X, sister at +Y. Same speed, prograde direction
-	// rotates with the position so velocity points at +Y for the
-	// original, -X for the sister (still tangential, prograde).
-	dry := 11000.0
-	fuel := 40000.0
-	mp, monoCap, rcsThrust, rcsIsp := spacecraft.DefaultRCSLoadout(dry)
-	sister := &spacecraft.Spacecraft{
-		Name:             w.nextCraftName(active.Name),
-		DryMass:          dry,
-		Fuel:             fuel,
-		Isp:              421,
-		Thrust:           1023000,
-		Throttle:         1.0,
-		Monoprop:         mp,
-		MonopropCapacity: monoCap,
-		RCSThrust:        rcsThrust,
-		RCSIsp:           rcsIsp,
-		Primary:          primary,
-		State: physics.StateVector{
-			R: orbital.Vec3{Y: r},
-			V: orbital.Vec3{X: -v},
-			M: dry + fuel + mp,
-		},
+	// Offset 90° around the primary — primary at the inertial
+	// origin, sister at +Y, prograde points toward -X.
+	loadoutID := w.nextLoadoutID()
+	sister := spacecraft.NewFromLoadout(loadoutID)
+	sister.Name = w.nextCraftName(sister.Name)
+	sister.Primary = primary
+	sister.State = physics.StateVector{
+		R: orbital.Vec3{Y: r},
+		V: orbital.Vec3{X: -v},
+		M: sister.TotalMass(),
 	}
 	w.Crafts = append(w.Crafts, sister)
-	// Active swaps to the new craft so the player can immediately
-	// see and fly it. Drop any in-flight manual burn since it was
-	// tied to the prior active craft.
 	w.ActiveCraftIdx = len(w.Crafts) - 1
 	w.StopManualBurn()
 	return sister, nil
+}
+
+// nextLoadoutID picks the next loadout in the spawn-rotation —
+// cycling through LoadoutOrder so a player who spawns multiple
+// craft sees variety. Counts existing loadouts and returns the
+// first one not yet flown, falling back to wrap-around when the
+// slate has every type.
+func (w *World) nextLoadoutID() string {
+	used := make(map[string]int, len(spacecraft.LoadoutOrder))
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		id := c.LoadoutID
+		if id == "" {
+			id = spacecraft.LoadoutSIVB1ID
+		}
+		used[id]++
+	}
+	// Prefer un-spawned loadouts; once all four are flown, spawn
+	// the least-used (which rotates the cycle on subsequent calls).
+	bestID := spacecraft.LoadoutOrder[0]
+	bestCount := used[bestID]
+	for _, id := range spacecraft.LoadoutOrder {
+		if used[id] < bestCount {
+			bestID = id
+			bestCount = used[id]
+		}
+	}
+	return bestID
 }

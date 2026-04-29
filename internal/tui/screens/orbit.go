@@ -334,7 +334,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 		craftInertial := w.CraftInertial()
 		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
-			vesselTag := widgets.CellTag{Color: render.ColorCraftMarker, IsVessel: true}
+			activeColor := render.ColorCraftMarker
+			if c.Color != "" {
+				activeColor = lipgloss.Color(c.Color)
+			}
+			vesselTag := widgets.CellTag{Color: activeColor, IsVessel: true}
 			if orbitVisible {
 				v.canvas.PlotArrowTagged(craftInertial, c.State.V, 5, vesselTag)
 			} else {
@@ -357,11 +361,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
 		}
 
-		// v0.8.1+: render non-active craft as dimmer markers + their
-		// current-orbit ellipse only (no chained predictions, no apo/
-		// peri ticks — those cluster the canvas). v0.8.2 will swap in
-		// per-craft glyph + color via Spacecraft.Glyph / Color so each
-		// craft reads distinctly even at small pixel size.
+		// v0.8.2+: render non-active craft with their per-loadout
+		// glyph + color so each vessel reads distinctly even at
+		// small pixel sizes. The current-orbit ellipse renders in
+		// the craft's own color (dim when no Color is set, falling
+		// back to ColorDim — preserves pre-v0.8.2 behaviour).
 		for i, other := range w.Crafts {
 			if i == w.ActiveCraftIdx || other == nil {
 				continue
@@ -371,11 +375,20 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			otherInertial := otherPrimaryPos.Add(other.State.R)
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
 			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
+			otherColor := lipgloss.Color(render.ColorDim)
+			if other.Color != "" {
+				otherColor = lipgloss.Color(other.Color)
+			}
 			if otherOrbitVisible {
-				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, 5, otherPrimaryPos, otherPxR, render.ColorDim)
+				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, 5, otherPrimaryPos, otherPxR, otherColor)
 			}
 			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
-				v.canvas.PlotColored(otherInertial, render.ColorCraftMarker)
+				v.canvas.PlotColored(otherInertial, otherColor)
+				if other.Glyph != "" {
+					if g := []rune(other.Glyph); len(g) > 0 {
+						v.canvas.SetCellOverlay(otherInertial, g[0])
+					}
+				}
 			}
 		}
 	}
