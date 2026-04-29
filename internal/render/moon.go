@@ -24,26 +24,26 @@ const (
 // what's visible from Earth — we don't model the spacecraft's
 // viewing angle, so the rendered face is always the near side.
 var moonMaria = []continentEllipse{
-	{17, 59, 7, 9},     // Mare Crisium
-	{-4, 51, 8, 9},     // Mare Fecunditatis
-	{-14, 35, 5, 6},    // Mare Nectaris
-	{8, 31, 9, 11},     // Mare Tranquillitatis
-	{28, 18, 8, 10},    // Mare Serenitatis
-	{33, -16, 13, 17},  // Mare Imbrium
-	{19, -57, 18, 25},  // Oceanus Procellarum (largest)
-	{-24, -39, 6, 6},   // Mare Humorum
-	{-21, -17, 8, 13},  // Mare Nubium
-	{56, 1, 4, 35},     // Mare Frigoris (long thin band along the north)
+	{17, 59, 7, 9, ColorMoonMare},     // Mare Crisium
+	{-4, 51, 8, 9, ColorMoonMare},     // Mare Fecunditatis
+	{-14, 35, 5, 6, ColorMoonMare},    // Mare Nectaris
+	{8, 31, 9, 11, ColorMoonMare},     // Mare Tranquillitatis
+	{28, 18, 8, 10, ColorMoonMare},    // Mare Serenitatis
+	{33, -16, 13, 17, ColorMoonMare},  // Mare Imbrium
+	{19, -57, 18, 25, ColorMoonMare},  // Oceanus Procellarum (largest)
+	{-24, -39, 6, 6, ColorMoonMare},   // Mare Humorum
+	{-21, -17, 8, 13, ColorMoonMare},  // Mare Nubium
+	{56, 1, 4, 35, ColorMoonMare},     // Mare Frigoris (long thin band along the north)
 }
 
 // moonCraters is a handful of bright rayed craters hand-placed so the
 // Moon doesn't read as just light + dark splotches. Ellipses are
 // small (1-3°) — these are bright accents, not large features.
 var moonCraters = []continentEllipse{
-	{-43, -11, 3, 3}, // Tycho — most prominent, near south
-	{10, -20, 2, 2},  // Copernicus
-	{8, -38, 2, 2},   // Kepler
-	{24, -48, 1, 1},  // Aristarchus
+	{-43, -11, 3, 3, ColorMoonRay}, // Tycho — most prominent, near south
+	{10, -20, 2, 2, ColorMoonRay},  // Copernicus
+	{8, -38, 2, 2, ColorMoonRay},   // Kepler
+	{24, -48, 1, 1, ColorMoonRay},  // Aristarchus
 }
 
 // MoonPixelColor returns the surface color for a pixel at offset

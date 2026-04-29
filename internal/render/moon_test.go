@@ -92,8 +92,17 @@ func TestTextureForDispatch(t *testing.T) {
 	if TextureFor(moon, BodyTextureMinRadius) == nil {
 		t.Error("Moon at threshold should have texture")
 	}
-	if TextureFor(mars, 64) != nil {
-		t.Error("Mars should have no texture (Earth + Moon only for now)")
+	// v0.7.6+: Mars and Jupiter now have textures.
+	if TextureFor(mars, 64) == nil {
+		t.Error("Mars should have texture (added in v0.7.6)")
+	}
+	jupiter := bodies.CelestialBody{ID: "jupiter", BodyType: "Planet"}
+	if TextureFor(jupiter, 64) == nil {
+		t.Error("Jupiter should have texture (added in v0.7.6)")
+	}
+	saturn := bodies.CelestialBody{ID: "saturn", BodyType: "Planet"}
+	if TextureFor(saturn, 64) != nil {
+		t.Error("Saturn should not have texture (not yet implemented)")
 	}
 
 	// Earth and Moon must dispatch to different functions — sanity
