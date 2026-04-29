@@ -312,13 +312,29 @@ func (w *World) Tick() {
 	}
 	w.Clock.SimTime = w.Clock.SimTime.Add(simDelta)
 
-	if w.ActiveCraft() != nil {
-		w.integrateSpacecraft(simDelta)
+	if len(w.Crafts) > 0 {
+		// Integrate every craft in the slate. Active-burn / manual-
+		// burn / RCS pulses bind to the active craft; the rest free-
+		// fly under their own primary's gravity. Per-craft SOI
+		// tracking is built into integrateOneCraft (each craft owns
+		// Spacecraft.Primary independently).
+		activeIdx := w.ActiveCraftIdx
+		for i, c := range w.Crafts {
+			if c == nil {
+				continue
+			}
+			w.integrateOneCraft(c, simDelta, i == activeIdx)
+		}
 		w.executeDueNodes()
 		w.soiCheckCounter++
 		if w.soiCheckCounter >= 20 {
 			w.soiCheckCounter = 0
-			w.maybeSwitchPrimary()
+			for _, c := range w.Crafts {
+				if c == nil {
+					continue
+				}
+				w.maybeSwitchPrimaryFor(c)
+			}
 		}
 		w.maybeRecordTrail(simDelta.Seconds())
 		w.pruneRCSPuffs()
@@ -481,40 +497,36 @@ func (w *World) clampedWarp() float64 {
 // as Clock.Warp() when the user isn't hitting the step-size guard.
 func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 
-// integrateSpacecraft sub-steps the integrator so that each step dt obeys
-// dt < period/100 (plan §Phase 1 numerical stability guard, hard-coded
-// here; exposed as a configurable warp-clamp at C21). When ActiveBurn is
-// in flight, sub-steps run RK4 with engine thrust on top of gravity so
-// the non-conservative force is handled cleanly (Verlet would silently
-// drift); otherwise pure Verlet for energy-conserving free flight.
+// integrateOneCraft sub-steps the integrator for a single craft so
+// each step dt obeys dt < period/100. When the craft is the active
+// one and an ActiveBurn or ManualBurn is in flight, sub-steps run
+// RK4 with engine thrust on top of gravity; otherwise pure Verlet
+// for energy-conserving free flight. Non-active craft never thrust
+// (planted nodes / manual burns belong to the active craft only in
+// v0.8.1; per-craft node attribution defers to v0.9+).
 //
-// SOI check runs *inside* the sub-step loop (v0.4.2): when a sub-step
-// crosses a sphere-of-influence boundary, the state is rebased to the
-// new primary's frame and μ switches for subsequent steps. Mirrors
-// propagateCraftWithPrimary's predictor path. Pre-v0.4.2 only the
-// per-20-tick maybeSwitchPrimary throttle handled SOI transitions,
-// which left the live integrator propagating in the wrong frame for
-// up to a tick after a mid-tick crossing — visible as orbits diverging
-// from the predicted trajectory at high warp.
+// SOI check runs *inside* the sub-step loop (v0.4.2): when a sub-
+// step crosses a sphere-of-influence boundary, the state is rebased
+// to the new primary's frame and μ switches for subsequent steps.
 //
 // "Warp lock" (v0.4.3): when warp > 1× AND no active burn AND the
 // orbit is bound with apoapsis comfortably inside the primary's SOI,
-// take a single analytic Kepler step instead of looping Verlet. Verlet
-// at coarse dt is symplectic but second-order — eccentricity does a
-// random walk that turns 200×200 km circular orbits into 209×190 km
-// after a few seconds at 10000× warp. KeplerStep is exact, so no drift.
-func (w *World) integrateSpacecraft(simDelta time.Duration) {
-	mu := w.ActiveCraft().Primary.GravitationalParameter()
-	period := orbitalPeriod(w.ActiveCraft().State, mu)
+// take a single analytic Kepler step instead of looping Verlet.
+// Multi-craft (v0.8.1+): each craft is integrated independently via
+// this helper. Tick loops over Crafts.
+func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Duration, isActive bool) {
+	mu := c.Primary.GravitationalParameter()
+	period := orbitalPeriod(c.State, mu)
 	secs := simDelta.Seconds()
 
 	// Warp-lock fast path: analytic Kepler propagation in chunks small
 	// enough that the craft can't outrun any other body's SOI per
-	// chunk (v0.4.4). Falls back to Verlet sub-stepping if the gate
-	// rejects (active burn, hyperbolic, warp=1) or any chunk's
-	// KeplerStep fails.
-	if w.canKeplerStep(simDelta) {
-		if w.keplerStepWithSOICheck(simDelta) {
+	// chunk. Falls back to Verlet sub-stepping if the gate rejects
+	// (active burn, hyperbolic, warp=1) or any chunk's KeplerStep
+	// fails. Active-burn gating only applies to the active craft —
+	// non-active craft are always thrust-free in v0.8.1.
+	if w.canKeplerStep(c, simDelta, isActive) {
+		if w.keplerStepWithSOICheck(c, simDelta) {
 			return
 		}
 	}
@@ -542,43 +554,48 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	}
 
 	for i := 0; i < nSteps; i++ {
-		if w.thrustingAt(tickStart, dt, i) {
-			w.stepThrust(mu, dt)
+		if isActive && w.thrustingAt(c, tickStart, dt, i) {
+			w.stepThrust(c, mu, dt)
 		} else {
-			w.ActiveCraft().State = physics.StepVerlet(w.ActiveCraft().State, mu, dt)
+			c.State = physics.StepVerlet(c.State, mu, dt)
 		}
 
 		// Per-sub-step SOI re-evaluation. If the craft crossed into
 		// another body's SOI during this dt, rebase to that frame so
 		// the next sub-step uses the right μ.
-		inertial := positions[w.ActiveCraft().Primary.ID].Add(w.ActiveCraft().State.R)
+		inertial := positions[c.Primary.ID].Add(c.State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
-		if cand.Body.ID != w.ActiveCraft().Primary.ID {
-			vOld := w.bodyInertialVelocity(w.ActiveCraft().Primary)
+		if cand.Body.ID != c.Primary.ID {
+			vOld := w.bodyInertialVelocity(c.Primary)
 			vNew := w.bodyInertialVelocity(cand.Body)
-			w.ActiveCraft().State = physics.Rebase(w.ActiveCraft().State, positions[w.ActiveCraft().Primary.ID], cand.Inertial, vOld.Sub(vNew))
-			w.ActiveCraft().Primary = cand.Body
-			mu = w.ActiveCraft().Primary.GravitationalParameter()
+			c.State = physics.Rebase(c.State, positions[c.Primary.ID], cand.Inertial, vOld.Sub(vNew))
+			c.Primary = cand.Body
+			mu = c.Primary.GravitationalParameter()
 		}
+	}
+	if !isActive {
+		return
 	}
 	// Tear down the burn if it exhausted (Δv delivered, fuel gone, or
 	// EndTime passed during this tick).
-	if w.ActiveBurn != nil && w.burnExhausted() {
+	if w.ActiveBurn != nil && w.burnExhausted(c) {
 		w.ActiveBurn = nil
 	}
 	// Manual burns end on fuel exhaustion only; the player ends them
 	// explicitly via StopManualBurn (e.g. on `x`).
-	if w.ManualBurn != nil && w.ActiveCraft().Fuel <= 0 {
+	if w.ManualBurn != nil && c.Fuel <= 0 {
 		w.ManualBurn = nil
 	}
 }
 
 // thrustingAt reports whether sub-step i of the current tick should fire
-// the engine. Either ActiveBurn (planted finite burn) or ManualBurn
-// (v0.7.3+ player-held flight) qualifies; both share the same RK4 thrust
-// path. Fuel must be positive in either case.
-func (w *World) thrustingAt(tickStart time.Time, dt float64, i int) bool {
-	if w.ActiveCraft().Fuel <= 0 {
+// the engine on the given craft. Caller is responsible for ensuring the
+// craft is the active one (v0.8.1+: non-active craft never thrust).
+// Either ActiveBurn (planted finite burn) or ManualBurn (v0.7.3+ player-
+// held flight) qualifies; both share the same RK4 thrust path. Fuel
+// must be positive in either case.
+func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt float64, i int) bool {
+	if c.Fuel <= 0 {
 		return false
 	}
 	if w.ActiveBurn != nil {
@@ -601,9 +618,9 @@ func (w *World) thrustingAt(tickStart time.Time, dt float64, i int) bool {
 // v0.7.6+: planted burns honour their per-node throttle rather than
 // the live craft setting, so the player can tweak the throttle knob
 // during a coast without slowing an in-flight planted burn.
-func (w *World) stepThrust(mu, dt float64) {
+func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	mode := w.AttitudeMode
-	throttle := w.ActiveCraft().EffectiveThrottle()
+	throttle := c.EffectiveThrottle()
 	if w.ActiveBurn != nil {
 		mode = w.ActiveBurn.Mode
 		throttle = w.ActiveBurn.Throttle
@@ -614,33 +631,33 @@ func (w *World) stepThrust(mu, dt float64) {
 			throttle = 1.0
 		}
 	}
-	accelFn := w.ActiveCraft().ThrustAccelFnAt(mode, mu, throttle)
-	w.ActiveCraft().State = physics.StepRK4(w.ActiveCraft().State, dt, accelFn, 0)
+	accelFn := c.ThrustAccelFnAt(mode, mu, throttle)
+	c.State = physics.StepRK4(c.State, dt, accelFn, 0)
 
 	if w.ActiveBurn != nil {
-		mass := w.ActiveCraft().TotalMass()
+		mass := c.TotalMass()
 		if mass > 0 {
-			dvApplied := (w.ActiveCraft().Thrust * throttle / mass) * dt
+			dvApplied := (c.Thrust * throttle / mass) * dt
 			if dvApplied > w.ActiveBurn.DVRemaining {
 				dvApplied = w.ActiveBurn.DVRemaining
 			}
 			w.ActiveBurn.DVRemaining -= dvApplied
 		}
 	}
-	fuelBurned := w.ActiveCraft().MassFlowRateAt(throttle) * dt
-	if fuelBurned > w.ActiveCraft().Fuel {
-		fuelBurned = w.ActiveCraft().Fuel
+	fuelBurned := c.MassFlowRateAt(throttle) * dt
+	if fuelBurned > c.Fuel {
+		fuelBurned = c.Fuel
 	}
-	w.ActiveCraft().Fuel -= fuelBurned
-	w.ActiveCraft().State.M = w.ActiveCraft().TotalMass()
+	c.Fuel -= fuelBurned
+	c.State.M = c.TotalMass()
 }
 
 // burnExhausted reports whether the active burn should be torn down: any
 // of Δv delivered, fuel empty, or sim-time past the duration window
 // terminates the burn.
-func (w *World) burnExhausted() bool {
+func (w *World) burnExhausted(c *spacecraft.Spacecraft) bool {
 	return w.ActiveBurn.DVRemaining <= 0 ||
-		w.ActiveCraft().Fuel <= 0 ||
+		c.Fuel <= 0 ||
 		!w.Clock.SimTime.Before(w.ActiveBurn.EndTime)
 }
 
@@ -656,15 +673,19 @@ func (w *World) burnExhausted() bool {
 // chunks (v0.4.4 fix for the v0.4.3 heliocentric-transfer-skips-Mars
 // bug). If e ≥ 1 we still fall back to Verlet so the per-sub-step SOI
 // path handles the non-conic case correctly.
-func (w *World) canKeplerStep(simDelta time.Duration) bool {
-	if w.ActiveBurn != nil || w.ManualBurn != nil {
+func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration, isActive bool) bool {
+	// Active-burn / manual-burn gating only applies to the active
+	// craft. Non-active craft can always take the Kepler-warp fast
+	// path on bound orbits regardless of what the active craft is
+	// doing.
+	if isActive && (w.ActiveBurn != nil || w.ManualBurn != nil) {
 		return false
 	}
 	if w.Clock.Warp() <= 1 {
 		return false
 	}
-	mu := w.ActiveCraft().Primary.GravitationalParameter()
-	el := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
+	mu := c.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	if el.E >= 1 || el.A <= 0 {
 		return false
 	}
@@ -685,14 +706,14 @@ func (w *World) canKeplerStep(simDelta time.Duration) bool {
 // Returns ok=false if any chunk's KeplerStep fails (e.g. eccentricity
 // crossed into hyperbolic mid-propagation due to a primary switch);
 // caller then falls back to Verlet for the remaining time.
-func (w *World) keplerStepWithSOICheck(simDelta time.Duration) bool {
+func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.Duration) bool {
 	sys := w.System()
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for _, b := range sys.Bodies {
 		positions[b.ID] = w.BodyPosition(b)
 	}
 
-	chunkCap := chunkDtCap(sys, w.ActiveCraft().Primary, w.ActiveCraft().State.V.Norm())
+	chunkCap := chunkDtCap(sys, c.Primary, c.State.V.Norm())
 
 	secs := simDelta.Seconds()
 	if chunkCap <= 0 || math.IsInf(chunkCap, 0) || math.IsNaN(chunkCap) {
@@ -709,22 +730,22 @@ func (w *World) keplerStepWithSOICheck(simDelta time.Duration) bool {
 	}
 	chunk := secs / float64(nChunks)
 
-	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	mu := c.Primary.GravitationalParameter()
 	for i := 0; i < nChunks; i++ {
-		newState, ok := physics.KeplerStep(w.ActiveCraft().State, mu, chunk)
+		newState, ok := physics.KeplerStep(c.State, mu, chunk)
 		if !ok {
 			return false
 		}
-		w.ActiveCraft().State = newState
+		c.State = newState
 
-		inertial := positions[w.ActiveCraft().Primary.ID].Add(w.ActiveCraft().State.R)
+		inertial := positions[c.Primary.ID].Add(c.State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
-		if cand.Body.ID != w.ActiveCraft().Primary.ID {
-			vOld := w.bodyInertialVelocity(w.ActiveCraft().Primary)
+		if cand.Body.ID != c.Primary.ID {
+			vOld := w.bodyInertialVelocity(c.Primary)
 			vNew := w.bodyInertialVelocity(cand.Body)
-			w.ActiveCraft().State = physics.Rebase(w.ActiveCraft().State, positions[w.ActiveCraft().Primary.ID], cand.Inertial, vOld.Sub(vNew))
-			w.ActiveCraft().Primary = cand.Body
-			mu = w.ActiveCraft().Primary.GravitationalParameter()
+			c.State = physics.Rebase(c.State, positions[c.Primary.ID], cand.Inertial, vOld.Sub(vNew))
+			c.Primary = cand.Body
+			mu = c.Primary.GravitationalParameter()
 		}
 	}
 	return true
@@ -790,11 +811,12 @@ func orbitalPeriod(s physics.StateVector, mu float64) float64 {
 	return 2 * math.Pi * math.Sqrt(a*a*a/mu)
 }
 
-// maybeSwitchPrimary runs FindPrimary and, if a new body should now own
-// the spacecraft, rebases its state vector. v0.1 spacecraft stays in Sol
-// but can transition between Earth's SOI and heliocentric (e.g. after a
-// Hohmann escape burn).
-func (w *World) maybeSwitchPrimary() {
+// maybeSwitchPrimaryFor runs FindPrimary on the given craft and, if a
+// new body should own it, rebases its state vector. v0.8.1+: per-craft
+// SOI re-evaluation; called for every craft in the slate. The 20-tick
+// throttle still applies (the sub-step path inside integrateOneCraft
+// catches mid-tick crossings; this is a backstop).
+func (w *World) maybeSwitchPrimaryFor(c *spacecraft.Spacecraft) {
 	sol := w.Systems[0]
 
 	// Build body-position map in Sol-inertial.
@@ -804,23 +826,23 @@ func (w *World) maybeSwitchPrimary() {
 	}
 
 	// Craft inertial position needs the *current* primary offset.
-	craftInertial := positions[w.ActiveCraft().Primary.ID].Add(w.ActiveCraft().State.R)
+	craftInertial := positions[c.Primary.ID].Add(c.State.R)
 
 	newPrimary := physics.FindPrimary(sol, craftInertial, positions)
-	if newPrimary.Body.ID == w.ActiveCraft().Primary.ID {
+	if newPrimary.Body.ID == c.Primary.ID {
 		return
 	}
 
 	// Compute relative velocity between old and new primary so Rebase
 	// gets the velocity delta correct. Planet velocities come from
 	// orbital.VelocityAtTrueAnomaly evaluated at current sim time.
-	vOld := w.bodyInertialVelocity(w.ActiveCraft().Primary)
+	vOld := w.bodyInertialVelocity(c.Primary)
 	vNew := w.bodyInertialVelocity(newPrimary.Body)
 	dv := vOld.Sub(vNew)
 
-	oldPos := positions[w.ActiveCraft().Primary.ID]
-	w.ActiveCraft().State = physics.Rebase(w.ActiveCraft().State, oldPos, newPrimary.Inertial, dv)
-	w.ActiveCraft().Primary = newPrimary.Body
+	oldPos := positions[c.Primary.ID]
+	c.State = physics.Rebase(c.State, oldPos, newPrimary.Inertial, dv)
+	c.Primary = newPrimary.Body
 }
 
 // bodyInertialVelocity returns the body's velocity in the system-

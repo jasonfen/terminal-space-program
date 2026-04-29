@@ -383,7 +383,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	hud := v.renderHUD(w, selectedIdx, totalCols-v.canvas.Cols()-4)
 
-	title := v.renderTitleBar(sys.Name, totalCols)
+	craftChip := ""
+	if n := len(w.Crafts); n > 1 {
+		craftChip = fmt.Sprintf(" — CRAFT %d/%d", w.ActiveCraftIdx+1, n)
+	}
+	title := v.renderTitleBar(sys.Name+craftChip, totalCols)
 	footer := v.theme.Footer.Render(
 		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
 	)

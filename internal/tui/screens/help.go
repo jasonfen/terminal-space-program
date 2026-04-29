@@ -60,6 +60,9 @@ func (h *Help) Render() string {
 			{"b", "engage / cut manual burn (main engine only)"},
 			{"r", "engine: main / rcs (RCS = monoprop pulse-fire on attitude keys)"},
 		}},
+		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
+			{"[ / ]", "cycle active craft (no-op when only one craft)"},
+		}},
 		{"PERSISTENCE", [][2]string{
 			{"S", "save game (XDG_STATE_HOME)"},
 			{"L", "load game"},

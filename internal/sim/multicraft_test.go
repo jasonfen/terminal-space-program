@@ -1,0 +1,155 @@
+package sim
+
+import (
+	"math"
+	"testing"
+	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+)
+
+// TestMultiCraftBothPropagate: with two craft in the slate, both
+// must advance under their own primary's gravity each tick. Active
+// status doesn't gate Verlet — only thrust.
+func TestMultiCraftBothPropagate(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	earth := w.Systems[0].FindBody("Earth")
+	if earth == nil {
+		t.Skip("Earth missing from Sol")
+	}
+	// Stand up a second craft 90° around Earth from the first, in the
+	// same 500 km circular orbit. Both should advance the same way.
+	mu := earth.GravitationalParameter()
+	r := earth.RadiusMeters() + 500e3
+	v := math.Sqrt(mu / r)
+	c2 := spacecraft.NewInLEO(*earth)
+	c2.State = physics.StateVector{
+		R: orbital.Vec3{Y: r},
+		V: orbital.Vec3{X: -v},
+		M: c2.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, c2)
+
+	r0a := w.Crafts[0].State.R
+	r0b := w.Crafts[1].State.R
+
+	// Spin one tick.
+	w.Tick()
+
+	// Both craft should have moved (state.R changed).
+	if w.Crafts[0].State.R.Sub(r0a).Norm() == 0 {
+		t.Error("active craft did not advance")
+	}
+	if w.Crafts[1].State.R.Sub(r0b).Norm() == 0 {
+		t.Error("non-active craft did not advance — multi-craft Tick is not propagating it")
+	}
+}
+
+// TestNonActiveCraftDoesNotConsumeFuel: a manual burn on the active
+// craft must only consume the active craft's fuel.
+func TestNonActiveCraftDoesNotConsumeFuel(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	c2 := spacecraft.NewInLEO(*earth)
+	w.Crafts = append(w.Crafts, c2)
+	f0Other := c2.Fuel
+
+	w.SetThrottle(1.0)
+	w.SetAttitudeMode(spacecraft.BurnPrograde)
+	w.StartManualBurn()
+	// Run a tick to advance the burn.
+	w.Tick()
+
+	if c2.Fuel != f0Other {
+		t.Errorf("non-active craft burned fuel during manual burn on active: %v → %v", f0Other, c2.Fuel)
+	}
+	w.StopManualBurn()
+}
+
+// TestCycleActiveCraftWraps: [/] cycling must wrap forward and back.
+func TestCycleActiveCraftWraps(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	w.Crafts = append(w.Crafts, spacecraft.NewInLEO(*earth), spacecraft.NewInLEO(*earth))
+	if len(w.Crafts) != 3 {
+		t.Fatalf("expected 3 craft, got %d", len(w.Crafts))
+	}
+
+	w.CycleActiveCraft(1)
+	if w.ActiveCraftIdx != 1 {
+		t.Errorf("after +1 = %d, want 1", w.ActiveCraftIdx)
+	}
+	w.CycleActiveCraft(1)
+	if w.ActiveCraftIdx != 2 {
+		t.Errorf("after +2 = %d, want 2", w.ActiveCraftIdx)
+	}
+	w.CycleActiveCraft(1)
+	if w.ActiveCraftIdx != 0 {
+		t.Errorf("wrap forward to 0 = %d", w.ActiveCraftIdx)
+	}
+	w.CycleActiveCraft(-1)
+	if w.ActiveCraftIdx != 2 {
+		t.Errorf("wrap backward to 2 = %d", w.ActiveCraftIdx)
+	}
+}
+
+// TestCycleSingleCraftIsNoOp: with only one craft, [/] can't cycle.
+func TestCycleSingleCraftIsNoOp(t *testing.T) {
+	w, _ := NewWorld()
+	if len(w.Crafts) != 1 {
+		t.Fatalf("expected 1 craft from NewWorld, got %d", len(w.Crafts))
+	}
+	w.CycleActiveCraft(1)
+	if w.ActiveCraftIdx != 0 {
+		t.Errorf("cycling single-craft world changed idx: %d", w.ActiveCraftIdx)
+	}
+}
+
+// TestActiveCraftAccessor: out-of-range / empty Crafts → nil.
+func TestActiveCraftAccessor(t *testing.T) {
+	w := &World{}
+	if w.ActiveCraft() != nil {
+		t.Error("empty Crafts should return nil")
+	}
+	w, _ = NewWorld()
+	w.ActiveCraftIdx = 99
+	if w.ActiveCraft() != nil {
+		t.Error("out-of-range ActiveCraftIdx should return nil")
+	}
+}
+
+// TestMultiCraftIntegrateAdvancesBothByAFullTick: confirm that after
+// a Tick of duration D, both craft have moved a distance roughly
+// matching their tangential speed × D.
+func TestMultiCraftIntegrateAdvancesBothByAFullTick(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	c2 := spacecraft.NewInLEO(*earth)
+	w.Crafts = append(w.Crafts, c2)
+
+	c1Before := w.Crafts[0].State.R
+	c2Before := w.Crafts[1].State.R
+
+	// Integrate 60 s of sim-time.
+	w.Crafts[0].State.M = w.Crafts[0].TotalMass()
+	w.Crafts[1].State.M = w.Crafts[1].TotalMass()
+	w.Clock.SimTime = w.Clock.SimTime.Add(60 * time.Second)
+	w.integrateOneCraft(w.Crafts[0], 60*time.Second, true)
+	w.integrateOneCraft(w.Crafts[1], 60*time.Second, false)
+
+	d1 := w.Crafts[0].State.R.Sub(c1Before).Norm()
+	d2 := w.Crafts[1].State.R.Sub(c2Before).Norm()
+	// In 60 s of LEO at ~7600 m/s, expect ~456 km of arc displacement.
+	const minMove = 100e3 // 100 km
+	if d1 < minMove {
+		t.Errorf("active craft moved only %.0f m in 60 s — expected > %.0f m", d1, minMove)
+	}
+	if d2 < minMove {
+		t.Errorf("non-active craft moved only %.0f m in 60 s — expected > %.0f m", d2, minMove)
+	}
+}

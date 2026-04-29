@@ -61,6 +61,11 @@ type Keymap struct {
 	// mode the attitude keys (w/s/a/d/q/e) also fire one pulse per
 	// keypress in addition to setting the held attitude.
 	CycleEngine key.Binding
+
+	// NextCraft / PrevCraft (v0.8.1+): cycle the active craft in the
+	// multi-craft slate. No-op when only one craft is loaded.
+	NextCraft key.Binding
+	PrevCraft key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -109,5 +114,7 @@ func DefaultKeymap() Keymap {
 		AttitudeRadialIn:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "attitude: radial-")),
 		ToggleBurn:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "engage / cut manual burn")),
 		CycleEngine:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "engine: main / rcs")),
+		NextCraft:           key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next craft")),
+		PrevCraft:           key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev craft")),
 	}
 }
