@@ -133,6 +133,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					DV:          m.DV,
 					Duration:    dur,
 					Event:       m.Event,
+					Throttle:    m.Throttle,
 				})
 			case m.Event != sim.TriggerAbsolute:
 				// v0.6.0: event-relative nodes go through PlanNode so
@@ -143,14 +144,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					DV:       m.DV,
 					Duration: dur,
 					Event:    m.Event,
+					Throttle: m.Throttle,
 				})
 			case dur == 0:
 				a.world.Craft.ApplyImpulsive(m.Mode, m.DV)
 			default:
+				effThrottle := m.Throttle
+				if effThrottle <= 0 {
+					effThrottle = 1.0
+				}
 				a.world.ActiveBurn = &sim.ActiveBurn{
 					Mode:        m.Mode,
 					DVRemaining: m.DV,
 					EndTime:     a.world.Clock.SimTime.Add(dur),
+					Throttle:    effThrottle,
 				}
 			}
 		}

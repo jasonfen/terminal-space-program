@@ -124,14 +124,32 @@ func (s *Spacecraft) RemainingDeltaV() float64 {
 	return s.Isp * g0 * math.Log(s.TotalMass()/s.DryMass)
 }
 
-// MassFlowRate returns the propellant mass-flow magnitude (kg/s) at the
-// configured thrust level: ṁ = Thrust/(Isp·g0). Zero if thrust or Isp is
-// zero. Used by the finite-burn integrator to step mass per sub-step.
+// MassFlowRate returns the propellant mass-flow magnitude (kg/s) at
+// the spacecraft's *live* throttle. The integrator's manual-burn
+// path uses this; the planted-burn path uses MassFlowRateAt with the
+// captured ActiveBurn.Throttle so adjusting the live throttle knob
+// mid-coast doesn't slow a planted burn (v0.7.6+).
 func (s *Spacecraft) MassFlowRate() float64 {
+	return s.MassFlowRateAt(s.EffectiveThrottle())
+}
+
+// MassFlowRateAt returns the propellant mass-flow at an explicit
+// throttle setting, clamped to [0, 1]. Used by the active-burn
+// integrator path to honour the per-node throttle captured at
+// burn-start. v0.7.6+.
+func (s *Spacecraft) MassFlowRateAt(throttle float64) float64 {
 	if s.Thrust <= 0 || s.Isp <= 0 {
 		return 0
 	}
-	return s.Thrust * s.EffectiveThrottle() / (s.Isp * g0)
+	if throttle < 0 {
+		throttle = 0
+	} else if throttle > 1 {
+		throttle = 1
+	}
+	if throttle == 0 {
+		return 0
+	}
+	return s.Thrust * throttle / (s.Isp * g0)
 }
 
 // BurnTimeForDV returns the engine-on duration required to deliver dv
@@ -167,18 +185,35 @@ func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
 	return time.Duration(secs * float64(time.Second))
 }
 
-// ThrustAccelFn returns an RK4-compatible accel closure that adds engine
-// thrust along the given burn-mode direction on top of two-body gravity.
-// Direction is recomputed each sub-step from live (r, v), so prograde
-// follows the rotating velocity frame — the expected UX for held-prograde
-// burns.
+// ThrustAccelFn returns an RK4-compatible accel closure that adds
+// engine thrust along the given burn-mode direction on top of
+// two-body gravity, using the spacecraft's live throttle. Routed
+// through ThrustAccelFnAt so the manual-burn integrator path picks
+// up live throttle adjustments. Direction is recomputed each
+// sub-step from live (r, v), so prograde follows the rotating
+// velocity frame — the expected UX for held-prograde burns.
 //
 // Mass is held constant for the closure (the integrator treats the
-// sub-step as ~constant-mass); the caller updates fuel via MassFlowRate
-// after the StepRK4 call. Thrust is gated to zero if fuel is empty.
+// sub-step as ~constant-mass); the caller updates fuel via
+// MassFlowRate after the StepRK4 call. Thrust is gated to zero if
+// fuel is empty.
 func (s *Spacecraft) ThrustAccelFn(mode BurnMode, mu float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+	return s.ThrustAccelFnAt(mode, mu, s.EffectiveThrottle())
+}
+
+// ThrustAccelFnAt is ThrustAccelFn but uses an explicit throttle —
+// used by the active-burn path in sim/world.go to honour the
+// per-node throttle captured on the ActiveBurn struct at fire-time.
+// Decoupling from `Spacecraft.Throttle` means adjusting the live
+// throttle knob mid-coast doesn't slow a planted burn. v0.7.6+.
+func (s *Spacecraft) ThrustAccelFnAt(mode BurnMode, mu, throttle float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
 	mass := s.TotalMass()
-	thrust := s.Thrust * s.EffectiveThrottle()
+	if throttle < 0 {
+		throttle = 0
+	} else if throttle > 1 {
+		throttle = 1
+	}
+	thrust := s.Thrust * throttle
 	if s.Fuel <= 0 {
 		thrust = 0
 	}

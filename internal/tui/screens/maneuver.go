@@ -34,13 +34,14 @@ import (
 // truncated burn (planned Δv undelivered if duration was too short).
 // KSP-style: specify Δv, the engine takes as long as it takes.
 type Maneuver struct {
-	theme   Theme
-	canvas  *widgets.Canvas
-	dvInput textinput.Model
+	theme         Theme
+	canvas        *widgets.Canvas
+	dvInput       textinput.Model
+	throttleInput textinput.Model // v0.7.6+: per-node throttle (0-100 %)
 
 	modeIdx   int
 	fireAtIdx int
-	focus     int // 0=mode, 1=fireAt, 2=dv
+	focus     int // 0=mode, 1=fireAt, 2=dv, 3=throttle (v0.7.6+)
 
 	// editingIdx and loadedTriggerTime carry the v0.6.4 click-to-edit
 	// state. Default editingIdx = -1 (creating a new node). LoadNode
@@ -80,6 +81,11 @@ type BurnExecutedMsg struct {
 	Event       sim.TriggerEvent
 	TriggerTime time.Time
 	EditingIdx  int // -1 = creating a new node; ≥ 0 = replacing world.Nodes[idx]
+	// Throttle (v0.7.6+) is the per-node throttle [0, 1]. Zero is
+	// remapped to 1.0 by ManeuverNode.EffectiveThrottle, so callers
+	// that don't set it (legacy quick-plant paths) get the prior
+	// full-open behaviour for free.
+	Throttle float64
 }
 
 func NewManeuver(th Theme) *Maneuver {
@@ -89,11 +95,18 @@ func NewManeuver(th Theme) *Maneuver {
 	dv.Width = 10
 	dv.SetValue("100")
 
+	throttle := textinput.New()
+	throttle.Placeholder = "100"
+	throttle.CharLimit = 3
+	throttle.Width = 5
+	throttle.SetValue("100")
+
 	m := &Maneuver{
-		theme:      th,
-		canvas:     widgets.NewCanvas(60, 20),
-		dvInput:    dv,
-		editingIdx: -1,
+		theme:         th,
+		canvas:        widgets.NewCanvas(60, 20),
+		dvInput:       dv,
+		throttleInput: throttle,
+		editingIdx:    -1,
 	}
 	m.applyFocus()
 	return m
@@ -124,6 +137,7 @@ func (m *Maneuver) LoadStaged(triggerTime time.Time) {
 	m.modeIdx = 0   // prograde — the most common new-burn intent
 	m.fireAtIdx = 0 // TriggerAbsolute — the staged TriggerTime IS the absolute schedule
 	m.dvInput.SetValue("100")
+	m.throttleInput.SetValue("100")
 	m.focus = 2 // Δv input — player typically wants to set magnitude first
 	m.applyFocus()
 }
@@ -153,6 +167,7 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 		}
 	}
 	m.dvInput.SetValue(fmt.Sprintf("%.0f", n.DV))
+	m.throttleInput.SetValue(fmt.Sprintf("%.0f", n.EffectiveThrottle()*100))
 	m.focus = 0
 	m.editingIdx = idx
 	m.loadedTriggerTime = n.TriggerTime
@@ -160,13 +175,17 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 }
 
 // applyFocus pushes focus state down to the bubbletea text inputs.
-// Focus 0 = mode (cycle), 1 = fire-at (cycle), 2 = Δv. v0.6.5 dropped
-// the duration field; the planner now derives burn time from Δv at
-// commit, so the form has one fewer focus stop.
+// Focus 0 = mode (cycle), 1 = fire-at (cycle), 2 = Δv, 3 = throttle.
+// v0.6.5 dropped the duration field. v0.7.6+ added throttle as a
+// fourth stop so per-node throttle is editable in the form.
 func (m *Maneuver) applyFocus() {
 	m.dvInput.Blur()
-	if m.focus == 2 {
+	m.throttleInput.Blur()
+	switch m.focus {
+	case 2:
 		m.dvInput.Focus()
+	case 3:
+		m.throttleInput.Focus()
 	}
 }
 
@@ -206,7 +225,7 @@ func (m *Maneuver) Resize(cols, rows int) {
 //   esc                    — cancel → plain exit (app handles)
 //   digits/backspace       — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
-	const focusFields = 3
+	const focusFields = 4 // mode / fireAt / dv / throttle
 	switch msg.String() {
 	case "tab":
 		m.focus = (m.focus + 1) % focusFields
@@ -247,8 +266,11 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return cmd, true
 	}
 	var cmd tea.Cmd
-	if m.focus == 2 {
+	switch m.focus {
+	case 2:
 		m.dvInput, cmd = m.dvInput.Update(msg)
+	case 3:
+		m.throttleInput, cmd = m.throttleInput.Update(msg)
 	}
 	return cmd, false
 }
@@ -269,8 +291,32 @@ func (m *Maneuver) commitCmd() tea.Cmd {
 		Event:       event,
 		TriggerTime: m.loadedTriggerTime,
 		EditingIdx:  m.editingIdx,
+		Throttle:    m.parsedThrottle(),
 	}
 	return func() tea.Msg { return msg }
+}
+
+// parsedThrottle returns the form's throttle setting as a fraction
+// in [0, 1]. Empty / unparseable input falls back to 1.0 (full
+// open) so a player who skips the field gets the prior universal
+// behaviour. Out-of-range values clamp into the unit interval.
+func (m *Maneuver) parsedThrottle() float64 {
+	raw := m.throttleInput.Value()
+	if raw == "" {
+		return 1.0
+	}
+	var pct float64
+	if _, err := fmt.Sscanf(raw, "%f", &pct); err != nil {
+		return 1.0
+	}
+	t := pct / 100
+	if t < 0 {
+		return 0
+	}
+	if t > 1 {
+		return 1
+	}
+	return t
 }
 
 func (m *Maneuver) parsedDV() float64 {
@@ -464,6 +510,7 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		"  mode:     " + modeLabel,
 		"  fire at:  " + fireAtLabel,
 		"  Δv:       " + m.dvInput.View() + " m/s" + warn,
+		"  throttle: " + m.throttleInput.View() + " %",
 		"  → " + burnDescr,
 		"",
 		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),

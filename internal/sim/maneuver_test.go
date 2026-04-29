@@ -961,6 +961,49 @@ func mustWorld(t *testing.T) *World {
 	return w
 }
 
+// TestPerNodeThrottleCapturedOnFire: planting a node with Throttle=0.5
+// and firing it captures 0.5 onto the resulting ActiveBurn. The live
+// craft Throttle stays at the player's setting and is irrelevant to
+// the planted burn — that's the v0.7.6 invariant.
+func TestPerNodeThrottleCapturedOnFire(t *testing.T) {
+	w := mustWorld(t)
+	w.Craft.Throttle = 1.0 // player has the live knob at full open
+
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(-time.Second), // past — fires this tick
+		Mode:        spacecraft.BurnPrograde,
+		DV:          50,
+		Duration:    10 * time.Second,
+		Throttle:    0.5,
+	})
+	w.executeDueNodes()
+	if w.ActiveBurn == nil {
+		t.Fatal("expected ActiveBurn to be set after planted finite node fired")
+	}
+	if got := w.ActiveBurn.Throttle; math.Abs(got-0.5) > 1e-9 {
+		t.Errorf("ActiveBurn.Throttle = %.3f, want 0.5", got)
+	}
+}
+
+// TestPerNodeThrottleZeroMapsToFull: ManeuverNode.Throttle == 0 (the
+// JSON omitempty default for v1–v3 saves and pre-v0.7.6 plant paths)
+// must remap to 1.0 (full open) via EffectiveThrottle so backward-
+// compatible nodes keep firing at the prior universal behaviour.
+func TestPerNodeThrottleZeroMapsToFull(t *testing.T) {
+	n := ManeuverNode{Throttle: 0}
+	if got := n.EffectiveThrottle(); got != 1.0 {
+		t.Errorf("zero throttle → EffectiveThrottle %.3f, want 1.0", got)
+	}
+	n.Throttle = 0.5
+	if got := n.EffectiveThrottle(); math.Abs(got-0.5) > 1e-9 {
+		t.Errorf("0.5 throttle → EffectiveThrottle %.3f, want 0.5", got)
+	}
+	n.Throttle = 1.5 // out-of-range — clamp to 1.0
+	if got := n.EffectiveThrottle(); got != 1.0 {
+		t.Errorf("1.5 throttle → EffectiveThrottle %.3f, want 1.0 (clamp)", got)
+	}
+}
+
 // TestPlanInclinationChangePlantsNormalBurn: from a 28.5° inclined LEO,
 // targeting equatorial drops a single normal-burn node at the next
 // node crossing — half-period away when the craft starts at the AN.
