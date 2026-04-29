@@ -662,7 +662,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			}
 			if c.MonopropCapacity > 0 {
 				propLines = append(propLines,
-					fmt.Sprintf("  monoprop:  %.1f kg (%.0f m/s)", c.Monoprop, c.RCSDeltaV()),
+					fmt.Sprintf("  monoprop:  %.2f kg (%.1f m/s)", c.Monoprop, c.RCSDeltaV()),
 				)
 			}
 			colStyle := lipgloss.NewStyle().Width(half)
@@ -693,7 +693,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			)
 			if c.MonopropCapacity > 0 {
 				lines = append(lines,
-					fmt.Sprintf("  monoprop:  %.1f kg (%.0f m/s)", c.Monoprop, c.RCSDeltaV()),
+					fmt.Sprintf("  monoprop:  %.2f kg (%.1f m/s)", c.Monoprop, c.RCSDeltaV()),
 				)
 			}
 		}

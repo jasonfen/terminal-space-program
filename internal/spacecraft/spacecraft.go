@@ -152,12 +152,19 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 // DefaultRCSLoadout returns canonical (monoprop, capacity, thrust, isp)
 // for a craft of the given dry mass. Linear scaling per v0.8 plan
 // scoping decision #8: RCSThrust = k_T · m_dry, capacity = k_M · m_dry,
-// tuned so a default S-IVB-1-class craft (11000 kg dry) gets ~28 m/s
-// of RCS Δv budget — enough for proximity ops without being twitchy.
-// v0.8.0+.
+// tuned so a default S-IVB-1-class craft (11000 kg dry + 40000 kg
+// fuel) gets ~30 m/s of RCS Δv budget — enough for proximity ops
+// without being twitchy.
+//
+// kCap was 50/11000 in the initial v0.8.0 cut; the v0.8 plan's "~28
+// m/s budget" formula `Isp · g₀ · ln(m₀/m_dry)` conflated total fuel
+// ejection with monoprop ejection, and the realised budget at 50 kg
+// was only ~2 m/s. To actually hit the planned ~30 m/s on a 51 t
+// wet craft at Isp=220 the monoprop pool needs ~720 kg (a 1.4 %
+// mass fraction — physically realistic). v0.8.0+.
 func DefaultRCSLoadout(dryMass float64) (monoprop, capacity, thrust, isp float64) {
 	const (
-		kCap   = 50.0 / 11000.0  // ~50 kg monoprop on a 11000 kg dry craft
+		kCap   = 720.0 / 11000.0 // ~720 kg monoprop on a 11000 kg dry craft → ~30 m/s budget
 		kThr   = 440.0 / 11000.0 // ~440 N RCS thrust on a 11000 kg dry craft
 		ispRCS = 220.0           // typical hypergolic monoprop Isp
 	)
