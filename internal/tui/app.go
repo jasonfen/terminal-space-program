@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -626,8 +627,26 @@ func (a *App) View() string {
 	default:
 		base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
 	}
+	// v0.8.1+: overlay the status message on top of an existing row
+	// rather than appending a new line. Appending grew the rendered
+	// height by one row and pushed the terminal to scroll the view
+	// every time the message expired / re-fired. The orbit screen's
+	// footer (last row) is the natural target — short-lived status
+	// lines are flight-state messages and live on the same band as
+	// the keybind hints.
 	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
-		base += "\n" + a.theme.Footer.Render(a.statusMsg)
+		base = overlayLastLine(base, a.theme.Warning.Render(a.statusMsg))
 	}
 	return base
+}
+
+// overlayLastLine replaces the final \n-delimited row of base with
+// overlay, preserving the rendered height. v0.8.1+: used by the
+// status-message flash to avoid growing the screen.
+func overlayLastLine(base, overlay string) string {
+	idx := strings.LastIndex(base, "\n")
+	if idx < 0 {
+		return overlay
+	}
+	return base[:idx+1] + overlay
 }
