@@ -29,6 +29,21 @@ type Spacecraft struct {
 	// through ManualBurn = nil rather than a zero throttle.
 	Throttle float64
 
+	// v0.8.0 — RCS / monopropellant precision-maneuver thruster.
+	// Monoprop is the consumable propellant pool (kg); MonopropCapacity
+	// is the max tank load. RCSThrust is total RCS engine thrust (N),
+	// sized linearly off DryMass at construction. RCSIsp is the
+	// specific impulse of the monoprop engine (~220 s, vs ~420 s for
+	// the J-2 main).
+	//
+	// All four are zero on legacy v3 saves; the loader populates
+	// defaults from DryMass so old saves inherit RCS without a
+	// schema bump.
+	Monoprop         float64
+	MonopropCapacity float64
+	RCSThrust        float64
+	RCSIsp           float64
+
 	Primary bodies.CelestialBody
 	State   physics.StateVector
 }
@@ -51,8 +66,23 @@ func (s *Spacecraft) EffectiveThrottle() float64 {
 	return t
 }
 
-// TotalMass returns dry + fuel.
-func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel }
+// TotalMass returns dry + fuel + monoprop.
+func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel + s.Monoprop }
+
+// RCSDeltaV estimates how much more Δv the current monoprop pool
+// supports via the rocket equation against TotalMass minus monoprop
+// (i.e. the dry-fuel mass after the monoprop is exhausted). v0.8.0+.
+func (s *Spacecraft) RCSDeltaV() float64 {
+	if s.RCSIsp <= 0 || s.Monoprop <= 0 {
+		return 0
+	}
+	mDry := s.DryMass + s.Fuel
+	if mDry <= 0 {
+		return 0
+	}
+	m0 := mDry + s.Monoprop
+	return s.RCSIsp * g0 * math.Log(m0/mDry)
+}
 
 // Altitude returns |r| − primary mean radius. Can go negative if the
 // spacecraft is inside the primary — the caller (HUD / crash detection)
@@ -96,18 +126,44 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	r := earth.RadiusMeters() + 500e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
+	dry := 11000.0
+	fuel := 40000.0
+	monoprop, monoCap, rcsThrust, rcsIsp := DefaultRCSLoadout(dry)
 	return &Spacecraft{
-		Name:     "S-IVB-1",
-		DryMass:  11000,
-		Fuel:     40000,
-		Isp:      421,
-		Thrust:   1023000, // 1023 kN — J-2 vacuum thrust
-		Throttle: 1.0,     // full throttle by default
-		Primary:  earth,
+		Name:             "S-IVB-1",
+		DryMass:          dry,
+		Fuel:             fuel,
+		Isp:              421,
+		Thrust:           1023000, // 1023 kN — J-2 vacuum thrust
+		Throttle:         1.0,     // full throttle by default
+		Monoprop:         monoprop,
+		MonopropCapacity: monoCap,
+		RCSThrust:        rcsThrust,
+		RCSIsp:           rcsIsp,
+		Primary:          earth,
 		State: physics.StateVector{
 			R: orbital.Vec3{X: r},
 			V: orbital.Vec3{Y: v},
-			M: 51000,
+			M: dry + fuel + monoprop,
 		},
 	}
+}
+
+// DefaultRCSLoadout returns canonical (monoprop, capacity, thrust, isp)
+// for a craft of the given dry mass. Linear scaling per v0.8 plan
+// scoping decision #8: RCSThrust = k_T · m_dry, capacity = k_M · m_dry,
+// tuned so a default S-IVB-1-class craft (11000 kg dry) gets ~28 m/s
+// of RCS Δv budget — enough for proximity ops without being twitchy.
+// v0.8.0+.
+func DefaultRCSLoadout(dryMass float64) (monoprop, capacity, thrust, isp float64) {
+	const (
+		kCap   = 50.0 / 11000.0  // ~50 kg monoprop on a 11000 kg dry craft
+		kThr   = 440.0 / 11000.0 // ~440 N RCS thrust on a 11000 kg dry craft
+		ispRCS = 220.0           // typical hypergolic monoprop Isp
+	)
+	capacity = kCap * dryMass
+	thrust = kThr * dryMass
+	isp = ispRCS
+	monoprop = capacity // ship full
+	return
 }
