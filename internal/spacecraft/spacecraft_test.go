@@ -13,8 +13,9 @@ func TestNewInLEO(t *testing.T) {
 	sc := NewInLEO(*earth)
 
 	// v0.5.13+ default: S-IVB-like 11 000 kg dry + 40 000 kg fuel.
-	// v0.8.0+: + 50 kg monoprop tank (per DefaultRCSLoadout sizing).
-	const wantMass = 51050.0
+	// v0.8.0+: + 720 kg monoprop tank (per DefaultRCSLoadout sizing,
+	// targeting ~30 m/s of RCS Δv budget on the wet craft).
+	const wantMass = 51720.0
 	if sc.TotalMass() != wantMass {
 		t.Errorf("total mass = %v, want %v", sc.TotalMass(), wantMass)
 	}
