@@ -105,13 +105,13 @@ func (w *World) FocusZoomRadius() float64 {
 			return b.RadiusMeters() * 50
 		}
 	case FocusCraft:
-		if w.Craft != nil {
+		if w.ActiveCraft() != nil {
 			// Fit to an altitude circle comfortably larger than the craft's
 			// current altitude — so the primary planet + craft orbit are
 			// both visible.
-			alt := w.Craft.State.R.Norm()
+			alt := w.ActiveCraft().State.R.Norm()
 			if alt <= 0 {
-				alt = w.Craft.Primary.RadiusMeters() * 2
+				alt = w.ActiveCraft().Primary.RadiusMeters() * 2
 			}
 			return alt * 3
 		}
@@ -142,8 +142,8 @@ func (w *World) FocusName() string {
 			return sys.Bodies[w.Focus.BodyIdx].EnglishName
 		}
 	case FocusCraft:
-		if w.Craft != nil {
-			return w.Craft.Name
+		if w.ActiveCraft() != nil {
+			return w.ActiveCraft().Name
 		}
 	}
 	return "System-wide"

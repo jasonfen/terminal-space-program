@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.0**.
+Latest release: **v0.8.1**.
 
 ```bash
 # Linux x86_64
@@ -217,6 +217,15 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   proximity-ops thruster v0.8.3 docking will lean on. Each pulse
   drops a fading puff marker on the canvas (placeholder visual;
   v0.8.2 replaces with per-thruster glyphs).
+- **Multi-craft slate** (v0.8.1+). `n` spawns a sister copy of the
+  active craft 90° around the same primary in 500 km LEO; `[`/`]`
+  cycles which craft the player is flying. Each craft owns its
+  own planted nodes, in-flight burn, attitude, and engine state —
+  burns fire on the craft they were planted for regardless of
+  which craft you're currently flying. The HUD's `BURNS` and
+  `NODES` blocks list every craft's state simultaneously. Title
+  bar shows `CRAFT N/M` chip when more than one craft is loaded.
+  Save schema bumped v4 → v5 to nest per-craft state.
 - **Predicted post-burn orbit**. PROJECTED ORBIT block on both
   the orbit screen and `m` form chains every planted node, frame-
   rebases per node (so a Hohmann arrival reads in the destination
@@ -242,9 +251,10 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   title-bar button.
 - **Persistence**. Save / load to JSON at
   `$XDG_STATE_HOME/terminal-space-program/save.json`. Schema
-  v4 round-trips clock, focus, craft (incl. v0.8.0+ RCS pool),
-  planted nodes (with per-node throttle), active burn, and
-  missions.
+  v5 round-trips clock, focus, the entire craft slate (each
+  craft's RCS pool, planted nodes with per-node throttle,
+  in-flight burn, attitude, engine mode), and missions. Pre-v5
+  saves auto-migrate (singular Craft → 1-entry slice).
 - **Modding**. Custom systems via JSON overlay, per-body color
   via `theme.json` (see *Custom systems* and *Theming* below).
 - **Multi-system viewing**. Sol, Alpha Centauri, TRAPPIST-1, and
@@ -303,7 +313,7 @@ prints a warning to stderr and falls back to defaults.
 | v0.5 | Moons + visuals | Body hierarchy + major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus); per-body color, vessel trail, HUD polish. |
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
-| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft, docking, drag, sim-time rotation queued. |
+| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types, docking, drag, sim-time rotation queued. |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -315,8 +325,7 @@ v0.8 — **multi-craft polish**. Slice breakdown in
 [`docs/v0.8-plan.md`](docs/v0.8-plan.md):
 
 - ~~v0.8.0 — RCS / monopropellant mode for sub-m/s precision burns~~ **shipped.**
-- v0.8.1 — multi-craft foundation (selector + save schema v4 → v5
-  with typed migrations + keystroke spawn).
+- ~~v0.8.1 — multi-craft foundation (selector + save schema v4 → v5 + keystroke spawn + per-craft burn state)~~ **shipped.**
 - v0.8.2 — craft types (propulsion loadouts, roles, visual
   differentiation, engine-firing / RCS-puffing visuals, staging).
 - v0.8.3 — docking — state-transition stub.

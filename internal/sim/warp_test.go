@@ -34,8 +34,8 @@ func TestWarpClampActuallyClampsVeryShortPeriod(t *testing.T) {
 	w, _ := NewWorld()
 	// Shrink the craft's orbit to an absurdly tight radius — period ~1 s.
 	// (Not physical; just forces the clamp path.)
-	w.Craft.State.R.X = 1e3
-	w.Craft.State.V.Y = math.Sqrt(w.Craft.Primary.GravitationalParameter() / 1e3)
+	w.ActiveCraft().State.R.X = 1e3
+	w.ActiveCraft().State.V.Y = math.Sqrt(w.ActiveCraft().Primary.GravitationalParameter() / 1e3)
 	w.Clock.WarpIdx = len(WarpFactors) - 1
 
 	selected := w.Clock.Warp()
@@ -52,7 +52,7 @@ func TestWarpClampActuallyClampsVeryShortPeriod(t *testing.T) {
 func TestWarpCappedAt10xDuringActiveBurn(t *testing.T) {
 	w, _ := NewWorld()
 	w.Clock.WarpIdx = len(WarpFactors) - 1 // 100000×
-	w.ActiveBurn = &ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
+	w.ActiveCraft().ActiveBurn = &ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * 1e9)}
 
 	if eff := w.EffectiveWarp(); eff != 10 {
 		t.Errorf("active burn should cap warp to 10×, got %.0f", eff)

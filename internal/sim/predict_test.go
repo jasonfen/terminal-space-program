@@ -25,7 +25,7 @@ func TestPredictedSegmentsContinuousAtSOIBoundary(t *testing.T) {
 	// Boost velocity well past Earth escape (|v_circ| ≈ 7.78 km/s,
 	// |v_esc| ≈ 11.0 km/s). 16 km/s gives v∞ ≈ 10 km/s — past Earth
 	// SOI (~924 000 km) within ~1 day with margin to spare.
-	post := w.Craft.State
+	post := w.ActiveCraft().State
 	post.V = orbital.Vec3{Y: 16000}
 
 	const totalSecs = 3 * 86400.0 // 3 days
@@ -62,9 +62,9 @@ func TestPredictedSegmentsContinuousAtSOIBoundary(t *testing.T) {
 // false-positively rebases inside the home SOI.
 func TestPredictedSegmentsBoundOrbitStaysInOneSegment(t *testing.T) {
 	w := mustWorld(t)
-	post := w.Craft.State
+	post := w.ActiveCraft().State
 
-	mu := w.Craft.Primary.GravitationalParameter()
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
 	period := 2 * math.Pi * math.Sqrt(math.Pow(post.R.Norm(), 3)/mu)
 	segs := w.PredictedSegments(post, period, 128)
 
@@ -75,8 +75,8 @@ func TestPredictedSegmentsBoundOrbitStaysInOneSegment(t *testing.T) {
 		}
 		t.Errorf("LEO orbit produced %d segments (%v); want 1", len(segs), ids)
 	}
-	if len(segs) > 0 && segs[0].PrimaryID != w.Craft.Primary.ID {
-		t.Errorf("LEO segment primary = %s, want %s", segs[0].PrimaryID, w.Craft.Primary.ID)
+	if len(segs) > 0 && segs[0].PrimaryID != w.ActiveCraft().Primary.ID {
+		t.Errorf("LEO segment primary = %s, want %s", segs[0].PrimaryID, w.ActiveCraft().Primary.ID)
 	}
 }
 
@@ -88,25 +88,25 @@ func TestPredictedSegmentsBoundOrbitStaysInOneSegment(t *testing.T) {
 // orbit drifts off the predicted one.
 func TestIntegrateSpacecraftSwitchesPrimaryMidTick(t *testing.T) {
 	w := mustWorld(t)
-	homeID := w.Craft.Primary.ID
+	homeID := w.ActiveCraft().Primary.ID
 
 	// 16 km/s y-velocity → hyperbolic Earth escape; ~3 days clears
 	// Earth SOI (~924 000 km) with margin.
-	w.Craft.State.V = orbital.Vec3{Y: 16000}
+	w.ActiveCraft().State.V = orbital.Vec3{Y: 16000}
 
 	// Single tick covering 3 days of sim time. integrateSpacecraft
 	// caps sub-steps at 1024 and dt at period/100, but per-sub-step
 	// SOI check should still fire when the boundary is crossed
 	// regardless of how the dt is sized.
-	w.integrateSpacecraft(time.Duration(3 * 86400 * float64(time.Second)))
+	w.integrateOneCraft(w.ActiveCraft(), time.Duration(3 * 86400 * float64(time.Second)))
 
-	if w.Craft.Primary.ID == homeID {
+	if w.ActiveCraft().Primary.ID == homeID {
 		t.Errorf("live integrator stayed in home primary %q after 3-day escape; SOI check did not fire mid-tick",
 			homeID)
 	}
 	// State should now be on a heliocentric scale, not 8e8 m geocentric.
-	if w.Craft.State.R.Norm() < 1e9 {
-		t.Errorf("post-tick |r|=%.3e m — looks like state wasn't rebased", w.Craft.State.R.Norm())
+	if w.ActiveCraft().State.R.Norm() < 1e9 {
+		t.Errorf("post-tick |r|=%.3e m — looks like state wasn't rebased", w.ActiveCraft().State.R.Norm())
 	}
 }
 
@@ -120,10 +120,10 @@ func TestIntegrateSpacecraftSwitchesPrimaryMidTick(t *testing.T) {
 // now match within a Verlet step's worth of motion.
 func TestIntegrateSpacecraftMatchesPredictorAcrossSOI(t *testing.T) {
 	w := mustWorld(t)
-	w.Craft.State.V = orbital.Vec3{Y: 16000}
+	w.ActiveCraft().State.V = orbital.Vec3{Y: 16000}
 
 	// Snapshot starting state, run the predictor on it.
-	startState := w.Craft.State
+	startState := w.ActiveCraft().State
 	predicted := w.propagateCraft(3 * 86400.0)
 
 	// Reset craft, run live integrator over the same dt. Don't advance
@@ -131,10 +131,10 @@ func TestIntegrateSpacecraftMatchesPredictorAcrossSOI(t *testing.T) {
 	// the predictor / live snapshots wouldn't be comparable. (In
 	// production Tick *does* advance SimTime first; the body-snapshot
 	// drift is a known approximation orthogonal to this test.)
-	w.Craft.State = startState
-	w.integrateSpacecraft(time.Duration(3 * 86400 * float64(time.Second)))
+	w.ActiveCraft().State = startState
+	w.integrateOneCraft(w.ActiveCraft(), time.Duration(3 * 86400 * float64(time.Second)))
 
-	gap := w.Craft.State.R.Sub(predicted.R).Norm()
+	gap := w.ActiveCraft().State.R.Sub(predicted.R).Norm()
 	// The two paths share Verlet step + SOI-rebase math; allow 1e6 m
 	// (1000 km) for accumulated single-precision noise across 1024
 	// sub-steps. Pre-v0.4.2 the gap was 10⁷–10⁸ m (post-crossing wrong-
@@ -162,8 +162,8 @@ func TestWarpLockPreservesCircularOrbit(t *testing.T) {
 		t.Fatalf("warp setup: got %.0f, want 10000", w.Clock.Warp())
 	}
 
-	mu := w.Craft.Primary.GravitationalParameter()
-	startEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	startEl := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
 
 	// Run 600 ticks ≈ 10 real-time seconds at the default 50 ms base
 	// step → 600 × 0.5 s × 10000× = ~50 simulated days. That covers
@@ -173,7 +173,7 @@ func TestWarpLockPreservesCircularOrbit(t *testing.T) {
 		w.Tick()
 	}
 
-	endEl := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	endEl := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
 
 	// Semimajor axis must be conserved (analytic Kepler is exact).
 	if relErr := math.Abs(endEl.A-startEl.A) / startEl.A; relErr > 1e-9 {
@@ -214,9 +214,9 @@ func TestWarpLockDetectsForeignSOIEntry(t *testing.T) {
 	// Place craft 50% inside Mars's SOI, on the heliocentric +X side
 	// of Mars. Velocity = Mars's velocity + a small radial component
 	// so the craft is bound to Mars in the post-rebase frame.
-	w.Craft.Primary = sun
-	w.Craft.State.R = orbital.Vec3{X: marsPos.X + soi*0.5, Y: marsPos.Y, Z: marsPos.Z}
-	w.Craft.State.V = marsVel
+	w.ActiveCraft().Primary = sun
+	w.ActiveCraft().State.R = orbital.Vec3{X: marsPos.X + soi*0.5, Y: marsPos.Y, Z: marsPos.Z}
+	w.ActiveCraft().State.V = marsVel
 
 	// Bump to 1000× warp (well above 1× so warp-lock activates) but not
 	// so high we burn 20+ ticks of sim time waiting for the throttle.
@@ -228,9 +228,9 @@ func TestWarpLockDetectsForeignSOIEntry(t *testing.T) {
 	}
 
 	w.Tick()
-	if w.Craft.Primary.ID != mars.ID {
+	if w.ActiveCraft().Primary.ID != mars.ID {
 		t.Errorf("after 1 tick under warp lock, primary = %s, want Mars (SOI re-eval skipped between Kepler chunks)",
-			w.Craft.Primary.EnglishName)
+			w.ActiveCraft().Primary.EnglishName)
 	}
 }
 
@@ -242,7 +242,7 @@ func TestWarpLockDetectsForeignSOIEntry(t *testing.T) {
 // a state vector still tied to Earth's center even after crossing Sol.
 func TestPropagateCraftSOIAware(t *testing.T) {
 	w := mustWorld(t)
-	w.Craft.State.V = orbital.Vec3{Y: 16000}
+	w.ActiveCraft().State.V = orbital.Vec3{Y: 16000}
 
 	state := w.propagateCraft(3 * 86400.0)
 

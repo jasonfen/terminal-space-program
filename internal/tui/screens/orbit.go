@@ -127,16 +127,16 @@ func (v *OrbitView) IsHudClick(col int) bool {
 // orbital.TimeToTrueAnomaly. ok=false for hyperbolic / no-craft
 // states or when no sample lands on-canvas.
 func (v *OrbitView) ProjectToOrbit(w *sim.World, screenCol, screenRow int) (time.Duration, bool) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return 0, false
 	}
-	mu := w.Craft.Primary.GravitationalParameter()
-	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
 	if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
 		return 0, false
 	}
-	currentNu := orbital.TrueAnomalyFromState(w.Craft.State.R, w.Craft.State.V, mu, el)
-	primaryPos := w.BodyPosition(w.Craft.Primary)
+	currentNu := orbital.TrueAnomalyFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu, el)
+	primaryPos := w.BodyPosition(w.ActiveCraft().Primary)
 
 	clickCanvasCol := screenCol - 1 // strip border / title offsets
 	clickCanvasRow := screenRow - 2
@@ -188,7 +188,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.canvas.Clear()
 	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
-	if w.ActiveBurn != nil {
+	if w.ActiveCraft().ActiveBurn != nil {
 		if v.burnFrozenCenter == nil {
 			snapshot := center
 			v.burnFrozenCenter = &snapshot
@@ -307,7 +307,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// vessel chevron stays drawn so the craft's presence is still
 	// communicated.
 	if w.CraftVisibleHere() {
-		c := w.Craft
+		c := w.ActiveCraft()
 		muCraft := c.Primary.GravitationalParameter()
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
 		primaryPos := w.BodyPosition(c.Primary)
@@ -356,6 +356,28 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
 		}
+
+		// v0.8.1+: render non-active craft as dimmer markers + their
+		// current-orbit ellipse only (no chained predictions, no apo/
+		// peri ticks — those cluster the canvas). v0.8.2 will swap in
+		// per-craft glyph + color via Spacecraft.Glyph / Color so each
+		// craft reads distinctly even at small pixel size.
+		for i, other := range w.Crafts {
+			if i == w.ActiveCraftIdx || other == nil {
+				continue
+			}
+			otherPrimaryPos := w.BodyPosition(other.Primary)
+			otherPxR := BodyPixelRadius(other.Primary, false, scale)
+			otherInertial := otherPrimaryPos.Add(other.State.R)
+			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
+			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
+			if otherOrbitVisible {
+				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, 5, otherPrimaryPos, otherPxR, render.ColorDim)
+			}
+			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
+				v.canvas.PlotColored(otherInertial, render.ColorCraftMarker)
+			}
+		}
 	}
 
 	// Planned maneuver nodes — cluster glyph at each node's inertial
@@ -383,9 +405,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	hud := v.renderHUD(w, selectedIdx, totalCols-v.canvas.Cols()-4)
 
-	title := v.renderTitleBar(sys.Name, totalCols)
+	craftChip := ""
+	if n := len(w.Crafts); n > 1 {
+		craftChip = fmt.Sprintf(" — CRAFT %d/%d", w.ActiveCraftIdx+1, n)
+	}
+	title := v.renderTitleBar(sys.Name+craftChip, totalCols)
 	footer := v.theme.Footer.Render(
-		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
+		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]spawn [N]clr [[/]]craft [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -519,11 +545,11 @@ func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.Ce
 // another body's SOI use stride-1 (solid) so the crossing is visually
 // distinct at a glance.
 func (v *OrbitView) drawNodes(w *sim.World) {
-	if len(w.Nodes) == 0 || w.Craft == nil {
+	if len(w.ActiveCraft().Nodes) == 0 || w.ActiveCraft() == nil {
 		return
 	}
-	homeID := w.Craft.Primary.ID
-	for i, n := range w.Nodes {
+	homeID := w.ActiveCraft().Primary.ID
+	for i, n := range w.ActiveCraft().Nodes {
 		// Frame-distinct cluster size: home-frame nodes get a tight cross,
 		// foreign-frame (heliocentric or destination-SOI) get a larger
 		// one so the player can see at a glance which leg is which on
@@ -546,7 +572,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	// would otherwise rotate wildly each frame. Skip the preview and
 	// let the live ellipse + active-burn HUD block carry the visual
 	// load until the burn completes.
-	if w.ActiveBurn != nil {
+	if w.ActiveCraft().ActiveBurn != nil {
 		return
 	}
 
@@ -621,7 +647,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
-		c := w.Craft
+		c := w.ActiveCraft()
 		mu := c.Primary.GravitationalParameter()
 		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 		primaryR := c.Primary.RadiusMeters()
@@ -701,33 +727,54 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		// knows what direction the next manual burn will fire in.
 		lines = append(lines, section("ATTITUDE")...)
 		manualState := "idle"
-		if w.ManualBurn != nil {
-			elapsed := w.Clock.SimTime.Sub(w.ManualBurn.StartTime).Seconds()
+		if w.ActiveCraft().ManualBurn != nil {
+			elapsed := w.Clock.SimTime.Sub(w.ActiveCraft().ManualBurn.StartTime).Seconds()
 			manualState = fmt.Sprintf(v.theme.Warning.Render("● firing T+%.1fs"), elapsed)
 		}
 		lines = append(lines,
-			fmt.Sprintf("  hold:      %s", w.AttitudeMode.String()),
-			fmt.Sprintf("  engine:    %s", w.EngineMode.String()),
+			fmt.Sprintf("  hold:      %s", w.ActiveCraft().AttitudeMode.String()),
+			fmt.Sprintf("  engine:    %s", w.ActiveCraft().EngineMode.String()),
 			fmt.Sprintf("  manual:    %s", manualState),
 		)
-	} else if w.Craft != nil {
+	} else if w.ActiveCraft() != nil {
 		lines = append(lines, "",
 			v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)"),
 		)
 	}
 
-	if w.ActiveBurn != nil {
-		remaining := w.ActiveBurn.EndTime.Sub(w.Clock.SimTime).Seconds()
-		if remaining < 0 {
-			remaining = 0
+	// v0.8.1+: walk every craft and surface any in-flight burn so a
+	// burn on a non-active craft doesn't silently sneak by. The
+	// active craft's burn keeps the prior multi-line treatment for
+	// quick scan; non-active burns get one compact line each.
+	burning := []int{}
+	for i, c := range w.Crafts {
+		if c != nil && c.ActiveBurn != nil {
+			burning = append(burning, i)
 		}
+	}
+	if len(burning) > 0 {
 		lines = append(lines,
 			v.theme.Dim.Render(strings.Repeat("─", width-2)),
-			v.theme.Warning.Render("● BURN ACTIVE"),
-			fmt.Sprintf("  mode:     %s", w.ActiveBurn.Mode.String()),
-			fmt.Sprintf("  Δv-to-go: %.1f m/s", w.ActiveBurn.DVRemaining),
-			fmt.Sprintf("  T-%.1fs remaining", remaining),
+			v.theme.Warning.Render("● BURNS"),
 		)
+		for _, i := range burning {
+			c := w.Crafts[i]
+			ab := c.ActiveBurn
+			remaining := ab.EndTime.Sub(w.Clock.SimTime).Seconds()
+			if remaining < 0 {
+				remaining = 0
+			}
+			tag := fmt.Sprintf("craft %d", i+1)
+			if i == w.ActiveCraftIdx {
+				tag = v.theme.Warning.Render(tag + " (active)")
+			} else {
+				tag = v.theme.Dim.Render(tag)
+			}
+			lines = append(lines,
+				fmt.Sprintf("  %s — %s, Δv %.0f m/s, T-%.0fs",
+					tag, ab.Mode.String(), ab.DVRemaining, remaining),
+			)
+		}
 	}
 
 	// v0.7.4+: mission status moved off the orbit HUD into a
@@ -762,27 +809,48 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
-	if len(w.Nodes) > 0 {
+	// v0.8.1+: list nodes for every craft in the slate. The active
+	// craft's nodes appear at full intensity; other crafts' nodes
+	// fall in the Dim style with a `craft N:` prefix so the player
+	// can see at a glance who has burns queued.
+	hasAnyNodes := false
+	for _, c := range w.Crafts {
+		if c != nil && len(c.Nodes) > 0 {
+			hasAnyNodes = true
+			break
+		}
+	}
+	if hasAnyNodes {
 		lines = append(lines, section("NODES")...)
-		for i, n := range w.Nodes {
-			kind := "imp"
-			if n.Duration > 0 {
-				kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
-			}
-			// v0.6.0: unresolved event-relative nodes have no
-			// TriggerTime yet — show the trigger label instead of T+.
-			if !n.IsResolved() {
-				lines = append(lines, fmt.Sprintf(
-					"  #%d %s  %s  %.0f m/s  %s",
-					i+1, n.Event.String(), n.Mode.String(), n.DV, kind,
-				))
+		multiCraft := len(w.Crafts) > 1
+		for ci, c := range w.Crafts {
+			if c == nil || len(c.Nodes) == 0 {
 				continue
 			}
-			dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
-			lines = append(lines, fmt.Sprintf(
-				"  #%d T%+.0fs  %s  %.0f m/s  %s",
-				i+1, dt, n.Mode.String(), n.DV, kind,
-			))
+			isActive := ci == w.ActiveCraftIdx
+			for i, n := range c.Nodes {
+				kind := "imp"
+				if n.Duration > 0 {
+					kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
+				}
+				prefix := fmt.Sprintf("  #%d", i+1)
+				if multiCraft {
+					prefix = fmt.Sprintf("  c%d#%d", ci+1, i+1)
+				}
+				var line string
+				if !n.IsResolved() {
+					line = fmt.Sprintf("%s %s  %s  %.0f m/s  %s",
+						prefix, n.Event.String(), n.Mode.String(), n.DV, kind)
+				} else {
+					dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+					line = fmt.Sprintf("%s T%+.0fs  %s  %.0f m/s  %s",
+						prefix, dt, n.Mode.String(), n.DV, kind)
+				}
+				if !isActive {
+					line = v.theme.Dim.Render(line)
+				}
+				lines = append(lines, line)
+			}
 		}
 
 		// v0.6.1: PROJECTED ORBIT — apo/peri/AN/DN of the orbit after
@@ -935,14 +1003,14 @@ func viewBasis(w *sim.World) widgets.Basis {
 			Y: orbital.Vec3{Z: 1},
 		}
 	case sim.ViewOrbitFlat:
-		if w.Craft == nil {
+		if w.ActiveCraft() == nil {
 			return widgets.DefaultBasis()
 		}
-		mu := w.Craft.Primary.GravitationalParameter()
+		mu := w.ActiveCraft().Primary.GravitationalParameter()
 		if mu <= 0 {
 			return widgets.DefaultBasis()
 		}
-		el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+		el := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
 		if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
 			return widgets.DefaultBasis()
 		}
