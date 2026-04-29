@@ -521,7 +521,9 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 	arrEph := w.bodyEphemeris(target)
 	rArr, vArrBody := arrEph(float64(arrNode.TriggerTime.Unix()))
 
-	v1, v2, err := planner.LambertSolve(rCraftHelio, rArr, tof, muSun)
+	// Prograde branch — matches PlanLambertTransfer's default
+	// (callers haven't requested a retrograde refinement yet).
+	v1, v2, err := planner.LambertSolve(rCraftHelio, rArr, tof, muSun, false)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -625,6 +627,9 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	rArr, vArr := arrEph(tArr)
 
 	depOffset := time.Duration(depDay * secondsPerDay * float64(time.Second))
+	// Prograde transfer — the porkchop UI scores prograde transfers
+	// today; v0.8+ multi-rev work will surface retrograde as a UI
+	// toggle and start passing true.
 	plan, err := planner.PlanLambertTransfer(
 		muSun,
 		rDep, vDep,
@@ -633,6 +638,7 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 		muDep, rPark, w.Craft.Primary.ID,
 		muArr, rCapture, target.ID,
 		depOffset,
+		false,
 	)
 	if err != nil {
 		return nil, err
@@ -728,6 +734,7 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 		depDays, tofDays,
 		muDep, rPark,
 		muArr, rCapture,
+		false, // prograde — v0.8+ multi-rev porkchop will toggle this.
 	)
 	return grid, nil
 }

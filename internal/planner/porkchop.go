@@ -30,6 +30,9 @@ type EphemerisFn func(epoch float64) (r, v orbital.Vec3)
 // - muDep, rPark: destination body μ + parking-orbit radius (for
 //   departure Δv via the patched-conic identity).
 // - muArr, rCapture: arrival body μ + capture-orbit radius.
+// - retrograde: forwarded to LambertSolve to select the prograde or
+//   retrograde transfer branch. The TUI surfaces prograde today;
+//   retrograde unblocks multi-rev porkchop work in v0.8+. v0.7.5+.
 func PorkchopGrid(
 	muSun float64,
 	depState, arrState EphemerisFn,
@@ -37,6 +40,7 @@ func PorkchopGrid(
 	depDays, tofDays []float64,
 	muDep, rPark float64,
 	muArr, rCapture float64,
+	retrograde bool,
 ) [][]float64 {
 	grid := make([][]float64, len(tofDays))
 	for j := range grid {
@@ -58,7 +62,7 @@ func PorkchopGrid(
 			tArr := tDep + tof*secondsPerDay
 			r2, vArr := arrState(tArr)
 
-			v1, v2, err := LambertSolve(r1, r2, tof*secondsPerDay, muSun)
+			v1, v2, err := LambertSolve(r1, r2, tof*secondsPerDay, muSun, retrograde)
 			if err != nil {
 				continue // leave NaN
 			}

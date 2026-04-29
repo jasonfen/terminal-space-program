@@ -289,11 +289,12 @@ func PlanLambertTransfer(
 	muDeparture, rPark float64, departureID string,
 	muDestination, rCapture float64, destinationID string,
 	depOffset time.Duration,
+	retrograde bool,
 ) (TransferPlan, error) {
 	if muSun <= 0 || tof <= 0 {
 		return TransferPlan{}, errors.New("planlambert: muSun and tof must be > 0")
 	}
-	v1, v2, err := LambertSolve(rDep, rArr, tof, muSun)
+	v1, v2, err := LambertSolve(rDep, rArr, tof, muSun, retrograde)
 	if err != nil {
 		return TransferPlan{}, err
 	}

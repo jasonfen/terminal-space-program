@@ -8,10 +8,13 @@ import (
 )
 
 // LambertSolve is the single-revolution (N=0) entry point to the
-// Lambert solver. Kept for backward-compat with v0.3.0–v0.3.2 callers;
-// new code should prefer LambertSolveRev with an explicit N.
-func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64) (v1, v2 orbital.Vec3, err error) {
-	return LambertSolveRev(r1, r2, dt, mu, 0)
+// Lambert solver. Set retrograde=false for the standard prograde
+// transfer (anticlockwise as viewed from +z); retrograde=true selects
+// the clockwise branch — useful for matching a target's orbital
+// direction when the system happens to spin retrograde, or for
+// exploring multi-rev porkchop alternatives. v0.7.5+.
+func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64, retrograde bool) (v1, v2 orbital.Vec3, err error) {
+	return LambertSolveRev(r1, r2, dt, mu, 0, retrograde)
 }
 
 // LambertSolveRev solves Lambert's problem for an N-revolution transfer:
@@ -31,7 +34,11 @@ func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64) (v1, v2 orbital.Vec3, err
 // bracket sweep lands in first, which is adequate for the porkchop
 // grid's coarse sampling. Multi-branch selection is a v0.4 polish item
 // if it comes up.
-func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int) (v1, v2 orbital.Vec3, err error) {
+//
+// retrograde flips the transfer-angle convention: prograde takes the
+// short way when (r1 × r2)·ẑ ≥ 0 and the long way otherwise; retrograde
+// reverses the rule. v0.7.5+.
+func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde bool) (v1, v2 orbital.Vec3, err error) {
 	if dt <= 0 {
 		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: dt must be > 0")
 	}
@@ -58,7 +65,14 @@ func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int) (v1, v2 orbi
 	}
 	crossZ := r1.X*r2.Y - r1.Y*r2.X
 	dtheta := math.Acos(cosDtheta)
-	if crossZ < 0 {
+	// Curtis Algorithm 5.2's branch rule: prograde takes Δθ in
+	// [0, π] when (r1 × r2)_z ≥ 0, else [π, 2π]. Retrograde reverses
+	// (the transfer arcs the opposite way around the line of nodes).
+	flipBranch := crossZ < 0
+	if retrograde {
+		flipBranch = !flipBranch
+	}
+	if flipBranch {
 		dtheta = 2*math.Pi - dtheta
 	}
 	sinDtheta := math.Sin(dtheta)
