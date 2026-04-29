@@ -178,6 +178,24 @@ func TestBurnFiresOnPlantedCraftNotActive(t *testing.T) {
 	}
 }
 
+// TestSpawnSisterCraftIncrementsName: consecutive spawns should
+// bump the trailing `-N` suffix so the HUD can tell them apart.
+// "S-IVB-1" → "S-IVB-2" → "S-IVB-3".
+func TestSpawnSisterCraftIncrementsName(t *testing.T) {
+	w, _ := NewWorld()
+	if got := w.Crafts[0].Name; got != "S-IVB-1" {
+		t.Fatalf("seed craft name = %q, want S-IVB-1", got)
+	}
+	c2, _ := w.SpawnSisterCraft()
+	if c2.Name != "S-IVB-2" {
+		t.Errorf("first sister name = %q, want S-IVB-2", c2.Name)
+	}
+	c3, _ := w.SpawnSisterCraft()
+	if c3.Name != "S-IVB-3" {
+		t.Errorf("second sister name = %q, want S-IVB-3", c3.Name)
+	}
+}
+
 // TestSpawnSisterCraftPopulatesAndActivates: pressing `n`-equivalent
 // spawns a copy of the active craft, increments the slate count, and
 // activates the new one.
