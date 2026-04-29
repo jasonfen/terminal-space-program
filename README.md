@@ -294,24 +294,32 @@ prints a warning to stderr and falls back to defaults.
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
-v0.6 / v0.7 plans: [`docs/v0.6-plan.md`](docs/v0.6-plan.md), [`docs/v0.7-plan.md`](docs/v0.7-plan.md).
+v0.6 / v0.7 / v0.8 plans: [`docs/v0.6-plan.md`](docs/v0.6-plan.md), [`docs/v0.7-plan.md`](docs/v0.7-plan.md), [`docs/v0.8-plan.md`](docs/v0.8-plan.md).
 
 ## Future plans
 
-Speculative; subject to change. Candidates on the v0.8+ deferred list:
+v0.8 — **multi-craft polish**. Slice breakdown in
+[`docs/v0.8-plan.md`](docs/v0.8-plan.md):
 
-- Multi-rev porkchop branches (unblocked by v0.7.5's retrograde flag).
-- Multi-craft control selector when multiple vessels come online.
-- Multiplayer implementation against the v0.6.6 design.
-- N-body perturbations (Lagrange points, three-body trajectories).
-- Multi-system spacecraft (interstellar transfer math or deus-ex jump).
-- Mission editor / scripting for user-authored objectives.
-- Optional simple atmospheric drag for reentry / aerobraking gameplay.
-- Drag-to-edit on planted nodes.
-- Body-rendering polish (Earth terminator, Mars / Jupiter sim-time
-  rotation, eclipses).
-- Monopropellant / RCS mode for sub-m/s precision burns.
-- Race-detector CI.
+- v0.8.0 — RCS / monopropellant mode for sub-m/s precision burns.
+- v0.8.1 — multi-craft foundation (selector + save schema v4 → v5
+  with typed migrations + keystroke spawn).
+- v0.8.2 — craft types (propulsion loadouts, roles, visual
+  differentiation, engine-firing / RCS-puffing visuals, staging).
+- v0.8.3 — docking — state-transition stub.
+- v0.8.4 — atmospheric drag (realistic Earth + Mars, drag-aware
+  predictor, atmospheric haze rendering).
+- v0.8.5 — sim-time planet rotation + tidally-locked perspectives +
+  textured-bodies trickle (Saturn, Jovian moons, Uranus/Neptune).
+- v0.8.6 — controls polish bag (multi-rev porkchop UI keys,
+  `IterateForTarget` toggle in `m` form, throttle-change warp clamp).
+- v0.8.7+ stretch — mission scripting / editor.
+
+Deferred to v0.9+: multiplayer implementation, interstellar transfer,
+N-body perturbations, solar lighting + day/night terminator + eclipses
+(needs ANSI 24-bit canvas mixing research first), atmospheric heating
+/ structural overstress, drag-to-edit nodes, theme-file hot-reload,
+race-detector CI.
 
 Full backlog in [`docs/state-of-game.md`](docs/state-of-game.md).
 
