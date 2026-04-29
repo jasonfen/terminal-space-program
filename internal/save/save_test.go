@@ -25,8 +25,8 @@ func TestRoundtrip(t *testing.T) {
 	w.Clock.WarpIdx = 3
 	w.Clock.Paused = true
 	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: 4}
-	w.Craft.Fuel = 412.5
-	w.Craft.State.V = w.Craft.State.V.Add(orbital.Vec3{Y: 25.5})
+	w.ActiveCraft().Fuel = 412.5
+	w.ActiveCraft().State.V = w.ActiveCraft().State.V.Add(orbital.Vec3{Y: 25.5})
 	w.Nodes = append(w.Nodes, sim.ManeuverNode{
 		TriggerTime: w.Clock.SimTime.Add(5 * time.Minute),
 		Mode:        spacecraft.BurnPrograde,
@@ -69,20 +69,20 @@ func TestRoundtrip(t *testing.T) {
 	if got.Focus != w.Focus {
 		t.Errorf("Focus: got %+v want %+v", got.Focus, w.Focus)
 	}
-	if got.Craft.Name != w.Craft.Name {
-		t.Errorf("Craft.Name: got %q want %q", got.Craft.Name, w.Craft.Name)
+	if got.ActiveCraft().Name != w.ActiveCraft().Name {
+		t.Errorf("Craft.Name: got %q want %q", got.ActiveCraft().Name, w.ActiveCraft().Name)
 	}
-	if got.Craft.Fuel != w.Craft.Fuel {
-		t.Errorf("Craft.Fuel: got %v want %v", got.Craft.Fuel, w.Craft.Fuel)
+	if got.ActiveCraft().Fuel != w.ActiveCraft().Fuel {
+		t.Errorf("Craft.Fuel: got %v want %v", got.ActiveCraft().Fuel, w.ActiveCraft().Fuel)
 	}
-	if got.Craft.Primary.ID != w.Craft.Primary.ID {
-		t.Errorf("Craft.Primary.ID: got %q want %q", got.Craft.Primary.ID, w.Craft.Primary.ID)
+	if got.ActiveCraft().Primary.ID != w.ActiveCraft().Primary.ID {
+		t.Errorf("Craft.Primary.ID: got %q want %q", got.ActiveCraft().Primary.ID, w.ActiveCraft().Primary.ID)
 	}
-	if !vecEq(got.Craft.State.R, w.Craft.State.R) {
-		t.Errorf("Craft.State.R: got %v want %v", got.Craft.State.R, w.Craft.State.R)
+	if !vecEq(got.ActiveCraft().State.R, w.ActiveCraft().State.R) {
+		t.Errorf("Craft.State.R: got %v want %v", got.ActiveCraft().State.R, w.ActiveCraft().State.R)
 	}
-	if !vecEq(got.Craft.State.V, w.Craft.State.V) {
-		t.Errorf("Craft.State.V: got %v want %v", got.Craft.State.V, w.Craft.State.V)
+	if !vecEq(got.ActiveCraft().State.V, w.ActiveCraft().State.V) {
+		t.Errorf("Craft.State.V: got %v want %v", got.ActiveCraft().State.V, w.ActiveCraft().State.V)
 	}
 	if len(got.Nodes) != 1 || got.Nodes[0].DV != 200 || got.Nodes[0].PrimaryID != "earth" {
 		t.Errorf("Nodes: got %+v", got.Nodes)
@@ -108,7 +108,7 @@ func TestRoundtripEmptyState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Craft == nil {
+	if got.ActiveCraft() == nil {
 		t.Fatal("Craft nil after roundtrip on default world")
 	}
 	if len(got.Nodes) != 0 {
@@ -223,7 +223,10 @@ func TestUnknownPrimaryRejected(t *testing.T) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	f.Payload.Craft.PrimaryID = "no-such-body"
+	if len(f.Payload.Crafts) == 0 {
+		t.Fatalf("expected at least one craft on the wire, got 0")
+	}
+	f.Payload.Crafts[0].PrimaryID = "no-such-body"
 	tampered, _ := json.Marshal(f)
 	if err := os.WriteFile(path, tampered, 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -280,9 +283,9 @@ func TestStatePreservedAfterRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	wantR := w.Craft.State.R
-	wantV := w.Craft.State.V
-	wantPrimaryID := w.Craft.Primary.ID
+	wantR := w.ActiveCraft().State.R
+	wantV := w.ActiveCraft().State.V
+	wantPrimaryID := w.ActiveCraft().Primary.ID
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := save.Save(w, path); err != nil {
@@ -292,22 +295,22 @@ func TestStatePreservedAfterRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !vecEq(got.Craft.State.R, wantR) {
-		t.Errorf("R: got %+v want %+v", got.Craft.State.R, wantR)
+	if !vecEq(got.ActiveCraft().State.R, wantR) {
+		t.Errorf("R: got %+v want %+v", got.ActiveCraft().State.R, wantR)
 	}
-	if !vecEq(got.Craft.State.V, wantV) {
-		t.Errorf("V: got %+v want %+v", got.Craft.State.V, wantV)
+	if !vecEq(got.ActiveCraft().State.V, wantV) {
+		t.Errorf("V: got %+v want %+v", got.ActiveCraft().State.V, wantV)
 	}
-	if got.Craft.Primary.ID != wantPrimaryID {
-		t.Errorf("Primary.ID: got %q want %q", got.Craft.Primary.ID, wantPrimaryID)
+	if got.ActiveCraft().Primary.ID != wantPrimaryID {
+		t.Errorf("Primary.ID: got %q want %q", got.ActiveCraft().Primary.ID, wantPrimaryID)
 	}
-	if got.Craft.Primary.GravitationalParameter() == 0 {
+	if got.ActiveCraft().Primary.GravitationalParameter() == 0 {
 		t.Error("rehydrated primary has zero μ — body lookup didn't preserve mass")
 	}
 	// Confirm a state vector still propagates: pre/post Verlet step
 	// from rehydrated state should not blow up.
-	mu := got.Craft.Primary.GravitationalParameter()
-	stepped := physics.StepVerlet(got.Craft.State, mu, 1.0)
+	mu := got.ActiveCraft().Primary.GravitationalParameter()
+	stepped := physics.StepVerlet(got.ActiveCraft().State, mu, 1.0)
 	if stepped.R.Norm() == 0 {
 		t.Error("post-load Verlet step produced zero state — primary μ likely wrong")
 	}
@@ -467,10 +470,10 @@ func TestRCSFieldsRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	w.Craft.Monoprop = 17.5
-	w.Craft.MonopropCapacity = 50
-	w.Craft.RCSThrust = 440
-	w.Craft.RCSIsp = 220
+	w.ActiveCraft().Monoprop = 17.5
+	w.ActiveCraft().MonopropCapacity = 50
+	w.ActiveCraft().RCSThrust = 440
+	w.ActiveCraft().RCSIsp = 220
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := save.Save(w, path); err != nil {
@@ -480,17 +483,17 @@ func TestRCSFieldsRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Craft.Monoprop != 17.5 {
-		t.Errorf("Monoprop = %v, want 17.5", got.Craft.Monoprop)
+	if got.ActiveCraft().Monoprop != 17.5 {
+		t.Errorf("Monoprop = %v, want 17.5", got.ActiveCraft().Monoprop)
 	}
-	if got.Craft.MonopropCapacity != 50 {
-		t.Errorf("MonopropCapacity = %v, want 50", got.Craft.MonopropCapacity)
+	if got.ActiveCraft().MonopropCapacity != 50 {
+		t.Errorf("MonopropCapacity = %v, want 50", got.ActiveCraft().MonopropCapacity)
 	}
-	if got.Craft.RCSThrust != 440 {
-		t.Errorf("RCSThrust = %v, want 440", got.Craft.RCSThrust)
+	if got.ActiveCraft().RCSThrust != 440 {
+		t.Errorf("RCSThrust = %v, want 440", got.ActiveCraft().RCSThrust)
 	}
-	if got.Craft.RCSIsp != 220 {
-		t.Errorf("RCSIsp = %v, want 220", got.Craft.RCSIsp)
+	if got.ActiveCraft().RCSIsp != 220 {
+		t.Errorf("RCSIsp = %v, want 220", got.ActiveCraft().RCSIsp)
 	}
 }
 
@@ -517,10 +520,20 @@ func TestLegacySaveBackfillsRCS(t *testing.T) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	f.Payload.Craft.Monoprop = 0
-	f.Payload.Craft.MonopropCapacity = 0
-	f.Payload.Craft.RCSThrust = 0
-	f.Payload.Craft.RCSIsp = 0
+	// Forge a v0.7.x-era save: singular Craft field, no Crafts slice,
+	// version 4, RCS fields zeroed. The loader must translate the
+	// singular form into Crafts and backfill DefaultRCSLoadout.
+	if len(f.Payload.Crafts) == 0 {
+		t.Fatalf("expected wire payload to carry at least one craft")
+	}
+	c := f.Payload.Crafts[0]
+	c.Monoprop = 0
+	c.MonopropCapacity = 0
+	c.RCSThrust = 0
+	c.RCSIsp = 0
+	f.Payload.Craft = &c
+	f.Payload.Crafts = nil
+	f.Version = 4
 	rewritten, _ := json.Marshal(f)
 	if err := os.WriteFile(path, rewritten, 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -529,12 +542,12 @@ func TestLegacySaveBackfillsRCS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Craft.RCSIsp == 0 || got.Craft.RCSThrust == 0 || got.Craft.MonopropCapacity == 0 {
-		t.Errorf("legacy save did not backfill RCS: %+v", got.Craft)
+	if got.ActiveCraft().RCSIsp == 0 || got.ActiveCraft().RCSThrust == 0 || got.ActiveCraft().MonopropCapacity == 0 {
+		t.Errorf("legacy save did not backfill RCS: %+v", got.ActiveCraft())
 	}
-	if got.Craft.Monoprop != got.Craft.MonopropCapacity {
+	if got.ActiveCraft().Monoprop != got.ActiveCraft().MonopropCapacity {
 		t.Errorf("legacy save should ship full monoprop: %v / %v",
-			got.Craft.Monoprop, got.Craft.MonopropCapacity)
+			got.ActiveCraft().Monoprop, got.ActiveCraft().MonopropCapacity)
 	}
 }
 

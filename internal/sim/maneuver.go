@@ -185,13 +185,13 @@ func (w *World) StartManualBurn() {
 	if w.ActiveBurn != nil || w.ManualBurn != nil {
 		return
 	}
-	if w.Craft == nil || w.Craft.Fuel <= 0 || w.Craft.Thrust <= 0 {
+	if w.ActiveCraft() == nil || w.ActiveCraft().Fuel <= 0 || w.ActiveCraft().Thrust <= 0 {
 		return
 	}
 	if w.EngineMode != spacecraft.EngineMain {
 		return
 	}
-	if w.Craft.EffectiveThrottle() <= 0 {
+	if w.ActiveCraft().EffectiveThrottle() <= 0 {
 		return
 	}
 	w.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
@@ -223,7 +223,7 @@ func (w *World) ToggleManualBurn() {
 // at whatever throttle the node carries (per-node throttle field
 // lands in v0.7.3 alongside the save schema bump to v4).
 func (w *World) SetThrottle(t float64) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return
 	}
 	if t < 0 {
@@ -231,7 +231,7 @@ func (w *World) SetThrottle(t float64) {
 	} else if t > 1 {
 		t = 1
 	}
-	w.Craft.Throttle = t
+	w.ActiveCraft().Throttle = t
 	if t == 0 {
 		w.StopManualBurn()
 	}
@@ -241,10 +241,10 @@ func (w *World) SetThrottle(t float64) {
 // [0, 1]. Used by the v0.7.3+ Shift+z (+10 %) and Shift+x (-10 %)
 // keys.
 func (w *World) AdjustThrottle(delta float64) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return
 	}
-	w.SetThrottle(w.Craft.Throttle + delta)
+	w.SetThrottle(w.ActiveCraft().Throttle + delta)
 }
 
 // SetAttitudeMode updates the held attitude and, if a manual burn
@@ -291,14 +291,14 @@ func sortNodes(nodes []ManeuverNode) {
 // will retry on subsequent ticks. The retry cost is one
 // ElementsFromState call per unresolved node per tick — negligible.
 func (w *World) resolveEventNodes() {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return
 	}
-	mu := w.Craft.Primary.GravitationalParameter()
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
 	if mu == 0 {
 		return
 	}
-	state := orbital.Vec3State{R: w.Craft.State.R, V: w.Craft.State.V}
+	state := orbital.Vec3State{R: w.ActiveCraft().State.R, V: w.ActiveCraft().State.V}
 	resolvedAny := false
 	for i := range w.Nodes {
 		n := &w.Nodes[i]
@@ -328,7 +328,7 @@ func (w *World) resolveEventNodes() {
 		// the orbit reaches that ν.
 		n.TriggerTime = w.Clock.SimTime.Add(time.Duration(dt * float64(time.Second)))
 		if n.PrimaryID == "" {
-			n.PrimaryID = w.Craft.Primary.ID
+			n.PrimaryID = w.ActiveCraft().Primary.ID
 		}
 		resolvedAny = true
 	}
@@ -352,7 +352,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
 		return nil, errInvalidTransferTarget
 	}
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return nil, errNoCraftForTransfer
 	}
 	target := sys.Bodies[targetIdx]
@@ -360,7 +360,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		return nil, errInvalidTransferTarget
 	}
 
-	rPark := w.Craft.State.R.Norm()
+	rPark := w.ActiveCraft().State.R.Norm()
 	rCapture := target.RadiusMeters() + 200e3
 	muDestination := target.GravitationalParameter()
 
@@ -374,10 +374,10 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	// phase-correct the launch window. Without phasing, craft arrives
 	// at apoapsis but target is somewhere else along its orbit and
 	// the rendezvous misses.
-	if target.ParentID == w.Craft.Primary.ID {
-		muShared := w.Craft.Primary.GravitationalParameter()
+	if target.ParentID == w.ActiveCraft().Primary.ID {
+		muShared := w.ActiveCraft().Primary.GravitationalParameter()
 		rArrival := target.SemimajorAxisMeters()
-		craftAngle := math.Atan2(w.Craft.State.R.Y, w.Craft.State.R.X)
+		craftAngle := math.Atan2(w.ActiveCraft().State.R.Y, w.ActiveCraft().State.R.X)
 		// Target's position in its parent's frame == craft's primary
 		// here, since target.ParentID == craft.Primary.ID.
 		targetAngle := primaryFrameAngle(w, target)
@@ -389,19 +389,19 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// v0.6 finite-burn-aware planner will close the remaining gap
 		// for low-TWR vessels (e.g. when ICPS comes back as a test
 		// loadout).
-		mass := w.Craft.TotalMass()
-		thrust := w.Craft.Thrust
+		mass := w.ActiveCraft().TotalMass()
+		thrust := w.ActiveCraft().Thrust
 		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival)
 		// minLead = half the centred-finite-burn duration so the planner's
 		// OffsetTime sits ≥ Duration/2 ahead of now (BurnStart can't be
 		// retroactive). v0.6.5: rocket-equation form via BurnTimeForDV
 		// instead of constant-mass `Δv·m/F` so this matches the duration
 		// transferNodeToManeuver will actually plant.
-		minLead := w.Craft.BurnTimeForDV(dvDepEstimate).Seconds() / 2
+		minLead := w.ActiveCraft().BurnTimeForDV(dvDepEstimate).Seconds() / 2
 		plan, err := planner.PlanIntraPrimaryHohmann(
 			muShared, rPark, rArrival,
 			craftAngle, targetAngle, minLead,
-			w.Craft.Primary.ID,
+			w.ActiveCraft().Primary.ID,
 			muDestination, rCapture, target.ID,
 		)
 		if err != nil {
@@ -415,10 +415,10 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// orbit, the iterator catches errors of several percent.
 		// Iteration failure (max-iter, derivative collapse) silently
 		// falls back to the impulsive guess.
-		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, w.Craft.Isp, rArrival)
+		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, w.ActiveCraft().Isp, rArrival)
 		now := w.Clock.SimTime
-		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
-		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.ActiveCraft()))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.ActiveCraft()))
 		return &plan, nil
 	}
 
@@ -432,8 +432,8 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	// frame automatically. The arrival node is a zero-Δv frame marker
 	// — the player plants their own circularization once they see the
 	// post-escape Earth-frame trajectory.
-	if w.Craft.Primary.ParentID != "" && target.ID == w.Craft.Primary.ParentID {
-		moon := w.Craft.Primary
+	if w.ActiveCraft().Primary.ParentID != "" && target.ID == w.ActiveCraft().Primary.ParentID {
+		moon := w.ActiveCraft().Primary
 		moonParent := sys.ParentOf(moon)
 		if moonParent == nil {
 			return nil, errInvalidTransferTarget
@@ -443,15 +443,15 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		if rSOI == 0 || rSOI <= rPark {
 			return nil, errInvalidTransferTarget
 		}
-		mass := w.Craft.TotalMass()
-		thrust := w.Craft.Thrust
+		mass := w.ActiveCraft().TotalMass()
+		thrust := w.ActiveCraft().Thrust
 		// Pre-size the centered-finite-burn lead pad from the impulsive
 		// estimate, mirroring the intra-primary branch above.
 		aT := (rPark + rSOI) / 2
 		vCirc := math.Sqrt(muMoon / rPark)
 		vTransAtPeri := math.Sqrt(muMoon * (2/rPark - 1/aT))
 		dvEstimate := vTransAtPeri - vCirc
-		minLead := w.Craft.BurnTimeForDV(dvEstimate).Seconds() / 2
+		minLead := w.ActiveCraft().BurnTimeForDV(dvEstimate).Seconds() / 2
 		plan, err := planner.PlanMoonEscape(muMoon, rPark, rSOI, minLead, moon.ID, target.ID)
 		if err != nil {
 			return nil, err
@@ -459,10 +459,10 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// Reuse v0.6.2's iterator: target the SOI radius as apolune so
 		// finite-burn integration delivers the bound transfer ellipse
 		// the impulsive math designed.
-		refineFiniteDeparture(&plan, muMoon, rPark, mass, thrust, w.Craft.Isp, rSOI)
+		refineFiniteDeparture(&plan, muMoon, rPark, mass, thrust, w.ActiveCraft().Isp, rSOI)
 		now := w.Clock.SimTime
-		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
-		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.ActiveCraft()))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.ActiveCraft()))
 		return &plan, nil
 	}
 
@@ -471,11 +471,11 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	rDeparture := w.CraftInertial().Norm()
 	rArrival := target.SemimajorAxisMeters()
 
-	muDeparture := w.Craft.Primary.GravitationalParameter()
+	muDeparture := w.ActiveCraft().Primary.GravitationalParameter()
 
 	plan, err := planner.PlanHohmannTransfer(
 		muSun, rDeparture, rArrival,
-		muDeparture, rPark, w.Craft.Primary.ID,
+		muDeparture, rPark, w.ActiveCraft().Primary.ID,
 		muDestination, rCapture, target.ID,
 	)
 	if err != nil {
@@ -483,8 +483,8 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	}
 
 	now := w.Clock.SimTime
-	w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
-	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
+	w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.ActiveCraft()))
+	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.ActiveCraft()))
 	return &plan, nil
 }
 
@@ -506,7 +506,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 // correction would need a new burn mode; for v0.4.1 scalar-along-
 // velocity corrections are sufficient to close small drifts.
 func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return 0, 0, errNoCraftForTransfer
 	}
 	// Find the latest pending "arrival" node — one whose PrimaryID
@@ -515,7 +515,7 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 	arrIdx := -1
 	for i := len(w.Nodes) - 1; i >= 0; i-- {
 		n := w.Nodes[i]
-		if n.PrimaryID != "" && n.PrimaryID != w.Craft.Primary.ID {
+		if n.PrimaryID != "" && n.PrimaryID != w.ActiveCraft().Primary.ID {
 			arrIdx = i
 			break
 		}
@@ -548,8 +548,8 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 	muSun := primary.GravitationalParameter()
 
 	// Craft's heliocentric state now.
-	vCraftHelio := w.bodyInertialVelocity(w.Craft.Primary).Add(w.Craft.State.V)
-	rCraftHelio := w.BodyPosition(w.Craft.Primary).Add(w.Craft.State.R)
+	vCraftHelio := w.bodyInertialVelocity(w.ActiveCraft().Primary).Add(w.ActiveCraft().State.V)
+	rCraftHelio := w.BodyPosition(w.ActiveCraft().Primary).Add(w.ActiveCraft().State.R)
 
 	// Target's heliocentric state at arrival time.
 	arrEph := w.bodyEphemeris(target)
@@ -589,8 +589,8 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 			TriggerTime: now.Add(time.Second),
 			Mode:        correctionMode,
 			DV:          correctionDv,
-			Duration:    w.Craft.BurnTimeForDV(correctionDv),
-			PrimaryID:   w.Craft.Primary.ID,
+			Duration:    w.ActiveCraft().BurnTimeForDV(correctionDv),
+			PrimaryID:   w.ActiveCraft().Primary.ID,
 		})
 	}
 
@@ -599,7 +599,7 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 		TriggerTime: arrNode.TriggerTime,
 		Mode:        arrNode.Mode,
 		DV:          arrivalDv,
-		Duration:    w.Craft.BurnTimeForDV(arrivalDv),
+		Duration:    w.ActiveCraft().BurnTimeForDV(arrivalDv),
 		PrimaryID:   arrNode.PrimaryID,
 	}
 	// Find arrNode again by index after PlanNode sorted the slice.
@@ -626,7 +626,7 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
 		return nil, errInvalidTransferTarget
 	}
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return nil, errNoCraftForTransfer
 	}
 	if tofDay <= 0 {
@@ -640,18 +640,18 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	// targets (moon of craft's primary). Caller (porkchop screen) shows
 	// a banner directing the user to `P` (PlanTransfer auto-plants the
 	// intra-primary Hohmann correctly).
-	if target.ParentID == w.Craft.Primary.ID {
+	if target.ParentID == w.ActiveCraft().Primary.ID {
 		return nil, errSamePrimaryUseHohmann
 	}
 
 	primary := sys.Bodies[0]
 	muSun := primary.GravitationalParameter()
-	rPark := w.Craft.State.R.Norm()
-	muDep := w.Craft.Primary.GravitationalParameter()
+	rPark := w.ActiveCraft().State.R.Norm()
+	muDep := w.ActiveCraft().Primary.GravitationalParameter()
 	rCapture := target.RadiusMeters() + 200e3
 	muArr := target.GravitationalParameter()
 
-	depEph := w.bodyEphemeris(w.Craft.Primary)
+	depEph := w.bodyEphemeris(w.ActiveCraft().Primary)
 	arrEph := w.bodyEphemeris(target)
 	const secondsPerDay = 86400.0
 	epoch0 := float64(w.Clock.SimTime.Unix())
@@ -669,7 +669,7 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 		rDep, vDep,
 		rArr, vArr,
 		tofDay*secondsPerDay,
-		muDep, rPark, w.Craft.Primary.ID,
+		muDep, rPark, w.ActiveCraft().Primary.ID,
 		muArr, rCapture, target.ID,
 		depOffset,
 		false,
@@ -679,8 +679,8 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	}
 
 	now := w.Clock.SimTime
-	w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.Craft))
-	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.Craft))
+	w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.ActiveCraft()))
+	w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.ActiveCraft()))
 	return &plan, nil
 }
 
@@ -716,10 +716,10 @@ type FrameTransition struct {
 // PlanHohmannTransfer both label arrival nodes in their target's
 // frame, which is exactly what this surfaces. v0.7.6+.
 func (w *World) NextFrameTransition() (FrameTransition, bool) {
-	if w.Craft == nil || len(w.Nodes) == 0 {
+	if w.ActiveCraft() == nil || len(w.Nodes) == 0 {
 		return FrameTransition{}, false
 	}
-	current := w.Craft.Primary.ID
+	current := w.ActiveCraft().Primary.ID
 	for i, n := range w.Nodes {
 		if !n.IsResolved() {
 			continue
@@ -754,12 +754,12 @@ func (w *World) NextFrameTransition() (FrameTransition, bool) {
 // node uses an absolute TriggerTime (event resolver isn't needed
 // since the planner already computed the future event time).
 func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationPlan, error) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return nil, errNoCraftForTransfer
 	}
-	mu := w.Craft.Primary.GravitationalParameter()
-	state := orbital.Vec3State{R: w.Craft.State.R, V: w.Craft.State.V}
-	plan, err := planner.PlanInclinationChange(state, mu, targetIncl, w.Craft.Primary.ID)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	state := orbital.Vec3State{R: w.ActiveCraft().State.R, V: w.ActiveCraft().State.V}
+	plan, err := planner.PlanInclinationChange(state, mu, targetIncl, w.ActiveCraft().Primary.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -772,7 +772,7 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 		TriggerTime: now.Add(plan.OffsetTime),
 		Mode:        mode,
 		DV:          plan.DV,
-		Duration:    w.Craft.BurnTimeForDV(plan.DV),
+		Duration:    w.ActiveCraft().BurnTimeForDV(plan.DV),
 		PrimaryID:   plan.PrimaryID,
 	})
 	return &plan, nil
@@ -795,27 +795,27 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
 		return nil, errInvalidTransferTarget
 	}
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return nil, errNoCraftForTransfer
 	}
 	target := sys.Bodies[targetIdx]
 	if target.SemimajorAxis == 0 {
 		return nil, errInvalidTransferTarget
 	}
-	if target.ParentID == w.Craft.Primary.ID {
+	if target.ParentID == w.ActiveCraft().Primary.ID {
 		return nil, errSamePrimaryUseHohmann
 	}
 
 	primary := sys.Bodies[0]
 	muSun := primary.GravitationalParameter()
-	rPark := w.Craft.State.R.Norm()
-	muDep := w.Craft.Primary.GravitationalParameter()
+	rPark := w.ActiveCraft().State.R.Norm()
+	muDep := w.ActiveCraft().Primary.GravitationalParameter()
 	rCapture := target.RadiusMeters() + 200e3
 	muArr := target.GravitationalParameter()
 
 	// Build ephemerides that evaluate heliocentric r, v at arbitrary
 	// epochs. Reuses the existing Kepler/calculator machinery.
-	dep := w.bodyEphemeris(w.Craft.Primary)
+	dep := w.bodyEphemeris(w.ActiveCraft().Primary)
 	arr := w.bodyEphemeris(target)
 	epoch0 := float64(w.Clock.SimTime.Unix())
 
@@ -1057,7 +1057,7 @@ func (w *World) ClearNodes() { w.Nodes = nil }
 // semantics: TriggerTime is the burn center, BurnStart/BurnEnd are
 // the actual on-engine moments.
 func (w *World) executeDueNodes() {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return
 	}
 	fired := 0
@@ -1080,7 +1080,7 @@ func (w *World) executeDueNodes() {
 			break
 		}
 		if n.Duration == 0 {
-			w.Craft.ApplyImpulsive(n.Mode, n.DV)
+			w.ActiveCraft().ApplyImpulsive(n.Mode, n.DV)
 		} else {
 			w.ActiveBurn = &ActiveBurn{
 				Mode:        n.Mode,
@@ -1106,7 +1106,7 @@ func (w *World) executeDueNodes() {
 //
 // Returns zero Vec3 if the craft is nil or the node is already past-due.
 func (w *World) NodeInertialPosition(n ManeuverNode) orbital.Vec3 {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return orbital.Vec3{}
 	}
 	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
@@ -1127,15 +1127,15 @@ func (w *World) NodeInertialPosition(n ManeuverNode) orbital.Vec3 {
 // v0.3.1 auto-plant arrival node, which fires heliocentrically (or in
 // the destination SOI) by construction.
 func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return physics.StateVector{}, ""
 	}
 	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 	var state physics.StateVector
 	var primaryID string
 	if dt <= 0 {
-		state = w.Craft.State
-		primaryID = w.Craft.Primary.ID
+		state = w.ActiveCraft().State
+		primaryID = w.ActiveCraft().Primary.ID
 	} else {
 		var primary bodies.CelestialBody
 		state, primary = w.propagateCraftWithPrimary(dt)
@@ -1169,11 +1169,11 @@ type PredictedLeg struct {
 // live state is mutating and chained predictions would flail (see
 // PredictedFinalOrbit's same guard).
 func (w *World) PredictedLegs() []PredictedLeg {
-	if w.Craft == nil || len(w.Nodes) == 0 || w.ActiveBurn != nil {
+	if w.ActiveCraft() == nil || len(w.Nodes) == 0 || w.ActiveBurn != nil {
 		return nil
 	}
-	state := w.Craft.State
-	primary := w.Craft.Primary
+	state := w.ActiveCraft().State
+	primary := w.ActiveCraft().Primary
 	clock := w.Clock.SimTime
 	systems := w.Systems
 	legs := make([]PredictedLeg, 0, len(w.Nodes))
@@ -1255,11 +1255,11 @@ func (w *World) PredictedLegs() []PredictedLeg {
 // S-IVB-1 default loadout), matching what the live integrator does
 // when the burn terminates on duration rather than Δv.
 func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration time.Duration, event TriggerEvent) (physics.StateVector, bodies.CelestialBody, bool) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
-	state := w.Craft.State
-	primary := w.Craft.Primary
+	state := w.ActiveCraft().State
+	primary := w.ActiveCraft().Primary
 
 	if event != TriggerAbsolute {
 		mu := primary.GravitationalParameter()
@@ -1287,8 +1287,8 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 		return state, primary, true
 	}
 
-	thrust := w.Craft.Thrust
-	isp := w.Craft.Isp
+	thrust := w.ActiveCraft().Thrust
+	isp := w.ActiveCraft().Isp
 	useFinite := duration > 0 && thrust > 0 && isp > 0 && state.M > 0
 
 	if useFinite {
@@ -1342,7 +1342,7 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 // trajectory preview already has its own caveats around long
 // horizons.
 func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody, bool) {
-	if w.Craft == nil || len(w.Nodes) == 0 {
+	if w.ActiveCraft() == nil || len(w.Nodes) == 0 {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
 	// v0.6.1: during an active finite burn the live craft state is
@@ -1354,8 +1354,8 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 	if w.ActiveBurn != nil {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
-	state := w.Craft.State
-	primary := w.Craft.Primary
+	state := w.ActiveCraft().State
+	primary := w.ActiveCraft().Primary
 	clock := w.Clock.SimTime
 	any := false
 	systems := w.Systems
@@ -1414,7 +1414,7 @@ func (w *World) propagateCraft(dt float64) physics.StateVector {
 // the frame at dt — callers add BodyPosition(primary) to convert state.R
 // into inertial coords.
 func (w *World) propagateCraftWithPrimary(dt float64) (physics.StateVector, bodies.CelestialBody) {
-	return w.propagateStateWithPrimary(w.Craft.State, w.Craft.Primary, dt)
+	return w.propagateStateWithPrimary(w.ActiveCraft().State, w.ActiveCraft().Primary, dt)
 }
 
 // propagateStateWithPrimary is the same SOI-aware integrator but

@@ -20,9 +20,18 @@ type World struct {
 	Calculator orbital.Calculator
 	Clock      *Clock
 
-	// Craft is the player vessel. Spawns around Earth in Sol at startup.
-	// Nil when no primary is loaded (unreachable in v0.1).
-	Craft *spacecraft.Spacecraft
+	// Crafts is the slate of player vessels. v0.8.1+: replaces the
+	// pre-v0.8.1 single-pointer `Craft` field. Empty when no primary
+	// is loaded; otherwise has at least one entry. ActiveCraftIdx is
+	// the index of the currently-controlled craft (the one the HUD,
+	// manual flight, and node planter all bind to). Cycled via the
+	// `[` / `]` keys.
+	//
+	// All historical call sites that read `w.ActiveCraft()` go through the
+	// `ActiveCraft()` accessor below — there's no longer a "the"
+	// craft, only "the active one."
+	Crafts         []*spacecraft.Spacecraft
+	ActiveCraftIdx int
 
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
@@ -156,9 +165,11 @@ func NewWorld() (*World, error) {
 	}
 
 	// Spawn spacecraft in LEO. v0.1: craft is always in Sol.
+	// v0.8.1+: spawned into the multi-craft slate; subsequent craft
+	// arrive via SpawnCraft (`n` keystroke) or staging.
 	earth := w.Systems[0].FindBody("Earth")
 	if earth != nil {
-		w.Craft = spacecraft.NewInLEO(*earth)
+		w.Crafts = []*spacecraft.Spacecraft{spacecraft.NewInLEO(*earth)}
 		// v0.6.1: open with the camera focused on the craft. The
 		// system-wide view (FocusSystem) at heliocentric scale shows
 		// nothing useful for a craft in LEO — the player has to cycle
@@ -168,6 +179,41 @@ func NewWorld() (*World, error) {
 		w.Focus = Focus{Kind: FocusCraft}
 	}
 	return w, nil
+}
+
+// ActiveCraft returns the currently-controlled craft, or nil if no
+// craft is loaded. v0.8.1+. All historical call sites that read
+// `w.ActiveCraft()` now go through this accessor.
+func (w *World) ActiveCraft() *spacecraft.Spacecraft {
+	if len(w.Crafts) == 0 {
+		return nil
+	}
+	if w.ActiveCraftIdx < 0 || w.ActiveCraftIdx >= len(w.Crafts) {
+		return nil
+	}
+	return w.Crafts[w.ActiveCraftIdx]
+}
+
+// CycleActiveCraft advances ActiveCraftIdx by delta (typically +1
+// or -1), wrapping at the slate's boundaries. No-op when fewer than
+// two craft are loaded. v0.8.1+.
+func (w *World) CycleActiveCraft(delta int) {
+	n := len(w.Crafts)
+	if n < 2 {
+		return
+	}
+	idx := (w.ActiveCraftIdx + delta) % n
+	if idx < 0 {
+		idx += n
+	}
+	w.ActiveCraftIdx = idx
+	// Engine state is per-active-craft in v0.8.1 (planted nodes,
+	// manual burn, attitude all live on World as "what the active
+	// craft is doing"). Cycling resets the live RCS-or-main mode
+	// so the new active craft starts in a known state. Manual burn
+	// is dropped since it was tied to the prior active craft's
+	// engine.
+	w.StopManualBurn()
 }
 
 // System returns the currently active system.
@@ -186,7 +232,7 @@ func (w *World) CycleSystem() {
 // CraftVisibleHere reports whether the spacecraft should be drawn in the
 // currently-viewed system. v0.1 Craft lives in Sol only.
 func (w *World) CraftVisibleHere() bool {
-	return w.Craft != nil && w.SystemIdx == 0
+	return w.ActiveCraft() != nil && w.SystemIdx == 0
 }
 
 // BodyPosition returns the inertial position (m) of a body in the
@@ -219,11 +265,11 @@ func (w *World) BodyPosition(b bodies.CelestialBody) orbital.Vec3 {
 // for rendering on the heliocentric canvas. Adds craft's primary-centric
 // position to the primary's inertial position.
 func (w *World) CraftInertial() orbital.Vec3 {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return orbital.Vec3{}
 	}
-	primaryPos := w.BodyPosition(w.Craft.Primary)
-	return primaryPos.Add(w.Craft.State.R)
+	primaryPos := w.BodyPosition(w.ActiveCraft().Primary)
+	return primaryPos.Add(w.ActiveCraft().State.R)
 }
 
 // Tick advances sim-time one base step (scaled by warp factor) and
@@ -255,7 +301,7 @@ func (w *World) Tick() {
 	// shrunken burn window. Without this clamp, even centered planning
 	// gets cut short and apoapsis falls way short. Pure free-flight
 	// ticks (no upcoming finite burn) are unaffected.
-	if w.Craft != nil {
+	if w.ActiveCraft() != nil {
 		nextBurn := w.nextFiniteBurnTrigger()
 		if !nextBurn.IsZero() {
 			until := nextBurn.Sub(w.Clock.SimTime)
@@ -266,7 +312,7 @@ func (w *World) Tick() {
 	}
 	w.Clock.SimTime = w.Clock.SimTime.Add(simDelta)
 
-	if w.Craft != nil {
+	if w.ActiveCraft() != nil {
 		w.integrateSpacecraft(simDelta)
 		w.executeDueNodes()
 		w.soiCheckCounter++
@@ -284,14 +330,14 @@ func (w *World) Tick() {
 // craft state. Terminal-state missions are evaluated too, but their
 // status is sticky in missions.Mission.Evaluate. v0.6.5+.
 func (w *World) evaluateMissions() {
-	if len(w.Missions) == 0 || w.Craft == nil {
+	if len(w.Missions) == 0 || w.ActiveCraft() == nil {
 		return
 	}
 	ctx := missions.EvalContext{
-		PrimaryID:      w.Craft.Primary.ID,
-		PrimaryRadiusM: w.Craft.Primary.RadiusMeters(),
-		PrimaryMu:      w.Craft.Primary.GravitationalParameter(),
-		State:          w.Craft.State,
+		PrimaryID:      w.ActiveCraft().Primary.ID,
+		PrimaryRadiusM: w.ActiveCraft().Primary.RadiusMeters(),
+		PrimaryMu:      w.ActiveCraft().Primary.GravitationalParameter(),
+		State:          w.ActiveCraft().State,
 		SimTime:        w.Clock.SimTime,
 	}
 	for i := range w.Missions {
@@ -357,8 +403,8 @@ func (w *World) maybeRecordTrail(secs float64) {
 	}
 	w.trailAccumSec = 0
 	w.trail[w.trailIdx] = trailSample{
-		primaryID: w.Craft.Primary.ID,
-		relR:      w.Craft.State.R,
+		primaryID: w.ActiveCraft().Primary.ID,
+		relR:      w.ActiveCraft().State.R,
 	}
 	w.trailIdx = (w.trailIdx + 1) % trailCap
 	if w.trailLen < trailCap {
@@ -411,14 +457,14 @@ func (w *World) CraftTrail() []orbital.Vec3 {
 // blast past the EndTime in a single tick and lose temporal resolution.
 func (w *World) clampedWarp() float64 {
 	selected := w.Clock.Warp()
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return selected
 	}
 	if (w.ActiveBurn != nil || w.ManualBurn != nil) && selected > 10 {
 		selected = 10
 	}
-	mu := w.Craft.Primary.GravitationalParameter()
-	period := orbitalPeriod(w.Craft.State, mu)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	period := orbitalPeriod(w.ActiveCraft().State, mu)
 	if math.IsInf(period, 0) || math.IsNaN(period) || period <= 0 {
 		return selected
 	}
@@ -458,8 +504,8 @@ func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 // random walk that turns 200×200 km circular orbits into 209×190 km
 // after a few seconds at 10000× warp. KeplerStep is exact, so no drift.
 func (w *World) integrateSpacecraft(simDelta time.Duration) {
-	mu := w.Craft.Primary.GravitationalParameter()
-	period := orbitalPeriod(w.Craft.State, mu)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	period := orbitalPeriod(w.ActiveCraft().State, mu)
 	secs := simDelta.Seconds()
 
 	// Warp-lock fast path: analytic Kepler propagation in chunks small
@@ -499,20 +545,20 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 		if w.thrustingAt(tickStart, dt, i) {
 			w.stepThrust(mu, dt)
 		} else {
-			w.Craft.State = physics.StepVerlet(w.Craft.State, mu, dt)
+			w.ActiveCraft().State = physics.StepVerlet(w.ActiveCraft().State, mu, dt)
 		}
 
 		// Per-sub-step SOI re-evaluation. If the craft crossed into
 		// another body's SOI during this dt, rebase to that frame so
 		// the next sub-step uses the right μ.
-		inertial := positions[w.Craft.Primary.ID].Add(w.Craft.State.R)
+		inertial := positions[w.ActiveCraft().Primary.ID].Add(w.ActiveCraft().State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
-		if cand.Body.ID != w.Craft.Primary.ID {
-			vOld := w.bodyInertialVelocity(w.Craft.Primary)
+		if cand.Body.ID != w.ActiveCraft().Primary.ID {
+			vOld := w.bodyInertialVelocity(w.ActiveCraft().Primary)
 			vNew := w.bodyInertialVelocity(cand.Body)
-			w.Craft.State = physics.Rebase(w.Craft.State, positions[w.Craft.Primary.ID], cand.Inertial, vOld.Sub(vNew))
-			w.Craft.Primary = cand.Body
-			mu = w.Craft.Primary.GravitationalParameter()
+			w.ActiveCraft().State = physics.Rebase(w.ActiveCraft().State, positions[w.ActiveCraft().Primary.ID], cand.Inertial, vOld.Sub(vNew))
+			w.ActiveCraft().Primary = cand.Body
+			mu = w.ActiveCraft().Primary.GravitationalParameter()
 		}
 	}
 	// Tear down the burn if it exhausted (Δv delivered, fuel gone, or
@@ -522,7 +568,7 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 	}
 	// Manual burns end on fuel exhaustion only; the player ends them
 	// explicitly via StopManualBurn (e.g. on `x`).
-	if w.ManualBurn != nil && w.Craft.Fuel <= 0 {
+	if w.ManualBurn != nil && w.ActiveCraft().Fuel <= 0 {
 		w.ManualBurn = nil
 	}
 }
@@ -532,7 +578,7 @@ func (w *World) integrateSpacecraft(simDelta time.Duration) {
 // (v0.7.3+ player-held flight) qualifies; both share the same RK4 thrust
 // path. Fuel must be positive in either case.
 func (w *World) thrustingAt(tickStart time.Time, dt float64, i int) bool {
-	if w.Craft.Fuel <= 0 {
+	if w.ActiveCraft().Fuel <= 0 {
 		return false
 	}
 	if w.ActiveBurn != nil {
@@ -557,7 +603,7 @@ func (w *World) thrustingAt(tickStart time.Time, dt float64, i int) bool {
 // during a coast without slowing an in-flight planted burn.
 func (w *World) stepThrust(mu, dt float64) {
 	mode := w.AttitudeMode
-	throttle := w.Craft.EffectiveThrottle()
+	throttle := w.ActiveCraft().EffectiveThrottle()
 	if w.ActiveBurn != nil {
 		mode = w.ActiveBurn.Mode
 		throttle = w.ActiveBurn.Throttle
@@ -568,25 +614,25 @@ func (w *World) stepThrust(mu, dt float64) {
 			throttle = 1.0
 		}
 	}
-	accelFn := w.Craft.ThrustAccelFnAt(mode, mu, throttle)
-	w.Craft.State = physics.StepRK4(w.Craft.State, dt, accelFn, 0)
+	accelFn := w.ActiveCraft().ThrustAccelFnAt(mode, mu, throttle)
+	w.ActiveCraft().State = physics.StepRK4(w.ActiveCraft().State, dt, accelFn, 0)
 
 	if w.ActiveBurn != nil {
-		mass := w.Craft.TotalMass()
+		mass := w.ActiveCraft().TotalMass()
 		if mass > 0 {
-			dvApplied := (w.Craft.Thrust * throttle / mass) * dt
+			dvApplied := (w.ActiveCraft().Thrust * throttle / mass) * dt
 			if dvApplied > w.ActiveBurn.DVRemaining {
 				dvApplied = w.ActiveBurn.DVRemaining
 			}
 			w.ActiveBurn.DVRemaining -= dvApplied
 		}
 	}
-	fuelBurned := w.Craft.MassFlowRateAt(throttle) * dt
-	if fuelBurned > w.Craft.Fuel {
-		fuelBurned = w.Craft.Fuel
+	fuelBurned := w.ActiveCraft().MassFlowRateAt(throttle) * dt
+	if fuelBurned > w.ActiveCraft().Fuel {
+		fuelBurned = w.ActiveCraft().Fuel
 	}
-	w.Craft.Fuel -= fuelBurned
-	w.Craft.State.M = w.Craft.TotalMass()
+	w.ActiveCraft().Fuel -= fuelBurned
+	w.ActiveCraft().State.M = w.ActiveCraft().TotalMass()
 }
 
 // burnExhausted reports whether the active burn should be torn down: any
@@ -594,7 +640,7 @@ func (w *World) stepThrust(mu, dt float64) {
 // terminates the burn.
 func (w *World) burnExhausted() bool {
 	return w.ActiveBurn.DVRemaining <= 0 ||
-		w.Craft.Fuel <= 0 ||
+		w.ActiveCraft().Fuel <= 0 ||
 		!w.Clock.SimTime.Before(w.ActiveBurn.EndTime)
 }
 
@@ -617,8 +663,8 @@ func (w *World) canKeplerStep(simDelta time.Duration) bool {
 	if w.Clock.Warp() <= 1 {
 		return false
 	}
-	mu := w.Craft.Primary.GravitationalParameter()
-	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
 	if el.E >= 1 || el.A <= 0 {
 		return false
 	}
@@ -646,7 +692,7 @@ func (w *World) keplerStepWithSOICheck(simDelta time.Duration) bool {
 		positions[b.ID] = w.BodyPosition(b)
 	}
 
-	chunkCap := chunkDtCap(sys, w.Craft.Primary, w.Craft.State.V.Norm())
+	chunkCap := chunkDtCap(sys, w.ActiveCraft().Primary, w.ActiveCraft().State.V.Norm())
 
 	secs := simDelta.Seconds()
 	if chunkCap <= 0 || math.IsInf(chunkCap, 0) || math.IsNaN(chunkCap) {
@@ -663,22 +709,22 @@ func (w *World) keplerStepWithSOICheck(simDelta time.Duration) bool {
 	}
 	chunk := secs / float64(nChunks)
 
-	mu := w.Craft.Primary.GravitationalParameter()
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
 	for i := 0; i < nChunks; i++ {
-		newState, ok := physics.KeplerStep(w.Craft.State, mu, chunk)
+		newState, ok := physics.KeplerStep(w.ActiveCraft().State, mu, chunk)
 		if !ok {
 			return false
 		}
-		w.Craft.State = newState
+		w.ActiveCraft().State = newState
 
-		inertial := positions[w.Craft.Primary.ID].Add(w.Craft.State.R)
+		inertial := positions[w.ActiveCraft().Primary.ID].Add(w.ActiveCraft().State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
-		if cand.Body.ID != w.Craft.Primary.ID {
-			vOld := w.bodyInertialVelocity(w.Craft.Primary)
+		if cand.Body.ID != w.ActiveCraft().Primary.ID {
+			vOld := w.bodyInertialVelocity(w.ActiveCraft().Primary)
 			vNew := w.bodyInertialVelocity(cand.Body)
-			w.Craft.State = physics.Rebase(w.Craft.State, positions[w.Craft.Primary.ID], cand.Inertial, vOld.Sub(vNew))
-			w.Craft.Primary = cand.Body
-			mu = w.Craft.Primary.GravitationalParameter()
+			w.ActiveCraft().State = physics.Rebase(w.ActiveCraft().State, positions[w.ActiveCraft().Primary.ID], cand.Inertial, vOld.Sub(vNew))
+			w.ActiveCraft().Primary = cand.Body
+			mu = w.ActiveCraft().Primary.GravitationalParameter()
 		}
 	}
 	return true
@@ -758,23 +804,23 @@ func (w *World) maybeSwitchPrimary() {
 	}
 
 	// Craft inertial position needs the *current* primary offset.
-	craftInertial := positions[w.Craft.Primary.ID].Add(w.Craft.State.R)
+	craftInertial := positions[w.ActiveCraft().Primary.ID].Add(w.ActiveCraft().State.R)
 
 	newPrimary := physics.FindPrimary(sol, craftInertial, positions)
-	if newPrimary.Body.ID == w.Craft.Primary.ID {
+	if newPrimary.Body.ID == w.ActiveCraft().Primary.ID {
 		return
 	}
 
 	// Compute relative velocity between old and new primary so Rebase
 	// gets the velocity delta correct. Planet velocities come from
 	// orbital.VelocityAtTrueAnomaly evaluated at current sim time.
-	vOld := w.bodyInertialVelocity(w.Craft.Primary)
+	vOld := w.bodyInertialVelocity(w.ActiveCraft().Primary)
 	vNew := w.bodyInertialVelocity(newPrimary.Body)
 	dv := vOld.Sub(vNew)
 
-	oldPos := positions[w.Craft.Primary.ID]
-	w.Craft.State = physics.Rebase(w.Craft.State, oldPos, newPrimary.Inertial, dv)
-	w.Craft.Primary = newPrimary.Body
+	oldPos := positions[w.ActiveCraft().Primary.ID]
+	w.ActiveCraft().State = physics.Rebase(w.ActiveCraft().State, oldPos, newPrimary.Inertial, dv)
+	w.ActiveCraft().Primary = newPrimary.Body
 }
 
 // bodyInertialVelocity returns the body's velocity in the system-

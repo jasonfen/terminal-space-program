@@ -30,7 +30,7 @@ type SOISegment struct {
 // short horizons relative to target body orbital period; an
 // approximation flagged in commit history for interplanetary horizons.
 func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64, samples int) []SOISegment {
-	return w.PredictedSegmentsFrom(post, w.Craft.Primary, totalSeconds, samples)
+	return w.PredictedSegmentsFrom(post, w.ActiveCraft().Primary, totalSeconds, samples)
 }
 
 // PredictedSegmentsFrom is the same trajectory predictor but
@@ -39,7 +39,7 @@ func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64
 // planted frame (e.g. Hohmann departure leg in Earth, arrival leg
 // in Mars). Output shape unchanged from PredictedSegments.
 func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, totalSeconds float64, samples int) []SOISegment {
-	if w.Craft == nil || samples < 2 {
+	if w.ActiveCraft() == nil || samples < 2 {
 		return nil
 	}
 

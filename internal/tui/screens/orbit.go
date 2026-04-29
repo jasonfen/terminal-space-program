@@ -127,16 +127,16 @@ func (v *OrbitView) IsHudClick(col int) bool {
 // orbital.TimeToTrueAnomaly. ok=false for hyperbolic / no-craft
 // states or when no sample lands on-canvas.
 func (v *OrbitView) ProjectToOrbit(w *sim.World, screenCol, screenRow int) (time.Duration, bool) {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return 0, false
 	}
-	mu := w.Craft.Primary.GravitationalParameter()
-	el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
 	if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
 		return 0, false
 	}
-	currentNu := orbital.TrueAnomalyFromState(w.Craft.State.R, w.Craft.State.V, mu, el)
-	primaryPos := w.BodyPosition(w.Craft.Primary)
+	currentNu := orbital.TrueAnomalyFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu, el)
+	primaryPos := w.BodyPosition(w.ActiveCraft().Primary)
 
 	clickCanvasCol := screenCol - 1 // strip border / title offsets
 	clickCanvasRow := screenRow - 2
@@ -307,7 +307,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// vessel chevron stays drawn so the craft's presence is still
 	// communicated.
 	if w.CraftVisibleHere() {
-		c := w.Craft
+		c := w.ActiveCraft()
 		muCraft := c.Primary.GravitationalParameter()
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
 		primaryPos := w.BodyPosition(c.Primary)
@@ -519,10 +519,10 @@ func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.Ce
 // another body's SOI use stride-1 (solid) so the crossing is visually
 // distinct at a glance.
 func (v *OrbitView) drawNodes(w *sim.World) {
-	if len(w.Nodes) == 0 || w.Craft == nil {
+	if len(w.Nodes) == 0 || w.ActiveCraft() == nil {
 		return
 	}
-	homeID := w.Craft.Primary.ID
+	homeID := w.ActiveCraft().Primary.ID
 	for i, n := range w.Nodes {
 		// Frame-distinct cluster size: home-frame nodes get a tight cross,
 		// foreign-frame (heliocentric or destination-SOI) get a larger
@@ -621,7 +621,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
-		c := w.Craft
+		c := w.ActiveCraft()
 		mu := c.Primary.GravitationalParameter()
 		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 		primaryR := c.Primary.RadiusMeters()
@@ -710,7 +710,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  engine:    %s", w.EngineMode.String()),
 			fmt.Sprintf("  manual:    %s", manualState),
 		)
-	} else if w.Craft != nil {
+	} else if w.ActiveCraft() != nil {
 		lines = append(lines, "",
 			v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)"),
 		)
@@ -935,14 +935,14 @@ func viewBasis(w *sim.World) widgets.Basis {
 			Y: orbital.Vec3{Z: 1},
 		}
 	case sim.ViewOrbitFlat:
-		if w.Craft == nil {
+		if w.ActiveCraft() == nil {
 			return widgets.DefaultBasis()
 		}
-		mu := w.Craft.Primary.GravitationalParameter()
+		mu := w.ActiveCraft().Primary.GravitationalParameter()
 		if mu <= 0 {
 			return widgets.DefaultBasis()
 		}
-		el := orbital.ElementsFromState(w.Craft.State.R, w.Craft.State.V, mu)
+		el := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
 		if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
 			return widgets.DefaultBasis()
 		}

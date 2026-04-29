@@ -333,7 +333,7 @@ func (m *Maneuver) parsedDV() float64 {
 
 // Render composes the preview canvas + form panel.
 func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
-	if w.Craft == nil {
+	if w.ActiveCraft() == nil {
 		return "no spacecraft"
 	}
 
@@ -341,7 +341,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	m.canvas.SetBasis(viewBasis(w))
 	m.canvas.Center(orbital.Vec3{})
 
-	c := w.Craft
+	c := w.ActiveCraft()
 	mu := c.Primary.GravitationalParameter()
 	currentEl := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	m.canvas.FitTo(math.Max(currentEl.Apoapsis(), c.State.R.Norm()) * 1.1)
@@ -439,7 +439,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 }
 
 func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, shadowPrimary bodies.CelestialBody, mu float64) string {
-	c := w.Craft
+	c := w.ActiveCraft()
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	budget := c.RemainingDeltaV()
 	// v0.6.5: duration is derived from Δv at render time (and again at
