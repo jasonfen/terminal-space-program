@@ -341,6 +341,21 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
 			}
 		}
+
+		// v0.8.0+: RCS puff markers — each fired pulse drops a fading
+		// dot at the position the craft fired from. Placeholder visual;
+		// v0.8.2 replaces with per-thruster glyphs once craft visual
+		// differentiation lands. Drawn after the craft glyph so the
+		// chevron stays on top at the moment of firing.
+		for _, p := range w.RCSPuffs() {
+			if p.AgeFrac >= 0.75 {
+				continue // late-stage puffs invisible — keep canvas tidy
+			}
+			if v.canvas.IsBehindBody(p.Inertial, primaryPos, primaryPxR) {
+				continue
+			}
+			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
+		}
 	}
 
 	// Planned maneuver nodes — cluster glyph at each node's inertial
@@ -645,6 +660,11 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
 				fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
 			}
+			if c.MonopropCapacity > 0 {
+				propLines = append(propLines,
+					fmt.Sprintf("  monoprop:  %.1f kg (%.0f m/s)", c.Monoprop, c.RCSDeltaV()),
+				)
+			}
 			colStyle := lipgloss.NewStyle().Width(half)
 			vesselCol := colStyle.Render(strings.Join(vesselLines, "\n"))
 			propCol := colStyle.Render(strings.Join(propLines, "\n"))
@@ -671,6 +691,11 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
 				fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
 			)
+			if c.MonopropCapacity > 0 {
+				lines = append(lines,
+					fmt.Sprintf("  monoprop:  %.1f kg (%.0f m/s)", c.Monoprop, c.RCSDeltaV()),
+				)
+			}
 		}
 		// v0.7.3+: held attitude block. Always shows so the player
 		// knows what direction the next manual burn will fire in.
@@ -682,6 +707,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 		lines = append(lines,
 			fmt.Sprintf("  hold:      %s", w.AttitudeMode.String()),
+			fmt.Sprintf("  engine:    %s", w.EngineMode.String()),
 			fmt.Sprintf("  manual:    %s", manualState),
 		)
 	} else if w.Craft != nil {
