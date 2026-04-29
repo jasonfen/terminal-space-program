@@ -55,6 +55,7 @@ func TestPorkchopGridCenterMatchesHohmann(t *testing.T) {
 		depDays, tofDays,
 		3.986e14, 6.578e6, // Earth μ, LEO
 		4.282837e13, 3.59e6, // Mars μ, low capture
+		false,
 	)
 
 	depIdx, tofIdx, total, ok := PorkchopMinCell(grid)
@@ -85,6 +86,7 @@ func TestPorkchopGridMarksInvalidCellsNaN(t *testing.T) {
 		[]float64{0}, []float64{0, 100}, // first TOF zero → must be NaN
 		3.986e14, 6.578e6,
 		4.282837e13, 3.59e6,
+		false,
 	)
 	if !math.IsNaN(grid[0][0]) {
 		t.Errorf("zero-TOF cell should be NaN, got %v", grid[0][0])
