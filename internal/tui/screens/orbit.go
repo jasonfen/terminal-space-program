@@ -709,6 +709,33 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// button (and via the screenMissions wiring in app.Update).
 	// Keeps the right-hand HUD focused on flight state.
 
+	// v0.7.6+: surface upcoming SOI / frame transitions implied by
+	// the planted-node chain. Catches the v0.6.3 moon → parent
+	// escape's zero-Δv arrival marker (planted in parent frame) and
+	// Hohmann arrival burns (planted in destination frame). The
+	// section appears only when there's a transition queued so the
+	// HUD stays quiet during simple same-frame plans.
+	if ft, ok := w.NextFrameTransition(); ok {
+		toName := ft.To
+		if b, found := bodies.LookupByID(w.Systems, ft.To); found {
+			toName = b.EnglishName
+		}
+		fromName := ft.From
+		if b, found := bodies.LookupByID(w.Systems, ft.From); found {
+			fromName = b.EnglishName
+		}
+		dur := ft.When.Sub(w.Clock.SimTime)
+		when := v.theme.Warning.Render("now")
+		if dur > 0 {
+			when = formatCountdown(dur)
+		}
+		lines = append(lines, section("FRAME TRANSITION")...)
+		lines = append(lines,
+			fmt.Sprintf("  %s → %s", fromName, v.theme.Warning.Render(toName)),
+			fmt.Sprintf("  at %s  (node #%d)", when, ft.NodeIndex+1),
+		)
+	}
+
 	if len(w.Nodes) > 0 {
 		lines = append(lines, section("NODES")...)
 		for i, n := range w.Nodes {

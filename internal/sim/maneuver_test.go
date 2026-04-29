@@ -961,6 +961,46 @@ func mustWorld(t *testing.T) *World {
 	return w
 }
 
+// TestNextFrameTransitionDetectsForeignPrimary: a planted node with
+// PrimaryID != craft.Primary.ID surfaces as a frame transition.
+// Mirrors the v0.6.3 PlanMoonEscape arrival-marker shape — moon-frame
+// craft, parent-frame arrival.
+func TestNextFrameTransitionDetectsForeignPrimary(t *testing.T) {
+	w := mustWorld(t)
+	originalPrimary := w.Craft.Primary.ID
+
+	// Plant a same-frame node first — should not surface a transition.
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(time.Hour),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          100,
+		PrimaryID:   originalPrimary,
+	})
+	if _, ok := w.NextFrameTransition(); ok {
+		t.Errorf("same-primary node returned a transition")
+	}
+
+	// Plant a foreign-frame node. The walk picks the first node
+	// with a PrimaryID that differs from the running frame.
+	foreign := "mars"
+	if originalPrimary == "mars" {
+		foreign = "earth"
+	}
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(2 * time.Hour),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          0,
+		PrimaryID:   foreign,
+	})
+	ft, ok := w.NextFrameTransition()
+	if !ok {
+		t.Fatal("expected NextFrameTransition to surface the foreign-frame node")
+	}
+	if ft.From != originalPrimary || ft.To != foreign {
+		t.Errorf("got %s → %s, want %s → %s", ft.From, ft.To, originalPrimary, foreign)
+	}
+}
+
 // TestPerNodeThrottleCapturedOnFire: planting a node with Throttle=0.5
 // and firing it captures 0.5 onto the resulting ActiveBurn. The live
 // craft Throttle stays at the player's setting and is irrelevant to

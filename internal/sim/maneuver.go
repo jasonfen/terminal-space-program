@@ -677,6 +677,62 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	return &plan, nil
 }
 
+// FrameTransition describes an upcoming change of orbital frame —
+// the craft (or a planted post-burn trajectory) crossing an SOI
+// boundary into a new primary's frame. Surfaced by the HUD via
+// World.NextFrameTransition so the player can anticipate where their
+// integrator will hand off control.
+//
+// Today's heuristic is "the first planted node whose PrimaryID differs
+// from the craft's current primary." That catches the v0.6.3 moon →
+// parent escape's zero-Δv arrival marker (planted in parent frame
+// for exactly this reason) and Hohmann arrival burns (planted in the
+// destination's frame). True trajectory-walked SOI crossings (e.g.
+// a planned Mars flyby with no arrival burn) stay out of scope until
+// the predictor learns to surface SOI events. v0.7.6+.
+type FrameTransition struct {
+	NodeIndex int    // index into World.Nodes
+	From, To  string // body IDs
+	When      time.Time
+}
+
+// NextFrameTransition returns the next upcoming frame transition
+// implied by the planted maneuver-node chain, walking nodes in
+// trigger-time order. Each node carries the primary's ID it was
+// planted in; the first node whose PrimaryID differs from the
+// running frame ID is the transition. Returns ok=false when no
+// planted node changes frame, or when the craft is missing /
+// the chain is empty / no resolved nodes exist.
+//
+// The walk is intentionally cheap — no integration, no SOI math,
+// just trusting the planner's PrimaryID labels. PlanMoonEscape and
+// PlanHohmannTransfer both label arrival nodes in their target's
+// frame, which is exactly what this surfaces. v0.7.6+.
+func (w *World) NextFrameTransition() (FrameTransition, bool) {
+	if w.Craft == nil || len(w.Nodes) == 0 {
+		return FrameTransition{}, false
+	}
+	current := w.Craft.Primary.ID
+	for i, n := range w.Nodes {
+		if !n.IsResolved() {
+			continue
+		}
+		if n.PrimaryID == "" {
+			continue
+		}
+		if n.PrimaryID != current {
+			return FrameTransition{
+				NodeIndex: i,
+				From:      current,
+				To:        n.PrimaryID,
+				When:      n.TriggerTime,
+			}, true
+		}
+		current = n.PrimaryID
+	}
+	return FrameTransition{}, false
+}
+
 // PlanInclinationChange plants a single normal-burn maneuver node
 // that rotates the craft's orbital plane to targetIncl (radians, in
 // [0, π]). The burn fires at the next ascending or descending node,
