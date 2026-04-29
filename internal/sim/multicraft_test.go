@@ -123,6 +123,32 @@ func TestActiveCraftAccessor(t *testing.T) {
 	}
 }
 
+// TestSpawnSisterCraftPopulatesAndActivates: pressing `n`-equivalent
+// spawns a copy of the active craft, increments the slate count, and
+// activates the new one.
+func TestSpawnSisterCraftPopulatesAndActivates(t *testing.T) {
+	w, _ := NewWorld()
+	beforeCount := len(w.Crafts)
+	beforeIdx := w.ActiveCraftIdx
+
+	c, err := w.SpawnSisterCraft()
+	if err != nil {
+		t.Fatalf("SpawnSisterCraft: %v", err)
+	}
+	if len(w.Crafts) != beforeCount+1 {
+		t.Errorf("slate count = %d, want %d", len(w.Crafts), beforeCount+1)
+	}
+	if w.ActiveCraftIdx == beforeIdx {
+		t.Errorf("ActiveCraftIdx didn't advance: %d (was %d)", w.ActiveCraftIdx, beforeIdx)
+	}
+	if c.Primary.ID != w.Crafts[beforeIdx].Primary.ID {
+		t.Errorf("sister primary %q != original primary %q", c.Primary.ID, w.Crafts[beforeIdx].Primary.ID)
+	}
+	if c.Monoprop != c.MonopropCapacity {
+		t.Errorf("sister should ship full monoprop, got %v / %v", c.Monoprop, c.MonopropCapacity)
+	}
+}
+
 // TestMultiCraftIntegrateAdvancesBothByAFullTick: confirm that after
 // a Tick of duration D, both craft have moved a distance roughly
 // matching their tangential speed × D.

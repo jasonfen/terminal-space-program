@@ -356,6 +356,28 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
 		}
+
+		// v0.8.1+: render non-active craft as dimmer markers + their
+		// current-orbit ellipse only (no chained predictions, no apo/
+		// peri ticks — those cluster the canvas). v0.8.2 will swap in
+		// per-craft glyph + color via Spacecraft.Glyph / Color so each
+		// craft reads distinctly even at small pixel size.
+		for i, other := range w.Crafts {
+			if i == w.ActiveCraftIdx || other == nil {
+				continue
+			}
+			otherPrimaryPos := w.BodyPosition(other.Primary)
+			otherPxR := BodyPixelRadius(other.Primary, false, scale)
+			otherInertial := otherPrimaryPos.Add(other.State.R)
+			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
+			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
+			if otherOrbitVisible {
+				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, 5, otherPrimaryPos, otherPxR, render.ColorDim)
+			}
+			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
+				v.canvas.PlotColored(otherInertial, render.ColorCraftMarker)
+			}
+		}
 	}
 
 	// Planned maneuver nodes — cluster glyph at each node's inertial
@@ -389,7 +411,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	}
 	title := v.renderTitleBar(sys.Name+craftChip, totalCols)
 	footer := v.theme.Footer.Render(
-		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]node [N]clr [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
+		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]spawn [N]clr [[/]]craft [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)

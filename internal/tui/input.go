@@ -29,7 +29,7 @@ type Keymap struct {
 	FocusNext  key.Binding
 	FocusPrev  key.Binding
 	FocusReset key.Binding
-	PlanNode      key.Binding
+	SpawnCraft    key.Binding // v0.8.1+: spawn a new craft. Replaced the v0.7.x PlanNode quick-plant default-node debug aid (m/Enter is the proper plant path).
 	ClearNodes    key.Binding
 	PlanTransfer  key.Binding
 	PlanIncl      key.Binding // v0.7.4+: plane rotation toward selected body's inclination (or equatorial when none).
@@ -92,7 +92,7 @@ func DefaultKeymap() Keymap {
 		FocusNext:  key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next focus")),
 		FocusPrev:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
 		FocusReset: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "focus: system")),
-		PlanNode:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "plan node (T+5m prograde 200m/s)")),
+		SpawnCraft:   key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "spawn craft (sister copy of active)")),
 		ClearNodes:   key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "clear nodes")),
 		PlanTransfer: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant Hohmann transfer to selected body")),
 		PlanIncl:     key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant inclination match (selected body / equatorial)")),
