@@ -484,6 +484,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.CycleEngine):
 			a.world.CycleEngineMode()
 			return a, nil
+		case key.Matches(m, a.keys.NextCraft):
+			a.world.CycleActiveCraft(1)
+			return a, nil
+		case key.Matches(m, a.keys.PrevCraft):
+			a.world.CycleActiveCraft(-1)
+			return a, nil
 		}
 	}
 	return a, nil
