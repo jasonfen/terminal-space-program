@@ -33,6 +33,11 @@ type World struct {
 	Crafts         []*spacecraft.Spacecraft
 	ActiveCraftIdx int
 
+	// LastDockEvent records the most recent fusion for HUD flash
+	// + diagnostic. Cleared by app.go after the message is shown.
+	// v0.8.3+.
+	LastDockEvent *DockEvent
+
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
@@ -99,13 +104,17 @@ const (
 )
 
 // rcsPuff captures one fired RCS pulse for the canvas-side renderer.
-// Stored in the craft's primary frame so the puff floats with the
-// craft as the system moves. v0.8.0+ placeholder; v0.8.2 replaces.
+// v0.8.3+: tracks the craft pointer rather than a primary-frame
+// position snapshot — the puff visually emanates from the craft's
+// thruster nozzle and tracks the craft as it moves rather than
+// being left behind in inertial space (an exhaust cloud is the
+// physically correct model, but for game-feedback the player wants
+// to see "what direction did I just nudge?" anchored to the craft
+// glyph, not floating away).
 type rcsPuff struct {
-	primaryID string
-	relR      orbital.Vec3
-	dir       orbital.Vec3 // unit anti-thrust direction (where exhaust goes)
-	at        time.Time    // sim-time when the pulse fired
+	craft *spacecraft.Spacecraft
+	dir   orbital.Vec3 // unit anti-thrust direction (where exhaust goes)
+	at    time.Time    // sim-time when the pulse fired
 }
 
 // NewWorld loads the embedded systems, seeds clock at J2000 + 50 ms base
@@ -316,8 +325,29 @@ func (w *World) Tick() {
 		}
 		w.maybeRecordTrail(simDelta.Seconds())
 		w.pruneRCSPuffs()
+		// v0.8.3+: docking proximity check fires after integration
+		// + node dispatch so two craft converging under a planted
+		// rendezvous burn can fuse on the same tick the maneuver
+		// completes. The result (success / which partners) is
+		// stashed on World.LastDockEvent for the HUD flash.
+		if a, b, ok := w.checkDocking(); ok {
+			w.LastDockEvent = &DockEvent{
+				When:    w.Clock.SimTime,
+				CraftIdx: a,
+				PartnerIdx: b,
+				CompositeName: w.ActiveCraft().Name,
+			}
+		}
 		w.evaluateMissions()
 	}
+}
+
+// DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.
+type DockEvent struct {
+	When           time.Time
+	CraftIdx       int    // active partner's index (becomes the composite slot)
+	PartnerIdx     int    // index of the partner that was removed
+	CompositeName  string // name of the resulting composite craft
 }
 
 // evaluateMissions steps each mission's predicate against the live

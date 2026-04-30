@@ -54,18 +54,20 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	return true
 }
 
-// recordRCSPuff appends a puff entry to the ring buffer. dir is the
-// unit Δv direction; the renderer flips it to draw exhaust on the
-// opposite side of the craft chevron. v0.8.0+.
+// recordRCSPuff appends a puff entry to the ring buffer. dir is
+// the unit Δv direction; the renderer flips it to draw exhaust on
+// the opposite side of the craft glyph. The puff stores the craft
+// pointer so the visual stays attached to the craft as it moves
+// (v0.8.3+).
 func (w *World) recordRCSPuff(dir orbital.Vec3) {
-	if w.ActiveCraft() == nil {
+	c := w.ActiveCraft()
+	if c == nil {
 		return
 	}
 	w.rcsPuffs[w.rcsPuffIdx] = rcsPuff{
-		primaryID: w.ActiveCraft().Primary.ID,
-		relR:      w.ActiveCraft().State.R,
-		dir:       dir,
-		at:        w.Clock.SimTime,
+		craft: c,
+		dir:   dir,
+		at:    w.Clock.SimTime,
 	}
 	w.rcsPuffIdx = (w.rcsPuffIdx + 1) % rcsPuffCap
 	if w.rcsPuffLen < rcsPuffCap {
@@ -86,13 +88,16 @@ type RCSPuffSample struct {
 }
 
 // RCSPuffs returns the recent pulses still within rcsPuffTTL of
-// SimTime, in oldest-to-newest order. Empty when nothing has fired
-// recently or the buffer hasn't filled yet. v0.8.0+.
+// SimTime, in oldest-to-newest order. Each sample's Inertial
+// position tracks the firing craft's CURRENT inertial position
+// (v0.8.3+) rather than the position at fire time, so the visual
+// stays anchored to the craft as it moves rather than drifting
+// behind. Puffs whose firing craft has been removed from the
+// slate (e.g. via Undock or DockCrafts) are dropped.
 func (w *World) RCSPuffs() []RCSPuffSample {
 	if w.rcsPuffLen == 0 {
 		return nil
 	}
-	sys := w.System()
 	now := w.Clock.SimTime
 	out := make([]RCSPuffSample, 0, w.rcsPuffLen)
 	start := w.rcsPuffIdx - w.rcsPuffLen
@@ -105,17 +110,29 @@ func (w *World) RCSPuffs() []RCSPuffSample {
 		if age < 0 || age > rcsPuffTTL {
 			continue
 		}
-		var primaryPos orbital.Vec3
-		if b := sys.FindBody(p.primaryID); b != nil {
-			primaryPos = w.BodyPosition(*b)
+		if p.craft == nil || !w.craftStillLive(p.craft) {
+			continue
 		}
+		inertial := w.BodyPosition(p.craft.Primary).Add(p.craft.State.R)
 		out = append(out, RCSPuffSample{
-			Inertial: primaryPos.Add(p.relR),
+			Inertial: inertial,
 			Exhaust:  p.dir.Scale(-1),
 			AgeFrac:  age / rcsPuffTTL,
 		})
 	}
 	return out
+}
+
+// craftStillLive reports whether the given craft pointer is still
+// in the slate. Used by the puff renderer to drop stale references
+// after a dock / undock / future delete operation.
+func (w *World) craftStillLive(target *spacecraft.Spacecraft) bool {
+	for _, c := range w.Crafts {
+		if c == target {
+			return true
+		}
+	}
+	return false
 }
 
 // pruneRCSPuffs is invoked from Tick — drops puffs whose sim-time has

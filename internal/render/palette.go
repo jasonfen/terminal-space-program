@@ -26,6 +26,7 @@ var (
 	ColorCraftMarker  = lipgloss.Color("#FFD93D") // craft icon when zoomed out (orbit too small to render) — saturated yellow distinct from Sun gold-white, amber leg, and every body color
 	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
 	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive
+	ColorFlame        = lipgloss.Color("#FF8C42") // engine-firing flame trail (warm orange — distinct from craftmarker yellow)
 )
 
 // maneuverSegmentPalette cycles through distinct colors per planted
