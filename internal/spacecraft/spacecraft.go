@@ -85,6 +85,55 @@ type Spacecraft struct {
 	ManualBurn   *ManualBurn
 	AttitudeMode BurnMode
 	EngineMode   EngineMode
+
+	// DockedComponents (v0.8.3+) records the original craft that
+	// fused into this composite, so an Undock keystroke can
+	// restore them. Empty for non-composite craft. Populated by
+	// sim.DockCrafts in render-order; flattened across chained
+	// docks (a composite that docks with another contributes both
+	// its own components and the other's identity to the result).
+	DockedComponents []DockedComponent
+}
+
+// DockedComponent is a snapshot of one pre-dock craft identity
+// kept on its composite. Used by sim.Undock to restore the
+// original vessels. State (position / velocity / nodes / burns)
+// isn't preserved — the docked craft sit at the composite's state
+// while joined; on undock they re-emerge near the composite's
+// current state. v0.8.3+.
+type DockedComponent struct {
+	Name             string
+	LoadoutID        string
+	Role             string
+	Glyph            string
+	Color            string
+	DryMass          float64
+	FuelCapacity     float64
+	MonopropCapacity float64
+	Isp              float64
+	Thrust           float64
+	RCSThrust        float64
+	RCSIsp           float64
+}
+
+// AsDockedComponent captures s's identity + capacity fields into a
+// DockedComponent record. v0.8.3+: used by DockCrafts to populate
+// the composite's DockedComponents list.
+func (s *Spacecraft) AsDockedComponent() DockedComponent {
+	return DockedComponent{
+		Name:             s.Name,
+		LoadoutID:        s.LoadoutID,
+		Role:             s.Role,
+		Glyph:            s.Glyph,
+		Color:            s.Color,
+		DryMass:          s.DryMass,
+		FuelCapacity:     s.Fuel, // pre-dock fuel becomes "capacity" for share calc on undock
+		MonopropCapacity: s.MonopropCapacity,
+		Isp:              s.Isp,
+		Thrust:           s.Thrust,
+		RCSThrust:        s.RCSThrust,
+		RCSIsp:           s.RCSIsp,
+	}
 }
 
 // EffectiveThrottle returns Throttle clamped to [0, 1]. Zero means

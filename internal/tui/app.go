@@ -528,6 +528,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.PrevCraft):
 			a.world.CycleActiveCraft(-1)
 			return a, nil
+		case key.Matches(m, a.keys.Undock):
+			if a.world.Undock(a.world.ActiveCraftIdx) {
+				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
+				a.statusExpires = time.Now().Add(3 * time.Second)
+			}
+			return a, nil
 		}
 	}
 	return a, nil

@@ -60,8 +60,9 @@ func (h *Help) Render() string {
 			{"r", "engine: main / rcs (RCS = monoprop pulse-fire on attitude keys)"},
 		}},
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
-			{"n", "spawn craft (sister copy of active in 500 km LEO around same primary)"},
+			{"n", "open spawn form (loadout / position / parent body / altitude / direction)"},
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
+			{"U", "undock active composite (v0.8.3+)"},
 		}},
 		{"PERSISTENCE", [][2]string{
 			{"S", "save game (XDG_STATE_HOME)"},

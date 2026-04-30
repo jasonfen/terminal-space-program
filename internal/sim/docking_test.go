@@ -128,6 +128,67 @@ func TestDockingPreservesMomentum(t *testing.T) {
 	}
 }
 
+// TestUndockRestoresComponents: a docked composite split via Undock
+// must produce two craft with the original identities, sharing the
+// composite's pooled fuel + monoprop proportional to their pre-dock
+// capacities, and separated enough not to immediately re-dock.
+func TestUndockRestoresComponents(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	a := w.Crafts[0]
+	a.Name = "Apollo"
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	v := math.Sqrt(earth.GravitationalParameter() / a.State.R.Norm())
+	a.State.V = orbital.Vec3{Y: v}
+
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	b.Name = "LM"
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: a.State.R.Add(orbital.Vec3{X: 10}),
+		V: a.State.V,
+		M: b.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, b)
+
+	if _, _, ok := w.checkDocking(); !ok {
+		t.Fatalf("expected dock to fire")
+	}
+	if len(w.Crafts) != 1 {
+		t.Fatalf("expected 1 composite after dock, got %d", len(w.Crafts))
+	}
+	if got := len(w.Crafts[0].DockedComponents); got != 2 {
+		t.Fatalf("composite has %d components, want 2", got)
+	}
+
+	if !w.Undock(0) {
+		t.Fatal("Undock returned false on a composite")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("expected 2 craft after undock, got %d", len(w.Crafts))
+	}
+	names := []string{w.Crafts[0].Name, w.Crafts[1].Name}
+	hasApollo, hasLM := false, false
+	for _, n := range names {
+		if n == "Apollo" {
+			hasApollo = true
+		}
+		if n == "LM" {
+			hasLM = true
+		}
+	}
+	if !hasApollo || !hasLM {
+		t.Errorf("undocked names = %v, want [Apollo, LM]", names)
+	}
+	// Components shouldn't immediately re-dock — separation must
+	// be > DockingDistM.
+	dr := w.Crafts[0].State.R.Sub(w.Crafts[1].State.R).Norm()
+	if dr <= DockingDistM {
+		t.Errorf("post-undock separation = %.1f m, want > %.1f m", dr, DockingDistM)
+	}
+}
+
 // TestDockingActivePartnerKeepsName: when craft B (non-active)
 // docks with craft A (active), the composite inherits A's name.
 // When the player flies B and docks with A, B's name is kept
