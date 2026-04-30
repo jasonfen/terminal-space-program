@@ -14,6 +14,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
@@ -389,6 +390,27 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 		craftInertial := w.CraftInertial()
+		// v0.8.3+: engine-firing flame trail behind the active craft
+		// when an ActiveBurn or main-engine ManualBurn is firing.
+		// flameStep = 5 / scale puts each step in a cell adjacent
+		// to (or beyond) the craft glyph cell — the glyph's
+		// SetCellOverlay covers a 2x4 sub-pixel cell, so a 5-px
+		// offset crosses the boundary regardless of velocity
+		// direction.
+		if c.ActiveBurn != nil || (c.ManualBurn != nil && c.EngineMode == spacecraft.EngineMain && c.EffectiveThrottle() > 0) {
+			vMag := c.State.V.Norm()
+			if vMag > 0 && scale > 0 {
+				vHat := c.State.V.Scale(1 / vMag)
+				flameStep := 5.0 / scale
+				for i := 1; i <= 3; i++ {
+					p := craftInertial.Sub(vHat.Scale(float64(i) * flameStep))
+					if v.canvas.IsBehindBody(p, primaryPos, primaryPxR) {
+						continue
+					}
+					v.canvas.PlotColored(p, render.ColorFlame)
+				}
+			}
+		}
 		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
 			activeColor := render.ColorCraftMarker
 			if c.Color != "" {
@@ -409,19 +431,36 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 
-		// v0.8.0+: RCS puff markers — each fired pulse drops a fading
-		// dot at the position the craft fired from. Placeholder visual;
-		// v0.8.2 replaces with per-thruster glyphs once craft visual
-		// differentiation lands. Drawn after the craft glyph so the
-		// chevron stays on top at the moment of firing.
+		// v0.8.3+: per-thruster RCS puff visual. Each pulse stamps a
+		// small fading marker offset along the exhaust direction
+		// (anti-thrust), with a short trail stretching that way to
+		// signal "puff in this direction." Replaces the v0.8.0
+		// placeholder centered dot.
 		for _, p := range w.RCSPuffs() {
 			if p.AgeFrac >= 0.75 {
 				continue // late-stage puffs invisible — keep canvas tidy
 			}
-			if v.canvas.IsBehindBody(p.Inertial, primaryPos, primaryPxR) {
+			if scale <= 0 {
 				continue
 			}
-			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
+			// Canvas cells are 2 sub-pixels wide × 4 tall (braille
+			// rendering). The craft glyph's SetCellOverlay covers
+			// the whole cell, so puff sub-pixels in the same cell
+			// as the glyph are invisible. Step needs to be ≥4 px
+			// for vertical exhaust to land in an adjacent cell;
+			// 5 px works for any direction (5·sin(45°) ≈ 3.5 < 4
+			// for pure 45° but still visible because the
+			// horizontal component of 5·cos(45°) ≈ 3.5 ≥ 2 px =
+			// crosses horizontal cell boundary). v0.8.3+.
+			puffStep := 5.0 / scale
+			origin := p.Inertial.Add(p.Exhaust.Scale(puffStep))
+			tip := p.Inertial.Add(p.Exhaust.Scale(2 * puffStep))
+			if !v.canvas.IsBehindBody(origin, primaryPos, primaryPxR) {
+				v.canvas.PlotColored(origin, render.ColorWarning)
+			}
+			if !v.canvas.IsBehindBody(tip, primaryPos, primaryPxR) {
+				v.canvas.PlotColored(tip, render.ColorFlame)
+			}
 		}
 
 		// v0.8.2+: render non-active craft with their per-loadout
@@ -952,6 +991,42 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
+	// v0.8.3+: rendezvous readout — when the active craft shares
+	// its primary frame with another craft, surface range +
+	// relative velocity to the nearest one. Lets the player RCS-
+	// null residuals during proximity ops without guessing. The
+	// "DOCK READY" callout fires when both gates are met (the
+	// next tick will actually fuse).
+	if c := w.ActiveCraft(); c != nil && len(w.Crafts) > 1 {
+		nearest, range_, vRel, ok := findNearestSamePrimary(w.Crafts, w.ActiveCraftIdx)
+		if ok {
+			lines = append(lines, section("RENDEZVOUS")...)
+			rangeLabel := fmt.Sprintf("%.0f m", range_)
+			if range_ > 1000 {
+				rangeLabel = fmt.Sprintf("%.2f km", range_/1000)
+			}
+			vRelLabel := fmt.Sprintf("%.2f m/s", vRel)
+			withinDist := range_ <= sim.DockingDistM
+			withinV := vRel <= sim.DockingVMS
+			if withinDist {
+				rangeLabel = v.theme.Warning.Render(rangeLabel + " ✓")
+			}
+			if withinV {
+				vRelLabel = v.theme.Warning.Render(vRelLabel + " ✓")
+			}
+			lines = append(lines,
+				fmt.Sprintf("  target:    %s", nearest.Name),
+				fmt.Sprintf("  range:     %s", rangeLabel),
+				fmt.Sprintf("  |v_rel|:   %s", vRelLabel),
+			)
+			if withinDist && withinV {
+				lines = append(lines,
+					"  "+v.theme.Alert.Render("● DOCK READY — fusing next tick"),
+				)
+			}
+		}
+	}
+
 	// v0.8.1+: list nodes for every craft in the slate. The active
 	// craft's nodes appear at full intensity; other crafts' nodes
 	// fall in the Dim style with a `craft N:` prefix so the player
@@ -1125,6 +1200,44 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// first row is row 1.
 	v.scanHudNodeRows(rendered, 1)
 	return rendered
+}
+
+// findNearestSamePrimary returns the closest non-active craft
+// sharing the active craft's primary, plus their separation +
+// relative speed. Used by the v0.8.3+ RENDEZVOUS HUD block to
+// surface live proximity-ops feedback. Returns ok=false when no
+// other craft is in the same frame.
+func findNearestSamePrimary(crafts []*spacecraft.Spacecraft, activeIdx int) (*spacecraft.Spacecraft, float64, float64, bool) {
+	if activeIdx < 0 || activeIdx >= len(crafts) {
+		return nil, 0, 0, false
+	}
+	a := crafts[activeIdx]
+	if a == nil {
+		return nil, 0, 0, false
+	}
+	var (
+		best     *spacecraft.Spacecraft
+		bestDist = math.Inf(1)
+		bestVRel float64
+	)
+	for i, c := range crafts {
+		if i == activeIdx || c == nil {
+			continue
+		}
+		if c.Primary.ID != a.Primary.ID {
+			continue
+		}
+		d := c.State.R.Sub(a.State.R).Norm()
+		if d < bestDist {
+			bestDist = d
+			bestVRel = c.State.V.Sub(a.State.V).Norm()
+			best = c
+		}
+	}
+	if best == nil {
+		return nil, 0, 0, false
+	}
+	return best, bestDist, bestVRel, true
 }
 
 // scanHudNodeRows walks the rendered HUD line-by-line and matches

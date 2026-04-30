@@ -100,6 +100,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case sim.TickMsg:
 		a.world.Tick()
+		// v0.8.3+: surface docking events as a status flash. Cleared
+		// here so a single fusion only flashes once.
+		if e := a.world.LastDockEvent; e != nil {
+			a.statusMsg = fmt.Sprintf("● DOCKED — composite: %s", e.CompositeName)
+			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.world.LastDockEvent = nil
+		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 
 	case tea.WindowSizeMsg:
@@ -284,6 +291,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					ParentBodyID: a.spawn.SelectedParentID(),
 					AltitudeM:    a.spawn.SelectedAltitudeM(),
 					Retrograde:   a.spawn.SelectedRetrograde(),
+					Alongside:    a.spawn.SelectedAlongside(),
 				}
 				if c, err := a.world.SpawnCraft(spec); err == nil {
 					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
@@ -519,6 +527,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PrevCraft):
 			a.world.CycleActiveCraft(-1)
+			return a, nil
+		case key.Matches(m, a.keys.Undock):
+			if a.world.Undock(a.world.ActiveCraftIdx) {
+				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
+				a.statusExpires = time.Now().Add(3 * time.Second)
+			}
 			return a, nil
 		}
 	}

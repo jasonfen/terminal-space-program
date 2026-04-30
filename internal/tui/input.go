@@ -66,6 +66,10 @@ type Keymap struct {
 	// multi-craft slate. No-op when only one craft is loaded.
 	NextCraft key.Binding
 	PrevCraft key.Binding
+
+	// Undock (v0.8.3+): split the active composite craft back
+	// into its docked components.
+	Undock key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -116,5 +120,6 @@ func DefaultKeymap() Keymap {
 		CycleEngine:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "engine: main / rcs")),
 		NextCraft:           key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next craft")),
 		PrevCraft:           key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev craft")),
+		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
 	}
 }
