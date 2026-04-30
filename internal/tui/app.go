@@ -226,6 +226,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
+			case a.hudNodeHit(m.X, m.Y):
+				// Handled inside hudNodeHit — opens the maneuver
+				// planner pre-loaded for the clicked node and (in
+				// multi-craft) switches active craft to its owner.
 			case a.orbitView.IsHudClick(m.X):
 				// HUD click → open body info for the currently
 				// selected body. Coarse: doesn't try to identify
@@ -551,6 +555,36 @@ func (a *App) doLoad() error {
 // can be wired later if needed.
 func (a *App) autosave() {
 	_ = a.doSave()
+}
+
+// hudNodeHit checks whether a HUD click landed on a NODES-block
+// entry; if so, switches active craft (when the clicked node lives
+// on a different craft) and opens the maneuver planner pre-loaded
+// for that node — same edit-replace UX as the canvas node-glyph
+// click. Returns true when handled. v0.8.2.x.
+func (a *App) hudNodeHit(x, y int) bool {
+	craftIdx, nodeIdx, ok := a.orbitView.HitHudNode(x, y)
+	if !ok {
+		return false
+	}
+	if craftIdx < 0 || craftIdx >= len(a.world.Crafts) {
+		return false
+	}
+	c := a.world.Crafts[craftIdx]
+	if c == nil || nodeIdx < 0 || nodeIdx >= len(c.Nodes) {
+		return false
+	}
+	// Switch active to the owning craft so the planner edits are
+	// targeted correctly and the post-edit projected orbit reflects
+	// the right craft.
+	if craftIdx != a.world.ActiveCraftIdx {
+		a.world.ActiveCraftIdx = craftIdx
+		a.world.StopManualBurn()
+	}
+	a.maneuver.LoadNode(nodeIdx, c.Nodes[nodeIdx])
+	a.world.Clock.Paused = true
+	a.active = screenManeuver
+	return true
 }
 
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode

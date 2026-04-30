@@ -54,6 +54,24 @@ type OrbitView struct {
 	// terminal resizes. v0.7.4+.
 	menuColStart, menuColEnd         int
 	missionsColStart, missionsColEnd int
+
+	// hudNodeHits tracks the screen-row of each NODES-block entry
+	// so a click on a HUD node line can route to the maneuver
+	// planner's edit-replace path. v0.8.2.x: matches the canvas
+	// node-glyph click cascade — same load behaviour, different
+	// click target.
+	hudNodeHits []hudNodeHit
+	hudColStart int // first screen-col of the HUD region
+}
+
+// hudNodeHit records a clickable NODES-block entry. Row is the
+// absolute screen row in the rendered output. CraftIdx is the
+// craft slot that owns the node; NodeIdx is the 0-based index into
+// that craft's Nodes slice.
+type hudNodeHit struct {
+	row      int
+	craftIdx int
+	nodeIdx  int
 }
 
 // minOrbitPixels is the projected apoapsis size below which an orbit
@@ -114,6 +132,23 @@ func (v *OrbitView) IsCanvasClick(col, row int) bool {
 // panel (right of the canvas + its border).
 func (v *OrbitView) IsHudClick(col int) bool {
 	return col > v.canvas.Cols()+1
+}
+
+// HitHudNode resolves a screen-space click against the HUD's
+// NODES block. Returns (craftIdx, nodeIdx, true) when the row
+// matches a recorded NODES entry and the column lands in the HUD
+// region; (-1, -1, false) otherwise. Caller routes a true result
+// to the maneuver planner's edit-replace path. v0.8.2.x.
+func (v *OrbitView) HitHudNode(col, row int) (int, int, bool) {
+	if !v.IsHudClick(col) {
+		return -1, -1, false
+	}
+	for _, h := range v.hudNodeHits {
+		if h.row == row {
+			return h.craftIdx, h.nodeIdx, true
+		}
+	}
+	return -1, -1, false
 }
 
 // ProjectToOrbit maps a screen-space click to the time-of-flight at
@@ -424,6 +459,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		Render(canvasStr)
 
 	hud := v.renderHUD(w, selectedIdx, totalCols-v.canvas.Cols()-4)
+	// HUD starts at the column right after canvas + its rounded
+	// border (1 col left, 1 col right). v0.8.2.x: needed by the
+	// HUD-row hit-test below (HitHudNode) so a click in the HUD
+	// region routes to the maneuver editor, not body info.
+	v.hudColStart = v.canvas.Cols() + 2
 
 	craftChip := ""
 	if n := len(w.Crafts); n > 1 {
@@ -638,6 +678,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if width < 20 {
 		width = 20
 	}
+	// Reset the node-click hits before re-rendering — the NODES
+	// block re-populates them as it walks each craft's plan.
+	v.hudNodeHits = v.hudNodeHits[:0]
 	sys := w.System()
 
 	// section emits a divider + colored section header, used in place of
@@ -915,6 +958,16 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				if !isActive {
 					line = v.theme.Dim.Render(line)
 				}
+				// v0.8.2.x: record the absolute screen-row of this
+				// NODE entry so a HUD click can route to the
+				// maneuver planner. HUD content starts on row 1
+				// (row 0 is the title bar), and each line in `lines`
+				// adds one row.
+				v.hudNodeHits = append(v.hudNodeHits, hudNodeHit{
+					row:      1 + len(lines),
+					craftIdx: ci,
+					nodeIdx:  i,
+				})
 				lines = append(lines, line)
 			}
 		}
