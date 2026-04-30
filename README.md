@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.1**.
+Latest release: **v0.8.2**.
 
 ```bash
 # Linux x86_64
@@ -217,15 +217,30 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   proximity-ops thruster v0.8.3 docking will lean on. Each pulse
   drops a fading puff marker on the canvas (placeholder visual;
   v0.8.2 replaces with per-thruster glyphs).
-- **Multi-craft slate** (v0.8.1+). `n` spawns a sister copy of the
-  active craft 90° around the same primary in 500 km LEO; `[`/`]`
-  cycles which craft the player is flying. Each craft owns its
-  own planted nodes, in-flight burn, attitude, and engine state —
+- **Multi-craft slate** (v0.8.1+). `n` opens the spawn form
+  (loadout / parent body / altitude / direction); `[`/`]` cycles
+  which craft the player is flying. Each craft owns its own
+  planted nodes, in-flight burn, attitude, and engine state —
   burns fire on the craft they were planted for regardless of
   which craft you're currently flying. The HUD's `BURNS` and
-  `NODES` blocks list every craft's state simultaneously. Title
+  `NODES` blocks list every craft's state simultaneously; clicking
+  a node row opens the maneuver planner for edit-replace. Title
   bar shows `CRAFT N/M` chip when more than one craft is loaded.
   Save schema bumped v4 → v5 to nest per-craft state.
+- **Craft types** (v0.8.2+). Four loadouts in the launch catalog:
+  S-IVB-1 (yellow `▲`, J-2 third stage), ICPS (blue `◆`, RL-10
+  low-TWR), RCS-tug (pink `●`, pure monoprop, no main engine),
+  Lander (mint `▼`, throttleable descent stage). Each carries
+  propulsion + visual differentiation; the orbit canvas renders
+  every craft with its loadout glyph + color so they read
+  distinctly even at small zoom.
+- **Capture preview** (v0.8.2+). Plant a Hohmann to another body
+  and the HUD's `CAPTURE PREVIEW` block shows what you'll arrive
+  with — relative approach speed and predicted prograde /
+  retrograde direction (a prograde Hohmann to Luna naturally
+  captures retrograde, ~110° around Luna; the preview surfaces
+  this before fire so you're not surprised). Inclination match
+  also works from equatorial source orbits.
 - **Predicted post-burn orbit**. PROJECTED ORBIT block on both
   the orbit screen and `m` form chains every planted node, frame-
   rebases per node (so a Hohmann arrival reads in the destination
@@ -313,7 +328,7 @@ prints a warning to stderr and falls back to defaults.
 | v0.5 | Moons + visuals | Body hierarchy + major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus); per-body color, vessel trail, HUD polish. |
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
-| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types, docking, drag, sim-time rotation queued. |
+| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking, drag, sim-time rotation queued. |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -326,6 +341,7 @@ v0.8 — **multi-craft polish**. Slice breakdown in
 
 - ~~v0.8.0 — RCS / monopropellant mode for sub-m/s precision burns~~ **shipped.**
 - ~~v0.8.1 — multi-craft foundation (selector + save schema v4 → v5 + keystroke spawn + per-craft burn state)~~ **shipped.**
+- ~~v0.8.2 — craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, capture preview, equatorial inclination match~~ **shipped.**
 - v0.8.2 — craft types (propulsion loadouts, roles, visual
   differentiation, engine-firing / RCS-puffing visuals, staging).
 - v0.8.3 — docking — state-transition stub.
