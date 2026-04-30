@@ -1089,7 +1089,7 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 		}
 		dt := n.TriggerTime.Sub(clock).Seconds()
 		if dt > 0 {
-			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			state, primary = w.propagateStateWithPrimary(state, primary, clock, dt)
 			clock = n.TriggerTime
 		}
 		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
@@ -1226,7 +1226,7 @@ func (w *World) PredictedLegs() []PredictedLeg {
 		}
 		dt := n.TriggerTime.Sub(clock).Seconds()
 		if dt > 0 {
-			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			state, primary = w.propagateStateWithPrimary(state, primary, clock, dt)
 			clock = n.TriggerTime
 		}
 		// Frame rebase if the node was planted in a specific
@@ -1326,7 +1326,7 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 			return physics.StateVector{}, bodies.CelestialBody{}, false
 		}
 		if dt > 0 {
-			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			state, primary = w.propagateStateWithPrimary(state, primary, w.Clock.SimTime, dt)
 		}
 	}
 
@@ -1412,7 +1412,7 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 		}
 		dt := n.TriggerTime.Sub(clock).Seconds()
 		if dt > 0 {
-			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			state, primary = w.propagateStateWithPrimary(state, primary, clock, dt)
 			clock = n.TriggerTime
 		}
 		// v0.6.1: a node planted in a non-default frame (the
@@ -1461,26 +1461,29 @@ func (w *World) propagateCraft(dt float64) physics.StateVector {
 // the frame at dt — callers add BodyPosition(primary) to convert state.R
 // into inertial coords.
 func (w *World) propagateCraftWithPrimary(dt float64) (physics.StateVector, bodies.CelestialBody) {
-	return w.propagateStateWithPrimary(w.ActiveCraft().State, w.ActiveCraft().Primary, dt)
+	return w.propagateStateWithPrimary(w.ActiveCraft().State, w.ActiveCraft().Primary, w.Clock.SimTime, dt)
 }
 
 // propagateStateWithPrimary is the same SOI-aware integrator but
-// parameterised on the starting state and primary. Used by
+// parameterised on the starting state, primary, and clock. Used by
 // PredictedFinalOrbit (v0.6.1) to chain through multiple planted
-// nodes without mutating live craft state. Body-position snapshots
-// are taken at the live Clock.SimTime — accurate over short horizons,
-// loses precision for multi-day chains where bodies have moved
-// appreciably; that's acceptable for a HUD readout.
-func (w *World) propagateStateWithPrimary(startState physics.StateVector, startPrimary bodies.CelestialBody, dt float64) (physics.StateVector, bodies.CelestialBody) {
+// nodes without mutating live craft state.
+//
+// v0.8.4: body positions refresh per chunk at the chunk's wall-clock
+// offset rather than snapshotting at startClock. Without this an
+// Earth→Mars Hohmann never crosses Mars's SOI during integration
+// (Mars stays at its t=0 position), so the chained predictor
+// degenerates and the arrival rebase lands state.R ≈ 0 (the
+// "always-degenerate Hohmann" case). Per-chunk refresh costs O(N_bodies)
+// of Kepler-ephemeris evaluation per Verlet sub-step, negligible vs the
+// integration itself.
+func (w *World) propagateStateWithPrimary(startState physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, dt float64) (physics.StateVector, bodies.CelestialBody) {
 	current := startPrimary
 	muNow := current.GravitationalParameter()
 	state := startState
+	clock := startClock
 
 	sys := w.System()
-	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
-	for _, b := range sys.Bodies {
-		positions[b.ID] = w.BodyPosition(b)
-	}
 
 	period := orbitalPeriod(state, muNow)
 	maxStep := period / 100.0
@@ -1495,14 +1498,21 @@ func (w *World) propagateStateWithPrimary(startState physics.StateVector, startP
 		nSteps = 1024
 	}
 	step := dt / float64(nSteps)
+	stepDur := time.Duration(step * float64(time.Second))
+	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for i := 0; i < nSteps; i++ {
 		state = physics.StepVerlet(state, muNow, step)
+		clock = clock.Add(stepDur)
+
+		for _, b := range sys.Bodies {
+			positions[b.ID] = w.BodyPositionAt(b, clock)
+		}
 
 		inertial := positions[current.ID].Add(state.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
 		if cand.Body.ID != current.ID {
-			vOld := w.bodyInertialVelocity(current)
-			vNew := w.bodyInertialVelocity(cand.Body)
+			vOld := w.bodyInertialVelocityAt(current, clock)
+			vNew := w.bodyInertialVelocityAt(cand.Body, clock)
 			state = physics.Rebase(state, positions[current.ID], cand.Inertial, vOld.Sub(vNew))
 			current = cand.Body
 			muNow = current.GravitationalParameter()
