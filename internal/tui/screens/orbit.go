@@ -838,26 +838,40 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// mismatch) so it stands out.
 	if cap, ok := w.ArrivalCapturePreview(); ok {
 		lines = append(lines, section("CAPTURE PREVIEW")...)
-		primaryR := cap.Primary.RadiusMeters()
-		incDeg := cap.Inclination * 180 / math.Pi
-		incLabel := fmt.Sprintf("%.1f°", incDeg)
-		switch {
-		case cap.Hyperbolic:
-			incLabel = v.theme.Alert.Render("escape — capture failed")
-		case incDeg > 90:
-			incLabel = v.theme.Alert.Render(incLabel + " (retrograde)")
-		case incDeg > 30:
-			incLabel = v.theme.Warning.Render(incLabel)
-		}
-		lines = append(lines,
-			fmt.Sprintf("  primary:    %s", cap.Primary.EnglishName),
-			fmt.Sprintf("  inclin.:    %s", incLabel),
-		)
-		if !cap.Hyperbolic {
+		lines = append(lines, fmt.Sprintf("  primary:    %s", cap.Primary.EnglishName))
+		if cap.Approximate {
+			// "Perfect-aim" Hohmann case — only relative-velocity +
+			// qualitative direction. Exact inclination needs an SOI-
+			// aware integrator that tracks body motion during the
+			// transfer (deferred to v0.9+, see plan).
+			dirLabel := v.theme.Warning.Render("prograde")
+			if cap.RetrogradeCapture {
+				dirLabel = v.theme.Alert.Render("retrograde")
+			}
 			lines = append(lines,
-				fmt.Sprintf("  apoapsis:   %.0f km alt", (cap.ApoapsisM-primaryR)/1000),
-				fmt.Sprintf("  periapsis:  %.0f km alt", (cap.PeriapsisM-primaryR)/1000),
+				fmt.Sprintf("  approach:   %.0f m/s relative", cap.ApproachSpeed),
+				fmt.Sprintf("  direction:  %s capture predicted", dirLabel),
+				v.theme.Dim.Render("  (exact incl. depends on SOI entry geometry)"),
 			)
+		} else {
+			primaryR := cap.Primary.RadiusMeters()
+			incDeg := cap.Inclination * 180 / math.Pi
+			incLabel := fmt.Sprintf("%.1f°", incDeg)
+			switch {
+			case cap.Hyperbolic:
+				incLabel = v.theme.Alert.Render("escape — capture failed")
+			case incDeg > 90:
+				incLabel = v.theme.Alert.Render(incLabel + " (retrograde)")
+			case incDeg > 30:
+				incLabel = v.theme.Warning.Render(incLabel)
+			}
+			lines = append(lines, fmt.Sprintf("  inclin.:    %s", incLabel))
+			if !cap.Hyperbolic {
+				lines = append(lines,
+					fmt.Sprintf("  apoapsis:   %.0f km alt", (cap.ApoapsisM-primaryR)/1000),
+					fmt.Sprintf("  periapsis:  %.0f km alt", (cap.PeriapsisM-primaryR)/1000),
+				)
+			}
 		}
 	}
 

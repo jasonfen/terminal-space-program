@@ -1031,19 +1031,34 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 // Luna naturally arrives at ~110° lunar inclination, etc.) before
 // firing.
 //
-// The math piggybacks on PredictedFinalOrbit's chained walk and
-// the v0.8.2.x time-aware body-position helpers, so the inclination
-// reflects bodies' actual positions at the arrival moment rather
-// than at SimTime.
+// Two modes:
+//
+//   - Exact: the chained predictor's rebase produced a sane state.R
+//     (well outside the target body's radius) and orbit elements
+//     reflect the post-burn capture orbit directly. ApoapsisM /
+//     PeriapsisM / Inclination / Hyperbolic are populated.
+//   - Approximate: state.R came out ~0 (perfect-aim Hohmann, the
+//     chained propagator's static body positions miss the SOI
+//     entry geometry). Instead, the preview reports the relative
+//     approach speed (|v_∞|) and a qualitative prograde / retrograde
+//     direction inferred from v_∞ vs target's parent-frame velocity.
+//     ApoapsisM / PeriapsisM / Inclination / Hyperbolic are zero;
+//     ApproachSpeed and RetrogradeCapture are populated.
+//
+// The Approximate flag distinguishes the two — HUD branches on it.
 type CapturePreview struct {
 	Primary      bodies.CelestialBody
-	NodeIndex    int           // index of the arrival node in c.Nodes
-	When         time.Time     // sim-time at which the arrival fires
-	Inclination  float64       // radians, [0, π]
-	ApoapsisM    float64       // m, capture orbit apoapsis
-	PeriapsisM   float64       // m
-	Hyperbolic   bool          // capture failed — escape trajectory
-	Eccentricity float64
+	NodeIndex    int       // index of the arrival node in c.Nodes
+	When         time.Time // sim-time at which the arrival fires
+	Approximate  bool      // true when only ApproachSpeed / RetrogradeCapture are populated
+	Inclination  float64   // radians, [0, π] — exact mode only
+	ApoapsisM    float64   // m, capture orbit apoapsis — exact mode only
+	PeriapsisM   float64   // m — exact mode only
+	Hyperbolic   bool      // capture failed — exact mode only
+	Eccentricity float64   // exact mode only
+	// Approximate-mode fields:
+	ApproachSpeed     float64 // |v_∞| relative to target (m/s)
+	RetrogradeCapture bool    // craft will orbit target in retrograde sense
 }
 
 // ArrivalCapturePreview returns a CapturePreview for the last node
@@ -1101,6 +1116,20 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 	if captureIdx < 0 {
 		return CapturePreview{}, false
 	}
+	// Detect degenerate "perfect-aim Hohmann" rebase: the chained
+	// propagator's static body positions don't actually enter the
+	// target's SOI during prediction, so when the rebase fires at
+	// the arrival node, state.R lands ~0 (craft exactly at the
+	// target's center). Orbit elements collapse and OrbitReadout
+	// reports Hyperbolic, which would mis-message the preview.
+	//
+	// Threshold is 5× target radius — generous, captures the
+	// "we're inside the body" case while still letting genuine
+	// SOI-edge encounters through to the exact path.
+	rThreshold := capturePrimary.RadiusMeters() * 5
+	if captureState.R.Norm() < rThreshold {
+		return w.approximateCapturePreview(captureState, capturePrimary, captureTime, captureIdx), true
+	}
 	mu := capturePrimary.GravitationalParameter()
 	ro := orbital.OrbitReadout(captureState.R, captureState.V, mu)
 	return CapturePreview{
@@ -1113,6 +1142,54 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 		Hyperbolic:   ro.Hyperbolic,
 		Eccentricity: ro.Eccentricity,
 	}, true
+}
+
+// approximateCapturePreview builds the qualitative preview shown
+// when the chained-predictor's state.R degenerates near the target.
+// |v_∞| comes from state.V (post-burn velocity in target frame —
+// post-burn rather than pre-burn so the player sees the residual
+// speed they'll actually live with). Direction is inferred from
+// v_∞ · v_target_parent_frame: negative dot product → craft moving
+// against target's orbital direction → retrograde capture.
+//
+// For Hohmann transfers from interior orbits (the typical Earth →
+// Luna case), this nearly always returns Retrograde=true. Outer →
+// inner Hohmanns can produce prograde encounters.
+func (w *World) approximateCapturePreview(
+	state physics.StateVector,
+	primary bodies.CelestialBody,
+	captureTime time.Time,
+	idx int,
+) CapturePreview {
+	approach := state.V.Norm()
+	retrograde := false
+
+	// Compare state.V (in target's frame) with target's velocity in
+	// its parent frame at captureTime. If they point opposite ways
+	// (negative dot product), craft enters target's SOI from "ahead"
+	// moving backward — retrograde capture. If positive, craft is
+	// catching up to target from behind — prograde capture.
+	sys := w.System()
+	if parent := sys.ParentOf(primary); parent != nil {
+		vTargetInert := w.bodyInertialVelocityAt(primary, captureTime)
+		vParentInert := w.bodyInertialVelocityAt(*parent, captureTime)
+		vTargetInParent := vTargetInert.Sub(vParentInert)
+		if vTargetInParent.Norm() > 0 && approach > 0 {
+			dot := state.V.X*vTargetInParent.X +
+				state.V.Y*vTargetInParent.Y +
+				state.V.Z*vTargetInParent.Z
+			retrograde = dot < 0
+		}
+	}
+
+	return CapturePreview{
+		Primary:           primary,
+		NodeIndex:         idx,
+		When:              captureTime,
+		Approximate:       true,
+		ApproachSpeed:     approach,
+		RetrogradeCapture: retrograde,
+	}
 }
 
 // PredictedLeg describes the trajectory leg following a single
