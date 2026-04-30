@@ -1,0 +1,159 @@
+package sim
+
+import (
+	"math"
+	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+)
+
+// TestDockingFusesCloseSlowCraft: two craft within DockingDistM
+// and below DockingVMS in the same primary frame must fuse on the
+// next checkDocking pass. Composite ends up at the mass-weighted
+// centroid with momentum-conserving velocity.
+func TestDockingFusesCloseSlowCraft(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	// Craft A: at +X, moving +Y at orbital speed.
+	a := w.Crafts[0]
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	v := math.Sqrt(earth.GravitationalParameter() / a.State.R.Norm())
+	a.State.V = orbital.Vec3{Y: v}
+
+	// Craft B: 10 m further out, also +Y at the same orbital
+	// speed (matching velocity).
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: a.State.R.Add(orbital.Vec3{X: 10}),
+		V: a.State.V,
+		M: b.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, b)
+
+	idxA, idxB, ok := w.checkDocking()
+	if !ok {
+		t.Fatalf("expected docking match, got none")
+	}
+	if idxA != 0 || idxB != 1 {
+		t.Errorf("unexpected pair indices: %d, %d", idxA, idxB)
+	}
+	if len(w.Crafts) != 1 {
+		t.Errorf("expected 1 composite craft, got %d", len(w.Crafts))
+	}
+	composite := w.Crafts[0]
+	if composite.Name != a.Name {
+		t.Errorf("composite name = %q, want active partner's name %q", composite.Name, a.Name)
+	}
+	// Composite mass = sum of both.
+	wantMass := a.DryMass + b.DryMass + a.Fuel + b.Fuel + a.Monoprop + b.Monoprop
+	if math.Abs(composite.TotalMass()-wantMass) > 1e-3 {
+		t.Errorf("composite mass = %v, want %v", composite.TotalMass(), wantMass)
+	}
+}
+
+// TestDockingSkipsFarApart: craft beyond DockingDistM mustn't fuse.
+func TestDockingSkipsFarApart(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: w.Crafts[0].State.R.Add(orbital.Vec3{X: 1000}), // 1 km away
+		V: w.Crafts[0].State.V,
+		M: b.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, b)
+
+	if _, _, ok := w.checkDocking(); ok {
+		t.Error("expected no docking at 1 km separation")
+	}
+	if len(w.Crafts) != 2 {
+		t.Errorf("slate count = %d, want 2", len(w.Crafts))
+	}
+}
+
+// TestDockingSkipsFastClose: craft within distance but with too
+// much relative velocity must not fuse — soft-capture model only.
+func TestDockingSkipsFastClose(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: w.Crafts[0].State.R.Add(orbital.Vec3{X: 10}),       // 10 m close
+		V: w.Crafts[0].State.V.Add(orbital.Vec3{Y: 5}),         // 5 m/s relative
+		M: b.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, b)
+
+	if _, _, ok := w.checkDocking(); ok {
+		t.Error("expected no docking with 5 m/s relative velocity")
+	}
+}
+
+// TestDockingPreservesMomentum: composite velocity = mass-weighted
+// average of the partners' velocities. Equal-mass craft moving in
+// opposite directions should fuse to zero net velocity.
+func TestDockingPreservesMomentum(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	a := w.Crafts[0]
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	a.State.V = orbital.Vec3{Z: 0.05} // half the docking gate, +Z
+
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutSIVB1ID) // same loadout = same mass
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: a.State.R.Add(orbital.Vec3{X: 5}),
+		V: orbital.Vec3{Z: -0.05}, // -Z, equal magnitude
+		M: b.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, b)
+
+	// |v_rel| = 0.10, right at the gate edge. Bump down slightly
+	// so the gate fires.
+	b.State.V.Z = -0.04
+	if _, _, ok := w.checkDocking(); !ok {
+		t.Fatalf("expected docking at borderline velocity")
+	}
+	composite := w.Crafts[0]
+	// Equal masses, +0.05 and -0.04 → average = +0.005.
+	if math.Abs(composite.State.V.Z-0.005) > 1e-9 {
+		t.Errorf("composite Vz = %v, want 0.005 (mass-weighted average)", composite.State.V.Z)
+	}
+}
+
+// TestDockingActivePartnerKeepsName: when craft B (non-active)
+// docks with craft A (active), the composite inherits A's name.
+// When the player flies B and docks with A, B's name is kept
+// (since B is the active partner from the player's perspective).
+func TestDockingActivePartnerKeepsName(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	a := w.Crafts[0]
+	a.Name = "Apollo"
+
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	b.Name = "LM"
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: a.State.R.Add(orbital.Vec3{X: 10}),
+		V: a.State.V,
+		M: b.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, b)
+	w.ActiveCraftIdx = 1 // player flying the LM
+
+	if _, _, ok := w.checkDocking(); !ok {
+		t.Fatalf("expected docking")
+	}
+	composite := w.Crafts[w.ActiveCraftIdx]
+	if composite.Name != "LM" {
+		t.Errorf("composite name = %q, want LM (active partner)", composite.Name)
+	}
+}

@@ -33,6 +33,11 @@ type World struct {
 	Crafts         []*spacecraft.Spacecraft
 	ActiveCraftIdx int
 
+	// LastDockEvent records the most recent fusion for HUD flash
+	// + diagnostic. Cleared by app.go after the message is shown.
+	// v0.8.3+.
+	LastDockEvent *DockEvent
+
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
@@ -316,8 +321,29 @@ func (w *World) Tick() {
 		}
 		w.maybeRecordTrail(simDelta.Seconds())
 		w.pruneRCSPuffs()
+		// v0.8.3+: docking proximity check fires after integration
+		// + node dispatch so two craft converging under a planted
+		// rendezvous burn can fuse on the same tick the maneuver
+		// completes. The result (success / which partners) is
+		// stashed on World.LastDockEvent for the HUD flash.
+		if a, b, ok := w.checkDocking(); ok {
+			w.LastDockEvent = &DockEvent{
+				When:    w.Clock.SimTime,
+				CraftIdx: a,
+				PartnerIdx: b,
+				CompositeName: w.ActiveCraft().Name,
+			}
+		}
 		w.evaluateMissions()
 	}
+}
+
+// DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.
+type DockEvent struct {
+	When           time.Time
+	CraftIdx       int    // active partner's index (becomes the composite slot)
+	PartnerIdx     int    // index of the partner that was removed
+	CompositeName  string // name of the resulting composite craft
 }
 
 // evaluateMissions steps each mission's predicate against the live
