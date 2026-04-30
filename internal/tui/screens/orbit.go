@@ -390,18 +390,18 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 		craftInertial := w.CraftInertial()
-		// v0.8.3+: engine-firing flame trail. When the active craft
-		// is mid-burn (planted ActiveBurn or held ManualBurn) on
-		// the main engine with throttle > 0, paint a 3-pixel
-		// chevron-ish trail along the anti-velocity direction. RCS
-		// pulses keep the existing puff-marker visual. flameStep in
-		// world meters is 1/scale so each integer step is one
-		// canvas pixel of offset (offset_pixels = step_world * scale).
+		// v0.8.3+: engine-firing flame trail behind the active craft
+		// when an ActiveBurn or main-engine ManualBurn is firing.
+		// flameStep = 5 / scale puts each step in a cell adjacent
+		// to (or beyond) the craft glyph cell — the glyph's
+		// SetCellOverlay covers a 2x4 sub-pixel cell, so a 5-px
+		// offset crosses the boundary regardless of velocity
+		// direction.
 		if c.ActiveBurn != nil || (c.ManualBurn != nil && c.EngineMode == spacecraft.EngineMain && c.EffectiveThrottle() > 0) {
 			vMag := c.State.V.Norm()
 			if vMag > 0 && scale > 0 {
 				vHat := c.State.V.Scale(1 / vMag)
-				flameStep := 1.0 / scale
+				flameStep := 5.0 / scale
 				for i := 1; i <= 3; i++ {
 					p := craftInertial.Sub(vHat.Scale(float64(i) * flameStep))
 					if v.canvas.IsBehindBody(p, primaryPos, primaryPxR) {
@@ -443,24 +443,23 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			if scale <= 0 {
 				continue
 			}
-			// Three-pixel exhaust trail starting one pixel offset
-			// from the craft along p.Exhaust — visually emanates
-			// from the nozzle side of the craft (e.g. fire prograde
-			// RCS → thruster on aft side → trail extends aft from
-			// the craft glyph). puffStep in world meters = 1/scale
-			// so each step is one canvas pixel.
-			puffStep := 1.0 / scale
+			// Canvas cells are 2 sub-pixels wide × 4 tall (braille
+			// rendering). The craft glyph's SetCellOverlay covers
+			// the whole cell, so puff sub-pixels in the same cell
+			// as the glyph are invisible. Step needs to be ≥4 px
+			// for vertical exhaust to land in an adjacent cell;
+			// 5 px works for any direction (5·sin(45°) ≈ 3.5 < 4
+			// for pure 45° but still visible because the
+			// horizontal component of 5·cos(45°) ≈ 3.5 ≥ 2 px =
+			// crosses horizontal cell boundary). v0.8.3+.
+			puffStep := 5.0 / scale
 			origin := p.Inertial.Add(p.Exhaust.Scale(puffStep))
-			tip1 := p.Inertial.Add(p.Exhaust.Scale(2 * puffStep))
-			tip2 := p.Inertial.Add(p.Exhaust.Scale(3 * puffStep))
+			tip := p.Inertial.Add(p.Exhaust.Scale(2 * puffStep))
 			if !v.canvas.IsBehindBody(origin, primaryPos, primaryPxR) {
 				v.canvas.PlotColored(origin, render.ColorWarning)
 			}
-			if !v.canvas.IsBehindBody(tip1, primaryPos, primaryPxR) {
-				v.canvas.PlotColored(tip1, render.ColorFlame)
-			}
-			if !v.canvas.IsBehindBody(tip2, primaryPos, primaryPxR) {
-				v.canvas.PlotColored(tip2, render.ColorFlame)
+			if !v.canvas.IsBehindBody(tip, primaryPos, primaryPxR) {
+				v.canvas.PlotColored(tip, render.ColorFlame)
 			}
 		}
 
