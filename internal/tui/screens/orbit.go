@@ -394,12 +394,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// is mid-burn (planted ActiveBurn or held ManualBurn) on
 		// the main engine with throttle > 0, paint a 3-pixel
 		// chevron-ish trail along the anti-velocity direction. RCS
-		// pulses keep the existing puff-marker visual.
+		// pulses keep the existing puff-marker visual. flameStep in
+		// world meters is 1/scale so each integer step is one
+		// canvas pixel of offset (offset_pixels = step_world * scale).
 		if c.ActiveBurn != nil || (c.ManualBurn != nil && c.EngineMode == spacecraft.EngineMain && c.EffectiveThrottle() > 0) {
 			vMag := c.State.V.Norm()
-			if vMag > 0 {
+			if vMag > 0 && scale > 0 {
 				vHat := c.State.V.Scale(1 / vMag)
-				flameStep := 600.0 / scale // ~3 pixels worth in world units, scale-independent
+				flameStep := 1.0 / scale
 				for i := 1; i <= 3; i++ {
 					p := craftInertial.Sub(vHat.Scale(float64(i) * flameStep))
 					if v.canvas.IsBehindBody(p, primaryPos, primaryPxR) {
@@ -441,15 +443,21 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			if v.canvas.IsBehindBody(p.Inertial, primaryPos, primaryPxR) {
 				continue
 			}
+			if scale <= 0 {
+				continue
+			}
 			// Two-pixel exhaust trail along p.Exhaust direction.
-			// Step distance scales inversely with the canvas zoom
-			// so the puff is visible at LEO scale and not ridiculous
-			// at heliocentric scale.
-			puffStep := 200.0 / scale
+			// puffStep in world meters = 1/scale so each step is one
+			// canvas pixel of offset.
+			puffStep := 1.0 / scale
 			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
-			tip := p.Inertial.Add(p.Exhaust.Scale(puffStep))
-			if !v.canvas.IsBehindBody(tip, primaryPos, primaryPxR) {
-				v.canvas.PlotColored(tip, render.ColorFlame)
+			tip1 := p.Inertial.Add(p.Exhaust.Scale(puffStep))
+			tip2 := p.Inertial.Add(p.Exhaust.Scale(2 * puffStep))
+			if !v.canvas.IsBehindBody(tip1, primaryPos, primaryPxR) {
+				v.canvas.PlotColored(tip1, render.ColorFlame)
+			}
+			if !v.canvas.IsBehindBody(tip2, primaryPos, primaryPxR) {
+				v.canvas.PlotColored(tip2, render.ColorFlame)
 			}
 		}
 
