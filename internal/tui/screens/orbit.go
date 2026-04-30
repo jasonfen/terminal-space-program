@@ -440,19 +440,22 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			if p.AgeFrac >= 0.75 {
 				continue // late-stage puffs invisible — keep canvas tidy
 			}
-			if v.canvas.IsBehindBody(p.Inertial, primaryPos, primaryPxR) {
-				continue
-			}
 			if scale <= 0 {
 				continue
 			}
-			// Two-pixel exhaust trail along p.Exhaust direction.
-			// puffStep in world meters = 1/scale so each step is one
-			// canvas pixel of offset.
+			// Three-pixel exhaust trail starting one pixel offset
+			// from the craft along p.Exhaust — visually emanates
+			// from the nozzle side of the craft (e.g. fire prograde
+			// RCS → thruster on aft side → trail extends aft from
+			// the craft glyph). puffStep in world meters = 1/scale
+			// so each step is one canvas pixel.
 			puffStep := 1.0 / scale
-			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
-			tip1 := p.Inertial.Add(p.Exhaust.Scale(puffStep))
-			tip2 := p.Inertial.Add(p.Exhaust.Scale(2 * puffStep))
+			origin := p.Inertial.Add(p.Exhaust.Scale(puffStep))
+			tip1 := p.Inertial.Add(p.Exhaust.Scale(2 * puffStep))
+			tip2 := p.Inertial.Add(p.Exhaust.Scale(3 * puffStep))
+			if !v.canvas.IsBehindBody(origin, primaryPos, primaryPxR) {
+				v.canvas.PlotColored(origin, render.ColorWarning)
+			}
 			if !v.canvas.IsBehindBody(tip1, primaryPos, primaryPxR) {
 				v.canvas.PlotColored(tip1, render.ColorFlame)
 			}
