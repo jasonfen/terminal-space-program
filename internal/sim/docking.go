@@ -3,7 +3,107 @@ package sim
 import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
+
+// Undock splits the craft at idx back into its DockedComponents,
+// removing the composite from the slate and inserting one craft
+// per component. Each restored craft inherits a share of the
+// composite's current Fuel + Monoprop pools, prorated by its
+// pre-dock capacity. Restored craft sit near the composite's
+// current position, separated by a small offset so they don't
+// immediately re-dock; their velocities pick up a tiny relative
+// push (a "spring release") so they drift apart. v0.8.3+.
+//
+// No-op when the craft has no DockedComponents (i.e. wasn't a
+// composite). Active idx tracks to the first restored component
+// so the player keeps flying the most-recently-active vessel's
+// identity. The composite's Nodes / ActiveBurn / ManualBurn /
+// AttitudeMode / EngineMode are dropped — they were tied to the
+// composite, which no longer exists.
+func (w *World) Undock(idx int) bool {
+	if idx < 0 || idx >= len(w.Crafts) {
+		return false
+	}
+	c := w.Crafts[idx]
+	if c == nil || len(c.DockedComponents) < 2 {
+		return false
+	}
+
+	// Compute total dry + capacity sums for the share calculation.
+	var totalCapFuel, totalCapMono float64
+	for _, comp := range c.DockedComponents {
+		totalCapFuel += comp.FuelCapacity
+		totalCapMono += comp.MonopropCapacity
+	}
+
+	// Synthesize new craft, pushed apart by a small offset along a
+	// 1-AU axis (radial-out from primary). Per-side offset 35 m
+	// (so 2-component split is 70 m total — outside DockingDistM
+	// of 50 m, no immediate re-fuse); +0.05 m/s relative gives
+	// them clear separation drift.
+	const (
+		separationM = 35.0
+		pushVMS     = 0.05
+	)
+	radialOut := c.State.R
+	if radialOut.Norm() > 0 {
+		radialOut = radialOut.Scale(1 / radialOut.Norm())
+	} else {
+		radialOut = orbital.Vec3{X: 1}
+	}
+
+	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
+	n := len(c.DockedComponents)
+	for i, comp := range c.DockedComponents {
+		var fuelShare, monoShare float64
+		if totalCapFuel > 0 {
+			fuelShare = c.Fuel * (comp.FuelCapacity / totalCapFuel)
+		}
+		if totalCapMono > 0 {
+			monoShare = c.Monoprop * (comp.MonopropCapacity / totalCapMono)
+		}
+		// Spread components symmetrically around the composite's
+		// current position. For 2 components: -25 m and +25 m on
+		// the radial axis. For N: even spacing in [-1, +1].
+		offset := -1.0 + 2.0*float64(i)/float64(n-1)
+		s := &spacecraft.Spacecraft{
+			Name:             comp.Name,
+			LoadoutID:        comp.LoadoutID,
+			Role:             comp.Role,
+			Glyph:            comp.Glyph,
+			Color:            comp.Color,
+			DryMass:          comp.DryMass,
+			Fuel:             fuelShare,
+			Isp:              comp.Isp,
+			Thrust:           comp.Thrust,
+			Throttle:         1.0,
+			Monoprop:         monoShare,
+			MonopropCapacity: comp.MonopropCapacity,
+			RCSThrust:        comp.RCSThrust,
+			RCSIsp:           comp.RCSIsp,
+			Primary:          c.Primary,
+			State: physics.StateVector{
+				R: c.State.R.Add(radialOut.Scale(offset * separationM)),
+				V: c.State.V.Add(radialOut.Scale(offset * pushVMS)),
+			},
+		}
+		s.State.M = s.TotalMass()
+		restored = append(restored, s)
+	}
+
+	// Replace composite slot with restored components in place.
+	tail := append([]*spacecraft.Spacecraft{}, w.Crafts[idx+1:]...)
+	w.Crafts = append(w.Crafts[:idx], restored...)
+	w.Crafts = append(w.Crafts, tail...)
+
+	// Active craft becomes the first restored component (matches
+	// the "you keep flying the lead vessel" convention from
+	// DockCrafts).
+	w.ActiveCraftIdx = idx
+	w.StopManualBurn()
+	return true
+}
 
 // Docking proximity gates. Craft within DockingDistM and below
 // |v_rel| = DockingVMS while sharing the same primary frame fuse
@@ -134,6 +234,22 @@ func (w *World) DockCrafts(idxA, idxB int) {
 		} else {
 			composite.Role = a.Role + "+" + b.Role
 		}
+	}
+
+	// Record component identities so Undock can restore them.
+	// Flatten chained docks: if either partner was already a
+	// composite, splice its components into the new list rather
+	// than nesting.
+	composite.DockedComponents = nil
+	if len(a.DockedComponents) > 0 {
+		composite.DockedComponents = append(composite.DockedComponents, a.DockedComponents...)
+	} else {
+		composite.DockedComponents = append(composite.DockedComponents, a.AsDockedComponent())
+	}
+	if len(b.DockedComponents) > 0 {
+		composite.DockedComponents = append(composite.DockedComponents, b.DockedComponents...)
+	} else {
+		composite.DockedComponents = append(composite.DockedComponents, b.AsDockedComponent())
 	}
 
 	w.Crafts[lead] = &composite

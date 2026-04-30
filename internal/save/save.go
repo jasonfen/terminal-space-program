@@ -107,6 +107,9 @@ type Craft struct {
 	Role             string  `json:"role,omitempty"`
 	Glyph            string  `json:"glyph,omitempty"`
 	Color            string  `json:"color,omitempty"`
+	// v0.8.3+: docked-composite components for Undock to restore.
+	// Empty for non-composite craft.
+	DockedComponents []DockedComponent `json:"docked_components,omitempty"`
 	// v0.8.1+ — per-craft burn state. Pre-v5 saves had Nodes /
 	// ActiveBurn / etc. on the Payload (one shared list); the
 	// migration on load splits the singular into the active craft's
@@ -132,6 +135,22 @@ type Node struct {
 	PrimaryID       string  `json:"primary_id"`
 	Event           int     `json:"event,omitempty"`
 	Throttle        float64 `json:"throttle,omitempty"`
+}
+
+// DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.
+type DockedComponent struct {
+	Name             string  `json:"name"`
+	LoadoutID        string  `json:"loadout_id,omitempty"`
+	Role             string  `json:"role,omitempty"`
+	Glyph            string  `json:"glyph,omitempty"`
+	Color            string  `json:"color,omitempty"`
+	DryMass          float64 `json:"dry_mass"`
+	FuelCapacity     float64 `json:"fuel_capacity,omitempty"`
+	MonopropCapacity float64 `json:"monoprop_capacity,omitempty"`
+	Isp              float64 `json:"isp,omitempty"`
+	Thrust           float64 `json:"thrust,omitempty"`
+	RCSThrust        float64 `json:"rcs_thrust,omitempty"`
+	RCSIsp           float64 `json:"rcs_isp,omitempty"`
 }
 
 // ActiveBurn mirrors sim.ActiveBurn. Throttle (v0.7.6+, schema v4)
@@ -274,6 +293,22 @@ func payloadFromWorld(w *sim.World) Payload {
 			Glyph:            c.Glyph,
 			Color:            c.Color,
 		}
+		for _, dc := range c.DockedComponents {
+			wc.DockedComponents = append(wc.DockedComponents, DockedComponent{
+				Name:             dc.Name,
+				LoadoutID:        dc.LoadoutID,
+				Role:             dc.Role,
+				Glyph:            dc.Glyph,
+				Color:            dc.Color,
+				DryMass:          dc.DryMass,
+				FuelCapacity:     dc.FuelCapacity,
+				MonopropCapacity: dc.MonopropCapacity,
+				Isp:              dc.Isp,
+				Thrust:           dc.Thrust,
+				RCSThrust:        dc.RCSThrust,
+				RCSIsp:           dc.RCSIsp,
+			})
+		}
 		for _, n := range c.Nodes {
 			var trigNano int64
 			if !n.TriggerTime.IsZero() {
@@ -391,6 +426,22 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			if c.Color == "" {
 				c.Color = l.Color
 			}
+		}
+		for _, dc := range wc.DockedComponents {
+			c.DockedComponents = append(c.DockedComponents, spacecraft.DockedComponent{
+				Name:             dc.Name,
+				LoadoutID:        dc.LoadoutID,
+				Role:             dc.Role,
+				Glyph:            dc.Glyph,
+				Color:            dc.Color,
+				DryMass:          dc.DryMass,
+				FuelCapacity:     dc.FuelCapacity,
+				MonopropCapacity: dc.MonopropCapacity,
+				Isp:              dc.Isp,
+				Thrust:           dc.Thrust,
+				RCSThrust:        dc.RCSThrust,
+				RCSIsp:           dc.RCSIsp,
+			})
 		}
 		// v0.8.1+: per-craft Nodes / ActiveBurn loaded directly from
 		// each Craft entry.
