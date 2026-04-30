@@ -829,6 +829,38 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
+	// v0.8.2.x: arrival inclination preview. Surfaces the post-
+	// capture orbit at the last frame-changing planted node so the
+	// player catches retrograde-around-target gotchas (a prograde
+	// Hohmann to Luna naturally arrives at ~110° lunar inclination)
+	// before firing. The inclination is rendered in Warning when
+	// > 90° (retrograde capture) or > 30° (significant plane
+	// mismatch) so it stands out.
+	if cap, ok := w.ArrivalCapturePreview(); ok {
+		lines = append(lines, section("CAPTURE PREVIEW")...)
+		primaryR := cap.Primary.RadiusMeters()
+		incDeg := cap.Inclination * 180 / math.Pi
+		incLabel := fmt.Sprintf("%.1f°", incDeg)
+		switch {
+		case cap.Hyperbolic:
+			incLabel = v.theme.Alert.Render("escape — capture failed")
+		case incDeg > 90:
+			incLabel = v.theme.Alert.Render(incLabel + " (retrograde)")
+		case incDeg > 30:
+			incLabel = v.theme.Warning.Render(incLabel)
+		}
+		lines = append(lines,
+			fmt.Sprintf("  primary:    %s", cap.Primary.EnglishName),
+			fmt.Sprintf("  inclin.:    %s", incLabel),
+		)
+		if !cap.Hyperbolic {
+			lines = append(lines,
+				fmt.Sprintf("  apoapsis:   %.0f km alt", (cap.ApoapsisM-primaryR)/1000),
+				fmt.Sprintf("  periapsis:  %.0f km alt", (cap.PeriapsisM-primaryR)/1000),
+			)
+		}
+	}
+
 	// v0.8.1+: list nodes for every craft in the slate. The active
 	// craft's nodes appear at full intensity; other crafts' nodes
 	// fall in the Dim style with a `craft N:` prefix so the player
