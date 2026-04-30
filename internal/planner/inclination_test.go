@@ -115,19 +115,33 @@ func TestPlanInclinationIncreaseAtDNUsesNormalMinus(t *testing.T) {
 	}
 }
 
-// TestPlanInclinationRejectsEquatorialOrbit: an equatorial source has
-// no defined node line — the planner must surface
-// ErrEquatorialOrbit so the caller falls back gracefully (the UI
-// banner from the orbit screen).
-func TestPlanInclinationRejectsEquatorialOrbit(t *testing.T) {
+// TestPlanInclinationFromEquatorialFiresAtCurrentState: v0.8.2.x
+// equatorial sources have no defined node line, but every point on
+// the orbit is in the equatorial plane, so the planner can pick
+// the current state as the burn point and rotate the plane there.
+// Replaces the pre-v0.8.2.x rejection that returned
+// ErrEquatorialOrbit.
+func TestPlanInclinationFromEquatorialFiresAtCurrentState(t *testing.T) {
 	v := math.Sqrt(muEarth / rLEO)
 	state := orbital.Vec3State{
 		R: orbital.Vec3{X: rLEO},
 		V: orbital.Vec3{Y: v}, // pure equatorial, no z velocity
 	}
-	_, err := PlanInclinationChange(state, muEarth, 28.5*math.Pi/180, "earth")
-	if !errors.Is(err, ErrEquatorialOrbit) {
-		t.Errorf("equatorial source: err = %v, want ErrEquatorialOrbit", err)
+	const targetIncl = 28.5 * math.Pi / 180
+	plan, err := PlanInclinationChange(state, muEarth, targetIncl, "earth")
+	if err != nil {
+		t.Fatalf("equatorial source: unexpected err %v", err)
+	}
+	if plan.OffsetTime != 0 {
+		t.Errorf("OffsetTime = %v, want 0 — burn fires at current state", plan.OffsetTime)
+	}
+	// Δv = 2·v·sin(Δi/2) for an equatorial circular source.
+	want := 2 * v * math.Sin(targetIncl/2)
+	if math.Abs(plan.DV-want) > 1 {
+		t.Errorf("Δv = %.1f m/s, want %.1f m/s", plan.DV, want)
+	}
+	if plan.NormalSign != +1 {
+		t.Errorf("NormalSign = %d, want +1 (raise inclination from prograde-equatorial)", plan.NormalSign)
 	}
 }
 

@@ -27,6 +27,10 @@ type InclinationPlan struct {
 }
 
 var (
+	// ErrEquatorialOrbit is retained for callers that want to detect
+	// the equatorial case explicitly. v0.8.2.x: PlanInclinationChange
+	// no longer returns this — instead it fires at the current state
+	// (any point on an equatorial orbit can host a plane-tilt burn).
 	ErrEquatorialOrbit  = errors.New("planinclination: source orbit is equatorial — no defined node line")
 	ErrHyperbolicOrbit  = errors.New("planinclination: source orbit is hyperbolic / degenerate")
 	ErrInclinationRange = errors.New("planinclination: target inclination must be in [0, π] radians")
@@ -74,13 +78,21 @@ func PlanInclinationChange(state orbital.Vec3State, mu, targetIncl float64, prim
 	if el.E >= 1 || el.A <= 0 {
 		return InclinationPlan{}, ErrHyperbolicOrbit
 	}
-	const equatorialTol = 1e-3
-	if el.I < equatorialTol || math.Abs(el.I-math.Pi) < equatorialTol {
-		return InclinationPlan{}, ErrEquatorialOrbit
-	}
 	deltaI := targetIncl - el.I
 	if math.Abs(deltaI) < 1e-6 {
 		return InclinationPlan{}, ErrInclinationNoOp
+	}
+
+	// v0.8.2.x: equatorial sources have no defined line of nodes,
+	// but an equatorial orbit can be tilted by firing perpendicular
+	// to the equator at *any* point — every point on an i=0 orbit
+	// is in the equatorial plane, so any of them works as the AN of
+	// the target inclined orbit. Burn at the current state with a
+	// pure-normal impulse; the resulting orbit's Ω falls out of
+	// wherever the craft was when the burn fired.
+	const equatorialTol = 1e-3
+	if el.I < equatorialTol || math.Abs(el.I-math.Pi) < equatorialTol {
+		return planEquatorialInclination(state, mu, deltaI, el.I, primaryID)
 	}
 
 	tAN := orbital.TimeToNodeCrossing(state, mu, true)
@@ -146,5 +158,56 @@ func PlanInclinationChange(state orbital.Vec3State, mu, targetIncl float64, prim
 		OffsetTime: time.Duration(dt * float64(time.Second)),
 		NormalSign: sign,
 		AtAN:       atAN,
+	}, nil
+}
+
+// planEquatorialInclination handles the equatorial-source path that
+// PlanInclinationChange used to reject. With no line of nodes
+// defined, fire at the *current* position: every point on an
+// equatorial orbit lies in the equatorial plane, so any of them
+// works as the new orbit's AN. Δv = 2 · v_horizontal · sin(|Δi|/2)
+// where v_horizontal = h/r at the burn moment.
+//
+// NormalSign convention:
+//   - prograde-equatorial (i ≈ 0, h_z > 0): +Normal pushes velocity
+//     in +z, tilting the plane up. So Δi > 0 → +1.
+//   - retrograde-equatorial (i ≈ π, h_z < 0): +Normal pushes against
+//     -z direction, which still tilts the plane (toward i = π/2,
+//     i.e. Δi < 0). So Δi < 0 → +1.
+//
+// In both cases, sign(Δi) maps to NormalSign as: same sign for
+// prograde, opposite for retrograde. The atAN flag is informational
+// only — there's no node here; we set it true so the HUD reads
+// "at next AN" coherently (the burn point becomes the new AN).
+//
+// v0.8.2.x.
+func planEquatorialInclination(state orbital.Vec3State, mu, deltaI, sourceI float64, primaryID string) (InclinationPlan, error) {
+	hVec := orbital.Vec3{
+		X: state.R.Y*state.V.Z - state.R.Z*state.V.Y,
+		Y: state.R.Z*state.V.X - state.R.X*state.V.Z,
+		Z: state.R.X*state.V.Y - state.R.Y*state.V.X,
+	}
+	hMag := hVec.Norm()
+	rMag := state.R.Norm()
+	if rMag == 0 || hMag == 0 {
+		return InclinationPlan{}, ErrHyperbolicOrbit
+	}
+	vHorizontal := hMag / rMag
+	dv := 2 * vHorizontal * math.Sin(math.Abs(deltaI)/2)
+
+	prograde := sourceI < math.Pi/2
+	sign := +1
+	if prograde && deltaI < 0 {
+		sign = -1
+	}
+	if !prograde && deltaI > 0 {
+		sign = -1
+	}
+	return InclinationPlan{
+		PrimaryID:  primaryID,
+		DV:         dv,
+		OffsetTime: 0,
+		NormalSign: sign,
+		AtAN:       true,
 	}, nil
 }
