@@ -956,10 +956,12 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		lines = append(lines, section("CAPTURE PREVIEW")...)
 		lines = append(lines, fmt.Sprintf("  primary:    %s", cap.Primary.EnglishName))
 		if cap.Approximate {
-			// "Perfect-aim" Hohmann case — only relative-velocity +
-			// qualitative direction. Exact inclination needs an SOI-
-			// aware integrator that tracks body motion during the
-			// transfer (deferred to v0.9+, see plan).
+			// Genuinely degenerate intercept — even with the v0.8.4
+			// time-aware propagator, the chained predictor lands
+			// inside ~5× target radius of the center (e.g. perfect-
+			// aim Hohmann, fuel-out residual, etc.). Surface
+			// approach speed + qualitative direction; exact orbit
+			// elements would be geometric noise at this distance.
 			dirLabel := v.theme.Warning.Render("prograde")
 			if cap.RetrogradeCapture {
 				dirLabel = v.theme.Alert.Render("retrograde")
@@ -967,7 +969,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			lines = append(lines,
 				fmt.Sprintf("  approach:   %.0f m/s relative", cap.ApproachSpeed),
 				fmt.Sprintf("  direction:  %s capture predicted", dirLabel),
-				v.theme.Dim.Render("  (exact incl. depends on SOI entry geometry)"),
+				v.theme.Dim.Render("  (intercept too central for orbit-element preview)"),
 			)
 		} else {
 			primaryR := cap.Primary.RadiusMeters()
