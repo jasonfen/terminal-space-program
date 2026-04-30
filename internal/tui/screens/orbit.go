@@ -942,17 +942,20 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				if n.Duration > 0 {
 					kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
 				}
-				prefix := fmt.Sprintf("  #%d", i+1)
+				// v0.8.2.x: leading ▸ marker signals "this row is
+				// clickable" the same way the menu screen does
+				// with [Save Game] / etc.
+				prefix := fmt.Sprintf("▸ #%d", i+1)
 				if multiCraft {
-					prefix = fmt.Sprintf("  c%d#%d", ci+1, i+1)
+					prefix = fmt.Sprintf("▸ c%d#%d", ci+1, i+1)
 				}
 				var line string
 				if !n.IsResolved() {
-					line = fmt.Sprintf("%s %s  %s  %.0f m/s  %s",
+					line = fmt.Sprintf("  %s %s  %s  %.0f m/s  %s",
 						prefix, n.Event.String(), n.Mode.String(), n.DV, kind)
 				} else {
 					dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
-					line = fmt.Sprintf("%s T%+.0fs  %s  %.0f m/s  %s",
+					line = fmt.Sprintf("  %s T%+.0fs  %s  %.0f m/s  %s",
 						prefix, dt, n.Mode.String(), n.DV, kind)
 				}
 				if !isActive {
@@ -962,13 +965,16 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				// NODE entry so a HUD click can route to the
 				// maneuver planner. HUD content starts on row 1
 				// (row 0 is the title bar), and each line in `lines`
-				// adds one row.
-				v.hudNodeHits = append(v.hudNodeHits, hudNodeHit{
-					row:      1 + len(lines),
-					craftIdx: ci,
-					nodeIdx:  i,
-				})
-				lines = append(lines, line)
+				// adds one row. The blank line that follows each
+				// entry below is also tagged so a click on either
+				// row targets the same node — doubles the click
+				// target on tight terminals.
+				entryRow := 1 + len(lines)
+				v.hudNodeHits = append(v.hudNodeHits,
+					hudNodeHit{row: entryRow, craftIdx: ci, nodeIdx: i},
+					hudNodeHit{row: entryRow + 1, craftIdx: ci, nodeIdx: i},
+				)
+				lines = append(lines, line, "")
 			}
 		}
 
