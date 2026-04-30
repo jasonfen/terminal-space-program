@@ -1024,6 +1024,97 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 	return state, primaryID
 }
 
+// CapturePreview describes the post-arrival orbit at the last
+// inter-primary node in the active craft's planted chain. v0.8.2.x:
+// surfaces the capture-orbit inclination prominently so the player
+// catches retrograde-around-target gotchas (a prograde Hohmann to
+// Luna naturally arrives at ~110° lunar inclination, etc.) before
+// firing.
+//
+// The math piggybacks on PredictedFinalOrbit's chained walk and
+// the v0.8.2.x time-aware body-position helpers, so the inclination
+// reflects bodies' actual positions at the arrival moment rather
+// than at SimTime.
+type CapturePreview struct {
+	Primary      bodies.CelestialBody
+	NodeIndex    int           // index of the arrival node in c.Nodes
+	When         time.Time     // sim-time at which the arrival fires
+	Inclination  float64       // radians, [0, π]
+	ApoapsisM    float64       // m, capture orbit apoapsis
+	PeriapsisM   float64       // m
+	Hyperbolic   bool          // capture failed — escape trajectory
+	Eccentricity float64
+}
+
+// ArrivalCapturePreview returns a CapturePreview for the last node
+// in the active craft's plan that lands in a different primary's
+// frame, or ok=false when no such node is queued. v0.8.2.x.
+func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
+	c := w.ActiveCraft()
+	if c == nil || len(c.Nodes) == 0 || c.ActiveBurn != nil {
+		return CapturePreview{}, false
+	}
+	// Walk the planted chain, recording the post-burn state at any
+	// frame-changing node. The LAST such node is the capture point.
+	state := c.State
+	primary := c.Primary
+	clock := w.Clock.SimTime
+	systems := w.Systems
+	homeID := c.Primary.ID
+
+	var (
+		captureState   physics.StateVector
+		capturePrimary bodies.CelestialBody
+		captureTime    time.Time
+		captureIdx     = -1
+	)
+	for i, n := range c.Nodes {
+		if !n.IsResolved() {
+			continue
+		}
+		dt := n.TriggerTime.Sub(clock).Seconds()
+		if dt > 0 {
+			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			clock = n.TriggerTime
+		}
+		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
+			oldInertial := w.BodyPositionAt(primary, clock)
+			newInertial := w.BodyPositionAt(target, clock)
+			vOld := w.bodyInertialVelocityAt(primary, clock)
+			vNew := w.bodyInertialVelocityAt(target, clock)
+			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
+			primary = target
+		}
+		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		if dir.Norm() != 0 && n.DV != 0 {
+			state.V = state.V.Add(dir.Scale(n.DV))
+		}
+		// A node "captures" when it leaves the chain in a frame
+		// different from the craft's home primary.
+		if primary.ID != homeID {
+			captureState = state
+			capturePrimary = primary
+			captureTime = clock
+			captureIdx = i
+		}
+	}
+	if captureIdx < 0 {
+		return CapturePreview{}, false
+	}
+	mu := capturePrimary.GravitationalParameter()
+	ro := orbital.OrbitReadout(captureState.R, captureState.V, mu)
+	return CapturePreview{
+		Primary:      capturePrimary,
+		NodeIndex:    captureIdx,
+		When:         captureTime,
+		Inclination:  ro.Inclination,
+		ApoapsisM:    ro.ApoMeters,
+		PeriapsisM:   ro.PeriMeters,
+		Hyperbolic:   ro.Hyperbolic,
+		Eccentricity: ro.Eccentricity,
+	}, true
+}
+
 // PredictedLeg describes the trajectory leg following a single
 // planted maneuver node — the orbit the craft would fly between
 // this node firing and the next one (or for one orbital period if
@@ -1062,12 +1153,16 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			clock = n.TriggerTime
 		}
 		// Frame rebase if the node was planted in a specific
-		// destination frame (matches PredictedFinalOrbit's behavior).
+		// destination frame. v0.8.2.x: snapshot body position +
+		// velocity at the node's trigger time, not at SimTime — Luna
+		// moves ~30° around Earth in 3 days, and using SimTime here
+		// misplaces the rebase by Luna's actual motion, which
+		// distorts the post-capture inclination preview.
 		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
-			oldInertial := w.BodyPosition(primary)
-			newInertial := w.BodyPosition(target)
-			vOld := w.bodyInertialVelocity(primary)
-			vNew := w.bodyInertialVelocity(target)
+			oldInertial := w.BodyPositionAt(primary, clock)
+			newInertial := w.BodyPositionAt(target, clock)
+			vOld := w.bodyInertialVelocityAt(primary, clock)
+			vNew := w.bodyInertialVelocityAt(target, clock)
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
@@ -1253,10 +1348,10 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 		// crossed Mars's SOI at the rendezvous moment), and the
 		// post-burn orbit comes out as a heliocentric Sol orbit.
 		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
-			oldInertial := w.BodyPosition(primary)
-			newInertial := w.BodyPosition(target)
-			vOld := w.bodyInertialVelocity(primary)
-			vNew := w.bodyInertialVelocity(target)
+			oldInertial := w.BodyPositionAt(primary, clock)
+			newInertial := w.BodyPositionAt(target, clock)
+			vOld := w.bodyInertialVelocityAt(primary, clock)
+			vNew := w.bodyInertialVelocityAt(target, clock)
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
