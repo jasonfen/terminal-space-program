@@ -14,9 +14,10 @@ import (
 // edit the focused field; Enter spawns; Esc cancels.
 type SpawnCraft struct {
 	theme    Theme
-	fieldIdx int // 0=loadout, 1=parent, 2=altitude, 3=direction
+	fieldIdx int // 0=loadout, 1=position, 2=parent, 3=altitude, 4=direction
 
 	loadoutIdx   int
+	alongside    bool // v0.8.3+: spawn next to active craft for docking testing
 	parentBodies []bodies.CelestialBody // populated by Reset
 	parentIdx    int
 	altIdx       int
@@ -40,6 +41,7 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string) {
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
+	s.alongside = false
 	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
 	s.retrograde = false
 	s.parentBodies = systemBodies
@@ -91,10 +93,14 @@ func (s *SpawnCraft) SelectedAltitudeM() float64 {
 // SelectedRetrograde reports whether the player picked retrograde.
 func (s *SpawnCraft) SelectedRetrograde() bool { return s.retrograde }
 
+// SelectedAlongside reports whether the player picked the
+// "alongside active craft" position. v0.8.3+.
+func (s *SpawnCraft) SelectedAlongside() bool { return s.alongside }
+
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
 func (s *SpawnCraft) HandleKey(key string) SpawnAction {
-	const numFields = 4
+	const numFields = 5
 	switch key {
 	case "esc":
 		return SpawnActionCancel
@@ -113,18 +119,21 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 }
 
 // cycleField nudges the focused field's value by step (typically
-// ±1). Each field has its own wrap-around behaviour.
+// ±1). Each field has its own wrap-around behaviour. v0.8.3+:
+// adds the position toggle (orbit / alongside).
 func (s *SpawnCraft) cycleField(step int) {
 	switch s.fieldIdx {
 	case 0:
 		s.loadoutIdx = wrapIdx(s.loadoutIdx+step, len(spacecraft.LoadoutOrder))
 	case 1:
+		s.alongside = !s.alongside
+	case 2:
 		if len(s.parentBodies) > 0 {
 			s.parentIdx = wrapIdx(s.parentIdx+step, len(s.parentBodies))
 		}
-	case 2:
-		s.altIdx = wrapIdx(s.altIdx+step, len(altitudePresets))
 	case 3:
+		s.altIdx = wrapIdx(s.altIdx+step, len(altitudePresets))
+	case 4:
 		s.retrograde = !s.retrograde
 	}
 }
@@ -168,30 +177,47 @@ func (s *SpawnCraft) Render(width int) string {
 		lines = append(lines, "  "+marker+row)
 	}
 
-	// Field 1: parent body — single-line cycle.
+	// Field 1: position mode — toggle between "orbit" (uses
+	// PARENT BODY + ALTITUDE + DIRECTION below) and "alongside"
+	// (drops the new craft inside the docking gate of the active
+	// craft for testing).
 	lines = append(lines, "")
-	lines = append(lines, s.fieldHeader(1, "PARENT BODY"))
+	lines = append(lines, s.fieldHeader(1, "POSITION"))
+	posLabel := "circular orbit"
+	if s.alongside {
+		posLabel = "alongside active (within docking gate)"
+	}
+	lines = append(lines, "  "+s.fieldValue(1, posLabel))
+
+	// When alongside is picked, the orbit-defining fields below
+	// don't apply — render them dimmed so the player sees they're
+	// inactive.
+	dimWhen := s.alongside
+
+	// Field 2: parent body — single-line cycle.
+	lines = append(lines, "")
+	lines = append(lines, s.fieldHeader(2, "PARENT BODY"))
 	parentLabel := "(none)"
 	if pb := s.currentParent(); pb != nil {
 		parentLabel = fmt.Sprintf("%s  (μ %.2e, R %.0f km)",
 			pb.EnglishName, pb.GravitationalParameter(), pb.RadiusMeters()/1000)
 	}
-	lines = append(lines, "  "+s.fieldValue(1, parentLabel))
+	lines = append(lines, "  "+s.fieldValueDimmed(2, parentLabel, dimWhen))
 
-	// Field 2: altitude — single-line preset cycle.
+	// Field 3: altitude — single-line preset cycle.
 	lines = append(lines, "")
-	lines = append(lines, s.fieldHeader(2, "ALTITUDE"))
+	lines = append(lines, s.fieldHeader(3, "ALTITUDE"))
 	altLabel := fmt.Sprintf("%d km", altitudePresets[s.altIdx])
-	lines = append(lines, "  "+s.fieldValue(2, altLabel))
+	lines = append(lines, "  "+s.fieldValueDimmed(3, altLabel, dimWhen))
 
-	// Field 3: direction — toggle.
+	// Field 4: direction — toggle.
 	lines = append(lines, "")
-	lines = append(lines, s.fieldHeader(3, "DIRECTION"))
+	lines = append(lines, s.fieldHeader(4, "DIRECTION"))
 	dirLabel := "prograde"
 	if s.retrograde {
 		dirLabel = "retrograde"
 	}
-	lines = append(lines, "  "+s.fieldValue(3, dirLabel))
+	lines = append(lines, "  "+s.fieldValueDimmed(4, dirLabel, dimWhen))
 
 	lines = append(lines, "")
 	lines = append(lines, s.theme.Dim.Render(strings.Repeat("─", 60)))
@@ -217,6 +243,16 @@ func (s *SpawnCraft) fieldValue(idx int, label string) string {
 		return s.theme.Warning.Render("◀  " + label + "  ▶")
 	}
 	return label
+}
+
+// fieldValueDimmed is fieldValue with an "inactive" state — used
+// for orbit-defining fields when POSITION = alongside makes them
+// irrelevant. v0.8.3+.
+func (s *SpawnCraft) fieldValueDimmed(idx int, label string, dimmed bool) string {
+	if dimmed {
+		return s.theme.Dim.Render(label + "  (ignored)")
+	}
+	return s.fieldValue(idx, label)
 }
 
 // currentParent returns the body the cursor is on, or nil.
