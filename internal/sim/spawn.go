@@ -22,6 +22,10 @@ var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 //   - AltitudeM:    altitude above the parent's mean radius (m).
 //                   Zero → 500 km default.
 //   - Retrograde:   spawn going retrograde rather than prograde.
+//   - Alongside:    spawn within the docking gate of the active
+//                   craft, matching its velocity. Overrides
+//                   ParentBodyID + AltitudeM + Retrograde.
+//                   (v0.8.3+ — for docking testing.)
 //
 // Future patches may add inclination, a phase-angle offset, etc.
 type SpawnSpec struct {
@@ -29,6 +33,7 @@ type SpawnSpec struct {
 	ParentBodyID string
 	AltitudeM    float64
 	Retrograde   bool
+	Alongside    bool
 }
 
 // SpawnCraft adds a new craft to the slate using the given spec.
@@ -40,6 +45,33 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	active := w.ActiveCraft()
 	if active == nil {
 		return nil, errNoActiveCraftToCopy
+	}
+
+	id := spec.LoadoutID
+	if id == "" {
+		id = w.nextLoadoutID()
+	}
+	c := spacecraft.NewFromLoadout(id)
+	c.Name = w.nextCraftName(c.Name)
+
+	if spec.Alongside {
+		// v0.8.3+: place the new craft inside the docking gate of
+		// the active craft, matching its velocity. The 25 m offset
+		// is half the docking distance — close enough that one or
+		// two RCS taps null residuals to dock, far enough that the
+		// craft don't immediately auto-fuse before the player can
+		// see the spawn.
+		const offsetM = 25.0
+		c.Primary = active.Primary
+		c.State = physics.StateVector{
+			R: active.State.R.Add(orbital.Vec3{X: offsetM}),
+			V: active.State.V,
+			M: c.TotalMass(),
+		}
+		w.Crafts = append(w.Crafts, c)
+		w.ActiveCraftIdx = len(w.Crafts) - 1
+		w.StopManualBurn()
+		return c, nil
 	}
 
 	primary := active.Primary
@@ -61,12 +93,6 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		v = -v
 	}
 
-	id := spec.LoadoutID
-	if id == "" {
-		id = w.nextLoadoutID()
-	}
-	c := spacecraft.NewFromLoadout(id)
-	c.Name = w.nextCraftName(c.Name)
 	c.Primary = primary
 	c.State = physics.StateVector{
 		R: orbital.Vec3{Y: r},

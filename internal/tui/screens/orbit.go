@@ -14,6 +14,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
@@ -952,6 +953,42 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
+	// v0.8.3+: rendezvous readout — when the active craft shares
+	// its primary frame with another craft, surface range +
+	// relative velocity to the nearest one. Lets the player RCS-
+	// null residuals during proximity ops without guessing. The
+	// "DOCK READY" callout fires when both gates are met (the
+	// next tick will actually fuse).
+	if c := w.ActiveCraft(); c != nil && len(w.Crafts) > 1 {
+		nearest, range_, vRel, ok := findNearestSamePrimary(w.Crafts, w.ActiveCraftIdx)
+		if ok {
+			lines = append(lines, section("RENDEZVOUS")...)
+			rangeLabel := fmt.Sprintf("%.0f m", range_)
+			if range_ > 1000 {
+				rangeLabel = fmt.Sprintf("%.2f km", range_/1000)
+			}
+			vRelLabel := fmt.Sprintf("%.2f m/s", vRel)
+			withinDist := range_ <= sim.DockingDistM
+			withinV := vRel <= sim.DockingVMS
+			if withinDist {
+				rangeLabel = v.theme.Warning.Render(rangeLabel + " ✓")
+			}
+			if withinV {
+				vRelLabel = v.theme.Warning.Render(vRelLabel + " ✓")
+			}
+			lines = append(lines,
+				fmt.Sprintf("  target:    %s", nearest.Name),
+				fmt.Sprintf("  range:     %s", rangeLabel),
+				fmt.Sprintf("  |v_rel|:   %s", vRelLabel),
+			)
+			if withinDist && withinV {
+				lines = append(lines,
+					"  "+v.theme.Alert.Render("● DOCK READY — fusing next tick"),
+				)
+			}
+		}
+	}
+
 	// v0.8.1+: list nodes for every craft in the slate. The active
 	// craft's nodes appear at full intensity; other crafts' nodes
 	// fall in the Dim style with a `craft N:` prefix so the player
@@ -1125,6 +1162,44 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// first row is row 1.
 	v.scanHudNodeRows(rendered, 1)
 	return rendered
+}
+
+// findNearestSamePrimary returns the closest non-active craft
+// sharing the active craft's primary, plus their separation +
+// relative speed. Used by the v0.8.3+ RENDEZVOUS HUD block to
+// surface live proximity-ops feedback. Returns ok=false when no
+// other craft is in the same frame.
+func findNearestSamePrimary(crafts []*spacecraft.Spacecraft, activeIdx int) (*spacecraft.Spacecraft, float64, float64, bool) {
+	if activeIdx < 0 || activeIdx >= len(crafts) {
+		return nil, 0, 0, false
+	}
+	a := crafts[activeIdx]
+	if a == nil {
+		return nil, 0, 0, false
+	}
+	var (
+		best     *spacecraft.Spacecraft
+		bestDist = math.Inf(1)
+		bestVRel float64
+	)
+	for i, c := range crafts {
+		if i == activeIdx || c == nil {
+			continue
+		}
+		if c.Primary.ID != a.Primary.ID {
+			continue
+		}
+		d := c.State.R.Sub(a.State.R).Norm()
+		if d < bestDist {
+			bestDist = d
+			bestVRel = c.State.V.Sub(a.State.V).Norm()
+			best = c
+		}
+	}
+	if best == nil {
+		return nil, 0, 0, false
+	}
+	return best, bestDist, bestVRel, true
 }
 
 // scanHudNodeRows walks the rendered HUD line-by-line and matches

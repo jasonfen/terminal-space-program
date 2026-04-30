@@ -291,6 +291,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					ParentBodyID: a.spawn.SelectedParentID(),
 					AltitudeM:    a.spawn.SelectedAltitudeM(),
 					Retrograde:   a.spawn.SelectedRetrograde(),
+					Alongside:    a.spawn.SelectedAlongside(),
 				}
 				if c, err := a.world.SpawnCraft(spec); err == nil {
 					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
