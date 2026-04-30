@@ -390,6 +390,25 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 		craftInertial := w.CraftInertial()
+		// v0.8.3+: engine-firing flame trail. When the active craft
+		// is mid-burn (planted ActiveBurn or held ManualBurn) on
+		// the main engine with throttle > 0, paint a 3-pixel
+		// chevron-ish trail along the anti-velocity direction. RCS
+		// pulses keep the existing puff-marker visual.
+		if c.ActiveBurn != nil || (c.ManualBurn != nil && c.EngineMode == spacecraft.EngineMain && c.EffectiveThrottle() > 0) {
+			vMag := c.State.V.Norm()
+			if vMag > 0 {
+				vHat := c.State.V.Scale(1 / vMag)
+				flameStep := 600.0 / scale // ~3 pixels worth in world units, scale-independent
+				for i := 1; i <= 3; i++ {
+					p := craftInertial.Sub(vHat.Scale(float64(i) * flameStep))
+					if v.canvas.IsBehindBody(p, primaryPos, primaryPxR) {
+						continue
+					}
+					v.canvas.PlotColored(p, render.ColorFlame)
+				}
+			}
+		}
 		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
 			activeColor := render.ColorCraftMarker
 			if c.Color != "" {
@@ -410,11 +429,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 
-		// v0.8.0+: RCS puff markers — each fired pulse drops a fading
-		// dot at the position the craft fired from. Placeholder visual;
-		// v0.8.2 replaces with per-thruster glyphs once craft visual
-		// differentiation lands. Drawn after the craft glyph so the
-		// chevron stays on top at the moment of firing.
+		// v0.8.3+: per-thruster RCS puff visual. Each pulse stamps a
+		// small fading marker offset along the exhaust direction
+		// (anti-thrust), with a short trail stretching that way to
+		// signal "puff in this direction." Replaces the v0.8.0
+		// placeholder centered dot.
 		for _, p := range w.RCSPuffs() {
 			if p.AgeFrac >= 0.75 {
 				continue // late-stage puffs invisible — keep canvas tidy
@@ -422,7 +441,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			if v.canvas.IsBehindBody(p.Inertial, primaryPos, primaryPxR) {
 				continue
 			}
+			// Two-pixel exhaust trail along p.Exhaust direction.
+			// Step distance scales inversely with the canvas zoom
+			// so the puff is visible at LEO scale and not ridiculous
+			// at heliocentric scale.
+			puffStep := 200.0 / scale
 			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
+			tip := p.Inertial.Add(p.Exhaust.Scale(puffStep))
+			if !v.canvas.IsBehindBody(tip, primaryPos, primaryPxR) {
+				v.canvas.PlotColored(tip, render.ColorFlame)
+			}
 		}
 
 		// v0.8.2+: render non-active craft with their per-loadout
