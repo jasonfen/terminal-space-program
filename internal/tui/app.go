@@ -275,7 +275,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			action := a.spawn.HandleKey(m.String())
 			switch action {
 			case screens.SpawnActionConfirm:
-				if c, err := a.world.SpawnCraft(sim.SpawnSpec{LoadoutID: a.spawn.SelectedLoadoutID()}); err == nil {
+				spec := sim.SpawnSpec{
+					LoadoutID:    a.spawn.SelectedLoadoutID(),
+					ParentBodyID: a.spawn.SelectedParentID(),
+					AltitudeM:    a.spawn.SelectedAltitudeM(),
+					Retrograde:   a.spawn.SelectedRetrograde(),
+				}
+				if c, err := a.world.SpawnCraft(spec); err == nil {
 					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
 					a.statusExpires = time.Now().Add(3 * time.Second)
 				}
@@ -390,11 +396,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.ResetFocus()
 			return a, nil
 		case key.Matches(m, a.keys.SpawnCraft):
-			// v0.8.2+: open the craft-type picker. Esc cancels;
-			// Enter spawns the selected loadout. Replaces the v0.8.1
-			// minimal "spawn-sister" keystroke that auto-cycled
-			// loadouts.
-			a.spawn.Reset()
+			// v0.8.2+: open the spawn form. Player picks craft
+			// type, parent body, altitude, and direction; Enter
+			// spawns; Esc cancels. Default parent is whatever the
+			// active craft currently orbits.
+			defaultParentID := ""
+			if c := a.world.ActiveCraft(); c != nil {
+				defaultParentID = c.Primary.ID
+			}
+			a.spawn.Reset(a.world.System().Bodies, defaultParentID)
 			a.active = screenSpawn
 			return a, nil
 		case key.Matches(m, a.keys.PlanTransfer):
