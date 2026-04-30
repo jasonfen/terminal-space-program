@@ -55,24 +55,29 @@ type OrbitView struct {
 	menuColStart, menuColEnd         int
 	missionsColStart, missionsColEnd int
 
-	// hudNodeHits tracks the screen-row of each NODES-block entry
-	// so a click on a HUD node line can route to the maneuver
-	// planner's edit-replace path. v0.8.2.x: matches the canvas
-	// node-glyph click cascade — same load behaviour, different
-	// click target.
+	// hudNodeHits tracks NODES-block entries in render order. After
+	// each HUD render, hudNodeRows is filled in by scanning the
+	// rendered string for ▸ markers — that's robust to lipgloss
+	// column-padding / wrapping quirks that would throw off a
+	// "predicted from len(lines)" calculation. v0.8.2.x.
 	hudNodeHits []hudNodeHit
-	hudColStart int // first screen-col of the HUD region
+	hudNodeRows []int // absolute screen row of each hudNodeHits entry
+	hudColStart int   // first screen-col of the HUD region
 }
 
-// hudNodeHit records a clickable NODES-block entry. Row is the
-// absolute screen row in the rendered output. CraftIdx is the
-// craft slot that owns the node; NodeIdx is the 0-based index into
-// that craft's Nodes slice.
+// hudNodeHit identifies a clickable NODES-block entry. CraftIdx is
+// the craft slot that owns the node; NodeIdx is the 0-based index
+// into that craft's Nodes slice. Recorded in render order; the
+// matching screen row is in hudNodeRows[i].
 type hudNodeHit struct {
-	row      int
 	craftIdx int
 	nodeIdx  int
 }
+
+// hudNodeMarker is the visible click-affordance prefix inserted on
+// each NODES row. Re-used by post-render row scanning to locate
+// each entry's actual screen position.
+const hudNodeMarker = "▸"
 
 // minOrbitPixels is the projected apoapsis size below which an orbit
 // (live or planted-leg) is suppressed at render time. v0.6.1: at
@@ -137,14 +142,26 @@ func (v *OrbitView) IsHudClick(col int) bool {
 // HitHudNode resolves a screen-space click against the HUD's
 // NODES block. Returns (craftIdx, nodeIdx, true) when the row
 // matches a recorded NODES entry and the column lands in the HUD
-// region; (-1, -1, false) otherwise. Caller routes a true result
-// to the maneuver planner's edit-replace path. v0.8.2.x.
+// region; (-1, -1, false) otherwise. v0.8.2.x: row matching uses
+// the post-render scan in scanHudNodeRows + a ±1 row tolerance so
+// the click target spans the visible NODE line plus the blank
+// line below it.
 func (v *OrbitView) HitHudNode(col, row int) (int, int, bool) {
 	if !v.IsHudClick(col) {
 		return -1, -1, false
 	}
-	for _, h := range v.hudNodeHits {
-		if h.row == row {
+	// Title bar takes absolute screen row 0; HUD content starts at
+	// row 1. hudNodeRows stores HUD-relative row indices, so add 1
+	// for the comparison.
+	const titleOffset = 1
+	for i, hudRow := range v.hudNodeRows {
+		if i >= len(v.hudNodeHits) {
+			break
+		}
+		absRow := hudRow + titleOffset
+		// Two-row band: NODE line itself + the blank below.
+		if row == absRow || row == absRow+1 {
+			h := v.hudNodeHits[i]
 			return h.craftIdx, h.nodeIdx, true
 		}
 	}
@@ -943,11 +960,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 					kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
 				}
 				// v0.8.2.x: leading ▸ marker signals "this row is
-				// clickable" the same way the menu screen does
-				// with [Save Game] / etc.
-				prefix := fmt.Sprintf("▸ #%d", i+1)
+				// clickable." Post-render the HUD is scanned for
+				// the marker character to map each entry to its
+				// actual screen row — robust to lipgloss
+				// column-padding / wrapping quirks higher up.
+				prefix := fmt.Sprintf("%s #%d", hudNodeMarker, i+1)
 				if multiCraft {
-					prefix = fmt.Sprintf("▸ c%d#%d", ci+1, i+1)
+					prefix = fmt.Sprintf("%s c%d#%d", hudNodeMarker, ci+1, i+1)
 				}
 				var line string
 				if !n.IsResolved() {
@@ -961,19 +980,12 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				if !isActive {
 					line = v.theme.Dim.Render(line)
 				}
-				// v0.8.2.x: record the absolute screen-row of this
-				// NODE entry so a HUD click can route to the
-				// maneuver planner. HUD content starts on row 1
-				// (row 0 is the title bar), and each line in `lines`
-				// adds one row. The blank line that follows each
-				// entry below is also tagged so a click on either
-				// row targets the same node — doubles the click
-				// target on tight terminals.
-				entryRow := 1 + len(lines)
-				v.hudNodeHits = append(v.hudNodeHits,
-					hudNodeHit{row: entryRow, craftIdx: ci, nodeIdx: i},
-					hudNodeHit{row: entryRow + 1, craftIdx: ci, nodeIdx: i},
-				)
+				// Record render-order; absolute row is filled in by
+				// the post-render scan below.
+				v.hudNodeHits = append(v.hudNodeHits, hudNodeHit{
+					craftIdx: ci,
+					nodeIdx:  i,
+				})
 				lines = append(lines, line, "")
 			}
 		}
@@ -1088,7 +1100,30 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	}
 
 	content := strings.Join(lines, "\n")
-	return v.theme.HUDBox.Width(width).Render(content)
+	rendered := v.theme.HUDBox.Width(width).Render(content)
+	v.scanHudNodeRows(rendered)
+	return rendered
+}
+
+// scanHudNodeRows walks the rendered HUD line-by-line and matches
+// rows containing the hudNodeMarker to the in-order hudNodeHits
+// slice. This is robust to layout offsets that an analytic
+// "1 + len(lines)" calculation can't anticipate (the HUDBox's own
+// rounded border adds a top row, side-by-side VESSEL+PROP columns
+// pad shorter side, etc). Row numbering is HUD-relative; the
+// caller (HitHudNode) adds the title-bar offset. v0.8.2.x.
+func (v *OrbitView) scanHudNodeRows(rendered string) {
+	v.hudNodeRows = v.hudNodeRows[:0]
+	if len(v.hudNodeHits) == 0 {
+		return
+	}
+	rows := strings.Split(rendered, "\n")
+	for i, row := range rows {
+		if !strings.Contains(row, hudNodeMarker) {
+			continue
+		}
+		v.hudNodeRows = append(v.hudNodeRows, i)
+	}
 }
 
 // normalizeDeg wraps an angle in degrees into [0, 360).
