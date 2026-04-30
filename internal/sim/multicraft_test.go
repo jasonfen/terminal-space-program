@@ -178,21 +178,34 @@ func TestBurnFiresOnPlantedCraftNotActive(t *testing.T) {
 	}
 }
 
-// TestSpawnSisterCraftIncrementsName: consecutive spawns should
-// bump the trailing `-N` suffix so the HUD can tell them apart.
-// "S-IVB-1" → "S-IVB-2" → "S-IVB-3".
+// TestSpawnSisterCraftIncrementsName: consecutive spawns of the
+// same loadout family should bump the trailing `-N` suffix per
+// prefix. v0.8.2 cycles through LoadoutOrder so consecutive
+// spawns produce different prefixes; spawning enough to wrap
+// around forces a second S-IVB-1, which should land as S-IVB-2.
 func TestSpawnSisterCraftIncrementsName(t *testing.T) {
 	w, _ := NewWorld()
 	if got := w.Crafts[0].Name; got != "S-IVB-1" {
 		t.Fatalf("seed craft name = %q, want S-IVB-1", got)
 	}
-	c2, _ := w.SpawnSisterCraft()
-	if c2.Name != "S-IVB-2" {
-		t.Errorf("first sister name = %q, want S-IVB-2", c2.Name)
+	// Spawn enough sisters to wrap the loadout rotation back to
+	// S-IVB. The slate already has one S-IVB so the second one
+	// (after the rotation) should be named S-IVB-2.
+	for i := 0; i < 4; i++ {
+		w.SpawnSisterCraft()
 	}
-	c3, _ := w.SpawnSisterCraft()
-	if c3.Name != "S-IVB-3" {
-		t.Errorf("second sister name = %q, want S-IVB-3", c3.Name)
+	// Find the second S-IVB and confirm its name.
+	count := 0
+	for _, c := range w.Crafts {
+		if c.LoadoutID == "S-IVB-1" {
+			count++
+			if count == 2 && c.Name != "S-IVB-2" {
+				t.Errorf("second S-IVB name = %q, want S-IVB-2", c.Name)
+			}
+		}
+	}
+	if count < 2 {
+		t.Fatalf("expected at least 2 S-IVB crafts after wrap, got %d", count)
 	}
 }
 

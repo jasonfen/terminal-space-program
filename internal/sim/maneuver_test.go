@@ -1089,17 +1089,23 @@ func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
 	}
 }
 
-// TestPlanInclinationChangeRejectsEquatorialDefault: the default
-// world spawns equatorial (i=0); PlanInclinationChange must surface
-// the planner's equatorial-orbit error rather than planting a node
-// with NaN/zero Δv.
-func TestPlanInclinationChangeRejectsEquatorialDefault(t *testing.T) {
+// TestPlanInclinationChangeFromEquatorialDefault (v0.8.2.x): the
+// default world spawns equatorial (i=0). Earlier versions rejected
+// this with ErrEquatorialOrbit; v0.8.2.x plants the burn at the
+// current state instead — every point on an equatorial orbit lies
+// in the equatorial plane, so any of them works as the AN of the
+// resulting inclined orbit.
+func TestPlanInclinationChangeFromEquatorialDefault(t *testing.T) {
 	w := mustWorld(t)
-	if _, err := w.PlanInclinationChange(28.5 * math.Pi / 180); err == nil {
-		t.Errorf("expected error from equatorial default state, got nil")
+	plan, err := w.PlanInclinationChange(28.5 * math.Pi / 180)
+	if err != nil {
+		t.Fatalf("equatorial default: unexpected err %v", err)
 	}
-	if len(w.ActiveCraft().Nodes) != 0 {
-		t.Errorf("equatorial reject left %d nodes planted, want 0", len(w.ActiveCraft().Nodes))
+	if plan == nil || plan.DV <= 0 {
+		t.Errorf("expected a positive-Δv plan, got %+v", plan)
+	}
+	if len(w.ActiveCraft().Nodes) != 1 {
+		t.Errorf("expected 1 planted node, got %d", len(w.ActiveCraft().Nodes))
 	}
 }
 

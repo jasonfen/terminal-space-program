@@ -21,6 +21,26 @@ type Spacecraft struct {
 	Isp     float64 // s — specific impulse, used by finite burns
 	Thrust  float64 // N — max engine thrust; zero disables finite burns
 
+	// LoadoutID, Role, Glyph, Color (v0.8.2+) are the craft-type
+	// axes from the v0.8 plan §scoping #3:
+	//   (i)   propulsion loadout — references Loadouts[ID]; the
+	//         per-craft Thrust / Isp / DryMass / Fuel are populated
+	//         from the loadout at construction time.
+	//   (ii)  role — free-form tag (transfer-stage / lander /
+	//         orbiter / tug). HUD/mission-predicate facing only;
+	//         no physics impact in v0.8.
+	//   (iii) visual — Glyph + Color override the canvas marker so
+	//         each craft reads distinctly even when zoomed out
+	//         beyond the chevron-resolving threshold.
+	//
+	// All four are zero-default-safe: pre-v0.8.2 saves load with
+	// empty strings, and the lookup paths fall back to the S-IVB-1
+	// default loadout when LoadoutID is empty.
+	LoadoutID string
+	Role      string
+	Glyph     string
+	Color     string
+
 	// Throttle is the engine power factor in [0, 1]; effective
 	// thrust = Thrust * Throttle. v0.7.3+. Zero is a sentinel for
 	// "legacy / unset" (treated as 1.0 by EffectiveThrottle) so
@@ -145,27 +165,15 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	r := earth.RadiusMeters() + 500e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
-	dry := 11000.0
-	fuel := 40000.0
-	monoprop, monoCap, rcsThrust, rcsIsp := DefaultRCSLoadout(dry)
-	return &Spacecraft{
-		Name:             "S-IVB-1",
-		DryMass:          dry,
-		Fuel:             fuel,
-		Isp:              421,
-		Thrust:           1023000, // 1023 kN — J-2 vacuum thrust
-		Throttle:         1.0,     // full throttle by default
-		Monoprop:         monoprop,
-		MonopropCapacity: monoCap,
-		RCSThrust:        rcsThrust,
-		RCSIsp:           rcsIsp,
-		Primary:          earth,
-		State: physics.StateVector{
-			R: orbital.Vec3{X: r},
-			V: orbital.Vec3{Y: v},
-			M: dry + fuel + monoprop,
-		},
+	c := NewFromLoadout(LoadoutSIVB1ID)
+	c.Name = "S-IVB-1" // first vessel of the slate keeps the historical instance name.
+	c.Primary = earth
+	c.State = physics.StateVector{
+		R: orbital.Vec3{X: r},
+		V: orbital.Vec3{Y: v},
+		M: c.TotalMass(),
 	}
+	return c
 }
 
 // DefaultRCSLoadout returns canonical (monoprop, capacity, thrust, isp)
