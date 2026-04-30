@@ -335,6 +335,51 @@ func TestPredictedFinalOrbitHohmannLandsInDestinationFrame(t *testing.T) {
 	}
 }
 
+// TestArrivalCapturePreviewExactForHohmann: regression for v0.8.4's
+// time-aware propagator. Pre-fix, an Earth→Mars Hohmann's chained
+// predictor missed Mars's SOI (body positions snapshotted at t=0 so
+// Mars never moved into the craft's path), the arrival rebase landed
+// state.R ≈ 0, and ArrivalCapturePreview fell back to the qualitative
+// approximate branch. Post-fix, body positions update per chunk, the
+// SOI crossing fires organically, and the preview returns exact
+// post-arrival orbital elements (Approximate=false).
+func TestArrivalCapturePreviewExactForHohmann(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	if _, err := w.PlanTransfer(marsIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+
+	preview, ok := w.ArrivalCapturePreview()
+	if !ok {
+		t.Fatalf("ArrivalCapturePreview ok=false after Hohmann plant")
+	}
+	if preview.Approximate {
+		t.Errorf("expected exact-mode capture preview, got Approximate=true — propagator likely back to snapshotting body positions")
+	}
+	if preview.Primary.ID != sys.Bodies[marsIdx].ID {
+		t.Errorf("capture primary = %q, want Mars %q", preview.Primary.ID, sys.Bodies[marsIdx].ID)
+	}
+	// Sanity: exact-mode fields populated. Periapsis above Mars's
+	// surface (or hyperbolic — both are physically meaningful).
+	if !preview.Hyperbolic && preview.PeriapsisM <= 0 {
+		t.Errorf("exact-mode preview has non-positive PeriapsisM=%.0f", preview.PeriapsisM)
+	}
+	if math.IsNaN(preview.Inclination) || math.IsInf(preview.Inclination, 0) {
+		t.Errorf("inclination not finite: %v", preview.Inclination)
+	}
+}
+
 // TestPredictedFinalOrbitMatchesPreviewForResolvedNode: planting a
 // NextApo node, running the resolver, and querying PredictedFinalOrbit
 // must agree with PreviewBurnState within float-noise. If these

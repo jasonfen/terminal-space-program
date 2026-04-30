@@ -118,21 +118,30 @@ func TestIntegrateSpacecraftSwitchesPrimaryMidTick(t *testing.T) {
 // of km after a mid-tick SOI crossing. The fix folds the same rebase
 // logic into the live integrator; their post-crossing states should
 // now match within a Verlet step's worth of motion.
+//
+// v0.8.4: both paths refresh body positions per chunk against
+// wall-clock. The predictor integrates the window [SimTime,
+// SimTime+dt]; the live integrator looks back over the elapsed tick
+// [SimTime-simDelta, SimTime] (production Tick advances SimTime
+// before calling integrateOneCraft). To compare apples to apples,
+// snapshot the predictor's start state and target window first, then
+// advance SimTime by dt so the live integrator looks back over the
+// same window the predictor went forward through.
 func TestIntegrateSpacecraftMatchesPredictorAcrossSOI(t *testing.T) {
 	w := mustWorld(t)
 	w.ActiveCraft().State.V = orbital.Vec3{Y: 16000}
 
 	// Snapshot starting state, run the predictor on it.
 	startState := w.ActiveCraft().State
-	predicted := w.propagateCraft(3 * 86400.0)
+	dt := 3 * 86400.0
+	predicted := w.propagateCraft(dt)
 
-	// Reset craft, run live integrator over the same dt. Don't advance
-	// Clock.SimTime — that would shift the body-position epoch and
-	// the predictor / live snapshots wouldn't be comparable. (In
-	// production Tick *does* advance SimTime first; the body-snapshot
-	// drift is a known approximation orthogonal to this test.)
+	// Reset craft state, advance SimTime so the live integrator looks
+	// back over [original-SimTime, original-SimTime+dt] — same window
+	// the predictor integrated forward through.
 	w.ActiveCraft().State = startState
-	w.integrateOneCraft(w.ActiveCraft(), time.Duration(3 * 86400 * float64(time.Second)))
+	w.Clock.SimTime = w.Clock.SimTime.Add(time.Duration(dt * float64(time.Second)))
+	w.integrateOneCraft(w.ActiveCraft(), time.Duration(dt * float64(time.Second)))
 
 	gap := w.ActiveCraft().State.R.Sub(predicted.R).Norm()
 	// The two paths share Verlet step + SOI-rebase math; allow 1e6 m

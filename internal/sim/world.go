@@ -581,28 +581,32 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	}
 	dt := secs / float64(nSteps)
 	tickStart := w.Clock.SimTime.Add(-simDelta)
+	stepDur := time.Duration(dt * float64(time.Second))
 
 	sys := w.System()
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
-	for _, b := range sys.Bodies {
-		positions[b.ID] = w.BodyPosition(b)
-	}
-
+	clock := tickStart
 	for i := 0; i < nSteps; i++ {
 		if w.thrustingAt(c, tickStart, dt, i) {
 			w.stepThrust(c, mu, dt)
 		} else {
 			c.State = physics.StepVerlet(c.State, mu, dt)
 		}
+		clock = clock.Add(stepDur)
 
-		// Per-sub-step SOI re-evaluation. If the craft crossed into
-		// another body's SOI during this dt, rebase to that frame so
-		// the next sub-step uses the right μ.
+		// Per-sub-step SOI re-evaluation. v0.8.4: refresh body
+		// positions at the chunk's clock so high-warp ticks see body
+		// motion within the tick — matches the predictor, which is
+		// also time-aware. Without this an Earth→Mars Hohmann at high
+		// warp diverges from the dashed predictor line.
+		for _, b := range sys.Bodies {
+			positions[b.ID] = w.BodyPositionAt(b, clock)
+		}
 		inertial := positions[c.Primary.ID].Add(c.State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
 		if cand.Body.ID != c.Primary.ID {
-			vOld := w.bodyInertialVelocity(c.Primary)
-			vNew := w.bodyInertialVelocity(cand.Body)
+			vOld := w.bodyInertialVelocityAt(c.Primary, clock)
+			vNew := w.bodyInertialVelocityAt(cand.Body, clock)
 			c.State = physics.Rebase(c.State, positions[c.Primary.ID], cand.Inertial, vOld.Sub(vNew))
 			c.Primary = cand.Body
 			mu = c.Primary.GravitationalParameter()
