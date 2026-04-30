@@ -60,9 +60,16 @@ type OrbitView struct {
 	// rendered string for ▸ markers — that's robust to lipgloss
 	// column-padding / wrapping quirks that would throw off a
 	// "predicted from len(lines)" calculation. v0.8.2.x.
-	hudNodeHits []hudNodeHit
-	hudNodeRows []int // absolute screen row of each hudNodeHits entry
-	hudColStart int   // first screen-col of the HUD region
+	//
+	// hudScrollOffset is the number of rows the rendered output
+	// extends past the terminal's visible area. Bubbletea reports
+	// mouse coordinates relative to what's visible, so when the
+	// HUD overflows, we subtract this offset before matching.
+	hudNodeHits     []hudNodeHit
+	hudNodeRows     []int // HUD-relative row of each hudNodeHits entry, in the rendered string
+	hudScrollOffset int   // rows of overflow off the top when the rendered view exceeds terminal height
+	hudColStart     int   // first screen-col of the HUD region
+	totalRows       int   // last-known terminal height; updated by Render
 }
 
 // hudNodeHit identifies a clickable NODES-block entry. CraftIdx is
@@ -142,25 +149,22 @@ func (v *OrbitView) IsHudClick(col int) bool {
 // HitHudNode resolves a screen-space click against the HUD's
 // NODES block. Returns (craftIdx, nodeIdx, true) when the row
 // matches a recorded NODES entry and the column lands in the HUD
-// region; (-1, -1, false) otherwise. v0.8.2.x: row matching uses
-// the post-render scan in scanHudNodeRows + a ±1 row tolerance so
-// the click target spans the visible NODE line plus the blank
-// line below it.
+// region; (-1, -1, false) otherwise. v0.8.2.x:
+//   - row matching uses the post-render scan in scanHudNodeRows.
+//   - hudScrollOffset compensates for terminal scrolling when the
+//     rendered HUD overflows the visible area.
 func (v *OrbitView) HitHudNode(col, row int) (int, int, bool) {
 	if !v.IsHudClick(col) {
 		return -1, -1, false
 	}
-	// Title bar takes absolute screen row 0; HUD content starts at
-	// row 1. hudNodeRows stores HUD-relative row indices, so add 1
-	// for the comparison.
-	const titleOffset = 1
-	for i, hudRow := range v.hudNodeRows {
+	// hudNodeRows stores absolute rows in the rendered output;
+	// terminal-visible rows = rendered_row - hudScrollOffset.
+	for i, renderedRow := range v.hudNodeRows {
 		if i >= len(v.hudNodeHits) {
 			break
 		}
-		absRow := hudRow + titleOffset
-		// Two-row band: NODE line itself + the blank below.
-		if row == absRow || row == absRow+1 {
+		visibleRow := renderedRow - v.hudScrollOffset
+		if row == visibleRow {
 			h := v.hudNodeHits[i]
 			return h.craftIdx, h.nodeIdx, true
 		}
@@ -475,6 +479,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		BorderForeground(v.theme.Primary.GetForeground()).
 		Render(canvasStr)
 
+	v.totalRows = totalRows
 	hud := v.renderHUD(w, selectedIdx, totalCols-v.canvas.Cols()-4)
 	// HUD starts at the column right after canvas + its rounded
 	// border (1 col left, 1 col right). v0.8.2.x: needed by the
@@ -492,7 +497,19 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
-	return title + "\n" + body + "\n" + footer
+	out := title + "\n" + body + "\n" + footer
+	// v0.8.2.x: when the rendered output exceeds terminal height
+	// the terminal scrolls — top rows fall off-screen and bubbletea
+	// reports mouse coords relative to what's visible. Compute the
+	// scroll offset so HitHudNode can subtract it. The +1 status-
+	// bar overlay is replaced inline so it doesn't add a row.
+	totalRendered := strings.Count(out, "\n") + 1
+	if v.totalRows > 0 && totalRendered > v.totalRows {
+		v.hudScrollOffset = totalRendered - v.totalRows
+	} else {
+		v.hudScrollOffset = 0
+	}
+	return out
 }
 
 // renderTitleBar composes the orbit-screen title row: the existing
@@ -981,12 +998,15 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 					line = v.theme.Dim.Render(line)
 				}
 				// Record render-order; absolute row is filled in by
-				// the post-render scan below.
+				// the post-render scan below. Single-row entries —
+				// the v0.8.2.x blank-line spacing was dropped because
+				// it wasted vertical space and contributed to HUD
+				// overflow on multi-craft slates.
 				v.hudNodeHits = append(v.hudNodeHits, hudNodeHit{
 					craftIdx: ci,
 					nodeIdx:  i,
 				})
-				lines = append(lines, line, "")
+				lines = append(lines, line)
 			}
 		}
 
@@ -1101,18 +1121,17 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 
 	content := strings.Join(lines, "\n")
 	rendered := v.theme.HUDBox.Width(width).Render(content)
-	v.scanHudNodeRows(rendered)
+	// Title bar takes row 0 of the final rendered output; HUD's
+	// first row is row 1.
+	v.scanHudNodeRows(rendered, 1)
 	return rendered
 }
 
 // scanHudNodeRows walks the rendered HUD line-by-line and matches
 // rows containing the hudNodeMarker to the in-order hudNodeHits
-// slice. This is robust to layout offsets that an analytic
-// "1 + len(lines)" calculation can't anticipate (the HUDBox's own
-// rounded border adds a top row, side-by-side VESSEL+PROP columns
-// pad shorter side, etc). Row numbering is HUD-relative; the
-// caller (HitHudNode) adds the title-bar offset. v0.8.2.x.
-func (v *OrbitView) scanHudNodeRows(rendered string) {
+// slice. titleOffset is the screen-row of the HUD's first line in
+// the final rendered output (1 — title bar at row 0). v0.8.2.x.
+func (v *OrbitView) scanHudNodeRows(rendered string, titleOffset int) {
 	v.hudNodeRows = v.hudNodeRows[:0]
 	if len(v.hudNodeHits) == 0 {
 		return
@@ -1122,7 +1141,7 @@ func (v *OrbitView) scanHudNodeRows(rendered string) {
 		if !strings.Contains(row, hudNodeMarker) {
 			continue
 		}
-		v.hudNodeRows = append(v.hudNodeRows, i)
+		v.hudNodeRows = append(v.hudNodeRows, i+titleOffset)
 	}
 }
 
