@@ -1024,6 +1024,174 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 	return state, primaryID
 }
 
+// CapturePreview describes the post-arrival orbit at the last
+// inter-primary node in the active craft's planted chain. v0.8.2.x:
+// surfaces the capture-orbit inclination prominently so the player
+// catches retrograde-around-target gotchas (a prograde Hohmann to
+// Luna naturally arrives at ~110° lunar inclination, etc.) before
+// firing.
+//
+// Two modes:
+//
+//   - Exact: the chained predictor's rebase produced a sane state.R
+//     (well outside the target body's radius) and orbit elements
+//     reflect the post-burn capture orbit directly. ApoapsisM /
+//     PeriapsisM / Inclination / Hyperbolic are populated.
+//   - Approximate: state.R came out ~0 (perfect-aim Hohmann, the
+//     chained propagator's static body positions miss the SOI
+//     entry geometry). Instead, the preview reports the relative
+//     approach speed (|v_∞|) and a qualitative prograde / retrograde
+//     direction inferred from v_∞ vs target's parent-frame velocity.
+//     ApoapsisM / PeriapsisM / Inclination / Hyperbolic are zero;
+//     ApproachSpeed and RetrogradeCapture are populated.
+//
+// The Approximate flag distinguishes the two — HUD branches on it.
+type CapturePreview struct {
+	Primary      bodies.CelestialBody
+	NodeIndex    int       // index of the arrival node in c.Nodes
+	When         time.Time // sim-time at which the arrival fires
+	Approximate  bool      // true when only ApproachSpeed / RetrogradeCapture are populated
+	Inclination  float64   // radians, [0, π] — exact mode only
+	ApoapsisM    float64   // m, capture orbit apoapsis — exact mode only
+	PeriapsisM   float64   // m — exact mode only
+	Hyperbolic   bool      // capture failed — exact mode only
+	Eccentricity float64   // exact mode only
+	// Approximate-mode fields:
+	ApproachSpeed     float64 // |v_∞| relative to target (m/s)
+	RetrogradeCapture bool    // craft will orbit target in retrograde sense
+}
+
+// ArrivalCapturePreview returns a CapturePreview for the last node
+// in the active craft's plan that lands in a different primary's
+// frame, or ok=false when no such node is queued. v0.8.2.x.
+func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
+	c := w.ActiveCraft()
+	if c == nil || len(c.Nodes) == 0 || c.ActiveBurn != nil {
+		return CapturePreview{}, false
+	}
+	// Walk the planted chain, recording the post-burn state at any
+	// frame-changing node. The LAST such node is the capture point.
+	state := c.State
+	primary := c.Primary
+	clock := w.Clock.SimTime
+	systems := w.Systems
+	homeID := c.Primary.ID
+
+	var (
+		captureState   physics.StateVector
+		capturePrimary bodies.CelestialBody
+		captureTime    time.Time
+		captureIdx     = -1
+	)
+	for i, n := range c.Nodes {
+		if !n.IsResolved() {
+			continue
+		}
+		dt := n.TriggerTime.Sub(clock).Seconds()
+		if dt > 0 {
+			state, primary = w.propagateStateWithPrimary(state, primary, dt)
+			clock = n.TriggerTime
+		}
+		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
+			oldInertial := w.BodyPositionAt(primary, clock)
+			newInertial := w.BodyPositionAt(target, clock)
+			vOld := w.bodyInertialVelocityAt(primary, clock)
+			vNew := w.bodyInertialVelocityAt(target, clock)
+			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
+			primary = target
+		}
+		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		if dir.Norm() != 0 && n.DV != 0 {
+			state.V = state.V.Add(dir.Scale(n.DV))
+		}
+		// A node "captures" when it leaves the chain in a frame
+		// different from the craft's home primary.
+		if primary.ID != homeID {
+			captureState = state
+			capturePrimary = primary
+			captureTime = clock
+			captureIdx = i
+		}
+	}
+	if captureIdx < 0 {
+		return CapturePreview{}, false
+	}
+	// Detect degenerate "perfect-aim Hohmann" rebase: the chained
+	// propagator's static body positions don't actually enter the
+	// target's SOI during prediction, so when the rebase fires at
+	// the arrival node, state.R lands ~0 (craft exactly at the
+	// target's center). Orbit elements collapse and OrbitReadout
+	// reports Hyperbolic, which would mis-message the preview.
+	//
+	// Threshold is 5× target radius — generous, captures the
+	// "we're inside the body" case while still letting genuine
+	// SOI-edge encounters through to the exact path.
+	rThreshold := capturePrimary.RadiusMeters() * 5
+	if captureState.R.Norm() < rThreshold {
+		return w.approximateCapturePreview(captureState, capturePrimary, captureTime, captureIdx), true
+	}
+	mu := capturePrimary.GravitationalParameter()
+	ro := orbital.OrbitReadout(captureState.R, captureState.V, mu)
+	return CapturePreview{
+		Primary:      capturePrimary,
+		NodeIndex:    captureIdx,
+		When:         captureTime,
+		Inclination:  ro.Inclination,
+		ApoapsisM:    ro.ApoMeters,
+		PeriapsisM:   ro.PeriMeters,
+		Hyperbolic:   ro.Hyperbolic,
+		Eccentricity: ro.Eccentricity,
+	}, true
+}
+
+// approximateCapturePreview builds the qualitative preview shown
+// when the chained-predictor's state.R degenerates near the target.
+// |v_∞| comes from state.V (post-burn velocity in target frame —
+// post-burn rather than pre-burn so the player sees the residual
+// speed they'll actually live with). Direction is inferred from
+// v_∞ · v_target_parent_frame: negative dot product → craft moving
+// against target's orbital direction → retrograde capture.
+//
+// For Hohmann transfers from interior orbits (the typical Earth →
+// Luna case), this nearly always returns Retrograde=true. Outer →
+// inner Hohmanns can produce prograde encounters.
+func (w *World) approximateCapturePreview(
+	state physics.StateVector,
+	primary bodies.CelestialBody,
+	captureTime time.Time,
+	idx int,
+) CapturePreview {
+	approach := state.V.Norm()
+	retrograde := false
+
+	// Compare state.V (in target's frame) with target's velocity in
+	// its parent frame at captureTime. If they point opposite ways
+	// (negative dot product), craft enters target's SOI from "ahead"
+	// moving backward — retrograde capture. If positive, craft is
+	// catching up to target from behind — prograde capture.
+	sys := w.System()
+	if parent := sys.ParentOf(primary); parent != nil {
+		vTargetInert := w.bodyInertialVelocityAt(primary, captureTime)
+		vParentInert := w.bodyInertialVelocityAt(*parent, captureTime)
+		vTargetInParent := vTargetInert.Sub(vParentInert)
+		if vTargetInParent.Norm() > 0 && approach > 0 {
+			dot := state.V.X*vTargetInParent.X +
+				state.V.Y*vTargetInParent.Y +
+				state.V.Z*vTargetInParent.Z
+			retrograde = dot < 0
+		}
+	}
+
+	return CapturePreview{
+		Primary:           primary,
+		NodeIndex:         idx,
+		When:              captureTime,
+		Approximate:       true,
+		ApproachSpeed:     approach,
+		RetrogradeCapture: retrograde,
+	}
+}
+
 // PredictedLeg describes the trajectory leg following a single
 // planted maneuver node — the orbit the craft would fly between
 // this node firing and the next one (or for one orbital period if
@@ -1062,12 +1230,16 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			clock = n.TriggerTime
 		}
 		// Frame rebase if the node was planted in a specific
-		// destination frame (matches PredictedFinalOrbit's behavior).
+		// destination frame. v0.8.2.x: snapshot body position +
+		// velocity at the node's trigger time, not at SimTime — Luna
+		// moves ~30° around Earth in 3 days, and using SimTime here
+		// misplaces the rebase by Luna's actual motion, which
+		// distorts the post-capture inclination preview.
 		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
-			oldInertial := w.BodyPosition(primary)
-			newInertial := w.BodyPosition(target)
-			vOld := w.bodyInertialVelocity(primary)
-			vNew := w.bodyInertialVelocity(target)
+			oldInertial := w.BodyPositionAt(primary, clock)
+			newInertial := w.BodyPositionAt(target, clock)
+			vOld := w.bodyInertialVelocityAt(primary, clock)
+			vNew := w.bodyInertialVelocityAt(target, clock)
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
@@ -1253,10 +1425,10 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 		// crossed Mars's SOI at the rendezvous moment), and the
 		// post-burn orbit comes out as a heliocentric Sol orbit.
 		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
-			oldInertial := w.BodyPosition(primary)
-			newInertial := w.BodyPosition(target)
-			vOld := w.bodyInertialVelocity(primary)
-			vNew := w.bodyInertialVelocity(target)
+			oldInertial := w.BodyPositionAt(primary, clock)
+			newInertial := w.BodyPositionAt(target, clock)
+			vOld := w.bodyInertialVelocityAt(primary, clock)
+			vNew := w.bodyInertialVelocityAt(target, clock)
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}

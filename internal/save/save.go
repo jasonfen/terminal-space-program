@@ -103,6 +103,10 @@ type Craft struct {
 	MonopropCapacity float64 `json:"monoprop_capacity,omitempty"`
 	RCSThrust        float64 `json:"rcs_thrust,omitempty"`
 	RCSIsp           float64 `json:"rcs_isp,omitempty"`
+	LoadoutID        string  `json:"loadout_id,omitempty"`
+	Role             string  `json:"role,omitempty"`
+	Glyph            string  `json:"glyph,omitempty"`
+	Color            string  `json:"color,omitempty"`
 	// v0.8.1+ — per-craft burn state. Pre-v5 saves had Nodes /
 	// ActiveBurn / etc. on the Payload (one shared list); the
 	// migration on load splits the singular into the active craft's
@@ -265,6 +269,10 @@ func payloadFromWorld(w *sim.World) Payload {
 			RCSIsp:           c.RCSIsp,
 			AttitudeMode:     int(c.AttitudeMode),
 			EngineMode:       int(c.EngineMode),
+			LoadoutID:        c.LoadoutID,
+			Role:             c.Role,
+			Glyph:            c.Glyph,
+			Color:            c.Color,
 		}
 		for _, n := range c.Nodes {
 			var trigNano int64
@@ -360,6 +368,29 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			},
 			AttitudeMode: spacecraft.BurnMode(wc.AttitudeMode),
 			EngineMode:   spacecraft.EngineMode(wc.EngineMode),
+			LoadoutID:    wc.LoadoutID,
+			Role:         wc.Role,
+			Glyph:        wc.Glyph,
+			Color:        wc.Color,
+		}
+		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill
+		// from the loadout catalog so older saves get the visual
+		// differentiation without manual edits. LoadoutID empty
+		// resolves to the S-IVB-1 default.
+		if c.Glyph == "" || c.Color == "" {
+			l := spacecraft.LookupLoadout(c.LoadoutID)
+			if c.LoadoutID == "" {
+				c.LoadoutID = l.ID
+			}
+			if c.Role == "" {
+				c.Role = l.Role
+			}
+			if c.Glyph == "" {
+				c.Glyph = l.Glyph
+			}
+			if c.Color == "" {
+				c.Color = l.Color
+			}
 		}
 		// v0.8.1+: per-craft Nodes / ActiveBurn loaded directly from
 		// each Craft entry.

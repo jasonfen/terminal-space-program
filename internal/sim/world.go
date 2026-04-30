@@ -204,15 +204,26 @@ func (w *World) CraftVisibleHere() bool {
 }
 
 // BodyPosition returns the inertial position (m) of a body in the
-// current system at the current sim time. Primary (index 0) is
-// anchored at origin. Bodies with ParentID set (moons; v0.5.0+) are
-// resolved recursively as parent_position + position-relative-to-
-// parent, so Luna sits in Earth's frame, Io in Jupiter's, etc.
+// current system at the current sim time. Convenience wrapper over
+// BodyPositionAt at w.Clock.SimTime.
 func (w *World) BodyPosition(b bodies.CelestialBody) orbital.Vec3 {
+	return w.BodyPositionAt(b, w.Clock.SimTime)
+}
+
+// BodyPositionAt returns the inertial position (m) of a body at an
+// arbitrary sim time. Primary (index 0) is anchored at origin;
+// bodies with ParentID resolve recursively as parent + position-
+// relative-to-parent. v0.8.2.x: the time-aware variant lets the
+// chained-prediction path snapshot bodies at each node's actual
+// trigger time rather than at SimTime, which fixes inclination
+// previews on multi-day transfers (Luna moves ~30° in 3 days, so
+// using SimTime body positions misplaces the arrival rebase by
+// the same amount).
+func (w *World) BodyPositionAt(b bodies.CelestialBody, t time.Time) orbital.Vec3 {
 	if b.SemimajorAxis == 0 {
 		return orbital.Vec3{}
 	}
-	M := w.Calculator.CalculateMeanAnomaly(b, w.Clock.SimTime)
+	M := w.Calculator.CalculateMeanAnomaly(b, t)
 	E := orbital.SolveKepler(M, b.Eccentricity)
 	nu := orbital.TrueAnomaly(E, b.Eccentricity)
 	el := orbital.ElementsFromBody(b)
@@ -226,7 +237,7 @@ func (w *World) BodyPosition(b bodies.CelestialBody) orbital.Vec3 {
 		// Malformed ParentID — fall back to top-level treatment.
 		return rRel
 	}
-	return w.BodyPosition(*parent).Add(rRel)
+	return w.BodyPositionAt(*parent, t).Add(rRel)
 }
 
 // CraftInertial returns the spacecraft's inertial position (Sun-centered)
@@ -836,15 +847,20 @@ func (w *World) maybeSwitchPrimaryFor(c *spacecraft.Spacecraft) {
 }
 
 // bodyInertialVelocity returns the body's velocity in the system-
-// inertial frame. For top-level bodies that's velocity around the
-// system primary (μ = sun.GM). For moons (ParentID set) it's
-// parent's inertial velocity + the moon's velocity around its parent
-// (μ = parent.GM). v0.5.0+.
+// inertial frame at the current sim time. Convenience wrapper over
+// bodyInertialVelocityAt.
 func (w *World) bodyInertialVelocity(b bodies.CelestialBody) orbital.Vec3 {
+	return w.bodyInertialVelocityAt(b, w.Clock.SimTime)
+}
+
+// bodyInertialVelocityAt returns the body's velocity in the system-
+// inertial frame at an arbitrary sim time. Mirrors BodyPositionAt
+// for the chained-prediction-rebase use case. v0.8.2.x.
+func (w *World) bodyInertialVelocityAt(b bodies.CelestialBody, t time.Time) orbital.Vec3 {
 	if b.SemimajorAxis == 0 {
 		return orbital.Vec3{}
 	}
-	M := w.Calculator.CalculateMeanAnomaly(b, w.Clock.SimTime)
+	M := w.Calculator.CalculateMeanAnomaly(b, t)
 	E := orbital.SolveKepler(M, b.Eccentricity)
 	nu := orbital.TrueAnomaly(E, b.Eccentricity)
 	el := orbital.ElementsFromBody(b)
@@ -860,5 +876,5 @@ func (w *World) bodyInertialVelocity(b bodies.CelestialBody) orbital.Vec3 {
 	if b.ParentID == "" {
 		return vRel
 	}
-	return w.bodyInertialVelocity(*parent).Add(vRel)
+	return w.bodyInertialVelocityAt(*parent, t).Add(vRel)
 }

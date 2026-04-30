@@ -54,7 +54,37 @@ type OrbitView struct {
 	// terminal resizes. v0.7.4+.
 	menuColStart, menuColEnd         int
 	missionsColStart, missionsColEnd int
+
+	// hudNodeHits tracks NODES-block entries in render order. After
+	// each HUD render, hudNodeRows is filled in by scanning the
+	// rendered string for ▸ markers — that's robust to lipgloss
+	// column-padding / wrapping quirks that would throw off a
+	// "predicted from len(lines)" calculation. v0.8.2.x.
+	//
+	// hudScrollOffset is the number of rows the rendered output
+	// extends past the terminal's visible area. Bubbletea reports
+	// mouse coordinates relative to what's visible, so when the
+	// HUD overflows, we subtract this offset before matching.
+	hudNodeHits     []hudNodeHit
+	hudNodeRows     []int // HUD-relative row of each hudNodeHits entry, in the rendered string
+	hudScrollOffset int   // rows of overflow off the top when the rendered view exceeds terminal height
+	hudColStart     int   // first screen-col of the HUD region
+	totalRows       int   // last-known terminal height; updated by Render
 }
+
+// hudNodeHit identifies a clickable NODES-block entry. CraftIdx is
+// the craft slot that owns the node; NodeIdx is the 0-based index
+// into that craft's Nodes slice. Recorded in render order; the
+// matching screen row is in hudNodeRows[i].
+type hudNodeHit struct {
+	craftIdx int
+	nodeIdx  int
+}
+
+// hudNodeMarker is the visible click-affordance prefix inserted on
+// each NODES row. Re-used by post-render row scanning to locate
+// each entry's actual screen position.
+const hudNodeMarker = "▸"
 
 // minOrbitPixels is the projected apoapsis size below which an orbit
 // (live or planted-leg) is suppressed at render time. v0.6.1: at
@@ -114,6 +144,32 @@ func (v *OrbitView) IsCanvasClick(col, row int) bool {
 // panel (right of the canvas + its border).
 func (v *OrbitView) IsHudClick(col int) bool {
 	return col > v.canvas.Cols()+1
+}
+
+// HitHudNode resolves a screen-space click against the HUD's
+// NODES block. Returns (craftIdx, nodeIdx, true) when the row
+// matches a recorded NODES entry and the column lands in the HUD
+// region; (-1, -1, false) otherwise. v0.8.2.x:
+//   - row matching uses the post-render scan in scanHudNodeRows.
+//   - hudScrollOffset compensates for terminal scrolling when the
+//     rendered HUD overflows the visible area.
+func (v *OrbitView) HitHudNode(col, row int) (int, int, bool) {
+	if !v.IsHudClick(col) {
+		return -1, -1, false
+	}
+	// hudNodeRows stores absolute rows in the rendered output;
+	// terminal-visible rows = rendered_row - hudScrollOffset.
+	for i, renderedRow := range v.hudNodeRows {
+		if i >= len(v.hudNodeHits) {
+			break
+		}
+		visibleRow := renderedRow - v.hudScrollOffset
+		if row == visibleRow {
+			h := v.hudNodeHits[i]
+			return h.craftIdx, h.nodeIdx, true
+		}
+	}
+	return -1, -1, false
 }
 
 // ProjectToOrbit maps a screen-space click to the time-of-flight at
@@ -334,11 +390,22 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 		craftInertial := w.CraftInertial()
 		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
-			vesselTag := widgets.CellTag{Color: render.ColorCraftMarker, IsVessel: true}
-			if orbitVisible {
-				v.canvas.PlotArrowTagged(craftInertial, c.State.V, 5, vesselTag)
-			} else {
-				v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
+			activeColor := render.ColorCraftMarker
+			if c.Color != "" {
+				activeColor = lipgloss.Color(c.Color)
+			}
+			vesselTag := widgets.CellTag{Color: activeColor, IsVessel: true}
+			// v0.8.2+: active craft uses its loadout glyph just like
+			// non-active ones — the v0.7.x chevron-arrow rendering
+			// read as crusty next to the new ▲/◆/●/▼ markers, so the
+			// glyph wins for visual consistency. The colored dot
+			// underneath gives the cell a stable hit-test tag for
+			// click-on-vessel.
+			v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
+			if c.Glyph != "" {
+				if g := []rune(c.Glyph); len(g) > 0 {
+					v.canvas.SetCellOverlay(craftInertial, g[0])
+				}
 			}
 		}
 
@@ -357,11 +424,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			v.canvas.PlotColored(p.Inertial, render.ColorWarning)
 		}
 
-		// v0.8.1+: render non-active craft as dimmer markers + their
-		// current-orbit ellipse only (no chained predictions, no apo/
-		// peri ticks — those cluster the canvas). v0.8.2 will swap in
-		// per-craft glyph + color via Spacecraft.Glyph / Color so each
-		// craft reads distinctly even at small pixel size.
+		// v0.8.2+: render non-active craft with their per-loadout
+		// glyph + color so each vessel reads distinctly even at
+		// small pixel sizes. The current-orbit ellipse renders in
+		// the craft's own color (dim when no Color is set, falling
+		// back to ColorDim — preserves pre-v0.8.2 behaviour).
 		for i, other := range w.Crafts {
 			if i == w.ActiveCraftIdx || other == nil {
 				continue
@@ -371,11 +438,20 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			otherInertial := otherPrimaryPos.Add(other.State.R)
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
 			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
+			otherColor := lipgloss.Color(render.ColorDim)
+			if other.Color != "" {
+				otherColor = lipgloss.Color(other.Color)
+			}
 			if otherOrbitVisible {
-				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, 5, otherPrimaryPos, otherPxR, render.ColorDim)
+				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, 5, otherPrimaryPos, otherPxR, otherColor)
 			}
 			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
-				v.canvas.PlotColored(otherInertial, render.ColorCraftMarker)
+				v.canvas.PlotColored(otherInertial, otherColor)
+				if other.Glyph != "" {
+					if g := []rune(other.Glyph); len(g) > 0 {
+						v.canvas.SetCellOverlay(otherInertial, g[0])
+					}
+				}
 			}
 		}
 	}
@@ -403,7 +479,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		BorderForeground(v.theme.Primary.GetForeground()).
 		Render(canvasStr)
 
+	v.totalRows = totalRows
 	hud := v.renderHUD(w, selectedIdx, totalCols-v.canvas.Cols()-4)
+	// HUD starts at the column right after canvas + its rounded
+	// border (1 col left, 1 col right). v0.8.2.x: needed by the
+	// HUD-row hit-test below (HitHudNode) so a click in the HUD
+	// region routes to the maneuver editor, not body info.
+	v.hudColStart = v.canvas.Cols() + 2
 
 	craftChip := ""
 	if n := len(w.Crafts); n > 1 {
@@ -415,7 +497,19 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
-	return title + "\n" + body + "\n" + footer
+	out := title + "\n" + body + "\n" + footer
+	// v0.8.2.x: when the rendered output exceeds terminal height
+	// the terminal scrolls — top rows fall off-screen and bubbletea
+	// reports mouse coords relative to what's visible. Compute the
+	// scroll offset so HitHudNode can subtract it. The +1 status-
+	// bar overlay is replaced inline so it doesn't add a row.
+	totalRendered := strings.Count(out, "\n") + 1
+	if v.totalRows > 0 && totalRendered > v.totalRows {
+		v.hudScrollOffset = totalRendered - v.totalRows
+	} else {
+		v.hudScrollOffset = 0
+	}
+	return out
 }
 
 // renderTitleBar composes the orbit-screen title row: the existing
@@ -618,6 +712,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if width < 20 {
 		width = 20
 	}
+	// Reset the node-click hits before re-rendering — the NODES
+	// block re-populates them as it walks each craft's plan.
+	v.hudNodeHits = v.hudNodeHits[:0]
 	sys := w.System()
 
 	// section emits a divider + colored section header, used in place of
@@ -809,6 +906,52 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
+	// v0.8.2.x: arrival inclination preview. Surfaces the post-
+	// capture orbit at the last frame-changing planted node so the
+	// player catches retrograde-around-target gotchas (a prograde
+	// Hohmann to Luna naturally arrives at ~110° lunar inclination)
+	// before firing. The inclination is rendered in Warning when
+	// > 90° (retrograde capture) or > 30° (significant plane
+	// mismatch) so it stands out.
+	if cap, ok := w.ArrivalCapturePreview(); ok {
+		lines = append(lines, section("CAPTURE PREVIEW")...)
+		lines = append(lines, fmt.Sprintf("  primary:    %s", cap.Primary.EnglishName))
+		if cap.Approximate {
+			// "Perfect-aim" Hohmann case — only relative-velocity +
+			// qualitative direction. Exact inclination needs an SOI-
+			// aware integrator that tracks body motion during the
+			// transfer (deferred to v0.9+, see plan).
+			dirLabel := v.theme.Warning.Render("prograde")
+			if cap.RetrogradeCapture {
+				dirLabel = v.theme.Alert.Render("retrograde")
+			}
+			lines = append(lines,
+				fmt.Sprintf("  approach:   %.0f m/s relative", cap.ApproachSpeed),
+				fmt.Sprintf("  direction:  %s capture predicted", dirLabel),
+				v.theme.Dim.Render("  (exact incl. depends on SOI entry geometry)"),
+			)
+		} else {
+			primaryR := cap.Primary.RadiusMeters()
+			incDeg := cap.Inclination * 180 / math.Pi
+			incLabel := fmt.Sprintf("%.1f°", incDeg)
+			switch {
+			case cap.Hyperbolic:
+				incLabel = v.theme.Alert.Render("escape — capture failed")
+			case incDeg > 90:
+				incLabel = v.theme.Alert.Render(incLabel + " (retrograde)")
+			case incDeg > 30:
+				incLabel = v.theme.Warning.Render(incLabel)
+			}
+			lines = append(lines, fmt.Sprintf("  inclin.:    %s", incLabel))
+			if !cap.Hyperbolic {
+				lines = append(lines,
+					fmt.Sprintf("  apoapsis:   %.0f km alt", (cap.ApoapsisM-primaryR)/1000),
+					fmt.Sprintf("  periapsis:  %.0f km alt", (cap.PeriapsisM-primaryR)/1000),
+				)
+			}
+		}
+	}
+
 	// v0.8.1+: list nodes for every craft in the slate. The active
 	// craft's nodes appear at full intensity; other crafts' nodes
 	// fall in the Dim style with a `craft N:` prefix so the player
@@ -833,22 +976,36 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				if n.Duration > 0 {
 					kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
 				}
-				prefix := fmt.Sprintf("  #%d", i+1)
+				// v0.8.2.x: leading ▸ marker signals "this row is
+				// clickable." Post-render the HUD is scanned for
+				// the marker character to map each entry to its
+				// actual screen row — robust to lipgloss
+				// column-padding / wrapping quirks higher up.
+				prefix := fmt.Sprintf("%s #%d", hudNodeMarker, i+1)
 				if multiCraft {
-					prefix = fmt.Sprintf("  c%d#%d", ci+1, i+1)
+					prefix = fmt.Sprintf("%s c%d#%d", hudNodeMarker, ci+1, i+1)
 				}
 				var line string
 				if !n.IsResolved() {
-					line = fmt.Sprintf("%s %s  %s  %.0f m/s  %s",
+					line = fmt.Sprintf("  %s %s  %s  %.0f m/s  %s",
 						prefix, n.Event.String(), n.Mode.String(), n.DV, kind)
 				} else {
 					dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
-					line = fmt.Sprintf("%s T%+.0fs  %s  %.0f m/s  %s",
+					line = fmt.Sprintf("  %s T%+.0fs  %s  %.0f m/s  %s",
 						prefix, dt, n.Mode.String(), n.DV, kind)
 				}
 				if !isActive {
 					line = v.theme.Dim.Render(line)
 				}
+				// Record render-order; absolute row is filled in by
+				// the post-render scan below. Single-row entries —
+				// the v0.8.2.x blank-line spacing was dropped because
+				// it wasted vertical space and contributed to HUD
+				// overflow on multi-craft slates.
+				v.hudNodeHits = append(v.hudNodeHits, hudNodeHit{
+					craftIdx: ci,
+					nodeIdx:  i,
+				})
 				lines = append(lines, line)
 			}
 		}
@@ -963,7 +1120,29 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	}
 
 	content := strings.Join(lines, "\n")
-	return v.theme.HUDBox.Width(width).Render(content)
+	rendered := v.theme.HUDBox.Width(width).Render(content)
+	// Title bar takes row 0 of the final rendered output; HUD's
+	// first row is row 1.
+	v.scanHudNodeRows(rendered, 1)
+	return rendered
+}
+
+// scanHudNodeRows walks the rendered HUD line-by-line and matches
+// rows containing the hudNodeMarker to the in-order hudNodeHits
+// slice. titleOffset is the screen-row of the HUD's first line in
+// the final rendered output (1 — title bar at row 0). v0.8.2.x.
+func (v *OrbitView) scanHudNodeRows(rendered string, titleOffset int) {
+	v.hudNodeRows = v.hudNodeRows[:0]
+	if len(v.hudNodeHits) == 0 {
+		return
+	}
+	rows := strings.Split(rendered, "\n")
+	for i, row := range rows {
+		if !strings.Contains(row, hudNodeMarker) {
+			continue
+		}
+		v.hudNodeRows = append(v.hudNodeRows, i+titleOffset)
+	}
 }
 
 // normalizeDeg wraps an angle in degrees into [0, 360).

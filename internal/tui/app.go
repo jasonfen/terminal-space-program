@@ -25,6 +25,7 @@ const (
 	screenPorkchop
 	screenMenu
 	screenMissions
+	screenSpawn // v0.8.2+: craft-type pick form on `n`.
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -47,6 +48,7 @@ type App struct {
 	porkchop  *screens.Porkchop
 	menu      *screens.Menu
 	missions  *screens.Missions
+	spawn     *screens.SpawnCraft
 
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
@@ -83,6 +85,7 @@ func New() (*App, error) {
 		porkchop:  screens.NewPorkchop(sth),
 		menu:      screens.NewMenu(sth),
 		missions:  screens.NewMissions(sth),
+		spawn:     screens.NewSpawnCraft(sth),
 	}, nil
 }
 
@@ -223,6 +226,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
+			case a.hudNodeHit(m.X, m.Y):
+				// Handled inside hudNodeHit — opens the maneuver
+				// planner pre-loaded for the clicked node and (in
+				// multi-craft) switches active craft to its owner.
 			case a.orbitView.IsHudClick(m.X):
 				// HUD click → open body info for the currently
 				// selected body. Coarse: doesn't try to identify
@@ -263,6 +270,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			action := a.menu.HandleKey(m.String())
 			if action != screens.MenuActionNone {
 				return a.applyMenuAction(action)
+			}
+			return a, nil
+		}
+		// v0.8.2+: spawn-craft form. Enter spawns the selected
+		// loadout; Esc cancels back to orbit.
+		if a.active == screenSpawn {
+			action := a.spawn.HandleKey(m.String())
+			switch action {
+			case screens.SpawnActionConfirm:
+				spec := sim.SpawnSpec{
+					LoadoutID:    a.spawn.SelectedLoadoutID(),
+					ParentBodyID: a.spawn.SelectedParentID(),
+					AltitudeM:    a.spawn.SelectedAltitudeM(),
+					Retrograde:   a.spawn.SelectedRetrograde(),
+				}
+				if c, err := a.world.SpawnCraft(spec); err == nil {
+					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
+					a.statusExpires = time.Now().Add(3 * time.Second)
+				}
+				a.active = screenOrbit
+			case screens.SpawnActionCancel:
+				a.active = screenOrbit
 			}
 			return a, nil
 		}
@@ -371,15 +400,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.ResetFocus()
 			return a, nil
 		case key.Matches(m, a.keys.SpawnCraft):
-			// v0.8.1: minimal spawn — produces a sister copy of the
-			// active craft in a 500 km circular orbit around the same
-			// primary, offset 90° from the original. The full spawn
-			// form (parent body cycle, altitude knob, prograde toggle,
-			// craft type cycle once v0.8.2 lands) is a follow-up patch.
-			if c, err := a.world.SpawnSisterCraft(); err == nil {
-				a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
-				a.statusExpires = time.Now().Add(3 * time.Second)
+			// v0.8.2+: open the spawn form. Player picks craft
+			// type, parent body, altitude, and direction; Enter
+			// spawns; Esc cancels. Default parent is whatever the
+			// active craft currently orbits.
+			defaultParentID := ""
+			if c := a.world.ActiveCraft(); c != nil {
+				defaultParentID = c.Primary.ID
 			}
+			a.spawn.Reset(a.world.System().Bodies, defaultParentID)
+			a.active = screenSpawn
 			return a, nil
 		case key.Matches(m, a.keys.PlanTransfer):
 			if a.world.CraftVisibleHere() && a.selectedBody > 0 {
@@ -527,6 +557,36 @@ func (a *App) autosave() {
 	_ = a.doSave()
 }
 
+// hudNodeHit checks whether a HUD click landed on a NODES-block
+// entry; if so, switches active craft (when the clicked node lives
+// on a different craft) and opens the maneuver planner pre-loaded
+// for that node — same edit-replace UX as the canvas node-glyph
+// click. Returns true when handled. v0.8.2.x.
+func (a *App) hudNodeHit(x, y int) bool {
+	craftIdx, nodeIdx, ok := a.orbitView.HitHudNode(x, y)
+	if !ok {
+		return false
+	}
+	if craftIdx < 0 || craftIdx >= len(a.world.Crafts) {
+		return false
+	}
+	c := a.world.Crafts[craftIdx]
+	if c == nil || nodeIdx < 0 || nodeIdx >= len(c.Nodes) {
+		return false
+	}
+	// Switch active to the owning craft so the planner edits are
+	// targeted correctly and the post-edit projected orbit reflects
+	// the right craft.
+	if craftIdx != a.world.ActiveCraftIdx {
+		a.world.ActiveCraftIdx = craftIdx
+		a.world.StopManualBurn()
+	}
+	a.maneuver.LoadNode(nodeIdx, c.Nodes[nodeIdx])
+	a.world.Clock.Paused = true
+	a.active = screenManeuver
+	return true
+}
+
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
 // it just sets the held attitude (the v0.7.3.2 explicit-engage UX
 // stays — `b` actually fires the engine). In EngineRCS mode the same
@@ -622,6 +682,8 @@ func (a *App) View() string {
 		base = a.porkchop.Render(a.world, a.width, a.height)
 	case screenMenu:
 		base = a.menu.Render(a.width)
+	case screenSpawn:
+		base = a.spawn.Render(a.width)
 	case screenMissions:
 		base = a.missions.Render(a.world, a.width)
 	default:
