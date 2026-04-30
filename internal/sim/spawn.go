@@ -14,28 +14,52 @@ import (
 
 var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 
-// SpawnSpec describes a craft to spawn. v0.8.2 ships with just
-// LoadoutID; future patches add ParentBodyID, Altitude, and a
-// retrograde flag (see v0.8 plan §v0.8.1 spawn form). Empty
-// LoadoutID means "auto-pick" — the round-robin from
-// nextLoadoutID().
+// SpawnSpec describes a craft to spawn. v0.8.2 ships these axes:
+//   - LoadoutID:    propulsion archetype. Empty → round-robin via
+//                   nextLoadoutID().
+//   - ParentBodyID: which body to orbit. Empty → active craft's
+//                   current primary.
+//   - AltitudeM:    altitude above the parent's mean radius (m).
+//                   Zero → 500 km default.
+//   - Retrograde:   spawn going retrograde rather than prograde.
+//
+// Future patches may add inclination, a phase-angle offset, etc.
 type SpawnSpec struct {
-	LoadoutID string
+	LoadoutID    string
+	ParentBodyID string
+	AltitudeM    float64
+	Retrograde   bool
 }
 
 // SpawnCraft adds a new craft to the slate using the given spec.
-// The new craft spawns 90° around the active craft's primary in
-// a 500 km circular prograde orbit (the v0.8.2 fixed parameters).
-// After spawn the new craft becomes active. v0.8.2+.
+// The new craft is placed in a circular orbit at the requested
+// altitude, 90° around the parent body from the active craft's
+// position (or +Y if no offset is meaningful). After spawn the new
+// craft becomes active. v0.8.2+.
 func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	active := w.ActiveCraft()
 	if active == nil {
 		return nil, errNoActiveCraftToCopy
 	}
+
 	primary := active.Primary
+	if spec.ParentBodyID != "" {
+		sys := w.System()
+		if b := sys.FindBody(spec.ParentBodyID); b != nil {
+			primary = *b
+		}
+	}
+
+	alt := spec.AltitudeM
+	if alt <= 0 {
+		alt = 500e3
+	}
 	mu := primary.GravitationalParameter()
-	r := primary.RadiusMeters() + 500e3
+	r := primary.RadiusMeters() + alt
 	v := math.Sqrt(mu / r)
+	if spec.Retrograde {
+		v = -v
+	}
 
 	id := spec.LoadoutID
 	if id == "" {
