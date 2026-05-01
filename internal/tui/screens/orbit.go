@@ -312,11 +312,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 		// v0.8.4: atmospheric haze ring at (cutoff + scale-height)
-		// outside the body. Visible only while the body is small
-		// enough on screen to read as a halo (≤ AtmosphereVisibilityCap
-		// px) — at close zoom the ring just adds clutter.
+		// outside the body, floored to bodyPx + AtmosphereMinHaloPx
+		// so the halo always reads as a thin ring just outside the
+		// disk regardless of zoom.
 		if render.AtmosphereVisible(b, r) {
-			outerPx := render.AtmosphereOuterPx(b, scale)
+			outerPx := render.AtmosphereOuterPx(b, scale, r)
 			canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
 			if outerPx > r && outerPx < canvasReach {
 				v.canvas.RingColoredOutline(pos, outerPx, render.AtmosphereHazeColor(b))
@@ -627,7 +627,13 @@ func (v *OrbitView) HitMissionsButton(col, row int) bool {
 // there.
 func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64) int {
 	const trueSizeThreshold = 4
-	const trueSizeCap = 64 // keep the Sun from filling the canvas at extreme zoom-in
+	// v0.8.4: bumped 64 → 512 because at the previous cap further
+	// zoom did nothing visually — the body's apparent size froze
+	// while the camera kept zooming, which read as broken zoom. 512 px
+	// fills most terminals so the body grows naturally past "fills
+	// the canvas" before the cap engages; the cap still exists to
+	// keep the texture-fill cost bounded at degenerate zoom levels.
+	const trueSizeCap = 512
 	r := b.RadiusMeters()
 	if scale > 0 && r > 0 {
 		truePx := int(math.Round(r * scale))
