@@ -1507,6 +1507,13 @@ func (w *World) propagateStateWithPrimary(startState physics.StateVector, startP
 		state = physics.StepVerletWithAccel(state, muNow, step, func(r, v orbital.Vec3) orbital.Vec3 {
 			return physics.DragAccel(r, v, current, bc)
 		})
+		// v0.8.5: terminate propagation at surface contact. Mirrors the
+		// live integrator (sim/world.go) and the trajectory predictor
+		// (sim/predict.go) so node-planning sees the same landed state
+		// the live craft would arrive at.
+		if clamped, hit := physics.ClampToSurface(state, current); hit {
+			return clamped, current
+		}
 		clock = clock.Add(stepDur)
 
 		for _, b := range sys.Bodies {
