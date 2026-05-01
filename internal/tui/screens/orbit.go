@@ -273,8 +273,39 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// disk, so orbit lines and craft glyphs sharing nearby cells stay
 	// default-colored.
 	// See BodyPixelRadius for the size-tier logic.
-	scale := v.canvas.Scale()
 	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
+	// v0.8.5: when the focused craft is landed (altitude ≤ 0) — or the
+	// focused body is its primary — cap the zoom so the body's
+	// projected radius stays within canvas reach. Above this cap the
+	// body's drawn disk (capped at canvasReach px) can no longer reach
+	// back from its off-canvas center to the craft's pixel position,
+	// leaving the landed craft floating in empty space. Clamping every
+	// frame is intentional — manual [+] past the cap is silently
+	// ignored so the surface contact stays visually consistent with
+	// the HUD altitude readout. Skipped when the focus is unrelated
+	// (system view or a different body) so an unrelated zoom-in isn't
+	// surprisingly capped.
+	if c := w.ActiveCraft(); c != nil && c.Altitude() <= 0 {
+		focused := false
+		switch w.Focus.Kind {
+		case sim.FocusCraft:
+			focused = true
+		case sim.FocusBody:
+			if w.Focus.BodyIdx >= 0 && w.Focus.BodyIdx < len(sys.Bodies) &&
+				sys.Bodies[w.Focus.BodyIdx].ID == c.Primary.ID {
+				focused = true
+			}
+		}
+		if focused {
+			if r := c.Primary.RadiusMeters(); r > 0 {
+				maxScale := float64(canvasReach) / r
+				if v.canvas.Scale() > maxScale {
+					v.canvas.SetScale(maxScale)
+				}
+			}
+		}
+	}
+	scale := v.canvas.Scale()
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
