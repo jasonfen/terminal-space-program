@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -25,33 +26,31 @@ type SOISegment struct {
 // boundary, rebase the state vector to the new primary's frame and
 // switch μ for subsequent steps. Output shape (a slice of SOISegments)
 // is unchanged so the renderer keeps working.
-//
-// Body positions are still snapshot at Clock.SimTime — accurate for
-// short horizons relative to target body orbital period; an
-// approximation flagged in commit history for interplanetary horizons.
 func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64, samples int) []SOISegment {
-	return w.PredictedSegmentsFrom(post, w.ActiveCraft().Primary, totalSeconds, samples)
+	return w.PredictedSegmentsFrom(post, w.ActiveCraft().Primary, w.Clock.SimTime, totalSeconds, samples)
 }
 
 // PredictedSegmentsFrom is the same trajectory predictor but
-// parameterised on the starting primary. v0.6.1: used by the
-// multi-leg colored preview, where each leg starts in its own node-
-// planted frame (e.g. Hohmann departure leg in Earth, arrival leg
-// in Mars). Output shape unchanged from PredictedSegments.
-func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, totalSeconds float64, samples int) []SOISegment {
+// parameterised on the starting primary and clock. v0.6.1: used by
+// the multi-leg colored preview, where each leg starts in its own
+// node-planted frame (e.g. Hohmann departure leg in Earth, arrival
+// leg in Mars). v0.8.4: takes a startClock so body positions track
+// real time across the leg (per-sample refresh — sub-step refresh
+// would cost 60 % of a render frame on long horizons), and folds
+// atmospheric drag into the integrator via the active craft's
+// EffectiveBallisticCoefficient. Output shape unchanged.
+func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, totalSeconds float64, samples int) []SOISegment {
 	if w.ActiveCraft() == nil || samples < 2 {
 		return nil
 	}
 
 	sys := w.System()
-	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
-	for _, b := range sys.Bodies {
-		positions[b.ID] = w.BodyPosition(b)
-	}
+	bc := w.ActiveCraft().EffectiveBallisticCoefficient()
 
 	current := startPrimary
 	muNow := current.GravitationalParameter()
 	state := post
+	clock := startClock
 
 	period := orbitalPeriod(state, muNow)
 	maxStep := period / 100.0
@@ -59,6 +58,11 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 		maxStep = 1.0
 	}
 	stepSecs := totalSeconds / float64(samples-1)
+
+	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
+	for _, b := range sys.Bodies {
+		positions[b.ID] = w.BodyPositionAt(b, clock)
+	}
 
 	segments := []SOISegment{{
 		PrimaryID: current.ID,
@@ -74,8 +78,11 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 			nSub = 256
 		}
 		dt := stepSecs / float64(nSub)
+		stepDur := time.Duration(stepSecs * float64(time.Second))
 		for j := 0; j < nSub; j++ {
-			state = physics.StepVerlet(state, muNow, dt)
+			state = physics.StepVerletWithAccel(state, muNow, dt, func(r, v orbital.Vec3) orbital.Vec3 {
+				return physics.DragAccel(r, v, current, bc)
+			})
 
 			crossingInertial := positions[current.ID].Add(state.R)
 			cand := physics.FindPrimary(sys, crossingInertial, positions)
@@ -86,8 +93,8 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 				segments[len(segments)-1].Points = append(
 					segments[len(segments)-1].Points, crossingInertial)
 
-				vOld := w.bodyInertialVelocity(current)
-				vNew := w.bodyInertialVelocity(cand.Body)
+				vOld := w.bodyInertialVelocityAt(current, clock)
+				vNew := w.bodyInertialVelocityAt(cand.Body, clock)
 				state = physics.Rebase(state, positions[current.ID], cand.Inertial, vOld.Sub(vNew))
 				current = cand.Body
 				muNow = current.GravitationalParameter()
@@ -104,6 +111,17 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 				})
 			}
 		}
+		// Refresh body positions once per sample — bodies move slowly
+		// relative to one Verlet sub-step (typically minutes), so the
+		// per-sub-step SOI rebase above keeps using the previous-sample
+		// snapshot accurately enough; doing this only at the sample
+		// boundary keeps cost at ~96 refreshes per call regardless of
+		// horizon.
+		clock = clock.Add(stepDur)
+		for _, b := range sys.Bodies {
+			positions[b.ID] = w.BodyPositionAt(b, clock)
+		}
+
 		seg := &segments[len(segments)-1]
 		seg.Points = append(seg.Points, positions[current.ID].Add(state.R))
 	}
