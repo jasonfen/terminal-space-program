@@ -6,11 +6,13 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
 
-// AtmosphereVisibilityCap is the body-pixel-radius threshold past
-// which the haze ring is suppressed. Below the threshold the haze
-// reads as a halo around a small disk; above it the body fills the
-// view and a ring around it just adds clutter without adding depth.
-const AtmosphereVisibilityCap = 20
+// AtmosphereMinHaloPx is the minimum pixel gap between the body's
+// rendered edge and the haze ring. The physical atmosphere shell
+// (cutoff + scale-height) is only a couple percent of a planet's
+// radius, so without this floor the haze ring overlaps the body's
+// own outline at every reasonable zoom and is invisible. With the
+// floor the haze always reads as a thin halo just outside the disk.
+const AtmosphereMinHaloPx = 2
 
 // AtmosphereOuterMeters returns the distance from the body's center
 // at which the haze ring is drawn. The shell sits at
@@ -26,13 +28,20 @@ func AtmosphereOuterMeters(b bodies.CelestialBody) float64 {
 }
 
 // AtmosphereOuterPx projects AtmosphereOuterMeters into canvas pixels
-// at the given scale (px/m). Returns 0 when haze shouldn't render.
-func AtmosphereOuterPx(b bodies.CelestialBody, scale float64) int {
+// at the given scale (px/m), then floors the result to bodyPxRadius +
+// AtmosphereMinHaloPx so the ring is always at least a couple pixels
+// outside the body's rendered edge. Returns 0 when haze shouldn't
+// render (no atmosphere or zero scale).
+func AtmosphereOuterPx(b bodies.CelestialBody, scale float64, bodyPxRadius int) int {
 	outer := AtmosphereOuterMeters(b)
 	if outer <= 0 || scale <= 0 {
 		return 0
 	}
-	return int(outer * scale)
+	physical := int(outer * scale)
+	if floor := bodyPxRadius + AtmosphereMinHaloPx; physical < floor {
+		return floor
+	}
+	return physical
 }
 
 // AtmosphereHazeColor returns the haze tint for the body. Falls back
@@ -50,12 +59,11 @@ func AtmosphereHazeColor(b bodies.CelestialBody) lipgloss.Color {
 	return ColorFor(b)
 }
 
-// AtmosphereVisible reports whether the haze ring should render. False
-// for airless bodies and for bodies whose disk has grown past the
-// visibility cap.
+// AtmosphereVisible reports whether the haze ring should render.
+// False for airless bodies. v0.8.4 originally suppressed haze past
+// 20 px body radius; with the AtmosphereMinHaloPx floor the ring
+// stays readable as a thin halo at any zoom, so that suppression
+// is no longer needed.
 func AtmosphereVisible(b bodies.CelestialBody, pxRadius int) bool {
-	if b.Atmosphere == nil {
-		return false
-	}
-	return pxRadius < AtmosphereVisibilityCap
+	return b.Atmosphere != nil
 }

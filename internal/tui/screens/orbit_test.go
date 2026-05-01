@@ -195,10 +195,11 @@ func TestBodyPixelRadiusAdaptive(t *testing.T) {
 	if got := BodyPixelRadius(earth, false, 2e-6); got < 8 {
 		t.Errorf("close zoom: got %d px, want true-size ≥ 8", got)
 	}
-	// Extreme zoom-in shouldn't blow past the cap (64 px) and let
-	// Earth fill the entire canvas.
-	if got := BodyPixelRadius(earth, false, 1); got != 64 {
-		t.Errorf("absurd zoom: got %d px, want capped at 64", got)
+	// Extreme zoom-in shouldn't grow without bound. v0.8.4 raised
+	// the cap from 64 → 512 because at 64 the body froze visually
+	// well before filling the canvas.
+	if got := BodyPixelRadius(earth, false, 1); got != 512 {
+		t.Errorf("absurd zoom: got %d px, want capped at 512", got)
 	}
 }
 

@@ -42,22 +42,47 @@ func TestAtmosphereOuterMetersAirlessReturnsZero(t *testing.T) {
 	}
 }
 
-func TestAtmosphereVisibleSuppressesAtCloseZoom(t *testing.T) {
+func TestAtmosphereVisibleAtmosphered(t *testing.T) {
 	b := bodyWithAtm("")
-	if !AtmosphereVisible(b, AtmosphereVisibilityCap-1) {
-		t.Error("haze should be visible below the cap")
-	}
-	if AtmosphereVisible(b, AtmosphereVisibilityCap) {
-		t.Error("haze should be suppressed at the cap")
-	}
-	if AtmosphereVisible(b, AtmosphereVisibilityCap*2) {
-		t.Error("haze should be suppressed well past the cap")
+	for _, r := range []int{1, 5, 50, 500} {
+		if !AtmosphereVisible(b, r) {
+			t.Errorf("haze should render at body pxRadius=%d (any zoom)", r)
+		}
 	}
 }
 
 func TestAtmosphereVisibleAirless(t *testing.T) {
 	if AtmosphereVisible(bodyAirless(), 5) {
 		t.Error("airless body shouldn't render haze")
+	}
+}
+
+// TestAtmosphereOuterPxFloorsAboveBody: at small zoom the physical
+// (cutoff + scale-height) projection is sub-pixel relative to the
+// body's pixel radius, so the floor of bodyPxRadius +
+// AtmosphereMinHaloPx kicks in to keep the halo visible.
+func TestAtmosphereOuterPxFloorsAboveBody(t *testing.T) {
+	b := bodyWithAtm("")
+	// scale tiny — physical haze projects to fewer px than body.
+	// 1e-7 px/m × 6.529e6 m ≈ 0.65 px (rounds to 0). Floor must
+	// engage.
+	bodyPx := 10
+	got := AtmosphereOuterPx(b, 1e-7, bodyPx)
+	if got != bodyPx+AtmosphereMinHaloPx {
+		t.Errorf("low-zoom outer px = %d, want floor %d", got, bodyPx+AtmosphereMinHaloPx)
+	}
+}
+
+// TestAtmosphereOuterPxUsesPhysicalAtCloseZoom: at close zoom the
+// physical projection beats the floor, and the haze ring sits at
+// the literal (R + cutoff + H) projection.
+func TestAtmosphereOuterPxUsesPhysicalAtCloseZoom(t *testing.T) {
+	b := bodyWithAtm("")
+	// scale 1 px/m gives physical outer px = AtmosphereOuterMeters(b)
+	// ≈ 6.53e6 — far past any body floor.
+	got := AtmosphereOuterPx(b, 1, 100)
+	if got <= 100+AtmosphereMinHaloPx {
+		t.Errorf("close-zoom outer px = %d, want physical projection", got)
 	}
 }
 
