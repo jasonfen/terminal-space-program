@@ -17,10 +17,11 @@ func AtmosphericDensity(primary bodies.CelestialBody, altitude float64) float64 
 		return 0
 	}
 	if altitude < 0 {
-		// Craft below the surface is a numerically degenerate state
-		// (would-be terrain collision; real impact handling is
-		// deferred to v0.9+). Clamp drag to zero so the integrator
-		// doesn't blow up while the state is invalid.
+		// Defense in depth: callers should run ClampToSurface after
+		// each step (v0.8.5) so a craft never persists below the
+		// surface, but if a sub-step momentarily dips below before the
+		// clamp, returning zero density keeps the drag term finite.
+		// A real "crashed" state with destruction is deferred to v0.9+.
 		return 0
 	}
 	if altitude >= atm.CutoffAltitude {

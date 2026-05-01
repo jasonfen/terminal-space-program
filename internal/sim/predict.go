@@ -69,6 +69,7 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 		Points:    []orbital.Vec3{positions[current.ID].Add(state.R)},
 	}}
 
+predict:
 	for i := 1; i < samples; i++ {
 		nSub := int(math.Ceil(stepSecs / maxStep))
 		if nSub < 1 {
@@ -83,6 +84,17 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 			state = physics.StepVerletWithAccel(state, muNow, dt, func(r, v orbital.Vec3) orbital.Vec3 {
 				return physics.DragAccel(r, v, current, bc)
 			})
+
+			// v0.8.5: stop the predicted line at surface contact so
+			// the dashed trajectory terminates on the body instead of
+			// drawing the gravity-singularity slingshot loop.
+			if clamped, hit := physics.ClampToSurface(state, current); hit {
+				state = clamped
+				impact := positions[current.ID].Add(state.R)
+				segments[len(segments)-1].Points = append(
+					segments[len(segments)-1].Points, impact)
+				break predict
+			}
 
 			crossingInertial := positions[current.ID].Add(state.R)
 			cand := physics.FindPrimary(sys, crossingInertial, positions)

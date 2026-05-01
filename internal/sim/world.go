@@ -599,6 +599,13 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 				return physics.DragAccel(r, v, c.Primary, bc)
 			})
 		}
+		// v0.8.5: halt sub-stepping at surface contact. Without this,
+		// a craft that aerobrakes past altitude 0 keeps falling toward
+		// r=0 and the gravity singularity slingshots it back out.
+		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
+			c.State = clamped
+			break
+		}
 		clock = clock.Add(stepDur)
 
 		// Per-sub-step SOI re-evaluation. v0.8.4: refresh body
