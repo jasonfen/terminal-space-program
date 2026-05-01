@@ -311,6 +311,17 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				v.canvas.RingColoredOutline(pos, outerPx, color)
 			}
 		}
+		// v0.8.4: atmospheric haze ring at (cutoff + scale-height)
+		// outside the body. Visible only while the body is small
+		// enough on screen to read as a halo (≤ AtmosphereVisibilityCap
+		// px) — at close zoom the ring just adds clutter.
+		if render.AtmosphereVisible(b, r) {
+			outerPx := render.AtmosphereOuterPx(b, scale)
+			canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
+			if outerPx > r && outerPx < canvasReach {
+				v.canvas.RingColoredOutline(pos, outerPx, render.AtmosphereHazeColor(b))
+			}
+		}
 		// Body-identity glyph overlay (v0.5.12). Skip the system
 		// primary — it already has the ring+dot draw style and a
 		// glyph would clash. Other bodies get ☉ / ◉ / ● / ○ based on
