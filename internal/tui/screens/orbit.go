@@ -274,10 +274,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// default-colored.
 	// See BodyPixelRadius for the size-tier logic.
 	scale := v.canvas.Scale()
+	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
-		r := BodyPixelRadius(b, i == 0, scale)
+		r := BodyPixelRadius(b, i == 0, scale, canvasReach)
 		color := render.ColorFor(b)
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
@@ -306,7 +307,6 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// canvas has a samples cap as defense in depth.
 		if _, outerR, ok := render.BodyRings(b.ID); ok {
 			outerPx := int(outerR * scale)
-			canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
 			if outerPx > r && outerPx < canvasReach {
 				v.canvas.RingColoredOutline(pos, outerPx, color)
 			}
@@ -317,7 +317,6 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// disk regardless of zoom.
 		if render.AtmosphereVisible(b, r) {
 			outerPx := render.AtmosphereOuterPx(b, scale, r)
-			canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
 			if outerPx > r && outerPx < canvasReach {
 				v.canvas.RingColoredOutline(pos, outerPx, render.AtmosphereHazeColor(b))
 			}
@@ -388,7 +387,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// already been drawn (line ~115), the gap reads as natural
 		// occlusion. Apo / peri markers + the craft chevron use the
 		// same check.
-		primaryPxR := BodyPixelRadius(c.Primary, false, scale)
+		primaryPxR := BodyPixelRadius(c.Primary, false, scale, canvasReach)
 		if orbitVisible {
 			v.canvas.DrawEllipseOffsetOccluded(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
@@ -484,7 +483,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				continue
 			}
 			otherPrimaryPos := w.BodyPosition(other.Primary)
-			otherPxR := BodyPixelRadius(other.Primary, false, scale)
+			otherPxR := BodyPixelRadius(other.Primary, false, scale, canvasReach)
 			otherInertial := otherPrimaryPos.Add(other.State.R)
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
 			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
@@ -625,21 +624,24 @@ func (v *OrbitView) HitMissionsButton(col, row int) bool {
 // fallback path so the system primary always renders bigger than its
 // planets even when its physical radius wouldn't otherwise put it
 // there.
-func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64) int {
+func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxPx int) int {
 	const trueSizeThreshold = 4
-	// v0.8.4: bumped 64 → 512 because at the previous cap further
-	// zoom did nothing visually — the body's apparent size froze
-	// while the camera kept zooming, which read as broken zoom. 512 px
-	// fills most terminals so the body grows naturally past "fills
-	// the canvas" before the cap engages; the cap still exists to
-	// keep the texture-fill cost bounded at degenerate zoom levels.
-	const trueSizeCap = 512
+	// v0.8.4: cap is now passed in. Render callers thread canvas
+	// reach so the body disk can grow to fill the canvas at close
+	// zoom — without that, an altitude-0 craft renders visibly
+	// outside the disk, contradicting the HUD altitude readout.
+	// maxPx ≤ 0 falls back to a safe legacy default for tests and
+	// non-render callers (hit-test math).
+	cap := 512
+	if maxPx > 0 {
+		cap = maxPx
+	}
 	r := b.RadiusMeters()
 	if scale > 0 && r > 0 {
 		truePx := int(math.Round(r * scale))
 		if truePx >= trueSizeThreshold {
-			if truePx > trueSizeCap {
-				truePx = trueSizeCap
+			if truePx > cap {
+				truePx = cap
 			}
 			return truePx
 		}
