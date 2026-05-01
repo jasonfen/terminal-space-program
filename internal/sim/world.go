@@ -586,11 +586,18 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	sys := w.System()
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	clock := tickStart
+	bc := c.EffectiveBallisticCoefficient()
 	for i := 0; i < nSteps; i++ {
 		if w.thrustingAt(c, tickStart, dt, i) {
 			w.stepThrust(c, mu, dt)
 		} else {
-			c.State = physics.StepVerlet(c.State, mu, dt)
+			// v0.8.4: drag closure binds the craft's current primary
+			// (re-bound after each SOI rebase below by the loop var
+			// capture). Zero drag automatically when the primary has
+			// no atmosphere or the craft is above cutoff.
+			c.State = physics.StepVerletWithAccel(c.State, mu, dt, func(r, v orbital.Vec3) orbital.Vec3 {
+				return physics.DragAccel(r, v, c.Primary, bc)
+			})
 		}
 		clock = clock.Add(stepDur)
 
@@ -667,7 +674,15 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 			throttle = 1.0
 		}
 	}
-	accelFn := c.ThrustAccelFnAt(mode, mu, throttle)
+	thrustFn := c.ThrustAccelFnAt(mode, mu, throttle)
+	bc := c.EffectiveBallisticCoefficient()
+	primary := c.Primary
+	// v0.8.4: drag adds to thrust + gravity inside the RK4 closure so
+	// finite-burn ascent / descent through atmosphere feels the
+	// expected resistance.
+	accelFn := func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+		return thrustFn(r, v, t).Add(physics.DragAccel(r, v, primary, bc))
+	}
 	c.State = physics.StepRK4(c.State, dt, accelFn, 0)
 
 	if c.ActiveBurn != nil {
@@ -723,6 +738,18 @@ func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration) 
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	if el.E >= 1 || el.A <= 0 {
 		return false
+	}
+	// v0.8.4: drag breaks the analytic propagation. If the orbit's
+	// periapsis dips below the primary's atmospheric cutoff (or the
+	// craft is already inside the atmosphere), fall back to Verlet so
+	// the per-sub-step drag accel is integrated. Compared at the
+	// orbit periapsis altitude — if peri grazes atmosphere the orbit
+	// will decay over time, so analytic Kepler propagation is wrong.
+	if atm := c.Primary.Atmosphere; atm != nil {
+		periAlt := el.A*(1-el.E) - c.Primary.RadiusMeters()
+		if periAlt < atm.CutoffAltitude {
+			return false
+		}
 	}
 	return true
 }

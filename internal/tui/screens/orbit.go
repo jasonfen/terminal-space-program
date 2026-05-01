@@ -730,7 +730,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		}
 
 		samples := 96
-		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.HorizonSecs, samples)
+		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, samples)
 		legColor := render.ManeuverSegmentColor(leg.NodeIndex)
 		for _, seg := range segs {
 			stride := 2

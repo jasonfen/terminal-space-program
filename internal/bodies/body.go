@@ -65,6 +65,22 @@ type CelestialBody struct {
 	// hardcoded bodyPalette table; when empty, the table fallback +
 	// stellar-tint / bodyType-default chain still applies. v0.7.1+.
 	Color string `json:"color,omitempty"`
+
+	// Atmosphere, when non-nil, declares an exponential-density
+	// atmosphere for this body — drives drag (v0.8.4) and haze
+	// rendering. Bodies without atmospheres leave this nil.
+	Atmosphere *Atmosphere `json:"atmosphere,omitempty"`
+}
+
+// Atmosphere is an exponential-density atmospheric model:
+// ρ(h) = SurfaceDensity · exp(-h/ScaleHeight) for altitudes below
+// CutoffAltitude, zero above. Color is the haze tint used by the
+// renderer; defaults to body Color when empty.
+type Atmosphere struct {
+	ScaleHeight    float64 `json:"scaleHeight"`    // m
+	SurfaceDensity float64 `json:"surfaceDensity"` // kg/m³ at altitude 0
+	CutoffAltitude float64 `json:"cutoffAltitude"` // m above surface — drag = 0 above
+	Color          string  `json:"color,omitempty"`
 }
 
 type Planet struct {

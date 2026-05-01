@@ -88,6 +88,12 @@
       "density": 5.514,
       "gravity": 9.807,
       "escape": 11.186,
+      "atmosphere": {
+        "scaleHeight": 8500,
+        "surfaceDensity": 1.225,
+        "cutoffAltitude": 150000,
+        "color": "#9DC8FF"
+      },
       "moons": [
         { "id": "moon", "name": "Moon", "englishName": "Moon" }
       ]
@@ -112,7 +118,13 @@
       "sideralRotation": 24.6229,
       "density": 3.9335,
       "gravity": 3.711,
-      "escape": 5.027
+      "escape": 5.027,
+      "atmosphere": {
+        "scaleHeight": 11100,
+        "surfaceDensity": 0.020,
+        "cutoffAltitude": 100000,
+        "color": "#E07A4F"
+      }
     },
     {
       "id": "jupiter",

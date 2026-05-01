@@ -1199,10 +1199,11 @@ func (w *World) approximateCapturePreview(
 // distinct color so the player can read which orbit segment
 // belongs to which planted burn.
 type PredictedLeg struct {
-	NodeIndex   int                   // index into World.Nodes
-	State       physics.StateVector   // post-burn state in Primary's frame
-	Primary     bodies.CelestialBody  // frame the state is expressed in
-	HorizonSecs float64               // duration to predict for (until next node, or one period)
+	NodeIndex   int                  // index into World.Nodes
+	State       physics.StateVector  // post-burn state in Primary's frame
+	Primary     bodies.CelestialBody // frame the state is expressed in
+	HorizonSecs float64              // duration to predict for (until next node, or one period)
+	StartClock  time.Time            // wall-clock at which the post-burn state lives — drives time-aware body lookups in PredictedSegmentsFrom (v0.8.4+)
 }
 
 // PredictedLegs walks every resolved planted node and returns one
@@ -1265,6 +1266,7 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			State:       state,
 			Primary:     primary,
 			HorizonSecs: horizon,
+			StartClock:  clock,
 		})
 	}
 	return legs
@@ -1500,8 +1502,11 @@ func (w *World) propagateStateWithPrimary(startState physics.StateVector, startP
 	step := dt / float64(nSteps)
 	stepDur := time.Duration(step * float64(time.Second))
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
+	bc := w.ActiveCraft().EffectiveBallisticCoefficient()
 	for i := 0; i < nSteps; i++ {
-		state = physics.StepVerlet(state, muNow, step)
+		state = physics.StepVerletWithAccel(state, muNow, step, func(r, v orbital.Vec3) orbital.Vec3 {
+			return physics.DragAccel(r, v, current, bc)
+		})
 		clock = clock.Add(stepDur)
 
 		for _, b := range sys.Bodies {
