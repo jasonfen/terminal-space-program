@@ -262,6 +262,32 @@ func TestSubObserverPointAzimuthShiftsViewSide(t *testing.T) {
 	}
 }
 
+// TestProjectionDyConvention: regression test for the v0.8.5.7 fix
+// where canvas dy>0 (below body center on screen) was being treated
+// as positive latitude (north). Locks down "dy<0 = north" so a
+// future refactor doesn't silently flip Earth upside-down again.
+func TestProjectionDyConvention(t *testing.T) {
+	// Sub-observer at lat 0, lon 0 (equator-on view). Pixel
+	// directly above the body center on screen (dy<0) should
+	// project to a northern latitude.
+	latAbove, _, ok := projectPixelToLatLon(0, -10, 32, 0, 0)
+	if !ok {
+		t.Fatal("projection failed for valid disk pixel")
+	}
+	if latAbove <= 0 {
+		t.Errorf("dy=-10 (above center on screen) → lat=%v, want > 0 (north)", latAbove)
+	}
+	// Pixel directly below body center on screen (dy>0) should
+	// project to a southern latitude.
+	latBelow, _, ok := projectPixelToLatLon(0, 10, 32, 0, 0)
+	if !ok {
+		t.Fatal("projection failed for valid disk pixel")
+	}
+	if latBelow >= 0 {
+		t.Errorf("dy=+10 (below center on screen) → lat=%v, want < 0 (south)", latBelow)
+	}
+}
+
 func TestProjectionRoundTripsSubObserverPoint(t *testing.T) {
 	// Pixel at disk center (0, 0) must project back to the
 	// sub-observer point itself, regardless of subLat / subLon.
@@ -300,7 +326,8 @@ func TestProjectionEquatorOnMatchesV0Point8Point5(t *testing.T) {
 				continue
 			}
 			fnx := float64(nx) / float64(r)
-			fny := float64(ny) / float64(r)
+			// projectPixelToLatLon flips dy (canvas screen-down → ny up).
+			fny := -float64(ny) / float64(r)
 			wantLat := math.Asin(fny) * 180 / math.Pi
 			cosLat := math.Sqrt(1 - fny*fny)
 			wantLon := wrapDeg180(subLon + math.Asin(fnx/cosLat)*180/math.Pi)

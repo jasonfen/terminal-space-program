@@ -12,7 +12,7 @@ func TestMoonPixelColorHighland(t *testing.T) {
 	// nx = cos(-50°)*sin(60°) ≈ 0.557.
 	r := 32
 	dx := int(0.557 * float64(r))
-	dy := int(-0.766 * float64(r))
+	dy := int(0.766 * float64(r)) // dy>0 = below body center on screen → southern hemisphere
 	got := MoonPixelColor(dx, dy, r, 0, 0)
 	if got != ColorMoonHighland {
 		t.Errorf("highland sample = %q, want %q", string(got), string(ColorMoonHighland))
@@ -24,7 +24,7 @@ func TestMoonPixelColorMare(t *testing.T) {
 	// nx = cos(33°)*sin(-16°) ≈ -0.231.
 	r := 32
 	dx := int(-0.231 * float64(r))
-	dy := int(0.545 * float64(r))
+	dy := int(-0.545 * float64(r)) // dy<0 = above body center on screen → northern hemisphere
 	got := MoonPixelColor(dx, dy, r, 0, 0)
 	if got != ColorMoonMare {
 		t.Errorf("Mare Imbrium sample = %q, want %q", string(got), string(ColorMoonMare))
@@ -36,7 +36,7 @@ func TestMoonPixelColorCraterRay(t *testing.T) {
 	// nx = cos(-43°)*sin(-11°) ≈ -0.140.
 	r := 32
 	dx := int(-0.140 * float64(r))
-	dy := int(-0.682 * float64(r))
+	dy := int(0.682 * float64(r)) // dy>0 = below body center on screen → southern hemisphere
 	got := MoonPixelColor(dx, dy, r, 0, 0)
 	if got != ColorMoonRay {
 		t.Errorf("Tycho sample = %q, want %q", string(got), string(ColorMoonRay))
