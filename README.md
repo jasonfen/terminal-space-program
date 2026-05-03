@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.3**.
+Latest release: **v0.8.4**.
 
 ```bash
 # Linux x86_64
@@ -241,6 +241,14 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   captures retrograde, ~110° around Luna; the preview surfaces
   this before fire so you're not surprised). Inclination match
   also works from equatorial source orbits.
+- **Atmospheric drag** (v0.8.4+). Earth + Mars carry exponential
+  atmospheres (`ρ(h) = ρ_0 · exp(-h/H)`) with co-rotating velocity
+  reference, wired through both the live integrator (drag-aware
+  Verlet) and the predictor — so projected orbits decay realistically
+  on atmospheric-skim trajectories. Below the cutoff altitude the
+  Kepler warp-lock retreats to Verlet sub-stepping; surface-impact
+  craft clamp to the body and stop. A faint haze ring renders at
+  cutoff + scale-height around bodies with atmospheres.
 - **Docking + undocking** (v0.8.3+). Two craft within 50 m and
   below 0.1 m/s relative velocity sharing a primary frame fuse
   on the next tick — composite at the mass-weighted centroid
@@ -341,7 +349,7 @@ prints a warning to stderr and falls back to defaults.
 | v0.5 | Moons + visuals | Body hierarchy + major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus); per-body color, vessel trail, HUD polish. |
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
-| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Drag, sim-time rotation queued. |
+| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, co-rotating v_rel, drag-aware Verlet wired into live integrator + predictor, Kepler-warp-lock retreat below cutoff, surface-clamp on impact, haze halo) (v0.8.4). Sim-time rotation queued. |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -356,11 +364,7 @@ v0.8 — **multi-craft polish**. Slice breakdown in
 - ~~v0.8.1 — multi-craft foundation (selector + save schema v4 → v5 + keystroke spawn + per-craft burn state)~~ **shipped.**
 - ~~v0.8.2 — craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, capture preview, equatorial inclination match~~ **shipped.**
 - ~~v0.8.3 — docking + undocking + RENDEZVOUS HUD + alongside-spawn + engine-firing flame + per-thruster RCS puff visuals~~ **shipped.**
-- v0.8.2 — craft types (propulsion loadouts, roles, visual
-  differentiation, engine-firing / RCS-puffing visuals, staging).
-- v0.8.3 — docking — state-transition stub.
-- v0.8.4 — atmospheric drag (realistic Earth + Mars, drag-aware
-  predictor, atmospheric haze rendering).
+- ~~v0.8.4 — atmospheric drag (realistic Earth + Mars, drag-aware predictor, atmospheric haze rendering)~~ **shipped.**
 - v0.8.5 — sim-time planet rotation + tidally-locked perspectives +
   textured-bodies trickle (Saturn, Jovian moons, Uranus/Neptune).
 - v0.8.6 — controls polish bag (multi-rev porkchop UI keys,
