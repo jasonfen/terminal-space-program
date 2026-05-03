@@ -255,6 +255,20 @@ func TextureFor(b bodies.CelestialBody, pxRadius int, lon0Deg float64) BodyTextu
 		return func(dx, dy, r int) lipgloss.Color { return MarsPixelColor(dx, dy, r, lon0Deg) }
 	case "jupiter":
 		return func(dx, dy, r int) lipgloss.Color { return JupiterPixelColor(dx, dy, r, lon0Deg) }
+	case "saturn":
+		return func(dx, dy, r int) lipgloss.Color { return SaturnPixelColor(dx, dy, r, lon0Deg) }
+	case "uranus":
+		return func(dx, dy, r int) lipgloss.Color { return UranusPixelColor(dx, dy, r, lon0Deg) }
+	case "neptune":
+		return func(dx, dy, r int) lipgloss.Color { return NeptunePixelColor(dx, dy, r, lon0Deg) }
+	case "io":
+		return func(dx, dy, r int) lipgloss.Color { return IoPixelColor(dx, dy, r, lon0Deg) }
+	case "europa":
+		return func(dx, dy, r int) lipgloss.Color { return EuropaPixelColor(dx, dy, r, lon0Deg) }
+	case "ganymede":
+		return func(dx, dy, r int) lipgloss.Color { return GanymedePixelColor(dx, dy, r, lon0Deg) }
+	case "callisto":
+		return func(dx, dy, r int) lipgloss.Color { return CallistoPixelColor(dx, dy, r, lon0Deg) }
 	}
 	return nil
 }

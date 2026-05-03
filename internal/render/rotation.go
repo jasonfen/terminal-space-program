@@ -25,6 +25,9 @@ var bodyEpochOffsetDeg = map[string]float64{
 	"earth":   -30.0, // Americas + Atlantic + W. Europe + Africa visible
 	"mars":    -45.0, // prime meridian centered, Syrtis Major on right limb
 	"jupiter": 25.0,  // Great Red Spot visible
+	"saturn":  0.0,   // banded; polar hexagon at ~78°N regardless of lon0
+	"neptune": 30.0,  // Great Dark Spot near visible center at epoch
+	"uranus":  0.0,   // featureless banding; offset doesn't matter much
 	// Moon (and other tidally-locked bodies) use 0 — for tidally-
 	// locked rendering the visible face is dictated by orbital
 	// phase, so a baseline 0 keeps "near side facing parent" at
