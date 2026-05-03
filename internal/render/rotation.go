@@ -61,19 +61,25 @@ var (
 // CameraDirTop, etc. The orbit-flat view passes the active
 // orbit-plane normal.
 //
+// primMerDir is an optional override for the body's prime
+// meridian direction in the world frame. When non-zero, it
+// supersedes the rotation-phase model — used for tidally-locked
+// moons, where the prime meridian (lon=0) always points at the
+// parent body. Caller passes the unit vector from the moon
+// toward its parent at simTime; the function projects this onto
+// the equatorial plane to get the body x-axis. When primMerDir
+// is the zero vector, the function falls back to the inertial-
+// frame rotation-phase model (correct for free bodies and for
+// tidally-locked bodies whose parent isn't tracked here).
+//
 // The body's spin axis is modelled as lying in the world X-Z
 // plane (azimuth 0 in the inertial frame): n = (sin(tilt), 0,
-// cos(tilt)). The body's prime meridian at simTime = rotationEpoch
-// projects to world +X (after subtracting the spin component);
-// it then rotates around n at the body's sidereal rate (or the
-// orbital rate for tidally-locked moons, where the visible face
-// follows the parent).
-//
-// v0.8.5.7+ replaces the v0.8.5 "always equator-on" lon0
-// formulation with full view-aware geometry. ViewTop on a tilted
-// body now reveals polar regions; Uranus's 97° tilt makes it roll
-// pole-on along its orbit.
-func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3) (subLatDeg, subLonDeg float64) {
+// cos(tilt)). v0.8.5.7+ replaces the v0.8.5 "always equator-on"
+// lon0 formulation with full view-aware geometry. ViewTop on a
+// tilted body now reveals polar regions; Uranus's 97° tilt makes
+// it roll pole-on along its orbit; tidally-locked moons keep the
+// same face pointed at the parent regardless of orbit phase.
+func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3, primMerDir Vec3) (subLatDeg, subLonDeg float64) {
 	camDir = normalize(camDir)
 	// Body axis in world frame.
 	tiltRad := b.AxialTilt * math.Pi / 180.0
@@ -91,30 +97,33 @@ func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3)
 	}
 	subLatDeg = math.Asin(cz) * 180.0 / math.Pi
 
-	// Build body equatorial basis (x̂_body(0), ŷ_body(0)) at
-	// rotationEpoch. x̂_body(0) is world +X projected onto the
-	// equatorial plane — equivalently, the projection of the
-	// world +X axis perpendicular to n. When tilt is 90° this
-	// degenerates (world +X lies along n); fall back to world +Y.
-	var x0 Vec3
-	if math.Abs(cosT) < 1e-9 {
-		x0 = Vec3{0, 1, 0}
+	// Body x-axis (lon=0 meridian) in world frame at simTime.
+	// Two paths:
+	//   1. Caller-supplied primMerDir → project onto equatorial
+	//      plane (the supplied direction may have a component along
+	//      the spin axis we need to discard). This is the correct
+	//      model for tidally-locked bodies — primMerDir comes from
+	//      the moon → parent direction, so the lon=0 meridian
+	//      always points at the parent.
+	//   2. Default → rotate world +X (projected onto equatorial
+	//      plane) by the body's rotation phase since rotationEpoch.
+	//      Correct for free bodies; defensible (but inertial-frame-
+	//      fixed) for tidally-locked bodies without parent info.
+	var xt Vec3
+	if primMerDirNonzero(primMerDir) {
+		dirN := normalize(primMerDir)
+		// Project onto equatorial plane: subtract component along n.
+		proj := add(dirN, scale(n, -dot(dirN, n)))
+		if dot(proj, proj) < 1e-12 {
+			// primMerDir is parallel to spin axis — degenerate, fall
+			// back to the rotation-phase model below.
+			xt = bodyXAxisAtPhase(n, sinT, cosT, rotationPhaseRad(b, simTime))
+		} else {
+			xt = normalize(proj)
+		}
 	} else {
-		// Project world +X onto equatorial plane: e = (1,0,0) − n·n_x
-		// where n_x = sin(tilt). After scaling by 1/cosTilt this is
-		// (cos(tilt), 0, -sin(tilt)) — already a unit vector.
-		x0 = Vec3{cosT, 0, -sinT}
+		xt = bodyXAxisAtPhase(n, sinT, cosT, rotationPhaseRad(b, simTime))
 	}
-	y0 := cross(n, x0)
-
-	// Rotate body equatorial basis by the rotation phase θ(t).
-	// θ advances counterclockwise around n (right-hand rule); for
-	// retrograde bodies (negative SideralRotation) the sign carries
-	// through naturally.
-	phase := rotationPhaseRad(b, simTime)
-	sP := math.Sin(phase)
-	cP := math.Cos(phase)
-	xt := add(scale(x0, cP), scale(y0, sP))
 	yt := cross(n, xt)
 
 	// Sub-observer longitude is the angle between the camera
@@ -130,13 +139,38 @@ func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3)
 	return subLatDeg, subLonDeg
 }
 
+// bodyXAxisAtPhase returns the body x-axis (lon=0 meridian) in
+// world frame for a given rotation phase θ — used when the caller
+// hasn't supplied a primary-meridian direction. The body x-axis
+// at θ=0 is world +X projected onto the equatorial plane; it
+// rotates counterclockwise around n at the body's sidereal rate
+// (or orbital rate for tidally-locked).
+func bodyXAxisAtPhase(n Vec3, sinT, cosT float64, phase float64) Vec3 {
+	var x0 Vec3
+	if math.Abs(cosT) < 1e-9 {
+		x0 = Vec3{0, 1, 0}
+	} else {
+		x0 = Vec3{cosT, 0, -sinT}
+	}
+	y0 := cross(n, x0)
+	sP := math.Sin(phase)
+	cP := math.Cos(phase)
+	return add(scale(x0, cP), scale(y0, sP))
+}
+
+// primMerDirNonzero reports whether the supplied direction has
+// non-trivial magnitude. Helper for the optional-arg pattern.
+func primMerDirNonzero(v Vec3) bool {
+	return v.X*v.X+v.Y*v.Y+v.Z*v.Z > 1e-12
+}
+
 // SubObserverLongitudeDeg is the v0.8.5 entry point — lon at the
 // visible centre for an equator-on view. Retained as a thin wrapper
 // over SubObserverPointDeg(camDir = CameraDirRight) so callers that
 // only care about longitude (tests, simple debug paths) keep
 // working. New view-aware code should call SubObserverPointDeg.
 func SubObserverLongitudeDeg(b bodies.CelestialBody, simTime time.Time) float64 {
-	_, lon := SubObserverPointDeg(b, simTime, CameraDirRight)
+	_, lon := SubObserverPointDeg(b, simTime, CameraDirRight, Vec3{})
 	return lon
 }
 
