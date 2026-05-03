@@ -81,11 +81,8 @@ var (
 // same face pointed at the parent regardless of orbit phase.
 func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3, primMerDir Vec3) (subLatDeg, subLonDeg float64) {
 	camDir = normalize(camDir)
-	// Body axis in world frame.
-	tiltRad := b.AxialTilt * math.Pi / 180.0
-	sinT := math.Sin(tiltRad)
-	cosT := math.Cos(tiltRad)
-	n := Vec3{sinT, 0, cosT}
+	// Body axis in world frame (picks up AxialTilt + AxialAzimuth).
+	n := BodyRotationAxisWorld(b)
 
 	// subLat: angle between camera direction and equatorial plane,
 	// signed positive when camera is on the body's northern side.
@@ -105,24 +102,23 @@ func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3,
 	//      model for tidally-locked bodies — primMerDir comes from
 	//      the moon → parent direction, so the lon=0 meridian
 	//      always points at the parent.
-	//   2. Default → rotate world +X (projected onto equatorial
-	//      plane) by the body's rotation phase since rotationEpoch.
-	//      Correct for free bodies; defensible (but inertial-frame-
-	//      fixed) for tidally-locked bodies without parent info.
+	//   2. Default → rotate the body's reference x-axis (projection
+	//      of world +X onto the equatorial plane, fallback +Y for
+	//      degenerate cases) by the rotation phase since
+	//      rotationEpoch. Correct for free bodies; defensible (but
+	//      inertial-frame-fixed) for tidally-locked bodies without
+	//      parent info.
 	var xt Vec3
 	if primMerDirNonzero(primMerDir) {
 		dirN := normalize(primMerDir)
-		// Project onto equatorial plane: subtract component along n.
 		proj := add(dirN, scale(n, -dot(dirN, n)))
 		if dot(proj, proj) < 1e-12 {
-			// primMerDir is parallel to spin axis — degenerate, fall
-			// back to the rotation-phase model below.
-			xt = bodyXAxisAtPhase(n, sinT, cosT, rotationPhaseRad(b, simTime))
+			xt = bodyXAxisAtPhase(b, n, rotationPhaseRad(b, simTime))
 		} else {
 			xt = normalize(proj)
 		}
 	} else {
-		xt = bodyXAxisAtPhase(n, sinT, cosT, rotationPhaseRad(b, simTime))
+		xt = bodyXAxisAtPhase(b, n, rotationPhaseRad(b, simTime))
 	}
 	yt := cross(n, xt)
 
@@ -141,17 +137,13 @@ func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3,
 
 // bodyXAxisAtPhase returns the body x-axis (lon=0 meridian) in
 // world frame for a given rotation phase θ — used when the caller
-// hasn't supplied a primary-meridian direction. The body x-axis
-// at θ=0 is world +X projected onto the equatorial plane; it
-// rotates counterclockwise around n at the body's sidereal rate
-// (or orbital rate for tidally-locked).
-func bodyXAxisAtPhase(n Vec3, sinT, cosT float64, phase float64) Vec3 {
-	var x0 Vec3
-	if math.Abs(cosT) < 1e-9 {
-		x0 = Vec3{0, 1, 0}
-	} else {
-		x0 = Vec3{cosT, 0, -sinT}
-	}
+// hasn't supplied a primary-meridian direction. The reference
+// x-axis at θ=0 is the projection of world +X onto the equatorial
+// plane (or +Y when the axis is too close to +X to safely project
+// from). It rotates counterclockwise around n at the body's
+// sidereal rate (or orbital rate for tidally-locked).
+func bodyXAxisAtPhase(b bodies.CelestialBody, n Vec3, phase float64) Vec3 {
+	x0, _ := BodyRingBasisWorld(b)
 	y0 := cross(n, x0)
 	sP := math.Sin(phase)
 	cP := math.Cos(phase)
@@ -175,13 +167,23 @@ func SubObserverLongitudeDeg(b bodies.CelestialBody, simTime time.Time) float64 
 }
 
 // BodyRotationAxisWorld returns the body's spin axis as a unit
-// vector in the world inertial frame, derived from AxialTilt with
-// the X-Z-plane azimuth convention (n = (sin(tilt), 0, cos(tilt))).
-// v0.8.5.7+ — drives view-aware texture projection and ring-system
-// orientation for ringed bodies.
+// vector in the world inertial frame, derived from AxialTilt and
+// AxialAzimuth. The axis is
+//
+//	n = (sin(tilt)·cos(azimuth), sin(tilt)·sin(azimuth), cos(tilt))
+//
+// where tilt is the obliquity to the world Z-axis (orbital-plane
+// normal) and azimuth is the longitude of the axis's projection
+// onto the X-Y plane. With AxialAzimuth = 0 (the default for all
+// bodies populated through v0.8.5.7) this collapses to the
+// X-Z-plane convention `(sin(tilt), 0, cos(tilt))` the earlier
+// v0.8.5.7 work used.
 func BodyRotationAxisWorld(b bodies.CelestialBody) Vec3 {
 	tiltRad := b.AxialTilt * math.Pi / 180.0
-	return Vec3{math.Sin(tiltRad), 0, math.Cos(tiltRad)}
+	azRad := b.AxialAzimuth * math.Pi / 180.0
+	sinT := math.Sin(tiltRad)
+	cosT := math.Cos(tiltRad)
+	return Vec3{sinT * math.Cos(azRad), sinT * math.Sin(azRad), cosT}
 }
 
 // BodyRingBasisWorld returns two orthonormal basis vectors that
@@ -193,23 +195,29 @@ func BodyRotationAxisWorld(b bodies.CelestialBody) Vec3 {
 //
 // and project each sample through the canvas to draw the ring as
 // an ellipse that correctly foreshortens for the current view.
-// At AxialTilt = 90° the convention degenerates; falls back to
-// (ê1, ê2) = (world +Y, world +Z) — a sensible "ring lies in the
-// X = 0 plane" choice for the Uranus-class case.
+// Built directly from the spin-axis vector via Gram-Schmidt
+// against world +X (or +Y when degenerate), so it picks up
+// AxialAzimuth automatically. At AxialTilt = 90° aligned with
+// world +X the convention degenerates and we fall back to
+// (ê1, ê2) = (world +Y, world +Z).
 func BodyRingBasisWorld(b bodies.CelestialBody) (Vec3, Vec3) {
-	tiltRad := b.AxialTilt * math.Pi / 180.0
-	cT := math.Cos(tiltRad)
-	sT := math.Sin(tiltRad)
-	if math.Abs(cT) < 1e-9 {
+	n := BodyRotationAxisWorld(b)
+	// Pick a reference vector that's not parallel to n — world +X
+	// works for almost every body; fall back to world +Y when the
+	// spin axis is too close to +X (high-tilt + azimuth-0 bodies).
+	ref := Vec3{1, 0, 0}
+	if math.Abs(dot(n, ref)) > 0.999 {
+		ref = Vec3{0, 1, 0}
+	}
+	// Gram-Schmidt: project ref onto equatorial plane and normalise.
+	e1 := add(ref, scale(n, -dot(n, ref)))
+	if dot(e1, e1) < 1e-12 {
+		// Catastrophically degenerate (shouldn't happen given the
+		// fallback above) — emit a sensible default so the ring
+		// rendering doesn't crash on a NaN.
 		return Vec3{0, 1, 0}, Vec3{0, 0, 1}
 	}
-	// e1 = projection of world +X onto equatorial plane (already a
-	// unit vector since |x̂_eq| = 1 by construction). Same as the
-	// body x-axis at rotationEpoch — the ring is geometric, so we
-	// don't bother spinning the basis with sim time.
-	e1 := Vec3{cT, 0, -sT}
-	// e2 = n × e1.
-	n := Vec3{sT, 0, cT}
+	e1 = normalize(e1)
 	e2 := cross(n, e1)
 	return e1, e2
 }

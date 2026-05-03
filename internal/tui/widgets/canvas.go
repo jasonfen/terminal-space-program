@@ -131,6 +131,13 @@ func NewCanvas(cols, rows int) *Canvas {
 // restore. v0.6.4+.
 func (c *Canvas) SetBasis(b Basis) { c.basis = b }
 
+// Basis returns the canvas's current projection basis. v0.8.5.7+ —
+// callers (the orbit screen's view-aware texture pipeline) need
+// the basis to compute camera direction for ViewOrbitFlat, where
+// the depth axis is the active craft's orbit-plane normal rather
+// than a cardinal world axis.
+func (c *Canvas) Basis() Basis { return c.basis }
+
 // Resize updates the terminal-cell dimensions. Does not clear the canvas.
 func (c *Canvas) Resize(cols, rows int) {
 	if cols < 4 {

@@ -81,11 +81,22 @@ type CelestialBody struct {
 	// the orbital-plane normal), in degrees. Drives view-aware
 	// texture projection (v0.8.5.7+) — ViewTop on a tilted body
 	// reveals polar regions; Uranus's 97° tilt makes it roll
-	// pole-on along its orbit. The axis is modelled as lying in
-	// the world X-Z plane (azimuth 0 in the inertial frame),
-	// which captures tilt magnitude without per-body azimuth
-	// data — enough for the visual story this slice tells.
+	// pole-on along its orbit.
 	AxialTilt float64 `json:"axialTilt,omitempty"`
+
+	// AxialAzimuth is the body's spin-axis azimuth in the world
+	// inertial frame, in degrees. The axis projects onto the world
+	// X-Y plane at this angle measured counterclockwise from world
+	// +X (so 0° tips toward +X, 90° toward +Y, 180° toward -X).
+	// Combined with AxialTilt the unit spin axis is
+	//
+	//	n = (sin(tilt)·cos(azimuth), sin(tilt)·sin(azimuth), cos(tilt))
+	//
+	// Defaults to 0 — same as the v0.8.5.7 launch behaviour where
+	// every body's axis lay in the X-Z plane. Real bodies have
+	// varied pole directions; populating this field lets each one
+	// tip the right way once we have data.
+	AxialAzimuth float64 `json:"axialAzimuth,omitempty"`
 }
 
 // Atmosphere is an exponential-density atmospheric model:
