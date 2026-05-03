@@ -535,6 +535,19 @@ that gets drafted.
   v0.5.11 / v0.5.12 did). (4) gates on (3).
 - **Active-burn flame animation**. The arrow glyph could pulse / extend
   while a burn is firing.
+- **High-fidelity Earth raster (post-v0.8.5)**. v0.8.5.7 ships a
+  hand-crafted polygon-rasterised 144×72 (2.5°) land/sea/desert/ice
+  mask in `internal/render/earth_grid.go` — recognisable continents
+  with key islands (UK, Iceland, Italy, Sicily, Madagascar, Cuba,
+  Hispaniola, Sri Lanka, Sumatra, Java, Borneo, Sulawesi, New Guinea,
+  Philippines, Tasmania, NZ, Korean peninsula, Japan, etc.). Polygon
+  list is intentionally coarse (~50 polys × 10–20 verts each); higher
+  fidelity would come from swapping in a public-domain raster
+  (NOAA 1° ETOPO1 land/sea mask, ~64 KB embedded via `go:embed`).
+  Same `earthCellAt(lat, lon)` lookup signature; only the data
+  source changes. License-check the dataset (NOAA / Natural Earth
+  are public domain; OSM-derived data has CC BY-SA constraints).
+  Biome shading + atmospheric limb tint stay in EarthPixelColor.
 
 ### Polish / quality
 - **Race-detector CI**. Currently no `-race` because the local environment
