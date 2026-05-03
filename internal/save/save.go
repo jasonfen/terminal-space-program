@@ -344,11 +344,19 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	if p.SystemIdx < 0 || p.SystemIdx >= len(systems) {
 		return nil, fmt.Errorf("save: system_idx %d out of range (have %d systems)", p.SystemIdx, len(systems))
 	}
+	simT := time.Unix(0, p.SimTimeNano).UTC()
 	clock := &sim.Clock{
-		SimTime:  time.Unix(0, p.SimTimeNano).UTC(),
-		WarpIdx:  p.WarpIdx,
-		Paused:   p.Paused,
-		BaseStep: time.Duration(p.BaseStepNano),
+		SimTime: simT,
+		// v0.8.5.7+: RotationTime drives planet-rotation animation
+		// (capped at RotationCapWarp). Old saves don't carry it;
+		// initialise to SimTime so the rotation phase looks right
+		// at load time. The cap-induced lag is forgotten on save /
+		// reload, which is fine — rotation is an aesthetic, not
+		// authoritative state.
+		RotationTime: simT,
+		WarpIdx:      p.WarpIdx,
+		Paused:       p.Paused,
+		BaseStep:     time.Duration(p.BaseStepNano),
 	}
 	w := &sim.World{
 		Systems:   systems,
