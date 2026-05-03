@@ -321,8 +321,20 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// v0.8.5.7+: compute view-aware sub-observer point per
 			// body per frame. Camera direction comes from the canvas's
 			// current ViewMode; body axis tilt + sim-time rotation
-			// drive the (lat, lon) at the visible center.
-			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.SimTime, cameraDirForView(w.ViewMode))
+			// drive the (lat, lon) at the visible center. For
+			// tidally-locked bodies we also pass the body→parent
+			// direction so the prime meridian (lon=0) tracks the
+			// parent — keeps Luna's near side facing Earth as it
+			// orbits, instead of being fixed in inertial frame.
+			primMer := render.Vec3{}
+			if b.TidallyLocked {
+				if parent := sys.ParentOf(b); parent != nil && parent.ID != b.ID {
+					parentPos := w.BodyPosition(*parent)
+					rel := parentPos.Sub(pos)
+					primMer = render.Vec3{X: rel.X, Y: rel.Y, Z: rel.Z}
+				}
+			}
+			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.SimTime, cameraDirForView(w.ViewMode), primMer)
 			if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
 				// Per-pixel textured fill. The tag's BodyID / hit
 				// fields still propagate; only the per-pixel color

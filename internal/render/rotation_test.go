@@ -99,7 +99,7 @@ func TestSubObserverPointTopViewNoTiltIsPolar(t *testing.T) {
 	// Untilted body viewed from "top" (camera at +Z) — sub-observer
 	// is at the body's north pole, lat = 90°.
 	b := bodies.CelestialBody{ID: "x", SideralRotation: 24.0, AxialTilt: 0}
-	subLat, _ := SubObserverPointDeg(b, rotationEpoch, CameraDirTop)
+	subLat, _ := SubObserverPointDeg(b, rotationEpoch, CameraDirTop, Vec3{})
 	if math.Abs(subLat-90) > 1e-6 {
 		t.Errorf("ViewTop on tilt=0 body: subLat = %v, want 90", subLat)
 	}
@@ -109,7 +109,7 @@ func TestSubObserverPointSideViewNoTiltIsEquator(t *testing.T) {
 	// Untilted body viewed from "right" (camera at +X) — sub-observer
 	// is on the equator, lat = 0°.
 	b := bodies.CelestialBody{ID: "x", SideralRotation: 24.0, AxialTilt: 0}
-	subLat, _ := SubObserverPointDeg(b, rotationEpoch, CameraDirRight)
+	subLat, _ := SubObserverPointDeg(b, rotationEpoch, CameraDirRight, Vec3{})
 	if math.Abs(subLat) > 1e-6 {
 		t.Errorf("ViewRight on tilt=0 body: subLat = %v, want 0", subLat)
 	}
@@ -120,7 +120,7 @@ func TestSubObserverPointEarthTopShowsArctic(t *testing.T) {
 	// projecting up out of the orbital plane — sub-observer lat ≈
 	// 90 - 23.44 = 66.56°. (Inside the Arctic Circle by a hair.)
 	earth := bodies.CelestialBody{ID: "earth", SideralRotation: 24.0, AxialTilt: 23.44}
-	subLat, _ := SubObserverPointDeg(earth, rotationEpoch, CameraDirTop)
+	subLat, _ := SubObserverPointDeg(earth, rotationEpoch, CameraDirTop, Vec3{})
 	want := 90 - 23.44
 	if math.Abs(subLat-want) > 1e-3 {
 		t.Errorf("ViewTop on Earth: subLat = %v, want %v", subLat, want)
@@ -134,8 +134,8 @@ func TestSubObserverPointUranusRollsAlongOrbit(t *testing.T) {
 	// ViewRight (camera at +X) sees the body axis almost pointing
 	// at the camera — sub-observer lat is large (near pole).
 	uranus := bodies.CelestialBody{ID: "uranus", SideralRotation: -17.24, AxialTilt: 97.77}
-	subLatTop, _ := SubObserverPointDeg(uranus, rotationEpoch, CameraDirTop)
-	subLatRight, _ := SubObserverPointDeg(uranus, rotationEpoch, CameraDirRight)
+	subLatTop, _ := SubObserverPointDeg(uranus, rotationEpoch, CameraDirTop, Vec3{})
+	subLatRight, _ := SubObserverPointDeg(uranus, rotationEpoch, CameraDirRight, Vec3{})
 	if math.Abs(subLatTop) >= math.Abs(subLatRight) {
 		t.Errorf("Uranus rolls: ViewTop |lat| (%v) should be smaller than ViewRight |lat| (%v)",
 			subLatTop, subLatRight)
@@ -145,6 +145,66 @@ func TestSubObserverPointUranusRollsAlongOrbit(t *testing.T) {
 	}
 	if math.Abs(subLatTop) > 10 {
 		t.Errorf("Uranus ViewTop: subLat = %v, want |lat| < 10° (near-equator)", subLatTop)
+	}
+}
+
+func TestSubObserverPointTidallyLockedTracksParent(t *testing.T) {
+	// Tidally-locked moon with a primMerDir override should keep the
+	// near-side meridian (lon=0) pointed at the parent regardless of
+	// orbit phase. Concretely: as the moon orbits the parent, the
+	// camera at a fixed direction sees subLon shift by the angle
+	// between (camDir) and (moon→parent direction) projected on the
+	// equatorial plane, NOT by the rotation phase from epoch.
+	luna := bodies.CelestialBody{
+		ID:            "moon",
+		SideralOrbit:  27.321661,
+		TidallyLocked: true,
+		AxialTilt:     0,
+	}
+	cam := CameraDirRight // (+1, 0, 0)
+
+	// Case A: parent is at +X direction from moon (moon is at -X
+	// from parent). Camera at +X is pointed at the moon's near
+	// side → subLon = 0.
+	parentAtPlusX := Vec3{1, 0, 0}
+	_, lonA := SubObserverPointDeg(luna, rotationEpoch, cam, parentAtPlusX)
+	if math.Abs(lonA) > 1e-6 {
+		t.Errorf("near-side facing camera: subLon = %v, want 0", lonA)
+	}
+
+	// Case B: parent is at +Y direction from moon. The near-side
+	// meridian now points at +Y. Camera at +X is 90° from the
+	// near-side meridian → subLon = -90° (camera sees lon=-90
+	// because the body x-axis is at +Y and the camera is at +X,
+	// which is one quarter clockwise from +Y in the equatorial
+	// plane).
+	parentAtPlusY := Vec3{0, 1, 0}
+	_, lonB := SubObserverPointDeg(luna, rotationEpoch, cam, parentAtPlusY)
+	if math.Abs(lonB-(-90)) > 1e-6 {
+		t.Errorf("parent at +Y, camera at +X: subLon = %v, want -90", lonB)
+	}
+
+	// Case C: parent at -X — moon's near side faces away from
+	// camera at +X → subLon = ±180.
+	parentAtMinusX := Vec3{-1, 0, 0}
+	_, lonC := SubObserverPointDeg(luna, rotationEpoch, cam, parentAtMinusX)
+	if math.Abs(math.Abs(lonC)-180) > 1e-6 {
+		t.Errorf("far-side facing camera: subLon = %v, want ±180", lonC)
+	}
+}
+
+func TestSubObserverPointZeroPrimMerFallsBackToPhase(t *testing.T) {
+	// Passing the zero vector for primMerDir must reproduce the
+	// earlier rotation-phase behaviour exactly — protects callers
+	// that don't supply a parent direction (free bodies, or
+	// tidally-locked bodies with no parent metadata).
+	earth := bodies.CelestialBody{ID: "earth", SideralRotation: 24.0}
+	t1 := rotationEpoch.Add(6 * time.Hour) // ¼ day → ~90° spin
+	_, lonOverride := SubObserverPointDeg(earth, t1, CameraDirRight, Vec3{})
+	lonLegacy := SubObserverLongitudeDeg(earth, t1)
+	if math.Abs(lonOverride-lonLegacy) > 1e-9 {
+		t.Errorf("primMerDir=zero diverges from phase model: %v vs %v",
+			lonOverride, lonLegacy)
 	}
 }
 
