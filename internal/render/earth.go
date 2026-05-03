@@ -6,16 +6,24 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
 
-// Earth-surface palette. The base color is intentionally darker than
-// the v0.5.1 #5BB3FF "Earth blue" so land + cloud splotches read
-// against it; the existing palette entry stays the public face for
-// HUD labels and the body-info screen.
+// Earth-surface palette. v0.8.5.7 polish pass nudges the colors
+// toward the iconic "blue marble" look — deeper, slightly more
+// saturated ocean; biome-split land (boreal taiga / temperate /
+// tropical jungle) so high-latitude continents read browner and
+// equatorial ones read deeper green; warmer Sahara-tan desert;
+// bluer ice. ColorEarthLand is the temperate default — code
+// shifts to boreal / tropical based on the pixel's latitude when
+// rendering. The existing public palette entry (#5BB3FF) stays
+// the HUD-label face.
 const (
-	ColorEarthOcean = lipgloss.Color("#3D7AAB")
-	ColorEarthLand  = lipgloss.Color("#5C8C4A")
-	ColorEarthDesert = lipgloss.Color("#B59565")
-	ColorEarthIce   = lipgloss.Color("#E8EFF5")
-	ColorEarthCloud = lipgloss.Color("#F2F5FA")
+	ColorEarthOcean         = lipgloss.Color("#1F5F94") // deeper saturated blue
+	ColorEarthLand          = lipgloss.Color("#5C8C4A") // temperate green (default land)
+	ColorEarthLandTropical  = lipgloss.Color("#3E7A35") // tropical jungle, deeper / saturated
+	ColorEarthLandBoreal    = lipgloss.Color("#6B7A56") // boreal taiga, browner / drabber
+	ColorEarthDesert        = lipgloss.Color("#C8A06A") // brighter Sahara tan
+	ColorEarthIce           = lipgloss.Color("#E5EEF6") // slightly bluer ice
+	ColorEarthCloud         = lipgloss.Color("#F2F5FA")
+	ColorEarthAtmosphere    = lipgloss.Color("#6FA8D6") // atmospheric limb tint
 )
 
 // BodyTextureMinRadius is the minimum body pixel radius at which the
@@ -136,19 +144,29 @@ var earthClouds = []continentEllipse{
 // ViewRight/Left/Bottom show the equator with surface features
 // drifting across.
 //
-// Resolution order: ice cap > cloud > continents (in table order) >
-// ocean. Polar caps win over everything else in their lat band so
-// Antarctic ice doesn't get masked by a stray continent edge.
+// Resolution order: ice cap > atmospheric limb (over non-ice) >
+// cloud > biome-shaded continent > ocean.
+//
+// v0.8.5.7+: temperate ColorEarthLand auto-shifts to tropical
+// (|lat| < 23°) or boreal (|lat| ≥ 55°); the outer ~8% of the
+// disk (r² > 0.92) blends to ColorEarthAtmosphere over non-ice
+// pixels to give the disk a recognisable blue-marble halo.
 func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorEarthOcean
 	}
+	// Disk radial coord — used for the limb tint band.
+	nx := float64(dx) / float64(pxRadius)
+	ny := float64(dy) / float64(pxRadius)
+	r2 := nx*nx + ny*ny
+
 	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	// Polar ice caps. Antarctic Circle ≈ -66.5°, but we render a
 	// slightly larger cap (-70°) so the visual hits the eye even
 	// at small pxRadius. Arctic ice (above ~80°N) is mostly Arctic
 	// Ocean — Greenland is handled separately as ice in the
-	// continent table.
+	// continent table. Ice wins even at the limb so polar caps
+	// stay readable.
 	if lat < -70 {
 		return ColorEarthIce
 	}
@@ -168,12 +186,39 @@ func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipglos
 			color = c.color
 		}
 	}
+	// Land biome variation by latitude. Tropical / boreal shifts
+	// only apply to the temperate-default Land color — desert and
+	// ice continent entries (Sahara, Greenland) stay the explicit
+	// override they were tagged with.
+	if color == ColorEarthLand {
+		absLat := lat
+		if absLat < 0 {
+			absLat = -absLat
+		}
+		switch {
+		case absLat < 23:
+			color = ColorEarthLandTropical
+		case absLat >= 55:
+			color = ColorEarthLandBoreal
+		}
+	}
 	// Clouds layer on top of land or ocean alike — except over
 	// polar ice, which is already returned above.
 	for _, c := range earthClouds {
 		if inEllipse(lat, absLon, c) {
-			return c.color
+			color = c.color
+			break
 		}
+	}
+	// Atmospheric limb tint. Real Earth from space has a visible
+	// blue halo at the disk edge from atmospheric scattering;
+	// painting the outer ~8% of the disk in a sky-blue tint reads
+	// as that halo and makes the body feel atmospheric rather
+	// than a flat textured circle. Skip for ice (poles already
+	// bright at the limb) and for clouds (already light enough
+	// that the tint adds no contrast).
+	if r2 > 0.92 && color != ColorEarthIce && color != ColorEarthCloud {
+		color = ColorEarthAtmosphere
 	}
 	return color
 }

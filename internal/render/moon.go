@@ -8,12 +8,14 @@ import (
 // dominates the southern half + far side; mare is the dark basalt
 // flooding the northeastern near side ("man in the moon" pattern);
 // ray is the very-bright ejecta around fresh impacts (Tycho,
-// Copernicus). Picks tuned so all three read distinctly against the
-// canvas dark background.
+// Copernicus). v0.8.5.7 polish pass: highland warmed slightly
+// toward tan to match Apollo / LRO photography (real lunar
+// regolith reads slightly warmer than neutral grey), and mare
+// deepened a touch for contrast against the warmer highland.
 const (
-	ColorMoonHighland = lipgloss.Color("#C8C8C8") // matches the legacy bodyPalette["moon"]
-	ColorMoonMare     = lipgloss.Color("#5A5A65") // dark basalt, slightly cool grey-blue
-	ColorMoonRay      = lipgloss.Color("#F0F0F0") // crater ejecta + fresh ray systems
+	ColorMoonHighland = lipgloss.Color("#BFB8AA") // warm grey-tan regolith
+	ColorMoonMare     = lipgloss.Color("#4A4A55") // darker basalt for contrast
+	ColorMoonRay      = lipgloss.Color("#EFEAE0") // bright ejecta, slightly warm
 )
 
 // moonMaria is the canonical near-side mare layout in selenographic
