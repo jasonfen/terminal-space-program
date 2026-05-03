@@ -184,19 +184,77 @@ func GlyphFor(b bodies.CelestialBody) rune {
 	return 0
 }
 
-// BodyRings returns the inner and outer ring radii (meters from body
-// center) for ringed bodies, or ok=false if the body has no
-// renderable rings. Numbers are face-on simplifications — our
-// equatorial-plane projection always shows rings as concentric
-// circles, not the inclination-dependent ellipses real Saturn rings
-// project to.
+// Saturn ring palette. v0.8.5.7+ — the C / B / A bands have
+// different brightness (B is brightest, A medium, C dim), and the
+// thin F ring sits just outside A as a bright accent. The Cassini
+// Division between B and A is a visible gap (no band drawn), and
+// the F ring's narrow width is the "thread loose around Saturn"
+// look from Cassini photos.
+const (
+	ColorSaturnRingC = lipgloss.Color("#806E50") // C ring, dim grey-tan
+	ColorSaturnRingB = lipgloss.Color("#E8D9A8") // B ring, brightest pale gold
+	ColorSaturnRingA = lipgloss.Color("#B89968") // A ring, medium ochre
+	ColorSaturnRingF = lipgloss.Color("#F0E0B8") // F ring, thin bright thread
+)
+
+// RingBand is one annular band of a body's ring system: an inner
+// and outer radius (meters from body center) plus the band color.
+// v0.8.5.7+ — multi-band ring rendering for Saturn.
+type RingBand struct {
+	InnerR float64        // meters from body center
+	OuterR float64        // meters from body center
+	Color  lipgloss.Color // band color (passed through to canvas pixel tags)
+}
+
+// BodyRings returns the inner and outer radii of a body's ring
+// system overall (union of all bands), or ok=false if the body
+// has no renderable rings. Backward-compat wrapper for callers
+// that just need the outer extent (e.g. "should I render rings
+// at the current zoom?"). New code should prefer BodyRingBands
+// for the per-band detail.
 func BodyRings(bodyID string) (innerR, outerR float64, ok bool) {
+	bands := BodyRingBands(bodyID)
+	if len(bands) == 0 {
+		return 0, 0, false
+	}
+	innerR = bands[0].InnerR
+	outerR = bands[len(bands)-1].OuterR
+	for _, b := range bands {
+		if b.InnerR < innerR {
+			innerR = b.InnerR
+		}
+		if b.OuterR > outerR {
+			outerR = b.OuterR
+		}
+	}
+	return innerR, outerR, true
+}
+
+// BodyRingBands returns the per-band ring layout for ringed bodies.
+// Bands are returned in order from innermost to outermost so
+// callers can iterate radially. Saturn's layout: C ring (dim) →
+// B ring (brightest) → Cassini Division (gap, not in list) →
+// A ring (medium) → F ring (thin bright thread). v0.8.5.7+.
+//
+// Numbers are textbook radii (NASA Cassini fact-sheet); the
+// equatorial-plane projection means callers see them foreshortened
+// per the canvas view direction.
+func BodyRingBands(bodyID string) []RingBand {
 	switch bodyID {
 	case "saturn":
-		// Saturn's main ring system: inner edge of D ring ~67k km,
-		// outer edge of A ring ~140k km. Use B–A range for a single
-		// visible ring outline (the brightest part).
-		return 92000e3, 137000e3, true
+		return []RingBand{
+			// C ring: 74,000 km – 92,000 km (dim, grey-tan).
+			{InnerR: 74000e3, OuterR: 92000e3, Color: ColorSaturnRingC},
+			// B ring: 92,000 km – 117,500 km (brightest, pale gold).
+			{InnerR: 92000e3, OuterR: 117500e3, Color: ColorSaturnRingB},
+			// Cassini Division: 117,500 km – 122,000 km — skip; a
+			// visible gap reads in the rendered ring annulus.
+			// A ring: 122,000 km – 137,000 km (medium ochre).
+			{InnerR: 122000e3, OuterR: 137000e3, Color: ColorSaturnRingA},
+			// F ring: ~140,000 km, very narrow (~500 km wide). Thin
+			// bright accent just outside A.
+			{InnerR: 140000e3, OuterR: 140500e3, Color: ColorSaturnRingF},
+		}
 	}
-	return 0, 0, false
+	return nil
 }

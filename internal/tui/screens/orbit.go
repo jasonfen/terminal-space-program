@@ -340,18 +340,41 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// draw when the outer ring would visibly clear the body's
 		// rendered disk. v0.5.15: skip if outerPx is beyond a sane
 		// canvas multiple — at extreme zoom the ring projects to
-		// millions of pixels and is entirely off-canvas anyway. The
-		// canvas has a samples cap as defense in depth.
+		// millions of pixels and is entirely off-canvas anyway.
 		// v0.8.5.7+: ring lies in the body's equatorial plane, not
-		// the screen plane. With Saturn's 26.7° axial tilt, this
-		// foreshortens the ring to an ellipse that depends on the
-		// current view direction — face-on from one polar view,
-		// edge-on from the side perpendicular to the tilt axis.
-		if _, outerR, ok := render.BodyRings(b.ID); ok {
+		// the screen plane (foreshortens per camera direction +
+		// AxialTilt) AND splits into per-band annuli (Saturn's C /
+		// B / A / F rings with the Cassini Division as a visible
+		// gap), drawn as filled concentric outlines through each
+		// band so the band reads as a coherent surface rather than
+		// a single perimeter.
+		if bands := render.BodyRingBands(b.ID); len(bands) > 0 {
+			_, outerR, _ := render.BodyRings(b.ID)
 			outerPx := int(outerR * scale)
 			if outerPx > r && outerPx < canvasReach {
 				e1, e2 := render.BodyRingBasisWorld(b)
-				v.canvas.RingTiltedOutline(pos, vec3FromRender(e1), vec3FromRender(e2), outerR, color)
+				oe1 := vec3FromRender(e1)
+				oe2 := vec3FromRender(e2)
+				for _, band := range bands {
+					// Fill each band by drawing concentric outlines
+					// at 1-pixel-screen-spacing radii. Cap per-band
+					// outline count so a deeply-zoomed ring system
+					// doesn't blow the loop budget; the canvas
+					// already caps samples-per-outline.
+					widthPx := int((band.OuterR - band.InnerR) * scale)
+					if widthPx < 1 {
+						widthPx = 1
+					}
+					n := widthPx
+					if n > 64 {
+						n = 64
+					}
+					for i := 0; i < n; i++ {
+						t := (float64(i) + 0.5) / float64(n)
+						bandR := band.InnerR + t*(band.OuterR-band.InnerR)
+						v.canvas.RingTiltedOutline(pos, oe1, oe2, bandR, band.Color)
+					}
+				}
 			}
 		}
 		// v0.8.4: atmospheric haze ring at (cutoff + scale-height)
