@@ -144,6 +144,47 @@ func TestFocusPositionForCraftMatchesCraftInertial(t *testing.T) {
 	}
 }
 
+// TestFocusZoomRadiusTerminalMoonTightZoom: v0.8.5.7+ — terminal
+// bodies (no children) get a tight 8×-radius zoom so the surface
+// texture is clearly visible when focused. Bodies with children
+// (Earth, Mars, Jupiter, Saturn) keep the SOI-radius view so their
+// moons stay in frame.
+func TestFocusZoomRadiusTerminalMoonTightZoom(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sys := w.System()
+	var earthIdx, lunaIdx int = -1, -1
+	for i, b := range sys.Bodies {
+		switch b.ID {
+		case "earth":
+			earthIdx = i
+		case "moon":
+			lunaIdx = i
+		}
+	}
+	if earthIdx == -1 || lunaIdx == -1 {
+		t.Fatal("Sol system missing earth and/or moon")
+	}
+	// Luna (terminal): expect ~8× radius zoom.
+	w.Focus = Focus{Kind: FocusBody, BodyIdx: lunaIdx}
+	luna := sys.Bodies[lunaIdx]
+	want := luna.RadiusMeters() * 8
+	got := w.FocusZoomRadius()
+	if got != want {
+		t.Errorf("Luna focus zoom: got %g, want %g (8× body radius)", got, want)
+	}
+	// Earth (has Luna as child): zoom should be SOI, much larger
+	// than 8× radius.
+	w.Focus = Focus{Kind: FocusBody, BodyIdx: earthIdx}
+	earth := sys.Bodies[earthIdx]
+	got = w.FocusZoomRadius()
+	if got <= earth.RadiusMeters()*8 {
+		t.Errorf("Earth focus zoom = %g, expected SOI-class (much > 8× radius)", got)
+	}
+}
+
 func TestFocusZoomRadiusNonzeroForAllTargets(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
