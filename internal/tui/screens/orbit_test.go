@@ -164,7 +164,7 @@ func TestBodyPixelRadiusMonotonic(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			b := bodies.CelestialBody{MeanRadius: c.radius / 1000} // Radius field is in km
-			got := BodyPixelRadius(b, false, 0)                   // scale=0 → tier path
+			got := BodyPixelRadius(b, false, 0, 0)                // scale=0 → tier path; cap=0 → default
 			if got != c.want {
 				t.Errorf("got pxRadius=%d, want %d (radius %.0f km)",
 					got, c.want, c.radius/1000)
@@ -187,18 +187,24 @@ func TestBodyPixelRadiusAdaptive(t *testing.T) {
 
 	// Sol-wide zoom: 6378 km × ~1e-12 px/m → way below threshold,
 	// stays at terrestrial tier (2 px).
-	if got := BodyPixelRadius(earth, false, 1e-12); got != 2 {
+	if got := BodyPixelRadius(earth, false, 1e-12, 0); got != 2 {
 		t.Errorf("system zoom: got %d px, want 2 (tier)", got)
 	}
 	// FocusCraft-style zoom: scale ~2e-6 px/m → 6.378e6 m × 2e-6 ≈
 	// 13 px, well past the 4 px threshold. Should render true.
-	if got := BodyPixelRadius(earth, false, 2e-6); got < 8 {
+	if got := BodyPixelRadius(earth, false, 2e-6, 0); got < 8 {
 		t.Errorf("close zoom: got %d px, want true-size ≥ 8", got)
 	}
-	// Extreme zoom-in shouldn't blow past the cap (64 px) and let
-	// Earth fill the entire canvas.
-	if got := BodyPixelRadius(earth, false, 1); got != 64 {
-		t.Errorf("absurd zoom: got %d px, want capped at 64", got)
+	// Extreme zoom-in with default cap (maxPx=0 → 512).
+	if got := BodyPixelRadius(earth, false, 1, 0); got != 512 {
+		t.Errorf("absurd zoom default cap: got %d px, want 512", got)
+	}
+	// Render-side cap (passed in by callers) overrides the default.
+	// v0.8.4: render call sites thread canvas reach so the body
+	// disk grows to the canvas edge — fixes the visual lie where an
+	// altitude-0 craft floated outside a clamped-small disk.
+	if got := BodyPixelRadius(earth, false, 1, 1024); got != 1024 {
+		t.Errorf("absurd zoom canvas cap: got %d px, want 1024", got)
 	}
 }
 
@@ -207,8 +213,8 @@ func TestBodyPixelRadiusAdaptive(t *testing.T) {
 // it from planets.
 func TestBodyPixelRadiusPrimaryFlag(t *testing.T) {
 	small := bodies.CelestialBody{MeanRadius: 1000} // 1000 km = terrestrial
-	nonPrim := BodyPixelRadius(small, false, 0)
-	prim := BodyPixelRadius(small, true, 0)
+	nonPrim := BodyPixelRadius(small, false, 0, 0)
+	prim := BodyPixelRadius(small, true, 0, 0)
 	if prim <= nonPrim {
 		t.Errorf("primary flag should promote size: non-primary=%d primary=%d",
 			nonPrim, prim)

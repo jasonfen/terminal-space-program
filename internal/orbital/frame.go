@@ -17,6 +17,15 @@ func (a Vec3) Scale(s float64) Vec3 { return Vec3{a.X * s, a.Y * s, a.Z * s} }
 // Norm returns |a|.
 func (a Vec3) Norm() float64 { return math.Sqrt(a.X*a.X + a.Y*a.Y + a.Z*a.Z) }
 
+// Cross returns a × b.
+func (a Vec3) Cross(b Vec3) Vec3 {
+	return Vec3{
+		X: a.Y*b.Z - a.Z*b.Y,
+		Y: a.Z*b.X - a.X*b.Z,
+		Z: a.X*b.Y - a.Y*b.X,
+	}
+}
+
 // PerifocalToInertial converts perifocal (p, q, w) → inertial (X, Y, Z) via
 // the standard 3-1-3 Euler sequence (Ω, i, ω). Perifocal frame: p along
 // periapsis, q 90° ahead in the orbital plane, w = p × q.
