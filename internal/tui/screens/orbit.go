@@ -334,7 +334,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					primMer = render.Vec3{X: rel.X, Y: rel.Y, Z: rel.Z}
 				}
 			}
-			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.SimTime, cameraDirForView(w.ViewMode), primMer)
+			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, v.cameraDirForView(w.ViewMode), primMer)
 			if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
 				// Per-pixel textured fill. The tag's BodyID / hit
 				// fields still propagate; only the per-pixel color
@@ -749,11 +749,14 @@ func vec3FromRender(v render.Vec3) orbital.Vec3 {
 
 // cameraDirForView maps a sim.ViewMode to the world-frame body-to-
 // camera direction the texture pipeline uses to compute the
-// sub-observer point. ViewOrbitFlat falls back to ViewTop until a
-// proper orbit-plane normal lookup lands; the visual cost is that
-// orbit-flat view shows the same polar / equatorial geometry as
-// top view rather than the active craft's plane normal.
-func cameraDirForView(view sim.ViewMode) render.Vec3 {
+// sub-observer point. For the cardinal views the direction is a
+// fixed world-axis unit vector; for ViewOrbitFlat it's the
+// canvas's current depth axis — i.e. the active craft's orbit-
+// plane normal that the canvas already configured for the orbit-
+// flat projection. v0.8.5.7+: orbit-flat now picks up the
+// dynamically-computed camera direction instead of falling back
+// to top.
+func (v *OrbitView) cameraDirForView(view sim.ViewMode) render.Vec3 {
 	switch view {
 	case sim.ViewTop:
 		return render.CameraDirTop
@@ -763,6 +766,13 @@ func cameraDirForView(view sim.ViewMode) render.Vec3 {
 		return render.CameraDirRight
 	case sim.ViewLeft:
 		return render.CameraDirLeft
+	case sim.ViewOrbitFlat:
+		// Depth axis points out of screen toward the camera, which
+		// is exactly the body-to-camera direction the sub-observer
+		// math wants. For a craft on a near-equatorial orbit this is
+		// approximately +Z; for inclined orbits it tips accordingly.
+		d := v.canvas.Basis().DepthAxis()
+		return render.Vec3{X: d.X, Y: d.Y, Z: d.Z}
 	}
 	return render.CameraDirTop
 }

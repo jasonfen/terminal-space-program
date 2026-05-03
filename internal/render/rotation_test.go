@@ -208,6 +208,60 @@ func TestSubObserverPointZeroPrimMerFallsBackToPhase(t *testing.T) {
 	}
 }
 
+func TestBodyAxisAzimuthRotatesAxisAroundZ(t *testing.T) {
+	// Same tilt at azimuth 0° and 90° gives spin axes that share
+	// their Z component but lie along world +X vs world +Y.
+	bX := bodies.CelestialBody{ID: "x", AxialTilt: 30, AxialAzimuth: 0}
+	bY := bodies.CelestialBody{ID: "x", AxialTilt: 30, AxialAzimuth: 90}
+	nX := BodyRotationAxisWorld(bX)
+	nY := BodyRotationAxisWorld(bY)
+	if math.Abs(nX.Z-nY.Z) > 1e-9 {
+		t.Errorf("Z components diverged across azimuth: %v vs %v", nX.Z, nY.Z)
+	}
+	if math.Abs(nX.X-math.Sin(30*math.Pi/180)) > 1e-9 {
+		t.Errorf("azimuth 0 → axis.X = %v, want sin(30°)", nX.X)
+	}
+	if math.Abs(nX.Y) > 1e-9 {
+		t.Errorf("azimuth 0 → axis.Y = %v, want 0", nX.Y)
+	}
+	if math.Abs(nY.X) > 1e-9 {
+		t.Errorf("azimuth 90 → axis.X = %v, want 0", nY.X)
+	}
+	if math.Abs(nY.Y-math.Sin(30*math.Pi/180)) > 1e-9 {
+		t.Errorf("azimuth 90 → axis.Y = %v, want sin(30°)", nY.Y)
+	}
+}
+
+func TestSubObserverPointAzimuthShiftsViewSide(t *testing.T) {
+	// Tilt 30°, azimuth 0° (axis tips toward +X) viewed from +Z:
+	// subLat ≈ 60° (= 90° - 30°). Same tilt, azimuth 90° (axis tips
+	// toward +Y), still viewed from +Z: same subLat — both are
+	// equally polar from the top because the axis Z component is
+	// the same. But viewed from +X, azimuth 0 sees ~equator while
+	// azimuth 90 sees the axis edge-on (subLat closer to 0 too).
+	tilt := 30.0
+	bX := bodies.CelestialBody{ID: "x", AxialTilt: tilt, AxialAzimuth: 0}
+	bY := bodies.CelestialBody{ID: "x", AxialTilt: tilt, AxialAzimuth: 90}
+	topLatX, _ := SubObserverPointDeg(bX, rotationEpoch, CameraDirTop, Vec3{})
+	topLatY, _ := SubObserverPointDeg(bY, rotationEpoch, CameraDirTop, Vec3{})
+	if math.Abs(topLatX-topLatY) > 1e-3 {
+		t.Errorf("ViewTop should be tilt-only, ignoring azimuth: %v vs %v",
+			topLatX, topLatY)
+	}
+	rightLatX, _ := SubObserverPointDeg(bX, rotationEpoch, CameraDirRight, Vec3{})
+	rightLatY, _ := SubObserverPointDeg(bY, rotationEpoch, CameraDirRight, Vec3{})
+	// azimuth 0 from +X: camera direction is along the body's tilt
+	// projection, sees the *high*-lat side (subLat = +tilt).
+	// azimuth 90 from +X: camera is perpendicular to tilt direction,
+	// sees the equator (subLat ≈ 0).
+	if math.Abs(rightLatX-tilt) > 1e-3 {
+		t.Errorf("azimuth 0, ViewRight: subLat = %v, want %v", rightLatX, tilt)
+	}
+	if math.Abs(rightLatY) > 1e-3 {
+		t.Errorf("azimuth 90, ViewRight: subLat = %v, want ~0", rightLatY)
+	}
+}
+
 func TestProjectionRoundTripsSubObserverPoint(t *testing.T) {
 	// Pixel at disk center (0, 0) must project back to the
 	// sub-observer point itself, regardless of subLat / subLon.
