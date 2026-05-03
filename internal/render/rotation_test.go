@@ -89,6 +89,117 @@ func TestSubObserverLongitudeWrapsToHalfOpenInterval(t *testing.T) {
 	}
 }
 
+// View-aware (v0.8.5.7+) tests below — verify that camera direction
+// + axial tilt produce the expected sub-observer (lat, lon) for each
+// canonical view. Pre-v0.8.5.7 SubObserverLongitudeDeg tests above
+// stay green because that function now wraps SubObserverPointDeg
+// with a fixed CameraDirRight.
+
+func TestSubObserverPointTopViewNoTiltIsPolar(t *testing.T) {
+	// Untilted body viewed from "top" (camera at +Z) — sub-observer
+	// is at the body's north pole, lat = 90°.
+	b := bodies.CelestialBody{ID: "x", SideralRotation: 24.0, AxialTilt: 0}
+	subLat, _ := SubObserverPointDeg(b, rotationEpoch, CameraDirTop)
+	if math.Abs(subLat-90) > 1e-6 {
+		t.Errorf("ViewTop on tilt=0 body: subLat = %v, want 90", subLat)
+	}
+}
+
+func TestSubObserverPointSideViewNoTiltIsEquator(t *testing.T) {
+	// Untilted body viewed from "right" (camera at +X) — sub-observer
+	// is on the equator, lat = 0°.
+	b := bodies.CelestialBody{ID: "x", SideralRotation: 24.0, AxialTilt: 0}
+	subLat, _ := SubObserverPointDeg(b, rotationEpoch, CameraDirRight)
+	if math.Abs(subLat) > 1e-6 {
+		t.Errorf("ViewRight on tilt=0 body: subLat = %v, want 0", subLat)
+	}
+}
+
+func TestSubObserverPointEarthTopShowsArctic(t *testing.T) {
+	// Earth has 23.44° axial tilt. ViewTop sees the body axis
+	// projecting up out of the orbital plane — sub-observer lat ≈
+	// 90 - 23.44 = 66.56°. (Inside the Arctic Circle by a hair.)
+	earth := bodies.CelestialBody{ID: "earth", SideralRotation: 24.0, AxialTilt: 23.44}
+	subLat, _ := SubObserverPointDeg(earth, rotationEpoch, CameraDirTop)
+	want := 90 - 23.44
+	if math.Abs(subLat-want) > 1e-3 {
+		t.Errorf("ViewTop on Earth: subLat = %v, want %v", subLat, want)
+	}
+}
+
+func TestSubObserverPointUranusRollsAlongOrbit(t *testing.T) {
+	// Uranus's 97.77° tilt makes it roll pole-on along its orbit.
+	// ViewTop (camera at +Z) sees the body axis nearly in the
+	// orbital plane — sub-observer lat is small.
+	// ViewRight (camera at +X) sees the body axis almost pointing
+	// at the camera — sub-observer lat is large (near pole).
+	uranus := bodies.CelestialBody{ID: "uranus", SideralRotation: -17.24, AxialTilt: 97.77}
+	subLatTop, _ := SubObserverPointDeg(uranus, rotationEpoch, CameraDirTop)
+	subLatRight, _ := SubObserverPointDeg(uranus, rotationEpoch, CameraDirRight)
+	if math.Abs(subLatTop) >= math.Abs(subLatRight) {
+		t.Errorf("Uranus rolls: ViewTop |lat| (%v) should be smaller than ViewRight |lat| (%v)",
+			subLatTop, subLatRight)
+	}
+	if math.Abs(subLatRight) < 80 {
+		t.Errorf("Uranus ViewRight: subLat = %v, want > 80° (near-pole)", subLatRight)
+	}
+	if math.Abs(subLatTop) > 10 {
+		t.Errorf("Uranus ViewTop: subLat = %v, want |lat| < 10° (near-equator)", subLatTop)
+	}
+}
+
+func TestProjectionRoundTripsSubObserverPoint(t *testing.T) {
+	// Pixel at disk center (0, 0) must project back to the
+	// sub-observer point itself, regardless of subLat / subLon.
+	cases := []struct{ subLat, subLon float64 }{
+		{0, 0}, {0, -30}, {30, 60}, {-45, 90}, {66.5, -120},
+	}
+	for _, c := range cases {
+		lat, lon, ok := projectPixelToLatLon(0, 0, 32, c.subLat, c.subLon)
+		if !ok {
+			// Sub-observer at the pole can be degenerate; skip.
+			continue
+		}
+		if math.Abs(lat-c.subLat) > 1e-6 {
+			t.Errorf("center pixel for sub-observer (%v,%v): lat = %v, want %v",
+				c.subLat, c.subLon, lat, c.subLat)
+		}
+		if math.Abs(lon-c.subLon) > 1e-6 {
+			t.Errorf("center pixel for sub-observer (%v,%v): lon = %v, want %v",
+				c.subLat, c.subLon, lon, c.subLon)
+		}
+	}
+}
+
+func TestProjectionEquatorOnMatchesV0Point8Point5(t *testing.T) {
+	// At subLat=0, projectPixelToLatLon should match the v0.8.5
+	// inline projection: lat = asin(ny), lon = subLon + asin(nx/cosLat).
+	r := 32
+	subLon := -30.0
+	for ny := -r + 4; ny <= r-4; ny += 8 {
+		for nx := -r + 4; nx <= r-4; nx += 8 {
+			if nx*nx+ny*ny > (r-1)*(r-1) {
+				continue
+			}
+			lat, lon, ok := projectPixelToLatLon(nx, ny, r, 0, subLon)
+			if !ok {
+				continue
+			}
+			fnx := float64(nx) / float64(r)
+			fny := float64(ny) / float64(r)
+			wantLat := math.Asin(fny) * 180 / math.Pi
+			cosLat := math.Sqrt(1 - fny*fny)
+			wantLon := wrapDeg180(subLon + math.Asin(fnx/cosLat)*180/math.Pi)
+			if math.Abs(lat-wantLat) > 1e-6 {
+				t.Errorf("(%d,%d) lat = %v, want %v", nx, ny, lat, wantLat)
+			}
+			if math.Abs(lon-wantLon) > 1e-3 {
+				t.Errorf("(%d,%d) lon = %v, want %v", nx, ny, lon, wantLon)
+			}
+		}
+	}
+}
+
 func TestWrapDeg180Boundaries(t *testing.T) {
 	cases := []struct{ in, want float64 }{
 		{0, 0},

@@ -1,8 +1,6 @@
 package render
 
 import (
-	"math"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -54,29 +52,15 @@ var greatRedSpot = continentEllipse{
 // JupiterPixelColor returns the surface color for a pixel at
 // (dx, dy) inside a Jupiter disk of pixel radius pxRadius.
 // Banded zones from a latitude lookup; the GRS is layered on top
-// at sub-observer-relative coordinates. v0.8.5+ takes lon0 as a
-// parameter so sim-time rotation drives the GRS across the disk.
-func JupiterPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
+// at sub-observer-relative coordinates. v0.8.5.7+ takes the full
+// sub-observer point so the GRS sweeps correctly across the disk
+// for any view direction (Jupiter's 3° tilt is small but the
+// math handles it uniformly with the rest of the planets).
+func JupiterPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorJupiterZone
 	}
-	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
-	if nx < -1 {
-		nx = -1
-	} else if nx > 1 {
-		nx = 1
-	}
-	if ny < -1 {
-		ny = -1
-	} else if ny > 1 {
-		ny = 1
-	}
-	lat := math.Asin(ny) * 180.0 / math.Pi
-	cosLat := math.Sqrt(1.0 - ny*ny)
-
-	// Default to the polar haze if the band lookup misses (shouldn't
-	// happen given the table covers [-90, 90], but keeps the path safe).
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	color := ColorJupiterPole
 	for _, b := range jupiterBands {
 		if lat >= b.latMin && lat < b.latMax {
@@ -84,28 +68,8 @@ func JupiterPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 			break
 		}
 	}
-
-	// Great Red Spot — needs absolute longitude, requires the
-	// projection step. Skip when cosLat is degenerate (poles).
-	if cosLat >= 1e-3 {
-		sinLonRel := nx / cosLat
-		if sinLonRel < -1 {
-			sinLonRel = -1
-		} else if sinLonRel > 1 {
-			sinLonRel = 1
-		}
-		relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-		absLon := lon0Deg + relLon
-		for absLon > 180 {
-			absLon -= 360
-		}
-		for absLon <= -180 {
-			absLon += 360
-		}
-		if inEllipse(lat, absLon, greatRedSpot) {
-			color = greatRedSpot.color
-		}
+	if ok && inEllipse(lat, absLon, greatRedSpot) {
+		color = greatRedSpot.color
 	}
-
 	return color
 }

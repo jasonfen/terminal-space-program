@@ -1,8 +1,6 @@
 package render
 
 import (
-	"math"
-
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -129,36 +127,23 @@ var earthClouds = []continentEllipse{
 
 // EarthPixelColor returns the surface color for a pixel at offset
 // (dx, dy) inside an Earth disk of pixel radius pxRadius. Caller is
-// responsible for clipping pixels to the disk; for points within
-// 1 px of the edge the projection clamps to the limb.
+// responsible for clipping pixels to the disk.
 //
-// Projection: orthographic with sub-observer point at (lat=0,
-// lon=lon0Deg). v0.8.5+ takes lon0 as a parameter so sim-time
-// rotation drives the visible face; pre-v0.8.5 callers can pass
-// EarthCenterLonEpoch to get the static-Earth view.
+// Projection: orthographic with sub-observer point at
+// (subLatDeg, subLonDeg). v0.8.5.7+ takes both — the canvas
+// computes them from the camera direction + body axis tilt + sim
+// time, so ViewTop on a tilted Earth shows polar regions and
+// ViewRight/Left/Bottom show the equator with surface features
+// drifting across.
 //
 // Resolution order: ice cap > cloud > continents (in table order) >
 // ocean. Polar caps win over everything else in their lat band so
 // Antarctic ice doesn't get masked by a stray continent edge.
-func EarthPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
+func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorEarthOcean
 	}
-	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
-	if nx < -1 {
-		nx = -1
-	} else if nx > 1 {
-		nx = 1
-	}
-	if ny < -1 {
-		ny = -1
-	} else if ny > 1 {
-		ny = 1
-	}
-	// Orthographic projection: ny = sin(lat), nx = cos(lat)*sin(lon_rel).
-	lat := math.Asin(ny) * 180.0 / math.Pi
-
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	// Polar ice caps. Antarctic Circle ≈ -66.5°, but we render a
 	// slightly larger cap (-70°) so the visual hits the eye even
 	// at small pxRadius. Arctic ice (above ~80°N) is mostly Arctic
@@ -170,40 +155,17 @@ func EarthPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 	if lat > 82 {
 		return ColorEarthIce
 	}
-
-	cosLat := math.Sqrt(1.0 - ny*ny)
-	if cosLat < 1e-3 {
-		// Pole. Differentiate north (Arctic Ocean) from south
-		// (Antarctica) — handled by the lat caps above, but keep
-		// the edge case safe.
-		if ny > 0 {
-			return ColorEarthIce
-		}
-		return ColorEarthIce
-	}
-	sinLonRel := nx / cosLat
-	if sinLonRel < -1 {
-		sinLonRel = -1
-	} else if sinLonRel > 1 {
-		sinLonRel = 1
-	}
-	relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-	absLon := lon0Deg + relLon
-	// Wrap to (-180, 180] so the continent table lookups are stable.
-	for absLon > 180 {
-		absLon -= 360
-	}
-	for absLon <= -180 {
-		absLon += 360
+	if !ok {
+		// Sub-observer pole — degenerate longitude, fall back to
+		// ocean (callers usually mask the pole as ice anyway).
+		return ColorEarthOcean
 	}
 
 	// Continents painted first so clouds can layer over them.
 	color := ColorEarthOcean
-	covered := false
 	for _, c := range earthContinents {
 		if inEllipse(lat, absLon, c) {
 			color = c.color
-			covered = true
 		}
 	}
 	// Clouds layer on top of land or ocean alike — except over
@@ -213,7 +175,6 @@ func EarthPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 			return c.color
 		}
 	}
-	_ = covered
 	return color
 }
 
@@ -237,46 +198,70 @@ func inEllipse(lat, lon float64, c continentEllipse) bool {
 // surface rendering — Mars caps, Jupiter banding, Saturn cloud
 // bands plug in via additional cases here.
 //
-// v0.8.5+ takes lon0Deg (sub-observer longitude) and bakes it into
-// the returned closure, so the canvas painter calls a 3-arg
-// BodyTexture without threading sim time through each pixel.
-// Callers should compute lon0Deg via SubObserverLongitudeDeg(b,
-// world.Clock.SimTime) once per body per frame.
-func TextureFor(b bodies.CelestialBody, pxRadius int, lon0Deg float64) BodyTexture {
+// v0.8.5.7+ takes the full sub-observer point (subLatDeg,
+// subLonDeg) and bakes it into the returned closure, so the
+// canvas painter calls a 3-arg BodyTexture without threading view
+// + sim time through each pixel. Callers should compute the
+// sub-observer point via SubObserverPointDeg(b, simTime, camDir)
+// once per body per frame.
+func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg float64) BodyTexture {
 	if pxRadius < BodyTextureMinRadius {
 		return nil
 	}
 	switch b.ID {
 	case "earth":
-		return func(dx, dy, r int) lipgloss.Color { return EarthPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return EarthPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "moon":
-		return func(dx, dy, r int) lipgloss.Color { return MoonPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return MoonPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "mars":
-		return func(dx, dy, r int) lipgloss.Color { return MarsPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return MarsPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "jupiter":
-		return func(dx, dy, r int) lipgloss.Color { return JupiterPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return JupiterPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "saturn":
-		return func(dx, dy, r int) lipgloss.Color { return SaturnPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return SaturnPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "uranus":
-		return func(dx, dy, r int) lipgloss.Color { return UranusPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return UranusPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "neptune":
-		return func(dx, dy, r int) lipgloss.Color { return NeptunePixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return NeptunePixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "io":
-		return func(dx, dy, r int) lipgloss.Color { return IoPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return IoPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "europa":
-		return func(dx, dy, r int) lipgloss.Color { return EuropaPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return EuropaPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "ganymede":
-		return func(dx, dy, r int) lipgloss.Color { return GanymedePixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return GanymedePixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "callisto":
-		return func(dx, dy, r int) lipgloss.Color { return CallistoPixelColor(dx, dy, r, lon0Deg) }
+		return func(dx, dy, r int) lipgloss.Color {
+			return CallistoPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	}
 	return nil
 }
 
 // BodyHasTexture reports whether TextureFor would return non-nil.
 // Convenience wrapper for callers that just need the boolean
-// (e.g. "should I suppress the body-identity glyph?"). lon0
-// doesn't affect the gate, so the boolean form omits it.
+// (e.g. "should I suppress the body-identity glyph?"). The
+// sub-observer point doesn't affect the gate, so the boolean form
+// omits it.
 func BodyHasTexture(b bodies.CelestialBody, pxRadius int) bool {
-	return TextureFor(b, pxRadius, 0) != nil
+	return TextureFor(b, pxRadius, 0, 0) != nil
 }

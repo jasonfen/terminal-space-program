@@ -1,8 +1,6 @@
 package render
 
 import (
-	"math"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -39,29 +37,16 @@ var saturnBands = []struct {
 
 // SaturnPixelColor returns the surface color for a pixel at
 // (dx, dy) inside a Saturn disk of pixel radius pxRadius. Mirrors
-// JupiterPixelColor's banded structure with softer contrast and
-// no large-spot overlay (Saturn's storms are short-lived and
-// rarely dramatic at our scale). v0.8.5+ takes lon0Deg though
-// Saturn's ~10.6h day is fast enough that the bands themselves
-// dominate the visible feel; lon0 mostly matters for the polar
-// hexagon's rotation.
-func SaturnPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
+// JupiterPixelColor's banded structure with softer contrast.
+// v0.8.5.7+ takes the full sub-observer point so the polar
+// hexagon stays at lat ≈ 78°N regardless of view direction
+// (top view sees the hex pole-on; side views see it near the
+// limb).
+func SaturnPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorSaturnZone
 	}
-	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
-	if nx < -1 {
-		nx = -1
-	} else if nx > 1 {
-		nx = 1
-	}
-	if ny < -1 {
-		ny = -1
-	} else if ny > 1 {
-		ny = 1
-	}
-	lat := math.Asin(ny) * 180.0 / math.Pi
+	lat, _, _ := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	color := ColorSaturnPole
 	for _, b := range saturnBands {
 		if lat >= b.latMin && lat < b.latMax {
@@ -69,10 +54,5 @@ func SaturnPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 			break
 		}
 	}
-	// lon0 has no per-pixel feature lookup today (no GRS-equivalent),
-	// but the parameter stays in the signature so future Cassini-
-	// division-style features or moving white-spot accents can plug
-	// in via the same closure.
-	_ = lon0Deg
 	return color
 }
