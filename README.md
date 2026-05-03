@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.4**.
+Latest release: **v0.8.5**.
 
 ```bash
 # Linux x86_64
@@ -274,12 +274,34 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   Deimos, the four Galilean moons, Titan, Enceladus. Recursive
   `BodyPosition` / `bodyInertialVelocity` so SOI math walks the
   hierarchy correctly.
-- **Per-pixel body textures**. Earth (continents + polar caps +
-  deserts + cloud streaks), Moon (canonical near-side maria +
-  bright rayed craters), Mars (Syrtis Major / Solis Lacus /
-  polar caps), Jupiter (10-band zone/belt scheme + Great Red
+- **Per-pixel body textures** (v0.8.5+). Sun (limb-darkened solar
+  disk + sunspots + corona halo), Earth (polygon-rasterised 144×72
+  continental mask with biome-shaded land + deserts + ice +
+  atmospheric blue-marble limb), Moon (near-side maria + far-side
+  Orientale / Moscoviense / Ingenii / South Pole-Aitken basin +
+  polar craters), Mars (Syrtis Major / Solis Lacus / polar caps),
+  Jupiter (10-band zone/belt + Great Red Spot), Saturn (banded
+  cloud + polar hexagon + four-band ring system C / B / Cassini
+  Division / A / F), the four Galileans (Io paterae, Europa lineae,
+  Ganymede regiones, Callisto crater rays), Uranus (subtle pole-on
+  banding from its 98° tilt), Neptune (banded blue + Great Dark
   Spot). Render at body radii ≥ 12 px; below that bodies fall
   back to a colored disk.
+- **Sim-time planet rotation** (v0.8.5+). Body axes spin at
+  sidereal-rotation rates; tidally-locked moons (Luna, Phobos,
+  Deimos, Galileans, Titan, Enceladus) keep the same face pointed
+  at their parent regardless of orbit phase. View-aware projection
+  combined with axial tilts (Earth 23°, Mars 25°, Saturn 27°,
+  Uranus 98° — the iconic roller, etc.) means top / right / left /
+  bottom views show genuinely different geometry per body — top
+  view of Earth reveals the Arctic, side views show the equator
+  with surface features drifting east at the body's rotation rate.
+  Rotation rate caps above warp 10000× so the disk stays
+  watchable at extreme warp.
+- **Tilted ring system** (v0.8.5+). Saturn's rings render in the
+  body's equatorial plane and foreshorten correctly per camera
+  view: ~89% aspect from top, ~45% aspect from side, edge-on flat
+  perpendicular to the tilt direction.
 - **Missions**. Three predicate kinds (`circularize` /
   `orbit_insertion` / `soi_flyby`) with sticky pass/fail state,
   embedded starter catalog (1000 km LEO circularize, Luna orbit
@@ -349,7 +371,7 @@ prints a warning to stderr and falls back to defaults.
 | v0.5 | Moons + visuals | Body hierarchy + major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus); per-body color, vessel trail, HUD polish. |
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
-| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, co-rotating v_rel, drag-aware Verlet wired into live integrator + predictor, Kepler-warp-lock retreat below cutoff, surface-clamp on impact, haze halo) (v0.8.4). Sim-time rotation queued. |
+| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, drag-aware Verlet wired into live integrator + predictor, surface-clamp on impact, haze halo) (v0.8.4). Sim-time planet rotation, view-aware texture projection with per-body axial tilts, polygon-rasterised Earth grid, far-side / polar Moon detail, tilted Saturn rings with C / B / Cassini Division / A / F bands, textured Sun + Galileans + Uranus + Neptune, tidally-locked moons keeping their iconic face on the parent (v0.8.5). |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -365,8 +387,7 @@ v0.8 — **multi-craft polish**. Slice breakdown in
 - ~~v0.8.2 — craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, capture preview, equatorial inclination match~~ **shipped.**
 - ~~v0.8.3 — docking + undocking + RENDEZVOUS HUD + alongside-spawn + engine-firing flame + per-thruster RCS puff visuals~~ **shipped.**
 - ~~v0.8.4 — atmospheric drag (realistic Earth + Mars, drag-aware predictor, atmospheric haze rendering)~~ **shipped.**
-- v0.8.5 — sim-time planet rotation + tidally-locked perspectives +
-  textured-bodies trickle (Saturn, Jovian moons, Uranus/Neptune).
+- ~~v0.8.5 — sim-time planet rotation + view-aware projection + textured Sun / Saturn / Galileans / Uranus / Neptune + polygon-rasterised Earth + far-side / polar Moon detail + tilted Saturn ring system~~ **shipped.**
 - v0.8.6 — controls polish bag (multi-rev porkchop UI keys,
   `IterateForTarget` toggle in `m` form, throttle-change warp clamp).
 - v0.8.7+ stretch — mission scripting / editor.
