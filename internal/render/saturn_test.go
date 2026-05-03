@@ -17,7 +17,7 @@ func TestSaturnPixelColorPolarHexagon(t *testing.T) {
 	// just inside the [78, 90) band — at smaller radii the
 	// integer-pixel quantisation jumps the limb past the band.
 	r := 64
-	dy := 63 // ny = 63/64 ≈ 0.984, lat ≈ 79.7°
+	dy := -63 // dy<0 = above body center on screen → ny = +63/64, lat ≈ +79.7°
 	got := SaturnPixelColor(0, dy, r, 0, 0)
 	if got != ColorSaturnSpot {
 		t.Errorf("lat ≈ 79.7° pixel = %q, want polar-hex %q", string(got), string(ColorSaturnSpot))

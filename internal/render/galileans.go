@@ -109,7 +109,15 @@ func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) (l
 		return 0, 0, false
 	}
 	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
+	// v0.8.5.7 fix: canvas uses screen-Y-down (dy > 0 = below body
+	// center), but the orthographic projection wants ny > 0 to be
+	// screen-up (north toward sub-observer). Flip the sign so
+	// continents render right-side up. The upside-down rendering
+	// was masked at high sub-observer latitude (top / bottom views
+	// of tilted bodies) where the polar disk is roughly symmetric,
+	// and only became obviously wrong from left / right views once
+	// view-aware projection landed in v0.8.5.7.
+	ny := -float64(dy) / float64(pxRadius)
 	r2 := nx*nx + ny*ny
 	if r2 > 1 {
 		// Outside the disk — caller should clip first, but keep the

@@ -12,7 +12,7 @@ func TestUranusPixelColorBands(t *testing.T) {
 	}
 	// Pole (lat ~85°) → polar haze.
 	r := 32
-	dy := int(0.996 * float64(r))
+	dy := int(-0.996 * float64(r)) // dy<0 = above body center on screen → northern hemisphere
 	got = UranusPixelColor(0, dy, r, 0, 0)
 	if got != ColorUranusPole {
 		t.Errorf("Uranus pole = %q, want pole %q", string(got), string(ColorUranusPole))

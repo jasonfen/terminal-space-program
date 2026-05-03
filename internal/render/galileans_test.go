@@ -32,7 +32,7 @@ func TestEuropaPixelColorIceAndLineae(t *testing.T) {
 	// Off-linea sample → ice base. lat 50, lon -100 → far from
 	// every linea entry in the table.
 	r := 32
-	dy := int(0.766 * float64(r))   // sin(50°)
+	dy := int(-0.766 * float64(r)) // dy<0 = above body center on screen → ny = +sin(50°)
 	dx := int(-0.633 * float64(r))  // cos(50°)*sin(-100°) ≈ -0.633
 	got := EuropaPixelColor(dx, dy, r, 0, 0)
 	if got != ColorEuropaIce {
