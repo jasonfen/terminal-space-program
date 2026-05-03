@@ -67,54 +67,11 @@ type continentEllipse struct {
 	color    lipgloss.Color // fill color (land / desert / ice / etc.)
 }
 
-// earthContinents is a deliberately coarse approximation — at the
-// resolutions we render (≤64 px radius), real coastline detail is
-// sub-pixel anyway. v0.7.6+ uses multi-ellipse decomposition to give
-// each continent a recognisable shape: a main mass plus extras for
-// peninsulas, deserts, and offshore islands. Order matters — later
-// entries paint over earlier ones, so deserts go after their parent
-// continent's land mass.
-var earthContinents = []continentEllipse{
-	// North America. Main bulk + Mexico tapering + Alaska + Florida.
-	{50, -100, 18, 30, ColorEarthLand},
-	{30, -100, 8, 12, ColorEarthLand},  // Mexico
-	{63, -150, 7, 18, ColorEarthLand},  // Alaska
-	{28, -82, 5, 4, ColorEarthLand},    // Florida
-	// South America. Andes spine + Brazilian bulge + tapering southern cone.
-	{-5, -65, 13, 14, ColorEarthLand},  // Amazon basin
-	{-25, -55, 12, 8, ColorEarthLand},  // central
-	{-40, -65, 10, 6, ColorEarthLand},  // Patagonia tapering
-	// Africa. Bulky north + tapering south + horn.
-	{15, 15, 20, 20, ColorEarthLand},   // northern Africa main
-	{-10, 25, 18, 14, ColorEarthLand},  // central / southern
-	{8, 45, 6, 7, ColorEarthLand},      // Horn
-	// Sahara desert sits over northern Africa land — paint after.
-	{22, 10, 8, 22, ColorEarthDesert},
-	// Arabia desert over Africa-Asia junction.
-	{25, 45, 8, 8, ColorEarthDesert},
-	// Eurasia. Main bulk + Indian subcontinent + Iberian + SE Asia.
-	{55, 90, 18, 70, ColorEarthLand},   // Russia / Central Asia / Europe
-	{42, 0, 6, 8, ColorEarthLand},      // Iberia + W. Europe extension
-	{20, 78, 11, 8, ColorEarthLand},    // Indian subcontinent
-	{15, 105, 8, 9, ColorEarthLand},    // SE Asia / Indochina
-	// Central Asian deserts (Gobi-ish — visible only on Asia-side).
-	{42, 95, 8, 18, ColorEarthDesert},
-	// Australia + Tasmania.
-	{-25, 135, 9, 14, ColorEarthLand},
-	{-42, 147, 2, 3, ColorEarthLand},   // Tasmania
-	// Australian outback — desert overlay.
-	{-25, 133, 5, 8, ColorEarthDesert},
-	// Greenland (mostly ice).
-	{72, -40, 8, 12, ColorEarthIce},
-	// Iceland (small but iconic in N. Atlantic).
-	{65, -19, 2, 4, ColorEarthLand},
-	// UK + Ireland (matters for the Atlantic-centered view).
-	{54, -3, 4, 5, ColorEarthLand},
-	// Madagascar.
-	{-19, 47, 6, 3, ColorEarthLand},
-	// Japan.
-	{36, 138, 6, 4, ColorEarthLand},
-}
+// earthContinents (the v0.7.6 ellipse-table approximation) was
+// retired in v0.8.5.7's grid-rasteriser pass — the polygon list
+// in earth_grid.go produces a recognisable continental outline at
+// the rendering resolution and is the new source of truth for
+// land / desert / ice classification.
 
 // earthClouds are a few hand-placed pale streaks suggesting global
 // cloud bands. Static for v0.7.2.1; rotation tied to sim time is a
@@ -144,13 +101,17 @@ var earthClouds = []continentEllipse{
 // ViewRight/Left/Bottom show the equator with surface features
 // drifting across.
 //
-// Resolution order: ice cap > atmospheric limb (over non-ice) >
-// cloud > biome-shaded continent > ocean.
+// Source: v0.8.5.7's ellipse-table approximation was upgraded to
+// a polygon-rasterised 144×72 mask (earthGrid) — the per-pixel
+// path looks the cell up directly, so coastlines / islands /
+// peninsulas read recognisably instead of as smooth ellipse
+// blobs. Resolution order: ice cap > atmospheric limb (over
+// non-ice) > cloud > biome-shaded continent / desert > ocean.
 //
-// v0.8.5.7+: temperate ColorEarthLand auto-shifts to tropical
-// (|lat| < 23°) or boreal (|lat| ≥ 55°); the outer ~8% of the
-// disk (r² > 0.92) blends to ColorEarthAtmosphere over non-ice
-// pixels to give the disk a recognisable blue-marble halo.
+// v0.8.5.7+: temperate land auto-shifts to tropical (|lat| < 23°)
+// or boreal (|lat| ≥ 55°); the outer ~8% of the disk (r² > 0.92)
+// blends to ColorEarthAtmosphere over non-ice pixels to give the
+// disk a recognisable blue-marble halo.
 func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorEarthOcean
@@ -161,36 +122,20 @@ func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipglos
 	r2 := nx*nx + ny*ny
 
 	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
-	// Polar ice caps. Antarctic Circle ≈ -66.5°, but we render a
-	// slightly larger cap (-70°) so the visual hits the eye even
-	// at small pxRadius. Arctic ice (above ~80°N) is mostly Arctic
-	// Ocean — Greenland is handled separately as ice in the
-	// continent table. Ice wins even at the limb so polar caps
-	// stay readable.
-	if lat < -70 {
-		return ColorEarthIce
-	}
-	if lat > 82 {
-		return ColorEarthIce
-	}
 	if !ok {
-		// Sub-observer pole — degenerate longitude, fall back to
-		// ocean (callers usually mask the pole as ice anyway).
 		return ColorEarthOcean
 	}
 
-	// Continents painted first so clouds can layer over them.
-	color := ColorEarthOcean
-	for _, c := range earthContinents {
-		if inEllipse(lat, absLon, c) {
-			color = c.color
-		}
-	}
-	// Land biome variation by latitude. Tropical / boreal shifts
-	// only apply to the temperate-default Land color — desert and
-	// ice continent entries (Sahara, Greenland) stay the explicit
-	// override they were tagged with.
-	if color == ColorEarthLand {
+	// Look up the rasterised continental mask.
+	cell := earthCellAt(lat, absLon)
+	var color lipgloss.Color
+	switch cell {
+	case cellIce:
+		color = ColorEarthIce
+	case cellLand:
+		color = ColorEarthLand
+		// Biome shift by absolute latitude: tropical (deeper
+		// jungle), temperate (default), boreal (browner taiga).
 		absLat := lat
 		if absLat < 0 {
 			absLat = -absLat
@@ -201,22 +146,27 @@ func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipglos
 		case absLat >= 55:
 			color = ColorEarthLandBoreal
 		}
+	case cellDesert:
+		color = ColorEarthDesert
+	default:
+		color = ColorEarthOcean
 	}
 	// Clouds layer on top of land or ocean alike — except over
-	// polar ice, which is already returned above.
-	for _, c := range earthClouds {
-		if inEllipse(lat, absLon, c) {
-			color = c.color
-			break
+	// polar ice, where the ice already reads bright.
+	if color != ColorEarthIce {
+		for _, c := range earthClouds {
+			if inEllipse(lat, absLon, c) {
+				color = c.color
+				break
+			}
 		}
 	}
 	// Atmospheric limb tint. Real Earth from space has a visible
 	// blue halo at the disk edge from atmospheric scattering;
 	// painting the outer ~8% of the disk in a sky-blue tint reads
-	// as that halo and makes the body feel atmospheric rather
-	// than a flat textured circle. Skip for ice (poles already
-	// bright at the limb) and for clouds (already light enough
-	// that the tint adds no contrast).
+	// as that halo. Skip for ice (poles already bright) and for
+	// clouds (already light enough that the tint adds no
+	// contrast).
 	if r2 > 0.92 && color != ColorEarthIce && color != ColorEarthCloud {
 		color = ColorEarthAtmosphere
 	}
