@@ -204,6 +204,10 @@ func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg float
 		return nil
 	}
 	switch b.ID {
+	case "sun":
+		return func(dx, dy, r int) lipgloss.Color {
+			return SunPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+		}
 	case "earth":
 		return func(dx, dy, r int) lipgloss.Color {
 			return EarthPixelColor(dx, dy, r, subLatDeg, subLonDeg)

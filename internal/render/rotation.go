@@ -32,6 +32,7 @@ var bodyEpochOffsetDeg = map[string]float64{
 	"saturn":  0.0,   // banded; polar hexagon at ~78°N regardless of lon0
 	"neptune": 30.0,  // Great Dark Spot near visible center at epoch
 	"uranus":  0.0,   // featureless banding; offset doesn't matter much
+	"sun":     0.0,   // sunspot layout doesn't pick a special "iconic" face
 }
 
 // Vec3 is the render package's local 3-element inertial-frame

@@ -111,6 +111,11 @@ func TestTextureForDispatch(t *testing.T) {
 			t.Errorf("%s should have texture (added in v0.8.5)", id)
 		}
 	}
+	// v0.8.5.7+: Sun has a texture (limb darkening + sunspots).
+	sun := bodies.CelestialBody{ID: "sun", BodyType: "Star"}
+	if TextureFor(sun, 64, 0, 0) == nil {
+		t.Error("Sun should have texture (added in v0.8.5.7)")
+	}
 
 	// Earth and Moon must dispatch to different functions — sanity
 	// check that the switch is not collapsing.

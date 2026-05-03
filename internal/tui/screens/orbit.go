@@ -314,47 +314,50 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
 		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID}
-		if i == 0 {
-			v.canvas.RingColoredOutlineTagged(pos, r, bodyTag)
-			v.canvas.FillColoredDiskTagged(pos, 1, bodyTag)
-		} else {
-			// v0.8.5.7+: compute view-aware sub-observer point per
-			// body per frame. Camera direction comes from the canvas's
-			// current ViewMode; body axis tilt + sim-time rotation
-			// drive the (lat, lon) at the visible center. For
-			// tidally-locked bodies we also pass the body→parent
-			// direction so the prime meridian (lon=0) tracks the
-			// parent — keeps Luna's near side facing Earth as it
-			// orbits, instead of being fixed in inertial frame.
-			primMer := render.Vec3{}
-			camDir := v.cameraDirForView(w.ViewMode)
-			if b.TidallyLocked {
-				if parent := sys.ParentOf(b); parent != nil && parent.ID != b.ID {
-					parentPos := w.BodyPosition(*parent)
-					rel := parentPos.Sub(pos)
-					primMer = render.Vec3{X: rel.X, Y: rel.Y, Z: rel.Z}
-					// Tidally-locked bodies always show their
-					// parent-facing side regardless of the canvas
-					// view mode — the player's mental model is
-					// "Luna always shows its near-side", and the
-					// iconic mare pattern matters more than
-					// geometric consistency with the canvas's
-					// projection. Free bodies still pick up the
-					// canvas view direction as expected.
-					camDir = primMer
-				}
+		// v0.8.5.7+: compute view-aware sub-observer point per body
+		// per frame. Camera direction comes from the canvas's
+		// current ViewMode; body axis tilt + sim-time rotation
+		// drive the (lat, lon) at the visible center. For tidally-
+		// locked bodies we also pass the body→parent direction so
+		// the prime meridian (lon=0) tracks the parent — keeps
+		// Luna's near side facing Earth as it orbits, instead of
+		// being fixed in inertial frame.
+		primMer := render.Vec3{}
+		camDir := v.cameraDirForView(w.ViewMode)
+		if b.TidallyLocked {
+			if parent := sys.ParentOf(b); parent != nil && parent.ID != b.ID {
+				parentPos := w.BodyPosition(*parent)
+				rel := parentPos.Sub(pos)
+				primMer = render.Vec3{X: rel.X, Y: rel.Y, Z: rel.Z}
+				// Tidally-locked bodies always show their
+				// parent-facing side regardless of the canvas view
+				// mode — the player's mental model is "Luna always
+				// shows its near-side", and the iconic mare pattern
+				// matters more than geometric consistency with the
+				// canvas's projection. Free bodies still pick up
+				// the canvas view direction as expected.
+				camDir = primMer
 			}
-			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, camDir, primMer)
-			if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
-				// Per-pixel textured fill. The tag's BodyID / hit
-				// fields still propagate; only the per-pixel color
-				// comes from the texture function.
-				pxR := r
-				v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
-					return tex(dx, dy, pxR)
-				}, bodyTag)
-			} else {
-				v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+		}
+		subLat, subLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, camDir, primMer)
+		if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
+			pxR := r
+			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
+				return tex(dx, dy, pxR)
+			}, bodyTag)
+		} else {
+			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+		}
+		// v0.8.5.7+: stars get a faint two-ring corona halo so the
+		// disk reads as "this is a luminous body" instead of a
+		// generic colored circle. Replaces the i == 0 crosshair-
+		// style ring + center dot the orbit screen used pre-v0.8.5.7.
+		if b.BodyType == "Star" {
+			for _, mult := range []float64{1.4, 1.8} {
+				cpx := int(float64(r) * mult)
+				if cpx > r && cpx < canvasReach {
+					v.canvas.RingColoredOutline(pos, cpx, render.ColorSunCorona)
+				}
 			}
 		}
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
