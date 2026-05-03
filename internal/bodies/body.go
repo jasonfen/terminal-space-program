@@ -70,6 +70,12 @@ type CelestialBody struct {
 	// atmosphere for this body — drives drag (v0.8.4) and haze
 	// rendering. Bodies without atmospheres leave this nil.
 	Atmosphere *Atmosphere `json:"atmosphere,omitempty"`
+
+	// TidallyLocked, when true, ties this body's rotation to its
+	// orbital period — the same face always points at the parent.
+	// SideralRotation is ignored for these bodies; the renderer
+	// derives sub-observer longitude from orbital phase. v0.8.5+.
+	TidallyLocked bool `json:"tidallyLocked,omitempty"`
 }
 
 // Atmosphere is an exponential-density atmospheric model:
@@ -131,4 +137,17 @@ func (cb *CelestialBody) SemimajorAxisMeters() float64 {
 // RadiusMeters converts the stored mean radius (km) to meters.
 func (cb *CelestialBody) RadiusMeters() float64 {
 	return cb.MeanRadius * 1000.0
+}
+
+// SideralRotationSeconds converts the stored sidereal rotation
+// period (hours, signed for prograde / retrograde) to seconds.
+// Returns 0 when no rotation period is known.
+func (cb *CelestialBody) SideralRotationSeconds() float64 {
+	return cb.SideralRotation * 3600.0
+}
+
+// SideralOrbitSeconds converts the stored sidereal orbital period
+// (days) to seconds. Returns 0 when no orbital period is known.
+func (cb *CelestialBody) SideralOrbitSeconds() float64 {
+	return cb.SideralOrbit * 86400.0
 }

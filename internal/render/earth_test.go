@@ -8,14 +8,14 @@ import (
 
 func TestEarthPixelColorOcean(t *testing.T) {
 	// South Atlantic mid-latitudes — lat ≈ -30°, lon ≈ -25°, well
-	// off Brazil. With v0.7.6+'s earthCenterLon = -30°, relative
+	// off Brazil. With EarthCenterLonEpoch = -30°, relative
 	// longitude ≈ 5°, so nx ≈ cos(-30°)*sin(5°) ≈ 0.075 and
 	// ny ≈ sin(-30°) = -0.5. Far from continents and the storm
 	// cloud track (lat=-50) — should read clean ocean.
 	r := 32
 	dx := int(0.075 * float64(r))
 	dy := int(-0.5 * float64(r))
-	got := EarthPixelColor(dx, dy, r)
+	got := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
 	if got != ColorEarthOcean {
 		t.Errorf("South Atlantic midlat = %q, want ocean %q", string(got), string(ColorEarthOcean))
 	}
@@ -23,14 +23,14 @@ func TestEarthPixelColorOcean(t *testing.T) {
 
 func TestEarthPixelColorLand(t *testing.T) {
 	// Central / southern Africa: lat ≈ -10°, lon ≈ 25°. With
-	// v0.7.6+'s earthCenterLon = -30°, relative longitude is 55°,
+	// EarthCenterLonEpoch = -30°, relative longitude is 55°,
 	// so nx = cos(-10°)*sin(55°) ≈ 0.807 and ny = sin(-10°) ≈
 	// -0.174. Below the Sahara desert overlay — pure ColorEarthLand
 	// territory.
 	r := 32
 	dx := int(0.807 * float64(r))
 	dy := int(-0.174 * float64(r))
-	got := EarthPixelColor(dx, dy, r)
+	got := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
 	if got != ColorEarthLand {
 		t.Errorf("Central Africa = %q, want land %q", string(got), string(ColorEarthLand))
 	}
@@ -43,8 +43,8 @@ func TestEarthPixelColorDeterministic(t *testing.T) {
 	r := 32
 	for dy := -r; dy <= r; dy += 4 {
 		for dx := -r; dx <= r; dx += 4 {
-			a := EarthPixelColor(dx, dy, r)
-			b := EarthPixelColor(dx, dy, r)
+			a := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
+			b := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
 			if a != b {
 				t.Fatalf("non-deterministic at (%d,%d): %q vs %q", dx, dy, string(a), string(b))
 			}
@@ -64,7 +64,7 @@ func TestEarthPixelColorMultiColor(t *testing.T) {
 			if dx*dx+dy*dy > r2 {
 				continue
 			}
-			seen[string(EarthPixelColor(dx, dy, r))] = true
+			seen[string(EarthPixelColor(dx, dy, r, EarthCenterLonEpoch))] = true
 		}
 	}
 	for _, want := range []string{string(ColorEarthOcean), string(ColorEarthLand), string(ColorEarthCloud)} {

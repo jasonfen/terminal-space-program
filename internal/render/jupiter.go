@@ -16,12 +16,12 @@ const (
 	ColorJupiterGRS  = lipgloss.Color("#A03A28") // Great Red Spot
 )
 
-// jupiterCenterLon picks the sub-observer longitude so the Great
-// Red Spot is visible (centered on its rough longitude). Static
-// for v0.7.6; rotation tied to sim time would be especially
-// dramatic on Jupiter's ~10-hour day, but threading sim time
-// through the texture function is a follow-up.
-const jupiterCenterLon = 25.0
+// JupiterCenterLonEpoch is the sub-observer longitude at J2000 —
+// what the static-Jupiter renderer used in v0.7.6 — v0.8.4 (25°
+// puts the Great Red Spot near the visible center). v0.8.5+ threads
+// sim-time rotation via the lon0 parameter so Jupiter's ~10-hour
+// day reads kinetically; this constant is just the epoch offset.
+const JupiterCenterLonEpoch = 25.0
 
 // jupiterBands is the latitude-banded color scheme. Each entry is
 // (latMin, latMax, color). Bands are in degrees, ordered south to
@@ -54,8 +54,9 @@ var greatRedSpot = continentEllipse{
 // JupiterPixelColor returns the surface color for a pixel at
 // (dx, dy) inside a Jupiter disk of pixel radius pxRadius.
 // Banded zones from a latitude lookup; the GRS is layered on top
-// at sub-observer-relative coordinates. v0.7.6+.
-func JupiterPixelColor(dx, dy, pxRadius int) lipgloss.Color {
+// at sub-observer-relative coordinates. v0.8.5+ takes lon0 as a
+// parameter so sim-time rotation drives the GRS across the disk.
+func JupiterPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorJupiterZone
 	}
@@ -94,7 +95,7 @@ func JupiterPixelColor(dx, dy, pxRadius int) lipgloss.Color {
 			sinLonRel = 1
 		}
 		relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-		absLon := jupiterCenterLon + relLon
+		absLon := lon0Deg + relLon
 		for absLon > 180 {
 			absLon -= 360
 		}
