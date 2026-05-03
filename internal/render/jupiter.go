@@ -1,8 +1,6 @@
 package render
 
 import (
-	"math"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -16,12 +14,12 @@ const (
 	ColorJupiterGRS  = lipgloss.Color("#A03A28") // Great Red Spot
 )
 
-// jupiterCenterLon picks the sub-observer longitude so the Great
-// Red Spot is visible (centered on its rough longitude). Static
-// for v0.7.6; rotation tied to sim time would be especially
-// dramatic on Jupiter's ~10-hour day, but threading sim time
-// through the texture function is a follow-up.
-const jupiterCenterLon = 25.0
+// JupiterCenterLonEpoch is the sub-observer longitude at J2000 —
+// what the static-Jupiter renderer used in v0.7.6 — v0.8.4 (25°
+// puts the Great Red Spot near the visible center). v0.8.5+ threads
+// sim-time rotation via the lon0 parameter so Jupiter's ~10-hour
+// day reads kinetically; this constant is just the epoch offset.
+const JupiterCenterLonEpoch = 25.0
 
 // jupiterBands is the latitude-banded color scheme. Each entry is
 // (latMin, latMax, color). Bands are in degrees, ordered south to
@@ -54,28 +52,15 @@ var greatRedSpot = continentEllipse{
 // JupiterPixelColor returns the surface color for a pixel at
 // (dx, dy) inside a Jupiter disk of pixel radius pxRadius.
 // Banded zones from a latitude lookup; the GRS is layered on top
-// at sub-observer-relative coordinates. v0.7.6+.
-func JupiterPixelColor(dx, dy, pxRadius int) lipgloss.Color {
+// at sub-observer-relative coordinates. v0.8.5.7+ takes the full
+// sub-observer point so the GRS sweeps correctly across the disk
+// for any view direction (Jupiter's 3° tilt is small but the
+// math handles it uniformly with the rest of the planets).
+func JupiterPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorJupiterZone
 	}
-	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
-	if nx < -1 {
-		nx = -1
-	} else if nx > 1 {
-		nx = 1
-	}
-	if ny < -1 {
-		ny = -1
-	} else if ny > 1 {
-		ny = 1
-	}
-	lat := math.Asin(ny) * 180.0 / math.Pi
-	cosLat := math.Sqrt(1.0 - ny*ny)
-
-	// Default to the polar haze if the band lookup misses (shouldn't
-	// happen given the table covers [-90, 90], but keeps the path safe).
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	color := ColorJupiterPole
 	for _, b := range jupiterBands {
 		if lat >= b.latMin && lat < b.latMax {
@@ -83,28 +68,8 @@ func JupiterPixelColor(dx, dy, pxRadius int) lipgloss.Color {
 			break
 		}
 	}
-
-	// Great Red Spot — needs absolute longitude, requires the
-	// projection step. Skip when cosLat is degenerate (poles).
-	if cosLat >= 1e-3 {
-		sinLonRel := nx / cosLat
-		if sinLonRel < -1 {
-			sinLonRel = -1
-		} else if sinLonRel > 1 {
-			sinLonRel = 1
-		}
-		relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-		absLon := jupiterCenterLon + relLon
-		for absLon > 180 {
-			absLon -= 360
-		}
-		for absLon <= -180 {
-			absLon += 360
-		}
-		if inEllipse(lat, absLon, greatRedSpot) {
-			color = greatRedSpot.color
-		}
+	if ok && inEllipse(lat, absLon, greatRedSpot) {
+		color = greatRedSpot.color
 	}
-
 	return color
 }

@@ -299,6 +299,22 @@ func (w *World) Tick() {
 		}
 	}
 	w.Clock.SimTime = w.Clock.SimTime.Add(simDelta)
+	// v0.8.5.7+: advance RotationTime alongside SimTime, capped at
+	// RotationCapWarp so visible rotation stays smooth even at warp
+	// 100000×. World.Tick mutates SimTime directly (clamped to the
+	// next finite-burn trigger) instead of going through
+	// Clock.Advance, so the rotation-time update has to happen here
+	// too. Without this, RotationTime stays stuck at NewClock's
+	// initial value and planet textures never rotate.
+	rotEffWarp := effWarp
+	if rotEffWarp > RotationCapWarp {
+		rotEffWarp = RotationCapWarp
+	}
+	rotDelta := time.Duration(float64(simDelta) * rotEffWarp / effWarp)
+	if effWarp == 0 {
+		rotDelta = 0
+	}
+	w.Clock.RotationTime = w.Clock.RotationTime.Add(rotDelta)
 
 	if len(w.Crafts) > 0 {
 		// Integrate every craft in the slate. Each craft owns its

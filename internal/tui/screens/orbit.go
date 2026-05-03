@@ -314,14 +314,33 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
 		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID}
-		if i == 0 {
-			v.canvas.RingColoredOutlineTagged(pos, r, bodyTag)
-			v.canvas.FillColoredDiskTagged(pos, 1, bodyTag)
-		} else if tex := render.TextureFor(b, r); tex != nil {
-			// Per-pixel textured fill (Earth continents + clouds in
-			// v0.7.2.1; Moon maria + craters in v0.7.2.2). The tag's
-			// BodyID / hit fields still propagate; only the per-pixel
-			// color comes from the texture function.
+		// v0.8.5.7+: compute view-aware sub-observer point per body
+		// per frame. Camera direction comes from the canvas's
+		// current ViewMode; body axis tilt + sim-time rotation
+		// drive the (lat, lon) at the visible center. For tidally-
+		// locked bodies we also pass the body→parent direction so
+		// the prime meridian (lon=0) tracks the parent — keeps
+		// Luna's near side facing Earth as it orbits, instead of
+		// being fixed in inertial frame.
+		primMer := render.Vec3{}
+		camDir := v.cameraDirForView(w.ViewMode)
+		if b.TidallyLocked {
+			if parent := sys.ParentOf(b); parent != nil && parent.ID != b.ID {
+				parentPos := w.BodyPosition(*parent)
+				rel := parentPos.Sub(pos)
+				primMer = render.Vec3{X: rel.X, Y: rel.Y, Z: rel.Z}
+				// Tidally-locked bodies always show their
+				// parent-facing side regardless of the canvas view
+				// mode — the player's mental model is "Luna always
+				// shows its near-side", and the iconic mare pattern
+				// matters more than geometric consistency with the
+				// canvas's projection. Free bodies still pick up
+				// the canvas view direction as expected.
+				camDir = primMer
+			}
+		}
+		subLat, subLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, camDir, primMer)
+		if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
 			pxR := r
 			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
 				return tex(dx, dy, pxR)
@@ -329,17 +348,58 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		} else {
 			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
 		}
+		// v0.8.5.7+: stars get a faint two-ring corona halo so the
+		// disk reads as "this is a luminous body" instead of a
+		// generic colored circle. Replaces the i == 0 crosshair-
+		// style ring + center dot the orbit screen used pre-v0.8.5.7.
+		if b.BodyType == "Star" {
+			for _, mult := range []float64{1.4, 1.8} {
+				cpx := int(float64(r) * mult)
+				if cpx > r && cpx < canvasReach {
+					v.canvas.RingColoredOutline(pos, cpx, render.ColorSunCorona)
+				}
+			}
+		}
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
 		// radii project to pixel radii via the canvas scale; only
 		// draw when the outer ring would visibly clear the body's
 		// rendered disk. v0.5.15: skip if outerPx is beyond a sane
 		// canvas multiple — at extreme zoom the ring projects to
-		// millions of pixels and is entirely off-canvas anyway. The
-		// canvas has a samples cap as defense in depth.
-		if _, outerR, ok := render.BodyRings(b.ID); ok {
+		// millions of pixels and is entirely off-canvas anyway.
+		// v0.8.5.7+: ring lies in the body's equatorial plane, not
+		// the screen plane (foreshortens per camera direction +
+		// AxialTilt) AND splits into per-band annuli (Saturn's C /
+		// B / A / F rings with the Cassini Division as a visible
+		// gap), drawn as filled concentric outlines through each
+		// band so the band reads as a coherent surface rather than
+		// a single perimeter.
+		if bands := render.BodyRingBands(b.ID); len(bands) > 0 {
+			_, outerR, _ := render.BodyRings(b.ID)
 			outerPx := int(outerR * scale)
 			if outerPx > r && outerPx < canvasReach {
-				v.canvas.RingColoredOutline(pos, outerPx, color)
+				e1, e2 := render.BodyRingBasisWorld(b)
+				oe1 := vec3FromRender(e1)
+				oe2 := vec3FromRender(e2)
+				for _, band := range bands {
+					// Fill each band by drawing concentric outlines
+					// at 1-pixel-screen-spacing radii. Cap per-band
+					// outline count so a deeply-zoomed ring system
+					// doesn't blow the loop budget; the canvas
+					// already caps samples-per-outline.
+					widthPx := int((band.OuterR - band.InnerR) * scale)
+					if widthPx < 1 {
+						widthPx = 1
+					}
+					n := widthPx
+					if n > 64 {
+						n = 64
+					}
+					for i := 0; i < n; i++ {
+						t := (float64(i) + 0.5) / float64(n)
+						bandR := band.InnerR + t*(band.OuterR-band.InnerR)
+						v.canvas.RingTiltedOutline(pos, oe1, oe2, bandR, band.Color)
+					}
+				}
 			}
 		}
 		// v0.8.4: atmospheric haze ring at (cutoff + scale-height)
@@ -689,6 +749,45 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 	default:
 		return 1
 	}
+}
+
+// vec3FromRender adapts a render.Vec3 to an orbital.Vec3 for code
+// that crosses the package boundary (the canvas widget operates
+// on orbital.Vec3; render computes its own Vec3 to stay free of
+// orbital imports). Both types share the same {X, Y, Z float64}
+// shape; this is just a name-change hop.
+func vec3FromRender(v render.Vec3) orbital.Vec3 {
+	return orbital.Vec3{X: v.X, Y: v.Y, Z: v.Z}
+}
+
+// cameraDirForView maps a sim.ViewMode to the world-frame body-to-
+// camera direction the texture pipeline uses to compute the
+// sub-observer point. For the cardinal views the direction is a
+// fixed world-axis unit vector; for ViewOrbitFlat it's the
+// canvas's current depth axis — i.e. the active craft's orbit-
+// plane normal that the canvas already configured for the orbit-
+// flat projection. v0.8.5.7+: orbit-flat now picks up the
+// dynamically-computed camera direction instead of falling back
+// to top.
+func (v *OrbitView) cameraDirForView(view sim.ViewMode) render.Vec3 {
+	switch view {
+	case sim.ViewTop:
+		return render.CameraDirTop
+	case sim.ViewBottom:
+		return render.CameraDirBottom
+	case sim.ViewRight:
+		return render.CameraDirRight
+	case sim.ViewLeft:
+		return render.CameraDirLeft
+	case sim.ViewOrbitFlat:
+		// Depth axis points out of screen toward the camera, which
+		// is exactly the body-to-camera direction the sub-observer
+		// math wants. For a craft on a near-equatorial orbit this is
+		// approximately +Z; for inclined orbits it tips accordingly.
+		d := v.canvas.Basis().DepthAxis()
+		return render.Vec3{X: d.X, Y: d.Y, Z: d.Z}
+	}
+	return render.CameraDirTop
 }
 
 // plotCluster dots a cross of size n around a world point — useful for

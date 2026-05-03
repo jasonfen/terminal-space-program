@@ -240,6 +240,57 @@ func TestCraftTrailFollowsPrimaryFrame(t *testing.T) {
 	}
 }
 
+// TestTickAdvancesRotationTime: world.Tick must advance
+// Clock.RotationTime alongside SimTime so planet-rotation
+// animation actually moves under live ticking. Pre-v0.8.5.7
+// regression: the world's bespoke SimTime mutation skipped
+// Clock.Advance, so RotationTime stayed pinned at NewClock's
+// initial value and planet textures never rotated.
+func TestTickAdvancesRotationTime(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.BaseStep = 50 * time.Millisecond
+	w.Clock.WarpIdx = 1 // 10× warp — well below RotationCapWarp
+	rotT0 := w.Clock.RotationTime
+	simT0 := w.Clock.SimTime
+	for i := 0; i < 10; i++ {
+		w.Tick()
+	}
+	if w.Clock.RotationTime.Equal(rotT0) {
+		t.Error("RotationTime did not advance after 10 ticks at warp 10×")
+	}
+	rotElapsed := w.Clock.RotationTime.Sub(rotT0)
+	simElapsed := w.Clock.SimTime.Sub(simT0)
+	if rotElapsed != simElapsed {
+		t.Errorf("at warp ≤ cap, RotationTime should track SimTime: rot=%v sim=%v",
+			rotElapsed, simElapsed)
+	}
+}
+
+// TestTickRotationCapsAtHighWarp: above RotationCapWarp, SimTime
+// races ahead at full warp but RotationTime advances at the cap.
+func TestTickRotationCapsAtHighWarp(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.BaseStep = 50 * time.Millisecond
+	w.Clock.WarpIdx = 5 // 100000× — above the 10000× cap
+	rotT0 := w.Clock.RotationTime
+	simT0 := w.Clock.SimTime
+	w.Tick()
+	rotElapsed := w.Clock.RotationTime.Sub(rotT0)
+	simElapsed := w.Clock.SimTime.Sub(simT0)
+	if simElapsed <= rotElapsed {
+		t.Errorf("at warp 100000×, SimTime should outpace RotationTime: sim=%v rot=%v",
+			simElapsed, rotElapsed)
+	}
+	// RotationTime should grow at the cap rate.
+	expectedRot := time.Duration(float64(w.Clock.BaseStep) * RotationCapWarp)
+	// Allow slight slop from finite-burn clamping (no burn here, so
+	// exact match expected).
+	if rotElapsed != expectedRot {
+		t.Errorf("RotationTime advance = %v, want %v (cap)",
+			rotElapsed, expectedRot)
+	}
+}
+
 // TestPausedTickDoesNothing: world.Clock.Paused must block both time
 // advancement and physics stepping.
 func TestPausedTickDoesNothing(t *testing.T) {

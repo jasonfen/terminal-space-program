@@ -120,6 +120,51 @@ func TestBodyRingsForSaturn(t *testing.T) {
 	}
 }
 
+// TestBodyRingBandsSaturnLayout: v0.8.5.7 — Saturn returns multiple
+// ring bands in radial order with a Cassini Division gap between
+// the B and A rings.
+func TestBodyRingBandsSaturnLayout(t *testing.T) {
+	bands := BodyRingBands("saturn")
+	if len(bands) < 4 {
+		t.Fatalf("Saturn ring bands: got %d, want at least 4 (C/B/A/F)", len(bands))
+	}
+	// Bands monotonic + non-overlapping in radial order.
+	for i := 0; i < len(bands); i++ {
+		if bands[i].InnerR >= bands[i].OuterR {
+			t.Errorf("band %d: inner %v >= outer %v", i, bands[i].InnerR, bands[i].OuterR)
+		}
+		if i > 0 && bands[i].InnerR < bands[i-1].OuterR {
+			t.Errorf("band %d overlaps band %d", i, i-1)
+		}
+	}
+	// Cassini Division: gap between B (band 1) and A (band 2).
+	if bands[2].InnerR <= bands[1].OuterR {
+		t.Errorf("Cassini Division missing: B outer = %v, A inner = %v",
+			bands[1].OuterR, bands[2].InnerR)
+	}
+	// BodyRings returns the union span.
+	innerR, outerR, ok := BodyRings("saturn")
+	if !ok {
+		t.Fatal("BodyRings(saturn) returned ok=false but BodyRingBands has bands")
+	}
+	if innerR != bands[0].InnerR {
+		t.Errorf("BodyRings inner %v != first band inner %v", innerR, bands[0].InnerR)
+	}
+	if outerR != bands[len(bands)-1].OuterR {
+		t.Errorf("BodyRings outer %v != last band outer %v", outerR, bands[len(bands)-1].OuterR)
+	}
+}
+
+// TestBodyRingBandsNoRingedBodies: bodies without rings return an
+// empty slice (not nil-vs-empty inconsistency).
+func TestBodyRingBandsNoRingedBodies(t *testing.T) {
+	for _, id := range []string{"earth", "jupiter", "uranus", "neptune", "mars"} {
+		if bands := BodyRingBands(id); len(bands) != 0 {
+			t.Errorf("%s should have no ring bands; got %d", id, len(bands))
+		}
+	}
+}
+
 // TestStellarTintBuckets: spot-check that StellarTint returns
 // distinct colors across the temperature ladder. Catches accidental
 // collapse of the bucket boundaries (e.g. wrong threshold ordering).
