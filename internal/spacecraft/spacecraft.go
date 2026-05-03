@@ -64,6 +64,16 @@ type Spacecraft struct {
 	RCSThrust        float64
 	RCSIsp           float64
 
+	// v0.8.4 — atmospheric drag coupling. BallisticCoefficient is
+	// (C_D · A / m) in m²/kg — the multiplicative factor in the drag
+	// equation a = -0.5 · ρ · |v_rel|² · BC · v̂_rel. Higher means
+	// more drag per unit dynamic pressure (the inverse of the
+	// aerospace-standard m/(C_D·A) convention; named for what the
+	// integrator actually multiplies). Zero is treated as the default
+	// 0.01 m²/kg (S-IVB-1 baseline) so legacy saves don't need a
+	// schema bump — see EffectiveBallisticCoefficient.
+	BallisticCoefficient float64
+
 	Primary bodies.CelestialBody
 	State   physics.StateVector
 
@@ -156,6 +166,22 @@ func (s *Spacecraft) EffectiveThrottle() float64 {
 
 // TotalMass returns dry + fuel + monoprop.
 func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel + s.Monoprop }
+
+// DefaultBallisticCoefficient is the v0.8.4 baseline (C_D · A / m)
+// for an S-IVB-1-class craft in m²/kg. Used as the fallback when
+// Spacecraft.BallisticCoefficient is zero — legacy saves and any
+// loadout that hasn't been tuned yet inherit this.
+const DefaultBallisticCoefficient = 0.01
+
+// EffectiveBallisticCoefficient returns the per-craft drag
+// coefficient (C_D · A / m, m²/kg), or DefaultBallisticCoefficient
+// when the field is zero. v0.8.4+.
+func (s *Spacecraft) EffectiveBallisticCoefficient() float64 {
+	if s.BallisticCoefficient > 0 {
+		return s.BallisticCoefficient
+	}
+	return DefaultBallisticCoefficient
+}
 
 // RCSDeltaV estimates how much more Δv the current monoprop pool
 // supports via the rocket equation against TotalMass minus monoprop

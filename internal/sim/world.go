@@ -581,28 +581,46 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	}
 	dt := secs / float64(nSteps)
 	tickStart := w.Clock.SimTime.Add(-simDelta)
+	stepDur := time.Duration(dt * float64(time.Second))
 
 	sys := w.System()
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
-	for _, b := range sys.Bodies {
-		positions[b.ID] = w.BodyPosition(b)
-	}
-
+	clock := tickStart
+	bc := c.EffectiveBallisticCoefficient()
 	for i := 0; i < nSteps; i++ {
 		if w.thrustingAt(c, tickStart, dt, i) {
 			w.stepThrust(c, mu, dt)
 		} else {
-			c.State = physics.StepVerlet(c.State, mu, dt)
+			// v0.8.4: drag closure binds the craft's current primary
+			// (re-bound after each SOI rebase below by the loop var
+			// capture). Zero drag automatically when the primary has
+			// no atmosphere or the craft is above cutoff.
+			c.State = physics.StepVerletWithAccel(c.State, mu, dt, func(r, v orbital.Vec3) orbital.Vec3 {
+				return physics.DragAccel(r, v, c.Primary, bc)
+			})
 		}
+		// v0.8.5: halt sub-stepping at surface contact. Without this,
+		// a craft that aerobrakes past altitude 0 keeps falling toward
+		// r=0 and the gravity singularity slingshots it back out.
+		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
+			c.State = clamped
+			break
+		}
+		clock = clock.Add(stepDur)
 
-		// Per-sub-step SOI re-evaluation. If the craft crossed into
-		// another body's SOI during this dt, rebase to that frame so
-		// the next sub-step uses the right μ.
+		// Per-sub-step SOI re-evaluation. v0.8.4: refresh body
+		// positions at the chunk's clock so high-warp ticks see body
+		// motion within the tick — matches the predictor, which is
+		// also time-aware. Without this an Earth→Mars Hohmann at high
+		// warp diverges from the dashed predictor line.
+		for _, b := range sys.Bodies {
+			positions[b.ID] = w.BodyPositionAt(b, clock)
+		}
 		inertial := positions[c.Primary.ID].Add(c.State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
 		if cand.Body.ID != c.Primary.ID {
-			vOld := w.bodyInertialVelocity(c.Primary)
-			vNew := w.bodyInertialVelocity(cand.Body)
+			vOld := w.bodyInertialVelocityAt(c.Primary, clock)
+			vNew := w.bodyInertialVelocityAt(cand.Body, clock)
 			c.State = physics.Rebase(c.State, positions[c.Primary.ID], cand.Inertial, vOld.Sub(vNew))
 			c.Primary = cand.Body
 			mu = c.Primary.GravitationalParameter()
@@ -663,7 +681,15 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 			throttle = 1.0
 		}
 	}
-	accelFn := c.ThrustAccelFnAt(mode, mu, throttle)
+	thrustFn := c.ThrustAccelFnAt(mode, mu, throttle)
+	bc := c.EffectiveBallisticCoefficient()
+	primary := c.Primary
+	// v0.8.4: drag adds to thrust + gravity inside the RK4 closure so
+	// finite-burn ascent / descent through atmosphere feels the
+	// expected resistance.
+	accelFn := func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+		return thrustFn(r, v, t).Add(physics.DragAccel(r, v, primary, bc))
+	}
 	c.State = physics.StepRK4(c.State, dt, accelFn, 0)
 
 	if c.ActiveBurn != nil {
@@ -719,6 +745,18 @@ func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration) 
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	if el.E >= 1 || el.A <= 0 {
 		return false
+	}
+	// v0.8.4: drag breaks the analytic propagation. If the orbit's
+	// periapsis dips below the primary's atmospheric cutoff (or the
+	// craft is already inside the atmosphere), fall back to Verlet so
+	// the per-sub-step drag accel is integrated. Compared at the
+	// orbit periapsis altitude — if peri grazes atmosphere the orbit
+	// will decay over time, so analytic Kepler propagation is wrong.
+	if atm := c.Primary.Atmosphere; atm != nil {
+		periAlt := el.A*(1-el.E) - c.Primary.RadiusMeters()
+		if periAlt < atm.CutoffAltitude {
+			return false
+		}
 	}
 	return true
 }

@@ -273,11 +273,43 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// disk, so orbit lines and craft glyphs sharing nearby cells stay
 	// default-colored.
 	// See BodyPixelRadius for the size-tier logic.
+	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
+	// v0.8.5: when the focused craft is landed (altitude ≤ 0) — or the
+	// focused body is its primary — cap the zoom so the body's
+	// projected radius stays within canvas reach. Above this cap the
+	// body's drawn disk (capped at canvasReach px) can no longer reach
+	// back from its off-canvas center to the craft's pixel position,
+	// leaving the landed craft floating in empty space. Clamping every
+	// frame is intentional — manual [+] past the cap is silently
+	// ignored so the surface contact stays visually consistent with
+	// the HUD altitude readout. Skipped when the focus is unrelated
+	// (system view or a different body) so an unrelated zoom-in isn't
+	// surprisingly capped.
+	if c := w.ActiveCraft(); c != nil && c.Altitude() <= 0 {
+		focused := false
+		switch w.Focus.Kind {
+		case sim.FocusCraft:
+			focused = true
+		case sim.FocusBody:
+			if w.Focus.BodyIdx >= 0 && w.Focus.BodyIdx < len(sys.Bodies) &&
+				sys.Bodies[w.Focus.BodyIdx].ID == c.Primary.ID {
+				focused = true
+			}
+		}
+		if focused {
+			if r := c.Primary.RadiusMeters(); r > 0 {
+				maxScale := float64(canvasReach) / r
+				if v.canvas.Scale() > maxScale {
+					v.canvas.SetScale(maxScale)
+				}
+			}
+		}
+	}
 	scale := v.canvas.Scale()
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
-		r := BodyPixelRadius(b, i == 0, scale)
+		r := BodyPixelRadius(b, i == 0, scale, canvasReach)
 		color := render.ColorFor(b)
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
@@ -306,9 +338,18 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// canvas has a samples cap as defense in depth.
 		if _, outerR, ok := render.BodyRings(b.ID); ok {
 			outerPx := int(outerR * scale)
-			canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
 			if outerPx > r && outerPx < canvasReach {
 				v.canvas.RingColoredOutline(pos, outerPx, color)
+			}
+		}
+		// v0.8.4: atmospheric haze ring at (cutoff + scale-height)
+		// outside the body, floored to bodyPx + AtmosphereMinHaloPx
+		// so the halo always reads as a thin ring just outside the
+		// disk regardless of zoom.
+		if render.AtmosphereVisible(b, r) {
+			outerPx := render.AtmosphereOuterPx(b, scale, r)
+			if outerPx > r && outerPx < canvasReach {
+				v.canvas.RingColoredOutline(pos, outerPx, render.AtmosphereHazeColor(b))
 			}
 		}
 		// Body-identity glyph overlay (v0.5.12). Skip the system
@@ -377,7 +418,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// already been drawn (line ~115), the gap reads as natural
 		// occlusion. Apo / peri markers + the craft chevron use the
 		// same check.
-		primaryPxR := BodyPixelRadius(c.Primary, false, scale)
+		primaryPxR := BodyPixelRadius(c.Primary, false, scale, canvasReach)
 		if orbitVisible {
 			v.canvas.DrawEllipseOffsetOccluded(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
@@ -473,7 +514,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				continue
 			}
 			otherPrimaryPos := w.BodyPosition(other.Primary)
-			otherPxR := BodyPixelRadius(other.Primary, false, scale)
+			otherPxR := BodyPixelRadius(other.Primary, false, scale, canvasReach)
 			otherInertial := otherPrimaryPos.Add(other.State.R)
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
 			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
@@ -614,15 +655,24 @@ func (v *OrbitView) HitMissionsButton(col, row int) bool {
 // fallback path so the system primary always renders bigger than its
 // planets even when its physical radius wouldn't otherwise put it
 // there.
-func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64) int {
+func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxPx int) int {
 	const trueSizeThreshold = 4
-	const trueSizeCap = 64 // keep the Sun from filling the canvas at extreme zoom-in
+	// v0.8.4: cap is now passed in. Render callers thread canvas
+	// reach so the body disk can grow to fill the canvas at close
+	// zoom — without that, an altitude-0 craft renders visibly
+	// outside the disk, contradicting the HUD altitude readout.
+	// maxPx ≤ 0 falls back to a safe legacy default for tests and
+	// non-render callers (hit-test math).
+	cap := 512
+	if maxPx > 0 {
+		cap = maxPx
+	}
 	r := b.RadiusMeters()
 	if scale > 0 && r > 0 {
 		truePx := int(math.Round(r * scale))
 		if truePx >= trueSizeThreshold {
-			if truePx > trueSizeCap {
-				truePx = trueSizeCap
+			if truePx > cap {
+				truePx = cap
 			}
 			return truePx
 		}
@@ -730,7 +780,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		}
 
 		samples := 96
-		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.HorizonSecs, samples)
+		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, samples)
 		legColor := render.ManeuverSegmentColor(leg.NodeIndex)
 		for _, seg := range segs {
 			stride := 2
@@ -956,10 +1006,12 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		lines = append(lines, section("CAPTURE PREVIEW")...)
 		lines = append(lines, fmt.Sprintf("  primary:    %s", cap.Primary.EnglishName))
 		if cap.Approximate {
-			// "Perfect-aim" Hohmann case — only relative-velocity +
-			// qualitative direction. Exact inclination needs an SOI-
-			// aware integrator that tracks body motion during the
-			// transfer (deferred to v0.9+, see plan).
+			// Genuinely degenerate intercept — even with the v0.8.4
+			// time-aware propagator, the chained predictor lands
+			// inside ~5× target radius of the center (e.g. perfect-
+			// aim Hohmann, fuel-out residual, etc.). Surface
+			// approach speed + qualitative direction; exact orbit
+			// elements would be geometric noise at this distance.
 			dirLabel := v.theme.Warning.Render("prograde")
 			if cap.RetrogradeCapture {
 				dirLabel = v.theme.Alert.Render("retrograde")
@@ -967,7 +1019,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			lines = append(lines,
 				fmt.Sprintf("  approach:   %.0f m/s relative", cap.ApproachSpeed),
 				fmt.Sprintf("  direction:  %s capture predicted", dirLabel),
-				v.theme.Dim.Render("  (exact incl. depends on SOI entry geometry)"),
+				v.theme.Dim.Render("  (intercept too central for orbit-element preview)"),
 			)
 		} else {
 			primaryR := cap.Primary.RadiusMeters()
