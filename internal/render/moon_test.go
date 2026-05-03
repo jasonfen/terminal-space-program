@@ -100,9 +100,16 @@ func TestTextureForDispatch(t *testing.T) {
 	if TextureFor(jupiter, 64, 0) == nil {
 		t.Error("Jupiter should have texture (added in v0.7.6)")
 	}
+	// v0.8.5+: Saturn / Galileans / Uranus / Neptune now have textures.
 	saturn := bodies.CelestialBody{ID: "saturn", BodyType: "Planet"}
-	if TextureFor(saturn, 64, 0) != nil {
-		t.Error("Saturn should not have texture (not yet implemented)")
+	if TextureFor(saturn, 64, 0) == nil {
+		t.Error("Saturn should have texture (added in v0.8.5)")
+	}
+	for _, id := range []string{"io", "europa", "ganymede", "callisto", "uranus", "neptune"} {
+		b := bodies.CelestialBody{ID: id, BodyType: "Moon"}
+		if TextureFor(b, 64, 0) == nil {
+			t.Errorf("%s should have texture (added in v0.8.5)", id)
+		}
 	}
 
 	// Earth and Moon must dispatch to different functions — sanity
