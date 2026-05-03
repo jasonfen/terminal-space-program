@@ -327,14 +327,24 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// parent — keeps Luna's near side facing Earth as it
 			// orbits, instead of being fixed in inertial frame.
 			primMer := render.Vec3{}
+			camDir := v.cameraDirForView(w.ViewMode)
 			if b.TidallyLocked {
 				if parent := sys.ParentOf(b); parent != nil && parent.ID != b.ID {
 					parentPos := w.BodyPosition(*parent)
 					rel := parentPos.Sub(pos)
 					primMer = render.Vec3{X: rel.X, Y: rel.Y, Z: rel.Z}
+					// Tidally-locked bodies always show their
+					// parent-facing side regardless of the canvas
+					// view mode — the player's mental model is
+					// "Luna always shows its near-side", and the
+					// iconic mare pattern matters more than
+					// geometric consistency with the canvas's
+					// projection. Free bodies still pick up the
+					// canvas view direction as expected.
+					camDir = primMer
 				}
 			}
-			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, v.cameraDirForView(w.ViewMode), primMer)
+			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, camDir, primMer)
 			if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
 				// Per-pixel textured fill. The tag's BodyID / hit
 				// fields still propagate; only the per-pixel color
