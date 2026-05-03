@@ -140,6 +140,46 @@ func SubObserverLongitudeDeg(b bodies.CelestialBody, simTime time.Time) float64 
 	return lon
 }
 
+// BodyRotationAxisWorld returns the body's spin axis as a unit
+// vector in the world inertial frame, derived from AxialTilt with
+// the X-Z-plane azimuth convention (n = (sin(tilt), 0, cos(tilt))).
+// v0.8.5.7+ — drives view-aware texture projection and ring-system
+// orientation for ringed bodies.
+func BodyRotationAxisWorld(b bodies.CelestialBody) Vec3 {
+	tiltRad := b.AxialTilt * math.Pi / 180.0
+	return Vec3{math.Sin(tiltRad), 0, math.Cos(tiltRad)}
+}
+
+// BodyRingBasisWorld returns two orthonormal basis vectors that
+// span the body's equatorial plane (perpendicular to its spin
+// axis), expressed in the world inertial frame. Caller can sample
+// a circular ring as
+//
+//	ringPoint(θ) = R·(ê1·cos(θ) + ê2·sin(θ))
+//
+// and project each sample through the canvas to draw the ring as
+// an ellipse that correctly foreshortens for the current view.
+// At AxialTilt = 90° the convention degenerates; falls back to
+// (ê1, ê2) = (world +Y, world +Z) — a sensible "ring lies in the
+// X = 0 plane" choice for the Uranus-class case.
+func BodyRingBasisWorld(b bodies.CelestialBody) (Vec3, Vec3) {
+	tiltRad := b.AxialTilt * math.Pi / 180.0
+	cT := math.Cos(tiltRad)
+	sT := math.Sin(tiltRad)
+	if math.Abs(cT) < 1e-9 {
+		return Vec3{0, 1, 0}, Vec3{0, 0, 1}
+	}
+	// e1 = projection of world +X onto equatorial plane (already a
+	// unit vector since |x̂_eq| = 1 by construction). Same as the
+	// body x-axis at rotationEpoch — the ring is geometric, so we
+	// don't bother spinning the basis with sim time.
+	e1 := Vec3{cT, 0, -sT}
+	// e2 = n × e1.
+	n := Vec3{sT, 0, cT}
+	e2 := cross(n, e1)
+	return e1, e2
+}
+
 // rotationPhaseRad returns the body's spin angle (radians) at
 // simTime, signed for prograde (+) / retrograde (-) rotation.
 // Tidally-locked bodies use their orbital period.

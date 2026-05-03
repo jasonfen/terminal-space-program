@@ -200,6 +200,112 @@ func TestProjectionEquatorOnMatchesV0Point8Point5(t *testing.T) {
 	}
 }
 
+func TestBodyRingBasisOrthonormalAndPerpendicularToAxis(t *testing.T) {
+	// For any tilt, the ring basis vectors must be unit-length,
+	// mutually orthogonal, and both perpendicular to the body's
+	// spin axis. The canvas's RingTiltedOutline relies on this
+	// invariant.
+	cases := []float64{0, 23.44, 26.73, 90, 97.77, 177.36}
+	for _, tilt := range cases {
+		b := bodies.CelestialBody{ID: "x", AxialTilt: tilt}
+		e1, e2 := BodyRingBasisWorld(b)
+		n := BodyRotationAxisWorld(b)
+		if math.Abs(dot(e1, e1)-1) > 1e-9 {
+			t.Errorf("tilt=%v: |e1| = %v, want 1", tilt, dot(e1, e1))
+		}
+		if math.Abs(dot(e2, e2)-1) > 1e-9 {
+			t.Errorf("tilt=%v: |e2| = %v, want 1", tilt, dot(e2, e2))
+		}
+		if math.Abs(dot(e1, e2)) > 1e-9 {
+			t.Errorf("tilt=%v: e1·e2 = %v, want 0", tilt, dot(e1, e2))
+		}
+		if math.Abs(dot(e1, n)) > 1e-9 {
+			t.Errorf("tilt=%v: e1·n = %v, want 0", tilt, dot(e1, n))
+		}
+		if math.Abs(dot(e2, n)) > 1e-9 {
+			t.Errorf("tilt=%v: e2·n = %v, want 0", tilt, dot(e2, n))
+		}
+	}
+}
+
+func TestSaturnRingForeshorteningTopVsSide(t *testing.T) {
+	// Saturn's 26.73° axial tilt foreshortens the ring differently
+	// from each cardinal view. Sample 4 points on the ring at angles
+	// 0°/90°/180°/270° and project (orthographically along view
+	// direction); the bounding-box dimensions should match the
+	// face-on / edge-on geometry.
+	saturn := bodies.CelestialBody{ID: "saturn", AxialTilt: 26.73}
+	e1, e2 := BodyRingBasisWorld(saturn)
+	const R = 1.0
+	for _, view := range []struct {
+		name string
+		c    Vec3
+	}{
+		{"top", CameraDirTop},
+		{"right", CameraDirRight},
+	} {
+		// Build screen basis from camera direction. For a view where
+		// camDir's y-component is 0, screen-up = world +Y; otherwise
+		// pick anything orthogonal.
+		var screenUp Vec3
+		if math.Abs(view.c.Y) < 1e-9 {
+			screenUp = Vec3{0, 1, 0}
+		} else {
+			screenUp = Vec3{0, 0, 1}
+		}
+		screenRight := normalize(cross(screenUp, view.c))
+		screenUp = normalize(cross(view.c, screenRight))
+
+		var minX, maxX, minY, maxY float64
+		for _, theta := range []float64{0, math.Pi / 2, math.Pi, 3 * math.Pi / 2} {
+			p := add(scale(e1, R*math.Cos(theta)), scale(e2, R*math.Sin(theta)))
+			sx := dot(p, screenRight)
+			sy := dot(p, screenUp)
+			if theta == 0 {
+				minX, maxX, minY, maxY = sx, sx, sy, sy
+				continue
+			}
+			if sx < minX {
+				minX = sx
+			}
+			if sx > maxX {
+				maxX = sx
+			}
+			if sy < minY {
+				minY = sy
+			}
+			if sy > maxY {
+				maxY = sy
+			}
+		}
+		bboxWidth := maxX - minX
+		bboxHeight := maxY - minY
+		// Top view: ring's screen-Y axis stays full length R, screen-X
+		// is foreshortened by cos(tilt) ≈ 0.893 → bbox width 2R, height
+		// 2R·cos(tilt). Aspect ratio (height/width) ≈ cos(tilt).
+		// Right view: ring's screen-X stays full length R, screen-Y
+		// is foreshortened by sin(tilt) ≈ 0.450 → aspect ≈ sin(tilt).
+		// So both cases foreshorten the ring; the foreshortening
+		// magnitude differs.
+		switch view.name {
+		case "top":
+			// Expect ratio ≈ cos(26.73°) = 0.893 (height < width or vice
+			// versa depending on basis choice — accept either side).
+			ratio := math.Min(bboxWidth, bboxHeight) / math.Max(bboxWidth, bboxHeight)
+			want := math.Cos(26.73 * math.Pi / 180)
+			if math.Abs(ratio-want) > 1e-3 {
+				t.Errorf("top view: ring aspect = %v, want %v", ratio, want)
+			}
+		case "right":
+			ratio := math.Min(bboxWidth, bboxHeight) / math.Max(bboxWidth, bboxHeight)
+			want := math.Sin(26.73 * math.Pi / 180)
+			if math.Abs(ratio-want) > 1e-3 {
+				t.Errorf("right view: ring aspect = %v, want %v", ratio, want)
+			}
+		}
+	}
+}
+
 func TestWrapDeg180Boundaries(t *testing.T) {
 	cases := []struct{ in, want float64 }{
 		{0, 0},

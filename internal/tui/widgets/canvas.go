@@ -335,6 +335,61 @@ func (c *Canvas) RingColoredOutlineTagged(center orbital.Vec3, pxRadius int, tag
 	}
 }
 
+// RingTiltedOutline draws a ring of radius rMeters around center
+// in the plane spanned by basis vectors e1, e2 (both in world
+// inertial frame, both unit-length, mutually orthogonal). v0.8.5.7+
+// — for ringed bodies whose ring plane is perpendicular to a tilted
+// spin axis (Saturn 26.7°, Uranus 97.8°), this draws the ring as
+// the foreshortened ellipse the current canvas view sees rather
+// than as a screen-space circle.
+//
+// The samples loop is identical in spirit to RingColoredOutlineTagged;
+// the only difference is that the per-sample world position is in
+// 3D and goes through Canvas.Project (which already accounts for
+// the canvas's view basis). Same 4×(pxW+pxH) cap on samples to keep
+// the inner loop bounded at extreme zoom.
+func (c *Canvas) RingTiltedOutline(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, color lipgloss.Color) {
+	c.RingTiltedOutlineTagged(center, e1, e2, rMeters, CellTag{Color: color})
+}
+
+// RingTiltedOutlineTagged is RingTiltedOutline with the full
+// CellTag preserved on every pixel set.
+func (c *Canvas) RingTiltedOutlineTagged(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, tag CellTag) {
+	if rMeters <= 0 {
+		return
+	}
+	// Sample density: aim for ~8 samples per visible-pixel of arc
+	// length. The arc length is ≤ 2π·rMeters·scale screen pixels;
+	// for the ring's bounding box we cap by the canvas perimeter
+	// the same way RingColoredOutline does.
+	pxRadius := int(rMeters * c.scale)
+	samples := pxRadius * 8
+	if samples < 16 {
+		samples = 16
+	}
+	maxSamples := 4 * (c.pxW + c.pxH)
+	if samples > maxSamples {
+		samples = maxSamples
+	}
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	for i := 0; i < samples; i++ {
+		theta := 2 * math.Pi * float64(i) / float64(samples)
+		cT, sT := math.Cos(theta), math.Sin(theta)
+		// world point = center + R·(e1·cos(θ) + e2·sin(θ))
+		wp := center.
+			Add(e1.Scale(rMeters * cT)).
+			Add(e2.Scale(rMeters * sT))
+		px, py, ok := c.Project(wp)
+		if !ok {
+			continue
+		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = tag
+	}
+}
+
 // PlotColored sets a single pixel and tags it with the given color.
 // Used by callers that want a tagged dot (e.g. v0.6.1 maneuver-leg
 // preview). v0.6.4+: routed through PlotColoredTagged so tagged

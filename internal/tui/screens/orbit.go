@@ -342,10 +342,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// canvas multiple — at extreme zoom the ring projects to
 		// millions of pixels and is entirely off-canvas anyway. The
 		// canvas has a samples cap as defense in depth.
+		// v0.8.5.7+: ring lies in the body's equatorial plane, not
+		// the screen plane. With Saturn's 26.7° axial tilt, this
+		// foreshortens the ring to an ellipse that depends on the
+		// current view direction — face-on from one polar view,
+		// edge-on from the side perpendicular to the tilt axis.
 		if _, outerR, ok := render.BodyRings(b.ID); ok {
 			outerPx := int(outerR * scale)
 			if outerPx > r && outerPx < canvasReach {
-				v.canvas.RingColoredOutline(pos, outerPx, color)
+				e1, e2 := render.BodyRingBasisWorld(b)
+				v.canvas.RingTiltedOutline(pos, vec3FromRender(e1), vec3FromRender(e2), outerR, color)
 			}
 		}
 		// v0.8.4: atmospheric haze ring at (cutoff + scale-height)
@@ -695,6 +701,15 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 	default:
 		return 1
 	}
+}
+
+// vec3FromRender adapts a render.Vec3 to an orbital.Vec3 for code
+// that crosses the package boundary (the canvas widget operates
+// on orbital.Vec3; render computes its own Vec3 to stay free of
+// orbital imports). Both types share the same {X, Y, Z float64}
+// shape; this is just a name-change hop.
+func vec3FromRender(v render.Vec3) orbital.Vec3 {
+	return orbital.Vec3{X: v.X, Y: v.Y, Z: v.Z}
 }
 
 // cameraDirForView maps a sim.ViewMode to the world-frame body-to-
