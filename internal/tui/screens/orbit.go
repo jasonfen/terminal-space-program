@@ -317,7 +317,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if i == 0 {
 			v.canvas.RingColoredOutlineTagged(pos, r, bodyTag)
 			v.canvas.FillColoredDiskTagged(pos, 1, bodyTag)
-		} else if tex := render.TextureFor(b, r); tex != nil {
+		} else if tex := render.TextureFor(b, r, render.SubObserverLongitudeDeg(b, w.Clock.SimTime)); tex != nil {
 			// Per-pixel textured fill (Earth continents + clouds in
 			// v0.7.2.1; Moon maria + craters in v0.7.2.2). The tag's
 			// BodyID / hit fields still propagate; only the per-pixel

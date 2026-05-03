@@ -13,7 +13,7 @@ func TestMoonPixelColorHighland(t *testing.T) {
 	r := 32
 	dx := int(0.557 * float64(r))
 	dy := int(-0.766 * float64(r))
-	got := MoonPixelColor(dx, dy, r)
+	got := MoonPixelColor(dx, dy, r, 0)
 	if got != ColorMoonHighland {
 		t.Errorf("highland sample = %q, want %q", string(got), string(ColorMoonHighland))
 	}
@@ -25,7 +25,7 @@ func TestMoonPixelColorMare(t *testing.T) {
 	r := 32
 	dx := int(-0.231 * float64(r))
 	dy := int(0.545 * float64(r))
-	got := MoonPixelColor(dx, dy, r)
+	got := MoonPixelColor(dx, dy, r, 0)
 	if got != ColorMoonMare {
 		t.Errorf("Mare Imbrium sample = %q, want %q", string(got), string(ColorMoonMare))
 	}
@@ -37,7 +37,7 @@ func TestMoonPixelColorCraterRay(t *testing.T) {
 	r := 32
 	dx := int(-0.140 * float64(r))
 	dy := int(-0.682 * float64(r))
-	got := MoonPixelColor(dx, dy, r)
+	got := MoonPixelColor(dx, dy, r, 0)
 	if got != ColorMoonRay {
 		t.Errorf("Tycho sample = %q, want %q", string(got), string(ColorMoonRay))
 	}
@@ -47,8 +47,8 @@ func TestMoonPixelColorDeterministic(t *testing.T) {
 	r := 32
 	for dy := -r; dy <= r; dy += 4 {
 		for dx := -r; dx <= r; dx += 4 {
-			a := MoonPixelColor(dx, dy, r)
-			b := MoonPixelColor(dx, dy, r)
+			a := MoonPixelColor(dx, dy, r, 0)
+			b := MoonPixelColor(dx, dy, r, 0)
 			if a != b {
 				t.Fatalf("non-deterministic at (%d,%d): %q vs %q", dx, dy, string(a), string(b))
 			}
@@ -65,7 +65,7 @@ func TestMoonPixelColorMultiColor(t *testing.T) {
 			if dx*dx+dy*dy > r2 {
 				continue
 			}
-			seen[string(MoonPixelColor(dx, dy, r))] = true
+			seen[string(MoonPixelColor(dx, dy, r, 0))] = true
 		}
 	}
 	for _, want := range []string{string(ColorMoonHighland), string(ColorMoonMare), string(ColorMoonRay)} {
@@ -80,35 +80,35 @@ func TestTextureForDispatch(t *testing.T) {
 	moon := bodies.CelestialBody{ID: "moon", BodyType: "Moon"}
 	mars := bodies.CelestialBody{ID: "mars", BodyType: "Planet"}
 
-	if TextureFor(earth, BodyTextureMinRadius-1) != nil {
+	if TextureFor(earth, BodyTextureMinRadius-1, 0) != nil {
 		t.Error("Earth below threshold should have no texture")
 	}
-	if TextureFor(earth, BodyTextureMinRadius) == nil {
+	if TextureFor(earth, BodyTextureMinRadius, 0) == nil {
 		t.Error("Earth at threshold should have texture")
 	}
-	if TextureFor(moon, BodyTextureMinRadius-1) != nil {
+	if TextureFor(moon, BodyTextureMinRadius-1, 0) != nil {
 		t.Error("Moon below threshold should have no texture")
 	}
-	if TextureFor(moon, BodyTextureMinRadius) == nil {
+	if TextureFor(moon, BodyTextureMinRadius, 0) == nil {
 		t.Error("Moon at threshold should have texture")
 	}
 	// v0.7.6+: Mars and Jupiter now have textures.
-	if TextureFor(mars, 64) == nil {
+	if TextureFor(mars, 64, 0) == nil {
 		t.Error("Mars should have texture (added in v0.7.6)")
 	}
 	jupiter := bodies.CelestialBody{ID: "jupiter", BodyType: "Planet"}
-	if TextureFor(jupiter, 64) == nil {
+	if TextureFor(jupiter, 64, 0) == nil {
 		t.Error("Jupiter should have texture (added in v0.7.6)")
 	}
 	saturn := bodies.CelestialBody{ID: "saturn", BodyType: "Planet"}
-	if TextureFor(saturn, 64) != nil {
+	if TextureFor(saturn, 64, 0) != nil {
 		t.Error("Saturn should not have texture (not yet implemented)")
 	}
 
 	// Earth and Moon must dispatch to different functions — sanity
 	// check that the switch is not collapsing.
-	earthTex := TextureFor(earth, 32)
-	moonTex := TextureFor(moon, 32)
+	earthTex := TextureFor(earth, 32, 0)
+	moonTex := TextureFor(moon, 32, 0)
 	const r = 32
 	// Look at the same pixel offset on both: (0, 0) is the disk
 	// center. Earth at (0,0) → lat=0, lon=0 → over Africa → land

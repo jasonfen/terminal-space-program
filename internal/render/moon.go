@@ -51,7 +51,13 @@ var moonCraters = []continentEllipse{
 // EarthPixelColor's structure: orthographic (dx,dy) → (lat, lon)
 // projection, then ellipse-table lookup for mare / crater / highland
 // classification. Resolution order: bright crater > mare > highland.
-func MoonPixelColor(dx, dy, pxRadius int) lipgloss.Color {
+//
+// v0.8.5+ takes lon0Deg (sub-observer longitude). For the tidally-
+// locked Moon, lon0 advances with orbital phase from a heliocentric
+// observer's POV — the near side rotates into / out of view as Luna
+// orbits Earth. lon0=0 reproduces the v0.8.4-and-earlier static
+// near-side view.
+func MoonPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorMoonHighland
 	}
@@ -80,15 +86,22 @@ func MoonPixelColor(dx, dy, pxRadius int) lipgloss.Color {
 	} else if sinLonRel > 1 {
 		sinLonRel = 1
 	}
-	lon := math.Asin(sinLonRel) * 180.0 / math.Pi
+	relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
+	absLon := lon0Deg + relLon
+	for absLon > 180 {
+		absLon -= 360
+	}
+	for absLon <= -180 {
+		absLon += 360
+	}
 
 	for _, c := range moonCraters {
-		if inEllipse(lat, lon, c) {
+		if inEllipse(lat, absLon, c) {
 			return ColorMoonRay
 		}
 	}
 	for _, c := range moonMaria {
-		if inEllipse(lat, lon, c) {
+		if inEllipse(lat, absLon, c) {
 			return ColorMoonMare
 		}
 	}

@@ -36,17 +36,19 @@ const EarthTextureMinRadius = BodyTextureMinRadius
 // body. Implementations live in body-specific files (earth.go,
 // moon.go, ...) and assume the caller has already gated the pixel
 // to inside the disk; for points within 1 px of the limb the
-// projection clamps cleanly.
+// projection clamps cleanly. The closure returned by TextureFor
+// bakes the body's sub-observer longitude (lon0) in, so the canvas
+// painter doesn't need to thread sim time through every pixel call.
 type BodyTexture func(dx, dy, pxRadius int) lipgloss.Color
 
-// earthCenterLon is the sub-observer longitude — the longitude that
-// sits dead-center on the visible hemisphere. v0.7.6+: changed from
-// 0° (Africa-centered, hides the entire western hemisphere) to -30°
-// so the visible hemisphere shows the Americas + Atlantic + W.
-// Europe + Africa, which reads as recognisable Earth at a glance.
-// Sim-time-driven rotation is a follow-up; static centerLon keeps
-// the LOC small.
-const earthCenterLon = -30.0
+// EarthCenterLonEpoch is the sub-observer longitude at J2000 — the
+// longitude that sat dead-center on the visible hemisphere when
+// Earth was rendered statically (v0.7.6 — v0.8.4). Now the epoch
+// reference for SubObserverLongitudeDeg ("Earth at sim-time-zero
+// looks the same as it did pre-rotation"). v0.8.5+ threads sim-time
+// rotation through the lon0 parameter; this constant is just the
+// epoch offset.
+const EarthCenterLonEpoch = -30.0
 
 // continentEllipse approximates a land mass as a lat/lon-axis-aligned
 // ellipse. v0.7.6+: continents are decomposed into multiple ellipses
@@ -131,14 +133,14 @@ var earthClouds = []continentEllipse{
 // 1 px of the edge the projection clamps to the limb.
 //
 // Projection: orthographic with sub-observer point at (lat=0,
-// lon=earthCenterLon). v0.7.6+ derives absolute longitude from the
-// pixel's relative longitude + earthCenterLon, so continents stored
-// in absolute coordinates render at the right place on the disk.
+// lon=lon0Deg). v0.8.5+ takes lon0 as a parameter so sim-time
+// rotation drives the visible face; pre-v0.8.5 callers can pass
+// EarthCenterLonEpoch to get the static-Earth view.
 //
 // Resolution order: ice cap > cloud > continents (in table order) >
 // ocean. Polar caps win over everything else in their lat band so
 // Antarctic ice doesn't get masked by a stray continent edge.
-func EarthPixelColor(dx, dy, pxRadius int) lipgloss.Color {
+func EarthPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorEarthOcean
 	}
@@ -186,7 +188,7 @@ func EarthPixelColor(dx, dy, pxRadius int) lipgloss.Color {
 		sinLonRel = 1
 	}
 	relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-	absLon := earthCenterLon + relLon
+	absLon := lon0Deg + relLon
 	// Wrap to (-180, 180] so the continent table lookups are stable.
 	for absLon > 180 {
 		absLon -= 360
@@ -234,26 +236,33 @@ func inEllipse(lat, lon float64, c continentEllipse) bool {
 // radius, unsupported body). The dispatch hook for body-specific
 // surface rendering — Mars caps, Jupiter banding, Saturn cloud
 // bands plug in via additional cases here.
-func TextureFor(b bodies.CelestialBody, pxRadius int) BodyTexture {
+//
+// v0.8.5+ takes lon0Deg (sub-observer longitude) and bakes it into
+// the returned closure, so the canvas painter calls a 3-arg
+// BodyTexture without threading sim time through each pixel.
+// Callers should compute lon0Deg via SubObserverLongitudeDeg(b,
+// world.Clock.SimTime) once per body per frame.
+func TextureFor(b bodies.CelestialBody, pxRadius int, lon0Deg float64) BodyTexture {
 	if pxRadius < BodyTextureMinRadius {
 		return nil
 	}
 	switch b.ID {
 	case "earth":
-		return EarthPixelColor
+		return func(dx, dy, r int) lipgloss.Color { return EarthPixelColor(dx, dy, r, lon0Deg) }
 	case "moon":
-		return MoonPixelColor
+		return func(dx, dy, r int) lipgloss.Color { return MoonPixelColor(dx, dy, r, lon0Deg) }
 	case "mars":
-		return MarsPixelColor
+		return func(dx, dy, r int) lipgloss.Color { return MarsPixelColor(dx, dy, r, lon0Deg) }
 	case "jupiter":
-		return JupiterPixelColor
+		return func(dx, dy, r int) lipgloss.Color { return JupiterPixelColor(dx, dy, r, lon0Deg) }
 	}
 	return nil
 }
 
 // BodyHasTexture reports whether TextureFor would return non-nil.
 // Convenience wrapper for callers that just need the boolean
-// (e.g. "should I suppress the body-identity glyph?").
+// (e.g. "should I suppress the body-identity glyph?"). lon0
+// doesn't affect the gate, so the boolean form omits it.
 func BodyHasTexture(b bodies.CelestialBody, pxRadius int) bool {
-	return TextureFor(b, pxRadius) != nil
+	return TextureFor(b, pxRadius, 0) != nil
 }

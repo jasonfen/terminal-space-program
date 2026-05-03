@@ -230,7 +230,8 @@
       "longitudeOfAscendingNode": 125.08,
       "argumentOfPeriapsis": 318.15,
       "sideralOrbit": 27.321661,
-      "sideralRotation": 655.728
+      "sideralRotation": 655.728,
+      "tidallyLocked": true
     },
     {
       "id": "phobos",
@@ -247,7 +248,8 @@
       "inclination": 1.093,
       "longitudeOfAscendingNode": 207.784,
       "argumentOfPeriapsis": 357.841,
-      "sideralOrbit": 0.31891
+      "sideralOrbit": 0.31891,
+      "tidallyLocked": true
     },
     {
       "id": "deimos",
@@ -264,7 +266,8 @@
       "inclination": 0.93,
       "longitudeOfAscendingNode": 24.525,
       "argumentOfPeriapsis": 285.162,
-      "sideralOrbit": 1.263
+      "sideralOrbit": 1.263,
+      "tidallyLocked": true
     },
     {
       "id": "io",
@@ -281,7 +284,8 @@
       "inclination": 0.05,
       "longitudeOfAscendingNode": 43.977,
       "argumentOfPeriapsis": 84.129,
-      "sideralOrbit": 1.769137786
+      "sideralOrbit": 1.769137786,
+      "tidallyLocked": true
     },
     {
       "id": "europa",
@@ -298,7 +302,8 @@
       "inclination": 0.471,
       "longitudeOfAscendingNode": 219.106,
       "argumentOfPeriapsis": 88.97,
-      "sideralOrbit": 3.551181
+      "sideralOrbit": 3.551181,
+      "tidallyLocked": true
     },
     {
       "id": "ganymede",
@@ -315,7 +320,8 @@
       "inclination": 0.204,
       "longitudeOfAscendingNode": 63.552,
       "argumentOfPeriapsis": 192.417,
-      "sideralOrbit": 7.15455296
+      "sideralOrbit": 7.15455296,
+      "tidallyLocked": true
     },
     {
       "id": "callisto",
@@ -332,7 +338,8 @@
       "inclination": 0.205,
       "longitudeOfAscendingNode": 298.848,
       "argumentOfPeriapsis": 52.643,
-      "sideralOrbit": 16.6890184
+      "sideralOrbit": 16.6890184,
+      "tidallyLocked": true
     },
     {
       "id": "titan",
@@ -349,7 +356,8 @@
       "inclination": 0.34854,
       "longitudeOfAscendingNode": 28.0599,
       "argumentOfPeriapsis": 185.671,
-      "sideralOrbit": 15.945
+      "sideralOrbit": 15.945,
+      "tidallyLocked": true
     },
     {
       "id": "enceladus",
@@ -366,7 +374,8 @@
       "inclination": 0.009,
       "longitudeOfAscendingNode": 169.506,
       "argumentOfPeriapsis": 119.5,
-      "sideralOrbit": 1.370218
+      "sideralOrbit": 1.370218,
+      "tidallyLocked": true
     }
   ]
 }
