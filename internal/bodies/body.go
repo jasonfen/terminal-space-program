@@ -76,6 +76,16 @@ type CelestialBody struct {
 	// SideralRotation is ignored for these bodies; the renderer
 	// derives sub-observer longitude from orbital phase. v0.8.5+.
 	TidallyLocked bool `json:"tidallyLocked,omitempty"`
+
+	// AxialTilt is the body's obliquity (rotation-axis angle from
+	// the orbital-plane normal), in degrees. Drives view-aware
+	// texture projection (v0.8.5.7+) — ViewTop on a tilted body
+	// reveals polar regions; Uranus's 97° tilt makes it roll
+	// pole-on along its orbit. The axis is modelled as lying in
+	// the world X-Z plane (azimuth 0 in the inertial frame),
+	// which captures tilt magnitude without per-body azimuth
+	// data — enough for the visual story this slice tells.
+	AxialTilt float64 `json:"axialTilt,omitempty"`
 }
 
 // Atmosphere is an exponential-density atmospheric model:

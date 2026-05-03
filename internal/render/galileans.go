@@ -81,40 +81,66 @@ var callistoCraters = []continentEllipse{
 	{-40, 30, 3, 3, ColorCallistoCrater},
 }
 
-// projectPixelToLatLon does the standard orthographic dx,dy → lat,
-// absLon transform shared by Galilean / Saturn-class textures.
-// Returns (lat, absLon, ok). ok=false on degenerate poles where
-// the longitude is undefined; callers should fall back to a base
-// color in that case.
-func projectPixelToLatLon(dx, dy, pxRadius int, lon0Deg float64) (lat, absLon float64, ok bool) {
+// projectPixelToLatLon does the orthographic dx,dy → (body lat,
+// body lon) transform with arbitrary sub-observer point. v0.8.5.7+
+// generalizes to handle non-zero sub-observer latitude so view-
+// aware rendering works (top view shows polar regions on tilted
+// bodies; side view shows equator). Returns (lat, absLon, ok); ok
+// is false when the pixel is outside the visible disk or the
+// longitude is degenerate (sub-observer at the body's pole).
+//
+// Math: standard inverse orthographic projection (Snyder 1987 §20,
+// "Orthographic Projection - inverse formulas"). Sub-observer
+// point is at (subLatDeg, subLonDeg); pixel offsets (nx, ny) are
+// normalised to the disk radius with east+ to the right of screen
+// and north+ up the screen.
+//
+//	z      = sqrt(1 - nx² - ny²)              (out-of-screen, toward camera)
+//	body_z = sin(φ₀)·z + cos(φ₀)·ny           (body-frame along spin axis)
+//	body_x = cos(φ₀)·cos(λ₀)·z − sin(λ₀)·nx − sin(φ₀)·cos(λ₀)·ny
+//	body_y = cos(φ₀)·sin(λ₀)·z + cos(λ₀)·nx − sin(φ₀)·sin(λ₀)·ny
+//	lat    = asin(body_z)
+//	lon    = atan2(body_y, body_x)
+//
+// At sub-observer lat = 0 this reduces to the v0.8.5 inline
+// projection (lat = asin(ny); lon = lon0 + asin(nx/cosLat)).
+func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) (lat, absLon float64, ok bool) {
 	if pxRadius < 1 {
 		return 0, 0, false
 	}
 	nx := float64(dx) / float64(pxRadius)
 	ny := float64(dy) / float64(pxRadius)
-	if nx < -1 {
-		nx = -1
-	} else if nx > 1 {
-		nx = 1
+	r2 := nx*nx + ny*ny
+	if r2 > 1 {
+		// Outside the disk — caller should clip first, but keep the
+		// math safe under rounding.
+		s := 1.0 / math.Sqrt(r2)
+		nx *= s
+		ny *= s
+		r2 = 1
 	}
-	if ny < -1 {
-		ny = -1
-	} else if ny > 1 {
-		ny = 1
+	z := math.Sqrt(1 - r2)
+
+	phi0 := subLatDeg * math.Pi / 180.0
+	lam0 := subLonDeg * math.Pi / 180.0
+	sP, cP := math.Sin(phi0), math.Cos(phi0)
+	sL, cL := math.Sin(lam0), math.Cos(lam0)
+
+	bodyZ := sP*z + cP*ny
+	if bodyZ > 1 {
+		bodyZ = 1
+	} else if bodyZ < -1 {
+		bodyZ = -1
 	}
-	lat = math.Asin(ny) * 180.0 / math.Pi
-	cosLat := math.Sqrt(1.0 - ny*ny)
-	if cosLat < 1e-3 {
+	lat = math.Asin(bodyZ) * 180.0 / math.Pi
+
+	bodyX := cP*cL*z - sL*nx - sP*cL*ny
+	bodyY := cP*sL*z + cL*nx - sP*sL*ny
+	if math.Abs(bodyX) < 1e-9 && math.Abs(bodyY) < 1e-9 {
+		// Degenerate — pixel is at the body's pole, longitude undefined.
 		return lat, 0, false
 	}
-	sinLonRel := nx / cosLat
-	if sinLonRel < -1 {
-		sinLonRel = -1
-	} else if sinLonRel > 1 {
-		sinLonRel = 1
-	}
-	relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-	absLon = lon0Deg + relLon
+	absLon = math.Atan2(bodyY, bodyX) * 180.0 / math.Pi
 	for absLon > 180 {
 		absLon -= 360
 	}
@@ -125,9 +151,10 @@ func projectPixelToLatLon(dx, dy, pxRadius int, lon0Deg float64) (lat, absLon fl
 }
 
 // IoPixelColor — sulfur-yellow base + scattered dark paterae +
-// occasional bright orange fresh flows. v0.8.5+.
-func IoPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, lon0Deg)
+// occasional bright orange fresh flows. v0.8.5.7+ takes the full
+// sub-observer point for view-aware projection.
+func IoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	if !ok {
 		return ColorIoBase
 	}
@@ -141,9 +168,9 @@ func IoPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 }
 
 // EuropaPixelColor — pale ice with a few dark linear lineae.
-// v0.8.5+.
-func EuropaPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, lon0Deg)
+// v0.8.5.7+.
+func EuropaPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	if !ok {
 		return ColorEuropaIce
 	}
@@ -156,10 +183,9 @@ func EuropaPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 }
 
 // GanymedePixelColor — bright grooved terrain base + dark ancient
-// regiones (Galileo, Marius, Nicholson) + bright crater rays.
-// v0.8.5+.
-func GanymedePixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, lon0Deg)
+// regiones + bright crater rays. v0.8.5.7+.
+func GanymedePixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	if !ok {
 		return ColorGanymedeBright
 	}
@@ -173,9 +199,9 @@ func GanymedePixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 }
 
 // CallistoPixelColor — uniformly dark base + scattered bright
-// crater rays (Valhalla, Asgard). v0.8.5+.
-func CallistoPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, lon0Deg)
+// crater rays (Valhalla, Asgard). v0.8.5.7+.
+func CallistoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	if !ok {
 		return ColorCallistoBase
 	}

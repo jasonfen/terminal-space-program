@@ -15,7 +15,7 @@ func TestEarthPixelColorOcean(t *testing.T) {
 	r := 32
 	dx := int(0.075 * float64(r))
 	dy := int(-0.5 * float64(r))
-	got := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
+	got := EarthPixelColor(dx, dy, r, 0, EarthCenterLonEpoch)
 	if got != ColorEarthOcean {
 		t.Errorf("South Atlantic midlat = %q, want ocean %q", string(got), string(ColorEarthOcean))
 	}
@@ -30,7 +30,7 @@ func TestEarthPixelColorLand(t *testing.T) {
 	r := 32
 	dx := int(0.807 * float64(r))
 	dy := int(-0.174 * float64(r))
-	got := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
+	got := EarthPixelColor(dx, dy, r, 0, EarthCenterLonEpoch)
 	if got != ColorEarthLand {
 		t.Errorf("Central Africa = %q, want land %q", string(got), string(ColorEarthLand))
 	}
@@ -43,8 +43,8 @@ func TestEarthPixelColorDeterministic(t *testing.T) {
 	r := 32
 	for dy := -r; dy <= r; dy += 4 {
 		for dx := -r; dx <= r; dx += 4 {
-			a := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
-			b := EarthPixelColor(dx, dy, r, EarthCenterLonEpoch)
+			a := EarthPixelColor(dx, dy, r, 0, EarthCenterLonEpoch)
+			b := EarthPixelColor(dx, dy, r, 0, EarthCenterLonEpoch)
 			if a != b {
 				t.Fatalf("non-deterministic at (%d,%d): %q vs %q", dx, dy, string(a), string(b))
 			}
@@ -64,7 +64,7 @@ func TestEarthPixelColorMultiColor(t *testing.T) {
 			if dx*dx+dy*dy > r2 {
 				continue
 			}
-			seen[string(EarthPixelColor(dx, dy, r, EarthCenterLonEpoch))] = true
+			seen[string(EarthPixelColor(dx, dy, r, 0, EarthCenterLonEpoch))] = true
 		}
 	}
 	for _, want := range []string{string(ColorEarthOcean), string(ColorEarthLand), string(ColorEarthCloud)} {

@@ -1,8 +1,6 @@
 package render
 
 import (
-	"math"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -52,49 +50,18 @@ var moonCraters = []continentEllipse{
 // projection, then ellipse-table lookup for mare / crater / highland
 // classification. Resolution order: bright crater > mare > highland.
 //
-// v0.8.5+ takes lon0Deg (sub-observer longitude). For the tidally-
-// locked Moon, lon0 advances with orbital phase from a heliocentric
-// observer's POV — the near side rotates into / out of view as Luna
-// orbits Earth. lon0=0 reproduces the v0.8.4-and-earlier static
-// near-side view.
-func MoonPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
+// v0.8.5.7+ takes the full sub-observer point. For the tidally-
+// locked Moon, both subLat and subLon advance with orbital phase
+// from a heliocentric observer's POV — the near side rotates into /
+// out of view as Luna orbits Earth.
+func MoonPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorMoonHighland
 	}
-	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
-	if nx < -1 {
-		nx = -1
-	} else if nx > 1 {
-		nx = 1
-	}
-	if ny < -1 {
-		ny = -1
-	} else if ny > 1 {
-		ny = 1
-	}
-	lat := math.Asin(ny) * 180.0 / math.Pi
-	cosLat := math.Sqrt(1.0 - ny*ny)
-	if cosLat < 1e-3 {
-		// Pole / limb — return highland. The Moon doesn't have
-		// distinct polar features at this resolution.
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+	if !ok {
 		return ColorMoonHighland
 	}
-	sinLonRel := nx / cosLat
-	if sinLonRel < -1 {
-		sinLonRel = -1
-	} else if sinLonRel > 1 {
-		sinLonRel = 1
-	}
-	relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-	absLon := lon0Deg + relLon
-	for absLon > 180 {
-		absLon -= 360
-	}
-	for absLon <= -180 {
-		absLon += 360
-	}
-
 	for _, c := range moonCraters {
 		if inEllipse(lat, absLon, c) {
 			return ColorMoonRay

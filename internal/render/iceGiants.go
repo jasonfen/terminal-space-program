@@ -58,9 +58,12 @@ var neptuneDarkSpot = continentEllipse{
 }
 
 // UranusPixelColor — pale cyan base with very subtle latitudinal
-// banding. No major spot features. v0.8.5+.
-func UranusPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
-	lat, _, _ := projectPixelToLatLon(dx, dy, pxRadius, lon0Deg)
+// banding. v0.8.5.7+ takes the full sub-observer point. With
+// Uranus's 97° axial tilt populated in sol.json, the banded
+// pattern reads pole-on from "top of orbit" views — the iconic
+// "rolling along its orbit" geometry.
+func UranusPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+	lat, _, _ := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	color := ColorUranusBase
 	for _, b := range uranusBands {
 		if lat >= b.latMin && lat < b.latMax {
@@ -72,9 +75,9 @@ func UranusPixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
 }
 
 // NeptunePixelColor — deeper methane blue with stronger banding +
-// Great Dark Spot accent. v0.8.5+.
-func NeptunePixelColor(dx, dy, pxRadius int, lon0Deg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, lon0Deg)
+// Great Dark Spot accent. v0.8.5.7+.
+func NeptunePixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
 	color := ColorNeptuneBase
 	for _, b := range neptuneBands {
 		if lat >= b.latMin && lat < b.latMax {

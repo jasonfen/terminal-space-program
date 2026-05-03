@@ -317,17 +317,23 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if i == 0 {
 			v.canvas.RingColoredOutlineTagged(pos, r, bodyTag)
 			v.canvas.FillColoredDiskTagged(pos, 1, bodyTag)
-		} else if tex := render.TextureFor(b, r, render.SubObserverLongitudeDeg(b, w.Clock.SimTime)); tex != nil {
-			// Per-pixel textured fill (Earth continents + clouds in
-			// v0.7.2.1; Moon maria + craters in v0.7.2.2). The tag's
-			// BodyID / hit fields still propagate; only the per-pixel
-			// color comes from the texture function.
-			pxR := r
-			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
-				return tex(dx, dy, pxR)
-			}, bodyTag)
 		} else {
-			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+			// v0.8.5.7+: compute view-aware sub-observer point per
+			// body per frame. Camera direction comes from the canvas's
+			// current ViewMode; body axis tilt + sim-time rotation
+			// drive the (lat, lon) at the visible center.
+			subLat, subLon := render.SubObserverPointDeg(b, w.Clock.SimTime, cameraDirForView(w.ViewMode))
+			if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
+				// Per-pixel textured fill. The tag's BodyID / hit
+				// fields still propagate; only the per-pixel color
+				// comes from the texture function.
+				pxR := r
+				v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
+					return tex(dx, dy, pxR)
+				}, bodyTag)
+			} else {
+				v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+			}
 		}
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
 		// radii project to pixel radii via the canvas scale; only
@@ -689,6 +695,26 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 	default:
 		return 1
 	}
+}
+
+// cameraDirForView maps a sim.ViewMode to the world-frame body-to-
+// camera direction the texture pipeline uses to compute the
+// sub-observer point. ViewOrbitFlat falls back to ViewTop until a
+// proper orbit-plane normal lookup lands; the visual cost is that
+// orbit-flat view shows the same polar / equatorial geometry as
+// top view rather than the active craft's plane normal.
+func cameraDirForView(view sim.ViewMode) render.Vec3 {
+	switch view {
+	case sim.ViewTop:
+		return render.CameraDirTop
+	case sim.ViewBottom:
+		return render.CameraDirBottom
+	case sim.ViewRight:
+		return render.CameraDirRight
+	case sim.ViewLeft:
+		return render.CameraDirLeft
+	}
+	return render.CameraDirTop
 }
 
 // plotCluster dots a cross of size n around a world point — useful for
