@@ -1,8 +1,6 @@
 package render
 
 import (
-	"math"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -17,11 +15,13 @@ const (
 	ColorMarsIce    = lipgloss.Color("#F0E8E0") // polar caps (CO₂ frost)
 )
 
-// marsCenterLon picks the sub-observer longitude. -45° centers on
-// the prime-meridian-ish region and lets Syrtis Major (lon ~70°
-// east) sit on the right limb, matching the iconic "Mars from
-// Earth" view. Static for v0.7.6; sim-time rotation is a follow-up.
-const marsCenterLon = -45.0
+// MarsCenterLonEpoch is the sub-observer longitude at J2000 — what
+// the static-Mars renderer used in v0.7.6 — v0.8.4 (-45° centers
+// the prime-meridian region with Syrtis Major on the right limb,
+// matching the iconic "Mars from Earth" view). v0.8.5+ threads
+// sim-time rotation via the lon0 parameter; this constant is just
+// the epoch offset.
+const MarsCenterLonEpoch = -45.0
 
 // marsFeatures is the single source of truth for Mars surface
 // detail. Layered in table order: dark albedo first, then bright
@@ -55,42 +55,16 @@ var marsFeatures = []continentEllipse{
 // MarsPixelColor returns the surface color for a pixel at offset
 // (dx, dy) inside a Mars disk of pixel radius pxRadius. Mirrors
 // EarthPixelColor's projection — orthographic, sub-observer at
-// (lat=0, lon=marsCenterLon). v0.7.6+.
-func MarsPixelColor(dx, dy, pxRadius int) lipgloss.Color {
+// (subLatDeg, subLonDeg). v0.8.5.7+ takes the full sub-observer
+// point so view-aware rendering shows poles from above and
+// equator from the side.
+func MarsPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorMarsRust
 	}
-	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
-	if nx < -1 {
-		nx = -1
-	} else if nx > 1 {
-		nx = 1
-	}
-	if ny < -1 {
-		ny = -1
-	} else if ny > 1 {
-		ny = 1
-	}
-	lat := math.Asin(ny) * 180.0 / math.Pi
-	cosLat := math.Sqrt(1.0 - ny*ny)
-	if cosLat < 1e-3 {
-		// Pole — both sides ice.
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+	if !ok {
 		return ColorMarsIce
-	}
-	sinLonRel := nx / cosLat
-	if sinLonRel < -1 {
-		sinLonRel = -1
-	} else if sinLonRel > 1 {
-		sinLonRel = 1
-	}
-	relLon := math.Asin(sinLonRel) * 180.0 / math.Pi
-	absLon := marsCenterLon + relLon
-	for absLon > 180 {
-		absLon -= 360
-	}
-	for absLon <= -180 {
-		absLon += 360
 	}
 	color := ColorMarsRust
 	for _, f := range marsFeatures {

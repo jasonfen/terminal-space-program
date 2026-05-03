@@ -96,6 +96,22 @@ func (w *World) FocusZoomRadius() float64 {
 				// System primary: fall back to outermost-body fit.
 				return w.systemOutermostRadius()
 			}
+			// v0.8.5.7+: terminal bodies (those without children
+			// orbiting them — Luna, Phobos, Galileans, etc.) zoom
+			// in tight to ~8× body radius so the surface texture
+			// is clearly visible. Bodies with children (Earth, Mars,
+			// Jupiter, Saturn) keep the SOI-radius view so their
+			// moons + nearby spacecraft remain in the frame.
+			hasChildren := false
+			for _, other := range sys.Bodies {
+				if other.ParentID == b.ID {
+					hasChildren = true
+					break
+				}
+			}
+			if !hasChildren {
+				return b.RadiusMeters() * 8
+			}
 			// Use SOI relative to the system primary — gives a close-up
 			// that still shows any moons / nearby spacecraft.
 			primary := sys.Bodies[0]

@@ -70,6 +70,33 @@ type CelestialBody struct {
 	// atmosphere for this body — drives drag (v0.8.4) and haze
 	// rendering. Bodies without atmospheres leave this nil.
 	Atmosphere *Atmosphere `json:"atmosphere,omitempty"`
+
+	// TidallyLocked, when true, ties this body's rotation to its
+	// orbital period — the same face always points at the parent.
+	// SideralRotation is ignored for these bodies; the renderer
+	// derives sub-observer longitude from orbital phase. v0.8.5+.
+	TidallyLocked bool `json:"tidallyLocked,omitempty"`
+
+	// AxialTilt is the body's obliquity (rotation-axis angle from
+	// the orbital-plane normal), in degrees. Drives view-aware
+	// texture projection (v0.8.5.7+) — ViewTop on a tilted body
+	// reveals polar regions; Uranus's 97° tilt makes it roll
+	// pole-on along its orbit.
+	AxialTilt float64 `json:"axialTilt,omitempty"`
+
+	// AxialAzimuth is the body's spin-axis azimuth in the world
+	// inertial frame, in degrees. The axis projects onto the world
+	// X-Y plane at this angle measured counterclockwise from world
+	// +X (so 0° tips toward +X, 90° toward +Y, 180° toward -X).
+	// Combined with AxialTilt the unit spin axis is
+	//
+	//	n = (sin(tilt)·cos(azimuth), sin(tilt)·sin(azimuth), cos(tilt))
+	//
+	// Defaults to 0 — same as the v0.8.5.7 launch behaviour where
+	// every body's axis lay in the X-Z plane. Real bodies have
+	// varied pole directions; populating this field lets each one
+	// tip the right way once we have data.
+	AxialAzimuth float64 `json:"axialAzimuth,omitempty"`
 }
 
 // Atmosphere is an exponential-density atmospheric model:
@@ -131,4 +158,17 @@ func (cb *CelestialBody) SemimajorAxisMeters() float64 {
 // RadiusMeters converts the stored mean radius (km) to meters.
 func (cb *CelestialBody) RadiusMeters() float64 {
 	return cb.MeanRadius * 1000.0
+}
+
+// SideralRotationSeconds converts the stored sidereal rotation
+// period (hours, signed for prograde / retrograde) to seconds.
+// Returns 0 when no rotation period is known.
+func (cb *CelestialBody) SideralRotationSeconds() float64 {
+	return cb.SideralRotation * 3600.0
+}
+
+// SideralOrbitSeconds converts the stored sidereal orbital period
+// (days) to seconds. Returns 0 when no orbital period is known.
+func (cb *CelestialBody) SideralOrbitSeconds() float64 {
+	return cb.SideralOrbit * 86400.0
 }
