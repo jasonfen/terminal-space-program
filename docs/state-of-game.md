@@ -1,11 +1,12 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.7.6 (April 2026) — v0.7 cycle complete (modding chain
-v0.7.0–v0.7.2.3 + manual flight v0.7.3 + Esc-on-home menu polish
-v0.7.3.1–.3 + inclination-change planner v0.7.4 + HUD compaction
-pass + retrograde-flag Lambert v0.7.5 + textured Mars/Jupiter +
-per-node throttle + SOI HUD v0.7.6). Updated at each minor / patch
-boundary.*
+*Snapshot at v0.8.6 (May 2026) — v0.8 cycle complete (RCS v0.8.0,
+multi-craft v0.8.1, craft types + capture preview v0.8.2, docking
+v0.8.3, atmospheric drag v0.8.4, sim-time rotation + view-aware
+textures v0.8.5, controls polish + body-equatorial frame + adaptive
+warp clamps + iterate-for-target toggle v0.8.6). Updated at each
+minor / patch boundary; the §1 "what works today" detail trails
+the headline by a slice or two.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -15,7 +16,14 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.7.6)
+## 1. What works today (v0.7.6 baseline + v0.8 additions inline)
+
+> **Note**: this section's body text is the v0.7.6 snapshot; v0.8
+> additions (multi-craft, RCS, docking, drag, rotation, body-
+> equatorial frame, etc.) live in the version frame below as
+> per-slice paragraphs. A wholesale rewrite of §1 to fold them in
+> is queued; for now use the version frame as the source of truth
+> for v0.8.0–v0.8.6 capabilities.
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state transitions.
@@ -263,59 +271,52 @@ that gets drafted.
 
 **Multi-craft + RCS / docking**
 
-- **Multi-craft control selector**. `World.Craft` becomes
-  `World.Crafts []Spacecraft`; UI features that depend on "the
-  active orbit" (focus, PROJECTED ORBIT, OrbitFlat view basis,
-  manual flight) attribute to a selectable craft. Selector
-  candidates: `[`/`]` cycle, click-to-select on the canvas,
-  numbered slots. Save schema bump.
-- **Monopropellant / RCS mode**. Sub-m/s precision burns —
-  micro orbit adjustments, encounter refinement, docking
-  proximity ops. Separate propellant pool
-  (`Spacecraft.Monoprop` ~50 kg), low-thrust profile (~50 N
-  total at Isp ~220 s), pulse model on attitude-key tap. See
-  the v0.7.3 design notes further down §2 for surface details.
-- **Docking model**. Once two craft exist + RCS lands, define
-  what "docked" means in TSP — state-transition stub ("within
-  X m at relative speed Y" → fused craft) vs. full proximity-
-  ops simulation. Gates how much RCS infrastructure is worth
-  building.
+- ~~**Multi-craft control selector**~~ ✓ shipped in v0.8.1
+  (`World.Crafts []*Spacecraft`, `[`/`]` cycle, schema v4→v5).
+- ~~**Monopropellant / RCS mode**~~ ✓ shipped in v0.8.0.
+- ~~**Docking model**~~ ✓ shipped in v0.8.3 (proximity-gated
+  DockCrafts at <50 m / <0.1 m/s, mass-weighted centroid +
+  momentum-conserving fuse, RENDEZVOUS HUD).
 
 **Planner UI**
 
-- **Multi-rev porkchop UI**. v0.7.5's retrograde flag and the
-  existing `LambertSolveRev` N parameter are library-ready;
-  surface a porkchop-screen toggle (`g` for direction, `[`/`]`
-  for `nRev`) so the player can flip the heatmap and see both
-  short / long branches at each rev count.
-- **Caller-facing `IterateForTarget` toggle** in the `m` form,
-  for player-planted burns to pick up the v0.6.2 finite-burn
-  iterator (currently only the `H` auto-plant uses it).
+- **Multi-rev porkchop UI** *(re-deferred from v0.8.6 (c) →
+  v0.9)*. Library ready since v0.7.5; UI not sliced. Pinned to
+  v0.9 alongside staging slices — current chemical-stage fleet
+  always picks nRev=0 prograde so the UI gives no leverage until
+  the craft fleet grows.
+- ~~**Caller-facing `IterateForTarget` toggle**~~ ✓ shipped in
+  v0.8.6.3 — `iterate` cycle field in the `m` form.
 - **Drag-to-edit on planted nodes**. Click-drag a node marker
   on the canvas to scrub Δv / fire-time in place, instead of
   click-to-edit-replace. v0.6.4 deliberately skipped this in
-  favour of click-only selection.
+  favour of click-only selection. Still deferred through v0.8.
 - **Wider cross-SOI `PlanTransfer`**. v0.6.3 covers moon →
   parent (Luna → Earth); the inverse — heliocentric → moon-of-
   other-planet (Phobos from a Mars approach, a Galilean from a
   Jupiter cruise) — needs a real patched-conic capture pass
-  through both SOIs.
+  through both SOIs. Did not ship in v0.8.
+- **Real rendezvous tooling** *(opened post-v0.8.3 docking;
+  promoted to its own §6 subsection)*. Target-craft selection,
+  target-relative prograde / retrograde burn modes, null v_rel
+  at closest approach, iterative refinement. See §6 *Rendezvous
+  tooling* for foundations needed.
 
 **Body rendering polish**
 
-- **Sim-time rotation**. Earth / Mars / Jupiter textures are
-  static; threading `lon0(t)` into the texture functions would
-  spin the surfaces at sidereal rates. Open: render-tick rate
-  vs. sim-tick, behaviour at high warp (clamp the rotation?).
-- **Solar lighting + day/night terminator**. Sub-solar-point
-  per body per tick → `cos(angle to sun)` shading. Implies a
-  partial-shadow color tier or per-cell ANSI mixing.
-- **Eclipses**. Solar (Moon shadows part of the Sun) and lunar
-  (Earth's shadow on full Moon). Falls out of solar lighting
+- ~~**Sim-time rotation**~~ ✓ shipped in v0.8.5 with view-aware
+  projection (Snyder §20 inverse-orthographic with arbitrary
+  sub-observer point); rotation rate capped at 10000× warp via
+  `Clock.RotationTime`.
+- **Solar lighting + day/night terminator** *(deferred to v0.9)*.
+  Sub-solar-point per body per tick → `cos(angle to sun)`
+  shading. Research-first: investigate canvas-level ANSI 24-bit
+  mixing as a `lipgloss` workaround before slicing.
+- **Eclipses** *(deferred to v0.9)*. Falls out of solar lighting
   if it lands.
-- **More bodies textured**. Saturn (cloud bands + ring lighting),
-  Uranus / Neptune (pale disks → banded), Jovian moons (Io
-  sulfur, Europa fractures, Ganymede tan).
+- ~~**More bodies textured**~~ ✓ shipped in v0.8.5 (Saturn with
+  tilted ring system, Galileans, Uranus, Neptune, Sun with
+  limb-darkening + sunspots + corona, refined Earth + Moon).
 
 **Multi-system spacecraft**
 
@@ -341,19 +342,20 @@ that gets drafted.
 
 **Physics extensions**
 
-- **Optional simple atmospheric drag**. Toy drag below ~150 km
-  for reentry / aerobraking gameplay. Two-body patched-conic
-  stays the primary integrator; drag adds a velocity-dependent
-  acceleration term to the active-burn / manual-burn paths.
-- **N-body perturbations**. Lagrange points, three-body
-  trajectories. Major architectural change — the
-  Kepler-warp-lock fast path can't survive without a re-think.
-  See §6 *Foundations beyond v0.8* for the infrastructure
-  sketch.
+- ~~**Optional simple atmospheric drag**~~ ✓ shipped in v0.8.4
+  (exponential ρ(h) for Earth + Mars, drag-aware Verlet,
+  surface-clamp on aerobrake impact).
+- **N-body perturbations** *(still deferred to v0.9+)*. Lagrange
+  points, three-body trajectories. Major architectural change —
+  the Kepler-warp-lock fast path can't survive without a
+  re-think. See §6 *Foundations beyond v0.8* for the
+  infrastructure sketch.
 - **Predictor adaptive sampling at high warp**. The fixed
   96-sample horizon collapses to a smear at 10000× warp on LEO
   orbits. Adaptive sampling (density inversely proportional to
-  warp) is the obvious fix.
+  warp) is the obvious fix. Did not ship in v0.8 despite v0.8.4's
+  time-aware `propagateStateWithPrimary` foundation work
+  unlocking it.
 
 **Tooling**
 
@@ -375,16 +377,12 @@ that gets drafted.
   carried into v0.8 candidates above.
 
 ### Larger queued features
-- **Realistic finite-burn intra-primary auto-plant** (v0.6 target).
-  v0.5.10's S-IVB-1 default + finite-burn return drops gravity-rotation
-  loss to <0.1% for the Earth → Luna profile, but the underlying
-  numerical-iteration planner is still v0.6 work for less-favorable
-  thrust profiles (low-TWR stages, longer burns). The "right"
-  implementation: finite-burn-aware planner that integrates a candidate
-  Δv, measures resulting apoapsis, iterates Newton-style until it hits
-  target. Composes naturally with the v0.6 burn-at-next scheduler.
-  Closes the remaining ~21% apoapsis over-shoot from asymmetric burn
-  termination once it lands.
+- ~~**Realistic finite-burn intra-primary auto-plant** (v0.6 target).~~
+  Shipped in v0.6.2 as `planner.IterateForTarget` (Newton-iterates
+  candidate Δv against an RK4 finite-burn simulation against
+  TargetApoapsis / TargetPeriapsis residuals). Surfaces in the
+  Hohmann auto-plant from v0.6.3 onward; v0.8.6.3 added the
+  caller-facing `iterate (off/on)` toggle in the `m` form.
 - ~~**Mission system / objectives** (v0.6.5 target).~~ Shipped in
   v0.6.5 — `internal/missions` package with three predicate kinds
   (circularize / orbit_insertion / soi_flyby), embedded starter
@@ -401,14 +399,11 @@ that gets drafted.
 - **Multi-system spacecraft**. The craft is currently locked to Sol. Allowing
   it to enter Alpha Cen / TRAPPIST / Kepler unlocks the system-cycle UX.
   Requires interstellar transfer math (or deus-ex-machina jump for now).
-- **Multi-craft control selector**. Today the sim exposes one craft
-  (`World.Craft`); UI features that depend on "the active orbit" — focus,
-  the maneuver planner's PROJECTED ORBIT, v0.6.4's orbit-perpendicular
-  view-mode basis — implicitly point at it. When multiple craft come
-  online, those features need a craft-control selector key (e.g. `[`/`]`
-  cycle, or click-to-select on the orbit canvas) so "active craft" is
-  unambiguous and per-screen. Surfaces during v0.6.4 view-mode work as a
-  flagged future requirement.
+- ~~**Multi-craft control selector**.~~ Shipped in v0.8.1 —
+  `World.Crafts []*Spacecraft` + `ActiveCraftIdx`, `[`/`]`
+  cycle keys, `n` keystroke spawns sister craft. Per-craft glyphs
+  + colors landed in v0.8.2. Click-to-select on canvas is plumbed
+  through the v0.8.2 hit-test pass.
 - **Monopropellant / RCS mode** *(needs design — likely v0.8)*. Use
   cases: micro orbit adjustments (sub-m/s precision), encounter
   refinement, docking proximity ops. Surface notes from the v0.7.3
@@ -612,7 +607,8 @@ that gets drafted.
 | **v0.8.3 ✓** | | Docking + undocking — proximity-gated DockCrafts at <50 m and <0.1 m/s relative velocity, mass-weighted centroid + momentum-conserving fuse, summed propellant pools, identity preservation through DockedComponents. Undock (`U`) splits back along original components with proportional propellant. RENDEZVOUS HUD (live range / |v_rel| / DOCK READY indicator). Spawn form `POSITION = alongside active` for inside-gate testing. Engine-firing flame visual + per-thruster RCS puff visuals replace the v0.8.0 placeholder. |
 | **v0.8.4 ✓** | | Atmospheric drag — bodies.Atmosphere data model + Earth/Mars values (exponential ρ(h) with 8500m / 11100m scale heights), drag-aware Verlet (`physics.StepVerletWithAccel`) wired into live integrator + `propagateStateWithPrimary` + `PredictedSegmentsFrom` + `stepThrust`, Kepler warp-lock retreat below atmospheric cutoff, Spacecraft.BallisticCoefficient (default 0.01 m²/kg). Time-aware `propagateStateWithPrimary` (foundation work) unlocks exact CAPTURE PREVIEW inclination for typical Hohmanns. Surface clamp on aerobrake impact (`physics.ClampToSurface`); zoom cap for landed craft so altitude-0 stays visible. Visual: faint haze ring at cutoff+scale-height in atm.Color. |
 | **v0.8.5 ✓** | | Sim-time planet rotation + view-aware projection + textured-bodies trickle. Rotation core: `bodies.CelestialBody.TidallyLocked` + `AxialTilt` + `AxialAzimuth` fields; `render.SubObserverPointDeg(b, simTime, camDir, primMer)` returning (subLat, subLon) — free-body uses sidereal rotation, tidally-locked tracks the body→parent vector at simTime so Luna's near-side faces Earth always. `Clock.RotationTime` advances at min(warp, 10000×) so high-warp doesn't blur surfaces. View-aware projection (Snyder §20 inverse-orthographic with arbitrary sub-observer point) means ViewTop on tilted Earth reveals the Arctic, Uranus rolls pole-on along its orbit, Saturn's polar hex stays at +78°N regardless of view; ViewOrbitFlat picks up the canvas's depth axis. Polygon-rasterised 144×72 Earth grid (~50 polys × 10–20 verts: continents + key islands like UK / Iceland / Italy + Sicily / Madagascar / Cuba / Hispaniola / Sumatra / Java / Borneo / Sulawesi / New Guinea / Philippines / Tasmania / NZ + deserts + polar ice) replaces the v0.7.6 ellipse-table approximation; biome-shaded land (tropical / temperate / boreal) by `|lat|`; atmospheric blue-marble limb tint at r²>0.92 over non-ice. Far-side / polar Moon detail (Mare Orientale + Moscoviense + Ingenii + South Pole-Aitken basin + far-side / polar craters); tidally-locked override always shows near-side regardless of canvas view mode. Tilted Saturn ring system: C / B / Cassini Division gap / A / F bands sampled in body equatorial plane and projected through `Canvas.RingTiltedOutline` so foreshortening reads correctly per view (~89% top, ~45% side). Textured Sun (limb-darkened solar disk + sunspots + corona halo replaces the v0.7.x ring + center-dot crosshair), Galileans (Io paterae, Europa lineae, Ganymede dark regiones, Callisto crater rays), Uranus (subtle banding), Neptune (banded + Great Dark Spot). Terminal moons (no children orbiting them) zoom to 8× radius on focus so surface texture is visible by default. Save schema: TidallyLocked + AxialTilt + AxialAzimuth fields bump CatalogHash; v0.8.4 saves reject on first v0.8.5 load. |
-| v0.8 ✓ | **Multi-craft polish** | RCS / monopropellant + multi-craft slate + craft types + docking + atmospheric drag + sim-time rotation + view-aware textures. See `docs/v0.8-plan.md` for slice breakdown. |
+| **v0.8.6 ✓** | | Controls polish bag + unplanned add-ons. Keymap pass: Save/Load → F5/F9 (KSP-style), drop the global N ClearNodes binding (case-collided with `n` SpawnCraft), per-node ctrl+d delete + ctrl+k clear-all in the maneuver form, new World.DeleteNode sim API. **IterateForTarget toggle** in the `m` form (5th cycled field; refines commanded Δv via planner.IterateForTarget at plant time so post-burn apsides match the projected orbit; off by default; skipped for Normal±). **Body-equatorial Keplerian frame** for body-bound orbits — i/Ω/ω read in the primary's equatorial frame (ECI for Earth, MCI for Mars, etc.) per operational mission-planning convention; default LEO spawn passes over the equator (Ecuador), not over Guatemala (the world-XY-frame spawn intersected Earth at ~23°N because of the 23.44° axial tilt). PlaneMatchInclination converts a target's heliocentric plane into the primary's frame. Heliocentric orbits stay ecliptic-relative. **Adaptive warp clamps**: throttle-change cap (10× for 1 sim-second after Throttle changes); upcoming-node approach cap (continuous predictive ramp-down — maxWarp = secondsUntilNode / (10 × BaseStep), floored at 1×, prevents 100,000× warp from skipping a 30-s-out node). **Orbit-flat low-warp jitter fix**: ω snapped to 0 for circular orbits (eMag < 1e-6) so PerifocalBasis stays stable per frame; defensive pole-on guard added in SubObserverPointDeg. CI: four-part patch tags (vX.Y.Z.N) excluded from goreleaser so checkpoint markers don't fail the workflow. **Backlogged**: (c) multi-rev porkchop UI keys — defer until staging slices grow craft fleet enough that multi-rev / retrograde transfers are practically valuable. |
+| v0.8 ✓ | **Multi-craft polish** | RCS / monopropellant + multi-craft slate + craft types + docking + atmospheric drag + sim-time rotation + view-aware textures + controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target. See `docs/v0.8-plan.md` for slice breakdown. |
 | v0.9+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, ground-launch chain, real rendezvous planner (target-relative prograde/retrograde modes + null-v_rel at closest approach + iterative refinement — see §6 *Rendezvous tooling*), capture-direction toggle, plane-shift + Hohmann combo, N-body perturbations, mission editor/scripting, drag-to-edit nodes, solar lighting / day-night terminator / eclipses, high-fidelity Earth raster (NOAA ETOPO1) |
 
 ### v0.4 — save / load + mid-course corrections
@@ -862,73 +858,60 @@ scoping:
 **Carry-overs from prior boundaries**
 
 - **Inter-SOI `PlanTransfer()` capture** *(carried from v0.6 → v0.7
-  → v0.8)*. v0.5.7's `PlanIntraPrimaryHohmann` covers same-parent,
-  v0.6.3 covers moon → parent. The remaining direction —
-  heliocentric → moon-of-other-planet (Phobos from a Mars approach,
-  a Galilean from a Jupiter cruise) — still needs a real
-  patched-conic capture pass through both SOIs.
-- **Caller-facing `IterateForTarget` toggle** *(carried from
-  v0.6 → v0.8)*. The v0.6.2 Newton iterator runs behind `H`
-  auto-plant only. Whether the `m` form should expose a "plan
-  with finite-burn iteration" toggle for player-planted burns is
-  still open — adds maybe 30 lines but bloats the form.
+  → v0.8 → v0.9)*. v0.5.7's `PlanIntraPrimaryHohmann` covers
+  same-parent, v0.6.3 covers moon → parent. The remaining direction
+  — heliocentric → moon-of-other-planet (Phobos from a Mars
+  approach, a Galilean from a Jupiter cruise) — still needs a real
+  patched-conic capture pass through both SOIs. Did not ship in
+  v0.8.
+- ~~**Caller-facing `IterateForTarget` toggle**~~ ✓ shipped in
+  v0.8.6.3 — `iterate (off/on)` cycle field in the `m` form,
+  `World.IterateBurnDV(mode, dv)` helper.
 - **Predictor adaptive sampling at high warp** *(carried from
   `docs/integration-design.md` §10)*. The fixed 96-sample horizon
   collapses to a smear at 10000× warp on LEO orbits. Adaptive
   sampling (sample density ∝ orbit period / sim-time horizon) is
-  the obvious fix.
-- **Multi-craft selector vs multiplayer ordering** *(carried from
-  v0.6.6 MP spike)*. Both threads need a craft-attribution layer
-  (which craft owns the focus / planner / view?). Resolve before
-  committing to either as a v0.8 slice — they share the same
-  selector infrastructure but have different blast radius (MP also
-  needs the network layer).
-- **Body-rendering polish sequencing** *(updated post-v0.7.6)*.
-  Mars + Jupiter shipped in v0.7.6, so item (2) "more bodies
-  textured" trickles further. Items (1) sim-time rotation, (3)
-  solar lighting + terminator, (4) eclipses still untouched. Open:
-  do these come as v0.8 patches like v0.5.11 / v0.5.12 did, or
-  bundle into a single body-rendering-polish slice?
-- **Monopropellant / RCS mode**. Sub-m/s precision pulses for
-  encounter refinement / docking. Surfaced during v0.7.3 design;
-  surface-area sketch lives in §2. Open design questions: docking
-  model (state-transition stub vs. full proximity-ops), encounter
-  precision target, sequencing relative to multi-craft, pulse
-  quantum. Pairs with multi-craft since docking implies two craft.
+  the obvious fix. Did not ship in v0.8.
+- ~~**Multi-craft selector vs multiplayer ordering**~~ ✓ resolved
+  in v0.8.1 (multi-craft selector shipped first; MP follows on the
+  same `World.Crafts` foundation).
+- **Body-rendering polish sequencing**. v0.8.5 shipped sim-time
+  rotation + view-aware projection + the textured-bodies trickle
+  (Sun, Galileans, Uranus, Neptune, refined Earth/Moon, tilted
+  Saturn rings). Solar lighting + terminator + eclipses still
+  deferred to v0.9 (research-first item: ANSI 24-bit per-cell
+  mixing as a `lipgloss` workaround).
+- ~~**Monopropellant / RCS mode**~~ ✓ shipped in v0.8.0; docking
+  shipped in v0.8.3 with proximity-gated DockCrafts at <50 m /
+  <0.1 m/s.
 
 **Newly opened from v0.7**
 
 - **`World.AttitudeMode` save persistence** *(v0.7.3)*. Today the
   attitude mode is ephemeral stick state — not in saves. A player
-  who loads mid-coast finds their attitude reset to prograde. Open:
-  is that the right call (planted nodes are the persistent layer),
-  or should attitude follow into the save? Likely no — keep it
-  ephemeral.
-- **Throttle-change warp clamp** *(v0.7.3)*. Today the warp clamp
-  fires on `ActiveBurn != nil || ManualBurn != nil`, but a throttle
-  ramp during high warp aliases the integrator the same way a held
-  burn does. Add a clamp-on-throttle-change rule? Probably yes for
-  manual flight; planted burns are unaffected since v0.7.6 captures
-  the throttle.
+  who loads mid-coast finds their attitude reset to prograde.
+  Decision held at "keep ephemeral" through v0.8 — planted nodes
+  are the persistence layer. Reopen if players report mid-coast-
+  load resetting attitude is annoying.
+- ~~**Throttle-change warp clamp**~~ ✓ shipped in v0.8.6.2 with
+  an unplanned predictive add-on (upcoming-node approach clamp).
 - **Theme-file hot-reload** *(v0.7.2)*. Today `theme.json` loads
   once at startup. Watching the file would let players iterate
-  without restarting. Cheap (200 LOC of fsnotify) — probably v0.8
-  unless surfaced as a player-visible pain point sooner.
+  without restarting. Cheap (~200 LOC of fsnotify) — still
+  deferred; never surfaced as a v0.8 playtest pain point.
 - **`bodies.json` sibling overlay** *(v0.7.0 carry-over)*. The
   v0.7.0 catalog loader takes whole-system files; a per-body
   overlay would let users tweak orbital elements / radius / GM
-  for individual bodies without redefining the whole system.
-  Open: does this expand the modding API in a way that conflicts
-  with future mission scripting?
-- **Multi-rev porkchop UI surface** *(v0.7.5 carry-over)*. The
-  retrograde + N-rev flags are library-ready. Surfacing as a
-  porkchop-screen toggle is the natural follow-up — not yet
-  sliced.
-- **Sim-time rotation for textured planets** *(v0.7.6 carry-over)*.
-  Earth / Moon / Mars / Jupiter textures are static. Threading
-  `lon0(t)` into the texture functions would spin the surfaces.
-  Open: render-tick rate vs. sim-tick rate (high warp would visibly
-  spin the planet — intentional or distracting?).
+  for individual bodies without redefining the whole system. Still
+  deferred; pairs with future mission-scripting work.
+- **Multi-rev porkchop UI surface** *(v0.7.5 carry-over,
+  re-deferred from v0.8.6 (c))*. Library is ready
+  (`LambertSolveRev`, retrograde flag); UI not sliced. Now pinned
+  to v0.9 alongside staging slices that grow the craft fleet —
+  current chemical S-IVB-1-class fleet always picks nRev=0
+  prograde, so the UI gives no leverage until that changes.
+- ~~**Sim-time rotation for textured planets**~~ ✓ shipped in
+  v0.8.5; high-warp clamp at 10000× via `Clock.RotationTime`.
 - **`Rings` / `Glyph` JSON overrides** *(v0.7.0 follow-up)*. v0.7.1
   put `Color` into `bodies.CelestialBody`; whether `Rings` (today
   hardcoded in `render.BodyRings`) and `Glyph` (in
