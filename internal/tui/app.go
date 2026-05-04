@@ -2,13 +2,13 @@ package tui
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -117,6 +117,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.BurnExecutedMsg:
 		if a.world.ActiveCraft() != nil {
+			// v0.8.6 (b): if the form's iterate-for-target toggle was
+			// on, refine the commanded Δv via World.IterateBurnDV so
+			// the post-burn apsides match what an impulsive Δv at the
+			// same value would have delivered. Falls back to the
+			// commanded Δv on iteration failure (e.g. Newton diverged)
+			// so the burn always plants — over-/under-deliver is a
+			// graceful fallback.
+			if m.IterateForTarget {
+				if refined, err := a.world.IterateBurnDV(m.Mode, m.DV); err == nil {
+					m.DV = refined
+				}
+			}
 			// v0.6.5: derive burn duration from Δv using the rocket
 			// equation against the live craft state, so the planner UX
 			// only has to specify Δv. Zero-thrust craft fall back to the
@@ -172,6 +184,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		a.maneuver.ResetEditing()
+		a.world.Clock.Paused = false
+		a.active = screenOrbit
+		return a, nil
+
+	case screens.NodeDeleteMsg:
+		// v0.8.6+: per-node delete from the maneuver form. Form
+		// dispatched ctrl+d while editing a planted node.
+		a.world.DeleteNode(m.EditingIdx)
+		a.maneuver.ResetEditing()
+		a.world.Clock.Paused = false
+		a.active = screenOrbit
+		return a, nil
+
+	case screens.NodeClearAllMsg:
+		// v0.8.6+: clear-all from the maneuver form. Replaces the
+		// retired N global keybinding.
+		a.world.ClearNodes()
 		a.maneuver.ResetEditing()
 		a.world.Clock.Paused = false
 		a.active = screenOrbit
@@ -431,11 +461,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PlanIncl):
 			if a.world.CraftVisibleHere() {
+				// v0.8.6+: target is interpreted in the primary's
+				// reference frame (ecliptic for Sun, body-equatorial
+				// otherwise). When a non-root body is selected, treat
+				// its heliocentric orbit plane as the target — for
+				// heliocentric craft this collapses to b.Inclination
+				// (the ecliptic-relative i directly); for body-bound
+				// craft (e.g. LEO) PlaneMatchInclination converts the
+				// target's plane orientation into the primary's frame
+				// so the result is a meaningful "match Mars's plane"
+				// inclination.
 				target := 0.0 // default: drop to equatorial of craft's primary
 				sys := a.world.System()
 				if a.selectedBody > 0 && a.selectedBody < len(sys.Bodies) {
 					b := sys.Bodies[a.selectedBody]
-					target = b.Inclination * math.Pi / 180
+					primary := a.world.ActiveCraft().Primary
+					frame := orbital.ReferenceFrameForPrimary(primary)
+					target = orbital.PlaneMatchInclination(b, frame)
 				}
 				plan, err := a.world.PlanInclinationChange(target)
 				if err != nil {
@@ -457,9 +499,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.active = screenPorkchop
 			}
 			return a, nil
-		case key.Matches(m, a.keys.ClearNodes):
-			a.world.ClearNodes()
-			return a, nil
+		// v0.8.6: ClearNodes global binding retired — clear-all now
+		// lives in the maneuver-form footer (`m` then ctrl+k).
 		case key.Matches(m, a.keys.Save):
 			a.flashStatus("save", a.doSave())
 			return a, nil

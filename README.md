@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.5**.
+Latest release: **v0.8.6** — controls polish bag (KSP-style F5/F9 quicksave/load, per-node delete/clear in the maneuver form), body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), and a finite-burn iterate-for-target toggle in the maneuver form.
 
 ```bash
 # Linux x86_64
@@ -111,14 +111,15 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
 | `g` | Reset camera focus to system |
 | `v` | Cycle view (top → right → bottom → left → orbit-flat) |
-| `n` | Plan a default node (T+5 min, prograde, 200 m/s, finite-sized) |
-| `N` | Clear all planned nodes |
+| `n` | Open spawn form (loadout / position / parent body / altitude / direction) |
 | `H` | Auto-plant Hohmann transfer to selected body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse) |
 | `I` | Plant inclination match — rotates the orbital plane to the selected body's inclination (or 0° equatorial when no body is selected) |
 | `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H` |
 | `R` | Refine plan — re-Lambert from live state, plant mid-course correction + update arrival |
 | `m` | Open maneuver planner |
-| `S` / `L` | Save / load game (`$XDG_STATE_HOME/terminal-space-program/save.json`) |
+| `F5` / `F9` | Quicksave / quickload (`$XDG_STATE_HOME/terminal-space-program/save.json`) — KSP-style |
+| `[` / `]` | Cycle active craft (no-op when only one craft loaded) |
+| `U` | Undock active composite |
 
 ### Manual flight
 
@@ -158,11 +159,14 @@ Click-only. No drag, no wheel-zoom.
 
 | Key | Action |
 |---|---|
-| `Tab` / `Shift+Tab` | Cycle field focus (mode → fire-at → Δv → throttle) |
-| `←` / `→` | Cycle the focused cycle field (mode or fire-at trigger) |
+| `Tab` / `Shift+Tab` | Cycle field focus (mode → fire-at → Δv → throttle → iterate) |
+| `←` / `→` | Cycle the focused cycle field (mode / fire-at / iterate) |
+| `Space` | Toggle iterate-for-target when focused on the iterate field |
 | digits / backspace | Edit Δv or throttle |
 | `Enter` | Commit burn |
 | `Esc` | Cancel and back to orbit view |
+| `Ctrl+D` | Delete the planted node being edited (no-op when creating new) |
+| `Ctrl+K` | Clear ALL planted nodes for the active craft |
 
 Δv drives both delivered Δv **and** burn duration via the rocket
 equation `t = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`. Zero-thrust craft
@@ -173,6 +177,16 @@ after plant. The throttle field is per-node (not the live craft
 throttle) so adjusting throttle during a coast doesn't slow an
 in-flight planted burn. PROJECTED ORBIT readouts apo / peri / AN /
 inclination of the resulting orbit live as you edit.
+
+The **iterate** toggle (v0.8.6.3+) routes the commanded Δv through
+`planner.IterateForTarget` at plant time — Newton-iterates against
+an RK4 finite-burn simulation to refine the Δv up so the post-burn
+apsides match what an impulsive Δv at the same value would have
+delivered. Compensates gravity-rotation + thrust-vector-rotation
+losses on long burns. Off by default (impulsive-target semantics
+are good enough for short burns); flip on for low-TWR loadouts or
+high-Δv burns where finite-burn loss is measurable. Skipped for
+Normal± burns (no apse target — use `I` for plane-rotation Δv).
 
 ### Porkchop plot (`P`)
 
@@ -302,6 +316,27 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   body's equatorial plane and foreshorten correctly per camera
   view: ~89% aspect from top, ~45% aspect from side, edge-on flat
   perpendicular to the tilt direction.
+- **Body-equatorial orbital frame** (v0.8.6.1+). Keplerian
+  elements (i, Ω, ω) for body-bound orbits read in the primary's
+  equatorial frame — ECI for Earth, MCI for Mars, etc. — matching
+  the operational mission-planning convention. A 0° inclination
+  Earth orbit physically passes over the equator (Ecuador), not
+  over the world ecliptic plane (Guatemala). Heliocentric orbits
+  stay ecliptic-relative, the standard astronomical convention.
+  PlaneMatchInclination resolves "match this body's plane" from
+  any orbit (e.g. tilting LEO by ~23° to match Mars's heliocentric
+  plane before TLI).
+- **Adaptive warp clamps** (v0.8.6.2+). Three layered guards
+  prevent the integrator from aliasing a planted burn:
+  - Burn-active cap (10× during ActiveBurn / ManualBurn) —
+    pre-existing.
+  - Throttle-change cap (10× for 1 sim-second after Throttle
+    changes) — catches high-warp throttle ramps that alias the
+    same way held burns do.
+  - Upcoming-node approach cap (continuous: warp ramps down as
+    the next planted node nears, reaching 10× at 5 s out) —
+    prevents 100,000× warp from skipping past a 30-s-out node
+    in a single tick.
 - **Missions**. Three predicate kinds (`circularize` /
   `orbit_insertion` / `soi_flyby`) with sticky pass/fail state,
   embedded starter catalog (1000 km LEO circularize, Luna orbit
