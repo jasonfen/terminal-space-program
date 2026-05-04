@@ -3,6 +3,7 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
@@ -47,6 +48,53 @@ func TestWarpClampActuallyClampsVeryShortPeriod(t *testing.T) {
 	effective := w.EffectiveWarp()
 	if effective >= selected {
 		t.Errorf("expected clamp to reduce warp; got %.0f → %.0f", selected, effective)
+	}
+}
+
+// TestWarpCappedAt10xAfterThrottleChange: changing throttle at high
+// warp ramps thrust faster than the integrator can absorb, the same
+// aliasing path the burn-active 10× cap exists for. The throttle-
+// change cap must (a) fire while the change is fresh and (b) release
+// once the window has elapsed.
+func TestWarpCappedAt10xAfterThrottleChange(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.WarpIdx = len(WarpFactors) - 1 // 100000×
+	// Baseline: no recent throttle change → warp not clamped by us
+	// (might still be clamped by orbit-period guard, but the LEO
+	// period guard at this state allows ~1.1M× — see test above).
+	pre := w.EffectiveWarp()
+	if pre <= 10 {
+		t.Skipf("baseline warp already ≤10× from another guard (got %.0f); throttle test inconclusive", pre)
+	}
+
+	// Trigger a throttle change. SetThrottle records SimTime.
+	w.SetThrottle(0.5)
+	if eff := w.EffectiveWarp(); eff != 10 {
+		t.Errorf("throttle change at %.0f× should clamp to 10×, got %.0f", pre, eff)
+	}
+
+	// Advance sim time past the clamp window — clamp should release.
+	w.Clock.SimTime = w.Clock.SimTime.Add(throttleClampWindow + time.Second)
+	if eff := w.EffectiveWarp(); eff != pre {
+		t.Errorf("after window expiry expected %.0f×, got %.0f", pre, eff)
+	}
+}
+
+// TestSetThrottleNoChangeNoTimestamp: SetThrottle with the same value
+// must not refresh the timestamp — otherwise repeated SetThrottle(1.0)
+// calls (e.g. from input rebroadcast) would extend the clamp forever.
+func TestSetThrottleNoChangeNoTimestamp(t *testing.T) {
+	w, _ := NewWorld()
+	c := w.ActiveCraft()
+	c.Throttle = 0.5
+	c.LastThrottleChangeAt = time.Time{} // reset
+	w.SetThrottle(0.5)                   // no change
+	if !c.LastThrottleChangeAt.IsZero() {
+		t.Errorf("SetThrottle(same value) updated timestamp to %v, want zero", c.LastThrottleChangeAt)
+	}
+	w.SetThrottle(0.7) // real change
+	if c.LastThrottleChangeAt.IsZero() {
+		t.Errorf("SetThrottle(new value) didn't update timestamp")
 	}
 }
 

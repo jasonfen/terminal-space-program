@@ -6,6 +6,7 @@ package spacecraft
 
 import (
 	"math"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -48,6 +49,16 @@ type Spacecraft struct {
 	// at full thrust. New callers that need the engine off route
 	// through ManualBurn = nil rather than a zero throttle.
 	Throttle float64
+
+	// LastThrottleChangeAt is the sim-time at which Throttle most
+	// recently changed value. v0.8.6.x+: the warp clamp uses this
+	// to suppress high warp for a brief window after the player
+	// adjusts throttle, so a 1000× throttle ramp doesn't alias the
+	// integrator the same way a finite burn does. Zero value means
+	// "never changed since spawn" — treated as no recent change.
+	// Not persisted to saves; resets on load (acceptable since the
+	// clamp window is sub-second).
+	LastThrottleChangeAt time.Time `json:"-"`
 
 	// v0.8.0 — RCS / monopropellant precision-maneuver thruster.
 	// Monoprop is the consumable propellant pool (kg); MonopropCapacity
