@@ -1021,6 +1021,18 @@ scoping:
   put `Color` into `bodies.CelestialBody`; whether `Rings` (today
   hardcoded in `render.BodyRings`) and `Glyph` (in
   `render.GlyphFor`) follow as JSON-driven fields is still open.
+- **Mission scripting / editor — needs design pass before
+  implementation** *(post-v0.8.6, v0.8.7-attempt rolled back)*. A
+  draft Option-B implementation went in (commit `4159a31`) and was
+  reverted (`e806dd3`) because the design decision points
+  (engine pick, modder UX flow, error feedback, schema versioning,
+  cross-craft predicate scope, ceiling-vs-floor expectation, editor
+  surface, sandboxing) collapsed into "expr is lighter, ship it"
+  without their own discussion. The artifacts in git history are
+  reference material; do not cherry-pick them as a substitute for
+  the design pass. Full retrospective + decision-point list in §6
+  *Mission scripting / editor*. Treat as a v0.9-cycle slice with
+  a design doc preceding code.
 
 ---
 
@@ -1059,21 +1071,112 @@ peers' craft), formation flying / rendezvous gameplay.
 
 Today `internal/missions` has three predicate kinds (`circularize`
 / `orbit_insertion` / `soi_flyby`) hard-coded in Go. A scripting
-foundation lets users author objectives without recompiling:
+foundation lets users author objectives without recompiling.
+
+**Two paths sketched** (one rough draft attempted post-v0.8.6 and
+rolled back — see retrospective below):
 
 - **Option A: declarative DSL.** Extend the `missions.json`
   schema with chained predicates — "stay within X of body Y for
   T seconds" / "dock with craft Z" / "complete N orbits."
   Lower ceiling, easier to parse, no embedded interpreter.
-- **Option B: embedded expression language.** CEL or Starlark
-  evaluating against `EvalContext`. Higher ceiling — arbitrary
-  predicates over (state, time, world snapshot) — but adds an
-  interpreter dependency and a sandboxing story.
+- **Option B: embedded expression language.** Evaluating against
+  an `EvalContext`-derived environment. Higher ceiling —
+  arbitrary predicates over (state, time, world snapshot) — but
+  adds an interpreter dependency and a sandboxing story.
 
 Either way, a TUI mission editor screen builds on top of this —
 "new mission" → fill in a form → preview against the current
 world. v0.7.0's catalog-loader pattern (embedded + user files
 merged) is the obvious storage model.
+
+**Retrospective: the post-v0.8.6 attempt at Option B.** A draft
+implementation went in (commit `4159a31`, reverted in `e806dd3`)
+that picked `github.com/expr-lang/expr` as the engine, defined an
+11-field environment schema (`primary`, `altitude_m`,
+`apoapsis_alt_m`, `periapsis_alt_m`, `eccentricity`,
+`inclination_deg`, `velocity_m_s`, `fuel_kg`, `monoprop_kg`,
+`dv_budget_m_s`, `sim_time_unix`), shipped a starter
+`mars-soft-capture` mission, and tagged v0.8.7. The rollback wasn't
+about the code working — it ran clean — but about the design
+decision points being collapsed into "it compiles, ship it"
+instead of getting their own discussion. The artifacts are still
+in git history and can be cherry-picked back once the design pass
+below is run.
+
+**Decision points that need a real pass before re-attempting**
+(any of these resolved differently changes the implementation
+shape, sometimes substantially):
+
+- *Engine pick.* The reverted draft picked **expr-lang/expr** on
+  dep-weight (pure Go, no protobuf, ~5 kLOC, zero transitive
+  deps). Real candidates with their own tradeoffs:
+  - **expr-lang/expr** — terse, MIT, batteries-included for
+    boolean predicates. Decent error messages but no IDE / syntax-
+    highlighting community.
+  - **Google CEL** (`cel-go`) — more rigorous type system,
+    Apache-licensed, designed for policy / config expressions.
+    Heavier dep tree (protobuf, ~30 transitive deps) but richer
+    documentation surface and broader adoption (Kubernetes
+    admission policies use it).
+  - **Starlark** (`go.starlark.net`) — Python-like, supports
+    multi-statement functions for composite missions ("define a
+    helper that checks plane match THEN circularization"). Bigger
+    surface but the ceiling is real.
+  - **Hand-rolled mini-DSL** — ~300 LOC of Go for boolean ops +
+    comparisons over named fields. Zero deps, full control over
+    error messages, but reinvents the wheel.
+- *Modder UX flow.* Where do mission files live? How do
+  community-authored mission packs get discovered, downloaded,
+  installed, validated? Today's catalog-loader merges
+  `$XDG_CONFIG_HOME/.../missions/*.json` with the embedded set;
+  is that sufficient, or do we want a one-shot "drop a `.tspmission`
+  file on the binary, append to user catalog" UX? An in-game
+  mission browser that fetches from a community index?
+- *Error feedback when authoring.* Today's loader fails the
+  whole catalog on first compile error. For a player iterating on
+  their own mission JSON, "your mission won't load and the game
+  shows you a stderr line you didn't see" is poor UX. Should bad
+  expressions surface as a `Failed`-status mission with the
+  compile error in the description? A dedicated `[Errors]` HUD
+  block?
+- *Schema stability.* Once expressions reference field names,
+  renaming a field breaks every catalog that used it. Versioning
+  the env schema (`expression_schema_version: 1`) is one path;
+  guaranteeing field names with a doc-tested catalog pass is
+  another.
+- *Cross-craft predicates.* The single-craft env makes "dock
+  with craft Z" / "rendezvous within X km of vessel Y" inexpressible.
+  Either widen the env (`craft.others[*].state`) or wait for the
+  v0.9 rendezvous tooling to define the right craft-targeting
+  primitives first.
+- *Mass / propellant fields.* The v0.8.7 draft zeroed
+  `fuel_kg` / `monoprop_kg` / `dv_budget_m_s` because
+  `EvalContext` didn't carry them; expression authors reading
+  those fields would have silently always seen 0. Either thread
+  them through `EvalContext` (small `sim.World.Tick` diff) or
+  document the env as state-only with a follow-up to add
+  resources.
+- *Ceiling vs floor.* Is the expectation "modders write
+  one-line predicates" (Option A or expr) or "modders compose
+  multi-step missions with helper functions" (Starlark)? The
+  ceiling drives the engine pick more than the dep weight does.
+- *Editor surface.* Stretch: a TUI mission editor (form-driven,
+  expression syntax-highlighted, "test against current world"
+  button). Ships separately or pairs with the engine?
+- *Sandboxing.* All three engines above are sandboxed by
+  default, but custom-DSL leaves the security story to us. If we
+  ever want to fetch community mission packs over the network, the
+  sandbox guarantees matter.
+
+**Suggested sequencing.** Treat this as a v0.9-cycle slice with
+its own design doc preceding code. Block 1: write down the
+modder-UX target end-to-end (download → install → playtest → share
+→ debug). Block 2: pick the engine with that UX in mind, not in
+isolation. Block 3: reference the v0.8.7-attempt artifacts for
+the implementation shape. Block 4: implement.
+
+Do **not** start with the engine pick again.
 
 ### Rendezvous tooling
 
