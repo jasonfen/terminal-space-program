@@ -85,6 +85,38 @@ func TestElementsEquatorialArgPeriapsis(t *testing.T) {
 	}
 }
 
+// TestNearCircularOrbitOmegaIsStable: with a near-zero eccentricity
+// (state perturbed by float noise), ω is mathematically undefined.
+// Pre-v0.8.6 ElementsFromState returned atan2(noise, noise) for ω,
+// which flipped each frame and made the orbit-flat canvas basis jerk
+// around the orbit normal. The fix snaps ω to 0 when eMag falls below
+// circularTol; this test verifies two close-to-circular states with
+// different noise patterns both report ω = 0.
+func TestNearCircularOrbitOmegaIsStable(t *testing.T) {
+	mu := 3.986e14
+	r0 := 7e6
+	v0 := math.Sqrt(mu / r0)
+	// Two states that are circular up to float noise but perturbed
+	// in different directions. Both have eMag well below circularTol
+	// (1e-6); ω should snap to 0.
+	stateA := struct{ R, V Vec3 }{
+		R: Vec3{X: r0},
+		V: Vec3{Y: v0 * (1 + 1e-15), Z: v0 * 1e-15},
+	}
+	stateB := struct{ R, V Vec3 }{
+		R: Vec3{X: r0 * (1 + 1e-15)},
+		V: Vec3{Y: v0},
+	}
+	elA := ElementsFromState(stateA.R, stateA.V, mu)
+	elB := ElementsFromState(stateB.R, stateB.V, mu)
+	if elA.Arg != 0 {
+		t.Errorf("near-circular state A: ω = %.6e rad, want 0 (snap)", elA.Arg)
+	}
+	if elB.Arg != 0 {
+		t.Errorf("near-circular state B: ω = %.6e rad, want 0 (snap)", elB.Arg)
+	}
+}
+
 // TestInclinedOrbit: 30° inclination, circular, should produce i=30° and e≈0.
 func TestInclinedOrbit(t *testing.T) {
 	mu := 3.986e14
