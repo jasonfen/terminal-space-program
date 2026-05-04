@@ -87,6 +87,39 @@ func TestClearNodesRemovesAll(t *testing.T) {
 	}
 }
 
+// TestDeleteNodeRemovesIndex: v0.8.6+ — DeleteNode removes one
+// node by index without disturbing the others.
+func TestDeleteNodeRemovesIndex(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(10 * time.Second), DV: 10})
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(20 * time.Second), DV: 20})
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(30 * time.Second), DV: 30})
+	if len(w.ActiveCraft().Nodes) != 3 {
+		t.Fatalf("setup: got %d nodes, want 3", len(w.ActiveCraft().Nodes))
+	}
+	w.DeleteNode(1) // remove the middle (DV=20)
+	if len(w.ActiveCraft().Nodes) != 2 {
+		t.Errorf("after DeleteNode(1): got %d nodes, want 2", len(w.ActiveCraft().Nodes))
+	}
+	if w.ActiveCraft().Nodes[0].DV != 10 || w.ActiveCraft().Nodes[1].DV != 30 {
+		t.Errorf("survivors: got DVs %v, want [10 30]",
+			[]float64{w.ActiveCraft().Nodes[0].DV, w.ActiveCraft().Nodes[1].DV})
+	}
+}
+
+// TestDeleteNodeOutOfRangeIsNoop: out-of-range idx (negative or
+// past end) leaves Nodes untouched. Defensive — the maneuver
+// form passes -1 when not editing an existing node.
+func TestDeleteNodeOutOfRangeIsNoop(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(10 * time.Second), DV: 10})
+	w.DeleteNode(-1)
+	w.DeleteNode(99)
+	if len(w.ActiveCraft().Nodes) != 1 {
+		t.Errorf("after no-op DeleteNodes: got %d nodes, want 1", len(w.ActiveCraft().Nodes))
+	}
+}
+
 // TestPlanNodeUnresolvedSortsToEnd: an unresolved event-relative node
 // (Event != Absolute, TriggerTime zero) must not displace resolved
 // future nodes from the head of the slice — otherwise executeDueNodes
@@ -1089,6 +1122,64 @@ func TestPerNodeThrottleZeroMapsToFull(t *testing.T) {
 	}
 }
 
+// TestIterateBurnDVRefinesProgradeApoapsis: a finite prograde burn
+// at low thrust under-delivers apoapsis vs. the impulsive guess
+// (gravity-rotation + thrust-vector-rotation losses during the burn
+// arc). IterateBurnDV must Newton-iterate the commanded Δv up so
+// post-burn apo matches the impulsive target.
+func TestIterateBurnDVRefinesProgradeApoapsis(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	// Lower thrust to amplify finite-burn loss to a measurable
+	// magnitude — at S-IVB-1 baseline the loss is < 0.1 % which
+	// is below the iteration tolerance.
+	c.Thrust = 100e3 // 100 kN — a tenth of S-IVB-1's J-2 thrust
+	c.Isp = 421
+	dv := 1500.0
+
+	refined, err := w.IterateBurnDV(spacecraft.BurnPrograde, dv)
+	if err != nil {
+		t.Fatalf("IterateBurnDV: %v", err)
+	}
+	if refined <= dv {
+		t.Errorf("expected refined Δv > %.1f m/s (compensate gravity loss), got %.1f", dv, refined)
+	}
+	// Lower bound: at this thrust the loss is non-trivial; expect
+	// at least 1 m/s correction.
+	if refined-dv < 1 {
+		t.Errorf("refinement %.3f m/s below expected (≥ 1 m/s)", refined-dv)
+	}
+}
+
+// TestIterateBurnDVNormalBurnFallsThrough: BurnNormal± has no apse
+// target; IterateBurnDV must return the input Δv unchanged (the
+// player should use PlanInclinationChange for plane rotation Δv
+// compensation, not the iterate toggle).
+func TestIterateBurnDVNormalBurnFallsThrough(t *testing.T) {
+	w := mustWorld(t)
+	dv := 500.0
+	refined, err := w.IterateBurnDV(spacecraft.BurnNormalPlus, dv)
+	if err != nil {
+		t.Fatalf("IterateBurnDV: %v", err)
+	}
+	if refined != dv {
+		t.Errorf("normal burn refined Δv = %.3f, want input %.3f (passthrough)", refined, dv)
+	}
+}
+
+// TestIterateBurnDVZeroThrustPassthrough: zero-thrust craft (e.g. a
+// spent stage) have no finite-burn loss to compensate; IterateBurnDV
+// must return the input Δv unchanged.
+func TestIterateBurnDVZeroThrustPassthrough(t *testing.T) {
+	w := mustWorld(t)
+	w.ActiveCraft().Thrust = 0
+	dv := 200.0
+	refined, _ := w.IterateBurnDV(spacecraft.BurnPrograde, dv)
+	if refined != dv {
+		t.Errorf("zero-thrust craft: refined Δv = %.3f, want %.3f (passthrough)", refined, dv)
+	}
+}
+
 // TestPlanInclinationChangePlantsNormalBurn: from a 28.5° inclined LEO,
 // targeting equatorial drops a single normal-burn node at the next
 // node crossing — half-period away when the craft starts at the AN.
@@ -1103,10 +1194,14 @@ func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
 	const inc = 28.5 * math.Pi / 180
 
 	// Tilt the craft into a 28.5° inclined LEO at the AN (rising
-	// through equator). Position along +x; velocity in the (y, z)
-	// plane.
-	w.ActiveCraft().State.R = orbital.Vec3{X: r}
-	w.ActiveCraft().State.V = orbital.Vec3{Y: v * math.Cos(inc), Z: v * math.Sin(inc)}
+	// through equator). Constructed in body-equatorial coords so the
+	// planner sees i = 28.5° relative to Earth's equator (the v0.8.6+
+	// convention) — then rotated to world coords for the state vector.
+	frame := orbital.ReferenceFrameForPrimary(w.ActiveCraft().Primary)
+	rBody := orbital.Vec3{X: r}
+	vBody := orbital.Vec3{Y: v * math.Cos(inc), Z: v * math.Sin(inc)}
+	w.ActiveCraft().State.R = frame.ToWorld(rBody)
+	w.ActiveCraft().State.V = frame.ToWorld(vBody)
 
 	plan, err := w.PlanInclinationChange(0)
 	if err != nil {

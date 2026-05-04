@@ -934,7 +934,12 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if w.CraftVisibleHere() {
 		c := w.ActiveCraft()
 		mu := c.Primary.GravitationalParameter()
-		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+		// Inclination/Ω/ω are quoted in the primary's reference frame
+		// (body-equatorial for non-Sun primaries, ecliptic for the
+		// Sun) — matches the operational convention every mission
+		// planner uses. v0.8.6+.
+		frame := orbital.ReferenceFrameForPrimary(c.Primary)
+		el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
 		primaryR := c.Primary.RadiusMeters()
 		apoAlt := el.Apoapsis() - primaryR
 		periAlt := el.Periapsis() - primaryR
@@ -1240,7 +1245,8 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		// every planted node fires. Hidden when no resolved nodes.
 		if state, primary, ok := w.PredictedFinalOrbit(); ok {
 			mu := primary.GravitationalParameter()
-			ro := orbital.OrbitReadout(state.R, state.V, mu)
+			frame := orbital.ReferenceFrameForPrimary(primary)
+			ro := orbital.OrbitReadoutInFrame(state.R, state.V, mu, frame)
 			primaryR := primary.RadiusMeters()
 			lines = append(lines, section("PROJECTED ORBIT")...)
 			lines = append(lines, fmt.Sprintf("  primary:   %s", primary.EnglishName))

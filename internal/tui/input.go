@@ -30,10 +30,20 @@ type Keymap struct {
 	FocusPrev  key.Binding
 	FocusReset key.Binding
 	SpawnCraft    key.Binding // v0.8.1+: spawn a new craft. Replaced the v0.7.x PlanNode quick-plant default-node debug aid (m/Enter is the proper plant path).
+	// ClearNodes used to live on `N` (the case-collision partner of
+	// `n` SpawnCraft, which made remembering which one wiped vs
+	// spawned a constant trip-up). v0.8.6 dropped the global
+	// keybinding; clear-all now lives in the maneuver-form footer
+	// alongside per-node delete (`m` then ctrl+k / ctrl+d). Field
+	// kept with no key so callers compile during transition; remove
+	// in a later cleanup.
 	ClearNodes    key.Binding
 	PlanTransfer  key.Binding
 	PlanIncl      key.Binding // v0.7.4+: plane rotation toward selected body's inclination (or equatorial when none).
 	Porkchop      key.Binding
+	// v0.8.6: Save / Load moved S / L → F5 / F9 to match the KSP
+	// quicksave-quickload muscle memory and to clear the case-
+	// collision with `s` (AttitudeRetrograde) and `l` (NextBody).
 	Save          key.Binding
 	Load          key.Binding
 	RefinePlan    key.Binding
@@ -97,12 +107,12 @@ func DefaultKeymap() Keymap {
 		FocusPrev:  key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
 		FocusReset: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "focus: system")),
 		SpawnCraft:   key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "spawn craft (sister copy of active)")),
-		ClearNodes:   key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "clear nodes")),
+		ClearNodes:   key.NewBinding(), // v0.8.6: dropped — see ClearNodes field comment.
 		PlanTransfer: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant Hohmann transfer to selected body")),
 		PlanIncl:     key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant inclination match (selected body / equatorial)")),
 		Porkchop:     key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot for selected body")),
-		Save:         key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "save game")),
-		Load:         key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "load game")),
+		Save:         key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "quicksave")),
+		Load:         key.NewBinding(key.WithKeys("f9"), key.WithHelp("F9", "quickload")),
 		RefinePlan:   key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refine plan (re-Lambert arrival)")),
 		CycleView:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (top / right / bottom / left / orbit-flat)")),
 

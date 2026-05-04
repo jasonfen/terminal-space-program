@@ -6,6 +6,7 @@ package spacecraft
 
 import (
 	"math"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -48,6 +49,16 @@ type Spacecraft struct {
 	// at full thrust. New callers that need the engine off route
 	// through ManualBurn = nil rather than a zero throttle.
 	Throttle float64
+
+	// LastThrottleChangeAt is the sim-time at which Throttle most
+	// recently changed value. v0.8.6.x+: the warp clamp uses this
+	// to suppress high warp for a brief window after the player
+	// adjusts throttle, so a 1000× throttle ramp doesn't alias the
+	// integrator the same way a finite burn does. Zero value means
+	// "never changed since spawn" — treated as no recent change.
+	// Not persisted to saves; resets on load (acceptable since the
+	// clamp window is sub-second).
+	LastThrottleChangeAt time.Time `json:"-"`
 
 	// v0.8.0 — RCS / monopropellant precision-maneuver thruster.
 	// Monoprop is the consumable propellant pool (kg); MonopropCapacity
@@ -243,9 +254,15 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	c := NewFromLoadout(LoadoutSIVB1ID)
 	c.Name = "S-IVB-1" // first vessel of the slate keeps the historical instance name.
 	c.Primary = earth
+	// v0.8.6+: rotate the body-frame circular state into world coords
+	// so the orbit physically lies in Earth's equatorial plane (passes
+	// over the equator), not the world XY plane (which is offset by
+	// Earth's 23.44° axial tilt). Pre-v0.8.5.7 there were no tilts so
+	// the two coincided.
+	frame := orbital.ReferenceFrameForPrimary(earth)
 	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r},
-		V: orbital.Vec3{Y: v},
+		R: frame.ToWorld(orbital.Vec3{X: r}),
+		V: frame.ToWorld(orbital.Vec3{Y: v}),
 		M: c.TotalMass(),
 	}
 	return c

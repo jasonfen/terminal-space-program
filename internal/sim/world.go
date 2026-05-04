@@ -514,6 +514,33 @@ func (w *World) clampedWarp() float64 {
 	if w.anyCraftThrusting() && selected > 10 {
 		selected = 10
 	}
+	// v0.8.6.x+: throttle-change clamp. A throttle adjust at high
+	// warp ramps thrust faster than the integrator's per-tick step
+	// can resolve, the same aliasing path that motivates the burn-
+	// active cap above. Hold warp at 10× for a brief window after
+	// any craft's throttle changed so the integrator absorbs the
+	// new throttle before the next big sim-time leap.
+	if selected > 10 && w.recentlyChangedThrottle(throttleClampWindow) {
+		selected = 10
+	}
+	// v0.8.6.x+: upcoming-node approach clamp. At 100000× warp one
+	// tick advances 5000 s of sim time, so a planted node 30 s out
+	// would be skipped entirely before the burn-active cap could
+	// engage. Find the soonest upcoming TriggerTime across all
+	// crafts and clamp warp so the integrator fits at least
+	// approachClampSubsteps ticks inside the approach window. The
+	// formula is continuous in approachTime — far-future nodes
+	// produce a huge maxWarp (no effect), and as the node nears,
+	// maxWarp ramps smoothly down toward the floor of 1×.
+	if dt := w.soonestUpcomingNodeIn(); dt > 0 {
+		maxNodeWarp := dt / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
+		if maxNodeWarp < 1 {
+			maxNodeWarp = 1
+		}
+		if selected > maxNodeWarp {
+			selected = maxNodeWarp
+		}
+	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
 	period := orbitalPeriod(w.ActiveCraft().State, mu)
 	if math.IsInf(period, 0) || math.IsNaN(period) || period <= 0 {
@@ -526,6 +553,72 @@ func (w *World) clampedWarp() float64 {
 		return maxWarp
 	}
 	return selected
+}
+
+// approachClampSubsteps is the number of integrator ticks the
+// upcoming-node clamp tries to fit inside the approach window — high
+// enough that the burn-active cap (10×) takes over with margin
+// before the node fires. Picked at 10: at BaseStep 0.05 s, warp
+// reaches 10× when the node is 5 s out (10 × 0.05 × 10 = 5), and
+// the burn-active cap takes over within the same window once
+// ActiveBurn populates. v0.8.6.x+.
+const approachClampSubsteps = 10.0
+
+// soonestUpcomingNodeIn returns the seconds of sim-time until the
+// earliest resolved future planted node across all crafts. Returns
+// -1 when no qualifying node exists (no nodes, only event-trigger
+// nodes still resolving, or all nodes already past). Walks every
+// craft so a planted burn on a non-active vessel still slows warp
+// for the player flying another craft.
+func (w *World) soonestUpcomingNodeIn() float64 {
+	soonest := -1.0
+	now := w.Clock.SimTime
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		for _, n := range c.Nodes {
+			if !n.IsResolved() {
+				continue
+			}
+			dt := n.TriggerTime.Sub(now).Seconds()
+			if dt <= 0 {
+				continue
+			}
+			if soonest < 0 || dt < soonest {
+				soonest = dt
+			}
+		}
+	}
+	return soonest
+}
+
+// throttleClampWindow is the sim-time window after a Spacecraft's
+// Throttle changes during which the warp clamp pins to 10×. Picked
+// at 1 sim-second: long enough that one ManualBurn / RK4 sub-step
+// at 10× warp absorbs the throttle ramp (BaseStep × 10 = 0.2 s ≪
+// 1 s), short enough that the player feels warp returning to the
+// selected level promptly after a Z / X tap. v0.8.6.x+.
+const throttleClampWindow = time.Second
+
+// recentlyChangedThrottle reports whether any craft's Throttle was
+// updated within the last `window` of sim time. Walks every craft
+// so a player flying craft A while craft B's planted burn ramps its
+// throttle still triggers the clamp. v0.8.6.x+.
+func (w *World) recentlyChangedThrottle(window time.Duration) bool {
+	now := w.Clock.SimTime
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		if c.LastThrottleChangeAt.IsZero() {
+			continue
+		}
+		if now.Sub(c.LastThrottleChangeAt) < window {
+			return true
+		}
+	}
+	return false
 }
 
 // anyCraftThrusting reports whether any craft in the slate is

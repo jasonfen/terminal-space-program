@@ -102,6 +102,9 @@ func (w *World) SetThrottle(t float64) {
 	} else if t > 1 {
 		t = 1
 	}
+	if t != c.Throttle {
+		c.LastThrottleChangeAt = w.Clock.SimTime
+	}
 	c.Throttle = t
 	if t == 0 {
 		w.StopManualBurn()
@@ -182,7 +185,16 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 	if mu == 0 {
 		return
 	}
-	state := orbital.Vec3State{R: c.State.R, V: c.State.V}
+	// v0.8.6+: resolve event timings in the primary's reference frame
+	// (body-equatorial for non-Sun primaries) so AN/DN mean "crossing
+	// of the body's equator" rather than "crossing of the world XY
+	// plane". TimeToPeriapsis / TimeToApoapsis are frame-invariant
+	// scalars but we pass the rotated state for consistency.
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	state := orbital.Vec3State{
+		R: frame.FromWorld(c.State.R),
+		V: frame.FromWorld(c.State.V),
+	}
 	resolvedAny := false
 	for i := range c.Nodes {
 		n := &c.Nodes[i]
@@ -619,6 +631,73 @@ func (w *World) NextFrameTransition() (FrameTransition, bool) {
 	return FrameTransition{}, false
 }
 
+// IterateBurnDV refines the commanded Δv for a finite burn so the
+// post-burn orbit's apsides match what an impulsive burn at the same
+// commanded Δv would have produced. Newton-iterates against an RK4
+// finite-burn simulation (planner.IterateForTarget). Returns the
+// refined Δv on success; falls back to dvGuess on iteration failure
+// or for burn modes that don't have a meaningful apse target
+// (BurnNormal±).
+//
+// Target picked from mode:
+//   - Prograde / Retrograde → match the impulsive apoapsis.
+//   - RadialOut / RadialIn → match the impulsive periapsis.
+//   - Normal± → no iteration (skip; PlanInclinationChange handles
+//     plane-rotation Δv compensation differently).
+//
+// Limitation: iterates from the craft's *current* state, not the
+// state at TriggerTime. For burns scheduled minutes-or-less ahead the
+// state drift is negligible; for hours-ahead schedules the iteration
+// is approximate. v0.8.6 (b).
+func (w *World) IterateBurnDV(mode spacecraft.BurnMode, dvGuess float64) (float64, error) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return dvGuess, errNoCraftForTransfer
+	}
+	if dvGuess <= 0 || c.Thrust <= 0 || c.Isp <= 0 {
+		return dvGuess, nil
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu <= 0 {
+		return dvGuess, nil
+	}
+
+	// Compute the impulsive post-burn elements to extract the implicit
+	// target — what the projected-orbit preview already shows.
+	dirUnit := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
+	if dirUnit.Norm() == 0 {
+		return dvGuess, nil
+	}
+	postV := c.State.V.Add(dirUnit.Scale(dvGuess))
+	impulsiveEl := orbital.ElementsFromState(c.State.R, postV, mu)
+
+	var residual planner.ResidualFn
+	switch mode {
+	case spacecraft.BurnPrograde, spacecraft.BurnRetrograde:
+		residual = planner.TargetApoapsis(impulsiveEl.Apoapsis())
+	case spacecraft.BurnRadialOut, spacecraft.BurnRadialIn:
+		residual = planner.TargetPeriapsis(impulsiveEl.Periapsis())
+	default:
+		// BurnNormal± — inclination targets need a different residual;
+		// PlanInclinationChange already handles plane-rotation Δv.
+		return dvGuess, nil
+	}
+
+	direction := func(r, v orbital.Vec3) orbital.Vec3 {
+		return spacecraft.DirectionUnit(mode, r, v)
+	}
+	const tolMeters = 1000.0
+	const maxIter = 8
+	refined, _, err := planner.IterateForTarget(
+		c.State, mu, c.Thrust, c.Isp, dvGuess,
+		direction, residual, tolMeters, maxIter,
+	)
+	if err != nil {
+		return dvGuess, err
+	}
+	return refined, nil
+}
+
 // PlanInclinationChange plants a single normal-burn maneuver node
 // that rotates the craft's orbital plane to targetIncl (radians, in
 // [0, π]). The burn fires at the next ascending or descending node,
@@ -637,8 +716,20 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 		return nil, errNoCraftForTransfer
 	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
-	state := orbital.Vec3State{R: w.ActiveCraft().State.R, V: w.ActiveCraft().State.V}
-	plan, err := planner.PlanInclinationChange(state, mu, targetIncl, w.ActiveCraft().Primary.ID)
+	// v0.8.6+: targetIncl is interpreted in the primary's reference
+	// frame (body-equatorial for non-Sun primaries; ecliptic for the
+	// Sun). Rotate the state into that frame before calling the inner
+	// planner — Δv, time-of-flight and NormalSign (which refers to
+	// ±h, computed from the live state at burn time) are all
+	// frame-invariant, so the resulting InclinationPlan flies through
+	// unchanged.
+	primary := w.ActiveCraft().Primary
+	frame := orbital.ReferenceFrameForPrimary(primary)
+	state := orbital.Vec3State{
+		R: frame.FromWorld(w.ActiveCraft().State.R),
+		V: frame.FromWorld(w.ActiveCraft().State.V),
+	}
+	plan, err := planner.PlanInclinationChange(state, mu, targetIncl, primary.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -927,6 +1018,22 @@ func (w *World) ClearNodes() {
 	}
 }
 
+// DeleteNode removes the node at idx from the active craft's plan.
+// Out-of-range idx is a no-op (callers may pass -1 to indicate
+// "no edit target"). v0.8.6+ — paired with the maneuver form's
+// per-node delete action that replaces the v0.8.5-and-earlier
+// "wipe everything via N" keybinding.
+func (w *World) DeleteNode(idx int) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return
+	}
+	if idx < 0 || idx >= len(c.Nodes) {
+		return
+	}
+	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)
+}
+
 // executeDueNodes fires every craft's due nodes onto themselves.
 // Called from Tick after sim-time advances. Each craft's nodes are
 // independent — a planted burn fires on the craft it was planted
@@ -1131,7 +1238,8 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 		return w.approximateCapturePreview(captureState, capturePrimary, captureTime, captureIdx), true
 	}
 	mu := capturePrimary.GravitationalParameter()
-	ro := orbital.OrbitReadout(captureState.R, captureState.V, mu)
+	frame := orbital.ReferenceFrameForPrimary(capturePrimary)
+	ro := orbital.OrbitReadoutInFrame(captureState.R, captureState.V, mu, frame)
 	return CapturePreview{
 		Primary:      capturePrimary,
 		NodeIndex:    captureIdx,
@@ -1312,7 +1420,14 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 
 	if event != TriggerAbsolute {
 		mu := primary.GravitationalParameter()
-		ostate := orbital.Vec3State{R: state.R, V: state.V}
+		// v0.8.6+: AN/DN are body-equatorial. Frame-rotate state for
+		// the event-time helpers; periapsis/apoapsis are frame-
+		// invariant but we pass the rotated state for consistency.
+		frame := orbital.ReferenceFrameForPrimary(primary)
+		ostate := orbital.Vec3State{
+			R: frame.FromWorld(state.R),
+			V: frame.FromWorld(state.V),
+		}
 		var dt float64
 		switch event {
 		case TriggerNextPeri:

@@ -44,7 +44,8 @@ func (h *Help) Render() string {
 			{"m", "open maneuver planner (burn now)"},
 			{"enter", "commit burn"},
 			{"esc (in planner)", "cancel burn"},
-			{"N", "clear all planned nodes"},
+			{"ctrl+d (in planner)", "delete the node being edited"},
+			{"ctrl+k (in planner)", "clear ALL planned nodes for active craft"},
 			{"H", "plant Hohmann transfer to selected body"},
 			{"I", "plant inclination match (selected body / equatorial)"},
 			{"P", "porkchop plot for selected body"},
@@ -65,8 +66,8 @@ func (h *Help) Render() string {
 			{"U", "undock active composite (v0.8.3+)"},
 		}},
 		{"PERSISTENCE", [][2]string{
-			{"S", "save game (XDG_STATE_HOME)"},
-			{"L", "load game"},
+			{"F5", "quicksave (XDG_STATE_HOME)"},
+			{"F9", "quickload"},
 			{"q", "quit (confirm + autosave)"},
 		}},
 		{"MOUSE (orbit canvas)", [][2]string{
