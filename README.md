@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.5**. Latest patch: **v0.8.6.3** — body-equatorial Keplerian frame for body-bound orbits, throttle-change + upcoming-node warp clamps, finite-burn iterate-for-target toggle in the maneuver form.
+Latest release: **v0.8.6** — controls polish bag (KSP-style F5/F9 quicksave/load, per-node delete/clear in the maneuver form), body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), and a finite-burn iterate-for-target toggle in the maneuver form.
 
 ```bash
 # Linux x86_64
