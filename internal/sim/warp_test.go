@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // TestWarpClampRespectsOrbitalPeriod: at LEO (~5500 s period), max warp
@@ -95,6 +96,67 @@ func TestSetThrottleNoChangeNoTimestamp(t *testing.T) {
 	w.SetThrottle(0.7) // real change
 	if c.LastThrottleChangeAt.IsZero() {
 		t.Errorf("SetThrottle(new value) didn't update timestamp")
+	}
+}
+
+// TestWarpClampUpcomingNodeRampsDown: with a planted node 30 sim-
+// seconds in the future at 100000× selected warp, the integrator
+// would skip the node in a single tick (one tick at 100000× = 5000 s).
+// The approach clamp must catch this and reduce warp.
+func TestWarpClampUpcomingNodeRampsDown(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.WarpIdx = len(WarpFactors) - 1 // 100000×
+	pre := w.EffectiveWarp()
+	if pre <= 10 {
+		t.Skipf("baseline already ≤10× from another guard (got %.0f); test inconclusive", pre)
+	}
+	// Plant a node 30 sim-seconds in the future.
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(30 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          10,
+	})
+	eff := w.EffectiveWarp()
+	if eff >= pre {
+		t.Errorf("upcoming node 30 s out should reduce warp from %.0f, got %.0f", pre, eff)
+	}
+	// Formula: maxWarp = 30 / (10 × 0.05) = 60. Allow ±5% slack.
+	want := 60.0
+	if eff < want*0.95 || eff > want*1.05 {
+		t.Errorf("approach clamp at 30 s: got %.2f, want ~%.2f", eff, want)
+	}
+}
+
+// TestWarpClampUpcomingNodeFloorsAt1x: a node firing essentially
+// immediately must not clamp warp below 1× (real-time).
+func TestWarpClampUpcomingNodeFloorsAt1x(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(50 * time.Millisecond),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          10,
+	})
+	if eff := w.EffectiveWarp(); eff < 1 {
+		t.Errorf("approach clamp must floor at 1×, got %.4f", eff)
+	}
+}
+
+// TestWarpClampUpcomingNodeReleasesAfterPast: once the node's
+// TriggerTime is in the past (e.g. fired or skipped), the approach
+// clamp must release. Otherwise stale nodes would persistently
+// dampen warp.
+func TestWarpClampUpcomingNodeReleasesAfterPast(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	pre := w.EffectiveWarp()
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(-1 * time.Hour), // already past
+		Mode:        spacecraft.BurnPrograde,
+		DV:          10,
+	})
+	if eff := w.EffectiveWarp(); eff != pre {
+		t.Errorf("past node shouldn't clamp warp; got %.0f, want %.0f", eff, pre)
 	}
 }
 
