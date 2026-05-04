@@ -4,6 +4,10 @@
   meta:
     snapshot_version: v0.8.6
     snapshot_date: 2026-05-04
+    revised_date: 2026-05-04 (post-v0.x-plan audit — folded in
+      deferred items + weight signals from plan.md / v0.6-plan.md /
+      v0.7-plan.md / v0.8-plan.md / multiplayer-design.md /
+      integration-design.md)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
@@ -273,15 +277,19 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 
 ### Multi-rev porkchop UI
 <!-- llm-parse: id=multi-rev-porkchop status=deferred target=v0.9 -->
-⏸ **deferred from v0.8.6 (c) → v0.9**. `LambertSolveRev` + retrograde flag have been library-ready since v0.7.5; UI not sliced. Defer until staging slices grow craft fleet — current chemical S-IVB-1-class fleet always picks nRev=0 prograde, so UI gives no leverage until that changes. Open scoping question: Lambert short/long branch picker for nRev≥1 travels with this slice.
+⏸ **deferred from v0.8.6 (c) → v0.9**. `LambertSolveRev` + retrograde flag have been library-ready since v0.7.5; UI not sliced. Defer until staging slices grow craft fleet — current chemical S-IVB-1-class fleet always picks nRev=0 prograde, so UI gives no leverage until that changes. Pairs with the Lambert short/long branch picker [(below)](#lambert-shortlong-branch-picker).
+
+### Lambert short/long branch picker
+<!-- llm-parse: id=lambert-short-long status=backlog target=v0.9-with-multi-rev -->
+🧊 **backlog · pairs with multi-rev porkchop**. Today `LambertSolveRev` returns the first root the bracket finds (lower-z side); a per-N "short" / "long" flag would expose both branches per rev count. Library-only LOC (~30) — the surface is plumbing through `PlanLambertTransfer` + `PorkchopGrid` + a UI control. Travels with multi-rev porkchop because both expose nRev≥1 branches that don't exist on the nRev=0 path.
 
 ### Wider cross-SOI PlanTransfer
 <!-- llm-parse: id=cross-soi-transfer status=backlog target=v0.9 -->
 🧊 **backlog · target v0.9**. v0.5.7's `PlanIntraPrimaryHohmann` covers same-parent (LEO → Luna); v0.6.3 covers moon → parent. The remaining direction — heliocentric → moon-of-other-planet (Phobos from a Mars approach, a Galilean from a Jupiter cruise) — needs a real patched-conic capture pass through both SOIs.
 
 ### Combined plane-shift + Hohmann
-<!-- llm-parse: id=plane-shift-hohmann status=backlog target=v0.9 -->
-🧊 **backlog · target v0.9**. Lambert solver constrained on post-capture inclination so departure geometry lands prograde at the destination. Substantial — needs the Lambert constraint.
+<!-- llm-parse: id=plane-shift-hohmann status=backlog target=v0.9 weight=L -->
+🧊 **backlog · target v0.9 · substantial**. Lambert solver constrained on post-capture inclination so departure geometry lands prograde at the destination instead of the current "match ecliptic, hope arrival inclination is OK" pattern. The v0.8-plan.md retrospective explicitly flags this as **substantial** — the binding technical work is the constrained Lambert variant (root-find on inclination as well as time-of-flight), not the UI plumbing. Pairs naturally with the [capture-direction toggle](#capture-direction-toggle) since both touch arrival-side geometry.
 
 ### Capture-direction toggle
 <!-- llm-parse: id=capture-direction-toggle status=backlog target=v0.9 -->
@@ -289,11 +297,11 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 
 ### Drag-to-edit nodes
 <!-- llm-parse: id=drag-to-edit status=deferred -->
-⏸ **deferred**. v0.6.4 deliberately picked click-to-edit-replace. Reopen if playtest feedback says scrubbing is worth the implementation cost.
+⏸ **deferred · playtest-triggered**. v0.6.4 deliberately picked click-to-edit-replace as the model; v0.8.6 retrospective held the line. Drag-to-scrub Δv / fire-time directly on a planted-node marker is the alternative model — KSP players reach for it on muscle memory. Reopen this slice when (and only when) playtest feedback reports click-to-edit-replace as actually friction; until then the simpler interaction wins.
 
 ### Predictor adaptive sampling
-<!-- llm-parse: id=predictor-adaptive-sampling status=backlog -->
-🧊 **backlog**. Fixed 96-sample horizon collapses to a smear at 10000× warp on LEO orbits. v0.8.4's time-aware `propagateStateWithPrimary` foundation work unlocks this; the slice itself didn't ship in v0.8.
+<!-- llm-parse: id=predictor-adaptive-sampling status=backlog carry-over=v0.5-v0.6-v0.7-v0.8 -->
+🧊 **backlog · three-cycle carry-over**. Fixed 96-sample horizon collapses to a smear at 10000× warp on LEO orbits. Adaptive sampling (sample density ∝ orbit period / sim-time horizon) is the obvious fix. Flagged in `v0.5-release-notes.md` deferred list, escalated to `integration-design.md` §10 open question, re-flagged in `v0.7-plan.md` and `v0.8-plan.md` backlogs without shipping in any cycle. **Foundation shipped at v0.8.4** (time-aware `propagateStateWithPrimary` for drag-aware predictor coherence) — the integration is now possible without further infrastructure work, just not done. ~150–200 LOC.
 
 ### Solar lighting + day/night terminator + eclipses
 <!-- llm-parse: id=lighting-terminator-eclipses status=backlog target=v0.9 -->
@@ -305,7 +313,7 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 
 ### Multiplayer implementation
 <!-- llm-parse: id=multiplayer status=planning target=v0.9-stretch -->
-📐 **planning** *(`docs/multiplayer-design.md` v0.6.6)*. WebSocket transport, host-authoritative authority, warp-arbitration rule. Not slated for v0.9 directly but the design doc is current.
+📐 **planning** *(`docs/multiplayer-design.md` v0.6.6)*. WebSocket transport, host-authoritative authority, warp-arbitration rule. **Prerequisite (multi-craft foundation) was satisfied at v0.8.1 — the architectural blocker is gone.** Three open scoping questions carry forward from the v0.6.6 spike: (1) multi-craft selector ordering vs MP land sequencing; (2) warp arbitration rule generalisation to 3+ peers (current rule is host-veto, fine for 2 but ambiguous beyond); (3) per-player vs shared mission state (does each connected player see their own mission slate, or one shared catalog?). Not slated for v0.9 directly but the design doc is current and the foundations are in.
 
 ### N-body perturbations
 <!-- llm-parse: id=n-body status=backlog target=v0.10+ -->
@@ -317,7 +325,11 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 
 ### Theme-file hot-reload
 <!-- llm-parse: id=theme-hot-reload status=deferred -->
-⏸ **deferred**. ~200 LOC of fsnotify; never surfaced as a v0.8 playtest pain.
+⏸ **deferred**. ~200 LOC of fsnotify watching `theme.json` so palette tweaks land without restarting. `LoadTheme` is already idempotent (v0.7.2) so the runtime side is cheap; the cost is the watcher setup + a debounce. Never surfaced as a v0.8 playtest pain — reopen if a modder hits it iterating on a per-body palette.
+
+### Numbered craft slots (1–9)
+<!-- llm-parse: id=numbered-craft-slots status=backlog target=v0.9-when-fleet-grows -->
+🧊 **backlog · gates on craft-fleet growth**. v0.8.1 ships `[`/`]` cycle + click-select on per-craft glyphs (v0.8.2). Numbered hotkeys (`1`..`9` jump to craft N) deferred until saves routinely have >4 craft and the cycle key gets unwieldy. Trivial keystroke + `World.SwitchToCraftIdx` wrapper; gating is UX, not code.
 
 ### `bodies.json` sibling overlay
 <!-- llm-parse: id=body-overlay status=backlog -->
@@ -343,6 +355,35 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 <!-- llm-parse: id=mission-eval-resources status=backlog target=alongside-mission-scripting -->
 🧊 **backlog**. `EvalContext` doesn't carry fuel / monoprop / dv_budget today, so the rolled-back v0.8.7 expression env had those zeroed. Trivial threading from `sim.World.Tick`; pairs with the mission-scripting design pass.
 
+### Open scoping questions
+<!-- llm-parse: backlog_section=open-questions -->
+
+These are unresolved scoping questions that don't yet have an
+implementation slice attached. Each gates a v0.9-or-later
+decision. Carried forward from the v0.x-plan docs because they
+never resolved; flagged here so tonight's planning session can
+take a position on them.
+
+#### Spawn-form persistence
+<!-- llm-parse: id=spawn-form-persistence status=open-question target=v0.9-polish -->
+📐 **open**. Should the `n`-keystroke spawn dialog remember the last-used craft type / fuel / orbit, or default-fresh every open? Today: default-fresh. Trivial to add a `World.LastSpawnSpec` field that prefills the form. No design discussion to-date.
+
+#### Docking visual feedback
+<!-- llm-parse: id=docking-visual-feedback status=open-question target=v0.9-polish -->
+📐 **open**. Today's `DockCrafts` fuses two craft into one silently — the player learns it happened from the HUD's RENDEZVOUS block disappearing. Should there be a flash / glyph swap / sound (terminal beep) on fusion? Carries to undocking too. No design discussion.
+
+#### Staging continuity
+<!-- llm-parse: id=staging-continuity status=open-question target=gates-v0.9-staging -->
+📐 **open · gates the v0.9 staging-chain slice**. When a stage is shed, does the player keep controlling the *upper* craft (KSP default — that's where the payload goes) or get prompted? KSP-style implicit-upper makes lander missions natural; explicit prompt is safer for surprise scenarios. Pre-v0.9 staging slice should pick a default and document it.
+
+#### Composite-craft mass distribution post-docking
+<!-- llm-parse: id=composite-mass-post-docking status=open-question target=gates-v0.9-staging -->
+📐 **open · gates the v0.9 staging-chain slice**. Today's `DockCrafts` picks the active partner's engine for the composite. What happens when two main-engine craft dock — pool both engines (sum thrust, average Isp by mass)? Pick highest TWR? Player-select via prompt? Becomes especially relevant once staging chain creates multi-stack vehicles where the docked partner *is* the upper stage's engine.
+
+#### Atmosphere co-rotation at high altitude
+<!-- llm-parse: id=atmosphere-corotation-high-alt status=open-question target=v0.9-if-playtest-shows -->
+📐 **open · low priority unless playtest exposes**. v0.8.4 has the atmosphere co-rotating with the body via `ω × r`. At high altitude (above ~100 km on Earth, where ground-level corotation breaks down in reality), the model is approximate. Reopen if it shows up in a playtest as a noticeable orbit decay error.
+
 ---
 
 ## Upcoming — v0.9 cycle plans
@@ -360,21 +401,61 @@ tooling that becomes useful once you have multiple capability
 tiers in flight (rendezvous, multi-rev transfers, mission
 scripting properly designed).
 
+### Sizing note from the v0.8 retrospective
+<!-- llm-parse: planning_caveat=v0.8-scope-creep -->
+
+Visual / polish / frame-convention slices in v0.8 consistently
+grew **2–3× past their original LOC estimates**. v0.8.5 was
+scoped as "lon0 in textures" and shipped view-aware projection +
+tilted Saturn rings + polygon Earth grid + textured Sun +
+Galileans + Uranus / Neptune banding + terminal-moon focus
+zoom + warp-clamp on rotation. v0.8.6 was scoped as "controls
+polish, ~250 LOC" and shipped the keymap pass + iterate-for-
+target toggle + body-equatorial Keplerian frame for body-bound
+orbits + adaptive warp clamps (throttle + upcoming-node
+predictive ramp-down) + orbit-flat ω-snap + pole-on guard, at
+~600 LOC actual.
+
+Pattern: slices that **touch rendering, frame conventions, or
+planner UX** snowball — each piece reveals the next assumption.
+Slices that touch **isolated planner / sim internals** (e.g.
+`PlanInclinationChange`, `IterateForTarget`, individual residual
+functions) tracked closer to estimate.
+
+Apply the 2–3× heuristic to v0.9 sizing for any slice in the L
+or M tier that touches rendering / frames / planner UX. Slices
+in the S tier (isolated UI surfaces, library plumbing) are
+typically size-stable.
+
 ### Provisional slice candidates
 
-In rough priority / dependency order. **None of these are
-committed slices** — they're planning-mode candidates pending an
-explicit v0.9 plan doc.
+In rough priority / dependency order, with weight estimates per
+the legend below. **None of these are committed slices** —
+they're planning-mode candidates pending an explicit v0.9 plan
+doc.
 
-| Order | Slice | Status | Notes |
-|---|---|---|---|
-| 1 | [Staging chain](#staging-chain) | 🧊 backlog | Ground launch → LEO → ICPS → lander chain. Unblocks practical use of (2)–(4). |
-| 2 | [Rendezvous tooling](#rendezvous-tooling) | 🧊 backlog | Target-craft selection + null-v_rel at closest approach. Pairs with multi-craft fleet from (1). |
-| 3 | [Multi-rev porkchop UI](#multi-rev-porkchop-ui) | ⏸ deferred | UI for `LambertSolveRev` (nRev + retrograde + short/long). Library-ready since v0.7.5. |
-| 4 | [Mission scripting](#mission-scripting--editor) | ⚠ rolled back | **Design-pass first**, then re-implement. Reference v0.8.7-attempt artifacts only for implementation shape. |
-| 5 | [Wider cross-SOI PlanTransfer](#wider-cross-soi-plantransfer) | 🧊 backlog | Heliocentric → moon-of-other-planet patched-conic capture. |
-| 6 | [Combined plane-shift + Hohmann](#combined-plane-shift--hohmann) | 🧊 backlog | Lambert constrained on post-capture inclination. |
-| 7 | [Solar lighting + terminator + eclipses](#solar-lighting--daynight-terminator--eclipses) | 🧊 backlog | Research-first — ANSI 24-bit canvas mixing investigation precedes slicing. |
+**Weight tiers**:
+
+- **L** (large) — substantial new architecture or multi-cycle
+  dependency. Plan generously — 1+ weeks of focused work.
+- **M** (medium) — bounded but non-trivial; ~150–300 LOC + tests
+  + design discussion. 2–4 days.
+- **S** (small) — bounded UI / polish; ~50–150 LOC. < 1 day each
+  but often clusters into a slice.
+
+| Order | Slice | Weight | Status | Notes |
+|---|---|---|---|---|
+| 1 | [Staging chain](#staging-chain) | L | 🧊 backlog | Ground launch → LEO → ICPS → lander chain. Composes multi-stage staging + atmosphere + launch mechanics. Unblocks practical use of (2)–(4). Open Qs: [staging continuity](#staging-continuity), [composite-craft mass distribution](#composite-craft-mass-distribution-post-docking) gate this. |
+| 2 | [Mission scripting](#mission-scripting--editor) | L | ⚠ rolled back | **Design-pass first** (eight decision points), then re-implement. Reference v0.8.7-attempt artifacts only for implementation shape. Block 1: write the modder-UX target end-to-end. |
+| 3 | [Wider cross-SOI PlanTransfer](#wider-cross-soi-plantransfer) | L | 🧊 backlog | Heliocentric → moon-of-other-planet patched-conic capture. Substantial new transfer math. |
+| 4 | [Combined plane-shift + Hohmann](#combined-plane-shift--hohmann) | L | 🧊 backlog | Lambert constrained on post-capture inclination. Substantial — root-find on inclination + time-of-flight. |
+| 5 | [Rendezvous tooling](#rendezvous-tooling) | M | 🧊 backlog | Target-craft selection + target-relative burn modes + null-v_rel at closest approach + iteration. Pairs with multi-craft fleet from (1). |
+| 6 | [Solar lighting + terminator + eclipses](#solar-lighting--daynight-terminator--eclipses) | M | 🧊 backlog | Research-first — ANSI 24-bit canvas mixing investigation precedes slicing. **Apply 2–3× sizing heuristic — touches rendering.** |
+| 7 | [Predictor adaptive sampling](#predictor-adaptive-sampling) | M | 🧊 backlog | Three-cycle carry-over; foundation shipped v0.8.4. ~150–200 LOC. |
+| 8 | [Multi-rev porkchop UI](#multi-rev-porkchop-ui) + [Lambert short/long picker](#lambert-shortlong-branch-picker) | S | ⏸ deferred | UI for `LambertSolveRev` (nRev + retrograde + short/long). Library-ready since v0.7.5. Useful once (1) staging grows the fleet. |
+| 9 | [Capture-direction toggle](#capture-direction-toggle) | S | 🧊 backlog | "Capture prograde-around-target" mode for auto-Hohmann arrival. Trades ~50–100 m/s for the right-direction capture. |
+| 10 | [Theme-file hot-reload](#theme-file-hot-reload) | S | ⏸ deferred | ~200 LOC fsnotify watcher. Reopen if a modder hits theme-iteration friction. |
+| 11 | Polish open questions ([spawn-form persistence](#spawn-form-persistence), [docking visual feedback](#docking-visual-feedback), [numbered craft slots](#numbered-craft-slots-19)) | S | 📐 / 🧊 | Bundle-of-small-stuff candidates if cycle bandwidth allows. |
 
 ### Pre-cycle checklist
 
