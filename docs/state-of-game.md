@@ -613,7 +613,7 @@ that gets drafted.
 | **v0.8.4 ✓** | | Atmospheric drag — bodies.Atmosphere data model + Earth/Mars values (exponential ρ(h) with 8500m / 11100m scale heights), drag-aware Verlet (`physics.StepVerletWithAccel`) wired into live integrator + `propagateStateWithPrimary` + `PredictedSegmentsFrom` + `stepThrust`, Kepler warp-lock retreat below atmospheric cutoff, Spacecraft.BallisticCoefficient (default 0.01 m²/kg). Time-aware `propagateStateWithPrimary` (foundation work) unlocks exact CAPTURE PREVIEW inclination for typical Hohmanns. Surface clamp on aerobrake impact (`physics.ClampToSurface`); zoom cap for landed craft so altitude-0 stays visible. Visual: faint haze ring at cutoff+scale-height in atm.Color. |
 | **v0.8.5 ✓** | | Sim-time planet rotation + view-aware projection + textured-bodies trickle. Rotation core: `bodies.CelestialBody.TidallyLocked` + `AxialTilt` + `AxialAzimuth` fields; `render.SubObserverPointDeg(b, simTime, camDir, primMer)` returning (subLat, subLon) — free-body uses sidereal rotation, tidally-locked tracks the body→parent vector at simTime so Luna's near-side faces Earth always. `Clock.RotationTime` advances at min(warp, 10000×) so high-warp doesn't blur surfaces. View-aware projection (Snyder §20 inverse-orthographic with arbitrary sub-observer point) means ViewTop on tilted Earth reveals the Arctic, Uranus rolls pole-on along its orbit, Saturn's polar hex stays at +78°N regardless of view; ViewOrbitFlat picks up the canvas's depth axis. Polygon-rasterised 144×72 Earth grid (~50 polys × 10–20 verts: continents + key islands like UK / Iceland / Italy + Sicily / Madagascar / Cuba / Hispaniola / Sumatra / Java / Borneo / Sulawesi / New Guinea / Philippines / Tasmania / NZ + deserts + polar ice) replaces the v0.7.6 ellipse-table approximation; biome-shaded land (tropical / temperate / boreal) by `|lat|`; atmospheric blue-marble limb tint at r²>0.92 over non-ice. Far-side / polar Moon detail (Mare Orientale + Moscoviense + Ingenii + South Pole-Aitken basin + far-side / polar craters); tidally-locked override always shows near-side regardless of canvas view mode. Tilted Saturn ring system: C / B / Cassini Division gap / A / F bands sampled in body equatorial plane and projected through `Canvas.RingTiltedOutline` so foreshortening reads correctly per view (~89% top, ~45% side). Textured Sun (limb-darkened solar disk + sunspots + corona halo replaces the v0.7.x ring + center-dot crosshair), Galileans (Io paterae, Europa lineae, Ganymede dark regiones, Callisto crater rays), Uranus (subtle banding), Neptune (banded + Great Dark Spot). Terminal moons (no children orbiting them) zoom to 8× radius on focus so surface texture is visible by default. Save schema: TidallyLocked + AxialTilt + AxialAzimuth fields bump CatalogHash; v0.8.4 saves reject on first v0.8.5 load. |
 | v0.8 ✓ | **Multi-craft polish** | RCS / monopropellant + multi-craft slate + craft types + docking + atmospheric drag + sim-time rotation + view-aware textures. See `docs/v0.8-plan.md` for slice breakdown. |
-| v0.9+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, ground-launch chain, real rendezvous planner, capture-direction toggle, plane-shift + Hohmann combo, N-body perturbations, mission editor/scripting, drag-to-edit nodes, solar lighting / day-night terminator / eclipses, high-fidelity Earth raster (NOAA ETOPO1) |
+| v0.9+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, ground-launch chain, real rendezvous planner (target-relative prograde/retrograde modes + null-v_rel at closest approach + iterative refinement — see §6 *Rendezvous tooling*), capture-direction toggle, plane-shift + Hohmann combo, N-body perturbations, mission editor/scripting, drag-to-edit nodes, solar lighting / day-night terminator / eclipses, high-fidelity Earth raster (NOAA ETOPO1) |
 
 ### v0.4 — save / load + mid-course corrections
 
@@ -986,6 +986,67 @@ Either way, a TUI mission editor screen builds on top of this —
 "new mission" → fill in a form → preview against the current
 world. v0.7.0's catalog-loader pattern (embedded + user files
 merged) is the obvious storage model.
+
+### Rendezvous tooling
+
+v0.8.3 docking ships proximity-ops + DockCrafts at <50 m / <0.1 m/s,
+but there's no planner-side help for *getting* there. Today's flow
+is "Hohmann to a moon, then thumb-fly the closing approach with
+RCS" — which works for the alongside-spawn test path but doesn't
+scale to two craft on independent orbits.
+
+The KSP-canonical flow (and the right v0.9 target):
+
+1. **Target selection.** A "set as target" keybinding on a selected
+   craft. Stores `World.TargetCraftIdx` parallel to the existing
+   `ActiveCraftIdx`. RENDEZVOUS HUD already computes range / |v_rel|
+   for an implicit target; surfacing target as explicit state means
+   different craft pairs report different distances.
+2. **Target-relative prograde / retrograde markers.** New burn modes
+   `BurnTargetPrograde` / `BurnTargetRetrograde` whose direction unit
+   is `(v_active − v_target) / |v_active − v_target|` (or its
+   negative). Surface as cycle entries in the `m` form alongside
+   the existing prograde / retrograde / radial / normal options.
+   Attitude-mode WASDQE follows when active.
+3. **Prograde-to-target burn from a phasing orbit.** Player matches
+   inclination + phase via existing tools (Hohmann, plane-shift),
+   then burns target-prograde to nudge the orbit toward an
+   intercept. Live HUD shows next-closest-approach distance + Δt
+   so the player can iterate burn magnitude until the encounter is
+   acceptable.
+4. **Null relative velocity at closest approach.** A "kill v_rel"
+   maneuver: at closest approach, the required Δv is exactly
+   `−(v_active − v_target)` in the active craft's frame. Plant as
+   a target-retrograde burn at the predicted time of closest
+   approach. After the burn, |v_rel| ≈ 0 — craft sits stationary
+   relative to target at whatever the residual range was.
+5. **Iterate.** First pass typically leaves residual range
+   (10–500 m) and small residual velocity (sub-m/s). Repeat:
+   small target-prograde nudge → coast to next closest approach →
+   null residual → eventually within RCS-pulse range.
+
+Foundations needed:
+- `World.TargetCraftIdx int` + accessor.
+- `spacecraft.BurnTargetPrograde / BurnTargetRetrograde` modes,
+  thread through `DirectionUnit` with the active craft's
+  `(r, v)` and the target's `(r, v)`.
+- Closest-approach finder: `planner.NextClosestApproach(active,
+  target, mu) (dt, range, vRel)` — Newton-iterate `d/dt (r_a −
+  r_t)·(v_a − v_t) = 0` over an orbital-period window.
+- Auto-plant entry: `World.PlanRendezvous(targetIdx)` plants a
+  pair of nodes (target-prograde nudge + target-retrograde at
+  closest approach), iterating until predicted closest-approach
+  range is below a threshold (1 km default) or convergence
+  fails.
+- HUD: TARGET block showing target name + range + |v_rel| + time
+  to next closest approach.
+
+This unlocks the canonical Apollo CSM-LM / ISS-approach gameplay
+loop without alongside-spawn cheats. Pairs naturally with the
+"target craft Hohmann + phasing" line in the v0.8.3 row's deferred
+list. Consider sequencing alongside the staging slices that grow
+the craft fleet — once players routinely have multiple craft in
+flight, the lack of this tooling becomes the binding UX constraint.
 
 ### N-body perturbations
 
