@@ -1122,6 +1122,64 @@ func TestPerNodeThrottleZeroMapsToFull(t *testing.T) {
 	}
 }
 
+// TestIterateBurnDVRefinesProgradeApoapsis: a finite prograde burn
+// at low thrust under-delivers apoapsis vs. the impulsive guess
+// (gravity-rotation + thrust-vector-rotation losses during the burn
+// arc). IterateBurnDV must Newton-iterate the commanded Δv up so
+// post-burn apo matches the impulsive target.
+func TestIterateBurnDVRefinesProgradeApoapsis(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	// Lower thrust to amplify finite-burn loss to a measurable
+	// magnitude — at S-IVB-1 baseline the loss is < 0.1 % which
+	// is below the iteration tolerance.
+	c.Thrust = 100e3 // 100 kN — a tenth of S-IVB-1's J-2 thrust
+	c.Isp = 421
+	dv := 1500.0
+
+	refined, err := w.IterateBurnDV(spacecraft.BurnPrograde, dv)
+	if err != nil {
+		t.Fatalf("IterateBurnDV: %v", err)
+	}
+	if refined <= dv {
+		t.Errorf("expected refined Δv > %.1f m/s (compensate gravity loss), got %.1f", dv, refined)
+	}
+	// Lower bound: at this thrust the loss is non-trivial; expect
+	// at least 1 m/s correction.
+	if refined-dv < 1 {
+		t.Errorf("refinement %.3f m/s below expected (≥ 1 m/s)", refined-dv)
+	}
+}
+
+// TestIterateBurnDVNormalBurnFallsThrough: BurnNormal± has no apse
+// target; IterateBurnDV must return the input Δv unchanged (the
+// player should use PlanInclinationChange for plane rotation Δv
+// compensation, not the iterate toggle).
+func TestIterateBurnDVNormalBurnFallsThrough(t *testing.T) {
+	w := mustWorld(t)
+	dv := 500.0
+	refined, err := w.IterateBurnDV(spacecraft.BurnNormalPlus, dv)
+	if err != nil {
+		t.Fatalf("IterateBurnDV: %v", err)
+	}
+	if refined != dv {
+		t.Errorf("normal burn refined Δv = %.3f, want input %.3f (passthrough)", refined, dv)
+	}
+}
+
+// TestIterateBurnDVZeroThrustPassthrough: zero-thrust craft (e.g. a
+// spent stage) have no finite-burn loss to compensate; IterateBurnDV
+// must return the input Δv unchanged.
+func TestIterateBurnDVZeroThrustPassthrough(t *testing.T) {
+	w := mustWorld(t)
+	w.ActiveCraft().Thrust = 0
+	dv := 200.0
+	refined, _ := w.IterateBurnDV(spacecraft.BurnPrograde, dv)
+	if refined != dv {
+		t.Errorf("zero-thrust craft: refined Δv = %.3f, want %.3f (passthrough)", refined, dv)
+	}
+}
+
 // TestPlanInclinationChangePlantsNormalBurn: from a 28.5° inclined LEO,
 // targeting equatorial drops a single normal-burn node at the next
 // node crossing — half-period away when the craft starts at the AN.

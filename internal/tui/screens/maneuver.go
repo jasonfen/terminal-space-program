@@ -39,9 +39,10 @@ type Maneuver struct {
 	dvInput       textinput.Model
 	throttleInput textinput.Model // v0.7.6+: per-node throttle (0-100 %)
 
-	modeIdx   int
-	fireAtIdx int
-	focus     int // 0=mode, 1=fireAt, 2=dv, 3=throttle (v0.7.6+)
+	modeIdx          int
+	fireAtIdx        int
+	focus            int  // 0=mode, 1=fireAt, 2=dv, 3=throttle (v0.7.6+), 4=iterate (v0.8.6 (b))
+	iterateForTarget bool // v0.8.6 (b): when true, refine commanded Δv via planner.IterateForTarget at plant time so the post-burn apsides match the projected-orbit preview (compensates finite-burn loss). Off by default — preserves impulsive-target semantics for short / low-loss burns where the refinement is below resolution.
 
 	// editingIdx and loadedTriggerTime carry the v0.6.4 click-to-edit
 	// state. Default editingIdx = -1 (creating a new node). LoadNode
@@ -86,6 +87,12 @@ type BurnExecutedMsg struct {
 	// that don't set it (legacy quick-plant paths) get the prior
 	// full-open behaviour for free.
 	Throttle float64
+	// IterateForTarget (v0.8.6 (b)) requests that the app refine the
+	// commanded Δv via World.IterateBurnDV before planting, so the
+	// post-burn apsides match what an impulsive Δv at the same
+	// commanded value would have delivered (compensating finite-burn
+	// loss). Ignored for impulsive (zero-thrust) and Normal± burns.
+	IterateForTarget bool
 }
 
 // NodeDeleteMsg is emitted when the player presses ctrl+d in the
@@ -242,7 +249,7 @@ func (m *Maneuver) Resize(cols, rows int) {
 //   ctrl+k                 — clear ALL planted nodes for the active craft
 //   digits/backspace       — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
-	const focusFields = 4 // mode / fireAt / dv / throttle
+	const focusFields = 5 // mode / fireAt / dv / throttle / iterate
 	switch msg.String() {
 	case "ctrl+d":
 		// v0.8.6+: per-node delete. Only meaningful while editing
@@ -275,6 +282,9 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		case 1:
 			m.fireAtIdx = (m.fireAtIdx - 1 + len(sim.AllTriggerEvents)) % len(sim.AllTriggerEvents)
 			return nil, false
+		case 4:
+			m.iterateForTarget = !m.iterateForTarget
+			return nil, false
 		}
 	case "right":
 		switch m.focus {
@@ -283,6 +293,17 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, false
 		case 1:
 			m.fireAtIdx = (m.fireAtIdx + 1) % len(sim.AllTriggerEvents)
+			return nil, false
+		case 4:
+			m.iterateForTarget = !m.iterateForTarget
+			return nil, false
+		}
+	case " ":
+		// Space toggles the iterate field — no other field uses it
+		// (the dv / throttle inputs filter to digits), so the
+		// dispatch is unambiguous.
+		if m.focus == 4 {
+			m.iterateForTarget = !m.iterateForTarget
 			return nil, false
 		}
 	case "enter":
@@ -318,12 +339,13 @@ func (m *Maneuver) commitCmd() tea.Cmd {
 	}
 	event := sim.AllTriggerEvents[m.fireAtIdx]
 	msg := BurnExecutedMsg{
-		Mode:        spacecraft.AllBurnModes[m.modeIdx],
-		DV:          dv,
-		Event:       event,
-		TriggerTime: m.loadedTriggerTime,
-		EditingIdx:  m.editingIdx,
-		Throttle:    m.parsedThrottle(),
+		Mode:             spacecraft.AllBurnModes[m.modeIdx],
+		DV:               dv,
+		Event:            event,
+		TriggerTime:      m.loadedTriggerTime,
+		EditingIdx:       m.editingIdx,
+		Throttle:         m.parsedThrottle(),
+		IterateForTarget: m.iterateForTarget,
 	}
 	return func() tea.Msg { return msg }
 }
@@ -537,12 +559,25 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		headerStyle = m.theme.Warning
 		header = fmt.Sprintf("BURN PLAN — editing node %d", m.editingIdx+1)
 	}
+	// Iterate-for-target line. Highlights when focused; toggle via
+	// space or ←/→. v0.8.6 (b).
+	iterateLabel := "off"
+	if m.iterateForTarget {
+		iterateLabel = "on"
+	}
+	if m.focus == 4 {
+		iterateLabel = m.theme.Warning.Render(iterateLabel) + "  (space toggles)"
+	} else {
+		iterateLabel = m.theme.Dim.Render(iterateLabel)
+	}
+
 	lines := []string{
 		headerStyle.Render(header),
 		"  mode:     " + modeLabel,
 		"  fire at:  " + fireAtLabel,
 		"  Δv:       " + m.dvInput.View() + " m/s" + warn,
 		"  throttle: " + m.throttleInput.View() + " %",
+		"  iterate:  " + iterateLabel,
 		"  → " + burnDescr,
 		"",
 		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),

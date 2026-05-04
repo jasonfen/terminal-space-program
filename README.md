@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.5**. Latest patch: **v0.8.6.2** — body-equatorial Keplerian frame for body-bound orbits, throttle-change + upcoming-node warp clamps.
+Latest release: **v0.8.5**. Latest patch: **v0.8.6.3** — body-equatorial Keplerian frame for body-bound orbits, throttle-change + upcoming-node warp clamps, finite-burn iterate-for-target toggle in the maneuver form.
 
 ```bash
 # Linux x86_64
@@ -159,8 +159,9 @@ Click-only. No drag, no wheel-zoom.
 
 | Key | Action |
 |---|---|
-| `Tab` / `Shift+Tab` | Cycle field focus (mode → fire-at → Δv → throttle) |
-| `←` / `→` | Cycle the focused cycle field (mode or fire-at trigger) |
+| `Tab` / `Shift+Tab` | Cycle field focus (mode → fire-at → Δv → throttle → iterate) |
+| `←` / `→` | Cycle the focused cycle field (mode / fire-at / iterate) |
+| `Space` | Toggle iterate-for-target when focused on the iterate field |
 | digits / backspace | Edit Δv or throttle |
 | `Enter` | Commit burn |
 | `Esc` | Cancel and back to orbit view |
@@ -176,6 +177,16 @@ after plant. The throttle field is per-node (not the live craft
 throttle) so adjusting throttle during a coast doesn't slow an
 in-flight planted burn. PROJECTED ORBIT readouts apo / peri / AN /
 inclination of the resulting orbit live as you edit.
+
+The **iterate** toggle (v0.8.6.3+) routes the commanded Δv through
+`planner.IterateForTarget` at plant time — Newton-iterates against
+an RK4 finite-burn simulation to refine the Δv up so the post-burn
+apsides match what an impulsive Δv at the same value would have
+delivered. Compensates gravity-rotation + thrust-vector-rotation
+losses on long burns. Off by default (impulsive-target semantics
+are good enough for short burns); flip on for low-TWR loadouts or
+high-Δv burns where finite-burn loss is measurable. Skipped for
+Normal± burns (no apse target — use `I` for plane-rotation Δv).
 
 ### Porkchop plot (`P`)
 

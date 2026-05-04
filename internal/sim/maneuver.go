@@ -631,6 +631,73 @@ func (w *World) NextFrameTransition() (FrameTransition, bool) {
 	return FrameTransition{}, false
 }
 
+// IterateBurnDV refines the commanded Δv for a finite burn so the
+// post-burn orbit's apsides match what an impulsive burn at the same
+// commanded Δv would have produced. Newton-iterates against an RK4
+// finite-burn simulation (planner.IterateForTarget). Returns the
+// refined Δv on success; falls back to dvGuess on iteration failure
+// or for burn modes that don't have a meaningful apse target
+// (BurnNormal±).
+//
+// Target picked from mode:
+//   - Prograde / Retrograde → match the impulsive apoapsis.
+//   - RadialOut / RadialIn → match the impulsive periapsis.
+//   - Normal± → no iteration (skip; PlanInclinationChange handles
+//     plane-rotation Δv compensation differently).
+//
+// Limitation: iterates from the craft's *current* state, not the
+// state at TriggerTime. For burns scheduled minutes-or-less ahead the
+// state drift is negligible; for hours-ahead schedules the iteration
+// is approximate. v0.8.6 (b).
+func (w *World) IterateBurnDV(mode spacecraft.BurnMode, dvGuess float64) (float64, error) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return dvGuess, errNoCraftForTransfer
+	}
+	if dvGuess <= 0 || c.Thrust <= 0 || c.Isp <= 0 {
+		return dvGuess, nil
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu <= 0 {
+		return dvGuess, nil
+	}
+
+	// Compute the impulsive post-burn elements to extract the implicit
+	// target — what the projected-orbit preview already shows.
+	dirUnit := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
+	if dirUnit.Norm() == 0 {
+		return dvGuess, nil
+	}
+	postV := c.State.V.Add(dirUnit.Scale(dvGuess))
+	impulsiveEl := orbital.ElementsFromState(c.State.R, postV, mu)
+
+	var residual planner.ResidualFn
+	switch mode {
+	case spacecraft.BurnPrograde, spacecraft.BurnRetrograde:
+		residual = planner.TargetApoapsis(impulsiveEl.Apoapsis())
+	case spacecraft.BurnRadialOut, spacecraft.BurnRadialIn:
+		residual = planner.TargetPeriapsis(impulsiveEl.Periapsis())
+	default:
+		// BurnNormal± — inclination targets need a different residual;
+		// PlanInclinationChange already handles plane-rotation Δv.
+		return dvGuess, nil
+	}
+
+	direction := func(r, v orbital.Vec3) orbital.Vec3 {
+		return spacecraft.DirectionUnit(mode, r, v)
+	}
+	const tolMeters = 1000.0
+	const maxIter = 8
+	refined, _, err := planner.IterateForTarget(
+		c.State, mu, c.Thrust, c.Isp, dvGuess,
+		direction, residual, tolMeters, maxIter,
+	)
+	if err != nil {
+		return dvGuess, err
+	}
+	return refined, nil
+}
+
 // PlanInclinationChange plants a single normal-burn maneuver node
 // that rotates the craft's orbital plane to targetIncl (radians, in
 // [0, π]). The burn fires at the next ascending or descending node,
