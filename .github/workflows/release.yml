@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+      # Goreleaser only handles strict SemVer (vMAJOR.MINOR.PATCH).
+      # Four-part patch tags (vX.Y.Z.N) are checkpoint markers, not
+      # release-binary triggers — exclude them so the workflow stays
+      # green on minor patch tags like v0.8.6.1.
+      - '!v*.*.*.*'
 
 permissions:
   contents: write
