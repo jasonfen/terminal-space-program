@@ -239,14 +239,13 @@ func TestDefaultCatalogLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultCatalog: %v", err)
 	}
-	if len(cat.Missions) != 4 {
-		t.Fatalf("expected 4 starter missions, got %d", len(cat.Missions))
+	if len(cat.Missions) != 3 {
+		t.Fatalf("expected 3 starter missions, got %d", len(cat.Missions))
 	}
 	wantIDs := map[string]bool{
 		"leo-circularize-1000": false,
 		"luna-orbit-insertion": false,
 		"mars-soi-flyby":       false,
-		"mars-soft-capture":    false, // v0.8.7+ expression-type starter
 	}
 	for _, m := range cat.Missions {
 		if _, ok := wantIDs[m.ID]; !ok {
@@ -287,123 +286,6 @@ func TestCloneIsIndependent(t *testing.T) {
 	dup[0].Status = Passed
 	if cat.Missions[0].Status == Passed {
 		t.Fatal("Clone shares backing memory with source")
-	}
-}
-
-// TestExpressionPasses: a simple boolean expression returning true
-// against the live env transitions a mission to Passed. v0.8.7+.
-func TestExpressionPasses(t *testing.T) {
-	m := Mission{
-		Type:   TypeExpression,
-		Params: Params{Expression: "primary == 'mars'"},
-	}
-	ctx := EvalContext{PrimaryID: "mars"}
-	if got := m.Evaluate(ctx); got != Passed {
-		t.Errorf("primary=='mars' against ctx.PrimaryID='mars': got %v, want Passed", got)
-	}
-}
-
-// TestExpressionStaysInProgress: false-evaluating expressions leave
-// the mission untouched, ready to retry next tick.
-func TestExpressionStaysInProgress(t *testing.T) {
-	m := Mission{
-		Type:   TypeExpression,
-		Params: Params{Expression: "primary == 'mars'"},
-	}
-	ctx := EvalContext{PrimaryID: "earth"}
-	if got := m.Evaluate(ctx); got != InProgress {
-		t.Errorf("primary=='mars' against ctx.PrimaryID='earth': got %v, want InProgress", got)
-	}
-}
-
-// TestExpressionFailsViaFailExpression: when FailExpression evaluates
-// true, the mission transitions to Failed regardless of whether the
-// pass expression matches. Failure-first ordering is the v0.8.7
-// contract.
-func TestExpressionFailsViaFailExpression(t *testing.T) {
-	m := Mission{
-		Type: TypeExpression,
-		Params: Params{
-			Expression:     "primary == 'mars'",
-			FailExpression: "primary == 'sun'",
-		},
-	}
-	ctx := EvalContext{PrimaryID: "sun"}
-	if got := m.Evaluate(ctx); got != Failed {
-		t.Errorf("FailExpression true: got %v, want Failed", got)
-	}
-}
-
-// TestExpressionUsesOrbitalElements: the env exposes computed
-// eccentricity / inclination / apo & peri altitudes derived from
-// the state vector. Verify a low-eccentricity bound orbit triggers a
-// "circular at LEO" expression.
-func TestExpressionUsesOrbitalElements(t *testing.T) {
-	m := Mission{
-		Type: TypeExpression,
-		Params: Params{
-			Expression: "primary == 'earth' && eccentricity < 0.01 && apoapsis_alt_m > 900_000",
-		},
-	}
-	ctx := EvalContext{
-		PrimaryID:      "earth",
-		PrimaryRadiusM: earthRadius,
-		PrimaryMu:      earthMu,
-		State:          circularState(earthRadius, earthMu, 1_000_000),
-	}
-	if got := m.Evaluate(ctx); got != Passed {
-		t.Errorf("LEO 1000 km circular against composite expression: got %v, want Passed", got)
-	}
-}
-
-// TestExpressionTerminalStateSticky: once a mission has reached
-// Passed (or Failed), further Evaluate calls must idempotently
-// return the same status — even if the expression would now
-// evaluate differently.
-func TestExpressionTerminalStateSticky(t *testing.T) {
-	m := Mission{
-		Type:   TypeExpression,
-		Params: Params{Expression: "primary == 'mars'"},
-		Status: Passed,
-	}
-	ctx := EvalContext{PrimaryID: "earth"} // expression now false
-	if got := m.Evaluate(ctx); got != Passed {
-		t.Errorf("Passed mission re-evaluated: got %v, want sticky Passed", got)
-	}
-}
-
-// TestValidateExpressionsCatchesCompileError: a malformed expression
-// must surface at LoadCatalog / ValidateExpressions time so a player
-// loading a broken catalog sees an error rather than a silently
-// stuck mission.
-func TestValidateExpressionsCatchesCompileError(t *testing.T) {
-	missions := []Mission{
-		{
-			ID:     "broken",
-			Type:   TypeExpression,
-			Params: Params{Expression: "primary === 'earth'"}, // === is not valid expr syntax
-		},
-	}
-	err := ValidateExpressions(missions)
-	if err == nil {
-		t.Fatal("expected compile error for malformed expression, got nil")
-	}
-}
-
-// TestValidateExpressionsRequiresBoolReturn: expressions that can't
-// possibly evaluate to bool (e.g. an arithmetic literal) must fail
-// validation. The expr.AsBool() compile option enforces this at
-// compile time.
-func TestValidateExpressionsRequiresBoolReturn(t *testing.T) {
-	missions := []Mission{
-		{
-			ID:     "wrong-type",
-			Type:   TypeExpression,
-			Params: Params{Expression: "1 + 1"},
-		},
-	}
-	if err := ValidateExpressions(missions); err == nil {
-		t.Fatal("expected error for non-bool expression, got nil")
 	}
 }
 
