@@ -514,6 +514,15 @@ func (w *World) clampedWarp() float64 {
 	if w.anyCraftThrusting() && selected > 10 {
 		selected = 10
 	}
+	// v0.8.6.x+: throttle-change clamp. A throttle adjust at high
+	// warp ramps thrust faster than the integrator's per-tick step
+	// can resolve, the same aliasing path that motivates the burn-
+	// active cap above. Hold warp at 10× for a brief window after
+	// any craft's throttle changed so the integrator absorbs the
+	// new throttle before the next big sim-time leap.
+	if selected > 10 && w.recentlyChangedThrottle(throttleClampWindow) {
+		selected = 10
+	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
 	period := orbitalPeriod(w.ActiveCraft().State, mu)
 	if math.IsInf(period, 0) || math.IsNaN(period) || period <= 0 {
@@ -526,6 +535,34 @@ func (w *World) clampedWarp() float64 {
 		return maxWarp
 	}
 	return selected
+}
+
+// throttleClampWindow is the sim-time window after a Spacecraft's
+// Throttle changes during which the warp clamp pins to 10×. Picked
+// at 1 sim-second: long enough that one ManualBurn / RK4 sub-step
+// at 10× warp absorbs the throttle ramp (BaseStep × 10 = 0.2 s ≪
+// 1 s), short enough that the player feels warp returning to the
+// selected level promptly after a Z / X tap. v0.8.6.x+.
+const throttleClampWindow = time.Second
+
+// recentlyChangedThrottle reports whether any craft's Throttle was
+// updated within the last `window` of sim time. Walks every craft
+// so a player flying craft A while craft B's planted burn ramps its
+// throttle still triggers the clamp. v0.8.6.x+.
+func (w *World) recentlyChangedThrottle(window time.Duration) bool {
+	now := w.Clock.SimTime
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		if c.LastThrottleChangeAt.IsZero() {
+			continue
+		}
+		if now.Sub(c.LastThrottleChangeAt) < window {
+			return true
+		}
+	}
+	return false
 }
 
 // anyCraftThrusting reports whether any craft in the slate is

@@ -102,6 +102,9 @@ func (w *World) SetThrottle(t float64) {
 	} else if t > 1 {
 		t = 1
 	}
+	if t != c.Throttle {
+		c.LastThrottleChangeAt = w.Clock.SimTime
+	}
 	c.Throttle = t
 	if t == 0 {
 		w.StopManualBurn()
