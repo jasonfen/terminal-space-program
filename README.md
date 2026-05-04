@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.5**.
+Latest release: **v0.8.5**. Latest patch: **v0.8.6.2** — body-equatorial Keplerian frame for body-bound orbits, throttle-change + upcoming-node warp clamps.
 
 ```bash
 # Linux x86_64
@@ -305,6 +305,27 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   body's equatorial plane and foreshorten correctly per camera
   view: ~89% aspect from top, ~45% aspect from side, edge-on flat
   perpendicular to the tilt direction.
+- **Body-equatorial orbital frame** (v0.8.6.1+). Keplerian
+  elements (i, Ω, ω) for body-bound orbits read in the primary's
+  equatorial frame — ECI for Earth, MCI for Mars, etc. — matching
+  the operational mission-planning convention. A 0° inclination
+  Earth orbit physically passes over the equator (Ecuador), not
+  over the world ecliptic plane (Guatemala). Heliocentric orbits
+  stay ecliptic-relative, the standard astronomical convention.
+  PlaneMatchInclination resolves "match this body's plane" from
+  any orbit (e.g. tilting LEO by ~23° to match Mars's heliocentric
+  plane before TLI).
+- **Adaptive warp clamps** (v0.8.6.2+). Three layered guards
+  prevent the integrator from aliasing a planted burn:
+  - Burn-active cap (10× during ActiveBurn / ManualBurn) —
+    pre-existing.
+  - Throttle-change cap (10× for 1 sim-second after Throttle
+    changes) — catches high-warp throttle ramps that alias the
+    same way held burns do.
+  - Upcoming-node approach cap (continuous: warp ramps down as
+    the next planted node nears, reaching 10× at 5 s out) —
+    prevents 100,000× warp from skipping past a 30-s-out node
+    in a single tick.
 - **Missions**. Three predicate kinds (`circularize` /
   `orbit_insertion` / `soi_flyby`) with sticky pass/fail state,
   embedded starter catalog (1000 km LEO circularize, Luna orbit
