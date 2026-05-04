@@ -128,23 +128,30 @@ func SubObserverPointDeg(b bodies.CelestialBody, simTime time.Time, camDir Vec3,
 	// body x-axis at time t.
 	cx := dot(camDir, xt)
 	cy := dot(camDir, yt)
-	// v0.8.6+: pole-on degeneracy guard. When the camera direction
-	// aligns with the spin axis (orbit-flat view over a body-
-	// equatorial orbit), cx² + cy² is mathematically zero and the
-	// floating-point residue is ε·O(1) noise that depends on
-	// rotation phase non-monotonically — atan2(noise, noise) jumps
-	// by π whenever either residue crosses zero, so the rendered
-	// texture jerks back-and-forth at low warp where actual phase
-	// advance is small relative to the noise. Substitute a stable
-	// fallback longitude derived from the rotation phase, so a
-	// pole-on view shows a smoothly rotating polar texture.
-	const poleOnTol = 1e-6 // |projection|² threshold (squared cosine)
+	// v0.8.6+: pole-on degeneracy guard (defensive). When camDir is
+	// exactly parallel to the spin axis — e.g. orbit-flat view over
+	// a body-equatorial orbit if camDir lands on n with zero float
+	// residue — cx and cy are both 0 and Go's atan2(0, 0) returns 0.
+	// subLon would then be a constant (epoch offset only) and the
+	// polar texture would show no rotation at all. Substitute a
+	// phase-driven fallback in that exact-pole-on case so the
+	// rendered polar view rotates with the body's spin period.
+	//
+	// In practice the orbit-flat case rarely lands on exact zero —
+	// camDir comes from PerifocalBasis cross products with ε-level
+	// residue, and once ElementsFromState's circular-orbit ω-snap
+	// (kepler.go circularTol) keeps that residue stable per frame,
+	// atan2(ε·cos(φ−γ), ε'·cos(φ−γ')) is itself smooth in φ. So this
+	// guard is belt-and-braces — the actual fix for the
+	// user-reported orbit-flat jitter is the ω-snap. Kept because
+	// future code paths (e.g. an explicit polar-view mode) might
+	// hand us a camDir that *is* exactly the spin axis.
+	const poleOnTol = 1e-6 // |equatorial projection|² threshold
 	if cx*cx+cy*cy < poleOnTol {
-		// Fallback: use a fixed equatorial-plane reference (the
-		// body x-axis at epoch, x0) and project it on (xt, yt).
-		// dot(x0, xt) = cos(phase), dot(x0, yt) = -sin(phase) (since
-		// xt = R_n(phase) x0, yt = n × xt). atan2 of those gives
-		// -phase, advancing smoothly with simTime.
+		// Fallback: project the body x-axis at epoch (x0) onto the
+		// rotated equatorial basis (xt, yt). dot(x0, xt) = cos(phase),
+		// dot(x0, yt) = -sin(phase), so atan2 returns -phase —
+		// linearly advancing with simTime.
 		x0, _ := BodyRingBasisWorld(b)
 		cx = dot(x0, xt)
 		cy = dot(x0, yt)
