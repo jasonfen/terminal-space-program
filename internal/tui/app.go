@@ -177,6 +177,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.active = screenOrbit
 		return a, nil
 
+	case screens.NodeDeleteMsg:
+		// v0.8.6+: per-node delete from the maneuver form. Form
+		// dispatched ctrl+d while editing a planted node.
+		a.world.DeleteNode(m.EditingIdx)
+		a.maneuver.ResetEditing()
+		a.world.Clock.Paused = false
+		a.active = screenOrbit
+		return a, nil
+
+	case screens.NodeClearAllMsg:
+		// v0.8.6+: clear-all from the maneuver form. Replaces the
+		// retired N global keybinding.
+		a.world.ClearNodes()
+		a.maneuver.ResetEditing()
+		a.world.Clock.Paused = false
+		a.active = screenOrbit
+		return a, nil
+
 	case tea.MouseMsg:
 		// v0.6.4: click-only selection. Left-press only; motion /
 		// release / wheel ignored. Per-screen routing: orbit's hit
@@ -457,9 +475,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.active = screenPorkchop
 			}
 			return a, nil
-		case key.Matches(m, a.keys.ClearNodes):
-			a.world.ClearNodes()
-			return a, nil
+		// v0.8.6: ClearNodes global binding retired — clear-all now
+		// lives in the maneuver-form footer (`m` then ctrl+k).
 		case key.Matches(m, a.keys.Save):
 			a.flashStatus("save", a.doSave())
 			return a, nil

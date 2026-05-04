@@ -927,6 +927,22 @@ func (w *World) ClearNodes() {
 	}
 }
 
+// DeleteNode removes the node at idx from the active craft's plan.
+// Out-of-range idx is a no-op (callers may pass -1 to indicate
+// "no edit target"). v0.8.6+ — paired with the maneuver form's
+// per-node delete action that replaces the v0.8.5-and-earlier
+// "wipe everything via N" keybinding.
+func (w *World) DeleteNode(idx int) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return
+	}
+	if idx < 0 || idx >= len(c.Nodes) {
+		return
+	}
+	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)
+}
+
 // executeDueNodes fires every craft's due nodes onto themselves.
 // Called from Tick after sim-time advances. Each craft's nodes are
 // independent — a planted burn fires on the craft it was planted

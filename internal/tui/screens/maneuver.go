@@ -88,6 +88,21 @@ type BurnExecutedMsg struct {
 	Throttle float64
 }
 
+// NodeDeleteMsg is emitted when the player presses ctrl+d in the
+// maneuver form while editing a planted node. The app handles it
+// by calling World.DeleteNode(EditingIdx) and closing the screen.
+// Replaces the v0.8.5-and-earlier `N` global "clear all nodes"
+// keybinding for the per-node case. v0.8.6+.
+type NodeDeleteMsg struct {
+	EditingIdx int
+}
+
+// NodeClearAllMsg is emitted when the player presses ctrl+k in the
+// maneuver form. The app handles it by calling World.ClearNodes()
+// and closing the screen. Replaces the v0.8.5-and-earlier `N`
+// global keybinding for the wipe-all case. v0.8.6+.
+type NodeClearAllMsg struct{}
+
 func NewManeuver(th Theme) *Maneuver {
 	dv := textinput.New()
 	dv.Placeholder = "0"
@@ -223,10 +238,27 @@ func (m *Maneuver) Resize(cols, rows int) {
 //   ←/→ (fire-at focused)  — cycle trigger events (Absolute / NextPeri / NextApo / NextAN / NextDN)
 //   enter                  — commit burn → emits BurnExecutedMsg with rocket-equation duration
 //   esc                    — cancel → plain exit (app handles)
+//   ctrl+d                 — delete the planted node being edited (no-op when creating new)
+//   ctrl+k                 — clear ALL planted nodes for the active craft
 //   digits/backspace       — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	const focusFields = 4 // mode / fireAt / dv / throttle
 	switch msg.String() {
+	case "ctrl+d":
+		// v0.8.6+: per-node delete. Only meaningful while editing
+		// an existing node — creating-new sessions have no node to
+		// delete yet. App receives NodeDeleteMsg and routes to
+		// World.DeleteNode(idx).
+		if m.editingIdx < 0 {
+			return nil, false
+		}
+		idx := m.editingIdx
+		return func() tea.Msg { return NodeDeleteMsg{EditingIdx: idx} }, true
+	case "ctrl+k":
+		// v0.8.6+: clear all nodes for the active craft. Replaces
+		// the v0.8.5-and-earlier `N` global keybinding. Closes the
+		// form on dispatch.
+		return func() tea.Msg { return NodeClearAllMsg{} }, true
 	case "tab":
 		m.focus = (m.focus + 1) % focusFields
 		m.applyFocus()

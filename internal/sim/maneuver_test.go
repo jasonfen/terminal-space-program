@@ -87,6 +87,39 @@ func TestClearNodesRemovesAll(t *testing.T) {
 	}
 }
 
+// TestDeleteNodeRemovesIndex: v0.8.6+ — DeleteNode removes one
+// node by index without disturbing the others.
+func TestDeleteNodeRemovesIndex(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(10 * time.Second), DV: 10})
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(20 * time.Second), DV: 20})
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(30 * time.Second), DV: 30})
+	if len(w.ActiveCraft().Nodes) != 3 {
+		t.Fatalf("setup: got %d nodes, want 3", len(w.ActiveCraft().Nodes))
+	}
+	w.DeleteNode(1) // remove the middle (DV=20)
+	if len(w.ActiveCraft().Nodes) != 2 {
+		t.Errorf("after DeleteNode(1): got %d nodes, want 2", len(w.ActiveCraft().Nodes))
+	}
+	if w.ActiveCraft().Nodes[0].DV != 10 || w.ActiveCraft().Nodes[1].DV != 30 {
+		t.Errorf("survivors: got DVs %v, want [10 30]",
+			[]float64{w.ActiveCraft().Nodes[0].DV, w.ActiveCraft().Nodes[1].DV})
+	}
+}
+
+// TestDeleteNodeOutOfRangeIsNoop: out-of-range idx (negative or
+// past end) leaves Nodes untouched. Defensive — the maneuver
+// form passes -1 when not editing an existing node.
+func TestDeleteNodeOutOfRangeIsNoop(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(10 * time.Second), DV: 10})
+	w.DeleteNode(-1)
+	w.DeleteNode(99)
+	if len(w.ActiveCraft().Nodes) != 1 {
+		t.Errorf("after no-op DeleteNodes: got %d nodes, want 1", len(w.ActiveCraft().Nodes))
+	}
+}
+
 // TestPlanNodeUnresolvedSortsToEnd: an unresolved event-relative node
 // (Event != Absolute, TriggerTime zero) must not displace resolved
 // future nodes from the head of the slice — otherwise executeDueNodes
