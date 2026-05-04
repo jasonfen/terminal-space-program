@@ -111,14 +111,15 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
 | `g` | Reset camera focus to system |
 | `v` | Cycle view (top → right → bottom → left → orbit-flat) |
-| `n` | Plan a default node (T+5 min, prograde, 200 m/s, finite-sized) |
-| `N` | Clear all planned nodes |
+| `n` | Open spawn form (loadout / position / parent body / altitude / direction) |
 | `H` | Auto-plant Hohmann transfer to selected body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse) |
 | `I` | Plant inclination match — rotates the orbital plane to the selected body's inclination (or 0° equatorial when no body is selected) |
 | `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H` |
 | `R` | Refine plan — re-Lambert from live state, plant mid-course correction + update arrival |
 | `m` | Open maneuver planner |
-| `S` / `L` | Save / load game (`$XDG_STATE_HOME/terminal-space-program/save.json`) |
+| `F5` / `F9` | Quicksave / quickload (`$XDG_STATE_HOME/terminal-space-program/save.json`) — KSP-style |
+| `[` / `]` | Cycle active craft (no-op when only one craft loaded) |
+| `U` | Undock active composite |
 
 ### Manual flight
 
@@ -163,6 +164,8 @@ Click-only. No drag, no wheel-zoom.
 | digits / backspace | Edit Δv or throttle |
 | `Enter` | Commit burn |
 | `Esc` | Cancel and back to orbit view |
+| `Ctrl+D` | Delete the planted node being edited (no-op when creating new) |
+| `Ctrl+K` | Clear ALL planted nodes for the active craft |
 
 Δv drives both delivered Δv **and** burn duration via the rocket
 equation `t = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`. Zero-thrust craft
