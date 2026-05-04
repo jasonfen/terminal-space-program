@@ -2,13 +2,13 @@ package tui
 
 import (
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -449,21 +449,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PlanIncl):
 			if a.world.CraftVisibleHere() {
-				// v0.8.6+: target is now interpreted in the primary's
+				// v0.8.6+: target is interpreted in the primary's
 				// reference frame (ecliptic for Sun, body-equatorial
-				// otherwise). The "match selected body's plane"
-				// branch only makes geometric sense for heliocentric
-				// orbits, where b.Inclination (ecliptic-relative)
-				// matches the planner's frame. In a planetary orbit
-				// the selected-body inclination doesn't correspond
-				// to a meaningful body-equatorial target — skip it
-				// and fall through to the equatorial-drop default.
+				// otherwise). When a non-root body is selected, treat
+				// its heliocentric orbit plane as the target — for
+				// heliocentric craft this collapses to b.Inclination
+				// (the ecliptic-relative i directly); for body-bound
+				// craft (e.g. LEO) PlaneMatchInclination converts the
+				// target's plane orientation into the primary's frame
+				// so the result is a meaningful "match Mars's plane"
+				// inclination.
 				target := 0.0 // default: drop to equatorial of craft's primary
 				sys := a.world.System()
-				craftPrimaryIsSun := a.world.CraftVisibleHere() && a.world.ActiveCraft().Primary.ID == "sun"
-				if craftPrimaryIsSun && a.selectedBody > 0 && a.selectedBody < len(sys.Bodies) {
+				if a.selectedBody > 0 && a.selectedBody < len(sys.Bodies) {
 					b := sys.Bodies[a.selectedBody]
-					target = b.Inclination * math.Pi / 180
+					primary := a.world.ActiveCraft().Primary
+					frame := orbital.ReferenceFrameForPrimary(primary)
+					target = orbital.PlaneMatchInclination(b, frame)
 				}
 				plan, err := a.world.PlanInclinationChange(target)
 				if err != nil {

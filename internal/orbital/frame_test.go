@@ -178,6 +178,57 @@ func TestEclipticOrbitInEarthFrameHasInclinationEqualToTilt(t *testing.T) {
 	}
 }
 
+// TestPlaneMatchInclinationEarthFromSunIsZero: Earth's plane viewed
+// from heliocentric orbit (sun-frame = identity) is the ecliptic, so
+// matching it from the Sun's frame requires i ≈ Earth's ecliptic-
+// relative inclination (~0.034°).
+func TestPlaneMatchInclinationEarthFromSunIsZero(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	sol := systems[0]
+	earth := sol.FindBody("Earth")
+	sunFrame := IdentityFrame()
+	got := PlaneMatchInclination(*earth, sunFrame)
+	// Earth's ecliptic-relative inclination is tiny (~0.034°). Allow
+	// 0.1° margin.
+	if got > 0.1*math.Pi/180 {
+		t.Errorf("PlaneMatch(Earth, sun) = %.4f rad (%.3f°), want ~0", got, got*180/math.Pi)
+	}
+}
+
+// TestPlaneMatchInclinationMarsFromEarth: matching Mars's heliocentric
+// orbit plane from a LEO orbit requires inclining LEO by Earth's
+// axial tilt (Mars's ecliptic-relative i is small, so the dominant
+// term is Earth's 23.44° tilt away from the ecliptic).
+func TestPlaneMatchInclinationMarsFromEarth(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	sol := systems[0]
+	earth := sol.FindBody("Earth")
+	mars := sol.FindBody("Mars")
+	earthFrame := BodyEquatorialFrame(*earth)
+	got := PlaneMatchInclination(*mars, earthFrame)
+	// Earth's tilt (23.44°) ± Mars's small ecliptic inclination (1.85°)
+	// — depending on the relative orientation of nodes. Loose bounds:
+	// somewhere in [21°, 26°].
+	gotDeg := got * 180 / math.Pi
+	if gotDeg < 21 || gotDeg > 26 {
+		t.Errorf("PlaneMatch(Mars, Earth-frame) = %.2f°, want 21–26°", gotDeg)
+	}
+}
+
+// TestPlaneMatchInclinationSunReturnsZero: defensive — passing the
+// Sun returns 0 (no orbit to match).
+func TestPlaneMatchInclinationSunReturnsZero(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	sol := systems[0]
+	sun := sol.FindBody("Sun")
+	if sun == nil {
+		t.Skip("Sol system has no body named Sun")
+	}
+	if got := PlaneMatchInclination(*sun, IdentityFrame()); got != 0 {
+		t.Errorf("PlaneMatch(Sun, *) = %.6f, want 0", got)
+	}
+}
+
 // TestCircularOrbitVelocity: at a=1 AU, e=0, v should equal √(μ/a).
 func TestCircularOrbitVelocity(t *testing.T) {
 	el := Elements{A: bodies.AU, E: 0, I: 0, Omega: 0, Arg: 0}
