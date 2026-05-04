@@ -556,7 +556,8 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	// — at zero Δv the projected orbit equals the live orbit, which
 	// the VESSEL block on the orbit screen already displays.
 	if dv > 0 {
-		ro := orbital.OrbitReadout(shadow.R, shadow.V, mu)
+		frame := orbital.ReferenceFrameForPrimary(shadowPrimary)
+		ro := orbital.OrbitReadoutInFrame(shadow.R, shadow.V, mu, frame)
 		primaryR := shadowPrimary.RadiusMeters()
 		lines = append(lines, "", m.theme.Primary.Render("PROJECTED ORBIT"))
 		if shadowPrimary.ID != c.Primary.ID {

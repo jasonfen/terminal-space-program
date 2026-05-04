@@ -449,9 +449,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PlanIncl):
 			if a.world.CraftVisibleHere() {
+				// v0.8.6+: target is now interpreted in the primary's
+				// reference frame (ecliptic for Sun, body-equatorial
+				// otherwise). The "match selected body's plane"
+				// branch only makes geometric sense for heliocentric
+				// orbits, where b.Inclination (ecliptic-relative)
+				// matches the planner's frame. In a planetary orbit
+				// the selected-body inclination doesn't correspond
+				// to a meaningful body-equatorial target — skip it
+				// and fall through to the equatorial-drop default.
 				target := 0.0 // default: drop to equatorial of craft's primary
 				sys := a.world.System()
-				if a.selectedBody > 0 && a.selectedBody < len(sys.Bodies) {
+				craftPrimaryIsSun := a.world.CraftVisibleHere() && a.world.ActiveCraft().Primary.ID == "sun"
+				if craftPrimaryIsSun && a.selectedBody > 0 && a.selectedBody < len(sys.Bodies) {
 					b := sys.Bodies[a.selectedBody]
 					target = b.Inclination * math.Pi / 180
 				}

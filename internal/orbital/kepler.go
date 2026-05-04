@@ -241,6 +241,32 @@ func OrbitReadout(r, v Vec3, mu float64) Readout {
 	return out
 }
 
+// ElementsFromStateInFrame derives Keplerian elements with respect to
+// the given reference frame. Rotates (r, v) from the world basis into
+// frame coordinates, then runs the standard ElementsFromState routine.
+//
+// For non-Sun primaries, callers should pass ReferenceFrameForPrimary
+// so inclination, longitude of ascending node, and argument of
+// periapsis are quoted relative to the body's equator (the ECI / MCI
+// convention used by every operational mission planner). For the Sun,
+// ReferenceFrameForPrimary returns IdentityFrame and the result
+// matches ElementsFromState exactly. v0.8.6+.
+func ElementsFromStateInFrame(r, v Vec3, mu float64, frame BodyFrame) Elements {
+	rf := frame.FromWorld(r)
+	vf := frame.FromWorld(v)
+	return ElementsFromState(rf, vf, mu)
+}
+
+// OrbitReadoutInFrame is the body-frame variant of OrbitReadout — the
+// same headline parameters but computed in the primary's reference
+// frame (body-equatorial for non-Sun primaries; ecliptic for the Sun).
+// v0.8.6+.
+func OrbitReadoutInFrame(r, v Vec3, mu float64, frame BodyFrame) Readout {
+	rf := frame.FromWorld(r)
+	vf := frame.FromWorld(v)
+	return OrbitReadout(rf, vf, mu)
+}
+
 // ElementsFromBody pulls Keplerian elements from a bodies.CelestialBody,
 // converting stored km→m and deg→rad. Precise OrbitalElements overrides
 // the top-level fields when present.
