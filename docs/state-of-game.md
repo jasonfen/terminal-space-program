@@ -4,9 +4,11 @@
 multi-craft v0.8.1, craft types + capture preview v0.8.2, docking
 v0.8.3, atmospheric drag v0.8.4, sim-time rotation + view-aware
 textures v0.8.5, controls polish + body-equatorial frame + adaptive
-warp clamps + iterate-for-target toggle v0.8.6). Updated at each
-minor / patch boundary; the §1 "what works today" detail trails
-the headline by a slice or two.*
+warp clamps + iterate-for-target toggle v0.8.6). v0.8.7
+(mission-scripting stretch slice) was attempted post-v0.8.6 and
+rolled back pending a design pass — see §6 *Mission scripting /
+editor* before opening any planning thread on this. Updated at
+each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -442,8 +444,14 @@ that gets drafted.
   colour without restarting.
 - **Mission editor / scripting**. User-authored objectives
   beyond the three predicate kinds. Needs a config format —
-  declarative DSL? Embedded expression language (CEL / Lua)?
-  Builds on the v0.7.0 catalog loader pattern.
+  declarative DSL? Embedded expression language (CEL / Lua /
+  Starlark / expr-lang)? Builds on the v0.7.0 catalog loader
+  pattern. **Important context**: a draft Option-B
+  implementation went in post-v0.8.6 (commit `4159a31`) and was
+  reverted (`e806dd3`) because the design decision points
+  collapsed into "engine is lighter, ship it" instead of getting
+  their own pass. Read §6 *Mission scripting / editor* before
+  opening this slice.
 
 **Physics extensions**
 
@@ -563,7 +571,8 @@ that gets drafted.
   policy).
 - **Mission editor / scripting** (long-tail). Once basic missions exist,
   expose a config format so users can author custom objectives without
-  touching Go.
+  touching Go. **A draft attempt landed and was reverted post-v0.8.6
+  pending a design pass** — see §6 *Mission scripting / editor*.
 - **Optional simple atmospheric drag model** (opt-in, off by default). Toy
   drag below ~150 km to enable reentry / aerobraking gameplay; patched-conic
   two-body stays the primary integrator. Previously on "excluded forever",
@@ -714,7 +723,7 @@ that gets drafted.
 | **v0.8.5 ✓** | | Sim-time planet rotation + view-aware projection + textured-bodies trickle. Rotation core: `bodies.CelestialBody.TidallyLocked` + `AxialTilt` + `AxialAzimuth` fields; `render.SubObserverPointDeg(b, simTime, camDir, primMer)` returning (subLat, subLon) — free-body uses sidereal rotation, tidally-locked tracks the body→parent vector at simTime so Luna's near-side faces Earth always. `Clock.RotationTime` advances at min(warp, 10000×) so high-warp doesn't blur surfaces. View-aware projection (Snyder §20 inverse-orthographic with arbitrary sub-observer point) means ViewTop on tilted Earth reveals the Arctic, Uranus rolls pole-on along its orbit, Saturn's polar hex stays at +78°N regardless of view; ViewOrbitFlat picks up the canvas's depth axis. Polygon-rasterised 144×72 Earth grid (~50 polys × 10–20 verts: continents + key islands like UK / Iceland / Italy + Sicily / Madagascar / Cuba / Hispaniola / Sumatra / Java / Borneo / Sulawesi / New Guinea / Philippines / Tasmania / NZ + deserts + polar ice) replaces the v0.7.6 ellipse-table approximation; biome-shaded land (tropical / temperate / boreal) by `|lat|`; atmospheric blue-marble limb tint at r²>0.92 over non-ice. Far-side / polar Moon detail (Mare Orientale + Moscoviense + Ingenii + South Pole-Aitken basin + far-side / polar craters); tidally-locked override always shows near-side regardless of canvas view mode. Tilted Saturn ring system: C / B / Cassini Division gap / A / F bands sampled in body equatorial plane and projected through `Canvas.RingTiltedOutline` so foreshortening reads correctly per view (~89% top, ~45% side). Textured Sun (limb-darkened solar disk + sunspots + corona halo replaces the v0.7.x ring + center-dot crosshair), Galileans (Io paterae, Europa lineae, Ganymede dark regiones, Callisto crater rays), Uranus (subtle banding), Neptune (banded + Great Dark Spot). Terminal moons (no children orbiting them) zoom to 8× radius on focus so surface texture is visible by default. Save schema: TidallyLocked + AxialTilt + AxialAzimuth fields bump CatalogHash; v0.8.4 saves reject on first v0.8.5 load. |
 | **v0.8.6 ✓** | | Controls polish bag + unplanned add-ons. Keymap pass: Save/Load → F5/F9 (KSP-style), drop the global N ClearNodes binding (case-collided with `n` SpawnCraft), per-node ctrl+d delete + ctrl+k clear-all in the maneuver form, new World.DeleteNode sim API. **IterateForTarget toggle** in the `m` form (5th cycled field; refines commanded Δv via planner.IterateForTarget at plant time so post-burn apsides match the projected orbit; off by default; skipped for Normal±). **Body-equatorial Keplerian frame** for body-bound orbits — i/Ω/ω read in the primary's equatorial frame (ECI for Earth, MCI for Mars, etc.) per operational mission-planning convention; default LEO spawn passes over the equator (Ecuador), not over Guatemala (the world-XY-frame spawn intersected Earth at ~23°N because of the 23.44° axial tilt). PlaneMatchInclination converts a target's heliocentric plane into the primary's frame. Heliocentric orbits stay ecliptic-relative. **Adaptive warp clamps**: throttle-change cap (10× for 1 sim-second after Throttle changes); upcoming-node approach cap (continuous predictive ramp-down — maxWarp = secondsUntilNode / (10 × BaseStep), floored at 1×, prevents 100,000× warp from skipping a 30-s-out node). **Orbit-flat low-warp jitter fix**: ω snapped to 0 for circular orbits (eMag < 1e-6) so PerifocalBasis stays stable per frame; defensive pole-on guard added in SubObserverPointDeg. CI: four-part patch tags (vX.Y.Z.N) excluded from goreleaser so checkpoint markers don't fail the workflow. **Backlogged**: (c) multi-rev porkchop UI keys — defer until staging slices grow craft fleet enough that multi-rev / retrograde transfers are practically valuable. |
 | v0.8 ✓ | **Multi-craft polish** | RCS / monopropellant + multi-craft slate + craft types + docking + atmospheric drag + sim-time rotation + view-aware textures + controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target. See `docs/v0.8-plan.md` for slice breakdown. |
-| v0.9+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, ground-launch chain, real rendezvous planner (target-relative prograde/retrograde modes + null-v_rel at closest approach + iterative refinement — see §6 *Rendezvous tooling*), capture-direction toggle, plane-shift + Hohmann combo, N-body perturbations, mission editor/scripting, drag-to-edit nodes, solar lighting / day-night terminator / eclipses, high-fidelity Earth raster (NOAA ETOPO1) |
+| v0.9+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, ground-launch chain, real rendezvous planner (target-relative prograde/retrograde modes + null-v_rel at closest approach + iterative refinement — see §6 *Rendezvous tooling*), capture-direction toggle, plane-shift + Hohmann combo, N-body perturbations, mission editor/scripting (draft attempt rolled back post-v0.8.6 — see §6 *Mission scripting / editor*), drag-to-edit nodes, solar lighting / day-night terminator / eclipses, high-fidelity Earth raster (NOAA ETOPO1) |
 
 ### v0.4 — save / load + mid-course corrections
 
