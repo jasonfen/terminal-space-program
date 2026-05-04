@@ -182,7 +182,16 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 	if mu == 0 {
 		return
 	}
-	state := orbital.Vec3State{R: c.State.R, V: c.State.V}
+	// v0.8.6+: resolve event timings in the primary's reference frame
+	// (body-equatorial for non-Sun primaries) so AN/DN mean "crossing
+	// of the body's equator" rather than "crossing of the world XY
+	// plane". TimeToPeriapsis / TimeToApoapsis are frame-invariant
+	// scalars but we pass the rotated state for consistency.
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	state := orbital.Vec3State{
+		R: frame.FromWorld(c.State.R),
+		V: frame.FromWorld(c.State.V),
+	}
 	resolvedAny := false
 	for i := range c.Nodes {
 		n := &c.Nodes[i]
@@ -1341,7 +1350,14 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 
 	if event != TriggerAbsolute {
 		mu := primary.GravitationalParameter()
-		ostate := orbital.Vec3State{R: state.R, V: state.V}
+		// v0.8.6+: AN/DN are body-equatorial. Frame-rotate state for
+		// the event-time helpers; periapsis/apoapsis are frame-
+		// invariant but we pass the rotated state for consistency.
+		frame := orbital.ReferenceFrameForPrimary(primary)
+		ostate := orbital.Vec3State{
+			R: frame.FromWorld(state.R),
+			V: frame.FromWorld(state.V),
+		}
 		var dt float64
 		switch event {
 		case TriggerNextPeri:

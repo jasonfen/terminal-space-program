@@ -243,9 +243,15 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	c := NewFromLoadout(LoadoutSIVB1ID)
 	c.Name = "S-IVB-1" // first vessel of the slate keeps the historical instance name.
 	c.Primary = earth
+	// v0.8.6+: rotate the body-frame circular state into world coords
+	// so the orbit physically lies in Earth's equatorial plane (passes
+	// over the equator), not the world XY plane (which is offset by
+	// Earth's 23.44° axial tilt). Pre-v0.8.5.7 there were no tilts so
+	// the two coincided.
+	frame := orbital.ReferenceFrameForPrimary(earth)
 	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r},
-		V: orbital.Vec3{Y: v},
+		R: frame.ToWorld(orbital.Vec3{X: r}),
+		V: frame.ToWorld(orbital.Vec3{Y: v}),
 		M: c.TotalMass(),
 	}
 	return c

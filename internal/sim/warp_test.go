@@ -3,6 +3,8 @@ package sim
 import (
 	"math"
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // TestWarpClampRespectsOrbitalPeriod: at LEO (~5500 s period), max warp
@@ -33,9 +35,12 @@ func TestWarpClampRespectsOrbitalPeriod(t *testing.T) {
 func TestWarpClampActuallyClampsVeryShortPeriod(t *testing.T) {
 	w, _ := NewWorld()
 	// Shrink the craft's orbit to an absurdly tight radius — period ~1 s.
-	// (Not physical; just forces the clamp path.)
-	w.ActiveCraft().State.R.X = 1e3
-	w.ActiveCraft().State.V.Y = math.Sqrt(w.ActiveCraft().Primary.GravitationalParameter() / 1e3)
+	// (Not physical; just forces the clamp path.) Fully overwrite R / V
+	// rather than poking individual components — v0.8.6+ initialises
+	// the default LEO state with non-zero Z (Earth's body-equatorial
+	// frame is tilted in world coords).
+	w.ActiveCraft().State.R = orbital.Vec3{X: 1e3}
+	w.ActiveCraft().State.V = orbital.Vec3{Y: math.Sqrt(w.ActiveCraft().Primary.GravitationalParameter() / 1e3)}
 	w.Clock.WarpIdx = len(WarpFactors) - 1
 
 	selected := w.Clock.Warp()
