@@ -125,9 +125,27 @@ func ElementsFromState(r, v Vec3, mu float64) Elements {
 	}
 
 	// Argument of periapsis ω.
+	//
+	// v0.8.6+: snap ω to 0 when the orbit is near-circular (eMag below
+	// circularTol). For a perfectly circular orbit the eccentricity
+	// vector is the zero vector and ω is mathematically undefined; for
+	// near-circular orbits eVec is dominated by float / integration
+	// noise, so atan2(eVec.Y, eVec.X) (or the inclined-elliptical
+	// acos formula) returns a noise-driven angle that flips per frame.
+	// PerifocalBasis(el) then rotates the canvas basis around the
+	// orbit normal each frame, presenting in orbit-flat view as the
+	// whole scene jerking back-and-forth around the disk center —
+	// independently of any actual body rotation. Snapping ω to 0
+	// makes the basis stable for circular orbits at the cost of
+	// "ω = 0" being a definition convention rather than an extracted
+	// value (consistent with the existing eMag == 0 fallthrough that
+	// already left argp at zero).
+	const circularTol = 1e-6
 	var argp float64
 	switch {
-	case nMag > 0 && eMag > 0:
+	case eMag < circularTol:
+		// Near-circular: ω is degenerate; pin to 0 for basis stability.
+	case nMag > 0:
 		dot := (n.X*eVec.X + n.Y*eVec.Y + n.Z*eVec.Z) / (nMag * eMag)
 		if dot > 1 {
 			dot = 1
@@ -138,7 +156,7 @@ func ElementsFromState(r, v Vec3, mu float64) Elements {
 		if eVec.Z < 0 {
 			argp = 2*math.Pi - argp
 		}
-	case eMag > 0:
+	default:
 		// Equatorial orbit — node vector is degenerate. Take the
 		// "longitude of periapsis" straight from the eccentricity
 		// vector's angle in the equatorial plane. Retrograde (i ≈ π)
