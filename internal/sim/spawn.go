@@ -93,10 +93,19 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		v = -v
 	}
 
+	// v0.8.6+: spawn into the primary's equatorial plane (ECI / MCI
+	// convention) rather than the world ecliptic. Default body-frame
+	// coords place the craft at +X with prograde velocity along +Y;
+	// rotating these into world coords applies the body's axial tilt
+	// so an Earth-orbit spawn passes over the equator (Ecuador), not
+	// over the world XY plane (which crosses Earth at ~23°N).
+	frame := orbital.ReferenceFrameForPrimary(primary)
+	rBody := orbital.Vec3{X: r}
+	vBody := orbital.Vec3{Y: v}
 	c.Primary = primary
 	c.State = physics.StateVector{
-		R: orbital.Vec3{Y: r},
-		V: orbital.Vec3{X: -v},
+		R: frame.ToWorld(rBody),
+		V: frame.ToWorld(vBody),
 		M: c.TotalMass(),
 	}
 	w.Crafts = append(w.Crafts, c)

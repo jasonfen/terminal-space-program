@@ -1136,10 +1136,14 @@ func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
 	const inc = 28.5 * math.Pi / 180
 
 	// Tilt the craft into a 28.5° inclined LEO at the AN (rising
-	// through equator). Position along +x; velocity in the (y, z)
-	// plane.
-	w.ActiveCraft().State.R = orbital.Vec3{X: r}
-	w.ActiveCraft().State.V = orbital.Vec3{Y: v * math.Cos(inc), Z: v * math.Sin(inc)}
+	// through equator). Constructed in body-equatorial coords so the
+	// planner sees i = 28.5° relative to Earth's equator (the v0.8.6+
+	// convention) — then rotated to world coords for the state vector.
+	frame := orbital.ReferenceFrameForPrimary(w.ActiveCraft().Primary)
+	rBody := orbital.Vec3{X: r}
+	vBody := orbital.Vec3{Y: v * math.Cos(inc), Z: v * math.Sin(inc)}
+	w.ActiveCraft().State.R = frame.ToWorld(rBody)
+	w.ActiveCraft().State.V = frame.ToWorld(vBody)
 
 	plan, err := w.PlanInclinationChange(0)
 	if err != nil {

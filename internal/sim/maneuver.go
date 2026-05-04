@@ -637,8 +637,20 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 		return nil, errNoCraftForTransfer
 	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
-	state := orbital.Vec3State{R: w.ActiveCraft().State.R, V: w.ActiveCraft().State.V}
-	plan, err := planner.PlanInclinationChange(state, mu, targetIncl, w.ActiveCraft().Primary.ID)
+	// v0.8.6+: targetIncl is interpreted in the primary's reference
+	// frame (body-equatorial for non-Sun primaries; ecliptic for the
+	// Sun). Rotate the state into that frame before calling the inner
+	// planner — Δv, time-of-flight and NormalSign (which refers to
+	// ±h, computed from the live state at burn time) are all
+	// frame-invariant, so the resulting InclinationPlan flies through
+	// unchanged.
+	primary := w.ActiveCraft().Primary
+	frame := orbital.ReferenceFrameForPrimary(primary)
+	state := orbital.Vec3State{
+		R: frame.FromWorld(w.ActiveCraft().State.R),
+		V: frame.FromWorld(w.ActiveCraft().State.V),
+	}
+	plan, err := planner.PlanInclinationChange(state, mu, targetIncl, primary.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -1147,7 +1159,8 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 		return w.approximateCapturePreview(captureState, capturePrimary, captureTime, captureIdx), true
 	}
 	mu := capturePrimary.GravitationalParameter()
-	ro := orbital.OrbitReadout(captureState.R, captureState.V, mu)
+	frame := orbital.ReferenceFrameForPrimary(capturePrimary)
+	ro := orbital.OrbitReadoutInFrame(captureState.R, captureState.V, mu, frame)
 	return CapturePreview{
 		Primary:      capturePrimary,
 		NodeIndex:    captureIdx,
