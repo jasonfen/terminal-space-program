@@ -117,6 +117,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.BurnExecutedMsg:
 		if a.world.ActiveCraft() != nil {
+			// v0.8.6 (b): if the form's iterate-for-target toggle was
+			// on, refine the commanded Δv via World.IterateBurnDV so
+			// the post-burn apsides match what an impulsive Δv at the
+			// same value would have delivered. Falls back to the
+			// commanded Δv on iteration failure (e.g. Newton diverged)
+			// so the burn always plants — over-/under-deliver is a
+			// graceful fallback.
+			if m.IterateForTarget {
+				if refined, err := a.world.IterateBurnDV(m.Mode, m.DV); err == nil {
+					m.DV = refined
+				}
+			}
 			// v0.6.5: derive burn duration from Δv using the rocket
 			// equation against the live craft state, so the planner UX
 			// only has to specify Δv. Zero-thrust craft fall back to the
