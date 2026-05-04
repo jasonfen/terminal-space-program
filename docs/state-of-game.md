@@ -16,239 +16,344 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.7.6 baseline + v0.8 additions inline)
-
-> **Note**: this section's body text is the v0.7.6 snapshot; v0.8
-> additions (multi-craft, RCS, docking, drag, rotation, body-
-> equatorial frame, etc.) live in the version frame below as
-> per-slice paragraphs. A wholesale rewrite of §1 to fold them in
-> is queued; for now use the version frame as the source of truth
-> for v0.8.0–v0.8.6 capabilities.
+## 1. What works today (v0.8.6)
 
 ### Physics
-- Two-body patched-conic propagation with **SOI-aware** state transitions.
-  Crossing a sphere of influence (outward or inward) rebases the state into the
+- Two-body patched-conic propagation with **SOI-aware** state
+  transitions. Crossing a sphere of influence rebases state into the
   new primary's frame and switches μ for subsequent steps.
-- Symplectic **Verlet** integrator for free flight (energy-conserving within
-  ~1e-7 % over 1000 orbits at LEO).
-- **RK4** integrator on the active-burn path so non-conservative thrust forces
-  integrate cleanly. Verlet stays on the inactive-burn path.
-- **Stumpff-universal-variables Lambert solver** (Curtis Algorithm 5.2). Single-
-  rev plus multi-rev branches — `LambertSolveRev(..., nRev)`. Single branch
-  per N (lower-z side of the minimum-energy critical point).
-- **Hohmann transfer** math: classical two-impulse for circular-to-circular.
-- **Patched-conic v∞ → Δv** identity for departure / capture burns.
-- **Time warp** clamps to ≤10× during an active burn so the integrator never
-  outruns the burn window's temporal resolution. Outside burns the clamp is
-  the (1024 sub-steps × period/100) / base-step guard from v0.1.
+- Symplectic **Verlet** for free flight (energy-conserving within
+  ~1e-7 % over 1000 orbits at LEO). **RK4** on the active-burn path so
+  non-conservative thrust forces integrate cleanly.
+- **Drag-aware Verlet** (v0.8.4+): `physics.StepVerletWithAccel`
+  takes an additional acceleration closure so the live integrator,
+  `propagateStateWithPrimary`, the predictor, and `stepThrust` all
+  pick up atmospheric drag inside Earth + Mars atmospheres without
+  divergent code paths. Atmosphere model is exponential
+  ρ(h) = SurfaceDensity · exp(−h/ScaleHeight) up to a cutoff
+  altitude (Earth: 8500 m / 100 km; Mars: 11100 m / 80 km), with
+  `v_rel = v − ω × r` so corotating air dictates drag direction.
+  Surface clamp on aerobrake impact (`physics.ClampToSurface`).
+- **Body-equatorial reference frame** (v0.8.6.1+) for body-bound
+  Keplerian orbits. `orbital.ReferenceFrameForPrimary(primary)`
+  returns identity for the Sun (heliocentric / ecliptic) and the
+  body-equatorial basis for everything else (ECI for Earth, MCI for
+  Mars, etc.). Inclination, Ω, ω are quoted in this frame everywhere
+  the player sees them — orbit screen, maneuver projected-orbit,
+  capture preview, planner targets. A 0° Earth orbit physically
+  passes over the equator (Ecuador), not the world ecliptic plane
+  which intersects Earth at ~23°N because of axial tilt.
+- **Stumpff-universal-variables Lambert solver** (Curtis Algorithm
+  5.2) with explicit retrograde flag and N-rev branches plumbed
+  through `LambertSolveRev(..., nRev, retrograde)` — UI surface for
+  multi-rev / retrograde transfers is library-ready but not yet
+  wired (deferred to v0.9 alongside staging).
+- **Hohmann transfer** math + **patched-conic v∞ → Δv** identity
+  for departure / capture burns.
+- **Planet rotation in sim time**. `bodies.CelestialBody` carries
+  `TidallyLocked` + `AxialTilt` + `AxialAzimuth` (v0.8.5+).
+  `render.SubObserverPointDeg(b, simTime, camDir, primMer)` returns
+  (subLat, subLon) at the visible disk centre; tidally-locked moons
+  point their primary-meridian at the parent body, free bodies use
+  sidereal rotation. `Clock.RotationTime` advances at
+  `min(warp, 10000×) × BaseStep` so high-warp doesn't blur surfaces
+  into stripes.
+
+### Time-warp clamping (v0.4.3 → v0.8.6.2)
+
+Three layered guards keep the integrator stable at high warp.
+Smallest of all four caps wins.
+
+- **Orbital-period sub-step cap** (v0.4.3 baseline). The Verlet
+  integrator runs sub-steps of `period/100`; the warp clamp
+  enforces ≤1024 sub-steps per tick, so `maxWarp ≈
+  (1024 · period/100) / BaseStep`. Keeps temporal resolution
+  proportional to orbital dynamics.
+- **Active-burn cap (10×)**. While `ActiveBurn != nil` or
+  `ManualBurn != nil` on any craft, warp pins to ≤10× so burn
+  completion + thrust integration stays resolved.
+- **Throttle-change cap (v0.8.6.2)**. `Spacecraft.LastThrottleChangeAt`
+  records sim-time on actual-value changes in `SetThrottle`;
+  `clampedWarp` pins to 10× for 1 sim-second after any craft's
+  throttle moved. Catches high-warp throttle ramps that alias the
+  integrator the same way held burns do.
+- **Upcoming-node approach cap (v0.8.6.2)**. `soonestUpcomingNodeIn`
+  scans every craft's resolved future TriggerTime; warp ramps
+  continuously down as the node nears via
+  `maxWarp = secondsUntilNode / (10 × BaseStep)`, floored at 1×. At
+  5 s out the cap reaches 10× and dovetails with the active-burn
+  cap. Prevents 100,000× warp from skipping a 30-s-out node in a
+  single 5000-s tick.
 
 ### Spacecraft & burns
-- **Finite-duration burns**. `Spacecraft.Thrust = 108 kN` default (RL-10C-3); a node's
-  `Duration` field controls integration. Mass flow `dm/dt = -Thrust/(Isp·g0)`
-  debits fuel each sub-step; burn ends on Δv delivered, fuel exhausted, or
-  duration elapsed (whichever first).
-- **Six burn modes**: prograde, retrograde, normal±, radial±. Direction is
-  recomputed each sub-step from live (r, v) so held-prograde follows the
-  rotating velocity frame.
-- Default vessel ("S-IVB-1", v0.5.10+): 11000 kg dry + 40000 kg fuel,
-  Isp 421 s, Thrust 1023 kN (J-2 vacuum). Δv budget ≈ 6.3 km/s,
-  comfortable for a Luna round trip. Spawns in a 500 km circular
-  prograde LEO (v0.6.1+; was 200 km), inclination 0°. NewWorld sets
-  `Focus = FocusCraft` so the camera is on the ship from tick 0.
+- **Multi-craft slate** (v0.8.1+). `World.Crafts []*Spacecraft` +
+  `ActiveCraftIdx`; `[`/`]` cycles active craft, `n` opens the spawn
+  form. `ManeuverNode` / `ActiveBurn` / `ManualBurn` / `AttitudeMode` /
+  `EngineMode` live on each Spacecraft so a planted burn fires on
+  the correct vessel regardless of which one the player is flying.
+  Save schema v4 → v5 with `Craft *Craft` → `Crafts []*Craft`
+  migration; pre-v5 saves auto-migrate (singular Craft → 1-entry
+  slice).
+- **Craft loadouts** (v0.8.2+). Four launch types in the spawn form,
+  each with distinct propulsion + glyph + colour:
+  - **S-IVB-1** ▲ yellow — J-2 third stage (1023 kN, Isp 421 s,
+    11000 kg dry / 40000 kg fuel). Δv ≈ 6.3 km/s, comfortable for
+    Luna round trips. Default first-craft loadout.
+  - **ICPS** ◆ blue — RL10C-derived upper stage (108 kN, Isp 462 s);
+    lower thrust, more Δv per kg, longer burns where finite-burn
+    loss matters.
+  - **RCS-tug** ● pink — monoprop-only proximity-ops vessel.
+  - **Lander** ▼ mint — throttleable descent stage.
+- **Six burn modes**: prograde, retrograde, normal±, radial±.
+  Direction recomputed each sub-step from live (r, v) so held-mode
+  burns track the rotating frame.
+- **RCS / monopropellant mode** (v0.8.0+). `r` toggles between main
+  engine and RCS. RCS pool is a separate propellant + thrust + Isp
+  triple (typically ~720 kg / ~50 N / ~220 s for the S-IVB-1 base);
+  `b`-tap or attitude-key tap delivers a ~0.1 m/s pulse from the
+  monoprop tank. ~30 m/s of RCS Δv on the default vessel —
+  proximity-ops budget for docking. EngineMode persists per-craft.
+- **Per-thruster RCS visual** (v0.8.3+): puff trail along the active
+  attitude direction; main-engine flame visual replaces the v0.8.0
+  placeholder during a finite burn.
+
+### Docking + undocking (v0.8.3+)
+
+- **Proximity-gated DockCrafts** at <50 m and <0.1 m/s relative
+  velocity. Mass-weighted centroid + momentum-conserving fuse
+  picks the composite's new (R, V); propellant pools sum across
+  components.
+- **DockedComponents** preserves the original-craft identities
+  through fusion so `U` undock can split back along the original
+  partner boundaries with proportional propellant.
+- **RENDEZVOUS HUD** lights up when two craft are within docking
+  distance: live range / |v_rel| / DOCK READY indicator.
+- **Alongside-spawn**: `n` form's "POSITION = alongside active"
+  drops a sister craft inside the docking gate at matched velocity
+  for proximity-ops practice without a full rendezvous.
 
 ### Planning
-- **Manual planner** (`m`): three-field form (mode / fire-at / Δv).
-  `Tab` cycles fields, `←/→` cycles modes or trigger events when those
-  fields are focused, Δv > budget warns. Burn duration is **derived**
-  from Δv via the rocket-equation form `t = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`
-  in `spacecraft.BurnTimeForDV` (v0.6.5+) — pre-v0.6.5 the form
-  exposed Δv AND duration as independent inputs, but at fixed thrust +
-  mass the two are the same dial. The auto-plant Hohmann +
-  RefinePlan paths route through the same call so player- and
-  auto-planted burns size identically. The planner shows a live
-  PROJECTED ORBIT block with apo/peri/AN/DN of the resulting orbit;
-  the canvas dashed shadow trajectory and the form readout both feed
-  off `World.PreviewBurnState`, which propagates to the fire-at event
-  point before applying Δv (v0.6.1) — so a prograde burn at next-apo
-  previews the perigee-rise circularization, not a spurious second
-  apoapsis growth. Zero-thrust craft fall back to impulsive
-  (`BurnTimeForDV` returns 0); the legacy code path is preserved
-  through the API even though the form no longer surfaces it as an
-  input. v0.6.0+ form, v0.6.1 readout, v0.6.5 input simplification.
-- **Event-relative trigger nodes** (v0.6.0): `fire at` field selects
-  Absolute T+ or one of `next peri / next apo / next AN / next DN`.
-  Lazy-freeze resolver in `World.Tick` computes `TriggerTime` from the
-  live orbit on the first tick after plant, then freezes — past that
-  point dispatch is identical to absolute-time nodes. Equatorial /
-  hyperbolic / unreachable inputs leave the node unresolved; the
-  resolver retries each tick.
-- **`n` quick-plant**: T+5 min prograde 200 m/s, finite (sized to thrust).
-- **`H` auto-plant Hohmann transfer**: select target body, one keystroke
-  plants two finite nodes (geocentric departure + destination-frame arrival)
-  with `Duration = Δv × mass / thrust`. Frame-aware via `ManeuverNode.PrimaryID`.
-  v0.6.2: the departure Δv is refined through `planner.IterateForTarget`,
-  a Newton solver that adjusts commanded Δv against a finite-burn
-  RK4 integration of the burn until delivered apoapsis matches the
-  Hohmann target. For high-TWR loadouts (S-IVB-1) the impulsive
-  guess is already < 0.1 % off so the iterator converges in 1-2
-  steps — effectively a no-op. For low-TWR loadouts (revived ICPS,
-  future ion stages) it catches multi-percent gravity-rotation
-  losses the impulsive math misses. Iteration failure silently
-  falls back to the impulsive Δv.
-- **`P` porkchop plot**: ASCII heatmap over departure-day × time-of-flight,
-  intensity ramp `█▓▒░ ` cheap → expensive. Cursor navigates cells, snaps to
-  min-Δv on open. **Enter on a feasible cell plants that Lambert-based
-  transfer** (v0.4.1) via `World.PlanTransferAt`.
-- **`R` refine plan** (v0.4.1): re-runs Lambert from the craft's live
-  heliocentric state to the pending arrival node's target at the
-  existing arrival time; plants a prograde / retrograde mid-course
-  correction burn sized to `|v1_lambert − v_craft|` and replaces the
-  arrival burn's Δv with the refined `|v2_lambert − v_target|` capture.
-  Correction mode picked by alignment of the Δv vector with current
-  velocity (scalar-along-velocity; full vector corrections stay
-  deferred).
+- **Manual planner** (`m`): five-field form (mode / fire-at / Δv /
+  throttle / iterate). `Tab` cycles, `←/→` cycles modes / events /
+  iterate, space toggles iterate, digits edit Δv / throttle. Burn
+  duration is **derived** from Δv via the rocket-equation form
+  `t = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))` — pre-v0.6.5 the form
+  exposed Δv AND duration as independent inputs, but at fixed
+  thrust + mass the two are the same dial. Live PROJECTED ORBIT
+  block: apo/peri/AN/DN/inclination of the resulting orbit, rebased
+  into the burn's target primary frame; the canvas dashed shadow
+  trajectory + the form readout both feed off
+  `World.PreviewBurnState`, which propagates to the fire-at event
+  point before applying Δv.
+- **Iterate-for-target toggle** (v0.8.6.3, the form's 5th field).
+  Off by default. When on, the app routes the commanded Δv through
+  `World.IterateBurnDV(mode, dv)` before plant —
+  `planner.IterateForTarget` Newton-iterates against an RK4 finite-
+  burn simulation to refine Δv so the post-burn apsides match what
+  an impulsive Δv at the same value would have delivered (target
+  picked from mode: Prograde/Retrograde → apoapsis, Radial± →
+  periapsis, Normal± → no-op). Falls back to commanded Δv on
+  iteration failure. Hohmann auto-plant has used this iterator
+  internally since v0.6.2; the toggle exposes it for player-planted
+  burns.
+- **Event-relative trigger nodes** (v0.6.0+): `fire at` selects
+  Absolute T+ or `next peri / next apo / next AN / next DN`. Lazy-
+  freeze resolver in `World.Tick` computes `TriggerTime` against
+  the body-equatorial frame on the first tick after plant, then
+  freezes — body-equatorial means AN/DN are the body's actual
+  equator crossings, not world-XY. Equatorial / hyperbolic /
+  unreachable inputs leave the node unresolved; the resolver
+  retries each tick.
+- **`F5` quicksave / `F9` quickload** (v0.8.6+, KSP-style); replaces
+  the v0.4.0 `S` / `L` keys.
+- **`Ctrl+D` / `Ctrl+K`** (in `m` form, v0.8.6+): per-node delete /
+  clear-all-nodes. Replaces the global `N` keybinding (case-collided
+  with `n` SpawnCraft).
+- **`H` auto-plant Hohmann transfer**: select target body, one
+  keystroke plants two finite nodes (origin-frame departure +
+  destination-frame arrival), each refined through
+  `IterateForTarget`. Frame-aware via `ManeuverNode.PrimaryID`.
+  Phase correction (v0.5.9) waits for the next launch window so the
+  craft actually rendezvous with the target.
+- **`P` porkchop plot**: ASCII heatmap over departure-day × time-of-
+  flight. Cursor navigates cells, snaps to min-Δv on open. **Enter
+  on a feasible cell plants that Lambert transfer**. Single-
+  rev / prograde-only today; multi-rev + retrograde UI deferred to
+  v0.9.
+- **`R` refine plan** (v0.4.1): re-runs Lambert from the craft's
+  live heliocentric state to the pending arrival node's target,
+  plants a prograde / retrograde mid-course correction, replaces
+  the arrival burn's Δv with the refined capture.
+- **`I` plane match**. With no body cursor → drop to body-
+  equatorial 0°. With a body selected →
+  `orbital.PlaneMatchInclination(b, frame)` converts the target's
+  heliocentric orbit normal into the primary's reference frame and
+  plants a single normal±-burn at the next AN/DN to match. From
+  LEO, "match Mars" returns ~23.4° (Earth-tilt-dominated);
+  heliocentric collapses to the body's ecliptic-relative i.
 
 ### Rendering (orbit canvas)
-- **Adaptive body sizing**: bodies render at true scale when `radius × scale
-  ≥ 4 px`, capped at 64 px; otherwise tier buckets (1 small / 2 terrestrial
-  / 4 gas giant / 6 star). System primary is a hollow ring + filled center
-  to distinguish from planets.
-- **Textured body disks** (v0.7.2.1+): when `r ≥ 12 px`, Earth and
-  Moon render per-pixel via `Canvas.FillTexturedDiskTagged` +
-  `render.{Earth,Moon}PixelColor`. Orthographic projection from
-  (dx, dy) to (lat, lon) drives an ellipse-table lookup classifying
-  each pixel — Earth: cloud / land / ocean; Moon: bright crater
-  ray / mare / highland (canonical near-side layout). The body-
-  identity glyph (●) is suppressed when the texture is active so
-  it doesn't blot the surface detail. Static — no rotation tied to
-  sim time. `render.TextureFor(b, pxRadius)` is the dispatch hook
-  for future bodies (Mars caps, Jupiter banding, etc.).
-- **Vessel orbit ellipse**: live Keplerian orbit drawn dotted (stride 3)
-  in the craft's primary frame, in `ColorCurrentOrbit` pale slate
-  (v0.6.1; was white — distinct from any body palette). Hyperbolic /
-  degenerate orbits skipped (the SOI-segmented preview covers those).
-  v0.6.1: ellipse hidden when `apoapsis × scale < minOrbitPixels` so
-  the orbit doesn't render as a one-cell blob over the parent body
-  at heliocentric zoom.
-- **Apo / peri markers**: filled disks at ν=0 (peri, 2 px) and ν=π (apo,
-  3 px) so low-eccentricity orbits still show their two extremes at a
-  glance. Hidden when the orbit ellipse is suppressed.
-- **Vessel marker**: 5-pixel chevron oriented along velocity when the
-  orbit ellipse is visible; swaps to a single bright `ColorCraftMarker`
-  disk at sub-orbit zoom (v0.6.1) so the craft reads as a recognisable
-  pixel rather than a sprawling chevron over the parent body.
-- **Per-leg colored trajectory preview** (v0.6.1): each planted node's
-  post-burn orbit renders in its own color from a 4-cycle palette
-  (cyan / mint / amber / pink). Node-marker clusters take the same
-  color so the (marker, post-burn-orbit) pair reads as a matched
-  group at a glance. Each leg's window runs from its node's burn
-  centre to the next node (or one full period if last). Frame-rebase:
-  legs planted in destination frames (Hohmann arrival in Mars frame)
-  predict from there instead of being skipped. Suppressed during
-  active burns (live state mutates each integrator step).
-- **Camera focus** (`f`/`F`/`g`): cycles system-wide / each body / craft.
-  FocusCraft auto-fits to ~3× current altitude. v0.6.1: NewWorld
-  spawns with `Focus = FocusCraft`.
+- **Adaptive body sizing**: bodies render at true scale when
+  `radius × scale ≥ 4 px`, capped at 512 px (v0.8.4+ raised from 64
+  so atmospheric haze can render at the full disk). Tiered fallback
+  for small bodies. System primary uses a hollow ring + filled
+  centre to distinguish from planets; v0.8.5+ replaces the Sun's
+  ring with a textured disk + corona halo.
+- **Per-pixel body textures** (v0.8.5+). At `r ≥ 12 px`, bodies
+  render through `Canvas.FillTexturedDiskTagged`. View-aware
+  inverse-orthographic projection (Snyder §20) maps screen (dx, dy)
+  to body-frame (lat, lon) using the sub-observer point so
+  ViewTop on tilted Earth reveals the Arctic, Uranus rolls pole-on
+  along its orbit, Saturn's polar hexagon stays at +78°N regardless
+  of view, ViewOrbitFlat picks up the canvas's depth axis. Coverage:
+  - **Sun**: limb-darkened solar disk + sunspots + corona halo.
+  - **Earth**: polygon-rasterised 144×72 continental mask
+    (continents + key islands like UK / Iceland / Italy /
+    Madagascar / Cuba / Hispaniola / Sumatra / Java / Borneo /
+    Sulawesi / New Guinea / Philippines / Tasmania / NZ + deserts +
+    polar ice). Biome-shaded land (tropical / temperate / boreal)
+    by `|lat|`, atmospheric blue-marble limb tint.
+  - **Moon**: canonical near-side maria (Crisium, Tranquillitatis,
+    Imbrium, Procellarum, etc.) + bright rayed-crater accents
+    (Tycho, Copernicus, Kepler) + far-side / polar detail (Mare
+    Orientale, Moscoviense, Ingenii, South Pole-Aitken basin).
+    Tidally-locked override always shows near-side.
+  - **Mars**: rust base, Syrtis Major / Solis Lacus / Acidalia /
+    Mare Cimmerium / Mare Erythraeum dark albedo, Arabia Terra +
+    Hellas bright regions, polar caps.
+  - **Jupiter**: 10-band SPR/STB/STrZ/SEB/EZ/NEB/NTrZ/NTB/NTZ/NPR
+    alternating zones/belts + Great Red Spot.
+  - **Saturn**: cloud bands + polar hexagon + tilted four-band
+    ring system (C / B / Cassini Division gap / A / F),
+    foreshortening per view (~89% top, ~45% side, edge-on
+    perpendicular to tilt).
+  - **Galileans** (Io / Europa / Ganymede / Callisto), **Uranus**
+    (subtle banding), **Neptune** (banded + Great Dark Spot).
+- **Vessel orbit ellipse**: live Keplerian orbit drawn dotted
+  (stride 3) in the craft's primary frame. Hyperbolic / degenerate
+  orbits skipped. Hidden when `apoapsis × scale < minOrbitPixels`
+  so heliocentric zoom doesn't render LEO orbits as a one-cell blob
+  over the parent body.
+- **Apo / peri markers** at ν=0 / π. **Vessel marker**: 5-pixel
+  chevron oriented along velocity, swaps to a single bright disk at
+  sub-orbit zoom.
+- **Per-leg colored trajectory preview** (v0.6.1+). Each planted
+  node's post-burn orbit renders in its own colour from a 4-cycle
+  palette (cyan / mint / amber / pink); marker clusters take the
+  matched colour. Frame-aware: legs planted in destination frames
+  predict from there.
+- **Per-craft glyph + colour** (v0.8.2+): each loadout has its own
+  marker so multi-craft slates read at a glance.
+- **Atmospheric haze ring** (v0.8.4+): faint ring at
+  `cutoff + scale-height` in `atm.Color` shows where drag becomes
+  non-negligible. Body disk grows to canvas reach so altitude-0
+  reads as surface; landed craft trigger a zoom cap so altitude-0
+  stays visible.
+- **Camera focus** (`f`/`F`/`g`): system-wide / each body / craft.
+  FocusCraft auto-fits to ~3× current altitude; terminal moons
+  (no children orbiting them) zoom to 8× radius on focus so surface
+  texture is visible by default.
 
 ### HUD
-- Clock + warp + paused indicator.
-- Focus block: focused-target name + permanent **VIEW** sub-line
-  showing the active projection (top / right / bottom / left /
-  orbit-flat) — replaces the v0.6.4 toast that flashed for 2 s on
-  `v` press (v0.6.5+).
-- Vessel block: name, primary, altitude, velocity, apoapsis, periapsis,
-  inclination, plus **PERIAPSIS BELOW SURFACE** alert when periapsis altitude
+- Clock + warp + paused indicator. **Effective warp** is shown
+  alongside the selected warp when the four-cap clamp engages.
+- Focus block: focused-target name + permanent **VIEW** sub-line.
+- Vessel block (per active craft): name, primary, altitude,
+  velocity, apoapsis, periapsis, inclination (body-equatorial),
+  plus **PERIAPSIS BELOW SURFACE** alert when periapsis altitude
   goes negative.
-- Propellant: fuel, total mass, Δv budget remaining (rocket equation).
+- Propellant block: fuel + monoprop, total mass, Δv budget
+  remaining (rocket equation).
 - Active-burn block (when in flight): mode, Δv-to-go, T-remaining.
-- Planned nodes: list with mode / Δv / time-to-fire / impulsive vs
-  finite tag. Unresolved event-relative nodes show their trigger label
-  ("next peri") instead of T+ until the resolver fires (v0.6.0+).
-- **Projected orbit** (v0.6.1, shown when ≥1 resolved node and no
-  active burn): apo / peri / AN / DN of the chained post-burn orbit
-  via `World.PredictedFinalOrbit`. Rebases into each node's intended
-  PrimaryID before applying its Δv, so a Hohmann arrival's projected
-  orbit reports as Mars-frame, not Sol-frame. Suppressed during
-  active burns to avoid flailing values as live state mutates.
-- **Mission** block (v0.6.5+, shown when at least one mission is
-  loaded): active mission name + status, or "N/total complete" once
-  every loaded mission reaches a terminal state. The first
-  `InProgress` mission in `World.Missions` is surfaced via
-  `World.ActiveMission`.
-- Selected body: name, type, semimajor axis, eccentricity, period, plus
-  Hohmann preview when applicable.
+- Planned nodes: per-craft list, mode / Δv / time-to-fire / event
+  label / impulsive vs finite tag. Multi-craft slates list every
+  craft's nodes simultaneously. Clickable rows for direct edit
+  (v0.8.2+).
+- **Projected orbit** (v0.6.1+, body-equatorial frame v0.8.6.1+):
+  apo / peri / AN / DN / inclination of the chained post-burn
+  orbit, rebased into each node's intended PrimaryID before
+  applying its Δv.
+- **CAPTURE PREVIEW** (v0.8.2+): predicted relative approach
+  speed + qualitative direction (prograde / retrograde) for
+  Hohmann arrivals. v0.8.4's time-aware predictor unlocks exact
+  arrival inclination for typical Hohmanns; v0.8.6.1 reads
+  inclination in the destination body's equatorial frame.
+- **RENDEZVOUS HUD** (v0.8.3+, when ≥2 craft are close): live
+  range / |v_rel| / DOCK READY indicator.
+- **FRAME TRANSITION** (v0.7.6+): upcoming SOI / frame change for
+  the next planted node, via `World.NextFrameTransition`.
+- **Mission** block (clickable `[Missions]` button in the title
+  bar opens a dedicated screen with status glyphs ✓/✗/·).
+- Selected body block: name, type, semimajor axis, eccentricity,
+  period, plus Hohmann preview when applicable.
 
-### Missions (v0.6.5)
+### Missions (v0.6.5+)
 - `internal/missions` package: typed predicate machine over the
   spacecraft's (primary, state, sim-time) tuple. Three predicate
-  kinds dispatched on `Mission.Type`:
-  - `circularize` — craft is in the named primary's frame, orbit is
+  kinds:
+  - `circularize` — craft is in the named primary's frame, orbit
     bound, eccentricity ≤ cap, semimajor axis within ±tol of
     `radius + altitude_m`.
   - `orbit_insertion` — craft is in the named primary's frame on a
     bound orbit (e < 1).
-  - `soi_flyby` — any tick where craft's current primary ID matches
-    the named body.
-- Three-state machine (`InProgress` → `Passed` | `Failed`) with sticky
-  terminal states; `Mission.Evaluate(EvalContext)` is idempotent on
-  Passed/Failed so the per-tick caller blindly walks the slice.
-- Embedded starter catalog (`internal/missions/missions.json` via
-  `go:embed`): "Circularize at 1000 km LEO" (e ≤ 0.005, ±5% on `a`),
-  "Luna orbit insertion" (bound orbit around moon), "Mars SOI
-  flyby". `missions.DefaultCatalog()` returns the parsed catalog.
-- `World.Missions` seeded at `NewWorld`, evaluated each Tick after
-  `executeDueNodes` so a burn that completes a circularization
-  passes on the same tick the burn ends.
-- Save schema v2 → v3 with `Payload.Missions []missions.Mission`
-  (omitempty). v1/v2 saves wire-out nil and get the embedded
-  catalog seeded fresh in `worldFromPayload` — older saves gain
-  the feature transparently. v3 saves round-trip status verbatim.
+  - `soi_flyby` — any tick where the craft's current primary ID
+    matches the named body.
+- Three-state machine (`InProgress` → `Passed` | `Failed`) with
+  sticky terminal states. Embedded starter catalog: "Circularize
+  at 1000 km LEO" (e ≤ 0.005, ±5% on `a`), "Luna orbit insertion",
+  "Mars SOI flyby". `World.Missions` evaluated each Tick after
+  `executeDueNodes` so a circularization passes on the same tick
+  the burn ends.
 
-### Body hierarchy & moons (v0.5.0)
-- `bodies.Body.ParentID` enables arbitrary-depth `parent → child` refs.
-  Empty ParentID = top-level body (orbits the system primary).
-- `BodyPosition` recurses: moon position = parent's inertial position
-  + moon's position relative to parent.
-- `bodyInertialVelocity` recurses: moon's inertial velocity = parent's
-  inertial velocity + moon's velocity relative to parent.
-- `physics.FindPrimary` uses each body's actual parent for SOI sizing
-  (Luna→Earth, Phobos→Mars), so nested-SOI walks pick the innermost
-  containing body correctly. Also reaches into the warp-lock chunk
-  cap so foreign-SOI proximity stays accurate post-hierarchy.
-- Moon catalog: Luna, Phobos, Deimos, the four Galilean (Io, Europa,
-  Ganymede, Callisto), Titan, Enceladus — single-moon (Earth) and
-  multi-moon (Jupiter, Saturn) primaries both exercised.
+### Body hierarchy & moons (v0.5.0+)
+- `bodies.Body.ParentID` enables arbitrary-depth `parent → child`
+  refs. Empty ParentID = top-level body (orbits the system primary).
+- Recursive position / velocity: moon = parent's inertial position +
+  moon's parent-relative position; same for velocity.
+- `physics.FindPrimary` uses each body's actual parent for SOI
+  sizing so nested-SOI walks pick the innermost containing body
+  correctly.
+- Moon catalog: Luna, Phobos, Deimos, the four Galileans (Io,
+  Europa, Ganymede, Callisto), Titan, Enceladus.
 - Transfer planning to/from moons is **shipped both directions**:
-  same-primary intra-primary transfers (craft in LEO → Luna, both
-  around Earth) ship in v0.5.7 via `planner.PlanIntraPrimaryHohmann`,
-  with v0.5.9 adding phase correction so the craft actually
-  rendezvous with the target. The reverse — craft inside a moon's
-  SOI returning to its parent (Luna → Earth) — ships in v0.6.3 via
-  `planner.PlanMoonEscape`: bound transfer ellipse with apolune at
-  the moon's SOI radius, zero-Δv frame marker at SOI exit, player
-  plants their own circularization once they see the post-escape
-  parent-frame trajectory. The departure burn reuses v0.6.2's
-  `IterateForTarget` for finite-burn refinement. Wider inter-SOI
-  capture (heliocentric → moon-of-other-planet, Phobos from Mars,
-  Titan from heliocentric) is **not** in v0.6 scope.
+  same-primary intra-primary transfers (LEO → Luna, both around
+  Earth) via `planner.PlanIntraPrimaryHohmann` (v0.5.7) with phase
+  correction (v0.5.9); the reverse — craft inside a moon's SOI
+  returning to its parent (Luna → Earth) — via
+  `planner.PlanMoonEscape` (v0.6.3): bound transfer ellipse with
+  apolune at the moon's SOI radius, zero-Δv frame marker at SOI
+  exit, player plants their own circularization. Wider inter-SOI
+  capture (heliocentric → moon-of-other-planet) deferred to v0.9.
 
 ### Systems loaded
 - **Sol** (playable — craft spawns here).
-- **Alpha Centauri**, **TRAPPIST-1**, **Kepler-452** (viewable; craft does
-  not yet move between systems).
+- **Alpha Centauri**, **TRAPPIST-1**, **Kepler-452** (viewable;
+  craft does not yet move between systems).
 - **User overlay** (v0.7.0+): JSON files in
-  `$XDG_CONFIG_HOME/terminal-space-program/systems/*.json` merge with
-  the embedded set via `bodies.LoadAllWithWarnings`. User files win on
-  `systemName` match (e.g. dropping a `sol.json` replaces the embedded
-  Sol entirely); otherwise they append. Body-info screen tags the
-  source so the player can tell which catalog a body came from.
-  Malformed user files print a warning to stderr at startup and are
-  skipped; embedded systems always load.
+  `$XDG_CONFIG_HOME/terminal-space-program/systems/*.json` merge
+  with the embedded set. User files win on `systemName` match
+  (e.g. dropping a `sol.json` replaces the embedded Sol entirely);
+  otherwise they append. Body-info screen (`i`) tags the source so
+  the player can tell which catalog a body came from. Malformed
+  user files print a warning to stderr and are skipped; embedded
+  systems always load.
+- **Theme overlay** (v0.7.2+): `theme.json` overrides UI palette
+  vars + per-body colours. Loaded at startup; hot-reload deferred.
 
-### Distribution
-- **GoReleaser** matrix: linux + darwin amd64/arm64, windows amd64.
-- `CGO_ENABLED=0`, `-ldflags "-s -w"` static binaries.
-- CI: `go test ./...` on every PR.
+### Persistence + distribution
+- **Save / load** (`F5` / `F9`): JSON state file at
+  `$XDG_STATE_HOME/terminal-space-program/save.json`. Schema v5
+  round-trips clock, focus, the entire craft slate (each craft's
+  RCS pool, planted nodes with per-node throttle, in-flight burn,
+  attitude, engine mode), and missions. Pre-v5 saves auto-migrate.
+  Save header carries a `body_catalog_hash` so saves reject when
+  the body catalog changes between sessions.
+- **GoReleaser** matrix: linux + darwin amd64/arm64, windows
+  amd64. `CGO_ENABLED=0`, `-ldflags "-s -w"` static binaries.
+  Four-part patch tags (`vX.Y.Z.N`) bypass the release workflow so
+  checkpoint markers don't fail CI; only strict SemVer
+  `vMAJOR.MINOR.PATCH` tags trigger a release build.
+- **CI**: `go test ./...` on every PR.
 
 ---
 
