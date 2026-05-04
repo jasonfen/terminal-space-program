@@ -127,6 +127,55 @@ func TestSubObserverPointEarthTopShowsArctic(t *testing.T) {
 	}
 }
 
+// TestSubObserverPointPoleOnViewSubLonAdvancesMonotonically: when the
+// camera direction equals the body spin axis (orbit-flat view over a
+// body-equatorial orbit), cx² + cy² is mathematically zero — the
+// pole-on guard kicks in and substitutes a stable phase-driven
+// fallback so subLon advances monotonically with simTime instead of
+// jittering on atan2(noise, noise). v0.8.6+ regression for the orbit-
+// flat low-warp jitter bug.
+func TestSubObserverPointPoleOnViewSubLonAdvancesMonotonically(t *testing.T) {
+	earth := bodies.CelestialBody{ID: "earth", SideralRotation: 23.9345, AxialTilt: 23.44}
+	// Camera direction = body spin axis (the worst-case orbit-flat
+	// view for the jitter bug).
+	n := BodyRotationAxisWorld(earth)
+	camDir := Vec3{X: n.X, Y: n.Y, Z: n.Z}
+	// Sample subLon every 30 sim-minutes for 4 hours; verify each
+	// step is in (0, 360°) modulo wrapping (i.e. unwrapped angle is
+	// strictly increasing for prograde rotation, allowing the
+	// natural ±180° boundary jump).
+	const stepMin = 30
+	const steps = 8
+	prev := math.NaN()
+	cumulative := 0.0
+	for i := 0; i < steps; i++ {
+		t0 := rotationEpoch.Add(time.Duration(i*stepMin) * time.Minute)
+		_, lon := SubObserverPointDeg(earth, t0, camDir, Vec3{})
+		if !math.IsNaN(prev) {
+			d := lon - prev
+			for d > 180 {
+				d -= 360
+			}
+			for d <= -180 {
+				d += 360
+			}
+			// Earth rotates eastward → sub-observer lon decreases at
+			// ~360°/24h. Per 30 min: ~7.5°. Allow some slack for the
+			// fallback's exact phase definition; the key invariant is
+			// strict monotonicity (no back-and-forth jerks).
+			if d >= 0 {
+				t.Errorf("step %d: subLon Δ = %.3f° (expected negative for prograde rotation, no jitter)", i, d)
+			}
+			cumulative += d
+		}
+		prev = lon
+	}
+	// 4 hours of Earth rotation ≈ -60° cumulative.
+	if cumulative > -45 || cumulative < -75 {
+		t.Errorf("4 h cumulative subLon Δ = %.2f°, want ≈ -60°", cumulative)
+	}
+}
+
 func TestSubObserverPointUranusRollsAlongOrbit(t *testing.T) {
 	// Uranus's 97.77° tilt makes it roll pole-on along its orbit.
 	// ViewTop (camera at +Z) sees the body axis nearly in the
