@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.6** — controls polish bag (KSP-style F5/F9 quicksave/load, per-node delete/clear in the maneuver form), body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), and a finite-burn iterate-for-target toggle in the maneuver form.
+Latest release: **v0.8.6** — controls polish bag (KSP-style F5/F9 quicksave/load, per-node delete/clear in the maneuver form), body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), and a finite-burn iterate-for-target toggle in the maneuver form. Latest patch: **v0.8.7** — expression-type missions (modder-friendly catalog: drop a JSON mission with a boolean expression, no Go recompile required).
 
 ```bash
 # Linux x86_64
@@ -337,10 +337,19 @@ where Lambert didn't converge — `Enter` on those is a no-op.
     the next planted node nears, reaching 10× at 5 s out) —
     prevents 100,000× warp from skipping past a 30-s-out node
     in a single tick.
-- **Missions**. Three predicate kinds (`circularize` /
-  `orbit_insertion` / `soi_flyby`) with sticky pass/fail state,
-  embedded starter catalog (1000 km LEO circularize, Luna orbit
-  insertion, Mars SOI flyby). Reachable via the `[Missions]`
+- **Missions**. Four predicate kinds with sticky pass/fail state.
+  Three typed predicates from v0.6.5 (`circularize` /
+  `orbit_insertion` / `soi_flyby`) plus an `expression` kind
+  (v0.8.7+) that evaluates a boolean expression each tick against
+  a fixed environment (`primary`, `altitude_m`, `apoapsis_alt_m`,
+  `periapsis_alt_m`, `eccentricity`, `inclination_deg`,
+  `velocity_m_s`, `fuel_kg`, `monoprop_kg`, `dv_budget_m_s`,
+  `sim_time_unix`). Optional `fail_expression` flags explicit
+  failure conditions. Embedded starter catalog: 1000 km LEO
+  circularize, Luna orbit insertion, Mars SOI flyby, Mars
+  soft-capture (the v0.8.7 expression-kind example). Modders drop
+  custom missions into the catalog with one expression line — no
+  Go toolchain, no recompile. Reachable via the `[Missions]`
   title-bar button.
 - **Persistence**. Save / load to JSON at
   `$XDG_STATE_HOME/terminal-space-program/save.json`. Schema
@@ -425,7 +434,7 @@ v0.8 — **multi-craft polish**. Slice breakdown in
 - ~~v0.8.5 — sim-time planet rotation + view-aware projection + textured Sun / Saturn / Galileans / Uranus / Neptune + polygon-rasterised Earth + far-side / polar Moon detail + tilted Saturn ring system~~ **shipped.**
 - v0.8.6 — controls polish bag (multi-rev porkchop UI keys,
   `IterateForTarget` toggle in `m` form, throttle-change warp clamp).
-- v0.8.7+ stretch — mission scripting / editor.
+- v0.8.7 — mission scripting (expression-type missions via expr-lang/expr; modders ship JSON missions without recompile). Shipped.
 
 Deferred to v0.9+: multiplayer implementation, interstellar transfer,
 N-body perturbations, solar lighting + day/night terminator + eclipses

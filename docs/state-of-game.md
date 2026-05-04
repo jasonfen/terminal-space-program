@@ -1,12 +1,11 @@
 # terminal-space-program — state of game
 
-*Snapshot at v0.8.6 (May 2026) — v0.8 cycle complete (RCS v0.8.0,
+*Snapshot at v0.8.7 (May 2026) — v0.8 cycle complete (RCS v0.8.0,
 multi-craft v0.8.1, craft types + capture preview v0.8.2, docking
 v0.8.3, atmospheric drag v0.8.4, sim-time rotation + view-aware
 textures v0.8.5, controls polish + body-equatorial frame + adaptive
-warp clamps + iterate-for-target toggle v0.8.6). Updated at each
-minor / patch boundary; the §1 "what works today" detail trails
-the headline by a slice or two.*
+warp clamps + iterate-for-target toggle v0.8.6, expression-type
+missions v0.8.7). Updated at each minor / patch boundary.*
 
 `docs/plan.md` is the original architecture / phase plan. This doc complements it
 with a "what plays today, what's queued next" view organised around player-facing
@@ -16,7 +15,7 @@ by patch — this doc is the snapshot, those are the release notes.
 
 ---
 
-## 1. What works today (v0.8.6)
+## 1. What works today (v0.8.7)
 
 ### Physics
 - Two-body patched-conic propagation with **SOI-aware** state
@@ -287,9 +286,9 @@ Smallest of all four caps wins.
 - Selected body block: name, type, semimajor axis, eccentricity,
   period, plus Hohmann preview when applicable.
 
-### Missions (v0.6.5+)
-- `internal/missions` package: typed predicate machine over the
-  spacecraft's (primary, state, sim-time) tuple. Three predicate
+### Missions (v0.6.5+, expression kind v0.8.7+)
+- `internal/missions` package: predicate machine over the
+  spacecraft's (primary, state, sim-time) tuple. Four predicate
   kinds:
   - `circularize` — craft is in the named primary's frame, orbit
     bound, eccentricity ≤ cap, semimajor axis within ±tol of
@@ -298,10 +297,22 @@ Smallest of all four caps wins.
     bound orbit (e < 1).
   - `soi_flyby` — any tick where the craft's current primary ID
     matches the named body.
+  - `expression` (v0.8.7+) — a boolean expression in the
+    `github.com/expr-lang/expr` syntax evaluated each tick against
+    a fixed environment (primary, altitude_m, apoapsis_alt_m,
+    periapsis_alt_m, eccentricity, inclination_deg [body-
+    equatorial], velocity_m_s, fuel_kg, monoprop_kg,
+    dv_budget_m_s, sim_time_unix). Optional `fail_expression`
+    flags explicit failure conditions (e.g. atmospheric burn-
+    through). Programs compile-cached by source text;
+    `LoadCatalog` validates every expression so malformed JSON
+    fails the load loudly. Lets modders ship missions without a
+    Go recompile.
 - Three-state machine (`InProgress` → `Passed` | `Failed`) with
   sticky terminal states. Embedded starter catalog: "Circularize
   at 1000 km LEO" (e ≤ 0.005, ±5% on `a`), "Luna orbit insertion",
-  "Mars SOI flyby". `World.Missions` evaluated each Tick after
+  "Mars SOI flyby", and "Soft Mars capture" (v0.8.7 expression
+  example). `World.Missions` evaluated each Tick after
   `executeDueNodes` so a circularization passes on the same tick
   the burn ends.
 
@@ -713,8 +724,9 @@ that gets drafted.
 | **v0.8.4 ✓** | | Atmospheric drag — bodies.Atmosphere data model + Earth/Mars values (exponential ρ(h) with 8500m / 11100m scale heights), drag-aware Verlet (`physics.StepVerletWithAccel`) wired into live integrator + `propagateStateWithPrimary` + `PredictedSegmentsFrom` + `stepThrust`, Kepler warp-lock retreat below atmospheric cutoff, Spacecraft.BallisticCoefficient (default 0.01 m²/kg). Time-aware `propagateStateWithPrimary` (foundation work) unlocks exact CAPTURE PREVIEW inclination for typical Hohmanns. Surface clamp on aerobrake impact (`physics.ClampToSurface`); zoom cap for landed craft so altitude-0 stays visible. Visual: faint haze ring at cutoff+scale-height in atm.Color. |
 | **v0.8.5 ✓** | | Sim-time planet rotation + view-aware projection + textured-bodies trickle. Rotation core: `bodies.CelestialBody.TidallyLocked` + `AxialTilt` + `AxialAzimuth` fields; `render.SubObserverPointDeg(b, simTime, camDir, primMer)` returning (subLat, subLon) — free-body uses sidereal rotation, tidally-locked tracks the body→parent vector at simTime so Luna's near-side faces Earth always. `Clock.RotationTime` advances at min(warp, 10000×) so high-warp doesn't blur surfaces. View-aware projection (Snyder §20 inverse-orthographic with arbitrary sub-observer point) means ViewTop on tilted Earth reveals the Arctic, Uranus rolls pole-on along its orbit, Saturn's polar hex stays at +78°N regardless of view; ViewOrbitFlat picks up the canvas's depth axis. Polygon-rasterised 144×72 Earth grid (~50 polys × 10–20 verts: continents + key islands like UK / Iceland / Italy + Sicily / Madagascar / Cuba / Hispaniola / Sumatra / Java / Borneo / Sulawesi / New Guinea / Philippines / Tasmania / NZ + deserts + polar ice) replaces the v0.7.6 ellipse-table approximation; biome-shaded land (tropical / temperate / boreal) by `|lat|`; atmospheric blue-marble limb tint at r²>0.92 over non-ice. Far-side / polar Moon detail (Mare Orientale + Moscoviense + Ingenii + South Pole-Aitken basin + far-side / polar craters); tidally-locked override always shows near-side regardless of canvas view mode. Tilted Saturn ring system: C / B / Cassini Division gap / A / F bands sampled in body equatorial plane and projected through `Canvas.RingTiltedOutline` so foreshortening reads correctly per view (~89% top, ~45% side). Textured Sun (limb-darkened solar disk + sunspots + corona halo replaces the v0.7.x ring + center-dot crosshair), Galileans (Io paterae, Europa lineae, Ganymede dark regiones, Callisto crater rays), Uranus (subtle banding), Neptune (banded + Great Dark Spot). Terminal moons (no children orbiting them) zoom to 8× radius on focus so surface texture is visible by default. Save schema: TidallyLocked + AxialTilt + AxialAzimuth fields bump CatalogHash; v0.8.4 saves reject on first v0.8.5 load. |
 | **v0.8.6 ✓** | | Controls polish bag + unplanned add-ons. Keymap pass: Save/Load → F5/F9 (KSP-style), drop the global N ClearNodes binding (case-collided with `n` SpawnCraft), per-node ctrl+d delete + ctrl+k clear-all in the maneuver form, new World.DeleteNode sim API. **IterateForTarget toggle** in the `m` form (5th cycled field; refines commanded Δv via planner.IterateForTarget at plant time so post-burn apsides match the projected orbit; off by default; skipped for Normal±). **Body-equatorial Keplerian frame** for body-bound orbits — i/Ω/ω read in the primary's equatorial frame (ECI for Earth, MCI for Mars, etc.) per operational mission-planning convention; default LEO spawn passes over the equator (Ecuador), not over Guatemala (the world-XY-frame spawn intersected Earth at ~23°N because of the 23.44° axial tilt). PlaneMatchInclination converts a target's heliocentric plane into the primary's frame. Heliocentric orbits stay ecliptic-relative. **Adaptive warp clamps**: throttle-change cap (10× for 1 sim-second after Throttle changes); upcoming-node approach cap (continuous predictive ramp-down — maxWarp = secondsUntilNode / (10 × BaseStep), floored at 1×, prevents 100,000× warp from skipping a 30-s-out node). **Orbit-flat low-warp jitter fix**: ω snapped to 0 for circular orbits (eMag < 1e-6) so PerifocalBasis stays stable per frame; defensive pole-on guard added in SubObserverPointDeg. CI: four-part patch tags (vX.Y.Z.N) excluded from goreleaser so checkpoint markers don't fail the workflow. **Backlogged**: (c) multi-rev porkchop UI keys — defer until staging slices grow craft fleet enough that multi-rev / retrograde transfers are practically valuable. |
-| v0.8 ✓ | **Multi-craft polish** | RCS / monopropellant + multi-craft slate + craft types + docking + atmospheric drag + sim-time rotation + view-aware textures + controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target. See `docs/v0.8-plan.md` for slice breakdown. |
-| v0.9+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, ground-launch chain, real rendezvous planner (target-relative prograde/retrograde modes + null-v_rel at closest approach + iterative refinement — see §6 *Rendezvous tooling*), capture-direction toggle, plane-shift + Hohmann combo, N-body perturbations, mission editor/scripting, drag-to-edit nodes, solar lighting / day-night terminator / eclipses, high-fidelity Earth raster (NOAA ETOPO1) |
+| **v0.8.7 ✓** | | **Mission scripting** (option B from §6 *Mission scripting / editor*). New `expression` mission kind: a `github.com/expr-lang/expr` boolean predicate evaluated each tick against a fixed env (`ExpressionEnv`: primary, altitude_m, apoapsis_alt_m, periapsis_alt_m, eccentricity, inclination_deg [body-equatorial], velocity_m_s, fuel_kg, monoprop_kg, dv_budget_m_s, sim_time_unix). Optional `fail_expression` for explicit failure. Programs compile-cached by source text; `LoadCatalog` runs `ValidateExpressions` so malformed JSON fails the load loudly. Picked expr over CEL on dep weight (pure-Go, no protobuf, no transitive deps; CEL would have pulled ~30 transitives). Starter catalog gains "Soft Mars capture" as the example (`primary == 'mars' && eccentricity < 0.1 && periapsis_alt_m > 200_000 && dv_budget_m_s >= 1500`). Mission packs become a sharing format — players ship JSON missions without a Go recompile. Open: cross-craft predicates (env is single-craft today) and threading mass/propellant through EvalContext (currently zeroed) — both v0.8.7.x or v0.9 follow-ups. |
+| v0.8 ✓ | **Multi-craft polish** | RCS / monopropellant + multi-craft slate + craft types + docking + atmospheric drag + sim-time rotation + view-aware textures + controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target + expression-type missions. See `docs/v0.8-plan.md` for slice breakdown. |
+| v0.9+ | Open *(speculative)* | Multiplayer implementation, multi-rev porkchop, ground-launch chain, real rendezvous planner (target-relative prograde/retrograde modes + null-v_rel at closest approach + iterative refinement — see §6 *Rendezvous tooling*), capture-direction toggle, plane-shift + Hohmann combo, N-body perturbations, drag-to-edit nodes, solar lighting / day-night terminator / eclipses, high-fidelity Earth raster (NOAA ETOPO1), cross-craft mission predicates, mass/propellant fields in ExpressionEnv |
 
 ### v0.4 — save / load + mid-course corrections
 

@@ -29,6 +29,15 @@
       "params": {
         "primary_id": "mars"
       }
+    },
+    {
+      "id": "mars-soft-capture",
+      "name": "Soft Mars capture",
+      "description": "Reach a near-circular bound orbit around Mars (e ≤ 0.1) above 200 km, with at least 1500 m/s of Δv left in the tank.",
+      "type": "expression",
+      "params": {
+        "expression": "primary == 'mars' && eccentricity < 0.1 && periapsis_alt_m > 200_000 && dv_budget_m_s >= 1500"
+      }
     }
   ]
 }
