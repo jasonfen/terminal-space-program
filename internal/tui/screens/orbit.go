@@ -1686,6 +1686,17 @@ func viewBasis(w *sim.World) widgets.Basis {
 		if w.ActiveCraft() == nil {
 			return widgets.DefaultBasis()
 		}
+		// v0.9.2+: a Landed craft co-rotates with the body, so its
+		// (r, v) gives an orbit plane that also co-rotates. Using
+		// that as the canvas's orbit-flat basis would lock the
+		// camera to the body and hide its rotation entirely (the
+		// body's surface texture appears frozen). Fall back to the
+		// top-view basis for parked crafts so the player can see
+		// Earth turning under them. Once they engage the engine
+		// (Landed → false) the live orbit picks up.
+		if w.ActiveCraft().Landed {
+			return widgets.DefaultBasis()
+		}
 		mu := w.ActiveCraft().Primary.GravitationalParameter()
 		if mu <= 0 {
 			return widgets.DefaultBasis()
