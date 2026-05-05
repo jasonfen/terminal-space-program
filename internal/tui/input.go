@@ -83,10 +83,22 @@ type Keymap struct {
 
 	// CycleTarget / ClearTarget (v0.9.0+): unified `World.Target` slot
 	// that planted-Hohmann (`H`) and plane-match (`I`) consume in
-	// place of the pre-v0.9 implicit body cursor. Cycle order: bodies
-	// in current system → non-active sibling craft → none.
+	// place of the pre-v0.9 implicit body cursor. Cycle order:
+	// non-active sibling craft → bodies in current system → none.
 	CycleTarget key.Binding
 	ClearTarget key.Binding
+
+	// Stage (v0.9.1+): KSP-style player-managed sequential decouple.
+	// Drops the active craft's bottom stage (Stages[0]) — spawning
+	// it as a passive Spacecraft in the slate at the same inertial
+	// state — and the upper-stage chain becomes the active craft's
+	// new propulsion. Bound to `space` per docs/v0.9-plan.md
+	// resolved scoping #3 (matches KSP muscle memory). v0.9.1
+	// retired the `space` binding from Pause; pause now lives on
+	// `0` alone. The maneuver form's iterate-toggle (v0.8.6.3)
+	// already used `space` inside `m`; the decouple binding is
+	// confined to the no-form context so the two don't collide.
+	Stage key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -106,7 +118,9 @@ func DefaultKeymap() Keymap {
 		NextSystem: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next system")),
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
 		WarpDown:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "warp down")),
-		Pause:      key.NewBinding(key.WithKeys("0", " "), key.WithHelp("0/space", "pause")),
+		// v0.9.1: dropped `space` from Pause; space is now Stage. `0`
+		// alone retains the pause binding (it never collided).
+		Pause:      key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "pause")),
 		ZoomIn:     key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "zoom in")),
 		ZoomOut:    key.NewBinding(key.WithKeys("-", "_"), key.WithHelp("-", "zoom out")),
 		Back:       key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
@@ -140,5 +154,6 @@ func DefaultKeymap() Keymap {
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / craft)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
+		Stage:               key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "decouple bottom stage")),
 	}
 }
