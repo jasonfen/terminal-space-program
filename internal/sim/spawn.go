@@ -16,12 +16,20 @@ import (
 
 var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 
-// surfaceSpawnPosVel computes the world-frame position and inertial
+// surfaceSpawnPosVel computes the **primary-relative** position and
 // velocity of a point on `primary`'s rotating surface at the given
 // latitude. Longitude is derived from `simTime` modulo the body's
 // sidereal period so consecutive launches at different sim-times
 // spawn at different points on the body's rotation phase (the pad
 // rotates with the body during the day).
+//
+// Returned (R, V) plug straight into `Spacecraft.State` — the
+// integrator's per-tick math adds the primary's heliocentric R/V
+// itself when transforming to world coords. Pre-v0.9.2-fix this
+// helper returned heliocentric coords, which the integrator then
+// double-transformed into a position outside Earth's SOI; the SOI
+// walker re-parented the craft to Sun. Don't put helio offsets in
+// `c.State`.
 //
 // Convention: the body is treated as rotating about world +Z, the
 // same approximation `physics.AtmosphereOmega` uses for drag.
@@ -33,8 +41,6 @@ var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 // [-90, 90] by the caller.
 func surfaceSpawnPosVel(
 	primary bodies.CelestialBody,
-	bodyPos orbital.Vec3,
-	bodyVel orbital.Vec3,
 	latitudeDeg float64,
 	simTime time.Time,
 ) (orbital.Vec3, orbital.Vec3) {
@@ -58,15 +64,19 @@ func surfaceSpawnPosVel(
 		Z: radius * sinLat,
 	}
 
-	// Surface co-rotation: ω × r. Match the physics.AtmosphereOmega
-	// convention (Z-aligned ω = 2π / sideralRotationSec).
+	// Surface co-rotation: v_rel = ω × r. Match the
+	// physics.AtmosphereOmega convention (Z-aligned ω = 2π /
+	// sideralRotationSec). The body's heliocentric velocity is
+	// **not** included — c.State.V is primary-relative; the
+	// integrator handles the body-velocity addition when it
+	// projects to inertial coords.
 	var omega orbital.Vec3
 	if primary.SideralRotation > 0 {
 		omega = orbital.Vec3{Z: 2 * math.Pi / (primary.SideralRotation * 3600)}
 	}
 	vRel := omega.Cross(rRel)
 
-	return bodyPos.Add(rRel), bodyVel.Add(vRel)
+	return rRel, vRel
 }
 
 // SpawnSpec describes a craft to spawn. v0.8.2 ships these axes:
@@ -178,13 +188,11 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if latDeg < -90 {
 			latDeg = -90
 		}
-		bodyPos := w.BodyPosition(primary)
-		bodyVel := w.bodyInertialVelocity(primary)
-		rWorld, vWorld := surfaceSpawnPosVel(primary, bodyPos, bodyVel, latDeg, w.Clock.SimTime)
+		rRel, vRel := surfaceSpawnPosVel(primary, latDeg, w.Clock.SimTime)
 		c.Primary = primary
 		c.State = physics.StateVector{
-			R: rWorld,
-			V: vWorld,
+			R: rRel,
+			V: vRel,
 			M: c.TotalMass(),
 		}
 		w.Crafts = append(w.Crafts, c)
