@@ -27,8 +27,24 @@ import (
 // modes there return zero (degraded — predictor doesn't simulate
 // future v_surface).
 //
-// v0.9.2+.
+// v0.9.2+. v0.9.3+: target-relative modes added; this wrapper passes
+// zero target state, so the four target modes degrade to no-op here —
+// callers with a target use BurnDirectionWithTarget.
 func (s *Spacecraft) BurnDirection(mode BurnMode) orbital.Vec3 {
+	return s.BurnDirectionWithTarget(mode, orbital.Vec3{}, orbital.Vec3{})
+}
+
+// BurnDirectionWithTarget is BurnDirection with a target snapshot in
+// the same frame as Spacecraft.State (primary-relative when both
+// share a primary, fully inertial otherwise — caller resolves the
+// frame via World.targetStateRelativeToActivePrimary).
+//
+// The four target-relative modes (BurnTargetPrograde / Retrograde /
+// BurnTarget / AntiTarget) consume (rT, vT); other modes ignore it
+// and behave identically to BurnDirection.
+//
+// v0.9.3+.
+func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
 	var dir orbital.Vec3
 	switch mode {
 	case BurnSurfacePrograde, BurnSurfaceRetrograde:
@@ -42,6 +58,8 @@ func (s *Spacecraft) BurnDirection(mode BurnMode) orbital.Vec3 {
 		if mode == BurnSurfaceRetrograde {
 			dir = dir.Scale(-1)
 		}
+	case BurnTargetPrograde, BurnTargetRetrograde, BurnTarget, BurnAntiTarget:
+		dir = DirectionUnitTarget(mode, s.State.R, s.State.V, rT, vT)
 	default:
 		dir = DirectionUnit(mode, s.State.R, s.State.V)
 	}

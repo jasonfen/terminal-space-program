@@ -172,6 +172,42 @@ func (w *World) CraftInertialVelocity(c *spacecraft.Spacecraft) orbital.Vec3 {
 	return w.bodyInertialVelocity(c.Primary).Add(c.State.V)
 }
 
+// TargetStateRelativeToActivePrimary returns the target craft's state
+// expressed in the active craft's primary-relative frame, so the same
+// (R, V) basis as ActiveCraft().State can be used for relative-vector
+// math (closest approach, target-prograde direction, |v_rel|, range).
+// Returns ok=false when no craft target is set, the index is stale,
+// or there is no active craft.
+//
+// Same-primary case (the common one — rendezvous in LEO): both craft
+// share a primary, so the target's primary-relative state is already
+// in the active's frame. Cross-primary case: convert via inertial,
+// subtract the active primary's pose. v0.9.3+.
+func (w *World) TargetStateRelativeToActivePrimary() (rT, vT orbital.Vec3, ok bool) {
+	if w.Target.Kind != TargetCraft {
+		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	active := w.ActiveCraft()
+	if active == nil {
+		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	if w.Target.CraftIdx < 0 || w.Target.CraftIdx >= len(w.Crafts) {
+		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	t := w.Crafts[w.Target.CraftIdx]
+	if t == nil {
+		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	if t.Primary.EnglishName == active.Primary.EnglishName {
+		return t.State.R, t.State.V, true
+	}
+	targetInertialR := w.BodyPosition(t.Primary).Add(t.State.R)
+	targetInertialV := w.bodyInertialVelocity(t.Primary).Add(t.State.V)
+	activePrimaryR := w.BodyPosition(active.Primary)
+	activePrimaryV := w.bodyInertialVelocity(active.Primary)
+	return targetInertialR.Sub(activePrimaryR), targetInertialV.Sub(activePrimaryV), true
+}
+
 // TargetName returns a short human label for the current target,
 // suitable for the TARGET HUD block. Empty string when no target is
 // set or the index is stale.

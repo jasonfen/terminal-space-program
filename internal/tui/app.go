@@ -152,25 +152,37 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// uses. Event is forwarded so resolved-then-edited
 				// event-relative nodes keep their semantic label.
 				a.world.PlanNode(sim.ManeuverNode{
-					TriggerTime: m.TriggerTime,
-					Mode:        m.Mode,
-					DV:          m.DV,
-					Duration:    dur,
-					Event:       m.Event,
-					Throttle:    m.Throttle,
+					TriggerTime:    m.TriggerTime,
+					Mode:           m.Mode,
+					DV:             m.DV,
+					Duration:       dur,
+					Event:          m.Event,
+					Throttle:       m.Throttle,
+					TargetCraftIdx: m.TargetCraftIdx,
 				})
 			case m.Event != sim.TriggerAbsolute:
 				// v0.6.0: event-relative nodes go through PlanNode so
 				// the resolver can freeze TriggerTime against the live
 				// orbit on the next Tick.
 				a.world.PlanNode(sim.ManeuverNode{
-					Mode:     m.Mode,
-					DV:       m.DV,
-					Duration: dur,
-					Event:    m.Event,
-					Throttle: m.Throttle,
+					Mode:           m.Mode,
+					DV:             m.DV,
+					Duration:       dur,
+					Event:          m.Event,
+					Throttle:       m.Throttle,
+					TargetCraftIdx: m.TargetCraftIdx,
 				})
 			case dur == 0:
+				// v0.9.3+: target-relative impulsive needs the bound
+				// target snapshot for direction resolution.
+				if m.TargetCraftIdx != 0 {
+					if tIdx := m.TargetCraftIdx - 1; tIdx >= 0 && tIdx < len(a.world.Crafts) {
+						if tc := a.world.Crafts[tIdx]; tc != nil && tc.Primary.ID == a.world.ActiveCraft().Primary.ID {
+							a.world.ActiveCraft().ApplyImpulsiveWithTarget(m.Mode, m.DV, tc.State.R, tc.State.V)
+							break
+						}
+					}
+				}
 				a.world.ActiveCraft().ApplyImpulsive(m.Mode, m.DV)
 			default:
 				effThrottle := m.Throttle
@@ -178,10 +190,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					effThrottle = 1.0
 				}
 				a.world.ActiveCraft().ActiveBurn = &sim.ActiveBurn{
-					Mode:        m.Mode,
-					DVRemaining: m.DV,
-					EndTime:     a.world.Clock.SimTime.Add(dur),
-					Throttle:    effThrottle,
+					Mode:           m.Mode,
+					DVRemaining:    m.DV,
+					EndTime:        a.world.Clock.SimTime.Add(dur),
+					Throttle:       effThrottle,
+					TargetCraftIdx: m.TargetCraftIdx,
 				}
 			}
 		}
@@ -240,6 +253,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
 				if idx >= 0 && idx < len(a.world.ActiveCraft().Nodes) {
 					a.maneuver.LoadNode(idx, a.world.ActiveCraft().Nodes[idx])
+					a.bindManeuverTarget()
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
@@ -261,6 +275,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// that schedule.
 				if dt, ok := a.orbitView.ProjectToOrbit(a.world, m.X, m.Y); ok && a.world.CraftVisibleHere() {
 					a.maneuver.LoadStaged(a.world.Clock.SimTime.Add(dt))
+					a.bindManeuverTarget()
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
@@ -397,6 +412,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// click-to-edit state that may be lingering from a
 				// previous open.
 				a.maneuver.ResetEditing()
+				a.bindManeuverTarget()
 				a.active = screenManeuver
 				a.world.Clock.Paused = true
 			}
@@ -826,4 +842,18 @@ func overlayLastLine(base, overlay string) string {
 		return overlay
 	}
 	return base[:idx+1] + overlay
+}
+
+// bindManeuverTarget hands the current World.Target binding to the
+// maneuver form so the four target-relative burn modes and the
+// TriggerNextClosestApproach event are pickable + correctly captured
+// at plant. Bound at form-open time (not per-keypress), so a target
+// switch while the form is open doesn't silently retarget a planted
+// burn — the player closes + reopens to retarget. v0.9.3+.
+func (a *App) bindManeuverTarget() {
+	if a.world.Target.Kind == sim.TargetCraft {
+		a.maneuver.SetTargetCraft(true, a.world.Target.CraftIdx)
+		return
+	}
+	a.maneuver.SetTargetCraft(false, 0)
 }

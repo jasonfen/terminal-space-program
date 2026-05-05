@@ -204,6 +204,12 @@ type Node struct {
 	PrimaryID       string  `json:"primary_id"`
 	Event           int     `json:"event,omitempty"`
 	Throttle        float64 `json:"throttle,omitempty"`
+	// TargetCraftIdx (v0.9.3+) is the one-based slate idx the node
+	// is bound to for target-relative modes / TriggerNextClosest
+	// Approach event. Zero = no target. Additive — pre-v0.9.3 saves
+	// load with TargetCraftIdx=0, which is correct semantics for
+	// non-target nodes. No schema bump required.
+	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
 }
 
 // DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.
@@ -232,6 +238,10 @@ type ActiveBurn struct {
 	EndTimeNano int64   `json:"end_time_unix_nano"`
 	PrimaryID   string  `json:"primary_id"`
 	Throttle    float64 `json:"throttle,omitempty"`
+	// TargetCraftIdx (v0.9.3+) — see Node.TargetCraftIdx; mirrored
+	// onto in-flight finite burns so a save mid-rendezvous-burn
+	// reloads with the burn still tracking its bound target.
+	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
 }
 
 // Errors returned by Load.
@@ -426,15 +436,17 @@ func payloadFromWorld(w *sim.World) Payload {
 				PrimaryID:       n.PrimaryID,
 				Event:           int(n.Event),
 				Throttle:        n.Throttle,
+				TargetCraftIdx:  n.TargetCraftIdx,
 			})
 		}
 		if c.ActiveBurn != nil {
 			wc.ActiveBurn = &ActiveBurn{
-				Mode:        int(c.ActiveBurn.Mode),
-				DVRemaining: c.ActiveBurn.DVRemaining,
-				EndTimeNano: c.ActiveBurn.EndTime.UnixNano(),
-				PrimaryID:   c.ActiveBurn.PrimaryID,
-				Throttle:    c.ActiveBurn.Throttle,
+				Mode:           int(c.ActiveBurn.Mode),
+				DVRemaining:    c.ActiveBurn.DVRemaining,
+				EndTimeNano:    c.ActiveBurn.EndTime.UnixNano(),
+				PrimaryID:      c.ActiveBurn.PrimaryID,
+				Throttle:       c.ActiveBurn.Throttle,
+				TargetCraftIdx: c.ActiveBurn.TargetCraftIdx,
 			}
 		}
 		p.Crafts = append(p.Crafts, wc)
@@ -589,22 +601,24 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				trig = time.Unix(0, n.TriggerTimeNano).UTC()
 			}
 			c.Nodes = append(c.Nodes, sim.ManeuverNode{
-				TriggerTime: trig,
-				Mode:        spacecraft.BurnMode(n.Mode),
-				DV:          n.DV,
-				Duration:    time.Duration(n.DurationNano),
-				PrimaryID:   n.PrimaryID,
-				Event:       sim.TriggerEvent(n.Event),
-				Throttle:    n.Throttle,
+				TriggerTime:    trig,
+				Mode:           spacecraft.BurnMode(n.Mode),
+				DV:             n.DV,
+				Duration:       time.Duration(n.DurationNano),
+				PrimaryID:      n.PrimaryID,
+				Event:          sim.TriggerEvent(n.Event),
+				Throttle:       n.Throttle,
+				TargetCraftIdx: n.TargetCraftIdx,
 			})
 		}
 		if wc.ActiveBurn != nil {
 			c.ActiveBurn = &sim.ActiveBurn{
-				Mode:        spacecraft.BurnMode(wc.ActiveBurn.Mode),
-				DVRemaining: wc.ActiveBurn.DVRemaining,
-				EndTime:     time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
-				PrimaryID:   wc.ActiveBurn.PrimaryID,
-				Throttle:    wc.ActiveBurn.Throttle,
+				Mode:           spacecraft.BurnMode(wc.ActiveBurn.Mode),
+				DVRemaining:    wc.ActiveBurn.DVRemaining,
+				EndTime:        time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
+				PrimaryID:      wc.ActiveBurn.PrimaryID,
+				Throttle:       wc.ActiveBurn.Throttle,
+				TargetCraftIdx: wc.ActiveBurn.TargetCraftIdx,
 			}
 		}
 		w.Crafts = append(w.Crafts, c)
@@ -622,22 +636,24 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				trig = time.Unix(0, n.TriggerTimeNano).UTC()
 			}
 			active.Nodes = append(active.Nodes, sim.ManeuverNode{
-				TriggerTime: trig,
-				Mode:        spacecraft.BurnMode(n.Mode),
-				DV:          n.DV,
-				Duration:    time.Duration(n.DurationNano),
-				PrimaryID:   n.PrimaryID,
-				Event:       sim.TriggerEvent(n.Event),
-				Throttle:    n.Throttle,
+				TriggerTime:    trig,
+				Mode:           spacecraft.BurnMode(n.Mode),
+				DV:             n.DV,
+				Duration:       time.Duration(n.DurationNano),
+				PrimaryID:      n.PrimaryID,
+				Event:          sim.TriggerEvent(n.Event),
+				Throttle:       n.Throttle,
+				TargetCraftIdx: n.TargetCraftIdx,
 			})
 		}
 		if p.ActiveBurn != nil && active.ActiveBurn == nil {
 			active.ActiveBurn = &sim.ActiveBurn{
-				Mode:        spacecraft.BurnMode(p.ActiveBurn.Mode),
-				DVRemaining: p.ActiveBurn.DVRemaining,
-				EndTime:     time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
-				PrimaryID:   p.ActiveBurn.PrimaryID,
-				Throttle:    p.ActiveBurn.Throttle,
+				Mode:           spacecraft.BurnMode(p.ActiveBurn.Mode),
+				DVRemaining:    p.ActiveBurn.DVRemaining,
+				EndTime:        time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
+				PrimaryID:      p.ActiveBurn.PrimaryID,
+				Throttle:       p.ActiveBurn.Throttle,
+				TargetCraftIdx: p.ActiveBurn.TargetCraftIdx,
 			}
 		}
 	}
