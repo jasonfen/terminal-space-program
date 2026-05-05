@@ -1827,7 +1827,10 @@ func TestWarpCappedAt10xDuringManualBurn(t *testing.T) {
 func TestManualBurnEndsOnFuelExhaustion(t *testing.T) {
 	w, _ := NewWorld()
 	w.ActiveCraft().Throttle = 1.0
-	w.ActiveCraft().Fuel = 1.0 // tiny — burns out almost immediately
+	// v0.9.1+: drain the bottom-stage tank, not the flat field, so
+	// the burn-step's BurnFuel call sees an empty tank.
+	w.ActiveCraft().Stages[0].FuelMass = 1.0 // tiny — burns out almost immediately
+	w.ActiveCraft().SyncFields()
 	w.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
 	w.StartManualBurn()
 	if w.ActiveCraft().ManualBurn == nil {
