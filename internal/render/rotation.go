@@ -263,6 +263,69 @@ func rotationPhaseRad(b bodies.CelestialBody, simTime time.Time) float64 {
 	return 2 * math.Pi * dt / period
 }
 
+// BodyFixedToWorld converts body-fixed (lat, lon) coordinates to a
+// unit vector in the world inertial frame at simTime, using the
+// same axis tilt + rotation phase + per-body epoch offset the
+// texture renderer uses. v0.9.2+. Used by sim's launchpad spawn so
+// "Cape Canaveral (-80.604°E, 28.6083°N)" lands on the rendered
+// Earth's Florida point — same coordinate system as the texture
+// lookup, so visual + spawn position agree.
+//
+// Latitude in degrees north positive. Longitude in degrees east
+// positive (real-Earth-style). The function inverts the texture
+// lookup pipeline: caller passes a body-fixed (lat, lon), get
+// back the world-frame unit direction such that calling
+// SubObserverPointDeg with that vector as camDir yields the same
+// (lat, lon) back.
+//
+// Multiply by primary radius for surface position; combine with
+// BodySpinOmegaWorld for surface co-rotation velocity.
+func BodyFixedToWorld(b bodies.CelestialBody, latDeg, lonDeg float64, simTime time.Time) Vec3 {
+	n := BodyRotationAxisWorld(b)
+	phase := rotationPhaseRad(b, simTime)
+	xt := bodyXAxisAtPhase(b, n, phase)
+	yt := cross(n, xt)
+
+	// The renderer adds bodyEpochOffsetDeg to the raw geometric
+	// longitude when looking up the texture cell. To place a
+	// real-world (lat, lon) at the visually-correct point we
+	// invert: subtract the offset from the user-supplied lon to
+	// get the "raw" longitude in the renderer's internal angular
+	// frame. For Earth (offset = -30°) and KSC (lon = -80.604°),
+	// the raw lon = -80.604 - (-30) = -50.604°.
+	rawLonDeg := lonDeg - bodyEpochOffsetDeg[b.ID]
+	latRad := latDeg * math.Pi / 180.0
+	lonRad := rawLonDeg * math.Pi / 180.0
+	cosLat := math.Cos(latRad)
+	return add(
+		scale(xt, cosLat*math.Cos(lonRad)),
+		add(
+			scale(yt, cosLat*math.Sin(lonRad)),
+			scale(n, math.Sin(latRad)),
+		),
+	)
+}
+
+// BodySpinOmegaWorld returns the body's spin angular-velocity
+// vector in the world frame: ω = (2π/period) · n_hat. Direction
+// matches BodyRotationAxisWorld (tilted, picks up AxialTilt +
+// AxialAzimuth). Returns the zero vector when the body has no
+// rotation period set. v0.9.2+. Used by sim's launchpad spawn
+// (surface co-rotation velocity = ω × r) and landed-craft
+// integration (rotates R about the tilted axis per tick). Differs
+// from physics.AtmosphereOmega which is Z-aligned for the drag
+// approximation; the launchpad path uses the tilted ω because it
+// has to agree with the texture renderer's frame.
+func BodySpinOmegaWorld(b bodies.CelestialBody) Vec3 {
+	period := rotationPeriodSeconds(b)
+	if period == 0 {
+		return Vec3{}
+	}
+	mag := 2 * math.Pi / period
+	n := BodyRotationAxisWorld(b)
+	return Vec3{X: mag * n.X, Y: mag * n.Y, Z: mag * n.Z}
+}
+
 // rotationPeriodSeconds picks the period that drives the body's
 // visible face: orbital period for tidally-locked moons, sidereal
 // rotation period otherwise. Returns 0 when neither is set.
