@@ -6,13 +6,59 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
+
+// surfaceSpawnPosVel computes the **primary-relative** position and
+// velocity of a point on `primary`'s rotating surface at the given
+// (lat, lon). Uses the renderer's body-fixed coordinate system —
+// tilted spin axis, J2000 rotation epoch, per-body texture-offset —
+// so a spawn at (28.6083°N, -80.604°E) actually lands on the
+// rendered Earth's Florida point. v0.9.2+ (lined up to texture
+// in the v0.9.2 fix-3 commit).
+//
+// Returned (R, V) plug straight into `Spacecraft.State` — the
+// integrator's per-tick math adds the primary's heliocentric R/V
+// itself when transforming to world coords. Don't put helio
+// offsets in `c.State`.
+//
+// Surface co-rotation velocity uses the **tilted** spin angular-
+// velocity vector ω = (2π/period)·n_hat, not the Z-aligned
+// approximation `physics.AtmosphereOmega` uses for drag. The two
+// disagree by a few percent in magnitude + a Z component; drag
+// keeps its approximation for back-compat. The drift between the
+// craft's spawn velocity (tilted ω×r) and drag's "wind" (Z-aligned
+// ω×r) shows up as a small residual aerodynamic force at altitude
+// 0 — typically negligible.
+//
+// Latitude in degrees north positive (clamped to [-90, 90] by the
+// caller). Longitude in degrees east positive (real-Earth-style).
+func surfaceSpawnPosVel(
+	primary bodies.CelestialBody,
+	latitudeDeg float64,
+	longitudeDeg float64,
+	simTime time.Time,
+) (orbital.Vec3, orbital.Vec3) {
+	radius := primary.RadiusMeters()
+	dirRender := render.BodyFixedToWorld(primary, latitudeDeg, longitudeDeg, simTime)
+	rRel := orbital.Vec3{
+		X: radius * dirRender.X,
+		Y: radius * dirRender.Y,
+		Z: radius * dirRender.Z,
+	}
+	omegaRender := render.BodySpinOmegaWorld(primary)
+	omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
+	vRel := omega.Cross(rRel)
+	return rRel, vRel
+}
 
 // SpawnSpec describes a craft to spawn. v0.8.2 ships these axes:
 //   - LoadoutID:    propulsion archetype. Empty → round-robin via
@@ -34,7 +80,47 @@ type SpawnSpec struct {
 	AltitudeM    float64
 	Retrograde   bool
 	Alongside    bool
+
+	// Launchpad (v0.9.2+): when true, spawn at altitude 0 on the
+	// parent body's surface co-moving with the rotating ground at
+	// `Latitude` / `LongitudeOffset` (degrees, north / east positive).
+	// Velocity is ω × r (surface co-rotation), so a craft on the
+	// pad sits stationary relative to the ground and feels the
+	// ~465 m/s eastward boost at the equator from Earth's spin.
+	// Overrides AltitudeM + Retrograde + Alongside; ParentBodyID
+	// still selects which body's surface (default: active craft's
+	// current primary).
+	Launchpad bool
+	// Latitude is the surface latitude in degrees north positive.
+	// Sub-zero values pick southern hemisphere; |Latitude| > 90 is
+	// clamped. v0.9.2+.
+	Latitude float64
+	// LongitudeOffset (v0.9.2+) is the surface longitude offset in
+	// degrees east relative to the body's prime meridian at
+	// simTime=0 — our pseudo-Greenwich convention. A value of
+	// -80.604 places the pad at Cape Canaveral's Earth-relative
+	// longitude. Without this offset the spawn longitude depends
+	// only on sim time (the body's rotation phase), so consecutive
+	// launches at different sim times spawn at different points.
+	// With it, "Cape Canaveral" lands at Cape Canaveral regardless
+	// of sim time. The Landed bypass continues to rotate the pad
+	// with the body once spawned.
+	LongitudeOffset float64
 }
+
+// DefaultLaunchpadLatitude is the spawn latitude the form uses when
+// the player opens it without changing the field. v0.9.2+: pinned
+// to LC-39A (Kennedy Space Center, the historical Saturn V launch
+// pad) at 28.6083°N. Applied at the form layer, not in SpawnCraft,
+// so API callers can explicitly spawn at the equator with
+// Latitude=0.
+const DefaultLaunchpadLatitude = 28.6083
+
+// DefaultLaunchpadLongitudeEast is the spawn longitude offset (deg
+// east of pseudo-Greenwich) for the form's default "Cape Canaveral"
+// preset. -80.604° matches LC-39A's Earth-relative longitude.
+// v0.9.2+.
+const DefaultLaunchpadLongitudeEast = -80.604
 
 // SpawnCraft adds a new craft to the slate using the given spec.
 // The new craft is placed in a circular orbit at the requested
@@ -80,6 +166,54 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if b := sys.FindBody(spec.ParentBodyID); b != nil {
 			primary = *b
 		}
+	}
+
+	if spec.Launchpad {
+		// v0.9.2+: surface spawn co-rotating with the primary's
+		// ground. ω × r gives the eastward kick (~465 m/s at
+		// Earth's equator). AltitudeM / Retrograde are ignored —
+		// the launchpad path defines its own (R, V).
+		//
+		// Latitude is taken as-passed: zero is the equator, not a
+		// sentinel. The form's default (DefaultLaunchpadLatitude =
+		// 28.6083° KSC LC-39A) is applied at the form layer, so
+		// API callers can spawn at the equator with Latitude=0
+		// explicitly. LongitudeOffset places the pad at a fixed
+		// Earth-relative longitude (degrees east of pseudo-Greenwich).
+		latDeg := spec.Latitude
+		if latDeg > 90 {
+			latDeg = 90
+		}
+		if latDeg < -90 {
+			latDeg = -90
+		}
+		rRel, vRel := surfaceSpawnPosVel(primary, latDeg, spec.LongitudeOffset, w.Clock.SimTime)
+		c.Primary = primary
+		c.State = physics.StateVector{
+			R: rRel,
+			V: vRel,
+			M: c.TotalMass(),
+		}
+		// v0.9.2+: parked on the surface — the integrator bypasses
+		// gravity / drag for Landed craft and recomputes R from
+		// (LaunchLatDeg, LaunchLonDeg, simTime) each tick. Cleared
+		// automatically when the engine ignites.
+		c.Landed = true
+		c.LaunchLatDeg = latDeg
+		c.LaunchLonDeg = spec.LongitudeOffset
+		// v0.9.2.1+: default attitude is radial+ (vertical) so
+		// pressing `b` on the pad ignites pointing up — the natural
+		// "lift off" gesture. Playtest revealed that the default
+		// AttitudeMode (BurnPrograde) at the surface points along
+		// surface co-rotation velocity (~east, horizontal), which
+		// would slide the craft along the ground instead of lifting
+		// it. Player can override with any attitude key before
+		// engaging.
+		c.AttitudeMode = spacecraft.BurnRadialOut
+		w.Crafts = append(w.Crafts, c)
+		w.ActiveCraftIdx = len(w.Crafts) - 1
+		w.StopManualBurn()
+		return c, nil
 	}
 
 	alt := spec.AltitudeM

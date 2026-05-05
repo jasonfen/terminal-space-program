@@ -318,11 +318,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch action {
 			case screens.SpawnActionConfirm:
 				spec := sim.SpawnSpec{
-					LoadoutID:    a.spawn.SelectedLoadoutID(),
-					ParentBodyID: a.spawn.SelectedParentID(),
-					AltitudeM:    a.spawn.SelectedAltitudeM(),
-					Retrograde:   a.spawn.SelectedRetrograde(),
-					Alongside:    a.spawn.SelectedAlongside(),
+					LoadoutID:       a.spawn.SelectedLoadoutID(),
+					ParentBodyID:    a.spawn.SelectedParentID(),
+					AltitudeM:       a.spawn.SelectedAltitudeM(),
+					Retrograde:      a.spawn.SelectedRetrograde(),
+					Alongside:       a.spawn.SelectedAlongside(),
+					Launchpad:       a.spawn.SelectedLaunchpad(),
+					Latitude:        a.spawn.SelectedLatitudeDeg(),
+					LongitudeOffset: a.spawn.SelectedLongitudeEastDeg(),
 				}
 				if c, err := a.world.SpawnCraft(spec); err == nil {
 					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
@@ -593,6 +596,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.ClearTarget):
 			a.world.ClearTarget()
+			return a, nil
+		case key.Matches(m, a.keys.AttitudeSurfacePrograde):
+			a.handleAttitudeKey(spacecraft.BurnSurfacePrograde)
+			return a, nil
+		case key.Matches(m, a.keys.AttitudeSurfaceRetrograde):
+			a.handleAttitudeKey(spacecraft.BurnSurfaceRetrograde)
+			return a, nil
+		case key.Matches(m, a.keys.PitchTrimEast):
+			if c := a.world.ActiveCraft(); c != nil {
+				c.PitchTrim += spacecraft.PitchTrimStepRad
+			}
+			return a, nil
+		case key.Matches(m, a.keys.PitchTrimWest):
+			if c := a.world.ActiveCraft(); c != nil {
+				c.PitchTrim -= spacecraft.PitchTrimStepRad
+			}
+			return a, nil
+		case key.Matches(m, a.keys.PitchTrimReset):
+			if c := a.world.ActiveCraft(); c != nil {
+				c.PitchTrim = 0
+			}
 			return a, nil
 		case key.Matches(m, a.keys.Stage):
 			// v0.9.1+: drop the bottom stage of the active craft.

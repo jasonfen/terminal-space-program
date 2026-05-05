@@ -98,23 +98,37 @@ func stageRCS(dryMass float64) (mp, monoCap, rcsThrust, rcsIsp float64) {
 
 // stage builds a single Stage with full tanks + the catalog's
 // default RCS pool. Used by the Loadouts map literals to keep the
-// per-stage structure terse.
+// per-stage structure terse. BallisticCoefficient stays 0 →
+// EffectiveBallisticCoefficient falls back to the spacecraft-level
+// default (0.01 m²/kg, the v0.8.4 LEO baseline). For multi-stage
+// loadouts that fly through atmosphere (Saturn-V S-IC at sea level)
+// use stageWithBC instead so per-stage drag is realistic.
 func stage(loadoutID, name, glyph, color string, dry, fuel, thrust, isp float64) Stage {
+	return stageWithBC(loadoutID, name, glyph, color, dry, fuel, thrust, isp, 0)
+}
+
+// stageWithBC adds an explicit BallisticCoefficient (m²/kg) for
+// stages that fly through atmosphere. v0.9.2.1+. BC = C_D · A / m;
+// for a Saturn-V S-IC booster (~80 m² cross-section, C_D ~0.3,
+// ~2.9 Mkg wet) ≈ 8e-6 m²/kg. Pre-v0.9.2.1 the default 0.01 was
+// 1250× too high, making sea-level drag dominate the launch.
+func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, bc float64) Stage {
 	mp, monoCap, rcsThrust, rcsIsp := stageRCS(dry)
 	return Stage{
-		LoadoutID:    loadoutID,
-		Name:         name,
-		Glyph:        glyph,
-		Color:        color,
-		DryMass:      dry,
-		FuelMass:     fuel,
-		FuelCapacity: fuel,
-		Thrust:       thrust,
-		Isp:          isp,
-		MonopropMass: mp,
-		MonopropCap:  monoCap,
-		RCSThrust:    rcsThrust,
-		RCSIsp:       rcsIsp,
+		LoadoutID:            loadoutID,
+		Name:                 name,
+		Glyph:                glyph,
+		Color:                color,
+		DryMass:              dry,
+		FuelMass:             fuel,
+		FuelCapacity:         fuel,
+		Thrust:               thrust,
+		Isp:                  isp,
+		MonopropMass:         mp,
+		MonopropCap:          monoCap,
+		RCSThrust:            rcsThrust,
+		RCSIsp:               rcsIsp,
+		BallisticCoefficient: bc,
 	}
 }
 
@@ -182,14 +196,21 @@ var Loadouts = map[string]Loadout{
 		Color: "#FFD93D",
 		Stages: []Stage{
 			// S-IC booster: F-1 cluster, sea-level Isp (the only
-			// stage that fires in atmosphere).
-			stage(LoadoutSaturnVID, "S-IC", "▲", "#FF8C42", 130000, 2160000, 35100000, 263),
-			// S-II sustainer: J-2 cluster, vacuum Isp.
-			stage(LoadoutSaturnVID, "S-II", "▲", "#FFC042", 40000, 440000, 5140000, 421),
+			// stage that fires in atmosphere). BC tuned for the
+			// real S-IC's ~80 m² cross-section and ~2.9 Mkg wet
+			// mass: BC = C_D · A / m ≈ 0.3 · 80 / 2.9e6 ≈ 8e-6.
+			stageWithBC(LoadoutSaturnVID, "S-IC", "▲", "#FF8C42",
+				130000, 2160000, 35100000, 263, 8e-6),
+			// S-II sustainer: J-2 cluster, vacuum Isp. Smaller
+			// cross-section ~40 m² but mostly vacuum flight, so
+			// drag is negligible regardless. BC ≈ 0.3·40/480e3 ≈ 2.5e-5.
+			stageWithBC(LoadoutSaturnVID, "S-II", "▲", "#FFC042",
+				40000, 440000, 5140000, 421, 2.5e-5),
 			// S-IVB insertion: J-2 single, vacuum Isp. Same shape
 			// as the standalone S-IVB-1 loadout but lives as the
 			// top stage of the Saturn-V chain.
-			stage(LoadoutSaturnVID, "S-IVB", "▲", "#FFD93D", 11000, 109000, 1023000, 421),
+			stageWithBC(LoadoutSaturnVID, "S-IVB", "▲", "#FFD93D",
+				11000, 109000, 1023000, 421, 6.25e-5),
 		},
 	},
 }

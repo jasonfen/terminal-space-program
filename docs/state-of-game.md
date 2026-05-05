@@ -2,19 +2,22 @@
 
 <!--
   meta:
-    snapshot_version: v0.9.1
+    snapshot_version: v0.9.1 (with v0.9.2 ground-launch primitives in
+      flight on branch — work-in-progress)
     snapshot_date: 2026-05-05
-    revised_date: 2026-05-05 (v0.9.1 staging slice shipped — Saturn-V
-      3-stage loadout, Spacecraft.Stages source-of-truth, save schema
-      v5 → v6)
+    revised_date: 2026-05-05 (v0.9.2 ground-launch slice feature-
+      complete on `v0.9.2-ground-launch` branch / PR #51 — manual
+      ascent to LEO unreliable, ships unmerged as WIP)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
   "what's the game today / where is it going" reference.
 -->
 
-> Snapshot at **v0.9.1** (May 2026). Predecessor doc with full
-> per-feature detail preserved at
+> Snapshot at **v0.9.1** (May 2026), with **v0.9.2 ground-launch
+> primitives in flight on branch** as work-in-progress (manual ascent
+> unreliable — see [v0.9.2 (work-in-progress)](#v092-work-in-progress)).
+> Predecessor doc with full per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
 ---
@@ -87,6 +90,7 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
+| [v0.9.2 (WIP)](#v092-work-in-progress) | 2026-05-05 | 🚧 | Ground-launch primitives — launchpad spawn, surface-frame SAS, pitch trim, LAUNCH HUD. **Manual ascent to LEO unreliable; ships unmerged on PR #51.** |
 | [v0.9.1](#v091) | 2026-05-05 | ✓ | KSP-style staging chain — Saturn-V 3-stage loadout, `space` decouples bottom stage |
 | [v0.9.0](#v090) | 2026-05-05 | ✓ | unified `World.Target` slot — first slice of "the craft fleet grows up" cycle |
 | [v0.8.6](#v086) | 2026-05-04 | ✓ | controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target |
@@ -103,6 +107,114 @@ flyby) match real spacecraft work.
 | [v0.3](#v03) | 2026-04 | ✓ | porkchop + Lambert + finite burns |
 | [v0.2](#v02) | 2026-04 | ✓ | finite burns + maneuver planner |
 | [v0.1](#v01) | 2026-04 | ✓ | two-body propagator + SOI |
+
+### v0.9.2 (work-in-progress)
+<!-- llm-parse: version=v0.9.2 status=in-progress date=2026-05-05 theme=ground-launch branch=v0.9.2-ground-launch pr=51 -->
+
+**Ground-launch primitives — feature-complete on branch, manual
+ascent to LEO unreliable, ships unmerged.** Third slice of the v0.9
+"craft fleet grows up" cycle. Adds the ability to spawn a craft on
+the surface of a rotating Earth and fly it to orbit by hand, using
+the v0.9.1 staging chain to drop spent stages along the way.
+
+The primitives all work; the **flying experience does not** yet read
+as ready-for-primetime. A representative attempt with the suggested
+gravity-turn profile (vertical to ~3-5 km, trim east 20-30°, switch
+to surface-prograde once v_horiz > 500 m/s, stage on fuel exhaustion)
+regularly drains S-IVB with periapsis still negative. The slice is
+preserved on branch / PR #51 as the canonical reference; gravity-turn
+assist (target pitch-vs-altitude overlay or autopilot toggle) is
+promoted to a v0.9.5+ slice candidate.
+
+**Primitives shipped on branch.**
+
+- **Launchpad spawn** (`internal/sim/spawn.go`): `SpawnSpec.Launchpad
+  bool` + `SpawnSpec.Latitude float64`. When `Launchpad=true`, craft
+  spawns at altitude 0 on the surface at the named latitude (presets:
+  0° equator, 28.6° KSC = Cape Canaveral, 45.6° Baikonur, 62.8°
+  Plesetsk, 90° pole), with surface-co-rotation velocity (ω × r) and
+  `Landed=true` so the integrator bypasses Verlet free-flight while
+  the craft is on the pad.
+- **Body-fixed↔world coordinate transforms** (`internal/render/rotation.go`):
+  `BodyFixedToWorld(b, latDeg, lonDeg, simTime)` Snyder forward
+  projection through the renderer's tilted-axis sub-observer point;
+  `BodySpinOmegaWorld(b)` returns the spin-axis-aligned angular
+  velocity vector. Fixes a class of bugs where launchpad spawn
+  visualised in the wrong location because spawn geometry and
+  texture geometry diverged.
+- **Landed-state integration** (`internal/sim/landed.go`):
+  `integrateLanded` updates position to track surface rotation and
+  re-derives velocity from ω × r each tick. Prevents warping a pad-
+  bound craft from launching it into a free-flight trajectory.
+- **Surface-frame SAS modes** (`internal/spacecraft/burn_direction.go`):
+  `BurnSurfacePrograde` / `BurnSurfaceRetrograde` resolve direction
+  from the surface-relative velocity (v - ω × r). Pre-launch (v_surf=0)
+  the modes return zero — caller treats as "no defined direction"
+  no-op, the burn is a no-op until the craft is moving relative to
+  the ground. Bound to `W` / `S` (capitalised).
+- **Pitch trim** (`internal/spacecraft/burn_direction.go`):
+  `Spacecraft.PitchTrim float64` — a player-set ± rotation about the
+  local-north axis applied on top of the SAS mode's natural direction.
+  `>` / `<` step ±10° east / west; `\` resets. `ApplyPitchTrim`
+  rotates dir using a (east, up, north) local frame decomposition.
+  v0.9.2.1+: step bumped from 5° → 10° because the original required
+  6+ presses to get the gravity turn going on a Saturn V.
+- **LAUNCH HUD block** (`internal/tui/screens/orbit.go`): visible
+  while the craft has not achieved a stable orbit (periapsis < primary
+  radius) AND altitude < atmosphere cutoff. Shows altitude AGL, v_vert,
+  v_horiz (surface-relative), TWR (active stage thrust / current mass
+  / surface gravity), current SAS mode, current pitch trim.
+- **Per-stage `BallisticCoefficient`** (`internal/spacecraft/stage.go`,
+  `loadouts.go`): real Saturn V cross-sections × C_D / wet mass — S-IC
+  ≈ 8e-6, S-II ≈ 2.5e-5, S-IVB ≈ 6.25e-5 m²/kg. Pre-v0.9.2.1 the
+  default 0.01 was 1250× too high, making sea-level drag dominate
+  the launch. `Spacecraft.EffectiveBallisticCoefficient` prefers the
+  bottom stage's BC, falling back to the spacecraft-level default.
+- **Landed crafts default to BurnRadialOut** (`internal/sim/spawn.go`):
+  so `b` ignites pointing up instead of along surface co-rotation
+  velocity. Prevents the surprise of a vertical-pad craft trying to
+  burn east at TWR < 1.
+- **`saturn-v-pad-to-leo` mission** (`internal/missions/missions.json`):
+  new `TypeCircularizeFromPad` predicate, passes when craft is in
+  Earth's frame, bound orbit (e<1), periapsis above the floor (200 km).
+  Looser than `TypeCircularize` (no apoapsis tolerance) so the success
+  condition is reachable from a manual ascent.
+
+**v0.9.0/v0.9.1-flow continuity.** v0.9.0's `World.Target` slot and
+v0.9.1's `space`-staging keystroke + Saturn V loadout both remain
+fully functional. The launchpad branch is additive — pre-v0.9.2 spawn
+flows (orbit, alongside) are unchanged.
+
+**What's NOT in the slice (deferred / open).**
+
+- **Gravity-turn assist** — the open question that the slice's
+  manual-only decision deferred is now confirmed friction.
+  Promoted to a v0.9.5+ slice candidate. Two options: (a) target
+  pitch-vs-altitude HUD overlay (lightweight, leaves flying
+  manual), or (b) autopilot toggle that drives throttle + attitude
+  along a baked Saturn V profile.
+- **Pitch trim fine resolution** — 10° is reasonable for initial
+  pitch-over but mid-ascent fine-tuning at 1° resolution would help.
+  Open question: should `>` / `<` repeat-step or take a Δ argument?
+- **Cross-view rotation parity in orbit-flat** — the current fix
+  makes the Landed craft co-rotate with surface texture in the
+  default top view, but orbit-flat falls back to a static basis.
+  Texture pipeline parity across views deferred to v0.9.5+.
+
+**Sizing.** Plan called for ~400 LOC + 2× heuristic = ~800. Landed
+at ~600 production + ~250 tests = ~850 total across the v0.9.2
+branch (close to plan, with the unplanned add-ons — surface-frame
+SAS, pitch trim, per-stage BC, body-fixed↔world transforms,
+Landed integration — accounting for ~250 LOC of the production
+total).
+
+**Status decision.** Slice ships **unmerged on the
+`v0.9.2-ground-launch` branch / PR #51** until either the gravity-
+turn assist lands or the user accepts the WIP state with eyes open.
+Cycle order does not change — v0.9.3 (rendezvous) and v0.9.4
+(navball) operate on already-orbiting craft and are unblocked by
+this WIP status. The v0.9.2 primitives are foundation that the
+gravity-turn assist will layer on top of, not throwaway.
 
 ### v0.9.1
 <!-- llm-parse: version=v0.9.1 status=shipped date=2026-05-05 theme=staging-chain -->
@@ -507,6 +619,39 @@ take a position on them.
 <!-- llm-parse: id=atmosphere-corotation-high-alt status=open-question target=v0.9-if-playtest-shows -->
 📐 **open · low priority unless playtest exposes**. v0.8.4 has the atmosphere co-rotating with the body via `ω × r`. At high altitude (above ~100 km on Earth, where ground-level corotation breaks down in reality), the model is approximate. Reopen if it shows up in a playtest as a noticeable orbit decay error.
 
+#### Launch gravity-turn assist
+<!-- llm-parse: id=gravity-turn-assist status=open-question target=v0.9.5-plus reopened-from=v0.9-plan-decision-7 -->
+📐 **open · committed v0.9.5+ candidate**. v0.9.2 shipped manual-
+only per the original v0.9-plan decision #7. Playtest confirmed the
+friction the decision flagged: hand-flying a Saturn V to LEO without
+a guide overlay or autopilot is unreliable — the ascent profile is
+sensitive to throttle / pitch timing in ways that 10° pitch-trim
+steps don't smooth. Two options on the table: (a) target pitch-vs-
+altitude HUD overlay (lightweight, leaves flying manual — shows
+where the player *should* be pointing), or (b) autopilot toggle
+that drives throttle + attitude along a baked Saturn V profile.
+Pick at v0.9.5 slice planning.
+
+#### Cross-view rotation parity in orbit-flat
+<!-- llm-parse: id=cross-view-rotation-parity status=open-question target=v0.9.5-plus -->
+📐 **open · v0.9.5+ polish**. v0.9.2 fixes Landed-craft visual
+position to match the renderer's tilted-axis sub-observer point in
+the default top view, but orbit-flat falls back to a static basis
+because the perifocal frame co-rotates with the body for Landed
+craft. Cross-view consistency in the texture pipeline (so a
+launchpad spawn lines up the same way regardless of view) is
+deferred polish.
+
+#### Pitch trim fine resolution
+<!-- llm-parse: id=pitch-trim-fine-resolution status=open-question target=v0.9.5-plus -->
+📐 **open · v0.9.5+ polish**. v0.9.2.1 bumped pitch trim step from
+5° → 10° because the original required 6+ key presses for an initial
+pitch-over. 10° is reasonable for the first few degrees but mid-
+ascent fine-tuning at 1° resolution would help. Should `>` / `<`
+repeat-accelerate (hold-to-tilt-faster), expose a numeric input, or
+take a Δ argument? Pick at v0.9.5+ if the gravity-turn assist
+doesn't subsume manual trim entirely.
+
 ---
 
 ## Upcoming — v0.9 cycle plans
@@ -515,8 +660,14 @@ take a position on them.
 
 **Cycle theme: "the craft fleet grows up."** Plan committed at
 [`docs/v0.9-plan.md`](v0.9-plan.md); first two slices (v0.9.0
-targeting + v0.9.1 staging) shipped 2026-05-05. Remaining slices:
-.2 ground launch, .3 rendezvous tooling, .4 navball.
+targeting + v0.9.1 staging) shipped 2026-05-05. **v0.9.2 ground-
+launch primitives are feature-complete on branch / PR #51 but ship
+as work-in-progress** — manual ascent to LEO is unreliable without a
+gravity-turn assist (see [v0.9.2 entry](#v092-work-in-progress)).
+Cycle order is unchanged; v0.9.3 (rendezvous) and v0.9.4 (navball)
+operate on already-orbiting craft and are unblocked by the .2 WIP
+status. A v0.9.5+ ergonomic-pass slice (gravity-turn assist) is
+promoted from "reopen if friction" to a committed candidate.
 
 The v0.8 cycle delivered multi-craft capability and the precision
 tooling (RCS, docking, drag, body-equatorial frame, adaptive warp)

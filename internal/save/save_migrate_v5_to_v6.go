@@ -19,19 +19,20 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 	out := make([]spacecraft.Stage, len(wire))
 	for i, s := range wire {
 		out[i] = spacecraft.Stage{
-			LoadoutID:    s.LoadoutID,
-			Name:         s.Name,
-			Glyph:        s.Glyph,
-			Color:        s.Color,
-			DryMass:      s.DryMass,
-			FuelMass:     s.FuelMass,
-			FuelCapacity: s.FuelCapacity,
-			Thrust:       s.Thrust,
-			Isp:          s.Isp,
-			MonopropMass: s.MonopropMass,
-			MonopropCap:  s.MonopropCap,
-			RCSThrust:    s.RCSThrust,
-			RCSIsp:       s.RCSIsp,
+			LoadoutID:            s.LoadoutID,
+			Name:                 s.Name,
+			Glyph:                s.Glyph,
+			Color:                s.Color,
+			DryMass:              s.DryMass,
+			FuelMass:             s.FuelMass,
+			FuelCapacity:         s.FuelCapacity,
+			Thrust:               s.Thrust,
+			Isp:                  s.Isp,
+			MonopropMass:         s.MonopropMass,
+			MonopropCap:          s.MonopropCap,
+			RCSThrust:            s.RCSThrust,
+			RCSIsp:               s.RCSIsp,
+			BallisticCoefficient: s.BallisticCoefficient,
 		}
 	}
 	return out
