@@ -63,10 +63,10 @@ func (s *Spacecraft) ApplyRCSPulse(mode BurnMode) bool {
 	}
 	massFrac := 1.0 - math.Exp(-dv/(s.RCSIsp*g0))
 	monoBurned := m0 * massFrac
-	if monoBurned > s.Monoprop {
-		monoBurned = s.Monoprop
-	}
-	s.Monoprop -= monoBurned
+	// v0.9.1+: route through BurnMonoprop so Stages[0].MonopropMass
+	// is the authoritative debit + SyncFields refreshes the flat
+	// shadow Monoprop field.
+	s.BurnMonoprop(monoBurned)
 	mAfter := s.TotalMass()
 	s.State = physics.StepRCSPulse(s.State, dir, dv, mAfter)
 	return true
@@ -162,7 +162,10 @@ func (s *Spacecraft) ApplyImpulsive(mode BurnMode, dv float64) {
 }
 
 // consumeFuel deducts fuel assuming the rocket equation. fuelUsed =
-// m0 · (1 − exp(−dv / (Isp·g0))). Caps at available fuel.
+// m0 · (1 − exp(−dv / (Isp·g0))). Caps at available fuel. v0.9.1+:
+// routes the debit through BurnFuel so Stages[0].FuelMass (source
+// of truth) decrements + SyncFields keeps the flat shadow field
+// coherent.
 func (s *Spacecraft) consumeFuel(dvUsed float64) {
 	if s.Isp <= 0 {
 		return
@@ -170,10 +173,7 @@ func (s *Spacecraft) consumeFuel(dvUsed float64) {
 	mass0 := s.TotalMass()
 	massFrac := 1.0 - math.Exp(-dvUsed/(s.Isp*g0))
 	fuelBurned := mass0 * massFrac
-	if fuelBurned > s.Fuel {
-		fuelBurned = s.Fuel
-	}
-	s.Fuel -= fuelBurned
+	s.BurnFuel(fuelBurned)
 	s.State.M = s.TotalMass()
 }
 

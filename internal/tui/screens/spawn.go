@@ -266,10 +266,22 @@ func (s *SpawnCraft) currentParent() *bodies.CelestialBody {
 // propulsionSummary one-lines a loadout's main-engine + RCS shape
 // for the form preview. Pure-RCS craft (Thrust=0) call it out
 // explicitly so the player knows `b` won't fire on that loadout.
+//
+// v0.9.1+ multi-stage loadouts list a stage count next to the dry
+// mass so the player can see at a glance that the Saturn-V is a
+// 3-stage chain instead of a single tank.
 func propulsionSummary(l spacecraft.Loadout) string {
-	if l.Thrust == 0 {
-		return fmt.Sprintf("dry %.0fkg, RCS-only", l.DryMass)
+	dry := spacecraft.SumDryMass(l.Stages)
+	fuel := spacecraft.SumFuelMass(l.Stages)
+	bottomThrust := l.Thrust()
+	bottomIsp := l.Isp()
+	stageNote := ""
+	if len(l.Stages) > 1 {
+		stageNote = fmt.Sprintf(" (%d stages)", len(l.Stages))
 	}
-	return fmt.Sprintf("dry %.0fkg, fuel %.0fkg, %.0fkN @ Isp %.0fs",
-		l.DryMass, l.Fuel, l.Thrust/1000, l.Isp)
+	if bottomThrust == 0 {
+		return fmt.Sprintf("dry %.0fkg%s, RCS-only", dry, stageNote)
+	}
+	return fmt.Sprintf("dry %.0fkg, fuel %.0fkg%s, %.0fkN @ Isp %.0fs",
+		dry, fuel, stageNote, bottomThrust/1000, bottomIsp)
 }

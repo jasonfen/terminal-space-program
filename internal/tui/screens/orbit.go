@@ -1272,6 +1272,41 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
+	// v0.9.1+: STAGES block — lists per-stage thrust / Isp / fuel%
+	// for the active craft when it has more than one stage. Top-of-
+	// list is the bottom (currently-firing) stage; subsequent rows
+	// are the upper-stage chain. Hidden for single-stage craft (the
+	// existing PROPELLANT block already covers them). The bottom
+	// stage is highlighted in Warning so the player sees at a
+	// glance which engine `b` will fire / `space` will jettison.
+	if c := w.ActiveCraft(); c != nil && len(c.Stages) > 1 {
+		lines = append(lines, section("STAGES")...)
+		for i, st := range c.Stages {
+			fuelPct := 0.0
+			if st.FuelCapacity > 0 {
+				fuelPct = 100 * st.FuelMass / st.FuelCapacity
+			}
+			label := st.Name
+			if label == "" {
+				label = st.LoadoutID
+			}
+			if label == "" {
+				label = fmt.Sprintf("stage %d", i)
+			}
+			thrustLabel := "RCS-only"
+			if st.Thrust > 0 {
+				thrustLabel = fmt.Sprintf("%.0fkN @ Isp %.0fs", st.Thrust/1000, st.Isp)
+			}
+			row := fmt.Sprintf("  %-8s  %-22s  fuel %5.1f%%", label, thrustLabel, fuelPct)
+			if i == 0 {
+				row = v.theme.Warning.Render("▸ "+row[2:])
+			} else {
+				row = v.theme.Dim.Render(row)
+			}
+			lines = append(lines, row)
+		}
+	}
+
 	// v0.8.1+: list nodes for every craft in the slate. The active
 	// craft's nodes appear at full intensity; other crafts' nodes
 	// fall in the Dim style with a `craft N:` prefix so the player

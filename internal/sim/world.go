@@ -819,11 +819,14 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 			c.ActiveBurn.DVRemaining -= dvApplied
 		}
 	}
+	// v0.9.1+: route fuel burn through BurnFuel so Stages[0].FuelMass
+	// (the source of truth) decrements + SyncFields keeps the flat
+	// shadow fields coherent. Pre-v0.9.1 wrote `c.Fuel -= fuelBurned`
+	// directly; with Stages now authoritative, that path would leave
+	// the bottom stage's tank artificially full and the burn would
+	// never terminate from fuel exhaustion.
 	fuelBurned := c.MassFlowRateAt(throttle) * dt
-	if fuelBurned > c.Fuel {
-		fuelBurned = c.Fuel
-	}
-	c.Fuel -= fuelBurned
+	c.BurnFuel(fuelBurned)
 	c.State.M = c.TotalMass()
 }
 
