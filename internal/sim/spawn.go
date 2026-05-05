@@ -106,10 +106,13 @@ type SpawnSpec struct {
 	Latitude float64
 }
 
-// DefaultLaunchpadLatitude is the spawn latitude when Launchpad=true
-// and Latitude is unset. Picked at 28.6°N to match KSC — gives a
-// small but meaningful equatorial-spin boost for east-bound launches
-// without the textbook "from the equator" answer to every problem.
+// DefaultLaunchpadLatitude is the spawn latitude the form uses when
+// the player opens it without changing the field. Picked at 28.6°N
+// to match KSC — gives a small but meaningful equatorial-spin boost
+// for east-bound launches without the textbook "from the equator"
+// answer to every problem. Applied at the form layer, not in
+// SpawnCraft, so API callers can explicitly spawn at the equator
+// with Latitude=0.
 const DefaultLaunchpadLatitude = 28.6
 
 // SpawnCraft adds a new craft to the slate using the given spec.
@@ -163,10 +166,12 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		// ground. ω × r gives the eastward kick (~465 m/s at
 		// Earth's equator). AltitudeM / Retrograde are ignored —
 		// the launchpad path defines its own (R, V).
+		//
+		// Latitude is taken as-passed: zero is the equator, not a
+		// sentinel. The form's default (DefaultLaunchpadLatitude =
+		// 28.6° KSC) is applied at the form layer, so API callers
+		// can spawn at the equator with Latitude=0 explicitly.
 		latDeg := spec.Latitude
-		if latDeg == 0 {
-			latDeg = DefaultLaunchpadLatitude
-		}
 		if latDeg > 90 {
 			latDeg = 90
 		}

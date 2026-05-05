@@ -239,13 +239,14 @@ func TestDefaultCatalogLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultCatalog: %v", err)
 	}
-	if len(cat.Missions) != 3 {
-		t.Fatalf("expected 3 starter missions, got %d", len(cat.Missions))
+	if len(cat.Missions) != 4 {
+		t.Fatalf("expected 4 starter missions, got %d", len(cat.Missions))
 	}
 	wantIDs := map[string]bool{
-		"leo-circularize-1000": false,
-		"luna-orbit-insertion": false,
-		"mars-soi-flyby":       false,
+		"leo-circularize-1000":  false,
+		"luna-orbit-insertion":  false,
+		"mars-soi-flyby":        false,
+		"saturn-v-pad-to-leo":   false, // v0.9.2+
 	}
 	for _, m := range cat.Missions {
 		if _, ok := wantIDs[m.ID]; !ok {
