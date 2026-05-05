@@ -318,13 +318,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch action {
 			case screens.SpawnActionConfirm:
 				spec := sim.SpawnSpec{
-					LoadoutID:    a.spawn.SelectedLoadoutID(),
-					ParentBodyID: a.spawn.SelectedParentID(),
-					AltitudeM:    a.spawn.SelectedAltitudeM(),
-					Retrograde:   a.spawn.SelectedRetrograde(),
-					Alongside:    a.spawn.SelectedAlongside(),
-					Launchpad:    a.spawn.SelectedLaunchpad(),
-					Latitude:     a.spawn.SelectedLatitudeDeg(),
+					LoadoutID:       a.spawn.SelectedLoadoutID(),
+					ParentBodyID:    a.spawn.SelectedParentID(),
+					AltitudeM:       a.spawn.SelectedAltitudeM(),
+					Retrograde:      a.spawn.SelectedRetrograde(),
+					Alongside:       a.spawn.SelectedAlongside(),
+					Launchpad:       a.spawn.SelectedLaunchpad(),
+					Latitude:        a.spawn.SelectedLatitudeDeg(),
+					LongitudeOffset: a.spawn.SelectedLongitudeEastDeg(),
 				}
 				if c, err := a.world.SpawnCraft(spec); err == nil {
 					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)

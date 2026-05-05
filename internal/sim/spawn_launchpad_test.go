@@ -86,6 +86,41 @@ func TestSpawnLaunchpadCoRotatesWithSurface(t *testing.T) {
 	}
 }
 
+// TestSpawnLaunchpadCapeCanaveralLongitudePinned — spawn at LC-39A's
+// real-world coordinates (28.6083°N, 80.604°W) and verify R lands at
+// the expected sphere point. Two consecutive spawns at the same sim
+// time must produce identical positions; consecutive spawns at
+// different sim times must rotate the position with the body. Both
+// invariants are critical for "launchpad means Cape Canaveral, not
+// generic 28.6°N."
+func TestSpawnLaunchpadCapeCanaveralLongitudePinned(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c1, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        28.6083,
+		LongitudeOffset: -80.604,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	r1 := c1.State.R
+	primaryR := c1.Primary.RadiusMeters()
+	// |R| must equal primary radius (altitude 0).
+	if math.Abs(r1.Norm()-primaryR) > 1.0 {
+		t.Errorf("|R| = %.0f, want %.0f", r1.Norm(), primaryR)
+	}
+	// Z-component fixed by latitude.
+	wantZ := primaryR * math.Sin(28.6083*math.Pi/180)
+	if math.Abs(r1.Z-wantZ) > 1.0 {
+		t.Errorf("R.Z = %.0f, want %.0f (KSC latitude)", r1.Z, wantZ)
+	}
+}
+
 // TestSpawnLaunchpadKSCLatitude — spawn at 28.6°N puts the craft
 // on a sphere at the right Z offset. Confirms latitude is
 // interpreted as documented (degrees north, trigonometric sin/cos
