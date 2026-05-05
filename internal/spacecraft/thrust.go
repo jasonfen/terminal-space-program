@@ -50,7 +50,10 @@ func (s *Spacecraft) ApplyRCSPulse(mode BurnMode) bool {
 	if s.RCSIsp <= 0 || s.RCSThrust <= 0 || s.Monoprop <= 0 {
 		return false
 	}
-	dir := DirectionUnit(mode, s.State.R, s.State.V)
+	// v0.9.2+: route through BurnDirection so surface modes + pitch
+	// trim feed through. Non-surface modes degenerate to the same
+	// result as DirectionUnit + zero trim.
+	dir := s.BurnDirection(mode)
 	if dir.Norm() == 0 {
 		return false
 	}
@@ -82,9 +85,29 @@ const (
 	BurnNormalMinus   // orbit normal (-h direction)
 	BurnRadialOut     // away from primary
 	BurnRadialIn      // toward primary
+
+	// Surface-relative modes (v0.9.2+) — live SAS only, not planted-
+	// node modes. Direction = ±(v_surface).Unit() where v_surface =
+	// v - ω × r is the craft's velocity relative to the rotating
+	// atmosphere. Useful for ascent gravity-turn flight: once the
+	// craft has eastward velocity, BurnSurfacePrograde tracks it
+	// even as the velocity vector pitches over from gravity drag,
+	// and the autopilot rides the curving trajectory cleanly.
+	//
+	// Pre-launch (zero velocity) the surface direction is undefined;
+	// BurnDirection returns the zero vector so the burn is a no-op.
+	// The player nudges off the pad with pitch trim (BurnRadialOut +
+	// trim east) and switches to BurnSurfacePrograde once velocity
+	// is established.
+	//
+	// Not in AllBurnModes — surface modes don't appear in the m
+	// planner's mode cycle, because planted nodes can't predict
+	// future v_surface usefully.
+	BurnSurfacePrograde
+	BurnSurfaceRetrograde
 )
 
-// String is the label shown in the maneuver planner.
+// String is the label shown in the maneuver planner / HUD.
 func (m BurnMode) String() string {
 	switch m {
 	case BurnPrograde:
@@ -99,6 +122,10 @@ func (m BurnMode) String() string {
 		return "Radial+"
 	case BurnRadialIn:
 		return "Radial-"
+	case BurnSurfacePrograde:
+		return "Surface Prograde"
+	case BurnSurfaceRetrograde:
+		return "Surface Retrograde"
 	}
 	return "?"
 }
@@ -153,7 +180,8 @@ func DirectionUnit(mode BurnMode, r, v orbital.Vec3) orbital.Vec3 {
 // (Isp·g·ln(m0/m1) for the actually-burned Δv); in v0.1 we approximate with
 // a linear consumption rate — plan §MVP defers true rocket-eq to v0.2.
 func (s *Spacecraft) ApplyImpulsive(mode BurnMode, dv float64) {
-	dir := DirectionUnit(mode, s.State.R, s.State.V)
+	// v0.9.2+: route through BurnDirection so surface modes + trim feed through.
+	dir := s.BurnDirection(mode)
 	if dir.Norm() == 0 || dv == 0 {
 		return
 	}
@@ -283,12 +311,38 @@ func (s *Spacecraft) ThrustAccelFnAt(mode BurnMode, mu, throttle float64) func(r
 	if s.Fuel <= 0 {
 		thrust = 0
 	}
+	// v0.9.2+: capture omega + pitch trim at closure construction so
+	// the per-sub-step direction lookup can resolve surface modes
+	// without re-touching the Spacecraft (the integrator only passes
+	// (r, v, t) into the closure). The closure's mode + trim stay
+	// fixed for the burn — the v0.9.2 plan didn't commit live trim
+	// adjustments mid-burn (they only feed through to the next burn
+	// engagement).
+	omega := physics.AtmosphereOmega(s.Primary)
+	pitchTrim := s.PitchTrim
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
 		if thrust == 0 || mass == 0 {
 			return gravity
 		}
-		dir := DirectionUnit(mode, r, v)
+		var dir orbital.Vec3
+		switch mode {
+		case BurnSurfacePrograde, BurnSurfaceRetrograde:
+			vSurf := v.Sub(omega.Cross(r))
+			n := vSurf.Norm()
+			if n == 0 {
+				return gravity
+			}
+			dir = vSurf.Scale(1 / n)
+			if mode == BurnSurfaceRetrograde {
+				dir = dir.Scale(-1)
+			}
+		default:
+			dir = DirectionUnit(mode, r, v)
+		}
+		if pitchTrim != 0 {
+			dir = ApplyPitchTrim(dir, r, pitchTrim)
+		}
 		if dir.Norm() == 0 {
 			return gravity
 		}

@@ -115,6 +115,19 @@ type Spacecraft struct {
 	// its own components and the other's identity to the result).
 	DockedComponents []DockedComponent
 
+	// PitchTrim (v0.9.2+) is a signed pitch offset (radians)
+	// applied on top of the active BurnMode's computed direction.
+	// Positive values rotate the thrust vector eastward of the
+	// mode's natural direction (about the local-north axis at the
+	// craft's current position); negative rotates west. Used by
+	// ascent gravity-turn flight: the player launches BurnRadialOut
+	// (vertical), trims +5–15° east via the `<` / `>` keys to start
+	// the gravity turn, then switches to BurnSurfacePrograde once
+	// surface-relative velocity is established. Reset via the `\`
+	// key. Persists in saves so a paused-mid-ascent session restores
+	// the player's trim setting.
+	PitchTrim float64
+
 	// Stages (v0.9.1+) is the source of truth for dry mass /
 	// propellant / engine numbers. Stages[0] is the BOTTOM stage
 	// (the currently-firing engine + the next to be jettisoned by

@@ -149,6 +149,12 @@ type Craft struct {
 	ActiveBurn   *ActiveBurn `json:"active_burn,omitempty"`
 	AttitudeMode int         `json:"attitude_mode,omitempty"`
 	EngineMode   int         `json:"engine_mode,omitempty"`
+
+	// PitchTrim (v0.9.2+, schema v6 additive): signed pitch-trim
+	// offset in radians applied on top of the active BurnMode.
+	// omitempty so legacy saves with no trim load with PitchTrim=0
+	// (= no trim, the v0.9.2-pre behaviour).
+	PitchTrim float64 `json:"pitch_trim,omitempty"`
 }
 
 // Stage mirrors spacecraft.Stage on the wire. v0.9.1+. All numeric
@@ -351,6 +357,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			Role:             c.Role,
 			Glyph:            c.Glyph,
 			Color:            c.Color,
+			PitchTrim:        c.PitchTrim,
 		}
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
@@ -516,6 +523,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Role:         wc.Role,
 			Glyph:        wc.Glyph,
 			Color:        wc.Color,
+			PitchTrim:    wc.PitchTrim,
 		}
 		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill
