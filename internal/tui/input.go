@@ -99,6 +99,23 @@ type Keymap struct {
 	// already used `space` inside `m`; the decouple binding is
 	// confined to the no-form context so the two don't collide.
 	Stage key.Binding
+
+	// AttitudeSurfacePrograde / AttitudeSurfaceRetrograde (v0.9.2+):
+	// align thrust to ±(v - ω×r), the velocity relative to the
+	// rotating atmosphere. KSP's "surface prograde" SAS mode for
+	// ascent gravity-turn flight. Bound to shift+W / shift+S so the
+	// existing w/s prograde-orbit attitudes keep their muscle memory.
+	AttitudeSurfacePrograde   key.Binding
+	AttitudeSurfaceRetrograde key.Binding
+
+	// PitchTrimEast / PitchTrimWest (v0.9.2+): nudge thrust direction
+	// ±5° east of the active mode's natural direction. Used by
+	// ascent gravity-turn flight to initiate the pitch-over from
+	// vertical. Held → continuous trim ramp at the terminal's
+	// key-repeat rate. Reset via PitchTrimReset.
+	PitchTrimEast    key.Binding
+	PitchTrimWest    key.Binding
+	PitchTrimReset   key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -155,5 +172,11 @@ func DefaultKeymap() Keymap {
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / craft)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
 		Stage:               key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "decouple bottom stage")),
+
+		AttitudeSurfacePrograde:   key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "attitude: surface prograde")),
+		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
+		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +5° east")),
+		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -5° west")),
+		PitchTrimReset:            key.NewBinding(key.WithKeys("\\"), key.WithHelp("\\", "reset pitch trim")),
 	}
 }

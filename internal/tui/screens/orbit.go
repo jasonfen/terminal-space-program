@@ -1140,12 +1140,23 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		if altAGL >= 1000 {
 			altLabel = fmt.Sprintf("%.2f km", altAGL/1000)
 		}
+		// v0.9.2+: SAS row + pitch-trim row so the player can see
+		// what the autopilot is holding and how much east-trim is
+		// stacked on top.
+		sasLabel := c.AttitudeMode.String()
+		trimDeg := c.PitchTrim * 180 / math.Pi
+		trimLabel := fmt.Sprintf("%+.1f°", trimDeg)
+		if math.Abs(trimDeg) > 0.05 {
+			trimLabel = v.theme.Warning.Render(trimLabel)
+		}
 		lines = append(lines, section("LAUNCH")...)
 		lines = append(lines,
 			fmt.Sprintf("  altitude:   %s", altLabel),
 			fmt.Sprintf("  v_vert:     %.1f m/s", vVert),
 			fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
 			fmt.Sprintf("  twr:        %s", twrLabel),
+			fmt.Sprintf("  sas:        %s", sasLabel),
+			fmt.Sprintf("  trim:       %s", trimLabel),
 		)
 	}
 
