@@ -1120,7 +1120,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		var vVert, vHoriz float64
 		if rNorm > 0 {
 			rHat := c.State.R.Scale(1 / rNorm)
-			vVert = vRel.Dot(rHat)
+			// vRel · rHat (radial component) — orbital.Vec3 has no
+			// Dot method; inline as X*X + Y*Y + Z*Z.
+			vVert = vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z
 			vHorizVec := vRel.Sub(rHat.Scale(vVert))
 			vHoriz = vHorizVec.Norm()
 		}
