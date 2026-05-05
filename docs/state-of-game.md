@@ -2,17 +2,18 @@
 
 <!--
   meta:
-    snapshot_version: v0.9.0
+    snapshot_version: v0.9.1
     snapshot_date: 2026-05-05
-    revised_date: 2026-05-05 (v0.9.0 targeting slice shipped; v0.9
-      cycle opens with unified World.Target slot)
+    revised_date: 2026-05-05 (v0.9.1 staging slice shipped — Saturn-V
+      3-stage loadout, Spacecraft.Stages source-of-truth, save schema
+      v5 → v6)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
   "what's the game today / where is it going" reference.
 -->
 
-> Snapshot at **v0.9.0** (May 2026). Predecessor doc with full
+> Snapshot at **v0.9.1** (May 2026). Predecessor doc with full
 > per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
@@ -86,6 +87,7 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
+| [v0.9.1](#v091) | 2026-05-05 | ✓ | KSP-style staging chain — Saturn-V 3-stage loadout, `space` decouples bottom stage |
 | [v0.9.0](#v090) | 2026-05-05 | ✓ | unified `World.Target` slot — first slice of "the craft fleet grows up" cycle |
 | [v0.8.6](#v086) | 2026-05-04 | ✓ | controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target |
 | [v0.8.5](#v085) | 2026-05-03 | ✓ | sim-time planet rotation + view-aware projection + textured-bodies trickle |
@@ -101,6 +103,78 @@ flyby) match real spacecraft work.
 | [v0.3](#v03) | 2026-04 | ✓ | porkchop + Lambert + finite burns |
 | [v0.2](#v02) | 2026-04 | ✓ | finite burns + maneuver planner |
 | [v0.1](#v01) | 2026-04 | ✓ | two-body propagator + SOI |
+
+### v0.9.1
+<!-- llm-parse: version=v0.9.1 status=shipped date=2026-05-05 theme=staging-chain -->
+
+**KSP-style player-managed staging chain.** Second slice of the
+v0.9 "craft fleet grows up" cycle. Adds multi-stage launch
+vehicles + the `space` decouple keystroke + the Saturn-V loadout.
+
+- **Stage source-of-truth** (`internal/spacecraft/stage.go`): new
+  `Stage` struct (DryMass / FuelMass / FuelCapacity / Thrust /
+  Isp / MonopropMass / MonopropCap / RCSThrust / RCSIsp /
+  LoadoutID / Name / Glyph / Color). `Spacecraft.Stages []Stage`
+  is authoritative; the historical flat fields become derived
+  shadow-mirror values refreshed by `SyncFields`. Convention:
+  `Stages[0]` = bottom (currently-firing engine, first to be
+  jettisoned); `Stages[len-1]` = top (core payload).
+- **BurnFuel / BurnMonoprop helpers**: write sites route through
+  `c.BurnFuel(amount)` / `c.BurnMonoprop(amount)` which mutate
+  `Stages[0]` and `SyncFields` together. Pre-v0.9.1 wrote to flat
+  fields directly; with Stages now authoritative, those would
+  leak.
+- **Saturn-V 3-stage loadout** (`internal/spacecraft/loadouts.go`):
+  S-IC booster (35,100 kN @ 263s, sea-level Isp; TWR > 1 sea
+  level), S-II sustainer (5,140 kN @ 421s vacuum), S-IVB
+  insertion (1,023 kN @ 421s — same shape as the standalone
+  S-IVB-1). Existing 4 loadouts wrap into single-stage
+  `Stages: [{...}]`.
+- **`World.StageActive`** (`internal/sim/staging.go`): pops
+  `Stages[0]`, spawns it as a passive Spacecraft at the active
+  craft's exact inertial state (residual fuel + monoprop on the
+  jettison), active idx stays on the upper chain. Errors:
+  `ErrStageOnlyOne` (refuses to drop the only stage),
+  `ErrStageNoCraft`, `ErrStageEmpty`.
+- **`space` keystroke** (`internal/tui/input.go`): retired from
+  Pause (now `0` only) and routed to `StageActive`. The maneuver
+  form's iterate-toggle (v0.8.6.3) still owns `space` because its
+  key path intercepts before `app.go`.
+- **STAGES HUD block** (`internal/tui/screens/orbit.go`):
+  per-stage thrust / Isp / fuel% with bottom highlighted in
+  Warning. Hidden for single-stage craft (existing PROPELLANT
+  block already covers them).
+- **Composite-craft post-docking**
+  (`internal/sim/docking.go`): composite Stages =
+  `lead.Stages ++ partner.Stages` (appended on top — undocking
+  peels the partner off as a unit). New `CompositeEngineSummary`
+  helper exposes the pooled view (sum thrust, mass-weighted Isp)
+  per scoping #4 for downstream consumers.
+- **Save schema v5 → v6** (`internal/save/save.go` +
+  `save_migrate_v5_to_v6.go`): `Craft.Stages` added (omitempty);
+  flat fields stay on the wire for back-compat. Pre-v6 saves
+  migrate by wrapping the v5 flat fields into a single-element
+  Stages slice; FuelCapacity defaults to live Fuel (v5 had no
+  pristine-capacity record).
+
+**Plan deviations.**
+
+- The plan's literal text said "computed accessors that delegate
+  to the top stage" (methods). Implemented as **derived shadow-
+  mirror with SyncFields** instead, because converting ~30 read
+  sites to method calls had ~3× the diff with no functional gain.
+  The Stages-as-truth invariant is preserved.
+- Plan said "active engine reads from `Stages[len-1]` (top
+  stage)" but every other detail (Saturn-V "TWR>1 at sea level on
+  stage 1"; `StageActive` "pops `Stages[0]`") makes it clear
+  bottom = firing. Implemented as `Stages[0]` = bottom = firing.
+  The plan text was a typo; the Saturn-V tuning is the truth.
+
+**Sizing.** Plan called for ~700 LOC + tests + corpus. Landed at
+~500 production + ~300 tests = ~800 total. Close to estimate;
+matches the v0.8 retrospective heuristic that isolated planner /
+sim-internals slices (no rendering or frame-convention churn)
+land near plan.
 
 ### v0.9.0
 <!-- llm-parse: version=v0.9.0 status=shipped date=2026-05-05 theme=targeting-slot -->
@@ -440,9 +514,9 @@ take a position on them.
 <!-- llm-parse: cycle=v0.9 status=in-progress -->
 
 **Cycle theme: "the craft fleet grows up."** Plan committed at
-[`docs/v0.9-plan.md`](v0.9-plan.md); first slice (v0.9.0
-targeting) shipped 2026-05-05. Remaining slices: .1 staging, .2
-ground launch, .3 rendezvous tooling.
+[`docs/v0.9-plan.md`](v0.9-plan.md); first two slices (v0.9.0
+targeting + v0.9.1 staging) shipped 2026-05-05. Remaining slices:
+.2 ground launch, .3 rendezvous tooling, .4 navball.
 
 The v0.8 cycle delivered multi-craft capability and the precision
 tooling (RCS, docking, drag, body-equatorial frame, adaptive warp)
