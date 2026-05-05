@@ -29,6 +29,16 @@
       "params": {
         "primary_id": "mars"
       }
+    },
+    {
+      "id": "saturn-v-pad-to-leo",
+      "name": "Saturn V: pad to LEO",
+      "description": "Spawn a Saturn V on the launchpad (n → POSITION → launchpad → LATITUDE → 28.6° KSC). Manually fly the gravity turn — pitch east, stage as each booster empties — and circularize at periapsis above 200 km.",
+      "type": "circularize_from_pad",
+      "params": {
+        "primary_id": "earth",
+        "min_periapsis_alt_m": 200000
+      }
     }
   ]
 }

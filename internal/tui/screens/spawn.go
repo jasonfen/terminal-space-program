@@ -10,25 +10,47 @@ import (
 
 // SpawnCraft is the modal form opened by `n` on the orbit screen.
 // v0.8.2+: four fields — craft type, parent body, altitude, and
-// direction (prograde / retrograde). Tab cycles field focus; ←/→
-// edit the focused field; Enter spawns; Esc cancels.
+// direction (prograde / retrograde). v0.8.3+ added a POSITION
+// toggle (orbit / alongside). v0.9.2+ extended POSITION with a
+// third option (launchpad) and the ALTITUDE field doubles as a
+// LATITUDE picker when launchpad is selected. Tab cycles field
+// focus; ←/→ edit the focused field; Enter spawns; Esc cancels.
 type SpawnCraft struct {
 	theme    Theme
-	fieldIdx int // 0=loadout, 1=position, 2=parent, 3=altitude, 4=direction
+	fieldIdx int // 0=loadout, 1=position, 2=parent, 3=altitude/latitude, 4=direction
 
 	loadoutIdx   int
-	alongside    bool // v0.8.3+: spawn next to active craft for docking testing
+	posMode      spawnPosMode // v0.9.2+: tri-state — orbit / alongside / launchpad
 	parentBodies []bodies.CelestialBody // populated by Reset
 	parentIdx    int
 	altIdx       int
+	latIdx       int // v0.9.2+: latitude preset cursor when posMode=launchpad
 	retrograde   bool
 }
+
+// spawnPosMode enumerates the v0.8.3 / v0.9.2 spawn-position modes.
+type spawnPosMode int
+
+const (
+	posOrbit     spawnPosMode = iota // pre-v0.8.3 default — circular orbit
+	posAlongside                     // v0.8.3+ — within docking gate of active craft
+	posLaunchpad                     // v0.9.2+ — surface co-rotating, altitude 0
+)
 
 // altitudePresets are the cycle values for the altitude field —
 // km above the parent's mean radius. Hand-picked across orders of
 // magnitude so the cycle covers LEO-style parking orbits, GEO-ish
 // transfer alts, and high-Earth / interplanetary capture orbits.
 var altitudePresets = []int{200, 500, 1000, 2000, 5000, 10000, 35786}
+
+// latitudePresets are the cycle values for the launchpad latitude
+// field (degrees north). Picked from real-world launch sites so the
+// player can sanity-check the equatorial-spin boost: 0° (textbook
+// best case), KSC (28.6°N — Saturn V default), Baikonur (45.6°N),
+// Plesetsk (62.8°N — high-inclination polar launches), 90°N (north
+// pole — zero spin assist, sanity check that the model bottoms out).
+// v0.9.2+.
+var latitudePresets = []float64{0.0, 28.6, 45.6, 62.8, 90.0}
 
 // NewSpawnCraft constructs the screen.
 func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
@@ -41,8 +63,9 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string) {
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
-	s.alongside = false
+	s.posMode = posOrbit
 	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
+	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
 	s.retrograde = false
 	s.parentBodies = systemBodies
 	s.parentIdx = 0
@@ -95,7 +118,21 @@ func (s *SpawnCraft) SelectedRetrograde() bool { return s.retrograde }
 
 // SelectedAlongside reports whether the player picked the
 // "alongside active craft" position. v0.8.3+.
-func (s *SpawnCraft) SelectedAlongside() bool { return s.alongside }
+func (s *SpawnCraft) SelectedAlongside() bool { return s.posMode == posAlongside }
+
+// SelectedLaunchpad reports whether the player picked the
+// surface-launchpad position. v0.9.2+.
+func (s *SpawnCraft) SelectedLaunchpad() bool { return s.posMode == posLaunchpad }
+
+// SelectedLatitudeDeg returns the chosen surface latitude (degrees
+// north) when SelectedLaunchpad is true. Defaults to KSC (28.6°N)
+// when the cursor is out of range. v0.9.2+.
+func (s *SpawnCraft) SelectedLatitudeDeg() float64 {
+	if s.latIdx < 0 || s.latIdx >= len(latitudePresets) {
+		return 28.6
+	}
+	return latitudePresets[s.latIdx]
+}
 
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
@@ -120,19 +157,25 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 
 // cycleField nudges the focused field's value by step (typically
 // ±1). Each field has its own wrap-around behaviour. v0.8.3+:
-// adds the position toggle (orbit / alongside).
+// added the position toggle (orbit / alongside). v0.9.2+: position
+// is now a tri-state cycle (orbit / alongside / launchpad), and
+// field 3 doubles as latitude when posMode=launchpad.
 func (s *SpawnCraft) cycleField(step int) {
 	switch s.fieldIdx {
 	case 0:
 		s.loadoutIdx = wrapIdx(s.loadoutIdx+step, len(spacecraft.LoadoutOrder))
 	case 1:
-		s.alongside = !s.alongside
+		s.posMode = spawnPosMode(wrapIdx(int(s.posMode)+step, 3))
 	case 2:
 		if len(s.parentBodies) > 0 {
 			s.parentIdx = wrapIdx(s.parentIdx+step, len(s.parentBodies))
 		}
 	case 3:
-		s.altIdx = wrapIdx(s.altIdx+step, len(altitudePresets))
+		if s.posMode == posLaunchpad {
+			s.latIdx = wrapIdx(s.latIdx+step, len(latitudePresets))
+		} else {
+			s.altIdx = wrapIdx(s.altIdx+step, len(altitudePresets))
+		}
 	case 4:
 		s.retrograde = !s.retrograde
 	}
@@ -177,22 +220,31 @@ func (s *SpawnCraft) Render(width int) string {
 		lines = append(lines, "  "+marker+row)
 	}
 
-	// Field 1: position mode — toggle between "orbit" (uses
-	// PARENT BODY + ALTITUDE + DIRECTION below) and "alongside"
-	// (drops the new craft inside the docking gate of the active
-	// craft for testing).
+	// Field 1: position mode — tri-state cycle. orbit (uses PARENT
+	// + ALTITUDE + DIRECTION below); alongside (drops inside
+	// docking gate, all three ignored); launchpad (surface, parent
+	// + LATITUDE only — direction ignored).
 	lines = append(lines, "")
 	lines = append(lines, s.fieldHeader(1, "POSITION"))
-	posLabel := "circular orbit"
-	if s.alongside {
+	var posLabel string
+	switch s.posMode {
+	case posAlongside:
 		posLabel = "alongside active (within docking gate)"
+	case posLaunchpad:
+		posLabel = "launchpad (surface, co-rotating)"
+	default:
+		posLabel = "circular orbit"
 	}
 	lines = append(lines, "  "+s.fieldValue(1, posLabel))
 
-	// When alongside is picked, the orbit-defining fields below
-	// don't apply — render them dimmed so the player sees they're
-	// inactive.
-	dimWhen := s.alongside
+	// Field-3 + field-4 dim/disable masks vary by mode:
+	// - orbit:     all three orbit-defining fields enabled
+	// - alongside: parent + alt + direction all dimmed
+	// - launchpad: parent + latitude (replaces alt) enabled,
+	//              direction dimmed
+	dimParent := s.posMode == posAlongside
+	dimAlt := s.posMode != posOrbit
+	dimDir := s.posMode != posOrbit
 
 	// Field 2: parent body — single-line cycle.
 	lines = append(lines, "")
@@ -202,22 +254,31 @@ func (s *SpawnCraft) Render(width int) string {
 		parentLabel = fmt.Sprintf("%s  (μ %.2e, R %.0f km)",
 			pb.EnglishName, pb.GravitationalParameter(), pb.RadiusMeters()/1000)
 	}
-	lines = append(lines, "  "+s.fieldValueDimmed(2, parentLabel, dimWhen))
+	lines = append(lines, "  "+s.fieldValueDimmed(2, parentLabel, dimParent))
 
-	// Field 3: altitude — single-line preset cycle.
+	// Field 3: altitude (orbit) or latitude (launchpad) — preset cycle.
 	lines = append(lines, "")
-	lines = append(lines, s.fieldHeader(3, "ALTITUDE"))
-	altLabel := fmt.Sprintf("%d km", altitudePresets[s.altIdx])
-	lines = append(lines, "  "+s.fieldValueDimmed(3, altLabel, dimWhen))
+	if s.posMode == posLaunchpad {
+		lines = append(lines, s.fieldHeader(3, "LATITUDE"))
+		latLabel := fmt.Sprintf("%.1f° N", latitudePresets[s.latIdx])
+		if latitudePresets[s.latIdx] < 0 {
+			latLabel = fmt.Sprintf("%.1f° S", -latitudePresets[s.latIdx])
+		}
+		lines = append(lines, "  "+s.fieldValueDimmed(3, latLabel, false))
+	} else {
+		lines = append(lines, s.fieldHeader(3, "ALTITUDE"))
+		altLabel := fmt.Sprintf("%d km", altitudePresets[s.altIdx])
+		lines = append(lines, "  "+s.fieldValueDimmed(3, altLabel, dimAlt))
+	}
 
-	// Field 4: direction — toggle.
+	// Field 4: direction — toggle. Ignored in launchpad mode.
 	lines = append(lines, "")
 	lines = append(lines, s.fieldHeader(4, "DIRECTION"))
 	dirLabel := "prograde"
 	if s.retrograde {
 		dirLabel = "retrograde"
 	}
-	lines = append(lines, "  "+s.fieldValueDimmed(4, dirLabel, dimWhen))
+	lines = append(lines, "  "+s.fieldValueDimmed(4, dirLabel, dimDir))
 
 	lines = append(lines, "")
 	lines = append(lines, s.theme.Dim.Render(strings.Repeat("─", 60)))
