@@ -13,6 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -1292,6 +1293,48 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 						fmt.Sprintf("  range:  %s", rangeLabel),
 						fmt.Sprintf("  |v_rel|: %.2f m/s", vRel),
 					)
+					// v0.9.3+: rendezvous block — time + distance to next
+					// closest approach, DOCK READY indicator. Only when
+					// both craft share a primary; cross-SOI rendezvous is
+					// out of scope for the manual loop. Horizon: 4 hours
+					// covers 2–3 LEO periods, which is the typical
+					// player-controlled rendezvous window.
+					if tc.Primary.ID == c.Primary.ID {
+						rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+						if ok {
+							active := orbital.Vec3State{R: c.State.R, V: c.State.V}
+							target := orbital.Vec3State{R: rT, V: vT}
+							mu := c.Primary.GravitationalParameter()
+							const horizon = 4 * 3600.0
+							if tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, horizon); err == nil {
+								tcaLabel := fmt.Sprintf("%.0fs", tCA)
+								switch {
+								case tCA >= 3600:
+									tcaLabel = fmt.Sprintf("%.2fh", tCA/3600)
+								case tCA >= 60:
+									tcaLabel = fmt.Sprintf("%.1fmin", tCA/60)
+								}
+								caLabel := fmt.Sprintf("%.0f m", distCA)
+								switch {
+								case distCA > 1e6:
+									caLabel = fmt.Sprintf("%.0f km", distCA/1000)
+								case distCA > 1000:
+									caLabel = fmt.Sprintf("%.2f km", distCA/1000)
+								}
+								lines = append(lines,
+									fmt.Sprintf("  TCA:    %s", tcaLabel),
+									fmt.Sprintf("  CA:     %s", caLabel),
+								)
+							}
+						}
+						// DOCK READY: current range < 50 m && |v_rel| <
+						// 0.1 m/s. Gates on v0.8.3 DockCrafts which the
+						// player invokes once the indicator lights.
+						if rangeM < 50 && vRel < 0.1 {
+							dockStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
+							lines = append(lines, "  "+dockStyle.Render("DOCK READY"))
+						}
+					}
 				}
 			}
 		}

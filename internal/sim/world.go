@@ -811,7 +811,23 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 			throttle = 1.0
 		}
 	}
-	thrustFn := c.ThrustAccelFnAt(mode, mu, throttle)
+	// v0.9.3+: resolve target snapshot for target-relative thrust.
+	// For ActiveBurn (planted finite burn), the target was bound at
+	// plant time via ActiveBurn.TargetCraftIdx — survives a player
+	// target switch mid-burn. For ManualBurn (live SAS hold), the
+	// snapshot follows the current World.Target so the player can
+	// retarget mid-hold. Non-target modes ignore (rT, vT).
+	var rT, vT orbital.Vec3
+	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftIdx != 0 {
+		if tIdx, ok := c.ActiveBurn.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
+			if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+				rT, vT = tc.State.R, tc.State.V
+			}
+		}
+	} else {
+		rT, vT, _ = w.TargetStateRelativeToActivePrimary()
+	}
+	thrustFn := c.ThrustAccelFnAtWithTarget(mode, mu, throttle, rT, vT)
 	bc := c.EffectiveBallisticCoefficient()
 	primary := c.Primary
 	// v0.8.4: drag adds to thrust + gravity inside the RK4 closure so
