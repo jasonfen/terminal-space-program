@@ -117,14 +117,29 @@ type Spacecraft struct {
 
 	// Landed (v0.9.2+): true when the craft is parked on the
 	// primary's surface co-rotating with the ground. While Landed,
-	// the integrator bypasses gravity / drag / thrust and just
-	// rotates R about world +Z at ω per tick (with V = ω × R) so
-	// the craft physically rotates with the planet. Cleared
-	// automatically when the engine ignites — see
+	// the integrator bypasses gravity / drag / thrust and recomputes
+	// R from `LaunchLatDeg` / `LaunchLonDeg` each tick using the
+	// renderer's `BodyFixedToWorld` projection — so the craft stays
+	// at the texture-rendered "Cape Canaveral" pixel as the body
+	// rotates. Cleared automatically when the engine ignites — see
 	// `World.StartManualBurn` and the planted-burn fire path. Set
 	// on `SpawnSpec.Launchpad=true` spawns. Persists in saves so a
 	// paused-on-pad session restores correctly.
 	Landed bool
+
+	// LaunchLatDeg / LaunchLonDeg (v0.9.2+) record the body-fixed
+	// (lat, lon) of the launchpad spawn. Only meaningful when
+	// Landed=true; the integrator re-derives R from these +
+	// the body's current rotation phase each tick (rather than
+	// rotating R via Rodrigues, which drifted off the texture's
+	// Florida pixel because the v0.8.5+ Snyder-orthographic
+	// rendering has a sub-observer-frame rotation that's view-
+	// dependent — see render.BodyFixedToWorld doc).
+	//
+	// Latitude in degrees north positive; longitude in degrees east
+	// positive (real-Earth-style). Persists in saves.
+	LaunchLatDeg float64
+	LaunchLonDeg float64
 
 	// PitchTrim (v0.9.2+) is a signed pitch offset (radians)
 	// applied on top of the active BurnMode's computed direction.

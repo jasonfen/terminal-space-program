@@ -677,7 +677,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// warp time and the integrator flies it along that fictitious
 	// orbit (= "shoots off into space" without the engine running).
 	if c.Landed {
-		integrateLanded(c, simDelta)
+		integrateLanded(w, c, simDelta)
 		return
 	}
 	mu := c.Primary.GravitationalParameter()
