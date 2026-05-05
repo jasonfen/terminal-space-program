@@ -25,7 +25,12 @@ func TestRoundtrip(t *testing.T) {
 	w.Clock.WarpIdx = 3
 	w.Clock.Paused = true
 	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: 4}
-	w.ActiveCraft().Fuel = 412.5
+	// v0.9.1+: Fuel writes go through Stages[0]+SyncFields. Pre-v0.9.1
+	// the test wrote `w.ActiveCraft().Fuel = 412.5` directly; that
+	// would now leave Stages[0].FuelMass at the loadout default and
+	// the round-trip would restore that default, not 412.5.
+	w.ActiveCraft().Stages[0].FuelMass = 412.5
+	w.ActiveCraft().SyncFields()
 	w.ActiveCraft().State.V = w.ActiveCraft().State.V.Add(orbital.Vec3{Y: 25.5})
 	w.ActiveCraft().Nodes = append(w.ActiveCraft().Nodes, sim.ManeuverNode{
 		TriggerTime: w.Clock.SimTime.Add(5 * time.Minute),
@@ -572,7 +577,9 @@ func TestMultiCraftRoundtrip(t *testing.T) {
 	wantCount := len(w.Crafts)
 	wantActive := w.ActiveCraftIdx
 	// Mutate the second craft so we can check it round-trips.
-	w.Crafts[1].Monoprop = 123.45
+	// v0.9.1+: Monoprop writes go through Stages[0]+SyncFields.
+	w.Crafts[1].Stages[0].MonopropMass = 123.45
+	w.Crafts[1].SyncFields()
 	wantMono := w.Crafts[1].Monoprop
 
 	path := filepath.Join(t.TempDir(), "save.json")

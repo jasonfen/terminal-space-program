@@ -191,7 +191,9 @@ func TestSpawnSisterCraftIncrementsName(t *testing.T) {
 	// Spawn enough sisters to wrap the loadout rotation back to
 	// S-IVB. The slate already has one S-IVB so the second one
 	// (after the rotation) should be named S-IVB-2.
-	for i := 0; i < 4; i++ {
+	// v0.9.1+: LoadoutOrder grew from 4 entries to 5 with the
+	// Saturn-V addition, so wrapping now needs one more spawn.
+	for i := 0; i < len(spacecraft.LoadoutOrder); i++ {
 		w.SpawnSisterCraft()
 	}
 	// Find the second S-IVB and confirm its name.
