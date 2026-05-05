@@ -21,7 +21,7 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.8.6** — controls polish bag (KSP-style F5/F9 quicksave/load, per-node delete/clear in the maneuver form), body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), and a finite-burn iterate-for-target toggle in the maneuver form.
+Latest release: **v0.9.0** — first slice of the v0.9 "craft fleet grows up" cycle. Unified `World.Target` slot (kind ∈ {None, Body, Craft}, with site reserved) replaces the implicit body cursor that planted-Hohmann (`H`) and plane-match (`I`) read pre-v0.9. `t` cycles target (bodies in active system → non-active sibling craft → none); `T` clears. New TARGET HUD block surfaces Δi / closest-encounter range for body targets and range / |v_rel| for craft targets. Save round-trips additively (no schema bump). Subsequent slices (.1 staging, .2 ground launch, .3 rendezvous) consume the slot.
 
 ```bash
 # Linux x86_64
@@ -112,8 +112,9 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `g` | Reset camera focus to system |
 | `v` | Cycle view (top → right → bottom → left → orbit-flat) |
 | `n` | Open spawn form (loadout / position / parent body / altitude / direction) |
-| `H` | Auto-plant Hohmann transfer to selected body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse) |
-| `I` | Plant inclination match — rotates the orbital plane to the selected body's inclination (or 0° equatorial when no body is selected) |
+| `H` | Auto-plant Hohmann transfer to `World.Target` body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse). TargetCraft flashes "needs v0.9.3" |
+| `I` | Plant inclination match — rotates the orbital plane to `World.Target` body's inclination (or 0° equatorial when target is None). TargetCraft flashes "needs v0.9.3" |
+| `t` / `T` | Cycle / clear `World.Target` (bodies in active system → non-active sibling craft → none) |
 | `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H` |
 | `R` | Refine plan — re-Lambert from live state, plant mid-course correction + update arrival |
 | `m` | Open maneuver planner |
@@ -406,32 +407,28 @@ prints a warning to stderr and falls back to defaults.
 | v0.5 | Moons + visuals | Body hierarchy + major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus); per-body color, vessel trail, HUD polish. |
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
-| v0.8 | Multi-craft polish (in progress) | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, drag-aware Verlet wired into live integrator + predictor, surface-clamp on impact, haze halo) (v0.8.4). Sim-time planet rotation, view-aware texture projection with per-body axial tilts, polygon-rasterised Earth grid, far-side / polar Moon detail, tilted Saturn rings with C / B / Cassini Division / A / F bands, textured Sun + Galileans + Uranus + Neptune, tidally-locked moons keeping their iconic face on the parent (v0.8.5). |
+| v0.8 | Multi-craft polish | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, drag-aware Verlet wired into live integrator + predictor, surface-clamp on impact, haze halo) (v0.8.4). Sim-time planet rotation, view-aware texture projection with per-body axial tilts, polygon-rasterised Earth grid, far-side / polar Moon detail, tilted Saturn rings with C / B / Cassini Division / A / F bands, textured Sun + Galileans + Uranus + Neptune, tidally-locked moons keeping their iconic face on the parent (v0.8.5). KSP-style F5/F9 quicksave/load + per-node delete/clear, body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), finite-burn iterate-for-target toggle in `m` form (v0.8.6). |
+| v0.9 | The craft fleet grows up (in progress) | Unified `World.Target` slot (kind ∈ {None, Body, Craft}) replaces the implicit body cursor; `t` / `T` cycle / clear; TARGET HUD block; `H` / `I` planters consume the slot (v0.9.0). |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
-v0.6 / v0.7 / v0.8 plans: [`docs/v0.6-plan.md`](docs/v0.6-plan.md), [`docs/v0.7-plan.md`](docs/v0.7-plan.md), [`docs/v0.8-plan.md`](docs/v0.8-plan.md).
+v0.6 / v0.7 / v0.8 / v0.9 plans: [`docs/v0.6-plan.md`](docs/v0.6-plan.md), [`docs/v0.7-plan.md`](docs/v0.7-plan.md), [`docs/v0.8-plan.md`](docs/v0.8-plan.md), [`docs/v0.9-plan.md`](docs/v0.9-plan.md).
 
 ## Future plans
 
-v0.8 — **multi-craft polish**. Slice breakdown in
-[`docs/v0.8-plan.md`](docs/v0.8-plan.md):
+v0.9 — **the craft fleet grows up**. Slice breakdown in
+[`docs/v0.9-plan.md`](docs/v0.9-plan.md):
 
-- ~~v0.8.0 — RCS / monopropellant mode for sub-m/s precision burns~~ **shipped.**
-- ~~v0.8.1 — multi-craft foundation (selector + save schema v4 → v5 + keystroke spawn + per-craft burn state)~~ **shipped.**
-- ~~v0.8.2 — craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, capture preview, equatorial inclination match~~ **shipped.**
-- ~~v0.8.3 — docking + undocking + RENDEZVOUS HUD + alongside-spawn + engine-firing flame + per-thruster RCS puff visuals~~ **shipped.**
-- ~~v0.8.4 — atmospheric drag (realistic Earth + Mars, drag-aware predictor, atmospheric haze rendering)~~ **shipped.**
-- ~~v0.8.5 — sim-time planet rotation + view-aware projection + textured Sun / Saturn / Galileans / Uranus / Neptune + polygon-rasterised Earth + far-side / polar Moon detail + tilted Saturn ring system~~ **shipped.**
-- v0.8.6 — controls polish bag (multi-rev porkchop UI keys,
-  `IterateForTarget` toggle in `m` form, throttle-change warp clamp).
-- v0.8.7+ stretch — mission scripting / editor.
+- ~~v0.9.0 — unified `World.Target` slot (kind ∈ {None, Body, Craft}); `t` / `T` cycle / clear; TARGET HUD; `H` / `I` planters read it~~ **shipped.**
+- v0.9.1 — staging chain (KSP-style player-managed sequential decouples; `Spacecraft.Stages []Stage`; `space` keystroke; save schema v5→v6).
+- v0.9.2 — ground launch (`SpawnSpec.Launchpad`, surface-co-rotating spawn at altitude 0, LAUNCH HUD).
+- v0.9.3 — rendezvous tooling (target-relative SAS modes, live closest-approach countdown; manual loop is the success metric).
+- v0.9.4+ bandwidth-permitting — multi-rev porkchop UI + Lambert short/long picker, capture-direction toggle, predictor adaptive sampling, solar lighting + terminator + eclipses (research-first), polish bag.
 
-Deferred to v0.9+: multiplayer implementation, interstellar transfer,
-N-body perturbations, solar lighting + day/night terminator + eclipses
-(needs ANSI 24-bit canvas mixing research first), atmospheric heating
-/ structural overstress, drag-to-edit nodes, theme-file hot-reload,
-race-detector CI.
+Deferred to v0.10+: multiplayer implementation, interstellar transfer,
+N-body perturbations, mission scripting / editor (eight-decision-point
+design pass intact), atmospheric heating / structural overstress,
+drag-to-edit nodes, theme-file hot-reload, race-detector CI.
 
 Full backlog in [`docs/state-of-game.md`](docs/state-of-game.md).
 
