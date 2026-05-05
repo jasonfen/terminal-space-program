@@ -102,7 +102,9 @@ func ApplyPitchTrim(dir, r orbital.Vec3, pitchRad float64) orbital.Vec3 {
 }
 
 // PitchTrimStepRad is the per-keypress pitch trim adjustment in
-// radians. 5° = π/36. Tap-style: each `>` keypress adds this much
-// east trim, each `<` subtracts. Held keys at the terminal's
-// default key-repeat rate produce a steady ramp.
-const PitchTrimStepRad = math.Pi / 36
+// radians. v0.9.2.1+: 10° (= π/18). v0.9.2 shipped at 5° but
+// playtest exposed that the user had to mash `>` 6+ times to get
+// the gravity turn going on a Saturn V — Apollo's actual ascent
+// program pitched 30–50° from vertical. Bump to 10° so 3 taps
+// gives a reasonable initial pitch-over.
+const PitchTrimStepRad = math.Pi / 18

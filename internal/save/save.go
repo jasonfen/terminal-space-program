@@ -173,19 +173,20 @@ type Craft struct {
 // fields are omitempty so a single-stage craft with default RCS pool
 // + zero monoprop residual still serialises compactly.
 type Stage struct {
-	LoadoutID    string  `json:"loadout_id,omitempty"`
-	Name         string  `json:"name,omitempty"`
-	Glyph        string  `json:"glyph,omitempty"`
-	Color        string  `json:"color,omitempty"`
-	DryMass      float64 `json:"dry_mass,omitempty"`
-	FuelMass     float64 `json:"fuel_mass,omitempty"`
-	FuelCapacity float64 `json:"fuel_capacity,omitempty"`
-	Thrust       float64 `json:"thrust,omitempty"`
-	Isp          float64 `json:"isp,omitempty"`
-	MonopropMass float64 `json:"monoprop_mass,omitempty"`
-	MonopropCap  float64 `json:"monoprop_cap,omitempty"`
-	RCSThrust    float64 `json:"rcs_thrust,omitempty"`
-	RCSIsp       float64 `json:"rcs_isp,omitempty"`
+	LoadoutID            string  `json:"loadout_id,omitempty"`
+	Name                 string  `json:"name,omitempty"`
+	Glyph                string  `json:"glyph,omitempty"`
+	Color                string  `json:"color,omitempty"`
+	DryMass              float64 `json:"dry_mass,omitempty"`
+	FuelMass             float64 `json:"fuel_mass,omitempty"`
+	FuelCapacity         float64 `json:"fuel_capacity,omitempty"`
+	Thrust               float64 `json:"thrust,omitempty"`
+	Isp                  float64 `json:"isp,omitempty"`
+	MonopropMass         float64 `json:"monoprop_mass,omitempty"`
+	MonopropCap          float64 `json:"monoprop_cap,omitempty"`
+	RCSThrust            float64 `json:"rcs_thrust,omitempty"`
+	RCSIsp               float64 `json:"rcs_isp,omitempty"`
+	BallisticCoefficient float64 `json:"ballistic_coefficient,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -380,19 +381,20 @@ func payloadFromWorld(w *sim.World) Payload {
 		// v5 craft fall through.
 		for _, s := range c.Stages {
 			wc.Stages = append(wc.Stages, Stage{
-				LoadoutID:    s.LoadoutID,
-				Name:         s.Name,
-				Glyph:        s.Glyph,
-				Color:        s.Color,
-				DryMass:      s.DryMass,
-				FuelMass:     s.FuelMass,
-				FuelCapacity: s.FuelCapacity,
-				Thrust:       s.Thrust,
-				Isp:          s.Isp,
-				MonopropMass: s.MonopropMass,
-				MonopropCap:  s.MonopropCap,
-				RCSThrust:    s.RCSThrust,
-				RCSIsp:       s.RCSIsp,
+				LoadoutID:            s.LoadoutID,
+				Name:                 s.Name,
+				Glyph:                s.Glyph,
+				Color:                s.Color,
+				DryMass:              s.DryMass,
+				FuelMass:             s.FuelMass,
+				FuelCapacity:         s.FuelCapacity,
+				Thrust:               s.Thrust,
+				Isp:                  s.Isp,
+				MonopropMass:         s.MonopropMass,
+				MonopropCap:          s.MonopropCap,
+				RCSThrust:            s.RCSThrust,
+				RCSIsp:               s.RCSIsp,
+				BallisticCoefficient: s.BallisticCoefficient,
 			})
 		}
 		for _, dc := range c.DockedComponents {
