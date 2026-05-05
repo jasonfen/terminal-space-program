@@ -2,19 +2,17 @@
 
 <!--
   meta:
-    snapshot_version: v0.8.6
-    snapshot_date: 2026-05-04
-    revised_date: 2026-05-04 (post-v0.x-plan audit — folded in
-      deferred items + weight signals from plan.md / v0.6-plan.md /
-      v0.7-plan.md / v0.8-plan.md / multiplayer-design.md /
-      integration-design.md)
+    snapshot_version: v0.9.0
+    snapshot_date: 2026-05-05
+    revised_date: 2026-05-05 (v0.9.0 targeting slice shipped; v0.9
+      cycle opens with unified World.Target slot)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
   "what's the game today / where is it going" reference.
 -->
 
-> Snapshot at **v0.8.6** (May 2026). Predecessor doc with full
+> Snapshot at **v0.9.0** (May 2026). Predecessor doc with full
 > per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
@@ -40,8 +38,8 @@ The headline aesthetic is "Apollo-era nominal trajectory" — the
 default vessel is a Saturn V S-IVB stage with a J-2 engine and
 ~6.3 km/s of Δv, sized so a Luna round trip is comfortable and a
 Mars Hohmann is *barely* reachable on a good launch window. The
-craft fleet up through v0.8.6 is intentionally modest; staging
-slices in v0.9+ will grow it.
+craft fleet up through v0.9.0 is intentionally modest; staging
+slices later in the v0.9 cycle will grow it.
 
 ## Where it came from
 
@@ -88,6 +86,7 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
+| [v0.9.0](#v090) | 2026-05-05 | ✓ | unified `World.Target` slot — first slice of "the craft fleet grows up" cycle |
 | [v0.8.6](#v086) | 2026-05-04 | ✓ | controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target |
 | [v0.8.5](#v085) | 2026-05-03 | ✓ | sim-time planet rotation + view-aware projection + textured-bodies trickle |
 | [v0.8.4](#v084) | 2026-05-03 | ✓ | atmospheric drag |
@@ -102,6 +101,56 @@ flyby) match real spacecraft work.
 | [v0.3](#v03) | 2026-04 | ✓ | porkchop + Lambert + finite burns |
 | [v0.2](#v02) | 2026-04 | ✓ | finite burns + maneuver planner |
 | [v0.1](#v01) | 2026-04 | ✓ | two-body propagator + SOI |
+
+### v0.9.0
+<!-- llm-parse: version=v0.9.0 status=shipped date=2026-05-05 theme=targeting-slot -->
+
+**Unified `World.Target` slot.** Foundation slice of the v0.9 "craft
+fleet grows up" cycle. Replaces the implicit body cursor that
+planted-Hohmann (`H`) and plane-match (`I`) read pre-v0.9 with a
+single explicit slot every planner consumes.
+
+- **Target shape** (`internal/sim/target.go`): `TargetKind` enum
+  (`TargetNone` / `TargetBody` / `TargetCraft` / `TargetSite`
+  reserved) + `Target` struct (`Kind`, `BodyIdx`, `CraftIdx`).
+  Mirrors the existing `Focus` pattern from
+  `internal/sim/focus.go`.
+- **World API** (`internal/sim/world.go`, `target.go`):
+  `World.Target` field; `SetTargetBody` / `SetTargetCraft` /
+  `ClearTarget` / `CycleTarget` (forward / backward) helpers.
+  Cycle order: bodies in active system (idx 1 .. n-1) →
+  non-active sibling craft → none → repeat. Out-of-range or
+  self-targeting clears.
+- **Resolver**: `World.TargetState() (orbital.Vec3State, ok bool)`
+  — returns the target's heliocentric (or primary-frame, when
+  active craft is body-bound) state for downstream consumers.
+- **Planner consumers**: `H` planted Hohmann and `I` plane-match
+  now read `World.Target` instead of the cursor. `TargetCraft` on
+  `H` or `I` flashes "needs v0.9.3" — exit door wired for the
+  rendezvous slice.
+- **Cursor retained**: `App.selectedBody` still drives body-info
+  (`i`), porkchop (`P`), and the SELECTED HUD block. Targeting
+  is the planner-input concept; the cursor stays UX scaffolding
+  for read-only screens.
+- **Keys** (`internal/tui/input.go`): `t` cycles target, `T`
+  clears.
+- **TARGET HUD block** (`internal/tui/screens/orbit.go`): hidden
+  when `Target.Kind == TargetNone`. For `TargetBody`: name,
+  body-equatorial Δi vs active craft, closest-encounter range.
+  For `TargetCraft`: name + role, current range, |v_rel|.
+  Extension to closest-approach time + distance is a v0.9.3 hook.
+- **Save** (`internal/save/save.go`): `*Target` pointer added to
+  v5 payload with `omitempty` — zero-value (`TargetNone`) means
+  no JSON field, no schema bump from v5. Pre-v0.9.0 v5 saves
+  load with `World.Target = Target{}`.
+
+**Sizing.** Plan called for ~250 LOC + 2× heuristic (planner /
+HUD touches) → ~500. Landed at ~280 production + ~200 tests = 8
+files, +662/-22 LOC. Under estimate — no rendering snowball this
+slice. Confirms the v0.8 retrospective pattern: isolated
+planner / sim-internals slices stay close to estimate; the 2–3×
+heuristic applies to rendering / frame-convention / planner-UX
+slices specifically.
 
 ### v0.8.6
 <!-- llm-parse: version=v0.8.6 status=shipped date=2026-05-04 theme=controls-polish-and-frames -->
@@ -388,18 +437,20 @@ take a position on them.
 
 ## Upcoming — v0.9 cycle plans
 
-<!-- llm-parse: cycle=v0.9 status=planning -->
+<!-- llm-parse: cycle=v0.9 status=in-progress -->
 
-**Cycle theme (working title): "the craft fleet grows up."**
+**Cycle theme: "the craft fleet grows up."** Plan committed at
+[`docs/v0.9-plan.md`](v0.9-plan.md); first slice (v0.9.0
+targeting) shipped 2026-05-05. Remaining slices: .1 staging, .2
+ground launch, .3 rendezvous tooling.
 
 The v0.8 cycle delivered multi-craft capability and the precision
 tooling (RCS, docking, drag, body-equatorial frame, adaptive warp)
 to support it — but the *fleet itself* is still one chemical
-S-IVB-class stage and three minor variants. v0.9 is provisionally
-structured around growing the fleet (staging) and the operational
-tooling that becomes useful once you have multiple capability
-tiers in flight (rendezvous, multi-rev transfers, mission
-scripting properly designed).
+S-IVB-class stage and three minor variants. v0.9 grows the fleet
+(staging) and the operational tooling that becomes useful once you
+have multiple capability tiers in flight (rendezvous, mission
+scripting properly designed — the latter deferred to v0.10).
 
 ### Sizing note from the v0.8 retrospective
 <!-- llm-parse: planning_caveat=v0.8-scope-creep -->
