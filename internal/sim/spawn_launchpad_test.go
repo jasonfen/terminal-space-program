@@ -66,13 +66,11 @@ func TestSpawnLaunchpadCoRotatesWithSurface(t *testing.T) {
 	}
 }
 
-// TestSpawnLaunchpadDefaultsToKSC — spawn with Launchpad=true and
-// Latitude=0 should NOT default to 0° N (zero is meaningful as the
-// equator). Wait — actually our DefaultLaunchpadLatitude only
-// kicks in when the SpawnSpec's Latitude IS 0; that's intentional
-// per the comment, so a player asking for the equator gets the
-// default. This test confirms the documented behaviour.
-func TestSpawnLaunchpadZeroLatitudeUsesDefault(t *testing.T) {
+// TestSpawnLaunchpadKSCLatitude — spawn at 28.6°N (the form's
+// default) puts the craft on a circle at the right Z offset.
+// Confirms latitude is interpreted as documented (degrees north,
+// trigonometric sin/cos in the body equatorial frame).
+func TestSpawnLaunchpadKSCLatitude(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -81,7 +79,7 @@ func TestSpawnLaunchpadZeroLatitudeUsesDefault(t *testing.T) {
 		LoadoutID:    spacecraft.LoadoutSaturnVID,
 		ParentBodyID: "earth",
 		Launchpad:    true,
-		// Latitude unset → DefaultLaunchpadLatitude (28.6°)
+		Latitude:     28.6,
 	})
 	if err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
@@ -89,10 +87,10 @@ func TestSpawnLaunchpadZeroLatitudeUsesDefault(t *testing.T) {
 	bodyPos := w.BodyPosition(c.Primary)
 	rRel := c.State.R.Sub(bodyPos)
 	primaryR := c.Primary.RadiusMeters()
-	// sin(28.6°) = ~0.479; Z component of rRel = R · sin(lat).
+	// sin(28.6°) ≈ 0.479; Z component of rRel = R · sin(lat).
 	wantZ := primaryR * math.Sin(28.6*math.Pi/180)
 	if math.Abs(rRel.Z-wantZ) > 1.0 {
-		t.Errorf("Z offset for default latitude: got %.0f m, want %.0f m (≈ R · sin 28.6°)",
+		t.Errorf("Z offset for 28.6° N: got %.0f m, want %.0f m (≈ R · sin 28.6°)",
 			rRel.Z, wantZ)
 	}
 }
