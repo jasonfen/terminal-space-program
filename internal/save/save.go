@@ -32,11 +32,14 @@ import (
 // fields ride along as omitempty additions, with the loader filling
 // defaults for older saves. v0.8.1 bumped to v5 — the first
 // non-additive migration: `Craft *Craft` → `Crafts []Craft` +
-// `ActiveCraftIdx`. Load accepts any version in [1, SchemaVersion];
-// pre-v5 envelopes are translated to the slice form on load. Bumps
-// that need real migration logic should add a dedicated upgrade pass
-// keyed off File.Version.
-const SchemaVersion = 5
+// `ActiveCraftIdx`. v0.9.1 bumps to v6 — Craft.Stages becomes the
+// source of truth for propulsion + mass; pre-v6 craft entries
+// migrate by wrapping the v5 flat fields into a single-element
+// Stages slice (see migrateV5Craft). Load accepts any version in
+// [1, SchemaVersion]; pre-v6 envelopes are translated on load.
+// Bumps that need real migration logic should add a dedicated
+// upgrade pass keyed off File.Version.
+const SchemaVersion = 6
 
 // File is the on-disk envelope.
 type File struct {
@@ -101,6 +104,17 @@ type Vec3 struct {
 // v4) are omitempty so v1–v3 saves round-trip cleanly: absent → 0.0
 // in JSON, populated from spacecraft.DefaultRCSLoadout(DryMass) at
 // load time so older saves inherit RCS without a migration.
+//
+// Stages (v0.9.1+, schema v6) is the source of truth for propulsion
+// + mass. Pre-v6 saves omit the field; the load path wraps the v5
+// flat fields (DryMass / Fuel / Isp / Thrust / Monoprop / etc.)
+// into a single-element Stages slice via migrateV5Craft so the
+// rehydrated Spacecraft has Stages populated regardless of save
+// vintage. The flat fields stay on the wire for v6 too — they're
+// derived shadow-mirror values that round-trip with the same numbers
+// SyncFields would compute, so a v6 save loaded into a hypothetical
+// v5 reader (none in production, but possible for tooling) would
+// still see a coherent craft.
 type Craft struct {
 	Name             string  `json:"name"`
 	DryMass          float64 `json:"dry_mass"`
@@ -119,6 +133,11 @@ type Craft struct {
 	Role             string  `json:"role,omitempty"`
 	Glyph            string  `json:"glyph,omitempty"`
 	Color            string  `json:"color,omitempty"`
+	// v0.9.1+: per-stage breakdown, bottom-first. omitempty so pre-
+	// v6 saves don't write the field and v6 saves of single-stage
+	// craft still wire it out for consumers that want stage-level
+	// detail.
+	Stages []Stage `json:"stages,omitempty"`
 	// v0.8.3+: docked-composite components for Undock to restore.
 	// Empty for non-composite craft.
 	DockedComponents []DockedComponent `json:"docked_components,omitempty"`
@@ -130,6 +149,25 @@ type Craft struct {
 	ActiveBurn   *ActiveBurn `json:"active_burn,omitempty"`
 	AttitudeMode int         `json:"attitude_mode,omitempty"`
 	EngineMode   int         `json:"engine_mode,omitempty"`
+}
+
+// Stage mirrors spacecraft.Stage on the wire. v0.9.1+. All numeric
+// fields are omitempty so a single-stage craft with default RCS pool
+// + zero monoprop residual still serialises compactly.
+type Stage struct {
+	LoadoutID    string  `json:"loadout_id,omitempty"`
+	Name         string  `json:"name,omitempty"`
+	Glyph        string  `json:"glyph,omitempty"`
+	Color        string  `json:"color,omitempty"`
+	DryMass      float64 `json:"dry_mass,omitempty"`
+	FuelMass     float64 `json:"fuel_mass,omitempty"`
+	FuelCapacity float64 `json:"fuel_capacity,omitempty"`
+	Thrust       float64 `json:"thrust,omitempty"`
+	Isp          float64 `json:"isp,omitempty"`
+	MonopropMass float64 `json:"monoprop_mass,omitempty"`
+	MonopropCap  float64 `json:"monoprop_cap,omitempty"`
+	RCSThrust    float64 `json:"rcs_thrust,omitempty"`
+	RCSIsp       float64 `json:"rcs_isp,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -314,6 +352,27 @@ func payloadFromWorld(w *sim.World) Payload {
 			Glyph:            c.Glyph,
 			Color:            c.Color,
 		}
+		// v0.9.1+: serialize Stages so v6 saves carry per-stage
+		// detail. Single-stage craft still wire out a one-element
+		// Stages — round-trips through the same migrate path that
+		// v5 craft fall through.
+		for _, s := range c.Stages {
+			wc.Stages = append(wc.Stages, Stage{
+				LoadoutID:    s.LoadoutID,
+				Name:         s.Name,
+				Glyph:        s.Glyph,
+				Color:        s.Color,
+				DryMass:      s.DryMass,
+				FuelMass:     s.FuelMass,
+				FuelCapacity: s.FuelCapacity,
+				Thrust:       s.Thrust,
+				Isp:          s.Isp,
+				MonopropMass: s.MonopropMass,
+				MonopropCap:  s.MonopropCap,
+				RCSThrust:    s.RCSThrust,
+				RCSIsp:       s.RCSIsp,
+			})
+		}
 		for _, dc := range c.DockedComponents {
 			wc.DockedComponents = append(wc.DockedComponents, DockedComponent{
 				Name:             dc.Name,
@@ -423,17 +482,28 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		if monoCap == 0 && rcsThrust == 0 && rcsIsp == 0 {
 			monoprop, monoCap, rcsThrust, rcsIsp = spacecraft.DefaultRCSLoadout(wc.DryMass)
 		}
+		// v0.9.1+: build Stages from the wire form, falling back to a
+		// single-element migration of the v5 flat fields when the
+		// wire entry doesn't carry Stages (pre-v6 saves OR v6 saves
+		// where the flat fields predate the migration). Once Stages
+		// is populated, SyncFields below re-derives the legacy flat
+		// fields from Stages so consumers stay coherent.
+		stages := wireStagesToSim(wc.Stages)
+		if len(stages) == 0 {
+			stages = migrateV5CraftToStages(wc, monoprop, monoCap, rcsThrust, rcsIsp)
+		}
 		c := &spacecraft.Spacecraft{
-			Name:     wc.Name,
-			DryMass:  wc.DryMass,
-			Fuel:     wc.Fuel,
-			Isp:      wc.Isp,
-			Thrust:   wc.Thrust,
-			Throttle: 1.0, // v0.7.3+: transient.
+			Name:             wc.Name,
+			DryMass:          wc.DryMass,
+			Fuel:             wc.Fuel,
+			Isp:              wc.Isp,
+			Thrust:           wc.Thrust,
+			Throttle:         1.0, // v0.7.3+: transient.
 			Monoprop:         monoprop,
 			MonopropCapacity: monoCap,
 			RCSThrust:        rcsThrust,
 			RCSIsp:           rcsIsp,
+			Stages:           stages,
 			Primary:          primary,
 			State: physics.StateVector{
 				R: vec3To(wc.R),
@@ -447,6 +517,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Glyph:        wc.Glyph,
 			Color:        wc.Color,
 		}
+		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill
 		// from the loadout catalog so older saves get the visual
 		// differentiation without manual edits. LoadoutID empty

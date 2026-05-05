@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -592,6 +593,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.ClearTarget):
 			a.world.ClearTarget()
+			return a, nil
+		case key.Matches(m, a.keys.Stage):
+			// v0.9.1+: drop the bottom stage of the active craft.
+			// Inside the maneuver form, space is the iterate-toggle
+			// (v0.8.6.3) — that path doesn't reach here because the
+			// maneuver form intercepts keys before app.update.
+			_, jettIdx, err := a.world.StageActive(a.world.ActiveCraftIdx)
+			switch {
+			case err == nil:
+				name := a.world.Crafts[jettIdx].Name
+				a.statusMsg = fmt.Sprintf("staged: %s jettisoned", name)
+			case errors.Is(err, sim.ErrStageOnlyOne):
+				a.statusMsg = "stage: cannot drop the only remaining stage"
+			default:
+				a.statusMsg = fmt.Sprintf("stage failed: %v", err)
+			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		}
 	}

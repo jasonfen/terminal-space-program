@@ -67,27 +67,44 @@ func (w *World) Undock(idx int) bool {
 		// current position. For 2 components: -25 m and +25 m on
 		// the radial axis. For N: even spacing in [-1, +1].
 		offset := -1.0 + 2.0*float64(i)/float64(n-1)
+		// v0.9.1+: rebuild a single-stage Stages slice from the
+		// DockedComponent record. Pre-v0.9.1 components are wrapped
+		// into a one-element Stages so the restored craft has a
+		// valid source of truth for SyncFields. Multi-stage docking
+		// chains that survive a save/load + undock are not preserved
+		// in v0.9.1 — DockedComponent doesn't yet record per-stage
+		// breakdown; that's a v0.9.1.x follow-up if the playtest
+		// surfaces it.
+		stages := []spacecraft.Stage{{
+			LoadoutID:    comp.LoadoutID,
+			Name:         comp.Name,
+			Glyph:        comp.Glyph,
+			Color:        comp.Color,
+			DryMass:      comp.DryMass,
+			FuelMass:     fuelShare,
+			FuelCapacity: comp.FuelCapacity,
+			Thrust:       comp.Thrust,
+			Isp:          comp.Isp,
+			MonopropMass: monoShare,
+			MonopropCap:  comp.MonopropCapacity,
+			RCSThrust:    comp.RCSThrust,
+			RCSIsp:       comp.RCSIsp,
+		}}
 		s := &spacecraft.Spacecraft{
-			Name:             comp.Name,
-			LoadoutID:        comp.LoadoutID,
-			Role:             comp.Role,
-			Glyph:            comp.Glyph,
-			Color:            comp.Color,
-			DryMass:          comp.DryMass,
-			Fuel:             fuelShare,
-			Isp:              comp.Isp,
-			Thrust:           comp.Thrust,
-			Throttle:         1.0,
-			Monoprop:         monoShare,
-			MonopropCapacity: comp.MonopropCapacity,
-			RCSThrust:        comp.RCSThrust,
-			RCSIsp:           comp.RCSIsp,
-			Primary:          c.Primary,
+			Name:      comp.Name,
+			LoadoutID: comp.LoadoutID,
+			Role:      comp.Role,
+			Glyph:     comp.Glyph,
+			Color:     comp.Color,
+			Throttle:  1.0,
+			Stages:    stages,
+			Primary:   c.Primary,
 			State: physics.StateVector{
 				R: c.State.R.Add(radialOut.Scale(offset * separationM)),
 				V: c.State.V.Add(radialOut.Scale(offset * pushVMS)),
 			},
 		}
+		s.SyncFields()
 		s.State.M = s.TotalMass()
 		restored = append(restored, s)
 	}
@@ -103,6 +120,36 @@ func (w *World) Undock(idx int) bool {
 	w.ActiveCraftIdx = idx
 	w.StopManualBurn()
 	return true
+}
+
+// CompositeEngineSummary returns the pooled-engine view of a craft
+// that may have multiple thrusting stages: sum-thrust across every
+// stage with main thrust, mass-weighted-Isp by `Σ(Isp · thrust) /
+// Σ thrust`. Resolves the v0.9 plan scoping decision #4 ("default:
+// sum thrust, mass-weighted average Isp") for downstream consumers
+// that want the composite-as-a-whole view rather than the bottom-
+// stage view. v0.9.1+.
+//
+// Returns (totalThrust=0, weightedIsp=0) when no stage has thrust
+// (RCS-tug class composites). For single-stage craft and composites
+// where only one stage has thrust, this returns the same numbers as
+// reading c.Thrust + c.Isp directly — the helper degenerates
+// correctly for the common case.
+func CompositeEngineSummary(c *spacecraft.Spacecraft) (totalThrust, weightedIsp float64) {
+	if c == nil {
+		return 0, 0
+	}
+	for _, s := range c.Stages {
+		if s.Thrust <= 0 {
+			continue
+		}
+		totalThrust += s.Thrust
+		weightedIsp += s.Isp * s.Thrust
+	}
+	if totalThrust > 0 {
+		weightedIsp /= totalThrust
+	}
+	return totalThrust, weightedIsp
 }
 
 // Docking proximity gates. Craft within DockingDistM and below
@@ -197,21 +244,32 @@ func (w *World) DockCrafts(idxA, idxB int) {
 	}
 
 	composite := *a // shallow copy preserves the lead partner's identity.
-	composite.DryMass = a.DryMass + b.DryMass
-	composite.Fuel = a.Fuel + b.Fuel
-	composite.Monoprop = a.Monoprop + b.Monoprop
-	composite.MonopropCapacity = a.MonopropCapacity + b.MonopropCapacity
-	composite.RCSThrust = a.RCSThrust + b.RCSThrust
 
-	// Engine pick: keep the active partner's main if it has one,
-	// else inherit from the other. RCS Isp likewise.
-	if composite.Thrust <= 0 && b.Thrust > 0 {
-		composite.Thrust = b.Thrust
-		composite.Isp = b.Isp
-	}
-	if composite.RCSIsp <= 0 && b.RCSIsp > 0 {
-		composite.RCSIsp = b.RCSIsp
-	}
+	// v0.9.1+: composite Stages = lead's stages with the partner's
+	// stages appended on top. Resolves scoping #4 (composite-craft
+	// mass distribution): the appended-on-top order means undocking
+	// can split correctly along stage boundaries — the partner's
+	// stages were higher up in the stack post-dock, so they peel off
+	// as a unit when Undock fires.
+	//
+	// The bottom stage of the composite is unchanged (it's still
+	// `a`'s bottom — the active partner's currently-firing engine).
+	// Composite thrust / Isp accessors degenerate cleanly because
+	// SyncFields reads Stages[0] for engine numbers; the player
+	// keeps firing the same engine they were before docking.
+	//
+	// For the **composite-as-a-whole** thrust + Isp readout (which
+	// the v0.9 plan §"Code surface (composite-craft post-docking)"
+	// committed to "sum thrust, mass-weighted Isp"), see
+	// CompositeEngineSummary below — it walks the full Stages slice
+	// for any consumer that wants the pooled-engine view rather than
+	// the bottom-stage view. Pre-v0.9.1 callers that read c.Thrust /
+	// c.Isp keep getting the bottom-stage values (back-compat) until
+	// they migrate to the summary helper.
+	composite.Stages = make([]spacecraft.Stage, 0, len(a.Stages)+len(b.Stages))
+	composite.Stages = append(composite.Stages, a.Stages...)
+	composite.Stages = append(composite.Stages, b.Stages...)
+	composite.SyncFields()
 
 	composite.State = physics.StateVector{
 		R: orbital.Vec3{

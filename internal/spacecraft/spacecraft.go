@@ -114,6 +114,27 @@ type Spacecraft struct {
 	// docks (a composite that docks with another contributes both
 	// its own components and the other's identity to the result).
 	DockedComponents []DockedComponent
+
+	// Stages (v0.9.1+) is the source of truth for dry mass /
+	// propellant / engine numbers. Stages[0] is the BOTTOM stage
+	// (the currently-firing engine + the next to be jettisoned by
+	// World.StageActive); Stages[len-1] is the TOP stage (core
+	// payload — last to fire). Single-stage craft carry exactly
+	// one Stage.
+	//
+	// The historical flat fields above (DryMass, Fuel, Thrust,
+	// Isp, Monoprop, MonopropCapacity, RCSThrust, RCSIsp) are
+	// derived shadow-mirror values refreshed by SyncFields
+	// (stage.go). Read sites use the flat fields directly — no
+	// API churn for the dozens of pre-v0.9.1 consumers. Write
+	// sites must mutate the relevant Stage entry and call
+	// SyncFields (or use the BurnFuel / BurnMonoprop helpers).
+	//
+	// Save schema v6 serializes Stages; the flat fields are
+	// re-derived on Load via SyncFields. Pre-v6 saves migrate by
+	// wrapping the v5 flat fields into a single-element Stages
+	// slice (see internal/save/save_migrate_v5_to_v6.go).
+	Stages []Stage
 }
 
 // DockedComponent is a snapshot of one pre-dock craft identity
