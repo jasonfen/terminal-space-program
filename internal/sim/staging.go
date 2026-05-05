@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -90,12 +91,37 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	return newActiveIdx, jettisonedIdx, nil
 }
 
+// stagingSeparationM is how far behind the active craft the
+// jettisoned stage spawns, in metres. Must exceed DockingDistM (50 m)
+// so checkDocking's proximity gate doesn't immediately re-fuse the
+// pair on the next tick. v0.9.1.1+ (bundled into v0.9.2 per the
+// user's "fix in the .2 slice" framing — see PR description).
+const stagingSeparationM = 60.0
+
+// stagingPushVMS is the retrograde velocity nudge on the jettisoned
+// stage, in m/s. Must exceed DockingVMS (0.1 m/s) so checkDocking's
+// |v_rel| gate also rejects the pair. Models a KSP-style decoupler
+// spring: the booster loses thrust + falls behind the still-firing
+// upper stage. v0.9.1.1+.
+const stagingPushVMS = 0.5
+
 // buildJettisonedCraft synthesises a passive Spacecraft from a
-// jettisoned Stage at the position/velocity/primary of the active
-// craft it came from. The new craft is single-stage (the dropped
+// jettisoned Stage at a position+velocity offset retrograde from
+// the active craft. The new craft is single-stage (the dropped
 // stage becomes its only stage), Throttle=0 (passive — no live
 // engine), Glyph + Color inherited from the stage spec (which is
 // itself populated from the parent loadout's per-stage entry).
+//
+// Retrograde offset (v0.9.1.1+ bug fix): pre-fix, the jettisoned
+// stage spawned at the active craft's exact (R, V), which put both
+// craft inside DockingDistM=50m / DockingVMS=0.1 m/s and fused them
+// right back on the next tick. The offset places the jettisoned
+// stage 60 m behind (along -V) with a 0.5 m/s retrograde push so
+// it stays outside both docking gates. Mirrors Undock's "spring
+// release" treatment (separationM=35, pushVMS=0.05) — staging uses
+// larger numbers because there's no inherent symmetry to exploit
+// (Undock spreads N components symmetrically; staging is always
+// 2-way).
 func buildJettisonedCraft(s spacecraft.Stage, parent *spacecraft.Spacecraft) *spacecraft.Spacecraft {
 	name := s.Name
 	if name == "" {
@@ -116,6 +142,12 @@ func buildJettisonedCraft(s spacecraft.Stage, parent *spacecraft.Spacecraft) *sp
 		l := spacecraft.LookupLoadout(s.LoadoutID)
 		color = l.Color
 	}
+	// Retrograde unit vector — points opposite the active craft's
+	// orbital velocity. Falls back to anti-radial when velocity is
+	// degenerate (sub-orbital craft at apex or stationary), then to
+	// -X if both R and V are zero (defensive; shouldn't happen for
+	// a real spawn).
+	retrograde := retrogradeUnit(parent.State.V, parent.State.R)
 	c := &spacecraft.Spacecraft{
 		Name:                 name,
 		LoadoutID:            s.LoadoutID,
@@ -127,12 +159,26 @@ func buildJettisonedCraft(s spacecraft.Stage, parent *spacecraft.Spacecraft) *sp
 		Stages:               []spacecraft.Stage{s},
 		Primary:              parent.Primary,
 		State: physics.StateVector{
-			R: parent.State.R,
-			V: parent.State.V,
+			R: parent.State.R.Add(retrograde.Scale(stagingSeparationM)),
+			V: parent.State.V.Add(retrograde.Scale(stagingPushVMS)),
 			// Mass set via SyncFields + TotalMass below.
 		},
 	}
 	c.SyncFields()
 	c.State.M = c.TotalMass()
 	return c
+}
+
+// retrogradeUnit returns -v.Unit() when v is non-zero, falling back
+// to -r.Unit() (anti-radial) when v is degenerate, then to -X. Used
+// by the staging path to choose a separation direction that won't
+// re-cross the active craft on the next tick. v0.9.1.1+.
+func retrogradeUnit(v, r orbital.Vec3) orbital.Vec3 {
+	if vMag := v.Norm(); vMag > 0 {
+		return v.Scale(-1 / vMag)
+	}
+	if rMag := r.Norm(); rMag > 0 {
+		return r.Scale(-1 / rMag)
+	}
+	return orbital.Vec3{X: -1}
 }
