@@ -195,9 +195,12 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 			M: c.TotalMass(),
 		}
 		// v0.9.2+: parked on the surface — the integrator bypasses
-		// gravity / drag for Landed craft and just rotates R with
-		// the body. Cleared automatically when the engine ignites.
+		// gravity / drag for Landed craft and recomputes R from
+		// (LaunchLatDeg, LaunchLonDeg, simTime) each tick. Cleared
+		// automatically when the engine ignites.
 		c.Landed = true
+		c.LaunchLatDeg = latDeg
+		c.LaunchLonDeg = spec.LongitudeOffset
 		w.Crafts = append(w.Crafts, c)
 		w.ActiveCraftIdx = len(w.Crafts) - 1
 		w.StopManualBurn()

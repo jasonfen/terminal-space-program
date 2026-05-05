@@ -161,6 +161,12 @@ type Craft struct {
 	// Pre-v0.9.2 saves load with Landed=false (= normal integration,
 	// the v0.9.2-pre behaviour).
 	Landed bool `json:"landed,omitempty"`
+
+	// LaunchLatDeg / LaunchLonDeg (v0.9.2+, schema v6 additive):
+	// body-fixed (lat, lon) of the launchpad spawn. Only meaningful
+	// when Landed=true.
+	LaunchLatDeg float64 `json:"launch_lat_deg,omitempty"`
+	LaunchLonDeg float64 `json:"launch_lon_deg,omitempty"`
 }
 
 // Stage mirrors spacecraft.Stage on the wire. v0.9.1+. All numeric
@@ -365,6 +371,8 @@ func payloadFromWorld(w *sim.World) Payload {
 			Color:            c.Color,
 			PitchTrim:        c.PitchTrim,
 			Landed:           c.Landed,
+			LaunchLatDeg:     c.LaunchLatDeg,
+			LaunchLonDeg:     c.LaunchLonDeg,
 		}
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
@@ -532,6 +540,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Color:        wc.Color,
 			PitchTrim:    wc.PitchTrim,
 			Landed:       wc.Landed,
+			LaunchLatDeg: wc.LaunchLatDeg,
+			LaunchLonDeg: wc.LaunchLonDeg,
 		}
 		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill

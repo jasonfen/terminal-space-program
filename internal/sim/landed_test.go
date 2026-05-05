@@ -39,49 +39,53 @@ func TestLandedCraftStaysOnSurfaceUnderWarp(t *testing.T) {
 		t.Fatalf("setup: |R| = %.0f, want %.0f", startR, primaryR)
 	}
 
-	// Run a long warp window — 6 hours at 1× sim time. With
-	// gravity-only integration of a craft with V = ω×r, after
-	// 6 hours the craft would be deep inside the primary on its
-	// fictitious-orbit half-period. With Landed bypass, |R|
-	// stays put.
-	for i := 0; i < 6*3600; i++ {
-		integrateLanded(c, time.Second)
-	}
+	// Advance sim time 6 hours and re-integrate. With Landed bypass,
+	// R is regenerated from (LaunchLatDeg, LaunchLonDeg, simTime)
+	// each tick, so |R| stays at primary radius regardless of how
+	// far time advances.
+	w.Clock.SimTime = w.Clock.SimTime.Add(6 * time.Hour)
+	integrateLanded(w, c, time.Hour)
 	endR := c.State.R.Norm()
 	if math.Abs(endR-primaryR) > 1.0 {
-		t.Errorf("after 6 hours of Landed integration, |R| = %.0f, want %.0f (within 1 m)",
+		t.Errorf("after 6 hours of sim time, |R| = %.0f, want %.0f (within 1 m)",
 			endR, primaryR)
 	}
 }
 
-// TestLandedCraftCoRotatesUnderWarp — after one sidereal day,
-// the Landed craft's R should have rotated 360° about Z (back
-// to its starting longitude).
-func TestLandedCraftCoRotatesUnderWarp(t *testing.T) {
+// TestLandedCraftStaysAtLaunchSiteUnderWarp — after a long warp
+// window, the Landed craft's body-fixed (lat, lon) should be
+// unchanged (= the launch site). World-frame R changes because the
+// body has rotated, but the body-fixed coords are invariant.
+func TestLandedCraftStaysAtLaunchSiteUnderWarp(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	c, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID:    spacecraft.LoadoutSaturnVID,
-		ParentBodyID: "earth",
-		Launchpad:    true,
-		Latitude:     0, // equator — easiest to read X/Y
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        28.6083,
+		LongitudeOffset: -80.604,
 	})
 	if err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
-	startR := c.State.R
-	// One sidereal day = c.Primary.SideralRotation hours = 23.9345h.
-	periodSec := c.Primary.SideralRotation * 3600
-	integrateLanded(c, time.Duration(periodSec*float64(time.Second)))
-	dx := c.State.R.X - startR.X
-	dy := c.State.R.Y - startR.Y
-	dz := c.State.R.Z - startR.Z
-	// After exactly one rotation, R returns to starting position
-	// (modulo float precision).
-	if math.Abs(dx) > 1.0 || math.Abs(dy) > 1.0 || math.Abs(dz) > 1.0 {
-		t.Errorf("after one sidereal day, R drift = (%.1f, %.1f, %.1f), want all ≈ 0", dx, dy, dz)
+	if c.LaunchLatDeg != 28.6083 || c.LaunchLonDeg != -80.604 {
+		t.Errorf("launch site stored on craft: got (%.4f, %.4f), want (28.6083, -80.604)",
+			c.LaunchLatDeg, c.LaunchLonDeg)
+	}
+	// Advance sim time 12 hours; body has rotated ~half its sidereal
+	// period. World R is different, but the body-fixed coords stay
+	// at the launch site (the integrator regenerates from those).
+	w.Clock.SimTime = w.Clock.SimTime.Add(12 * time.Hour)
+	integrateLanded(w, c, time.Hour)
+	if c.LaunchLatDeg != 28.6083 || c.LaunchLonDeg != -80.604 {
+		t.Errorf("launch site mutated after 12h warp: (%.4f, %.4f)", c.LaunchLatDeg, c.LaunchLonDeg)
+	}
+	primaryR := c.Primary.RadiusMeters()
+	if math.Abs(c.State.R.Norm()-primaryR) > 1.0 {
+		t.Errorf("|R| = %.0f, want %.0f after 12h warp", c.State.R.Norm(), primaryR)
 	}
 }
 
