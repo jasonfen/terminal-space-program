@@ -450,34 +450,46 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.active = screenSpawn
 			return a, nil
 		case key.Matches(m, a.keys.PlanTransfer):
-			if a.world.CraftVisibleHere() && a.selectedBody > 0 {
-				_, _ = a.world.PlanTransfer(a.selectedBody)
-				// Errors silently ignored: the targeted body is the one
-				// the user selected with ←/→, so the only failure modes
-				// (system primary, equal radii) are handled by the input
-				// guard above. A future polish item is showing the error
-				// message in the HUD when planting fails.
+			// v0.9.0+: H consumes World.Target instead of the implicit
+			// body cursor. TargetCraft is the v0.9.3 rendezvous-tooling
+			// surface and routes through `R` once that lands; here it
+			// flashes a redirect rather than silently no-opping. None →
+			// silent no-op (nothing aimed at).
+			if a.world.CraftVisibleHere() {
+				switch a.world.Target.Kind {
+				case sim.TargetBody:
+					_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
+				case sim.TargetCraft:
+					a.statusMsg = "rendezvous via [R] — coming v0.9.3"
+					a.statusExpires = time.Now().Add(3 * time.Second)
+				}
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PlanIncl):
 			if a.world.CraftVisibleHere() {
-				// v0.8.6+: target is interpreted in the primary's
-				// reference frame (ecliptic for Sun, body-equatorial
-				// otherwise). When a non-root body is selected, treat
-				// its heliocentric orbit plane as the target — for
-				// heliocentric craft this collapses to b.Inclination
-				// (the ecliptic-relative i directly); for body-bound
-				// craft (e.g. LEO) PlaneMatchInclination converts the
-				// target's plane orientation into the primary's frame
-				// so the result is a meaningful "match Mars's plane"
-				// inclination.
+				// v0.9.0+: I consumes World.Target. TargetBody → plane-
+				// match the body's orbit (existing v0.8.6 logic); None →
+				// drop to equatorial of craft's primary (the equatorial
+				// inclination match shipped with v0.7.4); TargetCraft is
+				// deferred to v0.9.3 with the rendezvous-tooling slice.
+				//
+				// Pre-v0.9 this block read App.selectedBody, the implicit
+				// body cursor driven by ←/→. selectedBody now drives only
+				// body-info / porkchop / SELECTED HUD pane.
 				target := 0.0 // default: drop to equatorial of craft's primary
 				sys := a.world.System()
-				if a.selectedBody > 0 && a.selectedBody < len(sys.Bodies) {
-					b := sys.Bodies[a.selectedBody]
-					primary := a.world.ActiveCraft().Primary
-					frame := orbital.ReferenceFrameForPrimary(primary)
-					target = orbital.PlaneMatchInclination(b, frame)
+				switch a.world.Target.Kind {
+				case sim.TargetBody:
+					if a.world.Target.BodyIdx > 0 && a.world.Target.BodyIdx < len(sys.Bodies) {
+						b := sys.Bodies[a.world.Target.BodyIdx]
+						primary := a.world.ActiveCraft().Primary
+						frame := orbital.ReferenceFrameForPrimary(primary)
+						target = orbital.PlaneMatchInclination(b, frame)
+					}
+				case sim.TargetCraft:
+					a.statusMsg = "plane-match vs craft target — needs v0.9.3"
+					a.statusExpires = time.Now().Add(3 * time.Second)
+					return a, nil
 				}
 				plan, err := a.world.PlanInclinationChange(target)
 				if err != nil {
@@ -574,6 +586,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
 				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
+			return a, nil
+		case key.Matches(m, a.keys.CycleTarget):
+			a.world.CycleTarget(true)
+			return a, nil
+		case key.Matches(m, a.keys.ClearTarget):
+			a.world.ClearTarget()
 			return a, nil
 		}
 	}

@@ -80,6 +80,13 @@ type Keymap struct {
 	// Undock (v0.8.3+): split the active composite craft back
 	// into its docked components.
 	Undock key.Binding
+
+	// CycleTarget / ClearTarget (v0.9.0+): unified `World.Target` slot
+	// that planted-Hohmann (`H`) and plane-match (`I`) consume in
+	// place of the pre-v0.9 implicit body cursor. Cycle order: bodies
+	// in current system → non-active sibling craft → none.
+	CycleTarget key.Binding
+	ClearTarget key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -131,5 +138,7 @@ func DefaultKeymap() Keymap {
 		NextCraft:           key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next craft")),
 		PrevCraft:           key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev craft")),
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
+		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / craft)")),
+		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
 	}
 }
