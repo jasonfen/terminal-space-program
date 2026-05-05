@@ -245,9 +245,18 @@ func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel + s.Monopro
 const DefaultBallisticCoefficient = 0.01
 
 // EffectiveBallisticCoefficient returns the per-craft drag
-// coefficient (C_D · A / m, m²/kg), or DefaultBallisticCoefficient
-// when the field is zero. v0.8.4+.
+// coefficient (C_D · A / m, m²/kg). v0.9.2.1+: prefers the bottom
+// stage's per-stage BC (Stages[0].BallisticCoefficient) so a
+// multi-stage craft gets the firing stage's actual cross-section /
+// mass profile — critical for low-altitude Saturn V launches where
+// the v0.8.4 default (0.01 m²/kg, tuned for an LEO S-IVB-1 where
+// drag was always zero) makes drag dominate at sea level. Falls
+// back to s.BallisticCoefficient (legacy field), then
+// DefaultBallisticCoefficient.
 func (s *Spacecraft) EffectiveBallisticCoefficient() float64 {
+	if len(s.Stages) > 0 && s.Stages[0].BallisticCoefficient > 0 {
+		return s.Stages[0].BallisticCoefficient
+	}
 	if s.BallisticCoefficient > 0 {
 		return s.BallisticCoefficient
 	}

@@ -201,6 +201,15 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		c.Landed = true
 		c.LaunchLatDeg = latDeg
 		c.LaunchLonDeg = spec.LongitudeOffset
+		// v0.9.2.1+: default attitude is radial+ (vertical) so
+		// pressing `b` on the pad ignites pointing up — the natural
+		// "lift off" gesture. Playtest revealed that the default
+		// AttitudeMode (BurnPrograde) at the surface points along
+		// surface co-rotation velocity (~east, horizontal), which
+		// would slide the craft along the ground instead of lifting
+		// it. Player can override with any attitude key before
+		// engaging.
+		c.AttitudeMode = spacecraft.BurnRadialOut
 		w.Crafts = append(w.Crafts, c)
 		w.ActiveCraftIdx = len(w.Crafts) - 1
 		w.StopManualBurn()
