@@ -68,9 +68,9 @@ func TestSetTargetCraftRejectsActiveAndOutOfRange(t *testing.T) {
 	}
 }
 
-// CycleTarget walks: None → body 1 → … → body n-1 → (no other crafts
-// in NewWorld's solo slate) → None. Verify forward pass lands at
-// every non-root body in order before wrapping.
+// CycleTarget walks: None → (no sibling crafts in NewWorld's solo
+// slate) → body 1 → … → body n-1 → None. Verify forward pass lands
+// at every non-root body in order before wrapping.
 func TestCycleTargetForwardWalksBodiesThenNone(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -113,9 +113,11 @@ func TestCycleTargetBackwardFromNoneLandsOnLastEntry(t *testing.T) {
 	}
 }
 
-// CycleTarget should include every non-active craft in the slate.
-// Spawn an alongside sister craft so the cycle has two entries to
-// walk through.
+// CycleTarget should include every non-active craft in the slate
+// AND visit them BEFORE any system body (the small list comes first
+// so spawn-then-target lands in one keypress on Sol's 19-body
+// catalog). Spawn an alongside sister craft and assert the very
+// first cycle from None is a TargetCraft entry.
 func TestCycleTargetIncludesSiblingCrafts(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -125,26 +127,12 @@ func TestCycleTargetIncludesSiblingCrafts(t *testing.T) {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
 	// SpawnCraft makes the new craft active — original at idx 0,
-	// new at idx 1, ActiveCraftIdx==1. Cycle target until we hit a
-	// TargetCraft entry; assert it points at idx 0 (the only
-	// non-active sibling).
+	// new at idx 1, ActiveCraftIdx==1. First forward cycle from None
+	// must land on TargetCraft idx 0 (crafts before bodies).
 	w.ClearTarget()
-	saw := false
-	for i := 0; i < 200; i++ { // generous loop bound; cycle has ≪200 entries.
-		w.CycleTarget(true)
-		if w.Target.Kind == TargetCraft {
-			if w.Target.CraftIdx != 0 {
-				t.Errorf("TargetCraft idx: got %d, want 0 (the non-active sibling)", w.Target.CraftIdx)
-			}
-			saw = true
-			break
-		}
-		if w.Target.Kind == TargetNone && i > 0 {
-			break // wrapped without seeing TargetCraft → fail below
-		}
-	}
-	if !saw {
-		t.Errorf("CycleTarget never visited a TargetCraft entry — cycle missing sibling-craft branch")
+	w.CycleTarget(true)
+	if w.Target.Kind != TargetCraft || w.Target.CraftIdx != 0 {
+		t.Errorf("first CycleTarget after spawn: got %+v, want {TargetCraft, 0} (crafts must come before bodies)", w.Target)
 	}
 }
 
