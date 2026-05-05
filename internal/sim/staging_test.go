@@ -54,12 +54,17 @@ func TestStageActiveOnSaturnVPopsBottomStage(t *testing.T) {
 		t.Errorf("jettisoned fuel: got %.0f, want %.0f (residual from active)",
 			jett.Stages[0].FuelMass, beforeBottomFuel)
 	}
-	if jett.State.R != beforePos {
-		t.Errorf("jettisoned position should match pre-decouple: got %v, want %v",
-			jett.State.R, beforePos)
+	// v0.9.1.1+: jettisoned stage spawns offset retrograde from the
+	// active craft so checkDocking doesn't immediately re-fuse the
+	// pair. Position offset must exceed DockingDistM (50 m); velocity
+	// offset must exceed DockingVMS (0.1 m/s).
+	posDelta := jett.State.R.Sub(beforePos).Norm()
+	if posDelta <= 50 {
+		t.Errorf("jettisoned position offset = %.1f m, want > 50 m (outside DockingDistM)", posDelta)
 	}
-	if jett.State.V != beforeVel {
-		t.Errorf("jettisoned velocity should match pre-decouple")
+	velDelta := jett.State.V.Sub(beforeVel).Norm()
+	if velDelta <= 0.1 {
+		t.Errorf("jettisoned velocity offset = %.3f m/s, want > 0.1 m/s (outside DockingVMS)", velDelta)
 	}
 	if jett.Throttle != 0 {
 		t.Errorf("jettisoned should be passive (Throttle=0): got %v", jett.Throttle)
@@ -100,6 +105,42 @@ func TestStageActiveBadIdx(t *testing.T) {
 	}
 	if _, _, err := w.StageActive(-1); !errors.Is(err, ErrStageNoCraft) {
 		t.Errorf("StageActive(-1): got %v, want ErrStageNoCraft", err)
+	}
+}
+
+// TestStageActiveDoesNotImmediatelyReDock — regression for the
+// v0.9.1 staging bug: pre-fix, the jettisoned stage spawned at
+// the active craft's exact (R, V), inside both docking gates
+// (DockingDistM=50 m, DockingVMS=0.1 m/s), and the very next tick
+// fused the pair right back into one craft.
+//
+// Verify that after StageActive, running the docking proximity
+// check leaves the slate at 2 craft (active + jettisoned) and not
+// 1 (re-fused composite).
+func TestStageActiveDoesNotImmediatelyReDock(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+	saturn.Primary = w.Crafts[0].Primary
+	saturn.State = w.Crafts[0].State
+	w.Crafts[0] = saturn
+	w.ActiveCraftIdx = 0
+
+	if _, _, err := w.StageActive(0); err != nil {
+		t.Fatalf("StageActive: %v", err)
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("post-stage slate count: got %d, want 2", len(w.Crafts))
+	}
+	// Run checkDocking explicitly — pre-fix this would fuse the pair.
+	w.checkDocking()
+	if len(w.Crafts) != 2 {
+		t.Errorf("post-stage + post-checkDocking slate count: got %d, want 2 "+
+			"(jettisoned stage was re-fused into active — staging separation "+
+			"insufficient to clear DockingDistM/DockingVMS gates)",
+			len(w.Crafts))
 	}
 }
 
