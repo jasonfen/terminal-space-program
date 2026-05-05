@@ -42,7 +42,8 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	if w.ActiveCraft().ActiveBurn != nil {
 		return false
 	}
-	dir := spacecraft.DirectionUnit(mode, w.ActiveCraft().State.R, w.ActiveCraft().State.V)
+	// v0.9.2+: BurnDirection handles surface modes + pitch trim.
+	dir := w.ActiveCraft().BurnDirection(mode)
 	if dir.Norm() == 0 {
 		return false
 	}

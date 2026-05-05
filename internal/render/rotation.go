@@ -263,6 +263,77 @@ func rotationPhaseRad(b bodies.CelestialBody, simTime time.Time) float64 {
 	return 2 * math.Pi * dt / period
 }
 
+// BodyFixedToWorld converts body-fixed (lat, lon) to a unit
+// world-frame vector that the texture pipeline renders AT the same
+// canvas pixel where the body's (lat, lon) cell is drawn. v0.9.2+
+// (fix-4 in the v0.9.2 playtest cycle).
+//
+// Implementation note: this uses Snyder forward orthographic
+// projection (the **inverse** of the texture pipeline's
+// projectPixelToLatLon) at ViewTop's sub-observer point, then maps
+// the resulting (nx, ny, z) camera-frame coords into world frame
+// using ViewTop's canvas basis (canvas_X = world+X, canvas_Y =
+// world+Y, canvas_depth = world+Z).
+//
+// Why ViewTop specifically: the v0.8.5+ texture pipeline's
+// orthographic projection is internally self-consistent per view
+// but cross-view inconsistent — Snyder forward at ViewTop's
+// sub-observer point and at ViewRight's sub-observer point project
+// the same body-fixed (lat, lon) to different world positions.
+// ViewTop is the natural "looking down at Earth" view and the
+// player's default; aligning spawn there agrees with the most
+// common case. A proper renderer fix (apply screen rotation so
+// the texture's east/north axes match canvas X/Y) is a v0.9.5+
+// scope; documented in the v0.9.2 fix-4 commit body.
+//
+// Latitude in degrees north positive. Longitude in degrees east
+// positive (real-Earth-style). Multiply the returned unit vector
+// by primary radius for surface position.
+func BodyFixedToWorld(b bodies.CelestialBody, latDeg, lonDeg float64, simTime time.Time) Vec3 {
+	subLatDeg, subLonDeg := SubObserverPointDeg(b, simTime, CameraDirTop, Vec3{})
+
+	phi := latDeg * math.Pi / 180.0
+	lam := lonDeg * math.Pi / 180.0
+	phi0 := subLatDeg * math.Pi / 180.0
+	lam0 := subLonDeg * math.Pi / 180.0
+
+	sP, cP := math.Sin(phi), math.Cos(phi)
+	sP0, cP0 := math.Sin(phi0), math.Cos(phi0)
+	dlam := lam - lam0
+	sL, cL := math.Sin(dlam), math.Cos(dlam)
+
+	// Snyder forward orthographic at sub-observer (φ₀, λ₀):
+	//   nx = cos(φ)·sin(λ−λ₀)         (east at sub-observer)
+	//   ny = cos(φ₀)·sin(φ) − sin(φ₀)·cos(φ)·cos(λ−λ₀)   (north)
+	//   z  = sin(φ₀)·sin(φ) + cos(φ₀)·cos(φ)·cos(λ−λ₀)   (toward camera)
+	// For ViewTop the camera frame's (east, north, toward-camera)
+	// axes equal the canvas's (X, Y, depth) = world (+X, +Y, +Z).
+	nx := cP * sL
+	ny := cP0*sP - sP0*cP*cL
+	z := sP0*sP + cP0*cP*cL
+	return Vec3{X: nx, Y: ny, Z: z}
+}
+
+// BodySpinOmegaWorld returns the body's spin angular-velocity
+// vector in the world frame: ω = (2π/period) · n_hat. Direction
+// matches BodyRotationAxisWorld (tilted, picks up AxialTilt +
+// AxialAzimuth). Returns the zero vector when the body has no
+// rotation period set. v0.9.2+. Used by sim's launchpad spawn
+// (surface co-rotation velocity = ω × r) and landed-craft
+// integration (rotates R about the tilted axis per tick). Differs
+// from physics.AtmosphereOmega which is Z-aligned for the drag
+// approximation; the launchpad path uses the tilted ω because it
+// has to agree with the texture renderer's frame.
+func BodySpinOmegaWorld(b bodies.CelestialBody) Vec3 {
+	period := rotationPeriodSeconds(b)
+	if period == 0 {
+		return Vec3{}
+	}
+	mag := 2 * math.Pi / period
+	n := BodyRotationAxisWorld(b)
+	return Vec3{X: mag * n.X, Y: mag * n.Y, Z: mag * n.Z}
+}
+
 // rotationPeriodSeconds picks the period that drives the body's
 // visible face: orbital period for tidally-locked moons, sidereal
 // rotation period otherwise. Returns 0 when neither is set.

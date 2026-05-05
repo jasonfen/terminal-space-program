@@ -23,6 +23,17 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 Latest release: **v0.9.1** — staging chain. KSP-style player-managed sequential decouples; `space` drops the bottom stage and spawns it as a passive cycle-able craft, with the active vehicle continuing on the upper-stage chain. Saturn-V loadout (S-IC + S-II + S-IVB, TWR > 1 at sea level) ships alongside the four single-stage loadouts, which wrap into a one-element `Stages: [{...}]` shim with no behavior change. New STAGES HUD block, `Spacecraft.Stages` source-of-truth for dry mass / propellant / engine numbers, save schema v5 → v6 with typed migration. Followed v0.9.0 (unified `World.Target` slot, `t` / `T` cycle / clear, TARGET HUD).
 
+**v0.9.2 in flight (work-in-progress).** Ground launch primitives are
+implemented on the [`v0.9.2-ground-launch`](https://github.com/jasonfen/terminal-space-program/pull/51)
+branch — `n` → POSITION → launchpad spawns a Saturn V at altitude 0 on
+a rotating Earth, with surface-frame SAS modes (`W` / `S`), pitch trim
+(`<` / `>` / `\`), and a LAUNCH HUD. **Reaching a stable orbit by hand
+is hard today** — no gravity-turn assist, no ascent autopilot, and the
+ascent profile is sensitive to throttle / pitch timing. The slice ships
+unmerged pending an ergonomic pass; treat it as an experimental loop,
+not a smooth pad-to-LEO. See [Surface launches (WIP)](#surface-launches-wip)
+below for the suggested sequence.
+
 ```bash
 # Linux x86_64
 curl -L https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.tar.gz | tar xz
@@ -85,6 +96,41 @@ with mass loss tracked from the rocket equation.
 For real-time stick (KSP-style), throttle up with `z`, attitude
 with `w`/`s`/`a`/`d`/`q`/`e`, then engage with `b`.
 
+### Surface launches (WIP)
+
+Spawn a Saturn V on the pad and fly it to LEO by hand. **Status: not
+ready for primetime** — orbital insertion routinely undershoots
+without a gravity-turn assist, and the ascent profile is hand-tuned.
+The slice (v0.9.2, on the `v0.9.2-ground-launch` branch) lays the
+primitives so a future polish slice can layer assistive controls on
+top. Try it, expect to flame out, file feedback.
+
+Suggested sequence for a Saturn V → LEO attempt:
+
+1. `n` opens the spawn form. Cycle `POSITION` to **launchpad**, set
+   `LATITUDE` to a preset (28.6° N = Cape Canaveral KSC), pick
+   `CRAFT TYPE = Saturn V`, press `Enter`. SAS comes up at radial+
+   so the craft is pointing straight up.
+2. `z` (full throttle), `b` (engage). The S-IC lifts vertical at
+   TWR ≈ 1.24.
+3. At ~3–5 km altitude, tap `>` 2–3 times to trim 20–30° east. The
+   thrust vector tilts; horizontal speed starts climbing.
+4. As surface velocity builds (>500 m/s), press `W` for surface-
+   prograde SAS and `\` to clear the pitch trim. The craft now
+   tracks its own velocity vector — a pseudo gravity turn.
+5. Press `space` to decouple the spent S-IC. The active craft
+   stays on the upper stage; STAGES HUD advances. Continue burn
+   through S-II, decouple again, then S-IVB circularises.
+6. Watch the LAUNCH HUD's altitude / v_horiz. The
+   `saturn-v-pad-to-leo` mission passes when periapsis > 200 km.
+
+What actually happens in practice: by the time S-IVB is empty,
+periapsis is usually still negative (i.e. on a sub-orbital arc
+back through the atmosphere). The slice's open question — flagged
+as a v0.9.5+ gravity-turn assist — is whether to expose a target
+pitch-vs-altitude profile or an autopilot toggle. For now this is
+a manual flying challenge, not a guaranteed mission.
+
 ## Keybindings
 
 The in-game `?` overlay is the source of truth; this table mirrors it.
@@ -134,6 +180,9 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `q` / `e` | Attitude radial+ / radial- |
 | `b` | Engage / cut manual burn (main engine, throttle > 0) |
 | `r` | Engine: main / RCS (v0.8.0+) |
+| `W` / `S` | Attitude surface-prograde / surface-retrograde — track velocity in the rotating-atmosphere frame (v - ω × r). For ascent gravity turn (v0.9.2+) |
+| `>` / `<` | Pitch trim ±10° east / west — rotate thrust vector about local-north axis on top of current SAS mode (v0.9.2+) |
+| `\` | Reset pitch trim to 0 (v0.9.2+) |
 
 Attitude keys orient only in main mode — pressing `b` is what fires
 the engine. In RCS mode the attitude keys *also* fire one 0.1 m/s
@@ -409,7 +458,7 @@ prints a warning to stderr and falls back to defaults.
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
 | v0.8 | Multi-craft polish | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, drag-aware Verlet wired into live integrator + predictor, surface-clamp on impact, haze halo) (v0.8.4). Sim-time planet rotation, view-aware texture projection with per-body axial tilts, polygon-rasterised Earth grid, far-side / polar Moon detail, tilted Saturn rings with C / B / Cassini Division / A / F bands, textured Sun + Galileans + Uranus + Neptune, tidally-locked moons keeping their iconic face on the parent (v0.8.5). KSP-style F5/F9 quicksave/load + per-node delete/clear, body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), finite-burn iterate-for-target toggle in `m` form (v0.8.6). |
-| v0.9 | The craft fleet grows up (in progress) | Unified `World.Target` slot (kind ∈ {None, Body, Craft}) replaces the implicit body cursor; `t` / `T` cycle / clear; TARGET HUD block; `H` / `I` planters consume the slot (v0.9.0). KSP-style player-managed staging chain: `space` decouples bottom stage; `Spacecraft.Stages` source-of-truth; Saturn-V 3-stage loadout; STAGES HUD; save schema v5 → v6 (v0.9.1). |
+| v0.9 | The craft fleet grows up (in progress) | Unified `World.Target` slot (kind ∈ {None, Body, Craft}) replaces the implicit body cursor; `t` / `T` cycle / clear; TARGET HUD block; `H` / `I` planters consume the slot (v0.9.0). KSP-style player-managed staging chain: `space` decouples bottom stage; `Spacecraft.Stages` source-of-truth; Saturn-V 3-stage loadout; STAGES HUD; save schema v5 → v6 (v0.9.1). Ground-launch primitives **(WIP)**: launchpad spawn at altitude 0, surface-frame SAS (`W` / `S`), pitch trim (`<` / `>` / `\`), LAUNCH HUD, `saturn-v-pad-to-leo` mission. Reaching orbit by hand routinely undershoots — gravity-turn assist deferred to v0.9.5+ (v0.9.2, branch). |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -422,9 +471,9 @@ v0.9 — **the craft fleet grows up**. Slice breakdown in
 
 - ~~v0.9.0 — unified `World.Target` slot (kind ∈ {None, Body, Craft}); `t` / `T` cycle / clear; TARGET HUD; `H` / `I` planters read it~~ **shipped.**
 - ~~v0.9.1 — staging chain (KSP-style player-managed sequential decouples; `Spacecraft.Stages []Stage`; `space` keystroke; Saturn-V 3-stage loadout; save schema v5 → v6)~~ **shipped.**
-- v0.9.2 — ground launch (`SpawnSpec.Launchpad`, surface-co-rotating spawn at altitude 0, LAUNCH HUD).
+- v0.9.2 — ground launch primitives (`SpawnSpec.Launchpad`, surface-co-rotating spawn at altitude 0, LAUNCH HUD, surface-frame SAS, pitch trim). **In flight on branch — work-in-progress.** Orbital insertion routinely undershoots without a gravity-turn assist; treat as an experimental loop pending an ergonomic pass.
 - v0.9.3 — rendezvous tooling (target-relative SAS modes, live closest-approach countdown; manual loop is the success metric).
-- v0.9.4+ bandwidth-permitting — multi-rev porkchop UI + Lambert short/long picker, capture-direction toggle, predictor adaptive sampling, solar lighting + terminator + eclipses (research-first), polish bag.
+- v0.9.4+ bandwidth-permitting — gravity-turn assist (target pitch-vs-altitude profile or autopilot toggle), navball, multi-rev porkchop UI + Lambert short/long picker, capture-direction toggle, predictor adaptive sampling, solar lighting + terminator + eclipses (research-first), polish bag.
 
 Deferred to v0.10+: multiplayer implementation, interstellar transfer,
 N-body perturbations, mission scripting / editor (eight-decision-point

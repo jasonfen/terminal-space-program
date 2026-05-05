@@ -12,6 +12,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -1099,6 +1100,66 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
+	// v0.9.2+: LAUNCH HUD — visible when the active craft hasn't yet
+	// achieved a stable orbit (periapsis below the primary radius)
+	// AND it's still inside or just outside the atmosphere. Surfaces
+	// the manual gravity-turn instruments: altitude AGL, vertical-v,
+	// horizontal-v relative to the rotating surface, downrange from
+	// the launch point, and TWR (active stage thrust / current mass /
+	// surface gravity). Vanishes once the craft circularises so the
+	// orbit-relative HUD blocks below take over.
+	if c := w.ActiveCraft(); c != nil && shouldShowLaunchHUD(c) {
+		altAGL := c.Altitude()
+		// Vertical / horizontal split of velocity in the body's
+		// rotating frame: vertical = v · r̂, horizontal = |v - v_vert·r̂|
+		// after subtracting the surface co-rotation ω×r so a craft
+		// sitting on the pad reads 0 m/s on both axes.
+		omega := physics.AtmosphereOmega(c.Primary)
+		vRel := c.State.V.Sub(omega.Cross(c.State.R))
+		rNorm := c.State.R.Norm()
+		var vVert, vHoriz float64
+		if rNorm > 0 {
+			rHat := c.State.R.Scale(1 / rNorm)
+			// vRel · rHat (radial component) — orbital.Vec3 has no
+			// Dot method; inline as X*X + Y*Y + Z*Z.
+			vVert = vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z
+			vHorizVec := vRel.Sub(rHat.Scale(vVert))
+			vHoriz = vHorizVec.Norm()
+		}
+		// TWR: active-stage thrust / (mass · surface gravity).
+		twrLabel := "—"
+		if c.Thrust > 0 && c.TotalMass() > 0 {
+			gSurface := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
+			twr := c.Thrust * c.EffectiveThrottle() / (c.TotalMass() * gSurface)
+			twrLabel = fmt.Sprintf("%.2f", twr)
+			if twr < 1.0 {
+				twrLabel = v.theme.Alert.Render(twrLabel + " (will not lift)")
+			}
+		}
+		altLabel := fmt.Sprintf("%.0f m", altAGL)
+		if altAGL >= 1000 {
+			altLabel = fmt.Sprintf("%.2f km", altAGL/1000)
+		}
+		// v0.9.2+: SAS row + pitch-trim row so the player can see
+		// what the autopilot is holding and how much east-trim is
+		// stacked on top.
+		sasLabel := c.AttitudeMode.String()
+		trimDeg := c.PitchTrim * 180 / math.Pi
+		trimLabel := fmt.Sprintf("%+.1f°", trimDeg)
+		if math.Abs(trimDeg) > 0.05 {
+			trimLabel = v.theme.Warning.Render(trimLabel)
+		}
+		lines = append(lines, section("LAUNCH")...)
+		lines = append(lines,
+			fmt.Sprintf("  altitude:   %s", altLabel),
+			fmt.Sprintf("  v_vert:     %.1f m/s", vVert),
+			fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
+			fmt.Sprintf("  twr:        %s", twrLabel),
+			fmt.Sprintf("  sas:        %s", sasLabel),
+			fmt.Sprintf("  trim:       %s", trimLabel),
+		)
+	}
+
 	// v0.8.2.x: arrival inclination preview. Surfaces the post-
 	// capture orbit at the last frame-changing planted node so the
 	// player catches retrograde-around-target gotchas (a prograde
@@ -1487,6 +1548,52 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 // sharing the active craft's primary, plus their separation +
 // relative speed. Used by the v0.8.3+ RENDEZVOUS HUD block to
 // surface live proximity-ops feedback. Returns ok=false when no
+// shouldShowLaunchHUD returns true when the active craft is in
+// "ascent" mode — periapsis below the primary's mean radius
+// (= craft would impact if its orbit closed) AND altitude under
+// the primary's atmospheric cutoff. Both conditions guarantee
+// the orbit-relative HUD blocks aren't useful yet (the orbit
+// closes underground) and the manual gravity-turn instruments
+// are. v0.9.2+.
+func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
+	if c == nil {
+		return false
+	}
+	if c.Primary.Atmosphere == nil {
+		// No atmosphere → no launch profile to display. (Also
+		// covers most moons, where ground launch is reachable but
+		// the manual loop is short enough to not need a dedicated
+		// HUD block.)
+		return false
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu == 0 {
+		return false
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	periapsis := el.Periapsis()
+	primaryR := c.Primary.RadiusMeters()
+	if periapsis >= primaryR {
+		// Stable orbit (or hyperbolic with no impact) — orbit-
+		// relative HUD takes over.
+		return false
+	}
+	alt := c.State.R.Norm() - primaryR
+	cutoff := c.Primary.Atmosphere.CutoffAltitude
+	if cutoff > 0 && alt > cutoff {
+		// Above atmosphere with sub-radius periapsis: trajectory is
+		// either descending toward impact or about to circularise.
+		// LAUNCH HUD is only relevant in the climb phase (alt below
+		// cutoff). Above-cutoff sub-orbital flight is rare; surfacing
+		// it would clutter the HUD for the typical "just left the
+		// atmosphere, periapsis still negative" Saturn-V ascent.
+		// The orbit-relative HUD blocks above already cover this
+		// case adequately.
+		return false
+	}
+	return true
+}
+
 // other craft is in the same frame.
 func findNearestSamePrimary(crafts []*spacecraft.Spacecraft, activeIdx int) (*spacecraft.Spacecraft, float64, float64, bool) {
 	if activeIdx < 0 || activeIdx >= len(crafts) {
@@ -1577,6 +1684,17 @@ func viewBasis(w *sim.World) widgets.Basis {
 		}
 	case sim.ViewOrbitFlat:
 		if w.ActiveCraft() == nil {
+			return widgets.DefaultBasis()
+		}
+		// v0.9.2+: a Landed craft co-rotates with the body, so its
+		// (r, v) gives an orbit plane that also co-rotates. Using
+		// that as the canvas's orbit-flat basis would lock the
+		// camera to the body and hide its rotation entirely (the
+		// body's surface texture appears frozen). Fall back to the
+		// top-view basis for parked crafts so the player can see
+		// Earth turning under them. Once they engage the engine
+		// (Landed → false) the live orbit picks up.
+		if w.ActiveCraft().Landed {
 			return widgets.DefaultBasis()
 		}
 		mu := w.ActiveCraft().Primary.GravitationalParameter()

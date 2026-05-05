@@ -149,25 +149,44 @@ type Craft struct {
 	ActiveBurn   *ActiveBurn `json:"active_burn,omitempty"`
 	AttitudeMode int         `json:"attitude_mode,omitempty"`
 	EngineMode   int         `json:"engine_mode,omitempty"`
+
+	// PitchTrim (v0.9.2+, schema v6 additive): signed pitch-trim
+	// offset in radians applied on top of the active BurnMode.
+	// omitempty so legacy saves with no trim load with PitchTrim=0
+	// (= no trim, the v0.9.2-pre behaviour).
+	PitchTrim float64 `json:"pitch_trim,omitempty"`
+
+	// Landed (v0.9.2+, schema v6 additive): true when the craft is
+	// parked on its primary's surface co-rotating with the ground.
+	// Pre-v0.9.2 saves load with Landed=false (= normal integration,
+	// the v0.9.2-pre behaviour).
+	Landed bool `json:"landed,omitempty"`
+
+	// LaunchLatDeg / LaunchLonDeg (v0.9.2+, schema v6 additive):
+	// body-fixed (lat, lon) of the launchpad spawn. Only meaningful
+	// when Landed=true.
+	LaunchLatDeg float64 `json:"launch_lat_deg,omitempty"`
+	LaunchLonDeg float64 `json:"launch_lon_deg,omitempty"`
 }
 
 // Stage mirrors spacecraft.Stage on the wire. v0.9.1+. All numeric
 // fields are omitempty so a single-stage craft with default RCS pool
 // + zero monoprop residual still serialises compactly.
 type Stage struct {
-	LoadoutID    string  `json:"loadout_id,omitempty"`
-	Name         string  `json:"name,omitempty"`
-	Glyph        string  `json:"glyph,omitempty"`
-	Color        string  `json:"color,omitempty"`
-	DryMass      float64 `json:"dry_mass,omitempty"`
-	FuelMass     float64 `json:"fuel_mass,omitempty"`
-	FuelCapacity float64 `json:"fuel_capacity,omitempty"`
-	Thrust       float64 `json:"thrust,omitempty"`
-	Isp          float64 `json:"isp,omitempty"`
-	MonopropMass float64 `json:"monoprop_mass,omitempty"`
-	MonopropCap  float64 `json:"monoprop_cap,omitempty"`
-	RCSThrust    float64 `json:"rcs_thrust,omitempty"`
-	RCSIsp       float64 `json:"rcs_isp,omitempty"`
+	LoadoutID            string  `json:"loadout_id,omitempty"`
+	Name                 string  `json:"name,omitempty"`
+	Glyph                string  `json:"glyph,omitempty"`
+	Color                string  `json:"color,omitempty"`
+	DryMass              float64 `json:"dry_mass,omitempty"`
+	FuelMass             float64 `json:"fuel_mass,omitempty"`
+	FuelCapacity         float64 `json:"fuel_capacity,omitempty"`
+	Thrust               float64 `json:"thrust,omitempty"`
+	Isp                  float64 `json:"isp,omitempty"`
+	MonopropMass         float64 `json:"monoprop_mass,omitempty"`
+	MonopropCap          float64 `json:"monoprop_cap,omitempty"`
+	RCSThrust            float64 `json:"rcs_thrust,omitempty"`
+	RCSIsp               float64 `json:"rcs_isp,omitempty"`
+	BallisticCoefficient float64 `json:"ballistic_coefficient,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -351,6 +370,10 @@ func payloadFromWorld(w *sim.World) Payload {
 			Role:             c.Role,
 			Glyph:            c.Glyph,
 			Color:            c.Color,
+			PitchTrim:        c.PitchTrim,
+			Landed:           c.Landed,
+			LaunchLatDeg:     c.LaunchLatDeg,
+			LaunchLonDeg:     c.LaunchLonDeg,
 		}
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
@@ -358,19 +381,20 @@ func payloadFromWorld(w *sim.World) Payload {
 		// v5 craft fall through.
 		for _, s := range c.Stages {
 			wc.Stages = append(wc.Stages, Stage{
-				LoadoutID:    s.LoadoutID,
-				Name:         s.Name,
-				Glyph:        s.Glyph,
-				Color:        s.Color,
-				DryMass:      s.DryMass,
-				FuelMass:     s.FuelMass,
-				FuelCapacity: s.FuelCapacity,
-				Thrust:       s.Thrust,
-				Isp:          s.Isp,
-				MonopropMass: s.MonopropMass,
-				MonopropCap:  s.MonopropCap,
-				RCSThrust:    s.RCSThrust,
-				RCSIsp:       s.RCSIsp,
+				LoadoutID:            s.LoadoutID,
+				Name:                 s.Name,
+				Glyph:                s.Glyph,
+				Color:                s.Color,
+				DryMass:              s.DryMass,
+				FuelMass:             s.FuelMass,
+				FuelCapacity:         s.FuelCapacity,
+				Thrust:               s.Thrust,
+				Isp:                  s.Isp,
+				MonopropMass:         s.MonopropMass,
+				MonopropCap:          s.MonopropCap,
+				RCSThrust:            s.RCSThrust,
+				RCSIsp:               s.RCSIsp,
+				BallisticCoefficient: s.BallisticCoefficient,
 			})
 		}
 		for _, dc := range c.DockedComponents {
@@ -516,6 +540,10 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Role:         wc.Role,
 			Glyph:        wc.Glyph,
 			Color:        wc.Color,
+			PitchTrim:    wc.PitchTrim,
+			Landed:       wc.Landed,
+			LaunchLatDeg: wc.LaunchLatDeg,
+			LaunchLonDeg: wc.LaunchLonDeg,
 		}
 		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill

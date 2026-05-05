@@ -63,6 +63,14 @@ func (w *World) StartManualBurn() {
 	if c.EffectiveThrottle() <= 0 {
 		return
 	}
+	// v0.9.2+: engine ignition releases a Landed craft into normal
+	// integration. Pre-fix, a craft on the launchpad with Landed=true
+	// would stay parked even after `b` engaged — the manual-burn
+	// thrust accumulated against an integrator that never updated R/V
+	// because the Landed bypass returned early. Clearing here means
+	// the next Tick runs normal physics with the surface co-rotation
+	// velocity as the initial condition.
+	c.Landed = false
 	c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
 }
 
@@ -1072,6 +1080,12 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				Throttle:    n.EffectiveThrottle(),
 			}
 		}
+		// v0.9.2+: planted-burn ignition releases a Landed craft.
+		// Symmetric with StartManualBurn; not strictly common
+		// (planting on a launchpad is an unusual workflow) but
+		// covers the case so a "planted node fires while the
+		// craft is parked" scenario doesn't strand the integrator.
+		c.Landed = false
 		fired++
 	}
 	if fired > 0 {

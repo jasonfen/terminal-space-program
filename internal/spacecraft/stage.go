@@ -67,6 +67,15 @@ type Stage struct {
 	// RCSIsp is the per-stage RCS specific impulse in seconds.
 	RCSIsp float64
 
+	// BallisticCoefficient (v0.9.2.1+) is C_D · A / m in m²/kg —
+	// the multiplicative factor in the drag equation
+	// a = -0.5 · ρ · |v_rel|² · BC · v̂_rel. Per-stage so a Saturn
+	// V's S-IC booster (huge cross-section, ~3 Mkg mass, BC ≈ 8e-6)
+	// drags differently than its S-IVB upper stage (small craft,
+	// ~120 kkg mass, BC ≈ 6e-5). Zero falls back to
+	// DefaultBallisticCoefficient at the Spacecraft level.
+	BallisticCoefficient float64
+
 	// LoadoutID names the catalog entry that originally produced
 	// this stage. Used by save round-trip + spawn-as-passive on
 	// jettison so the dropped stage gets the right glyph + colour.

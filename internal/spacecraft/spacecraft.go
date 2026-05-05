@@ -115,6 +115,45 @@ type Spacecraft struct {
 	// its own components and the other's identity to the result).
 	DockedComponents []DockedComponent
 
+	// Landed (v0.9.2+): true when the craft is parked on the
+	// primary's surface co-rotating with the ground. While Landed,
+	// the integrator bypasses gravity / drag / thrust and recomputes
+	// R from `LaunchLatDeg` / `LaunchLonDeg` each tick using the
+	// renderer's `BodyFixedToWorld` projection — so the craft stays
+	// at the texture-rendered "Cape Canaveral" pixel as the body
+	// rotates. Cleared automatically when the engine ignites — see
+	// `World.StartManualBurn` and the planted-burn fire path. Set
+	// on `SpawnSpec.Launchpad=true` spawns. Persists in saves so a
+	// paused-on-pad session restores correctly.
+	Landed bool
+
+	// LaunchLatDeg / LaunchLonDeg (v0.9.2+) record the body-fixed
+	// (lat, lon) of the launchpad spawn. Only meaningful when
+	// Landed=true; the integrator re-derives R from these +
+	// the body's current rotation phase each tick (rather than
+	// rotating R via Rodrigues, which drifted off the texture's
+	// Florida pixel because the v0.8.5+ Snyder-orthographic
+	// rendering has a sub-observer-frame rotation that's view-
+	// dependent — see render.BodyFixedToWorld doc).
+	//
+	// Latitude in degrees north positive; longitude in degrees east
+	// positive (real-Earth-style). Persists in saves.
+	LaunchLatDeg float64
+	LaunchLonDeg float64
+
+	// PitchTrim (v0.9.2+) is a signed pitch offset (radians)
+	// applied on top of the active BurnMode's computed direction.
+	// Positive values rotate the thrust vector eastward of the
+	// mode's natural direction (about the local-north axis at the
+	// craft's current position); negative rotates west. Used by
+	// ascent gravity-turn flight: the player launches BurnRadialOut
+	// (vertical), trims +5–15° east via the `<` / `>` keys to start
+	// the gravity turn, then switches to BurnSurfacePrograde once
+	// surface-relative velocity is established. Reset via the `\`
+	// key. Persists in saves so a paused-mid-ascent session restores
+	// the player's trim setting.
+	PitchTrim float64
+
 	// Stages (v0.9.1+) is the source of truth for dry mass /
 	// propellant / engine numbers. Stages[0] is the BOTTOM stage
 	// (the currently-firing engine + the next to be jettisoned by
@@ -206,9 +245,18 @@ func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel + s.Monopro
 const DefaultBallisticCoefficient = 0.01
 
 // EffectiveBallisticCoefficient returns the per-craft drag
-// coefficient (C_D · A / m, m²/kg), or DefaultBallisticCoefficient
-// when the field is zero. v0.8.4+.
+// coefficient (C_D · A / m, m²/kg). v0.9.2.1+: prefers the bottom
+// stage's per-stage BC (Stages[0].BallisticCoefficient) so a
+// multi-stage craft gets the firing stage's actual cross-section /
+// mass profile — critical for low-altitude Saturn V launches where
+// the v0.8.4 default (0.01 m²/kg, tuned for an LEO S-IVB-1 where
+// drag was always zero) makes drag dominate at sea level. Falls
+// back to s.BallisticCoefficient (legacy field), then
+// DefaultBallisticCoefficient.
 func (s *Spacecraft) EffectiveBallisticCoefficient() float64 {
+	if len(s.Stages) > 0 && s.Stages[0].BallisticCoefficient > 0 {
+		return s.Stages[0].BallisticCoefficient
+	}
 	if s.BallisticCoefficient > 0 {
 		return s.BallisticCoefficient
 	}
