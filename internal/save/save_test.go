@@ -592,3 +592,106 @@ func TestMultiCraftRoundtrip(t *testing.T) {
 func vecEq(a, b orbital.Vec3) bool {
 	return a.X == b.X && a.Y == b.Y && a.Z == b.Z
 }
+
+// v0.9.0+: World.Target is additive on schema v5. Verify round-trip
+// for both kinds plus the no-target zero state.
+func TestTargetRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.SetTargetBody(3)
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Target.Kind != sim.TargetBody || got.Target.BodyIdx != 3 {
+		t.Errorf("Target after roundtrip: got %+v, want {TargetBody, 3}", got.Target)
+	}
+}
+
+func TestTargetCraftRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnSisterCraft(); err != nil {
+		t.Fatalf("SpawnSisterCraft: %v", err)
+	}
+	// Active is now idx 1 (the new sister); target idx 0 (the
+	// original LEO craft).
+	w.SetTargetCraft(0)
+	if w.Target.Kind != sim.TargetCraft || w.Target.CraftIdx != 0 {
+		t.Fatalf("precondition: SetTargetCraft(0) → %+v", w.Target)
+	}
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Target.Kind != sim.TargetCraft || got.Target.CraftIdx != 0 {
+		t.Errorf("Target after roundtrip: got %+v, want {TargetCraft, 0}", got.Target)
+	}
+}
+
+// Pre-v0.9 saves predate the unified target slot — the JSON envelope
+// has no `target` key. Loading must yield TargetNone with no error.
+// We exercise this by saving with no target set (which the wire form
+// drops via the *Target nil pointer) and confirming load produces
+// TargetNone.
+func TestEmptyTargetRoundtripsAsNone(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if w.Target.Kind != sim.TargetNone {
+		t.Fatalf("precondition: NewWorld target kind = %v, want TargetNone", w.Target.Kind)
+	}
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// The on-disk JSON must omit the target field entirely (proves
+	// older saves written without the field continue to load
+	// cleanly through the same path).
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read save: %v", err)
+	}
+	var envelope struct {
+		Payload map[string]json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("parse save: %v", err)
+	}
+	if _, present := envelope.Payload["target"]; present {
+		t.Errorf("on-disk payload contains \"target\" key when target was None — "+
+			"omitempty failing. payload keys: %+v", keysOf(envelope.Payload))
+	}
+
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Target.Kind != sim.TargetNone {
+		t.Errorf("Target after empty roundtrip: got %+v, want TargetNone", got.Target)
+	}
+}
+
+func keysOf(m map[string]json.RawMessage) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
