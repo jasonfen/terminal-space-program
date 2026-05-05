@@ -43,14 +43,32 @@ const (
 // transfer alts, and high-Earth / interplanetary capture orbits.
 var altitudePresets = []int{200, 500, 1000, 2000, 5000, 10000, 35786}
 
-// latitudePresets are the cycle values for the launchpad latitude
-// field (degrees north). Picked from real-world launch sites so the
-// player can sanity-check the equatorial-spin boost: 0° (textbook
-// best case), KSC (28.6°N — Saturn V default), Baikonur (45.6°N),
-// Plesetsk (62.8°N — high-inclination polar launches), 90°N (north
-// pole — zero spin assist, sanity check that the model bottoms out).
-// v0.9.2+.
-var latitudePresets = []float64{0.0, 28.6, 45.6, 62.8, 90.0}
+// LaunchSitePreset bundles a named real-world launch site with its
+// real-world latitude + longitude (east-positive, relative to Earth's
+// prime meridian). v0.9.2+. The form's LATITUDE field cycles through
+// these so picking "Cape Canaveral" lands the craft on KSC LC-39A,
+// not just at "the right latitude."
+type LaunchSitePreset struct {
+	Name      string
+	LatitudeDeg float64
+	// LongitudeEastDeg is east-positive longitude in degrees relative
+	// to the body's prime meridian at simTime=0 (our pseudo-Greenwich
+	// convention — see SpawnSpec.LongitudeOffset doc).
+	LongitudeEastDeg float64
+}
+
+// launchSitePresets is the form's named-site cycle. Default is
+// index 1 (Cape Canaveral KSC LC-39A), so opening the spawn form
+// with launchpad selected lands a Saturn V at the historical Apollo
+// pad. Equator at index 0 is the textbook best-case baseline; the
+// other entries pin to real-world Earth launch sites.
+var launchSitePresets = []LaunchSitePreset{
+	{Name: "Equator", LatitudeDeg: 0.0, LongitudeEastDeg: 0.0},
+	{Name: "Cape Canaveral (KSC LC-39A)", LatitudeDeg: 28.6083, LongitudeEastDeg: -80.604},
+	{Name: "Baikonur Cosmodrome", LatitudeDeg: 45.965, LongitudeEastDeg: 63.342},
+	{Name: "Plesetsk Cosmodrome", LatitudeDeg: 62.926, LongitudeEastDeg: 40.577},
+	{Name: "North Pole", LatitudeDeg: 90.0, LongitudeEastDeg: 0.0},
+}
 
 // NewSpawnCraft constructs the screen.
 func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
@@ -125,13 +143,23 @@ func (s *SpawnCraft) SelectedAlongside() bool { return s.posMode == posAlongside
 func (s *SpawnCraft) SelectedLaunchpad() bool { return s.posMode == posLaunchpad }
 
 // SelectedLatitudeDeg returns the chosen surface latitude (degrees
-// north) when SelectedLaunchpad is true. Defaults to KSC (28.6°N)
-// when the cursor is out of range. v0.9.2+.
+// north) when SelectedLaunchpad is true. Defaults to KSC LC-39A
+// (28.6083°N) when the cursor is out of range. v0.9.2+.
 func (s *SpawnCraft) SelectedLatitudeDeg() float64 {
-	if s.latIdx < 0 || s.latIdx >= len(latitudePresets) {
-		return 28.6
+	if s.latIdx < 0 || s.latIdx >= len(launchSitePresets) {
+		return 28.6083
 	}
-	return latitudePresets[s.latIdx]
+	return launchSitePresets[s.latIdx].LatitudeDeg
+}
+
+// SelectedLongitudeEastDeg returns the chosen surface longitude
+// offset (degrees east of pseudo-Greenwich). Defaults to KSC
+// (-80.604°E) when the cursor is out of range. v0.9.2+.
+func (s *SpawnCraft) SelectedLongitudeEastDeg() float64 {
+	if s.latIdx < 0 || s.latIdx >= len(launchSitePresets) {
+		return -80.604
+	}
+	return launchSitePresets[s.latIdx].LongitudeEastDeg
 }
 
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
@@ -172,7 +200,7 @@ func (s *SpawnCraft) cycleField(step int) {
 		}
 	case 3:
 		if s.posMode == posLaunchpad {
-			s.latIdx = wrapIdx(s.latIdx+step, len(latitudePresets))
+			s.latIdx = wrapIdx(s.latIdx+step, len(launchSitePresets))
 		} else {
 			s.altIdx = wrapIdx(s.altIdx+step, len(altitudePresets))
 		}
@@ -256,15 +284,35 @@ func (s *SpawnCraft) Render(width int) string {
 	}
 	lines = append(lines, "  "+s.fieldValueDimmed(2, parentLabel, dimParent))
 
-	// Field 3: altitude (orbit) or latitude (launchpad) — preset cycle.
+	// Field 3: altitude (orbit) or launch site (launchpad) — preset cycle.
 	lines = append(lines, "")
 	if s.posMode == posLaunchpad {
-		lines = append(lines, s.fieldHeader(3, "LATITUDE"))
-		latLabel := fmt.Sprintf("%.1f° N", latitudePresets[s.latIdx])
-		if latitudePresets[s.latIdx] < 0 {
-			latLabel = fmt.Sprintf("%.1f° S", -latitudePresets[s.latIdx])
+		lines = append(lines, s.fieldHeader(3, "LAUNCH SITE"))
+		site := launchSitePresets[s.latIdx]
+		hemi := "N"
+		latAbs := site.LatitudeDeg
+		if latAbs < 0 {
+			hemi = "S"
+			latAbs = -latAbs
 		}
-		lines = append(lines, "  "+s.fieldValueDimmed(3, latLabel, false))
+		lonHemi := "E"
+		lonAbs := site.LongitudeEastDeg
+		if lonAbs < 0 {
+			lonHemi = "W"
+			lonAbs = -lonAbs
+		}
+		// Special case: Equator + North Pole have no meaningful
+		// longitude (great circle / pole) — show coords without
+		// the longitude when the offset is 0 to keep the label
+		// readable.
+		var siteLabel string
+		if site.LongitudeEastDeg == 0 && (site.LatitudeDeg == 0 || site.LatitudeDeg == 90) {
+			siteLabel = fmt.Sprintf("%s  (%.2f° %s)", site.Name, latAbs, hemi)
+		} else {
+			siteLabel = fmt.Sprintf("%s  (%.2f° %s, %.2f° %s)",
+				site.Name, latAbs, hemi, lonAbs, lonHemi)
+		}
+		lines = append(lines, "  "+s.fieldValueDimmed(3, siteLabel, false))
 	} else {
 		lines = append(lines, s.fieldHeader(3, "ALTITUDE"))
 		altLabel := fmt.Sprintf("%d km", altitudePresets[s.altIdx])

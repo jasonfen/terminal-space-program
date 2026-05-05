@@ -18,10 +18,12 @@ var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 
 // surfaceSpawnPosVel computes the **primary-relative** position and
 // velocity of a point on `primary`'s rotating surface at the given
-// latitude. Longitude is derived from `simTime` modulo the body's
-// sidereal period so consecutive launches at different sim-times
-// spawn at different points on the body's rotation phase (the pad
-// rotates with the body during the day).
+// latitude + longitude offset. Longitude phase is the sum of
+// (sim-time-derived body rotation phase) + (longitude offset in
+// degrees east). The offset lets the spawn pin to a fixed
+// Earth-relative location (e.g., Cape Canaveral at -80.604°E
+// regardless of sim time) while still having the pad rotate with
+// the body once spawned (via the v0.9.2 Landed bypass).
 //
 // Returned (R, V) plug straight into `Spacecraft.State` — the
 // integrator's per-tick math adds the primary's heliocentric R/V
@@ -38,23 +40,31 @@ var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 // drag-consistent atmosphere from tick 0. v0.9.2+.
 //
 // Latitude is interpreted in degrees north positive. Clamped to
-// [-90, 90] by the caller.
+// [-90, 90] by the caller. Longitude offset in degrees east; sign
+// follows the right-hand rule about +Z (Earth-style).
 func surfaceSpawnPosVel(
 	primary bodies.CelestialBody,
 	latitudeDeg float64,
+	longitudeOffsetDeg float64,
 	simTime time.Time,
 ) (orbital.Vec3, orbital.Vec3) {
 	radius := primary.RadiusMeters()
 	latRad := latitudeDeg * math.Pi / 180.0
 
-	// Longitude phase: 2π · (simTime / sidereal-period). Modulo into
-	// [0, 2π). When SideralRotation is zero (catalog miss), longitude
-	// freezes at 0 — the pad sits at the body's +X axis.
+	// Longitude phase: (sim-time-derived body rotation) + offset.
+	// At simTime=0 the body's prime meridian sits at +X; the pad
+	// sits at +X + offset. As simTime advances the body rotates,
+	// carrying the pad with it. Modulo into [0, 2π).
 	var lonRad float64
 	if primary.SideralRotation > 0 {
 		periodSec := primary.SideralRotation * 3600
 		t := float64(simTime.UnixNano()) / 1e9
-		lonRad = math.Mod(2*math.Pi*t/periodSec, 2*math.Pi)
+		lonRad = 2 * math.Pi * t / periodSec
+	}
+	lonRad += longitudeOffsetDeg * math.Pi / 180.0
+	lonRad = math.Mod(lonRad, 2*math.Pi)
+	if lonRad < 0 {
+		lonRad += 2 * math.Pi
 	}
 
 	cosLat, sinLat := math.Cos(latRad), math.Sin(latRad)
@@ -102,28 +112,44 @@ type SpawnSpec struct {
 
 	// Launchpad (v0.9.2+): when true, spawn at altitude 0 on the
 	// parent body's surface co-moving with the rotating ground at
-	// `Latitude` (degrees, north positive). Velocity is the body's
-	// heliocentric velocity + ω × r (surface co-rotation), so a
-	// craft on the pad sits stationary relative to KSC and feels
-	// the ~465 m/s eastward boost at the equator from Earth's spin.
+	// `Latitude` / `LongitudeOffset` (degrees, north / east positive).
+	// Velocity is ω × r (surface co-rotation), so a craft on the
+	// pad sits stationary relative to the ground and feels the
+	// ~465 m/s eastward boost at the equator from Earth's spin.
 	// Overrides AltitudeM + Retrograde + Alongside; ParentBodyID
 	// still selects which body's surface (default: active craft's
-	// current primary, like the orbit-spawn path).
+	// current primary).
 	Launchpad bool
-	// Latitude is the surface latitude in degrees. Defaults to
-	// 28.6°N (KSC) when zero AND Launchpad=true. Sub-zero values
-	// pick southern hemisphere; |Latitude| > 90 is clamped.
+	// Latitude is the surface latitude in degrees north positive.
+	// Sub-zero values pick southern hemisphere; |Latitude| > 90 is
+	// clamped. v0.9.2+.
 	Latitude float64
+	// LongitudeOffset (v0.9.2+) is the surface longitude offset in
+	// degrees east relative to the body's prime meridian at
+	// simTime=0 — our pseudo-Greenwich convention. A value of
+	// -80.604 places the pad at Cape Canaveral's Earth-relative
+	// longitude. Without this offset the spawn longitude depends
+	// only on sim time (the body's rotation phase), so consecutive
+	// launches at different sim times spawn at different points.
+	// With it, "Cape Canaveral" lands at Cape Canaveral regardless
+	// of sim time. The Landed bypass continues to rotate the pad
+	// with the body once spawned.
+	LongitudeOffset float64
 }
 
 // DefaultLaunchpadLatitude is the spawn latitude the form uses when
-// the player opens it without changing the field. Picked at 28.6°N
-// to match KSC — gives a small but meaningful equatorial-spin boost
-// for east-bound launches without the textbook "from the equator"
-// answer to every problem. Applied at the form layer, not in
-// SpawnCraft, so API callers can explicitly spawn at the equator
-// with Latitude=0.
-const DefaultLaunchpadLatitude = 28.6
+// the player opens it without changing the field. v0.9.2+: pinned
+// to LC-39A (Kennedy Space Center, the historical Saturn V launch
+// pad) at 28.6083°N. Applied at the form layer, not in SpawnCraft,
+// so API callers can explicitly spawn at the equator with
+// Latitude=0.
+const DefaultLaunchpadLatitude = 28.6083
+
+// DefaultLaunchpadLongitudeEast is the spawn longitude offset (deg
+// east of pseudo-Greenwich) for the form's default "Cape Canaveral"
+// preset. -80.604° matches LC-39A's Earth-relative longitude.
+// v0.9.2+.
+const DefaultLaunchpadLongitudeEast = -80.604
 
 // SpawnCraft adds a new craft to the slate using the given spec.
 // The new craft is placed in a circular orbit at the requested
@@ -179,8 +205,10 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		//
 		// Latitude is taken as-passed: zero is the equator, not a
 		// sentinel. The form's default (DefaultLaunchpadLatitude =
-		// 28.6° KSC) is applied at the form layer, so API callers
-		// can spawn at the equator with Latitude=0 explicitly.
+		// 28.6083° KSC LC-39A) is applied at the form layer, so
+		// API callers can spawn at the equator with Latitude=0
+		// explicitly. LongitudeOffset places the pad at a fixed
+		// Earth-relative longitude (degrees east of pseudo-Greenwich).
 		latDeg := spec.Latitude
 		if latDeg > 90 {
 			latDeg = 90
@@ -188,7 +216,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if latDeg < -90 {
 			latDeg = -90
 		}
-		rRel, vRel := surfaceSpawnPosVel(primary, latDeg, w.Clock.SimTime)
+		rRel, vRel := surfaceSpawnPosVel(primary, latDeg, spec.LongitudeOffset, w.Clock.SimTime)
 		c.Primary = primary
 		c.State = physics.StateVector{
 			R: rRel,
