@@ -1147,6 +1147,95 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
+	// v0.9.0+: TARGET block — surfaces the unified World.Target slot
+	// that `H` planted-Hohmann and `I` plane-match consume in place of
+	// the pre-v0.9 implicit body cursor. Hidden when no target is set.
+	// For TargetBody: name, body-equatorial Δi vs active craft, current
+	// range. For TargetCraft: name + role, current range, |v_rel|.
+	// v0.9.3 will extend the craft path with live closest-approach
+	// countdown + DOCK READY indicator (today's RENDEZVOUS block,
+	// rebuilt on the explicit target rather than implicit-nearest).
+	if c := w.ActiveCraft(); c != nil && w.Target.Kind != sim.TargetNone {
+		switch w.Target.Kind {
+		case sim.TargetBody:
+			sysT := w.System()
+			if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) {
+				b := sysT.Bodies[w.Target.BodyIdx]
+				lines = append(lines, section("TARGET")...)
+				nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
+				lines = append(lines,
+					"  body:   "+nameStyle.Render(b.EnglishName),
+				)
+				// Δi in the active craft's primary frame. Active
+				// craft's inclination via OrbitReadoutInFrame; target
+				// body's plane via PlaneMatchInclination — both reduce
+				// to a single scalar in [0, π], so |a − b| is a
+				// meaningful "how far off the target plane am I" delta
+				// even without comparing Ω.
+				mu := c.Primary.GravitationalParameter()
+				frame := orbital.ReferenceFrameForPrimary(c.Primary)
+				ro := orbital.OrbitReadoutInFrame(c.State.R, c.State.V, mu, frame)
+				if !ro.Hyperbolic {
+					tgtIncl := orbital.PlaneMatchInclination(b, frame)
+					di := math.Abs(ro.Inclination - tgtIncl) * 180 / math.Pi
+					diLabel := fmt.Sprintf("%.2f°", di)
+					if di > 30 {
+						diLabel = v.theme.Warning.Render(diLabel)
+					}
+					lines = append(lines, fmt.Sprintf("  Δi:     %s", diLabel))
+				}
+				rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
+				rangeLabel := fmt.Sprintf("%.0f m", rangeM)
+				switch {
+				case rangeM > bodies.AU/10:
+					rangeLabel = fmt.Sprintf("%.3f AU", rangeM/bodies.AU)
+				case rangeM > 1e6:
+					rangeLabel = fmt.Sprintf("%.0f km", rangeM/1000)
+				case rangeM > 1000:
+					rangeLabel = fmt.Sprintf("%.2f km", rangeM/1000)
+				}
+				lines = append(lines, fmt.Sprintf("  range:  %s", rangeLabel))
+			}
+		case sim.TargetCraft:
+			if w.Target.CraftIdx >= 0 && w.Target.CraftIdx < len(w.Crafts) {
+				if tc := w.Crafts[w.Target.CraftIdx]; tc != nil {
+					lines = append(lines, section("TARGET")...)
+					nameLine := "  craft:  " + tc.Name
+					if tc.Role != "" {
+						nameLine += v.theme.Dim.Render(" — " + tc.Role)
+					}
+					lines = append(lines, nameLine)
+					// Range / |v_rel|: use primary-frame deltas when
+					// they share a primary (the common rendezvous
+					// scenario), inertial otherwise (cross-SOI
+					// targeting works but reads as a long-distance
+					// pointer — v0.9.3 closest-approach maths will
+					// make this useful).
+					var rangeM, vRel float64
+					if tc.Primary.ID == c.Primary.ID {
+						rangeM = tc.State.R.Sub(c.State.R).Norm()
+						vRel = tc.State.V.Sub(c.State.V).Norm()
+					} else {
+						tcInertial := w.BodyPosition(tc.Primary).Add(tc.State.R)
+						rangeM = tcInertial.Sub(w.CraftInertial()).Norm()
+						vRel = w.CraftInertialVelocity(tc).Sub(w.CraftInertialVelocity(c)).Norm()
+					}
+					rangeLabel := fmt.Sprintf("%.0f m", rangeM)
+					switch {
+					case rangeM > 1e6:
+						rangeLabel = fmt.Sprintf("%.0f km", rangeM/1000)
+					case rangeM > 1000:
+						rangeLabel = fmt.Sprintf("%.2f km", rangeM/1000)
+					}
+					lines = append(lines,
+						fmt.Sprintf("  range:  %s", rangeLabel),
+						fmt.Sprintf("  |v_rel|: %.2f m/s", vRel),
+					)
+				}
+			}
+		}
+	}
+
 	// v0.8.3+: rendezvous readout — when the active craft shares
 	// its primary frame with another craft, surface range +
 	// relative velocity to the nearest one. Lets the player RCS-

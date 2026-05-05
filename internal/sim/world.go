@@ -42,6 +42,14 @@ type World struct {
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
 
+	// Target is the unified pointer-at-the-thing-the-player-is-aiming-at.
+	// v0.9.0+: replaces the implicit body-cursor that pre-v0.9 PlanTransfer
+	// / PlanInclinationChange consumed via App.selectedBody, and absorbs
+	// the rendezvous target-craft idx that v0.9.3 will plumb. Zero value
+	// (TargetNone) means no target — every consumer falls back to its
+	// kind-less default (equatorial plane, Hohmann no-op).
+	Target Target
+
 	// ViewMode selects the canvas projection basis. v0.6.4+. Zero
 	// value (ViewEquatorial) matches the pre-v0.6.4 (X, Y)-drop
 	// projection. Set per-session via the `v` hot-key; not persisted

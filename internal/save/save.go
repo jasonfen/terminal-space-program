@@ -61,6 +61,7 @@ type Payload struct {
 	WarpIdx        int                `json:"warp_idx"`
 	Paused         bool               `json:"paused"`
 	Focus          Focus              `json:"focus"`
+	Target         *Target            `json:"target,omitempty"` // v0.9.0+ unified target slot. nil pointer (zero/None) → omitted on the wire.
 	Craft          *Craft             `json:"craft,omitempty"` // v1–v4 singular form; migrated to Crafts on load.
 	Crafts         []Craft            `json:"crafts,omitempty"`
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
@@ -73,6 +74,17 @@ type Payload struct {
 type Focus struct {
 	Kind    int `json:"kind"`
 	BodyIdx int `json:"body_idx"`
+}
+
+// Target mirrors sim.Target by value. v0.9.0+. The zero value
+// (Kind=0=TargetNone, BodyIdx=0, CraftIdx=0) is suppressed by the
+// payload's `omitempty` tag, so saves predating v0.9.0 round-trip
+// without writing the field — and load fills sim.World.Target with
+// the zero value, matching pre-target behaviour.
+type Target struct {
+	Kind     int `json:"kind"`
+	BodyIdx  int `json:"body_idx,omitempty"`
+	CraftIdx int `json:"craft_idx,omitempty"`
 }
 
 // Vec3 is the wire form of orbital.Vec3.
@@ -263,6 +275,15 @@ func payloadFromWorld(w *sim.World) Payload {
 			BodyIdx: w.Focus.BodyIdx,
 		},
 	}
+	// v0.9.0+: persist the unified target slot only when set. None
+	// stays nil on the wire so older saves round-trip identically.
+	if w.Target.Kind != sim.TargetNone {
+		p.Target = &Target{
+			Kind:     int(w.Target.Kind),
+			BodyIdx:  w.Target.BodyIdx,
+			CraftIdx: w.Target.CraftIdx,
+		}
+	}
 	// v0.8.1+: Crafts becomes the wire form. Each craft carries its
 	// own Nodes / ActiveBurn / AttitudeMode / EngineMode (per-craft
 	// burn state). Pre-v5 saves had these on the Payload; the load
@@ -366,6 +387,16 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Kind:    sim.FocusKind(p.Focus.Kind),
 			BodyIdx: p.Focus.BodyIdx,
 		},
+	}
+	// v0.9.0+: restore the unified target slot. Pre-v0.9 saves omit
+	// the field entirely; the nil pointer means the World keeps its
+	// zero-value Target (TargetNone).
+	if p.Target != nil {
+		w.Target = sim.Target{
+			Kind:     sim.TargetKind(p.Target.Kind),
+			BodyIdx:  p.Target.BodyIdx,
+			CraftIdx: p.Target.CraftIdx,
+		}
 	}
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
 
