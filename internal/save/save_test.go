@@ -470,10 +470,15 @@ func TestRCSFieldsRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	w.ActiveCraft().Monoprop = 17.5
-	w.ActiveCraft().MonopropCapacity = 50
-	w.ActiveCraft().RCSThrust = 440
-	w.ActiveCraft().RCSIsp = 220
+	// v0.9.1+: Stages is the source of truth. Write the test
+	// values into Stages[0] (the bottom = active stage) and let
+	// SyncFields refresh the flat shadow fields.
+	c := w.ActiveCraft()
+	c.Stages[0].MonopropMass = 17.5
+	c.Stages[0].MonopropCap = 50
+	c.Stages[0].RCSThrust = 440
+	c.Stages[0].RCSIsp = 220
+	c.SyncFields()
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := save.Save(w, path); err != nil {
@@ -694,4 +699,106 @@ func keysOf(m map[string]json.RawMessage) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// TestV5SaveLoadsAsV6: a v5-shaped save (no Stages on the wire,
+// flat propulsion fields populated) must load with Stages
+// reconstructed via migrateV5CraftToStages. Mass + propellant +
+// engine numbers should match the v5 flat fields.
+func TestV5SaveLoadsAsV6(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Forge a v5 envelope: drop Stages from the wire form, set
+	// Version=5. The flat fields stay populated so the v5→v6
+	// migration has values to wrap.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var f save.File
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(f.Payload.Crafts) == 0 {
+		t.Fatalf("expected wire payload to carry at least one craft")
+	}
+	wantDry := f.Payload.Crafts[0].DryMass
+	wantFuel := f.Payload.Crafts[0].Fuel
+	wantThrust := f.Payload.Crafts[0].Thrust
+	wantIsp := f.Payload.Crafts[0].Isp
+	for i := range f.Payload.Crafts {
+		f.Payload.Crafts[i].Stages = nil
+	}
+	f.Version = 5
+	rewritten, _ := json.Marshal(f)
+	if err := os.WriteFile(path, rewritten, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	c := got.ActiveCraft()
+	if len(c.Stages) != 1 {
+		t.Errorf("v5→v6 migration should produce 1 stage, got %d", len(c.Stages))
+	}
+	if c.Stages[0].DryMass != wantDry {
+		t.Errorf("Stages[0].DryMass: got %.0f, want %.0f", c.Stages[0].DryMass, wantDry)
+	}
+	if c.Stages[0].FuelMass != wantFuel {
+		t.Errorf("Stages[0].FuelMass: got %.0f, want %.0f", c.Stages[0].FuelMass, wantFuel)
+	}
+	if c.Stages[0].Thrust != wantThrust {
+		t.Errorf("Stages[0].Thrust: got %.0f, want %.0f", c.Stages[0].Thrust, wantThrust)
+	}
+	if c.Stages[0].Isp != wantIsp {
+		t.Errorf("Stages[0].Isp: got %.0f, want %.0f", c.Stages[0].Isp, wantIsp)
+	}
+	// Flat shadow fields should mirror Stages[0] post-SyncFields.
+	if c.DryMass != wantDry || c.Fuel != wantFuel {
+		t.Errorf("flat fields mismatch after migration: dry=%v fuel=%v",
+			c.DryMass, c.Fuel)
+	}
+}
+
+// TestSaturnVStagesRoundtrip: a multi-stage Saturn-V loadout must
+// serialise + deserialise with all three stages intact, including
+// per-stage fuel + thrust + Isp.
+func TestSaturnVStagesRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+	saturn.Primary = w.ActiveCraft().Primary
+	saturn.State = w.ActiveCraft().State
+	w.Crafts[0] = saturn
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	c := got.ActiveCraft()
+	if len(c.Stages) != 3 {
+		t.Fatalf("Saturn-V should round-trip with 3 stages, got %d", len(c.Stages))
+	}
+	for i, want := range saturn.Stages {
+		if c.Stages[i].DryMass != want.DryMass ||
+			c.Stages[i].FuelMass != want.FuelMass ||
+			c.Stages[i].Thrust != want.Thrust ||
+			c.Stages[i].Isp != want.Isp {
+			t.Errorf("stage %d round-trip mismatch: got %+v, want %+v",
+				i, c.Stages[i], want)
+		}
+	}
 }

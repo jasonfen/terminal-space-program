@@ -38,7 +38,7 @@ func (h *Help) Render() string {
 		{"TIME", [][2]string{
 			{".", "warp up (1× … 100000×)"},
 			{",", "warp down"},
-			{"0 / space", "pause / resume"},
+			{"0", "pause / resume"},
 		}},
 		{"FLIGHT (planted)", [][2]string{
 			{"m", "open maneuver planner (burn now)"},
@@ -64,6 +64,8 @@ func (h *Help) Render() string {
 			{"n", "open spawn form (loadout / position / parent body / altitude / direction)"},
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
 			{"U", "undock active composite (v0.8.3+)"},
+			{"t / T", "cycle / clear target (v0.9.0+)"},
+			{"space", "decouple bottom stage (v0.9.1+, multi-stage craft only)"},
 		}},
 		{"PERSISTENCE", [][2]string{
 			{"F5", "quicksave (XDG_STATE_HOME)"},
