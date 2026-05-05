@@ -70,16 +70,18 @@ func (w *World) SetTargetCraft(idx int) {
 // Target.Kind == TargetNone.
 func (w *World) ClearTarget() { w.Target = Target{} }
 
-// CycleTarget advances Target through the system's targetable bodies
-// (non-root bodies in the active system) → non-active sibling crafts
-// → None → repeat. Forward=false steps backwards through the same
-// cycle. No-op when no targetable entry exists.
+// CycleTarget advances Target through non-active sibling crafts →
+// system bodies (non-root) → None → repeat. Forward=false steps
+// backwards through the same cycle. No-op when no targetable entry
+// exists.
 //
-// Cycle order: bodies in current system (idx 1 .. n-1, skipping the
-// system primary which has no orbital radius), then every non-active
-// craft in the slate (sibling-frame restriction is intentionally not
-// enforced here so the player can pre-select a target before
-// transferring into its frame), then TargetNone, then repeat.
+// Cycle order: every non-active craft in the slate first (the small
+// set the player most often wants to target after spawning a sister
+// craft), then bodies in the current system (idx 1 .. n-1, skipping
+// the system primary which has no orbital radius), then TargetNone,
+// then repeat. Sibling-frame restriction is intentionally not
+// enforced on the craft branch so the player can pre-select a target
+// before transferring into its frame.
 func (w *World) CycleTarget(forward bool) {
 	cycle := w.targetCycle()
 	if len(cycle) == 0 {
@@ -106,14 +108,14 @@ func (w *World) CycleTarget(forward bool) {
 // requiring a cache invalidation.
 func (w *World) targetCycle() []Target {
 	cycle := []Target{{Kind: TargetNone}}
-	for i := 1; i < len(w.System().Bodies); i++ {
-		cycle = append(cycle, Target{Kind: TargetBody, BodyIdx: i})
-	}
 	for i, c := range w.Crafts {
 		if c == nil || i == w.ActiveCraftIdx {
 			continue
 		}
 		cycle = append(cycle, Target{Kind: TargetCraft, CraftIdx: i})
+	}
+	for i := 1; i < len(w.System().Bodies); i++ {
+		cycle = append(cycle, Target{Kind: TargetBody, BodyIdx: i})
 	}
 	return cycle
 }
