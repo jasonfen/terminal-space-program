@@ -6,13 +6,68 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
+
+// surfaceSpawnPosVel computes the world-frame position and inertial
+// velocity of a point on `primary`'s rotating surface at the given
+// latitude. Longitude is derived from `simTime` modulo the body's
+// sidereal period so consecutive launches at different sim-times
+// spawn at different points on the body's rotation phase (the pad
+// rotates with the body during the day).
+//
+// Convention: the body is treated as rotating about world +Z, the
+// same approximation `physics.AtmosphereOmega` uses for drag.
+// Axial tilt is ignored on this surface — the launchpad lives in
+// the same Z-spin frame drag does, so a craft on the pad feels the
+// drag-consistent atmosphere from tick 0. v0.9.2+.
+//
+// Latitude is interpreted in degrees north positive. Clamped to
+// [-90, 90] by the caller.
+func surfaceSpawnPosVel(
+	primary bodies.CelestialBody,
+	bodyPos orbital.Vec3,
+	bodyVel orbital.Vec3,
+	latitudeDeg float64,
+	simTime time.Time,
+) (orbital.Vec3, orbital.Vec3) {
+	radius := primary.RadiusMeters()
+	latRad := latitudeDeg * math.Pi / 180.0
+
+	// Longitude phase: 2π · (simTime / sidereal-period). Modulo into
+	// [0, 2π). When SideralRotation is zero (catalog miss), longitude
+	// freezes at 0 — the pad sits at the body's +X axis.
+	var lonRad float64
+	if primary.SideralRotation > 0 {
+		periodSec := primary.SideralRotation * 3600
+		t := float64(simTime.UnixNano()) / 1e9
+		lonRad = math.Mod(2*math.Pi*t/periodSec, 2*math.Pi)
+	}
+
+	cosLat, sinLat := math.Cos(latRad), math.Sin(latRad)
+	rRel := orbital.Vec3{
+		X: radius * cosLat * math.Cos(lonRad),
+		Y: radius * cosLat * math.Sin(lonRad),
+		Z: radius * sinLat,
+	}
+
+	// Surface co-rotation: ω × r. Match the physics.AtmosphereOmega
+	// convention (Z-aligned ω = 2π / sideralRotationSec).
+	var omega orbital.Vec3
+	if primary.SideralRotation > 0 {
+		omega = orbital.Vec3{Z: 2 * math.Pi / (primary.SideralRotation * 3600)}
+	}
+	vRel := omega.Cross(rRel)
+
+	return bodyPos.Add(rRel), bodyVel.Add(vRel)
+}
 
 // SpawnSpec describes a craft to spawn. v0.8.2 ships these axes:
 //   - LoadoutID:    propulsion archetype. Empty → round-robin via
@@ -34,7 +89,28 @@ type SpawnSpec struct {
 	AltitudeM    float64
 	Retrograde   bool
 	Alongside    bool
+
+	// Launchpad (v0.9.2+): when true, spawn at altitude 0 on the
+	// parent body's surface co-moving with the rotating ground at
+	// `Latitude` (degrees, north positive). Velocity is the body's
+	// heliocentric velocity + ω × r (surface co-rotation), so a
+	// craft on the pad sits stationary relative to KSC and feels
+	// the ~465 m/s eastward boost at the equator from Earth's spin.
+	// Overrides AltitudeM + Retrograde + Alongside; ParentBodyID
+	// still selects which body's surface (default: active craft's
+	// current primary, like the orbit-spawn path).
+	Launchpad bool
+	// Latitude is the surface latitude in degrees. Defaults to
+	// 28.6°N (KSC) when zero AND Launchpad=true. Sub-zero values
+	// pick southern hemisphere; |Latitude| > 90 is clamped.
+	Latitude float64
 }
+
+// DefaultLaunchpadLatitude is the spawn latitude when Launchpad=true
+// and Latitude is unset. Picked at 28.6°N to match KSC — gives a
+// small but meaningful equatorial-spin boost for east-bound launches
+// without the textbook "from the equator" answer to every problem.
+const DefaultLaunchpadLatitude = 28.6
 
 // SpawnCraft adds a new craft to the slate using the given spec.
 // The new craft is placed in a circular orbit at the requested
@@ -80,6 +156,36 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if b := sys.FindBody(spec.ParentBodyID); b != nil {
 			primary = *b
 		}
+	}
+
+	if spec.Launchpad {
+		// v0.9.2+: surface spawn co-rotating with the primary's
+		// ground. ω × r gives the eastward kick (~465 m/s at
+		// Earth's equator). AltitudeM / Retrograde are ignored —
+		// the launchpad path defines its own (R, V).
+		latDeg := spec.Latitude
+		if latDeg == 0 {
+			latDeg = DefaultLaunchpadLatitude
+		}
+		if latDeg > 90 {
+			latDeg = 90
+		}
+		if latDeg < -90 {
+			latDeg = -90
+		}
+		bodyPos := w.BodyPosition(primary)
+		bodyVel := w.bodyInertialVelocity(primary)
+		rWorld, vWorld := surfaceSpawnPosVel(primary, bodyPos, bodyVel, latDeg, w.Clock.SimTime)
+		c.Primary = primary
+		c.State = physics.StateVector{
+			R: rWorld,
+			V: vWorld,
+			M: c.TotalMass(),
+		}
+		w.Crafts = append(w.Crafts, c)
+		w.ActiveCraftIdx = len(w.Crafts) - 1
+		w.StopManualBurn()
+		return c, nil
 	}
 
 	alt := spec.AltitudeM

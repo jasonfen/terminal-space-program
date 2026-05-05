@@ -56,9 +56,10 @@ func (s Status) String() string {
 type Type string
 
 const (
-	TypeCircularize    Type = "circularize"
-	TypeOrbitInsertion Type = "orbit_insertion"
-	TypeSOIFlyby       Type = "soi_flyby"
+	TypeCircularize         Type = "circularize"
+	TypeOrbitInsertion      Type = "orbit_insertion"
+	TypeSOIFlyby            Type = "soi_flyby"
+	TypeCircularizeFromPad  Type = "circularize_from_pad" // v0.9.2+
 )
 
 // Params is the union of parameters across all predicate kinds. Each
@@ -80,6 +81,15 @@ type Params struct {
 	// EccentricityCap is the upper bound on eccentricity. Circularize
 	// only. 0.005 ≈ ≤0.5% radial swing.
 	EccentricityCap float64 `json:"eccentricity_cap,omitempty"`
+
+	// MinPeriapsisAltM is the minimum periapsis altitude (m above
+	// primary's mean radius) for the CircularizeFromPad predicate
+	// to pass. Looser than Circularize: the orbit just has to be
+	// bound (e < 1) and clear the floor — eccentricity / specific
+	// altitude shape is unconstrained, so a 100 × 300 km elliptical
+	// LEO counts the same as a 200 × 200 km circular one.
+	// v0.9.2+.
+	MinPeriapsisAltM float64 `json:"min_periapsis_alt_m,omitempty"`
 }
 
 // Mission groups the catalog metadata, the predicate parameters, and
@@ -118,6 +128,8 @@ func (m Mission) Evaluate(ctx EvalContext) Status {
 		return evalOrbitInsertion(m.Params, ctx)
 	case TypeSOIFlyby:
 		return evalSOIFlyby(m.Params, ctx)
+	case TypeCircularizeFromPad:
+		return evalCircularizeFromPad(m.Params, ctx)
 	}
 	return InProgress
 }
@@ -171,6 +183,34 @@ func evalSOIFlyby(p Params, ctx EvalContext) Status {
 		return Passed
 	}
 	return InProgress
+}
+
+// evalCircularizeFromPad: pass when the craft is in the right
+// primary's frame on a bound orbit (e < 1) with periapsis above
+// PrimaryRadiusM + MinPeriapsisAltM. Looser than Circularize —
+// no eccentricity / altitude-tolerance constraint, just a
+// periapsis floor. The "from pad" framing is informational;
+// the predicate doesn't gate on initial conditions, only on the
+// achieved orbit. v0.9.2+.
+func evalCircularizeFromPad(p Params, ctx EvalContext) Status {
+	if ctx.PrimaryID != p.PrimaryID {
+		return InProgress
+	}
+	if ctx.PrimaryMu == 0 {
+		return InProgress
+	}
+	el := orbital.ElementsFromState(ctx.State.R, ctx.State.V, ctx.PrimaryMu)
+	if el.A <= 0 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return InProgress
+	}
+	if el.E >= 1 {
+		return InProgress
+	}
+	periapsis := el.Periapsis()
+	if periapsis < ctx.PrimaryRadiusM+p.MinPeriapsisAltM {
+		return InProgress
+	}
+	return Passed
 }
 
 // Catalog is a list of missions, persisted to JSON. The starter

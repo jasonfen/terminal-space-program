@@ -305,3 +305,80 @@ func TestEvalIgnoresSimTime(t *testing.T) {
 		t.Fatal("SimTime should not affect predicate outcome in v0.6.5")
 	}
 }
+
+// TestCircularizeFromPadInProgressBelowFloor — a low orbit
+// (periapsis below the configured floor) keeps the mission in
+// progress. v0.9.2+.
+func TestCircularizeFromPadInProgressBelowFloor(t *testing.T) {
+	m := Mission{
+		Type: TypeCircularizeFromPad,
+		Params: Params{
+			PrimaryID:        "earth",
+			MinPeriapsisAltM: 200_000,
+		},
+	}
+	// 100 km circular — below the 200 km floor.
+	ctx := EvalContext{
+		PrimaryID:      "earth",
+		PrimaryRadiusM: earthRadius,
+		PrimaryMu:      earthMu,
+		State:          circularState(earthRadius, earthMu, 100e3),
+	}
+	if got := m.Evaluate(ctx); got != InProgress {
+		t.Errorf("100 km LEO with 200 km floor: got %v, want InProgress", got)
+	}
+}
+
+// TestCircularizeFromPadPassesAboveFloor — any bound orbit with
+// periapsis above the floor passes, regardless of eccentricity.
+// v0.9.2+.
+func TestCircularizeFromPadPassesAboveFloor(t *testing.T) {
+	m := Mission{
+		Type: TypeCircularizeFromPad,
+		Params: Params{
+			PrimaryID:        "earth",
+			MinPeriapsisAltM: 200_000,
+		},
+	}
+	// 250 km circular — well above the 200 km floor.
+	ctx := EvalContext{
+		PrimaryID:      "earth",
+		PrimaryRadiusM: earthRadius,
+		PrimaryMu:      earthMu,
+		State:          circularState(earthRadius, earthMu, 250e3),
+	}
+	if got := m.Evaluate(ctx); got != Passed {
+		t.Errorf("250 km LEO with 200 km floor: got %v, want Passed", got)
+	}
+}
+
+// TestCircularizeFromPadRejectsHyperbolic — an unbound (e ≥ 1)
+// trajectory keeps the mission in progress even if the
+// instantaneous radius is above the floor. v0.9.2+.
+func TestCircularizeFromPadRejectsHyperbolic(t *testing.T) {
+	m := Mission{
+		Type: TypeCircularizeFromPad,
+		Params: Params{
+			PrimaryID:        "earth",
+			MinPeriapsisAltM: 200_000,
+		},
+	}
+	// Build a hyperbolic state: 500 km altitude with v 50% above
+	// escape velocity.
+	radius := earthRadius + 500e3
+	vEscape := math.Sqrt(2 * earthMu / radius)
+	state := physics.StateVector{
+		R: orbital.Vec3{X: radius},
+		V: orbital.Vec3{Y: vEscape * 1.5},
+		M: 1000,
+	}
+	ctx := EvalContext{
+		PrimaryID:      "earth",
+		PrimaryRadiusM: earthRadius,
+		PrimaryMu:      earthMu,
+		State:          state,
+	}
+	if got := m.Evaluate(ctx); got != InProgress {
+		t.Errorf("hyperbolic with floor: got %v, want InProgress", got)
+	}
+}
