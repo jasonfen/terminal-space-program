@@ -115,6 +115,17 @@ type Spacecraft struct {
 	// its own components and the other's identity to the result).
 	DockedComponents []DockedComponent
 
+	// Landed (v0.9.2+): true when the craft is parked on the
+	// primary's surface co-rotating with the ground. While Landed,
+	// the integrator bypasses gravity / drag / thrust and just
+	// rotates R about world +Z at ω per tick (with V = ω × R) so
+	// the craft physically rotates with the planet. Cleared
+	// automatically when the engine ignites — see
+	// `World.StartManualBurn` and the planted-burn fire path. Set
+	// on `SpawnSpec.Launchpad=true` spawns. Persists in saves so a
+	// paused-on-pad session restores correctly.
+	Landed bool
+
 	// PitchTrim (v0.9.2+) is a signed pitch offset (radians)
 	// applied on top of the active BurnMode's computed direction.
 	// Positive values rotate the thrust vector eastward of the

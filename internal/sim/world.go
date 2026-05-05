@@ -667,6 +667,19 @@ func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 // Multi-craft (v0.8.1+): each craft is integrated independently via
 // this helper. Tick loops over Crafts.
 func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Duration) {
+	// v0.9.2+: Landed craft bypass normal integration. They co-rotate
+	// with the primary's surface — R rotates about world +Z by ω·dt
+	// per tick, V is recomputed as ω × R. No gravity, no drag, no
+	// thrust. Cleared automatically when the engine ignites (see
+	// StartManualBurn / planted-burn fire path). Without this, a
+	// craft sitting on the pad with V = ω × r has gravitational
+	// energy that puts its periapsis way below the primary's center;
+	// warp time and the integrator flies it along that fictitious
+	// orbit (= "shoots off into space" without the engine running).
+	if c.Landed {
+		integrateLanded(c, simDelta)
+		return
+	}
 	mu := c.Primary.GravitationalParameter()
 	period := orbitalPeriod(c.State, mu)
 	secs := simDelta.Seconds()
