@@ -11,6 +11,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -18,74 +19,44 @@ var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 
 // surfaceSpawnPosVel computes the **primary-relative** position and
 // velocity of a point on `primary`'s rotating surface at the given
-// latitude + longitude offset. Longitude phase is the sum of
-// (sim-time-derived body rotation phase) + (longitude offset in
-// degrees east). The offset lets the spawn pin to a fixed
-// Earth-relative location (e.g., Cape Canaveral at -80.604°E
-// regardless of sim time) while still having the pad rotate with
-// the body once spawned (via the v0.9.2 Landed bypass).
+// (lat, lon). Uses the renderer's body-fixed coordinate system —
+// tilted spin axis, J2000 rotation epoch, per-body texture-offset —
+// so a spawn at (28.6083°N, -80.604°E) actually lands on the
+// rendered Earth's Florida point. v0.9.2+ (lined up to texture
+// in the v0.9.2 fix-3 commit).
 //
 // Returned (R, V) plug straight into `Spacecraft.State` — the
 // integrator's per-tick math adds the primary's heliocentric R/V
-// itself when transforming to world coords. Pre-v0.9.2-fix this
-// helper returned heliocentric coords, which the integrator then
-// double-transformed into a position outside Earth's SOI; the SOI
-// walker re-parented the craft to Sun. Don't put helio offsets in
-// `c.State`.
+// itself when transforming to world coords. Don't put helio
+// offsets in `c.State`.
 //
-// Convention: the body is treated as rotating about world +Z, the
-// same approximation `physics.AtmosphereOmega` uses for drag.
-// Axial tilt is ignored on this surface — the launchpad lives in
-// the same Z-spin frame drag does, so a craft on the pad feels the
-// drag-consistent atmosphere from tick 0. v0.9.2+.
+// Surface co-rotation velocity uses the **tilted** spin angular-
+// velocity vector ω = (2π/period)·n_hat, not the Z-aligned
+// approximation `physics.AtmosphereOmega` uses for drag. The two
+// disagree by a few percent in magnitude + a Z component; drag
+// keeps its approximation for back-compat. The drift between the
+// craft's spawn velocity (tilted ω×r) and drag's "wind" (Z-aligned
+// ω×r) shows up as a small residual aerodynamic force at altitude
+// 0 — typically negligible.
 //
-// Latitude is interpreted in degrees north positive. Clamped to
-// [-90, 90] by the caller. Longitude offset in degrees east; sign
-// follows the right-hand rule about +Z (Earth-style).
+// Latitude in degrees north positive (clamped to [-90, 90] by the
+// caller). Longitude in degrees east positive (real-Earth-style).
 func surfaceSpawnPosVel(
 	primary bodies.CelestialBody,
 	latitudeDeg float64,
-	longitudeOffsetDeg float64,
+	longitudeDeg float64,
 	simTime time.Time,
 ) (orbital.Vec3, orbital.Vec3) {
 	radius := primary.RadiusMeters()
-	latRad := latitudeDeg * math.Pi / 180.0
-
-	// Longitude phase: (sim-time-derived body rotation) + offset.
-	// At simTime=0 the body's prime meridian sits at +X; the pad
-	// sits at +X + offset. As simTime advances the body rotates,
-	// carrying the pad with it. Modulo into [0, 2π).
-	var lonRad float64
-	if primary.SideralRotation > 0 {
-		periodSec := primary.SideralRotation * 3600
-		t := float64(simTime.UnixNano()) / 1e9
-		lonRad = 2 * math.Pi * t / periodSec
-	}
-	lonRad += longitudeOffsetDeg * math.Pi / 180.0
-	lonRad = math.Mod(lonRad, 2*math.Pi)
-	if lonRad < 0 {
-		lonRad += 2 * math.Pi
-	}
-
-	cosLat, sinLat := math.Cos(latRad), math.Sin(latRad)
+	dirRender := render.BodyFixedToWorld(primary, latitudeDeg, longitudeDeg, simTime)
 	rRel := orbital.Vec3{
-		X: radius * cosLat * math.Cos(lonRad),
-		Y: radius * cosLat * math.Sin(lonRad),
-		Z: radius * sinLat,
+		X: radius * dirRender.X,
+		Y: radius * dirRender.Y,
+		Z: radius * dirRender.Z,
 	}
-
-	// Surface co-rotation: v_rel = ω × r. Match the
-	// physics.AtmosphereOmega convention (Z-aligned ω = 2π /
-	// sideralRotationSec). The body's heliocentric velocity is
-	// **not** included — c.State.V is primary-relative; the
-	// integrator handles the body-velocity addition when it
-	// projects to inertial coords.
-	var omega orbital.Vec3
-	if primary.SideralRotation > 0 {
-		omega = orbital.Vec3{Z: 2 * math.Pi / (primary.SideralRotation * 3600)}
-	}
+	omegaRender := render.BodySpinOmegaWorld(primary)
+	omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
 	vRel := omega.Cross(rRel)
-
 	return rRel, vRel
 }
 
