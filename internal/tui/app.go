@@ -572,22 +572,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.AdjustThrottle(-0.1)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudePrograde):
-			a.handleAttitudeKey(spacecraft.BurnPrograde)
+			a.handleAttitudeIntent(sim.IntentPrograde)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRetrograde):
-			a.handleAttitudeKey(spacecraft.BurnRetrograde)
+			a.handleAttitudeIntent(sim.IntentRetrograde)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeNormalPlus):
-			a.handleAttitudeKey(spacecraft.BurnNormalPlus)
+			a.handleAttitudeIntent(sim.IntentNormalPlus)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeNormalMinus):
-			a.handleAttitudeKey(spacecraft.BurnNormalMinus)
+			a.handleAttitudeIntent(sim.IntentNormalMinus)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialOut):
-			a.handleAttitudeKey(spacecraft.BurnRadialOut)
+			a.handleAttitudeIntent(sim.IntentRadialOut)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialIn):
-			a.handleAttitudeKey(spacecraft.BurnRadialIn)
+			a.handleAttitudeIntent(sim.IntentRadialIn)
 			return a, nil
 		case key.Matches(m, a.keys.ToggleBurn):
 			a.world.ToggleManualBurn()
@@ -612,6 +612,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.ClearTarget):
 			a.world.ClearTarget()
+			return a, nil
+		case key.Matches(m, a.keys.CycleNavMode):
+			nav := a.world.CycleNavMode()
+			a.statusMsg = fmt.Sprintf("nav: %s", nav)
+			a.statusExpires = time.Now().Add(2 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeSurfacePrograde):
 			a.handleAttitudeKey(spacecraft.BurnSurfacePrograde)
@@ -731,6 +736,17 @@ func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
 		return
 	}
 	a.world.SetAttitudeMode(mode)
+}
+
+// handleAttitudeIntent translates the player's SAS-axis input through
+// the active NavMode (KSP-style nav-ball mode cycle) before dispatching.
+// In NavOrbit (default) the intent maps 1:1 to the v0.7.3+ orbit-frame
+// burn modes; NavSurface rebinds prograde / retrograde to the rotating-
+// atmosphere frame; NavTarget rebinds prograde / retrograde to relative-
+// velocity, and radial± to BurnTarget / BurnAntiTarget (toward / away
+// from the bound craft target). v0.9.3+.
+func (a *App) handleAttitudeIntent(intent sim.AttitudeIntent) {
+	a.handleAttitudeKey(a.world.ResolveAttitudeIntent(intent))
 }
 
 // applyMenuAction dispatches a finalised MenuAction (Save / Load /

@@ -65,6 +65,7 @@ type Payload struct {
 	Paused         bool               `json:"paused"`
 	Focus          Focus              `json:"focus"`
 	Target         *Target            `json:"target,omitempty"` // v0.9.0+ unified target slot. nil pointer (zero/None) → omitted on the wire.
+	NavMode        int                `json:"nav_mode,omitempty"` // v0.9.3+ KSP-style SAS reference frame. NavOrbit=0 omitted; older saves load with NavOrbit.
 	Craft          *Craft             `json:"craft,omitempty"` // v1–v4 singular form; migrated to Crafts on load.
 	Crafts         []Craft            `json:"crafts,omitempty"`
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
@@ -351,6 +352,10 @@ func payloadFromWorld(w *sim.World) Payload {
 			CraftIdx: w.Target.CraftIdx,
 		}
 	}
+	// v0.9.3+: persist NavMode. NavOrbit=0 round-trips as omitempty so
+	// pre-v0.9.3 saves (which never carried the field) load with the
+	// default-frame behaviour they were written under.
+	p.NavMode = int(w.NavMode)
 	// v0.8.1+: Crafts becomes the wire form. Each craft carries its
 	// own Nodes / ActiveBurn / AttitudeMode / EngineMode (per-craft
 	// burn state). Pre-v5 saves had these on the Payload; the load
@@ -493,6 +498,9 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			CraftIdx: p.Target.CraftIdx,
 		}
 	}
+	// v0.9.3+: restore NavMode. Absent field → zero → NavOrbit (the
+	// pre-v0.9.3 default frame).
+	w.NavMode = sim.NavMode(p.NavMode)
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
 
 	// v0.8.1+: load path translates the pre-v5 singular Craft field
