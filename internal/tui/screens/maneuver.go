@@ -514,6 +514,30 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	// the existing white-on-default rendering of this canvas.
 	m.canvas.DrawEllipseOffsetOccluded(currentEl, orbital.Vec3{}, 360, 4, orbital.Vec3{}, primaryPxR, "")
 
+	// v0.9.3 polish: target craft's orbit + current position when it
+	// shares the active craft's primary. The maneuver canvas centers
+	// on the active craft's primary at origin {0,0,0}, so the target
+	// state vector (already primary-relative when same-primary) plots
+	// directly. Cross-primary targets are out of scope — the canvas
+	// frame is the wrong one for them.
+	if w.Target.Kind == sim.TargetCraft && w.Target.CraftIdx >= 0 && w.Target.CraftIdx < len(w.Crafts) {
+		if tc := w.Crafts[w.Target.CraftIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+			tEl := orbital.ElementsFromState(tc.State.R, tc.State.V, mu)
+			tOrbitVisible := tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0)
+			if tOrbitVisible {
+				m.canvas.DrawEllipseOffsetOccluded(tEl, orbital.Vec3{}, 360, 3, orbital.Vec3{}, primaryPxR, render.ColorTarget)
+			}
+			if !m.canvas.IsBehindBody(tc.State.R, orbital.Vec3{}, primaryPxR) {
+				m.canvas.PlotColored(tc.State.R, render.ColorTarget)
+				if tc.Glyph != "" {
+					if g := []rune(tc.Glyph); len(g) > 0 {
+						m.canvas.SetCellOverlay(tc.State.R, g[0])
+					}
+				}
+			}
+		}
+	}
+
 	// Draw shadow trajectory after applying the current (mode, dv,
 	// fire-at) triple. v0.6.1: when fire-at is event-relative, the
 	// world's PreviewBurnState propagates the craft to the event
