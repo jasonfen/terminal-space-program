@@ -5,40 +5,25 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TargetKind enumerates what World.Target points at. v0.9.0+ unifies
-// the implicit body cursor (read by `H` PlanTransfer and `I`
-// PlanInclinationChange pre-v0.9) and the rendezvous-introduced
-// target-craft idx (planned for v0.9.3) into a single slot. Every
-// planner that needs to ask "what is the player aiming at?" reads
-// the same field.
-//
-// TargetSite is reserved for landing-site targeting, slated for
-// post-v0.9 ground-ops work; populating it is a no-op until that
-// surface ships.
-type TargetKind int
-
-const (
-	// TargetNone — no target set. Planners that consume Target fall
-	// back to their kind-less default (equatorial inclination match,
-	// "pick a body cursor first" status flash).
-	TargetNone TargetKind = iota
-	// TargetBody references a body by index in System().Bodies.
-	TargetBody
-	// TargetCraft references a non-active craft by index in World.Crafts.
-	TargetCraft
-	// TargetSite is reserved; not populated until landing-site
-	// targeting ships post-v0.9.
-	TargetSite
+// Target / TargetKind moved to the `spacecraft` package in v0.9.3
+// polish so each Spacecraft can carry its own per-craft target as a
+// struct field (per-craft target binding — each vessel remembers
+// its own target across active-craft switches). The aliases below
+// preserve the existing API surface so readers like
+// `w.Target.Kind == sim.TargetCraft` continue to compile unchanged.
+type (
+	TargetKind = spacecraft.TargetKind
+	Target     = spacecraft.Target
 )
 
-// Target identifies what the player is aiming at. The zero value
-// (TargetNone) is the v0.9.0 default and round-trips through save as
-// an absent JSON field.
-type Target struct {
-	Kind     TargetKind
-	BodyIdx  int // when Kind==TargetBody
-	CraftIdx int // when Kind==TargetCraft
-}
+// Re-exported constants — preserve the `sim.TargetNone` etc.
+// identifiers that 75+ readers depend on.
+const (
+	TargetNone  = spacecraft.TargetNone
+	TargetBody  = spacecraft.TargetBody
+	TargetCraft = spacecraft.TargetCraft
+	TargetSite  = spacecraft.TargetSite
+)
 
 // SetTargetBody sets the body target by system index. Out-of-range
 // or system-primary (idx 0) selections clear the target — neither is
@@ -50,6 +35,7 @@ func (w *World) SetTargetBody(idx int) {
 		return
 	}
 	w.Target = Target{Kind: TargetBody, BodyIdx: idx}
+	w.mirrorTargetToActiveCraft()
 	w.reconcileNavMode()
 }
 
@@ -65,6 +51,7 @@ func (w *World) SetTargetCraft(idx int) {
 		return
 	}
 	w.Target = Target{Kind: TargetCraft, CraftIdx: idx}
+	w.mirrorTargetToActiveCraft()
 }
 
 // ClearTarget drops any target. After ClearTarget,
@@ -73,7 +60,22 @@ func (w *World) SetTargetCraft(idx int) {
 // resolve. v0.9.3+.
 func (w *World) ClearTarget() {
 	w.Target = Target{}
+	w.mirrorTargetToActiveCraft()
 	w.reconcileNavMode()
+}
+
+// mirrorTargetToActiveCraft writes w.Target onto the active craft's
+// per-craft Target field so the binding survives an active-craft
+// switch (v0.9.3 polish). Maintains the invariant
+// w.Target == w.Crafts[w.ActiveCraftIdx].Target whenever an active
+// craft exists. No-op when there is no active craft.
+func (w *World) mirrorTargetToActiveCraft() {
+	if w.ActiveCraftIdx < 0 || w.ActiveCraftIdx >= len(w.Crafts) {
+		return
+	}
+	if c := w.Crafts[w.ActiveCraftIdx]; c != nil {
+		c.Target = w.Target
+	}
 }
 
 // CycleTarget advances Target through non-active sibling crafts →
@@ -106,6 +108,7 @@ func (w *World) CycleTarget(forward bool) {
 		idx = (idx - 1 + len(cycle)) % len(cycle)
 	}
 	w.Target = cycle[idx]
+	w.mirrorTargetToActiveCraft()
 	w.reconcileNavMode()
 }
 
