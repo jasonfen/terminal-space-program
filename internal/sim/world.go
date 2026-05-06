@@ -50,6 +50,13 @@ type World struct {
 	// kind-less default (equatorial plane, Hohmann no-op).
 	Target Target
 
+	// NavMode selects the reference frame the SAS axis hotkeys
+	// interpret against (KSP-style nav-ball mode cycle). Zero value
+	// (NavOrbit) reproduces the pre-v0.9.3 behavior. Cycled via the
+	// `;` hot-key; auto-snaps to NavOrbit when a craft target is
+	// dropped. v0.9.3+.
+	NavMode NavMode
+
 	// ViewMode selects the canvas projection basis. v0.6.4+. Zero
 	// value (ViewEquatorial) matches the pre-v0.6.4 (X, Y)-drop
 	// projection. Set per-session via the `v` hot-key; not persisted

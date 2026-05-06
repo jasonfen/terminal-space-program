@@ -1024,6 +1024,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			manualState = fmt.Sprintf(v.theme.Warning.Render("● firing T+%.1fs"), elapsed)
 		}
 		lines = append(lines,
+			fmt.Sprintf("  nav:       %s", w.NavMode),
 			fmt.Sprintf("  hold:      %s", w.ActiveCraft().AttitudeMode.String()),
 			fmt.Sprintf("  engine:    %s", w.ActiveCraft().EngineMode.String()),
 			fmt.Sprintf("  manual:    %s", manualState),

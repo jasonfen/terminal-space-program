@@ -50,6 +50,7 @@ func (w *World) SetTargetBody(idx int) {
 		return
 	}
 	w.Target = Target{Kind: TargetBody, BodyIdx: idx}
+	w.reconcileNavMode()
 }
 
 // SetTargetCraft sets the craft target by slate index. The active
@@ -67,8 +68,13 @@ func (w *World) SetTargetCraft(idx int) {
 }
 
 // ClearTarget drops any target. After ClearTarget,
-// Target.Kind == TargetNone.
-func (w *World) ClearTarget() { w.Target = Target{} }
+// Target.Kind == TargetNone. Also reconciles NavMode (snap NavTarget
+// → NavOrbit) so the HUD doesn't claim a mode it can no longer
+// resolve. v0.9.3+.
+func (w *World) ClearTarget() {
+	w.Target = Target{}
+	w.reconcileNavMode()
+}
 
 // CycleTarget advances Target through non-active sibling crafts →
 // system bodies (non-root) → None → repeat. Forward=false steps
@@ -100,6 +106,7 @@ func (w *World) CycleTarget(forward bool) {
 		idx = (idx - 1 + len(cycle)) % len(cycle)
 	}
 	w.Target = cycle[idx]
+	w.reconcileNavMode()
 }
 
 // targetCycle enumerates the valid target slots for the current
