@@ -714,7 +714,7 @@ func (a *App) hudNodeHit(x, y int) bool {
 	// targeted correctly and the post-edit projected orbit reflects
 	// the right craft.
 	if craftIdx != a.world.ActiveCraftIdx {
-		a.world.ActiveCraftIdx = craftIdx
+		a.world.SetActiveCraftIdx(craftIdx)
 		a.world.StopManualBurn()
 	}
 	a.maneuver.LoadNode(nodeIdx, c.Nodes[nodeIdx])

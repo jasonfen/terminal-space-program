@@ -151,6 +151,14 @@ type Craft struct {
 	AttitudeMode int         `json:"attitude_mode,omitempty"`
 	EngineMode   int         `json:"engine_mode,omitempty"`
 
+	// Target (v0.9.3 polish): per-craft target binding. Pre-polish
+	// saves had a single payload-level Target; the load path now
+	// migrates that into the active craft's slot when no per-craft
+	// targets are present. omitempty so legacy saves with no target
+	// AND fresh untargeted craft both round-trip without writing the
+	// field.
+	Target *Target `json:"target,omitempty"`
+
 	// PitchTrim (v0.9.2+, schema v6 additive): signed pitch-trim
 	// offset in radians applied on top of the active BurnMode.
 	// omitempty so legacy saves with no trim load with PitchTrim=0
@@ -343,15 +351,11 @@ func payloadFromWorld(w *sim.World) Payload {
 			BodyIdx: w.Focus.BodyIdx,
 		},
 	}
-	// v0.9.0+: persist the unified target slot only when set. None
-	// stays nil on the wire so older saves round-trip identically.
-	if w.Target.Kind != sim.TargetNone {
-		p.Target = &Target{
-			Kind:     int(w.Target.Kind),
-			BodyIdx:  w.Target.BodyIdx,
-			CraftIdx: w.Target.CraftIdx,
-		}
-	}
+	// v0.9.3 polish: per-craft target replaces the payload-level
+	// Target slot. Each craft writes its own Target onto its Craft
+	// record (see the loop below); the payload-level Target field
+	// is no longer written. Read path retains backwards-compat
+	// support for older saves that wrote the payload-level field.
 	// v0.9.3+: persist NavMode. NavOrbit=0 round-trips as omitempty so
 	// pre-v0.9.3 saves (which never carried the field) load with the
 	// default-frame behaviour they were written under.
@@ -454,6 +458,16 @@ func payloadFromWorld(w *sim.World) Payload {
 				TargetCraftIdx: c.ActiveBurn.TargetCraftIdx,
 			}
 		}
+		// v0.9.3 polish: per-craft Target. Skip serialising when
+		// the craft has no target so untargeted craft still write
+		// out the same minimal JSON they did pre-polish.
+		if c.Target.Kind != spacecraft.TargetNone {
+			wc.Target = &Target{
+				Kind:     int(c.Target.Kind),
+				BodyIdx:  c.Target.BodyIdx,
+				CraftIdx: c.Target.CraftIdx,
+			}
+		}
 		p.Crafts = append(p.Crafts, wc)
 	}
 	p.ActiveCraftIdx = w.ActiveCraftIdx
@@ -488,16 +502,11 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			BodyIdx: p.Focus.BodyIdx,
 		},
 	}
-	// v0.9.0+: restore the unified target slot. Pre-v0.9 saves omit
-	// the field entirely; the nil pointer means the World keeps its
-	// zero-value Target (TargetNone).
-	if p.Target != nil {
-		w.Target = sim.Target{
-			Kind:     sim.TargetKind(p.Target.Kind),
-			BodyIdx:  p.Target.BodyIdx,
-			CraftIdx: p.Target.CraftIdx,
-		}
-	}
+	// v0.9.3 polish: per-craft Target supersedes the payload-level
+	// slot. Per-craft restores happen below, in the wireCrafts loop.
+	// The payload-level field is read here only for backwards-compat
+	// — assigned to the active craft after Crafts are loaded (see the
+	// reconcile block past the loop).
 	// v0.9.3+: restore NavMode. Absent field → zero → NavOrbit (the
 	// pre-v0.9.3 default frame).
 	w.NavMode = sim.NavMode(p.NavMode)
@@ -629,10 +638,50 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				TargetCraftIdx: wc.ActiveBurn.TargetCraftIdx,
 			}
 		}
+		// v0.9.3 polish: per-craft Target. Pre-polish saves omit the
+		// field; nil pointer leaves the craft's Target at zero
+		// (TargetNone) which is the fresh-craft default.
+		if wc.Target != nil {
+			c.Target = spacecraft.Target{
+				Kind:     spacecraft.TargetKind(wc.Target.Kind),
+				BodyIdx:  wc.Target.BodyIdx,
+				CraftIdx: wc.Target.CraftIdx,
+			}
+		}
 		w.Crafts = append(w.Crafts, c)
 	}
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx
+	}
+	// v0.9.3 polish: backwards-compat. Pre-polish saves serialised a
+	// single payload-level Target slot. Migrate it onto the active
+	// craft so legacy saves load with the binding the player set
+	// pre-polish. Skip when any craft already carries a per-craft
+	// Target (a polish-era save) so we don't clobber.
+	if p.Target != nil {
+		legacyTarget := spacecraft.Target{
+			Kind:     spacecraft.TargetKind(p.Target.Kind),
+			BodyIdx:  p.Target.BodyIdx,
+			CraftIdx: p.Target.CraftIdx,
+		}
+		anyPerCraft := false
+		for _, c := range w.Crafts {
+			if c != nil && c.Target.Kind != spacecraft.TargetNone {
+				anyPerCraft = true
+				break
+			}
+		}
+		if !anyPerCraft {
+			if active := w.ActiveCraft(); active != nil {
+				active.Target = legacyTarget
+			}
+		}
+	}
+	// Sync world-level live cursor to the active craft's stored
+	// target so readers (`w.Target.Kind == sim.TargetCraft` etc.)
+	// see the right binding immediately after load.
+	if active := w.ActiveCraft(); active != nil {
+		w.Target = active.Target
 	}
 	// Pre-v5 payload-level Nodes / ActiveBurn → active craft's
 	// fields. The migration assumes pre-v5 saves had a single craft

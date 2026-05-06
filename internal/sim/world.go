@@ -198,7 +198,7 @@ func (w *World) CycleActiveCraft(delta int) {
 	if idx < 0 {
 		idx += n
 	}
-	w.ActiveCraftIdx = idx
+	w.SetActiveCraftIdx(idx)
 	// Engine state is per-active-craft in v0.8.1 (planted nodes,
 	// manual burn, attitude all live on World as "what the active
 	// craft is doing"). Cycling resets the live RCS-or-main mode
@@ -206,6 +206,36 @@ func (w *World) CycleActiveCraft(delta int) {
 	// is dropped since it was tied to the prior active craft's
 	// engine.
 	w.StopManualBurn()
+}
+
+// SetActiveCraftIdx switches control to the craft at idx, syncing
+// per-craft Target so each vessel keeps its own target binding
+// across switches (v0.9.3 polish). Outgoing's live `w.Target`
+// is checkpointed onto the outgoing craft, then `w.Target` is
+// reloaded from the incoming craft's stored Target. NavMode is
+// not yet per-craft (acceptable scope cap; revisit if NavMode
+// drift across switches becomes friction).
+//
+// Caller is responsible for bounds-checking idx against
+// len(Crafts); out-of-range idx is treated as "no checkpoint, no
+// load" so spawn paths that assign before any craft exists don't
+// touch w.Target.
+func (w *World) SetActiveCraftIdx(idx int) {
+	if w.ActiveCraftIdx >= 0 && w.ActiveCraftIdx < len(w.Crafts) {
+		if outgoing := w.Crafts[w.ActiveCraftIdx]; outgoing != nil {
+			outgoing.Target = w.Target
+		}
+	}
+	w.ActiveCraftIdx = idx
+	if idx >= 0 && idx < len(w.Crafts) {
+		if incoming := w.Crafts[idx]; incoming != nil {
+			w.Target = incoming.Target
+			w.reconcileNavMode()
+			return
+		}
+	}
+	w.Target = spacecraft.Target{}
+	w.reconcileNavMode()
 }
 
 // System returns the currently active system.

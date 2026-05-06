@@ -713,6 +713,51 @@ func TestTargetCraftRoundtrip(t *testing.T) {
 	}
 }
 
+// TestPerCraftTargetRoundtrip exercises the v0.9.3 polish: each
+// craft persists its own Target through save/load. Bind distinct
+// targets on two craft, round-trip, and confirm switching to either
+// surfaces that craft's stored target as w.Target.
+func TestPerCraftTargetRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnSisterCraft(); err != nil {
+		t.Fatalf("SpawnSisterCraft: %v", err)
+	}
+	// Active is craft 1 (the sister). Target body idx 5 here.
+	w.SetTargetBody(5)
+	craft1Want := w.Target
+
+	// Switch to craft 0, target body idx 3.
+	w.SetActiveCraftIdx(0)
+	w.SetTargetBody(3)
+	craft0Want := w.Target
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Active was craft 0 at save time → load surfaces craft 0's
+	// target.
+	if got.Target != craft0Want {
+		t.Errorf("active=0 target after roundtrip: got %+v, want %+v", got.Target, craft0Want)
+	}
+	got.SetActiveCraftIdx(1)
+	if got.Target != craft1Want {
+		t.Errorf("after switch to craft 1: got %+v, want %+v", got.Target, craft1Want)
+	}
+	got.SetActiveCraftIdx(0)
+	if got.Target != craft0Want {
+		t.Errorf("after switch back to craft 0: got %+v, want %+v", got.Target, craft0Want)
+	}
+}
+
 // Pre-v0.9 saves predate the unified target slot — the JSON envelope
 // has no `target` key. Loading must yield TargetNone with no error.
 // We exercise this by saving with no target set (which the wire form
