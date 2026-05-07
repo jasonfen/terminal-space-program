@@ -1039,6 +1039,70 @@ func mustWorld(t *testing.T) *World {
 	return w
 }
 
+// TestResolveEventNodesFreezesNextClosestApproach — v0.9.3+: planting
+// a TriggerNextClosestApproach node bound to a sibling craft on a
+// distinct orbit resolves to a fire time within the planner horizon
+// (and >= now — t==0 is also a valid result if the crafts happen to
+// be at closest approach right at plant). Regression guard for the
+// resolver wiring (NextClosestApproach + same-primary check +
+// TargetCraftIdx round-trip).
+func TestResolveEventNodesFreezesNextClosestApproach(t *testing.T) {
+	w := mustWorld(t)
+	// Spawn a sibling craft on a slightly higher orbit so the two
+	// have different periods → the encounter time is a non-trivial
+	// future moment within the 4h horizon.
+	if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 600e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if len(w.Crafts) < 2 {
+		t.Fatalf("expected 2 crafts after spawn, got %d", len(w.Crafts))
+	}
+	// Active is now the spawned (idx 1) craft per SpawnCraft semantics;
+	// flip back to the original so target-binding to idx 1 makes sense.
+	w.ActiveCraftIdx = 0
+	w.SetTargetCraft(1)
+	w.PlanNode(ManeuverNode{
+		Event:          TriggerNextClosestApproach,
+		Mode:           spacecraft.BurnTargetRetrograde,
+		DV:             10,
+		TargetCraftIdx: 2, // one-based: refers to slate idx 1
+	})
+	if !w.ActiveCraft().Nodes[0].TriggerTime.IsZero() {
+		t.Fatalf("precondition: unresolved node has zero TriggerTime")
+	}
+	w.resolveEventNodes()
+	n := w.ActiveCraft().Nodes[0]
+	if n.TriggerTime.IsZero() {
+		t.Fatalf("resolver did not freeze TriggerTime for TriggerNextClosestApproach")
+	}
+	if n.TriggerTime.Before(w.Clock.SimTime) {
+		t.Errorf("resolved TriggerTime in the past: TT=%v ST=%v", n.TriggerTime, w.Clock.SimTime)
+	}
+	// Resolver horizon is 4h; resolved time must fall within it.
+	if dt := n.TriggerTime.Sub(w.Clock.SimTime); dt > 4*time.Hour {
+		t.Errorf("resolved TriggerTime past planner horizon: %v", dt)
+	}
+}
+
+// TestResolveEventNodesNextClosestApproachStaleTargetSkips — node
+// with TargetCraftIdx referencing a missing craft slot stays
+// unresolved (silent no-op, sits in slate for player to delete or
+// repoint). Stale-handling guard for v0.9.3+.
+func TestResolveEventNodesNextClosestApproachStaleTargetSkips(t *testing.T) {
+	w := mustWorld(t)
+	w.PlanNode(ManeuverNode{
+		Event:          TriggerNextClosestApproach,
+		Mode:           spacecraft.BurnTargetRetrograde,
+		DV:             10,
+		TargetCraftIdx: 99, // out-of-range — never spawned
+	})
+	w.resolveEventNodes()
+	n := w.ActiveCraft().Nodes[0]
+	if !n.TriggerTime.IsZero() {
+		t.Errorf("stale-target node should remain unresolved; got TT=%v", n.TriggerTime)
+	}
+}
+
 // TestNextFrameTransitionDetectsForeignPrimary: a planted node with
 // PrimaryID != craft.Primary.ID surfaces as a frame transition.
 // Mirrors the v0.6.3 PlanMoonEscape arrival-marker shape — moon-frame

@@ -174,6 +174,16 @@ type Spacecraft struct {
 	// wrapping the v5 flat fields into a single-element Stages
 	// slice (see internal/save/save_migrate_v5_to_v6.go).
 	Stages []Stage
+
+	// Target (v0.9.3 polish) is this craft's bound target. Pre-
+	// polish, target was a single World.Target slot shared across
+	// all crafts; pressing `T` while controlling craft A would
+	// toggle the target visible to craft B too. Per-craft Target
+	// gives each vessel its own binding, restored on switch via
+	// World.setActiveCraftIdx so w.Target stays in sync with the
+	// currently-active craft. Zero value (TargetNone) is the safe
+	// default for fresh / loaded crafts.
+	Target Target
 }
 
 // DockedComponent is a snapshot of one pre-dock craft identity

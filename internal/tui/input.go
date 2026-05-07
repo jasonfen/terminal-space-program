@@ -88,6 +88,15 @@ type Keymap struct {
 	CycleTarget key.Binding
 	ClearTarget key.Binding
 
+	// CycleNavMode (v0.9.3+): rotate the SAS reference frame through
+	// Orbit → Surface → Target → Orbit (KSP nav-ball mode cycle).
+	// Skips Target when no craft target is bound. The same w/s/a/d/q/e
+	// axis keys reinterpret accordingly: in NavTarget, w/s become
+	// target-relative prograde/retrograde and q/e become Target/Anti-
+	// Target (toward / away). Bound to `;`. Existing `W` / `S` direct-
+	// surface shortcuts stay as nav-mode-bypass.
+	CycleNavMode key.Binding
+
 	// Stage (v0.9.1+): KSP-style player-managed sequential decouple.
 	// Drops the active craft's bottom stage (Stages[0]) — spawning
 	// it as a passive Spacecraft in the slate at the same inertial
@@ -171,6 +180,7 @@ func DefaultKeymap() Keymap {
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / craft)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
+		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: orbit / surface / target")),
 		Stage:               key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "decouple bottom stage")),
 
 		AttitudeSurfacePrograde:   key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "attitude: surface prograde")),

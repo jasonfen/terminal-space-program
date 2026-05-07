@@ -50,6 +50,13 @@ type World struct {
 	// kind-less default (equatorial plane, Hohmann no-op).
 	Target Target
 
+	// NavMode selects the reference frame the SAS axis hotkeys
+	// interpret against (KSP-style nav-ball mode cycle). Zero value
+	// (NavOrbit) reproduces the pre-v0.9.3 behavior. Cycled via the
+	// `;` hot-key; auto-snaps to NavOrbit when a craft target is
+	// dropped. v0.9.3+.
+	NavMode NavMode
+
 	// ViewMode selects the canvas projection basis. v0.6.4+. Zero
 	// value (ViewEquatorial) matches the pre-v0.6.4 (X, Y)-drop
 	// projection. Set per-session via the `v` hot-key; not persisted
@@ -191,7 +198,7 @@ func (w *World) CycleActiveCraft(delta int) {
 	if idx < 0 {
 		idx += n
 	}
-	w.ActiveCraftIdx = idx
+	w.SetActiveCraftIdx(idx)
 	// Engine state is per-active-craft in v0.8.1 (planted nodes,
 	// manual burn, attitude all live on World as "what the active
 	// craft is doing"). Cycling resets the live RCS-or-main mode
@@ -199,6 +206,36 @@ func (w *World) CycleActiveCraft(delta int) {
 	// is dropped since it was tied to the prior active craft's
 	// engine.
 	w.StopManualBurn()
+}
+
+// SetActiveCraftIdx switches control to the craft at idx, syncing
+// per-craft Target so each vessel keeps its own target binding
+// across switches (v0.9.3 polish). Outgoing's live `w.Target`
+// is checkpointed onto the outgoing craft, then `w.Target` is
+// reloaded from the incoming craft's stored Target. NavMode is
+// not yet per-craft (acceptable scope cap; revisit if NavMode
+// drift across switches becomes friction).
+//
+// Caller is responsible for bounds-checking idx against
+// len(Crafts); out-of-range idx is treated as "no checkpoint, no
+// load" so spawn paths that assign before any craft exists don't
+// touch w.Target.
+func (w *World) SetActiveCraftIdx(idx int) {
+	if w.ActiveCraftIdx >= 0 && w.ActiveCraftIdx < len(w.Crafts) {
+		if outgoing := w.Crafts[w.ActiveCraftIdx]; outgoing != nil {
+			outgoing.Target = w.Target
+		}
+	}
+	w.ActiveCraftIdx = idx
+	if idx >= 0 && idx < len(w.Crafts) {
+		if incoming := w.Crafts[idx]; incoming != nil {
+			w.Target = incoming.Target
+			w.reconcileNavMode()
+			return
+		}
+	}
+	w.Target = spacecraft.Target{}
+	w.reconcileNavMode()
 }
 
 // System returns the currently active system.
@@ -811,7 +848,23 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 			throttle = 1.0
 		}
 	}
-	thrustFn := c.ThrustAccelFnAt(mode, mu, throttle)
+	// v0.9.3+: resolve target snapshot for target-relative thrust.
+	// For ActiveBurn (planted finite burn), the target was bound at
+	// plant time via ActiveBurn.TargetCraftIdx — survives a player
+	// target switch mid-burn. For ManualBurn (live SAS hold), the
+	// snapshot follows the current World.Target so the player can
+	// retarget mid-hold. Non-target modes ignore (rT, vT).
+	var rT, vT orbital.Vec3
+	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftIdx != 0 {
+		if tIdx, ok := c.ActiveBurn.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
+			if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+				rT, vT = tc.State.R, tc.State.V
+			}
+		}
+	} else {
+		rT, vT, _ = w.TargetStateRelativeToActivePrimary()
+	}
+	thrustFn := c.ThrustAccelFnAtWithTarget(mode, mu, throttle, rT, vT)
 	bc := c.EffectiveBallisticCoefficient()
 	primary := c.Primary
 	// v0.8.4: drag adds to thrust + gravity inside the RK4 closure so
