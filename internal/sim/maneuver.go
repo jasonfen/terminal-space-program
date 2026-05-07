@@ -25,11 +25,12 @@ type (
 )
 
 const (
-	TriggerAbsolute = spacecraft.TriggerAbsolute
-	TriggerNextPeri = spacecraft.TriggerNextPeri
-	TriggerNextApo  = spacecraft.TriggerNextApo
-	TriggerNextAN   = spacecraft.TriggerNextAN
-	TriggerNextDN   = spacecraft.TriggerNextDN
+	TriggerAbsolute            = spacecraft.TriggerAbsolute
+	TriggerNextPeri            = spacecraft.TriggerNextPeri
+	TriggerNextApo             = spacecraft.TriggerNextApo
+	TriggerNextAN              = spacecraft.TriggerNextAN
+	TriggerNextDN              = spacecraft.TriggerNextDN
+	TriggerNextClosestApproach = spacecraft.TriggerNextClosestApproach
 )
 
 // AllTriggerEvents re-exports the spacecraft-package canonical UI
@@ -219,6 +220,38 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 			dt = orbital.TimeToNodeCrossing(state, mu, true)
 		case TriggerNextDN:
 			dt = orbital.TimeToNodeCrossing(state, mu, false)
+		case TriggerNextClosestApproach:
+			// v0.9.3+: bound to the craft captured at plant time
+			// via n.TargetCraftIdx. Skip if the target slot is
+			// stale (out-of-range / nil craft / different primary
+			// — same-primary only for the manual rendezvous slice).
+			tIdx, ok := n.TargetCraftIdxValue()
+			if !ok {
+				continue
+			}
+			if tIdx < 0 || tIdx >= len(w.Crafts) {
+				continue
+			}
+			tc := w.Crafts[tIdx]
+			if tc == nil {
+				continue
+			}
+			if tc.Primary.ID != c.Primary.ID {
+				continue
+			}
+			active := orbital.Vec3State{R: c.State.R, V: c.State.V}
+			target := orbital.Vec3State{R: tc.State.R, V: tc.State.V}
+			// 4 hours horizon — same as the HUD readout. If the
+			// encounter is farther than that, the resolver retries
+			// next tick (planner returns the in-horizon minimum
+			// even if it's not a true encounter, but the player can
+			// always extend the horizon by replanning closer to
+			// the encounter).
+			tCA, _, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, 4*3600)
+			if err != nil {
+				continue
+			}
+			dt = tCA
 		default:
 			continue
 		}
@@ -1069,15 +1102,28 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		if n.BurnStart().After(w.Clock.SimTime) {
 			break
 		}
+		// v0.9.3+: resolve target snapshot for target-relative nodes
+		// at fire time. Bound via n.TargetCraftIdx (captured at
+		// plant), not the current World.Target — a target switch
+		// between plant and fire doesn't silently retarget the burn.
+		var rT, vT orbital.Vec3
+		if n.IsTargetRelative() {
+			if tIdx, ok := n.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
+				if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+					rT, vT = tc.State.R, tc.State.V
+				}
+			}
+		}
 		if n.Duration == 0 {
-			c.ApplyImpulsive(n.Mode, n.DV)
+			c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
 		} else {
 			c.ActiveBurn = &ActiveBurn{
-				Mode:        n.Mode,
-				DVRemaining: n.DV,
-				EndTime:     n.BurnEnd(),
-				PrimaryID:   n.PrimaryID,
-				Throttle:    n.EffectiveThrottle(),
+				Mode:           n.Mode,
+				DVRemaining:    n.DV,
+				EndTime:        n.BurnEnd(),
+				PrimaryID:      n.PrimaryID,
+				Throttle:       n.EffectiveThrottle(),
+				TargetCraftIdx: n.TargetCraftIdx,
 			}
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.
@@ -1452,6 +1498,22 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 			dt = orbital.TimeToNodeCrossing(ostate, mu, true)
 		case TriggerNextDN:
 			dt = orbital.TimeToNodeCrossing(ostate, mu, false)
+		case TriggerNextClosestApproach:
+			// v0.9.3+: preview against the current World.Target.
+			// Plant-time binding kicks in at PlanNode; at preview the
+			// player is still picking a target, so the live
+			// World.Target is what matches their intent.
+			rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+			if !ok {
+				return physics.StateVector{}, bodies.CelestialBody{}, false
+			}
+			active := orbital.Vec3State{R: state.R, V: state.V}
+			target := orbital.Vec3State{R: rT, V: vT}
+			tCA, _, _, err := planner.NextClosestApproach(active, target, primary, mu, 4*3600)
+			if err != nil {
+				return physics.StateVector{}, bodies.CelestialBody{}, false
+			}
+			dt = tCA
 		}
 		if dt < 0 {
 			return physics.StateVector{}, bodies.CelestialBody{}, false
@@ -1469,6 +1531,21 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 	isp := w.ActiveCraft().Isp
 	useFinite := duration > 0 && thrust > 0 && isp > 0 && state.M > 0
 
+	// v0.9.3+: target-relative modes resolve direction against the
+	// current World.Target snapshot. Preview uses the snapshot
+	// without forward-propagating the target across the burn — for
+	// the short rendezvous burns these modes target (Δv ≪ |v|), the
+	// approximation lands within UI noise.
+	var rT, vT orbital.Vec3
+	targetMode := spacecraft.IsTargetRelativeMode(mode)
+	if targetMode {
+		var ok bool
+		rT, vT, ok = w.TargetStateRelativeToActivePrimary()
+		if !ok {
+			return state, primary, true
+		}
+	}
+
 	if useFinite {
 		// Cap delivered Δv by what `duration` actually allows under
 		// the rocket equation. Pre-v0.6.3 the preview used the raw
@@ -1485,6 +1562,9 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 			}
 		}
 		direction := func(r, v orbital.Vec3) orbital.Vec3 {
+			if targetMode {
+				return spacecraft.DirectionUnitTarget(mode, r, v, rT, vT)
+			}
 			return spacecraft.DirectionUnit(mode, r, v)
 		}
 		mu := primary.GravitationalParameter()
@@ -1492,7 +1572,12 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 		return state, primary, true
 	}
 
-	dir := spacecraft.DirectionUnit(mode, state.R, state.V)
+	var dir orbital.Vec3
+	if targetMode {
+		dir = spacecraft.DirectionUnitTarget(mode, state.R, state.V, rT, vT)
+	} else {
+		dir = spacecraft.DirectionUnit(mode, state.R, state.V)
+	}
 	if dir.Norm() != 0 {
 		state.V = state.V.Add(dir.Scale(dv))
 	}

@@ -30,6 +30,9 @@ func (a Vec3) Cross(b Vec3) Vec3 {
 	}
 }
 
+// Dot returns a · b.
+func (a Vec3) Dot(b Vec3) float64 { return a.X*b.X + a.Y*b.Y + a.Z*b.Z }
+
 // PerifocalToInertial converts perifocal (p, q, w) → inertial (X, Y, Z) via
 // the standard 3-1-3 Euler sequence (Ω, i, ω). Perifocal frame: p along
 // periapsis, q 90° ahead in the orbital plane, w = p × q.

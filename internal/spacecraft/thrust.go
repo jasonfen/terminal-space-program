@@ -46,14 +46,28 @@ const RCSDvQuantum = 0.1
 // RCSIsp engine. No-op if monoprop is empty or RCSThrust / RCSIsp are
 // unconfigured (legacy save with zero RCS fields, mid-load before the
 // loader populates defaults). v0.8.0+.
+//
+// Target-relative modes degrade to no-op (zero direction) without a
+// resolved target snapshot — callers with a target use
+// ApplyRCSPulseWithTarget. v0.9.3+.
 func (s *Spacecraft) ApplyRCSPulse(mode BurnMode) bool {
+	return s.ApplyRCSPulseWithTarget(mode, orbital.Vec3{}, orbital.Vec3{})
+}
+
+// ApplyRCSPulseWithTarget is ApplyRCSPulse with a resolved target
+// snapshot in the same frame as Spacecraft.State (primary-relative
+// when both share a primary, fully inertial otherwise — caller
+// resolves via World.targetStateRelativeToActivePrimary). The four
+// target-relative modes use the snapshot to compute direction; other
+// modes ignore it. v0.9.3+.
+func (s *Spacecraft) ApplyRCSPulseWithTarget(mode BurnMode, rT, vT orbital.Vec3) bool {
 	if s.RCSIsp <= 0 || s.RCSThrust <= 0 || s.Monoprop <= 0 {
 		return false
 	}
 	// v0.9.2+: route through BurnDirection so surface modes + pitch
 	// trim feed through. Non-surface modes degenerate to the same
 	// result as DirectionUnit + zero trim.
-	dir := s.BurnDirection(mode)
+	dir := s.BurnDirectionWithTarget(mode, rT, vT)
 	if dir.Norm() == 0 {
 		return false
 	}
@@ -105,6 +119,30 @@ const (
 	// future v_surface usefully.
 	BurnSurfacePrograde
 	BurnSurfaceRetrograde
+
+	// Target-relative modes (v0.9.3+). Direction depends on the
+	// active *and* target craft states in the same frame:
+	//
+	//   BurnTargetPrograde   = unit(v_target − v_active)
+	//   BurnTargetRetrograde = unit(v_active − v_target)
+	//   BurnTarget           = unit(r_target − r_active)
+	//   BurnAntiTarget       = unit(r_active − r_target)
+	//
+	// The velocity-relative pair is the primary tool for the manual
+	// rendezvous loop — hold target-prograde to close v_rel during
+	// approach, flip target-retrograde at closest approach to null
+	// v_rel. The position-relative pair is for sub-m/s proximity-ops
+	// nudges after v_rel is nulled.
+	//
+	// All four require World.Target.Kind == TargetCraft. Without a
+	// craft target, DirectionUnitTarget returns the zero vector and
+	// the burn is a no-op (the live-closure path captures the world's
+	// resolved target state once per step; the planted-node path
+	// resolves at fire-time via ManeuverNode.TargetCraftIdx).
+	BurnTargetPrograde
+	BurnTargetRetrograde
+	BurnTarget
+	BurnAntiTarget
 )
 
 // String is the label shown in the maneuver planner / HUD.
@@ -126,11 +164,25 @@ func (m BurnMode) String() string {
 		return "Surface Prograde"
 	case BurnSurfaceRetrograde:
 		return "Surface Retrograde"
+	case BurnTargetPrograde:
+		return "Target Prograde"
+	case BurnTargetRetrograde:
+		return "Target Retrograde"
+	case BurnTarget:
+		return "Target"
+	case BurnAntiTarget:
+		return "Anti-Target"
 	}
 	return "?"
 }
 
-// AllBurnModes is the cycle order for the planner UI.
+// AllBurnModes is the cycle order for the planner UI. v0.9.3+: the
+// four target-relative modes append after the body-frame six. Surface
+// modes stay out — planted nodes can't predict future v_surface.
+//
+// The maneuver form skips target-relative entries when
+// World.Target.Kind != TargetCraft (no defined direction without a
+// craft target).
 var AllBurnModes = []BurnMode{
 	BurnPrograde,
 	BurnRetrograde,
@@ -138,11 +190,21 @@ var AllBurnModes = []BurnMode{
 	BurnNormalMinus,
 	BurnRadialOut,
 	BurnRadialIn,
+	BurnTargetPrograde,
+	BurnTargetRetrograde,
+	BurnTarget,
+	BurnAntiTarget,
 }
 
 // DirectionUnit returns a unit vector for the given burn mode given the
 // craft's current (r, v) — primary-relative. Returns the zero vector if
 // r or v is degenerate (can't define the frame).
+//
+// Target-relative modes (BurnTargetPrograde / Retrograde / BurnTarget /
+// AntiTarget) are not handled here — they require target craft state.
+// Callers with a target use DirectionUnitTarget; pure-function callers
+// without target state in scope (predictor, AllBurnModes preview math
+// when no target is set) get the zero vector + degraded behaviour.
 func DirectionUnit(mode BurnMode, r, v orbital.Vec3) orbital.Vec3 {
 	vMag := v.Norm()
 	rMag := r.Norm()
@@ -175,13 +237,61 @@ func DirectionUnit(mode BurnMode, r, v orbital.Vec3) orbital.Vec3 {
 	return orbital.Vec3{}
 }
 
+// DirectionUnitTarget returns the unit thrust direction for the four
+// target-relative modes (v0.9.3+) given the active and target craft
+// states in the SAME frame. Both states should be primary-relative
+// when the two craft share a primary, or fully inertial when they
+// don't — the world layer (World.targetStateRelativeToActivePrimary)
+// handles that conversion.
+//
+// Non-target modes fall through to DirectionUnit(mode, rA, vA), so
+// this is safe to call from any thrust-direction site that wants
+// uniform mode handling.
+//
+// Returns the zero vector when the relative quantity is degenerate
+// (identical positions for BurnTarget / AntiTarget; identical
+// velocities for BurnTargetPrograde / Retrograde) or when called
+// with zero rT, vT (no target resolved — caller passes zeros so the
+// closure still constructs but the burn no-ops).
+func DirectionUnitTarget(mode BurnMode, rA, vA, rT, vT orbital.Vec3) orbital.Vec3 {
+	var d orbital.Vec3
+	switch mode {
+	case BurnTargetPrograde:
+		d = vT.Sub(vA)
+	case BurnTargetRetrograde:
+		d = vA.Sub(vT)
+	case BurnTarget:
+		d = rT.Sub(rA)
+	case BurnAntiTarget:
+		d = rA.Sub(rT)
+	default:
+		return DirectionUnit(mode, rA, vA)
+	}
+	n := d.Norm()
+	if n == 0 {
+		return orbital.Vec3{}
+	}
+	return d.Scale(1 / n)
+}
+
 // ApplyImpulsive adds a delta-v of magnitude dv m/s in the given direction
 // mode, instantly. Fuel is deducted using the rocket equation as a proxy
 // (Isp·g·ln(m0/m1) for the actually-burned Δv); in v0.1 we approximate with
 // a linear consumption rate — plan §MVP defers true rocket-eq to v0.2.
+//
+// Target-relative modes degrade to no-op without a target snapshot;
+// callers with a target use ApplyImpulsiveWithTarget. v0.9.3+.
 func (s *Spacecraft) ApplyImpulsive(mode BurnMode, dv float64) {
+	s.ApplyImpulsiveWithTarget(mode, dv, orbital.Vec3{}, orbital.Vec3{})
+}
+
+// ApplyImpulsiveWithTarget is ApplyImpulsive with a target snapshot
+// in the same frame as Spacecraft.State. Used by the planted-node
+// fire path (sim/maneuver.go) for target-relative impulsive nodes.
+// v0.9.3+.
+func (s *Spacecraft) ApplyImpulsiveWithTarget(mode BurnMode, dv float64, rT, vT orbital.Vec3) {
 	// v0.9.2+: route through BurnDirection so surface modes + trim feed through.
-	dir := s.BurnDirection(mode)
+	dir := s.BurnDirectionWithTarget(mode, rT, vT)
 	if dir.Norm() == 0 || dv == 0 {
 		return
 	}
@@ -300,7 +410,32 @@ func (s *Spacecraft) ThrustAccelFn(mode BurnMode, mu float64) func(r, v orbital.
 // per-node throttle captured on the ActiveBurn struct at fire-time.
 // Decoupling from `Spacecraft.Throttle` means adjusting the live
 // throttle knob mid-coast doesn't slow a planted burn. v0.7.6+.
+//
+// Wrapper: passes zero target state. Target-relative modes degrade
+// to no-op without a snapshot. v0.9.3+: prefer
+// ThrustAccelFnAtWithTarget when the caller has resolved target
+// state.
 func (s *Spacecraft) ThrustAccelFnAt(mode BurnMode, mu, throttle float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+	return s.ThrustAccelFnAtWithTarget(mode, mu, throttle, orbital.Vec3{}, orbital.Vec3{})
+}
+
+// ThrustAccelFnAtWithTarget is ThrustAccelFnAt with a target-craft
+// state snapshot captured at closure construction. The four target-
+// relative modes (BurnTargetPrograde / Retrograde / BurnTarget /
+// AntiTarget) resolve their direction against (rT, vT). The target
+// moves during a sub-step but slowly relative to the per-step
+// granularity, so freezing the snapshot per call is safe — the world
+// layer reconstructs the closure each stepThrust pass with a fresh
+// snapshot.
+//
+// Pass zero rT, vT when no craft target is set (target-relative modes
+// degrade to no-op, non-target modes are unaffected). Both states
+// must be in the same frame as the closure's incoming (r, v) — the
+// world layer (targetStateRelativeToActivePrimary) handles cross-
+// primary conversion before construction.
+//
+// v0.9.3+.
+func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float64, rT, vT orbital.Vec3) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
 	mass := s.TotalMass()
 	if throttle < 0 {
 		throttle = 0
@@ -317,7 +452,7 @@ func (s *Spacecraft) ThrustAccelFnAt(mode BurnMode, mu, throttle float64) func(r
 	// (r, v, t) into the closure). The closure's mode + trim stay
 	// fixed for the burn — the v0.9.2 plan didn't commit live trim
 	// adjustments mid-burn (they only feed through to the next burn
-	// engagement).
+	// engagement). v0.9.3+: target snapshot likewise captured here.
 	omega := physics.AtmosphereOmega(s.Primary)
 	pitchTrim := s.PitchTrim
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
@@ -337,6 +472,8 @@ func (s *Spacecraft) ThrustAccelFnAt(mode BurnMode, mu, throttle float64) func(r
 			if mode == BurnSurfaceRetrograde {
 				dir = dir.Scale(-1)
 			}
+		case BurnTargetPrograde, BurnTargetRetrograde, BurnTarget, BurnAntiTarget:
+			dir = DirectionUnitTarget(mode, r, v, rT, vT)
 		default:
 			dir = DirectionUnit(mode, r, v)
 		}

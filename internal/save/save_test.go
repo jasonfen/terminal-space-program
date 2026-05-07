@@ -398,6 +398,64 @@ func TestEventRoundtrip(t *testing.T) {
 	}
 }
 
+// TestTargetCraftIdxRoundtrip — v0.9.3 target binding survives save/
+// load. Plant a target-relative node with a one-based TargetCraftIdx
+// and confirm it round-trips with the same value. Also confirms the
+// JSON omitempty tag works: a non-target node round-trips with
+// TargetCraftIdx == 0 (no field on disk → zero unmarshals).
+func TestTargetCraftIdxRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Target-relative node bound to slate idx 0 (one-based: 1).
+	w.PlanNode(sim.ManeuverNode{
+		Mode:           spacecraft.BurnTargetPrograde,
+		DV:             10,
+		Event:          sim.TriggerNextClosestApproach,
+		TargetCraftIdx: 1,
+	})
+	// Non-target node: no binding.
+	w.PlanNode(sim.ManeuverNode{
+		Mode: spacecraft.BurnPrograde,
+		DV:   100,
+	})
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	nodes := got.ActiveCraft().Nodes
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes, got %d", len(nodes))
+	}
+	// Find the target-bound node — sortNodes may reorder.
+	var bound, free *sim.ManeuverNode
+	for i := range nodes {
+		if nodes[i].Mode == spacecraft.BurnTargetPrograde {
+			bound = &nodes[i]
+		} else {
+			free = &nodes[i]
+		}
+	}
+	if bound == nil || free == nil {
+		t.Fatal("did not find both nodes after load")
+	}
+	if bound.TargetCraftIdx != 1 {
+		t.Errorf("bound node TargetCraftIdx: got %d, want 1", bound.TargetCraftIdx)
+	}
+	if free.TargetCraftIdx != 0 {
+		t.Errorf("free node TargetCraftIdx: got %d, want 0", free.TargetCraftIdx)
+	}
+	if bound.Event != sim.TriggerNextClosestApproach {
+		t.Errorf("bound node Event: got %v, want TriggerNextClosestApproach", bound.Event)
+	}
+}
+
 // TestMissionsRoundtrip: a save written with progressed mission status
 // (e.g. one passed, one in-progress) round-trips with status preserved.
 func TestMissionsRoundtrip(t *testing.T) {
@@ -652,6 +710,51 @@ func TestTargetCraftRoundtrip(t *testing.T) {
 	}
 	if got.Target.Kind != sim.TargetCraft || got.Target.CraftIdx != 0 {
 		t.Errorf("Target after roundtrip: got %+v, want {TargetCraft, 0}", got.Target)
+	}
+}
+
+// TestPerCraftTargetRoundtrip exercises the v0.9.3 polish: each
+// craft persists its own Target through save/load. Bind distinct
+// targets on two craft, round-trip, and confirm switching to either
+// surfaces that craft's stored target as w.Target.
+func TestPerCraftTargetRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnSisterCraft(); err != nil {
+		t.Fatalf("SpawnSisterCraft: %v", err)
+	}
+	// Active is craft 1 (the sister). Target body idx 5 here.
+	w.SetTargetBody(5)
+	craft1Want := w.Target
+
+	// Switch to craft 0, target body idx 3.
+	w.SetActiveCraftIdx(0)
+	w.SetTargetBody(3)
+	craft0Want := w.Target
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Active was craft 0 at save time → load surfaces craft 0's
+	// target.
+	if got.Target != craft0Want {
+		t.Errorf("active=0 target after roundtrip: got %+v, want %+v", got.Target, craft0Want)
+	}
+	got.SetActiveCraftIdx(1)
+	if got.Target != craft1Want {
+		t.Errorf("after switch to craft 1: got %+v, want %+v", got.Target, craft1Want)
+	}
+	got.SetActiveCraftIdx(0)
+	if got.Target != craft0Want {
+		t.Errorf("after switch back to craft 0: got %+v, want %+v", got.Target, craft0Want)
 	}
 }
 

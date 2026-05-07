@@ -120,3 +120,83 @@ func TestBurnDirectionAppliesPitchTrim(t *testing.T) {
 		t.Errorf("pitch trim on radial+: got %+v, want %+v", got, want)
 	}
 }
+
+// TestDirectionUnitTargetPrograde — target ahead in +Y, faster:
+// v_target − v_active = +Y, so BurnTargetPrograde = +Y.
+func TestDirectionUnitTargetPrograde(t *testing.T) {
+	rA := orbital.Vec3{X: 7e6}
+	vA := orbital.Vec3{Y: 7500}
+	rT := orbital.Vec3{X: 7e6, Y: 1000}
+	vT := orbital.Vec3{Y: 7600}
+	got := DirectionUnitTarget(BurnTargetPrograde, rA, vA, rT, vT)
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-1) > 1e-9 || math.Abs(got.Z) > 1e-9 {
+		t.Errorf("target prograde: got %+v, want (0, 1, 0)", got)
+	}
+}
+
+// TestDirectionUnitTargetRetrograde — flip of TargetPrograde.
+func TestDirectionUnitTargetRetrograde(t *testing.T) {
+	rA := orbital.Vec3{X: 7e6}
+	vA := orbital.Vec3{Y: 7500}
+	rT := orbital.Vec3{X: 7e6, Y: 1000}
+	vT := orbital.Vec3{Y: 7600}
+	got := DirectionUnitTarget(BurnTargetRetrograde, rA, vA, rT, vT)
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-(-1)) > 1e-9 || math.Abs(got.Z) > 1e-9 {
+		t.Errorf("target retrograde: got %+v, want (0, -1, 0)", got)
+	}
+}
+
+// TestDirectionUnitTargetPosition — target at +Y offset:
+// r_target − r_active points +Y, so BurnTarget = +Y.
+func TestDirectionUnitTargetPosition(t *testing.T) {
+	rA := orbital.Vec3{X: 7e6}
+	vA := orbital.Vec3{Y: 7500}
+	rT := orbital.Vec3{X: 7e6, Y: 1000}
+	vT := orbital.Vec3{Y: 7500}
+	got := DirectionUnitTarget(BurnTarget, rA, vA, rT, vT)
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-1) > 1e-9 || math.Abs(got.Z) > 1e-9 {
+		t.Errorf("target position: got %+v, want (0, 1, 0)", got)
+	}
+}
+
+// TestDirectionUnitAntiTarget — flip of BurnTarget.
+func TestDirectionUnitAntiTarget(t *testing.T) {
+	rA := orbital.Vec3{X: 7e6}
+	vA := orbital.Vec3{Y: 7500}
+	rT := orbital.Vec3{X: 7e6, Y: 1000}
+	vT := orbital.Vec3{Y: 7500}
+	got := DirectionUnitTarget(BurnAntiTarget, rA, vA, rT, vT)
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-(-1)) > 1e-9 || math.Abs(got.Z) > 1e-9 {
+		t.Errorf("anti-target: got %+v, want (0, -1, 0)", got)
+	}
+}
+
+// TestDirectionUnitTargetCoVelocityDegrades — identical velocities
+// collapse the relative-velocity vector to zero; BurnTargetPrograde
+// returns zero so the burn no-ops (the caller's |v_rel| readout
+// surfaces "already matched").
+func TestDirectionUnitTargetCoVelocityDegrades(t *testing.T) {
+	rA := orbital.Vec3{X: 7e6}
+	vA := orbital.Vec3{Y: 7500}
+	rT := orbital.Vec3{X: 7e6, Y: 1000}
+	vT := orbital.Vec3{Y: 7500}
+	got := DirectionUnitTarget(BurnTargetPrograde, rA, vA, rT, vT)
+	if got != (orbital.Vec3{}) {
+		t.Errorf("co-velocity TargetPrograde: got %+v, want zero", got)
+	}
+}
+
+// TestDirectionUnitTargetFallsThroughToBaseModes — non-target modes
+// passed to DirectionUnitTarget delegate to DirectionUnit so callers
+// can use the target API uniformly.
+func TestDirectionUnitTargetFallsThroughToBaseModes(t *testing.T) {
+	rA := orbital.Vec3{X: 7e6}
+	vA := orbital.Vec3{Y: 7500}
+	rT := orbital.Vec3{X: 7e6, Y: 1000}
+	vT := orbital.Vec3{Y: 7600}
+	got := DirectionUnitTarget(BurnPrograde, rA, vA, rT, vT)
+	want := DirectionUnit(BurnPrograde, rA, vA)
+	if got != want {
+		t.Errorf("non-target fallthrough: got %+v, want %+v", got, want)
+	}
+}

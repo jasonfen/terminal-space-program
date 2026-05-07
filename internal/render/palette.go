@@ -27,6 +27,7 @@ var (
 	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
 	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive
 	ColorFlame        = lipgloss.Color("#FF8C42") // engine-firing flame trail (warm orange — distinct from craftmarker yellow)
+	ColorTarget       = lipgloss.Color("#3DDC84") // active TARGET craft + its orbit — vivid green, matches DOCK READY callout, distinct from craft yellow / current-orbit slate / planned-node cyan
 )
 
 // maneuverSegmentPalette cycles through distinct colors per planted

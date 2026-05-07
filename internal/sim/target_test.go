@@ -166,6 +166,76 @@ func TestTargetStateForNoneReturnsNotOk(t *testing.T) {
 	}
 }
 
+// TestPerCraftTargetPersistsAcrossSwitch covers the v0.9.3 polish
+// that gives each craft its own target binding. Pre-polish, pressing
+// `T` to set a target on craft A would also surface that target on
+// craft B (single shared World.Target slot). Post-polish, each craft
+// has a Target field; the world-level live cursor is synced from the
+// active craft on switch via SetActiveCraftIdx.
+func TestPerCraftTargetPersistsAcrossSwitch(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(SpawnSpec{Alongside: true}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	// Spawn lands the player on the new craft (idx 1). Bind a body
+	// target on craft 1, then a different body target on craft 0,
+	// and verify each survives a switch back.
+	w.SetActiveCraftIdx(1)
+	w.SetTargetBody(3)
+	craft1Target := w.Target
+
+	w.SetActiveCraftIdx(0)
+	if w.Target.Kind == TargetBody && w.Target.BodyIdx == 3 {
+		t.Errorf("switching to craft 0: world Target leaked from craft 1: %+v", w.Target)
+	}
+	w.SetTargetBody(5)
+	craft0Target := w.Target
+
+	w.SetActiveCraftIdx(1)
+	if w.Target != craft1Target {
+		t.Errorf("after switch back to craft 1: got %+v, want %+v", w.Target, craft1Target)
+	}
+
+	w.SetActiveCraftIdx(0)
+	if w.Target != craft0Target {
+		t.Errorf("after switch back to craft 0: got %+v, want %+v", w.Target, craft0Target)
+	}
+}
+
+// TestPerCraftTargetMirroredOnEverySetter confirms the
+// world-level cursor and the active craft's stored Target stay in
+// lockstep — every mutator (SetTargetBody / SetTargetCraft /
+// ClearTarget / CycleTarget) must mirror through to the active
+// craft so a subsequent switch checkpoints the right value.
+func TestPerCraftTargetMirroredOnEverySetter(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(SpawnSpec{Alongside: true}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	active := w.ActiveCraft()
+	if active == nil {
+		t.Fatal("active craft nil after spawn")
+	}
+	w.SetTargetBody(3)
+	if active.Target != w.Target {
+		t.Errorf("SetTargetBody mirror: craft.Target=%+v, w.Target=%+v", active.Target, w.Target)
+	}
+	w.ClearTarget()
+	if active.Target != w.Target {
+		t.Errorf("ClearTarget mirror: craft.Target=%+v, w.Target=%+v", active.Target, w.Target)
+	}
+	w.CycleTarget(true)
+	if active.Target != w.Target {
+		t.Errorf("CycleTarget mirror: craft.Target=%+v, w.Target=%+v", active.Target, w.Target)
+	}
+}
+
 func TestTargetNameForBody(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {

@@ -22,6 +22,14 @@ const (
 	TriggerNextApo
 	TriggerNextAN
 	TriggerNextDN
+	// TriggerNextClosestApproach (v0.9.3+) resolves to the next
+	// time-to-encounter between the active craft and a target craft
+	// captured at plant time via ManeuverNode.TargetCraftIdx. Lazy-
+	// frozen on the first tick after plant the same way AN / DN are.
+	// Only valid for the four target-relative burn modes; pickable
+	// in the m-form only when World.Target.Kind == TargetCraft at
+	// plant time.
+	TriggerNextClosestApproach
 )
 
 // String returns a human-readable label for the trigger event.
@@ -37,6 +45,8 @@ func (e TriggerEvent) String() string {
 		return "next AN"
 	case TriggerNextDN:
 		return "next DN"
+	case TriggerNextClosestApproach:
+		return "next closest approach"
 	}
 	return "?"
 }
@@ -48,6 +58,7 @@ var AllTriggerEvents = [...]TriggerEvent{
 	TriggerNextApo,
 	TriggerNextAN,
 	TriggerNextDN,
+	TriggerNextClosestApproach,
 }
 
 // ManeuverNode represents a planned burn. v0.5.14+: TriggerTime is the
@@ -88,6 +99,63 @@ type ManeuverNode struct {
 	// planted burns from live `Craft.Throttle` so adjusting throttle
 	// mid-coast doesn't slow an in-flight planted burn.
 	Throttle float64
+	// TargetCraftIdx (v0.9.3+) is the World.Crafts index of the
+	// target craft this node was planted against, captured at plant
+	// time. Populated only for the four target-relative modes
+	// (BurnTargetPrograde / Retrograde / BurnTarget / AntiTarget) and
+	// for the TriggerNextClosestApproach event. Zero-value-omitempty:
+	// non-target nodes save without the field, no schema bump.
+	//
+	// Bound at plant time so a target switch later doesn't silently
+	// retarget the planted burn — the node remains aimed at the craft
+	// the player chose. Stale handling: if the referenced index falls
+	// out of range or w.Crafts[idx] is nil at fire time, the node
+	// degrades to no-op. v0.9.3+: TargetStaleAtLoad below also flags
+	// load-time staleness so the slate UI can surface it.
+	//
+	// One-based to allow JSON omitempty: encoded value is idx+1, so
+	// zero means "no target". Helpers (TargetCraftIdxValue / SetTarget
+	// CraftIdxValue) translate to the natural 0-based slate index;
+	// callers always work in 0-based.
+	TargetCraftIdx int `json:",omitempty"`
+}
+
+// TargetCraftIdxValue returns the 0-based slate index this node is
+// bound to, and ok=false if no target was bound at plant time. The
+// JSON-stored field is one-based so omitempty drops "no target"
+// nodes from the wire — translation lives here so callers don't need
+// to remember the offset. v0.9.3+.
+func (n ManeuverNode) TargetCraftIdxValue() (int, bool) {
+	if n.TargetCraftIdx == 0 {
+		return 0, false
+	}
+	return n.TargetCraftIdx - 1, true
+}
+
+// SetTargetCraftIdx writes a 0-based slate index into the node's
+// stored target slot. v0.9.3+.
+func (n *ManeuverNode) SetTargetCraftIdx(idx int) {
+	n.TargetCraftIdx = idx + 1
+}
+
+// ClearTargetCraftIdx unbinds the node's target. v0.9.3+.
+func (n *ManeuverNode) ClearTargetCraftIdx() { n.TargetCraftIdx = 0 }
+
+// IsTargetRelative reports whether this node's burn mode requires a
+// target craft state to resolve direction. v0.9.3+.
+func (n ManeuverNode) IsTargetRelative() bool {
+	return IsTargetRelativeMode(n.Mode)
+}
+
+// IsTargetRelativeMode reports whether the given burn mode requires
+// a target craft state. Used by m-form cycle gating and resolver
+// dispatch. v0.9.3+.
+func IsTargetRelativeMode(m BurnMode) bool {
+	switch m {
+	case BurnTargetPrograde, BurnTargetRetrograde, BurnTarget, BurnAntiTarget:
+		return true
+	}
+	return false
 }
 
 // EffectiveThrottle returns the throttle to use when firing this
@@ -142,6 +210,23 @@ type ActiveBurn struct {
 	EndTime     time.Time
 	PrimaryID   string
 	Throttle    float64
+	// TargetCraftIdx (v0.9.3+) is one-based slate idx (matches
+	// ManeuverNode.TargetCraftIdx encoding) — zero means no target
+	// bound. Populated when a target-relative finite-burn node fires;
+	// the world's stepThrust resolves the target snapshot from this
+	// each tick so the burn keeps tracking even if the player swaps
+	// World.Target mid-burn.
+	TargetCraftIdx int `json:",omitempty"`
+}
+
+// TargetCraftIdxValue mirrors ManeuverNode.TargetCraftIdxValue —
+// returns the 0-based slate idx the burn is bound to, or ok=false
+// when no target was captured at fire time. v0.9.3+.
+func (b ActiveBurn) TargetCraftIdxValue() (int, bool) {
+	if b.TargetCraftIdx == 0 {
+		return 0, false
+	}
+	return b.TargetCraftIdx - 1, true
 }
 
 // ManualBurn is the runtime state of a v0.7.3+ player-held manual
