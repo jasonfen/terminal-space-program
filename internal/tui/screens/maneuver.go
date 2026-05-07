@@ -53,6 +53,43 @@ type Maneuver struct {
 	// quick-plant path.
 	editingIdx        int
 	loadedTriggerTime time.Time
+
+	// hasTargetCraft + targetCraftIdx carry the World.Target binding
+	// at form-open time, so the four target-relative burn modes and
+	// the TriggerNextClosestApproach event can resolve their
+	// direction / trigger against the captured target. Bound at open
+	// (not at every keypress) so a target switch while the form is
+	// open doesn't silently retarget a planted burn — the player
+	// closes + reopens the form to retarget. v0.9.3+.
+	hasTargetCraft bool
+	targetCraftIdx int
+}
+
+// SetTargetCraft binds (or unbinds) the target-craft slate index the
+// form's planted burn will be aimed at. Called by the app when
+// opening the form so the four target-relative burn modes and the
+// TriggerNextClosestApproach event can resolve at plant + fire time.
+// Pass ok=false to clear (no craft target set / target is a body).
+// v0.9.3+.
+func (m *Maneuver) SetTargetCraft(ok bool, idx int) {
+	m.hasTargetCraft = ok
+	if ok {
+		m.targetCraftIdx = idx
+	} else {
+		m.targetCraftIdx = 0
+	}
+	// If the currently-selected mode or trigger requires a target
+	// and we no longer have one, snap to safe defaults so the form
+	// renders something fireable.
+	if !m.hasTargetCraft {
+		mode := spacecraft.AllBurnModes[m.modeIdx]
+		if spacecraft.IsTargetRelativeMode(mode) {
+			m.modeIdx = 0
+		}
+		if sim.AllTriggerEvents[m.fireAtIdx] == sim.TriggerNextClosestApproach {
+			m.fireAtIdx = 0
+		}
+	}
 }
 
 // BurnExecutedMsg is emitted when the user hits Enter. App consumes it.
@@ -93,6 +130,12 @@ type BurnExecutedMsg struct {
 	// commanded value would have delivered (compensating finite-burn
 	// loss). Ignored for impulsive (zero-thrust) and Normal± burns.
 	IterateForTarget bool
+	// TargetCraftIdx (v0.9.3+) is the one-based encoding of the
+	// target slate idx the form was bound to at plant. Zero = no
+	// target. Mirrors ManeuverNode.TargetCraftIdx; the app passes it
+	// straight through. Only populated for target-relative modes /
+	// TriggerNextClosestApproach event.
+	TargetCraftIdx int
 }
 
 // NodeDeleteMsg is emitted when the player presses ctrl+d in the
@@ -193,6 +236,15 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 	m.focus = 0
 	m.editingIdx = idx
 	m.loadedTriggerTime = n.TriggerTime
+	// v0.9.3+: preserve the node's stored target binding through the
+	// edit cycle so re-planting doesn't drop it. Caller (app) is
+	// expected to follow up with SetTargetCraft to reflect the
+	// CURRENT World.Target if the node's binding is stale, but the
+	// default-load behaviour preserves the original target.
+	if tIdx, ok := n.TargetCraftIdxValue(); ok {
+		m.hasTargetCraft = true
+		m.targetCraftIdx = tIdx
+	}
 	m.applyFocus()
 }
 
@@ -277,10 +329,10 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case "left":
 		switch m.focus {
 		case 0:
-			m.modeIdx = (m.modeIdx - 1 + len(spacecraft.AllBurnModes)) % len(spacecraft.AllBurnModes)
+			m.advanceMode(-1)
 			return nil, false
 		case 1:
-			m.fireAtIdx = (m.fireAtIdx - 1 + len(sim.AllTriggerEvents)) % len(sim.AllTriggerEvents)
+			m.advanceFireAt(-1)
 			return nil, false
 		case 4:
 			m.iterateForTarget = !m.iterateForTarget
@@ -289,10 +341,10 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case "right":
 		switch m.focus {
 		case 0:
-			m.modeIdx = (m.modeIdx + 1) % len(spacecraft.AllBurnModes)
+			m.advanceMode(1)
 			return nil, false
 		case 1:
-			m.fireAtIdx = (m.fireAtIdx + 1) % len(sim.AllTriggerEvents)
+			m.advanceFireAt(1)
 			return nil, false
 		case 4:
 			m.iterateForTarget = !m.iterateForTarget
@@ -337,9 +389,10 @@ func (m *Maneuver) commitCmd() tea.Cmd {
 	if dv == 0 {
 		return nil
 	}
+	mode := spacecraft.AllBurnModes[m.modeIdx]
 	event := sim.AllTriggerEvents[m.fireAtIdx]
 	msg := BurnExecutedMsg{
-		Mode:             spacecraft.AllBurnModes[m.modeIdx],
+		Mode:             mode,
 		DV:               dv,
 		Event:            event,
 		TriggerTime:      m.loadedTriggerTime,
@@ -347,7 +400,48 @@ func (m *Maneuver) commitCmd() tea.Cmd {
 		Throttle:         m.parsedThrottle(),
 		IterateForTarget: m.iterateForTarget,
 	}
+	// v0.9.3+: capture the bound target craft idx for target-relative
+	// modes and the TriggerNextClosestApproach event. One-based to
+	// match the ManeuverNode encoding (zero = no target, idx+1
+	// otherwise — JSON omitempty drops it for non-target nodes).
+	if m.hasTargetCraft && (spacecraft.IsTargetRelativeMode(mode) || event == sim.TriggerNextClosestApproach) {
+		msg.TargetCraftIdx = m.targetCraftIdx + 1
+	}
 	return func() tea.Msg { return msg }
+}
+
+// advanceMode steps modeIdx by delta, skipping target-relative modes
+// when no craft target is bound. Stops after one full cycle to avoid
+// looping forever in the impossible "all modes invalid" case (would
+// only happen if AllBurnModes were entirely target-relative). v0.9.3+.
+func (m *Maneuver) advanceMode(delta int) {
+	n := len(spacecraft.AllBurnModes)
+	if n == 0 {
+		return
+	}
+	for step := 0; step < n; step++ {
+		m.modeIdx = (m.modeIdx + delta + n) % n
+		mode := spacecraft.AllBurnModes[m.modeIdx]
+		if !spacecraft.IsTargetRelativeMode(mode) || m.hasTargetCraft {
+			return
+		}
+	}
+}
+
+// advanceFireAt steps fireAtIdx by delta, skipping
+// TriggerNextClosestApproach when no craft target is bound. v0.9.3+.
+func (m *Maneuver) advanceFireAt(delta int) {
+	n := len(sim.AllTriggerEvents)
+	if n == 0 {
+		return
+	}
+	for step := 0; step < n; step++ {
+		m.fireAtIdx = (m.fireAtIdx + delta + n) % n
+		ev := sim.AllTriggerEvents[m.fireAtIdx]
+		if ev != sim.TriggerNextClosestApproach || m.hasTargetCraft {
+			return
+		}
+	}
 }
 
 // parsedThrottle returns the form's throttle setting as a fraction
@@ -419,6 +513,30 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	// Current orbit. Empty colour → uses Plot for back-compat with
 	// the existing white-on-default rendering of this canvas.
 	m.canvas.DrawEllipseOffsetOccluded(currentEl, orbital.Vec3{}, 360, 4, orbital.Vec3{}, primaryPxR, "")
+
+	// v0.9.3 polish: target craft's orbit + current position when it
+	// shares the active craft's primary. The maneuver canvas centers
+	// on the active craft's primary at origin {0,0,0}, so the target
+	// state vector (already primary-relative when same-primary) plots
+	// directly. Cross-primary targets are out of scope — the canvas
+	// frame is the wrong one for them.
+	if w.Target.Kind == sim.TargetCraft && w.Target.CraftIdx >= 0 && w.Target.CraftIdx < len(w.Crafts) {
+		if tc := w.Crafts[w.Target.CraftIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+			tEl := orbital.ElementsFromState(tc.State.R, tc.State.V, mu)
+			tOrbitVisible := tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0)
+			if tOrbitVisible {
+				m.canvas.DrawEllipseOffsetOccluded(tEl, orbital.Vec3{}, 360, 3, orbital.Vec3{}, primaryPxR, render.ColorTarget)
+			}
+			if !m.canvas.IsBehindBody(tc.State.R, orbital.Vec3{}, primaryPxR) {
+				m.canvas.PlotColored(tc.State.R, render.ColorTarget)
+				if tc.Glyph != "" {
+					if g := []rune(tc.Glyph); len(g) > 0 {
+						m.canvas.SetCellOverlay(tc.State.R, g[0])
+					}
+				}
+			}
+		}
+	}
 
 	// Draw shadow trajectory after applying the current (mode, dv,
 	// fire-at) triple. v0.6.1: when fire-at is event-relative, the

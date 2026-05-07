@@ -155,7 +155,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 			M: c.TotalMass(),
 		}
 		w.Crafts = append(w.Crafts, c)
-		w.ActiveCraftIdx = len(w.Crafts) - 1
+		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
 		return c, nil
 	}
@@ -211,7 +211,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		// engaging.
 		c.AttitudeMode = spacecraft.BurnRadialOut
 		w.Crafts = append(w.Crafts, c)
-		w.ActiveCraftIdx = len(w.Crafts) - 1
+		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
 		return c, nil
 	}
@@ -245,7 +245,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		M: c.TotalMass(),
 	}
 	w.Crafts = append(w.Crafts, c)
-	w.ActiveCraftIdx = len(w.Crafts) - 1
+	w.SetActiveCraftIdx(len(w.Crafts) - 1)
 	w.StopManualBurn()
 	return c, nil
 }

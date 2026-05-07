@@ -13,6 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -430,27 +431,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 	}
 
-	// Vessel position trail (v0.5.2): a fading dotted history of
-	// where the craft has actually been, distinct from the current
-	// Keplerian orbit ellipse. Stride increases (sparser dots) for
-	// older samples to give a visual gradient — newest = densest.
-	if w.CraftVisibleHere() {
-		trail := w.CraftTrail()
-		// Draw oldest first (sparse stride 4) → newest (every point),
-		// so newer samples overdraw older ones at any cell collision.
-		for i, p := range trail {
-			// stride: 4 at oldest end, 1 at newest end. Linear ramp.
-			progress := float64(i) / float64(len(trail))
-			stride := 4 - int(3*progress)
-			if stride < 1 {
-				stride = 1
-			}
-			if i%stride != 0 {
-				continue
-			}
-			v.canvas.Plot(p)
-		}
-	}
+	// v0.9.3 polish: vessel position trail no longer renders by
+	// default. With multiple craft + the v0.9.3 target-orbit
+	// highlight, trails read as clutter in the multi-orbit views.
+	// `World.CraftTrail()` still ticks behind the scenes — fast
+	// reintroduction as a toggle is trivial if it turns out players
+	// miss the breadcrumb cue.
 
 	// Spacecraft current-orbit ellipse + glyph. Orbit is the craft's
 	// live Keplerian ellipse in its home primary's frame, translated
@@ -570,6 +556,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// small pixel sizes. The current-orbit ellipse renders in
 		// the craft's own color (dim when no Color is set, falling
 		// back to ColorDim — preserves pre-v0.8.2 behaviour).
+		targetCraftIdx := -1
+		if w.Target.Kind == sim.TargetCraft {
+			targetCraftIdx = w.Target.CraftIdx
+		}
 		for i, other := range w.Crafts {
 			if i == w.ActiveCraftIdx || other == nil {
 				continue
@@ -579,12 +569,27 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			otherInertial := otherPrimaryPos.Add(other.State.R)
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
 			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
+			isTarget := i == targetCraftIdx
 			otherColor := lipgloss.Color(render.ColorDim)
 			if other.Color != "" {
 				otherColor = lipgloss.Color(other.Color)
 			}
+			if isTarget {
+				// v0.9.3 polish: target's orbit + glyph render in the
+				// dedicated TARGET green so the player can pick out
+				// which non-active craft is the bound target at a
+				// glance, even with multiple craft sharing the view.
+				otherColor = render.ColorTarget
+			}
 			if otherOrbitVisible {
-				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, 5, otherPrimaryPos, otherPxR, otherColor)
+				// Target gets denser sampling (every 3rd vs every 5th
+				// for plain non-active craft) so its track reads as
+				// brighter / more prominent than peers.
+				stride := 5
+				if isTarget {
+					stride = 3
+				}
+				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, stride, otherPrimaryPos, otherPxR, otherColor)
 			}
 			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
 				v.canvas.PlotColored(otherInertial, otherColor)
@@ -1023,6 +1028,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			manualState = fmt.Sprintf(v.theme.Warning.Render("● firing T+%.1fs"), elapsed)
 		}
 		lines = append(lines,
+			fmt.Sprintf("  nav:       %s", w.NavMode),
 			fmt.Sprintf("  hold:      %s", w.ActiveCraft().AttitudeMode.String()),
 			fmt.Sprintf("  engine:    %s", w.ActiveCraft().EngineMode.String()),
 			fmt.Sprintf("  manual:    %s", manualState),
@@ -1266,20 +1272,43 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 						nameLine += v.theme.Dim.Render(" — " + tc.Role)
 					}
 					lines = append(lines, nameLine)
+					// Target orbit shape: apo/peri altitudes around its
+					// own primary. Always meaningful (target's state is
+					// already primary-relative), regardless of whether
+					// active craft shares the primary.
+					tMu := tc.Primary.GravitationalParameter()
+					tFrame := orbital.ReferenceFrameForPrimary(tc.Primary)
+					tEl := orbital.ElementsFromStateInFrame(tc.State.R, tc.State.V, tMu, tFrame)
+					if tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0) {
+						tPrimaryR := tc.Primary.RadiusMeters()
+						lines = append(lines,
+							fmt.Sprintf("  apoapsis:  %.1f km", (tEl.Apoapsis()-tPrimaryR)/1000),
+							fmt.Sprintf("  periapsis: %.1f km", (tEl.Periapsis()-tPrimaryR)/1000),
+						)
+					}
 					// Range / |v_rel|: use primary-frame deltas when
 					// they share a primary (the common rendezvous
 					// scenario), inertial otherwise (cross-SOI
 					// targeting works but reads as a long-distance
 					// pointer — v0.9.3 closest-approach maths will
 					// make this useful).
-					var rangeM, vRel float64
+					var rRel, vRelVec orbital.Vec3
 					if tc.Primary.ID == c.Primary.ID {
-						rangeM = tc.State.R.Sub(c.State.R).Norm()
-						vRel = tc.State.V.Sub(c.State.V).Norm()
+						rRel = tc.State.R.Sub(c.State.R)
+						vRelVec = tc.State.V.Sub(c.State.V)
 					} else {
 						tcInertial := w.BodyPosition(tc.Primary).Add(tc.State.R)
-						rangeM = tcInertial.Sub(w.CraftInertial()).Norm()
-						vRel = w.CraftInertialVelocity(tc).Sub(w.CraftInertialVelocity(c)).Norm()
+						rRel = tcInertial.Sub(w.CraftInertial())
+						vRelVec = w.CraftInertialVelocity(tc).Sub(w.CraftInertialVelocity(c))
+					}
+					rangeM := rRel.Norm()
+					vRel := vRelVec.Norm()
+					// Closing rate: positive = approaching, negative =
+					// receding. Sign tells the player whether they're
+					// faster or slower along-track than target.
+					var closing float64
+					if rangeM > 0 {
+						closing = -rRel.Dot(vRelVec) / rangeM
 					}
 					rangeLabel := fmt.Sprintf("%.0f m", rangeM)
 					switch {
@@ -1289,49 +1318,63 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 						rangeLabel = fmt.Sprintf("%.2f km", rangeM/1000)
 					}
 					lines = append(lines,
-						fmt.Sprintf("  range:  %s", rangeLabel),
+						fmt.Sprintf("  range:   %s", rangeLabel),
 						fmt.Sprintf("  |v_rel|: %.2f m/s", vRel),
+						fmt.Sprintf("  closing: %+.2f m/s", closing),
 					)
+					// v0.9.3+: rendezvous block — time + distance to next
+					// closest approach, DOCK READY indicator. Only when
+					// both craft share a primary; cross-SOI rendezvous is
+					// out of scope for the manual loop. Horizon: 4 hours
+					// covers 2–3 LEO periods, which is the typical
+					// player-controlled rendezvous window.
+					if tc.Primary.ID == c.Primary.ID {
+						rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+						if ok {
+							active := orbital.Vec3State{R: c.State.R, V: c.State.V}
+							target := orbital.Vec3State{R: rT, V: vT}
+							mu := c.Primary.GravitationalParameter()
+							const horizon = 4 * 3600.0
+							if tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, horizon); err == nil {
+								tcaLabel := fmt.Sprintf("%.0fs", tCA)
+								switch {
+								case tCA >= 3600:
+									tcaLabel = fmt.Sprintf("%.2fh", tCA/3600)
+								case tCA >= 60:
+									tcaLabel = fmt.Sprintf("%.1fmin", tCA/60)
+								}
+								caLabel := fmt.Sprintf("%.0f m", distCA)
+								switch {
+								case distCA > 1e6:
+									caLabel = fmt.Sprintf("%.0f km", distCA/1000)
+								case distCA > 1000:
+									caLabel = fmt.Sprintf("%.2f km", distCA/1000)
+								}
+								lines = append(lines,
+									fmt.Sprintf("  TCA:    %s", tcaLabel),
+									fmt.Sprintf("  CA:     %s", caLabel),
+								)
+							}
+						}
+						// DOCK READY: current range < 50 m && |v_rel| <
+						// 0.1 m/s. Gates on v0.8.3 DockCrafts which the
+						// player invokes once the indicator lights.
+						if rangeM < 50 && vRel < 0.1 {
+							dockStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
+							lines = append(lines, "  "+dockStyle.Render("DOCK READY"))
+						}
+					}
 				}
 			}
 		}
 	}
 
-	// v0.8.3+: rendezvous readout — when the active craft shares
-	// its primary frame with another craft, surface range +
-	// relative velocity to the nearest one. Lets the player RCS-
-	// null residuals during proximity ops without guessing. The
-	// "DOCK READY" callout fires when both gates are met (the
-	// next tick will actually fuse).
-	if c := w.ActiveCraft(); c != nil && len(w.Crafts) > 1 {
-		nearest, range_, vRel, ok := findNearestSamePrimary(w.Crafts, w.ActiveCraftIdx)
-		if ok {
-			lines = append(lines, section("RENDEZVOUS")...)
-			rangeLabel := fmt.Sprintf("%.0f m", range_)
-			if range_ > 1000 {
-				rangeLabel = fmt.Sprintf("%.2f km", range_/1000)
-			}
-			vRelLabel := fmt.Sprintf("%.2f m/s", vRel)
-			withinDist := range_ <= sim.DockingDistM
-			withinV := vRel <= sim.DockingVMS
-			if withinDist {
-				rangeLabel = v.theme.Warning.Render(rangeLabel + " ✓")
-			}
-			if withinV {
-				vRelLabel = v.theme.Warning.Render(vRelLabel + " ✓")
-			}
-			lines = append(lines,
-				fmt.Sprintf("  target:    %s", nearest.Name),
-				fmt.Sprintf("  range:     %s", rangeLabel),
-				fmt.Sprintf("  |v_rel|:   %s", vRelLabel),
-			)
-			if withinDist && withinV {
-				lines = append(lines,
-					"  "+v.theme.Alert.Render("● DOCK READY — fusing next tick"),
-				)
-			}
-		}
-	}
+	// v0.9.3 polish: the v0.8.3 RENDEZVOUS block (nearest-craft
+	// auto-surface) was dropped — the v0.9.0 TARGET HUD block now
+	// covers the same range / |v_rel| / DOCK READY readouts and
+	// adds closing rate, TCA, CA, and target apo/peri. Player must
+	// bind a target with `H`/`I` to see proximity-ops feedback now,
+	// but the duplication was reading as noise on the HUD.
 
 	// v0.9.1+: STAGES block — lists per-stage thrust / Isp / fuel%
 	// for the active craft when it has more than one stage. Top-of-
@@ -1544,10 +1587,6 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	return rendered
 }
 
-// findNearestSamePrimary returns the closest non-active craft
-// sharing the active craft's primary, plus their separation +
-// relative speed. Used by the v0.8.3+ RENDEZVOUS HUD block to
-// surface live proximity-ops feedback. Returns ok=false when no
 // shouldShowLaunchHUD returns true when the active craft is in
 // "ascent" mode — periapsis below the primary's mean radius
 // (= craft would impact if its orbit closed) AND altitude under
@@ -1592,40 +1631,6 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 		return false
 	}
 	return true
-}
-
-// other craft is in the same frame.
-func findNearestSamePrimary(crafts []*spacecraft.Spacecraft, activeIdx int) (*spacecraft.Spacecraft, float64, float64, bool) {
-	if activeIdx < 0 || activeIdx >= len(crafts) {
-		return nil, 0, 0, false
-	}
-	a := crafts[activeIdx]
-	if a == nil {
-		return nil, 0, 0, false
-	}
-	var (
-		best     *spacecraft.Spacecraft
-		bestDist = math.Inf(1)
-		bestVRel float64
-	)
-	for i, c := range crafts {
-		if i == activeIdx || c == nil {
-			continue
-		}
-		if c.Primary.ID != a.Primary.ID {
-			continue
-		}
-		d := c.State.R.Sub(a.State.R).Norm()
-		if d < bestDist {
-			bestDist = d
-			bestVRel = c.State.V.Sub(a.State.V).Norm()
-			best = c
-		}
-	}
-	if best == nil {
-		return nil, 0, 0, false
-	}
-	return best, bestDist, bestVRel, true
 }
 
 // scanHudNodeRows walks the rendered HUD line-by-line and matches

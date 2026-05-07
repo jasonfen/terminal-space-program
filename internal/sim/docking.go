@@ -117,7 +117,7 @@ func (w *World) Undock(idx int) bool {
 	// Active craft becomes the first restored component (matches
 	// the "you keep flying the lead vessel" convention from
 	// DockCrafts).
-	w.ActiveCraftIdx = idx
+	w.SetActiveCraftIdx(idx)
 	w.StopManualBurn()
 	return true
 }
@@ -323,8 +323,10 @@ func (w *World) DockCrafts(idxA, idxB int) {
 	case w.ActiveCraftIdx == lead || w.ActiveCraftIdx == drop:
 		// Player ends up on the composite regardless of which slot
 		// they were flying.
-		w.ActiveCraftIdx = newLead
+		w.SetActiveCraftIdx(newLead)
 	case w.ActiveCraftIdx > drop:
+		// Slate shifts left around the dropped slot — the active
+		// craft pointer follows. Same craft, no target rebind.
 		w.ActiveCraftIdx--
 	}
 }
