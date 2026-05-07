@@ -1939,3 +1939,111 @@ func TestToggleManualBurnNoOpAtZeroThrottle(t *testing.T) {
 		t.Error("toggle with zero throttle should not start a burn")
 	}
 }
+
+// TestPlanCircularizeAtApoapsisPlantsProgradeNode — v0.9.4+: from a
+// classic 200 km × 1000 km elliptical Earth orbit (apo at 1000 km),
+// PlanCircularizeAtApoapsis plants exactly one prograde burn at
+// next apoapsis sized to raise the periapsis to match. Δv matches
+// the impulsive vis-viva formula (sqrt(mu/r_apo) - v_at_apo)
+// within < 1 m/s.
+func TestPlanCircularizeAtApoapsisPlantsProgradeNode(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	const (
+		periAlt = 200e3  // 200 km
+		apoAlt  = 1000e3 // 1000 km
+	)
+	rPeri := primaryR + periAlt
+	rApo := primaryR + apoAlt
+	a := (rPeri + rApo) / 2
+	// At periapsis: v = sqrt(mu·(2/rPeri − 1/a)).
+	vPeri := math.Sqrt(mu * (2/rPeri - 1/a))
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	c.State.R = frame.ToWorld(orbital.Vec3{X: rPeri})
+	c.State.V = frame.ToWorld(orbital.Vec3{Y: vPeri})
+
+	plan, err := w.PlanCircularizeAtApoapsis()
+	if err != nil {
+		t.Fatalf("PlanCircularizeAtApoapsis: %v", err)
+	}
+	// Expected Δv at apo = sqrt(mu/r_apo) - sqrt(mu·(2/r_apo − 1/a)).
+	vAtApo := math.Sqrt(mu * (2/rApo - 1/a))
+	vCirc := math.Sqrt(mu / rApo)
+	wantDV := vCirc - vAtApo
+	if math.Abs(plan.DV-wantDV) > 1.0 {
+		t.Errorf("DV = %.2f m/s, want %.2f m/s (within 1 m/s)", plan.DV, wantDV)
+	}
+	if math.Abs(plan.ApoAltM-apoAlt) > 1.0 {
+		t.Errorf("ApoAltM = %.0f, want %.0f", plan.ApoAltM, apoAlt)
+	}
+	if got := len(c.Nodes); got != 1 {
+		t.Fatalf("expected 1 planted node, got %d", got)
+	}
+	n := c.Nodes[0]
+	if n.Mode != spacecraft.BurnPrograde {
+		t.Errorf("Mode = %v, want BurnPrograde", n.Mode)
+	}
+	if n.Event != spacecraft.TriggerNextApo {
+		t.Errorf("Event = %v, want TriggerNextApo", n.Event)
+	}
+	if n.PrimaryID != c.Primary.ID {
+		t.Errorf("PrimaryID = %q, want %q", n.PrimaryID, c.Primary.ID)
+	}
+	if n.Duration <= 0 {
+		t.Errorf("expected finite Duration, got %v", n.Duration)
+	}
+}
+
+// TestPlanCircularizeAtApoapsisRejectsBelowAtmosphere — sub-orbital
+// trajectory whose apoapsis sits inside the atmosphere returns
+// ErrCircularizeBelowAtmosphere; planting in the atmosphere would
+// fire the burn against drag, defeating the point. v0.9.4+.
+func TestPlanCircularizeAtApoapsisRejectsBelowAtmosphere(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	// Build a sub-orbital arc with apoapsis at 50 km altitude (well
+	// inside Earth's atmosphere cutoff at 100 km). Periapsis can dip
+	// below the surface; we just need apo < cutoff.
+	const (
+		periAlt = -100e3 // 100 km below surface (impactor arc)
+		apoAlt  = 50e3   // 50 km — inside atmosphere
+	)
+	rPeri := primaryR + periAlt
+	rApo := primaryR + apoAlt
+	a := (rPeri + rApo) / 2
+	vPeri := math.Sqrt(mu * (2/rPeri - 1/a))
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	c.State.R = frame.ToWorld(orbital.Vec3{X: rPeri})
+	c.State.V = frame.ToWorld(orbital.Vec3{Y: vPeri})
+
+	if _, err := w.PlanCircularizeAtApoapsis(); err != ErrCircularizeBelowAtmosphere {
+		t.Errorf("err = %v, want ErrCircularizeBelowAtmosphere", err)
+	}
+	if got := len(c.Nodes); got != 0 {
+		t.Errorf("rejected plant should not append node; got %d", got)
+	}
+}
+
+// TestPlanCircularizeAtApoapsisRejectsHyperbolic — escape trajectory
+// has no apoapsis, so the planter returns ErrCircularizeBadOrbit.
+// v0.9.4+.
+func TestPlanCircularizeAtApoapsisRejectsHyperbolic(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	mu := c.Primary.GravitationalParameter()
+	r := c.State.R.Norm()
+	// Velocity well above escape speed (sqrt(2·mu/r)).
+	vEscape := math.Sqrt(2 * mu / r)
+	c.State.V = c.State.V.Scale(2 * vEscape / c.State.V.Norm())
+
+	if _, err := w.PlanCircularizeAtApoapsis(); err != ErrCircularizeBadOrbit {
+		t.Errorf("err = %v, want ErrCircularizeBadOrbit", err)
+	}
+	if got := len(c.Nodes); got != 0 {
+		t.Errorf("rejected plant should not append node; got %d", got)
+	}
+}

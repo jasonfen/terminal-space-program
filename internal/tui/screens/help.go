@@ -48,6 +48,7 @@ func (h *Help) Render() string {
 			{"ctrl+k (in planner)", "clear ALL planned nodes for active craft"},
 			{"H", "plant Hohmann transfer to selected body"},
 			{"I", "plant inclination match (selected body / equatorial)"},
+			{"C", "plant circularize burn at next apoapsis"},
 			{"P", "porkchop plot for selected body"},
 			{"R", "refine plan (re-Lambert arrival)"},
 		}},

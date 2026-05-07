@@ -4,7 +4,7 @@ import (
 	"math"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
-	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
 // BurnDirection returns the unit thrust direction for the active
@@ -45,10 +45,19 @@ func (s *Spacecraft) BurnDirection(mode BurnMode) orbital.Vec3 {
 //
 // v0.9.3+.
 func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
+	// Tilted spin axis (matches the launchpad spawn frame). The
+	// Z-aligned physics.AtmosphereOmega is fine for the drag
+	// approximation but leaves a ~150 m/s direction-vector residual at
+	// Earth's 23.5° axial tilt — visible to the player as SAS aiming
+	// noticeably off the velocity vector.
+	omegaR := render.BodySpinOmegaWorld(s.Primary)
+	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
+	axisR := render.BodyRotationAxisWorld(s.Primary)
+	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
+
 	var dir orbital.Vec3
 	switch mode {
 	case BurnSurfacePrograde, BurnSurfaceRetrograde:
-		omega := physics.AtmosphereOmega(s.Primary)
 		vSurf := s.State.V.Sub(omega.Cross(s.State.R))
 		n := vSurf.Norm()
 		if n == 0 {
@@ -64,7 +73,7 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 		dir = DirectionUnit(mode, s.State.R, s.State.V)
 	}
 	if s.PitchTrim != 0 {
-		dir = ApplyPitchTrim(dir, s.State.R, s.PitchTrim)
+		dir = ApplyPitchTrim(dir, s.State.R, spinAxis, s.PitchTrim)
 	}
 	return dir
 }
@@ -76,15 +85,21 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 //
 // Frame:
 //   up    = r̂                          (local vertical)
-//   east  = unit(spinAxis × up)         (local east, with spin axis = +Z)
+//   east  = unit(spinAxis × up)         (local east on the body)
 //   north = up × east                   (right-handed local frame)
 //
 // Rotation about north tilts the thrust vector east (+pitch) or west
 // (-pitch) without changing the heading component. At the poles
 // (where east is undefined) the rotation is a no-op.
 //
-// v0.9.2+.
-func ApplyPitchTrim(dir, r orbital.Vec3, pitchRad float64) orbital.Vec3 {
+// spinAxis is the body's true spin axis in world coordinates (tilted
+// per AxialTilt + AxialAzimuth, matching render.BodyRotationAxisWorld).
+// Pass orbital.Vec3{Z: 1} for an un-tilted body to get the legacy
+// pre-v0.9.4 behaviour.
+//
+// v0.9.2+. v0.9.4+: spin-axis param so the trim's east axis matches
+// the launchpad spawn frame on tilted bodies (Earth: 23.5°).
+func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec3 {
 	if pitchRad == 0 {
 		return dir
 	}
@@ -93,8 +108,14 @@ func ApplyPitchTrim(dir, r orbital.Vec3, pitchRad float64) orbital.Vec3 {
 		return dir
 	}
 	up := r.Scale(1 / rN)
-	// east = Z × up (Z-aligned spin axis convention from physics.AtmosphereOmega).
-	east := orbital.Vec3{X: -up.Y, Y: up.X, Z: 0}
+	// east = spinAxis × up, normalised. Falls back to the Z-aligned
+	// approximation if the caller passed a zero spin axis (e.g. a
+	// body with no rotation period).
+	axis := spinAxis
+	if axis.Norm() == 0 {
+		axis = orbital.Vec3{Z: 1}
+	}
+	east := axis.Cross(up)
 	eN := east.Norm()
 	if eN == 0 {
 		// Pole — no defined east. Return dir unchanged so the trim
