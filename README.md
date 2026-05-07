@@ -23,10 +23,10 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 Latest release: **v0.9.1** — staging chain. KSP-style player-managed sequential decouples; `space` drops the bottom stage and spawns it as a passive cycle-able craft, with the active vehicle continuing on the upper-stage chain. Saturn-V loadout (S-IC + S-II + S-IVB, TWR > 1 at sea level) ships alongside the four single-stage loadouts, which wrap into a one-element `Stages: [{...}]` shim with no behavior change. New STAGES HUD block, `Spacecraft.Stages` source-of-truth for dry mass / propellant / engine numbers, save schema v5 → v6 with typed migration. Followed v0.9.0 (unified `World.Target` slot, `t` / `T` cycle / clear, TARGET HUD).
 
-**v0.9.5 ascent ergonomics in flight.** Ground launch primitives
+**v0.9.4 ascent ergonomics in flight.** Ground launch primitives
 landed in v0.9.2 (`n` → POSITION → launchpad spawns a Saturn V at
 altitude 0 on a rotating Earth, with surface-frame SAS, pitch trim,
-and a LAUNCH HUD), and v0.9.5 layers KSP-style live guidance on top:
+and a LAUNCH HUD), and v0.9.4 layers KSP-style live guidance on top:
 predictive **ap / pe / t-to-apo / Δv→circ** readouts in the LAUNCH
 HUD, an **ORBIT READY** callout when apoapsis crosses 200 km,
 auto-snap to NavSurface on launchpad spawn (so `w` already means
@@ -102,7 +102,7 @@ Spawn a Saturn V on the pad and fly it to LEO by hand. The flow
 mirrors KSP: tip the rocket 10° east, switch SAS to surface-prograde,
 let gravity bend the velocity vector over, watch the LAUNCH HUD's
 live ap / pe / Δv→circ shrink as you burn, plant the circularisation
-node at apoapsis with `C`, coast and fire. v0.9.5+ wires the live
+node at apoapsis with `C`, coast and fire. v0.9.4+ wires the live
 KSP-style readouts so you can fly by watching numbers.
 
 Suggested sequence for a Saturn V → LEO attempt:
@@ -169,7 +169,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `n` | Open spawn form (loadout / position / parent body / altitude / direction) |
 | `H` | Auto-plant Hohmann transfer to `World.Target` body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse). TargetCraft flashes "needs v0.9.3" |
 | `I` | Plant inclination match — rotates the orbital plane to `World.Target` body's inclination (or 0° equatorial when target is None). TargetCraft flashes "needs v0.9.3" |
-| `C` | Plant circularize burn at next apoapsis (v0.9.5+) — pairs with the LAUNCH HUD's ORBIT READY callout. Errors when apoapsis is below the primary's atmosphere cutoff or the orbit is hyperbolic |
+| `C` | Plant circularize burn at next apoapsis (v0.9.4+) — pairs with the LAUNCH HUD's ORBIT READY callout. Errors when apoapsis is below the primary's atmosphere cutoff or the orbit is hyperbolic |
 | `t` / `T` | Cycle / clear `World.Target` (non-active sibling craft → bodies in active system → none) |
 | `space` | Decouple bottom stage of active craft (multi-stage only; single-stage status-flashes "cannot drop the only remaining stage") (v0.9.1+) |
 | `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H` |
@@ -468,7 +468,7 @@ prints a warning to stderr and falls back to defaults.
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
 | v0.8 | Multi-craft polish | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, drag-aware Verlet wired into live integrator + predictor, surface-clamp on impact, haze halo) (v0.8.4). Sim-time planet rotation, view-aware texture projection with per-body axial tilts, polygon-rasterised Earth grid, far-side / polar Moon detail, tilted Saturn rings with C / B / Cassini Division / A / F bands, textured Sun + Galileans + Uranus + Neptune, tidally-locked moons keeping their iconic face on the parent (v0.8.5). KSP-style F5/F9 quicksave/load + per-node delete/clear, body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), finite-burn iterate-for-target toggle in `m` form (v0.8.6). |
-| v0.9 | The craft fleet grows up (in progress) | Unified `World.Target` slot (kind ∈ {None, Body, Craft}) replaces the implicit body cursor; `t` / `T` cycle / clear; TARGET HUD block; `H` / `I` planters consume the slot (v0.9.0). KSP-style player-managed staging chain: `space` decouples bottom stage; `Spacecraft.Stages` source-of-truth; Saturn-V 3-stage loadout; STAGES HUD; save schema v5 → v6 (v0.9.1). Ground-launch primitives **(WIP)**: launchpad spawn at altitude 0, surface-frame SAS (`W` / `S`), pitch trim (`<` / `>` / `\`), LAUNCH HUD, `saturn-v-pad-to-leo` mission. Reaching orbit by hand routinely undershoots — gravity-turn assist deferred to v0.9.5+ (v0.9.2, branch). |
+| v0.9 | The craft fleet grows up (in progress) | Unified `World.Target` slot (kind ∈ {None, Body, Craft}) replaces the implicit body cursor; `t` / `T` cycle / clear; TARGET HUD block; `H` / `I` planters consume the slot (v0.9.0). KSP-style player-managed staging chain: `space` decouples bottom stage; `Spacecraft.Stages` source-of-truth; Saturn-V 3-stage loadout; STAGES HUD; save schema v5 → v6 (v0.9.1). Ground-launch primitives: launchpad spawn at altitude 0, surface-frame SAS (`W` / `S`), pitch trim (`<` / `>` / `\`), LAUNCH HUD, `saturn-v-pad-to-leo` mission (v0.9.2). Rendezvous tooling: target-relative SAS modes, TCA / CA / DOCK READY, KSP-style NavMode cycle (`;`), `m`-form integration with `next closest approach` trigger event (v0.9.3). Ascent ergonomics: predictive `ap` / `pe` / `Δv→circ` in LAUNCH HUD, ORBIT READY callout, NavSurface auto-snap on launchpad spawn, `C` plants circularize-at-apoapsis (v0.9.4). |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -483,7 +483,8 @@ v0.9 — **the craft fleet grows up**. Slice breakdown in
 - ~~v0.9.1 — staging chain (KSP-style player-managed sequential decouples; `Spacecraft.Stages []Stage`; `space` keystroke; Saturn-V 3-stage loadout; save schema v5 → v6)~~ **shipped.**
 - v0.9.2 — ground launch primitives (`SpawnSpec.Launchpad`, surface-co-rotating spawn at altitude 0, LAUNCH HUD, surface-frame SAS, pitch trim). **In flight on branch — work-in-progress.** Orbital insertion routinely undershoots without a gravity-turn assist; treat as an experimental loop pending an ergonomic pass.
 - v0.9.3 — rendezvous tooling (target-relative SAS modes, live closest-approach countdown; manual loop is the success metric).
-- v0.9.4+ bandwidth-permitting — gravity-turn assist (target pitch-vs-altitude profile or autopilot toggle), navball, multi-rev porkchop UI + Lambert short/long picker, capture-direction toggle, predictor adaptive sampling, solar lighting + terminator + eclipses (research-first), polish bag.
+- v0.9.5 navball — KSP-style attitude indicator clamped into the bottom-right HUD; consumes v0.9.3 target-relative burn modes + v0.9.4 NavSurface frame routing.
+- v0.9.6+ bandwidth-permitting — multi-rev porkchop UI + Lambert short/long picker, capture-direction toggle, predictor adaptive sampling, solar lighting + terminator + eclipses (research-first), polish bag.
 
 Deferred to v0.10+: multiplayer implementation, interstellar transfer,
 N-body perturbations, mission scripting / editor (eight-decision-point

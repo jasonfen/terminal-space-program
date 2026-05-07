@@ -1940,7 +1940,7 @@ func TestToggleManualBurnNoOpAtZeroThrottle(t *testing.T) {
 	}
 }
 
-// TestPlanCircularizeAtApoapsisPlantsProgradeNode — v0.9.5+: from a
+// TestPlanCircularizeAtApoapsisPlantsProgradeNode — v0.9.4+: from a
 // classic 200 km × 1000 km elliptical Earth orbit (apo at 1000 km),
 // PlanCircularizeAtApoapsis plants exactly one prograde burn at
 // next apoapsis sized to raise the periapsis to match. Δv matches
@@ -1999,7 +1999,7 @@ func TestPlanCircularizeAtApoapsisPlantsProgradeNode(t *testing.T) {
 // TestPlanCircularizeAtApoapsisRejectsBelowAtmosphere — sub-orbital
 // trajectory whose apoapsis sits inside the atmosphere returns
 // ErrCircularizeBelowAtmosphere; planting in the atmosphere would
-// fire the burn against drag, defeating the point. v0.9.5+.
+// fire the burn against drag, defeating the point. v0.9.4+.
 func TestPlanCircularizeAtApoapsisRejectsBelowAtmosphere(t *testing.T) {
 	w := mustWorld(t)
 	c := w.ActiveCraft()
@@ -2030,7 +2030,7 @@ func TestPlanCircularizeAtApoapsisRejectsBelowAtmosphere(t *testing.T) {
 
 // TestPlanCircularizeAtApoapsisRejectsHyperbolic — escape trajectory
 // has no apoapsis, so the planter returns ErrCircularizeBadOrbit.
-// v0.9.5+.
+// v0.9.4+.
 func TestPlanCircularizeAtApoapsisRejectsHyperbolic(t *testing.T) {
 	w := mustWorld(t)
 	c := w.ActiveCraft()

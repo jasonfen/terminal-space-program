@@ -16,7 +16,7 @@ import (
 // LAUNCH HUD's ap / pe rows render through. Bands chosen so altitude
 // reads naturally on the pad (`+0 m`), in mid-ascent (`+12.3 km`),
 // and once orbit lifts out to body-radius scale (`+1234 km`).
-// v0.9.5+.
+// v0.9.4+.
 func TestFormatAltKmThresholds(t *testing.T) {
 	cases := []struct {
 		altM float64
@@ -42,7 +42,7 @@ func TestFormatAltKmThresholds(t *testing.T) {
 
 // TestFormatDurationShortBands exercises the three duration bands:
 // seconds (`12s`), minutes (`3m45s`), and hours (`1h22m`). Used by
-// the LAUNCH HUD's t_to_apo row. v0.9.5+.
+// the LAUNCH HUD's t_to_apo row. v0.9.4+.
 func TestFormatDurationShortBands(t *testing.T) {
 	cases := []struct {
 		sec  float64
@@ -68,7 +68,7 @@ func TestFormatDurationShortBands(t *testing.T) {
 // TestLaunchMissionProgressMatchesCircularizeFromPad — when the world
 // has an in-flight circularize_from_pad mission for the active
 // craft's primary, the progress line shows current pe / target.
-// v0.9.5+.
+// v0.9.4+.
 func TestLaunchMissionProgressMatchesCircularizeFromPad(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -92,7 +92,7 @@ func TestLaunchMissionProgressMatchesCircularizeFromPad(t *testing.T) {
 
 // TestLaunchMissionProgressEmptyWithoutMission — with the bundled
 // circularize_from_pad mission marked Passed, the helper returns ""
-// so the LAUNCH HUD doesn't emit a stray row. v0.9.5+.
+// so the LAUNCH HUD doesn't emit a stray row. v0.9.4+.
 func TestLaunchMissionProgressEmptyWithoutMission(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -117,7 +117,7 @@ func TestLaunchMissionProgressEmptyWithoutMission(t *testing.T) {
 // apoapsis-above-floor configuration, then checks for the ORBIT
 // READY callout in the rendered output. This is the rendezvous-
 // style live-signal pattern (DOCK READY at threshold ↔ ORBIT READY
-// at threshold) ported to the launch flow. v0.9.5+.
+// at threshold) ported to the launch flow. v0.9.4+.
 func TestLaunchHUDRendersOrbitReadyOnApAboveFloor(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),

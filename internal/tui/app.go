@@ -526,7 +526,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PlanCircularize):
-			// v0.9.5+: `C` plants a prograde burn at next apoapsis sized
+			// v0.9.4+: `C` plants a prograde burn at next apoapsis sized
 			// to circularise. Pairs with the LAUNCH HUD's ORBIT READY
 			// callout — when the player sees ORBIT READY (apoapsis is
 			// in space) they press `C`, coast to apoapsis, the planted

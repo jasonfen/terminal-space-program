@@ -70,7 +70,7 @@ func TestSpawnLaunchpadAtAltitudeZero(t *testing.T) {
 // which doesn't perfectly coincide with the body's true equatorial
 // plane (perpendicular to the spin axis). At lat=0 on Earth we get
 // ~398 m/s instead of the body-rotation-perfect 465 m/s — a known
-// artifact of texture alignment that v0.9.5+ renderer work could
+// artifact of texture alignment that v0.9.4+ renderer work could
 // resolve. v0.9.2 verifies |V| is non-zero and within a sensible
 // range (250–500 m/s — captures real-world equatorial spin
 // magnitudes whether you compute against body-rotation or
@@ -167,7 +167,7 @@ func TestSpawnLaunchpadAlignsWithTexture(t *testing.T) {
 // spawn position through the renderer and confirms the (lat, lon)
 // reconstructs correctly.
 
-// TestSpawnLaunchpadAutoSnapsNavSurface — v0.9.5+: a launchpad spawn
+// TestSpawnLaunchpadAutoSnapsNavSurface — v0.9.4+: a launchpad spawn
 // auto-snaps World.NavMode to NavSurface so the player's `w`/`s` SAS
 // keys route to surface-prograde / -retrograde without an explicit
 // `;` cycle. Mirrors v0.9.3's reconcileNavMode pattern (NavMode
@@ -198,7 +198,7 @@ func TestSpawnLaunchpadAutoSnapsNavSurface(t *testing.T) {
 // world is already in NavSurface (e.g. a previous launchpad spawn
 // already snapped it), a subsequent launchpad spawn must not flap
 // the mode back through NavOrbit. The auto-snap is a one-way
-// NavOrbit → NavSurface lift, idempotent on NavSurface. v0.9.5+.
+// NavOrbit → NavSurface lift, idempotent on NavSurface. v0.9.4+.
 //
 // (NavTarget can't survive across a launchpad spawn because target
 // bindings are per-craft and SetActiveCraftIdx → reconcileNavMode
