@@ -24,7 +24,7 @@ func testEarth() bodies.CelestialBody {
 func TestApplyPitchTrimZeroIsNoop(t *testing.T) {
 	r := orbital.Vec3{X: 6.371e6}
 	dir := orbital.Vec3{X: 1}
-	got := ApplyPitchTrim(dir, r, 0)
+	got := ApplyPitchTrim(dir, r, orbital.Vec3{Z: 1}, 0)
 	if got != dir {
 		t.Errorf("zero trim altered dir: got %+v, want %+v", got, dir)
 	}
@@ -36,7 +36,7 @@ func TestApplyPitchTrimZeroIsNoop(t *testing.T) {
 func TestApplyPitchTrimEastTiltsRadialEast(t *testing.T) {
 	r := orbital.Vec3{X: 6.371e6}
 	radialOut := orbital.Vec3{X: 1}
-	got := ApplyPitchTrim(radialOut, r, math.Pi/2)
+	got := ApplyPitchTrim(radialOut, r, orbital.Vec3{Z: 1}, math.Pi/2)
 	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-1) > 1e-9 || math.Abs(got.Z) > 1e-9 {
 		t.Errorf("90° east trim of radial+: got %+v, want (0, 1, 0)", got)
 	}
@@ -47,7 +47,7 @@ func TestApplyPitchTrimEastTiltsRadialEast(t *testing.T) {
 func TestApplyPitchTrimSmallEastBoost(t *testing.T) {
 	r := orbital.Vec3{X: 6.371e6}
 	radialOut := orbital.Vec3{X: 1}
-	got := ApplyPitchTrim(radialOut, r, 5*math.Pi/180)
+	got := ApplyPitchTrim(radialOut, r, orbital.Vec3{Z: 1}, 5*math.Pi/180)
 	wantX := math.Cos(5 * math.Pi / 180)
 	wantY := math.Sin(5 * math.Pi / 180)
 	if math.Abs(got.X-wantX) > 1e-9 {
@@ -115,7 +115,7 @@ func TestBurnDirectionAppliesPitchTrim(t *testing.T) {
 	s.State.V = v
 	s.PitchTrim = 5 * math.Pi / 180
 	got := s.BurnDirection(BurnRadialOut)
-	want := ApplyPitchTrim(orbital.Vec3{X: 1}, r, 5*math.Pi/180)
+	want := ApplyPitchTrim(orbital.Vec3{X: 1}, r, orbital.Vec3{Z: 1}, 5*math.Pi/180)
 	if math.Abs(got.X-want.X) > 1e-9 || math.Abs(got.Y-want.Y) > 1e-9 || math.Abs(got.Z-want.Z) > 1e-9 {
 		t.Errorf("pitch trim on radial+: got %+v, want %+v", got, want)
 	}

@@ -525,6 +525,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
+		case key.Matches(m, a.keys.PlanCircularize):
+			// v0.9.4+: `C` plants a prograde burn at next apoapsis sized
+			// to circularise. Pairs with the LAUNCH HUD's ORBIT READY
+			// callout — when the player sees ORBIT READY (apoapsis is
+			// in space) they press `C`, coast to apoapsis, the planted
+			// node fires, periapsis rises to match apoapsis, mission
+			// passes. Mirrors v0.7.4's `I` planter shape.
+			if a.world.CraftVisibleHere() {
+				plan, err := a.world.PlanCircularizeAtApoapsis()
+				if err != nil {
+					a.statusMsg = fmt.Sprintf("circularize: %v", err)
+				} else {
+					a.statusMsg = fmt.Sprintf("circularize @ apoapsis (%.0f km) → +%.0f m/s prograde",
+						plan.ApoAltM/1000, plan.DV)
+				}
+				a.statusExpires = time.Now().Add(3 * time.Second)
+			}
+			return a, nil
 		case key.Matches(m, a.keys.Porkchop):
 			if a.active == screenOrbit && a.world.CraftVisibleHere() && a.selectedBody > 0 {
 				a.porkchop.Load(a.world, a.selectedBody)

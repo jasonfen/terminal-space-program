@@ -6,6 +6,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
 const g0 = 9.80665
@@ -443,7 +444,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 		throttle = 1
 	}
 	thrust := s.Thrust * throttle
-	if s.Fuel <= 0 {
+	if s.ActiveStageFuel() <= 0 {
 		thrust = 0
 	}
 	// v0.9.2+: capture omega + pitch trim at closure construction so
@@ -453,7 +454,10 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 	// fixed for the burn — the v0.9.2 plan didn't commit live trim
 	// adjustments mid-burn (they only feed through to the next burn
 	// engagement). v0.9.3+: target snapshot likewise captured here.
-	omega := physics.AtmosphereOmega(s.Primary)
+	omegaR := render.BodySpinOmegaWorld(s.Primary)
+	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
+	axisR := render.BodyRotationAxisWorld(s.Primary)
+	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
 	pitchTrim := s.PitchTrim
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
@@ -478,7 +482,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 			dir = DirectionUnit(mode, r, v)
 		}
 		if pitchTrim != 0 {
-			dir = ApplyPitchTrim(dir, r, pitchTrim)
+			dir = ApplyPitchTrim(dir, r, spinAxis, pitchTrim)
 		}
 		if dir.Norm() == 0 {
 			return gravity
