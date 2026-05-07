@@ -13,7 +13,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
-	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -1130,8 +1129,12 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		// Vertical / horizontal split of velocity in the body's
 		// rotating frame: vertical = v · r̂, horizontal = |v - v_vert·r̂|
 		// after subtracting the surface co-rotation ω×r so a craft
-		// sitting on the pad reads 0 m/s on both axes.
-		omega := physics.AtmosphereOmega(c.Primary)
+		// sitting on the pad reads 0 m/s on both axes. Use the
+		// tilted spin axis (matches the launchpad spawn frame); the
+		// Z-aligned physics.AtmosphereOmega leaves a ~150 m/s
+		// residual at Earth's 23.5° axial tilt.
+		omegaRender := render.BodySpinOmegaWorld(c.Primary)
+		omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
 		vRel := c.State.V.Sub(omega.Cross(c.State.R))
 		rNorm := c.State.R.Norm()
 		var vVert, vHoriz float64
