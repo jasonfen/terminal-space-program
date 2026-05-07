@@ -90,7 +90,9 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
-| [v0.9.2 (WIP)](#v092-work-in-progress) | 2026-05-05 | 🚧 | Ground-launch primitives — launchpad spawn, surface-frame SAS, pitch trim, LAUNCH HUD. **Manual ascent to LEO unreliable; ships unmerged on PR #51.** |
+| [v0.9.5 (in flight)](#v095-in-flight) | 2026-05-07 | 🚧 | Ascent ergonomics — predictive ap/pe/Δv→circ in LAUNCH HUD, ORBIT READY callout, NavSurface auto-snap on launchpad spawn, single-key `C` plants circularize-at-apoapsis. Closes the v0.9.2 WIP friction without an autopilot. |
+| [v0.9.3 (awaiting playtest)](#v093-awaiting-playtest) | 2026-05-06 | 🚧 | Rendezvous tooling — target-relative SAS modes (`BurnTarget*`), TCA / CA / DOCK READY in TARGET HUD, KSP-style NavMode cycle (`;`), `m`-form integration with `next closest approach` trigger event. |
+| [v0.9.2 (WIP, superseded by v0.9.5)](#v092-work-in-progress) | 2026-05-05 | 🚧 | Ground-launch primitives — launchpad spawn, surface-frame SAS, pitch trim, LAUNCH HUD. Manual ascent unreliable; v0.9.5 ascent ergonomics adds the live guidance that closes the loop. |
 | [v0.9.1](#v091) | 2026-05-05 | ✓ | KSP-style staging chain — Saturn-V 3-stage loadout, `space` decouples bottom stage |
 | [v0.9.0](#v090) | 2026-05-05 | ✓ | unified `World.Target` slot — first slice of "the craft fleet grows up" cycle |
 | [v0.8.6](#v086) | 2026-05-04 | ✓ | controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target |
@@ -108,7 +110,77 @@ flyby) match real spacecraft work.
 | [v0.2](#v02) | 2026-04 | ✓ | finite burns + maneuver planner |
 | [v0.1](#v01) | 2026-04 | ✓ | two-body propagator + SOI |
 
-### v0.9.2 (work-in-progress)
+### v0.9.5 (in flight)
+<!-- llm-parse: version=v0.9.5 status=in-progress date=2026-05-07 theme=ascent-ergonomics branch=claude/improve-launch-rendezvous-BJj0Y -->
+
+**Ascent ergonomics — closes the v0.9.2 ground-launch loop.** The
+v0.9.2 retrospective flagged "manual ascent to LEO unreliable" as
+the gating friction. v0.9.5 transplants the v0.9.3 rendezvous
+design language onto launch: live predictive numbers in the LAUNCH
+HUD that the player can fly by (TCA/CA → ap/Δv→circ), a
+threshold-callout (DOCK READY → ORBIT READY), and frame-aware
+default routing (NavTarget auto-snap → NavSurface auto-snap on
+launchpad spawn). No autopilot, no pitch table — KSP-style: tip the
+rocket 10° east, hold surface-prograde, watch ap climb, plant the
+circularisation node.
+
+**Shipped on `claude/improve-launch-rendezvous-BJj0Y`.**
+
+- **Live ascent prediction** in LAUNCH HUD
+  (`internal/tui/screens/orbit.go:1158-1268`): `ap` (with
+  `(climbing) / (falling) / (steady)` trend tag,
+  finite-differenced from last frame), `pe`, `t_to_apo`,
+  `Δv→circ`. Mirrors v0.9.3's TARGET HUD signed closing-rate
+  pattern. Cached per-craft on `OrbitView.ascentTrendCraft` so
+  cycling crafts re-baselines cleanly.
+- **ORBIT READY callout** (`internal/tui/screens/orbit.go:1255-1267`):
+  fires when apoapsis crosses the 200 km mission floor — the
+  actionable threshold ("coast & plant `C`"), not the mission-pass
+  threshold (which is per-frame transient). Renders in the same
+  bold green (`#3DDC84`) as v0.9.3's DOCK READY for visual
+  symmetry.
+- **NavSurface auto-snap on launchpad spawn** (`internal/sim/spawn.go:213-229`):
+  mirrors v0.9.3's `reconcileNavMode` pattern. Idempotent on
+  NavSurface; only lifts NavOrbit. Lowercase `w` now means
+  surface-prograde out of the box on launch.
+- **`C` plants circularize-at-apoapsis** (`internal/sim/maneuver.go:790-867`,
+  `internal/tui/input.go:166`, `internal/tui/app.go:528-547`):
+  `World.PlanCircularizeAtApoapsis` computes the impulsive Δv from
+  vis-viva (`sqrt(mu/r_apo) - sqrt(mu·(2/r_apo − 1/a))`) and plants
+  a `BurnPrograde / TriggerNextApo` node. Errors when apoapsis is
+  below the atmosphere cutoff (with a flash explaining the gate).
+- **Mission progress in LAUNCH HUD** (`internal/tui/screens/orbit.go:1791-1816`):
+  surfaces `pe X km / 200 km target` whenever a circularize_from_pad
+  mission is in flight, so the player has one number to chase.
+
+**LOC.** ~470 production + ~280 tests. Targets / sub-targets land
+within the 2× HUD-snowball heuristic envelope (~500 plan / ~750
+worst-case).
+
+**v0.9.2 retrospective resolution.** The v0.9.2 unmerged-on-branch
+WIP status is closed by this slice — the friction the v0.9.2
+retrospective flagged ("manual ascent to LEO unreliable") was
+guidance, not primitives. v0.9.5's live-guidance HUD makes the same
+v0.9.2 primitives playable. Open question #7 (launch gravity-turn
+assist) is resolved in favour of option (a) (live HUD overlay) over
+option (b) (autopilot).
+
+### v0.9.3 (awaiting playtest)
+<!-- llm-parse: version=v0.9.3 status=in-progress date=2026-05-06 theme=rendezvous branch=v0.9.3-rendezvous -->
+
+Rendezvous tooling (manual-first) shipped on
+`origin/v0.9.3-rendezvous`. All four target-relative SAS modes
+(`BurnTargetPrograde` / `BurnTargetRetrograde` / `BurnTarget` /
+`BurnAntiTarget`); `planner.NextClosestApproach` with live TCA / CA
+/ DOCK READY readouts in TARGET HUD; KSP-style NavMode cycle (`;`)
+that reroutes the same six SAS axis keys per frame
+(Orbit/Surface/Target); `m`-form integration with the
+`next closest approach` trigger event + `ManeuverNode.TargetCraftIdx`
+captured-at-plant + save round-trip. **Folded into the v0.9.5
+working branch** so ascent ergonomics can build on the NavMode
+auto-snap pattern.
+
+### v0.9.2 (work-in-progress, superseded by v0.9.5)
 <!-- llm-parse: version=v0.9.2 status=in-progress date=2026-05-05 theme=ground-launch branch=v0.9.2-ground-launch pr=51 -->
 
 **Ground-launch primitives — feature-complete on branch, manual
@@ -620,17 +692,18 @@ take a position on them.
 📐 **open · low priority unless playtest exposes**. v0.8.4 has the atmosphere co-rotating with the body via `ω × r`. At high altitude (above ~100 km on Earth, where ground-level corotation breaks down in reality), the model is approximate. Reopen if it shows up in a playtest as a noticeable orbit decay error.
 
 #### Launch gravity-turn assist
-<!-- llm-parse: id=gravity-turn-assist status=open-question target=v0.9.5-plus reopened-from=v0.9-plan-decision-7 -->
-📐 **open · committed v0.9.5+ candidate**. v0.9.2 shipped manual-
-only per the original v0.9-plan decision #7. Playtest confirmed the
-friction the decision flagged: hand-flying a Saturn V to LEO without
-a guide overlay or autopilot is unreliable — the ascent profile is
-sensitive to throttle / pitch timing in ways that 10° pitch-trim
-steps don't smooth. Two options on the table: (a) target pitch-vs-
-altitude HUD overlay (lightweight, leaves flying manual — shows
-where the player *should* be pointing), or (b) autopilot toggle
-that drives throttle + attitude along a baked Saturn V profile.
-Pick at v0.9.5 slice planning.
+<!-- llm-parse: id=gravity-turn-assist status=resolved target=v0.9.5 reopened-from=v0.9-plan-decision-7 -->
+✓ **resolved in v0.9.5** with neither (a) nor (b). The two options
+on the table at v0.9.2 retrospective were (a) target pitch-vs-
+altitude HUD overlay or (b) autopilot toggle. v0.9.5 transplanted
+v0.9.3's rendezvous design language onto launch instead — live
+predictive numbers (ap, pe, Δv→circ) + threshold callout (ORBIT
+READY) + frame auto-routing (NavSurface auto-snap on launchpad
+spawn) + single-key circularize (`C`). The KSP recipe (tip 10°,
+hold surface-prograde, ride the gravity turn) was already
+realisable with v0.9.2 primitives + v0.9.3 NavMode; what was
+missing was the live KSP-style instruments to fly it by. Adding
+those instruments closes the loop without the autopilot route.
 
 #### Cross-view rotation parity in orbit-flat
 <!-- llm-parse: id=cross-view-rotation-parity status=open-question target=v0.9.5-plus -->

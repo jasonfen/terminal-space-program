@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
@@ -73,6 +74,16 @@ type OrbitView struct {
 	hudScrollOffset int   // rows of overflow off the top when the rendered view exceeds terminal height
 	hudColStart     int   // first screen-col of the HUD region
 	totalRows       int   // last-known terminal height; updated by Render
+
+	// ascentTrend caches last-frame apoapsis for the active craft so
+	// the LAUNCH HUD can show a `(climbing)` / `(falling)` / `(steady)`
+	// tag — the launch-flight equivalent of v0.9.3's signed
+	// closing-rate readout in the TARGET HUD. Re-baselined whenever
+	// the active craft pointer changes (ie spawn, cycle, or fuse), so
+	// stale entries can't bleed across crafts. v0.9.5+.
+	ascentTrendCraft *spacecraft.Spacecraft
+	ascentTrendApoM  float64
+	ascentTrendTime  time.Time
 }
 
 // hudNodeHit identifies a clickable NODES-block entry. CraftIdx is
@@ -1164,6 +1175,121 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  sas:        %s", sasLabel),
 			fmt.Sprintf("  trim:       %s", trimLabel),
 		)
+		// v0.9.5+: live ascent prediction — apoapsis / periapsis / time-
+		// to-apoapsis / Δv-to-circularise. Mirrors v0.9.3's TARGET HUD
+		// pattern (live numbers shrink as the player nudges throttle)
+		// so the player can fly the gravity turn by watching ap climb
+		// instead of memorising a profile. Computed once per frame from
+		// orbital.ElementsFromStateInFrame; trend tag is finite-
+		// differenced against the last frame.
+		mu := c.Primary.GravitationalParameter()
+		primaryR := c.Primary.RadiusMeters()
+		frame := orbital.ReferenceFrameForPrimary(c.Primary)
+		el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
+		var (
+			apoAlt, periAlt float64
+			apoFinite       bool
+		)
+		if !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.A > 0 && el.E < 1 {
+			apoAlt = el.Apoapsis() - primaryR
+			periAlt = el.Periapsis() - primaryR
+			apoFinite = true
+		}
+		apLabel := "—"
+		peLabel := "—"
+		ttaLabel := "—"
+		dvCircLabel := "—"
+		trendLabel := ""
+		if apoFinite {
+			apLabel = formatAltKm(apoAlt)
+			peLabel = formatAltKm(periAlt)
+			// Δapo/dt finite-diff against last frame on this craft.
+			// First frame on a craft (or after the active craft pointer
+			// changes) seeds the cache; subsequent frames produce a
+			// tag. Threshold of 1 m/s renders as `(steady)`.
+			now := w.Clock.SimTime
+			if v.ascentTrendCraft == c && !v.ascentTrendTime.IsZero() {
+				dt := now.Sub(v.ascentTrendTime).Seconds()
+				if dt > 1e-6 {
+					rate := (el.Apoapsis() - v.ascentTrendApoM) / dt
+					switch {
+					case rate > 1.0:
+						trendLabel = " (climbing)"
+					case rate < -1.0:
+						trendLabel = " (falling)"
+					default:
+						trendLabel = " (steady)"
+					}
+				}
+			}
+			v.ascentTrendCraft = c
+			v.ascentTrendApoM = el.Apoapsis()
+			v.ascentTrendTime = now
+
+			// t_to_apo only meaningful once apoapsis clears the
+			// surface; on a sub-orbital arc the "next apoapsis" math
+			// resolves but the readout is misleading (apoapsis is
+			// underground).
+			if apoAlt > 0 {
+				ttaSec := orbital.TimeToApoapsis(orbital.Vec3State{R: c.State.R, V: c.State.V}, mu)
+				if ttaSec > 0 {
+					ttaLabel = formatDurationShort(ttaSec)
+				}
+			}
+			// Δv→circ at apoapsis. Vis-viva at r_apo gives current
+			// along-track speed there; circular speed is sqrt(mu/r_apo);
+			// the difference is the prograde Δv. Hidden when apoapsis
+			// is below the primary surface (orbit closes underground)
+			// or above primary radius but with a negative periapsis
+			// the readout still helps — it's the "burn this much when
+			// you get there" hint.
+			rApo := el.Apoapsis()
+			if rApo > primaryR && el.A > 0 {
+				vAtApo := math.Sqrt(mu * (2/rApo - 1/el.A))
+				vCircAtApo := math.Sqrt(mu / rApo)
+				dvCirc := vCircAtApo - vAtApo
+				if dvCirc > 0 {
+					dvCircLabel = fmt.Sprintf("%.0f m/s", dvCirc)
+				}
+			}
+		} else {
+			// Hyperbolic / degenerate — clear the trend cache so the
+			// next bound state seeds fresh.
+			v.ascentTrendCraft = nil
+		}
+		lines = append(lines,
+			fmt.Sprintf("  ap:         %s%s", apLabel, trendLabel),
+			fmt.Sprintf("  pe:         %s", peLabel),
+			fmt.Sprintf("  t_to_apo:   %s", ttaLabel),
+			fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
+		)
+		// v0.9.5+: ORBIT READY callout — fires when apoapsis is above
+		// the mission floor, signalling "your apoapsis is in space,
+		// coast there and press C to plant the circularisation node."
+		// Mirrors v0.9.3's DOCK READY pattern (live signal + bold
+		// green styling) but gates on apoapsis (the actionable
+		// threshold while still ascending), not periapsis (which
+		// crosses the floor only at circularisation, by which time
+		// the LAUNCH HUD is one frame from vanishing because the
+		// mission has passed).
+		if apoFinite && apoAlt > launchMissionFloorM {
+			orbitStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
+			lines = append(lines,
+				"  "+orbitStyle.Render("● ORBIT READY — coast to ap, press C to plant circularise"),
+			)
+		}
+		// v0.9.5+: live mission progress — surfaces the
+		// saturn-v-pad-to-leo floor distance below the predictive
+		// rows so the player sees a single number to chase ("pe 130 km
+		// / 200 km target") instead of guessing whether they're close.
+		// Reads off the primary's periapsis altitude in the same units
+		// as the mission predicate.
+		if apoFinite {
+			progress := launchMissionProgress(w, c, periAlt)
+			if progress != "" {
+				lines = append(lines, "  "+progress)
+			}
+		}
 	}
 
 	// v0.8.2.x: arrival inclination preview. Surfaces the post-
@@ -1588,12 +1714,16 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 }
 
 // shouldShowLaunchHUD returns true when the active craft is in
-// "ascent" mode — periapsis below the primary's mean radius
-// (= craft would impact if its orbit closed) AND altitude under
-// the primary's atmospheric cutoff. Both conditions guarantee
-// the orbit-relative HUD blocks aren't useful yet (the orbit
-// closes underground) and the manual gravity-turn instruments
-// are. v0.9.2+.
+// "ascent" mode — defined v0.9.5+ as "periapsis below the
+// circularize-from-pad mission floor" (200 km altitude). Visible
+// for the whole pad → coast → circularise journey, vanishing only
+// once the mission-floor periapsis is achieved (= LEO is captured).
+// v0.9.2+ originally hid the HUD as soon as periapsis cleared the
+// surface or the craft left the atmosphere; that hid the very
+// signals (ap, pe, Δv→circ, ORBIT READY) the player needs during
+// coast and circularisation, so v0.9.5+ keeps it up through the
+// whole ascent phase. Hyperbolic / degenerate states keep the HUD
+// up too (they read "—" rather than misleading numbers).
 func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 	if c == nil {
 		return false
@@ -1610,27 +1740,83 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 		return false
 	}
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	periapsis := el.Periapsis()
+	if el.E >= 1 || el.A <= 0 {
+		// Hyperbolic or degenerate: still on an ascent-class
+		// trajectory (or thrown off it). Show the HUD with `—`
+		// placeholders rather than silently hiding.
+		return true
+	}
 	primaryR := c.Primary.RadiusMeters()
-	if periapsis >= primaryR {
-		// Stable orbit (or hyperbolic with no impact) — orbit-
-		// relative HUD takes over.
-		return false
+	periAlt := el.Periapsis() - primaryR
+	return periAlt < launchMissionFloorM
+}
+
+// launchMissionFloorM is the periapsis altitude (m) at which the
+// saturn-v-pad-to-leo mission passes — also the threshold at which
+// the LAUNCH HUD vanishes (ascent complete) and the ORBIT READY
+// callout's pe gate fires. Lives at the package boundary so the
+// LAUNCH HUD block (orbit.go:1158-) and shouldShowLaunchHUD agree
+// on a single floor. Mirrors the JSON value at
+// internal/missions/missions.json:40. v0.9.5+.
+const launchMissionFloorM = 200_000.0
+
+// formatAltKm renders an altitude in metres as a signed kilometre
+// string with a sign that's friendly to ascent flight ("−2.8 km"
+// reads better than "−2840 m" for sub-orbital periapsis). Used by
+// the LAUNCH HUD's ap / pe rows. v0.9.5+.
+func formatAltKm(altM float64) string {
+	km := altM / 1000
+	switch {
+	case math.Abs(km) >= 1000:
+		return fmt.Sprintf("%+.0f km", km)
+	case math.Abs(km) >= 1:
+		return fmt.Sprintf("%+.1f km", km)
+	default:
+		return fmt.Sprintf("%+.0f m", altM)
 	}
-	alt := c.State.R.Norm() - primaryR
-	cutoff := c.Primary.Atmosphere.CutoffAltitude
-	if cutoff > 0 && alt > cutoff {
-		// Above atmosphere with sub-radius periapsis: trajectory is
-		// either descending toward impact or about to circularise.
-		// LAUNCH HUD is only relevant in the climb phase (alt below
-		// cutoff). Above-cutoff sub-orbital flight is rare; surfacing
-		// it would clutter the HUD for the typical "just left the
-		// atmosphere, periapsis still negative" Saturn-V ascent.
-		// The orbit-relative HUD blocks above already cover this
-		// case adequately.
-		return false
+}
+
+// formatDurationShort renders seconds as a short human label —
+// "12s" / "3m45s" / "1h22m". Used by the LAUNCH HUD's t_to_apo
+// row and the rendezvous TCA readout (v0.9.3 patterns kept
+// consistent across both ascent and rendezvous flows). v0.9.5+.
+func formatDurationShort(sec float64) string {
+	if sec < 60 {
+		return fmt.Sprintf("%.0fs", sec)
 	}
-	return true
+	if sec < 3600 {
+		m := int(sec) / 60
+		s := int(sec) % 60
+		return fmt.Sprintf("%dm%02ds", m, s)
+	}
+	h := int(sec) / 3600
+	m := (int(sec) % 3600) / 60
+	return fmt.Sprintf("%dh%02dm", h, m)
+}
+
+// launchMissionProgress returns the pe-altitude-vs-mission-floor
+// row for the LAUNCH HUD when the active craft is flying a
+// circularize_from_pad mission for its current primary. Empty
+// string when no such mission is in flight. v0.9.5+.
+func launchMissionProgress(w *sim.World, c *spacecraft.Spacecraft, periAltM float64) string {
+	for _, m := range w.Missions {
+		if m.Type != missions.TypeCircularizeFromPad {
+			continue
+		}
+		if m.Status == missions.Passed {
+			continue
+		}
+		if m.Params.PrimaryID != c.Primary.ID {
+			continue
+		}
+		target := m.Params.MinPeriapsisAltM
+		if target <= 0 {
+			target = launchMissionFloorM
+		}
+		return fmt.Sprintf("mission:    pe %s / %s target",
+			formatAltKm(periAltM), formatAltKm(target))
+	}
+	return ""
 }
 
 // scanHudNodeRows walks the rendered HUD line-by-line and matches
