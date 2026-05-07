@@ -42,6 +42,13 @@ func TestStageActiveOnSaturnVPopsBottomStage(t *testing.T) {
 		t.Errorf("active stage count: got %d, want %d (one popped)",
 			len(active.Stages), beforeStageCount-1)
 	}
+	// v0.9.4+: active craft renames to the new bottom stage (S-II
+	// after S-IC drops) — the loadout-level "Saturn V" name no
+	// longer matches reality once stages decouple.
+	if active.Name != active.Stages[0].Name {
+		t.Errorf("active name after staging: got %q, want %q (new bottom stage's name)",
+			active.Name, active.Stages[0].Name)
+	}
 	if jettIdx != len(w.Crafts)-1 {
 		t.Errorf("jettisoned idx: got %d, want %d (end of slate)",
 			jettIdx, len(w.Crafts)-1)
