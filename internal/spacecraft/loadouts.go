@@ -2,18 +2,23 @@ package spacecraft
 
 // Loadout describes a named craft archetype — propulsion numbers,
 // dry/wet mass sizing, default RCS pool, and visual differentiation
-// (glyph + color). v0.8.2 ship set + v0.9.1 Saturn-V multi-stage:
+// (glyph + color). v0.8.2 ship set + v0.9.1 Saturn-V multi-stage +
+// v0.9.4 SLS / Falcon 9:
 //
-//   - S-IVB-1:  J-2-powered third stage. The v0.5.13+ default.
-//   - ICPS:     RL-10-powered low-TWR transfer stage. Returns from
-//               v0.5.6 — long burns, less mass.
-//   - RCS-tug:  Pure-monoprop proximity-ops vehicle. No main engine;
-//               navigates entirely on RCS. For docking maneuvers.
-//   - Lander:   Throttleable descent-stage profile (LM-derived). Lower
-//               thrust, lower Isp, sized for surface maneuvering.
-//   - Saturn-V: 3-stage launch vehicle (S-IC booster, S-II sustainer,
-//               S-IVB insertion). v0.9.1+. TWR > 1 at sea level on
-//               stage 1.
+//   - S-IVB-1:    J-2-powered third stage. The v0.5.13+ default.
+//   - ICPS:       RL-10-powered low-TWR transfer stage. Returns from
+//                 v0.5.6 — long burns, less mass.
+//   - RCS-tug:    Pure-monoprop proximity-ops vehicle. No main engine;
+//                 navigates entirely on RCS. For docking maneuvers.
+//   - Lander:     Throttleable descent-stage profile (LM-derived). Lower
+//                 thrust, lower Isp, sized for surface maneuvering.
+//   - Saturn-V:   3-stage Apollo launch vehicle (S-IC / S-II / S-IVB).
+//                 v0.9.1+. TWR > 1 at sea level on stage 1.
+//   - SLS-Block1: 3-stage NASA heavy-lift (SRBs / Core / ICPS). v0.9.4+.
+//                 SRBs and core fire in parallel in real life; we
+//                 approximate as sequential.
+//   - Falcon-9:   2-stage SpaceX LV (Merlin 1D × 9 / Merlin Vacuum).
+//                 v0.9.4+. Smaller stack, higher lift-off TWR.
 //
 // Future loadouts land alongside this catalog and are referenced
 // from Spacecraft.LoadoutID — a string lookup keeps the on-disk
@@ -87,6 +92,20 @@ const LoadoutLanderID = "Lander"
 
 // LoadoutSaturnV is the 3-stage Apollo launch vehicle. v0.9.1+.
 const LoadoutSaturnVID = "Saturn-V"
+
+// LoadoutSLSBlock1 is the 3-stage NASA Space Launch System Block 1.
+// v0.9.4+. Twin 5-segment solid boosters (SRBs) → 4× RS-25 core stage
+// → ICPS. Same low-TWR upper-stage shape as Saturn V (Core TWR ~0.87
+// after SRB sep), so gameplay translates: continuous-burn ascent,
+// no coast-and-circularize.
+const LoadoutSLSBlock1ID = "SLS-Block1"
+
+// LoadoutFalcon9 is the 2-stage SpaceX Falcon 9 Block 5. v0.9.4+.
+// 9× Merlin 1D first stage → 1× Merlin Vacuum second stage. Higher
+// TWR than the heavy-lift options (~1.4 at lift-off) and a smaller
+// stack — handles like a sport rocket compared to the Saturn V /
+// SLS heavies.
+const LoadoutFalcon9ID = "Falcon-9"
 
 // stageRCS builds the per-stage RCS pool for a stage of the given
 // dry mass via DefaultRCSLoadout — same scaling that single-stage
@@ -213,18 +232,79 @@ var Loadouts = map[string]Loadout{
 				11000, 109000, 1023000, 421, 6.25e-5),
 		},
 	},
+	// SLS Block 1 (v0.9.4+): NASA's heavy-lift LV, Artemis 1+. The
+	// SRBs and core stage actually fire in parallel from lift-off in
+	// real life; we model them as sequential stages here because the
+	// engine here is single-fire-per-stage. Lift-off TWR with SRBs
+	// alone ≈ 1.27 (vs real ~1.57 with both SRBs and core); the
+	// Δv lost during the boost phase is mostly recovered in stage 2,
+	// where our "fresh" core has all 979 t of LH2/LOX rather than
+	// the ~722 t left after firing for 126 s.
+	LoadoutSLSBlock1ID: {
+		ID:    LoadoutSLSBlock1ID,
+		Name:  "SLS Block 1",
+		Role:  "launch-vehicle",
+		Glyph: "▲",
+		Color: "#FF6B35",
+		Stages: []Stage{
+			// Twin 5-segment solid rocket boosters. Casings dropped
+			// at burnout. ~12.2 m² combined cross-section, ~1.47 Mkg
+			// wet → BC ≈ 0.3 · 12 / 1.47e6 ≈ 2.4e-6, but two long
+			// skinny solids alongside the core have higher effective
+			// drag — round to 8e-6 to match Saturn V S-IC scale.
+			stageWithBC(LoadoutSLSBlock1ID, "SRBs", "▲", "#E0E0E0",
+				198000, 1270000, 32000000, 268, 8e-6),
+			// Core stage: 4× RS-25 cluster, vacuum Isp (fires through
+			// most of the ascent above the dense atmosphere by the
+			// time SRBs separate at ~50 km). BC similar to S-II.
+			stageWithBC(LoadoutSLSBlock1ID, "Core", "▲", "#FF6B35",
+				85275, 979452, 9290000, 452, 2.5e-5),
+			// ICPS (Interim Cryogenic Propulsion Stage): RL10B-2,
+			// vacuum Isp. Same shape as the standalone ICPS loadout
+			// but lives as the top of the SLS chain. TLI-class burn,
+			// not orbital insertion — TWR is very low (~0.1).
+			stageWithBC(LoadoutSLSBlock1ID, "ICPS", "◆", "#5BB3FF",
+				3500, 25000, 110000, 462, 6.25e-5),
+		},
+	},
+	// Falcon 9 Block 5 (v0.9.4+): SpaceX two-stage LV. ~549 t fully
+	// fuelled — about a fifth of Saturn V / SLS by mass. Lift-off
+	// TWR ~1.4 (9× Merlin 1D = 7607 kN SL vs ~5380 kN weight). Stage
+	// 2's Merlin Vacuum gives TWR ~0.85 at ignition, similar to
+	// Saturn V S-II — same continuous-burn upper-stage profile.
+	LoadoutFalcon9ID: {
+		ID:    LoadoutFalcon9ID,
+		Name:  "Falcon 9",
+		Role:  "launch-vehicle",
+		Glyph: "▲",
+		Color: "#E8E8E8",
+		Stages: []Stage{
+			// First stage: 9× Merlin 1D, sea-level Isp. 3.7 m
+			// diameter, ~10.75 m² cross-section, ~437 t wet →
+			// BC ≈ 0.3 · 10.75 / 437e3 ≈ 7.4e-6.
+			stageWithBC(LoadoutFalcon9ID, "F9-S1", "▲", "#E8E8E8",
+				25600, 411000, 7607000, 282, 7.4e-6),
+			// Second stage: 1× Merlin Vacuum, vacuum Isp. Above the
+			// atmosphere by ignition, BC matters less — pick a
+			// vacuum-stage value similar to S-IVB.
+			stageWithBC(LoadoutFalcon9ID, "F9-S2", "▲", "#B0D8FF",
+				3900, 107500, 934000, 348, 5e-5),
+		},
+	},
 }
 
 // LoadoutOrder lists loadouts in canonical UI cycle order — the
 // v0.8.2+ spawn form's craft-type field cycles through this. v0.9.1
 // appends Saturn-V at the end so existing playtests keep landing on
-// S-IVB-1 by default.
+// S-IVB-1 by default. v0.9.4+ appends SLS Block 1 and Falcon 9.
 var LoadoutOrder = []string{
 	LoadoutSIVB1ID,
 	LoadoutICPSID,
 	LoadoutRCSTugID,
 	LoadoutLanderID,
 	LoadoutSaturnVID,
+	LoadoutSLSBlock1ID,
+	LoadoutFalcon9ID,
 }
 
 // LookupLoadout returns the catalog entry for the given ID, or the
