@@ -1234,7 +1234,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		peLabel := "—"
 		ttaLabel := "—"
 		dvCircLabel := "—"
+		tBurnLabel := "—"
 		trendLabel := ""
+		var dvCirc float64
 		if apoFinite {
 			apLabel = formatAltKm(apoAlt)
 			peLabel = formatAltKm(periAlt)
@@ -1273,18 +1275,20 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			}
 			// Δv→circ at apoapsis. Vis-viva at r_apo gives current
 			// along-track speed there; circular speed is sqrt(mu/r_apo);
-			// the difference is the prograde Δv. Hidden when apoapsis
-			// is below the primary surface (orbit closes underground)
-			// or above primary radius but with a negative periapsis
-			// the readout still helps — it's the "burn this much when
-			// you get there" hint.
+			// the difference is the prograde Δv. Labelled (impulsive)
+			// because the calc assumes an instantaneous on-axis burn —
+			// real low-TWR upper-stage burns eat 15–40% more from
+			// finite-burn time, gravity loss, and drift past apoapsis.
+			// The companion t_burn row surfaces the duration so the
+			// player can sanity-check whether finite-burn losses will
+			// be substantial.
 			rApo := el.Apoapsis()
 			if rApo > primaryR && el.A > 0 {
 				vAtApo := math.Sqrt(mu * (2/rApo - 1/el.A))
 				vCircAtApo := math.Sqrt(mu / rApo)
-				dvCirc := vCircAtApo - vAtApo
+				dvCirc = vCircAtApo - vAtApo
 				if dvCirc > 0 {
-					dvCircLabel = fmt.Sprintf("%.0f m/s", dvCirc)
+					dvCircLabel = fmt.Sprintf("%.0f m/s (impulsive)", dvCirc)
 				}
 			}
 		} else {
@@ -1292,11 +1296,25 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			// next bound state seeds fresh.
 			v.ascentTrendCraft = nil
 		}
+		// t_burn: how long the active engine would take to deliver the
+		// impulsive Δv at current thrust + mass. Mass-flow is small
+		// over a single burn relative to mass, so we approximate with
+		// the constant-mass form Δv·m/F. Hidden when no Δv→circ value
+		// (apoapsis below surface) or no thrust (engine cut, dry stage).
+		if dvCirc > 0 && c.Thrust > 0 && c.TotalMass() > 0 {
+			thrust := c.Thrust * c.EffectiveThrottle()
+			if thrust <= 0 {
+				thrust = c.Thrust // ignore throttle when off — show what full burn would take
+			}
+			tBurnSec := dvCirc * c.TotalMass() / thrust
+			tBurnLabel = formatDurationShort(tBurnSec)
+		}
 		lines = append(lines,
 			fmt.Sprintf("  ap:         %s%s", apLabel, trendLabel),
 			fmt.Sprintf("  pe:         %s", peLabel),
 			fmt.Sprintf("  t_to_apo:   %s", ttaLabel),
 			fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
+			fmt.Sprintf("  t_burn:     %s", tBurnLabel),
 		)
 		// v0.9.4+: ORBIT READY callout — fires when apoapsis is above
 		// the mission floor, signalling "your apoapsis is in space,
