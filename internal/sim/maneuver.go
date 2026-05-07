@@ -789,6 +789,87 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 	return &plan, nil
 }
 
+// CircularizePlan summarises a planted circularize-at-apoapsis node
+// for the caller's status flash. v0.9.5+.
+type CircularizePlan struct {
+	DV        float64 // m/s, prograde at next apoapsis
+	ApoAltM   float64 // apoapsis altitude (m above primary mean radius) at plant time
+	PrimaryID string
+}
+
+// PlanCircularizeAtApoapsis plants a prograde burn at the active
+// craft's next apoapsis sized to circularise the orbit there
+// (target periapsis = current apoapsis radius). Mirrors v0.9.3's
+// "single-keystroke planter" pattern (auto-plant Hohmann via `H`,
+// inclination match via `I`, rendezvous via `R` once that lands)
+// applied to the ascent flow's natural last step.
+//
+// Δv is computed analytically from vis-viva — the prograde
+// difference between circular speed at apoapsis (sqrt(mu/r_apo))
+// and the orbit's along-track speed there
+// (sqrt(mu·(2/r_apo − 1/a))). The integrator handles finite-burn
+// loss at fire time using the existing planted-node burn pipeline;
+// the impulsive Δv is within ~1-2% of the iterated finite-burn
+// answer at S-IVB-class TWR (1+ in vacuum), enough to land the
+// circularisation above the 200 km mission floor on most attempts.
+//
+// Errors:
+//   - ErrNoCraftForCircularize: no active craft.
+//   - ErrCircularizeBelowAtmosphere: apoapsis is inside the primary's
+//     atmosphere (not a useful coast target). Player should keep
+//     burning the ascent profile to raise apoapsis first.
+//   - ErrCircularizeBadOrbit: hyperbolic / degenerate state — the
+//     "next apoapsis" math doesn't converge.
+//
+// v0.9.5+.
+func (w *World) PlanCircularizeAtApoapsis() (*CircularizePlan, error) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return nil, ErrNoCraftForCircularize
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu <= 0 {
+		return nil, ErrCircularizeBadOrbit
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	if el.E >= 1 || el.A <= 0 {
+		return nil, ErrCircularizeBadOrbit
+	}
+	rApo := el.Apoapsis()
+	primaryR := c.Primary.RadiusMeters()
+	apoAltM := rApo - primaryR
+	// Gate: apoapsis must clear the atmosphere (otherwise the burn
+	// fires inside drag, defeating the whole point). For atmosphere-
+	// less primaries, fall back to "above the surface" — a low-orbit
+	// Mun-style scenario.
+	atmosphereCutoff := 0.0
+	if c.Primary.Atmosphere != nil {
+		atmosphereCutoff = c.Primary.Atmosphere.CutoffAltitude
+	}
+	if apoAltM <= atmosphereCutoff {
+		return nil, ErrCircularizeBelowAtmosphere
+	}
+	vAtApo := math.Sqrt(mu * (2/rApo - 1/el.A))
+	vCircAtApo := math.Sqrt(mu / rApo)
+	dv := vCircAtApo - vAtApo
+	if dv <= 0 {
+		// Already circular (or beyond) at apoapsis — nothing to plant.
+		return nil, ErrCircularizeBadOrbit
+	}
+	w.PlanNode(ManeuverNode{
+		Mode:      spacecraft.BurnPrograde,
+		DV:        dv,
+		Duration:  c.BurnTimeForDV(dv),
+		Event:     spacecraft.TriggerNextApo,
+		PrimaryID: c.Primary.ID,
+	})
+	return &CircularizePlan{
+		DV:        dv,
+		ApoAltM:   apoAltM,
+		PrimaryID: c.Primary.ID,
+	}, nil
+}
+
 // PorkchopGrid computes a launch-window grid for a Hohmann-style
 // transfer to the target body. Axes: depDays (offsets from now) and
 // tofDays (time of flight). Each cell = total Δv (departure + capture,
@@ -1045,6 +1126,12 @@ var (
 	errNoCraftForTransfer    = transferError("no craft to plan transfer for")
 	errNoRefineTarget        = transferError("no pending transfer to refine")
 	errSamePrimaryUseHohmann = transferError("target shares craft's primary — use [H] auto-Hohmann instead of porkchop")
+
+	// PlanCircularizeAtApoapsis errors. Exported so app.go's status
+	// flash can switch on them with errors.Is. v0.9.5+.
+	ErrNoCraftForCircularize      = transferError("circularize: no active craft")
+	ErrCircularizeBelowAtmosphere = transferError("circularize: apoapsis below atmosphere — keep climbing")
+	ErrCircularizeBadOrbit        = transferError("circularize: hyperbolic / degenerate orbit")
 )
 
 type transferError string
