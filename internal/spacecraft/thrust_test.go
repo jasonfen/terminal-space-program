@@ -188,12 +188,14 @@ func TestThrustAccelFnAddsThrustOnTopOfGravity(t *testing.T) {
 }
 
 // TestThrustAccelFnNoThrustWhenFuelEmpty: with Fuel=0, the closure must
-// return pure gravity even though Thrust is configured.
+// return pure gravity even though Thrust is configured. v0.9.4+:
+// drains Stages[0] (the firing stage) instead of zeroing the summed
+// shadow field, since the cutoff check now reads ActiveStageFuel.
 func TestThrustAccelFnNoThrustWhenFuelEmpty(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
-	sc.Fuel = 0
+	sc.BurnFuel(sc.Stages[0].FuelMass) // drain the firing stage
 	mu := earth.GravitationalParameter()
 
 	accelFn := sc.ThrustAccelFn(BurnPrograde, mu)
@@ -205,5 +207,41 @@ func TestThrustAccelFnNoThrustWhenFuelEmpty(t *testing.T) {
 
 	if got.Sub(want).Norm() > 1e-9 {
 		t.Errorf("with empty fuel, got %+v, want pure gravity %+v", got, want)
+	}
+}
+
+// TestThrustAccelFnNoThrustWhenBottomStageEmpty: regression for the
+// v0.9.4 multi-stage cutoff bug. A Saturn V whose S-IC has burned dry
+// must not continue thrusting just because S-II + S-IVB still hold
+// propellant — the firing engine has nothing to burn. Pre-fix the
+// summed-fuel check let the engine apply free thrust through an
+// empty bottom stage.
+func TestThrustAccelFnNoThrustWhenBottomStageEmpty(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewFromLoadout(LoadoutSaturnVID)
+	sc.Primary = *earth
+	sc.State.R = orbital.Vec3{X: earth.RadiusMeters() + 70e3}
+	sc.State.V = orbital.Vec3{Y: 2500}
+	mu := earth.GravitationalParameter()
+
+	// Drain S-IC fully but leave S-II + S-IVB with their full tanks.
+	sc.BurnFuel(sc.Stages[0].FuelMass)
+	if sc.Stages[0].FuelMass != 0 {
+		t.Fatalf("setup: S-IC fuel = %.0f, want 0", sc.Stages[0].FuelMass)
+	}
+	if sc.Fuel <= 0 {
+		t.Fatalf("setup: summed fuel = %.0f, want > 0 (S-II + S-IVB still full)", sc.Fuel)
+	}
+
+	accelFn := sc.ThrustAccelFn(BurnPrograde, mu)
+	got := accelFn(sc.State.R, sc.State.V, 0)
+
+	rMag := sc.State.R.Norm()
+	gFactor := -mu / (rMag * rMag * rMag)
+	want := orbital.Vec3{X: sc.State.R.X * gFactor, Y: sc.State.R.Y * gFactor, Z: sc.State.R.Z * gFactor}
+
+	if got.Sub(want).Norm() > 1e-6 {
+		t.Errorf("dry S-IC with full upper stages: got %+v, want pure gravity %+v (no free thrust)", got, want)
 	}
 }

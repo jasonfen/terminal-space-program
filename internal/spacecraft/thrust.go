@@ -444,7 +444,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 		throttle = 1
 	}
 	thrust := s.Thrust * throttle
-	if s.Fuel <= 0 {
+	if s.ActiveStageFuel() <= 0 {
 		thrust = 0
 	}
 	// v0.9.2+: capture omega + pitch trim at closure construction so

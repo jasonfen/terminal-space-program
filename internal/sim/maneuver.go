@@ -55,7 +55,7 @@ func (w *World) StartManualBurn() {
 	if c.ActiveBurn != nil || c.ManualBurn != nil {
 		return
 	}
-	if c.Fuel <= 0 || c.Thrust <= 0 {
+	if c.ActiveStageFuel() <= 0 || c.Thrust <= 0 {
 		return
 	}
 	if c.EngineMode != spacecraft.EngineMain {
