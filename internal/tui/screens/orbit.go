@@ -1137,8 +1137,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
 		vRel := c.State.V.Sub(omega.Cross(c.State.R))
 		rNorm := c.State.R.Norm()
-		var vVert, vHoriz, fpaDeg float64
+		var vVert, vHoriz, fpaDeg, fpaOrbitDeg float64
 		hasFPA := false
+		hasFPAOrbit := false
 		if rNorm > 0 {
 			rHat := c.State.R.Scale(1 / rNorm)
 			// vRel · rHat (radial component) — orbital.Vec3 has no
@@ -1152,6 +1153,19 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			if vRel.Norm() > 1.0 {
 				fpaDeg = math.Atan2(vVert, vHoriz) * 180 / math.Pi
 				hasFPA = true
+			}
+			// Orbit-frame fpa: same split, but on the inertial velocity
+			// vector (no surface co-rotation subtracted). What matters
+			// for the upper-stage circularization burn — surface
+			// prograde diverges from orbit prograde once Earth's
+			// rotation contribution becomes a small fraction of the
+			// total speed.
+			vOrbit := c.State.V
+			if vOrbit.Norm() > 1.0 {
+				vVertOrbit := vOrbit.X*rHat.X + vOrbit.Y*rHat.Y + vOrbit.Z*rHat.Z
+				vHorizOrbit := vOrbit.Sub(rHat.Scale(vVertOrbit)).Norm()
+				fpaOrbitDeg = math.Atan2(vVertOrbit, vHorizOrbit) * 180 / math.Pi
+				hasFPAOrbit = true
 			}
 		}
 		// TWR: active-stage thrust / (mass · surface gravity).
@@ -1182,11 +1196,16 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		if hasFPA {
 			fpaLabel = fmt.Sprintf("%.0f° (90 = up, 0 = horiz)", fpaDeg)
 		}
+		fpaOrbitLabel := "—"
+		if hasFPAOrbit {
+			fpaOrbitLabel = fmt.Sprintf("%.0f° (inertial)", fpaOrbitDeg)
+		}
 		lines = append(lines,
 			fmt.Sprintf("  altitude:   %s", altLabel),
 			fmt.Sprintf("  v_vert:     %.1f m/s", vVert),
 			fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
 			fmt.Sprintf("  fpa:        %s", fpaLabel),
+			fmt.Sprintf("  fpa_orbit:  %s", fpaOrbitLabel),
 			fmt.Sprintf("  twr:        %s", twrLabel),
 			fmt.Sprintf("  sas:        %s", sasLabel),
 			fmt.Sprintf("  trim:       %s", trimLabel),
