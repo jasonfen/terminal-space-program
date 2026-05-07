@@ -77,6 +77,16 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	c.SyncFields() // re-derives DryMass / Fuel / Thrust / Isp / etc.
 	// Mass field on the integrator state needs the new total too.
 	c.State.M = c.TotalMass()
+	// Rename the active craft to reflect the new bottom stage. A
+	// Saturn V whose S-IC has dropped is effectively an S-II/S-IVB
+	// stack; after S-II drops it's just an S-IVB. The loadout-level
+	// name ("Saturn V") was correct for the full chain but stops
+	// matching reality once stages decouple. Skip when the new
+	// bottom stage has no name set (defensive — real loadouts
+	// always populate Stages[i].Name).
+	if c.Stages[0].Name != "" {
+		c.Name = c.Stages[0].Name
+	}
 
 	jettisoned := buildJettisonedCraft(dropped, c)
 	jettisoned.Name = w.nextCraftName(jettisoned.Name)
