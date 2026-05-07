@@ -173,6 +173,26 @@ func (s *Spacecraft) SyncFields() {
 	s.RCSIsp = bottom.RCSIsp
 }
 
+// ActiveStageFuel returns the bottom (currently-firing) stage's
+// main-engine propellant in kg. Used by the engine-cutoff path to
+// decide whether the active engine still has fuel.
+//
+// v0.9.4+: replaces direct checks against s.Fuel (which is the
+// SUMMED propellant across all stages). For a 3-stage Saturn V
+// with a dry S-IC and full S-II + S-IVB, s.Fuel reads ~549,000
+// kg even though the firing engine has nothing to burn — the
+// engine kept thrusting "for free" until the player staged.
+//
+// Falls back to s.Fuel when Stages is empty (legacy / test
+// fixtures constructed without Stages); single-stage craft are
+// unaffected since the sum equals the bottom stage's fuel.
+func (s *Spacecraft) ActiveStageFuel() float64 {
+	if len(s.Stages) == 0 {
+		return s.Fuel
+	}
+	return s.Stages[0].FuelMass
+}
+
 // BurnFuel decrements the bottom-stage main-engine fuel by amount
 // (kg), clamped to [0, Stages[0].FuelMass]. Refreshes the flat
 // shadow fields. v0.9.1+ replacement for the pre-staging pattern

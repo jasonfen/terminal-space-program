@@ -799,8 +799,10 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		c.ActiveBurn = nil
 	}
 	// Manual burns end on fuel exhaustion only; the player ends them
-	// explicitly via StopManualBurn (e.g. on `x`).
-	if c.ManualBurn != nil && c.Fuel <= 0 {
+	// explicitly via StopManualBurn (e.g. on `x`). v0.9.4+: check
+	// the bottom-stage fuel rather than summed s.Fuel — the firing
+	// engine has run dry, even if upper stages still hold propellant.
+	if c.ManualBurn != nil && c.ActiveStageFuel() <= 0 {
 		c.ManualBurn = nil
 	}
 }
@@ -812,7 +814,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 // held flight) qualifies; both share the same RK4 thrust path. Fuel
 // must be positive in either case.
 func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt float64, i int) bool {
-	if c.Fuel <= 0 {
+	if c.ActiveStageFuel() <= 0 {
 		return false
 	}
 	if c.ActiveBurn != nil {
@@ -901,7 +903,7 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 // terminates the burn.
 func (w *World) burnExhausted(c *spacecraft.Spacecraft) bool {
 	return c.ActiveBurn.DVRemaining <= 0 ||
-		c.Fuel <= 0 ||
+		c.ActiveStageFuel() <= 0 ||
 		!w.Clock.SimTime.Before(c.ActiveBurn.EndTime)
 }
 
