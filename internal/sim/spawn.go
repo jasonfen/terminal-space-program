@@ -213,7 +213,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		w.Crafts = append(w.Crafts, c)
 		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
-		// v0.9.5+: auto-snap NavMode to Surface when launchpad spawn
+		// v0.9.4+: auto-snap NavMode to Surface when launchpad spawn
 		// becomes active, mirroring v0.9.3's reconcileNavMode pattern
 		// (NavMode auto-snaps to match the frame the player will be
 		// flying in). Player can still cycle out via `;`. Idempotent

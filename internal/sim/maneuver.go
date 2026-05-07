@@ -790,7 +790,7 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 }
 
 // CircularizePlan summarises a planted circularize-at-apoapsis node
-// for the caller's status flash. v0.9.5+.
+// for the caller's status flash. v0.9.4+.
 type CircularizePlan struct {
 	DV        float64 // m/s, prograde at next apoapsis
 	ApoAltM   float64 // apoapsis altitude (m above primary mean radius) at plant time
@@ -821,7 +821,7 @@ type CircularizePlan struct {
 //   - ErrCircularizeBadOrbit: hyperbolic / degenerate state — the
 //     "next apoapsis" math doesn't converge.
 //
-// v0.9.5+.
+// v0.9.4+.
 func (w *World) PlanCircularizeAtApoapsis() (*CircularizePlan, error) {
 	c := w.ActiveCraft()
 	if c == nil {
@@ -1128,7 +1128,7 @@ var (
 	errSamePrimaryUseHohmann = transferError("target shares craft's primary — use [H] auto-Hohmann instead of porkchop")
 
 	// PlanCircularizeAtApoapsis errors. Exported so app.go's status
-	// flash can switch on them with errors.Is. v0.9.5+.
+	// flash can switch on them with errors.Is. v0.9.4+.
 	ErrNoCraftForCircularize      = transferError("circularize: no active craft")
 	ErrCircularizeBelowAtmosphere = transferError("circularize: apoapsis below atmosphere — keep climbing")
 	ErrCircularizeBadOrbit        = transferError("circularize: hyperbolic / degenerate orbit")

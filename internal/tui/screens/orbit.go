@@ -80,7 +80,7 @@ type OrbitView struct {
 	// tag — the launch-flight equivalent of v0.9.3's signed
 	// closing-rate readout in the TARGET HUD. Re-baselined whenever
 	// the active craft pointer changes (ie spawn, cycle, or fuse), so
-	// stale entries can't bleed across crafts. v0.9.5+.
+	// stale entries can't bleed across crafts. v0.9.4+.
 	ascentTrendCraft *spacecraft.Spacecraft
 	ascentTrendApoM  float64
 	ascentTrendTime  time.Time
@@ -1175,7 +1175,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  sas:        %s", sasLabel),
 			fmt.Sprintf("  trim:       %s", trimLabel),
 		)
-		// v0.9.5+: live ascent prediction — apoapsis / periapsis / time-
+		// v0.9.4+: live ascent prediction — apoapsis / periapsis / time-
 		// to-apoapsis / Δv-to-circularise. Mirrors v0.9.3's TARGET HUD
 		// pattern (live numbers shrink as the player nudges throttle)
 		// so the player can fly the gravity turn by watching ap climb
@@ -1263,7 +1263,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  t_to_apo:   %s", ttaLabel),
 			fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
 		)
-		// v0.9.5+: ORBIT READY callout — fires when apoapsis is above
+		// v0.9.4+: ORBIT READY callout — fires when apoapsis is above
 		// the mission floor, signalling "your apoapsis is in space,
 		// coast there and press C to plant the circularisation node."
 		// Mirrors v0.9.3's DOCK READY pattern (live signal + bold
@@ -1278,7 +1278,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				"  "+orbitStyle.Render("● ORBIT READY — coast to ap, press C to plant circularise"),
 			)
 		}
-		// v0.9.5+: live mission progress — surfaces the
+		// v0.9.4+: live mission progress — surfaces the
 		// saturn-v-pad-to-leo floor distance below the predictive
 		// rows so the player sees a single number to chase ("pe 130 km
 		// / 200 km target") instead of guessing whether they're close.
@@ -1714,14 +1714,14 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 }
 
 // shouldShowLaunchHUD returns true when the active craft is in
-// "ascent" mode — defined v0.9.5+ as "periapsis below the
+// "ascent" mode — defined v0.9.4+ as "periapsis below the
 // circularize-from-pad mission floor" (200 km altitude). Visible
 // for the whole pad → coast → circularise journey, vanishing only
 // once the mission-floor periapsis is achieved (= LEO is captured).
 // v0.9.2+ originally hid the HUD as soon as periapsis cleared the
 // surface or the craft left the atmosphere; that hid the very
 // signals (ap, pe, Δv→circ, ORBIT READY) the player needs during
-// coast and circularisation, so v0.9.5+ keeps it up through the
+// coast and circularisation, so v0.9.4+ keeps it up through the
 // whole ascent phase. Hyperbolic / degenerate states keep the HUD
 // up too (they read "—" rather than misleading numbers).
 func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
@@ -1757,13 +1757,13 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 // callout's pe gate fires. Lives at the package boundary so the
 // LAUNCH HUD block (orbit.go:1158-) and shouldShowLaunchHUD agree
 // on a single floor. Mirrors the JSON value at
-// internal/missions/missions.json:40. v0.9.5+.
+// internal/missions/missions.json:40. v0.9.4+.
 const launchMissionFloorM = 200_000.0
 
 // formatAltKm renders an altitude in metres as a signed kilometre
 // string with a sign that's friendly to ascent flight ("−2.8 km"
 // reads better than "−2840 m" for sub-orbital periapsis). Used by
-// the LAUNCH HUD's ap / pe rows. v0.9.5+.
+// the LAUNCH HUD's ap / pe rows. v0.9.4+.
 func formatAltKm(altM float64) string {
 	km := altM / 1000
 	switch {
@@ -1779,7 +1779,7 @@ func formatAltKm(altM float64) string {
 // formatDurationShort renders seconds as a short human label —
 // "12s" / "3m45s" / "1h22m". Used by the LAUNCH HUD's t_to_apo
 // row and the rendezvous TCA readout (v0.9.3 patterns kept
-// consistent across both ascent and rendezvous flows). v0.9.5+.
+// consistent across both ascent and rendezvous flows). v0.9.4+.
 func formatDurationShort(sec float64) string {
 	if sec < 60 {
 		return fmt.Sprintf("%.0fs", sec)
@@ -1797,7 +1797,7 @@ func formatDurationShort(sec float64) string {
 // launchMissionProgress returns the pe-altitude-vs-mission-floor
 // row for the LAUNCH HUD when the active craft is flying a
 // circularize_from_pad mission for its current primary. Empty
-// string when no such mission is in flight. v0.9.5+.
+// string when no such mission is in flight. v0.9.4+.
 func launchMissionProgress(w *sim.World, c *spacecraft.Spacecraft, periAltM float64) string {
 	for _, m := range w.Missions {
 		if m.Type != missions.TypeCircularizeFromPad {

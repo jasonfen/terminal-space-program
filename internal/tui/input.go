@@ -40,7 +40,7 @@ type Keymap struct {
 	ClearNodes    key.Binding
 	PlanTransfer  key.Binding
 	PlanIncl      key.Binding // v0.7.4+: plane rotation toward selected body's inclination (or equatorial when none).
-	// PlanCircularize (v0.9.5+) plants a prograde burn at the active
+	// PlanCircularize (v0.9.4+) plants a prograde burn at the active
 	// craft's next apoapsis sized to circularise the orbit there. The
 	// "single keystroke for the natural last step of an ascent"
 	// shortcut, mirroring the v0.7.4 `I` plane-match planter.
