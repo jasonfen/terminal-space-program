@@ -65,6 +65,7 @@ type Payload struct {
 	Paused         bool               `json:"paused"`
 	Focus          Focus              `json:"focus"`
 	Target         *Target            `json:"target,omitempty"` // v0.9.0+ unified target slot. nil pointer (zero/None) → omitted on the wire.
+	NavMode        int                `json:"nav_mode,omitempty"` // v0.9.3+ KSP-style SAS reference frame. NavOrbit=0 omitted; older saves load with NavOrbit.
 	Craft          *Craft             `json:"craft,omitempty"` // v1–v4 singular form; migrated to Crafts on load.
 	Crafts         []Craft            `json:"crafts,omitempty"`
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
@@ -150,6 +151,14 @@ type Craft struct {
 	AttitudeMode int         `json:"attitude_mode,omitempty"`
 	EngineMode   int         `json:"engine_mode,omitempty"`
 
+	// Target (v0.9.3 polish): per-craft target binding. Pre-polish
+	// saves had a single payload-level Target; the load path now
+	// migrates that into the active craft's slot when no per-craft
+	// targets are present. omitempty so legacy saves with no target
+	// AND fresh untargeted craft both round-trip without writing the
+	// field.
+	Target *Target `json:"target,omitempty"`
+
 	// PitchTrim (v0.9.2+, schema v6 additive): signed pitch-trim
 	// offset in radians applied on top of the active BurnMode.
 	// omitempty so legacy saves with no trim load with PitchTrim=0
@@ -204,6 +213,12 @@ type Node struct {
 	PrimaryID       string  `json:"primary_id"`
 	Event           int     `json:"event,omitempty"`
 	Throttle        float64 `json:"throttle,omitempty"`
+	// TargetCraftIdx (v0.9.3+) is the one-based slate idx the node
+	// is bound to for target-relative modes / TriggerNextClosest
+	// Approach event. Zero = no target. Additive — pre-v0.9.3 saves
+	// load with TargetCraftIdx=0, which is correct semantics for
+	// non-target nodes. No schema bump required.
+	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
 }
 
 // DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.
@@ -232,6 +247,10 @@ type ActiveBurn struct {
 	EndTimeNano int64   `json:"end_time_unix_nano"`
 	PrimaryID   string  `json:"primary_id"`
 	Throttle    float64 `json:"throttle,omitempty"`
+	// TargetCraftIdx (v0.9.3+) — see Node.TargetCraftIdx; mirrored
+	// onto in-flight finite burns so a save mid-rendezvous-burn
+	// reloads with the burn still tracking its bound target.
+	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
 }
 
 // Errors returned by Load.
@@ -332,15 +351,15 @@ func payloadFromWorld(w *sim.World) Payload {
 			BodyIdx: w.Focus.BodyIdx,
 		},
 	}
-	// v0.9.0+: persist the unified target slot only when set. None
-	// stays nil on the wire so older saves round-trip identically.
-	if w.Target.Kind != sim.TargetNone {
-		p.Target = &Target{
-			Kind:     int(w.Target.Kind),
-			BodyIdx:  w.Target.BodyIdx,
-			CraftIdx: w.Target.CraftIdx,
-		}
-	}
+	// v0.9.3 polish: per-craft target replaces the payload-level
+	// Target slot. Each craft writes its own Target onto its Craft
+	// record (see the loop below); the payload-level Target field
+	// is no longer written. Read path retains backwards-compat
+	// support for older saves that wrote the payload-level field.
+	// v0.9.3+: persist NavMode. NavOrbit=0 round-trips as omitempty so
+	// pre-v0.9.3 saves (which never carried the field) load with the
+	// default-frame behaviour they were written under.
+	p.NavMode = int(w.NavMode)
 	// v0.8.1+: Crafts becomes the wire form. Each craft carries its
 	// own Nodes / ActiveBurn / AttitudeMode / EngineMode (per-craft
 	// burn state). Pre-v5 saves had these on the Payload; the load
@@ -426,15 +445,27 @@ func payloadFromWorld(w *sim.World) Payload {
 				PrimaryID:       n.PrimaryID,
 				Event:           int(n.Event),
 				Throttle:        n.Throttle,
+				TargetCraftIdx:  n.TargetCraftIdx,
 			})
 		}
 		if c.ActiveBurn != nil {
 			wc.ActiveBurn = &ActiveBurn{
-				Mode:        int(c.ActiveBurn.Mode),
-				DVRemaining: c.ActiveBurn.DVRemaining,
-				EndTimeNano: c.ActiveBurn.EndTime.UnixNano(),
-				PrimaryID:   c.ActiveBurn.PrimaryID,
-				Throttle:    c.ActiveBurn.Throttle,
+				Mode:           int(c.ActiveBurn.Mode),
+				DVRemaining:    c.ActiveBurn.DVRemaining,
+				EndTimeNano:    c.ActiveBurn.EndTime.UnixNano(),
+				PrimaryID:      c.ActiveBurn.PrimaryID,
+				Throttle:       c.ActiveBurn.Throttle,
+				TargetCraftIdx: c.ActiveBurn.TargetCraftIdx,
+			}
+		}
+		// v0.9.3 polish: per-craft Target. Skip serialising when
+		// the craft has no target so untargeted craft still write
+		// out the same minimal JSON they did pre-polish.
+		if c.Target.Kind != spacecraft.TargetNone {
+			wc.Target = &Target{
+				Kind:     int(c.Target.Kind),
+				BodyIdx:  c.Target.BodyIdx,
+				CraftIdx: c.Target.CraftIdx,
 			}
 		}
 		p.Crafts = append(p.Crafts, wc)
@@ -471,16 +502,14 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			BodyIdx: p.Focus.BodyIdx,
 		},
 	}
-	// v0.9.0+: restore the unified target slot. Pre-v0.9 saves omit
-	// the field entirely; the nil pointer means the World keeps its
-	// zero-value Target (TargetNone).
-	if p.Target != nil {
-		w.Target = sim.Target{
-			Kind:     sim.TargetKind(p.Target.Kind),
-			BodyIdx:  p.Target.BodyIdx,
-			CraftIdx: p.Target.CraftIdx,
-		}
-	}
+	// v0.9.3 polish: per-craft Target supersedes the payload-level
+	// slot. Per-craft restores happen below, in the wireCrafts loop.
+	// The payload-level field is read here only for backwards-compat
+	// — assigned to the active craft after Crafts are loaded (see the
+	// reconcile block past the loop).
+	// v0.9.3+: restore NavMode. Absent field → zero → NavOrbit (the
+	// pre-v0.9.3 default frame).
+	w.NavMode = sim.NavMode(p.NavMode)
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
 
 	// v0.8.1+: load path translates the pre-v5 singular Craft field
@@ -589,28 +618,70 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				trig = time.Unix(0, n.TriggerTimeNano).UTC()
 			}
 			c.Nodes = append(c.Nodes, sim.ManeuverNode{
-				TriggerTime: trig,
-				Mode:        spacecraft.BurnMode(n.Mode),
-				DV:          n.DV,
-				Duration:    time.Duration(n.DurationNano),
-				PrimaryID:   n.PrimaryID,
-				Event:       sim.TriggerEvent(n.Event),
-				Throttle:    n.Throttle,
+				TriggerTime:    trig,
+				Mode:           spacecraft.BurnMode(n.Mode),
+				DV:             n.DV,
+				Duration:       time.Duration(n.DurationNano),
+				PrimaryID:      n.PrimaryID,
+				Event:          sim.TriggerEvent(n.Event),
+				Throttle:       n.Throttle,
+				TargetCraftIdx: n.TargetCraftIdx,
 			})
 		}
 		if wc.ActiveBurn != nil {
 			c.ActiveBurn = &sim.ActiveBurn{
-				Mode:        spacecraft.BurnMode(wc.ActiveBurn.Mode),
-				DVRemaining: wc.ActiveBurn.DVRemaining,
-				EndTime:     time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
-				PrimaryID:   wc.ActiveBurn.PrimaryID,
-				Throttle:    wc.ActiveBurn.Throttle,
+				Mode:           spacecraft.BurnMode(wc.ActiveBurn.Mode),
+				DVRemaining:    wc.ActiveBurn.DVRemaining,
+				EndTime:        time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
+				PrimaryID:      wc.ActiveBurn.PrimaryID,
+				Throttle:       wc.ActiveBurn.Throttle,
+				TargetCraftIdx: wc.ActiveBurn.TargetCraftIdx,
+			}
+		}
+		// v0.9.3 polish: per-craft Target. Pre-polish saves omit the
+		// field; nil pointer leaves the craft's Target at zero
+		// (TargetNone) which is the fresh-craft default.
+		if wc.Target != nil {
+			c.Target = spacecraft.Target{
+				Kind:     spacecraft.TargetKind(wc.Target.Kind),
+				BodyIdx:  wc.Target.BodyIdx,
+				CraftIdx: wc.Target.CraftIdx,
 			}
 		}
 		w.Crafts = append(w.Crafts, c)
 	}
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx
+	}
+	// v0.9.3 polish: backwards-compat. Pre-polish saves serialised a
+	// single payload-level Target slot. Migrate it onto the active
+	// craft so legacy saves load with the binding the player set
+	// pre-polish. Skip when any craft already carries a per-craft
+	// Target (a polish-era save) so we don't clobber.
+	if p.Target != nil {
+		legacyTarget := spacecraft.Target{
+			Kind:     spacecraft.TargetKind(p.Target.Kind),
+			BodyIdx:  p.Target.BodyIdx,
+			CraftIdx: p.Target.CraftIdx,
+		}
+		anyPerCraft := false
+		for _, c := range w.Crafts {
+			if c != nil && c.Target.Kind != spacecraft.TargetNone {
+				anyPerCraft = true
+				break
+			}
+		}
+		if !anyPerCraft {
+			if active := w.ActiveCraft(); active != nil {
+				active.Target = legacyTarget
+			}
+		}
+	}
+	// Sync world-level live cursor to the active craft's stored
+	// target so readers (`w.Target.Kind == sim.TargetCraft` etc.)
+	// see the right binding immediately after load.
+	if active := w.ActiveCraft(); active != nil {
+		w.Target = active.Target
 	}
 	// Pre-v5 payload-level Nodes / ActiveBurn → active craft's
 	// fields. The migration assumes pre-v5 saves had a single craft
@@ -622,22 +693,24 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				trig = time.Unix(0, n.TriggerTimeNano).UTC()
 			}
 			active.Nodes = append(active.Nodes, sim.ManeuverNode{
-				TriggerTime: trig,
-				Mode:        spacecraft.BurnMode(n.Mode),
-				DV:          n.DV,
-				Duration:    time.Duration(n.DurationNano),
-				PrimaryID:   n.PrimaryID,
-				Event:       sim.TriggerEvent(n.Event),
-				Throttle:    n.Throttle,
+				TriggerTime:    trig,
+				Mode:           spacecraft.BurnMode(n.Mode),
+				DV:             n.DV,
+				Duration:       time.Duration(n.DurationNano),
+				PrimaryID:      n.PrimaryID,
+				Event:          sim.TriggerEvent(n.Event),
+				Throttle:       n.Throttle,
+				TargetCraftIdx: n.TargetCraftIdx,
 			})
 		}
 		if p.ActiveBurn != nil && active.ActiveBurn == nil {
 			active.ActiveBurn = &sim.ActiveBurn{
-				Mode:        spacecraft.BurnMode(p.ActiveBurn.Mode),
-				DVRemaining: p.ActiveBurn.DVRemaining,
-				EndTime:     time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
-				PrimaryID:   p.ActiveBurn.PrimaryID,
-				Throttle:    p.ActiveBurn.Throttle,
+				Mode:           spacecraft.BurnMode(p.ActiveBurn.Mode),
+				DVRemaining:    p.ActiveBurn.DVRemaining,
+				EndTime:        time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
+				PrimaryID:      p.ActiveBurn.PrimaryID,
+				Throttle:       p.ActiveBurn.Throttle,
+				TargetCraftIdx: p.ActiveBurn.TargetCraftIdx,
 			}
 		}
 	}

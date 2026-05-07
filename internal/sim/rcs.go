@@ -43,11 +43,14 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 		return false
 	}
 	// v0.9.2+: BurnDirection handles surface modes + pitch trim.
-	dir := w.ActiveCraft().BurnDirection(mode)
+	// v0.9.3+: resolve target snapshot for the four target-relative
+	// modes; non-target modes ignore the snapshot.
+	rT, vT, _ := w.TargetStateRelativeToActivePrimary()
+	dir := w.ActiveCraft().BurnDirectionWithTarget(mode, rT, vT)
 	if dir.Norm() == 0 {
 		return false
 	}
-	if !w.ActiveCraft().ApplyRCSPulse(mode) {
+	if !w.ActiveCraft().ApplyRCSPulseWithTarget(mode, rT, vT) {
 		return false
 	}
 	w.ActiveCraft().AttitudeMode = mode
