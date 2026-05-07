@@ -1137,7 +1137,8 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
 		vRel := c.State.V.Sub(omega.Cross(c.State.R))
 		rNorm := c.State.R.Norm()
-		var vVert, vHoriz float64
+		var vVert, vHoriz, fpaDeg float64
+		hasFPA := false
 		if rNorm > 0 {
 			rHat := c.State.R.Scale(1 / rNorm)
 			// vRel · rHat (radial component) — orbital.Vec3 has no
@@ -1145,6 +1146,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			vVert = vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z
 			vHorizVec := vRel.Sub(rHat.Scale(vVert))
 			vHoriz = vHorizVec.Norm()
+			// Flight-path angle: 90° = straight up, 0° = horizontal.
+			// Only meaningful once moving — atan2 is undefined when
+			// both components are zero (craft on the pad).
+			if vRel.Norm() > 1.0 {
+				fpaDeg = math.Atan2(vVert, vHoriz) * 180 / math.Pi
+				hasFPA = true
+			}
 		}
 		// TWR: active-stage thrust / (mass · surface gravity).
 		twrLabel := "—"
@@ -1170,10 +1178,15 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			trimLabel = v.theme.Warning.Render(trimLabel)
 		}
 		lines = append(lines, section("LAUNCH")...)
+		fpaLabel := "—"
+		if hasFPA {
+			fpaLabel = fmt.Sprintf("%.0f° (90 = up, 0 = horiz)", fpaDeg)
+		}
 		lines = append(lines,
 			fmt.Sprintf("  altitude:   %s", altLabel),
 			fmt.Sprintf("  v_vert:     %.1f m/s", vVert),
 			fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
+			fmt.Sprintf("  fpa:        %s", fpaLabel),
 			fmt.Sprintf("  twr:        %s", twrLabel),
 			fmt.Sprintf("  sas:        %s", sasLabel),
 			fmt.Sprintf("  trim:       %s", trimLabel),
