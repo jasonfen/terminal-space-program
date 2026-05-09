@@ -12,8 +12,8 @@ import (
 // even before markers land. Tints chosen to fit the existing UI tier
 // colors — saturated enough to read at low cell counts.
 const (
-	ColorNavballSky    = lipgloss.Color("#3A6FA8") // upper-hemisphere sky
-	ColorNavballGround = lipgloss.Color("#7A5C3A") // lower-hemisphere ground
+	ColorNavballSky    = lipgloss.Color("#3A6FA8") // upper-hemisphere sky (classic ADI blue)
+	ColorNavballGround = lipgloss.Color("#D87A3C") // lower-hemisphere ground (classic ADI orange)
 	ColorNavballGrid   = lipgloss.Color("#C8C8C8") // grid + equator
 
 	// Marker colors. Prograde / retrograde mirror KSP's yellow; normal
