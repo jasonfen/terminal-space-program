@@ -175,6 +175,7 @@ const (
 	NavballGlyphRadialIn    = '◆'
 	NavballGlyphTarget      = '◉'
 	NavballGlyphAntiTarget  = '◌'
+	NavballGlyphNode        = '◎' // planted maneuver node burn direction
 )
 
 // NavballMarkers returns the marker set the painter should overlay
@@ -245,7 +246,7 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 		{IntentRadialIn, radialInGlyph, radialColor},
 	}
 
-	out := make([]render.NavballMarker, 0, len(entries))
+	out := make([]render.NavballMarker, 0, len(entries)+len(active.Nodes))
 	for _, e := range entries {
 		mode := w.ResolveAttitudeIntent(e.intent)
 		dir := active.BurnDirectionWithTarget(mode, rT, vT)
@@ -258,6 +259,52 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 			LonDeg: lon,
 			Glyph:  e.glyph,
 			Color:  e.color,
+		})
+	}
+
+	// Maneuver-node markers — one per planted node, using the per-leg
+	// trajectory palette (render.ManeuverSegmentColor) so the navball
+	// glyph matches the predicted-orbit leg color the orbit screen
+	// already paints. The burn direction is computed in the craft's
+	// CURRENT state (BurnDirectionWithTarget) so the marker tracks
+	// where the SAS hold would aim if the player switched to the
+	// node's burn mode now. For non-impulsive / future nodes this
+	// drifts as the orbit advances — same drift KSP shows.
+	//
+	// Target-relative nodes resolve their target via the captured
+	// n.TargetCraftIdx (same path as executeDueNodesFor) — a target
+	// switch between plant and fire doesn't retarget the marker.
+	// Stale bindings (idx out of range, target on a different
+	// primary) produce zero direction and silently skip.
+	for i, n := range active.Nodes {
+		nrT, nvT := rT, vT
+		if n.IsTargetRelative() {
+			nrT, nvT = orbital.Vec3{}, orbital.Vec3{}
+			resolved := false
+			if tIdx, ok := n.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
+				if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == active.Primary.ID {
+					nrT, nvT = tc.State.R, tc.State.V
+					resolved = true
+				}
+			}
+			// Stale / unbound target-relative node: skip the marker
+			// rather than letting DirectionUnitTarget's degenerate
+			// fall-through math (e.g. unit(rT - rA) with rT=0 →
+			// inward-radial direction) paint a misleading glyph.
+			if !resolved {
+				continue
+			}
+		}
+		dir := active.BurnDirectionWithTarget(n.Mode, nrT, nvT)
+		if dir.Norm() == 0 {
+			continue
+		}
+		lat, lon := basis.SubObserver(dir)
+		out = append(out, render.NavballMarker{
+			LatDeg: lat,
+			LonDeg: lon,
+			Glyph:  NavballGlyphNode,
+			Color:  render.ManeuverSegmentColor(i),
 		})
 	}
 	return out
