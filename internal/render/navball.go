@@ -80,6 +80,19 @@ func projectLatLonToPixel(latDeg, lonDeg float64, pxRadius int, subLatDeg, subLo
 	return dx, dy, z > 0
 }
 
+// brailleBitForDot maps an in-cell sub-pixel position (sx ∈ {0,1},
+// sy ∈ {0..3}) to the corresponding braille pattern bit. Standard
+// drawille / Unicode braille encoding (U+28xx).
+//
+//	(0,0) 0x01   (1,0) 0x08
+//	(0,1) 0x02   (1,1) 0x10
+//	(0,2) 0x04   (1,2) 0x20
+//	(0,3) 0x40   (1,3) 0x80
+var brailleBitForDot = [2][4]rune{
+	{0x01, 0x02, 0x04, 0x40},
+	{0x08, 0x10, 0x20, 0x80},
+}
+
 // NavballString paints a navball into a cols×rows cell grid as a
 // multi-line lipgloss-styled string. The sphere is rendered with a
 // horizon split (sky upper, ground lower) plus a lat/lon grid at 30°
@@ -91,59 +104,82 @@ func projectLatLonToPixel(latDeg, lonDeg float64, pxRadius int, subLatDeg, subLo
 //
 // markers may be nil. Each marker is projected via
 // projectLatLonToPixel; only markers in the front hemisphere render.
-// Markers that fall outside the disk (e.g. due to rounding at the
-// limb) are skipped.
+// Markers that fall outside the disk are skipped.
 //
-// v0.9.5: cell-resolution rendering — one full-block char per cell,
-// no braille subcells. The per-pixel projection is identical to the
-// body-rendering path; only the painter loop and texture differ.
-// Cells are assumed to be ≈2× taller than wide (typical terminal),
-// so dy is halved before feeding into the projection so the disk
-// reads as roughly circular on screen.
+// v0.9.5: braille sub-pixel rendering — each terminal cell contains
+// a 2×4 grid of braille dots (square in physical screen space, since
+// terminal cells are ≈1×2). For an N-cell-wide × M-cell-tall region
+// the dot grid is 2N×4M, with disk pxRadius = min(N, 2M) so the disk
+// is genuinely circular on screen. Per cell: sample all 8 sub-pixels,
+// build the braille pattern from in-disk dots, and color the cell
+// with the dominant texture (grid wins ties so lines stay visible).
+//
+// Per-pixel (dx, dy) → (lat, lon) projection reuses
+// projectPixelToLatLon; only the painter loop differs from the
+// body-rendering path.
 func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []NavballMarker) string {
-	if cols < 4 || rows < 4 {
+	if cols < 4 || rows < 2 {
 		return ""
 	}
-	cx := cols / 2
-	cy := rows / 2
-	pxR := cx
-	if doubleY := cy * 2; doubleY < pxR {
-		pxR = doubleY
+	dotsW := cols * 2
+	dotsH := rows * 4
+	dotCx := dotsW / 2
+	dotCy := dotsH / 2
+	pxR := dotCx
+	if dotCy < pxR {
+		pxR = dotCy
 	}
-	if pxR < 2 {
-		pxR = 2
+	if pxR < 4 {
+		pxR = 4
 	}
 
-	const blockGlyph = "█"
 	skyStyle := lipgloss.NewStyle().Foreground(ColorNavballSky)
 	groundStyle := lipgloss.NewStyle().Foreground(ColorNavballGround)
 	gridStyle := lipgloss.NewStyle().Foreground(ColorNavballGrid)
 
-	// Render the sphere into a 2-D cell grid first so marker overlays
-	// can rewrite individual cells before the lines are joined.
 	cells := make([][]string, rows)
 	for row := 0; row < rows; row++ {
 		cells[row] = make([]string, cols)
 		for col := 0; col < cols; col++ {
-			dx := col - cx
-			dy := (row - cy) * 2
-			if dx*dx+dy*dy > pxR*pxR {
+			var pattern rune
+			var skyCount, groundCount, gridCount int
+			for sx := 0; sx < 2; sx++ {
+				for sy := 0; sy < 4; sy++ {
+					dx := col*2 + sx - dotCx
+					dy := row*4 + sy - dotCy
+					if dx*dx+dy*dy > pxR*pxR {
+						continue
+					}
+					lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg)
+					if !ok {
+						continue
+					}
+					pattern |= brailleBitForDot[sx][sy]
+					switch navballCell(lat, lon) {
+					case navballGrid:
+						gridCount++
+					case navballSky:
+						skyCount++
+					default:
+						groundCount++
+					}
+				}
+			}
+			if pattern == 0 {
 				cells[row][col] = " "
 				continue
 			}
-			lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg)
-			if !ok {
-				cells[row][col] = " "
-				continue
-			}
-			switch navballCell(lat, lon) {
-			case navballGrid:
-				cells[row][col] = gridStyle.Render(blockGlyph)
-			case navballSky:
-				cells[row][col] = skyStyle.Render(blockGlyph)
+			ch := string(rune(0x2800) + pattern)
+			var style lipgloss.Style
+			switch {
+			case gridCount > 0:
+				style = gridStyle
+			case skyCount >= groundCount:
+				style = skyStyle
 			default:
-				cells[row][col] = groundStyle.Render(blockGlyph)
+				style = groundStyle
 			}
+			cells[row][col] = style.Render(ch)
 		}
 	}
 
@@ -152,17 +188,13 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		if !front {
 			continue
 		}
-		// Map projection-pixel (mdx, mdy) back to cell coords. dy is
-		// in projection units (already doubled for cell aspect), so
-		// halve to recover the cell row.
-		col := cx + mdx
-		row := cy + mdy/2
+		// Marker positions are in dot units; map to the containing
+		// cell. (dotCx + mdx) ∈ [0, dotsW); divide by 2 dots/cell.
+		col := (dotCx + mdx) / 2
+		row := (dotCy + mdy) / 4
 		if col < 0 || col >= cols || row < 0 || row >= rows {
 			continue
 		}
-		// Skip markers that landed on a transparent cell (outside the
-		// disk after rounding) — keeps marker glyphs anchored visually
-		// to the disk surface.
 		if cells[row][col] == " " {
 			continue
 		}
