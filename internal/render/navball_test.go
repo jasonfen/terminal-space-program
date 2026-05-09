@@ -166,18 +166,46 @@ func TestNavballMarkerOverlay(t *testing.T) {
 	}
 }
 
-// TestNavballMarkerBackHemisphereSkipped confirms a marker at the
-// far side of the ball is not painted (the ground glyph remains).
-func TestNavballMarkerBackHemisphereSkipped(t *testing.T) {
+// TestNavballMarkerBackHemisphereDimmed confirms a marker on the far
+// side of the ball is still painted (so the player can see where to
+// rotate toward when an axis is behind the nose), but with Faint
+// styling so it reads as "behind."
+func TestNavballMarkerBackHemisphereDimmed(t *testing.T) {
 	withoutMarker := NavballString(13, 13, 0, 0, nil)
-	// Marker at the antipode of the sub-observer point.
 	markers := []NavballMarker{
 		{LatDeg: 0, LonDeg: 180, Glyph: '⊕', Color: ColorNavballMarkerPrograde},
 	}
 	withMarker := NavballString(13, 13, 0, 0, markers)
-	if withMarker != withoutMarker {
-		t.Errorf("back-hemisphere marker should not change output")
+	if withMarker == withoutMarker {
+		t.Errorf("back-hemisphere marker should still appear (dimmed)")
 	}
+	if !strings.ContainsRune(withMarker, '⊕') {
+		t.Errorf("back-hemisphere marker glyph should be in output")
+	}
+}
+
+// TestNavballMarkerFrontOverridesBack confirms that when front and
+// back markers project to the same cell (antipodes under
+// orthographic projection), the front marker wins. Sub-observer at
+// (0, 0); prograde at (0, 0) is dead front, retrograde at (0, 180)
+// is dead back, both project to the disk centre.
+func TestNavballMarkerFrontOverridesBack(t *testing.T) {
+	markers := []NavballMarker{
+		// Order intentionally back-first; painter must still let
+		// front win regardless of input order.
+		{LatDeg: 0, LonDeg: 180, Glyph: '⊖', Color: ColorNavballMarkerPrograde},
+		{LatDeg: 0, LonDeg: 0, Glyph: '⊕', Color: ColorNavballMarkerPrograde},
+	}
+	out := NavballString(13, 13, 0, 0, markers)
+	// The centre line should contain ⊕, NOT a ⊖ over it.
+	lines := strings.Split(out, "\n")
+	mid := lines[len(lines)/2]
+	if !strings.ContainsRune(mid, '⊕') {
+		t.Errorf("front prograde glyph missing from centre line: %q", mid)
+	}
+	// ⊖ may still appear elsewhere in output if its (col, row)
+	// rounded differently — what matters is that the centre cell
+	// is the front glyph.
 }
 
 // TestNavballHorizonSplit confirms that with sub-observer at the
