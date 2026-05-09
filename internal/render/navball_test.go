@@ -56,33 +56,6 @@ func TestNavballSubObserverProjection(t *testing.T) {
 	}
 }
 
-// TestNavballGridFires checks that navballCell flags equator + lat
-// lines + lon lines as grid cells, and that off-grid points fall
-// through to the hemisphere fill.
-func TestNavballGridFires(t *testing.T) {
-	cases := []struct {
-		name     string
-		lat, lon float64
-		want     navballCellKind
-	}{
-		{"equator-meridian intersection", 0, 0, navballGrid},
-		{"30N parallel", 30, 17, navballGrid},
-		{"60S parallel", -60, -42, navballGrid},
-		{"+150 lon meridian", 12, 150, navballGrid},
-		{"-180 lon meridian (wrap-aware)", 5, -180, navballGrid},
-		{"off-grid sky", 45, 75, navballSky},
-		{"off-grid ground", -25, -75, navballGround},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := navballCell(tc.lat, tc.lon)
-			if got != tc.want {
-				t.Errorf("navballCell(%g, %g) = %d, want %d", tc.lat, tc.lon, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestProjectLatLonToPixelRoundTrip confirms forward + inverse
 // projections compose to identity for a representative grid of points
 // on the visible hemisphere. The forward projection has to land

@@ -7,14 +7,15 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Navball palette. Sky / ground hemispheres mirror the KSP convention
-// (blue upper, brown lower) so the disk reads as an attitude indicator
-// even before markers land. Tints chosen to fit the existing UI tier
-// colors — saturated enough to read at low cell counts.
+// Navball palette. Sky / ground hemispheres mirror the classic ADI
+// convention (blue upper, orange lower) so the disk reads as an
+// attitude indicator even before markers land. The horizon line is
+// implicit — the cell-level color boundary between blue and orange
+// IS the equator.
 const (
 	ColorNavballSky    = lipgloss.Color("#3A6FA8") // upper-hemisphere sky (classic ADI blue)
 	ColorNavballGround = lipgloss.Color("#D87A3C") // lower-hemisphere ground (classic ADI orange)
-	ColorNavballGrid   = lipgloss.Color("#C8C8C8") // grid + equator
+	ColorNavballGrid   = lipgloss.Color("#C8C8C8") // structural labels (compass ticks)
 
 	// Marker colors. Prograde / retrograde mirror KSP's yellow; normal
 	// vectors are pink (KSP magenta-ish); radial markers are cyan;
@@ -135,14 +136,13 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 
 	skyStyle := lipgloss.NewStyle().Foreground(ColorNavballSky)
 	groundStyle := lipgloss.NewStyle().Foreground(ColorNavballGround)
-	gridStyle := lipgloss.NewStyle().Foreground(ColorNavballGrid)
 
 	cells := make([][]string, rows)
 	for row := 0; row < rows; row++ {
 		cells[row] = make([]string, cols)
 		for col := 0; col < cols; col++ {
 			var pattern rune
-			var skyCount, groundCount, gridCount int
+			var skyCount, groundCount int
 			for sx := 0; sx < 2; sx++ {
 				for sy := 0; sy < 4; sy++ {
 					dx := col*2 + sx - dotCx
@@ -150,17 +150,14 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 					if dx*dx+dy*dy > pxR*pxR {
 						continue
 					}
-					lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg)
+					lat, _, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg)
 					if !ok {
 						continue
 					}
 					pattern |= brailleBitForDot[sx][sy]
-					switch navballCell(lat, lon) {
-					case navballGrid:
-						gridCount++
-					case navballSky:
+					if lat >= 0 {
 						skyCount++
-					default:
+					} else {
 						groundCount++
 					}
 				}
@@ -171,12 +168,9 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 			}
 			ch := string(rune(0x2800) + pattern)
 			var style lipgloss.Style
-			switch {
-			case gridCount > 0:
-				style = gridStyle
-			case skyCount >= groundCount:
+			if skyCount >= groundCount {
 				style = skyStyle
-			default:
+			} else {
 				style = groundStyle
 			}
 			cells[row][col] = style.Render(ch)
@@ -231,54 +225,3 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	return strings.Join(lines, "\n")
 }
 
-// navballCellKind picks which palette slot a (lat, lon) on the
-// navball maps to: sky upper, ground lower, or grid (equator + lat
-// lines at every 30° + lon lines at every 30°).
-type navballCellKind int
-
-const (
-	navballSky navballCellKind = iota
-	navballGround
-	navballGrid
-)
-
-// gridSpacingDeg is the lat/lon grid period in degrees. 30° gives 6
-// equatorial-band lon lines + 5 lat lines (excluding poles), enough
-// for the player to read attitude from the grid alone before markers
-// land.
-const gridSpacingDeg = 30.0
-
-// gridHalfWidthDeg is the lat-or-lon distance within which a pixel
-// snaps to the grid color instead of the hemisphere fill. ~2.5° at
-// the equator works out to roughly one cell of grid line at the
-// 12-cell navball size. Tightened from 3° during the spike because
-// adjacent grid lines were occasionally collapsing into a single
-// thick band near the limb where the projection compresses
-// longitude.
-const gridHalfWidthDeg = 2.5
-
-func navballCell(lat, lon float64) navballCellKind {
-	for tick := -90.0; tick <= 90.0+1e-9; tick += gridSpacingDeg {
-		if math.Abs(lat-tick) < gridHalfWidthDeg {
-			return navballGrid
-		}
-	}
-	for tick := -180.0; tick < 180.0; tick += gridSpacingDeg {
-		// Wrap-aware comparison so the lon = ±180 meridian draws
-		// as a single line.
-		d := lon - tick
-		for d > 180 {
-			d -= 360
-		}
-		for d < -180 {
-			d += 360
-		}
-		if math.Abs(d) < gridHalfWidthDeg {
-			return navballGrid
-		}
-	}
-	if lat >= 0 {
-		return navballSky
-	}
-	return navballGround
-}
