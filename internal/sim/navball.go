@@ -3,6 +3,8 @@ package sim
 import (
 	"math"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 )
@@ -159,4 +161,98 @@ func (w *World) NavballSubObserver() (latDeg, lonDeg float64, ok bool) {
 	}
 	lat, lon := basis.SubObserver(dir)
 	return lat, lon, true
+}
+
+// Navball glyphs. Mirroring KSP's symbol vocabulary so muscle memory
+// transfers. Single-cell unicode chars from the Geometric Shapes
+// block, picked to read distinctly at small disk sizes.
+const (
+	NavballGlyphPrograde      = '⊕'
+	NavballGlyphRetrograde    = '⊖'
+	NavballGlyphNormalPlus    = '△'
+	NavballGlyphNormalMinus   = '▽'
+	NavballGlyphRadialOut     = '◇'
+	NavballGlyphRadialIn      = '◆'
+	NavballGlyphTarget        = '◉'
+	NavballGlyphAntiTarget    = '◌'
+)
+
+// NavballMarkers returns the marker set the painter should overlay
+// for the active craft + current NavMode. Each marker is already
+// projected to (lat, lon) in the active basis — the painter only
+// needs to forward-project to (dx, dy) and skip back-hemisphere
+// hits.
+//
+// Orbit + surface modes share the six-cardinal set
+// (prograde / retrograde / normal± / radial±). Target mode adds
+// target-prograde / retrograde at the prograde positions (since EX
+// is already target-relative velocity in target mode) plus the
+// target / anti-target pair along the line-to-target. Hidden when
+// the basis is degenerate or no craft target is bound.
+//
+// Returns nil when the basis is unavailable so the painter still
+// renders a static sphere.
+//
+// v0.9.5+.
+func (w *World) NavballMarkers() []render.NavballMarker {
+	active := w.ActiveCraft()
+	if active == nil {
+		return nil
+	}
+	basis, ok := w.NavballBasis()
+	if !ok {
+		return nil
+	}
+	r := active.State.R
+	v := active.State.V
+
+	progradeUnit := unitOrZero(v)
+	hUnit := unitOrZero(r.Cross(v))
+	radialOutUnit := unitOrZero(r)
+
+	out := make([]render.NavballMarker, 0, 8)
+	push := func(dir orbital.Vec3, glyph rune, color lipgloss.Color) {
+		if dir.Norm() == 0 {
+			return
+		}
+		lat, lon := basis.SubObserver(dir)
+		out = append(out, render.NavballMarker{
+			LatDeg: lat,
+			LonDeg: lon,
+			Glyph:  glyph,
+			Color:  color,
+		})
+	}
+
+	// Six orbit-frame cardinals — present in every mode. In NavTarget
+	// the prograde / retrograde pair semantically refers to the target-
+	// relative velocity (since EX is target-relative there); we still
+	// surface the orbital prograde so the player can see how far their
+	// orbit-frame vector has drifted from the target-frame one.
+	push(progradeUnit, NavballGlyphPrograde, render.ColorNavballMarkerPrograde)
+	push(progradeUnit.Scale(-1), NavballGlyphRetrograde, render.ColorNavballMarkerPrograde)
+	push(hUnit, NavballGlyphNormalPlus, render.ColorNavballMarkerNormal)
+	push(hUnit.Scale(-1), NavballGlyphNormalMinus, render.ColorNavballMarkerNormal)
+	push(radialOutUnit, NavballGlyphRadialOut, render.ColorNavballMarkerRadial)
+	push(radialOutUnit.Scale(-1), NavballGlyphRadialIn, render.ColorNavballMarkerRadial)
+
+	// Target markers — only when a craft target is bound and resolves.
+	if w.NavMode == NavTarget && w.Target.Kind == TargetCraft {
+		if rT, vT, tok := w.TargetStateRelativeToActivePrimary(); tok {
+			toTarget := rT.Sub(r)
+			push(unitOrZero(toTarget), NavballGlyphTarget, render.ColorNavballMarkerTarget)
+			push(unitOrZero(toTarget.Scale(-1)), NavballGlyphAntiTarget, render.ColorNavballMarkerTarget)
+			_ = vT // target-prograde already covered by the orbit-frame prograde marker in this mode
+		}
+	}
+	return out
+}
+
+// unitOrZero returns v / |v| or the zero vector when v is degenerate.
+func unitOrZero(v orbital.Vec3) orbital.Vec3 {
+	n := v.Norm()
+	if n == 0 {
+		return orbital.Vec3{}
+	}
+	return v.Scale(1 / n)
 }
