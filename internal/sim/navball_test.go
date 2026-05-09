@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -271,17 +272,19 @@ func TestNavballMarkersOrbitMode(t *testing.T) {
 	}
 }
 
-// TestNavballMarkersTargetModeAddsTargetMarkers: when a craft target
-// is bound and NavMode is NavTarget, the marker set includes target +
-// anti-target glyphs in addition to the six orbit cardinals.
-func TestNavballMarkersTargetModeAddsTargetMarkers(t *testing.T) {
+// TestNavballMarkersTargetModeRadialSwapsToTarget: when a craft
+// target is bound and NavMode is NavTarget, the marker set is still
+// six cardinals — but the radial+ / radial- pair swaps to target /
+// anti-target glyphs (◉ ◌) and points along the line-to-target
+// instead of along the orbit-frame radial. This matches
+// ResolveAttitudeIntent's NavTarget remap (radial keys → BurnTarget /
+// BurnAntiTarget) so each navball glyph sits at the direction its
+// axis key would aim.
+func TestNavballMarkersTargetModeRadialSwapsToTarget(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	// Spawn a second craft to target. Reuse the active craft's primary
-	// + state and offset slightly so the relative-position vector is
-	// non-zero.
 	active := w.ActiveCraft()
 	target := *active
 	target.State.R = active.State.R.Add(orbital.Vec3{X: 1000, Y: 0, Z: 0})
@@ -293,25 +296,80 @@ func TestNavballMarkersTargetModeAddsTargetMarkers(t *testing.T) {
 	w.NavMode = NavTarget
 
 	got := w.NavballMarkers()
-	if len(got) != 8 {
-		t.Fatalf("target-mode marker count = %d, want 8 (6 cardinals + target/anti-target)", len(got))
+	if len(got) != 6 {
+		t.Fatalf("target-mode marker count = %d, want 6", len(got))
 	}
-	hasTarget := false
-	hasAnti := false
+	byGlyph := map[rune]render.NavballMarker{}
 	for _, m := range got {
-		if m.Glyph == NavballGlyphTarget {
-			hasTarget = true
+		byGlyph[m.Glyph] = m
+	}
+	if _, ok := byGlyph[NavballGlyphTarget]; !ok {
+		t.Errorf("missing target glyph %c (radial+ swap)", NavballGlyphTarget)
+	}
+	if _, ok := byGlyph[NavballGlyphAntiTarget]; !ok {
+		t.Errorf("missing anti-target glyph %c (radial- swap)", NavballGlyphAntiTarget)
+	}
+	// The radial-diamond glyphs should NOT be in target-mode output.
+	if _, ok := byGlyph[NavballGlyphRadialOut]; ok {
+		t.Errorf("orbit-frame radial+ glyph %c should not appear in target mode", NavballGlyphRadialOut)
+	}
+	if _, ok := byGlyph[NavballGlyphRadialIn]; ok {
+		t.Errorf("orbit-frame radial- glyph %c should not appear in target mode", NavballGlyphRadialIn)
+	}
+}
+
+// TestNavballMarkersTargetModeProgradeMatchesTargetVelocity: in
+// NavTarget mode, EX is the target-relative-velocity direction, and
+// the prograde marker direction is the same — so the marker projects
+// to (lat≈0, lon≈0), the disk centre.
+func TestNavballMarkersTargetModeProgradeIsTargetRelative(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	active := w.ActiveCraft()
+	target := *active
+	target.State.R = active.State.R.Add(orbital.Vec3{X: 1000, Y: 0, Z: 0})
+	target.State.V = active.State.V.Add(orbital.Vec3{X: 0, Y: 1, Z: 0})
+	target.Name = "target-test"
+	w.Crafts = append(w.Crafts, &target)
+	w.Target.Kind = TargetCraft
+	w.Target.CraftIdx = len(w.Crafts) - 1
+	w.NavMode = NavTarget
+
+	for _, m := range w.NavballMarkers() {
+		if m.Glyph != NavballGlyphPrograde {
+			continue
 		}
-		if m.Glyph == NavballGlyphAntiTarget {
-			hasAnti = true
+		if math.Abs(m.LatDeg) > 1e-4 || math.Abs(m.LonDeg) > 1e-4 {
+			t.Errorf("target-mode prograde lands at (%g, %g), want (0, 0)", m.LatDeg, m.LonDeg)
 		}
+		return
 	}
-	if !hasTarget {
-		t.Errorf("missing target glyph %c", NavballGlyphTarget)
+	t.Errorf("missing prograde marker in target mode")
+}
+
+// TestNavballMarkersSurfaceModeProgradeIsSurface: in NavSurface
+// mode, EX is surface-relative velocity, and the prograde marker
+// direction is the same — landing at the disk centre. Confirms
+// orbit-frame prograde isn't leaking into surface-mode output.
+func TestNavballMarkersSurfaceModeProgradeIsSurface(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
 	}
-	if !hasAnti {
-		t.Errorf("missing anti-target glyph %c", NavballGlyphAntiTarget)
+	w.NavMode = NavSurface
+	got := w.NavballMarkers()
+	for _, m := range got {
+		if m.Glyph != NavballGlyphPrograde {
+			continue
+		}
+		if math.Abs(m.LatDeg) > 1e-4 || math.Abs(m.LonDeg) > 1e-4 {
+			t.Errorf("surface-mode prograde lands at (%g, %g), want (0, 0)", m.LatDeg, m.LonDeg)
+		}
+		return
 	}
+	t.Errorf("missing prograde marker in surface mode")
 }
 
 // TestNavballMarkersDegenerateReturnsNil: zero-V craft → no basis →
