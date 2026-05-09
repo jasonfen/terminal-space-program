@@ -183,26 +183,45 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		}
 	}
 
-	for _, m := range markers {
-		mdx, mdy, front := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
-		if !front {
-			continue
-		}
+	// Render markers in two passes so front markers overwrite back
+	// markers at coincident cells (e.g. prograde at the disk centre
+	// hides retrograde when sub-observer points at prograde — KSP
+	// behavior).
+	paint := func(m NavballMarker, dimmed bool) {
+		mdx, mdy, _ := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
 		// Marker positions are in dot units; map to the containing
 		// cell. (dotCx + mdx) ∈ [0, dotsW); divide by 2 dots/cell.
 		col := (dotCx + mdx) / 2
 		row := (dotCy + mdy) / 4
 		if col < 0 || col >= cols || row < 0 || row >= rows {
-			continue
+			return
 		}
 		if cells[row][col] == " " {
-			continue
+			return
 		}
 		glyph := string(m.Glyph)
 		if m.Glyph == 0 {
 			glyph = "•"
 		}
-		cells[row][col] = lipgloss.NewStyle().Foreground(m.Color).Render(glyph)
+		style := lipgloss.NewStyle().Foreground(m.Color)
+		if dimmed {
+			style = style.Faint(true)
+		}
+		cells[row][col] = style.Render(glyph)
+	}
+	for _, m := range markers {
+		_, _, front := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
+		if front {
+			continue
+		}
+		paint(m, true)
+	}
+	for _, m := range markers {
+		_, _, front := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
+		if !front {
+			continue
+		}
+		paint(m, false)
 	}
 
 	lines := make([]string, rows)
