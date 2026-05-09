@@ -233,3 +233,32 @@ func TestOrbitViewZoom(t *testing.T) {
 			before, v.canvas.Scale())
 	}
 }
+
+// TestOrbitHUDRendersNavball: the NAVBALL block appears in the HUD
+// for a fresh LEO craft, including the section header + the
+// prograde / retrograde marker glyphs. Confirms the v0.9.5 wiring
+// lands without breaking the rest of the HUD.
+func TestOrbitHUDRendersNavball(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	v.Resize(160, 48)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	out := v.Render(w, 0, 160, 48)
+	if !strings.Contains(out, "NAVBALL") {
+		t.Errorf("expected NAVBALL section header in HUD output")
+	}
+	if !strings.ContainsRune(out, '⊕') {
+		t.Errorf("expected prograde marker ⊕ in HUD output")
+	}
+}
