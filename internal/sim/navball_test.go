@@ -212,6 +212,121 @@ func TestNavballBasisDegenerateZeroV(t *testing.T) {
 	}
 }
 
+// TestNavballMarkersOrbitMode: a fresh LEO craft in NavOrbit produces
+// six markers (prograde, retrograde, normal±, radial±) at the
+// expected (lat, lon) cardinals.
+func TestNavballMarkersOrbitMode(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavOrbit
+	got := w.NavballMarkers()
+	if len(got) != 6 {
+		t.Fatalf("orbit-mode marker count = %d, want 6", len(got))
+	}
+	byGlyph := map[rune]int{}
+	for i, m := range got {
+		byGlyph[m.Glyph] = i
+	}
+	checks := []struct {
+		glyph    rune
+		wantLat  float64
+		wantLon  float64
+		ignoreLon bool
+	}{
+		{NavballGlyphPrograde, 0, 0, false},
+		{NavballGlyphRetrograde, 0, 180, true},
+		{NavballGlyphNormalPlus, 90, 0, true},
+		{NavballGlyphNormalMinus, -90, 0, true},
+		{NavballGlyphRadialOut, 0, 0, true},  // ±90 lon
+		{NavballGlyphRadialIn, 0, 0, true},
+	}
+	for _, c := range checks {
+		idx, ok := byGlyph[c.glyph]
+		if !ok {
+			t.Errorf("missing marker glyph %c", c.glyph)
+			continue
+		}
+		m := got[idx]
+		if math.Abs(m.LatDeg-c.wantLat) > 1e-4 {
+			t.Errorf("%c lat = %g, want %g", c.glyph, m.LatDeg, c.wantLat)
+		}
+		if !c.ignoreLon && math.Abs(m.LonDeg-c.wantLon) > 1e-4 {
+			t.Errorf("%c lon = %g, want %g", c.glyph, m.LonDeg, c.wantLon)
+		}
+	}
+	// retrograde lon must be ±180 exactly.
+	if m := got[byGlyph[NavballGlyphRetrograde]]; math.Abs(math.Abs(m.LonDeg)-180) > 1e-4 {
+		t.Errorf("retrograde |lon| = %g, want 180", math.Abs(m.LonDeg))
+	}
+	// radial markers sit on the equator with antipodal lons.
+	rOut := got[byGlyph[NavballGlyphRadialOut]]
+	rIn := got[byGlyph[NavballGlyphRadialIn]]
+	if math.Abs(rOut.LatDeg) > 1e-4 || math.Abs(rIn.LatDeg) > 1e-4 {
+		t.Errorf("radial markers should be on equator, got %g and %g", rOut.LatDeg, rIn.LatDeg)
+	}
+	if math.Abs(math.Abs(rOut.LonDeg)-90) > 1e-4 {
+		t.Errorf("radialOut |lon| = %g, want 90", math.Abs(rOut.LonDeg))
+	}
+}
+
+// TestNavballMarkersTargetModeAddsTargetMarkers: when a craft target
+// is bound and NavMode is NavTarget, the marker set includes target +
+// anti-target glyphs in addition to the six orbit cardinals.
+func TestNavballMarkersTargetModeAddsTargetMarkers(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Spawn a second craft to target. Reuse the active craft's primary
+	// + state and offset slightly so the relative-position vector is
+	// non-zero.
+	active := w.ActiveCraft()
+	target := *active
+	target.State.R = active.State.R.Add(orbital.Vec3{X: 1000, Y: 0, Z: 0})
+	target.State.V = active.State.V.Add(orbital.Vec3{X: 0, Y: 1, Z: 0})
+	target.Name = "target-test"
+	w.Crafts = append(w.Crafts, &target)
+	w.Target.Kind = TargetCraft
+	w.Target.CraftIdx = len(w.Crafts) - 1
+	w.NavMode = NavTarget
+
+	got := w.NavballMarkers()
+	if len(got) != 8 {
+		t.Fatalf("target-mode marker count = %d, want 8 (6 cardinals + target/anti-target)", len(got))
+	}
+	hasTarget := false
+	hasAnti := false
+	for _, m := range got {
+		if m.Glyph == NavballGlyphTarget {
+			hasTarget = true
+		}
+		if m.Glyph == NavballGlyphAntiTarget {
+			hasAnti = true
+		}
+	}
+	if !hasTarget {
+		t.Errorf("missing target glyph %c", NavballGlyphTarget)
+	}
+	if !hasAnti {
+		t.Errorf("missing anti-target glyph %c", NavballGlyphAntiTarget)
+	}
+}
+
+// TestNavballMarkersDegenerateReturnsNil: zero-V craft → no basis →
+// nil markers (callers degrade to a static / blank navball).
+func TestNavballMarkersDegenerateReturnsNil(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.ActiveCraft().State.V = orbital.Vec3{}
+	if got := w.NavballMarkers(); got != nil {
+		t.Errorf("degenerate basis should produce nil markers, got %d", len(got))
+	}
+}
+
 // TestNavballBasisTargetMissingFallsBackToOrbit: NavTarget without a
 // craft target should silently fall back to the NavOrbit basis (per
 // the same self-healing contract as ResolveAttitudeIntent + the SAS
