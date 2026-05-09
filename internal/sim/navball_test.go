@@ -372,6 +372,60 @@ func TestNavballMarkersSurfaceModeProgradeIsSurface(t *testing.T) {
 	t.Errorf("missing prograde marker in surface mode")
 }
 
+// TestNavballMarkersIncludeNode: a planted BurnPrograde node adds
+// one extra marker (◎) to the cardinal set, projected to (0, 0)
+// since the burn direction matches the orbit-frame prograde basis EX.
+func TestNavballMarkersIncludeNode(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavOrbit
+	c := w.ActiveCraft()
+	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+		Mode: spacecraft.BurnPrograde,
+		DV:   100,
+	})
+	got := w.NavballMarkers()
+	var node *render.NavballMarker
+	for i := range got {
+		if got[i].Glyph == NavballGlyphNode {
+			node = &got[i]
+			break
+		}
+	}
+	if node == nil {
+		t.Fatalf("expected node marker %c in output", NavballGlyphNode)
+	}
+	if math.Abs(node.LatDeg) > 1e-4 || math.Abs(node.LonDeg) > 1e-4 {
+		t.Errorf("BurnPrograde node should project to (0, 0); got (%g, %g)", node.LatDeg, node.LonDeg)
+	}
+}
+
+// TestNavballMarkersStaleTargetNodeSkips: a target-relative node
+// whose target binding is empty produces no direction (BurnDirection
+// returns zero) and is silently skipped from the marker set.
+func TestNavballMarkersStaleTargetNodeSkips(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavOrbit
+	c := w.ActiveCraft()
+	// Target node without a target bound at the world level — the
+	// node's BurnDirectionWithTarget call will see zero rT, vT and
+	// return zero. Marker is skipped.
+	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+		Mode: spacecraft.BurnTarget,
+		DV:   50,
+	})
+	for _, m := range w.NavballMarkers() {
+		if m.Glyph == NavballGlyphNode {
+			t.Errorf("stale target-mode node should not produce marker; got %v", m)
+		}
+	}
+}
+
 // TestNavballMarkersDegenerateReturnsNil: zero-V craft → no basis →
 // nil markers (callers degrade to a static / blank navball).
 func TestNavballMarkersDegenerateReturnsNil(t *testing.T) {
