@@ -402,6 +402,37 @@ func TestNavballMarkersIncludeNode(t *testing.T) {
 	}
 }
 
+// TestNavballMarkersSurfaceCompassTicks: in NavSurface mode the
+// marker set includes four compass ticks (N / E / S / W) painted in
+// the grid color, in addition to the cardinal SAS markers. NavOrbit
+// mode produces no compass ticks.
+func TestNavballMarkersSurfaceCompassTicks(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavSurface
+	got := w.NavballMarkers()
+	have := map[rune]bool{}
+	for _, m := range got {
+		have[m.Glyph] = true
+	}
+	for _, c := range []rune{'N', 'E', 'S', 'W'} {
+		if !have[c] {
+			t.Errorf("surface mode missing compass tick %c", c)
+		}
+	}
+
+	// NavOrbit must not paint compass ticks.
+	w.NavMode = NavOrbit
+	for _, m := range w.NavballMarkers() {
+		switch m.Glyph {
+		case 'N', 'E', 'S', 'W':
+			t.Errorf("orbit mode should not paint compass tick %c", m.Glyph)
+		}
+	}
+}
+
 // TestNavballMarkersStaleTargetNodeSkips: a target-relative node
 // whose target binding is empty produces no direction (BurnDirection
 // returns zero) and is silently skipped from the marker set.

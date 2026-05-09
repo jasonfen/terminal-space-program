@@ -262,6 +262,45 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 		})
 	}
 
+	// Surface compass ticks (N / E / S / W) — only in NavSurface, where
+	// the player is thinking in surface-frame heading terms during
+	// ascent. The four ticks are fixed-direction unit vectors in the
+	// craft's local-horizon frame:
+	//
+	//   up    = +r̂                      (local vertical)
+	//   east  = unit(spinAxis × up)      (local east on the rotating body)
+	//   north = up × east                (right-handed completion)
+	//
+	// Painted with the grid color so they read as structural reference
+	// labels, distinct from the bright SAS-axis cardinals. Skipped at
+	// the poles (east undefined) or on a non-rotating primary.
+	if w.NavMode == NavSurface {
+		spinR := render.BodyRotationAxisWorld(active.Primary)
+		spinAxis := orbital.Vec3{X: spinR.X, Y: spinR.Y, Z: spinR.Z}
+		rN := active.State.R.Norm()
+		if spinAxis.Norm() > 0 && rN > 0 {
+			up := active.State.R.Scale(1 / rN)
+			east := spinAxis.Cross(up)
+			if eN := east.Norm(); eN > 0 {
+				east = east.Scale(1 / eN)
+				north := up.Cross(east)
+				pushCompass := func(dir orbital.Vec3, glyph rune) {
+					lat, lon := basis.SubObserver(dir)
+					out = append(out, render.NavballMarker{
+						LatDeg: lat,
+						LonDeg: lon,
+						Glyph:  glyph,
+						Color:  render.ColorNavballGrid,
+					})
+				}
+				pushCompass(north, 'N')
+				pushCompass(east, 'E')
+				pushCompass(north.Scale(-1), 'S')
+				pushCompass(east.Scale(-1), 'W')
+			}
+		}
+	}
+
 	// Maneuver-node markers — one per planted node, using the per-leg
 	// trajectory palette (render.ManeuverSegmentColor) so the navball
 	// glyph matches the predicted-orbit leg color the orbit screen
