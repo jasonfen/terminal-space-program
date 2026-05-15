@@ -2,21 +2,21 @@
 
 <!--
   meta:
-    snapshot_version: v0.9.1 (with v0.9.2 ground-launch primitives in
-      flight on branch — work-in-progress)
+    snapshot_version: v0.9.5 (navball — v0.9.0–v0.9.5 all shipped to
+      `main`; v0.9.5 playtest signoff in progress)
     snapshot_date: 2026-05-05
-    revised_date: 2026-05-05 (v0.9.2 ground-launch slice feature-
-      complete on `v0.9.2-ground-launch` branch / PR #51 — manual
-      ascent to LEO unreliable, ships unmerged as WIP)
+    revised_date: 2026-05-15 (v0.9.2/.3/.4 merged via PR #51/#52/#53;
+      v0.9.5 navball merged to `main` via --no-ff 730705d + pushed
+      origin — playtest signoff in progress)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
   "what's the game today / where is it going" reference.
 -->
 
-> Snapshot at **v0.9.1** (May 2026), with **v0.9.2 ground-launch
-> primitives in flight on branch** as work-in-progress (manual ascent
-> unreliable — see [v0.9.2 (work-in-progress)](#v092-work-in-progress)).
+> Snapshot at **v0.9.5** (May 2026) — the "craft fleet grows up"
+> cycle has shipped v0.9.0 → v0.9.5 to `main` (navball playtest
+> signoff in progress; cycle closes once a v0.9.6+ pick lands).
 > Predecessor doc with full per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
@@ -90,9 +90,10 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
-| [v0.9.4 (in flight)](#v094-in-flight) | 2026-05-07 | 🚧 | Ascent ergonomics — predictive ap/pe/Δv→circ in LAUNCH HUD, ORBIT READY callout, NavSurface auto-snap on launchpad spawn, single-key `C` plants circularize-at-apoapsis. Closes the v0.9.2 WIP friction without an autopilot. |
-| [v0.9.3 (awaiting playtest)](#v093-awaiting-playtest) | 2026-05-06 | 🚧 | Rendezvous tooling — target-relative SAS modes (`BurnTarget*`), TCA / CA / DOCK READY in TARGET HUD, KSP-style NavMode cycle (`;`), `m`-form integration with `next closest approach` trigger event. |
-| [v0.9.2 (WIP, superseded by v0.9.4)](#v092-work-in-progress) | 2026-05-05 | 🚧 | Ground-launch primitives — launchpad spawn, surface-frame SAS, pitch trim, LAUNCH HUD. Manual ascent unreliable; v0.9.4 ascent ergonomics adds the live guidance that closes the loop. |
+| [v0.9.5](#v095) | 2026-05-15 | ✓ | Navball — bottom-right HUD attitude indicator. Braille-rendered sphere, classic-ADI horizon split, per-mode SAS/target/maneuver-node markers, NavSurface compass ticks. Merged to `main` (730705d); playtest signoff in progress. |
+| [v0.9.4](#v094) | 2026-05-07 | ✓ | Ascent ergonomics — predictive ap/pe/Δv→circ in LAUNCH HUD, ORBIT READY callout, NavSurface auto-snap on launchpad spawn, single-key `C` plants circularize-at-apoapsis. Closes the v0.9.2 WIP friction without an autopilot. Merged via PR #53. |
+| [v0.9.3](#v093) | 2026-05-06 | ✓ | Rendezvous tooling — target-relative SAS modes (`BurnTarget*`), TCA / CA / DOCK READY in TARGET HUD, KSP-style NavMode cycle (`;`), `m`-form integration with `next closest approach` trigger event. Merged via PR #52. |
+| [v0.9.2](#v092) | 2026-05-05 | ✓ | Ground-launch primitives — launchpad spawn, surface-frame SAS, pitch trim, LAUNCH HUD. Shipped via PR #51; v0.9.4 ascent ergonomics closed the manual-ascent friction. |
 | [v0.9.1](#v091) | 2026-05-05 | ✓ | KSP-style staging chain — Saturn-V 3-stage loadout, `space` decouples bottom stage |
 | [v0.9.0](#v090) | 2026-05-05 | ✓ | unified `World.Target` slot — first slice of "the craft fleet grows up" cycle |
 | [v0.8.6](#v086) | 2026-05-04 | ✓ | controls polish + body-equatorial frame + adaptive warp clamps + iterate-for-target |
@@ -110,8 +111,54 @@ flyby) match real spacecraft work.
 | [v0.2](#v02) | 2026-04 | ✓ | finite burns + maneuver planner |
 | [v0.1](#v01) | 2026-04 | ✓ | two-body propagator + SOI |
 
-### v0.9.4 (in flight)
-<!-- llm-parse: version=v0.9.4 status=in-progress date=2026-05-07 theme=ascent-ergonomics branch=claude/improve-launch-rendezvous-BJj0Y -->
+### v0.9.5
+<!-- llm-parse: version=v0.9.5 status=shipped date=2026-05-15 theme=navball branch=v0.9.5-navball merge=730705d -->
+
+**Navball — bottom-right HUD attitude indicator.** A KSP-style
+attitude ball clamped into the orbit-screen HUD: nothing else in
+the HUD showed where the craft's nose points relative to the
+orbit / target / surface frame. Visualization-only — the `;`
+NavMode cycle controls it consumes already shipped in v0.9.3, so
+this slice paints the picture v0.9.3 wired the controls for.
+
+**Shipped on `v0.9.5-navball`, merged to `main` via `--no-ff`
+(730705d) + pushed origin 2026-05-15. Playtest signoff in
+progress** (build / vet / full test suite green at merge; no
+interactive playthrough yet).
+
+- **Braille sphere** (`internal/render/navball.go`): 12×6-cell /
+  24×24-dot genuinely-circular disk with classic-ADI sky-blue /
+  orange horizon split, limb outline + horizon band, center
+  reticle, and a subtle 30° parallel + meridian grid (re-added
+  after the early flicker-driven removal once sub-observer was
+  quantized to 1°).
+- **Markers** (`internal/sim/navball.go`): driven through
+  `ResolveAttitudeIntent` + `BurnDirectionWithTarget` so every
+  glyph sits exactly where its axis key would aim. Six SAS
+  cardinals per mode (prograde / retrograde / normal± / radial±);
+  NavTarget swaps radial± to ◉ / ◌ at the line-to-target;
+  maneuver-node markers (◎) per planted node in the per-leg
+  trajectory colour; N/E/S/W compass ticks in NavSurface.
+  Back-hemisphere markers paint dimmed (Faint); front wins at
+  coincident cells.
+- **HUD wiring** (`internal/tui/screens/orbit.go`): clamped into
+  the bottom-right HUD column, marker set + horizon plane chosen
+  from `World.NavMode` directly — no new key binding or save
+  field (all shipped in v0.9.3). Also dropped the stale "coming
+  v0.9.3" toasts on `H`/`I` when a craft target is set.
+
+**LOC.** ~1300 including tests — well under the 3×-rendering-
+snowball ~700 plan estimate; the v0.8.5 `SubObserverPointDeg` +
+per-pixel sphere pipeline reuse held cleanly, so the renderer-
+reuse sizing risk did not materialise.
+
+**Cycle status.** v0.9.0 → v0.9.5 are all shipped to `main`. The
+v0.9 cycle closes once at least one v0.9.6+ pick lands (multi-rev
+porkchop / capture-direction toggle / solar lighting+eclipses /
+predictor adaptive sampling / polish bag).
+
+### v0.9.4
+<!-- llm-parse: version=v0.9.4 status=shipped date=2026-05-07 theme=ascent-ergonomics branch=claude/improve-launch-rendezvous-BJj0Y pr=53 -->
 
 **Ascent ergonomics — closes the v0.9.2 ground-launch loop.** The
 v0.9.2 retrospective flagged "manual ascent to LEO unreliable" as
@@ -165,8 +212,8 @@ v0.9.2 primitives playable. Open question #7 (launch gravity-turn
 assist) is resolved in favour of option (a) (live HUD overlay) over
 option (b) (autopilot).
 
-### v0.9.3 (awaiting playtest)
-<!-- llm-parse: version=v0.9.3 status=in-progress date=2026-05-06 theme=rendezvous branch=v0.9.3-rendezvous -->
+### v0.9.3
+<!-- llm-parse: version=v0.9.3 status=shipped date=2026-05-06 theme=rendezvous branch=v0.9.3-rendezvous pr=52 -->
 
 Rendezvous tooling (manual-first) shipped on
 `origin/v0.9.3-rendezvous`. All four target-relative SAS modes
@@ -180,8 +227,8 @@ captured-at-plant + save round-trip. **Folded into the v0.9.4
 working branch** so ascent ergonomics can build on the NavMode
 auto-snap pattern.
 
-### v0.9.2 (work-in-progress, superseded by v0.9.4)
-<!-- llm-parse: version=v0.9.2 status=in-progress date=2026-05-05 theme=ground-launch branch=v0.9.2-ground-launch pr=51 -->
+### v0.9.2
+<!-- llm-parse: version=v0.9.2 status=shipped date=2026-05-05 theme=ground-launch branch=v0.9.2-ground-launch pr=51 -->
 
 **Ground-launch primitives — feature-complete on branch, manual
 ascent to LEO unreliable, ships unmerged.** Third slice of the v0.9
