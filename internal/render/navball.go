@@ -185,10 +185,26 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		}
 	}
 
+	// Center reticle — small faint `+` at the disk centre, the
+	// conceptual analogue of KSP's static "T" indicating "this is
+	// where the craft is pointing." Drawn before markers so any
+	// marker that lands at the centre (prograde once SAS settles on
+	// prograde, etc.) overwrites it; the reticle is the empty-state
+	// reference, not a competing overlay.
+	centerCol := dotCx / 2
+	centerRow := dotCy / 4
+	if centerCol >= 0 && centerCol < cols && centerRow >= 0 && centerRow < rows && cells[centerRow][centerCol] != " " {
+		reticle := lipgloss.NewStyle().Foreground(ColorNavballGrid).Faint(true).Render("+")
+		cells[centerRow][centerCol] = reticle
+	}
+
 	// Render markers in two passes so front markers overwrite back
 	// markers at coincident cells (e.g. prograde at the disk centre
 	// hides retrograde when sub-observer points at prograde — KSP
-	// behavior).
+	// behavior). Markers render Bold so the glyph reads cleanly
+	// against the hemisphere texture even when marker color and
+	// hemisphere color are close in hue (yellow prograde on orange
+	// ground, cyan radial on blue sky).
 	paint := func(m NavballMarker, dimmed bool) {
 		mdx, mdy, _ := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
 		// Marker positions are in dot units; map to the containing
@@ -205,9 +221,9 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		if m.Glyph == 0 {
 			glyph = "•"
 		}
-		style := lipgloss.NewStyle().Foreground(m.Color)
+		style := lipgloss.NewStyle().Foreground(m.Color).Bold(true)
 		if dimmed {
-			style = style.Faint(true)
+			style = style.Faint(true).Bold(false)
 		}
 		cells[row][col] = style.Render(glyph)
 	}
