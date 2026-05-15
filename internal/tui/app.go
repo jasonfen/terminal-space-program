@@ -480,7 +480,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case sim.TargetBody:
 					_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
 				case sim.TargetCraft:
-					a.statusMsg = "rendezvous via [R] — coming v0.9.3"
+					a.statusMsg = "H targets bodies — for craft, plan via [m]"
 					a.statusExpires = time.Now().Add(3 * time.Second)
 				}
 			}
@@ -507,7 +507,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						target = orbital.PlaneMatchInclination(b, frame)
 					}
 				case sim.TargetCraft:
-					a.statusMsg = "plane-match vs craft target — needs v0.9.3"
+					a.statusMsg = "I targets bodies — for craft, plan via [m]"
 					a.statusExpires = time.Now().Add(3 * time.Second)
 					return a, nil
 				}

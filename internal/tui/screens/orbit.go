@@ -1758,6 +1758,28 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
+	// v0.9.5+: NAVBALL block — bottom-right of the HUD column, after
+	// the existing TARGET / RENDEZVOUS / NODES content. Hidden when
+	// the HUD column is too narrow to fit the 12-char-wide disk plus
+	// a 2-char gutter, or when the active craft has no defined nose
+	// direction (zero-velocity launchpad pre-liftoff, no active craft).
+	//
+	// 12 cols × 6 rows is the natural aspect for braille rendering:
+	// 24×24 dots (cells contain 2×4 dots, dots are square in physical
+	// screen space, so 24×24 dots is a square region with a circular
+	// pxRadius=12 disk filling it).
+	const navballCols = 12
+	const navballRows = 6
+	const navballMinHUDWidth = navballCols + 2
+	if w.CraftVisibleHere() && width >= navballMinHUDWidth {
+		if subLat, subLon, ok := w.NavballSubObserver(); ok {
+			lines = append(lines, section("NAVBALL")...)
+			markers := w.NavballMarkers()
+			navball := render.NavballString(navballCols, navballRows, subLat, subLon, markers)
+			lines = append(lines, strings.Split(navball, "\n")...)
+		}
+	}
+
 	content := strings.Join(lines, "\n")
 	rendered := v.theme.HUDBox.Width(width).Render(content)
 	// Title bar takes row 0 of the final rendered output; HUD's
