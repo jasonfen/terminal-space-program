@@ -30,6 +30,15 @@ const (
 	// rather than just the color boundary between hemispheres.
 	ColorNavballHorizon = lipgloss.Color("#9A8870") // earthy mid-tone
 
+	// Grid tints — slightly brighter versions of each hemisphere,
+	// used on cells whose dots fall on or near a 30° parallel /
+	// meridian. Keeps the grid in-hemisphere (not white) so the
+	// disk doesn't wash out — the 357937f bug was a single bright
+	// grid color winning ties and turning the whole disk white +
+	// flickery. These stay tonally adjacent to their hemisphere.
+	ColorNavballSkyGrid    = lipgloss.Color("#5A8FC8") // brighter sky for grid-line cells
+	ColorNavballGroundGrid = lipgloss.Color("#E89A5C") // brighter ground for grid-line cells
+
 	// Marker colors. Prograde / retrograde mirror KSP's yellow; normal
 	// vectors are pink (KSP magenta-ish); radial markers are cyan;
 	// target markers are pink-purple to read distinctly against the
@@ -92,6 +101,44 @@ func projectLatLonToPixel(latDeg, lonDeg float64, pxRadius int, subLatDeg, subLo
 	dx = int(math.Round(nx * float64(pxRadius)))
 	dy = int(math.Round(-ny * float64(pxRadius)))
 	return dx, dy, z > 0
+}
+
+// isGridDot reports whether (lat, lon) sits on or within tolerance
+// of a 30° navball grid line — a parallel every 30° of latitude
+// (excluding the poles, where the line collapses to a point) or a
+// meridian every 30° of longitude at |lat| ≤ 70° (above which the
+// 12 meridians converge too densely to render distinctly).
+//
+// Tolerance is 2° in either coordinate, chosen so each grid line is
+// roughly 1 cell-dot wide at pxR=12. The skip at |lat| > 70°
+// prevents the pole cap from going all-grid as meridians converge.
+func isGridDot(lat, lon float64) bool {
+	const tol = 2.0
+	const parallelStep = 30.0
+	const meridianStep = 30.0
+	const meridianLatCap = 70.0
+
+	absLat := math.Abs(lat)
+	if absLat <= 90-tol {
+		latMod := math.Mod(absLat, parallelStep)
+		if latMod > parallelStep/2 {
+			latMod = parallelStep - latMod
+		}
+		if latMod <= tol {
+			return true
+		}
+	}
+	if absLat <= meridianLatCap {
+		absLon := math.Abs(lon)
+		lonMod := math.Mod(absLon, meridianStep)
+		if lonMod > meridianStep/2 {
+			lonMod = meridianStep - lonMod
+		}
+		if lonMod <= tol {
+			return true
+		}
+	}
+	return false
 }
 
 // brailleBitForDot maps an in-cell sub-pixel position (sx ∈ {0,1},
@@ -160,13 +207,15 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	skyEdgeStyle := lipgloss.NewStyle().Foreground(ColorNavballSkyEdge)
 	groundEdgeStyle := lipgloss.NewStyle().Foreground(ColorNavballGroundEdge)
 	horizonStyle := lipgloss.NewStyle().Foreground(ColorNavballHorizon)
+	skyGridStyle := lipgloss.NewStyle().Foreground(ColorNavballSkyGrid)
+	groundGridStyle := lipgloss.NewStyle().Foreground(ColorNavballGroundGrid)
 
 	cells := make([][]string, rows)
 	for row := 0; row < rows; row++ {
 		cells[row] = make([]string, cols)
 		for col := 0; col < cols; col++ {
 			var pattern rune
-			var skyCount, groundCount int
+			var skyCount, groundCount, gridCount int
 			for sx := 0; sx < 2; sx++ {
 				for sy := 0; sy < 4; sy++ {
 					dx := col*2 + sx - dotCx
@@ -174,7 +223,7 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 					if dx*dx+dy*dy > pxR*pxR {
 						continue
 					}
-					lat, _, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg)
+					lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg)
 					if !ok {
 						continue
 					}
@@ -183,6 +232,9 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 						skyCount++
 					} else {
 						groundCount++
+					}
+					if isGridDot(lat, lon) {
+						gridCount++
 					}
 				}
 			}
@@ -213,6 +265,17 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 				// balanced sky/ground coverage. Muted transitional tone
 				// draws the horizon as an explicit line.
 				style = horizonStyle
+			case gridCount >= 2:
+				// Grid cell — cell contains enough dots near a 30°
+				// parallel or meridian to read as a grid intersection
+				// or arc. Use a slightly brighter tint of the dominant
+				// hemisphere so the grid is felt as a sphere rotation
+				// cue without competing with the markers.
+				if skyCount >= groundCount {
+					style = skyGridStyle
+				} else {
+					style = groundGridStyle
+				}
 			default:
 				if skyCount >= groundCount {
 					style = skyStyle
