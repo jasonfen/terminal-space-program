@@ -181,6 +181,37 @@ func TestNavballMarkerFrontOverridesBack(t *testing.T) {
 	// is the front glyph.
 }
 
+// TestIsGridDot confirms the 30°-grid detection helper. Parallels
+// run at every multiple of 30° latitude (excluding the poles);
+// meridians at every multiple of 30° longitude, but only at
+// |lat| ≤ 70° where the meridians haven't yet converged.
+func TestIsGridDot(t *testing.T) {
+	cases := []struct {
+		name     string
+		lat, lon float64
+		want     bool
+	}{
+		{"equator", 0, 0, true},
+		{"30N on prime meridian", 30, 0, true},
+		{"parallel only (60S)", -60, 17, true},
+		{"meridian only (0, 90)", 0, 90, true},
+		{"meridian only (0, -150)", 0, -150, true},
+		{"off-grid mid-cell", 17, 22, false},
+		{"polar meridian skipped at 80N", 80, 30, false},
+		{"polar parallel still drawn at 60", 60, 17, true},
+		{"near-pole no parallel (89)", 89, 17, false},
+		{"meridian visible at 70 cap", 70, 60, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := isGridDot(tc.lat, tc.lon)
+			if got != tc.want {
+				t.Errorf("isGridDot(lat=%g, lon=%g) = %v, want %v", tc.lat, tc.lon, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestNavballCenterReticle confirms a faint `+` sits at the disk
 // centre when no marker covers it. With sub-observer at the equator
 // origin and no markers, the geometric centre cell paints the
