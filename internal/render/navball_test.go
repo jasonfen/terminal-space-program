@@ -181,6 +181,29 @@ func TestNavballMarkerFrontOverridesBack(t *testing.T) {
 	// is the front glyph.
 }
 
+// TestNavballCenterReticle confirms a faint `+` sits at the disk
+// centre when no marker covers it. With sub-observer at the equator
+// origin and no markers, the geometric centre cell paints the
+// reticle glyph. This is the static "where the craft is pointing"
+// reference, KSP's center marker analogue.
+func TestNavballCenterReticle(t *testing.T) {
+	out := NavballString(13, 13, 0, 0, nil)
+	if !strings.ContainsRune(out, '+') {
+		t.Errorf("center reticle `+` not found in empty-marker navball: %q", out)
+	}
+	// A marker at (0, 0) should overwrite the reticle: the markers'
+	// SAS-axis directions win the cell. Confirm `+` is gone when
+	// prograde lands at centre.
+	withMarker := NavballString(13, 13, 0, 0, []NavballMarker{
+		{LatDeg: 0, LonDeg: 0, Glyph: '⊕', Color: ColorNavballMarkerPrograde},
+	})
+	lines := strings.Split(withMarker, "\n")
+	mid := lines[len(lines)/2]
+	if strings.ContainsRune(mid, '+') {
+		t.Errorf("marker at centre should overwrite reticle, but `+` still on centre row: %q", mid)
+	}
+}
+
 // TestNavballHorizonSplit confirms that with sub-observer at the
 // equator, the upper half of the disk reports as sky and the lower
 // half as ground. This validates the horizon-split texture path.
