@@ -17,6 +17,19 @@ const (
 	ColorNavballGround = lipgloss.Color("#D87A3C") // lower-hemisphere ground (classic ADI orange)
 	ColorNavballGrid   = lipgloss.Color("#C8C8C8") // structural labels (compass ticks)
 
+	// Limb shading — darker hemisphere tints used on cells at the
+	// disk edge (few in-disk dots) so the ball reads as a sphere
+	// with depth, not a flat color disk. Roughly 60% brightness of
+	// the parent hemisphere color.
+	ColorNavballSkyEdge    = lipgloss.Color("#234668") // darker sky for limb cells
+	ColorNavballGroundEdge = lipgloss.Color("#984522") // darker ground for limb cells
+
+	// Horizon band — muted tone used on cells where sky/ground
+	// dot counts are nearly balanced (the cell straddles the
+	// equator). Makes the horizon line an explicit drawn feature
+	// rather than just the color boundary between hemispheres.
+	ColorNavballHorizon = lipgloss.Color("#9A8870") // earthy mid-tone
+
 	// Marker colors. Prograde / retrograde mirror KSP's yellow; normal
 	// vectors are pink (KSP magenta-ish); radial markers are cyan;
 	// target markers are pink-purple to read distinctly against the
@@ -144,6 +157,9 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 
 	skyStyle := lipgloss.NewStyle().Foreground(ColorNavballSky)
 	groundStyle := lipgloss.NewStyle().Foreground(ColorNavballGround)
+	skyEdgeStyle := lipgloss.NewStyle().Foreground(ColorNavballSkyEdge)
+	groundEdgeStyle := lipgloss.NewStyle().Foreground(ColorNavballGroundEdge)
+	horizonStyle := lipgloss.NewStyle().Foreground(ColorNavballHorizon)
 
 	cells := make([][]string, rows)
 	for row := 0; row < rows; row++ {
@@ -175,11 +191,34 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 				continue
 			}
 			ch := string(rune(0x2800) + pattern)
+			total := skyCount + groundCount
+			diff := skyCount - groundCount
+			if diff < 0 {
+				diff = -diff
+			}
 			var style lipgloss.Style
-			if skyCount >= groundCount {
-				style = skyStyle
-			} else {
-				style = groundStyle
+			switch {
+			case total <= 3:
+				// Limb cell — most of the cell falls outside the disk,
+				// so it sits on the ball's edge. Darker hemisphere tint
+				// suggests a 3D ball with depth at the edge rather than
+				// a flat-shaded disk.
+				if skyCount >= groundCount {
+					style = skyEdgeStyle
+				} else {
+					style = groundEdgeStyle
+				}
+			case diff <= 1:
+				// Horizon band — cell straddles the equator with nearly
+				// balanced sky/ground coverage. Muted transitional tone
+				// draws the horizon as an explicit line.
+				style = horizonStyle
+			default:
+				if skyCount >= groundCount {
+					style = skyStyle
+				} else {
+					style = groundStyle
+				}
 			}
 			cells[row][col] = style.Render(ch)
 		}
