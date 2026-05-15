@@ -122,6 +122,14 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	if cols < 4 || rows < 2 {
 		return ""
 	}
+	// Quantize sub-observer to integer degrees. Cell pitch on the
+	// 24-dot disk is ~5° per dot, so 1° rounding is well below
+	// visible motion granularity, but it kills the equator-flicker
+	// bug — sub-degree SAS jitter no longer flips horizon cells
+	// blue↔orange between frames. Markers reproject via the same
+	// quantized point so they stay frame-consistent with the texture.
+	subLatDeg = math.Round(subLatDeg)
+	subLonDeg = math.Round(subLonDeg)
 	dotsW := cols * 2
 	dotsH := rows * 4
 	dotCx := dotsW / 2
