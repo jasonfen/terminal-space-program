@@ -80,47 +80,47 @@ func TestTextureForDispatch(t *testing.T) {
 	moon := bodies.CelestialBody{ID: "moon", BodyType: "Moon"}
 	mars := bodies.CelestialBody{ID: "mars", BodyType: "Planet"}
 
-	if TextureFor(earth, BodyTextureMinRadius-1, 0, 0) != nil {
+	if TextureFor(earth, BodyTextureMinRadius-1, 0, 0, nil) != nil {
 		t.Error("Earth below threshold should have no texture")
 	}
-	if TextureFor(earth, BodyTextureMinRadius, 0, 0) == nil {
+	if TextureFor(earth, BodyTextureMinRadius, 0, 0, nil) == nil {
 		t.Error("Earth at threshold should have texture")
 	}
-	if TextureFor(moon, BodyTextureMinRadius-1, 0, 0) != nil {
+	if TextureFor(moon, BodyTextureMinRadius-1, 0, 0, nil) != nil {
 		t.Error("Moon below threshold should have no texture")
 	}
-	if TextureFor(moon, BodyTextureMinRadius, 0, 0) == nil {
+	if TextureFor(moon, BodyTextureMinRadius, 0, 0, nil) == nil {
 		t.Error("Moon at threshold should have texture")
 	}
 	// v0.7.6+: Mars and Jupiter now have textures.
-	if TextureFor(mars, 64, 0, 0) == nil {
+	if TextureFor(mars, 64, 0, 0, nil) == nil {
 		t.Error("Mars should have texture (added in v0.7.6)")
 	}
 	jupiter := bodies.CelestialBody{ID: "jupiter", BodyType: "Planet"}
-	if TextureFor(jupiter, 64, 0, 0) == nil {
+	if TextureFor(jupiter, 64, 0, 0, nil) == nil {
 		t.Error("Jupiter should have texture (added in v0.7.6)")
 	}
 	// v0.8.5+: Saturn / Galileans / Uranus / Neptune now have textures.
 	saturn := bodies.CelestialBody{ID: "saturn", BodyType: "Planet"}
-	if TextureFor(saturn, 64, 0, 0) == nil {
+	if TextureFor(saturn, 64, 0, 0, nil) == nil {
 		t.Error("Saturn should have texture (added in v0.8.5)")
 	}
 	for _, id := range []string{"io", "europa", "ganymede", "callisto", "uranus", "neptune"} {
 		b := bodies.CelestialBody{ID: id, BodyType: "Moon"}
-		if TextureFor(b, 64, 0, 0) == nil {
+		if TextureFor(b, 64, 0, 0, nil) == nil {
 			t.Errorf("%s should have texture (added in v0.8.5)", id)
 		}
 	}
 	// v0.8.5.7+: Sun has a texture (limb darkening + sunspots).
 	sun := bodies.CelestialBody{ID: "sun", BodyType: "Star"}
-	if TextureFor(sun, 64, 0, 0) == nil {
+	if TextureFor(sun, 64, 0, 0, nil) == nil {
 		t.Error("Sun should have texture (added in v0.8.5.7)")
 	}
 
 	// Earth and Moon must dispatch to different functions — sanity
 	// check that the switch is not collapsing.
-	earthTex := TextureFor(earth, 32, 0, 0)
-	moonTex := TextureFor(moon, 32, 0, 0)
+	earthTex := TextureFor(earth, 32, 0, 0, nil)
+	moonTex := TextureFor(moon, 32, 0, 0, nil)
 	const r = 32
 	// Look at the same pixel offset on both: (0, 0) is the disk
 	// center. Earth at (0,0) → lat=0, lon=0 → over Africa → land
