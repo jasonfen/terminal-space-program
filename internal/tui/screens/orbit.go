@@ -127,7 +127,7 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 		canvasCols = 20
 	}
 	v.canvas.Resize(canvasCols, totalRows-4) // reserve 4 rows for header/footer
-	v.fitted = false                          // force refit after resize
+	v.fitted = false                         // force refit after resize
 }
 
 // ZoomIn / ZoomOut are thin wrappers for App to call on +/-.
@@ -318,6 +318,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 	}
 	scale := v.canvas.Scale()
+	// v0.9.6: the system's star radius, hoisted once for the
+	// per-body eclipse-cone test below. sol.json puts the star at
+	// Bodies[0]; fall back to a BodyType scan for non-Sol systems.
+	var sunR float64
+	for i := range sys.Bodies {
+		if sys.Bodies[i].BodyType == "Star" {
+			sunR = sys.Bodies[i].RadiusMeters()
+			break
+		}
+	}
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
@@ -352,7 +362,32 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 		subLat, subLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, camDir, primMer)
-		if tex := render.TextureFor(b, r, subLat, subLon); tex != nil {
+		// v0.9.6: day/night terminator + eclipse dimming. The Sun is
+		// the light source (exempt). The sub-solar point reuses the
+		// exact projection path as the camera one — same primMer,
+		// same epoch offset — so the (lon − ssLon) difference in
+		// SolarLight.FactorAt stays frame-consistent. Sun sits at the
+		// inertial origin, so body→Sun is simply −pos;
+		// SubObserverPointDeg re-normalizes internally.
+		var light *render.SolarLight
+		if b.BodyType != "Star" {
+			sunDir := render.Vec3{X: -pos.X, Y: -pos.Y, Z: -pos.Z}
+			if sunDir.X != 0 || sunDir.Y != 0 || sunDir.Z != 0 {
+				ssLat, ssLon := render.SubObserverPointDeg(b, w.Clock.RotationTime, sunDir, primMer)
+				light = &render.SolarLight{SubSolarLatDeg: ssLat, SubSolarLonDeg: ssLon, EclipseFactor: 1.0}
+				// Phase B: a body inside its parent's umbra/penumbra
+				// (lunar-eclipse geometry) dims globally on top of
+				// the per-pixel terminator.
+				if parent := sys.ParentOf(b); parent != nil && parent.ID != b.ID {
+					pPos := w.BodyPosition(*parent)
+					light.EclipseFactor = render.EclipseFactor(
+						render.Vec3{X: pos.X, Y: pos.Y, Z: pos.Z},
+						render.Vec3{X: pPos.X, Y: pPos.Y, Z: pPos.Z},
+						b.RadiusMeters(), parent.RadiusMeters(), sunR)
+				}
+			}
+		}
+		if tex := render.TextureFor(b, r, subLat, subLon, light); tex != nil {
 			pxR := r
 			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
 				return tex(dx, dy, pxR)
@@ -1423,7 +1458,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				ro := orbital.OrbitReadoutInFrame(c.State.R, c.State.V, mu, frame)
 				if !ro.Hyperbolic {
 					tgtIncl := orbital.PlaneMatchInclination(b, frame)
-					di := math.Abs(ro.Inclination - tgtIncl) * 180 / math.Pi
+					di := math.Abs(ro.Inclination-tgtIncl) * 180 / math.Pi
 					diLabel := fmt.Sprintf("%.2f°", di)
 					if di > 30 {
 						diLabel = v.theme.Warning.Render(diLabel)
@@ -1582,7 +1617,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			}
 			row := fmt.Sprintf("  %-8s  %-22s  fuel %5.1f%%", label, thrustLabel, fuelPct)
 			if i == 0 {
-				row = v.theme.Warning.Render("▸ "+row[2:])
+				row = v.theme.Warning.Render("▸ " + row[2:])
 			} else {
 				row = v.theme.Dim.Render(row)
 			}
