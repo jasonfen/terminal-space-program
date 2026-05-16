@@ -164,8 +164,10 @@ var brailleBitForDot = [2][4]rune{
 // in the ball's reference frame.
 //
 // markers may be nil. Each marker is projected via
-// projectLatLonToPixel; only markers in the front hemisphere render.
-// Markers that fall outside the disk are skipped.
+// projectLatLonToPixel; back-hemisphere markers render dimmed and
+// markers that project outside the disk are clamped to the rim
+// (KSP-style edge pinning) rather than skipped, so a marker never
+// blinks on/off at the limb.
 //
 // v0.9.5: braille sub-pixel rendering — each terminal cell contains
 // a 2×4 grid of braille dots (square in physical screen space, since
@@ -308,11 +310,16 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	// nothing to quantize away and rounding would only reintroduce
 	// snap-dither at half-integer inputs.
 	//
-	// Off-disk rejection is by true projected radius, NOT whether the
-	// texture cell happened to receive braille dots: limb cells inside
-	// the disk are frequently blank from the 2×4 sub-sampling, and the
-	// old cells[row][col]==" " guard made genuinely on-disk markers
-	// vanish at the edge — the visible flicker.
+	// Off-disk markers are CLAMPED to the rim, not dropped. The
+	// orbit-normal markers sit ~90° from the nose during typical
+	// in-plane flight (SAS holding prograde), so they live right at
+	// the disk limb — exactly where a hard radius cull made them blink
+	// out whenever residual direction noise nudged them a hair past
+	// pxR, and where back-hemisphere dimming made them read as "not
+	// rendered". Riding the rim is continuous (no on/off transition)
+	// and matches KSP, which pins off-disk markers to the navball edge
+	// rather than hiding them. Nothing is dropped → every marker is
+	// always present, so there is no per-frame appear/disappear.
 	type placedMarker struct {
 		m        NavballMarker
 		col, row int
@@ -322,15 +329,26 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	for _, m := range markers {
 		mdx, mdy, front := projectLatLonToPixel(
 			m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
-		if mdx*mdx+mdy*mdy > pxR*pxR {
-			continue
+		if r2 := mdx*mdx + mdy*mdy; r2 > pxR*pxR {
+			scale := float64(pxR) / math.Sqrt(float64(r2))
+			mdx = int(math.Round(float64(mdx) * scale))
+			mdy = int(math.Round(float64(mdy) * scale))
 		}
 		// Marker positions are in dot units; map to the containing
 		// cell. (dotCx + mdx) ∈ [0, dotsW); divide by 2 dots/cell.
+		// Clamp the cell index (not the marker) so a rim marker at
+		// exactly +pxR can't index one past the grid edge.
 		col := (dotCx + mdx) / 2
 		row := (dotCy + mdy) / 4
-		if col < 0 || col >= cols || row < 0 || row >= rows {
-			continue
+		if col < 0 {
+			col = 0
+		} else if col >= cols {
+			col = cols - 1
+		}
+		if row < 0 {
+			row = 0
+		} else if row >= rows {
+			row = rows - 1
 		}
 		placed = append(placed, placedMarker{m, col, row, front})
 	}
