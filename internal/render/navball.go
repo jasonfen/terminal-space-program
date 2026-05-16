@@ -182,14 +182,14 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	if cols < 4 || rows < 2 {
 		return ""
 	}
-	// Quantize sub-observer to integer degrees. Cell pitch on the
-	// 24-dot disk is ~5° per dot, so 1° rounding is well below
-	// visible motion granularity, but it kills the equator-flicker
-	// bug — sub-degree SAS jitter no longer flips horizon cells
-	// blue↔orange between frames. Markers reproject via the same
-	// quantized point so they stay frame-consistent with the texture.
-	subLatDeg = math.Round(subLatDeg)
-	subLonDeg = math.Round(subLonDeg)
+	// NB: (subLatDeg, subLonDeg) is expected to arrive already
+	// jitter-stabilised by the caller's sticky dead-band
+	// (OrbitView.stickyNavballSubObserver). NavballString itself does
+	// NOT quantize: an earlier math.Round here "fixed" equator flicker
+	// but converted sub-degree SAS dither into full 1° snap-dither,
+	// jumping the whole disk + every marker a cell per frame. With a
+	// stable input, continuous projection is flicker-free and the
+	// rounding is both unnecessary and harmful.
 	dotsW := cols * 2
 	dotsH := rows * 4
 	dotCx := dotsW / 2
@@ -300,12 +300,13 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		cells[centerRow][centerCol] = reticle
 	}
 
-	// Resolve each marker to a cell once. Marker lat/lon arrive as raw
-	// floating-point sub-observer projections that jitter sub-degree
-	// from SAS hold + physics-integration noise. The disk texture is
-	// already quantized to integer degrees above to kill equator
-	// flicker; quantize markers the same way so a marker near the limb
-	// (z≈0) or the disk edge stops flipping on/off between frames.
+	// Resolve each marker to a cell once, projecting through the same
+	// (stabilised) sub-observer as the texture so markers stay
+	// frame-consistent with the disk. Marker lat/lon are used
+	// continuously — no rounding; with a jitter-free sub-observer a
+	// sub-degree change can't cross a cell boundary, so there's
+	// nothing to quantize away and rounding would only reintroduce
+	// snap-dither at half-integer inputs.
 	//
 	// Off-disk rejection is by true projected radius, NOT whether the
 	// texture cell happened to receive braille dots: limb cells inside
@@ -320,8 +321,7 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	placed := make([]placedMarker, 0, len(markers))
 	for _, m := range markers {
 		mdx, mdy, front := projectLatLonToPixel(
-			math.Round(m.LatDeg), math.Round(m.LonDeg),
-			pxR, subLatDeg, subLonDeg)
+			m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
 		if mdx*mdx+mdy*mdy > pxR*pxR {
 			continue
 		}
