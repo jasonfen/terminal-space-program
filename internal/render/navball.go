@@ -71,8 +71,9 @@ type NavballMarker struct {
 // as the inverse (dx east+, dy screen-down, i.e. ny = -dy/pxRadius).
 //
 // front=true when the point is on the visible hemisphere (camera-side
-// z > 0); false when it's behind the ball. Callers gate front-only
-// rendering on this flag during the v0.9.5 spike + initial commit.
+// z > -limbFrontEpsZ — the limb band counts as front so rim markers
+// read solid and don't strobe on float noise); false when it's
+// clearly behind the ball.
 //
 // Math: same rotation as projectPixelToLatLon, transposed (the body→
 // view rotation is orthogonal, so its inverse is its transpose).
@@ -100,8 +101,28 @@ func projectLatLonToPixel(latDeg, lonDeg float64, pxRadius int, subLatDeg, subLo
 
 	dx = int(math.Round(nx * float64(pxRadius)))
 	dy = int(math.Round(-ny * float64(pxRadius)))
-	return dx, dy, z > 0
+	// Limb dead-zone. A marker sitting exactly on the limb has z≈0,
+	// so a bare `z > 0` test picks its front/back class from float
+	// noise and strobes it bold↔faint every frame. This is not a rare
+	// edge: in NavOrbit the orbit-normal markers ARE the basis pole
+	// (EZ = r×v), and while SAS holds prograde the sub-observer is at
+	// the equator, so the normal markers land precisely on the limb
+	// with z genuinely ≈0 — the persistent "normal marker flickers
+	// most" bug. Treat the whole |z| ≤ limbFrontEpsZ band as front:
+	// a rim marker reads solid (KSP-style) and, crucially, its class
+	// no longer flips on sub-noise. The band (~0.6° off the limb) is
+	// far wider than the noise yet far below any clearly-front/back
+	// marker's |z|, so non-limb markers are unaffected.
+	return dx, dy, z > -limbFrontEpsZ
 }
+
+// limbFrontEpsZ is the camera-z half-width of the limb dead-zone in
+// projectLatLonToPixel. ~0.02 ≈ sin(1.1°): markers within ~1° of the
+// limb are classed front (solid at the rim) instead of letting the
+// sign of float noise decide. Comfortably above the ~5e-5 z-noise a
+// pole-coincident marker accrues from the lat/lon round trip, and
+// well below the |z| of any marker that's unambiguously on one face.
+const limbFrontEpsZ = 0.02
 
 // isGridDot reports whether (lat, lon) sits on or within tolerance
 // of a 30° navball grid line — a parallel every 30° of latitude
