@@ -98,6 +98,14 @@ type OrbitView struct {
 	// v0.9.6-polish.
 	navSubLatDeg, navSubLonDeg float64
 	navSubValid                bool
+
+	// navballControls holds the absolute screen-cell hit boxes for
+	// the framed navball panel's clickable controls (mode + axis
+	// buttons), recomputed each Render. Empty when the panel isn't
+	// shown. App-side mouse routing maps a click through
+	// HitNavballControl; the dispatch into SAS-hold / NavMode is the
+	// follow-up wiring. v0.9.6-polish.
+	navballControls []navballControlBox
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
@@ -689,6 +697,39 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.canvas.SetCellLabel(labelCol, v.canvas.Rows()-1, viewLabel)
 
 	canvasStr := v.canvas.String()
+
+	// Framed navball panel, composited bottom-centre over the canvas
+	// (v0.9.6-polish). Gated on an active craft with a defined nose
+	// direction and a canvas big enough that the opaque panel doesn't
+	// crowd out the map or collide with the bottom-right "view:"
+	// label. The sub-observer keeps the sticky dead-band that killed
+	// the marker flicker.
+	v.navballControls = v.navballControls[:0]
+	cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
+	if w.CraftVisibleHere() &&
+		cCols >= navballPanelW+16 && cRows >= navballPanelH+2 {
+		if rawLat, rawLon, ok := w.NavballSubObserver(); ok {
+			subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
+			disk := navballPanelDisk(w, subLat, subLon)
+			panel, boxes := v.buildNavballPanel(disk, w.NavMode)
+			atCol := (cCols - navballPanelW) / 2
+			atRow := cRows - navballPanelH
+			lines := strings.Split(canvasStr, "\n")
+			lines = overlayStyledBlock(lines, panel, atRow, atCol, cCols)
+			canvasStr = strings.Join(lines, "\n")
+			// Screen offset: title row (1) + canvas top border (1)
+			// for rows; canvas left border (1) for cols.
+			for _, b := range boxes {
+				v.navballControls = append(v.navballControls, navballControlBox{
+					id:       b.id,
+					colStart: atCol + b.colStart + 1,
+					colEnd:   atCol + b.colEnd + 1,
+					row:      atRow + b.row + 2,
+				})
+			}
+		}
+	}
+
 	canvasPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(v.theme.Primary.GetForeground()).
@@ -773,6 +814,22 @@ func (v *OrbitView) HitMenuButton(col, row int) bool {
 // the title bar's `[Missions]` button. v0.7.4+.
 func (v *OrbitView) HitMissionsButton(col, row int) bool {
 	return row == 0 && col >= v.missionsColStart && col < v.missionsColEnd
+}
+
+// HitNavballControl maps a screen-space click to a navball-panel
+// control, returning navballControlNone (ok=false) on a miss. Hit
+// boxes are recomputed every Render in absolute screen coordinates.
+// The app's mouse handler calls this; the dispatch from each control
+// id into the NavMode cycle / SAS-hold intent is the follow-up
+// wiring step (the panel layout intentionally reserves the room).
+// v0.9.6-polish.
+func (v *OrbitView) HitNavballControl(col, row int) (NavballControlID, bool) {
+	for _, b := range v.navballControls {
+		if row == b.row && col >= b.colStart && col < b.colEnd {
+			return b.id, true
+		}
+	}
+	return navballControlNone, false
 }
 
 // BodyPixelRadius returns the body's render radius in pixels. When the
@@ -1740,28 +1797,10 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
-	// v0.9.5+: NAVBALL block — bottom-right of the HUD column, after
-	// the existing TARGET / RENDEZVOUS / NODES content. Hidden when
-	// the HUD column is too narrow to fit the 12-char-wide disk plus
-	// a 2-char gutter, or when the active craft has no defined nose
-	// direction (zero-velocity launchpad pre-liftoff, no active craft).
-	//
-	// 12 cols × 6 rows is the natural aspect for braille rendering:
-	// 24×24 dots (cells contain 2×4 dots, dots are square in physical
-	// screen space, so 24×24 dots is a square region with a circular
-	// pxRadius=12 disk filling it).
-	const navballCols = 12
-	const navballRows = 6
-	const navballMinHUDWidth = navballCols + 2
-	if w.CraftVisibleHere() && width >= navballMinHUDWidth {
-		if rawLat, rawLon, ok := w.NavballSubObserver(); ok {
-			lines = append(lines, section("NAVBALL")...)
-			subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
-			markers := w.NavballMarkers()
-			navball := render.NavballString(navballCols, navballRows, subLat, subLon, markers)
-			lines = append(lines, strings.Split(navball, "\n")...)
-		}
-	}
+	// NAVBALL moved out of the HUD column in v0.9.6-polish — it now
+	// renders as a framed panel composited bottom-center over the
+	// canvas (see Render / buildNavballPanel), so it no longer
+	// competes with TARGET / NODES for HUD height.
 
 	content := strings.Join(lines, "\n")
 	rendered := v.theme.HUDBox.Width(width).Render(content)
