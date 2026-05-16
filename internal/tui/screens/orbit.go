@@ -83,6 +83,65 @@ type OrbitView struct {
 	ascentTrendCraft *spacecraft.Spacecraft
 	ascentTrendApoM  float64
 	ascentTrendTime  time.Time
+
+	// navSub* is a sticky copy of the navball sub-observer (nose
+	// direction) point. SAS holding an attitude leaves the resolved
+	// nose direction dithering by a fraction of a degree every frame;
+	// feeding that raw into NavballString made the whole disk — and
+	// every prograde/normal/radial marker on it — jump a cell between
+	// frames (the markers "flicker"). We hold the last value and only
+	// adopt the new one when the sub-observer point has moved past a
+	// great-circle dead-band, so jitter is absorbed while real
+	// attitude changes still track within a sub-cell lag. Also
+	// subsumes the older equator-flicker fix (horizon cells no longer
+	// flip blue↔orange on jitter, since the input no longer jitters).
+	// v0.9.6-polish.
+	navSubLatDeg, navSubLonDeg float64
+	navSubValid                bool
+}
+
+// navballSubObserverDeadbandDeg is the great-circle angle the nose
+// direction must move before the sticky navball sub-observer adopts
+// the new value. The 12×6 navball has pxR=12 dots → cell pitch is
+// ~8–15° depending on disk position, so a 2° dead-band sits well
+// below visible motion granularity while comfortably exceeding the
+// sub-degree SAS hold jitter that caused the marker flicker.
+const navballSubObserverDeadbandDeg = 2.0
+
+// stickyNavballSubObserver applies the great-circle dead-band to the
+// raw (lat, lon) sub-observer point and returns the stabilised value
+// the painter should use. Stateful on the OrbitView so it persists
+// across frames; handles longitude wrap and the pole degeneracy
+// implicitly by comparing the actual unit vectors, not the angles.
+func (v *OrbitView) stickyNavballSubObserver(rawLatDeg, rawLonDeg float64) (latDeg, lonDeg float64) {
+	if !v.navSubValid {
+		v.navSubLatDeg, v.navSubLonDeg = rawLatDeg, rawLonDeg
+		v.navSubValid = true
+		return v.navSubLatDeg, v.navSubLonDeg
+	}
+	if latLonAngularSepDeg(v.navSubLatDeg, v.navSubLonDeg, rawLatDeg, rawLonDeg) > navballSubObserverDeadbandDeg {
+		v.navSubLatDeg, v.navSubLonDeg = rawLatDeg, rawLonDeg
+	}
+	return v.navSubLatDeg, v.navSubLonDeg
+}
+
+// latLonAngularSepDeg returns the great-circle angle in degrees
+// between two (lat, lon) points on the unit sphere. Used for the
+// navball sub-observer dead-band; wrap- and pole-safe because it
+// works on the Cartesian directions, not raw angle differences.
+func latLonAngularSepDeg(lat1, lon1, lat2, lon2 float64) float64 {
+	const d2r = math.Pi / 180.0
+	p1, l1 := lat1*d2r, lon1*d2r
+	p2, l2 := lat2*d2r, lon2*d2r
+	x1, y1, z1 := math.Cos(p1)*math.Cos(l1), math.Cos(p1)*math.Sin(l1), math.Sin(p1)
+	x2, y2, z2 := math.Cos(p2)*math.Cos(l2), math.Cos(p2)*math.Sin(l2), math.Sin(p2)
+	dot := x1*x2 + y1*y2 + z1*z2
+	if dot > 1 {
+		dot = 1
+	} else if dot < -1 {
+		dot = -1
+	}
+	return math.Acos(dot) * 180.0 / math.Pi
 }
 
 // hudNodeHit identifies a clickable NODES-block entry. CraftIdx is
@@ -127,7 +186,7 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 		canvasCols = 20
 	}
 	v.canvas.Resize(canvasCols, totalRows-4) // reserve 4 rows for header/footer
-	v.fitted = false                          // force refit after resize
+	v.fitted = false                         // force refit after resize
 }
 
 // ZoomIn / ZoomOut are thin wrappers for App to call on +/-.
@@ -1423,7 +1482,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				ro := orbital.OrbitReadoutInFrame(c.State.R, c.State.V, mu, frame)
 				if !ro.Hyperbolic {
 					tgtIncl := orbital.PlaneMatchInclination(b, frame)
-					di := math.Abs(ro.Inclination - tgtIncl) * 180 / math.Pi
+					di := math.Abs(ro.Inclination-tgtIncl) * 180 / math.Pi
 					diLabel := fmt.Sprintf("%.2f°", di)
 					if di > 30 {
 						diLabel = v.theme.Warning.Render(diLabel)
@@ -1582,7 +1641,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			}
 			row := fmt.Sprintf("  %-8s  %-22s  fuel %5.1f%%", label, thrustLabel, fuelPct)
 			if i == 0 {
-				row = v.theme.Warning.Render("▸ "+row[2:])
+				row = v.theme.Warning.Render("▸ " + row[2:])
 			} else {
 				row = v.theme.Dim.Render(row)
 			}
@@ -1772,8 +1831,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	const navballRows = 6
 	const navballMinHUDWidth = navballCols + 2
 	if w.CraftVisibleHere() && width >= navballMinHUDWidth {
-		if subLat, subLon, ok := w.NavballSubObserver(); ok {
+		if rawLat, rawLon, ok := w.NavballSubObserver(); ok {
 			lines = append(lines, section("NAVBALL")...)
+			subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
 			markers := w.NavballMarkers()
 			navball := render.NavballString(navballCols, navballRows, subLat, subLon, markers)
 			lines = append(lines, strings.Split(navball, "\n")...)
