@@ -205,11 +205,12 @@ func TestOrbitViewZoom(t *testing.T) {
 	}
 }
 
-// TestOrbitHUDRendersNavball: the NAVBALL block appears in the HUD
-// for a fresh LEO craft, including the section header + the
-// prograde / retrograde marker glyphs. Confirms the v0.9.5 wiring
-// lands without breaking the rest of the HUD.
-func TestOrbitHUDRendersNavball(t *testing.T) {
+// TestOrbitRendersNavballPanel: the framed navball panel composites
+// into the frame for a fresh LEO craft — header, prograde marker
+// glyph, and at least one axis control label. v0.9.6-polish moved
+// the navball out of the HUD column into a bottom-centre canvas
+// panel; this confirms the new wiring lands.
+func TestOrbitRendersNavballPanel(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
@@ -227,9 +228,15 @@ func TestOrbitHUDRendersNavball(t *testing.T) {
 	}
 	out := v.Render(w, 0, 160, 48)
 	if !strings.Contains(out, "NAVBALL") {
-		t.Errorf("expected NAVBALL section header in HUD output")
+		t.Errorf("expected NAVBALL panel header in render output")
 	}
 	if !strings.ContainsRune(out, '⊕') {
-		t.Errorf("expected prograde marker ⊕ in HUD output")
+		t.Errorf("expected prograde marker ⊕ in navball panel")
+	}
+	if !strings.Contains(out, "PRO") {
+		t.Errorf("expected PRO axis control label in navball panel")
+	}
+	if len(v.navballControls) == 0 {
+		t.Errorf("expected navball control hit boxes to be recorded")
 	}
 }
