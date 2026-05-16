@@ -115,35 +115,6 @@ func TestOrbitTitleBarButtonHits(t *testing.T) {
 	}
 }
 
-// TestOrbitHUDRendersSystemAndSelectedSideBySide: same horizontal-
-// pairing as VESSEL/PROPELLANT, applied to SYSTEM + SELECTED. Saves
-// another ~3 rows in the right-hand HUD when there's enough content
-// width.
-func TestOrbitHUDRendersSystemAndSelectedSideBySide(t *testing.T) {
-	th := Theme{
-		Primary: lipgloss.NewStyle(),
-		Warning: lipgloss.NewStyle(),
-		Alert:   lipgloss.NewStyle(),
-		Dim:     lipgloss.NewStyle(),
-		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
-		Footer:  lipgloss.NewStyle(),
-		Title:   lipgloss.NewStyle(),
-	}
-	v := NewOrbitView(th)
-	v.Resize(180, 40)
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	out := v.Render(w, 0, 180, 40)
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "SYSTEM") && strings.Contains(line, "SELECTED") {
-			return
-		}
-	}
-	t.Errorf("expected SYSTEM and SELECTED on the same row at width 180; got render:\n%s", out)
-}
-
 // TestBodyPixelRadiusMonotonic: perceived-size bucketing is monotonic
 // in physical radius. Tier 1 (small) < tier 2 (terrestrial) < tier 4
 // (gas giant) < tier 6 (star). System-primary flag promotes to star
@@ -164,7 +135,7 @@ func TestBodyPixelRadiusMonotonic(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			b := bodies.CelestialBody{MeanRadius: c.radius / 1000} // Radius field is in km
-			got := BodyPixelRadius(b, false, 0, 0)                // scale=0 → tier path; cap=0 → default
+			got := BodyPixelRadius(b, false, 0, 0)                 // scale=0 → tier path; cap=0 → default
 			if got != c.want {
 				t.Errorf("got pxRadius=%d, want %d (radius %.0f km)",
 					got, c.want, c.radius/1000)

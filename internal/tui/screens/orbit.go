@@ -978,7 +978,6 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// Reset the node-click hits before re-rendering — the NODES
 	// block re-populates them as it walks each craft's plan.
 	v.hudNodeHits = v.hudNodeHits[:0]
-	sys := w.System()
 
 	// section emits a divider + colored section header, used in place of
 	// the v0.5.12 plain "" blank-line separators. Visually groups the
@@ -1737,82 +1736,6 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 						fmt.Sprintf("  DN angle:  %.1f°", normalizeDeg(ro.DescNode*180/math.Pi)),
 					)
 				}
-			}
-		}
-	}
-
-	// SYSTEM + SELECTED side-by-side, mirroring the VESSEL +
-	// PROPELLANT split a few sections up. SYSTEM is short (2 lines);
-	// SELECTED varies — body name + type + a/e/T, plus an optional
-	// HOHMANN PREVIEW block. Pairing them recovers another ~3 rows of
-	// vertical HUD height in the common case. Falls back to stacked
-	// rendering when the HUD is too narrow to split.
-	const minSplitWidth = 36
-	if width-2 >= minSplitWidth {
-		half := (width - 4) / 2
-		sysLines := []string{
-			v.theme.Dim.Render(strings.Repeat("─", half)),
-			v.theme.Primary.Render("SYSTEM"),
-			"  " + sys.Name,
-			fmt.Sprintf("  %d bodies", len(sys.Bodies)),
-		}
-		selLines := []string{
-			v.theme.Dim.Render(strings.Repeat("─", half)),
-			v.theme.Primary.Render("SELECTED"),
-		}
-		if selectedIdx >= 0 && selectedIdx < len(sys.Bodies) {
-			b := sys.Bodies[selectedIdx]
-			nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
-			selLines = append(selLines,
-				"  "+nameStyle.Render(b.EnglishName),
-				"  "+b.BodyType,
-			)
-			if b.SemimajorAxis > 0 {
-				auVal := b.SemimajorAxisMeters() / bodies.AU
-				selLines = append(selLines,
-					fmt.Sprintf("  a: %.3f AU", auVal),
-					fmt.Sprintf("  e: %.4f", b.Eccentricity),
-					fmt.Sprintf("  T: %.1f d", b.SideralOrbit),
-				)
-				if preview := w.HohmannPreviewFor(selectedIdx); preview.Valid || preview.Note != "" {
-					selLines = append(selLines, "", v.theme.Primary.Render("HOHMANN PREVIEW"))
-					selLines = append(selLines, preview.Format()...)
-				}
-			} else {
-				selLines = append(selLines, v.theme.Dim.Render("  (primary)"))
-			}
-		}
-		colStyle := lipgloss.NewStyle().Width(half)
-		sysCol := colStyle.Render(strings.Join(sysLines, "\n"))
-		selCol := colStyle.Render(strings.Join(selLines, "\n"))
-		combined := lipgloss.JoinHorizontal(lipgloss.Top, sysCol, "  ", selCol)
-		lines = append(lines, strings.Split(combined, "\n")...)
-	} else {
-		lines = append(lines, section("SYSTEM")...)
-		lines = append(lines,
-			"  "+sys.Name,
-			fmt.Sprintf("  %d bodies", len(sys.Bodies)),
-		)
-		lines = append(lines, section("SELECTED")...)
-		if selectedIdx >= 0 && selectedIdx < len(sys.Bodies) {
-			b := sys.Bodies[selectedIdx]
-			nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
-			lines = append(lines,
-				"  "+nameStyle.Render(b.EnglishName),
-				"  "+b.BodyType,
-			)
-			if b.SemimajorAxis > 0 {
-				auVal := b.SemimajorAxisMeters() / bodies.AU
-				lines = append(lines, fmt.Sprintf("  a: %.3f AU", auVal))
-				lines = append(lines, fmt.Sprintf("  e: %.4f", b.Eccentricity))
-				lines = append(lines, fmt.Sprintf("  T: %.1f d", b.SideralOrbit))
-
-				if preview := w.HohmannPreviewFor(selectedIdx); preview.Valid || preview.Note != "" {
-					lines = append(lines, "", v.theme.Primary.Render("HOHMANN PREVIEW"))
-					lines = append(lines, preview.Format()...)
-				}
-			} else {
-				lines = append(lines, v.theme.Dim.Render("  (primary)"))
 			}
 		}
 	}
