@@ -43,11 +43,11 @@ const (
 	// vectors are pink (KSP magenta-ish); radial markers are cyan;
 	// target markers are pink-purple to read distinctly against the
 	// orbit-frame markers when both render in target mode.
-	ColorNavballMarkerPrograde   = lipgloss.Color("#E0D040") // prograde / retrograde yellow
-	ColorNavballMarkerNormal     = lipgloss.Color("#D08CC8") // normal+ / normal- pink
-	ColorNavballMarkerRadial     = lipgloss.Color("#5CC8D0") // radial+ / radial- cyan
-	ColorNavballMarkerTarget     = lipgloss.Color("#C880E8") // target / anti-target purple
-	ColorNavballMarkerNoseFront  = lipgloss.Color("#FFFFFF") // craft nose, front hemisphere
+	ColorNavballMarkerPrograde  = lipgloss.Color("#E0D040") // prograde / retrograde yellow
+	ColorNavballMarkerNormal    = lipgloss.Color("#D08CC8") // normal+ / normal- pink
+	ColorNavballMarkerRadial    = lipgloss.Color("#5CC8D0") // radial+ / radial- cyan
+	ColorNavballMarkerTarget    = lipgloss.Color("#C880E8") // target / anti-target purple
+	ColorNavballMarkerNoseFront = lipgloss.Color("#FFFFFF") // craft nose, front hemisphere
 )
 
 // NavballMarker is a glyph drawn at a fixed (lat, lon) on the navball
@@ -300,48 +300,69 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		cells[centerRow][centerCol] = reticle
 	}
 
-	// Render markers in two passes so front markers overwrite back
-	// markers at coincident cells (e.g. prograde at the disk centre
-	// hides retrograde when sub-observer points at prograde — KSP
-	// behavior). Markers render Bold so the glyph reads cleanly
-	// against the hemisphere texture even when marker color and
-	// hemisphere color are close in hue (yellow prograde on orange
-	// ground, cyan radial on blue sky).
-	paint := func(m NavballMarker, dimmed bool) {
-		mdx, mdy, _ := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
+	// Resolve each marker to a cell once. Marker lat/lon arrive as raw
+	// floating-point sub-observer projections that jitter sub-degree
+	// from SAS hold + physics-integration noise. The disk texture is
+	// already quantized to integer degrees above to kill equator
+	// flicker; quantize markers the same way so a marker near the limb
+	// (z≈0) or the disk edge stops flipping on/off between frames.
+	//
+	// Off-disk rejection is by true projected radius, NOT whether the
+	// texture cell happened to receive braille dots: limb cells inside
+	// the disk are frequently blank from the 2×4 sub-sampling, and the
+	// old cells[row][col]==" " guard made genuinely on-disk markers
+	// vanish at the edge — the visible flicker.
+	type placedMarker struct {
+		m        NavballMarker
+		col, row int
+		front    bool
+	}
+	placed := make([]placedMarker, 0, len(markers))
+	for _, m := range markers {
+		mdx, mdy, front := projectLatLonToPixel(
+			math.Round(m.LatDeg), math.Round(m.LonDeg),
+			pxR, subLatDeg, subLonDeg)
+		if mdx*mdx+mdy*mdy > pxR*pxR {
+			continue
+		}
 		// Marker positions are in dot units; map to the containing
 		// cell. (dotCx + mdx) ∈ [0, dotsW); divide by 2 dots/cell.
 		col := (dotCx + mdx) / 2
 		row := (dotCy + mdy) / 4
 		if col < 0 || col >= cols || row < 0 || row >= rows {
-			return
+			continue
 		}
-		if cells[row][col] == " " {
-			return
-		}
-		glyph := string(m.Glyph)
-		if m.Glyph == 0 {
+		placed = append(placed, placedMarker{m, col, row, front})
+	}
+
+	// Two passes so front markers overwrite back markers at coincident
+	// cells (e.g. prograde at the disk centre hides retrograde when
+	// sub-observer points at prograde — KSP behavior). Markers render
+	// Bold so the glyph reads cleanly against the hemisphere texture
+	// even when marker and hemisphere colors are close in hue (yellow
+	// prograde on orange ground, cyan radial on blue sky).
+	paint := func(p placedMarker, dimmed bool) {
+		glyph := string(p.m.Glyph)
+		if p.m.Glyph == 0 {
 			glyph = "•"
 		}
-		style := lipgloss.NewStyle().Foreground(m.Color).Bold(true)
+		style := lipgloss.NewStyle().Foreground(p.m.Color).Bold(true)
 		if dimmed {
 			style = style.Faint(true).Bold(false)
 		}
-		cells[row][col] = style.Render(glyph)
+		cells[p.row][p.col] = style.Render(glyph)
 	}
-	for _, m := range markers {
-		_, _, front := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
-		if front {
+	for _, p := range placed {
+		if p.front {
 			continue
 		}
-		paint(m, true)
+		paint(p, true)
 	}
-	for _, m := range markers {
-		_, _, front := projectLatLonToPixel(m.LatDeg, m.LonDeg, pxR, subLatDeg, subLonDeg)
-		if !front {
+	for _, p := range placed {
+		if !p.front {
 			continue
 		}
-		paint(m, false)
+		paint(p, false)
 	}
 
 	lines := make([]string, rows)
@@ -350,4 +371,3 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	}
 	return strings.Join(lines, "\n")
 }
-
