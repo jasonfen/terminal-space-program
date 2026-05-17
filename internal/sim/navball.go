@@ -35,17 +35,26 @@ type NavballBasis struct {
 // target velocity (NavTarget), or a craft state with zero r / a
 // rectilinear orbit (no defined orbital plane).
 //
-// EX (lat = 0, lon = 0):
-//   - NavOrbit   — +v̂                          (orbit-frame velocity)
-//   - NavSurface — +(v − ω×r)̂                  (surface-relative velocity)
-//   - NavTarget  — +(v_target − v_active)̂      (relative velocity, target-prograde)
+// NavOrbit / NavTarget are velocity-framed (the sphere's pole is the
+// orbital normal):
 //
-// EZ (lat = +90, north pole) — orbital normal (r × v)̂ in all modes;
-// re-orthogonalised against EX to handle modes where prograde is
-// not perpendicular to the orbit plane (NavSurface near the launchpad,
-// NavTarget when relative motion has a radial component).
+//   - EX (lat 0, lon 0): +v̂ (orbit) or +(v_target − v_active)̂ (target)
+//   - EZ (lat +90):      orbital normal (r × v)̂, re-orthogonalised
+//     against EX (target-prograde isn't generally ⟂ the orbit plane)
+//   - EY = EZ × EX
 //
-// EY = EZ × EX, completing the right-handed basis.
+// NavSurface is a **local-horizon** sphere (KSP surface navball): the
+// pole is the local vertical so the sky/ground hemispheres read true.
+// This is velocity-independent, so it is well-defined on the launchpad
+// (a craft sitting on the pad pointing radial-out reads at the sky
+// pole, not the horizon band):
+//
+//   - EZ (lat +90, sky pole): local up = r̂
+//   - EX (lon 0):             local north
+//   - EY = EZ × EX            (= −local east)
+//
+// so radial-out → lat +90 (zenith / sky), the horizon → lat 0, and
+// the N/E/S/W compass ticks ring the lat-0 equator at their bearings.
 func (w *World) NavballBasis() (NavballBasis, bool) {
 	active := w.ActiveCraft()
 	if active == nil {
@@ -56,6 +65,44 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 	if r.Norm() == 0 {
 		return NavballBasis{}, false
 	}
+
+	nav := w.NavMode
+	if nav == NavTarget && w.Target.Kind != TargetCraft {
+		nav = NavOrbit
+	}
+
+	// NavSurface: local-horizon sphere — pole = local up (r̂),
+	// lon-0 = local north. Velocity-independent so it is valid on
+	// the launchpad: the craft pointing radial-out reads at the sky
+	// pole (lat +90), not the horizon. North is undefined at a
+	// geographic pole or on a non-rotating primary — fall back to
+	// any horizontal axis (world +Z projected off up, else +X) so
+	// the basis stays defined rather than blanking the navball.
+	if nav == NavSurface {
+		rN := r.Norm()
+		up := r.Scale(1 / rN)
+		spinR := render.BodyRotationAxisWorld(active.Primary)
+		spinAxis := orbital.Vec3{X: spinR.X, Y: spinR.Y, Z: spinR.Z}
+		var north orbital.Vec3
+		east := spinAxis.Cross(up)
+		if spinAxis.Norm() > 0 && east.Norm() > 1e-12 {
+			east = east.Scale(1 / east.Norm())
+			north = up.Cross(east)
+		} else {
+			ref := orbital.Vec3{Z: 1}
+			horiz := ref.Sub(up.Scale(up.Dot(ref)))
+			if horiz.Norm() < 1e-9 {
+				ref = orbital.Vec3{X: 1}
+				horiz = ref.Sub(up.Scale(up.Dot(ref)))
+			}
+			north = horiz.Scale(1 / horiz.Norm())
+		}
+		eX := north
+		eZ := up
+		eY := eZ.Cross(eX)
+		return NavballBasis{EX: eX, EY: eY, EZ: eZ}, true
+	}
+
 	h := r.Cross(v)
 	hN := h.Norm()
 	if hN == 0 {
@@ -63,22 +110,8 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 	}
 	eZ := h.Scale(1 / hN)
 
-	nav := w.NavMode
-	if nav == NavTarget && w.Target.Kind != TargetCraft {
-		nav = NavOrbit
-	}
-
 	var eX orbital.Vec3
 	switch nav {
-	case NavSurface:
-		omegaR := render.BodySpinOmegaWorld(active.Primary)
-		omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
-		vSurf := v.Sub(omega.Cross(r))
-		n := vSurf.Norm()
-		if n == 0 {
-			return NavballBasis{}, false
-		}
-		eX = vSurf.Scale(1 / n)
 	case NavTarget:
 		_, vT, ok := w.TargetStateRelativeToActivePrimary()
 		if !ok {
