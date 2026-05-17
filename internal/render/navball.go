@@ -7,28 +7,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Navball palette. Sky / ground hemispheres mirror the classic ADI
-// convention (blue upper, orange lower) so the disk reads as an
-// attitude indicator even before markers land. The horizon line is
-// implicit — the cell-level color boundary between blue and orange
-// IS the equator.
+// Navball palette. v0.9.6-polish retuned this toward KSP's navball:
+// a saturated sky-blue upper hemisphere over a tan/brown lower
+// hemisphere (KSP uses brown ground, not the classic ADI orange),
+// with a bright pale-tan horizon band so the equator reads as an
+// explicit drawn line rather than just the blue/brown boundary.
 const (
-	ColorNavballSky    = lipgloss.Color("#3A6FA8") // upper-hemisphere sky (classic ADI blue)
-	ColorNavballGround = lipgloss.Color("#D87A3C") // lower-hemisphere ground (classic ADI orange)
+	ColorNavballSky    = lipgloss.Color("#2E74C0") // upper-hemisphere sky (KSP blue)
+	ColorNavballGround = lipgloss.Color("#9C6B3F") // lower-hemisphere ground (KSP tan-brown)
 	ColorNavballGrid   = lipgloss.Color("#C8C8C8") // structural labels (compass ticks)
 
 	// Limb shading — darker hemisphere tints used on cells at the
 	// disk edge (few in-disk dots) so the ball reads as a sphere
 	// with depth, not a flat color disk. Roughly 60% brightness of
 	// the parent hemisphere color.
-	ColorNavballSkyEdge    = lipgloss.Color("#234668") // darker sky for limb cells
-	ColorNavballGroundEdge = lipgloss.Color("#984522") // darker ground for limb cells
+	ColorNavballSkyEdge    = lipgloss.Color("#1C4A82") // darker sky for limb cells
+	ColorNavballGroundEdge = lipgloss.Color("#5E3F26") // darker ground for limb cells
 
-	// Horizon band — muted tone used on cells where sky/ground
+	// Horizon band — bright pale tan used on cells where sky/ground
 	// dot counts are nearly balanced (the cell straddles the
-	// equator). Makes the horizon line an explicit drawn feature
-	// rather than just the color boundary between hemispheres.
-	ColorNavballHorizon = lipgloss.Color("#9A8870") // earthy mid-tone
+	// equator). KSP draws a crisp horizon line; the brightness here
+	// makes it pop against both the blue sky and brown ground.
+	ColorNavballHorizon = lipgloss.Color("#E6D2A0") // bright horizon line
 
 	// Grid tints — slightly brighter versions of each hemisphere,
 	// used on cells whose dots fall on or near a 30° parallel /
@@ -36,8 +36,8 @@ const (
 	// disk doesn't wash out — the 357937f bug was a single bright
 	// grid color winning ties and turning the whole disk white +
 	// flickery. These stay tonally adjacent to their hemisphere.
-	ColorNavballSkyGrid    = lipgloss.Color("#5A8FC8") // brighter sky for grid-line cells
-	ColorNavballGroundGrid = lipgloss.Color("#E89A5C") // brighter ground for grid-line cells
+	ColorNavballSkyGrid    = lipgloss.Color("#5AA0E0") // brighter sky for grid-line cells
+	ColorNavballGroundGrid = lipgloss.Color("#C2925A") // brighter ground for grid-line cells
 
 	// Marker colors. Prograde / retrograde mirror KSP's yellow; normal
 	// vectors are pink (KSP magenta-ish); radial markers are cyan;

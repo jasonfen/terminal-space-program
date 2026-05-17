@@ -24,6 +24,16 @@ func (w *World) CycleEngineMode() {
 	w.ActiveCraft().EngineMode = spacecraft.EngineMain
 }
 
+// RCSActive reports whether the active craft is currently in RCS
+// engine mode. Nil-safe (no craft → false), mirroring the
+// CycleEngineMode guard. Used by the navball panel to colour the
+// RCS toggle and by its click dispatch to toast the new state.
+// v0.9.6-polish.
+func (w *World) RCSActive() bool {
+	c := w.ActiveCraft()
+	return c != nil && c.EngineMode == spacecraft.EngineRCS
+}
+
 // FireRCSPulse delivers one RCSDvQuantum pulse in the given mode (the
 // six attitude directions). No-op if the engine isn't in RCS mode,
 // the craft is missing, monoprop is empty, or a planted finite burn

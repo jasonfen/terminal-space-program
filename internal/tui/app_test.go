@@ -47,3 +47,50 @@ func TestDispatchNavballControlAxis(t *testing.T) {
 		t.Errorf("AttitudeMode = %v, want %v (resolved radial-out)", c.AttitudeMode, want)
 	}
 }
+
+// Clicking the RCS toggle flips EngineMode both ways and toasts.
+func TestDispatchNavballControlRCS(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := a.world.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.EngineMode = spacecraft.EngineMain
+
+	a.dispatchNavballControl(screens.NavballControlRCS)
+	if c.EngineMode != spacecraft.EngineRCS {
+		t.Errorf("EngineMode = %v, want EngineRCS after first toggle", c.EngineMode)
+	}
+	if a.statusMsg == "" {
+		t.Errorf("expected an RCS status toast")
+	}
+	a.dispatchNavballControl(screens.NavballControlRCS)
+	if c.EngineMode != spacecraft.EngineMain {
+		t.Errorf("EngineMode = %v, want EngineMain after second toggle", c.EngineMode)
+	}
+}
+
+// Clicking the target ± buttons holds BurnTarget / BurnAntiTarget.
+func TestDispatchNavballControlTarget(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := a.world.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.EngineMode = spacecraft.EngineMain
+
+	a.dispatchNavballControl(screens.NavballControlTargetPlus)
+	if c.AttitudeMode != spacecraft.BurnTarget {
+		t.Errorf("AttitudeMode = %v, want BurnTarget", c.AttitudeMode)
+	}
+	a.dispatchNavballControl(screens.NavballControlTargetMinus)
+	if c.AttitudeMode != spacecraft.BurnAntiTarget {
+		t.Errorf("AttitudeMode = %v, want BurnAntiTarget", c.AttitudeMode)
+	}
+}

@@ -115,18 +115,35 @@ func TestOverlayPreservesBaseStyling(t *testing.T) {
 	}
 }
 
-// buildNavballPanel produces a bordered block of the declared size
-// with the header, mode button, and every axis label present, and
-// records a hit box for each control.
+// buildNavballPanel produces a bordered block of the declared size:
+// no "NAVBALL" label, a [MODE]+RCS toggle row, and the eight SAS
+// glyphs down the left. Every row must be exactly navballPanelW
+// cells (the splice-alignment invariant) and a hit box recorded for
+// each control (Mode + RCS + 8 glyphs).
 func TestBuildNavballPanel(t *testing.T) {
-	v := NewOrbitView(Theme{Primary: lipgloss.NewStyle()})
+	v := NewOrbitView(Theme{
+		Primary: lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+	})
 	disk := render.NavballString(navballDiskCols, navballDiskRows, 0, 0, nil)
-	panel, boxes := v.buildNavballPanel(disk, sim.NavOrbit)
+	panel, boxes := v.buildNavballPanel(disk, sim.NavOrbit, false)
 
 	plain := stripANSI(panel)
-	for _, want := range []string{"NAVBALL", "[ORBIT]", "PRO", "RET", "N+", "N-", "R+", "R-"} {
+	if strings.Contains(plain, "NAVBALL") {
+		t.Errorf("NAVBALL label should be gone:\n%s", plain)
+	}
+	for _, want := range []string{"[ORBIT]", "RCS"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("panel missing %q:\n%s", want, plain)
+		}
+	}
+	for _, b := range navballAxisRow {
+		if !strings.ContainsRune(plain, b.glyph) {
+			t.Errorf("panel missing glyph %q:\n%s", string(b.glyph), plain)
+		}
+		if w := lipgloss.Width(string(b.glyph)); w != 1 {
+			t.Errorf("glyph %q width = %d, want 1 (splice invariant)", string(b.glyph), w)
 		}
 	}
 	rows := strings.Split(panel, "\n")
@@ -137,15 +154,23 @@ func TestBuildNavballPanel(t *testing.T) {
 		if w := lipgloss.Width(r); w != navballPanelW {
 			t.Errorf("panel row %d width = %d, want %d", i, w, navballPanelW)
 		}
+		// Definitive splice guard: split must yield exactly one cell
+		// per display column (the right-border-drop regression).
+		if c := len(splitStyledCells(r)); c != navballPanelW {
+			t.Errorf("panel row %d splits to %d cells, want %d", i, c, navballPanelW)
+		}
 	}
-	// One mode box + one per axis button.
-	if len(boxes) != 1+len(navballAxisRow) {
-		t.Fatalf("got %d control boxes, want %d", len(boxes), 1+len(navballAxisRow))
+	// Mode + RCS + one per axis glyph.
+	if len(boxes) != 2+len(navballAxisRow) {
+		t.Fatalf("got %d control boxes, want %d", len(boxes), 2+len(navballAxisRow))
 	}
-	sawMode := false
+	sawMode, sawRCS := false, false
 	for _, b := range boxes {
-		if b.id == NavballControlMode {
+		switch b.id {
+		case NavballControlMode:
 			sawMode = true
+		case NavballControlRCS:
+			sawRCS = true
 		}
 		if b.colEnd <= b.colStart {
 			t.Errorf("box %d has empty col range [%d,%d)", b.id, b.colStart, b.colEnd)
@@ -153,6 +178,9 @@ func TestBuildNavballPanel(t *testing.T) {
 	}
 	if !sawMode {
 		t.Errorf("no NavballControlMode box recorded")
+	}
+	if !sawRCS {
+		t.Errorf("no NavballControlRCS box recorded")
 	}
 }
 
@@ -163,6 +191,7 @@ func TestHitNavballControl(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
 		Dim:     lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
 		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
 		Title:   lipgloss.NewStyle(),
 		Footer:  lipgloss.NewStyle(),

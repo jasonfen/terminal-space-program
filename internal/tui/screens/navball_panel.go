@@ -9,15 +9,17 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// navball_panel.go — the bottom-center, framed navball overlay for
-// the orbit view. v0.9.6-polish moved the navball out of the HUD
-// column (where it shared vertical budget with TARGET / NODES) into
-// a rounded-border panel composited over the canvas, KSP-style.
+// navball_panel.go — the framed, KSP-style navball overlay for the
+// orbit view. v0.9.6-polish moved the navball out of the HUD column
+// into a rounded-border panel composited bottom-right over the
+// canvas; the redesign drops the redundant "NAVBALL" label, adds a
+// top [MODE]/RCS toggle row, and stacks the eight SAS controls
+// (prograde/retrograde, normal±, radial±, target±) as a vertical
+// glyph column down the left, mirroring KSP's SAS icon stack.
 //
-// The panel is opaque: it occludes the slice of map behind it. It is
-// laid out with a control strip below the disk so the mode button
-// and the prograde / normal± / radial± "press-to-hold" buttons have
-// a home — click dispatch is wired app-side (see HitNavballControl).
+// The panel is opaque (it occludes the map slice behind it). Click
+// dispatch is wired app-side (see HitNavballControl /
+// dispatchNavballControl).
 
 // NavballControlID identifies a clickable region in the navball
 // panel. The zero value navballControlNone means "no hit".
@@ -32,6 +34,9 @@ const (
 	NavballControlNormalMinus
 	NavballControlRadialOut
 	NavballControlRadialIn
+	NavballControlRCS         // toggle EngineMain <-> EngineRCS
+	NavballControlTargetPlus  // hold toward target (BurnTarget)
+	NavballControlTargetMinus // hold away from target (BurnAntiTarget)
 )
 
 // navballControlBox is the absolute screen-cell rectangle of one
@@ -44,33 +49,45 @@ type navballControlBox struct {
 	row              int
 }
 
-// navball panel geometry. The disk is the canonical 12×6 braille
-// block; the inner content is widened to innerW so the control strip
-// fits, and the disk is centred within it.
+// navball panel geometry (KSP-style). A compact top toggle row
+// ([MODE] + RCS), then the 12×6 disk with a vertical SAS glyph
+// column hugging the far left. The disk is shorter than the 8-button
+// column, so it's centred vertically within the body.
 const (
-	navballDiskCols = 12
-	navballDiskRows = 6
-	navballInnerW   = 22 // content width inside the border
+	navballDiskCols  = 12
+	navballDiskRows  = 6
+	navballGlyphColW = 2                                      // glyph button (1) + gutter (1)
+	navballBodyRows  = 8                                      // 8 SAS glyph buttons; disk centred within
+	navballInnerW    = navballGlyphColW + navballDiskCols + 4 // = 18
 	// Panel outer size = inner + 1-cell rounded border each side.
-	navballPanelW = navballInnerW + 2
-	navballPanelH = navballDiskRows + 4 // header + 6 disk + controls + border(2)
+	navballPanelW      = navballInnerW + 2                // = 20
+	navballPanelH      = 1 + navballBodyRows + 2          // toggle + body + border = 11
+	navballDiskRegionW = navballInnerW - navballGlyphColW // = 16
+	navballDiskTopPad  = (navballBodyRows - navballDiskRows) / 2
 )
 
-// axisButton is one control-strip cell-range, laid out left→right.
+// axisButton is one vertical SAS glyph button. The glyph mirrors the
+// on-ball marker (KSP convention) and is drawn in that marker's
+// colour so the column reads as the same icon family as the disk.
 type axisButton struct {
 	id    NavballControlID
-	label string
+	glyph rune
+	color lipgloss.Color
 }
 
-// navballAxisRow is the fixed ordering of the SAS-axis buttons under
-// the disk. Kept compact so the whole row fits navballInnerW.
+// navballAxisRow is the fixed top→bottom ordering of the SAS glyph
+// column. Eight buttons: prograde / retrograde, normal ±, radial ±,
+// target ±. Glyphs + colours come from the shared sim/render
+// constants so the buttons and the disk markers can't drift apart.
 var navballAxisRow = []axisButton{
-	{NavballControlPrograde, "PRO"},
-	{NavballControlRetrograde, "RET"},
-	{NavballControlNormalPlus, "N+"},
-	{NavballControlNormalMinus, "N-"},
-	{NavballControlRadialOut, "R+"},
-	{NavballControlRadialIn, "R-"},
+	{NavballControlPrograde, sim.NavballGlyphPrograde, render.ColorNavballMarkerPrograde},
+	{NavballControlRetrograde, sim.NavballGlyphRetrograde, render.ColorNavballMarkerPrograde},
+	{NavballControlNormalPlus, sim.NavballGlyphNormalPlus, render.ColorNavballMarkerNormal},
+	{NavballControlNormalMinus, sim.NavballGlyphNormalMinus, render.ColorNavballMarkerNormal},
+	{NavballControlRadialOut, sim.NavballGlyphRadialOut, render.ColorNavballMarkerRadial},
+	{NavballControlRadialIn, sim.NavballGlyphRadialIn, render.ColorNavballMarkerRadial},
+	{NavballControlTargetPlus, sim.NavballGlyphTarget, render.ColorNavballMarkerTarget},
+	{NavballControlTargetMinus, sim.NavballGlyphAntiTarget, render.ColorNavballMarkerTarget},
 }
 
 func navModeLabel(m sim.NavMode) string {
@@ -89,8 +106,13 @@ func navModeLabel(m sim.NavMode) string {
 // position to get absolute hit boxes.
 //
 // disk is the already-rendered NavballString (navballDiskCols ×
-// navballDiskRows). mode drives the [MODE] button label.
-func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode) (string, []navballControlBox) {
+// navballDiskRows). mode drives the [MODE] button label; rcsActive
+// colours the RCS toggle (Warning when on, Dim when off).
+//
+// Every assembled line is exactly navballInnerW cells wide so the
+// caller's splitStyledCells / overlayStyledBlock splice stays
+// aligned (the historical right-border-drop invariant).
+func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, rcsActive bool) (string, []navballControlBox) {
 	pad := func(s string, w int) string {
 		n := lipgloss.Width(s)
 		if n >= w {
@@ -110,71 +132,56 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode) (string, []
 	var boxes []navballControlBox
 	btnStyle := lipgloss.NewStyle().Foreground(v.theme.Primary.GetForeground())
 
-	// Row 0: "NAVBALL" left, [MODE] button right-aligned.
+	// Inner row 0 (panel row 1): [MODE] left, RCS right. No label —
+	// the disk speaks for itself.
 	modeLabel := "[" + navModeLabel(mode) + "]"
-	header := "NAVBALL"
-	gap := navballInnerW - lipgloss.Width(header) - lipgloss.Width(modeLabel)
+	rcsLabel := "RCS"
+	rcsStyle := v.theme.Dim
+	if rcsActive {
+		rcsStyle = v.theme.Warning
+	}
+	gap := navballInnerW - lipgloss.Width(modeLabel) - lipgloss.Width(rcsLabel)
 	if gap < 1 {
 		gap = 1
 	}
-	// Mode button starts after header+gap, inside the border (+1).
-	modeColStart := 1 + lipgloss.Width(header) + gap
-	boxes = append(boxes, navballControlBox{
-		id:       NavballControlMode,
-		colStart: modeColStart,
-		colEnd:   modeColStart + lipgloss.Width(modeLabel),
-		row:      1, // +1 for the top border row
-	})
-	headerLine := v.theme.Primary.Render(header) +
-		strings.Repeat(" ", gap) + btnStyle.Render(modeLabel)
+	boxes = append(boxes,
+		navballControlBox{
+			id:       NavballControlMode,
+			colStart: 1, // +1 left border; mode starts at inner col 0
+			colEnd:   1 + lipgloss.Width(modeLabel),
+			row:      1, // +1 top border; toggle is panel row 1
+		},
+		navballControlBox{
+			id:       NavballControlRCS,
+			colStart: 1 + lipgloss.Width(modeLabel) + gap,
+			colEnd:   1 + lipgloss.Width(modeLabel) + gap + lipgloss.Width(rcsLabel),
+			row:      1,
+		},
+	)
+	toggleLine := pad(btnStyle.Render(modeLabel)+
+		strings.Repeat(" ", gap)+rcsStyle.Render(rcsLabel), navballInnerW)
+	lines := []string{toggleLine}
 
-	lines := []string{pad(headerLine, navballInnerW)}
-
-	for _, dl := range strings.Split(disk, "\n") {
-		lines = append(lines, center(dl, navballInnerW))
-	}
-
-	// Control strip: axis buttons separated by single spaces, the
-	// whole group centred. Box columns are tracked as we lay it out.
-	var seg strings.Builder
-	col := 0
-	type pendingBox struct {
-		id   NavballControlID
-		s, e int
-	}
-	var pend []pendingBox
-	for i, b := range navballAxisRow {
-		if i > 0 {
-			seg.WriteString(" ")
-			col++
+	// Body: navballBodyRows rows. Each row = glyph button (col 0) +
+	// gutter (col 1) + disk region (centred). The 6 disk lines are
+	// centred vertically within the 8 body rows; off-disk body rows
+	// still carry their glyph button with a blank disk region.
+	diskLines := strings.Split(disk, "\n")
+	for j := 0; j < navballBodyRows; j++ {
+		b := navballAxisRow[j]
+		glyphCell := lipgloss.NewStyle().Foreground(b.color).Render(string(b.glyph))
+		region := strings.Repeat(" ", navballDiskRegionW)
+		if di := j - navballDiskTopPad; di >= 0 && di < navballDiskRows && di < len(diskLines) {
+			region = center(diskLines[di], navballDiskRegionW)
 		}
-		pend = append(pend, pendingBox{b.id, col, col + len(b.label)})
-		seg.WriteString(b.label)
-		col += len(b.label)
-	}
-	stripPlain := seg.String()
-	leftPad := (navballInnerW - lipgloss.Width(stripPlain)) / 2
-	if leftPad < 0 {
-		leftPad = 0
-	}
-	stripRow := 1 + len(lines) // +1 top border; lines so far = header+disk
-	var styledStrip strings.Builder
-	styledStrip.WriteString(strings.Repeat(" ", leftPad))
-	for i, b := range navballAxisRow {
-		if i > 0 {
-			styledStrip.WriteString(" ")
-		}
-		styledStrip.WriteString(btnStyle.Render(b.label))
-	}
-	for _, p := range pend {
+		lines = append(lines, glyphCell+" "+region) // 1 + 1 + 16 = innerW
 		boxes = append(boxes, navballControlBox{
-			id:       p.id,
-			colStart: 1 + leftPad + p.s, // +1 left border
-			colEnd:   1 + leftPad + p.e,
-			row:      stripRow,
+			id:       b.id,
+			colStart: 1,     // +1 left border; glyph at inner col 0
+			colEnd:   2,     // single cell
+			row:      j + 2, // +1 top border, +1 toggle row
 		})
 	}
-	lines = append(lines, pad(styledStrip.String(), navballInnerW))
 
 	content := strings.Join(lines, "\n")
 	panel := lipgloss.NewStyle().
