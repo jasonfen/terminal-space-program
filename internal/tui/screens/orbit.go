@@ -698,22 +698,23 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	canvasStr := v.canvas.String()
 
-	// Framed navball panel, composited bottom-centre over the canvas
-	// (v0.9.6-polish). Gated on an active craft with a defined nose
-	// direction and a canvas big enough that the opaque panel doesn't
-	// crowd out the map or collide with the bottom-right "view:"
-	// label. The sub-observer keeps the sticky dead-band that killed
-	// the marker flicker.
+	// Framed navball panel, composited into the bottom-right corner
+	// of the canvas (v0.9.6-polish). Gated on an active craft with a
+	// defined nose direction and a canvas big enough that the opaque
+	// panel doesn't crowd out the map. Lifted one row off the bottom
+	// so the canvas's right-aligned "view:" label on the last row
+	// stays visible underneath it. The sub-observer keeps the sticky
+	// dead-band that killed the marker flicker.
 	v.navballControls = v.navballControls[:0]
 	cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
 	if w.CraftVisibleHere() &&
-		cCols >= navballPanelW+16 && cRows >= navballPanelH+2 {
+		cCols >= navballPanelW+2 && cRows >= navballPanelH+2 {
 		if rawLat, rawLon, ok := w.NavballSubObserver(); ok {
 			subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
 			disk := navballPanelDisk(w, subLat, subLon)
 			panel, boxes := v.buildNavballPanel(disk, w.NavMode)
-			atCol := (cCols - navballPanelW) / 2
-			atRow := cRows - navballPanelH
+			atCol := cCols - navballPanelW
+			atRow := cRows - navballPanelH - 1
 			lines := strings.Split(canvasStr, "\n")
 			lines = overlayStyledBlock(lines, panel, atRow, atCol, cCols)
 			canvasStr = strings.Join(lines, "\n")
