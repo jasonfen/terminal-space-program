@@ -154,8 +154,19 @@ func (w *World) NavballSubObserver() (latDeg, lonDeg float64, ok bool) {
 	if !basisOK {
 		return 0, 0, false
 	}
-	rT, vT, _ := w.TargetStateRelativeToActivePrimary()
-	dir := active.BurnDirectionWithTarget(active.AttitudeMode, rT, vT)
+	// v0.10.0: in slew mode the disk centre is the craft's PHYSICAL
+	// nose (CurrentAttitudeDir) so it animates as the craft slews;
+	// the cardinal/node markers (NavballMarkers) stay on the
+	// commanded directions, so nose vs targets visibly diverge during
+	// a slew. Pre-first-tick (CurrentAttitudeDir still zero) or under
+	// InstantSAS, fall back to the commanded direction.
+	var dir orbital.Vec3
+	if !w.InstantSAS && active.CurrentAttitudeDir.Norm() != 0 {
+		dir = active.CurrentAttitudeDir
+	} else {
+		rT, vT, _ := w.TargetStateRelativeToActivePrimary()
+		dir = active.BurnDirectionWithTarget(active.AttitudeMode, rT, vT)
+	}
 	if dir.Norm() == 0 {
 		return 0, 0, false
 	}

@@ -62,16 +62,16 @@ func surfaceSpawnPosVel(
 
 // SpawnSpec describes a craft to spawn. v0.8.2 ships these axes:
 //   - LoadoutID:    propulsion archetype. Empty → round-robin via
-//                   nextLoadoutID().
+//     nextLoadoutID().
 //   - ParentBodyID: which body to orbit. Empty → active craft's
-//                   current primary.
+//     current primary.
 //   - AltitudeM:    altitude above the parent's mean radius (m).
-//                   Zero → 500 km default.
+//     Zero → 500 km default.
 //   - Retrograde:   spawn going retrograde rather than prograde.
 //   - Alongside:    spawn within the docking gate of the active
-//                   craft, matching its velocity. Overrides
-//                   ParentBodyID + AltitudeM + Retrograde.
-//                   (v0.8.3+ — for docking testing.)
+//     craft, matching its velocity. Overrides
+//     ParentBodyID + AltitudeM + Retrograde.
+//     (v0.8.3+ — for docking testing.)
 //
 // Future patches may add inclination, a phase-angle offset, etc.
 type SpawnSpec struct {
@@ -157,6 +157,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		w.Crafts = append(w.Crafts, c)
 		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
+		w.initCraftAttitude(c)
 		return c, nil
 	}
 
@@ -224,6 +225,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if w.NavMode == NavOrbit {
 			w.NavMode = NavSurface
 		}
+		w.initCraftAttitude(c)
 		return c, nil
 	}
 
@@ -258,6 +260,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	w.Crafts = append(w.Crafts, c)
 	w.SetActiveCraftIdx(len(w.Crafts) - 1)
 	w.StopManualBurn()
+	w.initCraftAttitude(c)
 	return c, nil
 }
 

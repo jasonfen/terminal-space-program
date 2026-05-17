@@ -64,9 +64,9 @@ type Payload struct {
 	WarpIdx        int                `json:"warp_idx"`
 	Paused         bool               `json:"paused"`
 	Focus          Focus              `json:"focus"`
-	Target         *Target            `json:"target,omitempty"` // v0.9.0+ unified target slot. nil pointer (zero/None) → omitted on the wire.
+	Target         *Target            `json:"target,omitempty"`   // v0.9.0+ unified target slot. nil pointer (zero/None) → omitted on the wire.
 	NavMode        int                `json:"nav_mode,omitempty"` // v0.9.3+ KSP-style SAS reference frame. NavOrbit=0 omitted; older saves load with NavOrbit.
-	Craft          *Craft             `json:"craft,omitempty"` // v1–v4 singular form; migrated to Crafts on load.
+	Craft          *Craft             `json:"craft,omitempty"`    // v1–v4 singular form; migrated to Crafts on load.
 	Crafts         []Craft            `json:"crafts,omitempty"`
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
 	Nodes          []Node             `json:"nodes,omitempty"`
@@ -164,6 +164,16 @@ type Craft struct {
 	// omitempty so legacy saves with no trim load with PitchTrim=0
 	// (= no trim, the v0.9.2-pre behaviour).
 	PitchTrim float64 `json:"pitch_trim,omitempty"`
+
+	// CurrentAttitudeDir (v0.10.0+, schema v6 additive): the craft's
+	// physical nose unit vector. Slew makes attitude load-bearing —
+	// a craft can be caught mid-slew — so the real nose must round-
+	// trip or a reload teleports it. Pre-v0.10.0 saves lack the key →
+	// decodes to a zero Vec3 → the slew integrator's first-tick snap
+	// guard seeds it from the commanded direction (no teleport, no
+	// slew-from-garbage). No schema bump (additive). SlewRate is NOT
+	// persisted — it is re-derived from the loadout on load.
+	CurrentAttitudeDir Vec3 `json:"current_attitude_dir,omitempty"`
 
 	// Landed (v0.9.2+, schema v6 additive): true when the craft is
 	// parked on its primary's surface co-rotating with the ground.
@@ -370,29 +380,30 @@ func payloadFromWorld(w *sim.World) Payload {
 			continue
 		}
 		wc := Craft{
-			Name:             c.Name,
-			DryMass:          c.DryMass,
-			Fuel:             c.Fuel,
-			Isp:              c.Isp,
-			Thrust:           c.Thrust,
-			PrimaryID:        c.Primary.ID,
-			R:                vec3From(c.State.R),
-			V:                vec3From(c.State.V),
-			M:                c.State.M,
-			Monoprop:         c.Monoprop,
-			MonopropCapacity: c.MonopropCapacity,
-			RCSThrust:        c.RCSThrust,
-			RCSIsp:           c.RCSIsp,
-			AttitudeMode:     int(c.AttitudeMode),
-			EngineMode:       int(c.EngineMode),
-			LoadoutID:        c.LoadoutID,
-			Role:             c.Role,
-			Glyph:            c.Glyph,
-			Color:            c.Color,
-			PitchTrim:        c.PitchTrim,
-			Landed:           c.Landed,
-			LaunchLatDeg:     c.LaunchLatDeg,
-			LaunchLonDeg:     c.LaunchLonDeg,
+			Name:               c.Name,
+			DryMass:            c.DryMass,
+			Fuel:               c.Fuel,
+			Isp:                c.Isp,
+			Thrust:             c.Thrust,
+			PrimaryID:          c.Primary.ID,
+			R:                  vec3From(c.State.R),
+			V:                  vec3From(c.State.V),
+			M:                  c.State.M,
+			Monoprop:           c.Monoprop,
+			MonopropCapacity:   c.MonopropCapacity,
+			RCSThrust:          c.RCSThrust,
+			RCSIsp:             c.RCSIsp,
+			AttitudeMode:       int(c.AttitudeMode),
+			EngineMode:         int(c.EngineMode),
+			LoadoutID:          c.LoadoutID,
+			Role:               c.Role,
+			Glyph:              c.Glyph,
+			Color:              c.Color,
+			PitchTrim:          c.PitchTrim,
+			CurrentAttitudeDir: vec3From(c.CurrentAttitudeDir),
+			Landed:             c.Landed,
+			LaunchLatDeg:       c.LaunchLatDeg,
+			LaunchLonDeg:       c.LaunchLonDeg,
 		}
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
@@ -563,16 +574,17 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				V: vec3To(wc.V),
 				M: wc.M,
 			},
-			AttitudeMode: spacecraft.BurnMode(wc.AttitudeMode),
-			EngineMode:   spacecraft.EngineMode(wc.EngineMode),
-			LoadoutID:    wc.LoadoutID,
-			Role:         wc.Role,
-			Glyph:        wc.Glyph,
-			Color:        wc.Color,
-			PitchTrim:    wc.PitchTrim,
-			Landed:       wc.Landed,
-			LaunchLatDeg: wc.LaunchLatDeg,
-			LaunchLonDeg: wc.LaunchLonDeg,
+			AttitudeMode:       spacecraft.BurnMode(wc.AttitudeMode),
+			EngineMode:         spacecraft.EngineMode(wc.EngineMode),
+			LoadoutID:          wc.LoadoutID,
+			Role:               wc.Role,
+			Glyph:              wc.Glyph,
+			Color:              wc.Color,
+			PitchTrim:          wc.PitchTrim,
+			CurrentAttitudeDir: vec3To(wc.CurrentAttitudeDir),
+			Landed:             wc.Landed,
+			LaunchLatDeg:       wc.LaunchLatDeg,
+			LaunchLonDeg:       wc.LaunchLonDeg,
 		}
 		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill

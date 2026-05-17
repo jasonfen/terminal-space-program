@@ -239,3 +239,53 @@ func TestCircularOrbitVelocity(t *testing.T) {
 		t.Errorf("circular-orbit v=%.3f m/s, want %.3f m/s (rel err %.2e)", v, want, d)
 	}
 }
+
+// --- v0.10.0 rate-limited attitude: Unit + Rodrigues Rotate ---
+
+func vecClose(a, b Vec3, tol float64) bool { return a.Sub(b).Norm() <= tol }
+
+func TestUnitNormalizesAndZeroSafe(t *testing.T) {
+	if got := (Vec3{3, 0, 4}).Unit(); !vecClose(got, Vec3{0.6, 0, 0.8}, 1e-12) {
+		t.Errorf("Unit() = %+v, want {0.6 0 0.8}", got)
+	}
+	if got := (Vec3{}).Unit(); got != (Vec3{}) {
+		t.Errorf("Unit() of zero = %+v, want zero", got)
+	}
+}
+
+func TestRotateIdentityAtZeroTheta(t *testing.T) {
+	v := Vec3{1, 2, 3}
+	if got := Rotate(v, Vec3{0, 0, 1}, 0); !vecClose(got, v, 1e-12) {
+		t.Errorf("Rotate(θ=0) = %+v, want %+v", got, v)
+	}
+}
+
+func TestRotate90AboutZMapsXToY(t *testing.T) {
+	got := Rotate(Vec3{1, 0, 0}, Vec3{0, 0, 1}, math.Pi/2)
+	if !vecClose(got, Vec3{0, 1, 0}, 1e-12) {
+		t.Errorf("Rotate(X, +Z, 90°) = %+v, want {0 1 0}", got)
+	}
+}
+
+func TestRotate180Antiparallel(t *testing.T) {
+	got := Rotate(Vec3{1, 0, 0}, Vec3{0, 1, 0}, math.Pi)
+	if !vecClose(got, Vec3{-1, 0, 0}, 1e-12) {
+		t.Errorf("Rotate(X, +Y, 180°) = %+v, want {-1 0 0}", got)
+	}
+}
+
+func TestRotateAboutOwnAxisIsNoop(t *testing.T) {
+	axis := (Vec3{1, 1, 1}).Unit()
+	if got := Rotate(axis, axis, 1.234); !vecClose(got, axis, 1e-12) {
+		t.Errorf("rotating axis about itself changed it: %+v != %+v", got, axis)
+	}
+}
+
+func TestRotatePreservesNorm(t *testing.T) {
+	v := Vec3{2, -3, 5}
+	axis := (Vec3{0, 1, 2}).Unit()
+	got := Rotate(v, axis, 0.7)
+	if d := math.Abs(got.Norm()-v.Norm()) / v.Norm(); d > 1e-12 {
+		t.Errorf("Rotate changed norm: |got|=%.9f |v|=%.9f (rel %.2e)", got.Norm(), v.Norm(), d)
+	}
+}

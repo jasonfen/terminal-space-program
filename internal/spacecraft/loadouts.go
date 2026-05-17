@@ -42,7 +42,21 @@ type Loadout struct {
 	// (must be non-empty); a one-element Stages declares a
 	// single-stage craft.
 	Stages []Stage
+	// SlewRateDegPerSec (v0.10.0+) is the per-loadout attitude
+	// angular-rate cap (deg/s, sim-time). Zero => the global
+	// DefaultSlewRateDegPerSec. Loadout-level (not per-stage):
+	// staging does not change the slew rate this cycle (attitude
+	// dynamics are deferred). All catalog literals leave this unset
+	// in v0.10.0; per-vehicle tuning is a follow-up dial.
+	SlewRateDegPerSec float64
 }
+
+// DefaultSlewRateDegPerSec is the attitude slew-rate cap applied to
+// any loadout that does not override it (Loadout.SlewRateDegPerSec
+// == 0) and to legacy/test craft built without a loadout. 5°/s ≈ 36 s
+// for a 180° flip — deliberate, SAS-like; makes cosine loss a real
+// consequence the player times burns around. v0.10.0+.
+const DefaultSlewRateDegPerSec = 5.0
 
 // DryMass returns the bottom stage's dry mass (single-stage
 // equivalent for pre-v0.9.1 readers; sum-across-stages is via
@@ -341,6 +355,7 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 		Throttle:             1.0,
 		BallisticCoefficient: DefaultBallisticCoefficient,
 		Stages:               stages,
+		SlewRateDegPerSec:    l.SlewRateDegPerSec,
 	}
 	c.SyncFields()
 	return c

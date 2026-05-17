@@ -491,6 +491,41 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 	}
 }
 
+// ThrustAccelFnFixedDir is the v0.10.0 slew-mode counterpart of
+// ThrustAccelFnAtWithTarget: instead of recomputing the thrust
+// direction from a BurnMode per RK4 sub-step, it thrusts along a
+// FIXED world-frame unit vector for the whole tick — the craft's
+// physical nose (CurrentAttitudeDir), already slewed toward the
+// commanded direction once at the tick top and already carrying mode
+// + pitch-trim resolution (it was integrated from
+// BurnDirectionWithTarget). Freezing it for the tick is correct under
+// the constant-rate, no-intra-tick-dynamics decision; the cosine loss
+// from burning while the nose still lags the commanded direction
+// emerges naturally. A zero/degenerate dir => gravity only (no thrust,
+// matches the BurnDirection "undefined direction" no-op convention).
+//
+// v0.10.0+.
+func (s *Spacecraft) ThrustAccelFnFixedDir(dir orbital.Vec3, mu, throttle float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+	mass := s.TotalMass()
+	if throttle < 0 {
+		throttle = 0
+	} else if throttle > 1 {
+		throttle = 1
+	}
+	thrust := s.Thrust * throttle
+	if s.ActiveStageFuel() <= 0 {
+		thrust = 0
+	}
+	d := dir.Unit()
+	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
+		gravity := physics.Accel(r, mu)
+		if thrust == 0 || mass == 0 || d == (orbital.Vec3{}) {
+			return gravity
+		}
+		return gravity.Add(d.Scale(thrust / mass))
+	}
+}
+
 // cross is the standard 3D cross product. Lifted here (rather than adding
 // to orbital.Vec3) to keep orbital free of spacecraft-specific helpers.
 func cross(a, b orbital.Vec3) orbital.Vec3 {

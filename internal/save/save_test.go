@@ -912,3 +912,71 @@ func TestSaturnVStagesRoundtrip(t *testing.T) {
 		}
 	}
 }
+
+// v0.10.0: the physical nose (CurrentAttitudeDir) must round-trip so a
+// craft caught mid-slew doesn't teleport its nose on reload.
+func TestCurrentAttitudeDirRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	want := orbital.Vec3{X: 0.36, Y: -0.48, Z: 0.8}.Unit() // non-axis-aligned unit
+	w.ActiveCraft().CurrentAttitudeDir = want
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if d := got.ActiveCraft().CurrentAttitudeDir.Sub(want).Norm(); d > 1e-12 {
+		t.Errorf("CurrentAttitudeDir round-trip off by %.3e: got %+v want %+v",
+			d, got.ActiveCraft().CurrentAttitudeDir, want)
+	}
+}
+
+// A pre-v0.10.0 save has no current_attitude_dir key → decodes to a
+// zero Vec3. The craft must NOT teleport its nose; the slew
+// integrator's first-tick snap seeds it from the commanded direction.
+func TestLegacySaveNoAttitudeDirSnapsNoTeleport(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Strip the field to simulate a pre-v0.10.0 save.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var f save.File
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	f.Payload.Crafts[0].CurrentAttitudeDir = save.Vec3{} // legacy: absent → zero
+	stripped, _ := json.Marshal(f)
+	if err := os.WriteFile(path, stripped, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	c := got.ActiveCraft()
+	if c.CurrentAttitudeDir.Norm() != 0 {
+		t.Fatalf("legacy save should load with zero CurrentAttitudeDir, got %+v",
+			c.CurrentAttitudeDir)
+	}
+	// One tick: the first-tick snap guard must seed (not slew-from-
+	// garbage, not leave zero) the physical nose.
+	got.Tick()
+	if n := c.CurrentAttitudeDir.Norm(); n < 0.999 || n > 1.001 {
+		t.Errorf("first-tick snap did not seed a unit nose: |dir|=%.6f", n)
+	}
+}
