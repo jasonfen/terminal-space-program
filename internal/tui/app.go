@@ -243,6 +243,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.active = screenMissions
 				return a, nil
 			}
+			// Framed navball panel is opaque and drawn over the
+			// canvas, so its control hits take priority over the
+			// canvas / body hits underneath. v0.9.6-polish.
+			if ctrl, ok := a.orbitView.HitNavballControl(m.X, m.Y); ok {
+				a.dispatchNavballControl(ctrl)
+				return a, nil
+			}
 			hit := a.orbitView.HitAt(m.X, m.Y)
 			switch {
 			case hit.IsVessel:
@@ -765,6 +772,34 @@ func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
 // from the bound craft target). v0.9.3+.
 func (a *App) handleAttitudeIntent(intent sim.AttitudeIntent) {
 	a.handleAttitudeKey(a.world.ResolveAttitudeIntent(intent))
+}
+
+// dispatchNavballControl routes a click on the framed navball
+// panel's controls to the same world actions as the keyboard: the
+// [MODE] button cycles NavMode (mirroring the CycleNavMode key,
+// status toast included) and each axis button drives the matching
+// SAS-hold intent through handleAttitudeIntent — so a click holds
+// prograde / normal± / radial± exactly as w/s/a/d/q/e would, with
+// NavMode rebinding applied. v0.9.6-polish.
+func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
+	switch ctrl {
+	case screens.NavballControlMode:
+		nav := a.world.CycleNavMode()
+		a.statusMsg = fmt.Sprintf("nav: %s", nav)
+		a.statusExpires = time.Now().Add(2 * time.Second)
+	case screens.NavballControlPrograde:
+		a.handleAttitudeIntent(sim.IntentPrograde)
+	case screens.NavballControlRetrograde:
+		a.handleAttitudeIntent(sim.IntentRetrograde)
+	case screens.NavballControlNormalPlus:
+		a.handleAttitudeIntent(sim.IntentNormalPlus)
+	case screens.NavballControlNormalMinus:
+		a.handleAttitudeIntent(sim.IntentNormalMinus)
+	case screens.NavballControlRadialOut:
+		a.handleAttitudeIntent(sim.IntentRadialOut)
+	case screens.NavballControlRadialIn:
+		a.handleAttitudeIntent(sim.IntentRadialIn)
+	}
 }
 
 // applyMenuAction dispatches a finalised MenuAction (Save / Load /
