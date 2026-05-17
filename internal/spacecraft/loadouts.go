@@ -53,10 +53,11 @@ type Loadout struct {
 
 // DefaultSlewRateDegPerSec is the attitude slew-rate cap applied to
 // any loadout that does not override it (Loadout.SlewRateDegPerSec
-// == 0) and to legacy/test craft built without a loadout. 5°/s ≈ 36 s
-// for a 180° flip — deliberate, SAS-like; makes cosine loss a real
-// consequence the player times burns around. v0.10.0+.
-const DefaultSlewRateDegPerSec = 5.0
+// == 0) and to legacy/test craft built without a loadout. 15°/s ≈ 12 s
+// for a 180° flip — visible and deliberate, but snappy enough not to
+// be tedious (raised from 5°/s after v0.10.0 playtest). Cosine loss
+// is still a real consequence the player times burns around. v0.10.0+.
+const DefaultSlewRateDegPerSec = 15.0
 
 // DryMass returns the bottom stage's dry mass (single-stage
 // equivalent for pre-v0.9.1 readers; sum-across-stages is via

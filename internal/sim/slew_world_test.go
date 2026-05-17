@@ -179,8 +179,8 @@ func TestInstantSASIgnoresCurrentAttitudeDir(t *testing.T) {
 // auto-orient BEFORE BurnStart so it is aligned at ignition and the
 // planted node delivers its full Δv (no cosine loss) — i.e. the slew
 // outcome matches the legacy instant path. A 180° flip (prograde →
-// retrograde node) at the 5°/s default needs 36 s; the lead window
-// (1.25·36 ≈ 45 s) opens well before BurnStart.
+// retrograde node) at the 15°/s default needs 12 s; the lead window
+// (1.25·12 ≈ 15 s) opens well before BurnStart.
 func TestLeadCompNodeAlignedAtT0(t *testing.T) {
 	mk := func(instant bool) *World {
 		w, _ := NewWorld()
