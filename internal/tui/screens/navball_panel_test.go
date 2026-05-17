@@ -133,7 +133,7 @@ func TestBuildNavballPanel(t *testing.T) {
 	if strings.Contains(plain, "NAVBALL") {
 		t.Errorf("NAVBALL label should be gone:\n%s", plain)
 	}
-	for _, want := range []string{"[ORBIT]", "RCS"} {
+	for _, want := range []string{"[ORBIT]", "RCS", "PRO", "RET", "T+", "T-"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("panel missing %q:\n%s", want, plain)
 		}
@@ -160,9 +160,11 @@ func TestBuildNavballPanel(t *testing.T) {
 			t.Errorf("panel row %d splits to %d cells, want %d", i, c, navballPanelW)
 		}
 	}
-	// Mode + RCS + one per axis glyph.
-	if len(boxes) != 2+len(navballAxisRow) {
-		t.Fatalf("got %d control boxes, want %d", len(boxes), 2+len(navballAxisRow))
+	// Mode + RCS + navballBtnRows hit-rows per axis button (each
+	// button is a multi-row click target).
+	wantBoxes := 2 + len(navballAxisRow)*navballBtnRows
+	if len(boxes) != wantBoxes {
+		t.Fatalf("got %d control boxes, want %d", len(boxes), wantBoxes)
 	}
 	sawMode, sawRCS := false, false
 	for _, b := range boxes {
