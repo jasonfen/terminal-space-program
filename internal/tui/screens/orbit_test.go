@@ -205,11 +205,11 @@ func TestOrbitViewZoom(t *testing.T) {
 	}
 }
 
-// TestOrbitRendersNavballPanel: the framed navball panel composites
-// into the frame for a fresh LEO craft — header, prograde marker
-// glyph, and at least one axis control label. v0.9.6-polish moved
-// the navball out of the HUD column into a bottom-centre canvas
-// panel; this confirms the new wiring lands.
+// TestOrbitRendersNavballPanel: the framed KSP-style navball panel
+// composites into the frame for a fresh LEO craft — no "NAVBALL"
+// label, the RCS toggle, the prograde marker glyph, the target-
+// minus glyph from the left column, and recorded hit boxes.
+// v0.9.6-polish moved the navball into a bottom-right canvas panel.
 func TestOrbitRendersNavballPanel(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
@@ -227,14 +227,17 @@ func TestOrbitRendersNavballPanel(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	out := v.Render(w, 0, 160, 48)
-	if !strings.Contains(out, "NAVBALL") {
-		t.Errorf("expected NAVBALL panel header in render output")
+	if strings.Contains(out, "NAVBALL") {
+		t.Errorf("NAVBALL label should be gone from render output")
+	}
+	if !strings.Contains(out, "RCS") {
+		t.Errorf("expected RCS toggle in navball panel")
 	}
 	if !strings.ContainsRune(out, '⊕') {
-		t.Errorf("expected prograde marker ⊕ in navball panel")
+		t.Errorf("expected prograde glyph ⊕ in navball panel")
 	}
-	if !strings.Contains(out, "PRO") {
-		t.Errorf("expected PRO axis control label in navball panel")
+	if !strings.ContainsRune(out, '◌') {
+		t.Errorf("expected anti-target glyph ◌ in the left SAS column")
 	}
 	if len(v.navballControls) == 0 {
 		t.Errorf("expected navball control hit boxes to be recorded")

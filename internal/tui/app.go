@@ -799,6 +799,18 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 		a.handleAttitudeIntent(sim.IntentRadialOut)
 	case screens.NavballControlRadialIn:
 		a.handleAttitudeIntent(sim.IntentRadialIn)
+	case screens.NavballControlRCS:
+		a.world.CycleEngineMode()
+		state := "off"
+		if a.world.RCSActive() {
+			state = "on"
+		}
+		a.statusMsg = fmt.Sprintf("RCS: %s", state)
+		a.statusExpires = time.Now().Add(2 * time.Second)
+	case screens.NavballControlTargetPlus:
+		a.handleAttitudeKey(spacecraft.BurnTarget)
+	case screens.NavballControlTargetMinus:
+		a.handleAttitudeKey(spacecraft.BurnAntiTarget)
 	}
 }
 

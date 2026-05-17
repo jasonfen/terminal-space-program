@@ -712,7 +712,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if rawLat, rawLon, ok := w.NavballSubObserver(); ok {
 			subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
 			disk := navballPanelDisk(w, subLat, subLon)
-			panel, boxes := v.buildNavballPanel(disk, w.NavMode)
+			panel, boxes := v.buildNavballPanel(disk, w.NavMode, w.RCSActive())
 			atCol := cCols - navballPanelW
 			atRow := cRows - navballPanelH - 1
 			lines := strings.Split(canvasStr, "\n")
