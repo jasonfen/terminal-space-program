@@ -19,10 +19,21 @@ import (
 //
 // Algorithm: forward-propagate both craft via Verlet at intervals of
 // roughly period/50 over `horizon` seconds, track minimum |rA - rB|,
-// return the time + distance + relative velocity at the minimum-
-// distance sample. No parabolic refinement — sample resolution is
-// sub-second-class for typical LEO horizons, plenty for the HUD
-// countdown which is recomputed each frame anyway.
+// then **parabolically refine** the minimum from its two bracketing
+// samples and re-propagate to that sub-grid time for the reported
+// distance + relative velocity.
+//
+// The refinement is not cosmetic. The HUD recomputes this every
+// frame from live, slightly-noisy integrated state. Without
+// refinement the answer is snapped to the ~period/50 grid (~111 s
+// for LEO), so as the true minimum drifts across a grid boundary
+// between frames the reported time jumps by a whole grid step and
+// the distance pops to a different sample — the readout looks
+// erratic even though the physics is smooth, making it impossible
+// to judge whether the approach needs adjusting. The parabolic
+// vertex is continuous in the inputs, so the readout is now stable
+// frame-to-frame and reports the true sub-grid minimum, not the
+// nearest sample.
 //
 // Returns:
 //   - t: seconds from now until closest approach (0 if "now").
@@ -76,22 +87,64 @@ func NextClosestApproach(
 	}
 	dt := dtSample / float64(nSub)
 
-	minDist := sA.R.Sub(sB.R).Norm()
-	minT := 0.0
-	minVRel := sA.V.Sub(sB.V)
-
+	// Distance at every grid sample, dists[0] = separation now.
+	dists := make([]float64, nSamples+1)
+	dists[0] = sA.R.Sub(sB.R).Norm()
+	minIdx := 0
 	for i := 1; i <= nSamples; i++ {
 		for j := 0; j < nSub; j++ {
 			sA = physics.StepVerlet(sA, mu, dt)
 			sB = physics.StepVerlet(sB, mu, dt)
 		}
 		d := sA.R.Sub(sB.R).Norm()
-		if d < minDist {
-			minDist = d
-			minT = float64(i) * dtSample
-			minVRel = sA.V.Sub(sB.V)
+		dists[i] = d
+		if d < dists[minIdx] {
+			minIdx = i
 		}
 	}
 
-	return minT, minDist, minVRel, nil
+	// Parabolic sub-grid refinement. Fit a parabola through the
+	// minimum sample and its two neighbours; its vertex is the
+	// continuous minimum. δ ∈ [-0.5, 0.5] is the fractional sample
+	// offset. Skipped at the endpoints (no bracket) and when the
+	// three points are near-collinear (flat / degenerate co-orbital
+	// minimum — the exact time barely matters there and δ=0 keeps it
+	// stable rather than blowing up on a ~0 denominator).
+	delta := 0.0
+	if minIdx > 0 && minIdx < nSamples {
+		dL, dC, dR := dists[minIdx-1], dists[minIdx], dists[minIdx+1]
+		denom := dL - 2*dC + dR
+		if math.Abs(denom) > 1e-9 {
+			delta = 0.5 * (dL - dR) / denom
+			if delta > 0.5 {
+				delta = 0.5
+			} else if delta < -0.5 {
+				delta = -0.5
+			}
+		}
+	}
+	tStar := (float64(minIdx) + delta) * dtSample
+	if tStar < 0 {
+		tStar = 0
+	} else if tStar > horizon {
+		tStar = horizon
+	}
+
+	// Re-propagate fresh state to the refined time for an accurate,
+	// continuous distance + relative velocity (the parabola locates
+	// the time; the true geometry at that time is what the HUD
+	// reports). Same sub-step size, with a partial final step.
+	rA := physics.StateVector{R: stateA.R, V: stateA.V}
+	rB := physics.StateVector{R: stateB.R, V: stateB.V}
+	remaining := tStar
+	for remaining > 1e-9 {
+		step := dt
+		if step > remaining {
+			step = remaining
+		}
+		rA = physics.StepVerlet(rA, mu, step)
+		rB = physics.StepVerlet(rB, mu, step)
+		remaining -= step
+	}
+	return tStar, rA.R.Sub(rB.R).Norm(), rA.V.Sub(rB.V), nil
 }
