@@ -2,21 +2,24 @@
 
 <!--
   meta:
-    snapshot_version: v0.9.5 (navball — v0.9.0–v0.9.5 all shipped to
-      `main`; v0.9.5 playtest signoff in progress)
+    snapshot_version: v0.9.6 (solar lighting + navball overhaul —
+      v0.9.0–v0.9.6 all shipped to `main`; v0.9 cycle closing)
     snapshot_date: 2026-05-05
-    revised_date: 2026-05-15 (v0.9.2/.3/.4 merged via PR #51/#52/#53;
-      v0.9.5 navball merged to `main` via --no-ff 730705d + pushed
-      origin — playtest signoff in progress)
+    revised_date: 2026-05-17 (v0.9.6 lighting+eclipses merged to
+      `main` 32e8d03, plus a navball polish pass — flicker root-
+      cause fixes, KSP-style framed panel w/ vertical SAS column +
+      RCS/mode toggles, ball palette retune; all branches cleaned,
+      origin/main sole branch)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
   "what's the game today / where is it going" reference.
 -->
 
-> Snapshot at **v0.9.5** (May 2026) — the "craft fleet grows up"
-> cycle has shipped v0.9.0 → v0.9.5 to `main` (navball playtest
-> signoff in progress; cycle closes once a v0.9.6+ pick lands).
+> Snapshot at **v0.9.6** (May 2026) — the "craft fleet grows up"
+> cycle has shipped v0.9.0 → v0.9.6 to `main`. v0.9.6 landed solar
+> lighting + day/night terminator + eclipses plus a navball
+> overhaul; the v0.9 cycle is closing and v0.10 is being planned.
 > Predecessor doc with full per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
@@ -111,6 +114,50 @@ flyby) match real spacecraft work.
 | [v0.2](#v02) | 2026-04 | ✓ | finite burns + maneuver planner |
 | [v0.1](#v01) | 2026-04 | ✓ | two-body propagator + SOI |
 
+### v0.9.6
+<!-- llm-parse: version=v0.9.6 status=shipped date=2026-05-17 theme=solar-lighting+navball-overhaul merge=32e8d03 -->
+
+**Solar lighting + day/night terminator + eclipses, plus a navball
+overhaul.** Two strands landed in the v0.9.6 line on `main`
+(merge `32e8d03`): the research-first lighting backlog item, and an
+unplanned navball polish pass triggered by a marker-flicker bug
+report that turned into a full KSP-style redesign.
+
+**Solar lighting** (`internal/render/lighting.go`,
+`internal/render/eclipse.go` + tests). Sub-solar-point per body
+per tick → `cos(angle to sun)` shading with a day/night
+terminator; eclipses fall out of the same geometry. Originally
+earmarked v0.9.6 (research: ANSI 24-bit per-cell mixing); merged
+from `v0.9.6-lighting` (78639ea).
+
+**Navball overhaul** (`internal/render/navball.go`,
+`internal/tui/screens/navball_panel.go`,
+`internal/tui/screens/orbit.go`, `internal/tui/app.go`):
+- **Flicker root-caused & fixed.** Three layered float-precision
+  bugs: sub-observer jitter (sticky 2° great-circle dead-band on
+  `OrbitView`), off-disk markers culled at the limb (clamp to rim
+  instead), and — the real culprit — orbit-normal markers sitting
+  exactly on the limb where `z>0` picked front/back from noise
+  (limb dead-zone `|z| ≤ limbFrontEpsZ` ⇒ stable). Plus a
+  multi-rune SGR splice bug that dropped the panel's right border.
+- **Relocated + redesigned.** Out of the HUD column into an
+  opaque rounded-border panel composited bottom-right over the
+  canvas (ANSI-aware `overlayStyledBlock` / `splitStyledCells`).
+  KSP-style: no "NAVBALL" label, a `[MODE]`+`RCS` toggle row, and
+  eight 2-row labeled SAS buttons (`⊕ PRO` … `◌ T-`, incl. target
+  ±) as a vertical column; disk doubled to 24×12. Clicks wired to
+  the NavMode cycle + SAS-hold/RCS via `HitNavballControl` /
+  `dispatchNavballControl`.
+- **HUD trim + ball retune.** Dropped the SYSTEM + SELECTED HUD
+  blocks (system name still in the title bar); ball palette moved
+  from classic-ADI orange toward KSP blue/tan with a bright
+  horizon line. `view:` readout moved to the bottom-left corner.
+
+**Shipped on `main`** (`32e8d03`) 2026-05-17 — build / vet / full
+test suite green at merge; interactive playtest pending. All
+feature branches cleaned up afterwards; `origin/main` is the sole
+branch.
+
 ### v0.9.5
 <!-- llm-parse: version=v0.9.5 status=shipped date=2026-05-15 theme=navball branch=v0.9.5-navball merge=730705d -->
 
@@ -152,10 +199,9 @@ snowball ~700 plan estimate; the v0.8.5 `SubObserverPointDeg` +
 per-pixel sphere pipeline reuse held cleanly, so the renderer-
 reuse sizing risk did not materialise.
 
-**Cycle status.** v0.9.0 → v0.9.5 are all shipped to `main`. The
-v0.9 cycle closes once at least one v0.9.6+ pick lands (multi-rev
-porkchop / capture-direction toggle / solar lighting+eclipses /
-predictor adaptive sampling / polish bag).
+**Cycle status.** Superseded by v0.9.6 above — solar
+lighting+eclipses landed as the v0.9.6 pick, closing the v0.9
+cycle. v0.10 planning is underway.
 
 ### v0.9.4
 <!-- llm-parse: version=v0.9.4 status=shipped date=2026-05-07 theme=ascent-ergonomics branch=claude/improve-launch-rendezvous-BJj0Y pr=53 -->
@@ -658,8 +704,8 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 🧊 **backlog · three-cycle carry-over**. Fixed 96-sample horizon collapses to a smear at 10000× warp on LEO orbits. Adaptive sampling (sample density ∝ orbit period / sim-time horizon) is the obvious fix. Flagged in `v0.5-release-notes.md` deferred list, escalated to `integration-design.md` §10 open question, re-flagged in `v0.7-plan.md` and `v0.8-plan.md` backlogs without shipping in any cycle. **Foundation shipped at v0.8.4** (time-aware `propagateStateWithPrimary` for drag-aware predictor coherence) — the integration is now possible without further infrastructure work, just not done. ~150–200 LOC.
 
 ### Solar lighting + day/night terminator + eclipses
-<!-- llm-parse: id=lighting-terminator-eclipses status=backlog target=v0.9 -->
-🧊 **backlog · target v0.9 (research-first)**. Sub-solar-point per body per tick → `cos(angle to sun)` shading; eclipses fall out for free if lighting lands. Research item: investigate canvas-level ANSI 24-bit per-cell mixing as a `lipgloss` workaround before slicing.
+<!-- llm-parse: id=lighting-terminator-eclipses status=shipped version=v0.9.6 merge=32e8d03 -->
+✅ **shipped v0.9.6** (`internal/render/lighting.go` + `eclipse.go` + tests; merged from `v0.9.6-lighting` 78639ea → `main` 32e8d03). Sub-solar-point per body per tick → `cos(angle to sun)` shading + day/night terminator; eclipses fall out of the same geometry. Was the research-first v0.9.6 pick that closed the v0.9 cycle.
 
 ### Staging chain
 <!-- llm-parse: id=staging-chain status=backlog target=v0.9 -->
@@ -844,7 +890,7 @@ doc.
 | 3 | [Wider cross-SOI PlanTransfer](#wider-cross-soi-plantransfer) | L | 🧊 backlog | Heliocentric → moon-of-other-planet patched-conic capture. Substantial new transfer math. |
 | 4 | [Combined plane-shift + Hohmann](#combined-plane-shift--hohmann) | L | 🧊 backlog | Lambert constrained on post-capture inclination. Substantial — root-find on inclination + time-of-flight. |
 | 5 | [Rendezvous tooling](#rendezvous-tooling) | M | 🧊 backlog | Target-craft selection + target-relative burn modes + null-v_rel at closest approach + iteration. Pairs with multi-craft fleet from (1). |
-| 6 | [Solar lighting + terminator + eclipses](#solar-lighting--daynight-terminator--eclipses) | M | 🧊 backlog | Research-first — ANSI 24-bit canvas mixing investigation precedes slicing. **Apply 2–3× sizing heuristic — touches rendering.** |
+| 6 | [Solar lighting + terminator + eclipses](#solar-lighting--daynight-terminator--eclipses) | M | ✅ shipped v0.9.6 | Landed `internal/render/lighting.go`+`eclipse.go`; closed the v0.9 cycle (merge 32e8d03). |
 | 7 | [Predictor adaptive sampling](#predictor-adaptive-sampling) | M | 🧊 backlog | Three-cycle carry-over; foundation shipped v0.8.4. ~150–200 LOC. |
 | 8 | [Multi-rev porkchop UI](#multi-rev-porkchop-ui) + [Lambert short/long picker](#lambert-shortlong-branch-picker) | S | ⏸ deferred | UI for `LambertSolveRev` (nRev + retrograde + short/long). Library-ready since v0.7.5. Useful once (1) staging grows the fleet. |
 | 9 | [Capture-direction toggle](#capture-direction-toggle) | S | 🧊 backlog | "Capture prograde-around-target" mode for auto-Hohmann arrival. Trades ~50–100 m/s for the right-direction capture. |
