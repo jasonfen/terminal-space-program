@@ -51,4 +51,18 @@ func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration)
 	omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
 	c.State.V = omega.Cross(c.State.R)
 	c.State.M = c.TotalMass()
+
+	// v0.10.0: a landed craft is rigidly bolted to the pad pointing
+	// per its AttitudeMode; as it co-rotates with the body its nose
+	// co-rotates too. The slew integrator is skipped while Landed
+	// (this function returns before it), so without this sync a long
+	// warp on the pad leaves CurrentAttitudeDir frozen at the spawn-
+	// time vector — on liftoff the engine then thrusts along that
+	// stale (now sideways / sub-horizon) nose and the craft can't
+	// leave the pad. Track the commanded direction instead; skip a
+	// zero/undefined commanded (e.g. surface mode pre-liftoff) so we
+	// hold the last good nose rather than blanking it.
+	if cmd := w.commandedDirFor(c); cmd.Norm() != 0 {
+		c.CurrentAttitudeDir = cmd
+	}
 }
