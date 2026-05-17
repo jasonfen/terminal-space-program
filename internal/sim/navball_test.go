@@ -349,27 +349,46 @@ func TestNavballMarkersTargetModeProgradeIsTargetRelative(t *testing.T) {
 	t.Errorf("missing prograde marker in target mode")
 }
 
-// TestNavballMarkersSurfaceModeProgradeIsSurface: in NavSurface
-// mode, EX is surface-relative velocity, and the prograde marker
-// direction is the same — landing at the disk centre. Confirms
-// orbit-frame prograde isn't leaking into surface-mode output.
-func TestNavballMarkersSurfaceModeProgradeIsSurface(t *testing.T) {
+// TestNavballMarkersSurfaceModeLocalHorizon: NavSurface is a local-
+// horizon sphere (sky pole = local up). Radial-out must read at the
+// sky pole (lat +90), radial-in at the nadir (lat −90), and surface-
+// prograde on the horizon band (lat ≈ 0) — not re-centred on prograde
+// the way the pre-v0.10 orbital-normal-pole basis did. This is the
+// "launching shows the sky, not the horizon" fix.
+func TestNavballMarkersSurfaceModeLocalHorizon(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	w.NavMode = NavSurface
 	got := w.NavballMarkers()
-	for _, m := range got {
-		if m.Glyph != NavballGlyphPrograde {
-			continue
+
+	find := func(glyph rune) (render.NavballMarker, bool) {
+		for _, m := range got {
+			if m.Glyph == glyph {
+				return m, true
+			}
 		}
-		if math.Abs(m.LatDeg) > 1e-4 || math.Abs(m.LonDeg) > 1e-4 {
-			t.Errorf("surface-mode prograde lands at (%g, %g), want (0, 0)", m.LatDeg, m.LonDeg)
-		}
-		return
+		return render.NavballMarker{}, false
 	}
-	t.Errorf("missing prograde marker in surface mode")
+
+	if m, ok := find(NavballGlyphRadialOut); !ok {
+		t.Error("missing radial-out marker in surface mode")
+	} else if math.Abs(m.LatDeg-90) > 1e-3 {
+		t.Errorf("radial-out should sit at the sky pole (lat +90); got lat=%g", m.LatDeg)
+	}
+
+	if m, ok := find(NavballGlyphRadialIn); !ok {
+		t.Error("missing radial-in marker in surface mode")
+	} else if math.Abs(m.LatDeg+90) > 1e-3 {
+		t.Errorf("radial-in should sit at the nadir (lat −90); got lat=%g", m.LatDeg)
+	}
+
+	if m, ok := find(NavballGlyphPrograde); !ok {
+		t.Error("missing prograde marker in surface mode")
+	} else if math.Abs(m.LatDeg) > 1.0 {
+		t.Errorf("surface-prograde should ride the horizon (lat ≈ 0); got lat=%g", m.LatDeg)
+	}
 }
 
 // TestNavballMarkersIncludeNode: a planted BurnPrograde node adds
