@@ -1612,6 +1612,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 						lines = append(lines,
 							fmt.Sprintf("  apoapsis:  %.1f km", (tEl.Apoapsis()-tPrimaryR)/1000),
 							fmt.Sprintf("  periapsis: %.1f km", (tEl.Periapsis()-tPrimaryR)/1000),
+							// Target's own orbital inclination in its
+							// primary's reference frame — same quantity
+							// and frame as the active-craft / body
+							// orbit-readout "inclin." line, not a
+							// relative Δi. Always meaningful (target
+							// state is primary-relative), like apo/peri.
+							fmt.Sprintf("  inclin.:   %.2f°", tEl.I*180/math.Pi),
 						)
 					}
 					// Range / |v_rel|: use primary-frame deltas when
