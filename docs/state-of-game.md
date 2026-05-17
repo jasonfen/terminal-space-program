@@ -747,9 +747,13 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 <!-- llm-parse: id=earth-raster status=backlog -->
 🧊 **backlog**. NOAA ETOPO1 land/sea mask embedded via `go:embed` would slot into the same `earthGrid` storage with a different generator. Today's polygon raster (~50 polys) is good enough at typical disk px-radii; this is post-v0.8.5 polish.
 
+### Rate-limited attitude (manual flight)
+<!-- llm-parse: id=slew-attitude status=backlog target=v0.10 pair=attitude-save decision=lead-compensated -->
+🧊 **backlog · target v0.10 · pairs with [attitude-mode save persistence](#attitude-mode-save-persistence) (one slice)**. Today the nose is recomputed from `AttitudeMode` every tick, so an SAS heading change snaps instantly. Add a `Spacecraft.CurrentAttitudeDir` world-unit-vector that integrates toward the commanded `BurnDirectionWithTarget(AttitudeMode)` at a capped per-loadout `SlewRate` (deg/s) in **sim-time** (warp-scaled dt; effectively instant-relative-to-tick at high warp — accept + note). A new manual-flight **mode** gates it; instant "magic SAS" stays the default. `stepThrust` + the navball sub-observer read `CurrentAttitudeDir` instead of recomputing, so the navball animates for free and burning before alignment bleeds Δv to cosine loss — the intended consequence. RCS pulses stay instant (discrete nudges). **Planted maneuver nodes: lead-compensated — decided.** The craft auto-starts slewing `slew_angle / SlewRate` before T0 so it's aligned at ignition, preserving planted-node accuracy + its test surface; a punishing "naive, lose the Δv" toggle is a deferred later add. Net-new axis-angle rotate util (~30 LOC — no quaternion/Rodrigues in tree). Weight **M**, sim-only (no rendering-sizing risk). Regression surface: `burn_direction` / `navball` / `maneuver` tests.
+
 ### Attitude-mode save persistence
-<!-- llm-parse: id=attitude-save status=deferred -->
-⏸ **deferred**. Decision held at "keep ephemeral" through v0.8 — planted nodes are the persistence layer. Reopen if mid-coast-load resetting attitude is annoying in playtest.
+<!-- llm-parse: id=attitude-save status=backlog target=v0.10 pair=slew-attitude -->
+🧊 **backlog · target v0.10 · paired with [rate-limited attitude](#rate-limited-attitude-manual-flight) as its rider**. Held at "keep ephemeral — planted nodes are the persistence layer" through v0.9. The slew slice makes attitude *physically load-bearing* (a craft can be caught mid-slew), so `AttitudeMode` + `CurrentAttitudeDir` must round-trip through save/load or a reload teleports the nose. Promoted from deferred and folded into the slew slice as the logical partner — same subsystem, small rider (save-schema field bump + restore).
 
 ### Mass/propellant fields in mission EvalContext
 <!-- llm-parse: id=mission-eval-resources status=backlog target=alongside-mission-scripting -->
