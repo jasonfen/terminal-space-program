@@ -50,44 +50,52 @@ type navballControlBox struct {
 }
 
 // navball panel geometry (KSP-style). A compact top toggle row
-// ([MODE] + RCS), then the 12×6 disk with a vertical SAS glyph
-// column hugging the far left. The disk is shorter than the 8-button
-// column, so it's centred vertically within the body.
+// ([MODE] + RCS), then a 24×12 disk with a vertical stack of eight
+// 2-row "<glyph> LABEL" SAS buttons hugging the far left. The disk
+// is shorter than the button stack, so it's centred vertically.
 const (
-	navballDiskCols  = 12
-	navballDiskRows  = 6
-	navballGlyphColW = 2                                      // glyph button (1) + gutter (1)
-	navballBodyRows  = 8                                      // 8 SAS glyph buttons; disk centred within
-	navballInnerW    = navballGlyphColW + navballDiskCols + 4 // = 18
+	// Doubled from the original 12×6 — the small disk made markers
+	// hard to read and the 1-cell glyph buttons hard to click.
+	navballDiskCols  = 24
+	navballDiskRows  = 12
+	navballLabelW    = 3                                      // label field, e.g. "PRO" / "T- "
+	navballBtnW      = 1 + 1 + navballLabelW                  // glyph + sep + label = 5
+	navballBtnRows   = 2                                      // each SAS button is 2 rows tall
+	navballGlyphColW = navballBtnW + 1                        // + 1 gutter to the disk = 6
+	navballBodyRows  = 8 * navballBtnRows                     // 8 buttons × 2 rows = 16
+	navballInnerW    = navballGlyphColW + navballDiskCols + 2 // = 32
 	// Panel outer size = inner + 1-cell rounded border each side.
-	navballPanelW      = navballInnerW + 2                // = 20
-	navballPanelH      = 1 + navballBodyRows + 2          // toggle + body + border = 11
-	navballDiskRegionW = navballInnerW - navballGlyphColW // = 16
+	navballPanelW      = navballInnerW + 2                // = 34
+	navballPanelH      = 1 + navballBodyRows + 2          // toggle + body + border = 19
+	navballDiskRegionW = navballInnerW - navballGlyphColW // = 26
 	navballDiskTopPad  = (navballBodyRows - navballDiskRows) / 2
 )
 
-// axisButton is one vertical SAS glyph button. The glyph mirrors the
-// on-ball marker (KSP convention) and is drawn in that marker's
-// colour so the column reads as the same icon family as the disk.
+// axisButton is one vertical SAS button: a marker glyph + a short
+// text label. The glyph mirrors the on-ball marker (KSP convention)
+// in that marker's colour so the column reads as the same icon
+// family as the disk; the label makes it legible, since a lone
+// glyph can't be enlarged in a fixed-cell terminal.
 type axisButton struct {
 	id    NavballControlID
 	glyph rune
+	label string
 	color lipgloss.Color
 }
 
-// navballAxisRow is the fixed top→bottom ordering of the SAS glyph
+// navballAxisRow is the fixed top→bottom ordering of the SAS button
 // column. Eight buttons: prograde / retrograde, normal ±, radial ±,
 // target ±. Glyphs + colours come from the shared sim/render
 // constants so the buttons and the disk markers can't drift apart.
 var navballAxisRow = []axisButton{
-	{NavballControlPrograde, sim.NavballGlyphPrograde, render.ColorNavballMarkerPrograde},
-	{NavballControlRetrograde, sim.NavballGlyphRetrograde, render.ColorNavballMarkerPrograde},
-	{NavballControlNormalPlus, sim.NavballGlyphNormalPlus, render.ColorNavballMarkerNormal},
-	{NavballControlNormalMinus, sim.NavballGlyphNormalMinus, render.ColorNavballMarkerNormal},
-	{NavballControlRadialOut, sim.NavballGlyphRadialOut, render.ColorNavballMarkerRadial},
-	{NavballControlRadialIn, sim.NavballGlyphRadialIn, render.ColorNavballMarkerRadial},
-	{NavballControlTargetPlus, sim.NavballGlyphTarget, render.ColorNavballMarkerTarget},
-	{NavballControlTargetMinus, sim.NavballGlyphAntiTarget, render.ColorNavballMarkerTarget},
+	{NavballControlPrograde, sim.NavballGlyphPrograde, "PRO", render.ColorNavballMarkerPrograde},
+	{NavballControlRetrograde, sim.NavballGlyphRetrograde, "RET", render.ColorNavballMarkerPrograde},
+	{NavballControlNormalPlus, sim.NavballGlyphNormalPlus, "N+", render.ColorNavballMarkerNormal},
+	{NavballControlNormalMinus, sim.NavballGlyphNormalMinus, "N-", render.ColorNavballMarkerNormal},
+	{NavballControlRadialOut, sim.NavballGlyphRadialOut, "R+", render.ColorNavballMarkerRadial},
+	{NavballControlRadialIn, sim.NavballGlyphRadialIn, "R-", render.ColorNavballMarkerRadial},
+	{NavballControlTargetPlus, sim.NavballGlyphTarget, "T+", render.ColorNavballMarkerTarget},
+	{NavballControlTargetMinus, sim.NavballGlyphAntiTarget, "T-", render.ColorNavballMarkerTarget},
 }
 
 func navModeLabel(m sim.NavMode) string {
@@ -162,24 +170,37 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, rcsActive b
 		strings.Repeat(" ", gap)+rcsStyle.Render(rcsLabel), navballInnerW)
 	lines := []string{toggleLine}
 
-	// Body: navballBodyRows rows. Each row = glyph button (col 0) +
-	// gutter (col 1) + disk region (centred). The 6 disk lines are
-	// centred vertically within the 8 body rows; off-disk body rows
-	// still carry their glyph button with a blank disk region.
+	// Body: navballBodyRows rows. Left column = a stack of SAS
+	// buttons, each navballBtnRows tall (a big click target) showing
+	// "<glyph> <LABEL>"; then a 1-cell gutter; then the disk region.
+	// The disk is centred vertically within the taller button stack;
+	// off-disk body rows still carry their button so the column is
+	// continuous. The button face is drawn on the first row of each
+	// pair, the rest blank — but every row of the pair gets a hit
+	// box (same id) so the whole 2-row block is clickable.
 	diskLines := strings.Split(disk, "\n")
 	for j := 0; j < navballBodyRows; j++ {
-		b := navballAxisRow[j]
-		glyphCell := lipgloss.NewStyle().Foreground(b.color).Render(string(b.glyph))
+		bi := j / navballBtnRows
+		b := navballAxisRow[bi]
+		face := strings.Repeat(" ", navballBtnW)
+		if j%navballBtnRows == 0 { // top row of the pair carries the face
+			label := b.label
+			if len(label) < navballLabelW {
+				label += strings.Repeat(" ", navballLabelW-len(label))
+			}
+			face = lipgloss.NewStyle().Foreground(b.color).Render(string(b.glyph)) +
+				" " + btnStyle.Render(label) // 1 + 1 + navballLabelW = navballBtnW
+		}
 		region := strings.Repeat(" ", navballDiskRegionW)
 		if di := j - navballDiskTopPad; di >= 0 && di < navballDiskRows && di < len(diskLines) {
 			region = center(diskLines[di], navballDiskRegionW)
 		}
-		lines = append(lines, glyphCell+" "+region) // 1 + 1 + 16 = innerW
+		lines = append(lines, face+" "+region) // btnW + gutter + regionW = innerW
 		boxes = append(boxes, navballControlBox{
 			id:       b.id,
-			colStart: 1,     // +1 left border; glyph at inner col 0
-			colEnd:   2,     // single cell
-			row:      j + 2, // +1 top border, +1 toggle row
+			colStart: 1,               // +1 left border; face at inner col 0
+			colEnd:   1 + navballBtnW, // full button width is clickable
+			row:      j + 2,           // +1 top border, +1 toggle row
 		})
 	}
 
