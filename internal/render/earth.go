@@ -199,10 +199,29 @@ func inEllipse(lat, lon float64, c continentEllipse) bool {
 // + sim time through each pixel. Callers should compute the
 // sub-observer point via SubObserverPointDeg(b, simTime, camDir)
 // once per body per frame.
-func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg float64) BodyTexture {
+//
+// v0.9.6+ takes an optional light: when non-nil and the body is not
+// the Sun, every pixel is darkened by light.FactorAt to paint the
+// day/night terminator (+ eclipse dimming). nil disables shading and
+// is the back-compat path (e.g. BodyHasTexture). The Sun is always
+// exempt — it is the light source and keeps its own limb darkening.
+func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg float64, light *SolarLight) BodyTexture {
 	if pxRadius < BodyTextureMinRadius {
 		return nil
 	}
+	base := bodyTextureBase(b, subLatDeg, subLonDeg)
+	if base == nil || b.ID == "sun" || light == nil {
+		return base
+	}
+	return func(dx, dy, r int) lipgloss.Color {
+		return Shade(base(dx, dy, r), light.FactorAt(dx, dy, r, subLatDeg, subLonDeg))
+	}
+}
+
+// bodyTextureBase returns the unlit per-pixel surface shader for a
+// body, or nil if the body has no texture. Split out of TextureFor so
+// the v0.9.6 lighting wrapper has a single base closure to darken.
+func bodyTextureBase(b bodies.CelestialBody, subLatDeg, subLonDeg float64) BodyTexture {
 	switch b.ID {
 	case "sun":
 		return func(dx, dy, r int) lipgloss.Color {
@@ -262,5 +281,5 @@ func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg float
 // sub-observer point doesn't affect the gate, so the boolean form
 // omits it.
 func BodyHasTexture(b bodies.CelestialBody, pxRadius int) bool {
-	return TextureFor(b, pxRadius, 0, 0) != nil
+	return TextureFor(b, pxRadius, 0, 0, nil) != nil
 }
