@@ -686,15 +686,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		v.drawNodes(w)
 	}
 
-	// Stamp the active projection in the canvas's bottom-right corner
+	// Stamp the active projection in the canvas's bottom-left corner
 	// so the indicator stays attached to the view it describes (was a
 	// HUD line under FOCUS until v0.7.4 — see orbit.go's renderHUD).
+	// v0.9.6-polish moved it left so it no longer sits under the
+	// bottom-right navball panel.
 	viewLabel := "view: " + w.ViewMode.String()
-	labelCol := v.canvas.Cols() - len([]rune(viewLabel)) - 1
-	if labelCol < 0 {
-		labelCol = 0
-	}
-	v.canvas.SetCellLabel(labelCol, v.canvas.Rows()-1, viewLabel)
+	v.canvas.SetCellLabel(0, v.canvas.Rows()-1, viewLabel)
 
 	canvasStr := v.canvas.String()
 
