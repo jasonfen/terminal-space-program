@@ -46,6 +46,32 @@ func TestSplitStyledCells(t *testing.T) {
 	}
 }
 
+// Regression: a single styled run spanning many runes (how lipgloss
+// emits a border edge or "NAVBALL") must split to one cell per rune,
+// not one cell + a stray zero-width reset. The stray cell used to
+// inflate the count and shove the panel's right border off the
+// splice, dropping the top-right corner / right `│`.
+func TestSplitStyledCellsMultiRuneRun(t *testing.T) {
+	run := tRed + "ABCDE" + tReset // one SET, 5 runes, one RESET
+	cells := splitStyledCells("x" + run + "y")
+	if len(cells) != 7 {
+		t.Fatalf("got %d cells, want 7 (x + 5 + y): %v", len(cells), cells)
+	}
+	if cells[0] != "x" || cells[6] != "y" {
+		t.Errorf("plain edges wrong: %q %q", cells[0], cells[6])
+	}
+	for i, want := range []string{"A", "B", "C", "D", "E"} {
+		c := cells[1+i]
+		if !strings.HasPrefix(c, tRed) || !strings.Contains(c, want) ||
+			!strings.HasSuffix(c, "\x1b[0m") {
+			t.Errorf("cell %d = %q, want self-contained styled %q", 1+i, c, want)
+		}
+	}
+	if lipgloss.Width(strings.Join(cells, "")) != 7 {
+		t.Errorf("re-joined width != 7")
+	}
+}
+
 // overlayStyledBlock must splice a block in without changing the
 // base lines' visible width and without touching out-of-range rows.
 func TestOverlayStyledBlock(t *testing.T) {

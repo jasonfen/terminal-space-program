@@ -184,21 +184,24 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode) (string, []
 	return panel, boxes
 }
 
-// splitStyledCells splits an ANSI-styled line into one string per
-// visible terminal cell, each carrying its own complete escape
-// sequences. The canvas's colored String() emits every colored cell
-// as a self-contained `CSI…m<rune>CSI 0m` token and every other cell
-// as a bare rune, with no SGR state carried across cells — so cutting
-// on cell boundaries is lossless and a spliced result needs no
-// fix-up. Plain (unstyled) lines yield one rune per element.
+// splitStyledCells splits an ANSI-styled line into exactly one
+// self-contained string per visible terminal cell, so len(result)
+// always equals the line's display width and a cell-boundary splice
+// stays aligned. It tracks the active SGR run rather than assuming a
+// fixed escape/rune layout: the canvas emits one rune per styled run
+// (`CSI…m<rune>CSI0m`) while lipgloss emits whole multi-rune runs
+// (`CSI…m<rune><rune>…CSI0m`, e.g. a border edge or "NAVBALL").
+// Both collapse to the same per-rune cell here — `activeSGR + rune
+// (+ reset if styled)`. An earlier layout-based parser mis-handled
+// multi-rune runs (a stray zero-width reset cell per run), inflating
+// the count and shoving right-edge cells off the splice — the
+// missing panel border bug.
 func splitStyledCells(s string) []string {
 	rs := []rune(s)
-	// consumeEsc reads one CSI sequence at rs[i] (ESC '[' … final
-	// byte in @–~) and reports whether it's an SGR reset (`ESC[0m`
-	// or `ESC[m`) — the boundary marker the canvas emits after each
-	// colored rune. A non-reset CSI is the *set* that opens the next
-	// colored cell, so it must not be absorbed as a trailing escape.
-	consumeEsc := func(i int) (seq string, next int, isReset bool) {
+	const sgrReset = "\x1b[0m"
+	// readCSI returns the full CSI sequence at rs[i] (ESC '[' … final
+	// byte @–~) and whether it's an SGR reset (`ESC[0m` / `ESC[m`).
+	readCSI := func(i int) (seq string, next int, isReset bool) {
 		j := i + 1
 		var b strings.Builder
 		b.WriteRune(rs[i])
@@ -221,39 +224,25 @@ func splitStyledCells(s string) []string {
 		return b.String(), j, false
 	}
 	var cells []string
+	var activeSGR strings.Builder
 	i := 0
 	for i < len(rs) {
-		if rs[i] != 0x1b {
-			// Plain cell — one bare rune. A following ESC opens the
-			// next (styled) cell; it is never folded in here.
-			cells = append(cells, string(rs[i]))
-			i++
+		if rs[i] == 0x1b {
+			seq, j, isReset := readCSI(i)
+			if isReset {
+				activeSGR.Reset()
+			} else {
+				activeSGR.WriteString(seq) // accumulate stacked styles
+			}
+			i = j
 			continue
 		}
-		// Styled cell: one-or-more SET escapes, one printable rune,
-		// then any RESET escapes (stop at the next SET / printable).
-		var cell strings.Builder
-		for i < len(rs) && rs[i] == 0x1b {
-			seq, j, isReset := consumeEsc(i)
-			if isReset {
-				break // a leading reset isn't part of a set-prefix
-			}
-			cell.WriteString(seq)
-			i = j
+		if activeSGR.Len() == 0 {
+			cells = append(cells, string(rs[i]))
+		} else {
+			cells = append(cells, activeSGR.String()+string(rs[i])+sgrReset)
 		}
-		if i < len(rs) && rs[i] != 0x1b {
-			cell.WriteRune(rs[i])
-			i++
-		}
-		for i < len(rs) && rs[i] == 0x1b {
-			seq, j, isReset := consumeEsc(i)
-			if !isReset {
-				break // start of the next styled cell
-			}
-			cell.WriteString(seq)
-			i = j
-		}
-		cells = append(cells, cell.String())
+		i++
 	}
 	return cells
 }
