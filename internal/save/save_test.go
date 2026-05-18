@@ -937,6 +937,30 @@ func TestCurrentAttitudeDirRoundtrip(t *testing.T) {
 	}
 }
 
+// v0.10.0: roll about the nose axis must round-trip so a banked /
+// mid-roll craft restores correctly.
+func TestRollRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.ActiveCraft().CommandedRollDeg = 72
+	w.ActiveCraft().CurrentRollDeg = 41.5
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c := got.ActiveCraft(); c.CommandedRollDeg != 72 || c.CurrentRollDeg != 41.5 {
+		t.Errorf("roll round-trip: commanded=%g current=%g, want 72 / 41.5",
+			c.CommandedRollDeg, c.CurrentRollDeg)
+	}
+}
+
 // A pre-v0.10.0 save has no current_attitude_dir key → decodes to a
 // zero Vec3. The craft must NOT teleport its nose; the slew
 // integrator's first-tick snap seeds it from the commanded direction.

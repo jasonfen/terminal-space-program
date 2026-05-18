@@ -65,4 +65,7 @@ func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration)
 	if cmd := w.commandedDirFor(c); cmd.Norm() != 0 {
 		c.CurrentAttitudeDir = cmd
 	}
+	// A bolted-down craft isn't rolling — keep CurrentRollDeg synced
+	// to the command so liftoff begins at the intended roll.
+	c.CurrentRollDeg = c.CommandedRollDeg
 }

@@ -175,6 +175,14 @@ type Craft struct {
 	// persisted — it is re-derived from the loadout on load.
 	CurrentAttitudeDir Vec3 `json:"current_attitude_dir,omitempty"`
 
+	// CommandedRollDeg / CurrentRollDeg (v0.10.0+, schema v6
+	// additive): the craft's roll about the nose axis (degrees,
+	// heads-up = 0). Both round-trip so a banked / mid-roll craft
+	// restores correctly. omitempty → pre-v0.10.0 saves load as 0
+	// (heads-up), the prior implicit behaviour. No schema bump.
+	CommandedRollDeg float64 `json:"commanded_roll_deg,omitempty"`
+	CurrentRollDeg   float64 `json:"current_roll_deg,omitempty"`
+
 	// Landed (v0.9.2+, schema v6 additive): true when the craft is
 	// parked on its primary's surface co-rotating with the ground.
 	// Pre-v0.9.2 saves load with Landed=false (= normal integration,
@@ -401,6 +409,8 @@ func payloadFromWorld(w *sim.World) Payload {
 			Color:              c.Color,
 			PitchTrim:          c.PitchTrim,
 			CurrentAttitudeDir: vec3From(c.CurrentAttitudeDir),
+			CommandedRollDeg:   c.CommandedRollDeg,
+			CurrentRollDeg:     c.CurrentRollDeg,
 			Landed:             c.Landed,
 			LaunchLatDeg:       c.LaunchLatDeg,
 			LaunchLonDeg:       c.LaunchLonDeg,
@@ -582,6 +592,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Color:              wc.Color,
 			PitchTrim:          wc.PitchTrim,
 			CurrentAttitudeDir: vec3To(wc.CurrentAttitudeDir),
+			CommandedRollDeg:   wc.CommandedRollDeg,
+			CurrentRollDeg:     wc.CurrentRollDeg,
 			Landed:             wc.Landed,
 			LaunchLatDeg:       wc.LaunchLatDeg,
 			LaunchLonDeg:       wc.LaunchLonDeg,

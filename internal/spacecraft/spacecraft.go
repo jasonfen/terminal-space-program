@@ -121,6 +121,21 @@ type Spacecraft struct {
 	// mid-slew restores its real nose.
 	CurrentAttitudeDir orbital.Vec3
 
+	// CommandedRollDeg / CurrentRollDeg (v0.10.0+) are the craft's
+	// roll about its lengthwise (nose) axis, in degrees, measured
+	// from the "heads-up" reference (body-up as close to local
+	// vertical / radial-out as the nose allows — see BodyFrame).
+	// CommandedRollDeg is the player target (0 = heads-up, the
+	// default); CurrentRollDeg is the actual roll, which the slew
+	// integrator rotates toward the command at SlewRate (snapped
+	// under InstantSAS and while Landed). Together with
+	// CurrentAttitudeDir this gives the craft a full body frame
+	// {nose, up, right} so the navball has a stable left/right and
+	// the player can bank. Both persist in saves; range is wrapped
+	// to (-180, 180].
+	CommandedRollDeg float64
+	CurrentRollDeg   float64
+
 	// SlewRateDegPerSec (v0.10.0+) caps attitude angular rate in
 	// **sim-time** (deg/s, integrated against the warp-scaled tick).
 	// Zero => DefaultSlewRateDegPerSec. Set from the loadout at
