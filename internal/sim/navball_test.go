@@ -421,6 +421,45 @@ func TestNavballMarkersIncludeNode(t *testing.T) {
 	}
 }
 
+// TestNavballSurfaceEastIsScreenRight: in NavSurface the longitude
+// must increase eastward so East projects to lon +90 (screen right),
+// West to −90, North to 0 — the compass sense the player expects, and
+// what makes the `>` (east) pitch-trim move the heading rightward on
+// the navball.
+func TestNavballSurfaceEastIsScreenRight(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavSurface
+	c := w.ActiveCraft()
+	basis, ok := w.NavballBasis()
+	if !ok {
+		t.Fatal("NavballBasis: ok=false in surface mode")
+	}
+
+	rN := c.State.R.Norm()
+	up := c.State.R.Scale(1 / rN)
+	spinR := render.BodyRotationAxisWorld(c.Primary)
+	spinAxis := orbital.Vec3{X: spinR.X, Y: spinR.Y, Z: spinR.Z}
+	east := spinAxis.Cross(up)
+	east = east.Scale(1 / east.Norm())
+	north := up.Cross(east)
+
+	if _, lon := basis.SubObserver(north); math.Abs(lon) > 1e-3 {
+		t.Errorf("North should be lon 0; got %g", lon)
+	}
+	if _, lon := basis.SubObserver(east); math.Abs(lon-90) > 1e-3 {
+		t.Errorf("East should be lon +90 (screen right); got %g", lon)
+	}
+	if _, lon := basis.SubObserver(east.Scale(-1)); math.Abs(lon+90) > 1e-3 {
+		t.Errorf("West should be lon −90 (screen left); got %g", lon)
+	}
+	if lat, _ := basis.SubObserver(up); math.Abs(lat-90) > 1e-3 {
+		t.Errorf("up should be the sky pole lat +90; got %g", lat)
+	}
+}
+
 // TestNavballMarkersSurfaceCompassTicks: in NavSurface mode the
 // marker set includes four compass ticks (N / E / S / W) painted in
 // the grid color, in addition to the cardinal SAS markers. NavOrbit
