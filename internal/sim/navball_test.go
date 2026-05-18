@@ -421,11 +421,13 @@ func TestNavballMarkersIncludeNode(t *testing.T) {
 	}
 }
 
-// TestNavballSurfaceEastIsScreenRight: in NavSurface the longitude
-// must increase eastward so East projects to lon +90 (screen right),
-// West to −90, North to 0 — the compass sense the player expects, and
-// what makes the `>` (east) pitch-trim move the heading rightward on
-// the navball.
+// TestNavballSurfaceEastIsScreenRight: NavSurface is a zenith-centred,
+// North-up compass rose. NavballSubObserver pins the disc to the
+// zenith with a 180° roll; under that fixed view North→screen-up,
+// East→screen-right, South→down, West→left, and the nose marker slides
+// right as the player trims `>` (east). Asserted end-to-end by
+// replicating the renderer's pole projection at the pinned
+// (subLat=90, subLon=180) view.
 func TestNavballSurfaceEastIsScreenRight(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -438,25 +440,57 @@ func TestNavballSurfaceEastIsScreenRight(t *testing.T) {
 		t.Fatal("NavballBasis: ok=false in surface mode")
 	}
 
+	// The disc must be pinned to the zenith with the compass roll.
+	sLat, sLon, sok := w.NavballSubObserver()
+	if !sok || math.Abs(sLat-90) > 1e-9 || math.Abs(sLon-180) > 1e-9 {
+		t.Fatalf("surface sub-observer = (%g,%g,%v), want (90,180,true)", sLat, sLon, sok)
+	}
+
+	// render.projectLatLonToPixel at (subLat=90, subLon=180) reduces
+	// to: screenRight ∝ −cos(lat)·sin(lon), screenUp ∝ cos(lat)·cos(lon)
+	// (lat,lon from basis.SubObserver). Mirror it to assert the
+	// on-screen quadrant of each direction.
+	screen := func(dir orbital.Vec3) (right, up float64) {
+		lat, lon := basis.SubObserver(dir)
+		la, lo := lat*math.Pi/180, lon*math.Pi/180
+		return -math.Cos(la) * math.Sin(lo), math.Cos(la) * math.Cos(lo)
+	}
+
 	rN := c.State.R.Norm()
-	up := c.State.R.Scale(1 / rN)
+	upv := c.State.R.Scale(1 / rN)
 	spinR := render.BodyRotationAxisWorld(c.Primary)
 	spinAxis := orbital.Vec3{X: spinR.X, Y: spinR.Y, Z: spinR.Z}
-	east := spinAxis.Cross(up)
+	east := spinAxis.Cross(upv)
 	east = east.Scale(1 / east.Norm())
-	north := up.Cross(east)
+	north := upv.Cross(east)
 
-	if _, lon := basis.SubObserver(north); math.Abs(lon) > 1e-3 {
-		t.Errorf("North should be lon 0; got %g", lon)
+	if r, u := screen(north); math.Abs(r) > 1e-6 || u <= 0 {
+		t.Errorf("North should be screen-up; got right=%.3f up=%.3f", r, u)
 	}
-	if _, lon := basis.SubObserver(east); math.Abs(lon-90) > 1e-3 {
-		t.Errorf("East should be lon +90 (screen right); got %g", lon)
+	if r, u := screen(east); r <= 0 || math.Abs(u) > 1e-6 {
+		t.Errorf("East should be screen-right; got right=%.3f up=%.3f", r, u)
 	}
-	if _, lon := basis.SubObserver(east.Scale(-1)); math.Abs(lon+90) > 1e-3 {
-		t.Errorf("West should be lon −90 (screen left); got %g", lon)
+	if r, _ := screen(east.Scale(-1)); r >= 0 {
+		t.Errorf("West should be screen-left; got right=%.3f", r)
 	}
-	if lat, _ := basis.SubObserver(up); math.Abs(lat-90) > 1e-3 {
-		t.Errorf("up should be the sky pole lat +90; got %g", lat)
+	if _, u := screen(north.Scale(-1)); u >= 0 {
+		t.Errorf("South should be screen-down; got up=%.3f", u)
+	}
+	if r, u := screen(upv); math.Abs(r) > 1e-6 || math.Abs(u) > 1e-6 {
+		t.Errorf("zenith should be disc centre; got right=%.3f up=%.3f", r, u)
+	}
+
+	// Trimming `>` (east) tilts the nose from radial-out toward east;
+	// its marker must move to screen-right (positive, from ~0).
+	noseUp := upv // radial-out at launch
+	noseTrimmed := orbital.Rotate(upv, north, 12*math.Pi/180) // 12° toward east
+	r0, _ := screen(noseUp)
+	r1, _ := screen(noseTrimmed)
+	if math.Abs(r0) > 1e-6 {
+		t.Errorf("untrimmed nose (radial-out) should sit at centre; got right=%.3f", r0)
+	}
+	if r1 <= r0 {
+		t.Errorf("east trim should move the nose screen-right; right %.3f → %.3f", r0, r1)
 	}
 }
 
