@@ -51,10 +51,16 @@ type NavballBasis struct {
 //
 //   - EZ (lat +90, sky pole): local up = r̂
 //   - EX (lon 0):             local north
-//   - EY = EZ × EX            (= −local east)
+//   - EY (lon +90):           local **east**
 //
 // so radial-out → lat +90 (zenith / sky), the horizon → lat 0, and
-// the N/E/S/W compass ticks ring the lat-0 equator at their bearings.
+// longitude increases *eastward*: East projects to lon +90 (screen
+// right), West to lon −90 (left), matching a real compass — pitching
+// the nose east with the `>` trim key moves the heading rightward on
+// the navball. (This makes the surface triple left-handed; the
+// renderer is internally consistent — handedness only sets the
+// mirror sense, deliberately picked so east = right. The velocity-
+// framed orbit/target basis below is unaffected.)
 func (w *World) NavballBasis() (NavballBasis, bool) {
 	active := w.ActiveCraft()
 	if active == nil {
@@ -97,9 +103,14 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 			}
 			north = horiz.Scale(1 / horiz.Norm())
 		}
+		// EY = +east so longitude increases eastward (East → lon +90
+		// = screen right), the compass/trim sense the player expects.
+		// north × up == geographic east in the spin-axis branch
+		// (= the `east` computed above); in the pole/non-rotating
+		// fallback it is just a consistent horizontal axis.
 		eX := north
 		eZ := up
-		eY := eZ.Cross(eX)
+		eY := north.Cross(up)
 		return NavballBasis{EX: eX, EY: eY, EZ: eZ}, true
 	}
 
