@@ -743,6 +743,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// stepThrust / the navball read commanded directly in that mode).
 	if !w.InstantSAS {
 		c.SlewToward(w.slewTargetFor(c), secs)
+		c.RollToward(secs)
+	} else {
+		c.CurrentRollDeg = c.CommandedRollDeg // instant: snap roll too
 	}
 
 	// Warp-lock fast path: analytic Kepler propagation in chunks small

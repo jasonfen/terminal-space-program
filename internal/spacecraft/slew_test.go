@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
 func angBetween(a, b orbital.Vec3) float64 {
@@ -91,6 +92,96 @@ func TestSlewTowardAntiparallelNoNaN(t *testing.T) {
 	if d := angBetween(sc.CurrentAttitudeDir, cmd); d > 1e-6 {
 		t.Errorf("did not converge from antiparallel: residual %.6f rad", d)
 	}
+}
+
+func TestBodyFrameOrthonormalAndHeadsUp(t *testing.T) {
+	sc := &Spacecraft{
+		CurrentAttitudeDir: orbital.Vec3{X: 1},                           // nose +X
+		State:              physics.StateVector{R: orbital.Vec3{Z: 7e6}}, // radial-out +Z
+	}
+	nose, up, right, ok := sc.BodyFrame()
+	if !ok {
+		t.Fatal("BodyFrame ok=false on a valid craft")
+	}
+	for name, d := range map[string]float64{
+		"nose·up": nose.Dot(up), "nose·right": nose.Dot(right), "up·right": up.Dot(right),
+	} {
+		if math.Abs(d) > 1e-9 {
+			t.Errorf("%s not orthogonal: %.3e", name, d)
+		}
+	}
+	for name, v := range map[string]orbital.Vec3{"nose": nose, "up": up, "right": right} {
+		if math.Abs(v.Norm()-1) > 1e-9 {
+			t.Errorf("%s not unit: |v|=%.9f", name, v.Norm())
+		}
+	}
+	// Roll 0 ⇒ up is the radial-out direction (heads-up / belly-down).
+	if d := up.Sub(orbital.Vec3{Z: 1}).Norm(); d > 1e-9 {
+		t.Errorf("roll-0 up should be radial-out +Z; got %+v", up)
+	}
+	if d := right.Sub(up.Cross(nose)).Norm(); d > 1e-9 {
+		t.Errorf("right should equal up×nose")
+	}
+}
+
+func TestBodyFrameRollRotatesUp(t *testing.T) {
+	sc := &Spacecraft{
+		CurrentAttitudeDir: orbital.Vec3{X: 1},
+		State:              physics.StateVector{R: orbital.Vec3{Z: 7e6}},
+		CurrentRollDeg:     90,
+	}
+	_, up, _, ok := sc.BodyFrame()
+	if !ok {
+		t.Fatal("BodyFrame ok=false")
+	}
+	// up0 = +Z rotated 90° about nose +X ⇒ −Y.
+	if d := up.Sub(orbital.Vec3{Y: -1}).Norm(); d > 1e-9 {
+		t.Errorf("roll 90° about +X should put up at −Y; got %+v", up)
+	}
+}
+
+func TestBodyFrameZeroNose(t *testing.T) {
+	sc := &Spacecraft{State: physics.StateVector{R: orbital.Vec3{Z: 7e6}}}
+	if _, _, _, ok := sc.BodyFrame(); ok {
+		t.Error("BodyFrame should be ok=false with uninitialised nose")
+	}
+}
+
+func TestBodyFrameNoseParallelRadialFallsBack(t *testing.T) {
+	// Nose pointing straight up (∥ radial) — heads-up reference must
+	// fall back to a defined perpendicular, not blow up.
+	sc := &Spacecraft{
+		CurrentAttitudeDir: orbital.Vec3{Z: 1},
+		State:              physics.StateVector{R: orbital.Vec3{Z: 7e6}},
+	}
+	nose, up, right, ok := sc.BodyFrame()
+	if !ok {
+		t.Fatal("BodyFrame ok=false at nose∥radial")
+	}
+	if math.Abs(nose.Dot(up)) > 1e-9 || math.Abs(up.Norm()-1) > 1e-9 {
+		t.Errorf("fallback up not a valid unit ⟂ nose: up=%+v", up)
+	}
+	_ = right
+}
+
+func TestRollTowardConvergesShortestPath(t *testing.T) {
+	sc := &Spacecraft{SlewRateDegPerSec: 5, CurrentRollDeg: -170, CommandedRollDeg: 170}
+	prev := 20.0 // shortest signed distance is −20°, |diff| starts at 20
+	for i := 0; i < 100; i++ {
+		sc.RollToward(1.0)
+		d := math.Abs(wrapDeg180(sc.CommandedRollDeg - sc.CurrentRollDeg))
+		if d > prev+1e-9 {
+			t.Fatalf("step %d: roll error grew %.3f → %.3f (took the long way)", i, prev, d)
+		}
+		prev = d
+		if d < 1e-9 {
+			if i > 6 { // 20°/5°·s ⇒ ~4 ticks; must not be ~68 (long way)
+				t.Fatalf("converged in %d ticks — took the 340° long way", i+1)
+			}
+			return
+		}
+	}
+	t.Fatalf("RollToward did not converge; residual %.3f", prev)
 }
 
 func TestSlewRateRadDefaultFallback(t *testing.T) {
