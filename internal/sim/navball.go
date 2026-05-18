@@ -51,16 +51,15 @@ type NavballBasis struct {
 //
 //   - EZ (lat +90, sky pole): local up = r̂
 //   - EX (lon 0):             local north
-//   - EY (lon +90):           local **east**
+//   - EY = EZ × EX            (= −local east)
 //
-// so radial-out → lat +90 (zenith / sky), the horizon → lat 0, and
-// longitude increases *eastward*: East projects to lon +90 (screen
-// right), West to lon −90 (left), matching a real compass — pitching
-// the nose east with the `>` trim key moves the heading rightward on
-// the navball. (This makes the surface triple left-handed; the
-// renderer is internally consistent — handedness only sets the
-// mirror sense, deliberately picked so east = right. The velocity-
-// framed orbit/target basis below is unaffected.)
+// The surface navball is a **zenith-centred, North-up compass rose**:
+// NavballSubObserver pins the disc centre to the zenith (lat +90) with
+// a fixed 180° roll, not the nose. Under that fixed view this basis
+// projects North→screen-up, East→screen-right, South→down, West→left
+// (see TestNavballSurfaceEastIsScreenRight), and the nose rides as a
+// marker that slides toward East (right) when the player trims `>`.
+// Velocity-framed orbit/target basis below is unaffected.
 func (w *World) NavballBasis() (NavballBasis, bool) {
 	active := w.ActiveCraft()
 	if active == nil {
@@ -103,14 +102,13 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 			}
 			north = horiz.Scale(1 / horiz.Norm())
 		}
-		// EY = +east so longitude increases eastward (East → lon +90
-		// = screen right), the compass/trim sense the player expects.
-		// north × up == geographic east in the spin-axis branch
-		// (= the `east` computed above); in the pole/non-rotating
-		// fallback it is just a consistent horizontal axis.
+		// EY = EZ × EX (= −east). Right-handed; the desired
+		// East-is-screen-right comes from the fixed zenith-centred
+		// 180°-roll view that NavballSubObserver feeds for surface
+		// mode, not from the basis handedness (see the type doc).
 		eX := north
 		eZ := up
-		eY := north.Cross(up)
+		eY := eZ.Cross(eX)
 		return NavballBasis{EX: eX, EY: eY, EZ: eZ}, true
 	}
 
@@ -198,6 +196,17 @@ func (w *World) NavballSubObserver() (latDeg, lonDeg float64, ok bool) {
 	if !basisOK {
 		return 0, 0, false
 	}
+	// v0.10.0: NavSurface is a zenith-centred, North-up compass rose.
+	// The disc centre is pinned to the local zenith (basis EZ = up →
+	// lat +90), NOT the nose; the 180° roll (subLon = 180 at the pole,
+	// where subLon *is* the screen roll) orients the fixed basis so
+	// North→up, East→right, South→down, West→left. The nose is shown
+	// as a marker (NavballMarkers) that slides toward East (right) as
+	// the player trims `>`. This is stable on the launchpad (no
+	// gimbal: the centre doesn't depend on where the nose points).
+	if w.NavMode == NavSurface {
+		return 90, 180, true
+	}
 	// v0.10.0: in slew mode the disk centre is the craft's PHYSICAL
 	// nose (CurrentAttitudeDir) so it animates as the craft slews;
 	// the cardinal/node markers (NavballMarkers) stay on the
@@ -231,6 +240,7 @@ const (
 	NavballGlyphTarget      = '◉'
 	NavballGlyphAntiTarget  = '◌'
 	NavballGlyphNode        = '◎' // planted maneuver node burn direction
+	NavballGlyphNose        = '⌖' // craft nose (surface compass-rose mode)
 )
 
 // NavballMarkers returns the marker set the painter should overlay
@@ -353,6 +363,25 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 				pushCompass(north.Scale(-1), 'S')
 				pushCompass(east.Scale(-1), 'W')
 			}
+		}
+		// Nose marker. The surface navball is zenith-centred (the
+		// disc centre is local up, not the nose), so the craft's
+		// actual pointing is shown as a glyph that sits at centre on
+		// the pad and slides toward East (screen right) as the player
+		// trims `>`. Physical nose in slew mode (tracks the slew +
+		// pitch-trim); commanded otherwise / pre-first-tick.
+		noseDir := active.CurrentAttitudeDir
+		if w.InstantSAS || noseDir.Norm() == 0 {
+			noseDir = w.commandedDirFor(active)
+		}
+		if noseDir.Norm() != 0 {
+			lat, lon := basis.SubObserver(noseDir)
+			out = append(out, render.NavballMarker{
+				LatDeg: lat,
+				LonDeg: lon,
+				Glyph:  NavballGlyphNose,
+				Color:  render.ColorNavballMarkerNoseFront,
+			})
 		}
 	}
 
