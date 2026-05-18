@@ -245,50 +245,6 @@ func TestLeadCompNodeAlignedAtT0(t *testing.T) {
 	}
 }
 
-// Roll is rate-limited under slew (default) and snapped under
-// InstantSAS — same SlewRate budget as pitch/yaw.
-func TestRollSlewsThenSnapsUnderInstant(t *testing.T) {
-	w, _ := NewWorld()
-	c := w.Crafts[0]
-	c.SlewRateDegPerSec = 10
-	c.CommandedRollDeg = 90
-
-	// One short integrate: must move toward 90 but NOT reach it.
-	w.integrateOneCraft(c, 1*time.Second) // 10°/s × 1 s = 10°
-	if c.CurrentRollDeg <= 0 || c.CurrentRollDeg >= 90 {
-		t.Fatalf("roll should be slewing (0 < r < 90); got %.3f", c.CurrentRollDeg)
-	}
-	if math.Abs(c.CurrentRollDeg-10) > 1e-6 {
-		t.Errorf("expected ~10° after 1 s at 10°/s; got %.3f", c.CurrentRollDeg)
-	}
-
-	// InstantSAS: snap to command.
-	w.InstantSAS = true
-	w.integrateOneCraft(c, 1*time.Second)
-	if math.Abs(c.CurrentRollDeg-90) > 1e-9 {
-		t.Errorf("InstantSAS should snap roll to 90; got %.3f", c.CurrentRollDeg)
-	}
-}
-
-// A landed craft keeps CurrentRollDeg synced to the command (no
-// rolling on the pad; liftoff starts at the intended roll).
-func TestLandedSnapsRoll(t *testing.T) {
-	w, _ := NewWorld()
-	c, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "earth", Launchpad: true,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	c.CommandedRollDeg = 45
-	c.CurrentRollDeg = 0
-	w.Clock.SimTime = w.Clock.SimTime.Add(time.Hour)
-	w.Tick() // Landed bypass
-	if math.Abs(c.CurrentRollDeg-45) > 1e-9 {
-		t.Errorf("landed craft should snap roll to command 45; got %.3f", c.CurrentRollDeg)
-	}
-}
-
 // InstantSAS opt-out must skip the slew integrator entirely (legacy
 // behaviour: CurrentAttitudeDir untouched by the integrator).
 func TestInstantSASSkipsSlew(t *testing.T) {

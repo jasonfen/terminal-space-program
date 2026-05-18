@@ -1340,15 +1340,6 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		if math.Abs(trimDeg) > 0.05 {
 			trimLabel = v.theme.Warning.Render(trimLabel)
 		}
-		// Roll about the nose axis (heads-up = 0). Show the live roll,
-		// with the command in parens while it is still slewing there.
-		rollLabel := fmt.Sprintf("%+.0f°", c.CurrentRollDeg)
-		if math.Abs(c.CurrentRollDeg) < 0.5 {
-			rollLabel = "0° (heads-up)"
-		}
-		if math.Abs(c.CurrentRollDeg-c.CommandedRollDeg) > 0.5 {
-			rollLabel = fmt.Sprintf("%+.0f° → %+.0f°", c.CurrentRollDeg, c.CommandedRollDeg)
-		}
 		lines = append(lines, section("LAUNCH")...)
 		fpaLabel := "—"
 		if hasFPA {
@@ -1367,7 +1358,6 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			fmt.Sprintf("  twr:        %s", twrLabel),
 			fmt.Sprintf("  sas:        %s", sasLabel),
 			fmt.Sprintf("  trim:       %s", trimLabel),
-			fmt.Sprintf("  roll:       %s", rollLabel),
 		)
 		// v0.9.4+: live ascent prediction — apoapsis / periapsis / time-
 		// to-apoapsis / Δv-to-circularise. Mirrors v0.9.3's TARGET HUD

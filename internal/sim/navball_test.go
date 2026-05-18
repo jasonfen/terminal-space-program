@@ -19,10 +19,9 @@ func vec3Eq(a, b orbital.Vec3) bool {
 		math.Abs(a.Z-b.Z) < navballEps
 }
 
-// TestNavballBasisOrthonormal checks the spawn-state LEO body-frame
-// basis is orthonormal: unit axes, zero off-diagonals. The navball
-// basis is the craft body frame (EX=nose, EZ=up, EY=right=nose×up),
-// so EX×EY = −EZ (i.e. EZ = EY×EX).
+// TestNavballBasisOrthonormal checks the spawn-state LEO basis is
+// orthonormal and right-handed: EX·EX = EY·EY = EZ·EZ = 1, off-
+// diagonals zero, EZ = EX × EY.
 func TestNavballBasisOrthonormal(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -50,22 +49,20 @@ func TestNavballBasisOrthonormal(t *testing.T) {
 			t.Errorf("%s = %g, want 0", name, d)
 		}
 	}
-	// Body frame: right = up×nose ⇒ right-handed, EX×EY = EZ.
-	if cross := basis.EX.Cross(basis.EY); !vec3Eq(cross, basis.EZ) {
+	cross := basis.EX.Cross(basis.EY)
+	if !vec3Eq(cross, basis.EZ) {
 		t.Errorf("EX × EY = %v, want EZ = %v", cross, basis.EZ)
 	}
 }
 
-// TestNavballBasisBodyFrame: on a fresh LEO craft (default
-// AttitudeMode = prograde, roll 0, pre-first-tick so the commanded
-// nose is used) the body-frame basis is EX = nose = +v̂ and EZ = body
-// up = the heads-up reference = radial-out r̂ (⟂ the prograde nose in
-// a circular orbit). NavMode does not change the basis.
-func TestNavballBasisBodyFrame(t *testing.T) {
+// TestNavballBasisOrbitMode checks NavOrbit produces EX = +v̂ and
+// EZ = (r × v)̂ on the spawn-state LEO craft.
+func TestNavballBasisOrbitMode(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	w.NavMode = NavOrbit
 	c := w.ActiveCraft()
 	basis, ok := w.NavballBasis()
 	if !ok {
@@ -73,22 +70,23 @@ func TestNavballBasisBodyFrame(t *testing.T) {
 	}
 	progradeUnit := c.State.V.Scale(1 / c.State.V.Norm())
 	if !vec3Eq(basis.EX, progradeUnit) {
-		t.Errorf("EX (nose) = %v, want prograde %v", basis.EX, progradeUnit)
+		t.Errorf("EX = %v, want prograde %v", basis.EX, progradeUnit)
 	}
-	radialOut := c.State.R.Scale(1 / c.State.R.Norm())
-	if !vec3Eq(basis.EZ, radialOut) {
-		t.Errorf("EZ (body up) = %v, want radial-out %v", basis.EZ, radialOut)
+	hUnit := c.State.R.Cross(c.State.V)
+	hUnit = hUnit.Scale(1 / hUnit.Norm())
+	if !vec3Eq(basis.EZ, hUnit) {
+		t.Errorf("EZ = %v, want orbital normal %v", basis.EZ, hUnit)
 	}
 }
 
 // TestNavballSubObserverProjectsCardinals checks the cardinal-axis
-// projection in the body-frame basis. Default LEO craft: nose = +v̂
-// (prograde), body up = r̂ (radial-out), right = v̂×r̂ = −normal. So:
-//   - prograde   → (0,   0)     (the nose = disc centre)
-//   - retrograde → (0, ±180)
-//   - radial-out → (+90, _)     (body up = the +lat pole)
-//   - radial-in  → (−90, _)
-//   - normal±    → (0, ∓90)     (on the equator, ±90 lon)
+// projection table for an orbit-mode basis. With EX = prograde,
+// EZ = normal+, EY = EZ × EX:
+//   - prograde         → (0,    0)
+//   - retrograde       → (0,  ±180)
+//   - normal+          → (90,   _)
+//   - normal-          → (-90,  _)
+//   - radial-related   → (0, ±90)
 func TestNavballSubObserverProjectsCardinals(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -106,28 +104,59 @@ func TestNavballSubObserverProjectsCardinals(t *testing.T) {
 	radialOut := spacecraft.DirectionUnit(spacecraft.BurnRadialOut, c.State.R, c.State.V)
 	radialIn := spacecraft.DirectionUnit(spacecraft.BurnRadialIn, c.State.R, c.State.V)
 
-	if lat, lon := basis.SubObserver(progradeDir); math.Abs(lat) > 1e-4 || math.Abs(lon) > 1e-4 {
-		t.Errorf("prograde (nose) → (%g,%g), want (0,0)", lat, lon)
+	checks := []struct {
+		name     string
+		dir      orbital.Vec3
+		wantLat  float64
+		wantLon  float64
+		ignoreLon bool // true for poles where lon is undefined
+	}{
+		{"prograde", progradeDir, 0, 0, false},
+		{"retrograde", retrogradeDir, 0, 180, true /* ±180 both valid */},
+		{"normal+", normalPlus, 90, 0, true},
+		{"normal-", normalMinus, -90, 0, true},
+		{"radial-related ±90 lon", radialOut, 0, 0, false},
+		{"radial-related ∓90 lon", radialIn, 0, 0, false},
 	}
-	if lat, lon := basis.SubObserver(retrogradeDir); math.Abs(lat) > 1e-4 || math.Abs(math.Abs(lon)-180) > 1e-4 {
-		t.Errorf("retrograde → (%g,%g), want (0,±180)", lat, lon)
+	for _, tc := range checks {
+		t.Run(tc.name, func(t *testing.T) {
+			lat, lon := basis.SubObserver(tc.dir)
+			if math.Abs(lat-tc.wantLat) > 1e-4 {
+				t.Errorf("lat = %g, want %g", lat, tc.wantLat)
+			}
+			switch tc.name {
+			case "retrograde":
+				absLon := math.Abs(lon)
+				if math.Abs(absLon-180) > 1e-4 {
+					t.Errorf("|lon| = %g, want 180", absLon)
+				}
+			case "radial-related ±90 lon", "radial-related ∓90 lon":
+				absLon := math.Abs(lon)
+				if math.Abs(absLon-90) > 1e-4 {
+					t.Errorf("|lon| = %g, want 90", absLon)
+				}
+			default:
+				if !tc.ignoreLon && math.Abs(lon-tc.wantLon) > 1e-4 {
+					t.Errorf("lon = %g, want %g", lon, tc.wantLon)
+				}
+			}
+		})
 	}
-	if lat, _ := basis.SubObserver(radialOut); math.Abs(lat-90) > 1e-4 {
-		t.Errorf("radial-out lat = %g, want +90 (body-up pole)", lat)
+	// radialOut and radialIn must land on opposite longitudes.
+	latOut, lonOut := basis.SubObserver(radialOut)
+	latIn, lonIn := basis.SubObserver(radialIn)
+	if math.Abs(latOut) > 1e-4 || math.Abs(latIn) > 1e-4 {
+		t.Errorf("radial markers should sit on equator (lat≈0); got %g, %g", latOut, latIn)
 	}
-	if lat, _ := basis.SubObserver(radialIn); math.Abs(lat+90) > 1e-4 {
-		t.Errorf("radial-in lat = %g, want −90", lat)
+	wrap := lonOut + lonIn
+	for wrap > 180 {
+		wrap -= 360
 	}
-	latNP, lonNP := basis.SubObserver(normalPlus)
-	latNM, lonNM := basis.SubObserver(normalMinus)
-	if math.Abs(latNP) > 1e-4 || math.Abs(math.Abs(lonNP)-90) > 1e-4 {
-		t.Errorf("normal+ → (%g,%g), want (0,±90)", latNP, lonNP)
+	for wrap < -180 {
+		wrap += 360
 	}
-	if math.Abs(latNM) > 1e-4 || math.Abs(math.Abs(lonNM)-90) > 1e-4 {
-		t.Errorf("normal- → (%g,%g), want (0,±90)", latNM, lonNM)
-	}
-	if math.Abs(lonNP+lonNM) > 1e-4 { // antipodal: +90 / −90
-		t.Errorf("normal± should be antipodal in lon; got %g, %g", lonNP, lonNM)
+	if math.Abs(wrap) > 1e-4 && math.Abs(math.Abs(wrap)-360) > 1e-4 {
+		t.Errorf("radial+ and radial- should be antipodal in lon; got %g + %g = %g", lonOut, lonIn, wrap)
 	}
 }
 
@@ -150,20 +179,24 @@ func TestNavballSubObserverNoseDirection(t *testing.T) {
 	}
 }
 
-// TestNavballSubObserverIsAlwaysCentre: the basis is the body frame
-// (EX = nose), so the disc centre is always the nose — (0, 0) —
-// regardless of which way the craft holds attitude.
-func TestNavballSubObserverIsAlwaysCentre(t *testing.T) {
+// TestNavballSubObserverNoseRetrograde: when the craft holds
+// retrograde, the nose maps to (0, ±180).
+func TestNavballSubObserverNoseRetrograde(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	for _, mode := range []spacecraft.BurnMode{spacecraft.BurnPrograde, spacecraft.BurnRetrograde, spacecraft.BurnNormalPlus} {
-		w.ActiveCraft().AttitudeMode = mode
-		lat, lon, ok := w.NavballSubObserver()
-		if !ok || math.Abs(lat) > 1e-9 || math.Abs(lon) > 1e-9 {
-			t.Errorf("mode %v: sub-observer = (%g,%g,%v), want (0,0,true)", mode, lat, lon, ok)
-		}
+	w.NavMode = NavOrbit
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnRetrograde
+	lat, lon, ok := w.NavballSubObserver()
+	if !ok {
+		t.Fatal("NavballSubObserver: ok=false")
+	}
+	if math.Abs(lat) > 1e-4 {
+		t.Errorf("retrograde lat = %g, want 0", lat)
+	}
+	if math.Abs(math.Abs(lon)-180) > 1e-4 {
+		t.Errorf("retrograde |lon| = %g, want 180", math.Abs(lon))
 	}
 }
 
@@ -197,28 +230,45 @@ func TestNavballMarkersOrbitMode(t *testing.T) {
 	for i, m := range got {
 		byGlyph[m.Glyph] = i
 	}
-	// Body frame (nose=prograde, up=radial-out): prograde at centre,
-	// retrograde antipodal, radial-out/in at the ±lat poles, normal±
-	// on the equator at ±90 lon.
-	if m := got[byGlyph[NavballGlyphPrograde]]; math.Abs(m.LatDeg) > 1e-4 || math.Abs(m.LonDeg) > 1e-4 {
-		t.Errorf("prograde → (%g,%g), want (0,0)", m.LatDeg, m.LonDeg)
+	checks := []struct {
+		glyph    rune
+		wantLat  float64
+		wantLon  float64
+		ignoreLon bool
+	}{
+		{NavballGlyphPrograde, 0, 0, false},
+		{NavballGlyphRetrograde, 0, 180, true},
+		{NavballGlyphNormalPlus, 90, 0, true},
+		{NavballGlyphNormalMinus, -90, 0, true},
+		{NavballGlyphRadialOut, 0, 0, true},  // ±90 lon
+		{NavballGlyphRadialIn, 0, 0, true},
 	}
-	if m := got[byGlyph[NavballGlyphRetrograde]]; math.Abs(m.LatDeg) > 1e-4 || math.Abs(math.Abs(m.LonDeg)-180) > 1e-4 {
-		t.Errorf("retrograde → (%g,%g), want (0,±180)", m.LatDeg, m.LonDeg)
+	for _, c := range checks {
+		idx, ok := byGlyph[c.glyph]
+		if !ok {
+			t.Errorf("missing marker glyph %c", c.glyph)
+			continue
+		}
+		m := got[idx]
+		if math.Abs(m.LatDeg-c.wantLat) > 1e-4 {
+			t.Errorf("%c lat = %g, want %g", c.glyph, m.LatDeg, c.wantLat)
+		}
+		if !c.ignoreLon && math.Abs(m.LonDeg-c.wantLon) > 1e-4 {
+			t.Errorf("%c lon = %g, want %g", c.glyph, m.LonDeg, c.wantLon)
+		}
 	}
-	if m := got[byGlyph[NavballGlyphRadialOut]]; math.Abs(m.LatDeg-90) > 1e-4 {
-		t.Errorf("radial-out lat = %g, want +90", m.LatDeg)
+	// retrograde lon must be ±180 exactly.
+	if m := got[byGlyph[NavballGlyphRetrograde]]; math.Abs(math.Abs(m.LonDeg)-180) > 1e-4 {
+		t.Errorf("retrograde |lon| = %g, want 180", math.Abs(m.LonDeg))
 	}
-	if m := got[byGlyph[NavballGlyphRadialIn]]; math.Abs(m.LatDeg+90) > 1e-4 {
-		t.Errorf("radial-in lat = %g, want −90", m.LatDeg)
+	// radial markers sit on the equator with antipodal lons.
+	rOut := got[byGlyph[NavballGlyphRadialOut]]
+	rIn := got[byGlyph[NavballGlyphRadialIn]]
+	if math.Abs(rOut.LatDeg) > 1e-4 || math.Abs(rIn.LatDeg) > 1e-4 {
+		t.Errorf("radial markers should be on equator, got %g and %g", rOut.LatDeg, rIn.LatDeg)
 	}
-	np := got[byGlyph[NavballGlyphNormalPlus]]
-	nm := got[byGlyph[NavballGlyphNormalMinus]]
-	if math.Abs(np.LatDeg) > 1e-4 || math.Abs(math.Abs(np.LonDeg)-90) > 1e-4 {
-		t.Errorf("normal+ → (%g,%g), want (0,±90)", np.LatDeg, np.LonDeg)
-	}
-	if math.Abs(nm.LatDeg) > 1e-4 || math.Abs(np.LonDeg+nm.LonDeg) > 1e-4 {
-		t.Errorf("normal- → (%g,%g), want antipodal to normal+", nm.LatDeg, nm.LonDeg)
+	if math.Abs(math.Abs(rOut.LonDeg)-90) > 1e-4 {
+		t.Errorf("radialOut |lon| = %g, want 90", math.Abs(rOut.LonDeg))
 	}
 }
 
@@ -368,63 +418,6 @@ func TestNavballMarkersIncludeNode(t *testing.T) {
 	}
 	if math.Abs(node.LatDeg) > 1e-4 || math.Abs(node.LonDeg) > 1e-4 {
 		t.Errorf("BurnPrograde node should project to (0, 0); got (%g, %g)", node.LatDeg, node.LonDeg)
-	}
-}
-
-// TestNavballSurfaceEastIsScreenRight: on the launchpad the nose
-// points radial-out and roll is 0 (heads-up). The body-frame navball
-// is fed (0,0), so screen-right ∝ d·EY and screen-up ∝ d·EZ. With
-// heads-up roll the world East must read screen-right, West left,
-// North up, and the nose (radial-out) sits at the disc centre — the
-// behaviour the player asked for, now singularity-free.
-func TestNavballSurfaceEastIsScreenRight(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	w.NavMode = NavSurface
-	c, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "earth",
-		Launchpad: true, Latitude: 28.6083, LongitudeOffset: -80.604,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	basis, ok := w.NavballBasis()
-	if !ok {
-		t.Fatal("NavballBasis: ok=false on the pad")
-	}
-	if sl, so, sok := w.NavballSubObserver(); !sok || math.Abs(sl) > 1e-9 || math.Abs(so) > 1e-9 {
-		t.Fatalf("body-frame sub-observer = (%g,%g,%v), want (0,0,true)", sl, so, sok)
-	}
-
-	// Body-frame navball fed (0,0): screen-right = d·EY, up = d·EZ.
-	screen := func(dir orbital.Vec3) (right, up float64) {
-		return dir.Dot(basis.EY), dir.Dot(basis.EZ)
-	}
-
-	upv := c.State.R.Scale(1 / c.State.R.Norm()) // radial-out = nose
-	spinR := render.BodyRotationAxisWorld(c.Primary)
-	spinAxis := orbital.Vec3{X: spinR.X, Y: spinR.Y, Z: spinR.Z}
-	east := spinAxis.Cross(upv)
-	east = east.Scale(1 / east.Norm())
-
-	if r, u := screen(east); r <= 0 || math.Abs(u) > 1e-6 {
-		t.Errorf("East should be screen-right; got right=%.3f up=%.3f", r, u)
-	}
-	if r, _ := screen(east.Scale(-1)); r >= 0 {
-		t.Errorf("West should be screen-left; got right=%.3f", r)
-	}
-	if r, u := screen(basis.EX); math.Abs(r) > 1e-6 || math.Abs(u) > 1e-6 {
-		t.Errorf("nose should be the disc centre; got right=%.3f up=%.3f", r, u)
-	}
-
-	// Roll 90° must rotate the ball: East moves off screen-right.
-	c.CommandedRollDeg = 90
-	c.CurrentRollDeg = 90
-	rb, _ := w.NavballBasis()
-	if r := east.Dot(rb.EY); r > 0.2 {
-		t.Errorf("after 90° roll East should leave screen-right; got right=%.3f", r)
 	}
 }
 

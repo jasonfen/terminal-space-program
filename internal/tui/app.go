@@ -664,21 +664,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				c.PitchTrim = 0
 			}
 			return a, nil
-		case key.Matches(m, a.keys.RollRight):
-			if c := a.world.ActiveCraft(); c != nil {
-				c.CommandedRollDeg += spacecraft.RollStepDeg
-			}
-			return a, nil
-		case key.Matches(m, a.keys.RollLeft):
-			if c := a.world.ActiveCraft(); c != nil {
-				c.CommandedRollDeg -= spacecraft.RollStepDeg
-			}
-			return a, nil
-		case key.Matches(m, a.keys.RollReset):
-			if c := a.world.ActiveCraft(); c != nil {
-				c.CommandedRollDeg = 0
-			}
-			return a, nil
 		case key.Matches(m, a.keys.Stage):
 			// v0.9.1+: drop the bottom stage of the active craft.
 			// Inside the maneuver form, space is the iterate-toggle
