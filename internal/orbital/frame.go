@@ -33,6 +33,35 @@ func (a Vec3) Cross(b Vec3) Vec3 {
 // Dot returns a · b.
 func (a Vec3) Dot(b Vec3) float64 { return a.X*b.X + a.Y*b.Y + a.Z*b.Z }
 
+// Unit returns a / |a|. A zero vector returns the zero vector (callers
+// already interpret a zero direction as "undefined" — see BurnDirection).
+func (a Vec3) Unit() Vec3 {
+	n := a.Norm()
+	if n == 0 {
+		return Vec3{}
+	}
+	return a.Scale(1 / n)
+}
+
+// Rotate rotates v about axis by theta radians (right-hand rule),
+// via Rodrigues' formula:
+//
+//	v·cosθ + (axis×v)·sinθ + axis·(axis·v)·(1−cosθ)
+//
+// axis is assumed to be a unit vector; the caller is responsible for
+// normalizing it (the v0.10.0 slew integrator picks a unit perpendicular
+// before calling). This is the only general axis-angle rotation in the
+// tree — PerifocalToInertial is a fixed Euler matrix and ApplyPitchTrim
+// is a 2-D local-frame rotation, neither reusable here.
+//
+// v0.10.0+ (rate-limited attitude).
+func Rotate(v, axis Vec3, theta float64) Vec3 {
+	c, s := math.Cos(theta), math.Sin(theta)
+	return v.Scale(c).
+		Add(axis.Cross(v).Scale(s)).
+		Add(axis.Scale(axis.Dot(v) * (1 - c)))
+}
+
 // PerifocalToInertial converts perifocal (p, q, w) → inertial (X, Y, Z) via
 // the standard 3-1-3 Euler sequence (Ω, i, ω). Perifocal frame: p along
 // periapsis, q 90° ahead in the orbital plane, w = p × q.

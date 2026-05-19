@@ -745,7 +745,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if rawLat, rawLon, ok := w.NavballSubObserver(); ok {
 			subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
 			disk := navballPanelDisk(w, subLat, subLon)
-			panel, boxes := v.buildNavballPanel(disk, w.NavMode, w.RCSActive())
+			panel, boxes := v.buildNavballPanel(disk, w.NavMode, w.InstantSAS, w.RCSActive())
 			atCol := cCols - navballPanelW
 			atRow := cRows - navballPanelH - 1
 			lines := strings.Split(canvasStr, "\n")
@@ -1379,6 +1379,15 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			periAlt = el.Periapsis() - primaryR
 			apoFinite = true
 		}
+		// Inclination is defined whenever the craft has angular
+		// momentum (r × v ≠ 0) — including on the pad, where surface
+		// co-rotation gives the instantaneous plane. Surfaced in the
+		// LAUNCH HUD so the player can fly the launch azimuth to the
+		// target inclination before apoapsis even clears the surface.
+		inclLabel := "—"
+		if !math.IsNaN(el.I) && !math.IsInf(el.I, 0) {
+			inclLabel = fmt.Sprintf("%.2f°", el.I*180/math.Pi)
+		}
 		apLabel := "—"
 		peLabel := "—"
 		ttaLabel := "—"
@@ -1461,6 +1470,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		lines = append(lines,
 			fmt.Sprintf("  ap:         %s%s", apLabel, trendLabel),
 			fmt.Sprintf("  pe:         %s", peLabel),
+			fmt.Sprintf("  incl.:      %s", inclLabel),
 			fmt.Sprintf("  t_to_apo:   %s", ttaLabel),
 			fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
 			fmt.Sprintf("  t_burn:     %s", tBurnLabel),
@@ -1612,6 +1622,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 						lines = append(lines,
 							fmt.Sprintf("  apoapsis:  %.1f km", (tEl.Apoapsis()-tPrimaryR)/1000),
 							fmt.Sprintf("  periapsis: %.1f km", (tEl.Periapsis()-tPrimaryR)/1000),
+							// Target's own orbital inclination in its
+							// primary's reference frame — same quantity
+							// and frame as the active-craft / body
+							// orbit-readout "inclin." line, not a
+							// relative Δi. Always meaningful (target
+							// state is primary-relative), like apo/peri.
+							fmt.Sprintf("  inclin.:   %.2f°", tEl.I*180/math.Pi),
 						)
 					}
 					// Range / |v_rel|: use primary-frame deltas when

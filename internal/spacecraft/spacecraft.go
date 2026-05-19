@@ -107,6 +107,28 @@ type Spacecraft struct {
 	AttitudeMode BurnMode
 	EngineMode   EngineMode
 
+	// CurrentAttitudeDir (v0.10.0+) is the craft's *actual* nose
+	// unit vector in the same world/primary frame as State.R/V —
+	// the physical orientation, distinct from the *commanded*
+	// direction recomputed from AttitudeMode each tick. The slew
+	// integrator (sim.integrateOneCraft) rotates this toward the
+	// commanded direction at SlewRate; stepThrust + the navball
+	// sub-observer read it instead of recomputing, so burning
+	// before alignment bleeds Δv to cosine loss. A zero vector
+	// means "uninitialized" — the first slew tick snaps it to the
+	// commanded direction (no slew-from-garbage, no nose teleport
+	// on a pre-v0.10.0 save). Persists in saves so a craft caught
+	// mid-slew restores its real nose.
+	CurrentAttitudeDir orbital.Vec3
+
+	// SlewRateDegPerSec (v0.10.0+) caps attitude angular rate in
+	// **sim-time** (deg/s, integrated against the warp-scaled tick).
+	// Zero => DefaultSlewRateDegPerSec. Set from the loadout at
+	// construction (NewFromLoadout); not stage-derived, so SyncFields
+	// does not touch it, and it is re-applied via the loadout on load
+	// rather than persisted.
+	SlewRateDegPerSec float64
+
 	// DockedComponents (v0.8.3+) records the original craft that
 	// fused into this composite, so an Undock keystroke can
 	// restore them. Empty for non-composite craft. Populated by

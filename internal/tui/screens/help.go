@@ -63,6 +63,7 @@ func (h *Help) Render() string {
 			{"\\", "reset pitch trim to 0 (v0.9.2+)"},
 			{"b", "engage / cut manual burn (main engine only)"},
 			{"r", "engine: main / rcs (RCS = monoprop pulse-fire on attitude keys)"},
+			{"k", "SAS model: slew / instant (navball [MAN]/[AUT]) (v0.10.0+)"},
 		}},
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
 			{"n", "open spawn form (loadout / position / parent body / altitude / direction)"},

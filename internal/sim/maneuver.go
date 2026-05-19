@@ -1226,6 +1226,59 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 	}
 }
 
+// nodeLeadSlack pads the computed lead time so a commanded direction
+// that drifts during the lead window (e.g. prograde rotating in a low
+// orbit) still converges before ignition. 1.25 = 25% slack. v0.10.0+.
+const nodeLeadSlack = 1.25
+
+// nodeLeadActive reports the upcoming node's ignition direction when
+// the craft should already be slewing toward it — i.e. BurnStart is
+// within nodeLeadSlack·angle/SlewRate sim-seconds of now. This is the
+// lead-compensation that keeps planted-node Δv accurate under rate-
+// limited attitude: the craft auto-orients ahead of T0 so it is
+// converged at ignition (the node's Δv math + IsResolved/BurnStart
+// gating in executeDueNodesFor are untouched — only attitude timing
+// changes). Only the next-to-fire (first) node matters; nodes are
+// sorted trigger-ascending with unresolved at the end.
+//
+// v0.10.0+.
+func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
+	if len(c.Nodes) == 0 {
+		return orbital.Vec3{}, false
+	}
+	n := c.Nodes[0]
+	if !n.IsResolved() {
+		return orbital.Vec3{}, false
+	}
+	// Node's commanded ignition direction, evaluated against current
+	// state + the target bound at plant (mirrors executeDueNodesFor).
+	var rT, vT orbital.Vec3
+	if n.IsTargetRelative() {
+		if tIdx, ok := n.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
+			if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+				rT, vT = tc.State.R, tc.State.V
+			}
+		}
+	}
+	dir := c.BurnDirectionWithTarget(n.Mode, rT, vT)
+	if dir.Norm() == 0 {
+		return orbital.Vec3{}, false
+	}
+	cosA := c.CurrentAttitudeDir.Unit().Dot(dir.Unit())
+	if cosA > 1 {
+		cosA = 1
+	} else if cosA < -1 {
+		cosA = -1
+	}
+	ang := math.Acos(cosA)
+	leadSecs := nodeLeadSlack * ang / c.SlewRateRad()
+	leadWindowStart := n.BurnStart().Add(-time.Duration(leadSecs * float64(time.Second)))
+	if w.Clock.SimTime.Before(leadWindowStart) {
+		return orbital.Vec3{}, false // not yet in the lead window
+	}
+	return dir, true
+}
+
 // NodeInertialPosition returns the inertial (system-primary-centered)
 // position where the node will fire. Forward-integrates the craft state
 // from now to the node's trigger time using SOI-aware Verlet sub-

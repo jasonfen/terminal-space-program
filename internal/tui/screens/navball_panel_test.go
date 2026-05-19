@@ -127,13 +127,13 @@ func TestBuildNavballPanel(t *testing.T) {
 		Warning: lipgloss.NewStyle(),
 	})
 	disk := render.NavballString(navballDiskCols, navballDiskRows, 0, 0, nil)
-	panel, boxes := v.buildNavballPanel(disk, sim.NavOrbit, false)
+	panel, boxes := v.buildNavballPanel(disk, sim.NavOrbit, false, false)
 
 	plain := stripANSI(panel)
 	if strings.Contains(plain, "NAVBALL") {
 		t.Errorf("NAVBALL label should be gone:\n%s", plain)
 	}
-	for _, want := range []string{"[ORBIT]", "RCS", "PRO", "RET", "T+", "T-"} {
+	for _, want := range []string{"[ORBIT]", "[MAN]", "RCS", "PRO", "RET", "T+", "T-"} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("panel missing %q:\n%s", want, plain)
 		}
@@ -160,17 +160,19 @@ func TestBuildNavballPanel(t *testing.T) {
 			t.Errorf("panel row %d splits to %d cells, want %d", i, c, navballPanelW)
 		}
 	}
-	// Mode + RCS + navballBtnRows hit-rows per axis button (each
-	// button is a multi-row click target).
-	wantBoxes := 2 + len(navballAxisRow)*navballBtnRows
+	// Mode + SAS + RCS + navballBtnRows hit-rows per axis button
+	// (each button is a multi-row click target).
+	wantBoxes := 3 + len(navballAxisRow)*navballBtnRows
 	if len(boxes) != wantBoxes {
 		t.Fatalf("got %d control boxes, want %d", len(boxes), wantBoxes)
 	}
-	sawMode, sawRCS := false, false
+	sawMode, sawSAS, sawRCS := false, false, false
 	for _, b := range boxes {
 		switch b.id {
 		case NavballControlMode:
 			sawMode = true
+		case NavballControlSAS:
+			sawSAS = true
 		case NavballControlRCS:
 			sawRCS = true
 		}
@@ -181,8 +183,31 @@ func TestBuildNavballPanel(t *testing.T) {
 	if !sawMode {
 		t.Errorf("no NavballControlMode box recorded")
 	}
+	if !sawSAS {
+		t.Errorf("no NavballControlSAS box recorded")
+	}
 	if !sawRCS {
 		t.Errorf("no NavballControlRCS box recorded")
+	}
+}
+
+// The [SAS] tag must flip MAN -> AUT with the instantSAS arg so the
+// non-default (legacy instant) model is never silent on the navball.
+func TestNavballPanelSASTag(t *testing.T) {
+	v := NewOrbitView(Theme{
+		Primary: lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+	})
+	disk := render.NavballString(navballDiskCols, navballDiskRows, 0, 0, nil)
+
+	man, _ := v.buildNavballPanel(disk, sim.NavOrbit, false /*slew*/, false)
+	if p := stripANSI(man); !strings.Contains(p, "[MAN]") || strings.Contains(p, "[AUT]") {
+		t.Errorf("slew model should show [MAN], not [AUT]:\n%s", p)
+	}
+	aut, _ := v.buildNavballPanel(disk, sim.NavOrbit, true /*instant*/, false)
+	if p := stripANSI(aut); !strings.Contains(p, "[AUT]") || strings.Contains(p, "[MAN]") {
+		t.Errorf("instant model should show [AUT], not [MAN]:\n%s", p)
 	}
 }
 
