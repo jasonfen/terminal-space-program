@@ -66,7 +66,7 @@ func (h *Help) Render() string {
 			{"k", "SAS model: slew / instant (navball [MAN]/[AUT]) (v0.10.0+)"},
 		}},
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
-			{"n", "open spawn form (loadout / position / parent body / altitude / direction)"},
+			{"n", "open spawn form (loadout / position / parent / altitude / dir; Custom = stack builder, v0.10.1+)"},
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
 			{"U", "undock active composite (v0.8.3+)"},
 			{"t / T", "cycle / clear target (v0.9.0+)"},

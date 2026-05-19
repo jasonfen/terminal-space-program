@@ -708,8 +708,8 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 ✅ **shipped v0.9.6** (`internal/render/lighting.go` + `eclipse.go` + tests; merged from `v0.9.6-lighting` 78639ea → `main` 32e8d03). Sub-solar-point per body per tick → `cos(angle to sun)` shading + day/night terminator; eclipses fall out of the same geometry. Was the research-first v0.9.6 pick that closed the v0.9 cycle.
 
 ### Staging chain
-<!-- llm-parse: id=staging-chain status=backlog target=v0.9 -->
-🧊 **backlog · target v0.9**. Ground launch → orbit → ICPS / S-IVB / lander staging chain so the craft fleet has more than one tier of capability. Unblocks (c) multi-rev porkchop and the rendezvous tooling slice (more craft → more practical scenarios).
+<!-- llm-parse: id=staging-chain status=in-progress target=v0.10.1 -->
+🛠 **in progress · v0.10.1** (branch `v0.10.1-staging`). Basic manual chain shipped v0.9.1 (`space` decouples `Stages[0]`, Saturn-V loadout, STAGES HUD). The L expansion — multi-tier loadouts (Apollo-Stack with mid-stage Lander payload separation) + a named stage catalog + a spawn-form stack configurator — is scope-committed in `docs/v0.10-plan.md` §v0.10.1. Unblocks (c) multi-rev porkchop and the rendezvous tooling slice (more craft → more practical scenarios).
 
 ### Multiplayer implementation
 <!-- llm-parse: id=multiplayer status=planning target=v0.9-stretch -->

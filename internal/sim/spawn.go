@@ -81,6 +81,15 @@ type SpawnSpec struct {
 	Retrograde   bool
 	Alongside    bool
 
+	// CustomStages (v0.10.1+) is a player-assembled stage list from
+	// the spawn-form stack configurator, bottom-first (same
+	// convention as Loadout.Stages). When non-empty it builds the
+	// craft via spacecraft.NewFromStages and LoadoutID is ignored —
+	// a custom stack has no catalog archetype. Empty (the common
+	// case) → the LoadoutID path. Placement (orbit / launchpad /
+	// alongside) is orthogonal and still applies.
+	CustomStages []spacecraft.Stage
+
 	// Launchpad (v0.9.2+): when true, spawn at altitude 0 on the
 	// parent body's surface co-moving with the rotating ground at
 	// `Latitude` / `LongitudeOffset` (degrees, north / east positive).
@@ -133,11 +142,20 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		return nil, errNoActiveCraftToCopy
 	}
 
-	id := spec.LoadoutID
-	if id == "" {
-		id = w.nextLoadoutID()
+	var c *spacecraft.Spacecraft
+	if len(spec.CustomStages) > 0 {
+		// v0.10.1+: player-assembled stack from the configurator.
+		// Ignores LoadoutID — a custom craft is not a catalog
+		// archetype. NewFromStages returns nil only on an empty
+		// slice, already excluded by the len() guard.
+		c = spacecraft.NewFromStages(spec.CustomStages)
+	} else {
+		id := spec.LoadoutID
+		if id == "" {
+			id = w.nextLoadoutID()
+		}
+		c = spacecraft.NewFromLoadout(id)
 	}
-	c := spacecraft.NewFromLoadout(id)
 	c.Name = w.nextCraftName(c.Name)
 
 	if spec.Alongside {

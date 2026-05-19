@@ -19,6 +19,10 @@ package spacecraft
 //                 approximate as sequential.
 //   - Falcon-9:   2-stage SpaceX LV (Merlin 1D × 9 / Merlin Vacuum).
 //                 v0.9.4+. Smaller stack, higher lift-off TWR.
+//   - Apollo-Stack: Saturn-V launch chain + LM + CSM payload, 5
+//                 stages. v0.10.1+. Mid-stage Lander decouples to a
+//                 controllable craft (payload separation); CSM is
+//                 the surviving core.
 //
 // Future loadouts land alongside this catalog and are referenced
 // from Spacecraft.LoadoutID — a string lookup keeps the on-disk
@@ -121,6 +125,18 @@ const LoadoutSLSBlock1ID = "SLS-Block1"
 // stack — handles like a sport rocket compared to the Saturn V /
 // SLS heavies.
 const LoadoutFalcon9ID = "Falcon-9"
+
+// LoadoutApolloStack is the v0.10.1+ full Apollo mission stack:
+// Saturn-V launch chain with a Lunar Module + Command/Service
+// Module payload on top. Stages bottom-first =
+// [S-IC, S-II, S-IVB, Lander, CSM]. The decouple sequence is the
+// real mission arc on top of the v0.9.1 staging machinery:
+// drop S-IC → S-II → S-IVB (after the TLI burn) → Lander; the
+// Lander spawns as its own controllable slate craft (payload
+// separation) and the CSM is left as the player's surviving core
+// to fly the rendezvous / return. The first three stages reuse the
+// canonical Saturn-V tuning so ascent flies identically.
+const LoadoutApolloStackID = "Apollo-Stack"
 
 // stageRCS builds the per-stage RCS pool for a stage of the given
 // dry mass via DefaultRCSLoadout — same scaling that single-stage
@@ -306,6 +322,37 @@ var Loadouts = map[string]Loadout{
 				3900, 107500, 934000, 348, 5e-5),
 		},
 	},
+	// Apollo-Stack (v0.10.1+): the full mission stack. The first
+	// three stages are the canonical Saturn-V tuning (byte-identical
+	// numbers — ascent flies the same). On top: a Lunar Module
+	// (Lander tier) then the Command/Service Module as the surviving
+	// core. Lift-off TWR with the LM+CSM payload: 35,100 kN against
+	// ~2.93 Mkg total ≈ 1.22 at sea-level g — still > 1.
+	LoadoutApolloStackID: {
+		ID:    LoadoutApolloStackID,
+		Name:  "Apollo Stack",
+		Role:  "mission-stack",
+		Glyph: "▲",
+		Color: "#FFD93D",
+		Stages: []Stage{
+			stageWithBC(LoadoutApolloStackID, "S-IC", "▲", "#FF8C42",
+				130000, 2160000, 35100000, 263, 8e-6),
+			stageWithBC(LoadoutApolloStackID, "S-II", "▲", "#FFC042",
+				40000, 440000, 5140000, 421, 2.5e-5),
+			stageWithBC(LoadoutApolloStackID, "S-IVB", "▲", "#FFD93D",
+				11000, 109000, 1023000, 421, 6.25e-5),
+			// Lunar Module — descent/ascent payload. Mid-stage:
+			// decoupling it spawns a controllable LM craft (payload
+			// separation) and leaves the CSM core.
+			stage(LoadoutApolloStackID, "LM", "▼", "#5FFF87",
+				4000, 8000, 45000, 311),
+			// Command/Service Module — the surviving core. SPS
+			// storable-propellant engine; enough Δv for the
+			// rendezvous / trans-Earth return.
+			stage(LoadoutApolloStackID, "CSM", "◉", "#C0C0FF",
+				11900, 18400, 91000, 314),
+		},
+	},
 }
 
 // LoadoutOrder lists loadouts in canonical UI cycle order — the
@@ -320,6 +367,7 @@ var LoadoutOrder = []string{
 	LoadoutSaturnVID,
 	LoadoutSLSBlock1ID,
 	LoadoutFalcon9ID,
+	LoadoutApolloStackID,
 }
 
 // LookupLoadout returns the catalog entry for the given ID, or the
@@ -357,6 +405,56 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 		BallisticCoefficient: DefaultBallisticCoefficient,
 		Stages:               stages,
 		SlewRateDegPerSec:    l.SlewRateDegPerSec,
+	}
+	c.SyncFields()
+	return c
+}
+
+// NewFromStages constructs a Spacecraft from a player-assembled
+// stage list (bottom-first, same convention as Loadout.Stages) —
+// the v0.10.1+ stack-configurator path. Sibling of NewFromLoadout
+// with no catalog entry behind it: LoadoutID is left empty (a
+// custom craft is not a catalog archetype), and identity/visuals
+// come from the top (core) stage so the slate HUD has a sensible
+// name + marker for the vessel the player keeps flying.
+//
+// The caller still sets Primary + State. Returns nil when stages
+// is empty — an empty stack is not a spawnable craft (callers
+// reject before reaching the spawn path).
+//
+// Custom craft persist through save/load via the existing v6
+// per-stage wire format (save schema v6, v0.9.1) — no migration:
+// the flat shadow fields are re-derived by SyncFields on load and
+// the empty LoadoutID resolves to the default only for those
+// derived mirrors, never overriding the round-tripped Stages.
+func NewFromStages(stages []Stage) *Spacecraft {
+	if len(stages) == 0 {
+		return nil
+	}
+	cp := make([]Stage, len(stages))
+	copy(cp, stages)
+	core := cp[len(cp)-1] // top stage = the surviving "core"
+	name := core.Name
+	if name == "" {
+		name = "Custom"
+	}
+	glyph := core.Glyph
+	if glyph == "" {
+		glyph = "▲"
+	}
+	color := core.Color
+	if color == "" {
+		color = "#FFD93D"
+	}
+	c := &Spacecraft{
+		Name:                 name,
+		LoadoutID:            "", // custom — no catalog archetype
+		Role:                 "custom",
+		Glyph:                glyph,
+		Color:                color,
+		Throttle:             1.0,
+		BallisticCoefficient: DefaultBallisticCoefficient,
+		Stages:               cp,
 	}
 	c.SyncFields()
 	return c
