@@ -63,13 +63,23 @@ type World struct {
 	// to save (UI preference, not game state).
 	ViewMode ViewMode
 
+	// InstantSAS opts back into the legacy instantaneous-attitude
+	// path. v0.10.0+ makes rate-limited slew the DEFAULT (zero value
+	// = false = slew on); toggling this true restores the pre-v0.10
+	// "magic SAS" snap (the byte-identical regression baseline). Like
+	// ViewMode it is a per-session UI preference — NOT persisted; a
+	// reload returns to the slew default. Surfaced as a new hot-key +
+	// navball [MODE] MANUAL/AUTO tag (binding is the app/render
+	// slice's call).
+	InstantSAS bool
+
 	// rcsPuffs is a small ring of recent RCS pulses, surfaced by the
 	// orbit canvas as a fading marker for visual feedback. v0.8.0
 	// ships a placeholder visual; v0.8.2 replaces it with per-thruster
 	// glyphs once craft visual differentiation lands.
-	rcsPuffs    [rcsPuffCap]rcsPuff
-	rcsPuffIdx  int
-	rcsPuffLen  int
+	rcsPuffs   [rcsPuffCap]rcsPuff
+	rcsPuffIdx int
+	rcsPuffLen int
 
 	// Missions are pass/fail objectives evaluated against World state
 	// each Tick. Seeded from the embedded starter catalog at NewWorld
@@ -393,9 +403,9 @@ func (w *World) Tick() {
 		// stashed on World.LastDockEvent for the HUD flash.
 		if a, b, ok := w.checkDocking(); ok {
 			w.LastDockEvent = &DockEvent{
-				When:    w.Clock.SimTime,
-				CraftIdx: a,
-				PartnerIdx: b,
+				When:          w.Clock.SimTime,
+				CraftIdx:      a,
+				PartnerIdx:    b,
 				CompositeName: w.ActiveCraft().Name,
 			}
 		}
@@ -405,10 +415,10 @@ func (w *World) Tick() {
 
 // DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.
 type DockEvent struct {
-	When           time.Time
-	CraftIdx       int    // active partner's index (becomes the composite slot)
-	PartnerIdx     int    // index of the partner that was removed
-	CompositeName  string // name of the resulting composite craft
+	When          time.Time
+	CraftIdx      int    // active partner's index (becomes the composite slot)
+	PartnerIdx    int    // index of the partner that was removed
+	CompositeName string // name of the resulting composite craft
 }
 
 // evaluateMissions steps each mission's predicate against the live
@@ -721,6 +731,20 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	period := orbitalPeriod(c.State, mu)
 	secs := simDelta.Seconds()
 
+	// v0.10.0: rate-limited attitude. Slew the physical nose toward
+	// the commanded direction once per tick, BEFORE the Kepler
+	// fast-path gate below — otherwise a coasting craft (the common
+	// warp case, which early-returns at the gate) would never
+	// converge and the navball would freeze mid-slew. dt is the
+	// whole-tick warp-scaled sim seconds (constant angular velocity
+	// in sim-time; collapses to ~instant at very high warp — accepted).
+	// Landed craft are already out (they co-rotate; nose is cosmetic).
+	// InstantSAS opts back into the legacy snap (the consumers in
+	// stepThrust / the navball read commanded directly in that mode).
+	if !w.InstantSAS {
+		c.SlewToward(w.slewTargetFor(c), secs)
+	}
+
 	// Warp-lock fast path: analytic Kepler propagation in chunks small
 	// enough that the craft can't outrun any other body's SOI per
 	// chunk. Falls back to Verlet sub-stepping if the gate rejects
@@ -837,26 +861,28 @@ func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt fl
 // v0.7.6+: planted burns honour their per-node throttle rather than
 // the live craft setting, so the player can tweak the throttle knob
 // during a coast without slowing an in-flight planted burn.
-func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
-	mode := c.AttitudeMode
-	throttle := c.EffectiveThrottle()
+// ToggleInstantSAS flips the legacy instant-attitude opt-out. Default
+// (false) is rate-limited slew (v0.10.0+); true restores the pre-v0.10
+// instant snap. Session UI preference — not persisted (see the
+// InstantSAS field doc).
+func (w *World) ToggleInstantSAS() { w.InstantSAS = !w.InstantSAS }
+
+// attitudeContext resolves the burn mode and target snapshot the
+// craft's attitude is driven by this tick. Extracted from stepThrust
+// (v0.10.0) so the slew integrator, the thrust closure, and the
+// navball sub-observer all agree on the *commanded* direction.
+//
+//   - mode: ActiveBurn.Mode (planted finite burn, fixed at fire) when
+//     a burn is in flight, else the live c.AttitudeMode (SAS hold).
+//   - (rT, vT): for ActiveBurn the target bound at plant time
+//     (survives a mid-burn target switch); otherwise the live
+//     World.Target snapshot so a manual hold can retarget. Non-target
+//     modes ignore it. v0.9.3+ logic, unchanged — just relocated.
+func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnMode, rT, vT orbital.Vec3) {
+	mode = c.AttitudeMode
 	if c.ActiveBurn != nil {
 		mode = c.ActiveBurn.Mode
-		throttle = c.ActiveBurn.Throttle
-		if throttle <= 0 {
-			// Defensive fallback: legacy v3-save ActiveBurn with no
-			// captured throttle (loaded with zero) → treat as full
-			// open, matching the pre-v0.7.6 universal behaviour.
-			throttle = 1.0
-		}
 	}
-	// v0.9.3+: resolve target snapshot for target-relative thrust.
-	// For ActiveBurn (planted finite burn), the target was bound at
-	// plant time via ActiveBurn.TargetCraftIdx — survives a player
-	// target switch mid-burn. For ManualBurn (live SAS hold), the
-	// snapshot follows the current World.Target so the player can
-	// retarget mid-hold. Non-target modes ignore (rT, vT).
-	var rT, vT orbital.Vec3
 	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftIdx != 0 {
 		if tIdx, ok := c.ActiveBurn.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
 			if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
@@ -866,7 +892,64 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	} else {
 		rT, vT, _ = w.TargetStateRelativeToActivePrimary()
 	}
-	thrustFn := c.ThrustAccelFnAtWithTarget(mode, mu, throttle, rT, vT)
+	return mode, rT, vT
+}
+
+// commandedDirFor is the world-unit nose direction the craft's
+// attitude is *commanded* toward this tick (recomputed from mode +
+// live state). The slew integrator chases it; with InstantSAS the
+// craft is pinned to it. v0.10.0+.
+func (w *World) commandedDirFor(c *spacecraft.Spacecraft) orbital.Vec3 {
+	mode, rT, vT := w.attitudeContext(c)
+	return c.BurnDirectionWithTarget(mode, rT, vT)
+}
+
+// slewTargetFor is the direction the slew integrator chases this tick.
+// Normally the live commanded direction; Step 6 (lead-compensated
+// nodes) overrides it with an upcoming node's ignition direction so
+// the craft is converged at BurnStart. v0.10.0+.
+// initCraftAttitude seeds a freshly-spawned craft's physical nose with
+// its commanded direction so the navball is correct on the first frame
+// (before any Tick runs the slew integrator). The integrator's
+// zero-init snap guard already covers correctness — this is HUD
+// polish. No-op if already set (defensive). v0.10.0+.
+func (w *World) initCraftAttitude(c *spacecraft.Spacecraft) {
+	if c == nil || c.CurrentAttitudeDir.Norm() != 0 {
+		return
+	}
+	c.CurrentAttitudeDir = w.commandedDirFor(c)
+}
+
+func (w *World) slewTargetFor(c *spacecraft.Spacecraft) orbital.Vec3 {
+	if dir, ok := w.nodeLeadActive(c); ok {
+		return dir
+	}
+	return w.commandedDirFor(c)
+}
+
+func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
+	mode, rT, vT := w.attitudeContext(c)
+	throttle := c.EffectiveThrottle()
+	if c.ActiveBurn != nil {
+		throttle = c.ActiveBurn.Throttle
+		if throttle <= 0 {
+			// Defensive fallback: legacy v3-save ActiveBurn with no
+			// captured throttle (loaded with zero) → treat as full
+			// open, matching the pre-v0.7.6 universal behaviour.
+			throttle = 1.0
+		}
+	}
+	// v0.10.0: by default thrust along the craft's physical nose
+	// (CurrentAttitudeDir, slewed at the tick top) so burning before
+	// alignment bleeds Δv to cosine loss. InstantSAS restores the
+	// legacy per-k-step recompute from the commanded mode (byte-
+	// identical to pre-v0.10).
+	var thrustFn func(r, v orbital.Vec3, t float64) orbital.Vec3
+	if w.InstantSAS {
+		thrustFn = c.ThrustAccelFnAtWithTarget(mode, mu, throttle, rT, vT)
+	} else {
+		thrustFn = c.ThrustAccelFnFixedDir(c.CurrentAttitudeDir, mu, throttle)
+	}
 	bc := c.EffectiveBallisticCoefficient()
 	primary := c.Primary
 	// v0.8.4: drag adds to thrust + gravity inside the RK4 closure so

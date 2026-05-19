@@ -130,6 +130,16 @@ type Keymap struct {
 	PitchTrimEast    key.Binding
 	PitchTrimWest    key.Binding
 	PitchTrimReset   key.Binding
+
+	// ToggleInstantSAS (v0.10.0+): flip the manual-flight attitude
+	// model between rate-limited slew (MANUAL, the v0.10 default) and
+	// the legacy instantaneous "magic SAS" snap (AUTO). This is the
+	// locked-decision surfacing for World.InstantSAS — a deliberate,
+	// non-silent behaviour switch, mirrored by the navball [SAS]
+	// MANUAL/AUTO tag. Bound to `k` (a free key adjacent to the
+	// w/s/a/d/q/e attitude cluster); the toggle is a session UI
+	// preference and is not persisted.
+	ToggleInstantSAS key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -194,5 +204,6 @@ func DefaultKeymap() Keymap {
 		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +10° east")),
 		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -10° west")),
 		PitchTrimReset:            key.NewBinding(key.WithKeys("\\"), key.WithHelp("\\", "reset pitch trim")),
+		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 	}
 }

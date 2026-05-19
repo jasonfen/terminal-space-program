@@ -118,3 +118,64 @@ func TestEngineIgnitionClearsLanded(t *testing.T) {
 		t.Error("StartManualBurn should engage ManualBurn")
 	}
 }
+
+// TestLandedNoseTracksLocalUpThroughWarp — regression for the v0.10.0
+// slew bug the player hit: warping on the pad (watching inclination)
+// then pressing `b` would not lift off. Cause: the slew integrator is
+// skipped while Landed, so CurrentAttitudeDir stayed frozen at the
+// spawn-time radial-out vector while the craft co-rotated; on liftoff
+// the engine thrust followed that stale (now sub-horizon) nose.
+// Fix: integrateLanded keeps CurrentAttitudeDir synced to the
+// commanded direction so the nose co-rotates with the pad.
+func TestLandedNoseTracksLocalUpThroughWarp(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        28.6083,
+		LongitudeOffset: -80.604,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if !c.Landed {
+		t.Fatal("setup: launchpad spawn should set Landed=true")
+	}
+	spawnNose := c.CurrentAttitudeDir
+	if a := slewAngle(spawnNose, c.State.R.Unit()); a > 1e-3 {
+		t.Fatalf("setup: spawn nose not radial-out (%.4f rad off)", a)
+	}
+
+	// Warp on the pad: the body rotates, local up moves.
+	w.Clock.SimTime = w.Clock.SimTime.Add(6 * time.Hour)
+	integrateLanded(w, c, time.Hour)
+	upNow := c.State.R.Unit()
+	if a := slewAngle(spawnNose, upNow); a < 5*math.Pi/180 {
+		t.Fatalf("setup: body did not rotate enough to exercise the bug (%.2f°)",
+			a*180/math.Pi)
+	}
+	// The nose must track the *current* local up, not the stale
+	// spawn vector.
+	if a := slewAngle(c.CurrentAttitudeDir, upNow); a > 1e-3 {
+		t.Errorf("landed nose did not track local up through warp: %.3f° off",
+			a*180/math.Pi)
+	}
+
+	// Liftoff: with the nose correct the craft must actually rise.
+	alt0 := c.Altitude()
+	w.StartManualBurn()
+	for i := 0; i < 60; i++ { // ~3 s at 1× / 50 ms base step
+		w.Tick()
+	}
+	if c.Altitude() <= alt0+1.0 {
+		t.Errorf("craft did not lift off the pad: altitude %.2f → %.2f m",
+			alt0, c.Altitude())
+	}
+	if vUp := c.State.V.Dot(c.State.R.Unit()); vUp <= 0 {
+		t.Errorf("post-ignition vertical velocity not positive: %.3f m/s", vUp)
+	}
+}
