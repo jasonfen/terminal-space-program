@@ -190,6 +190,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `q` / `e` | Attitude radial+ / radial- |
 | `b` | Engage / cut manual burn (main engine, throttle > 0) |
 | `r` | Engine: main / RCS (v0.8.0+) |
+| `k` | SAS model: slew / instant — MANUAL (rate-limited, default) vs AUTO (legacy instant snap); navball `[MAN]`/`[AUT]` tag mirrors it (v0.10.0+) |
 | `W` / `S` | Attitude surface-prograde / surface-retrograde — track velocity in the rotating-atmosphere frame (v - ω × r). For ascent gravity turn (v0.9.2+) |
 | `>` / `<` | Pitch trim ±10° east / west — rotate thrust vector about local-north axis on top of current SAS mode (v0.9.2+) |
 | `\` | Reset pitch trim to 0 (v0.9.2+) |
