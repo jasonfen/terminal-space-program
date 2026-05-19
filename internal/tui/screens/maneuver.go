@@ -147,10 +147,11 @@ type NodeDeleteMsg struct {
 	EditingIdx int
 }
 
-// NodeClearAllMsg is emitted when the player presses ctrl+k in the
-// maneuver form. The app handles it by calling World.ClearNodes()
-// and closing the screen. Replaces the v0.8.5-and-earlier `N`
-// global keybinding for the wipe-all case. v0.8.6+.
+// NodeClearAllMsg is emitted when the player presses c / C (or the
+// ctrl+k back-compat alias) in the maneuver form. The app handles
+// it by calling World.ClearNodes() and closing the screen. Replaces
+// the v0.8.5-and-earlier `N` global keybinding for the wipe-all
+// case. v0.8.6+; primary binding simplified to `c` in v0.10.1.
 type NodeClearAllMsg struct{}
 
 func NewManeuver(th Theme) *Maneuver {
@@ -298,7 +299,7 @@ func (m *Maneuver) Resize(cols, rows int) {
 //   enter                  — commit burn → emits BurnExecutedMsg with rocket-equation duration
 //   esc                    — cancel → plain exit (app handles)
 //   ctrl+d                 — delete the planted node being edited (no-op when creating new)
-//   ctrl+k                 — clear ALL planted nodes for the active craft
+//   c / C (or ctrl+k)      — clear ALL planted nodes for the active craft
 //   digits/backspace       — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	const focusFields = 5 // mode / fireAt / dv / throttle / iterate
@@ -313,10 +314,14 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		idx := m.editingIdx
 		return func() tea.Msg { return NodeDeleteMsg{EditingIdx: idx} }, true
-	case "ctrl+k":
-		// v0.8.6+: clear all nodes for the active craft. Replaces
-		// the v0.8.5-and-earlier `N` global keybinding. Closes the
-		// form on dispatch.
+	case "c", "C", "ctrl+k":
+		// Clear ALL nodes for the active craft, then close the form.
+		// v0.10.1+: `c` / `C` is the memorable primary binding (the
+		// dv/throttle inputs are numeric, so a letter never collides
+		// with field editing); `ctrl+k` stays as a back-compat alias
+		// for existing muscle memory. Replaces the v0.8.5-and-earlier
+		// `N` global keybinding (retired in v0.8.6 for the case-
+		// collision reason noted on input.go ClearNodes).
 		return func() tea.Msg { return NodeClearAllMsg{} }, true
 	case "tab":
 		m.focus = (m.focus + 1) % focusFields
@@ -596,7 +601,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, "  ", form)
 
 	footer := m.theme.Footer.Render(
-		"[tab] cycle field  [←/→] cycle mode  [enter] commit  [esc] cancel  [digits] edit",
+		"[tab] field  [←/→] cycle  [enter] commit  [esc] cancel  [ctrl+d] del node  [c] clear all",
 	)
 	title := "maneuver planner"
 	if m.editingIdx >= 0 {
@@ -700,6 +705,40 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		"",
 		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),
 		fmt.Sprintf("  thrust: %.0f N  Isp: %.0f s", c.Thrust, c.Isp),
+	}
+
+	// PLANNED NODES (v0.10.1+): list every node currently planted on
+	// the active craft so the planner shows the full schedule, not
+	// just the one being created/edited. The node under edit
+	// (editingIdx) is called out so Enter-replaces-this is obvious.
+	// Resolved nodes show a T± countdown; event-relative nodes that
+	// haven't frozen a trigger yet show the event name instead.
+	lines = append(lines, "")
+	if len(c.Nodes) == 0 {
+		lines = append(lines, m.theme.Dim.Render("PLANNED NODES (none) — [enter] plants one"))
+	} else {
+		lines = append(lines, m.theme.Primary.Render(
+			fmt.Sprintf("PLANNED NODES (%d)  —  [c] clears all", len(c.Nodes))))
+		const maxList = 8
+		for i, n := range c.Nodes {
+			if i >= maxList {
+				lines = append(lines, m.theme.Dim.Render(
+					fmt.Sprintf("  … +%d more", len(c.Nodes)-maxList)))
+				break
+			}
+			when := n.Event.String()
+			if !n.TriggerTime.IsZero() {
+				when = formatCountdown(n.TriggerTime.Sub(w.Clock.SimTime))
+			}
+			row := fmt.Sprintf("  %d. %-10s %6.0f m/s  %s",
+				i+1, n.Mode.String(), n.DV, when)
+			if i == m.editingIdx {
+				row = m.theme.Warning.Render(row + "  ← editing")
+			} else {
+				row = m.theme.Dim.Render(row)
+			}
+			lines = append(lines, row)
+		}
 	}
 
 	// v0.6.1: PROJECTED ORBIT readout — apo / peri / AN / DN of the
