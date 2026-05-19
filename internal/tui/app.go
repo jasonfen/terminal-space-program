@@ -643,6 +643,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusMsg = fmt.Sprintf("nav: %s", nav)
 			a.statusExpires = time.Now().Add(2 * time.Second)
 			return a, nil
+		case key.Matches(m, a.keys.ToggleInstantSAS):
+			a.world.ToggleInstantSAS()
+			a.statusMsg = fmt.Sprintf("SAS: %s", sasModeLabel(a.world.InstantSAS))
+			a.statusExpires = time.Now().Add(2 * time.Second)
+			return a, nil
 		case key.Matches(m, a.keys.AttitudeSurfacePrograde):
 			a.handleAttitudeKey(spacecraft.BurnSurfacePrograde)
 			return a, nil
@@ -774,6 +779,19 @@ func (a *App) handleAttitudeIntent(intent sim.AttitudeIntent) {
 	a.handleAttitudeKey(a.world.ResolveAttitudeIntent(intent))
 }
 
+// sasModeLabel maps the World.InstantSAS opt-out to the player-facing
+// manual-flight attitude-model name. MANUAL = rate-limited slew (the
+// v0.10.0 default, instantSAS=false); AUTO = legacy instantaneous
+// "magic SAS" snap (instantSAS=true). The same vocabulary is used by
+// the navball [SAS] tag so the toast and the indicator never drift.
+// v0.10.0+.
+func sasModeLabel(instantSAS bool) string {
+	if instantSAS {
+		return "AUTO (instant)"
+	}
+	return "MANUAL (slew)"
+}
+
 // dispatchNavballControl routes a click on the framed navball
 // panel's controls to the same world actions as the keyboard: the
 // [MODE] button cycles NavMode (mirroring the CycleNavMode key,
@@ -806,6 +824,10 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 			state = "on"
 		}
 		a.statusMsg = fmt.Sprintf("RCS: %s", state)
+		a.statusExpires = time.Now().Add(2 * time.Second)
+	case screens.NavballControlSAS:
+		a.world.ToggleInstantSAS()
+		a.statusMsg = fmt.Sprintf("SAS: %s", sasModeLabel(a.world.InstantSAS))
 		a.statusExpires = time.Now().Add(2 * time.Second)
 	case screens.NavballControlTargetPlus:
 		a.handleAttitudeKey(spacecraft.BurnTarget)

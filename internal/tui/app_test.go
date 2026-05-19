@@ -73,6 +73,29 @@ func TestDispatchNavballControlRCS(t *testing.T) {
 	}
 }
 
+// Clicking the [SAS] tag flips World.InstantSAS both ways and toasts
+// the new model name — the locked-decision non-silent surfacing.
+func TestDispatchNavballControlSAS(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if a.world.InstantSAS {
+		t.Fatalf("InstantSAS should default false (slew is the v0.10 default)")
+	}
+	a.dispatchNavballControl(screens.NavballControlSAS)
+	if !a.world.InstantSAS {
+		t.Errorf("InstantSAS = false, want true after first toggle")
+	}
+	if a.statusMsg == "" {
+		t.Errorf("expected a SAS-model status toast")
+	}
+	a.dispatchNavballControl(screens.NavballControlSAS)
+	if a.world.InstantSAS {
+		t.Errorf("InstantSAS = true, want false after second toggle")
+	}
+}
+
 // Clicking the target ± buttons holds BurnTarget / BurnAntiTarget.
 func TestDispatchNavballControlTarget(t *testing.T) {
 	a, err := New()

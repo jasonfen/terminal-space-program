@@ -28,6 +28,7 @@ type NavballControlID int
 const (
 	navballControlNone NavballControlID = iota
 	NavballControlMode                  // cycle NavMode (orbit / surface / target)
+	NavballControlSAS                   // toggle InstantSAS (MANUAL slew <-> AUTO instant)
 	NavballControlPrograde
 	NavballControlRetrograde
 	NavballControlNormalPlus
@@ -108,6 +109,18 @@ func navModeLabel(m sim.NavMode) string {
 	return "ORBIT"
 }
 
+// sasTagLabel is the manual-flight attitude-model tag shown between
+// [MODE] and RCS. MAN = rate-limited slew (v0.10.0 default,
+// instantSAS=false); AUT = legacy instantaneous snap. Kept to 3
+// glyphs so the bracketed tag matches the [TGT]/[SURF] visual weight.
+// v0.10.0+.
+func sasTagLabel(instantSAS bool) string {
+	if instantSAS {
+		return "AUT"
+	}
+	return "MAN"
+}
+
 // buildNavballPanel renders the framed panel string and returns it
 // together with the control layout relative to the panel's own
 // top-left (0,0). The caller offsets these by the panel's screen
@@ -120,7 +133,7 @@ func navModeLabel(m sim.NavMode) string {
 // Every assembled line is exactly navballInnerW cells wide so the
 // caller's splitStyledCells / overlayStyledBlock splice stays
 // aligned (the historical right-border-drop invariant).
-func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, rcsActive bool) (string, []navballControlBox) {
+func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, instantSAS, rcsActive bool) (string, []navballControlBox) {
 	pad := func(s string, w int) string {
 		n := lipgloss.Width(s)
 		if n >= w {
@@ -140,34 +153,70 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, rcsActive b
 	var boxes []navballControlBox
 	btnStyle := lipgloss.NewStyle().Foreground(v.theme.Primary.GetForeground())
 
-	// Inner row 0 (panel row 1): [MODE] left, RCS right. No label —
-	// the disk speaks for itself.
+	// Inner row 0 (panel row 1): [MODE] left, [SAS] centred, RCS
+	// right. [MODE] cycles NavMode; [SAS] toggles the manual-flight
+	// attitude model (MAN slew / AUT instant — World.InstantSAS);
+	// RCS toggles the thruster. The disk speaks for itself, no label.
 	modeLabel := "[" + navModeLabel(mode) + "]"
+	sasLabel := "[" + sasTagLabel(instantSAS) + "]"
 	rcsLabel := "RCS"
 	rcsStyle := v.theme.Dim
 	if rcsActive {
 		rcsStyle = v.theme.Warning
 	}
-	gap := navballInnerW - lipgloss.Width(modeLabel) - lipgloss.Width(rcsLabel)
-	if gap < 1 {
-		gap = 1
+	// MAN (slew) is the v0.10 default → neutral; AUT (instant) is the
+	// legacy opt-out → Warning, so the non-default model is never
+	// silent (the locked-decision "not silent" requirement).
+	sasStyle := btnStyle
+	if instantSAS {
+		sasStyle = v.theme.Warning
+	}
+
+	mw := lipgloss.Width(modeLabel)
+	sw := lipgloss.Width(sasLabel)
+	rw := lipgloss.Width(rcsLabel)
+	// modeLabel hugs inner col 0; rcsLabel ends flush at innerW;
+	// sasLabel sits centred between, clamped off both neighbours so
+	// the three never collide on a wide [ORBIT] mode label.
+	rcsStart := navballInnerW - rw
+	sasStart := (navballInnerW - sw) / 2
+	if sasStart < mw+1 {
+		sasStart = mw + 1
+	}
+	if sasStart+sw > rcsStart-1 {
+		sasStart = rcsStart - 1 - sw
+	}
+	gap1 := sasStart - mw
+	gap2 := rcsStart - (sasStart + sw)
+	if gap1 < 1 {
+		gap1 = 1
+	}
+	if gap2 < 1 {
+		gap2 = 1
 	}
 	boxes = append(boxes,
 		navballControlBox{
 			id:       NavballControlMode,
 			colStart: 1, // +1 left border; mode starts at inner col 0
-			colEnd:   1 + lipgloss.Width(modeLabel),
+			colEnd:   1 + mw,
 			row:      1, // +1 top border; toggle is panel row 1
 		},
 		navballControlBox{
+			id:       NavballControlSAS,
+			colStart: 1 + sasStart,
+			colEnd:   1 + sasStart + sw,
+			row:      1,
+		},
+		navballControlBox{
 			id:       NavballControlRCS,
-			colStart: 1 + lipgloss.Width(modeLabel) + gap,
-			colEnd:   1 + lipgloss.Width(modeLabel) + gap + lipgloss.Width(rcsLabel),
+			colStart: 1 + rcsStart,
+			colEnd:   1 + rcsStart + rw,
 			row:      1,
 		},
 	)
 	toggleLine := pad(btnStyle.Render(modeLabel)+
-		strings.Repeat(" ", gap)+rcsStyle.Render(rcsLabel), navballInnerW)
+		strings.Repeat(" ", gap1)+sasStyle.Render(sasLabel)+
+		strings.Repeat(" ", gap2)+rcsStyle.Render(rcsLabel), navballInnerW)
 	lines := []string{toggleLine}
 
 	// Body: navballBodyRows rows. Left column = a stack of SAS
