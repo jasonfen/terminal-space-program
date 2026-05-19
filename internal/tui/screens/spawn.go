@@ -17,7 +17,7 @@ import (
 // focus; ←/→ edit the focused field; Enter spawns; Esc cancels.
 type SpawnCraft struct {
 	theme    Theme
-	fieldIdx int // 0=loadout, 1=position, 2=parent, 3=altitude/latitude, 4=direction
+	fieldIdx int // 0=loadout, 1=position, 2=parent, 3=alt/lat, 4=direction, 5=stack(custom only)
 
 	loadoutIdx   int
 	posMode      spawnPosMode // v0.9.2+: tri-state — orbit / alongside / launchpad
@@ -26,7 +26,19 @@ type SpawnCraft struct {
 	altIdx       int
 	latIdx       int // v0.9.2+: latitude preset cursor when posMode=launchpad
 	retrograde   bool
+
+	// v0.10.1+ stack configurator. loadoutIdx == len(LoadoutOrder)
+	// is the synthetic "Custom…" entry; when it's selected a STACK
+	// field (idx 5) becomes reachable. customStages is the working
+	// stack bottom-first (Loadout.Stages convention); partIdx is the
+	// catalog part-picker cursor over StageCatalogOrder.
+	customStages []spacecraft.Stage
+	partIdx      int
 }
+
+// stackFieldIdx is the form-field index of the STACK editor — only
+// reachable (Tab includes it) when the Custom loadout is selected.
+const stackFieldIdx = 5
 
 // spawnPosMode enumerates the v0.8.3 / v0.9.2 spawn-position modes.
 type spawnPosMode int
@@ -81,6 +93,8 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string) {
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
+	s.customStages = nil
+	s.partIdx = 0
 	s.posMode = posOrbit
 	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
 	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
@@ -104,12 +118,46 @@ const (
 	SpawnActionConfirm             // enter — caller reads accessors
 )
 
-// SelectedLoadoutID returns the loadout ID for the current cursor.
+// loadoutChoiceCount is the number of CRAFT TYPE rows — every
+// catalog loadout plus the synthetic "Custom…" entry at the end.
+func loadoutChoiceCount() int { return len(spacecraft.LoadoutOrder) + 1 }
+
+// IsCustomSelected reports whether the cursor is on the synthetic
+// "Custom…" CRAFT TYPE entry (the last row). v0.10.1+.
+func (s *SpawnCraft) IsCustomSelected() bool {
+	return s.loadoutIdx == len(spacecraft.LoadoutOrder)
+}
+
+// SelectedLoadoutID returns the loadout ID for the current cursor,
+// or "" when the synthetic Custom entry is selected (the caller
+// then reads SelectedCustomStages instead). v0.10.1+.
 func (s *SpawnCraft) SelectedLoadoutID() string {
+	if s.IsCustomSelected() {
+		return ""
+	}
 	if s.loadoutIdx < 0 || s.loadoutIdx >= len(spacecraft.LoadoutOrder) {
 		return spacecraft.LoadoutOrder[0]
 	}
 	return spacecraft.LoadoutOrder[s.loadoutIdx]
+}
+
+// SelectedCustomStages returns a copy of the player-assembled stack
+// (bottom-first), or nil when Custom is not selected. The spawn
+// path treats a nil/empty result as "no custom craft". v0.10.1+.
+func (s *SpawnCraft) SelectedCustomStages() []spacecraft.Stage {
+	if !s.IsCustomSelected() || len(s.customStages) == 0 {
+		return nil
+	}
+	out := make([]spacecraft.Stage, len(s.customStages))
+	copy(out, s.customStages)
+	return out
+}
+
+// CustomStackEmpty reports Custom-selected-but-no-stages — the one
+// confirm state the caller must reject (an empty stack is not a
+// spawnable craft). v0.10.1+.
+func (s *SpawnCraft) CustomStackEmpty() bool {
+	return s.IsCustomSelected() && len(s.customStages) == 0
 }
 
 // SelectedParentID returns the body ID the cursor is on, or empty
@@ -165,7 +213,17 @@ func (s *SpawnCraft) SelectedLongitudeEastDeg() float64 {
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
 func (s *SpawnCraft) HandleKey(key string) SpawnAction {
-	const numFields = 5
+	// v0.10.1+: the STACK field (idx 5) exists only while Custom is
+	// selected. numFields flexes 5↔6 so Tab skips it otherwise; if
+	// the player cycled off Custom while parked on STACK, snap focus
+	// back to CRAFT TYPE so a stale idx can't strand the cursor.
+	numFields := 5
+	if s.IsCustomSelected() {
+		numFields = 6
+	}
+	if s.fieldIdx >= numFields {
+		s.fieldIdx = 0
+	}
 	switch key {
 	case "esc":
 		return SpawnActionCancel
@@ -179,8 +237,31 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 		s.cycleField(-1)
 	case "right", "l":
 		s.cycleField(+1)
+	case "a":
+		// Add the picked catalog part on top of the working stack.
+		// Form-local: only meaningful on the STACK field.
+		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() {
+			if id := s.pickedPartID(); id != "" {
+				if st, ok := spacecraft.BuildStage(id); ok {
+					s.customStages = append(s.customStages, st)
+				}
+			}
+		}
+	case "x":
+		// Remove the top (last-added) stage.
+		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() && len(s.customStages) > 0 {
+			s.customStages = s.customStages[:len(s.customStages)-1]
+		}
 	}
 	return SpawnActionNone
+}
+
+// pickedPartID returns the catalog ID under the part-picker cursor.
+func (s *SpawnCraft) pickedPartID() string {
+	if s.partIdx < 0 || s.partIdx >= len(spacecraft.StageCatalogOrder) {
+		return ""
+	}
+	return spacecraft.StageCatalogOrder[s.partIdx]
 }
 
 // cycleField nudges the focused field's value by step (typically
@@ -191,7 +272,11 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 func (s *SpawnCraft) cycleField(step int) {
 	switch s.fieldIdx {
 	case 0:
-		s.loadoutIdx = wrapIdx(s.loadoutIdx+step, len(spacecraft.LoadoutOrder))
+		// +1 row for the synthetic "Custom…" entry. v0.10.1+.
+		s.loadoutIdx = wrapIdx(s.loadoutIdx+step, loadoutChoiceCount())
+	case stackFieldIdx:
+		// STACK field: ←/→ moves the catalog part-picker cursor.
+		s.partIdx = wrapIdx(s.partIdx+step, len(spacecraft.StageCatalogOrder))
 	case 1:
 		s.posMode = spawnPosMode(wrapIdx(int(s.posMode)+step, 3))
 	case 2:
@@ -246,6 +331,65 @@ func (s *SpawnCraft) Render(width int) string {
 			row = s.theme.Dim.Render(row)
 		}
 		lines = append(lines, "  "+marker+row)
+	}
+	// v0.10.1+: synthetic "Custom…" row — opens the STACK editor.
+	{
+		customRow := "✎ Custom…  build-your-own  — assemble a stage stack"
+		marker := "  "
+		if s.IsCustomSelected() {
+			marker = s.theme.Warning.Render("→ ")
+			if s.fieldIdx == 0 {
+				customRow = s.theme.Warning.Render(customRow)
+			} else {
+				customRow = s.theme.Primary.Render(customRow)
+			}
+		} else {
+			customRow = s.theme.Dim.Render(customRow)
+		}
+		lines = append(lines, "  "+marker+customRow)
+	}
+
+	// v0.10.1+ STACK editor — only when Custom is selected. Shows the
+	// working stack bottom→top, the catalog part-picker, and the
+	// add/remove key hints. Field idx 5 (stackFieldIdx).
+	if s.IsCustomSelected() {
+		lines = append(lines, "")
+		lines = append(lines, s.fieldHeader(stackFieldIdx, "STACK (bottom → top)"))
+		if len(s.customStages) == 0 {
+			lines = append(lines, "  "+s.theme.Dim.Render("(empty — pick a part below and press [a] to add)"))
+		} else {
+			for i := len(s.customStages) - 1; i >= 0; i-- {
+				st := s.customStages[i]
+				tag := "top/core"
+				if i == 0 {
+					tag = "bottom/fires first"
+				} else if i != len(s.customStages)-1 {
+					tag = "mid"
+				}
+				eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
+				if st.Thrust == 0 {
+					eng = "RCS-only"
+				}
+				lines = append(lines, "  "+s.theme.Primary.Render(
+					fmt.Sprintf("%s %-7s  dry %.0fkg fuel %.0fkg  %s  (%s)",
+						st.Glyph, st.Name, st.DryMass, st.FuelMass, eng, tag)))
+			}
+		}
+		// Catalog part-picker line.
+		lines = append(lines, "")
+		pid := s.pickedPartID()
+		if m, ok := spacecraft.StageCatalog[pid]; ok {
+			st, _ := spacecraft.BuildStage(pid)
+			eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
+			if st.Thrust == 0 {
+				eng = "RCS-only"
+			}
+			pickLabel := fmt.Sprintf("%s %s  [%s]  dry %.0fkg fuel %.0fkg  %s",
+				m.Glyph, m.Name, m.Tier, st.DryMass, st.FuelMass, eng)
+			lines = append(lines, "  "+s.fieldValue(stackFieldIdx, "part: "+pickLabel))
+		}
+		lines = append(lines, "  "+s.theme.Footer.Render(
+			"[←/→] pick part  [a] add on top  [x] remove top"))
 	}
 
 	// Field 1: position mode — tri-state cycle. orbit (uses PARENT

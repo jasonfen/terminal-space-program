@@ -782,8 +782,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		craftChip = fmt.Sprintf(" — CRAFT %d/%d", w.ActiveCraftIdx+1, n)
 	}
 	title := v.renderTitleBar(sys.Name+craftChip, totalCols)
+	// Footer is a cheat-sheet of the most-used keys; `?` opens the
+	// full help overlay (source of truth). Streamlined v0.10.1+ —
+	// dropped stale labels (`q` is attitude:radial+ since v0.7.3,
+	// `s` is attitude:retrograde, ←/→ body-cycle was superseded by
+	// the v0.9.0 `t`/`T` target slot, `N` clear-all moved into the
+	// `m` planner in v0.8.6) and added the flight / target / stage /
+	// save row players actually reach for.
 	footer := v.theme.Footer.Render(
-		"[q]quit [s]system [←/→]body [+/-]zoom [f/F]focus [g]sys [n]spawn [N]clr [[/]]craft [H]hohmann [P]porkchop [R]refine [m]burn [i]info [?]help [.,]warp [0]pause",
+		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]burn [b]fire [wasdqe]attitude [space]stage [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -993,7 +1000,21 @@ func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.Ce
 // another body's SOI use stride-1 (solid) so the crossing is visually
 // distinct at a glance.
 func (v *OrbitView) drawNodes(w *sim.World) {
-	if len(w.ActiveCraft().Nodes) == 0 || w.ActiveCraft() == nil {
+	if w.ActiveCraft() == nil || len(w.ActiveCraft().Nodes) == 0 {
+		return
+	}
+	// v0.10.1: suppress the ENTIRE node overlay (markers + dashed
+	// post-burn legs) while a finite burn is firing. The live craft
+	// state is mutated every integrator step, so NodeInertialPosition
+	// — which forward-propagates the *current* orbit to each node's
+	// trigger time — whirls the marker crosses around the orbit and
+	// outward every frame (the reported "crosshair circling the orbit
+	// and beyond"). v0.6.1 already skipped the dashed preview for this
+	// exact reason but did it AFTER the marker loop, so the markers
+	// kept spinning. Guard hoisted above the loop so both freeze
+	// together; the live ellipse + active-burn HUD carry the visual
+	// load until the burn completes (KSP freezes the node here too).
+	if w.ActiveCraft().ActiveBurn != nil {
 		return
 	}
 	homeID := w.ActiveCraft().Primary.ID
@@ -1013,15 +1034,6 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 			Color:   render.ManeuverSegmentColor(i),
 			NodeIdx: i + 1, // 0 = none; planted node i is 1+i in the tag.
 		})
-	}
-
-	// v0.6.1: while a finite burn is firing the live craft state is
-	// mutated every integrator step; the dashed trajectory preview
-	// would otherwise rotate wildly each frame. Skip the preview and
-	// let the live ellipse + active-burn HUD block carry the visual
-	// load until the burn completes.
-	if w.ActiveCraft().ActiveBurn != nil {
-		return
 	}
 
 	// v0.6.1: render each post-maneuver leg in its own color so the

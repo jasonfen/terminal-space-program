@@ -20,6 +20,12 @@ type HohmannPreview struct {
 	TTransfer  float64 // seconds
 	Valid      bool    // false when inputs are degenerate
 	Note       string  // human-readable reason when !Valid
+	// Warn (v0.10.1+) is a non-fatal advisory shown alongside a
+	// VALID preview: the intra-primary numbers assume a circular
+	// coplanar departure orbit, so an eccentric / inclined parking
+	// orbit makes them optimistic. Empty when the orbit is within
+	// tolerance. See HohmannDepartureWarning.
+	Warn string
 }
 
 // HohmannPreviewFor computes a preview to the indicated body index in
@@ -48,6 +54,7 @@ func (w *World) HohmannPreviewFor(bodyIdx int) HohmannPreview {
 	}
 
 	var mu, r1, r2 float64
+	var warn string
 	switch {
 	case target.ParentID == w.ActiveCraft().Primary.ID:
 		// Intra-primary: craft and target both orbit the craft's
@@ -57,6 +64,7 @@ func (w *World) HohmannPreviewFor(bodyIdx int) HohmannPreview {
 		mu = w.ActiveCraft().Primary.GravitationalParameter()
 		r1 = w.ActiveCraft().State.R.Norm()
 		r2 = target.SemimajorAxisMeters()
+		warn = w.HohmannDepartureWarning(bodyIdx)
 	case w.ActiveCraft().Primary.ParentID != "" && target.ID == w.ActiveCraft().Primary.ParentID:
 		// Moon → parent (e.g. Luna craft + Earth target). The actual
 		// transfer is a moon-escape ellipse, not a two-impulse
@@ -90,6 +98,7 @@ func (w *World) HohmannPreviewFor(bodyIdx int) HohmannPreview {
 		DV2:        dv2,
 		TTransfer:  t,
 		Valid:      true,
+		Warn:       warn,
 	}
 }
 
@@ -101,9 +110,13 @@ func (p HohmannPreview) Format() []string {
 		}
 		return []string{fmt.Sprintf("  Hohmann: %s", p.Note)}
 	}
-	return []string{
+	lines := []string{
 		fmt.Sprintf("  Δv1: %.2f km/s", p.DV1/1000),
 		fmt.Sprintf("  Δv2: %.2f km/s", p.DV2/1000),
 		fmt.Sprintf("  t:   %.1f d", p.TTransfer/bodies.SecondsPerDay),
 	}
+	if p.Warn != "" {
+		lines = append(lines, "  ⚠ "+p.Warn)
+	}
+	return lines
 }
