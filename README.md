@@ -228,7 +228,12 @@ Click-only. No drag, no wheel-zoom.
 | `Enter` | Commit burn |
 | `Esc` | Cancel and back to orbit view |
 | `Ctrl+D` | Delete the planted node being edited (no-op when creating new) |
-| `Ctrl+K` | Clear ALL planted nodes for the active craft |
+| `c` / `C` | Clear ALL planted nodes for the active craft (`Ctrl+K` still works) |
+
+The form panel lists every planted node for the active craft
+(mode / Δv / fire-time countdown), with the node under edit
+flagged — so the planner shows the whole schedule, not just the
+burn being created.
 
 Δv drives both delivered Δv **and** burn duration via the rocket
 equation `t = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`. Zero-thrust craft
