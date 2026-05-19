@@ -688,8 +688,50 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 🧊 **backlog · target v0.9**. v0.5.7's `PlanIntraPrimaryHohmann` covers same-parent (LEO → Luna); v0.6.3 covers moon → parent. The remaining direction — heliocentric → moon-of-other-planet (Phobos from a Mars approach, a Galilean from a Jupiter cruise) — needs a real patched-conic capture pass through both SOIs.
 
 ### Combined plane-shift + Hohmann
-<!-- llm-parse: id=plane-shift-hohmann status=backlog target=v0.9 weight=L -->
-🧊 **backlog · target v0.9 · substantial**. Lambert solver constrained on post-capture inclination so departure geometry lands prograde at the destination instead of the current "match ecliptic, hope arrival inclination is OK" pattern. The v0.8-plan.md retrospective explicitly flags this as **substantial** — the binding technical work is the constrained Lambert variant (root-find on inclination as well as time-of-flight), not the UI plumbing. Pairs naturally with the [capture-direction toggle](#capture-direction-toggle) since both touch arrival-side geometry.
+<!-- llm-parse: id=plane-shift-hohmann status=spec-committed target=v0.11 weight=L -->
+🧊 **backlog · spec-committed · target v0.11 · substantial**. Lambert solver constrained on post-capture inclination so departure geometry lands prograde at the destination instead of the current "match ecliptic, hope arrival inclination is OK" pattern. The v0.8-plan.md retrospective explicitly flags this as **substantial** — the binding technical work is the constrained Lambert variant (root-find on inclination as well as time-of-flight), not the UI plumbing. Pairs naturally with the [capture-direction toggle](#capture-direction-toggle) since both touch arrival-side geometry.
+
+**Why now committed (2026-05-19, from v0.10.1 playtest):** the
+playtest confirmed the user-visible symptom this fixes — the `H`
+auto-plant "only calculates properly from a 0° inclination,
+circular orbit." Root cause is two coupled assumptions in
+`planner.PlanIntraPrimaryHohmann` / `HohmannTransfer` +
+`sim.PlanTransfer`: (1) `rPark := craft.State.R.Norm()` is fed in
+as a *circular* radius (`vDepCirc = √(µ/rPark)`), so an eccentric
+departure orbit gets the wrong Δv and the burn isn't placed at
+periapsis; (2) phasing is a flat `atan2(R.Y, R.X)` with **no
+plane-change term at all**, so an inclined parking orbit can't
+reach the target's plane. A non-blocking advisory guard shipped
+in v0.10.1 (`sim.HohmannDepartureWarning` / `hohmannGuardDetail`,
+surfaced on `H` and in `HohmannPreview.Warn`) so the symptom is
+no longer silent, but it does **not** change the math.
+
+**Committed scope for the real fix (the L slice):**
+- **Eccentric-aware departure** — derive the parking orbit's
+  Keplerian elements, place the departure impulse at periapsis (or
+  the optimal true anomaly), and size Δv off the *actual* speed
+  there, not `√(µ/r)`. Removes assumption (1); independently
+  useful even coplanar.
+- **Plane change folded into the transfer** — the constrained
+  Lambert variant: root-find on the inclination/RAAN match as well
+  as time-of-flight so the transfer arc leaves the craft's plane
+  and arrives in the target's, replacing the separate `I`-then-`H`
+  dance. Removes assumption (2).
+- **Δv split policy** — combined plane+raise at departure vs. a
+  cheaper plane change at the higher-altitude node; expose enough
+  in the preview/HUD that the player sees the trade.
+- **Guard retirement** — once the planner is plane/eccentricity
+  aware the v0.10.1 advisory becomes a (much rarer) true-error
+  case; downgrade or remove it.
+- **Test surface** — eccentric coplanar departure matches an
+  independent two-body propagation; inclined departure arrives in
+  the target plane within tolerance; `I`-then-`H` and the combined
+  path converge to the same orbit.
+
+Sized **L / substantial** (real transfer math, not UI plumbing);
+**not** in v0.10 — targeted at v0.11 (its own slice), pairs with
+the [capture-direction toggle](#capture-direction-toggle) and
+[wider cross-SOI PlanTransfer](#wider-cross-soi-plantransfer).
 
 ### Capture-direction toggle
 <!-- llm-parse: id=capture-direction-toggle status=backlog target=v0.9 -->
@@ -708,8 +750,8 @@ The reverted artifacts are git history, not a starting point. **Do not re-implem
 ✅ **shipped v0.9.6** (`internal/render/lighting.go` + `eclipse.go` + tests; merged from `v0.9.6-lighting` 78639ea → `main` 32e8d03). Sub-solar-point per body per tick → `cos(angle to sun)` shading + day/night terminator; eclipses fall out of the same geometry. Was the research-first v0.9.6 pick that closed the v0.9 cycle.
 
 ### Staging chain
-<!-- llm-parse: id=staging-chain status=backlog target=v0.9 -->
-🧊 **backlog · target v0.9**. Ground launch → orbit → ICPS / S-IVB / lander staging chain so the craft fleet has more than one tier of capability. Unblocks (c) multi-rev porkchop and the rendezvous tooling slice (more craft → more practical scenarios).
+<!-- llm-parse: id=staging-chain status=in-progress target=v0.10.1 -->
+🛠 **in progress · v0.10.1** (branch `v0.10.1-staging`). Basic manual chain shipped v0.9.1 (`space` decouples `Stages[0]`, Saturn-V loadout, STAGES HUD). The L expansion — multi-tier loadouts (Apollo-Stack with mid-stage Lander payload separation) + a named stage catalog + a spawn-form stack configurator — is scope-committed in `docs/v0.10-plan.md` §v0.10.1. Unblocks (c) multi-rev porkchop and the rendezvous tooling slice (more craft → more practical scenarios).
 
 ### Multiplayer implementation
 <!-- llm-parse: id=multiplayer status=planning target=v0.9-stretch -->
@@ -892,7 +934,7 @@ doc.
 | 1 | [Staging chain](#staging-chain) | L | 🧊 backlog | Ground launch → LEO → ICPS → lander chain. Composes multi-stage staging + atmosphere + launch mechanics. Unblocks practical use of (2)–(4). Open Qs: [staging continuity](#staging-continuity), [composite-craft mass distribution](#composite-craft-mass-distribution-post-docking) gate this. |
 | 2 | [Mission scripting](#mission-scripting--editor) | L | ⚠ rolled back | **Design-pass first** (eight decision points), then re-implement. Reference v0.8.7-attempt artifacts only for implementation shape. Block 1: write the modder-UX target end-to-end. |
 | 3 | [Wider cross-SOI PlanTransfer](#wider-cross-soi-plantransfer) | L | 🧊 backlog | Heliocentric → moon-of-other-planet patched-conic capture. Substantial new transfer math. |
-| 4 | [Combined plane-shift + Hohmann](#combined-plane-shift--hohmann) | L | 🧊 backlog | Lambert constrained on post-capture inclination. Substantial — root-find on inclination + time-of-flight. |
+| 4 | [Combined plane-shift + Hohmann](#combined-plane-shift--hohmann) | L | 🧊 spec-committed (v0.11) | Eccentric-aware departure + plane change folded into the transfer (constrained Lambert). v0.10.1 shipped a non-blocking advisory guard only; full spec committed. |
 | 5 | [Rendezvous tooling](#rendezvous-tooling) | M | 🧊 backlog | Target-craft selection + target-relative burn modes + null-v_rel at closest approach + iteration. Pairs with multi-craft fleet from (1). |
 | 6 | [Solar lighting + terminator + eclipses](#solar-lighting--daynight-terminator--eclipses) | M | ✅ shipped v0.9.6 | Landed `internal/render/lighting.go`+`eclipse.go`; closed the v0.9 cycle (merge 32e8d03). |
 | 7 | [Predictor adaptive sampling](#predictor-adaptive-sampling) | M | 🧊 backlog | Three-cycle carry-over; foundation shipped v0.8.4. ~150–200 LOC. |

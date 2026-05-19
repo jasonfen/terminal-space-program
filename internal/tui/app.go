@@ -339,8 +339,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			action := a.spawn.HandleKey(m.String())
 			switch action {
 			case screens.SpawnActionConfirm:
+				// v0.10.1+: Custom selected but no stages assembled is
+				// not a spawnable craft — flash and keep the form open
+				// so the player can add parts instead of silently
+				// getting a round-robin default.
+				if a.spawn.CustomStackEmpty() {
+					a.statusMsg = "custom stack is empty — add a part with [a]"
+					a.statusExpires = time.Now().Add(3 * time.Second)
+					return a, nil
+				}
 				spec := sim.SpawnSpec{
 					LoadoutID:       a.spawn.SelectedLoadoutID(),
+					CustomStages:    a.spawn.SelectedCustomStages(),
 					ParentBodyID:    a.spawn.SelectedParentID(),
 					AltitudeM:       a.spawn.SelectedAltitudeM(),
 					Retrograde:      a.spawn.SelectedRetrograde(),
@@ -486,6 +496,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch a.world.Target.Kind {
 				case sim.TargetBody:
 					_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
+					// v0.10.1: the auto-plant is a coplanar circular
+					// solver; if the departure orbit is eccentric or
+					// out of the target's plane it plants a silently-
+					// off transfer. Surface a non-blocking advisory so
+					// the result isn't a mystery (the node is still
+					// planted — advisory, not a refusal).
+					if warn := a.world.HohmannDepartureWarning(a.world.Target.BodyIdx); warn != "" {
+						a.statusMsg = warn
+						a.statusExpires = time.Now().Add(6 * time.Second)
+					}
 				case sim.TargetCraft:
 					a.statusMsg = "H targets bodies — for craft, plan via [m]"
 					a.statusExpires = time.Now().Add(3 * time.Second)

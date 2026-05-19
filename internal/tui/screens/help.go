@@ -45,7 +45,7 @@ func (h *Help) Render() string {
 			{"enter", "commit burn"},
 			{"esc (in planner)", "cancel burn"},
 			{"ctrl+d (in planner)", "delete the node being edited"},
-			{"ctrl+k (in planner)", "clear ALL planned nodes for active craft"},
+			{"c / C (in planner)", "clear ALL planned nodes for active craft (ctrl+k still works)"},
 			{"H", "plant Hohmann transfer to selected body"},
 			{"I", "plant inclination match (selected body / equatorial)"},
 			{"C", "plant circularize burn at next apoapsis"},
@@ -66,7 +66,7 @@ func (h *Help) Render() string {
 			{"k", "SAS model: slew / instant (navball [MAN]/[AUT]) (v0.10.0+)"},
 		}},
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
-			{"n", "open spawn form (loadout / position / parent body / altitude / direction)"},
+			{"n", "open spawn form (loadout / position / parent / altitude / dir; Custom = stack builder, v0.10.1+)"},
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
 			{"U", "undock active composite (v0.8.3+)"},
 			{"t / T", "cycle / clear target (v0.9.0+)"},

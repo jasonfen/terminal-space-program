@@ -166,7 +166,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
 | `g` | Reset camera focus to system |
 | `v` | Cycle view (top → right → bottom → left → orbit-flat) |
-| `n` | Open spawn form (loadout / position / parent body / altitude / direction) |
+| `n` | Open spawn form (loadout / position / parent body / altitude / direction). Pick **Custom…** for the v0.10.1+ stack builder: on the STACK field, `←/→` picks a catalog part, `a` adds it on top, `x` removes the top stage |
 | `H` | Auto-plant Hohmann transfer to `World.Target` body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse). TargetCraft flashes "needs v0.9.3" |
 | `I` | Plant inclination match — rotates the orbital plane to `World.Target` body's inclination (or 0° equatorial when target is None). TargetCraft flashes "needs v0.9.3" |
 | `C` | Plant circularize burn at next apoapsis (v0.9.4+) — pairs with the LAUNCH HUD's ORBIT READY callout. Errors when apoapsis is below the primary's atmosphere cutoff or the orbit is hyperbolic |
@@ -228,7 +228,12 @@ Click-only. No drag, no wheel-zoom.
 | `Enter` | Commit burn |
 | `Esc` | Cancel and back to orbit view |
 | `Ctrl+D` | Delete the planted node being edited (no-op when creating new) |
-| `Ctrl+K` | Clear ALL planted nodes for the active craft |
+| `c` / `C` | Clear ALL planted nodes for the active craft (`Ctrl+K` still works) |
+
+The form panel lists every planted node for the active craft
+(mode / Δv / fire-time countdown), with the node under edit
+flagged — so the planner shows the whole schedule, not just the
+burn being created.
 
 Δv drives both delivered Δv **and** burn duration via the rocket
 equation `t = (m₀/ṁ)·(1 − exp(−Δv/(Isp·g₀)))`. Zero-thrust craft
@@ -310,6 +315,16 @@ where Lambert didn't converge — `Enter` on those is a no-op.
   propulsion + visual differentiation; the orbit canvas renders
   every craft with its loadout glyph + color so they read
   distinctly even at small zoom.
+- **Multi-tier stack + configurator** (v0.10.1+). The **Apollo
+  Stack** loadout (S-IC → S-II → S-IVB → LM → CSM) flies the full
+  mission arc on the v0.9.1 staging chain: decoupling the mid-stage
+  LM spawns it as its own controllable craft (payload separation),
+  leaving the CSM core to fly the rendezvous / return. The spawn
+  form's **Custom…** entry opens a stack builder over a named stage
+  catalog (S-IC / S-II / S-IVB / ICPS / SRB / Core / F9 stages /
+  Lander / CSM / RCS-tug) — assemble any bottom-to-top stack and
+  spawn it. Custom craft round-trip through save with no schema
+  bump (per-stage state already persists at v6).
 - **Capture preview** (v0.8.2+). Plant a Hohmann to another body
   and the HUD's `CAPTURE PREVIEW` block shows what you'll arrive
   with — relative approach speed and predicted prograde /

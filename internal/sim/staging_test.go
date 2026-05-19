@@ -181,3 +181,52 @@ func TestStageActiveAdvancesEngineToNextStage(t *testing.T) {
 		t.Errorf("post-stage Isp (S-II): got %.0f, want 421", active.Isp)
 	}
 }
+
+// TestApolloStackDecoupleChainLeavesCSM — the v0.10.1 Apollo-Stack
+// is [S-IC, S-II, S-IVB, LM, CSM]. Four decouples drop S-IC → S-II
+// → S-IVB → LM; the LM jettison spawns a separate controllable
+// slate craft (payload separation), and the active craft is left
+// as the single-stage CSM core. The fifth decouple refuses
+// (ErrStageOnlyOne — can't drop the only/last stage).
+func TestApolloStackDecoupleChainLeavesCSM(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+
+	if len(stack.Stages) != 5 {
+		t.Fatalf("Apollo-Stack should start 5-stage, got %d", len(stack.Stages))
+	}
+
+	wantDropped := []string{"S-IC", "S-II", "S-IVB", "LM"}
+	for i, name := range wantDropped {
+		_, jettIdx, err := w.StageActive(0)
+		if err != nil {
+			t.Fatalf("decouple %d (%s): %v", i, name, err)
+		}
+		jett := w.Crafts[jettIdx]
+		if jett.Stages[0].Name != name {
+			t.Errorf("decouple %d dropped %q, want %q", i, jett.Stages[0].Name, name)
+		}
+		// LM separation must yield a real, distinct slate craft the
+		// player can switch to and fly (payload separation).
+		if name == "LM" && jett.Stages[0].Thrust <= 0 {
+			t.Errorf("separated LM has no engine (Thrust=%v) — not controllable",
+				jett.Stages[0].Thrust)
+		}
+	}
+
+	core := w.Crafts[0]
+	if len(core.Stages) != 1 || core.Stages[0].Name != "CSM" {
+		t.Fatalf("surviving core: %d stage(s) named %q, want 1× CSM",
+			len(core.Stages), core.Stages[0].Name)
+	}
+	if _, _, err := w.StageActive(0); !errors.Is(err, ErrStageOnlyOne) {
+		t.Errorf("dropping the CSM core: err = %v, want ErrStageOnlyOne", err)
+	}
+}
