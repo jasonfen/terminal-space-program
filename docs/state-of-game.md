@@ -666,8 +666,16 @@ tag plus the major slice / cycle it would naturally pair with.
 Items here are **not under active development** unless noted.
 
 ### Rendezvous tooling
-<!-- llm-parse: id=rendezvous status=backlog target=v0.9 -->
-🧊 **backlog · target v0.9**. Real rendezvous flow that v0.8.3 docking left as a "spawn alongside / thumb-fly" cheat. Five sequenced steps: target-craft selection → target-relative prograde / retrograde burn modes → prograde-to-target nudge from a phasing orbit → null v_rel at predicted closest approach → iterate until in DOCK READY range. Foundations needed: `World.TargetCraftIdx`, `BurnTargetPrograde` / `BurnTargetRetrograde` modes (h-direction-from-relative-velocity), `planner.NextClosestApproach`, `World.PlanRendezvous` auto-plant, TARGET HUD block. Pair with staging slices that grow the craft fleet.
+<!-- llm-parse: id=rendezvous status=partially-shipped target=v0.9-foundations+v0.10.2-actionability -->
+🟡 **partially shipped — foundations v0.9.3, actionability v0.10.2; manual loop unchanged.** Five sequenced steps from the original spec:
+
+1. **Target-craft selection** — ✅ v0.9.0 (`World.Target` unified slot) + v0.9.3 (per-craft target binding survives active-craft switches).
+2. **Target-relative prograde / retrograde burn modes** — ✅ v0.9.3 (`BurnTargetPrograde` / `BurnTargetRetrograde` / `BurnTarget` / `BurnAntiTarget`).
+3. **Prograde-to-target nudge from a phasing orbit** — ✅ v0.10.2 (`World.PlanRendezvousNudge` / `K` keystroke; Lambert intercept ⇒ project onto eight velocity-frame axes ⇒ verify via `NextClosestApproach`; TARGET HUD shows achievable CA + Δv readouts).
+4. **Null v_rel at predicted closest approach** — ✅ v0.9.3 (`m`-form `next closest approach` trigger event + `BurnTargetRetrograde` planted node). Manual step — no auto-plant variant.
+5. **Iterate until in DOCK READY range** — ✅ player loop using the above; the v0.10.2 advisory recomputes per frame so the recommendation updates after each burn.
+
+**Remaining open** (deferred, not gating): a single `World.PlanRendezvous` auto-plant that chains steps 3 + 4 in one keystroke. v0.10.2's `K` covers step 3 only; the player handles step 4 manually through the `m` form. The remaining auto-plant is a candidate v0.11+ slice rider once the slice-3 actionability has playtest signal.
 
 ### Mission scripting / editor
 <!-- llm-parse: id=mission-scripting status=rolled-back target=v0.9 attempted=v0.8.7 -->
