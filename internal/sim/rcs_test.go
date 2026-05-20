@@ -55,14 +55,18 @@ func TestFireRCSPulseGatesOnEngineMode(t *testing.T) {
 	}
 }
 
-// TestFireRCSPulseUpdatesAttitudeMode: the HUD's "hold" line should
-// reflect the last fired direction.
-func TestFireRCSPulseUpdatesAttitudeMode(t *testing.T) {
+// TestFireRCSPulsePreservesAttitudeMode: RCS is a 6-axis translation
+// tool — firing a pulse should apply Δv without re-pointing the nose.
+// The SAS hold (AttitudeMode) must survive an RCS pulse in a different
+// direction so the slew system doesn't slew the craft mid-translation.
+func TestFireRCSPulsePreservesAttitudeMode(t *testing.T) {
 	w, _ := NewWorld()
+	before := w.ActiveCraft().AttitudeMode
 	w.CycleEngineMode()
 	w.FireRCSPulse(spacecraft.BurnRetrograde)
-	if w.ActiveCraft().AttitudeMode != spacecraft.BurnRetrograde {
-		t.Errorf("AttitudeMode = %v, want Retrograde", w.ActiveCraft().AttitudeMode)
+	if w.ActiveCraft().AttitudeMode != before {
+		t.Errorf("AttitudeMode changed by RCS pulse: %v → %v, want unchanged",
+			before, w.ActiveCraft().AttitudeMode)
 	}
 }
 

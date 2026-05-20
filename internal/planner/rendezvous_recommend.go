@@ -267,7 +267,10 @@ func buildVelocityFrameAxes(stateA, stateB orbital.Vec3State) map[AxisLabel]orbi
 		}
 	}
 
-	vRel := stateB.V.Sub(stateA.V)
+	// KSP convention: target-prograde = unit(v_active − v_target)
+	// (chaser's motion relative to target); target-retrograde =
+	// unit(v_target − v_active) (the closing / null-v_rel axis).
+	vRel := stateA.V.Sub(stateB.V)
 	if m := vRel.Norm(); m > 0 {
 		tp := vRel.Scale(1 / m)
 		axes[AxisTargetPrograde] = tp

@@ -793,11 +793,12 @@ func (a *App) hudNodeHit(x, y int) bool {
 }
 
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
-// it just sets the held attitude (the v0.7.3.2 explicit-engage UX
-// stays — `b` actually fires the engine). In EngineRCS mode the same
-// keypress fires one RCS pulse in addition to setting the attitude,
-// so each tap nudges the craft by the RCS Δv quantum and a held key
-// produces a sustained pulse train at the terminal's key-repeat rate.
+// it sets the held attitude (the v0.7.3.2 explicit-engage UX stays —
+// `b` actually fires the engine). In EngineRCS mode the same keypress
+// fires one RCS pulse in the requested orbital-frame direction without
+// touching the SAS hold — RCS is a 6-axis translation tool, so the
+// nose stays put while the pulse nudges Δv. A held key produces a
+// sustained pulse train at the terminal's key-repeat rate.
 // v0.8.0+.
 func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
 	if a.world.ActiveCraft().EngineMode == spacecraft.EngineRCS {
