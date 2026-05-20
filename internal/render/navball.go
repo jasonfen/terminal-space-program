@@ -53,9 +53,9 @@ const (
 // NavballMarker is a glyph drawn at a fixed (lat, lon) on the navball
 // sphere in the active basis. The painter projects (LatDeg, LonDeg)
 // through the sub-observer point to a cell offset; if the marker lies
-// in the front hemisphere it draws Glyph in Color, otherwise the
-// marker is skipped (back-hemisphere dimming + limb bracketing are
-// future polish).
+// in the front hemisphere (or in the narrow limb dead zone) it draws
+// Glyph in Color, otherwise the marker is skipped — the ball reads
+// like a solid sphere with no antipodal bleed-through.
 //
 // v0.9.5+.
 type NavballMarker struct {
@@ -374,34 +374,33 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		placed = append(placed, placedMarker{m, col, row, front})
 	}
 
-	// Two passes so front markers overwrite back markers at coincident
-	// cells (e.g. prograde at the disk centre hides retrograde when
-	// sub-observer points at prograde — KSP behavior). Markers render
-	// Bold so the glyph reads cleanly against the hemisphere texture
-	// even when marker and hemisphere colors are close in hue (yellow
-	// prograde on orange ground, cyan radial on blue sky).
-	paint := func(p placedMarker, dimmed bool) {
+	// Front-only: back-hemisphere markers are skipped entirely (not
+	// dimmed) so the ball reads like a solid sphere — the player only
+	// ever sees the glyphs on the side of the ball facing them, never
+	// the antipodal pair bleeding through. Faint styling on terminals
+	// varied too much to reliably read as "behind" (some terminals
+	// render Faint nearly as strong as Bold), so the antipode of an
+	// axis looked like it was sharing the disk with its partner —
+	// especially confusing for prograde/retrograde, which sit at
+	// opposite poles of the orbit-frame basis. Markers that genuinely
+	// lie on the silhouette (|z| ≤ limbFrontEpsZ) are still classed
+	// front by projectLatLonToPixel so they render at the rim instead
+	// of strobing on float noise.
+	//
+	// Markers render Bold so the glyph reads cleanly against the
+	// hemisphere texture even when marker and hemisphere colors are
+	// close in hue (yellow prograde on orange ground, cyan radial on
+	// blue sky).
+	for _, p := range placed {
+		if !p.front {
+			continue
+		}
 		glyph := string(p.m.Glyph)
 		if p.m.Glyph == 0 {
 			glyph = "•"
 		}
 		style := lipgloss.NewStyle().Foreground(p.m.Color).Bold(true)
-		if dimmed {
-			style = style.Faint(true).Bold(false)
-		}
 		cells[p.row][p.col] = style.Render(glyph)
-	}
-	for _, p := range placed {
-		if p.front {
-			continue
-		}
-		paint(p, true)
-	}
-	for _, p := range placed {
-		if !p.front {
-			continue
-		}
-		paint(p, false)
 	}
 
 	lines := make([]string, rows)

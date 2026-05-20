@@ -122,27 +122,29 @@ func TestBurnDirectionAppliesPitchTrim(t *testing.T) {
 }
 
 // TestDirectionUnitTargetPrograde — target ahead in +Y, faster:
-// v_target − v_active = +Y, so BurnTargetPrograde = +Y.
+// KSP convention has target-prograde = unit(v_active − v_target),
+// which here is −Y (active is the slower one).
 func TestDirectionUnitTargetPrograde(t *testing.T) {
 	rA := orbital.Vec3{X: 7e6}
 	vA := orbital.Vec3{Y: 7500}
 	rT := orbital.Vec3{X: 7e6, Y: 1000}
 	vT := orbital.Vec3{Y: 7600}
 	got := DirectionUnitTarget(BurnTargetPrograde, rA, vA, rT, vT)
-	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-1) > 1e-9 || math.Abs(got.Z) > 1e-9 {
-		t.Errorf("target prograde: got %+v, want (0, 1, 0)", got)
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-(-1)) > 1e-9 || math.Abs(got.Z) > 1e-9 {
+		t.Errorf("target prograde: got %+v, want (0, -1, 0)", got)
 	}
 }
 
-// TestDirectionUnitTargetRetrograde — flip of TargetPrograde.
+// TestDirectionUnitTargetRetrograde — flip of TargetPrograde: the
+// closing / null-v_rel axis, unit(v_target − v_active) = +Y here.
 func TestDirectionUnitTargetRetrograde(t *testing.T) {
 	rA := orbital.Vec3{X: 7e6}
 	vA := orbital.Vec3{Y: 7500}
 	rT := orbital.Vec3{X: 7e6, Y: 1000}
 	vT := orbital.Vec3{Y: 7600}
 	got := DirectionUnitTarget(BurnTargetRetrograde, rA, vA, rT, vT)
-	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-(-1)) > 1e-9 || math.Abs(got.Z) > 1e-9 {
-		t.Errorf("target retrograde: got %+v, want (0, -1, 0)", got)
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-1) > 1e-9 || math.Abs(got.Z) > 1e-9 {
+		t.Errorf("target retrograde: got %+v, want (0, 1, 0)", got)
 	}
 }
 
