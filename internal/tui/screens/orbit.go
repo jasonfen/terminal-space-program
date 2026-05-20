@@ -1713,6 +1713,37 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 								)
 							}
 						}
+						// v0.10.2+: rendezvous advisory — achievable CA +
+						// recommended Δv from the single-burn Lambert-and-
+						// project planner. Surfaced only when the gate
+						// passes (returns Ok=true); the "no improvement
+						// available" path renders as one faint line so the
+						// player knows `K` would be a no-op without
+						// cluttering the HUD with all gate reasons.
+						if adv, hudOk := w.RecommendedRendezvousBurn(); hudOk {
+							if adv.Ok {
+								achLabel := fmt.Sprintf("%.0f m", adv.AchievableCA)
+								switch {
+								case adv.AchievableCA > 1e6:
+									achLabel = fmt.Sprintf("%.0f km", adv.AchievableCA/1000)
+								case adv.AchievableCA > 1000:
+									achLabel = fmt.Sprintf("%.2f km", adv.AchievableCA/1000)
+								}
+								achTLabel := fmt.Sprintf("%.0fs", adv.TArrival)
+								if adv.TArrival >= 3600 {
+									achTLabel = fmt.Sprintf("%.2fh", adv.TArrival/3600)
+								} else if adv.TArrival >= 60 {
+									achTLabel = fmt.Sprintf("%.1fmin", adv.TArrival/60)
+								}
+								lines = append(lines,
+									fmt.Sprintf("  ACH CA: %s @ T+%s", achLabel, achTLabel),
+									fmt.Sprintf("  Δv:     %.1f m/s %s  (K plant)", adv.DV, adv.Axis),
+								)
+							} else if adv.Reason == "no improvement available" {
+								faint := lipgloss.NewStyle().Faint(true)
+								lines = append(lines, "  "+faint.Render("K: no useful nudge in range"))
+							}
+						}
 						// DOCK READY: current range < 50 m && |v_rel| <
 						// 0.1 m/s. Gates on v0.8.3 DockCrafts which the
 						// player invokes once the indicator lights.
