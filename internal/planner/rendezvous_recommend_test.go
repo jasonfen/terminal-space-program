@@ -66,21 +66,20 @@ func TestRecommendRendezvousNudge_CoOrbitalLagging(t *testing.T) {
 	}
 }
 
-// TestRecommendRendezvousNudge_InclinedTarget — 10° plane offset
-// with no phase offset along the inclined orbit; the only meaningful
-// component of the Lambert ΔV is plane-changing, so the projection
-// should pick AxisNormalPlus or AxisNormalMinus. Verifies the normal-
-// axis branch of the projection loop is exercised in tests (not just
-// the buildVelocityFrameAxes builder).
+// TestRecommendRendezvousNudge_InclinedTarget — small plane offset
+// dominates a tiny phase offset; the only meaningful component of
+// the Lambert ΔV is plane-changing, so the projection should pick
+// AxisNormalPlus or AxisNormalMinus. Verifies the normal-axis branch
+// of the projection loop is exercised in tests (not just the
+// buildVelocityFrameAxes builder). v0.10.3+: dropped from (30°, 10°)
+// to (2°, 2°) so the recommendation stays under the nudge-scale
+// ceiling AND the plane component still dominates the phasing
+// component in the projection — a 10° plane change at LEO is
+// ~1.3 km/s, which belongs in the manual planner, not a K-plant.
 func TestRecommendRendezvousNudge_InclinedTarget(t *testing.T) {
 	r := 6.771e6
 	chaser := circularStateAtRadius(r, 0, muEarth)
-	// Phase slightly offset from the line of nodes so positions
-	// differ at t=0 (currentCA > 0) but plane offset dominates the
-	// intercept geometry. 30° phase on a 10° inclined orbit gives
-	// currentCA in the few-hundred-km range with the cross-plane
-	// distance growing with phase.
-	target := inclinedCircularState(r, 30*math.Pi/180, 10*math.Pi/180, muEarth)
+	target := inclinedCircularState(r, 2*math.Pi/180, 2*math.Pi/180, muEarth)
 
 	_, currentCA, _, err := NextClosestApproach(chaser, target, bodies.CelestialBody{}, muEarth, 6000)
 	if err != nil {
@@ -167,5 +166,36 @@ func TestRecommendRendezvousNudge_ProjectionQuality(t *testing.T) {
 	// must be ≤ that (projecting onto a unit axis can only shorten).
 	if adv.DV > adv.LambertIdealDV+1e-6 {
 		t.Errorf("projected DV %.3f exceeds Lambert ideal %.3f", adv.DV, adv.LambertIdealDV)
+	}
+}
+
+// TestRecommendRendezvousNudge_BurnTooLarge — chaser in LEO, target
+// in a much higher orbit (~3× LEO radius). The single-burn Lambert
+// transfer is a major orbit-change worth thousands of m/s, not a
+// rendezvous "nudge". v0.10.3+: the nudge-scale ceiling rejects the
+// recommendation rather than planting a 1.7-km/s K-burn that improves
+// CA by ≥10 %. Caller (the HUD / K-plant flow) should see
+// Ok=false with Reason="burn too large — use H/I/m" and direct the
+// player to the manual planner.
+func TestRecommendRendezvousNudge_BurnTooLarge(t *testing.T) {
+	rChaser := 6.771e6   // LEO ~400 km
+	rTarget := 20.000e6  // mid-MEO — ~13600 km altitude
+	chaser := circularStateAtRadius(rChaser, 0, muEarth)
+	target := circularStateAtRadius(rTarget, math.Pi/4, muEarth)
+
+	_, currentCA, _, err := NextClosestApproach(chaser, target, bodies.CelestialBody{}, muEarth, 50000)
+	if err != nil {
+		t.Fatalf("predictor err: %v", err)
+	}
+
+	adv := RecommendRendezvousNudge(chaser, target, bodies.CelestialBody{}, muEarth, 50000, currentCA)
+	if adv.Ok {
+		t.Errorf("expected Ok=false for orbit-mismatch case (DV=%.0f m/s should exceed nudge ceiling); got Ok=true, axis=%s", adv.DV, adv.Axis)
+	}
+	if adv.Reason != "burn too large — use H/I/m" {
+		t.Errorf("expected Reason=\"burn too large — use H/I/m\", got %q (DV=%.0f, achCA=%.0f, currentCA=%.0f)", adv.Reason, adv.DV, adv.AchievableCA, currentCA)
+	}
+	if adv.DV <= maxNudgeDV {
+		t.Errorf("setup: expected DV > %.0f m/s to exercise the ceiling; got %.1f", maxNudgeDV, adv.DV)
 	}
 }
