@@ -79,7 +79,7 @@ type RendezvousAdvisory struct {
 
 	LambertIdealDV float64 // m/s — |full Lambert ΔV| (always ≥ DV; gap shows projection loss)
 
-	Reason string // populated when Ok=false: "no improvement available" | "no lambert convergence" | "degenerate axes" | "horizon too short" | "burn too large — use H/I/m"
+	Reason string // populated when Ok=false: "no improvement available" | "no lambert convergence" | "degenerate axes" | "horizon too short" | "burn too large — use H/I/m" | "burn drops periapsis unsafely"
 }
 
 // RecommendRendezvousNudge picks a single-burn nudge that brings the
@@ -109,6 +109,13 @@ type RendezvousAdvisory struct {
 //     km/s K-burn whenever it improved CA by ≥10 %, because the
 //     Lambert lookahead fan converges on whatever transfer fits T_k
 //     even when the orbits are wildly mismatched.
+//  6. Orbit-safety gate (v0.10.3+): the projection in Step 2 is
+//     lossy — the perturbed orbit is NOT the Lambert transfer, just
+//     the chaser's orbit + a scalar push in one axis. A large
+//     retrograde or radial-in nudge can drop the chaser's periapsis
+//     into the atmosphere while still nominally "improving CA."
+//     Reject burns that put post-periapsis below primary+50 km or
+//     drop it by more than 100 km from pre-burn.
 //
 // Caller-side gates (no target, target == active, different
 // primaries, already DOCK READY) live in the sim layer; the planner
@@ -239,6 +246,33 @@ func RecommendRendezvousNudge(
 		out.Axis = bestAxis
 		out.AxisUnit = bestAxisUnit
 		out.Reason = "burn too large — use H/I/m"
+		return out
+	}
+
+	// Step 6 (v0.10.3+): orbit-safety gate. The projection step in
+	// Step 2 applies the Lambert Δv along a single axis, so the
+	// perturbed orbit is NOT the Lambert transfer orbit — it's the
+	// chaser's existing orbit pushed once in one direction. A large
+	// retrograde nudge can drop periapsis far below atmosphere while
+	// still "improving" CA (the chaser sweeps past the target on a
+	// re-entry arc). Reject the burn if the post-burn periapsis
+	// either falls below a hard floor (primary surface + 50 km) or
+	// drops more than 100 km from the pre-burn periapsis. Hard floor
+	// uses primary.RadiusMeters() when available; with a zero-radius
+	// primary (tests) only the relative-drop check fires. Without
+	// this gate, a K-plant has been observed deorbiting the chaser
+	// to a 25 km periapsis while ostensibly improving CA.
+	prePeri := orbital.ElementsFromState(stateA.R, stateA.V, mu).Periapsis()
+	postPeri := orbital.ElementsFromState(perturbed.R, perturbed.V, mu).Periapsis()
+	periSurfaceFloor := primary.RadiusMeters() + 50_000.0
+	periDropLimit := prePeri - 100_000.0
+	if (primary.RadiusMeters() > 0 && postPeri < periSurfaceFloor) || postPeri < periDropLimit {
+		out.AchievableCA = caStar
+		out.TArrival = tStar
+		out.DV = bestProj
+		out.Axis = bestAxis
+		out.AxisUnit = bestAxisUnit
+		out.Reason = "burn drops periapsis unsafely"
 		return out
 	}
 

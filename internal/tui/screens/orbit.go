@@ -1814,6 +1814,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 							} else if adv.Reason == "burn too large — use H/I/m" {
 								faint := lipgloss.NewStyle().Faint(true)
 								lines = append(lines, "  "+faint.Render(fmt.Sprintf("K: %.0f m/s exceeds nudge scale — plan with H/I/m", adv.DV)))
+							} else if adv.Reason == "burn drops periapsis unsafely" {
+								faint := lipgloss.NewStyle().Faint(true)
+								lines = append(lines, "  "+faint.Render("K: would drop periapsis unsafely — plan with H/I/m"))
 							}
 						}
 						// DOCK READY: current range < 50 m && |v_rel| <
