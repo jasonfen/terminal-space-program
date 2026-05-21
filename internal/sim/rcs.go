@@ -40,9 +40,10 @@ func (w *World) RCSActive() bool {
 // is in flight (the planted burn owns the engine — RCS pulses while
 // a main burn fires would muddy the integrator's force model).
 //
-// Updates AttitudeMode so the HUD reflects the last fired direction
-// — the player's mental model is "this key just nudged me prograde,"
-// so showing prograde as the held attitude is the least surprising.
+// Does NOT touch AttitudeMode: RCS is a 6-axis translation tool, so
+// pulses apply Δv along the requested orbital-frame direction without
+// re-pointing the nose. SAS hold is controlled separately via the
+// main-engine attitude keys / SetAttitudeMode.
 //
 // v0.8.0+.
 func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
@@ -63,7 +64,6 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	if !w.ActiveCraft().ApplyRCSPulseWithTarget(mode, rT, vT) {
 		return false
 	}
-	w.ActiveCraft().AttitudeMode = mode
 	w.recordRCSPuff(dir)
 	return true
 }

@@ -170,6 +170,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `H` | Auto-plant Hohmann transfer to `World.Target` body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse). TargetCraft flashes "needs v0.9.3" |
 | `I` | Plant inclination match — rotates the orbital plane to `World.Target` body's inclination (or 0° equatorial when target is None). TargetCraft flashes "needs v0.9.3" |
 | `C` | Plant circularize burn at next apoapsis (v0.9.4+) — pairs with the LAUNCH HUD's ORBIT READY callout. Errors when apoapsis is below the primary's atmosphere cutoff or the orbit is hyperbolic |
+| `K` | Plant rendezvous nudge to target craft (v0.10.2+) — single-burn Lambert intercept projected onto the closest velocity-frame axis. Reads the TARGET HUD's ACH CA / Δv readouts. Errors when there's no craft target, target shares a different primary, already DOCK READY, or no improvement available |
 | `t` / `T` | Cycle / clear `World.Target` (non-active sibling craft → bodies in active system → none) |
 | `space` | Decouple bottom stage of active craft (multi-stage only; single-stage status-flashes "cannot drop the only remaining stage") (v0.9.1+) |
 | `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H` |

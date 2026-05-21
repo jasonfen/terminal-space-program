@@ -570,6 +570,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
+		case key.Matches(m, a.keys.PlanRendezvous):
+			// v0.10.2+: `K` plants the recommended single-burn nudge
+			// toward the current craft target. Reads from
+			// world.RecommendedRendezvousBurn (Lambert intercept →
+			// project onto velocity-frame axes → verify via
+			// NextClosestApproach). Mirrors PlanCircularize shape; the
+			// HUD's TARGET block already shows the advisory's
+			// achievable-CA / Δv readouts when the gate passes.
+			if a.world.CraftVisibleHere() {
+				adv, err := a.world.PlanRendezvousNudge()
+				if err != nil {
+					a.statusMsg = fmt.Sprintf("rendezvous: %v", err)
+				} else {
+					a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs",
+						adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival)
+				}
+				a.statusExpires = time.Now().Add(3 * time.Second)
+			}
+			return a, nil
 		case key.Matches(m, a.keys.Porkchop):
 			if a.active == screenOrbit && a.world.CraftVisibleHere() && a.selectedBody > 0 {
 				a.porkchop.Load(a.world, a.selectedBody)
@@ -774,11 +793,12 @@ func (a *App) hudNodeHit(x, y int) bool {
 }
 
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
-// it just sets the held attitude (the v0.7.3.2 explicit-engage UX
-// stays — `b` actually fires the engine). In EngineRCS mode the same
-// keypress fires one RCS pulse in addition to setting the attitude,
-// so each tap nudges the craft by the RCS Δv quantum and a held key
-// produces a sustained pulse train at the terminal's key-repeat rate.
+// it sets the held attitude (the v0.7.3.2 explicit-engage UX stays —
+// `b` actually fires the engine). In EngineRCS mode the same keypress
+// fires one RCS pulse in the requested orbital-frame direction without
+// touching the SAS hold — RCS is a 6-axis translation tool, so the
+// nose stays put while the pulse nudges Δv. A held key produces a
+// sustained pulse train at the terminal's key-repeat rate.
 // v0.8.0+.
 func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
 	if a.world.ActiveCraft().EngineMode == spacecraft.EngineRCS {

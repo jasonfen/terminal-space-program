@@ -49,6 +49,7 @@ func (h *Help) Render() string {
 			{"H", "plant Hohmann transfer to selected body"},
 			{"I", "plant inclination match (selected body / equatorial)"},
 			{"C", "plant circularize burn at next apoapsis"},
+			{"K", "plant rendezvous nudge to target craft (recommended single-burn)"},
 			{"P", "porkchop plot for selected body"},
 			{"R", "refine plan (re-Lambert arrival)"},
 		}},

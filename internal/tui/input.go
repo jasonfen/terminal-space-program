@@ -45,6 +45,13 @@ type Keymap struct {
 	// "single keystroke for the natural last step of an ascent"
 	// shortcut, mirroring the v0.7.4 `I` plane-match planter.
 	PlanCircularize key.Binding
+	// PlanRendezvous (v0.10.2+) plants the recommended single-burn
+	// nudge that improves closest approach to the current craft
+	// target. Mirrors the H/I/C capital-letter plant-burn family;
+	// reads from World.RecommendedRendezvousBurn (Lambert-and-project
+	// over the 8 velocity-frame axes). No-op without a craft target
+	// or when the advisory reports no useful nudge.
+	PlanRendezvous key.Binding
 	Porkchop      key.Binding
 	// v0.8.6: Save / Load moved S / L → F5 / F9 to match the KSP
 	// quicksave-quickload muscle memory and to clear the case-
@@ -173,6 +180,7 @@ func DefaultKeymap() Keymap {
 		PlanTransfer: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant Hohmann transfer to selected body")),
 		PlanIncl:     key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant inclination match (selected body / equatorial)")),
 		PlanCircularize: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "plant circularize burn at next apoapsis")),
+		PlanRendezvous:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "plant rendezvous nudge to target craft")),
 		Porkchop:     key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot for selected body")),
 		Save:         key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "quicksave")),
 		Load:         key.NewBinding(key.WithKeys("f9"), key.WithHelp("F9", "quickload")),

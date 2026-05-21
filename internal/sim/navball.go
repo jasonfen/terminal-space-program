@@ -38,7 +38,7 @@ type NavballBasis struct {
 // NavOrbit / NavTarget are velocity-framed (the sphere's pole is the
 // orbital normal):
 //
-//   - EX (lat 0, lon 0): +v̂ (orbit) or +(v_target − v_active)̂ (target)
+//   - EX (lat 0, lon 0): +v̂ (orbit) or +(v_active − v_target)̂ (target)
 //   - EZ (lat +90):      orbital normal (r × v)̂, re-orthogonalised
 //     against EX (target-prograde isn't generally ⟂ the orbit plane)
 //   - EY = EZ × EX
@@ -117,7 +117,11 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 		if !ok {
 			return NavballBasis{}, false
 		}
-		dv := vT.Sub(v)
+		// KSP convention: target-prograde = unit(v_active − v_target),
+		// the direction of motion relative to the target. The navball
+		// re-centres on that axis so when SAS holds target-prograde
+		// the marker sits at the disk centre.
+		dv := v.Sub(vT)
 		n := dv.Norm()
 		if n == 0 {
 			return NavballBasis{}, false

@@ -90,6 +90,13 @@ type World struct {
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
 
+	// rendezvousCache stores the most recent v0.10.2 rendezvous
+	// advisory keyed by (activeIdx, targetIdx, sim-time). Per-frame
+	// HUD callers (TARGET HUD ACH-CA block) hit this; the Lambert
+	// scan + NextClosestApproach verification only runs on cache
+	// miss. See internal/sim/rendezvous.go for the policy.
+	rendezvousCache rendezvousAdvisoryCache
+
 	// trail is a ring buffer of recent craft samples for the vessel-
 	// position-trail render. Each sample stores the primary's body ID
 	// and the craft's position *in that primary's frame* (v0.5.4) — at
