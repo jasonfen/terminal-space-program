@@ -122,18 +122,19 @@ const (
 	BurnSurfaceRetrograde
 
 	// Target-relative modes (v0.9.3+). Direction depends on the
-	// active *and* target craft states in the same frame:
+	// active *and* target craft states in the same frame. KSP
+	// convention (v0.10.3+, was swapped pre-v0.10.3):
 	//
-	//   BurnTargetPrograde   = unit(v_target − v_active)
-	//   BurnTargetRetrograde = unit(v_active − v_target)
+	//   BurnTargetPrograde   = unit(v_active − v_target)
+	//   BurnTargetRetrograde = unit(v_target − v_active)
 	//   BurnTarget           = unit(r_target − r_active)
 	//   BurnAntiTarget       = unit(r_active − r_target)
 	//
 	// The velocity-relative pair is the primary tool for the manual
-	// rendezvous loop — hold target-prograde to close v_rel during
-	// approach, flip target-retrograde at closest approach to null
-	// v_rel. The position-relative pair is for sub-m/s proximity-ops
-	// nudges after v_rel is nulled.
+	// rendezvous loop — hold target-RETROGRADE to null v_rel during
+	// approach (the closing axis), hold target-PROGRADE to widen the
+	// relative-velocity gap on the way out. The position-relative pair
+	// is for sub-m/s proximity-ops nudges after v_rel is nulled.
 	//
 	// All four require World.Target.Kind == TargetCraft. Without a
 	// craft target, DirectionUnitTarget returns the zero vector and
@@ -254,13 +255,24 @@ func DirectionUnit(mode BurnMode, r, v orbital.Vec3) orbital.Vec3 {
 // velocities for BurnTargetPrograde / Retrograde) or when called
 // with zero rT, vT (no target resolved — caller passes zeros so the
 // closure still constructs but the burn no-ops).
+//
+// KSP convention (v0.10.3+): target-prograde = unit(v_active − v_target),
+// target-retrograde = unit(v_target − v_active). Burn target-RETROGRADE
+// to null v_rel during a rendezvous approach.
 func DirectionUnitTarget(mode BurnMode, rA, vA, rT, vT orbital.Vec3) orbital.Vec3 {
 	var d orbital.Vec3
 	switch mode {
 	case BurnTargetPrograde:
-		d = vT.Sub(vA)
-	case BurnTargetRetrograde:
+		// KSP convention: target-prograde = direction of v_active
+		// relative to target = unit(v_active − v_target). Burning
+		// this INCREASES |v_rel| (moves you away from matching).
 		d = vA.Sub(vT)
+	case BurnTargetRetrograde:
+		// KSP convention: target-retrograde points along
+		// unit(v_target − v_active). Burning this nulls v_rel — the
+		// closing axis the manual rendezvous loop holds during
+		// approach.
+		d = vT.Sub(vA)
 	case BurnTarget:
 		d = rT.Sub(rA)
 	case BurnAntiTarget:

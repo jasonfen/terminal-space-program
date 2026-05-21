@@ -728,6 +728,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// bottom-right navball panel.
 	viewLabel := "view: " + w.ViewMode.String()
 	v.canvas.SetCellLabel(0, v.canvas.Rows()-1, viewLabel)
+	// v0.10.3+: focus indicator overlaid into the canvas's top-left
+	// corner (was a HUD block alongside CLOCK). Pairs visually with
+	// the bottom-left "view:" label — both describe what the
+	// projection is centered on.
+	v.canvas.SetCellLabel(0, 0, "focus: "+w.FocusName())
 
 	canvasStr := v.canvas.String()
 
@@ -781,7 +786,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	if n := len(w.Crafts); n > 1 {
 		craftChip = fmt.Sprintf(" — CRAFT %d/%d", w.ActiveCraftIdx+1, n)
 	}
-	title := v.renderTitleBar(sys.Name+craftChip, totalCols)
+	title := v.renderTitleBar(sys.Name+craftChip, w, totalCols)
 	// Footer is a cheat-sheet of the most-used keys; `?` opens the
 	// full help overlay (source of truth). Streamlined v0.10.1+ —
 	// dropped stale labels (`q` is attitude:radial+ since v0.7.3,
@@ -790,7 +795,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// `m` planner in v0.8.6) and added the flight / target / stage /
 	// save row players actually reach for.
 	footer := v.theme.Footer.Render(
-		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]burn [b]fire [wasdqe]attitude [space]stage [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
+		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]maneuver [b]fire [wasdqe]attitude [space]stage [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -814,12 +819,33 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 // right-aligned `[Menu]` and `[Missions]` clickable buttons. Stores
 // the cell ranges of each button so HitMenuButton / HitMissionsButton
 // can map subsequent clicks back to a screen action. v0.7.4+.
-func (v *OrbitView) renderTitleBar(systemName string, totalCols int) string {
+func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols int) string {
 	left := fmt.Sprintf("terminal-space-program — %s — %s", version.Version, systemName)
 	const menuLabel = "[Menu]"
 	const missionsLabel = "[Missions]"
 	const gap = "  "
-	rightPlain := menuLabel + gap + missionsLabel
+	const clockGap = "    " // 4-space gap between clock chip and the buttons
+
+	// v0.10.3+: clock + warp + pause chip, placed between the left
+	// title and the right-aligned buttons (was a HUD CLOCK block).
+	// Warp shows the effective rate when the integrator clamps it
+	// (e.g. ≤10x during burns) so the player sees the actual
+	// propagation speed, not the requested one.
+	clockChip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  "
+	reqWarp := w.Clock.Warp()
+	if eff := w.EffectiveWarp(); eff < reqWarp {
+		clockChip += fmt.Sprintf("warp %.0fx→%.0fx", reqWarp, eff)
+	} else {
+		clockChip += fmt.Sprintf("warp %.0fx", reqWarp)
+	}
+	pauseChipPlain := ""
+	pauseChipRendered := ""
+	if w.Clock.Paused {
+		pauseChipPlain = "  PAUSED"
+		pauseChipRendered = "  " + v.theme.Warning.Render("PAUSED")
+	}
+
+	rightPlain := clockChip + pauseChipPlain + clockGap + menuLabel + gap + missionsLabel
 
 	// Compute the absolute column where the right group starts so the
 	// hit-test ranges match what the player sees on screen.
@@ -830,14 +856,18 @@ func (v *OrbitView) renderTitleBar(systemName string, totalCols int) string {
 		pad = 1
 	}
 	rightStart := leftRunes + pad
+	buttonsStart := rightStart + len([]rune(clockChip+pauseChipPlain+clockGap))
 
-	v.menuColStart = rightStart
-	v.menuColEnd = rightStart + len([]rune(menuLabel))
+	v.menuColStart = buttonsStart
+	v.menuColEnd = v.menuColStart + len([]rune(menuLabel))
 	v.missionsColStart = v.menuColEnd + len([]rune(gap))
 	v.missionsColEnd = v.missionsColStart + len([]rune(missionsLabel))
 
 	rendered := v.theme.Title.Render(left) +
 		strings.Repeat(" ", pad) +
+		v.theme.Dim.Render(clockChip) +
+		pauseChipRendered +
+		clockGap +
 		v.theme.Primary.Render(menuLabel) +
 		gap +
 		v.theme.Primary.Render(missionsLabel)
@@ -1092,20 +1122,12 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
-	warpLine := fmt.Sprintf("  warp: %.0fx", w.Clock.Warp())
-	if eff := w.EffectiveWarp(); eff < w.Clock.Warp() {
-		warpLine += v.theme.Warning.Render(fmt.Sprintf(" (clamped to %.0fx)", eff))
-	}
-	lines := []string{
-		v.theme.Primary.Render("CLOCK"),
-		"  T+" + w.Clock.SimTime.Format("2006-01-02"),
-		warpLine,
-	}
-	if w.Clock.Paused {
-		lines = append(lines, "  "+v.theme.Warning.Render("[PAUSED]"))
-	}
-	lines = append(lines, section("FOCUS")...)
-	lines = append(lines, "  "+w.FocusName())
+	// v0.10.3+: CLOCK + FOCUS moved out of the HUD — clock/warp/pause
+	// now live in the title bar; focus is overlaid into the canvas's
+	// top-left corner alongside the bottom-left "view:" label. HUD
+	// starts directly at the VESSEL/PROPELLANT block.
+	lines := []string{}
+
 
 	// Spacecraft block — only in Sol per plan §MVP.
 	if w.CraftVisibleHere() {
@@ -1128,25 +1150,48 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		// column so each block reads as its own pane. Falls back to
 		// stacked rendering when the HUD is too narrow to split (< 36
 		// cols of content) — labels would clip otherwise.
-		const minSplitWidth = 36
+		// v0.10.3+: phase-aware row gating — during ascent the LAUNCH
+		// block re-renders altitude / apo / pe / inclin. with richer
+		// context (trend tag, progress row), and during close
+		// rendezvous the TARGET block dominates the right-side scan.
+		// Both phases collapse VESSEL to name + primary so the
+		// duplicate orbit-shape rows don't compete with the
+		// authoritative block. The peri-below-surface alert is gated
+		// to flight phase only: it's expected during ascent and the
+		// craft is in stable orbit during proximity.
+		phase := currentHudPhase(w)
+		// minSplitWidth gates the two-column VESSEL/PROPELLANT layout.
+		// half-width = (width-4)/2 — must be wide enough for the
+		// longest content line in either column. PROPELLANT's "fuel"
+		// and "mass" rows reach ~23 chars with Saturn-V-class masses;
+		// VESSEL's "velocity" reaches ~22 chars. Pre-v0.10.3 this was
+		// 36, which gave half = 16 and silently wrapped both columns
+		// on every terminal under ~250 cols. v0.10.3+ raises the
+		// threshold so split fires only when half >= 24 (≈ width 52).
+		const minSplitWidth = 52
 		if width-2 >= minSplitWidth {
 			half := (width - 4) / 2 // gutter of 2 chars between columns
+			// v0.10.3+: no leading divider — VESSEL is now the first
+			// HUD block (CLOCK + FOCUS moved to title bar / canvas).
 			vesselLines := []string{
-				v.theme.Dim.Render(strings.Repeat("─", half)),
 				v.theme.Primary.Render("VESSEL"),
 				"  " + c.Name,
 				"  primary:   " + c.Primary.EnglishName,
-				fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
-				fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
-				fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
-				fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
-				fmt.Sprintf("  inclin.:   %.2f°", incDeg),
 			}
-			if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
-				vesselLines = append(vesselLines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+			if phase == hudPhaseFlight {
+				vesselLines = append(vesselLines,
+					fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
+					fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+					fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
+					fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
+					fmt.Sprintf("  inclin.:   %.2f°", incDeg),
+				)
 			}
+			// ⚠ PERIAPSIS BELOW SURFACE is 27 chars; would wrap inside
+			// any half-column. Appended after the JoinHorizontal below
+			// so it spans the full HUD width as a single alert row.
+			belowSurface := phase == hudPhaseFlight && periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0)
 			propLines := []string{
-				v.theme.Dim.Render(strings.Repeat("─", half)),
 				v.theme.Primary.Render("PROPELLANT"),
 				fmt.Sprintf("  fuel:      %.0f kg", c.Fuel),
 				fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
@@ -1154,8 +1199,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
 			}
 			if c.MonopropCapacity > 0 {
+				// v0.10.3+: split kg + Δv onto two narrower lines so
+				// the row fits the half-column without wrap. Previous
+				// single-line "%.2f kg (%.1f m/s)" form reached 33
+				// chars — the worst offender in PROPELLANT.
 				propLines = append(propLines,
-					fmt.Sprintf("  monoprop:  %.2f kg (%.1f m/s)", c.Monoprop, c.RCSDeltaV()),
+					fmt.Sprintf("  monoprop:  %.0f kg", c.Monoprop),
+					fmt.Sprintf("  rcs Δv:    %.0f m/s", c.RCSDeltaV()),
 				)
 			}
 			colStyle := lipgloss.NewStyle().Width(half)
@@ -1163,19 +1213,29 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			propCol := colStyle.Render(strings.Join(propLines, "\n"))
 			combined := lipgloss.JoinHorizontal(lipgloss.Top, vesselCol, "  ", propCol)
 			lines = append(lines, strings.Split(combined, "\n")...)
+			if belowSurface {
+				lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+			}
 		} else {
-			lines = append(lines, section("VESSEL")...)
+			// v0.10.3+: VESSEL is now the first HUD block (no leading
+			// divider) — CLOCK + FOCUS migrated to the title bar /
+			// canvas overlay.
+			lines = append(lines, v.theme.Primary.Render("VESSEL"))
 			lines = append(lines,
 				"  "+c.Name,
 				"  primary:   "+c.Primary.EnglishName,
-				fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
-				fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
-				fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
-				fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
-				fmt.Sprintf("  inclin.:   %.2f°", incDeg),
 			)
-			if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
-				lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+			if phase == hudPhaseFlight {
+				lines = append(lines,
+					fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
+					fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+					fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
+					fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
+					fmt.Sprintf("  inclin.:   %.2f°", incDeg),
+				)
+				if periAlt < 0 && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
+					lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+				}
 			}
 			lines = append(lines, section("PROPELLANT")...)
 			lines = append(lines,
@@ -1186,7 +1246,8 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			)
 			if c.MonopropCapacity > 0 {
 				lines = append(lines,
-					fmt.Sprintf("  monoprop:  %.2f kg (%.1f m/s)", c.Monoprop, c.RCSDeltaV()),
+					fmt.Sprintf("  monoprop:  %.0f kg", c.Monoprop),
+					fmt.Sprintf("  rcs Δv:    %.0f m/s", c.RCSDeltaV()),
 				)
 			}
 		}
@@ -1200,7 +1261,15 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 		lines = append(lines,
 			fmt.Sprintf("  nav:       %s", w.NavMode),
-			fmt.Sprintf("  hold:      %s", w.ActiveCraft().AttitudeMode.String()),
+		)
+		// v0.10.3+: during ascent the LAUNCH `sas` row renders the
+		// exact same AttitudeMode string; skip the dup here.
+		if phase != hudPhaseAscent {
+			lines = append(lines,
+				fmt.Sprintf("  hold:      %s", w.ActiveCraft().AttitudeMode.String()),
+			)
+		}
+		lines = append(lines,
 			fmt.Sprintf("  engine:    %s", w.ActiveCraft().EngineMode.String()),
 			fmt.Sprintf("  manual:    %s", manualState),
 		)
@@ -1713,6 +1782,43 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 								)
 							}
 						}
+						// v0.10.2+: rendezvous advisory — achievable CA +
+						// recommended Δv from the single-burn Lambert-and-
+						// project planner. Surfaced only when the gate
+						// passes (returns Ok=true); the "no improvement
+						// available" path renders as one faint line so the
+						// player knows `K` would be a no-op without
+						// cluttering the HUD with all gate reasons.
+						if adv, hudOk := w.RecommendedRendezvousBurn(); hudOk {
+							if adv.Ok {
+								achLabel := fmt.Sprintf("%.0f m", adv.AchievableCA)
+								switch {
+								case adv.AchievableCA > 1e6:
+									achLabel = fmt.Sprintf("%.0f km", adv.AchievableCA/1000)
+								case adv.AchievableCA > 1000:
+									achLabel = fmt.Sprintf("%.2f km", adv.AchievableCA/1000)
+								}
+								achTLabel := fmt.Sprintf("%.0fs", adv.TArrival)
+								if adv.TArrival >= 3600 {
+									achTLabel = fmt.Sprintf("%.2fh", adv.TArrival/3600)
+								} else if adv.TArrival >= 60 {
+									achTLabel = fmt.Sprintf("%.1fmin", adv.TArrival/60)
+								}
+								lines = append(lines,
+									fmt.Sprintf("  ACH CA: %s @ T+%s", achLabel, achTLabel),
+									fmt.Sprintf("  Δv:     %.1f m/s %s  (K plant)", adv.DV, adv.Axis),
+								)
+							} else if adv.Reason == "no improvement available" {
+								faint := lipgloss.NewStyle().Faint(true)
+								lines = append(lines, "  "+faint.Render("K: no useful nudge in range"))
+							} else if adv.Reason == "burn too large — use H/I/m" {
+								faint := lipgloss.NewStyle().Faint(true)
+								lines = append(lines, "  "+faint.Render(fmt.Sprintf("K: %.0f m/s exceeds nudge scale — plan with H/I/m", adv.DV)))
+							} else if adv.Reason == "burn drops periapsis unsafely" {
+								faint := lipgloss.NewStyle().Faint(true)
+								lines = append(lines, "  "+faint.Render("K: would drop periapsis unsafely — plan with H/I/m"))
+							}
+						}
 						// DOCK READY: current range < 50 m && |v_rel| <
 						// 0.1 m/s. Gates on v0.8.3 DockCrafts which the
 						// player invokes once the indicator lights.
@@ -1871,6 +1977,46 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// first row is row 1.
 	v.scanHudNodeRows(rendered, 1)
 	return rendered
+}
+
+// hudPhase tags the active craft's flight phase so the always-on
+// VESSEL / ATTITUDE blocks can skip rows that a phase-specific block
+// (LAUNCH, TARGET) already covers. v0.10.3+.
+type hudPhase int
+
+const (
+	hudPhaseFlight    hudPhase = iota // free flight — default, all rows render
+	hudPhaseAscent                    // LAUNCH HUD is up — drop dup orbit-shape + SAS rows from VESSEL/ATTITUDE
+	hudPhaseProximity                 // close rendezvous (TARGET craft, < 5 km, shared primary) — drop dup orbit-shape rows from VESSEL
+)
+
+// proximityRangeM is the range (m) below which the TARGET block's
+// rendezvous readouts (TCA / CA / closing / |v_rel|) are dense enough
+// that the player no longer scans VESSEL's own apo/peri/inclin. v0.10.3+.
+const proximityRangeM = 5000.0
+
+// currentHudPhase resolves the HUD's render phase. Ascent takes
+// precedence (LAUNCH is the richer block); proximity fires only when
+// a TARGET craft sharing the active primary is within proximityRangeM.
+// Computed once per renderHUD frame so VESSEL/ATTITUDE conditionals
+// stay in lockstep.
+func currentHudPhase(w *sim.World) hudPhase {
+	c := w.ActiveCraft()
+	if c == nil {
+		return hudPhaseFlight
+	}
+	if shouldShowLaunchHUD(c) {
+		return hudPhaseAscent
+	}
+	if w.Target.Kind == sim.TargetCraft &&
+		w.Target.CraftIdx >= 0 && w.Target.CraftIdx < len(w.Crafts) {
+		if tc := w.Crafts[w.Target.CraftIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+			if tc.State.R.Sub(c.State.R).Norm() < proximityRangeM {
+				return hudPhaseProximity
+			}
+		}
+	}
+	return hudPhaseFlight
 }
 
 // shouldShowLaunchHUD returns true when the active craft is in

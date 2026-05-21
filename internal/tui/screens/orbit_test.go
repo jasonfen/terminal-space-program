@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -42,11 +43,12 @@ func TestOrbitViewRendersAllSystems(t *testing.T) {
 	}
 }
 
-// TestOrbitHUDRendersVesselAndPropellantSideBySide: when the HUD has
-// at least 36 cols of content room, the VESSEL and PROPELLANT block
-// headers share a row so the right-hand HUD doesn't get tall enough
-// to push the layout off-screen. Below that threshold the blocks
-// fall back to stacked rendering. v0.7.5+ height-saving change.
+// TestOrbitHUDRendersVesselAndPropellantSideBySide: at sufficiently
+// wide terminals the VESSEL and PROPELLANT block headers share a row
+// so the right-hand HUD doesn't get tall enough to push the layout
+// off-screen. Below the threshold (v0.10.3+: half-column < 24 cols)
+// the blocks fall back to stacked rendering. v0.7.5+ height-saving
+// change; threshold bumped in v0.10.3+ to avoid content wrap.
 func TestOrbitHUDRendersVesselAndPropellantSideBySide(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
@@ -58,18 +60,155 @@ func TestOrbitHUDRendersVesselAndPropellantSideBySide(t *testing.T) {
 		Title:   lipgloss.NewStyle(),
 	}
 	v := NewOrbitView(th)
-	v.Resize(180, 40)
+	v.Resize(240, 40)
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	out := v.Render(w, 0, 180, 40)
+	out := v.Render(w, 0, 240, 40)
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "VESSEL") && strings.Contains(line, "PROPELLANT") {
 			return
 		}
 	}
-	t.Errorf("expected VESSEL and PROPELLANT on the same row at width 180; got render:\n%s", out)
+	t.Errorf("expected VESSEL and PROPELLANT on the same row at width 240; got render:\n%s", out)
+}
+
+// TestHudPhaseCollapsesVesselDuringAscent: in ascent phase
+// (shouldShowLaunchHUD is true) the VESSEL block drops its
+// altitude/apoapsis/periapsis/inclin. rows because the LAUNCH block
+// already renders them with trend tags and a progress row, and the
+// ATTITUDE block drops `hold` because LAUNCH's `sas` is the same
+// value. The orbit-shape rows return once the craft circularises
+// above the mission floor. v0.10.3+.
+func TestHudPhaseCollapsesVesselDuringAscent(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// NewWorld spawns in LEO; force a sub-orbital ascent arc
+	// (periapsis below the 200 km mission floor) so
+	// shouldShowLaunchHUD fires.
+	c := w.ActiveCraft()
+	c.Landed = false
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	rApo := primaryR + 250e3
+	rPeri := primaryR - 100e3
+	a := (rPeri + rApo) / 2
+	vAtPeri := math.Sqrt(mu * (2/rPeri - 1/a))
+	c.State.R.X, c.State.R.Y, c.State.R.Z = rPeri, 0, 0
+	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
+
+	out := v.Render(w, 0, 200, 60)
+	// VESSEL header still renders, but its rows are gated.
+	if !strings.Contains(out, "VESSEL") {
+		t.Fatal("expected VESSEL header to render during ascent")
+	}
+	// "altitude:" still appears (LAUNCH block uses the same prefix),
+	// so check VESSEL's distinctive rows are gone instead.
+	if strings.Contains(out, "  apoapsis:") || strings.Contains(out, "  periapsis:") {
+		t.Errorf("expected VESSEL apoapsis/periapsis rows to be hidden during ascent; LAUNCH already shows ap/pe.\nrender:\n%s", out)
+	}
+	if strings.Contains(out, "  hold:") {
+		t.Errorf("expected ATTITUDE `hold` row to be hidden during ascent; LAUNCH `sas` is the same value.\nrender:\n%s", out)
+	}
+	// LAUNCH's own rows must still be present.
+	if !strings.Contains(out, "  ap:") || !strings.Contains(out, "  sas:") {
+		t.Errorf("expected LAUNCH ap and sas rows during ascent.\nrender:\n%s", out)
+	}
+
+	// Circularise: drop the craft into a 300 km circular orbit, well
+	// above the 200 km mission floor → flight phase.
+	rCirc := primaryR + 300e3
+	vCirc := math.Sqrt(mu / rCirc)
+	c.State.R.X, c.State.R.Y, c.State.R.Z = rCirc, 0, 0
+	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vCirc, 0
+
+	out = v.Render(w, 0, 200, 60)
+	if !strings.Contains(out, "  apoapsis:") || !strings.Contains(out, "  periapsis:") {
+		t.Errorf("expected VESSEL apoapsis/periapsis rows to return once in stable orbit.\nrender:\n%s", out)
+	}
+	if !strings.Contains(out, "  hold:") {
+		t.Errorf("expected ATTITUDE `hold` row to return in flight phase.\nrender:\n%s", out)
+	}
+	if strings.Contains(out, "LAUNCH") {
+		t.Errorf("expected LAUNCH block to vanish once periapsis clears the mission floor.\nrender:\n%s", out)
+	}
+}
+
+// TestTitleBarShowsClockAndWarp: v0.10.3+ moved the CLOCK block from
+// the HUD into the title bar. The title row must show T+date and the
+// current warp rate; the HUD must no longer carry a `CLOCK` header.
+func TestTitleBarShowsClockAndWarp(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	v.Resize(200, 40)
+	out := v.Render(w, 0, 200, 40)
+	titleRow := strings.Split(out, "\n")[0]
+	if !strings.Contains(titleRow, "T+") {
+		t.Errorf("expected T+date on title row; got %q", titleRow)
+	}
+	if !strings.Contains(titleRow, "warp ") {
+		t.Errorf("expected `warp Nx` on title row; got %q", titleRow)
+	}
+	if strings.Contains(out, "CLOCK") {
+		t.Errorf("expected no CLOCK header in HUD after move to title bar; render:\n%s", out)
+	}
+}
+
+// TestFocusLabelOverlaidOnCanvas: v0.10.3+ moved the FOCUS block from
+// the HUD into the canvas's top-left corner via SetCellLabel. The
+// rendered output must contain `focus: <name>` and no longer a FOCUS
+// section header in the HUD.
+func TestFocusLabelOverlaidOnCanvas(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	v.Resize(160, 40)
+	out := v.Render(w, 0, 160, 40)
+	if !strings.Contains(out, "focus: ") {
+		t.Errorf("expected `focus:` overlay on canvas; render:\n%s", out)
+	}
+	// Ensure FOCUS HUD header is gone (the old "FOCUS" was an exact
+	// section header line; check the trailing newline pattern that
+	// distinguishes it from any other use of the word).
+	if strings.Contains(out, "\nFOCUS\n") {
+		t.Errorf("expected FOCUS HUD section to be gone after move to canvas; render:\n%s", out)
+	}
 }
 
 // TestOrbitTitleBarButtonHits: after rendering, the title-bar

@@ -139,21 +139,23 @@ func TestNavballMarkerOverlay(t *testing.T) {
 	}
 }
 
-// TestNavballMarkerBackHemisphereDimmed confirms a marker on the far
-// side of the ball is still painted (so the player can see where to
-// rotate toward when an axis is behind the nose), but with Faint
-// styling so it reads as "behind."
-func TestNavballMarkerBackHemisphereDimmed(t *testing.T) {
+// TestNavballMarkerBackHemisphereHidden confirms a marker on the far
+// side of the ball is NOT painted. The ball should read like a solid
+// sphere — the antipode of the sub-observer is hidden, not dimmed.
+// Faint dimming was tried in v0.9.5 but read too strongly on many
+// terminals, so the prograde/retrograde pair looked like both were
+// on the visible side at once.
+func TestNavballMarkerBackHemisphereHidden(t *testing.T) {
 	withoutMarker := NavballString(13, 13, 0, 0, nil)
 	markers := []NavballMarker{
 		{LatDeg: 0, LonDeg: 180, Glyph: '⊕', Color: ColorNavballMarkerPrograde},
 	}
 	withMarker := NavballString(13, 13, 0, 0, markers)
-	if withMarker == withoutMarker {
-		t.Errorf("back-hemisphere marker should still appear (dimmed)")
+	if withMarker != withoutMarker {
+		t.Errorf("back-hemisphere marker should be skipped, but output changed")
 	}
-	if !strings.ContainsRune(withMarker, '⊕') {
-		t.Errorf("back-hemisphere marker glyph should be in output")
+	if strings.ContainsRune(withMarker, '⊕') {
+		t.Errorf("back-hemisphere marker glyph leaked into output")
 	}
 }
 
