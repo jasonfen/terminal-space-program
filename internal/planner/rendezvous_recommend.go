@@ -79,7 +79,7 @@ type RendezvousAdvisory struct {
 
 	LambertIdealDV float64 // m/s — |full Lambert ΔV| (always ≥ DV; gap shows projection loss)
 
-	Reason string // populated when Ok=false: "no improvement available" | "no lambert convergence" | "degenerate axes" | "horizon too short"
+	Reason string // populated when Ok=false: "no improvement available" | "no lambert convergence" | "degenerate axes" | "horizon too short" | "burn too large — use H/I/m"
 }
 
 // RecommendRendezvousNudge picks a single-burn nudge that brings the
@@ -102,6 +102,13 @@ type RendezvousAdvisory struct {
 //  4. Two-prong improvement floor:
 //     (CA_improvement ≥ 10 %) OR (Δv ≥ 0.5 m/s AND
 //     CA_improvement ≥ 100 m absolute). Fails the gate ⇒ Ok=false.
+//  5. Nudge-scale ceiling (v0.10.3+): bestProj ≤ maxNudgeDV — single-
+//     burn recommendations above this aren't "nudges", they're major
+//     orbit-shape changes that belong in the manual planner (H / I /
+//     m). Without this ceiling the gate would happily plant a 1.7
+//     km/s K-burn whenever it improved CA by ≥10 %, because the
+//     Lambert lookahead fan converges on whatever transfer fits T_k
+//     even when the orbits are wildly mismatched.
 //
 // Caller-side gates (no target, target == active, different
 // primaries, already DOCK READY) live in the sim layer; the planner
@@ -222,6 +229,19 @@ func RecommendRendezvousNudge(
 		return out
 	}
 
+	// Step 5: nudge-scale ceiling. Above maxNudgeDV the recommendation
+	// isn't a "nudge", it's an orbit-shape change the player should
+	// plan deliberately (H / I / m). Hide rather than plant.
+	if bestProj > maxNudgeDV {
+		out.AchievableCA = caStar
+		out.TArrival = tStar
+		out.DV = bestProj
+		out.Axis = bestAxis
+		out.AxisUnit = bestAxisUnit
+		out.Reason = "burn too large — use H/I/m"
+		return out
+	}
+
 	out.Ok = true
 	out.DV = bestProj
 	out.Axis = bestAxis
@@ -230,6 +250,17 @@ func RecommendRendezvousNudge(
 	out.TArrival = tStar
 	return out
 }
+
+// maxNudgeDV is the ceiling for a single-burn rendezvous nudge
+// recommendation. Calibrated v0.10.3+ after a 1.7-km/s K-plant was
+// observed for chaser/target in mismatched orbits (the 10 %
+// CA-improvement gate alone wasn't enough — Lambert happily returned
+// a fast-transfer solution that "improved" CA but was effectively a
+// full orbit-change burn). Tuned to cover small phasing burns and
+// modest plane corrections; major orbit-shape changes belong in the
+// H / I / m planners. Const, not a knob — the player intent is
+// "small nudge to refine an already-close intercept."
+const maxNudgeDV = 300.0 // m/s
 
 var allAxisLabels = []AxisLabel{
 	AxisPrograde,

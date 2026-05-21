@@ -795,7 +795,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// `m` planner in v0.8.6) and added the flight / target / stage /
 	// save row players actually reach for.
 	footer := v.theme.Footer.Render(
-		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]burn [b]fire [wasdqe]attitude [space]stage [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
+		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]maneuver [b]fire [wasdqe]attitude [space]stage [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -1811,6 +1811,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 							} else if adv.Reason == "no improvement available" {
 								faint := lipgloss.NewStyle().Faint(true)
 								lines = append(lines, "  "+faint.Render("K: no useful nudge in range"))
+							} else if adv.Reason == "burn too large — use H/I/m" {
+								faint := lipgloss.NewStyle().Faint(true)
+								lines = append(lines, "  "+faint.Render(fmt.Sprintf("K: %.0f m/s exceeds nudge scale — plan with H/I/m", adv.DV)))
 							}
 						}
 						// DOCK READY: current range < 50 m && |v_rel| <
