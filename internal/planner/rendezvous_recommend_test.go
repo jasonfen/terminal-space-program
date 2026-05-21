@@ -199,3 +199,34 @@ func TestRecommendRendezvousNudge_BurnTooLarge(t *testing.T) {
 		t.Errorf("setup: expected DV > %.0f m/s to exercise the ceiling; got %.1f", maxNudgeDV, adv.DV)
 	}
 }
+
+// TestRecommendRendezvousNudge_PeriapsisGate — chaser leading target
+// by a large phase angle in the same circular LEO. Lambert finds a
+// fast "drop and swoop" intercept; projection onto a single axis
+// (Retrograde or RadialIn) applies that Δv to the chaser's existing
+// orbit, dropping periapsis dramatically — observed in the wild as a
+// K-plant that put the chaser into a 25 km altitude periapsis arc.
+// v0.10.3+: the Step 6 orbit-safety gate rejects burns that drop
+// post-burn periapsis below primary+50 km OR by more than 100 km
+// vs pre-burn. Caller (HUD) reads Reason="burn drops periapsis
+// unsafely" and surfaces a faint diagnostic instead of planting.
+func TestRecommendRendezvousNudge_PeriapsisGate(t *testing.T) {
+	// Earth-radius primary so the surface floor check fires.
+	earth := bodies.CelestialBody{MeanRadius: 6378} // km
+	r := 6.771e6                                    // ~400 km circular LEO
+	chaser := circularStateAtRadius(r, 30*math.Pi/180, muEarth)
+	target := circularStateAtRadius(r, 0, muEarth)
+
+	_, currentCA, _, err := NextClosestApproach(chaser, target, earth, muEarth, 10000)
+	if err != nil {
+		t.Fatalf("predictor err: %v", err)
+	}
+
+	adv := RecommendRendezvousNudge(chaser, target, earth, muEarth, 10000, currentCA)
+	if adv.Ok {
+		t.Errorf("expected Ok=false for chaser-far-ahead-of-target geometry (the Lambert projection drops periapsis); got Ok=true, DV=%.1f, axis=%s, achCA=%.0f", adv.DV, adv.Axis, adv.AchievableCA)
+	}
+	if adv.Reason != "burn drops periapsis unsafely" && adv.Reason != "burn too large — use H/I/m" {
+		t.Errorf("expected Reason=\"burn drops periapsis unsafely\" (or ceiling reason if DV exceeds it), got %q (DV=%.0f, axis=%s)", adv.Reason, adv.DV, adv.Axis)
+	}
+}
