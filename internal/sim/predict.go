@@ -9,6 +9,41 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
+// Predicted-trajectory sample budgeting. A predicted leg is drawn with
+// a roughly constant point density per orbital period, so the dashed
+// ellipse stays crisp no matter how many revolutions the leg's horizon
+// spans. Before v0.10.3 the budget was a flat 96 samples per leg; a
+// long inter-node horizon — routine at high warp, where nodes are
+// planted dozens of orbits ahead — then smeared the orbit into a
+// sparse scatter of points (the three-cycle "predictor adaptive
+// sampling" carry-over).
+const (
+	predictSamplesPerPeriod = 96  // target point density per revolution
+	predictSamplesMin       = 96  // floor — also the legacy single-period budget
+	predictSamplesMax       = 720 // ceiling — caps the per-frame body-ephemeris cost
+)
+
+// adaptiveSampleCount sizes a predicted leg's sample budget from its
+// horizon and orbital period: ~predictSamplesPerPeriod points per
+// revolution, clamped to [predictSamplesMin, predictSamplesMax]. A
+// non-periodic (hyperbolic or degenerate) period falls back to the
+// minimum — a hyperbolic arc does not loop, so a flat budget draws it
+// cleanly.
+func adaptiveSampleCount(horizonSecs, periodSecs float64) int {
+	if periodSecs <= 0 || math.IsNaN(periodSecs) || math.IsInf(periodSecs, 0) ||
+		horizonSecs <= 0 || math.IsNaN(horizonSecs) || math.IsInf(horizonSecs, 0) {
+		return predictSamplesMin
+	}
+	n := int(math.Round(predictSamplesPerPeriod * horizonSecs / periodSecs))
+	if n < predictSamplesMin {
+		return predictSamplesMin
+	}
+	if n > predictSamplesMax {
+		return predictSamplesMax
+	}
+	return n
+}
+
 // SOISegment is a contiguous run of predicted-trajectory samples that
 // share the same owning SOI primary. PrimaryID == craft's home primary
 // means "still in the home SOI"; a different ID means the segment has
@@ -127,8 +162,8 @@ predict:
 		// relative to one Verlet sub-step (typically minutes), so the
 		// per-sub-step SOI rebase above keeps using the previous-sample
 		// snapshot accurately enough; doing this only at the sample
-		// boundary keeps cost at ~96 refreshes per call regardless of
-		// horizon.
+		// boundary keeps the refresh count at one per sample (`samples`
+		// is the adaptive budget, capped at predictSamplesMax).
 		clock = clock.Add(stepDur)
 		for _, b := range sys.Bodies {
 			positions[b.ID] = w.BodyPositionAt(b, clock)

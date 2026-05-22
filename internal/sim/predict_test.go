@@ -10,6 +10,35 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
+// TestAdaptiveSampleCount: the predicted-leg sample budget tracks how
+// many orbital periods the horizon spans (~96 points per revolution),
+// clamped to [predictSamplesMin, predictSamplesMax]. Non-periodic or
+// degenerate inputs fall back to the minimum.
+func TestAdaptiveSampleCount(t *testing.T) {
+	const period = 5400.0 // ~90 min LEO
+	cases := []struct {
+		name    string
+		horizon float64
+		period  float64
+		want    int
+	}{
+		{"one period", period, period, 96},
+		{"half period floors to min", period / 2, period, 96},
+		{"five periods", 5 * period, period, 480},
+		{"hundred periods caps", 100 * period, period, 720},
+		{"hyperbolic period falls back to min", 10 * period, math.Inf(1), 96},
+		{"nan period falls back to min", 10 * period, math.NaN(), 96},
+		{"zero period falls back to min", 10 * period, 0, 96},
+		{"zero horizon falls back to min", 0, period, 96},
+	}
+	for _, c := range cases {
+		if got := adaptiveSampleCount(c.horizon, c.period); got != c.want {
+			t.Errorf("%s: adaptiveSampleCount(%.0f, %.0f) = %d, want %d",
+				c.name, c.horizon, c.period, got, c.want)
+		}
+	}
+}
+
 // TestPredictedSegmentsContinuousAtSOIBoundary: plant a hyperbolic
 // trajectory escaping Earth SOI; PredictedSegments should split into
 // (≥) two segments at the boundary, AND the last point of the inner
