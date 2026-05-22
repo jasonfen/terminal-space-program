@@ -1086,8 +1086,10 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 			continue
 		}
 
-		samples := 96
-		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, samples)
+		// Sample budget is adaptive (v0.10.3): ~96 points per orbital
+		// period the leg's horizon spans, so a long inter-node horizon
+		// at high warp no longer smears the dashed orbit.
+		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples)
 		legColor := render.ManeuverSegmentColor(leg.NodeIndex)
 		for _, seg := range segs {
 			stride := 2

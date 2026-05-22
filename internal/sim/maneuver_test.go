@@ -311,6 +311,52 @@ func TestPredictedLegsHohmann(t *testing.T) {
 	}
 }
 
+// TestPredictedLegsAdaptiveSamples: a predicted leg's Samples budget
+// scales with how many orbital periods its horizon spans (~96 points
+// per revolution), clamped to [96, 720]. A single-node leg spans one
+// period and keeps the legacy 96; a long inter-node horizon (routine
+// at high warp) must densify so the dashed orbit doesn't smear.
+func TestPredictedLegsAdaptiveSamples(t *testing.T) {
+	w := mustWorld(t)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	period := orbitalPeriod(w.ActiveCraft().State, mu)
+	if period <= 0 || math.IsNaN(period) || math.IsInf(period, 0) {
+		t.Fatalf("test craft not on a bound orbit: period=%.0f", period)
+	}
+
+	// One node → one leg; horizon falls back to one orbital period.
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          10,
+	})
+	legs := w.PredictedLegs()
+	if len(legs) != 1 {
+		t.Fatalf("expected 1 leg, got %d", len(legs))
+	}
+	if legs[0].Samples != predictSamplesMin {
+		t.Errorf("single-period leg Samples = %d, want %d", legs[0].Samples, predictSamplesMin)
+	}
+
+	// Second node ~15 periods after the first → leg 0's horizon spans
+	// 15 revolutions, well past the sample cap.
+	w.PlanNode(ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(time.Duration((60 + 15*period) * float64(time.Second))),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          10,
+	})
+	legs = w.PredictedLegs()
+	if len(legs) != 2 {
+		t.Fatalf("expected 2 legs, got %d", len(legs))
+	}
+	if legs[0].Samples != predictSamplesMax {
+		t.Errorf("15-period leg Samples = %d, want cap %d", legs[0].Samples, predictSamplesMax)
+	}
+	if legs[1].Samples != predictSamplesMin {
+		t.Errorf("trailing single-period leg Samples = %d, want %d", legs[1].Samples, predictSamplesMin)
+	}
+}
+
 // TestPredictedLegsSuppressedDuringActiveBurn: same guard as
 // PredictedFinalOrbit — flailing values during burns shouldn't
 // drive flickering colored trajectory lines.

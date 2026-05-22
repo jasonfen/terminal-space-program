@@ -1512,6 +1512,7 @@ type PredictedLeg struct {
 	Primary     bodies.CelestialBody // frame the state is expressed in
 	HorizonSecs float64              // duration to predict for (until next node, or one period)
 	StartClock  time.Time            // wall-clock at which the post-burn state lives — drives time-aware body lookups in PredictedSegmentsFrom (v0.8.4+)
+	Samples     int                  // adaptive trajectory-sample budget — ~96 points per orbital period the horizon spans (v0.10.3)
 }
 
 // PredictedLegs walks every resolved planted node and returns one
@@ -1557,13 +1558,13 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			state.V = state.V.Add(dir.Scale(n.DV))
 		}
 		// Horizon: until next planted node, else one orbital period.
+		period := orbitalPeriod(state, primary.GravitationalParameter())
 		var horizon float64
 		if i+1 < len(w.ActiveCraft().Nodes) && w.ActiveCraft().Nodes[i+1].IsResolved() {
 			horizon = w.ActiveCraft().Nodes[i+1].TriggerTime.Sub(clock).Seconds()
 		}
 		if horizon <= 0 {
-			mu := primary.GravitationalParameter()
-			horizon = orbitalPeriod(state, mu)
+			horizon = period
 			if horizon <= 0 || math.IsNaN(horizon) || math.IsInf(horizon, 0) {
 				// Hyperbolic / degenerate — fall back to a short fixed window.
 				horizon = 3600
@@ -1575,6 +1576,7 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			Primary:     primary,
 			HorizonSecs: horizon,
 			StartClock:  clock,
+			Samples:     adaptiveSampleCount(horizon, period),
 		})
 	}
 	return legs
