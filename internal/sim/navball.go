@@ -382,7 +382,7 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 				continue
 			}
 		}
-		dir := active.BurnDirectionWithTarget(n.Mode, nrT, nvT)
+		dir := active.BurnDirectionPlaneAware(n.Mode, nrT, nvT, n.PlaneChangeRad)
 		if dir.Norm() == 0 {
 			continue
 		}

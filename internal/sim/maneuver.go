@@ -739,19 +739,23 @@ func (w *World) IterateBurnDV(mode spacecraft.BurnMode, dvGuess float64) (float6
 	return refined, nil
 }
 
-// PlanInclinationChange plants a single normal-burn maneuver node
+// PlanInclinationChange plants a single BurnPlaneChange maneuver node
 // that rotates the craft's orbital plane to targetIncl (radians, in
 // [0, π]). The burn fires at the next ascending or descending node,
-// whichever comes sooner; the planner picks the BurnNormal+ /
-// BurnNormal- mode that drives inclination toward the target.
+// whichever comes sooner. The node carries the planner's signed
+// rotation angle (PlaneChangeRad); the burn rotates the horizontal
+// velocity through it about the radial axis, preserving |v| — see
+// spacecraft.planeChangeDirection.
 //
 // Returns the planner's InclinationPlan (Δv + chosen node) for HUD
 // flashing; surfaces the planner's error untouched if the source
 // orbit is equatorial / hyperbolic / already-at-target.
 //
-// v0.7.4+. Composes with v0.6.0's burn-at-next scheduler — the planted
-// node uses an absolute TriggerTime (event resolver isn't needed
-// since the planner already computed the future event time).
+// v0.7.4+. v0.10.4: a true plane change (was a pure orbit-normal burn,
+// which over-sped the craft and left the orbit eccentric). Composes
+// with v0.6.0's burn-at-next scheduler — the planted node uses an
+// absolute TriggerTime (event resolver isn't needed since the planner
+// already computed the future event time).
 func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationPlan, error) {
 	if w.ActiveCraft() == nil {
 		return nil, errNoCraftForTransfer
@@ -760,8 +764,8 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 	// v0.8.6+: targetIncl is interpreted in the primary's reference
 	// frame (body-equatorial for non-Sun primaries; ecliptic for the
 	// Sun). Rotate the state into that frame before calling the inner
-	// planner — Δv, time-of-flight and NormalSign (which refers to
-	// ±h, computed from the live state at burn time) are all
+	// planner — Δv, time-of-flight and the signed rotation angle
+	// (resolved against the live state at burn time) are all
 	// frame-invariant, so the resulting InclinationPlan flies through
 	// unchanged.
 	primary := w.ActiveCraft().Primary
@@ -774,17 +778,14 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 	if err != nil {
 		return nil, err
 	}
-	mode := spacecraft.BurnNormalPlus
-	if plan.NormalSign < 0 {
-		mode = spacecraft.BurnNormalMinus
-	}
 	now := w.Clock.SimTime
 	w.PlanNode(ManeuverNode{
-		TriggerTime: now.Add(plan.OffsetTime),
-		Mode:        mode,
-		DV:          plan.DV,
-		Duration:    w.ActiveCraft().BurnTimeForDV(plan.DV),
-		PrimaryID:   plan.PrimaryID,
+		TriggerTime:    now.Add(plan.OffsetTime),
+		Mode:           spacecraft.BurnPlaneChange,
+		DV:             plan.DV,
+		Duration:       w.ActiveCraft().BurnTimeForDV(plan.DV),
+		PrimaryID:      plan.PrimaryID,
+		PlaneChangeRad: plan.PlaneChangeRad,
 	})
 	return &plan, nil
 }
@@ -1202,7 +1203,14 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 			}
 		}
 		if n.Duration == 0 {
-			c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
+			// A BurnPlaneChange node degrades to impulsive only when
+			// BurnTimeForDV returned 0 (Δv past the fuel budget / no
+			// engine) — its tilted direction still needs NodeBurnDirection.
+			if n.Mode == spacecraft.BurnPlaneChange {
+				c.ApplyImpulsiveDir(spacecraft.NodeBurnDirection(n, c.State.R, c.State.V), n.DV)
+			} else {
+				c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
+			}
 		} else {
 			c.ActiveBurn = &ActiveBurn{
 				Mode:           n.Mode,
@@ -1211,6 +1219,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				PrimaryID:      n.PrimaryID,
 				Throttle:       n.EffectiveThrottle(),
 				TargetCraftIdx: n.TargetCraftIdx,
+				PlaneChangeRad: n.PlaneChangeRad,
 			}
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.
@@ -1260,7 +1269,7 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 			}
 		}
 	}
-	dir := c.BurnDirectionWithTarget(n.Mode, rT, vT)
+	dir := c.BurnDirectionPlaneAware(n.Mode, rT, vT, n.PlaneChangeRad)
 	if dir.Norm() == 0 {
 		return orbital.Vec3{}, false
 	}
@@ -1323,7 +1332,7 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 		state, primary = w.propagateCraftWithPrimary(dt)
 		primaryID = primary.ID
 	}
-	dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+	dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 	if dir.Norm() == 0 || n.DV == 0 {
 		return state, primaryID
 	}
@@ -1407,7 +1416,7 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
-		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
 			state.V = state.V.Add(dir.Scale(n.DV))
 		}
@@ -1553,7 +1562,7 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
-		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
 			state.V = state.V.Add(dir.Scale(n.DV))
 		}
@@ -1790,7 +1799,7 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
-		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
 			state.V = state.V.Add(dir.Scale(n.DV))
 		}

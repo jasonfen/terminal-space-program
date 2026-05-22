@@ -118,6 +118,14 @@ type ManeuverNode struct {
 	// CraftIdxValue) translate to the natural 0-based slate index;
 	// callers always work in 0-based.
 	TargetCraftIdx int `json:",omitempty"`
+	// PlaneChangeRad (v0.10.4+) is the signed orbital-plane rotation
+	// angle (radians) for a BurnPlaneChange node — the angle the
+	// horizontal velocity is rotated through about the radial axis.
+	// Populated only for BurnPlaneChange (the `I` inclination auto-
+	// plant); zero for every other mode. Zero-value-omitempty so
+	// non-plane-change nodes save without the field — no schema bump,
+	// same convention as TargetCraftIdx.
+	PlaneChangeRad float64 `json:",omitempty"`
 }
 
 // TargetCraftIdxValue returns the 0-based slate index this node is
@@ -217,6 +225,11 @@ type ActiveBurn struct {
 	// each tick so the burn keeps tracking even if the player swaps
 	// World.Target mid-burn.
 	TargetCraftIdx int `json:",omitempty"`
+	// PlaneChangeRad (v0.10.4+) carries the BurnPlaneChange rotation
+	// angle from the firing node onto the running burn, so the
+	// attitude/thrust path can resolve the tilted plane-change
+	// direction each tick. Zero for non-plane-change burns.
+	PlaneChangeRad float64 `json:",omitempty"`
 }
 
 // TargetCraftIdxValue mirrors ManeuverNode.TargetCraftIdxValue —

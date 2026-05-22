@@ -741,6 +741,10 @@ Sized **L / substantial** (real transfer math, not UI plumbing);
 the [capture-direction toggle](#capture-direction-toggle) and
 [wider cross-SOI PlanTransfer](#wider-cross-soi-plantransfer).
 
+### Inclination burn: true plane change
+<!-- llm-parse: id=inclination-true-plane-change status=in-progress target=v0.10.4 trigger=playtest -->
+🛠 **in progress · v0.10.4** (branch `v0.10.4-inclination-burn`). Playtest-triggered: a target-Moon → `I` → `H` run missed the lunar encounter. The `I` auto-plant planted a pure `BurnNormalPlus`/`Minus` node — but a pure orbit-normal burn adds Δv perpendicular to velocity, so `|v_new| = √(|v|²+|Δv|²) > |v|`: it speeds the craft up (orbit becomes eccentric) and only rotates the plane by `atan(Δv/v_h)`, not the intended `Δi`. Small tweaks hid it; a tens-of-degrees LEO→Moon match left the orbit eccentric *and* off-plane, so the coplanar-circular `H` auto-plant then mis-planned. Fix: new `BurnPlaneChange` mode + signed `PlaneChangeRad` on `ManeuverNode`/`ActiveBurn`; `spacecraft.planeChangeDirection` rotates the horizontal velocity about the radial axis (normal tilted toward retrograde by `Δi/2`), preserving `|v|`. No save migration (omitempty fields). Scope-committed in `docs/v0.10-plan.md` §v0.10.4. Distinct from the L-tier [combined plane-shift + Hohmann](#combined-plane-shift--hohmann) (v0.11) — this only fixes the standalone `I` burn.
+
 ### Capture-direction toggle
 <!-- llm-parse: id=capture-direction-toggle status=backlog target=v0.9 -->
 🧊 **backlog**. Today's auto-Hohmann arrival burn is retrograde-in-source-frame. A "capture prograde-around-target" mode would burn differently and trade ~50–100 m/s for the right-direction capture.

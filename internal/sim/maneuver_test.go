@@ -1290,13 +1290,13 @@ func TestIterateBurnDVZeroThrustPassthrough(t *testing.T) {
 	}
 }
 
-// TestPlanInclinationChangePlantsNormalBurn: from a 28.5° inclined LEO,
-// targeting equatorial drops a single normal-burn node at the next
-// node crossing — half-period away when the craft starts at the AN.
-// The planted node carries the planner's chosen Normal+/- mode, the
-// craft's primary as PrimaryID, and a finite Duration sized via
-// BurnTimeForDV.
-func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
+// TestPlanInclinationChangePlantsPlaneChangeBurn: from a 28.5° inclined
+// LEO, targeting equatorial drops a single BurnPlaneChange node at the
+// next node crossing — half-period away when the craft starts at the
+// AN. The planted node carries BurnPlaneChange mode, a signed
+// PlaneChangeRad (|θ| = |Δi|), the craft's primary as PrimaryID, and a
+// finite Duration sized via BurnTimeForDV.
+func TestPlanInclinationChangePlantsPlaneChangeBurn(t *testing.T) {
 	w := mustWorld(t)
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
 	r := w.ActiveCraft().State.R.Norm()
@@ -1321,12 +1321,17 @@ func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
 		t.Fatalf("expected 1 planted node, got %d", got)
 	}
 	n := w.ActiveCraft().Nodes[0]
-	if n.Mode != spacecraft.BurnNormalPlus {
-		t.Errorf("Mode = %v, want BurnNormalPlus (DN, decrease)", n.Mode)
+	if n.Mode != spacecraft.BurnPlaneChange {
+		t.Errorf("Mode = %v, want BurnPlaneChange", n.Mode)
 	}
 	wantDV := 2 * v * math.Sin(inc/2)
 	if math.Abs(n.DV-wantDV) > 1 {
 		t.Errorf("Δv = %.1f m/s, want %.1f m/s", n.DV, wantDV)
+	}
+	// PlaneChangeRad: signed rotation, |θ| = |Δi| = inc, sign = NormalSign.
+	wantTheta := float64(plan.NormalSign) * inc
+	if math.Abs(n.PlaneChangeRad-wantTheta) > 1e-9 {
+		t.Errorf("PlaneChangeRad = %.5f rad, want %.5f", n.PlaneChangeRad, wantTheta)
 	}
 	if n.PrimaryID != w.ActiveCraft().Primary.ID {
 		t.Errorf("PrimaryID = %q, want %q", n.PrimaryID, w.ActiveCraft().Primary.ID)
@@ -1336,6 +1341,42 @@ func TestPlanInclinationChangePlantsNormalBurn(t *testing.T) {
 	}
 	if !plan.AtAN && plan.NormalSign != +1 {
 		t.Errorf("plan inconsistent: AtAN=%v NormalSign=%d", plan.AtAN, plan.NormalSign)
+	}
+}
+
+// TestPlaneChangeNodeCircularizesPlane: from an inclined circular LEO,
+// the `I` auto-plant must rotate the orbit to the target inclination
+// while keeping it circular. PostBurnState propagates to the node and
+// applies its Δv along NodeBurnDirection — so its result exercises the
+// real v0.10.4 fix. The pre-v0.10.4 pure-normal burn sped the craft up
+// (eccentricity grew to ~0.06 here) and under-rotated the plane.
+func TestPlaneChangeNodeCircularizesPlane(t *testing.T) {
+	w := mustWorld(t)
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	r := w.ActiveCraft().State.R.Norm()
+	v := math.Sqrt(mu / r)
+	const inc = 28.5 * math.Pi / 180
+
+	// Inclined circular LEO at the AN, built in body-equatorial coords
+	// (the planner's frame) then rotated to world coords.
+	frame := orbital.ReferenceFrameForPrimary(w.ActiveCraft().Primary)
+	w.ActiveCraft().State.R = frame.ToWorld(orbital.Vec3{X: r})
+	w.ActiveCraft().State.V = frame.ToWorld(orbital.Vec3{Y: v * math.Cos(inc), Z: v * math.Sin(inc)})
+
+	if _, err := w.PlanInclinationChange(0); err != nil {
+		t.Fatalf("PlanInclinationChange: %v", err)
+	}
+	post, _ := w.PostBurnState(w.ActiveCraft().Nodes[0])
+	el := orbital.ElementsFromStateInFrame(post.R, post.V, mu, frame)
+
+	// Plane rotated to the equatorial target.
+	if el.I > 0.5*math.Pi/180 {
+		t.Errorf("post-burn inclination = %.3f°, want ~0° (plane under-rotated)", el.I*180/math.Pi)
+	}
+	// Speed preserved → orbit stays ~circular. The old pure-normal burn
+	// over-sped the craft and grew eccentricity instead.
+	if el.E > 5e-3 {
+		t.Errorf("post-burn eccentricity = %.4f, want ~0 (burn over-sped the craft)", el.E)
 	}
 }
 
