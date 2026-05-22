@@ -69,6 +69,16 @@ func TimeToApoapsis(state Vec3State, mu float64) float64 {
 // ascending node; at ν = π - ω it's at the descending node. Both
 // resolve to the next future ν via TimeToTrueAnomaly.
 //
+// The current position is located by its argument of latitude u (the
+// angle from the ascending node, measured in the orbit plane) rather
+// than its true anomaly: u is well-defined for circular orbits, where
+// ω and ν are both degenerate. ν = u − ω feeds TimeToTrueAnomaly; for
+// a circular orbit the degenerate ω is identical in the current and
+// target ν so it cancels. Before v0.10.4 this used TrueAnomalyFromState
+// directly, which returns 0 for any circular orbit — so the node time
+// was fixed (≈ half a period) regardless of where the craft actually
+// was, and an inclination/plane-change burn fired at the wrong point.
+//
 // For equatorial orbits (i ≈ 0 or i ≈ π) every point is technically
 // "on the equatorial plane" — there is no well-defined crossing. The
 // helper returns -1 in that case; callers should fall back to
@@ -79,7 +89,14 @@ func TimeToNodeCrossing(state Vec3State, mu float64, ascending bool) float64 {
 	if el.I < equatorialTol || math.Abs(el.I-math.Pi) < equatorialTol {
 		return -1
 	}
-	nu := TrueAnomalyFromState(state.R, state.V, mu, el)
+	// Argument of latitude u, computed geometrically: u = signed angle
+	// (about the orbit normal ĥ) from the line of nodes to the current
+	// radius vector. ν = u − ω.
+	hHat := state.R.Cross(state.V).Unit()
+	nodeHat := (Vec3{Z: 1}).Cross(hHat).Unit() // toward the ascending node
+	rHat := state.R.Unit()
+	u := math.Atan2(nodeHat.Cross(rHat).Dot(hHat), nodeHat.Dot(rHat))
+	nu := u - el.Arg
 	target := -el.Arg
 	if !ascending {
 		target = math.Pi - el.Arg
