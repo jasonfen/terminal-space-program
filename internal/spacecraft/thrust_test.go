@@ -245,3 +245,45 @@ func TestThrustAccelFnNoThrustWhenBottomStageEmpty(t *testing.T) {
 		t.Errorf("dry S-IC with full upper stages: got %+v, want pure gravity %+v (no free thrust)", got, want)
 	}
 }
+
+// TestPlaneChangeDirectionRotatesPlanePreservingSpeed: the v0.10.4
+// plane-change burn must rotate the orbital plane by |θ| while keeping
+// |v| unchanged. The pre-v0.10.4 bug applied the plane-change Δv along
+// pure orbit-normal, which always grows |v| (|v_new| = √(v²+Δv²)) and
+// under-rotates the plane — leaving the orbit eccentric and off-plane.
+func TestPlaneChangeDirectionRotatesPlanePreservingSpeed(t *testing.T) {
+	// Circular orbit: position +X, velocity +Y → all velocity is
+	// horizontal, so the plane-change Δv magnitude is 2·v·sin(|θ|/2).
+	r := orbital.Vec3{X: 7.0e6}
+	speed := 7.5e3
+	v := orbital.Vec3{Y: speed}
+	for _, theta := range []float64{0.1, -0.1, 0.5, -0.5, 1.0} {
+		dir := planeChangeDirection(r, v, theta)
+		dv := 2 * speed * math.Sin(math.Abs(theta)/2)
+		vNew := v.Add(dir.Scale(dv))
+
+		if rel := math.Abs(vNew.Norm()-speed) / speed; rel > 1e-9 {
+			t.Errorf("theta=%.2f: |v| changed by %.2e (rel) — not a pure rotation", theta, rel)
+		}
+
+		hOld := r.Cross(v)
+		hNew := r.Cross(vNew)
+		cosA := hOld.Dot(hNew) / (hOld.Norm() * hNew.Norm())
+		if cosA > 1 {
+			cosA = 1
+		} else if cosA < -1 {
+			cosA = -1
+		}
+		if ang := math.Acos(cosA); math.Abs(ang-math.Abs(theta)) > 1e-9 {
+			t.Errorf("theta=%.2f: plane rotated %.5f rad, want %.5f", theta, ang, math.Abs(theta))
+		}
+	}
+
+	// Degenerate inputs return the zero vector (burn no-ops).
+	if d := planeChangeDirection(r, v, 0); d.Norm() != 0 {
+		t.Errorf("theta=0: got %+v, want zero vector", d)
+	}
+	if d := planeChangeDirection(orbital.Vec3{}, v, 0.5); d.Norm() != 0 {
+		t.Errorf("zero r: got %+v, want zero vector", d)
+	}
+}

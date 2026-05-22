@@ -145,6 +145,21 @@ const (
 	BurnTargetRetrograde
 	BurnTarget
 	BurnAntiTarget
+
+	// BurnPlaneChange (v0.10.4+) is a planted-node-only mode for a pure
+	// orbital-plane rotation. A plane change must rotate the velocity
+	// vector while preserving its magnitude — a pure orbit-normal burn
+	// (BurnNormalPlus) cannot: adding Δv perpendicular to v always
+	// speeds the craft up (|v_new| = √(v²+Δv²)), leaving the orbit
+	// eccentric and the plane under-rotated. The correct direction is
+	// the orbit normal tilted toward retrograde by half the rotation
+	// angle; it depends on a continuous parameter the other modes don't
+	// carry, so the rotation angle rides on the ManeuverNode / ActiveBurn
+	// (PlaneChangeRad) and the direction is resolved via NodeBurnDirection
+	// / BurnDirectionPlaneAware. Not in AllBurnModes — the player reaches
+	// it only through the `I` auto-plant, never the m-form mode cycle.
+	// Appended last so persisted node-mode ints keep their meaning.
+	BurnPlaneChange
 )
 
 // String is the label shown in the maneuver planner / HUD.
@@ -174,6 +189,8 @@ func (m BurnMode) String() string {
 		return "Target"
 	case BurnAntiTarget:
 		return "Anti-Target"
+	case BurnPlaneChange:
+		return "Plane Change"
 	}
 	return "?"
 }
@@ -236,7 +253,63 @@ func DirectionUnit(mode BurnMode, r, v orbital.Vec3) orbital.Vec3 {
 	case BurnRadialIn:
 		return radialOut.Scale(-1)
 	}
+	// BurnPlaneChange (and target-relative modes) fall through: they
+	// need parameters DirectionUnit doesn't have. Plane-change callers
+	// use NodeBurnDirection / BurnDirectionPlaneAware instead.
 	return orbital.Vec3{}
+}
+
+// planeChangeDirection returns the unit thrust direction for a pure
+// orbital-plane rotation of signed angle thetaRad about the radial
+// axis, given the craft state (r, v). The burn rotates the horizontal
+// velocity component into the new plane while preserving |v|.
+//
+// The horizontal velocity v_h (the part of v perpendicular to r) is
+// rotated by theta about r̂; the radial component is untouched. The
+// resulting Δv is
+//
+//	Δv ∝ (cos θ − 1)·v̂_h + sin θ·ĥ
+//
+// where v̂_h is the horizontal-velocity unit vector and ĥ = (r×v)/|r×v|
+// is the orbit normal — i.e. the normal axis tilted toward retrograde
+// by |θ|/2. A positive θ rotates the plane toward +ĥ, a negative θ
+// toward −ĥ. Returns the zero vector for θ = 0 or a degenerate state.
+func planeChangeDirection(r, v orbital.Vec3, thetaRad float64) orbital.Vec3 {
+	if thetaRad == 0 {
+		return orbital.Vec3{}
+	}
+	rMag := r.Norm()
+	if rMag == 0 {
+		return orbital.Vec3{}
+	}
+	rHat := r.Scale(1 / rMag)
+	vHor := v.Sub(rHat.Scale(v.Dot(rHat)))
+	vHorMag := vHor.Norm()
+	h := cross(r, v)
+	hMag := h.Norm()
+	if vHorMag == 0 || hMag == 0 {
+		return orbital.Vec3{}
+	}
+	vHatH := vHor.Scale(1 / vHorMag)
+	hHat := h.Scale(1 / hMag)
+	dv := vHatH.Scale(math.Cos(thetaRad) - 1).Add(hHat.Scale(math.Sin(thetaRad)))
+	dvMag := dv.Norm()
+	if dvMag == 0 {
+		return orbital.Vec3{}
+	}
+	return dv.Scale(1 / dvMag)
+}
+
+// NodeBurnDirection resolves a planted node's unit thrust direction at
+// state (r, v), handling BurnPlaneChange via the node's PlaneChangeRad
+// before delegating every other mode to DirectionUnit. Target-relative
+// nodes still resolve via DirectionUnitTarget at the call site — a
+// plane-change node is never target-relative. v0.10.4+.
+func NodeBurnDirection(n ManeuverNode, r, v orbital.Vec3) orbital.Vec3 {
+	if n.Mode == BurnPlaneChange {
+		return planeChangeDirection(r, v, n.PlaneChangeRad)
+	}
+	return DirectionUnit(n.Mode, r, v)
 }
 
 // DirectionUnitTarget returns the unit thrust direction for the four
@@ -305,6 +378,19 @@ func (s *Spacecraft) ApplyImpulsive(mode BurnMode, dv float64) {
 func (s *Spacecraft) ApplyImpulsiveWithTarget(mode BurnMode, dv float64, rT, vT orbital.Vec3) {
 	// v0.9.2+: route through BurnDirection so surface modes + trim feed through.
 	dir := s.BurnDirectionWithTarget(mode, rT, vT)
+	if dir.Norm() == 0 || dv == 0 {
+		return
+	}
+	s.State.V = s.State.V.Add(dir.Scale(dv))
+	s.consumeFuel(math.Abs(dv))
+}
+
+// ApplyImpulsiveDir applies an instantaneous Δv of magnitude dv along
+// the supplied unit direction, debiting fuel via the rocket equation.
+// Used by the planted-node fire path for a BurnPlaneChange node that
+// degraded to impulsive — its tilted direction is resolved upstream
+// by NodeBurnDirection rather than from a plain BurnMode. v0.10.4+.
+func (s *Spacecraft) ApplyImpulsiveDir(dir orbital.Vec3, dv float64) {
 	if dir.Norm() == 0 || dv == 0 {
 		return
 	}
