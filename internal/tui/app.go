@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -514,31 +514,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PlanIncl):
 			if a.world.CraftVisibleHere() {
-				// v0.9.0+: I consumes World.Target. TargetBody → plane-
-				// match the body's orbit (existing v0.8.6 logic); None →
-				// drop to equatorial of craft's primary (the equatorial
-				// inclination match shipped with v0.7.4); TargetCraft is
-				// deferred to v0.9.3 with the rendezvous-tooling slice.
+				// v0.9.0+: I consumes World.Target. TargetBody → full
+				// plane match to the body's orbit (v0.10.4: matches
+				// inclination AND the node line, so a following Hohmann
+				// departs coplanar); None → drop to the equatorial plane
+				// of the craft's primary (the equatorial inclination
+				// match shipped with v0.7.4); TargetCraft is deferred.
 				//
 				// Pre-v0.9 this block read App.selectedBody, the implicit
 				// body cursor driven by ←/→. selectedBody now drives only
 				// body-info / porkchop / SELECTED HUD pane.
-				target := 0.0 // default: drop to equatorial of craft's primary
-				sys := a.world.System()
+				var plan *planner.InclinationPlan
+				var err error
 				switch a.world.Target.Kind {
 				case sim.TargetBody:
-					if a.world.Target.BodyIdx > 0 && a.world.Target.BodyIdx < len(sys.Bodies) {
-						b := sys.Bodies[a.world.Target.BodyIdx]
-						primary := a.world.ActiveCraft().Primary
-						frame := orbital.ReferenceFrameForPrimary(primary)
-						target = orbital.PlaneMatchInclination(b, frame)
-					}
+					plan, err = a.world.PlanPlaneMatch(a.world.Target.BodyIdx)
 				case sim.TargetCraft:
 					a.statusMsg = "I targets bodies — for craft, plan via [m]"
 					a.statusExpires = time.Now().Add(3 * time.Second)
 					return a, nil
+				default:
+					plan, err = a.world.PlanInclinationChange(0)
 				}
-				plan, err := a.world.PlanInclinationChange(target)
 				if err != nil {
 					a.statusMsg = fmt.Sprintf("inclination: %v", err)
 				} else {

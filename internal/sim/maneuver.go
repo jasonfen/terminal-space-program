@@ -790,6 +790,103 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 	return &plan, nil
 }
 
+// PlanPlaneMatch plants a single BurnPlaneChange node that rotates the
+// active craft's orbital plane to *coincide* with the orbital plane of
+// the body at targetIdx — matching both inclination magnitude AND the
+// line of nodes (Ω), so a subsequent Hohmann transfer to that body
+// departs in the right plane.
+//
+// PlanInclinationChange matches only the inclination *magnitude*: two
+// orbits at equal inclination but different Ω are still tilted relative
+// to each other (an equatorial LEO and the Moon's orbit, both read as
+// ~19° in Earth's frame, sit ~25–39° apart). A Hohmann planned in the
+// craft's plane then reaches the target's orbital radius far out of the
+// target's plane and misses.
+//
+// "Coplanar with the target" is exactly "zero inclination measured in a
+// frame whose Z axis is the target's orbit normal" — so PlanPlaneMatch
+// re-expresses the craft state in that frame and asks the existing
+// inclination solver for inclination 0. The burn fires where the craft
+// crosses the target plane and rotates by the full dihedral angle; the
+// signed rotation is frame-invariant, so the resulting BurnPlaneChange
+// node flies through unchanged.
+//
+// Errors: ErrNoCraftForTransfer, errInvalidTransferTarget (bad index or
+// a target with no orbit), and the planner's own errors surfaced
+// untouched (already-coplanar / hyperbolic source). v0.10.4+.
+func (w *World) PlanPlaneMatch(targetIdx int) (*planner.InclinationPlan, error) {
+	if w.ActiveCraft() == nil {
+		return nil, errNoCraftForTransfer
+	}
+	sys := w.System()
+	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
+		return nil, errInvalidTransferTarget
+	}
+	target := sys.Bodies[targetIdx]
+	nTarget := orbital.OrbitNormalWorld(target)
+	if nTarget.Norm() == 0 {
+		return nil, errInvalidTransferTarget // target has no orbital plane
+	}
+	nTargetHat := nTarget.Unit()
+	c := w.ActiveCraft()
+	primary := c.Primary
+	mu := primary.GravitationalParameter()
+
+	// Time to the next crossing of the target plane — an AN/DN crossing
+	// in a frame whose Z axis is the target's orbit normal.
+	planeFrame := orbital.FrameFromNormal(nTarget)
+	stateTF := orbital.Vec3State{
+		R: planeFrame.FromWorld(c.State.R),
+		V: planeFrame.FromWorld(c.State.V),
+	}
+	tAN := orbital.TimeToNodeCrossing(stateTF, mu, true)
+	tDN := orbital.TimeToNodeCrossing(stateTF, mu, false)
+	dt := -1.0
+	atAN := false
+	if tAN >= 0 && (tDN < 0 || tAN <= tDN) {
+		dt, atAN = tAN, true
+	} else if tDN >= 0 {
+		dt, atAN = tDN, false
+	}
+	if dt < 0 {
+		// No crossing — the craft is already coplanar with the target.
+		return nil, planner.ErrInclinationNoOp
+	}
+
+	// Propagate to the crossing and derive the burn geometrically. At
+	// the crossing the radial axis lies along the two planes' mutual
+	// node line, so a rotation of the craft's orbit normal about r̂
+	// onto the target normal aligns the planes exactly. θ is that
+	// signed rotation (|θ| = the dihedral angle); spacecraft.
+	// planeChangeDirection turns it into the tilted burn at fire time.
+	post := w.propagateCraft(dt)
+	rHat := post.R.Unit()
+	hHat := post.R.Cross(post.V).Unit()
+	theta := math.Atan2(hHat.Cross(nTargetHat).Dot(rHat), hHat.Dot(nTargetHat))
+	vHor := post.V.Sub(rHat.Scale(post.V.Dot(rHat)))
+	dv := 2 * vHor.Norm() * math.Sin(math.Abs(theta)/2)
+	if dv == 0 {
+		return nil, planner.ErrInclinationNoOp
+	}
+	now := w.Clock.SimTime
+	w.PlanNode(ManeuverNode{
+		TriggerTime:    now.Add(time.Duration(dt * float64(time.Second))),
+		Mode:           spacecraft.BurnPlaneChange,
+		DV:             dv,
+		Duration:       c.BurnTimeForDV(dv),
+		PrimaryID:      primary.ID,
+		PlaneChangeRad: theta,
+	})
+	return &planner.InclinationPlan{
+		PrimaryID:      primary.ID,
+		DV:             dv,
+		OffsetTime:     time.Duration(dt * float64(time.Second)),
+		NormalSign:     int(math.Copysign(1, theta)),
+		PlaneChangeRad: theta,
+		AtAN:           atAN,
+	}, nil
+}
+
 // CircularizePlan summarises a planted circularize-at-apoapsis node
 // for the caller's status flash. v0.9.4+.
 type CircularizePlan struct {

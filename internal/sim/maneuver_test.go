@@ -1380,6 +1380,149 @@ func TestPlaneChangeNodeCircularizesPlane(t *testing.T) {
 	}
 }
 
+// TestPlanPlaneMatchCoplanarWithMoon: PlanPlaneMatch must rotate the
+// craft's orbit to *coincide* with the target body's orbital plane —
+// matching the node line, not just the inclination magnitude. Across
+// several LEO starts the plane-vs-Moon angle after the burn must
+// collapse to ~0°; PlanInclinationChange left it 25–39° off (same
+// inclination, wrong Ω), which is why an I→H run to the Moon missed.
+func TestPlanPlaneMatchCoplanarWithMoon(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" {
+			moonIdx = i
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon not in loaded Sol system")
+	}
+	moonN := orbital.OrbitNormalWorld(sys.Bodies[moonIdx])
+
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	r := w.ActiveCraft().State.R.Norm()
+	v := math.Sqrt(mu / r)
+	frame := orbital.ReferenceFrameForPrimary(w.ActiveCraft().Primary)
+
+	planeAngleDeg := func(a, b orbital.Vec3) float64 {
+		c := a.Dot(b) / (a.Norm() * b.Norm())
+		if c > 1 {
+			c = 1
+		} else if c < -1 {
+			c = -1
+		}
+		return math.Acos(c) * 180 / math.Pi
+	}
+
+	for _, incDeg := range []float64{0, 28.5, 51.6} {
+		for _, raanDeg := range []float64{0, 90, 180} {
+			inc := incDeg * math.Pi / 180
+			raan := raanDeg * math.Pi / 180
+			// Inclined circular LEO with the given RAAN, at its AN,
+			// built in body-equatorial coords then rotated to world.
+			rB := orbital.Vec3{X: r * math.Cos(raan), Y: r * math.Sin(raan)}
+			vB := orbital.Vec3{
+				X: -v * math.Cos(inc) * math.Sin(raan),
+				Y: v * math.Cos(inc) * math.Cos(raan),
+				Z: v * math.Sin(inc),
+			}
+			w.ActiveCraft().State.R = frame.ToWorld(rB)
+			w.ActiveCraft().State.V = frame.ToWorld(vB)
+			w.ActiveCraft().Nodes = nil
+
+			if _, err := w.PlanPlaneMatch(moonIdx); err != nil {
+				t.Fatalf("inc=%.1f raan=%.0f: PlanPlaneMatch: %v", incDeg, raanDeg, err)
+			}
+			post, _ := w.PostBurnState(w.ActiveCraft().Nodes[0])
+			if ang := planeAngleDeg(post.R.Cross(post.V), moonN); ang > 0.5 {
+				t.Errorf("inc=%.1f° raan=%.0f°: post-burn plane %.2f° off the Moon's, want ~0°",
+					incDeg, raanDeg, ang)
+			}
+			// Plane-change burn preserves |v| → orbit stays ~circular.
+			if el := orbital.ElementsFromState(post.R, post.V, mu); el.E > 5e-3 {
+				t.Errorf("inc=%.1f° raan=%.0f°: post-burn e=%.4f, want ~0", incDeg, raanDeg, el.E)
+			}
+		}
+	}
+}
+
+// TestPlaneMatchThenHohmannEncountersMoon: the end-to-end workflow the
+// playtest reported missing — `I` (plane match) then `H` (Hohmann) to
+// the Moon. After flying the plane-match burn the craft is coplanar
+// with the Moon, so the intra-primary Hohmann's transfer leg actually
+// passes through the Moon's SOI. Asserted by numerically propagating
+// the transfer leg and measuring the closest approach to the Moon —
+// the ground-truth physics, independent of the predicted-trajectory
+// renderer. Before the v0.10.4 plane match, `I` matched only the
+// inclination magnitude and the transfer stayed tens of degrees out of
+// the Moon's plane — closest approach was hundreds of thousands of km.
+func TestPlaneMatchThenHohmannEncountersMoon(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" {
+			moonIdx = i
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon not in loaded Sol system")
+	}
+	moon := sys.Bodies[moonIdx]
+	earth := w.ActiveCraft().Primary
+
+	// Start in a 28.5° inclined circular LEO.
+	mu := earth.GravitationalParameter()
+	r := w.ActiveCraft().State.R.Norm()
+	v := math.Sqrt(mu / r)
+	const inc = 28.5 * math.Pi / 180
+	frame := orbital.ReferenceFrameForPrimary(earth)
+	w.ActiveCraft().State.R = frame.ToWorld(orbital.Vec3{X: r})
+	w.ActiveCraft().State.V = frame.ToWorld(orbital.Vec3{Y: v * math.Cos(inc), Z: v * math.Sin(inc)})
+
+	// `I` → plane match. Fly the burn: jump the craft to the post-burn
+	// state and advance the clock to the node's fire time.
+	pm, err := w.PlanPlaneMatch(moonIdx)
+	if err != nil {
+		t.Fatalf("PlanPlaneMatch: %v", err)
+	}
+	post, _ := w.PostBurnState(w.ActiveCraft().Nodes[0])
+	w.ActiveCraft().State = post
+	w.ActiveCraft().Nodes = nil
+	w.Clock.SimTime = w.Clock.SimTime.Add(pm.OffsetTime)
+
+	// `H` → Hohmann to the Moon.
+	if _, err := w.PlanTransfer(moonIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	legs := w.PredictedLegs()
+	if len(legs) == 0 {
+		t.Fatal("no predicted legs after PlanTransfer")
+	}
+
+	// Numerically propagate the transfer leg, tracking the closest
+	// approach to the Moon. It must come within the Moon's SOI.
+	leg := legs[0]
+	soi := physics.SOIRadius(moon, earth)
+	state := leg.State
+	clock := leg.StartClock
+	const step = 60.0
+	minDist := math.Inf(1)
+	for tt := 0.0; tt <= leg.HorizonSecs; tt += step {
+		craftInertial := w.BodyPositionAt(earth, clock).Add(state.R)
+		if d := craftInertial.Sub(w.BodyPositionAt(moon, clock)).Norm(); d < minDist {
+			minDist = d
+		}
+		state = physics.StepVerlet(state, mu, step)
+		clock = clock.Add(time.Duration(step * float64(time.Second)))
+	}
+	if minDist > soi {
+		t.Errorf("transfer closest approach to the Moon = %.0f km, want < SOI %.0f km — plane-match→Hohmann missed",
+			minDist/1000, soi/1000)
+	}
+}
+
 // TestPlanInclinationChangeFromEquatorialDefault (v0.8.2.x): the
 // default world spawns equatorial (i=0). Earlier versions rejected
 // this with ErrEquatorialOrbit; v0.8.2.x plants the burn at the
