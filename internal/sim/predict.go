@@ -44,6 +44,33 @@ func adaptiveSampleCount(horizonSecs, periodSecs float64) int {
 	return n
 }
 
+// predictMaxSubStepCap bounds the predicted-trajectory integrator's
+// Verlet sub-step (seconds). The per-leg cap had been period/100 alone,
+// which is fine for a parking orbit but far too coarse for a long
+// transfer leg: an Earth→Moon transfer ellipse has a ~9-day period, so
+// period/100 ≈ 8000 s — a single Verlet step that long steps clean over
+// a lunar SOI encounter, and the coarse integration flings the dashed
+// trajectory off to a bogus heliocentric escape instead of drawing the
+// encounter. An absolute cap keeps the sub-step fine enough to resolve
+// an encounter regardless of the orbit's period. Verlet sub-steps don't
+// refresh body positions (that stays per output sample), so a tighter
+// cap is cheap. v0.10.3+.
+const predictMaxSubStepCap = 120.0
+
+// predictMaxSubStep returns the integrator sub-step cap for an orbit of
+// the given period: period/100, clamped to predictMaxSubStepCap. A
+// degenerate period (hyperbolic / NaN / non-positive) falls back to a
+// conservative 1 s, matching the pre-v0.10.3 guard.
+func predictMaxSubStep(period float64) float64 {
+	if period <= 0 || math.IsNaN(period) || math.IsInf(period, 0) {
+		return 1.0
+	}
+	if s := period / 100.0; s < predictMaxSubStepCap {
+		return s
+	}
+	return predictMaxSubStepCap
+}
+
 // SOISegment is a contiguous run of predicted-trajectory samples that
 // share the same owning SOI primary. PrimaryID == craft's home primary
 // means "still in the home SOI"; a different ID means the segment has
@@ -88,10 +115,7 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 	clock := startClock
 
 	period := orbitalPeriod(state, muNow)
-	maxStep := period / 100.0
-	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
-		maxStep = 1.0
-	}
+	maxStep := predictMaxSubStep(period)
 	stepSecs := totalSeconds / float64(samples-1)
 
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
@@ -147,10 +171,7 @@ predict:
 				muNow = current.GravitationalParameter()
 
 				period = orbitalPeriod(state, muNow)
-				maxStep = period / 100.0
-				if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
-					maxStep = 1.0
-				}
+				maxStep = predictMaxSubStep(period)
 
 				segments = append(segments, SOISegment{
 					PrimaryID: current.ID,
