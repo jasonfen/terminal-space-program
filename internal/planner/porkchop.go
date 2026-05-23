@@ -33,6 +33,11 @@ type EphemerisFn func(epoch float64) (r, v orbital.Vec3)
 // - retrograde: forwarded to LambertSolve to select the prograde or
 //   retrograde transfer branch. The TUI surfaces prograde today;
 //   retrograde unblocks multi-rev porkchop work in v0.8+. v0.7.5+.
+// - nRev / longBranch: forwarded to LambertSolveRev. nRev=0 +
+//   longBranch=false is the legacy single-rev short-only path
+//   (byte-identical to pre-v0.10.5). nRev≥1 scores N-revolution
+//   transfers; longBranch picks the higher-z (long) root of the
+//   two-branch N-rev solution. v0.10.5+.
 func PorkchopGrid(
 	muSun float64,
 	depState, arrState EphemerisFn,
@@ -41,6 +46,8 @@ func PorkchopGrid(
 	muDep, rPark float64,
 	muArr, rCapture float64,
 	retrograde bool,
+	nRev int,
+	longBranch bool,
 ) [][]float64 {
 	grid := make([][]float64, len(tofDays))
 	for j := range grid {
@@ -62,7 +69,7 @@ func PorkchopGrid(
 			tArr := tDep + tof*secondsPerDay
 			r2, vArr := arrState(tArr)
 
-			v1, v2, err := LambertSolve(r1, r2, tof*secondsPerDay, muSun, retrograde)
+			v1, v2, err := LambertSolveRev(r1, r2, tof*secondsPerDay, muSun, nRev, retrograde, longBranch)
 			if err != nil {
 				continue // leave NaN
 			}

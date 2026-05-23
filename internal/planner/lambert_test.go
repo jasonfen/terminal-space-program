@@ -90,7 +90,7 @@ func TestLambertMultiRevN1(t *testing.T) {
 	// N=1 domain while staying inside N=1's bracket.
 	dt := 20000.0
 
-	v1, _, err := LambertSolveRev(r1, r2, dt, mu, 1, false)
+	v1, _, err := LambertSolveRev(r1, r2, dt, mu, 1, false, false)
 	if err != nil {
 		t.Fatalf("LambertSolveRev N=1: %v", err)
 	}
@@ -112,12 +112,79 @@ func TestLambertMultiRevN1(t *testing.T) {
 	}
 }
 
+// TestLambertMultiRevShortLongBranches: for nRev≥1 the same (r1, r2, dt)
+// admits two solutions (short = lower z / more eccentric, long = higher
+// z) flanking the minimum-energy critical z. Verify both branches:
+//   - converge,
+//   - round-trip to r2 within Verlet drift,
+//   - return distinct v1 vectors (the long-branch sanity check — if
+//     branch selection broke, both would alias to the short root).
+// v0.10.5+.
+func TestLambertMultiRevShortLongBranches(t *testing.T) {
+	r1 := orbital.Vec3{X: 7e6}
+	r2 := orbital.Vec3{X: -1e7 * math.Cos(math.Pi*10/180), Y: 1e7 * math.Sin(math.Pi*10/180)}
+	mu := 398600e9
+	dt := 20000.0
+
+	v1Short, _, err := LambertSolveRev(r1, r2, dt, mu, 1, false, false)
+	if err != nil {
+		t.Fatalf("LambertSolveRev N=1 short: %v", err)
+	}
+	v1Long, _, err := LambertSolveRev(r1, r2, dt, mu, 1, false, true)
+	if err != nil {
+		t.Fatalf("LambertSolveRev N=1 long: %v", err)
+	}
+
+	delta := v1Long.Sub(v1Short).Norm()
+	if delta/v1Short.Norm() < 1e-3 {
+		t.Errorf("short/long branches alias: |Δv1| = %.2e (rel %.2e) — expected distinct branches",
+			delta, delta/v1Short.Norm())
+	}
+
+	// Round-trip the long branch — it must also be physically valid.
+	state := physics.StateVector{R: r1, V: v1Long}
+	period := 2 * math.Pi * math.Sqrt(math.Pow(r1.Norm(), 3)/mu)
+	maxStep := period / 100.0
+	nSteps := int(math.Ceil(dt / maxStep))
+	if nSteps < 1000 {
+		nSteps = 1000
+	}
+	step := dt / float64(nSteps)
+	for i := 0; i < nSteps; i++ {
+		state = physics.StepVerlet(state, mu, step)
+	}
+	if d := state.R.Sub(r2).Norm() / r2.Norm(); d > 0.05 {
+		t.Errorf("N=1 long-branch round-trip: r mismatch %.2e (rel) — v1=%+v", d, v1Long)
+	}
+}
+
+// TestLambertSolveLongBranchIgnoredForN0: at nRev=0 there is only one
+// branch — the longBranch flag must not change behavior. v0.10.5+.
+func TestLambertSolveLongBranchIgnoredForN0(t *testing.T) {
+	r1 := orbital.Vec3{X: 5000e3, Y: 10000e3, Z: 2100e3}
+	r2 := orbital.Vec3{X: -14600e3, Y: 2500e3, Z: 7000e3}
+	dt := 3600.0
+	mu := 398600e9
+
+	v1Short, _, err := LambertSolveRev(r1, r2, dt, mu, 0, false, false)
+	if err != nil {
+		t.Fatalf("LambertSolveRev N=0 short: %v", err)
+	}
+	v1Long, _, err := LambertSolveRev(r1, r2, dt, mu, 0, false, true)
+	if err != nil {
+		t.Fatalf("LambertSolveRev N=0 long: %v", err)
+	}
+	if d := v1Long.Sub(v1Short).Norm() / v1Short.Norm(); d > 1e-9 {
+		t.Errorf("N=0 long flag changed v1: rel %.2e — flag must be ignored at single-rev", d)
+	}
+}
+
 // TestLambertMultiRevRejectsNegative: N < 0 should error rather than
 // panic or silently degrade to single-rev.
 func TestLambertMultiRevRejectsNegative(t *testing.T) {
 	r1 := orbital.Vec3{X: 7e6}
 	r2 := orbital.Vec3{X: -1e7}
-	if _, _, err := LambertSolveRev(r1, r2, 3600, 398600e9, -1, false); err == nil {
+	if _, _, err := LambertSolveRev(r1, r2, 3600, 398600e9, -1, false, false); err == nil {
 		t.Error("expected error for nRev=-1")
 	}
 }
