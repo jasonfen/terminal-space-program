@@ -823,6 +823,157 @@ heliocentric Lambert leg sits between them.
 _Avoid_: Burn-to-escape, Insertion burn (Insertion is fine prose for
 Capture in some contexts but ambiguous with orbit-insertion missions).
 
+### Encounter math
+
+The geometric vocabulary for two Vessels coming together — and the
+single-burn advisory pipeline that helps the player make it happen.
+"Encounter" here means **craft-to-craft**, not SOI entry — see Flagged
+ambiguities.
+
+**Encounter**:
+The geometric event of two Vessels coming within close range along
+their predicted trajectories, regardless of whether the approach is
+purposeful. Characterised by three quantities: **Closest Approach**
+(the minimum distance), **Time of Closest Approach** (when that
+minimum happens), and **Relative Velocity at Encounter** (how fast
+the two are moving past each other at that instant). The HUD's TARGET
+block reports all three live for the active Vessel against its bound
+TargetCraft. Distinct from **Rendezvous**: an Encounter just *happens*;
+a Rendezvous is a Vessel deliberately pursuing one.
+_Avoid_: Flyby (implies passing without intent to dock — too narrow),
+Pass (vague), Conjunction (overloaded with astronomical alignment).
+
+**Closest Approach** (CA):
+The minimum distance between two Vessels along their forward-propagated
+trajectories over a finite horizon. Computed by `NextClosestApproach`:
+Verlet-propagate both Vessels through the horizon at ~50 samples per
+(shorter) period, find the minimum sample, then **parabolically refine**
+the sub-grid minimum from its two bracketing samples. Refinement is
+load-bearing — without it, the HUD readout snaps to the ~period/50 grid
+and jumps by a whole grid step as the true minimum drifts across a
+boundary frame-to-frame; with it the readout is continuous in the
+inputs and stable enough to judge *"is my approach improving or
+worsening?"* The advisory machinery distinguishes two CA values:
+**Current CA** (the no-burn answer) and **Achievable CA** (the
+post-**Nudge** answer); see **Rendezvous Advisory**.
+_Avoid_: Min range, Minimum distance (correct but verbose; CA is the
+canonical noun), Approach distance (ambiguous about which moment).
+
+**Time of Closest Approach** (TCA):
+The time-from-now at which **Closest Approach** is reached, in seconds.
+Returned alongside CA from `NextClosestApproach`; the HUD typically
+renders it as a countdown ("CA in 4m 12s"). Parabolic refinement runs
+on time as well as distance — the reported TCA is the parabola's
+vertex time, not the nearest sample's time, so it stays continuous
+frame-to-frame as the true encounter drifts.
+_Avoid_: Encounter time, Time to encounter (acceptable casual prose),
+CA time (acronym soup).
+
+**Relative Velocity at Encounter** (v_rel):
+The velocity vector of one Vessel relative to the other at the
+**Time of Closest Approach** — `v_rel = vA − vB` evaluated at TCA.
+Magnitude `|v_rel|` is the live HUD readout that tells the player
+whether they're closing on or opening away from the encounter, and at
+what speed. **Disambiguating prefix:** this is *Encounter* v_rel,
+distinct from the **Air-Relative Velocity** used by **Drag** (same
+symbol, different physics — see Air-Relative Velocity's `_Avoid_`
+line).
+_Avoid_: Relative velocity (overloaded — always qualify as "at
+Encounter" or "v_rel between Vessels"), Closing velocity (technically
+only the range-rate component, not the full vector).
+
+**DOCK READY**:
+The HUD signal that fires when the active Vessel is currently inside
+the **Docking Gate** against its bound TargetCraft — range < 50 m AND
+`|v_rel|` < 0.1 m/s. Same numbers as the Docking Gate; the HUD just
+announces the gate condition in advance so the player knows fusion is
+imminent on the next tick (without it, the player would only see the
+**Composite** *after* the fact, via the **Dock Event** flash). A
+*current-state* readout, not a projection — reads off live separation,
+not **Closest Approach**.
+_Avoid_: Dock soon, Capture imminent, Docking ready (the rendered
+label is two words, no "ing").
+
+**Rendezvous**:
+The act of a Vessel deliberately pursuing an **Encounter** with another
+Vessel — typically to dock with it. The player drives the rendezvous;
+the simulator supplies the live readouts (CA, TCA, |v_rel|, DOCK READY)
+and the optional **Rendezvous Advisory**. The advisory pipeline plus
+the v0.10.0 target-relative **Burn Modes** together comprise the
+rendezvous tooling shipped through the v0.10 cycle. Cross-SOI
+rendezvous (chaser and target in different SOIs) is out of scope for
+the current tooling.
+_Avoid_: Approach (too generic — also covers planetary flybys),
+Intercept (military / kinetic connotation), Catch (informal only).
+
+**Rendezvous Advisory**:
+The single-burn recommendation surfaced by `RecommendRendezvousNudge`
+when a useful **Nudge** is available. Carries the Δv magnitude, the
+recommended axis (one of the eight velocity-frame axes — six
+self-relative **Burn Modes** plus TargetPrograde and TargetRetrograde),
+the axis unit vector, the **Current CA** and **Achievable CA**, the
+post-burn **Time of Closest Approach**, and the full Lambert ideal Δv
+(always ≥ the recommended scalar — the gap shows how much the
+axis-projection lost). When no useful Nudge exists, the advisory
+returns `Ok=false` with a `Reason` tag the HUD surfaces verbatim
+("no improvement available", "burn too large — use H/I/m", "burn drops
+periapsis unsafely", etc.). HUD recompute is sim-time-throttled to
+500 ms per cache hit — at warp the recompute rate naturally tracks
+how fast the trajectories are changing.
+_Avoid_: Burn recommendation (generic — covers any planner output),
+Rendezvous plan (too strong; an advisory is a *single-burn nudge*,
+not a full plan).
+
+**Nudge** / **Rendezvous Nudge**:
+A small single-burn Δv along one of the eight velocity-frame axes,
+intended to improve **Closest Approach** without re-shaping the orbit.
+The output of the **Rendezvous Advisory** pipeline. "Nudge" is the
+canonical short form; "Rendezvous Nudge" is the long form when context
+needs disambiguation (e.g. distinguishing from a transfer-plan
+midcourse correction). Three gates filter what counts as a Nudge:
+the **Improvement Floor** (is it worth recommending?), the **Nudge
+Ceiling** (is it small enough to call a nudge?), and the
+**Orbit-Safety Gate** (does it leave the chaser's orbit intact?).
+_Avoid_: Correction (ambiguous with mid-course corrections on a
+transfer leg), Trim (collides with **PitchTrim**), Bump.
+
+**Improvement Floor**:
+The two-prong gate that decides whether a **Rendezvous Advisory** is
+worth surfacing: either **CA improvement ≥ 10%**, or **Δv ≥ 0.5 m/s
+AND CA improvement ≥ 100 m absolute**. Either prong qualifies; both
+failing means the recommended Nudge isn't materially better than
+coasting, so the advisory returns `Ok=false`, `Reason="no improvement
+available"`. Two prongs because percent-improvement is meaningful at
+long range (1 km → 900 m is a real win) but breaks down at very close
+range (100 m → 90 m is also 10% but unimportant when the goal is
+sub-50 m); the absolute prong picks up the cases where percent math
+collapses.
+_Avoid_: Recommendation threshold (vague), Worth-recommending gate.
+
+**Nudge Ceiling**:
+The 300 m/s upper bound on Δv that a **Rendezvous Advisory** will
+recommend. Above this magnitude the single-burn projection is no
+longer a "nudge" — it's a major orbit-shape change that belongs in
+the manual planners (H Hohmann, I Inclination, m Maneuver Node), not
+in the auto-recommender. Without this ceiling the gate would happily
+plant a 1.7 km/s K-burn whenever it improved CA by ≥10%, because the
+Lambert lookahead converges on whatever transfer fits T_k even when
+the orbits are wildly mismatched. v0.10.3+.
+_Avoid_: Max nudge, DV ceiling.
+
+**Orbit-Safety Gate**:
+The filter that rejects a candidate **Nudge** if it would compromise
+the chaser's orbit — specifically, drop the post-burn periapsis below
+`primary + 50 km` or by more than 100 km from the pre-burn value.
+Needed because the axis projection in the **Rendezvous Advisory**
+pipeline is lossy: the perturbed orbit is *not* the Lambert transfer,
+just the chaser's orbit plus a scalar push on one axis, so a large
+retrograde or radial-in nudge can nominally "improve CA" while
+dropping the chaser's periapsis into the atmosphere. Failure tag
+surfaced verbatim: "burn drops periapsis unsafely". v0.10.3+.
+_Avoid_: Periapsis floor (only half the rule), Safety check (too
+generic).
+
 ### Objectives
 
 **Mission**:
@@ -1044,3 +1195,22 @@ Component" when ambiguity threatens. A diagnostic: if you see
 `len(c.Stages) == 3 && len(c.DockedComponents) == 2`, that's a Composite
 of two pre-Dock Vessels whose stage counts sum to 3 (probably 1+2 or
 2+1).
+
+**"Encounter"** has two distinct meanings split across domains:
+
+- **Craft-to-craft Encounter** (this codebase) — the geometric event
+  of two Vessels coming within close range, characterised by **Closest
+  Approach**, **Time of Closest Approach**, and **Relative Velocity at
+  Encounter**. The `NextClosestApproach` function and the HUD's TARGET
+  block use this meaning.
+- **SOI encounter** (aerospace literature, KSP) — a Vessel entering
+  another Body's sphere of influence (e.g. "Apollo's lunar encounter").
+  The codebase calls these *SOI entry / exit* or *SOI transition*,
+  not "encounters" — they happen on the patched-conic boundary, not
+  between Vessels.
+
+**Resolution:** in this codebase, bare "encounter" means *craft-to-craft*.
+For the patched-conic event, always qualify as "SOI entry" or "SOI
+transition". Aerospace-fluent readers should re-orient on first read:
+the rendezvous tooling lives under "encounter math," not the SOI
+tooling.
