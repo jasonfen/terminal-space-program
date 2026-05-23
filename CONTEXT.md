@@ -54,7 +54,9 @@ ephemeral browsing state that only becomes a Target on commit.
 **Focus**:
 What the OrbitView camera is centered on — `FocusSystem` (heliocentric overview),
 `FocusCraft` (active Vessel), or `FocusBody` (a body). World-level view state,
-not per-Vessel. Independent of Target.
+not per-Vessel. Independent of Target, and independent of
+[[#view--projection|ViewMode]] — Focus picks *what* the camera centres on; ViewMode
+picks *which projection* it uses.
 _Avoid_: Camera, View (informal synonyms — `Focus` is the canonical name).
 
 **Cursor**:
@@ -989,6 +991,131 @@ the Active Vessel.
 _Avoid_: Quest, Objective (Objective is fine in prose for the abstract
 concept; reserve Mission for the concrete pass/fail unit), Achievement.
 
+### View & projection
+
+How 3D Vessel / Body / orbit geometry gets squashed onto the 2D
+Bubble Tea braille canvas. Cluster anchors: **ViewMode** is the
+player-facing enum (which projection the orbit and maneuver screens
+use); **Basis** is the engineering noun underneath (the pair of
+world-space unit vectors the canvas projects through). Two Basis
+families exist: **Cardinal Views** (fixed world-axis pairs for
+Top / Right / Bottom / Left) and the **Perifocal Basis** that backs
+**Orbit-Flat View**; the **Depth Axis** falls out of either as
+`X × Y`. "Basis" collides with [[#engineering-vocabulary|Reference
+Frame]] — see Flagged ambiguities.
+
+**ViewMode**:
+The world-level projection selector — which canvas projection the
+orbit and maneuver screens use to flatten 3D geometry onto the
+braille canvas. Five values cycled in this order: **ViewTop** (drop
+world Z), **ViewRight** (look from +X), **ViewBottom** (Top with Y
+inverted), **ViewLeft** (Right mirrored), **ViewOrbitFlat** (project
+onto the active Vessel's orbit plane). Stored on `World.ViewMode`
+so the orbit screen and the maneuver-planner mini-canvas share the
+same angle without per-screen coordination.
+
+Distinct from [[#selection--view|Focus]] — Focus picks *what* the
+camera centres on (a system, a Body, a Vessel); ViewMode picks
+*which projection* the camera uses. They compose independently: any
+Focus target can be rendered under any ViewMode. The same word
+"view" attaches loosely to Focus (camera centring), to ViewMode
+(projection), and to the OrbitView screen itself; the canonical
+names are Focus / ViewMode / OrbitView respectively.
+_Avoid_: View mode (verbose; `ViewMode` is one word in code and the
+canonical noun in prose), Camera angle (describes what ViewMode
+controls, not what it *is*), Projection mode.
+
+**Cardinal Views**:
+The four world-axis ViewModes — **ViewTop**, **ViewRight**,
+**ViewBottom**, **ViewLeft** — each a fixed orthographic projection
+onto a pair of world axes. ViewTop is the v0.1 default (drop world
+Z, plot (X, Y) — equatorial orbits read as ellipses, inclined
+orbits foreshorten). ViewRight looks from +X toward origin (canvas
+X+ = world Y+, canvas Y+ = world Z+; equatorial orbits read edge-on
+as a horizontal line through the Body's silhouette — useful for the
+"watch the craft swing around the back of the planet" geometry Top
+hides). ViewBottom mirrors Top vertically; ViewLeft mirrors Right
+horizontally. The cardinal cycle (Top → Right → Bottom → Left) is a
+90°-rotation circuit around the system, with **Orbit-Flat View**
+landing afterwards as punctuation before wrapping.
+_Avoid_: Cardinal projections (verbose), World-axis views
+(descriptive but not canonical), Orthographic views (all ViewModes
+are orthographic — this doesn't distinguish them from ViewOrbitFlat).
+
+**Orbit-Flat View** (ViewOrbitFlat):
+The fifth ViewMode — projects onto the active Vessel's orbit plane
+via the **Perifocal Basis** (x̂, ŷ), so an inclined orbit renders
+as a clean ellipse with no foreshortening — the way the geometry
+would read if `i = 0`. The view the Cardinal Views can't produce
+because they're tied to world axes. Out-of-plane points project to
+their in-plane shadow (orbit-normal component dropped).
+
+Falls back to ViewTop's basis whenever the perifocal projection is
+undefined or actively unhelpful: no active Vessel, hyperbolic
+orbit (e ≥ 1), degenerate orbit (a ≤ 0 or NaN), or the active
+Vessel is **Landed** — a Landed Vessel's `(r, v)` describes a
+co-rotating orbit that would lock the camera to the Body and freeze
+the surface texture; ViewTop fallback lets the player see the
+ground turning underneath while parked.
+_Avoid_: Perifocal view (correct but jargon-heavy for the
+player-facing label), Orbit view (collides with the OrbitView
+screen), Flat view (under-specified).
+
+**Basis**:
+A pair of world-space unit vectors `(X, Y)` on the `widgets.Canvas`
+that maps world coordinates to canvas pixels: `screen.x = (world −
+center) · Basis.X`, `screen.y = (world − center) · Basis.Y`. The
+projection primitive — every render path picks a Basis and the
+canvas does ortho projection from it. The bridge from **ViewMode**
+to Basis is `viewBasis(w)` in the orbit screen, which resolves each
+ViewMode to a specific Basis (Cardinal Views to fixed world-axis
+pairs, Orbit-Flat to the active Vessel's **Perifocal Basis**).
+`DefaultBasis()` is the ViewTop pair (X = (1,0,0), Y = (0,1,0)) —
+also the fallback any non-Top ViewMode degrades to when its inputs
+go bad.
+
+Distinct from [[#engineering-vocabulary|Reference Frame]] —
+Reference Frame defines how Keplerian elements `(i, Ω, ω)` are
+*interpreted* (Ecliptic vs Body-Equatorial); Basis defines how
+*world coordinates* are *projected* to canvas pixels. Same math
+word, different layer. See Flagged ambiguities.
+_Avoid_: Projection matrix (a Basis is two vectors, not a 4×4),
+Camera basis (close, but "Basis" alone is the canonical noun in
+this codebase), View basis (confusable with ViewMode).
+
+**Perifocal Basis**:
+The orbit-plane unit vectors `(x̂, ŷ)` derived from a Vessel's
+Keplerian elements: x̂ points toward periapsis; ŷ is 90° prograde
+from x̂ in the orbit plane. Computed by `PerifocalBasis(el)`
+(Vallado §2.6 — the first two columns of the perifocal-to-inertial
+rotation matrix). Together they span the orbit plane; projecting an
+inertial point onto `(x̂, ŷ)` yields its in-plane coordinates.
+
+Used as the canvas **Basis** for **Orbit-Flat View** (where the
+result is the foreshortening-free ellipse) and as the math
+underneath the maneuver planner's per-node Projected Orbit redraw,
+which evaluates positions in the post-burn perifocal frame. The
+`p` / `q` axis labels used inside `PerifocalToInertial` name the
+same pair — `(x̂, ŷ)` is the player-facing prose form.
+_Avoid_: Orbit basis (informal; PerifocalBasis is the conventional
+aerospace term), Perifocal frame (the *frame* is the 3D triad in
+`internal/orbital/frame.go`; the *Basis* is the 2D pair pulled out
+of it).
+
+**Depth Axis**:
+The unit vector pointing toward the camera, computed as `Basis.X ×
+Basis.Y`. Points with positive `(world − center) · DepthAxis()`
+are in front of the basis plane through center; negative is behind.
+Cardinal Views derive their depth axes consistently from the cross
+product (Top → +Z, Right → +X, etc.). Used by the orbit renderer
+for back-of-body occlusion in side views and by the view-aware
+body-texture pipeline (v0.8.5.7+), which needs a camera direction
+that — under Orbit-Flat — is the active Vessel's orbit-plane normal
+rather than a cardinal world axis.
+_Avoid_: Camera direction (correct but ambiguous — a camera also
+has up and right), Out-of-screen axis, Normal (overloaded with
+orbit-normal h in [[#maneuver--thrust|Burn Mode]] math).
+
 ### Engineering vocabulary
 
 Terms below are dev/agent-facing — they don't appear in player UI but are
@@ -1003,7 +1130,9 @@ heliocentric orbits use the ecliptic frame; never mix them.
 `internal/orbital/frame.go` is the boundary — every conversion lives
 there. The Maneuver Node predictor frame-rebases per node so a
 post-burn orbit reads in the correct frame for its post-burn Primary.
-_Avoid_: Coordinate system (broader concept), Basis.
+_Avoid_: Coordinate system (broader concept). Note: "Basis" is a
+distinct rendering-layer concept — the `widgets.Canvas` projection
+pair — see Flagged ambiguities.
 
 **Ecliptic Frame**:
 The world inertial frame (`IdentityFrame`): Ex=+X, Ey=+Y, Ez=+Z. The
@@ -1214,3 +1343,26 @@ For the patched-conic event, always qualify as "SOI entry" or "SOI
 transition". Aerospace-fluent readers should re-orient on first read:
 the rendezvous tooling lives under "encounter math," not the SOI
 tooling.
+
+**"Basis"** has two distinct meanings split across rendering and
+orbital-math layers:
+
+- **Canvas Basis** (this codebase, `widgets.Basis`) — the `(X, Y)`
+  pair of world-space unit vectors that the `widgets.Canvas` projects
+  world coordinates through to land on canvas pixels. A 2D projection
+  primitive on the rendering layer; lives in `internal/tui/widgets/canvas.go`.
+- **Reference Frame** (this codebase, `orbital.Frame`; standard aerospace
+  usage of "basis") — the orthonormal triad that Keplerian elements
+  `(i, Ω, ω)` are interpreted relative to. A 3D coordinate definition on
+  the orbital-math layer; lives in `internal/orbital/frame.go`.
+
+**Resolution:** bare "Basis" in code-review prose means the *Canvas Basis*
+— the rendering-layer projection primitive. For the orbital-element
+interpretation context, use "Reference Frame," "Ecliptic Frame," or
+"Body-Equatorial Frame." The two never substitute for each other: a
+Canvas Basis is two vectors plus a projection rule; a Reference Frame
+is the triad those vectors live in (or, more precisely, the triad
+the orbital elements being projected were interpreted in). The
+**Perifocal Basis** is the canvas-Basis flavour pulled out of the
+perifocal *frame* — same word collision in miniature, and the entry
+above names it carefully.
