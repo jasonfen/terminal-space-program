@@ -78,6 +78,21 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 	return dir
 }
 
+// BurnDirectionPlaneAware resolves a burn direction like
+// BurnDirectionWithTarget, additionally handling BurnPlaneChange via
+// the supplied signed plane-change angle (radians). planeRad is
+// ignored for every other mode. The planted-node and active-burn
+// paths use this wrapper because the rotation angle rides on the
+// ManeuverNode / ActiveBurn — a BurnMode alone can't decode it.
+//
+// v0.10.4+.
+func (s *Spacecraft) BurnDirectionPlaneAware(mode BurnMode, rT, vT orbital.Vec3, planeRad float64) orbital.Vec3 {
+	if mode == BurnPlaneChange {
+		return planeChangeDirection(s.State.R, s.State.V, planeRad)
+	}
+	return s.BurnDirectionWithTarget(mode, rT, vT)
+}
+
 // ApplyPitchTrim rotates dir about the local-north axis at position
 // r by pitchRad (radians, positive = east). Used by BurnDirection to
 // fold the player's pitch-trim setting into any burn mode's natural

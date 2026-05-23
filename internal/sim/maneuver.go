@@ -739,19 +739,23 @@ func (w *World) IterateBurnDV(mode spacecraft.BurnMode, dvGuess float64) (float6
 	return refined, nil
 }
 
-// PlanInclinationChange plants a single normal-burn maneuver node
+// PlanInclinationChange plants a single BurnPlaneChange maneuver node
 // that rotates the craft's orbital plane to targetIncl (radians, in
 // [0, π]). The burn fires at the next ascending or descending node,
-// whichever comes sooner; the planner picks the BurnNormal+ /
-// BurnNormal- mode that drives inclination toward the target.
+// whichever comes sooner. The node carries the planner's signed
+// rotation angle (PlaneChangeRad); the burn rotates the horizontal
+// velocity through it about the radial axis, preserving |v| — see
+// spacecraft.planeChangeDirection.
 //
 // Returns the planner's InclinationPlan (Δv + chosen node) for HUD
 // flashing; surfaces the planner's error untouched if the source
 // orbit is equatorial / hyperbolic / already-at-target.
 //
-// v0.7.4+. Composes with v0.6.0's burn-at-next scheduler — the planted
-// node uses an absolute TriggerTime (event resolver isn't needed
-// since the planner already computed the future event time).
+// v0.7.4+. v0.10.4: a true plane change (was a pure orbit-normal burn,
+// which over-sped the craft and left the orbit eccentric). Composes
+// with v0.6.0's burn-at-next scheduler — the planted node uses an
+// absolute TriggerTime (event resolver isn't needed since the planner
+// already computed the future event time).
 func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationPlan, error) {
 	if w.ActiveCraft() == nil {
 		return nil, errNoCraftForTransfer
@@ -760,8 +764,8 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 	// v0.8.6+: targetIncl is interpreted in the primary's reference
 	// frame (body-equatorial for non-Sun primaries; ecliptic for the
 	// Sun). Rotate the state into that frame before calling the inner
-	// planner — Δv, time-of-flight and NormalSign (which refers to
-	// ±h, computed from the live state at burn time) are all
+	// planner — Δv, time-of-flight and the signed rotation angle
+	// (resolved against the live state at burn time) are all
 	// frame-invariant, so the resulting InclinationPlan flies through
 	// unchanged.
 	primary := w.ActiveCraft().Primary
@@ -774,19 +778,113 @@ func (w *World) PlanInclinationChange(targetIncl float64) (*planner.InclinationP
 	if err != nil {
 		return nil, err
 	}
-	mode := spacecraft.BurnNormalPlus
-	if plan.NormalSign < 0 {
-		mode = spacecraft.BurnNormalMinus
+	now := w.Clock.SimTime
+	w.PlanNode(ManeuverNode{
+		TriggerTime:    now.Add(plan.OffsetTime),
+		Mode:           spacecraft.BurnPlaneChange,
+		DV:             plan.DV,
+		Duration:       w.ActiveCraft().BurnTimeForDV(plan.DV),
+		PrimaryID:      plan.PrimaryID,
+		PlaneChangeRad: plan.PlaneChangeRad,
+	})
+	return &plan, nil
+}
+
+// PlanPlaneMatch plants a single BurnPlaneChange node that rotates the
+// active craft's orbital plane to *coincide* with the orbital plane of
+// the body at targetIdx — matching both inclination magnitude AND the
+// line of nodes (Ω), so a subsequent Hohmann transfer to that body
+// departs in the right plane.
+//
+// PlanInclinationChange matches only the inclination *magnitude*: two
+// orbits at equal inclination but different Ω are still tilted relative
+// to each other (an equatorial LEO and the Moon's orbit, both read as
+// ~19° in Earth's frame, sit ~25–39° apart). A Hohmann planned in the
+// craft's plane then reaches the target's orbital radius far out of the
+// target's plane and misses.
+//
+// "Coplanar with the target" is exactly "zero inclination measured in a
+// frame whose Z axis is the target's orbit normal" — so PlanPlaneMatch
+// re-expresses the craft state in that frame and asks the existing
+// inclination solver for inclination 0. The burn fires where the craft
+// crosses the target plane and rotates by the full dihedral angle; the
+// signed rotation is frame-invariant, so the resulting BurnPlaneChange
+// node flies through unchanged.
+//
+// Errors: ErrNoCraftForTransfer, errInvalidTransferTarget (bad index or
+// a target with no orbit), and the planner's own errors surfaced
+// untouched (already-coplanar / hyperbolic source). v0.10.4+.
+func (w *World) PlanPlaneMatch(targetIdx int) (*planner.InclinationPlan, error) {
+	if w.ActiveCraft() == nil {
+		return nil, errNoCraftForTransfer
+	}
+	sys := w.System()
+	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
+		return nil, errInvalidTransferTarget
+	}
+	target := sys.Bodies[targetIdx]
+	nTarget := orbital.OrbitNormalWorld(target)
+	if nTarget.Norm() == 0 {
+		return nil, errInvalidTransferTarget // target has no orbital plane
+	}
+	nTargetHat := nTarget.Unit()
+	c := w.ActiveCraft()
+	primary := c.Primary
+	mu := primary.GravitationalParameter()
+
+	// Time to the next crossing of the target plane — an AN/DN crossing
+	// in a frame whose Z axis is the target's orbit normal.
+	planeFrame := orbital.FrameFromNormal(nTarget)
+	stateTF := orbital.Vec3State{
+		R: planeFrame.FromWorld(c.State.R),
+		V: planeFrame.FromWorld(c.State.V),
+	}
+	tAN := orbital.TimeToNodeCrossing(stateTF, mu, true)
+	tDN := orbital.TimeToNodeCrossing(stateTF, mu, false)
+	dt := -1.0
+	atAN := false
+	if tAN >= 0 && (tDN < 0 || tAN <= tDN) {
+		dt, atAN = tAN, true
+	} else if tDN >= 0 {
+		dt, atAN = tDN, false
+	}
+	if dt < 0 {
+		// No crossing — the craft is already coplanar with the target.
+		return nil, planner.ErrInclinationNoOp
+	}
+
+	// Propagate to the crossing and derive the burn geometrically. At
+	// the crossing the radial axis lies along the two planes' mutual
+	// node line, so a rotation of the craft's orbit normal about r̂
+	// onto the target normal aligns the planes exactly. θ is that
+	// signed rotation (|θ| = the dihedral angle); spacecraft.
+	// planeChangeDirection turns it into the tilted burn at fire time.
+	post := w.propagateCraft(dt)
+	rHat := post.R.Unit()
+	hHat := post.R.Cross(post.V).Unit()
+	theta := math.Atan2(hHat.Cross(nTargetHat).Dot(rHat), hHat.Dot(nTargetHat))
+	vHor := post.V.Sub(rHat.Scale(post.V.Dot(rHat)))
+	dv := 2 * vHor.Norm() * math.Sin(math.Abs(theta)/2)
+	if dv == 0 {
+		return nil, planner.ErrInclinationNoOp
 	}
 	now := w.Clock.SimTime
 	w.PlanNode(ManeuverNode{
-		TriggerTime: now.Add(plan.OffsetTime),
-		Mode:        mode,
-		DV:          plan.DV,
-		Duration:    w.ActiveCraft().BurnTimeForDV(plan.DV),
-		PrimaryID:   plan.PrimaryID,
+		TriggerTime:    now.Add(time.Duration(dt * float64(time.Second))),
+		Mode:           spacecraft.BurnPlaneChange,
+		DV:             dv,
+		Duration:       c.BurnTimeForDV(dv),
+		PrimaryID:      primary.ID,
+		PlaneChangeRad: theta,
 	})
-	return &plan, nil
+	return &planner.InclinationPlan{
+		PrimaryID:      primary.ID,
+		DV:             dv,
+		OffsetTime:     time.Duration(dt * float64(time.Second)),
+		NormalSign:     int(math.Copysign(1, theta)),
+		PlaneChangeRad: theta,
+		AtAN:           atAN,
+	}, nil
 }
 
 // CircularizePlan summarises a planted circularize-at-apoapsis node
@@ -1202,7 +1300,14 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 			}
 		}
 		if n.Duration == 0 {
-			c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
+			// A BurnPlaneChange node degrades to impulsive only when
+			// BurnTimeForDV returned 0 (Δv past the fuel budget / no
+			// engine) — its tilted direction still needs NodeBurnDirection.
+			if n.Mode == spacecraft.BurnPlaneChange {
+				c.ApplyImpulsiveDir(spacecraft.NodeBurnDirection(n, c.State.R, c.State.V), n.DV)
+			} else {
+				c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
+			}
 		} else {
 			c.ActiveBurn = &ActiveBurn{
 				Mode:           n.Mode,
@@ -1211,6 +1316,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				PrimaryID:      n.PrimaryID,
 				Throttle:       n.EffectiveThrottle(),
 				TargetCraftIdx: n.TargetCraftIdx,
+				PlaneChangeRad: n.PlaneChangeRad,
 			}
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.
@@ -1260,7 +1366,7 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 			}
 		}
 	}
-	dir := c.BurnDirectionWithTarget(n.Mode, rT, vT)
+	dir := c.BurnDirectionPlaneAware(n.Mode, rT, vT, n.PlaneChangeRad)
 	if dir.Norm() == 0 {
 		return orbital.Vec3{}, false
 	}
@@ -1323,7 +1429,7 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 		state, primary = w.propagateCraftWithPrimary(dt)
 		primaryID = primary.ID
 	}
-	dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+	dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 	if dir.Norm() == 0 || n.DV == 0 {
 		return state, primaryID
 	}
@@ -1407,7 +1513,7 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
-		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
 			state.V = state.V.Add(dir.Scale(n.DV))
 		}
@@ -1512,6 +1618,7 @@ type PredictedLeg struct {
 	Primary     bodies.CelestialBody // frame the state is expressed in
 	HorizonSecs float64              // duration to predict for (until next node, or one period)
 	StartClock  time.Time            // wall-clock at which the post-burn state lives — drives time-aware body lookups in PredictedSegmentsFrom (v0.8.4+)
+	Samples     int                  // adaptive trajectory-sample budget — ~96 points per orbital period the horizon spans (v0.10.3)
 }
 
 // PredictedLegs walks every resolved planted node and returns one
@@ -1552,18 +1659,18 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
-		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
 			state.V = state.V.Add(dir.Scale(n.DV))
 		}
 		// Horizon: until next planted node, else one orbital period.
+		period := orbitalPeriod(state, primary.GravitationalParameter())
 		var horizon float64
 		if i+1 < len(w.ActiveCraft().Nodes) && w.ActiveCraft().Nodes[i+1].IsResolved() {
 			horizon = w.ActiveCraft().Nodes[i+1].TriggerTime.Sub(clock).Seconds()
 		}
 		if horizon <= 0 {
-			mu := primary.GravitationalParameter()
-			horizon = orbitalPeriod(state, mu)
+			horizon = period
 			if horizon <= 0 || math.IsNaN(horizon) || math.IsInf(horizon, 0) {
 				// Hyperbolic / degenerate — fall back to a short fixed window.
 				horizon = 3600
@@ -1575,6 +1682,7 @@ func (w *World) PredictedLegs() []PredictedLeg {
 			Primary:     primary,
 			HorizonSecs: horizon,
 			StartClock:  clock,
+			Samples:     adaptiveSampleCount(horizon, period),
 		})
 	}
 	return legs
@@ -1788,7 +1896,7 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
 			primary = target
 		}
-		dir := spacecraft.DirectionUnit(n.Mode, state.R, state.V)
+		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
 			state.V = state.V.Add(dir.Scale(n.DV))
 		}

@@ -249,15 +249,10 @@ func (f BodyFrame) FromWorld(v Vec3) Vec3 {
 //
 // v0.8.6+.
 func PlaneMatchInclination(target bodies.CelestialBody, primaryFrame BodyFrame) float64 {
-	if target.ID == "sun" {
+	nWorld := OrbitNormalWorld(target)
+	if nWorld.Norm() == 0 {
 		return 0
 	}
-	el := ElementsFromBody(target)
-	sI, cI := math.Sin(el.I), math.Cos(el.I)
-	sO, cO := math.Sin(el.Omega), math.Cos(el.Omega)
-	// Standard 3-1-3 Euler: orbit normal = R_z(Ω) · R_x(i) · ẑ
-	//                                    = (sin Ω·sin i, -cos Ω·sin i, cos i).
-	nWorld := Vec3{X: sO * sI, Y: -cO * sI, Z: cI}
 	nFrame := primaryFrame.FromWorld(nWorld)
 	cosIncl := nFrame.Z
 	if cosIncl > 1 {
@@ -266,4 +261,43 @@ func PlaneMatchInclination(target bodies.CelestialBody, primaryFrame BodyFrame) 
 		cosIncl = -1
 	}
 	return math.Acos(cosIncl)
+}
+
+// OrbitNormalWorld returns the unit normal of body b's orbital plane in
+// world (ecliptic) axes, built from b's ecliptic-relative elements
+// (i, Ω) via the standard 3-1-3 Euler orbit normal R_z(Ω)·R_x(i)·ẑ =
+// (sin Ω·sin i, −cos Ω·sin i, cos i). Returns the zero vector for a
+// body with no orbit (the system primary). v0.10.4+.
+func OrbitNormalWorld(b bodies.CelestialBody) Vec3 {
+	if b.SemimajorAxis == 0 {
+		return Vec3{}
+	}
+	el := ElementsFromBody(b)
+	sI, cI := math.Sin(el.I), math.Cos(el.I)
+	sO, cO := math.Sin(el.Omega), math.Cos(el.Omega)
+	return Vec3{X: sO * sI, Y: -cO * sI, Z: cI}
+}
+
+// FrameFromNormal builds an orthonormal BodyFrame whose Ez axis is the
+// given normal (any non-zero vector — it is normalised). Ex is world +X
+// projected into the plane (falling back to +Y when +X is near-parallel
+// to the normal); Ey = Ez × Ex. Used to re-express a craft state in a
+// frame aligned to an arbitrary orbital plane, so an inclination solver
+// can treat "coplanar with that plane" as "zero inclination". Returns
+// IdentityFrame when n is degenerate. v0.10.4+.
+func FrameFromNormal(n Vec3) BodyFrame {
+	ez := n.Unit()
+	if ez.Norm() == 0 {
+		return IdentityFrame()
+	}
+	ref := Vec3{X: 1}
+	if math.Abs(ez.Dot(ref)) > 0.999 {
+		ref = Vec3{Y: 1}
+	}
+	exRaw := ref.Sub(ez.Scale(ez.Dot(ref)))
+	if exRaw.Norm() < 1e-12 {
+		return IdentityFrame()
+	}
+	ex := exRaw.Unit()
+	return BodyFrame{Ex: ex, Ey: ez.Cross(ex), Ez: ez}
 }

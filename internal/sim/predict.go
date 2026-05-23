@@ -9,6 +9,68 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
+// Predicted-trajectory sample budgeting. A predicted leg is drawn with
+// a roughly constant point density per orbital period, so the dashed
+// ellipse stays crisp no matter how many revolutions the leg's horizon
+// spans. Before v0.10.3 the budget was a flat 96 samples per leg; a
+// long inter-node horizon — routine at high warp, where nodes are
+// planted dozens of orbits ahead — then smeared the orbit into a
+// sparse scatter of points (the three-cycle "predictor adaptive
+// sampling" carry-over).
+const (
+	predictSamplesPerPeriod = 96  // target point density per revolution
+	predictSamplesMin       = 96  // floor — also the legacy single-period budget
+	predictSamplesMax       = 720 // ceiling — caps the per-frame body-ephemeris cost
+)
+
+// adaptiveSampleCount sizes a predicted leg's sample budget from its
+// horizon and orbital period: ~predictSamplesPerPeriod points per
+// revolution, clamped to [predictSamplesMin, predictSamplesMax]. A
+// non-periodic (hyperbolic or degenerate) period falls back to the
+// minimum — a hyperbolic arc does not loop, so a flat budget draws it
+// cleanly.
+func adaptiveSampleCount(horizonSecs, periodSecs float64) int {
+	if periodSecs <= 0 || math.IsNaN(periodSecs) || math.IsInf(periodSecs, 0) ||
+		horizonSecs <= 0 || math.IsNaN(horizonSecs) || math.IsInf(horizonSecs, 0) {
+		return predictSamplesMin
+	}
+	n := int(math.Round(predictSamplesPerPeriod * horizonSecs / periodSecs))
+	if n < predictSamplesMin {
+		return predictSamplesMin
+	}
+	if n > predictSamplesMax {
+		return predictSamplesMax
+	}
+	return n
+}
+
+// predictMaxSubStepCap bounds the predicted-trajectory integrator's
+// Verlet sub-step (seconds). The per-leg cap had been period/100 alone,
+// which is fine for a parking orbit but far too coarse for a long
+// transfer leg: an Earth→Moon transfer ellipse has a ~9-day period, so
+// period/100 ≈ 8000 s — a single Verlet step that long steps clean over
+// a lunar SOI encounter, and the coarse integration flings the dashed
+// trajectory off to a bogus heliocentric escape instead of drawing the
+// encounter. An absolute cap keeps the sub-step fine enough to resolve
+// an encounter regardless of the orbit's period. Verlet sub-steps don't
+// refresh body positions (that stays per output sample), so a tighter
+// cap is cheap. v0.10.3+.
+const predictMaxSubStepCap = 120.0
+
+// predictMaxSubStep returns the integrator sub-step cap for an orbit of
+// the given period: period/100, clamped to predictMaxSubStepCap. A
+// degenerate period (hyperbolic / NaN / non-positive) falls back to a
+// conservative 1 s, matching the pre-v0.10.3 guard.
+func predictMaxSubStep(period float64) float64 {
+	if period <= 0 || math.IsNaN(period) || math.IsInf(period, 0) {
+		return 1.0
+	}
+	if s := period / 100.0; s < predictMaxSubStepCap {
+		return s
+	}
+	return predictMaxSubStepCap
+}
+
 // SOISegment is a contiguous run of predicted-trajectory samples that
 // share the same owning SOI primary. PrimaryID == craft's home primary
 // means "still in the home SOI"; a different ID means the segment has
@@ -53,10 +115,7 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 	clock := startClock
 
 	period := orbitalPeriod(state, muNow)
-	maxStep := period / 100.0
-	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
-		maxStep = 1.0
-	}
+	maxStep := predictMaxSubStep(period)
 	stepSecs := totalSeconds / float64(samples-1)
 
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
@@ -112,10 +171,7 @@ predict:
 				muNow = current.GravitationalParameter()
 
 				period = orbitalPeriod(state, muNow)
-				maxStep = period / 100.0
-				if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
-					maxStep = 1.0
-				}
+				maxStep = predictMaxSubStep(period)
 
 				segments = append(segments, SOISegment{
 					PrimaryID: current.ID,
@@ -127,8 +183,8 @@ predict:
 		// relative to one Verlet sub-step (typically minutes), so the
 		// per-sub-step SOI rebase above keeps using the previous-sample
 		// snapshot accurately enough; doing this only at the sample
-		// boundary keeps cost at ~96 refreshes per call regardless of
-		// horizon.
+		// boundary keeps the refresh count at one per sample (`samples`
+		// is the adaptive budget, capped at predictSamplesMax).
 		clock = clock.Add(stepDur)
 		for _, b := range sys.Bodies {
 			positions[b.ID] = w.BodyPositionAt(b, clock)
