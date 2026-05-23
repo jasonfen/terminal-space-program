@@ -165,7 +165,8 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
 | `g` | Reset camera focus to system |
-| `v` | Cycle view (top → right → bottom → left → orbit-flat) |
+| `v` | Cycle view (tilted → top → right → bottom → left → orbit-flat). `tilted` (v0.10.6+) is the new default — perspective tilt over the active craft's perifocal basis, with far-side orbit arcs rendered as same-hue stipple for depth read |
+| `shift+↑` / `shift+↓` | While in `ViewTilted`, nudge the polar tilt θ ±5° (clamped 0–60°). HUD shows `view: tilted Nº` when off the 25° default. No-op in cardinal / orbit-flat modes (v0.10.6+) |
 | `n` | Open spawn form (loadout / position / parent body / altitude / direction). Pick **Custom…** for the v0.10.1+ stack builder: on the STACK field, `←/→` picks a catalog part, `a` adds it on top, `x` removes the top stage |
 | `H` | Auto-plant Hohmann transfer to `World.Target` body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse). TargetCraft flashes "needs v0.9.3" |
 | `I` | Plant inclination match — rotates the orbital plane to `World.Target` body's inclination (or 0° equatorial when target is None). TargetCraft flashes "needs v0.9.3" |

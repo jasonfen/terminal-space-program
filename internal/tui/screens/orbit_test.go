@@ -211,6 +211,101 @@ func TestFocusLabelOverlaidOnCanvas(t *testing.T) {
 	}
 }
 
+// TestViewTiltedLandedFallback (v0.10.6+): when the active craft
+// is Landed (Launchpad spawn, pre-ignition) the perifocal basis is
+// undefined — co-rotating "(r, v)" describes a body-fixed point,
+// not a meaningful orbit. ViewTilted must route through the
+// TiltedWorldBasis fallback rather than crashing or defaulting to
+// flat ViewTop; otherwise the headline feature dies on the pad,
+// which is the very view where the planet looms largest and the
+// depth cue matters most. activeCraftElements is the shared gate.
+func TestViewTiltedLandedFallback(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected starter craft")
+	}
+	c.Landed = true
+	if _, ok := activeCraftElements(w); ok {
+		t.Errorf("activeCraftElements should report ok=false for a Landed craft (forces TiltedWorldBasis fallback)")
+	}
+	// And confirm the render path doesn't panic in this state.
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	v.Resize(120, 40)
+	out := v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "view: tilted") {
+		t.Errorf("Landed + ViewTilted should still render the tilted label; render:\n%s", out)
+	}
+}
+
+// TestViewTiltedIsDefaultRenderedLabel (v0.10.6+): a freshly
+// constructed World opens in ViewTilted, so the bottom-left view
+// label reads "view: tilted" at the spec'd 25° default (no
+// degrees segment until θ is nudged off-default).
+func TestViewTiltedIsDefaultRenderedLabel(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	v.Resize(160, 40)
+	out := v.Render(w, 0, 160, 40)
+	if !strings.Contains(out, "view: tilted") {
+		t.Errorf("expected `view: tilted` overlay (default ViewTilted, 25°); render:\n%s", out)
+	}
+	if strings.Contains(out, "view: tilted 25°") {
+		t.Errorf("at-default tilt should drop the degrees segment, got literal 25°; render:\n%s", out)
+	}
+}
+
+// TestViewTiltedHUDDegreesAfterNudge (v0.10.6+): nudging θ off the
+// 25° default surfaces the degrees segment in the HUD label —
+// "view: tilted 30°". Catches a regression where the off-default
+// branch fails to fire (sloppy float comparison).
+func TestViewTiltedHUDDegreesAfterNudge(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NudgeViewTiltTheta(sim.ViewTiltThetaStep) // 25 → 30
+	v.Resize(160, 40)
+	out := v.Render(w, 0, 160, 40)
+	if !strings.Contains(out, "view: tilted 30°") {
+		t.Errorf("expected `view: tilted 30°` after one shift+↑ nudge; render:\n%s", out)
+	}
+}
+
 // TestOrbitTitleBarButtonHits: after rendering, the title-bar
 // hit-test ranges line up with the right-aligned [Menu] /
 // [Missions] buttons. Pre-render hits return false (col ranges are

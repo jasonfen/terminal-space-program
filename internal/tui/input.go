@@ -147,6 +147,17 @@ type Keymap struct {
 	// w/s/a/d/q/e attitude cluster); the toggle is a session UI
 	// preference and is not persisted.
 	ToggleInstantSAS key.Binding
+
+	// TiltUp / TiltDown (v0.10.6+): nudge World.ViewTilt.Theta ±5°
+	// while ViewMode == ViewTilted. Per-press step + clamp lives in
+	// sim.World.NudgeViewTiltTheta. Bound to shift+↑ / shift+↓ —
+	// arrow keys don't have an uppercase form, so the explicit
+	// modifier syntax is required (W/S used capitals for letter-key
+	// shifts). Yaw φ controls are deliberately deferred to a post-
+	// ship playtest signal; the vessel is a single icon, so yaw
+	// isn't visually load-bearing the way tilt is.
+	TiltUp   key.Binding
+	TiltDown key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -213,5 +224,7 @@ func DefaultKeymap() Keymap {
 		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -10° west")),
 		PitchTrimReset:            key.NewBinding(key.WithKeys("\\"), key.WithHelp("\\", "reset pitch trim")),
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
+		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
+		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),
 	}
 }
