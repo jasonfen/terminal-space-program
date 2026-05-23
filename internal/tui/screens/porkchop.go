@@ -17,6 +17,11 @@ import (
 // Simplistic ASCII render (no color) to stay portable across terminals
 // without touching lipgloss color config. Darker/heavier glyph = lower
 // total Δv ("cheaper" transfer). "·" marks infeasible / non-converged.
+//
+// v0.10.5: a transfer-options sub-menu (toggled with `o`) holds the
+// per-cell Lambert solve params (nRev, retrograde, short/long branch).
+// Toggling re-runs the grid and rescales the TOF axis so multi-rev
+// cells live in a sensible TOF range.
 type Porkchop struct {
 	theme        Theme
 	targetIdx    int
@@ -28,7 +33,13 @@ type Porkchop struct {
 	selTof       int
 	errMsg       string
 	plantPending bool
+
+	world    *sim.World
+	opts     sim.TransferOptions
+	optsOpen bool
 }
+
+const porkchopMaxNRev = 3
 
 // NewPorkchop constructs an empty screen. Call Load(world, targetIdx)
 // before the first render to populate the grid.
@@ -42,20 +53,34 @@ func NewPorkchop(th Theme) *Porkchop {
 // it on the screen. Cheap to call once on open; not recomputed per
 // frame since the grid doesn't change unless the craft's state or
 // target shifts, and the player pauses on this screen to select a
-// cell anyway.
+// cell anyway. v0.10.5: resets transfer options to single-rev prograde
+// short on each fresh Load (the sub-menu drives subsequent re-solves).
 func (p *Porkchop) Load(w *sim.World, targetIdx int) {
 	p.targetIdx = targetIdx
-	p.selDep, p.selTof = 0, 0
+	p.world = w
+	p.opts = sim.TransferOptions{}
+	p.optsOpen = false
 	sys := w.System()
 	if targetIdx > 0 && targetIdx < len(sys.Bodies) {
 		p.targetName = sys.Bodies[targetIdx].EnglishName
 	}
+	p.recompute()
+}
 
-	// Default grid: 0–365 dep days step 10, 100–400 tof days step 15.
-	// Gives a 37 × 21 grid — readable in a typical 120-col terminal.
+// recompute regenerates the dep/tof axes for the current options +
+// re-solves the grid. The TOF range scales with (nRev+1) so an N-rev
+// transfer's natural minimum-TOF (≈ N × transfer-ellipse periods)
+// stays inside the displayed window; otherwise multi-rev cells would
+// mostly fall below the bracket and read as NaN.
+func (p *Porkchop) recompute() {
+	p.selDep, p.selTof = 0, 0
+	if p.world == nil {
+		return
+	}
 	p.depDays = linspace(0, 365, 37)
-	p.tofDays = linspace(100, 400, 21)
-	grid, err := w.PorkchopGrid(targetIdx, p.depDays, p.tofDays)
+	scale := float64(p.opts.NRev + 1)
+	p.tofDays = linspace(100*scale, 400*scale, 21)
+	grid, err := p.world.PorkchopGrid(p.targetIdx, p.depDays, p.tofDays, p.opts)
 	if err != nil {
 		p.errMsg = err.Error()
 		p.grid = nil
@@ -63,7 +88,6 @@ func (p *Porkchop) Load(w *sim.World, targetIdx int) {
 	}
 	p.grid = grid
 	p.errMsg = ""
-	// Center cursor on the min-Δv cell if one exists.
 	if d, t, _, ok := porkchopMin(grid); ok {
 		p.selDep = d
 		p.selTof = t
@@ -74,7 +98,25 @@ func (p *Porkchop) Load(w *sim.World, targetIdx int) {
 // Esc (cancel) or Enter (plant → app reads PendingPlant()) to signal
 // the app should return to orbit view. Enter also sets the plant
 // flag, checked by the app immediately after done=true.
+//
+// With the transfer-options sub-menu open (`o`), keys instead drive
+// the option toggles (n nRev / r retrograde / b branch) and esc/enter/o
+// closes the menu — re-solving the grid on close.
 func (p *Porkchop) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if p.optsOpen {
+		switch msg.String() {
+		case "n":
+			p.opts.NRev = (p.opts.NRev + 1) % (porkchopMaxNRev + 1)
+		case "r":
+			p.opts.Retrograde = !p.opts.Retrograde
+		case "b":
+			p.opts.LongBranch = !p.opts.LongBranch
+		case "o", "enter", "esc":
+			p.optsOpen = false
+			p.recompute()
+		}
+		return nil, false
+	}
 	switch msg.String() {
 	case "left":
 		if p.selDep > 0 {
@@ -92,6 +134,8 @@ func (p *Porkchop) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if p.selTof < len(p.tofDays)-1 {
 			p.selTof++
 		}
+	case "o":
+		p.optsOpen = true
 	case "enter":
 		if p.grid != nil && p.selTof < len(p.grid) && p.selDep < len(p.grid[p.selTof]) &&
 			!math.IsNaN(p.grid[p.selTof][p.selDep]) {
@@ -104,16 +148,18 @@ func (p *Porkchop) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
-// PendingPlant returns the selected (targetIdx, depDay, tofDay) if the
-// user pressed Enter on a feasible cell; ok=false if no plant is
-// pending (Esc-close or infeasible cell). Consumes the pending flag —
-// next call returns ok=false until the user plants again.
-func (p *Porkchop) PendingPlant() (targetIdx int, depDay, tofDay float64, ok bool) {
+// PendingPlant returns the selected (targetIdx, depDay, tofDay, opts)
+// if the user pressed Enter on a feasible cell; ok=false if no plant
+// is pending (Esc-close or infeasible cell). Consumes the pending flag
+// — next call returns ok=false until the user plants again. v0.10.5
+// also returns the active TransferOptions so PlanTransferAt uses the
+// same nRev/retrograde/branch the cell was scored against.
+func (p *Porkchop) PendingPlant() (targetIdx int, depDay, tofDay float64, opts sim.TransferOptions, ok bool) {
 	if !p.plantPending {
-		return 0, 0, 0, false
+		return 0, 0, 0, sim.TransferOptions{}, false
 	}
 	p.plantPending = false
-	return p.targetIdx, p.depDays[p.selDep], p.tofDays[p.selTof], true
+	return p.targetIdx, p.depDays[p.selDep], p.tofDays[p.selTof], p.opts, true
 }
 
 // HitCell maps a screen-space (col, row) onto the porkchop grid's
@@ -180,7 +226,7 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	}
 
 	var b strings.Builder
-	title := fmt.Sprintf("porkchop plot — Earth → %s", p.targetName)
+	title := fmt.Sprintf("porkchop plot — Earth → %s  %s", p.targetName, p.optsSummary())
 	b.WriteString(p.theme.Title.Render(title))
 	b.WriteString("\n\n")
 
@@ -247,8 +293,60 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	}
 	b.WriteString("  (darker = cheaper; · = no solution)\n\n")
 
-	b.WriteString(p.theme.Footer.Render("[←/→] dep [↑/↓] tof [enter] plant [esc] back"))
+	if p.optsOpen {
+		b.WriteString(p.renderOptionsPanel())
+		b.WriteString("\n")
+	}
+
+	footer := "[←/→] dep [↑/↓] tof [o] options [enter] plant [esc] back"
+	if p.optsOpen {
+		footer = "[n] nRev [r] retrograde [b] short/long [enter/o/esc] close"
+	}
+	b.WriteString(p.theme.Footer.Render(footer))
 	return b.String()
+}
+
+// optsSummary renders the active TransferOptions as a compact "rev=N
+// prograde short" tag — shown in the title so the player can always
+// see what the grid is scoring.
+func (p *Porkchop) optsSummary() string {
+	dir := "prograde"
+	if p.opts.Retrograde {
+		dir = "retrograde"
+	}
+	branch := "short"
+	if p.opts.LongBranch {
+		branch = "long"
+	}
+	if p.opts.NRev == 0 {
+		// Branch is irrelevant at nRev=0 — hide it to avoid implying it matters.
+		return p.theme.Dim.Render(fmt.Sprintf("(rev=0 %s)", dir))
+	}
+	return p.theme.Dim.Render(fmt.Sprintf("(rev=%d %s %s)", p.opts.NRev, dir, branch))
+}
+
+// renderOptionsPanel draws the open transfer-options sub-menu. Keys
+// are listed inline; the active values are highlighted.
+func (p *Porkchop) renderOptionsPanel() string {
+	dir := "prograde"
+	if p.opts.Retrograde {
+		dir = "retrograde"
+	}
+	branch := "short"
+	if p.opts.LongBranch {
+		branch = "long"
+	}
+	var sb strings.Builder
+	sb.WriteString(p.theme.Warning.Render("transfer options"))
+	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("  [n] revs:      %d (0–%d)\n", p.opts.NRev, porkchopMaxNRev))
+	sb.WriteString(fmt.Sprintf("  [r] direction: %s\n", dir))
+	if p.opts.NRev == 0 {
+		sb.WriteString(p.theme.Dim.Render("  [b] branch:    n/a (only one branch at rev=0)") + "\n")
+	} else {
+		sb.WriteString(fmt.Sprintf("  [b] branch:    %s\n", branch))
+	}
+	return sb.String()
 }
 
 // porkchopLegendRamp is the intensity ramp from cheapest (left) to
