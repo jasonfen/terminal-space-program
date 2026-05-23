@@ -219,6 +219,195 @@ one Primary to another (`internal/physics/soi`). Player-visible: the
 HUD announces entries and exits, and warp clamps near boundaries.
 _Avoid_: Hill sphere (mathematically distinct), Gravity well.
 
+### Launch & landing
+
+How a Vessel sits on (and gets put on) the surface of a Body. The
+runtime state is **Landed**; the spawn-time placement that creates a
+Landed Vessel is **Launchpad**; the physics fallback when an aerobraking
+Vessel penetrates the surface is **Surface Contact** (which, despite
+appearances, does *not* set Landed — see Flagged ambiguities).
+
+**Landed**:
+A Vessel state in which the integrator bypasses gravity, drag, and
+thrust, and instead recomputes the Vessel's position each tick from
+its **launch latitude** and **launch longitude** (stored at spawn time
+as `LaunchLatDeg` / `LaunchLonDeg`) using the Primary's current rotation
+phase. Position rides the Primary's body-fixed frame; velocity is set
+to ω × r each tick so a future un-Landed transition releases the
+Vessel with full surface co-rotation velocity — the ~465 m/s eastward
+boost at Earth's equator. Player concept: the Vessel is *parked on
+the ground, moving with the ground*.
+
+Currently set only by a **Launchpad** spawn; a Vessel that arrives at
+the surface via aerobraking (see **Surface Contact**) does **not**
+become Landed. Cleared by engine ignition — either a Manual Burn
+(player presses `b`) or a planted Maneuver Node firing on schedule.
+The clearing transition releases the Vessel into normal integration
+with the surface co-rotation velocity it had at the moment of ignition.
+_Avoid_: On the pad (loses generality — Landed is a runtime state,
+not a place; future powered-landing modes would also be Landed), Parked,
+Surface Park, Grounded.
+
+**Launchpad**:
+A Vessel spawn variant that places the new Vessel on the surface of a
+Body at altitude 0, co-rotating with the ground. Distinct from the
+default *orbital* spawn (drops the Vessel into a circular orbit at
+altitude) and the *alongside* spawn (clones the active Vessel's state
+with a small offset for docking practice). Selected from the spawn
+form's position-mode toggle (orbit / alongside / launchpad).
+
+Side effects of a Launchpad spawn, all baked into the spawn path:
+
+- Sets the Vessel to **Landed** so the integrator begins the body-fixed
+  bypass on the first tick.
+- Initializes attitude to **RadialOut** (straight up — vertical ascent)
+  so pressing `b` ignites pointing skyward; the prior default of
+  Prograde points along surface co-rotation velocity (eastward along
+  the ground), which would slide the Vessel sideways rather than
+  lift it off.
+- Auto-snaps [[#attitude--rcs|NavMode]] from NavOrbit to NavSurface
+  (idempotent on NavSurface; never lifts NavTarget here because the
+  active-Vessel switch has already downgraded NavTarget when the
+  new Vessel has no bound TargetCraft).
+
+Where on the Body the Vessel is placed is a separate decision — see
+**Launch Site**.
+_Avoid_: Pad spawn, Surface spawn (ambiguous with future non-launchpad
+surface placements), Ground spawn.
+
+**Launch Site**:
+A (latitude, longitude) pair on a Body that a **Launchpad** spawn
+places the Vessel at. The spawn form ships a preset cycle — default
+is "KSC" (28.6083°N, -80.604°E east of the Body's prime meridian),
+matching Kennedy Space Center's LC-39A. Latitude is degrees north
+positive; longitude is degrees east positive of the Body's
+**pseudo-Greenwich** prime meridian (the longitude line that aligns
+with world +X at simTime = 0). Without an explicit longitude offset
+a Vessel's spawn longitude would depend only on sim time (the Body's
+rotation phase), so successive launches at different sim times would
+spawn at different points; with it, KSC stays at KSC regardless of
+the clock.
+
+Currently a UI-layer preset list (the spawn form), not a first-class
+named entity in the simulation — once spawned, the Vessel carries only
+the resolved `LaunchLatDeg` / `LaunchLonDeg` numbers, not the site
+name.
+_Avoid_: Spawn site, Launch coordinates, Pad location, KSC (a specific
+Launch Site, not the general term).
+
+**Surface Contact**:
+The physics event that fires inside the integrator when a Vessel's
+sub-step puts |R| below the Primary's mean radius — typically an
+aerobraking re-entry or an uncontrolled descent. The clamp projects
+R back to the surface along r̂ and zeros V; the Vessel stays in
+normal integration with **Landed** unchanged (still false). Without
+this clamp the gravity singularity at r → 0 would slingshot the
+Vessel back out at huge velocity.
+
+A consequence of the "zero V, don't set Landed" semantics: a
+post-contact Vessel sits motionless in inertial space while the
+Primary rotates underneath — visually drifting west along the
+ground. Each subsequent tick gravity pulls it back below the
+surface and Surface Contact fires again; the Vessel is perpetually
+re-clamped.
+
+This is a placeholder, not the intended final model — see
+**Touchdown / Crash** for the differentiated outcomes the simulator
+should produce once landing semantics ship.
+_Avoid_: Crash (reserved for the intended hard-landing outcome —
+see below), Ground hit, Impact (acceptable casual prose, but
+Surface Contact is the canonical term for this physics event).
+
+**Touchdown** / **Crash**:
+The two intended outcomes of a Vessel arriving at a Body's surface,
+distinguished by kinematic state at the moment of contact:
+
+- **Touchdown** — a controlled arrival within velocity and
+  orientation tolerances. Should produce a **Landed** Vessel that
+  co-rotates with the ground, preserves fuel and stage state, and
+  can re-ignite for liftoff (the same end-state a **Launchpad** spawn
+  creates, but earned through controlled descent rather than spawned
+  in).
+- **Crash** — an uncontrolled arrival outside those tolerances —
+  excess descent velocity, off-vertical attitude, or other failure
+  predicate. Should produce a destroyed or disabled Vessel.
+
+Not yet differentiated in code. Today every surface arrival — soft
+or hard — routes through **Surface Contact**, which zeros V without
+distinguishing the two cases. The destruction model that would back
+**Crash** is deferred (the v0.8.5 surface doc punted it to "v0.9+";
+not yet shipped as of v0.10.5+). When that model lands, the
+**Landed** entry above should drop its "set only by a Launchpad spawn"
+scope cap.
+_Avoid_: Soft landing / Hard landing (longer; "Landing" alone
+overloads with the cluster heading), Successful landing / Unsuccessful
+landing (asymmetric and verbose).
+
+### Attitude & RCS
+
+How the Vessel points itself, rotates between commanded headings, and
+uses its secondary propulsion system. Distinct from Maneuver & thrust:
+that section covers *where* the Δv goes; this one covers *how the
+nose gets there*.
+
+**Attitude**:
+The Vessel's physical nose direction — a unit vector
+(`CurrentAttitudeDir`) in the same frame as its state. Distinct from
+velocity: a Vessel can coast prograde while pointing radial-out.
+Two states matter:
+
+- *Actual attitude* — where the nose actually points right now.
+- *Commanded direction* — where the player has told it to point,
+  selected via **AttitudeMode** (a [[#maneuver--thrust|Burn Mode]] value
+  reused for live manual flight) and recomputed each tick from the
+  Vessel's current state.
+
+Slew chases commanded; Cosine Loss is what you pay if the engine
+fires before they line up. Persisted in saves so a slew-in-progress
+restores correctly across reloads.
+_Avoid_: Orientation, Heading, Nose vector, Pointing.
+
+**Slew**:
+The act of rotating Attitude toward the commanded direction. Constant
+angular velocity in sim-time, capped at the loadout's **Slew Rate**
+(deg/s, default 15°/s — ≈12 s for a 180° flip). At very high Warp,
+sim-time `dt` per Tick is large enough that the slew completes in
+one Tick — the accepted "effectively instant at high warp" behaviour.
+Two refinements:
+
+- *Lead-compensated slew* — for a planted Maneuver Node, the slew
+  auto-starts `slew_angle / SlewRate` before Trigger Time so the
+  Vessel is aligned at ignition. Preserves planted-node Δv accuracy
+  without forcing the player to manage timing.
+- *InstantSAS* — a player override that snaps Attitude to the
+  commanded direction immediately, skipping the slew. The "magic
+  SAS" escape hatch.
+_Avoid_: Rotate, Reorient.
+
+**Cosine Loss**:
+The Δv loss when the engine fires while Attitude is misaligned with
+the commanded direction by angle θ — only `cos(θ)` of the integrated
+Δv goes along the intended axis; the rest pushes off-axis and is
+wasted. The intended consequence of the slew-then-burn model: a
+player who starts a Burn before alignment is complete loses real Δv,
+and lead-compensated slew on planted nodes is the escape hatch that
+preserves planner accuracy.
+_Avoid_: Steering loss (correct in aerospace but ambiguous —
+"steering loss" also covers gravity-turn losses).
+
+**RCS**:
+The Vessel's Reaction Control System — low-thrust monopropellant
+thrusters used for fine attitude work and proximity ops, separate
+from the main engine. Player engages via **EngineMode** (`EngineMain`
+vs `EngineRCS`); planted Maneuver Nodes always use the main engine
+regardless of EngineMode. In RCS mode, each attitude key press fires
+a discrete pulse delivering a fixed Δv quantum (0.1 m/s in v0.10);
+holding a key streams pulses. Fuel comes from a separate
+**Monopropellant** ("Monoprop") tank with its own capacity, distinct
+from the main-engine fuel on `Stages[0]`.
+_Avoid_: Thrusters (ambiguous — main engine also thrusts), Cold-gas
+(implementation flavor not enforced), Maneuvering jets.
+
 ### Orbital geometry
 
 **Ascending Node**:
@@ -261,6 +450,112 @@ Warp` each physics step — Tick is the atomic unit, Clock is the noun
 other systems read from.
 _Avoid_: Timer (different semantics — timers count down), SimTime,
 GameTime.
+
+### Transfer planning
+
+The vocabulary for moving a Vessel from one orbit to another — typically
+interplanetary, but the same terms apply for intra-Primary transfers
+(moon-to-moon, parking-to-elliptical).
+
+**Transfer Plan**:
+The two-burn output of an auto-planted transfer: a **Departure** burn
+fired at periapsis of the Vessel's Parking Orbit around the origin
+Primary, and an **Arrival** burn fired at the destination's SOI /
+Capture Orbit radius after a coast. Each burn becomes a Maneuver Node
+in its respective Primary's Reference Frame. Carries the coast time
+between burns (`TransferDt`).
+_Avoid_: Trajectory (the whole flight path; the Plan is the burns).
+The planner's internal `TransferNode` is not glossary-worthy — it's a
+handoff struct (see Flagged ambiguities).
+
+**Parking Orbit** / **Capture Orbit**:
+The bounding circular orbits at each end of a Transfer Plan. The
+**Parking Orbit** is the circular orbit around the origin Primary the
+Vessel departs *from* (Departure burn at its periapsis). The **Capture
+Orbit** is the circular orbit around the destination Primary the
+Vessel arrives *into* (Arrival burn drops the hyperbolic approach
+onto this circle). Both are specified by radius — the planner uses
+them to compute v∞ on both sides of the transfer.
+_Avoid_: Initial / final orbit, Source / target orbit.
+
+**Porkchop**:
+The 2D Δv grid plotted in the porkchop screen: departure date along
+one axis, time-of-flight along the other, total Δv (Departure +
+Arrival) as colour at each cell. Cells where the Lambert solver
+fails to converge render as "impossible" pixels (NaN). The visual
+intuition is that low-Δv regions form pork-chop-shaped contours —
+hence the name. v0.10.5+ supports multiple porkchops stacked by N-rev
+count and short/long-branch selection.
+_Avoid_: Porkchop chart, Δv map (both fine in casual prose;
+"Porkchop" alone is the canonical noun).
+
+**Time of Flight (TOF)**:
+The coast duration of a transfer — from Departure burn to Arrival
+burn. Distinct from Trigger Time (which marks *when* a burn fires).
+On the Porkchop, TOF is the vertical axis.
+_Avoid_: Transit time, Cruise time, Coast time (Coast Time is fine
+prose but TOF is the planner's name).
+
+**Multi-rev Transfer**:
+A Lambert solution that completes N ≥ 1 full revolutions around the
+Primary before reaching the destination position. Unlocks transfers
+at longer TOFs than the single-rev (N=0) solution can express, often
+at lower Δv if the geometry aligns. Each N has two Lambert roots
+(see Short / Long Branch); the porkchop UI lets the player walk N
+and pick a branch. v0.10.5+.
+_Avoid_: N-rev (fine in code; "Multi-rev" reads better in prose),
+Multi-orbit transfer.
+
+**Short Way** / **Long Way**:
+A single-revolution (N=0) Lambert distinction: the transfer arc
+either sweeps less than 180° (short way) or more than 180° (long way)
+around the Primary, in the prograde sense. The picker is geometric:
+`(r1 × r2) · ẑ ≥ 0` selects short way for prograde, reversed for
+retrograde. Not exposed in the UI — the solver picks based on
+position geometry.
+_Avoid_: Short branch (different concept — see Flagged ambiguities).
+
+**Short Branch** / **Long Branch**:
+A multi-rev (N ≥ 1) Lambert distinction: for each N there are two
+time-of-flight solutions flanking the minimum-energy critical-z
+root. **Short Branch** is the lower-z root (more eccentric ellipse);
+**Long Branch** is the higher-z root. The v0.10.5 porkchop UI exposes
+both as picker options. Meaningless at N = 0 (single root); the flag
+is ignored there.
+_Avoid_: Short way (different concept — see Flagged ambiguities).
+
+**Lambert**:
+The orbital mechanics problem of finding the Keplerian arc connecting
+two position vectors in a specified time of flight, around a given
+Primary — and the solver that does it. The math engine underneath
+Porkchop, single transfers, and inclination matching. Implementation
+is Curtis Algorithm 5.2 (universal-variables formulation,
+Newton-Raphson on z). `LambertSolve` is the single-rev entry;
+`LambertSolveRev` is the multi-rev version with the branch flag.
+_Avoid_: Lambert solver (fine; "Lambert" alone names both the problem
+and the solver), Lambert arc.
+
+**v∞ (v-infinity)**:
+The hyperbolic excess velocity at a Primary's SOI boundary — the
+asymptotic speed of a Vessel relative to the Primary, far from it,
+on a hyperbolic trajectory. The bridging concept between intra-SOI
+patched-conic math and inter-SOI heliocentric Lambert math: the
+heliocentric arc tells you v∞ at each end, and the per-Primary
+Escape / Capture Burn formulas convert v∞ into a Parking-Orbit Δv.
+_Avoid_: Hyperbolic excess speed (correct but verbose), v_inf
+(reserve for code/ASCII contexts).
+
+**Escape Burn** / **Capture Burn**:
+The Δv that converts between a circular orbit around a Primary and a
+hyperbolic trajectory with a specified v∞. **Escape Burn** is at
+Parking-Orbit periapsis, prograde, taking circular → hyperbolic
+escape. **Capture Burn** is the mirror at Capture-Orbit periapsis,
+retrograde, taking hyperbolic approach → circular. By symmetry the
+magnitudes match; the directions and Primary contexts differ. These
+are the per-Primary halves of the patched-conic Transfer Plan; the
+heliocentric Lambert leg sits between them.
+_Avoid_: Burn-to-escape, Insertion burn (Insertion is fine prose for
+Capture in some contexts but ambiguous with orbit-insertion missions).
 
 ### Objectives
 
@@ -396,3 +691,44 @@ default — players plant maneuver nodes constantly; orbital nodes come up only
 in inclination contexts). For the orbital concept, always qualify: "Ascending
 Node" or "Descending Node". The planner-internal `TransferNode` struct stays
 out of prose entirely — call it a "planner-layer plan" if it must be named.
+
+**"Short"** is overloaded in Lambert transfer math:
+
+- **Short Way / Long Way** — a *single-rev* (N=0) geometric distinction:
+  does the transfer arc sweep less or more than 180° around the Primary.
+  The solver picks based on position geometry; not a player choice.
+- **Short Branch / Long Branch** — a *multi-rev* (N≥1) solver-root
+  distinction: which of two TOF roots flanking the minimum-energy
+  critical-z to converge on. The v0.10.5 porkchop UI exposes this as
+  a picker.
+
+**Resolution:** never use bare "short" in transfer-planning prose. Always
+qualify as "short way" (single-rev geometry) or "short branch" (multi-rev
+root). Same for "long". When in doubt, consider whether N=0 or N≥1: if
+N=0 it's way; if N≥1 it's branch.
+
+**"Landed"** (and the looser "landing", "landed at", "sitting on the
+surface") collapses three operationally distinct things:
+
+- **Landed** (the runtime state) — the integrator-bypass mode that
+  co-rotates the Vessel with the ground (`Spacecraft.Landed = true`).
+  Today reachable only via a **Launchpad** spawn.
+- **Surface Contact** (the physics event) — an aerobraking Vessel
+  penetrates the surface; the clamp zeros V and projects R back to the
+  radius, but **does not set Landed**. The Vessel sits motionless in
+  inertial space and drifts west across the ground as the Primary
+  rotates underneath, with the clamp re-firing every tick.
+- **Touchdown** (the intended future state) — a controlled descent
+  that *should* set Landed once landing semantics ship. Not yet in
+  code; today, every controlled descent collapses into a Surface
+  Contact at zero V.
+
+**Resolution:** capital-L **Landed** in prose means the runtime state —
+the co-rotating integrator-bypass mode set only by Launchpad spawn
+today. For a Vessel that has arrived at the surface via Surface Contact,
+say "post-contact" or "on the surface but not Landed" — never bare
+"landed." The asymmetry matters for save state (Landed Vessels persist
+`LaunchLatDeg` / `LaunchLonDeg`; post-contact Vessels don't), HUD
+readout, and any future per-state behaviour like re-ignition liftoff.
+When in doubt: a Landed Vessel co-rotates with the ground; a
+post-contact Vessel drifts west.
