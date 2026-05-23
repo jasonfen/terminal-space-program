@@ -85,6 +85,11 @@ func (h *Help) Render() string {
 			{"click empty", "open planner staged at projected orbit point"},
 			{"click HUD", "open body info"},
 		}},
+		{"PORKCHOP", [][2]string{
+			{"o", "open transfer-options sub-menu (nRev / direction / branch)"},
+			{"n / r / b", "(sub-menu) cycle nRev / toggle retrograde / toggle short-vs-long branch"},
+			{"enter / esc / o", "(sub-menu) close — re-solves grid with the new options"},
+		}},
 		{"MOUSE (porkchop)", [][2]string{
 			{"click cell", "select that (dep, tof) — press [enter] to plant"},
 		}},

@@ -20,6 +20,7 @@ func TestPorkchopLoadAndRender(t *testing.T) {
 		Footer:  lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
 		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
 	}
 	p := NewPorkchop(th)
 	w, err := sim.NewWorld()
@@ -74,5 +75,74 @@ func TestPorkchopHandleKeyCursorBounds(t *testing.T) {
 	p.HandleKey(rightKey)
 	if p.selDep != 1 {
 		t.Errorf("right at right edge should clamp: selDep=%d, want 1", p.selDep)
+	}
+}
+
+// TestPorkchopOptionsSubmenu: `o` opens the transfer-options sub-menu;
+// n/r/b inside flip nRev / retrograde / longBranch; enter/o/esc closes
+// the menu. Verifies key dispatch + visible state changes; does not
+// re-solve the grid (no world).
+func TestPorkchopOptionsSubmenu(t *testing.T) {
+	p := NewPorkchop(Theme{Dim: lipgloss.NewStyle(), Warning: lipgloss.NewStyle()})
+	p.depDays = []float64{0}
+	p.tofDays = []float64{100}
+	p.grid = [][]float64{{1000}}
+
+	key := func(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+	p.HandleKey(key("o"))
+	if !p.optsOpen {
+		t.Fatal("`o` should open the options sub-menu")
+	}
+	p.HandleKey(key("n"))
+	if p.opts.NRev != 1 {
+		t.Errorf("`n` did not advance NRev: got %d, want 1", p.opts.NRev)
+	}
+	p.HandleKey(key("r"))
+	if !p.opts.Retrograde {
+		t.Error("`r` did not toggle Retrograde on")
+	}
+	p.HandleKey(key("b"))
+	if !p.opts.LongBranch {
+		t.Error("`b` did not toggle LongBranch on")
+	}
+	// nRev wraps: 1 → 2 → 3 → 0.
+	for i := 0; i < porkchopMaxNRev; i++ {
+		p.HandleKey(key("n"))
+	}
+	if p.opts.NRev != 0 {
+		t.Errorf("nRev did not wrap back to 0 at %d cycles past 0: got %d", porkchopMaxNRev, p.opts.NRev)
+	}
+	// `o` closes the menu (and would re-solve the grid if world were set).
+	p.HandleKey(key("o"))
+	if p.optsOpen {
+		t.Error("`o` should close the options sub-menu")
+	}
+}
+
+// TestPorkchopPendingPlantCarriesOptions: a plant from within the
+// options-driven state surfaces those options to the caller so
+// PlanTransferAt uses the same Lambert params the cell was scored at.
+func TestPorkchopPendingPlantCarriesOptions(t *testing.T) {
+	p := NewPorkchop(Theme{Warning: lipgloss.NewStyle()})
+	p.depDays = []float64{0}
+	p.tofDays = []float64{200}
+	p.grid = [][]float64{{1500}}
+	p.opts = sim.TransferOptions{NRev: 2, Retrograde: true, LongBranch: true}
+	p.targetIdx = 4
+
+	enterKey := tea.KeyMsg{Type: tea.KeyEnter}
+	if _, done := p.HandleKey(enterKey); !done {
+		t.Fatal("Enter on a feasible cell should signal done=true")
+	}
+	tgt, depD, tofD, opts, ok := p.PendingPlant()
+	if !ok {
+		t.Fatal("PendingPlant ok=false after Enter on feasible cell")
+	}
+	if tgt != 4 || depD != 0 || tofD != 200 {
+		t.Errorf("plant target/cell mismatch: tgt=%d dep=%v tof=%v", tgt, depD, tofD)
+	}
+	if opts.NRev != 2 || !opts.Retrograde || !opts.LongBranch {
+		t.Errorf("plant did not carry opts forward: got %+v", opts)
 	}
 }
