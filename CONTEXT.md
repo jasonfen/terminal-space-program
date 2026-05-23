@@ -298,11 +298,12 @@ Launch Site, not the general term).
 **Surface Contact**:
 The physics event that fires inside the integrator when a Vessel's
 sub-step puts |R| below the Primary's mean radius — typically an
-aerobraking re-entry or an uncontrolled descent. The clamp projects
-R back to the surface along r̂ and zeros V; the Vessel stays in
-normal integration with **Landed** unchanged (still false). Without
-this clamp the gravity singularity at r → 0 would slingshot the
-Vessel back out at huge velocity.
+**Aerobraking** pass that dipped too low, an intentional **Re-entry**,
+or an uncontrolled descent. The clamp projects R back to the surface
+along r̂ and zeros V; the Vessel stays in normal integration with
+**Landed** unchanged (still false). Without this clamp the gravity
+singularity at r → 0 would slingshot the Vessel back out at huge
+velocity.
 
 A consequence of the "zero V, don't set Landed" semantics: a
 post-contact Vessel sits motionless in inertial space while the
@@ -342,6 +343,141 @@ scope cap.
 _Avoid_: Soft landing / Hard landing (longer; "Landing" alone
 overloads with the cluster heading), Successful landing / Unsuccessful
 landing (asymmetric and verbose).
+
+### Atmosphere & drag
+
+How a Body's gaseous envelope decelerates a Vessel moving through it.
+Cluster anchors: **Atmosphere** is the per-Body model; **Drag** is the
+force it produces; **Ballistic Coefficient** is the per-Vessel
+tunability. The codebase's BC is the *inverse* of aerospace-standard
+BC — see Flagged ambiguities.
+
+**Atmosphere**:
+A per-Body exponential-density model of its gaseous envelope —
+optional, absent for vacuum Bodies (most Moons, asteroids). Parametrised
+by **Scale Height**, **Surface Density**, and **Cutoff Altitude**;
+density falls off exponentially with altitude up to the cutoff, then is
+treated as identically zero (a hard edge, not a smooth taper). Drives
+**Drag** on Vessels passing through it and the haze tint the renderer
+paints near the limb.
+_Avoid_: Air (informal — exception: **Air-Relative Velocity**), Atmo
+(in prose), Sky.
+
+**Atmospheric Density** (ρ):
+Mass per unit volume of the **Atmosphere** at a given altitude,
+computed from the Body's model: ρ(h) = ρ₀ · exp(-h / H), zero above
+**Cutoff Altitude**. The multiplicative scalar in the **Drag**
+acceleration; halving ρ halves Drag. Reads ρ₀ = **Surface Density** and
+H = **Scale Height** from the Body's catalog entry.
+_Avoid_: Air density (acceptable casual prose), Density (ambiguous
+with body mass density).
+
+**Scale Height** (H):
+The altitude increment over which **Atmospheric Density** drops by a
+factor of 1/e. Larger H = thicker atmosphere reaching higher; Earth's
+H ≈ 8.5 km, so density at 17 km is ~14% of sea level. Per-Body, set in
+the catalog.
+_Avoid_: H (in prose; reserve for formulas), Density scale.
+
+**Surface Density** (ρ₀):
+**Atmospheric Density** at altitude 0 — the anchor of the exponential
+profile. Per-Body, set in the catalog. Player-relevant mainly at
+liftoff, where it sets the maximum **Drag** a launching Vessel sees.
+_Avoid_: Sea-level density (correct on Earth but most Bodies don't have
+a sea), Ground density.
+
+**Cutoff Altitude**:
+The altitude above a Body at which **Atmospheric Density** is treated as
+identically zero — no Drag, no haze contribution. A hard sentinel, not
+a smooth taper; physically the atmosphere extends further but the
+contribution is negligible. Per-Body, set in the catalog. Player concept:
+"above the cutoff" = in vacuum.
+_Avoid_: Kármán line (Earth-specific term loaded with historical and
+regulatory baggage; the simulator's cutoff is purely numerical), Top
+of atmosphere.
+
+**Drag**:
+The retarding acceleration on a Vessel moving through a Body's
+**Atmosphere**, opposing the **Air-Relative Velocity**:
+a = −0.5 · ρ · |v_rel|² · BC · v̂_rel. Magnitude scales with the square
+of relative speed and linearly with **Atmospheric Density** and
+**Ballistic Coefficient**. Zero outside the atmosphere (vacuum Body,
+altitude above **Cutoff Altitude**, or BC ≤ 0).
+_Avoid_: Air resistance (correct everyday prose, but Drag is the
+canonical term), Friction (wrong — drag is dynamic-pressure, not
+contact friction).
+
+**Air-Relative Velocity** (v_rel):
+The Vessel's velocity relative to the co-rotating **Atmosphere** —
+v_rel = v − ω × r, where ω is the Primary's spin angular-velocity
+vector and r is the Vessel's position. The vector **Drag** opposes;
+a Vessel sitting motionless in inertial frame at Earth's equator has
+|v_rel| ≈ 465 m/s eastward and feels Drag against that flow. For an
+orbiting Vessel, |v_rel| is slightly less than inertial speed when
+prograde and slightly more when retrograde (Earth's surface rotates
+~6% as fast as LEO orbital speed).
+
+**Engineering caveat:** the ω used by Drag is **Z-aligned** (the
+atmosphere is modelled as co-rotating about world +Z at one sidereal
+period), *not* the tilted spin axis used elsewhere — notably the
+**Launchpad**-spawn surface co-rotation velocity, which uses the full
+tilted axis. The two ω's agree for zero-tilt Bodies; for tilted ones
+(Earth at ~23.4°) they disagree by a few percent in magnitude plus a
+Z component. A launchpad-spawned Vessel's spawn velocity (tilted ω × r)
+therefore drifts slightly from Drag's "wind" (Z-aligned ω × r); the
+residual aerodynamic force at altitude 0 is typically negligible. Drag
+keeps the approximation for back-compat with v0.8.4.
+_Avoid_: Wind-relative velocity (misleading — the atmosphere co-rotates,
+it doesn't blow), Atmospheric velocity (ambiguous — reads as "the
+atmosphere's velocity"), Relative velocity (overloaded — encounter math
+uses "relative velocity" between two Vessels).
+
+**Ballistic Coefficient** (BC):
+The per-Stage tunability of **Drag** — how draggy a Vessel is per unit
+dynamic pressure. Defined in this codebase as `BC = C_D · A / m` (units
+m²/kg), the multiplicative factor in the Drag acceleration, so **higher
+BC means draggier**. This is the *inverse* of the aerospace-standard
+BC (`BC = m / (C_D · A)`, kg/m², higher = less draggy because a heavier
+projectile sheds speed slower) — see Flagged ambiguities for the
+reciprocal-conversion rule when importing values from aerospace tables.
+
+Per-Stage primarily — each **Stage** carries its own BC so a Saturn V
+launch can model a heavier draggier boost stage and a sleeker upper
+stage without one field on the Vessel. The effective BC the integrator
+multiplies is the **bottom stage's** (`Stages[0]`) — the
+currently-firing / outermost stage is the one in the flow. Falls back
+to a Vessel-level legacy field for saves predating per-Stage BC, then
+to the default 0.01 m²/kg (the S-IVB-1 baseline — a "generic launcher"
+draggability anchor). A Vessel with `BC ≤ 0` feels no Drag at all.
+_Avoid_: Drag coefficient (collides with the aerospace dimensionless
+C_D), Drag factor (no inheritance), B-coefficient.
+
+**Aerobraking**:
+Using **Drag** deliberately to lose orbital energy — apoapsis reduction
+without spending Δv. In the strict sense: a series of shallow periapsis
+passes that gradually lower apoapsis over many orbits. Real-mission
+technique (Mars Reconnaissance Orbiter spent ~6 months aerobraking
+down to its science orbit); KSP players use it for fuel-light planetary
+captures.
+
+Drag is drag — the simulator has no dedicated "aerobraking mode." Two
+related variants share the same physics, differentiated only by **how
+much** Drag is applied, **for how long**, and what **external
+adjustments** (periapsis-raise burns, attitude trims) the player makes
+between passes:
+
+- **Aerocapture** — a single *deep* pass that converts an arrival
+  hyperbola into a captured orbit on first contact. The aggressive
+  variant; the entire energy delta happens in one atmospheric arc.
+- **Re-entry** — descent through the atmosphere intended to reach the
+  surface (controlled or otherwise). The Vessel does not come back out;
+  the pass ends in **Surface Contact**.
+
+Pre-condition for any of the three: a low enough periapsis to dip below
+**Cutoff Altitude**. None has dedicated planner or HUD support — the
+player flies the geometry, the integrator does the rest.
+_Avoid_: Aerobrake (verb, fine in prose; the noun is Aerobraking),
+Atmospheric braking (correct but verbose).
 
 ### Attitude & RCS
 
@@ -732,3 +868,23 @@ say "post-contact" or "on the surface but not Landed" — never bare
 readout, and any future per-state behaviour like re-ignition liftoff.
 When in doubt: a Landed Vessel co-rotates with the ground; a
 post-contact Vessel drifts west.
+
+**"Ballistic Coefficient"** uses two reciprocal conventions across
+domains:
+
+- **This codebase**: `BC = C_D · A / m` (units m²/kg). Higher BC =
+  draggier. The factor the integrator multiplies in
+  `a = −0.5 · ρ · |v_rel|² · BC · v̂_rel`. Per **Stage**; default
+  0.01 m²/kg (S-IVB-1).
+- **Aerospace literature / KSP / standard textbooks**: `BC = m / (C_D · A)`
+  (units kg/m²). Higher BC = less draggy — a heavy bullet has a high BC
+  and barely slows.
+
+**Resolution:** a BC quoted from any aerospace source must be **inverted
+and unit-converted** (kg/m² → m²/kg, i.e. take the reciprocal) before
+being entered as a Stage's `BallisticCoefficient` field. The codebase's
+choice is deliberate — it names what the integrator actually multiplies,
+not what the literature defines — but the consequence is that "high BC"
+in code review means the opposite of "high BC" in an aerospace paper.
+Always confirm which convention the speaker is using before discussing
+specific values.
