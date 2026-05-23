@@ -14,7 +14,7 @@ import (
 // direction when the system happens to spin retrograde, or for
 // exploring multi-rev porkchop alternatives. v0.7.5+.
 func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64, retrograde bool) (v1, v2 orbital.Vec3, err error) {
-	return LambertSolveRev(r1, r2, dt, mu, 0, retrograde)
+	return LambertSolveRev(r1, r2, dt, mu, 0, retrograde, false)
 }
 
 // LambertSolveRev solves Lambert's problem for an N-revolution transfer:
@@ -28,17 +28,18 @@ func LambertSolve(r1, r2 orbital.Vec3, dt, mu float64, retrograde bool) (v1, v2 
 // (each rev contributes (2π)² to the universal-variable domain);
 // the bracket sweep starts just past that lower bound.
 //
-// Single branch only — at N ≥ 1 there are typically two time-of-flight
-// solutions per N (a "long" and "short" transfer separated by the
-// minimum-energy critical z). This solver returns whichever branch the
-// bracket sweep lands in first, which is adequate for the porkchop
-// grid's coarse sampling. Multi-branch selection is a v0.4 polish item
-// if it comes up.
+// At N ≥ 1 there are typically two time-of-flight solutions per N — a
+// "short" branch (lower z, more eccentric ellipse) and a "long" branch
+// (higher z) flanking the minimum-energy critical z. longBranch=false
+// returns the short branch (the default; v0.10.5 and earlier behavior);
+// longBranch=true seeds Newton from just below the upper bound so it
+// converges onto the long-branch root instead. For N = 0 the flag is
+// ignored (single branch).
 //
 // retrograde flips the transfer-angle convention: prograde takes the
 // short way when (r1 × r2)·ẑ ≥ 0 and the long way otherwise; retrograde
 // reverses the rule. v0.7.5+.
-func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde bool) (v1, v2 orbital.Vec3, err error) {
+func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde, longBranch bool) (v1, v2 orbital.Vec3, err error) {
 	if dt <= 0 {
 		return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: dt must be > 0")
 	}
@@ -114,17 +115,26 @@ func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde b
 	if nRev == 0 {
 		zUpper = 4 * math.Pi * math.Pi
 	}
-	z := zLower
-	if nRev > 0 {
-		z += 0.01 // nudge past the lower critical value
-	}
-	if nRev == 0 && !math.IsNaN(F(z)) && F(z) > 0 {
-		// N=0 only: F(0) already positive → walk negative into the
-		// hyperbolic region to find the bracket.
-		for F(z) > 0 && z > -4*math.Pi*math.Pi {
+	var z float64
+	switch {
+	case nRev > 0 && longBranch:
+		// Long branch: F(z) → +∞ at both rev-band boundaries with a
+		// single minimum between, so seeding Newton near the upper
+		// boundary converges to the upper (long-TOF) root. Walk
+		// inward until F is non-singular.
+		z = zUpper - 0.01
+		for {
+			fv := F(z)
+			if !math.IsNaN(fv) && fv >= 0 {
+				break
+			}
 			z -= 0.1
+			if z <= zLower {
+				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: bracket search failed — no long-branch solution in this rev band")
+			}
 		}
-	} else {
+	case nRev > 0:
+		z = zLower + 0.01
 		for {
 			fv := F(z)
 			if !math.IsNaN(fv) && fv >= 0 {
@@ -135,6 +145,26 @@ func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde b
 				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: bracket search failed — no solution in this rev band")
 			}
 		}
+	default:
+		z = zLower
+		if !math.IsNaN(F(z)) && F(z) > 0 {
+			// N=0 only: F(0) already positive → walk negative into the
+			// hyperbolic region to find the bracket.
+			for F(z) > 0 && z > -4*math.Pi*math.Pi {
+				z -= 0.1
+			}
+		} else {
+			for {
+				fv := F(z)
+				if !math.IsNaN(fv) && fv >= 0 {
+					break
+				}
+				z += 0.1
+				if z >= zUpper {
+					return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: bracket search failed — no solution in this rev band")
+				}
+			}
+		}
 	}
 
 	// Newton-Raphson. Convergence: stop when the step in z is below
@@ -142,6 +172,14 @@ func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde b
 	// |F|, which sits at ~ε·sqrt(mu)·dt scale and bounces on noise).
 	const tolStep = 1e-12
 	const maxIter = 100
+	// For N-rev branches, confine Newton inside [zLower+ε, zUpper−ε] so
+	// it can't step out of the rev band (or, for the long branch, leap
+	// across the minimum onto the short-branch root).
+	zMin, zMax := math.Inf(-1), math.Inf(1)
+	if nRev > 0 {
+		zMin = zLower + 1e-6
+		zMax = zUpper - 1e-6
+	}
 	converged := false
 	for i := 0; i < maxIter; i++ {
 		fv := F(z)
@@ -154,7 +192,7 @@ func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde b
 		}
 		step := fv / fp
 		zNext := z - step
-		for yFn(zNext) < 0 {
+		for yFn(zNext) < 0 || zNext <= zMin || zNext >= zMax {
 			zNext = (z + zNext) / 2
 			if math.Abs(zNext-z) < 1e-15 {
 				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: failed to recover from y<0 step")

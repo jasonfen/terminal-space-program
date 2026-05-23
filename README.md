@@ -173,7 +173,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `K` | Plant rendezvous nudge to target craft (v0.10.2+) — single-burn Lambert intercept projected onto the closest velocity-frame axis. Reads the TARGET HUD's ACH CA / Δv readouts. Errors when there's no craft target, target shares a different primary, already DOCK READY, or no improvement available |
 | `t` / `T` | Cycle / clear `World.Target` (non-active sibling craft → bodies in active system → none) |
 | `space` | Decouple bottom stage of active craft (multi-stage only; single-stage status-flashes "cannot drop the only remaining stage") (v0.9.1+) |
-| `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H` |
+| `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H`. Press `o` inside to open the transfer-options sub-menu (`n` cycles nRev 0–3, `r` toggles prograde/retrograde, `b` toggles short/long branch); `enter`/`o`/`esc` closes and re-solves (v0.10.5+) |
 | `R` | Refine plan — re-Lambert from live state, plant mid-course correction + update arrival |
 | `m` | Open maneuver planner |
 | `F5` / `F9` | Quicksave / quickload (`$XDG_STATE_HOME/terminal-space-program/save.json`) — KSP-style |
@@ -263,11 +263,14 @@ Normal± burns (no apse target — use `I` for plane-rotation Δv).
 | `←` / `→` | Departure-day cursor |
 | `↑` / `↓` | Time-of-flight cursor |
 | `Enter` | Plant Lambert transfer for selected cell |
+| `o` | Open transfer-options sub-menu — `n` cycles nRev (0–3), `r` toggles prograde/retrograde, `b` toggles short/long branch (only meaningful for nRev ≥ 1); `Enter`/`o`/`Esc` closes and re-solves the grid (v0.10.5+) |
 | Click cell | Move cursor to that cell (then `Enter` to plant) |
 | `Esc` | Back to orbit view |
 
 Cursor opens snapped to the minimum-Δv cell. `·` glyphs mark cells
-where Lambert didn't converge — `Enter` on those is a no-op.
+where Lambert didn't converge — `Enter` on those is a no-op. The TOF
+axis range auto-scales by `(nRev + 1)` so multi-rev cells stay inside
+the displayed bracket.
 
 ## Features
 

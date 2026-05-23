@@ -684,12 +684,12 @@ Items here are **not under active development** unless noted.
 The reverted artifacts are git history, not a starting point. **Do not re-implement without the design pass.** Full retrospective + decision-point list in [`state-of-game-archive.md` §6 *Mission scripting / editor*](state-of-game-archive.md). Suggested sequencing: (1) write the modder-UX target end-to-end, (2) pick the engine in service of that UX, (3) reference v0.8.7-attempt artifacts only for implementation shape, (4) implement.
 
 ### Multi-rev porkchop UI
-<!-- llm-parse: id=multi-rev-porkchop status=deferred target=v0.9 -->
-⏸ **deferred from v0.8.6 (c) → v0.9**. `LambertSolveRev` + retrograde flag have been library-ready since v0.7.5; UI not sliced. Defer until staging slices grow craft fleet — current chemical S-IVB-1-class fleet always picks nRev=0 prograde, so UI gives no leverage until that changes. Pairs with the Lambert short/long branch picker [(below)](#lambert-shortlong-branch-picker).
+<!-- llm-parse: id=multi-rev-porkchop status=in-progress target=v0.10.5 -->
+🛠 **in progress · v0.10.5** (branch `v0.10.5-porkchop`). The three-cycle-deferred carry-over has shipped on branch — the porkchop screen gains an `o` transfer-options sub-menu that exposes nRev (0–3), prograde/retrograde, and the new short/long branch picker. The TOF axis auto-scales by `(nRev+1)` so multi-rev cells live in a sensible TOF window. The options bundle (`sim.TransferOptions{NRev, Retrograde, LongBranch}`) plumbs through `World.PorkchopGrid` → `World.PlanTransferAt` so a planted Δv matches the cell's scored Δv for any options combo. Specced in `docs/v0.10-plan.md` §v0.10.5. Pairs with the [Lambert short/long branch picker (below)](#lambert-shortlong-branch-picker) — both shipped in the same slice.
 
 ### Lambert short/long branch picker
-<!-- llm-parse: id=lambert-short-long status=backlog target=v0.9-with-multi-rev -->
-🧊 **backlog · pairs with multi-rev porkchop**. Today `LambertSolveRev` returns the first root the bracket finds (lower-z side); a per-N "short" / "long" flag would expose both branches per rev count. Library-only LOC (~30) — the surface is plumbing through `PlanLambertTransfer` + `PorkchopGrid` + a UI control. Travels with multi-rev porkchop because both expose nRev≥1 branches that don't exist on the nRev=0 path.
+<!-- llm-parse: id=lambert-short-long status=in-progress target=v0.10.5 -->
+🛠 **in progress · v0.10.5 · pairs with multi-rev porkchop**. `LambertSolveRev` now takes a trailing `longBranch bool` (after `retrograde bool`). For nRev≥1 the two roots flanking the minimum-energy critical z map to short (lower z, more eccentric, lower-TOF) and long (higher z, higher-TOF) branches; the flag seeds Newton from the appropriate side and confines steps to the rev band so it can't leap across the critical z. For nRev=0 the flag is ignored (single branch). Plumbed through `PlanLambertTransfer` + `PorkchopGrid` + the new porkchop sub-menu (`b` toggle). Shipped on branch `v0.10.5-porkchop`.
 
 ### Wider cross-SOI PlanTransfer
 <!-- llm-parse: id=cross-soi-transfer status=backlog target=v0.9 -->
@@ -950,7 +950,7 @@ doc.
 | 5 | [Rendezvous tooling](#rendezvous-tooling) | M | 🧊 backlog | Target-craft selection + target-relative burn modes + null-v_rel at closest approach + iteration. Pairs with multi-craft fleet from (1). |
 | 6 | [Solar lighting + terminator + eclipses](#solar-lighting--daynight-terminator--eclipses) | M | ✅ shipped v0.9.6 | Landed `internal/render/lighting.go`+`eclipse.go`; closed the v0.9 cycle (merge 32e8d03). |
 | 7 | [Predictor adaptive sampling](#predictor-adaptive-sampling) | M | 🛠 in progress v0.10.3 | Three-cycle carry-over; foundation shipped v0.8.4. Adaptive per-leg sample budget (`adaptiveSampleCount`, `[96,720]`). |
-| 8 | [Multi-rev porkchop UI](#multi-rev-porkchop-ui) + [Lambert short/long picker](#lambert-shortlong-branch-picker) | S | ⏸ deferred | UI for `LambertSolveRev` (nRev + retrograde + short/long). Library-ready since v0.7.5. Useful once (1) staging grows the fleet. |
+| 8 | [Multi-rev porkchop UI](#multi-rev-porkchop-ui) + [Lambert short/long picker](#lambert-shortlong-branch-picker) | S | 🛠 in progress v0.10.5 | UI for `LambertSolveRev` (nRev + retrograde + short/long) via the porkchop `o` sub-menu + `TransferOptions` plumbing. Branch `v0.10.5-porkchop`. |
 | 9 | [Capture-direction toggle](#capture-direction-toggle) | S | 🧊 backlog | "Capture prograde-around-target" mode for auto-Hohmann arrival. Trades ~50–100 m/s for the right-direction capture. |
 | 10 | [Theme-file hot-reload](#theme-file-hot-reload) | S | ⏸ deferred | ~200 LOC fsnotify watcher. Reopen if a modder hits theme-iteration friction. |
 | 11 | Polish open questions ([spawn-form persistence](#spawn-form-persistence), [docking visual feedback](#docking-visual-feedback), [numbered craft slots](#numbered-craft-slots-19)) | S | 📐 / 🧊 | Bundle-of-small-stuff candidates if cycle bandwidth allows. |

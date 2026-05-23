@@ -553,7 +553,7 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 //
 // depDay / tofDay are in days; depDay is an offset from w.Clock.SimTime.
 // Used by the porkchop screen's Enter-to-plant path (v0.4.1).
-func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.TransferPlan, error) {
+func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64, opts TransferOptions) (*planner.TransferPlan, error) {
 	sys := w.System()
 	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
 		return nil, errInvalidTransferTarget
@@ -593,9 +593,6 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 	rArr, vArr := arrEph(tArr)
 
 	depOffset := time.Duration(depDay * secondsPerDay * float64(time.Second))
-	// Prograde transfer — the porkchop UI scores prograde transfers
-	// today; v0.8+ multi-rev work will surface retrograde as a UI
-	// toggle and start passing true.
 	plan, err := planner.PlanLambertTransfer(
 		muSun,
 		rDep, vDep,
@@ -604,7 +601,9 @@ func (w *World) PlanTransferAt(targetIdx int, depDay, tofDay float64) (*planner.
 		muDep, rPark, w.ActiveCraft().Primary.ID,
 		muArr, rCapture, target.ID,
 		depOffset,
-		false,
+		opts.Retrograde,
+		opts.NRev,
+		opts.LongBranch,
 	)
 	if err != nil {
 		return nil, err
@@ -980,7 +979,18 @@ func (w *World) PlanCircularizeAtApoapsis() (*CircularizePlan, error) {
 // errSamePrimaryUseHohmann — the heliocentric Lambert math doesn't
 // model in-SOI transfers. The porkchop screen surfaces the error as a
 // "use [P] for Hohmann" banner.
-func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]float64, error) {
+// TransferOptions bundles the per-cell Lambert solve parameters that
+// porkchop / PlanTransferAt forward to the planner: prograde-vs-
+// retrograde, revolution count, and short-vs-long branch selection.
+// Zero value (NRev=0, Retrograde=false, LongBranch=false) is the
+// legacy single-rev prograde short-branch path. v0.10.5+.
+type TransferOptions struct {
+	NRev       int
+	Retrograde bool
+	LongBranch bool
+}
+
+func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64, opts TransferOptions) ([][]float64, error) {
 	sys := w.System()
 	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
 		return nil, errInvalidTransferTarget
@@ -1014,7 +1024,9 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64) ([][]flo
 		depDays, tofDays,
 		muDep, rPark,
 		muArr, rCapture,
-		false, // prograde — v0.8+ multi-rev porkchop will toggle this.
+		opts.Retrograde,
+		opts.NRev,
+		opts.LongBranch,
 	)
 	return grid, nil
 }

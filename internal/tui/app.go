@@ -389,8 +389,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.active == screenPorkchop {
 			_, done := a.porkchop.HandleKey(m)
 			if done {
-				if tgt, depD, tofD, ok := a.porkchop.PendingPlant(); ok {
-					_, _ = a.world.PlanTransferAt(tgt, depD, tofD)
+				if tgt, depD, tofD, opts, ok := a.porkchop.PendingPlant(); ok {
+					_, _ = a.world.PlanTransferAt(tgt, depD, tofD, opts)
 				}
 				a.active = screenOrbit
 			}

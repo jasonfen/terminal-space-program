@@ -871,7 +871,7 @@ func TestPorkchopGridRejectsSamePrimaryTarget(t *testing.T) {
 	if moonIdx < 0 {
 		t.Skip("Moon missing from Sol")
 	}
-	if _, err := w.PorkchopGrid(moonIdx, []float64{0}, []float64{5}); err == nil {
+	if _, err := w.PorkchopGrid(moonIdx, []float64{0}, []float64{5}, TransferOptions{}); err == nil {
 		t.Errorf("PorkchopGrid for Moon (same-primary) returned nil error — should be errSamePrimaryUseHohmann")
 	}
 }
@@ -1561,7 +1561,7 @@ func TestPlanTransferAtPlantsTwoNodes(t *testing.T) {
 	}
 
 	const depDay, tofDay = 30.0, 260.0
-	plan, err := w.PlanTransferAt(marsIdx, depDay, tofDay)
+	plan, err := w.PlanTransferAt(marsIdx, depDay, tofDay, TransferOptions{})
 	if err != nil {
 		t.Fatalf("PlanTransferAt: %v", err)
 	}
@@ -1613,7 +1613,7 @@ func TestPlanTransferAtMatchesPorkchopGridCell(t *testing.T) {
 	}
 	depDays := []float64{30}
 	tofDays := []float64{260}
-	grid, err := w.PorkchopGrid(marsIdx, depDays, tofDays)
+	grid, err := w.PorkchopGrid(marsIdx, depDays, tofDays, TransferOptions{})
 	if err != nil {
 		t.Fatalf("PorkchopGrid: %v", err)
 	}
@@ -1621,7 +1621,7 @@ func TestPlanTransferAtMatchesPorkchopGridCell(t *testing.T) {
 	if math.IsNaN(want) {
 		t.Skip("porkchop cell did not converge — pick different depDay/tofDay")
 	}
-	plan, err := w.PlanTransferAt(marsIdx, depDays[0], tofDays[0])
+	plan, err := w.PlanTransferAt(marsIdx, depDays[0], tofDays[0], TransferOptions{})
 	if err != nil {
 		t.Fatalf("PlanTransferAt: %v", err)
 	}
@@ -1650,7 +1650,7 @@ func TestPlanTransferAtRejectsBadInputs(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			before := len(w.ActiveCraft().Nodes)
-			if _, err := w.PlanTransferAt(c.idx, c.depDay, c.tofDay); err == nil {
+			if _, err := w.PlanTransferAt(c.idx, c.depDay, c.tofDay, TransferOptions{}); err == nil {
 				t.Errorf("expected error for %s", c.name)
 			}
 			if len(w.ActiveCraft().Nodes) != before {
@@ -1702,7 +1702,7 @@ func TestRefinePlanUpdatesArrivalAfterPlanTransferAt(t *testing.T) {
 	// r1 (craft_helio_now ≈ Earth_now) would not match — the two
 	// Lambert solutions would land on different trajectories and
 	// arrival Δv would diverge legitimately.
-	plan, err := w.PlanTransferAt(marsIdx, 0, 260)
+	plan, err := w.PlanTransferAt(marsIdx, 0, 260, TransferOptions{})
 	if err != nil {
 		t.Fatalf("PlanTransferAt: %v", err)
 	}
