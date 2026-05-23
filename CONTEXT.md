@@ -544,6 +544,136 @@ from the main-engine fuel on `Stages[0]`.
 _Avoid_: Thrusters (ambiguous — main engine also thrusts), Cold-gas
 (implementation flavor not enforced), Maneuvering jets.
 
+### Docking & coupling
+
+How two Vessels fuse into one and how that fusion comes apart.
+Cluster anchors: **Docking** / **Undocking** are the actions; the
+result is a **Composite**; the threshold that fires Docking is the
+**Docking Gate**; pre-Docking identities are preserved as **Docked
+Components**. "Component" and "Stage" are easily confused — see
+Flagged ambiguities.
+
+**Docking** / **Undocking**:
+The act of fusing two Vessels into a single **Composite** (Docking)
+and the inverse — splitting a Composite back into its pre-Dock
+identities (Undocking). Docking fires automatically each tick when
+two Vessels sit inside the **Docking Gate** within the same SOI;
+Undocking fires on a player keystroke against a Composite.
+
+Docking is **aggregate-preserving**: mass-weighted centroid for the
+Composite's position, momentum-conserving combination for velocity,
+summed pools for fuel / monoprop / capacities, concatenated roles
+("transfer-stage+lander"). The lead partner's identity — name,
+glyph, color, planted Maneuver Nodes, active Burn, attitude mode —
+survives, and its loadout becomes the Composite's. The other
+partner's identity is preserved only as a **Docked Component**
+snapshot for future Undocking.
+
+Undocking is **lossy**: prorated fuel / monoprop shares (by pre-Dock
+capacity), each restored Vessel placed 35 m per side along the
+radial-out axis (outside the Docking Gate so re-fusing is suppressed
+on the next tick) with a 0.05 m/s **Spring Release** push for clear
+drift. Composite-level state tied to the *aggregate* — planted Nodes,
+active Burn, Manual Burn, attitude mode, engine mode — is dropped on
+Undocking. The player keeps flying the lead identity through both
+transitions: post-Docking on the Composite, post-Undocking on the
+first restored component.
+_Avoid_: Mate / Demate (NASA-correct but unfamiliar in the sim's
+player vernacular), Fuse / Split (close, but Fuse loses the
+"controlled rendezvous" connotation Docking carries), Couple /
+Decouple (collides with **Stage** decoupling).
+
+**Composite**:
+A Vessel formed by **Docking** two or more pre-Dock Vessels. From the
+simulator's perspective a Composite is a Vessel like any other —
+same type, same `World.Crafts` slot, same integrator path; the
+"composite-ness" is a property (`len(DockedComponents) ≥ 2`), not a
+separate kind of entity.
+
+Load-bearing structural rule: the Composite's bottom stage
+(`Stages[0]`) is **unchanged from the lead partner's pre-Dock
+bottom** — the active partner's currently-firing engine. The
+partner's stages stack on **top** of the lead's. Two consequences:
+
+- The player keeps firing the same engine they were firing before
+  Docking — no mid-flight engine swap.
+- The stage-stack ordering matches the natural along-Stage-boundary
+  Undocking flow: the partner's stages, appended on top, peel off as
+  a unit when Undocking fires.
+
+The composite-as-a-whole pooled engine view (sum-thrust, mass-weighted
+Isp across every stage with thrust) is exposed by
+`CompositeEngineSummary` for consumers that want the aggregate rather
+than the bottom-stage value. Bottom-stage values stay the default for
+back-compat with pre-v0.9.1 readers.
+_Avoid_: Composite Vessel (acceptable long form when ambiguity
+threatens), Stack (collides with the **Stage** stack — the propulsion
+ordering), Docked Vessel (emphasises the act, not the state).
+
+**Docking Gate**:
+The combined (distance + relative velocity) threshold within which
+**Docking** fires. Two values, both required on the same tick within
+the same SOI:
+
+- **Docking Distance** — 50 m, the proximity radius. KSP-ish "soft
+  capture" range.
+- **Docking Velocity** — 0.1 m/s, the relative-velocity ceiling.
+  Typical proximity-ops null-residual.
+
+Same-SOI is a hard prerequisite: two Vessels whose *inertial*
+positions are within 50 m but whose Primary IDs differ (one in
+Earth's SOI, the other in Moon's, near the SOI boundary) do **not**
+dock — they wouldn't be near each other in any common frame even if
+inertial coordinates suggest otherwise.
+
+The Alongside spawn (the third spawn-form position-mode after orbital
+and **Launchpad**) places a new Vessel at 25 m from the active Vessel
+with matching velocity — half the Docking Distance, so a single RCS
+tap or even free orbital drift closes the gap without precision
+approach.
+_Avoid_: Docking window (collides with launch / transfer windows,
+which are time intervals), Docking envelope (verbose), Docking
+threshold (reads as singular, missing the combined nature).
+
+**Docked Component**:
+A snapshot of one pre-Docking Vessel's identity preserved on a
+**Composite** so a future **Undocking** can restore it. Records
+name, loadout, role, glyph, color, dry mass, fuel + monoprop
+capacities, and main / RCS engine numbers — the identity-and-shape
+fields. **Not** state: position, velocity, planted Maneuver Nodes,
+and active Burns are *not* preserved per-component; while joined
+the Docked Components all share the Composite's state, and on
+Undocking each restored Vessel re-emerges near the Composite's
+current state with no inherited Nodes or Burns.
+
+Chained Docking flattens components: a Composite that Docks with
+another Composite produces a single flat `DockedComponents` list
+covering every original identity, not a nested tree.
+_Avoid_: Component (bare, ambiguous — see Flagged ambiguities for
+the **Stage** / Component collision), Module (overloaded with stage
+modules in aerospace), Sub-vessel.
+
+**Dock Event**:
+An HUD-flash record stashed on `World.LastDockEvent` when a Docking
+fires, so the screen layer can briefly announce the fuse without
+polling. Carries the wall-clock time, the lead and partner slate
+indices at the moment of fusion, and the resulting Composite's name.
+Single-slot — the most recent event overwrites any unread one; the
+HUD consumes-and-clears (sets to nil) once the flash has been
+rendered. The notification, not the act.
+_Avoid_: Docking notification, Fuse record, Dock notice.
+
+**Spring Release**:
+The small relative-velocity kick (0.05 m/s) applied to each restored
+Vessel on **Undocking**, along the radial-out axis from the Primary.
+Combined with the 35 m-per-side separation, the Spring Release
+guarantees the restored Vessels drift apart instead of immediately
+re-entering the **Docking Gate** and re-fusing on the next tick.
+Magnitude is deliberately tiny — enough to break the gate, small
+enough that the orbital math of each restored Vessel is essentially
+unchanged.
+_Avoid_: Undock push, Separation impulse, Decouple kick.
+
 ### Orbital geometry
 
 **Ascending Node**:
@@ -888,3 +1018,29 @@ not what the literature defines — but the consequence is that "high BC"
 in code review means the opposite of "high BC" in an aerospace paper.
 Always confirm which convention the speaker is using before discussing
 specific values.
+
+**"Component"** collides with **Stage** as a word for "part of a Vessel":
+
+- **Stage** — one element of a Vessel's decoupleable propulsion stack
+  (`Stages[i]`). Carries dry mass, fuel, thrust, Isp, ballistic
+  coefficient. Indexed bottom-up: `Stages[0]` is the currently-firing
+  engine. Player concept: *one fire-and-jettison unit of the rocket*.
+- **Docked Component** — one element of a **Composite**'s
+  `DockedComponents`. Carries identity-and-shape fields (name, loadout,
+  dry mass, capacities, engine numbers) but **not** state, Maneuver
+  Nodes, or Burns. Used by **Undocking** to restore the pre-Dock
+  Vessels. Player concept: *the original ship I docked in*.
+
+Both are "parts of a Vessel" but at different abstraction levels. A
+Composite has both: its **Stages** are the concatenated propulsion
+stack (lead's + partner's, appended on top), its **Docked Components**
+are the original Vessel identities it can decompose back into. Docking
+does **not** add one Component per Stage — it adds *one Component per
+pre-Dock Vessel*, even if that Vessel had multiple stages.
+
+**Resolution:** "Stage" is the unambiguous term for the propulsion unit.
+Bare "component" in code-review prose should be qualified as "Docked
+Component" when ambiguity threatens. A diagnostic: if you see
+`len(c.Stages) == 3 && len(c.DockedComponents) == 2`, that's a Composite
+of two pre-Dock Vessels whose stage counts sum to 3 (probably 1+2 or
+2+1).
