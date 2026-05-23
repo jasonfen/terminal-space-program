@@ -10,6 +10,145 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
+// TestAdaptiveSampleCount: the predicted-leg sample budget tracks how
+// many orbital periods the horizon spans (~96 points per revolution),
+// clamped to [predictSamplesMin, predictSamplesMax]. Non-periodic or
+// degenerate inputs fall back to the minimum.
+func TestAdaptiveSampleCount(t *testing.T) {
+	const period = 5400.0 // ~90 min LEO
+	cases := []struct {
+		name    string
+		horizon float64
+		period  float64
+		want    int
+	}{
+		{"one period", period, period, 96},
+		{"half period floors to min", period / 2, period, 96},
+		{"five periods", 5 * period, period, 480},
+		{"hundred periods caps", 100 * period, period, 720},
+		{"hyperbolic period falls back to min", 10 * period, math.Inf(1), 96},
+		{"nan period falls back to min", 10 * period, math.NaN(), 96},
+		{"zero period falls back to min", 10 * period, 0, 96},
+		{"zero horizon falls back to min", 0, period, 96},
+	}
+	for _, c := range cases {
+		if got := adaptiveSampleCount(c.horizon, c.period); got != c.want {
+			t.Errorf("%s: adaptiveSampleCount(%.0f, %.0f) = %d, want %d",
+				c.name, c.horizon, c.period, got, c.want)
+		}
+	}
+}
+
+// TestPredictMaxSubStep: the integrator sub-step cap is period/100 for
+// a short-period orbit but clamps to predictMaxSubStepCap for a long
+// one (so a multi-day transfer ellipse still integrates finely), and
+// falls back to 1 s for a degenerate period.
+func TestPredictMaxSubStep(t *testing.T) {
+	cases := []struct {
+		name   string
+		period float64
+		want   float64
+	}{
+		{"short LEO period → period/100", 5400, 54},
+		{"long transfer period → capped", 800000, predictMaxSubStepCap},
+		{"at the cap boundary → capped", predictMaxSubStepCap * 100, predictMaxSubStepCap},
+		{"degenerate zero → 1 s", 0, 1.0},
+		{"degenerate NaN → 1 s", math.NaN(), 1.0},
+		{"degenerate +Inf → 1 s", math.Inf(1), 1.0},
+	}
+	for _, c := range cases {
+		if got := predictMaxSubStep(c.period); got != c.want {
+			t.Errorf("%s: predictMaxSubStep(%.0f) = %.2f, want %.2f", c.name, c.period, got, c.want)
+		}
+	}
+}
+
+// TestPredictedSegmentsTransferEncounterStable: a long Earth→Moon
+// transfer leg must be integrated finely enough that the predicted
+// trajectory is the same regardless of the output sample count — the
+// SOI encounter the predictor draws can't depend on how densely the
+// leg is sampled. Before v0.10.3 the integrator sub-step was period/100
+// (~8000 s for a transfer ellipse), so a sparsely-sampled leg stepped
+// over the lunar SOI and the dashed line flew off to a bogus
+// heliocentric escape, while a densely-sampled one drew the encounter.
+func TestPredictedSegmentsTransferEncounterStable(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" {
+			moonIdx = i
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon not in loaded Sol system")
+	}
+	moon := sys.Bodies[moonIdx]
+
+	// Place the craft in a circular LEO coplanar with the Moon, so the
+	// intra-primary Hohmann's transfer leg actually reaches the Moon.
+	mel := orbital.ElementsFromBody(moon)
+	sI, cI := math.Sin(mel.I), math.Cos(mel.I)
+	sO, cO := math.Sin(mel.Omega), math.Cos(mel.Omega)
+	moonN := orbital.Vec3{X: sO * sI, Y: -cO * sI, Z: cI}.Unit()
+	ref := orbital.Vec3{X: 1}
+	if math.Abs(moonN.Dot(ref)) > 0.9 {
+		ref = orbital.Vec3{Y: 1}
+	}
+	e1 := ref.Sub(moonN.Scale(moonN.Dot(ref))).Unit()
+	e2 := moonN.Cross(e1)
+
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	r := w.ActiveCraft().State.R.Norm()
+	v := math.Sqrt(mu / r)
+	w.ActiveCraft().State.R = e1.Scale(r)
+	w.ActiveCraft().State.V = e2.Scale(v)
+
+	if _, err := w.PlanTransfer(moonIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	legs := w.PredictedLegs()
+	if len(legs) == 0 {
+		t.Fatal("no predicted legs after PlanTransfer")
+	}
+	leg := legs[0]
+
+	segIDs := func(samples int) []string {
+		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, samples)
+		ids := make([]string, len(segs))
+		for i, s := range segs {
+			ids[i] = s.PrimaryID
+		}
+		return ids
+	}
+	dense := segIDs(4000)
+	adaptive := segIDs(leg.Samples)
+
+	// The dense prediction is the reference: it must find the Moon.
+	foundMoon := false
+	for _, id := range dense {
+		if id == moon.ID {
+			foundMoon = true
+		}
+		if id == "sun" {
+			t.Fatalf("dense prediction itself escaped to the Sun (%v) — test setup did not produce a Moon transfer", dense)
+		}
+	}
+	if !foundMoon {
+		t.Fatalf("dense prediction never reached the Moon (%v) — test setup did not produce an encounter", dense)
+	}
+	// The adaptive-sample prediction must agree — no sample-count
+	// sensitivity, and in particular no bogus escape to the Sun.
+	if len(adaptive) != len(dense) {
+		t.Errorf("segment count depends on sample density: adaptive=%v dense=%v", adaptive, dense)
+	}
+	for i := range adaptive {
+		if i < len(dense) && adaptive[i] != dense[i] {
+			t.Errorf("segment %d differs by sample density: adaptive=%v dense=%v", i, adaptive, dense)
+		}
+	}
+}
+
 // TestPredictedSegmentsContinuousAtSOIBoundary: plant a hyperbolic
 // trajectory escaping Earth SOI; PredictedSegments should split into
 // (≥) two segments at the boundary, AND the last point of the inner

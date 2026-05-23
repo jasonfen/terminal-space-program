@@ -10,11 +10,11 @@ import (
 
 // InclinationPlan describes a single normal-burn that rotates the
 // craft's orbital plane around the line of nodes. PlanInclinationChange
-// returns one of these; the sim layer adapts it into a ManeuverNode by
-// mapping NormalSign onto BurnNormalPlus / BurnNormalMinus. We don't
-// reuse TransferPlan because that type encodes mode via the boolean
-// IsRetrograde — a normal-direction burn doesn't fit cleanly through
-// a prograde/retrograde flag.
+// returns one of these; the sim layer adapts it into a BurnPlaneChange
+// ManeuverNode carrying PlaneChangeRad. We don't reuse TransferPlan
+// because that type encodes mode via the boolean IsRetrograde — a
+// plane-rotation burn doesn't fit cleanly through a prograde/retrograde
+// flag.
 //
 // AtAN is set true when the planner picked the ascending node, false
 // for descending. Diagnostic only — the integrator doesn't care.
@@ -22,8 +22,15 @@ type InclinationPlan struct {
 	PrimaryID  string
 	DV         float64       // m/s, magnitude
 	OffsetTime time.Duration // wall delay from "now" until burn fires
-	NormalSign int           // +1 → BurnNormalPlus, -1 → BurnNormalMinus
-	AtAN       bool
+	NormalSign int           // +1 → rotate toward +ĥ, -1 → toward −ĥ
+	// PlaneChangeRad is the signed orbital-plane rotation angle (rad):
+	// +θ rotates the plane toward +ĥ, −θ toward −ĥ. The sim layer
+	// stores this on the BurnPlaneChange node; the burn rotates the
+	// horizontal velocity through θ about the radial axis, preserving
+	// |v| — unlike a pure orbit-normal burn, which would only add
+	// speed. |θ| = |Δi|; its sign equals NormalSign.
+	PlaneChangeRad float64
+	AtAN           bool
 }
 
 var (
@@ -153,11 +160,12 @@ func PlanInclinationChange(state orbital.Vec3State, mu, targetIncl float64, prim
 	}
 
 	return InclinationPlan{
-		PrimaryID:  primaryID,
-		DV:         dv,
-		OffsetTime: time.Duration(dt * float64(time.Second)),
-		NormalSign: sign,
-		AtAN:       atAN,
+		PrimaryID:      primaryID,
+		DV:             dv,
+		OffsetTime:     time.Duration(dt * float64(time.Second)),
+		NormalSign:     sign,
+		PlaneChangeRad: float64(sign) * math.Abs(deltaI),
+		AtAN:           atAN,
 	}, nil
 }
 
@@ -204,10 +212,11 @@ func planEquatorialInclination(state orbital.Vec3State, mu, deltaI, sourceI floa
 		sign = -1
 	}
 	return InclinationPlan{
-		PrimaryID:  primaryID,
-		DV:         dv,
-		OffsetTime: 0,
-		NormalSign: sign,
-		AtAN:       true,
+		PrimaryID:      primaryID,
+		DV:             dv,
+		OffsetTime:     0,
+		NormalSign:     sign,
+		PlaneChangeRad: float64(sign) * math.Abs(deltaI),
+		AtAN:           true,
 	}, nil
 }
