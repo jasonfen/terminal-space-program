@@ -94,6 +94,14 @@ type Stage struct {
 	// like the S-IVB-1 main loadout).
 	Glyph string
 	Color string
+
+	// LaunchSprite is the per-stage ASCII art rendered by the
+	// ViewLaunch chase-cam scene (multi-line, anchored at the
+	// stage's bottom centre). Additive in v0.11.0; Slice 1 leaves
+	// this unset and renders the rocket as the existing Glyph.
+	// Slice 3 populates the catalog entries and switches the
+	// render path to a composed-from-stages sprite.
+	LaunchSprite string
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.

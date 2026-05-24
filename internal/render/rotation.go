@@ -314,6 +314,67 @@ func BodyFixedToWorld(b bodies.CelestialBody, latDeg, lonDeg float64, simTime ti
 	return Vec3{X: nx, Y: ny, Z: z}
 }
 
+// WorldToBodyFixed is the inverse of BodyFixedToWorld: given a unit
+// world-frame vector representing a point on (or above) the body at
+// simTime, recover the body-fixed (lat, lon) of that direction.
+// v0.11.0+. Used by the ViewLaunch trail sampler to convert the
+// active craft's primary-relative direction into a geographic
+// (lat, lon) sample.
+//
+// Caller is responsible for normalising the input (only the direction
+// matters) and for computing altitude separately as |R| - mean radius.
+//
+// Algebraic derivation: BodyFixedToWorld writes
+//   nx = cos(φ)·sin(λ−λ₀)
+//   ny = cos(φ₀)·sin(φ) − sin(φ₀)·cos(φ)·cos(λ−λ₀)
+//   z  = sin(φ₀)·sin(φ) + cos(φ₀)·cos(φ)·cos(λ−λ₀)
+// Combining the ny + z system: cos(φ₀)·ny + sin(φ₀)·z = sin(φ),
+// giving φ directly. Then cos(φ)·cos(λ−λ₀) = (z − sin(φ)·sin(φ₀))
+// / cos(φ₀) and cos(φ)·sin(λ−λ₀) = nx, so λ−λ₀ = atan2(...).
+//
+// Output longitude is wrapped to (-180, 180].
+func WorldToBodyFixed(b bodies.CelestialBody, vWorld Vec3, simTime time.Time) (latDeg, lonDeg float64) {
+	subLatDeg, subLonDeg := SubObserverPointDeg(b, simTime, CameraDirTop, Vec3{})
+	phi0 := subLatDeg * math.Pi / 180.0
+	lam0 := subLonDeg * math.Pi / 180.0
+	sP0, cP0 := math.Sin(phi0), math.Cos(phi0)
+
+	nx, ny, z := vWorld.X, vWorld.Y, vWorld.Z
+
+	// sin(φ) = sin(φ₀)·z + cos(φ₀)·ny  (clamped for floating-point
+	// drift past ±1 on near-degenerate inputs).
+	sP := sP0*z + cP0*ny
+	if sP > 1 {
+		sP = 1
+	} else if sP < -1 {
+		sP = -1
+	}
+	phi := math.Asin(sP)
+
+	// λ − λ₀ from atan2(cos(φ)·sin(λ−λ₀), cos(φ)·cos(λ−λ₀)). Substitute:
+	//   numerator   = nx (= cos(φ)·sin(λ−λ₀))
+	//   denominator = (z − sin(φ)·sin(φ₀)) / cos(φ₀)
+	// At cos(φ₀) ≈ 0 (pole-on view) the denominator form collapses;
+	// guard with a tiny-cP0 fallback using ny directly.
+	var dlam float64
+	if math.Abs(cP0) > 1e-12 {
+		dlam = math.Atan2(nx, (z-sP*sP0)/cP0)
+	} else {
+		// Pole-on observer: ny = sP0·sP (drops out), so use the raw
+		// nx/(-ny·sign) couple from the original system. With cP0=0,
+		// sP0=±1: nx = cos(φ)·sin(λ−λ₀), z = sP0·sP — z is fully
+		// determined by φ. Use ny = -sP0·cos(φ)·cos(λ−λ₀).
+		dlam = math.Atan2(nx, -sP0*ny)
+	}
+	lam := lam0 + dlam
+
+	latDeg = phi * 180.0 / math.Pi
+	lonDeg = lam * 180.0 / math.Pi
+	// Wrap to (-180, 180].
+	lonDeg = math.Mod(lonDeg+540, 360) - 180
+	return latDeg, lonDeg
+}
+
 // BodySpinOmegaWorld returns the body's spin angular-velocity
 // vector in the world frame: ω = (2π/period) · n_hat. Direction
 // matches BodyRotationAxisWorld (tilted, picks up AxialTilt +
