@@ -336,13 +336,19 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.canvas.Center(center)
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
+	// v0.10.6+: far-side arc renders at stride*2 (visually dashed) in
+	// the dedicated dim-grey ColorBodyOrbit — KSP-aligned quiet
+	// backdrop. bodyPxR=0 skips disk occlusion; the system primary at
+	// origin doesn't meaningfully occlude body orbits at heliocentric
+	// zoom. Pre-v0.10.6 this was a flat DrawEllipseDotted with no
+	// depth read.
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		if b.SemimajorAxis == 0 {
 			continue
 		}
 		el := orbital.ElementsFromBody(b)
-		v.canvas.DrawEllipseDotted(el, 360, 6)
+		v.canvas.DrawEllipseOffsetFarSideDashed(el, orbital.Vec3{}, 360, 6, orbital.Vec3{}, 0, render.ColorBodyOrbit)
 	}
 
 	// Plot each body at its perceived-size disk. System primary (index 0)
@@ -579,7 +585,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// same check.
 		primaryPxR := BodyPixelRadius(c.Primary, false, scale, canvasReach)
 		if orbitVisible {
-			v.canvas.DrawEllipseOffsetOccluded(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
+			v.canvas.DrawEllipseOffsetFarSideDashed(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 			if !v.canvas.IsBehindBody(peri, primaryPos, primaryPxR) {
@@ -701,7 +707,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				if isTarget {
 					stride = 3
 				}
-				v.canvas.DrawEllipseOffsetOccluded(otherEl, otherPrimaryPos, 180, stride, otherPrimaryPos, otherPxR, otherColor)
+				v.canvas.DrawEllipseOffsetFarSideDashed(otherEl, otherPrimaryPos, 180, stride, otherPrimaryPos, otherPxR, otherColor)
 			}
 			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
 				v.canvas.PlotColored(otherInertial, otherColor)
@@ -727,6 +733,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// v0.9.6-polish moved it left so it no longer sits under the
 	// bottom-right navball panel.
 	viewLabel := "view: " + w.ViewMode.String()
+	if w.ViewMode == sim.ViewTilted && w.ViewTilt.Theta != sim.DefaultViewTilt().Theta {
+		// v0.10.6+: surface θ in degrees when the player has nudged it
+		// off the default via shift+↑/↓. Plain "view: tilted" stays
+		// the at-default form; "view: tilted 30°" cues that the value
+		// is non-default (useful when triaging player reports of
+		// "the angle is wrong"). The /anchor suffix is reserved for
+		// v0.10.7's launch-anchor.
+		viewLabel = fmt.Sprintf("view: tilted %g°", w.ViewTilt.Theta)
+	}
 	v.canvas.SetCellLabel(0, v.canvas.Rows()-1, viewLabel)
 	// v0.10.3+: focus indicator overlaid into the canvas's top-left
 	// corner (was a HUD block alongside CLOCK). Pairs visually with
@@ -982,11 +997,15 @@ func (v *OrbitView) cameraDirForView(view sim.ViewMode) render.Vec3 {
 		return render.CameraDirRight
 	case sim.ViewLeft:
 		return render.CameraDirLeft
-	case sim.ViewOrbitFlat:
+	case sim.ViewTilted, sim.ViewOrbitFlat:
 		// Depth axis points out of screen toward the camera, which
 		// is exactly the body-to-camera direction the sub-observer
-		// math wants. For a craft on a near-equatorial orbit this is
-		// approximately +Z; for inclined orbits it tips accordingly.
+		// math wants. For ViewOrbitFlat on a near-equatorial orbit
+		// this is approximately +Z; for inclined orbits it tips
+		// accordingly. ViewTilted (v0.10.6+) feeds through the same
+		// path because viewBasis has already encoded the θ/φ tilt
+		// into the canvas basis — the texture pipeline just reads
+		// whatever depth axis came out.
 		d := v.canvas.Basis().DepthAxis()
 		return render.Vec3{X: d.X, Y: d.Y, Z: d.Z}
 	}
@@ -2155,17 +2174,27 @@ func normalizeDeg(d float64) float64 {
 }
 
 // viewBasis returns the canvas projection basis for the world's
-// current ViewMode. Four cardinal cases — Top (XY drop), Right (YZ),
-// Bottom (XY mirrored), Left (YZ mirrored) — plus orbit-flat, which
-// projects onto the active craft's orbit plane via the perifocal
-// (x̂, ŷ) basis so the orbit reads as a clean ellipse regardless of
-// inclination. Falls back to Top's basis when the orbit is degenerate
-// (no craft, e ≥ 1, a ≤ 0).
+// current ViewMode. Six cases — ViewTilted (v0.10.6+ default;
+// perifocal tilt with TiltedWorldBasis fallback), four cardinals
+// (Top XY-drop, Right YZ, Bottom XY mirrored, Left YZ mirrored),
+// and orbit-flat (perifocal x̂/ŷ for a clean ellipse regardless
+// of inclination). Orbit-flat falls back to Top's basis when the
+// orbit is degenerate (no craft, Landed, e ≥ 1, a ≤ 0); ViewTilted
+// falls back to TiltedWorldBasis in the same cases so the depth
+// cue stays alive on the pad.
 //
 // Single-craft today; multi-craft will need an active-craft selector
 // to disambiguate "the active orbit" (state-of-game.md §2 backlog).
 func viewBasis(w *sim.World) widgets.Basis {
 	switch w.ViewMode {
+	case sim.ViewTilted:
+		thetaRad := w.ViewTilt.Theta * math.Pi / 180
+		phiRad := w.ViewTilt.Phi * math.Pi / 180
+		el, ok := activeCraftElements(w)
+		if !ok {
+			return widgets.TiltedWorldBasis(thetaRad, phiRad)
+		}
+		return widgets.TiltedPerifocalBasis(el, thetaRad, phiRad)
 	case sim.ViewRight:
 		return widgets.Basis{
 			X: orbital.Vec3{Y: 1},
@@ -2182,30 +2211,40 @@ func viewBasis(w *sim.World) widgets.Basis {
 			Y: orbital.Vec3{Z: 1},
 		}
 	case sim.ViewOrbitFlat:
-		if w.ActiveCraft() == nil {
-			return widgets.DefaultBasis()
-		}
-		// v0.9.2+: a Landed craft co-rotates with the body, so its
-		// (r, v) gives an orbit plane that also co-rotates. Using
-		// that as the canvas's orbit-flat basis would lock the
-		// camera to the body and hide its rotation entirely (the
-		// body's surface texture appears frozen). Fall back to the
-		// top-view basis for parked crafts so the player can see
-		// Earth turning under them. Once they engage the engine
-		// (Landed → false) the live orbit picks up.
-		if w.ActiveCraft().Landed {
-			return widgets.DefaultBasis()
-		}
-		mu := w.ActiveCraft().Primary.GravitationalParameter()
-		if mu <= 0 {
-			return widgets.DefaultBasis()
-		}
-		el := orbital.ElementsFromState(w.ActiveCraft().State.R, w.ActiveCraft().State.V, mu)
-		if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		el, ok := activeCraftElements(w)
+		if !ok {
 			return widgets.DefaultBasis()
 		}
 		xHat, yHat := orbital.PerifocalBasis(el)
 		return widgets.Basis{X: xHat, Y: yHat}
 	}
 	return widgets.DefaultBasis() // ViewTop or any future mode
+}
+
+// activeCraftElements returns the active craft's heliocentric-or-
+// primary-centric Keplerian elements when they're meaningful for
+// basis selection, and ok=false when the perifocal basis is
+// undefined: no active craft, Landed (co-rotating "orbit" would
+// lock the camera to the body and freeze the surface texture),
+// hyperbolic (e ≥ 1), or degenerate (a ≤ 0 / NaN / Inf). Shared by
+// ViewTilted's perifocal-vs-world fallback and ViewOrbitFlat's
+// perifocal-vs-DefaultBasis fallback so both modes apply the same
+// "is the orbit basis usable?" rule. v0.10.6+.
+func activeCraftElements(w *sim.World) (orbital.Elements, bool) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return orbital.Elements{}, false
+	}
+	if c.Landed {
+		return orbital.Elements{}, false
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu <= 0 {
+		return orbital.Elements{}, false
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	if el.A <= 0 || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return orbital.Elements{}, false
+	}
+	return el, true
 }

@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -446,6 +447,142 @@ func TestDepthAxisCardinalBases(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestTiltedWorldBasisIdentity (v0.10.6+): TiltedWorldBasis(0, 0)
+// must return DefaultBasis verbatim. The struct-literal World zero
+// value gives ViewTilt{0, 0}, and the ViewTilted code path then
+// has to reduce to the pre-v0.10.6 ViewTop projection so existing
+// golden tests stay byte-identical.
+func TestTiltedWorldBasisIdentity(t *testing.T) {
+	got := TiltedWorldBasis(0, 0)
+	want := DefaultBasis()
+	if abs(got.X.X-want.X.X) > 1e-12 || abs(got.X.Y-want.X.Y) > 1e-12 || abs(got.X.Z-want.X.Z) > 1e-12 {
+		t.Errorf("X: got %v, want %v", got.X, want.X)
+	}
+	if abs(got.Y.X-want.Y.X) > 1e-12 || abs(got.Y.Y-want.Y.Y) > 1e-12 || abs(got.Y.Z-want.Y.Z) > 1e-12 {
+		t.Errorf("Y: got %v, want %v", got.Y, want.Y)
+	}
+}
+
+// TestTiltedWorldBasisTilts (v0.10.6+): with θ = 25° and φ = 0,
+// the basis stays anchored on world X but the Y axis pitches into
+// +Z (orbital.Rotate is right-hand-rule about the axis). DepthAxis
+// = X × Y therefore tips from +Z toward -Y. Catches sign / axis-
+// order errors in the rotation composition; the tilt direction
+// itself is a free convention — what matters is that the basis
+// stays orthonormal and the tilt is non-zero. Players (or v0.10.7's
+// launch-anchor) can yaw via φ to retarget which world axis ends
+// up at screen-Y+.
+func TestTiltedWorldBasisTilts(t *testing.T) {
+	theta := 25 * math.Pi / 180
+	b := TiltedWorldBasis(theta, 0)
+	// X axis untouched (yaw φ = 0 leaves world X alone; θ rotates
+	// around it).
+	if abs(b.X.X-1) > 1e-12 || abs(b.X.Y) > 1e-12 || abs(b.X.Z) > 1e-12 {
+		t.Errorf("X = %v, want (1, 0, 0)", b.X)
+	}
+	// Y rotated around X by θ (right-hand): (0, 1, 0) → (0, cosθ, sinθ).
+	wantY := orbital.Vec3{Y: math.Cos(theta), Z: math.Sin(theta)}
+	if abs(b.Y.X-wantY.X) > 1e-9 || abs(b.Y.Y-wantY.Y) > 1e-9 || abs(b.Y.Z-wantY.Z) > 1e-9 {
+		t.Errorf("Y = %v, want %v", b.Y, wantY)
+	}
+	// Depth axis: X × Y = (1,0,0) × (0, cosθ, sinθ) = (0, -sinθ, cosθ).
+	d := b.DepthAxis()
+	wantD := orbital.Vec3{Y: -math.Sin(theta), Z: math.Cos(theta)}
+	if abs(d.X-wantD.X) > 1e-9 || abs(d.Y-wantD.Y) > 1e-9 || abs(d.Z-wantD.Z) > 1e-9 {
+		t.Errorf("DepthAxis = %v, want %v", d, wantD)
+	}
+}
+
+// TestTiltedPerifocalBasisIdentity (v0.10.6+): TiltedPerifocalBasis
+// with θ = 0 and φ = 0 must return PerifocalBasis(el) verbatim —
+// the ViewOrbitFlat projection. Documents the
+// ViewTilted-with-zero-tilt ≡ ViewOrbitFlat equivalence so a
+// player at θ=0 sees the same basis the cycle's last mode gives.
+func TestTiltedPerifocalBasisIdentity(t *testing.T) {
+	el := orbital.Elements{A: 7_000_000, E: 0.1, I: 0.3, Omega: 0.4, Arg: 0.5}
+	got := TiltedPerifocalBasis(el, 0, 0)
+	wantX, wantY := orbital.PerifocalBasis(el)
+	if abs(got.X.X-wantX.X) > 1e-12 || abs(got.X.Y-wantX.Y) > 1e-12 || abs(got.X.Z-wantX.Z) > 1e-12 {
+		t.Errorf("X: got %v, want %v", got.X, wantX)
+	}
+	if abs(got.Y.X-wantY.X) > 1e-12 || abs(got.Y.Y-wantY.Y) > 1e-12 || abs(got.Y.Z-wantY.Z) > 1e-12 {
+		t.Errorf("Y: got %v, want %v", got.Y, wantY)
+	}
+}
+
+// TestTiltedPerifocalBasisPreservesOrthonormality (v0.10.6+): for
+// any (el, θ, φ) the resulting Basis is orthonormal — |X|=|Y|=1
+// and X·Y=0. Two rotations of unit vectors around unit axes
+// preserve magnitudes and angles; if this test breaks, the
+// rotation composition order is wrong.
+func TestTiltedPerifocalBasisPreservesOrthonormality(t *testing.T) {
+	el := orbital.Elements{A: 1.5e7, E: 0.4, I: 1.1, Omega: 0.9, Arg: 0.7}
+	for _, theta := range []float64{0, 0.2, 0.6, math.Pi / 3} {
+		for _, phi := range []float64{0, 0.3, 1.5} {
+			b := TiltedPerifocalBasis(el, theta, phi)
+			if abs(b.X.Norm()-1) > 1e-9 {
+				t.Errorf("θ=%v φ=%v: |X| = %v", theta, phi, b.X.Norm())
+			}
+			if abs(b.Y.Norm()-1) > 1e-9 {
+				t.Errorf("θ=%v φ=%v: |Y| = %v", theta, phi, b.Y.Norm())
+			}
+			if abs(b.X.Dot(b.Y)) > 1e-9 {
+				t.Errorf("θ=%v φ=%v: X·Y = %v", theta, phi, b.X.Dot(b.Y))
+			}
+		}
+	}
+}
+
+// TestDrawEllipseOffsetFarSideDashed_FarSideStippled (v0.10.6+):
+// with a circular orbit straddling the basis plane, near-side
+// samples render at the requested nearStride and far-side samples
+// render at 2*nearStride. The test counts plotted pixels in each
+// half and asserts the near-side count is meaningfully higher
+// than the far-side count — the depth-stride invariant the
+// player relies on for the depth read.
+func TestDrawEllipseOffsetFarSideDashed_FarSideStippled(t *testing.T) {
+	c := NewCanvas(80, 40)
+	c.Center(orbital.Vec3{})
+	c.FitTo(1e7)
+	// Top-down basis means the depth axis is +Z; a circular
+	// equatorial orbit lies entirely on the basis plane (depth = 0),
+	// which is the boundary case. Tilt the basis by 30° so half
+	// the orbit lands on each side cleanly.
+	c.SetBasis(TiltedWorldBasis(30*math.Pi/180, 0))
+	el := orbital.Elements{A: 5e6, E: 0, I: 0, Omega: 0, Arg: 0}
+	c.DrawEllipseOffsetFarSideDashed(el, orbital.Vec3{}, 360, 3, orbital.Vec3{}, 0, "")
+	// Count tagged-or-set pixels by depth sign.
+	near, far := 0, 0
+	for i := 0; i < 360; i++ {
+		nu := 2 * math.Pi * float64(i) / 360
+		p := orbital.PositionAtTrueAnomaly(el, nu)
+		d := p.Dot(c.Basis().DepthAxis())
+		px, py, ok := c.Project(p)
+		if !ok {
+			continue
+		}
+		if c.dc.Get(px, py) {
+			if d >= 0 {
+				near++
+			} else {
+				far++
+			}
+		}
+	}
+	if near == 0 {
+		t.Fatalf("no near-side pixels drawn — basis or projection broken")
+	}
+	if far == 0 {
+		t.Fatalf("no far-side pixels drawn — far-side stipple should still produce some pixels")
+	}
+	// Near side renders ~1/3 (stride=3); far side renders ~1/6
+	// (stride=6). Expect roughly 2:1 ratio. Allow slack for
+	// drawille pixel quantisation.
+	if near < far*3/2 {
+		t.Errorf("near=%d, far=%d — near should be ~2x far (stride 3 vs 6)", near, far)
 	}
 }
 

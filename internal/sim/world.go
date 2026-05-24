@@ -57,11 +57,19 @@ type World struct {
 	// dropped. v0.9.3+.
 	NavMode NavMode
 
-	// ViewMode selects the canvas projection basis. v0.6.4+. Zero
-	// value (ViewEquatorial) matches the pre-v0.6.4 (X, Y)-drop
-	// projection. Set per-session via the `v` hot-key; not persisted
-	// to save (UI preference, not game state).
+	// ViewMode selects the canvas projection basis. v0.6.4+; v0.10.6+
+	// prepended ViewTilted as the new zero-value default. Set per-
+	// session via the `v` hot-key; not persisted to save (UI
+	// preference, not game state).
 	ViewMode ViewMode
+
+	// ViewTilt carries the polar tilt θ and yaw φ (degrees) that
+	// ViewTilted applies to the projection basis. v0.10.6+. Per-
+	// session UI state — not persisted. NewWorld seeds defaults via
+	// DefaultViewTilt(); struct-literal Worlds (test fixtures) get
+	// the {0, 0} zero value, which evaluates to an identity rotation
+	// and therefore behaves the same as ViewTop.
+	ViewTilt ViewTilt
 
 	// InstantSAS opts back into the legacy instantaneous-attitude
 	// path. v0.10.0+ makes rate-limited slew the DEFAULT (zero value
@@ -163,6 +171,7 @@ func NewWorld() (*World, error) {
 		Systems:   systems,
 		SystemIdx: 0,
 		Clock:     NewClock(bodies.J2000, 50*time.Millisecond),
+		ViewTilt:  DefaultViewTilt(),
 	}
 	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
 

@@ -33,7 +33,8 @@ func (h *Help) Render() string {
 			{"f", "next focus target"},
 			{"F", "previous focus target"},
 			{"g", "reset to system-wide view"},
-			{"v", "cycle view (top / right / bottom / left / orbit-flat)"},
+			{"v", "cycle view (tilted / top / right / bottom / left / orbit-flat)"},
+			{"shift+↑ / shift+↓", "tilt +5° / -5° (ViewTilted only, v0.10.6+)"},
 		}},
 		{"TIME", [][2]string{
 			{".", "warp up (1× … 100000×)"},

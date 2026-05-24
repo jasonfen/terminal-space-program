@@ -722,6 +722,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
+		case key.Matches(m, a.keys.TiltUp), key.Matches(m, a.keys.TiltDown):
+			// v0.10.6+: nudge ViewTilted's polar tilt θ ±5°. No-op when
+			// the active projection isn't ViewTilted — keep the binding
+			// silent on cardinals / orbit-flat so a stray shift+arrow
+			// while in ViewTop doesn't blast a misleading flash.
+			if a.world.ViewMode != sim.ViewTilted {
+				return a, nil
+			}
+			delta := sim.ViewTiltThetaStep
+			if key.Matches(m, a.keys.TiltDown) {
+				delta = -sim.ViewTiltThetaStep
+			}
+			theta := a.world.NudgeViewTiltTheta(delta)
+			a.statusMsg = fmt.Sprintf("view: tilted %g°", theta)
+			a.statusExpires = time.Now().Add(1500 * time.Millisecond)
+			return a, nil
 		}
 	}
 	return a, nil
