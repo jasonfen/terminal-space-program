@@ -38,6 +38,13 @@ type World struct {
 	// v0.8.3+.
 	LastDockEvent *DockEvent
 
+	// LastLaunchReleaseEvent records the most recent ViewLaunch
+	// auto-release / hand-off-end so the App can surface an
+	// `"ORBIT READY — returning to <prev view>"` toast. Cleared by
+	// app.go after the message fires; same pattern as LastDockEvent.
+	// v0.11.0+.
+	LastLaunchReleaseEvent *LaunchReleaseEvent
+
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus

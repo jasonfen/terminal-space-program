@@ -42,14 +42,15 @@ type App struct {
 
 	width, height int
 
-	orbitView *screens.OrbitView
-	bodyInfo  *screens.BodyInfo
-	help      *screens.Help
-	maneuver  *screens.Maneuver
-	porkchop  *screens.Porkchop
-	menu      *screens.Menu
-	missions  *screens.Missions
-	spawn     *screens.SpawnCraft
+	orbitView  *screens.OrbitView
+	launchView *screens.LaunchView
+	bodyInfo   *screens.BodyInfo
+	help       *screens.Help
+	maneuver   *screens.Maneuver
+	porkchop   *screens.Porkchop
+	menu       *screens.Menu
+	missions   *screens.Missions
+	spawn      *screens.SpawnCraft
 
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
@@ -75,18 +76,19 @@ func New() (*App, error) {
 		Title:   th.Title,
 	}
 	return &App{
-		world:     w,
-		theme:     th,
-		keys:      DefaultKeymap(),
-		active:    screenOrbit,
-		orbitView: screens.NewOrbitView(sth),
-		bodyInfo:  screens.NewBodyInfo(sth),
-		help:      screens.NewHelp(sth),
-		maneuver:  screens.NewManeuver(sth),
-		porkchop:  screens.NewPorkchop(sth),
-		menu:      screens.NewMenu(sth),
-		missions:  screens.NewMissions(sth),
-		spawn:     screens.NewSpawnCraft(sth),
+		world:      w,
+		theme:      th,
+		keys:       DefaultKeymap(),
+		active:     screenOrbit,
+		orbitView:  screens.NewOrbitView(sth),
+		launchView: screens.NewLaunchView(sth),
+		bodyInfo:   screens.NewBodyInfo(sth),
+		help:       screens.NewHelp(sth),
+		maneuver:   screens.NewManeuver(sth),
+		porkchop:   screens.NewPorkchop(sth),
+		menu:       screens.NewMenu(sth),
+		missions:   screens.NewMissions(sth),
+		spawn:      screens.NewSpawnCraft(sth),
 	}, nil
 }
 
@@ -108,11 +110,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastDockEvent = nil
 		}
+		// v0.11.0+: ViewLaunch auto-release / hand-off toast. Same
+		// flash surface as docking; cleared after one fire.
+		if e := a.world.LastLaunchReleaseEvent; e != nil {
+			a.statusMsg = fmt.Sprintf("ORBIT READY — returning to %s", e.PrevView)
+			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.world.LastLaunchReleaseEvent = nil
+		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 
 	case tea.WindowSizeMsg:
 		a.width, a.height = m.Width, m.Height
 		a.orbitView.Resize(m.Width, m.Height)
+		a.launchView.Resize(m.Width, m.Height)
 		a.maneuver.Resize(m.Width, m.Height)
 		return a, nil
 
@@ -460,10 +470,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.ZoomIn):
-			a.orbitView.ZoomIn()
+			if a.world.ViewMode == sim.ViewLaunch {
+				a.world.NudgeLaunchZoom(+1, a.launchView.CurrentScale(a.world))
+			} else {
+				a.orbitView.ZoomIn()
+			}
 			return a, nil
 		case key.Matches(m, a.keys.ZoomOut):
-			a.orbitView.ZoomOut()
+			if a.world.ViewMode == sim.ViewLaunch {
+				a.world.NudgeLaunchZoom(-1, a.launchView.CurrentScale(a.world))
+			} else {
+				a.orbitView.ZoomOut()
+			}
 			return a, nil
 		case key.Matches(m, a.keys.FocusNext):
 			a.world.CycleFocus(true)
@@ -974,7 +992,11 @@ func (a *App) View() string {
 	case screenMissions:
 		base = a.missions.Render(a.world, a.width)
 	default:
-		base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+		if a.world.ViewMode == sim.ViewLaunch {
+			base = a.launchView.Render(a.world, a.width, a.height)
+		} else {
+			base = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+		}
 	}
 	// v0.8.1+: overlay the status message on top of an existing row
 	// rather than appending a new line. Appending grew the rendered

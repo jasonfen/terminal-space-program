@@ -135,19 +135,56 @@ func apoAltAboveFloor(c *spacecraft.Spacecraft) bool {
 	return apoAlt > LaunchMissionFloorM
 }
 
-// releaseLaunchSession ends the current session: restores ViewMode to
+// LaunchReleaseEvent records a ViewLaunch session ending so the App's
+// status flash can surface a `"ORBIT READY — returning to <prev view>"`
+// toast. Same shape as LastDockEvent — App reads and clears.
+type LaunchReleaseEvent struct {
+	PrevView string
+}
+
+// releaseLaunchSession ends the current session: stamps the toast
+// event with the restored ViewMode's label, restores ViewMode to
 // PrevViewMode, clears the sentinel, and zeroes all session-scoped
 // state so the next route handler entry sees a clean slate. Called
-// from tickLaunchView when the auto-release predicate fires; will
-// also be invoked from the active-switch handler's "end" branch in
-// a subsequent test cycle.
+// from tickLaunchView when the auto-release predicate fires; also
+// invoked from the active-switch handler's "end" branch.
 func (w *World) releaseLaunchSession() {
+	w.LastLaunchReleaseEvent = &LaunchReleaseEvent{PrevView: w.PrevViewMode.String()}
 	w.ViewMode = w.PrevViewMode
 	w.LaunchSessionActive = false
 	w.LaunchT0 = time.Time{}
 	w.LaunchMaxQ = 0
 	w.LaunchTrail = w.LaunchTrail[:0]
 	w.LaunchZoom = 0
+}
+
+// NudgeLaunchZoom adjusts the player-pinned chase-cam scale in
+// response to a `+/-` press. dir > 0 zooms in (×0.8), dir < 0 zooms
+// out (×1.25), dir == 0 is a no-op. The first press from auto
+// (LaunchZoom == 0) pins LaunchZoom to currentAutoScale BEFORE
+// applying the multiplicative step — caller supplies the auto-scale
+// because canvas-row knowledge lives in the screen layer, not the
+// sim. Floor: 1.0 m/cell. No-op when there's no active craft.
+// v0.11.0+ Slice 1.
+func (w *World) NudgeLaunchZoom(dir int, currentAutoScale float64) {
+	if w.ActiveCraft() == nil || dir == 0 {
+		return
+	}
+	if w.LaunchZoom <= 0 {
+		if currentAutoScale > 0 {
+			w.LaunchZoom = currentAutoScale
+		} else {
+			w.LaunchZoom = 1.0
+		}
+	}
+	if dir > 0 {
+		w.LaunchZoom *= 0.8
+	} else {
+		w.LaunchZoom *= 1.25
+	}
+	if w.LaunchZoom < 1.0 {
+		w.LaunchZoom = 1.0
+	}
 }
 
 // routeToLaunchView opens a fresh ViewLaunch session. Stashes the
