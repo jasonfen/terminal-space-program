@@ -17,9 +17,11 @@
 package sim
 
 import (
+	"math"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -71,6 +73,7 @@ func (w *World) tickLaunchView() {
 	// released session doesn't sample one last point on the way out.
 	if w.LaunchSessionActive {
 		w.maybeSampleLaunchTrail()
+		w.updateLaunchMaxQ()
 	}
 
 	// 5. Shadow update for next tick.
@@ -156,6 +159,31 @@ func (w *World) releaseLaunchSession() {
 	w.LaunchMaxQ = 0
 	w.LaunchTrail = w.LaunchTrail[:0]
 	w.LaunchZoom = 0
+}
+
+// updateLaunchMaxQ ratchets World.LaunchMaxQ with the active craft's
+// instantaneous dynamic pressure each session-active tick. Q is
+// 0.5·ρ·|v_rel|² using the same v_rel = v − ω × r the drag integrator
+// uses (so a launchpad-co-rotating craft reads Q = 0, not a phantom
+// inertial-speed reading). Returns 0 outside the atmosphere or when
+// the body has no atmosphere.
+func (w *World) updateLaunchMaxQ() {
+	c := w.ActiveCraft()
+	if c == nil || c.Primary.Atmosphere == nil {
+		return
+	}
+	alt := c.Altitude()
+	atm := c.Primary.Atmosphere
+	if alt < 0 || alt > atm.CutoffAltitude {
+		return
+	}
+	rho := atm.SurfaceDensity * math.Exp(-alt/atm.ScaleHeight)
+	vRel := c.State.V.Sub(physics.AtmosphereOmega(c.Primary).Cross(c.State.R))
+	vMag := vRel.Norm()
+	q := 0.5 * rho * vMag * vMag
+	if q > w.LaunchMaxQ {
+		w.LaunchMaxQ = q
+	}
 }
 
 // NudgeLaunchZoom adjusts the player-pinned chase-cam scale in

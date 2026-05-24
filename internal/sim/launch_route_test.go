@@ -78,7 +78,12 @@ func TestLaunchRouteSeedsSessionState(t *testing.T) {
 	// Pre-pollute. A real session would never leave these non-zero
 	// outside an active session, but a deterministic test must verify
 	// the *reset*, not just default initialisation.
-	w.LaunchMaxQ = 42.0
+	// Pollute MaxQ with the route-reset sentinel below; assertion checks
+	// the route handler actively clears it (updateLaunchMaxQ on the
+	// same tick may then re-write a live Q value, so the test compares
+	// against the sentinel rather than 0).
+	const polluteMaxQ = 42.0
+	w.LaunchMaxQ = polluteMaxQ
 	w.LaunchZoom = 99.0
 	w.LaunchTrail = []TrailPoint{
 		{LatDeg: 10, LonDeg: 20, AltM: 30},
@@ -101,8 +106,8 @@ func TestLaunchRouteSeedsSessionState(t *testing.T) {
 		t.Errorf("LaunchT0 = %v, want %v (the post-tick sim-time anchor)",
 			w.LaunchT0, w.Clock.SimTime)
 	}
-	if w.LaunchMaxQ != 0 {
-		t.Errorf("LaunchMaxQ = %v, want 0 (route must reset)", w.LaunchMaxQ)
+	if w.LaunchMaxQ == polluteMaxQ {
+		t.Errorf("LaunchMaxQ = %v unchanged from pollution, want reset by route", w.LaunchMaxQ)
 	}
 	if w.LaunchZoom != 0 {
 		t.Errorf("LaunchZoom = %v, want 0 (route must reset to auto)", w.LaunchZoom)
@@ -370,8 +375,11 @@ func TestSwitchInSessionToLandedHandsOff(t *testing.T) {
 	}
 	t0BeforeSwitch := w.LaunchT0
 
-	// Pollute session-scoped state to verify hand-off reset.
-	w.LaunchMaxQ = 7777
+	// Pollute session-scoped state to verify hand-off reset. MaxQ is
+	// sentinel-checked (not == 0) because updateLaunchMaxQ ratchets a
+	// live Q value on the same tick after hand-off clears.
+	const polluteMaxQ = 7777.0
+	w.LaunchMaxQ = polluteMaxQ
 	w.LaunchTrail = append(w.LaunchTrail, TrailPoint{LatDeg: 9, LonDeg: 9})
 	w.LaunchZoom = 0.3
 
@@ -392,8 +400,8 @@ func TestSwitchInSessionToLandedHandsOff(t *testing.T) {
 		t.Errorf("LaunchT0 = %v, want strictly after %v (hand-off must re-stamp)",
 			w.LaunchT0, t0BeforeSwitch)
 	}
-	if w.LaunchMaxQ != 0 {
-		t.Errorf("LaunchMaxQ = %v, want 0 (hand-off must clear)", w.LaunchMaxQ)
+	if w.LaunchMaxQ == polluteMaxQ {
+		t.Errorf("LaunchMaxQ = %v unchanged from pollution, want cleared by hand-off", w.LaunchMaxQ)
 	}
 	// Hand-off clears the polluted trail; the same-tick sampler then
 	// seeds a fresh sample for the new vessel. The polluted {9, 9}
@@ -635,7 +643,11 @@ func TestUndockRenumberIsNotASwitch(t *testing.T) {
 		t.Fatalf("setup: route didn't open a session")
 	}
 	t0Before := w.LaunchT0
-	w.LaunchMaxQ = 5555 // canary value the hand-off branch would zero.
+	// Canary above any physically achievable Q (Earth surface ≈ 70 kPa
+	// at terminal velocity), so a live updateLaunchMaxQ tick won't
+	// ratchet over it. Test checks renumber leaves it alone.
+	const canaryMaxQ = 1e9
+	w.LaunchMaxQ = canaryMaxQ
 	w.LaunchTrail = append(w.LaunchTrail, TrailPoint{LatDeg: 1, LonDeg: 2})
 
 	// Simulate undock renumber: prepend a decoy craft to Crafts so
@@ -659,8 +671,8 @@ func TestUndockRenumberIsNotASwitch(t *testing.T) {
 		t.Errorf("LaunchT0 changed across renumber: %v → %v (hand-off must NOT fire)",
 			t0Before, w.LaunchT0)
 	}
-	if w.LaunchMaxQ != 5555 {
-		t.Errorf("LaunchMaxQ = %v, want 5555 preserved (renumber must not run hand-off clear)", w.LaunchMaxQ)
+	if w.LaunchMaxQ != canaryMaxQ {
+		t.Errorf("LaunchMaxQ = %v, want %v preserved (renumber must not run hand-off clear)", w.LaunchMaxQ, canaryMaxQ)
 	}
 	if len(w.LaunchTrail) == 0 {
 		t.Error("LaunchTrail cleared by spurious hand-off across renumber")

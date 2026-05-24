@@ -10,6 +10,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -174,13 +175,20 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 // ViewLaunch per ADR-0002.
 func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 	body := craft.Primary
-	bodyPos := w.BodyPosition(body)
-	camWorld := craft.State.R
-	camFromBody := camWorld.Sub(bodyPos)
+	// craft.State.R is primary-relative (Earth-centred for a LEO craft,
+	// Moon-centred for a Luna-orbiting craft, etc.). The render layer
+	// works in a primary-centred frame so we keep the body at the
+	// origin — heliocentric BodyPosition isn't needed here. v0.11.0
+	// verification surfaced a mix-up where camWorld was treated as
+	// world-frame and subtracted from BodyPosition, producing the
+	// craft's offset from the Sun instead of from Earth.
+	camFromBody := craft.State.R
 	camDist := camFromBody.Norm()
 	if camDist <= 0 {
 		return
 	}
+	bodyCentre := orbital.Vec3{}
+	camWorld := camFromBody
 	localUp := camFromBody.Scale(1.0 / camDist)
 	hAxis := chaseHorizontalAxis(craft, body, camFromBody, localUp)
 
@@ -193,19 +201,24 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 	if scale <= 0 {
 		scale = launchAutoScale(altitudeM, rows)
 	}
-	v.canvas.SetScale(1.0 / scale) // canvas takes pixels-per-metre
+	// Canvas takes pixels-per-metre; launchAutoScale / LaunchZoom are
+	// metres-per-cell. The OrbitView precedent treats scale as a
+	// scalar (1/m/cell) without the 4x braille-row correction —
+	// matching that keeps `+/-` zoom multipliers symmetric with the
+	// orbit screen's behaviour, and the body fills the right cell-band.
+	v.canvas.SetScale(1.0 / scale)
 
 	v.canvas.Center(camWorld)
 
 	// Horizon curve + SurfaceColor flood-fill below.
-	v.drawHorizonAndFill(body, bodyPos, camFromBody, hAxis, localUp, camDist)
+	v.drawHorizonAndFill(body, bodyCentre)
 
 	// Pad marker at the active craft's launch site, depth-culled.
-	v.drawPadMarker(w, craft, bodyPos, camFromBody)
+	v.drawPadMarker(w, craft, bodyCentre, camFromBody)
 
 	// Breadcrumb trail: each TrailPoint re-projected via
 	// BodyFixedToWorld so the trace rotates with the body.
-	v.drawTrail(w, body, bodyPos, camFromBody)
+	v.drawTrail(w, body, bodyCentre, camFromBody)
 
 	// Active vessel at the camera centre — Slice 3 swaps for the
 	// composed-from-stages sprite; Slice 1 reuses the existing glyph.
@@ -236,24 +249,17 @@ func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, ca
 	return orbital.Vec3{X: east.X, Y: east.Y, Z: east.Z}
 }
 
-// drawHorizonAndFill samples N points on the silhouette curve and
-// plots them as a faint line; the body's SurfaceColor floods the
-// region below the curve. Slice 1 ships a deterministic per-column
-// fill from the lowest horizon sample down to the canvas bottom —
-// not a true scanline polygon fill, but visually equivalent for
-// silhouettes that span the canvas width (the common case).
-func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos, camFromBody, hAxis, localUp orbital.Vec3, camDist float64) {
-	radius := body.RadiusMeters()
-	pts := render.HorizonCurve(radius, camDist, 96)
-	if pts == nil {
-		return
-	}
-	surfaceColor := lipgloss.Color(body.SurfaceColorHex())
-	camWorld := bodyPos.Add(camFromBody)
-	for _, p := range pts {
-		w := camWorld.Add(hAxis.Scale(p.X)).Add(localUp.Scale(p.Y))
-		v.canvas.PlotColored(w, surfaceColor)
-	}
+// drawHorizonAndFill paints the body's projected silhouette below the
+// horizon with SurfaceColor. In the chase-cam basis (h_axis,
+// local_up), the body sphere projects orthographically to a circle of
+// radius bodyRadius centred at the body's projected position — its
+// upper edge IS the horizon (naturally flat at low altitude, naturally
+// curved at altitude, because the canvas window slices a chord of a
+// large circle). Uses Canvas.FillProjectedSphere so work is bounded by
+// canvas size, not sphere size (planet radius * scale can be millions
+// of cells at low zoom).
+func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbital.Vec3) {
+	v.canvas.FillProjectedSphere(bodyPos, body.RadiusMeters(), lipgloss.Color(body.SurfaceColorHex()))
 }
 
 // drawPadMarker plots the launch site as a `+` glyph in ColorAccent
@@ -302,7 +308,7 @@ func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) stri
 		tPlus = w.Clock.SimTime.Sub(w.LaunchT0)
 	}
 	vZ := v.sampleVerticalSpeed(c, w.Clock.SimTime)
-	downrange := greatCircleDistanceM(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, c)
+	downrange := greatCircleDistanceM(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, c, w.Clock.SimTime)
 	q := dynamicPressurePa(c)
 	return formatLaunchHUD(tPlus, vZ, downrange, q, w.LaunchMaxQ)
 }
@@ -330,25 +336,24 @@ func (v *LaunchView) sampleVerticalSpeed(c *spacecraft.Spacecraft, simTime time.
 }
 
 // greatCircleDistanceM returns the great-circle distance over the
-// body's surface from (lat0, lon0) to the craft's current sub-craft
-// point. Returns 0 when the craft has no valid sub-craft direction.
-func greatCircleDistanceM(body bodies.CelestialBody, lat0Deg, lon0Deg float64, c *spacecraft.Spacecraft) float64 {
+// body's surface from the launch site (lat0, lon0) to the craft's
+// current sub-craft point. Requires `simTime` because WorldToBodyFixed
+// is rotation-phase-aware: passing the zero-value time computes the
+// sub-craft point at year 0001, which puts the rotation phase
+// arbitrarily far from the real value (verification surfaced a
+// ~4600 km phantom downrange from the J2000 epoch mismatch). Returns
+// 0 when the craft has no valid sub-craft direction.
+func greatCircleDistanceM(body bodies.CelestialBody, lat0Deg, lon0Deg float64, c *spacecraft.Spacecraft, simTime time.Time) float64 {
 	if c == nil {
 		return 0
 	}
 	r := c.State.R
-	if r.Norm() == 0 {
+	rNorm := r.Norm()
+	if rNorm == 0 {
 		return 0
 	}
-	// Convert craft's primary-relative position to body-fixed (lat, lon)
-	// via the WorldToBodyFixed inverse. Use the unit direction since
-	// magnitude is altitude, not part of the geographic projection.
-	rUnit := r.Scale(1.0 / r.Norm())
-	latDeg, lonDeg := render.WorldToBodyFixed(body, render.Vec3{X: rUnit.X, Y: rUnit.Y, Z: rUnit.Z}, time.Time{})
-	// Note: the launch-site (lat0, lon0) is body-fixed and so is the
-	// sub-craft point we just recovered; the simTime drops out of a
-	// pure (lat, lon) → (lat, lon) great-circle distance, so passing
-	// the zero-value time above is fine.
+	rUnit := r.Scale(1.0 / rNorm)
+	latDeg, lonDeg := render.WorldToBodyFixed(body, render.Vec3{X: rUnit.X, Y: rUnit.Y, Z: rUnit.Z}, simTime)
 	lat0 := lat0Deg * math.Pi / 180.0
 	lat1 := latDeg * math.Pi / 180.0
 	dLon := (lonDeg - lon0Deg) * math.Pi / 180.0
@@ -359,8 +364,10 @@ func greatCircleDistanceM(body bodies.CelestialBody, lat0Deg, lon0Deg float64, c
 }
 
 // dynamicPressurePa returns 0.5·ρ·|v_rel|² for the active craft using
-// the body's atmosphere and the craft's air-relative velocity. Returns
-// 0 above the atmosphere cutoff (or when the body has no atmosphere).
+// the body's atmosphere and the craft's air-relative velocity (same
+// v_rel = v − ω × r the drag integrator uses, so a launchpad-co-
+// rotating craft reads Q = 0 not the inertial-speed phantom). Returns
+// 0 above the atmosphere cutoff or when the body has no atmosphere.
 func dynamicPressurePa(c *spacecraft.Spacecraft) float64 {
 	if c == nil || c.Primary.Atmosphere == nil {
 		return 0
@@ -371,8 +378,9 @@ func dynamicPressurePa(c *spacecraft.Spacecraft) float64 {
 		return 0
 	}
 	rho := atm.SurfaceDensity * math.Exp(-alt/atm.ScaleHeight)
-	v := c.State.V.Norm() // Slice 1 uses inertial speed as a proxy
-	return 0.5 * rho * v * v
+	vRel := c.State.V.Sub(physics.AtmosphereOmega(c.Primary).Cross(c.State.R))
+	vMag := vRel.Norm()
+	return 0.5 * rho * vMag * vMag
 }
 
 // overlayHUDStrip replaces the final braille line of the canvas
