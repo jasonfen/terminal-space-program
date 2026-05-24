@@ -4,15 +4,16 @@ import "testing"
 
 // TestCycleViewModeWraps: starts at the zero-value (ViewTilted,
 // v0.10.6+) and cycles forward through Tilted → Top → Right →
-// Bottom → Left → OrbitFlat → Tilted in canonical order. The
-// pre-v0.10.6 zero-value was ViewTop; the new prepend makes
-// freshly-spawned worlds open on the perspective-tilt view.
+// Bottom → Left → OrbitFlat → Launch → Tilted in canonical order.
+// v0.11.0+ appends ViewLaunch to the cycle (NOT prepended) so
+// ViewTilted stays the zero-value default for freshly spawned
+// worlds.
 func TestCycleViewModeWraps(t *testing.T) {
 	w := mustWorld(t)
 	if w.ViewMode != ViewTilted {
 		t.Fatalf("default ViewMode = %v, want ViewTilted", w.ViewMode)
 	}
-	want := []ViewMode{ViewTop, ViewRight, ViewBottom, ViewLeft, ViewOrbitFlat, ViewTilted}
+	want := []ViewMode{ViewTop, ViewRight, ViewBottom, ViewLeft, ViewOrbitFlat, ViewLaunch, ViewTilted}
 	for i, expect := range want {
 		w.CycleViewMode()
 		if w.ViewMode != expect {

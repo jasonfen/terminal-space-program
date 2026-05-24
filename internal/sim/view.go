@@ -51,6 +51,16 @@ const (
 	// (no craft, e ≥ 1, a ≤ 0). Useful for reading the orbit's
 	// actual shape as if i = 0.
 	ViewOrbitFlat
+	// ViewLaunch (v0.11.0+) is the chase-cam launch scene — a
+	// human-scale side view with the rocket centred, the horizon
+	// curving below in Body.SurfaceColor, and a body-fixed pad
+	// marker + breadcrumb trail. Routed into automatically on
+	// active-slot Landed-false→true transitions; auto-released when
+	// the orbit's apoapsis crosses LaunchMissionFloorM. Appended to
+	// the cycle (NOT prepended) so ViewTilted stays the zero-value
+	// default. ADR-0002 captures the rationale for shipping this as
+	// a distinct ViewMode instead of extending ViewTilted.
+	ViewLaunch
 )
 
 // String returns a short human label for the view mode.
@@ -68,6 +78,8 @@ func (m ViewMode) String() string {
 		return "left"
 	case ViewOrbitFlat:
 		return "orbit-flat"
+	case ViewLaunch:
+		return "launch"
 	}
 	return "?"
 }
@@ -84,6 +96,7 @@ var AllViewModes = [...]ViewMode{
 	ViewBottom,
 	ViewLeft,
 	ViewOrbitFlat,
+	ViewLaunch,
 }
 
 // CycleViewMode advances ViewMode to the next mode in cycle order.

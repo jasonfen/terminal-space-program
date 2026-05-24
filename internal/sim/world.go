@@ -71,6 +71,49 @@ type World struct {
 	// and therefore behaves the same as ViewTop.
 	ViewTilt ViewTilt
 
+	// LaunchSessionActive is the v0.11.0+ ViewLaunch session sentinel.
+	// True between the per-tick route handler firing on an active-slot
+	// Landed-false→true transition and the auto-release (apo crosses
+	// LaunchMissionFloorM) or manual `v` cycle out. Distinguished from
+	// PrevViewMode because PrevViewMode's zero value (ViewTilted)
+	// collides with "no session" — the boolean is the unambiguous
+	// signal that session-scoped state (PrevViewMode, LaunchT0,
+	// LaunchMaxQ, LaunchTrail, LaunchZoom) is meaningful. Per-session
+	// UI state; not persisted (a reload re-routes naturally if the
+	// active craft is Landed).
+	LaunchSessionActive bool
+
+	// PrevViewMode is the ViewMode the player was in when the route
+	// handler routed into ViewLaunch — restored by auto-release.
+	// Meaningful only when LaunchSessionActive == true. Not persisted.
+	PrevViewMode ViewMode
+
+	// LaunchT0 is the sim-time stamp the route handler captured when
+	// the current session opened — the anchor for the HUD T+ readout.
+	// Meaningful only when LaunchSessionActive == true. Re-stamped on
+	// active-vessel-switch hand-off (treating the new active as a
+	// fresh launch from the switch moment). Not persisted.
+	LaunchT0 time.Time
+
+	// LaunchMaxQ is the peak dynamic pressure (Pa) observed across the
+	// current session — the HUD's max-Q readout. Cleared by the route
+	// handler at session open. Not persisted.
+	LaunchMaxQ float64
+
+	// LaunchTrail is the breadcrumb buffer of body-fixed (lat, lon,
+	// alt) samples the chase-cam scene re-projects each render so the
+	// trace visibly rotates with the body. FIFO cap 256, sampled at
+	// 1 s sim-time cadence. Cleared by the route handler at session
+	// open and by the auto-release / hand-off. Not persisted.
+	LaunchTrail []TrailPoint
+
+	// LaunchZoom is the player's `+/-` zoom override for the chase-cam
+	// scene. 0 means auto-altitude-driven scale; non-zero pins the
+	// scale until session end (auto-release, switch-end, hand-off, or
+	// next route). Multiplicative ×0.8 per `+`, ×1.25 per `-`. Not
+	// persisted.
+	LaunchZoom float64
+
 	// InstantSAS opts back into the legacy instantaneous-attitude
 	// path. v0.10.0+ makes rate-limited slew the DEFAULT (zero value
 	// = false = slew on); toggling this true restores the pre-v0.10
@@ -427,6 +470,12 @@ func (w *World) Tick() {
 		}
 		w.evaluateMissions()
 	}
+	// v0.11.0+: per-tick ViewLaunch route/release state machine.
+	// Runs after integration so the post-tick Landed state is
+	// authoritative (engine ignition clears Landed inside
+	// integrateOneCraft; this needs to see that). Cheap when no
+	// session is active and no Landed transition is in progress.
+	w.tickLaunchView()
 }
 
 // DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.
