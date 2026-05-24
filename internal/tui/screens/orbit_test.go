@@ -9,6 +9,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
 // Basic "render path doesn't panic and produces non-empty output" smoke test.
@@ -247,6 +248,44 @@ func TestViewTiltedLandedFallback(t *testing.T) {
 	out := v.Render(w, 0, 120, 40)
 	if !strings.Contains(out, "view: tilted") {
 		t.Errorf("Landed + ViewTilted should still render the tilted label; render:\n%s", out)
+	}
+}
+
+// TestLaunchAnchorGuard (v0.10.7+): the launch-anchor must only
+// apply under ViewTilted. A player who explicitly picks one of the
+// cardinal views (Top / Right / Bottom / Left) or ViewOrbitFlat
+// gets inertial geometry — the anchor's predicate may be true (craft
+// is in the launch band) but viewBasis must not consult it. The
+// guard lives in viewBasis's `case sim.ViewTilted` arm; this test
+// uses ViewTop and confirms the basis is DefaultBasis regardless of
+// what the anchor would say.
+func TestLaunchAnchorGuard(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{
+		ParentBodyID: "earth",
+		Launchpad:    true,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if !c.Landed {
+		t.Fatal("setup: launchpad spawn should set Landed=true")
+	}
+	// Sanity: anchor predicate fires for this craft (apoAlt ≈ 0).
+	el, ok := activeCraftElements(w)
+	if _, active := sim.LaunchAnchorPhi(c, el, ok); !active {
+		t.Fatal("setup: anchor predicate should fire on the pad")
+	}
+	// Switch off ViewTilted; viewBasis must stay inertial (DefaultBasis
+	// for ViewTop) and ignore the anchor.
+	w.ViewMode = sim.ViewTop
+	got := viewBasis(w)
+	want := widgets.DefaultBasis()
+	if got != want {
+		t.Errorf("ViewTop must return DefaultBasis even when anchor predicate fires; got %+v, want %+v", got, want)
 	}
 }
 
