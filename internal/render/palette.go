@@ -17,12 +17,24 @@ import (
 // UI tier colors — used for non-body UI elements that need consistent
 // semantic colors across screens. Independent of the body palette so
 // editing one doesn't shift the other.
+//
+// Far-side rendering convention (v0.10.6+): the orbit-trace draw path
+// renders the far-side arc (depth < 0 relative to the orbit's
+// primary, under the canvas's active basis) at stride*2 stipple in
+// the **same hue** as the near-side arc. Terminals can't do alpha,
+// so per-sample stride flips are the lossless equivalent of KSP's
+// dim-the-back-arc rendering. Callers don't pick a separate "back"
+// colour; the canvas helper (DrawEllipseOffsetFarSideDashed) handles
+// it automatically. ColorBodyOrbit is the one new entry the
+// convention surfaced — body orbits had no dedicated colour before
+// v0.10.6, defaulting to whatever Plot wrote (terminal default).
 var (
 	ColorAlert        = lipgloss.Color("#FF5F5F") // hard errors, peri-below-surface
 	ColorWarning      = lipgloss.Color("#FFAF00") // warp clamps, near-collision
 	ColorPlannedNode  = lipgloss.Color("#5FD7FF") // maneuver-node markers
 	ColorTrajectory   = lipgloss.Color("#FFFFFF") // fallback trajectory preview
 	ColorCurrentOrbit = lipgloss.Color("#A8B8C8") // craft's live Keplerian ellipse — pale slate, distinct from any body palette and from maneuver-leg colors
+	ColorBodyOrbit    = lipgloss.Color("#6E6E6E") // heliocentric body orbits — dim grey backdrop (KSP-aligned: body orbits are quiet so craft / maneuver layers pop). v0.10.6+
 	ColorCraftMarker  = lipgloss.Color("#FFD93D") // craft icon when zoomed out (orbit too small to render) — saturated yellow distinct from Sun gold-white, amber leg, and every body color
 	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
 	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive

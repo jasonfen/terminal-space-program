@@ -55,6 +55,42 @@ func DefaultBasis() Basis {
 	}
 }
 
+// TiltedWorldBasis is the v0.10.6 ViewTilted projection when no
+// valid orbit is available (Landed / hyperbolic / degenerate / no
+// craft) — start from DefaultBasis (world X, world Y), yaw φ around
+// world Z, then tilt θ around the yawed X axis. The (θ, φ) inputs
+// are in radians. θ = 0 ∧ φ = 0 returns DefaultBasis verbatim.
+// Keeps the depth cue alive on the pad — a flat DefaultBasis
+// fallback would defeat the headline feature on the very view
+// that needs depth most (planet looming under the rocket).
+func TiltedWorldBasis(thetaRad, phiRad float64) Basis {
+	xHat := orbital.Vec3{X: 1}
+	yHat := orbital.Vec3{Y: 1}
+	zHat := orbital.Vec3{Z: 1}
+	xYaw := orbital.Rotate(xHat, zHat, phiRad)
+	yYaw := orbital.Rotate(yHat, zHat, phiRad)
+	yTilt := orbital.Rotate(yYaw, xYaw, thetaRad)
+	return Basis{X: xYaw, Y: yTilt}
+}
+
+// TiltedPerifocalBasis is the v0.10.6 ViewTilted projection when
+// the active craft has a valid Keplerian orbit — start from
+// PerifocalBasis(el), yaw φ around the orbit normal (x̂ × ŷ), then
+// tilt θ around the yawed x̂ axis. Inputs in radians. θ = 0 ∧
+// φ = 0 collapses to PerifocalBasis verbatim (same as ViewOrbitFlat).
+// θ rotates the camera away from straight-down-on-the-orbit-plane
+// toward looking at it from an angle; the perifocal frame still
+// anchors the basis so an inclined orbit still reads as a clean
+// ellipse, just tilted.
+func TiltedPerifocalBasis(el orbital.Elements, thetaRad, phiRad float64) Basis {
+	xHat, yHat := orbital.PerifocalBasis(el)
+	n := xHat.Cross(yHat)
+	xYaw := orbital.Rotate(xHat, n, phiRad)
+	yYaw := orbital.Rotate(yHat, n, phiRad)
+	yTilt := orbital.Rotate(yYaw, xYaw, thetaRad)
+	return Basis{X: xYaw, Y: yTilt}
+}
+
 // DepthAxis returns the unit vector pointing toward the camera, i.e.
 // "out of screen." Points with positive (world − center)·DepthAxis()
 // are in front of the basis plane through center; negative is
@@ -592,12 +628,84 @@ func (c *Canvas) IsBehindBody(samplePos, bodyPos orbital.Vec3, bodyPxR int) bool
 	return dx*dx+dy*dy <= bodyPxR*bodyPxR
 }
 
+// DrawEllipseOffsetFarSideDashed plots an ellipse with near-side
+// pixels rendered at nearStride (solid stride) and far-side pixels
+// rendered at nearStride*2 (visually dashed) in the same colour.
+// Pixels truly occluded by the body disk — far side AND inside the
+// body's projected pixel radius — are skipped entirely. v0.10.6+.
+//
+// "Far side" is decided by the sign of (p − bodyPos) · DepthAxis()
+// against the canvas's active basis: negative depth is behind the
+// basis plane through bodyPos, positive is in front.
+//
+// Same-hue stippling is the lossless equivalent of KSP's
+// dim-the-back-arc rendering — a terminal canvas can't do alpha,
+// so per-sample stride flips do the depth read instead. The
+// convention is documented in internal/render/palette.go; see
+// ColorBodyOrbit's doc comment for the standard.
+//
+// Pass bodyPxR = 0 to skip the disk-occlusion check (suitable for
+// heliocentric body orbits, where the system primary's disk doesn't
+// meaningfully occlude at default zoom).
+func (c *Canvas) DrawEllipseOffsetFarSideDashed(
+	el orbital.Elements,
+	offset orbital.Vec3,
+	samples int,
+	nearStride int,
+	bodyPos orbital.Vec3,
+	bodyPxR int,
+	color lipgloss.Color,
+) {
+	if samples < 16 {
+		samples = 16
+	}
+	if nearStride < 1 {
+		nearStride = 1
+	}
+	farStride := nearStride * 2
+	depthAxis := c.basis.DepthAxis()
+	for i := 0; i < samples; i++ {
+		nu := 2 * math.Pi * float64(i) / float64(samples)
+		p := offset.Add(orbital.PositionAtTrueAnomaly(el, nu))
+		rel := p.Sub(bodyPos)
+		depth := rel.X*depthAxis.X + rel.Y*depthAxis.Y + rel.Z*depthAxis.Z
+		if depth < 0 {
+			if bodyPxR > 0 {
+				spx, spy, ok := c.Project(p)
+				if ok {
+					bpx, bpy, _ := c.Project(bodyPos)
+					dx := spx - bpx
+					dy := spy - bpy
+					if dx*dx+dy*dy <= bodyPxR*bodyPxR {
+						continue
+					}
+				}
+			}
+			if i%farStride != 0 {
+				continue
+			}
+		} else {
+			if i%nearStride != 0 {
+				continue
+			}
+		}
+		if color == "" {
+			c.Plot(p)
+		} else {
+			c.PlotColored(p, color)
+		}
+	}
+}
+
 // DrawEllipseOffsetOccluded plots a dotted ellipse but skips any
 // sample IsBehindBody-occluded by the supplied (bodyPos, bodyPxR).
 // Same shape as DrawEllipseOffsetDotted; v0.6.4+ side-view variant.
 // Pass an untagged stride to keep the existing colour helpers; this
 // helper writes through PlotColored when `color` is non-empty,
-// otherwise plain Plot.
+// otherwise plain Plot. v0.10.6 supersedes this on the orbit-trace
+// draw path with DrawEllipseOffsetFarSideDashed (renders the back
+// arc dashed instead of skipping); this helper is retained for
+// callers that want strict occlusion without far-side dashing.
 func (c *Canvas) DrawEllipseOffsetOccluded(
 	el orbital.Elements,
 	offset orbital.Vec3,
