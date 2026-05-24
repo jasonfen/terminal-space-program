@@ -107,8 +107,15 @@ func TestLaunchRouteSeedsSessionState(t *testing.T) {
 	if w.LaunchZoom != 0 {
 		t.Errorf("LaunchZoom = %v, want 0 (route must reset to auto)", w.LaunchZoom)
 	}
-	if len(w.LaunchTrail) != 0 {
-		t.Errorf("LaunchTrail len = %d, want 0 (route must clear)", len(w.LaunchTrail))
+	// Route clears the polluted trail; the same-tick sampler then
+	// seeds a fresh sample (empty-buffer cadence rule), so len = 1
+	// is the steady-state — but the sample must NOT be the polluted
+	// {10, 20, 30}.
+	if len(w.LaunchTrail) != 1 {
+		t.Errorf("LaunchTrail len = %d, want 1 (cleared + fresh sample seeded)",
+			len(w.LaunchTrail))
+	} else if w.LaunchTrail[0].LatDeg == 10 && w.LaunchTrail[0].LonDeg == 20 {
+		t.Errorf("LaunchTrail still contains the polluted pre-route sample")
 	}
 }
 
@@ -388,8 +395,14 @@ func TestSwitchInSessionToLandedHandsOff(t *testing.T) {
 	if w.LaunchMaxQ != 0 {
 		t.Errorf("LaunchMaxQ = %v, want 0 (hand-off must clear)", w.LaunchMaxQ)
 	}
-	if len(w.LaunchTrail) != 0 {
-		t.Errorf("LaunchTrail len = %d, want 0 (hand-off must clear)", len(w.LaunchTrail))
+	// Hand-off clears the polluted trail; the same-tick sampler then
+	// seeds a fresh sample for the new vessel. The polluted {9, 9}
+	// entry must be gone.
+	if len(w.LaunchTrail) != 1 {
+		t.Errorf("LaunchTrail len = %d, want 1 (cleared + fresh sample for new vessel)",
+			len(w.LaunchTrail))
+	} else if w.LaunchTrail[0].LatDeg == 9 && w.LaunchTrail[0].LonDeg == 9 {
+		t.Errorf("LaunchTrail still contains the polluted pre-hand-off sample")
 	}
 	if w.LaunchZoom != 0 {
 		t.Errorf("LaunchZoom = %v, want 0 (hand-off must clear)", w.LaunchZoom)

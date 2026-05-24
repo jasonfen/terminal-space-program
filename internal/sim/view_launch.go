@@ -66,7 +66,14 @@ func (w *World) tickLaunchView() {
 		w.releaseLaunchSession()
 	}
 
-	// 4. Shadow update for next tick.
+	// 4. Trail sampling — gated on LaunchSessionActive (no breadcrumbs
+	// outside a real session). Runs after release so a freshly-
+	// released session doesn't sample one last point on the way out.
+	if w.LaunchSessionActive {
+		w.maybeSampleLaunchTrail()
+	}
+
+	// 5. Shadow update for next tick.
 	w.wasActiveLanded = active != nil && active.Landed
 	w.lastActiveCraft = active
 }

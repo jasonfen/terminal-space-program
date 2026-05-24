@@ -514,3 +514,46 @@ func TestWrapDeg180Boundaries(t *testing.T) {
 		}
 	}
 }
+
+// TestWorldToBodyFixedRoundTrip — v0.11.0+ inverse of BodyFixedToWorld.
+// A trail sample taken in world-frame must recover the body-fixed
+// (lat, lon) the renderer would re-project for it. Forward composed
+// with inverse must be identity on a representative grid spanning
+// both hemispheres of the visible sphere. Tolerance is generous
+// (0.001°) because the projection is closed-form analytic, not
+// pixel-discrete like the navball.
+func TestWorldToBodyFixedRoundTrip(t *testing.T) {
+	earth := bodies.CelestialBody{
+		ID:              "earth",
+		SideralRotation: 23.9345,
+		MeanRadius:      6371.0,
+	}
+	// Mid-sidereal-day simTime — exercises a non-zero rotation phase
+	// so the test catches inverse implementations that drop simTime
+	// dependence.
+	simTime := rotationEpoch.Add(6 * time.Hour)
+
+	cases := []struct {
+		lat, lon float64
+	}{
+		{0, 0},
+		{28.6, -80.6}, // KSC
+		{45, 90},
+		{-45, -90},
+		{60, 170},
+		{-60, -170},
+		{10, 0},
+	}
+	for _, tc := range cases {
+		v := BodyFixedToWorld(earth, tc.lat, tc.lon, simTime)
+		gotLat, gotLon := WorldToBodyFixed(earth, v, simTime)
+		if math.Abs(gotLat-tc.lat) > 1e-3 {
+			t.Errorf("(%g,%g) → lat round-tripped to %g", tc.lat, tc.lon, gotLat)
+		}
+		dlon := math.Mod(gotLon-tc.lon+540, 360) - 180
+		if math.Abs(dlon) > 1e-3 {
+			t.Errorf("(%g,%g) → lon round-tripped to %g (wrapped diff %g)",
+				tc.lat, tc.lon, gotLon, dlon)
+		}
+	}
+}
