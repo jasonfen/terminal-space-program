@@ -66,6 +66,11 @@ type CelestialBody struct {
 	// stellar-tint / bodyType-default chain still applies. v0.7.1+.
 	Color string `json:"color,omitempty"`
 
+	// SurfaceColor is the horizon-fill colour used by ViewLaunch
+	// (the chase-cam scene below the horizon curve). Hex string;
+	// empty falls back to Color via SurfaceColorHex. v0.11.0+.
+	SurfaceColor string `json:"surfaceColor,omitempty"`
+
 	// Atmosphere, when non-nil, declares an exponential-density
 	// atmosphere for this body — drives drag (v0.8.4) and haze
 	// rendering. Bodies without atmospheres leave this nil.
@@ -171,4 +176,13 @@ func (cb *CelestialBody) SideralRotationSeconds() float64 {
 // (days) to seconds. Returns 0 when no orbital period is known.
 func (cb *CelestialBody) SideralOrbitSeconds() float64 {
 	return cb.SideralOrbit * 86400.0
+}
+
+// SurfaceColorHex returns the body's launch-view horizon-fill colour,
+// falling back to Color when SurfaceColor is unset.
+func (cb CelestialBody) SurfaceColorHex() string {
+	if cb.SurfaceColor != "" {
+		return cb.SurfaceColor
+	}
+	return cb.Color
 }

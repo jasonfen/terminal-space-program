@@ -594,3 +594,35 @@ func onlyWhitespace(s string) bool {
 	}
 	return true
 }
+
+// FillProjectedSphere fills canvas pixels within the orthographic
+// projection of a sphere — bounded by canvas size, not sphere size,
+// so a planet-scale radius at low zoom can't lock the renderer the
+// way FillColoredDisk's bounding-box iteration would (R² inner loop).
+// Tracer: a sphere completely covering the canvas fills every cell.
+func TestFillProjectedSpherePlanetScaleDoesNotHang(t *testing.T) {
+	c := NewCanvas(40, 20) // pxW=80, pxH=80
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	// Centre at (0, -d) where d puts the sphere "below" the camera.
+	// Radius 1 km, distance 10 m → top of sphere is way above canvas
+	// and bottom is way below; the canvas falls inside the sphere
+	// everywhere, so every pixel must end up filled.
+	c.FillProjectedSphere(orbital.Vec3{Y: -10}, 1000.0, lipgloss.Color("#FF0000"))
+	rendered := c.String()
+	if onlyWhitespace(rendered) {
+		t.Fatal("expected non-whitespace output, got empty canvas")
+	}
+}
+
+// Tiny sphere outside the canvas paints nothing — no pixels marked,
+// no panic.
+func TestFillProjectedSphereOutsideCanvas(t *testing.T) {
+	c := NewCanvas(40, 20)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.FillProjectedSphere(orbital.Vec3{X: 1e9, Y: 1e9}, 1.0, lipgloss.Color("#FF0000"))
+	if !onlyWhitespace(c.String()) {
+		t.Errorf("sphere off-canvas should paint nothing")
+	}
+}

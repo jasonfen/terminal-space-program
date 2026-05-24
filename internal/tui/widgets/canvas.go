@@ -433,6 +433,41 @@ func (c *Canvas) RingTiltedOutlineTagged(center orbital.Vec3, e1, e2 orbital.Vec
 	}
 }
 
+// FillProjectedSphere fills every canvas pixel that lies inside the
+// orthographic projection of a sphere of `radius` metres centred at
+// `center` world coords. Unlike FillColoredDisk (which iterates the
+// disk's own bounding box and so hangs on planet-scale radii at low
+// zoom), this iterates canvas pixels — work bounded by canvas size,
+// not sphere size. v0.11.0+: used by the ViewLaunch chase-cam to
+// flood-fill the body below the horizon with SurfaceColor.
+func (c *Canvas) FillProjectedSphere(center orbital.Vec3, radius float64, color lipgloss.Color) {
+	if radius <= 0 {
+		return
+	}
+	cx, cy, _ := c.Project(center)
+	pxR := radius * c.scale
+	pxR2 := pxR * pxR
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	tag := CellTag{Color: color}
+	for py := 0; py < c.pxH; py++ {
+		dy := float64(py - cy)
+		dy2 := dy * dy
+		if dy2 > pxR2 {
+			continue
+		}
+		for px := 0; px < c.pxW; px++ {
+			dx := float64(px - cx)
+			if dx*dx+dy2 > pxR2 {
+				continue
+			}
+			c.dc.Set(px, py)
+			c.pixelTags[[2]int{px, py}] = tag
+		}
+	}
+}
+
 // PlotColored sets a single pixel and tags it with the given color.
 // Used by callers that want a tagged dot (e.g. v0.6.1 maneuver-leg
 // preview). v0.6.4+: routed through PlotColoredTagged so tagged

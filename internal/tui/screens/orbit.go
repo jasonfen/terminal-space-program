@@ -1136,6 +1136,17 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	}
 }
 
+// RenderHUDColumn exposes the right-side HUD block contents
+// (VESSEL / PROPELLANT / ATTITUDE / LAUNCH / NAVBALL / NODES / etc.)
+// so sibling screens — currently v0.11.0+ LaunchView — can pair the
+// same chrome with their own canvas rather than duplicating each
+// block's formatter. Mutates the hit-test state the same way
+// the in-screen render does; harmless for screens that don't route
+// HUD clicks.
+func (v *OrbitView) RenderHUDColumn(w *sim.World, selectedIdx, width int) string {
+	return v.renderHUD(w, selectedIdx, width)
+}
+
 func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	if width < 20 {
 		width = 20
