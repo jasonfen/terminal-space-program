@@ -733,14 +733,25 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// v0.9.6-polish moved it left so it no longer sits under the
 	// bottom-right navball panel.
 	viewLabel := "view: " + w.ViewMode.String()
-	if w.ViewMode == sim.ViewTilted && w.ViewTilt.Theta != sim.DefaultViewTilt().Theta {
+	if w.ViewMode == sim.ViewTilted {
 		// v0.10.6+: surface θ in degrees when the player has nudged it
 		// off the default via shift+↑/↓. Plain "view: tilted" stays
 		// the at-default form; "view: tilted 30°" cues that the value
 		// is non-default (useful when triaging player reports of
-		// "the angle is wrong"). The /anchor suffix is reserved for
-		// v0.10.7's launch-anchor.
-		viewLabel = fmt.Sprintf("view: tilted %g°", w.ViewTilt.Theta)
+		// "the angle is wrong").
+		//
+		// v0.10.7+: append "/anchor" when the launch-anchor is active
+		// (apoAlt ≤ 200 km), and always show θ in that form
+		// ("view: tilted 25°/anchor") so the player has a visible
+		// readout of both axes during launch.
+		el, ok := activeCraftElements(w)
+		_, anchored := sim.LaunchAnchorPhi(w.ActiveCraft(), el, ok)
+		switch {
+		case anchored:
+			viewLabel = fmt.Sprintf("view: tilted %g°/anchor", w.ViewTilt.Theta)
+		case w.ViewTilt.Theta != sim.DefaultViewTilt().Theta:
+			viewLabel = fmt.Sprintf("view: tilted %g°", w.ViewTilt.Theta)
+		}
 	}
 	v.canvas.SetCellLabel(0, v.canvas.Rows()-1, viewLabel)
 	// v0.10.3+: focus indicator overlaid into the canvas's top-left
@@ -2078,14 +2089,14 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 	return periAlt < launchMissionFloorM
 }
 
-// launchMissionFloorM is the periapsis altitude (m) at which the
-// saturn-v-pad-to-leo mission passes — also the threshold at which
-// the LAUNCH HUD vanishes (ascent complete) and the ORBIT READY
-// callout's pe gate fires. Lives at the package boundary so the
-// LAUNCH HUD block (orbit.go:1158-) and shouldShowLaunchHUD agree
-// on a single floor. Mirrors the JSON value at
-// internal/missions/missions.json:40. v0.9.4+.
-const launchMissionFloorM = 200_000.0
+// launchMissionFloorM is the package-local alias for the canonical
+// sim.LaunchMissionFloorM (200 km). Pre-v0.10.7 this lived here as a
+// package-private const; v0.10.7 hoisted it into sim so the launch-
+// anchor predicate can read it without crossing the screens→sim layer
+// boundary. The original orbit.go callsites (LAUNCH HUD block,
+// shouldShowLaunchHUD, ORBIT READY gate) keep their local name; the
+// JSON mirror at internal/missions/missions.json:40 is unchanged.
+const launchMissionFloorM = sim.LaunchMissionFloorM
 
 // formatAltKm renders an altitude in metres as a signed kilometre
 // string with a sign that's friendly to ascent flight ("−2.8 km"
@@ -2191,6 +2202,15 @@ func viewBasis(w *sim.World) widgets.Basis {
 		thetaRad := w.ViewTilt.Theta * math.Pi / 180
 		phiRad := w.ViewTilt.Phi * math.Pi / 180
 		el, ok := activeCraftElements(w)
+		// v0.10.7+: launch-anchor overrides φ with local-vertical while
+		// the active craft is in the launch band (apoAlt ≤ 200 km).
+		// Render-computed on-read — World.ViewTilt.Phi stays at the
+		// player's value (currently always 0; player-φ controls deferred
+		// to a post-playtest signal) so future shift+←→ wiring won't
+		// collide with per-tick anchor writes.
+		if anchorPhi, active := sim.LaunchAnchorPhi(w.ActiveCraft(), el, ok); active {
+			phiRad = anchorPhi
+		}
 		if !ok {
 			return widgets.TiltedWorldBasis(thetaRad, phiRad)
 		}
