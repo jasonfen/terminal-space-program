@@ -36,12 +36,83 @@ import (
 // and pointer-keyed shadow disambiguation.
 func (w *World) tickLaunchView() {
 	active := w.ActiveCraft()
-	if active != nil && active.Landed && !w.LaunchSessionActive {
+
+	// 1. Switch detection. Pointer diff catches real active-vessel
+	// changes; the lastActiveCraft != nil guard suppresses the
+	// first-tick-after-init / first-tick-after-save-load case where
+	// the shadow is unseeded — we don't want a phantom "switch" to
+	// fire the handler on the bootstrap tick.
+	if w.lastActiveCraft != nil && active != w.lastActiveCraft {
+		w.handleActiveCraftSwitch(active)
+		// Update wasActiveLanded eagerly so the post-switch Landed-
+		// transition check (step 2) reads the new active's state, not
+		// the prior active's.
+		w.wasActiveLanded = active != nil && active.Landed
+	}
+
+	// 2. Landed-transition route. Uses the wasActiveLanded shadow so a
+	// player who manually cycled out of ViewLaunch (cleared the
+	// session) and remains on a Landed vessel does NOT trigger a
+	// spurious re-route — wasActiveLanded stays true across the
+	// cycle.
+	if active != nil && active.Landed && !w.wasActiveLanded {
 		w.routeToLaunchView()
 	}
+
+	// 3. Apo-floor auto-release. Gated on LaunchSessionActive so a
+	// manually-entered ViewLaunch (no session) stays put even when
+	// apo > floor.
 	if w.LaunchSessionActive && active != nil && apoAltAboveFloor(active) {
 		w.releaseLaunchSession()
 	}
+
+	// 4. Shadow update for next tick.
+	w.wasActiveLanded = active != nil && active.Landed
+	w.lastActiveCraft = active
+}
+
+// handleActiveCraftSwitch dispatches the four-case switch handler.
+// Called from tickLaunchView when the active-craft pointer changes
+// (the lastActiveCraft != nil guard is the caller's job — this
+// handler assumes a real switch).
+//
+// Quadrants (Locked decisions, docs/v0.11-plan.md):
+//   - in-session × new Landed   → hand-off (keep session, re-stamp T0)
+//   - in-session × new !Landed  → end + restore PrevViewMode
+//   - !in-session × new Landed  → fresh inline session
+//   - !in-session × new !Landed → no-op
+//
+// Slice 1 progressively implements quadrants as their tests land.
+func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
+	inSession := w.LaunchSessionActive
+	newLanded := newActive != nil && newActive.Landed
+
+	switch {
+	case inSession && newLanded:
+		// Hand-off: keep session + view, re-stamp T0 to the switch
+		// moment so T+ ticks from the player's perspective of the
+		// new vessel's launch.
+		w.LaunchT0 = w.Clock.SimTime
+		w.LaunchMaxQ = 0
+		w.LaunchTrail = w.LaunchTrail[:0]
+		w.LaunchZoom = 0
+	case inSession && !newLanded:
+		// End: player switched onto a flying vessel mid-session.
+		// Restore PrevViewMode and clear all session state. Same
+		// effect as auto-release without the apo-floor predicate.
+		w.releaseLaunchSession()
+	case !inSession && newLanded:
+		// Fresh inline session: player switched onto a Landed vessel
+		// while not in a session. The route handler can't pick this
+		// up on the same tick because step 1's eager shadow update
+		// (post-switch) sets wasActiveLanded=true, suppressing the
+		// Landed-transition predicate. So the switch handler opens
+		// the session directly — semantically identical to a route.
+		// This is the quadrant the pre-grill design missed.
+		w.routeToLaunchView()
+	}
+	// Quadrant 4 (!inSession && !newLanded) is a no-op — the player
+	// is moving between flying vessels with no launch state on either.
 }
 
 // apoAltAboveFloor reports whether the craft's current orbit has an
@@ -53,9 +124,6 @@ func (w *World) tickLaunchView() {
 func apoAltAboveFloor(c *spacecraft.Spacecraft) bool {
 	mu := c.Primary.GravitationalParameter()
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	if el.A <= 0 || el.E >= 1 {
-		return false
-	}
 	apoAlt := el.Apoapsis() - c.Primary.RadiusMeters()
 	return apoAlt > LaunchMissionFloorM
 }

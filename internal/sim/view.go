@@ -100,8 +100,15 @@ var AllViewModes = [...]ViewMode{
 }
 
 // CycleViewMode advances ViewMode to the next mode in cycle order.
-// Wraps around — modes are a small finite set.
+// Wraps around — modes are a small finite set. v0.11.0+: leaving
+// ViewLaunch via manual cycle clears LaunchSessionActive — the
+// player has taken over, no auto-release will fire even if apo
+// crosses the floor later. ViewMode still advances by one
+// (cycle semantics are *advance*, not *restore* PrevViewMode).
 func (w *World) CycleViewMode() {
+	if w.ViewMode == ViewLaunch {
+		w.LaunchSessionActive = false
+	}
 	w.ViewMode = (w.ViewMode + 1) % ViewMode(len(AllViewModes))
 }
 

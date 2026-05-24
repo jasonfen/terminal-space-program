@@ -114,6 +114,16 @@ type World struct {
 	// persisted.
 	LaunchZoom float64
 
+	// lastActiveCraft + wasActiveLanded are per-tick shadows owned by
+	// the ViewLaunch state machine (internal/sim/view_launch.go).
+	// Pointer-keyed (not index) so undock slot-renumbering at
+	// docking.go:330 doesn't fire a spurious switch handler — the
+	// logical active is unchanged, only its position in Crafts moved.
+	// Both reset to zero values on save-load (the post-load shadow
+	// reconciliation is part of save_apply, not tracked here).
+	lastActiveCraft *spacecraft.Spacecraft
+	wasActiveLanded bool
+
 	// InstantSAS opts back into the legacy instantaneous-attitude
 	// path. v0.10.0+ makes rate-limited slew the DEFAULT (zero value
 	// = false = slew on); toggling this true restores the pre-v0.10
