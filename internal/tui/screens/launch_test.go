@@ -120,7 +120,7 @@ func TestLaunchViewRenderTitleAndFooter(t *testing.T) {
 		Footer:  lipgloss.NewStyle(),
 		Title:   lipgloss.NewStyle(),
 	}
-	v := NewLaunchView(th)
+	v := NewLaunchView(th, NewOrbitView(th))
 	v.Resize(120, 40)
 	w, err := sim.NewWorld()
 	if err != nil {

@@ -3,8 +3,10 @@ package screens
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -25,8 +27,9 @@ import (
 // overlaid on the bottom braille row of the canvas (same precedent as
 // the orbit screen's status overlay).
 type LaunchView struct {
-	canvas *widgets.Canvas
-	theme  Theme
+	canvas    *widgets.Canvas
+	theme     Theme
+	hudSource *OrbitView // reused for the side-HUD chrome (v0.11.0+)
 
 	// lastVZSample caches the previous tick's altitude + sim-time so
 	// the HUD can compute v_z (m/s) as a finite difference rather than
@@ -37,26 +40,30 @@ type LaunchView struct {
 	vzAtSim time.Time
 }
 
-func NewLaunchView(th Theme) *LaunchView {
+// NewLaunchView constructs the chase-cam screen, paired with the
+// supplied OrbitView so the right-side HUD column (VESSEL /
+// PROPELLANT / ATTITUDE / LAUNCH / NAVBALL) reuses the OrbitView's
+// renderers verbatim. Playtest (Slice 1.6) showed the no-sidepanel
+// experiment from the original plan dropped too many readouts
+// (altitude, stage fuel, horizontal velocity) for the launch view to
+// stay flyable; reusing the orbit HUD keeps the chrome legible.
+func NewLaunchView(th Theme, hudSource *OrbitView) *LaunchView {
 	return &LaunchView{
-		canvas: widgets.NewCanvas(80, 24),
-		theme:  th,
+		canvas:    widgets.NewCanvas(80, 24),
+		theme:     th,
+		hudSource: hudSource,
 	}
 }
 
-// Resize forwards terminal dimensions to the canvas. No sidepanel,
-// so the canvas takes the full width minus the rounded border.
-// Reserve 4 rows for title + footer + border.
+// Resize sizes the canvas to leave the right ~30% for the HUD column
+// (mirrors OrbitView's split so the two screens line up when
+// cycling). Reserve 4 rows for title + footer + border.
 func (v *LaunchView) Resize(totalCols, totalRows int) {
-	cols := totalCols - 2
-	rows := totalRows - 4
-	if cols < 20 {
-		cols = 20
+	canvasCols := totalCols * 7 / 10
+	if canvasCols < 20 {
+		canvasCols = 20
 	}
-	if rows < 10 {
-		rows = 10
-	}
-	v.canvas.Resize(cols, rows)
+	v.canvas.Resize(canvasCols, totalRows-4)
 }
 
 // CurrentScale returns the metres-per-cell scale the chase-cam is
@@ -155,12 +162,114 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	canvasStr := v.canvas.String()
 	canvasStr = overlayHUDStrip(canvasStr, v.composeHUDLine(w, craft))
 
-	canvasPanel := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(v.theme.Primary.GetForeground()).
-		Render(canvasStr)
+	// Manual rounded-border wrapping. lipgloss.Border().Render() over
+	// a string with embedded per-cell ANSI escapes (the case here —
+	// FillProjectedSphere tags thousands of cells with SurfaceColor)
+	// miscounts visible width and inflates each row ~22×, pushing
+	// the side HUD off the right of the terminal. Manual borders
+	// give us exact control: use lipgloss.Width per line for the
+	// pad math, which strips ANSI before measuring.
+	canvasPanel := wrapBorder(canvasStr, v.canvas.Cols(), v.theme.Primary.GetForeground())
 
-	return title + "\n" + canvasPanel + "\n" + footer
+	// Side HUD: reuse OrbitView's column so the launch-relevant
+	// readouts (altitude, stage fuel, v_vert, v_horiz, fpa, twr) are
+	// the same blocks the player already knows.
+	body := canvasPanel
+	if v.hudSource != nil {
+		hudWidth := totalCols - v.canvas.Cols() - 4
+		if hudWidth < 20 {
+			hudWidth = 20
+		}
+		hud := v.hudSource.RenderHUDColumn(w, 0, hudWidth)
+		body = joinHorizontalLines(canvasPanel, hud, "  ")
+	}
+
+	return title + "\n" + body + "\n" + footer
+}
+
+// wrapBorder draws a rounded-border frame around a multi-line content
+// block. `innerCols` is the visible cell width each content row should
+// occupy. Built manually rather than via lipgloss.NewStyle().Border()
+// because lipgloss's bordering mis-measures width on strings densely
+// embedded with per-cell ANSI escapes (the FillProjectedSphere case),
+// inflating rows ~22×.
+func wrapBorder(content string, innerCols int, borderFg lipgloss.TerminalColor) string {
+	lines := strings.Split(content, "\n")
+	borderStyle := lipgloss.NewStyle().Foreground(borderFg)
+	top := borderStyle.Render("╭" + strings.Repeat("─", innerCols) + "╮")
+	bottom := borderStyle.Render("╰" + strings.Repeat("─", innerCols) + "╯")
+	leftEdge := borderStyle.Render("│")
+	rightEdge := borderStyle.Render("│")
+	rows := make([]string, 0, len(lines)+2)
+	rows = append(rows, top)
+	for _, line := range lines {
+		pad := innerCols - displayWidth(line)
+		if pad < 0 {
+			pad = 0
+		}
+		rows = append(rows, leftEdge+line+strings.Repeat(" ", pad)+rightEdge)
+	}
+	rows = append(rows, bottom)
+	return strings.Join(rows, "\n")
+}
+
+// ansiEscapeRE matches CSI / SGR escape sequences emitted by lipgloss
+// (e.g. `\x1b[38;2;107;142;78m`). Used by displayWidth to strip ANSI
+// before measuring terminal-cell width — lipgloss.Width works in
+// isolation but mis-counted in the live launch render path (cause
+// not fully diagnosed; manual strip is the safe fallback).
+var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+// displayWidth returns the visible terminal-cell width of a string,
+// stripping ANSI escapes and counting runes.
+func displayWidth(s string) int {
+	return utf8.RuneCountInString(ansiEscapeRE.ReplaceAllString(s, ""))
+}
+
+// joinHorizontalLines glues two multi-line blocks side-by-side, one
+// line at a time, separated by `gap`. Pads the shorter block's rows
+// with empty strings so the result is rectangular at the longer
+// block's row count. v0.11.0 used lipgloss.JoinHorizontal but on the
+// densely-coloured launch canvas (thousands of per-cell ANSI escape
+// sequences from FillProjectedSphere) lipgloss mis-measured the
+// canvas width and inflated each row to ~22× its intended cell
+// count, pushing the HUD column off the right of any terminal.
+func joinHorizontalLines(left, right, gap string) string {
+	ls := strings.Split(left, "\n")
+	rs := strings.Split(right, "\n")
+	n := len(ls)
+	if len(rs) > n {
+		n = len(rs)
+	}
+	leftPad := visibleWidth(ls)
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		var l, r string
+		if i < len(ls) {
+			l = ls[i]
+		}
+		if i < len(rs) {
+			r = rs[i]
+		}
+		pad := leftPad - displayWidth(l)
+		if pad < 0 {
+			pad = 0
+		}
+		out[i] = l + strings.Repeat(" ", pad) + gap + r
+	}
+	return strings.Join(out, "\n")
+}
+
+// visibleWidth returns the widest display-cell width across the given
+// lines after stripping ANSI escapes (see displayWidth).
+func visibleWidth(lines []string) int {
+	w := 0
+	for _, line := range lines {
+		if lw := displayWidth(line); lw > w {
+			w = lw
+		}
+	}
+	return w
 }
 
 // renderScene draws the horizon, surface fill, pad marker, trail dots,
@@ -384,8 +493,13 @@ func dynamicPressurePa(c *spacecraft.Spacecraft) float64 {
 }
 
 // overlayHUDStrip replaces the final braille line of the canvas
-// string with the HUD strip, preserving the rendered height. Returns
-// canvasStr unchanged when hud is empty.
+// string with the HUD strip, preserving the rendered height. Compares
+// RUNE counts (display widths), not byte lengths — a braille glyph is
+// 3 UTF-8 bytes but one display cell, and padding by byte-length
+// inflated the row by ~280 chars at canvas-width 140 (slice-1.7
+// playtest bug; lipgloss then padded every other row to match,
+// stretching the bordered panel to ~4× its intended width and
+// pushing the side HUD off the right of the terminal).
 func overlayHUDStrip(canvasStr, hud string) string {
 	if hud == "" {
 		return canvasStr
@@ -394,11 +508,17 @@ func overlayHUDStrip(canvasStr, hud string) string {
 	if idx < 0 {
 		return hud
 	}
-	tail := canvasStr[idx+1:]
-	if len(hud) < len(tail) {
-		hud = hud + strings.Repeat(" ", len(tail)-len(hud))
-	} else if len(hud) > len(tail) {
-		hud = hud[:len(tail)]
+	// displayWidth strips ANSI escape sequences before counting runes —
+	// a fully-coloured canvas row is ~3000 raw chars but ~140 visible
+	// cells, and the v0.11 slice-1.7 launch render's HUD strip was
+	// getting padded to the inflated raw width, pushing every joined
+	// row off the right of the terminal.
+	tailWidth := displayWidth(canvasStr[idx+1:])
+	hudRunes := []rune(hud)
+	if len(hudRunes) < tailWidth {
+		hud = hud + strings.Repeat(" ", tailWidth-len(hudRunes))
+	} else if len(hudRunes) > tailWidth {
+		hud = string(hudRunes[:tailWidth])
 	}
 	return canvasStr[:idx+1] + hud
 }

@@ -75,13 +75,14 @@ func New() (*App, error) {
 		Footer:  th.Footer,
 		Title:   th.Title,
 	}
+	orbitView := screens.NewOrbitView(sth)
 	return &App{
 		world:      w,
 		theme:      th,
 		keys:       DefaultKeymap(),
 		active:     screenOrbit,
-		orbitView:  screens.NewOrbitView(sth),
-		launchView: screens.NewLaunchView(sth),
+		orbitView:  orbitView,
+		launchView: screens.NewLaunchView(sth, orbitView),
 		bodyInfo:   screens.NewBodyInfo(sth),
 		help:       screens.NewHelp(sth),
 		maneuver:   screens.NewManeuver(sth),
