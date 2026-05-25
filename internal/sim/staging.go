@@ -168,6 +168,10 @@ func buildJettisonedCraft(s spacecraft.Stage, parent *spacecraft.Spacecraft) *sp
 		BallisticCoefficient: spacecraft.DefaultBallisticCoefficient,
 		Stages:               []spacecraft.Stage{s},
 		Primary:              parent.Primary,
+		// Inherit parent's attitude at decouple so the dropped
+		// stage's launch-view sprite renders at the angle it shed
+		// at, not snapped-to-vertical or zeroed (v0.11.3 Slice 4).
+		CurrentAttitudeDir: parent.CurrentAttitudeDir,
 		State: physics.StateVector{
 			R: parent.State.R.Add(retrograde.Scale(stagingSeparationM)),
 			V: parent.State.V.Add(retrograde.Scale(stagingPushVMS)),

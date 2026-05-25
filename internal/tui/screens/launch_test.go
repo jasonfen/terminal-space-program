@@ -205,6 +205,12 @@ func TestSiblingCraftInSOIRenders(t *testing.T) {
 		t.Fatalf("SpawnCraft sister: %v", err)
 	}
 	sister.Glyph = "Ω" // unique sentinel — not used elsewhere
+	// v0.11.3 Slice 4: the composed-sprite render path bypasses
+	// Spacecraft.Glyph when any stage has a LaunchSprite. Pin the
+	// sentinel into the stage's sprite so it survives composition.
+	for i := range sister.Stages {
+		sister.Stages[i].LaunchSprite = "Ω"
+	}
 	// SpawnCraft set the sister active; switch the view back to the
 	// launchpad craft so the camera frames the pad scene.
 	for i, c := range w.Crafts {
@@ -249,6 +255,27 @@ func TestDroppedStageVisibleAfterDecouple(t *testing.T) {
 	}
 	w.SetActiveCraftIdx(newActiveIdx)
 	w.Crafts[jettIdx].Glyph = "Ω" // sentinel for the dropped stage
+	// v0.11.3 Slice 4: composed-sprite path bypasses Glyph; pin the
+	// sentinel into the dropped stage's LaunchSprite so it renders.
+	for i := range w.Crafts[jettIdx].Stages {
+		w.Crafts[jettIdx].Stages[i].LaunchSprite = "Ω"
+	}
+	// buildJettisonedCraft offsets the dropped stage by ~60 m
+	// retrograde — at pad-zoom this is sub-cell and the sentinel
+	// renders in the same column as the active vessel's composed
+	// sprite, which then overwrites it. Shift further (4 km east)
+	// so the sentinel lands in a cell the active sprite doesn't
+	// touch. The shift is render-only — staging's own separation +
+	// docking-gate behaviour is exercised by staging_test.go.
+	pos := w.Crafts[jettIdx].State.R
+	posNorm := pos.Norm()
+	if posNorm > 0 {
+		eastish := orbital.Vec3{X: -pos.Y, Y: pos.X, Z: 0}
+		if n := eastish.Norm(); n > 0 {
+			eastish = eastish.Scale(1.0 / n)
+		}
+		w.Crafts[jettIdx].State.R = pos.Add(eastish.Scale(1500))
+	}
 
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))

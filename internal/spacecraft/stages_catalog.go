@@ -37,6 +37,12 @@ type StageModule struct {
 	// dry / fuel / thrust / isp / bc are the stage's physical
 	// numbers (kg, kg, N, s, m²/kg) — same units as stageWithBC.
 	dry, fuel, thrust, isp, bc float64
+	// launchSprite is the per-stage ASCII art rendered by the
+	// ViewLaunch chase-cam (v0.11.3 Slice 4). Multi-line string,
+	// 2 cells wide per row, anchored at the stage's bottom centre.
+	// See CONTEXT.md "Launch Sprite" for the convention; row count
+	// is stylised, not real metres.
+	launchSprite string
 }
 
 // Catalog stage IDs.
@@ -64,46 +70,57 @@ var StageCatalog = map[string]StageModule{
 	StageModuleSICID: {
 		ID: StageModuleSICID, Name: "S-IC", Glyph: "▲", Color: "#FF8C42",
 		Tier: "booster", dry: 130000, fuel: 2160000, thrust: 35100000, isp: 263, bc: 8e-6,
+		launchSprite: "╔╗\n║║\n▓▓\n║║\n▓▓\n╚╝",
 	},
 	StageModuleSIIID: {
 		ID: StageModuleSIIID, Name: "S-II", Glyph: "▲", Color: "#FFC042",
 		Tier: "sustainer", dry: 40000, fuel: 440000, thrust: 5140000, isp: 421, bc: 2.5e-5,
+		launchSprite: "╔╗\n║║\n▓▓\n║║\n╚╝",
 	},
 	StageModuleSIVBID: {
 		ID: StageModuleSIVBID, Name: "S-IVB", Glyph: "▲", Color: "#FFD93D",
 		Tier: "transfer", dry: 11000, fuel: 109000, thrust: 1023000, isp: 421, bc: 6.25e-5,
+		launchSprite: "╔╗\n║║\n▓▓\n╚╝",
 	},
 	StageModuleICPSID: {
 		ID: StageModuleICPSID, Name: "ICPS", Glyph: "◆", Color: "#5BB3FF",
 		Tier: "transfer", dry: 3500, fuel: 25000, thrust: 110000, isp: 462, bc: 6.25e-5,
+		launchSprite: "╔╗\n║║\n╚╝",
 	},
 	StageModuleSRBID: {
 		ID: StageModuleSRBID, Name: "SRBs", Glyph: "▲", Color: "#E0E0E0",
 		Tier: "booster", dry: 198000, fuel: 1270000, thrust: 32000000, isp: 268, bc: 8e-6,
+		launchSprite: "╔╗\n║║\n▓▓\n║║\n▓▓\n║║\n╚╝",
 	},
 	StageModuleCoreRS25ID: {
 		ID: StageModuleCoreRS25ID, Name: "Core", Glyph: "▲", Color: "#FF6B35",
 		Tier: "sustainer", dry: 85275, fuel: 979452, thrust: 9290000, isp: 452, bc: 2.5e-5,
+		launchSprite: "╔╗\n║║\n║║\n▓▓\n║║\n╚╝",
 	},
 	StageModuleF9S1ID: {
 		ID: StageModuleF9S1ID, Name: "F9-S1", Glyph: "▲", Color: "#E8E8E8",
 		Tier: "booster", dry: 25600, fuel: 411000, thrust: 7607000, isp: 282, bc: 7.4e-6,
+		launchSprite: "╔╗\n║║\n║║\n▓▓\n║║\n╚╝",
 	},
 	StageModuleF9S2ID: {
 		ID: StageModuleF9S2ID, Name: "F9-S2", Glyph: "▲", Color: "#B0D8FF",
 		Tier: "transfer", dry: 3900, fuel: 107500, thrust: 934000, isp: 348, bc: 5e-5,
+		launchSprite: "╔╗\n║║\n╚╝",
 	},
 	StageModuleLanderID: {
 		ID: StageModuleLanderID, Name: "Lander", Glyph: "▼", Color: "#5FFF87",
 		Tier: "payload", dry: 4000, fuel: 8000, thrust: 45000, isp: 311, bc: 0,
+		launchSprite: "╱╲\n║║\n└┘",
 	},
 	StageModuleCSMID: {
 		ID: StageModuleCSMID, Name: "CSM", Glyph: "◉", Color: "#C0C0FF",
 		Tier: "payload", dry: 11900, fuel: 18400, thrust: 91000, isp: 314, bc: 0,
+		launchSprite: "╱╲\n║║\n╞╡\n║║\n╚╝",
 	},
 	StageModuleRCSTugID: {
 		ID: StageModuleRCSTugID, Name: "RCS Tug", Glyph: "●", Color: "#FF87D7",
 		Tier: "tug", dry: 200, fuel: 0, thrust: 0, isp: 0, bc: 0,
+		launchSprite: "██\n╚╝",
 	},
 }
 
@@ -153,5 +170,6 @@ func BuildStage(id string) (Stage, bool) {
 		RCSThrust:            rcsThrust,
 		RCSIsp:               rcsIsp,
 		BallisticCoefficient: m.bc,
+		LaunchSprite:         m.launchSprite,
 	}, true
 }
