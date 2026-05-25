@@ -222,8 +222,20 @@ func (w *World) NudgeLaunchZoom(dir int, currentAutoScale float64) {
 // (HUD T+ anchor), zeroes LaunchMaxQ, clears the breadcrumb trail,
 // resets LaunchZoom to auto. Idempotent guard lives in the caller
 // (tickLaunchView checks !LaunchSessionActive).
+//
+// The `ViewMode != ViewLaunch` guard on the PrevViewMode capture
+// matters for save-load: persisted saves carry ViewMode but not
+// LaunchSessionActive, so a save taken mid-session reloads with
+// ViewMode=ViewLaunch and LaunchSessionActive=false. The first
+// post-load tick then re-fires this handler on the already-Landed
+// vessel; without the guard, PrevViewMode would capture ViewLaunch
+// and auto-release would later "restore" to ViewLaunch (a no-op).
+// Leaving PrevViewMode at its zero value (ViewTilted) on this path
+// is the correct fallback.
 func (w *World) routeToLaunchView() {
-	w.PrevViewMode = w.ViewMode
+	if w.ViewMode != ViewLaunch {
+		w.PrevViewMode = w.ViewMode
+	}
 	w.LaunchSessionActive = true
 	w.ViewMode = ViewLaunch
 	w.LaunchT0 = w.Clock.SimTime
