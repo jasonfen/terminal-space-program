@@ -472,6 +472,18 @@ func (v *LaunchView) drawPadMarker(w *sim.World, craft *spacecraft.Spacecraft, b
 	v.canvas.SetCellOverlay(padWorld, '+')
 }
 
+// LUT silhouette dimensions in real-world metres. Stylised at half
+// the real LC-39A LUT (~135 m crawler-tower height); chose 60 m
+// total so the tower reads tall-but-finite at pad zoom and shrinks
+// smoothly as the autoscale zooms out. 9-row sprite has 8 above-base
+// rows × 7.5 m = 60 m total height. Width is 2 cols × 4 m = 8 m
+// (real LC-39A MLP is ~50 m square but the silhouette is stylised
+// narrower). Fixed regardless of zoom — see drawLaunchTower comment.
+const (
+	lutRowHeightM = 7.5
+	lutColWidthM  = 4.0
+)
+
 // lutSprite is the v0.11.1 Slice 2 generic mobile-launcher silhouette.
 // 2 cells wide; bottom row is the MLP base, top row is the crown
 // (swing-arm hint). Row 0 = top, last row = base; each pair is
@@ -519,8 +531,20 @@ func (v *LaunchView) drawLaunchTower(w *sim.World, craft *spacecraft.Spacecraft,
 	east := render.BodyFrameEast(body, render.Vec3{X: padFromBody.X, Y: padFromBody.Y, Z: padFromBody.Z})
 	padEast := orbital.Vec3{X: east.X, Y: east.Y, Z: east.Z}
 
-	cellWorldY := scaleMPerPx * canvasCellPxH
-	cellWorldX := scaleMPerPx * canvasCellPxW
+	// Per-cell stride is FIXED real-world metres, not zoom-scaled.
+	// The original v0.11.1 cut used `scaleMPerPx · canvasCellPx{H,W}`,
+	// which meant the LUT's world height grew with the chase-cam
+	// autozoom: as the rocket gained altitude, scaleMPerPx grew
+	// proportionally to altitude, so LUT-top-altitude = (4/3) ×
+	// rocket-altitude — the rocket could never clear the LUT.
+	// Fixing per-row stride to a real-world value (stylised at
+	// ~7 m/row → ~60 m total tower height, half the real LC-39A
+	// LUT) means the LUT shrinks on screen as the autozoom grows,
+	// which is the correct perspective behaviour. _ = scaleMPerPx
+	// retains the parameter signature for caller compatibility.
+	_ = scaleMPerPx
+	cellWorldY := lutRowHeightM
+	cellWorldX := lutColWidthM
 
 	rows := len(lutSprite)
 	for r := 0; r < rows; r++ {
