@@ -215,6 +215,25 @@ func (c *Canvas) SetCellOverlay(w orbital.Vec3, glyph rune) {
 	c.cellOverlays[[2]int{cellX, cellY}] = glyph
 }
 
+// ClearCellOverlay removes any overlay glyph at the cell containing
+// the given world coord so the cell's underlying braille pattern
+// renders through. Used by the v0.11.3 composed-rocket render path:
+// braille rocket pixels need to override the LUT's body-fixed
+// SetCellOverlay glyphs at the pad without losing the braille dots.
+// No-op when the cell has no overlay set or the coord projects
+// off-canvas.
+func (c *Canvas) ClearCellOverlay(w orbital.Vec3) {
+	px, py, ok := c.Project(w)
+	if !ok {
+		return
+	}
+	cellX, cellY := px/2, py/4
+	if c.cellOverlays == nil {
+		return
+	}
+	delete(c.cellOverlays, [2]int{cellX, cellY})
+}
+
 // SetCellLabel writes text into consecutive cells starting at
 // (col, row), one rune per cell, going right. Out-of-bounds cells
 // are skipped silently. Used by the orbit / maneuver screens to

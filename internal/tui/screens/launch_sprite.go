@@ -2,7 +2,6 @@ package screens
 
 import (
 	"math"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -12,138 +11,131 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
-// SpriteCell is one terminal-cell emit of a composed launch sprite —
+// SpritePixel is one braille sub-pixel of a composed launch sprite —
 // a world-frame offset from the vessel anchor (`c.State.R + bodyPos`)
-// plus the glyph and color the render path should plot at that
-// position. The render path translates each cell into a PlotColored
-// + SetCellOverlay pair on the chase-cam canvas.
-type SpriteCell struct {
+// plus the color the render path should PlotColored at that position.
+// No glyph: braille dots are direction-agnostic, so a tilted rocket
+// renders smoothly at any pitch without per-glyph rotation
+// (v0.11.3 playtest pivot from ASCII glyphs to braille pixels — see
+// docs/v0.11-plan.md "Resolved at slice-open").
+type SpritePixel struct {
 	OffsetWorld orbital.Vec3
-	Glyph       rune
 	Color       lipgloss.Color
 }
 
+// spriteWidthPx is the width of every composed-rocket sprite, in
+// braille sub-pixels (1 cell = 2 sub-pixel cols, so 2 px = 1 cell
+// wide). Constant across stages — per-stage identity comes from
+// height + color, not silhouette width. Narrow is intentional:
+// playtest showed wider rockets smear at gravity-turn angles.
+const spriteWidthPx = 2
+
 // ComposeLaunchSprite builds the composed-from-stages rocket sprite
-// for a vessel, returning a cell list the render path plots relative
-// to the vessel's world anchor.
+// as a list of braille sub-pixels. Stages stack bottom-to-top from
+// Stages[0] along the projection of cmdWorld into the chase-cam
+// basis (so a gravity-turned rocket leans visibly); each stage
+// contributes a `spriteWidthPx × Stage.LaunchSpriteRowsPx` filled
+// rectangle of pixels in the stage's catalog color. Returns nil
+// when no stage has a non-zero LaunchSpriteRowsPx — caller falls
+// back to the vessel's single Glyph render.
 //
-// Stages stack bottom-to-top from Stages[0] (lowest in screen) along
-// the projection of cmdWorld into the chase-cam basis — so a
-// gravity-turned rocket leans visibly while each stage's cells stay
-// screen-axis-aligned (Slice 4 grill, 2026-05-25). Per-row world
-// stride is `scaleMPerPx · canvasCellPxH` along the stack axis;
-// per-column stride is `scaleMPerPx · canvasCellPxW` along the
-// perpendicular axis. Returns nil when no stage has LaunchSprite set
-// (caller falls back to the vessel's single Glyph).
-func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) []SpriteCell {
-	cellHeight := scaleMPerPx * canvasCellPxH
-	cellWidth := scaleMPerPx * canvasCellPxW
-
-	// Stack-axis direction in screen = normalised projection of cmd
-	// onto (basis.X, basis.Y). Width-axis is perpendicular, rotated
-	// +90° in screen so col 0 sits left of stack, col 1 right.
-	// Degenerate cmd (along basis depth axis or zero) falls back to
-	// pure-vertical stacking.
+// Each "pixel" is one braille sub-cell dot (`scaleMPerPx` metres
+// across); the canvas's PlotColored accumulates dots per cell and
+// renders the resulting braille char.
+func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) []SpritePixel {
+	pxSize := scaleMPerPx // one braille sub-pixel = scaleMPerPx world metres
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
-	widthX, widthY := -stackY, stackX
+	// Width axis: perpendicular to stack in screen, rotated −90° so
+	// col 0 sits LEFT of col 1 (pinned by
+	// TestComposeLaunchSprite_Col0LeftOfCol1).
+	widthX, widthY := stackY, -stackX
 
-	var cells []SpriteCell
+	var pixels []SpritePixel
 	rowOffset := 0
 	for _, s := range stages {
-		if s.LaunchSprite == "" {
+		if s.LaunchSpriteRowsPx <= 0 {
 			continue
 		}
-		lines := strings.Split(s.LaunchSprite, "\n")
-		for r, line := range lines {
-			rowAbove := float64(len(lines)-1-r) + float64(rowOffset)
-			col := 0
-			for _, glyph := range line {
-				if col >= 2 {
-					break
-				}
-				if glyph != 0 {
-					xCells := float64(col) - 0.5
-					screenSX := rowAbove*cellHeight*stackX + xCells*cellWidth*widthX
-					screenSY := rowAbove*cellHeight*stackY + xCells*cellWidth*widthY
-					offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
-					cells = append(cells, SpriteCell{
-						OffsetWorld: offset,
-						Glyph:       glyph,
-						Color:       lipgloss.Color(s.Color),
-					})
-				}
-				col++
+		color := lipgloss.Color(s.Color)
+		for r := 0; r < s.LaunchSpriteRowsPx; r++ {
+			rowAbove := float64(r + rowOffset)
+			for col := 0; col < spriteWidthPx; col++ {
+				xPx := float64(col) - float64(spriteWidthPx-1)/2.0
+				screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
+				screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
+				offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
+				pixels = append(pixels, SpritePixel{
+					OffsetWorld: offset,
+					Color:       color,
+				})
 			}
 		}
-		rowOffset += len(lines)
+		rowOffset += s.LaunchSpriteRowsPx
 	}
-	if len(cells) == 0 {
+	if len(pixels) == 0 {
 		return nil
 	}
-	return cells
+	return pixels
 }
 
-// ComposeFlame builds the exhaust flame cells appended below
-// Stages[0]'s base along the -cmdWorld direction (so the flame leans
-// alongside the gravity-turned stack). 2 cells wide, length-binned
-// by throttle, 2-frame pulse driven by frameIdx (caller derives from
-// wall-clock):
+// ComposeFlame builds exhaust-flame pixels extending below Stages[0]'s
+// base along the -cmdWorld direction. Same `spriteWidthPx` width as
+// the rocket sprite. Length-binned by throttle into 3 bins:
 //
 //   - throttle ≤ 0 or no stages: returns nil.
-//   - 0 < throttle ≤ 1/3: 1 row.
-//   - 1/3 < throttle ≤ 2/3: 2 rows.
-//   - 2/3 < throttle:      3 rows.
+//   - 0 < throttle ≤ 1/3: 4 sub-pixel rows (1 cell tall).
+//   - 1/3 < throttle ≤ 2/3: 8 sub-pixel rows.
+//   - 2/3 < throttle:      12 sub-pixel rows.
 //
-// Glyph palette (top row brightest, fading down):
-//
-//   - frame A: ▓▒░
-//   - frame B: █▓▒
-//
-// Color: amber `render.ColorWarning`.
-func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64, throttle float64, frameIdx int) []SpriteCell {
+// frameIdx selects one of two pulse offsets — frame B shifts the
+// flame down by 1 px so the dot pattern within each cell visibly
+// changes between frames at the ~100 ms wall-clock cadence.
+// Colour: amber `render.ColorWarning`.
+func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64, throttle float64, frameIdx int) []SpritePixel {
 	if throttle <= 0 || len(stages) == 0 {
 		return nil
 	}
-	var nRows int
+	var nPx int
 	switch {
 	case throttle <= 1.0/3.0:
-		nRows = 1
+		nPx = 4
 	case throttle <= 2.0/3.0:
-		nRows = 2
+		nPx = 8
 	default:
-		nRows = 3
+		nPx = 12
 	}
 
-	frameA := [3]rune{'▓', '▒', '░'}
-	frameB := [3]rune{'█', '▓', '▒'}
-	glyphs := frameA
-	if frameIdx%2 == 1 {
-		glyphs = frameB
-	}
-
-	cellHeight := scaleMPerPx * canvasCellPxH
-	cellWidth := scaleMPerPx * canvasCellPxW
+	pxSize := scaleMPerPx
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
-	widthX, widthY := -stackY, stackX
+	widthX, widthY := stackY, -stackX
 
-	cells := make([]SpriteCell, 0, nRows*2)
-	for row := 0; row < nRows; row++ {
-		// row 0 is the topmost flame cell, just below Stages[0]'s
-		// base at rowAbove = -1; row 1 at -2; row 2 at -3.
-		rowAbove := -float64(row + 1)
-		for col := 0; col < 2; col++ {
-			xCells := float64(col) - 0.5
-			screenSX := rowAbove*cellHeight*stackX + xCells*cellWidth*widthX
-			screenSY := rowAbove*cellHeight*stackY + xCells*cellWidth*widthY
+	// Frame B shifts flame 1 px further from engine base so the cells
+	// repaint their braille dot pattern between frames. With nPx
+	// already in 4-sub-pixel buckets the 1-px frame shift visibly
+	// changes the dot density in each cell at the 100 ms cadence.
+	frameShift := 0.0
+	if frameIdx%2 == 1 {
+		frameShift = 1.0
+	}
+
+	pixels := make([]SpritePixel, 0, nPx*spriteWidthPx)
+	for row := 0; row < nPx; row++ {
+		// row 0 is the topmost flame pixel just below Stages[0]'s
+		// base (rowAbove = -1); higher row index = further down
+		// (more negative rowAbove).
+		rowAbove := -1.0 - float64(row) - frameShift
+		for col := 0; col < spriteWidthPx; col++ {
+			xPx := float64(col) - float64(spriteWidthPx-1)/2.0
+			screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
+			screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
 			offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
-			cells = append(cells, SpriteCell{
+			pixels = append(pixels, SpritePixel{
 				OffsetWorld: offset,
-				Glyph:       glyphs[row],
 				Color:       render.ColorWarning,
 			})
 		}
 	}
-	return cells
+	return pixels
 }
 
 // stackDirScreen returns the unit-vector projection of cmdWorld into

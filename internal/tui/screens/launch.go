@@ -361,22 +361,41 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 // LaunchSprite — caller falls back to the legacy single-glyph
 // render. Flame frame index derives from wall-clock for a stable
 // ~100 ms pulse cadence regardless of sim warp.
+//
+// Flame gating: Throttle is the loadout-default engine-power setting
+// (typically 1.0 on a pad-spawned vessel), NOT a sign that the
+// engine is firing. Flame renders only when the vessel has an
+// active burn — either a player-engaged ManualBurn or a planted
+// ActiveBurn — so a pad-spawned rocket doesn't paint amber flame
+// into the body fill before the player presses `b`.
 func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) bool {
 	sprite := ComposeLaunchSprite(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx)
 	if sprite == nil {
 		return false
 	}
-	frameIdx := int(time.Now().UnixMilli()/flameFrameMs) % 2
-	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx, craft.Throttle, frameIdx)
-	for _, c := range sprite {
-		world := anchorWorld.Add(c.OffsetWorld)
-		v.canvas.PlotColored(world, c.Color)
-		v.canvas.SetCellOverlay(world, c.Glyph)
+	flameThrottle := 0.0
+	if craft.ManualBurn != nil || craft.ActiveBurn != nil {
+		flameThrottle = craft.Throttle
 	}
-	for _, c := range flame {
-		world := anchorWorld.Add(c.OffsetWorld)
-		v.canvas.PlotColored(world, c.Color)
-		v.canvas.SetCellOverlay(world, c.Glyph)
+	frameIdx := int(time.Now().UnixMilli()/flameFrameMs) % 2
+	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx, flameThrottle, frameIdx)
+	// Plot each pixel as a braille sub-cell dot via PlotColored.
+	// No SetCellOverlay glyph: braille dots are direction-agnostic,
+	// so a tilted rocket renders smoothly at any pitch — the
+	// gravity-turn smear the v0.11.3 ASCII first-cut produced is
+	// gone. ClearCellOverlay after each plot removes the LUT's
+	// body-fixed overlay glyphs in cells the rocket occupies, so
+	// the braille dots show through at the pad (otherwise the
+	// LUT's SetCellOverlay `║ ╤ █` would mask the rocket).
+	for _, p := range sprite {
+		world := anchorWorld.Add(p.OffsetWorld)
+		v.canvas.PlotColored(world, p.Color)
+		v.canvas.ClearCellOverlay(world)
+	}
+	for _, p := range flame {
+		world := anchorWorld.Add(p.OffsetWorld)
+		v.canvas.PlotColored(world, p.Color)
+		v.canvas.ClearCellOverlay(world)
 	}
 	return true
 }

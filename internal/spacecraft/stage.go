@@ -95,13 +95,17 @@ type Stage struct {
 	Glyph string
 	Color string
 
-	// LaunchSprite is the per-stage ASCII art rendered by the
-	// ViewLaunch chase-cam scene (multi-line, anchored at the
-	// stage's bottom centre). Additive in v0.11.0; Slice 1 leaves
-	// this unset and renders the rocket as the existing Glyph.
-	// Slice 3 populates the catalog entries and switches the
-	// render path to a composed-from-stages sprite.
-	LaunchSprite string
+	// LaunchSpriteRowsPx is the per-stage height (in braille
+	// sub-pixels) of this stage's silhouette in the ViewLaunch
+	// chase-cam scene. Stack composes bottom-to-top from Stages[0]
+	// along CurrentAttitudeDir; each stage paints a
+	// (spriteWidthPx × LaunchSpriteRowsPx) filled rectangle of
+	// braille dots via PlotColored. Zero means "no sprite, fall
+	// back to the vessel-level Glyph render." Pivoted from ASCII
+	// glyphs to braille pixels in v0.11.3 after playtest showed
+	// box-drawing characters smear at gravity-turn angles
+	// (see docs/v0.11-plan.md "Resolved at slice-open").
+	LaunchSpriteRowsPx int `json:",omitempty"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.
