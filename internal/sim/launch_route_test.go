@@ -609,6 +609,54 @@ func TestSwitchBetweenFlyingVesselsIsNoOp(t *testing.T) {
 	}
 }
 
+// TestLaunchRouteIgnoresViewLaunchAsPrevView — save-load edge case
+// from the v0.11.2 verify pass. The persisted save carries ViewMode
+// but not LaunchSessionActive, so a save taken mid-launch reloads
+// with `ViewMode=ViewLaunch` and `LaunchSessionActive=false`. The
+// first post-load tick then re-fires routeToLaunchView on the
+// Landed vessel — and without a guard would capture
+// `PrevViewMode = ViewLaunch`, making auto-release a no-op when apo
+// later crosses the floor (the screen would stay on LAUNCH forever).
+//
+// Guard contract: when ViewMode is already ViewLaunch at the moment
+// of route, leave PrevViewMode at whatever it was (its zero value,
+// ViewTilted, on a fresh post-load World). Subsequent auto-release
+// restores to that non-ViewLaunch fallback.
+func TestLaunchRouteIgnoresViewLaunchAsPrevView(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	// Simulate the post-save-load state: ViewMode reloaded as
+	// ViewLaunch, but session-scoped flags reset to zero (matching
+	// `internal/save/save.go`'s omitempty on session state).
+	w.ViewMode = ViewLaunch
+	// PrevViewMode and LaunchSessionActive at zero value (ViewTilted,
+	// false) — what a fresh World gives us after load.
+
+	if _, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:    spacecraft.LoadoutSaturnVID,
+		ParentBodyID: "earth",
+		Launchpad:    true,
+		Latitude:     28.6,
+	}); err != nil {
+		t.Fatalf("SpawnCraft (launchpad): %v", err)
+	}
+
+	w.Tick()
+
+	if !w.LaunchSessionActive {
+		t.Fatal("post-load tick: route handler didn't open a session, can't exercise the guard")
+	}
+	if w.PrevViewMode == ViewLaunch {
+		t.Errorf("PrevViewMode = ViewLaunch — guard failed; auto-release would later 'restore' back to ViewLaunch, a no-op")
+	}
+	if w.PrevViewMode != ViewTilted {
+		t.Errorf("PrevViewMode = %v, want ViewTilted (the zero-value fallback when guard suppresses the capture)", w.PrevViewMode)
+	}
+}
+
 // TestUndockRenumberIsNotASwitch — the v0.10+ undock path at
 // internal/sim/docking.go:330 shifts ActiveCraftIdx down when the
 // active craft sits above the dropped slot. The logical active is
