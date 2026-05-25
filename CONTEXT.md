@@ -35,6 +35,26 @@ act of jettisoning `Stages[0]`; the popped stage spawns as its own passive
 Vessel. Single-stage Vessels can't be staged (no-op + status flash).
 _Avoid_: Booster (one kind of stage, not all stages), Tank, Section.
 
+**Launch Sprite**:
+The per-Stage ASCII art rendered by the ViewLaunch chase-cam, conveying
+a Vessel's stack composition during launch. Composed bottom-to-top from
+`Stages[0]` (lowest in screen, firing engine) to `Stages[len-1]` (highest,
+payload). The stack stacks along the Vessel's `CurrentAttitudeDir`
+projected into the chase-cam basis, so a gravity-turned rocket leans
+visibly — but each Stage's individual cells stay screen-axis-aligned
+(no per-glyph rotation), and the lean reads from the stack-axis offset
+between successive Stages. Catalog convention: constant 2-cell width
+top-to-bottom, with Stage identity conveyed by horizontal **banding**
+glyphs (`╔╗` / `╚╝` caps, `╟╢` / `╠╣` band transitions, `║║` body)
+rather than tapered silhouette. Optional on a Stage (`json:",omitempty"`);
+absent or zoom-collapsed-below-one-cell sprites fall back to the
+Vessel-level `Glyph`. Below `Stages[0]` an animated amber **flame**
+extends along `-CurrentAttitudeDir`, length-binned by Throttle, when
+the engine is firing.
+_Avoid_: Sprite (bare — collides with the launch-tower LUT sprite and
+the body-texture sprites; qualify as Launch Sprite in launch-render
+contexts), Stage art, Rocket art.
+
 **Active Vessel**:
 The single Vessel the player is currently flying — indexed by
 `World.ActiveCraftIdx`. Only the Active Vessel responds to controls

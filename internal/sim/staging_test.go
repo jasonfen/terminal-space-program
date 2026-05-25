@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -228,5 +229,36 @@ func TestApolloStackDecoupleChainLeavesCSM(t *testing.T) {
 	}
 	if _, _, err := w.StageActive(0); !errors.Is(err, ErrStageOnlyOne) {
 		t.Errorf("dropping the CSM core: err = %v, want ErrStageOnlyOne", err)
+	}
+}
+
+// TestStageActivePreservesAttitudeOnDroppedStage — Slice v0.11.3:
+// the jettisoned stage inherits the active craft's CurrentAttitudeDir
+// at decouple time, so the dropped stage's launch-view sprite renders
+// at the angle it shed at (no snap-to-vertical or zero-cmd jitter).
+func TestStageActivePreservesAttitudeOnDroppedStage(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+	saturn.Primary = w.Crafts[0].Primary
+	saturn.State = w.Crafts[0].State
+	// Set a non-trivial pitched attitude (gravity-turn moment): the
+	// nose points 45° between +X and +Z. Magnitude doesn't have to be
+	// unit for the inheritance check.
+	saturn.CurrentAttitudeDir = orbital.Vec3{X: 0.5, Y: 0, Z: 0.5}
+	w.Crafts[0] = saturn
+	w.ActiveCraftIdx = 0
+
+	parentCmd := saturn.CurrentAttitudeDir
+	_, jettIdx, err := w.StageActive(0)
+	if err != nil {
+		t.Fatalf("StageActive: %v", err)
+	}
+	jett := w.Crafts[jettIdx]
+	if jett.CurrentAttitudeDir != parentCmd {
+		t.Errorf("jettisoned CurrentAttitudeDir: got %+v, want %+v (parent's at decouple)",
+			jett.CurrentAttitudeDir, parentCmd)
 	}
 }

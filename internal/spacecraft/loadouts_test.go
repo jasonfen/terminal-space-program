@@ -22,6 +22,23 @@ func TestLoadoutsCatalogShape(t *testing.T) {
 	}
 }
 
+// TestLoadoutsStagesHaveLaunchSprites — v0.11.3 Slice 4 parity: every
+// stage of every canonical loadout (S-IVB-1, ICPS, RCS-Tug, Lander,
+// Saturn-V, SLS, Falcon-9, Apollo-Stack) must carry a LaunchSprite so
+// the chase-cam launch view renders the composed stack, not a single
+// fallback glyph. Catalog-side coverage lives in TestStageCatalogShape.
+func TestLoadoutsStagesHaveLaunchSprites(t *testing.T) {
+	for _, id := range LoadoutOrder {
+		l := Loadouts[id]
+		for i, s := range l.Stages {
+			if s.LaunchSprite == "" {
+				t.Errorf("loadout %q stage %d (%q): empty LaunchSprite",
+					id, i, s.Name)
+			}
+		}
+	}
+}
+
 // TestLookupLoadoutFallback — empty / unknown IDs should fall back
 // to the S-IVB-1 default so legacy saves don't break.
 func TestLookupLoadoutFallback(t *testing.T) {
@@ -96,6 +113,12 @@ func TestStageCatalogShape(t *testing.T) {
 		}
 		if st.Name == "" || st.Glyph == "" || st.Color == "" {
 			t.Errorf("catalog stage %q: empty visual field on built Stage", id)
+		}
+		// v0.11.3 Slice 4: every catalog part ships a LaunchSprite so
+		// the chase-cam launch view renders the rocket as its actual
+		// stack rather than a single glyph.
+		if st.LaunchSprite == "" {
+			t.Errorf("catalog stage %q: empty LaunchSprite on built Stage", id)
 		}
 	}
 	if _, ok := StageCatalog[StageModuleCSMID]; !ok {

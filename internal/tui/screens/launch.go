@@ -336,19 +336,56 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 	// stages, sister crafts, anything sharing the primary. Drawn
 	// after the trail so an exact-overlap stage glyph wins over a
 	// trail dot.
-	v.drawSOICraft(w, craft, bodyCentre, camFromBody)
+	v.drawSOICraft(w, craft, bodyCentre, camFromBody, basis, scale)
 
-	// Active vessel at the camera centre — Slice 3 swaps for the
-	// composed-from-stages sprite; Slice 1 reuses the existing glyph.
-	glyph := '+'
-	if craft.Glyph != "" {
-		for _, r := range craft.Glyph {
-			glyph = r
-			break
+	// Active vessel at the camera centre. v0.11.3 (Slice 4):
+	// composed-from-stages sprite + amber pulsed flame below
+	// Stages[0]. Falls back to the legacy single-glyph render
+	// when no stage carries a LaunchSprite (custom NewFromStages
+	// crafts or sprite-less catalog overlays).
+	if !v.drawComposedRocket(craft, camWorld, basis, scale) {
+		glyph := '+'
+		if craft.Glyph != "" {
+			for _, r := range craft.Glyph {
+				glyph = r
+				break
+			}
 		}
+		v.canvas.SetCellOverlay(camWorld, glyph)
 	}
-	v.canvas.SetCellOverlay(camWorld, glyph)
 }
+
+// drawComposedRocket plots a vessel's composed-from-stages launch
+// sprite + flame at anchorWorld via the launch-render basis and
+// scale (v0.11.3 Slice 4). Returns false when no stage carries a
+// LaunchSprite — caller falls back to the legacy single-glyph
+// render. Flame frame index derives from wall-clock for a stable
+// ~100 ms pulse cadence regardless of sim warp.
+func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) bool {
+	sprite := ComposeLaunchSprite(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx)
+	if sprite == nil {
+		return false
+	}
+	frameIdx := int(time.Now().UnixMilli()/flameFrameMs) % 2
+	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx, craft.Throttle, frameIdx)
+	for _, c := range sprite {
+		world := anchorWorld.Add(c.OffsetWorld)
+		v.canvas.PlotColored(world, c.Color)
+		v.canvas.SetCellOverlay(world, c.Glyph)
+	}
+	for _, c := range flame {
+		world := anchorWorld.Add(c.OffsetWorld)
+		v.canvas.PlotColored(world, c.Color)
+		v.canvas.SetCellOverlay(world, c.Glyph)
+	}
+	return true
+}
+
+// flameFrameMs is the wall-clock period (ms) per flame animation
+// frame. Two frames swap at this cadence → full pulse cycle is
+// 2 × flameFrameMs (~200 ms). Tied to wall-clock so warp doesn't
+// speed up or slow down the visual pulse.
+const flameFrameMs = 100
 
 // chaseHorizontalAxis computes the projection-plane horizontal axis:
 // the commanded (CurrentAttitudeDir) projection onto the local-
@@ -504,7 +541,12 @@ const (
 // via the same near-hemisphere check the pad marker / tower use; canvas
 // bounds handle the off-frame case via Project's ok=false return inside
 // SetCellOverlay. No age or distance cull (Slice 2 grill resolution).
-func (v *LaunchView) drawSOICraft(w *sim.World, active *spacecraft.Spacecraft, bodyPos, camFromBody orbital.Vec3) {
+//
+// v0.11.3 Slice 4: dropped stages render via the same composed-sprite
+// path as the active vessel (now single-stage stacks) and inherit their
+// CurrentAttitudeDir from the parent at decouple time. Falls back to
+// the single-glyph render for crafts with no LaunchSprite.
+func (v *LaunchView) drawSOICraft(w *sim.World, active *spacecraft.Spacecraft, bodyPos, camFromBody orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) {
 	for _, c := range w.Crafts {
 		if c == nil || c == active {
 			continue
@@ -519,6 +561,9 @@ func (v *LaunchView) drawSOICraft(w *sim.World, active *spacecraft.Spacecraft, b
 			continue
 		}
 		cellWorld := bodyPos.Add(fromBody)
+		if v.drawComposedRocket(c, cellWorld, basis, scaleMPerPx) {
+			continue
+		}
 		v.canvas.PlotColored(cellWorld, render.ColorDim)
 		glyph := '·'
 		for _, r := range c.Glyph {

@@ -179,7 +179,28 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 		RCSThrust:            rcsThrust,
 		RCSIsp:               rcsIsp,
 		BallisticCoefficient: bc,
+		LaunchSprite:         catalogLaunchSpriteByName(name),
 	}
+}
+
+// catalogLaunchSpriteByName returns the StageCatalog launchSprite that
+// matches a loadout stage's Name. Used by stageWithBC to populate
+// LaunchSprite on loadout literals so canonical Saturn-V / SLS /
+// Falcon-9 / Apollo-Stack spawns render the composed stack via the
+// same data as configurator-built stacks (v0.11.3 Slice 4).
+//
+// Special case: the Apollo-Stack's "LM" stage maps to catalog ID
+// "lander" (Name = "Lander") — same physics, different loadout label.
+func catalogLaunchSpriteByName(name string) string {
+	if name == "LM" {
+		name = "Lander"
+	}
+	for _, m := range StageCatalog {
+		if m.Name == name {
+			return m.launchSprite
+		}
+	}
+	return ""
 }
 
 // Loadouts indexes the v0.8.2 launch set + v0.9.1 Saturn-V by ID.
