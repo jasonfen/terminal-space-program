@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -177,5 +179,76 @@ func TestLandedNoseTracksLocalUpThroughWarp(t *testing.T) {
 	}
 	if vUp := c.State.V.Dot(c.State.R.Unit()); vUp <= 0 {
 		t.Errorf("post-ignition vertical velocity not positive: %.3f m/s", vUp)
+	}
+}
+
+// TestLandedCraftStaysAtPadAfterLiftoff pins ADR 0003 end-to-end.
+// Pre-v0.11.2, surfaceSpawnPosVel seeded V = ω × r using the tilted
+// physical spin axis while render.BodyFixedToWorld used a
+// Snyder-at-ViewTop projection that rotated body-fixed points about
+// world +Z. The two evolutions diverged at ~250 m/s tangentially —
+// a Saturn V on KSC, 3 sim-seconds after ignition, drifted ~770 m
+// tangentially from where the renderer would draw the pad. With
+// BodyFixedToWorld rewritten as a pure spin-axis rotation, the
+// rocket's integrated R and the pad's body-fixed direction agree
+// to sub-metre tolerance.
+func TestLandedCraftStaysAtPadAfterLiftoff(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        28.6083,
+		LongitudeOffset: -80.604,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if !c.Landed {
+		t.Fatal("setup: launchpad spawn should set Landed=true")
+	}
+
+	c.Throttle = 1.0
+	c.AttitudeMode = spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	if c.Landed {
+		t.Fatal("setup: StartManualBurn should clear Landed")
+	}
+
+	// Advance ~3 sim-seconds. Base step is 50 ms (Hz=20 from
+	// internal/sim/clock.go); 60 ticks → ~3 s.
+	for i := 0; i < 60; i++ {
+		w.Tick()
+	}
+
+	// Where the renderer will draw the pad at this simTime.
+	padDir := render.BodyFixedToWorld(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, w.Clock.SimTime)
+	padVec := orbital.Vec3{X: padDir.X, Y: padDir.Y, Z: padDir.Z}
+	craftDir := c.State.R.Unit()
+
+	// Angular separation between the craft's radial vector and the
+	// pad's rendered direction. Multiply by primary radius for the
+	// tangential drift in metres.
+	cosTheta := craftDir.Dot(padVec)
+	if cosTheta > 1 {
+		cosTheta = 1
+	} else if cosTheta < -1 {
+		cosTheta = -1
+	}
+	angle := math.Acos(cosTheta)
+	tangentialM := c.Primary.RadiusMeters() * angle
+
+	if tangentialM > 1.0 {
+		t.Errorf("post-liftoff tangential drift = %.1f m (want < 1 m); pre-v0.11.2 bug surfaced ~770 m here",
+			tangentialM)
+	}
+
+	// Sanity: altitude must be small but positive (the rocket should
+	// have moved vertically off the pad, not just stayed put).
+	if alt := c.Altitude(); alt < 0.1 || alt > 1000 {
+		t.Errorf("post-3s altitude = %.2f m, expected small positive (~10 m); test setup may be wrong", alt)
 	}
 }

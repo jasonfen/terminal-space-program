@@ -29,7 +29,7 @@ func TestTerminatorReachesDistinctCells(t *testing.T) {
 	// Sub-solar at the +x limb → strong day/night gradient across
 	// the disk so adjacent cells differ.
 	light := &render.SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 90, EclipseFactor: 1}
-	tex := render.TextureFor(earth, r, 0, 0, light)
+	tex := render.TextureFor(earth, r, 0, 0, 0, 1, light)
 	if tex == nil {
 		t.Fatal("earth texture nil")
 	}

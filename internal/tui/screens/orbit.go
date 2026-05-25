@@ -460,7 +460,45 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				}
 			}
 		}
-		if tex := render.TextureFor(b, r, subLat, subLon, light); tex != nil {
+		// v0.11.2+ (ADR 0003): screen-up is the canvas-frame direction
+		// onto which body-local-north at the sub-observer projects.
+		// For free bodies it is the component of BodyRotationAxisWorld
+		// perpendicular to camDir, normalised, then expressed in the
+		// canvas (X, Y) basis. Tidally-locked bodies use the simplified
+		// (0, 1) — their texture orientation is already a fudge for
+		// near-side facing, and a small additional rotation from their
+		// (typically small) axial tilt isn't worth the extra geometry.
+		// Pole-on cases (n nearly parallel to camDir) collapse to
+		// (0, 1); the longitude is undefined at the pole anyway.
+		upX, upY := 0.0, 1.0
+		if !b.TidallyLocked {
+			n := render.BodyRotationAxisWorld(b)
+			nDotCam := n.X*camDir.X + n.Y*camDir.Y + n.Z*camDir.Z
+			nPerp := render.Vec3{
+				X: n.X - nDotCam*camDir.X,
+				Y: n.Y - nDotCam*camDir.Y,
+				Z: n.Z - nDotCam*camDir.Z,
+			}
+			mag := math.Sqrt(nPerp.X*nPerp.X + nPerp.Y*nPerp.Y + nPerp.Z*nPerp.Z)
+			if mag > 1e-6 {
+				inv := 1.0 / mag
+				bx := v.canvas.Basis().X
+				by := v.canvas.Basis().Y
+				upX = (nPerp.X*bx.X + nPerp.Y*bx.Y + nPerp.Z*bx.Z) * inv
+				upY = (nPerp.X*by.X + nPerp.Y*by.Y + nPerp.Z*by.Z) * inv
+				// Re-normalise inside the canvas plane (basis vectors
+				// are orthonormal so |(upX, upY)| should already be 1
+				// to FP precision, but guard against rounding).
+				m2 := math.Sqrt(upX*upX + upY*upY)
+				if m2 > 1e-9 {
+					upX /= m2
+					upY /= m2
+				} else {
+					upX, upY = 0, 1
+				}
+			}
+		}
+		if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
 			pxR := r
 			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
 				return tex(dx, dy, pxR)
@@ -1402,10 +1440,9 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		// Vertical / horizontal split of velocity in the body's
 		// rotating frame: vertical = v · r̂, horizontal = |v - v_vert·r̂|
 		// after subtracting the surface co-rotation ω×r so a craft
-		// sitting on the pad reads 0 m/s on both axes. Use the
-		// tilted spin axis (matches the launchpad spawn frame); the
-		// Z-aligned physics.AtmosphereOmega leaves a ~150 m/s
-		// residual at Earth's 23.5° axial tilt.
+		// sitting on the pad reads 0 m/s on both axes. ω is the
+		// body's physical spin axis (v0.11.2+: shared across renderer,
+		// spawn/landed, and physics.AtmosphereOmega per ADR 0003).
 		omegaRender := render.BodySpinOmegaWorld(c.Primary)
 		omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
 		vRel := c.State.V.Sub(omega.Cross(c.State.R))

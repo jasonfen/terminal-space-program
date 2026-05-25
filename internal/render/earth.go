@@ -112,7 +112,7 @@ var earthClouds = []continentEllipse{
 // or boreal (|lat| ≥ 55°); the outer ~8% of the disk (r² > 0.92)
 // blends to ColorEarthAtmosphere over non-ice pixels to give the
 // disk a recognisable blue-marble halo.
-func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorEarthOcean
 	}
@@ -121,7 +121,7 @@ func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipglos
 	ny := float64(dy) / float64(pxRadius)
 	r2 := nx*nx + ny*ny
 
-	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok {
 		return ColorEarthOcean
 	}
@@ -205,71 +205,77 @@ func inEllipse(lat, lon float64, c continentEllipse) bool {
 // day/night terminator (+ eclipse dimming). nil disables shading and
 // is the back-compat path (e.g. BodyHasTexture). The Sun is always
 // exempt — it is the light source and keeps its own limb darkening.
-func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg float64, light *SolarLight) BodyTexture {
+//
+// v0.11.2+ (ADR 0003): adds (screenUpX, screenUpY) — the canvas-frame
+// unit vector in the direction body-local-north at the sub-observer
+// projects on screen. Caller computes it once per body per frame
+// from BodyRotationAxisWorld, the canvas basis, and camDir; for the
+// pre-v0.11.2 "north is canvas-up" assumption pass (0, 1).
+func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64, light *SolarLight) BodyTexture {
 	if pxRadius < BodyTextureMinRadius {
 		return nil
 	}
-	base := bodyTextureBase(b, subLatDeg, subLonDeg)
+	base := bodyTextureBase(b, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if base == nil || b.ID == "sun" || light == nil {
 		return base
 	}
 	return func(dx, dy, r int) lipgloss.Color {
-		return Shade(base(dx, dy, r), light.FactorAt(dx, dy, r, subLatDeg, subLonDeg))
+		return Shade(base(dx, dy, r), light.FactorAt(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY))
 	}
 }
 
 // bodyTextureBase returns the unlit per-pixel surface shader for a
 // body, or nil if the body has no texture. Split out of TextureFor so
 // the v0.9.6 lighting wrapper has a single base closure to darken.
-func bodyTextureBase(b bodies.CelestialBody, subLatDeg, subLonDeg float64) BodyTexture {
+func bodyTextureBase(b bodies.CelestialBody, subLatDeg, subLonDeg, screenUpX, screenUpY float64) BodyTexture {
 	switch b.ID {
 	case "sun":
 		return func(dx, dy, r int) lipgloss.Color {
-			return SunPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return SunPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "earth":
 		return func(dx, dy, r int) lipgloss.Color {
-			return EarthPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return EarthPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "moon":
 		return func(dx, dy, r int) lipgloss.Color {
-			return MoonPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return MoonPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "mars":
 		return func(dx, dy, r int) lipgloss.Color {
-			return MarsPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return MarsPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "jupiter":
 		return func(dx, dy, r int) lipgloss.Color {
-			return JupiterPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return JupiterPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "saturn":
 		return func(dx, dy, r int) lipgloss.Color {
-			return SaturnPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return SaturnPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "uranus":
 		return func(dx, dy, r int) lipgloss.Color {
-			return UranusPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return UranusPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "neptune":
 		return func(dx, dy, r int) lipgloss.Color {
-			return NeptunePixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return NeptunePixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "io":
 		return func(dx, dy, r int) lipgloss.Color {
-			return IoPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return IoPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "europa":
 		return func(dx, dy, r int) lipgloss.Color {
-			return EuropaPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return EuropaPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "ganymede":
 		return func(dx, dy, r int) lipgloss.Color {
-			return GanymedePixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return GanymedePixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	case "callisto":
 		return func(dx, dy, r int) lipgloss.Color {
-			return CallistoPixelColor(dx, dy, r, subLatDeg, subLonDeg)
+			return CallistoPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		}
 	}
 	return nil
@@ -281,5 +287,5 @@ func bodyTextureBase(b bodies.CelestialBody, subLatDeg, subLonDeg float64) BodyT
 // sub-observer point doesn't affect the gate, so the boolean form
 // omits it.
 func BodyHasTexture(b bodies.CelestialBody, pxRadius int) bool {
-	return TextureFor(b, pxRadius, 0, 0, nil) != nil
+	return TextureFor(b, pxRadius, 0, 0, 0, 1, nil) != nil
 }

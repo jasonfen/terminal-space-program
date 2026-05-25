@@ -51,7 +51,7 @@ func TestSolarLightSubSolarFull(t *testing.T) {
 	// Camera and Sun both looking at (lat0, lon0); the disk-center
 	// pixel is the sub-solar point → full illumination (factor 1).
 	l := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 0}
-	got := l.FactorAt(0, 0, 32, 0, 0)
+	got := l.FactorAt(0, 0, 32, 0, 0, 0, 1)
 	if math.Abs(got-1) > 1e-6 {
 		t.Errorf("sub-solar pixel factor = %v, want 1", got)
 	}
@@ -61,7 +61,7 @@ func TestSolarLightAntiSolarFloor(t *testing.T) {
 	// Sun on the far side (sub-solar lon 180°); the camera-center
 	// pixel is the anti-solar point → night floor.
 	l := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 180}
-	got := l.FactorAt(0, 0, 32, 0, 0)
+	got := l.FactorAt(0, 0, 32, 0, 0, 0, 1)
 	if math.Abs(got-nightFloor) > 1e-6 {
 		t.Errorf("anti-solar pixel factor = %v, want nightFloor %v", got, nightFloor)
 	}
@@ -76,7 +76,7 @@ func TestSolarLightTerminatorMonotonic(t *testing.T) {
 	l := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 90}
 	prev := -1.0
 	for dx := -r; dx <= r; dx++ {
-		f := l.FactorAt(dx, 0, r, 0, 0)
+		f := l.FactorAt(dx, 0, r, 0, 0, 0, 1)
 		if f < prev-1e-9 {
 			t.Fatalf("factor not monotonic at dx=%d: %v < prev %v", dx, f, prev)
 		}
@@ -94,7 +94,7 @@ func TestSolarLightFactorRange(t *testing.T) {
 		if dx*dx+dy*dy > r*r {
 			continue
 		}
-		f := l.FactorAt(dx, dy, r, 0, 0)
+		f := l.FactorAt(dx, dy, r, 0, 0, 0, 1)
 		if f < umbraFloor-1e-9 || f > 1+1e-9 {
 			t.Fatalf("factor out of [%v,1] at (%d,%d): %v", umbraFloor, dx, dy, f)
 		}
@@ -108,8 +108,8 @@ func TestSolarLightEclipseMultiplies(t *testing.T) {
 	lit := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 0, EclipseFactor: 1}
 	ecl := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 0, EclipseFactor: 0.1}
 	for _, dx := range []int{-20, -8, 0, 8, 20} {
-		a := lit.FactorAt(dx, 0, r, 0, 0)
-		b := ecl.FactorAt(dx, 0, r, 0, 0)
+		a := lit.FactorAt(dx, 0, r, 0, 0, 0, 1)
+		b := ecl.FactorAt(dx, 0, r, 0, 0, 0, 1)
 		if b > a+1e-9 {
 			t.Errorf("eclipsed factor %v > lit %v at dx=%d", b, a, dx)
 		}
@@ -124,11 +124,11 @@ func TestTextureForShadesNightSide(t *testing.T) {
 	const r = 32
 	// Sub-solar on the far side → the camera-center pixel is night.
 	light := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 180, EclipseFactor: 1}
-	shaded := TextureFor(earth, r, 0, 0, light)
+	shaded := TextureFor(earth, r, 0, 0, 0, 1, light)
 	if shaded == nil {
 		t.Fatal("earth texture nil")
 	}
-	bare := EarthPixelColor(0, 0, r, 0, 0)
+	bare := EarthPixelColor(0, 0, r, 0, 0, 0, 1)
 	got := shaded(0, 0, r)
 	if channelSum(t, got) >= channelSum(t, bare) {
 		t.Errorf("night-side pixel %q not darker than bare %q", got, bare)
@@ -139,12 +139,12 @@ func TestTextureForSunExempt(t *testing.T) {
 	sun := bodies.CelestialBody{ID: "sun", BodyType: "Star"}
 	const r = 32
 	light := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 180, EclipseFactor: 0.1}
-	tex := TextureFor(sun, r, 0, 0, light)
+	tex := TextureFor(sun, r, 0, 0, 0, 1, light)
 	if tex == nil {
 		t.Fatal("sun texture nil")
 	}
 	for _, p := range [][2]int{{0, 0}, {8, -4}, {-10, 6}} {
-		if got, want := tex(p[0], p[1], r), SunPixelColor(p[0], p[1], r, 0, 0); got != want {
+		if got, want := tex(p[0], p[1], r), SunPixelColor(p[0], p[1], r, 0, 0, 0, 1); got != want {
 			t.Errorf("sun pixel (%d,%d) shaded: got %q want %q", p[0], p[1], got, want)
 		}
 	}
@@ -153,12 +153,12 @@ func TestTextureForSunExempt(t *testing.T) {
 func TestTextureForNilLightUnshaded(t *testing.T) {
 	earth := bodies.CelestialBody{ID: "earth", BodyType: "Planet"}
 	const r = 32
-	tex := TextureFor(earth, r, 0, 0, nil)
+	tex := TextureFor(earth, r, 0, 0, 0, 1, nil)
 	if tex == nil {
 		t.Fatal("earth texture nil")
 	}
 	for _, p := range [][2]int{{5, 5}, {-12, 3}, {0, 0}} {
-		if got, want := tex(p[0], p[1], r), EarthPixelColor(p[0], p[1], r, 0, 0); got != want {
+		if got, want := tex(p[0], p[1], r), EarthPixelColor(p[0], p[1], r, 0, 0, 0, 1); got != want {
 			t.Errorf("nil-light pixel (%d,%d): got %q want %q", p[0], p[1], got, want)
 		}
 	}

@@ -30,21 +30,48 @@ func AtmosphericDensity(primary bodies.CelestialBody, altitude float64) float64 
 	return atm.SurfaceDensity * math.Exp(-altitude/atm.ScaleHeight)
 }
 
-// AtmosphereOmega returns the body's spin angular-velocity vector (rad/s)
-// in the inertial frame the simulation uses (Z is the orbital-pole axis;
-// the ecliptic-plane assumption from elsewhere in the codebase carries
-// over here so the atmosphere co-rotates about +Z). Returns zero when
-// SideralRotation isn't populated. SideralRotation is stored in hours
-// (sidereal day length) per the JSON catalog convention.
+// AtmosphereOmega returns the body's spin angular-velocity vector
+// (rad/s) in the world inertial frame. Tilted along the body's
+// physical spin axis per AxialTilt + AxialAzimuth, matching
+// render.BodyRotationAxisWorld so the drag frame agrees with the
+// integrator's surface-co-rotation frame and the renderer's body-
+// fixed projection (ADR 0003). Returns zero when the body has no
+// rotation period set.
+//
+// Period selection mirrors render.rotationPeriodSeconds: tidally-
+// locked bodies use SideralOrbit, free bodies use SideralRotation
+// (both stored as hours / days respectively per catalog convention).
+//
+// Pre-v0.11.2 this was a Z-aligned approximation ("the atmosphere
+// co-rotates about world +Z"). The Z-aligned shortcut diverged from
+// the integrator's tilted-axis surface velocity for any body with
+// non-zero AxialTilt; ADR 0003 unifies the convention.
 func AtmosphereOmega(primary bodies.CelestialBody) orbital.Vec3 {
-	if primary.SideralRotation == 0 {
-		return orbital.Vec3{}
-	}
-	periodSec := primary.SideralRotation * 3600
+	periodSec := atmospherePeriodSeconds(primary)
 	if periodSec == 0 {
 		return orbital.Vec3{}
 	}
-	return orbital.Vec3{Z: 2 * math.Pi / periodSec}
+	mag := 2 * math.Pi / periodSec
+	tiltRad := primary.AxialTilt * math.Pi / 180.0
+	azRad := primary.AxialAzimuth * math.Pi / 180.0
+	sinT := math.Sin(tiltRad)
+	cosT := math.Cos(tiltRad)
+	return orbital.Vec3{
+		X: mag * sinT * math.Cos(azRad),
+		Y: mag * sinT * math.Sin(azRad),
+		Z: mag * cosT,
+	}
+}
+
+// atmospherePeriodSeconds picks the period that drives the body's
+// physical rotation: orbital period for tidally-locked moons,
+// sidereal rotation period otherwise. Mirrors render.rotationPeriodSeconds
+// so the two layers share the same convention.
+func atmospherePeriodSeconds(primary bodies.CelestialBody) float64 {
+	if primary.TidallyLocked {
+		return primary.SideralOrbitSeconds()
+	}
+	return primary.SideralRotationSeconds()
 }
 
 // DragAccel returns the atmospheric-drag acceleration vector on a craft

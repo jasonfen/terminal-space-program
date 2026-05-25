@@ -319,7 +319,7 @@ func TestProjectionDyConvention(t *testing.T) {
 	// Sub-observer at lat 0, lon 0 (equator-on view). Pixel
 	// directly above the body center on screen (dy<0) should
 	// project to a northern latitude.
-	latAbove, _, ok := projectPixelToLatLon(0, -10, 32, 0, 0)
+	latAbove, _, ok := projectPixelToLatLon(0, -10, 32, 0, 0, 0, 1)
 	if !ok {
 		t.Fatal("projection failed for valid disk pixel")
 	}
@@ -328,7 +328,7 @@ func TestProjectionDyConvention(t *testing.T) {
 	}
 	// Pixel directly below body center on screen (dy>0) should
 	// project to a southern latitude.
-	latBelow, _, ok := projectPixelToLatLon(0, 10, 32, 0, 0)
+	latBelow, _, ok := projectPixelToLatLon(0, 10, 32, 0, 0, 0, 1)
 	if !ok {
 		t.Fatal("projection failed for valid disk pixel")
 	}
@@ -344,7 +344,7 @@ func TestProjectionRoundTripsSubObserverPoint(t *testing.T) {
 		{0, 0}, {0, -30}, {30, 60}, {-45, 90}, {66.5, -120},
 	}
 	for _, c := range cases {
-		lat, lon, ok := projectPixelToLatLon(0, 0, 32, c.subLat, c.subLon)
+		lat, lon, ok := projectPixelToLatLon(0, 0, 32, c.subLat, c.subLon, 0, 1)
 		if !ok {
 			// Sub-observer at the pole can be degenerate; skip.
 			continue
@@ -370,7 +370,7 @@ func TestProjectionEquatorOnMatchesV0Point8Point5(t *testing.T) {
 			if nx*nx+ny*ny > (r-1)*(r-1) {
 				continue
 			}
-			lat, lon, ok := projectPixelToLatLon(nx, ny, r, 0, subLon)
+			lat, lon, ok := projectPixelToLatLon(nx, ny, r, 0, subLon, 0, 1)
 			if !ok {
 				continue
 			}
@@ -555,5 +555,94 @@ func TestWorldToBodyFixedRoundTrip(t *testing.T) {
 			t.Errorf("(%g,%g) → lon round-tripped to %g (wrapped diff %g)",
 				tc.lat, tc.lon, gotLon, dlon)
 		}
+	}
+}
+
+// TestBodyFixedToWorldIsPureSpinAxisRotation pins ADR 0003. The
+// world-frame direction of a body-fixed (lat, lon) point must evolve
+// as a pure rotation about BodyRotationAxisWorld at rate
+// |BodySpinOmegaWorld|. Pre-v0.11.2 the Snyder-at-ViewTop construction
+// failed this for tilted bodies — the implicit rotation axis was
+// world +Z, not the physical spin axis, so a 1-hour Δt yielded a
+// world-frame vector ~32° off from the rotation-about-n prediction
+// on Earth.
+func TestBodyFixedToWorldIsPureSpinAxisRotation(t *testing.T) {
+	earth := bodies.CelestialBody{
+		ID:              "earth",
+		SideralRotation: 23.9345,
+		AxialTilt:       23.44,
+		MeanRadius:      6371.0,
+	}
+	t0 := rotationEpoch.Add(1 * time.Hour)
+	const dtSec = 3600.0
+	t1 := t0.Add(time.Duration(dtSec) * time.Second)
+
+	n := BodyRotationAxisWorld(earth)
+	omegaVec := BodySpinOmegaWorld(earth)
+	omegaMag := math.Sqrt(omegaVec.X*omegaVec.X + omegaVec.Y*omegaVec.Y + omegaVec.Z*omegaVec.Z)
+	phase := omegaMag * dtSec
+
+	cases := []struct{ lat, lon float64 }{
+		{0, 0},
+		{45, 30},
+		{-30, 120},
+		{28.6, -80.6}, // KSC
+		{0, 180},
+	}
+	for _, tc := range cases {
+		v0 := BodyFixedToWorld(earth, tc.lat, tc.lon, t0)
+		v1 := BodyFixedToWorld(earth, tc.lat, tc.lon, t1)
+		rotated := rodriguesRotate(v0, n, phase)
+		d := Vec3{rotated.X - v1.X, rotated.Y - v1.Y, rotated.Z - v1.Z}
+		err := math.Sqrt(d.X*d.X + d.Y*d.Y + d.Z*d.Z)
+		if err > 1e-9 {
+			t.Errorf("(lat=%g, lon=%g): rotation about spin axis disagrees with BodyFixedToWorld Δt: |err|=%g\n  rotated(v0,n,φ)=%+v\n  v1=%+v",
+				tc.lat, tc.lon, err, rotated, v1)
+		}
+	}
+}
+
+// TestBodyFixedToWorldEpochOffsetCentersIconicFace pins ADR 0003's
+// invariant for the bodyEpochOffsetDeg sweep — the per-body offsets
+// continue to mean "body-lon at the canonical-reference-view (camera
+// at body-x-axis) disk centre at epoch is bodyEpochOffsetDeg." The
+// new spin-axis BodyFixedToWorld must place that (lat=visible-disk-
+// centre, lon=bodyEpochOffsetDeg) point at world +X.
+//
+// For Earth at AxialTilt=23.44° the visible disk centre is at body
+// lat 23.44° (not 0°) — the tilt shifts the sub-observer northward.
+// So body-fixed (23.44°, -30°) should land at world +X at epoch.
+func TestBodyFixedToWorldEpochOffsetCentersIconicFace(t *testing.T) {
+	earth := bodies.CelestialBody{
+		ID:              "earth",
+		SideralRotation: 23.9345,
+		AxialTilt:       23.44,
+	}
+	// At canonical reference view, the sub-observer lat is the tilt
+	// magnitude (because the camera sits in the equatorial plane).
+	subLat, subLon := SubObserverPointDeg(earth, rotationEpoch, CameraDirRight, Vec3{})
+	v := BodyFixedToWorld(earth, subLat, subLon, rotationEpoch)
+	// Must equal world +X to FP precision: that's where the canonical
+	// view's camera looks, so the disk centre is exactly camDir.
+	if math.Abs(v.X-1) > 1e-9 || math.Abs(v.Y) > 1e-9 || math.Abs(v.Z) > 1e-9 {
+		t.Errorf("canonical view disk centre at epoch: BodyFixedToWorld(%g, %g) = %+v, want (1, 0, 0)",
+			subLat, subLon, v)
+	}
+	// Sanity: subLon must equal Earth's bodyEpochOffsetDeg (= -30).
+	if math.Abs(subLon-bodyEpochOffsetDeg["earth"]) > 1e-9 {
+		t.Errorf("canonical view subLon = %v, want %v (bodyEpochOffsetDeg)", subLon, bodyEpochOffsetDeg["earth"])
+	}
+}
+
+// rodriguesRotate rotates v about unit axis k by angle (radians).
+func rodriguesRotate(v, k Vec3, angle float64) Vec3 {
+	c := math.Cos(angle)
+	s := math.Sin(angle)
+	vDotK := dot(v, k)
+	kCrossV := cross(k, v)
+	return Vec3{
+		X: v.X*c + kCrossV.X*s + k.X*vDotK*(1-c),
+		Y: v.Y*c + kCrossV.Y*s + k.Y*vDotK*(1-c),
+		Z: v.Z*c + kCrossV.Z*s + k.Z*vDotK*(1-c),
 	}
 }

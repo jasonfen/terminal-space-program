@@ -30,14 +30,11 @@ var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
 // itself when transforming to world coords. Don't put helio
 // offsets in `c.State`.
 //
-// Surface co-rotation velocity uses the **tilted** spin angular-
-// velocity vector ω = (2π/period)·n_hat, not the Z-aligned
-// approximation `physics.AtmosphereOmega` uses for drag. The two
-// disagree by a few percent in magnitude + a Z component; drag
-// keeps its approximation for back-compat. The drift between the
-// craft's spawn velocity (tilted ω×r) and drag's "wind" (Z-aligned
-// ω×r) shows up as a small residual aerodynamic force at altitude
-// 0 — typically negligible.
+// Surface co-rotation velocity uses the body's tilted spin
+// angular-velocity vector ω = (2π/period)·n_hat — the same one
+// `physics.AtmosphereOmega` returns post-v0.11.2 (ADR 0003) so the
+// craft's spawn velocity, drag's atmospheric wind, and the landed
+// integrator's per-tick R-rotation all agree to FP precision.
 //
 // Latitude in degrees north positive (clamped to [-90, 90] by the
 // caller). Longitude in degrees east positive (real-Earth-style).

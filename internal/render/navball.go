@@ -246,7 +246,14 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 					if dx*dx+dy*dy > pxR*pxR {
 						continue
 					}
-					lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg)
+					// Navball's own local-north (toward +90° lat on the
+					// abstract orientation sphere) is canvas-up by
+					// construction — the ball is drawn flush with the
+					// terminal cell grid and is not a tilted celestial
+					// body. v0.11.2+ (ADR 0003): pass (0, 1) directly so
+					// the navball texture pipeline stays orientation-
+					// preserving and decoupled from any body's spin axis.
+					lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg, 0, 1)
 					if !ok {
 						continue
 					}

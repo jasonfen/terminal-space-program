@@ -6,7 +6,7 @@ import (
 
 func TestIoPixelColorBaseAndPatera(t *testing.T) {
 	// Off-feature lat/lon → sulfur base.
-	got := IoPixelColor(0, 0, 32, 0, 0)
+	got := IoPixelColor(0, 0, 32, 0, 0, 0, 1)
 	if got != ColorIoBase {
 		t.Errorf("Io center = %q, want base %q", string(got), string(ColorIoBase))
 	}
@@ -20,7 +20,7 @@ func TestIoPixelColorBaseAndPatera(t *testing.T) {
 			if dx*dx+dy*dy > r2 {
 				continue
 			}
-			seen[string(IoPixelColor(dx, dy, r, 0, 0))] = true
+			seen[string(IoPixelColor(dx, dy, r, 0, 0, 0, 1))] = true
 		}
 	}
 	if !seen[string(ColorIoPatera)] && !seen[string(ColorIoFresh)] {
@@ -34,7 +34,7 @@ func TestEuropaPixelColorIceAndLineae(t *testing.T) {
 	r := 32
 	dy := int(-0.766 * float64(r)) // dy<0 = above body center on screen → ny = +sin(50°)
 	dx := int(-0.633 * float64(r))  // cos(50°)*sin(-100°) ≈ -0.633
-	got := EuropaPixelColor(dx, dy, r, 0, 0)
+	got := EuropaPixelColor(dx, dy, r, 0, 0, 0, 1)
 	if got != ColorEuropaIce {
 		t.Errorf("Europa off-linea = %q, want ice %q", string(got), string(ColorEuropaIce))
 	}
@@ -46,7 +46,7 @@ func TestEuropaPixelColorIceAndLineae(t *testing.T) {
 			if dx*dx+dy*dy > r2 {
 				continue
 			}
-			seen[string(EuropaPixelColor(dx, dy, r, 0, 0))] = true
+			seen[string(EuropaPixelColor(dx, dy, r, 0, 0, 0, 1))] = true
 		}
 	}
 	if !seen[string(ColorEuropaLine)] {
@@ -63,7 +63,7 @@ func TestGanymedeHasDarkAndBright(t *testing.T) {
 			if dx*dx+dy*dy > r2 {
 				continue
 			}
-			seen[string(GanymedePixelColor(dx, dy, r, 0, 0))] = true
+			seen[string(GanymedePixelColor(dx, dy, r, 0, 0, 0, 1))] = true
 		}
 	}
 	for _, want := range []string{string(ColorGanymedeBright), string(ColorGanymedeDark)} {
@@ -82,7 +82,7 @@ func TestCallistoBaseAndCraters(t *testing.T) {
 			if dx*dx+dy*dy > r2 {
 				continue
 			}
-			seen[string(CallistoPixelColor(dx, dy, r, 0, 0))] = true
+			seen[string(CallistoPixelColor(dx, dy, r, 0, 0, 0, 1))] = true
 		}
 	}
 	if !seen[string(ColorCallistoBase)] {
@@ -98,10 +98,10 @@ func TestGalileanTexturesDeterministic(t *testing.T) {
 		name string
 		fn   func(int, int, int, float64, float64) string
 	}{
-		{"io", func(dx, dy, r int, lat, lon float64) string { return string(IoPixelColor(dx, dy, r, lat, lon)) }},
-		{"europa", func(dx, dy, r int, lat, lon float64) string { return string(EuropaPixelColor(dx, dy, r, lat, lon)) }},
-		{"ganymede", func(dx, dy, r int, lat, lon float64) string { return string(GanymedePixelColor(dx, dy, r, lat, lon)) }},
-		{"callisto", func(dx, dy, r int, lat, lon float64) string { return string(CallistoPixelColor(dx, dy, r, lat, lon)) }},
+		{"io", func(dx, dy, r int, lat, lon float64) string { return string(IoPixelColor(dx, dy, r, lat, lon, 0, 1)) }},
+		{"europa", func(dx, dy, r int, lat, lon float64) string { return string(EuropaPixelColor(dx, dy, r, lat, lon, 0, 1)) }},
+		{"ganymede", func(dx, dy, r int, lat, lon float64) string { return string(GanymedePixelColor(dx, dy, r, lat, lon, 0, 1)) }},
+		{"callisto", func(dx, dy, r int, lat, lon float64) string { return string(CallistoPixelColor(dx, dy, r, lat, lon, 0, 1)) }},
 	}
 	r := 32
 	for _, tt := range tests {

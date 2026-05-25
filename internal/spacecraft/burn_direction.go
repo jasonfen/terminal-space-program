@@ -45,11 +45,9 @@ func (s *Spacecraft) BurnDirection(mode BurnMode) orbital.Vec3 {
 //
 // v0.9.3+.
 func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
-	// Tilted spin axis (matches the launchpad spawn frame). The
-	// Z-aligned physics.AtmosphereOmega is fine for the drag
-	// approximation but leaves a ~150 m/s direction-vector residual at
-	// Earth's 23.5° axial tilt — visible to the player as SAS aiming
-	// noticeably off the velocity vector.
+	// Body's tilted spin axis — shared with the launchpad spawn
+	// frame, the landed integrator, and physics.AtmosphereOmega
+	// (v0.11.2+ unification, ADR 0003). One ω across the codebase.
 	omegaR := render.BodySpinOmegaWorld(s.Primary)
 	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
 	axisR := render.BodyRotationAxisWorld(s.Primary)

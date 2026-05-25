@@ -58,8 +58,8 @@ type SolarLight struct {
 // yields the pixel's (lat,lon) in the same frame as SubSolar*, so the
 // spherical-cosine angular distance below is frame-consistent and the
 // epoch offset cancels.
-func (s *SolarLight) FactorAt(dx, dy, r int, subLatDeg, subLonDeg float64) float64 {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, r, subLatDeg, subLonDeg)
+func (s *SolarLight) FactorAt(dx, dy, r int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) float64 {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok && (lat == 0 && lon == 0) {
 		// Degenerate radius (r < 1). No meaningful geometry — treat
 		// as fully lit so we never darken a body to nothing on a

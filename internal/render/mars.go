@@ -58,11 +58,11 @@ var marsFeatures = []continentEllipse{
 // (subLatDeg, subLonDeg). v0.8.5.7+ takes the full sub-observer
 // point so view-aware rendering shows poles from above and
 // equator from the side.
-func MarsPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+func MarsPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorMarsRust
 	}
-	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok {
 		return ColorMarsIce
 	}

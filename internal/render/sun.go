@@ -35,7 +35,7 @@ var sunSpots = []continentEllipse{
 // and noticeably darker at the limb in real photos); a small set
 // of sunspots layered on the mid-surface band adds character.
 // v0.8.5.7+.
-func SunPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+func SunPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorSunSurface
 	}
@@ -50,7 +50,7 @@ func SunPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.
 		// Mid-disk — solar surface, with sunspots layered on top.
 		// Project to lat/lon for the spot lookup so spots track
 		// the rotation phase set by SubObserverPointDeg.
-		lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+		lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 		if ok {
 			for _, s := range sunSpots {
 				if inEllipse(lat, absLon, s) {

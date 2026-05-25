@@ -42,11 +42,11 @@ var saturnBands = []struct {
 // hexagon stays at lat ≈ 78°N regardless of view direction
 // (top view sees the hex pole-on; side views see it near the
 // limb).
-func SaturnPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+func SaturnPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorSaturnZone
 	}
-	lat, _, _ := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+	lat, _, _ := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	color := ColorSaturnPole
 	for _, b := range saturnBands {
 		if lat >= b.latMin && lat < b.latMax {
