@@ -36,21 +36,35 @@ Vessel. Single-stage Vessels can't be staged (no-op + status flash).
 _Avoid_: Booster (one kind of stage, not all stages), Tank, Section.
 
 **Launch Sprite**:
-The per-Stage ASCII art rendered by the ViewLaunch chase-cam, conveying
-a Vessel's stack composition during launch. Composed bottom-to-top from
-`Stages[0]` (lowest in screen, firing engine) to `Stages[len-1]` (highest,
-payload). The stack stacks along the Vessel's `CurrentAttitudeDir`
-projected into the chase-cam basis, so a gravity-turned rocket leans
-visibly — but each Stage's individual cells stay screen-axis-aligned
-(no per-glyph rotation), and the lean reads from the stack-axis offset
-between successive Stages. Catalog convention: constant 2-cell width
-top-to-bottom, with Stage identity conveyed by horizontal **banding**
-glyphs (`╔╗` / `╚╝` caps, `╟╢` / `╠╣` band transitions, `║║` body)
-rather than tapered silhouette. Optional on a Stage (`json:",omitempty"`);
-absent or zoom-collapsed-below-one-cell sprites fall back to the
-Vessel-level `Glyph`. Below `Stages[0]` an animated amber **flame**
-extends along `-CurrentAttitudeDir`, length-binned by Throttle, when
-the engine is firing.
+The per-Stage **braille-pixel silhouette** rendered by the ViewLaunch
+chase-cam, conveying a Vessel's stack composition during launch. Each
+Stage paints a (2 sub-pixels wide × `LaunchSpriteRowsPx` tall) filled
+rectangle of braille dots via `PlotColored` in the Stage's catalog
+color. Stages stack bottom-to-top from `Stages[0]` (lowest in screen,
+firing engine) to `Stages[len-1]` (payload, highest) along the
+Vessel's `CurrentAttitudeDir` projected into the chase-cam basis —
+so a gravity-turned rocket leans smoothly at any pitch (braille dots
+are direction-agnostic, so no glyph-rotation problem). Per-Stage
+identity reads from color + height; the LUT's body-fixed
+`SetCellOverlay` glyphs are cleared at rocket-pixel cells so the
+braille dots show through at the pad.
+
+Stage convention: `LaunchSpriteRowsPx` is *stylised* (chosen so the
+stack reads well at typical pad-launch zoom), not derived from real
+metres. Zero `LaunchSpriteRowsPx` means "no sprite, fall back to the
+Vessel-level `Glyph`." Below `Stages[0]` an amber **flame** of the
+same braille primitive extends along `-CurrentAttitudeDir`,
+length-binned by Throttle (4 / 8 / 12 sub-pixels), pulsed by a
+wall-clock 100 ms frame shift. The flame renders only while the
+Vessel has an active `ManualBurn` or `ActiveBurn` — pad-spawn
+loadout-default Throttle=1.0 alone does not paint flame.
+
+History: the v0.11.3 first cut used multi-line ASCII glyphs
+(`╔╗ ║║ ▓▓ ╚╝`); the playtest showed box-drawing characters smear at
+gravity-turn angles (the 2-col-wide width axis runs perpendicular to
+a near-horizontal stack and the cells split across terminal rows).
+The braille pivot replaced the ASCII string with `LaunchSpriteRowsPx
+int` mid-cycle.
 _Avoid_: Sprite (bare — collides with the launch-tower LUT sprite and
 the body-texture sprites; qualify as Launch Sprite in launch-render
 contexts), Stage art, Rocket art.

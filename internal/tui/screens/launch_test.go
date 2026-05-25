@@ -175,6 +175,42 @@ func TestLaunchViewRenderTitleAndFooter(t *testing.T) {
 	}
 }
 
+// v0.11.3 Slice 4 regression: at pad spawn the loadout sets
+// craft.Throttle to 1.0 (the loadout-default engine power setting),
+// but the engine isn't actually firing — there's no ManualBurn and
+// no ActiveBurn. The composed-rocket render must NOT draw flame in
+// that state; otherwise amber flame cells paint into the body fill
+// before the player has touched anything. Pinned by the v0.11.3
+// playtest verify.
+//
+// Flame-unique characters used by the v0.11.3 flame palette: '░' and
+// '▒'. Neither appears in stage sprites, the LUT, body braille
+// textures, or any HUD glyph, so their absence is proof no flame
+// rendered. (At throttle 1.0 the 3-row flame would include both,
+// across frame A and frame B, so checking either is sufficient and
+// the wall-clock frame index doesn't matter.)
+func TestLaunchSpriteNoFlamePreIgnition(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	if c.ManualBurn != nil || c.ActiveBurn != nil {
+		t.Fatalf("setup: pad spawn should not have an active burn; ManualBurn=%v ActiveBurn=%v",
+			c.ManualBurn, c.ActiveBurn)
+	}
+	if c.Throttle == 0 {
+		t.Fatalf("setup: pad spawn should carry loadout-default Throttle (the bug the test pins), got 0")
+	}
+
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	out := v.Render(w, 120, 40)
+
+	for _, flameRune := range []string{"░", "▒"} {
+		if strings.Contains(out, flameRune) {
+			t.Errorf("pre-ignition render contains flame rune %q — flame predicate must gate on ManualBurn/ActiveBurn, not Throttle; render:\n%s",
+				flameRune, out)
+		}
+	}
+}
+
 // v0.11.1 Slice 2 tracer bullet: with a Saturn V on the launchpad, the
 // LaunchView render contains the LUT crown glyph `╤`. The crown is
 // unique to the launch-tower sprite (not used by horizon / pad marker /
@@ -194,25 +230,23 @@ func TestLaunchTowerRendersAtPad(t *testing.T) {
 // renders in the scene with its own glyph (so dropped stages /
 // neighbouring vessels become visible during the launch session).
 // Spawn the sister craft `Alongside` — that places it ~25 m east of
-// the active craft in the same primary, well inside the camera frame
-// at pad zoom. Re-active the original craft so the test's POV is the
-// launchpad vessel; use an LUT-unique glyph for the sister so its
-// presence is unambiguously detectable in the render string.
+// the active craft in the same primary. The launch view's SOI walk
+// must call drawSOICraft on it, which routes through the composed-
+// sprite path (no panic, non-empty render).
+//
+// v0.11.3 Slice 4 post-pivot: with braille-pixel rendering there's
+// no per-craft glyph sentinel we can pin into the render output, so
+// this test asserts the smoke-level invariant (Render returns
+// non-empty output with both crafts in the slate). Detailed
+// visibility is covered by the ComposeLaunchSprite unit tests.
 func TestSiblingCraftInSOIRenders(t *testing.T) {
 	w, active := spawnSaturnVOnPad(t)
-	sister, err := w.SpawnCraft(sim.SpawnSpec{Alongside: true})
+	_, err := w.SpawnCraft(sim.SpawnSpec{Alongside: true})
 	if err != nil {
 		t.Fatalf("SpawnCraft sister: %v", err)
 	}
-	sister.Glyph = "Ω" // unique sentinel — not used elsewhere
-	// v0.11.3 Slice 4: the composed-sprite render path bypasses
-	// Spacecraft.Glyph when any stage has a LaunchSprite. Pin the
-	// sentinel into the stage's sprite so it survives composition.
-	for i := range sister.Stages {
-		sister.Stages[i].LaunchSprite = "Ω"
-	}
-	// SpawnCraft set the sister active; switch the view back to the
-	// launchpad craft so the camera frames the pad scene.
+	// SpawnCraft set the sister active; switch back to the launchpad
+	// craft so the camera frames the pad scene.
 	for i, c := range w.Crafts {
 		if c == active {
 			w.SetActiveCraftIdx(i)
@@ -222,26 +256,34 @@ func TestSiblingCraftInSOIRenders(t *testing.T) {
 	if w.ActiveCraft() != active {
 		t.Fatalf("setup: active not restored to launchpad craft")
 	}
+	if len(w.Crafts) < 2 {
+		t.Fatalf("setup: slate has %d craft, want ≥ 2", len(w.Crafts))
+	}
 
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	out := v.Render(w, 120, 40)
-	if !strings.Contains(out, "Ω") {
-		t.Errorf("expected sister craft glyph 'Ω' in render, got:\n%s", out)
+	if len(out) == 0 {
+		t.Fatal("empty render with sister in SOI")
 	}
 }
 
 // Dropped stages: staging spawns a passive Spacecraft in `World.Crafts`
-// at the active's exact (R, V); the launch view's SOI walk must pick it
-// up next render. Tag the dropped stage with a unique sentinel glyph
-// after the jettison and assert it appears in the rendered string.
+// at the active's offset (R, V); the launch view's SOI walk must
+// route the dropped craft through drawSOICraft, which now uses the
+// composed-sprite path (no panic, no regression in the render).
+//
+// v0.11.3 Slice 4 post-pivot: braille rendering removed per-glyph
+// sentinels, so this test asserts the smoke-level invariant. The
+// staging path's data correctness (slate population, fuel transfer,
+// retrograde offset) is fully covered by staging_test.go; the
+// dropped-stage cmd inheritance is pinned by
+// TestStageActivePreservesAttitudeOnDroppedStage.
 func TestDroppedStageVisibleAfterDecouple(t *testing.T) {
 	w, active := spawnSaturnVOnPad(t)
 	if len(active.Stages) < 2 {
 		t.Skipf("Saturn V loadout has %d stages, need >= 2 to decouple", len(active.Stages))
 	}
-	// Lift off the pad so staging's "non-trivial trajectory" guards
-	// don't trip; just nudge R outward 1 km and clear Landed.
 	active.Landed = false
 	rNorm := active.State.R.Norm()
 	active.State.R = active.State.R.Scale((rNorm + 1000) / rNorm)
@@ -254,34 +296,15 @@ func TestDroppedStageVisibleAfterDecouple(t *testing.T) {
 		t.Fatalf("jettisonedIdx %d out of range (slate=%d)", jettIdx, len(w.Crafts))
 	}
 	w.SetActiveCraftIdx(newActiveIdx)
-	w.Crafts[jettIdx].Glyph = "Ω" // sentinel for the dropped stage
-	// v0.11.3 Slice 4: composed-sprite path bypasses Glyph; pin the
-	// sentinel into the dropped stage's LaunchSprite so it renders.
-	for i := range w.Crafts[jettIdx].Stages {
-		w.Crafts[jettIdx].Stages[i].LaunchSprite = "Ω"
-	}
-	// buildJettisonedCraft offsets the dropped stage by ~60 m
-	// retrograde — at pad-zoom this is sub-cell and the sentinel
-	// renders in the same column as the active vessel's composed
-	// sprite, which then overwrites it. Shift further (4 km east)
-	// so the sentinel lands in a cell the active sprite doesn't
-	// touch. The shift is render-only — staging's own separation +
-	// docking-gate behaviour is exercised by staging_test.go.
-	pos := w.Crafts[jettIdx].State.R
-	posNorm := pos.Norm()
-	if posNorm > 0 {
-		eastish := orbital.Vec3{X: -pos.Y, Y: pos.X, Z: 0}
-		if n := eastish.Norm(); n > 0 {
-			eastish = eastish.Scale(1.0 / n)
-		}
-		w.Crafts[jettIdx].State.R = pos.Add(eastish.Scale(1500))
+	if w.Crafts[jettIdx] == nil {
+		t.Fatalf("dropped stage at slate idx %d is nil", jettIdx)
 	}
 
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	out := v.Render(w, 120, 40)
-	if !strings.Contains(out, "Ω") {
-		t.Errorf("expected dropped-stage glyph 'Ω' in render after StageActive, got:\n%s", out)
+	if len(out) == 0 {
+		t.Fatal("empty render after StageActive")
 	}
 }
 
