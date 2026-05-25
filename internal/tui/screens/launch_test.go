@@ -422,6 +422,52 @@ func TestLaunchTowerStaysVisibleDuringEarlyAscent(t *testing.T) {
 	}
 }
 
+// TestLaunchTowerRecedesAsRocketClimbs — v0.11.3 playtest fix: the
+// original LUT row-stride was `scaleMPerPx · canvasCellPxH`, so the
+// LUT's world height scaled with the chase-cam autozoom. As the
+// rocket gained altitude, scaleMPerPx grew proportionally, the LUT
+// grew with it, and the rocket could never clear the tower — the
+// rocket-top-altitude < LUT-top-altitude inequality always held
+// (LUT-top = 4/3 × rocket-altitude). The user reported "rocket
+// doesn't exceed the LUT top until 1000 m or more."
+//
+// Fixed by pinning the LUT cell stride to a real-world metres
+// constant (lutRowHeightM = 7.5 m → ~60 m total tower height,
+// stylised from LC-39A's ~135 m crawler tower). Regression
+// assertion: at altitude 200 m the rocket is clearly above the
+// LUT — concretely, no LUT crown `╤` glyph appears above the
+// canvas vertical centre.
+func TestLaunchTowerRecedesAsRocketClimbs(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	// Lift the craft to 200 m altitude (well above the 60 m LUT
+	// top). Bypass Landed so the chase-cam sees an in-flight craft.
+	c.Landed = false
+	rNorm := c.State.R.Norm()
+	c.State.R = c.State.R.Scale((rNorm + 200) / rNorm)
+
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	width, height := 120, 40
+	out := v.Render(w, width, height)
+
+	// Split into lines; assert no '╤' appears in the upper half
+	// (above the canvas vertical centre, where the rocket sits).
+	// If the LUT were still scaling with zoom, the crown ╤ would
+	// be in the upper portion (LUT top would be at altitude
+	// ~4/3 × 200 = 267 m, above the rocket at 200 m, well above
+	// canvas centre).
+	lines := strings.Split(out, "\n")
+	mid := len(lines) / 2
+	for i := 0; i < mid; i++ {
+		if strings.Contains(lines[i], "╤") {
+			t.Errorf("LUT crown '╤' found above canvas centre at line %d (of %d): %q\n"+
+				"full render:\n%s",
+				i, len(lines), lines[i], out)
+			break
+		}
+	}
+}
+
 // Counterpoint to the slew-lag fix: the threshold must remain low
 // enough that a real player-applied pitch trim still steers the
 // chase-cam. One `>` press = 10° east pitch trim, which puts a 0.17
