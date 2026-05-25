@@ -82,18 +82,32 @@ var callistoCraters = []continentEllipse{
 }
 
 // projectPixelToLatLon does the orthographic dx,dy → (body lat,
-// body lon) transform with arbitrary sub-observer point. v0.8.5.7+
-// generalizes to handle non-zero sub-observer latitude so view-
-// aware rendering works (top view shows polar regions on tilted
-// bodies; side view shows equator). Returns (lat, absLon, ok); ok
-// is false when the pixel is outside the visible disk or the
-// longitude is degenerate (sub-observer at the body's pole).
+// body lon) transform with arbitrary sub-observer point and screen-
+// up orientation. v0.8.5.7+ generalised sub-observer latitude;
+// v0.11.2+ adds screenUpX/Y so the painter rotates the texture into
+// the body's physical north/east frame for any view (ADR 0003).
+// Returns (lat, absLon, ok); ok is false when the pixel is outside
+// the visible disk or the longitude is degenerate (sub-observer at
+// the body's pole).
 //
-// Math: standard inverse orthographic projection (Snyder 1987 §20,
-// "Orthographic Projection - inverse formulas"). Sub-observer
-// point is at (subLatDeg, subLonDeg); pixel offsets (nx, ny) are
-// normalised to the disk radius with east+ to the right of screen
-// and north+ up the screen.
+// (screenUpX, screenUpY) is the unit vector — in canvas frame, where
+// canvas-X is right and canvas-Y is up — pointing in the direction
+// body-local-north at the sub-observer projects on the screen. For
+// ViewTop on an untilted body this is (0, 1) — body-north is screen-
+// up — and the math reduces to the v0.8.5.7 form. For ViewTop on
+// Earth it is approximately (1, 0): the 23.44° tilt rotates body-
+// north to canvas-right. Pole-on views (the sub-observer point at
+// the body's pole) collapse north's direction; callers pass (0, 1)
+// as a stable fallback since the longitude is undefined there anyway.
+//
+// Math: rotate the canvas (nx_can, ny_can) into the body's local
+// (east, north) basis at the sub-observer point:
+//   east_can  = ( screenUpY, −screenUpX)   (90° CW from north_can)
+//   north_can = ( screenUpX,  screenUpY)
+//   nx_body   = (nx_can, ny_can) · east_can
+//   ny_body   = (nx_can, ny_can) · north_can
+// Then apply the standard inverse orthographic projection (Snyder
+// 1987 §20, "Orthographic Projection - inverse formulas"):
 //
 //	z      = sqrt(1 - nx² - ny²)              (out-of-screen, toward camera)
 //	body_z = sin(φ₀)·z + cos(φ₀)·ny           (body-frame along spin axis)
@@ -101,23 +115,21 @@ var callistoCraters = []continentEllipse{
 //	body_y = cos(φ₀)·sin(λ₀)·z + cos(λ₀)·nx − sin(φ₀)·sin(λ₀)·ny
 //	lat    = asin(body_z)
 //	lon    = atan2(body_y, body_x)
-//
-// At sub-observer lat = 0 this reduces to the v0.8.5 inline
-// projection (lat = asin(ny); lon = lon0 + asin(nx/cosLat)).
-func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) (lat, absLon float64, ok bool) {
+func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) (lat, absLon float64, ok bool) {
 	if pxRadius < 1 {
 		return 0, 0, false
 	}
-	nx := float64(dx) / float64(pxRadius)
+	nxCan := float64(dx) / float64(pxRadius)
 	// v0.8.5.7 fix: canvas uses screen-Y-down (dy > 0 = below body
-	// center), but the orthographic projection wants ny > 0 to be
-	// screen-up (north toward sub-observer). Flip the sign so
-	// continents render right-side up. The upside-down rendering
-	// was masked at high sub-observer latitude (top / bottom views
-	// of tilted bodies) where the polar disk is roughly symmetric,
-	// and only became obviously wrong from left / right views once
-	// view-aware projection landed in v0.8.5.7.
-	ny := -float64(dy) / float64(pxRadius)
+	// center), but the orthographic projection wants nyCan > 0 to be
+	// screen-up (north toward sub-observer).
+	nyCan := -float64(dy) / float64(pxRadius)
+	// Rotate canvas frame into body's (east, north) frame at the
+	// sub-observer point. east = 90° CW from north when looking at
+	// the screen with depth toward camera (right-handed local frame
+	// at the surface: east × north = up = +camDir).
+	nx := nxCan*screenUpY - nyCan*screenUpX
+	ny := nxCan*screenUpX + nyCan*screenUpY
 	r2 := nx*nx + ny*ny
 	if r2 > 1 {
 		// Outside the disk — caller should clip first, but keep the
@@ -161,8 +173,8 @@ func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) (l
 // IoPixelColor — sulfur-yellow base + scattered dark paterae +
 // occasional bright orange fresh flows. v0.8.5.7+ takes the full
 // sub-observer point for view-aware projection.
-func IoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+func IoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok {
 		return ColorIoBase
 	}
@@ -177,8 +189,8 @@ func IoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.C
 
 // EuropaPixelColor — pale ice with a few dark linear lineae.
 // v0.8.5.7+.
-func EuropaPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+func EuropaPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok {
 		return ColorEuropaIce
 	}
@@ -192,8 +204,8 @@ func EuropaPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipglo
 
 // GanymedePixelColor — bright grooved terrain base + dark ancient
 // regiones + bright crater rays. v0.8.5.7+.
-func GanymedePixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+func GanymedePixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok {
 		return ColorGanymedeBright
 	}
@@ -208,8 +220,8 @@ func GanymedePixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipg
 
 // CallistoPixelColor — uniformly dark base + scattered bright
 // crater rays (Valhalla, Asgard). v0.8.5.7+.
-func CallistoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+func CallistoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
+	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok {
 		return ColorCallistoBase
 	}

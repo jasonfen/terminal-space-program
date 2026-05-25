@@ -325,9 +325,18 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 	// Pad marker at the active craft's launch site, depth-culled.
 	v.drawPadMarker(w, craft, bodyCentre, camFromBody)
 
+	// Launch tower (Slice 2): body-fixed multi-cell sprite at the pad.
+	v.drawLaunchTower(w, craft, bodyCentre, camFromBody, scale)
+
 	// Breadcrumb trail: each TrailPoint re-projected via
 	// BodyFixedToWorld so the trace rotates with the body.
 	v.drawTrail(w, body, bodyCentre, camFromBody)
+
+	// Sibling vessels in the active craft's SOI (Slice 2): dropped
+	// stages, sister crafts, anything sharing the primary. Drawn
+	// after the trail so an exact-overlap stage glyph wins over a
+	// trail dot.
+	v.drawSOICraft(w, craft, bodyCentre, camFromBody)
 
 	// Active vessel at the camera centre — Slice 3 swaps for the
 	// composed-from-stages sprite; Slice 1 reuses the existing glyph.
@@ -346,17 +355,35 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 // horizontal plane when its magnitude is well-defined, falling back
 // to surface-frame east at the craft's surface point when the
 // attitude is near-vertical (rocket on the pad / just after liftoff).
+//
+// Threshold: |horiz| > sin(~0.6°) ≈ 0.01. v0.11.0 shipped at 1e-9
+// which filtered only floating-point dust — but the integrator's
+// per-tick snap leaves CurrentAttitudeDir lagging localUp by the
+// rocket's per-tick rotation in inertial frame (ω·Δt at engine
+// ignition: 3.6e-6 rad at Earth's spin × 50 ms base step). That lag
+// is ~3600× above 1e-9, so `horiz` picked up the lag vector and
+// normalised it to a unit west-ish direction during pure vertical
+// climb, flipping the chase-cam east↔west until the player applied
+// pitch trim. v0.11.1 raises the floor above the warp-scaled lag
+// (≤ ~1e-4 rad at the 10× burn warp cap) but well below the
+// smallest meaningful pitch trim (10° = 0.17 rad) — the camera
+// orients east during vertical climb (intent), then swings to the
+// pitch direction as the player gravity-turns.
 func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) orbital.Vec3 {
 	cmd := c.CurrentAttitudeDir
 	if cmd.Norm() > 0 {
 		horiz := cmd.Sub(localUp.Scale(cmd.Dot(localUp)))
-		if n := horiz.Norm(); n > 1e-9 {
+		if n := horiz.Norm(); n > chaseHorizEpsilon {
 			return horiz.Scale(1.0 / n)
 		}
 	}
 	east := render.BodyFrameEast(body, render.Vec3{X: camFromBody.X, Y: camFromBody.Y, Z: camFromBody.Z})
 	return orbital.Vec3{X: east.X, Y: east.Y, Z: east.Z}
 }
+
+// chaseHorizEpsilon — sin(~0.6°). See chaseHorizontalAxis docstring
+// for the slew-lag vs. pitch-trim noise-floor derivation.
+const chaseHorizEpsilon = 0.01
 
 // drawHorizonAndFill paints the body's projected silhouette below the
 // horizon with SurfaceColor. In the chase-cam basis (h_axis,
@@ -387,6 +414,119 @@ func (v *LaunchView) drawPadMarker(w *sim.World, craft *spacecraft.Spacecraft, b
 	// cyan reads as "neutral reference marker."
 	v.canvas.PlotColored(padWorld, render.ColorPlannedNode)
 	v.canvas.SetCellOverlay(padWorld, '+')
+}
+
+// lutSprite is the v0.11.1 Slice 2 generic mobile-launcher silhouette.
+// 2 cells wide; bottom row is the MLP base, top row is the crown
+// (swing-arm hint). Row 0 = top, last row = base; each pair is
+// (left-column, right-column). A zero rune ('\x00') means "no glyph
+// at this cell" — used to draw a sparse outline at the crown row
+// (the swing-arm sits in the right column only).
+var lutSprite = [][2]rune{
+	{'╤', 0},
+	{'║', '╤'},
+	{'║', '║'},
+	{'║', '║'},
+	{'║', '║'},
+	{'║', '║'},
+	{'║', '║'},
+	{'╤', '╤'},
+	{'█', '█'},
+}
+
+// drawLaunchTower stamps the generic mobile-launcher sprite at the
+// active craft's launch site. The base row coincides with the pad's
+// world position; rows step upward by one terminal-cell of screen
+// along the pad's local-up; the second column steps east by one
+// terminal-cell. Both axes are body-fixed (independent of the
+// chase-cam's hAxis) so the tower's two columns stay geographically
+// anchored even as the camera swings during the gravity turn.
+//
+// World-units-per-screen-cell: `scaleMPerPx` here is the live
+// `renderScene` scalar (output of launchAutoScale / LaunchZoom; named
+// m/cell in the plan but functionally m/px because renderScene passes
+// `1/scale` straight into Canvas.SetScale which expects px/m). Each
+// terminal cell is `canvasCellPxH` × `canvasCellPxW` braille pixels,
+// so the per-cell world stride is `scaleMPerPx · canvasCellPx{H,W}`.
+// Slice-2-as-shipped omitted the pixel-to-cell correction and the
+// 9-row sprite collapsed into ~2 screen cells at altitude > a few m.
+//
+// Each glyph cell is depth-culled by the same isNearHemisphere check
+// the pad marker uses, so when the body rotates the launch site to
+// the far hemisphere the tower vanishes.
+func (v *LaunchView) drawLaunchTower(w *sim.World, craft *spacecraft.Spacecraft, bodyPos, camFromBody orbital.Vec3, scaleMPerPx float64) {
+	body := craft.Primary
+	dir := render.BodyFixedToWorld(body, craft.LaunchLatDeg, craft.LaunchLonDeg, w.Clock.SimTime)
+	padFromBody := orbital.Vec3{X: dir.X, Y: dir.Y, Z: dir.Z}.Scale(body.RadiusMeters())
+
+	padUp := orbital.Vec3{X: dir.X, Y: dir.Y, Z: dir.Z}
+	east := render.BodyFrameEast(body, render.Vec3{X: padFromBody.X, Y: padFromBody.Y, Z: padFromBody.Z})
+	padEast := orbital.Vec3{X: east.X, Y: east.Y, Z: east.Z}
+
+	cellWorldY := scaleMPerPx * canvasCellPxH
+	cellWorldX := scaleMPerPx * canvasCellPxW
+
+	rows := len(lutSprite)
+	for r := 0; r < rows; r++ {
+		rowAbove := float64(rows - 1 - r) // base at row 0 world height
+		for col := 0; col < 2; col++ {
+			glyph := lutSprite[r][col]
+			if glyph == 0 {
+				continue
+			}
+			cellFromBody := padFromBody.
+				Add(padUp.Scale(rowAbove * cellWorldY)).
+				Add(padEast.Scale(float64(col) * cellWorldX))
+			if !isNearHemisphere(cellFromBody, camFromBody) {
+				continue
+			}
+			cellWorld := bodyPos.Add(cellFromBody)
+			v.canvas.PlotColored(cellWorld, render.ColorDim)
+			v.canvas.SetCellOverlay(cellWorld, glyph)
+		}
+	}
+}
+
+// Canvas cell pixel dimensions — mirrors widgets.Canvas.Resize, which
+// allocates `cols*2 × rows*4` braille pixels. Local copies so the
+// screen layer doesn't reach into widgets for constants that don't
+// shift release-to-release. If widgets changes its braille mapping,
+// this constant changes with it.
+const (
+	canvasCellPxW = 2
+	canvasCellPxH = 4
+)
+
+// drawSOICraft renders every craft in the active craft's SOI other
+// than the active itself, so dropped stages (passive Spacecraft spawned
+// on decouple, v0.9.1+) and sister vessels become visible during the
+// launch session. Filter is `c.Primary == active.Primary`; depth-cull
+// via the same near-hemisphere check the pad marker / tower use; canvas
+// bounds handle the off-frame case via Project's ok=false return inside
+// SetCellOverlay. No age or distance cull (Slice 2 grill resolution).
+func (v *LaunchView) drawSOICraft(w *sim.World, active *spacecraft.Spacecraft, bodyPos, camFromBody orbital.Vec3) {
+	for _, c := range w.Crafts {
+		if c == nil || c == active {
+			continue
+		}
+		// Bodies compare by value; the loaded catalog round-trips
+		// pointer-equal copies, so a simple field comparison suffices.
+		if c.Primary.ID != active.Primary.ID {
+			continue
+		}
+		fromBody := c.State.R // primary-relative (same frame as camFromBody)
+		if !isNearHemisphere(fromBody, camFromBody) {
+			continue
+		}
+		cellWorld := bodyPos.Add(fromBody)
+		v.canvas.PlotColored(cellWorld, render.ColorDim)
+		glyph := '·'
+		for _, r := range c.Glyph {
+			glyph = r
+			break
+		}
+		v.canvas.SetCellOverlay(cellWorld, glyph)
+	}
 }
 
 // drawTrail re-projects each TrailPoint via BodyFixedToWorld at the

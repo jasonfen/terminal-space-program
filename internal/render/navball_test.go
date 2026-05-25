@@ -42,7 +42,7 @@ func TestNavballSubObserverProjection(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Centre pixel: dx = 0, dy = 0; pxR arbitrary.
-			lat, lon, ok := projectPixelToLatLon(0, 0, 12, tc.subLat, tc.subLon)
+			lat, lon, ok := projectPixelToLatLon(0, 0, 12, tc.subLat, tc.subLon, 0, 1)
 			if !ok {
 				t.Fatalf("centre pixel should be inside disk")
 			}
@@ -81,7 +81,7 @@ func TestProjectLatLonToPixelRoundTrip(t *testing.T) {
 			t.Errorf("(%g,%g) under sub-obs (%g,%g): expected front", tc.lat, tc.lon, tc.subLat, tc.subLon)
 			continue
 		}
-		gotLat, gotLon, ok := projectPixelToLatLon(dx, dy, pxR, tc.subLat, tc.subLon)
+		gotLat, gotLon, ok := projectPixelToLatLon(dx, dy, pxR, tc.subLat, tc.subLon, 0, 1)
 		if !ok {
 			t.Errorf("(%g,%g) → pixel (%d,%d) failed inverse", tc.lat, tc.lon, dx, dy)
 			continue
@@ -244,7 +244,7 @@ func TestNavballHorizonSplit(t *testing.T) {
 	// pxR = 12, dx = 0. dy < 0 should project to lat > 0 (sky); dy > 0
 	// should project to lat < 0 (ground).
 	for _, dy := range []int{-8, -4, 4, 8} {
-		lat, _, ok := projectPixelToLatLon(0, dy, 12, 0, 0)
+		lat, _, ok := projectPixelToLatLon(0, dy, 12, 0, 0, 0, 1)
 		if !ok {
 			t.Fatalf("dy=%d should be inside disk", dy)
 		}

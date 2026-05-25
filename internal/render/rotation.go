@@ -16,15 +16,23 @@ import (
 var rotationEpoch = time.Date(2000, time.January, 1, 12, 0, 0, 0, time.UTC)
 
 // bodyEpochOffsetDeg is the per-body sub-observer longitude at
-// rotationEpoch, with respect to the body's own prime meridian.
-// Picked so common bodies render with their iconic face when
-// viewed from the body's front (camera in the equatorial plane
-// at body x-axis direction). Bodies missing here default to 0.
+// rotationEpoch for the canonical reference view (camera in the
+// equatorial plane along the body's x-axis direction). Picked so
+// common bodies render with their iconic face at the visible disk
+// centre under that view. Bodies missing here default to 0.
 //
-// v0.8.5.7+: this is now an offset on body-fixed longitude, not on
-// the historical "always equator-on" sub-observer point. View-aware
-// projection composes this with the camera direction to compute
-// the actual sub-observer (lat, lon) per render.
+// v0.8.5.7+: view-aware projection composes this with the camera
+// direction to compute the actual sub-observer (lat, lon) per
+// render.
+//
+// v0.11.2+ (ADR 0003): same semantics under the unified rotation
+// convention. The renderer and BodyFixedToWorld agree that
+// (lat = visible-disk-centre, lon = bodyEpochOffsetDeg) maps to
+// world +X at epoch under the canonical view (test:
+// TestBodyFixedToWorldEpochOffsetCentersIconicFace). Re-tuning was
+// considered as part of the unification sweep and found unnecessary
+// — iconic-face placement was already calibrated on the canonical
+// ViewRight, which the unification preserves.
 var bodyEpochOffsetDeg = map[string]float64{
 	"earth":   -30.0, // Americas + Atlantic + W. Europe + Africa visible
 	"mars":    -45.0, // prime meridian centered, Syrtis Major on right limb
@@ -264,113 +272,85 @@ func rotationPhaseRad(b bodies.CelestialBody, simTime time.Time) float64 {
 }
 
 // BodyFixedToWorld converts body-fixed (lat, lon) to a unit
-// world-frame vector that the texture pipeline renders AT the same
-// canvas pixel where the body's (lat, lon) cell is drawn. v0.9.2+
-// (fix-4 in the v0.9.2 playtest cycle).
+// world-frame vector that points AT the (lat, lon) cell on body b
+// at simTime. v0.11.2+ (ADR 0003): pure rotation about the body's
+// physical spin axis (BodyRotationAxisWorld), view-independent.
 //
-// Implementation note: this uses Snyder forward orthographic
-// projection (the **inverse** of the texture pipeline's
-// projectPixelToLatLon) at ViewTop's sub-observer point, then maps
-// the resulting (nx, ny, z) camera-frame coords into world frame
-// using ViewTop's canvas basis (canvas_X = world+X, canvas_Y =
-// world+Y, canvas_depth = world+Z).
+// At simTime t the body-fixed basis in world coords is:
 //
-// Why ViewTop specifically: the v0.8.5+ texture pipeline's
-// orthographic projection is internally self-consistent per view
-// but cross-view inconsistent — Snyder forward at ViewTop's
-// sub-observer point and at ViewRight's sub-observer point project
-// the same body-fixed (lat, lon) to different world positions.
-// ViewTop is the natural "looking down at Earth" view and the
-// player's default; aligning spawn there agrees with the most
-// common case. A proper renderer fix (apply screen rotation so
-// the texture's east/north axes match canvas X/Y) is a v0.9.5+
-// scope; documented in the v0.9.2 fix-4 commit body.
+//	bodyX(t) = body lon=0, lat=0 meridian direction in world frame
+//	bodyY(t) = body lon=+90, lat=0  (= cross(n, bodyX))
+//	n       = BodyRotationAxisWorld(b)         (lon=any, lat=+90)
+//
+// (lat, lon) → world: cosφ·cosλ·bodyX + cosφ·sinλ·bodyY + sinφ·n.
+//
+// bodyX(t) is the world +X reference (or +Y when degenerate)
+// rotated about n by (rotationPhase(t) − epochOffset). The
+// per-body epochOffset is the offset between the body's lon=0
+// meridian and the reference direction at rotationEpoch — chosen
+// so iconic features land at the visible disk centre for the
+// canonical reference view.
 //
 // Latitude in degrees north positive. Longitude in degrees east
 // positive (real-Earth-style). Multiply the returned unit vector
 // by primary radius for surface position.
+//
+// Pre-v0.11.2 this used a Snyder-at-ViewTop construction that
+// rotated about world +Z instead of the physical spin axis,
+// diverging from BodySpinOmegaWorld by the body's tilt (32.6° for
+// Earth). See ADR 0003 for the full diagnosis and the alternatives
+// considered.
 func BodyFixedToWorld(b bodies.CelestialBody, latDeg, lonDeg float64, simTime time.Time) Vec3 {
-	subLatDeg, subLonDeg := SubObserverPointDeg(b, simTime, CameraDirTop, Vec3{})
+	n := BodyRotationAxisWorld(b)
+	phase := rotationPhaseRad(b, simTime)
+	epochRad := bodyEpochOffsetDeg[b.ID] * math.Pi / 180.0
+	bodyX := bodyXAxisAtPhase(b, n, phase-epochRad)
+	bodyY := cross(n, bodyX)
 
 	phi := latDeg * math.Pi / 180.0
 	lam := lonDeg * math.Pi / 180.0
-	phi0 := subLatDeg * math.Pi / 180.0
-	lam0 := subLonDeg * math.Pi / 180.0
+	cP, sP := math.Cos(phi), math.Sin(phi)
+	cL, sL := math.Cos(lam), math.Sin(lam)
 
-	sP, cP := math.Sin(phi), math.Cos(phi)
-	sP0, cP0 := math.Sin(phi0), math.Cos(phi0)
-	dlam := lam - lam0
-	sL, cL := math.Sin(dlam), math.Cos(dlam)
-
-	// Snyder forward orthographic at sub-observer (φ₀, λ₀):
-	//   nx = cos(φ)·sin(λ−λ₀)         (east at sub-observer)
-	//   ny = cos(φ₀)·sin(φ) − sin(φ₀)·cos(φ)·cos(λ−λ₀)   (north)
-	//   z  = sin(φ₀)·sin(φ) + cos(φ₀)·cos(φ)·cos(λ−λ₀)   (toward camera)
-	// For ViewTop the camera frame's (east, north, toward-camera)
-	// axes equal the canvas's (X, Y, depth) = world (+X, +Y, +Z).
-	nx := cP * sL
-	ny := cP0*sP - sP0*cP*cL
-	z := sP0*sP + cP0*cP*cL
-	return Vec3{X: nx, Y: ny, Z: z}
+	return add(add(scale(bodyX, cP*cL), scale(bodyY, cP*sL)), scale(n, sP))
 }
 
 // WorldToBodyFixed is the inverse of BodyFixedToWorld: given a unit
 // world-frame vector representing a point on (or above) the body at
 // simTime, recover the body-fixed (lat, lon) of that direction.
-// v0.11.0+. Used by the ViewLaunch trail sampler to convert the
-// active craft's primary-relative direction into a geographic
-// (lat, lon) sample.
+// v0.11.0+. v0.11.2+ (ADR 0003): rewritten alongside BodyFixedToWorld
+// as a projection onto the body-fixed basis at simTime; view-
+// independent.
 //
 // Caller is responsible for normalising the input (only the direction
-// matters) and for computing altitude separately as |R| - mean radius.
+// matters) and for computing altitude separately as |R| − mean radius.
 //
-// Algebraic derivation: BodyFixedToWorld writes
-//   nx = cos(φ)·sin(λ−λ₀)
-//   ny = cos(φ₀)·sin(φ) − sin(φ₀)·cos(φ)·cos(λ−λ₀)
-//   z  = sin(φ₀)·sin(φ) + cos(φ₀)·cos(φ)·cos(λ−λ₀)
-// Combining the ny + z system: cos(φ₀)·ny + sin(φ₀)·z = sin(φ),
-// giving φ directly. Then cos(φ)·cos(λ−λ₀) = (z − sin(φ)·sin(φ₀))
-// / cos(φ₀) and cos(φ)·sin(λ−λ₀) = nx, so λ−λ₀ = atan2(...).
+// Algebra: BodyFixedToWorld writes v = cosφ·cosλ·bodyX + cosφ·sinλ·bodyY
+// + sinφ·n with (bodyX, bodyY, n) orthonormal. So
+//   sinφ        = v · n
+//   cosφ·cosλ   = v · bodyX
+//   cosφ·sinλ   = v · bodyY
+//   λ           = atan2(v·bodyY, v·bodyX)
 //
 // Output longitude is wrapped to (-180, 180].
 func WorldToBodyFixed(b bodies.CelestialBody, vWorld Vec3, simTime time.Time) (latDeg, lonDeg float64) {
-	subLatDeg, subLonDeg := SubObserverPointDeg(b, simTime, CameraDirTop, Vec3{})
-	phi0 := subLatDeg * math.Pi / 180.0
-	lam0 := subLonDeg * math.Pi / 180.0
-	sP0, cP0 := math.Sin(phi0), math.Cos(phi0)
+	n := BodyRotationAxisWorld(b)
+	phase := rotationPhaseRad(b, simTime)
+	epochRad := bodyEpochOffsetDeg[b.ID] * math.Pi / 180.0
+	bodyX := bodyXAxisAtPhase(b, n, phase-epochRad)
+	bodyY := cross(n, bodyX)
 
-	nx, ny, z := vWorld.X, vWorld.Y, vWorld.Z
-
-	// sin(φ) = sin(φ₀)·z + cos(φ₀)·ny  (clamped for floating-point
-	// drift past ±1 on near-degenerate inputs).
-	sP := sP0*z + cP0*ny
+	sP := dot(vWorld, n)
 	if sP > 1 {
 		sP = 1
 	} else if sP < -1 {
 		sP = -1
 	}
 	phi := math.Asin(sP)
-
-	// λ − λ₀ from atan2(cos(φ)·sin(λ−λ₀), cos(φ)·cos(λ−λ₀)). Substitute:
-	//   numerator   = nx (= cos(φ)·sin(λ−λ₀))
-	//   denominator = (z − sin(φ)·sin(φ₀)) / cos(φ₀)
-	// At cos(φ₀) ≈ 0 (pole-on view) the denominator form collapses;
-	// guard with a tiny-cP0 fallback using ny directly.
-	var dlam float64
-	if math.Abs(cP0) > 1e-12 {
-		dlam = math.Atan2(nx, (z-sP*sP0)/cP0)
-	} else {
-		// Pole-on observer: ny = sP0·sP (drops out), so use the raw
-		// nx/(-ny·sign) couple from the original system. With cP0=0,
-		// sP0=±1: nx = cos(φ)·sin(λ−λ₀), z = sP0·sP — z is fully
-		// determined by φ. Use ny = -sP0·cos(φ)·cos(λ−λ₀).
-		dlam = math.Atan2(nx, -sP0*ny)
-	}
-	lam := lam0 + dlam
+	lam := math.Atan2(dot(vWorld, bodyY), dot(vWorld, bodyX))
 
 	latDeg = phi * 180.0 / math.Pi
 	lonDeg = lam * 180.0 / math.Pi
-	// Wrap to (-180, 180].
 	lonDeg = math.Mod(lonDeg+540, 360) - 180
 	return latDeg, lonDeg
 }
@@ -381,10 +361,12 @@ func WorldToBodyFixed(b bodies.CelestialBody, vWorld Vec3, simTime time.Time) (l
 // AxialAzimuth). Returns the zero vector when the body has no
 // rotation period set. v0.9.2+. Used by sim's launchpad spawn
 // (surface co-rotation velocity = ω × r) and landed-craft
-// integration (rotates R about the tilted axis per tick). Differs
-// from physics.AtmosphereOmega which is Z-aligned for the drag
-// approximation; the launchpad path uses the tilted ω because it
-// has to agree with the texture renderer's frame.
+// integration (rotates R about the tilted axis per tick).
+//
+// v0.11.2+ (ADR 0003): physics.AtmosphereOmega returns the same
+// vector — the renderer, integrator, and drag model all share one
+// rotation convention. Pre-v0.11.2 the drag path used a Z-aligned
+// approximation that diverged from this for tilted bodies.
 func BodySpinOmegaWorld(b bodies.CelestialBody) Vec3 {
 	period := rotationPeriodSeconds(b)
 	if period == 0 {

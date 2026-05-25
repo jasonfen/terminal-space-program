@@ -56,11 +56,11 @@ var greatRedSpot = continentEllipse{
 // sub-observer point so the GRS sweeps correctly across the disk
 // for any view direction (Jupiter's 3° tilt is small but the
 // math handles it uniformly with the rest of the planets).
-func JupiterPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+func JupiterPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorJupiterZone
 	}
-	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	color := ColorJupiterPole
 	for _, b := range jupiterBands {
 		if lat >= b.latMin && lat < b.latMax {

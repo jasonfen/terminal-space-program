@@ -95,11 +95,11 @@ var moonCraters = []continentEllipse{
 // locked Moon, both subLat and subLon advance with orbital phase
 // from a heliocentric observer's POV — the near side rotates into /
 // out of view as Luna orbits Earth.
-func MoonPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg float64) lipgloss.Color {
+func MoonPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
 	if pxRadius < 1 {
 		return ColorMoonHighland
 	}
-	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg)
+	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	if !ok {
 		return ColorMoonHighland
 	}

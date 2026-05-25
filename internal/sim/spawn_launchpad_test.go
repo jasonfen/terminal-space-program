@@ -98,17 +98,14 @@ func TestSpawnLaunchpadCoRotatesWithSurface(t *testing.T) {
 }
 
 // TestSpawnLaunchpadAlignsWithTexture — regression for the v0.9.2
-// fix-4 playtest bug: spawning at "Cape Canaveral" didn't visually
-// line up with Florida on the rendered Earth.
+// fix-4 playtest bug (spawning at "Cape Canaveral" didn't line up
+// with Florida on rendered Earth).
 //
-// The spawn now uses Snyder forward orthographic projection (the
-// inverse of the texture pipeline's projectPixelToLatLon) at
-// ViewTop's sub-observer point. Verifying alignment: the spawn's
-// world R, projected through ViewTop's canvas basis, gives screen
-// (nx, ny) which when fed through the texture pipeline's inverse
-// returns the original (lat, lon). We verify this by replicating
-// Snyder forward+inverse manually and asserting (nx, ny, z) round-
-// trip back to (lat, lon).
+// v0.11.2+ (ADR 0003): the spawn and the renderer share one rotation
+// convention — BodyFixedToWorld is a pure rotation about the body's
+// spin axis. Alignment now reduces to a round-trip:
+// WorldToBodyFixed(c.State.R / primaryR) must return the spawn
+// (lat, lon).
 func TestSpawnLaunchpadAlignsWithTexture(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -129,26 +126,15 @@ func TestSpawnLaunchpadAlignsWithTexture(t *testing.T) {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
 	primaryR := c.Primary.RadiusMeters()
-	// |R| should equal the primary's mean radius (altitude 0).
 	if math.Abs(c.State.R.Norm()-primaryR) > 1.0 {
 		t.Errorf("|R| = %.0f, want %.0f", c.State.R.Norm(), primaryR)
 	}
-	// For ViewTop, canvas X = world+X, canvas Y = world+Y, depth = world+Z.
-	// Screen (nx, ny) for the spawn = (R.X / radius, R.Y / radius).
-	subLatDeg, subLonDeg := render.SubObserverPointDeg(c.Primary, w.Clock.SimTime, render.CameraDirTop, render.Vec3{})
-	nx := c.State.R.X / primaryR
-	ny := c.State.R.Y / primaryR
-	z := c.State.R.Z / primaryR
-	// Snyder inverse should reconstruct (wantLat, wantLon) from (nx, ny, z).
-	phi0 := subLatDeg * math.Pi / 180
-	lam0 := subLonDeg * math.Pi / 180
-	sP0, cP0 := math.Sin(phi0), math.Cos(phi0)
-	sL0, cL0 := math.Sin(lam0), math.Cos(lam0)
-	bodyZ := sP0*z + cP0*ny
-	bodyX := cP0*cL0*z - sL0*nx - sP0*cL0*ny
-	bodyY := cP0*sL0*z + cL0*nx - sP0*sL0*ny
-	gotLat := math.Asin(bodyZ) * 180 / math.Pi
-	gotLon := math.Atan2(bodyY, bodyX) * 180 / math.Pi
+	unit := render.Vec3{
+		X: c.State.R.X / primaryR,
+		Y: c.State.R.Y / primaryR,
+		Z: c.State.R.Z / primaryR,
+	}
+	gotLat, gotLon := render.WorldToBodyFixed(c.Primary, unit, w.Clock.SimTime)
 	if math.Abs(gotLat-wantLat) > 0.01 {
 		t.Errorf("recovered lat: got %.4f, want %.4f", gotLat, wantLat)
 	}

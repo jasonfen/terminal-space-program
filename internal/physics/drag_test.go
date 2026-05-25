@@ -147,16 +147,64 @@ func TestDragAccelZeroBC(t *testing.T) {
 	}
 }
 
-// TestAtmosphereOmegaEarth: Earth's spin vector should be along +Z
-// with ω ≈ 7.292e-5 rad/s.
+// TestAtmosphereOmegaEarth: untilted Earth's spin vector is along
+// +Z with ω ≈ 7.292e-5 rad/s. earthWithAtm() leaves AxialTilt = 0
+// so the tilted formula collapses to the legacy Z-aligned result.
 func TestAtmosphereOmegaEarth(t *testing.T) {
 	earth := earthWithAtm()
 	w := AtmosphereOmega(earth)
 	if w.X != 0 || w.Y != 0 {
-		t.Errorf("ω should be along Z only, got %+v", w)
+		t.Errorf("ω should be along Z only on untilted body, got %+v", w)
 	}
 	want := 2 * math.Pi / (23.9345 * 3600)
 	if math.Abs(w.Z-want) > 1e-12 {
 		t.Errorf("ω.Z = %g, want %g", w.Z, want)
+	}
+}
+
+// TestAtmosphereOmegaTiltedEarth — v0.11.2+ (ADR 0003) pins the
+// unification: a tilted Earth (AxialTilt = 23.44°) produces a spin
+// vector along the physical spin axis n = (sin tilt, 0, cos tilt),
+// not the pre-v0.11.2 world +Z. Magnitude is unchanged.
+func TestAtmosphereOmegaTiltedEarth(t *testing.T) {
+	earth := earthWithAtm()
+	earth.AxialTilt = 23.44 // matches sol.json catalog value
+	w := AtmosphereOmega(earth)
+	tiltRad := 23.44 * math.Pi / 180.0
+	mag := 2 * math.Pi / (23.9345 * 3600)
+	wantX := mag * math.Sin(tiltRad)
+	wantZ := mag * math.Cos(tiltRad)
+	if math.Abs(w.X-wantX) > 1e-12 {
+		t.Errorf("tilted Earth ω.X = %g, want %g (= |ω| sin 23.44°)", w.X, wantX)
+	}
+	if math.Abs(w.Y) > 1e-12 {
+		t.Errorf("tilted Earth (azimuth 0) ω.Y = %g, want 0", w.Y)
+	}
+	if math.Abs(w.Z-wantZ) > 1e-12 {
+		t.Errorf("tilted Earth ω.Z = %g, want %g (= |ω| cos 23.44°)", w.Z, wantZ)
+	}
+	// Magnitude check — the unification doesn't change |ω|.
+	got := math.Sqrt(w.X*w.X + w.Y*w.Y + w.Z*w.Z)
+	if math.Abs(got-mag) > 1e-12 {
+		t.Errorf("|ω| = %g, want %g (unchanged by tilt)", got, mag)
+	}
+}
+
+// TestAtmosphereOmegaTidallyLockedUsesOrbit — tidally-locked bodies
+// rotate at their orbital period, not their (unused/zero/ignored)
+// sidereal-rotation period. Mirrors render.rotationPeriodSeconds so
+// the renderer and physics agree.
+func TestAtmosphereOmegaTidallyLockedUsesOrbit(t *testing.T) {
+	luna := bodies.CelestialBody{
+		ID:              "moon",
+		SideralRotation: 9999.0, // junk — must be ignored when TidallyLocked
+		SideralOrbit:    27.321661,
+		TidallyLocked:   true,
+	}
+	w := AtmosphereOmega(luna)
+	want := 2 * math.Pi / (27.321661 * 86400)
+	got := math.Sqrt(w.X*w.X + w.Y*w.Y + w.Z*w.Z)
+	if math.Abs(got-want) > 1e-12 {
+		t.Errorf("|ω| = %g, want %g (orbital period for tidally-locked)", got, want)
 	}
 }
