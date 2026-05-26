@@ -157,9 +157,28 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 
 	if craft != nil && craft.Primary.MeanRadius > 0 {
 		v.renderScene(w, craft)
+	} else if craft == nil {
+		// v0.11.4+ (sub-scope 5): the end-flight path can leave the
+		// slate empty mid-session (the player removes the only
+		// vessel and stays in ViewLaunch). Without a craft the scene
+		// pipeline has nothing to anchor on — the pre-v0.11.4 path
+		// rendered an empty canvas with a blank-name title, which
+		// reads as a bug. Drop a centered dim message on the canvas
+		// instead so the empty state is honest.
+		v.renderNoActiveVesselMessage()
 	}
 
 	canvasStr := v.canvas.String()
+	// v0.11.4+ (sub-scope 6): mini-navball in the bottom-right
+	// mirrors its OrbitView placement so the player has heading +
+	// roll readout during launch / landing chase-cam — pitch alone
+	// (visible via the sprite lean) isn't enough nav info. Reuses
+	// the OrbitView's navball widget; no new render path. Composed
+	// before the HUD strip overlay so the strip's last-row swap
+	// preserves the navball above it.
+	if v.hudSource != nil {
+		canvasStr = v.hudSource.ComposeNavballOverlay(w, canvasStr, v.canvas.Cols(), v.canvas.Rows())
+	}
 	canvasStr = overlayHUDStrip(canvasStr, v.composeHUDLine(w, craft))
 
 	// Manual rounded-border wrapping. lipgloss.Border().Render() over
@@ -270,6 +289,28 @@ func visibleWidth(lines []string) int {
 		}
 	}
 	return w
+}
+
+// renderNoActiveVesselMessage stamps a centered "no active vessel"
+// message into v.canvas when the active slot is empty (sub-scope 5).
+// Reachable today via the end-flight path (sub-scope 3) — removing
+// the only vessel from the slate empties ActiveCraft while leaving
+// the player parked in ViewLaunch. Pre-v0.11.4 this rendered a
+// blank canvas with the unhelpful title `LAUNCH — `; the centered
+// message keeps the empty state honest. v0.11.4+.
+func (v *LaunchView) renderNoActiveVesselMessage() {
+	const msg = "no active vessel"
+	rows := v.canvas.Rows()
+	cols := v.canvas.Cols()
+	if rows <= 0 || cols <= 0 {
+		return
+	}
+	row := rows / 2
+	col := (cols - len(msg)) / 2
+	if col < 0 {
+		col = 0
+	}
+	v.canvas.SetCellLabel(col, row, msg)
 }
 
 // renderScene draws the horizon, surface fill, pad marker, trail dots,

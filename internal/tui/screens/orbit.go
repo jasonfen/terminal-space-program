@@ -809,29 +809,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// dead-band that killed the marker flicker.
 	v.navballControls = v.navballControls[:0]
 	cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
-	if w.CraftVisibleHere() &&
-		cCols >= navballPanelW+2 && cRows >= navballPanelH+2 {
-		if rawLat, rawLon, ok := w.NavballSubObserver(); ok {
-			subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
-			disk := navballPanelDisk(w, subLat, subLon)
-			panel, boxes := v.buildNavballPanel(disk, w.NavMode, w.InstantSAS, w.RCSActive())
-			atCol := cCols - navballPanelW
-			atRow := cRows - navballPanelH - 1
-			lines := strings.Split(canvasStr, "\n")
-			lines = overlayStyledBlock(lines, panel, atRow, atCol, cCols)
-			canvasStr = strings.Join(lines, "\n")
-			// Screen offset: title row (1) + canvas top border (1)
-			// for rows; canvas left border (1) for cols.
-			for _, b := range boxes {
-				v.navballControls = append(v.navballControls, navballControlBox{
-					id:       b.id,
-					colStart: atCol + b.colStart + 1,
-					colEnd:   atCol + b.colEnd + 1,
-					row:      atRow + b.row + 2,
-				})
-			}
-		}
-	}
+	canvasStr = v.composeNavballOverlay(w, canvasStr, cCols, cRows, true)
 
 	canvasPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -2085,6 +2063,57 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// first row is row 1.
 	v.scanHudNodeRows(rendered, 1)
 	return rendered
+}
+
+// composeNavballOverlay paints the framed navball into the bottom-
+// right corner of canvasStr and returns the modified string.
+// recordControls=true also captures the panel's clickable hit
+// boxes into v.navballControls for the orbit screen's mouse
+// dispatch (the launch screen doesn't take navball clicks, so it
+// passes false). When the active craft has no defined nose
+// direction, or the canvas is too small to hold the panel, the
+// canvas is returned unchanged.
+//
+// Extracted from orbit.Render in v0.11.4+ so the LaunchView can
+// composite the same panel in its bottom-right (sub-scope 6).
+func (v *OrbitView) composeNavballOverlay(w *sim.World, canvasStr string, cCols, cRows int, recordControls bool) string {
+	if !w.CraftVisibleHere() ||
+		cCols < navballPanelW+2 || cRows < navballPanelH+2 {
+		return canvasStr
+	}
+	rawLat, rawLon, ok := w.NavballSubObserver()
+	if !ok {
+		return canvasStr
+	}
+	subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
+	disk := navballPanelDisk(w, subLat, subLon)
+	panel, boxes := v.buildNavballPanel(disk, w.NavMode, w.InstantSAS, w.RCSActive())
+	atCol := cCols - navballPanelW
+	atRow := cRows - navballPanelH - 1
+	lines := strings.Split(canvasStr, "\n")
+	lines = overlayStyledBlock(lines, panel, atRow, atCol, cCols)
+	out := strings.Join(lines, "\n")
+	if recordControls {
+		for _, b := range boxes {
+			v.navballControls = append(v.navballControls, navballControlBox{
+				id:       b.id,
+				colStart: atCol + b.colStart + 1,
+				colEnd:   atCol + b.colEnd + 1,
+				row:      atRow + b.row + 2,
+			})
+		}
+	}
+	return out
+}
+
+// ComposeNavballOverlay is the exported entry the LaunchView calls
+// to drop the same bottom-right navball panel into its canvas
+// (sub-scope 6 / v0.11.4+). recordControls is forced false — the
+// launch screen doesn't take navball clicks; the orbit-screen
+// path keeps its hit-box capture by going through the private
+// helper directly.
+func (v *OrbitView) ComposeNavballOverlay(w *sim.World, canvasStr string, cCols, cRows int) string {
+	return v.composeNavballOverlay(w, canvasStr, cCols, cRows, false)
 }
 
 // crashedVesselNameLabel decorates a Crashed vessel name with a
