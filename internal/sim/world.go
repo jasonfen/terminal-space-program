@@ -809,6 +809,14 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		integrateLanded(w, c, simDelta)
 		return
 	}
+	// v0.11.4+ (ADR 0004): Crashed vessels skip integration entirely.
+	// No gravity, no drag, no thrust, no slew — the wreckage sits at
+	// its last clamped (lat, lon) on the surface and renders dimmed.
+	// Cleared only by end-flight removal (`[E]`), which deletes the
+	// vessel from the world rather than reviving it.
+	if c.Crashed {
+		return
+	}
 	mu := c.Primary.GravitationalParameter()
 	period := orbitalPeriod(c.State, mu)
 	secs := simDelta.Seconds()
@@ -875,8 +883,15 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		// v0.8.5: halt sub-stepping at surface contact. Without this,
 		// a craft that aerobrakes past altitude 0 keeps falling toward
 		// r=0 and the gravity singularity slingshots it back out.
+		// v0.11.4+ (ADR 0004): classify the contact as soft-touchdown
+		// (Landed) or destructive impact (Crashed) using pre-clamp
+		// V_impact + nose alignment + CanSoftLand catalog gate. The
+		// predicate runs here (not inside physics.ClampToSurface) so
+		// the physics package stays predicate-free and the sub-craft-
+		// point inverse projection has access to the live sim clock.
 		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
-			c.State = clamped
+			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock)
+			applySurfaceArrival(c, clamped, outcome, lat, lon)
 			break
 		}
 		clock = clock.Add(stepDur)

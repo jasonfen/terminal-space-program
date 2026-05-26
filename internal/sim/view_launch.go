@@ -57,7 +57,14 @@ func (w *World) tickLaunchView() {
 	// session) and remains on a Landed vessel does NOT trigger a
 	// spurious re-route — wasActiveLanded stays true across the
 	// cycle.
-	if active != nil && active.Landed && !w.wasActiveLanded {
+	//
+	// v0.11.4+ (ADR 0004): gates on OnPad so a post-flight soft-
+	// landing (which sets Landed=true but leaves OnPad=false since
+	// OnPad was cleared on the original liftoff) does NOT auto-route
+	// the player into ViewLaunch mid-touchdown. The Launchpad-spawn
+	// path still triggers the route as before (spawn sets both
+	// Landed and OnPad).
+	if active != nil && active.Landed && active.OnPad && !w.wasActiveLanded {
 		w.routeToLaunchView()
 	}
 
@@ -96,6 +103,12 @@ func (w *World) tickLaunchView() {
 func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 	inSession := w.LaunchSessionActive
 	newLanded := newActive != nil && newActive.Landed
+	// v0.11.4+ (ADR 0004): "fresh inline session" only opens on a pad
+	// spawn (OnPad && Landed). A switch to a soft-landed vessel
+	// (Landed && !OnPad) is the "post-flight wreckage / parked"
+	// case — don't rip the player into a launch chase-cam for a
+	// vessel that already flew.
+	newOnPad := newActive != nil && newActive.OnPad
 
 	switch {
 	case inSession && newLanded:
@@ -111,14 +124,19 @@ func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 		// Restore PrevViewMode and clear all session state. Same
 		// effect as auto-release without the apo-floor predicate.
 		w.releaseLaunchSession()
-	case !inSession && newLanded:
-		// Fresh inline session: player switched onto a Landed vessel
-		// while not in a session. The route handler can't pick this
-		// up on the same tick because step 1's eager shadow update
-		// (post-switch) sets wasActiveLanded=true, suppressing the
-		// Landed-transition predicate. So the switch handler opens
-		// the session directly — semantically identical to a route.
-		// This is the quadrant the pre-grill design missed.
+	case !inSession && newLanded && newOnPad:
+		// Fresh inline session: player switched onto a fresh
+		// launchpad-spawned vessel while not in a session. The
+		// route handler can't pick this up on the same tick because
+		// step 1's eager shadow update (post-switch) sets
+		// wasActiveLanded=true, suppressing the Landed-transition
+		// predicate. So the switch handler opens the session
+		// directly — semantically identical to a route. This is
+		// the quadrant the pre-grill design missed.
+		//
+		// v0.11.4+: OnPad-gated — switching to a soft-landed vessel
+		// doesn't open a launch session (the vessel already flew;
+		// there's nothing to launch).
 		w.routeToLaunchView()
 	}
 	// Quadrant 4 (!inSession && !newLanded) is a no-op — the player

@@ -186,6 +186,20 @@ type Craft struct {
 	// when Landed=true.
 	LaunchLatDeg float64 `json:"launch_lat_deg,omitempty"`
 	LaunchLonDeg float64 `json:"launch_lon_deg,omitempty"`
+
+	// Crashed / CanSoftLand / OnPad / LandedLatDeg / LandedLonDeg
+	// (v0.11.4+, schema v6 additive — no bump, per ADR 0004). All
+	// `omitempty`-default-false so pre-v0.11.4 saves round-trip
+	// cleanly: existing in-flight vessels load with Crashed=false /
+	// CanSoftLand=false / OnPad=false (= normal integration, no
+	// soft-land qualification, no auto-route gate), which matches
+	// pre-lifecycle behaviour. New vessels saved with these set
+	// restore the destructive / soft-landed / on-pad state on load.
+	Crashed      bool    `json:"crashed,omitempty"`
+	CanSoftLand  bool    `json:"can_soft_land,omitempty"`
+	OnPad        bool    `json:"on_pad,omitempty"`
+	LandedLatDeg float64 `json:"landed_lat_deg,omitempty"`
+	LandedLonDeg float64 `json:"landed_lon_deg,omitempty"`
 }
 
 // Stage mirrors spacecraft.Stage on the wire. v0.9.1+. All numeric
@@ -404,6 +418,11 @@ func payloadFromWorld(w *sim.World) Payload {
 			Landed:             c.Landed,
 			LaunchLatDeg:       c.LaunchLatDeg,
 			LaunchLonDeg:       c.LaunchLonDeg,
+			Crashed:            c.Crashed,
+			CanSoftLand:        c.CanSoftLand,
+			OnPad:              c.OnPad,
+			LandedLatDeg:       c.LandedLatDeg,
+			LandedLonDeg:       c.LandedLonDeg,
 		}
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
@@ -585,6 +604,11 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			Landed:             wc.Landed,
 			LaunchLatDeg:       wc.LaunchLatDeg,
 			LaunchLonDeg:       wc.LaunchLonDeg,
+			Crashed:            wc.Crashed,
+			CanSoftLand:        wc.CanSoftLand,
+			OnPad:              wc.OnPad,
+			LandedLatDeg:       wc.LandedLatDeg,
+			LandedLonDeg:       wc.LandedLonDeg,
 		}
 		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill

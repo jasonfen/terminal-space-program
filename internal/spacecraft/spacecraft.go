@@ -163,6 +163,47 @@ type Spacecraft struct {
 	LaunchLatDeg float64
 	LaunchLonDeg float64
 
+	// Crashed (v0.11.4+): destructive-impact lifecycle flag. Set by
+	// the surface-contact predicate (physics.ClampToSurface call
+	// site) when impact velocity exceeds V_CRIT or nose alignment
+	// fails NOSE_TOL, or when the vessel is not designed to
+	// soft-land. While Crashed the vessel skips integration (no
+	// gravity / drag / thrust / slew) and renders dimmed with no
+	// flame. Cleared only by end-flight removal (vessel leaves the
+	// world). Persists in saves so a paused-mid-impact session
+	// restores the crashed state. See ADR 0004 for the full
+	// lifecycle. `omitempty`-default-false; no SchemaVersion bump.
+	Crashed bool
+
+	// CanSoftLand (v0.11.4+): true when the vessel kind is designed
+	// to land — Apollo-LM-style Lander, Falcon-9 first stage. The
+	// surface-contact predicate consults this as a hard prerequisite
+	// for the soft-land branch: a Saturn V capsule that grazes the
+	// surface at 5 m/s is Crashed, not Landed, even though the
+	// kinematic checks would otherwise qualify. Sourced from the
+	// catalog loadout at construction; not mutated at runtime.
+	// `omitempty`-default-false (existing vessels are crash-only).
+	CanSoftLand bool
+
+	// OnPad (v0.11.4+): true between Launchpad spawn and first
+	// liftoff. Set by surfaceSpawnPosVel; cleared on the first
+	// Landed=false transition. Distinguishes "fresh launchpad
+	// spawn" from "post-flight soft land" for the ViewLaunch
+	// auto-route handler (which fires only when OnPad && Landed
+	// transitions false→true). Soft-lands clear OnPad on liftoff,
+	// so the post-flight Landed transition does NOT rip the player
+	// into ViewLaunch mid-touchdown.
+	OnPad bool
+
+	// LandedLatDeg / LandedLonDeg (v0.11.4+): soft-landed touchdown
+	// coordinates. When non-zero, integrateLanded reads these instead
+	// of LaunchLatDeg / LaunchLonDeg (which retain their original
+	// spawn-site meaning — useful for downrange-from-launch reads
+	// even after a return-and-relaunch cycle). Same north-positive /
+	// east-positive convention as LaunchLatDeg.
+	LandedLatDeg float64
+	LandedLonDeg float64
+
 	// PitchTrim (v0.9.2+) is a signed pitch offset (radians)
 	// applied on top of the active BurnMode's computed direction.
 	// Positive values rotate the thrust vector eastward of the
