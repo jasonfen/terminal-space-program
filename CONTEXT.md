@@ -266,23 +266,61 @@ appearances, does *not* set Landed — see Flagged ambiguities).
 **Landed**:
 A Vessel state in which the integrator bypasses gravity, drag, and
 thrust, and instead recomputes the Vessel's position each tick from
-its **launch latitude** and **launch longitude** (stored at spawn time
-as `LaunchLatDeg` / `LaunchLonDeg`) using the Primary's current rotation
-phase. Position rides the Primary's body-fixed frame; velocity is set
-to ω × r each tick so a future un-Landed transition releases the
-Vessel with full surface co-rotation velocity — the ~465 m/s eastward
-boost at Earth's equator. Player concept: the Vessel is *parked on
-the ground, moving with the ground*.
+its body-fixed touchdown coordinates (`LandedLatDeg` / `LandedLonDeg`
+when non-zero — for soft-landed vessels — falling back to
+`LaunchLatDeg` / `LaunchLonDeg`, the original spawn site) using the
+Primary's current rotation phase. Position rides the Primary's
+body-fixed frame; velocity is set to ω × r each tick so a future
+un-Landed transition releases the Vessel with full surface co-rotation
+velocity — the ~465 m/s eastward boost at Earth's equator. Player
+concept: the Vessel is *parked on the ground, moving with the ground*.
 
-Currently set only by a **Launchpad** spawn; a Vessel that arrives at
-the surface via aerobraking (see **Surface Contact**) does **not**
-become Landed. Cleared by engine ignition — either a Manual Burn
-(player presses `b`) or a planted Maneuver Node firing on schedule.
-The clearing transition releases the Vessel into normal integration
-with the surface co-rotation velocity it had at the moment of ignition.
+Set by:
+- A **Launchpad** spawn (also sets [[#launchpad|OnPad]] true).
+- A controlled-descent **Touchdown** — a Vessel with `CanSoftLand`
+  arriving at the surface with `|V| < V_CRIT` and nose-aligned with
+  local-vertical satisfies the touchdown predicate at the
+  `physics.ClampToSurface` site and becomes Landed without the OnPad
+  flag (v0.11.4+).
+
+Cleared by engine ignition — either a Manual Burn (player presses
+`b`) or a planted Maneuver Node firing on schedule. The clearing
+transition releases the Vessel into normal integration with the
+surface co-rotation velocity it had at the moment of ignition.
 _Avoid_: On the pad (loses generality — Landed is a runtime state,
-not a place; future powered-landing modes would also be Landed), Parked,
-Surface Park, Grounded.
+not a place; soft-landed Vessels are Landed too), Parked, Surface
+Park, Grounded.
+
+**OnPad**:
+A flag on a Vessel that's *currently* sitting at its original
+Launchpad spawn awaiting first ignition. Set true by a **Launchpad**
+spawn, cleared on the first `Landed=false` transition (i.e., the
+moment the rocket first leaves the pad). Distinct from **Landed**:
+a soft-landed Vessel that returned from flight is Landed=true,
+OnPad=false. Used to gate the [[#view--projection|ViewLaunch]] auto-
+route handler, which fires only on `OnPad && Landed-transition` —
+soft-land touchdowns don't drag the player into a chase-cam view.
+v0.11.4+.
+_Avoid_: PreLaunch, AwaitingIgnition (verbose), Fresh.
+
+**Crashed**:
+A terminal Vessel state caused by a destructive surface arrival —
+contact velocity above `V_CRIT`, off-vertical attitude, or a Vessel
+without `CanSoftLand` regardless of how gently it touched. Set at
+the `physics.ClampToSurface` site when the Touchdown predicate fails.
+Integration is skipped (no gravity, no drag, no slew); rendering uses
+the composed-stage sprite in `ColorDim` with no engine flame.
+Crashed Vessels persist in the slate as visible wreckage at the
+impact point until the player invokes **End Flight** (`E` key,
+confirm prompt) to remove them from the world.
+
+Player concept: the Vessel is destroyed; the wreckage is a marker,
+not a controllable craft. Auto-switch active to the next Vessel in
+the slate on end-flight; falls back to no active Vessel if the
+wreckage was the only one. v0.11.4+.
+_Avoid_: Destroyed (used in casual prose but not the canonical
+state name), Killed, Dead, Wreckage (the *visible artefact* of a
+Crashed Vessel, not the state itself).
 
 **Launchpad**:
 A Vessel spawn variant that places the new Vessel on the surface of a
@@ -333,49 +371,51 @@ Launch Site, not the general term).
 
 **Surface Contact**:
 The physics event that fires inside the integrator when a Vessel's
-sub-step puts |R| below the Primary's mean radius — typically an
-**Aerobraking** pass that dipped too low, an intentional **Re-entry**,
-or an uncontrolled descent. The clamp projects R back to the surface
-along r̂ and zeros V; the Vessel stays in normal integration with
-**Landed** unchanged (still false). Without this clamp the gravity
-singularity at r → 0 would slingshot the Vessel back out at huge
-velocity.
+sub-step puts |R| below the Primary's mean radius. As of v0.11.4 the
+clamp site evaluates the **Touchdown** predicate (`CanSoftLand`
+catalog gate + `|V_impact| < V_CRIT` + nose-alignment > NOSE_TOL)
+and routes to one of three outcomes:
 
-A consequence of the "zero V, don't set Landed" semantics: a
-post-contact Vessel sits motionless in inertial space while the
-Primary rotates underneath — visually drifting west along the
-ground. Each subsequent tick gravity pulls it back below the
-surface and Surface Contact fires again; the Vessel is perpetually
-re-clamped.
+- **Touchdown** — predicate satisfied → Vessel becomes **Landed**
+  at the impact (lat, lon).
+- **Crash** — predicate fails on velocity / attitude / capability →
+  Vessel becomes **Crashed**.
+- **Fallback (vestigial)** — predicate doesn't qualify but the
+  Vessel isn't destroyed either (e.g., a non-`CanSoftLand` Vessel
+  that grazed the surface gently). R is projected back to the
+  surface, V zeroed, no lifecycle flag set. The pre-v0.11.4
+  placeholder behaviour; expected to disappear in v0.12+ once
+  playtest confirms every contact qualifies for one of the two
+  modelled outcomes.
 
-This is a placeholder, not the intended final model — see
-**Touchdown / Crash** for the differentiated outcomes the simulator
-should produce once landing semantics ship.
-_Avoid_: Crash (reserved for the intended hard-landing outcome —
-see below), Ground hit, Impact (acceptable casual prose, but
-Surface Contact is the canonical term for this physics event).
+Without the clamp the gravity singularity at r → 0 would slingshot
+the Vessel back out at huge velocity.
+_Avoid_: Crash (use **Crashed** for the runtime state; **Surface
+Contact** is the physics event that decides which outcome fires),
+Ground hit, Impact (acceptable casual prose, but Surface Contact
+is the canonical term for the integrator event).
 
 **Touchdown** / **Crash**:
-The two intended outcomes of a Vessel arriving at a Body's surface,
-distinguished by kinematic state at the moment of contact:
+The two outcomes of a Vessel arriving at a Body's surface,
+distinguished by the kinematic + capability predicate evaluated at
+the **Surface Contact** site:
 
 - **Touchdown** — a controlled arrival within velocity and
-  orientation tolerances. Should produce a **Landed** Vessel that
-  co-rotates with the ground, preserves fuel and stage state, and
-  can re-ignite for liftoff (the same end-state a **Launchpad** spawn
-  creates, but earned through controlled descent rather than spawned
-  in).
-- **Crash** — an uncontrolled arrival outside those tolerances —
-  excess descent velocity, off-vertical attitude, or other failure
-  predicate. Should produce a destroyed or disabled Vessel.
+  orientation tolerances, by a Vessel designed to land. Predicate:
+  `vessel.CanSoftLand && |V_impact| < V_CRIT && nose·local_up >
+  NOSE_TOL`. Produces a **Landed** Vessel that co-rotates with the
+  ground, preserves fuel and stage state, and can re-ignite for
+  liftoff (the same end-state a **Launchpad** spawn creates, but
+  earned through controlled descent rather than spawned in).
+- **Crash** — an arrival outside those tolerances — excess descent
+  velocity, off-vertical attitude, or a Vessel without
+  `CanSoftLand` regardless of how gently it touched. Produces a
+  **Crashed** Vessel (terminal state, removed via End Flight).
 
-Not yet differentiated in code. Today every surface arrival — soft
-or hard — routes through **Surface Contact**, which zeros V without
-distinguishing the two cases. The destruction model that would back
-**Crash** is deferred (the v0.8.5 surface doc punted it to "v0.9+";
-not yet shipped as of v0.10.5+). When that model lands, the
-**Landed** entry above should drop its "set only by a Launchpad spawn"
-scope cap.
+Differentiated in code as of v0.11.4 (see
+[`docs/adr/0004-crashed-landed-lifecycle.md`](adr/0004-crashed-landed-lifecycle.md)).
+Constants `V_CRIT = 10 m/s`, `NOSE_TOL = 0.7` (≈ 45° from
+local-vertical); both retunable.
 _Avoid_: Soft landing / Hard landing (longer; "Landing" alone
 overloads with the cluster heading), Successful landing / Unsuccessful
 landing (asymmetric and verbose).
