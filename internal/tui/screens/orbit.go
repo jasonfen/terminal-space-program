@@ -1545,9 +1545,22 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		// co-rotation gives the instantaneous plane. Surfaced in the
 		// LAUNCH HUD so the player can fly the launch azimuth to the
 		// target inclination before apoapsis even clears the surface.
+		//
+		// While Landed the value is the latitude of the launch site
+		// (a pad-locked craft's instantaneous orbit-plane reads the
+		// same magnitude as its latitude, since the surface
+		// co-rotation has zero meridional component). Calling that
+		// "inclination" implies it changes; relabel + lock-tag to
+		// keep the number meaningful ("launch east now and your
+		// orbit is at 28.6°") under the honest name. v0.11.4+.
 		inclLabel := "—"
+		inclRowLabel := "incl.:      "
 		if !math.IsNaN(el.I) && !math.IsInf(el.I, 0) {
 			inclLabel = fmt.Sprintf("%.2f°", el.I*180/math.Pi)
+		}
+		if c.Landed {
+			inclRowLabel = "launch lat: "
+			inclLabel = fmt.Sprintf("%.1f° (locked)", c.LaunchLatDeg)
 		}
 		apLabel := "—"
 		peLabel := "—"
@@ -1631,7 +1644,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		lines = append(lines,
 			fmt.Sprintf("  ap:         %s%s", apLabel, trendLabel),
 			fmt.Sprintf("  pe:         %s", peLabel),
-			fmt.Sprintf("  incl.:      %s", inclLabel),
+			fmt.Sprintf("  %s%s", inclRowLabel, inclLabel),
 			fmt.Sprintf("  t_to_apo:   %s", ttaLabel),
 			fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
 			fmt.Sprintf("  t_burn:     %s", tBurnLabel),
@@ -1732,18 +1745,33 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 				lines = append(lines,
 					"  body:   "+nameStyle.Render(b.EnglishName),
 				)
-				// Δi in the active craft's primary frame. Active
-				// craft's inclination via OrbitReadoutInFrame; target
-				// body's plane via PlaneMatchInclination — both reduce
-				// to a single scalar in [0, π], so |a − b| is a
-				// meaningful "how far off the target plane am I" delta
-				// even without comparing Ω.
+				// Δi as the true 3D plane angle between the craft's
+				// orbital plane normal (r × v in world coords) and
+				// the target body's orbit-plane normal. v0.11.4+
+				// replaced |i_a − i_b|, which dropped longitude of
+				// ascending node and stayed pinned at the floor of
+				// the true range for a Landed pad-locked craft —
+				// the target inclination is constant under the body's
+				// spin, so subtracting two co-rotating scalars
+				// erased the actual oscillation. Same formula
+				// hohmann_guard.go:63-70 uses correctly.
 				mu := c.Primary.GravitationalParameter()
 				frame := orbital.ReferenceFrameForPrimary(c.Primary)
 				ro := orbital.OrbitReadoutInFrame(c.State.R, c.State.V, mu, frame)
 				if !ro.Hyperbolic {
-					tgtIncl := orbital.PlaneMatchInclination(b, frame)
-					di := math.Abs(ro.Inclination-tgtIncl) * 180 / math.Pi
+					nCraft := c.State.R.Cross(c.State.V)
+					nTarget := orbital.OrbitNormalWorld(b)
+					var di float64
+					if nCraft.Norm() > 0 && nTarget.Norm() > 0 {
+						cos := nCraft.Dot(nTarget) / (nCraft.Norm() * nTarget.Norm())
+						if cos > 1 {
+							cos = 1
+						} else if cos < -1 {
+							cos = -1
+						}
+						ang := math.Acos(cos) * 180 / math.Pi
+						di = math.Min(ang, 180-ang)
+					}
 					diLabel := fmt.Sprintf("%.2f°", di)
 					if di > 30 {
 						diLabel = v.theme.Warning.Render(diLabel)
