@@ -57,6 +57,13 @@ type App struct {
 	// scheduled tea.Cmd.
 	statusMsg     string
 	statusExpires time.Time
+
+	// endFlightConfirm (v0.11.4+, ADR 0004) gates the [E] end-flight
+	// removal behind a y/n confirm. When true, the orbit screen
+	// renders a footer prompt and the next y/Y commits the removal;
+	// n/N/Esc cancels. Session-only state — not persisted (the
+	// confirmation has no meaning across a save / load boundary).
+	endFlightConfirm bool
 }
 
 // New builds a root App. Returns an error if systems can't load.
@@ -332,6 +339,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Matches(m, a.keys.Quit) {
 			a.autosave()
 			return a, tea.Quit
+		}
+		// v0.11.4+ (ADR 0004): end-flight y/n confirm intercept. When
+		// the [E] prompt is open, y/Y commits the removal and n/N/Esc
+		// cancels; every other key is swallowed so attitude / warp
+		// inputs don't slip through mid-confirm. Honored from any
+		// screen for the same reason ctrl+c is — accidental escape
+		// from a confirm prompt would be the wrong answer to "are
+		// you sure?"
+		if a.endFlightConfirm {
+			s := m.String()
+			switch s {
+			case "y", "Y":
+				if a.world.EndFlightActive() {
+					a.statusMsg = "● END FLIGHT — wreckage removed"
+					a.statusExpires = time.Now().Add(3 * time.Second)
+				}
+				a.endFlightConfirm = false
+			case "n", "N", "esc":
+				a.endFlightConfirm = false
+			}
+			return a, nil
 		}
 		// v0.7.3.3+: Esc on the orbit (home) view opens the splash
 		// menu. The menu owns the save / load / quit dispatch from
@@ -621,6 +649,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.CycleView):
 			a.world.CycleViewMode()
+			return a, nil
+		case key.Matches(m, a.keys.JumpToLaunchView):
+			// v0.11.4+ (ADR 0004): manual jump to ViewLaunch focused
+			// on the active vessel — skips the lowercase `v` cycle.
+			// No-op without an active vessel; the launch view's own
+			// "no active vessel" render path covers the empty-slate
+			// case if the player jumps after end-flight clears the
+			// slate (sub-scope 5).
+			a.world.SetViewModeLaunch()
+			return a, nil
+		case key.Matches(m, a.keys.EndFlight):
+			// v0.11.4+ (ADR 0004): open the end-flight confirm prompt
+			// when the active vessel is Crashed. The y/n intercept at
+			// the top of the KeyMsg branch handles commit / cancel
+			// once the prompt is open; this case is the open trigger.
+			// Silently ignored on a live vessel — the action is only
+			// meaningful on wreckage.
+			if c := a.world.ActiveCraft(); c != nil && c.Crashed {
+				a.endFlightConfirm = true
+			}
 			return a, nil
 		case key.Matches(m, a.keys.RefinePlan):
 			if a.world.CraftVisibleHere() {
@@ -1008,6 +1056,21 @@ func (a *App) View() string {
 	// the keybind hints.
 	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
 		base = overlayLastLine(base, a.theme.Warning.Render(a.statusMsg))
+	}
+	// v0.11.4+ (ADR 0004): end-flight confirm prompt overlays the
+	// footer row, same surface as the status flash. Takes precedence
+	// when both are active: an in-flight confirm is the actionable
+	// state; a stale status message can wait. The prompt copy is the
+	// same primitive the plan calls for — `[Y] end / [N] cancel`
+	// flavoured for the keys we accept (y/n/Esc).
+	if a.endFlightConfirm {
+		c := a.world.ActiveCraft()
+		name := "vessel"
+		if c != nil {
+			name = c.Name
+		}
+		prompt := fmt.Sprintf("END FLIGHT — remove %s? [y/n]", name)
+		base = overlayLastLine(base, a.theme.Alert.Render(prompt))
 	}
 	return base
 }

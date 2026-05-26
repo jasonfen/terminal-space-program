@@ -112,6 +112,19 @@ func (w *World) CycleViewMode() {
 	w.ViewMode = (w.ViewMode + 1) % ViewMode(len(AllViewModes))
 }
 
+// SetViewModeLaunch (v0.11.4+, ADR 0004) is the manual-jump path
+// for the `V` (shift+v) keybinding: short-circuits the lowercase
+// `v` cycle and drops the player into ViewLaunch focused on the
+// active vessel. Stashes the prior ViewMode into PrevViewMode (so
+// the existing apo-floor auto-release can restore on liftoff) and
+// opens a session — same surface as routeToLaunchView, just
+// player-initiated rather than auto-routed. No active vessel is
+// not a precondition; the LaunchView.Render path covers the
+// nil-active case (sub-scope 5).
+func (w *World) SetViewModeLaunch() {
+	w.routeToLaunchView()
+}
+
 // ViewTilt holds the polar tilt θ and yaw φ (degrees) that
 // ViewTilted applies to the projection basis. v0.10.6+. Per-session
 // UI state — not persisted to save (same convention as ViewMode and

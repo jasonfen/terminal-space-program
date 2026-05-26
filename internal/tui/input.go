@@ -158,6 +158,23 @@ type Keymap struct {
 	// isn't visually load-bearing the way tilt is.
 	TiltUp   key.Binding
 	TiltDown key.Binding
+
+	// EndFlight (v0.11.4+, ADR 0004): removes a Crashed active
+	// vessel from the slate after a y/n confirm prompt. No-op when
+	// the active vessel is not Crashed (the prompt only opens when
+	// the predicate holds). Auto-switches active to the next vessel
+	// in the slate; falls back to Active=nil when the wreckage was
+	// the only vessel. Bound to capital `E` — lowercase `e` is
+	// AttitudeRadialIn.
+	EndFlight key.Binding
+
+	// JumpToLaunchView (v0.11.4+, ADR 0004): manual jump to
+	// ViewLaunch focused on the active vessel. Skips the lowercase
+	// `v` cycle (which rotates through orbit / top / sides /
+	// orbit-flat without touching ViewLaunch by design — auto-route
+	// owns the entry path). Player workflow: switch active to the
+	// vessel of interest first, then `V` to scope its chase-cam.
+	JumpToLaunchView key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -226,5 +243,7 @@ func DefaultKeymap() Keymap {
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
 		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),
+		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
+		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
 	}
 }
