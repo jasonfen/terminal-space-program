@@ -72,6 +72,10 @@ func (w *World) StartManualBurn() {
 	// the next Tick runs normal physics with the surface co-rotation
 	// velocity as the initial condition.
 	c.Landed = false
+	// v0.11.4+ (ADR 0004): first liftoff clears OnPad so a future
+	// soft-landing's Landed=false→true transition doesn't fire the
+	// ViewLaunch auto-route (which gates on OnPad).
+	c.OnPad = false
 	c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
 }
 
@@ -1336,7 +1340,10 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		// (planting on a launchpad is an unusual workflow) but
 		// covers the case so a "planted node fires while the
 		// craft is parked" scenario doesn't strand the integrator.
+		// v0.11.4+ (ADR 0004): clear OnPad here too so a post-flight
+		// soft-landing doesn't trip the ViewLaunch auto-route.
 		c.Landed = false
+		c.OnPad = false
 		fired++
 	}
 	if fired > 0 {

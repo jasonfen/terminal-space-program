@@ -1256,7 +1256,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			// HUD block (CLOCK + FOCUS moved to title bar / canvas).
 			vesselLines := []string{
 				v.theme.Primary.Render("VESSEL"),
-				"  " + c.Name,
+				"  " + crashedVesselNameLabel(v.theme, c),
 				"  primary:   " + c.Primary.EnglishName,
 			}
 			if phase == hudPhaseFlight {
@@ -1303,7 +1303,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			// canvas overlay.
 			lines = append(lines, v.theme.Primary.Render("VESSEL"))
 			lines = append(lines,
-				"  "+c.Name,
+				"  "+crashedVesselNameLabel(v.theme, c),
 				"  primary:   "+c.Primary.EnglishName,
 			)
 			if phase == hudPhaseFlight {
@@ -2085,6 +2085,23 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 	// first row is row 1.
 	v.scanHudNodeRows(rendered, 1)
 	return rendered
+}
+
+// crashedVesselNameLabel decorates a Crashed vessel name with a
+// `[CR]` ASCII prefix dimmed by the theme. Live vessels render
+// without the prefix. The marker is plain ASCII rather than a
+// glyph because the v0.11.4 catalog sweep doesn't audit
+// emoji/Unicode support in the render palette — the safer choice
+// when adding a status indicator that may appear on any terminal.
+// v0.11.4+ (ADR 0004).
+func crashedVesselNameLabel(th Theme, c *spacecraft.Spacecraft) string {
+	if c == nil || !c.Crashed {
+		if c != nil {
+			return c.Name
+		}
+		return ""
+	}
+	return th.Dim.Render("[CR] ") + c.Name
 }
 
 // hudPhase tags the active craft's flight phase so the always-on

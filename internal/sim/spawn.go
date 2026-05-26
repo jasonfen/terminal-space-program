@@ -217,6 +217,14 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		c.Landed = true
 		c.LaunchLatDeg = latDeg
 		c.LaunchLonDeg = spec.LongitudeOffset
+		// v0.11.4+ (ADR 0004): mark this Landed-true vessel as on the
+		// launchpad. The ViewLaunch auto-route handler gates on
+		// `OnPad && Landed=false→true`, so a fresh launchpad spawn
+		// fires the route but a post-flight soft-landed touchdown
+		// (OnPad already cleared on liftoff) doesn't rip the player
+		// into ViewLaunch mid-landing. Cleared in
+		// StartManualBurn / planted-burn-fire alongside Landed.
+		c.OnPad = true
 		// v0.9.2.1+: default attitude is radial+ (vertical) so
 		// pressing `b` on the pad ignites pointing up — the natural
 		// "lift off" gesture. Playtest revealed that the default
