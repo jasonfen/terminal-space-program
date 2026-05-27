@@ -700,10 +700,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			origin := p.Inertial.Add(p.Exhaust.Scale(puffStep))
 			tip := p.Inertial.Add(p.Exhaust.Scale(2 * puffStep))
 			if !v.canvas.IsBehindBody(origin, primaryPos, primaryPxR) {
-				v.canvas.PlotColored(origin, render.ColorWarning)
+				v.canvas.PlotColored(origin, render.ColorRCSPuffOrigin)
 			}
 			if !v.canvas.IsBehindBody(tip, primaryPos, primaryPxR) {
-				v.canvas.PlotColored(tip, render.ColorFlame)
+				v.canvas.PlotColored(tip, render.ColorRCSPuffTip)
 			}
 		}
 

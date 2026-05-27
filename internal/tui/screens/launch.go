@@ -394,6 +394,38 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 		}
 		v.canvas.SetCellOverlay(camWorld, glyph)
 	}
+
+	// RCS puffs (v0.11.5 sub-scope 5): visible in the chase-cam so
+	// the player reads thruster activity inside the launch view, not
+	// just OrbitView. Same renderer shape as orbit.go — bright-white
+	// origin + dim-grey tip — but translated from world-inertial to
+	// the LaunchView's body-relative frame (body at origin).
+	v.drawRCSPuffs(w, craft, bodyCentre, scale)
+}
+
+// drawRCSPuffs paints the active world's recent RCS puffs into the
+// chase-cam scene as a bright-white origin pixel + dim-grey tip,
+// matching the OrbitView render. Puff.Inertial sits in world-inertial
+// coords (primary's BodyPosition + craft.State.R); the LaunchView's
+// canvas is body-relative (body at orbital.Vec3{}), so we subtract
+// the primary's BodyPosition to land each puff in the right frame.
+// v0.11.5 sub-scope 5.
+func (v *LaunchView) drawRCSPuffs(w *sim.World, active *spacecraft.Spacecraft, bodyPos orbital.Vec3, scaleMPerPx float64) {
+	if scaleMPerPx <= 0 {
+		return
+	}
+	primaryWorld := w.BodyPosition(active.Primary)
+	puffStep := 5.0 * scaleMPerPx
+	for _, p := range w.RCSPuffs() {
+		if p.AgeFrac >= 0.75 {
+			continue
+		}
+		bodyRel := p.Inertial.Sub(primaryWorld).Add(bodyPos)
+		origin := bodyRel.Add(p.Exhaust.Scale(puffStep))
+		tip := bodyRel.Add(p.Exhaust.Scale(2 * puffStep))
+		v.canvas.PlotColored(origin, render.ColorRCSPuffOrigin)
+		v.canvas.PlotColored(tip, render.ColorRCSPuffTip)
+	}
 }
 
 // drawComposedRocket plots a vessel's composed-from-stages launch
@@ -419,7 +451,10 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 		flameThrottle = craft.Throttle
 	}
 	frameIdx := int(time.Now().UnixMilli()/flameFrameMs) % 2
-	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx, flameThrottle, frameIdx)
+	bellWidth := EngineBellWidth(craft.Stages)
+	bell := ComposeEngineBell(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx)
+	legs := ComposeLegs(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx)
+	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx, flameThrottle, frameIdx, bellWidth)
 	// Plot each pixel as a braille sub-cell dot via PlotColored.
 	// No SetCellOverlay glyph: braille dots are direction-agnostic,
 	// so a tilted rocket renders smoothly at any pitch — the
@@ -429,6 +464,16 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 	// the braille dots show through at the pad (otherwise the
 	// LUT's SetCellOverlay `║ ╤ █` would mask the rocket).
 	for _, p := range sprite {
+		world := anchorWorld.Add(p.OffsetWorld)
+		v.canvas.PlotColored(world, p.Color)
+		v.canvas.ClearCellOverlay(world)
+	}
+	for _, p := range bell {
+		world := anchorWorld.Add(p.OffsetWorld)
+		v.canvas.PlotColored(world, p.Color)
+		v.canvas.ClearCellOverlay(world)
+	}
+	for _, p := range legs {
 		world := anchorWorld.Add(p.OffsetWorld)
 		v.canvas.PlotColored(world, p.Color)
 		v.canvas.ClearCellOverlay(world)

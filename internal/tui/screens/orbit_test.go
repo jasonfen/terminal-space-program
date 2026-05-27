@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -514,5 +515,20 @@ func TestOrbitRendersNavballPanel(t *testing.T) {
 	}
 	if len(v.navballControls) == 0 {
 		t.Errorf("expected navball control hit boxes to be recorded")
+	}
+}
+
+// TestRCSPuffsRenderWhite (v0.11.5 sub-scope 5): the canonical RCS-
+// puff palette is bright-white origin + dim-grey tip. Both OrbitView
+// and LaunchView read from the same render constants, so pinning the
+// constants here guards against accidental reverts to the pre-v0.11.5
+// amber/orange pair.
+func TestRCSPuffsRenderWhite(t *testing.T) {
+	if got, want := string(render.ColorRCSPuffOrigin), "#FFFFFF"; got != want {
+		t.Errorf("render.ColorRCSPuffOrigin = %q, want %q (bright white)", got, want)
+	}
+	if render.ColorRCSPuffTip != render.ColorDim {
+		t.Errorf("render.ColorRCSPuffTip = %q, want render.ColorDim %q",
+			string(render.ColorRCSPuffTip), string(render.ColorDim))
 	}
 }

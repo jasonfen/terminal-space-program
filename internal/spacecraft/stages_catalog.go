@@ -39,11 +39,25 @@ type StageModule struct {
 	dry, fuel, thrust, isp, bc float64
 	// launchSpriteRowsPx is the per-stage height (in braille
 	// sub-pixels) of this stage's ViewLaunch silhouette. Rendered
-	// as a `spriteWidthPx × launchSpriteRowsPx` filled rectangle
-	// of braille dots via PlotColored, anchored at the stage's
-	// bottom-centre. See CONTEXT.md "Launch Sprite" for the
+	// as a `launchSpriteWidthPx × launchSpriteRowsPx` filled
+	// rectangle of braille dots via PlotColored, anchored at the
+	// stage's bottom-centre. See CONTEXT.md "Launch Sprite" for the
 	// convention; row count is stylised, not real metres.
 	launchSpriteRowsPx int
+	// launchSpriteWidthPx (v0.11.5) is the per-stage width in
+	// braille sub-pixels. Zero falls back to the renderer's
+	// defaultSpriteWidthPx (2 — pre-v0.11.5 universal constant).
+	// Practical range [1, 5]; stylised character, not physics.
+	launchSpriteWidthPx int
+	// fuelType (v0.11.5) selects the engine's exhaust flame colour
+	// per FuelType* constants in stage.go. Empty for stages with
+	// no main engine (RCS-tug); ColorWarning fallback for unset
+	// values keeps pre-v0.11.5 behaviour for un-catalogued stages.
+	fuelType string
+	// launchSpriteHasLegs (v0.11.5) opts a stage into the Lander
+	// silhouette's splayed landing-leg render. Only meaningful at
+	// Stages[0] — upper-stage flag is ignored.
+	launchSpriteHasLegs bool
 	// canSoftLand (v0.11.4-followup) marks stages designed to
 	// soft-land — populates the matching Stage.CanSoftLand flag
 	// via catalogCanSoftLandByName so the surface-arrival
@@ -80,59 +94,82 @@ var StageCatalog = map[string]StageModule{
 	StageModuleSICID: {
 		ID: StageModuleSICID, Name: "S-IC", Glyph: "▲", Color: "#FF8C42",
 		Tier: "booster", dry: 130000, fuel: 2160000, thrust: 35100000, isp: 263, bc: 8e-6,
-		launchSpriteRowsPx: 24,
+		launchSpriteRowsPx:  24,
+		launchSpriteWidthPx: 5,
+		fuelType:            FuelTypeKerolox,
 	},
 	StageModuleSIIID: {
 		ID: StageModuleSIIID, Name: "S-II", Glyph: "▲", Color: "#FFC042",
 		Tier: "sustainer", dry: 40000, fuel: 440000, thrust: 5140000, isp: 421, bc: 2.5e-5,
-		launchSpriteRowsPx: 20,
+		launchSpriteRowsPx:  20,
+		launchSpriteWidthPx: 4,
+		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleSIVBID: {
 		ID: StageModuleSIVBID, Name: "S-IVB", Glyph: "▲", Color: "#FFD93D",
 		Tier: "transfer", dry: 11000, fuel: 109000, thrust: 1023000, isp: 421, bc: 6.25e-5,
-		launchSpriteRowsPx: 12,
+		launchSpriteRowsPx:  12,
+		launchSpriteWidthPx: 3,
+		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleICPSID: {
 		ID: StageModuleICPSID, Name: "ICPS", Glyph: "◆", Color: "#5BB3FF",
 		Tier: "transfer", dry: 3500, fuel: 25000, thrust: 110000, isp: 462, bc: 6.25e-5,
-		launchSpriteRowsPx: 8,
+		launchSpriteRowsPx:  8,
+		launchSpriteWidthPx: 3,
+		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleSRBID: {
 		ID: StageModuleSRBID, Name: "SRBs", Glyph: "▲", Color: "#E0E0E0",
 		Tier: "booster", dry: 198000, fuel: 1270000, thrust: 32000000, isp: 268, bc: 8e-6,
-		launchSpriteRowsPx: 28,
+		launchSpriteRowsPx:  28,
+		launchSpriteWidthPx: 5,
+		fuelType:            FuelTypeSolid,
 	},
 	StageModuleCoreRS25ID: {
 		ID: StageModuleCoreRS25ID, Name: "Core", Glyph: "▲", Color: "#FF6B35",
 		Tier: "sustainer", dry: 85275, fuel: 979452, thrust: 9290000, isp: 452, bc: 2.5e-5,
-		launchSpriteRowsPx: 24,
+		launchSpriteRowsPx:  24,
+		launchSpriteWidthPx: 4,
+		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleF9S1ID: {
 		ID: StageModuleF9S1ID, Name: "F9-S1", Glyph: "▲", Color: "#E8E8E8",
 		Tier: "booster", dry: 25600, fuel: 411000, thrust: 7607000, isp: 282, bc: 7.4e-6,
-		launchSpriteRowsPx: 20,
-		canSoftLand:        true,
+		launchSpriteRowsPx:  20,
+		launchSpriteWidthPx: 3,
+		fuelType:            FuelTypeKerolox,
+		canSoftLand:         true,
 	},
 	StageModuleF9S2ID: {
 		ID: StageModuleF9S2ID, Name: "F9-S2", Glyph: "▲", Color: "#B0D8FF",
 		Tier: "transfer", dry: 3900, fuel: 107500, thrust: 934000, isp: 348, bc: 5e-5,
-		launchSpriteRowsPx: 8,
+		launchSpriteRowsPx:  8,
+		launchSpriteWidthPx: 3,
+		fuelType:            FuelTypeKerolox,
 	},
 	StageModuleLanderID: {
 		ID: StageModuleLanderID, Name: "Lander", Glyph: "▼", Color: "#5FFF87",
 		Tier: "payload", dry: 4000, fuel: 8000, thrust: 45000, isp: 311, bc: 0,
-		launchSpriteRowsPx: 6,
-		canSoftLand:        true,
+		launchSpriteRowsPx:  5,
+		launchSpriteWidthPx: 3,
+		fuelType:            FuelTypeHypergolic,
+		launchSpriteHasLegs: true,
+		canSoftLand:         true,
 	},
 	StageModuleCSMID: {
 		ID: StageModuleCSMID, Name: "CSM", Glyph: "◉", Color: "#C0C0FF",
 		Tier: "payload", dry: 11900, fuel: 18400, thrust: 91000, isp: 314, bc: 0,
-		launchSpriteRowsPx: 10,
+		launchSpriteRowsPx:  10,
+		launchSpriteWidthPx: 2,
+		fuelType:            FuelTypeHypergolic,
 	},
 	StageModuleRCSTugID: {
 		ID: StageModuleRCSTugID, Name: "RCS Tug", Glyph: "●", Color: "#FF87D7",
 		Tier: "tug", dry: 200, fuel: 0, thrust: 0, isp: 0, bc: 0,
-		launchSpriteRowsPx: 4,
+		launchSpriteRowsPx:  4,
+		launchSpriteWidthPx: 2,
+		// fuelType intentionally unset — pure monoprop, no main engine.
 	},
 }
 
@@ -183,6 +220,9 @@ func BuildStage(id string) (Stage, bool) {
 		RCSIsp:               rcsIsp,
 		BallisticCoefficient: m.bc,
 		LaunchSpriteRowsPx:   m.launchSpriteRowsPx,
+		LaunchSpriteWidthPx:  m.launchSpriteWidthPx,
+		FuelType:             m.fuelType,
+		LaunchSpriteHasLegs:  m.launchSpriteHasLegs,
 		CanSoftLand:          m.canSoftLand,
 	}, true
 }

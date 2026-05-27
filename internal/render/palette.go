@@ -40,6 +40,13 @@ var (
 	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive
 	ColorFlame        = lipgloss.Color("#FF8C42") // engine-firing flame trail (warm orange — distinct from craftmarker yellow)
 	ColorTarget       = lipgloss.Color("#3DDC84") // active TARGET craft + its orbit — vivid green, matches DOCK READY callout, distinct from craft yellow / current-orbit slate / planned-node cyan
+	// v0.11.5: RCS puffs paint as a bright-white origin pixel + dim-grey
+	// tip in both OrbitView and LaunchView, so a small cold thruster
+	// puff reads visually distinct from the hot fuel-coloured main flame.
+	// Pre-v0.11.5 puffs used amber `ColorWarning` + orange `ColorFlame`
+	// which clashed with the new fuel-type flame palette.
+	ColorRCSPuffOrigin = lipgloss.Color("#FFFFFF") // bright white — thruster ignition pixel
+	ColorRCSPuffTip    = ColorDim                  // dim grey — fading trail tip
 )
 
 // maneuverSegmentPalette cycles through distinct colors per planted

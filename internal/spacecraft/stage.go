@@ -1,5 +1,15 @@
 package spacecraft
 
+// FuelType constants (v0.11.5). The renderer maps each value to a
+// flame colour in internal/tui/screens/launch_sprite.go; the in-game
+// vocabulary lives in CONTEXT.md under "Maneuver & thrust".
+const (
+	FuelTypeKerolox    = "kerolox"    // RP-1 + LOX (F-1, Merlin) — orange
+	FuelTypeHydrolox   = "hydrolox"   // LH2 + LOX (J-2, RS-25, RL-10) — pale cyan
+	FuelTypeHypergolic = "hypergolic" // Aerozine 50 + N2O4 (LM, SPS) — yellow-amber
+	FuelTypeSolid      = "solid"      // APCP (SLS SRB) — orange-red
+)
+
 // Stage describes one decouplable propulsion module on a spacecraft.
 // v0.9.1+. The Stages slice on Spacecraft is the source of truth for
 // dry mass / fuel / engine numbers; the historical flat fields
@@ -106,6 +116,42 @@ type Stage struct {
 	// box-drawing characters smear at gravity-turn angles
 	// (see docs/v0.11-plan.md "Resolved at slice-open").
 	LaunchSpriteRowsPx int `json:",omitempty"`
+
+	// LaunchSpriteWidthPx (v0.11.5) is the per-stage width (in
+	// braille sub-pixels) of this stage's ViewLaunch silhouette.
+	// Zero falls back to the renderer's default width (2 px — the
+	// pre-v0.11.5 universal constant), so un-catalogued and pre-
+	// v0.11.5 stages keep their original 2-wide rectangle. Practical
+	// range [1, 5] sub-pixels; catalog values are stylised, not
+	// physics-derived. Each stage paints a width × LaunchSpriteRowsPx
+	// rectangle centred on the stack axis — no auto-clamping based on
+	// neighbour widths; the catalog author tunes which stage-to-stage
+	// boundaries hard-step vs taper (see inter-stage taper rule in
+	// launch_sprite.go).
+	LaunchSpriteWidthPx int `json:",omitempty"`
+
+	// FuelType (v0.11.5) names the main-engine propellant chemistry
+	// so the renderer can tint the exhaust flame to a per-fuel
+	// palette. Values: "kerolox" (RP-1 + LOX, orange — F-1, Merlin),
+	// "hydrolox" (LH2 + LOX, pale cyan — J-2, RS-25, RL-10),
+	// "hypergolic" (Aerozine 50 + N2O4, yellow-amber — LM descent,
+	// SPS), "solid" (APCP, orange-red — SLS SRB). Empty/unset
+	// preserves pre-v0.11.5 amber flame (render.ColorWarning).
+	// Stages with Thrust == 0 (pure-monoprop RCS tugs) leave this
+	// unset — no main engine ⇒ no flame ⇒ no fuel-type read.
+	FuelType string `json:",omitempty"`
+
+	// LaunchSpriteHasLegs (v0.11.5) opts a stage into the diagonal
+	// landing-leg silhouette. When true AND the stage is Stages[0],
+	// the renderer paints two splayed diagonal lines of sub-pixels
+	// from the stage's bottom corners outward and downward, mirrored
+	// about the stack axis, in Stages[0].Color. Painted in the
+	// (stack-dir, width-dir) basis so legs lean with the rocket
+	// through gravity turns (the v0.11.3 direction-agnostic
+	// invariant). Suppressed when the stage is NOT at Stages[0] —
+	// upper-stage landing legs don't read as the iconic Lander
+	// silhouette. Today's only true entry: the Apollo Lander.
+	LaunchSpriteHasLegs bool `json:",omitempty"`
 
 	// CanSoftLand (v0.11.4-followup): per-stage flag for the
 	// surface-arrival predicate. v0.11.4's first cut put this on

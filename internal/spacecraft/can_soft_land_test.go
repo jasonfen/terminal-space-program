@@ -71,3 +71,37 @@ func TestApolloStackLanderStageCarriesCanSoftLand(t *testing.T) {
 		t.Errorf("Apollo Stack LM stage CanSoftLand = false, want true (catalog lookup by name)")
 	}
 }
+
+// TestLanderStageCarriesHasLegs (v0.11.5 sub-scope 6) — both the
+// stand-alone Lander loadout and the Apollo-Stack's LM stage must
+// carry LaunchSpriteHasLegs=true so the renderer paints the splayed-
+// leg silhouette wherever a Lander stage flies. Mirrors the
+// CanSoftLand pin pattern (per-Stage catalog-driven flag, propagated
+// via stageWithBC + BuildStage).
+func TestLanderStageCarriesHasLegs(t *testing.T) {
+	if l := LookupLoadout(LoadoutLanderID); len(l.Stages) == 0 || !l.Stages[0].LaunchSpriteHasLegs {
+		t.Errorf("Loadouts[Lander].Stages[0].LaunchSpriteHasLegs = false, want true")
+	}
+	apollo := LookupLoadout(LoadoutApolloStackID)
+	var lm *Stage
+	for i := range apollo.Stages {
+		if apollo.Stages[i].Name == "LM" {
+			lm = &apollo.Stages[i]
+			break
+		}
+	}
+	if lm == nil {
+		t.Fatal("Apollo Stack missing LM stage")
+	}
+	if !lm.LaunchSpriteHasLegs {
+		t.Errorf("Apollo Stack LM stage LaunchSpriteHasLegs = false, want true")
+	}
+	// Other launch-vehicle bottom stages must NOT carry legs (would
+	// produce a phantom landing-leg silhouette on the S-IC etc.).
+	for _, id := range []string{LoadoutSaturnVID, LoadoutSLSBlock1ID, LoadoutFalcon9ID, LoadoutSIVB1ID, LoadoutICPSID} {
+		s := LookupLoadout(id).Stages[0]
+		if s.LaunchSpriteHasLegs {
+			t.Errorf("Loadouts[%s].Stages[0].LaunchSpriteHasLegs = true, want false", id)
+		}
+	}
+}

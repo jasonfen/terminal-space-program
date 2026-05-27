@@ -519,3 +519,28 @@ func TestLaunchTowerCulledOnFarHemisphere(t *testing.T) {
 		t.Errorf("expected no LUT crown glyph on far hemisphere, got:\n%s", out)
 	}
 }
+
+// TestLaunchViewRendersRCSPuffs (v0.11.5 sub-scope 5): firing an RCS
+// pulse on the active craft must produce a visible change in the
+// LaunchView render — i.e. the chase-cam scene picks up the puff
+// pixels in the new white two-shade palette. Compares two renders
+// (before vs after a pulse); they must differ.
+func TestLaunchViewRendersRCSPuffs(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	before := v.Render(w, 120, 40)
+
+	// Switch to RCS mode and fire a prograde pulse.
+	c.EngineMode = spacecraft.EngineRCS
+	if !w.FireRCSPulse(spacecraft.BurnPrograde) {
+		t.Fatalf("FireRCSPulse(prograde) returned false; setup precondition broken")
+	}
+	if len(w.RCSPuffs()) == 0 {
+		t.Fatalf("after FireRCSPulse, w.RCSPuffs() is empty")
+	}
+	after := v.Render(w, 120, 40)
+	if before == after {
+		t.Errorf("LaunchView render unchanged after RCS pulse; expected puff pixels to land in scene")
+	}
+}
