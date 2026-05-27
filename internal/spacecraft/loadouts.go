@@ -181,6 +181,9 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 		RCSIsp:               rcsIsp,
 		BallisticCoefficient: bc,
 		LaunchSpriteRowsPx:   catalogLaunchSpriteRowsPxByName(name),
+		LaunchSpriteWidthPx:  catalogLaunchSpriteWidthPxByName(name),
+		FuelType:             catalogFuelTypeByName(name),
+		LaunchSpriteHasLegs:  catalogLaunchSpriteHasLegsByName(name),
 		CanSoftLand:          catalogCanSoftLandByName(name),
 	}
 }
@@ -222,6 +225,49 @@ func catalogLaunchSpriteRowsPxByName(name string) int {
 		}
 	}
 	return 0
+}
+
+// catalogLaunchSpriteWidthPxByName mirrors catalogLaunchSpriteRowsPxByName
+// for the per-stage width — same LM→Lander alias. v0.11.5.
+func catalogLaunchSpriteWidthPxByName(name string) int {
+	if name == "LM" {
+		name = "Lander"
+	}
+	for _, m := range StageCatalog {
+		if m.Name == name {
+			return m.launchSpriteWidthPx
+		}
+	}
+	return 0
+}
+
+// catalogFuelTypeByName looks up the StageCatalog fuelType for a
+// loadout stage by Name (LM→Lander alias). v0.11.5.
+func catalogFuelTypeByName(name string) string {
+	if name == "LM" {
+		name = "Lander"
+	}
+	for _, m := range StageCatalog {
+		if m.Name == name {
+			return m.fuelType
+		}
+	}
+	return ""
+}
+
+// catalogLaunchSpriteHasLegsByName looks up the StageCatalog
+// launchSpriteHasLegs flag for a loadout stage by Name
+// (LM→Lander alias). v0.11.5.
+func catalogLaunchSpriteHasLegsByName(name string) bool {
+	if name == "LM" {
+		name = "Lander"
+	}
+	for _, m := range StageCatalog {
+		if m.Name == name {
+			return m.launchSpriteHasLegs
+		}
+	}
+	return false
 }
 
 // Loadouts indexes the v0.8.2 launch set + v0.9.1 Saturn-V by ID.
