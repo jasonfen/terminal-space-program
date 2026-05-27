@@ -618,6 +618,87 @@ func TestLegsRotateWithStackDir(t *testing.T) {
 	}
 }
 
+// TestLaunchSpriteColorOverridesColor (v0.11.5-followup): a stage
+// with LaunchSpriteColor set paints the silhouette in that override
+// colour while leaving Color (which drives slate HUD identity)
+// untouched. Decouples HUD identity from rocket-body identity.
+func TestLaunchSpriteColorOverridesColor(t *testing.T) {
+	stage := spacecraft.Stage{
+		LaunchSpriteRowsPx:  4,
+		LaunchSpriteWidthPx: 3,
+		Color:               "#FF8C42", // S-IC orange (slate identity)
+		LaunchSpriteColor:   "#F5EFE0", // silhouette override (cream)
+	}
+	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	pixels := ComposeLaunchSprite([]spacecraft.Stage{stage}, cmd, basis, 1.0)
+	if len(pixels) == 0 {
+		t.Fatal("expected sprite pixels, got none")
+	}
+	for _, p := range pixels {
+		if string(p.Color) != "#F5EFE0" {
+			t.Errorf("sprite pixel colour = %q, want LaunchSpriteColor override %q (Color %q should not leak through)", string(p.Color), "#F5EFE0", "#FF8C42")
+			break
+		}
+	}
+}
+
+// TestLaunchSpriteColorFallsBackToColor (v0.11.5-followup): when
+// LaunchSpriteColor is empty, the sprite paints in Color — preserves
+// pre-v0.11.5 behaviour for un-catalogued and standalone-loadout stages.
+func TestLaunchSpriteColorFallsBackToColor(t *testing.T) {
+	stage := spacecraft.Stage{
+		LaunchSpriteRowsPx:  4,
+		LaunchSpriteWidthPx: 2,
+		Color:               "#FFD93D", // no LaunchSpriteColor set
+	}
+	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	pixels := ComposeLaunchSprite([]spacecraft.Stage{stage}, cmd, basis, 1.0)
+	if len(pixels) == 0 {
+		t.Fatal("expected sprite pixels, got none")
+	}
+	for _, p := range pixels {
+		if string(p.Color) != "#FFD93D" {
+			t.Errorf("sprite pixel colour = %q, want fallback to Color %q", string(p.Color), "#FFD93D")
+			break
+		}
+	}
+}
+
+// TestEngineBellInheritsLaunchSpriteColor (v0.11.5-followup): the
+// engine bell flare uses the same override as the stage body.
+func TestEngineBellInheritsLaunchSpriteColor(t *testing.T) {
+	stage := spacecraft.Stage{
+		LaunchSpriteRowsPx:  6,
+		LaunchSpriteWidthPx: 2,
+		Color:               "#FF0000",
+		LaunchSpriteColor:   "#F5EFE0",
+		Thrust:              1e6,
+	}
+	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	bell := ComposeEngineBell([]spacecraft.Stage{stage}, cmd, basis, 1.0)
+	if len(bell) == 0 {
+		t.Fatal("expected bell pixels, got none")
+	}
+	for _, p := range bell {
+		if string(p.Color) != "#F5EFE0" {
+			t.Errorf("bell pixel colour = %q, want LaunchSpriteColor override %q", string(p.Color), "#F5EFE0")
+			break
+		}
+	}
+}
+
 // TestComposeLaunchSpriteDefaultsToTwoWhenWidthZero verifies the
 // pre-v0.11.5 behaviour fallback: a stage with LaunchSpriteWidthPx == 0
 // renders at defaultSpriteWidthPx (= 2), so un-catalogued and pre-

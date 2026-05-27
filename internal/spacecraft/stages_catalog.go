@@ -49,6 +49,11 @@ type StageModule struct {
 	// defaultSpriteWidthPx (2 — pre-v0.11.5 universal constant).
 	// Practical range [1, 5]; stylised character, not physics.
 	launchSpriteWidthPx int
+	// launchSpriteColor (v0.11.5-followup) overrides Color for the
+	// silhouette body / engine bell / taper / legs. Empty falls back
+	// to Color. Apollo-Stack family ships unified-palette overrides
+	// here so the 5-band stack doesn't read as rainbow stripes.
+	launchSpriteColor string
 	// fuelType (v0.11.5) selects the engine's exhaust flame colour
 	// per FuelType* constants in stage.go. Empty for stages with
 	// no main engine (RCS-tug); ColorWarning fallback for unset
@@ -96,13 +101,18 @@ var StageCatalog = map[string]StageModule{
 		Tier: "booster", dry: 130000, fuel: 2160000, thrust: 35100000, isp: 263, bc: 8e-6,
 		launchSpriteRowsPx:  24,
 		launchSpriteWidthPx: 5,
-		fuelType:            FuelTypeKerolox,
+		// Real S-IC was matte white with black roll patterns. Warm
+		// cream keeps a hint of the catalog's S-IC-orange identity so
+		// adjacent stages still read as distinct bands.
+		launchSpriteColor: "#F5EFE0",
+		fuelType:          FuelTypeKerolox,
 	},
 	StageModuleSIIID: {
 		ID: StageModuleSIIID, Name: "S-II", Glyph: "▲", Color: "#FFC042",
 		Tier: "sustainer", dry: 40000, fuel: 440000, thrust: 5140000, isp: 421, bc: 2.5e-5,
 		launchSpriteRowsPx:  20,
 		launchSpriteWidthPx: 4,
+		launchSpriteColor:   "#E8E8E8", // neutral pale — matches real S-II white paint
 		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleSIVBID: {
@@ -110,6 +120,7 @@ var StageCatalog = map[string]StageModule{
 		Tier: "transfer", dry: 11000, fuel: 109000, thrust: 1023000, isp: 421, bc: 6.25e-5,
 		launchSpriteRowsPx:  12,
 		launchSpriteWidthPx: 3,
+		launchSpriteColor:   "#D8D8D8", // slightly cooler off-white capping the Saturn V trio
 		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleICPSID: {
@@ -117,6 +128,7 @@ var StageCatalog = map[string]StageModule{
 		Tier: "transfer", dry: 3500, fuel: 25000, thrust: 110000, isp: 462, bc: 6.25e-5,
 		launchSpriteRowsPx:  8,
 		launchSpriteWidthPx: 3,
+		launchSpriteColor:   "#C0C8D0", // muted cool grey — tames the saturated slate-blue Color
 		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleSRBID: {
@@ -124,14 +136,18 @@ var StageCatalog = map[string]StageModule{
 		Tier: "booster", dry: 198000, fuel: 1270000, thrust: 32000000, isp: 268, bc: 8e-6,
 		launchSpriteRowsPx:  28,
 		launchSpriteWidthPx: 5,
-		fuelType:            FuelTypeSolid,
+		// SRB Color is already neutral grey — no override needed.
+		fuelType: FuelTypeSolid,
 	},
 	StageModuleCoreRS25ID: {
 		ID: StageModuleCoreRS25ID, Name: "Core", Glyph: "▲", Color: "#FF6B35",
 		Tier: "sustainer", dry: 85275, fuel: 979452, thrust: 9290000, isp: 452, bc: 2.5e-5,
 		launchSpriteRowsPx:  24,
 		launchSpriteWidthPx: 4,
-		fuelType:            FuelTypeHydrolox,
+		// Real SLS core foam insulation is brick orange. Mute it so
+		// the booster-grey + core-orange stack doesn't shout.
+		launchSpriteColor: "#C45A2B",
+		fuelType:          FuelTypeHydrolox,
 	},
 	StageModuleF9S1ID: {
 		ID: StageModuleF9S1ID, Name: "F9-S1", Glyph: "▲", Color: "#E8E8E8",
@@ -153,6 +169,10 @@ var StageCatalog = map[string]StageModule{
 		Tier: "payload", dry: 4000, fuel: 8000, thrust: 45000, isp: 311, bc: 0,
 		launchSpriteRowsPx:  5,
 		launchSpriteWidthPx: 3,
+		// Real LM descent stage was wrapped in gold foil over an
+		// aluminium frame. Muted gold reads as "metal hardware"
+		// alongside the Saturn V whites instead of mint-green.
+		launchSpriteColor:   "#D4C088",
 		fuelType:            FuelTypeHypergolic,
 		launchSpriteHasLegs: true,
 		canSoftLand:         true,
@@ -162,6 +182,8 @@ var StageCatalog = map[string]StageModule{
 		Tier: "payload", dry: 11900, fuel: 18400, thrust: 91000, isp: 314, bc: 0,
 		launchSpriteRowsPx:  10,
 		launchSpriteWidthPx: 2,
+		// CSM Service Module was bare aluminium — silver-white.
+		launchSpriteColor:   "#C8C8D0",
 		fuelType:            FuelTypeHypergolic,
 	},
 	StageModuleRCSTugID: {
@@ -221,6 +243,7 @@ func BuildStage(id string) (Stage, bool) {
 		BallisticCoefficient: m.bc,
 		LaunchSpriteRowsPx:   m.launchSpriteRowsPx,
 		LaunchSpriteWidthPx:  m.launchSpriteWidthPx,
+		LaunchSpriteColor:    m.launchSpriteColor,
 		FuelType:             m.fuelType,
 		LaunchSpriteHasLegs:  m.launchSpriteHasLegs,
 		CanSoftLand:          m.canSoftLand,
