@@ -130,6 +130,17 @@ type Stage struct {
 	// launch_sprite.go).
 	LaunchSpriteWidthPx int `json:",omitempty"`
 
+	// LaunchSpriteColor (v0.11.5-followup) overrides Color for the
+	// launch-sprite body / engine bell / inter-stage taper / landing
+	// legs. Decouples slate HUD identity (Color, glyph palette) from
+	// silhouette identity: catalog authors can keep distinct slate
+	// hues per stage while painting the full stack in a unified
+	// rocket-body palette so a 5-stage Apollo Stack doesn't read as
+	// a rainbow gradient on screen. Empty falls back to Color so
+	// un-catalogued and pre-v0.11.5 stages keep their existing
+	// silhouette colour.
+	LaunchSpriteColor string `json:",omitempty"`
+
 	// FuelType (v0.11.5) names the main-engine propellant chemistry
 	// so the renderer can tint the exhaust flame to a per-fuel
 	// palette. Values: "kerolox" (RP-1 + LOX, orange — F-1, Merlin),

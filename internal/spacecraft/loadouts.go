@@ -182,6 +182,7 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 		BallisticCoefficient: bc,
 		LaunchSpriteRowsPx:   catalogLaunchSpriteRowsPxByName(name),
 		LaunchSpriteWidthPx:  catalogLaunchSpriteWidthPxByName(name),
+		LaunchSpriteColor:    catalogLaunchSpriteColorByName(name),
 		FuelType:             catalogFuelTypeByName(name),
 		LaunchSpriteHasLegs:  catalogLaunchSpriteHasLegsByName(name),
 		CanSoftLand:          catalogCanSoftLandByName(name),
@@ -250,6 +251,21 @@ func catalogFuelTypeByName(name string) string {
 	for _, m := range StageCatalog {
 		if m.Name == name {
 			return m.fuelType
+		}
+	}
+	return ""
+}
+
+// catalogLaunchSpriteColorByName looks up the StageCatalog
+// launchSpriteColor for a loadout stage by Name (LM→Lander alias).
+// v0.11.5-followup.
+func catalogLaunchSpriteColorByName(name string) string {
+	if name == "LM" {
+		name = "Lander"
+	}
+	for _, m := range StageCatalog {
+		if m.Name == name {
+			return m.launchSpriteColor
 		}
 	}
 	return ""

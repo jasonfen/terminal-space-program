@@ -62,6 +62,18 @@ func stageSpriteWidthPx(s spacecraft.Stage) int {
 	return s.LaunchSpriteWidthPx
 }
 
+// stageSpriteColor resolves the silhouette colour for a stage:
+// LaunchSpriteColor when set, else Color. Decouples slate HUD identity
+// (Color) from rocket-body identity (LaunchSpriteColor) so a
+// 5-stage Apollo Stack can paint a unified palette without changing
+// the per-stage HUD colours. v0.11.5-followup.
+func stageSpriteColor(s spacecraft.Stage) lipgloss.Color {
+	if s.LaunchSpriteColor != "" {
+		return lipgloss.Color(s.LaunchSpriteColor)
+	}
+	return lipgloss.Color(s.Color)
+}
+
 // taperThreshold (v0.11.5) is the minimum LaunchSpriteRowsPx on BOTH
 // adjacent stages for an inter-stage boundary to grow a synthetic
 // 1-row taper. Below the threshold the boundary hard-steps — the
@@ -136,7 +148,7 @@ func ComposeLegs(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets
 	pxSize := scaleMPerPx
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
 	widthX, widthY := stackY, -stackX
-	color := lipgloss.Color(s.Color)
+	color := stageSpriteColor(s)
 
 	emit := func(rowAbove, xPx float64) SpritePixel {
 		screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
@@ -177,7 +189,7 @@ func ComposeEngineBell(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis w
 	pxSize := scaleMPerPx
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
 	widthX, widthY := stackY, -stackX
-	color := lipgloss.Color(stages[0].Color)
+	color := stageSpriteColor(stages[0])
 	rowAbove := -1.0 // sits 1 row below the stage's base
 	pixels := make([]SpritePixel, 0, bw)
 	for col := 0; col < bw; col++ {
@@ -237,7 +249,7 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 			continue
 		}
 		width := stageSpriteWidthPx(s)
-		color := lipgloss.Color(s.Color)
+		color := stageSpriteColor(s)
 		emitRect(rowOffset, s.LaunchSpriteRowsPx, width, color)
 		rowOffset += s.LaunchSpriteRowsPx
 		// Inter-stage taper (v0.11.5 sub-scope 2): when both adjacent

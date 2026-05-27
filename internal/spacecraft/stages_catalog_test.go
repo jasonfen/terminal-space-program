@@ -44,6 +44,39 @@ func TestBuildStageCarriesFuelType(t *testing.T) {
 	}
 }
 
+// TestApolloStackSilhouetteIsUnifiedPalette (v0.11.5-followup): the
+// 5-stage Apollo Stack must paint its launch silhouette in cohesive
+// rocket-body tones (cream / white / metal), NOT a rainbow of the
+// per-stage slate-HUD colours. Pins each stage's LaunchSpriteColor
+// override against the unified catalog values so a future catalog
+// edit can't accidentally restore the rainbow read.
+func TestApolloStackSilhouetteIsUnifiedPalette(t *testing.T) {
+	apollo := Loadouts[LoadoutApolloStackID]
+	want := map[string]string{
+		"S-IC":  "#F5EFE0",
+		"S-II":  "#E8E8E8",
+		"S-IVB": "#D8D8D8",
+		"LM":    "#D4C088",
+		"CSM":   "#C8C8D0",
+	}
+	for _, s := range apollo.Stages {
+		w, ok := want[s.Name]
+		if !ok {
+			t.Errorf("unexpected stage %q in Apollo Stack", s.Name)
+			continue
+		}
+		if s.LaunchSpriteColor != w {
+			t.Errorf("Apollo Stack %s LaunchSpriteColor = %q, want %q", s.Name, s.LaunchSpriteColor, w)
+		}
+		// Per-stage Color (slate HUD identity) must remain its
+		// original distinct hue — overriding the silhouette does
+		// not touch slate identity.
+		if s.Color == s.LaunchSpriteColor {
+			t.Errorf("Apollo Stack %s Color and LaunchSpriteColor must differ — silhouette override decouples them", s.Name)
+		}
+	}
+}
+
 // TestLoadoutStagesCarryFuelType: stages built via stageWithBC (the
 // canonical Saturn-V / SLS / Falcon-9 / Apollo-Stack literals) get
 // FuelType populated by name-lookup against the catalog.
