@@ -106,6 +106,19 @@ type Stage struct {
 	// box-drawing characters smear at gravity-turn angles
 	// (see docs/v0.11-plan.md "Resolved at slice-open").
 	LaunchSpriteRowsPx int `json:",omitempty"`
+
+	// CanSoftLand (v0.11.4-followup): per-stage flag for the
+	// surface-arrival predicate. v0.11.4's first cut put this on
+	// the Loadout level, which broke the Apollo-Stack flow — the
+	// Lander stage couldn't carry its own soft-land capability
+	// across a decouple into a freshly-spawned slate craft. Moving
+	// the flag to the Stage level matches how other "per-stage
+	// engineering" attributes work (BallisticCoefficient,
+	// LaunchSpriteRowsPx) and SyncFields can re-derive
+	// Spacecraft.CanSoftLand from Stages[0] on every staging /
+	// dock / save-load. Set true on stages designed to land —
+	// today: `lander` and `f9-s1` in StageCatalog.
+	CanSoftLand bool `json:",omitempty"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.
@@ -183,6 +196,11 @@ func (s *Spacecraft) SyncFields() {
 	s.Isp = bottom.Isp
 	s.RCSThrust = bottom.RCSThrust
 	s.RCSIsp = bottom.RCSIsp
+	// v0.11.4-followup: bottom-stage authoritative for soft-land
+	// capability. Matches the F9 model (S1 has landing gear, S2
+	// doesn't) and the Apollo Stack model (Lander stage decouples
+	// into its own slate craft carrying CanSoftLand=true).
+	s.CanSoftLand = bottom.CanSoftLand
 }
 
 // ActiveStageFuel returns the bottom (currently-firing) stage's

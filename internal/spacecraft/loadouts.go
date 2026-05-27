@@ -54,14 +54,6 @@ type Loadout struct {
 	// in v0.10.0; per-vehicle tuning is a follow-up dial.
 	SlewRateDegPerSec float64
 
-	// CanSoftLand (v0.11.4+, ADR 0004) flags vessels designed to
-	// land — Apollo-LM-style Landers, Falcon 9 first stages. When
-	// true the surface-contact predicate evaluates V_CRIT + nose
-	// alignment to qualify a soft touchdown; when false any
-	// contact is a destructive Crash. Loadout-level (not per-stage)
-	// — a multi-stage vessel either is or isn't designed to land
-	// in its final flying configuration.
-	CanSoftLand bool
 }
 
 // DefaultSlewRateDegPerSec is the attitude slew-rate cap applied to
@@ -189,6 +181,7 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 		RCSIsp:               rcsIsp,
 		BallisticCoefficient: bc,
 		LaunchSpriteRowsPx:   catalogLaunchSpriteRowsPxByName(name),
+		CanSoftLand:          catalogCanSoftLandByName(name),
 	}
 }
 
@@ -202,6 +195,23 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 //
 // Special case: the Apollo-Stack's "LM" stage maps to catalog ID
 // "lander" (Name = "Lander") — same physics, different loadout label.
+// catalogCanSoftLandByName looks up the StageCatalog's
+// canSoftLand flag for a stage by its Name field. Mirrors
+// catalogLaunchSpriteRowsPxByName — same LM→Lander alias for the
+// Apollo-Stack literal that uses "LM" as the Name but resolves
+// against the catalog's "Lander" entry. v0.11.4-followup.
+func catalogCanSoftLandByName(name string) bool {
+	if name == "LM" {
+		name = "Lander"
+	}
+	for _, m := range StageCatalog {
+		if m.Name == name {
+			return m.canSoftLand
+		}
+	}
+	return false
+}
+
 func catalogLaunchSpriteRowsPxByName(name string) int {
 	if name == "LM" {
 		name = "Lander"
@@ -260,15 +270,12 @@ var Loadouts = map[string]Loadout{
 		Role:  "lander",
 		Glyph: "▼",
 		Color: "#5FFF87", // mint
+		// Apollo-LM-style descent stage. CanSoftLand=true is carried
+		// per-Stage via the StageCatalog lookup in stageWithBC; see
+		// stages_catalog.go's StageModuleLanderID entry.
 		Stages: []Stage{
 			stage(LoadoutLanderID, "Lander", "▼", "#5FFF87", 4000, 8000, 45000, 311),
 		},
-		// v0.11.4+ (ADR 0004): Apollo-LM-style descent stage — the
-		// first CanSoftLand consumer alongside Falcon-9 first stage.
-		// Low TWR / high Isp throttleable profile + soft-land
-		// qualification together make the lander playable as the
-		// "land it without crashing" loop the ADR describes.
-		CanSoftLand: true,
 	},
 	// Saturn-V (v0.9.1+): the canonical Apollo launch vehicle.
 	// Tuning per the v0.9 plan §v0.9.1 — TWR > 1 at sea level on
@@ -359,16 +366,13 @@ var Loadouts = map[string]Loadout{
 			stageWithBC(LoadoutFalcon9ID, "F9-S2", "▲", "#B0D8FF",
 				3900, 107500, 934000, 348, 5e-5),
 		},
-		// v0.11.4+ (ADR 0004): Falcon 9 first stage is the headline
-		// CanSoftLand consumer — retro-burn-to-touchdown recovery is
-		// the gameplay arc this loadout unlocks. Note this flag rides
-		// on the *composite* (first + second stage) until decouple;
-		// after staging the surviving second stage will read it too,
-		// but the second stage isn't designed to land and would crash
-		// anyway on the V_CRIT gate (orbital re-entry > 10 m/s).
-		// Acceptable in v0.11.4; revisit if/when parachute recovery
-		// makes the second stage a legitimate soft-land candidate.
-		CanSoftLand: true,
+		// CanSoftLand is per-Stage: F9-S1 carries it (retro-burn
+		// recovery), F9-S2 does not (orbital re-entry > V_CRIT
+		// kinematically). After S1 decouples and becomes its own
+		// slate craft, S1.CanSoftLand=true rides with it; the
+		// surviving composite (just F9-S2) re-derives
+		// CanSoftLand=false via SyncFields. See
+		// stages_catalog.go for the catalog flag.
 	},
 	// Apollo-Stack (v0.10.1+): the full mission stack. The first
 	// three stages are the canonical Saturn-V tuning (byte-identical
@@ -453,7 +457,6 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 		BallisticCoefficient: DefaultBallisticCoefficient,
 		Stages:               stages,
 		SlewRateDegPerSec:    l.SlewRateDegPerSec,
-		CanSoftLand:          l.CanSoftLand,
 	}
 	c.SyncFields()
 	return c

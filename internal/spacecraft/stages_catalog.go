@@ -44,6 +44,15 @@ type StageModule struct {
 	// bottom-centre. See CONTEXT.md "Launch Sprite" for the
 	// convention; row count is stylised, not real metres.
 	launchSpriteRowsPx int
+	// canSoftLand (v0.11.4-followup) marks stages designed to
+	// soft-land — populates the matching Stage.CanSoftLand flag
+	// via catalogCanSoftLandByName so the surface-arrival
+	// predicate gates correctly across staging. Today's true
+	// entries: lander (LM-derived descent stage), f9-s1 (Falcon
+	// 9 first stage with retro-burn recovery). Everything else
+	// stays false — Saturn V stages crash on contact, CSM crashes
+	// on contact, F9-S2 crashes on contact.
+	canSoftLand bool
 }
 
 // Catalog stage IDs.
@@ -102,6 +111,7 @@ var StageCatalog = map[string]StageModule{
 		ID: StageModuleF9S1ID, Name: "F9-S1", Glyph: "▲", Color: "#E8E8E8",
 		Tier: "booster", dry: 25600, fuel: 411000, thrust: 7607000, isp: 282, bc: 7.4e-6,
 		launchSpriteRowsPx: 20,
+		canSoftLand:        true,
 	},
 	StageModuleF9S2ID: {
 		ID: StageModuleF9S2ID, Name: "F9-S2", Glyph: "▲", Color: "#B0D8FF",
@@ -112,6 +122,7 @@ var StageCatalog = map[string]StageModule{
 		ID: StageModuleLanderID, Name: "Lander", Glyph: "▼", Color: "#5FFF87",
 		Tier: "payload", dry: 4000, fuel: 8000, thrust: 45000, isp: 311, bc: 0,
 		launchSpriteRowsPx: 6,
+		canSoftLand:        true,
 	},
 	StageModuleCSMID: {
 		ID: StageModuleCSMID, Name: "CSM", Glyph: "◉", Color: "#C0C0FF",
@@ -172,5 +183,6 @@ func BuildStage(id string) (Stage, bool) {
 		RCSIsp:               rcsIsp,
 		BallisticCoefficient: m.bc,
 		LaunchSpriteRowsPx:   m.launchSpriteRowsPx,
+		CanSoftLand:          m.canSoftLand,
 	}, true
 }

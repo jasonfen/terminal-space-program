@@ -33,6 +33,7 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			RCSThrust:            s.RCSThrust,
 			RCSIsp:               s.RCSIsp,
 			BallisticCoefficient: s.BallisticCoefficient,
+			CanSoftLand:          s.CanSoftLand,
 		}
 	}
 	return out
