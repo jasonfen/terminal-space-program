@@ -220,6 +220,15 @@ type Stage struct {
 	RCSThrust            float64 `json:"rcs_thrust,omitempty"`
 	RCSIsp               float64 `json:"rcs_isp,omitempty"`
 	BallisticCoefficient float64 `json:"ballistic_coefficient,omitempty"`
+
+	// CanSoftLand (v0.11.4-followup, schema v6 additive — no bump
+	// per ADR 0004): per-Stage soft-land flag, round-tripped on the
+	// wire so a saved Falcon-9 S1 (or Apollo-Stack Lander stage)
+	// loads with the right surface-arrival-predicate gate even after
+	// SyncFields re-derives the flat Spacecraft.CanSoftLand mirror.
+	// Pre-v0.11.4 saves load with the field absent → default-false,
+	// which matches every pre-v0.11.4 catalog stage.
+	CanSoftLand bool `json:"can_soft_land,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -444,6 +453,7 @@ func payloadFromWorld(w *sim.World) Payload {
 				RCSThrust:            s.RCSThrust,
 				RCSIsp:               s.RCSIsp,
 				BallisticCoefficient: s.BallisticCoefficient,
+				CanSoftLand:          s.CanSoftLand,
 			})
 		}
 		for _, dc := range c.DockedComponents {
