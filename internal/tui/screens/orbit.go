@@ -1656,6 +1656,82 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		}
 	}
 
+	// v0.11.4-followup: DESCENT HUD — airless-body counterpart to
+	// LAUNCH. Surfaces v_vert / v_horiz / fpa / twr / sas so the
+	// player can fly the terminal approach with real instruments
+	// instead of inferring control from altitude alone. The crash
+	// predicate (sim.CrashVCritMps = 10 m/s on |V|) catches lateral
+	// velocity too — without this block, an orbital-class lateral
+	// approach at low altitude reads as "controlled descent" by the
+	// altitude row and then flips to Crashed on contact.
+	//
+	// Mutually exclusive with the LAUNCH block above via the
+	// Atmosphere gate in shouldShowDescentHUD vs shouldShowLaunchHUD.
+	// The velocity-split math (vRel = v − ω × r; vVert = vRel · r̂;
+	// vHoriz = |vRel − vVert·r̂|) mirrors the LAUNCH block — same
+	// ADR 0003 spin axis so the readouts agree with the integrator's
+	// surface-co-rotation frame.
+	if c := w.ActiveCraft(); c != nil && shouldShowDescentHUD(c) {
+		altAGL := c.Altitude()
+		omegaRender := render.BodySpinOmegaWorld(c.Primary)
+		omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
+		vRel := c.State.V.Sub(omega.Cross(c.State.R))
+		rNorm := c.State.R.Norm()
+		var vVert, vHoriz, fpaDeg float64
+		hasFPA := false
+		if rNorm > 0 {
+			rHat := c.State.R.Scale(1 / rNorm)
+			vVert = vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z
+			vHorizVec := vRel.Sub(rHat.Scale(vVert))
+			vHoriz = vHorizVec.Norm()
+			if vRel.Norm() > 1.0 {
+				fpaDeg = math.Atan2(vVert, vHoriz) * 180 / math.Pi
+				hasFPA = true
+			}
+		}
+		// TWR against surface gravity. On an airless body the player
+		// uses this to size their hover / descent budget — TWR < 1
+		// means gravity wins even at full throttle.
+		twrLabel := "—"
+		if c.Thrust > 0 && c.TotalMass() > 0 {
+			gSurface := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
+			twr := c.Thrust * c.EffectiveThrottle() / (c.TotalMass() * gSurface)
+			twrLabel = fmt.Sprintf("%.2f", twr)
+			if twr < 1.0 {
+				twrLabel = v.theme.Alert.Render(twrLabel + " (can't hover)")
+			}
+		}
+		altLabel := fmt.Sprintf("%.0f m", altAGL)
+		if altAGL >= 1000 {
+			altLabel = fmt.Sprintf("%.2f km", altAGL/1000)
+		}
+		fpaLabel := "—"
+		if hasFPA {
+			fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", fpaDeg)
+		}
+		// v_horiz at low altitude is the splat-risk indicator: a
+		// craft with > CrashVCritMps horizontal velocity flips to
+		// Crashed on surface contact regardless of vertical descent
+		// rate. Highlight the row when the lateral component alone
+		// already exceeds the soft-land cutoff so the failure mode
+		// is legible before contact.
+		vHorizLabel := fmt.Sprintf("%.0f m/s (surface-rel)", vHoriz)
+		if vHoriz > sim.CrashVCritMps {
+			vHorizLabel = v.theme.Alert.Render(
+				fmt.Sprintf("%.0f m/s (> %.0f = CRASH on contact)", vHoriz, sim.CrashVCritMps))
+		}
+		sasLabel := c.AttitudeMode.String()
+		lines = append(lines, section("DESCENT")...)
+		lines = append(lines,
+			fmt.Sprintf("  altitude:   %s", altLabel),
+			fmt.Sprintf("  v_vert:     %.1f m/s", vVert),
+			fmt.Sprintf("  v_horiz:    %s", vHorizLabel),
+			fmt.Sprintf("  fpa:        %s", fpaLabel),
+			fmt.Sprintf("  twr:        %s", twrLabel),
+			fmt.Sprintf("  sas:        %s", sasLabel),
+		)
+	}
+
 	// v0.8.2.x: arrival inclination preview. Surfaces the post-
 	// capture orbit at the last frame-changing planted node so the
 	// player catches retrograde-around-target gotchas (a prograde
@@ -2219,6 +2295,65 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 // shouldShowLaunchHUD, ORBIT READY gate) keep their local name; the
 // JSON mirror at internal/missions/missions.json:40 is unchanged.
 const launchMissionFloorM = sim.LaunchMissionFloorM
+
+// descentHUDAltitudeM is the altitude threshold (above the airless
+// primary's mean radius) below which the DESCENT block lights up.
+// 50 km gives the player a full warp-10× tick worth of warning at
+// orbital-class lateral speeds before reaching the surface; smaller
+// values would let an impactor approach pass the surface inside one
+// readout-update without giving the v_horiz row time to register.
+const descentHUDAltitudeM = 50_000.0
+
+// shouldShowDescentHUD returns true when the active craft is in
+// surface-proximity flight on an airless body — the regime where
+// the v_vert / v_horiz split (not the scalar orbital velocity) is
+// what determines whether the next surface contact is a soft
+// touchdown or a high-|V| Crashed. Counterpart to shouldShowLaunchHUD
+// for airless bodies; the two are mutually exclusive via the
+// Atmosphere == nil gate (LAUNCH is atmospheric, DESCENT is airless).
+//
+// v0.11.4-followup: added after the playtest report of "vessel
+// suddenly crashed during controlled moon descent" — the always-on
+// VESSEL block renders altitude and scalar `velocity` only, so a
+// craft with ~1 km/s residual orbital lateral velocity at 5–10 km
+// altitude reads "low and slow" by altitude alone but flips to
+// Crashed (|V| ≫ CrashVCritMps) on the next surface contact. The
+// new block surfaces v_vert / v_horiz / fpa / twr so the lateral
+// component is legible while there's still room to bleed it.
+//
+// Trigger: airless primary AND (current altitude < descentHUDAltitudeM
+// OR the bound orbit's periapsis sits below the surface — an impactor
+// trajectory still 100 km up benefits from the readout as much as
+// one at 5 km).
+//
+// Crashed / Landed crafts never reach the surrounding HUD path so the
+// predicate doesn't need to gate on them.
+func shouldShowDescentHUD(c *spacecraft.Spacecraft) bool {
+	if c == nil {
+		return false
+	}
+	if c.Primary.Atmosphere != nil {
+		return false
+	}
+	if c.Primary.RadiusMeters() <= 0 {
+		return false
+	}
+	if c.Altitude() < descentHUDAltitudeM {
+		return true
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu == 0 {
+		return false
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	if el.E < 1 && el.A > 0 {
+		periAlt := el.Periapsis() - c.Primary.RadiusMeters()
+		if periAlt < 0 {
+			return true
+		}
+	}
+	return false
+}
 
 // formatAltKm renders an altitude in metres as a signed kilometre
 // string with a sign that's friendly to ascent flight ("−2.8 km"
