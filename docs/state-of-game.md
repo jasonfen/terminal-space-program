@@ -813,6 +813,34 @@ the [capture-direction toggle](#capture-direction-toggle) and
 <!-- llm-parse: id=mission-eval-resources status=backlog target=alongside-mission-scripting -->
 🧊 **backlog**. `EvalContext` doesn't carry fuel / monoprop / dv_budget today, so the rolled-back v0.8.7 expression env had those zeroed. Trivial threading from `sim.World.Tick`; pairs with the mission-scripting design pass.
 
+### Parachutes for atmospheric descent + recovery
+<!-- llm-parse: id=parachutes status=backlog target=v0.12 origin=adr-0004 -->
+🧊 **backlog · target v0.12 · ADR-worthy when it lands**. A non-engine path to soft Touchdown — a deployed parachute on a Vessel without `CanSoftLand` qualifies for the surface-arrival predicate via aerodynamic deceleration. Touches drag (deploy-time `BallisticCoefficient` bump), spacecraft state (parachute deploy flag, deployed-vs-torn states), control modes (deploy keystroke gated on dynamic pressure + altitude). The v0.11.4 Crashed / Soft-Landed lifecycle (ADR 0004) explicitly preserved this hook so capsule-class vessels — historically the natural parachute users — get a non-`CanSoftLand` route to surviving entry. Sources: `docs/adr/0004-crashed-landed-lifecycle.md` §214; `docs/v0.11-plan.md` §Deferred line 950.
+
+### Stippled ground-fill variant
+<!-- llm-parse: id=stippled-ground-fill status=backlog target=v0.12 origin=v0.11.4 -->
+🧊 **backlog · target v0.12 · render polish**. Originally v0.11.4 scope; deferred — the flat surface fill shipped in v0.11.0 has held up across the v0.11.0–.4 playtest cycle and no felt "this looks flat" pain has surfaced. The render primitive (per-cell density / per-pixel dot pattern instead of solid fill) reuses the LUT body-fixed overlay machinery — no new integrator work, purely a `ViewLaunch` `drawSurfaceFill` rewrite. Reopen if the launch ground texture starts feeling visually flat after v0.11.5's silhouette polish lands. Source: `docs/v0.11-plan.md` §Deferred line 956.
+
+### Polar-launch fallback hardening
+<!-- llm-parse: id=polar-launch-fallback status=backlog target=v0.12 origin=v0.11.0 -->
+🧊 **backlog · target v0.12 · low priority unless playtest exposes**. ViewLaunch Slice 1 (v0.11.0) ships a body-world-`+X` fallback for the surface-east basis when launching near a pole (where the canonical "east" tangent degenerates). v0.11.0–.4 playtest never surfaced a problem. Reopen if a polar-launch scenario — e.g., a Moon south-pole site repurposed as a launchpad — exposes a chase-cam rotation defect. Source: `docs/v0.11-plan.md` §Deferred line 960.
+
+### Dedicated ViewLanding ViewMode
+<!-- llm-parse: id=view-landing-mode status=backlog target=v0.12 origin=adr-0004 -->
+🧊 **backlog · target v0.12 · gates on landing-HUD signal divergence**. v0.11.4 considered (and rejected) a dedicated landing-mode `ViewMode` in favour of "ViewLaunch covers both via shift+v manual jump" — ADR 0004 §γ rejected on feature-creep grounds. Reopen when landing-context HUD reads diverge from launch-context reads enough that one ViewMode can't honestly serve both. **Watch signal:** the v0.11.4-followup DESCENT HUD block (`internal/tui/screens/orbit.go` `shouldShowDescentHUD`) is the first landing-specific instrument introduced since the ADR — the threshold for splitting is more landing-specific rows that don't make sense in a launch context. Sources: `docs/adr/0004-crashed-landed-lifecycle.md` §222; `docs/v0.11-plan.md` §Deferred line 963.
+
+### General vessel-removal action
+<!-- llm-parse: id=vessel-removal-general status=backlog target=v0.12 origin=adr-0004 -->
+🧊 **backlog · target v0.12 · UX scope distinct from Crashed-end-flight**. v0.11.4's end-flight `[E]` action removes *Crashed* vessels only. Removing *live* vessels — an orbital-cleanup tool, a sandbox-mode "abandon this stuck booster" — is a separate UX scope. Different confirmation flow (the player is deliberately discarding a working vessel), different consequences (no wreckage frame, no lifecycle moment), different mental model (deliberate cleanup vs. accepting destruction). Banked here so `[E]` doesn't accidentally generalise without a real UX pass. Sources: `docs/adr/0004-crashed-landed-lifecycle.md` §219; `docs/v0.11-plan.md` §Deferred line 968.
+
+### Vestigial Surface Contact bucket delete
+<!-- llm-parse: id=surface-contact-vestigial-delete status=backlog target=v0.12 origin=adr-0004 -->
+🧊 **backlog · target v0.12 · code cleanup, gates on playtest signal**. After v0.11.4 every surface contact resolves to either Landed (predicate qualifies: `CanSoftLand` + `|V| < V_CRIT` + nose alignment) or Crashed (anything else). The third "Surface Contact" placeholder bucket (zero-V state with neither flag set) is reachable only theoretically; v0.11.4 kept it as a defensive fallback. Delete after the v0.11.x playtest cycle confirms no qualifying-but-not-Crashed contacts emerge in practice — a couple of weeks of varied landing attempts is plenty of signal. Source: `docs/adr/0004-crashed-landed-lifecycle.md` §197.
+
+### 2-stage Lander (Descent + Ascent split)
+<!-- llm-parse: id=lander-2-stage status=backlog target=v0.12 weight=S-M origin=v0.11.5-grill -->
+🧊 **backlog · target v0.12 · gameplay enrichment**. The real Apollo LM was two vehicles: an ascent stage that launched *from* the descent stage on the surface, leaving the descent stage as discarded hardware on the lunar surface. v0.11.5's Lander silhouette polish (per-stage width, landing legs, engine bell, hypergolic flame) keeps the Lander as a single catalog stage. A v0.12+ catalog enrichment would split it into two stages (`lander-descent` + `lander-ascent`) and add a **surface staging event** — decouple the ascent stage from the descent stage *while Landed*, leaving the descent stage as a Landed wreck on the surface and the ascent stage as the player's active craft for return-to-lunar-orbit. This is a *gameplay* extension, not a visual one: the player gains a new lifecycle moment between Touchdown and Re-launch. The v0.11.5 1-stage Lander's visual differentiation (legs + bell + hypergolic flame, per `CONTEXT.md` "Launch Sprite") already pulls its weight for v0.11.5; the split is about replicating the authentic Apollo flow (Eagle's descent stage left on the Moon, ascent stage returns to dock with the CSM). Source: `docs/v0.11-plan.md` §Deferred (added during the v0.11.5 grill).
+
 ### Open scoping questions
 <!-- llm-parse: backlog_section=open-questions -->
 

@@ -38,33 +38,81 @@ _Avoid_: Booster (one kind of stage, not all stages), Tank, Section.
 **Launch Sprite**:
 The per-Stage **braille-pixel silhouette** rendered by the ViewLaunch
 chase-cam, conveying a Vessel's stack composition during launch. Each
-Stage paints a (2 sub-pixels wide × `LaunchSpriteRowsPx` tall) filled
+Stage paints a (`LaunchSpriteWidthPx` × `LaunchSpriteRowsPx`) filled
 rectangle of braille dots via `PlotColored` in the Stage's catalog
-color. Stages stack bottom-to-top from `Stages[0]` (lowest in screen,
-firing engine) to `Stages[len-1]` (payload, highest) along the
-Vessel's `CurrentAttitudeDir` projected into the chase-cam basis —
-so a gravity-turned rocket leans smoothly at any pitch (braille dots
-are direction-agnostic, so no glyph-rotation problem). Per-Stage
-identity reads from color + height; the LUT's body-fixed
+color, both dimensions in sub-pixel (= half-cell) units. Stages stack
+bottom-to-top from `Stages[0]` (lowest in screen, firing engine) to
+`Stages[len-1]` (payload, highest) along the Vessel's
+`CurrentAttitudeDir` projected into the chase-cam basis — so a
+gravity-turned rocket leans smoothly at any pitch (braille dots are
+direction-agnostic, so no glyph-rotation problem). Per-Stage identity
+reads from color + height + width; the LUT's body-fixed
 `SetCellOverlay` glyphs are cleared at rocket-pixel cells so the
 braille dots show through at the pad.
 
-Stage convention: `LaunchSpriteRowsPx` is *stylised* (chosen so the
-stack reads well at typical pad-launch zoom), not derived from real
-metres. Zero `LaunchSpriteRowsPx` means "no sprite, fall back to the
-Vessel-level `Glyph`." Below `Stages[0]` an amber **flame** of the
-same braille primitive extends along `-CurrentAttitudeDir`,
-length-binned by Throttle (4 / 8 / 12 sub-pixels), pulsed by a
-wall-clock 100 ms frame shift. The flame renders only while the
-Vessel has an active `ManualBurn` or `ActiveBurn` — pad-spawn
+Stage convention: `LaunchSpriteRowsPx` / `LaunchSpriteWidthPx` are
+*stylised* (chosen so the stack reads well at typical pad-launch
+zoom), not derived from real metres. Zero `LaunchSpriteRowsPx` means
+"no sprite, fall back to the Vessel-level `Glyph`." Zero
+`LaunchSpriteWidthPx` falls back to a 2-sub-pixel default
+(the pre-v0.11.5 universal width). Practical width range [1, 5].
+
+**Engine Bell**: a synthetic single-row flare painted between
+`Stages[0]`'s bottom edge and the flame, at width `min(stage.width +
+2, 7)`, in the stage's color. Renders whenever `Stages[0]` has
+`launchSpriteWidthPx ≥ 2`, `launchSpriteRowsPx ≥ 4`, and `Thrust > 0`
+(a pure-monoprop RCS-tug as bottom stage gets no bell). Inferred from
+geometry, not authored — no catalog field. The bell is *hardware*, so
+it renders regardless of throttle; the flame attaches below it and
+inherits the bell's width so exhaust visibly emerges from the nozzle.
+
+**Inter-stage Taper**: an optional synthetic 1-row taper between
+adjacent stages of different `LaunchSpriteWidthPx`, painted at
+`round((lower.width + upper.width) / 2)` in the lower stage's color.
+Renders only when *both* adjacent stages have
+`LaunchSpriteRowsPx ≥ 6` (the `taperThreshold`) — short stages hard-
+step. The catalog author controls whether the overall envelope reads
+as "stepped rocket" or smooths toward a triangle by tuning which
+stage boundaries match in width (= no taper) vs differ.
+
+**Landing Legs**: a Lander-class hardware feature painted as two
+diagonal lines of sub-pixels splaying outward and downward from
+`Stages[0]`'s bottom corners to foot-pad positions roughly level with
+or just past the flame tip. Mirrored about the stack axis; constants
+`legSpreadX = 2` sub-pixels outward and `legSpreadY = 3` sub-pixels
+downward give the iconic LM splay. Renders only when `Stages[0]` has
+`LaunchSpriteHasLegs == true` (opt-in catalog flag). Painted in the
+stage's color (legs = descent-stage hardware). Defined in the
+`(stack-dir, width-dir)` basis so the legs lean with the rocket
+during gravity-turns, preserving the direction-agnostic invariant.
+
+Below `Stages[0]`'s engine bell a **flame** of the same braille
+primitive extends along `-CurrentAttitudeDir`, length-binned by
+Throttle (4 / 8 / 12 sub-pixels), pulsed by a wall-clock 100 ms frame
+shift. Flame color is looked up from `Stages[0].FuelType` via a
+fixed palette (see [[#maneuver--thrust|Fuel Type]]); empty / unknown
+FuelType falls back to amber `render.ColorWarning` for backward
+compatibility with un-catalogued stages. The flame renders only while
+the Vessel has an active `ManualBurn` or `ActiveBurn` — pad-spawn
 loadout-default Throttle=1.0 alone does not paint flame.
+
+**RCS Puff**: small bright-white dots painted at recent RCS-pulse
+positions in both ViewLaunch and OrbitView. Two-shade (bright-white
+origin dot near the craft, dim-grey tip dot farther along the
+exhaust direction) so the puff visibly points away from the craft.
+Source: `World.RCSPuffs()` ring buffer; renders for any vessel,
+fades out by age-fraction. The white-vs-FuelType-coloured-flame
+contrast encodes "RCS = small cold puff, main engine = hot coloured
+plume" without an explicit HUD readout.
 
 History: the v0.11.3 first cut used multi-line ASCII glyphs
 (`╔╗ ║║ ▓▓ ╚╝`); the playtest showed box-drawing characters smear at
 gravity-turn angles (the 2-col-wide width axis runs perpendicular to
 a near-horizontal stack and the cells split across terminal rows).
 The braille pivot replaced the ASCII string with `LaunchSpriteRowsPx
-int` mid-cycle.
+int` mid-cycle (v0.11.3). v0.11.5 added per-stage width, taper, bell,
+fuel-type flame colour, white RCS puffs, and Lander landing-legs as a
+bundled silhouette-polish slice.
 _Avoid_: Sprite (bare — collides with the launch-tower LUT sprite and
 the body-texture sprites; qualify as Launch Sprite in launch-render
 contexts), Stage art, Rocket art.
@@ -205,6 +253,22 @@ A Manual Burn (player throttling without a Node) is always finite in
 the same sense — the integrator runs the same RK4 path — but doesn't
 carry a Duration field because the player decides when to cut off.
 _Avoid_: Instant burn, Continuous burn.
+
+**Fuel Type**:
+The propellant-chemistry family of a Stage's main engine. Enumerable
+and small: **Kerolox** (RP-1 / LOX — F-1, Merlin), **Hydrolox** (LH2 /
+LOX — J-2, RS-25, RL-10), **Hypergolic** (Aerozine 50 / N2O4 — LM
+descent, SPS), **Solid** (APCP — SLS SRB). Stored on the Stage as
+catalog data, not derived from physical numbers. Drives the Launch
+Sprite's flame colour via a fixed palette (kerolox = orange, hydrolox
+= pale cyan, hypergolic = yellow-amber, solid = orange-red), so a
+Saturn V's S-IC reads orange while its hydrolox upper stages read
+pale-cyan — visible mid-flight stage character without HUD reads.
+Distinct from [[#attitude--rcs|Monopropellant]], which names the RCS
+propellant family rather than a main-engine fuel.
+_Avoid_: Propellant Class (verbose), Engine Type (engine = hardware,
+fuel-type = chemistry), Fuel (bare — means "main-engine propellant
+mass" elsewhere in the codebase).
 
 ### Bodies & systems
 
