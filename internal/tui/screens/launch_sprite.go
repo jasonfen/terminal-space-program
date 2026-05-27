@@ -275,67 +275,90 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 	return pixels
 }
 
+// flameMaxRows is the cap on flame height in sub-pixel rows
+// (v0.11.5-followup). Replaces the pre-followup 12-row max — a tall
+// rectangle read as a clunky bar of exhaust; capping at 4 and tapering
+// the width (see ComposeFlame) gives a basic-cone silhouette that
+// scales by throttle without dominating the canvas.
+const flameMaxRows = 4
+
 // ComposeFlame builds exhaust-flame pixels extending below Stages[0]
-// along the -cmdWorld direction. Width and starting row depend on
-// whether the engine bell is rendered:
+// along the -cmdWorld direction as a basic cone tapering from the
+// nozzle width at the top to half that width at the tip. Width and
+// starting row depend on whether the engine bell is rendered:
 //
-//   - bellWidth > 0: flame uses bellWidth and starts at rowAbove = -2
-//     (the bell occupies rowAbove = -1, so exhaust emerges from
-//     beneath the nozzle).
-//   - bellWidth == 0: flame uses Stages[0]'s resolved width and starts
-//     at rowAbove = -1 (pre-v0.11.5 behaviour for un-belled stacks).
+//   - bellWidth > 0: top row paints at bellWidth, starts at
+//     rowAbove = -2 (the bell occupies rowAbove = -1).
+//   - bellWidth == 0: top row paints at Stages[0]'s resolved width
+//     and starts at rowAbove = -1 (un-belled fallback path).
 //
-// Length-binned by throttle into 3 bins:
+// Row count is throttle-binned, capped at flameMaxRows = 4:
 //
 //   - throttle ≤ 0 or no stages: returns nil.
-//   - 0 < throttle ≤ 1/3: 4 sub-pixel rows (1 cell tall).
-//   - 1/3 < throttle ≤ 2/3: 8 sub-pixel rows.
-//   - 2/3 < throttle:      12 sub-pixel rows.
+//   - 0 < throttle ≤ 1/3: 2 sub-pixel rows.
+//   - 1/3 < throttle ≤ 2/3: 3 sub-pixel rows.
+//   - 2/3 < throttle:      4 sub-pixel rows.
 //
-// frameIdx selects one of two pulse offsets — frame B shifts the
-// flame down by 1 px so the dot pattern within each cell visibly
-// changes between frames at the ~100 ms wall-clock cadence.
-// Colour: amber `render.ColorWarning` (v0.11.5 sub-scope 4 swaps in
-// fuel-type tints — see ComposeFlameTinted).
+// Width tapers linearly across rows from the top (top width) to
+// max(1, topWidth/2) at the tip — basic cone shape, centred on the
+// stack axis. frameIdx selects one of two pulse offsets — frame B
+// shifts the flame 1 sub-pixel further from the engine so the dot
+// pattern in each braille cell visibly repaints at the ~100 ms
+// wall-clock cadence. Colour comes from Stages[0].FuelType via
+// flameColorForFuelType (v0.11.5 sub-scope 4); unset falls back to
+// render.ColorWarning.
 func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64, throttle float64, frameIdx int, bellWidth int) []SpritePixel {
 	if throttle <= 0 || len(stages) == 0 {
 		return nil
 	}
-	var nPx int
+	var nRows int
 	switch {
 	case throttle <= 1.0/3.0:
-		nPx = 4
+		nRows = 2
 	case throttle <= 2.0/3.0:
-		nPx = 8
+		nRows = 3
 	default:
-		nPx = 12
+		nRows = flameMaxRows
 	}
 
 	pxSize := scaleMPerPx
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
 	widthX, widthY := stackY, -stackX
-	flameWidth := bellWidth
+	topWidth := bellWidth
 	topRow := -2.0 // bell sits at -1; flame starts at -2
-	if flameWidth == 0 {
-		flameWidth = stageSpriteWidthPx(stages[0])
+	if topWidth == 0 {
+		topWidth = stageSpriteWidthPx(stages[0])
 		topRow = -1.0
 	}
+	tipWidth := topWidth / 2
+	if tipWidth < 1 {
+		tipWidth = 1
+	}
 
-	// Frame B shifts flame 1 px further from engine base so the cells
-	// repaint their braille dot pattern between frames. With nPx
-	// already in 4-sub-pixel buckets the 1-px frame shift visibly
-	// changes the dot density in each cell at the 100 ms cadence.
+	// Frame B shifts flame 1 sub-pixel further from engine base so
+	// the cells repaint their braille dot pattern between frames at
+	// the 100 ms cadence.
 	frameShift := 0.0
 	if frameIdx%2 == 1 {
 		frameShift = 1.0
 	}
 
 	flameColor := flameColorForFuelType(stages[0].FuelType)
-	pixels := make([]SpritePixel, 0, nPx*flameWidth)
-	for row := 0; row < nPx; row++ {
-		rowAbove := topRow - float64(row) - frameShift
-		for col := 0; col < flameWidth; col++ {
-			xPx := float64(col) - float64(flameWidth-1)/2.0
+	pixels := make([]SpritePixel, 0, nRows*topWidth)
+	for r := 0; r < nRows; r++ {
+		rowAbove := topRow - float64(r) - frameShift
+		var w int
+		if nRows <= 1 {
+			w = topWidth
+		} else {
+			frac := float64(r) / float64(nRows-1)
+			w = int(math.Round(float64(topWidth)*(1-frac) + float64(tipWidth)*frac))
+		}
+		if w < 1 {
+			w = 1
+		}
+		for col := 0; col < w; col++ {
+			xPx := float64(col) - float64(w-1)/2.0
 			screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
 			screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
 			offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))

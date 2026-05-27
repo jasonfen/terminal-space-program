@@ -202,10 +202,11 @@ func TestComposeLaunchSprite_NoSpriteReturnsNil(t *testing.T) {
 	}
 }
 
-// TestComposeFlame_MidThrottleEmitsMidLength verifies the flame
-// length-binning: throttle 0.5 falls in the middle bin and emits
-// 8 sub-pixel rows (× defaultSpriteWidthPx wide). All pixels positioned
-// below the vessel anchor at vertical climb.
+// TestComposeFlame_MidThrottleEmitsMidLength (v0.11.5-followup):
+// throttle 0.5 falls in the middle bin and emits 3 cone-tapered
+// sub-pixel rows. With no bell the top width defaults to the stage
+// width (defaultSpriteWidthPx = 2) tapering to max(1, 2/2) = 1 at the
+// tip, so the cone is 2 + 2 + 1 = 5 pixels.
 func TestComposeFlame_MidThrottleEmitsMidLength(t *testing.T) {
 	stage := spacecraft.Stage{LaunchSpriteRowsPx: 4}
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
@@ -214,8 +215,8 @@ func TestComposeFlame_MidThrottleEmitsMidLength(t *testing.T) {
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	pixels := ComposeFlame([]spacecraft.Stage{stage}, cmd, basis, 1.0, 0.5, 0, 0)
-	if got, want := len(pixels), 8*defaultSpriteWidthPx; got != want {
-		t.Fatalf("got %d pixels, want %d (mid bin = 8 rows × %d wide)", got, want, defaultSpriteWidthPx)
+	if got, want := len(pixels), 5; got != want {
+		t.Fatalf("got %d pixels, want %d (mid bin = 3-row cone tapering 2→2→1)", got, want)
 	}
 	for i, p := range pixels {
 		if y := p.OffsetWorld.Dot(basis.Y); y >= 0 {
@@ -496,9 +497,11 @@ func TestFlameFallsBackToWarningOnUnsetFuelType(t *testing.T) {
 }
 
 // TestFlameInheritsBellWidth (v0.11.5 sub-scope 3): when bellWidth > 0
-// the flame paints at that width (not the stage's own width), so the
-// exhaust visibly emerges from the nozzle aperture rather than the
-// narrower stage body.
+// the flame's TOP row paints at bellWidth (the nozzle aperture), then
+// tapers down to half-width at the tip — exhaust visibly emerges from
+// the nozzle rather than the narrower stage body. v0.11.5-followup
+// retuned the flame from a flat rectangle to a cone, so the assertion
+// now checks the topmost row's width matches bellWidth.
 func TestFlameInheritsBellWidth(t *testing.T) {
 	stage := spacecraft.Stage{
 		LaunchSpriteRowsPx:  6,
@@ -512,10 +515,117 @@ func TestFlameInheritsBellWidth(t *testing.T) {
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	bellWidth := EngineBellWidth([]spacecraft.Stage{stage})
-	flame := ComposeFlame([]spacecraft.Stage{stage}, cmd, basis, 1.0, 0.5, 0, bellWidth)
-	// Mid throttle ⇒ 8 rows. Width inherits bellWidth (= 4).
-	if got, want := len(flame), 8*bellWidth; got != want {
-		t.Errorf("flame pixel count = %d, want %d (8 rows × %d wide bell)", got, want, bellWidth)
+	flame := ComposeFlame([]spacecraft.Stage{stage}, cmd, basis, 1.0, 0.9, 0, bellWidth)
+	// Frame A flame topmost row sits just below the bell. Find the
+	// max-Y pixels (topmost row of the cone) and confirm there are
+	// bellWidth of them — proving the cone enters at full bell width.
+	maxY := -1e18
+	for _, p := range flame {
+		if y := p.OffsetWorld.Dot(basis.Y); y > maxY {
+			maxY = y
+		}
+	}
+	topRowCount := 0
+	for _, p := range flame {
+		if y := p.OffsetWorld.Dot(basis.Y); y > maxY-0.01 {
+			topRowCount++
+		}
+	}
+	if topRowCount != bellWidth {
+		t.Errorf("flame top row width = %d, want %d (must inherit bellWidth)", topRowCount, bellWidth)
+	}
+}
+
+// TestFlameTapersToConeShape (v0.11.5-followup): high-throttle flame
+// is at most flameMaxRows = 4 sub-pixel rows and each successive row
+// is no wider than the one above it — i.e. the flame strictly tapers
+// from the nozzle to the tip. Width at the tip is max(1, topWidth/2).
+func TestFlameTapersToConeShape(t *testing.T) {
+	stage := spacecraft.Stage{
+		LaunchSpriteRowsPx:  6,
+		LaunchSpriteWidthPx: 2,
+		Thrust:              1e6,
+	}
+	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	bellWidth := EngineBellWidth([]spacecraft.Stage{stage}) // 4 for width=2 stage
+	flame := ComposeFlame([]spacecraft.Stage{stage}, cmd, basis, 1.0, 1.0, 0, bellWidth)
+
+	// Bucket pixels by row (rounded screen.Y) so we can inspect the
+	// width of each row independently of order.
+	rowsByY := map[int]int{}
+	for _, p := range flame {
+		yBucket := int(math.Round(p.OffsetWorld.Dot(basis.Y)))
+		rowsByY[yBucket]++
+	}
+	if got, want := len(rowsByY), flameMaxRows; got != want {
+		t.Fatalf("got %d rows, want %d (high throttle = flameMaxRows)", got, want)
+	}
+	// Walk rows from top (largest Y, closest to vessel) downward.
+	keys := make([]int, 0, len(rowsByY))
+	for k := range rowsByY {
+		keys = append(keys, k)
+	}
+	// Sort descending so we go top → tip.
+	for i := 1; i < len(keys); i++ {
+		for j := i; j > 0 && keys[j] > keys[j-1]; j-- {
+			keys[j], keys[j-1] = keys[j-1], keys[j]
+		}
+	}
+	tipWidth := bellWidth / 2
+	if tipWidth < 1 {
+		tipWidth = 1
+	}
+	if rowsByY[keys[0]] != bellWidth {
+		t.Errorf("top row width = %d, want bellWidth = %d", rowsByY[keys[0]], bellWidth)
+	}
+	if rowsByY[keys[len(keys)-1]] != tipWidth {
+		t.Errorf("tip row width = %d, want max(1, bellWidth/2) = %d", rowsByY[keys[len(keys)-1]], tipWidth)
+	}
+	// Monotonic non-increasing from top to tip.
+	for i := 1; i < len(keys); i++ {
+		if rowsByY[keys[i]] > rowsByY[keys[i-1]] {
+			t.Errorf("row %d (y=%d) width=%d is wider than row above (y=%d) width=%d — cone must taper monotonically",
+				i, keys[i], rowsByY[keys[i]], keys[i-1], rowsByY[keys[i-1]])
+		}
+	}
+}
+
+// TestFlameThrottleBinning (v0.11.5-followup): row count scales 2 / 3
+// / 4 across the three throttle bins.
+func TestFlameThrottleBinning(t *testing.T) {
+	stage := spacecraft.Stage{
+		LaunchSpriteRowsPx:  6,
+		LaunchSpriteWidthPx: 2,
+		Thrust:              1e6,
+	}
+	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	bellWidth := EngineBellWidth([]spacecraft.Stage{stage})
+	cases := []struct {
+		throttle    float64
+		wantNRows   int
+		description string
+	}{
+		{0.2, 2, "low bin"},
+		{0.5, 3, "mid bin"},
+		{0.9, flameMaxRows, "high bin (cap)"},
+	}
+	for _, c := range cases {
+		flame := ComposeFlame([]spacecraft.Stage{stage}, cmd, basis, 1.0, c.throttle, 0, bellWidth)
+		rowsByY := map[int]struct{}{}
+		for _, p := range flame {
+			rowsByY[int(math.Round(p.OffsetWorld.Dot(basis.Y)))] = struct{}{}
+		}
+		if got := len(rowsByY); got != c.wantNRows {
+			t.Errorf("throttle %v (%s): got %d rows, want %d", c.throttle, c.description, got, c.wantNRows)
+		}
 	}
 }
 
