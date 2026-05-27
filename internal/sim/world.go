@@ -1136,6 +1136,20 @@ func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration) 
 			return false
 		}
 	}
+	// v0.11.4-followup: an impactor trajectory (periapsis below the
+	// primary's mean radius) on an airless body would Kepler-step
+	// straight through the surface — the analytic propagator has no
+	// concept of surface contact, only ClampToSurface does, and the
+	// sub-step loop is what dispatches that. Without this guard, a
+	// player descending toward the Moon (or Mercury / a Mars moon /
+	// Galilean moons) at warp >1× with peri < 0 gets "sucked" through
+	// the surface mid-tick and the lifecycle predicate is never
+	// consulted. Pull back to Verlet whenever the orbit's periapsis
+	// dips below the surface, regardless of atmosphere.
+	periAlt := el.A*(1-el.E) - c.Primary.RadiusMeters()
+	if periAlt < 0 {
+		return false
+	}
 	return true
 }
 
