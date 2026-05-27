@@ -1173,6 +1173,19 @@ func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.D
 	for _, b := range sys.Bodies {
 		positions[b.ID] = w.BodyPosition(b)
 	}
+	// v0.11.4-followup: snapshot the entry state + primary so a mid-
+	// loop bail (KeplerStep failure or surface-impact predicate)
+	// rewinds cleanly. Without the snapshot, partial analytic
+	// propagation leaves c.State advanced through chunks 0..i-1
+	// before the caller's Verlet fallback re-runs the *full*
+	// simDelta from that already-advanced state — double-counting
+	// the time. Pre-fix this only mattered when KeplerStep itself
+	// failed mid-tick (rare); v0.11.4 adds a surface-impact bail
+	// that triggers more often (every airless-body descent across
+	// an SOI transition where peri flips sub-surface mid-tick),
+	// surfacing the latent partial-advance bug.
+	entryState := c.State
+	entryPrimary := c.Primary
 
 	chunkCap := chunkDtCap(sys, c.Primary, c.State.V.Norm())
 
@@ -1193,8 +1206,31 @@ func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.D
 
 	mu := c.Primary.GravitationalParameter()
 	for i := 0; i < nChunks; i++ {
+		// v0.11.4-followup: bail to Verlet whenever the current
+		// orbit's periapsis sits below the primary's surface. This
+		// catches both the bound-impactor case (peri sub-surface
+		// from the start of the tick — canKeplerStep's gate would
+		// already reject) AND the mid-tick SOI-transition case: a
+		// craft cruising in Earth SOI with peri above Earth's
+		// surface can rebase to Moon mid-chunk and find peri now
+		// sub-surface in Moon's frame. Analytic propagation across
+		// the next chunk would push the craft straight through the
+		// moon; bail so the Verlet path runs ClampToSurface. The
+		// entry-snapshot restore above ensures the caller's Verlet
+		// re-runs the *full* simDelta from the original state
+		// rather than double-stepping from the partial advance.
+		if el := orbital.ElementsFromState(c.State.R, c.State.V, mu); el.E < 1 && el.A > 0 {
+			periAlt := el.A*(1-el.E) - c.Primary.RadiusMeters()
+			if periAlt < 0 {
+				c.State = entryState
+				c.Primary = entryPrimary
+				return false
+			}
+		}
 		newState, ok := physics.KeplerStep(c.State, mu, chunk)
 		if !ok {
+			c.State = entryState
+			c.Primary = entryPrimary
 			return false
 		}
 		c.State = newState

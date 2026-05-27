@@ -73,6 +73,81 @@ func TestCanKeplerStepRejectsSubSurfacePeriapsisOnAirlessBody(t *testing.T) {
 	}
 }
 
+// TestLunarDescentWithThrottleCyclingNeverGoesSubSurface — playtest
+// regression. Player decelerating toward the moon at ~100 m/s
+// surface velocity from 5 km altitude, cycling the engine off/on
+// at 10% throttle, reported the craft suddenly "sucked into the
+// moon" with altitude continuing negative. The fix gates the
+// analytic Kepler fast path against sub-surface periapsis at
+// every chunk boundary (not just at the start of the tick), and
+// rewinds c.State on bail so the Verlet fallback doesn't
+// double-step from a partially-advanced state.
+//
+// Pin: across a realistic descent simulation with throttle cycled
+// every few ticks, |R| must never fall meaningfully below the
+// primary's mean radius — the only sub-radius reading allowed is
+// the transient float-precision delta inside a clamped state.
+func TestLunarDescentWithThrottleCyclingNeverGoesSubSurface(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sys := w.System()
+	moon := sys.FindBody("Moon")
+	if moon == nil {
+		t.Fatal("Moon not in default system")
+	}
+	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	c.Primary = *moon
+	moonR := moon.RadiusMeters()
+	// User's reported state: 5 km altitude, ~100 m/s surface
+	// velocity (mostly horizontal — descent rate is small).
+	c.State = physics.StateVector{
+		R: orbital.Vec3{X: moonR + 5_000, Y: 0, Z: 0},
+		V: orbital.Vec3{X: -5, Y: 100, Z: 0},
+		M: c.TotalMass(),
+	}
+	// Nose along radial-out for the predicate's nose-alignment
+	// branch, AttitudeMode surface-retrograde to reflect the
+	// player's "deceleration burn" framing.
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	c.AttitudeMode = spacecraft.BurnSurfaceRetrograde
+	c.Throttle = 0.1
+	w.Crafts = []*spacecraft.Spacecraft{c}
+	w.ActiveCraftIdx = 0
+	// 100× — the high-warp descent regime where the bug surfaces.
+	// The pre-fix code took an analytic Kepler step covering ~5 s
+	// of sim time in a single tick, leaping past the surface
+	// without invoking ClampToSurface.
+	w.Clock.WarpUp() // 10
+	w.Clock.WarpUp() // 100
+
+	minAlt := math.Inf(1)
+	const tolerance = 5.0 // metres below mean radius is acceptable (float slack)
+	for i := 0; i < 300; i++ {
+		// Cycle the engine — five ticks on, five ticks off — to
+		// mirror the player's "near coasting off/on" framing.
+		if i%10 < 5 {
+			w.StartManualBurn()
+		} else {
+			w.StopManualBurn()
+		}
+		w.Tick()
+		alt := c.State.R.Norm() - moonR
+		if alt < minAlt {
+			minAlt = alt
+		}
+		if c.Landed || c.Crashed {
+			break
+		}
+	}
+	if minAlt < -tolerance {
+		t.Errorf("descent allowed |R| to fall %.0f m below mean radius — "+
+			"Kepler fast path bypassed surface contact (sucked into moon bug)",
+			-minAlt)
+	}
+}
+
 // TestImpactorTrajectoryHitsSurfacePredicate — end-to-end pin: a
 // Lander on impactor trajectory toward the Moon, ticked at warp,
 // reaches the surface and gets classified by the lifecycle
