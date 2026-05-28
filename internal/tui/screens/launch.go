@@ -435,6 +435,14 @@ func (v *LaunchView) drawRCSPuffs(w *sim.World, active *spacecraft.Spacecraft, b
 // render. Flame frame index derives from wall-clock for a stable
 // ~100 ms pulse cadence regardless of sim warp.
 //
+// Per-sub-pixel stride is FIXED real-world metres (vesselSubPixelM),
+// not zoom-scaled — same precedent as drawLaunchTower's
+// lutRowHeightM / lutColWidthM (v0.11.5-followup). The original v0.11.3
+// cut passed `scaleMPerPx` (the autozoom m/cell) through as the
+// sub-pixel stride, so the sprite occupied the same canvas area
+// regardless of altitude. Pinning the stride to vesselSubPixelM lets
+// the rocket shrink on screen as the autozoom grows.
+//
 // Flame gating: Throttle is the loadout-default engine-power setting
 // (typically 1.0 on a pad-spawned vessel), NOT a sign that the
 // engine is firing. Flame renders only when the vessel has an
@@ -442,7 +450,8 @@ func (v *LaunchView) drawRCSPuffs(w *sim.World, active *spacecraft.Spacecraft, b
 // ActiveBurn — so a pad-spawned rocket doesn't paint amber flame
 // into the body fill before the player presses `b`.
 func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) bool {
-	sprite := ComposeLaunchSprite(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx)
+	_ = scaleMPerPx // sub-pixel stride is fixed real-world metres; see comment above
+	sprite := ComposeLaunchSprite(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
 	if sprite == nil {
 		return false
 	}
@@ -452,9 +461,9 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 	}
 	frameIdx := int(time.Now().UnixMilli()/flameFrameMs) % 2
 	bellWidth := EngineBellWidth(craft.Stages)
-	bell := ComposeEngineBell(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx)
-	legs := ComposeLegs(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx)
-	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, scaleMPerPx, flameThrottle, frameIdx, bellWidth)
+	bell := ComposeEngineBell(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
+	legs := ComposeLegs(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
+	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM, flameThrottle, frameIdx, bellWidth)
 	// Plot each pixel as a braille sub-cell dot via PlotColored.
 	// No SetCellOverlay glyph: braille dots are direction-agnostic,
 	// so a tilted rocket renders smoothly at any pitch — the
@@ -569,6 +578,22 @@ const (
 	lutRowHeightM = 7.5
 	lutColWidthM  = 4.0
 )
+
+// vesselSubPixelM (v0.11.5-followup) pins the launch-sprite sub-pixel
+// stride to a real-world metre value, so the rocket / bell / legs /
+// flame shrink on screen as the chase-cam autozoom grows — same
+// precedent as the LUT (lutRowHeightM / lutColWidthM, commit b73c54b).
+//
+// Pre-followup: drawComposedRocket passed `scale` (m/cell) into
+// ComposeLaunchSprite as the per-sub-pixel stride. As altitude grew,
+// the autozoom grew, so per-sub-pixel metres scaled with the canvas
+// — sprite occupied the same canvas area regardless of zoom. The
+// rocket "stayed super huge" through ascent. Pinning to 1.5 m/sub-pixel
+// makes the Saturn V silhouette (~56 sub-pixel rows) read at ~84 m
+// world height — close to the real Saturn V's 110 m — and the
+// canvas projects that fixed world height through the autozoom
+// (px/m = 1 / scale) so the rocket gets smaller as altitude grows.
+const vesselSubPixelM = 1.5
 
 // lutSprite is the v0.11.1 Slice 2 generic mobile-launcher silhouette.
 // 2 cells wide; bottom row is the MLP base, top row is the crown

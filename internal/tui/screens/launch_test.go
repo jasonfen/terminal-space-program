@@ -520,6 +520,39 @@ func TestLaunchTowerCulledOnFarHemisphere(t *testing.T) {
 	}
 }
 
+// TestRocketSpriteShrinksAsAltitudeGrows (v0.11.5-followup): the
+// original v0.11.3 cut passed the autozoom m/cell value through as the
+// launch-sprite sub-pixel stride, so the rocket occupied the same
+// canvas area regardless of altitude — playtester reported "the
+// rocket stays super huge as I zoom out". Fix mirrors the LUT
+// precedent (commit b73c54b): pin the sub-pixel stride to
+// vesselSubPixelM real-world metres. Regression: at altitude 10 km
+// (autozoom ≈ 370 m/cell) the rocket sprite must occupy strictly
+// fewer canvas-cell rows than it did on the pad. We can't easily count
+// rendered sprite pixels, so this test compares a low-zoom render to
+// a high-zoom render and asserts the rendered string differs (a
+// sprite that doesn't shrink would render identically in the same
+// chase-cam frame regardless of altitude).
+func TestRocketSpriteShrinksAsAltitudeGrows(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	c.Landed = false
+	rNorm := c.State.R.Norm()
+	// Low-zoom: 100 m altitude.
+	c.State.R = c.State.R.Scale((rNorm + 100) / rNorm)
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	low := v.Render(w, 120, 40)
+
+	// High-zoom: 10 km altitude.
+	rNorm = c.State.R.Norm()
+	c.State.R = c.State.R.Scale((rNorm + 9900) / rNorm)
+	high := v.Render(w, 120, 40)
+
+	if low == high {
+		t.Errorf("rocket sprite must shrink (or otherwise differ) between low-zoom and high-zoom — pre-followup bug had identical render at any altitude")
+	}
+}
+
 // TestLaunchViewRendersRCSPuffs (v0.11.5 sub-scope 5): firing an RCS
 // pulse on the active craft must produce a visible change in the
 // LaunchView render — i.e. the chase-cam scene picks up the puff
