@@ -91,6 +91,51 @@ func TestLandedCraftStaysAtLaunchSiteUnderWarp(t *testing.T) {
 	}
 }
 
+// TestSoftLandedCraftPinsToTouchdownNotLaunchSite — regression for
+// the v0.11.4 wiring gap (found 2026-05-29). A soft-landed craft
+// stores its touchdown coords in LandedLatDeg/LonDeg, but
+// integrateLanded only ever re-derived R from LaunchLatDeg/LonDeg —
+// so the tick after touchdown the craft teleported to its launch
+// site projected onto the arrival body (or to (0,0) for an
+// orbit-spawned craft whose launch coords were never set). The
+// LandedLatDeg/LonDeg field comment documents the intended
+// behaviour; this pins it.
+func TestSoftLandedCraftPinsToTouchdownNotLaunchSite(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	moon := w.Systems[0].FindBody("Moon")
+	if moon == nil {
+		t.Skip("Moon missing from Sol")
+	}
+	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	c.Primary = *moon
+	c.Landed = true
+	// Launch site (an Earth pad) and lunar touchdown are far apart, so
+	// the two body-fixed projections give R vectors thousands of km
+	// apart — trivially distinguishable.
+	c.LaunchLatDeg, c.LaunchLonDeg = 28.6083, -80.604
+	c.LandedLatDeg, c.LandedLonDeg = 10.0, 45.0
+	w.Crafts = []*spacecraft.Spacecraft{c}
+	w.ActiveCraftIdx = 0
+
+	integrateLanded(w, c, time.Hour)
+
+	radius := moon.RadiusMeters()
+	wantDir := render.BodyFixedToWorld(*moon, c.LandedLatDeg, c.LandedLonDeg, w.Clock.SimTime)
+	wantR := orbital.Vec3{X: radius * wantDir.X, Y: radius * wantDir.Y, Z: radius * wantDir.Z}
+	if c.State.R.Sub(wantR).Norm() > 1.0 {
+		t.Errorf("landed craft pinned to %v, want touchdown coords %v (within 1 m)", c.State.R, wantR)
+	}
+	// And explicitly NOT at the launch-site projection.
+	badDir := render.BodyFixedToWorld(*moon, c.LaunchLatDeg, c.LaunchLonDeg, w.Clock.SimTime)
+	badR := orbital.Vec3{X: radius * badDir.X, Y: radius * badDir.Y, Z: radius * badDir.Z}
+	if c.State.R.Sub(badR).Norm() < 1.0 {
+		t.Errorf("landed craft teleported to launch-site coords %v — LandedLatDeg/LonDeg not consulted", badR)
+	}
+}
+
 // TestEngineIgnitionClearsLanded — pressing `b` to start a manual
 // burn must clear the Landed flag so the integrator picks up
 // normal physics on the next tick.

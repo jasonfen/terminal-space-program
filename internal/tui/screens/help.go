@@ -70,6 +70,7 @@ func (h *Help) Render() string {
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
 			{"n", "open spawn form (loadout / position / parent / altitude / dir; Custom = stack builder, v0.10.1+)"},
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
+			{"1-9", "jump to craft N (no-op when slot empty) (v0.12.0+)"},
 			{"U", "undock active composite (v0.8.3+)"},
 			{"t / T", "cycle / clear target (v0.9.0+)"},
 			{"space", "decouple bottom stage (v0.9.1+, multi-stage craft only)"},

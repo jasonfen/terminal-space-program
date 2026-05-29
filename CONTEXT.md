@@ -452,19 +452,21 @@ The physics event that fires inside the integrator when a Vessel's
 sub-step puts |R| below the Primary's mean radius. As of v0.11.4 the
 clamp site evaluates the **Touchdown** predicate (`CanSoftLand`
 catalog gate + `|V_impact| < V_CRIT` + nose-alignment > NOSE_TOL)
-and routes to one of three outcomes:
+and routes to one of two outcomes:
 
 - **Touchdown** — predicate satisfied → Vessel becomes **Landed**
   at the impact (lat, lon).
 - **Crash** — predicate fails on velocity / attitude / capability →
-  Vessel becomes **Crashed**.
-- **Fallback (vestigial)** — predicate doesn't qualify but the
-  Vessel isn't destroyed either (e.g., a non-`CanSoftLand` Vessel
-  that grazed the surface gently). R is projected back to the
-  surface, V zeroed, no lifecycle flag set. The pre-v0.11.4
-  placeholder behaviour; expected to disappear in v0.12+ once
-  playtest confirms every contact qualifies for one of the two
-  modelled outcomes.
+  Vessel becomes **Crashed**. A non-`CanSoftLand` Vessel that grazes
+  the surface gently lands here too — it is Crashed, not a third
+  state.
+
+The classification is exhaustive: every Surface Contact resolves to
+Landed or Crashed. ADR 0004 originally shipped a vestigial third
+"fallback" bucket (zero-V, neither flag set) as a defensive
+placeholder; v0.11.x playtest confirmed it never occurs in practice
+(`TestImpactorTrajectoryHitsSurfacePredicate` pins this), and v0.12.0
+deleted it.
 
 Without the clamp the gravity singularity at r → 0 would slingshot
 the Vessel back out at huge velocity.
@@ -1416,30 +1418,32 @@ root). Same for "long". When in doubt, consider whether N=0 or N≥1: if
 N=0 it's way; if N≥1 it's branch.
 
 **"Landed"** (and the looser "landing", "landed at", "sitting on the
-surface") collapses three operationally distinct things:
+surface") collapses operationally distinct things — keep them apart:
 
 - **Landed** (the runtime state) — the integrator-bypass mode that
   co-rotates the Vessel with the ground (`Spacecraft.Landed = true`).
-  Today reachable only via a **Launchpad** spawn.
-- **Surface Contact** (the physics event) — an aerobraking Vessel
-  penetrates the surface; the clamp zeros V and projects R back to the
-  radius, but **does not set Landed**. The Vessel sits motionless in
-  inertial space and drifts west across the ground as the Primary
-  rotates underneath, with the clamp re-firing every tick.
-- **Touchdown** (the intended future state) — a controlled descent
-  that *should* set Landed once landing semantics ship. Not yet in
-  code; today, every controlled descent collapses into a Surface
-  Contact at zero V.
+  Reachable via a **Launchpad** spawn *or* a **Touchdown** (v0.11.4+,
+  ADR 0004).
+- **Surface Contact** (the physics event) — the clamp that fires when
+  an arriving Vessel penetrates the surface. It zeros V, projects R
+  back to the radius, and (v0.11.4+) routes to Landed or Crashed via
+  the Touchdown predicate. It is the *event* that decides the outcome,
+  not a resting state of its own.
+- **Touchdown** (the controlled outcome, v0.11.4+) — a Surface Contact
+  by a `CanSoftLand` Vessel within velocity + attitude tolerance →
+  sets **Landed**.
+- **Crash** (the destructive outcome, v0.11.4+) — any other Surface
+  Contact → sets **Crashed** (inert wreckage, removed via `[E]`
+  end-flight).
 
-**Resolution:** capital-L **Landed** in prose means the runtime state —
-the co-rotating integrator-bypass mode set only by Launchpad spawn
-today. For a Vessel that has arrived at the surface via Surface Contact,
-say "post-contact" or "on the surface but not Landed" — never bare
-"landed." The asymmetry matters for save state (Landed Vessels persist
-`LaunchLatDeg` / `LaunchLonDeg`; post-contact Vessels don't), HUD
-readout, and any future per-state behaviour like re-ignition liftoff.
-When in doubt: a Landed Vessel co-rotates with the ground; a
-post-contact Vessel drifts west.
+**Resolution:** capital-L **Landed** in prose means the runtime
+state — the co-rotating integrator-bypass mode. **Surface Contact** is
+the integrator event that decides which outcome fires; **Touchdown**
+and **Crash** are those two outcomes (v0.12.0 removed the vestigial
+third "neither flag" fallback — see the **Surface Contact** glossary
+entry). Never say bare "landed" for a Crashed Vessel. When in doubt: a
+Landed Vessel co-rotates with the ground; a Crashed Vessel is inert
+wreckage.
 
 **"Ballistic Coefficient"** uses two reciprocal conventions across
 domains:

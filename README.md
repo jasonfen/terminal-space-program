@@ -179,6 +179,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `m` | Open maneuver planner |
 | `F5` / `F9` | Quicksave / quickload (`$XDG_STATE_HOME/terminal-space-program/save.json`) — KSP-style |
 | `[` / `]` | Cycle active craft (no-op when only one craft loaded) |
+| `1`–`9` | Jump directly to craft N (no-op when that slot is empty) |
 | `U` | Undock active composite |
 
 ### Manual flight
