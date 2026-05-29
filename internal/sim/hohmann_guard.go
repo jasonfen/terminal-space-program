@@ -9,25 +9,19 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
-// Hohmann coplanar/circular guard (v0.10.1+).
+// Hohmann coplanar/circular preview note (v0.10.1+; re-pointed v0.12.x).
 //
-// The Hohmann auto-plant (`H` → PlanTransfer → PlanIntraPrimaryHohmann)
-// is a textbook *circular-to-circular coplanar* two-impulse solver: it
-// feeds the craft's instantaneous |R| in as a circular parking radius
-// (sim/maneuver.go) and has no plane-change term anywhere. When the
-// departure orbit is eccentric the assumed circular speed √(µ/r) is
-// wrong; when it is inclined relative to the target's orbital plane a
-// prograde burn never reaches the target. Either way the planted
-// transfer is silently off.
+// The bodyinfo Hohmann PREVIEW (HohmannPreviewFor) is a textbook
+// circular-to-circular coplanar two-impulse estimate — it ignores
+// departure eccentricity and the craft↔target plane tilt, so its Δv is
+// optimistic when the parking orbit is eccentric or inclined.
 //
-// This guard does NOT change the planner — the real fix (eccentric-
-// aware departure at periapsis + a plane change folded into the burns,
-// a constrained-Lambert variant) is the deferred L-tier "Combined
-// plane-shift + Hohmann" backlog item. It only surfaces a clear,
-// non-blocking warning so the player understands why the result looks
-// off and what to do instead (match the plane with `I`, circularize,
-// then `H`). The transfer is still planted — this is advisory, not a
-// refusal.
+// v0.12.x (ADR 0005): the `[H]` AUTO-PLANT itself is no longer coplanar.
+// PlanTransfer's intra-primary path now plants a plane-aware dual-strategy
+// transfer (combined fused-Lambert vs split raise + apoapsis plane change,
+// cheaper wins) — so the old "match plane [I], circularize, then [H]"
+// advice is retired. This note now only flags that the *preview* numbers
+// are coplanar-approximate; the planted transfer handles the geometry.
 
 const (
 	// hohmannEccTol — departure eccentricity above which the circular
@@ -75,9 +69,9 @@ func hohmannGuardDetail(rC, vC orbital.Vec3, mu float64, nTarget orbital.Vec3, e
 	if len(problems) == 0 {
 		return ""
 	}
-	return "Hohmann assumes a ~circular, coplanar orbit (" +
+	return "Hohmann preview is coplanar/circular (" +
 		strings.Join(problems, ", ") +
-		") — match plane [I] + circularize, then [H]"
+		") — [H] plants a plane-aware transfer"
 }
 
 // HohmannDepartureWarning returns a non-empty advisory when the

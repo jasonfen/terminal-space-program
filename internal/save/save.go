@@ -252,6 +252,18 @@ type Node struct {
 	// load with TargetCraftIdx=0, which is correct semantics for
 	// non-target nodes. No schema bump required.
 	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
+	// PlaneChangeRad (v0.12.x, schema v6 additive) — the signed rotation
+	// angle for a BurnPlaneChange node (the `I` inclination plant + the
+	// Slice 5 split-strategy plane change). Pre-v0.12 saves omit it;
+	// absent → 0, the correct value for non-plane-change nodes. Was
+	// dropped on save before v0.12 (a latent v0.10.4 gap); the split
+	// strategy makes it load-bearing, so it now round-trips.
+	PlaneChangeRad float64 `json:"plane_change_rad,omitempty"`
+	// BurnDirUnit (v0.12.x, schema v6 additive) — the captured inertial
+	// thrust direction for a BurnVector node (the fused-Lambert combined
+	// departure). Additive/omitempty, following the CurrentAttitudeDir
+	// precedent; absent → zero vector for non-BurnVector nodes. No migration.
+	BurnDirUnit Vec3 `json:"burn_dir_unit,omitempty"`
 }
 
 // DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.
@@ -284,6 +296,11 @@ type ActiveBurn struct {
 	// onto in-flight finite burns so a save mid-rendezvous-burn
 	// reloads with the burn still tracking its bound target.
 	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
+	// PlaneChangeRad / BurnDirUnit (v0.12.x, schema v6 additive) — mirror
+	// the ManeuverNode fields onto an in-flight burn so a save mid
+	// plane-change / BurnVector burn reloads with the direction intact.
+	PlaneChangeRad float64 `json:"plane_change_rad,omitempty"`
+	BurnDirUnit    Vec3    `json:"burn_dir_unit,omitempty"`
 }
 
 // Errors returned by Load.
@@ -486,6 +503,8 @@ func payloadFromWorld(w *sim.World) Payload {
 				Event:           int(n.Event),
 				Throttle:        n.Throttle,
 				TargetCraftIdx:  n.TargetCraftIdx,
+				PlaneChangeRad:  n.PlaneChangeRad,
+				BurnDirUnit:     vec3From(n.BurnDirUnit),
 			})
 		}
 		if c.ActiveBurn != nil {
@@ -496,6 +515,8 @@ func payloadFromWorld(w *sim.World) Payload {
 				PrimaryID:      c.ActiveBurn.PrimaryID,
 				Throttle:       c.ActiveBurn.Throttle,
 				TargetCraftIdx: c.ActiveBurn.TargetCraftIdx,
+				PlaneChangeRad: c.ActiveBurn.PlaneChangeRad,
+				BurnDirUnit:    vec3From(c.ActiveBurn.BurnDirUnit),
 			}
 		}
 		// v0.9.3 polish: per-craft Target. Skip serialising when
@@ -672,6 +693,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				Event:          sim.TriggerEvent(n.Event),
 				Throttle:       n.Throttle,
 				TargetCraftIdx: n.TargetCraftIdx,
+				PlaneChangeRad: n.PlaneChangeRad,
+				BurnDirUnit:    vec3To(n.BurnDirUnit),
 			})
 		}
 		if wc.ActiveBurn != nil {
@@ -682,6 +705,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				PrimaryID:      wc.ActiveBurn.PrimaryID,
 				Throttle:       wc.ActiveBurn.Throttle,
 				TargetCraftIdx: wc.ActiveBurn.TargetCraftIdx,
+				PlaneChangeRad: wc.ActiveBurn.PlaneChangeRad,
+				BurnDirUnit:    vec3To(wc.ActiveBurn.BurnDirUnit),
 			}
 		}
 		// v0.9.3 polish: per-craft Target. Pre-polish saves omit the
@@ -747,6 +772,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				Event:          sim.TriggerEvent(n.Event),
 				Throttle:       n.Throttle,
 				TargetCraftIdx: n.TargetCraftIdx,
+				PlaneChangeRad: n.PlaneChangeRad,
+				BurnDirUnit:    vec3To(n.BurnDirUnit),
 			})
 		}
 		if p.ActiveBurn != nil && active.ActiveBurn == nil {
@@ -757,6 +784,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				PrimaryID:      p.ActiveBurn.PrimaryID,
 				Throttle:       p.ActiveBurn.Throttle,
 				TargetCraftIdx: p.ActiveBurn.TargetCraftIdx,
+				PlaneChangeRad: p.ActiveBurn.PlaneChangeRad,
+				BurnDirUnit:    vec3To(p.ActiveBurn.BurnDirUnit),
 			}
 		}
 	}

@@ -47,7 +47,7 @@ func (h *Help) Render() string {
 			{"esc (in planner)", "cancel burn"},
 			{"ctrl+d (in planner)", "delete the node being edited"},
 			{"c / C (in planner)", "clear ALL planned nodes for active craft (ctrl+k still works)"},
-			{"H", "plant Hohmann transfer to selected body"},
+			{"H", "plant transfer to selected body (plane-aware: combined/split)"},
 			{"I", "plant inclination match (selected body / equatorial)"},
 			{"C", "plant circularize burn at next apoapsis"},
 			{"K", "plant rendezvous nudge to target craft (recommended single-burn)"},

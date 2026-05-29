@@ -91,6 +91,22 @@ func (s *Spacecraft) BurnDirectionPlaneAware(mode BurnMode, rT, vT orbital.Vec3,
 	return s.BurnDirectionWithTarget(mode, rT, vT)
 }
 
+// BurnDirectionForBurn resolves a planted / in-flight burn's unit thrust
+// direction, additionally handling BurnVector (v0.12.x+) via the captured
+// fixed-inertial burnDir — a direction a BurnMode alone can't decode, just
+// like BurnPlaneChange's planeRad. BurnVector ignores (rT, vT, planeRad)
+// and craft state; every other mode delegates to BurnDirectionPlaneAware.
+// The firing/slew path (sim) uses this wrapper because the captured vector
+// rides on the ManeuverNode / ActiveBurn.
+//
+// v0.12.x+.
+func (s *Spacecraft) BurnDirectionForBurn(mode BurnMode, rT, vT orbital.Vec3, planeRad float64, burnDir orbital.Vec3) orbital.Vec3 {
+	if mode == BurnVector {
+		return burnDir.Unit()
+	}
+	return s.BurnDirectionPlaneAware(mode, rT, vT, planeRad)
+}
+
 // ApplyPitchTrim rotates dir about the local-north axis at position
 // r by pitchRad (radians, positive = east). Used by BurnDirection to
 // fold the player's pitch-trim setting into any burn mode's natural
