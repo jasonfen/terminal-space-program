@@ -543,14 +543,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch a.world.Target.Kind {
 				case sim.TargetBody:
 					_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
-					// v0.10.1: the auto-plant is a coplanar circular
-					// solver; if the departure orbit is eccentric or
-					// out of the target's plane it plants a silently-
-					// off transfer. Surface a non-blocking advisory so
-					// the result isn't a mystery (the node is still
-					// planted — advisory, not a refusal).
-					if warn := a.world.HohmannDepartureWarning(a.world.Target.BodyIdx); warn != "" {
-						a.statusMsg = warn
+					// v0.12.x (ADR 0005): the intra-primary auto-plant is
+					// now a plane-aware dual-strategy solver (combined
+					// fused-Lambert vs split raise + apoapsis plane change)
+					// that plants the cheaper — so flash both candidate Δv
+					// totals and which was planted (supersedes the retired
+					// "match plane [I], circularize, then [H]" advisory).
+					// Non-intra-primary plants leave the comparison empty.
+					if cmp := a.world.LastTransfer.Format(); cmp != "" {
+						a.statusMsg = cmp
 						a.statusExpires = time.Now().Add(6 * time.Second)
 					}
 				case sim.TargetCraft:

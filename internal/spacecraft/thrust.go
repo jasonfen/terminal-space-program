@@ -160,6 +160,19 @@ const (
 	// it only through the `I` auto-plant, never the m-form mode cycle.
 	// Appended last so persisted node-mode ints keep their meaning.
 	BurnPlaneChange
+
+	// BurnVector (v0.12.x+) is a plant-only mode carrying an arbitrary
+	// 3D thrust direction — the fused-Lambert departure Δv, which folds
+	// eccentricity + apsis raise + plane change into one burn and so
+	// can't be expressed by any derived mode (prograde / normal / radial
+	// / plane-change). The unit direction is captured in the inertial
+	// (primary-relative) frame at plant time and rides on the
+	// ManeuverNode / ActiveBurn (BurnDirUnit); it is fixed for the burn
+	// (the craft slews to it, lead-compensated like any node). Resolved
+	// via NodeBurnDirection / BurnDirectionForBurn. Not in AllBurnModes —
+	// the player reaches it only through the fused [H] auto-plant.
+	// Appended last so persisted node-mode ints keep their meaning.
+	BurnVector
 )
 
 // String is the label shown in the maneuver planner / HUD.
@@ -191,6 +204,8 @@ func (m BurnMode) String() string {
 		return "Anti-Target"
 	case BurnPlaneChange:
 		return "Plane Change"
+	case BurnVector:
+		return "Vector"
 	}
 	return "?"
 }
@@ -308,6 +323,11 @@ func planeChangeDirection(r, v orbital.Vec3, thetaRad float64) orbital.Vec3 {
 func NodeBurnDirection(n ManeuverNode, r, v orbital.Vec3) orbital.Vec3 {
 	if n.Mode == BurnPlaneChange {
 		return planeChangeDirection(r, v, n.PlaneChangeRad)
+	}
+	if n.Mode == BurnVector {
+		// Fixed inertial direction captured at plant time — independent
+		// of (r, v). Zero/degenerate dir => zero (no-op convention).
+		return n.BurnDirUnit.Unit()
 	}
 	return DirectionUnit(n.Mode, r, v)
 }

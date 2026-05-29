@@ -141,6 +141,12 @@ type World struct {
 	// slice's call).
 	InstantSAS bool
 
+	// LastTransfer (v0.12.x) records the dual-strategy Δv comparison from
+	// the most recent intra-primary [H] auto-plant (combined fused-Lambert
+	// vs split raise+plane-change), for the HUD flash. Not persisted —
+	// a transient UI artifact of the last plant. See PlanTransfer / ADR 0005.
+	LastTransfer TransferComparison
+
 	// rcsPuffs is a small ring of recent RCS pulses, surfaced by the
 	// orbit canvas as a fading marker for visual feedback. v0.8.0
 	// ships a placeholder visual; v0.8.2 replaces it with per-thruster
@@ -992,11 +998,12 @@ func (w *World) ToggleInstantSAS() { w.InstantSAS = !w.InstantSAS }
 //     (survives a mid-burn target switch); otherwise the live
 //     World.Target snapshot so a manual hold can retarget. Non-target
 //     modes ignore it. v0.9.3+ logic, unchanged — just relocated.
-func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnMode, rT, vT orbital.Vec3, planeRad float64) {
+func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnMode, rT, vT orbital.Vec3, planeRad float64, burnDir orbital.Vec3) {
 	mode = c.AttitudeMode
 	if c.ActiveBurn != nil {
 		mode = c.ActiveBurn.Mode
 		planeRad = c.ActiveBurn.PlaneChangeRad
+		burnDir = c.ActiveBurn.BurnDirUnit
 	}
 	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftIdx != 0 {
 		if tIdx, ok := c.ActiveBurn.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
@@ -1007,7 +1014,7 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 	} else {
 		rT, vT, _ = w.TargetStateRelativeToActivePrimary()
 	}
-	return mode, rT, vT, planeRad
+	return mode, rT, vT, planeRad, burnDir
 }
 
 // commandedDirFor is the world-unit nose direction the craft's
@@ -1015,8 +1022,8 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 // live state). The slew integrator chases it; with InstantSAS the
 // craft is pinned to it. v0.10.0+.
 func (w *World) commandedDirFor(c *spacecraft.Spacecraft) orbital.Vec3 {
-	mode, rT, vT, planeRad := w.attitudeContext(c)
-	return c.BurnDirectionPlaneAware(mode, rT, vT, planeRad)
+	mode, rT, vT, planeRad, burnDir := w.attitudeContext(c)
+	return c.BurnDirectionForBurn(mode, rT, vT, planeRad, burnDir)
 }
 
 // slewTargetFor is the direction the slew integrator chases this tick.
@@ -1043,7 +1050,7 @@ func (w *World) slewTargetFor(c *spacecraft.Spacecraft) orbital.Vec3 {
 }
 
 func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
-	mode, rT, vT, planeRad := w.attitudeContext(c)
+	mode, rT, vT, planeRad, burnDir := w.attitudeContext(c)
 	throttle := c.EffectiveThrottle()
 	if c.ActiveBurn != nil {
 		throttle = c.ActiveBurn.Throttle
@@ -1061,14 +1068,14 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	// identical to pre-v0.10).
 	var thrustFn func(r, v orbital.Vec3, t float64) orbital.Vec3
 	switch {
-	case w.InstantSAS && mode == spacecraft.BurnPlaneChange:
-		// BurnPlaneChange's tilted direction can't be decoded from the
-		// BurnMode alone, so the per-sub-step ThrustAccelFnAtWithTarget
-		// switch can't resolve it. Under InstantSAS thrust along the
-		// plane-aware commanded direction (recomputed per tick — ample
-		// for a short inclination burn).
+	case w.InstantSAS && (mode == spacecraft.BurnPlaneChange || mode == spacecraft.BurnVector):
+		// BurnPlaneChange's tilted direction and BurnVector's captured
+		// direction can't be decoded from the BurnMode alone, so the
+		// per-sub-step ThrustAccelFnAtWithTarget switch can't resolve
+		// them. Under InstantSAS thrust along the resolved commanded
+		// direction (recomputed per tick — ample for a short burn).
 		thrustFn = c.ThrustAccelFnFixedDir(
-			c.BurnDirectionPlaneAware(mode, rT, vT, planeRad), mu, throttle)
+			c.BurnDirectionForBurn(mode, rT, vT, planeRad, burnDir), mu, throttle)
 	case w.InstantSAS:
 		thrustFn = c.ThrustAccelFnAtWithTarget(mode, mu, throttle, rT, vT)
 	default:
