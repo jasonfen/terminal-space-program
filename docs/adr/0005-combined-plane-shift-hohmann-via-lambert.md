@@ -3,7 +3,12 @@
 <!-- llm-parse: adr=0005 status=accepted date=2026-05-28 cycle=v0.12 slice=v0.12.x -->
 
 **Status:** accepted (2026-05-28, `/grill-with-docs` for v0.12
-Slice 5 — "combined plane-shift + Hohmann").
+Slice 5 — "combined plane-shift + Hohmann"). **Decisions 3 and 4 below
+are superseded by ADR [0006](0006-intra-primary-transfer-arrival-and-predictor-fidelity.md)**
+— the split's apoapsis plane change does not actually rendezvous (it
+must be placed on the Line of Nodes), and the predictor's missing
+capture arc is integrator drift, not sample density. Decisions 1, 2, 5
+(fused Lambert, `BurnVector`, guard retirement) stand.
 
 ## Context
 

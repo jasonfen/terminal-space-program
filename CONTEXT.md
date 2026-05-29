@@ -889,16 +889,39 @@ between burns (`TransferDt`).
 
 For the intra-Primary case (e.g. LEO→Luna) the Departure is no longer
 a pure-prograde periapsis kick: the planner fuses the plane change
-into the transfer via a Lambert solve and picks, by total Δv, between
-two shapes — a **combined** transfer (one `BurnVector` Departure that
-folds plane + raise together) and a **split** transfer (a near-coplanar
-raise plus a `BurnPlaneChange` node at the transfer apoapsis, where the
-plane change is cheapest). Both arrive in the target's plane; the HUD
-shows both costs. This retires the old `I`-plane-match-then-`H` dance
-as a *requirement* (the manual tools remain available).
+into the transfer and picks, by total Δv, between two shapes — a
+**combined** transfer (one `BurnVector` Departure, solved by a Lambert
+arc, that folds plane + raise together) and a **split** transfer (a
+near-coplanar raise plus a `BurnPlaneChange` node placed where the
+Vessel crosses the target's orbital plane — the **line of nodes** —
+which is both a cheap place to change planes and the *only* place a
+plane change leaves the Vessel actually *in* the target's plane).
+A correct Transfer Plan must arrive **coplanar** with the target (≈0°
+relative inclination) so the Capture Burn can insert; the HUD shows
+both candidate costs. This retires the old `I`-plane-match-then-`H`
+dance as a *requirement* (the manual tools remain available).
 _Avoid_: Trajectory (the whole flight path; the Plan is the burns).
 The planner's internal `TransferNode` is not glossary-worthy — it's a
-handoff struct (see Flagged ambiguities).
+handoff struct (see Flagged ambiguities). **Do not** conflate "plane
+change at apoapsis" with "plane change at the line of nodes": changing
+velocity at apoapsis rotates the orbit but does *not* move the Vessel
+into the target's plane unless apoapsis already lies on the line of
+nodes — the distinction is load-bearing for arrival (see GH #67).
+
+**Line of Nodes**:
+The line where the Vessel's orbital plane intersects the target's
+orbital plane — the only two points in the orbit where the Vessel is
+*in* the target's plane. A plane change executed here rotates the
+Vessel's plane onto the target's while leaving its position on the
+shared line, so the post-burn orbit is coplanar with the target. The
+**split** Transfer Plan places its `BurnPlaneChange` here (at the
+transfer apoapsis *and* on a node — the two must coincide for the
+transfer to arrive), which is why the cheap apoapsis plane change also
+produces a coplanar arrival. Direction is `n̂_vessel × n̂_target` (the
+cross of the two plane normals).
+_Avoid_: Ascending/descending node alone (those name the two specific
+crossing points; the Line of Nodes is the axis through both), Node
+(overloaded — see Maneuver Node and Flagged ambiguities).
 
 **Parking Orbit** / **Capture Orbit**:
 The bounding circular orbits at each end of a Transfer Plan. The
