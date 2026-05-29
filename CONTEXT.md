@@ -211,7 +211,21 @@ The direction selector for a Maneuver Node or Manual Burn. Two families:
   implemented but would round out the product.
 
 Target-relative modes are unselectable when no TargetCraft is bound.
-_Avoid_: Vector mode, Heading, Direction.
+
+A third, narrow family sits outside the self/target product:
+
+- *Fixed-inertial* — **BurnVector** (v0.12+), a plant-only mode that
+  fires along a unit direction captured in the inertial frame *at
+  plant time* and held fixed (it does not re-derive from live state
+  like the others). It exists to carry an arbitrary 3D departure Δv —
+  specifically the fused-Lambert combined-transfer departure (see
+  Transfer Plan), where the impulse folds a plane change into the
+  raise and so points along no self-relative axis. The Vessel slews
+  to the captured direction like any planted node.
+
+_Avoid_: Vector mode (now ambiguous with BurnVector — say "Burn Mode"
+for the selector, "BurnVector" for the fixed-inertial value), Heading,
+Direction.
 
 **Trigger Event**:
 The condition that fires a Maneuver Node. Six options:
@@ -870,6 +884,16 @@ Primary, and an **Arrival** burn fired at the destination's SOI /
 Capture Orbit radius after a coast. Each burn becomes a Maneuver Node
 in its respective Primary's Reference Frame. Carries the coast time
 between burns (`TransferDt`).
+
+For the intra-Primary case (e.g. LEO→Luna) the Departure is no longer
+a pure-prograde periapsis kick: the planner fuses the plane change
+into the transfer via a Lambert solve and picks, by total Δv, between
+two shapes — a **combined** transfer (one `BurnVector` Departure that
+folds plane + raise together) and a **split** transfer (a near-coplanar
+raise plus a `BurnPlaneChange` node at the transfer apoapsis, where the
+plane change is cheapest). Both arrive in the target's plane; the HUD
+shows both costs. This retires the old `I`-plane-match-then-`H` dance
+as a *requirement* (the manual tools remain available).
 _Avoid_: Trajectory (the whole flight path; the Plan is the burns).
 The planner's internal `TransferNode` is not glossary-worthy — it's a
 handoff struct (see Flagged ambiguities).
