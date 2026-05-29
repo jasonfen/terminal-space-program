@@ -2,25 +2,46 @@
 
 <!--
   meta:
-    snapshot_version: v0.9.6 (solar lighting + navball overhaul —
-      v0.9.0–v0.9.6 all shipped to `main`; v0.9 cycle closing)
-    snapshot_date: 2026-05-05
-    revised_date: 2026-05-17 (v0.9.6 lighting+eclipses merged to
-      `main` 32e8d03, plus a navball polish pass — flicker root-
-      cause fixes, KSP-style framed panel w/ vertical SAS column +
-      RCS/mode toggles, ball palette retune; all branches cleaned,
-      origin/main sole branch)
+    snapshot_version: v0.12.2 (Slice 5 follow-on — Projected Orbit
+      Kepler-step fidelity (#66) + Line-of-Nodes split rendezvous
+      (#67); v0.12 cycle in progress, Slices 2/3 + flame polish remain)
+    snapshot_date: 2026-05-29
+    revised_date: 2026-05-29 (header refreshed from the stale v0.9.6
+      snapshot: v0.10–v0.12 cycle summaries folded in, released-
+      versions table extended through v0.12.2; origin/main sole branch)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
-  "what's the game today / where is it going" reference.
+  "what's the game today / where is it going" reference. Per-feature
+  detail for v0.10+ lives in the cycle plans (docs/v0.1x-plan.md) +
+  ADRs (docs/adr/); this file keeps the entries + the snapshot.
 -->
 
-> Snapshot at **v0.9.6** (May 2026) — the "craft fleet grows up"
-> cycle has shipped v0.9.0 → v0.9.6 to `main`. v0.9.6 landed solar
-> lighting + day/night terminator + eclipses plus a navball
-> overhaul; the v0.9 cycle is closing and v0.10 is being planned.
-> Predecessor doc with full per-feature detail preserved at
+> Snapshot at **v0.12.2** (May 2026). Three cycles have shipped to
+> `main` since v0.9.6:
+>
+> - **v0.10** (May 19–23) — planner + maneuver tooling: rate-limited
+>   slew (attitude), the staging chain, rendezvous tooling, true
+>   plane-match / inclination burns, multi-rev porkchop, and a
+>   perspective-tilt orbit view.
+> - **v0.11** (May 24–27) — the launch chase-cam (`ViewLaunch`), the
+>   crashed/landed lifecycle ([ADR 0004](adr/0004-crashed-landed-lifecycle.md)),
+>   and Lander silhouette + soft-landing polish.
+> - **v0.12** (May 29, *in progress*) — numbered craft slots + a
+>   cleanup bundle (v0.12.0); the combined plane-shift + Hohmann
+>   dual-strategy intra-primary transfer (v0.12.1,
+>   [ADR 0005](adr/0005-combined-plane-shift-hohmann-via-lambert.md));
+>   and the **Slice 5 follow-on** (v0.12.2,
+>   [ADR 0006](adr/0006-intra-primary-transfer-arrival-and-predictor-fidelity.md)):
+>   analytic-Kepler Projected-Orbit fidelity (GH #66) and a
+>   Line-of-Nodes split that actually rendezvous with an inclined
+>   Luna (GH #67).
+>
+> **Remaining in v0.12:** the 2-stage Lander + surface staging
+> (Slice 2, ADR 0007), parachutes (Slice 3, ADR 0008), two-colour
+> flame polish (Slice 4 leftover), and the Moon-frame lunar-capture
+> inclination trim (GH #68, deferred from v0.12.2). Pre-v0.8
+> per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
 ---
@@ -45,8 +66,10 @@ The headline aesthetic is "Apollo-era nominal trajectory" — the
 default vessel is a Saturn V S-IVB stage with a J-2 engine and
 ~6.3 km/s of Δv, sized so a Luna round trip is comfortable and a
 Mars Hohmann is *barely* reachable on a good launch window. The
-craft fleet up through v0.9.0 is intentionally modest; staging
-slices later in the v0.9 cycle will grow it.
+craft fleet has since grown past that modest start — a player-
+managed staging chain (v0.9.1), craft types + docking (v0.8), a
+Lander with landing legs + hypergolic flame (v0.11.5), and
+numbered craft slots (v0.12.0).
 
 ## Where it came from
 
@@ -60,11 +83,21 @@ nodes, predicted-orbit HUD, finite-burn iterator, mission
 scaffold, click-only mouse, multiplayer design spike). v0.7
 filled in modding (theme + system overlays), manual flight (WASDQE
 attitude, throttle keys), inclination planner, and textured
-Mars/Jupiter. v0.8 — the current cycle — was branded "multi-craft
-polish" and grew well past the headline: RCS / monoprop, multi-
-craft slate, craft types, docking, atmospheric drag, sim-time
-rotation with view-aware projection, body-equatorial Keplerian
-frame, adaptive warp clamps, finite-burn iterate-for-target.
+Mars/Jupiter. v0.8 — "multi-craft polish" — grew well past the
+headline: RCS / monoprop, multi-craft slate, craft types, docking,
+atmospheric drag, sim-time rotation with view-aware projection,
+body-equatorial Keplerian frame, adaptive warp clamps, finite-burn
+iterate-for-target. v0.9 ("the craft fleet grows up") added the
+unified target slot, the staging chain, ground-launch + ascent
+ergonomics, rendezvous tooling, the navball, and solar lighting +
+eclipses. v0.10 deepened the planner (slew, true plane-match +
+inclination burns, multi-rev porkchop) and the orbit view
+(perspective tilt). v0.11 added the launch chase-cam and the
+crashed/landed lifecycle (ADR 0004) with Lander / soft-landing
+polish. v0.12 (in progress) brought numbered craft slots, the
+combined plane-shift + Hohmann dual-strategy transfer (ADR 0005),
+and the Line-of-Nodes split + analytic-Kepler predictor fidelity
+(ADR 0006).
 
 The codebase still tracks Apollo-era reality more than KSP-style
 fantasy — atmospheric scale heights, axial tilts, sidereal periods,
@@ -93,6 +126,10 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
+| [v0.12](v0.12-plan.md) | 2026-05-29 | ✓ | **Cycle in progress.** Numbered craft slots + cleanup (v0.12.0); combined plane-shift + Hohmann dual-strategy transfer (v0.12.1, ADR 0005); Slice 5 follow-on — Line-of-Nodes split rendezvous + analytic-Kepler Projected-Orbit fidelity (v0.12.2, ADR 0006, GH #66/#67). Remaining: lander 2-stage (ADR 0007), parachutes (ADR 0008), flame polish, GH #68. |
+| [v0.11](v0.11-plan.md) | 2026-05-24 → 27 | ✓ | Launch chase-cam (`ViewLaunch`, v0.11.0); crashed/landed lifecycle (ADR 0004); Lander silhouette + soft-landing polish (v0.11.2–.5). |
+| [v0.10](v0.10-plan.md) | 2026-05-19 → 23 | ✓ | Planner + maneuver tooling — rate-limited slew, staging chain, rendezvous tooling, true plane-match/inclination burns, predictor adaptive sampling, multi-rev porkchop, perspective-tilt orbit view, launch-anchor. |
+| [v0.9.6](#v096) | 2026-05-17 | ✓ | Solar lighting + day/night terminator + eclipses, plus a navball overhaul (flicker root-cause fix + KSP-style framed panel). Closes the v0.9 cycle. |
 | [v0.9.5](#v095) | 2026-05-15 | ✓ | Navball — bottom-right HUD attitude indicator. Braille-rendered sphere, classic-ADI horizon split, per-mode SAS/target/maneuver-node markers, NavSurface compass ticks. Merged to `main` (730705d); playtest signoff in progress. |
 | [v0.9.4](#v094) | 2026-05-07 | ✓ | Ascent ergonomics — predictive ap/pe/Δv→circ in LAUNCH HUD, ORBIT READY callout, NavSurface auto-snap on launchpad spawn, single-key `C` plants circularize-at-apoapsis. Closes the v0.9.2 WIP friction without an autopilot. Merged via PR #53. |
 | [v0.9.3](#v093) | 2026-05-06 | ✓ | Rendezvous tooling — target-relative SAS modes (`BurnTarget*`), TCA / CA / DOCK READY in TARGET HUD, KSP-style NavMode cycle (`;`), `m`-form integration with `next closest approach` trigger event. Merged via PR #52. |
