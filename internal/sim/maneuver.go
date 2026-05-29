@@ -399,7 +399,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 
 		// Split: refine the finite coplanar departure (v0.6.2 iterator) so
 		// the burn delivers the target apoapsis under integration, then
-		// plant raise → plane change at apoapsis → capture.
+		// plant raise → plane change → capture.
 		w.LastTransfer.Strategy = "split"
 		plan := seed
 		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, c.Isp, rArrival)
@@ -411,17 +411,48 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 			plan.TransferDt = time.Duration(nodeTransfer * float64(time.Second))
 			plan.Arrival.OffsetTime = plan.Departure.OffsetTime + plan.TransferDt
 		}
+
+		// v0.12.x (GH #67 follow-up): the plane change can only align the
+		// planes at a node, and the only cheap node (apoapsis) sits inside
+		// the target's SOI — firing it there would run in the target's
+		// frame and collide with the capture (both at apoapsis). Instead
+		// fire the plane change just before SOI entry (still in the
+		// primary's frame, near-apoapsis so still cheap, off-node so it
+		// only *reduces* the relative inclination) and the capture at
+		// perilune. Distinct times; partial — not perfect — coplanarity
+		// (see ADR 0006 A: a truly coplanar capture needs frame alignment
+		// at capture, deferred).
+		planeChangeOffset := plan.Arrival.OffsetTime
+		captureOffset := plan.Arrival.OffsetTime
+		pcDv, pcTheta := planeChangeDv, planeChangeTheta
+		if nodeOK && depOK {
+			raiseDir := spacecraft.DirectionUnit(spacecraft.BurnPrograde, depState.R, depState.V)
+			post := depState
+			post.V = depState.V.Add(raiseDir.Scale(seed.Departure.DV))
+			depClock := now.Add(time.Duration(nodeTau * float64(time.Second)))
+			if tEntry, tCA, found := w.transferEncounterTimes(post, c.Primary, target, depClock, nodeTransfer*1.2); found {
+				if entry, ok := physics.KeplerStep(post, muShared, tEntry); ok {
+					if _, nTgt, ok2 := w.craftTargetPlaneNormals(c, target); ok2 {
+						pcDv, pcTheta = planeChangeAtState(entry, nTgt)
+					}
+				}
+				planeChangeOffset = time.Duration((nodeTau + tEntry) * float64(time.Second))
+				captureOffset = time.Duration((nodeTau + tCA) * float64(time.Second))
+			}
+		}
+
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
-		if planeChangeDv > 0 {
+		if pcDv > 0 {
 			w.PlanNode(ManeuverNode{
-				TriggerTime:    now.Add(plan.Arrival.OffsetTime),
+				TriggerTime:    now.Add(planeChangeOffset),
 				Mode:           spacecraft.BurnPlaneChange,
-				DV:             planeChangeDv,
-				Duration:       c.BurnTimeForDV(planeChangeDv),
+				DV:             pcDv,
+				Duration:       c.BurnTimeForDV(pcDv),
 				PrimaryID:      c.Primary.ID,
-				PlaneChangeRad: planeChangeTheta,
+				PlaneChangeRad: pcTheta,
 			})
 		}
+		plan.Arrival.OffsetTime = captureOffset
 		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, c))
 		return &plan, nil
 	}
@@ -1434,6 +1465,61 @@ func (w *World) splitNodePhasing(c *spacecraft.Spacecraft, target bodies.Celesti
 		return 0, 0, false
 	}
 	return best, tTransfer, true
+}
+
+// planeChangeAtState sizes a plane-change burn fired at an arbitrary
+// point on the transfer (not necessarily the line of nodes): the Δv
+// magnitude (2·v_h·sin(|θ|/2)) and the signed rotation θ the
+// BurnPlaneChange node carries. θ is the rotation about the radial that
+// brings the orbit normal as close to the target's as a single radial-
+// axis rotation allows — exact when the fire point is on the node line,
+// a best-effort tilt reduction otherwise (v0.12.x, GH #67 follow-up: the
+// split fires this just before SOI entry, off-apoapsis, so the burn can
+// run in the primary's frame instead of the target's — see PlanTransfer).
+func planeChangeAtState(st physics.StateVector, nTargetHat orbital.Vec3) (dv, theta float64) {
+	rHat := st.R.Unit()
+	vHor := st.V.Sub(rHat.Scale(st.V.Dot(rHat)))
+	hHat := st.R.Cross(st.V).Unit()
+	theta = math.Atan2(hHat.Cross(nTargetHat).Dot(rHat), hHat.Dot(nTargetHat))
+	dv = 2 * vHor.Norm() * math.Sin(math.Abs(theta)/2)
+	return dv, theta
+}
+
+// transferEncounterTimes propagates the post-departure transfer state
+// analytically (Earth/primary frame, exact two-body) and returns the
+// time (s, measured from departure) at which the craft first crosses into
+// the target's SOI and the time of closest approach to the target.
+// ok=false if the craft never enters the SOI within the horizon. Used by
+// the split to fire the plane change just before SOI entry (in the
+// primary's frame) and the capture at perilune — distinct burns rather
+// than two stacked at the apoapsis instant (GH #67 follow-up).
+func (w *World) transferEncounterTimes(post physics.StateVector, primary, target bodies.CelestialBody, startClock time.Time, horizon float64) (tEntry, tCA float64, ok bool) {
+	mu := primary.GravitationalParameter()
+	soi := physics.SOIRadius(target, primary)
+	const n = 4000
+	minD := math.Inf(1)
+	tEntry = -1
+	for i := 0; i <= n; i++ {
+		dt := horizon * float64(i) / float64(n)
+		st, k := physics.KeplerStep(post, mu, dt)
+		if !k {
+			continue
+		}
+		tt := startClock.Add(time.Duration(dt * float64(time.Second)))
+		rel := st.R.Sub(w.BodyPositionAt(target, tt).Sub(w.BodyPositionAt(primary, tt)))
+		d := rel.Norm()
+		if d < minD {
+			minD = d
+			tCA = dt
+		}
+		if tEntry < 0 && d < soi {
+			tEntry = dt
+		}
+	}
+	if tEntry < 0 {
+		return 0, 0, false
+	}
+	return tEntry, tCA, true
 }
 
 // intraPlaneChangeAllowance estimates the extra departure Δv a fused

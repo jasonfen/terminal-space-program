@@ -91,18 +91,20 @@ func TestPlanTransferSplitArrivesCoplanar(t *testing.T) {
 		t.Fatal("craftTargetPlaneNormals degenerate")
 	}
 
-	// Coplanarity is a property of the Earth-relative transfer orbit at
-	// arrival: propagate the raise leg to apoapsis (Earth frame) and apply
-	// the plane-change impulse there, then compare the orbit's plane normal
-	// to Luna's. (We can't read the predicted leg's stored state directly —
-	// the predictor rebases into the Moon's frame on SOI entry, which
-	// happens ~21 000 km out, before apoapsis; that state is Moon-relative
-	// and not comparable to the Earth-frame Luna plane.)
+	// Coplanarity is a property of the Earth-relative transfer orbit after
+	// the plane change. The plane change fires just before SOI entry, in
+	// the Earth frame (the raise leg's horizon ends at that node); apply it
+	// to the propagated raise-leg state there and compare the orbit's plane
+	// normal to Luna's. (We can't read the predicted leg's stored state
+	// directly — the predictor rebases into the Moon's frame on SOI entry,
+	// so that state is Moon-relative and not comparable to the Earth-frame
+	// Luna plane.) Firing off-node only *reduces* the tilt — but near
+	// apoapsis the residual is small.
 	legs := w.PredictedLegs()
 	raise := legs[0]
-	apo, okk := physics.KeplerStep(raise.State, mu, raise.HorizonSecs)
+	atPC, okk := physics.KeplerStep(raise.State, mu, raise.HorizonSecs)
 	if !okk {
-		t.Fatal("KeplerStep to apoapsis failed")
+		t.Fatal("KeplerStep to plane-change point failed")
 	}
 	var pc spacecraft.ManeuverNode
 	for _, n := range c.Nodes {
@@ -110,20 +112,60 @@ func TestPlanTransferSplitArrivesCoplanar(t *testing.T) {
 			pc = n
 		}
 	}
-	dir := spacecraft.NodeBurnDirection(pc, apo.R, apo.V)
-	vNew := apo.V.Add(dir.Scale(pc.DV))
-	normal := apo.R.Cross(vNew).Unit()
+	dir := spacecraft.NodeBurnDirection(pc, atPC.R, atPC.V)
+	vNew := atPC.V.Add(dir.Scale(pc.DV))
+	normal := atPC.R.Cross(vNew).Unit()
 	relIncl := relInclination(normal, nTargetHat) * 180 / math.Pi
 	if relIncl > 2.0 {
-		t.Errorf("arrival orbit is %.2f° off Luna's plane (want ≈0°) — plane change not on the line of nodes", relIncl)
+		t.Errorf("arrival orbit is %.2f° off Luna's plane after the plane change (want <2°)", relIncl)
+	}
+}
+
+// TestPlanTransferSplitBurnsAreDistinct: the plane change and capture
+// must be planted at distinct times — the plane change in the Earth frame
+// before SOI entry, the capture at perilune. Pre-fix both were stacked at
+// the apoapsis instant, which the executor can't fly as two burns (the
+// later ActiveBurn clobbers the earlier). GH #67 follow-up.
+func TestPlanTransferSplitBurnsAreDistinct(t *testing.T) {
+	w := mustWorld(t)
+	moonIdx, _ := findMoon(t, w)
+	if _, err := w.PlanTransfer(moonIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	if w.LastTransfer.Strategy != "split" {
+		t.Fatalf("strategy = %q, want split", w.LastTransfer.Strategy)
+	}
+	nodes := w.ActiveCraft().Nodes
+	if len(nodes) < 3 {
+		t.Fatalf("split should plant 3 nodes; got %d", len(nodes))
+	}
+	var planeChange, capture spacecraft.ManeuverNode
+	for _, n := range nodes {
+		switch n.Mode {
+		case spacecraft.BurnPlaneChange:
+			planeChange = n
+		case spacecraft.BurnRetrograde:
+			capture = n
+		}
+	}
+	gap := capture.TriggerTime.Sub(planeChange.TriggerTime)
+	if gap <= 0 {
+		t.Errorf("plane change (T=%v) and capture (T=%v) are not ordered distinctly — burns collide",
+			planeChange.TriggerTime, capture.TriggerTime)
+	}
+	// The plane change must fire before the capture by more than their
+	// burn windows so the integrator doesn't run them concurrently.
+	if gap < planeChange.Duration/2+capture.Duration/2 {
+		t.Errorf("plane change and capture burn windows overlap (gap %v < %v)",
+			gap, planeChange.Duration/2+capture.Duration/2)
 	}
 }
 
 // TestPlanTransferSplitPredictedPathEntersMoonSOI: end-to-end — with the
-// node-aligned split, the predicted coast into apoapsis must cross Luna's
-// SOI (a foreign "moon" segment present). This exercises the #66 Kepler
-// predictor on the #67-corrected geometry: the dashed Projected Orbit
-// actually draws the encounter for the default inclined Luna.
+// node-aligned split, the predicted transfer must cross Luna's SOI (a
+// foreign "moon" segment present on some leg). This exercises the #66
+// Kepler predictor on the #67-corrected geometry: the dashed Projected
+// Orbit actually draws the encounter for the default inclined Luna.
 func TestPlanTransferSplitPredictedPathEntersMoonSOI(t *testing.T) {
 	w := mustWorld(t)
 	moonIdx, _ := findMoon(t, w)
@@ -135,19 +177,23 @@ func TestPlanTransferSplitPredictedPathEntersMoonSOI(t *testing.T) {
 	if len(legs) == 0 {
 		t.Fatal("no predicted legs")
 	}
-	// The raise leg (node 0) coasts from departure to apoapsis, where Luna
-	// is — so the encounter shows up there.
-	leg := legs[0]
-	segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples)
+	// The encounter shows up on whichever leg coasts through apoapsis (the
+	// plane change splits the coast at SOI entry), so scan all of them —
+	// either a leg already rebased into the Moon's frame or a "moon"
+	// segment in a leg's predicted trajectory counts.
 	foundMoon := false
-	ids := make([]string, len(segs))
-	for i, s := range segs {
-		ids[i] = s.PrimaryID
-		if s.PrimaryID == "moon" {
+	for _, leg := range legs {
+		if leg.Primary.ID == "moon" {
 			foundMoon = true
+			break
+		}
+		for _, s := range w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples) {
+			if s.PrimaryID == "moon" {
+				foundMoon = true
+			}
 		}
 	}
 	if !foundMoon {
-		t.Errorf("predicted raise leg never enters Luna's SOI (segments %v) — split misses the encounter", ids)
+		t.Error("predicted transfer never enters Luna's SOI — split misses the encounter")
 	}
 }
