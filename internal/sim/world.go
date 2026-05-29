@@ -294,6 +294,23 @@ func (w *World) CycleActiveCraft(delta int) {
 	w.StopManualBurn()
 }
 
+// SwitchToCraftIdx jumps control directly to the craft at idx
+// (0-based), backing the numbered craft-slot keys (1..9 → idx
+// 0..8). Unlike CycleActiveCraft it does not wrap: a slot key with
+// no craft behind it (idx ≥ len(Crafts)) or a request for the
+// already-active craft is a no-op. Returns true only when the
+// active craft actually changed. Mirrors CycleActiveCraft's
+// StopManualBurn so the newly-selected craft starts in a known
+// engine state. v0.12.0+.
+func (w *World) SwitchToCraftIdx(idx int) bool {
+	if idx < 0 || idx >= len(w.Crafts) || idx == w.ActiveCraftIdx {
+		return false
+	}
+	w.SetActiveCraftIdx(idx)
+	w.StopManualBurn()
+	return true
+}
+
 // SetActiveCraftIdx switches control to the craft at idx, syncing
 // per-craft Target so each vessel keeps its own target binding
 // across switches (v0.9.3 polish). Outgoing's live `w.Target`

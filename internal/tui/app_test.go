@@ -3,6 +3,8 @@ package tui
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
@@ -93,6 +95,41 @@ func TestDispatchNavballControlSAS(t *testing.T) {
 	a.dispatchNavballControl(screens.NavballControlSAS)
 	if a.world.InstantSAS {
 		t.Errorf("InstantSAS = true, want false after second toggle")
+	}
+}
+
+// Pressing a number-row key (1-9) on the orbit screen jumps to that
+// craft slot; an empty slot is a no-op. Guards the digit-parse +
+// binding wiring behind World.SwitchToCraftIdx.
+func TestCraftSlotKeyJumps(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Stand up a 3-craft slate (New() starts with one).
+	for i := 0; i < 2; i++ {
+		if _, err := a.world.SpawnSisterCraft(); err != nil {
+			t.Fatalf("SpawnSisterCraft: %v", err)
+		}
+	}
+	if len(a.world.Crafts) != 3 {
+		t.Fatalf("expected 3 craft, got %d", len(a.world.Crafts))
+	}
+
+	// '3' → craft index 2.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+	if a.world.ActiveCraftIdx != 2 {
+		t.Errorf("after '3' = %d, want 2", a.world.ActiveCraftIdx)
+	}
+	// '9' → empty slot, no-op (stays on 2).
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
+	if a.world.ActiveCraftIdx != 2 {
+		t.Errorf("after empty-slot '9' = %d, want 2 (no-op)", a.world.ActiveCraftIdx)
+	}
+	// '1' → back to craft index 0.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	if a.world.ActiveCraftIdx != 0 {
+		t.Errorf("after '1' = %d, want 0", a.world.ActiveCraftIdx)
 	}
 }
 

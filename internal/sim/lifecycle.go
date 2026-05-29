@@ -50,12 +50,18 @@ const (
 )
 
 // surfaceArrivalOutcome encodes what the predicate decided. Local
-// to the lifecycle dispatch site; not exported.
+// to the lifecycle dispatch site; not exported. Every Surface
+// Contact resolves to exactly one of these two — v0.12.0 deleted
+// the vestigial third "fallback" bucket (zero-V, neither flag) that
+// ADR 0004 shipped as a defensive placeholder, since the predicate
+// always classifies a contact as Landed or Crashed (a non-CanSoftLand
+// vessel that grazes the surface is Crashed, not a third state). The
+// classifier is exhaustive: classifySurfaceArrival always returns
+// one of these.
 type surfaceArrivalOutcome int
 
 const (
-	outcomeNone surfaceArrivalOutcome = iota
-	outcomeLanded
+	outcomeLanded surfaceArrivalOutcome = iota
 	outcomeCrashed
 )
 
@@ -126,4 +132,3 @@ func applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.StateVector, 
 		c.Crashed = true
 	}
 }
-
