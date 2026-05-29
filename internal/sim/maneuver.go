@@ -365,10 +365,23 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 			combinedDv = combined.Departure.DV + combined.Arrival.DV
 		}
 
+		// v0.12.x (ADR 0006 A): for an inclined target the split must
+		// place its apoapsis on the line of nodes (craft-plane ∩ target-
+		// plane) where the target will be, so the transfer rendezvous and
+		// the plane change there arrives coplanar. Node-aligned timing
+		// drives the departure point; near-coplanar targets (nodeOK=false)
+		// keep the opposition phasing from the analytic seed.
+		nodeTau, nodeTransfer, nodeOK := w.splitNodePhasing(c, target, muShared, rPark, rArrival, minLead)
+		splitWait := seed.Departure.OffsetTime.Seconds()
+		if nodeOK {
+			splitWait = nodeTau
+		}
+
 		// Split sizing: coplanar raise + capture come from the analytic
-		// seed; the plane change is added at the apoapsis.
+		// seed; the plane change is added at the apoapsis (now on the node
+		// line, so its rotation maps the craft's plane onto the target's).
 		var planeChangeDv, planeChangeTheta float64
-		depState, depOK := physics.KeplerStep(c.State, muShared, seed.Departure.OffsetTime.Seconds())
+		depState, depOK := physics.KeplerStep(c.State, muShared, splitWait)
 		if nCraftHat, nTargetHat, ok := w.craftTargetPlaneNormals(c, target); ok && depOK {
 			planeChangeDv, planeChangeTheta = splitPlaneChangeAtApoapsis(
 				depState, nCraftHat, nTargetHat, muShared, rPark, rArrival)
@@ -390,6 +403,14 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		w.LastTransfer.Strategy = "split"
 		plan := seed
 		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, c.Isp, rArrival)
+		// Override the seed's opposition phasing with the node-aligned
+		// departure/arrival so apoapsis lands on the node where the target
+		// is (the Δv magnitudes above are phasing-independent).
+		if nodeOK {
+			plan.Departure.OffsetTime = time.Duration(nodeTau * float64(time.Second))
+			plan.TransferDt = time.Duration(nodeTransfer * float64(time.Second))
+			plan.Arrival.OffsetTime = plan.Departure.OffsetTime + plan.TransferDt
+		}
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
 		if planeChangeDv > 0 {
 			w.PlanNode(ManeuverNode{
@@ -1263,6 +1284,156 @@ func splitPlaneChangeAtApoapsis(depState physics.StateVector, nCraftHat, nTarget
 	hHat := nCraftHat
 	theta = math.Atan2(hHat.Cross(nTargetHat).Dot(rApoHat), hHat.Dot(nTargetHat))
 	return dv, theta
+}
+
+// splitNodeMinIncl is the relative-inclination floor (rad, ≈0.5°) below
+// which the craft and target planes have no distinct line of nodes worth
+// constraining — splitNodePhasing bails and the caller keeps the coplanar
+// opposition phasing.
+const splitNodeMinIncl = 0.5 * math.Pi / 180
+
+// wrapTau normalises an angle to [0, 2π).
+func wrapTau(a float64) float64 {
+	const tau = 2 * math.Pi
+	a = math.Mod(a, tau)
+	if a < 0 {
+		a += tau
+	}
+	return a
+}
+
+// signedAngleAbout returns the signed angle (rad, in (−π, π]) from `from`
+// to `to` measured about `axis` (right-handed): positive when `to` leads
+// `from` in the +axis rotation sense. Used to time when a body sweeps
+// onto a given inertial ray.
+func signedAngleAbout(from, to, axis orbital.Vec3) float64 {
+	f, t := from.Unit(), to.Unit()
+	return math.Atan2(f.Cross(t).Dot(axis), f.Dot(t))
+}
+
+// timeToBodyDirection returns the soonest dt ≥ 0 (s) at which body b's
+// position in primary's frame points along dHat — i.e. b crosses the
+// inertial ray dHat (which must lie in b's orbit plane, normal nHat).
+// A mean-motion estimate seeds a few Newton refinements against the true
+// ephemeris, so the target's orbital eccentricity is accounted for rather
+// than assuming uniform angular rate. period is b's orbital period (s).
+func (w *World) timeToBodyDirection(b, primary bodies.CelestialBody, dHat, nHat orbital.Vec3, period float64) (float64, bool) {
+	if period <= 0 || math.IsNaN(period) || math.IsInf(period, 0) {
+		return 0, false
+	}
+	n := 2 * math.Pi / period
+	psi := func(dt float64) float64 {
+		t := w.Clock.SimTime.Add(time.Duration(dt * float64(time.Second)))
+		p := w.BodyPositionAt(b, t).Sub(w.BodyPositionAt(primary, t))
+		if p.Norm() == 0 {
+			return 0
+		}
+		// Angle from dHat to the body about nHat; zero when aligned.
+		return signedAngleAbout(dHat, p, nHat)
+	}
+	// Seed: the body must travel prograde (about nHat) by however far it
+	// currently sits behind dHat.
+	dt := wrapTau(-psi(0)) / n
+	const h = 1.0 // 1 s finite-difference step for the angular rate
+	for i := 0; i < 8; i++ {
+		f := psi(dt)
+		fp := (psi(dt+h) - f) / h
+		if fp == 0 {
+			break
+		}
+		step := f / fp
+		dt -= step
+		if math.Abs(step) < 1 {
+			break
+		}
+	}
+	for dt < 0 {
+		dt += period
+	}
+	return dt, true
+}
+
+// splitNodePhasing computes the Line-of-Nodes departure timing for the
+// split strategy (ADR 0006 decision A). It returns the wait time τ (s)
+// until the prograde raise fires and the coast time (s) to apoapsis, so
+// that:
+//
+//   - the raise's apoapsis lands on the craft-plane ∩ target-plane node
+//     line (the craft departs from the antipodal node point, 180° away in
+//     its own plane, so a pure in-plane raise puts apoapsis on the node);
+//     and
+//   - the target sits at that node when the craft arrives at apoapsis.
+//
+// A plane change at that apoapsis rotates about the node line (= the
+// radial there), which maps the craft's plane exactly onto the target's —
+// so the arrival is coplanar AND co-located with the target. This is what
+// makes the inclined split actually rendezvous; pre-fix the plane change
+// sat at an arbitrary apoapsis and the craft stayed ~sin(Δi)·r_apo (~100k
+// km for LEO→Luna) out of the target's plane.
+//
+// Returns ok=false for near-coplanar geometry (no distinct node line) or
+// a non-elliptic craft orbit; the caller keeps the opposition phasing.
+func (w *World) splitNodePhasing(c *spacecraft.Spacecraft, target bodies.CelestialBody, muShared, rPark, rArrival, minLead float64) (tau, tTransfer float64, ok bool) {
+	nCraftHat, nTargetHat, ok := w.craftTargetPlaneNormals(c, target)
+	if !ok || relInclination(nCraftHat, nTargetHat) < splitNodeMinIncl {
+		return 0, 0, false
+	}
+	nodeLine := nCraftHat.Cross(nTargetHat)
+	if nodeLine.Norm() == 0 {
+		return 0, 0, false
+	}
+	lineHat := nodeLine.Unit()
+
+	aT := (rPark + rArrival) / 2
+	tTransfer = math.Pi * math.Sqrt(aT*aT*aT/muShared)
+
+	nCraft := math.Sqrt(muShared / (rPark * rPark * rPark))
+	if nCraft <= 0 || math.IsNaN(nCraft) || math.IsInf(nCraft, 0) {
+		return 0, 0, false
+	}
+	tPark := 2 * math.Pi / nCraft
+	tTarget := 2 * math.Pi * math.Sqrt(rArrival*rArrival*rArrival/muShared)
+
+	best := math.Inf(1)
+	// Either node of the line can host the apoapsis; try both and take the
+	// soonest feasible departure.
+	for _, s := range []float64{1, -1} {
+		nodeHat := lineHat.Scale(s) // apoapsis lands here; target must be here at arrival
+		depHat := nodeHat.Scale(-1) // craft departs from the antipodal point
+
+		// Craft's next pass through the departure point (circular parking
+		// orbit, prograde about nCraftHat).
+		tDepFirst := wrapTau(signedAngleAbout(c.State.R, depHat, nCraftHat)) / nCraft
+
+		// Target's next arrival at the node, then the soonest later pass
+		// whose implied departure (arrival − coast) clears minLead.
+		tNode, okN := w.timeToBodyDirection(target, c.Primary, nodeHat, nTargetHat, tTarget)
+		if !okN {
+			continue
+		}
+		depTarget := tNode - tTransfer
+		for depTarget < minLead {
+			depTarget += tTarget
+		}
+		// Snap the departure to the nearest craft node-crossing (parking
+		// period ≪ target period, so the residual is sub-orbit and the
+		// target is still within its SOI at apoapsis).
+		k := math.Round((depTarget - tDepFirst) / tPark)
+		if k < 0 {
+			k = 0
+		}
+		cand := tDepFirst + k*tPark
+		for cand < minLead {
+			cand += tPark
+		}
+		if cand < best {
+			best = cand
+		}
+	}
+	if math.IsInf(best, 0) {
+		return 0, 0, false
+	}
+	return best, tTransfer, true
 }
 
 // intraPlaneChangeAllowance estimates the extra departure Δv a fused
@@ -2172,9 +2343,14 @@ func (w *World) propagateStateWithPrimary(startState physics.StateVector, startP
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	bc := w.ActiveCraft().EffectiveBallisticCoefficient()
 	for i := 0; i < nSteps; i++ {
-		state = physics.StepVerletWithAccel(state, muNow, step, func(r, v orbital.Vec3) orbital.Vec3 {
-			return physics.DragAccel(r, v, current, bc)
-		})
+		// v0.12.x (GH #66): propagate ballistic coast legs with analytic
+		// Kepler (predictStep), Verlet only for drag/hyperbolic/sub-
+		// surface. A long phasing wait (an inclined transfer can sit ~50
+		// parking orbits out) would otherwise drift tens of degrees of
+		// phase under the 1024-step Verlet cap — misplacing the departure
+		// point and, for the node-aligned split, the apoapsis off the
+		// line of nodes. Mirrors the predictor in predict.go.
+		state = predictStep(state, muNow, step, current, bc)
 		// v0.8.5: terminate propagation at surface contact. Mirrors the
 		// live integrator (sim/world.go) and the trajectory predictor
 		// (sim/predict.go) so node-planning sees the same landed state

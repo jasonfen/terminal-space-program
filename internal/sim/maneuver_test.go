@@ -939,10 +939,14 @@ func TestPlanTransferIntraPrimaryPhasingMatchesArrival(t *testing.T) {
 	if math.Abs(dTheta) > 0.017 {
 		t.Errorf("phasing residual = %.4f rad (%.2f°); want < 1°", dTheta, dTheta*180/math.Pi)
 	}
-	// Also: waitSecs must be non-negative and bounded by the synodic
-	// period (LEO + Luna ≈ 89 min). 7200s = 2h is generous.
-	if waitSecs < 0 || waitSecs > 7200 {
-		t.Errorf("waitSecs = %.1f s, want in [0, 7200]", waitSecs)
+	// Also: waitSecs must be non-negative and bounded. v0.12.x (ADR 0006
+	// A): the inclined split waits for the line-of-nodes alignment, not
+	// the synodic window — so the bound is the target's orbital period
+	// (the node recurs ~twice per target orbit), not the old ~89 min
+	// synodic period.
+	moonPeriod := 2 * math.Pi * math.Sqrt(math.Pow(moon.SemimajorAxisMeters(), 3)/mu)
+	if waitSecs < 0 || waitSecs > moonPeriod {
+		t.Errorf("waitSecs = %.1f s, want in [0, %.0f] (≤ one Luna period)", waitSecs, moonPeriod)
 	}
 	_ = transferSecs
 }
