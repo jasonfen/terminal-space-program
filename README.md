@@ -168,7 +168,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `v` | Cycle view (tilted → top → right → bottom → left → orbit-flat). `tilted` (v0.10.6+) is the new default — perspective tilt over the active craft's perifocal basis, with far-side orbit arcs rendered as same-hue stipple for depth read |
 | `shift+↑` / `shift+↓` | While in `ViewTilted`, nudge the polar tilt θ ±5° (clamped 0–60°). HUD shows `view: tilted Nº` when off the 25° default. No-op in cardinal / orbit-flat modes (v0.10.6+) |
 | `n` | Open spawn form (loadout / position / parent body / altitude / direction). Pick **Custom…** for the v0.10.1+ stack builder: on the STACK field, `←/→` picks a catalog part, `a` adds it on top, `x` removes the top stage |
-| `H` | Auto-plant Hohmann transfer to `World.Target` body (intra-primary for moons of the craft's parent; moon → parent escape via bound transfer ellipse). TargetCraft flashes "needs v0.9.3" |
+| `H` | Auto-plant transfer to `World.Target` body. Intra-primary (moons of the craft's parent) is a **plane-aware dual strategy** (v0.12.x, ADR 0005): it computes both a *combined* fused-Lambert departure (eccentricity + raise + plane change folded into one `BurnVector` burn) and a *split* (coplanar raise + a plane change at the slow transfer apoapsis, where it's cheapest), plants the cheaper, and flashes both Δv totals. Large departure inclinations (an equatorial LEO sits ~25° off Luna's plane) favour the split; near-coplanar favours the combined. Heliocentric stays patched-conic Hohmann; moon → parent is a bound-escape ellipse. TargetCraft flashes "needs v0.9.3" |
 | `I` | Plant inclination match — rotates the orbital plane to `World.Target` body's inclination (or 0° equatorial when target is None). TargetCraft flashes "needs v0.9.3" |
 | `C` | Plant circularize burn at next apoapsis (v0.9.4+) — pairs with the LAUNCH HUD's ORBIT READY callout. Errors when apoapsis is below the primary's atmosphere cutoff or the orbit is hyperbolic |
 | `K` | Plant rendezvous nudge to target craft (v0.10.2+) — single-burn Lambert intercept projected onto the closest velocity-frame axis. Reads the TARGET HUD's ACH CA / Δv readouts. Errors when there's no craft target, target shares a different primary, already DOCK READY, or no improvement available |
@@ -280,10 +280,14 @@ the displayed bracket.
   transitions. Symplectic Verlet for free flight, RK4 for active
   burns. Stumpff-universal-variables Lambert solver (Curtis
   Algorithm 5.2) with an explicit prograde/retrograde flag.
-- **Auto-plant transfers**. `H` plants Hohmann (heliocentric,
-  intra-primary, or moon-escape — the planner picks based on
-  craft + target frames). `P` shows a porkchop heatmap; `Enter`
-  on a cell plants the Lambert-derived transfer. `R` re-runs
+- **Auto-plant transfers**. `H` picks a strategy by craft + target
+  frames: heliocentric Hohmann, moon-escape, or — for intra-primary
+  moons — a **plane-aware dual strategy** (v0.12.x, ADR 0005) that
+  plants the cheaper of a combined fused-Lambert departure (a
+  `BurnVector` burn carrying eccentricity + raise + plane change) and
+  a split (coplanar raise + a cheap plane change at the transfer
+  apoapsis), flashing both Δv totals. `P` shows a porkchop heatmap;
+  `Enter` on a cell plants the Lambert-derived transfer. `R` re-runs
   Lambert from live state to refine the planted arrival.
 - **Burn scheduling**. Maneuver nodes fire at absolute T+ or on
   the next periapsis / apoapsis / AN / DN crossing — the planner

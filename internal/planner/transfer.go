@@ -28,6 +28,15 @@ type TransferNode struct {
 	DV           float64       // m/s, magnitude
 	OffsetTime   time.Duration // time after PlanTransfer returns when this fires
 	IsRetrograde bool          // true → retrograde mode; false → prograde
+	// BurnDir (v0.12.x+) is the full 3D thrust unit direction for a
+	// fused-Lambert departure that carries eccentricity + raise + plane
+	// change together — a vector no prograde/retrograde flag can express.
+	// Non-zero only on the departure leg of PlanIntraPrimaryFused; the
+	// sim adapter (transferNodeToManeuver) plants a BurnVector node when
+	// set, otherwise it falls back to the IsRetrograde prograde/retro
+	// mode. Expressed in the shared primary's (inertially-oriented)
+	// frame, so it is fixed in inertial space between plant and fire.
+	BurnDir orbital.Vec3
 }
 
 // TransferPlan is the two-burn output of an auto-plant transfer.
@@ -180,52 +189,8 @@ func PlanIntraPrimaryHohmann(
 		return TransferPlan{}, err
 	}
 
-	// Coast time = half the transfer ellipse's period.
-	transferTime := math.Pi * math.Sqrt(aT*aT*aT/mu)
-
-	// Phase-corrected launch window. Mean motions:
-	//   n_craft  = √(µ / r_dep³)   (parking orbit)
-	//   n_target = √(µ / r_arr³)   (target's circular orbit)
-	// At burn time, target should lead craft by:
-	//   Δθ_required = π − n_target · T_transfer   (mod 2π)
-	// Current phase difference: Δθ_now = θ_target − θ_craft (mod 2π)
-	// Phase difference evolves as Δθ(t) = Δθ_now + (n_target − n_craft)·t.
-	// Solve for smallest τ ≥ 0 such that Δθ(τ) ≡ Δθ_required (mod 2π).
-	nCraft := math.Sqrt(mu / (rDeparture * rDeparture * rDeparture))
-	nTarget := math.Sqrt(mu / (rArrival * rArrival * rArrival))
-	requiredDelta := wrapTau(math.Pi - nTarget*transferTime)
-	currentDelta := wrapTau(targetAngleNow - craftAngleNow)
-	relativeRate := nTarget - nCraft // negative when craft is faster (LEO is)
-	deltaToWait := requiredDelta - currentDelta
-	if relativeRate > 0 {
-		// Δθ increases over time — wait until next forward arrival at requiredDelta.
-		for deltaToWait < 0 {
-			deltaToWait += 2 * math.Pi
-		}
-	} else if relativeRate < 0 {
-		// Δθ decreases over time — wait until next backward arrival at requiredDelta.
-		for deltaToWait > 0 {
-			deltaToWait -= 2 * math.Pi
-		}
-	}
-	var waitTime float64
-	if relativeRate != 0 {
-		waitTime = deltaToWait / relativeRate
-	}
-	if waitTime < 0 {
-		waitTime = 0
-	}
-
-	// Pad waitTime by integer synodic periods until it covers the
-	// caller's minLeadSeconds. Synodic period = 2π / |relativeRate|;
-	// each whole synodic period is another valid launch window with
-	// the same phase geometry, so phasing remains correct.
-	if minLeadSeconds > 0 && relativeRate != 0 {
-		synodic := 2 * math.Pi / math.Abs(relativeRate)
-		for waitTime < minLeadSeconds {
-			waitTime += synodic
-		}
-	}
+	waitTime, transferTime := intraPrimaryPhasing(
+		mu, rDeparture, rArrival, craftAngleNow, targetAngleNow, minLeadSeconds)
 
 	outbound := rArrival > rDeparture
 	depOffset := time.Duration(waitTime * float64(time.Second))
@@ -246,6 +211,58 @@ func PlanIntraPrimaryHohmann(
 		},
 		TransferDt: time.Duration(transferTime * float64(time.Second)),
 	}, nil
+}
+
+// intraPrimaryPhasing computes the phase-corrected launch window for an
+// intra-primary transfer: the wait time (s) until the departure burn and
+// the coast time (s, half the transfer ellipse's period). Shared by the
+// analytic PlanIntraPrimaryHohmann and the fused PlanIntraPrimaryFused so
+// both seed off identical phasing.
+//
+// Mean motions:
+//
+//	n_craft  = √(µ / r_dep³)   (parking orbit)
+//	n_target = √(µ / r_arr³)   (target's circular orbit)
+//
+// At burn time the target should lead the craft by
+// Δθ_required = π − n_target·T_transfer (mod 2π); the current phase
+// difference Δθ_now = θ_target − θ_craft evolves as
+// Δθ(t) = Δθ_now + (n_target − n_craft)·t. We solve for the smallest
+// τ ≥ 0 with Δθ(τ) ≡ Δθ_required (mod 2π), then pad by whole synodic
+// periods until τ ≥ minLeadSeconds (each synodic period is another valid
+// window with the same geometry).
+func intraPrimaryPhasing(mu, rDeparture, rArrival, craftAngleNow, targetAngleNow, minLeadSeconds float64) (waitTime, transferTime float64) {
+	aT := (rDeparture + rArrival) / 2
+	transferTime = math.Pi * math.Sqrt(aT*aT*aT/mu)
+
+	nCraft := math.Sqrt(mu / (rDeparture * rDeparture * rDeparture))
+	nTarget := math.Sqrt(mu / (rArrival * rArrival * rArrival))
+	requiredDelta := wrapTau(math.Pi - nTarget*transferTime)
+	currentDelta := wrapTau(targetAngleNow - craftAngleNow)
+	relativeRate := nTarget - nCraft // negative when craft is faster (LEO is)
+	deltaToWait := requiredDelta - currentDelta
+	if relativeRate > 0 {
+		for deltaToWait < 0 {
+			deltaToWait += 2 * math.Pi
+		}
+	} else if relativeRate < 0 {
+		for deltaToWait > 0 {
+			deltaToWait -= 2 * math.Pi
+		}
+	}
+	if relativeRate != 0 {
+		waitTime = deltaToWait / relativeRate
+	}
+	if waitTime < 0 {
+		waitTime = 0
+	}
+	if minLeadSeconds > 0 && relativeRate != 0 {
+		synodic := 2 * math.Pi / math.Abs(relativeRate)
+		for waitTime < minLeadSeconds {
+			waitTime += synodic
+		}
+	}
+	return waitTime, transferTime
 }
 
 // wrapTau normalises an angle to [0, 2π).

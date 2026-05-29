@@ -211,7 +211,7 @@ func DefaultKeymap() Keymap {
 		FocusReset:      key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "focus: system")),
 		SpawnCraft:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "spawn craft (sister copy of active)")),
 		ClearNodes:      key.NewBinding(), // v0.8.6: dropped — see ClearNodes field comment.
-		PlanTransfer:    key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant Hohmann transfer to selected body")),
+		PlanTransfer:    key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant transfer to selected body (plane-aware)")),
 		PlanIncl:        key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant inclination match (selected body / equatorial)")),
 		PlanCircularize: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "plant circularize burn at next apoapsis")),
 		PlanRendezvous:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "plant rendezvous nudge to target craft")),

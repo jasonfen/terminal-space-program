@@ -1,6 +1,10 @@
 package spacecraft
 
-import "time"
+import (
+	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+)
 
 // TriggerEvent selects how a node's TriggerTime is determined. v0.6.0+.
 //
@@ -126,6 +130,15 @@ type ManeuverNode struct {
 	// non-plane-change nodes save without the field — no schema bump,
 	// same convention as TargetCraftIdx.
 	PlaneChangeRad float64 `json:",omitempty"`
+	// BurnDirUnit (v0.12.x+) is the fixed inertial (primary-relative)
+	// unit thrust direction for a BurnVector node — the fused-Lambert
+	// departure Δv direction, carrying eccentricity + raise + plane
+	// change together. Populated only for BurnVector (the fused [H]
+	// auto-plant); the zero vector for every other mode. Captured at
+	// plant time and held for the burn (the craft slews to it). Save
+	// round-trips it additively, following the CurrentAttitudeDir
+	// schema-v6 precedent — no migration.
+	BurnDirUnit orbital.Vec3 `json:",omitempty"`
 }
 
 // TargetCraftIdxValue returns the 0-based slate index this node is
@@ -230,6 +243,10 @@ type ActiveBurn struct {
 	// attitude/thrust path can resolve the tilted plane-change
 	// direction each tick. Zero for non-plane-change burns.
 	PlaneChangeRad float64 `json:",omitempty"`
+	// BurnDirUnit (v0.12.x+) mirrors ManeuverNode.BurnDirUnit onto the
+	// in-flight burn so the attitude/thrust path resolves the fixed
+	// BurnVector direction each tick. Zero for non-BurnVector burns.
+	BurnDirUnit orbital.Vec3 `json:",omitempty"`
 }
 
 // TargetCraftIdxValue mirrors ManeuverNode.TargetCraftIdxValue —

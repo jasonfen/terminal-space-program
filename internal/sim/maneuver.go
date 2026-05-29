@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -295,6 +296,10 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	if target.SemimajorAxis == 0 {
 		return nil, errInvalidTransferTarget
 	}
+	// Clear the dual-strategy record; only the intra-primary branch
+	// (below) repopulates it, so non-intra-primary plants don't show a
+	// stale combined/split comparison.
+	w.LastTransfer = TransferComparison{}
 
 	rPark := w.ActiveCraft().State.R.Norm()
 	rCapture := target.RadiusMeters() + 200e3
@@ -311,50 +316,92 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	// at apoapsis but target is somewhere else along its orbit and
 	// the rendezvous misses.
 	if target.ParentID == w.ActiveCraft().Primary.ID {
-		muShared := w.ActiveCraft().Primary.GravitationalParameter()
+		c := w.ActiveCraft()
+		muShared := c.Primary.GravitationalParameter()
 		rArrival := target.SemimajorAxisMeters()
-		craftAngle := math.Atan2(w.ActiveCraft().State.R.Y, w.ActiveCraft().State.R.X)
+		craftAngle := math.Atan2(c.State.R.Y, c.State.R.X)
 		// Target's position in its parent's frame == craft's primary
 		// here, since target.ParentID == craft.Primary.ID.
 		targetAngle := primaryFrameAngle(w, target)
-		// v0.5.13: back to finite burns. With the new S-IVB-1 vessel
-		// (J-2 thrust 1023 kN), TLI burn is ~110 s — half-arc 2.5°,
-		// finite-burn integration loss < 0.1%. Pre-v0.5.13 the ICPS-
-		// class vessel had a 10-min TLI that dropped apoapsis ~27% from
-		// the impulsive ideal, forcing the impulsive workaround.
-		// v0.6 finite-burn-aware planner will close the remaining gap
-		// for low-TWR vessels (e.g. when ICPS comes back as a test
-		// loadout).
-		mass := w.ActiveCraft().TotalMass()
-		thrust := w.ActiveCraft().Thrust
-		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival)
-		// minLead = half the centred-finite-burn duration so the planner's
+		mass := c.TotalMass()
+		thrust := c.Thrust
+		// minLead = half the centred finite-burn duration so the planner's
 		// OffsetTime sits ≥ Duration/2 ahead of now (BurnStart can't be
-		// retroactive). v0.6.5: rocket-equation form via BurnTimeForDV
-		// instead of constant-mass `Δv·m/F` so this matches the duration
-		// transferNodeToManeuver will actually plant.
-		minLead := w.ActiveCraft().BurnTimeForDV(dvDepEstimate).Seconds() / 2
-		plan, err := planner.PlanIntraPrimaryHohmann(
+		// retroactive). v0.12.x: the fused departure folds a plane change
+		// into the burn, so it can be much longer than the coplanar TLI —
+		// size minLead off (coplanar raise + plane-change allowance), an
+		// upper bound on the fused Δv (triangle inequality), so BurnStart
+		// stays ≥ now for the inclined LEO→Luna case.
+		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival) +
+			intraPlaneChangeAllowance(w, c, target, muShared, rPark)
+		minLead := c.BurnTimeForDV(dvDepEstimate).Seconds() / 2
+		// Analytic Hohmann seed — its phasing (Departure.OffsetTime,
+		// TransferDt) seeds the fused Lambert, and it is the graceful
+		// fallback if the fused solve is degenerate.
+		seed, err := planner.PlanIntraPrimaryHohmann(
 			muShared, rPark, rArrival,
 			craftAngle, targetAngle, minLead,
-			w.ActiveCraft().Primary.ID,
+			c.Primary.ID,
 			muDestination, rCapture, target.ID,
 		)
 		if err != nil {
 			return nil, err
 		}
-		// v0.6.2: refine the departure Δv so the FINITE burn delivers
-		// the target apoapsis under integration. For the S-IVB-1
-		// default the impulsive guess is already < 0.1 % off so the
-		// iterator converges in 1-2 steps; for low-TWR loadouts where
-		// the burn arc is a non-trivial fraction of the parking
-		// orbit, the iterator catches errors of several percent.
-		// Iteration failure (max-iter, derivative collapse) silently
-		// falls back to the impulsive guess.
-		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, w.ActiveCraft().Isp, rArrival)
 		now := w.Clock.SimTime
-		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.ActiveCraft()))
-		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.ActiveCraft()))
+		// v0.12.x (ADR 0005): dual-strategy. Compute BOTH transfers and
+		// plant the cheaper, surfacing both totals for the HUD.
+		//
+		//  - Combined: a fused single-rev Lambert from the craft's actual
+		//    departure state to the target's actual arrival position — the
+		//    departure Δv carries eccentricity + raise + plane change
+		//    together (a BurnVector). Wins when near-coplanar.
+		//  - Split: the coplanar Hohmann raise (prograde) + a plane change
+		//    at the transfer apoapsis (slowest point → cheapest plane
+		//    change) + the capture braking burn. Wins for large departure
+		//    inclinations (an equatorial LEO sits ~25° off Luna's plane).
+		combinedDv := math.Inf(1)
+		combined, combinedErr := w.fusedIntraPrimaryDeparture(seed, muShared, target, muDestination, rCapture)
+		if combinedErr == nil {
+			combinedDv = combined.Departure.DV + combined.Arrival.DV
+		}
+
+		// Split sizing: coplanar raise + capture come from the analytic
+		// seed; the plane change is added at the apoapsis.
+		var planeChangeDv, planeChangeTheta float64
+		depState, depOK := physics.KeplerStep(c.State, muShared, seed.Departure.OffsetTime.Seconds())
+		if nCraftHat, nTargetHat, ok := w.craftTargetPlaneNormals(c, target); ok && depOK {
+			planeChangeDv, planeChangeTheta = splitPlaneChangeAtApoapsis(
+				depState, nCraftHat, nTargetHat, muShared, rPark, rArrival)
+		}
+		splitDv := seed.Departure.DV + planeChangeDv + seed.Arrival.DV
+
+		w.LastTransfer = TransferComparison{CombinedDv: combinedDv, SplitDv: splitDv}
+
+		if combinedDv <= splitDv {
+			w.LastTransfer.Strategy = "combined"
+			w.PlanNode(transferNodeToManeuver(combined.Departure, now, c))
+			w.PlanNode(transferNodeToManeuver(combined.Arrival, now, c))
+			return &combined, nil
+		}
+
+		// Split: refine the finite coplanar departure (v0.6.2 iterator) so
+		// the burn delivers the target apoapsis under integration, then
+		// plant raise → plane change at apoapsis → capture.
+		w.LastTransfer.Strategy = "split"
+		plan := seed
+		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, c.Isp, rArrival)
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
+		if planeChangeDv > 0 {
+			w.PlanNode(ManeuverNode{
+				TriggerTime:    now.Add(plan.Arrival.OffsetTime),
+				Mode:           spacecraft.BurnPlaneChange,
+				DV:             planeChangeDv,
+				Duration:       c.BurnTimeForDV(planeChangeDv),
+				PrimaryID:      c.Primary.ID,
+				PlaneChangeRad: planeChangeTheta,
+			})
+		}
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, c))
 		return &plan, nil
 	}
 
@@ -1138,6 +1185,135 @@ func estimateIntraPrimaryDepDv(mu, rDep, rArr float64) float64 {
 	return dv
 }
 
+// TransferComparison is the dual-strategy Δv breakdown for an intra-
+// primary [H] auto-plant: the combined fused-Lambert transfer (plane
+// change folded into the departure) vs the split (coplanar raise + a
+// plane change at the slow transfer apoapsis). PlanTransfer plants the
+// cheaper and records this for the HUD. v0.12.x+ (ADR 0005).
+type TransferComparison struct {
+	CombinedDv float64 // total Δv of the combined fused-Lambert transfer (+Inf if non-convergent)
+	SplitDv    float64 // total Δv of the split raise + plane-change + capture
+	Strategy   string  // "combined" | "split"; "" when not an intra-primary plant
+}
+
+// Format renders the dual-strategy comparison as a one-line HUD flash —
+// both candidate Δv totals and which was planted. Empty when the last
+// plant wasn't an intra-primary transfer. v0.12.x+.
+func (tc TransferComparison) Format() string {
+	if tc.Strategy == "" {
+		return ""
+	}
+	combined := "n/a"
+	if !math.IsInf(tc.CombinedDv, 0) && !math.IsNaN(tc.CombinedDv) {
+		combined = fmt.Sprintf("%.2f", tc.CombinedDv/1000)
+	}
+	return fmt.Sprintf("[H] combined %s / split %.2f km/s → planted %s",
+		combined, tc.SplitDv/1000, tc.Strategy)
+}
+
+// craftTargetPlaneNormals returns the unit orbit-plane normals of the
+// active craft and the target body (both in the shared primary's frame),
+// and ok=false when either is degenerate. The target normal is sampled
+// from two ephemeris positions a short time apart — frame-agnostic, no
+// body-velocity API needed. v0.12.x+.
+func (w *World) craftTargetPlaneNormals(c *spacecraft.Spacecraft, target bodies.CelestialBody) (nCraftHat, nTargetHat orbital.Vec3, ok bool) {
+	now := w.Clock.SimTime
+	const dt = time.Hour
+	primary := c.Primary
+	p0 := w.BodyPositionAt(target, now).Sub(w.BodyPositionAt(primary, now))
+	p1 := w.BodyPositionAt(target, now.Add(dt)).Sub(w.BodyPositionAt(primary, now.Add(dt)))
+	nTarget := p0.Cross(p1)
+	nCraft := c.State.R.Cross(c.State.V)
+	if nTarget.Norm() == 0 || nCraft.Norm() == 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	return nCraft.Unit(), nTarget.Unit(), true
+}
+
+// relInclination returns the direction-agnostic plane tilt (radians, in
+// [0, π/2]) between two unit normals.
+func relInclination(nCraftHat, nTargetHat orbital.Vec3) float64 {
+	cosI := nCraftHat.Dot(nTargetHat)
+	if cosI > 1 {
+		cosI = 1
+	} else if cosI < -1 {
+		cosI = -1
+	}
+	ang := math.Acos(cosI)
+	return math.Min(ang, math.Pi-ang)
+}
+
+// splitPlaneChangeAtApoapsis sizes the split strategy's plane-change burn
+// at the transfer apoapsis: the Δv (cheap, since apoapsis is the slowest
+// point) and the signed rotation angle the BurnPlaneChange node carries.
+// The apoapsis state is reconstructed analytically from the craft's
+// departure state (apoapsis lies 180° from perigee in the craft's plane,
+// at rArrival, with the prograde apoapsis velocity vApo) so the signed
+// theta — computed exactly as PlanPlaneMatch does — rotates the craft's
+// plane onto the target's at that point. v0.12.x+.
+func splitPlaneChangeAtApoapsis(depState physics.StateVector, nCraftHat, nTargetHat orbital.Vec3, mu, rPark, rArrival float64) (dv, theta float64) {
+	relIncl := relInclination(nCraftHat, nTargetHat)
+	aT := (rPark + rArrival) / 2
+	vApo := math.Sqrt(mu * (2/rArrival - 1/aT))
+	dv = 2 * vApo * math.Sin(relIncl/2)
+	// Apoapsis radial direction: opposite the departure-perigee position,
+	// in the craft's orbital plane. Sign of theta from the same geometric
+	// rotation PlanPlaneMatch uses (rotate ĥ_craft onto n̂_target about r̂).
+	rApoHat := depState.R.Unit().Scale(-1)
+	hHat := nCraftHat
+	theta = math.Atan2(hHat.Cross(nTargetHat).Dot(rApoHat), hHat.Dot(nTargetHat))
+	return dv, theta
+}
+
+// intraPlaneChangeAllowance estimates the extra departure Δv a fused
+// transfer needs to fold the craft→target plane change into the
+// departure burn: ~2·v_circ·sin(Δi/2), where Δi is the angle between the
+// craft's orbit plane and the target's orbit plane. Added to the
+// coplanar raise estimate to upper-bound the fused departure Δv (triangle
+// inequality), so World.PlanTransfer's minLead keeps BurnStart ≥ now even
+// when the inclined fused burn runs much longer than the coplanar TLI.
+// v0.12.x+.
+func intraPlaneChangeAllowance(w *World, c *spacecraft.Spacecraft, target bodies.CelestialBody, mu, rPark float64) float64 {
+	nCraftHat, nTargetHat, ok := w.craftTargetPlaneNormals(c, target)
+	if !ok || mu <= 0 || rPark <= 0 {
+		return 0
+	}
+	relIncl := relInclination(nCraftHat, nTargetHat)
+	vCirc := math.Sqrt(mu / rPark)
+	return 2 * vCirc * math.Sin(relIncl/2)
+}
+
+// fusedIntraPrimaryDeparture attempts the v0.12 combined plane-shift +
+// Hohmann fused-Lambert transfer for an intra-primary target, seeded off
+// the analytic plan's phasing (waitTime via Departure.OffsetTime, tof via
+// TransferDt). It propagates the craft analytically (Kepler — exact, no
+// Verlet drift over a multi-orbit phasing wait) to the departure epoch
+// and the target via ephemeris to the arrival epoch, both expressed in
+// the shared primary's frame, then solves a single-rev Lambert connecting
+// them. The departure Δv carries eccentricity + raise + plane change as a
+// BurnVector. Returns an error (caller falls back to the analytic seed)
+// when the craft orbit isn't elliptic or the Lambert solve is degenerate.
+// v0.12.x+ (ADR 0005).
+func (w *World) fusedIntraPrimaryDeparture(seed planner.TransferPlan, muShared float64, target bodies.CelestialBody, muTarget, rCapture float64) (planner.TransferPlan, error) {
+	c := w.ActiveCraft()
+	waitTime := seed.Departure.OffsetTime
+	tof := seed.TransferDt.Seconds()
+	if tof <= 0 {
+		return planner.TransferPlan{}, transferError("fused: non-positive transfer time")
+	}
+	depState, ok := physics.KeplerStep(c.State, muShared, waitTime.Seconds())
+	if !ok {
+		return planner.TransferPlan{}, transferError("fused: craft parking orbit not elliptic")
+	}
+	primary := c.Primary
+	arrEpoch := w.Clock.SimTime.Add(waitTime + seed.TransferDt)
+	rArr := w.BodyPositionAt(target, arrEpoch).Sub(w.BodyPositionAt(primary, arrEpoch))
+	vArr := w.bodyInertialVelocityAt(target, arrEpoch).Sub(w.bodyInertialVelocityAt(primary, arrEpoch))
+	return planner.PlanIntraPrimaryFused(
+		muShared, depState.R, depState.V, rArr, vArr, tof,
+		waitTime, primary.ID, muTarget, rCapture, target.ID)
+}
+
 // primaryFrameAngle returns body b's angular position around its
 // parent (radians, atan2 of position-vector y, x in the parent's
 // frame), evaluated at the world's current sim time. Used by the
@@ -1226,12 +1402,21 @@ func transferNodeToManeuver(tn planner.TransferNode, now time.Time, craft *space
 	if tn.IsRetrograde {
 		mode = spacecraft.BurnRetrograde
 	}
+	// v0.12.x: a fused-Lambert departure carries a full 3D Δv direction
+	// (BurnDir) no prograde/retrograde flag can express — plant it as a
+	// BurnVector node capturing the inertial unit direction.
+	var burnDir orbital.Vec3
+	if tn.BurnDir.Norm() > 0 {
+		mode = spacecraft.BurnVector
+		burnDir = tn.BurnDir.Unit()
+	}
 	return ManeuverNode{
 		TriggerTime: now.Add(tn.OffsetTime),
 		Mode:        mode,
 		DV:          tn.DV,
 		Duration:    craft.BurnTimeForDV(tn.DV),
 		PrimaryID:   tn.PrimaryID,
+		BurnDirUnit: burnDir,
 	}
 }
 
@@ -1316,10 +1501,11 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 			}
 		}
 		if n.Duration == 0 {
-			// A BurnPlaneChange node degrades to impulsive only when
-			// BurnTimeForDV returned 0 (Δv past the fuel budget / no
-			// engine) — its tilted direction still needs NodeBurnDirection.
-			if n.Mode == spacecraft.BurnPlaneChange {
+			// A BurnPlaneChange or BurnVector node degrades to impulsive
+			// only when BurnTimeForDV returned 0 (Δv past the fuel budget
+			// / no engine) — both carry a direction that can't be decoded
+			// from the BurnMode alone, so resolve via NodeBurnDirection.
+			if n.Mode == spacecraft.BurnPlaneChange || n.Mode == spacecraft.BurnVector {
 				c.ApplyImpulsiveDir(spacecraft.NodeBurnDirection(n, c.State.R, c.State.V), n.DV)
 			} else {
 				c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
@@ -1333,6 +1519,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				Throttle:       n.EffectiveThrottle(),
 				TargetCraftIdx: n.TargetCraftIdx,
 				PlaneChangeRad: n.PlaneChangeRad,
+				BurnDirUnit:    n.BurnDirUnit,
 			}
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.
@@ -1385,7 +1572,7 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 			}
 		}
 	}
-	dir := c.BurnDirectionPlaneAware(n.Mode, rT, vT, n.PlaneChangeRad)
+	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)
 	if dir.Norm() == 0 {
 		return orbital.Vec3{}, false
 	}
