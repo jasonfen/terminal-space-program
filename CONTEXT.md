@@ -35,6 +35,37 @@ act of jettisoning `Stages[0]`; the popped stage spawns as its own passive
 Vessel. Single-stage Vessels can't be staged (no-op + status flash).
 _Avoid_: Booster (one kind of stage, not all stages), Tank, Section.
 
+**Surface Staging**:
+A **Staging** event performed while the Vessel is **Landed** — the
+player decouples the bottom stage on the ground rather than in flight.
+The canonical case is the 2-stage Lander: with the Vessel sitting on
+the surface, jettisoning the descent stage (`Stages[0]`) leaves it as
+a **Landed** *passive* Vessel (intentionally-abandoned hardware, not
+**Crashed**) at the same surface point, while the ascent stage
+(`Stages[1]`, now the new bottom) becomes the player's active core for
+return-to-orbit. Distinct from orbital Staging only in spawn placement:
+the jettisoned stage is pinned to the surface (co-rotating via the
+landed integrator) instead of nudged onto a retrograde inertial offset.
+Two co-located Landed Vessels are never auto-fused by proximity (the
+dock check skips a pair when both are Landed), so the shed descent
+stage and the parked ascent stage don't re-merge before liftoff.
+_Avoid_: Surface decouple, Ground staging, Lander separation.
+
+**Decouple Plan**:
+An optional per-Loadout, bottom-up list of group sizes describing how
+many contiguous bottom Stages each **Staging** press releases as a
+single craft. Default (absent) is all-ones — one Stage per press, the
+historical behaviour. The Apollo Stack declares `[1, 1, 1, 2]`: drop
+S-IC, S-II, S-IVB individually, then release the descent + ascent
+Stages **together** as a 2-stage Lunar Module craft, leaving the CSM
+as the surviving core. The plan is copied onto the Vessel at spawn and
+consumed positionally (each press pops the next entry's worth of
+Stages and advances). A released multi-Stage craft inherits **no**
+plan, so its own internal boundaries are ordinary single-Stage
+separations — the extracted 2-stage LM later **Surface Stages** its
+descent Stage alone with no special-casing.
+_Avoid_: Decouple group, Staging sequence, Separation script.
+
 **Launch Sprite**:
 The per-Stage **braille-pixel silhouette** rendered by the ViewLaunch
 chase-cam, conveying a Vessel's stack composition during launch. Each
