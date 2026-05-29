@@ -3,8 +3,10 @@
 // A craft with Landed=true is parked on its primary's surface and
 // co-rotates with the ground. Gravity / drag / thrust integration
 // is bypassed; per tick we **recompute** R from the craft's stored
-// LaunchLatDeg / LaunchLonDeg using render.BodyFixedToWorld at the
-// current simTime. This keeps the craft visually pinned to the
+// body-fixed coords — LandedLatDeg / LandedLonDeg for a soft
+// touchdown, else LaunchLatDeg / LaunchLonDeg for a launchpad spawn —
+// using render.BodyFixedToWorld at the current simTime. This keeps
+// the craft visually pinned to the
 // texture's rendered (lat, lon) cell as the body rotates, even
 // across the v0.8.5+ texture pipeline's view-dependent rotation
 // quirks (see render.BodyFixedToWorld doc).
@@ -29,8 +31,9 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// integrateLanded recomputes R from (LaunchLatDeg, LaunchLonDeg,
-// simTime) using the renderer's body-fixed-to-world projection,
+// integrateLanded recomputes R from the craft's body-fixed coords
+// (LandedLatDeg/LonDeg if soft-landed, else LaunchLatDeg/LonDeg) and
+// simTime using the renderer's body-fixed-to-world projection,
 // then sets V = ω × R using the tilted spin axis. No-op when ω = 0
 // (primary doesn't rotate); the craft just sits.
 //
@@ -41,7 +44,17 @@ import (
 // render.BodyFixedToWorld.
 func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration) {
 	radius := c.Primary.RadiusMeters()
-	dirRender := render.BodyFixedToWorld(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, w.Clock.SimTime)
+	// v0.11.4 shipped LandedLatDeg/LonDeg (soft-touchdown coords) but
+	// never wired them in here — a soft-landed craft was re-pinned to
+	// its launch site projected onto the arrival body (or (0,0) for an
+	// orbit-spawned craft). Prefer the touchdown coords when set; fall
+	// back to the launchpad-spawn coords otherwise. Matches the field's
+	// documented "when non-zero, read these instead" contract.
+	lat, lon := c.LaunchLatDeg, c.LaunchLonDeg
+	if c.LandedLatDeg != 0 || c.LandedLonDeg != 0 {
+		lat, lon = c.LandedLatDeg, c.LandedLonDeg
+	}
+	dirRender := render.BodyFixedToWorld(c.Primary, lat, lon, w.Clock.SimTime)
 	c.State.R = orbital.Vec3{
 		X: radius * dirRender.X,
 		Y: radius * dirRender.Y,

@@ -110,6 +110,53 @@ func TestCycleSingleCraftIsNoOp(t *testing.T) {
 	}
 }
 
+// TestSwitchToCraftIdxJumps: the numbered-slot path jumps directly
+// to an arbitrary index (no wrap) and reports the change.
+func TestSwitchToCraftIdxJumps(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	w.Crafts = append(w.Crafts, spacecraft.NewInLEO(*earth), spacecraft.NewInLEO(*earth))
+	if len(w.Crafts) != 3 {
+		t.Fatalf("expected 3 craft, got %d", len(w.Crafts))
+	}
+
+	if !w.SwitchToCraftIdx(2) {
+		t.Error("jump to idx 2 returned false")
+	}
+	if w.ActiveCraftIdx != 2 {
+		t.Errorf("after jump = %d, want 2", w.ActiveCraftIdx)
+	}
+	// Jump back down — no wrap, direct landing.
+	if !w.SwitchToCraftIdx(0) {
+		t.Error("jump to idx 0 returned false")
+	}
+	if w.ActiveCraftIdx != 0 {
+		t.Errorf("after jump = %d, want 0", w.ActiveCraftIdx)
+	}
+}
+
+// TestSwitchToCraftIdxNoOps: an empty slot (idx ≥ len), a negative
+// idx, and a same-idx request are all no-ops that report false and
+// leave the active craft untouched.
+func TestSwitchToCraftIdxNoOps(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	w.Crafts = append(w.Crafts, spacecraft.NewInLEO(*earth))
+	if len(w.Crafts) != 2 {
+		t.Fatalf("expected 2 craft, got %d", len(w.Crafts))
+	}
+	w.SetActiveCraftIdx(1)
+
+	for _, idx := range []int{2, 5, -1, 1} {
+		if w.SwitchToCraftIdx(idx) {
+			t.Errorf("SwitchToCraftIdx(%d) reported a change", idx)
+		}
+		if w.ActiveCraftIdx != 1 {
+			t.Errorf("SwitchToCraftIdx(%d) moved active to %d, want 1", idx, w.ActiveCraftIdx)
+		}
+	}
+}
+
 // TestActiveCraftAccessor: out-of-range / empty Crafts → nil.
 func TestActiveCraftAccessor(t *testing.T) {
 	w := &World{}

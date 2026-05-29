@@ -729,6 +729,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.PrevCraft):
 			a.world.CycleActiveCraft(-1)
 			return a, nil
+		case key.Matches(m, a.keys.CraftSlot):
+			// v0.12.0+: number-row 1..9 jumps to craft index 0..8.
+			// The binding only matches single digits '1'..'9', so the
+			// first byte of the key string is the digit; no-op when no
+			// craft occupies that slot (SwitchToCraftIdx bounds-checks).
+			a.world.SwitchToCraftIdx(int(m.String()[0]-'0') - 1)
+			return a, nil
 		case key.Matches(m, a.keys.Undock):
 			if a.world.Undock(a.world.ActiveCraftIdx) {
 				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
