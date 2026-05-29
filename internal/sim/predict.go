@@ -71,6 +71,29 @@ func predictMaxSubStep(period float64) float64 {
 	return predictMaxSubStepCap
 }
 
+// predictStep advances one predictor sub-step. Ballistic coast legs use
+// analytic Kepler propagation (physics.KeplerStep) — exact for bound
+// two-body arcs, with none of the dt² truncation that the fixed-step
+// Verlet path drifts on an eccentric ellipse (GH #66: ~46 000 km by
+// apogee on the e≈0.96 LEO→Luna transfer, so the dashed line sailed past
+// Luna's SOI). It falls back to drag-aware Verlet exactly where Kepler
+// can't apply — inside an atmosphere, on hyperbolic/degenerate arcs, or
+// on an impactor whose periapsis dips below the surface — gated by the
+// same canKeplerStepState guard the live integrator uses, so the
+// predicted line agrees with the craft's actual flight. SOI transitions
+// stay the caller's job: the sub-step loop's FindPrimary/Rebase runs
+// against each step's output regardless of which propagator produced it.
+func predictStep(state physics.StateVector, mu, dt float64, primary bodies.CelestialBody, bc float64) physics.StateVector {
+	if canKeplerStepState(state, mu, primary) {
+		if next, ok := physics.KeplerStep(state, mu, dt); ok {
+			return next
+		}
+	}
+	return physics.StepVerletWithAccel(state, mu, dt, func(r, v orbital.Vec3) orbital.Vec3 {
+		return physics.DragAccel(r, v, primary, bc)
+	})
+}
+
 // SOISegment is a contiguous run of predicted-trajectory samples that
 // share the same owning SOI primary. PrimaryID == craft's home primary
 // means "still in the home SOI"; a different ID means the segment has
@@ -140,9 +163,7 @@ predict:
 		dt := stepSecs / float64(nSub)
 		stepDur := time.Duration(stepSecs * float64(time.Second))
 		for j := 0; j < nSub; j++ {
-			state = physics.StepVerletWithAccel(state, muNow, dt, func(r, v orbital.Vec3) orbital.Vec3 {
-				return physics.DragAccel(r, v, current, bc)
-			})
+			state = predictStep(state, muNow, dt, current, bc)
 
 			// v0.8.5: stop the predicted line at surface contact so
 			// the dashed trajectory terminates on the body instead of

@@ -149,6 +149,152 @@ func TestPredictedSegmentsTransferEncounterStable(t *testing.T) {
 	}
 }
 
+// TestPredictedSegmentsCoastMatchesKeplerArc: a ballistic coast leg must
+// be propagated with analytic Kepler propagation, not fixed-step Verlet,
+// so the dashed Projected Orbit follows the true two-body arc with no
+// truncation drift. On a highly-eccentric ellipse (e≈0.91) the old 120 s
+// Verlet sub-step drifted ~46 000 km by apogee (GH #66, clean dt²
+// convergence); analytic Kepler is exact. This is the load-bearing #66
+// regression guard — it goes red on the Verlet path and green on Kepler.
+func TestPredictedSegmentsCoastMatchesKeplerArc(t *testing.T) {
+	w := mustWorld(t)
+	craft := w.ActiveCraft()
+	primary := craft.Primary
+	mu := primary.GravitationalParameter()
+	R := primary.RadiusMeters()
+
+	// High-eccentricity bound orbit about the home primary: perigee
+	// ~1000 km altitude (well above the atmosphere, so the Kepler path is
+	// eligible), apogee ~150 000 km — comfortably inside Earth's SOI and
+	// never within ~168 000 km of the Moon, so the leg stays a single
+	// segment. Start at perigee in the X–Y plane.
+	rp := R + 1000e3
+	ra := R + 150000e3
+	a := (rp + ra) / 2
+	vp := math.Sqrt(mu * (2/rp - 1/a)) // vis-viva at perigee
+	post := physics.StateVector{
+		R: orbital.Vec3{X: rp},
+		V: orbital.Vec3{Y: vp},
+		M: craft.State.M,
+	}
+
+	// Propagate perigee→apogee (half the period) — the stretch where
+	// Verlet truncation peaks.
+	period := 2 * math.Pi * math.Sqrt(a*a*a/mu)
+	horizon := period / 2
+	const samples = 128
+	startClock := w.Clock.SimTime
+	segs := w.PredictedSegmentsFrom(post, primary, startClock, horizon, samples)
+
+	if len(segs) != 1 {
+		ids := make([]string, len(segs))
+		for i, s := range segs {
+			ids[i] = s.PrimaryID
+		}
+		t.Fatalf("coast leg split into %d segments %v; want 1 (no SOI crossing)", len(segs), ids)
+	}
+	pts := segs[0].Points
+	if len(pts) != samples {
+		t.Fatalf("got %d points, want %d", len(pts), samples)
+	}
+
+	// Each predicted point i sits at the body position at startClock+i·dt
+	// plus the craft's primary-relative state. The exact reference is a
+	// single analytic Kepler step of i·dt from the start state. They must
+	// agree to within solver noise; a Verlet path would diverge by tens
+	// of thousands of km near apogee.
+	stepSecs := horizon / float64(samples-1)
+	stepDur := time.Duration(stepSecs * float64(time.Second))
+	var maxErr float64
+	for i := 0; i < samples; i++ {
+		exact, ok := physics.KeplerStep(post, mu, float64(i)*stepSecs)
+		if !ok {
+			t.Fatalf("KeplerStep reference failed at sample %d", i)
+		}
+		bodyPos := w.BodyPositionAt(primary, startClock.Add(time.Duration(i)*stepDur))
+		rel := pts[i].Sub(bodyPos)
+		if e := rel.Sub(exact.R).Norm(); e > maxErr {
+			maxErr = e
+		}
+	}
+	if maxErr > 1000 {
+		t.Errorf("predicted coast leg drifts %.0f m from the exact Kepler arc (want <1 km) — fixed-step Verlet truncation, not analytic propagation", maxErr)
+	}
+}
+
+// coplanarLEOTowardMoon places the active craft in a circular LEO
+// coplanar with the Moon so an intra-primary [H] transfer's coast leg
+// actually reaches the Moon, then plants the transfer. Returns the
+// first predicted leg. (Pulled out so the integrator-fidelity and
+// SOI-entry guards share one setup; the default inclined Luna split
+// doesn't rendezvous yet — that's GH #67.)
+func coplanarLEOTowardMoon(t *testing.T, w *World) PredictedLeg {
+	t.Helper()
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" {
+			moonIdx = i
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon not in loaded Sol system")
+	}
+	moon := sys.Bodies[moonIdx]
+
+	mel := orbital.ElementsFromBody(moon)
+	sI, cI := math.Sin(mel.I), math.Cos(mel.I)
+	sO, cO := math.Sin(mel.Omega), math.Cos(mel.Omega)
+	moonN := orbital.Vec3{X: sO * sI, Y: -cO * sI, Z: cI}.Unit()
+	ref := orbital.Vec3{X: 1}
+	if math.Abs(moonN.Dot(ref)) > 0.9 {
+		ref = orbital.Vec3{Y: 1}
+	}
+	e1 := ref.Sub(moonN.Scale(moonN.Dot(ref))).Unit()
+	e2 := moonN.Cross(e1)
+
+	mu := w.ActiveCraft().Primary.GravitationalParameter()
+	r := w.ActiveCraft().State.R.Norm()
+	v := math.Sqrt(mu / r)
+	w.ActiveCraft().State.R = e1.Scale(r)
+	w.ActiveCraft().State.V = e2.Scale(v)
+
+	if _, err := w.PlanTransfer(moonIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	legs := w.PredictedLegs()
+	if len(legs) == 0 {
+		t.Fatal("no predicted legs after PlanTransfer")
+	}
+	return legs[0]
+}
+
+// TestPredictedSegmentsEntersMoonSOI: the now-analytic coast leg of an
+// LEO→Luna transfer must actually cross into the Moon's sphere of
+// influence — a foreign "moon" segment present — proving the Kepler
+// propagation path still drives the per-sub-step FindPrimary/Rebase
+// (GH #66 acceptance test 2: the predicted path draws the encounter).
+func TestPredictedSegmentsEntersMoonSOI(t *testing.T) {
+	w := mustWorld(t)
+	leg := coplanarLEOTowardMoon(t, w)
+
+	segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples)
+	ids := make([]string, len(segs))
+	foundMoon := false
+	for i, s := range segs {
+		ids[i] = s.PrimaryID
+		if s.PrimaryID == "moon" {
+			foundMoon = true
+		}
+		if s.PrimaryID == "sun" {
+			t.Fatalf("predicted leg escaped to the Sun (%v) — coast leg flung off its conic", ids)
+		}
+	}
+	if !foundMoon {
+		t.Errorf("predicted coast leg never entered the Moon's SOI (segments %v); the dashed line misses the encounter", ids)
+	}
+}
+
 // TestPredictedSegmentsContinuousAtSOIBoundary: plant a hyperbolic
 // trajectory escaping Earth SOI; PredictedSegments should split into
 // (≥) two segments at the boundary, AND the last point of the inner

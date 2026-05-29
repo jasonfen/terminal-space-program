@@ -1143,34 +1143,33 @@ func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration) 
 	if w.Clock.Warp() <= 1 {
 		return false
 	}
-	mu := c.Primary.GravitationalParameter()
-	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	return canKeplerStepState(c.State, c.Primary.GravitationalParameter(), c.Primary)
+}
+
+// canKeplerStepState is the orbital-geometry half of canKeplerStep,
+// shared so the Predictor's Kepler-vs-Verlet switch (predict.go) agrees
+// with the live integrator on which coast legs the analytic propagator
+// can handle. Analytic Kepler propagation is valid only when:
+//   - the orbit is bound (e < 1, a > 0) — KeplerStep rejects hyperbolic
+//     and parabolic arcs (returns ok=false) anyway, but bail here too;
+//   - v0.8.4: periapsis sits above the primary's atmospheric cutoff —
+//     drag breaks the conic, so a peri that grazes atmosphere needs the
+//     per-sub-step drag accel the Verlet path integrates;
+//   - v0.11.4-followup: periapsis sits above the surface — an impactor
+//     would Kepler-step straight through an airless body, since only the
+//     sub-step loop's ClampToSurface knows about surface contact.
+func canKeplerStepState(s physics.StateVector, mu float64, primary bodies.CelestialBody) bool {
+	if mu <= 0 {
+		return false
+	}
+	el := orbital.ElementsFromState(s.R, s.V, mu)
 	if el.E >= 1 || el.A <= 0 {
 		return false
 	}
-	// v0.8.4: drag breaks the analytic propagation. If the orbit's
-	// periapsis dips below the primary's atmospheric cutoff (or the
-	// craft is already inside the atmosphere), fall back to Verlet so
-	// the per-sub-step drag accel is integrated. Compared at the
-	// orbit periapsis altitude — if peri grazes atmosphere the orbit
-	// will decay over time, so analytic Kepler propagation is wrong.
-	if atm := c.Primary.Atmosphere; atm != nil {
-		periAlt := el.A*(1-el.E) - c.Primary.RadiusMeters()
-		if periAlt < atm.CutoffAltitude {
-			return false
-		}
+	periAlt := el.A*(1-el.E) - primary.RadiusMeters()
+	if atm := primary.Atmosphere; atm != nil && periAlt < atm.CutoffAltitude {
+		return false
 	}
-	// v0.11.4-followup: an impactor trajectory (periapsis below the
-	// primary's mean radius) on an airless body would Kepler-step
-	// straight through the surface — the analytic propagator has no
-	// concept of surface contact, only ClampToSurface does, and the
-	// sub-step loop is what dispatches that. Without this guard, a
-	// player descending toward the Moon (or Mercury / a Mars moon /
-	// Galilean moons) at warp >1× with peri < 0 gets "sucked" through
-	// the surface mid-tick and the lifecycle predicate is never
-	// consulted. Pull back to Verlet whenever the orbit's periapsis
-	// dips below the surface, regardless of atmosphere.
-	periAlt := el.A*(1-el.E) - c.Primary.RadiusMeters()
 	if periAlt < 0 {
 		return false
 	}
