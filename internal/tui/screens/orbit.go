@@ -13,6 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -1751,12 +1752,13 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			stateLabel = v.theme.Dim.Render(stateLabel)
 		}
 		// Descent rate = surface-relative downward speed (the vertical
-		// component of v_rel along −r̂). The surface-arrival predicate
-		// crashes on total |V| ≥ V_CRIT, so flag when the craft is still
-		// arriving too fast for the canopy to have saved it.
-		omegaRender := render.BodySpinOmegaWorld(c.Primary)
-		omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
-		vRel := c.State.V.Sub(omega.Cross(c.State.R))
+		// component of v_rel along −r̂). The chute route of the surface-
+		// arrival predicate crashes on AIR-relative |v_rel| ≥ V_CRIT (not
+		// inertial |V| — a chute nulls velocity relative to the air, see
+		// classifySurfaceArrival), so use the same physics.AirRelative-
+		// Velocity source the predicate uses and flag when |v_rel| is
+		// still too fast for the canopy to have saved it.
+		vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
 		var descentRate float64
 		if rNorm := c.State.R.Norm(); rNorm > 0 {
 			rHat := c.State.R.Scale(1 / rNorm)
@@ -1765,7 +1767,7 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		rateLabel := fmt.Sprintf("%.1f m/s", descentRate)
 		if vRel.Norm() >= sim.CrashVCritMps {
 			rateLabel = v.theme.Alert.Render(
-				fmt.Sprintf("%.1f m/s (|V| > %.0f = CRASH on contact)", descentRate, sim.CrashVCritMps))
+				fmt.Sprintf("%.1f m/s (|v_rel| > %.0f = CRASH on contact)", descentRate, sim.CrashVCritMps))
 		}
 		lines = append(lines, section("CHUTE")...)
 		lines = append(lines,

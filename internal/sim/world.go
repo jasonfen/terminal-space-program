@@ -683,6 +683,15 @@ func (w *World) clampedWarp() float64 {
 	if selected > 10 && w.recentlyChangedThrottle(throttleClampWindow) {
 		selected = 10
 	}
+	// v0.12 Slice 3 (ADR 0008): chute-descent clamp. An armed or deployed
+	// parachute inside the atmosphere caps warp to 10×, like an active
+	// burn — otherwise a single high-warp tick can leap across the q
+	// deploy window (auto-deploy missed) or inflate the canopy in one
+	// giant integration step (instant-inflation overshoot). Keeps the
+	// per-tick sub-steps fine enough for the deploy check to resolve.
+	if selected > 10 && w.anyCraftChuteLive() {
+		selected = 10
+	}
 	// v0.8.6.x+: upcoming-node approach clamp. At 100000× warp one
 	// tick advances 5000 s of sim time, so a planted node 30 s out
 	// would be skipped entirely before the burn-active cap could
@@ -797,6 +806,31 @@ func (w *World) anyCraftThrusting() bool {
 	return false
 }
 
+// anyCraftChuteLive reports whether any craft has an armed or deployed
+// parachute while inside its primary's atmosphere. v0.12 Slice 3 (ADR
+// 0008): drives the chute-descent warp clamp in clampedWarp. High warp
+// lets a single tick span a large sim-time leap; for a chute craft that
+// means the integrator can step clean across the q deploy window
+// (auto-deploy missed → crash undeployed) or inflate the canopy in one
+// giant step (the instant-inflation overshoot ADR 0008 banked). Walking
+// all crafts mirrors the burn cap (a passive chute craft descending while
+// the player flies another still needs fine sub-steps).
+func (w *World) anyCraftChuteLive() bool {
+	for _, c := range w.Crafts {
+		if c == nil || c.ChuteState == spacecraft.ChuteStowed {
+			continue
+		}
+		atm := c.Primary.Atmosphere
+		if atm == nil {
+			continue
+		}
+		if c.Altitude() < atm.CutoffAltitude {
+			return true
+		}
+	}
+	return false
+}
+
 // EffectiveWarp exposes the clamped warp for HUD display. Returns the same
 // as Clock.Warp() when the user isn't hitting the step-size guard.
 func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
@@ -890,15 +924,22 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	sys := w.System()
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	clock := tickStart
-	// v0.12 Slice 3 (ADR 0008): auto-deploy an armed parachute the first
-	// tick dynamic pressure reaches ChuteDeployQMin. Done before the
-	// effective-BC read so the deployed BC bump engages for the whole
-	// tick the deploy fires on. A descending chute craft always takes
+	// v0.12 Slice 3 (ADR 0008): a descending chute craft always takes
 	// this Verlet path — canKeplerStepState rejects the analytic fast
-	// path once periapsis dips below the atmosphere cutoff.
-	maybeDeployParachute(c)
+	// path once periapsis dips below the atmosphere cutoff — so the
+	// auto-deploy check lives here. It runs once per SUB-step (below),
+	// not once per tick: at high warp a single tick spans a large
+	// simDelta, and a capsule can cross the q deploy floor AND reach the
+	// surface within one tick. A tick-granularity check would miss the
+	// crossing and crash the capsule undeployed. The per-sub-step call
+	// short-circuits cheaply once stowed/deployed/no-chute, and re-reads
+	// the effective BC the moment the chute fires so the canopy drag
+	// engages for the remaining sub-steps of the tick the deploy fires on.
 	bc := c.EffectiveBallisticCoefficient()
 	for i := 0; i < nSteps; i++ {
+		if maybeDeployParachute(c) {
+			bc = c.EffectiveBallisticCoefficient()
+		}
 		if w.thrustingAt(c, tickStart, dt, i) {
 			w.stepThrust(c, mu, dt)
 		} else {

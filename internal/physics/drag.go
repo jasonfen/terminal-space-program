@@ -74,6 +74,18 @@ func atmospherePeriodSeconds(primary bodies.CelestialBody) float64 {
 	return primary.SideralRotationSeconds()
 }
 
+// AirRelativeVelocity returns the craft's velocity relative to the
+// co-rotating atmosphere: v_rel = v − ω×r, where ω is the body's spin
+// vector (AtmosphereOmega). Single source of truth for "air-relative
+// velocity" — the quantity the drag model opposes, the parachute
+// auto-deploy gate measures, the surface-arrival chute route tests, and
+// the descent HUD reads. Sharing it keeps those consumers in agreement
+// by construction instead of re-deriving v_rel from independent ω
+// sources that could drift apart. v0.12 Slice 3 (ADR 0008).
+func AirRelativeVelocity(r, v orbital.Vec3, primary bodies.CelestialBody) orbital.Vec3 {
+	return v.Sub(AtmosphereOmega(primary).Cross(r))
+}
+
 // DynamicPressure returns q = 0.5 · ρ · |v_rel|² (Pa) for a craft at
 // state (r, v) relative to primary, using the same air-relative
 // velocity (v_rel = v − ω × r) and exponential-density model as
@@ -94,7 +106,7 @@ func DynamicPressure(r, v orbital.Vec3, primary bodies.CelestialBody) float64 {
 	if rho == 0 {
 		return 0
 	}
-	vRel := v.Sub(AtmosphereOmega(primary).Cross(r))
+	vRel := AirRelativeVelocity(r, v, primary)
 	return 0.5 * rho * vRel.Dot(vRel)
 }
 
@@ -125,7 +137,7 @@ func DragAccel(r, v orbital.Vec3, primary bodies.CelestialBody, bc float64) orbi
 	if rho == 0 {
 		return orbital.Vec3{}
 	}
-	vRel := v.Sub(AtmosphereOmega(primary).Cross(r))
+	vRel := AirRelativeVelocity(r, v, primary)
 	vRelMag := vRel.Norm()
 	if vRelMag == 0 {
 		return orbital.Vec3{}

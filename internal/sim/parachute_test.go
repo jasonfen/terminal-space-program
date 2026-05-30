@@ -7,6 +7,7 @@
 package sim
 
 import (
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -186,5 +187,97 @@ func TestParachuteFullDescentEarthSplashdown(t *testing.T) {
 	}
 	if !c.Landed {
 		t.Fatalf("capsule neither Landed nor Crashed after %d ticks (did it reach the surface?)", i)
+	}
+}
+
+// TestParachuteCapabilitySurvivesUndock — the per-stage parachute
+// capability must ride through a dock/undock cycle. A CSM/Capsule that
+// docks with another craft and later undocks (the Apollo arc) would
+// otherwise lose HasParachute (DockedComponent didn't record it) and
+// crash on its Earth splashdown. v0.12 Slice 3 (ADR 0008).
+func TestParachuteCapabilitySurvivesUndock(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	a := w.Crafts[0]
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	a.State.V = orbital.Vec3{Y: 7600}
+
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutCapsuleID)
+	b.Name = "Capsule"
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: a.State.R.Add(orbital.Vec3{X: 10}),
+		V: a.State.V,
+		M: b.TotalMass(),
+	}
+	if !b.HasParachute {
+		t.Fatal("setup: capsule should have HasParachute before docking")
+	}
+	w.Crafts = append(w.Crafts, b)
+
+	if _, _, ok := w.checkDocking(); !ok {
+		t.Fatalf("expected dock to fire")
+	}
+	if !w.Undock(0) {
+		t.Fatal("Undock returned false on a composite")
+	}
+	// Find the restored Capsule and confirm it kept its chute capability.
+	var capsule *spacecraft.Spacecraft
+	for _, c := range w.Crafts {
+		if c.Name == "Capsule" {
+			capsule = c
+		}
+	}
+	if capsule == nil {
+		t.Fatal("Capsule not restored after undock")
+	}
+	if !capsule.HasParachute {
+		t.Errorf("restored Capsule lost HasParachute across dock/undock")
+	}
+	if len(capsule.Stages) == 0 || !capsule.Stages[0].HasParachute {
+		t.Errorf("restored Capsule's Stages[0] lost HasParachute (SyncFields mirror would re-clear it)")
+	}
+}
+
+// TestWarpClampedDuringChuteDescent — a live (armed or deployed) chute
+// inside the atmosphere caps warp to 10×, like an active burn. Without
+// it a single high-warp tick (one giant sub-step) could leap past the q
+// deploy window (auto-deploy missed → crash undeployed) or inflate the
+// canopy in one integration step (the instant-inflation overshoot ADR
+// 0008 banked). The clamp guarantees fine sub-steps so the per-tick /
+// per-sub-step deploy check resolves the crossing. v0.12 Slice 3.
+func TestWarpClampedDuringChuteDescent(t *testing.T) {
+	w, _ := NewWorld()
+	w.Clock.WarpIdx = len(WarpFactors) - 1 // max warp selected
+	c := w.ActiveCraft()
+	mu := c.Primary.GravitationalParameter()
+	// Circular orbit at 100 km — inside Earth's 150 km atmosphere cutoff,
+	// but a sane orbit so the period clamp stays generous and the chute
+	// cap is what's actually being measured.
+	r := c.Primary.RadiusMeters() + 100_000
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: math.Sqrt(mu / r)}
+	c.HasParachute = true
+
+	c.ChuteState = spacecraft.ChuteArmed
+	if eff := w.EffectiveWarp(); eff != 10 {
+		t.Errorf("armed chute in atmosphere should cap warp to 10×, got %.0f", eff)
+	}
+	c.ChuteState = spacecraft.ChuteDeployed
+	if eff := w.EffectiveWarp(); eff != 10 {
+		t.Errorf("deployed chute in atmosphere should cap warp to 10×, got %.0f", eff)
+	}
+	// Stowed → no chute clamp; warp returns to the (generous) period cap.
+	c.ChuteState = spacecraft.ChuteStowed
+	if eff := w.EffectiveWarp(); eff <= 10 {
+		t.Errorf("stowed chute should not force the 10× cap, got %.0f", eff)
+	}
+	// Live chute but above the atmosphere cutoff → no chute clamp.
+	c.ChuteState = spacecraft.ChuteArmed
+	c.State.R = orbital.Vec3{X: c.Primary.RadiusMeters() + c.Primary.Atmosphere.CutoffAltitude + 1000}
+	c.State.V = orbital.Vec3{Y: math.Sqrt(mu / c.State.R.Norm())}
+	if eff := w.EffectiveWarp(); eff <= 10 {
+		t.Errorf("armed chute above the atmosphere cutoff should not clamp, got %.0f", eff)
 	}
 }
