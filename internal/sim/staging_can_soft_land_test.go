@@ -42,10 +42,11 @@ func TestApolloStackLanderDecoupleCarriesCanSoftLand(t *testing.T) {
 		t.Errorf("Apollo Stack at spawn: CanSoftLand=true, want false (S-IC is bottom)")
 	}
 
-	// Decouple S-IC, S-II, S-IVB in sequence — each should leave
-	// the active craft with CanSoftLand=false because the next
-	// bottom stage isn't a lander.
-	for i, expectedStage := range []string{"S-II", "S-IVB", "LM"} {
+	// Decouple S-IC, S-II, S-IVB in sequence (DecouplePlan [1,1,1,2] —
+	// three single pops) — each should leave the active craft with
+	// CanSoftLand=false until the bottom becomes Descent (the LM's
+	// soft-land-capable bottom stage).
+	for i, expectedStage := range []string{"S-II", "S-IVB", "Descent"} {
 		if _, _, err := w.StageActive(0); err != nil {
 			t.Fatalf("decouple #%d: %v", i, err)
 		}
@@ -54,37 +55,39 @@ func TestApolloStackLanderDecoupleCarriesCanSoftLand(t *testing.T) {
 			t.Fatalf("after decouple #%d: bottom stage = %q, want %q",
 				i, active.Stages[0].Name, expectedStage)
 		}
-		// Through S-II + S-IVB the bottom isn't LM yet → CanSoftLand=false.
-		// At LM (the third iteration), bottom IS LM → CanSoftLand=true.
-		wantSoftLand := expectedStage == "LM"
+		// Through S-II + S-IVB the bottom isn't the LM yet →
+		// CanSoftLand=false. At Descent (the third iteration), bottom
+		// IS the soft-land-capable descent stage → CanSoftLand=true.
+		wantSoftLand := expectedStage == "Descent"
 		if active.CanSoftLand != wantSoftLand {
 			t.Errorf("after decouple to %q: CanSoftLand=%v, want %v",
 				expectedStage, active.CanSoftLand, wantSoftLand)
 		}
 	}
 
-	// Finally decouple the Lander stage itself. The jettisoned
-	// craft = Lander; the active = CSM (no soft-land).
+	// Fourth press: the plan's trailing 2 releases the LM (Descent +
+	// Ascent) as one 2-stage craft, leaving the CSM core. The
+	// jettisoned LM's bottom (Descent) carries CanSoftLand; the
+	// surviving CSM does not.
 	beforeSlateLen := len(w.Crafts)
 	_, jettIdx, err := w.StageActive(0)
 	if err != nil {
-		t.Fatalf("decouple Lander: %v", err)
+		t.Fatalf("decouple LM: %v", err)
 	}
 	if len(w.Crafts) != beforeSlateLen+1 {
-		t.Fatalf("slate length after Lander decouple: got %d, want %d",
+		t.Fatalf("slate length after LM decouple: got %d, want %d",
 			len(w.Crafts), beforeSlateLen+1)
 	}
 	jett := w.Crafts[jettIdx]
 	if !jett.CanSoftLand {
-		t.Errorf("jettisoned Lander craft: CanSoftLand=false, want true (catalog flag rides on stage)")
+		t.Errorf("jettisoned LM craft: CanSoftLand=false, want true (Descent bottom carries the flag)")
 	}
-	if jett.Stages[0].Name != "LM" {
-		t.Errorf("jettisoned craft single-stage name: got %q, want %q",
-			jett.Stages[0].Name, "LM")
+	if len(jett.Stages) != 2 || jett.Stages[0].Name != "Descent" || jett.Stages[1].Name != "Ascent" {
+		t.Errorf("jettisoned LM stages = %d-stage, want [Descent, Ascent]", len(jett.Stages))
 	}
 	active := w.Crafts[0]
 	if active.Stages[0].Name != "CSM" {
-		t.Errorf("surviving active after Lander decouple: bottom stage = %q, want %q",
+		t.Errorf("surviving active after LM decouple: bottom stage = %q, want %q",
 			active.Stages[0].Name, "CSM")
 	}
 	if active.CanSoftLand {

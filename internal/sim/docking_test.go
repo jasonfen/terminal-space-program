@@ -95,6 +95,49 @@ func TestDockingSkipsFastClose(t *testing.T) {
 	}
 }
 
+// TestDockingSkipsBothLanded — v0.12 Slice 2 / ADR 0007. Two
+// co-located craft that are BOTH Landed must never auto-fuse, even
+// though they sit at the same point with matched velocity (well
+// inside both docking gates). This is the structural guard that keeps
+// a surface-staged descent + ascent pair from re-merging before
+// liftoff. The same pair WITH one craft not Landed still fuses —
+// confirming the guard is specifically the both-Landed case, not a
+// blanket landed exclusion.
+func TestDockingSkipsBothLanded(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	a := w.Crafts[0]
+	a.Primary = *earth
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters()}
+	a.State.V = orbital.Vec3{} // co-rotation velocity stand-in (matched)
+
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	b.Primary = *earth
+	b.State = physics.StateVector{R: a.State.R, V: a.State.V, M: b.TotalMass()}
+	w.Crafts = append(w.Crafts, b)
+
+	// Both Landed: the guard must skip the pair.
+	a.Landed, b.Landed = true, true
+	if _, _, ok := w.checkDocking(); ok {
+		t.Error("both-Landed co-located pair fused — checkDocking guard missing")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("slate count = %d, want 2 (no fuse)", len(w.Crafts))
+	}
+
+	// Clear one craft's Landed flag — now the guard no longer applies
+	// and the close/slow pair fuses (sanity that the guard isn't a
+	// blanket exclusion of any landed craft).
+	b.Landed = false
+	if _, _, ok := w.checkDocking(); !ok {
+		t.Error("one-landed co-located pair did not fuse — guard over-broad")
+	}
+	if len(w.Crafts) != 1 {
+		t.Errorf("slate count = %d, want 1 (fused after clearing Landed)", len(w.Crafts))
+	}
+}
+
 // TestDockingPreservesMomentum: composite velocity = mass-weighted
 // average of the partners' velocities. Equal-mass craft moving in
 // opposite directions should fuse to zero net velocity.

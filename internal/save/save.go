@@ -200,6 +200,16 @@ type Craft struct {
 	OnPad        bool    `json:"on_pad,omitempty"`
 	LandedLatDeg float64 `json:"landed_lat_deg,omitempty"`
 	LandedLonDeg float64 `json:"landed_lon_deg,omitempty"`
+
+	// DecouplePlan (v0.12 Slice 2 / ADR 0007, schema v6 additive — no
+	// bump): the remaining bottom-up staging group sizes. omitempty so
+	// pre-v0.12 saves and craft with no plan (the common single-pop
+	// case) round-trip without writing the field: absent ⇒ nil ⇒
+	// single-pop. Persisted (not derived from the catalog) so a
+	// mission saved mid-staging — e.g. an Apollo Stack with S-IC
+	// already dropped, plan [1,1,2] remaining — restores the correct
+	// grouping for the still-pending LM extraction.
+	DecouplePlan []int `json:"decouple_plan,omitempty"`
 }
 
 // Stage mirrors spacecraft.Stage on the wire. v0.9.1+. All numeric
@@ -449,6 +459,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			OnPad:              c.OnPad,
 			LandedLatDeg:       c.LandedLatDeg,
 			LandedLonDeg:       c.LandedLonDeg,
+			DecouplePlan:       c.DecouplePlan,
 		}
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
@@ -640,6 +651,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			OnPad:              wc.OnPad,
 			LandedLatDeg:       wc.LandedLatDeg,
 			LandedLonDeg:       wc.LandedLonDeg,
+			DecouplePlan:       wc.DecouplePlan,
 		}
 		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill
