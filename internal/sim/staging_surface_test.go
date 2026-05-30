@@ -119,6 +119,41 @@ func TestSurfaceStagedPairDoesNotRefuse(t *testing.T) {
 	}
 }
 
+// TestAscentLiftoffDoesNotRefuseDescent — the playtest regression
+// ("undocking ascent from descent rejoins the vessels"). After a
+// surface decouple, the player ignites the ascent stage to climb back
+// to orbit. Engine ignition clears the ascent's Landed flag while it
+// is STILL co-located with the parked descent stage (it hasn't moved
+// yet). The dock guard must skip the pair because the descent is still
+// Landed — a both-Landed-only guard would let them re-fuse at this
+// exact moment. Simulate by clearing only the ascent's Landed flag and
+// running the dock check at co-location.
+func TestAscentLiftoffDoesNotRefuseDescent(t *testing.T) {
+	w, _ := landMoonLander(t)
+	_, jettIdx, err := w.StageActive(0)
+	if err != nil {
+		t.Fatalf("surface StageActive: %v", err)
+	}
+	ascent := w.Crafts[0]
+	descent := w.Crafts[jettIdx]
+
+	// Re-pin both to the same surface point so they're co-located with
+	// matched co-rotation velocity (inside both docking gates).
+	integrateLanded(w, ascent, time.Second)
+	integrateLanded(w, descent, time.Second)
+
+	// Ignition: the ascent leaves the surface, clearing Landed, but is
+	// still at the descent's position for this tick.
+	ascent.Landed = false
+
+	if _, _, ok := w.checkDocking(); ok {
+		t.Error("ascent re-fused with descent on liftoff — either-Landed dock guard failed")
+	}
+	if len(w.Crafts) != 2 {
+		t.Errorf("slate count = %d, want 2 (no re-fuse on liftoff)", len(w.Crafts))
+	}
+}
+
 // TestExtractedLMSurfaceStagesDescentAlone — the "inherit no plan"
 // rule (ADR 0007 decision 5). An LM extracted from the Apollo Stack
 // (via the [1,1,1,2] plan) is a 2-stage [Descent, Ascent] craft with

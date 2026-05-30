@@ -95,15 +95,14 @@ func TestDockingSkipsFastClose(t *testing.T) {
 	}
 }
 
-// TestDockingSkipsBothLanded — v0.12 Slice 2 / ADR 0007. Two
-// co-located craft that are BOTH Landed must never auto-fuse, even
-// though they sit at the same point with matched velocity (well
-// inside both docking gates). This is the structural guard that keeps
-// a surface-staged descent + ascent pair from re-merging before
-// liftoff. The same pair WITH one craft not Landed still fuses —
-// confirming the guard is specifically the both-Landed case, not a
-// blanket landed exclusion.
-func TestDockingSkipsBothLanded(t *testing.T) {
+// TestDockingSkipsLandedCraft — v0.12 Slice 2 / ADR 0007 (broadened
+// post-playtest). A co-located, matched-velocity pair (well inside
+// both gates) must NOT auto-fuse while EITHER craft is Landed. This
+// covers both the static surface-staged pair (both Landed) and the
+// liftoff moment (ascent clears Landed while still co-located with the
+// parked descent stage). Only once NEITHER is Landed — an ordinary
+// orbital rendezvous — does the pair fuse.
+func TestDockingSkipsLandedCraft(t *testing.T) {
 	w, _ := NewWorld()
 	earth := w.Systems[0].FindBody("Earth")
 
@@ -117,24 +116,32 @@ func TestDockingSkipsBothLanded(t *testing.T) {
 	b.State = physics.StateVector{R: a.State.R, V: a.State.V, M: b.TotalMass()}
 	w.Crafts = append(w.Crafts, b)
 
-	// Both Landed: the guard must skip the pair.
+	// Both Landed: skip.
 	a.Landed, b.Landed = true, true
 	if _, _, ok := w.checkDocking(); ok {
-		t.Error("both-Landed co-located pair fused — checkDocking guard missing")
+		t.Error("both-Landed co-located pair fused — guard missing")
 	}
 	if len(w.Crafts) != 2 {
-		t.Fatalf("slate count = %d, want 2 (no fuse)", len(w.Crafts))
+		t.Fatalf("slate count = %d, want 2 (no fuse, both Landed)", len(w.Crafts))
 	}
 
-	// Clear one craft's Landed flag — now the guard no longer applies
-	// and the close/slow pair fuses (sanity that the guard isn't a
-	// blanket exclusion of any landed craft).
-	b.Landed = false
+	// Only one Landed (the liftoff case: ascent ignited, descent still
+	// parked): still must NOT fuse.
+	b.Landed = false // a stays Landed
+	if _, _, ok := w.checkDocking(); ok {
+		t.Error("one-Landed co-located pair fused — either-Landed guard failed (liftoff re-fuse)")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("slate count = %d, want 2 (no fuse, one Landed)", len(w.Crafts))
+	}
+
+	// Neither Landed — an ordinary orbital rendezvous — fuses.
+	a.Landed = false
 	if _, _, ok := w.checkDocking(); !ok {
-		t.Error("one-landed co-located pair did not fuse — guard over-broad")
+		t.Error("neither-Landed co-located pair did not fuse — guard over-broad")
 	}
 	if len(w.Crafts) != 1 {
-		t.Errorf("slate count = %d, want 1 (fused after clearing Landed)", len(w.Crafts))
+		t.Errorf("slate count = %d, want 1 (fused, neither Landed)", len(w.Crafts))
 	}
 }
 

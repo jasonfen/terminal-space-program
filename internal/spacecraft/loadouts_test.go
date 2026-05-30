@@ -1,6 +1,9 @@
 package spacecraft
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // TestLoadoutsCatalogShape — every entry in LoadoutOrder must map
 // to a non-empty Loadouts entry, and each entry must have non-empty
@@ -177,6 +180,40 @@ func TestApolloStackShape(t *testing.T) {
 	if sivb.Thrust != l.Stages[2].Thrust || sivb.Isp != l.Stages[2].Isp ||
 		sivb.DryMass != l.Stages[2].DryMass || sivb.FuelCapacity != l.Stages[2].FuelMass {
 		t.Errorf("catalog S-IVB diverges from Apollo-Stack S-IVB tuning")
+	}
+}
+
+// TestLanderStageDeltaVBudgets — v0.12 Slice 2 regression. The 2-stage
+// Lander must carry enough propellant to actually land and return: the
+// descent stage fires the full powered descent hauling the ascent as
+// payload, so its descent-burn Δv (rocket equation over the whole
+// stack) must clear a lunar descent; the ascent stage's Δv must clear
+// a lunar-orbit return. The original split (descent fuel 6000) gave
+// only ~2.1 km/s and ran dry mid-landing — this pins the rebalance so
+// a future tweak can't silently starve the descent again.
+func TestLanderStageDeltaVBudgets(t *testing.T) {
+	l := LookupLoadout(LoadoutLanderID)
+	if len(l.Stages) != 2 {
+		t.Fatalf("Lander should be 2-stage, got %d", len(l.Stages))
+	}
+	descent, ascent := l.Stages[0], l.Stages[1]
+
+	// Full-stack mass before/after the descent burn.
+	m0 := SumDryMass(l.Stages) + SumFuelMass(l.Stages)
+	m1 := m0 - descent.FuelMass // descent fuel spent
+	descentDV := descent.Isp * g0 * math.Log(m0/m1)
+	// Ascent stage alone, after the descent stage is shed.
+	ascentDV := ascent.Isp * g0 * math.Log((ascent.DryMass+ascent.FuelMass)/ascent.DryMass)
+
+	// Lunar descent from low orbit needs ~2.0 km/s + gravity/hover
+	// losses; require comfortable margin. Lunar ascent-to-orbit ~1.9 km/s.
+	const minDescentDV = 2600.0
+	const minAscentDV = 2000.0
+	if descentDV < minDescentDV {
+		t.Errorf("descent-burn Δv = %.0f m/s, want ≥ %.0f (would run dry mid-landing)", descentDV, minDescentDV)
+	}
+	if ascentDV < minAscentDV {
+		t.Errorf("ascent Δv = %.0f m/s, want ≥ %.0f (can't reach lunar orbit)", ascentDV, minAscentDV)
 	}
 }
 

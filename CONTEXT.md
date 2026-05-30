@@ -46,9 +46,11 @@ a **Landed** *passive* Vessel (intentionally-abandoned hardware, not
 return-to-orbit. Distinct from orbital Staging only in spawn placement:
 the jettisoned stage is pinned to the surface (co-rotating via the
 landed integrator) instead of nudged onto a retrograde inertial offset.
-Two co-located Landed Vessels are never auto-fused by proximity (the
-dock check skips a pair when both are Landed), so the shed descent
-stage and the parked ascent stage don't re-merge before liftoff.
+A Landed Vessel is never auto-fused by proximity (the dock check skips
+any pair where **either** craft is Landed), so the shed descent stage
+and the parked ascent stage don't re-merge — neither while both sit on
+the ground nor at the moment the ascent ignites and lifts off while
+still co-located with the descent.
 _Avoid_: Surface decouple, Ground staging, Lander separation.
 
 **Decouple Plan**:
