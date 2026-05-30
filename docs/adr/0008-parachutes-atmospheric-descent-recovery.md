@@ -126,8 +126,8 @@ Retunable from playtest, like `V_CRIT` / `NOSE_TOL`.
 each with its own gates:
 
 ```
-engine route (unchanged):  CanSoftLand   && v < V_CRIT && cosNose > NOSE_TOL
-chute route (new):         ChuteDeployed && v < V_CRIT          // nose waived
+engine route (unchanged):  CanSoftLand   && |V_inertial| < V_CRIT && cosNose > NOSE_TOL
+chute route (new):         ChuteDeployed && |v_rel|      < V_CRIT          // nose waived
 ```
 
 The chute route **waives the `NOSE_TOL` nose-alignment gate.** Under a
@@ -135,6 +135,24 @@ canopy the chute is the stabiliser, the player is not actively flying
 attitude, and demanding a specific nose angle for a *passive* descent
 is the artificial part. The engine route keeps its nose check
 untouched (a Falcon 9 thrusting in 60° off-vertical is still a crash).
+
+**Velocity frame — amended after Slice 3 verification.** The chute
+route measures **air-relative** speed `v_rel = |V − ω×r|`, *not*
+inertial `|V|` like the engine route. This deviates from this ADR's
+original frozen spec (which reused the engine route's inertial `v`) and
+was caught by flying the actual descent: a parachute nulls the vessel's
+velocity *relative to the co-rotating atmosphere*, so on a fast-rotating
+body a perfectly-descending capsule still carries the surface
+co-rotation velocity in the inertial frame (~465 m/s at Earth's
+equator). The inertial `V_CRIT` test crashed every Earth splashdown
+despite an ideal canopy descent (`|v_rel|` converged to ~7.6 m/s while
+`|V_inertial|` held ~426 m/s all the way down). The engine route keeps
+inertial `|V|` — its shipped tests pin that, a powered lander on the
+slow-rotating Moon sees a negligible `ω×r`, and the parachute is the
+*first* Earth-landing feature to exercise the fast-rotation regime
+ADR 0004's inertial predicate never hit. `ω` is `physics.AtmosphereOmega`
+— the same spin vector the drag model uses, so the chute route's frame
+agrees with the air the canopy is actually braking against.
 
 ### 5. Thresholds — global consts
 
@@ -275,6 +293,17 @@ body-agnostic — no body-specific deploy-altitude constant.
   `HasParachute`/`ChuteDeployed` now both gate Landed, via two
   branches. A future maintainer must keep the engine route's
   nose-alignment check and the chute route's waiver distinct.
+- **Two velocity frames on the surface predicate** (Slice 3 verification
+  amendment, see Decision §4). The engine route tests inertial `|V|`;
+  the chute route tests air-relative `|v_rel| = |V − ω×r|`. The split is
+  load-bearing — collapsing it back to one frame re-breaks Earth
+  splashdown (inertial) or shipped Falcon-9/Moon soft-lands (air-
+  relative). The latent inertial-vs-air-relative tension lives in the
+  engine route too (a powered Earth-equator landing arrives at ~465 m/s
+  inertial), but it is invisible today: powered landers fly the
+  slow-rotating Moon, where `ω×r` is ~4.6 m/s. If a powered atmospheric
+  Earth landing ever becomes a real arc, the engine route needs the same
+  air-relative treatment — banked, not done here.
 - A `Spacecraft.HasParachute` mirror joins the `CanSoftLand` /
   `Landed` / `Crashed` flag cluster; the SyncFields re-derive list
   grows by one.

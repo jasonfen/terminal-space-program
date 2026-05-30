@@ -134,6 +134,39 @@ func TestDragAccelMagnitudeAtKnownConditions(t *testing.T) {
 	}
 }
 
+// TestDynamicPressureAtKnownConditions — q = 0.5·ρ·|v_rel|² (Pa),
+// using the same air-relative velocity and exponential-density model
+// as DragAccel. At the surface (ρ = 1.225) with a 100 m/s air-relative
+// velocity, q = 0.5·1.225·100² = 6125 Pa.
+func TestDynamicPressureAtKnownConditions(t *testing.T) {
+	earth := earthWithAtm()
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	vRelTest := orbital.Vec3{Z: 100}
+	v := AtmosphereOmega(earth).Cross(r).Add(vRelTest)
+	q := DynamicPressure(r, v, earth)
+	want := 0.5 * 1.225 * 100 * 100
+	if math.Abs(q-want) > 1e-6 {
+		t.Errorf("q = %g, want %g (0.5·ρ·v²)", q, want)
+	}
+}
+
+// TestDynamicPressureZeroOutsideAtmosphere — zero above the cutoff and
+// for airless bodies (the chute can never deploy there).
+func TestDynamicPressureZeroOutsideAtmosphere(t *testing.T) {
+	earth := earthWithAtm()
+	// Above cutoff.
+	rHigh := orbital.Vec3{X: earth.RadiusMeters() + earth.Atmosphere.CutoffAltitude + 1000}
+	if q := DynamicPressure(rHigh, orbital.Vec3{Z: 5000}, earth); q != 0 {
+		t.Errorf("above cutoff: q = %g, want 0", q)
+	}
+	// Airless body.
+	moon := luna()
+	rMoon := orbital.Vec3{X: moon.RadiusMeters()}
+	if q := DynamicPressure(rMoon, orbital.Vec3{Z: 100}, moon); q != 0 {
+		t.Errorf("airless body: q = %g, want 0", q)
+	}
+}
+
 // TestDragAccelZeroBC: zero ballistic coefficient ⇒ zero drag. (Useful
 // shortcut for craft that want to bypass the drag path, though we
 // always pass effective-BC ≥ 0.01 today.)

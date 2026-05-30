@@ -890,6 +890,13 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	sys := w.System()
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	clock := tickStart
+	// v0.12 Slice 3 (ADR 0008): auto-deploy an armed parachute the first
+	// tick dynamic pressure reaches ChuteDeployQMin. Done before the
+	// effective-BC read so the deployed BC bump engages for the whole
+	// tick the deploy fires on. A descending chute craft always takes
+	// this Verlet path — canKeplerStepState rejects the analytic fast
+	// path once periapsis dips below the atmosphere cutoff.
+	maybeDeployParachute(c)
 	bc := c.EffectiveBallisticCoefficient()
 	for i := 0; i < nSteps; i++ {
 		if w.thrustingAt(c, tickStart, dt, i) {

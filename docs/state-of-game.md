@@ -2,13 +2,12 @@
 
 <!--
   meta:
-    snapshot_version: v0.12.2 (Slice 5 follow-on — Projected Orbit
-      Kepler-step fidelity (#66) + Line-of-Nodes split rendezvous
-      (#67); v0.12 cycle in progress, Slices 2/3 + flame polish remain)
-    snapshot_date: 2026-05-29
-    revised_date: 2026-05-29 (header refreshed from the stale v0.9.6
-      snapshot: v0.10–v0.12 cycle summaries folded in, released-
-      versions table extended through v0.12.2; origin/main sole branch)
+    snapshot_version: v0.12.3 (2-stage Lander + surface staging, ADR 0007;
+      parachutes Slice 3 in flight on branch slice3-parachutes, ADR 0008)
+    snapshot_date: 2026-05-30
+    revised_date: 2026-05-30 (parachutes moved from backlog → in-progress
+      v0.12.4; releases index and snapshot block updated; v0.12 row reflects
+      v0.12.3 shipped)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
@@ -17,7 +16,7 @@
   ADRs (docs/adr/); this file keeps the entries + the snapshot.
 -->
 
-> Snapshot at **v0.12.2** (May 2026). Three cycles have shipped to
+> Snapshot at **v0.12.3** (May 2026). Three cycles have shipped to
 > `main` since v0.9.6:
 >
 > - **v0.10** (May 19–23) — planner + maneuver tooling: rate-limited
@@ -27,21 +26,20 @@
 > - **v0.11** (May 24–27) — the launch chase-cam (`ViewLaunch`), the
 >   crashed/landed lifecycle ([ADR 0004](adr/0004-crashed-landed-lifecycle.md)),
 >   and Lander silhouette + soft-landing polish.
-> - **v0.12** (May 29, *in progress*) — numbered craft slots + a
+> - **v0.12** (May 29–30, *in progress*) — numbered craft slots + a
 >   cleanup bundle (v0.12.0); the combined plane-shift + Hohmann
 >   dual-strategy intra-primary transfer (v0.12.1,
 >   [ADR 0005](adr/0005-combined-plane-shift-hohmann-via-lambert.md));
->   and the **Slice 5 follow-on** (v0.12.2,
+>   the **Slice 5 follow-on** (v0.12.2,
 >   [ADR 0006](adr/0006-intra-primary-transfer-arrival-and-predictor-fidelity.md)):
 >   analytic-Kepler Projected-Orbit fidelity (GH #66) and a
->   Line-of-Nodes split that actually rendezvous with an inclined
->   Luna (GH #67).
+>   Line-of-Nodes split rendezvous (GH #67); and the 2-stage Lander
+>   + surface staging (v0.12.3, [ADR 0007](adr/0007-surface-staging-and-decouple-plan.md)).
 >
-> **Remaining in v0.12:** parachutes (Slice 3, ADR 0008), two-colour
-> flame polish (Slice 4 leftover), and the Moon-frame lunar-capture
-> inclination trim (GH #68, deferred from v0.12.2). The 2-stage Lander
-> + surface staging (Slice 2, ADR 0007) shipped in **v0.12.3**. Pre-v0.8
-> per-feature detail preserved at
+> **In flight:** parachutes (Slice 3, ADR 0008, branch `slice3-parachutes`,
+> targeting **v0.12.4**). **Remaining after that:** two-colour flame polish
+> (Slice 4 leftover) and Moon-frame lunar-capture inclination trim
+> (GH #68, deferred from v0.12.2). Pre-v0.8 per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
 ---
@@ -96,8 +94,9 @@ inclination burns, multi-rev porkchop) and the orbit view
 crashed/landed lifecycle (ADR 0004) with Lander / soft-landing
 polish. v0.12 (in progress) brought numbered craft slots, the
 combined plane-shift + Hohmann dual-strategy transfer (ADR 0005),
-and the Line-of-Nodes split + analytic-Kepler predictor fidelity
-(ADR 0006).
+the Line-of-Nodes split + analytic-Kepler predictor fidelity
+(ADR 0006), and the 2-stage Lander + surface staging (ADR 0007, v0.12.3);
+parachutes (ADR 0008) are in flight at v0.12.4.
 
 The codebase still tracks Apollo-era reality more than KSP-style
 fantasy — atmospheric scale heights, axial tilts, sidereal periods,
@@ -126,7 +125,7 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
-| [v0.12](v0.12-plan.md) | 2026-05-29 | ✓ | **Cycle in progress.** Numbered craft slots + cleanup (v0.12.0); combined plane-shift + Hohmann dual-strategy transfer (v0.12.1, ADR 0005); Slice 5 follow-on — Line-of-Nodes split rendezvous + analytic-Kepler Projected-Orbit fidelity (v0.12.2, ADR 0006, GH #66/#67). Remaining: lander 2-stage (ADR 0007), parachutes (ADR 0008), flame polish, GH #68. |
+| [v0.12](v0.12-plan.md) | 2026-05-29 | 🚧 | **Cycle in progress.** Numbered craft slots + cleanup (v0.12.0); combined plane-shift + Hohmann dual-strategy transfer (v0.12.1, ADR 0005); Slice 5 follow-on — Line-of-Nodes split rendezvous + analytic-Kepler Projected-Orbit fidelity (v0.12.2, ADR 0006, GH #66/#67); 2-stage Lander + surface staging (v0.12.3, ADR 0007). **In flight:** parachutes (v0.12.4, ADR 0008, branch `slice3-parachutes`). Remaining after that: flame polish, GH #68. |
 | [v0.11](v0.11-plan.md) | 2026-05-24 → 27 | ✓ | Launch chase-cam (`ViewLaunch`, v0.11.0); crashed/landed lifecycle (ADR 0004); Lander silhouette + soft-landing polish (v0.11.2–.5). |
 | [v0.10](v0.10-plan.md) | 2026-05-19 → 23 | ✓ | Planner + maneuver tooling — rate-limited slew, staging chain, rendezvous tooling, true plane-match/inclination burns, predictor adaptive sampling, multi-rev porkchop, perspective-tilt orbit view, launch-anchor. |
 | [v0.9.6](#v096) | 2026-05-17 | ✓ | Solar lighting + day/night terminator + eclipses, plus a navball overhaul (flicker root-cause fix + KSP-style framed panel). Closes the v0.9 cycle. |
@@ -851,8 +850,8 @@ the [capture-direction toggle](#capture-direction-toggle) and
 🧊 **backlog**. `EvalContext` doesn't carry fuel / monoprop / dv_budget today, so the rolled-back v0.8.7 expression env had those zeroed. Trivial threading from `sim.World.Tick`; pairs with the mission-scripting design pass.
 
 ### Parachutes for atmospheric descent + recovery
-<!-- llm-parse: id=parachutes status=backlog target=v0.12 origin=adr-0004 -->
-🧊 **backlog · target v0.12 · ADR-worthy when it lands**. A non-engine path to soft Touchdown — a deployed parachute on a Vessel without `CanSoftLand` qualifies for the surface-arrival predicate via aerodynamic deceleration. Touches drag (deploy-time `BallisticCoefficient` bump), spacecraft state (parachute deploy flag, deployed-vs-torn states), control modes (deploy keystroke gated on dynamic pressure + altitude). The v0.11.4 Crashed / Soft-Landed lifecycle (ADR 0004) explicitly preserved this hook so capsule-class vessels — historically the natural parachute users — get a non-`CanSoftLand` route to surviving entry. Sources: `docs/adr/0004-crashed-landed-lifecycle.md` §214; `docs/v0.11-plan.md` §Deferred line 950.
+<!-- llm-parse: id=parachutes status=in-progress target=v0.12.4 adr=0008 branch=slice3-parachutes -->
+🚧 **in progress · v0.12.4 · branch `slice3-parachutes` · ADR 0008 authored (2026-05-30)**. A non-engine path to soft Touchdown — a deployed parachute on a Vessel without `CanSoftLand` qualifies for the surface-arrival predicate via aerodynamic deceleration. `space` on a chute-bearing capsule arms the chute; it auto-deploys when dynamic pressure ≥ `ChuteDeployQMin`, dropping terminal velocity to ~7.4 m/s (mass-independent via `ChuteDeployedBC ≈ 0.3 m²/kg` absolute replace). New Capsule loadout is the directly-spawnable test vehicle. See [`docs/adr/0008-parachutes-atmospheric-descent-recovery.md`](adr/0008-parachutes-atmospheric-descent-recovery.md).
 
 ### Stippled ground-fill variant
 <!-- llm-parse: id=stippled-ground-fill status=backlog target=v0.12 origin=v0.11.4 -->

@@ -791,7 +791,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				name := a.world.Crafts[jettIdx].Name
 				a.statusMsg = fmt.Sprintf("staged: %s jettisoned", name)
 			case errors.Is(err, sim.ErrStageOnlyOne):
-				a.statusMsg = "stage: cannot drop the only remaining stage"
+				// v0.12 Slice 3 (ADR 0008): once the vessel is reduced to
+				// its bare chute-bearing stage, the staging-no-op press
+				// arms the parachute instead — "just another staging
+				// action," no new keybinding. Falls through to the normal
+				// no-op flash when there's no stowed chute to arm.
+				if c := a.world.ActiveCraft(); c != nil && c.ArmParachute() {
+					a.statusMsg = "parachute ARMED — auto-deploys in atmosphere"
+				} else {
+					a.statusMsg = "stage: cannot drop the only remaining stage"
+				}
 			default:
 				a.statusMsg = fmt.Sprintf("stage failed: %v", err)
 			}

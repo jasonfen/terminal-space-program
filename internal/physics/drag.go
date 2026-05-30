@@ -74,6 +74,30 @@ func atmospherePeriodSeconds(primary bodies.CelestialBody) float64 {
 	return primary.SideralRotationSeconds()
 }
 
+// DynamicPressure returns q = 0.5 · ρ · |v_rel|² (Pa) for a craft at
+// state (r, v) relative to primary, using the same air-relative
+// velocity (v_rel = v − ω × r) and exponential-density model as
+// DragAccel. Returns 0 outside the body's atmosphere (no Atmosphere,
+// altitude above cutoff, below the surface). v0.12 Slice 3 (ADR 0008):
+// the parachute auto-deploy gate is expressed in q, which is
+// body-agnostic — no body-specific deploy-altitude constant.
+func DynamicPressure(r, v orbital.Vec3, primary bodies.CelestialBody) float64 {
+	if primary.Atmosphere == nil {
+		return 0
+	}
+	rMag := r.Norm()
+	if rMag == 0 {
+		return 0
+	}
+	altitude := rMag - primary.RadiusMeters()
+	rho := AtmosphericDensity(primary, altitude)
+	if rho == 0 {
+		return 0
+	}
+	vRel := v.Sub(AtmosphereOmega(primary).Cross(r))
+	return 0.5 * rho * vRel.Dot(vRel)
+}
+
 // DragAccel returns the atmospheric-drag acceleration vector on a craft
 // with state (r, v) relative to primary, given a ballistic coefficient
 // BC = C_D · A / m (m²/kg). Returns zero outside the body's atmosphere

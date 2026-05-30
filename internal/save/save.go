@@ -201,6 +201,14 @@ type Craft struct {
 	LandedLatDeg float64 `json:"landed_lat_deg,omitempty"`
 	LandedLonDeg float64 `json:"landed_lon_deg,omitempty"`
 
+	// ChuteState (v0.12 Slice 3 / ADR 0008, schema v6 additive — no
+	// bump): the runtime parachute deploy state (0=Stowed, 1=Armed,
+	// 2=Deployed). omitempty so pre-Slice-3 saves round-trip without
+	// the field: absent ⇒ 0 ⇒ Stowed, correct for any vessel saved
+	// before this slice. The per-Stage HasParachute capability rides
+	// the Stage DTO; SyncFields re-derives the flat Spacecraft mirror.
+	ChuteState int `json:"chute_state,omitempty"`
+
 	// DecouplePlan (v0.12 Slice 2 / ADR 0007, schema v6 additive — no
 	// bump): the remaining bottom-up staging group sizes. omitempty so
 	// pre-v0.12 saves and craft with no plan (the common single-pop
@@ -239,6 +247,14 @@ type Stage struct {
 	// Pre-v0.11.4 saves load with the field absent → default-false,
 	// which matches every pre-v0.11.4 catalog stage.
 	CanSoftLand bool `json:"can_soft_land,omitempty"`
+
+	// HasParachute (v0.12 Slice 3 / ADR 0008, schema v6 additive — no
+	// bump): per-Stage parachute capability, round-tripped on the wire
+	// so a saved capsule (or the Apollo CSM stage) loads with the right
+	// chute-route gate after SyncFields re-derives the flat
+	// Spacecraft.HasParachute mirror. Pre-Slice-3 saves load with the
+	// field absent → default-false, matching every pre-Slice-3 stage.
+	HasParachute bool `json:"has_parachute,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -460,6 +476,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			LandedLatDeg:       c.LandedLatDeg,
 			LandedLonDeg:       c.LandedLonDeg,
 			DecouplePlan:       c.DecouplePlan,
+			ChuteState:         int(c.ChuteState),
 		}
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
@@ -482,6 +499,7 @@ func payloadFromWorld(w *sim.World) Payload {
 				RCSIsp:               s.RCSIsp,
 				BallisticCoefficient: s.BallisticCoefficient,
 				CanSoftLand:          s.CanSoftLand,
+				HasParachute:         s.HasParachute,
 			})
 		}
 		for _, dc := range c.DockedComponents {
@@ -652,6 +670,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			LandedLatDeg:       wc.LandedLatDeg,
 			LandedLonDeg:       wc.LandedLonDeg,
 			DecouplePlan:       wc.DecouplePlan,
+			ChuteState:         spacecraft.ChuteState(wc.ChuteState),
 		}
 		c.SyncFields()
 		// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill

@@ -185,6 +185,25 @@ type Spacecraft struct {
 	// `omitempty`-default-false (existing vessels are crash-only).
 	CanSoftLand bool
 
+	// HasParachute (v0.12 Slice 3, ADR 0008): the Vessel-level mirror
+	// of the bottom stage's per-Stage parachute capability. Re-derived
+	// from Stages[0] on every SyncFields exactly like CanSoftLand, so
+	// it rides the hardware across a decouple (the chute capability
+	// becomes "active" once the chute-bearing stage is the bottom /
+	// surviving core). Gates the Stage-action arm path and the
+	// auto-deploy check. `omitempty`-default-false.
+	HasParachute bool
+
+	// ChuteState (v0.12 Slice 3, ADR 0008): the runtime parachute
+	// deploy state — STOWED → ARMED → DEPLOYED, one-way, DEPLOYED
+	// terminal. Lives alongside Landed / Crashed (the other surface-
+	// lifecycle runtime flags). Zero value = ChuteStowed, so pre-Slice-3
+	// saves load stowed; `omitempty`, no SchemaVersion bump. While
+	// ChuteDeployed, EffectiveBallisticCoefficient returns the fixed
+	// ChuteDeployedBC and the surface-arrival predicate gains a second
+	// (nose-waived) route into Landed.
+	ChuteState ChuteState
+
 	// OnPad (v0.11.4+): true between Launchpad spawn and first
 	// liftoff. Set by surfaceSpawnPosVel; cleared on the first
 	// Landed=false transition. Distinguishes "fresh launchpad
@@ -344,6 +363,12 @@ const DefaultBallisticCoefficient = 0.01
 // back to s.BallisticCoefficient (legacy field), then
 // DefaultBallisticCoefficient.
 func (s *Spacecraft) EffectiveBallisticCoefficient() float64 {
+	// v0.12 Slice 3 (ADR 0008): a deployed parachute swamps the
+	// capsule's own drag. Absolute replace at the top of the chain so
+	// terminal velocity is predictable and mass-independent.
+	if s.ChuteState == ChuteDeployed {
+		return ChuteDeployedBC
+	}
 	if len(s.Stages) > 0 && s.Stages[0].BallisticCoefficient > 0 {
 		return s.Stages[0].BallisticCoefficient
 	}

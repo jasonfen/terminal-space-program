@@ -464,6 +464,13 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 	bell := ComposeEngineBell(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
 	legs := ComposeLegs(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
 	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM, flameThrottle, frameIdx, bellWidth)
+	// v0.12 Slice 3 (ADR 0008): a deployed parachute paints a canopy
+	// above the top stage, giving the chute a visual identity for the
+	// Shift+V manual jump and the test-lob cases.
+	var canopy []SpritePixel
+	if craft.ChuteState == spacecraft.ChuteDeployed {
+		canopy = ComposeCanopy(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
+	}
 	// Plot each pixel as a braille sub-cell dot via PlotColored.
 	// No SetCellOverlay glyph: braille dots are direction-agnostic,
 	// so a tilted rocket renders smoothly at any pitch — the
@@ -488,6 +495,11 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 		v.canvas.ClearCellOverlay(world)
 	}
 	for _, p := range flame {
+		world := anchorWorld.Add(p.OffsetWorld)
+		v.canvas.PlotColored(world, p.Color)
+		v.canvas.ClearCellOverlay(world)
+	}
+	for _, p := range canopy {
 		world := anchorWorld.Add(p.OffsetWorld)
 		v.canvas.PlotColored(world, p.Color)
 		v.canvas.ClearCellOverlay(world)

@@ -21,18 +21,16 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Install
 
-Latest release: **v0.9.1** — staging chain. KSP-style player-managed sequential decouples; `space` drops the bottom stage and spawns it as a passive cycle-able craft, with the active vehicle continuing on the upper-stage chain. Saturn-V loadout (S-IC + S-II + S-IVB, TWR > 1 at sea level) ships alongside the four single-stage loadouts, which wrap into a one-element `Stages: [{...}]` shim with no behavior change. New STAGES HUD block, `Spacecraft.Stages` source-of-truth for dry mass / propellant / engine numbers, save schema v5 → v6 with typed migration. Followed v0.9.0 (unified `World.Target` slot, `t` / `T` cycle / clear, TARGET HUD).
+Latest release: **v0.12.4** — parachutes for atmospheric descent + recovery (ADR 0008). `space` on a chute-bearing capsule arms the parachute; it auto-deploys when dynamic pressure builds in the atmosphere, dropping terminal velocity below V\_CRIT so the capsule lands safely without `CanSoftLand`. New Capsule loadout (standalone re-entry test vehicle). Preceded by v0.12.3 (2-stage Lander + surface staging, ADR 0007), v0.12.2 (analytic-Kepler predictor fidelity + Line-of-Nodes split rendezvous, ADR 0006), v0.12.1 (plane-aware dual-strategy transfer, ADR 0005), and v0.12.0 (numbered craft slots 1–9).
 
-**v0.9.4 ascent ergonomics in flight.** Ground launch primitives
-landed in v0.9.2 (`n` → POSITION → launchpad spawns a Saturn V at
-altitude 0 on a rotating Earth, with surface-frame SAS, pitch trim,
-and a LAUNCH HUD), and v0.9.4 layers KSP-style live guidance on top:
-predictive **ap / pe / t-to-apo / Δv→circ** readouts in the LAUNCH
-HUD, an **ORBIT READY** callout when apoapsis crosses 200 km,
-auto-snap to NavSurface on launchpad spawn (so `w` already means
-surface-prograde), and a single-key **`C`** that plants the
-circularisation node at next apoapsis. Pad-to-LEO is now a
-playable loop — see [Surface launches](#surface-launches) below.
+**Full v0.12 cycle.** v0.12 is a grab-bag coverage cycle spanning
+descent/recovery (parachutes, 2-stage Lander), transfer math (dual-strategy
+Hohmann + analytic predictor), and cleanup (numbered craft slots). The
+v0.10 cycle added rate-limited slew, true plane-match/inclination burns,
+multi-rev porkchop, and a perspective-tilt orbit view. v0.11 added the
+launch chase-cam (`ViewLaunch`), the crashed/landed lifecycle (ADR 0004),
+and Lander silhouette + soft-landing polish. Pad-to-LEO is a playable
+loop — see [Surface launches](#surface-launches) below.
 
 ```bash
 # Linux x86_64
@@ -173,7 +171,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `C` | Plant circularize burn at next apoapsis (v0.9.4+) — pairs with the LAUNCH HUD's ORBIT READY callout. Errors when apoapsis is below the primary's atmosphere cutoff or the orbit is hyperbolic |
 | `K` | Plant rendezvous nudge to target craft (v0.10.2+) — single-burn Lambert intercept projected onto the closest velocity-frame axis. Reads the TARGET HUD's ACH CA / Δv readouts. Errors when there's no craft target, target shares a different primary, already DOCK READY, or no improvement available |
 | `t` / `T` | Cycle / clear `World.Target` (non-active sibling craft → bodies in active system → none) |
-| `space` | Decouple bottom stage of active craft (multi-stage only; single-stage status-flashes "cannot drop the only remaining stage") (v0.9.1+) |
+| `space` | Decouple bottom stage of active craft (multi-stage only; single-stage status-flashes "cannot drop the only remaining stage") (v0.9.1+). On a bare chute-bearing capsule the same press **arms the parachute** instead — it auto-deploys once dynamic pressure builds in the atmosphere (v0.12+, ADR 0008) |
 | `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H`. Press `o` inside to open the transfer-options sub-menu (`n` cycles nRev 0–3, `r` toggles prograde/retrograde, `b` toggles short/long branch); `enter`/`o`/`esc` closes and re-solves (v0.10.5+) |
 | `R` | Refine plan — re-Lambert from live state, plant mid-course correction + update arrival |
 | `m` | Open maneuver planner |
@@ -194,6 +192,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `b` | Engage / cut manual burn (main engine, throttle > 0) |
 | `r` | Engine: main / RCS (v0.8.0+) |
 | `k` | SAS model: slew / instant — MANUAL (rate-limited, default) vs AUTO (legacy instant snap); navball `[MAN]`/`[AUT]` tag mirrors it (v0.10.0+) |
+| `;` | NavMode cycle: Orbit → Surface → Target (skips Target when no craft target is set) (v0.9.3+) |
 | `W` / `S` | Attitude surface-prograde / surface-retrograde — track velocity in the rotating-atmosphere frame (v - ω × r). For ascent gravity turn (v0.9.2+) |
 | `>` / `<` | Pitch trim ±10° east / west — rotate thrust vector about local-north axis on top of current SAS mode (v0.9.2+) |
 | `\` | Reset pitch trim to 0 (v0.9.2+) |
@@ -318,13 +317,19 @@ the displayed bracket.
   a node row opens the maneuver planner for edit-replace. Title
   bar shows `CRAFT N/M` chip when more than one craft is loaded.
   Save schema bumped v4 → v5 to nest per-craft state.
-- **Craft types** (v0.8.2+). Four loadouts in the launch catalog:
+- **Craft types** (v0.8.2+). Nine loadouts in the launch catalog:
   S-IVB-1 (yellow `▲`, J-2 third stage), ICPS (blue `◆`, RL-10
   low-TWR), RCS-tug (pink `●`, pure monoprop, no main engine),
-  Lander (mint `▼`, throttleable descent stage). Each carries
-  propulsion + visual differentiation; the orbit canvas renders
-  every craft with its loadout glyph + color so they read
-  distinctly even at small zoom.
+  Lander (mint `▼`, 2-stage Apollo-LM-style — Descent + Ascent;
+  surface-staging the descent leaves it as a landed wreck and
+  flies the ascent stage back to orbit, ADR 0007), Saturn-V
+  (`▲`, 3-stage S-IC + S-II + S-IVB), SLS-Block1 (`▲`, 3-stage
+  SRB + Core + ICPS), Falcon-9 (`▲`, 2-stage Merlin/Merlin-Vac),
+  Apollo-Stack (`▲`, full mission arc S-IC → S-II → S-IVB → LM →
+  CSM), Capsule (`◓`, single-stage re-entry capsule with recovery
+  parachute, ADR 0008). Each carries propulsion + visual
+  differentiation; the orbit canvas renders every craft with its
+  loadout glyph + color so they read distinctly even at small zoom.
 - **Multi-tier stack + configurator** (v0.10.1+). The **Apollo
   Stack** loadout (S-IC → S-II → S-IVB → LM → CSM) flies the full
   mission arc on the v0.9.1 staging chain: decoupling the mid-stage
@@ -494,7 +499,12 @@ prints a warning to stderr and falls back to defaults.
 | v0.6 | Planner UX + missions | Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon → parent escape, click-only mouse + 5-way views, mission scaffold, multiplayer design spike. |
 | v0.7 | Modding + manual flight + textures | External system / theme overlays, manual-flight stick (throttle + attitude), inclination-change planner, retrograde Lambert flag, textured Earth/Moon/Mars/Jupiter, per-node throttle, SOI / frame-transition HUD. |
 | v0.8 | Multi-craft polish | RCS / monopropellant precision thruster (v0.8.0). Multi-craft slate with per-craft burns + spawn keystroke + selector + save schema v4→v5 (v0.8.1). Craft types (4 loadouts with glyph/color visuals), full spawn form, clickable HUD nodes, Hohmann capture-preview, equatorial inclination match (v0.8.2). Docking + undocking, RENDEZVOUS HUD, alongside-spawn, engine-firing flame + per-thruster RCS puff visuals (v0.8.3). Atmospheric drag (Earth + Mars exponential atmospheres, drag-aware Verlet wired into live integrator + predictor, surface-clamp on impact, haze halo) (v0.8.4). Sim-time planet rotation, view-aware texture projection with per-body axial tilts, polygon-rasterised Earth grid, far-side / polar Moon detail, tilted Saturn rings with C / B / Cassini Division / A / F bands, textured Sun + Galileans + Uranus + Neptune, tidally-locked moons keeping their iconic face on the parent (v0.8.5). KSP-style F5/F9 quicksave/load + per-node delete/clear, body-equatorial Keplerian frame for body-bound orbits, adaptive warp clamps (throttle-change + upcoming-node predictive ramp-down), finite-burn iterate-for-target toggle in `m` form (v0.8.6). |
-| v0.9 | The craft fleet grows up (in progress) | Unified `World.Target` slot (kind ∈ {None, Body, Craft}) replaces the implicit body cursor; `t` / `T` cycle / clear; TARGET HUD block; `H` / `I` planters consume the slot (v0.9.0). KSP-style player-managed staging chain: `space` decouples bottom stage; `Spacecraft.Stages` source-of-truth; Saturn-V 3-stage loadout; STAGES HUD; save schema v5 → v6 (v0.9.1). Ground-launch primitives: launchpad spawn at altitude 0, surface-frame SAS (`W` / `S`), pitch trim (`<` / `>` / `\`), LAUNCH HUD, `saturn-v-pad-to-leo` mission (v0.9.2). Rendezvous tooling: target-relative SAS modes, TCA / CA / DOCK READY, KSP-style NavMode cycle (`;`), `m`-form integration with `next closest approach` trigger event (v0.9.3). Ascent ergonomics: predictive `ap` / `pe` / `Δv→circ` in LAUNCH HUD, ORBIT READY callout, NavSurface auto-snap on launchpad spawn, `C` plants circularize-at-apoapsis (v0.9.4). |
+| v0.9 | The craft fleet grows up | Unified `World.Target` slot (kind ∈ {None, Body, Craft}) replaces the implicit body cursor; `t` / `T` cycle / clear; TARGET HUD block; `H` / `I` planters consume the slot (v0.9.0). KSP-style player-managed staging chain: `space` decouples bottom stage; `Spacecraft.Stages` source-of-truth; Saturn-V 3-stage loadout; STAGES HUD; save schema v5 → v6 (v0.9.1). Ground-launch primitives: launchpad spawn at altitude 0, surface-frame SAS (`W` / `S`), pitch trim (`<` / `>` / `\`), LAUNCH HUD, `saturn-v-pad-to-leo` mission (v0.9.2). Rendezvous tooling: target-relative SAS modes, TCA / CA / DOCK READY, KSP-style NavMode cycle (`;`), `m`-form integration with `next closest approach` trigger event (v0.9.3). Ascent ergonomics: predictive `ap` / `pe` / `Δv→circ` in LAUNCH HUD, ORBIT READY callout, NavSurface auto-snap on launchpad spawn, `C` plants circularize-at-apoapsis (v0.9.4). |
+| v0.9.5 | Navball | KSP-style attitude indicator clamped into the bottom-right HUD: braille-rendered sphere with classic-ADI horizon split, per-mode SAS/target/maneuver-node markers, NavSurface compass ticks. |
+| v0.9.6 | Solar lighting + navball overhaul | Solar lighting + day/night terminator + eclipses (exponential-density shading, sub-solar geometry). Navball redesigned: opaque KSP-style panel composited bottom-right over the canvas, relocated + doubled ball, clickable SAS buttons, HUD trim. |
+| v0.10 | Planner + maneuver tooling | Rate-limited slew (attitude, `k` toggles MANUAL/AUTO), true plane-match + inclination burns, predictor adaptive sampling, multi-rev porkchop + Lambert short/long picker, rendezvous tooling (`K` plant, TCA / CA / DOCK READY HUD), perspective-tilt orbit view (`shift+↑/↓`), launch-anchor (v0.10.6+). |
+| v0.11 | Chase-cam + lifecycle | Launch chase-cam (`ViewLaunch`, `V` to jump); crashed/landed lifecycle (ADR 0004): `CanSoftLand` capability gates soft Touchdown vs. Crashed; `[E]` end-flight removes wreckage. Lander silhouette + soft-landing polish (landing legs, hypergolic flame, v0.11.2–.5). |
+| v0.12 | Grab-bag coverage cycle | Numbered craft slots 1–9 + cleanup (v0.12.0). Plane-aware dual-strategy Hohmann: combined fused-Lambert vs. split coplanar raise + cheap plane change, plants the cheaper (v0.12.1, ADR 0005). Analytic-Kepler predictor fidelity + Line-of-Nodes split rendezvous for inclined targets (v0.12.2, ADR 0006, GH #66/#67). 2-stage Lander + surface staging: Descent jettisoned on the surface as a Landed wreck, Ascent returns to orbit (v0.12.3, ADR 0007). Parachutes: arm via `space`, auto-deploy on dynamic pressure; Capsule loadout for standalone re-entry (v0.12.4, ADR 0008). |
 
 Per-version detail: [`docs/state-of-game.md`](docs/state-of-game.md).
 v0.5 release notes: [`docs/v0.5-release-notes.md`](docs/v0.5-release-notes.md).
@@ -502,20 +512,33 @@ v0.6 / v0.7 / v0.8 / v0.9 plans: [`docs/v0.6-plan.md`](docs/v0.6-plan.md), [`doc
 
 ## Future plans
 
-v0.9 — **the craft fleet grows up**. Slice breakdown in
-[`docs/v0.9-plan.md`](docs/v0.9-plan.md):
+**v0.12 cycle** — the current cycle ([`docs/v0.12-plan.md`](docs/v0.12-plan.md))
+shipped its five slices; the two remaining polish items from the grab-bag are
+the natural next targets:
 
-- ~~v0.9.0 — unified `World.Target` slot (kind ∈ {None, Body, Craft}); `t` / `T` cycle / clear; TARGET HUD; `H` / `I` planters read it~~ **shipped.**
-- ~~v0.9.1 — staging chain (KSP-style player-managed sequential decouples; `Spacecraft.Stages []Stage`; `space` keystroke; Saturn-V 3-stage loadout; save schema v5 → v6)~~ **shipped.**
-- v0.9.2 — ground launch primitives (`SpawnSpec.Launchpad`, surface-co-rotating spawn at altitude 0, LAUNCH HUD, surface-frame SAS, pitch trim). **In flight on branch — work-in-progress.** Orbital insertion routinely undershoots without a gravity-turn assist; treat as an experimental loop pending an ergonomic pass.
-- v0.9.3 — rendezvous tooling (target-relative SAS modes, live closest-approach countdown; manual loop is the success metric).
-- v0.9.5 navball — KSP-style attitude indicator clamped into the bottom-right HUD; consumes v0.9.3 target-relative burn modes + v0.9.4 NavSurface frame routing.
-- v0.9.6+ bandwidth-permitting — multi-rev porkchop UI + Lambert short/long picker, capture-direction toggle, predictor adaptive sampling, solar lighting + terminator + eclipses (research-first), polish bag.
+- Two-colour flame with hot-white core (`ComposeFlame` in
+  `internal/tui/screens/launch_sprite.go`) — Mach-diamond white-hot core +
+  fuel-coloured outer plume.
+- Multi-row engine-bell taper — reopen once the v0.11.5 single-row bell
+  has had playtest signal.
 
-Deferred to v0.10+: multiplayer implementation, interstellar transfer,
-N-body perturbations, mission scripting / editor (eight-decision-point
-design pass intact), atmospheric heating / structural overstress,
-drag-to-edit nodes, theme-file hot-reload, race-detector CI.
+**Accepted backlog** (not yet cycled):
+
+- Moon-frame lunar-capture inclination trim (GH #68, deferred from v0.12.2) —
+  plane-change + capture burn inside Luna's SOI for inclined orbits.
+- Dedicated `ViewLanding` ViewMode — gates on landing-HUD instruments
+  diverging enough from launch-HUD to warrant a split.
+- F9-S1 landing-leg deploy-state flag — `Stage.LegsDeployed` runtime flag
+  for Falcon-9 recovery (always-legged Lander doesn't need it).
+- General vessel-removal action — removing live orbital craft beyond `[E]`
+  end-flight for crashed vessels.
+- Polar-launch fallback hardening — no playtest signal yet.
+- Stippled ground-fill — reopen on a "looks flat" playtest signal.
+
+**Deferred (future cycles):** multiplayer implementation, interstellar
+transfer, N-body perturbations, mission scripting / editor
+(eight-decision-point design pass intact), atmospheric heating / structural
+overstress, drag-to-edit nodes, theme-file hot-reload.
 
 Full backlog in [`docs/state-of-game.md`](docs/state-of-game.md).
 
