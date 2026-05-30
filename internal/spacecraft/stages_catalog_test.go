@@ -53,11 +53,12 @@ func TestBuildStageCarriesFuelType(t *testing.T) {
 func TestApolloStackSilhouetteIsUnifiedPalette(t *testing.T) {
 	apollo := Loadouts[LoadoutApolloStackID]
 	want := map[string]string{
-		"S-IC":  "#F5EFE0",
-		"S-II":  "#E8E8E8",
-		"S-IVB": "#D8D8D8",
-		"LM":    "#D4C088",
-		"CSM":   "#C8C8D0",
+		"S-IC":    "#F5EFE0",
+		"S-II":    "#E8E8E8",
+		"S-IVB":   "#D8D8D8",
+		"Descent": "#D4C088", // v0.12 Slice 2: LM split — descent keeps the gold foil
+		"Ascent":  "#C8C8B0", // pale metal band above the descent
+		"CSM":     "#C8C8D0",
 	}
 	for _, s := range apollo.Stages {
 		w, ok := want[s.Name]
@@ -89,8 +90,9 @@ func TestLoadoutStagesCarryFuelType(t *testing.T) {
 		}
 	}
 	apollo := Loadouts[LoadoutApolloStackID]
-	// Apollo: S-IC, S-II, S-IVB, LM, CSM
-	wantApollo := []string{FuelTypeKerolox, FuelTypeHydrolox, FuelTypeHydrolox, FuelTypeHypergolic, FuelTypeHypergolic}
+	// Apollo: S-IC, S-II, S-IVB, Descent, Ascent, CSM (v0.12 Slice 2:
+	// LM split into Descent + Ascent, both hypergolic).
+	wantApollo := []string{FuelTypeKerolox, FuelTypeHydrolox, FuelTypeHydrolox, FuelTypeHypergolic, FuelTypeHypergolic, FuelTypeHypergolic}
 	for i, s := range apollo.Stages {
 		if s.FuelType != wantApollo[i] {
 			t.Errorf("Apollo-Stack Stage[%d] (%s) FuelType = %q, want %q", i, s.Name, s.FuelType, wantApollo[i])

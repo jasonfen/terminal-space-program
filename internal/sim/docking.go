@@ -184,6 +184,21 @@ func (w *World) checkDocking() (int, int, bool) {
 			if a.Primary.ID != b.Primary.ID {
 				continue
 			}
+			// Both Landed — skip (v0.12 Slice 2 / ADR 0007). Surface
+			// staging leaves the shed descent stage and the parked
+			// ascent stage co-located at the same lat/lon, both
+			// Landed, with identical V = ω×R — inside both docking
+			// gates. integrateLanded re-pins each from its stored
+			// coords every tick, so the orbital retrograde-nudge
+			// separation doesn't apply on the surface. A completed
+			// orbital dock is already one fused craft, so the only
+			// co-located both-Landed pair that exists is a not-yet-
+			// separated decouple. Skipping it prevents the re-fuse;
+			// deliberate landed-docking (moon bases) is a future
+			// feature that will revisit this guard.
+			if a.Landed && b.Landed {
+				continue
+			}
 			dr := a.State.R.Sub(b.State.R)
 			if dr.Norm() > DockingDistM {
 				continue

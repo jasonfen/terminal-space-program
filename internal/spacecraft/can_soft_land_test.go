@@ -42,59 +42,64 @@ func TestSaturnVAndS_IVB1DoNotSoftLand(t *testing.T) {
 }
 
 // TestApolloStackLanderStageCarriesCanSoftLand — the Apollo Stack
-// loadout has the Lander stage in the middle of its [S-IC, S-II,
-// S-IVB, LM, CSM] chain. The active Spacecraft at spawn flies as
-// the composite, with S-IC as the bottom stage — CanSoftLand=false
-// then (S-IC can't land). After decoupling through S-IC / S-II /
-// S-IVB the next-to-fire is LM, whose entry must carry
-// CanSoftLand=true so the eventual Lander-decouple jettisoned craft
-// inherits the soft-land capability.
+// loadout has the 2-stage LM (Descent + Ascent) in the middle of its
+// [S-IC, S-II, S-IVB, Descent, Ascent, CSM] chain (v0.12 Slice 2 /
+// ADR 0007). The active Spacecraft at spawn flies as the composite,
+// with S-IC as the bottom stage — CanSoftLand=false then. After
+// decoupling through S-IC / S-II / S-IVB the next-to-fire is Descent,
+// whose entry must carry CanSoftLand=true so the LM-decouple
+// jettisoned craft inherits the soft-land capability. Ascent also
+// carries CanSoftLand=true (ADR 0007 decision 5).
 func TestApolloStackLanderStageCarriesCanSoftLand(t *testing.T) {
 	l := LookupLoadout(LoadoutApolloStackID)
 	if len(l.Stages) < 4 {
 		t.Fatalf("Apollo Stack should have ≥ 4 stages, got %d", len(l.Stages))
 	}
-	// Walk the chain to find the Lander stage (LM-named). The
-	// Apollo-Stack convention is bottom-first: [S-IC, S-II, S-IVB,
-	// LM, CSM] → LM at Stages[3].
-	var lmStage *Stage
-	for i := range l.Stages {
-		if l.Stages[i].Name == "LM" {
-			lmStage = &l.Stages[i]
-			break
+	for _, name := range []string{"Descent", "Ascent"} {
+		var st *Stage
+		for i := range l.Stages {
+			if l.Stages[i].Name == name {
+				st = &l.Stages[i]
+				break
+			}
 		}
-	}
-	if lmStage == nil {
-		t.Fatal("could not find LM stage in Apollo Stack")
-	}
-	if !lmStage.CanSoftLand {
-		t.Errorf("Apollo Stack LM stage CanSoftLand = false, want true (catalog lookup by name)")
+		if st == nil {
+			t.Fatalf("could not find %q stage in Apollo Stack", name)
+		}
+		if !st.CanSoftLand {
+			t.Errorf("Apollo Stack %s stage CanSoftLand = false, want true (catalog lookup by name)", name)
+		}
 	}
 }
 
-// TestLanderStageCarriesHasLegs (v0.11.5 sub-scope 6) — both the
-// stand-alone Lander loadout and the Apollo-Stack's LM stage must
-// carry LaunchSpriteHasLegs=true so the renderer paints the splayed-
-// leg silhouette wherever a Lander stage flies. Mirrors the
-// CanSoftLand pin pattern (per-Stage catalog-driven flag, propagated
-// via stageWithBC + BuildStage).
+// TestLanderStageCarriesHasLegs (v0.11.5 sub-scope 6; updated v0.12
+// Slice 2) — the legs ride on the LM *Descent* stage. Both the
+// stand-alone Lander loadout (Stages[0] = Descent) and the
+// Apollo-Stack's Descent stage must carry LaunchSpriteHasLegs=true so
+// the renderer paints the splayed-leg silhouette. The Ascent stage
+// (legs stayed on the descent stage) must NOT carry legs.
 func TestLanderStageCarriesHasLegs(t *testing.T) {
 	if l := LookupLoadout(LoadoutLanderID); len(l.Stages) == 0 || !l.Stages[0].LaunchSpriteHasLegs {
-		t.Errorf("Loadouts[Lander].Stages[0].LaunchSpriteHasLegs = false, want true")
+		t.Errorf("Loadouts[Lander].Stages[0] (Descent).LaunchSpriteHasLegs = false, want true")
 	}
 	apollo := LookupLoadout(LoadoutApolloStackID)
-	var lm *Stage
+	var descent, ascent *Stage
 	for i := range apollo.Stages {
-		if apollo.Stages[i].Name == "LM" {
-			lm = &apollo.Stages[i]
-			break
+		switch apollo.Stages[i].Name {
+		case "Descent":
+			descent = &apollo.Stages[i]
+		case "Ascent":
+			ascent = &apollo.Stages[i]
 		}
 	}
-	if lm == nil {
-		t.Fatal("Apollo Stack missing LM stage")
+	if descent == nil || ascent == nil {
+		t.Fatal("Apollo Stack missing Descent/Ascent stages")
 	}
-	if !lm.LaunchSpriteHasLegs {
-		t.Errorf("Apollo Stack LM stage LaunchSpriteHasLegs = false, want true")
+	if !descent.LaunchSpriteHasLegs {
+		t.Errorf("Apollo Stack Descent stage LaunchSpriteHasLegs = false, want true")
+	}
+	if ascent.LaunchSpriteHasLegs {
+		t.Errorf("Apollo Stack Ascent stage LaunchSpriteHasLegs = true, want false (legs stay on descent)")
 	}
 	// Other launch-vehicle bottom stages must NOT carry legs (would
 	// produce a phantom landing-leg silhouette on the S-IC etc.).

@@ -137,21 +137,33 @@ func TestStageCatalogShape(t *testing.T) {
 	}
 }
 
-// TestApolloStackShape — the v0.10.1 multi-tier loadout: 5 stages
-// bottom-first [S-IC, S-II, S-IVB, LM, CSM], lift-off TWR > 1 at
-// sea-level g with the full payload, CSM is the surviving core.
+// TestApolloStackShape — the multi-tier loadout: 6 stages bottom-first
+// [S-IC, S-II, S-IVB, Descent, Ascent, CSM] (v0.12 Slice 2 / ADR 0007
+// split the LM into Descent + Ascent), lift-off TWR > 1 at sea-level g
+// with the full payload, CSM is the surviving core. The Descent +
+// Ascent split sums to the pre-split LM mass so TWR is unchanged. The
+// DecouplePlan [1,1,1,2] groups the LM pair on the fourth press.
 func TestApolloStackShape(t *testing.T) {
 	l, ok := Loadouts[LoadoutApolloStackID]
 	if !ok {
 		t.Fatal("Apollo-Stack loadout missing")
 	}
-	wantNames := []string{"S-IC", "S-II", "S-IVB", "LM", "CSM"}
+	wantNames := []string{"S-IC", "S-II", "S-IVB", "Descent", "Ascent", "CSM"}
 	if len(l.Stages) != len(wantNames) {
 		t.Fatalf("Apollo-Stack: %d stages, want %d", len(l.Stages), len(wantNames))
 	}
 	for i, n := range wantNames {
 		if l.Stages[i].Name != n {
 			t.Errorf("stage %d: name %q, want %q", i, l.Stages[i].Name, n)
+		}
+	}
+	wantPlan := []int{1, 1, 1, 2}
+	if len(l.DecouplePlan) != len(wantPlan) {
+		t.Fatalf("Apollo-Stack DecouplePlan = %v, want %v", l.DecouplePlan, wantPlan)
+	}
+	for i, g := range wantPlan {
+		if l.DecouplePlan[i] != g {
+			t.Errorf("DecouplePlan[%d] = %d, want %d", i, l.DecouplePlan[i], g)
 		}
 	}
 	totalMass := SumDryMass(l.Stages) + SumFuelMass(l.Stages)
