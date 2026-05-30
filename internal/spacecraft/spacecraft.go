@@ -238,6 +238,23 @@ type Spacecraft struct {
 	// slice (see internal/save/save_migrate_v5_to_v6.go).
 	Stages []Stage
 
+	// DecouplePlan (v0.12 Slice 2 / ADR 0007) is a bottom-up list of
+	// group sizes describing how many contiguous bottom Stages each
+	// staging press releases as a single jettisoned craft. Nil/empty
+	// ⇒ all-ones (one Stage per press — the historical behaviour).
+	// Copied from the Loadout at construction (NewFromLoadout) and
+	// consumed positionally by World.StageActive: each press pops
+	// DecouplePlan[0] bottom stages, then advances DecouplePlan =
+	// DecouplePlan[1:]. The Apollo Stack ships [1,1,1,2] so the
+	// descent + ascent LM pair extracts together as one 2-stage
+	// craft, leaving the CSM core. A released multi-stage craft
+	// inherits NO plan, so its internal boundaries fall back to
+	// single-pop (the extracted LM surface-stages its descent alone
+	// with no special-casing). Persisted on the save wire as
+	// decouple_plan,omitempty so a mission saved mid-staging restores
+	// the correct remaining grouping.
+	DecouplePlan []int
+
 	// Target (v0.9.3 polish) is this craft's bound target. Pre-
 	// polish, target was a single World.Target slot shared across
 	// all crafts; pressing `T` while controlling craft A would

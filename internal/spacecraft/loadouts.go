@@ -46,6 +46,15 @@ type Loadout struct {
 	// (must be non-empty); a one-element Stages declares a
 	// single-stage craft.
 	Stages []Stage
+	// DecouplePlan (v0.12 Slice 2 / ADR 0007) is an optional
+	// bottom-up list of staging group sizes — how many contiguous
+	// bottom Stages each staging press releases as a single craft.
+	// Nil ⇒ all-ones (one Stage per press, the historical default).
+	// The Apollo Stack declares [1,1,1,2] so the descent + ascent LM
+	// pair extracts together as a 2-stage craft (see ADR 0007). Sum
+	// of the plan should be < len(Stages) (the top stage is the
+	// surviving core). Copied onto the Spacecraft in NewFromLoadout.
+	DecouplePlan []int
 	// SlewRateDegPerSec (v0.10.0+) is the per-loadout attitude
 	// angular-rate cap (deg/s, sim-time). Zero => the global
 	// DefaultSlewRateDegPerSec. Loadout-level (not per-stage):
@@ -332,11 +341,21 @@ var Loadouts = map[string]Loadout{
 		Role:  "lander",
 		Glyph: "▼",
 		Color: "#5FFF87", // mint
-		// Apollo-LM-style descent stage. CanSoftLand=true is carried
-		// per-Stage via the StageCatalog lookup in stageWithBC; see
-		// stages_catalog.go's StageModuleLanderID entry.
+		// v0.12 Slice 2 / ADR 0007: the Apollo-LM-style Lander is two
+		// stages — Descent (bottom: legs + soft-land + the powered-
+		// descent engine) and Ascent (top: returns to orbit). Surface-
+		// staging the descent on the ground leaves it as a Landed
+		// passive wreck and flies the ascent back up. Fuel-heavy
+		// descent (dry 2500 / fuel 9500 → ~3.0 km/s descent-burn Δv
+		// hauling the ascent) so a lunar landing doesn't run dry; the
+		// ascent (dry 1200 / fuel 1800 → ~2.8 km/s) returns to orbit.
+		// No DecouplePlan: the default single-pop drops Descent and
+		// leaves Ascent as the core. CanSoftLand + landing-leg
+		// silhouette ride per-Stage via the StageCatalog by-Name
+		// lookups (Descent / Ascent entries).
 		Stages: []Stage{
-			stage(LoadoutLanderID, "Lander", "▼", "#5FFF87", 4000, 8000, 45000, 311),
+			stage(LoadoutLanderID, "Descent", "▼", "#5FFF87", 2500, 9500, 45000, 311),
+			stage(LoadoutLanderID, "Ascent", "▲", "#7BFFA0", 1200, 1800, 16000, 311),
 		},
 	},
 	// Saturn-V (v0.9.1+): the canonical Apollo launch vehicle.
@@ -455,17 +474,29 @@ var Loadouts = map[string]Loadout{
 				40000, 440000, 5140000, 421, 2.5e-5),
 			stageWithBC(LoadoutApolloStackID, "S-IVB", "▲", "#FFD93D",
 				11000, 109000, 1023000, 421, 6.25e-5),
-			// Lunar Module — descent/ascent payload. Mid-stage:
-			// decoupling it spawns a controllable LM craft (payload
-			// separation) and leaves the CSM core.
-			stage(LoadoutApolloStackID, "LM", "▼", "#5FFF87",
-				4000, 8000, 45000, 311),
+			// Lunar Module — split into Descent + Ascent (v0.12 Slice 2
+			// / ADR 0007). The DecouplePlan [1,1,1,2] below releases the
+			// pair together as one 2-stage LM craft (payload separation)
+			// rather than stranding the descent stage and leaving the
+			// ascent fused to the CSM. Fuel-heavy descent (dry 2500 /
+			// fuel 9500) so the lunar landing doesn't run dry; ascent
+			// (dry 1200 / fuel 1800) returns to lunar orbit. The LM is a
+			// negligible fraction of the ~2.93 Mkg stack, so lift-off
+			// TWR stays ~1.22.
+			stage(LoadoutApolloStackID, "Descent", "▼", "#5FFF87",
+				2500, 9500, 45000, 311),
+			stage(LoadoutApolloStackID, "Ascent", "▲", "#7BFFA0",
+				1200, 1800, 16000, 311),
 			// Command/Service Module — the surviving core. SPS
 			// storable-propellant engine; enough Δv for the
 			// rendezvous / trans-Earth return.
 			stage(LoadoutApolloStackID, "CSM", "◉", "#C0C0FF",
 				11900, 18400, 91000, 314),
 		},
+		// v0.12 Slice 2 / ADR 0007: drop S-IC, S-II, S-IVB
+		// individually, then release Descent + Ascent together as a
+		// 2-stage LM craft, leaving the CSM core. Sum (5) < 6 stages.
+		DecouplePlan: []int{1, 1, 1, 2},
 	},
 }
 
@@ -509,6 +540,14 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 	l := LookupLoadout(loadoutID)
 	stages := make([]Stage, len(l.Stages))
 	copy(stages, l.Stages)
+	// Copy the decouple plan (own backing array) so StageActive's
+	// positional reslice (DecouplePlan[1:]) never mutates the shared
+	// catalog literal. Empty/nil plan stays nil ⇒ single-pop default.
+	var plan []int
+	if len(l.DecouplePlan) > 0 {
+		plan = make([]int, len(l.DecouplePlan))
+		copy(plan, l.DecouplePlan)
+	}
 	c := &Spacecraft{
 		Name:                 l.Name,
 		LoadoutID:            l.ID,
@@ -518,6 +557,7 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 		Throttle:             1.0,
 		BallisticCoefficient: DefaultBallisticCoefficient,
 		Stages:               stages,
+		DecouplePlan:         plan,
 		SlewRateDegPerSec:    l.SlewRateDegPerSec,
 	}
 	c.SyncFields()
