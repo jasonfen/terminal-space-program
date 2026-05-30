@@ -37,10 +37,10 @@
 >   Line-of-Nodes split that actually rendezvous with an inclined
 >   Luna (GH #67).
 >
-> **Remaining in v0.12:** the 2-stage Lander + surface staging
-> (Slice 2, ADR 0007), parachutes (Slice 3, ADR 0008), two-colour
+> **Remaining in v0.12:** parachutes (Slice 3, ADR 0008), two-colour
 > flame polish (Slice 4 leftover), and the Moon-frame lunar-capture
-> inclination trim (GH #68, deferred from v0.12.2). Pre-v0.8
+> inclination trim (GH #68, deferred from v0.12.2). The 2-stage Lander
+> + surface staging (Slice 2, ADR 0007) shipped in **v0.12.3**. Pre-v0.8
 > per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
@@ -875,8 +875,8 @@ the [capture-direction toggle](#capture-direction-toggle) and
 ✓ **shipped in v0.12.0** (Slice 4(d)). Deleted the vestigial third outcome (`outcomeNone`) from the `surfaceArrivalOutcome` enum in `internal/sim/lifecycle.go` — `classifySurfaceArrival` only ever returned Landed or Crashed, so the zero-V/neither-flag bucket was dead. Verified before deleting: the enum value had no callers beyond its declaration, and `TestImpactorTrajectoryHitsSurfacePredicate` already pins that every contact resolves to one of {Landed, Crashed}. CONTEXT.md "Surface Contact" glossary + the "Landed" Flagged-ambiguities entry updated to two outcomes (the latter was also stale pre-v0.11.4 — reconciled to ADR 0004 shipped reality). **Historical scope below.** After v0.11.4 every surface contact resolves to either Landed (predicate qualifies: `CanSoftLand` + `|V| < V_CRIT` + nose alignment) or Crashed (anything else). The third "Surface Contact" placeholder bucket is reachable only theoretically; v0.11.4 kept it as a defensive fallback. Delete after the v0.11.x playtest cycle confirms no qualifying-but-not-Crashed contacts emerge. Source: `docs/adr/0004-crashed-landed-lifecycle.md` §197.
 
 ### 2-stage Lander (Descent + Ascent split)
-<!-- llm-parse: id=lander-2-stage status=backlog target=v0.12 weight=S-M origin=v0.11.5-grill -->
-🧊 **backlog · target v0.12 · gameplay enrichment**. The real Apollo LM was two vehicles: an ascent stage that launched *from* the descent stage on the surface, leaving the descent stage as discarded hardware on the lunar surface. v0.11.5's Lander silhouette polish (per-stage width, landing legs, engine bell, hypergolic flame) keeps the Lander as a single catalog stage. A v0.12+ catalog enrichment would split it into two stages (`lander-descent` + `lander-ascent`) and add a **surface staging event** — decouple the ascent stage from the descent stage *while Landed*, leaving the descent stage as a Landed wreck on the surface and the ascent stage as the player's active craft for return-to-lunar-orbit. This is a *gameplay* extension, not a visual one: the player gains a new lifecycle moment between Touchdown and Re-launch. The v0.11.5 1-stage Lander's visual differentiation (legs + bell + hypergolic flame, per `CONTEXT.md` "Launch Sprite") already pulls its weight for v0.11.5; the split is about replicating the authentic Apollo flow (Eagle's descent stage left on the Moon, ascent stage returns to dock with the CSM). Source: `docs/v0.11-plan.md` §Deferred (added during the v0.11.5 grill).
+<!-- llm-parse: id=lander-2-stage status=shipped shipped-in=v0.12.3 target=v0.12 weight=M-L origin=v0.11.5-grill adr=0007 -->
+✅ **shipped · v0.12.3 · ADR 0007**. Split into `lander-descent` + `lander-ascent` with a surface-staging event; the abandoned descent stage is a Landed passive Vessel, and an explicit per-loadout Decouple Plan (`[1,1,1,2]` for the Apollo Stack) extracts the 2-stage LM as one craft. Full arc playtest-verified (descent → surface stage → ascent → CSM rendezvous). _Original backlog note:_ The real Apollo LM was two vehicles: an ascent stage that launched *from* the descent stage on the surface, leaving the descent stage as discarded hardware on the lunar surface. v0.11.5's Lander silhouette polish (per-stage width, landing legs, engine bell, hypergolic flame) keeps the Lander as a single catalog stage. A v0.12+ catalog enrichment would split it into two stages (`lander-descent` + `lander-ascent`) and add a **surface staging event** — decouple the ascent stage from the descent stage *while Landed*, leaving the descent stage as a Landed wreck on the surface and the ascent stage as the player's active craft for return-to-lunar-orbit. This is a *gameplay* extension, not a visual one: the player gains a new lifecycle moment between Touchdown and Re-launch. The v0.11.5 1-stage Lander's visual differentiation (legs + bell + hypergolic flame, per `CONTEXT.md` "Launch Sprite") already pulls its weight for v0.11.5; the split is about replicating the authentic Apollo flow (Eagle's descent stage left on the Moon, ascent stage returns to dock with the CSM). Source: `docs/v0.11-plan.md` §Deferred (added during the v0.11.5 grill).
 
 ### Open scoping questions
 <!-- llm-parse: backlog_section=open-questions -->
