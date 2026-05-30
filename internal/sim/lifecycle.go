@@ -152,7 +152,7 @@ func classifySurfaceArrival(
 	switch {
 	case c.ChuteState == spacecraft.ChuteDeployed:
 		// chute route — air-relative velocity ceiling; nose waived.
-		vRel := preClampV.Sub(physics.AtmosphereOmega(c.Primary).Cross(preClampR))
+		vRel := physics.AirRelativeVelocity(preClampR, preClampV, c.Primary)
 		if vRel.Norm() >= CrashVCritMps {
 			return outcomeCrashed, 0, 0
 		}

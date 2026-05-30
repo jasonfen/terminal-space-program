@@ -306,6 +306,13 @@ type DockedComponent struct {
 	Thrust           float64 `json:"thrust,omitempty"`
 	RCSThrust        float64 `json:"rcs_thrust,omitempty"`
 	RCSIsp           float64 `json:"rcs_isp,omitempty"`
+	// CanSoftLand / HasParachute (v0.12 Slice 3 / ADR 0008, schema v6
+	// additive — no bump): the surface-arrival capability flags, so a
+	// composite saved with a chute-bearing or soft-land component
+	// restores those capabilities on undock after reload. omitempty;
+	// absent → false, matching pre-Slice-3 components.
+	CanSoftLand  bool `json:"can_soft_land,omitempty"`
+	HasParachute bool `json:"has_parachute,omitempty"`
 }
 
 // ActiveBurn mirrors sim.ActiveBurn. Throttle (v0.7.6+, schema v4)
@@ -516,6 +523,8 @@ func payloadFromWorld(w *sim.World) Payload {
 				Thrust:           dc.Thrust,
 				RCSThrust:        dc.RCSThrust,
 				RCSIsp:           dc.RCSIsp,
+				CanSoftLand:      dc.CanSoftLand,
+				HasParachute:     dc.HasParachute,
 			})
 		}
 		for _, n := range c.Nodes {
@@ -706,6 +715,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				Thrust:           dc.Thrust,
 				RCSThrust:        dc.RCSThrust,
 				RCSIsp:           dc.RCSIsp,
+				CanSoftLand:      dc.CanSoftLand,
+				HasParachute:     dc.HasParachute,
 			})
 		}
 		// v0.8.1+: per-craft Nodes / ActiveBurn loaded directly from

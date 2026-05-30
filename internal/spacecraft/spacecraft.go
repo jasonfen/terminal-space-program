@@ -304,6 +304,18 @@ type DockedComponent struct {
 	Thrust           float64
 	RCSThrust        float64
 	RCSIsp           float64
+	// CanSoftLand / HasParachute (v0.12 Slice 3, ADR 0008): the two
+	// surface-arrival capability flags, captured so Undock can restore
+	// them onto the rebuilt single-stage craft. Without this a chute-
+	// bearing capsule (or a CanSoftLand lander) that docks then undocks
+	// loses its capability — the restored Stages[0] would default false
+	// and SyncFields would re-derive a false mirror, crashing the Earth
+	// splashdown the chute exists for. (DockedComponent still doesn't
+	// record the full per-stage breakdown — that broader gap is the
+	// banked v0.9.1.x follow-up the Undock comment notes — but the
+	// landing capabilities are cheap to carry and load-bearing.)
+	CanSoftLand  bool
+	HasParachute bool
 }
 
 // AsDockedComponent captures s's identity + capacity fields into a
@@ -323,6 +335,8 @@ func (s *Spacecraft) AsDockedComponent() DockedComponent {
 		Thrust:           s.Thrust,
 		RCSThrust:        s.RCSThrust,
 		RCSIsp:           s.RCSIsp,
+		CanSoftLand:      s.CanSoftLand,
+		HasParachute:     s.HasParachute,
 	}
 }
 

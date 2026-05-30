@@ -259,14 +259,11 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 		// top of the stack (no upper neighbour). The taper rows do
 		// NOT alter Stage.LaunchSpriteRowsPx — they extend the
 		// composed stack height by 1 row per boundary.
-		if i+1 < len(stages) {
-			up := stages[i+1]
-			if up.LaunchSpriteRowsPx >= taperThreshold && s.LaunchSpriteRowsPx >= taperThreshold {
-				upWidth := stageSpriteWidthPx(up)
-				taperWidth := (width + upWidth + 1) / 2 // round half-up
-				emitRect(rowOffset, 1, taperWidth, color)
-				rowOffset++
-			}
+		if i+1 < len(stages) && taperRowBetween(s, stages[i+1]) > 0 {
+			upWidth := stageSpriteWidthPx(stages[i+1])
+			taperWidth := (width + upWidth + 1) / 2 // round half-up
+			emitRect(rowOffset, 1, taperWidth, color)
+			rowOffset++
 		}
 	}
 	if len(pixels) == 0 {
@@ -292,6 +289,20 @@ const (
 // fabric against the metal stage bodies and the coloured flame.
 const canopyColor = lipgloss.Color("#F5F0E0")
 
+// taperRowBetween returns the number of synthetic inter-stage taper
+// rows painted between two vertically-adjacent stages: 1 when both
+// clear taperThreshold, else 0. The single source of truth for the
+// taper rule, shared by ComposeLaunchSprite (which emits the taper
+// band) and composedStackRows (which only needs the height) so the two
+// can't drift — if they disagreed, ComposeCanopy would anchor at the
+// wrong height. v0.12 Slice 3 (ADR 0008).
+func taperRowBetween(lower, upper spacecraft.Stage) int {
+	if lower.LaunchSpriteRowsPx >= taperThreshold && upper.LaunchSpriteRowsPx >= taperThreshold {
+		return 1
+	}
+	return 0
+}
+
 // composedStackRows returns the total sub-pixel height of the composed
 // launch sprite, including inter-stage taper rows — mirrors the
 // rowOffset accumulation in ComposeLaunchSprite so ComposeCanopy can
@@ -304,10 +315,7 @@ func composedStackRows(stages []spacecraft.Stage) int {
 		}
 		rows += s.LaunchSpriteRowsPx
 		if i+1 < len(stages) {
-			up := stages[i+1]
-			if up.LaunchSpriteRowsPx >= taperThreshold && s.LaunchSpriteRowsPx >= taperThreshold {
-				rows++
-			}
+			rows += taperRowBetween(s, stages[i+1])
 		}
 	}
 	return rows
