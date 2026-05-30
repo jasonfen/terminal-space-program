@@ -183,12 +183,13 @@ func TestStageActiveAdvancesEngineToNextStage(t *testing.T) {
 	}
 }
 
-// TestApolloStackDecoupleChainLeavesCSM — the v0.10.1 Apollo-Stack
-// is [S-IC, S-II, S-IVB, LM, CSM]. Four decouples drop S-IC → S-II
-// → S-IVB → LM; the LM jettison spawns a separate controllable
-// slate craft (payload separation), and the active craft is left
-// as the single-stage CSM core. The fifth decouple refuses
-// (ErrStageOnlyOne — can't drop the only/last stage).
+// TestApolloStackDecoupleChainLeavesCSM — the v0.12 Slice 2 Apollo-
+// Stack is [S-IC, S-II, S-IVB, Descent, Ascent, CSM] with a
+// DecouplePlan [1,1,1,2] (ADR 0007). Three single decouples drop
+// S-IC → S-II → S-IVB; the fourth releases the Descent + Ascent pair
+// **together** as one 2-stage LM craft (payload separation), leaving
+// the active craft as the single-stage CSM core. The fifth decouple
+// refuses (ErrStageOnlyOne — can't drop the only/last stage).
 func TestApolloStackDecoupleChainLeavesCSM(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -200,26 +201,46 @@ func TestApolloStackDecoupleChainLeavesCSM(t *testing.T) {
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
 
-	if len(stack.Stages) != 5 {
-		t.Fatalf("Apollo-Stack should start 5-stage, got %d", len(stack.Stages))
+	if len(stack.Stages) != 6 {
+		t.Fatalf("Apollo-Stack should start 6-stage, got %d", len(stack.Stages))
 	}
 
-	wantDropped := []string{"S-IC", "S-II", "S-IVB", "LM"}
-	for i, name := range wantDropped {
+	// First three presses drop single launch-vehicle stages.
+	for i, name := range []string{"S-IC", "S-II", "S-IVB"} {
 		_, jettIdx, err := w.StageActive(0)
 		if err != nil {
 			t.Fatalf("decouple %d (%s): %v", i, name, err)
 		}
 		jett := w.Crafts[jettIdx]
-		if jett.Stages[0].Name != name {
-			t.Errorf("decouple %d dropped %q, want %q", i, jett.Stages[0].Name, name)
+		if len(jett.Stages) != 1 || jett.Stages[0].Name != name {
+			t.Errorf("decouple %d dropped %d-stage %q, want 1× %q",
+				i, len(jett.Stages), jett.Stages[0].Name, name)
 		}
-		// LM separation must yield a real, distinct slate craft the
-		// player can switch to and fly (payload separation).
-		if name == "LM" && jett.Stages[0].Thrust <= 0 {
-			t.Errorf("separated LM has no engine (Thrust=%v) — not controllable",
-				jett.Stages[0].Thrust)
-		}
+	}
+
+	// Fourth press: the DecouplePlan's trailing 2 releases the LM pair
+	// (Descent + Ascent) as a SINGLE 2-stage craft.
+	_, lmIdx, err := w.StageActive(0)
+	if err != nil {
+		t.Fatalf("decouple LM: %v", err)
+	}
+	lm := w.Crafts[lmIdx]
+	if len(lm.Stages) != 2 {
+		t.Fatalf("extracted LM: %d stage(s), want 2 (Descent + Ascent grouped)", len(lm.Stages))
+	}
+	if lm.Stages[0].Name != "Descent" || lm.Stages[1].Name != "Ascent" {
+		t.Errorf("extracted LM stages = [%q, %q], want [Descent, Ascent]",
+			lm.Stages[0].Name, lm.Stages[1].Name)
+	}
+	// The LM is a real controllable craft — its bottom (Descent) fires.
+	if lm.Stages[0].Thrust <= 0 {
+		t.Errorf("extracted LM has no engine (Thrust=%v) — not controllable", lm.Stages[0].Thrust)
+	}
+	// A released multi-stage craft inherits NO plan (ADR 0007): its
+	// internal boundaries fall back to single-pop so it can later
+	// surface-stage the Descent stage alone.
+	if lm.DecouplePlan != nil {
+		t.Errorf("extracted LM DecouplePlan = %v, want nil (released sub-craft inherits no plan)", lm.DecouplePlan)
 	}
 
 	core := w.Crafts[0]

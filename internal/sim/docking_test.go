@@ -95,6 +95,56 @@ func TestDockingSkipsFastClose(t *testing.T) {
 	}
 }
 
+// TestDockingSkipsLandedCraft — v0.12 Slice 2 / ADR 0007 (broadened
+// post-playtest). A co-located, matched-velocity pair (well inside
+// both gates) must NOT auto-fuse while EITHER craft is Landed. This
+// covers both the static surface-staged pair (both Landed) and the
+// liftoff moment (ascent clears Landed while still co-located with the
+// parked descent stage). Only once NEITHER is Landed — an ordinary
+// orbital rendezvous — does the pair fuse.
+func TestDockingSkipsLandedCraft(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	a := w.Crafts[0]
+	a.Primary = *earth
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters()}
+	a.State.V = orbital.Vec3{} // co-rotation velocity stand-in (matched)
+
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	b.Primary = *earth
+	b.State = physics.StateVector{R: a.State.R, V: a.State.V, M: b.TotalMass()}
+	w.Crafts = append(w.Crafts, b)
+
+	// Both Landed: skip.
+	a.Landed, b.Landed = true, true
+	if _, _, ok := w.checkDocking(); ok {
+		t.Error("both-Landed co-located pair fused — guard missing")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("slate count = %d, want 2 (no fuse, both Landed)", len(w.Crafts))
+	}
+
+	// Only one Landed (the liftoff case: ascent ignited, descent still
+	// parked): still must NOT fuse.
+	b.Landed = false // a stays Landed
+	if _, _, ok := w.checkDocking(); ok {
+		t.Error("one-Landed co-located pair fused — either-Landed guard failed (liftoff re-fuse)")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("slate count = %d, want 2 (no fuse, one Landed)", len(w.Crafts))
+	}
+
+	// Neither Landed — an ordinary orbital rendezvous — fuses.
+	a.Landed = false
+	if _, _, ok := w.checkDocking(); !ok {
+		t.Error("neither-Landed co-located pair did not fuse — guard over-broad")
+	}
+	if len(w.Crafts) != 1 {
+		t.Errorf("slate count = %d, want 1 (fused, neither Landed)", len(w.Crafts))
+	}
+}
+
 // TestDockingPreservesMomentum: composite velocity = mass-weighted
 // average of the partners' velocities. Equal-mass craft moving in
 // opposite directions should fuse to zero net velocity.

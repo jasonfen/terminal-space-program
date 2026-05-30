@@ -100,6 +100,59 @@ func TestRoundtrip(t *testing.T) {
 	}
 }
 
+// TestDecouplePlanRoundtripMidStaging — v0.12 Slice 2 / ADR 0007. A
+// mission saved mid-staging must restore its remaining Decouple Plan
+// so the pending grouping (e.g. the LM extraction) still fires
+// correctly. Spawn an Apollo Stack (plan [1,1,1,2]), drop S-IC (plan
+// advances to [1,1,2]), save + reload, and assert the reloaded craft
+// carries [1,1,2]. Also confirms a craft with no plan round-trips as
+// nil (the omitempty single-pop default).
+func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+
+	if _, _, err := w.StageActive(0); err != nil {
+		t.Fatalf("StageActive (drop S-IC): %v", err)
+	}
+	wantPlan := []int{1, 1, 2}
+	if got := w.Crafts[0].DecouplePlan; len(got) != len(wantPlan) {
+		t.Fatalf("pre-save plan = %v, want %v", got, wantPlan)
+	}
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Active craft (the partially-staged stack) keeps [1,1,2].
+	plan := got.Crafts[0].DecouplePlan
+	if len(plan) != len(wantPlan) {
+		t.Fatalf("reloaded plan = %v, want %v", plan, wantPlan)
+	}
+	for i := range wantPlan {
+		if plan[i] != wantPlan[i] {
+			t.Errorf("reloaded plan[%d] = %d, want %d", i, plan[i], wantPlan[i])
+		}
+	}
+	// The jettisoned S-IC craft had no plan — must round-trip as nil
+	// (omitempty), not an empty-but-non-nil slice that would read as a
+	// distinct value.
+	if got.Crafts[1].DecouplePlan != nil {
+		t.Errorf("jettisoned craft plan = %v, want nil (no plan ⇒ single-pop)", got.Crafts[1].DecouplePlan)
+	}
+}
+
 func TestRoundtripEmptyState(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {

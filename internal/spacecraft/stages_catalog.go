@@ -84,8 +84,19 @@ const (
 	StageModuleCoreRS25ID = "core-rs25" // SLS core (4× RS-25)
 	StageModuleF9S1ID     = "f9-s1"     // Falcon 9 first stage (9× Merlin 1D)
 	StageModuleF9S2ID     = "f9-s2"     // Falcon 9 second stage (Merlin Vac)
-	StageModuleLanderID   = "lander"    // LM-derived throttleable descent
-	StageModuleCSMID      = "csm"       // Apollo Command/Service Module (SPS)
+	StageModuleLanderID   = "lander"    // LM-derived throttleable descent (single-stage)
+	// v0.12 Slice 2 / ADR 0007: the 2-stage Lander split. The
+	// single-stage StageModuleLanderID is retained for the configurator;
+	// these two model the descent (legs, soft-land, surface-stage
+	// candidate) + ascent (no legs, returns to orbit) pair used by the
+	// split standalone Lander loadout and the Apollo Stack's LM tier.
+	// They live in the catalog map (so the loadout literals' by-Name
+	// sprite/flag lookups resolve them) but are intentionally left out
+	// of StageCatalogOrder — the configurator still offers the single
+	// "lander" module, not the descent/ascent split.
+	StageModuleLanderDescentID = "lander-descent"
+	StageModuleLanderAscentID  = "lander-ascent"
+	StageModuleCSMID           = "csm" // Apollo Command/Service Module (SPS)
 	StageModuleRCSTugID   = "rcs-tug"   // pure-monoprop proximity-ops module
 )
 
@@ -175,6 +186,42 @@ var StageCatalog = map[string]StageModule{
 		launchSpriteColor:   "#D4C088",
 		fuelType:            FuelTypeHypergolic,
 		launchSpriteHasLegs: true,
+		canSoftLand:         true,
+	},
+	// Lander descent stage (v0.12 Slice 2 / ADR 0007): the bottom half
+	// of the 2-stage Lander — keeps the v0.11.5 Lander silhouette
+	// (squat body, splayed legs, hypergolic flame) and the soft-land
+	// qualification. Fuel-heavy like the real LM descent stage: it
+	// fires the entire powered descent hauling the ascent stage as
+	// dead-weight payload, so it needs the lion's share of propellant.
+	// With dry 2500 / fuel 9500 the descent-burn Δv (full stack) is
+	// ~3.0 km/s — comfortably more than a lunar descent (the original
+	// 6000 kg gave only ~2.1 km/s and ran dry mid-landing). Thrust
+	// stays 45 kN (the original single-Lander descent engine).
+	StageModuleLanderDescentID: {
+		ID: StageModuleLanderDescentID, Name: "Descent", Glyph: "▼", Color: "#5FFF87",
+		Tier: "payload", dry: 2500, fuel: 9500, thrust: 45000, isp: 311, bc: 0,
+		launchSpriteRowsPx:  5,
+		launchSpriteWidthPx: 3,
+		launchSpriteColor:   "#D4C088", // muted gold foil — matches single Lander
+		fuelType:            FuelTypeHypergolic,
+		launchSpriteHasLegs: true,
+		canSoftLand:         true,
+	},
+	// Lander ascent stage (v0.12 Slice 2 / ADR 0007): the top half —
+	// smaller, no legs (they stayed on the descent stage), its own
+	// hypergolic engine sized for the lunar-ascent-to-orbit Δv (~2.8
+	// km/s with dry 1200 / fuel 1800). Carries canSoftLand=true anyway
+	// (a forgiving sandbox choice — a player who flies the bare ascent
+	// stage back down soft-lands rather than crashes; see ADR 0007
+	// decision 5).
+	StageModuleLanderAscentID: {
+		ID: StageModuleLanderAscentID, Name: "Ascent", Glyph: "▲", Color: "#7BFFA0",
+		Tier: "payload", dry: 1200, fuel: 1800, thrust: 16000, isp: 311, bc: 0,
+		launchSpriteRowsPx:  3,
+		launchSpriteWidthPx: 2,
+		launchSpriteColor:   "#C8C8B0", // pale metal — distinct band above the gold descent
+		fuelType:            FuelTypeHypergolic,
 		canSoftLand:         true,
 	},
 	StageModuleCSMID: {
