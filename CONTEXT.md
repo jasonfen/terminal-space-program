@@ -393,6 +393,11 @@ Set by:
   local-vertical satisfies the touchdown predicate at the
   `physics.ClampToSurface` site and becomes Landed without the OnPad
   flag (v0.11.4+).
+- A **Parachute**-decelerated Touchdown — a Vessel *without*
+  `CanSoftLand` whose chute is **deployed** and which arrives with
+  `|V| < V_CRIT` (nose-alignment waived) also becomes Landed (v0.12+,
+  ADR 0008). The second non-engine route into Landed. See
+  [[#parachute|Parachute]].
 
 Cleared by engine ignition — either a Manual Burn (player presses
 `b`) or a planted Maneuver Node firing on schedule. The clearing
@@ -514,24 +519,67 @@ distinguished by the kinematic + capability predicate evaluated at
 the **Surface Contact** site:
 
 - **Touchdown** — a controlled arrival within velocity and
-  orientation tolerances, by a Vessel designed to land. Predicate:
+  orientation tolerances. Two routes qualify, each with its own
+  gates: the **engine route** —
   `vessel.CanSoftLand && |V_impact| < V_CRIT && nose·local_up >
-  NOSE_TOL`. Produces a **Landed** Vessel that co-rotates with the
-  ground, preserves fuel and stage state, and can re-ignite for
-  liftoff (the same end-state a **Launchpad** spawn creates, but
-  earned through controlled descent rather than spawned in).
+  NOSE_TOL` (a Vessel designed to thrust in); and the **chute route**
+  (v0.12+, ADR 0008) — `chuteDeployed && |V_impact| < V_CRIT`, which
+  **waives** the nose-alignment gate because a [[#parachute|Parachute]]
+  is the stabiliser, not the pilot's attitude. Either produces a
+  **Landed** Vessel that co-rotates with the ground, preserves fuel and
+  stage state, and can re-ignite for liftoff (the same end-state a
+  **Launchpad** spawn creates, but earned through controlled descent
+  rather than spawned in).
 - **Crash** — an arrival outside those tolerances — excess descent
-  velocity, off-vertical attitude, or a Vessel without
-  `CanSoftLand` regardless of how gently it touched. Produces a
-  **Crashed** Vessel (terminal state, removed via End Flight).
+  velocity, off-vertical attitude (engine route), or a Vessel with
+  neither `CanSoftLand` nor a deployed chute regardless of how gently
+  it touched. Produces a **Crashed** Vessel (terminal state, removed
+  via End Flight).
 
 Differentiated in code as of v0.11.4 (see
-[`docs/adr/0004-crashed-landed-lifecycle.md`](adr/0004-crashed-landed-lifecycle.md)).
+[`docs/adr/0004-crashed-landed-lifecycle.md`](adr/0004-crashed-landed-lifecycle.md));
+the chute route added v0.12+ (see
+[`docs/adr/0008-parachutes-atmospheric-descent-recovery.md`](adr/0008-parachutes-atmospheric-descent-recovery.md)).
 Constants `V_CRIT = 10 m/s`, `NOSE_TOL = 0.7` (≈ 45° from
 local-vertical); both retunable.
 _Avoid_: Soft landing / Hard landing (longer; "Landing" alone
 overloads with the cluster heading), Successful landing / Unsuccessful
 landing (asymmetric and verbose).
+
+**Parachute**:
+A capsule-class recovery device giving a Vessel *without*
+[[#touchdown--crash|CanSoftLand]] a non-engine route to a soft
+**Touchdown** via aerodynamic deceleration (v0.12+, ADR 0008). Two
+parts, mirroring the `CanSoftLand` capability/state split:
+
+- *Capability* — a per-**Stage** catalog flag (`HasParachute`),
+  synced to a Vessel-level mirror from `Stages[0]` like
+  [[#touchdown--crash|CanSoftLand]] and
+  [[#ballistic-coefficient-bc|Ballistic Coefficient]]. Rides the
+  hardware across a decouple. Today's bearers: the `csm` stage and a
+  standalone re-entry capsule loadout.
+- *Deploy state* — a runtime enum on the Vessel (beside **Landed** /
+  **Crashed**): **Stowed** → **Armed** → **Deployed**, one-way,
+  Deployed terminal. There is **no torn / failure state** — the chute
+  is forgiving (over-speed tearing was considered and cut).
+
+Lifecycle: the player **arms** the chute through the ordinary
+[[#vessel-construction--lifecycle|Stage]] (`space`) action — it is
+"just another staging action," not a new key. Because the chute rides
+the surviving *top* stage and `space` pops the *bottom*, arming is the
+final staging action once the Vessel is its bare chute-bearing stage;
+allowed in any conditions, including vacuum. An armed chute
+**auto-deploys** the first tick dynamic pressure
+`q = 0.5 · ρ · |v_rel|²` reaches `ChuteDeployQMin`. While **Deployed**,
+`EffectiveBallisticCoefficient()` returns a fixed `ChuteDeployedBC`
+(≈0.3 m²/kg) — an absolute replace (the canopy swamps the capsule's own
+drag), so terminal velocity `v_term = √(2g/(ρ·BC))` ≈ 7.4 m/s at Earth
+sea level, **mass-independent** and comfortably under `V_CRIT`. Rendered
+as a HUD state + descent-rate readout, plus a synthetic braille canopy
+above the top stage in [[#launch-sprite|ViewLaunch]].
+_Avoid_: Chute (fine in code/prose shorthand; **Parachute** is the
+canonical noun), Drogue (a specific reefed-stage chute the model
+doesn't have yet), Airbrake (a different drag device).
 
 ### Atmosphere & drag
 
@@ -638,6 +686,10 @@ currently-firing / outermost stage is the one in the flow. Falls back
 to a Vessel-level legacy field for saves predating per-Stage BC, then
 to the default 0.01 m²/kg (the S-IVB-1 baseline — a "generic launcher"
 draggability anchor). A Vessel with `BC ≤ 0` feels no Drag at all.
+A **deployed** [[#parachute|Parachute]] short-circuits this whole
+chain — `EffectiveBallisticCoefficient()` returns a fixed
+`ChuteDeployedBC` (≈0.3 m²/kg) outright while the chute is up (v0.12+,
+ADR 0008).
 _Avoid_: Drag coefficient (collides with the aerospace dimensionless
 C_D), Drag factor (no inheritance), B-coefficient.
 
