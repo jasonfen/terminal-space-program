@@ -184,19 +184,28 @@ func (w *World) checkDocking() (int, int, bool) {
 			if a.Primary.ID != b.Primary.ID {
 				continue
 			}
-			// Both Landed — skip (v0.12 Slice 2 / ADR 0007). Surface
-			// staging leaves the shed descent stage and the parked
-			// ascent stage co-located at the same lat/lon, both
-			// Landed, with identical V = ω×R — inside both docking
-			// gates. integrateLanded re-pins each from its stored
-			// coords every tick, so the orbital retrograde-nudge
-			// separation doesn't apply on the surface. A completed
-			// orbital dock is already one fused craft, so the only
-			// co-located both-Landed pair that exists is a not-yet-
-			// separated decouple. Skipping it prevents the re-fuse;
-			// deliberate landed-docking (moon bases) is a future
-			// feature that will revisit this guard.
-			if a.Landed && b.Landed {
+			// Either Landed — skip (v0.12 Slice 2 / ADR 0007, broadened
+			// after the surface-staging playtest). A Landed craft must
+			// not auto-fuse with anything by proximity:
+			//
+			//   1. A surface-staged descent + ascent pair sits co-
+			//      located at the same lat/lon, both Landed, with
+			//      identical V = ω×R — inside both gates. integrateLanded
+			//      re-pins each from its stored coords every tick, so the
+			//      orbital retrograde-nudge separation can't apply.
+			//   2. When the player ignites the ascent to lift off, its
+			//      Landed flag clears while it is STILL co-located with
+			//      the parked descent stage (it hasn't climbed clear
+			//      yet). A both-Landed-only guard would let that
+			//      liftoff moment re-fuse the pair — exactly the
+			//      "undocking rejoins the vessels" bug.
+			//
+			// Skipping when EITHER craft is Landed closes both windows.
+			// Deliberate landed-docking (moon bases) is a future feature
+			// that will revisit this guard (ADR 0007 forward hook);
+			// orbital rendezvous docking is unaffected (both partners
+			// are in flight, Landed=false).
+			if a.Landed || b.Landed {
 				continue
 			}
 			dr := a.State.R.Sub(b.State.R)

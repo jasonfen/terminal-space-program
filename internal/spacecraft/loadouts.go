@@ -345,15 +345,17 @@ var Loadouts = map[string]Loadout{
 		// stages — Descent (bottom: legs + soft-land + the powered-
 		// descent engine) and Ascent (top: returns to orbit). Surface-
 		// staging the descent on the ground leaves it as a Landed
-		// passive wreck and flies the ascent back up. The dry/fuel
-		// split sums to the pre-split 4000 kg / 8000 kg so the combined
-		// Lander mass is unchanged. No DecouplePlan: the default
-		// single-pop drops Descent and leaves Ascent as the core.
-		// CanSoftLand + landing-leg silhouette ride per-Stage via the
-		// StageCatalog by-Name lookups (Descent / Ascent entries).
+		// passive wreck and flies the ascent back up. Fuel-heavy
+		// descent (dry 2500 / fuel 9500 → ~3.0 km/s descent-burn Δv
+		// hauling the ascent) so a lunar landing doesn't run dry; the
+		// ascent (dry 1200 / fuel 1800 → ~2.8 km/s) returns to orbit.
+		// No DecouplePlan: the default single-pop drops Descent and
+		// leaves Ascent as the core. CanSoftLand + landing-leg
+		// silhouette ride per-Stage via the StageCatalog by-Name
+		// lookups (Descent / Ascent entries).
 		Stages: []Stage{
-			stage(LoadoutLanderID, "Descent", "▼", "#5FFF87", 2500, 6000, 45000, 311),
-			stage(LoadoutLanderID, "Ascent", "▲", "#7BFFA0", 1500, 2000, 16000, 311),
+			stage(LoadoutLanderID, "Descent", "▼", "#5FFF87", 2500, 9500, 45000, 311),
+			stage(LoadoutLanderID, "Ascent", "▲", "#7BFFA0", 1200, 1800, 16000, 311),
 		},
 	},
 	// Saturn-V (v0.9.1+): the canonical Apollo launch vehicle.
@@ -476,12 +478,15 @@ var Loadouts = map[string]Loadout{
 			// / ADR 0007). The DecouplePlan [1,1,1,2] below releases the
 			// pair together as one 2-stage LM craft (payload separation)
 			// rather than stranding the descent stage and leaving the
-			// ascent fused to the CSM. The split sums to the pre-split
-			// 4000 kg / 8000 kg, so lift-off TWR is unchanged.
+			// ascent fused to the CSM. Fuel-heavy descent (dry 2500 /
+			// fuel 9500) so the lunar landing doesn't run dry; ascent
+			// (dry 1200 / fuel 1800) returns to lunar orbit. The LM is a
+			// negligible fraction of the ~2.93 Mkg stack, so lift-off
+			// TWR stays ~1.22.
 			stage(LoadoutApolloStackID, "Descent", "▼", "#5FFF87",
-				2500, 6000, 45000, 311),
+				2500, 9500, 45000, 311),
 			stage(LoadoutApolloStackID, "Ascent", "▲", "#7BFFA0",
-				1500, 2000, 16000, 311),
+				1200, 1800, 16000, 311),
 			// Command/Service Module — the surviving core. SPS
 			// storable-propellant engine; enough Δv for the
 			// rendezvous / trans-Earth return.

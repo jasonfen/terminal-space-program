@@ -58,18 +58,27 @@ Reusing Landed means **no new lifecycle state and no save-schema bump**.
 Removal of the abandoned stage as clutter is out of scope — it is the
 "general vessel-removal action" already forward-hooked in ADR 0004.
 
-### 2. Re-fuse fix: `checkDocking` skips a pair when both are Landed
+### 2. Re-fuse fix: `checkDocking` skips a pair when either is Landed
 
-A one-line guard in `checkDocking`: skip any pair where both craft are
-`Landed`. This is structural (re-evaluated every tick and on load), so
+A one-line guard in `checkDocking`: skip any pair where **either** craft
+is `Landed`. This is structural (re-evaluated every tick and on load), so
 it survives save/reload with no persisted state. It fixes the
 immediate post-decouple re-fuse without foreclosing future **moon
 bases** — deliberately joining landed craft will be designed as its own
 feature (auto-by-proximity vs. an explicit "connect" action is
-deferred to that feature; see Forward hooks). A completed orbital dock
-is already a single fused craft, so the only co-located-both-Landed
-*pair* that exists is a not-yet-separated decouple — exactly what this
-guard is for.
+deferred to that feature; see Forward hooks).
+
+**Refinement (post-playtest):** the guard was first written as *both*
+Landed, on the reasoning that the only co-located pair is a not-yet-
+separated decouple. That missed the liftoff moment: when the player
+ignites the ascent stage, its `Landed` flag clears (engine ignition
+releases a craft into normal integration) while it is *still co-located*
+with the parked descent stage — so a both-Landed-only guard let the pair
+re-fuse the instant the ascent lifted off (reported as "undocking
+rejoins the vessels"). Broadening to *either* Landed closes that window:
+a Landed craft simply never auto-fuses by proximity. Orbital rendezvous
+docking is unaffected (both partners are in flight, `Landed=false`), and
+the broader guard is still the seam the moon-base feature revisits.
 
 ### 3. Surface staging reuses `StageActive`, branching placement on `Landed`
 
@@ -157,9 +166,11 @@ stage, so after surface-staging the ascent craft is soft-land-capable.)
   `DockingDistM`. Rejected.
 - **Per-craft `NoAutoDock` flag.** Adds a field overlapping
   `Role="jettisoned-stage"`. Rejected.
-- **Skip auto-dock when both Landed. Chosen.** One structural guard,
-  no state, survives reload, defers the moon-base docking-model
-  decision to that feature.
+- **Skip auto-dock when either is Landed. Chosen.** One structural
+  guard, no state, survives reload, defers the moon-base docking-model
+  decision to that feature. (First cut was *both* Landed; broadened to
+  *either* after the liftoff re-fuse surfaced in playtest — see
+  decision 2.)
 
 ### Apollo Stack scope
 - **Standalone Lander only** (defer Apollo LM split). Smallest, keeps
@@ -199,14 +210,14 @@ stage, so after surface-staging the ascent craft is soft-land-capable.)
   stack (e.g. dual-satellite deploy) can declare its own grouping.
 
 **Negative / trade-offs to live with.**
-- "Skip auto-dock when both Landed" forecloses proximity-based landed
-  docking until the moon-base feature revisits it; landed craft cannot
-  currently fuse by driving them together.
+- "Skip auto-dock when either is Landed" forecloses proximity-based
+  landed docking until the moon-base feature revisits it; landed craft
+  cannot currently fuse by driving them together.
 - `DecouplePlan` adds wire-mapping surface to `save.Craft` (both
   directions) even though it is a single additive field.
 - A two-stage Lander a player saves mid-surface-staging (decoupled but
   ascent not yet ignited, both co-located + Landed) relies on the
-  both-Landed dock guard at load; correct, but a maintainer touching
+  either-Landed dock guard at load; correct, but a maintainer touching
   `checkDocking` must preserve that guard.
 - `CanSoftLand=true` on a legless ascent stage is a gameplay
   convenience that slightly stretches the "designed to land" framing in
@@ -216,7 +227,7 @@ stage, so after surface-staging the ascent craft is soft-land-capable.)
 - **Moon bases / landed docking.** Deliberately joining landed craft —
   auto-by-proximity (needs a reload-surviving separate-first hysteresis
   + stable persisted craft IDs) vs. an explicit "connect" action — is
-  deferred to its own feature. The both-Landed dock guard is the seam
+  deferred to its own feature. The either-Landed dock guard is the seam
   that feature will revisit.
 - **Stable craft identity.** The hysteresis dead-end exposed that the
   slate has no stable per-craft ID (only Name + shifting indices). A
