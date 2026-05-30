@@ -72,6 +72,15 @@ type StageModule struct {
 	// stays false — Saturn V stages crash on contact, CSM crashes
 	// on contact, F9-S2 crashes on contact.
 	canSoftLand bool
+	// hasParachute (v0.12 Slice 3, ADR 0008) marks stages that carry a
+	// recovery parachute — populates Stage.HasParachute (directly in
+	// BuildStage, by-Name via catalogHasParachuteByName for the loadout
+	// literals) so the surface-arrival predicate's chute route and the
+	// Stage-action arm path gate correctly across staging. Today's true
+	// entries: csm (Apollo Command/Service Module) and capsule (the
+	// standalone re-entry test vehicle). Disjoint from canSoftLand —
+	// a capsule has no engine landing route, only the chute.
+	hasParachute bool
 }
 
 // Catalog stage IDs.
@@ -97,7 +106,10 @@ const (
 	StageModuleLanderDescentID = "lander-descent"
 	StageModuleLanderAscentID  = "lander-ascent"
 	StageModuleCSMID           = "csm" // Apollo Command/Service Module (SPS)
-	StageModuleRCSTugID   = "rcs-tug"   // pure-monoprop proximity-ops module
+	// v0.12 Slice 3 / ADR 0008: standalone re-entry capsule — single
+	// command-module-class stage with a parachute, no engine landing.
+	StageModuleCapsuleID = "capsule"
+	StageModuleRCSTugID  = "rcs-tug" // pure-monoprop proximity-ops module
 )
 
 // StageCatalog indexes the parts library by ID. The numbers mirror
@@ -232,6 +244,27 @@ var StageCatalog = map[string]StageModule{
 		// CSM Service Module was bare aluminium — silver-white.
 		launchSpriteColor:   "#C8C8D0",
 		fuelType:            FuelTypeHypergolic,
+		// v0.12 Slice 3 (ADR 0008): the CSM survives the Apollo decouple
+		// chain to re-entry and earns an Earth splashdown under chute.
+		hasParachute: true,
+	},
+	// Re-entry capsule (v0.12 Slice 3, ADR 0008): a minimal command-
+	// module-class stage carrying a parachute and NO engine landing
+	// capability — the clean, directly-spawnable test vehicle for the
+	// chute subsystem (one spawn, a de-orbit, a `space` press). Sized
+	// roughly like an Apollo Command Module alone (the CSM minus the
+	// Service Module): ~5,800 kg dry, a small RCS-only attitude budget,
+	// no main engine. bc 0 → the stowed/armed BC falls back to the
+	// default; only the deployed chute's ChuteDeployedBC matters for its
+	// descent.
+	StageModuleCapsuleID: {
+		ID: StageModuleCapsuleID, Name: "Capsule", Glyph: "◓", Color: "#B8C8E0",
+		Tier: "payload", dry: 5800, fuel: 0, thrust: 0, isp: 0, bc: 0,
+		launchSpriteRowsPx:  6,
+		launchSpriteWidthPx: 3,
+		launchSpriteColor:   "#C8C8D0", // bare-metal command module
+		// fuelType intentionally unset — no main engine (RCS-only).
+		hasParachute: true,
 	},
 	StageModuleRCSTugID: {
 		ID: StageModuleRCSTugID, Name: "RCS Tug", Glyph: "●", Color: "#FF87D7",
@@ -294,5 +327,6 @@ func BuildStage(id string) (Stage, bool) {
 		FuelType:             m.fuelType,
 		LaunchSpriteHasLegs:  m.launchSpriteHasLegs,
 		CanSoftLand:          m.canSoftLand,
+		HasParachute:         m.hasParachute,
 	}, true
 }

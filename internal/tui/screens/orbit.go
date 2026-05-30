@@ -837,7 +837,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// `m` planner in v0.8.6) and added the flight / target / stage /
 	// save row players actually reach for.
 	footer := v.theme.Footer.Render(
-		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]maneuver [b]fire [wasdqe]attitude [space]stage [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
+		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]maneuver [b]fire [wasdqe]attitude [space]stage/chute [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
 	)
 
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
@@ -1732,6 +1732,51 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 		)
 	}
 
+	// v0.12 Slice 3 (ADR 0008): CHUTE block. Descent under a canopy
+	// happens in OrbitView (ViewLanding is still deferred), so the HUD
+	// is the player's only window onto the chute — surface the deploy
+	// state (STOWED / ARMED / DEPLOYED) and the descent rate so they
+	// can watch terminal velocity settle under V_CRIT. Shown for any
+	// chute-bearing vessel still in flight, independent of the LAUNCH /
+	// DESCENT gates above (a re-entry capsule on Earth routes through
+	// LAUNCH; this block rides alongside it).
+	if c := w.ActiveCraft(); c != nil && shouldShowChuteHUD(c) {
+		stateLabel := c.ChuteState.String()
+		switch c.ChuteState {
+		case spacecraft.ChuteDeployed:
+			stateLabel = v.theme.Primary.Render(stateLabel)
+		case spacecraft.ChuteArmed:
+			stateLabel = v.theme.Warning.Render(stateLabel)
+		default:
+			stateLabel = v.theme.Dim.Render(stateLabel)
+		}
+		// Descent rate = surface-relative downward speed (the vertical
+		// component of v_rel along −r̂). The surface-arrival predicate
+		// crashes on total |V| ≥ V_CRIT, so flag when the craft is still
+		// arriving too fast for the canopy to have saved it.
+		omegaRender := render.BodySpinOmegaWorld(c.Primary)
+		omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
+		vRel := c.State.V.Sub(omega.Cross(c.State.R))
+		var descentRate float64
+		if rNorm := c.State.R.Norm(); rNorm > 0 {
+			rHat := c.State.R.Scale(1 / rNorm)
+			descentRate = -(vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z)
+		}
+		rateLabel := fmt.Sprintf("%.1f m/s", descentRate)
+		if vRel.Norm() >= sim.CrashVCritMps {
+			rateLabel = v.theme.Alert.Render(
+				fmt.Sprintf("%.1f m/s (|V| > %.0f = CRASH on contact)", descentRate, sim.CrashVCritMps))
+		}
+		lines = append(lines, section("CHUTE")...)
+		lines = append(lines,
+			fmt.Sprintf("  state:        %s", stateLabel),
+			fmt.Sprintf("  descent rate: %s", rateLabel),
+		)
+		if c.ChuteState == spacecraft.ChuteStowed {
+			lines = append(lines, v.theme.Dim.Render("  [space] arms the chute on a bare capsule"))
+		}
+	}
+
 	// v0.8.2.x: arrival inclination preview. Surfaces the post-
 	// capture orbit at the last frame-changing planted node so the
 	// player catches retrograde-around-target gotchas (a prograde
@@ -2328,6 +2373,19 @@ const descentHUDAltitudeM = 50_000.0
 //
 // Crashed / Landed crafts never reach the surrounding HUD path so the
 // predicate doesn't need to gate on them.
+// shouldShowChuteHUD gates the v0.12 Slice 3 CHUTE block: shown for any
+// chute-bearing vessel (HasParachute mirror true) that is still in
+// flight — not Landed (the descent is over) and not Crashed (no chute
+// could save it). Independent of the LAUNCH / DESCENT atmosphere gates;
+// the chute readout is relevant for the whole descent, and STOWED state
+// reminds the player they can still arm it.
+func shouldShowChuteHUD(c *spacecraft.Spacecraft) bool {
+	if c == nil {
+		return false
+	}
+	return c.HasParachute && !c.Landed && !c.Crashed
+}
+
 func shouldShowDescentHUD(c *spacecraft.Spacecraft) bool {
 	if c == nil {
 		return false

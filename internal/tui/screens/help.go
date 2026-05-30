@@ -61,11 +61,12 @@ func (h *Help) Render() string {
 			{"a / d", "attitude normal+ / normal- (orient only in main; pulse-fire in rcs)"},
 			{"q / e", "attitude radial+ / radial- (orient only in main; pulse-fire in rcs)"},
 			{"W / S", "attitude surface prograde / retrograde — locks to v - ω×r (v0.9.2+)"},
-			{"< / >", "pitch trim ±5° east — held thrust direction tilts off the active mode (v0.9.2+)"},
+			{"< / >", "pitch trim ±10° east — held thrust direction tilts off the active mode (v0.9.2+)"},
 			{"\\", "reset pitch trim to 0 (v0.9.2+)"},
 			{"b", "engage / cut manual burn (main engine only)"},
 			{"r", "engine: main / rcs (RCS = monoprop pulse-fire on attitude keys)"},
 			{"k", "SAS model: slew / instant (navball [MAN]/[AUT]) (v0.10.0+)"},
+			{";", "NavMode cycle: Orbit → Surface → Target (skips Target when none set) (v0.9.3+)"},
 		}},
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
 			{"n", "open spawn form (loadout / position / parent / altitude / dir; Custom = stack builder, v0.10.1+)"},
@@ -73,7 +74,7 @@ func (h *Help) Render() string {
 			{"1-9", "jump to craft N (no-op when slot empty) (v0.12.0+)"},
 			{"U", "undock active composite (v0.8.3+)"},
 			{"t / T", "cycle / clear target (v0.9.0+)"},
-			{"space", "decouple bottom stage (v0.9.1+, multi-stage craft only)"},
+			{"space", "decouple bottom stage (v0.9.1+); on a bare chute capsule, arms the parachute (v0.12+)"},
 		}},
 		{"PERSISTENCE", [][2]string{
 			{"F5", "quicksave (XDG_STATE_HOME)"},

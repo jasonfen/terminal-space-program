@@ -176,6 +176,14 @@ type Stage struct {
 	// dock / save-load. Set true on stages designed to land —
 	// today: `lander` and `f9-s1` in StageCatalog.
 	CanSoftLand bool `json:",omitempty"`
+
+	// HasParachute (v0.12 Slice 3, ADR 0008): per-stage parachute
+	// capability, the exact mirror of CanSoftLand. Set in StageCatalog
+	// (today: the `csm` stage and the standalone re-entry capsule);
+	// SyncFields re-derives Spacecraft.HasParachute from Stages[0] on
+	// every staging / dock / load so the capability rides the hardware
+	// across a decouple. `omitempty`.
+	HasParachute bool `json:",omitempty"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.
@@ -258,6 +266,10 @@ func (s *Spacecraft) SyncFields() {
 	// doesn't) and the Apollo Stack model (Lander stage decouples
 	// into its own slate craft carrying CanSoftLand=true).
 	s.CanSoftLand = bottom.CanSoftLand
+	// v0.12 Slice 3 (ADR 0008): parachute capability mirrors the
+	// bottom stage too — the chute becomes "active" only once the
+	// chute-bearing stage is the surviving core (Stages[0]).
+	s.HasParachute = bottom.HasParachute
 }
 
 // ActiveStageFuel returns the bottom (currently-firing) stage's
