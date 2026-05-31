@@ -825,3 +825,62 @@ func TestComposeLaunchSpriteDefaultsToTwoWhenWidthZero(t *testing.T) {
 		t.Errorf("got %d pixels, want %d (3 rows × default %d wide)", got, want, defaultSpriteWidthPx)
 	}
 }
+
+// TestComposeCanopy_SitsAboveStack — the deployed-chute canopy paints
+// above the top stage (higher screen.Y than every stage pixel at
+// vertical climb) and spreads wider than the top stage's body
+// (v0.12 Slice 3, ADR 0008).
+func TestComposeCanopy_SitsAboveStack(t *testing.T) {
+	stages := []spacecraft.Stage{
+		{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 3, Color: "#B8C8E0"},
+	}
+	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	body := ComposeLaunchSprite(stages, cmd, basis, 1.0)
+	canopy := ComposeCanopy(stages, cmd, basis, 1.0)
+	if len(canopy) == 0 {
+		t.Fatal("ComposeCanopy returned no pixels")
+	}
+	// Highest body pixel.
+	maxBodyY := -1e18
+	for _, p := range body {
+		if y := p.OffsetWorld.Dot(basis.Y); y > maxBodyY {
+			maxBodyY = y
+		}
+	}
+	minCanopyY, maxCanopyX, minCanopyX := 1e18, -1e18, 1e18
+	for _, p := range canopy {
+		y := p.OffsetWorld.Dot(basis.Y)
+		x := p.OffsetWorld.Dot(basis.X)
+		if y < minCanopyY {
+			minCanopyY = y
+		}
+		if x > maxCanopyX {
+			maxCanopyX = x
+		}
+		if x < minCanopyX {
+			minCanopyX = x
+		}
+	}
+	if minCanopyY <= maxBodyY {
+		t.Errorf("canopy bottom (%.2f) should sit above the body top (%.2f)", minCanopyY, maxBodyY)
+	}
+	// Canopy spans wider than the 3-wide top stage body (±1 sub-pixel).
+	if span := maxCanopyX - minCanopyX; span <= 2.0 {
+		t.Errorf("canopy width span %.2f should exceed the 3-wide stage body (2 sub-pixels)", span)
+	}
+}
+
+// TestComposeCanopy_EmptyStages — defensive: no stages ⇒ no canopy.
+func TestComposeCanopy_EmptyStages(t *testing.T) {
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	if got := ComposeCanopy(nil, orbital.Vec3{Z: 1}, basis, 1.0); got != nil {
+		t.Errorf("ComposeCanopy(nil) = %v, want nil", got)
+	}
+}

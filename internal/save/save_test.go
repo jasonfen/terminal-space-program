@@ -1033,3 +1033,42 @@ func TestLegacySaveNoAttitudeDirSnapsNoTeleport(t *testing.T) {
 		t.Errorf("first-tick snap did not seed a unit nose: |dir|=%.6f", n)
 	}
 }
+
+// TestRoundtripParachute — v0.12 Slice 3 (ADR 0008): the runtime
+// ChuteState (craft-level) and the per-Stage HasParachute capability
+// both round-trip, and SyncFields re-derives the Spacecraft.HasParachute
+// mirror from Stages[0] on load. No SchemaVersion bump (omitempty-additive).
+func TestRoundtripParachute(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	// Stamp the active craft as a chute-bearing capsule mid-descent
+	// (armed, waiting to inflate).
+	c.Stages[0].HasParachute = true
+	c.ChuteState = spacecraft.ChuteArmed
+	c.SyncFields()
+	if !c.HasParachute {
+		t.Fatalf("setup: mirror should be true after SyncFields")
+	}
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	gc := got.ActiveCraft()
+	if gc.ChuteState != spacecraft.ChuteArmed {
+		t.Errorf("ChuteState: got %v, want Armed", gc.ChuteState)
+	}
+	if !gc.Stages[0].HasParachute {
+		t.Errorf("per-stage HasParachute did not round-trip")
+	}
+	if !gc.HasParachute {
+		t.Errorf("Spacecraft.HasParachute mirror not re-derived on load")
+	}
+}

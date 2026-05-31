@@ -259,18 +259,127 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 		// top of the stack (no upper neighbour). The taper rows do
 		// NOT alter Stage.LaunchSpriteRowsPx — they extend the
 		// composed stack height by 1 row per boundary.
-		if i+1 < len(stages) {
-			up := stages[i+1]
-			if up.LaunchSpriteRowsPx >= taperThreshold && s.LaunchSpriteRowsPx >= taperThreshold {
-				upWidth := stageSpriteWidthPx(up)
-				taperWidth := (width + upWidth + 1) / 2 // round half-up
-				emitRect(rowOffset, 1, taperWidth, color)
-				rowOffset++
-			}
+		if i+1 < len(stages) && taperRowBetween(s, stages[i+1]) > 0 {
+			upWidth := stageSpriteWidthPx(stages[i+1])
+			taperWidth := (width + upWidth + 1) / 2 // round half-up
+			emitRect(rowOffset, 1, taperWidth, color)
+			rowOffset++
 		}
 	}
 	if len(pixels) == 0 {
 		return nil
+	}
+	return pixels
+}
+
+// Canopy geometry constants (v0.12 Slice 3, ADR 0008). A deployed
+// parachute paints a synthetic braille dome above the top stage,
+// connected by a short shroud-line gap — reusing the (stack-dir,
+// width-dir) basis seam the bell / legs / flame already use so the
+// canopy leans with the vessel through any attitude.
+const (
+	canopyGapRows    = 2  // shroud-line rows between the capsule top and canopy skirt
+	canopyRows       = 3  // dome height in sub-pixels
+	canopyMinWidth   = 5  // skirt width floor (sub-pixels)
+	canopyMaxWidth   = 11 // skirt width cap so a wide stack doesn't get an absurd canopy
+	canopyShroudDots = 3  // interpolated dots per shroud line
+)
+
+// canopyColor is the canopy tint — a pale off-white that reads as
+// fabric against the metal stage bodies and the coloured flame.
+const canopyColor = lipgloss.Color("#F5F0E0")
+
+// taperRowBetween returns the number of synthetic inter-stage taper
+// rows painted between two vertically-adjacent stages: 1 when both
+// clear taperThreshold, else 0. The single source of truth for the
+// taper rule, shared by ComposeLaunchSprite (which emits the taper
+// band) and composedStackRows (which only needs the height) so the two
+// can't drift — if they disagreed, ComposeCanopy would anchor at the
+// wrong height. v0.12 Slice 3 (ADR 0008).
+func taperRowBetween(lower, upper spacecraft.Stage) int {
+	if lower.LaunchSpriteRowsPx >= taperThreshold && upper.LaunchSpriteRowsPx >= taperThreshold {
+		return 1
+	}
+	return 0
+}
+
+// composedStackRows returns the total sub-pixel height of the composed
+// launch sprite, including inter-stage taper rows — mirrors the
+// rowOffset accumulation in ComposeLaunchSprite so ComposeCanopy can
+// anchor itself just above the top stage.
+func composedStackRows(stages []spacecraft.Stage) int {
+	rows := 0
+	for i, s := range stages {
+		if s.LaunchSpriteRowsPx <= 0 {
+			continue
+		}
+		rows += s.LaunchSpriteRowsPx
+		if i+1 < len(stages) {
+			rows += taperRowBetween(s, stages[i+1])
+		}
+	}
+	return rows
+}
+
+// ComposeCanopy paints a deployed-parachute canopy above the top stage:
+// a 3-row braille dome at canopyWidth, plus two converging shroud lines
+// bridging the canopyGapRows gap down to the top stage's shoulders.
+// Geometry is defined in the (stack-dir, width-dir) basis so the canopy
+// leans with the vessel through gravity turns, like the bell / legs.
+// The caller gates this on craft.ChuteState == ChuteDeployed. Returns
+// nil when there is no composed stack to sit above. v0.12 Slice 3
+// (ADR 0008).
+func ComposeCanopy(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) []SpritePixel {
+	totalRows := composedStackRows(stages)
+	if totalRows == 0 {
+		return nil
+	}
+	topWidth := stageSpriteWidthPx(stages[len(stages)-1])
+
+	canopyW := topWidth*2 + 3
+	if canopyW < canopyMinWidth {
+		canopyW = canopyMinWidth
+	}
+	if canopyW > canopyMaxWidth {
+		canopyW = canopyMaxWidth
+	}
+
+	pxSize := scaleMPerPx
+	stackX, stackY := stackDirScreen(cmdWorld, basis)
+	widthX, widthY := stackY, -stackX
+	emit := func(rowAbove, xPx float64) SpritePixel {
+		screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
+		screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
+		offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
+		return SpritePixel{OffsetWorld: offset, Color: canopyColor}
+	}
+
+	baseRow := float64(totalRows + canopyGapRows) // canopy skirt sits here
+	var pixels []SpritePixel
+	// Dome: narrows toward the top (a rounded canopy) — widest at the
+	// skirt (r=0), losing 2 sub-pixels of width per row up.
+	for r := 0; r < canopyRows; r++ {
+		w := canopyW - 2*r
+		if w < 1 {
+			w = 1
+		}
+		rowAbove := baseRow + float64(r)
+		for col := 0; col < w; col++ {
+			xPx := float64(col) - float64(w-1)/2.0
+			pixels = append(pixels, emit(rowAbove, xPx))
+		}
+	}
+	// Shroud lines: two lines from the canopy skirt corners down to the
+	// top stage's shoulder corners across the gap.
+	skirtX := float64(canopyW-1) / 2.0
+	shoulderX := float64(topWidth-1) / 2.0
+	for _, sign := range [...]float64{-1, +1} {
+		for d := 1; d <= canopyShroudDots; d++ {
+			frac := float64(d) / float64(canopyShroudDots+1) // 0<frac<1 along the gap
+			rowAbove := baseRow - frac*float64(canopyGapRows)
+			xPx := sign * (skirtX + frac*(shoulderX-skirtX))
+			pixels = append(pixels, emit(rowAbove, xPx))
+		}
 	}
 	return pixels
 }
