@@ -89,6 +89,12 @@ func (w *World) Undock(idx int) bool {
 			MonopropCap:  comp.MonopropCapacity,
 			RCSThrust:    comp.RCSThrust,
 			RCSIsp:       comp.RCSIsp,
+			// v0.12 Slice 3 (ADR 0008): restore the surface-arrival
+			// capabilities so an undocked lander / chute capsule keeps
+			// its soft-land / parachute qualification. SyncFields below
+			// re-derives the flat mirrors from this Stages[0].
+			CanSoftLand:  comp.CanSoftLand,
+			HasParachute: comp.HasParachute,
 		}}
 		s := &spacecraft.Spacecraft{
 			Name:      comp.Name,

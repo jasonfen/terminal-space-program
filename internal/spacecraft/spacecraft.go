@@ -185,6 +185,25 @@ type Spacecraft struct {
 	// `omitempty`-default-false (existing vessels are crash-only).
 	CanSoftLand bool
 
+	// HasParachute (v0.12 Slice 3, ADR 0008): the Vessel-level mirror
+	// of the bottom stage's per-Stage parachute capability. Re-derived
+	// from Stages[0] on every SyncFields exactly like CanSoftLand, so
+	// it rides the hardware across a decouple (the chute capability
+	// becomes "active" once the chute-bearing stage is the bottom /
+	// surviving core). Gates the Stage-action arm path and the
+	// auto-deploy check. `omitempty`-default-false.
+	HasParachute bool
+
+	// ChuteState (v0.12 Slice 3, ADR 0008): the runtime parachute
+	// deploy state — STOWED → ARMED → DEPLOYED, one-way, DEPLOYED
+	// terminal. Lives alongside Landed / Crashed (the other surface-
+	// lifecycle runtime flags). Zero value = ChuteStowed, so pre-Slice-3
+	// saves load stowed; `omitempty`, no SchemaVersion bump. While
+	// ChuteDeployed, EffectiveBallisticCoefficient returns the fixed
+	// ChuteDeployedBC and the surface-arrival predicate gains a second
+	// (nose-waived) route into Landed.
+	ChuteState ChuteState
+
 	// OnPad (v0.11.4+): true between Launchpad spawn and first
 	// liftoff. Set by surfaceSpawnPosVel; cleared on the first
 	// Landed=false transition. Distinguishes "fresh launchpad
@@ -285,6 +304,18 @@ type DockedComponent struct {
 	Thrust           float64
 	RCSThrust        float64
 	RCSIsp           float64
+	// CanSoftLand / HasParachute (v0.12 Slice 3, ADR 0008): the two
+	// surface-arrival capability flags, captured so Undock can restore
+	// them onto the rebuilt single-stage craft. Without this a chute-
+	// bearing capsule (or a CanSoftLand lander) that docks then undocks
+	// loses its capability — the restored Stages[0] would default false
+	// and SyncFields would re-derive a false mirror, crashing the Earth
+	// splashdown the chute exists for. (DockedComponent still doesn't
+	// record the full per-stage breakdown — that broader gap is the
+	// banked v0.9.1.x follow-up the Undock comment notes — but the
+	// landing capabilities are cheap to carry and load-bearing.)
+	CanSoftLand  bool
+	HasParachute bool
 }
 
 // AsDockedComponent captures s's identity + capacity fields into a
@@ -304,6 +335,8 @@ func (s *Spacecraft) AsDockedComponent() DockedComponent {
 		Thrust:           s.Thrust,
 		RCSThrust:        s.RCSThrust,
 		RCSIsp:           s.RCSIsp,
+		CanSoftLand:      s.CanSoftLand,
+		HasParachute:     s.HasParachute,
 	}
 }
 
@@ -344,6 +377,12 @@ const DefaultBallisticCoefficient = 0.01
 // back to s.BallisticCoefficient (legacy field), then
 // DefaultBallisticCoefficient.
 func (s *Spacecraft) EffectiveBallisticCoefficient() float64 {
+	// v0.12 Slice 3 (ADR 0008): a deployed parachute swamps the
+	// capsule's own drag. Absolute replace at the top of the chain so
+	// terminal velocity is predictable and mass-independent.
+	if s.ChuteState == ChuteDeployed {
+		return ChuteDeployedBC
+	}
 	if len(s.Stages) > 0 && s.Stages[0].BallisticCoefficient > 0 {
 		return s.Stages[0].BallisticCoefficient
 	}

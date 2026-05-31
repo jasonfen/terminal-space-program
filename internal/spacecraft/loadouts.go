@@ -148,6 +148,15 @@ const LoadoutFalcon9ID = "Falcon-9"
 // canonical Saturn-V tuning so ascent flies identically.
 const LoadoutApolloStackID = "Apollo-Stack"
 
+// LoadoutCapsule is the v0.12 Slice 3 (ADR 0008) standalone re-entry
+// capsule: a single command-module-class stage with a recovery
+// parachute and no engine landing capability. The clean, directly-
+// spawnable test vehicle for the chute subsystem — spawn it, de-orbit,
+// `space` to arm, watch it auto-deploy and splash down under V_CRIT
+// without crashing. The CSM is only reachable via the full Apollo
+// Stack → orbit → four decouples, too slow to iterate on.
+const LoadoutCapsuleID = "Capsule"
+
 // stageRCS builds the per-stage RCS pool for a stage of the given
 // dry mass via DefaultRCSLoadout — same scaling that single-stage
 // craft used pre-v0.9.1, so existing loadouts inherit identical
@@ -195,7 +204,26 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 		FuelType:             catalogFuelTypeByName(name),
 		LaunchSpriteHasLegs:  catalogLaunchSpriteHasLegsByName(name),
 		CanSoftLand:          catalogCanSoftLandByName(name),
+		HasParachute:         catalogHasParachuteByName(name),
 	}
+}
+
+// catalogHasParachuteByName looks up the StageCatalog's hasParachute
+// flag for a loadout stage by its Name field. Mirrors
+// catalogCanSoftLandByName (same LM→Lander alias for the Apollo-Stack
+// literal). v0.12 Slice 3 (ADR 0008): the Apollo-Stack's "CSM" literal
+// resolves against the catalog's "CSM" entry and so inherits its
+// parachute capability.
+func catalogHasParachuteByName(name string) bool {
+	if name == "LM" {
+		name = "Lander"
+	}
+	for _, m := range StageCatalog {
+		if m.Name == name {
+			return m.hasParachute
+		}
+	}
+	return false
 }
 
 // catalogLaunchSpriteRowsPxByName returns the StageCatalog
@@ -498,6 +526,21 @@ var Loadouts = map[string]Loadout{
 		// 2-stage LM craft, leaving the CSM core. Sum (5) < 6 stages.
 		DecouplePlan: []int{1, 1, 1, 2},
 	},
+	// Re-entry capsule (v0.12 Slice 3, ADR 0008): single command-module
+	// stage carrying a parachute and no engine landing. HasParachute /
+	// !CanSoftLand ride per-Stage via the StageCatalog by-Name lookup
+	// (the "Capsule" entry). No main engine — the player de-orbits with
+	// RCS (or spawns sub-orbital) and recovers under chute.
+	LoadoutCapsuleID: {
+		ID:    LoadoutCapsuleID,
+		Name:  "Capsule",
+		Role:  "capsule",
+		Glyph: "◓",
+		Color: "#B8C8E0", // pale bare-metal command module
+		Stages: []Stage{
+			stage(LoadoutCapsuleID, "Capsule", "◓", "#B8C8E0", 5800, 0, 0, 0),
+		},
+	},
 }
 
 // LoadoutOrder lists loadouts in canonical UI cycle order — the
@@ -513,6 +556,7 @@ var LoadoutOrder = []string{
 	LoadoutSLSBlock1ID,
 	LoadoutFalcon9ID,
 	LoadoutApolloStackID,
+	LoadoutCapsuleID,
 }
 
 // LookupLoadout returns the catalog entry for the given ID, or the
