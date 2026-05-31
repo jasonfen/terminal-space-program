@@ -175,7 +175,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H`. Press `o` inside to open the transfer-options sub-menu (`n` cycles nRev 0–3, `r` toggles prograde/retrograde, `b` toggles short/long branch); `enter`/`o`/`esc` closes and re-solves (v0.10.5+) |
 | `R` | Refine plan — re-Lambert from live state, plant mid-course correction + update arrival |
 | `m` | Open maneuver planner |
-| `F5` / `F9` | Quicksave / quickload (`$XDG_STATE_HOME/terminal-space-program/save.json`) — KSP-style |
+| `F5` / `F9` | Quicksave / quickload (`~/.local/state/terminal-space-program/save.json`, or `$XDG_STATE_HOME/...` if that var is set) — KSP-style |
 | `[` / `]` | Cycle active craft (no-op when only one craft loaded) |
 | `1`–`9` | Jump directly to craft N (no-op when that slot is empty) |
 | `U` | Undock active composite |
@@ -435,7 +435,9 @@ the displayed bracket.
   insertion, Mars SOI flyby). Reachable via the `[Missions]`
   title-bar button.
 - **Persistence**. Save / load to JSON at
-  `$XDG_STATE_HOME/terminal-space-program/save.json`. Schema
+  `~/.local/state/terminal-space-program/save.json` (or
+  `$XDG_STATE_HOME/terminal-space-program/save.json` when that variable
+  is set). Schema
   v5 round-trips clock, focus, the entire craft slate (each
   craft's RCS pool, planted nodes with per-node throttle,
   in-flight burn, attitude, engine mode), and missions. Pre-v5

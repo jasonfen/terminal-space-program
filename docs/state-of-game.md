@@ -666,7 +666,7 @@ Highlights:
 
 **Save / load + mid-course corrections.**
 
-- **Save / load** (v0.4.0): JSON state file at `$XDG_STATE_HOME/.../save.json`, `body_catalog_hash` header for save-compatibility checks, `S` / `L` keys (replaced by F5/F9 in v0.8.6), autosave on quit.
+- **Save / load** (v0.4.0): JSON state file at `~/.local/state/terminal-space-program/save.json` (or `$XDG_STATE_HOME/.../save.json` when that var is set), `body_catalog_hash` header for save-compatibility checks, `S` / `L` keys (replaced by F5/F9 in v0.8.6), autosave on quit.
 - **Mid-course refine** (v0.4.1): `R` re-Lamberts from live state to pending arrival; plants prograde / retrograde correction.
 - **SOI-fix + warp-lock + SOI subdivide** (v0.4.2–.4): nested SOI walk, analytic Kepler fast-path during high warp, chunk subdivision so high-warp orbits don't skip foreign SOIs.
 
