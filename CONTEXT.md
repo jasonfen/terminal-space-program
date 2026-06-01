@@ -90,14 +90,20 @@ zoom), not derived from real metres. Zero `LaunchSpriteRowsPx` means
 `LaunchSpriteWidthPx` falls back to a 2-sub-pixel default
 (the pre-v0.11.5 universal width). Practical width range [1, 5].
 
-**Engine Bell**: a synthetic single-row flare painted between
-`Stages[0]`'s bottom edge and the flame, at width `min(stage.width +
-2, 7)`, in the stage's color. Renders whenever `Stages[0]` has
+**Engine Bell**: a synthetic flare painted between `Stages[0]`'s bottom
+edge and the flame, in the stage's color, at mouth width
+`min(stage.width + 2, 7)`. Renders whenever `Stages[0]` has
 `launchSpriteWidthPx ≥ 2`, `launchSpriteRowsPx ≥ 4`, and `Thrust > 0`
 (a pure-monoprop RCS-tug as bottom stage gets no bell). Inferred from
-geometry, not authored — no catalog field. The bell is *hardware*, so
-it renders regardless of throttle; the flame attaches below it and
-inherits the bell's width so exhaust visibly emerges from the nozzle.
+geometry, not authored — no catalog field. v0.12 Slice 4 replaced
+the v0.11.5 single flat row with a **3-row taper** (`EngineBellRows`)
+flaring linearly from the stage *throat* width at the top (nearest the
+body) to the *mouth* width at the bottom (the nozzle exit) — a more
+authentic nozzle silhouette. A bell with no room to flare (mouth
+clamped to the throat width, e.g. a 7-wide stage) stays a single flat
+row. The bell is *hardware*, so it renders regardless of throttle; the
+flame attaches just below the whole bell stack and inherits the mouth
+width so exhaust visibly emerges from the nozzle.
 
 **Inter-stage Taper**: an optional synthetic 1-row taper between
 adjacent stages of different `LaunchSpriteWidthPx`, painted at
@@ -120,14 +126,23 @@ stage's color (legs = descent-stage hardware). Defined in the
 during gravity-turns, preserving the direction-agnostic invariant.
 
 Below `Stages[0]`'s engine bell a **flame** of the same braille
-primitive extends along `-CurrentAttitudeDir`, length-binned by
-Throttle (4 / 8 / 12 sub-pixels), pulsed by a wall-clock 100 ms frame
-shift. Flame color is looked up from `Stages[0].FuelType` via a
-fixed palette (see [[#maneuver--thrust|Fuel Type]]); empty / unknown
-FuelType falls back to amber `render.ColorWarning` for backward
-compatibility with un-catalogued stages. The flame renders only while
-the Vessel has an active `ManualBurn` or `ActiveBurn` — pad-spawn
-loadout-default Throttle=1.0 alone does not paint flame.
+primitive extends along `-CurrentAttitudeDir`, a basic cone whose
+height is throttle-binned (2 / 3 / 4 sub-pixel rows, capped at
+`flameMaxRows`) and whose width tapers from the bell mouth at the top
+to half that at the tip, pulsed by a wall-clock 100 ms frame shift.
+Flame color is looked up from `Stages[0].FuelType` via a fixed palette
+(see [[#maneuver--thrust|Fuel Type]]); empty / unknown FuelType falls
+back to amber `render.ColorWarning` for backward compatibility with
+un-catalogued stages. v0.12 Slice 4 made the plume **two-colour**: a
+hot warm-white core (`flameCoreColor`) down the central
+`flameCoreWidth(w)` columns of each row wide enough to resolve one
+(≥ 3 sub-pixels), with the fuel tint on the edges — the white-hot
+Mach-diamond read. The core is a warm cream, deliberately a step off
+the cold pure-white of the [[#attitude--rcs|RCS]] **RCS Puff** so the
+white-vs-coloured "RCS = cold puff, main engine = hot plume" contrast
+below still holds. The flame renders only while the Vessel has an
+active `ManualBurn` or `ActiveBurn` — pad-spawn loadout-default
+Throttle=1.0 alone does not paint flame.
 
 **RCS Puff**: small bright-white dots painted at recent RCS-pulse
 positions in both ViewLaunch and OrbitView. Two-shade (bright-white

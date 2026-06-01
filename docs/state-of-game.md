@@ -2,12 +2,13 @@
 
 <!--
   meta:
-    snapshot_version: v0.12.3 (2-stage Lander + surface staging, ADR 0007;
-      parachutes Slice 3 in flight on branch slice3-parachutes, ADR 0008)
-    snapshot_date: 2026-05-30
-    revised_date: 2026-05-30 (parachutes moved from backlog → in-progress
-      v0.12.4; releases index and snapshot block updated; v0.12 row reflects
-      v0.12.3 shipped)
+    snapshot_version: v0.12.5 (two-colour flame + multi-row engine-bell
+      taper — Slice 4 render-polish leftovers; parachutes shipped v0.12.4,
+      ADR 0008)
+    snapshot_date: 2026-06-01
+    revised_date: 2026-06-01 (Slice 4 flame/bell polish shipped v0.12.5;
+      parachutes confirmed shipped v0.12.4; snapshot block + v0.12 releases
+      row updated — only remaining v0.12 item is GH #68, deferred)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
@@ -16,7 +17,7 @@
   ADRs (docs/adr/); this file keeps the entries + the snapshot.
 -->
 
-> Snapshot at **v0.12.3** (May 2026). Three cycles have shipped to
+> Snapshot at **v0.12.5** (June 2026). Three cycles have shipped to
 > `main` since v0.9.6:
 >
 > - **v0.10** (May 19–23) — planner + maneuver tooling: rate-limited
@@ -26,7 +27,7 @@
 > - **v0.11** (May 24–27) — the launch chase-cam (`ViewLaunch`), the
 >   crashed/landed lifecycle ([ADR 0004](adr/0004-crashed-landed-lifecycle.md)),
 >   and Lander silhouette + soft-landing polish.
-> - **v0.12** (May 29–30, *in progress*) — numbered craft slots + a
+> - **v0.12** (May 29 – Jun 1) — numbered craft slots + a
 >   cleanup bundle (v0.12.0); the combined plane-shift + Hohmann
 >   dual-strategy intra-primary transfer (v0.12.1,
 >   [ADR 0005](adr/0005-combined-plane-shift-hohmann-via-lambert.md));
@@ -34,12 +35,15 @@
 >   [ADR 0006](adr/0006-intra-primary-transfer-arrival-and-predictor-fidelity.md)):
 >   analytic-Kepler Projected-Orbit fidelity (GH #66) and a
 >   Line-of-Nodes split rendezvous (GH #67); and the 2-stage Lander
->   + surface staging (v0.12.3, [ADR 0007](adr/0007-surface-staging-and-decouple-plan.md)).
+>   + surface staging (v0.12.3, [ADR 0007](adr/0007-surface-staging-and-decouple-plan.md));
+>   parachutes for atmospheric descent + recovery (v0.12.4,
+>   [ADR 0008](adr/0008-parachutes-atmospheric-descent-recovery.md));
+>   and the Slice 4 render-polish leftovers — two-colour flame + multi-row
+>   engine-bell taper (v0.12.5).
 >
-> **In flight:** parachutes (Slice 3, ADR 0008, branch `slice3-parachutes`,
-> targeting **v0.12.4**). **Remaining after that:** two-colour flame polish
-> (Slice 4 leftover) and Moon-frame lunar-capture inclination trim
-> (GH #68, deferred from v0.12.2). Pre-v0.8 per-feature detail preserved at
+> **Remaining:** Moon-frame lunar-capture inclination trim
+> (GH #68, deferred from v0.12.2) — the only open v0.12 thread.
+> Pre-v0.8 per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
 ---
@@ -125,7 +129,7 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
-| [v0.12](v0.12-plan.md) | 2026-05-29 | 🚧 | **Cycle in progress.** Numbered craft slots + cleanup (v0.12.0); combined plane-shift + Hohmann dual-strategy transfer (v0.12.1, ADR 0005); Slice 5 follow-on — Line-of-Nodes split rendezvous + analytic-Kepler Projected-Orbit fidelity (v0.12.2, ADR 0006, GH #66/#67); 2-stage Lander + surface staging (v0.12.3, ADR 0007). **In flight:** parachutes (v0.12.4, ADR 0008, branch `slice3-parachutes`). Remaining after that: flame polish, GH #68. |
+| [v0.12](v0.12-plan.md) | 2026-05-29 → 06-01 | ✓ | Numbered craft slots + cleanup (v0.12.0); combined plane-shift + Hohmann dual-strategy transfer (v0.12.1, ADR 0005); Slice 5 follow-on — Line-of-Nodes split rendezvous + analytic-Kepler Projected-Orbit fidelity (v0.12.2, ADR 0006, GH #66/#67); 2-stage Lander + surface staging (v0.12.3, ADR 0007); parachutes for atmospheric descent + recovery (v0.12.4, ADR 0008); two-colour flame + multi-row engine-bell taper (v0.12.5). Remaining: GH #68 (deferred lunar-capture inclination trim). |
 | [v0.11](v0.11-plan.md) | 2026-05-24 → 27 | ✓ | Launch chase-cam (`ViewLaunch`, v0.11.0); crashed/landed lifecycle (ADR 0004); Lander silhouette + soft-landing polish (v0.11.2–.5). |
 | [v0.10](v0.10-plan.md) | 2026-05-19 → 23 | ✓ | Planner + maneuver tooling — rate-limited slew, staging chain, rendezvous tooling, true plane-match/inclination burns, predictor adaptive sampling, multi-rev porkchop, perspective-tilt orbit view, launch-anchor. |
 | [v0.9.6](#v096) | 2026-05-17 | ✓ | Solar lighting + day/night terminator + eclipses, plus a navball overhaul (flicker root-cause fix + KSP-style framed panel). Closes the v0.9 cycle. |
