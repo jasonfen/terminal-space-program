@@ -105,7 +105,11 @@ func (w *World) ToggleManualBurn() {
 // SetThrottle clamps the requested throttle to [0, 1] and applies
 // it to the active craft. Setting throttle to 0 also stops the
 // active craft's in-flight manual burn so the "x = cut" muscle
-// memory works in one keypress; planted burns keep running.
+// memory works in one keypress; a normally-running planted burn keeps
+// running, but a STALLED planted burn (paused waiting for a stage,
+// producing no thrust) is aborted — that's the only way to abandon a
+// transfer the spent stage couldn't finish, and without it the dangling
+// burn would block StartManualBurn (v0.12.x pause-and-resume).
 func (w *World) SetThrottle(t float64) {
 	c := w.ActiveCraft()
 	if c == nil {
@@ -122,6 +126,9 @@ func (w *World) SetThrottle(t float64) {
 	c.Throttle = t
 	if t == 0 {
 		w.StopManualBurn()
+		if c.BurnStalled() {
+			c.ActiveBurn = nil
+		}
 	}
 }
 

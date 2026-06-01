@@ -1367,10 +1367,21 @@ func (v *OrbitView) renderHUD(w *sim.World, selectedIdx int, width int) string {
 			} else {
 				tag = v.theme.Dim.Render(tag)
 			}
-			lines = append(lines,
-				fmt.Sprintf("  %s — %s, Δv %.0f m/s, T-%.0fs",
-					tag, ab.Mode.String(), ab.DVRemaining, remaining),
-			)
+			if c.BurnStalled() {
+				// Firing stage ran dry mid-burn with Δv still owed: the burn
+				// is paused, waiting for the player to decouple to a fuelled
+				// stage (v0.12.x pause-and-resume). T-clock is meaningless
+				// while paused, so show the prompt instead.
+				lines = append(lines,
+					fmt.Sprintf("  %s — %s, Δv %.0f m/s", tag, ab.Mode.String(), ab.DVRemaining),
+					v.theme.Warning.Render("    ⚠ STALLED — stage to resume (x to cancel)"),
+				)
+			} else {
+				lines = append(lines,
+					fmt.Sprintf("  %s — %s, Δv %.0f m/s, T-%.0fs",
+						tag, ab.Mode.String(), ab.DVRemaining, remaining),
+				)
+			}
 		}
 	}
 
