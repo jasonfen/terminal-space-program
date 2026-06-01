@@ -259,6 +259,16 @@ func (b ActiveBurn) TargetCraftIdxValue() (int, bool) {
 	return b.TargetCraftIdx - 1, true
 }
 
+// BurnStalled reports whether a planted burn is paused waiting for the
+// player to stage: Δv is still owed but the firing (bottom) stage has run
+// dry, so no thrust is being produced. The burn stays alive and resumes
+// automatically once a fuelled stage is decoupled into place (v0.12.x
+// pause-and-resume across staging). Drives the HUD "stage to resume"
+// prompt and the throttle-cut abort path.
+func (s *Spacecraft) BurnStalled() bool {
+	return s.ActiveBurn != nil && s.ActiveBurn.DVRemaining > 0 && s.ActiveStageFuel() <= 0
+}
+
 // ManualBurn is the runtime state of a v0.7.3+ player-held manual
 // burn. Mirrors ActiveBurn's role in the integrator dispatch but
 // carries no Δv budget, no end time, and no fixed mode — direction

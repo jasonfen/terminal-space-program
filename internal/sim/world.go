@@ -985,10 +985,21 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			mu = c.Primary.GravitationalParameter()
 		}
 	}
-	// Tear down the burn if it exhausted (Δv delivered, fuel gone, or
-	// EndTime passed during this tick).
-	if c.ActiveBurn != nil && w.burnExhausted(c) {
-		c.ActiveBurn = nil
+	// Tear down the burn if it exhausted (Δv delivered, or EndTime passed
+	// with fuel still aboard). v0.12.x pause-and-resume: if instead the
+	// firing stage ran dry with Δv still owed, keep the burn alive but
+	// stall it — push its EndTime by this tick's span so the duration
+	// window is paused, not consumed, while the craft coasts. Thrust
+	// auto-resumes the moment the player decouples to a fueled stage
+	// (thrustingAt gates on ActiveStageFuel) so a multi-stage burn — e.g.
+	// an Apollo TLI the S-IVB can't finish alone — carries across staging
+	// instead of silently cancelling.
+	if c.ActiveBurn != nil {
+		if w.burnExhausted(c) {
+			c.ActiveBurn = nil
+		} else if c.ActiveStageFuel() <= 0 {
+			c.ActiveBurn.EndTime = c.ActiveBurn.EndTime.Add(simDelta)
+		}
 	}
 	// Manual burns end on fuel exhaustion only; the player ends them
 	// explicitly via StopManualBurn (e.g. on `x`). v0.9.4+: check
@@ -1160,13 +1171,20 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	c.State.M = c.TotalMass()
 }
 
-// burnExhausted reports whether the active burn should be torn down: any
-// of Δv delivered, fuel empty, or sim-time past the duration window
-// terminates the burn.
+// burnExhausted reports whether the active burn should be torn down:
+// either its Δv was delivered, or its duration window elapsed while the
+// firing stage still had fuel. v0.12.x: a dry firing stage with Δv still
+// owed is NOT exhausted — it is stalled, and the caller keeps the burn
+// alive (pausing its EndTime) so it resumes after the player stages. Only
+// the fuelled-but-timed-out case terminates on duration.
 func (w *World) burnExhausted(c *spacecraft.Spacecraft) bool {
-	return c.ActiveBurn.DVRemaining <= 0 ||
-		c.ActiveStageFuel() <= 0 ||
-		!w.Clock.SimTime.Before(c.ActiveBurn.EndTime)
+	if c.ActiveBurn.DVRemaining <= 0 {
+		return true
+	}
+	if c.ActiveStageFuel() <= 0 {
+		return false // stalled, not exhausted — kept alive for staging
+	}
+	return !w.Clock.SimTime.Before(c.ActiveBurn.EndTime)
 }
 
 // canKeplerStep reports whether the analytic warp-lock fast path is
