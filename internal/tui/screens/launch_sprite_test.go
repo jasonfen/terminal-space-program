@@ -225,6 +225,47 @@ func TestComposeFlame_MidThrottleEmitsMidLength(t *testing.T) {
 	}
 }
 
+// TestComposeFlameTwoColourCore (v0.12 Slice 4): a flame wide enough to
+// resolve a core paints a hot warm-white centre stripe (flameCoreColor)
+// with fuel-coloured edges; a flame too narrow (width < 3) paints a
+// single fuel colour with no core.
+func TestComposeFlameTwoColourCore(t *testing.T) {
+	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
+	basis := widgets.Basis{
+		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
+		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
+	}
+	fuel := string(flameColorForFuelType(spacecraft.FuelTypeKerolox))
+
+	// Wide flame: full throttle, bell mouth 5 → top rows ≥ 3 wide.
+	wide := spacecraft.Stage{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 3, Thrust: 1e6, FuelType: spacecraft.FuelTypeKerolox}
+	var core, edge int
+	for _, p := range ComposeFlame([]spacecraft.Stage{wide}, cmd, basis, 1.0, 1.0, 0, 5) {
+		switch string(p.Color) {
+		case string(flameCoreColor):
+			core++
+		case fuel:
+			edge++
+		default:
+			t.Errorf("unexpected flame pixel colour %q", string(p.Color))
+		}
+	}
+	if core == 0 {
+		t.Error("wide flame should paint a hot core")
+	}
+	if edge == 0 {
+		t.Error("wide flame should keep fuel-coloured edges")
+	}
+
+	// Narrow flame: no bell, stage width 2 → every row ≤ 2 wide → no core.
+	narrow := spacecraft.Stage{LaunchSpriteRowsPx: 4, LaunchSpriteWidthPx: 2, Thrust: 1e6, FuelType: spacecraft.FuelTypeKerolox}
+	for _, p := range ComposeFlame([]spacecraft.Stage{narrow}, cmd, basis, 1.0, 1.0, 0, 0) {
+		if string(p.Color) == string(flameCoreColor) {
+			t.Errorf("narrow flame (width ≤ 2) should have no hot core")
+		}
+	}
+}
+
 // TestComposeFlame_ZeroThrottleReturnsNil verifies the no-burn case:
 // throttle 0 emits no flame pixels.
 func TestComposeFlame_ZeroThrottleReturnsNil(t *testing.T) {
@@ -384,10 +425,12 @@ func TestInterStageTaperColourIsLowerStage(t *testing.T) {
 	}
 }
 
-// TestEngineBellFlaresBottomStage (v0.11.5 sub-scope 3): a thrust-
-// bearing bottom stage with width 2 + rows ≥ 4 emits a 1-row bell
-// flare at width 4 in the stage's colour, sitting between the stage
-// body and the flame.
+// TestEngineBellFlaresBottomStage (v0.12 Slice 4): a thrust-bearing
+// width-2 bottom stage (mouth = 4) emits a 3-row tapered bell flaring
+// from the throat (stage width 2, nearest the body) out to the mouth
+// (width 4, at the nozzle exit), all in the stage's colour, sitting
+// below the stage base. The multi-row taper replaced the v0.11.5
+// single-row flare.
 func TestEngineBellFlaresBottomStage(t *testing.T) {
 	stage := spacecraft.Stage{
 		LaunchSpriteRowsPx:  6,
@@ -398,22 +441,51 @@ func TestEngineBellFlaresBottomStage(t *testing.T) {
 	if got, want := EngineBellWidth([]spacecraft.Stage{stage}), 4; got != want {
 		t.Errorf("EngineBellWidth = %d, want %d", got, want)
 	}
+	if got, want := EngineBellRows([]spacecraft.Stage{stage}), 3; got != want {
+		t.Errorf("EngineBellRows = %d, want %d (mouth-throat ≥ 2 ⇒ tapered)", got, want)
+	}
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
 	basis := widgets.Basis{
 		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	bell := ComposeEngineBell([]spacecraft.Stage{stage}, cmd, basis, 1.0)
-	if got, want := len(bell), 4; got != want {
-		t.Fatalf("bell pixel count = %d, want %d (1 row × 4 wide)", got, want)
+	// 3 rows: widths 2 + 3 + 4 = 9 pixels.
+	if got, want := len(bell), 9; got != want {
+		t.Fatalf("bell pixel count = %d, want %d (3 rows: 2+3+4)", got, want)
 	}
+	// Bucket by row (y = rowAbove in this basis) → width per row.
+	widthByRow := map[int]int{}
 	for _, p := range bell {
 		if string(p.Color) != "#FF0000" {
 			t.Errorf("bell pixel colour = %q, want stage colour %q", string(p.Color), "#FF0000")
 		}
-		if y := p.OffsetWorld.Dot(basis.Y); !(y < 0) {
+		y := p.OffsetWorld.Dot(basis.Y)
+		if !(y < 0) {
 			t.Errorf("bell pixel must sit below stage base (y < 0); got %v", y)
 		}
+		widthByRow[int(math.Round(y))]++
+	}
+	// Throat (y=-1, nearest the body) is narrowest; mouth (y=-3, nozzle
+	// exit) is widest — a real bell flares toward the exit.
+	if widthByRow[-1] != 2 || widthByRow[-2] != 3 || widthByRow[-3] != 4 {
+		t.Errorf("taper widths by row = %v, want {-1:2, -2:3, -3:4}", widthByRow)
+	}
+}
+
+// TestEngineBellRowsGates — the bell stays a single flat row when it
+// can't flare (mouth == throat, i.e. a wide stage clamped at bellMaxWidth),
+// and is suppressed entirely when there's no bell.
+func TestEngineBellRowsGates(t *testing.T) {
+	// Width-7 stage: mouth = min(7+2, 7) = 7 = throat → no flare → 1 row.
+	wide := spacecraft.Stage{LaunchSpriteRowsPx: 8, LaunchSpriteWidthPx: 7, Thrust: 1e6}
+	if got := EngineBellRows([]spacecraft.Stage{wide}); got != 1 {
+		t.Errorf("EngineBellRows(width 7) = %d, want 1 (clamped, no room to flare)", got)
+	}
+	// No thrust → no bell → 0 rows.
+	noThrust := spacecraft.Stage{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 3, Thrust: 0}
+	if got := EngineBellRows([]spacecraft.Stage{noThrust}); got != 0 {
+		t.Errorf("EngineBellRows(no thrust) = %d, want 0", got)
 	}
 }
 

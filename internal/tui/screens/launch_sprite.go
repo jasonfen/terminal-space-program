@@ -53,6 +53,25 @@ func flameColorForFuelType(fuel string) lipgloss.Color {
 	return render.ColorWarning
 }
 
+// flameCoreColor is the hot-core tint painted down the centre of a wide
+// enough flame (v0.12 Slice 4). A warm cream — reads as the white-hot
+// Mach-diamond core against the fuel-coloured outer plume, but kept a
+// step off pure white so it stays distinct from the cold-white RCS puff
+// (the white-vs-coloured contrast CONTEXT.md's RCS Puff entry relies on).
+const flameCoreColor = lipgloss.Color("#FFEFC2")
+
+// flameCoreWidth returns the sub-pixel width of the hot core for a flame
+// row of total width w: zero below 3 (too narrow to resolve a core, so
+// the row stays a single fuel colour), else a thin central third. The
+// core narrows with the row as the cone tapers toward the tip. v0.12
+// Slice 4.
+func flameCoreWidth(w int) int {
+	if w < 3 {
+		return 0
+	}
+	return (w + 1) / 3
+}
+
 // stageSpriteWidthPx resolves the width a stage should render at, with
 // the unset-zero fallback to defaultSpriteWidthPx baked in. v0.11.5+.
 func stageSpriteWidthPx(s spacecraft.Stage) int {
@@ -119,6 +138,30 @@ func EngineBellWidth(stages []spacecraft.Stage) int {
 	return w
 }
 
+// bellTaperRows is the height (sub-pixel rows) of a flared engine bell.
+// v0.11.5 shipped a single flat row; v0.12 Slice 4 tapers the bell over
+// 3 rows from the stage throat out to the nozzle mouth for a more
+// authentic flare.
+const bellTaperRows = 3
+
+// EngineBellRows returns how many sub-pixel rows the engine bell
+// occupies below Stages[0]: 0 when suppressed (see EngineBellWidth),
+// bellTaperRows when the mouth is at least 2 sub-pixels wider than the
+// stage throat (room for a visible flare), else 1 (a flat row — a wide
+// stage whose mouth is clamped at bellMaxWidth has no room to taper).
+// The flame anchors below this whole stack. v0.12 Slice 4.
+func EngineBellRows(stages []spacecraft.Stage) int {
+	mouth := EngineBellWidth(stages)
+	if mouth == 0 {
+		return 0
+	}
+	throat := stageSpriteWidthPx(stages[0])
+	if mouth-throat >= 2 {
+		return bellTaperRows
+	}
+	return 1
+}
+
 // Landing-leg geometry constants (v0.11.5 sub-scope 6). Legs splay
 // outward by legSpreadX sub-pixels along the width axis and downward
 // by legSpreadY sub-pixels along the negative stack axis from each
@@ -178,29 +221,44 @@ func ComposeLegs(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets
 	return pixels
 }
 
-// ComposeEngineBell paints the 1-row engine-bell flare below
-// Stages[0]'s base in Stages[0].Color, at width EngineBellWidth(stages).
-// Returns nil when the bell is suppressed. v0.11.5 sub-scope 3.
+// ComposeEngineBell paints the engine-bell flare below Stages[0]'s base
+// in Stages[0]'s colour. v0.12 Slice 4: a multi-row taper (EngineBellRows
+// rows) flaring linearly from the stage throat at the top (rowAbove −1,
+// nearest the body) out to the mouth width (EngineBellWidth) at the
+// bottom (the nozzle exit). A single-row bell (EngineBellRows == 1)
+// reproduces the v0.11.5 flat flare at the mouth width. Returns nil when
+// the bell is suppressed.
 func ComposeEngineBell(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) []SpritePixel {
-	bw := EngineBellWidth(stages)
-	if bw == 0 {
+	rows := EngineBellRows(stages)
+	if rows == 0 {
 		return nil
 	}
+	mouth := EngineBellWidth(stages)
+	throat := stageSpriteWidthPx(stages[0])
 	pxSize := scaleMPerPx
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
 	widthX, widthY := stackY, -stackX
 	color := stageSpriteColor(stages[0])
-	rowAbove := -1.0 // sits 1 row below the stage's base
-	pixels := make([]SpritePixel, 0, bw)
-	for col := 0; col < bw; col++ {
-		xPx := float64(col) - float64(bw-1)/2.0
-		screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
-		screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
-		offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
-		pixels = append(pixels, SpritePixel{
-			OffsetWorld: offset,
-			Color:       color,
-		})
+
+	var pixels []SpritePixel
+	for r := 0; r < rows; r++ {
+		// r = 0 is the top row (rowAbove −1, throat width); r = rows-1 is
+		// the bottom (nozzle exit, mouth width). Linear flare in between.
+		rowAbove := -1.0 - float64(r)
+		w := mouth
+		if rows > 1 {
+			w = int(math.Round(float64(throat) + float64(mouth-throat)*float64(r)/float64(rows-1)))
+		}
+		for col := 0; col < w; col++ {
+			xPx := float64(col) - float64(w-1)/2.0
+			screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
+			screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
+			offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
+			pixels = append(pixels, SpritePixel{
+				OffsetWorld: offset,
+				Color:       color,
+			})
+		}
 	}
 	return pixels
 }
@@ -434,10 +492,15 @@ func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widget
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
 	widthX, widthY := stackY, -stackX
 	topWidth := bellWidth
-	topRow := -2.0 // bell sits at -1; flame starts at -2
+	topRow := -1.0
 	if topWidth == 0 {
+		// Un-belled: flame attaches directly under the stage base.
 		topWidth = stageSpriteWidthPx(stages[0])
-		topRow = -1.0
+	} else {
+		// Belled: the flame starts just below the whole bell stack, whose
+		// height (1 or bellTaperRows) the bell renderer owns — keep the
+		// two in lockstep so the flame doesn't float or overlap the bell.
+		topRow = -1.0 - float64(EngineBellRows(stages))
 	}
 	tipWidth := topWidth / 2
 	if tipWidth < 1 {
@@ -466,14 +529,24 @@ func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widget
 		if w < 1 {
 			w = 1
 		}
+		// v0.12 Slice 4: two-colour plume — a hot warm-white core down the
+		// central flameCoreWidth(w) columns, fuel tint on the edges. The
+		// core narrows with the row as the cone tapers, so it reads as a
+		// bright spine fading to the tip.
+		coreW := flameCoreWidth(w)
+		coreLo := (w - coreW) / 2
 		for col := 0; col < w; col++ {
 			xPx := float64(col) - float64(w-1)/2.0
 			screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
 			screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
 			offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
+			color := flameColor
+			if coreW > 0 && col >= coreLo && col < coreLo+coreW {
+				color = flameCoreColor
+			}
 			pixels = append(pixels, SpritePixel{
 				OffsetWorld: offset,
-				Color:       flameColor,
+				Color:       color,
 			})
 		}
 	}
