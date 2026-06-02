@@ -2,14 +2,15 @@
 
 <!--
   meta:
-    snapshot_version: v0.12.6 (three slices bundled — burn pause-and-resume
-      across staging (PR #72), Apollo transposition + rebalanced lunar stack
-      (PR #74, ADR 0009), and ViewLaunch near-orbital release (PR #75))
+    snapshot_version: v0.12.7 (Apollo / launch playtest fixes — LM no longer
+      splits when staging (PR #76); LAUNCH HUD hides on a stable sub-200 km
+      orbit (PR #77). Built on v0.12.6's transposition + near-orbital release.)
     snapshot_date: 2026-06-02
-    revised_date: 2026-06-02 (v0.12.6 shipped: burn-pause, Apollo
-      transposition (ADR 0009), launch-view near-orbital release; the Apollo
-      Stack now flies a complete lunar mission. Remaining v0.12 item is
-      GH #68, deferred)
+    revised_date: 2026-06-02 (v0.12.7 shipped: Apollo LM decouple-group fix +
+      TRANSPOSE READY hint (PR #76), LAUNCH HUD stable-orbit hide (PR #77).
+      v0.12.6 brought burn-pause, Apollo transposition (ADR 0009), and the
+      near-orbital launch-view release; the Apollo Stack flies a complete
+      lunar mission. Remaining v0.12 item is GH #68, deferred)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
@@ -18,7 +19,7 @@
   ADRs (docs/adr/); this file keeps the entries + the snapshot.
 -->
 
-> Snapshot at **v0.12.6** (June 2026). Three cycles have shipped to
+> Snapshot at **v0.12.7** (June 2026). Three cycles have shipped to
 > `main` since v0.9.6:
 >
 > - **v0.10** (May 19–23) — planner + maneuver tooling: rate-limited
@@ -134,6 +135,7 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
+| v0.12.7 | 2026-06-02 | ✓ | Apollo / launch playtest fixes. **LM no longer splits when staging** (PR #76): restores the Apollo `DecouplePlan` trailing `2` so the post-Saturn stack drops the Lunar Module (Descent + Ascent) as a single 2-stage craft for the canonical manual flip — pressing `space` at `[Descent, Ascent, SM, CM]` no longer peels the descent and ascent off one at a time. `Transpose` (`D`) clears the leftover plan; a "TRANSPOSE READY — press D" hint now flashes when the stack reaches the pre-transposition shape. **LAUNCH HUD hides on a stable orbit** (PR #77): the boxed ascent-instrument overlay now clears once the periapsis is above the atmosphere (not the 200 km mission floor), so a sub-200 km parking orbit (e.g. 186 × 186 km) reads as flight, not ascent. |
 | v0.12.6 | 2026-06-02 | ✓ | Three slices bundled. **Burn pause-and-resume across staging** (PR #72): a planted finite burn whose firing stage runs dry with Δv still owed now **stalls** (keeping its remaining Δv) and **auto-resumes** when the player decouples to a fuelled stage, instead of silently cancelling — HUD shows "⚠ STALLED — stage to resume", throttle-cut (`x`) aborts. **Apollo transposition + rebalanced lunar stack** (PR #74, [ADR 0009](adr/0009-transposition-and-active-engine.md)): the fused CSM splits into a propulsive Service Module + an engineless parachute Command Module; a one-shot transpose key (`D`) reorders the post-S-IVB stack so the SM fires LOI/TEI with the LM as a docked nose payload released via Undock (multi-stage DockedComponent breakdown, which also fixes the manual docking-flip). The Apollo Stack now flies a complete lunar mission. **ViewLaunch near-orbital release** (PR #75): the launch chase-cam now hands off when the apoapsis clears the atmosphere AND the circularisation Δv is within 750 m/s, instead of a fixed 200 km apoapsis floor. |
 | [v0.12](v0.12-plan.md) | 2026-05-29 → 06-01 | ✓ | Numbered craft slots + cleanup (v0.12.0); combined plane-shift + Hohmann dual-strategy transfer (v0.12.1, ADR 0005); Slice 5 follow-on — Line-of-Nodes split rendezvous + analytic-Kepler Projected-Orbit fidelity (v0.12.2, ADR 0006, GH #66/#67); 2-stage Lander + surface staging (v0.12.3, ADR 0007); parachutes for atmospheric descent + recovery (v0.12.4, ADR 0008); two-colour flame + multi-row engine-bell taper (v0.12.5). Remaining: GH #68 (deferred lunar-capture inclination trim). |
 | [v0.11](v0.11-plan.md) | 2026-05-24 → 27 | ✓ | Launch chase-cam (`ViewLaunch`, v0.11.0); crashed/landed lifecycle (ADR 0004); Lander silhouette + soft-landing polish (v0.11.2–.5). |
