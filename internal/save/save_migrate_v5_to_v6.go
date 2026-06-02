@@ -40,6 +40,39 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 	return out
 }
 
+// simStagesToWire copies the sim's spacecraft.Stage form into this
+// package's wire Stage form — the inverse of wireStagesToSim. v0.12 /
+// ADR 0009: used for both Craft.Stages and DockedComponent.Stages so
+// the multi-stage docked-component breakdown round-trips. Returns nil
+// for an empty input (keeps the omitempty wire field absent).
+func simStagesToWire(stages []spacecraft.Stage) []Stage {
+	if len(stages) == 0 {
+		return nil
+	}
+	out := make([]Stage, len(stages))
+	for i, s := range stages {
+		out[i] = Stage{
+			LoadoutID:            s.LoadoutID,
+			Name:                 s.Name,
+			Glyph:                s.Glyph,
+			Color:                s.Color,
+			DryMass:              s.DryMass,
+			FuelMass:             s.FuelMass,
+			FuelCapacity:         s.FuelCapacity,
+			Thrust:               s.Thrust,
+			Isp:                  s.Isp,
+			MonopropMass:         s.MonopropMass,
+			MonopropCap:          s.MonopropCap,
+			RCSThrust:            s.RCSThrust,
+			RCSIsp:               s.RCSIsp,
+			BallisticCoefficient: s.BallisticCoefficient,
+			CanSoftLand:          s.CanSoftLand,
+			HasParachute:         s.HasParachute,
+		}
+	}
+	return out
+}
+
 // migrateV5CraftToStages wraps the v5 flat fields of wc into a
 // single-element Stages slice. The RCS pool numbers are passed in
 // because v5 had its own backfill for pre-v0.8.0 saves (loader

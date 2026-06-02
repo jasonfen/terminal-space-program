@@ -183,14 +183,11 @@ func TestStageActiveAdvancesEngineToNextStage(t *testing.T) {
 	}
 }
 
-// TestApolloStackDecoupleChainLeavesCSM — the v0.12 Slice 2 Apollo-
-// Stack is [S-IC, S-II, S-IVB, Descent, Ascent, CSM] with a
-// DecouplePlan [1,1,1,2] (ADR 0007). Three single decouples drop
-// S-IC → S-II → S-IVB; the fourth releases the Descent + Ascent pair
-// **together** as one 2-stage LM craft (payload separation), leaving
-// the active craft as the single-stage CSM core. The fifth decouple
-// refuses (ErrStageOnlyOne — can't drop the only/last stage).
-func TestApolloStackDecoupleChainLeavesCSM(t *testing.T) {
+// TestTransposeRejectsWrongShape — Transpose only fires on the
+// pre-transposition [Descent, Ascent, SM, CM] stack. Called on a fresh
+// full Apollo Stack (the launch vehicle still attached) it must refuse
+// with ErrTransposeNotReady rather than reorder a launch-config stack.
+func TestTransposeRejectsWrongShape(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -201,8 +198,36 @@ func TestApolloStackDecoupleChainLeavesCSM(t *testing.T) {
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
 
-	if len(stack.Stages) != 6 {
-		t.Fatalf("Apollo-Stack should start 6-stage, got %d", len(stack.Stages))
+	if err := w.Transpose(0); !errors.Is(err, ErrTransposeNotReady) {
+		t.Errorf("Transpose on full stack: err = %v, want ErrTransposeNotReady", err)
+	}
+	// Stack must be untouched (still 7 stages, S-IC at bottom).
+	if len(w.Crafts[0].Stages) != 7 || w.Crafts[0].Stages[0].Name != "S-IC" {
+		t.Errorf("rejected transpose mutated the stack: %d stages, bottom %q",
+			len(w.Crafts[0].Stages), w.Crafts[0].Stages[0].Name)
+	}
+}
+
+// TestApolloStackDecoupleChainThenTranspose — the v0.12 / ADR 0009
+// Apollo-Stack is [S-IC, S-II, S-IVB, Descent, Ascent, SM, CM] with a
+// DecouplePlan [1,1,1]. Three single decouples drop S-IC → S-II → S-IVB,
+// leaving the pre-transposition stack [Descent, Ascent, SM, CM]. The
+// transpose key (D) then reorders it to [SM, CM, Descent, Ascent] (SM =
+// firing core) with the LM registered as a docked nose payload, which
+// Undock releases as a 2-stage LM craft, leaving the SM/CM core.
+func TestApolloStackDecoupleChainThenTranspose(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+
+	if len(stack.Stages) != 7 {
+		t.Fatalf("Apollo-Stack should start 7-stage, got %d", len(stack.Stages))
 	}
 
 	// First three presses drop single launch-vehicle stages.
@@ -218,38 +243,65 @@ func TestApolloStackDecoupleChainLeavesCSM(t *testing.T) {
 		}
 	}
 
-	// Fourth press: the DecouplePlan's trailing 2 releases the LM pair
-	// (Descent + Ascent) as a SINGLE 2-stage craft.
-	_, lmIdx, err := w.StageActive(0)
-	if err != nil {
-		t.Fatalf("decouple LM: %v", err)
+	// After the three Saturn drops the active craft is the
+	// pre-transposition stack [Descent, Ascent, SM, CM].
+	pre := w.Crafts[0]
+	wantPre := []string{"Descent", "Ascent", "SM", "CM"}
+	if len(pre.Stages) != len(wantPre) {
+		t.Fatalf("pre-transposition stack: %d stages, want %d", len(pre.Stages), len(wantPre))
 	}
-	lm := w.Crafts[lmIdx]
-	if len(lm.Stages) != 2 {
-		t.Fatalf("extracted LM: %d stage(s), want 2 (Descent + Ascent grouped)", len(lm.Stages))
-	}
-	if lm.Stages[0].Name != "Descent" || lm.Stages[1].Name != "Ascent" {
-		t.Errorf("extracted LM stages = [%q, %q], want [Descent, Ascent]",
-			lm.Stages[0].Name, lm.Stages[1].Name)
-	}
-	// The LM is a real controllable craft — its bottom (Descent) fires.
-	if lm.Stages[0].Thrust <= 0 {
-		t.Errorf("extracted LM has no engine (Thrust=%v) — not controllable", lm.Stages[0].Thrust)
-	}
-	// A released multi-stage craft inherits NO plan (ADR 0007): its
-	// internal boundaries fall back to single-pop so it can later
-	// surface-stage the Descent stage alone.
-	if lm.DecouplePlan != nil {
-		t.Errorf("extracted LM DecouplePlan = %v, want nil (released sub-craft inherits no plan)", lm.DecouplePlan)
+	for i, n := range wantPre {
+		if pre.Stages[i].Name != n {
+			t.Errorf("pre-transposition stage %d = %q, want %q", i, pre.Stages[i].Name, n)
+		}
 	}
 
-	core := w.Crafts[0]
-	if len(core.Stages) != 1 || core.Stages[0].Name != "CSM" {
-		t.Fatalf("surviving core: %d stage(s) named %q, want 1× CSM",
-			len(core.Stages), core.Stages[0].Name)
+	// Transpose: reorder so the SM is the firing core, LM becomes a
+	// docked nose payload.
+	if err := w.Transpose(0); err != nil {
+		t.Fatalf("Transpose: %v", err)
 	}
-	if _, _, err := w.StageActive(0); !errors.Is(err, ErrStageOnlyOne) {
-		t.Errorf("dropping the CSM core: err = %v, want ErrStageOnlyOne", err)
+	core := w.Crafts[0]
+	wantPost := []string{"SM", "CM", "Descent", "Ascent"}
+	for i, n := range wantPost {
+		if core.Stages[i].Name != n {
+			t.Errorf("post-transposition stage %d = %q, want %q", i, core.Stages[i].Name, n)
+		}
+	}
+	if core.Stages[0].Name != "SM" || core.Thrust != 91000 {
+		t.Errorf("firing engine after transpose: Stages[0]=%q Thrust=%.0f, want SM/91000",
+			core.Stages[0].Name, core.Thrust)
+	}
+	if len(core.DockedComponents) != 2 {
+		t.Fatalf("transposed composite: %d docked components, want 2 (core + LM)", len(core.DockedComponents))
+	}
+
+	// Undock releases the LM as a 2-stage [Descent, Ascent] craft; the
+	// SM/CM core survives and still fires the SPS.
+	if !w.Undock(0) {
+		t.Fatal("Undock after transpose returned false")
+	}
+	var lm, csm *spacecraft.Spacecraft
+	for _, c := range w.Crafts {
+		switch {
+		case len(c.Stages) == 2 && c.Stages[0].Name == "Descent":
+			lm = c
+		case len(c.Stages) == 2 && c.Stages[0].Name == "SM":
+			csm = c
+		}
+	}
+	if lm == nil {
+		t.Fatal("no 2-stage [Descent, Ascent] LM craft after undock")
+	}
+	if lm.Stages[1].Name != "Ascent" || lm.Stages[0].Thrust <= 0 {
+		t.Errorf("LM after undock: stages [%q,%q] Thrust=%.0f, want [Descent,Ascent] firing",
+			lm.Stages[0].Name, lm.Stages[1].Name, lm.Stages[0].Thrust)
+	}
+	if lm.DecouplePlan != nil {
+		t.Errorf("undocked LM DecouplePlan = %v, want nil (single-pop boundaries)", lm.DecouplePlan)
+	}
+	if csm == nil || csm.Stages[1].Name != "CM" || csm.Thrust != 91000 {
+		t.Fatalf("surviving CSM core after undock not [SM,CM] firing: %+v", csm)
 	}
 }
 

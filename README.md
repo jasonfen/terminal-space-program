@@ -179,6 +179,7 @@ The in-game `?` overlay is the source of truth; this table mirrors it.
 | `[` / `]` | Cycle active craft (no-op when only one craft loaded) |
 | `1`–`9` | Jump directly to craft N (no-op when that slot is empty) |
 | `U` | Undock active composite |
+| `D` | Transpose (Apollo): flip the SM to the firing core, the LM becomes a releasable nose payload (then `U` to release) |
 
 ### Manual flight
 
@@ -326,19 +327,22 @@ the displayed bracket.
   (`▲`, 3-stage S-IC + S-II + S-IVB), SLS-Block1 (`▲`, 3-stage
   SRB + Core + ICPS), Falcon-9 (`▲`, 2-stage Merlin/Merlin-Vac),
   Apollo-Stack (`▲`, full mission arc S-IC → S-II → S-IVB → LM →
-  CSM), Capsule (`◓`, single-stage re-entry capsule with recovery
+  SM + CM), Capsule (`◓`, single-stage re-entry capsule with recovery
   parachute, ADR 0008). Each carries propulsion + visual
   differentiation; the orbit canvas renders every craft with its
   loadout glyph + color so they read distinctly even at small zoom.
 - **Multi-tier stack + configurator** (v0.10.1+). The **Apollo
-  Stack** loadout (S-IC → S-II → S-IVB → LM → CSM) flies the full
-  mission arc on the v0.9.1 staging chain: decoupling the mid-stage
-  LM spawns it as its own controllable craft (payload separation),
-  leaving the CSM core to fly the rendezvous / return. The spawn
-  form's **Custom…** entry opens a stack builder over a named stage
-  catalog (S-IC / S-II / S-IVB / ICPS / SRB / Core / F9 stages /
-  Lander / CSM / RCS-tug) — assemble any bottom-to-top stack and
-  spawn it. Custom craft round-trip through save with no schema
+  Stack** loadout (S-IC → S-II → S-IVB → LM → SM + CM) flies the full
+  mission arc on the v0.9.1 staging chain. After the three Saturn
+  stages drop, **transposition** (`D`, ADR 0009) flips the Service
+  Module to the firing core — so the SM's SPS does lunar-orbit
+  insertion and trans-Earth injection — with the Lunar Module riding
+  as a docked nose payload that `U` releases for the descent; the
+  Command Module is the engineless capsule that splashes down under
+  chute. The spawn form's **Custom…** entry opens a stack builder over
+  a named stage catalog (S-IC / S-II / S-IVB / ICPS / SRB / Core / F9
+  stages / Lander / CSM / RCS-tug) — assemble any bottom-to-top stack
+  and spawn it. Custom craft round-trip through save with no schema
   bump (per-stage state already persists at v6).
 - **Capture preview** (v0.8.2+). Plant a Hohmann to another body
   and the HUD's `CAPTURE PREVIEW` block shows what you'll arrive

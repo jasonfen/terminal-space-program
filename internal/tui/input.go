@@ -99,6 +99,11 @@ type Keymap struct {
 	// into its docked components.
 	Undock key.Binding
 
+	// Transpose (v0.12 / ADR 0009): one-shot Apollo transposition —
+	// reorder the pre-transposition [Descent, Ascent, SM, CM] stack so
+	// the SM is the firing core with the LM as a docked nose payload.
+	Transpose key.Binding
+
 	// CycleTarget / ClearTarget (v0.9.0+): unified `World.Target` slot
 	// that planted-Hohmann (`H`) and plane-match (`I`) consume in
 	// place of the pre-v0.9 implicit body cursor. Cycle order:
@@ -237,6 +242,7 @@ func DefaultKeymap() Keymap {
 		PrevCraft:           key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev craft")),
 		CraftSlot:           key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to craft N")),
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
+		Transpose:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "transpose (SM → firing core, LM → nose payload)")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / craft)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
 		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: orbit / surface / target")),

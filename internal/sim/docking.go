@@ -30,7 +30,33 @@ func (w *World) Undock(idx int) bool {
 		return false
 	}
 
-	// Compute total dry + capacity sums for the share calculation.
+	// v0.12 / ADR 0009: decide whether the composite carries a full
+	// per-component stage breakdown. When every component records its
+	// Stages and the counts tile the composite's live Stages exactly
+	// (Σ len(comp.Stages) == len(c.Stages)), we partition the LIVE
+	// stages back to each component — preserving multi-stage structure
+	// (the Apollo LM = Descent + Ascent) and, crucially, CURRENT fuel.
+	// The firing Stages[0] is drained while docked (LOI burns the SM),
+	// so the dock-time snapshot fuel is stale; the live slice is not.
+	// DockCrafts/Transpose both build c.Stages as the in-order
+	// concatenation of the components' stages, so sequential slicing is
+	// exact. Falls back to the legacy single-stage prorate rebuild when
+	// any component predates the breakdown (old saves) or the counts
+	// don't tile — preserving back-compat.
+	useBreakdown := true
+	var stageSum int
+	for _, comp := range c.DockedComponents {
+		if len(comp.Stages) == 0 {
+			useBreakdown = false
+			break
+		}
+		stageSum += len(comp.Stages)
+	}
+	if stageSum != len(c.Stages) {
+		useBreakdown = false
+	}
+
+	// Compute total capacity sums for the legacy share calculation.
 	var totalCapFuel, totalCapMono float64
 	for _, comp := range c.DockedComponents {
 		totalCapFuel += comp.FuelCapacity
@@ -55,47 +81,53 @@ func (w *World) Undock(idx int) bool {
 
 	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
 	n := len(c.DockedComponents)
+	stageOffset := 0 // running index into c.Stages for the breakdown path
 	for i, comp := range c.DockedComponents {
-		var fuelShare, monoShare float64
-		if totalCapFuel > 0 {
-			fuelShare = c.Fuel * (comp.FuelCapacity / totalCapFuel)
-		}
-		if totalCapMono > 0 {
-			monoShare = c.Monoprop * (comp.MonopropCapacity / totalCapMono)
+		var stages []spacecraft.Stage
+		if useBreakdown {
+			// Multi-stage path: peel the next len(comp.Stages) LIVE
+			// stages off the composite (own backing array so the
+			// restored craft doesn't alias the soon-discarded composite).
+			cnt := len(comp.Stages)
+			stages = append([]spacecraft.Stage(nil), c.Stages[stageOffset:stageOffset+cnt]...)
+			stageOffset += cnt
+		} else {
+			// Legacy single-stage path: rebuild a one-element Stages
+			// slice from the flat DockedComponent record, prorating the
+			// composite's pooled fuel/monoprop by pre-dock capacity.
+			var fuelShare, monoShare float64
+			if totalCapFuel > 0 {
+				fuelShare = c.Fuel * (comp.FuelCapacity / totalCapFuel)
+			}
+			if totalCapMono > 0 {
+				monoShare = c.Monoprop * (comp.MonopropCapacity / totalCapMono)
+			}
+			stages = []spacecraft.Stage{{
+				LoadoutID:    comp.LoadoutID,
+				Name:         comp.Name,
+				Glyph:        comp.Glyph,
+				Color:        comp.Color,
+				DryMass:      comp.DryMass,
+				FuelMass:     fuelShare,
+				FuelCapacity: comp.FuelCapacity,
+				Thrust:       comp.Thrust,
+				Isp:          comp.Isp,
+				MonopropMass: monoShare,
+				MonopropCap:  comp.MonopropCapacity,
+				RCSThrust:    comp.RCSThrust,
+				RCSIsp:       comp.RCSIsp,
+				// v0.12 Slice 3 (ADR 0008): restore the surface-arrival
+				// capabilities so an undocked lander / chute capsule keeps
+				// its soft-land / parachute qualification. SyncFields below
+				// re-derives the flat mirrors from this Stages[0].
+				CanSoftLand:  comp.CanSoftLand,
+				HasParachute: comp.HasParachute,
+			}}
 		}
 		// Spread components symmetrically around the composite's
 		// current position. For 2 components: -25 m and +25 m on
 		// the radial axis. For N: even spacing in [-1, +1].
 		offset := -1.0 + 2.0*float64(i)/float64(n-1)
-		// v0.9.1+: rebuild a single-stage Stages slice from the
-		// DockedComponent record. Pre-v0.9.1 components are wrapped
-		// into a one-element Stages so the restored craft has a
-		// valid source of truth for SyncFields. Multi-stage docking
-		// chains that survive a save/load + undock are not preserved
-		// in v0.9.1 — DockedComponent doesn't yet record per-stage
-		// breakdown; that's a v0.9.1.x follow-up if the playtest
-		// surfaces it.
-		stages := []spacecraft.Stage{{
-			LoadoutID:    comp.LoadoutID,
-			Name:         comp.Name,
-			Glyph:        comp.Glyph,
-			Color:        comp.Color,
-			DryMass:      comp.DryMass,
-			FuelMass:     fuelShare,
-			FuelCapacity: comp.FuelCapacity,
-			Thrust:       comp.Thrust,
-			Isp:          comp.Isp,
-			MonopropMass: monoShare,
-			MonopropCap:  comp.MonopropCapacity,
-			RCSThrust:    comp.RCSThrust,
-			RCSIsp:       comp.RCSIsp,
-			// v0.12 Slice 3 (ADR 0008): restore the surface-arrival
-			// capabilities so an undocked lander / chute capsule keeps
-			// its soft-land / parachute qualification. SyncFields below
-			// re-derives the flat mirrors from this Stages[0].
-			CanSoftLand:  comp.CanSoftLand,
-			HasParachute: comp.HasParachute,
-		}}
 		s := &spacecraft.Spacecraft{
 			Name:      comp.Name,
 			LoadoutID: comp.LoadoutID,

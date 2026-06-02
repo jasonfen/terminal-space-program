@@ -239,6 +239,77 @@ func TestUndockRestoresComponents(t *testing.T) {
 	}
 }
 
+// TestUndockRestoresMultiStageLMWithLiveFuel — v0.12 / ADR 0009. A
+// composite whose DockedComponents carry a per-stage breakdown undocks
+// into MULTI-stage craft, and the restored stages carry the composite's
+// CURRENT (live) fuel, not the dock-time snapshot. The transposition
+// flow is the headline case: after transposing, the SM (Stages[0]) is
+// drained by the LOI burn while the LM rides docked — so on undock the
+// surviving SM/CM core must reflect the burn, and the LM (never the
+// firing stage while docked) must keep its descent/ascent propellant.
+func TestUndockRestoresMultiStageLMWithLiveFuel(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+
+	for i := 0; i < 3; i++ {
+		if _, _, err := w.StageActive(0); err != nil {
+			t.Fatalf("decouple #%d: %v", i, err)
+		}
+	}
+	if err := w.Transpose(0); err != nil {
+		t.Fatalf("Transpose: %v", err)
+	}
+	comp := w.Crafts[0]
+	if comp.Stages[0].Name != "SM" {
+		t.Fatalf("post-transpose Stages[0] = %q, want SM", comp.Stages[0].Name)
+	}
+	const smStart = 16000.0
+	if comp.Stages[0].FuelMass != smStart {
+		t.Fatalf("SM start fuel = %.0f, want %.0f", comp.Stages[0].FuelMass, smStart)
+	}
+
+	// Burn SM propellant (the LOI burn analogue) — drains Stages[0].
+	const burned = 5000.0
+	if got := comp.BurnFuel(burned); got != burned {
+		t.Fatalf("BurnFuel returned %.0f, want %.0f", got, burned)
+	}
+
+	if !w.Undock(0) {
+		t.Fatal("Undock after transpose returned false")
+	}
+	var lm, csm *spacecraft.Spacecraft
+	for _, c := range w.Crafts {
+		switch {
+		case len(c.Stages) == 2 && c.Stages[0].Name == "Descent":
+			lm = c
+		case len(c.Stages) == 2 && c.Stages[0].Name == "SM":
+			csm = c
+		}
+	}
+	if csm == nil || lm == nil {
+		t.Fatalf("undock did not produce both an SM/CM core and a 2-stage LM (crafts=%d)", len(w.Crafts))
+	}
+	// The core's SM carries LIVE fuel (start − burned), not the stale
+	// 16000 snapshot — this is the live-partition correctness point.
+	if want := smStart - burned; csm.Stages[0].FuelMass != want {
+		t.Errorf("restored SM fuel = %.0f, want %.0f (live, post-burn — NOT the snapshot)",
+			csm.Stages[0].FuelMass, want)
+	}
+	// The LM never fired while docked → its tanks are intact at the
+	// loadout trim (Descent 6310, Ascent 1269).
+	if lm.Stages[0].FuelMass != 6310 || lm.Stages[1].FuelMass != 1269 {
+		t.Errorf("restored LM fuel = [%.0f, %.0f], want [6310, 1269]",
+			lm.Stages[0].FuelMass, lm.Stages[1].FuelMass)
+	}
+}
+
 // TestDockingActivePartnerKeepsName: when craft B (non-active)
 // docks with craft A (active), the composite inherits A's name.
 // When the player flies B and docks with A, B's name is kept

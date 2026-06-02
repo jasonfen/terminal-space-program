@@ -106,6 +106,18 @@ const (
 	StageModuleLanderDescentID = "lander-descent"
 	StageModuleLanderAscentID  = "lander-ascent"
 	StageModuleCSMID           = "csm" // Apollo Command/Service Module (SPS)
+	// v0.12 / ADR 0009: the fused CSM split into a propulsive Service
+	// Module (SPS engine + all propellant; does LOI/TEI) and a passive
+	// Command Module (engineless parachute capsule; the surviving core).
+	// Like lander-descent/ascent above, both live in the catalog map so
+	// the Apollo-Stack loadout's by-Name sprite/flag lookups resolve
+	// them, but are intentionally left out of StageCatalogOrder — the
+	// configurator still offers the single fused "csm" module. They do
+	// NOT alias to "csm": the csm entry carries hasParachute (it survives
+	// to re-entry as one piece), but the split SM must NOT — only the CM
+	// carries the chute.
+	StageModuleServiceModuleID = "service-module"
+	StageModuleCommandModuleID = "command-module"
 	// v0.12 Slice 3 / ADR 0008: standalone re-entry capsule — single
 	// command-module-class stage with a parachute, no engine landing.
 	StageModuleCapsuleID = "capsule"
@@ -246,6 +258,34 @@ var StageCatalog = map[string]StageModule{
 		fuelType:            FuelTypeHypergolic,
 		// v0.12 Slice 3 (ADR 0008): the CSM survives the Apollo decouple
 		// chain to re-entry and earns an Earth splashdown under chute.
+		hasParachute: true,
+	},
+	// v0.12 / ADR 0009: Service Module — the propulsive half of the split
+	// CSM. Carries the SPS engine + all the storable propellant and does
+	// LOI / mid-course corrections / TEI. Dry ~6,000 kg; SPS fuel trimmed
+	// 18,400→16,000 (ADR 0009 locked table). NO parachute — it is
+	// jettisoned before re-entry. Sprite mirrors the CSM service-module
+	// silhouette (silver, slim) so the post-transposition Stages[0]=SM
+	// renders an engine bell.
+	StageModuleServiceModuleID: {
+		ID: StageModuleServiceModuleID, Name: "SM", Glyph: "◉", Color: "#C8C8D0",
+		Tier: "payload", dry: 6000, fuel: 16000, thrust: 91000, isp: 314, bc: 0,
+		launchSpriteRowsPx:  6,
+		launchSpriteWidthPx: 2,
+		launchSpriteColor:   "#C8C8D0", // bare aluminium service module
+		fuelType:            FuelTypeHypergolic,
+	},
+	// v0.12 / ADR 0009: Command Module — the passive half of the split
+	// CSM and the true surviving core. Engineless crew capsule with a
+	// recovery parachute (ADR 0008 model); the only piece that splashes
+	// down. Dry ~5,900 kg (CSM dry 11,900 − SM 6,000). No main engine.
+	StageModuleCommandModuleID: {
+		ID: StageModuleCommandModuleID, Name: "CM", Glyph: "◓", Color: "#B8C8E0",
+		Tier: "payload", dry: 5900, fuel: 0, thrust: 0, isp: 0, bc: 0,
+		launchSpriteRowsPx:  6,
+		launchSpriteWidthPx: 3,
+		launchSpriteColor:   "#D8D8E0", // pale command-module cone (distinct from HUD #B8C8E0)
+		// fuelType intentionally unset — no main engine (RCS-only).
 		hasParachute: true,
 	},
 	// Re-entry capsule (v0.12 Slice 3, ADR 0008): a minimal command-
