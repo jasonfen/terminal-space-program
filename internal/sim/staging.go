@@ -31,6 +31,10 @@ var (
 	// the only stage would leave the player with nothing to
 	// control, which is the wrong default. Status-flash + no-op.
 	ErrStageOnlyOne = errors.New("stage: cannot drop the only remaining stage")
+	// ErrTransposeNotReady — Transpose called on a craft that is not in
+	// the pre-transposition [Descent, Ascent, SM, CM] shape (ADR 0009).
+	// The player must drop the three Saturn stages first.
+	ErrTransposeNotReady = errors.New("transpose: stack not in [Descent, Ascent, SM, CM] shape — drop the launch vehicle first")
 )
 
 // StageActive jettisons the bottom stage (Stages[0]) of the craft
@@ -246,4 +250,77 @@ func retrogradeUnit(v, r orbital.Vec3) orbital.Vec3 {
 		return r.Scale(-1 / rMag)
 	}
 	return orbital.Vec3{X: -1}
+}
+
+// Transpose performs the Apollo transposition (ADR 0009) on the craft at
+// craftIdx in one shot: it reproduces the end-state of the manual
+// docking flip — the SM becomes the firing core (Stages[0]) with the LM
+// as a releasable nose payload — without flying the rendezvous.
+//
+// Precondition: the craft is exactly [Descent, Ascent, SM, CM] — the
+// state left after the three Saturn stages have decoupled (the loadout's
+// [1,1,1] DecouplePlan). Otherwise returns ErrTransposeNotReady.
+//
+// It splits the stack into the LM (Descent + Ascent) and the CSM core
+// (SM + CM), reorders the live craft to [SM, CM, Descent, Ascent] so the
+// SM's SPS is the firing engine (SyncFields mirrors Stages[0]) for LOI
+// and TEI, and registers BOTH halves as DockedComponents carrying their
+// per-stage breakdown. The LM then peels off as a 2-stage craft via the
+// existing Undock (docking.go) for the lunar descent; the SM/CM core
+// survives. This is the docking machinery already in use, not new flight
+// semantics — DockCrafts would build the identical composite from a
+// hand-flown flip.
+func (w *World) Transpose(craftIdx int) error {
+	if craftIdx < 0 || craftIdx >= len(w.Crafts) {
+		return fmt.Errorf("%w: %d (slate has %d)", ErrStageNoCraft, craftIdx, len(w.Crafts))
+	}
+	c := w.Crafts[craftIdx]
+	if c == nil {
+		return fmt.Errorf("%w: %d (nil)", ErrStageNoCraft, craftIdx)
+	}
+	// Precondition: the pre-transposition shape [Descent, Ascent, SM, CM].
+	if len(c.Stages) != 4 ||
+		c.Stages[0].Name != "Descent" || c.Stages[1].Name != "Ascent" ||
+		c.Stages[2].Name != "SM" || c.Stages[3].Name != "CM" {
+		return ErrTransposeNotReady
+	}
+
+	// Own backing arrays so the two halves don't alias the soon-rebuilt
+	// c.Stages.
+	lmStages := append([]spacecraft.Stage(nil), c.Stages[0:2]...)   // Descent, Ascent
+	coreStages := append([]spacecraft.Stage(nil), c.Stages[2:4]...) // SM, CM
+
+	// Register both halves as docked components (identity + per-stage
+	// breakdown) so Undock can restore them. Order = the reordered
+	// Stages concatenation: core first, LM appended on the nose.
+	core := dockedComponentFromStages(coreStages, "CSM", c.Role)
+	lm := dockedComponentFromStages(lmStages, "LM", "lander")
+
+	// Reorder the live craft so the SM is the firing engine.
+	c.Stages = append(append([]spacecraft.Stage(nil), coreStages...), lmStages...)
+	c.DockedComponents = []spacecraft.DockedComponent{core, lm}
+	c.Name = "CSM" // flying as the CSM core now
+	c.SyncFields()
+	c.State.M = c.TotalMass()
+	return nil
+}
+
+// dockedComponentFromStages builds a DockedComponent (identity + full
+// per-stage breakdown) from a contiguous stage group, deriving the
+// component's glyph/color/loadout from the group's bottom stage and its
+// summed mass/engine mirrors via SyncFields. Used by Transpose to wrap
+// the CSM core and the LM nose payload so the existing Undock restores
+// each as a correct multi-stage craft. v0.12 / ADR 0009.
+func dockedComponentFromStages(stages []spacecraft.Stage, name, role string) spacecraft.DockedComponent {
+	bottom := stages[0]
+	tmp := &spacecraft.Spacecraft{
+		Name:      name,
+		Role:      role,
+		Glyph:     bottom.Glyph,
+		Color:     bottom.Color,
+		LoadoutID: bottom.LoadoutID,
+		Stages:    append([]spacecraft.Stage(nil), stages...),
+	}
+	tmp.SyncFields()
+	return tmp.AsDockedComponent()
 }

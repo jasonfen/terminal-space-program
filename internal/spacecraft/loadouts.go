@@ -503,28 +503,38 @@ var Loadouts = map[string]Loadout{
 			stageWithBC(LoadoutApolloStackID, "S-IVB", "▲", "#FFD93D",
 				11000, 109000, 1023000, 421, 6.25e-5),
 			// Lunar Module — split into Descent + Ascent (v0.12 Slice 2
-			// / ADR 0007). The DecouplePlan [1,1,1,2] below releases the
-			// pair together as one 2-stage LM craft (payload separation)
-			// rather than stranding the descent stage and leaving the
-			// ascent fused to the CSM. Fuel-heavy descent (dry 2500 /
-			// fuel 9500) so the lunar landing doesn't run dry; ascent
-			// (dry 1200 / fuel 1800) returns to lunar orbit. The LM is a
-			// negligible fraction of the ~2.93 Mkg stack, so lift-off
-			// TWR stays ~1.22.
+			// / ADR 0007). Post-transposition (ADR 0009) the LM rides as
+			// a docked nose payload above the SM/CM core and is released
+			// via Undock for the lunar descent. Fuel trimmed to the ADR
+			// 0009 locked table: descent 9500→6310 (real abort reserve,
+			// ~2500 m/s cap), ascent 1800→1269 (~2200 m/s cap) — the LM
+			// no longer double-duties as the LOI engine, so it can shed
+			// the surplus. The LM is a negligible fraction of the
+			// ~2.93 Mkg stack, so lift-off TWR stays ~1.22.
 			stage(LoadoutApolloStackID, "Descent", "▼", "#5FFF87",
-				2500, 9500, 45000, 311),
+				2500, 6310, 45000, 311),
 			stage(LoadoutApolloStackID, "Ascent", "▲", "#7BFFA0",
-				1200, 1800, 16000, 311),
-			// Command/Service Module — the surviving core. SPS
-			// storable-propellant engine; enough Δv for the
-			// rendezvous / trans-Earth return.
-			stage(LoadoutApolloStackID, "CSM", "◉", "#C0C0FF",
-				11900, 18400, 91000, 314),
+				1200, 1269, 16000, 311),
+			// Command/Service Module — split into a propulsive Service
+			// Module + a passive Command Module (v0.12 / ADR 0009). The
+			// SM (SPS engine; SPS fuel trimmed 18400→16000) fires LOI and
+			// TEI once transposition makes it Stages[0]; the CM is the
+			// engineless parachute capsule that splashes down. SM dry
+			// 6000 + CM dry 5900 = the pre-split CSM dry 11900 → the
+			// split is mass-neutral and lift-off TWR is unchanged. SM
+			// below CM so the firing SPS sits beneath the passive capsule.
+			stage(LoadoutApolloStackID, "SM", "◉", "#C0C0FF",
+				6000, 16000, 91000, 314),
+			stage(LoadoutApolloStackID, "CM", "◓", "#B8C8E0",
+				5900, 0, 0, 0),
 		},
-		// v0.12 Slice 2 / ADR 0007: drop S-IC, S-II, S-IVB
-		// individually, then release Descent + Ascent together as a
-		// 2-stage LM craft, leaving the CSM core. Sum (5) < 6 stages.
-		DecouplePlan: []int{1, 1, 1, 2},
+		// v0.12 / ADR 0009: drop S-IC, S-II, S-IVB individually. After
+		// the third pop the active craft is [Descent, Ascent, SM, CM] —
+		// the pre-transposition state the transpose key (D) consumes.
+		// The LM is no longer a bottom-up decouple group; transposition
+		// reorders it to a docked nose payload released via Undock, not
+		// StageActive. Sum (3) < 7 stages.
+		DecouplePlan: []int{1, 1, 1},
 	},
 	// Re-entry capsule (v0.12 Slice 3, ADR 0008): single command-module
 	// stage carrying a parachute and no engine landing. HasParachute /

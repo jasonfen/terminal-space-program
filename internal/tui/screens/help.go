@@ -73,6 +73,7 @@ func (h *Help) Render() string {
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
 			{"1-9", "jump to craft N (no-op when slot empty) (v0.12.0+)"},
 			{"U", "undock active composite (v0.8.3+)"},
+			{"D", "transpose: SM → firing core, LM → releasable nose payload (U to release) (v0.12+)"},
 			{"t / T", "cycle / clear target (v0.9.0+)"},
 			{"space", "decouple bottom stage (v0.9.1+); on a bare chute capsule, arms the parachute (v0.12+)"},
 		}},
