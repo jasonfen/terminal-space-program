@@ -67,6 +67,42 @@ plan, so its own internal boundaries are ordinary single-Stage
 separations — the extracted 2-stage LM later **Surface Stages** its
 descent Stage alone with no special-casing.
 _Avoid_: Decouple group, Staging sequence, Separation script.
+_Flagged_: the Apollo Stack's surviving core is being re-modelled — see
+**Transposition**, **Service Module**, **Command Module** below. Under
+that model the LM is no longer a bottom-up **Decouple Plan** release but
+a **nose payload** released from *above* the surviving core, and the
+survivor is the **Command Module**, not the fused CSM.
+
+**Service Module (SM)**:
+The propulsive half of the Apollo command-and-service module: carries the
+SPS engine and all its storable propellant. Performs lunar-orbit
+insertion (**LOI**), mid-course corrections, and trans-Earth injection
+(**TEI**). Has no heat shield and is **never recovered** — jettisoned
+during re-entry prep. After **Transposition** it is the bottom/firing
+Stage of the surviving stack, pushing the **Command Module** plus the LM
+nose payload.
+_Avoid_: CSM (that name fuses SM+CM — keep them distinct), Service stage.
+
+**Command Module (CM)**:
+The crew capsule half of the command-and-service module: heat shield,
+parachutes, RCS only, **no main engine**. The single piece that returns
+and splashes down — the true surviving core of a lunar mission. Modelled
+on the existing parachute-recovered **Capsule** (ADR 0008): a passive,
+engineless Stage that re-enters under chute after the **Service Module**
+is jettisoned.
+_Avoid_: Capsule (that's the standalone Loadout; the CM is the Apollo
+Stack's instance of the same recovery model), Command stage, Re-entry pod.
+
+**Transposition**:
+The post-TLI restructure of the lunar stack that makes the **Service
+Module** the firing core with the **Lunar Module** as a releasable
+**nose payload** — the in-sim analogue of Apollo's transposition-and-
+docking. Happens during trans-lunar coast with **no Burn pending** (the
+S-IVB does the *full* TLI solo first, then is discarded), which is why
+it cannot be folded into TLI as a single continuous push. Resolves the
+"wrong-engine" problem: without it the linear bottom-first chain fires
+the LM Descent for LOI; after it the SM fires LOI as the real CSM did.
+_Avoid_: Flip, Restage, Dock-around.
 
 **Launch Sprite**:
 The per-Stage **braille-pixel silhouette** rendered by the ViewLaunch
