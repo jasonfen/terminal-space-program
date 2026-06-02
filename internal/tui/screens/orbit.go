@@ -2342,7 +2342,16 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 	}
 	primaryR := c.Primary.RadiusMeters()
 	periAlt := el.Periapsis() - primaryR
-	return periAlt < launchMissionFloorM
+	// Hide once the orbit is stable — the periapsis has climbed clear of
+	// the atmosphere, so the ascent is finished and drag can no longer
+	// decay the orbit. The ascent instruments (TWR, FPA, downrange) are
+	// done; the orbit-relative HUD takes over. The old gate compared
+	// against the 200 km mission floor, which kept the launch HUD pinned
+	// over a perfectly good sub-200 km parking orbit (e.g. a 186 × 186 km
+	// circular orbit reads periAlt 186 km < 200 km and never cleared).
+	// The mission floor stays the threshold for the ORBIT READY callout
+	// + progress row above; this is only the show/hide gate.
+	return periAlt < c.Primary.Atmosphere.CutoffAltitude
 }
 
 // launchMissionFloorM is the package-local alias for the canonical
