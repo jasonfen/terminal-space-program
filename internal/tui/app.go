@@ -804,6 +804,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case err == nil:
 				name := a.world.Crafts[jettIdx].Name
 				a.statusMsg = fmt.Sprintf("staged: %s jettisoned", name)
+				// v0.12 / ADR 0009: surface the transposition hint the
+				// moment a stage drop leaves the Apollo stack in the
+				// pre-transposition shape [Descent, Ascent, SM, CM] — the
+				// player needs to know `D` flips the SM to the firing core
+				// (or stage once more to drop the LM for a manual flip).
+				// Without this the wrong-engine state is silent.
+				if sim.TransposeReady(a.world.ActiveCraft()) {
+					a.statusMsg = "TRANSPOSE READY — press D to flip (SM → firing core; LM becomes nose payload)"
+				}
 			case errors.Is(err, sim.ErrStageOnlyOne):
 				// v0.12 Slice 3 (ADR 0008): once the vessel is reduced to
 				// its bare chute-bearing stage, the staging-no-op press

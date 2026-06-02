@@ -528,13 +528,18 @@ var Loadouts = map[string]Loadout{
 			stage(LoadoutApolloStackID, "CM", "◓", "#B8C8E0",
 				5900, 0, 0, 0),
 		},
-		// v0.12 / ADR 0009: drop S-IC, S-II, S-IVB individually. After
-		// the third pop the active craft is [Descent, Ascent, SM, CM] —
-		// the pre-transposition state the transpose key (D) consumes.
-		// The LM is no longer a bottom-up decouple group; transposition
-		// reorders it to a docked nose payload released via Undock, not
-		// StageActive. Sum (3) < 7 stages.
-		DecouplePlan: []int{1, 1, 1},
+		// v0.12 / ADR 0009: drop S-IC, S-II, S-IVB individually, then the
+		// trailing 2 releases the LM (Descent + Ascent) as a single
+		// 2-stage craft. After the three Saturn pops the active craft is
+		// [Descent, Ascent, SM, CM] — the pre-transposition state. From
+		// there the player either presses D (one-shot transpose: reorder
+		// so the SM fires, LM rides as a docked nose payload) OR stages
+		// once more to drop the LM as a free craft for the canonical
+		// manual flip (slew the [SM, CM] core 180°, RCS-dock to the LM).
+		// The 2-group keeps the LM intact either way — staging it one
+		// stage at a time would strand the Descent and split the lander.
+		// Sum (5) < 7 stages.
+		DecouplePlan: []int{1, 1, 1, 2},
 	},
 	// Re-entry capsule (v0.12 Slice 3, ADR 0008): single command-module
 	// stage carrying a parachute and no engine landing. HasParachute /

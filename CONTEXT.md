@@ -57,19 +57,25 @@ _Avoid_: Surface decouple, Ground staging, Lander separation.
 An optional per-Loadout, bottom-up list of group sizes describing how
 many contiguous bottom Stages each **Staging** press releases as a
 single craft. Default (absent) is all-ones — one Stage per press, the
-historical behaviour. The Apollo Stack declares `[1, 1, 1]` (ADR 0009):
-drop S-IC, S-II, S-IVB individually, leaving the pre-transposition
-stack `[Descent, Ascent, SM, CM]`. The plan is copied onto the Vessel
-at spawn and consumed positionally (each press pops the next entry's
-worth of Stages and advances). A released multi-Stage craft inherits
-**no** plan, so its own internal boundaries are ordinary single-Stage
-separations — the extracted 2-stage LM later **Surface Stages** its
-descent Stage alone with no special-casing.
-The Decouple Plan is **bottom-up only**. The Apollo LM is released from
-*above* the surviving core, which the plan cannot express — that is
-**Transposition**'s job: it reorders to `[SM, CM, Descent, Ascent]` and
-registers the LM as a docked **nose payload** that **Undock** releases.
-The mission survivor is the **Command Module**, not the fused CSM.
+historical behaviour. The Apollo Stack declares `[1, 1, 1, 2]` (ADR
+0009): drop S-IC, S-II, S-IVB individually to reach the
+pre-transposition stack `[Descent, Ascent, SM, CM]`, then the trailing
+`2` releases the LM (Descent + Ascent) as a single 2-stage craft. The
+plan is copied onto the Vessel at spawn and consumed positionally (each
+press pops the next entry's worth of Stages and advances). A released
+multi-Stage craft inherits **no** plan, so its own internal boundaries
+are ordinary single-Stage separations — the extracted 2-stage LM later
+**Surface Stages** its descent Stage alone with no special-casing.
+The trailing `2` is what makes the **canonical manual flip** work: it
+drops the whole LM as one craft, leaving the `[SM, CM]` core firing the
+SPS, ready to slew and re-dock. Staging the LM one Stage at a time
+(the bug from the `[1,1,1]` interim) would strand the Descent and split
+the lander. The one-shot **Transposition** key (`D`) is the alternative
+at the same `[Descent, Ascent, SM, CM]` state: it reorders to `[SM, CM,
+Descent, Ascent]` and registers the LM as a docked **nose payload** that
+**Undock** releases (clearing the unconsumed trailing `2` so the core
+doesn't later pop as a group). The mission survivor is the **Command
+Module**, not the fused CSM.
 _Avoid_: Decouple group, Staging sequence, Separation script.
 
 **Service Module (SM)**:
