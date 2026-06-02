@@ -3,10 +3,14 @@
 // ViewLaunch is the chase-cam launch scene routed into automatically
 // when an active vessel transitions Landed false→true (Launchpad
 // spawn today; future Touchdown semantics will extend the trigger).
-// Auto-release fires when the orbit's apoapsis crosses
-// LaunchMissionFloorM — the same predicate that gates v0.10.7's
-// ORBIT READY callout, sharing single-source-of-truth with the
-// LaunchAnchor on ViewTilted.
+// Auto-release fires when the ascent is essentially orbital: the orbit's
+// apoapsis has climbed clear of the primary's atmosphere AND the
+// impulsive circularisation Δv at that apoapsis is within
+// LaunchCircularizeDvCapMS — so the player stays in the chase-cam until
+// the upper stage has built most of its orbital velocity, then hands off
+// to the orbit view. (The ORBIT READY callout and the ViewTilted
+// LaunchAnchor keep their own LaunchMissionFloorM gate; this release is
+// deliberately stricter.)
 //
 // This file owns the per-tick handler called from World.Tick and the
 // session-open/close helpers. Render-side (the chase-cam scene
@@ -68,10 +72,11 @@ func (w *World) tickLaunchView() {
 		w.routeToLaunchView()
 	}
 
-	// 3. Apo-floor auto-release. Gated on LaunchSessionActive so a
-	// manually-entered ViewLaunch (no session) stays put even when
-	// apo > floor.
-	if w.LaunchSessionActive && active != nil && apoAltAboveFloor(active) {
+	// 3. Auto-release once the ascent is essentially orbital (apoapsis
+	// clear of the atmosphere AND within the circularisation Δv cap).
+	// Gated on LaunchSessionActive so a manually-entered ViewLaunch (no
+	// session) stays put even when the predicate is satisfied.
+	if w.LaunchSessionActive && active != nil && launchAscentNearlyOrbital(active) {
 		w.releaseLaunchSession()
 	}
 
@@ -143,17 +148,47 @@ func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 	// is moving between flying vessels with no launch state on either.
 }
 
-// apoAltAboveFloor reports whether the craft's current orbit has an
-// apoapsis altitude (AGL relative to the primary's mean radius) above
-// LaunchMissionFloorM. Hyperbolic / degenerate orbits (a ≤ 0,
-// e ≥ 1) return false — apoapsis is undefined there, and the plan
-// explicitly leaves the session running until the orbit becomes
-// bound. Mirrors the predicate in v0.10.7's LaunchAnchorPhi.
-func apoAltAboveFloor(c *spacecraft.Spacecraft) bool {
+// LaunchCircularizeDvCapMS is the impulsive circularisation-Δv budget
+// (m/s) at or below which an ascent counts as "essentially orbital" —
+// the second half of the ViewLaunch auto-release predicate (the first
+// being an apoapsis clear of the atmosphere). At ~750 m/s the upper
+// stage has built nearly all of its orbital velocity, so the chase-cam
+// has served its purpose and the orbit view takes over. Chosen to be
+// comfortably above a clean low-orbit circularisation burn yet well
+// below the multi-km/s gap of an ascent still mid-gravity-turn.
+const LaunchCircularizeDvCapMS = 750.0
+
+// launchAscentNearlyOrbital reports whether the craft's current orbit is
+// far enough along to release the ViewLaunch session: its apoapsis sits
+// above the primary's atmosphere (above the surface for an airless body)
+// AND the impulsive circularisation Δv at that apoapsis is within
+// LaunchCircularizeDvCapMS. Hyperbolic / degenerate orbits (a ≤ 0,
+// e ≥ 1) return false — apoapsis is undefined there, and the session
+// stays open until the trajectory becomes bound.
+func launchAscentNearlyOrbital(c *spacecraft.Spacecraft) bool {
 	mu := c.Primary.GravitationalParameter()
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	apoAlt := el.Apoapsis() - c.Primary.RadiusMeters()
-	return apoAlt > LaunchMissionFloorM
+	// Apoapsis undefined on unbound / degenerate orbits.
+	if el.A <= 0 || el.E >= 1 {
+		return false
+	}
+	rApo := el.Apoapsis()
+	apoAlt := rApo - c.Primary.RadiusMeters()
+	// 1. Apoapsis must clear the atmosphere so drag can't decay it
+	// (above the surface for an airless body, where atmTop = 0).
+	atmTop := 0.0
+	if c.Primary.Atmosphere != nil {
+		atmTop = c.Primary.Atmosphere.CutoffAltitude
+	}
+	if apoAlt <= atmTop {
+		return false
+	}
+	// 2. Impulsive circularisation Δv at apoapsis: vis-viva speed there
+	// vs. the local circular speed (mirrors the LAUNCH HUD's Δv→circ
+	// readout in tui/screens/orbit.go). A circular orbit reads 0.
+	vApo := math.Sqrt(mu * (2/rApo - 1/el.A))
+	vCirc := math.Sqrt(mu / rApo)
+	return vCirc-vApo <= LaunchCircularizeDvCapMS
 }
 
 // LaunchReleaseEvent records a ViewLaunch session ending so the App's
