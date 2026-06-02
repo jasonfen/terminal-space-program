@@ -56,7 +56,8 @@ const (
 	// curving below in Body.SurfaceColor, and a body-fixed pad
 	// marker + breadcrumb trail. Routed into automatically on
 	// active-slot Landed-false→true transitions; auto-released when
-	// the orbit's apoapsis crosses LaunchMissionFloorM. Appended to
+	// the ascent goes nearly orbital (apoapsis clear of the atmosphere
+	// and within the circularisation-Δv cap). Appended to
 	// the cycle (NOT prepended) so ViewTilted stays the zero-value
 	// default. ADR-0002 captures the rationale for shipping this as
 	// a distinct ViewMode instead of extending ViewTilted.
