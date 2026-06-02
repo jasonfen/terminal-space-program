@@ -149,6 +149,60 @@ func TestHudPhaseCollapsesVesselDuringAscent(t *testing.T) {
 	}
 }
 
+// TestLaunchHUDHidesOnStableSubMissionFloorOrbit — regression for the
+// "186×186 km orbit but the launch display is still active" playtest
+// report. The launch HUD must hide once the orbit is stable (periapsis
+// clear of the atmosphere), not require periapsis above the 200 km
+// mission floor — a 186 km circular parking orbit is finished ascending
+// even though it's under 200 km.
+func TestLaunchHUDHidesOnStableSubMissionFloorOrbit(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Landed = false
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	atmTop := c.Primary.Atmosphere.CutoffAltitude // 150 km on Earth
+
+	circularAt := func(altM float64) {
+		r := primaryR + altM
+		v := math.Sqrt(mu / r)
+		c.State.R.X, c.State.R.Y, c.State.R.Z = r, 0, 0
+		c.State.V.X, c.State.V.Y, c.State.V.Z = 0, v, 0
+		c.State.M = c.TotalMass()
+	}
+
+	// 186 km circular: periapsis 186 km > 150 km atmosphere but < 200 km
+	// mission floor. Ascent is done → HUD must hide.
+	circularAt(186e3)
+	if 186e3 <= atmTop || 186e3 >= 200e3 {
+		t.Fatalf("test premise broken: 186 km must sit between atmosphere %.0f and floor 200km", atmTop)
+	}
+	if shouldShowLaunchHUD(c) {
+		t.Error("186 km circular orbit: launch HUD still shown, want hidden (orbit is stable, above the atmosphere)")
+	}
+
+	// 140 km circular: periapsis still inside the 150 km atmosphere →
+	// HUD stays up (orbit would decay; not a real parking orbit yet).
+	circularAt(140e3)
+	if !shouldShowLaunchHUD(c) {
+		t.Error("140 km circular orbit (periapsis inside atmosphere): launch HUD hidden, want shown")
+	}
+
+	// Ascent arc: periapsis below the surface (deep sub-orbital) → shown.
+	rApo := primaryR + 250e3
+	rPeri := primaryR - 100e3
+	a := (rPeri + rApo) / 2
+	c.State.R.X, c.State.R.Y, c.State.R.Z = rPeri, 0, 0
+	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, math.Sqrt(mu*(2/rPeri-1/a)), 0
+	c.State.M = c.TotalMass()
+	if !shouldShowLaunchHUD(c) {
+		t.Error("sub-orbital ascent arc: launch HUD hidden, want shown")
+	}
+}
+
 // TestTitleBarShowsClockAndWarp: v0.10.3+ moved the CLOCK block from
 // the HUD into the title bar. The title row must show T+date and the
 // current warp rate; the HUD must no longer carry a `CLOCK` header.
