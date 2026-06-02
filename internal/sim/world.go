@@ -80,8 +80,9 @@ type World struct {
 
 	// LaunchSessionActive is the v0.11.0+ ViewLaunch session sentinel.
 	// True between the per-tick route handler firing on an active-slot
-	// Landed-false→true transition and the auto-release (apo crosses
-	// LaunchMissionFloorM) or manual `v` cycle out. Distinguished from
+	// Landed-false→true transition and the auto-release (ascent goes
+	// nearly orbital — apoapsis clear of the atmosphere and within the
+	// circularisation-Δv cap) or manual `v` cycle out. Distinguished from
 	// PrevViewMode because PrevViewMode's zero value (ViewTilted)
 	// collides with "no session" — the boolean is the unambiguous
 	// signal that session-scoped state (PrevViewMode, LaunchT0,
