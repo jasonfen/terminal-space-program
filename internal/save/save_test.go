@@ -100,13 +100,13 @@ func TestRoundtrip(t *testing.T) {
 	}
 }
 
-// TestDecouplePlanRoundtripMidStaging — v0.12 Slice 2 / ADR 0007. A
-// mission saved mid-staging must restore its remaining Decouple Plan
-// so the pending grouping (e.g. the LM extraction) still fires
-// correctly. Spawn an Apollo Stack (plan [1,1,1,2]), drop S-IC (plan
-// advances to [1,1,2]), save + reload, and assert the reloaded craft
-// carries [1,1,2]. Also confirms a craft with no plan round-trips as
-// nil (the omitempty single-pop default).
+// TestDecouplePlanRoundtripMidStaging — v0.12 / ADR 0009. A mission
+// saved mid-staging must restore its remaining Decouple Plan so the
+// pending Saturn-stage grouping still fires correctly. Spawn an Apollo
+// Stack (plan [1,1,1]), drop S-IC (plan advances to [1,1]), save +
+// reload, and assert the reloaded craft carries [1,1]. Also confirms a
+// craft with no plan round-trips as nil (the omitempty single-pop
+// default).
 func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -121,7 +121,7 @@ func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
 	if _, _, err := w.StageActive(0); err != nil {
 		t.Fatalf("StageActive (drop S-IC): %v", err)
 	}
-	wantPlan := []int{1, 1, 2}
+	wantPlan := []int{1, 1}
 	if got := w.Crafts[0].DecouplePlan; len(got) != len(wantPlan) {
 		t.Fatalf("pre-save plan = %v, want %v", got, wantPlan)
 	}
@@ -135,7 +135,7 @@ func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	// Active craft (the partially-staged stack) keeps [1,1,2].
+	// Active craft (the partially-staged stack) keeps [1,1].
 	plan := got.Crafts[0].DecouplePlan
 	if len(plan) != len(wantPlan) {
 		t.Fatalf("reloaded plan = %v, want %v", plan, wantPlan)
@@ -150,6 +150,164 @@ func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
 	// distinct value.
 	if got.Crafts[1].DecouplePlan != nil {
 		t.Errorf("jettisoned craft plan = %v, want nil (no plan ⇒ single-pop)", got.Crafts[1].DecouplePlan)
+	}
+}
+
+// transposedApolloWorld builds a world whose active craft is a
+// transposed Apollo composite ([SM, CM, Descent, Ascent] with the core
+// and LM as docked components carrying per-stage breakdowns). Shared by
+// the multi-stage DockedComponent save tests.
+func transposedApolloWorld(t *testing.T) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+	for i := 0; i < 3; i++ {
+		if _, _, err := w.StageActive(0); err != nil {
+			t.Fatalf("decouple #%d: %v", i, err)
+		}
+	}
+	if err := w.Transpose(0); err != nil {
+		t.Fatalf("Transpose: %v", err)
+	}
+	return w
+}
+
+// TestSaveLoadMultiStageDockedComponent — v0.12 / ADR 0009. A transposed
+// Apollo composite carries DockedComponents with a full per-stage
+// breakdown (the LM = Descent + Ascent; the core = SM + CM). Save + Load
+// must round-trip those breakdowns so Undock post-reload still rebuilds
+// the LM as a 2-stage craft.
+func TestSaveLoadMultiStageDockedComponent(t *testing.T) {
+	w := transposedApolloWorld(t)
+
+	// Pre-save: the LM component carries 2 stages, the core 2 stages.
+	pre := w.Crafts[0].DockedComponents
+	if len(pre) != 2 {
+		t.Fatalf("pre-save: %d docked components, want 2", len(pre))
+	}
+	foundLM := false
+	for _, dc := range pre {
+		if len(dc.Stages) == 2 && dc.Stages[0].Name == "Descent" {
+			foundLM = true
+		}
+	}
+	if !foundLM {
+		t.Fatal("pre-save: no 2-stage [Descent, Ascent] docked component")
+	}
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// The reloaded composite's docked components keep their breakdowns.
+	comps := got.Crafts[0].DockedComponents
+	if len(comps) != 2 {
+		t.Fatalf("reloaded: %d docked components, want 2", len(comps))
+	}
+	var lmStages int
+	for _, dc := range comps {
+		if len(dc.Stages) == 2 && dc.Stages[0].Name == "Descent" && dc.Stages[1].Name == "Ascent" {
+			lmStages = len(dc.Stages)
+		}
+	}
+	if lmStages != 2 {
+		t.Fatalf("reloaded LM component lost its 2-stage breakdown")
+	}
+
+	// Undock post-reload rebuilds the LM as a real 2-stage craft.
+	if !got.Undock(0) {
+		t.Fatal("Undock after reload returned false")
+	}
+	hasLM := false
+	for _, c := range got.Crafts {
+		if len(c.Stages) == 2 && c.Stages[0].Name == "Descent" && c.Stages[1].Name == "Ascent" {
+			hasLM = true
+		}
+	}
+	if !hasLM {
+		t.Error("post-reload undock did not rebuild a 2-stage LM craft")
+	}
+}
+
+// TestLoadOldSaveDockedComponentFallsBackSingleStage — a v6 save written
+// before ADR 0009 has DockedComponents with no "stages" array. Loading
+// it and undocking must fall back to the legacy single-stage rebuild
+// (one craft per component), not error. Simulated by stripping the
+// "stages" keys from a freshly-saved composite's JSON.
+func TestLoadOldSaveDockedComponentFallsBackSingleStage(t *testing.T) {
+	w := transposedApolloWorld(t)
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Strip every docked component's "stages" key to mimic a pre-ADR-0009
+	// save.
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	payload, _ := doc["payload"].(map[string]any)
+	crafts, _ := payload["crafts"].([]any)
+	stripped := 0
+	for _, c := range crafts {
+		cm, _ := c.(map[string]any)
+		dcs, _ := cm["docked_components"].([]any)
+		for _, dc := range dcs {
+			if dcm, ok := dc.(map[string]any); ok {
+				if _, had := dcm["stages"]; had {
+					delete(dcm, "stages")
+					stripped++
+				}
+			}
+		}
+	}
+	if stripped == 0 {
+		t.Fatal("test setup: no docked-component stages found to strip")
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Load the stripped (old-shape) save and undock — must fall back to
+	// single-stage rebuild without error.
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load stripped save: %v", err)
+	}
+	for _, dc := range got.Crafts[0].DockedComponents {
+		if len(dc.Stages) != 0 {
+			t.Errorf("stripped save still carries a stage breakdown: %d stages", len(dc.Stages))
+		}
+	}
+	if !got.Undock(0) {
+		t.Fatal("Undock on stripped (old-shape) save returned false")
+	}
+	// Fallback path → each component rebuilds as a single-stage craft.
+	for _, c := range got.Crafts {
+		if len(c.DockedComponents) == 0 && len(c.Stages) != 1 {
+			t.Errorf("old-save fallback restored a %d-stage craft, want single-stage", len(c.Stages))
+		}
 	}
 }
 

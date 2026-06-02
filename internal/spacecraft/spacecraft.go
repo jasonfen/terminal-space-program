@@ -316,6 +316,18 @@ type DockedComponent struct {
 	// landing capabilities are cheap to carry and load-bearing.)
 	CanSoftLand  bool
 	HasParachute bool
+	// Stages (v0.12 / ADR 0009): the component's full per-stage
+	// breakdown, captured so Undock can restore a MULTI-stage craft
+	// (e.g. the Apollo LM = Descent + Ascent released as a docked nose
+	// payload after transposition). Closes the v0.9.1.x gap the flat
+	// single-stage fields above couldn't cover. Empty/nil ⇒ Undock
+	// falls back to the legacy single-stage prorate rebuild (old saves,
+	// single-stage components). The recorded FuelMass is a dock-time
+	// snapshot used only for the stage COUNT + identity; Undock reads
+	// LIVE per-stage fuel from the composite's current Stages (the
+	// firing Stages[0] is drained while docked, so the snapshot fuel
+	// goes stale — see sim.Undock).
+	Stages []Stage
 }
 
 // AsDockedComponent captures s's identity + capacity fields into a
@@ -337,6 +349,9 @@ func (s *Spacecraft) AsDockedComponent() DockedComponent {
 		RCSIsp:           s.RCSIsp,
 		CanSoftLand:      s.CanSoftLand,
 		HasParachute:     s.HasParachute,
+		// v0.12 / ADR 0009: record the full stage breakdown so a
+		// multi-stage component (the LM) round-trips through Undock.
+		Stages: append([]Stage(nil), s.Stages...),
 	}
 }
 

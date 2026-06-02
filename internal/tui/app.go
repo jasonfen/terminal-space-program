@@ -743,6 +743,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
+		case key.Matches(m, a.keys.Transpose):
+			// v0.12 / ADR 0009: one-shot Apollo transposition. Reorders
+			// the [Descent, Ascent, SM, CM] stack so the SM fires (LOI/
+			// TEI) with the LM as a docked nose payload released via U.
+			switch err := a.world.Transpose(a.world.ActiveCraftIdx); {
+			case err == nil:
+				a.statusMsg = "transposed: SM is firing core — press U to release the LM"
+			case errors.Is(err, sim.ErrTransposeNotReady):
+				a.statusMsg = "transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)"
+			default:
+				a.statusMsg = fmt.Sprintf("transpose failed: %v", err)
+			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
+			return a, nil
 		case key.Matches(m, a.keys.CycleTarget):
 			a.world.CycleTarget(true)
 			return a, nil

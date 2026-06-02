@@ -45,11 +45,12 @@ func TestBuildStageCarriesFuelType(t *testing.T) {
 }
 
 // TestApolloStackSilhouetteIsUnifiedPalette (v0.11.5-followup): the
-// 5-stage Apollo Stack must paint its launch silhouette in cohesive
-// rocket-body tones (cream / white / metal), NOT a rainbow of the
-// per-stage slate-HUD colours. Pins each stage's LaunchSpriteColor
-// override against the unified catalog values so a future catalog
-// edit can't accidentally restore the rainbow read.
+// Apollo Stack must paint its launch silhouette in cohesive rocket-body
+// tones (cream / white / metal), NOT a rainbow of the per-stage
+// slate-HUD colours. Pins each stage's LaunchSpriteColor override
+// against the unified catalog values so a future catalog edit can't
+// accidentally restore the rainbow read. v0.12 / ADR 0009: the fused
+// CSM split into SM (silver service module) + CM (pale cone).
 func TestApolloStackSilhouetteIsUnifiedPalette(t *testing.T) {
 	apollo := Loadouts[LoadoutApolloStackID]
 	want := map[string]string{
@@ -58,7 +59,8 @@ func TestApolloStackSilhouetteIsUnifiedPalette(t *testing.T) {
 		"S-IVB":   "#D8D8D8",
 		"Descent": "#D4C088", // v0.12 Slice 2: LM split — descent keeps the gold foil
 		"Ascent":  "#C8C8B0", // pale metal band above the descent
-		"CSM":     "#C8C8D0",
+		"SM":      "#C8C8D0", // bare aluminium service module
+		"CM":      "#D8D8E0", // pale command-module cone
 	}
 	for _, s := range apollo.Stages {
 		w, ok := want[s.Name]
@@ -90,9 +92,10 @@ func TestLoadoutStagesCarryFuelType(t *testing.T) {
 		}
 	}
 	apollo := Loadouts[LoadoutApolloStackID]
-	// Apollo: S-IC, S-II, S-IVB, Descent, Ascent, CSM (v0.12 Slice 2:
-	// LM split into Descent + Ascent, both hypergolic).
-	wantApollo := []string{FuelTypeKerolox, FuelTypeHydrolox, FuelTypeHydrolox, FuelTypeHypergolic, FuelTypeHypergolic, FuelTypeHypergolic}
+	// Apollo: S-IC, S-II, S-IVB, Descent, Ascent, SM, CM (v0.12 / ADR
+	// 0009: the fused CSM split into a hypergolic-SPS Service Module +
+	// an engineless Command Module — the CM carries no fuelType).
+	wantApollo := []string{FuelTypeKerolox, FuelTypeHydrolox, FuelTypeHydrolox, FuelTypeHypergolic, FuelTypeHypergolic, FuelTypeHypergolic, ""}
 	for i, s := range apollo.Stages {
 		if s.FuelType != wantApollo[i] {
 			t.Errorf("Apollo-Stack Stage[%d] (%s) FuelType = %q, want %q", i, s.Name, s.FuelType, wantApollo[i])

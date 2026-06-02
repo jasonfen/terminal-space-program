@@ -313,6 +313,14 @@ type DockedComponent struct {
 	// absent → false, matching pre-Slice-3 components.
 	CanSoftLand  bool `json:"can_soft_land,omitempty"`
 	HasParachute bool `json:"has_parachute,omitempty"`
+	// Stages (v0.12 / ADR 0009, schema v6 additive — no bump): the
+	// component's full per-stage breakdown, so a multi-stage docked
+	// component (the Apollo LM = Descent + Ascent, or the SM+CM core
+	// after transposition) round-trips and Undock can rebuild it as a
+	// multi-stage craft. omitempty; absent → nil, which makes
+	// sim.Undock fall back to the legacy single-stage rebuild —
+	// matching every pre-ADR-0009 composite.
+	Stages []Stage `json:"stages,omitempty"`
 }
 
 // ActiveBurn mirrors sim.ActiveBurn. Throttle (v0.7.6+, schema v4)
@@ -525,6 +533,7 @@ func payloadFromWorld(w *sim.World) Payload {
 				RCSIsp:           dc.RCSIsp,
 				CanSoftLand:      dc.CanSoftLand,
 				HasParachute:     dc.HasParachute,
+				Stages:           simStagesToWire(dc.Stages),
 			})
 		}
 		for _, n := range c.Nodes {
@@ -717,6 +726,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				RCSIsp:           dc.RCSIsp,
 				CanSoftLand:      dc.CanSoftLand,
 				HasParachute:     dc.HasParachute,
+				Stages:           wireStagesToSim(dc.Stages),
 			})
 		}
 		// v0.8.1+: per-craft Nodes / ActiveBurn loaded directly from
