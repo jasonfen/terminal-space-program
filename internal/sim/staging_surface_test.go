@@ -232,11 +232,11 @@ func TestExtractedLMSurfaceStagesDescentAlone(t *testing.T) {
 }
 
 // TestDecouplePlanAdvancesOnEachPress — the plan is consumed
-// positionally: after dropping S-IC, the v0.12 / ADR 0009 Apollo Stack's
-// remaining plan is [1,1]; after S-II it's [1]; after S-IVB it's empty
-// (the LM is no longer a bottom-up group — it releases via transposition
-// + undock). Pins the advance so a save/reload mid-staging (which
-// persists the remaining plan) restores the correct Saturn-drop grouping.
+// positionally: after dropping S-IC the v0.12 / ADR 0009 Apollo Stack's
+// remaining plan is [1,1,2]; after S-II it's [1,2]; after S-IVB it's [2]
+// (the trailing LM group, released as a 2-stage craft on the next press).
+// Pins the advance so a save/reload mid-staging (which persists the
+// remaining plan) restores the correct grouping for the pending LM drop.
 func TestDecouplePlanAdvancesOnEachPress(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -249,9 +249,9 @@ func TestDecouplePlanAdvancesOnEachPress(t *testing.T) {
 	w.ActiveCraftIdx = 0
 
 	wantRemaining := [][]int{
-		{1, 1}, // after S-IC
-		{1},    // after S-II
-		nil,    // after S-IVB (plan emptied; LM releases via transpose)
+		{1, 1, 2}, // after S-IC
+		{1, 2},    // after S-II
+		{2},       // after S-IVB (the trailing LM group)
 	}
 	for i, want := range wantRemaining {
 		if _, _, err := w.StageActive(0); err != nil {

@@ -252,14 +252,27 @@ func retrogradeUnit(v, r orbital.Vec3) orbital.Vec3 {
 	return orbital.Vec3{X: -1}
 }
 
+// TransposeReady reports whether a craft is in the pre-transposition
+// shape [Descent, Ascent, SM, CM] — the state left after the three
+// Saturn stages decouple, where the transpose key (D) is actionable.
+// The HUD uses it to surface the "TRANSPOSE READY — press D" hint, and
+// Transpose uses it as its precondition.
+func TransposeReady(c *spacecraft.Spacecraft) bool {
+	return c != nil && len(c.Stages) == 4 &&
+		c.Stages[0].Name == "Descent" && c.Stages[1].Name == "Ascent" &&
+		c.Stages[2].Name == "SM" && c.Stages[3].Name == "CM"
+}
+
 // Transpose performs the Apollo transposition (ADR 0009) on the craft at
 // craftIdx in one shot: it reproduces the end-state of the manual
 // docking flip — the SM becomes the firing core (Stages[0]) with the LM
 // as a releasable nose payload — without flying the rendezvous.
 //
 // Precondition: the craft is exactly [Descent, Ascent, SM, CM] — the
-// state left after the three Saturn stages have decoupled (the loadout's
-// [1,1,1] DecouplePlan). Otherwise returns ErrTransposeNotReady.
+// state left after the three Saturn stages have decoupled (the first
+// three entries of the loadout's [1,1,1,2] DecouplePlan; the trailing 2
+// drops the LM for the manual flip instead). Otherwise returns
+// ErrTransposeNotReady.
 //
 // It splits the stack into the LM (Descent + Ascent) and the CSM core
 // (SM + CM), reorders the live craft to [SM, CM, Descent, Ascent] so the
@@ -278,10 +291,7 @@ func (w *World) Transpose(craftIdx int) error {
 	if c == nil {
 		return fmt.Errorf("%w: %d (nil)", ErrStageNoCraft, craftIdx)
 	}
-	// Precondition: the pre-transposition shape [Descent, Ascent, SM, CM].
-	if len(c.Stages) != 4 ||
-		c.Stages[0].Name != "Descent" || c.Stages[1].Name != "Ascent" ||
-		c.Stages[2].Name != "SM" || c.Stages[3].Name != "CM" {
+	if !TransposeReady(c) {
 		return ErrTransposeNotReady
 	}
 
@@ -300,6 +310,13 @@ func (w *World) Transpose(craftIdx int) error {
 	c.Stages = append(append([]spacecraft.Stage(nil), coreStages...), lmStages...)
 	c.DockedComponents = []spacecraft.DockedComponent{core, lm}
 	c.Name = "CSM" // flying as the CSM core now
+	// Clear any leftover DecouplePlan (the loadout's trailing LM-group
+	// "2" if the player transposed instead of staging the LM off). Post-
+	// transposition the LM leaves via Undock and the SM/CM core stages
+	// one-at-a-time (SM jettison after TEI, then the CM re-enters); a
+	// stale "2" here would pop the [SM, CM] core as a group on the next
+	// space press.
+	c.DecouplePlan = nil
 	c.SyncFields()
 	c.State.M = c.TotalMass()
 	return nil

@@ -145,9 +145,11 @@ func TestStageCatalogShape(t *testing.T) {
 // fused CSM into a propulsive Service Module + a passive Command Module),
 // lift-off TWR > 1 at sea-level g with the full payload. SM+CM dry mass
 // equals the pre-split CSM dry, so the split is mass-neutral and TWR is
-// unchanged. The DecouplePlan [1,1,1] drops the three Saturn stages one
-// at a time; the LM is no longer a bottom-up group — post-transposition
-// it becomes a docked nose payload released via Undock (ADR 0009).
+// unchanged. The DecouplePlan [1,1,1,2] drops the three Saturn stages one
+// at a time, then releases the LM (Descent + Ascent) as a single 2-stage
+// craft — so the canonical manual flip (drop LM, slew, dock) keeps the
+// lander intact; the one-shot transpose key (D) is the alternative that
+// reorders the LM to a docked nose payload (ADR 0009).
 func TestApolloStackShape(t *testing.T) {
 	l, ok := Loadouts[LoadoutApolloStackID]
 	if !ok {
@@ -162,7 +164,7 @@ func TestApolloStackShape(t *testing.T) {
 			t.Errorf("stage %d: name %q, want %q", i, l.Stages[i].Name, n)
 		}
 	}
-	wantPlan := []int{1, 1, 1}
+	wantPlan := []int{1, 1, 1, 2}
 	if len(l.DecouplePlan) != len(wantPlan) {
 		t.Fatalf("Apollo-Stack DecouplePlan = %v, want %v", l.DecouplePlan, wantPlan)
 	}

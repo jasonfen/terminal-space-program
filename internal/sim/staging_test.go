@@ -8,6 +8,15 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
+// stageNames returns the Name of each stage, for readable failure output.
+func stageNames(stages []spacecraft.Stage) []string {
+	out := make([]string, len(stages))
+	for i, s := range stages {
+		out[i] = s.Name
+	}
+	return out
+}
+
 // TestStageActiveOnSaturnVPopsBottomStage — Saturn-V starts as a
 // 3-stage craft. Pressing space jettisons S-IC; the active craft
 // becomes 2-stage (S-II + S-IVB). A new passive craft appears at
@@ -180,6 +189,95 @@ func TestStageActiveAdvancesEngineToNextStage(t *testing.T) {
 	}
 	if active.Isp != 421 {
 		t.Errorf("post-stage Isp (S-II): got %.0f, want 421", active.Isp)
+	}
+}
+
+// TestApolloStackManualFlipDropsLMAsOneCraft — regression for the
+// LM-splits-when-staging playtest bug. At the pre-transposition stack
+// [Descent, Ascent, SM, CM], pressing space (the canonical manual-flip
+// first step) must drop the LM as a SINGLE 2-stage [Descent, Ascent]
+// craft and leave the [SM, CM] core firing the SPS — NOT peel the
+// descent and ascent off one stage at a time (which would split the
+// lander). The DecouplePlan's trailing "2" group is what keeps it whole.
+func TestApolloStackManualFlipDropsLMAsOneCraft(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+
+	// Drop the three Saturn stages → pre-transposition [Descent, Ascent, SM, CM].
+	for i := 0; i < 3; i++ {
+		if _, _, err := w.StageActive(0); err != nil {
+			t.Fatalf("Saturn drop #%d: %v", i, err)
+		}
+	}
+	pre := w.Crafts[0]
+	if len(pre.Stages) != 4 || pre.Stages[0].Name != "Descent" {
+		t.Fatalf("pre-transposition stack = %d stages, bottom %q; want [Descent,Ascent,SM,CM]",
+			len(pre.Stages), pre.Stages[0].Name)
+	}
+
+	// One more press: the trailing "2" releases the LM as a 2-stage craft.
+	_, lmIdx, err := w.StageActive(0)
+	if err != nil {
+		t.Fatalf("LM drop: %v", err)
+	}
+	lm := w.Crafts[lmIdx]
+	if len(lm.Stages) != 2 || lm.Stages[0].Name != "Descent" || lm.Stages[1].Name != "Ascent" {
+		t.Errorf("dropped LM = %d-stage %v, want 2-stage [Descent, Ascent] (lander must not split)",
+			len(lm.Stages), stageNames(lm.Stages))
+	}
+	// The surviving core is [SM, CM] with the SPS firing.
+	core := w.Crafts[0]
+	if len(core.Stages) != 2 || core.Stages[0].Name != "SM" || core.Thrust != 91000 {
+		t.Errorf("surviving core = %v Thrust=%.0f, want [SM, CM] firing SPS (91000)",
+			stageNames(core.Stages), core.Thrust)
+	}
+}
+
+// TestTransposeClearsDecouplePlan — after a one-shot transpose (D), the
+// leftover loadout plan (the trailing LM "2" group, unconsumed because
+// the player transposed instead of staging the LM off) must be cleared.
+// Otherwise the next space press would pop the [SM, CM] core as a group
+// instead of jettisoning the SM alone after TEI.
+func TestTransposeClearsDecouplePlan(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+
+	for i := 0; i < 3; i++ {
+		if _, _, err := w.StageActive(0); err != nil {
+			t.Fatalf("Saturn drop #%d: %v", i, err)
+		}
+	}
+	// After 3 drops the unconsumed plan is the trailing [2].
+	if got := w.Crafts[0].DecouplePlan; len(got) != 1 || got[0] != 2 {
+		t.Fatalf("pre-transpose leftover plan = %v, want [2]", got)
+	}
+	if err := w.Transpose(0); err != nil {
+		t.Fatalf("Transpose: %v", err)
+	}
+	if got := w.Crafts[0].DecouplePlan; got != nil {
+		t.Errorf("post-transpose DecouplePlan = %v, want nil (cleared)", got)
+	}
+	// A space press now jettisons the SM alone (single-pop), not [SM, CM].
+	_, _, err = w.StageActive(0)
+	if err != nil {
+		t.Fatalf("post-transpose stage: %v", err)
+	}
+	if dropped := w.Crafts[len(w.Crafts)-1]; len(dropped.Stages) != 1 || dropped.Stages[0].Name != "SM" {
+		t.Errorf("post-transpose stage dropped %v, want single SM", stageNames(dropped.Stages))
 	}
 }
 

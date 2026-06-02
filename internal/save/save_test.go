@@ -102,11 +102,11 @@ func TestRoundtrip(t *testing.T) {
 
 // TestDecouplePlanRoundtripMidStaging — v0.12 / ADR 0009. A mission
 // saved mid-staging must restore its remaining Decouple Plan so the
-// pending Saturn-stage grouping still fires correctly. Spawn an Apollo
-// Stack (plan [1,1,1]), drop S-IC (plan advances to [1,1]), save +
-// reload, and assert the reloaded craft carries [1,1]. Also confirms a
-// craft with no plan round-trips as nil (the omitempty single-pop
-// default).
+// pending grouping (the trailing LM 2-group) still fires correctly.
+// Spawn an Apollo Stack (plan [1,1,1,2]), drop S-IC (plan advances to
+// [1,1,2]), save + reload, and assert the reloaded craft carries
+// [1,1,2]. Also confirms a craft with no plan round-trips as nil (the
+// omitempty single-pop default).
 func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -121,7 +121,7 @@ func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
 	if _, _, err := w.StageActive(0); err != nil {
 		t.Fatalf("StageActive (drop S-IC): %v", err)
 	}
-	wantPlan := []int{1, 1}
+	wantPlan := []int{1, 1, 2}
 	if got := w.Crafts[0].DecouplePlan; len(got) != len(wantPlan) {
 		t.Fatalf("pre-save plan = %v, want %v", got, wantPlan)
 	}
@@ -135,7 +135,7 @@ func TestDecouplePlanRoundtripMidStaging(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	// Active craft (the partially-staged stack) keeps [1,1].
+	// Active craft (the partially-staged stack) keeps [1,1,2].
 	plan := got.Crafts[0].DecouplePlan
 	if len(plan) != len(wantPlan) {
 		t.Fatalf("reloaded plan = %v, want %v", plan, wantPlan)
