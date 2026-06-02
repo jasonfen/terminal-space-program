@@ -125,16 +125,18 @@ func TestLaunchRouteSeedsSessionState(t *testing.T) {
 }
 
 // TestLaunchAutoReleaseAtApoFloor — when the active craft is in
-// an orbit whose apoapsis exceeds LaunchMissionFloorM (200 km), the
-// per-tick handler's auto-release predicate fires: PrevViewMode is
-// restored to ViewMode, LaunchSessionActive flips false, and the
-// session-scoped state (T0, MaxQ, trail, zoom) clears so the next
-// route doesn't see stale data.
+// a circular orbit whose apoapsis is clear of the atmosphere and whose
+// circularisation Δv is within the cap, the per-tick handler's
+// auto-release predicate fires: PrevViewMode is restored to ViewMode,
+// LaunchSessionActive flips false, and the session-scoped state (T0,
+// MaxQ, trail, zoom) clears so the next route doesn't see stale data.
 //
-// Predicate parity with v0.10.7's LaunchAnchorPhi (`apoAlt >
-// LaunchMissionFloorM`) is the architectural commitment from ADR
-// 0002 — the ORBIT READY callout and the ViewLaunch release fire
-// off the same gate.
+// The release predicate (launchAscentNearlyOrbital) is deliberately
+// stricter than the ORBIT READY / LaunchAnchor LaunchMissionFloorM gate:
+// it also requires the ascent to be near circularisation (see
+// TestLaunchNoReleaseWhenEccentric / TestLaunchReleaseWithinCircDvCap).
+// A 201 km circular orbit satisfies both halves (apo 201 km > Earth's
+// 150 km atmosphere cutoff; Δv→circ = 0).
 func TestLaunchAutoReleaseAtApoFloor(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -192,6 +194,99 @@ func TestLaunchAutoReleaseAtApoFloor(t *testing.T) {
 	}
 	if !w.LaunchT0.IsZero() {
 		t.Errorf("LaunchT0 = %v, want zero (release must clear)", w.LaunchT0)
+	}
+}
+
+// launchSessionCraftAtApo plants the world mid-ViewLaunch-session with a
+// single active craft sitting AT apoapsis: position (R+apoAltM, 0, 0)
+// with a purely tangential velocity equal to the local circular speed
+// minus dvToCircMS. That makes the point the orbit's apoapsis and the
+// impulsive Δv→circ there exactly dvToCircMS. Throttle is zeroed so a
+// single Tick's free-flight integration doesn't perturb the orbit.
+// Returns the world plus the orbit's resolved elements for pre-checks.
+func launchSessionCraftAtApo(t *testing.T, apoAltM, dvToCircMS float64) (*World, orbital.Elements) {
+	t.Helper()
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	earth := w.Systems[0].FindBody("earth")
+	if earth == nil {
+		t.Fatal("setup: earth not found in default system")
+	}
+	mu := earth.GravitationalParameter()
+	rApo := earth.RadiusMeters() + apoAltM
+	vApo := math.Sqrt(mu/rApo) - dvToCircMS
+
+	c := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+	c.Primary = *earth
+	c.Throttle = 0
+	c.State = physics.StateVector{
+		R: orbital.Vec3{X: rApo},
+		V: orbital.Vec3{Y: vApo},
+		M: c.TotalMass(),
+	}
+	w.Crafts = []*spacecraft.Spacecraft{c}
+	w.ActiveCraftIdx = 0
+	w.LaunchSessionActive = true
+	w.PrevViewMode = ViewTop
+	w.ViewMode = ViewLaunch
+	w.LaunchT0 = w.Clock.SimTime
+	return w, orbital.ElementsFromState(c.State.R, c.State.V, mu)
+}
+
+// TestLaunchNoReleaseWhenEccentric — an orbit whose apoapsis is well
+// clear of the atmosphere but whose circularisation Δv exceeds the cap
+// (an ascent that has raised apoapsis but not yet built orbital speed)
+// must NOT auto-release: the chase-cam stays until the upper stage is
+// near circularisation.
+func TestLaunchNoReleaseWhenEccentric(t *testing.T) {
+	// 300 km apoapsis (> 150 km atmosphere), Δv→circ 1000 m/s (> 750 cap).
+	w, el := launchSessionCraftAtApo(t, 300_000, 1000)
+	if el.E >= 1 || el.A <= 0 {
+		t.Fatalf("setup: orbit not bound (e=%.3f, a=%.0f)", el.E, el.A)
+	}
+
+	w.Tick()
+
+	if !w.LaunchSessionActive {
+		t.Error("eccentric ascent (Δv→circ 1000 > 750): session auto-released, want it to stay active")
+	}
+	if w.ViewMode != ViewLaunch {
+		t.Errorf("ViewMode = %v, want ViewLaunch (no release until near circularisation)", w.ViewMode)
+	}
+}
+
+// TestLaunchReleaseWithinCircDvCap — once the apoapsis is clear of the
+// atmosphere AND the circularisation Δv falls within the cap, the
+// session auto-releases even though the orbit is not perfectly circular.
+func TestLaunchReleaseWithinCircDvCap(t *testing.T) {
+	// 300 km apoapsis, Δv→circ 500 m/s (< 750 cap).
+	w, _ := launchSessionCraftAtApo(t, 300_000, 500)
+	w.Tick()
+
+	if w.LaunchSessionActive {
+		t.Error("ascent within Δv→circ cap (500 < 750): session still active, want auto-release")
+	}
+	if w.ViewMode != ViewTop {
+		t.Errorf("ViewMode = %v, want ViewTop (restored from PrevViewMode)", w.ViewMode)
+	}
+}
+
+// TestLaunchNoReleaseApoInsideAtmosphere — even a circular orbit whose
+// apoapsis is still inside the atmosphere must NOT auto-release: drag
+// would decay it, so it isn't a real orbit yet. Guards the atmosphere
+// half of the predicate independently of the Δv half.
+func TestLaunchNoReleaseApoInsideAtmosphere(t *testing.T) {
+	// 120 km apoapsis (< 150 km cutoff), circular (Δv→circ 0).
+	w, _ := launchSessionCraftAtApo(t, 120_000, 0)
+	w.Tick()
+
+	if !w.LaunchSessionActive {
+		t.Error("apoapsis inside the atmosphere: session auto-released, want it to stay active")
+	}
+	if w.ViewMode != ViewLaunch {
+		t.Errorf("ViewMode = %v, want ViewLaunch (apoapsis still in atmosphere)", w.ViewMode)
 	}
 }
 
