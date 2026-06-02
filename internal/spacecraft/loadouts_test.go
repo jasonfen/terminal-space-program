@@ -140,18 +140,20 @@ func TestStageCatalogShape(t *testing.T) {
 	}
 }
 
-// TestApolloStackShape — the multi-tier loadout: 6 stages bottom-first
-// [S-IC, S-II, S-IVB, Descent, Ascent, CSM] (v0.12 Slice 2 / ADR 0007
-// split the LM into Descent + Ascent), lift-off TWR > 1 at sea-level g
-// with the full payload, CSM is the surviving core. The Descent +
-// Ascent split sums to the pre-split LM mass so TWR is unchanged. The
-// DecouplePlan [1,1,1,2] groups the LM pair on the fourth press.
+// TestApolloStackShape — the multi-tier loadout: 7 stages bottom-first
+// [S-IC, S-II, S-IVB, Descent, Ascent, SM, CM] (v0.12 ADR 0009 split the
+// fused CSM into a propulsive Service Module + a passive Command Module),
+// lift-off TWR > 1 at sea-level g with the full payload. SM+CM dry mass
+// equals the pre-split CSM dry, so the split is mass-neutral and TWR is
+// unchanged. The DecouplePlan [1,1,1] drops the three Saturn stages one
+// at a time; the LM is no longer a bottom-up group — post-transposition
+// it becomes a docked nose payload released via Undock (ADR 0009).
 func TestApolloStackShape(t *testing.T) {
 	l, ok := Loadouts[LoadoutApolloStackID]
 	if !ok {
 		t.Fatal("Apollo-Stack loadout missing")
 	}
-	wantNames := []string{"S-IC", "S-II", "S-IVB", "Descent", "Ascent", "CSM"}
+	wantNames := []string{"S-IC", "S-II", "S-IVB", "Descent", "Ascent", "SM", "CM"}
 	if len(l.Stages) != len(wantNames) {
 		t.Fatalf("Apollo-Stack: %d stages, want %d", len(l.Stages), len(wantNames))
 	}
@@ -160,7 +162,7 @@ func TestApolloStackShape(t *testing.T) {
 			t.Errorf("stage %d: name %q, want %q", i, l.Stages[i].Name, n)
 		}
 	}
-	wantPlan := []int{1, 1, 1, 2}
+	wantPlan := []int{1, 1, 1}
 	if len(l.DecouplePlan) != len(wantPlan) {
 		t.Fatalf("Apollo-Stack DecouplePlan = %v, want %v", l.DecouplePlan, wantPlan)
 	}
@@ -168,6 +170,44 @@ func TestApolloStackShape(t *testing.T) {
 		if l.DecouplePlan[i] != g {
 			t.Errorf("DecouplePlan[%d] = %d, want %d", i, l.DecouplePlan[i], g)
 		}
+	}
+	// Stage-by-name lookups for the property assertions below.
+	byName := map[string]Stage{}
+	for _, s := range l.Stages {
+		byName[s.Name] = s
+	}
+	// SM: the propulsive Service Module — SPS engine, trimmed SPS fuel,
+	// no parachute (the CM carries the chute, not the SM).
+	sm := byName["SM"]
+	if sm.Thrust != 91000 || sm.Isp != 314 {
+		t.Errorf("SM engine: Thrust=%.0f Isp=%.0f, want 91000/314", sm.Thrust, sm.Isp)
+	}
+	if sm.FuelMass != 16000 {
+		t.Errorf("SM SPS fuel = %.0f, want 16000 (ADR 0009 trim)", sm.FuelMass)
+	}
+	if sm.HasParachute {
+		t.Error("SM must not carry a parachute (only the CM does)")
+	}
+	if sm.LaunchSpriteWidthPx < 2 {
+		t.Errorf("SM LaunchSpriteWidthPx = %d, want >= 2 (engine-bell render)", sm.LaunchSpriteWidthPx)
+	}
+	// CM: the passive Command Module — engineless, parachute recovery.
+	cm := byName["CM"]
+	if cm.Thrust != 0 || cm.FuelMass != 0 {
+		t.Errorf("CM should be engineless: Thrust=%.0f Fuel=%.0f", cm.Thrust, cm.FuelMass)
+	}
+	if !cm.HasParachute {
+		t.Error("CM must carry a parachute (ADR 0008 recovery model)")
+	}
+	if cm.CanSoftLand {
+		t.Error("CM has no engine landing route — CanSoftLand must be false")
+	}
+	// Locked LM trim (ADR 0009 table).
+	if d := byName["Descent"]; d.FuelMass != 6310 {
+		t.Errorf("Descent fuel = %.0f, want 6310 (ADR 0009 trim)", d.FuelMass)
+	}
+	if a := byName["Ascent"]; a.FuelMass != 1269 {
+		t.Errorf("Ascent fuel = %.0f, want 1269 (ADR 0009 trim)", a.FuelMass)
 	}
 	totalMass := SumDryMass(l.Stages) + SumFuelMass(l.Stages)
 	twr := l.Stages[0].Thrust / (totalMass * g0)

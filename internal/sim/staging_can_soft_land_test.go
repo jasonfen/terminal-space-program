@@ -13,18 +13,19 @@ import (
 )
 
 // TestApolloStackLanderDecoupleCarriesCanSoftLand — walks through
-// the Apollo mission staging sequence (drop S-IC, S-II, S-IVB,
-// then Lander) and asserts:
+// the v0.12 / ADR 0009 Apollo mission staging sequence (drop S-IC,
+// S-II, S-IVB, then transpose + undock the LM) and asserts:
 //
 //  1. While flying the composite, the active craft's CanSoftLand
 //     reflects the *current bottom stage* — false through the
 //     ascent / coast / TLI chain (none of those stages can land).
-//  2. After the Lander stage decouples, the new jettisoned craft
-//     in the slate carries CanSoftLand=true. The surviving active
-//     (CSM alone) re-derives CanSoftLand=false via SyncFields.
+//  2. After transposition + undock, the released LM craft carries
+//     CanSoftLand=true (its Descent bottom is soft-land-capable). The
+//     surviving SM/CM core re-derives CanSoftLand=false via SyncFields
+//     (the SM has no landing gear).
 //
-// This is the "playable as designed" loop ADR 0004 promised — and
-// the v0.11.4-followup that made it actually work end-to-end.
+// This is the "playable as designed" loop ADR 0004 promised, now reached
+// via the ADR 0009 transposition path rather than a bottom-up decouple.
 func TestApolloStackLanderDecoupleCarriesCanSoftLand(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -42,10 +43,10 @@ func TestApolloStackLanderDecoupleCarriesCanSoftLand(t *testing.T) {
 		t.Errorf("Apollo Stack at spawn: CanSoftLand=true, want false (S-IC is bottom)")
 	}
 
-	// Decouple S-IC, S-II, S-IVB in sequence (DecouplePlan [1,1,1,2] —
-	// three single pops) — each should leave the active craft with
-	// CanSoftLand=false until the bottom becomes Descent (the LM's
-	// soft-land-capable bottom stage).
+	// Decouple S-IC, S-II, S-IVB in sequence (DecouplePlan [1,1,1] —
+	// three single pops). The bottom becomes Descent after the third,
+	// but Descent is the LM's soft-land-capable stage only while it is
+	// Stages[0]; transposition then buries it behind the SM.
 	for i, expectedStage := range []string{"S-II", "S-IVB", "Descent"} {
 		if _, _, err := w.StageActive(0); err != nil {
 			t.Fatalf("decouple #%d: %v", i, err)
@@ -55,9 +56,6 @@ func TestApolloStackLanderDecoupleCarriesCanSoftLand(t *testing.T) {
 			t.Fatalf("after decouple #%d: bottom stage = %q, want %q",
 				i, active.Stages[0].Name, expectedStage)
 		}
-		// Through S-II + S-IVB the bottom isn't the LM yet →
-		// CanSoftLand=false. At Descent (the third iteration), bottom
-		// IS the soft-land-capable descent stage → CanSoftLand=true.
 		wantSoftLand := expectedStage == "Descent"
 		if active.CanSoftLand != wantSoftLand {
 			t.Errorf("after decouple to %q: CanSoftLand=%v, want %v",
@@ -65,33 +63,49 @@ func TestApolloStackLanderDecoupleCarriesCanSoftLand(t *testing.T) {
 		}
 	}
 
-	// Fourth press: the plan's trailing 2 releases the LM (Descent +
-	// Ascent) as one 2-stage craft, leaving the CSM core. The
-	// jettisoned LM's bottom (Descent) carries CanSoftLand; the
-	// surviving CSM does not.
+	// Transpose: the SM becomes the firing core (no landing gear), with
+	// the LM as a docked nose payload — so the composite's CanSoftLand
+	// drops back to false.
+	if err := w.Transpose(0); err != nil {
+		t.Fatalf("Transpose: %v", err)
+	}
+	if w.Crafts[0].CanSoftLand {
+		t.Errorf("post-transposition composite (SM bottom): CanSoftLand=true, want false")
+	}
+
+	// Undock: the released LM craft carries CanSoftLand (Descent bottom);
+	// the surviving SM/CM core does not.
 	beforeSlateLen := len(w.Crafts)
-	_, jettIdx, err := w.StageActive(0)
-	if err != nil {
-		t.Fatalf("decouple LM: %v", err)
+	if !w.Undock(0) {
+		t.Fatal("Undock after transpose returned false")
 	}
 	if len(w.Crafts) != beforeSlateLen+1 {
-		t.Fatalf("slate length after LM decouple: got %d, want %d",
+		t.Fatalf("slate length after undock: got %d, want %d",
 			len(w.Crafts), beforeSlateLen+1)
 	}
-	jett := w.Crafts[jettIdx]
-	if !jett.CanSoftLand {
-		t.Errorf("jettisoned LM craft: CanSoftLand=false, want true (Descent bottom carries the flag)")
+	var lm, csm *spacecraft.Spacecraft
+	for _, c := range w.Crafts {
+		switch {
+		case len(c.Stages) == 2 && c.Stages[0].Name == "Descent":
+			lm = c
+		case len(c.Stages) == 2 && c.Stages[0].Name == "SM":
+			csm = c
+		}
 	}
-	if len(jett.Stages) != 2 || jett.Stages[0].Name != "Descent" || jett.Stages[1].Name != "Ascent" {
-		t.Errorf("jettisoned LM stages = %d-stage, want [Descent, Ascent]", len(jett.Stages))
+	if lm == nil {
+		t.Fatal("no 2-stage [Descent, Ascent] LM craft after undock")
 	}
-	active := w.Crafts[0]
-	if active.Stages[0].Name != "CSM" {
-		t.Errorf("surviving active after LM decouple: bottom stage = %q, want %q",
-			active.Stages[0].Name, "CSM")
+	if !lm.CanSoftLand {
+		t.Errorf("released LM craft: CanSoftLand=false, want true (Descent bottom carries the flag)")
 	}
-	if active.CanSoftLand {
-		t.Errorf("surviving CSM: CanSoftLand=true, want false (no landing gear)")
+	if lm.Stages[1].Name != "Ascent" {
+		t.Errorf("released LM stages = [%q, %q], want [Descent, Ascent]", lm.Stages[0].Name, lm.Stages[1].Name)
+	}
+	if csm == nil {
+		t.Fatal("no surviving SM/CM core after undock")
+	}
+	if csm.CanSoftLand {
+		t.Errorf("surviving SM/CM core: CanSoftLand=true, want false (no landing gear)")
 	}
 }
 
