@@ -297,7 +297,14 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	apLabel, peLabel, ttaLabel, dvCircLabel, tBurnLabel := "—", "—", "—", "—", "—"
 	trendLabel := ""
 	var dvCirc float64
-	if apoFinite {
+	// While Landed the craft sits at the apoapsis of its co-rotation
+	// pseudo-orbit (apoapsis ≈ the launch radius), so apoAlt and rApo hover
+	// at exactly zero and the apoAlt>0 / rApo>primaryR gates flip on
+	// numerical noise tick-to-tick — flashing ap / t_to_apo / Δv→circ
+	// between a value and "—". The pad pseudo-orbit isn't a real orbit, so
+	// suppress these predictions until the craft actually lifts off; the
+	// pad cares about TWR / launch-lat / SAS, which render regardless.
+	if apoFinite && !c.Landed {
 		apLabel = formatAltKm(apoAlt)
 		peLabel = formatAltKm(periAlt)
 		now := w.Clock.SimTime
@@ -352,11 +359,11 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
 		fmt.Sprintf("  t_burn:     %s", tBurnLabel),
 	)
-	if apoFinite && apoAlt > launchMissionFloorM {
+	if apoFinite && !c.Landed && apoAlt > launchMissionFloorM {
 		orbitStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
 		lines = append(lines, "  "+orbitStyle.Render("● ORBIT READY — coast to ap, press C to plant circularise"))
 	}
-	if apoFinite {
+	if apoFinite && !c.Landed {
 		if progress := launchMissionProgress(w, c, periAlt); progress != "" {
 			lines = append(lines, "  "+progress)
 		}
