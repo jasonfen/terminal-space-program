@@ -164,3 +164,56 @@ func TestLaunchHUDRendersOrbitReadyOnApAboveFloor(t *testing.T) {
 		t.Errorf("expected LAUNCH HUD to surface Δv→circ row")
 	}
 }
+
+// TestLaunchChipSteadyOnPad: a Landed craft sits at the apoapsis of its
+// co-rotation pseudo-orbit, so apoAlt hovers at exactly 0 and the
+// apoAlt>0 / rApo>primaryR gates would flip on numerical noise tick-to-
+// tick — flashing ap / t_to_apo / Δv→circ between a value and "—". On the
+// pad those predictions are suppressed to a steady "—" (no real orbit
+// yet); TWR / SAS still render. Regression for the launchpad flicker.
+func TestLaunchChipSteadyOnPad(t *testing.T) {
+	v := NewOrbitView(Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle(),
+	})
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if !c.Landed || !shouldShowLaunchHUD(c) {
+		t.Fatalf("setup: want a Landed craft with the LAUNCH chip up (landed=%v, show=%v)", c.Landed, shouldShowLaunchHUD(c))
+	}
+	row := func(lines []string, prefix string) string {
+		for _, l := range lines {
+			if s := strings.TrimSpace(l); strings.HasPrefix(s, prefix) {
+				return s
+			}
+		}
+		return ""
+	}
+	lines := v.buildLaunchChip(w)
+	for _, prefix := range []string{"ap:", "t_to_apo:", "Δv→circ:"} {
+		got := row(lines, prefix)
+		if !strings.HasSuffix(got, "—") {
+			t.Errorf("on the pad, %q row should be a steady em-dash; got %q", prefix, got)
+		}
+	}
+	// The pad-relevant rows must still be present.
+	if row(lines, "twr:") == "" || row(lines, "sas:") == "" {
+		t.Errorf("LAUNCH chip on the pad lost twr/sas rows:\n%s", strings.Join(lines, "\n"))
+	}
+}
