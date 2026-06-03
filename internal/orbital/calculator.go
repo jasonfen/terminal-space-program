@@ -37,21 +37,24 @@ type Calculator interface {
 }
 
 // SolarSystemCalculator uses J2000.0 mean anomalies for Sol's 8+1 bodies.
-type SolarSystemCalculator struct{ epochTime time.Time }
+type SolarSystemCalculator struct{}
 
 // GenericCalculator seeds a deterministic mean anomaly from the body's
 // physical parameters — suitable for exoplanet systems without published
-// J2000-equivalent ephemerides.
-type GenericCalculator struct{ epochTime time.Time }
+// J2000-equivalent ephemerides. Phase is anchored to bodies.J2000 (a fixed
+// reference, like the table-driven planets), so a body's position is a pure
+// function of sim-time — independent of when the calculator was constructed.
+// This is what lets save/load and system-switch (Tab) preserve moon phase.
+type GenericCalculator struct{}
 
 // ExactCalculator uses per-body OrbitalElements.Epoch/MeanAnomaly.
 type ExactCalculator struct{}
 
-func NewSolarSystemCalculator(epoch time.Time) *SolarSystemCalculator {
-	return &SolarSystemCalculator{epochTime: epoch}
+func NewSolarSystemCalculator() *SolarSystemCalculator {
+	return &SolarSystemCalculator{}
 }
-func NewGenericCalculator(epoch time.Time) *GenericCalculator {
-	return &GenericCalculator{epochTime: epoch}
+func NewGenericCalculator() *GenericCalculator {
+	return &GenericCalculator{}
 }
 func NewExactCalculator() *ExactCalculator { return &ExactCalculator{} }
 
@@ -72,7 +75,7 @@ var j2000MeanAnomalies = map[string]float64{
 func (sc *SolarSystemCalculator) CalculateMeanAnomaly(body bodies.CelestialBody, t time.Time) float64 {
 	m0, ok := j2000MeanAnomalies[body.EnglishName]
 	if !ok {
-		return NewGenericCalculator(sc.epochTime).CalculateMeanAnomaly(body, t)
+		return NewGenericCalculator().CalculateMeanAnomaly(body, t)
 	}
 	days := t.Sub(bodies.J2000).Hours() / 24.0
 	if body.SideralOrbit <= 0 {
@@ -87,7 +90,7 @@ func (sc *SolarSystemCalculator) GetSystemType() SystemType { return SystemTypeS
 func (gc *GenericCalculator) CalculateMeanAnomaly(body bodies.CelestialBody, t time.Time) float64 {
 	seed := body.SemimajorAxis + body.SideralOrbit + body.MeanRadius
 	m0 := math.Mod(seed*(math.Pi/180.0), 2*math.Pi)
-	days := t.Sub(gc.epochTime).Hours() / 24.0
+	days := t.Sub(bodies.J2000).Hours() / 24.0
 	if body.SideralOrbit <= 0 {
 		return m0
 	}
@@ -115,14 +118,14 @@ func (ec *ExactCalculator) GetSystemType() SystemType { return SystemTypeExact }
 // ForSystem picks the right Calculator for a System name. Sol uses the
 // J2000-keyed table; everything else falls back to Generic unless any body
 // has explicit OrbitalElements, in which case Exact is used.
-func ForSystem(system bodies.System, epoch time.Time) Calculator {
+func ForSystem(system bodies.System) Calculator {
 	if system.Name == "Sol" {
-		return NewSolarSystemCalculator(epoch)
+		return NewSolarSystemCalculator()
 	}
 	for _, b := range system.Bodies {
 		if b.OrbitalElements != nil {
 			return NewExactCalculator()
 		}
 	}
-	return NewGenericCalculator(epoch)
+	return NewGenericCalculator()
 }
