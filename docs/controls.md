@@ -91,7 +91,7 @@ readout shows you why before you watch it fall back.
 
 | Key | Action |
 |---|---|
-| `Esc` | Back, or open the save / load / quit menu on the main view |
+| `Esc` | Back, or open the save / load / settings / quit menu on the main view |
 | `Ctrl+C` | Quit immediately |
 | `?` | Toggle the help overlay |
 | `i` | Body info screen |
@@ -157,7 +157,7 @@ Click only — no dragging, no scroll-to-zoom.
 
 | Click | Action |
 |---|---|
-| `[Menu]` (top-right) | Save / load / quit menu |
+| `[Menu]` (top-right) | Save / load / settings / quit menu |
 | `[Missions]` (top-right) | Mission list with pass / fail marks |
 | A body | Follow it with the camera (same as cursoring onto it) |
 | A craft | Follow it with the camera |
