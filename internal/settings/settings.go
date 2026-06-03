@@ -31,10 +31,17 @@ const (
 	ChipDescent         Chip = "descent"
 	ChipChute           Chip = "chute"
 	ChipCapture         Chip = "capture"
-	ChipOrbitMetrics    Chip = "orbitMetrics"
 	ChipFrameTransition Chip = "frameTransition"
 	ChipAttitude        Chip = "attitude"
 )
+
+// Note: the Orbit-metrics readout and the active-burn (BURNS) readout are
+// deliberately NOT Chips here. Both are always-on (non-toggleable) — a
+// player should never be able to permanently hide their current orbit or
+// a live burn from the Settings screen. They remain F2-Declutter-hideable
+// (the momentary clean-map gesture), but only the pinned VESSEL/PROPELLANT
+// core chip survives Declutter. See orbit_chip_builders.go (the empty-id
+// always-on path) and CONTEXT.md §"HUD & overlays".
 
 // AllChips is the canonical, display-ordered list of toggle-able Chips.
 // The Settings screen (slice 3) iterates this — never the underlying map,
@@ -48,7 +55,6 @@ var AllChips = []Chip{
 	ChipDescent,
 	ChipChute,
 	ChipCapture,
-	ChipOrbitMetrics,
 	ChipFrameTransition,
 	ChipAttitude,
 }
@@ -64,7 +70,6 @@ var chipLabels = map[Chip]string{
 	ChipDescent:         "Descent",
 	ChipChute:           "Chute",
 	ChipCapture:         "Capture preview",
-	ChipOrbitMetrics:    "Orbit metrics",
 	ChipFrameTransition: "Frame transition",
 	ChipAttitude:        "Attitude",
 }

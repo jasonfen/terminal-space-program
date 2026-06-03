@@ -35,10 +35,12 @@ const (
 	cornerBottomRight
 )
 
-// builtChip is one composited overlay: its Settings id (empty = always
-// enabled, e.g. the safety-critical BURNS readout), the corner it anchors
-// to, and its already-styled content lines (header + rows). Relevance is
-// decided by the builder returning nil when the chip has nothing to show.
+// builtChip is one composited overlay: its Settings id (empty = always-on,
+// non-toggleable — the safety-critical ● BURNS readout and the ORBIT
+// metrics chip), the corner it anchors to, and its already-styled content
+// lines (header + rows). Relevance is decided by the builder returning nil
+// when the chip has nothing to show. Always-on chips are still hidden by
+// declutter; only the pinned VESSEL core chip survives it.
 type builtChip struct {
 	id     settings.Chip
 	corner chipCorner
@@ -159,7 +161,8 @@ func (v *OrbitView) navballReservedRows(w *sim.World, cCols, cRows int) int {
 // HitChip resolves a screen-space click against the Chips composited onto
 // the canvas this frame, returning the clicked Chip's id and true when a
 // rectangle contains (col, row). Empty-id chips (always-on overlays like
-// BURNS) report their empty id; callers match against specific ids.
+// ● BURNS and ORBIT metrics) report their empty id; callers match against
+// specific ids.
 func (v *OrbitView) HitChip(col, row int) (settings.Chip, bool) {
 	for _, r := range v.chipRects {
 		if col >= r.colStart && col <= r.colEnd && row >= r.rowStart && row <= r.rowEnd {

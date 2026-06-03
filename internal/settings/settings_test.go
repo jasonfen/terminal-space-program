@@ -213,3 +213,15 @@ func TestChipLabelsCoverAllChips(t *testing.T) {
 		}
 	}
 }
+
+// The Orbit-metrics readout is intentionally NOT a toggleable Chip — a
+// player must never be able to permanently hide their current orbit from
+// the Settings screen (it stays F2-Declutter-hideable in the tui). Guards
+// against it being re-added to the toggle set.
+func TestOrbitMetricsNotToggleable(t *testing.T) {
+	for _, c := range AllChips {
+		if c == Chip("orbitMetrics") {
+			t.Errorf("orbitMetrics must not be a toggleable Chip (it is always-on)")
+		}
+	}
+}

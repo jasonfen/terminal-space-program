@@ -133,7 +133,7 @@ func TestActiveStageFuel(t *testing.T) {
 
 	spent := &spacecraft.Spacecraft{
 		Stages: []spacecraft.Stage{
-			{FuelMass: 0, FuelCapacity: 2_160_000},   // S-IC burned out → 0%
+			{FuelMass: 0, FuelCapacity: 2_160_000},     // S-IC burned out → 0%
 			{FuelMass: 440_000, FuelCapacity: 440_000}, // full upper stage
 		},
 	}
@@ -277,9 +277,9 @@ func TestNzeroSnapsNegativeZero(t *testing.T) {
 		decimals int
 		want     float64
 	}{
-		{-0.3, 0, 0},   // rounds to 0 at %.0f → snapped to +0
-		{0.3, 0, 0},    // also rounds to 0 → +0 (sign already fine)
-		{-0.04, 1, 0},  // rounds to 0.0 at %.1f → +0
+		{-0.3, 0, 0},    // rounds to 0 at %.0f → snapped to +0
+		{0.3, 0, 0},     // also rounds to 0 → +0 (sign already fine)
+		{-0.04, 1, 0},   // rounds to 0.0 at %.1f → +0
 		{-0.6, 0, -0.6}, // rounds to -1 → untouched
 		{12.3, 1, 12.3}, // non-zero → untouched
 	}
@@ -323,6 +323,60 @@ func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	out = v.Render(w, 0, 120, 40)
 	if !strings.Contains(out, "ATTITUDE") {
 		t.Errorf("declutter off again: ATTITUDE chip should return:\n%s", out)
+	}
+}
+
+// TestOrbitMetricsAndBurnsAlwaysOn: the ORBIT-metrics readout and an
+// active ● BURNS readout are non-toggleable — they render even when every
+// Settings Chip is disabled (a player can't permanently hide their current
+// orbit or a live burn). F2 declutter still clears them; only the pinned
+// VESSEL core survives.
+func TestOrbitMetricsAndBurnsAlwaysOn(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	// Disable every toggleable Chip; the always-on readouts must persist.
+	s := settings.Default()
+	for _, c := range settings.AllChips {
+		s.SetChip(c, false)
+	}
+	v.SetSettings(s)
+
+	out := v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "ORBIT") {
+		t.Errorf("ORBIT metrics must render with all chips disabled (non-toggleable):\n%s", out)
+	}
+
+	// Light an active burn → ● BURNS must show even with all chips off.
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 120,
+		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
+	}
+	out = v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "BURNS") {
+		t.Errorf("active ● BURNS must render with all chips disabled:\n%s", out)
+	}
+
+	// F2 declutter clears both; the pinned VESSEL core survives.
+	v.SetDeclutter(true)
+	out = v.Render(w, 0, 120, 40)
+	if strings.Contains(out, "ORBIT") {
+		t.Errorf("declutter must hide the ORBIT metrics chip:\n%s", out)
+	}
+	if strings.Contains(out, "BURNS") {
+		t.Errorf("declutter must hide the ● BURNS chip:\n%s", out)
+	}
+	if !strings.Contains(out, "VESSEL") {
+		t.Errorf("pinned VESSEL core must survive declutter")
 	}
 }
 
