@@ -116,20 +116,37 @@ func TestChipEnabledRespectsSettingsAndDeclutter(t *testing.T) {
 	}
 }
 
-func TestCraftFuelPct(t *testing.T) {
+func TestActiveStageFuel(t *testing.T) {
+	// Firing (bottom) stage is index 0. The readout reflects it alone, not
+	// the whole-stack aggregate — a spent first stage with full uppers must
+	// read 0%, not "21% total".
 	c := &spacecraft.Spacecraft{
 		Stages: []spacecraft.Stage{
-			{FuelMass: 50, FuelCapacity: 100},
-			{FuelMass: 25, FuelCapacity: 100},
+			{FuelMass: 40, FuelCapacity: 100}, // firing stage: 40%
+			{FuelMass: 100, FuelCapacity: 100},
 		},
 	}
-	pct, ok := craftFuelPct(c)
-	if !ok || pct != 37.5 {
-		t.Errorf("craftFuelPct = (%g, %v), want (37.5, true)", pct, ok)
+	pct, kg, ok := activeStageFuel(c)
+	if !ok || pct != 40 || kg != 40 {
+		t.Errorf("activeStageFuel = (%g%%, %g kg, %v), want (40, 40, true)", pct, kg, ok)
 	}
+
+	spent := &spacecraft.Spacecraft{
+		Stages: []spacecraft.Stage{
+			{FuelMass: 0, FuelCapacity: 2_160_000},   // S-IC burned out → 0%
+			{FuelMass: 440_000, FuelCapacity: 440_000}, // full upper stage
+		},
+	}
+	if pct, _, ok := activeStageFuel(spent); !ok || pct != 0 {
+		t.Errorf("spent first stage = (%g%%, ok=%v), want 0%% (not the ~21%% aggregate)", pct, ok)
+	}
+
 	none := &spacecraft.Spacecraft{Stages: []spacecraft.Stage{{FuelMass: 0, FuelCapacity: 0}}}
-	if _, ok := craftFuelPct(none); ok {
-		t.Error("craftFuelPct ok = true with zero total capacity, want false")
+	if _, _, ok := activeStageFuel(none); ok {
+		t.Error("activeStageFuel ok = true with zero firing-stage capacity, want false")
+	}
+	if _, _, ok := activeStageFuel(&spacecraft.Spacecraft{}); ok {
+		t.Error("activeStageFuel ok = true with no stages, want false")
 	}
 }
 
