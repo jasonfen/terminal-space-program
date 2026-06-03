@@ -186,6 +186,12 @@ type Keymap struct {
 	// owns the entry path). Player workflow: switch active to the
 	// vessel of interest first, then `V` to scope its chase-cam.
 	JumpToLaunchView key.Binding
+
+	// Declutter (v0.13+, ADR 0010): toggle the momentary "hide all
+	// overlays" view — suppresses every Chip and the navball to expose a
+	// clean orbit map. F2 matches the KSP "toggle UI" convention.
+	// Transient and unsaved; never hides the slim HUD column.
+	Declutter key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -258,5 +264,6 @@ func DefaultKeymap() Keymap {
 		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
 		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
+		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
 	}
 }
