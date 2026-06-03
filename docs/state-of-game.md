@@ -838,6 +838,10 @@ the [capture-direction toggle](#capture-direction-toggle) and
 <!-- llm-parse: id=theme-hot-reload status=deferred -->
 ⏸ **deferred**. ~200 LOC of fsnotify watching `theme.json` so palette tweaks land without restarting. `LoadTheme` is already idempotent (v0.7.2) so the runtime side is cheap; the cost is the watcher setup + a debounce. Never surfaced as a v0.8 playtest pain — reopen if a modder hits it iterating on a per-body palette.
 
+### HUD overlay refactor (chips + Settings screen)
+<!-- llm-parse: id=hud-overlay-chips status=designed target=v0.13+ adr=0010 -->
+🧊 **designed (grilled 2026-06-03, ADR 0010) · not yet sliced**. The orbit HUD has no height budget, so with a target + launch + 7-stage Apollo + planted nodes it overflows below the canvas and the terminal scrolls to the bottom of the bar (`orbit.go:846` only fixed mouse-offset, never the overflow). Decision: the HUD becomes a **slim always-on column** of core vessel telemetry, and every other block becomes a compact **chip** — a 2–4 row overlay composited onto a canvas corner like the navball. Variable lists stay fixed-height (Nodes chip = next + `(+N → [m])`, full list on the maneuver screen; Stages chip = pips + active N/M). New **Settings screen** (menu entry) toggles default chip visibility, persisted to a global `settings.json` (alongside `theme.json`, save schema untouched); **F2** = momentary declutter (hide all overlays). Defaults all-on, so no info lost — the win is bounded height + no scroll. Full model + rejected alternatives (scrollable HUD, denser blocks, phase-only, full-width, in-save prefs) in [`docs/adr/0010`](adr/0010-hud-column-canvas-chips-and-settings.md); vocabulary (HUD / Chip / Declutter / Settings screen) in [`CONTEXT.md`](../CONTEXT.md) §HUD & overlays. Feature slice → branch + PR.
+
 ### Numbered craft slots (1–9)
 <!-- llm-parse: id=numbered-craft-slots status=shipped shipped-in=v0.12.0 -->
 ✓ **shipped in v0.12.0** (Slice 4(c)). Number-row `1`..`9` jumps straight to craft index 0..8 via `World.SwitchToCraftIdx` (no wrap, no-op on an empty slot or a same-craft press; mirrors `CycleActiveCraft`'s `StopManualBurn`). `CraftSlot` keymap binding in `input.go`; handler in `app.go` next to `[`/`]`. `0` stays Pause. `?` overlay + README updated. Complements the v0.8.1 `[`/`]` cycle once fleets grow past 4. **Historical scope below.** v0.8.1 ships `[`/`]` cycle + click-select on per-craft glyphs (v0.8.2). Numbered hotkeys deferred until saves routinely have >4 craft and the cycle key gets unwieldy; gating was UX, not code.
@@ -1040,6 +1044,7 @@ doc.
 | 10 | [Theme-file hot-reload](#theme-file-hot-reload) | S | ⏸ deferred | ~200 LOC fsnotify watcher. Reopen if a modder hits theme-iteration friction. |
 | 11 | Polish open questions ([spawn-form persistence](#spawn-form-persistence), [docking visual feedback](#docking-visual-feedback), [numbered craft slots](#numbered-craft-slots-19)) | S | 📐 / 🧊 | Bundle-of-small-stuff candidates if cycle bandwidth allows. |
 | 12 | [Inclined-transfer wait-vs-Δv median](#inclined-transfer-wait-vs-Δv-median) | M | 🧊 backlog (think-later) | Tunable knob so the inclined `[H]` split departs sooner for moderate extra Δv instead of the ~12-day node wait. **Don't** route through combined (~13.8 km/s, unaffordable) — needs a partial-tilt departure. Reopened 2026-06-03. |
+| 13 | [HUD overlay refactor](#hud-overlay-refactor-chips--settings-screen) | L | 🧊 designed (ADR 0010) | Slim always-on HUD column + compact canvas chips + Settings screen (persisted) + F2 declutter. Kills the orbit-HUD overflow/scroll. Grilled 2026-06-03. |
 
 ### Pre-cycle checklist
 
