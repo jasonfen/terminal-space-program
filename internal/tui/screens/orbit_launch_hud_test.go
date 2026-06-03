@@ -129,6 +129,7 @@ func TestLaunchHUDRendersOrbitReadyOnApAboveFloor(t *testing.T) {
 		Title:   lipgloss.NewStyle(),
 	}
 	v := NewOrbitView(th)
+	v.Resize(200, 60)
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)

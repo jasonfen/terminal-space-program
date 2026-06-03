@@ -74,6 +74,7 @@ func TestChuteHUDRendersStateAndDescentRate(t *testing.T) {
 	c := placeCapsuleOnEarth(t, w, 6_000, 7) // 7 m/s descent, under V_CRIT
 	c.ChuteState = spacecraft.ChuteDeployed
 	view := NewOrbitView(descentHUDTheme())
+	view.Resize(200, 60)
 	out := view.Render(w, 0, 200, 60)
 	if !strings.Contains(out, "CHUTE") {
 		t.Errorf("expected CHUTE section header; got:\n%s", out)
@@ -97,6 +98,7 @@ func TestChuteHUDAlertsAboveVCrit(t *testing.T) {
 	c := placeCapsuleOnEarth(t, w, 6_000, 60) // 60 m/s > V_CRIT
 	c.ChuteState = spacecraft.ChuteArmed
 	view := NewOrbitView(descentHUDTheme())
+	view.Resize(200, 60)
 	out := view.Render(w, 0, 200, 60)
 	if !strings.Contains(out, "ARMED") {
 		t.Errorf("expected ARMED state word; got:\n%s", out)

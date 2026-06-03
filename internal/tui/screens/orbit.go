@@ -58,13 +58,6 @@ type OrbitView struct {
 	menuColStart, menuColEnd         int
 	missionsColStart, missionsColEnd int
 
-	// hudColStart is the first screen-col of the slim HUD column, used by
-	// IsHudClick to route a click on the column (vs. the canvas). v0.13:
-	// the old NODES-row hit machinery (hudNodeHits/hudNodeRows/
-	// hudScrollOffset/totalRows) is gone — the Nodes chip routes clicks to
-	// the maneuver screen via HitChip, and the slim column can't overflow.
-	hudColStart int
-
 	// ascentTrend caches last-frame apoapsis for the active craft so
 	// the LAUNCH HUD can show a `(climbing)` / `(falling)` / `(steady)`
 	// tag — the launch-flight equivalent of v0.9.3's signed
@@ -215,23 +208,17 @@ func (v *OrbitView) Declutter() bool {
 	return v.declutter
 }
 
-// slimHUDWidth is the fixed width of the slim always-on HUD column (ADR
-// 0010). The canvas reclaims all remaining width — wide enough for the
-// propellant rows ("fuel: 87% (12000 kg)") without wrap.
-const slimHUDWidth = 34
-
-// Resize forwards terminal dimensions to the canvas. v0.13 (ADR 0010):
-// the HUD is now a slim fixed-width column, so the canvas takes the whole
-// remaining width instead of a hard 70/30 split — the orbit view reclaims
-// the space the old tall HUD stack used to occupy. The 4 trailing cols
-// cover the canvas's rounded border (2) plus the gutter to the HUD (2).
+// Resize forwards terminal dimensions to the canvas. v0.13 playtest move:
+// VESSEL/PROPELLANT became a pinned canvas chip, so there is no HUD column
+// — the orbit map spans the full terminal width, less the 2 cols its
+// rounded border occupies. 4 rows are reserved for the title + footer.
 func (v *OrbitView) Resize(totalCols, totalRows int) {
-	canvasCols := totalCols - slimHUDWidth - 4
+	canvasCols := totalCols - 2
 	if canvasCols < 20 {
 		canvasCols = 20
 	}
-	v.canvas.Resize(canvasCols, totalRows-4) // reserve 4 rows for header/footer
-	v.fitted = false                         // force refit after resize
+	v.canvas.Resize(canvasCols, totalRows-4)
+	v.fitted = false // force refit after resize
 }
 
 // ZoomIn / ZoomOut are thin wrappers for App to call on +/-.
@@ -803,11 +790,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 	}
 	v.canvas.SetCellLabel(0, v.canvas.Rows()-1, viewLabel)
-	// v0.10.3+: focus indicator overlaid into the canvas's top-left
-	// corner (was a HUD block alongside CLOCK). Pairs visually with
-	// the bottom-left "view:" label — both describe what the
-	// projection is centered on.
-	v.canvas.SetCellLabel(0, 0, "focus: "+w.FocusName())
+	// v0.13: the "focus:" indicator moved to the title bar (renderTitleBar)
+	// — the canvas top-left corner is now home to the pinned VESSEL chip,
+	// and "focus: <craft>" was redundant with the chip's vessel name.
 
 	canvasStr := v.canvas.String()
 
@@ -839,12 +824,6 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		BorderForeground(v.theme.Primary.GetForeground()).
 		Render(canvasStr)
 
-	// The HUD is now a slim, fixed, always-on telemetry column (ADR
-	// 0010). It has bounded height, so the overflow-scroll path the old
-	// tall stack needed is gone.
-	hud := v.buildSlimColumn(w, totalCols-v.canvas.Cols()-4)
-	v.hudColStart = v.canvas.Cols() + 2
-
 	craftChip := ""
 	if n := len(w.Crafts); n > 1 {
 		craftChip = fmt.Sprintf(" — CRAFT %d/%d", w.ActiveCraftIdx+1, n)
@@ -861,8 +840,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]maneuver [b]fire [wasdqe]attitude [space]stage/chute [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
 	)
 
-	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, hud)
-	out := title + "\n" + body + "\n" + footer
+	// v0.13 playtest move: VESSEL/PROPELLANT became a pinned canvas chip,
+	// so there is no right-hand column any more — the orbit map spans the
+	// full terminal width.
+	out := title + "\n" + canvasPanel + "\n" + footer
 	return out
 }
 
@@ -873,6 +854,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 // can map subsequent clicks back to a screen action. v0.7.4+.
 func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols int) string {
 	left := fmt.Sprintf("terminal-space-program — %s — %s", version.Version, systemName)
+	// v0.13: the "focus:" readout moved here from the canvas top-left
+	// corner (now home to the pinned VESSEL chip). It still says what the
+	// camera follows — a body or the whole system, not just your craft.
+	if fn := w.FocusName(); fn != "" {
+		left += " — focus: " + fn
+	}
 	const menuLabel = "[Menu]"
 	const missionsLabel = "[Missions]"
 	const gap = "  "
@@ -1160,17 +1147,6 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 			}
 		}
 	}
-}
-
-// RenderHUDColumn exposes the slim always-on telemetry column (ADR 0010:
-// vessel identity + propellant + velocity) so sibling screens — the
-// LaunchView — can pair the same column with their own canvas. The
-// contextual blocks are no longer part of the column; they composite onto
-// the canvas as Chips (see composeChips / assembleChips), which the
-// LaunchView also calls. selectedIdx is retained for signature
-// compatibility and unused.
-func (v *OrbitView) RenderHUDColumn(w *sim.World, selectedIdx, width int) string {
-	return v.buildSlimColumn(w, width)
 }
 
 

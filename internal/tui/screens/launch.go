@@ -59,7 +59,10 @@ func NewLaunchView(th Theme, hudSource *OrbitView) *LaunchView {
 // (mirrors OrbitView's split so the two screens line up when
 // cycling). Reserve 4 rows for title + footer + border.
 func (v *LaunchView) Resize(totalCols, totalRows int) {
-	canvasCols := totalCols * 7 / 10
+	// v0.13: full-width canvas (no side HUD column) — the launch readouts
+	// are canvas chips now, matching the orbit screen. 2 cols for the
+	// rounded border, 4 rows for title + footer.
+	canvasCols := totalCols - 2
 	if canvasCols < 20 {
 		canvasCols = 20
 	}
@@ -203,20 +206,11 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// pad math, which strips ANSI before measuring.
 	canvasPanel := wrapBorder(canvasStr, v.canvas.Cols(), v.theme.Primary.GetForeground())
 
-	// Side HUD: reuse OrbitView's column so the launch-relevant
-	// readouts (altitude, stage fuel, v_vert, v_horiz, fpa, twr) are
-	// the same blocks the player already knows.
-	body := canvasPanel
-	if v.hudSource != nil {
-		hudWidth := totalCols - v.canvas.Cols() - 4
-		if hudWidth < 20 {
-			hudWidth = 20
-		}
-		hud := v.hudSource.RenderHUDColumn(w, 0, hudWidth)
-		body = joinHorizontalLines(canvasPanel, hud, "  ")
-	}
-
-	return title + "\n" + body + "\n" + footer
+	// v0.13 playtest move: the launch-relevant readouts (VESSEL core,
+	// LAUNCH, STAGES, ATTITUDE) are all canvas Chips now, composited above,
+	// so there's no side HUD column — the launch view spans the full width
+	// like the orbit screen.
+	return title + "\n" + canvasPanel + "\n" + footer
 }
 
 // wrapBorder draws a rounded-border frame around a multi-line content
