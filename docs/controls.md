@@ -16,19 +16,26 @@ attitude, any burns you've planned, and a preview of where they'll put you.
 Speed time up or slow it down with `.` and `,` to watch the planets move;
 pause with `0` or space.
 
-To go somewhere — say, Mars:
+To go somewhere — say, the Moon:
 
 1. Press `t` to pick a **target**. Keep tapping until the target readout shows
-   Mars. (The `←` / `→` arrow keys move a separate map cursor used by the body
-   info screen and the porkchop plot — they don't set your travel target.)
-2. Press `H` to plan the trip. Two burn markers appear: one to leave Earth and
-   one to arrive at Mars, each showing its Δv (the speed change it costs) and a
-   countdown to when it fires. The map draws the path you'll follow.
-3. Speed time up. The first burn fires on its own when the countdown hits zero
-   (time warp slows itself down around a burn so nothing gets skipped). Your
-   path swings out past Earth and curves in toward the Sun, just as it should.
-4. The second burn fires near Mars and drops you into a low orbit. For the most
-   fuel-efficient launch window, use the porkchop plot (`P`) instead of `H`.
+   the Moon. (The `←` / `→` arrow keys move a separate map cursor used by the
+   body info screen and the porkchop plot — they don't set your travel target.)
+2. Press `H` to plan the trip. Because the Moon orbits the same planet you do,
+   the planner works out two different ways to get there, plans the cheaper one,
+   and flashes both fuel costs — something like
+   `combined 4.12 / split 3.95 km/s → planted split`. Two burn markers appear:
+   one to leave your orbit and one to capture at the Moon, each showing its Δv
+   (the speed change it costs) and a countdown.
+3. Speed time up. The first burn may be planted several days out — from a
+   typical orbit it waits for the Moon to swing around and line up with your
+   orbital plane, which is the cheapest moment to leave. When the countdown hits
+   zero the burn fires on its own (time warp eases off around a burn so nothing
+   gets skipped). Your path stretches out toward the Moon, still curving under
+   Earth's gravity.
+4. The second burn fires near the Moon and drops you into a low orbit around it.
+   (The porkchop plot, `P`, is for trips to other planets — for a moon of your
+   own planet, `H` is the way.)
 
 Prefer to set up a burn by hand? Press `m` for the planner. Choose a direction
 (prograde, retrograde, normal, or radial), choose when it fires (a specific
