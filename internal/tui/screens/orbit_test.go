@@ -52,13 +52,12 @@ func TestOrbitViewRendersAllSystems(t *testing.T) {
 // off-screen. Below the threshold (v0.10.3+: half-column < 24 cols)
 // the blocks fall back to stacked rendering. v0.7.5+ height-saving
 // change; threshold bumped in v0.10.3+ to avoid content wrap.
-// TestSlimColumnStacksCoreAndCanvasWidens: v0.13 (ADR 0010) replaced the
-// old side-by-side VESSEL/PROPELLANT column with a slim stacked column,
-// and the canvas reclaims the freed width (fixed slimHUDWidth, not a hard
-// 30%). The slim column carries VESSEL + PROPELLANT; the orbit-shape rows
-// moved to the Orbit-metrics chip.
-func TestSlimColumnStacksCoreAndCanvasWidens(t *testing.T) {
-	th := Theme{
+// TestCanvasFullWidthAndVesselChip: v0.13 playtest move — VESSEL/PROPELLANT
+// left the right-hand column to become a pinned canvas chip, so the canvas
+// spans the full terminal width (less its 2-col border) and the vessel chip
+// carries the core telemetry.
+func TestCanvasFullWidthAndVesselChip(t *testing.T) {
+	v := NewOrbitView(Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
 		Alert:   lipgloss.NewStyle(),
@@ -66,24 +65,18 @@ func TestSlimColumnStacksCoreAndCanvasWidens(t *testing.T) {
 		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
 		Footer:  lipgloss.NewStyle(),
 		Title:   lipgloss.NewStyle(),
-	}
-	v := NewOrbitView(th)
+	})
 	v.Resize(240, 40)
-	// The canvas should claim everything but the fixed slim column +
-	// border/gutter — far more than the old hard 70%.
-	if got, want := v.canvas.Cols(), 240-slimHUDWidth-4; got != want {
-		t.Errorf("canvas width = %d, want %d (240 - slimHUDWidth - 4)", got, want)
-	}
-	if v.canvas.Cols() <= 240*7/10 {
-		t.Errorf("canvas width %d did not widen past the old 70%% split (%d)", v.canvas.Cols(), 240*7/10)
+	if got, want := v.canvas.Cols(), 240-2; got != want {
+		t.Errorf("canvas width = %d, want %d (full width minus border)", got, want)
 	}
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	col := v.RenderHUDColumn(w, 0, slimHUDWidth)
-	if !strings.Contains(col, "VESSEL") || !strings.Contains(col, "PROPELLANT") {
-		t.Errorf("slim column missing VESSEL/PROPELLANT:\n%s", col)
+	chip := strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(chip, "VESSEL") || !strings.Contains(chip, "PROPELLANT") {
+		t.Errorf("vessel chip missing VESSEL/PROPELLANT:\n%s", chip)
 	}
 }
 

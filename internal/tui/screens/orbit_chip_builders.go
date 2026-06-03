@@ -31,6 +31,14 @@ import (
 // honoured inside chipEnabled, so a decluttered frame returns no chips.
 func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	var chips []builtChip
+	// Pinned core telemetry — top of the top-left stack. Unlike every
+	// other chip it is always rendered: never settings-toggled (core
+	// telemetry is fixed, ADR 0010) and never hidden by declutter — F2
+	// must not be able to hide fuel/Δv mid-burn. v0.13 playtest move:
+	// VESSEL/PROPELLANT left the right-hand column to live on the canvas.
+	if lines := v.buildVesselChip(w); lines != nil {
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines})
+	}
 	add := func(id settings.Chip, corner chipCorner, lines []string) {
 		if lines == nil || !v.chipEnabled(id) {
 			return

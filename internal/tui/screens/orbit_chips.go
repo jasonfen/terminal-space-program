@@ -98,8 +98,10 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	lines := strings.Split(canvasStr, "\n")
 
 	// Per-corner stacking cursors. Top corners grow downward from their
-	// start row; bottom corners grow upward from their start row.
-	topLeftRow := 1
+	// start row; bottom corners grow upward from their start row. v0.13:
+	// the "focus:" label left (0,0) for the title bar, so top-left chips
+	// now start at row 0.
+	topLeftRow := 0
 	topRightRow := 0
 	bottomLeftRow := cRows - 2 // above the "view:" label on row cRows-1
 	bottomRightRow := cRows - 1 - navballReserved
@@ -195,40 +197,30 @@ func craftFuelPct(c *spacecraft.Spacecraft) (float64, bool) {
 	return 100 * mass / cap, true
 }
 
-// buildSlimColumn renders the always-on HUD column: vessel identity,
-// velocity, and the full propellant readout. Orbit shape (apo/peri/incl)
-// migrated to the top-right Orbit-metrics chip; attitude migrated to the
-// Attitude chip. Fixed contents, bounded height, never declutter-hidden
-// (ADR 0010). Returns the boxed column string sized to width.
-func (v *OrbitView) buildSlimColumn(w *sim.World, width int) string {
-	if width < 20 {
-		width = 20
-	}
-	section := func(title string) []string {
-		return []string{
-			v.theme.Dim.Render(strings.Repeat("─", width-2)),
-			v.theme.Primary.Render(title),
-		}
-	}
-
+// buildVesselChip is the pinned core-telemetry chip: vessel identity,
+// velocity, and the full propellant readout. v0.13 playtest move — this
+// was the slim right-hand column; it now composites onto the canvas's
+// top-left corner like every other chip, leaving the orbit map full-width.
+// Always rendered: never settings-toggled (core telemetry is fixed, ADR
+// 0010) and never hidden by declutter — F2 must not hide fuel/Δv mid-burn.
+// Orbit shape (apo/peri/incl) lives in the top-right Orbit-metrics chip,
+// attitude in the Attitude chip. Returns a "(in Sol — [tab])" hint when no
+// craft is visible here; nil only when there's no active craft at all.
+func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	if !w.CraftVisibleHere() {
 		if w.ActiveCraft() != nil {
-			content := strings.Join([]string{
-				v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)"),
-			}, "\n")
-			return v.theme.HUDBox.Width(width).Render(content)
+			return []string{v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)")}
 		}
-		return v.theme.HUDBox.Width(width).Render("")
+		return nil
 	}
-
 	c := w.ActiveCraft()
 	lines := []string{
 		v.theme.Primary.Render("VESSEL"),
 		"  " + crashedVesselNameLabel(v.theme, c),
 		"  primary:   " + c.Primary.EnglishName,
 		fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+		v.theme.Primary.Render("PROPELLANT"),
 	}
-	lines = append(lines, section("PROPELLANT")...)
 	if pct, ok := craftFuelPct(c); ok {
 		lines = append(lines, fmt.Sprintf("  fuel:      %.0f%% (%.0f kg)", pct, c.Fuel))
 	} else {
@@ -245,8 +237,7 @@ func (v *OrbitView) buildSlimColumn(w *sim.World, width int) string {
 			fmt.Sprintf("  rcs Δv:    %.0f m/s", c.RCSDeltaV()),
 		)
 	}
-	content := strings.Join(lines, "\n")
-	return v.theme.HUDBox.Width(width).Render(content)
+	return lines
 }
 
 // buildStagesChip summarises the active craft's stage chain as a fuel-pip

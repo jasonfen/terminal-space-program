@@ -1452,11 +1452,14 @@ hide-all gesture. The model and its rejected alternatives are recorded in
 [ADR 0010](docs/adr/0010-hud-column-canvas-chips-and-settings.md).
 
 **HUD**:
-The slim, always-visible right-hand column of irreducible vessel
-telemetry (name, primary, fuel %, Δv budget, throttle, velocity). It is
-never hidden by [[#hud--overlays|Declutter]] and its contents are fixed,
-not player-configurable. Narrowed from the pre-ADR-0010 sense, where "HUD"
-meant the whole tall stack of blocks.
+The pinned core-telemetry **Chip** of irreducible vessel telemetry (name,
+primary, fuel %, Δv budget, throttle, velocity), composited onto the
+canvas's top-left corner. It is never hidden by [[#hud--overlays|Declutter]]
+(F2 must not hide fuel/Δv mid-burn) and its contents are fixed, not
+player-configurable — the one always-on Chip. Narrowed from the
+pre-ADR-0010 sense, where "HUD" meant the whole tall stack of blocks; a
+v0.13 playtest then moved it off a right-hand column onto the canvas (see
+ADR 0010's amendment) so the orbit map spans the full terminal width.
 _Avoid_: Sidebar, right bar, info panel, HUD blocks (the contextual ones
 are now [[#hud--overlays|Chips]]).
 

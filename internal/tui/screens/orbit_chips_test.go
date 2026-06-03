@@ -284,22 +284,22 @@ func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	}
 }
 
-func TestBuildSlimColumnCoreOnly(t *testing.T) {
+func TestBuildVesselChipCoreOnly(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	out := v.buildSlimColumn(w, 40)
+	out := strings.Join(v.buildVesselChip(w), "\n")
 	if !strings.Contains(out, "VESSEL") || !strings.Contains(out, "PROPELLANT") {
-		t.Errorf("slim column missing core headers:\n%s", out)
+		t.Errorf("vessel chip missing core headers:\n%s", out)
 	}
 	if !strings.Contains(out, "velocity") || !strings.Contains(out, "Δv budget") {
-		t.Errorf("slim column missing core telemetry rows:\n%s", out)
+		t.Errorf("vessel chip missing core telemetry rows:\n%s", out)
 	}
-	// Orbit shape migrated to the Orbit-metrics chip — the slim column
-	// must not carry apoapsis/periapsis rows any more.
+	// Orbit shape lives in the Orbit-metrics chip — the vessel chip must
+	// not carry apoapsis/periapsis rows.
 	if strings.Contains(out, "apoapsis") || strings.Contains(out, "periapsis") {
-		t.Errorf("slim column still carries orbit-shape rows (should be a chip):\n%s", out)
+		t.Errorf("vessel chip still carries orbit-shape rows (should be a separate chip):\n%s", out)
 	}
 }
