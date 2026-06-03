@@ -20,7 +20,7 @@ func TestSolarSystemCalculatorAtJ2000(t *testing.T) {
 			break
 		}
 	}
-	calc := ForSystem(sol, bodies.J2000)
+	calc := ForSystem(sol)
 	if calc.GetSystemType() != SystemTypeSolar {
 		t.Fatalf("wrong calculator type: %s", calc.GetSystemType())
 	}
@@ -36,7 +36,7 @@ func TestSolarSystemCalculatorProgresses(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	sol := systems[0]
 	earth := sol.FindBody("Earth")
-	calc := ForSystem(sol, bodies.J2000)
+	calc := ForSystem(sol)
 	// After one sidereal year Earth's mean anomaly should return to starting value (mod 2π).
 	then := bodies.J2000.Add(time.Duration(earth.SideralOrbit*24) * time.Hour)
 	m0 := calc.CalculateMeanAnomaly(*earth, bodies.J2000)
@@ -56,7 +56,7 @@ func TestGenericCalculatorForExoplanet(t *testing.T) {
 			break
 		}
 	}
-	calc := ForSystem(trappist, bodies.J2000)
+	calc := ForSystem(trappist)
 	if calc.GetSystemType() != SystemTypeGeneric {
 		t.Errorf("TRAPPIST-1 expected Generic, got %s", calc.GetSystemType())
 	}

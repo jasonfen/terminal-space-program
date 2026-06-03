@@ -72,6 +72,10 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Open a fresh game a few hours before the next ideal Moon-transfer
+	// window instead of the ~10 days out the J2000 epoch yields. A false
+	// return just keeps the J2000 start — never fatal.
+	w.AdjustStartForLunarTransferWindow(sim.DefaultLunarTransferLead)
 	th := DefaultTheme()
 	sth := screens.Theme{
 		Primary: th.Primary,

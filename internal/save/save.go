@@ -618,7 +618,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	// v0.9.3+: restore NavMode. Absent field → zero → NavOrbit (the
 	// pre-v0.9.3 default frame).
 	w.NavMode = sim.NavMode(p.NavMode)
-	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
+	w.Calculator = orbital.ForSystem(w.System())
 
 	// v0.8.1+: load path translates the pre-v5 singular Craft field
 	// into the Crafts slice, and distributes pre-v5 payload-level
