@@ -182,19 +182,23 @@ func (v *OrbitView) chipEnabled(id settings.Chip) bool {
 	return v.settings.ChipEnabled(id)
 }
 
-// craftFuelPct aggregates the active craft's stage fuel into a percentage
-// of total capacity. ok is false when no stage reports a capacity (so the
-// caller falls back to a kg-only readout).
-func craftFuelPct(c *spacecraft.Spacecraft) (float64, bool) {
-	var mass, cap float64
-	for _, st := range c.Stages {
-		mass += st.FuelMass
-		cap += st.FuelCapacity
+// activeStageFuel reports the firing (bottom) stage's fuel as a percentage
+// of its capacity plus its mass in kg — the tank the player is actually
+// burning and watches to know when to stage. The whole-stack aggregate is
+// misleading on a multi-stage rocket: a spent first stage reads ~21%
+// "total" while every upper stage is full, looking alarmingly low even
+// though that's normal staging (the S-IC is ~79% of all propellant). ok is
+// false when there's no firing stage with capacity, so the caller falls
+// back to a kg-only readout from c.Fuel.
+func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
+	if len(c.Stages) == 0 {
+		return 0, 0, false
 	}
-	if cap <= 0 {
-		return 0, false
+	st := c.Stages[0]
+	if st.FuelCapacity <= 0 {
+		return 0, 0, false
 	}
-	return 100 * mass / cap, true
+	return 100 * st.FuelMass / st.FuelCapacity, st.FuelMass, true
 }
 
 // buildVesselChip is the pinned core-telemetry chip: vessel identity,
@@ -221,8 +225,8 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
 		v.theme.Primary.Render("PROPELLANT"),
 	}
-	if pct, ok := craftFuelPct(c); ok {
-		lines = append(lines, fmt.Sprintf("  fuel:      %.0f%% (%.0f kg)", pct, c.Fuel))
+	if pct, kg, ok := activeStageFuel(c); ok {
+		lines = append(lines, fmt.Sprintf("  fuel:      %.0f%% (%.0f kg)", pct, kg))
 	} else {
 		lines = append(lines, fmt.Sprintf("  fuel:      %.0f kg", c.Fuel))
 	}
