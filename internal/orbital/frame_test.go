@@ -36,7 +36,7 @@ func TestEarthPositionAtJ2000(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	sol := systems[0]
 	earth := sol.FindBody("Earth")
-	calc := ForSystem(sol, bodies.J2000)
+	calc := ForSystem(sol)
 	M := calc.CalculateMeanAnomaly(*earth, bodies.J2000)
 	E := SolveKepler(M, earth.Eccentricity)
 	nu := TrueAnomaly(E, earth.Eccentricity)

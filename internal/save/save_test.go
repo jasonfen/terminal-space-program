@@ -1230,3 +1230,41 @@ func TestRoundtripParachute(t *testing.T) {
 		t.Errorf("Spacecraft.HasParachute mirror not re-derived on load")
 	}
 }
+
+// TestRoundtripPreservesMoonPhase is a regression for the moon-phase bug:
+// the Moon's mean anomaly used to be anchored to the calculator's mutable
+// seed epoch (re-seeded from SimTime on Load), so a reloaded game snapped the
+// Moon back to its m0 base position instead of where it sat at save time.
+// Anchoring generic ephemerides to bodies.J2000 makes the position a pure
+// function of SimTime, so a save/load round-trip must preserve it.
+func TestRoundtripPreservesMoonPhase(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sys := w.System()
+	moon := sys.FindBody("Moon")
+	if moon == nil {
+		t.Skip("Moon missing from Sol")
+	}
+	// Advance well past J2000 so the Moon is nowhere near its m0 base phase.
+	w.Clock.SimTime = w.Clock.SimTime.Add(7 * 24 * time.Hour)
+	before := w.BodyPositionAt(*moon, w.Clock.SimTime)
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	gsys := got.System()
+	gm := gsys.FindBody("Moon")
+	after := got.BodyPositionAt(*gm, got.Clock.SimTime)
+	if d := before.Sub(after).Norm(); d > 1.0 { // metres
+		t.Errorf("Moon moved across save/load: |Δ| = %.3g m (before %v, after %v)",
+			d, before, after)
+	}
+}

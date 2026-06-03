@@ -240,7 +240,7 @@ func NewWorld() (*World, error) {
 		Clock:     NewClock(bodies.J2000, 50*time.Millisecond),
 		ViewTilt:  DefaultViewTilt(),
 	}
-	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
+	w.Calculator = orbital.ForSystem(w.System())
 
 	// v0.6.5: seed missions from the embedded starter catalog. A failure
 	// to load the catalog is non-fatal — missions are an additive
@@ -357,7 +357,7 @@ func (w *World) System() bodies.System { return w.Systems[w.SystemIdx] }
 // systems and the craft is only visible in Sol.
 func (w *World) CycleSystem() {
 	w.SystemIdx = (w.SystemIdx + 1) % len(w.Systems)
-	w.Calculator = orbital.ForSystem(w.System(), w.Clock.SimTime)
+	w.Calculator = orbital.ForSystem(w.System())
 	w.ResetFocus()
 }
 
