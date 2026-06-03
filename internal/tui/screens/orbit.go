@@ -2335,10 +2335,16 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 	}
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	if el.E >= 1 || el.A <= 0 {
-		// Hyperbolic or degenerate: still on an ascent-class
-		// trajectory (or thrown off it). Show the HUD with `—`
-		// placeholders rather than silently hiding.
-		return true
+		// Hyperbolic or degenerate. This counts as an ascent only while
+		// the craft is still LOW — a straight-up pad climb reads as a
+		// radial/degenerate orbit, and an over-burned ascent can flicker
+		// hyperbolic. But a hyperbolic trajectory HIGH above the body is
+		// a departure (an over-energetic TLI escaping Earth) or a
+		// flyby/approach to another atmosphered body (a hyperbolic Mars
+		// arrival) — not a launch. Gate on altitude so the ascent HUD
+		// doesn't pop back far from any launch; show the `—` placeholders
+		// only while genuinely near the surface.
+		return c.Altitude() < c.Primary.Atmosphere.CutoffAltitude
 	}
 	primaryR := c.Primary.RadiusMeters()
 	periAlt := el.Periapsis() - primaryR
