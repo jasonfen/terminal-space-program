@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -200,6 +201,53 @@ func TestLaunchHUDHidesOnStableSubMissionFloorOrbit(t *testing.T) {
 	c.State.M = c.TotalMass()
 	if !shouldShowLaunchHUD(c) {
 		t.Error("sub-orbital ascent arc: launch HUD hidden, want shown")
+	}
+}
+
+// TestLaunchHUDHidesOnHighHyperbolicTrajectory — the hyperbolic /
+// degenerate branch must be gated on altitude. A hyperbolic trajectory
+// HIGH above the body is a departure (an over-energetic TLI escaping
+// Earth) or a flyby/approach to another atmosphered body — NOT a launch,
+// so the ascent panel must stay hidden. Only a hyperbolic state near the
+// surface (a straight-up / over-burned pad climb) counts as a launch.
+func TestLaunchHUDHidesOnHighHyperbolicTrajectory(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Landed = false
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	atmTop := c.Primary.Atmosphere.CutoffAltitude
+
+	hyperbolicAt := func(altM float64) {
+		r := primaryR + altM
+		vEsc := math.Sqrt(2 * mu / r)
+		c.State.R.X, c.State.R.Y, c.State.R.Z = r, 0, 0
+		c.State.V.X, c.State.V.Y, c.State.V.Z = 0, 1.4*vEsc, 0 // e > 1
+		c.State.M = c.TotalMass()
+		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+		if el.E < 1 {
+			t.Fatalf("setup: orbit not hyperbolic at %.0f km (e=%.3f)", altM/1e3, el.E)
+		}
+	}
+
+	// High + hyperbolic (escaping Earth, well above the atmosphere) →
+	// hidden: this is a departure, not a launch.
+	hyperbolicAt(100_000e3) // 100,000 km, far above the 150 km cutoff
+	if shouldShowLaunchHUD(c) {
+		t.Error("high hyperbolic departure: launch HUD shown, want hidden (not a launch)")
+	}
+
+	// Low + hyperbolic (an over-burned pad ascent still near the surface)
+	// → shown.
+	hyperbolicAt(5e3) // 5 km, below the cutoff
+	if 5e3 >= atmTop {
+		t.Fatalf("test premise broken: 5 km must be below the atmosphere cutoff %.0f", atmTop)
+	}
+	if !shouldShowLaunchHUD(c) {
+		t.Error("low hyperbolic ascent (near surface): launch HUD hidden, want shown")
 	}
 }
 
