@@ -1444,6 +1444,45 @@ _Avoid_: Camera direction (correct but ambiguous — a camera also
 has up and right), Out-of-screen axis, Normal (overloaded with
 orbit-normal h in [[#maneuver--thrust|Burn Mode]] math).
 
+### HUD & overlays
+
+How orbit-screen information is placed: a slim always-on column of core
+readouts, compact overlays composited onto the canvas, and a momentary
+hide-all gesture. The model and its rejected alternatives are recorded in
+[ADR 0010](docs/adr/0010-hud-column-canvas-chips-and-settings.md).
+
+**HUD**:
+The slim, always-visible right-hand column of irreducible vessel
+telemetry (name, primary, fuel %, Δv budget, throttle, velocity). It is
+never hidden by [[#hud--overlays|Declutter]] and its contents are fixed,
+not player-configurable. Narrowed from the pre-ADR-0010 sense, where "HUD"
+meant the whole tall stack of blocks.
+_Avoid_: Sidebar, right bar, info panel, HUD blocks (the contextual ones
+are now [[#hud--overlays|Chips]]).
+
+**Chip**:
+A compact (2–4 row) overlay composited onto a corner of the **Canvas**
+carrying one contextual readout — Target, Stages, Nodes, Launch, Capture.
+A Chip renders only when its Setting is enabled, it is contextually
+relevant, and Declutter is off. Distinct from the larger **Navball**
+panel, which is also a canvas overlay but a fixed instrument.
+_Avoid_: Widget, card, badge, HUD block, panel (reserve panel for the
+Navball).
+
+**Declutter**:
+The momentary "hide all overlays" action (F2) that clears every Chip and
+the Navball to expose a clean orbit view. Transient and unsaved — it does
+not change the persisted Settings, and it never hides the **HUD** column.
+_Avoid_: Hide UI, clean mode, F2 mode, toggle overlays.
+
+**Settings screen**:
+The menu-reached screen where the player toggles each Chip's default
+visibility (and future preferences such as units). Persisted to a global
+`settings.json` under `$XDG_CONFIG_HOME`, separate from the **Theme** —
+visibility versus colour are distinct concerns — and independent of any
+save game.
+_Avoid_: Options, preferences pane, config menu.
+
 ### Engineering vocabulary
 
 Terms below are dev/agent-facing — they don't appear in player UI but are
