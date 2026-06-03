@@ -35,6 +35,7 @@ func (h *Help) Render() string {
 			{"g", "reset to system-wide view"},
 			{"v", "cycle view (tilted / top / right / bottom / left / orbit-flat)"},
 			{"shift+↑ / shift+↓", "tilt +5° / -5° (ViewTilted only, v0.10.6+)"},
+			{"F2", "declutter — hide all overlays (chips + navball); HUD column stays (v0.13+)"},
 		}},
 		{"TIME", [][2]string{
 			{".", "warp up (1× … 100000×)"},

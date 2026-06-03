@@ -820,7 +820,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// dead-band that killed the marker flicker.
 	v.navballControls = v.navballControls[:0]
 	cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
-	canvasStr = v.composeNavballOverlay(w, canvasStr, cCols, cRows, true)
+	// Declutter (F2) hides the navball alongside every Chip (CONTEXT.md
+	// §Declutter); the slim HUD column is the only thing it never hides.
+	if !v.declutter {
+		canvasStr = v.composeNavballOverlay(w, canvasStr, cCols, cRows, true)
+	}
 	// v0.13 (ADR 0010): every contextual block is now a Chip composited
 	// onto a canvas corner instead of a row in a tall HUD column. Canvas
 	// content sits 1 col in and 2 rows down (rounded border + title row),

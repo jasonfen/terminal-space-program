@@ -177,14 +177,19 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// before the HUD strip overlay so the strip's last-row swap
 	// preserves the navball above it.
 	if v.hudSource != nil {
-		canvasStr = v.hudSource.ComposeNavballOverlay(w, canvasStr, v.canvas.Cols(), v.canvas.Rows())
+		// Declutter (F2, shared via the OrbitView) hides the navball and
+		// every chip here too; the slim column stays.
+		cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
+		nbReserved := 0
+		if !v.hudSource.Declutter() {
+			canvasStr = v.hudSource.ComposeNavballOverlay(w, canvasStr, cCols, cRows)
+			nbReserved = v.hudSource.navballReservedRows(w, cCols, cRows)
+		}
 		// v0.13 (ADR 0010): the contextual blocks are Chips now, so the
 		// launch screen composites the same relevant chips (LAUNCH /
 		// STAGES / ATTITUDE / BURNS …) onto its own canvas — the side
 		// column is just the slim telemetry block. Canvas content sits 1
 		// col / 2 rows in (border + title), matching the orbit screen.
-		cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
-		nbReserved := v.hudSource.navballReservedRows(w, cCols, cRows)
 		canvasStr = v.hudSource.composeChips(canvasStr, cCols, cRows, nbReserved, 1, 2, v.hudSource.assembleChips(w))
 	}
 	canvasStr = overlayHUDStrip(canvasStr, v.composeHUDLine(w, craft))

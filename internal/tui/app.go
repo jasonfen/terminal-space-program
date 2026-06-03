@@ -671,6 +671,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.CycleView):
 			a.world.CycleViewMode()
 			return a, nil
+		case key.Matches(m, a.keys.Declutter):
+			// v0.13+ (ADR 0010): toggle the momentary "hide all overlays"
+			// view. Transient + unsaved — it flips the OrbitView's
+			// declutter flag, which the chip render rule and navball
+			// compositing honour; the slim HUD column is never hidden.
+			// The launch screen shares this OrbitView, so it declutters
+			// in step.
+			a.orbitView.SetDeclutter(!a.orbitView.Declutter())
+			return a, nil
 		case key.Matches(m, a.keys.JumpToLaunchView):
 			// v0.11.4+ (ADR 0004): manual jump to ViewLaunch focused
 			// on the active vessel — skips the lowercase `v` cycle.

@@ -250,6 +250,40 @@ func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
 	}
 }
 
+// TestDeclutterHidesChipsKeepsColumn: F2 declutter suppresses every Chip
+// (here the always-relevant ATTITUDE chip) while the slim HUD column —
+// which it must never hide (CONTEXT.md §Declutter) — keeps rendering.
+func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	out := v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "ATTITUDE") {
+		t.Fatalf("expected ATTITUDE chip with declutter off:\n%s", out)
+	}
+	if !strings.Contains(out, "VESSEL") {
+		t.Fatalf("expected VESSEL slim column with declutter off")
+	}
+
+	v.SetDeclutter(true)
+	out = v.Render(w, 0, 120, 40)
+	if strings.Contains(out, "ATTITUDE") {
+		t.Errorf("declutter on: ATTITUDE chip should be hidden:\n%s", out)
+	}
+	if !strings.Contains(out, "VESSEL") {
+		t.Errorf("declutter on: slim HUD column must still render (never hidden):\n%s", out)
+	}
+
+	v.SetDeclutter(false)
+	out = v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "ATTITUDE") {
+		t.Errorf("declutter off again: ATTITUDE chip should return:\n%s", out)
+	}
+}
+
 func TestBuildSlimColumnCoreOnly(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
