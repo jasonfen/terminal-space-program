@@ -140,6 +140,20 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	return strings.Join(lines, "\n")
 }
 
+// navballReservedRows reports how many bottom rows the navball panel
+// occupies on the canvas this frame (0 when it isn't shown), so the
+// bottom-right Nodes chip can stack above it. Mirrors the gate in
+// composeNavballOverlay; the +1 matches the one-row bottom lift there.
+func (v *OrbitView) navballReservedRows(w *sim.World, cCols, cRows int) int {
+	if !w.CraftVisibleHere() || cCols < navballPanelW+2 || cRows < navballPanelH+2 {
+		return 0
+	}
+	if _, _, ok := w.NavballSubObserver(); !ok {
+		return 0
+	}
+	return navballPanelH + 1
+}
+
 // HitChip resolves a screen-space click against the Chips composited onto
 // the canvas this frame, returning the clicked Chip's id and true when a
 // rectangle contains (col, row). Empty-id chips (always-on overlays like

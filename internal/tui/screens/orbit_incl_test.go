@@ -36,6 +36,11 @@ func TestRelativeInclinationVariesOverSiderealDay(t *testing.T) {
 		Title:   lipgloss.NewStyle(),
 	}
 	v := NewOrbitView(th)
+	// v0.13 (ADR 0010): the Δi readout is now a canvas Chip, so the
+	// canvas must be sized for it to land — Resize gives the orbit view
+	// its real dimensions (the app always calls this; the pre-chip HUD
+	// column rendered independent of canvas size).
+	v.Resize(200, 80)
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
