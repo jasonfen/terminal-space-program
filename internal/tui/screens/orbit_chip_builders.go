@@ -55,8 +55,11 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
 	add(settings.ChipAttitude, cornerTopLeft, v.buildAttitudeChip(w))
 	// Top-right stack: Orbit metrics on top, the Target readout beneath it
-	// (append order = top-to-bottom).
-	add(settings.ChipOrbitMetrics, cornerTopRight, v.buildOrbitMetricsChip(w))
+	// (append order = top-to-bottom). Orbit metrics is always-on (empty id):
+	// the current orbit (apo/peri/incl) is never user-hideable from the
+	// Settings screen, mirroring the always-on ● BURNS readout — both are
+	// too load-bearing to toggle off. F2 declutter still clears them.
+	add("", cornerTopRight, v.buildOrbitMetricsChip(w))
 	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
 	// Remaining fixed corners.
 	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
