@@ -25,10 +25,11 @@ import (
 // unchanged; only the placement (canvas corner vs. tall column) differs.
 
 // assembleChips gathers every relevant + enabled Chip for the current
-// world state, in composite order. Top-left holds the phase-transient
-// stack; the three fixed corners hold Orbit metrics (top-right), Stages
-// (bottom-left), and Nodes (bottom-right, above the navball). Declutter is
-// honoured inside chipEnabled, so a decluttered frame returns no chips.
+// world state, in composite order. Top-left holds the pinned VESSEL core
+// plus the phase-transient stack; top-right holds Orbit metrics with the
+// Target readout stacked beneath it; Stages is bottom-left and Nodes is
+// bottom-right (above the navball). Declutter is honoured inside
+// chipEnabled, so a decluttered frame returns no chips.
 func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	var chips []builtChip
 	// Pinned core telemetry — top of the top-left stack. Unlike every
@@ -52,10 +53,12 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	add(settings.ChipLaunch, cornerTopLeft, v.buildLaunchChip(w))
 	add(settings.ChipDescent, cornerTopLeft, v.buildDescentChip(w))
 	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
-	add(settings.ChipTarget, cornerTopLeft, v.buildTargetChip(w))
 	add(settings.ChipAttitude, cornerTopLeft, v.buildAttitudeChip(w))
-	// Fixed corners.
+	// Top-right stack: Orbit metrics on top, the Target readout beneath it
+	// (append order = top-to-bottom).
 	add(settings.ChipOrbitMetrics, cornerTopRight, v.buildOrbitMetricsChip(w))
+	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
+	// Remaining fixed corners.
 	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
 	add(settings.ChipNodes, cornerBottomRight, v.buildNodesChip(w))
 	return chips
