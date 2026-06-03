@@ -243,28 +243,28 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		}
 	}
 	altAGL := c.Altitude()
-	altLabel := fmt.Sprintf("%.0f m", altAGL)
+	altLabel := fmt.Sprintf("%.0f m", nzero(altAGL, 0))
 	if altAGL >= 1000 {
 		altLabel = fmt.Sprintf("%.2f km", altAGL/1000)
 	}
 	sasLabel := c.AttitudeMode.String()
 	trimDeg := c.PitchTrim * 180 / math.Pi
-	trimLabel := fmt.Sprintf("%+.1f°", trimDeg)
+	trimLabel := fmt.Sprintf("%+.1f°", nzero(trimDeg, 1))
 	if math.Abs(trimDeg) > 0.05 {
 		trimLabel = v.theme.Warning.Render(trimLabel)
 	}
 	fpaLabel := "—"
 	if hasFPA {
-		fpaLabel = fmt.Sprintf("%.0f° (90 = up, 0 = horiz)", fpaDeg)
+		fpaLabel = fmt.Sprintf("%.0f° (90 = up, 0 = horiz)", nzero(fpaDeg, 0))
 	}
 	fpaOrbitLabel := "—"
 	if hasFPAOrbit {
-		fpaOrbitLabel = fmt.Sprintf("%.0f° (inertial)", fpaOrbitDeg)
+		fpaOrbitLabel = fmt.Sprintf("%.0f° (inertial)", nzero(fpaOrbitDeg, 0))
 	}
 	lines := []string{
 		v.theme.Primary.Render("LAUNCH"),
 		fmt.Sprintf("  altitude:   %s", altLabel),
-		fmt.Sprintf("  v_vert:     %.1f m/s", vVert),
+		fmt.Sprintf("  v_vert:     %.1f m/s", nzero(vVert, 1)),
 		fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
 		fmt.Sprintf("  fpa:        %s", fpaLabel),
 		fmt.Sprintf("  fpa_orbit:  %s", fpaOrbitLabel),
@@ -406,13 +406,13 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 			twrLabel = v.theme.Alert.Render(twrLabel + " (can't hover)")
 		}
 	}
-	altLabel := fmt.Sprintf("%.0f m", altAGL)
+	altLabel := fmt.Sprintf("%.0f m", nzero(altAGL, 0))
 	if altAGL >= 1000 {
 		altLabel = fmt.Sprintf("%.2f km", altAGL/1000)
 	}
 	fpaLabel := "—"
 	if hasFPA {
-		fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", fpaDeg)
+		fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", nzero(fpaDeg, 0))
 	}
 	vHorizLabel := fmt.Sprintf("%.0f m/s (surface-rel)", vHoriz)
 	if vHoriz > sim.CrashVCritMps {
@@ -422,7 +422,7 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 	return []string{
 		v.theme.Primary.Render("DESCENT"),
 		fmt.Sprintf("  altitude:   %s", altLabel),
-		fmt.Sprintf("  v_vert:     %.1f m/s", vVert),
+		fmt.Sprintf("  v_vert:     %.1f m/s", nzero(vVert, 1)),
 		fmt.Sprintf("  v_horiz:    %s", vHorizLabel),
 		fmt.Sprintf("  fpa:        %s", fpaLabel),
 		fmt.Sprintf("  twr:        %s", twrLabel),
@@ -688,6 +688,19 @@ func formatRangeM(rangeM float64) string {
 	default:
 		return fmt.Sprintf("%.0f m", rangeM)
 	}
+}
+
+// nzero snaps a value whose magnitude rounds to zero at `decimals` places
+// to +0, so a quantity that jitters across zero (v_vert / fpa / altitude
+// on the pad, where the co-rotation state carries sub-unit noise) doesn't
+// flicker a "-0" / "-0.0" sign each frame. Only the sign of an
+// already-zero display changes; non-zero values pass through untouched.
+func nzero(x float64, decimals int) float64 {
+	scale := math.Pow(10, float64(decimals))
+	if math.Round(x*scale) == 0 {
+		return 0
+	}
+	return x
 }
 
 // formatTCA renders a time-to-closest-approach with s / min / h bands.
