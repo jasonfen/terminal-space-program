@@ -17,9 +17,12 @@ move; pause with `0` or space.
 
 To make something happen:
 
-1. Press `←`/`→` (or click) to scroll the cursor through bodies. Pick Mars.
-2. Press `H` to plant a Hohmann transfer — two finite-burn nodes
-   appear (geocentric departure + Mars-frame arrival), each
+1. Press `t` to cycle the **target** (`World.Target`) onto a body — keep
+   tapping until the TARGET HUD block reads Mars. (The `←`/`→` arrow keys
+   move a separate *selection cursor* used by the body-info screen and the
+   porkchop plot — they do **not** set the transfer target.)
+2. Press `H` to plant a Hohmann transfer to the target — two finite-burn
+   nodes appear (geocentric departure + Mars-frame arrival), each
    color-coded with its predicted post-burn orbit on the canvas,
    listed in the HUD with Δv and time-to-fire.
 3. Time-warp forward. The departure node fires at its trigger time;
@@ -29,7 +32,8 @@ To make something happen:
    it should.
 4. The arrival node fires near Mars and drops you into a low
    capture orbit. For phasing-aware launch windows, use `P`
-   (porkchop) instead of `H`.
+   (porkchop) instead of `H` — porkchop targets the body under the
+   `←`/`→` selection cursor.
 
 For burns by hand, press `m` to open the planner. Pick a mode
 (prograde / retrograde / normal± / radial±), choose when it fires
@@ -106,8 +110,8 @@ flames out, the LAUNCH HUD's predictive readouts surface the
 
 | Key | Action |
 |---|---|
-| `→` / `l` | Cursor: next body |
-| `←` / `h` | Cursor: previous body |
+| `→` / `l` | Selection cursor: next body. Moves the on-canvas selected-body cross that drives the body-info screen (`i`), the porkchop plot (`P`), and the SELECTED HUD pane. **Not** the transfer target — that's `t` / `T` (since v0.9.0) |
+| `←` / `h` | Selection cursor: previous body (see above) |
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle camera focus forward / backward (system → bodies → craft) |
 | `g` | Reset camera focus to system |
@@ -120,7 +124,7 @@ flames out, the LAUNCH HUD's predictive readouts surface the
 | `K` | Plant rendezvous nudge to target craft (v0.10.2+) — single-burn Lambert intercept projected onto the closest velocity-frame axis. Reads the TARGET HUD's ACH CA / Δv readouts. Errors when there's no craft target, target shares a different primary, already DOCK READY, or no improvement available |
 | `t` / `T` | Cycle / clear `World.Target` (non-active sibling craft → bodies in active system → none) |
 | `space` | Decouple bottom stage of active craft (multi-stage only; single-stage status-flashes "cannot drop the only remaining stage") (v0.9.1+). On a bare chute-bearing capsule the same press **arms the parachute** instead — it auto-deploys once dynamic pressure builds in the atmosphere (v0.12+, ADR 0008) |
-| `P` | Porkchop plot for selected body; `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H`. Press `o` inside to open the transfer-options sub-menu (`n` cycles nRev 0–3, `r` toggles prograde/retrograde, `b` toggles short/long branch); `enter`/`o`/`esc` closes and re-solves (v0.10.5+) |
+| `P` | Porkchop plot for the body under the `←` / `→` selection cursor (not the `t` target); `Enter` on a cell plants that Lambert transfer. Inter-primary only — moon targets show a banner redirecting to `H`. Press `o` inside to open the transfer-options sub-menu (`n` cycles nRev 0–3, `r` toggles prograde/retrograde, `b` toggles short/long branch); `enter`/`o`/`esc` closes and re-solves (v0.10.5+) |
 | `R` | Refine plan — re-Lambert from live state, plant mid-course correction + update arrival |
 | `m` | Open maneuver planner |
 | `F5` / `F9` | Quicksave / quickload (`~/.local/state/terminal-space-program/save.json`, or `$XDG_STATE_HOME/...` if that var is set) — KSP-style |
@@ -128,6 +132,8 @@ flames out, the LAUNCH HUD's predictive readouts surface the
 | `1`–`9` | Jump directly to craft N (no-op when that slot is empty) |
 | `U` | Undock active composite |
 | `D` | Transpose (Apollo): flip the SM to the firing core, the LM becomes a releasable nose payload (then `U` to release) |
+| `V` | Jump to launch chase-cam (`ViewLaunch`) focused on the active vessel (v0.11.4+, ADR 0004). Skips the lowercase `v` view cycle |
+| `E` | End flight — remove a **Crashed** active vessel from the slate after a `y`/`n` confirm (v0.11.4+, ADR 0004). No-op unless the active vessel is Crashed |
 
 ### Manual flight
 
