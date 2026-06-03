@@ -11,6 +11,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/save"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
@@ -87,6 +88,12 @@ func New() (*App, error) {
 		Title:   th.Title,
 	}
 	orbitView := screens.NewOrbitView(sth)
+	// Per-Chip visibility preferences (ADR 0010). A missing settings.json
+	// yields all-on defaults, preserving pre-0010 behaviour; parse/IO
+	// warnings were already surfaced by main before bubbletea took the
+	// screen, so they're dropped here on the rehydrating load.
+	prefs, _ := settings.Load()
+	orbitView.SetSettings(prefs)
 	return &App{
 		world:      w,
 		theme:      th,

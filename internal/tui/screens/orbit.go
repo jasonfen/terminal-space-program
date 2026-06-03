@@ -16,6 +16,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -107,6 +108,25 @@ type OrbitView struct {
 	// HitNavballControl; the dispatch into SAS-hold / NavMode is the
 	// follow-up wiring. v0.9.6-polish.
 	navballControls []navballControlBox
+
+	// chipRects records the absolute screen-cell rectangle of each Chip
+	// composited onto the canvas this frame, so the orbit screen's mouse
+	// dispatch can route a click on a Chip (the Nodes chip opens the
+	// maneuver screen, ADR 0010). Recomputed every composeChips call.
+	chipRects []chipRect
+
+	// settings holds the player's per-Chip default-visibility
+	// preferences (ADR 0010, v0.13). Defaults to all-on so the screen
+	// behaves exactly as pre-0010 until SetSettings pushes a loaded
+	// settings.json. Read by the chip render rule (enabled && relevant
+	// && !declutter). The launch screen shares this OrbitView as its
+	// hudSource, so it inherits the same preferences.
+	settings settings.Settings
+
+	// declutter is the transient F2 "hide all overlays" state (slice 4
+	// wires the keybinding). While true the chip render rule suppresses
+	// every Chip; the slim HUD column is never affected. Not persisted.
+	declutter bool
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
@@ -184,7 +204,35 @@ func NewOrbitView(th Theme) *OrbitView {
 		canvas:        widgets.NewCanvas(80, 24),
 		theme:         th,
 		lastSystemIdx: -1,
+		settings:      settings.Default(),
 	}
+}
+
+// SetSettings replaces the per-Chip visibility preferences this screen
+// renders with. tui.New pushes the loaded settings.json at startup and
+// the Settings screen (v0.13 slice 3) pushes live edits. The launch
+// screen shares this OrbitView as its hudSource, so a single push
+// updates both screens' chip visibility.
+func (v *OrbitView) SetSettings(s settings.Settings) {
+	v.settings = s
+}
+
+// Settings returns the current per-Chip visibility preferences, so the
+// Settings screen can read the live state before toggling.
+func (v *OrbitView) Settings() settings.Settings {
+	return v.settings
+}
+
+// SetDeclutter sets the transient F2 hide-all-overlays state (slice 4).
+// While true every Chip and the navball are suppressed; the slim HUD
+// column is unaffected.
+func (v *OrbitView) SetDeclutter(on bool) {
+	v.declutter = on
+}
+
+// Declutter reports the current transient hide-all-overlays state.
+func (v *OrbitView) Declutter() bool {
+	return v.declutter
 }
 
 // Resize forwards terminal dimensions to the canvas. Left ~70% for canvas,

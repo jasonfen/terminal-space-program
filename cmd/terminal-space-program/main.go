@@ -8,6 +8,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
@@ -29,6 +30,14 @@ func main() {
 	if _, warnings, err := render.LoadTheme(); err == nil {
 		for _, w := range warnings {
 			fmt.Fprintf(os.Stderr, "terminal-space-program: skipping theme %s: %v\n", w.Path, w.Err)
+		}
+	}
+	// UI preferences (per-Chip visibility, ADR 0010). A missing file is
+	// the common case and yields all-on defaults silently; a malformed
+	// file degrades to defaults plus a warning here.
+	if _, warnings := settings.Load(); len(warnings) > 0 {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: skipping settings %s: %v\n", w.Path, w.Err)
 		}
 	}
 
