@@ -27,12 +27,13 @@ To go somewhere — say, the Moon:
    `combined 4.12 / split 3.95 km/s → planted split`. Two burn markers appear:
    one to leave your orbit and one to capture at the Moon, each showing its Δv
    (the speed change it costs) and a countdown.
-3. Speed time up. The first burn may be planted several days out — from a
-   typical orbit it waits for the Moon to swing around and line up with your
-   orbital plane, which is the cheapest moment to leave. When the countdown hits
-   zero the burn fires on its own (time warp eases off around a burn so nothing
-   gets skipped). Your path stretches out toward the Moon, still curving under
-   Earth's gravity.
+3. Speed time up. From a fresh game the first burn is only a few hours out — a
+   new game starts you shortly before the Moon lines up with your orbital plane,
+   which is the cheapest moment to leave. (Deeper into a game, or after loading a
+   save, it can sit further out, since it always waits for that next line-up.)
+   When the countdown hits zero the burn fires on its own (time warp eases off
+   around a burn so nothing gets skipped). Your path stretches out toward the
+   Moon, still curving under Earth's gravity.
 4. The second burn fires near the Moon and drops you into a low orbit around it.
    (The porkchop plot, `P`, is for trips to other planets — for a moon of your
    own planet, `H` is the way.)
