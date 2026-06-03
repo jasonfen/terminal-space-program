@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -253,6 +254,30 @@ func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
 // TestDeclutterHidesChipsKeepsColumn: F2 declutter suppresses every Chip
 // (here the always-relevant ATTITUDE chip) while the slim HUD column —
 // which it must never hide (CONTEXT.md §Declutter) — keeps rendering.
+func TestNzeroSnapsNegativeZero(t *testing.T) {
+	cases := []struct {
+		x        float64
+		decimals int
+		want     float64
+	}{
+		{-0.3, 0, 0},   // rounds to 0 at %.0f → snapped to +0
+		{0.3, 0, 0},    // also rounds to 0 → +0 (sign already fine)
+		{-0.04, 1, 0},  // rounds to 0.0 at %.1f → +0
+		{-0.6, 0, -0.6}, // rounds to -1 → untouched
+		{12.3, 1, 12.3}, // non-zero → untouched
+	}
+	for _, c := range cases {
+		got := nzero(c.x, c.decimals)
+		if got != c.want {
+			t.Errorf("nzero(%g, %d) = %g, want %g", c.x, c.decimals, got, c.want)
+		}
+		// The snapped value must never format with a negative sign at 0.
+		if c.want == 0 && fmt.Sprintf("%+.*f", c.decimals, got)[0] == '-' {
+			t.Errorf("nzero(%g, %d) still formats as negative zero", c.x, c.decimals)
+		}
+	}
+}
+
 func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
