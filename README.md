@@ -21,13 +21,16 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Inspiration
 
-A love letter to **Kerbal Space Program**, reimagined for the terminal:
-patched-conic orbital mechanics, finite burns with rocket-equation mass loss,
-Hohmann and Lambert transfers, porkchop plots, staging, docking, and
-pad-to-LEO launches — all rendered with braille-canvas graphics and a
-keyboard-driven HUD, no GUI required.
+A love letter to **Kerbal Space Program**, reimagined for the terminal. Plan
+transfers between planets and moons, fly your rocket off the pad and into orbit
+by hand, rendezvous and dock, stage away spent boosters, and bring a capsule
+home under parachute — all drawn with braille-canvas graphics and driven from
+the keyboard. No mouse required, no GUI, just a single binary in your terminal.
 
-The architectural foundation was lifted (with MIT attribution) from
+Under the hood it's a real orbital-mechanics sim: gravity, fuel, and timing all
+matter, the way they do in KSP.
+
+The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
 [NOTICE.md](NOTICE.md) for the full acknowledgments list.
 
@@ -53,14 +56,13 @@ go build ./cmd/terminal-space-program
 ./terminal-space-program
 ```
 
-Requires Go 1.24+ (bubbletea dependency chain).
+Requires Go 1.24 or newer.
 
 ## Learn more
 
-- **[Controls & flight guide](docs/controls.md)** — quick tour, surface-launch
-  walkthrough, and the full keybinding reference.
-- **[Version history](docs/version-history.md)** — per-cycle changelog.
-- **[Running changelog / backlog](docs/state-of-game.md)** — per-version detail.
+- **[Controls & flight guide](docs/controls.md)** — a quick tour, a launch
+  walkthrough, and the full list of keys.
+- **[Version history](docs/version-history.md)** — what landed in each release.
 
 ## License
 
