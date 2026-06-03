@@ -202,6 +202,54 @@ func TestBuildNodesChipSummary(t *testing.T) {
 	}
 }
 
+// TestWorstCaseFrameDoesNotOverflow is the regression that motivated the
+// v0.13 cycle: with a target set, an Apollo stack launching from the pad,
+// and planted nodes, the old tall HUD column rendered taller than the
+// canvas and the terminal scrolled — hiding the title and orbit view. The
+// slim column + canvas chips bound the frame to the terminal height, so
+// the title row survives and nothing scrolls off.
+func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cols, rows = 120, 40
+	v.Resize(cols, rows)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Apollo stack on the pad (launch in progress, multi-stage).
+	c, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutApolloStackID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	// Target the Moon + plant several nodes — the rest of the worst case.
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			w.SetTargetBody(i)
+		}
+	}
+	for i := 0; i < 5; i++ {
+		c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+			DV:          float64(100 * (i + 1)),
+			TriggerTime: w.Clock.SimTime.Add(time.Duration(i+1) * 10 * time.Minute),
+		})
+	}
+
+	out := v.Render(w, 0, cols, rows)
+	if h := strings.Count(out, "\n") + 1; h > rows {
+		t.Errorf("frame height = %d rows, want ≤ %d (terminal would scroll, hiding the title)", h, rows)
+	}
+	// The title row must be the first line (not scrolled off the top).
+	if first := strings.SplitN(out, "\n", 2)[0]; !strings.Contains(first, "terminal-space-program") {
+		t.Errorf("title row not first; got %q", first)
+	}
+}
+
 func TestBuildSlimColumnCoreOnly(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()

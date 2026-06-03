@@ -279,6 +279,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.dispatchNavballControl(ctrl)
 				return a, nil
 			}
+			// Chips are opaque overlays drawn over the canvas corners
+			// (ADR 0010), so a chip hit takes priority over the canvas /
+			// body hits underneath. The Nodes chip opens the maneuver
+			// screen — the canonical full, editable node list ([m]);
+			// other chips are display-only and just swallow the click so
+			// it doesn't fall through to a body behind them.
+			if id, ok := a.orbitView.HitChip(m.X, m.Y); ok {
+				if id == settings.ChipNodes {
+					a.world.Clock.Paused = true
+					a.active = screenManeuver
+				}
+				return a, nil
+			}
 			hit := a.orbitView.HitAt(m.X, m.Y)
 			switch {
 			case hit.IsVessel:
@@ -315,10 +328,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
-			case a.hudNodeHit(m.X, m.Y):
-				// Handled inside hudNodeHit — opens the maneuver
-				// planner pre-loaded for the clicked node and (in
-				// multi-craft) switches active craft to its owner.
 			case a.orbitView.IsHudClick(m.X):
 				// HUD click → open body info for the currently
 				// selected body. Coarse: doesn't try to identify
@@ -893,35 +902,6 @@ func (a *App) autosave() {
 	_ = a.doSave()
 }
 
-// hudNodeHit checks whether a HUD click landed on a NODES-block
-// entry; if so, switches active craft (when the clicked node lives
-// on a different craft) and opens the maneuver planner pre-loaded
-// for that node — same edit-replace UX as the canvas node-glyph
-// click. Returns true when handled. v0.8.2.x.
-func (a *App) hudNodeHit(x, y int) bool {
-	craftIdx, nodeIdx, ok := a.orbitView.HitHudNode(x, y)
-	if !ok {
-		return false
-	}
-	if craftIdx < 0 || craftIdx >= len(a.world.Crafts) {
-		return false
-	}
-	c := a.world.Crafts[craftIdx]
-	if c == nil || nodeIdx < 0 || nodeIdx >= len(c.Nodes) {
-		return false
-	}
-	// Switch active to the owning craft so the planner edits are
-	// targeted correctly and the post-edit projected orbit reflects
-	// the right craft.
-	if craftIdx != a.world.ActiveCraftIdx {
-		a.world.SetActiveCraftIdx(craftIdx)
-		a.world.StopManualBurn()
-	}
-	a.maneuver.LoadNode(nodeIdx, c.Nodes[nodeIdx])
-	a.world.Clock.Paused = true
-	a.active = screenManeuver
-	return true
-}
 
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
 // it sets the held attitude (the v0.7.3.2 explicit-engage UX stays —
