@@ -2,17 +2,20 @@
 
 <!--
   meta:
-    snapshot_version: v0.12.8 (LAUNCH HUD hyperbolic-altitude gate (PR #78) —
-      the ascent panel no longer pops back on a high hyperbolic departure /
-      atmosphered-body approach. Follows v0.12.7's Apollo LM decouple-group +
-      LAUNCH HUD stable-orbit fixes (PR #76/#77).)
-    snapshot_date: 2026-06-02
-    revised_date: 2026-06-02 (v0.12.8 shipped: LAUNCH HUD hyperbolic-altitude
-      gate (PR #78). v0.12.7: Apollo LM decouple-group fix + TRANSPOSE READY
-      hint (PR #76), LAUNCH HUD stable-orbit hide (PR #77). v0.12.6 brought
-      burn-pause, Apollo transposition (ADR 0009), and the near-orbital
-      launch-view release; the Apollo Stack flies a complete lunar mission.
-      Remaining v0.12 item is GH #68, deferred)
+    snapshot_version: v0.13.0 (HUD overlay refactor — ADR 0010: the orbit
+      HUD's tall conditional-block stack becomes a slim/pinned core chip +
+      compact canvas-corner chips on a full-width orbit map, killing the
+      overflow that scrolled the title/view off-screen. Adds a Settings
+      screen (chip visibility, persisted to settings.json) + F2 declutter;
+      Orbit metrics & the active-burn readout are always-on. Bundled
+      playtest fixes + the configurator 2-stage Lander as one vessel.)
+    snapshot_date: 2026-06-04
+    revised_date: 2026-06-04 (v0.13.0 shipped: HUD overlay refactor cycle —
+      chips-on-canvas + Settings screen + F2 declutter (ADR 0010, merge
+      f8e74d0). Prior: v0.12.8 LAUNCH HUD hyperbolic-altitude gate (PR #78);
+      v0.12.7 Apollo LM decouple-group + LAUNCH HUD stable-orbit (PR #76/#77);
+      v0.12.6 burn-pause + Apollo transposition (ADR 0009) + near-orbital
+      launch-view release. Remaining pre-v0.13 item is GH #68, deferred)
     archive: docs/state-of-game-archive.md
   Read the archive for the full v0.7.6-baseline-plus-v0.8-additions
   detail this rewrite condensed. This file is the canonical
@@ -21,7 +24,7 @@
   ADRs (docs/adr/); this file keeps the entries + the snapshot.
 -->
 
-> Snapshot at **v0.12.8** (June 2026). Three cycles have shipped to
+> Snapshot at **v0.13.0** (June 2026). Four cycles have shipped to
 > `main` since v0.9.6:
 >
 > - **v0.10** (May 19–23) — planner + maneuver tooling: rate-limited
@@ -48,9 +51,18 @@
 >   lunar stack** ([ADR 0009](adr/0009-transposition-and-active-engine.md),
 >   the Apollo Stack now flies a complete lunar mission), and a
 >   near-orbital `ViewLaunch` hand-off.
+> - **v0.13** (Jun 3–4) — the **HUD overlay refactor**
+>   ([ADR 0010](adr/0010-hud-column-canvas-chips-and-settings.md)): the tall
+>   orbit-HUD block stack becomes a slim/pinned core chip + compact
+>   canvas-corner **chips** on a full-width map (overflow gone), a
+>   **Settings screen** toggles chip visibility (persisted to
+>   `settings.json`), and **F2** declutters. Orbit metrics + the active-burn
+>   readout are always-on. Bundled playtest fixes + the configurator's
+>   2-stage Lander as one vessel. Playtest verdict: "really makes the game
+>   look thought-out"; remaining refinement is chip timing + content.
 >
 > **Remaining:** Moon-frame lunar-capture inclination trim
-> (GH #68, deferred from v0.12.2) — the only open v0.12 thread.
+> (GH #68, deferred from v0.12.2) — the only open carry-over thread.
 > Pre-v0.8 per-feature detail preserved at
 > [`docs/state-of-game-archive.md`](state-of-game-archive.md).
 
@@ -839,8 +851,8 @@ the [capture-direction toggle](#capture-direction-toggle) and
 ⏸ **deferred**. ~200 LOC of fsnotify watching `theme.json` so palette tweaks land without restarting. `LoadTheme` is already idempotent (v0.7.2) so the runtime side is cheap; the cost is the watcher setup + a debounce. Never surfaced as a v0.8 playtest pain — reopen if a modder hits it iterating on a per-body palette.
 
 ### HUD overlay refactor (chips + Settings screen)
-<!-- llm-parse: id=hud-overlay-chips status=sliced target=v0.13 adr=0010 plan=v0.13 -->
-🧊 **sliced into v0.13** (grilled 2026-06-03, ADR 0010) — headline of [`docs/v0.13-plan.md`](v0.13-plan.md), a 4-slice dependency chain (config layer → HUD split → Settings screen → F2 declutter). The orbit HUD has no height budget, so with a target + launch + 7-stage Apollo + planted nodes it overflows below the canvas and the terminal scrolls to the bottom of the bar (`orbit.go:846` only fixed mouse-offset, never the overflow). Decision: the HUD becomes a **slim always-on column** of core vessel telemetry, and every other block becomes a compact **chip** — a 2–4 row overlay composited onto a canvas corner like the navball. Variable lists stay fixed-height (Nodes chip = next + `(+N → [m])`, full list on the maneuver screen; Stages chip = pips + active N/M). New **Settings screen** (menu entry) toggles default chip visibility, persisted to a global `settings.json` (alongside `theme.json`, save schema untouched); **F2** = momentary declutter (hide all overlays). Defaults all-on, so no info lost — the win is bounded height + no scroll. Full model + rejected alternatives (scrollable HUD, denser blocks, phase-only, full-width, in-save prefs) in [`docs/adr/0010`](adr/0010-hud-column-canvas-chips-and-settings.md); vocabulary (HUD / Chip / Declutter / Settings screen) in [`CONTEXT.md`](../CONTEXT.md) §HUD & overlays. Feature slice → branch + PR.
+<!-- llm-parse: id=hud-overlay-chips status=shipped shipped-in=v0.13.0 adr=0010 plan=v0.13 -->
+✓ **shipped in v0.13.0** (ADR 0010, merge `f8e74d0`). The tall orbit-HUD block stack is gone: core vessel telemetry is a **pinned chip** (full-width-map playtest move — never settings-toggled, never declutter-hidden), and every other block is a compact **chip** composited onto a canvas corner like the navball. Render rule per chip: `enabled(Settings) && relevant(state) && !declutter`. Variable lists stay fixed-height (Nodes chip = next + `(+N → [m])`, full list on the maneuver screen; Stages chip = pips + active N/M). The **Settings screen** (menu entry, `screens/settings.go`) toggles chip visibility persisted to a standalone `settings.json` (`internal/settings`, save schema untouched); **F2** declutters. Orbit metrics + the active-burn **● BURNS** readout are always-on (non-toggleable). Bundled playtest fixes: firing-stage fuel %, near-zero flicker, the configurator's 2-stage Lander as one vessel, the Custom-stack Tab→STACK fix, and the active-craft glyph Z-order fix (a jettisoned stage no longer overdraws the active vessel). Defaults all-on, so no info lost vs. pre-0010. Model + rejected alternatives in [`docs/adr/0010`](adr/0010-hud-column-canvas-chips-and-settings.md); vocabulary in [`CONTEXT.md`](../CONTEXT.md) §HUD & overlays. **Playtest verdict:** "really makes the game look thought-out" — layout settled; the open refinement is chip **timing + content** (phase gating, summarise-vs-detail, transient stacking).
 
 ### Numbered craft slots (1–9)
 <!-- llm-parse: id=numbered-craft-slots status=shipped shipped-in=v0.12.0 -->
