@@ -1,9 +1,9 @@
 # 0009 — Transposition: splitting the CSM and letting a non-bottom stage fire
 
-<!-- llm-parse: adr=0009 status=proposed date=2026-06-02 cycle=v0.12 slice=apollo-transposition -->
+<!-- llm-parse: adr=0009 status=accepted date=2026-06-02 cycle=v0.12 slice=apollo-transposition -->
 
-**Status:** proposed (2026-06-02, `/grill-with-docs` on the Apollo
-Stack flyability problem).
+**Status:** accepted (2026-06-02, `/grill-with-docs` on the Apollo
+Stack flyability problem; decisions 1–3 shipped + tested as of 2026-06-04).
 **Extends:** [`docs/adr/0007-surface-staging-and-decouple-plan.md`](0007-surface-staging-and-decouple-plan.md)
 (the bottom-up `DecouplePlan` this slice adds a *top-release* / docked
 nose-payload counterpart to) and
