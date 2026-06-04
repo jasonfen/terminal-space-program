@@ -87,6 +87,18 @@ type SpawnSpec struct {
 	// alongside) is orthogonal and still applies.
 	CustomStages []spacecraft.Stage
 
+	// NosePayloadPlan (v0.14 / ADR 0011) is the top-release counterpart
+	// to a Loadout's bottom-up DecouplePlan: a list of how many
+	// contiguous TOP stages of CustomStages form a docked nose payload
+	// (released by Undock, not Staging) rather than linear firing-core
+	// stages. v0.14 honours a single entry — one nose payload, itself
+	// possibly multi-stage (the Apollo LM = [Descent, Ascent]). When set
+	// (and CustomStages is non-empty), SpawnCraft splits the stack at the
+	// seam, builds the core and payload, and assembles them into a ready
+	// docked composite — so a CSM+LM spawns already in the
+	// post-transposition shape. Nil/empty ⇒ a plain linear custom craft.
+	NosePayloadPlan []int
+
 	// Launchpad (v0.9.2+): when true, spawn at altitude 0 on the
 	// parent body's surface co-moving with the rotating ground at
 	// `Latitude` / `LongitudeOffset` (degrees, north / east positive).
@@ -145,7 +157,12 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		// Ignores LoadoutID — a custom craft is not a catalog
 		// archetype. NewFromStages returns nil only on an empty
 		// slice, already excluded by the len() guard.
-		c = spacecraft.NewFromStages(spec.CustomStages)
+		//
+		// v0.14 / ADR 0011: a NosePayloadPlan marks a contiguous TOP
+		// group as a docked nose payload, so the stack spawns as an
+		// assembled composite (core firing, payload Undock-able) rather
+		// than a linear chain. A malformed plan falls back to linear.
+		c = newCustomCraft(spec.CustomStages, spec.NosePayloadPlan)
 	} else {
 		id := spec.LoadoutID
 		if id == "" {
@@ -285,6 +302,89 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	w.StopManualBurn()
 	w.initCraftAttitude(c)
 	return c, nil
+}
+
+// newCustomCraft builds the Spacecraft for a player-assembled stack.
+// With no nose-payload plan it is a plain linear craft (NewFromStages,
+// the v0.10.1 behaviour). With a single-entry plan `k` (v0.14 / ADR
+// 0011) it splits the top k stages off as a docked nose payload: the
+// result is a composite whose Stages are the full stack (core at the
+// bottom, firing) with DockedComponents recording the core and the
+// payload so the existing Undock (docking.go) releases the payload as a
+// coherent — possibly multi-stage — craft. The composite flies as the
+// core, the surviving firing vehicle. A malformed seam (k ≤ 0 or k ≥
+// len) degrades to a linear craft rather than erroring, so a stray plan
+// can never strand the spawn.
+//
+// This reuses dockedComponentFromStages — the same helper Transpose
+// (staging.go) uses to wrap the CSM core and LM nose payload — so a
+// spawned composite is byte-for-byte the configuration a hand-flown
+// dock or the `D` transpose key produces, and rides the identical
+// Undock / save-load machinery (no schema bump).
+func newCustomCraft(stages []spacecraft.Stage, nosePayloadPlan []int) *spacecraft.Spacecraft {
+	c := spacecraft.NewFromStages(stages)
+	if c == nil || len(nosePayloadPlan) == 0 {
+		return c
+	}
+	k := nosePayloadPlan[0]
+	n := len(stages)
+	if k <= 0 || k >= n {
+		return c // malformed seam — leave it a linear craft
+	}
+	coreStages := append([]spacecraft.Stage(nil), stages[:n-k]...)
+	payloadStages := append([]spacecraft.Stage(nil), stages[n-k:]...)
+
+	coreName := vehicleNameForStages(coreStages)
+	core := dockedComponentFromStages(coreStages, coreName, "custom")
+	payload := dockedComponentFromStages(
+		payloadStages, vehicleNameForStages(payloadStages), payloadRoleForStages(payloadStages))
+	c.DockedComponents = []spacecraft.DockedComponent{core, payload}
+
+	// Identity: fly as the core (the surviving firing vehicle), not the
+	// top-of-stack payload that NewFromStages defaulted the name/marker to.
+	c.Name = coreName
+	c.Glyph = coreStages[0].Glyph
+	c.Color = coreStages[0].Color
+	c.SyncFields()
+	return c
+}
+
+// vehicleNameForStages picks a friendly name for a contiguous stage
+// group used as a docked composite component (ADR 0011). It recognises
+// the Apollo halves so the CSM+LM composite reads as "CSM" / "LM"; any
+// other group falls back to its surviving-core (top) stage name — the
+// same identity rule NewFromStages uses.
+func vehicleNameForStages(stages []spacecraft.Stage) string {
+	has := func(name string) bool {
+		for _, s := range stages {
+			if s.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has("SM") && has("CM"):
+		return "CSM"
+	case has("Descent") && has("Ascent"):
+		return "LM"
+	}
+	if top := stages[len(stages)-1].Name; top != "" {
+		return top
+	}
+	return "Custom"
+}
+
+// payloadRoleForStages assigns a role to a nose-payload component so the
+// undocked craft surfaces sensibly — a soft-land-capable payload (the LM)
+// becomes a "lander", matching what Transpose records. v0.14.
+func payloadRoleForStages(stages []spacecraft.Stage) string {
+	for _, s := range stages {
+		if s.CanSoftLand {
+			return "lander"
+		}
+	}
+	return "payload"
 }
 
 // nextCraftName returns a name for the next spawned craft of the

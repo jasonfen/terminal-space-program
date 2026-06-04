@@ -157,6 +157,82 @@ func TestSpawnStackAddRemove(t *testing.T) {
 	}
 }
 
+// pickPart cycles the part-picker to the given catalog id (STACK field
+// must be focused). Bounded so a missing id can't loop forever.
+func pickPart(s *SpawnCraft, id string) {
+	for i := 0; i < len(spacecraft.StageCatalogOrder)+1; i++ {
+		if s.pickedPartID() == id {
+			return
+		}
+		s.HandleKey("right")
+	}
+}
+
+// TestSpawnDockSeamFromCSMLMModule — v0.14 / ADR 0011. Adding the
+// composite "CSM+LM" pick drops the four Apollo stages AND pre-sets the
+// Dock Seam, so SelectedNosePayloadPlan reports the LM (top 2) as a nose
+// payload without the player marking it by hand.
+func TestSpawnDockSeamFromCSMLMModule(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "")
+	selectCustom(s)
+	s.fieldIdx = stackFieldIdx
+
+	pickPart(s, spacecraft.StageModuleApolloCSMLMID)
+	s.HandleKey("a")
+
+	if got := len(s.SelectedCustomStages()); got != 4 {
+		t.Fatalf("CSM+LM pick added %d stages, want 4", got)
+	}
+	plan := s.SelectedNosePayloadPlan()
+	if len(plan) != 1 || plan[0] != 2 {
+		t.Errorf("SelectedNosePayloadPlan = %v, want [2] (the LM as nose payload)", plan)
+	}
+	if !strings.Contains(s.Render(80), "dock seam") {
+		t.Error("rendered stack does not show the dock seam divider")
+	}
+}
+
+// TestSpawnDockSeamCycleAndClamp — [d] cycles the Dock Seam over a
+// general custom stack, and removing stages clamps it so the core keeps
+// at least one stage. v0.14 / ADR 0011.
+func TestSpawnDockSeamCycleAndClamp(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "")
+	selectCustom(s)
+	s.fieldIdx = stackFieldIdx
+
+	// Two single-stage parts → no seam yet.
+	first := s.pickedPartID()
+	s.HandleKey("a")
+	s.HandleKey("right")
+	if s.pickedPartID() == first {
+		t.Fatal("part picker did not advance")
+	}
+	s.HandleKey("a")
+	if s.SelectedNosePayloadPlan() != nil {
+		t.Errorf("fresh 2-stack has a seam %v, want none", s.SelectedNosePayloadPlan())
+	}
+
+	// [d] marks the top stage as a nose payload; again wraps back to none.
+	s.HandleKey("d")
+	if plan := s.SelectedNosePayloadPlan(); len(plan) != 1 || plan[0] != 1 {
+		t.Errorf("after one [d]: plan = %v, want [1]", plan)
+	}
+	s.HandleKey("d")
+	if s.SelectedNosePayloadPlan() != nil {
+		t.Errorf("after wrap [d]: plan = %v, want none", s.SelectedNosePayloadPlan())
+	}
+
+	// Set the seam to 1, then remove a stage so only 1 remains — the seam
+	// must clamp to 0 (a 1-stage stack can't have a nose payload).
+	s.HandleKey("d") // seam = 1 (of 2)
+	s.HandleKey("x") // remove top → 1 stage left
+	if s.SelectedNosePayloadPlan() != nil {
+		t.Errorf("seam survived shrinking to a 1-stage stack: %v", s.SelectedNosePayloadPlan())
+	}
+}
+
 // TestSpawnRenderShowsStackEditor — the STACK block appears only
 // for Custom and reflects added parts.
 func TestSpawnRenderShowsStackEditor(t *testing.T) {

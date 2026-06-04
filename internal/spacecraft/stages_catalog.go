@@ -115,6 +115,13 @@ const (
 	// carries the chute.
 	StageModuleServiceModuleID = "service-module"
 	StageModuleCommandModuleID = "command-module"
+	// StageModuleApolloCSMLMID (v0.14 / ADR 0011) is a COMPOSITE module
+	// pick: BuildModule expands it to [SM, CM, Descent, Ascent] and
+	// ModuleNosePayloadTop reports that the top 2 (the LM) form a docked
+	// nose payload. Picking it in the configurator and spawning lands the
+	// post-transposition Apollo composite — SM firing core, LM an
+	// Undock-able nose payload — already assembled, no flip to fly.
+	StageModuleApolloCSMLMID = "csm-lm"
 	// v0.12 Slice 3 / ADR 0008: standalone re-entry capsule — single
 	// command-module-class stage with a parachute, no engine landing.
 	StageModuleCapsuleID = "capsule"
@@ -285,6 +292,24 @@ var StageCatalog = map[string]StageModule{
 		// fuelType intentionally unset — no main engine (RCS-only).
 		hasParachute: true,
 	},
+	// v0.14 / ADR 0011: the Apollo CSM+LM composite configurator pick.
+	// This catalog row exists only so the part-picker has a Name/Glyph/Tier
+	// to preview; BuildModule expands the id to the real [SM, CM, Descent,
+	// Ascent] stages (the numbers here are the SM's, for any sum-less
+	// reader). Glyph is the SM/CSM marker since the SM is the firing core.
+	StageModuleApolloCSMLMID: {
+		ID: StageModuleApolloCSMLMID, Name: "CSM+LM", Glyph: "◉", Color: "#C0C0FF",
+		Tier: "payload", dry: 6000, fuel: 16000, thrust: 91000, isp: 314, bc: 0,
+		// Sprite fields mirror the SM (the firing core). BuildModule
+		// intercepts this id and expands it to real [SM, CM, Descent,
+		// Ascent] stages, so the single-stage form is never rendered — but
+		// the catalog-shape invariant wants every pick buildable with a
+		// sprite, matching the "lander" meta-module precedent.
+		launchSpriteRowsPx:  6,
+		launchSpriteWidthPx: 2,
+		launchSpriteColor:   "#C8C8D0",
+		fuelType:            FuelTypeHypergolic,
+	},
 	// Re-entry capsule (v0.12 Slice 3, ADR 0008): a minimal command-
 	// module-class stage carrying a parachute and NO engine landing
 	// capability — the clean, directly-spawnable test vehicle for the
@@ -332,6 +357,11 @@ var StageCatalogOrder = []string{
 	// "Lander" loadout. The descent/ascent are NOT separate picker entries.
 	StageModuleLanderID,
 	StageModuleCSMID,
+	// The "csm-lm" pick is a composite: BuildModule expands it to
+	// [SM, CM, Descent, Ascent] and ModuleNosePayloadTop marks the top 2
+	// (the LM) as a docked nose payload, so spawning it lands the
+	// post-transposition Apollo composite already assembled (ADR 0011).
+	StageModuleApolloCSMLMID,
 	StageModuleRCSTugID,
 }
 
@@ -390,9 +420,38 @@ func BuildModule(id string) ([]Stage, bool) {
 		}
 		return []Stage{d, a}, true
 	}
+	if id == StageModuleApolloCSMLMID {
+		// v0.14 / ADR 0011: the post-transposition Apollo composite as one
+		// pick — the [SM, CM] core (SM firing the SPS) with the [Descent,
+		// Ascent] LM stacked on top. ModuleNosePayloadTop reports the top 2
+		// so the spawn path docks the LM as a nose payload rather than
+		// stacking it linearly.
+		sm, okSM := BuildStage(StageModuleServiceModuleID)
+		cm, okCM := BuildStage(StageModuleCommandModuleID)
+		d, okD := BuildStage(StageModuleLanderDescentID)
+		a, okA := BuildStage(StageModuleLanderAscentID)
+		if !okSM || !okCM || !okD || !okA {
+			return nil, false
+		}
+		return []Stage{sm, cm, d, a}, true
+	}
 	st, ok := BuildStage(id)
 	if !ok {
 		return nil, false
 	}
 	return []Stage{st}, true
+}
+
+// ModuleNosePayloadTop reports how many of the TOP stages that
+// BuildModule(id) produces form a docked nose payload — released by
+// Undock, not Staging (the top-release counterpart to a Loadout's
+// bottom-up DecouplePlan; ADR 0011). Non-composite modules return 0, so
+// the configurator stacks them linearly. The "csm-lm" composite returns
+// 2 (the LM = Descent + Ascent rides on the [SM, CM] core's nose).
+// v0.14.
+func ModuleNosePayloadTop(id string) int {
+	if id == StageModuleApolloCSMLMID {
+		return 2
+	}
+	return 0
 }
