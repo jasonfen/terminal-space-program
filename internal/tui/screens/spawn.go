@@ -257,12 +257,14 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	case "right", "l":
 		s.cycleField(+1)
 	case "a":
-		// Add the picked catalog part on top of the working stack.
-		// Form-local: only meaningful on the STACK field.
+		// Add the picked catalog module on top of the working stack.
+		// Form-local: only meaningful on the STACK field. A module is
+		// usually one stage; the "lander" pick expands to the 2-stage LM
+		// (Descent + Ascent) so it lands as one vessel.
 		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() {
 			if id := s.pickedPartID(); id != "" {
-				if st, ok := spacecraft.BuildStage(id); ok {
-					s.customStages = append(s.customStages, st)
+				if stages, ok := spacecraft.BuildModule(id); ok {
+					s.customStages = append(s.customStages, stages...)
 				}
 			}
 		}
@@ -398,13 +400,21 @@ func (s *SpawnCraft) Render(width int) string {
 		lines = append(lines, "")
 		pid := s.pickedPartID()
 		if m, ok := spacecraft.StageCatalog[pid]; ok {
-			st, _ := spacecraft.BuildStage(pid)
-			eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
-			if st.Thrust == 0 {
-				eng = "RCS-only"
+			// Show combined mass/engine for the module the pick contributes —
+			// a multi-stage module (the 2-stage lander) reads as one unit
+			// with its bottom stage's engine firing first.
+			stages, _ := spacecraft.BuildModule(pid)
+			name := m.Name
+			eng := "RCS-only"
+			if len(stages) > 0 && stages[0].Thrust > 0 {
+				eng = fmt.Sprintf("%.0fkN @ %.0fs", stages[0].Thrust/1000, stages[0].Isp)
+			}
+			if len(stages) > 1 {
+				name = fmt.Sprintf("%s (%d-stage)", m.Name, len(stages))
 			}
 			pickLabel := fmt.Sprintf("%s %s  [%s]  dry %.0fkg fuel %.0fkg  %s",
-				m.Glyph, m.Name, m.Tier, st.DryMass, st.FuelMass, eng)
+				m.Glyph, name, m.Tier,
+				spacecraft.SumDryMass(stages), spacecraft.SumFuelMass(stages), eng)
 			lines = append(lines, "  "+s.fieldValue(stackFieldIdx, "part: "+pickLabel))
 		}
 		lines = append(lines, "  "+s.theme.Footer.Render(

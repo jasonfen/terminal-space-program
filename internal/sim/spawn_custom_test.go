@@ -54,27 +54,25 @@ func TestSpawnCustomStagesBuildsFromStack(t *testing.T) {
 	}
 }
 
-// TestSpawnCustomLanderSplitStages — v0.13: a configurator-built
-// [Descent, Ascent] lander single-pops the descent (leaving the ascent as
-// the surviving core) exactly like the standalone Lander loadout, so a
-// custom Apollo-LM separates the way the player expects. Regression for
-// the playtest report "the lander in the vessel spawner does not have a
-// descent or ascent stage like the Apollo stack does."
+// TestSpawnCustomLanderSplitStages — v0.13: the configurator's single
+// "lander" pick (BuildModule) builds a [Descent, Ascent] lander as one
+// vessel; staging then single-pops the descent (leaving the ascent as the
+// surviving core) exactly like the standalone Lander loadout, so a custom
+// Apollo-LM separates the way the player expects. Regression for the
+// playtest thread: the spawner lander now has the descent/ascent split and
+// is added as one vessel.
 func TestSpawnCustomLanderSplitStages(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	descent, ok := spacecraft.BuildStage(spacecraft.StageModuleLanderDescentID)
-	if !ok {
-		t.Fatal("BuildStage(lander-descent) failed")
-	}
-	ascent, ok := spacecraft.BuildStage(spacecraft.StageModuleLanderAscentID)
-	if !ok {
-		t.Fatal("BuildStage(lander-ascent) failed")
+	// One "lander" pick expands to the 2-stage LM (bottom → top).
+	landerStages, ok := spacecraft.BuildModule(spacecraft.StageModuleLanderID)
+	if !ok || len(landerStages) != 2 {
+		t.Fatalf("BuildModule(lander) = %d stages (ok=%v), want 2", len(landerStages), ok)
 	}
 	c, err := w.SpawnCraft(SpawnSpec{
-		CustomStages: []spacecraft.Stage{descent, ascent}, // bottom → top
+		CustomStages: landerStages,
 		ParentBodyID: "earth",
 		AltitudeM:    400e3,
 	})
