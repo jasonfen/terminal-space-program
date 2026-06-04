@@ -3,34 +3,21 @@
 Terminal-native orbital-mechanics rocket simulator. A take on Kerbal Space
 Program that lives in your terminal, distributed as a single static Go binary.
 
-![Launch / landing chase-cam view](media/launch-view-demo.gif)
-
-```
-┌───────────────────────────────────────────────────────────┐
-│ terminal-space-program — Sol         [Menu]  [Missions]   │
-│ ┌─────────────────────────────────────┐ ┌───────────────┐ │
-│ │    · ·                              │ │ CLOCK         │ │
-│ │  ·     ·                            │ │   T+2026-04-29│ │
-│ │ ·   ⊙   ·       · ⊕ ·               │ │   warp: 100x  │ │
-│ │  ·     ·                            │ │               │ │
-│ │    · ·                              │ │ VESSEL  PROP  │ │
-│ │                                     │ │ S-IVB-1 fuel  │ │
-│ │                              view:  │ │ alt 500 26000 │ │
-│ └────────────────────────────── orbit ┘ │ v 7.6   Δv 6k │ │
-│ [q] quit [s] system [m] burn [?] help   └───────────────┘ │
-└───────────────────────────────────────────────────────────┘
-```
-
 ## Inspiration
 
-A love letter to **Kerbal Space Program**, reimagined for the terminal. Plan
-transfers between planets and moons, fly your rocket off the pad and into orbit
+I love **Kerbal Space Program**, I love **TUI Applications**. I decided the two should be married for when I'm bored and have an SSH session available.
+
+## The Game
+
+<img align="right" width="250" src="media/orbit-rendering.gif" alt="Orbit rendering in the launch / landing chase-cam view">
+
+Plan transfers between planets and moons, fly your rocket off the pad and into orbit
 by hand, rendezvous and dock, stage away spent boosters, and bring a capsule
 home under parachute — all drawn with braille-canvas graphics and driven from
 the keyboard. No mouse required, no GUI, just a single binary in your terminal.
 
 Under the hood it's a real orbital-mechanics sim: gravity, fuel, and timing all
-matter, the way they do in KSP.
+matter, the way they do in real life. Unlike KSP (without mods), the default game renders our solar system. Launches are hard they take 7.5km/s for LEO - just like real life. The moon is inclined, the earth is tilted on its axis. To match the real solar systems, there are real life vessels with accurate loadouts of thrust.
 
 The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
