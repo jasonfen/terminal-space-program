@@ -140,6 +140,41 @@ func TestStageCatalogShape(t *testing.T) {
 	}
 }
 
+// TestLanderModuleIsTwoStages — v0.13: the configurator's single "lander"
+// pick expands (via BuildModule) to the 2-stage Apollo-LM as one vessel:
+// Descent (bottom, legs + soft-land) + Ascent (top, its own engine). The
+// descent/ascent are NOT separate picker entries — the player adds the LM
+// in one pick. Every other catalog id stays a single-stage module.
+func TestLanderModuleIsTwoStages(t *testing.T) {
+	// The descent/ascent split is intentionally absent from the picker.
+	for _, id := range StageCatalogOrder {
+		if id == StageModuleLanderDescentID || id == StageModuleLanderAscentID {
+			t.Errorf("StageCatalogOrder exposes %q as a separate pick; the lander module should bundle it", id)
+		}
+	}
+
+	stages, ok := BuildModule(StageModuleLanderID)
+	if !ok || len(stages) != 2 {
+		t.Fatalf("BuildModule(lander) = (%d stages, ok=%v), want 2", len(stages), ok)
+	}
+	d, a := stages[0], stages[1] // bottom → top
+	if d.Name != "Descent" || !d.CanSoftLand || !d.LaunchSpriteHasLegs {
+		t.Errorf("module bottom = %q (soft-land=%v legs=%v), want Descent with legs+soft-land", d.Name, d.CanSoftLand, d.LaunchSpriteHasLegs)
+	}
+	if a.Name != "Ascent" || a.Thrust <= 0 {
+		t.Errorf("module top = %q (thrust=%.0f), want Ascent with its own engine", a.Name, a.Thrust)
+	}
+
+	// A normal part stays a single-stage module.
+	one, ok := BuildModule(StageModuleSICID)
+	if !ok || len(one) != 1 || one[0].Name != "S-IC" {
+		t.Errorf("BuildModule(s-ic) = %d stages, want 1 (S-IC)", len(one))
+	}
+	if _, ok := BuildModule("not-a-real-part"); ok {
+		t.Error("BuildModule accepted an unknown id")
+	}
+}
+
 // TestApolloStackShape — the multi-tier loadout: 7 stages bottom-first
 // [S-IC, S-II, S-IVB, Descent, Ascent, SM, CM] (v0.12 ADR 0009 split the
 // fused CSM into a propulsive Service Module + a passive Command Module),

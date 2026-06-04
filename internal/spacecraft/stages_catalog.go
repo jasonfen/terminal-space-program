@@ -94,15 +94,12 @@ const (
 	StageModuleF9S1ID     = "f9-s1"     // Falcon 9 first stage (9× Merlin 1D)
 	StageModuleF9S2ID     = "f9-s2"     // Falcon 9 second stage (Merlin Vac)
 	StageModuleLanderID   = "lander"    // LM-derived throttleable descent (single-stage)
-	// v0.12 Slice 2 / ADR 0007: the 2-stage Lander split. The
-	// single-stage StageModuleLanderID is retained for the configurator;
-	// these two model the descent (legs, soft-land, surface-stage
-	// candidate) + ascent (no legs, returns to orbit) pair used by the
-	// split standalone Lander loadout and the Apollo Stack's LM tier.
-	// They live in the catalog map (so the loadout literals' by-Name
-	// sprite/flag lookups resolve them) but are intentionally left out
-	// of StageCatalogOrder — the configurator still offers the single
-	// "lander" module, not the descent/ascent split.
+	// v0.12 Slice 2 / ADR 0007: the 2-stage Lander split — descent (legs,
+	// soft-land, surface-stage candidate) + ascent (no legs, returns to
+	// orbit). Used by the split standalone Lander loadout and the Apollo
+	// Stack's LM tier. v0.13: BuildModule expands the configurator's single
+	// "lander" pick into this [Descent, Ascent] pair, so a custom stack adds
+	// the LM as one vessel rather than as two separate parts.
 	StageModuleLanderDescentID = "lander-descent"
 	StageModuleLanderAscentID  = "lander-ascent"
 	StageModuleCSMID           = "csm" // Apollo Command/Service Module (SPS)
@@ -328,6 +325,11 @@ var StageCatalogOrder = []string{
 	StageModuleSIVBID,
 	StageModuleF9S2ID,
 	StageModuleICPSID,
+	// The "lander" pick is the 2-stage Apollo-LM as one vessel: BuildModule
+	// expands it to [Descent, Ascent] so the player adds a separable lander
+	// in a single pick (one vessel, two internal stages — land on the
+	// descent, drop it, fly the ascent), exactly like the standalone
+	// "Lander" loadout. The descent/ascent are NOT separate picker entries.
 	StageModuleLanderID,
 	StageModuleCSMID,
 	StageModuleRCSTugID,
@@ -369,4 +371,28 @@ func BuildStage(id string) (Stage, bool) {
 		CanSoftLand:          m.canSoftLand,
 		HasParachute:         m.hasParachute,
 	}, true
+}
+
+// BuildModule returns the stage(s) a single configurator pick contributes
+// to a custom stack, bottom-first. Most catalog ids map to exactly one
+// stage; the "lander" id expands to the 2-stage Apollo-LM — Descent
+// (bottom: legs + soft-land + powered-descent engine) + Ascent (top:
+// returns to orbit) — so the configurator adds the lander as one vessel,
+// the way the standalone Lander loadout ships it, rather than as two parts
+// the player must stack in the right order. Unknown ids return ok=false
+// (mirrors BuildStage).
+func BuildModule(id string) ([]Stage, bool) {
+	if id == StageModuleLanderID {
+		d, okD := BuildStage(StageModuleLanderDescentID)
+		a, okA := BuildStage(StageModuleLanderAscentID)
+		if !okD || !okA {
+			return nil, false
+		}
+		return []Stage{d, a}, true
+	}
+	st, ok := BuildStage(id)
+	if !ok {
+		return nil, false
+	}
+	return []Stage{st}, true
 }

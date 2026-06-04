@@ -11,6 +11,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/save"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
@@ -26,7 +27,8 @@ const (
 	screenPorkchop
 	screenMenu
 	screenMissions
-	screenSpawn // v0.8.2+: craft-type pick form on `n`.
+	screenSpawn    // v0.8.2+: craft-type pick form on `n`.
+	screenSettings // v0.13 slice 3: per-Chip visibility toggles, reached from the menu.
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -51,6 +53,11 @@ type App struct {
 	menu       *screens.Menu
 	missions   *screens.Missions
 	spawn      *screens.SpawnCraft
+
+	// settingsScreen is the v0.13 per-Chip visibility toggle screen. Its
+	// edits write through to orbitView's settings.Settings and persist to
+	// settings.json immediately (see toggleChip).
+	settingsScreen *screens.SettingsScreen
 
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
@@ -87,6 +94,12 @@ func New() (*App, error) {
 		Title:   th.Title,
 	}
 	orbitView := screens.NewOrbitView(sth)
+	// Per-Chip visibility preferences (ADR 0010). A missing settings.json
+	// yields all-on defaults, preserving pre-0010 behaviour; parse/IO
+	// warnings were already surfaced by main before bubbletea took the
+	// screen, so they're dropped here on the rehydrating load.
+	prefs, _ := settings.Load()
+	orbitView.SetSettings(prefs)
 	return &App{
 		world:      w,
 		theme:      th,
@@ -101,6 +114,8 @@ func New() (*App, error) {
 		menu:       screens.NewMenu(sth),
 		missions:   screens.NewMissions(sth),
 		spawn:      screens.NewSpawnCraft(sth),
+
+		settingsScreen: screens.NewSettingsScreen(sth),
 	}, nil
 }
 
@@ -272,6 +287,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.dispatchNavballControl(ctrl)
 				return a, nil
 			}
+			// Chips are opaque overlays drawn over the canvas corners
+			// (ADR 0010), so a chip hit takes priority over the canvas /
+			// body hits underneath. The Nodes chip opens the maneuver
+			// screen — the canonical full, editable node list ([m]);
+			// other chips are display-only and just swallow the click so
+			// it doesn't fall through to a body behind them.
+			if id, ok := a.orbitView.HitChip(m.X, m.Y); ok {
+				if id == settings.ChipNodes {
+					a.world.Clock.Paused = true
+					a.active = screenManeuver
+				}
+				return a, nil
+			}
 			hit := a.orbitView.HitAt(m.X, m.Y)
 			switch {
 			case hit.IsVessel:
@@ -308,10 +336,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
-			case a.hudNodeHit(m.X, m.Y):
-				// Handled inside hudNodeHit — opens the maneuver
-				// planner pre-loaded for the clicked node and (in
-				// multi-craft) switches active craft to its owner.
 			case a.orbitView.IsHudClick(m.X):
 				// HUD click → open body info for the currently
 				// selected body. Coarse: doesn't try to identify
@@ -333,6 +357,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.missions.HitBackButton(m.X, m.Y) {
 				a.active = screenOrbit
 				return a, nil
+			}
+		case screenSettings:
+			action, chip := a.settingsScreen.HandleClick(m.X, m.Y)
+			switch action {
+			case screens.SettingsActionToggle:
+				a.toggleChip(chip)
+			case screens.SettingsActionCancel:
+				a.active = screenOrbit
 			}
 		}
 		return a, nil
@@ -408,6 +440,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.active = screenOrbit
 			case screens.SpawnActionCancel:
+				a.active = screenOrbit
+			}
+			return a, nil
+		}
+		// v0.13 slice 3: Settings screen. Up/down move the cursor,
+		// space/enter toggles the highlighted Chip (write-through +
+		// persist via toggleChip), Esc backs out to orbit. Handled here
+		// (like screenSpawn) so its navigation keys don't fall through to
+		// the orbit keymap.
+		if a.active == screenSettings {
+			action, chip := a.settingsScreen.HandleKey(m.String())
+			switch action {
+			case screens.SettingsActionToggle:
+				a.toggleChip(chip)
+			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
 			return a, nil
@@ -655,6 +702,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.CycleView):
 			a.world.CycleViewMode()
 			return a, nil
+		case key.Matches(m, a.keys.Declutter):
+			// v0.13+ (ADR 0010): toggle the momentary "hide all overlays"
+			// view. Transient + unsaved — it flips the OrbitView's
+			// declutter flag, which the chip render rule and navball
+			// compositing honour; the slim HUD column is never hidden.
+			// The launch screen shares this OrbitView, so it declutters
+			// in step.
+			a.orbitView.SetDeclutter(!a.orbitView.Declutter())
+			return a, nil
 		case key.Matches(m, a.keys.JumpToLaunchView):
 			// v0.11.4+ (ADR 0004): manual jump to ViewLaunch focused
 			// on the active vessel — skips the lowercase `v` cycle.
@@ -886,36 +942,6 @@ func (a *App) autosave() {
 	_ = a.doSave()
 }
 
-// hudNodeHit checks whether a HUD click landed on a NODES-block
-// entry; if so, switches active craft (when the clicked node lives
-// on a different craft) and opens the maneuver planner pre-loaded
-// for that node — same edit-replace UX as the canvas node-glyph
-// click. Returns true when handled. v0.8.2.x.
-func (a *App) hudNodeHit(x, y int) bool {
-	craftIdx, nodeIdx, ok := a.orbitView.HitHudNode(x, y)
-	if !ok {
-		return false
-	}
-	if craftIdx < 0 || craftIdx >= len(a.world.Crafts) {
-		return false
-	}
-	c := a.world.Crafts[craftIdx]
-	if c == nil || nodeIdx < 0 || nodeIdx >= len(c.Nodes) {
-		return false
-	}
-	// Switch active to the owning craft so the planner edits are
-	// targeted correctly and the post-edit projected orbit reflects
-	// the right craft.
-	if craftIdx != a.world.ActiveCraftIdx {
-		a.world.SetActiveCraftIdx(craftIdx)
-		a.world.StopManualBurn()
-	}
-	a.maneuver.LoadNode(nodeIdx, c.Nodes[nodeIdx])
-	a.world.Clock.Paused = true
-	a.active = screenManeuver
-	return true
-}
-
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
 // it sets the held attitude (the v0.7.3.2 explicit-engage UX stays —
 // `b` actually fires the engine). In EngineRCS mode the same keypress
@@ -1026,6 +1052,13 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit
 		return a, nil
+	case screens.MenuActionSettings:
+		// Navigating to a screen is harmless + reversible, so unlike
+		// save/load/quit there is no confirm gate. Reset the cursor so the
+		// screen always opens on the first Chip.
+		a.settingsScreen.Reset()
+		a.active = screenSettings
+		return a, nil
 	case screens.MenuActionQuit:
 		a.autosave()
 		return a, tea.Quit
@@ -1034,6 +1067,23 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	return a, nil
+}
+
+// toggleChip flips Chip c's visibility in the shared settings.Settings
+// and persists it to settings.json immediately (persist-on-toggle — no
+// apply button, the v0.13 slice-3 open question decided in favour of the
+// simpler write-on-change). The launch screen shares orbitView as its
+// hudSource, so SetSettings updates both screens' chip visibility at
+// once. A failed write flashes the footer but leaves the in-memory edit
+// applied, so the toggle still takes visible effect this session.
+func (a *App) toggleChip(c settings.Chip) {
+	s := a.orbitView.Settings()
+	s.SetChip(c, !s.ChipEnabled(c))
+	a.orbitView.SetSettings(s)
+	if err := settings.Save(s); err != nil {
+		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+	}
 }
 
 // flashStatus writes a transient message to the HUD footer.
@@ -1084,6 +1134,8 @@ func (a *App) View() string {
 		base = a.spawn.Render(a.width)
 	case screenMissions:
 		base = a.missions.Render(a.world, a.width)
+	case screenSettings:
+		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width)
 	default:
 		if a.world.ViewMode == sim.ViewLaunch {
 			base = a.launchView.Render(a.world, a.width, a.height)

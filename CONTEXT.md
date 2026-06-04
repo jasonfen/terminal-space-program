@@ -1452,20 +1452,28 @@ hide-all gesture. The model and its rejected alternatives are recorded in
 [ADR 0010](docs/adr/0010-hud-column-canvas-chips-and-settings.md).
 
 **HUD**:
-The slim, always-visible right-hand column of irreducible vessel
-telemetry (name, primary, fuel %, Δv budget, throttle, velocity). It is
-never hidden by [[#hud--overlays|Declutter]] and its contents are fixed,
-not player-configurable. Narrowed from the pre-ADR-0010 sense, where "HUD"
-meant the whole tall stack of blocks.
+The pinned core-telemetry **Chip** of irreducible vessel telemetry (name,
+primary, fuel %, Δv budget, throttle, velocity), composited onto the
+canvas's top-left corner. It is never hidden by [[#hud--overlays|Declutter]]
+(F2 must not hide fuel/Δv mid-burn) and its contents are fixed, not
+player-configurable — the one Chip that survives Declutter. Narrowed from the
+pre-ADR-0010 sense, where "HUD" meant the whole tall stack of blocks; a
+v0.13 playtest then moved it off a right-hand column onto the canvas (see
+ADR 0010's amendment) so the orbit map spans the full terminal width.
 _Avoid_: Sidebar, right bar, info panel, HUD blocks (the contextual ones
 are now [[#hud--overlays|Chips]]).
 
 **Chip**:
 A compact (2–4 row) overlay composited onto a corner of the **Canvas**
 carrying one contextual readout — Target, Stages, Nodes, Launch, Capture.
-A Chip renders only when its Setting is enabled, it is contextually
-relevant, and Declutter is off. Distinct from the larger **Navball**
-panel, which is also a canvas overlay but a fixed instrument.
+Most Chips render only when their Setting is enabled, they are contextually
+relevant, and Declutter is off. A few are **always-on** (non-toggleable):
+the current **Orbit** metrics (apo/peri/incl) and the active **● Burns**
+readout, which a player must never be able to hide from the **Settings
+screen** — too load-bearing to switch off. Always-on Chips still vanish
+under Declutter; only the **HUD** core Chip survives it. Distinct from the
+larger **Navball** panel, which is also a canvas overlay but a fixed
+instrument.
 _Avoid_: Widget, card, badge, HUD block, panel (reserve panel for the
 Navball).
 
@@ -1476,8 +1484,9 @@ not change the persisted Settings, and it never hides the **HUD** column.
 _Avoid_: Hide UI, clean mode, F2 mode, toggle overlays.
 
 **Settings screen**:
-The menu-reached screen where the player toggles each Chip's default
-visibility (and future preferences such as units). Persisted to a global
+The menu-reached screen where the player toggles each toggleable Chip's
+default visibility (and future preferences such as units). The always-on
+Orbit + Burns readouts are deliberately not listed. Persisted to a global
 `settings.json` under `$XDG_CONFIG_HOME`, separate from the **Theme** —
 visibility versus colour are distinct concerns — and independent of any
 save game.

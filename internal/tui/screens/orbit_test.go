@@ -52,8 +52,12 @@ func TestOrbitViewRendersAllSystems(t *testing.T) {
 // off-screen. Below the threshold (v0.10.3+: half-column < 24 cols)
 // the blocks fall back to stacked rendering. v0.7.5+ height-saving
 // change; threshold bumped in v0.10.3+ to avoid content wrap.
-func TestOrbitHUDRendersVesselAndPropellantSideBySide(t *testing.T) {
-	th := Theme{
+// TestCanvasFullWidthAndVesselChip: v0.13 playtest move — VESSEL/PROPELLANT
+// left the right-hand column to become a pinned canvas chip, so the canvas
+// spans the full terminal width (less its 2-col border) and the vessel chip
+// carries the core telemetry.
+func TestCanvasFullWidthAndVesselChip(t *testing.T) {
+	v := NewOrbitView(Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
 		Alert:   lipgloss.NewStyle(),
@@ -61,30 +65,28 @@ func TestOrbitHUDRendersVesselAndPropellantSideBySide(t *testing.T) {
 		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
 		Footer:  lipgloss.NewStyle(),
 		Title:   lipgloss.NewStyle(),
-	}
-	v := NewOrbitView(th)
+	})
 	v.Resize(240, 40)
+	if got, want := v.canvas.Cols(), 240-2; got != want {
+		t.Errorf("canvas width = %d, want %d (full width minus border)", got, want)
+	}
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	out := v.Render(w, 0, 240, 40)
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "VESSEL") && strings.Contains(line, "PROPELLANT") {
-			return
-		}
+	chip := strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(chip, "VESSEL") || !strings.Contains(chip, "PROPELLANT") {
+		t.Errorf("vessel chip missing VESSEL/PROPELLANT:\n%s", chip)
 	}
-	t.Errorf("expected VESSEL and PROPELLANT on the same row at width 240; got render:\n%s", out)
 }
 
-// TestHudPhaseCollapsesVesselDuringAscent: in ascent phase
-// (shouldShowLaunchHUD is true) the VESSEL block drops its
-// altitude/apoapsis/periapsis/inclin. rows because the LAUNCH block
-// already renders them with trend tags and a progress row, and the
-// ATTITUDE block drops `hold` because LAUNCH's `sas` is the same
-// value. The orbit-shape rows return once the craft circularises
-// above the mission floor. v0.10.3+.
-func TestHudPhaseCollapsesVesselDuringAscent(t *testing.T) {
+// TestAscentSuppressesOrbitMetricsChip: in ascent (shouldShowLaunchHUD
+// true) the LAUNCH chip carries ap/pe, so the top-right Orbit-metrics
+// chip is suppressed (no "apoapsis:" row); once the craft circularises
+// above the atmosphere the LAUNCH chip vanishes and the Orbit-metrics
+// chip shows the live apoapsis/periapsis. v0.13 (ADR 0010) — the chip
+// successor to the old phase-collapse behaviour.
+func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
@@ -95,12 +97,12 @@ func TestHudPhaseCollapsesVesselDuringAscent(t *testing.T) {
 		Title:   lipgloss.NewStyle(),
 	}
 	v := NewOrbitView(th)
+	v.Resize(200, 60)
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	// NewWorld spawns in LEO; force a sub-orbital ascent arc
-	// (periapsis below the 200 km mission floor) so
+	// Force a sub-orbital ascent arc (periapsis below the atmosphere) so
 	// shouldShowLaunchHUD fires.
 	c := w.ActiveCraft()
 	c.Landed = false
@@ -114,39 +116,31 @@ func TestHudPhaseCollapsesVesselDuringAscent(t *testing.T) {
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
 
 	out := v.Render(w, 0, 200, 60)
-	// VESSEL header still renders, but its rows are gated.
-	if !strings.Contains(out, "VESSEL") {
-		t.Fatal("expected VESSEL header to render during ascent")
+	if !strings.Contains(out, "LAUNCH") {
+		t.Fatal("expected LAUNCH chip during ascent")
 	}
-	// "altitude:" still appears (LAUNCH block uses the same prefix),
-	// so check VESSEL's distinctive rows are gone instead.
-	if strings.Contains(out, "  apoapsis:") || strings.Contains(out, "  periapsis:") {
-		t.Errorf("expected VESSEL apoapsis/periapsis rows to be hidden during ascent; LAUNCH already shows ap/pe.\nrender:\n%s", out)
-	}
-	if strings.Contains(out, "  hold:") {
-		t.Errorf("expected ATTITUDE `hold` row to be hidden during ascent; LAUNCH `sas` is the same value.\nrender:\n%s", out)
-	}
-	// LAUNCH's own rows must still be present.
 	if !strings.Contains(out, "  ap:") || !strings.Contains(out, "  sas:") {
-		t.Errorf("expected LAUNCH ap and sas rows during ascent.\nrender:\n%s", out)
+		t.Errorf("expected LAUNCH ap/sas rows during ascent.\nrender:\n%s", out)
+	}
+	// The Orbit-metrics chip (its rows use the "apoapsis:" prefix) is
+	// suppressed during ascent — LAUNCH already carries ap/pe.
+	if strings.Contains(out, "apoapsis:") {
+		t.Errorf("expected Orbit-metrics chip suppressed during ascent (LAUNCH carries ap/pe).\nrender:\n%s", out)
 	}
 
-	// Circularise: drop the craft into a 300 km circular orbit, well
-	// above the 200 km mission floor → flight phase.
+	// Circularise into a stable 300 km orbit → LAUNCH vanishes, the
+	// Orbit-metrics chip takes over with the live apoapsis.
 	rCirc := primaryR + 300e3
 	vCirc := math.Sqrt(mu / rCirc)
 	c.State.R.X, c.State.R.Y, c.State.R.Z = rCirc, 0, 0
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vCirc, 0
 
 	out = v.Render(w, 0, 200, 60)
-	if !strings.Contains(out, "  apoapsis:") || !strings.Contains(out, "  periapsis:") {
-		t.Errorf("expected VESSEL apoapsis/periapsis rows to return once in stable orbit.\nrender:\n%s", out)
-	}
-	if !strings.Contains(out, "  hold:") {
-		t.Errorf("expected ATTITUDE `hold` row to return in flight phase.\nrender:\n%s", out)
-	}
 	if strings.Contains(out, "LAUNCH") {
-		t.Errorf("expected LAUNCH block to vanish once periapsis clears the mission floor.\nrender:\n%s", out)
+		t.Errorf("expected LAUNCH chip to vanish once periapsis clears the atmosphere.\nrender:\n%s", out)
+	}
+	if !strings.Contains(out, "apoapsis:") {
+		t.Errorf("expected Orbit-metrics chip apoapsis row in stable orbit.\nrender:\n%s", out)
 	}
 }
 

@@ -210,19 +210,38 @@ func (s *SpawnCraft) SelectedLongitudeEastDeg() float64 {
 	return launchSitePresets[s.latIdx].LongitudeEastDeg
 }
 
+// fieldOrder returns the field indices in visual (top-to-bottom) order,
+// which is also the Tab order. The STACK editor (stackFieldIdx) renders
+// directly below CRAFT TYPE (idx 0) and only exists while Custom is
+// selected, so it slots in right after 0 — not at the end where its
+// numeric index would otherwise put it. (Tabbing by numeric index made
+// Tab from Custom jump past the visually-adjacent STACK picker to
+// POSITION, only reaching STACK on the 5th tab — the reported bug.)
+func (s *SpawnCraft) fieldOrder() []int {
+	if s.IsCustomSelected() {
+		return []int{0, stackFieldIdx, 1, 2, 3, 4}
+	}
+	return []int{0, 1, 2, 3, 4}
+}
+
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
 func (s *SpawnCraft) HandleKey(key string) SpawnAction {
-	// v0.10.1+: the STACK field (idx 5) exists only while Custom is
-	// selected. numFields flexes 5↔6 so Tab skips it otherwise; if
-	// the player cycled off Custom while parked on STACK, snap focus
-	// back to CRAFT TYPE so a stale idx can't strand the cursor.
-	numFields := 5
-	if s.IsCustomSelected() {
-		numFields = 6
+	// Navigation follows fieldOrder (visual order). Locate the current
+	// field in it; if the focus is no longer reachable — e.g. the player
+	// cycled off Custom while parked on STACK — snap back to CRAFT TYPE so
+	// a stale idx can't strand the cursor.
+	order := s.fieldOrder()
+	cur := 0
+	found := false
+	for i, f := range order {
+		if f == s.fieldIdx {
+			cur, found = i, true
+			break
+		}
 	}
-	if s.fieldIdx >= numFields {
-		s.fieldIdx = 0
+	if !found {
+		s.fieldIdx, cur = order[0], 0
 	}
 	switch key {
 	case "esc":
@@ -230,20 +249,22 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	case "enter":
 		return SpawnActionConfirm
 	case "tab", "down":
-		s.fieldIdx = (s.fieldIdx + 1) % numFields
+		s.fieldIdx = order[(cur+1)%len(order)]
 	case "shift+tab", "up":
-		s.fieldIdx = (s.fieldIdx - 1 + numFields) % numFields
+		s.fieldIdx = order[(cur-1+len(order))%len(order)]
 	case "left", "h":
 		s.cycleField(-1)
 	case "right", "l":
 		s.cycleField(+1)
 	case "a":
-		// Add the picked catalog part on top of the working stack.
-		// Form-local: only meaningful on the STACK field.
+		// Add the picked catalog module on top of the working stack.
+		// Form-local: only meaningful on the STACK field. A module is
+		// usually one stage; the "lander" pick expands to the 2-stage LM
+		// (Descent + Ascent) so it lands as one vessel.
 		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() {
 			if id := s.pickedPartID(); id != "" {
-				if st, ok := spacecraft.BuildStage(id); ok {
-					s.customStages = append(s.customStages, st)
+				if stages, ok := spacecraft.BuildModule(id); ok {
+					s.customStages = append(s.customStages, stages...)
 				}
 			}
 		}
@@ -379,13 +400,21 @@ func (s *SpawnCraft) Render(width int) string {
 		lines = append(lines, "")
 		pid := s.pickedPartID()
 		if m, ok := spacecraft.StageCatalog[pid]; ok {
-			st, _ := spacecraft.BuildStage(pid)
-			eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
-			if st.Thrust == 0 {
-				eng = "RCS-only"
+			// Show combined mass/engine for the module the pick contributes —
+			// a multi-stage module (the 2-stage lander) reads as one unit
+			// with its bottom stage's engine firing first.
+			stages, _ := spacecraft.BuildModule(pid)
+			name := m.Name
+			eng := "RCS-only"
+			if len(stages) > 0 && stages[0].Thrust > 0 {
+				eng = fmt.Sprintf("%.0fkN @ %.0fs", stages[0].Thrust/1000, stages[0].Isp)
+			}
+			if len(stages) > 1 {
+				name = fmt.Sprintf("%s (%d-stage)", m.Name, len(stages))
 			}
 			pickLabel := fmt.Sprintf("%s %s  [%s]  dry %.0fkg fuel %.0fkg  %s",
-				m.Glyph, m.Name, m.Tier, st.DryMass, st.FuelMass, eng)
+				m.Glyph, name, m.Tier,
+				spacecraft.SumDryMass(stages), spacecraft.SumFuelMass(stages), eng)
 			lines = append(lines, "  "+s.fieldValue(stackFieldIdx, "part: "+pickLabel))
 		}
 		lines = append(lines, "  "+s.theme.Footer.Render(
