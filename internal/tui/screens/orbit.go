@@ -653,25 +653,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				}
 			}
 		}
-		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
-			activeColor := render.ColorCraftMarker
-			if c.Color != "" {
-				activeColor = lipgloss.Color(c.Color)
-			}
-			vesselTag := widgets.CellTag{Color: activeColor, IsVessel: true}
-			// v0.8.2+: active craft uses its loadout glyph just like
-			// non-active ones — the v0.7.x chevron-arrow rendering
-			// read as crusty next to the new ▲/◆/●/▼ markers, so the
-			// glyph wins for visual consistency. The colored dot
-			// underneath gives the cell a stable hit-test tag for
-			// click-on-vessel.
-			v.canvas.FillColoredDiskTagged(craftInertial, 1, vesselTag)
-			if c.Glyph != "" {
-				if g := []rune(c.Glyph); len(g) > 0 {
-					v.canvas.SetCellOverlay(craftInertial, g[0])
-				}
-			}
-		}
+		// The active craft glyph is stamped AFTER the non-active craft
+		// loop below (search "active craft wins its cell") so a just-
+		// jettisoned stage sharing the cell can't overdraw it.
 
 		// v0.8.3+: per-thruster RCS puff visual. Each pulse stamps a
 		// small fading marker offset along the exhaust direction
@@ -752,6 +736,24 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 						v.canvas.SetCellOverlay(otherInertial, g[0])
 					}
 				}
+			}
+		}
+
+		// Active craft wins its cell. Stamped here, after every non-active
+		// craft, so a craft sharing the active craft's cell can't overdraw
+		// it — the case that motivated this is staging in orbit: the
+		// jettisoned stage spawns ~60 m away (sub-pixel at orbital zoom), so
+		// its glyph landed in the same cell and the active vessel vanished
+		// under the dropped stage. The colored dot underneath also carries
+		// the click-on-vessel hit-test tag, so the active craft owns it too.
+		if !v.canvas.IsBehindBody(craftInertial, primaryPos, primaryPxR) {
+			activeColor := render.ColorCraftMarker
+			if c.Color != "" {
+				activeColor = lipgloss.Color(c.Color)
+			}
+			v.canvas.FillColoredDiskTagged(craftInertial, 1, widgets.CellTag{Color: activeColor, IsVessel: true})
+			if g := []rune(c.Glyph); len(g) > 0 {
+				v.canvas.SetCellOverlay(craftInertial, g[0])
 			}
 		}
 	}
@@ -1148,7 +1150,6 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		}
 	}
 }
-
 
 // composeNavballOverlay paints the framed navball into the bottom-
 // right corner of canvasStr and returns the modified string.
