@@ -426,6 +426,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				spec := sim.SpawnSpec{
 					LoadoutID:       a.spawn.SelectedLoadoutID(),
 					CustomStages:    a.spawn.SelectedCustomStages(),
+					NosePayloadPlan: a.spawn.SelectedNosePayloadPlan(),
 					ParentBodyID:    a.spawn.SelectedParentID(),
 					AltitudeM:       a.spawn.SelectedAltitudeM(),
 					Retrograde:      a.spawn.SelectedRetrograde(),

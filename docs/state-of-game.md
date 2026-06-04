@@ -2,17 +2,18 @@
 
 <!--
   meta:
-    snapshot_version: v0.13.0 (HUD overlay refactor — ADR 0010: the orbit
-      HUD's tall conditional-block stack becomes a slim/pinned core chip +
-      compact canvas-corner chips on a full-width orbit map, killing the
-      overflow that scrolled the title/view off-screen. Adds a Settings
-      screen (chip visibility, persisted to settings.json) + F2 declutter;
-      Orbit metrics & the active-burn readout are always-on. Bundled
-      playtest fixes + the configurator 2-stage Lander as one vessel.)
+    snapshot_version: v0.14.0 (spawn-time docked composites — ADR 0011:
+      SpawnSpec.NosePayloadPlan, the top-release counterpart to the bottom-up
+      DecouplePlan, splits a custom stack at the Dock Seam and reuses
+      dockedComponentFromStages so a custom CSM+LM spawns as a ready docked
+      composite — SM firing core, LM Undock-able nose payload — instead of a
+      linear single-pop craft. Configurator [d] Dock-Seam cycle + csm-lm
+      composite module pick. No save schema bump.)
     snapshot_date: 2026-06-04
-    revised_date: 2026-06-04 (v0.13.0 shipped: HUD overlay refactor cycle —
-      chips-on-canvas + Settings screen + F2 declutter (ADR 0010, merge
-      f8e74d0). Prior: v0.12.8 LAUNCH HUD hyperbolic-altitude gate (PR #78);
+    revised_date: 2026-06-04 (v0.14.0 shipped: spawn-time docked composites
+      (ADR 0011, PR #81) + ADR 0009 status flip. Prior: v0.13.0 HUD overlay
+      refactor cycle — chips-on-canvas + Settings screen + F2 declutter (ADR
+      0010, merge f8e74d0); v0.12.8 LAUNCH HUD hyperbolic-altitude gate (PR #78);
       v0.12.7 Apollo LM decouple-group + LAUNCH HUD stable-orbit (PR #76/#77);
       v0.12.6 burn-pause + Apollo transposition (ADR 0009) + near-orbital
       launch-view release. Remaining pre-v0.13 item is GH #68, deferred)
@@ -24,7 +25,7 @@
   ADRs (docs/adr/); this file keeps the entries + the snapshot.
 -->
 
-> Snapshot at **v0.13.0** (June 2026). Four cycles have shipped to
+> Snapshot at **v0.14.0** (June 2026). Five cycles have shipped to
 > `main` since v0.9.6:
 >
 > - **v0.10** (May 19–23) — planner + maneuver tooling: rate-limited
@@ -60,6 +61,14 @@
 >   readout are always-on. Bundled playtest fixes + the configurator's
 >   2-stage Lander as one vessel. Playtest verdict: "really makes the game
 >   look thought-out"; remaining refinement is chip timing + content.
+> - **v0.14** (Jun 4) — **spawn-time docked composites**
+>   ([ADR 0011](adr/0011-spawn-time-docked-composites-nose-payload-seam.md)):
+>   `SpawnSpec.NosePayloadPlan` (the top-release counterpart to the bottom-up
+>   `DecouplePlan`) splits a custom stack at the **Dock Seam** and reuses
+>   `dockedComponentFromStages`, so a custom CSM+LM spawns as a ready docked
+>   composite — SM firing core, LM Undock-able nose payload — instead of a
+>   linear single-pop craft that split the LM in orbit. Configurator `[d]`
+>   Dock-Seam cycle + a `csm-lm` composite module pick. No save schema bump.
 >
 > **Remaining:** Moon-frame lunar-capture inclination trim
 > (GH #68, deferred from v0.12.2) — the only open carry-over thread.
@@ -149,6 +158,7 @@ flyby) match real spacecraft work.
 
 | Version | Date | Status | Theme |
 |---|---|---|---|
+| v0.14.0 | 2026-06-04 | ✓ | **Spawn-time docked composites** (PR #81, [ADR 0011](adr/0011-spawn-time-docked-composites-nose-payload-seam.md)). A custom CSM+LM build used to spawn as a linear single-pop craft, so staging split the LM's Descent/Ascent in orbit instead of letting it descend as a unit and surface-stage — the Apollo arc is a *docking composite* (CSM fires, LM is an Undock-able nose payload), which a linear stack can't represent. Adds `SpawnSpec.NosePayloadPlan` — the top-release counterpart to the bottom-up `DecouplePlan`: `newCustomCraft` splits the stack at the **Dock Seam** and reuses `dockedComponentFromStages` (the helper `Transpose` uses) to assemble a ready composite in post-transposition shape. No save schema bump. Configurator: `[d]` cycles the Dock Seam in the STACK editor + a `csm-lm` composite module pick drops the LM pre-seamed for one-pick lunar-ops testing. Also flips [ADR 0009](adr/0009-transposition-and-active-engine.md) `proposed`→`accepted` (its decisions shipped in v0.12.6). |
 | v0.12.8 | 2026-06-02 | ✓ | LAUNCH HUD hyperbolic-altitude gate (PR #78). Follow-on to v0.12.7's stable-orbit fix: the boxed ascent panel no longer pops back on a hyperbolic trajectory **far from any launch** — an over-energetic TLI that escapes Earth, or a hyperbolic arrival at another atmosphered body (Mars). The `e ≥ 1 → show` short-circuit is now gated on altitude, so it only counts as a launch when the craft is genuinely low (below the atmosphere cutoff). No change to airless-body behaviour (the Moon already shows no panel). |
 | v0.12.7 | 2026-06-02 | ✓ | Apollo / launch playtest fixes. **LM no longer splits when staging** (PR #76): restores the Apollo `DecouplePlan` trailing `2` so the post-Saturn stack drops the Lunar Module (Descent + Ascent) as a single 2-stage craft for the canonical manual flip — pressing `space` at `[Descent, Ascent, SM, CM]` no longer peels the descent and ascent off one at a time. `Transpose` (`D`) clears the leftover plan; a "TRANSPOSE READY — press D" hint now flashes when the stack reaches the pre-transposition shape. **LAUNCH HUD hides on a stable orbit** (PR #77): the boxed ascent-instrument overlay now clears once the periapsis is above the atmosphere (not the 200 km mission floor), so a sub-200 km parking orbit (e.g. 186 × 186 km) reads as flight, not ascent. |
 | v0.12.6 | 2026-06-02 | ✓ | Three slices bundled. **Burn pause-and-resume across staging** (PR #72): a planted finite burn whose firing stage runs dry with Δv still owed now **stalls** (keeping its remaining Δv) and **auto-resumes** when the player decouples to a fuelled stage, instead of silently cancelling — HUD shows "⚠ STALLED — stage to resume", throttle-cut (`x`) aborts. **Apollo transposition + rebalanced lunar stack** (PR #74, [ADR 0009](adr/0009-transposition-and-active-engine.md)): the fused CSM splits into a propulsive Service Module + an engineless parachute Command Module; a one-shot transpose key (`D`) reorders the post-S-IVB stack so the SM fires LOI/TEI with the LM as a docked nose payload released via Undock (multi-stage DockedComponent breakdown, which also fixes the manual docking-flip). The Apollo Stack now flies a complete lunar mission. **ViewLaunch near-orbital release** (PR #75): the launch chase-cam now hands off when the apoapsis clears the atmosphere AND the circularisation Δv is within 750 m/s, instead of a fixed 200 km apoapsis floor. |
