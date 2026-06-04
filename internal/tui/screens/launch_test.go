@@ -651,3 +651,53 @@ func TestLaunchViewLandedOrbitNotDrawn(t *testing.T) {
 		t.Error("landed-craft scene changed with orbit shape; orbit drawn despite Landed (phantom arc)")
 	}
 }
+
+// launchOrbitSamples must scale the ellipse sample count up for the
+// magnified chase-cam view. The orbit map's fixed 360 leaves only ~5
+// dots on the visible arc of a low orbit (the orbit reads as just the
+// apoapsis marker); the count must grow with the projected orbit size
+// so the visible arc fills in, while clamping at both ends.
+func TestLaunchOrbitSamplesScalesWithProjectedSize(t *testing.T) {
+	// A tiny projected orbit keeps the map's baseline density.
+	if got := launchOrbitSamples(10); got != 360 {
+		t.Errorf("tiny orbit: got %d samples, want 360 baseline", got)
+	}
+	// A 200 km LEO at launch zoom projects apoapsis to ~790 px; the
+	// shipped 360 produced ~5 on-canvas cells. The count must be far
+	// higher so the arc reads as a line.
+	if got := launchOrbitSamples(790); got <= 360 {
+		t.Errorf("LEO apoapsis 790px: got %d samples, want >> 360", got)
+	}
+	// A huge (off-canvas-apoapsis) transfer ellipse must clamp so the
+	// per-frame sample loop can't blow up.
+	if got := launchOrbitSamples(5e5); got != 8000 {
+		t.Errorf("transfer apoapsis 500k px: got %d samples, want 8000 cap", got)
+	}
+	// Monotonic non-decreasing in projected size.
+	if launchOrbitSamples(2000) < launchOrbitSamples(790) {
+		t.Error("sample count should not decrease as projected orbit grows")
+	}
+}
+
+// End-to-end: the magnified chase-cam must paint a current-orbit ellipse
+// that reads as a dotted line, not just the apo/peri markers. Render a
+// low circular orbit (nil hud to isolate the canvas) and confirm the
+// orbit colour lands on many distinct cells — far more than the marker
+// discs alone (a FillDisk-2 + FillDisk-3 cover only a handful of cells).
+func TestLaunchViewOrbitRendersAsLine(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	mu := c.Primary.GravitationalParameter()
+	r := c.Primary.RadiusMeters() + 200_000.0 // 200 km LEO
+	c.Landed = false
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: math.Sqrt(mu / r)}
+
+	th := launchThemeForTest()
+	v := NewLaunchView(th, nil)
+	v.Render(w, 120, 40)
+
+	cells := v.canvas.CountColor(render.ColorCurrentOrbit)
+	if cells < 40 {
+		t.Errorf("orbit rendered on only %d cells; expected a dotted line (>=40), not just the apsis markers", cells)
+	}
+}
