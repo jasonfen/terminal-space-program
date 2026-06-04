@@ -94,15 +94,12 @@ const (
 	StageModuleF9S1ID     = "f9-s1"     // Falcon 9 first stage (9× Merlin 1D)
 	StageModuleF9S2ID     = "f9-s2"     // Falcon 9 second stage (Merlin Vac)
 	StageModuleLanderID   = "lander"    // LM-derived throttleable descent (single-stage)
-	// v0.12 Slice 2 / ADR 0007: the 2-stage Lander split. The
-	// single-stage StageModuleLanderID is retained for the configurator;
-	// these two model the descent (legs, soft-land, surface-stage
-	// candidate) + ascent (no legs, returns to orbit) pair used by the
-	// split standalone Lander loadout and the Apollo Stack's LM tier.
-	// They live in the catalog map (so the loadout literals' by-Name
-	// sprite/flag lookups resolve them) but are intentionally left out
-	// of StageCatalogOrder — the configurator still offers the single
-	// "lander" module, not the descent/ascent split.
+	// v0.12 Slice 2 / ADR 0007: the 2-stage Lander split — descent (legs,
+	// soft-land, surface-stage candidate) + ascent (no legs, returns to
+	// orbit). Used by the split standalone Lander loadout and the Apollo
+	// Stack's LM tier. v0.13: both are now in StageCatalogOrder too, so the
+	// configurator offers the descent/ascent split alongside the
+	// single-piece "lander" module (a custom stack can build an Apollo-LM).
 	StageModuleLanderDescentID = "lander-descent"
 	StageModuleLanderAscentID  = "lander-ascent"
 	StageModuleCSMID           = "csm" // Apollo Command/Service Module (SPS)
@@ -329,6 +326,15 @@ var StageCatalogOrder = []string{
 	StageModuleF9S2ID,
 	StageModuleICPSID,
 	StageModuleLanderID,
+	// v0.13: the 2-stage Lander split (descent + ascent) is now
+	// configurator-pickable too, so a custom stack can build an
+	// Apollo-style LM — Descent below Ascent. Flown as a [Descent,
+	// Ascent] pair the single-pop chain lands on the descent, drops it
+	// (legs + soft-land ride per-Stage), and flies the ascent back to
+	// orbit, exactly like the standalone "Lander" loadout. They sit
+	// next to the single-piece lander, before the CSM payload.
+	StageModuleLanderDescentID,
+	StageModuleLanderAscentID,
 	StageModuleCSMID,
 	StageModuleRCSTugID,
 }
