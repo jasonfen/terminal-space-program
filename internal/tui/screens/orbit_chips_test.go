@@ -380,6 +380,46 @@ func TestOrbitMetricsAndBurnsAlwaysOn(t *testing.T) {
 	}
 }
 
+// TestActiveCraftGlyphWinsOverlappingCell — regression for the lunar-orbit
+// staging report ("descent module disappears when I stage it"). A
+// just-jettisoned stage spawns ~60 m from the active craft — sub-pixel at
+// orbital zoom — so it lands in the same canvas cell. The active craft's
+// glyph must win that cell so the player's own vessel never vanishes under
+// dropped debris. Pre-fix the non-active craft loop ran after the active
+// stamp and overdrew it.
+func TestActiveCraftGlyphWinsOverlappingCell(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	active := w.ActiveCraft()
+	if active == nil {
+		t.Fatal("expected an active craft")
+	}
+	active.Glyph = "Ⓐ" // distinctive marks — won't collide with HUD chrome
+
+	// A passive craft at the SAME inertial position with a different glyph,
+	// the way a freshly jettisoned stage sits a sub-pixel away.
+	debris := &spacecraft.Spacecraft{
+		Name:     "debris",
+		Glyph:    "Ⓩ",
+		Color:    "#FF5F5F",
+		Primary:  active.Primary,
+		State:    active.State,
+		Throttle: 0,
+		Stages:   []spacecraft.Stage{{DryMass: 1000, Glyph: "Ⓩ", Color: "#FF5F5F"}},
+	}
+	debris.SyncFields()
+	w.Crafts = append(w.Crafts, debris)
+
+	out := v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "Ⓐ") {
+		t.Errorf("active craft glyph Ⓐ missing — overdrawn by an overlapping passive craft:\n%s", out)
+	}
+}
+
 func TestBuildVesselChipCoreOnly(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
