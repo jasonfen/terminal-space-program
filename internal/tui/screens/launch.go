@@ -605,7 +605,8 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 	}
 	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
 	primaryPxR := BodyPixelRadius(craft.Primary, false, scale, canvasReach)
-	v.canvas.DrawEllipseOffsetFarSideDashed(el, bodyCentre, 360, 3, bodyCentre, primaryPxR, render.ColorCurrentOrbit)
+	samples := launchOrbitSamples(el.Apoapsis() * scale)
+	v.canvas.DrawEllipseOffsetFarSideDashed(el, bodyCentre, samples, 3, bodyCentre, primaryPxR, render.ColorCurrentOrbit)
 	peri := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, 0))
 	apo := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 	if !v.canvas.IsBehindBody(peri, bodyCentre, primaryPxR) {
@@ -614,6 +615,36 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 	if !v.canvas.IsBehindBody(apo, bodyCentre, primaryPxR) {
 		v.canvas.FillDisk(apo, 3)
 	}
+}
+
+// launchOrbitSamples returns how many true-anomaly samples to walk when
+// drawing the current-orbit ellipse in the chase-cam scene. The orbit
+// map screens use a fixed 360 because the whole ellipse is on-canvas;
+// the launch / landing view centres on the craft and magnifies only a
+// few degrees of the orbit, so 360 samples scatter at most a handful of
+// dots onto the visible arc (an empirical 5 cells for a 200 km LEO) —
+// the orbit reads as just the apoapsis marker, not a line. Scale the
+// count to the projected orbit circumference (≈ 2π·apoapsisPx) at a
+// sub-pixel target spacing so the visible arc fills in, clamped to
+// [360, maxLaunchOrbitSamples] so a tiny orbit still gets the map's
+// density and a huge (off-canvas-apoapsis) transfer ellipse can't blow
+// up the per-frame sample loop. apoapsisPx is the apoapsis radius in
+// canvas pixels (el.Apoapsis() · canvas.Scale()).
+func launchOrbitSamples(apoapsisPx float64) int {
+	const (
+		arcSpacingPx          = 0.6 // sub-pixel: fully populate the visible arc
+		maxLaunchOrbitSamples = 8000
+	)
+	samples := 360
+	if apoapsisPx > 0 {
+		if n := int(2 * math.Pi * apoapsisPx / arcSpacingPx); n > samples {
+			samples = n
+		}
+	}
+	if samples > maxLaunchOrbitSamples {
+		samples = maxLaunchOrbitSamples
+	}
+	return samples
 }
 
 // drawPadMarker plots the launch site as a `+` glyph in ColorAccent
