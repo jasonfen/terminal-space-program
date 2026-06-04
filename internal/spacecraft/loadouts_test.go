@@ -140,6 +140,37 @@ func TestStageCatalogShape(t *testing.T) {
 	}
 }
 
+// TestConfiguratorOffersLanderSplit — v0.13: the 2-stage Lander
+// descent/ascent parts are configurator-pickable (in StageCatalogOrder),
+// so a custom stack can build an Apollo-LM with a separable descent. The
+// descent carries legs + soft-land; the ascent carries its own engine to
+// return to orbit. (Before this they lived only in the standalone Lander
+// loadout / Apollo Stack, not the spawn configurator's part list.)
+func TestConfiguratorOffersLanderSplit(t *testing.T) {
+	inOrder := func(id string) bool {
+		for _, x := range StageCatalogOrder {
+			if x == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !inOrder(StageModuleLanderDescentID) {
+		t.Error("lander-descent missing from StageCatalogOrder — configurator can't pick it")
+	}
+	if !inOrder(StageModuleLanderAscentID) {
+		t.Error("lander-ascent missing from StageCatalogOrder — configurator can't pick it")
+	}
+	d, ok := BuildStage(StageModuleLanderDescentID)
+	if !ok || !d.CanSoftLand || !d.LaunchSpriteHasLegs {
+		t.Errorf("descent part: want soft-land + legs (ok=%v canSoftLand=%v legs=%v)", ok, d.CanSoftLand, d.LaunchSpriteHasLegs)
+	}
+	a, ok := BuildStage(StageModuleLanderAscentID)
+	if !ok || a.Thrust <= 0 {
+		t.Errorf("ascent part: want its own engine to return to orbit (ok=%v thrust=%.0f)", ok, a.Thrust)
+	}
+}
+
 // TestApolloStackShape — the multi-tier loadout: 7 stages bottom-first
 // [S-IC, S-II, S-IVB, Descent, Ascent, SM, CM] (v0.12 ADR 0009 split the
 // fused CSM into a propulsive Service Module + a passive Command Module),

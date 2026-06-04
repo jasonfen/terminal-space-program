@@ -54,6 +54,50 @@ func TestSpawnCustomStagesBuildsFromStack(t *testing.T) {
 	}
 }
 
+// TestSpawnCustomLanderSplitStages — v0.13: a configurator-built
+// [Descent, Ascent] lander single-pops the descent (leaving the ascent as
+// the surviving core) exactly like the standalone Lander loadout, so a
+// custom Apollo-LM separates the way the player expects. Regression for
+// the playtest report "the lander in the vessel spawner does not have a
+// descent or ascent stage like the Apollo stack does."
+func TestSpawnCustomLanderSplitStages(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	descent, ok := spacecraft.BuildStage(spacecraft.StageModuleLanderDescentID)
+	if !ok {
+		t.Fatal("BuildStage(lander-descent) failed")
+	}
+	ascent, ok := spacecraft.BuildStage(spacecraft.StageModuleLanderAscentID)
+	if !ok {
+		t.Fatal("BuildStage(lander-ascent) failed")
+	}
+	c, err := w.SpawnCraft(SpawnSpec{
+		CustomStages: []spacecraft.Stage{descent, ascent}, // bottom → top
+		ParentBodyID: "earth",
+		AltitudeM:    400e3,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft(custom lander): %v", err)
+	}
+	if c.Stages[0].Name != "Descent" || c.Stages[1].Name != "Ascent" {
+		t.Fatalf("stack order wrong: bottom=%q top=%q", c.Stages[0].Name, c.Stages[1].Name)
+	}
+
+	// Stage once: drops the Descent as its own craft, leaving the Ascent.
+	_, jidx, err := w.StageActive(w.ActiveCraftIdx)
+	if err != nil {
+		t.Fatalf("StageActive: %v", err)
+	}
+	if dropped := w.Crafts[jidx].Stages; len(dropped) != 1 || dropped[0].Name != "Descent" {
+		t.Errorf("dropped craft = %d stages (top %q), want [Descent]", len(dropped), dropped[len(dropped)-1].Name)
+	}
+	if rem := w.ActiveCraft().Stages; len(rem) != 1 || rem[0].Name != "Ascent" {
+		t.Errorf("remaining active = %d stages (bottom %q), want [Ascent]", len(rem), rem[0].Name)
+	}
+}
+
 // TestSpawnEmptyCustomStagesFallsThroughToLoadout — defence in
 // depth: an empty CustomStages slice must NOT be treated as a
 // custom craft (the form layer rejects empty stacks before here,
