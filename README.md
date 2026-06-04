@@ -1,5 +1,7 @@
 # terminal-space-program
 
+<a href="https://www.buymeacoffee.com/jasonfen"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48" width="170"></a>
+
 Terminal-native orbital-mechanics rocket simulator. A take on Kerbal Space
 Program that lives in your terminal, distributed as a single static Go binary.
 
