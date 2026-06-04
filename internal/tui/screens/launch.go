@@ -370,6 +370,13 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 	// Horizon curve + SurfaceColor flood-fill below.
 	v.drawHorizonAndFill(body, bodyCentre)
 
+	// Current-orbit ellipse, rendered exactly as the orbit-map screens
+	// do (same DrawEllipseOffsetFarSideDashed path + apo/peri markers).
+	// Drawn after the body fill so the near arc paints over the disk and
+	// the far arc is depth-culled behind it; drawn before the surface
+	// markers + rocket so those layer on top. v0.14+.
+	v.drawOrbitPath(craft, bodyCentre)
+
 	// Pad marker at the active craft's launch site, depth-culled.
 	v.drawPadMarker(w, craft, bodyCentre, camFromBody)
 
@@ -566,6 +573,47 @@ const chaseHorizEpsilon = 0.01
 // of cells at low zoom).
 func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbital.Vec3) {
 	v.canvas.FillProjectedSphere(bodyPos, body.RadiusMeters(), lipgloss.Color(body.SurfaceColorHex()))
+}
+
+// drawOrbitPath plots the active craft's live Keplerian ellipse into
+// the chase-cam scene, matching the orbit-map screens' render so the
+// orbit reads identically whether the player is in ViewLaunch or a
+// cardinal/tilted orbit view. The launch canvas already works in the
+// primary-relative frame (body at bodyCentre = origin, craft at
+// craft.State.R), and `el` is derived from the same primary-relative
+// state vectors, so the offset is bodyCentre and the body-occlusion
+// anchor is bodyCentre too — identical to orbit.go's primary-frame
+// call once that screen translates into the system frame.
+//
+// Gating mirrors orbit.go: only bound (a > 0), numerically valid
+// orbits whose apoapsis projects to ≥ minOrbitPixels render, and the
+// Landed skip matches the orbit screen's activeCraftElements ok=false
+// — a vessel co-rotating with the surface has a degenerate ellipse
+// (apoapsis ≈ body radius) that clears the pixel gate at launch zoom
+// and would paint a phantom arc through the planet. The orbit fades in
+// as the ascent builds real orbital velocity and persists through a
+// descent until touchdown clears it, the same as the map view shows.
+func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbital.Vec3) {
+	if craft.Landed {
+		return
+	}
+	mu := craft.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(craft.State.R, craft.State.V, mu)
+	scale := v.canvas.Scale()
+	if !(el.A > 0) || math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.Apoapsis()*scale < minOrbitPixels {
+		return
+	}
+	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
+	primaryPxR := BodyPixelRadius(craft.Primary, false, scale, canvasReach)
+	v.canvas.DrawEllipseOffsetFarSideDashed(el, bodyCentre, 360, 3, bodyCentre, primaryPxR, render.ColorCurrentOrbit)
+	peri := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, 0))
+	apo := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
+	if !v.canvas.IsBehindBody(peri, bodyCentre, primaryPxR) {
+		v.canvas.FillDisk(peri, 2)
+	}
+	if !v.canvas.IsBehindBody(apo, bodyCentre, primaryPxR) {
+		v.canvas.FillDisk(apo, 3)
+	}
 }
 
 // drawPadMarker plots the launch site as a `+` glyph in ColorAccent
