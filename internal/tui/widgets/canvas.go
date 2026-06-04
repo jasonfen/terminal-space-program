@@ -1040,6 +1040,31 @@ func (c *Canvas) String() string {
 	return b.String()
 }
 
+// CountColor reports how many terminal cells resolve to `color` as their
+// dominant per-cell colour — the same majority rule String() uses to
+// paint each cell. Intended for render assertions (e.g. "the orbit
+// ellipse lands on enough cells to read as a line, not just a marker").
+func (c *Canvas) CountColor(color lipgloss.Color) int {
+	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
+	for coord, tag := range c.pixelTags {
+		if tag.Color == "" {
+			continue
+		}
+		key := [2]int{coord[0] / 2, coord[1] / 4}
+		if cellCounts[key] == nil {
+			cellCounts[key] = make(map[lipgloss.Color]int)
+		}
+		cellCounts[key][tag.Color]++
+	}
+	n := 0
+	for _, counts := range cellCounts {
+		if pickDominantColor(counts) == color {
+			n++
+		}
+	}
+	return n
+}
+
 // joinRows is the uncolored fast path used when no color regions are
 // registered.
 func (c *Canvas) joinRows(rows []string) string {
