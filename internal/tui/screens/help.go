@@ -70,7 +70,7 @@ func (h *Help) Render() string {
 			{";", "NavMode cycle: Orbit → Surface → Target (skips Target when none set) (v0.9.3+)"},
 		}},
 		{"MULTI-CRAFT (v0.8.1+)", [][2]string{
-			{"n", "open spawn form (loadout / position / parent / altitude / dir; Custom = stack builder, v0.10.1+)"},
+			{"n", "open spawn form (loadout / position / parent / altitude / dir; Custom = stack builder, [d] dock-seam composites — spawn a CSM+LM ready to U-release, v0.14+)"},
 			{"[ / ]", "cycle active craft (no-op when only one craft)"},
 			{"1-9", "jump to craft N (no-op when slot empty) (v0.12.0+)"},
 			{"U", "undock active composite (v0.8.3+)"},

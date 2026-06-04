@@ -34,6 +34,14 @@ type SpawnCraft struct {
 	// catalog part-picker cursor over StageCatalogOrder.
 	customStages []spacecraft.Stage
 	partIdx      int
+
+	// nosePayloadCount (v0.14 / ADR 0011) is the Dock Seam: how many
+	// contiguous TOP stages of customStages form a docked nose payload
+	// (released by Undock, not Staging) rather than linear firing-core
+	// stages. 0 ⇒ a plain linear craft (the historical default). [d]
+	// cycles it; adding the composite "CSM+LM" pick pre-sets it to the
+	// LM's stage count. Clamped to [0, len-1] so the core keeps ≥1 stage.
+	nosePayloadCount int
 }
 
 // stackFieldIdx is the form-field index of the STACK editor — only
@@ -95,6 +103,7 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 	s.loadoutIdx = 0
 	s.customStages = nil
 	s.partIdx = 0
+	s.nosePayloadCount = 0
 	s.posMode = posOrbit
 	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
 	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
@@ -265,6 +274,14 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 			if id := s.pickedPartID(); id != "" {
 				if stages, ok := spacecraft.BuildModule(id); ok {
 					s.customStages = append(s.customStages, stages...)
+					// v0.14 / ADR 0011: a composite pick (CSM+LM) marks its
+					// own top stages as the docked nose payload, so the
+					// player gets the assembled composite without setting
+					// the seam by hand. Clamped below.
+					if top := spacecraft.ModuleNosePayloadTop(id); top > 0 {
+						s.nosePayloadCount = top
+					}
+					s.clampNosePayload()
 				}
 			}
 		}
@@ -272,9 +289,47 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 		// Remove the top (last-added) stage.
 		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() && len(s.customStages) > 0 {
 			s.customStages = s.customStages[:len(s.customStages)-1]
+			s.clampNosePayload()
+		}
+	case "d":
+		// v0.14 / ADR 0011: cycle the Dock Seam — how many TOP stages form
+		// the docked nose payload. Walks 0 (linear) → 1 → … → len-1 → 0,
+		// keeping the core at ≥1 stage.
+		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() && len(s.customStages) > 1 {
+			s.nosePayloadCount = (s.nosePayloadCount + 1) % len(s.customStages)
 		}
 	}
 	return SpawnActionNone
+}
+
+// clampNosePayload keeps the Dock Seam in range after the stack changes:
+// the nose payload may take at most len-1 stages (the core keeps ≥1), and
+// an empty/1-stage stack can't have a seam. v0.14 / ADR 0011.
+func (s *SpawnCraft) clampNosePayload() {
+	if len(s.customStages) < 2 {
+		s.nosePayloadCount = 0
+		return
+	}
+	if s.nosePayloadCount > len(s.customStages)-1 {
+		s.nosePayloadCount = len(s.customStages) - 1
+	}
+	if s.nosePayloadCount < 0 {
+		s.nosePayloadCount = 0
+	}
+}
+
+// SelectedNosePayloadPlan returns the Dock Seam as a top-release group
+// list for SpawnSpec.NosePayloadPlan (ADR 0011), or nil when no seam is
+// set / Custom isn't selected — i.e. a plain linear custom craft. The
+// single-entry list mirrors a Loadout's bottom-up DecouplePlan. v0.14.
+func (s *SpawnCraft) SelectedNosePayloadPlan() []int {
+	if !s.IsCustomSelected() || s.nosePayloadCount <= 0 {
+		return nil
+	}
+	if s.nosePayloadCount >= len(s.customStages) {
+		return nil // would leave the core empty — treat as linear
+	}
+	return []int{s.nosePayloadCount}
 }
 
 // pickedPartID returns the catalog ID under the part-picker cursor.
@@ -379,12 +434,27 @@ func (s *SpawnCraft) Render(width int) string {
 		if len(s.customStages) == 0 {
 			lines = append(lines, "  "+s.theme.Dim.Render("(empty — pick a part below and press [a] to add)"))
 		} else {
+			// v0.14 / ADR 0011: the Dock Seam splits the stack into the
+			// linear firing core (bottom) and the docked nose payload (top
+			// nosePayloadCount stages). seam == len means no seam (linear).
+			seam := len(s.customStages) - s.nosePayloadCount
 			for i := len(s.customStages) - 1; i >= 0; i-- {
+				if s.nosePayloadCount > 0 && i == seam-1 {
+					lines = append(lines, "  "+s.theme.Warning.Render(
+						"── dock seam ──  (above = nose payload, [U]ndock to release)"))
+				}
 				st := s.customStages[i]
-				tag := "top/core"
-				if i == 0 {
+				var tag string
+				switch {
+				case s.nosePayloadCount > 0 && i >= seam:
+					tag = "nose payload"
+				case i == 0:
 					tag = "bottom/fires first"
-				} else if i != len(s.customStages)-1 {
+				case s.nosePayloadCount > 0 && i == seam-1:
+					tag = "core survivor"
+				case i == len(s.customStages)-1:
+					tag = "top/core"
+				default:
 					tag = "mid"
 				}
 				eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
@@ -418,7 +488,7 @@ func (s *SpawnCraft) Render(width int) string {
 			lines = append(lines, "  "+s.fieldValue(stackFieldIdx, "part: "+pickLabel))
 		}
 		lines = append(lines, "  "+s.theme.Footer.Render(
-			"[←/→] pick part  [a] add on top  [x] remove top"))
+			"[←/→] pick part  [a] add on top  [x] remove top  [d] dock seam"))
 	}
 
 	// Field 1: position mode — tri-state cycle. orbit (uses PARENT

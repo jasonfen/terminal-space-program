@@ -175,6 +175,49 @@ func TestLanderModuleIsTwoStages(t *testing.T) {
 	}
 }
 
+// TestApolloCSMLMCompositeModule — v0.14 / ADR 0011. The "csm-lm" pick
+// expands to the post-transposition stack [SM, CM, Descent, Ascent]
+// bottom-first (SM the firing core), and ModuleNosePayloadTop reports 2
+// so the spawn path docks the LM (top 2) as a nose payload. The module
+// is offered in the configurator; its split sub-stages are not.
+func TestApolloCSMLMCompositeModule(t *testing.T) {
+	stages, ok := BuildModule(StageModuleApolloCSMLMID)
+	if !ok || len(stages) != 4 {
+		t.Fatalf("BuildModule(csm-lm) = (%d stages, ok=%v), want 4", len(stages), ok)
+	}
+	wantNames := []string{"SM", "CM", "Descent", "Ascent"}
+	for i, want := range wantNames {
+		if stages[i].Name != want {
+			t.Errorf("stage[%d] = %q, want %q (bottom-first SM core + LM on top)", i, stages[i].Name, want)
+		}
+	}
+	if stages[0].Thrust <= 0 {
+		t.Errorf("SM (Stages[0]) thrust = %.0f, want > 0 (it is the firing core)", stages[0].Thrust)
+	}
+	if top := ModuleNosePayloadTop(StageModuleApolloCSMLMID); top != 2 {
+		t.Errorf("ModuleNosePayloadTop(csm-lm) = %d, want 2 (the LM rides on the nose)", top)
+	}
+	// Non-composite modules carry no nose payload.
+	if top := ModuleNosePayloadTop(StageModuleLanderID); top != 0 {
+		t.Errorf("ModuleNosePayloadTop(lander) = %d, want 0 (linear pick)", top)
+	}
+
+	// The composite is offered as a single pick; its split halves are not
+	// separate configurator entries.
+	offered := false
+	for _, id := range StageCatalogOrder {
+		switch id {
+		case StageModuleApolloCSMLMID:
+			offered = true
+		case StageModuleServiceModuleID, StageModuleCommandModuleID:
+			t.Errorf("StageCatalogOrder exposes %q separately; the csm-lm module should bundle it", id)
+		}
+	}
+	if !offered {
+		t.Error("StageCatalogOrder does not offer the csm-lm composite pick")
+	}
+}
+
 // TestApolloStackShape — the multi-tier loadout: 7 stages bottom-first
 // [S-IC, S-II, S-IVB, Descent, Ascent, SM, CM] (v0.12 ADR 0009 split the
 // fused CSM into a propulsive Service Module + a passive Command Module),
