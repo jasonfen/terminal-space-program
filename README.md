@@ -3,6 +3,8 @@
 Terminal-native orbital-mechanics rocket simulator. A take on Kerbal Space
 Program that lives in your terminal, distributed as a single static Go binary.
 
+![Orbit rendering in the launch / landing chase-cam view](media/orbit-rendering.gif)
+
 ```
 ┌───────────────────────────────────────────────────────────┐
 │ terminal-space-program — Sol         [Menu]  [Missions]   │
