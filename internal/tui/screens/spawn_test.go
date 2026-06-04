@@ -86,6 +86,35 @@ func TestSpawnStackFieldReachableOnlyInCustom(t *testing.T) {
 	}
 }
 
+// TestSpawnTabFromCustomReachesStackFirst — the STACK editor renders
+// directly below CRAFT TYPE, so Tab from the Custom craft-type must land
+// on STACK next (not skip past it to POSITION). Shift+Tab back returns to
+// CRAFT TYPE, and Tab onward from STACK continues to POSITION (field 1).
+func TestSpawnTabFromCustomReachesStackFirst(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "")
+	selectCustom(s)
+
+	if s.fieldIdx != 0 {
+		t.Fatalf("after selecting Custom, focus should be on CRAFT TYPE (0), got %d", s.fieldIdx)
+	}
+	s.HandleKey("tab")
+	if s.fieldIdx != stackFieldIdx {
+		t.Errorf("Tab from Custom CRAFT TYPE = field %d, want STACK (%d)", s.fieldIdx, stackFieldIdx)
+	}
+	// Shift+Tab returns to CRAFT TYPE.
+	s.HandleKey("shift+tab")
+	if s.fieldIdx != 0 {
+		t.Errorf("shift+Tab from STACK = field %d, want CRAFT TYPE (0)", s.fieldIdx)
+	}
+	// Tab past STACK continues to POSITION (field 1).
+	s.HandleKey("tab") // → STACK
+	s.HandleKey("tab") // → POSITION
+	if s.fieldIdx != 1 {
+		t.Errorf("Tab from STACK = field %d, want POSITION (1)", s.fieldIdx)
+	}
+}
+
 // TestSpawnStackAddRemove — on the STACK field, ←/→ moves the part
 // picker, [a] appends the picked part on top, [x] removes the top.
 func TestSpawnStackAddRemove(t *testing.T) {

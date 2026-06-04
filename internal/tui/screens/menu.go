@@ -22,12 +22,13 @@ type Menu struct {
 
 	// Click-target ranges, recomputed each Render so terminal-resize
 	// doesn't stale the hit-tests. Each is (row, colStart, colEnd).
-	backBtn buttonRange
-	saveBtn buttonRange
-	loadBtn buttonRange
-	quitBtn buttonRange
-	yesBtn  buttonRange
-	noBtn   buttonRange
+	backBtn     buttonRange
+	saveBtn     buttonRange
+	loadBtn     buttonRange
+	settingsBtn buttonRange
+	quitBtn     buttonRange
+	yesBtn      buttonRange
+	noBtn       buttonRange
 }
 
 // menuMode tracks which sub-screen the menu is showing.
@@ -62,6 +63,7 @@ func (m *Menu) Reset() {
 	m.mode = menuModeList
 	m.saveBtn.set = false
 	m.loadBtn.set = false
+	m.settingsBtn.set = false
 	m.quitBtn.set = false
 	m.yesBtn.set = false
 	m.noBtn.set = false
@@ -78,6 +80,7 @@ const (
 	MenuActionCancel                   // esc / [Back] — return to orbit
 	MenuActionSave
 	MenuActionLoad
+	MenuActionSettings // v0.13: open the per-Chip visibility screen
 	MenuActionQuit
 )
 
@@ -94,6 +97,8 @@ func (m *Menu) HandleKey(s string) MenuAction {
 			return MenuActionSave
 		case "l", "L":
 			return MenuActionLoad
+		case "t", "T":
+			return MenuActionSettings
 		case "q", "Q":
 			return MenuActionQuit
 		case "esc":
@@ -132,6 +137,10 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 	switch m.mode {
 	case menuModeList:
 		switch {
+		case m.settingsBtn.Hit(col, row):
+			// Opening a screen is reversible, so settings skips the
+			// click-confirm gate save/load/quit go through.
+			return MenuActionSettings
 		case m.saveBtn.Hit(col, row):
 			m.mode = menuModeConfirmSave
 		case m.loadBtn.Hit(col, row):
@@ -194,6 +203,7 @@ func (m *Menu) Render(width int) string {
 	// Reset confirm-button visibility — only the active mode sets them.
 	m.saveBtn.set = false
 	m.loadBtn.set = false
+	m.settingsBtn.set = false
 	m.quitBtn.set = false
 	m.yesBtn.set = false
 	m.noBtn.set = false
@@ -233,6 +243,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 	rows := []entry{
 		{"s", "[Save Game]", &m.saveBtn},
 		{"l", "[Load Game]", &m.loadBtn},
+		{"t", "[Settings]", &m.settingsBtn},
 		{"q", "[Quit]", &m.quitBtn},
 	}
 	for i, r := range rows {
@@ -256,7 +267,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/q"))
+	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/t/q"))
 	return lines
 }
 

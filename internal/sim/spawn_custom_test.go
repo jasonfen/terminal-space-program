@@ -54,6 +54,48 @@ func TestSpawnCustomStagesBuildsFromStack(t *testing.T) {
 	}
 }
 
+// TestSpawnCustomLanderSplitStages — v0.13: the configurator's single
+// "lander" pick (BuildModule) builds a [Descent, Ascent] lander as one
+// vessel; staging then single-pops the descent (leaving the ascent as the
+// surviving core) exactly like the standalone Lander loadout, so a custom
+// Apollo-LM separates the way the player expects. Regression for the
+// playtest thread: the spawner lander now has the descent/ascent split and
+// is added as one vessel.
+func TestSpawnCustomLanderSplitStages(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// One "lander" pick expands to the 2-stage LM (bottom → top).
+	landerStages, ok := spacecraft.BuildModule(spacecraft.StageModuleLanderID)
+	if !ok || len(landerStages) != 2 {
+		t.Fatalf("BuildModule(lander) = %d stages (ok=%v), want 2", len(landerStages), ok)
+	}
+	c, err := w.SpawnCraft(SpawnSpec{
+		CustomStages: landerStages,
+		ParentBodyID: "earth",
+		AltitudeM:    400e3,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft(custom lander): %v", err)
+	}
+	if c.Stages[0].Name != "Descent" || c.Stages[1].Name != "Ascent" {
+		t.Fatalf("stack order wrong: bottom=%q top=%q", c.Stages[0].Name, c.Stages[1].Name)
+	}
+
+	// Stage once: drops the Descent as its own craft, leaving the Ascent.
+	_, jidx, err := w.StageActive(w.ActiveCraftIdx)
+	if err != nil {
+		t.Fatalf("StageActive: %v", err)
+	}
+	if dropped := w.Crafts[jidx].Stages; len(dropped) != 1 || dropped[0].Name != "Descent" {
+		t.Errorf("dropped craft = %d stages (top %q), want [Descent]", len(dropped), dropped[len(dropped)-1].Name)
+	}
+	if rem := w.ActiveCraft().Stages; len(rem) != 1 || rem[0].Name != "Ascent" {
+		t.Errorf("remaining active = %d stages (bottom %q), want [Ascent]", len(rem), rem[0].Name)
+	}
+}
+
 // TestSpawnEmptyCustomStagesFallsThroughToLoadout — defence in
 // depth: an empty CustomStages slice must NOT be treated as a
 // custom craft (the form layer rejects empty stacks before here,

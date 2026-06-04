@@ -24,6 +24,36 @@ entry) toggles each chip's default visibility — persisted to a global
 Defaults are all-chips-on, so no information is lost versus today; the win
 is that every block is bounded-height and the frame never scrolls.
 
+## Amendment — v0.13 playtest (slice 2 follow-up)
+
+Shipped and then revised in playtest: the slim **column** described above
+became a **pinned canvas chip** instead. Vessel identity + propellant +
+velocity now composite onto the canvas's top-left corner like every other
+chip — there is no right-hand column, so the orbit map spans the full
+terminal width. This is the "Full-width canvas, pinned core chips" option
+listed as *rejected* below; the rejection's load-bearing concern — "the
+declutter key must never be able to hide fuel/Δv mid-burn" — is preserved:
+the core chip is **pinned**, always rendered, never settings-toggled, and
+the only chip F2 declutter does not hide. The other rejection rationale
+(occlusion / column-vs-canvas readability) lost to the playtest preference
+for a full-width map. The `focus:` indicator that lived in the canvas's
+top-left corner moved to the title bar to make room. Everything else in
+this ADR (chips, the render rule, the Settings screen, F2) stands.
+
+## Amendment — v0.13 playtest (always-on Orbit + Burns)
+
+Two chips became **always-on (non-toggleable)** in playtest: the current
+**Orbit** metrics (apo/peri/incl) and the active **● BURNS** readout. A
+player must never be able to permanently hide their current orbit or a
+live burn from the Settings screen, so neither is a Settings-toggleable
+Chip — they render whenever contextually relevant, via the empty-id
+always-on chip path. They remain **F2-Declutter-hideable** (the momentary
+clean-map gesture still clears them); only the pinned VESSEL/PROPELLANT
+core Chip survives Declutter. This narrows the original "the Settings
+screen toggles each chip's default visibility" to "each *toggleable*
+chip"; the safety rationale matches the core-chip pin (fuel/Δv must not
+be hideable mid-burn) extended to the orbit shape and the live burn.
+
 ## Considered Options
 
 - **Internal scrollable HUD pane.** Keep every block, cap the HUD at the
@@ -44,6 +74,8 @@ is that every block is bounded-height and the frame never scrolls.
   Rejected: core numbers would permanently occlude a corner of the orbit,
   and numeric reads are cleaner in a column than floating on the canvas —
   and the declutter key must never be able to hide fuel/Δv mid-burn.
+  *(Adopted in v0.13 playtest after all — see the Amendment above; the
+  pinned chip keeps the never-hide-fuel/Δv rule.)*
 - **Persist prefs in the save file (schema v6→v7).** Rejected: UI
   visibility is an application preference, not game state. It belongs in
   global config (the `theme.json` precedent), applies across all games,

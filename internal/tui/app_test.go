@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
@@ -130,6 +131,54 @@ func TestCraftSlotKeyJumps(t *testing.T) {
 	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
 	if a.world.ActiveCraftIdx != 0 {
 		t.Errorf("after '1' = %d, want 0", a.world.ActiveCraftIdx)
+	}
+}
+
+// Menu → Settings → toggle a chip → back round-trips through Update and
+// persists the toggle to settings.json immediately (the slice-3
+// persist-on-toggle decision). Drives the real keyboard dispatch so the
+// menu-entry, screen-dispatch, write-through, and persist wiring are all
+// exercised end to end.
+func TestSettingsScreenRoundTripPersists(t *testing.T) {
+	// Redirect settings.json into a temp dir so the test can't read or
+	// clobber the developer's real config.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Open the menu, then press `t` to reach the Settings screen.
+	a.menu.Reset()
+	a.active = screenMenu
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if a.active != screenSettings {
+		t.Fatalf("after menu `t`, active = %v, want screenSettings", a.active)
+	}
+
+	// The cursor opens on the first chip; it's enabled by default.
+	first := settings.AllChips[0]
+	if !a.orbitView.Settings().ChipEnabled(first) {
+		t.Fatalf("%q should default enabled", first)
+	}
+
+	// Space toggles the highlighted chip off — in memory and on disk.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
+	if a.orbitView.Settings().ChipEnabled(first) {
+		t.Errorf("%q still enabled after toggle (in-memory)", first)
+	}
+	if reloaded, _ := settings.Load(); reloaded.ChipEnabled(first) {
+		t.Errorf("%q still enabled after toggle (persisted)", first)
+	}
+
+	// Esc returns to orbit without losing the edit.
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.active != screenOrbit {
+		t.Errorf("after esc, active = %v, want screenOrbit", a.active)
+	}
+	if a.orbitView.Settings().ChipEnabled(first) {
+		t.Errorf("%q re-enabled after leaving the screen", first)
 	}
 }
 
