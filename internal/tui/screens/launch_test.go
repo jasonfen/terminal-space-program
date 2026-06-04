@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -575,5 +576,78 @@ func TestLaunchViewRendersRCSPuffs(t *testing.T) {
 	after := v.Render(w, 120, 40)
 	if before == after {
 		t.Errorf("LaunchView render unchanged after RCS pulse; expected puff pixels to land in scene")
+	}
+}
+
+// The launch / landing chase-cam must draw the active craft's
+// current-orbit ellipse the same way the orbit-map screens do
+// (drawOrbitPath → DrawEllipseOffsetFarSideDashed). The view is built
+// with a nil hudSource so the side chips (which echo velocity /
+// apoapsis / inclination and would differ on V alone) are suppressed —
+// the orbit ellipse on the canvas becomes the only V-dependent output
+// (above the atmosphere the HUD strip's Q / vz / downrange are equal).
+// With R fixed and only V flipped bound→hyperbolic, the bound render
+// (ellipse drawn) must differ from the hyperbolic one (el.A < 0 fails
+// the gate, no ellipse).
+func TestLaunchViewRendersCurrentOrbit(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	mu := c.Primary.GravitationalParameter()
+	r := c.Primary.RadiusMeters() + 400_000.0 // 400 km LEO, above atmosphere
+	vCirc := math.Sqrt(mu / r)
+
+	// Lift the craft off the pad into a clean circular orbit.
+	c.Landed = false
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: vCirc}
+
+	th := launchThemeForTest()
+	v := NewLaunchView(th, nil) // nil hud → isolate the canvas ellipse
+	bound := v.Render(w, 120, 40)
+
+	// Same position, but escape-speed velocity → hyperbolic, no
+	// bound ellipse to render.
+	c.State.V = orbital.Vec3{Y: 2 * vCirc}
+	hyperbolic := v.Render(w, 120, 40)
+
+	if bound == hyperbolic {
+		t.Error("LaunchView render identical for bound vs hyperbolic trajectory; current-orbit ellipse not drawn")
+	}
+}
+
+// A landed craft must not draw its orbit, mirroring the orbit screen's
+// activeCraftElements ok=false on Landed. A vessel co-rotating with the
+// surface has a degenerate ellipse (apoapsis ≈ body radius) that clears
+// the pixel gate at launch zoom, so without the Landed skip it would
+// paint a phantom arc. Give a landed craft a genuine bound LEO orbit
+// vector and confirm flipping that orbit hyperbolic changes nothing —
+// the Landed gate suppresses the ellipse either way. nil hudSource
+// suppresses the side chips so the canvas ellipse is the only thing
+// that could differ.
+func TestLaunchViewLandedOrbitNotDrawn(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	if !c.Landed {
+		t.Fatal("setup: pad craft should be Landed")
+	}
+	mu := c.Primary.GravitationalParameter()
+	// Place the (still-Landed) craft above the atmosphere so the HUD
+	// strip's dynamic-pressure readout reads Q=0 for both velocities.
+	r := c.Primary.RadiusMeters() + 400_000.0
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	c.State.R = rHat.Scale(r)
+	vCirc := math.Sqrt(mu / r)
+	// A horizontal velocity at this point → bound orbit if the gate
+	// didn't skip Landed craft.
+	tangent := orbital.Vec3{Z: 1}.Cross(rHat)
+	c.State.V = tangent.Scale(vCirc / tangent.Norm())
+
+	th := launchThemeForTest()
+	v := NewLaunchView(th, nil) // nil hud → isolate the canvas ellipse
+	bound := v.Render(w, 120, 40)
+
+	c.State.V = tangent.Scale(2 * vCirc / tangent.Norm()) // hyperbolic
+	hyper := v.Render(w, 120, 40)
+
+	if bound != hyper {
+		t.Error("landed-craft scene changed with orbit shape; orbit drawn despite Landed (phantom arc)")
 	}
 }
