@@ -78,6 +78,29 @@ doesn't later pop as a group). The mission survivor is the **Command
 Module**, not the fused CSM.
 _Avoid_: Decouple group, Staging sequence, Separation script.
 
+**Nose Payload Plan**:
+The spawn-time, top-release counterpart to the **Decouple Plan**: a
+bottom-up list (one entry today) naming how many contiguous *top* Stages
+of a custom build or **Loadout** form a docked **nose payload** rather
+than linear firing-core Stages. At spawn the builder splits the stack at
+the **Dock Seam**, builds the core and the payload as separate Vessels,
+and **Docks** them into a ready **Composite** — so a player-assembled
+CSM+LM spawns *already* in the post-**Transposition** shape (SM firing
+core, LM an **Undock**-able nose payload), with no flip to fly. Where the
+Decouple Plan releases bottom Stages via **Staging**, the Nose Payload
+Plan pre-assembles the top group and hands release to **Undock**. Default
+(absent) ⇒ a plain linear Vessel, the historical custom-build behaviour.
+_Avoid_: Payload plan, Top decouple plan, Reverse staging.
+
+**Dock Seam**:
+The marker in the spawn configurator's stack list that designates the
+contiguous top group as a docked **nose payload** (the editor-side
+expression of the **Nose Payload Plan**). A pre-seamed **CSM+LM** module
+pick drops the four Apollo Stages `[SM, CM, Descent, Ascent]` with the
+seam set between `CM` and `Descent`, so the spawned Composite fires the
+SM and carries the LM as an Undockable payload.
+_Avoid_: Payload boundary, Split point, Stack divider.
+
 **Service Module (SM)**:
 The propulsive half of the Apollo command-and-service module: carries the
 SPS engine and all its storable propellant. Performs lunar-orbit
