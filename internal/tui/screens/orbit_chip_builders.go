@@ -604,10 +604,7 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		if tc == nil {
 			return nil
 		}
-		nameLine := "  craft:  " + tc.Name
-		if tc.Role != "" {
-			nameLine += v.theme.Dim.Render(" — " + tc.Role)
-		}
+		nameLine := "  vessel: " + tc.Name
 		lines := []string{v.theme.Primary.Render("TARGET"), nameLine}
 		tMu := tc.Primary.GravitationalParameter()
 		tFrame := orbital.ReferenceFrameForPrimary(tc.Primary)
@@ -656,18 +653,18 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			if adv, hudOk := w.RecommendedRendezvousBurn(); hudOk {
 				if adv.Ok {
 					lines = append(lines,
-						fmt.Sprintf("  ACH CA: %s @ T+%s", formatRangeM(adv.AchievableCA), formatTCA(adv.TArrival)),
-						fmt.Sprintf("  Δv:     %.1f m/s %s  (K plant)", adv.DV, adv.Axis),
+						fmt.Sprintf("  K Δv:   %.1f m/s %s", adv.DV, adv.Axis.Abbrev()),
+						fmt.Sprintf("  → CA %s @ T+%s", formatRangeM(adv.AchievableCA), formatTCA(adv.TArrival)),
 					)
 				} else {
 					faint := lipgloss.NewStyle().Faint(true)
 					switch adv.Reason {
 					case "no improvement available":
-						lines = append(lines, "  "+faint.Render("K: no useful nudge in range"))
+						lines = append(lines, "  "+faint.Render("K: no useful nudge"))
 					case "burn too large — use H/I/m":
-						lines = append(lines, "  "+faint.Render(fmt.Sprintf("K: %.0f m/s exceeds nudge scale — plan with H/I/m", adv.DV)))
+						lines = append(lines, "  "+faint.Render("K: too big — use H/I/m"))
 					case "burn drops periapsis unsafely":
-						lines = append(lines, "  "+faint.Render("K: would drop periapsis unsafely — plan with H/I/m"))
+						lines = append(lines, "  "+faint.Render("K: unsafe peri — H/I/m"))
 					}
 				}
 			}
