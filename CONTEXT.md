@@ -615,10 +615,10 @@ the **Surface Contact** site:
   it touched. Produces a **Crashed** Vessel (terminal state, removed
   via End Flight).
 
-Differentiated in code as of v0.11.4 (see
-[`docs/adr/0004-crashed-landed-lifecycle.md`](adr/0004-crashed-landed-lifecycle.md));
-the chute route added v0.12+ (see
-[`docs/adr/0008-parachutes-atmospheric-descent-recovery.md`](adr/0008-parachutes-atmospheric-descent-recovery.md)).
+Differentiated in code as of v0.11.4 (see ADR 0004 in the planning vault,
+`designdocs/terminal-space-program/adr/0004-crashed-landed-lifecycle.md`);
+the chute route added v0.12+ (see ADR 0008,
+`designdocs/terminal-space-program/adr/0008-parachutes-atmospheric-descent-recovery.md`).
 Constants `V_CRIT = 10 m/s`, `NOSE_TOL = 0.7` (≈ 45° from
 local-vertical); both retunable.
 _Avoid_: Soft landing / Hard landing (longer; "Landing" alone
@@ -1472,7 +1472,8 @@ orbit-normal h in [[#maneuver--thrust|Burn Mode]] math).
 How orbit-screen information is placed: a slim always-on column of core
 readouts, compact overlays composited onto the canvas, and a momentary
 hide-all gesture. The model and its rejected alternatives are recorded in
-[ADR 0010](docs/adr/0010-hud-column-canvas-chips-and-settings.md).
+ADR 0010 in the planning vault
+(`designdocs/terminal-space-program/adr/0010-hud-column-canvas-chips-and-settings.md`).
 
 **HUD**:
 The pinned core-telemetry **Chip** of irreducible vessel telemetry (name,

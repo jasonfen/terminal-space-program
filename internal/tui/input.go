@@ -124,7 +124,7 @@ type Keymap struct {
 	// Drops the active craft's bottom stage (Stages[0]) — spawning
 	// it as a passive Spacecraft in the slate at the same inertial
 	// state — and the upper-stage chain becomes the active craft's
-	// new propulsion. Bound to `space` per docs/v0.9-plan.md
+	// new propulsion. Bound to `space` per designdocs/terminal-space-program/v0.9-plan.md
 	// resolved scoping #3 (matches KSP muscle memory). v0.9.1
 	// retired the `space` binding from Pause; pause now lives on
 	// `0` alone. The maneuver form's iterate-toggle (v0.8.6.3)

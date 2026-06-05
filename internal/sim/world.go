@@ -659,7 +659,7 @@ func (w *World) CraftTrail() []orbital.Vec3 {
 
 // clampedWarp returns min(selected warp, max warp allowed by the step-size
 // guard, burn-warp cap if a finite burn is active). max = (1024 sub-steps
-// × period/100) / base_step. Active-burn cap = 10× per docs/plan.md
+// × period/100) / base_step. Active-burn cap = 10× per designdocs/terminal-space-program/plan.md
 // §Time-warp UX — finite burns at >10× warp would let the integrator
 // blast past the EndTime in a single tick and lose temporal resolution.
 func (w *World) clampedWarp() float64 {
@@ -1356,7 +1356,7 @@ func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.D
 // v0.5.0: pre-moons this just iterated all non-primary bodies. Adding
 // moons necessitates the in-reach filter; deeper "is this SOI
 // trajectory-reachable in dt" analysis is v0.5.x territory per
-// docs/integration-design.md §6.
+// designdocs/terminal-space-program/integration-design.md §6.
 func chunkDtCap(sys bodies.System, currentPrimary bodies.CelestialBody, speed float64) float64 {
 	if speed <= 0 {
 		speed = 1.0

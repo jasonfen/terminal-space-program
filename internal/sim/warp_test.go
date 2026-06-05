@@ -161,7 +161,7 @@ func TestWarpClampUpcomingNodeReleasesAfterPast(t *testing.T) {
 }
 
 // TestWarpCappedAt10xDuringActiveBurn: even at 100000× selected, an
-// in-flight finite burn must clamp to 10× per docs/plan.md §Time-warp UX.
+// in-flight finite burn must clamp to 10× per designdocs/terminal-space-program/plan.md §Time-warp UX.
 // Otherwise the integrator would skip past EndTime in a single tick and
 // the burn would lose all temporal resolution.
 func TestWarpCappedAt10xDuringActiveBurn(t *testing.T) {

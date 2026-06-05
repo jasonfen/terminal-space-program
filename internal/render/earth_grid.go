@@ -17,7 +17,7 @@ import "math"
 //
 // Future polish: a v0.9-class raster (real 1° NOAA land/sea mask
 // embedded with go:embed) would slot into the same earthGrid
-// storage with a different generator. See docs/state-of-game.md
+// storage with a different generator. See designdocs/terminal-space-program/state-of-game.md
 // "future-rendering" backlog.
 
 const (

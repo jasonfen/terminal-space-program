@@ -3,7 +3,7 @@
 // The on-disk envelope ships a richer header from day one — version,
 // generator, clock_t0, body_catalog_hash, payload — so future schema
 // migrations and the v0.6 multiplayer `session` block can land without
-// bumping every caller. See docs/state-of-game.md §3 v0.4.0 for the
+// bumping every caller. See designdocs/terminal-space-program/state-of-game.md §3 v0.4.0 for the
 // rationale.
 package save
 

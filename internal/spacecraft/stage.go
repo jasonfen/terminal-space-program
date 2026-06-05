@@ -114,7 +114,7 @@ type Stage struct {
 	// back to the vessel-level Glyph render." Pivoted from ASCII
 	// glyphs to braille pixels in v0.11.3 after playtest showed
 	// box-drawing characters smear at gravity-turn angles
-	// (see docs/v0.11-plan.md "Resolved at slice-open").
+	// (see designdocs/terminal-space-program/v0.11-plan.md "Resolved at slice-open").
 	LaunchSpriteRowsPx int `json:",omitempty"`
 
 	// LaunchSpriteWidthPx (v0.11.5) is the per-stage width (in

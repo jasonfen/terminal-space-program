@@ -289,7 +289,7 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 // craft state isn't ready).
 //
 // Phasing is not enforced — the plan assumes ideal alignment, matching
-// the v0.3.1 sandbox scope per docs/plan.md. Porkchop-plot polish for
+// the v0.3.1 sandbox scope per designdocs/terminal-space-program/plan.md. Porkchop-plot polish for
 // real launch windows is v0.3.2.
 func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	sys := w.System()

@@ -9,7 +9,7 @@ import (
 )
 
 // TestVerletCircularLEO1000Orbits is the Phase 1 exit criterion from
-// docs/plan.md: uncontrolled spacecraft in stable circular LEO, after
+// designdocs/terminal-space-program/plan.md: uncontrolled spacecraft in stable circular LEO, after
 // 1000 simulated orbits, semi-major-axis drift must be under 1%. We
 // also assert specific-energy drift under 1% (same invariant).
 func TestVerletCircularLEO1000Orbits(t *testing.T) {

@@ -3,7 +3,7 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 // Theme collects the lipgloss styles used across screens. Palette matches
-// docs/plan.md §Visual polish: primary cyan, warning amber, alert red,
+// designdocs/terminal-space-program/plan.md §Visual polish: primary cyan, warning amber, alert red,
 // dim gray for orbits.
 type Theme struct {
 	Primary lipgloss.Style

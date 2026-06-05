@@ -6,7 +6,7 @@
 // geographic. Stored on World; cleared at session open / auto-release
 // / hand-off; survives a manual `v` cycle out + back.
 //
-// Plan reference: docs/v0.11-plan.md → Slice v0.11.0 (Trail is
+// Plan reference: designdocs/terminal-space-program/v0.11-plan.md → Slice v0.11.0 (Trail is
 // body-fixed locked decision).
 package sim
 

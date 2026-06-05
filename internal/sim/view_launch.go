@@ -16,8 +16,8 @@
 // session-open/close helpers. Render-side (the chase-cam scene
 // itself) lives in internal/tui/screens/launch.go.
 //
-// Plan reference: docs/v0.11-plan.md → Slice v0.11.0.
-// Architectural rationale: docs/adr/0002-launch-view-as-distinct-viewmode.md.
+// Plan reference: designdocs/terminal-space-program/v0.11-plan.md → Slice v0.11.0.
+// Architectural rationale: designdocs/terminal-space-program/adr/0002-launch-view-as-distinct-viewmode.md.
 package sim
 
 import (
@@ -98,7 +98,7 @@ func (w *World) tickLaunchView() {
 // (the lastActiveCraft != nil guard is the caller's job — this
 // handler assumes a real switch).
 //
-// Quadrants (Locked decisions, docs/v0.11-plan.md):
+// Quadrants (Locked decisions, designdocs/terminal-space-program/v0.11-plan.md):
 //   - in-session × new Landed   → hand-off (keep session, re-stamp T0)
 //   - in-session × new !Landed  → end + restore PrevViewMode
 //   - !in-session × new Landed  → fresh inline session

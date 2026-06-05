@@ -2,7 +2,7 @@ package sim
 
 import "time"
 
-// WarpFactors are the discrete time-warp steps per docs/plan.md §Time-warp UX.
+// WarpFactors are the discrete time-warp steps per designdocs/terminal-space-program/plan.md §Time-warp UX.
 var WarpFactors = []float64{1, 10, 100, 1000, 10000, 100000}
 
 // RotationCapWarp is the maximum effective warp factor for body

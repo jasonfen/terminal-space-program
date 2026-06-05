@@ -89,7 +89,7 @@ type RendezvousAdvisory struct {
 // already has on the HUD (typically from NextClosestApproach); the
 // function uses it for the two-prong improvement floor.
 //
-// Algorithm (see docs/v0.10-plan.md §v0.10.2 / plan file):
+// Algorithm (see designdocs/terminal-space-program/v0.10-plan.md §v0.10.2 / plan file):
 //
 //  1. Scan Lambert intercept solutions at T_k = {0.15, 0.3, 0.5, 0.8,
 //     1.2}·P_B; pick the lookahead that minimises |Δv_full|.

@@ -17,7 +17,7 @@ import (
 // No glyph: braille dots are direction-agnostic, so a tilted rocket
 // renders smoothly at any pitch without per-glyph rotation
 // (v0.11.3 playtest pivot from ASCII glyphs to braille pixels — see
-// docs/v0.11-plan.md "Resolved at slice-open").
+// designdocs/terminal-space-program/v0.11-plan.md "Resolved at slice-open").
 type SpritePixel struct {
 	OffsetWorld orbital.Vec3
 	Color       lipgloss.Color

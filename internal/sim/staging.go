@@ -5,7 +5,7 @@
 // + velocity. The active craft retains the upper-stage chain (its
 // new bottom = the old Stages[1], now firing). Resolves open
 // scoping question #3 (KSP-style player-managed sequential
-// decouples) per docs/v0.9-plan.md §"Resolved scoping questions".
+// decouples) per designdocs/terminal-space-program/v0.9-plan.md §"Resolved scoping questions".
 
 package sim
 
