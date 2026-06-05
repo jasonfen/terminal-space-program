@@ -56,31 +56,6 @@ func (a AxisLabel) String() string {
 	return "?"
 }
 
-// Abbrev is a compact label for width-constrained HUD chips, where the
-// full String() names blow out the chip width. Not the canonical name —
-// callers that plant a node still read String().
-func (a AxisLabel) Abbrev() string {
-	switch a {
-	case AxisPrograde:
-		return "pro"
-	case AxisRetrograde:
-		return "retro"
-	case AxisNormalPlus:
-		return "nml+"
-	case AxisNormalMinus:
-		return "nml-"
-	case AxisRadialOut:
-		return "rad+"
-	case AxisRadialIn:
-		return "rad-"
-	case AxisTargetPrograde:
-		return "t-pro"
-	case AxisTargetRetrograde:
-		return "t-retro"
-	}
-	return "?"
-}
-
 // RendezvousAdvisory is the result of a single-burn nudge
 // recommendation. v0.10.2+.
 //

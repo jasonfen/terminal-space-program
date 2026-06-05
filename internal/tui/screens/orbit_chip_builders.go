@@ -650,24 +650,6 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 					)
 				}
 			}
-			if adv, hudOk := w.RecommendedRendezvousBurn(); hudOk {
-				if adv.Ok {
-					lines = append(lines,
-						fmt.Sprintf("  K Δv:   %.1f m/s %s", adv.DV, adv.Axis.Abbrev()),
-						fmt.Sprintf("  → CA %s @ T+%s", formatRangeM(adv.AchievableCA), formatTCA(adv.TArrival)),
-					)
-				} else {
-					faint := lipgloss.NewStyle().Faint(true)
-					switch adv.Reason {
-					case "no improvement available":
-						lines = append(lines, "  "+faint.Render("K: no useful nudge"))
-					case "burn too large — use H/I/m":
-						lines = append(lines, "  "+faint.Render("K: too big — use H/I/m"))
-					case "burn drops periapsis unsafely":
-						lines = append(lines, "  "+faint.Render("K: unsafe peri — H/I/m"))
-					}
-				}
-			}
 			if rangeM < 50 && vRel < 0.1 {
 				dockStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
 				lines = append(lines, "  "+dockStyle.Render("DOCK READY"))
