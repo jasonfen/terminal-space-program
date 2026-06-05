@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -568,7 +569,7 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
 		lines := []string{
 			v.theme.Primary.Render("TARGET"),
-			"  body:   " + nameStyle.Render(b.EnglishName),
+			chipRow("body:", nameStyle.Render(b.EnglishName)),
 		}
 		mu := c.Primary.GravitationalParameter()
 		frame := orbital.ReferenceFrameForPrimary(c.Primary)
@@ -591,10 +592,10 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			if di > 30 {
 				diLabel = v.theme.Warning.Render(diLabel)
 			}
-			lines = append(lines, fmt.Sprintf("  Δi:     %s", diLabel))
+			lines = append(lines, chipRow("Δi:", diLabel))
 		}
 		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
-		lines = append(lines, fmt.Sprintf("  range:  %s", formatRangeM(rangeM)))
+		lines = append(lines, chipRow("range:", formatRangeM(rangeM)))
 		return lines
 	case sim.TargetCraft:
 		if w.Target.CraftIdx < 0 || w.Target.CraftIdx >= len(w.Crafts) {
@@ -604,17 +605,16 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		if tc == nil {
 			return nil
 		}
-		nameLine := "  vessel: " + tc.Name
-		lines := []string{v.theme.Primary.Render("TARGET"), nameLine}
+		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("vessel:", tc.Name)}
 		tMu := tc.Primary.GravitationalParameter()
 		tFrame := orbital.ReferenceFrameForPrimary(tc.Primary)
 		tEl := orbital.ElementsFromStateInFrame(tc.State.R, tc.State.V, tMu, tFrame)
 		if tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0) {
 			tPrimaryR := tc.Primary.RadiusMeters()
 			lines = append(lines,
-				fmt.Sprintf("  apoapsis:  %.1f km", (tEl.Apoapsis()-tPrimaryR)/1000),
-				fmt.Sprintf("  periapsis: %.1f km", (tEl.Periapsis()-tPrimaryR)/1000),
-				fmt.Sprintf("  inclin.:   %.2f°", tEl.I*180/math.Pi),
+				chipRow("apoapsis:", fmt.Sprintf("%.1f km", (tEl.Apoapsis()-tPrimaryR)/1000)),
+				chipRow("periapsis:", fmt.Sprintf("%.1f km", (tEl.Periapsis()-tPrimaryR)/1000)),
+				chipRow("inclin.:", fmt.Sprintf("%.2f°", tEl.I*180/math.Pi)),
 			)
 		}
 		var rRel, vRelVec orbital.Vec3
@@ -633,9 +633,9 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			closing = -rRel.Dot(vRelVec) / rangeM
 		}
 		lines = append(lines,
-			fmt.Sprintf("  range:   %s", formatRangeM(rangeM)),
-			fmt.Sprintf("  |v_rel|: %.2f m/s", vRel),
-			fmt.Sprintf("  closing: %+.2f m/s", closing),
+			chipRow("range:", formatRangeM(rangeM)),
+			chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", vRel)),
+			chipRow("closing:", fmt.Sprintf("%+.2f m/s", closing)),
 		)
 		if tc.Primary.ID == c.Primary.ID {
 			if rT, vT, ok := w.TargetStateRelativeToActivePrimary(); ok {
@@ -645,8 +645,8 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 				const horizon = 4 * 3600.0
 				if tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, horizon); err == nil {
 					lines = append(lines,
-						fmt.Sprintf("  TCA:    %s", formatTCA(tCA)),
-						fmt.Sprintf("  CA:     %s", formatRangeM(distCA)),
+						chipRow("TCA:", formatTCA(tCA)),
+						chipRow("CA:", formatRangeM(distCA)),
 					)
 				}
 			}
@@ -658,6 +658,25 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		return lines
 	}
 	return nil
+}
+
+// chipValueCol is the display column a chip row's value begins at, shared
+// by the ORBIT and TARGET chips so the two line up when stacked in the same
+// corner. The buildOrbitMetricsChip rows are hand-padded to this column.
+const chipValueCol = 13
+
+// chipRow formats a "  label   value" telemetry row with the value pinned
+// to chipValueCol regardless of label width — so a chip's values share one
+// column instead of drifting per label. Padding is measured in display
+// cells (lipgloss.Width), so multibyte labels like "Δi:" and styled values
+// align correctly where byte-counted %-Ns padding would not.
+func chipRow(label, value string) string {
+	prefix := "  " + label
+	pad := chipValueCol - lipgloss.Width(prefix)
+	if pad < 1 {
+		pad = 1
+	}
+	return prefix + strings.Repeat(" ", pad) + value
 }
 
 // formatRangeM renders a distance with AU / km / m bands matching the
