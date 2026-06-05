@@ -190,6 +190,7 @@ func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 		t.Fatalf("predicate gate didn't fire for 5 km / 1.5 km/s lateral; can't drive render path")
 	}
 	view := NewOrbitView(descentHUDTheme())
+	view.Resize(200, 60) // realistic canvas; the 80×24 default is too short for the bordered chip stack
 	out := view.Render(w, 0, 200, 60)
 	if !strings.Contains(out, "DESCENT") {
 		t.Errorf("expected DESCENT section header in render; got:\n%s", out)

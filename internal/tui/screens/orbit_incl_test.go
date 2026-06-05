@@ -174,6 +174,7 @@ func TestLandedInclinLabelRelabeledToLaunchLat(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
+	v.Resize(200, 80) // realistic canvas; the 80×24 default is too short for the bordered chip stack
 	out := v.Render(w, 0, 200, 80)
 	if !strings.Contains(out, "launch lat:") {
 		t.Errorf("expected Landed HUD to show 'launch lat:' row; got:\n%s", out)

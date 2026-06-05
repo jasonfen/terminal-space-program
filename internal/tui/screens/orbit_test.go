@@ -144,6 +144,51 @@ func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	}
 }
 
+// TestOrbitMetricsChipShowsTimeToApsides: the live ORBIT chip carries a
+// t→apo / t→peri readout alongside the apoapsis/periapsis altitudes. At
+// periapsis of an eccentric orbit both times are in the future (apo ≈
+// half a period out, peri ≈ a full period out), so both rows render.
+func TestOrbitMetricsChipShowsTimeToApsides(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	v.Resize(200, 60)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Landed = false
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	// Eccentric orbit well clear of the atmosphere (so the LAUNCH chip
+	// stays hidden and the ORBIT chip renders), placed at periapsis.
+	rPeri := primaryR + 300e3
+	rApo := primaryR + 1200e3
+	a := (rPeri + rApo) / 2
+	vAtPeri := math.Sqrt(mu * (2/rPeri - 1/a))
+	c.State.R.X, c.State.R.Y, c.State.R.Z = rPeri, 0, 0
+	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
+
+	out := v.Render(w, 0, 200, 60)
+	if strings.Contains(out, "LAUNCH") {
+		t.Fatalf("expected the ORBIT chip, not LAUNCH, for an orbit clear of the atmosphere.\nrender:\n%s", out)
+	}
+	if !strings.Contains(out, "t→apo:") {
+		t.Errorf("expected a t→apo row in the ORBIT chip.\nrender:\n%s", out)
+	}
+	if !strings.Contains(out, "t→peri:") {
+		t.Errorf("expected a t→peri row in the ORBIT chip.\nrender:\n%s", out)
+	}
+}
+
 // TestLaunchHUDHidesOnStableSubMissionFloorOrbit — regression for the
 // "186×186 km orbit but the launch display is still active" playtest
 // report. The launch HUD must hide once the orbit is stable (periapsis

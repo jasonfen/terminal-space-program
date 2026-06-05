@@ -58,8 +58,9 @@ type chipRect struct {
 }
 
 // chipGap is the blank-row spacing between stacked chips in the same
-// corner so adjacent overlays read as distinct panels over the canvas.
-const chipGap = 1
+// corner. Each chip now carries its own single-cell border, which already
+// separates adjacent panels, so no extra blank row is needed between them.
+const chipGap = 0
 
 // padChipBlock right-pads every line of a chip to the block's widest
 // visible width so the overlay paints an opaque rectangle over the busy
@@ -110,35 +111,39 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 
 	for _, chip := range chips {
 		padded, w := padChipBlock(chip.lines)
-		h := len(padded)
-		if h == 0 || w == 0 {
+		if len(padded) == 0 || w == 0 {
 			continue
 		}
+		// Wrap each chip in a single-cell rounded border so every panel
+		// reads as a distinct framed box over the canvas. The frame adds
+		// one cell on each side, so the placed block is w+2 × h+2.
+		block := wrapBorder(strings.Join(padded, "\n"), w, v.theme.Primary.GetForeground())
+		bw, bh := w+2, len(padded)+2
 		var atRow, atCol int
 		switch chip.corner {
 		case cornerTopLeft:
 			atRow, atCol = topLeftRow, 0
-			topLeftRow += h + chipGap
+			topLeftRow += bh + chipGap
 		case cornerTopRight:
-			atRow, atCol = topRightRow, cCols-w
-			topRightRow += h + chipGap
+			atRow, atCol = topRightRow, cCols-bw
+			topRightRow += bh + chipGap
 		case cornerBottomLeft:
-			atRow, atCol = bottomLeftRow-h+1, 0
-			bottomLeftRow -= h + chipGap
+			atRow, atCol = bottomLeftRow-bh+1, 0
+			bottomLeftRow -= bh + chipGap
 		case cornerBottomRight:
-			atRow, atCol = bottomRightRow-h+1, cCols-w
-			bottomRightRow -= h + chipGap
+			atRow, atCol = bottomRightRow-bh+1, cCols-bw
+			bottomRightRow -= bh + chipGap
 		}
 		if atCol < 0 {
 			atCol = 0
 		}
-		lines = overlayStyledBlock(lines, strings.Join(padded, "\n"), atRow, atCol, cCols)
+		lines = overlayStyledBlock(lines, block, atRow, atCol, cCols)
 		v.chipRects = append(v.chipRects, chipRect{
 			id:       chip.id,
 			colStart: atCol + screenColOffset,
-			colEnd:   atCol + w - 1 + screenColOffset,
+			colEnd:   atCol + bw - 1 + screenColOffset,
 			rowStart: atRow + screenRowOffset,
-			rowEnd:   atRow + h - 1 + screenRowOffset,
+			rowEnd:   atRow + bh - 1 + screenRowOffset,
 		})
 	}
 	return strings.Join(lines, "\n")

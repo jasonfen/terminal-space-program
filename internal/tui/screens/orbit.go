@@ -211,13 +211,16 @@ func (v *OrbitView) Declutter() bool {
 // Resize forwards terminal dimensions to the canvas. v0.13 playtest move:
 // VESSEL/PROPELLANT became a pinned canvas chip, so there is no HUD column
 // — the orbit map spans the full terminal width, less the 2 cols its
-// rounded border occupies. 4 rows are reserved for the title + footer.
+// rounded border occupies. 3 rows are reserved: the title row plus the
+// canvas's top and bottom border. The keybind cheat-sheet footer was
+// dropped (the `?` overlay is the source of truth), giving its row to the
+// map; transient status / confirm lines now ride the bottom border.
 func (v *OrbitView) Resize(totalCols, totalRows int) {
 	canvasCols := totalCols - 2
 	if canvasCols < 20 {
 		canvasCols = 20
 	}
-	v.canvas.Resize(canvasCols, totalRows-4)
+	v.canvas.Resize(canvasCols, totalRows-3)
 	v.fitted = false // force refit after resize
 }
 
@@ -831,21 +834,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		craftChip = fmt.Sprintf(" — CRAFT %d/%d", w.ActiveCraftIdx+1, n)
 	}
 	title := v.renderTitleBar(sys.Name+craftChip, w, totalCols)
-	// Footer is a cheat-sheet of the most-used keys; `?` opens the
-	// full help overlay (source of truth). Streamlined v0.10.1+ —
-	// dropped stale labels (`q` is attitude:radial+ since v0.7.3,
-	// `s` is attitude:retrograde, ←/→ body-cycle was superseded by
-	// the v0.9.0 `t`/`T` target slot, `N` clear-all moved into the
-	// `m` planner in v0.8.6) and added the flight / target / stage /
-	// save row players actually reach for.
-	footer := v.theme.Footer.Render(
-		"[?]help [esc]menu [+/-]zoom [f/F/g]focus [.,]warp [0]pause [m]maneuver [b]fire [wasdqe]attitude [space]stage/chute [t/T]target [H/I/C]plan [n]spawn [[/]]craft [F5/F9]save/load",
-	)
 
 	// v0.13 playtest move: VESSEL/PROPELLANT became a pinned canvas chip,
 	// so there is no right-hand column any more — the orbit map spans the
-	// full terminal width.
-	out := title + "\n" + canvasPanel + "\n" + footer
+	// full terminal width. The keybind cheat-sheet footer was dropped too
+	// (the `?` overlay is the source of truth), so the map claims that row;
+	// transient status / confirm lines ride the canvas bottom border.
+	out := title + "\n" + canvasPanel
 	return out
 }
 

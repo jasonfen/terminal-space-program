@@ -55,18 +55,19 @@ func NewLaunchView(th Theme, hudSource *OrbitView) *LaunchView {
 	}
 }
 
-// Resize sizes the canvas to leave the right ~30% for the HUD column
-// (mirrors OrbitView's split so the two screens line up when
-// cycling). Reserve 4 rows for title + footer + border.
+// Resize sizes the canvas to span the full terminal width (mirrors
+// OrbitView so the two screens line up when cycling). Reserve 3 rows: the
+// title plus the canvas's top and bottom border. The keybind footer was
+// dropped (matching the orbit screen), giving its row to the scene.
 func (v *LaunchView) Resize(totalCols, totalRows int) {
 	// v0.13: full-width canvas (no side HUD column) — the launch readouts
 	// are canvas chips now, matching the orbit screen. 2 cols for the
-	// rounded border, 4 rows for title + footer.
+	// rounded border, 3 rows for the title + top/bottom border.
 	canvasCols := totalCols - 2
 	if canvasCols < 20 {
 		canvasCols = 20
 	}
-	v.canvas.Resize(canvasCols, totalRows-4)
+	v.canvas.Resize(canvasCols, totalRows-3)
 }
 
 // CurrentScale returns the metres-per-cell scale the chase-cam is
@@ -154,9 +155,6 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 		craftName = craft.Name
 	}
 	title := v.theme.Title.Render(fmt.Sprintf("LAUNCH — %s", craftName))
-	footer := v.theme.Footer.Render(
-		"[?]help [esc]menu [+/-]zoom [v]cycle-view [.,]warp [0]pause",
-	)
 
 	if craft != nil && craft.Primary.MeanRadius > 0 {
 		v.renderScene(w, craft)
@@ -209,8 +207,9 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// v0.13 playtest move: the launch-relevant readouts (VESSEL core,
 	// LAUNCH, STAGES, ATTITUDE) are all canvas Chips now, composited above,
 	// so there's no side HUD column — the launch view spans the full width
-	// like the orbit screen.
-	return title + "\n" + canvasPanel + "\n" + footer
+	// like the orbit screen. The keybind footer was dropped too, so the
+	// scene claims that row (the `?` overlay is the keybinding reference).
+	return title + "\n" + canvasPanel
 }
 
 // wrapBorder draws a rounded-border frame around a multi-line content
