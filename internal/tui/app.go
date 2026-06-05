@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/save"
@@ -1182,19 +1183,17 @@ func (a *App) View() string {
 	// v0.8.1+: overlay the status message on top of an existing row
 	// rather than appending a new line. Appending grew the rendered
 	// height by one row and pushed the terminal to scroll the view
-	// every time the message expired / re-fired. The orbit screen's
-	// footer (last row) is the natural target — short-lived status
-	// lines are flight-state messages and live on the same band as
-	// the keybind hints.
+	// every time the message expired / re-fired. v0.14+: the keybind
+	// footer is gone, so these ride the canvas's bottom border instead
+	// — short-lived flight-state lines embedded in the frame edge.
+	border := lipgloss.NewStyle().Foreground(a.theme.Primary.GetForeground())
 	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
-		base = overlayLastLine(base, a.theme.Warning.Render(a.statusMsg))
+		base = overlayBottomBorder(base, a.theme.Warning.Render(a.statusMsg), border)
 	}
-	// v0.11.4+ (ADR 0004): end-flight confirm prompt overlays the
-	// footer row, same surface as the status flash. Takes precedence
-	// when both are active: an in-flight confirm is the actionable
-	// state; a stale status message can wait. The prompt copy is the
-	// same primitive the plan calls for — `[Y] end / [N] cancel`
-	// flavoured for the keys we accept (y/n/Esc).
+	// v0.11.4+ (ADR 0004): end-flight confirm prompt rides the same
+	// bottom-border band as the status flash. Takes precedence when both
+	// are active: an in-flight confirm is the actionable state; a stale
+	// status message can wait.
 	if a.endFlightConfirm {
 		c := a.world.ActiveCraft()
 		name := "vessel"
@@ -1202,20 +1201,38 @@ func (a *App) View() string {
 			name = c.Name
 		}
 		prompt := fmt.Sprintf("END FLIGHT — remove %s? [y/n]", name)
-		base = overlayLastLine(base, a.theme.Alert.Render(prompt))
+		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
 	}
 	return base
 }
 
-// overlayLastLine replaces the final \n-delimited row of base with
-// overlay, preserving the rendered height. v0.8.1+: used by the
-// status-message flash to avoid growing the screen.
-func overlayLastLine(base, overlay string) string {
+// overlayBottomBorder embeds overlay (already styled) into the final row
+// of base — the canvas's rounded bottom border — keeping the frame intact:
+// `╰─ overlay ─────╯`. Preserves the rendered height. When the last row
+// isn't a bottom border (a non-canvas screen) or overlay is too wide to
+// inset, it falls back to replacing the row outright. border styles the
+// corners/dashes to match the canvas frame.
+func overlayBottomBorder(base, overlay string, border lipgloss.Style) string {
 	idx := strings.LastIndex(base, "\n")
 	if idx < 0 {
 		return overlay
 	}
-	return base[:idx+1] + overlay
+	last := base[idx+1:]
+	label := " " + overlay + " "
+	inner := lipgloss.Width(last) - 2 // dashes available between the corners
+	dashes := inner - lipgloss.Width(label)
+	if !strings.Contains(last, "╰") || !strings.Contains(last, "╯") || dashes < 0 {
+		return base[:idx+1] + overlay // fallback: plain row replacement
+	}
+	lead := 1
+	if dashes < lead {
+		lead = 0
+	}
+	trail := dashes - lead
+	return base[:idx+1] +
+		border.Render("╰"+strings.Repeat("─", lead)) +
+		label +
+		border.Render(strings.Repeat("─", trail)+"╯")
 }
 
 // bindManeuverTarget hands the current World.Target binding to the

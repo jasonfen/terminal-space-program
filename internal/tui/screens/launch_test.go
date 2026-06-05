@@ -153,7 +153,7 @@ func TestLaunchViewAutoScale(t *testing.T) {
 // LaunchView.Render produces a non-empty frame whose title names the
 // LAUNCH view and the active craft. Footer carries the ViewLaunch-
 // specific key hints (+/- zoom, v cycle).
-func TestLaunchViewRenderTitleAndFooter(t *testing.T) {
+func TestLaunchViewRenderTitle(t *testing.T) {
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	v.Resize(120, 40)
@@ -171,8 +171,10 @@ func TestLaunchViewRenderTitleAndFooter(t *testing.T) {
 	if c := w.ActiveCraft(); c != nil && !strings.Contains(out, c.Name) {
 		t.Errorf("expected craft name %q in title, got:\n%s", c.Name, out)
 	}
-	if !strings.Contains(out, "+/-") || !strings.Contains(out, "[v]") {
-		t.Errorf("expected '+/-' and '[v]' in footer hints, got:\n%s", out)
+	// v0.14+: the keybind cheat-sheet footer was dropped (the `?` overlay
+	// is the keybinding reference) and its row given to the scene.
+	if strings.Contains(out, "[?]help") {
+		t.Errorf("expected no keybind footer after its removal, got:\n%s", out)
 	}
 }
 
