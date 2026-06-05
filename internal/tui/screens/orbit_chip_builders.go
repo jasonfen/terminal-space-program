@@ -537,13 +537,20 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	primaryR := c.Primary.RadiusMeters()
 	apoAlt := el.Apoapsis() - primaryR
 	periAlt := el.Periapsis() - primaryR
+	st := orbital.Vec3State{R: c.State.R, V: c.State.V}
 	lines := []string{
 		v.theme.Primary.Render("ORBIT"),
-		fmt.Sprintf("  altitude:  %.1f km", c.Altitude()/1000),
-		fmt.Sprintf("  apoapsis:  %.1f km", apoAlt/1000),
-		fmt.Sprintf("  periapsis: %.1f km", periAlt/1000),
-		fmt.Sprintf("  inclin.:   %.2f°", el.I*180/math.Pi),
+		chipRow("altitude:", fmt.Sprintf("%.1f km", c.Altitude()/1000)),
+		chipRow("apoapsis:", fmt.Sprintf("%.1f km", apoAlt/1000)),
 	}
+	if tApo := orbital.TimeToApoapsis(st, mu); tApo >= 0 {
+		lines = append(lines, chipRow("t→apo:", formatDurationShort(tApo)))
+	}
+	lines = append(lines, chipRow("periapsis:", fmt.Sprintf("%.1f km", periAlt/1000)))
+	if tPeri := orbital.TimeToPeriapsis(st, mu); tPeri >= 0 {
+		lines = append(lines, chipRow("t→peri:", formatDurationShort(tPeri)))
+	}
+	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
 	}
