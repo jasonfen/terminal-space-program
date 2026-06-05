@@ -29,6 +29,7 @@ const (
 	screenMissions
 	screenSpawn    // v0.8.2+: craft-type pick form on `n`.
 	screenSettings // v0.13 slice 3: per-Chip visibility toggles, reached from the menu.
+	screenBoss     // boss key: full-screen fake developer shell (backtick from any screen).
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -58,6 +59,14 @@ type App struct {
 	// edits write through to orbitView's settings.Settings and persist to
 	// settings.json immediately (see toggleChip).
 	settingsScreen *screens.SettingsScreen
+
+	// boss is the backtick "boss key" fake shell. bossReturnScreen records
+	// the screen that was active when it opened, and bossPrevPaused records
+	// the sim pause state at that moment; exit restores both so the player
+	// lands back exactly where they left, with the clock as it was.
+	boss             *screens.BossShell
+	bossReturnScreen screenID
+	bossPrevPaused   bool
 
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
@@ -116,6 +125,7 @@ func New() (*App, error) {
 		spawn:      screens.NewSpawnCraft(sth),
 
 		settingsScreen: screens.NewSettingsScreen(sth),
+		boss:           screens.NewBossShell(sth),
 	}, nil
 }
 
@@ -375,6 +385,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key.Matches(m, a.keys.Quit) {
 			a.autosave()
 			return a, tea.Quit
+		}
+		// Boss key: a single global keypress (backtick) swaps the whole
+		// screen to a fake developer shell, and swaps back on
+		// exit/logout/ctrl+d. This block sits ABOVE every per-screen block
+		// and above endFlightConfirm so it fires from ANY screen and so the
+		// shell's own keystrokes never leak into game handlers — while the
+		// shell is active we return early for EVERY key. Checking
+		// screenBoss first also means a backtick typed inside the shell is
+		// consumed as text by HandleKey rather than re-triggering the open.
+		if a.active == screenBoss {
+			if a.boss.HandleKey(m.String()) == screens.BossActionExit {
+				a.active = a.bossReturnScreen
+				a.world.Clock.Paused = a.bossPrevPaused
+			}
+			return a, nil
+		}
+		if key.Matches(m, a.keys.BossKey) {
+			a.bossReturnScreen = a.active
+			a.bossPrevPaused = a.world.Clock.Paused
+			a.world.Clock.Paused = true // freeze the sim while "away"
+			a.boss.Reset()              // fresh lived-in session each open
+			a.active = screenBoss
+			return a, nil
 		}
 		// v0.11.4+ (ADR 0004): end-flight y/n confirm intercept. When
 		// the [E] prompt is open, y/Y commits the removal and n/N/Esc
@@ -1137,6 +1170,8 @@ func (a *App) View() string {
 		base = a.missions.Render(a.world, a.width)
 	case screenSettings:
 		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width)
+	case screenBoss:
+		base = a.boss.Render(a.width, a.height)
 	default:
 		if a.world.ViewMode == sim.ViewLaunch {
 			base = a.launchView.Render(a.world, a.width, a.height)

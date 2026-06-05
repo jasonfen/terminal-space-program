@@ -192,6 +192,14 @@ type Keymap struct {
 	// clean orbit map. F2 matches the KSP "toggle UI" convention.
 	// Transient and unsaved; never hides the slim HUD column.
 	Declutter key.Binding
+
+	// BossKey: a single global keypress that swaps the whole screen to a
+	// fake developer shell and back. Backtick is chosen because it is a
+	// fast key right under Esc that the game does not otherwise use; while
+	// the shell is active it is consumed as shell text rather than a
+	// trigger, so being printable causes no collision. Deliberately NOT
+	// advertised in the help overlay (an empty WithHelp description).
+	BossKey key.Binding
 }
 
 func DefaultKeymap() Keymap {
@@ -265,5 +273,6 @@ func DefaultKeymap() Keymap {
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
 		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
 		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
+		BossKey:                   key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "")),
 	}
 }
