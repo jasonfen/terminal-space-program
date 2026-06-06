@@ -39,7 +39,12 @@ func KeplerStep(s StateVector, mu, dt float64) (StateVector, bool) {
 
 	// Mean anomaly at t=0 derived from current state.
 	var M0 float64
-	if el.E > 1e-9 {
+	// Match orbital.ElementsFromState's circularTol (1e-6). For e below
+	// it, cosE = (1 − r/a)/e amplifies float noise by ~1/e, clamping
+	// cosE to ±1 and snapping the craft back to periapsis (a warp-lock
+	// teleport). The perifocal-angle branch below is noise-free for that
+	// near-circular band. (#90)
+	if el.E > 1e-6 {
 		// Elliptic, non-circular. Standard formulas:
 		//   r = a(1 − e cos E)  →  cos E = (1 − r/a) / e
 		//   r·v = √(µa) · e · sin E

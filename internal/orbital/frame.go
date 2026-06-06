@@ -93,7 +93,11 @@ func PositionAtTrueAnomaly(el Elements, nu float64) Vec3 {
 		return Vec3{}
 	}
 	p := el.A * (1 - el.E*el.E)
-	if p == 0 {
+	// p = a(1−e²) is 0 for parabolic (e=1) and negative for hyperbolic
+	// (e>1); both are degenerate for this elliptic-only position formula
+	// and would otherwise yield a singular or negative radius. Guard
+	// `p <= 0`, matching VelocityAtTrueAnomaly below. (#90)
+	if p <= 0 {
 		return Vec3{}
 	}
 	r := p / (1 + el.E*math.Cos(nu))
@@ -269,10 +273,15 @@ func PlaneMatchInclination(target bodies.CelestialBody, primaryFrame BodyFrame) 
 // (sin Ω·sin i, −cos Ω·sin i, cos i). Returns the zero vector for a
 // body with no orbit (the system primary). v0.10.4+.
 func OrbitNormalWorld(b bodies.CelestialBody) Vec3 {
-	if b.SemimajorAxis == 0 {
+	// Guard the *computed* semimajor axis, which honors the
+	// OrbitalElements override (ElementsFromBody). Checking the
+	// top-level b.SemimajorAxis would wrongly zero the normal for a body
+	// whose orbit lives only in the override, collapsing
+	// PlaneMatchInclination to 0. (#90)
+	el := ElementsFromBody(b)
+	if el.A == 0 {
 		return Vec3{}
 	}
-	el := ElementsFromBody(b)
 	sI, cI := math.Sin(el.I), math.Cos(el.I)
 	sO, cO := math.Sin(el.Omega), math.Cos(el.Omega)
 	return Vec3{X: sO * sI, Y: -cO * sI, Z: cI}

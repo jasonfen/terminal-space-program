@@ -166,7 +166,11 @@ func classifySurfaceArrival(
 			return outcomeCrashed, 0, 0
 		}
 		nose = nose.Scale(1 / nose.Norm())
-		if nose.Dot(localUp) <= CrashNoseTol {
+		// Strictly-below rejects; at-or-above NOSE_TOL lands. The route
+		// comments document "land when nose > NOSE_TOL" and the velocity
+		// gates use >= (reject at-or-above), so a craft sitting exactly at
+		// the 0.7 minimum is the boundary that should land. (#90)
+		if nose.Dot(localUp) < CrashNoseTol {
 			return outcomeCrashed, 0, 0
 		}
 	default:

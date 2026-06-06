@@ -44,8 +44,17 @@ const (
 // Pure (no World) so the geometry is unit-testable in isolation; the
 // World wrapper below only supplies nTarget.
 func hohmannGuardDetail(rC, vC orbital.Vec3, mu float64, nTarget orbital.Vec3, eTol, inclTolDeg float64) string {
+	// minNormalThreshold — orbit-normal magnitudes below this are treated
+	// as degenerate (unassessable). An exact `== 0` check is insufficient:
+	// when nTarget is built from two position samples a fixed interval
+	// apart, a custom short-period (<2h) moon advances ~180° between
+	// samples and the cross-product collapses to ~1e-9, not exactly 0 —
+	// which would otherwise divide the cosine below by ~1e-9 and emit a
+	// spurious tilt warning. Scaled up from the orbital frame.go `< 1e-12`
+	// pattern for orbit-normal cross magnitudes. (#90)
+	const minNormalThreshold = 1e-8
 	nCraft := rC.Cross(vC)
-	if nCraft.Norm() == 0 || nTarget.Norm() == 0 || mu <= 0 {
+	if nCraft.Norm() < minNormalThreshold || nTarget.Norm() < minNormalThreshold || mu <= 0 {
 		return "" // can't assess — stay silent rather than cry wolf
 	}
 	var problems []string

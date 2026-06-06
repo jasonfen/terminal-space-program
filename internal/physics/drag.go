@@ -30,6 +30,12 @@ func AtmosphericDensity(primary bodies.CelestialBody, altitude float64) float64 
 	return atm.SurfaceDensity * math.Exp(-altitude/atm.ScaleHeight)
 }
 
+// MinSpinPeriodSeconds is the floor on a body's rotation period when
+// computing its spin vector. No physical body rotates faster than once
+// per second; clamping here prevents corrupt catalog data from producing
+// an unbounded ω that would corrupt the drag integrator.
+const MinSpinPeriodSeconds = 1.0
+
 // AtmosphereOmega returns the body's spin angular-velocity vector
 // (rad/s) in the world inertial frame. Tilted along the body's
 // physical spin axis per AxialTilt + AxialAzimuth, matching
@@ -50,6 +56,15 @@ func AtmosphereOmega(primary bodies.CelestialBody) orbital.Vec3 {
 	periodSec := atmospherePeriodSeconds(primary)
 	if periodSec == 0 {
 		return orbital.Vec3{}
+	}
+	// Clamp pathologically small periods. The == 0 check above catches
+	// no-data; this catches garbage-data (a corrupt SideralRotation /
+	// SideralOrbit in a catalog or user overlay). No real body spins
+	// faster than once per second, so the floor is physically safe and
+	// keeps |ω| — and the AirRelativeVelocity / DragAccel terms it feeds
+	// into the integrator — bounded. (#90)
+	if periodSec < MinSpinPeriodSeconds {
+		periodSec = MinSpinPeriodSeconds
 	}
 	mag := 2 * math.Pi / periodSec
 	tiltRad := primary.AxialTilt * math.Pi / 180.0

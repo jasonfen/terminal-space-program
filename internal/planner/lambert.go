@@ -153,6 +153,14 @@ func LambertSolveRev(r1, r2 orbital.Vec3, dt, mu float64, nRev int, retrograde, 
 			for F(z) > 0 && z > -4*math.Pi*math.Pi {
 				z -= 0.1
 			}
+			// Exhaustion guard, mirroring the long-/short-branch loops
+			// above: if the walk hit the hyperbolic floor without F
+			// changing sign (or went NaN), there is no bracket and the
+			// Newton seed below would be unvalidated. Fail explicitly
+			// instead of feeding garbage to Newton. (#90)
+			if fv := F(z); math.IsNaN(fv) || fv > 0 {
+				return orbital.Vec3{}, orbital.Vec3{}, errors.New("lambert: bracket search failed — hyperbolic walk exhausted without sign change")
+			}
 		} else {
 			for {
 				fv := F(z)
