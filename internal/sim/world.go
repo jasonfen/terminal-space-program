@@ -33,6 +33,14 @@ type World struct {
 	Crafts         []*spacecraft.Spacecraft
 	ActiveCraftIdx int
 
+	// NextCraftID is the monotonic source of stable Spacecraft.IDs
+	// (v0.14.x / ADR 0012). Stamped onto each craft as it enters the
+	// slate; never decremented or reused, so a target bound to an ID
+	// can never alias a different vessel after a slate mutation (GH #87).
+	// Persisted (save schema v7). Zero is pre-stamp; EnsureCraftIDs
+	// initialises it to len(Crafts)+1 and stamps any unstamped craft.
+	NextCraftID uint64
+
 	// LastDockEvent records the most recent fusion for HUD flash
 	// + diagnostic. Cleared by app.go after the message is shown.
 	// v0.8.3+.
@@ -263,6 +271,7 @@ func NewWorld() (*World, error) {
 		// frame from the first tick.
 		w.Focus = Focus{Kind: FocusCraft}
 	}
+	w.EnsureCraftIDs() // stamp the initial craft + prime NextCraftID (ADR 0012)
 	return w, nil
 }
 
@@ -1065,11 +1074,9 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 		planeRad = c.ActiveBurn.PlaneChangeRad
 		burnDir = c.ActiveBurn.BurnDirUnit
 	}
-	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftIdx != 0 {
-		if tIdx, ok := c.ActiveBurn.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
-			if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
-				rT, vT = tc.State.R, tc.State.V
-			}
+	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftID != 0 {
+		if tc, _, ok := w.craftByID(c.ActiveBurn.TargetCraftID); ok && tc.Primary.ID == c.Primary.ID {
+			rT, vT = tc.State.R, tc.State.V
 		}
 	} else {
 		rT, vT, _ = w.TargetStateRelativeToActivePrimary()

@@ -290,9 +290,11 @@ func TestNavballMarkersTargetModeRadialSwapsToTarget(t *testing.T) {
 	target.State.R = active.State.R.Add(orbital.Vec3{X: 1000, Y: 0, Z: 0})
 	target.State.V = active.State.V.Add(orbital.Vec3{X: 0, Y: 1, Z: 0})
 	target.Name = "target-test"
+	target.ID = 0 // shallow copy inherited active's ID; mint a fresh one
 	w.Crafts = append(w.Crafts, &target)
+	w.stampCraftID(&target)
 	w.Target.Kind = TargetCraft
-	w.Target.CraftIdx = len(w.Crafts) - 1
+	w.Target.CraftID = target.ID
 	w.NavMode = NavTarget
 
 	got := w.NavballMarkers()
@@ -332,9 +334,11 @@ func TestNavballMarkersTargetModeProgradeIsTargetRelative(t *testing.T) {
 	target.State.R = active.State.R.Add(orbital.Vec3{X: 1000, Y: 0, Z: 0})
 	target.State.V = active.State.V.Add(orbital.Vec3{X: 0, Y: 1, Z: 0})
 	target.Name = "target-test"
+	target.ID = 0 // shallow copy inherited active's ID; mint a fresh one
 	w.Crafts = append(w.Crafts, &target)
+	w.stampCraftID(&target)
 	w.Target.Kind = TargetCraft
-	w.Target.CraftIdx = len(w.Crafts) - 1
+	w.Target.CraftID = target.ID
 	w.NavMode = NavTarget
 
 	for _, m := range w.NavballMarkers() {

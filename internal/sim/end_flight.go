@@ -43,6 +43,13 @@ func (w *World) EndFlightActive() bool {
 	// append-trick: keep the prefix, skip idx, then append the
 	// suffix.
 	w.Crafts = append(w.Crafts[:idx], w.Crafts[idx+1:]...)
+	// The active (outgoing) craft was just removed, so there is no craft
+	// to checkpoint w.Target onto. Clear ActiveCraftIdx before
+	// reassigning: otherwise SetActiveCraftIdx's outgoing-checkpoint
+	// (still pointing at the old slot) would write the removed craft's
+	// live target onto whatever successor now occupies that slot,
+	// clobbering its own stored target binding (GH #87, defect 2).
+	w.ActiveCraftIdx = -1
 	switch {
 	case len(w.Crafts) == 0:
 		// Slate empty — no active vessel. Set sentinel so

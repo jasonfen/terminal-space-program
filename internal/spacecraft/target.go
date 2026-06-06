@@ -17,7 +17,8 @@ const (
 	TargetNone TargetKind = iota
 	// TargetBody references a body by index in System().Bodies.
 	TargetBody
-	// TargetCraft references a non-active craft by index in World.Crafts.
+	// TargetCraft references a non-active craft by its stable
+	// Spacecraft.ID (v0.14.x / ADR 0012; was a World.Crafts index).
 	TargetCraft
 	// TargetSite is reserved; not populated until landing-site
 	// targeting ships post-v0.9.
@@ -30,7 +31,7 @@ const (
 // own Target value so per-craft targeting persists across active-
 // craft switches.
 type Target struct {
-	Kind     TargetKind
-	BodyIdx  int // when Kind==TargetBody
-	CraftIdx int // when Kind==TargetCraft
+	Kind    TargetKind
+	BodyIdx int    // when Kind==TargetBody
+	CraftID uint64 // when Kind==TargetCraft — the target's stable Spacecraft.ID (ADR 0012)
 }

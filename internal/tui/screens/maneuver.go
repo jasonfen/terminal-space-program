@@ -54,29 +54,30 @@ type Maneuver struct {
 	editingIdx        int
 	loadedTriggerTime time.Time
 
-	// hasTargetCraft + targetCraftIdx carry the World.Target binding
+	// hasTargetCraft + targetCraftID carry the World.Target binding
 	// at form-open time, so the four target-relative burn modes and
 	// the TriggerNextClosestApproach event can resolve their
 	// direction / trigger against the captured target. Bound at open
 	// (not at every keypress) so a target switch while the form is
 	// open doesn't silently retarget a planted burn — the player
-	// closes + reopens the form to retarget. v0.9.3+.
+	// closes + reopens the form to retarget. v0.9.3+; bound by stable
+	// craft ID since v0.14.x (ADR 0012).
 	hasTargetCraft bool
-	targetCraftIdx int
+	targetCraftID  uint64
 }
 
-// SetTargetCraft binds (or unbinds) the target-craft slate index the
-// form's planted burn will be aimed at. Called by the app when
-// opening the form so the four target-relative burn modes and the
+// SetTargetCraft binds (or unbinds) the target craft (by stable ID) the
+// form's planted burn will be aimed at. Called by the app when opening
+// the form so the four target-relative burn modes and the
 // TriggerNextClosestApproach event can resolve at plant + fire time.
 // Pass ok=false to clear (no craft target set / target is a body).
-// v0.9.3+.
-func (m *Maneuver) SetTargetCraft(ok bool, idx int) {
+// v0.9.3+; binds by ID since v0.14.x (ADR 0012).
+func (m *Maneuver) SetTargetCraft(ok bool, id uint64) {
 	m.hasTargetCraft = ok
 	if ok {
-		m.targetCraftIdx = idx
+		m.targetCraftID = id
 	} else {
-		m.targetCraftIdx = 0
+		m.targetCraftID = 0
 	}
 	// If the currently-selected mode or trigger requires a target
 	// and we no longer have one, snap to safe defaults so the form
@@ -130,12 +131,12 @@ type BurnExecutedMsg struct {
 	// commanded value would have delivered (compensating finite-burn
 	// loss). Ignored for impulsive (zero-thrust) and Normal± burns.
 	IterateForTarget bool
-	// TargetCraftIdx (v0.9.3+) is the one-based encoding of the
-	// target slate idx the form was bound to at plant. Zero = no
-	// target. Mirrors ManeuverNode.TargetCraftIdx; the app passes it
-	// straight through. Only populated for target-relative modes /
-	// TriggerNextClosestApproach event.
-	TargetCraftIdx int
+	// TargetCraftID (v0.14.x / ADR 0012; was the one-based index
+	// TargetCraftIdx) is the stable Spacecraft.ID the form was bound to
+	// at plant. Zero = no target. Mirrors ManeuverNode.TargetCraftID;
+	// the app passes it straight through. Only populated for target-
+	// relative modes / TriggerNextClosestApproach event.
+	TargetCraftID uint64
 }
 
 // NodeDeleteMsg is emitted when the player presses ctrl+d in the
@@ -242,9 +243,9 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 	// expected to follow up with SetTargetCraft to reflect the
 	// CURRENT World.Target if the node's binding is stale, but the
 	// default-load behaviour preserves the original target.
-	if tIdx, ok := n.TargetCraftIdxValue(); ok {
+	if id, ok := n.TargetCraftIDValue(); ok {
 		m.hasTargetCraft = true
-		m.targetCraftIdx = tIdx
+		m.targetCraftID = id
 	}
 	m.applyFocus()
 }
@@ -293,14 +294,15 @@ func (m *Maneuver) Resize(cols, rows int) {
 // means the app should exit the maneuver screen (commit or cancel).
 //
 // Key bindings:
-//   tab / shift+tab        — cycle focus across mode / fire-at / Δv fields
-//   ←/→ (mode focused)     — cycle direction modes
-//   ←/→ (fire-at focused)  — cycle trigger events (Absolute / NextPeri / NextApo / NextAN / NextDN)
-//   enter                  — commit burn → emits BurnExecutedMsg with rocket-equation duration
-//   esc                    — cancel → plain exit (app handles)
-//   ctrl+d                 — delete the planted node being edited (no-op when creating new)
-//   c / C (or ctrl+k)      — clear ALL planted nodes for the active craft
-//   digits/backspace       — forwarded to focused text input
+//
+//	tab / shift+tab        — cycle focus across mode / fire-at / Δv fields
+//	←/→ (mode focused)     — cycle direction modes
+//	←/→ (fire-at focused)  — cycle trigger events (Absolute / NextPeri / NextApo / NextAN / NextDN)
+//	enter                  — commit burn → emits BurnExecutedMsg with rocket-equation duration
+//	esc                    — cancel → plain exit (app handles)
+//	ctrl+d                 — delete the planted node being edited (no-op when creating new)
+//	c / C (or ctrl+k)      — clear ALL planted nodes for the active craft
+//	digits/backspace       — forwarded to focused text input
 func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	const focusFields = 5 // mode / fireAt / dv / throttle / iterate
 	switch msg.String() {
@@ -405,12 +407,11 @@ func (m *Maneuver) commitCmd() tea.Cmd {
 		Throttle:         m.parsedThrottle(),
 		IterateForTarget: m.iterateForTarget,
 	}
-	// v0.9.3+: capture the bound target craft idx for target-relative
-	// modes and the TriggerNextClosestApproach event. One-based to
-	// match the ManeuverNode encoding (zero = no target, idx+1
-	// otherwise — JSON omitempty drops it for non-target nodes).
+	// v0.9.3+: capture the bound target craft for target-relative modes
+	// and the TriggerNextClosestApproach event. Bound by stable craft ID
+	// since v0.14.x (ADR 0012); zero = no target.
 	if m.hasTargetCraft && (spacecraft.IsTargetRelativeMode(mode) || event == sim.TriggerNextClosestApproach) {
-		msg.TargetCraftIdx = m.targetCraftIdx + 1
+		msg.TargetCraftID = m.targetCraftID
 	}
 	return func() tea.Msg { return msg }
 }
@@ -483,7 +484,6 @@ func (m *Maneuver) parsedDV() float64 {
 	return dv
 }
 
-
 // Render composes the preview canvas + form panel.
 func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	if w.ActiveCraft() == nil {
@@ -525,8 +525,8 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	// state vector (already primary-relative when same-primary) plots
 	// directly. Cross-primary targets are out of scope — the canvas
 	// frame is the wrong one for them.
-	if w.Target.Kind == sim.TargetCraft && w.Target.CraftIdx >= 0 && w.Target.CraftIdx < len(w.Crafts) {
-		if tc := w.Crafts[w.Target.CraftIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
+	if tc, _, ok := w.ResolveTargetCraft(); ok {
+		if tc.Primary.ID == c.Primary.ID {
 			tEl := orbital.ElementsFromState(tc.State.R, tc.State.V, mu)
 			tOrbitVisible := tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0)
 			if tOrbitVisible {

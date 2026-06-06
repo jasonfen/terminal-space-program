@@ -103,25 +103,20 @@ type ManeuverNode struct {
 	// planted burns from live `Craft.Throttle` so adjusting throttle
 	// mid-coast doesn't slow an in-flight planted burn.
 	Throttle float64
-	// TargetCraftIdx (v0.9.3+) is the World.Crafts index of the
-	// target craft this node was planted against, captured at plant
-	// time. Populated only for the four target-relative modes
-	// (BurnTargetPrograde / Retrograde / BurnTarget / AntiTarget) and
-	// for the TriggerNextClosestApproach event. Zero-value-omitempty:
-	// non-target nodes save without the field, no schema bump.
+	// TargetCraftID (v0.14.x / ADR 0012; was the one-based slate index
+	// TargetCraftIdx) is the stable Spacecraft.ID of the target craft
+	// this node was planted against, captured at plant time. Populated
+	// only for the four target-relative modes (BurnTargetPrograde /
+	// Retrograde / BurnTarget / AntiTarget) and for the
+	// TriggerNextClosestApproach event. Zero-value-omitempty: non-target
+	// nodes save without the field, no schema bump for that.
 	//
-	// Bound at plant time so a target switch later doesn't silently
-	// retarget the planted burn — the node remains aimed at the craft
-	// the player chose. Stale handling: if the referenced index falls
-	// out of range or w.Crafts[idx] is nil at fire time, the node
-	// degrades to no-op. v0.9.3+: TargetStaleAtLoad below also flags
-	// load-time staleness so the slate UI can surface it.
-	//
-	// One-based to allow JSON omitempty: encoded value is idx+1, so
-	// zero means "no target". Helpers (TargetCraftIdxValue / SetTarget
-	// CraftIdxValue) translate to the natural 0-based slate index;
-	// callers always work in 0-based.
-	TargetCraftIdx int `json:",omitempty"`
+	// Bound by identity at plant time so neither a later target switch
+	// nor a slate mutation (end-flight / dock / undock / stage) silently
+	// retargets the planted burn — the node stays aimed at the exact
+	// craft the player chose, or degrades to no-op if that craft is gone
+	// (resolve via World.craftByID at fire time). Zero means "no target".
+	TargetCraftID uint64 `json:",omitempty"`
 	// PlaneChangeRad (v0.10.4+) is the signed orbital-plane rotation
 	// angle (radians) for a BurnPlaneChange node — the angle the
 	// horizontal velocity is rotated through about the radial axis.
@@ -141,26 +136,23 @@ type ManeuverNode struct {
 	BurnDirUnit orbital.Vec3 `json:",omitempty"`
 }
 
-// TargetCraftIdxValue returns the 0-based slate index this node is
-// bound to, and ok=false if no target was bound at plant time. The
-// JSON-stored field is one-based so omitempty drops "no target"
-// nodes from the wire — translation lives here so callers don't need
-// to remember the offset. v0.9.3+.
-func (n ManeuverNode) TargetCraftIdxValue() (int, bool) {
-	if n.TargetCraftIdx == 0 {
+// TargetCraftIDValue returns the bound target craft's stable ID and
+// ok=false when no target was bound at plant time. omitempty drops
+// "no target" nodes from the wire. Resolve the ID to a live craft via
+// World.craftByID at use time. v0.14.x / ADR 0012 (was
+// TargetCraftIdxValue, which returned a slate index).
+func (n ManeuverNode) TargetCraftIDValue() (uint64, bool) {
+	if n.TargetCraftID == 0 {
 		return 0, false
 	}
-	return n.TargetCraftIdx - 1, true
+	return n.TargetCraftID, true
 }
 
-// SetTargetCraftIdx writes a 0-based slate index into the node's
-// stored target slot. v0.9.3+.
-func (n *ManeuverNode) SetTargetCraftIdx(idx int) {
-	n.TargetCraftIdx = idx + 1
-}
+// SetTargetCraftID binds the node to a craft by its stable ID. v0.14.x.
+func (n *ManeuverNode) SetTargetCraftID(id uint64) { n.TargetCraftID = id }
 
-// ClearTargetCraftIdx unbinds the node's target. v0.9.3+.
-func (n *ManeuverNode) ClearTargetCraftIdx() { n.TargetCraftIdx = 0 }
+// ClearTargetCraftID unbinds the node's target. v0.14.x.
+func (n *ManeuverNode) ClearTargetCraftID() { n.TargetCraftID = 0 }
 
 // IsTargetRelative reports whether this node's burn mode requires a
 // target craft state to resolve direction. v0.9.3+.
@@ -231,13 +223,13 @@ type ActiveBurn struct {
 	EndTime     time.Time
 	PrimaryID   string
 	Throttle    float64
-	// TargetCraftIdx (v0.9.3+) is one-based slate idx (matches
-	// ManeuverNode.TargetCraftIdx encoding) — zero means no target
+	// TargetCraftID (v0.14.x / ADR 0012; was TargetCraftIdx) is the
+	// stable Spacecraft.ID of the burn's target — zero means no target
 	// bound. Populated when a target-relative finite-burn node fires;
-	// the world's stepThrust resolves the target snapshot from this
-	// each tick so the burn keeps tracking even if the player swaps
-	// World.Target mid-burn.
-	TargetCraftIdx int `json:",omitempty"`
+	// the world's stepThrust resolves the target snapshot from this each
+	// tick (via craftByID) so the burn keeps tracking even if the player
+	// swaps World.Target or the slate shifts mid-burn.
+	TargetCraftID uint64 `json:",omitempty"`
 	// PlaneChangeRad (v0.10.4+) carries the BurnPlaneChange rotation
 	// angle from the firing node onto the running burn, so the
 	// attitude/thrust path can resolve the tilted plane-change
@@ -249,14 +241,14 @@ type ActiveBurn struct {
 	BurnDirUnit orbital.Vec3 `json:",omitempty"`
 }
 
-// TargetCraftIdxValue mirrors ManeuverNode.TargetCraftIdxValue —
-// returns the 0-based slate idx the burn is bound to, or ok=false
-// when no target was captured at fire time. v0.9.3+.
-func (b ActiveBurn) TargetCraftIdxValue() (int, bool) {
-	if b.TargetCraftIdx == 0 {
+// TargetCraftIDValue mirrors ManeuverNode.TargetCraftIDValue — returns
+// the stable ID the burn is bound to, or ok=false when no target was
+// captured at fire time. Resolve via World.craftByID. v0.14.x / ADR 0012.
+func (b ActiveBurn) TargetCraftIDValue() (uint64, bool) {
+	if b.TargetCraftID == 0 {
 		return 0, false
 	}
-	return b.TargetCraftIdx - 1, true
+	return b.TargetCraftID, true
 }
 
 // BurnStalled reports whether a planted burn is paused waiting for the

@@ -244,18 +244,11 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 			dt = orbital.TimeToNodeCrossing(state, mu, false)
 		case TriggerNextClosestApproach:
 			// v0.9.3+: bound to the craft captured at plant time
-			// via n.TargetCraftIdx. Skip if the target slot is
-			// stale (out-of-range / nil craft / different primary
-			// — same-primary only for the manual rendezvous slice).
-			tIdx, ok := n.TargetCraftIdxValue()
+			// via n.TargetCraftID (ADR 0012). Skip if the target is
+			// stale (removed craft / different primary — same-primary
+			// only for the manual rendezvous slice).
+			tc, _, ok := w.craftByID(n.TargetCraftID)
 			if !ok {
-				continue
-			}
-			if tIdx < 0 || tIdx >= len(w.Crafts) {
-				continue
-			}
-			tc := w.Crafts[tIdx]
-			if tc == nil {
 				continue
 			}
 			if tc.Primary.ID != c.Primary.ID {
@@ -1785,15 +1778,13 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 			break
 		}
 		// v0.9.3+: resolve target snapshot for target-relative nodes
-		// at fire time. Bound via n.TargetCraftIdx (captured at
-		// plant), not the current World.Target — a target switch
-		// between plant and fire doesn't silently retarget the burn.
+		// at fire time. Bound via n.TargetCraftID (captured at plant,
+		// ADR 0012), not the current World.Target — a target switch or
+		// slate shift between plant and fire doesn't retarget the burn.
 		var rT, vT orbital.Vec3
 		if n.IsTargetRelative() {
-			if tIdx, ok := n.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
-				if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
-					rT, vT = tc.State.R, tc.State.V
-				}
+			if tc, _, ok := w.craftByID(n.TargetCraftID); ok && tc.Primary.ID == c.Primary.ID {
+				rT, vT = tc.State.R, tc.State.V
 			}
 		}
 		if n.Duration == 0 {
@@ -1813,7 +1804,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				EndTime:        n.BurnEnd(),
 				PrimaryID:      n.PrimaryID,
 				Throttle:       n.EffectiveThrottle(),
-				TargetCraftIdx: n.TargetCraftIdx,
+				TargetCraftID:  n.TargetCraftID,
 				PlaneChangeRad: n.PlaneChangeRad,
 				BurnDirUnit:    n.BurnDirUnit,
 			}
@@ -1862,10 +1853,8 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 	// state + the target bound at plant (mirrors executeDueNodesFor).
 	var rT, vT orbital.Vec3
 	if n.IsTargetRelative() {
-		if tIdx, ok := n.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
-			if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == c.Primary.ID {
-				rT, vT = tc.State.R, tc.State.V
-			}
+		if tc, _, ok := w.craftByID(n.TargetCraftID); ok && tc.Primary.ID == c.Primary.ID {
+			rT, vT = tc.State.R, tc.State.V
 		}
 	}
 	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)

@@ -605,11 +605,8 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		lines = append(lines, chipRow("range:", formatRangeM(rangeM)))
 		return lines
 	case sim.TargetCraft:
-		if w.Target.CraftIdx < 0 || w.Target.CraftIdx >= len(w.Crafts) {
-			return nil
-		}
-		tc := w.Crafts[w.Target.CraftIdx]
-		if tc == nil {
+		tc, _, ok := w.ResolveTargetCraft()
+		if !ok {
 			return nil
 		}
 		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("vessel:", tc.Name)}

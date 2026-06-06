@@ -186,6 +186,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 			V: active.State.V,
 			M: c.TotalMass(),
 		}
+		w.stampCraftID(c) // stable identity before the craft enters the slate (ADR 0012)
 		w.Crafts = append(w.Crafts, c)
 		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
@@ -251,6 +252,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		// it. Player can override with any attitude key before
 		// engaging.
 		c.AttitudeMode = spacecraft.BurnRadialOut
+		w.stampCraftID(c) // stable identity before the craft enters the slate (ADR 0012)
 		w.Crafts = append(w.Crafts, c)
 		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
@@ -297,6 +299,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		V: frame.ToWorld(vBody),
 		M: c.TotalMass(),
 	}
+	w.stampCraftID(c) // stable identity before the craft enters the slate (ADR 0012)
 	w.Crafts = append(w.Crafts, c)
 	w.SetActiveCraftIdx(len(w.Crafts) - 1)
 	w.StopManualBurn()

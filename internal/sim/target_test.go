@@ -131,8 +131,8 @@ func TestCycleTargetIncludesSiblingCrafts(t *testing.T) {
 	// must land on TargetCraft idx 0 (crafts before bodies).
 	w.ClearTarget()
 	w.CycleTarget(true)
-	if w.Target.Kind != TargetCraft || w.Target.CraftIdx != 0 {
-		t.Errorf("first CycleTarget after spawn: got %+v, want {TargetCraft, 0} (crafts must come before bodies)", w.Target)
+	if w.Target.Kind != TargetCraft || w.Target.CraftID != w.Crafts[0].ID {
+		t.Errorf("first CycleTarget after spawn: got %+v, want craft idx 0 (ID %d; crafts must come before bodies)", w.Target, w.Crafts[0].ID)
 	}
 }
 

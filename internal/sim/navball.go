@@ -359,20 +359,18 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 	// drifts as the orbit advances — same drift KSP shows.
 	//
 	// Target-relative nodes resolve their target via the captured
-	// n.TargetCraftIdx (same path as executeDueNodesFor) — a target
-	// switch between plant and fire doesn't retarget the marker.
-	// Stale bindings (idx out of range, target on a different
-	// primary) produce zero direction and silently skip.
+	// n.TargetCraftID (same path as executeDueNodesFor, ADR 0012) — a
+	// target switch or slate shift between plant and fire doesn't
+	// retarget the marker. Stale bindings (removed craft, target on a
+	// different primary) produce zero direction and silently skip.
 	for i, n := range active.Nodes {
 		nrT, nvT := rT, vT
 		if n.IsTargetRelative() {
 			nrT, nvT = orbital.Vec3{}, orbital.Vec3{}
 			resolved := false
-			if tIdx, ok := n.TargetCraftIdxValue(); ok && tIdx >= 0 && tIdx < len(w.Crafts) {
-				if tc := w.Crafts[tIdx]; tc != nil && tc.Primary.ID == active.Primary.ID {
-					nrT, nvT = tc.State.R, tc.State.V
-					resolved = true
-				}
+			if tc, _, ok := w.craftByID(n.TargetCraftID); ok && tc.Primary.ID == active.Primary.ID {
+				nrT, nvT = tc.State.R, tc.State.V
+				resolved = true
 			}
 			// Stale / unbound target-relative node: skip the marker
 			// rather than letting DirectionUnitTarget's degenerate

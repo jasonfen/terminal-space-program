@@ -120,6 +120,7 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	jettisoned := buildJettisonedCraft(dropped, c)
 	jettisoned.Name = w.nextCraftName(jettisoned.Name)
 
+	w.stampCraftID(jettisoned) // the jettisoned stage is a new vessel (ADR 0012)
 	w.Crafts = append(w.Crafts, jettisoned)
 	jettisonedIdx = len(w.Crafts) - 1
 

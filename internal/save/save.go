@@ -38,8 +38,13 @@ import (
 // Stages slice (see migrateV5Craft). Load accepts any version in
 // [1, SchemaVersion]; pre-v6 envelopes are translated on load.
 // Bumps that need real migration logic should add a dedicated
-// upgrade pass keyed off File.Version.
-const SchemaVersion = 6
+// upgrade pass keyed off File.Version. v0.14.x bumps to v7 — vessels
+// gain a stable Spacecraft.ID and every target (world cursor, per-craft
+// binding, planted-node + in-flight-burn target slots) references a
+// craft by ID instead of slate index (ADR 0012, GH #87). v6 envelopes
+// migrate on load via migrateV6PayloadToV7, which assigns IDs by slate
+// position and rewrites the stored indices to IDs.
+const SchemaVersion = 7
 
 // File is the on-disk envelope.
 type File struct {
@@ -69,6 +74,7 @@ type Payload struct {
 	Craft          *Craft             `json:"craft,omitempty"`    // v1–v4 singular form; migrated to Crafts on load.
 	Crafts         []Craft            `json:"crafts,omitempty"`
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
+	NextCraftID    uint64             `json:"next_craft_id,omitempty"` // v0.14.x / schema v7: monotonic craft-ID counter (ADR 0012).
 	Nodes          []Node             `json:"nodes,omitempty"`
 	ActiveBurn     *ActiveBurn        `json:"active_burn,omitempty"`
 	Missions       []missions.Mission `json:"missions,omitempty"`
@@ -81,14 +87,20 @@ type Focus struct {
 }
 
 // Target mirrors sim.Target by value. v0.9.0+. The zero value
-// (Kind=0=TargetNone, BodyIdx=0, CraftIdx=0) is suppressed by the
-// payload's `omitempty` tag, so saves predating v0.9.0 round-trip
-// without writing the field — and load fills sim.World.Target with
-// the zero value, matching pre-target behaviour.
+// (Kind=0=TargetNone, BodyIdx=0) is suppressed by the payload's
+// `omitempty` tag, so saves predating v0.9.0 round-trip without
+// writing the field — and load fills sim.World.Target with the zero
+// value, matching pre-target behaviour.
+//
+// CraftID (v0.14.x / schema v7, ADR 0012) is the target craft's stable
+// Spacecraft.ID. CraftIdx is the retired pre-v7 0-based slate index,
+// retained only to read v6 saves; migrateV6PayloadToV7 converts it to
+// CraftID. v7 saves write CraftID and leave CraftIdx zero.
 type Target struct {
-	Kind     int `json:"kind"`
-	BodyIdx  int `json:"body_idx,omitempty"`
-	CraftIdx int `json:"craft_idx,omitempty"`
+	Kind     int    `json:"kind"`
+	BodyIdx  int    `json:"body_idx,omitempty"`
+	CraftIdx int    `json:"craft_idx,omitempty"` // pre-v7 (read-only for migration)
+	CraftID  uint64 `json:"craft_id,omitempty"`  // v7+ stable ID
 }
 
 // Vec3 is the wire form of orbital.Vec3.
@@ -117,6 +129,7 @@ type Vec3 struct {
 // v5 reader (none in production, but possible for tooling) would
 // still see a coherent craft.
 type Craft struct {
+	ID               uint64  `json:"id,omitempty"` // v0.14.x / schema v7: stable Spacecraft.ID (ADR 0012). Pre-v7 saves omit it; migrateV6PayloadToV7 assigns one per slate position.
 	Name             string  `json:"name"`
 	DryMass          float64 `json:"dry_mass"`
 	Fuel             float64 `json:"fuel"`
@@ -272,12 +285,14 @@ type Node struct {
 	PrimaryID       string  `json:"primary_id"`
 	Event           int     `json:"event,omitempty"`
 	Throttle        float64 `json:"throttle,omitempty"`
-	// TargetCraftIdx (v0.9.3+) is the one-based slate idx the node
-	// is bound to for target-relative modes / TriggerNextClosest
-	// Approach event. Zero = no target. Additive — pre-v0.9.3 saves
-	// load with TargetCraftIdx=0, which is correct semantics for
-	// non-target nodes. No schema bump required.
+	// TargetCraftIdx is the retired pre-v7 one-based slate idx the node
+	// was bound to. Retained only to read v6 saves; migrateV6PayloadToV7
+	// converts it to TargetCraftID.
 	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
+	// TargetCraftID (v0.14.x / schema v7, ADR 0012) is the bound target
+	// craft's stable Spacecraft.ID. Zero = no target. v7 saves write
+	// this and leave TargetCraftIdx zero.
+	TargetCraftID uint64 `json:"target_craft_id,omitempty"`
 	// PlaneChangeRad (v0.12.x, schema v6 additive) — the signed rotation
 	// angle for a BurnPlaneChange node (the `I` inclination plant + the
 	// Slice 5 split-strategy plane change). Pre-v0.12 saves omit it;
@@ -333,10 +348,12 @@ type ActiveBurn struct {
 	EndTimeNano int64   `json:"end_time_unix_nano"`
 	PrimaryID   string  `json:"primary_id"`
 	Throttle    float64 `json:"throttle,omitempty"`
-	// TargetCraftIdx (v0.9.3+) — see Node.TargetCraftIdx; mirrored
-	// onto in-flight finite burns so a save mid-rendezvous-burn
-	// reloads with the burn still tracking its bound target.
-	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
+	// TargetCraftIdx — retired pre-v7 slate idx (see Node.TargetCraftIdx);
+	// read-only for v6 migration. TargetCraftID (v7+, ADR 0012) is the
+	// burn's bound target stable ID, mirrored onto in-flight finite burns
+	// so a save mid-rendezvous-burn reloads still tracking its target.
+	TargetCraftIdx int    `json:"target_craft_idx,omitempty"`
+	TargetCraftID  uint64 `json:"target_craft_id,omitempty"`
 	// PlaneChangeRad / BurnDirUnit (v0.12.x, schema v6 additive) — mirror
 	// the ManeuverNode fields onto an in-flight burn so a save mid
 	// plane-change / BurnVector burn reloads with the direction intact.
@@ -427,6 +444,12 @@ func Load(path string) (*sim.World, error) {
 	if f.BodyCatalogHash != currentHash {
 		return nil, fmt.Errorf("%w: save=%s current=%s", ErrCatalogMismatch, f.BodyCatalogHash, currentHash)
 	}
+	// v0.14.x / schema v7 (ADR 0012): pre-v7 saves bind targets by slate
+	// index; rewrite them to stable craft IDs on the wire payload before
+	// rehydration so worldFromPayload reads the ID fields uniformly.
+	if f.Version < 7 {
+		migrateV6PayloadToV7(&f.Payload)
+	}
 	return worldFromPayload(f.Payload, systems)
 }
 
@@ -461,6 +484,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			continue
 		}
 		wc := Craft{
+			ID:                 c.ID,
 			Name:               c.Name,
 			DryMass:            c.DryMass,
 			Fuel:               c.Fuel,
@@ -549,7 +573,7 @@ func payloadFromWorld(w *sim.World) Payload {
 				PrimaryID:       n.PrimaryID,
 				Event:           int(n.Event),
 				Throttle:        n.Throttle,
-				TargetCraftIdx:  n.TargetCraftIdx,
+				TargetCraftID:   n.TargetCraftID,
 				PlaneChangeRad:  n.PlaneChangeRad,
 				BurnDirUnit:     vec3From(n.BurnDirUnit),
 			})
@@ -561,7 +585,7 @@ func payloadFromWorld(w *sim.World) Payload {
 				EndTimeNano:    c.ActiveBurn.EndTime.UnixNano(),
 				PrimaryID:      c.ActiveBurn.PrimaryID,
 				Throttle:       c.ActiveBurn.Throttle,
-				TargetCraftIdx: c.ActiveBurn.TargetCraftIdx,
+				TargetCraftID:  c.ActiveBurn.TargetCraftID,
 				PlaneChangeRad: c.ActiveBurn.PlaneChangeRad,
 				BurnDirUnit:    vec3From(c.ActiveBurn.BurnDirUnit),
 			}
@@ -571,14 +595,15 @@ func payloadFromWorld(w *sim.World) Payload {
 		// out the same minimal JSON they did pre-polish.
 		if c.Target.Kind != spacecraft.TargetNone {
 			wc.Target = &Target{
-				Kind:     int(c.Target.Kind),
-				BodyIdx:  c.Target.BodyIdx,
-				CraftIdx: c.Target.CraftIdx,
+				Kind:    int(c.Target.Kind),
+				BodyIdx: c.Target.BodyIdx,
+				CraftID: c.Target.CraftID,
 			}
 		}
 		p.Crafts = append(p.Crafts, wc)
 	}
 	p.ActiveCraftIdx = w.ActiveCraftIdx
+	p.NextCraftID = w.NextCraftID
 	p.Missions = missions.Clone(w.Missions)
 	return p
 }
@@ -665,6 +690,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			stages = migrateV5CraftToStages(wc, monoprop, monoCap, rcsThrust, rcsIsp)
 		}
 		c := &spacecraft.Spacecraft{
+			ID:               wc.ID, // v7+ stable identity (ADR 0012); ensureCraftIDs stamps any zero.
 			Name:             wc.Name,
 			DryMass:          wc.DryMass,
 			Fuel:             wc.Fuel,
@@ -755,7 +781,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				PrimaryID:      n.PrimaryID,
 				Event:          sim.TriggerEvent(n.Event),
 				Throttle:       n.Throttle,
-				TargetCraftIdx: n.TargetCraftIdx,
+				TargetCraftID:  n.TargetCraftID,
 				PlaneChangeRad: n.PlaneChangeRad,
 				BurnDirUnit:    vec3To(n.BurnDirUnit),
 			})
@@ -767,7 +793,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				EndTime:        time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
 				PrimaryID:      wc.ActiveBurn.PrimaryID,
 				Throttle:       wc.ActiveBurn.Throttle,
-				TargetCraftIdx: wc.ActiveBurn.TargetCraftIdx,
+				TargetCraftID:  wc.ActiveBurn.TargetCraftID,
 				PlaneChangeRad: wc.ActiveBurn.PlaneChangeRad,
 				BurnDirUnit:    vec3To(wc.ActiveBurn.BurnDirUnit),
 			}
@@ -777,13 +803,14 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		// (TargetNone) which is the fresh-craft default.
 		if wc.Target != nil {
 			c.Target = spacecraft.Target{
-				Kind:     spacecraft.TargetKind(wc.Target.Kind),
-				BodyIdx:  wc.Target.BodyIdx,
-				CraftIdx: wc.Target.CraftIdx,
+				Kind:    spacecraft.TargetKind(wc.Target.Kind),
+				BodyIdx: wc.Target.BodyIdx,
+				CraftID: wc.Target.CraftID,
 			}
 		}
 		w.Crafts = append(w.Crafts, c)
 	}
+	w.NextCraftID = p.NextCraftID
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx
 	}
@@ -794,9 +821,9 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	// Target (a polish-era save) so we don't clobber.
 	if p.Target != nil {
 		legacyTarget := spacecraft.Target{
-			Kind:     spacecraft.TargetKind(p.Target.Kind),
-			BodyIdx:  p.Target.BodyIdx,
-			CraftIdx: p.Target.CraftIdx,
+			Kind:    spacecraft.TargetKind(p.Target.Kind),
+			BodyIdx: p.Target.BodyIdx,
+			CraftID: p.Target.CraftID, // migrateV6PayloadToV7 fills this from CraftIdx for old saves
 		}
 		anyPerCraft := false
 		for _, c := range w.Crafts {
@@ -834,7 +861,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				PrimaryID:      n.PrimaryID,
 				Event:          sim.TriggerEvent(n.Event),
 				Throttle:       n.Throttle,
-				TargetCraftIdx: n.TargetCraftIdx,
+				TargetCraftID:  n.TargetCraftID,
 				PlaneChangeRad: n.PlaneChangeRad,
 				BurnDirUnit:    vec3To(n.BurnDirUnit),
 			})
@@ -846,12 +873,17 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				EndTime:        time.Unix(0, p.ActiveBurn.EndTimeNano).UTC(),
 				PrimaryID:      p.ActiveBurn.PrimaryID,
 				Throttle:       p.ActiveBurn.Throttle,
-				TargetCraftIdx: p.ActiveBurn.TargetCraftIdx,
+				TargetCraftID:  p.ActiveBurn.TargetCraftID,
 				PlaneChangeRad: p.ActiveBurn.PlaneChangeRad,
 				BurnDirUnit:    vec3To(p.ActiveBurn.BurnDirUnit),
 			}
 		}
 	}
+	// v0.14.x / ADR 0012: stamp any craft that still lacks a stable ID
+	// (a pre-v5 singular-craft save migrated into the slate) and prime
+	// NextCraftID past every ID in play, so a post-load spawn can't mint
+	// a colliding ID.
+	w.EnsureCraftIDs()
 	// v0.6.5: missions persist with status. v3+ saves carry an explicit
 	// (possibly-empty) Missions slice; v1/v2 saves wire-out as nil and
 	// get the embedded starter catalog seeded fresh so older saves
