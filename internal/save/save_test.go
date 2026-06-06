@@ -241,6 +241,70 @@ func TestSaveLoadMultiStageDockedComponent(t *testing.T) {
 	}
 }
 
+// TestRoundtripTopLevelStageFields — the persisted spacecraft.Stage
+// fields on a craft's top-level Stages must survive Save+Load. Guards
+// the shared simStagesToWire path (Craft.Stages and DockedComponent.
+// Stages both go through it now): a new persisted field added to the
+// helper that a parallel copy path missed would silently drop on save.
+// Distinctive per-field values make any dropped field a mismatch. Only
+// the persisted fields are compared — the launch-sprite / fuel-type
+// cosmetics are intentionally re-derived from the catalog, not stored.
+func TestRoundtripTopLevelStageFields(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	want := []spacecraft.Stage{
+		{
+			LoadoutID: "lower", Name: "Booster", Glyph: "B", Color: "#112233",
+			DryMass: 1200, FuelMass: 8000, FuelCapacity: 9000,
+			Thrust: 750000, Isp: 282, MonopropMass: 12, MonopropCap: 40,
+			RCSThrust: 220, RCSIsp: 210, BallisticCoefficient: 350,
+			CanSoftLand: false, HasParachute: true,
+		},
+		{
+			LoadoutID: "upper", Name: "Payload", Glyph: "P", Color: "#445566",
+			DryMass: 300, FuelMass: 1500, FuelCapacity: 1600,
+			Thrust: 60000, Isp: 345, MonopropMass: 7.5, MonopropCap: 25,
+			RCSThrust: 110, RCSIsp: 205, BallisticCoefficient: 120,
+			CanSoftLand: true, HasParachute: false,
+		},
+	}
+	w.ActiveCraft().Stages = append([]spacecraft.Stage(nil), want...)
+	w.ActiveCraft().SyncFields()
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Project to just the persisted fields so the comparison ignores the
+	// catalog-re-derived cosmetics (LaunchSprite*, FuelType).
+	persisted := func(s spacecraft.Stage) spacecraft.Stage {
+		return spacecraft.Stage{
+			LoadoutID: s.LoadoutID, Name: s.Name, Glyph: s.Glyph, Color: s.Color,
+			DryMass: s.DryMass, FuelMass: s.FuelMass, FuelCapacity: s.FuelCapacity,
+			Thrust: s.Thrust, Isp: s.Isp, MonopropMass: s.MonopropMass,
+			MonopropCap: s.MonopropCap, RCSThrust: s.RCSThrust, RCSIsp: s.RCSIsp,
+			BallisticCoefficient: s.BallisticCoefficient,
+			CanSoftLand:          s.CanSoftLand, HasParachute: s.HasParachute,
+		}
+	}
+	gotStages := got.ActiveCraft().Stages
+	if len(gotStages) != len(want) {
+		t.Fatalf("Stages count: got %d want %d", len(gotStages), len(want))
+	}
+	for i := range want {
+		if persisted(gotStages[i]) != persisted(want[i]) {
+			t.Errorf("Stage[%d]: got %+v want %+v", i, gotStages[i], want[i])
+		}
+	}
+}
+
 // TestLoadOldSaveDockedComponentFallsBackSingleStage — a v6 save written
 // before ADR 0009 has DockedComponents with no "stages" array. Loading
 // it and undocking must fall back to the legacy single-stage rebuild

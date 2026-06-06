@@ -222,9 +222,11 @@ func PerifocalBasis(el Elements) (Vec3, Vec3) {
 // Readout summarises the orbit's headline parameters for HUD use.
 // Distances are in metres from the primary's centre (not altitude);
 // caller subtracts body radius for altitude. Node angles are in
-// radians, measured from the +X axis of the primary's frame; for
-// equatorial / circular orbits the corresponding fields are NaN
-// (callers render "—" or skip).
+// radians, measured from the +X axis of the primary's frame. For
+// equatorial / circular orbits Ω is undefined; the fields are left at
+// their finite zero-derived values (AscNode = Ω, DescNode = Ω+π) — not
+// NaN — so callers must detect this via Inclination ≈ 0 / π and render
+// "—" or skip, rather than checking math.IsNaN.
 //
 // Closed (elliptical) orbits set ApoMeters > 0; hyperbolic / escape
 // trajectories return ApoMeters < 0 and Hyperbolic = true so the HUD

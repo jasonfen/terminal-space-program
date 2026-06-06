@@ -103,27 +103,22 @@ type SOISegment struct {
 	Points    []orbital.Vec3 // inertial, system-primary-centered
 }
 
-// PredictedSegments forward-integrates a post-burn state by totalSeconds
-// and partitions the trajectory into SOISegments. Pre-v0.3.0 the
+// PredictedSegmentsFrom forward-integrates a post-burn state by
+// totalSeconds and partitions the trajectory into SOISegments,
+// parameterised on the starting primary and clock. Pre-v0.3.0 the
 // predictor locked to the home primary's μ throughout, which made
 // post-escape segments geometrically wrong even though their coloring
 // was correct. v0.3.0: when a sub-step crosses a sphere-of-influence
 // boundary, rebase the state vector to the new primary's frame and
-// switch μ for subsequent steps. Output shape (a slice of SOISegments)
-// is unchanged so the renderer keeps working.
-func (w *World) PredictedSegments(post physics.StateVector, totalSeconds float64, samples int) []SOISegment {
-	return w.PredictedSegmentsFrom(post, w.ActiveCraft().Primary, w.Clock.SimTime, totalSeconds, samples)
-}
-
-// PredictedSegmentsFrom is the same trajectory predictor but
-// parameterised on the starting primary and clock. v0.6.1: used by
-// the multi-leg colored preview, where each leg starts in its own
-// node-planted frame (e.g. Hohmann departure leg in Earth, arrival
-// leg in Mars). v0.8.4: takes a startClock so body positions track
-// real time across the leg (per-sample refresh — sub-step refresh
-// would cost 60 % of a render frame on long horizons), and folds
-// atmospheric drag into the integrator via the active craft's
-// EffectiveBallisticCoefficient. Output shape unchanged.
+// switch μ for subsequent steps. v0.6.1: used by the multi-leg
+// colored preview, where each leg starts in its own node-planted
+// frame (e.g. Hohmann departure leg in Earth, arrival leg in Mars).
+// v0.8.4: takes a startClock so body positions track real time across
+// the leg (per-sample refresh — sub-step refresh would cost 60 % of a
+// render frame on long horizons), and folds atmospheric drag into the
+// integrator via the active craft's EffectiveBallisticCoefficient.
+// Output shape (a slice of SOISegments) is unchanged so the renderer
+// keeps working.
 func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, totalSeconds float64, samples int) []SOISegment {
 	if w.ActiveCraft() == nil || samples < 2 {
 		return nil

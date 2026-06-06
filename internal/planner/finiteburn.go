@@ -156,11 +156,10 @@ func IterateForTarget(
 		} else if step < -maxStep {
 			step = -maxStep
 		}
-		next := dv + step
-		if next <= 0 {
-			next = dv * 0.5 // halving guard for negative-bound runaways
-		}
-		dv = next
+		// step is clamped to [-0.5·dv, +0.5·dv] and dv enters the loop
+		// strictly positive (guarded above), so next ∈ [0.5·dv, 1.5·dv]
+		// stays > 0 — no further non-negativity guard is needed.
+		dv += step
 	}
 	return dv, final, ErrFiniteBurnDiverged
 }

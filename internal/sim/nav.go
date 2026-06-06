@@ -13,7 +13,7 @@ import "github.com/jasonfen/terminal-space-program/internal/spacecraft"
 //                rotating atmosphere; useful for ascent. Only prograde
 //                / retrograde rebind in this mode (KSP shows orbital
 //                normal/radial on the surface navball too).
-//   NavTarget  — prograde ≡ unit(v_target − v_active), retrograde its
+//   NavTarget  — prograde ≡ unit(v_active − v_target), retrograde its
 //                flip; radial± rebinds to BurnTarget / BurnAntiTarget
 //                (toward / away from target). Only valid when
 //                World.Target.Kind == TargetCraft. v0.9.3+.

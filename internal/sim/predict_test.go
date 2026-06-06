@@ -315,7 +315,7 @@ func TestPredictedSegmentsContinuousAtSOIBoundary(t *testing.T) {
 
 	const totalSecs = 3 * 86400.0 // 3 days
 	const samples = 600
-	segs := w.PredictedSegments(post, totalSecs, samples)
+	segs := w.PredictedSegmentsFrom(post, w.ActiveCraft().Primary, w.Clock.SimTime, totalSecs, samples)
 
 	if len(segs) < 2 {
 		t.Fatalf("expected ≥2 SOI segments after escape, got %d (no SOI crossing detected)", len(segs))
@@ -351,7 +351,7 @@ func TestPredictedSegmentsBoundOrbitStaysInOneSegment(t *testing.T) {
 
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
 	period := 2 * math.Pi * math.Sqrt(math.Pow(post.R.Norm(), 3)/mu)
-	segs := w.PredictedSegments(post, period, 128)
+	segs := w.PredictedSegmentsFrom(post, w.ActiveCraft().Primary, w.Clock.SimTime, period, 128)
 
 	if len(segs) != 1 {
 		ids := make([]string, len(segs))
