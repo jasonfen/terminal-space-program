@@ -1880,36 +1880,49 @@ func TestPlanTransferMoonEscapePlantsTwoNodes(t *testing.T) {
 	if dep.DV <= 0 {
 		t.Errorf("departure Δv = %.3f m/s, want > 0", dep.DV)
 	}
-	if dep.Mode != spacecraft.BurnPrograde {
-		t.Errorf("departure Mode = %v, want BurnPrograde", dep.Mode)
+	// ADR 0013: the Moon Return departure is a full-3D BurnVector (folds
+	// the parking-plane → moon-plane change into the injection), not the
+	// old prograde escape scalar.
+	if dep.Mode != spacecraft.BurnVector {
+		t.Errorf("departure Mode = %v, want BurnVector", dep.Mode)
+	}
+	if n := dep.BurnDirUnit.Norm(); math.Abs(n-1) > 1e-9 {
+		t.Errorf("departure BurnDirUnit norm = %.6f, want unit vector", n)
 	}
 	if arr.DV != 0 {
 		t.Errorf("arrival is a frame marker — Δv should be 0, got %.3f", arr.DV)
 	}
 
-	// Sanity: planted Δv should match the bound-ellipse impulsive
-	// estimate within ≈5%. The iterator may refine the value; for a
-	// short LLO escape burn (≈30 s on the S-IVB-1) the impulsive
-	// guess is already very close.
 	rSOI := physics.SOIRadius(moon, earth)
 	if rSOI == 0 {
 		t.Fatal("SOIRadius(moon, earth) = 0 — body data missing mass / a")
 	}
-	aT := (rPark + rSOI) / 2
-	vTrans := math.Sqrt(muMoon * (2/rPark - 1/aT))
-	impulsiveDv := vTrans - vCirc
-	rel := math.Abs(dep.DV-impulsiveDv) / impulsiveDv
-	if rel > 0.05 {
-		t.Errorf("departure Δv %.1f m/s deviates >5%% from impulsive %.1f m/s (rel=%.4f)",
-			dep.DV, impulsiveDv, rel)
+
+	// Sanity: the planted Δv targets the parent-frame perigee, so it
+	// matches the analytic single-TEI return ideal (~822 m/s for LLO →
+	// LEO) rather than the old min-escape budget (~645 m/s). A real
+	// parking/moon-plane tilt can only add to the in-plane ideal, so the
+	// floor is the ideal less a small margin and the ceiling allows the
+	// folded plane change.
+	moonR, moonV := w.bodyParentRelativeState(moon, dep.TriggerTime)
+	muParent := earth.GravitationalParameter()
+	rMoonDist, vMoonSpeed := moonR.Norm(), moonV.Norm()
+	rTargetPeri := earth.RadiusMeters() + 200e3
+	atReturn := (rMoonDist + rTargetPeri) / 2
+	vApoTarget := math.Sqrt(muParent * (2/rMoonDist - 1/atReturn))
+	vInfIdeal := vMoonSpeed - vApoTarget
+	dvIdeal := math.Sqrt(vInfIdeal*vInfIdeal+2*muMoon/rPark) - vCirc
+	if dep.DV < 0.9*dvIdeal || dep.DV > dvIdeal+1500 {
+		t.Errorf("departure Δv %.1f m/s outside the Moon Return band [%.1f, %.1f] (ideal %.1f)",
+			dep.DV, 0.9*dvIdeal, dvIdeal+1500, dvIdeal)
 	}
 
-	// Arrival's TriggerTime should sit at departure-center +
-	// half-period of the bound transfer ellipse (within 1 s).
+	// The arrival marker sits at the SOI-exit moment — a positive
+	// hyperbolic coast after the departure, well short of the old
+	// bound-ellipse half-period.
 	gap := arr.TriggerTime.Sub(dep.TriggerTime).Seconds()
-	wantGap := math.Pi * math.Sqrt(aT*aT*aT/muMoon)
-	if math.Abs(gap-wantGap) > 1.0 {
-		t.Errorf("arrival − departure gap = %.1f s, want %.1f s (half-period)", gap, wantGap)
+	if gap <= 0 {
+		t.Errorf("arrival − departure gap = %.1f s, want > 0 (SOI-exit coast)", gap)
 	}
 }
 
