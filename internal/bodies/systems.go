@@ -22,6 +22,12 @@ type System struct {
 	Galaxy      string          `json:"galaxy"`
 	Bodies      []CelestialBody `json:"bodies"`
 
+	// ScaleClass is the System's spawn-form scale hint (ADR 0014).
+	// Optional in JSON: an absent/empty value normalizes to ScaleReal
+	// via Scale(), so the pre-Lumen catalog stays real untouched. Lumen
+	// sets "stripped-back". Never used for filtering.
+	ScaleClass ScaleClass `json:"scaleClass,omitempty"`
+
 	// Source is a runtime annotation: "embedded" for the built-in
 	// catalog, "user" for files loaded from
 	// $XDG_CONFIG_HOME/terminal-space-program/systems/*.json (v0.7.0+).
