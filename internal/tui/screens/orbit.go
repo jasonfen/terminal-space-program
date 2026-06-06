@@ -794,7 +794,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			viewLabel = fmt.Sprintf("view: tilted %g°", w.ViewTilt.Theta)
 		}
 	}
-	v.canvas.SetCellLabel(0, v.canvas.Rows()-1, viewLabel)
+	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, viewLabel, v.theme.Primary.GetForeground())
 	// v0.13: the "focus:" indicator moved to the title bar (renderTitleBar)
 	// — the canvas top-left corner is now home to the pinned VESSEL chip,
 	// and "focus: <craft>" was redundant with the chip's vessel name.

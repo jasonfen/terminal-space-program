@@ -593,7 +593,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	if labelCol < 0 {
 		labelCol = 0
 	}
-	m.canvas.SetCellLabel(labelCol, m.canvas.Rows()-1, viewLabel)
+	m.canvas.SetCellLabelColored(labelCol, m.canvas.Rows()-1, viewLabel, m.theme.Primary.GetForeground())
 
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 

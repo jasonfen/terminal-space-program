@@ -157,6 +157,40 @@ func TestColoredDiskEmitsAnsiOnRender(t *testing.T) {
 	}
 }
 
+// TestSetCellLabelColored: a plain SetCellLabel renders the label in
+// the terminal default (no ANSI), while SetCellLabelColored wraps each
+// label glyph in the requested foreground — even though the label sits
+// on untagged background cells. Guards the HUD "view:" readout color.
+func TestSetCellLabelColored(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1") // force lipgloss to emit ANSI in tests
+
+	c := NewCanvas(20, 10)
+	c.Clear()
+	c.SetCellLabel(0, 0, "view: top")
+	plain := c.String()
+	if strings.Contains(plain, "\x1b[") {
+		t.Errorf("uncolored label emitted ANSI: %q", plain)
+	}
+	if !strings.Contains(plain, "view: top") {
+		t.Errorf("label text missing from output: %q", plain)
+	}
+
+	fg := lipgloss.Color("#5FD7FF")
+	c.Clear()
+	c.SetCellLabelColored(0, 0, "view: top", fg)
+	colored := c.String()
+	if !strings.Contains(colored, "\x1b[") {
+		t.Error("colored label missing ANSI escape sequence")
+	}
+	// Compare against what lipgloss itself emits for this foreground, so
+	// the assertion holds regardless of the test env's color profile
+	// (truecolor vs ANSI256 downsample).
+	want := lipgloss.NewStyle().Foreground(fg).Render("v")
+	if !strings.Contains(colored, want) {
+		t.Errorf("colored label missing the primary foreground %q: %q", want, colored)
+	}
+}
+
 // TestRingOutlineHugeRadiusDoesNotHang: v0.5.15 regression — pre-fix
 // a ring with pxRadius in the millions (Saturn rings projected at
 // extreme zoom) looped pxRadius*8 ≈ billions of times, locking the
