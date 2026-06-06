@@ -174,6 +174,23 @@ const LoadoutApolloStackID = "Apollo-Stack"
 // Stack → orbit → four decouples, too slow to iterate on.
 const LoadoutCapsuleID = "Capsule"
 
+// LoadoutKernStack is the v0.15 / ADR 0014 scale-matched vehicle for
+// the stripped-back Lumen system: a simplified 4-stage Apollo analog —
+// Boost → Transfer → single Lander → parachute Pod, bottom-first —
+// sized to a ~6 km/s Cursor-landing-and-return budget on Lumen's
+// ~1/10-linear scale (~3.4 km/s to Kern orbit vs Sol's ~9.4). It is the
+// only Loadout tagged bodies.ScaleStrippedBack, so the spawn form's
+// Δv-to-orbit hint flags it as best-for-Lumen — but, per ADR 0014, the
+// tag never filters: the Kern Stack can still be spawned in Sol (where
+// it can't reach orbit) and the real fleet in Lumen. DecouplePlan
+// [1,1,1] drops Boost, Transfer and Lander one at a time; the engineless
+// parachute Pod is the surviving core that splashes down (ADR 0008
+// recovery model). Engine Isp values are KSP stock numbers collapsed to
+// the model's single-Isp-per-stage convention (no altitude-varying Isp):
+// Mainsail (Boost, sea-level 285), Poodle (Transfer, vac 350), Terrier
+// (Lander, vac 345).
+const LoadoutKernStackID = "Kern-Stack"
+
 // stageRCS builds the per-stage RCS pool for a stage of the given
 // dry mass via DefaultRCSLoadout — same scaling that single-stage
 // craft used pre-v0.9.1, so existing loadouts inherit identical
@@ -223,6 +240,29 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 		CanSoftLand:          catalogCanSoftLandByName(name),
 		HasParachute:         catalogHasParachuteByName(name),
 	}
+}
+
+// kernStage builds a Kern Stack stage. The Kern Stack's stage names
+// (Boost / Transfer / Pod) are terminal-native and deliberately absent
+// from the StageCatalog (the catalog holds the real fleet's parts), so
+// the by-Name sprite/flag lookups in stage() return zero for them. This
+// helper layers the launch-sprite silhouette, fuel type, and the
+// soft-land / parachute capability flags on directly, keeping the Kern
+// Stack self-contained in loadouts.go (ADR 0014 ships no new catalog
+// parts). "Lander" does resolve in the catalog, but we set it here too so
+// all four stages read from one place.
+func kernStage(name, glyph, color string, dry, fuel, thrust, isp float64,
+	spriteRows, spriteWidth int, spriteColor, fuelType string,
+	hasLegs, canSoftLand, hasParachute bool) Stage {
+	s := stage(LoadoutKernStackID, name, glyph, color, dry, fuel, thrust, isp)
+	s.LaunchSpriteRowsPx = spriteRows
+	s.LaunchSpriteWidthPx = spriteWidth
+	s.LaunchSpriteColor = spriteColor
+	s.FuelType = fuelType
+	s.LaunchSpriteHasLegs = hasLegs
+	s.CanSoftLand = canSoftLand
+	s.HasParachute = hasParachute
+	return s
 }
 
 // catalogHasParachuteByName looks up the StageCatalog's hasParachute
@@ -573,6 +613,45 @@ var Loadouts = map[string]Loadout{
 			stage(LoadoutCapsuleID, "Capsule", "◓", "#B8C8E0", 5800, 0, 0, 0),
 		},
 	},
+	// Kern Stack (v0.15 / ADR 0014): the scale-matched Lumen vehicle.
+	// Four stages bottom-first [Boost, Transfer, Lander, Pod]. Masses are
+	// tuned for a ~6 km/s total ideal Δv (Boost ~2.3 + Transfer ~2.2 +
+	// Lander ~1.5 km/s) — enough for Lumen orbit (~3.4 km/s), a Cursor
+	// transfer + capture + descent, and the ascent/return, on the
+	// stripped-back scale. Lift-off TWR ≈ 1.20 against Kern's Earth-like
+	// surface g (250 kN vs ~21.3 t × g0). Isp values are KSP stock
+	// engines collapsed to one Isp per stage. ScaleClass tags it
+	// stripped-back for the spawn-form hint (never a filter, ADR 0014).
+	LoadoutKernStackID: {
+		ID:         LoadoutKernStackID,
+		Name:       "Kern Stack",
+		Role:       "mission-stack",
+		Glyph:      "▲",
+		Color:      "#7BD3FF", // Lumen-cyan — distinct from the real fleet's warm yellows
+		ScaleClass: bodies.ScaleStrippedBack,
+		Stages: []Stage{
+			// Boost: Mainsail-class kerolox first stage (Isp 285 sea-level —
+			// the only stage that fires in atmosphere). TWR > 1 off the pad.
+			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 250000, 285,
+				14, 4, "#D8E6F0", FuelTypeKerolox, false, false, false),
+			// Transfer: Poodle-class vacuum stage (Isp 350) for the Kern
+			// orbit insertion and the Cursor transfer/capture burns.
+			kernStage("Transfer", "▲", "#9BE0FF", 1000, 3500, 60000, 350,
+				10, 3, "#C8E0F0", FuelTypeHydrolox, false, false, false),
+			// Lander: Terrier-class throttleable descent/ascent engine
+			// (Isp 345) with legs — fires the powered descent to Cursor and
+			// the return-to-orbit burn. Soft-land qualified.
+			kernStage("Lander", "▼", "#5FFF87", 800, 1000, 16000, 345,
+				5, 3, "#D4C088", FuelTypeHypergolic, true, true, false),
+			// Pod: engineless crew capsule, the surviving core. Recovers
+			// under parachute (ADR 0008) — the "return" half of the budget.
+			kernStage("Pod", "◓", "#B8C8E0", 1000, 0, 0, 0,
+				6, 3, "#C8C8D0", "", false, false, true),
+		},
+		// Drop Boost, Transfer, Lander one at a time; the Pod survives every
+		// decouple and splashes down. Sum (3) < 4 stages.
+		DecouplePlan: []int{1, 1, 1},
+	},
 }
 
 // LoadoutOrder lists loadouts in canonical UI cycle order — the
@@ -589,6 +668,7 @@ var LoadoutOrder = []string{
 	LoadoutFalcon9ID,
 	LoadoutApolloStackID,
 	LoadoutCapsuleID,
+	LoadoutKernStackID,
 }
 
 // LookupLoadout returns the catalog entry for the given ID, or the
