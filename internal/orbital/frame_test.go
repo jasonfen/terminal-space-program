@@ -289,3 +289,52 @@ func TestRotatePreservesNorm(t *testing.T) {
 		t.Errorf("Rotate changed norm: |got|=%.9f |v|=%.9f (rel %.2e)", got.Norm(), v.Norm(), d)
 	}
 }
+
+// TestOrbitNormalWorldWithOrbitalElementsOverride — OrbitNormalWorld must
+// guard the *computed* semimajor axis (which honors the OrbitalElements
+// override), not the top-level SemimajorAxis field. A body with
+// top-level SemimajorAxis=0 but a populated override has a real orbit;
+// guarding the top-level field wrongly returned a zero normal, which
+// makes PlaneMatchInclination collapse to 0 and breaks transfer
+// planning. (#90)
+func TestOrbitNormalWorldWithOrbitalElementsOverride(t *testing.T) {
+	b := bodies.CelestialBody{
+		SemimajorAxis: 0, // top-level zero — the override carries the real orbit
+		OrbitalElements: &bodies.OrbitalElement{
+			SemimajorAxis:            1e8, // km
+			Inclination:              30,
+			LongitudeOfAscendingNode: 90,
+		},
+	}
+	n := OrbitNormalWorld(b)
+	if n.Norm() == 0 {
+		t.Fatal("OrbitNormalWorld returned zero for a body whose orbit lives in the OrbitalElements override")
+	}
+	// i=30°, Ω=90° → normal = {sinΩ·sinI, −cosΩ·sinI, cosI} = {0.5, 0, cos30°}.
+	want := Vec3{X: 0.5, Y: 0, Z: math.Cos(30 * math.Pi / 180)}
+	if math.Abs(n.X-want.X) > 1e-12 || math.Abs(n.Y-want.Y) > 1e-12 || math.Abs(n.Z-want.Z) > 1e-12 {
+		t.Errorf("normal = %+v, want %+v", n, want)
+	}
+}
+
+// TestPositionAtTrueAnomalyHyperbolic — for a hyperbolic orbit (e>1) the
+// semi-latus rectum p = a(1−e²) is negative, so the old `if p == 0`
+// guard let a negative radius through. Guarding `p <= 0` returns the
+// zero vector instead, matching VelocityAtTrueAnomaly. (#90)
+func TestPositionAtTrueAnomalyHyperbolic(t *testing.T) {
+	el := Elements{A: 1e7, E: 1.5}
+	for _, nu := range []float64{0, math.Pi} {
+		if got := PositionAtTrueAnomaly(el, nu); got != (Vec3{}) {
+			t.Errorf("PositionAtTrueAnomaly(e=1.5, ν=%.3f) = %+v, want zero vector", nu, got)
+		}
+	}
+}
+
+// TestPositionAtTrueAnomalyParabolic — parabolic (e=1) gives p=0; the
+// `p <= 0` guard covers it as before. (#90)
+func TestPositionAtTrueAnomalyParabolic(t *testing.T) {
+	el := Elements{A: 1e7, E: 1.0}
+	if got := PositionAtTrueAnomaly(el, 0); got != (Vec3{}) {
+		t.Errorf("PositionAtTrueAnomaly(e=1) = %+v, want zero vector", got)
+	}
+}

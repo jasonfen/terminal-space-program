@@ -7,6 +7,7 @@
 package sim
 
 import (
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -127,6 +128,62 @@ func TestFalcon9CrashesSideways(t *testing.T) {
 	if c.Landed {
 		t.Errorf("Falcon-9 sideways impact: Landed=true, want Crashed-only")
 	}
+}
+
+// TestFalcon9SoftLandsAtExactNoseTol — a CanSoftLand vessel touching
+// down below V_CRIT with the nose at *exactly* the documented minimum
+// alignment (cosNose == NOSE_TOL == 0.7, ~45° off vertical) must land,
+// not crash. The route comments document "land when nose > NOSE_TOL" and
+// the velocity gates use >= (reject at-or-above), so the nose gate should
+// reject strictly below the tolerance. The old `<= CrashNoseTol` crashed
+// the boundary case it should accept. Exercises the pure
+// classifySurfaceArrival predicate directly: integrateOneCraft slews
+// CurrentAttitudeDir at the tick top, which would perturb an
+// exactly-on-the-boundary nose and mask the gate under test. (#90)
+func TestFalcon9SoftLandsAtExactNoseTol(t *testing.T) {
+	w, c := crashTestPrimaryFor(t)
+	c.CanSoftLand = true
+	// Use a unit preClampR so the predicate's localUp = R/|R| is exactly
+	// {1,0,0}; then nose.Dot(localUp) is just the normalized nose.X.
+	// classifySurfaceArrival is pure and frame-agnostic, so the small
+	// radius is irrelevant to the gate.
+	preClampR := orbital.Vec3{X: 1}
+	localUp := preClampR.Scale(1 / preClampR.Norm())
+
+	// `<` vs `<=` differ only at bit-exact equality, and the predicate
+	// re-normalizes the nose — so whether any given vector lands exactly
+	// on CrashNoseTol depends on the platform's float rounding (arm64 FMA
+	// vs amd64). Rather than hardcode a magic component that's only exact
+	// on one arch, search at runtime for a nose whose *post-normalization*
+	// dot is bit-identical to CrashNoseTol on whatever machine runs this.
+	noseAtTol := exactNoseTolDir(t, localUp)
+	c.CurrentAttitudeDir = noseAtTol
+	preClampV := orbital.Vec3{X: -2} // 2 m/s inward, below V_CRIT
+	outcome, _, _ := classifySurfaceArrival(c, preClampR, preClampV, w.Clock.SimTime)
+	if outcome != outcomeLanded {
+		t.Errorf("CanSoftLand + V=2 m/s + nose at exact NOSE_TOL: outcome=%v, want outcomeLanded", outcome)
+	}
+}
+
+// exactNoseTolDir returns a nose direction whose normalized dot with
+// localUp is bit-exactly CrashNoseTol — i.e. a nose sitting precisely on
+// the soft-land boundary the gate compares against. Found by search so
+// the construction is portable across float-rounding differences
+// (arm64 FMA vs amd64); fails the test if no such vector exists in the
+// neighbourhood (which would itself be a signal worth investigating).
+func exactNoseTolDir(t *testing.T, localUp orbital.Vec3) orbital.Vec3 {
+	t.Helper()
+	const x = CrashNoseTol
+	y0 := math.Sqrt(1 - x*x) // nominal complement; dot ≈ tol near here
+	for i := -200000; i <= 200000; i++ {
+		y := y0 + float64(i)*1e-16
+		n := orbital.Vec3{X: x, Y: y}
+		if n.Scale(1 / n.Norm()).Dot(localUp) == CrashNoseTol {
+			return n
+		}
+	}
+	t.Fatalf("could not construct a nose with normalized dot == CrashNoseTol near y=%.17g", y0)
+	return orbital.Vec3{}
 }
 
 // TestCrashedVesselSkipsIntegration — once a vessel is Crashed,

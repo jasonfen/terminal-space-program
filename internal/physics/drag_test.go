@@ -223,6 +223,24 @@ func TestAtmosphereOmegaTiltedEarth(t *testing.T) {
 	}
 }
 
+// TestAtmosphereOmegaTinyPeriodClamped — a corrupt/garbage rotation
+// period (here ~1 ms, well below any real body's once-per-second
+// physical limit) must not produce a runaway ω. The MinSpinPeriodSeconds
+// floor caps |ω| at 2π rad/s rather than the ~6283 rad/s an unclamped
+// 1 ms period would yield, keeping AirRelativeVelocity / DragAccel /
+// DynamicPressure — and thus the integrator core — finite. (#90)
+func TestAtmosphereOmegaTinyPeriodClamped(t *testing.T) {
+	earth := earthWithAtm()
+	earth.SideralRotation = 0.001 / 3600.0 // 1 ms expressed in hours: garbage data
+	w := AtmosphereOmega(earth)
+	mag := math.Sqrt(w.X*w.X + w.Y*w.Y + w.Z*w.Z)
+	// Unclamped this would be 2π/0.001 ≈ 6283; clamped to a ≥0.5 s
+	// period it must stay at or below 2π/0.5.
+	if mag > 2*math.Pi/0.5 {
+		t.Errorf("|ω| = %g, want ≤ %g (tiny period must be clamped, not amplified)", mag, 2*math.Pi/0.5)
+	}
+}
+
 // TestAtmosphereOmegaTidallyLockedUsesOrbit — tidally-locked bodies
 // rotate at their orbital period, not their (unused/zero/ignored)
 // sidereal-rotation period. Mirrors render.rotationPeriodSeconds so

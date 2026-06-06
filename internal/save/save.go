@@ -587,6 +587,17 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	if p.SystemIdx < 0 || p.SystemIdx >= len(systems) {
 		return nil, fmt.Errorf("save: system_idx %d out of range (have %d systems)", p.SystemIdx, len(systems))
 	}
+	// Clamp a corrupt/out-of-range warp_idx at load. WarpUp/WarpDown
+	// keep the index in bounds during play, but a hand-edited or old
+	// save can carry a value outside [0, len(WarpFactors)) — left
+	// unchecked it panics WarpFactors[idx] on the first Tick
+	// (clock.go:52). Mirrors the SystemIdx (above) and ActiveCraftIdx
+	// (below) load-time guards; clamp to 1× rather than erroring so a
+	// corrupted save still opens. (#90)
+	warpIdx := p.WarpIdx
+	if warpIdx < 0 || warpIdx >= len(sim.WarpFactors) {
+		warpIdx = 0
+	}
 	simT := time.Unix(0, p.SimTimeNano).UTC()
 	clock := &sim.Clock{
 		SimTime: simT,
@@ -597,7 +608,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		// reload, which is fine — rotation is an aesthetic, not
 		// authoritative state.
 		RotationTime: simT,
-		WarpIdx:      p.WarpIdx,
+		WarpIdx:      warpIdx,
 		Paused:       p.Paused,
 		BaseStep:     time.Duration(p.BaseStepNano),
 	}

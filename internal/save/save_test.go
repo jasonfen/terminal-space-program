@@ -394,6 +394,55 @@ func TestCatalogMismatchRejected(t *testing.T) {
 	}
 }
 
+// TestLoadOutOfBoundsWarpIdxClampsToValid — a forged warp_idx outside
+// [0, len(WarpFactors)-1] must clamp to a valid index at load instead of
+// surviving into the world, where the first Tick would panic on
+// WarpFactors[idx] (clock.go:52). Mirrors the SystemIdx/ActiveCraftIdx
+// load-time guards; WarpUp/WarpDown already keep the index in range, so
+// this is purely a load-time gap. (#90)
+func TestLoadOutOfBoundsWarpIdxClampsToValid(t *testing.T) {
+	for _, forged := range []int{6, -1, 999} {
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatalf("NewWorld: %v", err)
+		}
+		path := filepath.Join(t.TempDir(), "save.json")
+		if err := save.Save(w, path); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		var f save.File
+		if err := json.Unmarshal(data, &f); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		f.Payload.WarpIdx = forged
+		tampered, _ := json.Marshal(f)
+		if err := os.WriteFile(path, tampered, 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		got, err := save.Load(path)
+		if err != nil {
+			t.Fatalf("Load (warp_idx=%d): %v", forged, err)
+		}
+		if got.Clock.WarpIdx < 0 || got.Clock.WarpIdx >= len(sim.WarpFactors) {
+			t.Errorf("warp_idx=%d loaded as %d, want clamped into [0,%d)", forged, got.Clock.WarpIdx, len(sim.WarpFactors))
+		}
+		// And the clamp must actually prevent the Tick panic.
+		got.Clock.Paused = false
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("warp_idx=%d: Tick panicked after load: %v", forged, r)
+				}
+			}()
+			got.Tick()
+		}()
+	}
+}
+
 func TestSchemaMismatchRejected(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {

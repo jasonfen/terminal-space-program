@@ -2,6 +2,7 @@ package planner
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -277,5 +278,26 @@ func TestLambertEarthToMarsHohmann(t *testing.T) {
 	if d := math.Abs(gotV1Mag-wantV1Mag) / wantV1Mag; d > 0.015 {
 		t.Errorf("Earth→Mars Hohmann |v1|: got %.1f m/s, want %.1f m/s (rel %.2e)",
 			gotV1Mag, wantV1Mag, d)
+	}
+}
+
+// TestLambertHyperbolicWalkExhaustion — for a single-rev (N=0) transfer
+// whose requested time-of-flight is too short to be achievable even at
+// the hyperbolic floor (z = −4π²), the negative bracket walk exhausts
+// without F changing sign. Pre-fix it fell through to Newton with an
+// unvalidated z ≈ −39.5 seed and surfaced a misleading "y went negative"
+// error; the bracket-exhaustion guard now fails explicitly at the
+// bracket stage with a clear message. (#90)
+func TestLambertHyperbolicWalkExhaustion(t *testing.T) {
+	mu := 3.986e14
+	// 90° apart, physically-impossible 10 s transfer of ~1.4e7 m.
+	r1 := orbital.Vec3{X: 1e7}
+	r2 := orbital.Vec3{Y: 1e7}
+	_, _, err := LambertSolveRev(r1, r2, 10, mu, 0, false, false)
+	if err == nil {
+		t.Fatal("expected an error for an unachievable hyperbolic transfer, got nil")
+	}
+	if !strings.Contains(err.Error(), "hyperbolic walk exhausted") {
+		t.Errorf("err = %q, want the bracket-exhaustion message (caught at bracket stage, not Newton)", err)
 	}
 }

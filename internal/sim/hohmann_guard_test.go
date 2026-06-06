@@ -68,6 +68,24 @@ func TestHohmannGuardDetailDegenerateSilent(t *testing.T) {
 	}
 }
 
+// TestHohmannGuardDetailShortPeriodMoonDegenerateSilent — when a target
+// normal is built from two position samples taken a fixed interval apart
+// (the World wrapper's sampling), a custom <2h moon advances nearly 180°
+// between samples, so the cross-product that forms nTarget collapses to a
+// ~1e-9-magnitude near-zero vector rather than exactly zero. The exact
+// `== 0` guard missed that, letting the cosine at the inclination check
+// divide by ~1e-9 and emit a spurious tilt warning. A magnitude
+// threshold treats the near-degenerate normal as unassessable and stays
+// silent. (#90)
+func TestHohmannGuardDetailShortPeriodMoonDegenerateSilent(t *testing.T) {
+	r, v := circularState(7.0e6, earthMuTest) // clean, non-degenerate craft normal
+	// nTarget with a ~1e-9 magnitude — what a 180°-apart sample pair yields.
+	nTarget := orbital.Vec3{X: 1e-9}
+	if got := hohmannGuardDetail(r, v, earthMuTest, nTarget, hohmannEccTol, hohmannInclTolDeg); got != "" {
+		t.Errorf("near-degenerate target normal (|n|≈1e-9) should be silent, got %q", got)
+	}
+}
+
 // moonIndex finds the Moon's body index in the active system, or -1.
 func moonIndex(w *World) int {
 	for i, b := range w.System().Bodies {
