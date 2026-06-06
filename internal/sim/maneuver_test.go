@@ -1112,10 +1112,10 @@ func TestResolveEventNodesFreezesNextClosestApproach(t *testing.T) {
 	w.ActiveCraftIdx = 0
 	w.SetTargetCraft(1)
 	w.PlanNode(ManeuverNode{
-		Event:          TriggerNextClosestApproach,
-		Mode:           spacecraft.BurnTargetRetrograde,
-		DV:             10,
-		TargetCraftIdx: 2, // one-based: refers to slate idx 1
+		Event:         TriggerNextClosestApproach,
+		Mode:          spacecraft.BurnTargetRetrograde,
+		DV:            10,
+		TargetCraftID: w.Crafts[1].ID, // bind by stable ID (ADR 0012)
 	})
 	if !w.ActiveCraft().Nodes[0].TriggerTime.IsZero() {
 		t.Fatalf("precondition: unresolved node has zero TriggerTime")
@@ -1135,16 +1135,16 @@ func TestResolveEventNodesFreezesNextClosestApproach(t *testing.T) {
 }
 
 // TestResolveEventNodesNextClosestApproachStaleTargetSkips — node
-// with TargetCraftIdx referencing a missing craft slot stays
-// unresolved (silent no-op, sits in slate for player to delete or
-// repoint). Stale-handling guard for v0.9.3+.
+// with TargetCraftID referencing a missing craft stays unresolved
+// (silent no-op, sits in slate for player to delete or repoint).
+// Stale-handling guard for v0.9.3+ / ADR 0012.
 func TestResolveEventNodesNextClosestApproachStaleTargetSkips(t *testing.T) {
 	w := mustWorld(t)
 	w.PlanNode(ManeuverNode{
-		Event:          TriggerNextClosestApproach,
-		Mode:           spacecraft.BurnTargetRetrograde,
-		DV:             10,
-		TargetCraftIdx: 99, // out-of-range — never spawned
+		Event:         TriggerNextClosestApproach,
+		Mode:          spacecraft.BurnTargetRetrograde,
+		DV:            10,
+		TargetCraftID: 9999, // no craft with this ID — never spawned
 	})
 	w.resolveEventNodes()
 	n := w.ActiveCraft().Nodes[0]

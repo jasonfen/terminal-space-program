@@ -39,18 +39,22 @@ func (w *World) SetTargetBody(idx int) {
 	w.reconcileNavMode()
 }
 
-// SetTargetCraft sets the craft target by slate index. The active
-// craft can't target itself; out-of-range or self-targeting clears.
+// SetTargetCraft sets the craft target by slate index, storing the
+// craft's stable ID (ADR 0012) so the binding survives slate shifts.
+// The active craft can't target itself; out-of-range or self-targeting
+// clears.
 func (w *World) SetTargetCraft(idx int) {
 	if idx < 0 || idx >= len(w.Crafts) || idx == w.ActiveCraftIdx {
 		w.ClearTarget()
 		return
 	}
-	if w.Crafts[idx] == nil {
+	c := w.Crafts[idx]
+	if c == nil {
 		w.ClearTarget()
 		return
 	}
-	w.Target = Target{Kind: TargetCraft, CraftIdx: idx}
+	w.stampCraftID(c) // defensive: never bind to a zero ID
+	w.Target = Target{Kind: TargetCraft, CraftID: c.ID}
 	w.mirrorTargetToActiveCraft()
 }
 
@@ -122,7 +126,8 @@ func (w *World) targetCycle() []Target {
 		if c == nil || i == w.ActiveCraftIdx {
 			continue
 		}
-		cycle = append(cycle, Target{Kind: TargetCraft, CraftIdx: i})
+		w.stampCraftID(c)
+		cycle = append(cycle, Target{Kind: TargetCraft, CraftID: c.ID})
 	}
 	for i := 1; i < len(w.System().Bodies); i++ {
 		cycle = append(cycle, Target{Kind: TargetBody, BodyIdx: i})
@@ -153,11 +158,8 @@ func (w *World) TargetState() (orbital.Vec3State, bool) {
 		v := w.bodyInertialVelocity(b)
 		return orbital.Vec3State{R: r, V: v}, true
 	case TargetCraft:
-		if w.Target.CraftIdx < 0 || w.Target.CraftIdx >= len(w.Crafts) {
-			return orbital.Vec3State{}, false
-		}
-		c := w.Crafts[w.Target.CraftIdx]
-		if c == nil {
+		c, _, ok := w.craftByID(w.Target.CraftID)
+		if !ok {
 			return orbital.Vec3State{}, false
 		}
 		primaryPos := w.BodyPosition(c.Primary)
@@ -201,11 +203,8 @@ func (w *World) TargetStateRelativeToActivePrimary() (rT, vT orbital.Vec3, ok bo
 	if active == nil {
 		return orbital.Vec3{}, orbital.Vec3{}, false
 	}
-	if w.Target.CraftIdx < 0 || w.Target.CraftIdx >= len(w.Crafts) {
-		return orbital.Vec3{}, orbital.Vec3{}, false
-	}
-	t := w.Crafts[w.Target.CraftIdx]
-	if t == nil {
+	t, _, ok := w.craftByID(w.Target.CraftID)
+	if !ok {
 		return orbital.Vec3{}, orbital.Vec3{}, false
 	}
 	if t.Primary.EnglishName == active.Primary.EnglishName {
@@ -229,10 +228,8 @@ func (w *World) TargetName() string {
 			return sys.Bodies[w.Target.BodyIdx].EnglishName
 		}
 	case TargetCraft:
-		if w.Target.CraftIdx >= 0 && w.Target.CraftIdx < len(w.Crafts) {
-			if c := w.Crafts[w.Target.CraftIdx]; c != nil {
-				return c.Name
-			}
+		if c, _, ok := w.craftByID(w.Target.CraftID); ok {
+			return c.Name
 		}
 	}
 	return ""

@@ -98,9 +98,9 @@ func TestPlanRendezvousNudge_PlantsOneNode(t *testing.T) {
 	if math.Abs(n.DV-adv.DV) > 1e-9 {
 		t.Errorf("DV = %.3f, want %.3f", n.DV, adv.DV)
 	}
-	if n.TargetCraftIdx != w.Target.CraftIdx+1 {
-		t.Errorf("TargetCraftIdx = %d, want %d (one-based encoding of slate idx %d)",
-			n.TargetCraftIdx, w.Target.CraftIdx+1, w.Target.CraftIdx)
+	if n.TargetCraftID != w.Target.CraftID {
+		t.Errorf("TargetCraftID = %d, want %d (the bound target's stable ID)",
+			n.TargetCraftID, w.Target.CraftID)
 	}
 	if n.PrimaryID != c.Primary.ID {
 		t.Errorf("PrimaryID = %q, want %q", n.PrimaryID, c.Primary.ID)

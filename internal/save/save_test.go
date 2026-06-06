@@ -658,22 +658,23 @@ func TestEventRoundtrip(t *testing.T) {
 	}
 }
 
-// TestTargetCraftIdxRoundtrip — v0.9.3 target binding survives save/
-// load. Plant a target-relative node with a one-based TargetCraftIdx
-// and confirm it round-trips with the same value. Also confirms the
-// JSON omitempty tag works: a non-target node round-trips with
-// TargetCraftIdx == 0 (no field on disk → zero unmarshals).
+// TestTargetCraftIdxRoundtrip — target binding survives save/load.
+// Plant a target-relative node bound by stable craft ID (ADR 0012) and
+// confirm it round-trips with the same value. Also confirms the JSON
+// omitempty tag works: a non-target node round-trips with
+// TargetCraftID == 0 (no field on disk → zero unmarshals).
 func TestTargetCraftIdxRoundtrip(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	// Target-relative node bound to slate idx 0 (one-based: 1).
+	wantID := w.Crafts[0].ID
+	// Target-relative node bound to the craft by stable ID.
 	w.PlanNode(sim.ManeuverNode{
-		Mode:           spacecraft.BurnTargetPrograde,
-		DV:             10,
-		Event:          sim.TriggerNextClosestApproach,
-		TargetCraftIdx: 1,
+		Mode:          spacecraft.BurnTargetPrograde,
+		DV:            10,
+		Event:         sim.TriggerNextClosestApproach,
+		TargetCraftID: wantID,
 	})
 	// Non-target node: no binding.
 	w.PlanNode(sim.ManeuverNode{
@@ -705,11 +706,11 @@ func TestTargetCraftIdxRoundtrip(t *testing.T) {
 	if bound == nil || free == nil {
 		t.Fatal("did not find both nodes after load")
 	}
-	if bound.TargetCraftIdx != 1 {
-		t.Errorf("bound node TargetCraftIdx: got %d, want 1", bound.TargetCraftIdx)
+	if bound.TargetCraftID != wantID {
+		t.Errorf("bound node TargetCraftID: got %d, want %d", bound.TargetCraftID, wantID)
 	}
-	if free.TargetCraftIdx != 0 {
-		t.Errorf("free node TargetCraftIdx: got %d, want 0", free.TargetCraftIdx)
+	if free.TargetCraftID != 0 {
+		t.Errorf("free node TargetCraftID: got %d, want 0", free.TargetCraftID)
 	}
 	if bound.Event != sim.TriggerNextClosestApproach {
 		t.Errorf("bound node Event: got %v, want TriggerNextClosestApproach", bound.Event)
@@ -956,7 +957,8 @@ func TestTargetCraftRoundtrip(t *testing.T) {
 	// Active is now idx 1 (the new sister); target idx 0 (the
 	// original LEO craft).
 	w.SetTargetCraft(0)
-	if w.Target.Kind != sim.TargetCraft || w.Target.CraftIdx != 0 {
+	wantID := w.Crafts[0].ID
+	if w.Target.Kind != sim.TargetCraft || w.Target.CraftID != wantID {
 		t.Fatalf("precondition: SetTargetCraft(0) → %+v", w.Target)
 	}
 
@@ -968,8 +970,8 @@ func TestTargetCraftRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Target.Kind != sim.TargetCraft || got.Target.CraftIdx != 0 {
-		t.Errorf("Target after roundtrip: got %+v, want {TargetCraft, 0}", got.Target)
+	if got.Target.Kind != sim.TargetCraft || got.Target.CraftID != wantID {
+		t.Errorf("Target after roundtrip: got %+v, want {TargetCraft, ID %d}", got.Target, wantID)
 	}
 }
 

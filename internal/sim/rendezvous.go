@@ -35,7 +35,7 @@ var (
 type rendezvousAdvisoryCache struct {
 	lastSimTime time.Time
 	activeIdx   int
-	targetIdx   int
+	targetID    uint64 // stable Spacecraft.ID of the cached target (ADR 0012)
 	advisory    planner.RendezvousAdvisory
 	ok          bool
 	populated   bool
@@ -76,11 +76,8 @@ func (w *World) RecommendedRendezvousBurn() (planner.RendezvousAdvisory, bool) {
 		w.rendezvousCache = rendezvousAdvisoryCache{}
 		return planner.RendezvousAdvisory{}, false
 	}
-	if w.Target.CraftIdx < 0 || w.Target.CraftIdx >= len(w.Crafts) {
-		return planner.RendezvousAdvisory{}, false
-	}
-	t := w.Crafts[w.Target.CraftIdx]
-	if t == nil || t.Primary.EnglishName != active.Primary.EnglishName {
+	t, _, ok := w.craftByID(w.Target.CraftID)
+	if !ok || t.Primary.EnglishName != active.Primary.EnglishName {
 		// Different-primary case is a gate, not an advisory — the
 		// HUD just hides the block (cross-SOI rendezvous is out of
 		// the v0.10.2 scope, matches v0.9.3 NextClosestApproach).
@@ -90,7 +87,7 @@ func (w *World) RecommendedRendezvousBurn() (planner.RendezvousAdvisory, bool) {
 	// Cache key: (active, target, sim-time within interval).
 	if w.rendezvousCache.populated &&
 		w.rendezvousCache.activeIdx == w.ActiveCraftIdx &&
-		w.rendezvousCache.targetIdx == w.Target.CraftIdx &&
+		w.rendezvousCache.targetID == w.Target.CraftID &&
 		w.Clock.SimTime.Sub(w.rendezvousCache.lastSimTime) < rendezvousRecomputeInterval {
 		return w.rendezvousCache.advisory, w.rendezvousCache.ok
 	}
@@ -99,7 +96,7 @@ func (w *World) RecommendedRendezvousBurn() (planner.RendezvousAdvisory, bool) {
 	w.rendezvousCache = rendezvousAdvisoryCache{
 		lastSimTime: w.Clock.SimTime,
 		activeIdx:   w.ActiveCraftIdx,
-		targetIdx:   w.Target.CraftIdx,
+		targetID:    w.Target.CraftID,
 		advisory:    advisory,
 		ok:          ok,
 		populated:   true,
@@ -210,11 +207,8 @@ func (w *World) PlanRendezvousNudge() (*planner.RendezvousAdvisory, error) {
 	if w.Target.Kind != TargetCraft {
 		return nil, ErrRendezvousNoTarget
 	}
-	if w.Target.CraftIdx < 0 || w.Target.CraftIdx >= len(w.Crafts) {
-		return nil, ErrRendezvousNoTarget
-	}
-	t := w.Crafts[w.Target.CraftIdx]
-	if t == nil {
+	t, _, ok := w.craftByID(w.Target.CraftID)
+	if !ok {
 		return nil, ErrRendezvousNoTarget
 	}
 	if t.Primary.EnglishName != c.Primary.EnglishName {
@@ -237,14 +231,14 @@ func (w *World) PlanRendezvousNudge() (*planner.RendezvousAdvisory, error) {
 
 	mode := axisLabelToBurnMode(advisory.Axis)
 	node := ManeuverNode{
-		Mode:           mode,
-		DV:             advisory.DV,
-		Duration:       c.BurnTimeForDV(advisory.DV),
-		Event:          spacecraft.TriggerAbsolute,
-		TriggerTime:    w.Clock.SimTime.Add(leadBuffer),
-		PrimaryID:      c.Primary.ID,
-		Throttle:       1.0,
-		TargetCraftIdx: w.Target.CraftIdx + 1, // one-based per ManeuverNode.TargetCraftIdx convention
+		Mode:          mode,
+		DV:            advisory.DV,
+		Duration:      c.BurnTimeForDV(advisory.DV),
+		Event:         spacecraft.TriggerAbsolute,
+		TriggerTime:   w.Clock.SimTime.Add(leadBuffer),
+		PrimaryID:     c.Primary.ID,
+		Throttle:      1.0,
+		TargetCraftID: w.Target.CraftID, // bind by stable ID (ADR 0012)
 	}
 	w.PlanNode(node)
 	out := advisory

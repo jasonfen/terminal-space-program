@@ -147,6 +147,15 @@ func (w *World) Undock(idx int) bool {
 		restored = append(restored, s)
 	}
 
+	// Each restored component is a fresh vessel — stamp new stable IDs
+	// (ADR 0012). The composite's ID is retired with it; a target that
+	// pointed at the composite stops resolving rather than aliasing a
+	// component. Targets aimed at the unaffected tail crafts keep
+	// resolving by ID through the insert shift — no remap needed.
+	for _, s := range restored {
+		w.stampCraftID(s)
+	}
+
 	// Replace composite slot with restored components in place.
 	tail := append([]*spacecraft.Spacecraft{}, w.Crafts[idx+1:]...)
 	w.Crafts = append(w.Crafts[:idx], restored...)

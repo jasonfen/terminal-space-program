@@ -16,6 +16,15 @@ import (
 // Spacecraft is the player vessel. Mass split: DryMass is the bus, Fuel
 // is consumable. State is relative to Primary.
 type Spacecraft struct {
+	// ID is the vessel's stable identity (v0.14.x / ADR 0012). Assigned
+	// once from a monotonic World counter when the craft enters the
+	// slate; never reused. Targets reference a craft by ID (not by its
+	// slice position), so a slate mutation — end-flight, dock, undock,
+	// stage — that shifts indices can no longer re-point a stored target
+	// at the wrong vessel (GH #87). Zero means "unstamped"; the World
+	// stamps it on spawn/load. Persisted (save schema v7+).
+	ID uint64
+
 	Name    string
 	DryMass float64 // kg
 	Fuel    float64 // kg

@@ -698,8 +698,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// the craft's own color (dim when no Color is set, falling
 		// back to ColorDim — preserves pre-v0.8.2 behaviour).
 		targetCraftIdx := -1
-		if w.Target.Kind == sim.TargetCraft {
-			targetCraftIdx = w.Target.CraftIdx
+		if _, idx, ok := w.ResolveTargetCraft(); ok {
+			targetCraftIdx = idx
 		}
 		for i, other := range w.Crafts {
 			if i == w.ActiveCraftIdx || other == nil {
