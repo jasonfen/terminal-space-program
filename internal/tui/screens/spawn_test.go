@@ -4,8 +4,35 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
+
+// TestPropulsionSummaryScaleHint — ADR 0014 Slice D. propulsionSummary
+// appends a spawn-form scale hint driven by the loadout's Scale() tag:
+// real fleet reads ~9.4 km/s to orbit, the stripped-back fleet ~3.4 km/s.
+// An unset ScaleClass normalizes to real (it must not read stripped-back).
+// This is a display hint only — it never gates which craft can spawn.
+func TestPropulsionSummaryScaleHint(t *testing.T) {
+	real := spacecraft.Loadout{ScaleClass: bodies.ScaleReal}
+	if got := propulsionSummary(real); !strings.Contains(got, "real scale") ||
+		!strings.Contains(got, "9.4 km/s") {
+		t.Errorf("real-scale hint missing: %q", got)
+	}
+
+	stripped := spacecraft.Loadout{ScaleClass: bodies.ScaleStrippedBack}
+	if got := propulsionSummary(stripped); !strings.Contains(got, "stripped-back scale") ||
+		!strings.Contains(got, "3.4 km/s") {
+		t.Errorf("stripped-back hint missing: %q", got)
+	}
+
+	// Unset ScaleClass normalizes to real, not stripped-back.
+	unset := spacecraft.Loadout{}
+	if got := propulsionSummary(unset); !strings.Contains(got, "real scale") ||
+		strings.Contains(got, "stripped-back") {
+		t.Errorf("unset ScaleClass should read real-scale: %q", got)
+	}
+}
 
 // selectCustom cycles the CRAFT TYPE field to the synthetic
 // "Custom…" row (one past the last catalog loadout).
