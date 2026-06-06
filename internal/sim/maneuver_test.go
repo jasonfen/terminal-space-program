@@ -1952,6 +1952,102 @@ func TestPreviewBurnStateLongRetroAtLunaPeriCapsByDuration(t *testing.T) {
 	}
 }
 
+// TestPreviewBurnStateCapsByActiveStageFuel (GH #88 finding #4): the
+// finite-burn preview's rocket-equation cap previously floored the
+// post-burn mass at the *total* vehicle mass (massAfter > 0), letting
+// the projected Δv eat into dry mass and upper-stage propellant the
+// firing engine can never burn. When the form's duration is long
+// enough to exhaust the *active stage's* fuel, the live burn cuts at
+// fuel exhaustion — so the preview must floor delivered Δv at
+// RemainingDeltaV (the active-stage budget that #89's fire path now
+// caps at), not at the duration alone.
+//
+// Setup: drain the active stage so its RemainingDeltaV is a modest,
+// sub-vPeri value (keeps the post-burn orbit elliptical, so apoapsis is
+// a clean monotone proxy for delivered Δv), then request a huge Δv with
+// a duration that burns past fuel exhaustion. The pre-fix preview caps
+// by the duration-implied massAfter (which dips below the fuel floor)
+// and over-states AP; the fixed preview caps at RemainingDeltaV.
+func TestPreviewBurnStateCapsByActiveStageFuel(t *testing.T) {
+	w := mustWorld(t)
+	moon, rPeri, _, vPeri, seated := seatLunaCaptureOrbit(t, w)
+	if !seated {
+		t.Skip("Moon missing from Sol")
+	}
+	muMoon := moon.GravitationalParameter()
+	c := w.ActiveCraft()
+	const g0 = 9.80665
+
+	// Drain the active stage down to a RemainingDeltaV of ~300 m/s. The
+	// floor (total − active-stage fuel) is invariant under BurnFuel, so
+	// the target leftover fuel follows directly from the rocket equation.
+	const wantDV = 300.0
+	floor := c.TotalMass() - c.ActiveStageFuel()
+	if floor <= 0 {
+		t.Skip("active craft has no dry/upper floor — cannot construct fuel-limited case")
+	}
+	fuelToLeave := floor*math.Exp(wantDV/(c.Isp*g0)) - floor
+	if drain := c.ActiveStageFuel() - fuelToLeave; drain > 0 {
+		c.BurnFuel(drain)
+		c.State.M = c.TotalMass()
+	}
+	remainingDV := c.RemainingDeltaV()
+	if math.Abs(remainingDV-wantDV) > 5 {
+		t.Fatalf("setup: RemainingDeltaV=%.1f m/s, wanted ~%.0f — drain math wrong?", remainingDV, wantDV)
+	}
+
+	// Duration that drives massAfter to 0.95·floor — below the fuel
+	// floor (so the pre-fix duration cap over-states Δv) but still
+	// positive (so the existing massAfter>0 guard fires the wrong cap).
+	M := c.State.M
+	floor = M - c.ActiveStageFuel()
+	massAfter := 0.95 * floor
+	mdot := c.Thrust / (c.Isp * g0)
+	duration := time.Duration((M - massAfter) / mdot * float64(time.Second))
+
+	// The cap the pre-fix code would apply, and the correct fuel floor.
+	maxDvWrong := c.Isp * g0 * math.Log(M/massAfter)
+	if maxDvWrong <= remainingDV+50 {
+		t.Fatalf("setup: uncapped Δv %.1f not meaningfully above fuel floor %.1f m/s", maxDvWrong, remainingDV)
+	}
+	if maxDvWrong >= vPeri || remainingDV >= vPeri {
+		t.Fatalf("setup: caps (%.1f / %.1f) exceed vPeri %.1f — orbit would flip retrograde",
+			maxDvWrong, remainingDV, vPeri)
+	}
+
+	// Request far more Δv than either cap so the cap itself is what binds.
+	state, primary, ok := w.PreviewBurnState(spacecraft.BurnRetrograde, 1e6, duration, TriggerNextPeri)
+	if !ok {
+		t.Fatalf("PreviewBurnState returned ok=false")
+	}
+	if primary.ID != moon.ID {
+		t.Fatalf("preview escaped Luna SOI? primary=%q", primary.ID)
+	}
+	postApo := orbital.ElementsFromState(state.R, state.V, muMoon).Apoapsis()
+
+	// Impulsive apoapsis a given retrograde Δv at peri would produce.
+	apoFor := func(dv float64) float64 {
+		v := vPeri - dv
+		eps := 0.5*v*v - muMoon/rPeri
+		a := -muMoon / (2 * eps)
+		return 2*a - rPeri
+	}
+	apoCorrect := apoFor(remainingDV)
+	apoWrong := apoFor(maxDvWrong)
+
+	if math.Abs(postApo-apoWrong) <= math.Abs(postApo-apoCorrect) {
+		t.Errorf("preview AP %.0f km matched the uncapped duration projection (%.0f km, %.1f m/s) rather than the active-stage fuel floor (%.0f km, %.1f m/s) — RemainingDeltaV cap not applied",
+			postApo/1000, apoWrong/1000, maxDvWrong, apoCorrect/1000, remainingDV)
+	}
+	// Finite-burn deformation pulls AP slightly below the impulsive
+	// fuel-floor prediction; the cap is the test's job, not pinpoint
+	// finite precision.
+	if rel := math.Abs(postApo-apoCorrect) / apoCorrect; rel > 0.12 {
+		t.Errorf("preview AP %.0f km diverges from fuel-floor impulsive %.0f km by %.1f%% — expected < 12%%",
+			postApo/1000, apoCorrect/1000, rel*100)
+	}
+}
+
 // TestPreviewBurnStateFiniteVsImpulsiveAtLunaPeri (v0.6.3 polish): when
 // the requested Δv fits inside the duration window (200 m/s in 10 s
 // for the S-IVB-1), the finite-burn preview and the impulsive preview

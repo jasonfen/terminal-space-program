@@ -2300,6 +2300,16 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 				effectiveDv = maxDv
 			}
 		}
+		// Floor by the active-stage fuel budget. The duration cap above
+		// lets massAfter fall below the stage's dry + upper-stage floor —
+		// but the live burn cuts at fuel exhaustion regardless of
+		// duration, so RemainingDeltaV (the same active-stage floor the
+		// node fire path caps at via capImpulsiveDV) is the hard ceiling
+		// on delivered Δv. Without this a long-duration preview projects
+		// Δv the firing engine can never supply (GH #88 finding #4 / #89).
+		if fuelDv := w.ActiveCraft().RemainingDeltaV(); fuelDv > 0 && effectiveDv > fuelDv {
+			effectiveDv = fuelDv
+		}
 		direction := func(r, v orbital.Vec3) orbital.Vec3 {
 			if targetMode {
 				return spacecraft.DirectionUnitTarget(mode, r, v, rT, vT)
