@@ -128,6 +128,16 @@ const (
 	StageModuleRCSTugID  = "rcs-tug" // pure-monoprop proximity-ops module
 )
 
+// ADR-0009 trimmed Apollo LM propellant (kg). The csm-lm composite is
+// the post-transposition Apollo stack, so its LM carries these — the
+// same values the Apollo-Stack loadout uses (loadouts.go) — rather than
+// the untrimmed standalone Lander modules. Kept in sync with the
+// loadout by TestApolloCSMLMCompositeMatchesLoadoutLM (GH #89).
+const (
+	apolloLMDescentFuel = 6310.0 // descent 9500 → 6310 (real abort reserve, ~2500 m/s cap)
+	apolloLMAscentFuel  = 1269.0 // ascent  1800 → 1269 (~2200 m/s cap)
+)
+
 // StageCatalog indexes the parts library by ID. The numbers mirror
 // the inline loadout literals in loadouts.go (see file-level note).
 // The CSM is net-new in v0.10.1 — Apollo Command/Service Module:
@@ -164,7 +174,12 @@ var StageCatalog = map[string]StageModule{
 	},
 	StageModuleICPSID: {
 		ID: StageModuleICPSID, Name: "ICPS", Glyph: "◆", Color: "#5BB3FF",
-		Tier: "transfer", dry: 3500, fuel: 25000, thrust: 110000, isp: 462, bc: 6.25e-5,
+		// GH #89: thrust mirrors the standalone ICPS loadout (108000 N),
+		// the canonical referent for a configurator part named "ICPS" —
+		// not the 110000 N variant the SLS-Block1 loadout embeds. Was
+		// 110000, which violated the file-level "flies identically to its
+		// canonical loadout stage" promise for a player adding the part.
+		Tier: "transfer", dry: 3500, fuel: 25000, thrust: 108000, isp: 462, bc: 6.25e-5,
 		launchSpriteRowsPx:  8,
 		launchSpriteWidthPx: 3,
 		launchSpriteColor:   "#C0C8D0", // muted cool grey — tames the saturated slate-blue Color
@@ -203,6 +218,14 @@ var StageCatalog = map[string]StageModule{
 		launchSpriteWidthPx: 3,
 		fuelType:            FuelTypeKerolox,
 	},
+	// NOTE (GH #89): only this entry's sprite/name/flag fields are read —
+	// the catalog*ByName helpers resolve "LM"→"Lander" for sprite + soft-
+	// land + parachute lookups. Its dry/fuel/thrust are DEAD for stage
+	// construction: BuildModule intercepts StageModuleLanderID and expands
+	// to Descent+Ascent (the only stages ever built from this id), so no
+	// flying stage is ever constructed from the 4000/8000/45000 below.
+	// They are intentionally unreachable — do not trust them as the
+	// Lander's mass budget (the live numbers are the Descent+Ascent split).
 	StageModuleLanderID: {
 		ID: StageModuleLanderID, Name: "Lander", Glyph: "▼", Color: "#5FFF87",
 		Tier: "payload", dry: 4000, fuel: 8000, thrust: 45000, isp: 311, bc: 0,
@@ -433,6 +456,18 @@ func BuildModule(id string) ([]Stage, bool) {
 		if !okSM || !okCM || !okD || !okA {
 			return nil, false
 		}
+		// GH #89: this composite IS the post-transposition Apollo stack,
+		// so its LM must carry the ADR-0009 *trimmed* propellant — the
+		// same as the Apollo-Stack loadout — not the untrimmed shared
+		// Lander modules. Post-transposition the LM no longer doubles as
+		// the LOI engine (the SM does), so it sheds the surplus the
+		// standalone Lander keeps. Reusing the untrimmed descent/ascent
+		// gave this composite ~0.9 km/s more descent Δv than the loadout
+		// for the same mission. The trim is fuel-only (sprite, legs,
+		// soft-land, engine all shared), so override here rather than
+		// duplicating the catalog entries.
+		d.FuelMass, d.FuelCapacity = apolloLMDescentFuel, apolloLMDescentFuel
+		a.FuelMass, a.FuelCapacity = apolloLMAscentFuel, apolloLMAscentFuel
 		return []Stage{sm, cm, d, a}, true
 	}
 	st, ok := BuildStage(id)

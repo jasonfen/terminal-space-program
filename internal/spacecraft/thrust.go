@@ -398,11 +398,36 @@ func (s *Spacecraft) ApplyImpulsive(mode BurnMode, dv float64) {
 func (s *Spacecraft) ApplyImpulsiveWithTarget(mode BurnMode, dv float64, rT, vT orbital.Vec3) {
 	// v0.9.2+: route through BurnDirection so surface modes + trim feed through.
 	dir := s.BurnDirectionWithTarget(mode, rT, vT)
+	dv = s.capImpulsiveDV(dv)
 	if dir.Norm() == 0 || dv == 0 {
 		return
 	}
 	s.State.V = s.State.V.Add(dir.Scale(dv))
 	s.consumeFuel(math.Abs(dv))
+}
+
+// capImpulsiveDV limits an instantaneous Δv magnitude to what the active
+// (bottom) stage's propellant can actually deliver, so the one-shot
+// impulsive fire path can't grant free Δv past fuel exhaustion. The
+// finite-burn integrator self-limits step-by-step, but the impulsive
+// path applies the full velocity change before debiting fuel and
+// BurnFuel silently clamps the debit to the stage's remaining fuel —
+// leaving the craft with more Δv than its propellant supports (GH #89).
+// Capping at RemainingDeltaV() makes consumeFuel burn exactly the
+// available stage fuel. A craft with no rocket-equation model (Isp<=0,
+// i.e. legacy / thrust-less test fixtures) is left unmodified.
+func (s *Spacecraft) capImpulsiveDV(dv float64) float64 {
+	if s.Isp <= 0 {
+		return dv
+	}
+	maxDV := s.RemainingDeltaV()
+	if dv > maxDV {
+		return maxDV
+	}
+	if dv < -maxDV {
+		return -maxDV
+	}
+	return dv
 }
 
 // ApplyImpulsiveDir applies an instantaneous Δv of magnitude dv along
@@ -411,6 +436,7 @@ func (s *Spacecraft) ApplyImpulsiveWithTarget(mode BurnMode, dv float64, rT, vT 
 // degraded to impulsive — its tilted direction is resolved upstream
 // by NodeBurnDirection rather than from a plain BurnMode. v0.10.4+.
 func (s *Spacecraft) ApplyImpulsiveDir(dir orbital.Vec3, dv float64) {
+	dv = s.capImpulsiveDV(dv)
 	if dir.Norm() == 0 || dv == 0 {
 		return
 	}
@@ -436,15 +462,25 @@ func (s *Spacecraft) consumeFuel(dvUsed float64) {
 
 // RemainingDeltaV estimates how much more Δv the main engine's fuel
 // supports via the rocket equation: Δv = Isp·g0·ln(m0/m_after_fuel).
-// Monoprop is not burned through the main engine, so it counts as
-// dead weight in the m_after_fuel term — the floor is dry+monoprop,
-// not dry alone. v0.8.0+: pre-monoprop the floor was just DryMass.
+// Only the active (bottom) stage's propellant is burnable through the
+// firing engine, so m_after_fuel subtracts ActiveStageFuel() from the
+// stacked total — everything else (dry mass, monoprop, *upper-stage
+// propellant*) is dead weight to this engine.
+//
+// v0.14.x (GH #89): the floor was DryMass+Monoprop, but s.Fuel /
+// DryMass are the SUMMED values across all stages, so the implied
+// m_after_fuel counted every upper stage's propellant as burnable
+// through the bottom engine — the same all-stage overestimate
+// ActiveStageFuel() was introduced to kill. For a single-stage craft
+// TotalMass()-ActiveStageFuel() == DryMass+Monoprop, so behaviour is
+// unchanged there; only multi-stage budgets are corrected.
 func (s *Spacecraft) RemainingDeltaV() float64 {
-	floor := s.DryMass + s.Monoprop
-	if floor == 0 || s.TotalMass() == 0 {
+	total := s.TotalMass()
+	floor := total - s.ActiveStageFuel()
+	if floor <= 0 || total == 0 {
 		return 0
 	}
-	return s.Isp * g0 * math.Log(s.TotalMass()/floor)
+	return s.Isp * g0 * math.Log(total/floor)
 }
 
 // MassFlowRate returns the propellant mass-flow magnitude (kg/s) at
@@ -493,7 +529,14 @@ func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
 	if dv <= 0 || s.Isp <= 0 || s.Thrust <= 0 {
 		return 0
 	}
-	mDot := s.MassFlowRate()
+	// Use the full-throttle mass flow, not the craft's *live* throttle:
+	// this is the planned engine-on duration for a burn that fires at
+	// the node's own throttle (default full). Reading MassFlowRate()
+	// (= live EffectiveThrottle()) meant that planting an auto burn
+	// while coasting with throttle cut to 0 yielded mDot==0 → Duration
+	// 0, silently collapsing the finite burn into an impulsive node
+	// that then delivered the whole Δv instantaneously (GH #89).
+	mDot := s.MassFlowRateAt(1.0)
 	if mDot <= 0 {
 		return 0
 	}

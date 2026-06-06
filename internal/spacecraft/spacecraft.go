@@ -43,11 +43,15 @@ type Spacecraft struct {
 	Color     string
 
 	// Throttle is the engine power factor in [0, 1]; effective
-	// thrust = Thrust * Throttle. v0.7.3+. Zero is a sentinel for
-	// "legacy / unset" (treated as 1.0 by EffectiveThrottle) so
-	// pre-v0.7.3 Spacecraft constructions and v3 saves keep firing
-	// at full thrust. New callers that need the engine off route
-	// through ManualBurn = nil rather than a zero throttle.
+	// thrust = Thrust * Throttle. v0.7.3+. Zero means "engine off"
+	// (the live value after the player cuts throttle) — it is NOT a
+	// legacy/unset sentinel promoted to 1.0; Spacecraft.EffectiveThrottle
+	// returns it verbatim. Every constructor must therefore set Throttle
+	// explicitly (NewInLEO and the save-load path do); literal
+	// Spacecraft{} test fixtures use Thrust=0 so the engine path is
+	// never entered and the value is moot. (ManeuverNode.EffectiveThrottle
+	// is the one that maps 0→1.0, for the per-node firing throttle —
+	// that promotion is node-local and does not apply here.)
 	Throttle float64
 
 	// LastThrottleChangeAt is the sim-time at which Throttle most
