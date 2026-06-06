@@ -139,6 +139,14 @@ type Canvas struct {
 	// distinctly even at small pixel-radius. Overlay color comes from
 	// the cell's pixelTags as usual.
 	cellOverlays map[[2]int]rune
+
+	// cellOverlayColors optionally pins an overlay cell to a specific
+	// foreground color, independent of any pixelTags under it. Used by
+	// SetCellLabelColored so HUD-style corner labels (e.g. the "view:"
+	// readout) can render in the theme palette even though they sit on
+	// untagged background cells. Cells absent from this map fall back to
+	// the pixelTag-derived color (terminal default when untagged).
+	cellOverlayColors map[[2]int]lipgloss.TerminalColor
 }
 
 // NewCanvas builds a canvas sized to fit cols × rows terminal cells.
@@ -192,6 +200,7 @@ func (c *Canvas) Clear() {
 	c.dc.Clear()
 	c.pixelTags = nil
 	c.cellOverlays = nil
+	c.cellOverlayColors = nil
 }
 
 // SetCellOverlay places a Unicode glyph at the cell containing the
@@ -256,6 +265,26 @@ func (c *Canvas) SetCellLabel(col, row int, text string) {
 			continue
 		}
 		c.cellOverlays[[2]int{x, row}] = ch
+	}
+}
+
+// SetCellLabelColored is SetCellLabel that also pins the label's
+// foreground to color, so corner-overlay HUD text reads in the theme
+// palette instead of the terminal default. Same right-going,
+// one-rune-per-cell, skip-out-of-bounds behavior as SetCellLabel.
+func (c *Canvas) SetCellLabelColored(col, row int, text string, color lipgloss.TerminalColor) {
+	c.SetCellLabel(col, row, text)
+	if c.cellOverlayColors == nil {
+		c.cellOverlayColors = make(map[[2]int]lipgloss.TerminalColor)
+	}
+	i := 0
+	for range text {
+		x := col + i
+		i++
+		if x < 0 || x >= c.cols || row < 0 || row >= c.rows {
+			continue
+		}
+		c.cellOverlayColors[[2]int{x, row}] = color
 	}
 }
 
@@ -1027,8 +1056,15 @@ func (c *Canvas) String() string {
 				ch = overlay
 			}
 			color, hasColor := cellColor[[2]int{x, i}]
+			var fg lipgloss.TerminalColor = color
+			// A pinned overlay color (SetCellLabelColored) wins over the
+			// pixelTag-derived cell color so labels render in the theme
+			// palette even on untagged background cells.
+			if oc, ok := c.cellOverlayColors[[2]int{x, i}]; ok {
+				fg, hasColor = oc, true
+			}
 			if hasColor && ch != ' ' {
-				b.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(ch)))
+				b.WriteString(lipgloss.NewStyle().Foreground(fg).Render(string(ch)))
 			} else {
 				b.WriteRune(ch)
 			}
