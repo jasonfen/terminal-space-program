@@ -3,6 +3,8 @@ package spacecraft
 import (
 	"math"
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
 
 // TestLoadoutsCatalogShape — every entry in LoadoutOrder must map
@@ -334,6 +336,102 @@ func TestLanderStageDeltaVBudgets(t *testing.T) {
 	}
 	if ascentDV < minAscentDV {
 		t.Errorf("ascent Δv = %.0f m/s, want ≥ %.0f (can't reach lunar orbit)", ascentDV, minAscentDV)
+	}
+}
+
+// stackDeltaV returns the ideal (rocket-equation) Δv of a bottom-first
+// stage list flown as a single drop-stage chain: each stage fires hauling
+// itself plus everything above it, then is jettisoned. Mirrors the mass
+// convention of TestLanderStageDeltaVBudgets (dry + main fuel only; RCS
+// monoprop is ignored). Engineless / fuelless stages (the parachute Pod)
+// contribute mass but no Δv.
+func stackDeltaV(stages []Stage) float64 {
+	massAtOrAbove := func(i int) float64 {
+		m := 0.0
+		for j := i; j < len(stages); j++ {
+			m += stages[j].DryMass + stages[j].FuelMass
+		}
+		return m
+	}
+	total := 0.0
+	for i, s := range stages {
+		if s.FuelMass <= 0 || s.Isp <= 0 {
+			continue
+		}
+		m0 := massAtOrAbove(i)
+		m1 := m0 - s.FuelMass
+		total += s.Isp * g0 * math.Log(m0/m1)
+	}
+	return total
+}
+
+// TestKernStackShape — ADR 0014 Slice C/D. The Kern Stack is the one
+// scale-matched vehicle for Lumen: a simplified 4-stage Apollo analog
+// [Boost, Transfer, Lander, Pod] bottom-first, DecouplePlan [1,1,1]
+// (drop each lower stage one at a time; the parachute Pod is the
+// surviving core), tagged bodies.ScaleStrippedBack so the spawn-form
+// hint flags it as best-for-Lumen. Lift-off TWR > 1 on Earth-like Kern
+// surface gravity.
+func TestKernStackShape(t *testing.T) {
+	l, ok := Loadouts[LoadoutKernStackID]
+	if !ok {
+		t.Fatal("Kern-Stack loadout missing")
+	}
+	if l.Scale() != bodies.ScaleStrippedBack {
+		t.Errorf("Kern Stack Scale() = %q, want %q (Lumen-matched)", l.Scale(), bodies.ScaleStrippedBack)
+	}
+	wantNames := []string{"Boost", "Transfer", "Lander", "Pod"}
+	if len(l.Stages) != len(wantNames) {
+		t.Fatalf("Kern Stack: %d stages, want %d", len(l.Stages), len(wantNames))
+	}
+	for i, n := range wantNames {
+		if l.Stages[i].Name != n {
+			t.Errorf("stage %d: name %q, want %q", i, l.Stages[i].Name, n)
+		}
+	}
+	wantPlan := []int{1, 1, 1}
+	if len(l.DecouplePlan) != len(wantPlan) {
+		t.Fatalf("Kern Stack DecouplePlan = %v, want %v", l.DecouplePlan, wantPlan)
+	}
+	for i, g := range wantPlan {
+		if l.DecouplePlan[i] != g {
+			t.Errorf("DecouplePlan[%d] = %d, want %d", i, l.DecouplePlan[i], g)
+		}
+	}
+	byName := map[string]Stage{}
+	for _, s := range l.Stages {
+		byName[s.Name] = s
+	}
+	// The Lander touches down (engine soft-land) and the Pod recovers
+	// under chute — the two halves of "landing-and-return".
+	if lander := byName["Lander"]; !lander.CanSoftLand {
+		t.Error("Lander must soft-land (it is the descent/return engine)")
+	}
+	if pod := byName["Pod"]; !pod.HasParachute {
+		t.Error("Pod must carry a parachute (engineless re-entry recovery)")
+	}
+	if pod := byName["Pod"]; pod.Thrust != 0 || pod.FuelMass != 0 {
+		t.Errorf("Pod should be engineless: Thrust=%.0f Fuel=%.0f", pod.Thrust, pod.FuelMass)
+	}
+	// Lift-off TWR > 1 against Kern's Earth-like surface gravity (g0).
+	totalMass := SumDryMass(l.Stages) + SumFuelMass(l.Stages)
+	twr := l.Stages[0].Thrust / (totalMass * g0)
+	if twr <= 1.0 {
+		t.Errorf("Kern Stack lift-off TWR = %.3f, want > 1", twr)
+	}
+}
+
+// TestKernStackDeltaVBudget — ADR 0014 sizes the Kern Stack to a ~6 km/s
+// Cursor-landing-and-return budget (Lumen ~3.4 km/s to orbit + transfer,
+// capture, descent and return on the stripped-back scale). Pin the total
+// ideal Δv so a future mass/Isp tweak can't silently strand the mission.
+func TestKernStackDeltaVBudget(t *testing.T) {
+	l := LookupLoadout(LoadoutKernStackID)
+	dv := stackDeltaV(l.Stages)
+	const wantDV = 6000.0
+	const tol = 400.0 // "~6 km/s"
+	if math.Abs(dv-wantDV) > tol {
+		t.Errorf("Kern Stack total Δv = %.0f m/s, want %.0f ± %.0f (Cursor land-and-return)", dv, wantDV, tol)
 	}
 }
 
