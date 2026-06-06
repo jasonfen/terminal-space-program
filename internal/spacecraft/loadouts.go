@@ -618,9 +618,12 @@ var Loadouts = map[string]Loadout{
 	// tuned for a ~6 km/s total ideal Δv (Boost ~2.3 + Transfer ~2.2 +
 	// Lander ~1.5 km/s) — enough for Lumen orbit (~3.4 km/s), a Cursor
 	// transfer + capture + descent, and the ascent/return, on the
-	// stripped-back scale. Lift-off TWR ≈ 1.20 against Kern's Earth-like
-	// surface g (250 kN vs ~21.3 t × g0). Isp values are KSP stock
-	// engines collapsed to one Isp per stage. ScaleClass tags it
+	// stripped-back scale. Lift-off TWR ≈ 1.70 against Kern's Earth-like
+	// surface g (360 kN vs ~21.3 t × g0) — retuned up from the original
+	// 250 kN / TWR 1.18 after a playtest found the pad climb glacial and
+	// gravity-loss-heavy on a Kerbin-class world. Thrust doesn't enter the
+	// ideal Δv budget, so the ~6 km/s sizing is unchanged. Isp values are
+	// KSP stock engines collapsed to one Isp per stage. ScaleClass tags it
 	// stripped-back for the spawn-form hint (never a filter, ADR 0014).
 	LoadoutKernStackID: {
 		ID:         LoadoutKernStackID,
@@ -631,8 +634,8 @@ var Loadouts = map[string]Loadout{
 		ScaleClass: bodies.ScaleStrippedBack,
 		Stages: []Stage{
 			// Boost: Mainsail-class kerolox first stage (Isp 285 sea-level —
-			// the only stage that fires in atmosphere). TWR > 1 off the pad.
-			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 250000, 285,
+			// the only stage that fires in atmosphere). TWR ≈ 1.70 off the pad.
+			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 360000, 285,
 				14, 4, "#D8E6F0", FuelTypeKerolox, false, false, false),
 			// Transfer: Poodle-class vacuum stage (Isp 350) for the Kern
 			// orbit insertion and the Cursor transfer/capture burns.
