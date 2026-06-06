@@ -622,6 +622,12 @@ func (s *SpawnCraft) currentParent() *bodies.CelestialBody {
 // v0.9.1+ multi-stage loadouts list a stage count next to the dry
 // mass so the player can see at a glance that the Saturn-V is a
 // 3-stage chain instead of a single tank.
+//
+// ADR 0014 Slice D appends a Scale Class hint — the Δv-to-orbit /
+// "best for" line — branching on the loadout's Scale() tag. It is a
+// display hint only: the craft list is never filtered by scale, so a
+// real-fleet craft can still be spawned in a stripped-back System (it
+// will simply be over-powered) and vice-versa.
 func propulsionSummary(l spacecraft.Loadout) string {
 	dry := spacecraft.SumDryMass(l.Stages)
 	fuel := spacecraft.SumFuelMass(l.Stages)
@@ -631,9 +637,26 @@ func propulsionSummary(l spacecraft.Loadout) string {
 	if len(l.Stages) > 1 {
 		stageNote = fmt.Sprintf(" (%d stages)", len(l.Stages))
 	}
+	var summary string
 	if bottomThrust == 0 {
-		return fmt.Sprintf("dry %.0fkg%s, RCS-only", dry, stageNote)
+		summary = fmt.Sprintf("dry %.0fkg%s, RCS-only", dry, stageNote)
+	} else {
+		summary = fmt.Sprintf("dry %.0fkg, fuel %.0fkg%s, %.0fkN @ Isp %.0fs",
+			dry, fuel, stageNote, bottomThrust/1000, bottomIsp)
 	}
-	return fmt.Sprintf("dry %.0fkg, fuel %.0fkg%s, %.0fkN @ Isp %.0fs",
-		dry, fuel, stageNote, bottomThrust/1000, bottomIsp)
+	return summary + " · " + scaleHint(l.Scale())
+}
+
+// scaleHint maps a normalized ScaleClass to its spawn-form "best for"
+// line. The Δv-to-orbit figures come from ADR 0014: ~9.4 km/s for the
+// real (Sol) fleet, ~3.4 km/s for the stripped-back (Lumen) fleet. An
+// unrecognized tag falls through to the real-scale wording so a future
+// overlay class never renders blank.
+func scaleHint(scale bodies.ScaleClass) string {
+	switch scale {
+	case bodies.ScaleStrippedBack:
+		return "stripped-back scale, ~3.4 km/s to orbit"
+	default:
+		return "real scale, ~9.4 km/s to orbit"
+	}
 }
