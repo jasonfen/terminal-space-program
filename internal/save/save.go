@@ -520,27 +520,10 @@ func payloadFromWorld(w *sim.World) Payload {
 		// v0.9.1+: serialize Stages so v6 saves carry per-stage
 		// detail. Single-stage craft still wire out a one-element
 		// Stages — round-trips through the same migrate path that
-		// v5 craft fall through.
-		for _, s := range c.Stages {
-			wc.Stages = append(wc.Stages, Stage{
-				LoadoutID:            s.LoadoutID,
-				Name:                 s.Name,
-				Glyph:                s.Glyph,
-				Color:                s.Color,
-				DryMass:              s.DryMass,
-				FuelMass:             s.FuelMass,
-				FuelCapacity:         s.FuelCapacity,
-				Thrust:               s.Thrust,
-				Isp:                  s.Isp,
-				MonopropMass:         s.MonopropMass,
-				MonopropCap:          s.MonopropCap,
-				RCSThrust:            s.RCSThrust,
-				RCSIsp:               s.RCSIsp,
-				BallisticCoefficient: s.BallisticCoefficient,
-				CanSoftLand:          s.CanSoftLand,
-				HasParachute:         s.HasParachute,
-			})
-		}
+		// v5 craft fall through. Shares simStagesToWire with
+		// DockedComponent.Stages so a new Stage field can't be dropped
+		// from one path but not the other.
+		wc.Stages = simStagesToWire(c.Stages)
 		for _, dc := range c.DockedComponents {
 			wc.DockedComponents = append(wc.DockedComponents, DockedComponent{
 				Name:             dc.Name,

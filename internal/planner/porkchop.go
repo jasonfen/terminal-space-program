@@ -27,7 +27,7 @@ type EphemerisFn func(epoch float64) (r, v orbital.Vec3)
 //   epoch0 + (depDays[i]+tofDays[j])*86400 for arrival.
 // - depState, arrState: body ephemerides (heliocentric r, v).
 // - muSun: gravitational parameter of the system primary.
-// - muDep, rPark: destination body μ + parking-orbit radius (for
+// - muDep, rPark: departure body μ + parking-orbit radius (for
 //   departure Δv via the patched-conic identity).
 // - muArr, rCapture: arrival body μ + capture-orbit radius.
 // - retrograde: forwarded to LambertSolve to select the prograde or
