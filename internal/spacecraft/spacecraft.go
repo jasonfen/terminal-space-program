@@ -101,6 +101,17 @@ type Spacecraft struct {
 	Primary bodies.CelestialBody
 	State   physics.StateVector
 
+	// SystemIdx (v0.16 / ADR 0015) binds this Vessel to one System for
+	// its lifetime, fixed at spawn. It is an index into the
+	// name-sorted-Sol-first w.Systems slice. The simulator integrates
+	// each Vessel against w.Systems[SystemIdx] — not the currently-viewed
+	// system — so a parked Sol craft keeps orbiting correctly while the
+	// player flies a craft in another System. There is no interstellar
+	// transfer; SOI transitions and Docking stay within one System. Zero
+	// (Sol) is the correct default for the seed Vessel and any save
+	// predating the per-Vessel binding (see save_migrate_v7_to_v8).
+	SystemIdx int
+
 	// v0.8.1+ — per-craft mission/flight state. Pre-v0.8.1 these
 	// lived on World, which meant a single planted burn was shared
 	// across all craft and the in-flight ActiveBurn followed

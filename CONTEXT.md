@@ -236,8 +236,14 @@ The single Vessel the player is currently flying — indexed by
 `World.ActiveCraftIdx`. Only the Active Vessel responds to controls
 (throttle, attitude, staging), and most TUI screens default their bindings
 to it. Other Vessels in the slate are *passive*: still propagated by the
-integrator, still rendered, still subject to maneuver nodes that fire on
-schedule — but inert to live input until the player switches active.
+integrator (each against its own [[#bodies--systems|System]] — see that
+entry), still rendered when their System is in view, still subject to
+maneuver nodes that fire on schedule — but inert to live input until the
+player switches active. The camera follows the Active Vessel's System: a
+switch (cycle key, numbered slot, docking / end-flight auto-switch) snaps
+the viewed System to the incoming Vessel's, so the Vessel being flown is
+always in frame (ADR 0015,
+`designdocs/terminal-space-program/adr/0015-vessels-bound-to-system.md`).
 _Avoid_: Current craft, Selected vessel (Selection means Cursor), Player
 vessel.
 
@@ -439,7 +445,21 @@ or a user-supplied overlay. Loaded from embedded `systems/*.json` plus
 user files in `$XDG_CONFIG_HOME`; user files win on `systemName`
 collision. Save files carry a `body_catalog_hash` so loading a save
 under a different System catalog fails fast.
-_Avoid_: Galaxy, Universe, World.
+
+**Each Vessel is bound to exactly one System, fixed at spawn, for its
+lifetime** — there is no interstellar transfer, SOI transitions are always
+within one System, and [[#docking--coupling|Docking]] cannot cross Systems
+(the same-SOI gate). The simulator integrates each Vessel against *its own*
+System regardless of which System the camera is currently viewing, so a
+parked Vessel in one System keeps orbiting correctly while the player flies
+another in a second System. A Vessel's System is the System that was in view
+when it was spawned (an *Alongside* spawn inherits the Active Vessel's System
+instead, since it clones that Vessel's state). This lifts the original v0.1
+"spacecraft restricted to Sol" cap (ADR 0015,
+`designdocs/terminal-space-program/adr/0015-vessels-bound-to-system.md`).
+_Avoid_: Galaxy, Universe, World. Home System / Host System (a Vessel does
+not travel *between* Systems — the binding is permanent, not a base to
+return to).
 
 **Scale Class**:
 A coarse size/difficulty tag shared by a System and a Loadout: **real**

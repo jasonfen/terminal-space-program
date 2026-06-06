@@ -137,6 +137,9 @@ func (w *World) Undock(idx int) bool {
 			Throttle:  1.0,
 			Stages:    stages,
 			Primary:   c.Primary,
+			// v0.16 / ADR 0015: an undocked component stays in the
+			// composite's System.
+			SystemIdx: c.SystemIdx,
 			State: physics.StateVector{
 				R: c.State.R.Add(radialOut.Scale(offset * separationM)),
 				V: c.State.V.Add(radialOut.Scale(offset * pushVMS)),
@@ -224,6 +227,15 @@ func (w *World) checkDocking() (int, int, bool) {
 		for j := i + 1; j < len(w.Crafts); j++ {
 			b := w.Crafts[j]
 			if b == nil {
+				continue
+			}
+			// v0.16 / ADR 0015: Vessels in different Systems share no
+			// common inertial frame, so their positions aren't
+			// comparable — never auto-dock across a System boundary.
+			// (Same-Primary already implies same System today, but the
+			// explicit guard documents the invariant and is robust to a
+			// future cross-System body-ID collision.)
+			if a.SystemIdx != b.SystemIdx {
 				continue
 			}
 			// SOI mismatch — won't be near each other in the same

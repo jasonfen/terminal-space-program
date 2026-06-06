@@ -262,7 +262,9 @@ func NewWorld() (*World, error) {
 	// arrive via SpawnCraft (`n` keystroke) or staging.
 	earth := w.Systems[0].FindBody("Earth")
 	if earth != nil {
-		w.Crafts = []*spacecraft.Spacecraft{spacecraft.NewInLEO(*earth)}
+		seed := spacecraft.NewInLEO(*earth)
+		seed.SystemIdx = 0 // v0.16 / ADR 0015: the seed Vessel is bound to Sol.
+		w.Crafts = []*spacecraft.Spacecraft{seed}
 		// v0.6.1: open with the camera focused on the craft. The
 		// system-wide view (FocusSystem) at heliocentric scale shows
 		// nothing useful for a craft in LEO — the player has to cycle
@@ -348,6 +350,17 @@ func (w *World) SetActiveCraftIdx(idx int) {
 	w.ActiveCraftIdx = idx
 	if idx >= 0 && idx < len(w.Crafts) {
 		if incoming := w.Crafts[idx]; incoming != nil {
+			// v0.16 / ADR 0015: the camera follows the Active Vessel's
+			// System. Snap the view to the incoming Vessel's System,
+			// recreating the Calculator and resetting Focus exactly as
+			// CycleSystem does, so the Vessel you fly is always in frame.
+			// Guarded against an out-of-range SystemIdx (a corrupt save)
+			// so it can't panic w.Systems[...].
+			if incoming.SystemIdx >= 0 && incoming.SystemIdx < len(w.Systems) && incoming.SystemIdx != w.SystemIdx {
+				w.SystemIdx = incoming.SystemIdx
+				w.Calculator = orbital.ForSystem(w.System())
+				w.ResetFocus()
+			}
 			w.Target = incoming.Target
 			w.reconcileNavMode()
 			return
@@ -360,20 +373,50 @@ func (w *World) SetActiveCraftIdx(idx int) {
 // System returns the currently active system.
 func (w *World) System() bodies.System { return w.Systems[w.SystemIdx] }
 
+// systemForCraft returns the System a Vessel is bound to (v0.16 / ADR
+// 0015). The integrator resolves the body LIST and SOI table against this
+// rather than the currently-viewed System, so a Vessel's primary can only
+// switch to a body in its own System — never get yanked onto a Sol body by
+// a view-/Sol-hardcoded check. Body POSITIONS in these paths still come
+// from w.BodyPosition (the viewed System's Calculator + ParentOf), which is
+// exact when the craft's System is the viewed one — always true for the
+// Active Vessel, since the camera follows it (SetActiveCraftIdx). A passive
+// Vessel in a non-viewed System still coasts correctly on two-body
+// propagation (mu is taken from c.Primary directly, not from body
+// positions); only its every-20-tick SOI backstop reads positions, and a
+// parked Vessel in a stable orbit won't cross an SOI boundary there.
+// Clamps to Sol (index 0) for a nil craft or an out-of-range SystemIdx (a
+// corrupt binding) rather than panicking.
+func (w *World) systemForCraft(c *spacecraft.Spacecraft) bodies.System {
+	if c != nil && c.SystemIdx >= 0 && c.SystemIdx < len(w.Systems) {
+		return w.Systems[c.SystemIdx]
+	}
+	return w.Systems[0]
+}
+
 // CycleSystem advances to the next system (wraps). Recreates the calculator.
-// Spacecraft does not follow — remains in Sol per plan §MVP scope.
-// Resets focus to system-wide because body indices don't carry across
-// systems and the craft is only visible in Sol.
+// v0.16 / ADR 0015: this is a browse-only "telescope" view toggle — the
+// Active Vessel does NOT follow. Cycling to a System that isn't the Active
+// Vessel's hides the flight HUD (CraftVisibleHere is false there) and shows
+// that System's map; switching active (SetActiveCraftIdx) or cycling back
+// snaps the view home. This browse-then-spawn flow is also the only way to
+// get a Vessel into another System: a spawned Vessel binds to the *viewed*
+// System at spawn time. Resets focus to system-wide because body indices
+// don't carry across systems.
 func (w *World) CycleSystem() {
 	w.SystemIdx = (w.SystemIdx + 1) % len(w.Systems)
 	w.Calculator = orbital.ForSystem(w.System())
 	w.ResetFocus()
 }
 
-// CraftVisibleHere reports whether the spacecraft should be drawn in the
-// currently-viewed system. v0.1 Craft lives in Sol only.
+// CraftVisibleHere reports whether the Active Vessel should be drawn in the
+// currently-viewed system. v0.16 / ADR 0015: true iff the Active Vessel is
+// bound to the viewed System. The camera follows the Active Vessel
+// (SetActiveCraftIdx snaps w.SystemIdx), so this is normally true; it goes
+// false only while the player is browsing another System via CycleSystem.
 func (w *World) CraftVisibleHere() bool {
-	return w.ActiveCraft() != nil && w.SystemIdx == 0
+	c := w.ActiveCraft()
+	return c != nil && c.SystemIdx == w.SystemIdx
 }
 
 // BodyPosition returns the inertial position (m) of a body in the
@@ -931,7 +974,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	tickStart := w.Clock.SimTime.Add(-simDelta)
 	stepDur := time.Duration(dt * float64(time.Second))
 
-	sys := w.System()
+	sys := w.systemForCraft(c) // v0.16 / ADR 0015: integrate against the Vessel's own System.
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	clock := tickStart
 	// v0.12 Slice 3 (ADR 0008): a descending chute craft always takes
@@ -1265,7 +1308,7 @@ func canKeplerStepState(s physics.StateVector, mu float64, primary bodies.Celest
 // crossed into hyperbolic mid-propagation due to a primary switch);
 // caller then falls back to Verlet for the remaining time.
 func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.Duration) bool {
-	sys := w.System()
+	sys := w.systemForCraft(c) // v0.16 / ADR 0015: SOI checks against the Vessel's own System.
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for _, b := range sys.Bodies {
 		positions[b.ID] = w.BodyPosition(b)
@@ -1411,18 +1454,18 @@ func orbitalPeriod(s physics.StateVector, mu float64) float64 {
 // throttle still applies (the sub-step path inside integrateOneCraft
 // catches mid-tick crossings; this is a backstop).
 func (w *World) maybeSwitchPrimaryFor(c *spacecraft.Spacecraft) {
-	sol := w.Systems[0]
+	sys := w.systemForCraft(c) // v0.16 / ADR 0015: resolve SOI against the Vessel's own System, not Sol.
 
-	// Build body-position map in Sol-inertial.
-	positions := make(map[string]orbital.Vec3, len(sol.Bodies))
-	for _, b := range sol.Bodies {
+	// Build body-position map in system-inertial.
+	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
+	for _, b := range sys.Bodies {
 		positions[b.ID] = w.BodyPosition(b)
 	}
 
 	// Craft inertial position needs the *current* primary offset.
 	craftInertial := positions[c.Primary.ID].Add(c.State.R)
 
-	newPrimary := physics.FindPrimary(sol, craftInertial, positions)
+	newPrimary := physics.FindPrimary(sys, craftInertial, positions)
 	if newPrimary.Body.ID == c.Primary.ID {
 		return
 	}

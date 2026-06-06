@@ -199,6 +199,9 @@ func buildJettisonedCraft(stages []spacecraft.Stage, parent *spacecraft.Spacecra
 		BallisticCoefficient: spacecraft.DefaultBallisticCoefficient,
 		Stages:               append([]spacecraft.Stage(nil), stages...),
 		Primary:              parent.Primary,
+		// v0.16 / ADR 0015: a popped passive stage stays in the parent's
+		// System (no interstellar staging).
+		SystemIdx: parent.SystemIdx,
 		// Inherit parent's attitude at decouple so the dropped
 		// stage's launch-view sprite renders at the angle it shed
 		// at, not snapped-to-vertical or zeroed (v0.11.3 Slice 4).
