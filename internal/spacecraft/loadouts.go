@@ -627,11 +627,12 @@ var Loadouts = map[string]Loadout{
 	// tuned for a ~6 km/s total ideal Δv (Boost ~2.3 + Transfer ~2.2 +
 	// Lander ~1.5 km/s) — enough for Lumen orbit (~3.4 km/s), a Cursor
 	// transfer + capture + descent, and the ascent/return, on the
-	// stripped-back scale. Lift-off TWR ≈ 1.70 against Kern's Earth-like
-	// surface g (360 kN vs ~21.3 t × g0) — retuned up from the original
-	// 250 kN / TWR 1.18 after a playtest found the pad climb glacial and
-	// gravity-loss-heavy on a Kerbin-class world. Thrust doesn't enter the
-	// ideal Δv budget, so the ~6 km/s sizing is unchanged. Isp values are
+	// stripped-back scale. Lift-off TWR ≈ 1.50 against Kern's Earth-like
+	// surface g (320 kN vs ~21.3 t × g0) — retuned up from the original
+	// 250 kN / TWR 1.18 after a playtest found the pad climb glacial (the
+	// glacial climb itself was mostly the BC drag bug fixed below, not
+	// thrust). Thrust doesn't enter the ideal Δv budget, so the ~6 km/s
+	// sizing is unchanged. Isp values are
 	// KSP stock engines collapsed to one Isp per stage. ScaleClass tags it
 	// stripped-back for the spawn-form hint (never a filter, ADR 0014).
 	LoadoutKernStackID: {
@@ -643,10 +644,10 @@ var Loadouts = map[string]Loadout{
 		ScaleClass: bodies.ScaleStrippedBack,
 		Stages: []Stage{
 			// Boost: Mainsail-class kerolox first stage (Isp 285 sea-level —
-			// the only stage that fires in atmosphere). TWR ≈ 1.70 off the
+			// the only stage that fires in atmosphere). TWR ≈ 1.50 off the
 			// pad. BC 7e-6 (slender ~2.5 m stack, like Saturn-V S-IC) so
 			// Kern's thick air doesn't cap the climb.
-			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 360000, 285, 7e-6,
+			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 320000, 285, 7e-6,
 				14, 4, "#D8E6F0", FuelTypeKerolox, false, false, false),
 			// Transfer: Poodle-class vacuum stage (Isp 350) for the Kern
 			// orbit insertion and the Cursor transfer/capture burns. BC is a
