@@ -477,47 +477,57 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		return &plan, nil
 	}
 
-	// v0.6.3: target is the craft's primary's parent (e.g., craft in
-	// Luna's SOI, target Earth). The pre-v0.6.3 fallthrough sent these
-	// to the heliocentric Hohmann path, which treated Earth's
-	// heliocentric semimajor axis as the destination radius around
-	// Luna and produced nonsensical Δv. The moon-escape planner instead
-	// targets a bound transfer ellipse whose apolune sits on Luna's
-	// SOI; the SOI-aware integrator then drops the craft into Earth's
-	// frame automatically. The arrival node is a zero-Δv frame marker
-	// — the player plants their own circularization once they see the
-	// post-escape Earth-frame trajectory.
+	// v0.6.3 / ADR 0013: target is the craft's primary's parent (e.g.,
+	// craft in Luna's SOI, target Earth). The pre-v0.6.3 fallthrough sent
+	// these to the heliocentric Hohmann path, which produced nonsensical
+	// Δv. PlanMoonEscape (the Moon Return planner) instead plants a single
+	// targeted BurnVector that injects the craft onto a parent-frame
+	// transfer whose perigee reaches the target (parent radius + 200 km),
+	// leaving the SOI retrograde to the moon's motion in the moon's
+	// orbital plane; the SOI-aware integrator drops the craft into the
+	// parent's frame automatically. The arrival node is a zero-Δv frame
+	// marker — the player plants their own capture/aerobrake after seeing
+	// the post-escape parent-frame trajectory (Decision A, manual finish).
 	if w.ActiveCraft().Primary.ParentID != "" && target.ID == w.ActiveCraft().Primary.ParentID {
-		moon := w.ActiveCraft().Primary
+		c := w.ActiveCraft()
+		moon := c.Primary
 		moonParent := sys.ParentOf(moon)
 		if moonParent == nil {
 			return nil, errInvalidTransferTarget
 		}
 		muMoon := moon.GravitationalParameter()
+		muParent := moonParent.GravitationalParameter()
 		rSOI := physics.SOIRadius(moon, *moonParent)
 		if rSOI == 0 || rSOI <= rPark {
 			return nil, errInvalidTransferTarget
 		}
-		mass := w.ActiveCraft().TotalMass()
-		thrust := w.ActiveCraft().Thrust
-		// Pre-size the centered-finite-burn lead pad from the impulsive
-		// estimate, mirroring the intra-primary branch above.
-		aT := (rPark + rSOI) / 2
-		vCirc := math.Sqrt(muMoon / rPark)
-		vTransAtPeri := math.Sqrt(muMoon * (2/rPark - 1/aT))
-		dvEstimate := vTransAtPeri - vCirc
-		minLead := w.ActiveCraft().BurnTimeForDV(dvEstimate).Seconds() / 2
-		plan, err := planner.PlanMoonEscape(muMoon, rPark, rSOI, minLead, moon.ID, target.ID)
+		now := w.Clock.SimTime
+		// The moon's state relative to its parent fixes the target plane
+		// (the moon's own orbital plane) and the retrograde v∞ direction.
+		moonR, moonV := w.bodyParentRelativeState(moon, now)
+		// target IS the moon's parent here, so rCapture (parent radius +
+		// 200 km) is exactly the Moon Return's target perigee.
+		rTargetPeri := rCapture
+		// Pre-size the centered finite-burn lead pad from the analytic
+		// coplanar return estimate (ADR 0013 Decision D's |v∞| ideal).
+		rMoonDist, vMoonSpeed := moonR.Norm(), moonV.Norm()
+		atReturn := (rMoonDist + rTargetPeri) / 2
+		vApoTarget := math.Sqrt(muParent * (2/rMoonDist - 1/atReturn))
+		vInfEst := math.Max(0, vMoonSpeed-vApoTarget)
+		dvEstimate := math.Sqrt(vInfEst*vInfEst+2*muMoon/rPark) - math.Sqrt(muMoon/rPark)
+		minLead := c.BurnTimeForDV(dvEstimate).Seconds() / 2
+		plan, err := planner.PlanMoonEscape(
+			muMoon, muParent,
+			c.State.R, c.State.V,
+			moonR, moonV,
+			rSOI, rTargetPeri,
+			minLead, moon.ID, target.ID,
+		)
 		if err != nil {
 			return nil, err
 		}
-		// Reuse v0.6.2's iterator: target the SOI radius as apolune so
-		// finite-burn integration delivers the bound transfer ellipse
-		// the impulsive math designed.
-		refineFiniteDeparture(&plan, muMoon, rPark, mass, thrust, w.ActiveCraft().Isp, rSOI)
-		now := w.Clock.SimTime
-		w.PlanNode(transferNodeToManeuver(plan.Departure, now, w.ActiveCraft()))
-		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, w.ActiveCraft()))
+		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
+		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, c))
 		return &plan, nil
 	}
 
@@ -1691,6 +1701,26 @@ func (w *World) bodyHelioStateAt(b bodies.CelestialBody, epoch float64) (orbital
 	}
 	rParent, vParent := w.bodyHelioStateAt(*parent, epoch)
 	return rParent.Add(rRel), vParent.Add(vRel)
+}
+
+// bodyParentRelativeState returns body b's position and velocity relative
+// to its parent at sim time t — the moon-around-parent state the Moon
+// Return planner (PlanMoonEscape, ADR 0013) needs to aim v∞ in the moon's
+// orbital plane. Mirrors the per-body Keplerian math in bodyHelioStateAt
+// without the recursive parent-frame sum.
+func (w *World) bodyParentRelativeState(b bodies.CelestialBody, t time.Time) (orbital.Vec3, orbital.Vec3) {
+	sys := w.System()
+	parent := sys.ParentOf(b)
+	if parent == nil {
+		parent = sys.Primary()
+	}
+	M := w.Calculator.CalculateMeanAnomaly(b, t)
+	E := orbital.SolveKepler(M, b.Eccentricity)
+	nu := orbital.TrueAnomaly(E, b.Eccentricity)
+	el := orbital.ElementsFromBody(b)
+	r := orbital.PositionAtTrueAnomaly(el, nu)
+	v := orbital.VelocityAtTrueAnomaly(el, nu, parent.GravitationalParameter())
+	return r, v
 }
 
 // transferNodeToManeuver converts a planner.TransferNode into a

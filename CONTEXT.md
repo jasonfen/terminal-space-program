@@ -105,7 +105,9 @@ _Avoid_: Payload boundary, Split point, Stack divider.
 The propulsive half of the Apollo command-and-service module: carries the
 SPS engine and all its storable propellant. Performs lunar-orbit
 insertion (**LOI**), mid-course corrections, and trans-Earth injection
-(**TEI**). Has no heat shield and is **never recovered** — jettisoned
+(**TEI** — the Apollo-specific Earth-return burn, distinct from the
+general **Moon Return** planner). Has no heat shield and is **never
+recovered** — jettisoned
 during re-entry prep. After **Transposition** it is the bottom/firing
 Stage of the surviving stack, pushing the **Command Module** plus the LM
 nose payload.
@@ -417,7 +419,9 @@ planet).
 A Body whose Primary is a Planet (encoded as `AroundPlanet` on the
 catalog entry). Encounters with Moons use the dedicated `moon_escape`
 planner, not the heliocentric transfer planners — the math and the UI
-flow are different.
+flow are different. The moon→parent direction of that planner is the
+targeted **Moon Return** (ADR 0013); the legacy `PlanMoonEscape`
+function name is retained.
 _Avoid_: Satellite (ambiguous with player-launched vessels), Subplanet.
 
 **Primary**:
@@ -1071,6 +1075,31 @@ change at apoapsis" with "plane change at the line of nodes": changing
 velocity at apoapsis rotates the orbit but does *not* move the Vessel
 into the target's plane unless apoapsis already lies on the line of
 nodes — the distinction is load-bearing for arrival (see GH #67).
+
+**Moon Return**:
+The moon→parent direction of an auto-planted **Transfer Plan**: a
+targeted **Departure** that injects a Vessel from a lunar **Parking
+Orbit** onto a parent-frame arc reaching a chosen perigee, with a
+zero-Δv **Arrival** marker at that perigee (the player finishes the
+capture by hand — aerobrake or powered). Unlike the outbound transfer,
+the Departure is a single **BurnVector** sized so the post-SOI
+parent-frame orbit's perigee is `parent radius + 200 km`, aimed so v∞
+leaves the SOI **retrograde to the moon's orbital motion, in the moon's
+orbital plane** — the cheapest controllable target (arrival inclination
+≈ the moon's plane). Folding the plane change into the one departure
+burn lets a (possibly inclined) Parking Orbit still inject cleanly; and
+because the target plane is the moon's *own* plane, there is **no
+around-parent phasing wait** — only a short intra-moon wait for the
+parking-orbit point that aims v∞ correctly. Replaces the v0.6.3
+minimum-escape objective, which spent the least to leave the SOI but
+dumped the Vessel in ≈ the moon's own orbit (perigee ~300 000 km),
+~590 m/s of avoidable departure waste plus uncontrolled phasing
+(ADR 0013, `adr/0013-moon-return-targeted-injection.md`). The legacy
+code function is still `PlanMoonEscape`.
+_Avoid_: Moon Escape (the retired minimum-escape objective — the planner
+now targets a perigee), TEI (that names the Apollo **Service Module**'s
+specific Earth-return burn, not this general planner — though a Moon
+Return *is* a TEI for the Earth / Luna case).
 
 **Line of Nodes**:
 The line where the Vessel's orbital plane intersects the target's
