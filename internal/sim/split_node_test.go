@@ -3,11 +3,58 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
+
+// TestSplitFallbackPlaneChangeOffsetSeparatesStacked (GH #88 finding #3):
+// in the degenerate split fallback (no SOI encounter resolved, so
+// transferEncounterTimes can't place the plane change at SOI entry) the
+// plane-change and capture offsets both default to the arrival offset.
+// splitFallbackPlaneChangeOffset must pull the plane change strictly
+// earlier — and clear of the capture's burn window — so the two finite
+// burns are ordered and non-overlapping rather than stacked at one
+// instant. It must leave an already-distinct pair (the working found==
+// SOI-entry path) untouched.
+func TestSplitFallbackPlaneChangeOffsetSeparatesStacked(t *testing.T) {
+	const (
+		capture  = 100 * time.Minute
+		pcDur    = 30 * time.Second
+		capDur   = 50 * time.Second
+		earliest = 10 * time.Minute // end of the departure burn
+	)
+
+	// Stacked: equal offsets must separate into an ordered, non-overlapping pair.
+	got := splitFallbackPlaneChangeOffset(capture, capture, pcDur, capDur, earliest)
+	if got >= capture {
+		t.Fatalf("stacked offset not pulled earlier: got %v, capture %v", got, capture)
+	}
+	if gap := capture - got; gap < pcDur/2+capDur/2 {
+		t.Errorf("burn windows overlap: gap %v < half-burn sum %v", gap, pcDur/2+capDur/2)
+	}
+	if got <= earliest {
+		t.Errorf("plane change %v not after the departure burn end %v", got, earliest)
+	}
+
+	// Distinct (found==true path): returned unchanged.
+	const pcOff = 90 * time.Minute
+	if got := splitFallbackPlaneChangeOffset(pcOff, capture, pcDur, capDur, earliest); got != pcOff {
+		t.Errorf("distinct offset was rewritten: got %v, want %v", got, pcOff)
+	}
+
+	// Clamp: a transfer too short to fit the full separation after the
+	// departure burn clamps to earliest, still strictly before capture.
+	shortCap := earliest + 5*time.Second
+	if got := splitFallbackPlaneChangeOffset(shortCap, shortCap, pcDur, capDur, earliest); got != earliest {
+		t.Errorf("clamp to departure end: got %v, want %v", got, earliest)
+	}
+	if earliest >= shortCap {
+		t.Fatalf("test invariant broken: earliest %v must precede capture %v", earliest, shortCap)
+	}
+}
 
 // findMoon locates the Moon in the loaded Sol system (skips if absent).
 func findMoon(t *testing.T, w *World) (int, bodies.CelestialBody) {

@@ -453,6 +453,16 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
 		if pcDv > 0 {
+			// Degenerate fallback (transferEncounterTimes found no encounter,
+			// or no node/departure state): planeChangeOffset still equals
+			// captureOffset, so separate them — equal BurnStarts leave the
+			// fire order unspecified and the capture could ignite before the
+			// plane change (GH #88 finding #3). A no-op on the resolved path
+			// where the two offsets already differ.
+			depBurnEnd := plan.Departure.OffsetTime + c.BurnTimeForDV(plan.Departure.DV)/2
+			planeChangeOffset = splitFallbackPlaneChangeOffset(
+				planeChangeOffset, captureOffset,
+				c.BurnTimeForDV(pcDv), c.BurnTimeForDV(plan.Arrival.DV), depBurnEnd)
 			w.PlanNode(ManeuverNode{
 				TriggerTime:    now.Add(planeChangeOffset),
 				Mode:           spacecraft.BurnPlaneChange,
@@ -1545,6 +1555,31 @@ func (w *World) transferEncounterTimes(post physics.StateVector, primary, target
 		return 0, 0, false
 	}
 	return tEntry, tCA, true
+}
+
+// splitFallbackPlaneChangeOffset keeps the split's plane-change and
+// capture burns from being planted at the same instant in the degenerate
+// fallback. The normal path resolves a distinct SOI-entry time for the
+// plane change (transferEncounterTimes, found==true), so planeChangeOffset
+// and captureOffset already differ and this returns the former unchanged.
+// When they coincide — no encounter found in the horizon, or no
+// node/departure state — it pulls the plane change earlier by half of
+// each burn's duration plus a one-second gap, so the two finite burns are
+// ordered (plane change first) and non-overlapping rather than stacked.
+// Still near-apoapsis (the separation is seconds against an hours-long
+// transfer) so the apoapsis plane-change Δv stays a good estimate. Clamped
+// to no earlier than `earliest` (the end of the departure burn); the
+// caller guarantees earliest < captureOffset, so the result stays strictly
+// before the capture. GH #88 finding #3.
+func splitFallbackPlaneChangeOffset(planeChangeOffset, captureOffset, pcDur, capDur, earliest time.Duration) time.Duration {
+	if planeChangeOffset != captureOffset {
+		return planeChangeOffset
+	}
+	sep := (pcDur+capDur)/2 + time.Second
+	if planeChangeOffset-sep > earliest {
+		return planeChangeOffset - sep
+	}
+	return earliest
 }
 
 // intraPlaneChangeAllowance estimates the extra departure Δv a fused
