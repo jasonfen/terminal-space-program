@@ -165,16 +165,26 @@ func (w *World) PlanNode(n ManeuverNode) {
 	sortNodes(c.Nodes)
 }
 
-// sortNodes orders nodes by TriggerTime ascending, with unresolved
+// sortNodes orders nodes by BurnStart ascending, with unresolved
 // event-relative nodes pushed to the end. Used by PlanNode and by
 // resolveEventNodes after it freezes a previously-unresolved node.
+//
+// The key is BurnStart() — not TriggerTime — because that is exactly
+// what executeDueNodesFor fires and breaks on (BurnStart = TriggerTime
+// - Duration/2 for finite nodes). Sorting by TriggerTime would let a
+// later-TriggerTime but longer-duration node have an earlier BurnStart
+// yet sit behind an impulsive node in the slice, so the dispatch loop's
+// break-on-first-future guard would skip it past its due moment and
+// ignite its centered burn late (GH #88). nextFiniteBurnTrigger already
+// clamps warp on BurnStart, so this aligns the sort, the dispatch, and
+// the clamp on one key.
 func sortNodes(nodes []ManeuverNode) {
 	sort.Slice(nodes, func(i, j int) bool {
 		ri, rj := nodes[i].IsResolved(), nodes[j].IsResolved()
 		if ri != rj {
 			return ri
 		}
-		return nodes[i].TriggerTime.Before(nodes[j].TriggerTime)
+		return nodes[i].BurnStart().Before(nodes[j].BurnStart())
 	})
 }
 
@@ -1380,6 +1390,17 @@ func (w *World) timeToBodyDirection(b, primary bodies.CelestialBody, dHat, nHat 
 			break
 		}
 		step := f / fp
+		// Divergence guard (GH #88): near apoapsis of an eccentric
+		// orbit the angular rate fp can be tiny-but-nonzero, making
+		// step blow up to a meaningless 1e13-scale value. The `fp==0`
+		// check only catches an exact zero, and `|step|<1` only fires
+		// on convergence — so without this a runaway step would leave
+		// dt as garbage. A correction larger than a full period is not
+		// a local root refinement; abandon Newton and keep the last
+		// good dt (the mean-motion seed on the first iteration).
+		if math.IsNaN(step) || math.IsInf(step, 0) || math.Abs(step) > period {
+			break
+		}
 		dt -= step
 		if math.Abs(step) < 1 {
 			break
@@ -1750,6 +1771,17 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 			break
 		}
 		if n.BurnStart().After(w.Clock.SimTime) {
+			break
+		}
+		// A finite burn occupies the craft exclusively: only one
+		// ActiveBurn can integrate at a time. If one is already in
+		// flight — started earlier this same tick, or carried over
+		// from a prior tick — stop dispatching and leave the remaining
+		// due nodes queued so the next one fires after this burn ends.
+		// Without this, a second finite node coming due in the same
+		// tick would overwrite c.ActiveBurn and its Δv would be popped
+		// and silently dropped (GH #88).
+		if c.ActiveBurn != nil {
 			break
 		}
 		// v0.9.3+: resolve target snapshot for target-relative nodes
