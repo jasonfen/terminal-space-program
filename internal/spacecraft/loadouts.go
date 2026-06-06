@@ -1,5 +1,7 @@
 package spacecraft
 
+import "github.com/jasonfen/terminal-space-program/internal/bodies"
+
 // Loadout describes a named craft archetype — propulsion numbers,
 // dry/wet mass sizing, default RCS pool, and visual differentiation
 // (glyph + color). v0.8.2 ship set + v0.9.1 Saturn-V multi-stage +
@@ -63,6 +65,13 @@ type Loadout struct {
 	// in v0.10.0; per-vehicle tuning is a follow-up dial.
 	SlewRateDegPerSec float64
 
+	// ScaleClass is the loadout's spawn-form scale hint (ADR 0014),
+	// shared with bodies.System. Optional: an unset value normalizes
+	// to bodies.ScaleReal via Scale(), so the existing real fleet needs
+	// no per-literal change. The scale-matched Kern Stack sets
+	// bodies.ScaleStrippedBack. Never used to filter craft by System —
+	// any Loadout can be spawned in any System.
+	ScaleClass bodies.ScaleClass
 }
 
 // DefaultSlewRateDegPerSec is the attitude slew-rate cap applied to
@@ -72,6 +81,14 @@ type Loadout struct {
 // be tedious (raised from 5°/s after v0.10.0 playtest). Cosine loss
 // is still a real consequence the player times burns around. v0.10.0+.
 const DefaultSlewRateDegPerSec = 15.0
+
+// Scale returns the loadout's normalized ScaleClass (empty =>
+// bodies.ScaleReal). The spawn form compares this against the target
+// System's Scale() to surface the Δv-to-orbit / "best for" hint; it is
+// never used to filter the craft list (ADR 0014).
+func (l Loadout) Scale() bodies.ScaleClass {
+	return l.ScaleClass.Normalize()
+}
 
 // DryMass returns the bottom stage's dry mass (single-stage
 // equivalent for pre-v0.9.1 readers; sum-across-stages is via
