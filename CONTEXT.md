@@ -422,20 +422,33 @@ _Avoid_: Satellite (ambiguous with player-launched vessels), Subplanet.
 
 **Primary**:
 The Body that another Body or Vessel orbits — the gravitational parent
-in the SOI hierarchy. Relative, not absolute: the Sun is Kerbin's
-Primary, Kerbin is Mun's Primary. Used to name reference frames
+in the SOI hierarchy. Relative, not absolute: the Sun is Earth's
+Primary, Earth is the Moon's Primary. Used to name reference frames
 ("rebase to the destination's primary frame") and to walk the
 patched-conic SOI tree.
 _Avoid_: Parent (ambiguous with scene-graph parents), Center,
 Barycenter (the System's index-0 body may be a star, not a barycenter).
 
 **System**:
-A named collection of Bodies orbiting a common Primary — Sol, Kerbol,
+A named collection of Bodies orbiting a common Primary — Sol, Lumen,
 or a user-supplied overlay. Loaded from embedded `systems/*.json` plus
 user files in `$XDG_CONFIG_HOME`; user files win on `systemName`
 collision. Save files carry a `body_catalog_hash` so loading a save
 under a different System catalog fails fast.
 _Avoid_: Galaxy, Universe, World.
+
+**Scale Class**:
+A coarse size/difficulty tag shared by a System and a Loadout: **real**
+(Sol-scale — Earth-class bodies, ~9.4 km/s to orbit) vs **stripped-back**
+(Lumen-scale — ~1/10-linear bodies with Earth-like surface gravity,
+~3.4 km/s to orbit, modelled on the Kerbal Space Program stock system).
+Purely a classification: the integrator derives all dynamics from a
+Body's mass and radius, so a System needs no Scale Class to work. The
+tag drives only the spawn form's craft hint (the Δv-to-orbit / "best
+for" line) — craft are **not** filtered by it; any Loadout can fly in
+any System. **Lumen** is the canonical stripped-back System; the **Kern
+Stack** is its scale-matched mission vehicle.
+_Avoid_: Difficulty, Tier (overloaded), Realism mode.
 
 **Sphere of Influence (SOI)**:
 The spherical region around a Body inside which that Body's gravity
