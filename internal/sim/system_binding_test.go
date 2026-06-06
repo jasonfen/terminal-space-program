@@ -185,6 +185,38 @@ func TestIntegrateResolvesCraftOwnSystem(t *testing.T) {
 	}
 }
 
+// TestLaunchpadSpawnFocusesCraft — ADR 0015 follow-up. The browse-then-spawn
+// flow reaches Lumen via CycleSystem, which calls ResetFocus() → FocusSystem.
+// A launchpad spawn must re-center on the new craft (FocusCraft); otherwise
+// exiting ViewLaunch (releaseLaunchSession restores ViewMode but not Focus)
+// lands on the bare Lumen system map instead of the craft.
+func TestLaunchpadSpawnFocusesCraft(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	cycleToSystem(t, w, "Lumen")
+	if w.Focus.Kind != FocusSystem {
+		t.Fatalf("precondition: CycleSystem should leave FocusSystem, got %v", w.Focus.Kind)
+	}
+	if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: spacecraft.LoadoutKernStackID, ParentBodyID: "kern", Launchpad: true}); err != nil {
+		t.Fatalf("SpawnCraft launchpad: %v", err)
+	}
+	if w.Focus.Kind != FocusCraft {
+		t.Errorf("after launchpad spawn in Lumen, Focus = %v, want FocusCraft (so exiting ViewLaunch shows the craft, not the system map)", w.Focus.Kind)
+	}
+
+	// Simulate the launch session lifecycle: a release restores ViewMode
+	// but must leave Focus on the craft.
+	w.PrevViewMode = ViewTilted
+	w.ViewMode = ViewLaunch
+	w.LaunchSessionActive = true
+	w.releaseLaunchSession()
+	if w.Focus.Kind != FocusCraft {
+		t.Errorf("after exiting ViewLaunch, Focus = %v, want FocusCraft", w.Focus.Kind)
+	}
+}
+
 // TestStagingInheritsSystemIdx — ADR 0015: a staging-popped passive stage
 // stays in its parent's System.
 func TestStagingInheritsSystemIdx(t *testing.T) {

@@ -194,6 +194,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		w.Crafts = append(w.Crafts, c)
 		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
+		w.focusNewCraft()
 		w.initCraftAttitude(c)
 		return c, nil
 	}
@@ -273,6 +274,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if w.NavMode == NavOrbit {
 			w.NavMode = NavSurface
 		}
+		w.focusNewCraft()
 		w.initCraftAttitude(c)
 		return c, nil
 	}
@@ -311,8 +313,24 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	w.Crafts = append(w.Crafts, c)
 	w.SetActiveCraftIdx(len(w.Crafts) - 1)
 	w.StopManualBurn()
+	w.focusNewCraft()
 	w.initCraftAttitude(c)
 	return c, nil
+}
+
+// focusNewCraft centers the orbit camera on the just-spawned (now active)
+// craft, mirroring NewWorld's seed (Focus = FocusCraft). v0.16 / ADR 0015:
+// the browse-to-another-System-then-spawn flow reaches the spawn via
+// CycleSystem, which leaves Focus at FocusSystem; without this a launchpad
+// spawn's exit-ViewLaunch (releaseLaunchSession restores ViewMode but not
+// Focus) would land on the bare system map instead of the craft. Guarded on
+// CraftVisibleHere so FocusCraft is only set when it will render (it needs
+// the active craft's System to be the viewed one — always true post-spawn,
+// since SetActiveCraftIdx has just snapped the view to it).
+func (w *World) focusNewCraft() {
+	if w.CraftVisibleHere() {
+		w.Focus = Focus{Kind: FocusCraft}
+	}
 }
 
 // newCustomCraft builds the Spacecraft for a player-assembled stack.
