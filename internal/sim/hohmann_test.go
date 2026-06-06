@@ -123,3 +123,48 @@ func within(got, want, tol float64) bool {
 	}
 	return math.Abs(got-want)/math.Abs(want) <= tol
 }
+
+// TestHohmannPreviewForSiblingMoonUsesParentFrame — a craft orbiting one
+// moon, previewing a transfer to a *sibling* moon of the same parent,
+// must compute a parent-frame Hohmann between the two moons' orbits — not
+// fall through to the heliocentric default, which mixes the craft's solar
+// distance with a planet-relative SMA and yields nonsense Δv (~tens of
+// km/s). Latent in the stock Sol catalog (Luna is Earth's only moon), so
+// this synthesises a second Earth moon to exercise the case. (#91)
+func TestHohmannPreviewForSiblingMoonUsesParentFrame(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	lunaIdx := -1
+	for i, b := range sys.Bodies {
+		if b.ID == "moon" || b.EnglishName == "Moon" {
+			lunaIdx = i
+			break
+		}
+	}
+	if lunaIdx < 0 {
+		t.Skip("Luna not found in Sol system")
+	}
+	luna := sys.Bodies[lunaIdx]
+
+	// Synthesise a second moon of Earth ~1.5× Luna's orbital radius.
+	luna2 := luna
+	luna2.ID = "moon2"
+	luna2.EnglishName = "Luna II"
+	luna2.SemimajorAxis = luna.SemimajorAxis * 1.5
+	w.Systems[w.SystemIdx].Bodies = append(w.Systems[w.SystemIdx].Bodies, luna2)
+	luna2Idx := len(w.Systems[w.SystemIdx].Bodies) - 1
+
+	// Put the active craft in orbit around the first moon.
+	w.ActiveCraft().Primary = luna
+
+	p := w.HohmannPreviewFor(luna2Idx)
+	if !p.Valid {
+		t.Fatalf("sibling-moon preview invalid: %s", p.Note)
+	}
+	// Parent-frame (Earth μ) Hohmann from Luna's SMA (~384 400 km) to 1.5×
+	// that is a low-energy moon-to-moon transfer (Δv ≈ 100 m/s each leg).
+	// The heliocentric default would instead report km/s-scale Δv.
+	if p.DV1 > 1000 || p.DV2 > 1000 {
+		t.Errorf("sibling-moon Δv1=%.0f Δv2=%.0f m/s — expected parent-frame moon-to-moon (≲ few hundred m/s), not heliocentric", p.DV1, p.DV2)
+	}
+}

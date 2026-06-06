@@ -61,3 +61,30 @@ func TestPredictPreservesRadiusForCircularOrbit(t *testing.T) {
 	}
 }
 
+// TestPredictLargeHorizonSmallSamples — Predict must honor its documented
+// dt < period/100 sub-step invariant even when the caller asks for a long
+// horizon with very few samples. The old unconditional `nSub > 256` clamp
+// capped sub-steps at 256 regardless of horizon, so a 100-period / 2-sample
+// request produced dt ≈ 0.39·period — far past the Verlet stability knee —
+// and the orbit diverged energetically (radius ran off toward escape).
+// Raising the clamp to a perf ceiling that still respects the invariant
+// keeps dt at period/100, where symplectic Verlet conserves energy and the
+// radius stays put. We assert radius preservation, not positional closure:
+// over 100 periods Verlet accrues harmless *phase* drift even with a
+// correct dt, but the *energy* (the radius of a circular orbit) must not
+// diverge — that divergence is exactly the clamp bug. (#91)
+func TestPredictLargeHorizonSmallSamples(t *testing.T) {
+	mu := 3.986e14
+	r0 := 6.371e6 + 200e3
+	v0 := math.Sqrt(mu / r0)
+	start := physics.StateVector{R: orbital.Vec3{X: r0}, V: orbital.Vec3{Y: v0}}
+	period := 2 * math.Pi * math.Sqrt(r0*r0*r0/mu)
+
+	// 100 periods, only 2 samples (start + end) — forces nSub past the old
+	// 256 cap. The end radius of this circular orbit must stay near r0.
+	pts := Predict(start, mu, 100*period, 2)
+	endR := pts[len(pts)-1].Norm()
+	if d := math.Abs(endR-r0) / r0; d > 0.02 {
+		t.Errorf("100-period/2-sample end radius %.3e m = %.2f·r0 — sub-step clamp violated dt<period/100 and the orbit diverged", endR, endR/r0)
+	}
+}

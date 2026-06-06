@@ -181,6 +181,32 @@ func TestPlanRendezvousNudge_DifferentPrimaries(t *testing.T) {
 	}
 }
 
+// TestPlanRendezvousNudge_DockedCraft — when the active and target
+// craft are already within DOCK READY range (< 50 m, |v_rel| < 0.1 m/s),
+// PlanRendezvousNudge must return the specific ErrRendezvousAlreadyDocked
+// (not the generic ErrRendezvousNoImprovement) and plant no node. The
+// docked gate in computeRendezvousAdvisory used to return ok=false,
+// which tripped the outer `if !ok` gate and made the docked branch
+// unreachable; it now returns ok=true with advisory.Reason="docked",
+// consistent with the no-improvement path. (#91)
+func TestPlanRendezvousNudge_DockedCraft(t *testing.T) {
+	w := rendezvousTwoCraftWorld(t)
+	active := w.Crafts[0]
+	target := w.Crafts[1]
+	// Park the target right alongside the active craft: 10 m away with a
+	// 0.01 m/s relative drift — inside the docked gate.
+	target.State.R = active.State.R.Add(orbital.Vec3{X: 10})
+	target.State.V = active.State.V.Add(orbital.Vec3{X: 0.01})
+
+	_, err := w.PlanRendezvousNudge()
+	if !errors.Is(err, ErrRendezvousAlreadyDocked) {
+		t.Errorf("err = %v, want ErrRendezvousAlreadyDocked", err)
+	}
+	if got := len(active.Nodes); got != 0 {
+		t.Errorf("docked craft should plant no node; got %d", got)
+	}
+}
+
 // TestRecommendedRendezvousBurn_CacheReusesWithinInterval — two
 // back-to-back calls without advancing the sim clock return
 // identical advisories (cache hit; not a recompute). Indirect: we

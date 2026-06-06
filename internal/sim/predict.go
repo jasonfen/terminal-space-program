@@ -192,7 +192,32 @@ predict:
 				muNow = current.GravitationalParameter()
 
 				period = orbitalPeriod(state, muNow)
-				maxStep = predictMaxSubStep(period)
+				newMaxStep := predictMaxSubStep(period)
+				// Re-resolve the sub-step for the REST of this sample after
+				// the rebase. The new SOI's orbit can be far tighter than
+				// the one we entered with (e.g. an Earth-transfer leg with
+				// dt≈120 s crossing into a fast lunar hyperbolic flyby whose
+				// cap is ~1 s) — and only the Verlet path is affected, since
+				// analytic Kepler is dt-independent. Leaving the coarse
+				// pre-crossing dt in place integrated ~37 remaining 120 s
+				// steps across the encounter, grossly aliasing its geometry.
+				// Re-divide the remaining time into sub-steps sized for the
+				// new orbit (keeping the 256 perf clamp). (#91)
+				if newMaxStep < maxStep {
+					remainingTime := float64(nSub-j-1) * dt
+					if remainingTime > 0 {
+						newNSub := int(math.Ceil(remainingTime / newMaxStep))
+						if newNSub < 1 {
+							newNSub = 1
+						}
+						if newNSub > 256 {
+							newNSub = 256
+						}
+						nSub = j + 1 + newNSub
+						dt = remainingTime / float64(newNSub)
+					}
+				}
+				maxStep = newMaxStep
 
 				segments = append(segments, SOISegment{
 					PrimaryID: current.ID,

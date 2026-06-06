@@ -39,8 +39,15 @@ func Predict(start physics.StateVector, mu, totalSeconds float64, samples int) [
 		if nSub < 1 {
 			nSub = 1
 		}
-		if nSub > 256 {
-			nSub = 256
+		// Raise the perf clamp high enough to preserve the dt < period/100
+		// invariant (line 27) for any realistic horizon. The old 256 cap
+		// broke it for long-horizon / low-sample callers — e.g. 100 periods
+		// in 2 samples clamped dt to ≈0.39·period, well past the Verlet
+		// stability knee, and the orbit diverged. 10000 keeps dt ≤ period/100
+		// out to ~100 sample-periods while still bounding pathological work. (#91)
+		const maxNSubSteps = 10000
+		if nSub > maxNSubSteps {
+			nSub = maxNSubSteps
 		}
 		dt := stepSecs / float64(nSub)
 		for j := 0; j < nSub; j++ {
