@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
 // rLEO is a 500 km circular LEO around Earth (the v0.6.1 default
@@ -204,5 +205,78 @@ func TestPlanInclinationPrimaryIDPropagates(t *testing.T) {
 	}
 	if plan.PrimaryID != "earth" {
 		t.Errorf("PrimaryID = %q, want %q", plan.PrimaryID, "earth")
+	}
+}
+
+// TestPlanInclinationRetrogradeReachesTarget — guards that the
+// NormalSign rule already produces a correct plane change for retrograde
+// (i > π/2) orbits. Core-review #91 flagged the prograde-derived sign
+// rule as needing a `sign = -sign` inversion for retrograde (the
+// equatorial helper has an analogous correction); executing the physics
+// proves that's a FALSE POSITIVE — adding the inversion drives the
+// inclination the WRONG way at both nodes. Rather than hand-assert a
+// sign convention, this propagates the circular orbit to the planned
+// burn node, applies the exact rotation the burn performs (rotate the
+// horizontal velocity by PlaneChangeRad about r̂, preserving |v| — see
+// spacecraft.planeChangeDirection), and asserts the resulting
+// inclination lands on the target. It fails if anyone applies the
+// proposed inversion. (#91)
+func TestPlanInclinationRetrogradeReachesTarget(t *testing.T) {
+	inclinationOf := func(r, v orbital.Vec3) float64 {
+		h := r.Cross(v)
+		return math.Acos(h.Z / h.Norm())
+	}
+	v := math.Sqrt(muEarth / rLEO)
+	// startAtAN places the craft on the equator rising (next node = DN);
+	// startAtDN places it on the equator descending (next node = AN). We
+	// exercise BOTH so the retrograde sign rule is tested at each node.
+	startAtAN := func(inc float64) orbital.Vec3State { return circularInclinedState(rLEO, inc, muEarth) }
+	startAtDN := func(inc float64) orbital.Vec3State {
+		return orbital.Vec3State{
+			R: orbital.Vec3{X: -rLEO},
+			V: orbital.Vec3{Y: -v * math.Cos(inc), Z: -v * math.Sin(inc)},
+		}
+	}
+	cases := []struct {
+		name           string
+		fromDeg, toDeg float64
+		start          func(float64) orbital.Vec3State
+	}{
+		{"retro increase 100→110, burn at DN", 100, 110, startAtAN},
+		{"retro decrease 110→100, burn at DN", 110, 100, startAtAN},
+		{"retro increase 100→110, burn at AN", 100, 110, startAtDN},
+		{"retro decrease 110→100, burn at AN", 110, 100, startAtDN},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inc := tc.fromDeg * math.Pi / 180
+			target := tc.toDeg * math.Pi / 180
+			state := tc.start(inc)
+			plan, err := PlanInclinationChange(state, muEarth, target, "earth")
+			if err != nil {
+				t.Fatalf("PlanInclinationChange: %v", err)
+			}
+			// Propagate analytically to the burn node (exact for circular).
+			sv, ok := physics.KeplerStep(
+				physics.StateVector{R: state.R, V: state.V},
+				muEarth, plan.OffsetTime.Seconds())
+			if !ok {
+				t.Fatalf("KeplerStep to burn node failed")
+			}
+			// Execute the plane-change burn: rotate v_horizontal by
+			// PlaneChangeRad about r̂. rHat×vHor points along +ĥ, so this
+			// matches planeChangeDirection's "positive θ rotates toward +ĥ".
+			theta := plan.PlaneChangeRad
+			rHat := sv.R.Unit()
+			vRad := rHat.Scale(sv.V.Dot(rHat))
+			vHor := sv.V.Sub(vRad)
+			newVHor := vHor.Scale(math.Cos(theta)).Add(rHat.Cross(vHor).Scale(math.Sin(theta)))
+			newV := vRad.Add(newVHor)
+
+			got := inclinationOf(sv.R, newV) * 180 / math.Pi
+			if math.Abs(got-tc.toDeg) > 1e-6 {
+				t.Errorf("after plane-change burn i=%.5f°, want %.5f° — retrograde sign drove inclination the wrong way (NormalSign=%d)", got, tc.toDeg, plan.NormalSign)
+			}
+		})
 	}
 }

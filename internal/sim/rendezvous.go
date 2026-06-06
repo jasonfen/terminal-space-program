@@ -64,9 +64,12 @@ const rendezvousBurnLeadPad = 5 * time.Second
 // TARGET HUD just hides the block.
 //
 // The returned advisory is the same struct callers see from the
-// underlying planner.RecommendRendezvousNudge; ok=false-with-advisory
-// is the "no improvement available" path (advisory.Reason populated)
-// the HUD surfaces as a faint single-line tag.
+// underlying planner.RecommendRendezvousNudge. ok=true-with-advisory
+// where advisory.Ok=false is the "computed, but no improvement
+// available" path (advisory.Reason populated — "no useful nudge" or
+// "docked") the HUD surfaces as a faint single-line tag; ok=false means
+// the advisory couldn't be computed at all (no craft target, different
+// primaries, degenerate state) and the HUD hides the block.
 func (w *World) RecommendedRendezvousBurn() (planner.RendezvousAdvisory, bool) {
 	active := w.ActiveCraft()
 	if active == nil || w.Target.Kind != TargetCraft {
@@ -127,7 +130,7 @@ func (w *World) computeRendezvousAdvisory(active, target *spacecraft.Spacecraft)
 		return planner.RendezvousAdvisory{
 			Ok:     false,
 			Reason: "docked",
-		}, false
+		}, true
 	}
 
 	// Horizon mirrors v0.9.3 NextClosestApproach defaults: ~2× the

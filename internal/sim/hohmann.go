@@ -75,6 +75,27 @@ func (w *World) HohmannPreviewFor(bodyIdx int) HohmannPreview {
 			TargetName: target.EnglishName,
 			Note:       "moon → parent — use [H] for escape transfer",
 		}
+	case target.ParentID != "" && target.ParentID == w.ActiveCraft().Primary.ParentID && target.ID != w.ActiveCraft().Primary.ID:
+		// Sibling moons: the craft orbits one moon and the target is a
+		// different moon of the same parent (e.g. a craft at Io targeting
+		// Europa). The honest preview is a parent-frame Hohmann between
+		// the two moons' orbital radii — NOT the heliocentric transfer the
+		// default case would compute, which produced wildly wrong Δv
+		// (~28 / ~242 km/s) by mixing the craft's solar distance with a
+		// moon's planet-relative SMA. r1 is the craft's *moon's* SMA
+		// around the parent (the craft is bound near that moon, so its
+		// parent-frame radius is the moon's orbital radius, not the
+		// craft's moon-relative |R| — that intra-primary form would
+		// understate r1 by ~2 orders of magnitude). Latent in the stock
+		// Sol catalog (Luna is Earth's only moon); live the moment a
+		// multi-moon system is added.
+		parent, found := bodies.LookupByID(w.Systems, target.ParentID)
+		if !found {
+			return HohmannPreview{TargetName: target.EnglishName, Note: "parent body not found"}
+		}
+		mu = parent.GravitationalParameter()
+		r1 = w.ActiveCraft().Primary.SemimajorAxisMeters()
+		r2 = target.SemimajorAxisMeters()
 	default:
 		// Heliocentric: craft and target both ultimately orbit the
 		// system primary (LEO craft + Mars). Patched-conic textbook
