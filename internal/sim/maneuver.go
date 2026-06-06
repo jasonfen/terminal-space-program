@@ -625,10 +625,28 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 		return 0, 0, err
 	}
 
+	// Rebuild the arrival node in place with refined Δv. Update it by the
+	// index the reverse scan selected, *before* planting the correction —
+	// PlanNode re-sorts the slice, and re-finding the node by
+	// (TriggerTime, PrimaryID) afterward could rewrite the wrong one when
+	// two arrival nodes share that key (a double-plant to the same body
+	// at a coinciding arrival time; GH #88 finding #5). arrIdx is still
+	// valid here: nothing has mutated Nodes since the scan.
+	w.ActiveCraft().Nodes[arrIdx] = ManeuverNode{
+		TriggerTime: arrNode.TriggerTime,
+		Mode:        arrNode.Mode,
+		DV:          arrivalDv,
+		Duration:    w.ActiveCraft().BurnTimeForDV(arrivalDv),
+		PrimaryID:   arrNode.PrimaryID,
+	}
+
 	// Plant the correction burn at now (tiny offset to avoid firing the
 	// same tick it lands if executeDueNodes has already run). v0.6.5:
 	// duration via the rocket-equation form so it matches the
-	// transferNodeToManeuver path.
+	// transferNodeToManeuver path. PlanNode re-sorts the slice, which
+	// also re-orders the refined arrival if its new duration shifted its
+	// BurnStart; when there's no correction burn, sort explicitly to
+	// preserve that invariant.
 	if correctionDv > 0 {
 		w.PlanNode(ManeuverNode{
 			TriggerTime: now.Add(time.Second),
@@ -637,22 +655,8 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 			Duration:    w.ActiveCraft().BurnTimeForDV(correctionDv),
 			PrimaryID:   w.ActiveCraft().Primary.ID,
 		})
-	}
-
-	// Rebuild the arrival node in place with refined Δv.
-	newArrival := ManeuverNode{
-		TriggerTime: arrNode.TriggerTime,
-		Mode:        arrNode.Mode,
-		DV:          arrivalDv,
-		Duration:    w.ActiveCraft().BurnTimeForDV(arrivalDv),
-		PrimaryID:   arrNode.PrimaryID,
-	}
-	// Find arrNode again by index after PlanNode sorted the slice.
-	for i, n := range w.ActiveCraft().Nodes {
-		if n.TriggerTime.Equal(arrNode.TriggerTime) && n.PrimaryID == arrNode.PrimaryID {
-			w.ActiveCraft().Nodes[i] = newArrival
-			break
-		}
+	} else {
+		sortNodes(w.ActiveCraft().Nodes)
 	}
 	return correctionDv, arrivalDv, nil
 }

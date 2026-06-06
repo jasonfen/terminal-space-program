@@ -1736,6 +1736,97 @@ func TestRefinePlanUpdatesArrivalAfterPlanTransferAt(t *testing.T) {
 	}
 }
 
+// TestRefinePlanRewritesSelectedArrivalNotKeyCollision (GH #88 finding
+// #5): RefinePlan selects the arrival node by a *reverse* scan (latest
+// pending non-home node) but pre-fix re-located it after PlanNode
+// re-sorted the slice by a forward search on (TriggerTime, PrimaryID).
+// When two arrival nodes share that key — a double-plant to the same
+// body at a coinciding arrival time — the forward search rewrites the
+// FIRST match, which need not be the node the reverse scan selected, so
+// the refined Δv lands on the wrong node and the intended one keeps its
+// stale value.
+//
+// Construct the collision deterministically: a decoy arrival sharing
+// the real arrival's (TriggerTime, mars) key but with a long duration,
+// so it sorts to an earlier BurnStart (lower index) than the real
+// arrival. The reverse scan therefore selects the real arrival (higher
+// index) while the buggy forward search would hit the decoy first. The
+// decoy must come out untouched.
+func TestRefinePlanRewritesSelectedArrivalNotKeyCollision(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	mars := sys.Bodies[marsIdx]
+
+	if _, err := w.PlanTransferAt(marsIdx, 0, 260, TransferOptions{}); err != nil {
+		t.Fatalf("PlanTransferAt: %v", err)
+	}
+
+	// Locate the real arrival node (PrimaryID == mars) and record its key.
+	var arrTT time.Time
+	var arrMode spacecraft.BurnMode
+	found := false
+	for _, n := range w.ActiveCraft().Nodes {
+		if n.PrimaryID == mars.ID {
+			arrTT, arrMode, found = n.TriggerTime, n.Mode, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no mars-arrival node after PlanTransferAt")
+	}
+
+	// Decoy: same (TriggerTime, mars) key, distinctive DV + long duration.
+	// The long duration pins it to an earlier BurnStart → lower index than
+	// the real arrival, so the buggy forward re-find would rewrite it.
+	const decoyDV = 7777.0
+	const decoyDur = 9999 * time.Second
+	w.PlanNode(ManeuverNode{
+		TriggerTime: arrTT,
+		Mode:        arrMode,
+		DV:          decoyDV,
+		Duration:    decoyDur,
+		PrimaryID:   mars.ID,
+	})
+
+	_, arr, err := w.RefinePlan()
+	if err != nil {
+		t.Fatalf("RefinePlan: %v", err)
+	}
+
+	// The decoy must survive untouched (identifiable by its distinctive
+	// Δv), and the refined Δv must land on the *other* mars node — the
+	// one the reverse scan selected. The buggy forward re-find rewrites
+	// the decoy (lower index) instead, wiping its Δv.
+	decoySurvived, realRefined := false, false
+	for _, n := range w.ActiveCraft().Nodes {
+		if n.PrimaryID != mars.ID {
+			continue
+		}
+		if math.Abs(n.DV-decoyDV) < 1e-6 {
+			decoySurvived = true
+		} else if math.Abs(n.DV-arr) < 1e-6 {
+			realRefined = true
+		}
+	}
+	if !decoySurvived {
+		t.Errorf("decoy arrival (Δv %.1f) was overwritten — RefinePlan rewrote the wrong key-collision node instead of the reverse-scan-selected arrival",
+			decoyDV)
+	}
+	if !realRefined {
+		t.Errorf("no mars-arrival node carries the refined Δv %.1f — the selected node was not updated", arr)
+	}
+}
+
 // TestPlanTransferMoonEscapePlantsTwoNodes (v0.6.3): with the craft in
 // low lunar orbit, PlanTransfer(earth) should plant a moon-frame
 // departure burn (Δv > 0, prograde) followed by an Earth-frame
