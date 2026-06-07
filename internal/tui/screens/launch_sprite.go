@@ -379,6 +379,47 @@ func composedStackRows(stages []spacecraft.Stage) int {
 	return rows
 }
 
+// composedStackMaxWidth returns the widest stage body (sub-pixels) among
+// the stages that contribute to the composed sprite (LaunchSpriteRowsPx >
+// 0), or 0 when none do. Paired with composedStackRows to size the
+// sprite's on-screen footprint for the glyph-floor check in
+// drawComposedRocket (v0.16). Bell/legs/canopy can extend slightly wider,
+// but the body width is what governs whether the silhouette resolves above
+// a single cell.
+func composedStackMaxWidth(stages []spacecraft.Stage) int {
+	maxW := 0
+	for _, s := range stages {
+		if s.LaunchSpriteRowsPx <= 0 {
+			continue
+		}
+		if w := stageSpriteWidthPx(s); w > maxW {
+			maxW = w
+		}
+	}
+	return maxW
+}
+
+// vesselSpriteBelowCellFloor reports whether the composed launch sprite for
+// stages, at the given chase-cam scale (metres per braille pixel — the
+// reciprocal of renderScene's canvas SetScale), would render no larger than
+// a single terminal cell (canvasCellPxW×canvasCellPxH braille sub-pixels).
+// Past that floor the silhouette collapses to one or two lit dots, so the
+// caller paints the vessel's glyph instead (v0.16). Returns false when
+// there is no composed sprite (rows == 0) or scale is non-positive, leaving
+// the existing nil-sprite / guard paths in control. The sub-pixel stride is
+// the fixed vesselSubPixelM, so the on-screen footprint is
+// rows·vesselSubPixelM / scaleMPerPx braille pixels tall.
+func vesselSpriteBelowCellFloor(stages []spacecraft.Stage, scaleMPerPx float64) bool {
+	rows := composedStackRows(stages)
+	if rows <= 0 || scaleMPerPx <= 0 {
+		return false
+	}
+	pxPerM := 1.0 / scaleMPerPx
+	heightPx := float64(rows) * vesselSubPixelM * pxPerM
+	widthPx := float64(composedStackMaxWidth(stages)) * vesselSubPixelM * pxPerM
+	return heightPx <= canvasCellPxH && widthPx <= canvasCellPxW
+}
+
 // ComposeCanopy paints a deployed-parachute canopy above the top stage:
 // a 3-row braille dome at canopyWidth, plus two converging shroud lines
 // bridging the canopyGapRows gap down to the top stage's shoulders.

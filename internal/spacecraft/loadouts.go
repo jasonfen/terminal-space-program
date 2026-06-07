@@ -251,10 +251,19 @@ func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, b
 // Stack self-contained in loadouts.go (ADR 0014 ships no new catalog
 // parts). "Lander" does resolve in the catalog, but we set it here too so
 // all four stages read from one place.
-func kernStage(name, glyph, color string, dry, fuel, thrust, isp float64,
+func kernStage(name, glyph, color string, dry, fuel, thrust, isp, bc float64,
 	spriteRows, spriteWidth int, spriteColor, fuelType string,
 	hasLegs, canSoftLand, hasParachute bool) Stage {
 	s := stage(LoadoutKernStackID, name, glyph, color, dry, fuel, thrust, isp)
+	// v0.16: realistic per-stage ballistic coefficient (C_D·A/m, m²/kg).
+	// Without this kernStage fell through to the 0.01 default
+	// (EffectiveBallisticCoefficient), tuned for an in-space S-IVB where
+	// drag is always zero — on Kern's sea-level air (ρ=1.225) that capped
+	// the climb at a ~34 m/s terminal velocity (playtest: "won't reach
+	// 100 m/s vertical until the first stage is nearly burned"). Sized
+	// like the real launch fleet (Saturn-V S-IC ≈ 8e-6, Falcon-9 S1
+	// ≈ 7e-6) for the Kern Stack's slender ~2.5 m KSP-stock cross-section.
+	s.BallisticCoefficient = bc
 	s.LaunchSpriteRowsPx = spriteRows
 	s.LaunchSpriteWidthPx = spriteWidth
 	s.LaunchSpriteColor = spriteColor
@@ -618,9 +627,13 @@ var Loadouts = map[string]Loadout{
 	// tuned for a ~6 km/s total ideal Δv (Boost ~2.3 + Transfer ~2.2 +
 	// Lander ~1.5 km/s) — enough for Lumen orbit (~3.4 km/s), a Cursor
 	// transfer + capture + descent, and the ascent/return, on the
-	// stripped-back scale. Lift-off TWR ≈ 1.20 against Kern's Earth-like
-	// surface g (250 kN vs ~21.3 t × g0). Isp values are KSP stock
-	// engines collapsed to one Isp per stage. ScaleClass tags it
+	// stripped-back scale. Lift-off TWR ≈ 1.50 against Kern's Earth-like
+	// surface g (320 kN vs ~21.3 t × g0) — retuned up from the original
+	// 250 kN / TWR 1.18 after a playtest found the pad climb glacial (the
+	// glacial climb itself was mostly the BC drag bug fixed below, not
+	// thrust). Thrust doesn't enter the ideal Δv budget, so the ~6 km/s
+	// sizing is unchanged. Isp values are
+	// KSP stock engines collapsed to one Isp per stage. ScaleClass tags it
 	// stripped-back for the spawn-form hint (never a filter, ADR 0014).
 	LoadoutKernStackID: {
 		ID:         LoadoutKernStackID,
@@ -631,21 +644,27 @@ var Loadouts = map[string]Loadout{
 		ScaleClass: bodies.ScaleStrippedBack,
 		Stages: []Stage{
 			// Boost: Mainsail-class kerolox first stage (Isp 285 sea-level —
-			// the only stage that fires in atmosphere). TWR > 1 off the pad.
-			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 250000, 285,
+			// the only stage that fires in atmosphere). TWR ≈ 1.50 off the
+			// pad. BC 7e-6 (slender ~2.5 m stack, like Saturn-V S-IC) so
+			// Kern's thick air doesn't cap the climb.
+			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 320000, 285, 7e-6,
 				14, 4, "#D8E6F0", FuelTypeKerolox, false, false, false),
 			// Transfer: Poodle-class vacuum stage (Isp 350) for the Kern
-			// orbit insertion and the Cursor transfer/capture burns.
-			kernStage("Transfer", "▲", "#9BE0FF", 1000, 3500, 60000, 350,
+			// orbit insertion and the Cursor transfer/capture burns. BC is a
+			// vacuum-stage value (drag negligible once Boost separates).
+			kernStage("Transfer", "▲", "#9BE0FF", 1000, 3500, 60000, 350, 2.5e-5,
 				10, 3, "#C8E0F0", FuelTypeHydrolox, false, false, false),
 			// Lander: Terrier-class throttleable descent/ascent engine
 			// (Isp 345) with legs — fires the powered descent to Cursor and
-			// the return-to-orbit burn. Soft-land qualified.
-			kernStage("Lander", "▼", "#5FFF87", 800, 1000, 16000, 345,
+			// the return-to-orbit burn. Soft-land qualified. (Cursor is
+			// airless; BC only matters if it ever flies in atmosphere.)
+			kernStage("Lander", "▼", "#5FFF87", 800, 1000, 16000, 345, 5e-5,
 				5, 3, "#D4C088", FuelTypeHypergolic, true, true, false),
 			// Pod: engineless crew capsule, the surviving core. Recovers
 			// under parachute (ADR 0008) — the "return" half of the budget.
-			kernStage("Pod", "◓", "#B8C8E0", 1000, 0, 0, 0,
+			// Deployed chute overrides BC (ChuteDeployedBC), so this value
+			// only applies to the brief pre-deploy free-fall.
+			kernStage("Pod", "◓", "#B8C8E0", 1000, 0, 0, 0, 5e-5,
 				6, 3, "#C8C8D0", "", false, false, true),
 		},
 		// Drop Boost, Transfer, Lander one at a time; the Pod survives every

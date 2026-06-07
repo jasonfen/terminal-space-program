@@ -463,7 +463,16 @@ func (v *LaunchView) drawRCSPuffs(w *sim.World, active *spacecraft.Spacecraft, b
 // ActiveBurn — so a pad-spawned rocket doesn't paint amber flame
 // into the body fill before the player presses `b`.
 func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) bool {
-	_ = scaleMPerPx // sub-pixel stride is fixed real-world metres; see comment above
+	// v0.16: floor the vessel at its glyph. The sprite stride is fixed
+	// real-world metres (vesselSubPixelM), so as the chase-cam autozoom
+	// grows the silhouette shrinks on screen; past the point where the
+	// whole sprite would fit inside a single terminal cell it degrades to
+	// one or two lit braille dots — illegible. Below that floor, return
+	// false so the caller paints the glyph cell overlay instead, and a
+	// distant vessel always reads as at least its glyph, never a bare dot.
+	if vesselSpriteBelowCellFloor(craft.Stages, scaleMPerPx) {
+		return false
+	}
 	sprite := ComposeLaunchSprite(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
 	if sprite == nil {
 		return false

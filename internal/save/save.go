@@ -43,8 +43,13 @@ import (
 // binding, planted-node + in-flight-burn target slots) references a
 // craft by ID instead of slate index (ADR 0012, GH #87). v6 envelopes
 // migrate on load via migrateV6PayloadToV7, which assigns IDs by slate
-// position and rewrites the stored indices to IDs.
-const SchemaVersion = 7
+// position and rewrites the stored indices to IDs. v0.16 bumps to v8
+// (ADR 0015) — every Craft gains `system_idx`, the per-Vessel System
+// binding. The v7→v8 migration derives each craft's SystemIdx from which
+// loaded System contains its PrimaryID (Sol/0 fallback), so existing Sol
+// craft and any craft spawned by the buggy interim Lumen build both
+// migrate correctly; see migrateV7PayloadToV8.
+const SchemaVersion = 8
 
 // File is the on-disk envelope.
 type File struct {
@@ -130,6 +135,7 @@ type Vec3 struct {
 // still see a coherent craft.
 type Craft struct {
 	ID               uint64  `json:"id,omitempty"` // v0.14.x / schema v7: stable Spacecraft.ID (ADR 0012). Pre-v7 saves omit it; migrateV6PayloadToV7 assigns one per slate position.
+	SystemIdx        int     `json:"system_idx,omitempty"` // v0.16 / schema v8: per-Vessel System binding (ADR 0015). Index into the name-sorted-Sol-first systems. Sol=0 omitted. Pre-v8 saves derive it from PrimaryID via migrateV7PayloadToV8. Distinct from Payload.SystemIdx (the world-level viewed system).
 	Name             string  `json:"name"`
 	DryMass          float64 `json:"dry_mass"`
 	Fuel             float64 `json:"fuel"`
@@ -450,6 +456,13 @@ func Load(path string) (*sim.World, error) {
 	if f.Version < 7 {
 		migrateV6PayloadToV7(&f.Payload)
 	}
+	// v0.16 / schema v8 (ADR 0015): derive each craft's per-Vessel
+	// SystemIdx from which loaded System contains its PrimaryID. Needs
+	// the loaded systems, so it runs here rather than on the payload
+	// alone. v8+ saves already carry SystemIdx and skip this.
+	if f.Version < 8 {
+		migrateV7PayloadToV8(&f.Payload, systems)
+	}
 	return worldFromPayload(f.Payload, systems)
 }
 
@@ -485,6 +498,7 @@ func payloadFromWorld(w *sim.World) Payload {
 		}
 		wc := Craft{
 			ID:                 c.ID,
+			SystemIdx:          c.SystemIdx, // v0.16 / schema v8 (ADR 0015): per-Vessel System binding.
 			Name:               c.Name,
 			DryMass:            c.DryMass,
 			Fuel:               c.Fuel,
@@ -648,10 +662,20 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		wireCrafts = []Craft{*p.Craft}
 	}
 	for _, wc := range wireCrafts {
-		primary, ok := bodies.LookupByID(systems, wc.PrimaryID)
-		if !ok {
+		// v0.16 / schema v8 (ADR 0015): rehydrate the Primary from the
+		// Vessel's *own* System rather than scanning all systems, so a
+		// cross-System body-ID collision (e.g. a user overlay) can't
+		// mis-rehydrate the Primary. The v7→v8 migration has already set
+		// SystemIdx for pre-v8 saves; clamp a corrupt index to Sol.
+		sysIdx := wc.SystemIdx
+		if sysIdx < 0 || sysIdx >= len(systems) {
+			sysIdx = 0
+		}
+		primaryPtr := systems[sysIdx].FindBody(wc.PrimaryID)
+		if primaryPtr == nil {
 			return nil, fmt.Errorf("%w: %q", ErrCraftPrimary, wc.PrimaryID)
 		}
+		primary := *primaryPtr
 		// v0.8.0+: pre-RCS saves (v3 and earlier wire-out) carry zero
 		// RCS fields. Populate from DefaultRCSLoadout(DryMass) so
 		// older saves inherit a full RCS budget without a schema bump.
@@ -686,6 +710,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			RCSIsp:           rcsIsp,
 			Stages:           stages,
 			Primary:          primary,
+			SystemIdx:        sysIdx, // v0.16 / schema v8 (ADR 0015): per-Vessel System binding.
 			State: physics.StateVector{
 				R: vec3To(wc.R),
 				V: vec3To(wc.V),

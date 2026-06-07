@@ -181,6 +181,10 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		// see the spawn.
 		const offsetM = 25.0
 		c.Primary = active.Primary
+		// v0.16 / ADR 0015: an Alongside spawn clones the active Vessel's
+		// state, so it inherits the *active* Vessel's System (not the
+		// viewed one); view-follows-active then keeps them co-framed.
+		c.SystemIdx = active.SystemIdx
 		c.State = physics.StateVector{
 			R: active.State.R.Add(orbital.Vec3{X: offsetM}),
 			V: active.State.V,
@@ -190,6 +194,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		w.Crafts = append(w.Crafts, c)
 		w.SetActiveCraftIdx(len(w.Crafts) - 1)
 		w.StopManualBurn()
+		w.focusNewCraft()
 		w.initCraftAttitude(c)
 		return c, nil
 	}
@@ -223,6 +228,8 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		}
 		rRel, vRel := surfaceSpawnPosVel(primary, latDeg, spec.LongitudeOffset, w.Clock.SimTime)
 		c.Primary = primary
+		// v0.16 / ADR 0015: bind the new Vessel to the viewed System.
+		c.SystemIdx = w.SystemIdx
 		c.State = physics.StateVector{
 			R: rRel,
 			V: vRel,
@@ -267,6 +274,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if w.NavMode == NavOrbit {
 			w.NavMode = NavSurface
 		}
+		w.focusNewCraft()
 		w.initCraftAttitude(c)
 		return c, nil
 	}
@@ -294,6 +302,8 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	rBody := orbital.Vec3{Y: r}
 	vBody := orbital.Vec3{X: -v}
 	c.Primary = primary
+	// v0.16 / ADR 0015: bind the new Vessel to the viewed System.
+	c.SystemIdx = w.SystemIdx
 	c.State = physics.StateVector{
 		R: frame.ToWorld(rBody),
 		V: frame.ToWorld(vBody),
@@ -303,8 +313,24 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	w.Crafts = append(w.Crafts, c)
 	w.SetActiveCraftIdx(len(w.Crafts) - 1)
 	w.StopManualBurn()
+	w.focusNewCraft()
 	w.initCraftAttitude(c)
 	return c, nil
+}
+
+// focusNewCraft centers the orbit camera on the just-spawned (now active)
+// craft, mirroring NewWorld's seed (Focus = FocusCraft). v0.16 / ADR 0015:
+// the browse-to-another-System-then-spawn flow reaches the spawn via
+// CycleSystem, which leaves Focus at FocusSystem; without this a launchpad
+// spawn's exit-ViewLaunch (releaseLaunchSession restores ViewMode but not
+// Focus) would land on the bare system map instead of the craft. Guarded on
+// CraftVisibleHere so FocusCraft is only set when it will render (it needs
+// the active craft's System to be the viewed one — always true post-spawn,
+// since SetActiveCraftIdx has just snapped the view to it).
+func (w *World) focusNewCraft() {
+	if w.CraftVisibleHere() {
+		w.Focus = Focus{Kind: FocusCraft}
+	}
 }
 
 // newCustomCraft builds the Spacecraft for a player-assembled stack.

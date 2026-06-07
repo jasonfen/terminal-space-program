@@ -413,11 +413,16 @@ func TestKernStackShape(t *testing.T) {
 	if pod := byName["Pod"]; pod.Thrust != 0 || pod.FuelMass != 0 {
 		t.Errorf("Pod should be engineless: Thrust=%.0f Fuel=%.0f", pod.Thrust, pod.FuelMass)
 	}
-	// Lift-off TWR > 1 against Kern's Earth-like surface gravity (g0).
+	// Lift-off TWR in a healthy launch band against Kern's Earth-like
+	// surface gravity (g0). Retuned to ≈1.70 after a playtest found the
+	// original TWR-1.18 climb glacial on a Kerbin-class world; guard a
+	// floor of 1.4 (KSP-typical brisk liftoff) so a future mass/thrust
+	// tweak can't silently drop it back to sluggish, and a ceiling of 2.0
+	// so it doesn't become needlessly thrust-heavy (wasted engine mass).
 	totalMass := SumDryMass(l.Stages) + SumFuelMass(l.Stages)
 	twr := l.Stages[0].Thrust / (totalMass * g0)
-	if twr <= 1.0 {
-		t.Errorf("Kern Stack lift-off TWR = %.3f, want > 1", twr)
+	if twr < 1.4 || twr > 2.0 {
+		t.Errorf("Kern Stack lift-off TWR = %.3f, want 1.4–2.0 (brisk pad climb)", twr)
 	}
 }
 
