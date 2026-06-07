@@ -1578,13 +1578,17 @@ are now [[#hud--overlays|Chips]]).
 A compact (2–4 row) overlay composited onto a corner of the **Canvas**
 carrying one contextual readout — Target, Stages, Nodes, Launch, Capture.
 Most Chips render only when their Setting is enabled, they are contextually
-relevant, and Declutter is off. A few are **always-on** (non-toggleable):
-the current **Orbit** metrics (apo/peri/incl) and the active **● Burns**
-readout, which a player must never be able to hide from the **Settings
-screen** — too load-bearing to switch off. Always-on Chips still vanish
-under Declutter; only the **HUD** core Chip survives it. Distinct from the
-larger **Navball** panel, which is also a canvas overlay but a fixed
-instrument.
+relevant, and Declutter is off. The current **Orbit** metrics (apo/peri/incl)
+are **always-on** (non-toggleable) — a player must never be able to hide them
+from the **Settings screen** — though they still vanish under Declutter. The
+**Nodes** Chip carries any in-flight **Burn** as its firing head (the active
+● Burns readout was folded in here, v0.16); while a Burn is live it
+**force-shows** — overriding both its Setting toggle *and* Declutter — so a
+live Burn (safety-critical) can never be hidden. With nothing burning the
+Nodes Chip honours its toggle and Declutter like any other. The **HUD** core
+Chip and a live-Burn Nodes Chip are the only overlays that survive Declutter.
+Distinct from the larger **Navball** panel, which is also a canvas overlay
+but a fixed instrument.
 _Avoid_: Widget, card, badge, HUD block, panel (reserve panel for the
 Navball).
 
@@ -1597,7 +1601,9 @@ _Avoid_: Hide UI, clean mode, F2 mode, toggle overlays.
 **Settings screen**:
 The menu-reached screen where the player toggles each toggleable Chip's
 default visibility (and future preferences such as units). The always-on
-Orbit + Burns readouts are deliberately not listed. Persisted to a global
+Orbit readout is deliberately not listed; the **Nodes** Chip is listed
+(toggleable) but force-shows while a Burn is in flight regardless, so its
+firing-head Burn readout can't be switched off. Persisted to a global
 `settings.json` under `$XDG_CONFIG_HOME`, separate from the **Theme** —
 visibility versus colour are distinct concerns — and independent of any
 save game.

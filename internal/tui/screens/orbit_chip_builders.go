@@ -48,7 +48,9 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 		chips = append(chips, builtChip{id: id, corner: corner, lines: lines})
 	}
 	// Top-left transient stack (stacking order = listed order, downward).
-	add("", cornerTopLeft, v.buildBurnsChip(w)) // always-on safety readout
+	// The in-flight ● BURNS readout used to live here; v0.16 folds it into
+	// the bottom-right NODES chip (a live burn is the firing head of the
+	// burn schedule). See the force-show path below.
 	add(settings.ChipFrameTransition, cornerTopLeft, v.buildFrameTransitionChip(w))
 	add(settings.ChipCapture, cornerTopLeft, v.buildCaptureChip(w))
 	add(settings.ChipLaunch, cornerTopLeft, v.buildLaunchChip(w))
@@ -64,8 +66,29 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
 	// Remaining fixed corners.
 	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
-	add(settings.ChipNodes, cornerBottomRight, v.buildNodesChip(w))
+	// NODES (bottom-right) now also carries any in-flight burn as its
+	// firing head (v0.16). A live burn is safety-critical, so when one is
+	// in flight the chip force-shows — bypassing both the ChipNodes
+	// Settings toggle and F2 declutter — so it can never be hidden. With
+	// nothing burning it honours the toggle + declutter like any chip.
+	if lines := v.buildNodesChip(w); lines != nil {
+		if v.anyActiveBurn(w) || v.chipEnabled(settings.ChipNodes) {
+			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines})
+		}
+	}
 	return chips
+}
+
+// anyActiveBurn reports whether any craft in the slate has an in-flight
+// finite/planted burn (ActiveBurn). Drives the NODES chip force-show
+// (v0.16) so a live burn is never hidden by the toggle or declutter.
+func (v *OrbitView) anyActiveBurn(w *sim.World) bool {
+	for _, c := range w.Crafts {
+		if c != nil && c.ActiveBurn != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // buildAttitudeChip surfaces the held attitude / nav mode / engine mode /
@@ -91,23 +114,19 @@ func (v *OrbitView) buildAttitudeChip(w *sim.World) []string {
 	}
 }
 
-// buildBurnsChip surfaces any in-flight burn across the whole craft slate
-// so a burn on a non-active craft can't sneak by. Returns nil when nothing
-// is burning. This is an always-on chip (no Settings toggle) — a live burn
-// is safety-critical.
-func (v *OrbitView) buildBurnsChip(w *sim.World) []string {
-	burning := []int{}
+// activeBurnLines renders the in-flight burn entries across the whole
+// craft slate — mode, Δv remaining, and a T-countdown (or a STALLED
+// warning) — each as a ● firing line in the warning style so it reads as
+// safety-critical. Returns nil when nothing is burning. v0.16 folds this
+// into buildNodesChip as the firing head of the burn schedule (it was the
+// standalone ● BURNS chip); walking all crafts still means a burn on a
+// non-active vessel can't sneak by.
+func (v *OrbitView) activeBurnLines(w *sim.World) []string {
+	var lines []string
 	for i, c := range w.Crafts {
-		if c != nil && c.ActiveBurn != nil {
-			burning = append(burning, i)
+		if c == nil || c.ActiveBurn == nil {
+			continue
 		}
-	}
-	if len(burning) == 0 {
-		return nil
-	}
-	lines := []string{v.theme.Warning.Render("● BURNS")}
-	for _, i := range burning {
-		c := w.Crafts[i]
 		ab := c.ActiveBurn
 		remaining := ab.EndTime.Sub(w.Clock.SimTime).Seconds()
 		if remaining < 0 {
@@ -115,19 +134,17 @@ func (v *OrbitView) buildBurnsChip(w *sim.World) []string {
 		}
 		tag := fmt.Sprintf("craft %d", i+1)
 		if i == w.ActiveCraftIdx {
-			tag = v.theme.Warning.Render(tag + " (active)")
-		} else {
-			tag = v.theme.Dim.Render(tag)
+			tag += " (active)"
 		}
 		if c.BurnStalled() {
 			lines = append(lines,
-				fmt.Sprintf("  %s — %s, Δv %.0f m/s", tag, ab.Mode.String(), ab.DVRemaining),
+				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %.0f m/s", tag, ab.Mode.String(), ab.DVRemaining)),
 				v.theme.Warning.Render("    ⚠ STALLED — stage to resume (x to cancel)"),
 			)
 		} else {
 			lines = append(lines,
-				fmt.Sprintf("  %s — %s, Δv %.0f m/s, T-%.0fs",
-					tag, ab.Mode.String(), ab.DVRemaining, remaining),
+				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %.0f m/s, T-%.0fs",
+					tag, ab.Mode.String(), ab.DVRemaining, remaining)),
 			)
 		}
 	}

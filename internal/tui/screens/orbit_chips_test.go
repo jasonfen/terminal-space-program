@@ -326,12 +326,13 @@ func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	}
 }
 
-// TestOrbitMetricsAndBurnsAlwaysOn: the ORBIT-metrics readout and an
-// active ● BURNS readout are non-toggleable — they render even when every
-// Settings Chip is disabled (a player can't permanently hide their current
-// orbit or a live burn). F2 declutter still clears them; only the pinned
-// VESSEL core survives.
-func TestOrbitMetricsAndBurnsAlwaysOn(t *testing.T) {
+// TestOrbitMetricsAlwaysOnAndLiveBurnForceShows: the ORBIT-metrics readout
+// is non-toggleable (renders with every Chip disabled) but F2 declutter
+// still clears it. A live burn now folds into the NODES chip and
+// force-shows — it renders even with every Chip disabled AND survives F2
+// declutter (v0.16: a live burn is safety-critical and can't be hidden).
+// Only the pinned VESSEL core also survives declutter.
+func TestOrbitMetricsAlwaysOnAndLiveBurnForceShows(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
 	w, err := sim.NewWorld()
@@ -339,7 +340,8 @@ func TestOrbitMetricsAndBurnsAlwaysOn(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 
-	// Disable every toggleable Chip; the always-on readouts must persist.
+	// Disable every toggleable Chip (incl. ChipNodes); the always-on
+	// ORBIT readout must persist.
 	s := settings.Default()
 	for _, c := range settings.AllChips {
 		s.SetChip(c, false)
@@ -351,7 +353,8 @@ func TestOrbitMetricsAndBurnsAlwaysOn(t *testing.T) {
 		t.Errorf("ORBIT metrics must render with all chips disabled (non-toggleable):\n%s", out)
 	}
 
-	// Light an active burn → ● BURNS must show even with all chips off.
+	// Light an active burn → the firing head force-shows inside NODES even
+	// with ChipNodes (and every other chip) disabled.
 	c := w.ActiveCraft()
 	if c == nil {
 		t.Fatal("expected an active craft")
@@ -362,21 +365,30 @@ func TestOrbitMetricsAndBurnsAlwaysOn(t *testing.T) {
 		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
 	}
 	out = v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "BURNS") {
-		t.Errorf("active ● BURNS must render with all chips disabled:\n%s", out)
+	if !strings.Contains(out, "NODES") || !strings.Contains(out, "120 m/s") {
+		t.Errorf("a live burn must force-show in the NODES chip with all chips disabled:\n%s", out)
 	}
 
-	// F2 declutter clears both; the pinned VESSEL core survives.
+	// F2 declutter clears ORBIT metrics, but the live burn force-shows
+	// through it; the pinned VESSEL core also survives.
 	v.SetDeclutter(true)
 	out = v.Render(w, 0, 120, 40)
 	if strings.Contains(out, "ORBIT") {
 		t.Errorf("declutter must hide the ORBIT metrics chip:\n%s", out)
 	}
-	if strings.Contains(out, "BURNS") {
-		t.Errorf("declutter must hide the ● BURNS chip:\n%s", out)
+	if !strings.Contains(out, "120 m/s") {
+		t.Errorf("a live burn must survive declutter (force-shown, safety-critical):\n%s", out)
 	}
 	if !strings.Contains(out, "VESSEL") {
 		t.Errorf("pinned VESSEL core must survive declutter")
+	}
+
+	// Cut the burn → with every chip disabled the NODES chip (no nodes
+	// planted) returns to hidden.
+	c.ActiveBurn = nil
+	out = v.Render(w, 0, 120, 40)
+	if strings.Contains(out, "120 m/s") {
+		t.Errorf("burn readout lingered after the burn ended:\n%s", out)
 	}
 }
 
@@ -437,5 +449,58 @@ func TestBuildVesselChipCoreOnly(t *testing.T) {
 	// not carry apoapsis/periapsis rows.
 	if strings.Contains(out, "apoapsis") || strings.Contains(out, "periapsis") {
 		t.Errorf("vessel chip still carries orbit-shape rows (should be a separate chip):\n%s", out)
+	}
+}
+
+// TestBuildNodesChipMergesActiveBurn — the NODES chip carries an in-flight
+// burn as its firing head above the planted-node summary (v0.16), and
+// shows the firing head alone when a burn is live with no upcoming nodes.
+func TestBuildNodesChipMergesActiveBurn(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+
+	// Burn in flight + a planted node → both appear, burn first.
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 120,
+		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
+	}
+	c.Nodes = []spacecraft.ManeuverNode{
+		{DV: 80, TriggerTime: w.Clock.SimTime.Add(30 * time.Minute)},
+	}
+	chip := v.buildNodesChip(w)
+	joined := strings.Join(chip, "\n")
+	if !strings.HasPrefix(chip[0], "NODES") {
+		t.Errorf("chip header should be NODES:\n%s", joined)
+	}
+	if !strings.Contains(joined, "120 m/s") {
+		t.Errorf("firing burn missing from merged chip:\n%s", joined)
+	}
+	if !strings.Contains(joined, "80 m/s") {
+		t.Errorf("planted node missing from merged chip:\n%s", joined)
+	}
+	// Firing head must come before the planted node.
+	if strings.Index(joined, "120 m/s") > strings.Index(joined, "80 m/s") {
+		t.Errorf("firing burn should head the chip, above planted nodes:\n%s", joined)
+	}
+
+	// Burn in flight, no planted nodes → chip still shows the firing head.
+	c.Nodes = nil
+	chip = v.buildNodesChip(w)
+	if chip == nil {
+		t.Fatal("chip nil with a live burn and no nodes; want the firing head")
+	}
+	if !strings.Contains(strings.Join(chip, "\n"), "120 m/s") {
+		t.Errorf("firing head missing when no nodes planted:\n%s", strings.Join(chip, "\n"))
+	}
+
+	// Nothing burning, no nodes → nil.
+	c.ActiveBurn = nil
+	if got := v.buildNodesChip(w); got != nil {
+		t.Errorf("chip should be nil with no burn and no nodes, got %v", got)
 	}
 }
