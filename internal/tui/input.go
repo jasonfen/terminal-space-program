@@ -264,8 +264,8 @@ func DefaultKeymap() Keymap {
 
 		AttitudeSurfacePrograde:   key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "attitude: surface prograde")),
 		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
-		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +10° east")),
-		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -10° west")),
+		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +5° east")),
+		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -5° west")),
 		PitchTrimReset:            key.NewBinding(key.WithKeys("\\"), key.WithHelp("\\", "reset pitch trim")),
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),

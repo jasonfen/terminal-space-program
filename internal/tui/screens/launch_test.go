@@ -473,13 +473,13 @@ func TestLaunchTowerRecedesAsRocketClimbs(t *testing.T) {
 
 // Counterpoint to the slew-lag fix: the threshold must remain low
 // enough that a real player-applied pitch trim still steers the
-// chase-cam. One `>` press = 10° east pitch trim, which puts a 0.17
-// east component on commanded attitude (sin 10°) — well above any
-// sane slew-lag noise. Assert that with PitchTrim = 10° the chase
+// chase-cam. One `>` press = 5° east pitch trim, which puts a 0.087
+// east component on commanded attitude (sin 5°) — well above any
+// sane slew-lag noise. Assert that with PitchTrim = one step the chase
 // hAxis points east, not the fallback default.
 func TestChaseHAxisFollowsPitchTrimAfterCommand(t *testing.T) {
 	w, c := spawnSaturnVOnPad(t)
-	c.PitchTrim = spacecraft.PitchTrimStepRad // 10° east
+	c.PitchTrim = spacecraft.PitchTrimStepRad // 5° east
 	w.StartManualBurn()
 	// One tick is enough for slew to advance CurrentAttitudeDir
 	// toward the trimmed direction (slew rate is degrees/sec; 1s of
@@ -496,7 +496,7 @@ func TestChaseHAxisFollowsPitchTrimAfterCommand(t *testing.T) {
 	eastR := render.BodyFrameEast(c.Primary, rR)
 	eastV := orbital.Vec3{X: eastR.X, Y: eastR.Y, Z: eastR.Z}
 	if dotEast := hAxis.Dot(eastV); dotEast < 0.5 {
-		t.Errorf("with +10° pitch trim, hAxis should still align with east-ish: "+
+		t.Errorf("with +5° pitch trim, hAxis should still align with east-ish: "+
 			"hAxis·east = %.4f (want > 0.5)", dotEast)
 	}
 }
