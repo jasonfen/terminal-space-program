@@ -41,6 +41,15 @@ type World struct {
 	// initialises it to len(Crafts)+1 and stamps any unstamped craft.
 	NextCraftID uint64
 
+	// NextNodeID is the monotonic source of stable ManeuverNode.IDs
+	// (v0.16 / ADR 0016). Stamped onto each node as it is planted; never
+	// decremented or reused, so a feature that follows one specific node
+	// (Auto-Warp's frozen target) can resolve it across the sortNodes
+	// reorder that runs on every plant. Persisted alongside NextCraftID;
+	// EnsureNodeIDs primes it past every live node ID and back-fills any
+	// node still carrying the zero (pre-field / legacy-save) value.
+	NextNodeID uint64
+
 	// LastDockEvent records the most recent fusion for HUD flash
 	// + diagnostic. Cleared by app.go after the message is shown.
 	// v0.8.3+.
@@ -274,6 +283,7 @@ func NewWorld() (*World, error) {
 		w.Focus = Focus{Kind: FocusCraft}
 	}
 	w.EnsureCraftIDs() // stamp the initial craft + prime NextCraftID (ADR 0012)
+	w.EnsureNodeIDs()  // prime NextNodeID (ADR 0016); the seed craft has no nodes yet
 	return w, nil
 }
 
