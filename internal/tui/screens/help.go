@@ -70,8 +70,11 @@ var helpSections = []helpSection{
 		{"I", "plant inclination match ([t] target / equatorial)"},
 		{"C", "plant circularize burn at next apoapsis"},
 		{"K", "plant rendezvous nudge to the target craft"},
-		{"P", "porkchop plot for the body under the cursor"},
 		{"R", "refine plan (re-Lambert the arrival)"},
+		{"P", "porkchop plot for the body under the cursor"},
+		{"o", "porkchop: transfer options (nRev / direction / branch)"},
+		{"n / r / b", "porkchop options: cycle nRev / retrograde / short-vs-long"},
+		{"click cell", "porkchop: select a (dep, tof) cell — enter plants it"},
 	}},
 	{"MANUAL FLIGHT", [][2]string{
 		{"z / x", "throttle full / cut"},
@@ -96,15 +99,12 @@ var helpSections = []helpSection{
 		{"t / T", "cycle / clear the target"},
 		{"space", "decouple bottom stage (bare chute capsule: arm the chute)"},
 	}},
-	{"MOUSE & PORKCHOP", [][2]string{
+	{"MOUSE", [][2]string{
 		{"click body", "focus that body"},
 		{"click vessel", "focus that craft"},
 		{"click node", "open the planner for that node (canvas glyph or NODES row)"},
 		{"click empty", "open the planner at the projected orbit point"},
 		{"click HUD", "open body info"},
-		{"o", "porkchop: transfer options (nRev / direction / branch)"},
-		{"n / r / b", "porkchop options: cycle nRev / retrograde / short-vs-long"},
-		{"click cell", "porkchop: select a (dep, tof) cell — enter plants it"},
 	}},
 }
 
