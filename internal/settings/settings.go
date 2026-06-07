@@ -66,7 +66,7 @@ var chipLabels = map[Chip]string{
 	ChipTarget:          "Target",
 	ChipStages:          "Stages",
 	ChipNodes:           "Maneuver nodes",
-	ChipLaunch:          "Launch",
+	ChipLaunch:          "Surface",
 	ChipDescent:         "Descent",
 	ChipChute:           "Chute",
 	ChipCapture:         "Capture preview",

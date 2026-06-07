@@ -116,14 +116,14 @@ func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
 
 	out := v.Render(w, 0, 200, 60)
-	if !strings.Contains(out, "LAUNCH") {
-		t.Fatal("expected LAUNCH chip during ascent")
+	if !strings.Contains(out, "SURFACE") {
+		t.Fatal("expected SURFACE (launch/ascent) chip during ascent")
 	}
 	if !strings.Contains(out, "  ap:") || !strings.Contains(out, "  sas:") {
-		t.Errorf("expected LAUNCH ap/sas rows during ascent.\nrender:\n%s", out)
+		t.Errorf("expected SURFACE ap/sas rows during ascent.\nrender:\n%s", out)
 	}
 	// The Orbit-metrics chip (its rows use the "apoapsis:" prefix) is
-	// suppressed during ascent — LAUNCH already carries ap/pe.
+	// suppressed during ascent — the SURFACE chip already carries ap/pe.
 	if strings.Contains(out, "apoapsis:") {
 		t.Errorf("expected Orbit-metrics chip suppressed during ascent (LAUNCH carries ap/pe).\nrender:\n%s", out)
 	}
@@ -136,8 +136,8 @@ func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vCirc, 0
 
 	out = v.Render(w, 0, 200, 60)
-	if strings.Contains(out, "LAUNCH") {
-		t.Errorf("expected LAUNCH chip to vanish once periapsis clears the atmosphere.\nrender:\n%s", out)
+	if strings.Contains(out, "SURFACE") {
+		t.Errorf("expected SURFACE chip to vanish once periapsis clears the atmosphere.\nrender:\n%s", out)
 	}
 	if !strings.Contains(out, "apoapsis:") {
 		t.Errorf("expected Orbit-metrics chip apoapsis row in stable orbit.\nrender:\n%s", out)
@@ -178,8 +178,8 @@ func TestOrbitMetricsChipShowsTimeToApsides(t *testing.T) {
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
 
 	out := v.Render(w, 0, 200, 60)
-	if strings.Contains(out, "LAUNCH") {
-		t.Fatalf("expected the ORBIT chip, not LAUNCH, for an orbit clear of the atmosphere.\nrender:\n%s", out)
+	if strings.Contains(out, "SURFACE") {
+		t.Fatalf("expected the ORBIT chip, not SURFACE, for an orbit clear of the atmosphere.\nrender:\n%s", out)
 	}
 	if !strings.Contains(out, "t→apo:") {
 		t.Errorf("expected a t→apo row in the ORBIT chip.\nrender:\n%s", out)
