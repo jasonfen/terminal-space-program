@@ -292,3 +292,69 @@ func TestEditedNodeKeepsIDForAutoWarp(t *testing.T) {
 		t.Error("Auto-Warp disengaged on the tick after a node edit")
 	}
 }
+
+// TestCancelWarpKeyDropsToOneX — `/` cancels Auto-Warp and resets
+// Selected Warp to 1× from any warp state.
+func TestCancelWarpKeyDropsToOneX(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Manual warp up, no auto-warp → `/` drops to 1×.
+	a.world.Clock.WarpIdx = 4
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if a.world.Clock.WarpIdx != 0 {
+		t.Errorf("`/` left WarpIdx at %d, want 0 (1×)", a.world.Clock.WarpIdx)
+	}
+
+	// Auto-warp engaged → `/` cancels it and drops to 1×.
+	a.world.PlanNode(sim.ManeuverNode{
+		TriggerTime: a.world.Clock.SimTime.Add(2 * time.Hour),
+		DV:          10,
+		Mode:        spacecraft.BurnPrograde,
+	})
+	a.world.Clock.WarpIdx = 5
+	if !a.world.EngageAutoWarp() {
+		t.Fatal("engage failed")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if a.world.AutoWarpEngaged() {
+		t.Error("`/` did not cancel Auto-Warp")
+	}
+	if a.world.Clock.WarpIdx != 0 {
+		t.Errorf("`/` left WarpIdx at %d after cancelling auto-warp, want 0", a.world.Clock.WarpIdx)
+	}
+}
+
+// TestHelpOnF1AndTrimResetOnQuestion locks the v0.16 keybinding move:
+// Help opens on F1 (not `?`), and `?` now resets pitch trim.
+func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// F1 toggles the help overlay.
+	a.Update(tea.KeyMsg{Type: tea.KeyF1})
+	if a.active != screenHelp {
+		t.Errorf("F1 did not open help (active=%v)", a.active)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyF1})
+	if a.active == screenHelp {
+		t.Error("second F1 did not close help")
+	}
+
+	// `?` resets pitch trim and does NOT open help.
+	c := a.world.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.PitchTrim = 0.3
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if a.active == screenHelp {
+		t.Error("`?` opened help; it should reset pitch trim now")
+	}
+	if c.PitchTrim != 0 {
+		t.Errorf("`?` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
+	}
+}
