@@ -1065,6 +1065,31 @@ effective rate. Preserve every clamp when touching warp code — each
 exists for a specific failure mode.
 _Avoid_: Time acceleration, Speed, Fast-forward.
 
+**Auto-Warp**:
+A player-engaged time-warp *driver* — the one actor that *raises* Selected
+Warp on the player's behalf, as opposed to the clamps, which only lower
+Effective Warp. Engaged with a single control (key or a title-bar button),
+it accelerates time toward an upcoming Burn, then ramps back down and hands
+control to the player a fixed lead — 30 s of sim-time — before that Burn's
+start, leaving the sim at 1× so the player can watch the Burn arm and fire.
+
+- It never adds a new way to skip a Burn window: each Tick it simply takes
+  the fastest rate the existing Effective-Warp clamps already allow, so the
+  node-approach ramp and the step-size guard remain the hard safety net.
+- It aims at the soonest Burn (earliest *burn start*) among the Vessels in
+  the active Vessel's System as of the moment it was engaged — System-scoped
+  so it never warps to an off-screen Burn in another System (ADR 0015) —
+  then follows that specific Maneuver Node if its timing shifts. It
+  disengages on arrival, if the player touches warp manually, or if that
+  Node is removed.
+
+Distinct from the *node-approach ramp* (a clamp that caps Effective Warp
+near any Burn so the integrator can't alias past it): the ramp is passive
+and applies to every Burn; Auto-Warp actively steers time toward one and
+then steps aside.
+_Avoid_: Warp-to (verb-y — name the feature), Time-skip, Autopilot
+(reserved for attitude/throttle control, never time).
+
 **Clock**:
 The simulator's time source. Holds `BaseStep` (wall-paced base tick
 interval, ~0.05 s), the currently Selected Warp, and the accumulating

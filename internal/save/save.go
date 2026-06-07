@@ -80,6 +80,7 @@ type Payload struct {
 	Crafts         []Craft            `json:"crafts,omitempty"`
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
 	NextCraftID    uint64             `json:"next_craft_id,omitempty"` // v0.14.x / schema v7: monotonic craft-ID counter (ADR 0012).
+	NextNodeID     uint64             `json:"next_node_id,omitempty"`  // v0.16: monotonic node-ID counter (ADR 0016). Additive omitempty, no schema bump; EnsureNodeIDs reprimes on load.
 	Nodes          []Node             `json:"nodes,omitempty"`
 	ActiveBurn     *ActiveBurn        `json:"active_burn,omitempty"`
 	Missions       []missions.Mission `json:"missions,omitempty"`
@@ -295,6 +296,10 @@ type Node struct {
 	// was bound to. Retained only to read v6 saves; migrateV6PayloadToV7
 	// converts it to TargetCraftID.
 	TargetCraftIdx int `json:"target_craft_idx,omitempty"`
+	// ID (v0.16, ADR 0016) is the node's stable identity. Additive
+	// omitempty — older saves omit it and load as 0; EnsureNodeIDs
+	// back-fills on load. No schema bump (same precedent as PlaneChangeRad).
+	ID uint64 `json:"id,omitempty"`
 	// TargetCraftID (v0.14.x / schema v7, ADR 0012) is the bound target
 	// craft's stable Spacecraft.ID. Zero = no target. v7 saves write
 	// this and leave TargetCraftIdx zero.
@@ -563,6 +568,7 @@ func payloadFromWorld(w *sim.World) Payload {
 				trigNano = n.TriggerTime.UnixNano()
 			}
 			wc.Nodes = append(wc.Nodes, Node{
+				ID:              n.ID,
 				TriggerTimeNano: trigNano,
 				Mode:            int(n.Mode),
 				DV:              n.DV,
@@ -601,6 +607,7 @@ func payloadFromWorld(w *sim.World) Payload {
 	}
 	p.ActiveCraftIdx = w.ActiveCraftIdx
 	p.NextCraftID = w.NextCraftID
+	p.NextNodeID = w.NextNodeID
 	p.Missions = missions.Clone(w.Missions)
 	return p
 }
@@ -782,6 +789,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				trig = time.Unix(0, n.TriggerTimeNano).UTC()
 			}
 			c.Nodes = append(c.Nodes, sim.ManeuverNode{
+				ID:             n.ID,
 				TriggerTime:    trig,
 				Mode:           spacecraft.BurnMode(n.Mode),
 				DV:             n.DV,
@@ -819,6 +827,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		w.Crafts = append(w.Crafts, c)
 	}
 	w.NextCraftID = p.NextCraftID
+	w.NextNodeID = p.NextNodeID
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx
 	}
@@ -892,6 +901,11 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	// NextCraftID past every ID in play, so a post-load spawn can't mint
 	// a colliding ID.
 	w.EnsureCraftIDs()
+	// v0.16 / ADR 0016: stamp any planted node still lacking a stable ID
+	// (a save written before the ID field, or a pre-v5 migrated node) and
+	// prime NextNodeID past every ID in play, so a post-load plant can't
+	// mint a colliding node ID. Mirrors EnsureCraftIDs above.
+	w.EnsureNodeIDs()
 	// v0.6.5: missions persist with status. v3+ saves carry an explicit
 	// (possibly-empty) Missions slice; v1/v2 saves wire-out as nil and
 	// get the embedded starter catalog seeded fresh so older saves

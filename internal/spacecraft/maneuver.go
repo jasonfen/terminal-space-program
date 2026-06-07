@@ -89,6 +89,16 @@ var AllTriggerEvents = [...]TriggerEvent{
 //
 // v0.8.1+: ManeuverNode lives on Spacecraft.Nodes (was World.Nodes).
 type ManeuverNode struct {
+	// ID (v0.16 / ADR 0016) is the node's stable identity, stamped by
+	// World.stampNodeID when the node is planted. sortNodes reorders the
+	// Nodes slice on every plant, so neither a slice index nor a pointer
+	// survives an edit — a feature that must follow one specific node
+	// (Auto-Warp's frozen target) resolves it by this ID instead
+	// (World.nodeByID). Additive zero-value-omitempty, following the
+	// TargetCraftID / PlaneChangeRad / BurnDirUnit precedent — nodes
+	// planted before this field, or loaded from an older save, carry ID 0
+	// until EnsureNodeIDs back-fills them, so no migration is needed.
+	ID          uint64 `json:",omitempty"`
 	TriggerTime time.Time
 	Mode        BurnMode
 	DV          float64

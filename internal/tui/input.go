@@ -22,7 +22,11 @@ type Keymap struct {
 	NextSystem key.Binding
 	WarpUp     key.Binding
 	WarpDown   key.Binding
-	Pause      key.Binding
+	// AutoWarp (v0.16 / ADR 0016) toggles Auto-Warp: warp to 30 s before
+	// the next burn, then drop to 1×. Selected Warp (WarpUp/WarpDown) is
+	// untouched; a manual warp keypress cancels Auto-Warp first.
+	AutoWarp key.Binding
+	Pause    key.Binding
 	ZoomIn     key.Binding
 	ZoomOut    key.Binding
 	Back       key.Binding
@@ -219,6 +223,7 @@ func DefaultKeymap() Keymap {
 		NextSystem: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next system")),
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
 		WarpDown:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "warp down")),
+		AutoWarp:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "auto-warp to next burn (30s lead)")),
 		// v0.9.1: dropped `space` from Pause; space is now Stage. `0`
 		// alone retains the pause binding (it never collided).
 		Pause:           key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "pause")),

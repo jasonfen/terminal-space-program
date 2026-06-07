@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -201,5 +202,93 @@ func TestDispatchNavballControlTarget(t *testing.T) {
 	a.dispatchNavballControl(screens.NavballControlTargetMinus)
 	if c.AttitudeMode != spacecraft.BurnAntiTarget {
 		t.Errorf("AttitudeMode = %v, want BurnAntiTarget", c.AttitudeMode)
+	}
+}
+
+// TestAutoWarpKeyToggleAndManualCancel — `G` engages Auto-Warp at the
+// next burn and toggles it off; a manual warp keypress (`.`) also cancels
+// an engaged driver, leaving Selected Warp to apply from the player's
+// own rate (ADR 0016).
+func TestAutoWarpKeyToggleAndManualCancel(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.world.PlanNode(sim.ManeuverNode{
+		TriggerTime: a.world.Clock.SimTime.Add(2 * time.Hour),
+		DV:          10,
+		Mode:        spacecraft.BurnPrograde,
+	})
+
+	// `G` engages.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if !a.world.AutoWarpEngaged() {
+		t.Fatal("G did not engage Auto-Warp")
+	}
+	// `G` again disengages.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if a.world.AutoWarpEngaged() {
+		t.Fatal("second G did not disengage Auto-Warp")
+	}
+
+	// Re-engage, then a manual `.` cancels it.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if !a.world.AutoWarpEngaged() {
+		t.Fatal("re-engage failed")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'.'}})
+	if a.world.AutoWarpEngaged() {
+		t.Error("manual warp `.` did not cancel Auto-Warp")
+	}
+}
+
+// TestEditedNodeKeepsIDForAutoWarp — regression for ADR 0016: editing a
+// planted node through the maneuver form (click → edit → Enter, a
+// remove-then-replant) must carry the node's stable ID across the
+// re-plant, so an engaged Auto-Warp target keeps resolving instead of
+// silently disengaging. Pre-fix the re-plant minted a fresh ID.
+func TestEditedNodeKeepsIDForAutoWarp(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.world.PlanNode(sim.ManeuverNode{
+		TriggerTime: a.world.Clock.SimTime.Add(3 * time.Hour),
+		DV:          50,
+		Mode:        spacecraft.BurnPrograde,
+	})
+	origID := a.world.ActiveCraft().Nodes[0].ID
+	if origID == 0 {
+		t.Fatal("planted node has no ID")
+	}
+	if !a.world.EngageAutoWarp() {
+		t.Fatal("engage failed")
+	}
+
+	// Simulate the form committing an edit of node 0 with a new trigger.
+	a.Update(screens.BurnExecutedMsg{
+		EditingIdx:  0,
+		Mode:        spacecraft.BurnPrograde,
+		DV:          80, // changed Δv
+		TriggerTime: a.world.Clock.SimTime.Add(4 * time.Hour),
+	})
+
+	// The edited node must still carry origID, and Auto-Warp must still
+	// be engaged and able to resolve it.
+	found := false
+	for _, n := range a.world.ActiveCraft().Nodes {
+		if n.ID == origID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("edited node lost its stable ID across the re-plant")
+	}
+	if !a.world.AutoWarpEngaged() {
+		t.Error("Auto-Warp disengaged after a node edit")
+	}
+	a.world.Tick() // resolveAutoWarp must keep tracking the edited node
+	if !a.world.AutoWarpEngaged() {
+		t.Error("Auto-Warp disengaged on the tick after a node edit")
 	}
 }

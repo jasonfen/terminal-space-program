@@ -792,24 +792,9 @@ func formatCountdown(d time.Duration) string {
 		d = -d
 		prefix = "T-"
 	}
-	totalSecs := int64(d.Seconds())
-	if totalSecs == 0 {
-		return prefix + "0s"
-	}
-	days := totalSecs / 86400
-	hours := (totalSecs % 86400) / 3600
-	mins := (totalSecs % 3600) / 60
-	secs := totalSecs % 60
-	switch {
-	case days > 0:
-		return fmt.Sprintf("%s%dd%dh", prefix, days, hours)
-	case hours > 0:
-		return fmt.Sprintf("%s%dh%dm", prefix, hours, mins)
-	case mins > 0:
-		return fmt.Sprintf("%s%dm%ds", prefix, mins, secs)
-	default:
-		return fmt.Sprintf("%s%ds", prefix, secs)
-	}
+	// compactDuration (orbit.go) owns the two-unit decomposition; this
+	// just signs it. v0.16 dedup — was a verbatim copy of that switch.
+	return prefix + compactDuration(d)
 }
 
 // normalizeManeuverDeg wraps an angle in degrees into [0, 360). Local

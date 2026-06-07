@@ -162,6 +162,9 @@ func (w *World) PlanNode(n ManeuverNode) {
 		return
 	}
 	c.Nodes = append(c.Nodes, n)
+	// Stamp a stable ID before the sort reorders the slice (ADR 0016) —
+	// stampNodeID is a no-op if the node already carries one.
+	w.stampNodeID(&c.Nodes[len(c.Nodes)-1])
 	sortNodes(c.Nodes)
 }
 
@@ -653,6 +656,10 @@ func (w *World) RefinePlan() (correctionDv, arrivalDv float64, err error) {
 	// at a coinciding arrival time; GH #88 finding #5). arrIdx is still
 	// valid here: nothing has mutated Nodes since the scan.
 	w.ActiveCraft().Nodes[arrIdx] = ManeuverNode{
+		// Carry the existing node's stable ID across the in-place rebuild
+		// (ADR 0016) — this refines the same logical arrival burn, so its
+		// identity must survive or a frozen Auto-Warp target would go stale.
+		ID:          w.ActiveCraft().Nodes[arrIdx].ID,
 		TriggerTime: arrNode.TriggerTime,
 		Mode:        arrNode.Mode,
 		DV:          arrivalDv,

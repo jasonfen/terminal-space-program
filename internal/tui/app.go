@@ -189,7 +189,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// place" rather than "duplicate." Removal must come first
 			// so PlanNode's sort handles the new node's position
 			// against the rest of the (post-removal) slice.
+			//
+			// v0.16 / ADR 0016: carry the edited node's stable ID across
+			// the re-plant so an engaged Auto-Warp target (frozen by node
+			// identity) keeps following the burn through an edit instead of
+			// silently disengaging. editedID stays 0 for a brand-new node,
+			// and stampNodeID then mints a fresh ID inside PlanNode.
+			var editedID uint64
 			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.ActiveCraft().Nodes) {
+				editedID = a.world.ActiveCraft().Nodes[m.EditingIdx].ID
 				a.world.ActiveCraft().Nodes = append(a.world.ActiveCraft().Nodes[:m.EditingIdx], a.world.ActiveCraft().Nodes[m.EditingIdx+1:]...)
 			}
 			switch {
@@ -200,6 +208,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// uses. Event is forwarded so resolved-then-edited
 				// event-relative nodes keep their semantic label.
 				a.world.PlanNode(sim.ManeuverNode{
+					ID:            editedID,
 					TriggerTime:   m.TriggerTime,
 					Mode:          m.Mode,
 					DV:            m.DV,
@@ -213,6 +222,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// the resolver can freeze TriggerTime against the live
 				// orbit on the next Tick.
 				a.world.PlanNode(sim.ManeuverNode{
+					ID:            editedID,
 					Mode:          m.Mode,
 					DV:            m.DV,
 					Duration:      dur,
@@ -288,6 +298,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if a.orbitView.HitMissionsButton(m.X, m.Y) {
 				a.active = screenMissions
+				return a, nil
+			}
+			// v0.16 / ADR 0016: the [»Burn] button toggles Auto-Warp
+			// (click-equivalent of `G`). A no-op when no burn is eligible.
+			if a.orbitView.HitBurnButton(m.X, m.Y) {
+				a.world.ToggleAutoWarp()
 				return a, nil
 			}
 			// Framed navball panel is opaque and drawn over the
@@ -559,10 +575,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
+			// Manual warp cancels Auto-Warp, then applies (ADR 0016) —
+			// Disengage leaves Selected Warp untouched so the step lands
+			// from the player's own rate.
+			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpUp()
 			return a, nil
 		case key.Matches(m, a.keys.WarpDown):
+			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpDown()
+			return a, nil
+		case key.Matches(m, a.keys.AutoWarp):
+			// Toggle Auto-Warp to the globally-soonest burn. A no-op when
+			// no burn is eligible (engage returns false silently).
+			a.world.ToggleAutoWarp()
 			return a, nil
 		case key.Matches(m, a.keys.Pause):
 			a.world.Clock.TogglePause()
