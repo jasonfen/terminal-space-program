@@ -7,11 +7,13 @@ Program that lives in your terminal, distributed as a single static Go binary.
 
 ## Inspiration
 
-I love **Kerbal Space Program**, I love **TUI Applications**. I decided the two should be married for when I'm bored and have an SSH session available.
+I love **Kerbal Space Program**, I love **TUI Applications**. I decided the two should be married for when I'm bored and have a terminal available.
 
 ## The Game
 
 <img align="right" width="250" src="media/orbit-rendering.gif" alt="Orbit rendering in the launch / landing chase-cam view">
+
+
 
 Plan transfers between planets and moons, fly your rocket off the pad and into orbit
 by hand, rendezvous and dock, stage away spent boosters, and bring a capsule
@@ -20,6 +22,11 @@ the keyboard. No mouse required, no GUI, just a single binary in your terminal.
 
 Under the hood it's a real orbital-mechanics sim: gravity, fuel, and timing all
 matter, the way they do in real life. Unlike KSP (without mods), the default game renders our solar system. Launches are hard they take 7.5km/s for LEO - just like real life. The moon is inclined, the earth is tilted on its axis. To match the real solar systems, there are real life vessels with accurate loadouts of thrust.
+
+Recently added:
+
+* A familiar "easy" system named Lumon.
+** It's home to a planet named Kern, with two moons - Cursor and Glyph.
 
 The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
