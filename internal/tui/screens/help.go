@@ -40,6 +40,7 @@ func (h *Help) Render() string {
 		{"TIME", [][2]string{
 			{".", "warp up (1× … 100000×)"},
 			{",", "warp down"},
+			{"G", "auto-warp to 30 s before the next burn, then 1× (., cancels)"},
 			{"0", "pause / resume"},
 		}},
 		{"FLIGHT (planted)", [][2]string{

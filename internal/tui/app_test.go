@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -201,5 +202,42 @@ func TestDispatchNavballControlTarget(t *testing.T) {
 	a.dispatchNavballControl(screens.NavballControlTargetMinus)
 	if c.AttitudeMode != spacecraft.BurnAntiTarget {
 		t.Errorf("AttitudeMode = %v, want BurnAntiTarget", c.AttitudeMode)
+	}
+}
+
+// TestAutoWarpKeyToggleAndManualCancel — `G` engages Auto-Warp at the
+// next burn and toggles it off; a manual warp keypress (`.`) also cancels
+// an engaged driver, leaving Selected Warp to apply from the player's
+// own rate (ADR 0016).
+func TestAutoWarpKeyToggleAndManualCancel(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.world.PlanNode(sim.ManeuverNode{
+		TriggerTime: a.world.Clock.SimTime.Add(2 * time.Hour),
+		DV:          10,
+		Mode:        spacecraft.BurnPrograde,
+	})
+
+	// `G` engages.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if !a.world.AutoWarpEngaged() {
+		t.Fatal("G did not engage Auto-Warp")
+	}
+	// `G` again disengages.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if a.world.AutoWarpEngaged() {
+		t.Fatal("second G did not disengage Auto-Warp")
+	}
+
+	// Re-engage, then a manual `.` cancels it.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if !a.world.AutoWarpEngaged() {
+		t.Fatal("re-engage failed")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'.'}})
+	if a.world.AutoWarpEngaged() {
+		t.Error("manual warp `.` did not cancel Auto-Warp")
 	}
 }

@@ -290,6 +290,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.active = screenMissions
 				return a, nil
 			}
+			// v0.16 / ADR 0016: the [»Burn] button toggles Auto-Warp
+			// (click-equivalent of `G`). A no-op when no burn is eligible.
+			if a.orbitView.HitBurnButton(m.X, m.Y) {
+				a.world.ToggleAutoWarp()
+				return a, nil
+			}
 			// Framed navball panel is opaque and drawn over the
 			// canvas, so its control hits take priority over the
 			// canvas / body hits underneath. v0.9.6-polish.
@@ -559,10 +565,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
+			// Manual warp cancels Auto-Warp, then applies (ADR 0016) —
+			// Disengage leaves Selected Warp untouched so the step lands
+			// from the player's own rate.
+			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpUp()
 			return a, nil
 		case key.Matches(m, a.keys.WarpDown):
+			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpDown()
+			return a, nil
+		case key.Matches(m, a.keys.AutoWarp):
+			// Toggle Auto-Warp to the globally-soonest burn. A no-op when
+			// no burn is eligible (engage returns false silently).
+			a.world.ToggleAutoWarp()
 			return a, nil
 		case key.Matches(m, a.keys.Pause):
 			a.world.Clock.TogglePause()

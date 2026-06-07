@@ -57,6 +57,9 @@ type OrbitView struct {
 	// terminal resizes. v0.7.4+.
 	menuColStart, menuColEnd         int
 	missionsColStart, missionsColEnd int
+	// burnColStart/End track the [»Burn] Auto-Warp button (v0.16 / ADR
+	// 0016), set alongside the others each Render.
+	burnColStart, burnColEnd int
 
 	// ascentTrend caches last-frame apoapsis for the active craft so
 	// the LAUNCH HUD can show a `(climbing)` / `(falling)` / `(steady)`
@@ -868,11 +871,25 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	// (e.g. ≤10x during burns) so the player sees the actual
 	// propagation speed, not the requested one.
 	clockChip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  "
-	reqWarp := w.Clock.Warp()
-	if eff := w.EffectiveWarp(); eff < reqWarp {
-		clockChip += fmt.Sprintf("warp %.0fx→%.0fx", reqWarp, eff)
+	// v0.16 / ADR 0016: while Auto-Warp is engaged the warp readout morphs
+	// to AUTO → <effective>x  <time-to-target> so the player sees the
+	// driver and the live rate, not the untouched Selected Warp. The chip
+	// stays emoji-free (single-width runes only) so the rune-counted
+	// button hit-tests below stay aligned.
+	if secs, ok := w.AutoWarpSecondsToTarget(); ok {
+		dur := time.Duration(secs * float64(time.Second))
+		clockChip += fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), compactDuration(dur))
 	} else {
-		clockChip += fmt.Sprintf("warp %.0fx", reqWarp)
+		reqWarp := w.Clock.Warp()
+		if eff := w.EffectiveWarp(); eff < reqWarp {
+			clockChip += fmt.Sprintf("warp %.0fx→%.0fx", reqWarp, eff)
+		} else {
+			clockChip += fmt.Sprintf("warp %.0fx", reqWarp)
+		}
+	}
+	clockChipRendered := v.theme.Dim.Render(clockChip)
+	if w.AutoWarpEngaged() {
+		clockChipRendered = v.theme.Primary.Render(clockChip)
 	}
 	pauseChipPlain := ""
 	pauseChipRendered := ""
@@ -881,7 +898,16 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 		pauseChipRendered = "  " + v.theme.Warning.Render("PAUSED")
 	}
 
-	rightPlain := clockChip + pauseChipPlain + clockGap + menuLabel + gap + missionsLabel
+	// v0.16 / ADR 0016: the [»Burn] Auto-Warp button. [■Burn] highlighted
+	// while engaged, dimmed when no burn is eligible. Both labels are 7
+	// single-width runes so the column ranges below don't shift between
+	// states.
+	burnLabel := "[»Burn]"
+	if w.AutoWarpEngaged() {
+		burnLabel = "[■Burn]"
+	}
+
+	rightPlain := clockChip + pauseChipPlain + clockGap + burnLabel + gap + menuLabel + gap + missionsLabel
 
 	// Compute the absolute column where the right group starts so the
 	// hit-test ranges match what the player sees on screen.
@@ -894,20 +920,56 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	rightStart := leftRunes + pad
 	buttonsStart := rightStart + len([]rune(clockChip+pauseChipPlain+clockGap))
 
-	v.menuColStart = buttonsStart
+	v.burnColStart = buttonsStart
+	v.burnColEnd = v.burnColStart + len([]rune(burnLabel))
+	v.menuColStart = v.burnColEnd + len([]rune(gap))
 	v.menuColEnd = v.menuColStart + len([]rune(menuLabel))
 	v.missionsColStart = v.menuColEnd + len([]rune(gap))
 	v.missionsColEnd = v.missionsColStart + len([]rune(missionsLabel))
 
+	burnRendered := v.theme.Primary.Render(burnLabel)
+	switch {
+	case w.AutoWarpEngaged():
+		burnRendered = v.theme.Warning.Render(burnLabel) // amber: a time mode is on
+	case !w.AutoWarpEligible():
+		burnRendered = v.theme.Dim.Render(burnLabel)
+	}
+
 	rendered := v.theme.Title.Render(left) +
 		strings.Repeat(" ", pad) +
-		v.theme.Dim.Render(clockChip) +
+		clockChipRendered +
 		pauseChipRendered +
 		clockGap +
+		burnRendered +
+		gap +
 		v.theme.Primary.Render(menuLabel) +
 		gap +
 		v.theme.Primary.Render(missionsLabel)
 	return rendered
+}
+
+// compactDuration renders a positive duration as a two-unit chip
+// ("2d4h", "3h12m", "5m30s", "28s") for the Auto-Warp HUD readout —
+// the prefix-free sibling of formatCountdown. v0.16 / ADR 0016.
+func compactDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	totalSecs := int64(d.Seconds())
+	days := totalSecs / 86400
+	hours := (totalSecs % 86400) / 3600
+	mins := (totalSecs % 3600) / 60
+	secs := totalSecs % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd%dh", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%dh%dm", hours, mins)
+	case mins > 0:
+		return fmt.Sprintf("%dm%ds", mins, secs)
+	default:
+		return fmt.Sprintf("%ds", secs)
+	}
 }
 
 // HitMenuButton reports whether a click at (col, row) lands on the
@@ -921,6 +983,12 @@ func (v *OrbitView) HitMenuButton(col, row int) bool {
 // the title bar's `[Missions]` button. v0.7.4+.
 func (v *OrbitView) HitMissionsButton(col, row int) bool {
 	return row == 0 && col >= v.missionsColStart && col < v.missionsColEnd
+}
+
+// HitBurnButton reports whether a click at (col, row) lands on the
+// title bar's `[»Burn]` Auto-Warp button. v0.16 / ADR 0016.
+func (v *OrbitView) HitBurnButton(col, row int) bool {
+	return row == 0 && col >= v.burnColStart && col < v.burnColEnd
 }
 
 // HitNavballControl maps a screen-space click to a navball-panel
