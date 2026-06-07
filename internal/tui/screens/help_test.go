@@ -38,13 +38,13 @@ func TestHelpScrollsToLastSection(t *testing.T) {
 	if !strings.Contains(top, "keybindings") {
 		t.Error("title missing from the top of the overlay")
 	}
-	if strings.Contains(top, "MOUSE & PORKCHOP") {
+	if strings.Contains(top, "click HUD") {
 		t.Fatalf("setup invalid: last section already visible at height %d — pick a shorter height", ht)
 	}
 
 	h.HandleKey(helpKey("end"))
 	bottom := h.Render(w, ht)
-	if !strings.Contains(bottom, "MOUSE & PORKCHOP") || !strings.Contains(bottom, "click cell") {
+	if !strings.Contains(bottom, "MOUSE") || !strings.Contains(bottom, "click HUD") {
 		t.Errorf("last section not reachable after End:\n%s", bottom)
 	}
 }
