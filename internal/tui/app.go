@@ -189,7 +189,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// place" rather than "duplicate." Removal must come first
 			// so PlanNode's sort handles the new node's position
 			// against the rest of the (post-removal) slice.
+			//
+			// v0.16 / ADR 0016: carry the edited node's stable ID across
+			// the re-plant so an engaged Auto-Warp target (frozen by node
+			// identity) keeps following the burn through an edit instead of
+			// silently disengaging. editedID stays 0 for a brand-new node,
+			// and stampNodeID then mints a fresh ID inside PlanNode.
+			var editedID uint64
 			if m.EditingIdx >= 0 && m.EditingIdx < len(a.world.ActiveCraft().Nodes) {
+				editedID = a.world.ActiveCraft().Nodes[m.EditingIdx].ID
 				a.world.ActiveCraft().Nodes = append(a.world.ActiveCraft().Nodes[:m.EditingIdx], a.world.ActiveCraft().Nodes[m.EditingIdx+1:]...)
 			}
 			switch {
@@ -200,6 +208,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// uses. Event is forwarded so resolved-then-edited
 				// event-relative nodes keep their semantic label.
 				a.world.PlanNode(sim.ManeuverNode{
+					ID:            editedID,
 					TriggerTime:   m.TriggerTime,
 					Mode:          m.Mode,
 					DV:            m.DV,
@@ -213,6 +222,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// the resolver can freeze TriggerTime against the live
 				// orbit on the next Tick.
 				a.world.PlanNode(sim.ManeuverNode{
+					ID:            editedID,
 					Mode:          m.Mode,
 					DV:            m.DV,
 					Duration:      dur,

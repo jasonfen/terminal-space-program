@@ -899,9 +899,11 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	}
 
 	// v0.16 / ADR 0016: the [»Burn] Auto-Warp button. [■Burn] highlighted
-	// while engaged, dimmed when no burn is eligible. Both labels are 7
-	// single-width runes so the column ranges below don't shift between
-	// states.
+	// while engaged, dimmed when no burn is eligible. The » / ■ runes are
+	// East-Asian *ambiguous* width, so the column math below measures
+	// terminal cells with lipgloss.Width (the package convention) rather
+	// than rune counts — the two diverge under EastAsianWidth mode and a
+	// rune count would drift every button's hit-test off its glyph.
 	burnLabel := "[»Burn]"
 	if w.AutoWarpEngaged() {
 		burnLabel = "[■Burn]"
@@ -911,21 +913,21 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 
 	// Compute the absolute column where the right group starts so the
 	// hit-test ranges match what the player sees on screen.
-	leftRunes := len([]rune(left))
-	rightRunes := len([]rune(rightPlain))
-	pad := totalCols - leftRunes - rightRunes
+	leftWidth := lipgloss.Width(left)
+	rightWidth := lipgloss.Width(rightPlain)
+	pad := totalCols - leftWidth - rightWidth
 	if pad < 1 {
 		pad = 1
 	}
-	rightStart := leftRunes + pad
-	buttonsStart := rightStart + len([]rune(clockChip+pauseChipPlain+clockGap))
+	rightStart := leftWidth + pad
+	buttonsStart := rightStart + lipgloss.Width(clockChip+pauseChipPlain+clockGap)
 
 	v.burnColStart = buttonsStart
-	v.burnColEnd = v.burnColStart + len([]rune(burnLabel))
-	v.menuColStart = v.burnColEnd + len([]rune(gap))
-	v.menuColEnd = v.menuColStart + len([]rune(menuLabel))
-	v.missionsColStart = v.menuColEnd + len([]rune(gap))
-	v.missionsColEnd = v.missionsColStart + len([]rune(missionsLabel))
+	v.burnColEnd = v.burnColStart + lipgloss.Width(burnLabel)
+	v.menuColStart = v.burnColEnd + lipgloss.Width(gap)
+	v.menuColEnd = v.menuColStart + lipgloss.Width(menuLabel)
+	v.missionsColStart = v.menuColEnd + lipgloss.Width(gap)
+	v.missionsColEnd = v.missionsColStart + lipgloss.Width(missionsLabel)
 
 	burnRendered := v.theme.Primary.Render(burnLabel)
 	switch {

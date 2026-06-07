@@ -737,6 +737,14 @@ func (w *World) CraftTrail() []orbital.Vec3 {
 // blast past the EndTime in a single tick and lose temporal resolution.
 func (w *World) clampedWarp() float64 {
 	selected := w.Clock.Warp()
+	if w.ActiveCraft() == nil {
+		// No craft to clamp against — return the player's own selected
+		// warp untouched. The Auto-Warp max-seed below is deliberately
+		// skipped here: with none of the clamps (period guard, approach
+		// ramps) able to run, forcing the top factor would have nothing
+		// to ramp it back down before a burn.
+		return selected
+	}
 	// v0.16 / ADR 0016: while Auto-Warp is engaged (and not paused) the
 	// driver max-seeds the "selected" baseline to the top warp factor and
 	// lets every clamp below pick the real rate — it never touches
@@ -744,9 +752,6 @@ func (w *World) clampedWarp() float64 {
 	// engaged driver freezes time rather than racing ahead.
 	if w.autoWarpEngaged() && !w.Clock.Paused {
 		selected = WarpFactors[len(WarpFactors)-1]
-	}
-	if w.ActiveCraft() == nil {
-		return selected
 	}
 	// Any craft in flight in a finite or manual burn forces the
 	// 10× cap — high warp during thrust would let the integrator
