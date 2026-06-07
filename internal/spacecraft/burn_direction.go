@@ -170,9 +170,10 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 }
 
 // PitchTrimStepRad is the per-keypress pitch trim adjustment in
-// radians. v0.9.2.1+: 10° (= π/18). v0.9.2 shipped at 5° but
-// playtest exposed that the user had to mash `>` 6+ times to get
-// the gravity turn going on a Saturn V — Apollo's actual ascent
-// program pitched 30–50° from vertical. Bump to 10° so 3 taps
-// gives a reasonable initial pitch-over.
-const PitchTrimStepRad = math.Pi / 18
+// radians. v0.16: 5° (= π/36) — finer control for the gravity turn.
+// History: v0.9.2 shipped at 5°, v0.9.2.1 bumped to 10° because a
+// Saturn V's gravity turn needed too many `>` taps to get going; the
+// 5° step is restored per playtest preference (the smaller stripped-back
+// Lumen vehicles steer better with finer granularity, and held `>`
+// ramps continuously at the terminal key-repeat rate for big pitch-overs).
+const PitchTrimStepRad = math.Pi / 36

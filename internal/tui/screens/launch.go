@@ -551,7 +551,7 @@ const flameFrameMs = 100
 // climb, flipping the chase-cam east↔west until the player applied
 // pitch trim. v0.11.1 raises the floor above the warp-scaled lag
 // (≤ ~1e-4 rad at the 10× burn warp cap) but well below the
-// smallest meaningful pitch trim (10° = 0.17 rad) — the camera
+// smallest meaningful pitch trim (one step = 5° = 0.087 rad) — the camera
 // orients east during vertical climb (intent), then swings to the
 // pitch direction as the player gravity-turns.
 func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) orbital.Vec3 {

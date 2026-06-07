@@ -65,8 +65,8 @@ A good first attempt:
    start.
 2. `z` for full throttle, `b` to light the engine. The first stage lifts off
    at a thrust-to-weight ratio of about 1.24.
-3. Around 3 km up, tap `>` once to tip 10° east. The rocket starts building
-   sideways speed.
+3. Around 3 km up, tap `>` a couple of times to tip ~5° east each. The rocket
+   starts building sideways speed.
 4. As your ground speed passes ~100 m/s, press `w` to have the autopilot point
    along your velocity, and `\` to clear the manual tip. From here the rocket
    tracks its own motion and gravity rounds the climb into orbit for you.
@@ -144,7 +144,7 @@ readout shows you why before you watch it fall back.
 | `k` | Steering style: smooth turning (the default) or instant snap |
 | `;` | Switch the autopilot's reference: Orbit → Surface → Target (skips Target when none is set) |
 | `W` / `S` | Point along / against your ground speed — matches your velocity relative to the spinning atmosphere. Use this for the launch gravity turn |
-| `>` / `<` | Tip the nose 10° east / west on top of whatever the autopilot is doing |
+| `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
 | `\` | Clear the manual tip |
 
 The pointing keys only aim the craft — `b` is what actually fires the engine.
