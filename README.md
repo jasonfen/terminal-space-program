@@ -13,7 +13,7 @@ I love **Kerbal Space Program**, I love **TUI Applications**. I decided the two 
 
 <img align="right" width="250" src="media/orbit-rendering.gif" alt="Orbit rendering in the launch / landing chase-cam view">
 
-
+By default, you spawn in an Apollo-style SIV-B in a 500km circular orbit. Switch targets to Moon (press t to switch and T to clear). Plant a Hohmann transfer + inclination change (press H). Or, fly it all manually. See **[Controls & flight guide](docs/controls.md)** — a quick tour, a launch walkthrough, and the full list of keys.
 
 Plan transfers between planets and moons, fly your rocket off the pad and into orbit
 by hand, rendezvous and dock, stage away spent boosters, and bring a capsule
@@ -25,8 +25,9 @@ matter, the way they do in real life. Unlike KSP (without mods), the default gam
 
 Recently added:
 
-* A familiar "easy" system named Lumon.
-** It's home to a planet named Kern, with two moons - Cursor and Glyph.
+* A familiar "easy" system named Lumon - It's home to a planet named Kern, with two moons - Cursor and Glyph.
+* Lumon-specific vessel, accounting for the 1/10th scale solar system it will live in.
+* Inclination-aware Hohmann transfers.
 
 The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
