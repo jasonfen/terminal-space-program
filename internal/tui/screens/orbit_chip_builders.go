@@ -286,7 +286,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		fpaOrbitLabel = fmt.Sprintf("%.0f° (inertial)", nzero(fpaOrbitDeg, 0))
 	}
 	lines := []string{
-		v.theme.Primary.Render("LAUNCH"),
+		v.theme.Primary.Render("SURFACE"),
 		fmt.Sprintf("  altitude:   %s", altLabel),
 		fmt.Sprintf("  v_vert:     %.1f m/s", nzero(vVert, 1)),
 		fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
