@@ -1307,7 +1307,20 @@ func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration) 
 	if c.ActiveBurn != nil || c.ManualBurn != nil {
 		return false
 	}
-	if w.Clock.Warp() <= 1 {
+	// Gate on the EFFECTIVE warp this tick — the step size simDelta
+	// actually implies — not the player's Selected Warp (Clock.Warp()).
+	// Auto-Warp (ADR 0016) drives a high effective warp through
+	// clampedWarp's max-seed WITHOUT touching WarpIdx, so Clock.Warp() can
+	// read 1× while simDelta is thousands of seconds (e.g. right after a
+	// prior Auto-Warp leg set WarpIdx=0). Gating on Clock.Warp() then sent
+	// Auto-Warp down the Verlet slow path, which sub-steps at period/100 —
+	// a single ~5000 s step through the perigee of a long-period eccentric
+	// transfer orbit, aliasing it into a hyperbolic escape (the "Auto-Warp
+	// to the plane change flings the craft into solar orbit" bug). At ≤1×
+	// (realtime / paused) Verlet's fine sub-stepping is correct and we want
+	// it for parity with the live integrator.
+	base := w.Clock.BaseStep.Seconds()
+	if base <= 0 || simDelta.Seconds() <= base {
 		return false
 	}
 	return canKeplerStepState(c.State, c.Primary.GravitationalParameter(), c.Primary)
