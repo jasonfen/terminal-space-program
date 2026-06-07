@@ -41,6 +41,7 @@ func (h *Help) Render() string {
 			{".", "warp up (1× … 100000×)"},
 			{",", "warp down"},
 			{"G", "auto-warp to 30 s before the next burn, then 1× (., cancels)"},
+			{"/", "cancel warp — drop to 1× (also cancels auto-warp)"},
 			{"0", "pause / resume"},
 		}},
 		{"FLIGHT (planted)", [][2]string{

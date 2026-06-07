@@ -590,6 +590,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// no burn is eligible (engage returns false silently).
 			a.world.ToggleAutoWarp()
 			return a, nil
+		case key.Matches(m, a.keys.CancelWarp):
+			// Drop straight to 1× from any warp state: cancel Auto-Warp
+			// and reset Selected Warp to the 1× floor (WarpIdx 0). Pause
+			// state is left as-is — this stops accelerating time, it
+			// doesn't resume a paused clock.
+			a.world.DisengageAutoWarp()
+			a.world.Clock.WarpIdx = 0
+			return a, nil
 		case key.Matches(m, a.keys.Pause):
 			a.world.Clock.TogglePause()
 			return a, nil

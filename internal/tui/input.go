@@ -26,7 +26,10 @@ type Keymap struct {
 	// the next burn, then drop to 1×. Selected Warp (WarpUp/WarpDown) is
 	// untouched; a manual warp keypress cancels Auto-Warp first.
 	AutoWarp key.Binding
-	Pause    key.Binding
+	// CancelWarp drops straight to 1× from any warp state — sets Selected
+	// Warp to 1× and disengages Auto-Warp if engaged.
+	CancelWarp key.Binding
+	Pause      key.Binding
 	ZoomIn     key.Binding
 	ZoomOut    key.Binding
 	Back       key.Binding
@@ -224,6 +227,7 @@ func DefaultKeymap() Keymap {
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
 		WarpDown:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "warp down")),
 		AutoWarp:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "auto-warp to next burn (30s lead)")),
+		CancelWarp: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "cancel warp — drop to 1× (cancels auto-warp)")),
 		// v0.9.1: dropped `space` from Pause; space is now Stage. `0`
 		// alone retains the pause binding (it never collided).
 		Pause:           key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "pause")),

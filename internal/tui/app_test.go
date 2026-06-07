@@ -292,3 +292,36 @@ func TestEditedNodeKeepsIDForAutoWarp(t *testing.T) {
 		t.Error("Auto-Warp disengaged on the tick after a node edit")
 	}
 }
+
+// TestCancelWarpKeyDropsToOneX — `/` cancels Auto-Warp and resets
+// Selected Warp to 1× from any warp state.
+func TestCancelWarpKeyDropsToOneX(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	// Manual warp up, no auto-warp → `/` drops to 1×.
+	a.world.Clock.WarpIdx = 4
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if a.world.Clock.WarpIdx != 0 {
+		t.Errorf("`/` left WarpIdx at %d, want 0 (1×)", a.world.Clock.WarpIdx)
+	}
+
+	// Auto-warp engaged → `/` cancels it and drops to 1×.
+	a.world.PlanNode(sim.ManeuverNode{
+		TriggerTime: a.world.Clock.SimTime.Add(2 * time.Hour),
+		DV:          10,
+		Mode:        spacecraft.BurnPrograde,
+	})
+	a.world.Clock.WarpIdx = 5
+	if !a.world.EngageAutoWarp() {
+		t.Fatal("engage failed")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	if a.world.AutoWarpEngaged() {
+		t.Error("`/` did not cancel Auto-Warp")
+	}
+	if a.world.Clock.WarpIdx != 0 {
+		t.Errorf("`/` left WarpIdx at %d after cancelling auto-warp, want 0", a.world.Clock.WarpIdx)
+	}
+}

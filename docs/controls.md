@@ -100,6 +100,7 @@ readout shows you why before you watch it fall back.
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down (up to 100,000×; eases off around a burn) |
 | `G` | Auto-warp to the next burn — speeds time to 30 seconds before whichever burn fires first (any craft's), ramps back down, and hands you 1× to watch it arm. Tapping `.` / `,` cancels it back to your own warp; click the `[»Burn]` button to do the same |
+| `/` | Cancel warp — drop straight back to 1× from any warp level, and cancel auto-warp if it's running |
 
 ### Map view
 
