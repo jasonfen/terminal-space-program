@@ -217,7 +217,7 @@ func DefaultKeymap() Keymap {
 		// kept with no keys so the struct field stays stable; remove
 		// in v0.8 cleanup.
 		QuitAsk:  key.NewBinding(),
-		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Help:     key.NewBinding(key.WithKeys("f1"), key.WithHelp("F1", "help")),
 		BodyInfo: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "body info")),
 		Maneuver: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "maneuver")),
 		NextBody: key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next body")),
@@ -275,7 +275,7 @@ func DefaultKeymap() Keymap {
 		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
 		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +5° east")),
 		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -5° west")),
-		PitchTrimReset:            key.NewBinding(key.WithKeys("\\"), key.WithHelp("\\", "reset pitch trim")),
+		PitchTrimReset:            key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "reset pitch trim")),
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
 		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),

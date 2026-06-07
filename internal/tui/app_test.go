@@ -325,3 +325,36 @@ func TestCancelWarpKeyDropsToOneX(t *testing.T) {
 		t.Errorf("`/` left WarpIdx at %d after cancelling auto-warp, want 0", a.world.Clock.WarpIdx)
 	}
 }
+
+// TestHelpOnF1AndTrimResetOnQuestion locks the v0.16 keybinding move:
+// Help opens on F1 (not `?`), and `?` now resets pitch trim.
+func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {
+	a, err := New()
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// F1 toggles the help overlay.
+	a.Update(tea.KeyMsg{Type: tea.KeyF1})
+	if a.active != screenHelp {
+		t.Errorf("F1 did not open help (active=%v)", a.active)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyF1})
+	if a.active == screenHelp {
+		t.Error("second F1 did not close help")
+	}
+
+	// `?` resets pitch trim and does NOT open help.
+	c := a.world.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.PitchTrim = 0.3
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if a.active == screenHelp {
+		t.Error("`?` opened help; it should reset pitch trim now")
+	}
+	if c.PitchTrim != 0 {
+		t.Errorf("`?` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
+	}
+}

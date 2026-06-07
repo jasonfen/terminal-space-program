@@ -1,6 +1,6 @@
 # Controls & flight guide
 
-How to actually fly the thing, then the full list of keys. The in-game `?`
+How to actually fly the thing, then the full list of keys. The in-game `F1`
 overlay is the quick reference; the tables below are the same thing with a
 little more explanation.
 
@@ -68,7 +68,7 @@ A good first attempt:
 3. Around 3 km up, tap `>` a couple of times to tip ~5° east each. The rocket
    starts building sideways speed.
 4. As your ground speed passes ~100 m/s, press `w` to have the autopilot point
-   along your velocity, and `\` to clear the manual tip. From here the rocket
+   along your velocity, and `?` to clear the manual tip. From here the rocket
    tracks its own motion and gravity rounds the climb into orbit for you.
 5. Press `space` to drop the empty first stage. You keep flying the upper
    stage and the stage list advances. Keep burning, drop the next stage, then
@@ -93,8 +93,8 @@ readout shows you why before you watch it fall back.
 |---|---|
 | `Esc` | Back, or open the save / load / settings / quit menu on the main view |
 | `Ctrl+C` | Quit immediately |
-| `?` | Toggle the help overlay |
-| `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game `?` overlay so it stays discreet |
+| `F1` | Toggle the help overlay |
+| `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
 | `i` | Body info screen |
 | `Tab` | Switch star system (Sol → Alpha Centauri → TRAPPIST-1 → Kepler-452) |
 | `0` | Pause / resume |
@@ -147,7 +147,7 @@ readout shows you why before you watch it fall back.
 | `;` | Switch the autopilot's reference: Orbit → Surface → Target (skips Target when none is set) |
 | `W` / `S` | Point along / against your ground speed — matches your velocity relative to the spinning atmosphere. Use this for the launch gravity turn |
 | `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
-| `\` | Clear the manual tip |
+| `?` | Clear the manual tip (reset pitch trim to 0) |
 
 The pointing keys only aim the craft — `b` is what actually fires the engine.
 In RCS mode those same keys also fire one small thruster pulse per press (hold

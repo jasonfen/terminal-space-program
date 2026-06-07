@@ -22,7 +22,7 @@ func (h *Help) Render() string {
 		{"GLOBAL", [][2]string{
 			{"esc", "back / close (or open save/load/settings/quit menu on home)"},
 			{"ctrl+c", "quit (immediate)"},
-			{"?", "toggle this help"},
+			{"F1", "toggle this help"},
 		}},
 		{"NAVIGATION", [][2]string{
 			{"→ / l", "select next body (info / porkchop cursor — not the [t] target)"},
@@ -65,7 +65,7 @@ func (h *Help) Render() string {
 			{"q / e", "attitude radial+ / radial- (orient only in main; pulse-fire in rcs)"},
 			{"W / S", "attitude surface prograde / retrograde — locks to v - ω×r (v0.9.2+)"},
 			{"< / >", "pitch trim ±5° east — held thrust direction tilts off the active mode (v0.9.2+)"},
-			{"\\", "reset pitch trim to 0 (v0.9.2+)"},
+			{"?", "reset pitch trim to 0 (v0.9.2+)"},
 			{"b", "engage / cut manual burn (main engine only)"},
 			{"r", "engine: main / rcs (RCS = monoprop pulse-fire on attitude keys)"},
 			{"k", "SAS model: slew / instant (navball [MAN]/[AUT]) (v0.10.0+)"},
@@ -117,7 +117,7 @@ func (h *Help) Render() string {
 		}
 		b.WriteByte('\n')
 	}
-	b.WriteString(h.theme.Footer.Render("[?] or [esc] to close"))
+	b.WriteString(h.theme.Footer.Render("[F1] or [esc] to close"))
 	return b.String()
 }
 
