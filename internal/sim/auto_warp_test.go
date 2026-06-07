@@ -251,3 +251,34 @@ func TestAutoWarpEndToEndThroughTick(t *testing.T) {
 		t.Errorf("overshot the burn: advanced %v, burn was %v out", got, burnDt)
 	}
 }
+
+// TestAutoWarpScopedToActiveSystem — Auto-Warp ignores a sooner burn on
+// a vessel bound to a different System and targets the soonest burn in
+// the active vessel's own System (ADR 0015 interaction; the camera
+// follows the active vessel's System, so an off-system burn would warp
+// to an off-screen event).
+func TestAutoWarpScopedToActiveSystem(t *testing.T) {
+	w, a, b, _ := threeCraftSlate(t)
+
+	// Put B in a different System with a SOONER burn; A (active, system 0)
+	// has a later burn. Auto-Warp must pick A's, not B's.
+	b.SystemIdx = 1
+	plantOn(t, w, 1, 1*24*time.Hour) // craft B, system 1, sooner
+	aID := plantOn(t, w, 0, 4*24*time.Hour)
+	w.SetActiveCraftIdx(0) // fly A in system 0
+
+	if !w.EngageAutoWarp() {
+		t.Fatal("engage failed with an eligible in-system burn")
+	}
+	if w.AutoWarp.CraftID != a.ID || w.AutoWarp.NodeID != aID {
+		t.Errorf("targeted craft %d node %d, want A (craft %d node %d) — off-system burn leaked in",
+			w.AutoWarp.CraftID, w.AutoWarp.NodeID, a.ID, aID)
+	}
+
+	// With only the off-system burn left, engage is a no-op.
+	w.DisengageAutoWarp()
+	w.Crafts[0].Nodes = nil
+	if w.EngageAutoWarp() {
+		t.Error("engaged on an off-system-only burn; should be a no-op")
+	}
+}

@@ -90,15 +90,26 @@ func (w *World) ToggleAutoWarp() bool {
 // resolveAutoWarp additionally forces WarpIdx to 1×.
 func (w *World) DisengageAutoWarp() { w.AutoWarp = nil }
 
-// soonestEligibleBurn finds the earliest BurnStart across all vessels'
-// resolved, identified nodes that is more than autoWarpLeadTime out, and
-// returns its craft+node identity and BurnStart. ok=false when none
-// qualifies. Walks every craft so Auto-Warp stops before whatever burn
-// comes first, anyone's — the non-surprising behaviour (ADR 0016).
+// soonestEligibleBurn finds the earliest BurnStart among the vessels in
+// the active vessel's System whose nodes are resolved, identified, and
+// more than autoWarpLeadTime out, and returns that craft+node identity
+// and BurnStart. ok=false when none qualifies (or there is no active
+// vessel to anchor the System).
+//
+// Scoped to the active vessel's System (v0.16 / ADR 0015 interaction):
+// since the camera follows the active vessel's System, stopping before a
+// burn on a vessel in another System would warp to an off-screen event
+// and lose the "watch it arm and fire" payoff. Within a System it still
+// stops before whatever burn comes first, anyone's (ADR 0016).
 func (w *World) soonestEligibleBurn() (craftID, nodeID uint64, burnStart time.Time, ok bool) {
+	active := w.ActiveCraft()
+	if active == nil {
+		return 0, 0, time.Time{}, false
+	}
+	system := active.SystemIdx
 	threshold := w.Clock.SimTime.Add(autoWarpLeadTime)
 	for _, c := range w.Crafts {
-		if c == nil || c.ID == 0 {
+		if c == nil || c.ID == 0 || c.SystemIdx != system {
 			continue
 		}
 		for i := range c.Nodes {

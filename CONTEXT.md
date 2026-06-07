@@ -1076,10 +1076,12 @@ start, leaving the sim at 1× so the player can watch the Burn arm and fire.
 - It never adds a new way to skip a Burn window: each Tick it simply takes
   the fastest rate the existing Effective-Warp clamps already allow, so the
   node-approach ramp and the step-size guard remain the hard safety net.
-- It aims at the globally-soonest Burn (earliest *burn start* across all
-  Vessels) as of the moment it was engaged, then follows that specific
-  Maneuver Node if its timing shifts. It disengages on arrival, if the
-  player touches warp manually, or if that Node is removed.
+- It aims at the soonest Burn (earliest *burn start*) among the Vessels in
+  the active Vessel's System as of the moment it was engaged — System-scoped
+  so it never warps to an off-screen Burn in another System (ADR 0015) —
+  then follows that specific Maneuver Node if its timing shifts. It
+  disengages on arrival, if the player touches warp manually, or if that
+  Node is removed.
 
 Distinct from the *node-approach ramp* (a clamp that caps Effective Warp
 near any Burn so the integrator can't alias past it): the ramp is passive
