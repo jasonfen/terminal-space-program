@@ -284,20 +284,32 @@ func (v *OrbitView) buildStagesChip(w *sim.World) []string {
 	}
 }
 
-// buildNodesChip summarises the planted-node chain as the next node plus a
-// "(+N more → [m])" overflow count, bounding what was an unbounded
-// per-node list. The full enumerable/editable list lives on the maneuver
-// screen ([m]); clicking this chip opens it (ADR 0010). Returns nil when
-// no craft has a node planted.
+// buildNodesChip is the bottom-right burn-schedule chip: any in-flight
+// burn(s) as the firing head, then the planted-node chain summarised as
+// the next node plus a "(+N more → [m])" overflow count. The full
+// enumerable/editable list lives on the maneuver screen ([m]); clicking
+// this chip opens it (ADR 0010). Returns nil only when nothing is burning
+// and no craft has a node planted.
+//
+// v0.16 folded the standalone ● BURNS chip in here so a live burn and the
+// upcoming nodes read as one schedule. assembleChips force-shows the chip
+// whenever a burn is live, so the safety-critical firing head is never
+// hidden by the toggle or declutter.
 func (v *OrbitView) buildNodesChip(w *sim.World) []string {
+	burnLines := v.activeBurnLines(w)
 	total := 0
 	for _, c := range w.Crafts {
 		if c != nil {
 			total += len(c.Nodes)
 		}
 	}
-	if total == 0 {
+	if len(burnLines) == 0 && total == 0 {
 		return nil
+	}
+	lines := []string{v.theme.Primary.Render("NODES")}
+	lines = append(lines, burnLines...)
+	if total == 0 {
+		return lines // a burn in flight with no upcoming planted nodes
 	}
 	// The "next" node is the active craft's first node when it has one,
 	// else the first node on the first craft that has any.
@@ -315,7 +327,6 @@ func (v *OrbitView) buildNodesChip(w *sim.World) []string {
 			}
 		}
 	}
-	lines := []string{v.theme.Primary.Render("NODES")}
 	if nc != nil {
 		n := nc.Nodes[ni]
 		kind := "imp"
