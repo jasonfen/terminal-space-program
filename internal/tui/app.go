@@ -525,6 +525,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, cmd
 		}
+		// Help: F1/esc close; every other key scrolls the overlay. Sits
+		// before the global switch so scroll keys (↑/↓, PgUp/PgDn, etc.)
+		// don't fall through to flight actions. Backtick/ctrl+c/end-flight
+		// are handled above this block, so the boss key etc. still work.
+		if a.active == screenHelp {
+			if key.Matches(m, a.keys.Help) || key.Matches(m, a.keys.Back) {
+				a.active = screenOrbit
+				return a, nil
+			}
+			a.help.HandleKey(m)
+			return a, nil
+		}
 		// Porkchop: ←/→/↑/↓ navigate cells, Esc returns.
 		if a.active == screenPorkchop {
 			_, done := a.porkchop.HandleKey(m)
@@ -541,6 +553,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active == screenHelp {
 				a.active = screenOrbit
 			} else {
+				a.help.ResetScroll() // always open at the top
 				a.active = screenHelp
 			}
 			return a, nil
@@ -1189,7 +1202,7 @@ func (a *App) View() string {
 	var base string
 	switch a.active {
 	case screenHelp:
-		base = a.help.Render()
+		base = a.help.Render(a.width, a.height)
 	case screenBodyInfo:
 		base = a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
 	case screenManeuver:

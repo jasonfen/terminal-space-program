@@ -93,7 +93,7 @@ readout shows you why before you watch it fall back.
 |---|---|
 | `Esc` | Back, or open the save / load / settings / quit menu on the main view |
 | `Ctrl+C` | Quit immediately |
-| `F1` | Toggle the help overlay |
+| `F1` | Toggle the help overlay (scroll it with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`) |
 | `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
 | `i` | Body info screen |
 | `Tab` | Switch star system (Sol → Alpha Centauri → TRAPPIST-1 → Kepler-452) |
