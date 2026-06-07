@@ -50,6 +50,12 @@ type World struct {
 	// node still carrying the zero (pre-field / legacy-save) value.
 	NextNodeID uint64
 
+	// AutoWarp is the engaged Auto-Warp driver, or nil when off (v0.16 /
+	// ADR 0016). While set, the tick max-seeds clampedWarp and ramps to a
+	// frozen target T = BurnStart − autoWarpLeadTime, then hands off to 1×.
+	// Transient — never persisted; a save/load mid-warp lands disengaged.
+	AutoWarp *AutoWarpTarget
+
 	// LastDockEvent records the most recent fusion for HUD flash
 	// + diagnostic. Cleared by app.go after the message is shown.
 	// v0.8.3+.
@@ -491,6 +497,11 @@ func (w *World) Tick() {
 	// Resolution is idempotent: nodes already resolved are skipped.
 	w.resolveEventNodes()
 
+	// v0.16 / ADR 0016: advance or release the Auto-Warp target before
+	// the warp clamp reads it, so this tick's rate reflects the result
+	// (a reached / invalidated target hands back to Selected Warp here).
+	w.resolveAutoWarp()
+
 	// Apply SOI warp cap per plan §C21: if the current warp × base-step
 	// would force the integrator to exceed its 1024-sub-step cap, reduce
 	// effective warp this tick. Doesn't change the clock's displayed warp
@@ -726,6 +737,14 @@ func (w *World) CraftTrail() []orbital.Vec3 {
 // blast past the EndTime in a single tick and lose temporal resolution.
 func (w *World) clampedWarp() float64 {
 	selected := w.Clock.Warp()
+	// v0.16 / ADR 0016: while Auto-Warp is engaged (and not paused) the
+	// driver max-seeds the "selected" baseline to the top warp factor and
+	// lets every clamp below pick the real rate — it never touches
+	// Clock.WarpIdx. Paused keeps the 0 from Clock.Warp() so a paused
+	// engaged driver freezes time rather than racing ahead.
+	if w.autoWarpEngaged() && !w.Clock.Paused {
+		selected = WarpFactors[len(WarpFactors)-1]
+	}
 	if w.ActiveCraft() == nil {
 		return selected
 	}
@@ -771,6 +790,22 @@ func (w *World) clampedWarp() float64 {
 		}
 		if selected > maxNodeWarp {
 			selected = maxNodeWarp
+		}
+	}
+	// v0.16 / ADR 0016: Auto-Warp approach term. Anchored at the engaged
+	// target T (= BurnStart − autoWarpLeadTime) rather than the burn
+	// itself, so the effective rate ramps smoothly to the 1× floor by T
+	// and the hand-off to 1× is a glide, not a slam. Same continuous
+	// formula as the node-approach clamp above.
+	if w.autoWarpEngaged() {
+		if dt := w.AutoWarp.T.Sub(w.Clock.SimTime).Seconds(); dt > 0 {
+			maxApproachWarp := dt / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
+			if maxApproachWarp < 1 {
+				maxApproachWarp = 1
+			}
+			if selected > maxApproachWarp {
+				selected = maxApproachWarp
+			}
 		}
 	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()
