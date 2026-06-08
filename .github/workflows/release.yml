@@ -36,4 +36,11 @@ jobs:
           version: latest
           args: release --clean
         env:
+          # Creates the GitHub release + uploads archives (scoped to this repo).
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with contents:write on jasonfen/homebrew-tap and
+          # jasonfen/scoop-bucket — the default GITHUB_TOKEN can't push to
+          # other repos. Falls back to GITHUB_TOKEN if the secret is unset,
+          # so a release without the secret still publishes binaries (the
+          # cask/scoop steps will fail loudly rather than silently skip).
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
