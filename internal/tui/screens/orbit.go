@@ -328,7 +328,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.canvas.Clear()
 	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
-	if w.ActiveCraft().ActiveBurn != nil {
+	// Burn-frozen camera: hold the center steady while a burn is live so
+	// the navball-anchored view doesn't drift. Guarded on a non-nil
+	// active craft — after end-flight clears the last vessel the orbit
+	// view still renders (a vessel-less system/home-body view), and
+	// FocusPosition() already falls through to a body/system center.
+	if c := w.ActiveCraft(); c != nil && c.ActiveBurn != nil {
 		if v.burnFrozenCenter == nil {
 			snapshot := center
 			v.burnFrozenCenter = &snapshot

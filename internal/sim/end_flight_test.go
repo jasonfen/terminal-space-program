@@ -85,6 +85,17 @@ func TestEndFlightFallsBackToNilActive(t *testing.T) {
 	if w.ActiveCraft() != nil {
 		t.Errorf("after empty-slate end-flight: ActiveCraft = %+v, want nil", w.ActiveCraft())
 	}
+	// After removing the last vessel the camera must park on a concrete
+	// body — the one the vessel was orbiting — so the orbit view shows
+	// that body rather than snapping to FocusCraft (which now resolves
+	// to nil) or a heliocentric blank. Regression: the orbit render path
+	// dereferenced ActiveCraft() unconditionally and panicked here.
+	if w.Focus.Kind != FocusBody {
+		t.Errorf("after empty-slate end-flight: Focus.Kind = %v, want FocusBody", w.Focus.Kind)
+	}
+	if w.Focus.BodyIdx < 0 || w.Focus.BodyIdx >= len(w.System().Bodies) {
+		t.Errorf("after empty-slate end-flight: Focus.BodyIdx = %d, out of range", w.Focus.BodyIdx)
+	}
 }
 
 // TestEndFlightNoOpOnLiveVessel — end-flight on a non-Crashed
