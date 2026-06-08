@@ -744,7 +744,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				v.canvas.PlotColored(otherInertial, otherColor)
 				if other.Glyph != "" {
 					if g := []rune(other.Glyph); len(g) > 0 {
-						v.canvas.SetCellOverlay(otherInertial, g[0])
+						// Pin the glyph color (see active-craft note below)
+						// so non-active vessels also keep their own color
+						// over a body disk.
+						v.canvas.SetCellOverlayColored(otherInertial, g[0], otherColor)
 					}
 				}
 			}
@@ -764,7 +767,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 			v.canvas.FillColoredDiskTagged(craftInertial, 1, widgets.CellTag{Color: activeColor, IsVessel: true})
 			if g := []rune(c.Glyph); len(g) > 0 {
-				v.canvas.SetCellOverlay(craftInertial, g[0])
+				// Pin the glyph color so it stays the vessel's own color
+				// instead of flipping to the body's color when the marker
+				// overlaps a body disk (e.g. low orbit over Earth).
+				v.canvas.SetCellOverlayColored(craftInertial, g[0], activeColor)
 			}
 		}
 	}
