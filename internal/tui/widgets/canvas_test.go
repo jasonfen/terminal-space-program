@@ -191,6 +191,39 @@ func TestSetCellLabelColored(t *testing.T) {
 	}
 }
 
+// TestSetCellOverlayColoredWinsOverBodyColor: a vessel glyph stamped
+// over a body's projected disk must render in the pinned (vessel) color,
+// not the body color. Without SetCellOverlayColored the glyph took the
+// cell's pixelTag majority — the body's disk pixels outvote the marker's
+// own tag — so the marker flipped to the body's color in low orbit.
+func TestSetCellOverlayColoredWinsOverBodyColor(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1") // force lipgloss to emit ANSI in tests
+
+	bodyColor := lipgloss.Color("#3A7BD5")   // "Earth" blue
+	vesselColor := lipgloss.Color("#FFD93D") // craft-marker yellow
+
+	c := NewCanvas(20, 10)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+	// A large body disk centered at the origin tags the center cell's
+	// pixels with the body color (the majority for that cell).
+	c.FillColoredDisk(orbital.Vec3{}, 6, bodyColor)
+	// Stamp the vessel glyph at the same world point with a pinned color.
+	c.SetCellOverlayColored(orbital.Vec3{}, '^', vesselColor)
+
+	out := c.String()
+	// The glyph must be wrapped in the vessel foreground, not the body's.
+	wantVessel := lipgloss.NewStyle().Foreground(vesselColor).Render("^")
+	if !strings.Contains(out, wantVessel) {
+		t.Errorf("glyph not rendered in pinned vessel color %q:\n%q", wantVessel, out)
+	}
+	bodyGlyph := lipgloss.NewStyle().Foreground(bodyColor).Render("^")
+	if strings.Contains(out, bodyGlyph) {
+		t.Errorf("glyph rendered in body color (should be pinned to vessel):\n%q", out)
+	}
+}
+
 // TestRingOutlineHugeRadiusDoesNotHang: v0.5.15 regression — pre-fix
 // a ring with pxRadius in the millions (Saturn rings projected at
 // extreme zoom) looped pxRadius*8 ≈ billions of times, locking the
@@ -252,7 +285,7 @@ func TestPerPixelTagDoesNotBleed(t *testing.T) {
 // v0.6.4+.
 func TestUnprojectRoundTripDefaultBasis(t *testing.T) {
 	c := NewCanvas(60, 30)
-	c.SetScale(0.01)               // pixels per metre — 1 m ≈ 0.01 px
+	c.SetScale(0.01)                // pixels per metre — 1 m ≈ 0.01 px
 	c.Center(orbital.Vec3{X: 1000}) // off-origin to exercise centerW
 	cases := []orbital.Vec3{
 		{X: 1000, Y: 0},

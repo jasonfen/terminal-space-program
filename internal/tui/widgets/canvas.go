@@ -224,6 +224,32 @@ func (c *Canvas) SetCellOverlay(w orbital.Vec3, glyph rune) {
 	c.cellOverlays[[2]int{cellX, cellY}] = glyph
 }
 
+// SetCellOverlayColored is SetCellOverlay that also pins the glyph's
+// foreground to color, so the overlay reads in that exact color rather
+// than the cell's pixelTag majority. Without the pin, a glyph whose
+// cell overlaps a body's projected disk picks up the body's color (the
+// body's pixels outvote the glyph's own tag) — so e.g. a vessel marker
+// flips to Earth-blue while passing in front of Earth. Pinning keeps
+// vessel glyphs in their own color regardless of what's behind them.
+func (c *Canvas) SetCellOverlayColored(w orbital.Vec3, glyph rune, color lipgloss.TerminalColor) {
+	px, py, ok := c.Project(w)
+	if !ok {
+		return
+	}
+	cellX, cellY := px/2, py/4
+	if cellX < 0 || cellX >= c.cols || cellY < 0 || cellY >= c.rows {
+		return
+	}
+	if c.cellOverlays == nil {
+		c.cellOverlays = make(map[[2]int]rune)
+	}
+	c.cellOverlays[[2]int{cellX, cellY}] = glyph
+	if c.cellOverlayColors == nil {
+		c.cellOverlayColors = make(map[[2]int]lipgloss.TerminalColor)
+	}
+	c.cellOverlayColors[[2]int{cellX, cellY}] = color
+}
+
 // ClearCellOverlay removes any overlay glyph at the cell containing
 // the given world coord so the cell's underlying braille pattern
 // renders through. Used by the v0.11.3 composed-rocket render path:
@@ -241,6 +267,9 @@ func (c *Canvas) ClearCellOverlay(w orbital.Vec3) {
 		return
 	}
 	delete(c.cellOverlays, [2]int{cellX, cellY})
+	// Also drop any pinned overlay color (SetCellOverlayColored) so it
+	// can't recolor the braille pattern that now renders through.
+	delete(c.cellOverlayColors, [2]int{cellX, cellY})
 }
 
 // SetCellLabel writes text into consecutive cells starting at
