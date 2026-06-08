@@ -63,6 +63,10 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// Settings screen, mirroring the always-on ● BURNS readout — both are
 	// too load-bearing to toggle off. F2 declutter still clears them.
 	add("", cornerTopRight, v.buildOrbitMetricsChip(w))
+	// PROJECTED ORBIT is its own chip beneath the always-on ORBIT readout
+	// (issue #63 follow-up) so current + projected show together during a
+	// burn. Toggleable, unlike the load-bearing live ORBIT above it.
+	add(settings.ChipProjectedOrbit, cornerTopRight, v.buildProjectedOrbitChip(w))
 	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
 	// Remaining fixed corners.
 	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
@@ -493,12 +497,14 @@ func (v *OrbitView) buildChuteChip(w *sim.World) []string {
 	return lines
 }
 
-// buildOrbitMetricsChip is the top-right orbit-shape readout. It shows the
-// projected post-burn orbit once resolved nodes are planted (the old
-// PROJECTED ORBIT block) and otherwise the live current orbit shape (the
-// rows the slim column dropped from VESSEL). Suppressed during ascent —
-// the LAUNCH chip already carries ap/pe there. Returns nil when no
-// meaningful orbit shape exists (degenerate / no craft).
+// buildOrbitMetricsChip is the always-on top-right ORBIT readout: the
+// live current orbit shape (altitude / apo / peri / t→apo / t→peri /
+// inclination / direction). Suppressed during ascent — the LAUNCH chip
+// already carries ap/pe there — and for degenerate / hyperbolic states.
+// The projected post-burn orbit is a SEPARATE chip
+// (buildProjectedOrbitChip, issue #63 follow-up) so the player sees the
+// current and projected orbits side by side while planning a burn,
+// instead of the live orbit being replaced by the projection.
 func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	if !w.CraftVisibleHere() {
 		return nil
@@ -506,39 +512,6 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	c := w.ActiveCraft()
 	if c == nil {
 		return nil
-	}
-	if state, primary, ok := w.PredictedFinalOrbit(); ok {
-		mu := primary.GravitationalParameter()
-		frame := orbital.ReferenceFrameForPrimary(primary)
-		ro := orbital.OrbitReadoutInFrame(state.R, state.V, mu, frame)
-		primaryR := primary.RadiusMeters()
-		lines := []string{
-			v.theme.Primary.Render("PROJECTED ORBIT"),
-			fmt.Sprintf("  primary:   %s", primary.EnglishName),
-		}
-		if ro.Hyperbolic {
-			lines = append(lines,
-				"  "+v.theme.Warning.Render("hyperbolic — escape"),
-				fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
-				fmt.Sprintf("  e:         %.3f", ro.Eccentricity),
-			)
-		} else {
-			lines = append(lines,
-				fmt.Sprintf("  apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
-				fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
-				fmt.Sprintf("  inclin.:   %.2f°", ro.Inclination*180/math.Pi),
-			)
-			const equatorialTol = 1e-3
-			if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
-				lines = append(lines, v.theme.Dim.Render("  AN/DN:     equatorial"))
-			} else {
-				lines = append(lines,
-					fmt.Sprintf("  AN angle:  %.1f°", normalizeDeg(ro.AscNode*180/math.Pi)),
-					fmt.Sprintf("  DN angle:  %.1f°", normalizeDeg(ro.DescNode*180/math.Pi)),
-				)
-			}
-		}
-		return lines
 	}
 	// Live current orbit shape. Suppressed during ascent (LAUNCH chip
 	// carries ap/pe) and for degenerate/hyperbolic states.
@@ -568,8 +541,59 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 		lines = append(lines, chipRow("t→peri:", formatDurationShort(tPeri)))
 	}
 	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
+	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+	}
+	return lines
+}
+
+// buildProjectedOrbitChip is the PROJECTED ORBIT readout — the projected
+// post-burn orbit once resolved nodes (or a live burn) are planted,
+// expressed in the primary's reference frame. Returns nil when no
+// projection is available, so it surfaces only while a burn is
+// planned/in flight, stacked beneath the always-on ORBIT chip. Split out
+// of buildOrbitMetricsChip (issue #63 follow-up) so the current and
+// projected orbits show simultaneously rather than the projection
+// replacing the live readout.
+func (v *OrbitView) buildProjectedOrbitChip(w *sim.World) []string {
+	if !w.CraftVisibleHere() || w.ActiveCraft() == nil {
+		return nil
+	}
+	state, primary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		return nil
+	}
+	mu := primary.GravitationalParameter()
+	frame := orbital.ReferenceFrameForPrimary(primary)
+	ro := orbital.OrbitReadoutInFrame(state.R, state.V, mu, frame)
+	primaryR := primary.RadiusMeters()
+	lines := []string{
+		v.theme.Primary.Render("PROJECTED ORBIT"),
+		fmt.Sprintf("  primary:   %s", primary.EnglishName),
+	}
+	if ro.Hyperbolic {
+		lines = append(lines,
+			"  "+v.theme.Warning.Render("hyperbolic — escape"),
+			fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+			fmt.Sprintf("  e:         %.3f", ro.Eccentricity),
+		)
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("  apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
+			fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+			fmt.Sprintf("  inclin.:   %.2f°", ro.Inclination*180/math.Pi),
+			fmt.Sprintf("  direction: %s", v.orbitDirectionLabel(ro.Inclination)),
+		)
+		const equatorialTol = 1e-3
+		if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
+			lines = append(lines, v.theme.Dim.Render("  AN/DN:     equatorial"))
+		} else {
+			lines = append(lines,
+				fmt.Sprintf("  AN angle:  %.1f°", normalizeDeg(ro.AscNode*180/math.Pi)),
+				fmt.Sprintf("  DN angle:  %.1f°", normalizeDeg(ro.DescNode*180/math.Pi)),
+			)
+		}
 	}
 	return lines
 }
@@ -691,6 +715,21 @@ const chipValueCol = 13
 // column instead of drifting per label. Padding is measured in display
 // cells (lipgloss.Width), so multibyte labels like "Δi:" and styled values
 // align correctly where byte-counted %-Ns padding would not.
+// orbitDirectionLabel renders the prograde/retrograde orbit-direction
+// readout for an equatorial-frame inclination (radians). i > 90° means
+// the orbit runs retrograde — against the primary's spin. This is the
+// instrument that disambiguates a genuine orbit reversal from a
+// projection / day-night-shading artifact near the disk edge (issue
+// #63): the on-screen position can mislead, but the direction label is
+// ground truth. Prograde is the unremarkable case (plain text);
+// retrograde is flagged.
+func (v *OrbitView) orbitDirectionLabel(incRad float64) string {
+	if incRad > math.Pi/2 {
+		return v.theme.Alert.Render("retrograde")
+	}
+	return "prograde"
+}
+
 func chipRow(label, value string) string {
 	prefix := "  " + label
 	pad := chipValueCol - lipgloss.Width(prefix)
