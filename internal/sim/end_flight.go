@@ -39,6 +39,10 @@ func (w *World) EndFlightActive() bool {
 	if c == nil || !c.Crashed {
 		return false
 	}
+	// Remember the body this vessel was orbiting. If it was the last
+	// vessel, the camera parks on this body (an "orbital view of
+	// Earth") instead of going blank — see the empty-slate branch.
+	removedPrimaryID := c.Primary.ID
 	// Drop the entry and snap active to the next slot. Slice
 	// append-trick: keep the prefix, skip idx, then append the
 	// suffix.
@@ -57,6 +61,22 @@ func (w *World) EndFlightActive() bool {
 		w.ActiveCraftIdx = -1
 		w.Target = newEmptyTargetForCraft(nil)
 		w.reconcileNavMode()
+		// Park the camera on the body the vessel was orbiting so the
+		// orbit view shows that body (e.g. Earth) rather than snapping
+		// to a heliocentric origin or a blank frame. FocusCraft would
+		// resolve to nil now; FocusBody keeps a concrete anchor. Falls
+		// back to the whole-system view if that body isn't in the
+		// current camera system (cross-system vessel). The orbit/launch
+		// render paths are both nil-craft-safe, so ViewMode is left
+		// untouched — the player stays in whatever view they were in.
+		w.Focus = Focus{Kind: FocusSystem}
+		sys := w.System()
+		for i := range sys.Bodies {
+			if sys.Bodies[i].ID == removedPrimaryID {
+				w.Focus = Focus{Kind: FocusBody, BodyIdx: i}
+				break
+			}
+		}
 	case idx >= len(w.Crafts):
 		// Removed the tail — snap to the new last entry.
 		w.SetActiveCraftIdx(len(w.Crafts) - 1)

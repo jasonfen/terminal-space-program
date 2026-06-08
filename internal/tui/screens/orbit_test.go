@@ -46,6 +46,48 @@ func TestOrbitViewRendersAllSystems(t *testing.T) {
 	}
 }
 
+// TestOrbitViewRendersWithNoActiveVessel: ending the flight of the
+// last vessel empties the craft slate (ActiveCraft() == nil) and parks
+// the camera on the body the vessel was orbiting. The orbit view must
+// render that body-focused frame without panicking — regression for the
+// nil-pointer crash where Render dereferenced ActiveCraft().ActiveBurn
+// unconditionally (orbit.go burn-frozen-center check).
+func TestOrbitViewRendersWithNoActiveVessel(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+		Footer:  lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+	}
+	v := NewOrbitView(th)
+	v.Resize(120, 40)
+
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Crash + end-flight the only vessel so the slate empties.
+	c := w.ActiveCraft()
+	c.Crashed = true
+	if !w.EndFlightActive() {
+		t.Fatal("EndFlightActive: false on lone Crashed vessel; want true")
+	}
+	if w.ActiveCraft() != nil {
+		t.Fatalf("precondition: ActiveCraft = %+v, want nil after end-flight", w.ActiveCraft())
+	}
+	// Must not panic, must produce a frame, and must show the system name.
+	out := v.Render(w, 0, 120, 40)
+	if len(out) == 0 {
+		t.Error("empty render with no active vessel")
+	}
+	if !strings.Contains(out, w.System().Name) {
+		t.Errorf("expected system name %q in vessel-less render", w.System().Name)
+	}
+}
+
 // TestOrbitHUDRendersVesselAndPropellantSideBySide: at sufficiently
 // wide terminals the VESSEL and PROPELLANT block headers share a row
 // so the right-hand HUD doesn't get tall enough to push the layout
