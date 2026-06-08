@@ -32,6 +32,67 @@ func TestSpawnLaunchpadPrimaryStaysEarth(t *testing.T) {
 	}
 }
 
+// TestSpawnAfterEmptySlate — spawning a fresh vessel after end-flight
+// removed the last one must work. Regression: SpawnCraft required a
+// non-nil active craft up front (errNoActiveCraftToCopy), so every
+// spawn from an empty slate silently failed ("nothing happens" in the
+// UI, which swallowed the error). Only the Alongside clone path needs
+// an active craft now.
+func TestSpawnAfterEmptySlate(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Crash + end-flight the only vessel so the slate empties.
+	w.ActiveCraft().Crashed = true
+	if !w.EndFlightActive() {
+		t.Fatal("EndFlightActive: false on lone Crashed vessel; want true")
+	}
+	if w.ActiveCraft() != nil {
+		t.Fatalf("precondition: ActiveCraft = %+v, want nil", w.ActiveCraft())
+	}
+	// Launchpad spawn from the empty slate.
+	c, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:    spacecraft.LoadoutSaturnVID,
+		ParentBodyID: "earth",
+		Launchpad:    true,
+		Latitude:     28.6,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft from empty slate: %v", err)
+	}
+	if c == nil || w.ActiveCraft() != c {
+		t.Fatalf("after spawn: active craft = %+v, want the spawned craft", w.ActiveCraft())
+	}
+	if c.Primary.ID != "earth" {
+		t.Errorf("primary after empty-slate launchpad spawn: got %q, want %q", c.Primary.ID, "earth")
+	}
+	if len(w.Crafts) != 1 {
+		t.Errorf("slate length after spawn: got %d, want 1", len(w.Crafts))
+	}
+}
+
+// TestSpawnEmptySlateNoParentFallsBackToSystemPrimary — an empty-slate
+// spawn with no ParentBodyID and no active craft must still resolve a
+// real body (the system primary) rather than a zero-value CelestialBody.
+func TestSpawnEmptySlateNoParentFallsBackToSystemPrimary(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.ActiveCraft().Crashed = true
+	if !w.EndFlightActive() {
+		t.Fatal("EndFlightActive: false on lone Crashed vessel; want true")
+	}
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: spacecraft.LoadoutSaturnVID})
+	if err != nil {
+		t.Fatalf("SpawnCraft (no parent) from empty slate: %v", err)
+	}
+	if c.Primary.ID == "" {
+		t.Error("spawned craft primary is the zero-value body; want the system primary")
+	}
+}
+
 // TestSpawnLaunchpadAtAltitudeZero — a launchpad spawn at the
 // default latitude must put the craft at altitude 0. c.State.R is
 // primary-relative; |R| should equal the primary's mean radius.

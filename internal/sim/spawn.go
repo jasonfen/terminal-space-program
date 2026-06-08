@@ -146,10 +146,13 @@ const DefaultLaunchpadLongitudeEast = -80.604
 // position (or +Y if no offset is meaningful). After spawn the new
 // craft becomes active. v0.8.2+.
 func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
+	// The active craft is only required by the Alongside path (which
+	// clones its state) and as the *default* parent body. Launchpad and
+	// orbit-at-parent spawns place the craft from the spec alone, so
+	// they must work from an empty slate — e.g. spawning a fresh vessel
+	// after end-flight removed the last one. The nil guard therefore
+	// lives on the Alongside branch, not up here.
 	active := w.ActiveCraft()
-	if active == nil {
-		return nil, errNoActiveCraftToCopy
-	}
 
 	var c *spacecraft.Spacecraft
 	if len(spec.CustomStages) > 0 {
@@ -173,6 +176,11 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	c.Name = w.nextCraftName(c.Name)
 
 	if spec.Alongside {
+		// Alongside clones the active craft's state + system, so it
+		// genuinely needs one. (Other paths don't reach here.)
+		if active == nil {
+			return nil, errNoActiveCraftToCopy
+		}
 		// v0.8.3+: place the new craft inside the docking gate of
 		// the active craft, matching its velocity. The 25 m offset
 		// is half the docking distance — close enough that one or
@@ -199,11 +207,23 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		return c, nil
 	}
 
-	primary := active.Primary
+	// Default parent is the active craft's primary; an explicit
+	// ParentBodyID overrides. With an empty slate (no active craft) and
+	// no/unknown parent id, fall back to the system primary so a
+	// post-end-flight spawn still resolves a real body.
+	var primary bodies.CelestialBody
+	if active != nil {
+		primary = active.Primary
+	}
 	if spec.ParentBodyID != "" {
 		sys := w.System()
 		if b := sys.FindBody(spec.ParentBodyID); b != nil {
 			primary = *b
+		}
+	}
+	if primary.ID == "" {
+		if sys := w.System(); len(sys.Bodies) > 0 {
+			primary = sys.Bodies[0]
 		}
 	}
 

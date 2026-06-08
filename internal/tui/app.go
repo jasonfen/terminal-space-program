@@ -487,6 +487,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if c, err := a.world.SpawnCraft(spec); err == nil {
 					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
 					a.statusExpires = time.Now().Add(3 * time.Second)
+				} else {
+					// Surface the failure instead of silently returning to
+					// orbit — a swallowed error reads as "nothing happens".
+					a.statusMsg = fmt.Sprintf("spawn failed: %v", err)
+					a.statusExpires = time.Now().Add(3 * time.Second)
 				}
 				a.active = screenOrbit
 			case screens.SpawnActionCancel:
