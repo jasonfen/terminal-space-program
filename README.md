@@ -35,6 +35,21 @@ The visual foundation was lifted (with MIT attribution) from
 
 ## Install
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install --cask jasonfen/tap/terminal-space-program
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add jasonfen https://github.com/jasonfen/scoop-bucket
+scoop install terminal-space-program
+```
+
+### Direct download
+
 ```bash
 # Linux x86_64
 curl -L https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.tar.gz | tar xz
