@@ -13,7 +13,7 @@ I love **Kerbal Space Program**, I love **TUI Applications**. I decided the two 
 
 <img align="right" width="250" src="media/orbit-rendering.gif" alt="Orbit rendering in the launch / landing chase-cam view">
 
-By default, you spawn in an Apollo-style SIV-B in a 500km circular orbit. Switch targets to Moon (press t to switch and T to clear). Plant a Hohmann transfer + inclination change (press H). Or, fly it all manually. See **[Controls & flight guide](docs/controls.md)** — a quick tour, a launch walkthrough, and the full list of keys.
+By default, you spawn in an Apollo-style SIV-B in a 500km circular orbit. Switch targets to Moon (press t to switch and T to clear). Plant a Hohmann transfer + inclination change (press H). Or, fly it all manually. See **[Controls & flight guide](docs/controls.md)** for a quick tour, a launch walkthrough, and the full list of keys.
 
 Plan transfers between planets and moons, fly your rocket off the pad and into orbit
 by hand, rendezvous and dock, stage away spent boosters, and bring a capsule
@@ -21,13 +21,10 @@ home under parachute — all drawn with braille-canvas graphics and driven from
 the keyboard. No mouse required, no GUI, just a single binary in your terminal.
 
 Under the hood it's a real orbital-mechanics sim: gravity, fuel, atmospheric drag, and timing all
-matter, the way they do in real life. Unlike KSP (without mods), the default game renders our solar system. Launches are hard they take 7.5km/s for LEO - just like real life. The moon is inclined, the earth is tilted on its axis. To match the real solar systems, there are real life vessels with accurate loadouts of thrust.
+matter, the way they do in real life. Unlike KSP (without mods), the default game renders our solar system. Launches are hard, they take 7.5km/s for LEO - just like real life. The moon is inclined, the earth is tilted on its axis. To match the real solar systems, there are real life vessels with accurate loadouts of thrust.
 
-Recently added:
-
-* A familiar "easy" system named Lumon - It's home to a planet named Kern, with two moons - Cursor and Glyph.
-* Lumon-specific vessel, accounting for the 1/10th scale solar system it will live in.
-* Inclination-aware Hohmann transfers.
+## Recently Introduced 
+A familiar 1/10th-scale system named Lumen; home to a familiar planet, Kernel, with two moons, Cursor and Glyph - and a nearby red planet, Rust. A Lumen-specific vessel is scaled to that environment. It's a little rough appearance-wise as I haven't ported any textures over to that system, but vessels fly and hit familiar Delta-V marks for launch, Cursor (Mun) transfers, etc. From a default game launch press TAB to cycle through the available solar systems until you reach Lumen. Press F to cycle to the planet Kernel, then press N to spawn a craft there.
 
 The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
