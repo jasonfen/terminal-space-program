@@ -527,6 +527,7 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 				fmt.Sprintf("  apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
 				fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
 				fmt.Sprintf("  inclin.:   %.2f°", ro.Inclination*180/math.Pi),
+				fmt.Sprintf("  direction: %s", v.orbitDirectionLabel(ro.Inclination)),
 			)
 			const equatorialTol = 1e-3
 			if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
@@ -568,6 +569,7 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 		lines = append(lines, chipRow("t→peri:", formatDurationShort(tPeri)))
 	}
 	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
+	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
 	}
@@ -691,6 +693,21 @@ const chipValueCol = 13
 // column instead of drifting per label. Padding is measured in display
 // cells (lipgloss.Width), so multibyte labels like "Δi:" and styled values
 // align correctly where byte-counted %-Ns padding would not.
+// orbitDirectionLabel renders the prograde/retrograde orbit-direction
+// readout for an equatorial-frame inclination (radians). i > 90° means
+// the orbit runs retrograde — against the primary's spin. This is the
+// instrument that disambiguates a genuine orbit reversal from a
+// projection / day-night-shading artifact near the disk edge (issue
+// #63): the on-screen position can mislead, but the direction label is
+// ground truth. Prograde is the unremarkable case (plain text);
+// retrograde is flagged.
+func (v *OrbitView) orbitDirectionLabel(incRad float64) string {
+	if incRad > math.Pi/2 {
+		return v.theme.Alert.Render("retrograde")
+	}
+	return "prograde"
+}
+
 func chipRow(label, value string) string {
 	prefix := "  " + label
 	pad := chipValueCol - lipgloss.Width(prefix)

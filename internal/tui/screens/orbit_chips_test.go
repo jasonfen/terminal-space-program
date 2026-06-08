@@ -392,6 +392,40 @@ func TestOrbitMetricsAlwaysOnAndLiveBurnForceShows(t *testing.T) {
 	}
 }
 
+// TestOrbitMetricsShowsDirectionIndicator — issue #63: the ORBIT chip
+// carries an explicit prograde/retrograde orbit-direction readout so a
+// genuine reversal is never confused with a projection/shading artifact.
+// Default LEO reads prograde; flipping the velocity (h sign reverses →
+// inclination crosses 90°) flips the readout to retrograde.
+func TestOrbitMetricsShowsDirectionIndicator(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	joined := strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	if !strings.Contains(joined, "direction:") {
+		t.Fatalf("ORBIT chip missing the direction readout:\n%s", joined)
+	}
+	if !strings.Contains(joined, "prograde") {
+		t.Errorf("default LEO should read prograde:\n%s", joined)
+	}
+
+	// Reverse the orbit: negating v flips h = r×v, pushing inclination
+	// past 90° → retrograde.
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.State.V = c.State.V.Scale(-1)
+	joined = strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	if !strings.Contains(joined, "retrograde") {
+		t.Errorf("reversed orbit should read retrograde:\n%s", joined)
+	}
+}
+
 // TestActiveCraftGlyphWinsOverlappingCell — regression for the lunar-orbit
 // staging report ("descent module disappears when I stage it"). A
 // just-jettisoned stage spawns ~60 m from the active craft — sub-pixel at
