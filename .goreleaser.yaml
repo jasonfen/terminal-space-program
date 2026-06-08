@@ -64,3 +64,54 @@ release:
     name: terminal-space-program
   draft: false
   prerelease: auto
+
+# Homebrew (macOS/Linux) — published to a personal tap, not homebrew-core.
+# Users: `brew install --cask jasonfen/tap/terminal-space-program`.
+# v2 note: `brews:` (formula) is deprecated → removed in v2.16; the cask
+# block is the supported path for pre-compiled binaries. Pushing to the
+# tap repo needs a PAT with write access (the release's default
+# GITHUB_TOKEN is scoped to this repo only) — see TAP_GITHUB_TOKEN below.
+homebrew_casks:
+  - name: terminal-space-program
+    binaries:
+      - terminal-space-program
+    directory: Casks
+    homepage: "https://github.com/jasonfen/terminal-space-program"
+    description: "Terminal-native orbital-mechanics rocket simulator (KSP in your terminal)"
+    commit_msg_template: "cask: update {{ .ProjectName }} to {{ .Tag }}"
+    repository:
+      owner: jasonfen
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: goreleaserbot@users.noreply.github.com
+    # The binary isn't code-signed/notarized, so strip the quarantine
+    # bit on install — otherwise macOS Gatekeeper blocks first launch.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/terminal-space-program"]
+          end
+
+# Scoop (Windows) — published to a personal bucket.
+# Users: `scoop bucket add jasonfen https://github.com/jasonfen/scoop-bucket`
+#        `scoop install terminal-space-program`.
+# Auto-selects the Windows archive; same PAT as the cask tap.
+scoops:
+  - name: terminal-space-program
+    directory: bucket
+    homepage: "https://github.com/jasonfen/terminal-space-program"
+    description: "Terminal-native orbital-mechanics rocket simulator (KSP in your terminal)"
+    license: MIT
+    commit_msg_template: "scoop: update {{ .ProjectName }} to {{ .Tag }}"
+    repository:
+      owner: jasonfen
+      name: scoop-bucket
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: goreleaserbot@users.noreply.github.com
