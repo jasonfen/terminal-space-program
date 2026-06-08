@@ -426,6 +426,52 @@ func TestOrbitMetricsShowsDirectionIndicator(t *testing.T) {
 	}
 }
 
+// TestProjectedOrbitIsSeparateChip — issue #63 follow-up: the projected
+// post-burn orbit is its own PROJECTED ORBIT chip stacked beneath the
+// always-on ORBIT chip, so planting a node shows the current and
+// projected orbits simultaneously instead of the projection replacing
+// the live readout.
+func TestProjectedOrbitIsSeparateChip(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	// No node planted: the live ORBIT chip renders, the projected chip
+	// is absent.
+	if got := v.buildProjectedOrbitChip(w); got != nil {
+		t.Errorf("projected chip should be nil with no planted node, got:\n%s", strings.Join(got, "\n"))
+	}
+	cur := strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	if !strings.Contains(cur, "ORBIT") || strings.Contains(cur, "PROJECTED ORBIT") {
+		t.Fatalf("expected the live ORBIT chip with no node planted:\n%s", cur)
+	}
+
+	// Plant a resolved prograde node → both chips render together.
+	w.PlanNode(sim.ManeuverNode{
+		TriggerTime: w.Clock.SimTime.Add(30 * time.Minute),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          100,
+		PrimaryID:   w.ActiveCraft().Primary.ID,
+	})
+	cur = strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	proj := strings.Join(v.buildProjectedOrbitChip(w), "\n")
+	if !strings.Contains(cur, "altitude:") || strings.Contains(cur, "PROJECTED ORBIT") {
+		t.Errorf("the current ORBIT chip must stay live (not replaced by the projection):\n%s", cur)
+	}
+	if !strings.Contains(proj, "PROJECTED ORBIT") {
+		t.Errorf("the projected chip must render once a node is planted:\n%s", proj)
+	}
+
+	// End to end: both headers appear in a rendered frame.
+	out := v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "ORBIT") || !strings.Contains(out, "PROJECTED ORBIT") {
+		t.Errorf("a rendered frame with a planted node must show both ORBIT and PROJECTED ORBIT:\n%s", out)
+	}
+}
+
 // TestActiveCraftGlyphWinsOverlappingCell — regression for the lunar-orbit
 // staging report ("descent module disappears when I stage it"). A
 // just-jettisoned stage spawns ~60 m from the active craft — sub-pixel at

@@ -33,6 +33,7 @@ const (
 	ChipCapture         Chip = "capture"
 	ChipFrameTransition Chip = "frameTransition"
 	ChipAttitude        Chip = "attitude"
+	ChipProjectedOrbit  Chip = "projectedOrbit"
 )
 
 // Note: the Orbit-metrics readout and the active-burn (BURNS) readout are
@@ -57,6 +58,7 @@ var AllChips = []Chip{
 	ChipCapture,
 	ChipFrameTransition,
 	ChipAttitude,
+	ChipProjectedOrbit,
 }
 
 // chipLabels maps each Chip to the human-readable name the Settings
@@ -72,6 +74,7 @@ var chipLabels = map[Chip]string{
 	ChipCapture:         "Capture preview",
 	ChipFrameTransition: "Frame transition",
 	ChipAttitude:        "Attitude",
+	ChipProjectedOrbit:  "Projected orbit",
 }
 
 // Label returns the display name for c, falling back to the raw key for
