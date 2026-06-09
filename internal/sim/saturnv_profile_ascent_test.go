@@ -87,14 +87,13 @@ func flyApolloStackClosedLoop(t *testing.T, earth bodies.CelestialBody, stages [
 		return m
 	}
 	osc := func() (apoAlt, periAlt, ecc, vUp float64, bound bool) {
-		sp := physics.StateVector{R: r, V: v, M: totalMass()}
-		a := physics.SemimajorAxis(sp, mu)
-		h := r.Cross(v).Norm()
-		eps := physics.SpecificEnergy(sp, mu)
-		ecc = math.Sqrt(math.Max(0, 1+2*eps*h*h/(mu*mu)))
+		// Osculating shape is mass-independent (two-body) — reuse the canonical
+		// element solver instead of re-deriving e / apo / peri by hand.
+		el := orbital.ElementsFromState(r, v, mu)
+		ecc = el.E
 		vUp = v.Dot(r.Unit())
-		if a > 0 {
-			return a*(1+ecc) - Re, a*(1-ecc) - Re, ecc, vUp, true
+		if el.A > 0 {
+			return el.Apoapsis() - Re, el.Periapsis() - Re, ecc, vUp, true
 		}
 		return math.NaN(), math.NaN(), ecc, vUp, false
 	}
@@ -278,21 +277,38 @@ func TestApolloStackClosedLoopAscent(t *testing.T) {
 	// S-IVB propellant at park) that reaches a near-circular low parking
 	// orbit. The efficient frontier lofts apoapsis a little above 185 km —
 	// the minimum-Δv injection carries some vertical velocity up rather
-	// than burning it off to pin apoapsis exactly — so accept any tidy
-	// near-circular LEO in the 170–210 km band around the 185 km target.
+	// than burning it off to pin apoapsis exactly — so accept a tidy
+	// near-circular LEO pinned to the 185 km target: both apsides within
+	// ~10 km of nominal. (The old 170–210 band was wide enough that a
+	// systematic guidance undershoot — which burns less fuel and so scores
+	// as "more efficient" — would be selected as best; pinning near 185
+	// stops a low orbit from masquerading as the winner. GH #86 #2.)
 	parksClean := func(r closedLoopResult) bool {
 		return r.reached && r.ecc <= 0.01 &&
-			r.periKm >= 170 && r.apoKm <= 210
+			r.periKm >= 175 && r.apoKm <= 195
 	}
 	best := closedLoopResult{}
+	cleanCount := 0
 	for vt := 1800.0; vt <= 3400.0; vt += 25.0 {
 		res := flyApolloStackClosedLoop(t, earth, stages, payload, vt, targetAlt, false)
-		if parksClean(res) && res.fuelLeftSIVB > best.fuelLeftSIVB {
-			best = res
+		if parksClean(res) {
+			cleanCount++
+			if res.fuelLeftSIVB > best.fuelLeftSIVB {
+				best = res
+			}
 		}
 	}
 	if !best.reached {
 		t.Fatalf("no swept ascent reached a near-circular parking orbit near %.0f km", targetAlt/1000)
+	}
+	// The winning vTarget must not sit alone on the feasibility edge: if only
+	// one sweep step parks clean, the single-step winner is at the mercy of
+	// FMA/GOARCH/dt drift (the next step up or down flips feasibility), and the
+	// downstream loss / TLI numbers ride a razor edge. Require a few clean runs
+	// so the bands below describe a stable plateau, not a knife-edge. GH #86 #4.
+	if cleanCount < 3 {
+		t.Fatalf("only %d swept ascent(s) parked clean near %.0f km — winner is on the feasibility edge; widen the search or revisit guidance",
+			cleanCount, targetAlt/1000)
 	}
 
 	t.Logf("Closed-loop Apollo Stack ascent to %.0f km circular (payload above S-IVB = %.0f kg):",
@@ -329,20 +345,37 @@ func TestApolloStackClosedLoopAscent(t *testing.T) {
 	t.Logf("  S-IVB at park %.0f m/s vs TLI %.0f → margin %+.0f m/s (plane change + partial capture)",
 		sivbTLI, tliNeed, sivbTLI-tliNeed)
 
-	// Efficiency guard: the late-hold gravity turn must beat the lossy
-	// open-loop schedule (~2950 m/s loss) by a clear margin.
-	if loss > 2500 {
-		t.Errorf("ascent loss %.0f m/s too high — guidance is not flying an efficient gravity turn", loss)
+	// Efficiency guard — TWO-SIDED (GH #86 #1). The late-hold gravity turn must
+	// beat the lossy open-loop schedule (~2950 m/s loss) by a clear margin
+	// (upper bound), but the loss must also stay physically plausible (lower
+	// bound). An upper-bound-only guard passes when a force-model regression
+	// UNDER-counts ascent cost — weakened DragAccel, inflated thrust, or
+	// deflated mass all drop `expended`, sending `loss` below 2500 (green) while
+	// the very regression this test exists to catch goes unnoticed. The real
+	// flown loss is ~2271 m/s; the [1900, 2500] band brackets it with room for
+	// arch/dt drift while still flagging a force model that has gone soft.
+	if loss < 1900 || loss > 2500 {
+		t.Errorf("ascent loss %.0f m/s outside the plausible [1900, 2500] band — guidance is not flying an efficient gravity turn, or a force model is under-counting cost", loss)
 	}
-	// The headline: an efficient ascent leaves the S-IVB a comfortable TLI
-	// margin (TLI + overhead for the plane change and part of lunar capture).
-	if sivbTLI < tliNeed {
-		t.Errorf("S-IVB Δv at park %.0f m/s short of TLI %.0f — ascent too lossy", sivbTLI, tliNeed)
+	// S-IVB TLI margin — also TWO-SIDED. The lower bound is the headline (an
+	// efficient ascent leaves the S-IVB enough Δv for TLI + plane change +
+	// partial capture). The upper bound is the same under-counting tripwire from
+	// the other side: under-counted ascent cost leaves implausibly much S-IVB
+	// propellant, inflating the TLI figure. Real is ~3428 m/s; cap at 3650.
+	if sivbTLI < tliNeed || sivbTLI > 3650 {
+		t.Errorf("S-IVB Δv at park %.0f m/s outside the [%.0f, 3650] band — ascent too lossy (short of TLI) or a force model is under-counting cost (implausibly high)", sivbTLI, tliNeed)
 	}
 
-	// Parking-orbit assertion: a real near-circular LEO around 185 km.
+	// Parking-orbit assertion: a real near-circular LEO PINNED to 185 km, not
+	// merely inside a wide band (GH #86 #2). parksClean already bounds the
+	// apsides to ±10 km; pin the mean altitude near nominal so a guidance
+	// regression that systematically inserts low can't slip through.
 	if !parksClean(final) {
 		t.Errorf("not a tidy near-circular parking orbit: apo %.1f peri %.1f ecc %.4f",
 			final.apoKm, final.periKm, final.ecc)
+	}
+	if meanAlt := (final.apoKm + final.periKm) / 2; math.Abs(meanAlt-185) > 10 {
+		t.Errorf("parking orbit mean altitude %.1f km not pinned near 185 km (apo %.1f peri %.1f)",
+			meanAlt, final.apoKm, final.periKm)
 	}
 }
