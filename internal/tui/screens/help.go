@@ -105,6 +105,7 @@ var helpSections = []helpSection{
 		{"click node", "open the planner for that node (canvas glyph or NODES row)"},
 		{"click empty", "open the planner at the projected orbit point"},
 		{"click HUD", "open body info"},
+		{"[»Burn]", "toggle auto-warp to the next burn (same as G); [■Burn] while running, dimmed when none planned"},
 	}},
 }
 
