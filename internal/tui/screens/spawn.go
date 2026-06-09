@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -20,7 +21,7 @@ type SpawnCraft struct {
 	fieldIdx int // 0=loadout, 1=position, 2=parent, 3=alt/lat, 4=direction, 5=stack(custom only)
 
 	loadoutIdx   int
-	posMode      spawnPosMode // v0.9.2+: tri-state — orbit / alongside / launchpad
+	posMode      spawnPosMode           // v0.9.2+: tri-state — orbit / alongside / launchpad
 	parentBodies []bodies.CelestialBody // populated by Reset
 	parentIdx    int
 	altIdx       int
@@ -63,32 +64,10 @@ const (
 // transfer alts, and high-Earth / interplanetary capture orbits.
 var altitudePresets = []int{200, 500, 1000, 2000, 5000, 10000, 35786}
 
-// LaunchSitePreset bundles a named real-world launch site with its
-// real-world latitude + longitude (east-positive, relative to Earth's
-// prime meridian). v0.9.2+. The form's LATITUDE field cycles through
-// these so picking "Cape Canaveral" lands the craft on KSC LC-39A,
-// not just at "the right latitude."
-type LaunchSitePreset struct {
-	Name      string
-	LatitudeDeg float64
-	// LongitudeEastDeg is east-positive longitude in degrees relative
-	// to the body's prime meridian at simTime=0 (our pseudo-Greenwich
-	// convention — see SpawnSpec.LongitudeOffset doc).
-	LongitudeEastDeg float64
-}
-
-// launchSitePresets is the form's named-site cycle. Default is
-// index 1 (Cape Canaveral KSC LC-39A), so opening the spawn form
-// with launchpad selected lands a Saturn V at the historical Apollo
-// pad. Equator at index 0 is the textbook best-case baseline; the
-// other entries pin to real-world Earth launch sites.
-var launchSitePresets = []LaunchSitePreset{
-	{Name: "Equator", LatitudeDeg: 0.0, LongitudeEastDeg: 0.0},
-	{Name: "Cape Canaveral (KSC LC-39A)", LatitudeDeg: 28.6083, LongitudeEastDeg: -80.604},
-	{Name: "Baikonur Cosmodrome", LatitudeDeg: 45.965, LongitudeEastDeg: 63.342},
-	{Name: "Plesetsk Cosmodrome", LatitudeDeg: 62.926, LongitudeEastDeg: 40.577},
-	{Name: "North Pole", LatitudeDeg: 90.0, LongitudeEastDeg: 0.0},
-}
+// The form's LATITUDE field cycles through the shared named-site list
+// sim.LaunchSites (v0.17: hoisted to internal/sim so the form and the
+// --launch-site CLI flag resolve the same set). Picking "Cape Canaveral"
+// lands the craft on KSC LC-39A, not just at "the right latitude."
 
 // NewSpawnCraft constructs the screen.
 func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
@@ -203,20 +182,20 @@ func (s *SpawnCraft) SelectedLaunchpad() bool { return s.posMode == posLaunchpad
 // north) when SelectedLaunchpad is true. Defaults to KSC LC-39A
 // (28.6083°N) when the cursor is out of range. v0.9.2+.
 func (s *SpawnCraft) SelectedLatitudeDeg() float64 {
-	if s.latIdx < 0 || s.latIdx >= len(launchSitePresets) {
+	if s.latIdx < 0 || s.latIdx >= len(sim.LaunchSites) {
 		return 28.6083
 	}
-	return launchSitePresets[s.latIdx].LatitudeDeg
+	return sim.LaunchSites[s.latIdx].LatitudeDeg
 }
 
 // SelectedLongitudeEastDeg returns the chosen surface longitude
 // offset (degrees east of pseudo-Greenwich). Defaults to KSC
 // (-80.604°E) when the cursor is out of range. v0.9.2+.
 func (s *SpawnCraft) SelectedLongitudeEastDeg() float64 {
-	if s.latIdx < 0 || s.latIdx >= len(launchSitePresets) {
+	if s.latIdx < 0 || s.latIdx >= len(sim.LaunchSites) {
 		return -80.604
 	}
-	return launchSitePresets[s.latIdx].LongitudeEastDeg
+	return sim.LaunchSites[s.latIdx].LongitudeEastDeg
 }
 
 // fieldOrder returns the field indices in visual (top-to-bottom) order,
@@ -361,7 +340,7 @@ func (s *SpawnCraft) cycleField(step int) {
 		}
 	case 3:
 		if s.posMode == posLaunchpad {
-			s.latIdx = wrapIdx(s.latIdx+step, len(launchSitePresets))
+			s.latIdx = wrapIdx(s.latIdx+step, len(sim.LaunchSites))
 		} else {
 			s.altIdx = wrapIdx(s.altIdx+step, len(altitudePresets))
 		}
@@ -531,7 +510,7 @@ func (s *SpawnCraft) Render(width int) string {
 	lines = append(lines, "")
 	if s.posMode == posLaunchpad {
 		lines = append(lines, s.fieldHeader(3, "LAUNCH SITE"))
-		site := launchSitePresets[s.latIdx]
+		site := sim.LaunchSites[s.latIdx]
 		hemi := "N"
 		latAbs := site.LatitudeDeg
 		if latAbs < 0 {

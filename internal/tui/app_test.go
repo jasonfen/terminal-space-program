@@ -15,7 +15,7 @@ import (
 // Clicking the navball panel's [MODE] button cycles NavMode and
 // surfaces the same status toast the CycleNavMode key does.
 func TestDispatchNavballControlMode(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestDispatchNavballControlMode(t *testing.T) {
 // Clicking an axis button holds that SAS intent — same path as the
 // keyboard, with NavMode rebinding applied via ResolveAttitudeIntent.
 func TestDispatchNavballControlAxis(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestDispatchNavballControlAxis(t *testing.T) {
 
 // Clicking the RCS toggle flips EngineMode both ways and toasts.
 func TestDispatchNavballControlRCS(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestDispatchNavballControlRCS(t *testing.T) {
 // Clicking the [SAS] tag flips World.InstantSAS both ways and toasts
 // the new model name — the locked-decision non-silent surfacing.
 func TestDispatchNavballControlSAS(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestDispatchNavballControlSAS(t *testing.T) {
 // craft slot; an empty slot is a no-op. Guards the digit-parse +
 // binding wiring behind World.SwitchToCraftIdx.
 func TestCraftSlotKeyJumps(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestSettingsScreenRoundTripPersists(t *testing.T) {
 	// clobber the developer's real config.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestSettingsScreenRoundTripPersists(t *testing.T) {
 
 // Clicking the target ± buttons holds BurnTarget / BurnAntiTarget.
 func TestDispatchNavballControlTarget(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestDispatchNavballControlTarget(t *testing.T) {
 // an engaged driver, leaving Selected Warp to apply from the player's
 // own rate (ADR 0016).
 func TestAutoWarpKeyToggleAndManualCancel(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestAutoWarpKeyToggleAndManualCancel(t *testing.T) {
 // re-plant, so an engaged Auto-Warp target keeps resolving instead of
 // silently disengaging. Pre-fix the re-plant minted a fresh ID.
 func TestEditedNodeKeepsIDForAutoWarp(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestEditedNodeKeepsIDForAutoWarp(t *testing.T) {
 // TestCancelWarpKeyDropsToOneX — `/` cancels Auto-Warp and resets
 // Selected Warp to 1× from any warp state.
 func TestCancelWarpKeyDropsToOneX(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestCancelWarpKeyDropsToOneX(t *testing.T) {
 // TestHelpOnF1AndTrimResetOnQuestion locks the v0.16 keybinding move:
 // Help opens on F1 (not `?`), and `?` now resets pitch trim.
 func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {
-	a, err := New()
+	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

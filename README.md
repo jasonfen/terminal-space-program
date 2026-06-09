@@ -70,10 +70,30 @@ go build ./cmd/terminal-space-program
 
 Requires Go 1.24 or newer.
 
+## Command-line flags
+
+By default the game opens with a vessel in low Earth orbit. Flags let you jump
+straight to a different start — a system, a body to orbit or launch from, an
+orbit altitude and inclination, or a named launch site:
+
+```bash
+terminal-space-program --orbit moon --altitude 100km          # 100 km lunar orbit
+terminal-space-program --system Lumen --orbit kern --loadout Kern-Stack
+terminal-space-program --orbit earth --altitude 400km --inclination 51.6
+terminal-space-program --launch-site KSC --loadout Saturn-V    # on the pad
+terminal-space-program --list-bodies --system Lumen           # discover names
+terminal-space-program --version
+```
+
+`--version` and the `--list-*` discovery flags print and exit. See the
+**[command-line reference](docs/cli.md)** for every flag, units, defaults, and
+more examples.
+
 ## Learn more
 
 - **[Controls & flight guide](docs/controls.md)** — a quick tour, a launch
   walkthrough, and the full list of keys.
+- **[Command-line reference](docs/cli.md)** — every startup flag with examples.
 - **[Version history](docs/version-history.md)** — what landed in each release.
 
 ## License
