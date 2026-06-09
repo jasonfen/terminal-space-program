@@ -1429,6 +1429,114 @@ func shouldShowDescentHUD(c *spacecraft.Spacecraft) bool {
 	return false
 }
 
+// FlightPhase is a coarse classification of where a vessel is in its
+// flight — pad / ascent / cruise / transfer / approach / descent / landed.
+// It consolidates the signals the chip-relevance predicates above already
+// read (atmosphere, altitude bands, orbit eccentricity, radial-velocity
+// sign, the Landed flag) into one named vocabulary.
+//
+// v0.16.1 scaffolding (consolidation only): nothing renders against this
+// yet, so deriving it changes no on-screen behaviour. It exists so a later
+// chip timing+content slice can gate chips on a single phase value instead
+// of re-deriving the regime per chip. To stay a true consolidation rather
+// than a second source of truth, the atmospheric-ascent and airless-descent
+// branches defer to the authoritative shouldShowLaunchHUD /
+// shouldShowDescentHUD predicates rather than re-implementing their (subtle,
+// well-commented) gates.
+type FlightPhase int
+
+const (
+	// PhaseCoast is the zero value: a near-circular bound parking / cruise
+	// orbit, and the safe fallback for nil / degenerate state.
+	PhaseCoast FlightPhase = iota
+	PhasePrelaunch
+	PhaseAscent
+	PhaseTransfer
+	PhaseApproach
+	PhaseDescent
+	PhaseLanded
+)
+
+func (p FlightPhase) String() string {
+	switch p {
+	case PhasePrelaunch:
+		return "prelaunch"
+	case PhaseAscent:
+		return "ascent"
+	case PhaseTransfer:
+		return "transfer"
+	case PhaseApproach:
+		return "approach"
+	case PhaseDescent:
+		return "descent"
+	case PhaseLanded:
+		return "landed"
+	default:
+		return "coast"
+	}
+}
+
+// transferEccThreshold is the eccentricity above which a bound orbit reads
+// as a transfer/encounter arc rather than a parking-orbit Coast. 0.2 keeps
+// a slightly-elliptical LEO classed as Coast while a Hohmann transfer
+// ellipse (e ≈ 0.7 LEO→GEO, higher for lunar) reads as Transfer/Approach.
+const transferEccThreshold = 0.2
+
+// prelaunchAltM is the altitude below which an ascending atmospheric vessel
+// reads as just off the pad (Prelaunch) rather than in active climb
+// (Ascent). Matches the tower-clear scale used by the ascent guidance. Note
+// a vessel actually *on* the ground is PhaseLanded (the Landed flag wins);
+// Prelaunch is the brief airborne, below-tower-clear window right after
+// release. The on-ground state can't be told apart from a post-mission
+// landing by state alone, so both collapse to Landed.
+const prelaunchAltM = 1000.0
+
+// deriveFlightPhase classifies a vessel's current flight phase from its own
+// state. Pure (no World dependency) so it can be unit-tested in isolation.
+// See FlightPhase for the consolidation-only intent.
+func deriveFlightPhase(c *spacecraft.Spacecraft) FlightPhase {
+	if c == nil {
+		return PhaseCoast
+	}
+	if c.Landed {
+		return PhaseLanded
+	}
+	// Radial velocity sign separates outbound (climbing) from inbound
+	// (falling toward periapsis / an encounter).
+	var vUp float64
+	if r := c.State.R; r.Norm() > 0 {
+		vUp = c.State.V.Dot(r.Unit())
+	}
+	// Atmospheric ascent — defer to the authoritative launch predicate, then
+	// split pad-bound Prelaunch from active Ascent. A descending vessel low
+	// in the atmosphere (re-entry) is suborbital and would also satisfy the
+	// launch predicate, so require non-descending to count as ascent.
+	if shouldShowLaunchHUD(c) && vUp >= 0 {
+		if c.Altitude() < prelaunchAltM {
+			return PhasePrelaunch
+		}
+		return PhaseAscent
+	}
+	// Airless surface-proximity — defer to the authoritative descent predicate.
+	if shouldShowDescentHUD(c) {
+		return PhaseDescent
+	}
+	// Otherwise we're on an orbit / transfer arc; classify by shape + direction.
+	mu := c.Primary.GravitationalParameter()
+	if mu == 0 {
+		return PhaseCoast
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	bound := el.E < 1 && el.A > 0
+	if !bound || el.E >= transferEccThreshold {
+		if vUp < 0 {
+			return PhaseApproach // inbound — falling toward periapsis / encounter
+		}
+		return PhaseTransfer // outbound — climbing toward apoapsis
+	}
+	return PhaseCoast // near-circular parking / cruise orbit
+}
+
 // formatAltKm renders an altitude in metres as a signed kilometre
 // string with a sign that's friendly to ascent flight ("−2.8 km"
 // reads better than "−2840 m" for sub-orbital periapsis). Used by
