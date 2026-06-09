@@ -83,16 +83,29 @@ type App struct {
 	endFlightConfirm bool
 }
 
-// New builds a root App. Returns an error if systems can't load.
-func New() (*App, error) {
+// New builds a root App. Returns an error if systems can't load. When
+// scenario is non-nil, the fresh world's default LEO seed is replaced per
+// the command-line start scenario (system / body / orbit / launch site);
+// an unknown system / body / loadout there is surfaced as the error. Pass
+// nil for the standard default start. v0.17.
+func New(scenario *sim.StartScenario) (*App, error) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		return nil, err
 	}
-	// Open a fresh game a few hours before the next ideal Moon-transfer
-	// window instead of the ~10 days out the J2000 epoch yields. A false
-	// return just keeps the J2000 start — never fatal.
-	w.AdjustStartForLunarTransferWindow(sim.DefaultLunarTransferLead)
+	if scenario != nil {
+		// A custom start replaces the seed craft; the Earth-Moon lunar
+		// transfer-window adjust below is irrelevant (and wrong for a
+		// non-Earth / non-Sol start), so skip it.
+		if err := w.ApplyStartScenario(*scenario); err != nil {
+			return nil, err
+		}
+	} else {
+		// Open a fresh game a few hours before the next ideal Moon-transfer
+		// window instead of the ~10 days out the J2000 epoch yields. A false
+		// return just keeps the J2000 start — never fatal.
+		w.AdjustStartForLunarTransferWindow(sim.DefaultLunarTransferLead)
+	}
 	th := DefaultTheme()
 	sth := screens.Theme{
 		Primary: th.Primary,

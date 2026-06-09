@@ -76,7 +76,14 @@ type SpawnSpec struct {
 	ParentBodyID string
 	AltitudeM    float64
 	Retrograde   bool
-	Alongside    bool
+	// Inclination (v0.17+) tilts the spawned circular orbit off the
+	// parent's equator by this many degrees, measured in the body-
+	// equatorial frame. Zero (the common case) spawns equatorial,
+	// byte-identical to the pre-v0.17 placement. The orbit stays
+	// circular; only the plane tilts (ascending node along body-frame
+	// +Y, the spawn-position axis). Used by the --inclination CLI flag.
+	Inclination float64
+	Alongside   bool
 
 	// CustomStages (v0.10.1+) is a player-assembled stage list from
 	// the spawn-form stack configurator, bottom-first (same
@@ -320,7 +327,13 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	// (which sits at body-frame +X).
 	frame := orbital.ReferenceFrameForPrimary(primary)
 	rBody := orbital.Vec3{Y: r}
-	vBody := orbital.Vec3{X: -v}
+	// v0.17+: tilt the circular orbit off the equator by spec.Inclination.
+	// The spawn point (+Y) is the ascending node, so the plane rotates
+	// about the +Y axis: the prograde in-plane velocity (-X) tips toward
+	// +Z by the inclination angle. At i=0 this is exactly {X: -v} (and the
+	// retrograde sign flows through v), so the equatorial path is unchanged.
+	inc := spec.Inclination * math.Pi / 180
+	vBody := orbital.Vec3{X: -v * math.Cos(inc), Z: v * math.Sin(inc)}
 	c.Primary = primary
 	// v0.16 / ADR 0015: bind the new Vessel to the viewed System.
 	c.SystemIdx = w.SystemIdx
