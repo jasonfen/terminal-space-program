@@ -103,6 +103,156 @@ type SOISegment struct {
 	Points    []orbital.Vec3 // inertial, system-primary-centered
 }
 
+// predictTuning selects fidelity variants of the SOI-aware propagation
+// loops (predictedSegmentsFromTuned and propagateStateWithPrimaryTuned).
+// The zero value reproduces today's shipped behavior exactly; production
+// callers always pass the zero value. The SOI-entry prediction eval
+// harness flips individual knobs to attribute moon-transfer Projected
+// Orbit error to each numeric artifact (vault: warp-orbit-accuracy.md
+// §"2026-06-09 — SOI-entry prediction fidelity"). Knobs that win the
+// attribution become the new defaults in the follow-up fix slice.
+type predictTuning struct {
+	// BodyPerSubStep refreshes body positions (and the SOI-test clock)
+	// every integrator sub-step instead of once per output sample.
+	// Targets the predictedSegmentsFromTuned staleness artifact: the
+	// per-sub-step FindPrimary test otherwise runs against a positions
+	// snapshot up to one sample interval old — hours on a multi-day
+	// transfer horizon, thousands of km of moon motion.
+	BodyPerSubStep bool
+
+	// RefineCrossing bisects the SOI crossing time inside the sub-step
+	// that detected the flip (~40 iterations of the same propagator),
+	// then rebases with body positions and velocities evaluated at the
+	// refined crossing time. Without it the crossing is quantized to
+	// the sub-step that noticed it and the rebase velocities come from
+	// an even staler clock. Same load-bearing trick as
+	// NextClosestApproach's parabolic refinement (CONTEXT.md "Closest
+	// Approach").
+	RefineCrossing bool
+
+	// BodyInterp linearly interpolates body positions between the
+	// sample-boundary ephemeris evaluations for every sub-step's SOI
+	// test — the cheap alternative to BodyPerSubStep (two Kepler
+	// ephemeris evals per sample instead of one, plus vector lerps).
+	// Within one sample a body's arc is <1°, so linearization error is
+	// tens of meters (warp-orbit-accuracy.md §"Analytic SOI crossing").
+	// Ignored when BodyPerSubStep is set.
+	BodyInterp bool
+
+	// CoastSubStepCap, when >0, applies an absolute cap (seconds) to
+	// the coast sub-step of propagateStateWithPrimaryTuned — which
+	// today uses bare period/100 (hours on a transfer ellipse, so SOI
+	// detection quantizes to hours) — and re-resolves the sub-step
+	// after a rebase into a tighter orbit (the #91 treatment, which
+	// predictedSegmentsFromTuned already has). predictMaxSubStepCap
+	// (120 s) is the natural value.
+	CoastSubStepCap float64
+
+	// HyperbolicDtCap, when >0, caps the Verlet dt (seconds) on arcs
+	// where analytic Kepler is ineligible (hyperbolic flyby inside the
+	// target moon's SOI, atmosphere, sub-surface periapsis) by
+	// splitting one sub-step into smaller Verlet steps. Kepler-eligible
+	// arcs are dt-independent and skip the split.
+	HyperbolicDtCap float64
+
+	// MaxSubSteps, when >0, overrides the per-sample / per-call
+	// sub-step perf clamps (256 in predictedSegmentsFromTuned, 1024 in
+	// propagateStateWithPrimaryTuned). The clamps silently re-coarsen
+	// dt on long horizons — the #91 re-resolution asks for ~1 s steps
+	// across a lunar flyby but the 256 clamp hands back ~30 s.
+	MaxSubSteps int
+}
+
+// segSubStepClamp returns the sub-step perf clamp for the segment
+// predictor (legacy 256 unless overridden).
+func (tu predictTuning) segSubStepClamp() int {
+	if tu.MaxSubSteps > 0 {
+		return tu.MaxSubSteps
+	}
+	return 256
+}
+
+// chainSubStepClamp returns the sub-step perf clamp for the node-chain
+// propagator (legacy 1024 unless overridden).
+func (tu predictTuning) chainSubStepClamp() int {
+	if tu.MaxSubSteps > 0 {
+		return tu.MaxSubSteps
+	}
+	return 1024
+}
+
+// soiEntry records one predicted SOI transition: the body whose sphere
+// was entered (or the parent re-entered on exit), the crossing
+// wall-clock — bisection-refined when predictTuning.RefineCrossing is
+// set, otherwise the end of the sub-step that detected the flip — and
+// the craft state in the new primary's frame immediately after rebase.
+// Diagnostic surface for the SOI-entry prediction eval harness;
+// production rendering ignores it.
+type soiEntry struct {
+	BodyID string
+	Clock  time.Time
+	State  physics.StateVector
+}
+
+// predictStepTuned is predictStep with the HyperbolicDtCap knob: when
+// the state is Kepler-ineligible (Verlet fallback territory) and the
+// requested dt exceeds the cap, the step is split into equal Verlet
+// sub-steps no longer than the cap. Kepler-eligible states pass
+// through — the analytic step is exact at any dt.
+func predictStepTuned(state physics.StateVector, mu, dt float64, primary bodies.CelestialBody, bc float64, tu predictTuning) physics.StateVector {
+	if tu.HyperbolicDtCap > 0 && dt > tu.HyperbolicDtCap && !canKeplerStepState(state, mu, primary) {
+		n := int(math.Ceil(dt / tu.HyperbolicDtCap))
+		sub := dt / float64(n)
+		for i := 0; i < n; i++ {
+			state = predictStep(state, mu, sub, primary, bc)
+		}
+		return state
+	}
+	return predictStep(state, mu, dt, primary, bc)
+}
+
+// refineCrossingTime bisects the SOI crossing inside (t0, t0+dt]: preState
+// is the craft state (current-primary frame) at wall-clock t0, known to be
+// inside `current`'s SOI; propagating it by dt flips FindPrimary to a
+// different primary. Returns tau ∈ (0, dt] — the offset of the earliest
+// detected flip — the state at t0+tau (still in the OLD primary's frame),
+// and the crossing candidate at that time. Body positions are evaluated
+// fresh at each probe time, so the sphere is tested where the moon
+// actually is at the candidate crossing instant.
+func (w *World) refineCrossingTime(sys bodies.System, preState physics.StateVector, current bodies.CelestialBody, mu float64, t0 time.Time, dt float64, bc float64, tu predictTuning) (float64, physics.StateVector, physics.Primary) {
+	probe := func(tau float64) (physics.StateVector, physics.Primary, bool) {
+		s := predictStepTuned(preState, mu, tau, current, bc, tu)
+		tc := t0.Add(time.Duration(tau * float64(time.Second)))
+		pos := make(map[string]orbital.Vec3, len(sys.Bodies))
+		for _, b := range sys.Bodies {
+			pos[b.ID] = w.BodyPositionAt(b, tc)
+		}
+		cand := physics.FindPrimary(sys, pos[current.ID].Add(s.R), pos)
+		return s, cand, cand.Body.ID != current.ID
+	}
+
+	lo, hi := 0.0, dt
+	state, cand, flipped := probe(hi)
+	if !flipped {
+		// The flip seen by the caller's (possibly stale-positions) test
+		// does not reproduce against fresh body positions — treat the
+		// sub-step end as the crossing and let the caller's rebase
+		// proceed; the next sub-step re-tests.
+		return dt, state, cand
+	}
+	const iters = 40 // ~dt/2^40 — sub-millisecond on any sane dt
+	for i := 0; i < iters && hi-lo > 1e-3; i++ {
+		mid := (lo + hi) / 2
+		s, c, f := probe(mid)
+		if f {
+			hi, state, cand = mid, s, c
+		} else {
+			lo = mid
+		}
+	}
+	return hi, state, cand
+}
+
 // PredictedSegmentsFrom forward-integrates a post-burn state by
 // totalSeconds and partitions the trajectory into SOISegments,
 // parameterised on the starting primary and clock. Pre-v0.3.0 the
@@ -120,8 +270,18 @@ type SOISegment struct {
 // Output shape (a slice of SOISegments) is unchanged so the renderer
 // keeps working.
 func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, totalSeconds float64, samples int) []SOISegment {
+	segs, _ := w.predictedSegmentsFromTuned(post, startPrimary, startClock, totalSeconds, samples, predictTuning{})
+	return segs
+}
+
+// predictedSegmentsFromTuned is PredictedSegmentsFrom parameterised on
+// predictTuning (zero value = shipped behavior — the production wrapper
+// above always passes it). It additionally reports each SOI transition
+// as a soiEntry so the eval harness can score the predicted entry state
+// without re-deriving it from sampled points.
+func (w *World) predictedSegmentsFromTuned(post physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, totalSeconds float64, samples int, tu predictTuning) ([]SOISegment, []soiEntry) {
 	if w.ActiveCraft() == nil || samples < 2 {
-		return nil
+		return nil, nil
 	}
 
 	sys := w.System()
@@ -145,6 +305,7 @@ func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bod
 		PrimaryID: current.ID,
 		Points:    []orbital.Vec3{positions[current.ID].Add(state.R)},
 	}}
+	var entries []soiEntry
 
 predict:
 	for i := 1; i < samples; i++ {
@@ -152,13 +313,41 @@ predict:
 		if nSub < 1 {
 			nSub = 1
 		}
-		if nSub > 256 {
-			nSub = 256
+		if nSub > tu.segSubStepClamp() {
+			nSub = tu.segSubStepClamp()
 		}
 		dt := stepSecs / float64(nSub)
 		stepDur := time.Duration(stepSecs * float64(time.Second))
+		var posStart, posEnd map[string]orbital.Vec3
+		if tu.BodyInterp && !tu.BodyPerSubStep {
+			posStart = make(map[string]orbital.Vec3, len(sys.Bodies))
+			posEnd = make(map[string]orbital.Vec3, len(sys.Bodies))
+			endClock := clock.Add(stepDur)
+			for _, b := range sys.Bodies {
+				posStart[b.ID] = positions[b.ID]
+				posEnd[b.ID] = w.BodyPositionAt(b, endClock)
+			}
+		}
+		elapsed := 0.0 // seconds integrated into this sample so far
 		for j := 0; j < nSub; j++ {
-			state = predictStep(state, muNow, dt, current, bc)
+			preState := state
+			state = predictStepTuned(state, muNow, dt, current, bc, tu)
+			elapsed += dt
+
+			if tu.BodyPerSubStep {
+				subClock := clock.Add(time.Duration(elapsed * float64(time.Second)))
+				for _, b := range sys.Bodies {
+					positions[b.ID] = w.BodyPositionAt(b, subClock)
+				}
+			} else if tu.BodyInterp {
+				frac := elapsed / stepSecs
+				if frac > 1 {
+					frac = 1
+				}
+				for _, b := range sys.Bodies {
+					positions[b.ID] = posStart[b.ID].Scale(1 - frac).Add(posEnd[b.ID].Scale(frac))
+				}
+			}
 
 			// v0.8.5: stop the predicted line at surface contact so
 			// the dashed trajectory terminates on the body instead of
@@ -174,17 +363,51 @@ predict:
 			crossingInertial := positions[current.ID].Add(state.R)
 			cand := physics.FindPrimary(sys, crossingInertial, positions)
 			if cand.Body.ID != current.ID {
+				// Legacy rebase clock: the positions snapshot the flip was
+				// detected against — the start of this output sample.
+				rebaseClock := clock
+				carry := 0.0 // crossing-refined leftover of this sub-step
+				if tu.RefineCrossing {
+					t0 := clock.Add(time.Duration((elapsed - dt) * float64(time.Second)))
+					tau, refined, refCand := w.refineCrossingTime(sys, preState, current, muNow, t0, dt, bc, tu)
+					if refCand.Body.ID == current.ID {
+						// Phantom crossing: the flip came from the stale
+						// positions snapshot and does not reproduce against
+						// fresh ephemerides (the moving moon's SOI sphere
+						// "lagged" onto/off the craft). Adopt the fresh
+						// snapshot and keep integrating in-frame.
+						state = refined
+						subClock := clock.Add(time.Duration(elapsed * float64(time.Second)))
+						for _, b := range sys.Bodies {
+							positions[b.ID] = w.BodyPositionAt(b, subClock)
+						}
+						continue
+					}
+					state = refined
+					cand = refCand
+					rebaseClock = t0.Add(time.Duration(tau * float64(time.Second)))
+					carry = dt - tau
+					elapsed += tau - dt
+					for _, b := range sys.Bodies {
+						positions[b.ID] = w.BodyPositionAt(b, rebaseClock)
+					}
+					crossingInertial = positions[current.ID].Add(state.R)
+				} else if tu.BodyPerSubStep || tu.BodyInterp {
+					rebaseClock = clock.Add(time.Duration(elapsed * float64(time.Second)))
+				}
+
 				// Close the outgoing segment at the crossing so it
 				// terminates where the new segment begins (no time gap
 				// between the previous output sample and the rebase).
 				segments[len(segments)-1].Points = append(
 					segments[len(segments)-1].Points, crossingInertial)
 
-				vOld := w.bodyInertialVelocityAt(current, clock)
-				vNew := w.bodyInertialVelocityAt(cand.Body, clock)
+				vOld := w.bodyInertialVelocityAt(current, rebaseClock)
+				vNew := w.bodyInertialVelocityAt(cand.Body, rebaseClock)
 				state = physics.Rebase(state, positions[current.ID], cand.Inertial, vOld.Sub(vNew))
 				current = cand.Body
 				muNow = current.GravitationalParameter()
+				entries = append(entries, soiEntry{BodyID: current.ID, Clock: rebaseClock, State: state})
 
 				period = orbitalPeriod(state, muNow)
 				newMaxStep := predictMaxSubStep(period)
@@ -198,15 +421,35 @@ predict:
 				// steps across the encounter, grossly aliasing its geometry.
 				// Re-divide the remaining time into sub-steps sized for the
 				// new orbit (keeping the 256 perf clamp). (#91)
-				if newMaxStep < maxStep {
+				if tu.RefineCrossing {
+					// The refined crossing leaves carry seconds of the
+					// detecting sub-step un-integrated — always re-divide
+					// the remainder, even when the new orbit is no tighter.
+					remainingTime := float64(nSub-j-1)*dt + carry
+					if remainingTime > 0 {
+						effMax := newMaxStep
+						if maxStep < effMax {
+							effMax = maxStep
+						}
+						newNSub := int(math.Ceil(remainingTime / effMax))
+						if newNSub < 1 {
+							newNSub = 1
+						}
+						if newNSub > tu.segSubStepClamp() {
+							newNSub = tu.segSubStepClamp()
+						}
+						nSub = j + 1 + newNSub
+						dt = remainingTime / float64(newNSub)
+					}
+				} else if newMaxStep < maxStep {
 					remainingTime := float64(nSub-j-1) * dt
 					if remainingTime > 0 {
 						newNSub := int(math.Ceil(remainingTime / newMaxStep))
 						if newNSub < 1 {
 							newNSub = 1
 						}
-						if newNSub > 256 {
-							newNSub = 256
+						if newNSub > tu.segSubStepClamp() {
+							newNSub = tu.segSubStepClamp()
 						}
 						nSub = j + 1 + newNSub
 						dt = remainingTime / float64(newNSub)
@@ -225,7 +468,9 @@ predict:
 		// per-sub-step SOI rebase above keeps using the previous-sample
 		// snapshot accurately enough; doing this only at the sample
 		// boundary keeps the refresh count at one per sample (`samples`
-		// is the adaptive budget, capped at predictSamplesMax).
+		// is the adaptive budget, capped at predictSamplesMax). With
+		// tu.BodyPerSubStep the snapshot is already at the sample end;
+		// the refresh below recomputes the same values.
 		clock = clock.Add(stepDur)
 		for _, b := range sys.Bodies {
 			positions[b.ID] = w.BodyPositionAt(b, clock)
@@ -234,5 +479,5 @@ predict:
 		seg := &segments[len(segments)-1]
 		seg.Points = append(seg.Points, positions[current.ID].Add(state.R))
 	}
-	return segments
+	return segments, entries
 }
