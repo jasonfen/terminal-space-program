@@ -112,6 +112,21 @@ type OrbitView struct {
 	// wires the keybinding). While true the chip render rule suppresses
 	// every Chip; the slim HUD column is never affected. Not persisted.
 	declutter bool
+
+	// predictCache memoizes the inertial node-marker + dashed-leg
+	// geometry drawNodes plots, so the SOI-fidelity predictors (ADR 0017,
+	// v0.17.2) don't re-run every render frame — the flip to
+	// defaultPredictTuning raised the site-A cost to ~10 ms/call and
+	// drawNodes ran it per leg per frame. For a coasting craft (drawNodes
+	// returns early during a burn) the geometry is a pure function of
+	// (active craft, planted nodes, clock); predictRenderKeyAt buckets the
+	// clock to a small fraction of the live orbital period, so a paused or
+	// low-warp coast reuses the prediction while a high-warp leap busts the
+	// bucket each tick. Re-projection / zoom-skip happen at plot time, so
+	// camera moves need no recompute. predictCacheComputes counts misses (a
+	// test hook). ADR 0017 decision C.
+	predictCache         predictRenderCache
+	predictCacheComputes int
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
@@ -1150,6 +1165,230 @@ func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.Ce
 // the craft's home SOI use stride-2 (dashed); samples that cross into
 // another body's SOI use stride-1 (solid) so the crossing is visually
 // distinct at a glance.
+// predictRenderCache holds the last computed dashed-orbit geometry and
+// the key it was computed for (ADR 0017 decision C — predict-on-change).
+type predictRenderCache struct {
+	has  bool
+	key  predictRenderKey
+	data predictRenderData
+}
+
+// predictRenderKey is the cheap fingerprint of everything the predicted
+// node markers + dashed legs depend on for a coasting craft: which craft,
+// its primary, the planted nodes, the clock (bucketed), and the live
+// orbital elements (quantized). The elements are conserved under
+// ballistic coast but change the instant any thrust — a manual main burn,
+// an RCS pulse, a firing planted node — alters the orbit; folding them in
+// busts the cache on thrust (whose R/V deltas are NOT clock-derived and so
+// aren't captured by clockBucket alone) without enumerating every thrust
+// source. All fields comparable, so a cache check is a single struct ==.
+type predictRenderKey struct {
+	craftID     uint64
+	primaryID   string
+	nodeFinger  uint64
+	clockBucket int64
+	aQ          int64 // semimajor axis, 1 km quanta
+	eQ          int64 // eccentricity, 1e-4 quanta
+	iQ          int64 // inclination, ~0.006° quanta
+	omegaQ      int64 // RAAN Ω
+	argQ        int64 // argument of periapsis ω
+}
+
+// predictRenderData is the projection-independent geometry to plot:
+// inertial node markers and per-leg colored SOI segments. Re-projected
+// and zoom-skipped at plot time every frame, so camera / zoom changes
+// need no recompute.
+type predictRenderData struct {
+	markers []predictMarker
+	legs    []predictLegDraw
+}
+
+type predictMarker struct {
+	pos  orbital.Vec3
+	size int
+	tag  widgets.CellTag
+}
+
+type predictLegDraw struct {
+	segs  []sim.SOISegment
+	color lipgloss.Color
+	// apoapsisM > 0 ⇒ apply the minOrbitPixels zoom-skip at plot time;
+	// ≤ 0 (hyperbolic / a≤0 / non-finite) ⇒ always draw.
+	apoapsisM float64
+}
+
+const (
+	// predictBucketPeriodFrac sizes the cache's clock bucket at 0.3 % of
+	// the live orbital period — ~1° of arc, below visible granularity —
+	// so a low-warp coast reuses the dashed line for a bounded window.
+	// predictBucketMin/Max clamp it: Max bounds worst-case staleness to
+	// ~1 min regardless of orbit (long-period / hyperbolic / escape legs,
+	// where 0.3 % of the period would be many minutes).
+	predictBucketPeriodFrac = 0.003
+	predictBucketMin        = int64(time.Second)
+	predictBucketMax        = int64(60 * time.Second)
+)
+
+// predictClockBucketNanos is the cache's staleness-tolerance window in
+// nanoseconds: a small fraction of the live orbital period, clamped. An
+// unbound (a ≤ 0 / non-finite) orbit evolves slowly relative to a frame,
+// so it gets the generous max.
+func (v *OrbitView) predictClockBucketNanos(w *sim.World) int64 {
+	c := w.ActiveCraft()
+	if c == nil {
+		return predictBucketMax
+	}
+	el, ok := activeCraftElements(w)
+	if !ok || el.A <= 0 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return predictBucketMax
+	}
+	mu := c.Primary.GravitationalParameter()
+	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
+	b := int64(period * predictBucketPeriodFrac * float64(time.Second))
+	if b < predictBucketMin {
+		b = predictBucketMin
+	}
+	if b > predictBucketMax {
+		b = predictBucketMax
+	}
+	return b
+}
+
+// predictRenderKeyAt builds the cache key for the active craft at clock t.
+func (v *OrbitView) predictRenderKeyAt(w *sim.World, t time.Time) predictRenderKey {
+	c := w.ActiveCraft()
+	key := predictRenderKey{
+		craftID:     c.ID,
+		primaryID:   c.Primary.ID,
+		nodeFinger:  nodeFingerprint(c.Nodes),
+		clockBucket: t.UnixNano() / v.predictClockBucketNanos(w),
+	}
+	// Quantize the live orbital elements (coast-invariant; thrust-sensitive
+	// — see predictRenderKey). Non-finite reads quantize to 0 (stable
+	// across a frame), so a degenerate orbit just falls back to clock-only.
+	if el, ok := activeCraftElements(w); ok {
+		key.aQ = quantize(el.A, 1000)
+		key.eQ = quantize(el.E, 1e-4)
+		key.iQ = quantize(el.I, 1e-4)
+		key.omegaQ = quantize(el.Omega, 1e-4)
+		key.argQ = quantize(el.Arg, 1e-4)
+	}
+	return key
+}
+
+// quantize rounds x to integer multiples of step, returning 0 for a
+// non-finite x (keeps the cache key deterministic and comparable).
+func quantize(x, step float64) int64 {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return 0
+	}
+	return int64(math.Round(x / step))
+}
+
+// nodeFingerprint folds every planted-node field the predicted trajectory
+// depends on into one comparable hash (FNV-1a), so any edit — Δv, timing,
+// mode, target, plane angle, fused-burn direction — busts the cache while
+// a pure clock advance does not.
+func nodeFingerprint(nodes []spacecraft.ManeuverNode) uint64 {
+	h := uint64(14695981039346656037)
+	h = mixU64(h, uint64(len(nodes)))
+	for _, n := range nodes {
+		h = mixU64(h, n.ID)
+		h = mixU64(h, uint64(n.TriggerTime.UnixNano()))
+		h = mixU64(h, uint64(n.Mode))
+		h = mixU64(h, math.Float64bits(n.DV))
+		h = mixU64(h, uint64(n.Duration))
+		h = mixStr(h, n.PrimaryID)
+		h = mixU64(h, uint64(n.Event))
+		h = mixU64(h, math.Float64bits(n.Throttle))
+		h = mixU64(h, n.TargetCraftID)
+		h = mixU64(h, math.Float64bits(n.PlaneChangeRad))
+		h = mixU64(h, math.Float64bits(n.BurnDirUnit.X))
+		h = mixU64(h, math.Float64bits(n.BurnDirUnit.Y))
+		h = mixU64(h, math.Float64bits(n.BurnDirUnit.Z))
+	}
+	return h
+}
+
+func mixU64(h, val uint64) uint64 { return (h ^ val) * 1099511628211 }
+
+func mixStr(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h = mixU64(h, uint64(s[i]))
+	}
+	return h
+}
+
+// cachedPredictedRender returns the dashed-orbit geometry for the active
+// craft, recomputing (the SOI-fidelity predictors) only when the cache key
+// changes — ADR 0017 decision C. Callers (drawNodes) must already have
+// ruled out the no-craft / no-nodes / active-burn cases.
+func (v *OrbitView) cachedPredictedRender(w *sim.World) predictRenderData {
+	key := v.predictRenderKeyAt(w, w.Clock.SimTime)
+	if v.predictCache.has && v.predictCache.key == key {
+		return v.predictCache.data
+	}
+	data := v.computePredictedRender(w)
+	v.predictCache = predictRenderCache{has: true, key: key, data: data}
+	v.predictCacheComputes++
+	return data
+}
+
+// computePredictedRender runs the expensive node-marker + dashed-leg
+// predictions — the cache-miss path. Mirrors the old inline drawNodes
+// loops but returns plot-ready geometry instead of plotting.
+func (v *OrbitView) computePredictedRender(w *sim.World) predictRenderData {
+	c := w.ActiveCraft()
+	homeID := c.Primary.ID
+	var data predictRenderData
+
+	for i, n := range c.Nodes {
+		// Frame-distinct cluster size: home-frame nodes get a tight cross,
+		// foreign-frame (heliocentric or destination-SOI) a larger one so
+		// the player can read which leg is which on auto-planted transfers.
+		size := 6
+		if n.PrimaryID != "" && n.PrimaryID != homeID {
+			size = 10
+		}
+		// v0.6.1: each node's marker matches the color of its resulting
+		// orbit leg, so the cluster glyph and the post-burn dashed orbit
+		// read as a matched pair.
+		data.markers = append(data.markers, predictMarker{
+			pos:  w.NodeInertialPosition(n),
+			size: size,
+			tag: widgets.CellTag{
+				Color:   render.ManeuverSegmentColor(i),
+				NodeIdx: i + 1, // 0 = none; planted node i is 1+i in the tag.
+			},
+		})
+	}
+
+	// v0.6.1: render each post-maneuver leg in its own color so the player
+	// can read which orbit belongs to which planted burn. PredictedLegs
+	// walks all resolved nodes, rebasing each into the node's intended
+	// frame (e.g. Hohmann arrival in Mars frame).
+	for _, leg := range w.PredictedLegs() {
+		legMu := leg.Primary.GravitationalParameter()
+		legEl := orbital.ElementsFromState(leg.State.R, leg.State.V, legMu)
+		// apoapsisM drives the plot-time minOrbitPixels skip; -1 marks a
+		// hyperbolic / a≤0 / non-finite leg that always renders (its
+		// trajectory covers meaningful distance regardless of orbit size).
+		apo := -1.0
+		if legEl.A > 0 && !math.IsNaN(legEl.A) && !math.IsInf(legEl.A, 0) {
+			apo = legEl.Apoapsis()
+		}
+		// Sample budget is adaptive (v0.10.3): ~96 points per orbital
+		// period the leg's horizon spans, so a long inter-node horizon at
+		// high warp no longer smears the dashed orbit.
+		data.legs = append(data.legs, predictLegDraw{
+			segs:      w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples),
+			color:     render.ManeuverSegmentColor(leg.NodeIndex),
+			apoapsisM: apo,
+		})
+	}
+	return data
+}
+
 func (v *OrbitView) drawNodes(w *sim.World) {
 	if w.ActiveCraft() == nil || len(w.ActiveCraft().Nodes) == 0 {
 		return
@@ -1169,50 +1408,27 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		return
 	}
 	homeID := w.ActiveCraft().Primary.ID
-	for i, n := range w.ActiveCraft().Nodes {
-		// Frame-distinct cluster size: home-frame nodes get a tight cross,
-		// foreign-frame (heliocentric or destination-SOI) get a larger
-		// one so the player can see at a glance which leg is which on
-		// auto-planted transfers.
-		size := 6
-		if n.PrimaryID != "" && n.PrimaryID != homeID {
-			size = 10
-		}
-		// v0.6.1: each node's marker matches the color of its
-		// resulting orbit leg, so the cluster glyph and the
-		// post-burn dashed orbit read as a matched pair.
-		v.plotClusterTagged(w.NodeInertialPosition(n), size, widgets.CellTag{
-			Color:   render.ManeuverSegmentColor(i),
-			NodeIdx: i + 1, // 0 = none; planted node i is 1+i in the tag.
-		})
-	}
-
-	// v0.6.1: render each post-maneuver leg in its own color so the
-	// player can read which orbit belongs to which planted burn.
-	// PredictedLegs walks all resolved nodes, rebasing each into the
-	// node's intended frame (e.g. Hohmann arrival in Mars frame).
 	scale := v.canvas.Scale()
-	legs := w.PredictedLegs()
-	for _, leg := range legs {
+
+	// The node markers + dashed legs are a pure function of (craft, nodes,
+	// clock) for a coasting craft; cachedPredictedRender recomputes them
+	// only when that changes (ADR 0017 decision C). Projection and the
+	// zoom-skip below run every frame from the cached inertial geometry.
+	data := v.cachedPredictedRender(w)
+
+	for _, m := range data.markers {
+		v.plotClusterTagged(m.pos, m.size, m.tag)
+	}
+	for _, leg := range data.legs {
 		// Skip legs whose orbit projects too small to convey shape
-		// (heliocentric view of a planet-frame leg). Same rule as
-		// the live ellipse — keeps the canvas from painting a
-		// blob on top of the parent body. Hyperbolic / a≤0 legs
-		// always render: their trajectories cover meaningful
-		// distance regardless of orbit size.
-		legMu := leg.Primary.GravitationalParameter()
-		legEl := orbital.ElementsFromState(leg.State.R, leg.State.V, legMu)
-		if legEl.A > 0 && !math.IsNaN(legEl.A) && !math.IsInf(legEl.A, 0) &&
-			legEl.Apoapsis()*scale < minOrbitPixels {
+		// (heliocentric view of a planet-frame leg) — same rule as the
+		// live ellipse, keeping the canvas from painting a blob on top of
+		// the parent body. apoapsisM ≤ 0 marks a hyperbolic / a≤0 leg that
+		// always renders.
+		if leg.apoapsisM > 0 && leg.apoapsisM*scale < minOrbitPixels {
 			continue
 		}
-
-		// Sample budget is adaptive (v0.10.3): ~96 points per orbital
-		// period the leg's horizon spans, so a long inter-node horizon
-		// at high warp no longer smears the dashed orbit.
-		segs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples)
-		legColor := render.ManeuverSegmentColor(leg.NodeIndex)
-		for _, seg := range segs {
+		for _, seg := range leg.segs {
 			stride := 2
 			if seg.PrimaryID != homeID {
 				stride = 1 // foreign SOI — solid, eye-catching
@@ -1221,7 +1437,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 				if stride > 1 && i%stride == 0 {
 					continue
 				}
-				v.canvas.PlotColored(p, legColor)
+				v.canvas.PlotColored(p, leg.color)
 			}
 		}
 	}

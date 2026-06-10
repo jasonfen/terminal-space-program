@@ -2519,15 +2519,16 @@ func (w *World) propagateCraftWithPrimary(dt float64) (physics.StateVector, bodi
 // of Kepler-ephemeris evaluation per Verlet sub-step, negligible vs the
 // integration itself.
 func (w *World) propagateStateWithPrimary(startState physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, dt float64) (physics.StateVector, bodies.CelestialBody) {
-	state, primary, _ := w.propagateStateWithPrimaryTuned(startState, startPrimary, startClock, dt, predictTuning{})
+	state, primary, _ := w.propagateStateWithPrimaryTuned(startState, startPrimary, startClock, dt, defaultPredictTuning())
 	return state, primary
 }
 
 // propagateStateWithPrimaryTuned is propagateStateWithPrimary
-// parameterised on predictTuning (zero value = shipped behavior — the
-// production wrapper above always passes it), additionally reporting
-// each SOI transition as a soiEntry for the eval harness. Note the two
-// deficiencies this site has that predict.go's segment loop does not:
+// parameterised on predictTuning (zero value = pre-v0.17.2 "legacy"
+// behavior; the production wrapper above passes defaultPredictTuning()),
+// additionally reporting each SOI transition as a soiEntry for the eval
+// harness. Note the two deficiencies the legacy zero value has at this
+// site that predict.go's segment loop does not:
 // the coast sub-step is bare period/100 with NO absolute cap (hours on
 // a transfer ellipse, so SOI detection quantizes to hours), and there
 // is no #91 post-rebase re-resolution (a lunar flyby keeps the
