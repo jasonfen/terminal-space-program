@@ -2519,6 +2519,21 @@ func (w *World) propagateCraftWithPrimary(dt float64) (physics.StateVector, bodi
 // of Kepler-ephemeris evaluation per Verlet sub-step, negligible vs the
 // integration itself.
 func (w *World) propagateStateWithPrimary(startState physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, dt float64) (physics.StateVector, bodies.CelestialBody) {
+	state, primary, _ := w.propagateStateWithPrimaryTuned(startState, startPrimary, startClock, dt, predictTuning{})
+	return state, primary
+}
+
+// propagateStateWithPrimaryTuned is propagateStateWithPrimary
+// parameterised on predictTuning (zero value = shipped behavior — the
+// production wrapper above always passes it), additionally reporting
+// each SOI transition as a soiEntry for the eval harness. Note the two
+// deficiencies this site has that predict.go's segment loop does not:
+// the coast sub-step is bare period/100 with NO absolute cap (hours on
+// a transfer ellipse, so SOI detection quantizes to hours), and there
+// is no #91 post-rebase re-resolution (a lunar flyby keeps the
+// transfer ellipse's coarse dt). The CoastSubStepCap knob supplies
+// both; the eval harness measures what they're worth.
+func (w *World) propagateStateWithPrimaryTuned(startState physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, dt float64, tu predictTuning) (physics.StateVector, bodies.CelestialBody, []soiEntry) {
 	current := startPrimary
 	muNow := current.GravitationalParameter()
 	state := startState
@@ -2526,23 +2541,36 @@ func (w *World) propagateStateWithPrimary(startState physics.StateVector, startP
 
 	sys := w.System()
 
-	period := orbitalPeriod(state, muNow)
-	maxStep := period / 100.0
-	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
-		maxStep = 1.0
+	// chainMaxStep mirrors the legacy period/100 (1 s degenerate
+	// fallback), with the CoastSubStepCap knob folded in.
+	chainMaxStep := func(period float64) float64 {
+		ms := period / 100.0
+		if ms <= 0 || math.IsNaN(ms) || math.IsInf(ms, 0) {
+			ms = 1.0
+		}
+		if tu.CoastSubStepCap > 0 && ms > tu.CoastSubStepCap {
+			ms = tu.CoastSubStepCap
+		}
+		return ms
 	}
+
+	period := orbitalPeriod(state, muNow)
+	maxStep := chainMaxStep(period)
 	nSteps := int(math.Ceil(dt / maxStep))
 	if nSteps < 1 {
 		nSteps = 1
 	}
-	if nSteps > 1024 {
-		nSteps = 1024
+	if nSteps > tu.chainSubStepClamp() {
+		nSteps = tu.chainSubStepClamp()
 	}
 	step := dt / float64(nSteps)
 	stepDur := time.Duration(step * float64(time.Second))
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	bc := w.ActiveCraft().EffectiveBallisticCoefficient()
+	var entries []soiEntry
 	for i := 0; i < nSteps; i++ {
+		preState := state
+		preClock := clock
 		// v0.12.x (GH #66): propagate ballistic coast legs with analytic
 		// Kepler (predictStep), Verlet only for drag/hyperbolic/sub-
 		// surface. A long phasing wait (an inclined transfer can sit ~50
@@ -2550,13 +2578,13 @@ func (w *World) propagateStateWithPrimary(startState physics.StateVector, startP
 		// phase under the 1024-step Verlet cap — misplacing the departure
 		// point and, for the node-aligned split, the apoapsis off the
 		// line of nodes. Mirrors the predictor in predict.go.
-		state = predictStep(state, muNow, step, current, bc)
+		state = predictStepTuned(state, muNow, step, current, bc, tu)
 		// v0.8.5: terminate propagation at surface contact. Mirrors the
 		// live integrator (sim/world.go) and the trajectory predictor
 		// (sim/predict.go) so node-planning sees the same landed state
 		// the live craft would arrive at.
 		if clamped, hit := physics.ClampToSurface(state, current); hit {
-			return clamped, current
+			return clamped, current, entries
 		}
 		clock = clock.Add(stepDur)
 
@@ -2567,12 +2595,60 @@ func (w *World) propagateStateWithPrimary(startState physics.StateVector, startP
 		inertial := positions[current.ID].Add(state.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
 		if cand.Body.ID != current.ID {
-			vOld := w.bodyInertialVelocityAt(current, clock)
-			vNew := w.bodyInertialVelocityAt(cand.Body, clock)
+			rebaseClock := clock
+			carry := 0.0
+			if tu.RefineCrossing {
+				tau, refined, refCand := w.refineCrossingTime(sys, preState, current, muNow, preClock, step, bc, tu)
+				if refCand.Body.ID == current.ID {
+					// Phantom crossing (see predictedSegmentsFromTuned):
+					// can't normally happen here — this site refreshes
+					// positions per sub-step — but guard against a no-op
+					// rebase and spurious soiEntry all the same.
+					state = refined
+					continue
+				}
+				state = refined
+				cand = refCand
+				rebaseClock = preClock.Add(time.Duration(tau * float64(time.Second)))
+				carry = step - tau
+				clock = rebaseClock
+				for _, b := range sys.Bodies {
+					positions[b.ID] = w.BodyPositionAt(b, rebaseClock)
+				}
+			}
+			vOld := w.bodyInertialVelocityAt(current, rebaseClock)
+			vNew := w.bodyInertialVelocityAt(cand.Body, rebaseClock)
 			state = physics.Rebase(state, positions[current.ID], cand.Inertial, vOld.Sub(vNew))
 			current = cand.Body
 			muNow = current.GravitationalParameter()
+			entries = append(entries, soiEntry{BodyID: current.ID, Clock: rebaseClock, State: state})
+
+			if tu.CoastSubStepCap > 0 || tu.RefineCrossing {
+				// #91-equivalent re-resolution: re-divide the remaining
+				// horizon for the new orbit (a lunar flyby needs ~1 s
+				// Verlet steps, not the transfer ellipse's hours), and
+				// fold in the refined crossing's un-integrated carry.
+				newMaxStep := chainMaxStep(orbitalPeriod(state, muNow))
+				effMax := newMaxStep
+				if maxStep < effMax {
+					effMax = maxStep
+				}
+				remainingTime := float64(nSteps-i-1)*step + carry
+				if remainingTime > 0 {
+					newNSub := int(math.Ceil(remainingTime / effMax))
+					if newNSub < 1 {
+						newNSub = 1
+					}
+					if newNSub > tu.chainSubStepClamp() {
+						newNSub = tu.chainSubStepClamp()
+					}
+					nSteps = i + 1 + newNSub
+					step = remainingTime / float64(newNSub)
+					stepDur = time.Duration(step * float64(time.Second))
+				}
+				maxStep = newMaxStep
+			}
 		}
 	}
-	return state, current
+	return state, current, entries
 }
