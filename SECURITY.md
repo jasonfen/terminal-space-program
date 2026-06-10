@@ -24,7 +24,7 @@ branches — please upgrade to the newest tagged release before reporting.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| latest release (v0.16.x) | :white_check_mark: |
+| latest release (v0.17.x) | :white_check_mark: |
 | anything older | :x: |
 
 ## Scope / threat model
