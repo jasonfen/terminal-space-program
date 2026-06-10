@@ -70,10 +70,12 @@ func soiEvalVariants() []soiEvalVariant {
 		{"+cap120", predictTuning{CoastSubStepCap: 120}},
 		{"+hyp5", predictTuning{HyperbolicDtCap: 5, MaxSubSteps: 1 << 16}},
 		{"all", predictTuning{BodyPerSubStep: true, RefineCrossing: true, CoastSubStepCap: 120, HyperbolicDtCap: 5, MaxSubSteps: 1 << 16}},
-		// fix = the shippable candidate: interpolated bodies (cheap),
-		// refined crossings, capped node-chain sub-steps; no hyperbolic
-		// dt cap (the drawing metric shows it's worth only a few km once
-		// positions are fresh) and no perf-clamp lift.
+		// fix = the shipped production default (v0.17.2, ADR 0017 —
+		// defaultPredictTuning(), pinned equal by
+		// TestDefaultPredictTuningIsFixVariant): interpolated bodies
+		// (cheap), refined crossings, capped node-chain sub-steps; no
+		// hyperbolic dt cap (the drawing metric shows it's worth only a
+		// few km once positions are fresh) and no perf-clamp lift.
 		{"fix", predictTuning{BodyInterp: true, RefineCrossing: true, CoastSubStepCap: 120}},
 		{"ref", predictTuning{BodyPerSubStep: true, RefineCrossing: true, CoastSubStepCap: 30, HyperbolicDtCap: 1, MaxSubSteps: 1 << 20}},
 		{"ref/2", predictTuning{BodyPerSubStep: true, RefineCrossing: true, CoastSubStepCap: 15, HyperbolicDtCap: 0.5, MaxSubSteps: 1 << 20}},

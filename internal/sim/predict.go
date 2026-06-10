@@ -105,12 +105,15 @@ type SOISegment struct {
 
 // predictTuning selects fidelity variants of the SOI-aware propagation
 // loops (predictedSegmentsFromTuned and propagateStateWithPrimaryTuned).
-// The zero value reproduces today's shipped behavior exactly; production
-// callers always pass the zero value. The SOI-entry prediction eval
-// harness flips individual knobs to attribute moon-transfer Projected
-// Orbit error to each numeric artifact (vault: warp-orbit-accuracy.md
-// §"2026-06-09 — SOI-entry prediction fidelity"). Knobs that win the
-// attribution become the new defaults in the follow-up fix slice.
+// The zero value reproduces the PRE-v0.17.2 ("legacy") behavior exactly;
+// production callers pass defaultPredictTuning() (see below). The
+// SOI-entry prediction eval harness flips individual knobs to attribute
+// moon-transfer Projected Orbit error to each numeric artifact (vault:
+// warp-orbit-accuracy.md §"2026-06-09 — SOI-entry prediction fidelity").
+// The knobs that won the attribution (BodyInterp + RefineCrossing +
+// CoastSubStepCap=120 — the harness's "fix" variant) are the new
+// production default; the zero value stays as the harness's "legacy"
+// A/B baseline.
 type predictTuning struct {
 	// BodyPerSubStep refreshes body positions (and the SOI-test clock)
 	// every integrator sub-step instead of once per output sample.
@@ -161,6 +164,38 @@ type predictTuning struct {
 	// dt on long horizons — the #91 re-resolution asks for ~1 s steps
 	// across a lunar flyby but the 256 clamp hands back ~30 s.
 	MaxSubSteps int
+}
+
+// defaultPredictTuning is the production fidelity profile for both
+// SOI-aware propagators (v0.17.2, ADR 0017). It enables the three knobs
+// the SOI-entry prediction eval harness identified as the fix — the
+// harness's "fix" variant — and which it confirmed converged (its
+// "fix" column matched the converged "ref"/"ref/2" columns to within
+// live-chunk quantization across all three scenarios):
+//
+//   - BodyInterp:      interpolate body positions across each output
+//     sample so the per-sub-step SOI test runs against where the moon
+//     actually is, not a stale start-of-sample snapshot (the cheap
+//     alternative to BodyPerSubStep — ~10 ms vs ~29 ms per Earth→Moon
+//     site-A call).
+//   - RefineCrossing:  bisect the SOI crossing time inside the detecting
+//     sub-step and rebase at the refined instant, so the predicted
+//     entry clock stops quantizing to the sub-step boundary.
+//   - CoastSubStepCap: cap the node-chain coast sub-step at 120 s (site
+//     B's missing #91 treatment — bare period/100 is hours on a
+//     transfer ellipse, which is what grew its entry-time bias to
+//     +6720 s near arrival).
+//
+// TestDefaultPredictTuningIsFixVariant pins this equal to the harness's
+// "fix" variant so the two can't drift. HyperbolicDtCap / MaxSubSteps
+// are deliberately left off (measured immaterial once positions are
+// fresh — a few km of post-entry drawing only) and stay harness-only.
+func defaultPredictTuning() predictTuning {
+	return predictTuning{
+		BodyInterp:      true,
+		RefineCrossing:  true,
+		CoastSubStepCap: 120,
+	}
 }
 
 // segSubStepClamp returns the sub-step perf clamp for the segment
@@ -270,13 +305,14 @@ func (w *World) refineCrossingTime(sys bodies.System, preState physics.StateVect
 // Output shape (a slice of SOISegments) is unchanged so the renderer
 // keeps working.
 func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, totalSeconds float64, samples int) []SOISegment {
-	segs, _ := w.predictedSegmentsFromTuned(post, startPrimary, startClock, totalSeconds, samples, predictTuning{})
+	segs, _ := w.predictedSegmentsFromTuned(post, startPrimary, startClock, totalSeconds, samples, defaultPredictTuning())
 	return segs
 }
 
 // predictedSegmentsFromTuned is PredictedSegmentsFrom parameterised on
-// predictTuning (zero value = shipped behavior — the production wrapper
-// above always passes it). It additionally reports each SOI transition
+// predictTuning (zero value = pre-v0.17.2 "legacy" behavior; the
+// production wrapper above passes defaultPredictTuning()). It
+// additionally reports each SOI transition
 // as a soiEntry so the eval harness can score the predicted entry state
 // without re-deriving it from sampled points.
 func (w *World) predictedSegmentsFromTuned(post physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, totalSeconds float64, samples int, tu predictTuning) ([]SOISegment, []soiEntry) {
