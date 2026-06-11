@@ -617,11 +617,13 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 	v.canvas.DrawEllipseOffsetFarSideDashed(el, bodyCentre, samples, 3, bodyCentre, primaryPxR, render.ColorCurrentOrbit)
 	peri := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, 0))
 	apo := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
+	// Unified single-glyph apsis markers (ADR 0020) — same ▼/▲ as the
+	// orbit map, replacing the FillDisk blobs.
 	if !v.canvas.IsBehindBody(peri, bodyCentre, primaryPxR) {
-		v.canvas.FillDisk(peri, 2)
+		drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerNominal, "", widgets.CellTag{})
 	}
 	if !v.canvas.IsBehindBody(apo, bodyCentre, primaryPxR) {
-		v.canvas.FillDisk(apo, 3)
+		drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerNominal, "", widgets.CellTag{})
 	}
 }
 

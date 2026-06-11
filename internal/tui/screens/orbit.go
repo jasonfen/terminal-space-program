@@ -661,11 +661,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			v.canvas.DrawEllipseOffsetFarSideDashed(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
+			// Unified single-glyph markers (ADR 0020): ▼ periapsis / ▲
+			// apoapsis in their type colours, replacing the chunky FillDisk
+			// blobs. Occlusion behind the primary still hides them.
 			if !v.canvas.IsBehindBody(peri, primaryPos, primaryPxR) {
-				v.canvas.FillDisk(peri, 2)
+				drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerNominal, "", widgets.CellTag{})
 			}
 			if !v.canvas.IsBehindBody(apo, primaryPos, primaryPxR) {
-				v.canvas.FillDisk(apo, 3)
+				drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerNominal, "", widgets.CellTag{})
 			}
 		}
 		craftInertial := w.CraftInertial()
@@ -1150,24 +1153,24 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 	}
 }
 
-// plotClusterColored is plotCluster with each cell tagged with the
-// given color. v0.6.1: maneuver-node markers share the color of
-// their resulting orbit leg, so the player sees node N at the
-// position where the post-burn orbit (also color N) begins.
-func (v *OrbitView) plotClusterColored(center orbital.Vec3, n int, color lipgloss.Color) {
-	v.plotClusterTagged(center, n, widgets.CellTag{Color: color})
-}
-
-// plotClusterTagged is plotClusterColored that records the supplied
-// CellTag (color + hit-test metadata) on every pixel it sets. v0.6.4+
-// — node draws use this with NodeIdx so HitAt can resolve a click
-// back to the planted node it lands on.
-func (v *OrbitView) plotClusterTagged(center orbital.Vec3, n int, tag widgets.CellTag) {
-	step := 1.0 / v.canvas.Scale()
-	for i := -n / 2; i <= n/2; i++ {
-		v.canvas.PlotColoredTagged(center.Add(orbital.Vec3{X: float64(i) * step}), tag)
-		v.canvas.PlotColoredTagged(center.Add(orbital.Vec3{Y: float64(i) * step}), tag)
+// drawMarker stamps a single unified orbital marker (ADR 0020) at an
+// inertial point: one glyph rune whose colour encodes the marker type and
+// whose brightness encodes its state, drawn through SetCellOverlayColored
+// the same way Vessels and Bodies collapse to a glyph. When tag carries
+// hit-test metadata (a NodeIdx for maneuver nodes, a vessel/body flag), a
+// single tagged pixel is plotted under the glyph so a click on the cell
+// still resolves to the sim object — the glyph overlay then paints over
+// it, so the pixel is invisible but selectable. base supplies the
+// positional colour for MarkerManeuver and is ignored for every other
+// type. Occlusion is the caller's call: apsis markers gate on
+// IsBehindBody before calling; maneuver markers do not.
+func drawMarker(canvas *widgets.Canvas, pos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
+	color := render.MarkerColor(t, state, base)
+	if tag.NodeIdx != 0 || tag.IsVessel || tag.BodyID != "" {
+		tag.Color = color
+		canvas.PlotColoredTagged(pos, tag)
 	}
+	canvas.SetCellOverlayColored(pos, render.MarkerGlyph(t), color)
 }
 
 // drawNodes plots every planned maneuver node at its projected inertial
@@ -1215,9 +1218,8 @@ type predictRenderData struct {
 }
 
 type predictMarker struct {
-	pos  orbital.Vec3
-	size int
-	tag  widgets.CellTag
+	pos orbital.Vec3
+	tag widgets.CellTag
 }
 
 type predictLegDraw struct {
@@ -1350,23 +1352,15 @@ func (v *OrbitView) cachedPredictedRender(w *sim.World) predictRenderData {
 // loops but returns plot-ready geometry instead of plotting.
 func (v *OrbitView) computePredictedRender(w *sim.World) predictRenderData {
 	c := w.ActiveCraft()
-	homeID := c.Primary.ID
 	var data predictRenderData
 
 	for i, n := range c.Nodes {
-		// Frame-distinct cluster size: home-frame nodes get a tight cross,
-		// foreign-frame (heliocentric or destination-SOI) a larger one so
-		// the player can read which leg is which on auto-planted transfers.
-		size := 6
-		if n.PrimaryID != "" && n.PrimaryID != homeID {
-			size = 10
-		}
 		// v0.6.1: each node's marker matches the color of its resulting
-		// orbit leg, so the cluster glyph and the post-burn dashed orbit
-		// read as a matched pair.
+		// orbit leg, so the glyph and the post-burn dashed orbit read as a
+		// matched pair. ADR 0020: a single Δ glyph, drawn at plot time;
+		// the per-leg colour rides on the tag.
 		data.markers = append(data.markers, predictMarker{
-			pos:  w.NodeInertialPosition(n),
-			size: size,
+			pos: w.NodeInertialPosition(n),
 			tag: widgets.CellTag{
 				Color:   render.ManeuverSegmentColor(i),
 				NodeIdx: i + 1, // 0 = none; planted node i is 1+i in the tag.
@@ -1428,7 +1422,13 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	data := v.cachedPredictedRender(w)
 
 	for _, m := range data.markers {
-		v.plotClusterTagged(m.pos, m.size, m.tag)
+		// Unified marker (ADR 0020): a single Δ glyph in the node's
+		// per-leg colour (the documented positional-colour exception),
+		// over a tagged pixel that carries NodeIdx so a click still
+		// resolves to the planted node. Maneuver markers are not
+		// occlusion-culled (a node behind the body still shows), so we
+		// don't gate on IsBehindBody here.
+		drawMarker(v.canvas, m.pos, render.MarkerManeuver, render.MarkerNominal, m.tag.Color, m.tag)
 	}
 	for _, leg := range data.legs {
 		// Skip legs whose orbit projects too small to convey shape
