@@ -1123,9 +1123,17 @@ Vessel crosses the target's orbital plane — the **line of nodes** —
 which is both a cheap place to change planes and the *only* place a
 plane change leaves the Vessel actually *in* the target's plane).
 A correct Transfer Plan must arrive **coplanar** with the target (≈0°
-relative inclination) so the Capture Burn can insert; the HUD shows
-both candidate costs. This retires the old `I`-plane-match-then-`H`
-dance as a *requirement* (the manual tools remain available).
+relative inclination) **and at the Capture Orbit radius** — a safe
+periapsis (`destination radius + 200 km`), not the target's *centre*.
+Coplanar alone is insufficient: the combined Lambert solved to the
+target's centre arrives with a sub-surface perilune (a collision) while
+its Capture Burn Δv is sized for a periapsis it never reaches. So the
+combined Departure is aimed at an **in-plane offset** chosen so the
+natural flyby perilune lands at the Capture Orbit radius, **prograde**
+around the target (the affordable capture direction — see GH #68). The
+HUD shows both candidate costs. This retires the old
+`I`-plane-match-then-`H` dance as a *requirement* (the manual tools
+remain available).
 _Avoid_: Trajectory (the whole flight path; the Plan is the burns).
 The planner's internal `TransferNode` is not glossary-worthy — it's a
 handoff struct (see Flagged ambiguities). **Do not** conflate "plane

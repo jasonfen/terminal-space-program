@@ -51,6 +51,14 @@ const (
 	// (no craft, e ≥ 1, a ≤ 0). Useful for reading the orbit's
 	// actual shape as if i = 0.
 	ViewOrbitFlat
+	// ViewTarget (v0.18+) centers the canvas on the current body Target
+	// and auto-frames the craft→target approach (refitting every frame as
+	// the gap closes), so the player can watch the projected orbit pass the
+	// target while hand-flying engine/RCS corrections. Reuses the orbit-flat
+	// projection basis. Selected from the `v` cycle, but only reachable when
+	// a body target is set (CycleViewMode skips it otherwise); falls back to
+	// the ordinary focus center when the target is cleared mid-view.
+	ViewTarget
 	// ViewLaunch (v0.11.0+) is the chase-cam launch scene — a
 	// human-scale side view with the rocket centred, the horizon
 	// curving below in Body.SurfaceColor, and a body-fixed pad
@@ -79,6 +87,8 @@ func (m ViewMode) String() string {
 		return "left"
 	case ViewOrbitFlat:
 		return "orbit-flat"
+	case ViewTarget:
+		return "target"
 	case ViewLaunch:
 		return "launch"
 	}
@@ -97,6 +107,7 @@ var AllViewModes = [...]ViewMode{
 	ViewBottom,
 	ViewLeft,
 	ViewOrbitFlat,
+	ViewTarget,
 	ViewLaunch,
 }
 
@@ -110,7 +121,14 @@ func (w *World) CycleViewMode() {
 	if w.ViewMode == ViewLaunch {
 		w.LaunchSessionActive = false
 	}
-	w.ViewMode = (w.ViewMode + 1) % ViewMode(len(AllViewModes))
+	next := (w.ViewMode + 1) % ViewMode(len(AllViewModes))
+	// The target view has nothing to frame without a body target — skip it
+	// in the cycle so a player who isn't aiming at a body never lands on a
+	// dead view.
+	if next == ViewTarget && w.Target.Kind != TargetBody {
+		next = (next + 1) % ViewMode(len(AllViewModes))
+	}
+	w.ViewMode = next
 }
 
 // SetViewModeLaunch (v0.11.4+, ADR 0004) is the manual-jump path

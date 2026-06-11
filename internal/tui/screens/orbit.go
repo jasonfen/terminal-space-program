@@ -357,6 +357,17 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	} else if v.burnFrozenCenter != nil {
 		v.burnFrozenCenter = nil
 	}
+	// ViewTarget overrides the focus center + zoom: center on the body
+	// target and refit every frame to frame the craft→target approach, so
+	// the projected orbit stays legible against the target as the gap closes
+	// (and as the player hand-flies a correction). Falls through to the
+	// ordinary focus center when no body target is set.
+	if w.ViewMode == sim.ViewTarget {
+		if tCenter, tRadius, ok := w.TargetViewFraming(); ok {
+			center = tCenter
+			v.canvas.FitTo(tRadius)
+		}
+	}
 	v.canvas.Center(center)
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
@@ -1114,7 +1125,7 @@ func (v *OrbitView) cameraDirForView(view sim.ViewMode) render.Vec3 {
 		return render.CameraDirRight
 	case sim.ViewLeft:
 		return render.CameraDirLeft
-	case sim.ViewTilted, sim.ViewOrbitFlat:
+	case sim.ViewTilted, sim.ViewOrbitFlat, sim.ViewTarget:
 		// Depth axis points out of screen toward the camera, which
 		// is exactly the body-to-camera direction the sub-observer
 		// math wants. For ViewOrbitFlat on a near-equatorial orbit
@@ -1867,7 +1878,9 @@ func viewBasis(w *sim.World) widgets.Basis {
 			X: orbital.Vec3{Y: -1},
 			Y: orbital.Vec3{Z: 1},
 		}
-	case sim.ViewOrbitFlat:
+	case sim.ViewOrbitFlat, sim.ViewTarget:
+		// ViewTarget reuses the orbit-plane basis so the approach reads as a
+		// clean curve; only its center + zoom differ (handled in Render).
 		el, ok := activeCraftElements(w)
 		if !ok {
 			return widgets.DefaultBasis()

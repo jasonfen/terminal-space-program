@@ -63,10 +63,15 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// Settings screen, mirroring the always-on ● BURNS readout — both are
 	// too load-bearing to toggle off. F2 declutter still clears them.
 	add("", cornerTopRight, v.buildOrbitMetricsChip(w))
-	// PROJECTED ORBIT is its own chip beneath the always-on ORBIT readout
-	// (issue #63 follow-up) so current + projected show together during a
-	// burn. Toggleable, unlike the load-bearing live ORBIT above it.
-	add(settings.ChipProjectedOrbit, cornerTopRight, v.buildProjectedOrbitChip(w))
+	// PROJECTED ORBIT sits to the LEFT of the always-on ORBIT readout (issue
+	// #63 follow-up) so current + projected show together during a burn
+	// without growing the top-right column's height — leaving vertical room
+	// for TARGET to clear the bottom-right NODES chip. Toggleable, unlike the
+	// load-bearing live ORBIT beside it. leftOfPrev falls back to normal
+	// stacking when ORBIT is suppressed (e.g. ascent), so it's never orphaned.
+	if lines := v.buildProjectedOrbitChip(w); lines != nil && v.chipEnabled(settings.ChipProjectedOrbit) {
+		chips = append(chips, builtChip{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: lines, leftOfPrev: true})
+	}
 	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
 	// Remaining fixed corners.
 	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
@@ -644,6 +649,24 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		}
 		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
 		lines = append(lines, chipRow("range:", formatRangeM(rangeM)))
+		// Predicted closest approach along the projected orbit — updates live
+		// as the player hand-flies a correction, so they can judge where the
+		// transfer actually passes the target rather than eyeballing the
+		// dashed curve. Perilune altitude when the path enters the SOI
+		// (negative ⇒ surface impact), else the flyby miss distance.
+		if ap, ok := w.PredictedTargetApproach(); ok {
+			if ap.EntersSOI {
+				alt := ap.Dist - b.RadiusMeters()
+				if alt <= 0 {
+					lines = append(lines, chipRow("peri:", v.theme.Warning.Render("IMPACT")))
+				} else {
+					lines = append(lines, chipRow("peri:", fmt.Sprintf("%.0f km", alt/1000)))
+				}
+			} else {
+				lines = append(lines, chipRow("approach:", formatRangeM(ap.Dist)))
+			}
+			lines = append(lines, chipRow("TCA:", formatTCA(ap.TCA)))
+		}
 		return lines
 	case sim.TargetCraft:
 		tc, _, ok := w.ResolveTargetCraft()
