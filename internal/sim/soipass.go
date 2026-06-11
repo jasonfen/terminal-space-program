@@ -7,6 +7,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // SOIPass is the predicted transit of the live, *unburned* trajectory
@@ -36,24 +37,99 @@ func (p SOIPass) PeriluneAltitude() float64 {
 const soiPassHyperbolicHorizon = 24 * 3600.0
 
 // LiveSOIPass computes the active craft's upcoming SOI pass from its live
-// state, with no maneuver node required (ADR 0019 decisions A/B/C/E).
-//
-// A cheap apoapsis-reach guard runs first: a bound orbit reaches at most
-// its apoapsis, so if that can't even reach within a sibling body's SOI of
-// the body's closest approach to the primary, no encounter is possible —
-// the call returns ok=false without forward-integrating, and a stable LEO
-// pays nothing. When the guard passes, the live trajectory is scanned per
-// reachable sibling (reusing scanTargetEncounter / the moon-frame
-// targetPerilune so the readout agrees with the TARGET chip), the earliest
-// SOI-entering pass wins, and its foreign-SOI arc is sampled via
-// PredictedSegmentsFrom for drawing.
+// state, with no maneuver node required (ADR 0019 decisions A/B/C/E). This
+// is the always-on, Target-independent pass the canvas draws bright and the
+// SOI PASS chip reads when nothing is planted.
 func (w *World) LiveSOIPass() (SOIPass, bool) {
 	c := w.ActiveCraft()
 	if c == nil || c.Landed {
 		return SOIPass{}, false
 	}
-	mu := c.Primary.GravitationalParameter()
-	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	return w.soiPassFromState(c.State, c.Primary, w.Clock.SimTime, math.Inf(1))
+}
+
+// CounterfactualSOIPass is the dual-arc "no-burn" pass (ADR 0019 D): the
+// live trajectory's upcoming pass, but capped at the first planted node so
+// the counterfactual is never predicted — or drawn — past the burn the
+// craft will actually make. With no node planted it is identical to
+// LiveSOIPass. ok=false when the first node is already due (cap ≤ 0).
+func (w *World) CounterfactualSOIPass() (SOIPass, bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.Landed {
+		return SOIPass{}, false
+	}
+	maxHorizon := math.Inf(1)
+	if t, ok := firstNodeTime(c.Nodes); ok {
+		maxHorizon = t.Sub(w.Clock.SimTime).Seconds()
+		if maxHorizon <= 0 {
+			return SOIPass{}, false
+		}
+	}
+	return w.soiPassFromState(c.State, c.Primary, w.Clock.SimTime, maxHorizon)
+}
+
+// PlannedSOIPass is the dual-arc "planned" pass (ADR 0019 D, bright path):
+// the SOI pass of the node-modified trajectory, scanned from the post-burn
+// legs so the player sees the safe periapsis their burns produce against
+// the no-burn Impact. Returns false with no node planted, or when the
+// planned path reaches no SOI. TimeToPerilune is rebased to now — the legs
+// begin when their node fires, in the future.
+func (w *World) PlannedSOIPass() (SOIPass, bool) {
+	c := w.ActiveCraft()
+	if c == nil || len(c.Nodes) == 0 {
+		return SOIPass{}, false
+	}
+	now := w.Clock.SimTime
+	var best SOIPass
+	bestTCA := math.Inf(1)
+	found := false
+	for _, leg := range w.PredictedLegs() {
+		pass, ok := w.soiPassFromState(leg.State, leg.Primary, leg.StartClock, math.Inf(1))
+		if !ok {
+			continue
+		}
+		pass.TimeToPerilune += leg.StartClock.Sub(now).Seconds()
+		if pass.TimeToPerilune < bestTCA {
+			bestTCA = pass.TimeToPerilune
+			best = pass
+			found = true
+		}
+	}
+	return best, found
+}
+
+// firstNodeTime returns the earliest planted-node trigger time.
+func firstNodeTime(nodes []spacecraft.ManeuverNode) (time.Time, bool) {
+	if len(nodes) == 0 {
+		return time.Time{}, false
+	}
+	first := nodes[0].TriggerTime
+	for _, n := range nodes[1:] {
+		if n.TriggerTime.Before(first) {
+			first = n.TriggerTime
+		}
+	}
+	return first, true
+}
+
+// soiPassFromState is the shared core behind LiveSOIPass /
+// CounterfactualSOIPass / PlannedSOIPass: the upcoming SOI pass of a
+// trajectory starting at `state` in `primary`'s frame at `fromClock`,
+// scanned and sampled out to at most maxHorizon seconds.
+//
+// A cheap apoapsis-reach guard runs first: a bound orbit reaches at most its
+// apoapsis, so if that can't even reach within a sibling body's SOI of the
+// body's closest approach to the primary, no encounter is possible — it
+// returns ok=false without forward-integrating, and a stable LEO pays
+// nothing. The period/sim-day window is the natural horizon; maxHorizon
+// tightens it for the node-capped counterfactual. When the guard passes,
+// the trajectory is scanned per reachable sibling (reusing
+// scanTargetEncounter / the moon-frame targetPerilune so the readout agrees
+// with the TARGET chip), the earliest SOI-entering pass wins, and its
+// foreign-SOI arc is sampled via PredictedSegmentsFrom for drawing.
+func (w *World) soiPassFromState(state physics.StateVector, primary bodies.CelestialBody, fromClock time.Time, maxHorizon float64) (SOIPass, bool) {
+	mu := primary.GravitationalParameter()
+	el := orbital.ElementsFromState(state.R, state.V, mu)
 	if math.IsNaN(el.A) || math.IsInf(el.A, 0) {
 		return SOIPass{}, false
 	}
@@ -68,15 +144,21 @@ func (w *World) LiveSOIPass() (SOIPass, bool) {
 
 	// Forward-prediction horizon: ~one orbital period for a bound orbit
 	// (the encounter sits within the next revolution, ADR 0019 B); a
-	// sim-day wall for an escape/hyperbolic leg.
-	period := orbitalPeriod(c.State, mu)
+	// sim-day wall for an escape/hyperbolic leg; tightened by maxHorizon
+	// (the counterfactual's first-node cap).
+	period := orbitalPeriod(state, mu)
 	horizon := soiPassHyperbolicHorizon
 	if bound && period > 0 && !math.IsNaN(period) && !math.IsInf(period, 0) {
 		horizon = period
 	}
+	if maxHorizon < horizon {
+		horizon = maxHorizon
+	}
+	if horizon <= 0 {
+		return SOIPass{}, false
+	}
 
 	sys := w.System()
-	now := w.Clock.SimTime
 
 	// Scan every sibling body the orbit can geometrically reach; keep the
 	// earliest SOI-entering pass.
@@ -84,19 +166,19 @@ func (w *World) LiveSOIPass() (SOIPass, bool) {
 	bestTCA := math.Inf(1)
 	found := false
 	for _, b := range sys.Bodies {
-		if b.ParentID != c.Primary.ID {
-			continue // only siblings of the craft's primary have a sibling SOI
+		if b.ParentID != primary.ID {
+			continue // only siblings of `primary` have a sibling SOI
 		}
 		// Apoapsis-reach prune: the craft's farthest radius must reach
 		// within the body's SOI of the body's closest approach to the
 		// primary. Cheap geometry, no integration.
 		bEl := orbital.ElementsFromBody(b)
 		bodyPeri := bEl.A * (1 - bEl.E) // body's closest distance to the primary
-		soi := physics.SOIRadius(b, c.Primary)
+		soi := physics.SOIRadius(b, primary)
 		if craftReach < bodyPeri-soi {
 			continue
 		}
-		enc, ok := w.scanTargetEncounter(c.State, c.Primary, b, now, horizon)
+		enc, ok := w.scanTargetEncounter(state, primary, b, fromClock, horizon)
 		if !ok || !enc.EntersSOI {
 			continue
 		}
@@ -115,16 +197,14 @@ func (w *World) LiveSOIPass() (SOIPass, bool) {
 		return SOIPass{}, false
 	}
 
-	// Sample the live trajectory over the full bounded horizon and keep only
-	// the body's own segments — these span the *whole* transit (entry →
-	// perilune → exit), because PredictedSegmentsFrom rebases back out of
-	// the SOI on exit, so any post-exit (escape / re-captured) samples land
-	// in a different segment we drop here. Drawing the complete flyby (not
-	// just the approach to perilune) reads as the single bright leg ADR
-	// 0019 E calls for, while the period/sim-day horizon keeps it bounded
-	// (ADR 0019 B: time-capped, ≤3 patches).
+	// Sample the trajectory over the bounded horizon and keep only the
+	// body's own segments — these span the transit (entry → perilune →
+	// exit), because PredictedSegmentsFrom rebases back out of the SOI on
+	// exit, so any post-exit (escape / re-captured) samples land in a
+	// segment we drop here. A node-capped horizon naturally truncates the
+	// arc at the burn (ADR 0019 D: counterfactual never drawn past the node).
 	samples := adaptiveSampleCount(horizon, period)
-	segs := w.PredictedSegmentsFrom(c.State, c.Primary, now, horizon, samples)
+	segs := w.PredictedSegmentsFrom(state, primary, fromClock, horizon, samples)
 	for _, s := range segs {
 		if s.PrimaryID == best.Body.ID {
 			best.ArcSegments = append(best.ArcSegments, s)
@@ -135,7 +215,7 @@ func (w *World) LiveSOIPass() (SOIPass, bool) {
 	// centre at the predicted time of closest approach. The glyph marks
 	// "which marker, what state" — the value lives in the chip (ADR 0020 C)
 	// — so the nearest-sample approximation is sufficient for placement.
-	moonAtTCA := w.BodyPositionAt(best.Body, now.Add(time.Duration(best.TimeToPerilune*float64(time.Second))))
+	moonAtTCA := w.BodyPositionAt(best.Body, fromClock.Add(time.Duration(best.TimeToPerilune*float64(time.Second))))
 	minD := math.Inf(1)
 	for _, s := range best.ArcSegments {
 		for _, p := range s.Points {

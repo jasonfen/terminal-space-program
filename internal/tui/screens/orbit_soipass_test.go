@@ -165,3 +165,84 @@ func TestSOIPassAbsentForStableLEO(t *testing.T) {
 		t.Errorf("stable LEO must not show a SOI PASS chip")
 	}
 }
+
+// plantMoonTransferAtLEO aligns the craft coplanar with the Moon and plants
+// an LEO→Moon transfer, leaving the craft AT LEO with the node planted (not
+// moved onto the coast). The node-modified legs reach the Moon, so
+// PlannedSOIPass is populated while the no-burn live path (still LEO, capped
+// at the departure) is not — the node-present chip path.
+func plantMoonTransferAtLEO(t *testing.T, w *sim.World) {
+	t.Helper()
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" {
+			moonIdx = i
+		}
+	}
+	if moonIdx < 0 {
+		t.Skip("Moon not in loaded Sol system")
+	}
+	moon := sys.Bodies[moonIdx]
+	mel := orbital.ElementsFromBody(moon)
+	sI, cI := math.Sin(mel.I), math.Cos(mel.I)
+	sO, cO := math.Sin(mel.Omega), math.Cos(mel.Omega)
+	moonN := orbital.Vec3{X: sO * sI, Y: -cO * sI, Z: cI}.Unit()
+	ref := orbital.Vec3{X: 1}
+	if math.Abs(moonN.Dot(ref)) > 0.9 {
+		ref = orbital.Vec3{Y: 1}
+	}
+	e1 := ref.Sub(moonN.Scale(moonN.Dot(ref))).Unit()
+	e2 := moonN.Cross(e1)
+
+	c := w.ActiveCraft()
+	c.Landed = false
+	mu := c.Primary.GravitationalParameter()
+	r := c.State.R.Norm()
+	v := math.Sqrt(mu / r)
+	c.State.R = e1.Scale(r)
+	c.State.V = e2.Scale(v)
+	if _, err := w.PlanTransfer(moonIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+}
+
+// TestSOIPassChipNoNodeIsSinglePass: with no node planted, the SOI PASS chip
+// shows the single live pass (peri + TCA), not the dual-arc planned/no-burn
+// rows — behavior unchanged from the single-arc slice (ADR 0019, #136 #5).
+func TestSOIPassChipNoNodeIsSinglePass(t *testing.T) {
+	v := newSOIPassTestView()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	setupMoonCoast(t, w) // clears nodes
+
+	out := v.Render(w, 0, 200, 60)
+	if !strings.Contains(out, "SOI PASS") {
+		t.Fatal("expected the SOI PASS chip on a node-free coast")
+	}
+	if strings.Contains(out, "planned") || strings.Contains(out, "no-burn") {
+		t.Errorf("node-free SOI PASS chip must not show dual-arc rows:\n%s", out)
+	}
+}
+
+// TestSOIPassChipShowsPlannedWithNode: with a transfer planted, the SOI PASS
+// chip surfaces the dual-arc `planned` row for the node-modified path (ADR
+// 0019 D / #136 #4).
+func TestSOIPassChipShowsPlannedWithNode(t *testing.T) {
+	v := newSOIPassTestView()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	plantMoonTransferAtLEO(t, w)
+
+	out := v.Render(w, 0, 200, 60)
+	if !strings.Contains(out, "SOI PASS") {
+		t.Fatalf("expected the SOI PASS chip with a transfer planted:\n%s", out)
+	}
+	if !strings.Contains(out, "planned") {
+		t.Errorf("expected a dual-arc 'planned' row with a node planted:\n%s", out)
+	}
+}
