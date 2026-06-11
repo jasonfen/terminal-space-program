@@ -59,6 +59,20 @@ const (
 	// a body target is set (CycleViewMode skips it otherwise); falls back to
 	// the ordinary focus center when the target is cleared mid-view.
 	ViewTarget
+	// ViewSOIPass (v0.18.0+, ADR 0019 F) frames the Body of the active SOI
+	// Pass — the predicted transit of the live, unburned trajectory through a
+	// sibling Body's SOI — and auto-fits to that Body's SOI so the encounter
+	// arc + Perilune marker fill the canvas and the curvature near perilune
+	// reads clearly. Crucially it is *independent of the Target slot*: the SOI
+	// Pass renders whether or not the Body is targeted, and so does this view —
+	// entering/leaving it never touches w.Target. Reuses the orbit-flat
+	// projection basis and the TargetViewFraming widening geometry (against the
+	// Pass Body instead of the Target). Selected from the `v` cycle, but only
+	// reachable when LiveSOIPass() returns ok (CycleViewMode skips it
+	// otherwise); falls back to the ordinary focus center when the pass
+	// disappears mid-view (craft captured, or the orbit no longer reaches the
+	// SOI).
+	ViewSOIPass
 	// ViewLaunch (v0.11.0+) is the chase-cam launch scene — a
 	// human-scale side view with the rocket centred, the horizon
 	// curving below in Body.SurfaceColor, and a body-fixed pad
@@ -89,6 +103,8 @@ func (m ViewMode) String() string {
 		return "orbit-flat"
 	case ViewTarget:
 		return "target"
+	case ViewSOIPass:
+		return "soi-pass"
 	case ViewLaunch:
 		return "launch"
 	}
@@ -108,6 +124,7 @@ var AllViewModes = [...]ViewMode{
 	ViewLeft,
 	ViewOrbitFlat,
 	ViewTarget,
+	ViewSOIPass,
 	ViewLaunch,
 }
 
@@ -122,13 +139,34 @@ func (w *World) CycleViewMode() {
 		w.LaunchSessionActive = false
 	}
 	next := (w.ViewMode + 1) % ViewMode(len(AllViewModes))
-	// The target view has nothing to frame without a body target — skip it
-	// in the cycle so a player who isn't aiming at a body never lands on a
-	// dead view.
-	if next == ViewTarget && w.Target.Kind != TargetBody {
-		next = (next + 1) % ViewMode(len(AllViewModes))
+	// Skip view modes that have nothing to frame from the current world
+	// state, so a manual `v` cycle never lands on a dead view: ViewTarget
+	// needs a body Target, ViewSOIPass needs an active SOI Pass (ADR 0019 F —
+	// reachable only when LiveSOIPass returns ok, and entering it never
+	// touches w.Target). At most one full lap before giving up, so a state
+	// with every conditional mode unavailable can't spin forever.
+	for range AllViewModes {
+		if !w.viewModeSelectable(next) {
+			next = (next + 1) % ViewMode(len(AllViewModes))
+			continue
+		}
+		break
 	}
 	w.ViewMode = next
+}
+
+// viewModeSelectable reports whether the `v` cycle may land on mode m given
+// the current world state. The conditional modes are skipped when they'd
+// frame nothing; every other mode is always selectable.
+func (w *World) viewModeSelectable(m ViewMode) bool {
+	switch m {
+	case ViewTarget:
+		return w.Target.Kind == TargetBody
+	case ViewSOIPass:
+		_, ok := w.LiveSOIPass()
+		return ok
+	}
+	return true
 }
 
 // SetViewModeLaunch (v0.11.4+, ADR 0004) is the manual-jump path

@@ -378,6 +378,18 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			v.canvas.FitTo(tRadius)
 		}
 	}
+	// ViewSOIPass (ADR 0019 F) frames the active SOI Pass's Body without
+	// touching the Target slot — centers on the Pass Body and refits every
+	// frame so the encounter arc + Perilune marker fill the canvas. Falls
+	// through to the ordinary focus center when the pass disappears mid-view
+	// (craft captured / orbit no longer reaches the SOI), mirroring how
+	// ViewTarget degrades when its target clears.
+	if w.ViewMode == sim.ViewSOIPass {
+		if pCenter, pRadius, ok := w.SOIPassViewFraming(); ok {
+			center = pCenter
+			v.canvas.FitTo(pRadius)
+		}
+	}
 	v.canvas.Center(center)
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
@@ -1142,7 +1154,7 @@ func (v *OrbitView) cameraDirForView(view sim.ViewMode) render.Vec3 {
 		return render.CameraDirRight
 	case sim.ViewLeft:
 		return render.CameraDirLeft
-	case sim.ViewTilted, sim.ViewOrbitFlat, sim.ViewTarget:
+	case sim.ViewTilted, sim.ViewOrbitFlat, sim.ViewTarget, sim.ViewSOIPass:
 		// Depth axis points out of screen toward the camera, which
 		// is exactly the body-to-camera direction the sub-observer
 		// math wants. For ViewOrbitFlat on a near-equatorial orbit
@@ -1981,9 +1993,10 @@ func viewBasis(w *sim.World) widgets.Basis {
 			X: orbital.Vec3{Y: -1},
 			Y: orbital.Vec3{Z: 1},
 		}
-	case sim.ViewOrbitFlat, sim.ViewTarget:
-		// ViewTarget reuses the orbit-plane basis so the approach reads as a
-		// clean curve; only its center + zoom differ (handled in Render).
+	case sim.ViewOrbitFlat, sim.ViewTarget, sim.ViewSOIPass:
+		// ViewTarget / ViewSOIPass reuse the orbit-plane basis so the approach
+		// reads as a clean curve; only their center + zoom differ (handled in
+		// Render).
 		el, ok := activeCraftElements(w)
 		if !ok {
 			return widgets.DefaultBasis()
