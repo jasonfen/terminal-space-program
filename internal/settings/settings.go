@@ -34,6 +34,7 @@ const (
 	ChipFrameTransition Chip = "frameTransition"
 	ChipAttitude        Chip = "attitude"
 	ChipProjectedOrbit  Chip = "projectedOrbit"
+	ChipSOIPass         Chip = "soiPass"
 )
 
 // Note: the Orbit-metrics readout and the active-burn (BURNS) readout are
@@ -59,6 +60,7 @@ var AllChips = []Chip{
 	ChipFrameTransition,
 	ChipAttitude,
 	ChipProjectedOrbit,
+	ChipSOIPass,
 }
 
 // chipLabels maps each Chip to the human-readable name the Settings
@@ -75,6 +77,7 @@ var chipLabels = map[Chip]string{
 	ChipFrameTransition: "Frame transition",
 	ChipAttitude:        "Attitude",
 	ChipProjectedOrbit:  "Projected orbit",
+	ChipSOIPass:         "SOI pass",
 }
 
 // Label returns the display name for c, falling back to the raw key for

@@ -73,6 +73,10 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 		chips = append(chips, builtChip{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: lines, leftOfPrev: true})
 	}
 	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
+	// SOI PASS sits beneath TARGET — the upcoming encounter of the live
+	// path, always-on and Target-independent (ADR 0019). De-dupes with
+	// TARGET inside the builder when they name the same body.
+	add(settings.ChipSOIPass, cornerTopRight, v.buildSOIPassChip(w))
 	// Remaining fixed corners.
 	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
 	// NODES (bottom-right) now also carries any in-flight burn as its
@@ -726,6 +730,44 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		return lines
 	}
 	return nil
+}
+
+// buildSOIPassChip surfaces the always-on SOI Pass readout (ADR 0019): the
+// upcoming foreign-SOI encounter of the live, *unburned* trajectory — body,
+// Perilune altitude (or IMPACT), and Time to Perilune — independent of the
+// Target slot. Returns nil when there is no pass, or when the Pass Body is
+// also the current body Target: the TARGET chip already shows the same
+// perilune/TCA, so the two readouts de-dupe into one (ADR 0019 E).
+func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
+	c := w.ActiveCraft()
+	if c == nil || !w.CraftVisibleHere() {
+		return nil
+	}
+	pass, ok := v.cachedSOIPass(w)
+	if !ok {
+		return nil
+	}
+	// De-dupe with TARGET: if the player has targeted the very body the
+	// pass crosses, the TARGET chip's peri/TCA rows already cover it.
+	if w.Target.Kind == sim.TargetBody {
+		sysT := w.System()
+		if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) &&
+			sysT.Bodies[w.Target.BodyIdx].ID == pass.Body.ID {
+			return nil
+		}
+	}
+	nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(pass.Body)).Bold(true)
+	lines := []string{
+		v.theme.Primary.Render("SOI PASS"),
+		chipRow("body:", nameStyle.Render(pass.Body.EnglishName)),
+	}
+	if pass.Impact {
+		lines = append(lines, chipRow("peri:", v.theme.Warning.Render("IMPACT")))
+	} else {
+		lines = append(lines, chipRow("peri:", fmt.Sprintf("%.0f km", pass.PeriluneAltitude()/1000)))
+	}
+	lines = append(lines, chipRow("TCA:", formatTCA(pass.TimeToPerilune)))
+	return lines
 }
 
 // chipValueCol is the display column a chip row's value begins at, shared

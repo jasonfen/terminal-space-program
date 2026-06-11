@@ -127,6 +127,16 @@ type OrbitView struct {
 	// test hook). ADR 0017 decision C.
 	predictCache         predictRenderCache
 	predictCacheComputes int
+
+	// soiPassCache memoizes the live SOI Pass (ADR 0019) the same way
+	// predictCache memoizes the node legs: the forward prediction is a
+	// pure function of the live craft + clock bucket (node-independent —
+	// the Pass is the *unburned* path), so a coast computes it once per
+	// quantized-element/clock-bucket change instead of every frame. The
+	// apoapsis-reach guard inside LiveSOIPass keeps a stable LEO's miss
+	// path cheap; this keeps a real pass off the per-frame hot path.
+	soiPassCache         soiPassRenderCache
+	soiPassCacheComputes int
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
@@ -809,6 +819,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// post-burn state. Only meaningful when the craft is visible here.
 	if w.CraftVisibleHere() {
 		v.drawNodes(w)
+		// Live SOI Pass (ADR 0019): the upcoming foreign-SOI encounter of
+		// the *unburned* trajectory, drawn ahead of arrival with a Perilune
+		// marker — always-on, independent of the Target slot.
+		v.drawSOIPass(w)
 	}
 
 	// Stamp the active projection in the canvas's bottom-left corner
@@ -1187,6 +1201,67 @@ type predictRenderCache struct {
 	data predictRenderData
 }
 
+// soiPassRenderCache memoizes the last LiveSOIPass result (ADR 0019) under
+// the predict-on-change discipline. ok records whether a pass exists so a
+// cached "no pass" (the common coast) doesn't re-run the guard each frame.
+type soiPassRenderCache struct {
+	has  bool
+	key  soiPassKey
+	pass sim.SOIPass
+	ok   bool
+}
+
+// soiPassKey fingerprints what the live SOI Pass depends on: the active
+// craft, its primary, the clock (bucketed), and the live orbital elements
+// (quantized). Deliberately omits the node fingerprint — the Pass is the
+// *unburned* path, independent of planted nodes (ADR 0019 A), so a node
+// edit must not bust it.
+type soiPassKey struct {
+	craftID     uint64
+	primaryID   string
+	clockBucket int64
+	aQ          int64
+	eQ          int64
+	iQ          int64
+	omegaQ      int64
+	argQ        int64
+}
+
+// cachedSOIPass returns the live SOI Pass for the active craft, recomputing
+// (the forward predictor + apoapsis-reach guard) only when the key changes.
+func (v *OrbitView) cachedSOIPass(w *sim.World) (sim.SOIPass, bool) {
+	if w.ActiveCraft() == nil {
+		return sim.SOIPass{}, false
+	}
+	key := v.soiPassKeyAt(w, w.Clock.SimTime)
+	if v.soiPassCache.has && v.soiPassCache.key == key {
+		return v.soiPassCache.pass, v.soiPassCache.ok
+	}
+	pass, ok := w.LiveSOIPass()
+	v.soiPassCache = soiPassRenderCache{has: true, key: key, pass: pass, ok: ok}
+	v.soiPassCacheComputes++
+	return pass, ok
+}
+
+// soiPassKeyAt builds the SOI-pass cache key for the active craft at clock
+// t. Mirrors predictRenderKeyAt minus the node fingerprint.
+func (v *OrbitView) soiPassKeyAt(w *sim.World, t time.Time) soiPassKey {
+	c := w.ActiveCraft()
+	key := soiPassKey{
+		craftID:     c.ID,
+		primaryID:   c.Primary.ID,
+		clockBucket: t.UnixNano() / v.predictClockBucketNanos(w),
+	}
+	if el, ok := activeCraftElements(w); ok {
+		key.aQ = quantize(el.A, 1000)
+		key.eQ = quantize(el.E, 1e-4)
+		key.iQ = quantize(el.I, 1e-4)
+		key.omegaQ = quantize(el.Omega, 1e-4)
+		key.argQ = quantize(el.Arg, 1e-4)
+	}
+	return key
+}
+
 // predictRenderKey is the cheap fingerprint of everything the predicted
 // node markers + dashed legs depend on for a coasting craft: which craft,
 // its primary, the planted nodes, the clock (bucketed), and the live
@@ -1451,6 +1526,34 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 				v.canvas.PlotColored(p, leg.color)
 			}
 		}
+	}
+}
+
+// drawSOIPass renders the live trajectory's upcoming SOI Pass (ADR 0019):
+// the foreign-SOI arc as a single bright solid leg, plus a Perilune ⊕
+// marker at closest approach — or an Impact glyph (red+bright, the marker
+// system's alarm state) when perilune dips below the surface. Always-on and
+// independent of the Target slot; the apoapsis-reach guard inside the
+// cached predictor keeps a stable orbit that reaches no SOI free.
+func (v *OrbitView) drawSOIPass(w *sim.World) {
+	pass, ok := v.cachedSOIPass(w)
+	if !ok {
+		return
+	}
+	// The foreign-SOI arc draws solid (every sample) and bright — the
+	// encounter is the thing the player is looking for, so unlike the
+	// dashed home-SOI ellipse it doesn't stipple.
+	for _, seg := range pass.ArcSegments {
+		for _, p := range seg.Points {
+			v.canvas.PlotColored(p, render.ColorForeignSOI)
+		}
+	}
+	if pass.HasPerilunePt {
+		state := render.MarkerNominal
+		if pass.Impact {
+			state = render.MarkerAlarm // sub-surface perilune → Impact
+		}
+		drawMarker(v.canvas, pass.PerilunePoint, render.MarkerPerilune, state, "", widgets.CellTag{})
 	}
 }
 
