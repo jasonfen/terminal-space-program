@@ -115,15 +115,16 @@ func (w *World) LiveSOIPass() (SOIPass, bool) {
 		return SOIPass{}, false
 	}
 
-	// Sample the live trajectory for the foreign-SOI arc + a perilune point
-	// to mark. Bound the sampling to just past perilune so the draw doesn't
-	// trail an unbounded escape tail (ADR 0019 B: time-capped).
-	arcHorizon := best.TimeToPerilune * 1.05
-	if arcHorizon <= 0 || arcHorizon > horizon {
-		arcHorizon = horizon
-	}
-	samples := adaptiveSampleCount(arcHorizon, period)
-	segs := w.PredictedSegmentsFrom(c.State, c.Primary, now, arcHorizon, samples)
+	// Sample the live trajectory over the full bounded horizon and keep only
+	// the body's own segments — these span the *whole* transit (entry →
+	// perilune → exit), because PredictedSegmentsFrom rebases back out of
+	// the SOI on exit, so any post-exit (escape / re-captured) samples land
+	// in a different segment we drop here. Drawing the complete flyby (not
+	// just the approach to perilune) reads as the single bright leg ADR
+	// 0019 E calls for, while the period/sim-day horizon keeps it bounded
+	// (ADR 0019 B: time-capped, ≤3 patches).
+	samples := adaptiveSampleCount(horizon, period)
+	segs := w.PredictedSegmentsFrom(c.State, c.Primary, now, horizon, samples)
 	for _, s := range segs {
 		if s.PrimaryID == best.Body.ID {
 			best.ArcSegments = append(best.ArcSegments, s)
