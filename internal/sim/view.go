@@ -51,7 +51,7 @@ const (
 	// (no craft, e ≥ 1, a ≤ 0). Useful for reading the orbit's
 	// actual shape as if i = 0.
 	ViewOrbitFlat
-	// ViewTarget (v0.18+) centers the canvas on the current body Target
+	// ViewTarget (v0.17.3+) centers the canvas on the current body Target
 	// and auto-frames the craft→target approach (refitting every frame as
 	// the gap closes), so the player can watch the projected orbit pass the
 	// target while hand-flying engine/RCS corrections. Reuses the orbit-flat

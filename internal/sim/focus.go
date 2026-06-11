@@ -141,7 +141,7 @@ func (w *World) FocusZoomRadius() float64 {
 // perilune geometry is legible on a close pass) widened to the craft→target
 // distance when the craft is still far out — so the approach line stays in
 // frame and the view zooms in automatically as the gap closes. ok=false when
-// there's no body target in the active system. v0.18+.
+// there's no body target in the active system. v0.17.3+.
 func (w *World) TargetViewFraming() (center orbital.Vec3, radius float64, ok bool) {
 	if w.Target.Kind != TargetBody {
 		return orbital.Vec3{}, 0, false
