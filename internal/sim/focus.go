@@ -164,6 +164,41 @@ func (w *World) TargetViewFraming() (center orbital.Vec3, radius float64, ok boo
 	return center, radius, true
 }
 
+// SOIPassViewFraming returns the camera center and auto-fit radius for
+// ViewSOIPass (ADR 0019 F): centered on the active SOI Pass's Body, with a
+// radius that frames the encounter arc + Perilune marker. It mirrors
+// TargetViewFraming's geometry — the Pass Body's SOI (×1.3, so the perilune
+// curvature is legible on a close pass) widened to the craft→Body distance
+// when the craft is still far out, so the approach stays in frame and the
+// view zooms in automatically as the gap closes. Unlike TargetViewFraming it
+// reads the Pass Body from LiveSOIPass, *not* the Target slot, so framing an
+// encounter never requires (or touches) the Target. ok=false when there's no
+// active SOI Pass — the orbit view then falls through to the ordinary focus
+// center, mirroring how ViewTarget degrades when the target clears. v0.18.0+.
+func (w *World) SOIPassViewFraming() (center orbital.Vec3, radius float64, ok bool) {
+	pass, ok := w.LiveSOIPass()
+	if !ok {
+		return orbital.Vec3{}, 0, false
+	}
+	b := pass.Body
+	center = w.BodyPosition(b)
+	radius = physics.SOIRadius(b, w.System().Bodies[0]) * 1.3
+	if radius <= 0 {
+		radius = b.RadiusMeters() * 50
+	}
+	// Small-SOI widening (ADR 0019 F watch-point): a tight SOI relative to the
+	// current approach distance would frame only the Body and drop the craft
+	// off-canvas during approach. Widen the fit to the craft→Body distance —
+	// same widening TargetViewFraming applies — so the craft and the full
+	// encounter arc stay in frame, tightening to the SOI as the gap closes.
+	if c := w.ActiveCraft(); c != nil && c.SystemIdx == w.SystemIdx {
+		if dist := w.CraftInertial().Sub(center).Norm(); dist > radius {
+			radius = dist
+		}
+	}
+	return center, radius, true
+}
+
 func (w *World) systemOutermostRadius() float64 {
 	var maxR float64
 	for _, b := range w.System().Bodies {

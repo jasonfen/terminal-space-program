@@ -247,7 +247,7 @@ func DefaultKeymap() Keymap {
 		Save:            key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "quicksave")),
 		Load:            key.NewBinding(key.WithKeys("f9"), key.WithHelp("F9", "quickload")),
 		RefinePlan:      key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refine plan (re-Lambert arrival)")),
-		CycleView:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (top / right / bottom / left / orbit-flat / target)")),
+		CycleView:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (top / right / bottom / left / orbit-flat / target / soi-pass)")),
 
 		ThrottleFull:        key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "throttle 100%")),
 		ThrottleCut:         key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "throttle 0% / cut burn")),
