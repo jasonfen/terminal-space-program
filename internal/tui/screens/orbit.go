@@ -1201,24 +1201,38 @@ type predictRenderCache struct {
 	data predictRenderData
 }
 
-// soiPassRenderCache memoizes the last LiveSOIPass result (ADR 0019) under
-// the predict-on-change discipline. ok records whether a pass exists so a
-// cached "no pass" (the common coast) doesn't re-run the guard each frame.
+// soiPassRenderCache memoizes the dual-arc SOI Pass result (ADR 0019 D)
+// under the predict-on-change discipline.
 type soiPassRenderCache struct {
-	has  bool
-	key  soiPassKey
-	pass sim.SOIPass
-	ok   bool
+	has bool
+	key soiPassKey
+	arc soiDualArc
 }
 
-// soiPassKey fingerprints what the live SOI Pass depends on: the active
-// craft, its primary, the clock (bucketed), and the live orbital elements
-// (quantized). Deliberately omits the node fingerprint — the Pass is the
-// *unburned* path, independent of planted nodes (ADR 0019 A), so a node
-// edit must not bust it.
+// soiDualArc is the per-frame SOI Pass geometry the canvas + chip share.
+// With no node planted, only `counterfactual` is populated (it equals the
+// live pass) and is drawn bright. With a node planted, `counterfactual` is
+// the no-burn path (capped at the first node, drawn dim) and `planned` is
+// the node-modified path's pass (drawn as a bright Perilune marker over the
+// node legs) — the dual arc.
+type soiDualArc struct {
+	counterfactual sim.SOIPass
+	cfOK           bool
+	planned        sim.SOIPass
+	plOK           bool
+	hasNodes       bool
+}
+
+// soiPassKey fingerprints what the dual-arc SOI Pass depends on: the active
+// craft, its primary, the clock (bucketed), the live orbital elements
+// (quantized), and the planted-node fingerprint. The node fingerprint is
+// included because the *planned* (node-modified) arc depends on the nodes
+// (ADR 0019 D) — the no-burn counterfactual is also capped at the first
+// node, so a node edit legitimately busts this cache.
 type soiPassKey struct {
 	craftID     uint64
 	primaryID   string
+	nodeFinger  uint64
 	clockBucket int64
 	aQ          int64
 	eQ          int64
@@ -1227,29 +1241,35 @@ type soiPassKey struct {
 	argQ        int64
 }
 
-// cachedSOIPass returns the live SOI Pass for the active craft, recomputing
-// (the forward predictor + apoapsis-reach guard) only when the key changes.
-func (v *OrbitView) cachedSOIPass(w *sim.World) (sim.SOIPass, bool) {
+// cachedSOIPass returns the dual-arc SOI Pass for the active craft,
+// recomputing (the forward predictor + apoapsis-reach guard) only when the
+// key changes — ADR 0019 / ADR 0017 C.
+func (v *OrbitView) cachedSOIPass(w *sim.World) soiDualArc {
 	if w.ActiveCraft() == nil {
-		return sim.SOIPass{}, false
+		return soiDualArc{}
 	}
 	key := v.soiPassKeyAt(w, w.Clock.SimTime)
 	if v.soiPassCache.has && v.soiPassCache.key == key {
-		return v.soiPassCache.pass, v.soiPassCache.ok
+		return v.soiPassCache.arc
 	}
-	pass, ok := w.LiveSOIPass()
-	v.soiPassCache = soiPassRenderCache{has: true, key: key, pass: pass, ok: ok}
+	var arc soiDualArc
+	arc.hasNodes = len(w.ActiveCraft().Nodes) > 0
+	arc.counterfactual, arc.cfOK = w.CounterfactualSOIPass()
+	if arc.hasNodes {
+		arc.planned, arc.plOK = w.PlannedSOIPass()
+	}
+	v.soiPassCache = soiPassRenderCache{has: true, key: key, arc: arc}
 	v.soiPassCacheComputes++
-	return pass, ok
+	return arc
 }
 
-// soiPassKeyAt builds the SOI-pass cache key for the active craft at clock
-// t. Mirrors predictRenderKeyAt minus the node fingerprint.
+// soiPassKeyAt builds the SOI-pass cache key for the active craft at clock t.
 func (v *OrbitView) soiPassKeyAt(w *sim.World, t time.Time) soiPassKey {
 	c := w.ActiveCraft()
 	key := soiPassKey{
 		craftID:     c.ID,
 		primaryID:   c.Primary.ID,
+		nodeFinger:  nodeFingerprint(c.Nodes),
 		clockBucket: t.UnixNano() / v.predictClockBucketNanos(w),
 	}
 	if el, ok := activeCraftElements(w); ok {
@@ -1529,6 +1549,11 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	}
 }
 
+// soiCounterfactualDim scales the no-burn arc's colour when a node is
+// planted, so the dim counterfactual reads as visibly secondary to the
+// bright node-modified path drawn in the same SOI (ADR 0019 D / ADR 0020 B).
+const soiCounterfactualDim = 0.5
+
 // drawSOIPass renders the live trajectory's upcoming SOI Pass (ADR 0019):
 // the foreign-SOI arc as a single bright solid leg, plus a Perilune ⊕
 // marker at closest approach — or an Impact glyph (red+bright, the marker
@@ -1536,24 +1561,42 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 // independent of the Target slot; the apoapsis-reach guard inside the
 // cached predictor keeps a stable orbit that reaches no SOI free.
 func (v *OrbitView) drawSOIPass(w *sim.World) {
-	pass, ok := v.cachedSOIPass(w)
-	if !ok {
-		return
-	}
-	// The foreign-SOI arc draws solid (every sample) and bright — the
-	// encounter is the thing the player is looking for, so unlike the
-	// dashed home-SOI ellipse it doesn't stipple.
-	for _, seg := range pass.ArcSegments {
-		for _, p := range seg.Points {
-			v.canvas.PlotColored(p, render.ColorForeignSOI)
+	arc := v.cachedSOIPass(w)
+
+	// The no-burn arc. With no node planted it IS the live pass, drawn
+	// bright; with a node planted it's the counterfactual ("what you'll hit
+	// if you don't burn"), drawn dim and capped at the node so it never
+	// trails past the burn (ADR 0019 D). brightness = state (ADR 0020 B).
+	if arc.cfOK {
+		arcColor := render.ColorForeignSOI
+		markerState := render.MarkerNominal
+		if arc.hasNodes {
+			arcColor = render.Shade(render.ColorForeignSOI, soiCounterfactualDim)
+			markerState = render.MarkerCounterfactual
+		}
+		for _, seg := range arc.counterfactual.ArcSegments {
+			for _, p := range seg.Points {
+				v.canvas.PlotColored(p, arcColor)
+			}
+		}
+		if arc.counterfactual.HasPerilunePt {
+			st := markerState
+			if arc.counterfactual.Impact {
+				st = render.MarkerAlarm // sub-surface perilune → Impact (red+bright even when counterfactual)
+			}
+			drawMarker(v.canvas, arc.counterfactual.PerilunePoint, render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
 	}
-	if pass.HasPerilunePt {
-		state := render.MarkerNominal
-		if pass.Impact {
-			state = render.MarkerAlarm // sub-surface perilune → Impact
+
+	// The planned (node-modified) path's Perilune marker, drawn bright over
+	// the node legs (which drawNodes already paints) — the safe periapsis
+	// the burn produces, against the dim no-burn Impact (ADR 0019 D).
+	if arc.plOK && arc.planned.HasPerilunePt {
+		st := render.MarkerNominal
+		if arc.planned.Impact {
+			st = render.MarkerAlarm
 		}
-		drawMarker(v.canvas, pass.PerilunePoint, render.MarkerPerilune, state, "", widgets.CellTag{})
+		drawMarker(v.canvas, arc.planned.PerilunePoint, render.MarkerPerilune, st, "", widgets.CellTag{})
 	}
 }
 

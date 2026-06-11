@@ -733,40 +733,70 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 }
 
 // buildSOIPassChip surfaces the always-on SOI Pass readout (ADR 0019): the
-// upcoming foreign-SOI encounter of the live, *unburned* trajectory — body,
-// Perilune altitude (or IMPACT), and Time to Perilune — independent of the
-// Target slot. Returns nil when there is no pass, or when the Pass Body is
-// also the current body Target: the TARGET chip already shows the same
-// perilune/TCA, so the two readouts de-dupe into one (ADR 0019 E).
+// upcoming foreign-SOI encounter of the live trajectory — independent of the
+// Target slot. With no node planted it shows the single live pass (body,
+// Perilune altitude or IMPACT, Time to Perilune). With a node planted it
+// stacks the dual arc (ADR 0019 D): a `planned` line (the node-modified
+// path's safe periapsis) and a `no-burn` line (the counterfactual Impact the
+// burn corrects). Returns nil when there is no pass, or when the Pass Body is
+// also the current body Target — the TARGET chip already covers it, so the
+// readouts de-dupe into one (ADR 0019 E).
 func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 	c := w.ActiveCraft()
 	if c == nil || !w.CraftVisibleHere() {
 		return nil
 	}
-	pass, ok := v.cachedSOIPass(w)
-	if !ok {
+	arc := v.cachedSOIPass(w)
+
+	// The body the chip names: the planned pass when present (the path the
+	// craft will fly), else the counterfactual/live pass.
+	var body bodies.CelestialBody
+	switch {
+	case arc.plOK:
+		body = arc.planned.Body
+	case arc.cfOK:
+		body = arc.counterfactual.Body
+	default:
 		return nil
 	}
+
 	// De-dupe with TARGET: if the player has targeted the very body the
 	// pass crosses, the TARGET chip's peri/TCA rows already cover it.
 	if w.Target.Kind == sim.TargetBody {
 		sysT := w.System()
 		if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) &&
-			sysT.Bodies[w.Target.BodyIdx].ID == pass.Body.ID {
+			sysT.Bodies[w.Target.BodyIdx].ID == body.ID {
 			return nil
 		}
 	}
-	nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(pass.Body)).Bold(true)
+
+	nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(body)).Bold(true)
 	lines := []string{
 		v.theme.Primary.Render("SOI PASS"),
-		chipRow("body:", nameStyle.Render(pass.Body.EnglishName)),
+		chipRow("body:", nameStyle.Render(body.EnglishName)),
 	}
-	if pass.Impact {
-		lines = append(lines, chipRow("peri:", v.theme.Warning.Render("IMPACT")))
-	} else {
-		lines = append(lines, chipRow("peri:", fmt.Sprintf("%.0f km", pass.PeriluneAltitude()/1000)))
+	periValue := func(p sim.SOIPass) string {
+		if p.Impact {
+			return v.theme.Warning.Render("IMPACT")
+		}
+		return fmt.Sprintf("%.0f km", p.PeriluneAltitude()/1000)
 	}
-	lines = append(lines, chipRow("TCA:", formatTCA(pass.TimeToPerilune)))
+	if arc.hasNodes {
+		// Dual arc: planned (bright path) + no-burn (counterfactual).
+		if arc.plOK {
+			lines = append(lines,
+				chipRow("planned:", periValue(arc.planned)),
+				chipRow("  T-peri:", formatTCA(arc.planned.TimeToPerilune)))
+		}
+		if arc.cfOK {
+			lines = append(lines, chipRow("no-burn:", periValue(arc.counterfactual)))
+		}
+		return lines
+	}
+	// Single live pass (no node planted).
+	lines = append(lines,
+		chipRow("peri:", periValue(arc.counterfactual)),
+		chipRow("TCA:", formatTCA(arc.counterfactual.TimeToPerilune)))
 	return lines
 }
 
