@@ -1485,12 +1485,20 @@ Frame]] — see Flagged ambiguities.
 **ViewMode**:
 The world-level projection selector — which canvas projection the
 orbit and maneuver screens use to flatten 3D geometry onto the
-braille canvas. Five values cycled in this order: **ViewTop** (drop
-world Z), **ViewRight** (look from +X), **ViewBottom** (Top with Y
+braille canvas. Eight values cycled via `v` in this order:
+**ViewTilted** (the default — 3D-style perspective using the active
+Vessel's perifocal basis with a polar tilt), **ViewTop** (drop world
+Z), **ViewRight** (look from +X), **ViewBottom** (Top with Y
 inverted), **ViewLeft** (Right mirrored), **ViewOrbitFlat** (project
-onto the active Vessel's orbit plane). Stored on `World.ViewMode`
-so the orbit screen and the maneuver-planner mini-canvas share the
-same angle without per-screen coordination.
+onto the active Vessel's orbit plane), **ViewTarget** (v0.17.3+,
+centers on the body Target and auto-frames the approach — only offered
+when a body Target is set), **ViewSOIPass** (v0.18.0+, frames the
+active SOI Pass body and auto-fits its SOI — only offered when
+`LiveSOIPass()` returns ok, entering it never changes the Target
+slot). Plus **ViewLaunch** (auto-routed on pad launch, not in the
+player `v` cycle). Stored on `World.ViewMode` so the orbit screen
+and the maneuver-planner mini-canvas share the same angle without
+per-screen coordination.
 
 Distinct from [[#selection--view|Focus]] — Focus picks *what* the
 camera centres on (a system, a Body, a Vessel); ViewMode picks
