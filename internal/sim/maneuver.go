@@ -373,7 +373,9 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		//    change) + the capture braking burn. Wins for large departure
 		//    inclinations (an equatorial LEO sits ~25° off Luna's plane).
 		combinedDv := math.Inf(1)
-		combined, combinedErr := w.fusedIntraPrimaryDeparture(seed, muShared, target, muDestination, rCapture)
+		// Compare on the centre-aimed cost (ADR 0006 B); the capture-safe
+		// offset (ADR 0018) is applied only to the planted plan below.
+		combined, combinedErr := w.fusedIntraPrimaryDeparture(seed, muShared, target, muDestination, rCapture, false)
 		if combinedErr == nil {
 			combinedDv = combined.Departure.DV + combined.Arrival.DV
 		}
@@ -405,9 +407,23 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 
 		if combinedDv <= splitDv {
 			w.LastTransfer.Strategy = "combined"
-			w.PlanNode(transferNodeToManeuver(combined.Departure, now, c))
-			w.PlanNode(transferNodeToManeuver(combined.Arrival, now, c))
-			return &combined, nil
+			// Re-solve with the capture-safe offset aim (ADR 0018) so the
+			// planted transfer arrives at the Capture Orbit radius, prograde,
+			// instead of the target's centre. Fall back to the centre-aimed
+			// plan if the offset solve is degenerate.
+			plan := combined
+			if aimed, err := w.fusedIntraPrimaryDeparture(seed, muShared, target, muDestination, rCapture, true); err == nil {
+				plan = aimed
+			}
+			// The fused arrival node defaults to the nominal Lambert epoch
+			// (depOffset+tof), which is the moon-frame closest approach in the
+			// primary's frame. The craft accelerates as it falls into the
+			// moon's SOI and reaches perilune earlier, so the retrograde
+			// capture must fire there — refine the arrival to the perilune.
+			w.refineCombinedCapture(&plan, c, muShared, target)
+			w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
+			w.PlanNode(transferNodeToManeuver(plan.Arrival, now, c))
+			return &plan, nil
 		}
 
 		// Split: refine the finite coplanar departure (v0.6.2 iterator) so
@@ -1617,18 +1633,26 @@ func intraPlaneChangeAllowance(w *World, c *spacecraft.Spacecraft, target bodies
 	return 2 * vCirc * math.Sin(relIncl/2)
 }
 
-// fusedIntraPrimaryDeparture attempts the v0.12 combined plane-shift +
-// Hohmann fused-Lambert transfer for an intra-primary target, seeded off
+// fusedIntraPrimaryDeparture builds the v0.12 combined plane-shift + Hohmann
+// fused-Lambert transfer for an intra-primary target (ADR 0005), seeded off
 // the analytic plan's phasing (waitTime via Departure.OffsetTime, tof via
 // TransferDt). It propagates the craft analytically (Kepler — exact, no
-// Verlet drift over a multi-orbit phasing wait) to the departure epoch
-// and the target via ephemeris to the arrival epoch, both expressed in
-// the shared primary's frame, then solves a single-rev Lambert connecting
-// them. The departure Δv carries eccentricity + raise + plane change as a
-// BurnVector. Returns an error (caller falls back to the analytic seed)
-// when the craft orbit isn't elliptic or the Lambert solve is degenerate.
-// v0.12.x+ (ADR 0005).
-func (w *World) fusedIntraPrimaryDeparture(seed planner.TransferPlan, muShared float64, target bodies.CelestialBody, muTarget, rCapture float64) (planner.TransferPlan, error) {
+// Verlet drift over a multi-orbit phasing wait) to the departure epoch and
+// the target via ephemeris to the arrival epoch, both in the shared
+// primary's frame, then solves a single-rev Lambert connecting them; the
+// departure Δv carries eccentricity + raise + plane change as a BurnVector.
+// Returns an error (caller falls back to the analytic seed) when the craft
+// orbit isn't elliptic or the Lambert solve is degenerate.
+//
+// aimForCapture selects the arrival aim: false targets the target's centre
+// (used for the dual-strategy Δv comparison — keeps the near-coplanar
+// combined cost comparable to the split, ADR 0006 B), true offsets the aim
+// so the natural perilune lands at the Capture Orbit radius, prograde, for
+// the plan that's actually planted (ADR 0018). The offset barely shifts the
+// departure Δv, so comparing on the centre cost still picks the right
+// strategy; doing the offset only when planting stops it from flipping the
+// selection to the (still-centre-aimed, colliding) split.
+func (w *World) fusedIntraPrimaryDeparture(seed planner.TransferPlan, muShared float64, target bodies.CelestialBody, muTarget, rCapture float64, aimForCapture bool) (planner.TransferPlan, error) {
 	c := w.ActiveCraft()
 	waitTime := seed.Departure.OffsetTime
 	tof := seed.TransferDt.Seconds()
@@ -1643,9 +1667,296 @@ func (w *World) fusedIntraPrimaryDeparture(seed planner.TransferPlan, muShared f
 	arrEpoch := w.Clock.SimTime.Add(waitTime + seed.TransferDt)
 	rArr := w.BodyPositionAt(target, arrEpoch).Sub(w.BodyPositionAt(primary, arrEpoch))
 	vArr := w.bodyInertialVelocityAt(target, arrEpoch).Sub(w.bodyInertialVelocityAt(primary, arrEpoch))
+	aim := rArr
+	if aimForCapture {
+		aim = w.captureAimPoint(depState, rArr, vArr, primary, target, muShared, muTarget, rCapture, waitTime, tof)
+	}
 	return planner.PlanIntraPrimaryFused(
-		muShared, depState.R, depState.V, rArr, vArr, tof,
+		muShared, depState.R, depState.V, aim, vArr, tof,
 		waitTime, primary.ID, muTarget, rCapture, target.ID)
+}
+
+// captureAimPoint returns the arrival aim point for the fused transfer: an
+// in-plane offset from the target's centre (rArr) chosen so the natural
+// moon-frame perilune lands at rCapture, on the prograde side (ADR 0018).
+// It seeds the impact parameter analytically (b-plane relation) from the
+// centre-aimed approach v∞, then re-solves the Lambert to the offset aim and
+// measures the actual perilune, refining a few times (the offset perturbs
+// v∞, so one shot is only approximate). Falls back to the centre (no worse
+// than the pre-ADR-0018 behaviour) when the geometry is degenerate.
+//
+// Prograde side: with d̂ = v̂∞ × n̂_target, the approach angular momentum
+// r_rel × v_rel ≈ (b·d̂) × v∞ = +b·v∞·n̂_target (since (v̂∞ × n̂) × v̂∞ = +n̂),
+// i.e. aligned with the target's orbit normal — so this d̂ is the prograde-
+// capture side. (The opposite, n̂ × v̂∞, gives the retrograde side.)
+func (w *World) captureAimPoint(depState physics.StateVector, rArr, vArr orbital.Vec3, primary, target bodies.CelestialBody, muShared, muTarget, rCapture float64, waitTime time.Duration, tof float64) orbital.Vec3 {
+	depClock := w.Clock.SimTime.Add(waitTime)
+	// Centre-aimed solve to read the approach v∞ and its direction.
+	_, v2, err := planner.LambertSolve(depState.R, rArr, tof, muShared, false)
+	if err != nil {
+		return rArr
+	}
+	vInfVec := v2.Sub(vArr)
+	vInf := vInfVec.Norm()
+	nTarget := rArr.Cross(vArr)
+	if vInf == 0 || nTarget.Norm() == 0 {
+		return rArr
+	}
+	dHat := vInfVec.Unit().Cross(nTarget.Unit()) // in-plane, ⊥ v∞, prograde side
+	if dHat.Norm() == 0 {
+		return rArr
+	}
+	dHat = dHat.Unit()
+	// Analytic b-plane seed: perilune r_p ⇒ impact parameter b.
+	b := rCapture * math.Sqrt(1+2*muTarget/(rCapture*vInf*vInf))
+	aim := rArr.Add(dHat.Scale(b))
+	for iter := 0; iter < 6; iter++ {
+		peri, ok := w.aimPerilune(depState, aim, primary, target, muShared, depClock, tof)
+		if !ok {
+			// The offset skimmed past the SOI — pull it in and retry.
+			b *= 0.5
+			if b < 1 {
+				return rArr
+			}
+			aim = rArr.Add(dHat.Scale(b))
+			continue
+		}
+		if math.Abs(peri-rCapture) < 0.02*rCapture {
+			break
+		}
+		// Perilune grows ~monotonically with b; proportional correction.
+		b *= rCapture / peri
+		if b <= 0 || math.IsNaN(b) || math.IsInf(b, 0) {
+			return rArr
+		}
+		aim = rArr.Add(dHat.Scale(b))
+	}
+	return aim
+}
+
+// aimPerilune solves the fused departure to a candidate arrival aim point
+// and returns the resulting moon-frame perilune radius (ok=false when the
+// Lambert is degenerate or the arc misses the target's SOI). Shares
+// scanTargetEncounter with the live readout and the capture-time refinement.
+func (w *World) aimPerilune(depState physics.StateVector, aim orbital.Vec3, primary, target bodies.CelestialBody, muShared float64, depClock time.Time, tof float64) (float64, bool) {
+	v1, _, err := planner.LambertSolve(depState.R, aim, tof, muShared, false)
+	if err != nil {
+		return 0, false
+	}
+	post := depState
+	post.V = v1
+	enc, ok := w.scanTargetEncounter(post, primary, target, depClock, tof*1.4)
+	if !ok || !enc.EntersSOI {
+		return 0, false
+	}
+	return enc.Dist, true
+}
+
+// refineCombinedCapture moves the fused (combined) transfer's capture burn
+// from the nominal Lambert arrival epoch to the true perilune inside the
+// target's SOI. The fused Lambert aims the craft at the target's centre at
+// depOffset+tof, evaluated as a pure Kepler arc in the primary's frame —
+// which ignores the target's gravity, so it places the capture tens of
+// minutes late (the craft accelerates into the SOI and swings through
+// perilune early). This finds the SOI-entry time (transferEncounterTimes,
+// primary frame), rebases the entry state into the target's frame, and adds
+// the analytic hyperbolic time-to-periapsis. A no-op (leaves the analytic
+// epoch) when no encounter resolves or the entry geometry is past perilune.
+func (w *World) refineCombinedCapture(plan *planner.TransferPlan, c *spacecraft.Spacecraft, muShared float64, target bodies.CelestialBody) {
+	if plan.Departure.DV == 0 || plan.TransferDt <= 0 {
+		return
+	}
+	depState, ok := physics.KeplerStep(c.State, muShared, plan.Departure.OffsetTime.Seconds())
+	if !ok {
+		return
+	}
+	post := depState
+	post.V = depState.V.Add(plan.Departure.BurnDir.Scale(plan.Departure.DV))
+	depClock := w.Clock.SimTime.Add(plan.Departure.OffsetTime)
+	// Scan a little past the nominal tof — perilune sits before it, but
+	// give the SOI-entry detector margin for phasing slop.
+	tEntry, _, found := w.transferEncounterTimes(post, c.Primary, target, depClock, plan.TransferDt.Seconds()*1.4)
+	if !found {
+		return
+	}
+	stEntry, ok := physics.KeplerStep(post, muShared, tEntry)
+	if !ok {
+		return
+	}
+	entryClock := depClock.Add(time.Duration(tEntry * float64(time.Second)))
+	_, tPeri, ok := w.targetPerilune(stEntry, c.Primary, target, entryClock)
+	if !ok {
+		return
+	}
+	plan.Arrival.OffsetTime = plan.Departure.OffsetTime + time.Duration((tEntry+tPeri)*float64(time.Second))
+}
+
+// targetPerilune reads the perilune of a craft state that has just crossed
+// `target`'s SOI: it rebases the primary-frame state `stEntry` into the
+// target's frame (subtracting the target's position and velocity relative
+// to `primary` at `atClock`) and reads the resulting hyperbola. Returns the
+// perilune radius (distance to the target's centre; a·(1−e) is positive for
+// a<0, e>1) and the seconds from `atClock` to reach it. ok=false when the
+// relative orbit isn't hyperbolic or perilune is already behind the craft.
+// Shared by refineCombinedCapture and the live PredictedTargetApproach
+// readout so both agree on where the encounter periapsis is.
+func (w *World) targetPerilune(stEntry physics.StateVector, primary, target bodies.CelestialBody, atClock time.Time) (rp, tToPeri float64, ok bool) {
+	moonR := w.BodyPositionAt(target, atClock).Sub(w.BodyPositionAt(primary, atClock))
+	moonV := w.bodyInertialVelocityAt(target, atClock).Sub(w.bodyInertialVelocityAt(primary, atClock))
+	rel := orbital.Vec3State{R: stEntry.R.Sub(moonR), V: stEntry.V.Sub(moonV)}
+	muTarget := target.GravitationalParameter()
+	el := orbital.ElementsFromState(rel.R, rel.V, muTarget)
+	if el.E <= 1 || el.A >= 0 {
+		return 0, 0, false
+	}
+	t, okp := orbital.TimeToPeriapsisHyperbolic(rel, muTarget)
+	if !okp || t < 0 {
+		return 0, 0, false
+	}
+	return el.A * (1 - el.E), t, true
+}
+
+// TargetApproach summarises a craft's predicted closest approach to a body
+// target. Dist is the distance to the target's centre (perilune radius when
+// the trajectory enters the target's SOI, else the primary-frame miss
+// distance); TCA is seconds from now to that approach; EntersSOI reports
+// whether the path crosses the SOI (so a caller can show perilune altitude
+// vs. a flyby miss).
+type TargetApproach struct {
+	Dist      float64
+	TCA       float64
+	EntersSOI bool
+}
+
+// scanTargetEncounter walks the bound (elliptic) arc starting at `state`
+// (in `primary`'s frame) for its closest approach to `target` over
+// `horizon` seconds from `fromClock`. When the arc crosses the target's SOI
+// it returns the analytic moon-frame perilune (radius + time); otherwise the
+// primary-frame miss distance and its time. ok=false when the arc isn't
+// propagable. The TCA it returns is relative to `fromClock`. Shares
+// targetPerilune with the combined-capture refinement so the live readout
+// and the planted capture agree on the encounter geometry.
+func (w *World) scanTargetEncounter(state physics.StateVector, primary, target bodies.CelestialBody, fromClock time.Time, horizon float64) (TargetApproach, bool) {
+	mu := primary.GravitationalParameter()
+	soi := physics.SOIRadius(target, primary)
+	const n = 600
+	minD := math.Inf(1)
+	var minTime float64
+	tEntry := -1.0
+	propagable := false
+	for i := 0; i <= n; i++ {
+		dt := horizon * float64(i) / float64(n)
+		st, k := physics.KeplerStep(state, mu, dt)
+		if !k {
+			continue
+		}
+		propagable = true
+		tt := fromClock.Add(time.Duration(dt * float64(time.Second)))
+		rel := st.R.Sub(w.BodyPositionAt(target, tt).Sub(w.BodyPositionAt(primary, tt)))
+		d := rel.Norm()
+		if d < minD {
+			minD = d
+			minTime = dt
+		}
+		if tEntry < 0 && d < soi {
+			tEntry = dt
+		}
+	}
+	if !propagable {
+		return TargetApproach{}, false
+	}
+	if tEntry >= 0 {
+		if stEntry, k := physics.KeplerStep(state, mu, tEntry); k {
+			entryClock := fromClock.Add(time.Duration(tEntry * float64(time.Second)))
+			if rp, tPeri, okp := w.targetPerilune(stEntry, primary, target, entryClock); okp {
+				return TargetApproach{Dist: rp, TCA: tEntry + tPeri, EntersSOI: true}, true
+			}
+		}
+		// SOI entry but the relative hyperbola was degenerate — report the
+		// primary-frame minimum, still flagged as an encounter.
+		return TargetApproach{Dist: minD, TCA: minTime, EntersSOI: true}, true
+	}
+	return TargetApproach{Dist: minD, TCA: minTime, EntersSOI: false}, true
+}
+
+// PredictedTargetApproach returns the active craft's closest approach to its
+// current body Target, so the TARGET chip can show where the projected orbit
+// passes the target — updating live as the player hand-flies a correction.
+//
+// It scans two trajectories and prefers an actual SOI encounter (then the
+// closest of those):
+//
+//   - The craft's CURRENT state forward over a horizon reaching past the
+//     furthest planted node. This is the trajectory the player is actually
+//     flying — and the load-bearing case, because once the departure burn
+//     fires the approach coast is no longer a PredictedLegs leg (it's folded
+//     into the propagation to the next node), so a legs-only scan goes blind
+//     exactly during the coast.
+//   - The post-burn legs still in the craft's primary frame, so a transfer
+//     that's planted but not yet departed still previews its encounter.
+//
+// ok=false when there's no body target sharing the craft's primary or no
+// propagable trajectory.
+func (w *World) PredictedTargetApproach() (TargetApproach, bool) {
+	c := w.ActiveCraft()
+	if c == nil || w.Target.Kind != TargetBody {
+		return TargetApproach{}, false
+	}
+	sys := w.System()
+	if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sys.Bodies) {
+		return TargetApproach{}, false
+	}
+	target := sys.Bodies[w.Target.BodyIdx]
+	if target.ParentID != c.Primary.ID {
+		return TargetApproach{}, false
+	}
+	now := w.Clock.SimTime
+
+	var cands []TargetApproach
+	// Live current trajectory. Horizon reaches 20% past the furthest planted
+	// node (the capture sits at perilune, so the encounter is within it),
+	// else a few orbital periods when nothing is planted.
+	horizon := 0.0
+	for _, n := range c.Nodes {
+		if dt := n.TriggerTime.Sub(now).Seconds(); dt > horizon {
+			horizon = dt
+		}
+	}
+	if horizon > 0 {
+		horizon *= 1.2
+	} else {
+		period := orbitalPeriod(c.State, c.Primary.GravitationalParameter())
+		if period <= 0 || math.IsNaN(period) || math.IsInf(period, 0) {
+			return TargetApproach{}, false
+		}
+		horizon = 3 * period
+	}
+	if enc, ok := w.scanTargetEncounter(c.State, c.Primary, target, now, horizon); ok {
+		cands = append(cands, enc)
+	}
+	// Planted-but-not-yet-departed plan: scan the post-burn legs so the
+	// readout previews the encounter before the departure fires.
+	for _, leg := range w.PredictedLegs() {
+		if leg.Primary.ID != c.Primary.ID {
+			continue
+		}
+		if enc, ok := w.scanTargetEncounter(leg.State, leg.Primary, target, leg.StartClock, leg.HorizonSecs); ok {
+			enc.TCA += leg.StartClock.Sub(now).Seconds()
+			cands = append(cands, enc)
+		}
+	}
+	if len(cands) == 0 {
+		return TargetApproach{}, false
+	}
+	best := cands[0]
+	for _, a := range cands[1:] {
+		// Prefer a real SOI encounter (the perilune) over a flyby miss; among
+		// the same kind, the closer one.
+		if (a.EntersSOI && !best.EntersSOI) || (a.EntersSOI == best.EntersSOI && a.Dist < best.Dist) {
+			best = a
+		}
+	}
+	return best, true
 }
 
 // primaryFrameAngle returns body b's angular position around its

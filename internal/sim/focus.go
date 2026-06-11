@@ -135,6 +135,35 @@ func (w *World) FocusZoomRadius() float64 {
 	return w.systemOutermostRadius()
 }
 
+// TargetViewFraming returns the camera center and auto-fit radius for
+// ViewTarget: centered on the current body Target, with a radius that frames
+// the craft→target approach. The radius is the target's SOI (×1.3, so the
+// perilune geometry is legible on a close pass) widened to the craft→target
+// distance when the craft is still far out — so the approach line stays in
+// frame and the view zooms in automatically as the gap closes. ok=false when
+// there's no body target in the active system. v0.18+.
+func (w *World) TargetViewFraming() (center orbital.Vec3, radius float64, ok bool) {
+	if w.Target.Kind != TargetBody {
+		return orbital.Vec3{}, 0, false
+	}
+	sys := w.System()
+	if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sys.Bodies) {
+		return orbital.Vec3{}, 0, false
+	}
+	b := sys.Bodies[w.Target.BodyIdx]
+	center = w.BodyPosition(b)
+	radius = physics.SOIRadius(b, sys.Bodies[0]) * 1.3
+	if radius <= 0 {
+		radius = b.RadiusMeters() * 50
+	}
+	if c := w.ActiveCraft(); c != nil && c.SystemIdx == w.SystemIdx {
+		if dist := w.CraftInertial().Sub(center).Norm(); dist > radius {
+			radius = dist
+		}
+	}
+	return center, radius, true
+}
+
 func (w *World) systemOutermostRadius() float64 {
 	var maxR float64
 	for _, b := range w.System().Bodies {

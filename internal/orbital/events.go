@@ -53,6 +53,39 @@ func TimeToPeriapsis(state Vec3State, mu float64) float64 {
 	return TimeToTrueAnomaly(nu, 0, el.A, el.E, mu)
 }
 
+// TimeToPeriapsisHyperbolic returns elapsed seconds until periapsis (ν=0)
+// for a hyperbolic state (e > 1) — the case TimeToPeriapsis/TimeToTrueAnomaly
+// reject (they assume a closed orbit). Positive on the inbound leg
+// (approaching periapsis, the SOI-capture geometry), negative once past it.
+// ok=false for non-hyperbolic states or a point already beyond the
+// asymptote (1 + e·cos ν ≤ 0, i.e. not on the physical arc).
+//
+// Standard hyperbolic Kepler: sinh H = √(e²−1)·sin ν / (1 + e·cos ν);
+// mean anomaly M = e·sinh H − H; mean motion n = √(μ/|a|³); the time since
+// periapsis is M/n, so time *to* periapsis is −M/n.
+func TimeToPeriapsisHyperbolic(state Vec3State, mu float64) (float64, bool) {
+	el := ElementsFromState(state.R, state.V, mu)
+	if el.E <= 1 || mu <= 0 || el.A >= 0 {
+		return 0, false
+	}
+	nu := TrueAnomalyFromState(state.R, state.V, mu, el)
+	// TrueAnomalyFromState wraps the inbound half-plane to (π, 2π); map it
+	// back to (−π, 0) so an approaching craft has ν < 0 ⇒ H < 0 ⇒ M < 0.
+	if nu > math.Pi {
+		nu -= 2 * math.Pi
+	}
+	denom := 1 + el.E*math.Cos(nu)
+	if denom <= 0 {
+		return 0, false
+	}
+	sinhH := math.Sqrt(el.E*el.E-1) * math.Sin(nu) / denom
+	H := math.Asinh(sinhH)
+	M := el.E*math.Sinh(H) - H
+	absA := -el.A
+	n := math.Sqrt(mu / (absA * absA * absA))
+	return -M / n, true
+}
+
 // TimeToApoapsis returns elapsed seconds to the next apoapsis (ν=π).
 // Convenience wrapper around TimeToTrueAnomaly.
 func TimeToApoapsis(state Vec3State, mu float64) float64 {

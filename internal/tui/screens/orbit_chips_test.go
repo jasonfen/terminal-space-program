@@ -80,6 +80,40 @@ func TestComposeChipsPlacesAndRoutes(t *testing.T) {
 	}
 }
 
+// TestComposeChipsLeftOfPrevSharesRowBand: a leftOfPrev top-right chip
+// (PROJECTED ORBIT) sits on the same top row as the previously placed
+// top-right chip (ORBIT), immediately to its left — not stacked below it —
+// so the column stays short and a following TARGET chip drops below both
+// without overlapping. Regression for the right-column overflow that buried
+// TARGET under NODES.
+func TestComposeChipsLeftOfPrevSharesRowBand(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	chips := []builtChip{
+		{id: "", corner: cornerTopRight, lines: []string{"ORBIT", "  a", "  b"}},
+		{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: []string{"PROJECTED", "  c"}, leftOfPrev: true},
+		{id: settings.ChipTarget, corner: cornerTopRight, lines: []string{"TARGET", "  d", "  e"}},
+	}
+	v.composeChips(blankCanvas(80, 24), 80, 24, 0, 0, 0, chips)
+	if len(v.chipRects) != 3 {
+		t.Fatalf("recorded %d rects, want 3", len(v.chipRects))
+	}
+	orbit, proj, target := v.chipRects[0], v.chipRects[1], v.chipRects[2]
+	if proj.rowStart != orbit.rowStart {
+		t.Errorf("projected rowStart %d != orbit rowStart %d — not side by side", proj.rowStart, orbit.rowStart)
+	}
+	if proj.colEnd >= orbit.colStart {
+		t.Errorf("projected (cols %d–%d) is not left of orbit (cols %d–%d)",
+			proj.colStart, proj.colEnd, orbit.colStart, orbit.colEnd)
+	}
+	maxBottom := orbit.rowEnd
+	if proj.rowEnd > maxBottom {
+		maxBottom = proj.rowEnd
+	}
+	if target.rowStart <= maxBottom {
+		t.Errorf("target rowStart %d not below the orbit/projected band bottom %d", target.rowStart, maxBottom)
+	}
+}
+
 func TestComposeChipsClipsOversizeChipWithoutPanic(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	tall := make([]string, 50) // taller than the 20-row canvas

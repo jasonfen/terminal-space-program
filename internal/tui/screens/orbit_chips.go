@@ -45,6 +45,15 @@ type builtChip struct {
 	id     settings.Chip
 	corner chipCorner
 	lines  []string
+	// leftOfPrev places this chip on the same top row as the previously
+	// placed chip in the same (top-right) corner, immediately to its left,
+	// instead of stacking below it — so two chips share a row band rather
+	// than growing the column's height. Used for PROJECTED ORBIT beside the
+	// always-on ORBIT chip so the top-right column stays short enough to
+	// leave room for TARGET above the bottom-right NODES chip. Honoured only
+	// for cornerTopRight; ignored (normal stacking) when there's no prior
+	// top-right chip to sit beside.
+	leftOfPrev bool
 }
 
 // chipRect is the absolute screen-cell rectangle a composited Chip
@@ -109,6 +118,10 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	bottomLeftRow := cRows - 2 // above the "view:" label on row cRows-1
 	bottomRightRow := cRows - 1 - navballReserved
 
+	// Remember the last normally-placed top-right chip so a leftOfPrev chip
+	// can sit beside it (same top row, immediately to its left).
+	lastTRStartRow, lastTRCol, haveTR := 0, 0, false
+
 	for _, chip := range chips {
 		padded, w := padChipBlock(chip.lines)
 		if len(padded) == 0 || w == 0 {
@@ -125,8 +138,18 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 			atRow, atCol = topLeftRow, 0
 			topLeftRow += bh + chipGap
 		case cornerTopRight:
-			atRow, atCol = topRightRow, cCols-bw
-			topRightRow += bh + chipGap
+			if chip.leftOfPrev && haveTR {
+				// Sit beside the previous top-right chip rather than below it.
+				atRow, atCol = lastTRStartRow, lastTRCol-bw
+				if bottom := atRow + bh + chipGap; bottom > topRightRow {
+					topRightRow = bottom
+				}
+				lastTRCol = atCol // a further leftOfPrev chip chains leftward
+			} else {
+				atRow, atCol = topRightRow, cCols-bw
+				topRightRow += bh + chipGap
+				lastTRStartRow, lastTRCol, haveTR = atRow, atCol, true
+			}
 		case cornerBottomLeft:
 			atRow, atCol = bottomLeftRow-bh+1, 0
 			bottomLeftRow -= bh + chipGap

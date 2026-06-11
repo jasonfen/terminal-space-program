@@ -111,7 +111,7 @@ readout shows you why before you watch it fall back.
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your craft) |
 | `g` | Reset the camera to the whole system |
-| `v` | Cycle the view (tilted → top → right → bottom → left → flat). Tilted is the default — a 3D-style perspective that shows orbits leaning in space |
+| `v` | Cycle the view (tilted → top → right → bottom → left → flat → target). Tilted is the default — a 3D-style perspective that shows orbits leaning in space. **Target** (only offered when you have a body targeted) centers on the target and auto-frames your approach, zooming in as you close — so you can watch your projected orbit pass it while hand-flying corrections |
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (only in the tilted view) |
 | `F2` | Declutter — hide all overlays (the corner chips and the navball) for a clean look at the orbit. Press again to bring them back. Your core telemetry column stays put |
 | `n` | Open the spawn form (craft, where to start, which body, altitude, direction). Pick **Custom…** to build your own rocket stack: on the stack field, `←` / `→` browse parts, `a` adds one on top, `x` removes the top one |

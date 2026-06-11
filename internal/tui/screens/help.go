@@ -44,7 +44,7 @@ var helpSections = []helpSection{
 		{"f / F", "cycle camera focus forward / back (system → bodies → craft)"},
 		{"g", "reset camera to the whole system"},
 		{"+ / -", "zoom in / out"},
-		{"v", "cycle view (tilted / top / right / bottom / left / flat)"},
+		{"v", "cycle view (tilted / top / right / bottom / left / flat / target)"},
 		{"shift+↑ / ↓", "tilt the 3D view up / down (tilted view only)"},
 		{"F2", "declutter — hide chips + navball (core column stays)"},
 	}},

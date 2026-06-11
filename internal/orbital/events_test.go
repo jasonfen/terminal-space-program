@@ -100,6 +100,56 @@ func TestTimeToPeriapsisAndApoapsis(t *testing.T) {
 	}
 }
 
+// hyperbolicStateAtNu builds a hyperbolic state (e > 1) at the requested
+// true anomaly. Same perifocal construction as stateAtNu; the semi-latus
+// rectum p = a(1−e²) stays positive because a < 0 and (1−e²) < 0.
+func hyperbolicStateAtNu(a, e, nu float64) Vec3State {
+	p := a * (1 - e*e)
+	r := p / (1 + e*math.Cos(nu))
+	cosNu, sinNu := math.Cos(nu), math.Sin(nu)
+	rVec := Vec3{X: r * cosNu, Y: r * sinNu}
+	vr := math.Sqrt(muEarth/p) * e * sinNu
+	vp := math.Sqrt(muEarth/p) * (1 + e*cosNu)
+	vVec := Vec3{X: vr*cosNu - vp*sinNu, Y: vr*sinNu + vp*cosNu}
+	return Vec3State{R: rVec, V: vVec}
+}
+
+// TestTimeToPeriapsisHyperbolic: on a hyperbola (where TimeToPeriapsis
+// returns -1), the helper gives 0 at periapsis, a positive time inbound,
+// a negative time outbound, and is antisymmetric about ν=0.
+func TestTimeToPeriapsisHyperbolic(t *testing.T) {
+	const a, e = -1e7, 1.5 // a < 0, e > 1
+
+	// At periapsis (ν=0): zero time.
+	if dt, ok := TimeToPeriapsisHyperbolic(hyperbolicStateAtNu(a, e, 0), muEarth); !ok || math.Abs(dt) > 1e-3 {
+		t.Errorf("ν=0: got dt=%.6f ok=%v, want ~0", dt, ok)
+	}
+
+	// Inbound (ν<0): periapsis is in the future ⇒ positive.
+	in, okIn := TimeToPeriapsisHyperbolic(hyperbolicStateAtNu(a, e, -0.6), muEarth)
+	if !okIn || in <= 0 {
+		t.Errorf("inbound ν=-0.6: got %.3f ok=%v, want > 0", in, okIn)
+	}
+	// Outbound (ν>0): periapsis is in the past ⇒ negative, equal magnitude.
+	out, okOut := TimeToPeriapsisHyperbolic(hyperbolicStateAtNu(a, e, 0.6), muEarth)
+	if !okOut || out >= 0 {
+		t.Errorf("outbound ν=0.6: got %.3f ok=%v, want < 0", out, okOut)
+	}
+	if math.Abs(in+out) > 1.0 {
+		t.Errorf("antisymmetry broken: inbound %.3f, outbound %.3f (sum %.3f)", in, out, in+out)
+	}
+	// Farther out ⇒ longer to periapsis.
+	far, _ := TimeToPeriapsisHyperbolic(hyperbolicStateAtNu(a, e, -1.0), muEarth)
+	if far <= in {
+		t.Errorf("monotonicity: ν=-1.0 (%.3f) should exceed ν=-0.6 (%.3f)", far, in)
+	}
+
+	// Non-hyperbolic states are rejected.
+	if _, ok := TimeToPeriapsisHyperbolic(stateAtNu(math.Pi/4), muEarth); ok {
+		t.Error("elliptic state: ok=true, want false")
+	}
+}
+
 // TestTimeToNodeCrossingEquatorial: returns -1 for equatorial orbits
 // because there's no well-defined node crossing.
 func TestTimeToNodeCrossingEquatorial(t *testing.T) {
