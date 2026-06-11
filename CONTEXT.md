@@ -482,6 +482,38 @@ one Primary to another (`internal/physics/soi`). Player-visible: the
 HUD announces entries and exits, and warp clamps near boundaries.
 _Avoid_: Hill sphere (mathematically distinct), Gravity well.
 
+**SOI Pass**:
+The predicted transit of the active Vessel's *live, unburned* trajectory
+through a Body's **Sphere of Influence** — the always-on forecast of
+where the current orbit will carry the Vessel *next*, drawn ahead of
+arrival regardless of whether a **Target** is set or a Capture Burn is
+planted. Detected by forward-propagating the live state across SOI
+boundaries (the same SOI-segment predictor the planted-node legs use),
+bounded a few **patches** deep. Characterised by its **Perilune** (the
+closest approach to the passed Body) and **Time to Perilune**. A SOI Pass
+whose Perilune falls below the Body's surface is an **Impact**. Once the
+player plants a Capture Burn at Perilune the Pass becomes a closed
+Capture Orbit — a different prediction (the node leg), not a SOI Pass.
+Distinct from **Encounter** (craft-to-craft — see Encounter math) and
+from the **Target** slot (a SOI Pass renders whether or not the Body is
+targeted). The HUD reports it as the SOI PASS block; on the orbit canvas
+the **Perilune** point carries a marker (the unified marker glyph system).
+Design: ADR 0019 (`adr/0019-soi-pass-forward-prediction.md`) in the
+planning vault; markers per ADR 0020 (`adr/0020-unified-orbital-marker-glyphs.md`).
+_Avoid_: Encounter (reserved for craft-to-craft), Intercept / Approach
+(Closest Approach is the craft-to-craft term), Conic patch (Patch names
+the arc, not the event).
+
+**Perilune**:
+The **periapsis** of a SOI Pass measured in the passed Body's frame —
+the lowest point of the predicted flyby. "Perilune" is used as the
+general body-relative periapsis on any Body (not only Moons), reported as
+an altitude above that Body's surface. Computed by the moon-frame
+`targetPerilune` helper (hyperbolic elements, `rp = a·(1−e)`); paired
+with **Time to Perilune**, the seconds until the Vessel reaches it.
+_Avoid_: Periapsis (correct but unqualified — Perilune names the
+body-relative apsis of the predicted Pass specifically).
+
 ### Launch & landing
 
 How a Vessel sits on (and gets put on) the surface of a Body. The
