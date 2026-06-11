@@ -33,7 +33,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: latest
+          version: "~> v2"
           args: release --clean
         env:
           # Creates the GitHub release + uploads archives (scoped to this repo).
