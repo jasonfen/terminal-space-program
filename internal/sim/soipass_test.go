@@ -3,6 +3,7 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
@@ -68,6 +69,29 @@ func TestLiveSOIPassDetectsMoonPass(t *testing.T) {
 	if alt := pass.PeriluneAltitude(); alt != pass.PeriluneRadius-pass.Body.RadiusMeters() {
 		t.Errorf("PeriluneAltitude() = %.0f, want radius-surface", alt)
 	}
+
+	// The drawn arc is the *full* transit (entry → perilune → exit), not
+	// truncated at perilune: the closest-approach sample sits mid-arc with
+	// exit samples after it that climb back away from the body.
+	moonAtTCA := w.BodyPositionAt(pass.Body, w.Clock.SimTime.Add(time.Duration(pass.TimeToPerilune*float64(time.Second))))
+	var pts []orbital.Vec3
+	for _, s := range pass.ArcSegments {
+		pts = append(pts, s.Points...)
+	}
+	periIdx, periD := 0, math.Inf(1)
+	for i, p := range pts {
+		if d := p.Sub(moonAtTCA).Norm(); d < periD {
+			periD = d
+			periIdx = i
+		}
+	}
+	if periIdx >= len(pts)-1 {
+		t.Errorf("perilune is the last arc sample (idx %d of %d) — arc truncated at perilune, exit leg not drawn", periIdx, len(pts))
+	}
+	if pts[len(pts)-1].Sub(moonAtTCA).Norm() <= periD {
+		t.Error("arc does not climb away from the body after perilune — exit leg of the transit is missing")
+	}
+
 	// The pass is independent of the Target slot — it surfaced with no
 	// target set.
 	if w.Target.Kind != TargetNone {
