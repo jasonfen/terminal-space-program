@@ -49,6 +49,22 @@ var (
 	ColorRCSPuffTip    = ColorDim                  // dim grey — fading trail tip
 )
 
+// Orbital-marker type colours (ADR 0020). The unified marker convention
+// is: one glyph rune per marker type, colour encodes *type*, brightness
+// encodes *state* (see internal/render/markers.go). These are the fixed
+// per-type hues; the Maneuver marker is the one documented exception
+// whose colour is positional (per post-burn leg, ManeuverSegmentColor)
+// rather than drawn from this table. Chosen to stay mutually distinct and
+// distinct from the orbit/leg/body palettes already in play.
+var (
+	ColorMarkerApoapsis        = lipgloss.Color("#5FC9E8") // sky cyan — apoapsis ▲
+	ColorMarkerPeriapsis       = lipgloss.Color("#FFAF00") // amber — periapsis ▼
+	ColorMarkerAscendingNode   = lipgloss.Color("#5FD75F") // green — ascending node ◇
+	ColorMarkerDescendingNode  = lipgloss.Color("#AF5FFF") // violet — descending node ◆
+	ColorMarkerPerilune        = lipgloss.Color("#FFAF00") // amber — perilune ⊕ (the periapsis within a pass SOI; shares the apsis amber)
+	ColorMarkerClosestApproach = lipgloss.Color("#FF5FAF") // hot pink — craft-to-craft closest approach ✕
+)
+
 // maneuverSegmentPalette cycles through distinct colors per planted
 // maneuver node so the player can read which post-burn leg belongs
 // to which burn. Indices wrap around once exhausted; the cycle is

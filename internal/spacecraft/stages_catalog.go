@@ -146,7 +146,7 @@ const (
 // which is what makes it a rendezvous-relevant payload tier.
 var StageCatalog = map[string]StageModule{
 	StageModuleSICID: {
-		ID: StageModuleSICID, Name: "S-IC", Glyph: "▲", Color: "#FF8C42",
+		ID: StageModuleSICID, Name: "S-IC", Glyph: VesselGlyph, Color: "#FF8C42",
 		Tier: "booster", dry: 130000, fuel: 2160000, thrust: 35100000, isp: 263, bc: 8e-6,
 		launchSpriteRowsPx:  24,
 		launchSpriteWidthPx: 5,
@@ -157,7 +157,7 @@ var StageCatalog = map[string]StageModule{
 		fuelType:          FuelTypeKerolox,
 	},
 	StageModuleSIIID: {
-		ID: StageModuleSIIID, Name: "S-II", Glyph: "▲", Color: "#FFC042",
+		ID: StageModuleSIIID, Name: "S-II", Glyph: VesselGlyph, Color: "#FFC042",
 		Tier: "sustainer", dry: 40000, fuel: 440000, thrust: 5140000, isp: 421, bc: 2.5e-5,
 		launchSpriteRowsPx:  20,
 		launchSpriteWidthPx: 4,
@@ -165,7 +165,7 @@ var StageCatalog = map[string]StageModule{
 		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleSIVBID: {
-		ID: StageModuleSIVBID, Name: "S-IVB", Glyph: "▲", Color: "#FFD93D",
+		ID: StageModuleSIVBID, Name: "S-IVB", Glyph: VesselGlyph, Color: "#FFD93D",
 		Tier: "transfer", dry: 11000, fuel: 109000, thrust: 1023000, isp: 421, bc: 6.25e-5,
 		launchSpriteRowsPx:  12,
 		launchSpriteWidthPx: 3,
@@ -173,7 +173,7 @@ var StageCatalog = map[string]StageModule{
 		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleICPSID: {
-		ID: StageModuleICPSID, Name: "ICPS", Glyph: "◆", Color: "#5BB3FF",
+		ID: StageModuleICPSID, Name: "ICPS", Glyph: VesselGlyph, Color: "#5BB3FF",
 		// GH #89: thrust mirrors the standalone ICPS loadout (108000 N),
 		// the canonical referent for a configurator part named "ICPS" —
 		// not the 110000 N variant the SLS-Block1 loadout embeds. Was
@@ -186,7 +186,7 @@ var StageCatalog = map[string]StageModule{
 		fuelType:            FuelTypeHydrolox,
 	},
 	StageModuleSRBID: {
-		ID: StageModuleSRBID, Name: "SRBs", Glyph: "▲", Color: "#E0E0E0",
+		ID: StageModuleSRBID, Name: "SRBs", Glyph: VesselGlyph, Color: "#E0E0E0",
 		Tier: "booster", dry: 198000, fuel: 1270000, thrust: 32000000, isp: 268, bc: 8e-6,
 		launchSpriteRowsPx:  28,
 		launchSpriteWidthPx: 5,
@@ -194,7 +194,7 @@ var StageCatalog = map[string]StageModule{
 		fuelType: FuelTypeSolid,
 	},
 	StageModuleCoreRS25ID: {
-		ID: StageModuleCoreRS25ID, Name: "Core", Glyph: "▲", Color: "#FF6B35",
+		ID: StageModuleCoreRS25ID, Name: "Core", Glyph: VesselGlyph, Color: "#FF6B35",
 		Tier: "sustainer", dry: 85275, fuel: 979452, thrust: 9290000, isp: 452, bc: 2.5e-5,
 		launchSpriteRowsPx:  24,
 		launchSpriteWidthPx: 4,
@@ -204,7 +204,7 @@ var StageCatalog = map[string]StageModule{
 		fuelType:          FuelTypeHydrolox,
 	},
 	StageModuleF9S1ID: {
-		ID: StageModuleF9S1ID, Name: "F9-S1", Glyph: "▲", Color: "#E8E8E8",
+		ID: StageModuleF9S1ID, Name: "F9-S1", Glyph: VesselGlyph, Color: "#E8E8E8",
 		Tier: "booster", dry: 25600, fuel: 411000, thrust: 7607000, isp: 282, bc: 7.4e-6,
 		launchSpriteRowsPx:  20,
 		launchSpriteWidthPx: 3,
@@ -212,7 +212,7 @@ var StageCatalog = map[string]StageModule{
 		canSoftLand:         true,
 	},
 	StageModuleF9S2ID: {
-		ID: StageModuleF9S2ID, Name: "F9-S2", Glyph: "▲", Color: "#B0D8FF",
+		ID: StageModuleF9S2ID, Name: "F9-S2", Glyph: VesselGlyph, Color: "#B0D8FF",
 		Tier: "transfer", dry: 3900, fuel: 107500, thrust: 934000, isp: 348, bc: 5e-5,
 		launchSpriteRowsPx:  8,
 		launchSpriteWidthPx: 3,
@@ -227,7 +227,7 @@ var StageCatalog = map[string]StageModule{
 	// They are intentionally unreachable — do not trust them as the
 	// Lander's mass budget (the live numbers are the Descent+Ascent split).
 	StageModuleLanderID: {
-		ID: StageModuleLanderID, Name: "Lander", Glyph: "▼", Color: "#5FFF87",
+		ID: StageModuleLanderID, Name: "Lander", Glyph: VesselGlyph, Color: "#5FFF87",
 		Tier: "payload", dry: 4000, fuel: 8000, thrust: 45000, isp: 311, bc: 0,
 		launchSpriteRowsPx:  5,
 		launchSpriteWidthPx: 3,
@@ -250,7 +250,7 @@ var StageCatalog = map[string]StageModule{
 	// 6000 kg gave only ~2.1 km/s and ran dry mid-landing). Thrust
 	// stays 45 kN (the original single-Lander descent engine).
 	StageModuleLanderDescentID: {
-		ID: StageModuleLanderDescentID, Name: "Descent", Glyph: "▼", Color: "#5FFF87",
+		ID: StageModuleLanderDescentID, Name: "Descent", Glyph: VesselGlyph, Color: "#5FFF87",
 		Tier: "payload", dry: 2500, fuel: 9500, thrust: 45000, isp: 311, bc: 0,
 		launchSpriteRowsPx:  5,
 		launchSpriteWidthPx: 3,
@@ -267,7 +267,7 @@ var StageCatalog = map[string]StageModule{
 	// stage back down soft-lands rather than crashes; see ADR 0007
 	// decision 5).
 	StageModuleLanderAscentID: {
-		ID: StageModuleLanderAscentID, Name: "Ascent", Glyph: "▲", Color: "#7BFFA0",
+		ID: StageModuleLanderAscentID, Name: "Ascent", Glyph: VesselGlyph, Color: "#7BFFA0",
 		Tier: "payload", dry: 1200, fuel: 1800, thrust: 16000, isp: 311, bc: 0,
 		launchSpriteRowsPx:  3,
 		launchSpriteWidthPx: 2,
@@ -276,7 +276,7 @@ var StageCatalog = map[string]StageModule{
 		canSoftLand:         true,
 	},
 	StageModuleCSMID: {
-		ID: StageModuleCSMID, Name: "CSM", Glyph: "◉", Color: "#C0C0FF",
+		ID: StageModuleCSMID, Name: "CSM", Glyph: VesselGlyph, Color: "#C0C0FF",
 		Tier: "payload", dry: 11900, fuel: 18400, thrust: 91000, isp: 314, bc: 0,
 		launchSpriteRowsPx:  10,
 		launchSpriteWidthPx: 2,
@@ -295,7 +295,7 @@ var StageCatalog = map[string]StageModule{
 	// silhouette (silver, slim) so the post-transposition Stages[0]=SM
 	// renders an engine bell.
 	StageModuleServiceModuleID: {
-		ID: StageModuleServiceModuleID, Name: "SM", Glyph: "◉", Color: "#C8C8D0",
+		ID: StageModuleServiceModuleID, Name: "SM", Glyph: VesselGlyph, Color: "#C8C8D0",
 		Tier: "payload", dry: 6000, fuel: 16000, thrust: 91000, isp: 314, bc: 0,
 		launchSpriteRowsPx:  6,
 		launchSpriteWidthPx: 2,
@@ -307,7 +307,7 @@ var StageCatalog = map[string]StageModule{
 	// recovery parachute (ADR 0008 model); the only piece that splashes
 	// down. Dry ~5,900 kg (CSM dry 11,900 − SM 6,000). No main engine.
 	StageModuleCommandModuleID: {
-		ID: StageModuleCommandModuleID, Name: "CM", Glyph: "◓", Color: "#B8C8E0",
+		ID: StageModuleCommandModuleID, Name: "CM", Glyph: VesselGlyph, Color: "#B8C8E0",
 		Tier: "payload", dry: 5900, fuel: 0, thrust: 0, isp: 0, bc: 0,
 		launchSpriteRowsPx:  6,
 		launchSpriteWidthPx: 3,
@@ -321,7 +321,7 @@ var StageCatalog = map[string]StageModule{
 	// Ascent] stages (the numbers here are the SM's, for any sum-less
 	// reader). Glyph is the SM/CSM marker since the SM is the firing core.
 	StageModuleApolloCSMLMID: {
-		ID: StageModuleApolloCSMLMID, Name: "CSM+LM", Glyph: "◉", Color: "#C0C0FF",
+		ID: StageModuleApolloCSMLMID, Name: "CSM+LM", Glyph: VesselGlyph, Color: "#C0C0FF",
 		Tier: "payload", dry: 6000, fuel: 16000, thrust: 91000, isp: 314, bc: 0,
 		// Sprite fields mirror the SM (the firing core). BuildModule
 		// intercepts this id and expands it to real [SM, CM, Descent,
@@ -343,7 +343,7 @@ var StageCatalog = map[string]StageModule{
 	// default; only the deployed chute's ChuteDeployedBC matters for its
 	// descent.
 	StageModuleCapsuleID: {
-		ID: StageModuleCapsuleID, Name: "Capsule", Glyph: "◓", Color: "#B8C8E0",
+		ID: StageModuleCapsuleID, Name: "Capsule", Glyph: VesselGlyph, Color: "#B8C8E0",
 		Tier: "payload", dry: 5800, fuel: 0, thrust: 0, isp: 0, bc: 0,
 		launchSpriteRowsPx:  6,
 		launchSpriteWidthPx: 3,
@@ -352,7 +352,7 @@ var StageCatalog = map[string]StageModule{
 		hasParachute: true,
 	},
 	StageModuleRCSTugID: {
-		ID: StageModuleRCSTugID, Name: "RCS Tug", Glyph: "●", Color: "#FF87D7",
+		ID: StageModuleRCSTugID, Name: "RCS Tug", Glyph: VesselGlyph, Color: "#FF87D7",
 		Tier: "tug", dry: 200, fuel: 0, thrust: 0, isp: 0, bc: 0,
 		launchSpriteRowsPx:  4,
 		launchSpriteWidthPx: 2,

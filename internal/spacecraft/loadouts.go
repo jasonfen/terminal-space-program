@@ -389,6 +389,16 @@ func catalogLaunchSpriteHasLegsByName(name string) bool {
 	return false
 }
 
+// VesselGlyph is the single marker every craft collapses to on the
+// orbit map (ADR 0020). Vessels are distinguished by Colour, not shape:
+// the orbital-marker vocabulary (▲ apo / ▼ peri / ◇ AN / ◆ DN / ⊕
+// perilune / ✕ closest / Δ node) owns the geometric shapes, so a vessel
+// must not reuse any of them or the player can't tell a ship from an
+// apsis. ➤ (U+27A4, Dingbats — same well-supported block as the marker
+// ✕) is a heading-chevron reserved for craft. Every Loadout/Stage glyph
+// below references this constant; do not hand-pick a per-craft glyph.
+const VesselGlyph = "➤"
+
 // Loadouts indexes the v0.8.2 launch set + v0.9.1 Saturn-V by ID.
 // Future patches may load user overlays (similar to bodies/themes)
 // but the embedded catalog is canonical for now.
@@ -403,37 +413,37 @@ var Loadouts = map[string]Loadout{
 		ID:    LoadoutSIVB1ID,
 		Name:  "S-IVB",
 		Role:  "transfer-stage",
-		Glyph: "▲",
+		Glyph: VesselGlyph,
 		Color: "#FFD93D", // saturated yellow (matches v0.7.1+ ColorCraftMarker)
 		Stages: []Stage{
-			stage(LoadoutSIVB1ID, "S-IVB", "▲", "#FFD93D", 11000, 40000, 1023000, 421),
+			stage(LoadoutSIVB1ID, "S-IVB", VesselGlyph, "#FFD93D", 11000, 40000, 1023000, 421),
 		},
 	},
 	LoadoutICPSID: {
 		ID:    LoadoutICPSID,
 		Name:  "ICPS",
 		Role:  "transfer-stage",
-		Glyph: "◆",
+		Glyph: VesselGlyph,
 		Color: "#5BB3FF", // ocean blue
 		Stages: []Stage{
-			stage(LoadoutICPSID, "ICPS", "◆", "#5BB3FF", 3500, 25000, 108000, 462),
+			stage(LoadoutICPSID, "ICPS", VesselGlyph, "#5BB3FF", 3500, 25000, 108000, 462),
 		},
 	},
 	LoadoutRCSTugID: {
 		ID:    LoadoutRCSTugID,
 		Name:  "RCS Tug",
 		Role:  "tug",
-		Glyph: "●",
+		Glyph: VesselGlyph,
 		Color: "#FF87D7", // pink
 		Stages: []Stage{
-			stage(LoadoutRCSTugID, "RCS Tug", "●", "#FF87D7", 200, 0, 0, 0),
+			stage(LoadoutRCSTugID, "RCS Tug", VesselGlyph, "#FF87D7", 200, 0, 0, 0),
 		},
 	},
 	LoadoutLanderID: {
 		ID:    LoadoutLanderID,
 		Name:  "Lander",
 		Role:  "lander",
-		Glyph: "▼",
+		Glyph: VesselGlyph,
 		Color: "#5FFF87", // mint
 		// v0.12 Slice 2 / ADR 0007: the Apollo-LM-style Lander is two
 		// stages — Descent (bottom: legs + soft-land + the powered-
@@ -448,8 +458,8 @@ var Loadouts = map[string]Loadout{
 		// silhouette ride per-Stage via the StageCatalog by-Name
 		// lookups (Descent / Ascent entries).
 		Stages: []Stage{
-			stage(LoadoutLanderID, "Descent", "▼", "#5FFF87", 2500, 9500, 45000, 311),
-			stage(LoadoutLanderID, "Ascent", "▲", "#7BFFA0", 1200, 1800, 16000, 311),
+			stage(LoadoutLanderID, "Descent", VesselGlyph, "#5FFF87", 2500, 9500, 45000, 311),
+			stage(LoadoutLanderID, "Ascent", VesselGlyph, "#7BFFA0", 1200, 1800, 16000, 311),
 		},
 	},
 	// Saturn-V (v0.9.1+): the canonical Apollo launch vehicle.
@@ -462,24 +472,24 @@ var Loadouts = map[string]Loadout{
 		ID:    LoadoutSaturnVID,
 		Name:  "Saturn V",
 		Role:  "launch-vehicle",
-		Glyph: "▲",
+		Glyph: VesselGlyph,
 		Color: "#FFD93D",
 		Stages: []Stage{
 			// S-IC booster: F-1 cluster, sea-level Isp (the only
 			// stage that fires in atmosphere). BC tuned for the
 			// real S-IC's ~80 m² cross-section and ~2.9 Mkg wet
 			// mass: BC = C_D · A / m ≈ 0.3 · 80 / 2.9e6 ≈ 8e-6.
-			stageWithBC(LoadoutSaturnVID, "S-IC", "▲", "#FF8C42",
+			stageWithBC(LoadoutSaturnVID, "S-IC", VesselGlyph, "#FF8C42",
 				130000, 2160000, 35100000, 263, 8e-6),
 			// S-II sustainer: J-2 cluster, vacuum Isp. Smaller
 			// cross-section ~40 m² but mostly vacuum flight, so
 			// drag is negligible regardless. BC ≈ 0.3·40/480e3 ≈ 2.5e-5.
-			stageWithBC(LoadoutSaturnVID, "S-II", "▲", "#FFC042",
+			stageWithBC(LoadoutSaturnVID, "S-II", VesselGlyph, "#FFC042",
 				40000, 440000, 5140000, 421, 2.5e-5),
 			// S-IVB insertion: J-2 single, vacuum Isp. Same shape
 			// as the standalone S-IVB-1 loadout but lives as the
 			// top stage of the Saturn-V chain.
-			stageWithBC(LoadoutSaturnVID, "S-IVB", "▲", "#FFD93D",
+			stageWithBC(LoadoutSaturnVID, "S-IVB", VesselGlyph, "#FFD93D",
 				11000, 109000, 1023000, 421, 6.25e-5),
 		},
 	},
@@ -495,7 +505,7 @@ var Loadouts = map[string]Loadout{
 		ID:    LoadoutSLSBlock1ID,
 		Name:  "SLS Block 1",
 		Role:  "launch-vehicle",
-		Glyph: "▲",
+		Glyph: VesselGlyph,
 		Color: "#FF6B35",
 		Stages: []Stage{
 			// Twin 5-segment solid rocket boosters. Casings dropped
@@ -503,18 +513,18 @@ var Loadouts = map[string]Loadout{
 			// wet → BC ≈ 0.3 · 12 / 1.47e6 ≈ 2.4e-6, but two long
 			// skinny solids alongside the core have higher effective
 			// drag — round to 8e-6 to match Saturn V S-IC scale.
-			stageWithBC(LoadoutSLSBlock1ID, "SRBs", "▲", "#E0E0E0",
+			stageWithBC(LoadoutSLSBlock1ID, "SRBs", VesselGlyph, "#E0E0E0",
 				198000, 1270000, 32000000, 268, 8e-6),
 			// Core stage: 4× RS-25 cluster, vacuum Isp (fires through
 			// most of the ascent above the dense atmosphere by the
 			// time SRBs separate at ~50 km). BC similar to S-II.
-			stageWithBC(LoadoutSLSBlock1ID, "Core", "▲", "#FF6B35",
+			stageWithBC(LoadoutSLSBlock1ID, "Core", VesselGlyph, "#FF6B35",
 				85275, 979452, 9290000, 452, 2.5e-5),
 			// ICPS (Interim Cryogenic Propulsion Stage): RL10B-2,
 			// vacuum Isp. Same shape as the standalone ICPS loadout
 			// but lives as the top of the SLS chain. TLI-class burn,
 			// not orbital insertion — TWR is very low (~0.1).
-			stageWithBC(LoadoutSLSBlock1ID, "ICPS", "◆", "#5BB3FF",
+			stageWithBC(LoadoutSLSBlock1ID, "ICPS", VesselGlyph, "#5BB3FF",
 				3500, 25000, 110000, 462, 6.25e-5),
 		},
 	},
@@ -527,18 +537,18 @@ var Loadouts = map[string]Loadout{
 		ID:    LoadoutFalcon9ID,
 		Name:  "Falcon 9",
 		Role:  "launch-vehicle",
-		Glyph: "▲",
+		Glyph: VesselGlyph,
 		Color: "#E8E8E8",
 		Stages: []Stage{
 			// First stage: 9× Merlin 1D, sea-level Isp. 3.7 m
 			// diameter, ~10.75 m² cross-section, ~437 t wet →
 			// BC ≈ 0.3 · 10.75 / 437e3 ≈ 7.4e-6.
-			stageWithBC(LoadoutFalcon9ID, "F9-S1", "▲", "#E8E8E8",
+			stageWithBC(LoadoutFalcon9ID, "F9-S1", VesselGlyph, "#E8E8E8",
 				25600, 411000, 7607000, 282, 7.4e-6),
 			// Second stage: 1× Merlin Vacuum, vacuum Isp. Above the
 			// atmosphere by ignition, BC matters less — pick a
 			// vacuum-stage value similar to S-IVB.
-			stageWithBC(LoadoutFalcon9ID, "F9-S2", "▲", "#B0D8FF",
+			stageWithBC(LoadoutFalcon9ID, "F9-S2", VesselGlyph, "#B0D8FF",
 				3900, 107500, 934000, 348, 5e-5),
 		},
 		// CanSoftLand is per-Stage: F9-S1 carries it (retro-burn
@@ -559,14 +569,14 @@ var Loadouts = map[string]Loadout{
 		ID:    LoadoutApolloStackID,
 		Name:  "Apollo Stack",
 		Role:  "mission-stack",
-		Glyph: "▲",
+		Glyph: VesselGlyph,
 		Color: "#FFD93D",
 		Stages: []Stage{
-			stageWithBC(LoadoutApolloStackID, "S-IC", "▲", "#FF8C42",
+			stageWithBC(LoadoutApolloStackID, "S-IC", VesselGlyph, "#FF8C42",
 				130000, 2160000, 35100000, 263, 8e-6),
-			stageWithBC(LoadoutApolloStackID, "S-II", "▲", "#FFC042",
+			stageWithBC(LoadoutApolloStackID, "S-II", VesselGlyph, "#FFC042",
 				40000, 440000, 5140000, 421, 2.5e-5),
-			stageWithBC(LoadoutApolloStackID, "S-IVB", "▲", "#FFD93D",
+			stageWithBC(LoadoutApolloStackID, "S-IVB", VesselGlyph, "#FFD93D",
 				11000, 109000, 1023000, 421, 6.25e-5),
 			// Lunar Module — split into Descent + Ascent (v0.12 Slice 2
 			// / ADR 0007). Post-transposition (ADR 0009) the LM rides as
@@ -577,9 +587,9 @@ var Loadouts = map[string]Loadout{
 			// no longer double-duties as the LOI engine, so it can shed
 			// the surplus. The LM is a negligible fraction of the
 			// ~2.93 Mkg stack, so lift-off TWR stays ~1.22.
-			stage(LoadoutApolloStackID, "Descent", "▼", "#5FFF87",
+			stage(LoadoutApolloStackID, "Descent", VesselGlyph, "#5FFF87",
 				2500, 6310, 45000, 311),
-			stage(LoadoutApolloStackID, "Ascent", "▲", "#7BFFA0",
+			stage(LoadoutApolloStackID, "Ascent", VesselGlyph, "#7BFFA0",
 				1200, 1269, 16000, 311),
 			// Command/Service Module — split into a propulsive Service
 			// Module + a passive Command Module (v0.12 / ADR 0009). The
@@ -589,9 +599,9 @@ var Loadouts = map[string]Loadout{
 			// 6000 + CM dry 5900 = the pre-split CSM dry 11900 → the
 			// split is mass-neutral and lift-off TWR is unchanged. SM
 			// below CM so the firing SPS sits beneath the passive capsule.
-			stage(LoadoutApolloStackID, "SM", "◉", "#C0C0FF",
+			stage(LoadoutApolloStackID, "SM", VesselGlyph, "#C0C0FF",
 				6000, 16000, 91000, 314),
-			stage(LoadoutApolloStackID, "CM", "◓", "#B8C8E0",
+			stage(LoadoutApolloStackID, "CM", VesselGlyph, "#B8C8E0",
 				5900, 0, 0, 0),
 		},
 		// v0.12 / ADR 0009: drop S-IC, S-II, S-IVB individually, then the
@@ -616,10 +626,10 @@ var Loadouts = map[string]Loadout{
 		ID:    LoadoutCapsuleID,
 		Name:  "Capsule",
 		Role:  "capsule",
-		Glyph: "◓",
+		Glyph: VesselGlyph,
 		Color: "#B8C8E0", // pale bare-metal command module
 		Stages: []Stage{
-			stage(LoadoutCapsuleID, "Capsule", "◓", "#B8C8E0", 5800, 0, 0, 0),
+			stage(LoadoutCapsuleID, "Capsule", VesselGlyph, "#B8C8E0", 5800, 0, 0, 0),
 		},
 	},
 	// Kern Stack (v0.15 / ADR 0014): the scale-matched Lumen vehicle.
@@ -639,7 +649,7 @@ var Loadouts = map[string]Loadout{
 		ID:         LoadoutKernStackID,
 		Name:       "Kern Stack",
 		Role:       "mission-stack",
-		Glyph:      "▲",
+		Glyph:      VesselGlyph,
 		Color:      "#7BD3FF", // Lumen-cyan — distinct from the real fleet's warm yellows
 		ScaleClass: bodies.ScaleStrippedBack,
 		Stages: []Stage{
@@ -647,24 +657,24 @@ var Loadouts = map[string]Loadout{
 			// the only stage that fires in atmosphere). TWR ≈ 1.50 off the
 			// pad. BC 7e-6 (slender ~2.5 m stack, like Saturn-V S-IC) so
 			// Kern's thick air doesn't cap the climb.
-			kernStage("Boost", "▲", "#7BD3FF", 2000, 12000, 320000, 285, 7e-6,
+			kernStage("Boost", VesselGlyph, "#7BD3FF", 2000, 12000, 320000, 285, 7e-6,
 				14, 4, "#D8E6F0", FuelTypeKerolox, false, false, false),
 			// Transfer: Poodle-class vacuum stage (Isp 350) for the Kern
 			// orbit insertion and the Cursor transfer/capture burns. BC is a
 			// vacuum-stage value (drag negligible once Boost separates).
-			kernStage("Transfer", "▲", "#9BE0FF", 1000, 3500, 60000, 350, 2.5e-5,
+			kernStage("Transfer", VesselGlyph, "#9BE0FF", 1000, 3500, 60000, 350, 2.5e-5,
 				10, 3, "#C8E0F0", FuelTypeHydrolox, false, false, false),
 			// Lander: Terrier-class throttleable descent/ascent engine
 			// (Isp 345) with legs — fires the powered descent to Cursor and
 			// the return-to-orbit burn. Soft-land qualified. (Cursor is
 			// airless; BC only matters if it ever flies in atmosphere.)
-			kernStage("Lander", "▼", "#5FFF87", 800, 1000, 16000, 345, 5e-5,
+			kernStage("Lander", VesselGlyph, "#5FFF87", 800, 1000, 16000, 345, 5e-5,
 				5, 3, "#D4C088", FuelTypeHypergolic, true, true, false),
 			// Pod: engineless crew capsule, the surviving core. Recovers
 			// under parachute (ADR 0008) — the "return" half of the budget.
 			// Deployed chute overrides BC (ChuteDeployedBC), so this value
 			// only applies to the brief pre-deploy free-fall.
-			kernStage("Pod", "◓", "#B8C8E0", 1000, 0, 0, 0, 5e-5,
+			kernStage("Pod", VesselGlyph, "#B8C8E0", 1000, 0, 0, 0, 5e-5,
 				6, 3, "#C8C8D0", "", false, false, true),
 		},
 		// Drop Boost, Transfer, Lander one at a time; the Pod survives every
@@ -769,7 +779,7 @@ func NewFromStages(stages []Stage) *Spacecraft {
 	}
 	glyph := core.Glyph
 	if glyph == "" {
-		glyph = "▲"
+		glyph = VesselGlyph
 	}
 	color := core.Color
 	if color == "" {

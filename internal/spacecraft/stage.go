@@ -100,8 +100,10 @@ type Stage struct {
 
 	// Glyph + Color override the canvas marker for this stage
 	// when it's jettisoned and spawned as a passive craft. Empty
-	// resolves via LoadoutID lookup (default: "▲" / "#FFD93D"
-	// like the S-IVB-1 main loadout).
+	// resolves via LoadoutID lookup (default: VesselGlyph /
+	// "#FFD93D" like the S-IVB-1 main loadout). Every catalog craft
+	// uses VesselGlyph — vessels are told apart by Colour, not shape
+	// (ADR 0020 reserves the geometric glyphs for orbital markers).
 	Glyph string
 	Color string
 
