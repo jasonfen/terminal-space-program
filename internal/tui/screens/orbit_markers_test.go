@@ -47,6 +47,12 @@ func TestApsisMarkersRenderAsUnifiedGlyphs(t *testing.T) {
 	if !strings.ContainsRune(out, render.MarkerGlyph(render.MarkerPeriapsis)) {
 		t.Errorf("periapsis glyph %q not found in orbit render", render.MarkerGlyph(render.MarkerPeriapsis))
 	}
+	// The vessel renders as the unified VesselGlyph (ADR 0020) — never a
+	// marker shape, so it can't be confused with an apsis.
+	vesselGlyph := []rune(spacecraft.VesselGlyph)[0]
+	if !strings.ContainsRune(out, vesselGlyph) {
+		t.Errorf("vessel glyph %q not found in orbit render", spacecraft.VesselGlyph)
+	}
 }
 
 // TestManeuverMarkerRendersGlyphAndKeepsClickTag verifies that the
