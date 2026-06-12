@@ -24,12 +24,12 @@ func moonCoast(t *testing.T, w *World) {
 }
 
 // TestSOIPassViewFramingFramesEncounter: on the node-free LEO→Moon coast the
-// SOI-Pass framing centers on the drawn encounter — the pass's PerilunePoint, a
-// sample on the foreign-SOI arc at the Moon's *arrival* location — not the
-// Moon's *current* position (ADR 0019 F, #137; #144). The two diverge by far
-// more than the SOI over a multi-day coast (the Earth–Moon system translates
-// along Earth's heliocentric orbit), so centering on the current position pushes
-// the encounter off-canvas — the bug this regression pins.
+// SOI-Pass framing centers on the drawn encounter — the pass's Perilune at
+// its Local-to-Body draw position (the Moon's CURRENT position plus the
+// body-relative offset, ADR 0021 B), so the capture curve and the Moon's
+// drawn disk frame together. Pre-ADR-0021 the arc drew at its heliocentric
+// sample positions a transit-translation away from the Moon (#144); the
+// rebase moved the ink — and with it the frame — back to the body.
 func TestSOIPassViewFramingFramesEncounter(t *testing.T) {
 	w := mustWorld(t)
 	moonCoast(t, w)
@@ -46,15 +46,15 @@ func TestSOIPassViewFramingFramesEncounter(t *testing.T) {
 	if radius <= 0 {
 		t.Errorf("fit radius = %v, want > 0", radius)
 	}
-	if got := center.Sub(pass.PerilunePoint).Norm(); got > 1 {
-		t.Errorf("framing center is %v m from the drawn PerilunePoint, want centered on it", got)
+	if got := center.Sub(w.PerilunePosition(pass)).Norm(); got > 1 {
+		t.Errorf("framing center is %v m from the drawn Perilune position, want centered on it", got)
 	}
+	// The drawn encounter now lives at the Moon: center within the Moon's
+	// parent-relative SOI of its current position.
 	current := w.BodyPosition(pass.Body)
-	// The encounter sits a whole transit-translation away from the Moon's
-	// current position — far more than the Moon's true SOI.
 	soiVsParent := physics.SOIRadius(pass.Body, parentBody(w, pass.Body))
-	if got := center.Sub(current).Norm(); got <= soiVsParent {
-		t.Fatalf("encounter only %v m from the Moon's current position (SOI %v m) — #144 repro premise stale", got, soiVsParent)
+	if got := center.Sub(current).Norm(); got > soiVsParent {
+		t.Errorf("framing center %v m from the Moon's current position (SOI %v m) — arc not framed Local-to-Body", got, soiVsParent)
 	}
 }
 
@@ -91,13 +91,11 @@ func TestSOIPassViewFramingNilWithoutPass(t *testing.T) {
 }
 
 // TestSOIPassViewFramingFitsToArcExtent: once an encounter resolves, the fit
-// frames the *drawn arc's* extent — every foreign-SOI arc sample lands within
-// the radius — so the whole capture curve fills the canvas. In the system frame
-// the body translates through the pass, smearing the in-SOI hyperbola across
-// many times the SOI, so an SOI-sized fit would frame a single point (issue
-// #144). The fit is also *not* widened to the craft→encounter distance: the
-// craft is a whole transfer away, and widening to it would shrink the arc back
-// to a dot.
+// frames the *drawn arc's* extent — every foreign-SOI draw position (the
+// Local-to-Body rebase of each sample, ADR 0021 B) lands within the radius —
+// so the whole capture curve fills the canvas at SOI scale. The fit is *not*
+// widened to the craft→encounter distance: the craft is a whole transfer
+// away, and widening to it would shrink the arc back to a dot.
 func TestSOIPassViewFramingFitsToArcExtent(t *testing.T) {
 	w := mustWorld(t)
 	moonCoast(t, w)
@@ -111,12 +109,13 @@ func TestSOIPassViewFramingFitsToArcExtent(t *testing.T) {
 		t.Fatal("SOIPassViewFraming returned ok=false with an active pass")
 	}
 
-	// Every drawn arc sample is within the fit radius — the curve fills the
-	// canvas rather than overflowing it.
+	// Every drawn arc position is within the fit radius — the curve fills
+	// the canvas rather than overflowing it.
+	homeID := w.ActiveCraft().Primary.ID
 	for _, s := range pass.ArcSegments {
-		for _, p := range s.Points {
+		for _, p := range w.SegmentDrawPoints(s, homeID) {
 			if d := p.Sub(center).Norm(); d > radius {
-				t.Errorf("arc sample %.0f km from center exceeds fit radius %.0f km — capture curve overflows the canvas", d/1e3, radius/1e3)
+				t.Errorf("arc draw position %.0f km from center exceeds fit radius %.0f km — capture curve overflows the canvas", d/1e3, radius/1e3)
 			}
 		}
 	}

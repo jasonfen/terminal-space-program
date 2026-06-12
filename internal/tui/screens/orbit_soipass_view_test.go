@@ -48,12 +48,13 @@ func TestViewSOIPassRefitsToPassBody(t *testing.T) {
 	}
 }
 
-// TestPlainViewFocusBodyCentersOnEncounter is the screen-level regression for
-// the #144 playtest path: "focus on Cursor" in an ordinary view (ViewTilted —
-// not the v-cycle ViewTarget/ViewSOIPass). With an upcoming encounter the
-// canvas must re-center on the body's *arrival* position so the capture curve
-// is on-canvas, not its *current* position (off by the heliocentric transit
-// translation — the curve "not displayed until the maneuvers finish").
+// TestPlainViewFocusBodyCentersOnEncounter is the screen-level check for the
+// "focus on Cursor" playtest path (#144, reshaped by ADR 0021 B): "focus on
+// the Moon" in an ordinary view (ViewTilted — not the v-cycle
+// ViewTarget/ViewSOIPass). With an upcoming encounter the canvas re-centers
+// on the drawn encounter — which now lives Local-to-Body, at the Moon's
+// CURRENT position plus the body-relative perilune offset — so the capture
+// curve and the Moon's drawn disk are both on-canvas.
 func TestPlainViewFocusBodyCentersOnEncounter(t *testing.T) {
 	v := newSOIPassTestView()
 	w, err := sim.NewWorld()
@@ -76,10 +77,17 @@ func TestPlainViewFocusBodyCentersOnEncounter(t *testing.T) {
 	if d := got.Sub(eCenter).Norm(); d > 1 {
 		t.Errorf("canvas centered %.0f km off the encounter frame; the override didn't fire in ViewTilted", d/1e3)
 	}
-	// And that center is nowhere near the Moon's *current* position (the bug).
-	soi := physics.SOIRadius(moon, w.System().Bodies[0])
-	if d := got.Sub(w.BodyPosition(moon)).Norm(); d <= soi {
-		t.Errorf("canvas centered on the Moon's current position (%.0f km, SOI %.0f km) — #144 not fixed", d/1e3, soi/1e3)
+	// And that center is at the Moon — within the parent-relative SOI of its
+	// current position, where the Local-to-Body arc is drawn (ADR 0021 B).
+	moonParent := w.System().Bodies[0]
+	for _, b := range w.System().Bodies {
+		if b.ID == moon.ParentID {
+			moonParent = b
+		}
+	}
+	soi := physics.SOIRadius(moon, moonParent)
+	if d := got.Sub(w.BodyPosition(moon)).Norm(); d > soi {
+		t.Errorf("canvas centered %.0f km from the Moon's current position (SOI %.0f km) — not framing the Local-to-Body arc", d/1e3, soi/1e3)
 	}
 }
 

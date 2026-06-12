@@ -425,8 +425,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	}
 	// Encounter framing for the ordinary focus paths (issue #144): ViewTarget /
 	// ViewSOIPass override the camera above; for every other view, when the
-	// focused body has an upcoming SOI pass, center on the predicted encounter
-	// (drawn at the body's *arrival* position, not its current one) and fit to
+	// focused body has an upcoming SOI pass, center on the drawn encounter
+	// (Local-to-Body — at the body's current position, ADR 0021 B) and fit to
 	// the drawn arc's extent so the capture curve fills the canvas. Refits every
 	// frame like the two view overrides, so a burn planted *after* focusing the
 	// body still snaps the curve into frame regardless of focus-vs-plant
@@ -1607,7 +1607,10 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 			if seg.PrimaryID != homeID {
 				stride = 1 // foreign SOI — solid, eye-catching
 			}
-			for i, p := range seg.Points {
+			// Foreign-SOI samples draw Local-to-Body — body-relative,
+			// anchored at the owning body's current position (ADR 0021 B);
+			// home-SOI samples draw at their inertial positions, unchanged.
+			for i, p := range w.SegmentDrawPoints(seg, homeID) {
 				if stride > 1 && i%stride == 0 {
 					continue
 				}
@@ -1642,8 +1645,13 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 			arcColor = render.Shade(render.ColorForeignSOI, soiCounterfactualDim)
 			markerState = render.MarkerCounterfactual
 		}
+		// The arc and its Perilune marker draw Local-to-Body (ADR 0021 B):
+		// body-relative samples anchored at the pass Body's current
+		// position — the same rebase the planted-node legs get, so the dim
+		// counterfactual and the bright planned ink at one body agree.
+		homeID := w.ActiveCraft().Primary.ID
 		for _, seg := range arc.counterfactual.ArcSegments {
-			for _, p := range seg.Points {
+			for _, p := range w.SegmentDrawPoints(seg, homeID) {
 				v.canvas.PlotColored(p, arcColor)
 			}
 		}
@@ -1652,7 +1660,7 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 			if arc.counterfactual.Impact {
 				st = render.MarkerAlarm // sub-surface perilune → Impact (red+bright even when counterfactual)
 			}
-			drawMarker(v.canvas, arc.counterfactual.PerilunePoint, render.MarkerPerilune, st, "", widgets.CellTag{})
+			drawMarker(v.canvas, w.PerilunePosition(arc.counterfactual), render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
 	}
 
@@ -1664,7 +1672,7 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 		if arc.planned.Impact {
 			st = render.MarkerAlarm
 		}
-		drawMarker(v.canvas, arc.planned.PerilunePoint, render.MarkerPerilune, st, "", widgets.CellTag{})
+		drawMarker(v.canvas, w.PerilunePosition(arc.planned), render.MarkerPerilune, st, "", widgets.CellTag{})
 	}
 }
 
