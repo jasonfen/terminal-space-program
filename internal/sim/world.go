@@ -474,6 +474,26 @@ func (w *World) BodyPositionAt(b bodies.CelestialBody, t time.Time) orbital.Vec3
 	return w.BodyPositionAt(*parent, t).Add(rRel)
 }
 
+// BodySOIRadius returns b's parent-relative sphere-of-influence radius in
+// the viewed system — a moon's SOI against its planet, a planet's against
+// the system root — falling back to the root when ParentID doesn't
+// resolve, exactly as physics.FindPrimary sizes its spheres. This is the
+// one radius the SOI Ring draws at and the framing fallbacks floor to
+// (ADR 0021 C, issue #143): computing it against the system root instead
+// hands a moon the absurd Sun-relative value the SOIRadius / FindPrimary
+// comments warn about. 0 for the system primary itself (no orbital data).
+func (w *World) BodySOIRadius(b bodies.CelestialBody) float64 {
+	sys := w.System()
+	parent := sys.ParentOf(b)
+	if parent == nil {
+		parent = sys.Primary()
+	}
+	if parent == nil {
+		return 0
+	}
+	return physics.SOIRadius(b, *parent)
+}
+
 // CraftInertial returns the spacecraft's inertial position (Sun-centered)
 // for rendering on the heliocentric canvas. Adds craft's primary-centric
 // position to the primary's inertial position.

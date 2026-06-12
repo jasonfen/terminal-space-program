@@ -1599,6 +1599,36 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 // bright node-modified path drawn in the same SOI (ADR 0019 D / ADR 0020 B).
 const soiCounterfactualDim = 0.5
 
+// soiRingDim scales the foreign-SOI hue for the SOI Ring (ADR 0021 C) —
+// dimmer than the counterfactual arc's 0.5, so the dotted boundary reads
+// as a quiet backdrop under both the bright pass arc and the dim no-burn
+// arc that cross it.
+const soiRingDim = 0.4
+
+// soiRingMinPixels skips the SOI Ring when its projected radius is too
+// small to read as a boundary (heliocentric zoom) — a handful of dots on
+// top of the body's own disk would smear, not inform.
+const soiRingMinPixels = 4
+
+// drawSOIRing draws the dim dotted SOI Ring around a pass Body (ADR 0021
+// C): a screen-space circle at the body's parent-relative SOI radius
+// (issue #143), anchored at the Body's CURRENT position — the same anchor
+// SegmentDrawPoints rebases the Local-to-Body Arc onto, so the arc
+// visibly enters and exits on the ring and the hyperbola gets scale.
+// Quiet bodies (no active pass) never reach here: drawSOIPass calls this
+// only for bodies a live / counterfactual / planned pass crosses.
+func (v *OrbitView) drawSOIRing(w *sim.World, b bodies.CelestialBody) {
+	soi := w.BodySOIRadius(b)
+	if soi <= 0 {
+		return
+	}
+	pxR := int(math.Round(soi * v.canvas.Scale()))
+	if pxR < soiRingMinPixels {
+		return
+	}
+	v.canvas.RingDottedColored(w.BodyPosition(b), pxR, render.Shade(render.ColorForeignSOI, soiRingDim))
+}
+
 // drawSOIPass renders the live trajectory's upcoming SOI Pass (ADR 0019):
 // the foreign-SOI arc as a single bright solid leg, plus a Perilune ⊕
 // marker at closest approach — or an Impact glyph (red+bright, the marker
@@ -1607,6 +1637,16 @@ const soiCounterfactualDim = 0.5
 // cached predictor keeps a stable orbit that reaches no SOI free.
 func (v *OrbitView) drawSOIPass(w *sim.World) {
 	arc := v.cachedSOIPass(w)
+
+	// SOI Ring (ADR 0021 C): every body with an active pass — and only
+	// those — wears its dotted boundary, drawn first so the arcs and
+	// marker glyphs paint over the ring's dots.
+	if arc.cfOK {
+		v.drawSOIRing(w, arc.counterfactual.Body)
+	}
+	if arc.plOK && (!arc.cfOK || arc.planned.Body.ID != arc.counterfactual.Body.ID) {
+		v.drawSOIRing(w, arc.planned.Body)
+	}
 
 	// The no-burn arc. With no node planted it IS the live pass, drawn
 	// bright; with a node planted it's the counterfactual ("what you'll hit
@@ -1636,17 +1676,38 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 			}
 			drawMarker(v.canvas, w.PerilunePosition(arc.counterfactual), render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
+		// SOI Entry / Exit glyphs at the arc's ring crossings (ADR 0021 C),
+		// in the same brightness=state vocabulary as the Perilune: dim when
+		// this arc is the counterfactual under a planted node, bright when
+		// it IS the live path. No Exit when the arc never leaves the SOI
+		// (impact / horizon-truncated / node-capped).
+		if arc.counterfactual.HasEntry {
+			drawMarker(v.canvas, w.EntryPosition(arc.counterfactual), render.MarkerSOIEntry, markerState, "", widgets.CellTag{})
+		}
+		if arc.counterfactual.HasExit {
+			drawMarker(v.canvas, w.ExitPosition(arc.counterfactual), render.MarkerSOIExit, markerState, "", widgets.CellTag{})
+		}
 	}
 
-	// The planned (node-modified) path's Perilune marker, drawn bright over
-	// the node legs (which drawNodes already paints) — the safe periapsis
-	// the burn produces, against the dim no-burn Impact (ADR 0019 D).
-	if arc.plOK && arc.planned.HasPerilunePt {
-		st := render.MarkerNominal
-		if arc.planned.Impact {
-			st = render.MarkerAlarm
+	// The planned (node-modified) path's markers, drawn bright over the
+	// node legs (which drawNodes already paints): the Perilune — the safe
+	// periapsis the burn produces, against the dim no-burn Impact (ADR
+	// 0019 D) — plus its own SOI Entry / Exit ring crossings. Drawn after
+	// the counterfactual so the bright planned glyph wins a shared cell.
+	if arc.plOK {
+		if arc.planned.HasPerilunePt {
+			st := render.MarkerNominal
+			if arc.planned.Impact {
+				st = render.MarkerAlarm
+			}
+			drawMarker(v.canvas, w.PerilunePosition(arc.planned), render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
-		drawMarker(v.canvas, w.PerilunePosition(arc.planned), render.MarkerPerilune, st, "", widgets.CellTag{})
+		if arc.planned.HasEntry {
+			drawMarker(v.canvas, w.EntryPosition(arc.planned), render.MarkerSOIEntry, render.MarkerNominal, "", widgets.CellTag{})
+		}
+		if arc.planned.HasExit {
+			drawMarker(v.canvas, w.ExitPosition(arc.planned), render.MarkerSOIExit, render.MarkerNominal, "", widgets.CellTag{})
+		}
 	}
 }
 

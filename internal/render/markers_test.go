@@ -18,6 +18,8 @@ func TestMarkerGlyph(t *testing.T) {
 		{MarkerPerilune, '⊕'},
 		{MarkerClosestApproach, '✕'},
 		{MarkerManeuver, 'Δ'},
+		{MarkerSOIEntry, '▷'},
+		{MarkerSOIExit, '◁'},
 	}
 	for _, c := range cases {
 		if got := MarkerGlyph(c.t); got != c.want {
@@ -41,6 +43,8 @@ func TestMarkerColorByType(t *testing.T) {
 		{MarkerDescendingNode, ColorMarkerDescendingNode},
 		{MarkerPerilune, ColorMarkerPerilune},
 		{MarkerClosestApproach, ColorMarkerClosestApproach},
+		{MarkerSOIEntry, ColorMarkerSOIEntry},
+		{MarkerSOIExit, ColorMarkerSOIExit},
 	}
 	for _, c := range cases {
 		if got := MarkerColor(c.t, MarkerNominal, ""); got != c.want {

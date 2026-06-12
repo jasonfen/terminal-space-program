@@ -782,18 +782,26 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 		return fmt.Sprintf("%.0f km", p.PeriluneAltitude()/1000)
 	}
 	if arc.hasNodes {
-		// Dual arc: planned (bright path) + no-burn (counterfactual).
+		// Dual arc: planned (bright path) + no-burn (counterfactual). The
+		// planned path's SOI-entry clock rides under it (ADR 0021 C: the
+		// Entry glyph marks where, the chip carries when).
 		if arc.plOK {
-			lines = append(lines,
-				chipRow("planned:", periValue(arc.planned)),
-				chipRow("  T-peri:", formatTCA(arc.planned.TimeToPerilune)))
+			lines = append(lines, chipRow("planned:", periValue(arc.planned)))
+			if arc.planned.HasEntryTime {
+				lines = append(lines, chipRow("  T-entry:", formatTCA(arc.planned.TimeToEntry)))
+			}
+			lines = append(lines, chipRow("  T-peri:", formatTCA(arc.planned.TimeToPerilune)))
 		}
 		if arc.cfOK {
 			lines = append(lines, chipRow("no-burn:", periValue(arc.counterfactual)))
 		}
 		return lines
 	}
-	// Single live pass (no node planted).
+	// Single live pass (no node planted). T-entry is the predicted SOI-entry
+	// clock — the ring crossing the Entry glyph marks (ADR 0021 C).
+	if arc.counterfactual.HasEntryTime {
+		lines = append(lines, chipRow("T-entry:", formatTCA(arc.counterfactual.TimeToEntry)))
+	}
 	lines = append(lines,
 		chipRow("peri:", periValue(arc.counterfactual)),
 		chipRow("TCA:", formatTCA(arc.counterfactual.TimeToPerilune)))

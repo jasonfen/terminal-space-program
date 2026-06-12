@@ -1,9 +1,7 @@
 package sim
 
 import (
-	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
-	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
 // FocusKind enumerates what the OrbitView canvas is centered on.
@@ -110,7 +108,7 @@ func (w *World) FocusZoomRadius() float64 {
 			// Framing Event, so the forward prediction behind bestSOIPass
 			// stays off the per-frame hot path.
 			if p, ok := w.bestSOIPass(); ok && p.Body.ID == b.ID {
-				if soi := physics.SOIRadius(b, w.parentBodyOf(b)); soi > 0 {
+				if soi := w.BodySOIRadius(b); soi > 0 {
 					return soi * 1.3
 				}
 			}
@@ -130,10 +128,10 @@ func (w *World) FocusZoomRadius() float64 {
 			if !hasChildren {
 				return b.RadiusMeters() * 8
 			}
-			// Use SOI relative to the system primary — gives a close-up
-			// that still shows any moons / nearby spacecraft.
-			primary := sys.Bodies[0]
-			if soi := physics.SOIRadius(b, primary); soi > 0 {
+			// Use the parent-relative SOI — gives a close-up that still
+			// shows any moons / nearby spacecraft. Parent, not the system
+			// root (#143): identical for a planet, correct for a moon.
+			if soi := w.BodySOIRadius(b); soi > 0 {
 				return soi
 			}
 			return b.RadiusMeters() * 50
@@ -151,20 +149,6 @@ func (w *World) FocusZoomRadius() float64 {
 		}
 	}
 	return w.systemOutermostRadius()
-}
-
-// parentBodyOf returns the body b orbits (matched by ParentID), falling back
-// to the system root when no parent is found in the catalog. The SOI used by
-// the encounter-aware fit must be parent-relative (#143 — a moon's SOI against
-// the system *root* is wildly oversized).
-func (w *World) parentBodyOf(b bodies.CelestialBody) bodies.CelestialBody {
-	sys := w.System()
-	for i := range sys.Bodies {
-		if sys.Bodies[i].ID == b.ParentID {
-			return sys.Bodies[i]
-		}
-	}
-	return sys.Bodies[0]
 }
 
 func (w *World) systemOutermostRadius() float64 {
