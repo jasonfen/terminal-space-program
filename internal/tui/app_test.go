@@ -326,10 +326,10 @@ func TestCancelWarpKeyDropsToOneX(t *testing.T) {
 	}
 }
 
-// TestYawKeysNudgePhi (ADR 0021 G): `{` / `}` nudge ViewTilt.Phi ±5°
-// with 360° wrap while in ViewTilted, flashing the resulting yaw —
+// TestYawKeysNudgePhi (ADR 0021 G): shift+← / shift+→ nudge ViewTilt.Phi
+// ±5° with 360° wrap while in ViewTilted, flashing the resulting yaw —
 // and stay silent (no mutation, no toast) in any other ViewMode,
-// matching the Theta tilt keys' gating.
+// matching the Theta tilt keys' (shift+↑/↓) gating.
 func TestYawKeysNudgePhi(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
@@ -339,20 +339,20 @@ func TestYawKeysNudgePhi(t *testing.T) {
 		t.Fatalf("expected the default ViewTilted, got %v", a.world.ViewMode)
 	}
 
-	// `}` yaws +5° and toasts the new value.
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'}'}})
+	// shift+→ yaws +5° and toasts the new value.
+	a.Update(tea.KeyMsg{Type: tea.KeyShiftRight})
 	if a.world.ViewTilt.Phi != 5 {
-		t.Errorf("after `}`: Phi = %v, want 5", a.world.ViewTilt.Phi)
+		t.Errorf("after shift+→: Phi = %v, want 5", a.world.ViewTilt.Phi)
 	}
 	if a.statusMsg != "view: yaw 5°" {
 		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "view: yaw 5°")
 	}
 
-	// `{` twice crosses zero and wraps to 355° — no clamp.
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'{'}})
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'{'}})
+	// shift+← twice crosses zero and wraps to 355° — no clamp.
+	a.Update(tea.KeyMsg{Type: tea.KeyShiftLeft})
+	a.Update(tea.KeyMsg{Type: tea.KeyShiftLeft})
 	if a.world.ViewTilt.Phi != 355 {
-		t.Errorf("after `{` `{`: Phi = %v, want 355 (wrap below zero)", a.world.ViewTilt.Phi)
+		t.Errorf("after shift+← shift+←: Phi = %v, want 355 (wrap below zero)", a.world.ViewTilt.Phi)
 	}
 	if a.statusMsg != "view: yaw 355°" {
 		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "view: yaw 355°")
@@ -361,12 +361,12 @@ func TestYawKeysNudgePhi(t *testing.T) {
 	// Outside ViewTilted the keys are a silent no-op.
 	a.world.ViewMode = sim.ViewTop
 	a.statusMsg = ""
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'}'}})
+	a.Update(tea.KeyMsg{Type: tea.KeyShiftRight})
 	if a.world.ViewTilt.Phi != 355 {
-		t.Errorf("`}` in ViewTop mutated Phi to %v, want 355 (no-op)", a.world.ViewTilt.Phi)
+		t.Errorf("shift+→ in ViewTop mutated Phi to %v, want 355 (no-op)", a.world.ViewTilt.Phi)
 	}
 	if a.statusMsg != "" {
-		t.Errorf("`}` in ViewTop flashed %q, want silence", a.statusMsg)
+		t.Errorf("shift+→ in ViewTop flashed %q, want silence", a.statusMsg)
 	}
 }
 

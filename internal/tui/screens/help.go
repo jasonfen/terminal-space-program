@@ -46,7 +46,7 @@ var helpSections = []helpSection{
 		{"+ / -", "zoom in / out"},
 		{"v", "cycle view (tilted / top / right / bottom / left / flat / launch)"},
 		{"shift+↑ / ↓", "tilt the 3D view up / down (tilted view only)"},
-		{"{ / }", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
+		{"shift+← / →", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
 		{"F2", "declutter — hide chips + navball (core column stays)"},
 	}},
 	{"NAVIGATION", [][2]string{

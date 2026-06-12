@@ -183,7 +183,7 @@ func (w *World) NudgeViewTiltTheta(deltaDeg float64) float64 {
 	return w.ViewTilt.Theta
 }
 
-// ViewTiltPhiStep is the per-press yaw nudge for the { / } keys.
+// ViewTiltPhiStep is the per-press yaw nudge for the shift+←/→ keys.
 // Unlike Theta there is no min/max — yaw is a full turn around the
 // orbit, so the nudge wraps at 360° instead of clamping (ADR 0021 G).
 const ViewTiltPhiStep = 5.0

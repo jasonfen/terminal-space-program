@@ -113,7 +113,7 @@ readout shows you why before you watch it fall back.
 | `g` | Reset the camera to the whole system |
 | `v` | Cycle the view (tilted → top → right → bottom → left → flat → launch). Tilted is the default — a 3D-style perspective that shows orbits leaning in space. Views are projections only: the camera re-frames once when you change focus, view, or system, and otherwise stays exactly where you put it — to read an upcoming encounter, focus the body it passes (`f`) and the camera fits to its sphere of influence so the capture curve fills the canvas |
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (only in the tilted view) |
-| `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping all the way around (only in the tilted view) |
+| `shift+←` / `shift+→` | Yaw the 3D view left / right in 5° steps, wrapping all the way around (only in the tilted view) |
 | `F2` | Declutter — hide all overlays (the corner chips and the navball) for a clean look at the orbit. Press again to bring them back. Your core telemetry column stays put |
 | `n` | Open the spawn form (craft, where to start, which body, altitude, direction). Pick **Custom…** to build your own rocket stack: on the stack field, `←` / `→` browse parts, `a` adds one on top, `x` removes the top one |
 | `H` | Plan a transfer to your target. To a moon of the planet you're at, it works out two ways to get there and plans the cheaper one, showing you both fuel costs. To another planet, it plans a standard Hohmann transfer. To a moon's parent planet, it plans an escape |
