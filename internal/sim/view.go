@@ -67,11 +67,13 @@ const (
 	// Pass renders whether or not the Body is targeted, and so does this view —
 	// entering/leaving it never touches w.Target. Reuses the orbit-flat
 	// projection basis and the TargetViewFraming widening geometry (against the
-	// Pass Body instead of the Target). Selected from the `v` cycle, but only
-	// reachable when LiveSOIPass() returns ok (CycleViewMode skips it
-	// otherwise); falls back to the ordinary focus center when the pass
-	// disappears mid-view (craft captured, or the orbit no longer reaches the
-	// SOI).
+	// Pass Body instead of the Target). When an encounter resolves it centers on
+	// the predicted *arrival*-position perilune, not the body's current position
+	// (issue #144). Selected from the `v` cycle, but only reachable when an
+	// upcoming SOI pass exists — the planted (node-modified) one while flying a
+	// transfer, else the live one (CycleViewMode skips it otherwise); falls back
+	// to the ordinary focus center when the pass disappears mid-view (craft
+	// captured, or the orbit no longer reaches the SOI).
 	ViewSOIPass
 	// ViewLaunch (v0.11.0+) is the chase-cam launch scene — a
 	// human-scale side view with the rocket centred, the horizon
@@ -141,9 +143,9 @@ func (w *World) CycleViewMode() {
 	next := (w.ViewMode + 1) % ViewMode(len(AllViewModes))
 	// Skip view modes that have nothing to frame from the current world
 	// state, so a manual `v` cycle never lands on a dead view: ViewTarget
-	// needs a body Target, ViewSOIPass needs an active SOI Pass (ADR 0019 F —
-	// reachable only when LiveSOIPass returns ok, and entering it never
-	// touches w.Target). At most one full lap before giving up, so a state
+	// needs a body Target, ViewSOIPass needs an upcoming SOI Pass (ADR 0019 F —
+	// reachable when bestSOIPass returns ok, planted or live, and entering it
+	// never touches w.Target). At most one full lap before giving up, so a state
 	// with every conditional mode unavailable can't spin forever.
 	for range AllViewModes {
 		if !w.viewModeSelectable(next) {
@@ -163,7 +165,11 @@ func (w *World) viewModeSelectable(m ViewMode) bool {
 	case ViewTarget:
 		return w.Target.Kind == TargetBody
 	case ViewSOIPass:
-		_, ok := w.LiveSOIPass()
+		// Any upcoming pass — the planted (node-modified) one while flying a
+		// transfer whose pre-burn orbit can't yet reach the body, else the live
+		// pass (issue #144). Gating on LiveSOIPass alone made the view
+		// unreachable during exactly the planted transfer it's most useful for.
+		_, ok := w.bestSOIPass()
 		return ok
 	}
 	return true

@@ -573,6 +573,10 @@ func (c *Canvas) Rows() int { return c.rows }
 // Center sets the world coordinate that maps to the pixel grid center.
 func (c *Canvas) Center(w orbital.Vec3) { c.centerW = w }
 
+// CenterWorld returns the world coordinate currently mapped to the pixel grid
+// center (the inverse of Center). Test/diagnostic accessor.
+func (c *Canvas) CenterWorld() orbital.Vec3 { return c.centerW }
+
 // Scale returns the current pixels-per-meter.
 func (c *Canvas) Scale() float64 { return c.scale }
 
