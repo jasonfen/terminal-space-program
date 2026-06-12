@@ -8,17 +8,17 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
-// TestEncounterFramingCentersOnArrivalPosition is the regression for #144: a
-// planted Kern→Cursor transfer draws its capture geometry at Cursor's *arrival*
-// position (where Cursor will be when the craft gets there), but the framing
-// paths used to center on Cursor's *current* position. For a short-period moon
-// the two diverge by far more than the SOI, leaving the predicted capture curve
-// off-canvas — "focus on Cursor shows nothing until the maneuvers finish."
+// TestEncounterFramingCentersOnLocalArc: a planted Kern→Cursor transfer draws
+// its capture geometry Local-to-Body — body-relative samples anchored at
+// Cursor's CURRENT position (ADR 0021 B) — so the framing paths must center
+// on that drawn ink, next to Cursor's disk. (Pre-ADR-0021 the arc drew at its
+// heliocentric sample positions near Cursor's *arrival* point and the framers
+// chased it there — the #144 fix this supersedes.)
 //
 // All three encounter framers — FocusEncounterFraming (plain focus),
-// TargetViewFraming (ViewTarget), SOIPassViewFraming (ViewSOIPass) — must center
-// on the encounter (≈ the arrival position), not the current body position.
-func TestEncounterFramingCentersOnArrivalPosition(t *testing.T) {
+// TargetViewFraming (ViewTarget), SOIPassViewFraming (ViewSOIPass) — must
+// center within the SOI of Cursor's current position.
+func TestEncounterFramingCentersOnLocalArc(t *testing.T) {
 	w := mustWorld(t)
 	cursorIdx, kern, cursor := setupKernCursor(t, w)
 	if _, err := w.PlanTransfer(cursorIdx); err != nil {
@@ -41,24 +41,21 @@ func TestEncounterFramingCentersOnArrivalPosition(t *testing.T) {
 	current := w.BodyPosition(cursor)
 	soi := physics.SOIRadius(cursor, kern)
 
-	// Premise check: the bug only bites because Cursor moves much farther than
-	// its SOI during the transfer. If this ever fails the repro has gone stale.
+	// Premise check: the rebase only matters because Cursor moves much farther
+	// than its SOI during the transfer. If this ever fails the repro is stale.
 	if gap := arrival.Sub(current).Norm(); gap < 10*soi {
 		t.Fatalf("Cursor moved only %.0f km (SOI %.0f km) — repro premise gone", gap/1e3, soi/1e3)
 	}
 
-	// Every framer must land within the SOI of the arrival position (where the
-	// capture curve is drawn) and nowhere near the current position.
+	// Every framer must land within the SOI of Cursor's CURRENT position —
+	// where the Local-to-Body arc and the body's disk are drawn.
 	check := func(name string, center orbital.Vec3, ok bool) {
 		if !ok {
 			t.Errorf("%s returned ok=false; expected an encounter frame", name)
 			return
 		}
-		if d := center.Sub(arrival).Norm(); d > soi {
-			t.Errorf("%s centered %.0f km from Cursor's arrival position (SOI %.0f km) — encounter off-canvas", name, d/1e3, soi/1e3)
-		}
-		if d := center.Sub(current).Norm(); d < 10*soi {
-			t.Errorf("%s centered only %.0f km from Cursor's CURRENT position — the #144 bug", name, d/1e3)
+		if d := center.Sub(current).Norm(); d > soi {
+			t.Errorf("%s centered %.0f km from Cursor's current position (SOI %.0f km) — not framing the Local-to-Body arc", name, d/1e3, soi/1e3)
 		}
 	}
 

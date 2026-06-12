@@ -98,9 +98,53 @@ func predictStep(state physics.StateVector, mu, dt float64, primary bodies.Celes
 // share the same owning SOI primary. PrimaryID == craft's home primary
 // means "still in the home SOI"; a different ID means the segment has
 // crossed into another body's sphere of influence.
+//
+// Each sample is recorded twice: at its inertial (system-primary-
+// centered) position, and as the body-relative offset from the owning
+// primary's center at that sample's clock. The offsets are the
+// Local-to-Body Arc's raw material (ADR 0021 B): a foreign-SOI segment
+// draws them anchored at the body's CURRENT position (SegmentDrawPoints),
+// because at the inertial sample positions the body's own motion smears
+// the in-SOI hyperbola across many times the SOI (~24×, measured
+// Kern→Cursor) and the encounter reads as a straight line.
 type SOISegment struct {
 	PrimaryID string
-	Points    []orbital.Vec3 // inertial, system-primary-centered
+	Points    []orbital.Vec3 // inertial, system-primary-centered, at each sample's clock
+	RelPoints []orbital.Vec3 // offset from the owning primary's center at each sample's clock
+}
+
+// SegmentDrawPoints returns the canvas plot positions for a predicted
+// segment under the Local-to-Body Arc rule (ADR 0021 B): a segment in the
+// craft's home SOI draws at its inertial sample positions, unchanged; a
+// foreign-SOI segment draws each body-relative sample anchored at the
+// owning body's CURRENT position, so the hyperbola wraps the body's drawn
+// disk and converges to truth as arrival nears. Every foreign-SOI consumer
+// — the live SOI Pass arc, the dim counterfactual, and the planted-node
+// legs — routes through this one helper, so the pictures at one body can
+// never disagree (the #66 two-site lesson, applied to drawing).
+func (w *World) SegmentDrawPoints(seg SOISegment, homeID string) []orbital.Vec3 {
+	if seg.PrimaryID == homeID || len(seg.RelPoints) != len(seg.Points) {
+		return seg.Points
+	}
+	var anchor orbital.Vec3
+	found := false
+	for _, b := range w.System().Bodies {
+		if b.ID == seg.PrimaryID {
+			anchor = w.BodyPosition(b)
+			found = true
+			break
+		}
+	}
+	// Unknown primary, or one anchored at the origin (the system root —
+	// its rel offsets ARE the inertial positions): nothing to rebase.
+	if !found || anchor == (orbital.Vec3{}) {
+		return seg.Points
+	}
+	pts := make([]orbital.Vec3, len(seg.RelPoints))
+	for i, r := range seg.RelPoints {
+		pts[i] = anchor.Add(r)
+	}
+	return pts
 }
 
 // predictTuning selects fidelity variants of the SOI-aware propagation
@@ -340,6 +384,7 @@ func (w *World) predictedSegmentsFromTuned(post physics.StateVector, startPrimar
 	segments := []SOISegment{{
 		PrimaryID: current.ID,
 		Points:    []orbital.Vec3{positions[current.ID].Add(state.R)},
+		RelPoints: []orbital.Vec3{state.R},
 	}}
 	var entries []soiEntry
 
@@ -391,8 +436,9 @@ predict:
 			if clamped, hit := physics.ClampToSurface(state, current); hit {
 				state = clamped
 				impact := positions[current.ID].Add(state.R)
-				segments[len(segments)-1].Points = append(
-					segments[len(segments)-1].Points, impact)
+				seg := &segments[len(segments)-1]
+				seg.Points = append(seg.Points, impact)
+				seg.RelPoints = append(seg.RelPoints, state.R)
 				break predict
 			}
 
@@ -435,8 +481,9 @@ predict:
 				// Close the outgoing segment at the crossing so it
 				// terminates where the new segment begins (no time gap
 				// between the previous output sample and the rebase).
-				segments[len(segments)-1].Points = append(
-					segments[len(segments)-1].Points, crossingInertial)
+				outgoing := &segments[len(segments)-1]
+				outgoing.Points = append(outgoing.Points, crossingInertial)
+				outgoing.RelPoints = append(outgoing.RelPoints, state.R)
 
 				vOld := w.bodyInertialVelocityAt(current, rebaseClock)
 				vNew := w.bodyInertialVelocityAt(cand.Body, rebaseClock)
@@ -496,6 +543,7 @@ predict:
 				segments = append(segments, SOISegment{
 					PrimaryID: current.ID,
 					Points:    []orbital.Vec3{positions[current.ID].Add(state.R)},
+					RelPoints: []orbital.Vec3{state.R},
 				})
 			}
 		}
@@ -514,6 +562,7 @@ predict:
 
 		seg := &segments[len(segments)-1]
 		seg.Points = append(seg.Points, positions[current.ID].Add(state.R))
+		seg.RelPoints = append(seg.RelPoints, state.R)
 	}
 	return segments, entries
 }

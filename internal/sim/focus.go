@@ -137,45 +137,34 @@ func (w *World) FocusZoomRadius() float64 {
 }
 
 // encounterFrame returns the camera center and auto-fit radius that frame body
-// b's predicted SOI-pass arc, when a pass reaches b. The orbit canvas draws the
-// arc at its system-frame (heliocentric) sample positions — at the body's
-// *arrival* location (where b will be when the craft reaches perilune), which
-// diverges from b's *current* position by the body's transit motion during the
-// transfer (dominated, in the system frame, by the parent translating along its
-// own orbit). For a short-period moon or a multi-day coast that gap dwarfs the
-// SOI, so centering on the current position leaves the drawn arc off-canvas
-// entirely — the #144 bug.
-//
-// Crucially the arc is NOT a tight conic in the system frame: the body keeps
-// moving through the pass, so the in-SOI hyperbola is smeared along the body's
-// path across many times the SOI (measured ~24× for Kern→Cursor). Fitting to
-// the SOI would frame a single point of it (verified by rendering an empty
-// canvas). So we center on PerilunePoint — itself a drawn arc sample — and fit
-// to the arc's actual extent (the farthest arc sample from that center, ×1.15),
-// which frames the whole drawn encounter and sidesteps SOIRadius entirely (and
-// with it the Bodies[0]-root SOI-floor of #143). ok=false when no pass reaches b
-// or it couldn't place its arc — callers then fall back to b's current position.
+// b's predicted SOI-pass arc, when a pass reaches b. The arc draws
+// Local-to-Body (ADR 0021 B): body-relative samples anchored at b's CURRENT
+// position, so the frame centers on the drawn perilune next to b's disk and
+// fits to the arc's SOI-scale extent. ok=false when no pass reaches b or it
+// couldn't place its arc — callers then fall back to b's current position.
 func (w *World) encounterFrame(b bodies.CelestialBody) (center orbital.Vec3, radius float64, ok bool) {
 	p, hit := w.bestSOIPass()
 	if !hit || p.Body.ID != b.ID || !p.HasPerilunePt {
 		return orbital.Vec3{}, 0, false
 	}
-	center, radius = framePass(p)
+	center, radius = w.framePass(p)
 	return center, radius, true
 }
 
-// framePass is the pure geometry behind encounterFrame: center on the pass's
-// PerilunePoint (a drawn arc sample) and fit to the arc's extent — the farthest
-// arc sample from that center, ×1.15 — so the whole drawn capture curve fills
-// the canvas. Falls back to a body-radius multiple for a degenerate single-point
-// arc. Takes an already-fetched pass so callers that have one (SOIPassViewFraming)
-// don't re-run the forward prediction. Caller guarantees p.HasPerilunePt.
-func framePass(p SOIPass) (center orbital.Vec3, radius float64) {
-	center = p.PerilunePoint
+// framePass is the geometry behind encounterFrame: center on the pass's drawn
+// Perilune (PerilunePosition — the Body's current position plus the relative
+// offset) and fit to the rebased arc's extent — the farthest body-relative
+// sample from the perilune offset, ×1.15 — so the whole drawn capture curve,
+// Body disk included, fills the canvas (ADR 0021 B). Falls back to a
+// body-radius multiple for a degenerate single-point arc. Takes an
+// already-fetched pass so callers that have one (SOIPassViewFraming) don't
+// re-run the forward prediction. Caller guarantees p.HasPerilunePt.
+func (w *World) framePass(p SOIPass) (center orbital.Vec3, radius float64) {
+	center = w.PerilunePosition(p)
 	var maxd float64
 	for _, s := range p.ArcSegments {
-		for _, pt := range s.Points {
-			if d := pt.Sub(center).Norm(); d > maxd {
+		for _, rel := range s.RelPoints {
+			if d := rel.Sub(p.PeriluneRel).Norm(); d > maxd {
 				maxd = d
 			}
 		}
@@ -188,12 +177,12 @@ func framePass(p SOIPass) (center orbital.Vec3, radius float64) {
 }
 
 // bodyApproachFraming frames body b for the approach views (ViewTarget /
-// ViewSOIPass). When an SOI pass reaches b it centers on the predicted
-// encounter arc and fits to its extent, so the drawn capture curve fills the
-// canvas at the body's *arrival* position — with no craft widening, since the
-// craft is a whole transfer away from that point and widening to it would shrink
-// the arc back to a dot (issue #144). With no pass it falls back to the
-// pre-encounter approach frame (current position + craft-distance widening).
+// ViewSOIPass). When an SOI pass reaches b it centers on the drawn encounter
+// arc — Local-to-Body, at b's current position (ADR 0021 B) — and fits to its
+// extent, with no craft widening, since the craft is a whole transfer away
+// and widening to it would shrink the arc back to a dot (issue #144). With no
+// pass it falls back to the pre-encounter approach frame (current position +
+// craft-distance widening).
 func (w *World) bodyApproachFraming(b bodies.CelestialBody) (center orbital.Vec3, radius float64, ok bool) {
 	if center, radius, hit := w.encounterFrame(b); hit {
 		return center, radius, true
@@ -224,9 +213,9 @@ func (w *World) bodyApproachFallback(b bodies.CelestialBody) (center orbital.Vec
 // predicted it centers on the body Target's current position and widens the fit
 // to the craft→target distance so the approach line stays in frame and zooms in
 // as the gap closes; once an SOI pass to the target resolves it centers on the
-// encounter arc (drawn at the body's arrival position) and fits to the arc's
-// extent so the capture curve fills the canvas (issue #144). ok=false when
-// there's no body target in the active system. v0.17.3+.
+// encounter arc (drawn Local-to-Body at the body's current position, ADR 0021
+// B) and fits to the arc's extent so the capture curve fills the canvas.
+// ok=false when there's no body target in the active system. v0.17.3+.
 func (w *World) TargetViewFraming() (center orbital.Vec3, radius float64, ok bool) {
 	if w.Target.Kind != TargetBody {
 		return orbital.Vec3{}, 0, false
@@ -257,7 +246,7 @@ func (w *World) SOIPassViewFraming() (center orbital.Vec3, radius float64, ok bo
 	// second forward prediction); fall back to the approach frame only when the
 	// pass couldn't place its arc.
 	if pass.HasPerilunePt {
-		center, radius = framePass(pass)
+		center, radius = w.framePass(pass)
 		return center, radius, true
 	}
 	return w.bodyApproachFallback(pass.Body)

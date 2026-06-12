@@ -20,9 +20,19 @@ type SOIPass struct {
 	PeriluneRadius float64              // distance to Body centre at closest approach (m)
 	TimeToPerilune float64              // seconds from now to perilune
 	Impact         bool                 // perilune radius is below the Body surface
-	PerilunePoint  orbital.Vec3         // inertial, system-frame — marker position
+	PeriluneRel    orbital.Vec3         // body-relative offset of perilune from Body centre (Local-to-Body, ADR 0021 B)
 	HasPerilunePt  bool                 // false when the arc couldn't place the marker point
-	ArcSegments    []SOISegment         // foreign-SOI arc (PrimaryID == Body.ID), system-frame
+	ArcSegments    []SOISegment         // foreign-SOI arc (PrimaryID == Body.ID); draw via SegmentDrawPoints
+}
+
+// PerilunePosition returns the Perilune marker's canvas position under the
+// Local-to-Body Arc rule (ADR 0021 B): the pass Body's CURRENT position plus
+// the body-relative perilune offset — the same anchoring SegmentDrawPoints
+// gives the arc, so the marker rides the drawn hyperbola. As arrival nears
+// the Body's current position closes on its encounter position, so the
+// marker converges to the true perilune.
+func (w *World) PerilunePosition(p SOIPass) orbital.Vec3 {
+	return w.BodyPosition(p.Body).Add(p.PeriluneRel)
 }
 
 // PeriluneAltitude is the perilune radius above the Body's surface; negative
@@ -225,17 +235,19 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 		}
 	}
 
-	// Perilune marker point: the foreign-arc sample closest to the body
-	// centre at the predicted time of closest approach. The glyph marks
-	// "which marker, what state" — the value lives in the chip (ADR 0020 C)
-	// — so the nearest-sample approximation is sufficient for placement.
-	moonAtTCA := w.BodyPositionAt(best.Body, fromClock.Add(time.Duration(best.TimeToPerilune*float64(time.Second))))
+	// Perilune marker offset: the foreign-arc sample closest to the body
+	// centre. RelPoints are body-relative at each sample's clock, so the
+	// minimum-norm sample IS the drawn closest approach (Local-to-Body,
+	// ADR 0021 B) — the draw site anchors it at the Body's current
+	// position via PerilunePosition. The glyph marks "which marker, what
+	// state" — the value lives in the chip (ADR 0020 C) — so the
+	// nearest-sample approximation is sufficient for placement.
 	minD := math.Inf(1)
 	for _, s := range best.ArcSegments {
-		for _, p := range s.Points {
-			if d := p.Sub(moonAtTCA).Norm(); d < minD {
+		for _, r := range s.RelPoints {
+			if d := r.Norm(); d < minD {
 				minD = d
-				best.PerilunePoint = p
+				best.PeriluneRel = r
 				best.HasPerilunePt = true
 			}
 		}

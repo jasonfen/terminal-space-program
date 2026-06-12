@@ -70,8 +70,9 @@ const (
 	// entering/leaving it never touches w.Target. Reuses the orbit-flat
 	// projection basis and the TargetViewFraming widening geometry (against the
 	// Pass Body instead of the Target). When an encounter resolves it centers on
-	// the predicted *arrival*-position perilune, not the body's current position
-	// (issue #144). Selected from the `v` cycle, but only reachable when an
+	// the drawn perilune — the Body's current position plus the body-relative
+	// offset, where the Local-to-Body arc lives (ADR 0021 B; supersedes the
+	// #144 arrival-position centering). Selected from the `v` cycle, but only reachable when an
 	// upcoming SOI pass exists — the planted (node-modified) one while flying a
 	// transfer, else the live one (CycleViewMode skips it otherwise); falls back
 	// to the ordinary focus center when the pass disappears mid-view (craft
