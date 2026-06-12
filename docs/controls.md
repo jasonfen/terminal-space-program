@@ -111,7 +111,7 @@ readout shows you why before you watch it fall back.
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your craft) |
 | `g` | Reset the camera to the whole system |
-| `v` | Cycle the view (tilted → top → right → bottom → left → flat → target → soi-pass). Tilted is the default — a 3D-style perspective that shows orbits leaning in space. **Target** (only offered when you have a body targeted) centers on the target and auto-frames your approach, zooming in as you close — so you can watch your projected orbit pass it while hand-flying corrections. **SOI Pass** (only offered when your live trajectory is heading into a body's sphere of influence) frames that body and auto-fits to its SOI so the encounter arc + Perilune `⊕` marker fill the canvas — no need to target the body first, and it never changes your target |
+| `v` | Cycle the view (tilted → top → right → bottom → left → flat → launch). Tilted is the default — a 3D-style perspective that shows orbits leaning in space. Views are projections only: the camera re-frames once when you change focus, view, or system, and otherwise stays exactly where you put it — to read an upcoming encounter, focus the body it passes (`f`) and the camera fits to its sphere of influence so the capture curve fills the canvas |
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (only in the tilted view) |
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping all the way around (only in the tilted view) |
 | `F2` | Declutter — hide all overlays (the corner chips and the navball) for a clean look at the orbit. Press again to bring them back. Your core telemetry column stays put |
