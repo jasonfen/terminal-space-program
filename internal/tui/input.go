@@ -177,10 +177,8 @@ type Keymap struct {
 
 	// YawLeft / YawRight (ADR 0021 G): nudge World.ViewTilt.Phi ±5°
 	// while ViewMode == ViewTilted, wrapping at 360° (no clamp —
-	// sim.World.NudgeViewTiltPhi owns step + wrap). Bound to { / },
-	// the shifted siblings of the [ / ] craft-cycle keys; a second
-	// shift+arrow pair was explicitly rejected because modified arrow
-	// keys are unreliable on common laptop keyboards/terminals.
+	// sim.World.NudgeViewTiltPhi owns step + wrap). Bound to shift+←/→,
+	// symmetric with TiltUp/TiltDown (shift+↑/↓).
 	YawLeft  key.Binding
 	YawRight key.Binding
 
@@ -286,8 +284,8 @@ func DefaultKeymap() Keymap {
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
 		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),
-		YawLeft:                   key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "yaw -5° (ViewTilted)")),
-		YawRight:                  key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "yaw +5° (ViewTilted)")),
+		YawLeft:                   key.NewBinding(key.WithKeys("shift+left"), key.WithHelp("shift+←", "yaw -5° (ViewTilted)")),
+		YawRight:                  key.NewBinding(key.WithKeys("shift+right"), key.WithHelp("shift+→", "yaw +5° (ViewTilted)")),
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
 		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
 		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
