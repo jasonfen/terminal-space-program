@@ -663,44 +663,6 @@ func TestOrbitViewZoom(t *testing.T) {
 	}
 }
 
-// TestOrbitViewZoomSurvivesAutoRefit is the regression for the encounter-view
-// zoom bug: the encounter framing (here the plain "focus the body" path the
-// playtest hit — ViewTilted focused on a body with an upcoming SOI pass)
-// re-FitTo's the canvas every frame, which used to stomp any manual `+`/`-`
-// zoom (a bare canvas.ZoomBy was overwritten by the next frame's FitTo). The
-// manual-zoom multiplier must compose over the per-frame auto-fit, so `+` still
-// zooms in and holds across subsequent renders.
-func TestOrbitViewZoomSurvivesAutoRefit(t *testing.T) {
-	v := newSOIPassTestView()
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	moonIdx := setupMoonCoast(t, w)
-	w.ViewMode = sim.ViewTilted
-	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: moonIdx}
-	if _, _, ok := w.FocusEncounterFraming(); !ok {
-		t.Fatal("precondition: focus-body encounter framing should be active on the Moon coast")
-	}
-
-	v.Render(w, 0, 200, 60)
-	autoFit := v.canvas.Scale()
-
-	v.ZoomIn()
-	v.ZoomIn()
-	v.Render(w, 0, 200, 60)
-	zoomed := v.canvas.Scale()
-	if zoomed <= autoFit {
-		t.Fatalf("manual zoom was stomped by the per-frame auto-refit: autoFit=%.3e zoomed=%.3e", autoFit, zoomed)
-	}
-
-	// And it holds across another refit frame (no drift back to the auto-fit).
-	v.Render(w, 0, 200, 60)
-	if held := v.canvas.Scale(); math.Abs(held-zoomed) > zoomed*1e-9 {
-		t.Errorf("manual zoom did not hold across refit: zoomed=%.3e held=%.3e", zoomed, held)
-	}
-}
-
 // TestOrbitRendersNavballPanel: the framed KSP-style navball panel
 // composites into the frame for a fresh LEO craft — no "NAVBALL"
 // label, the RCS toggle, the prograde marker glyph, the target-

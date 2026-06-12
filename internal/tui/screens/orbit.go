@@ -32,23 +32,26 @@ type OrbitView struct {
 	canvas *widgets.Canvas
 	theme  Theme
 
-	// lastSystemIdx + lastFocus track the (system, focus) pair the canvas
-	// was last fit to, so we re-FitTo only on a real change (not every
-	// frame). Focus fit keeps the camera on moving targets smoothly without
-	// reshooting the zoom level each tick.
+	// lastSystemIdx + lastFocus + lastViewMode track the framing context
+	// the canvas was last fit to, so we re-FitTo only at a Framing Event
+	// (ADR 0021 A: Focus change, ViewMode change, System switch — plus a
+	// resize, which invalidates the pixel geometry). Ambient sim-state
+	// changes (a pass appearing or vanishing, an approach closing) never
+	// move the camera. Per-frame center *tracking* of the focused object
+	// continues below — that is what Focus means — but the fit is written
+	// exactly once per event, then owned by the player.
 	lastSystemIdx int
 	lastFocus     sim.Focus
+	lastViewMode  sim.ViewMode
 	fitted        bool
 
-	// baseScale is the auto-fit pixels-per-meter the framing logic last
-	// computed (fitted-gate FocusZoomRadius, or a per-frame ViewTarget /
-	// ViewSOIPass / encounter override). userZoom is the player's manual `+`/`-`
-	// multiplier on top of it: the on-screen scale is baseScale × userZoom,
-	// re-applied every frame. Splitting them lets manual zoom survive the
-	// per-frame auto-refit of the override views — a bare canvas.ZoomBy would be
-	// stomped by the next FitTo (issue: encounter view couldn't be zoomed).
-	// userZoom resets to 1.0 whenever the framing context changes (the
-	// fitted-gate fires on system / focus / resize change).
+	// baseScale is the auto-fit pixels-per-meter the Framing-Event fit
+	// last computed (FocusZoomRadius). userZoom is the player's manual
+	// `+`/`-` multiplier on top of it: the on-screen scale is
+	// baseScale × userZoom, re-applied every frame (v0.18.2 mechanism).
+	// baseScale only changes at a Framing Event, so on a steady focus
+	// manual zoom persists indefinitely; userZoom resets to 1.0 at the
+	// next Framing Event (fresh framing context, fresh zoom).
 	baseScale float64
 	userZoom  float64
 
@@ -266,11 +269,11 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 }
 
 // ZoomIn / ZoomOut are thin wrappers for App to call on +/-. They nudge the
-// manual-zoom multiplier (applied over the auto-fit base scale in Render), so
-// the zoom composes with — and survives — the per-frame auto-refit of the
-// ViewTarget / ViewSOIPass / encounter views rather than being stomped by their
-// next FitTo. Clamped to a wide but finite range so a held key can't drive the
-// scale to a degenerate value.
+// manual-zoom multiplier (applied over the Framing-Event base scale in
+// Render): scale = baseScale × userZoom, so the player's zoom persists
+// indefinitely on a steady focus and resets only at the next Framing Event
+// (ADR 0021 A). Clamped to a wide but finite range so a held key can't drive
+// the scale to a degenerate value.
 func (v *OrbitView) ZoomIn()  { v.setUserZoom(v.userZoom * 1.25) }
 func (v *OrbitView) ZoomOut() { v.setUserZoom(v.userZoom / 1.25) }
 
@@ -368,17 +371,29 @@ func (v *OrbitView) ProjectToOrbit(w *sim.World, screenCol, screenRow int) (time
 func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows int) string {
 	sys := w.System()
 
-	// Refit only on system switch or focus-kind/idx change. When focused on
-	// a moving target (body or craft), we still re-center every frame
-	// below — this path only fires when the camera "target" changes, not
-	// when the target moves.
-	if v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus || !v.fitted {
+	// Framing Event resolution (ADR 0021 A): fit the canvas exactly once
+	// per Framing Event — a Focus change, ViewMode change, or System
+	// switch (plus resize, which clears v.fitted). FocusZoomRadius is the
+	// single fit-value resolution; it may read sim state (the
+	// encounter-aware ~1.3× parent-relative SOI fit, ADR 0021 F) but it
+	// runs only here, never per frame — a pass appearing or vanishing
+	// mid-coast leaves center + scale untouched. When focused on a moving
+	// target (body or craft) we still re-center every frame below; this
+	// path only fires when the framing *context* changes, not when the
+	// target moves.
+	if v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus ||
+		v.lastViewMode != w.ViewMode || !v.fitted {
 		v.lastSystemIdx = w.SystemIdx
 		v.lastFocus = w.Focus
+		v.lastViewMode = w.ViewMode
 		v.fitted = true
 		v.canvas.FitTo(w.FocusZoomRadius())
 		v.baseScale = v.canvas.Scale()
 		v.userZoom = 1 // fresh framing context — drop any manual zoom
+		// A Framing Event mid-burn re-frames once, then re-freezes: drop
+		// the frozen-center snapshot so the burn guard below re-captures
+		// it at the new focus center (ADR 0021 watch-point).
+		v.burnFrozenCenter = nil
 	}
 
 	v.canvas.Clear()
@@ -398,53 +413,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	} else if v.burnFrozenCenter != nil {
 		v.burnFrozenCenter = nil
 	}
-	// ViewTarget overrides the focus center + zoom: center on the body
-	// target and refit every frame to frame the craft→target approach, so
-	// the projected orbit stays legible against the target as the gap closes
-	// (and as the player hand-flies a correction). Falls through to the
-	// ordinary focus center when no body target is set.
-	if w.ViewMode == sim.ViewTarget {
-		if tCenter, tRadius, ok := w.TargetViewFraming(); ok {
-			center = tCenter
-			v.canvas.FitTo(tRadius)
-			v.baseScale = v.canvas.Scale()
-		}
-	}
-	// ViewSOIPass (ADR 0019 F) frames the active SOI Pass's Body without
-	// touching the Target slot — centers on the Pass Body and refits every
-	// frame so the encounter arc + Perilune marker fill the canvas. Falls
-	// through to the ordinary focus center when the pass disappears mid-view
-	// (craft captured / orbit no longer reaches the SOI), mirroring how
-	// ViewTarget degrades when its target clears.
-	if w.ViewMode == sim.ViewSOIPass {
-		if pCenter, pRadius, ok := w.SOIPassViewFraming(); ok {
-			center = pCenter
-			v.canvas.FitTo(pRadius)
-			v.baseScale = v.canvas.Scale()
-		}
-	}
-	// Encounter framing for the ordinary focus paths (issue #144): ViewTarget /
-	// ViewSOIPass override the camera above; for every other view, when the
-	// focused body has an upcoming SOI pass, center on the drawn encounter
-	// (Local-to-Body — at the body's current position, ADR 0021 B) and fit to
-	// the drawn arc's extent so the capture curve fills the canvas. Refits every
-	// frame like the two view overrides, so a burn planted *after* focusing the
-	// body still snaps the curve into frame regardless of focus-vs-plant
-	// ordering — the fitted-gate at the top of Render only refits on focus change.
-	if w.ViewMode != sim.ViewTarget && w.ViewMode != sim.ViewSOIPass {
-		if eCenter, eRadius, ok := w.FocusEncounterFraming(); ok {
-			center = eCenter
-			v.canvas.FitTo(eRadius)
-			v.baseScale = v.canvas.Scale()
-		}
-	}
-	// Compose the player's manual `+`/`-` zoom over the auto-fit base scale,
-	// every frame. The override views above re-FitTo each frame, so applying the
-	// multiplier here (rather than letting `+`/`-` poke the scale directly) is
-	// what lets manual zoom survive their refit. baseScale is the last auto-fit;
-	// on a non-override steady focus it's frozen, so this is the identity until
-	// the player zooms. The landed/primary zoom cap below still clamps the
-	// result.
+	// Compose the player's manual `+`/`-` zoom over the Framing-Event base
+	// scale, every frame: scale = baseScale × userZoom (v0.18.2 mechanism,
+	// ADR 0021 A). baseScale is frozen between Framing Events, so on a
+	// steady focus this is the identity until the player zooms — and the
+	// player's zoom persists until the next event resets userZoom. The
+	// landed/primary zoom cap below still clamps the result.
 	v.canvas.SetScale(v.baseScale * v.userZoom)
 	v.canvas.Center(center)
 
@@ -1210,7 +1184,7 @@ func (v *OrbitView) cameraDirForView(view sim.ViewMode) render.Vec3 {
 		return render.CameraDirRight
 	case sim.ViewLeft:
 		return render.CameraDirLeft
-	case sim.ViewTilted, sim.ViewOrbitFlat, sim.ViewTarget, sim.ViewSOIPass:
+	case sim.ViewTilted, sim.ViewOrbitFlat:
 		// Depth axis points out of screen toward the camera, which
 		// is exactly the body-to-camera direction the sub-observer
 		// math wants. For ViewOrbitFlat on a near-equatorial orbit
@@ -2100,10 +2074,7 @@ func viewBasis(w *sim.World) widgets.Basis {
 			X: orbital.Vec3{Y: -1},
 			Y: orbital.Vec3{Z: 1},
 		}
-	case sim.ViewOrbitFlat, sim.ViewTarget, sim.ViewSOIPass:
-		// ViewTarget / ViewSOIPass reuse the orbit-plane basis so the approach
-		// reads as a clean curve; only their center + zoom differ (handled in
-		// Render).
+	case sim.ViewOrbitFlat:
 		el, ok := activeCraftElements(w)
 		if !ok {
 			return widgets.DefaultBasis()

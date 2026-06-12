@@ -87,6 +87,11 @@ func (w *World) FocusPosition() orbital.Vec3 {
 // FocusZoomRadius suggests a world-space radius for auto-fit. Canvas.FitTo
 // uses ~90% of the smaller pixel axis, so a returned radius R yields a
 // frame that comfortably shows a circle of radius R around the focus.
+//
+// This is the single Framing-Event fit resolution (ADR 0021 A): the orbit
+// screen calls it exactly once per Framing Event (Focus change, ViewMode
+// change, System switch), never per frame. The fit *value* may read sim
+// state (the encounter-aware branch below) — the fit *timing* never does.
 func (w *World) FocusZoomRadius() float64 {
 	switch w.Focus.Kind {
 	case FocusBody:
@@ -96,6 +101,18 @@ func (w *World) FocusZoomRadius() float64 {
 			if b.SemimajorAxis == 0 {
 				// System primary: fall back to outermost-body fit.
 				return w.systemOutermostRadius()
+			}
+			// Encounter-aware fit (ADR 0021 F): focusing a Body with an
+			// active SOI Pass fits to ~1.3× its parent-relative SOI so the
+			// SOI Ring, the Local-to-Body arc, and its markers all land in
+			// frame — instead of the terminal-body 8×-radius close-up that
+			// would crop the capture curve. Evaluated only here, at a
+			// Framing Event, so the forward prediction behind bestSOIPass
+			// stays off the per-frame hot path.
+			if p, ok := w.bestSOIPass(); ok && p.Body.ID == b.ID {
+				if soi := physics.SOIRadius(b, w.parentBodyOf(b)); soi > 0 {
+					return soi * 1.3
+				}
 			}
 			// v0.8.5.7+: terminal bodies (those without children
 			// orbiting them — Luna, Phobos, Galileans, etc.) zoom
@@ -136,138 +153,18 @@ func (w *World) FocusZoomRadius() float64 {
 	return w.systemOutermostRadius()
 }
 
-// encounterFrame returns the camera center and auto-fit radius that frame body
-// b's predicted SOI-pass arc, when a pass reaches b. The arc draws
-// Local-to-Body (ADR 0021 B): body-relative samples anchored at b's CURRENT
-// position, so the frame centers on the drawn perilune next to b's disk and
-// fits to the arc's SOI-scale extent. ok=false when no pass reaches b or it
-// couldn't place its arc — callers then fall back to b's current position.
-func (w *World) encounterFrame(b bodies.CelestialBody) (center orbital.Vec3, radius float64, ok bool) {
-	p, hit := w.bestSOIPass()
-	if !hit || p.Body.ID != b.ID || !p.HasPerilunePt {
-		return orbital.Vec3{}, 0, false
-	}
-	center, radius = w.framePass(p)
-	return center, radius, true
-}
-
-// framePass is the geometry behind encounterFrame: center on the pass's drawn
-// Perilune (PerilunePosition — the Body's current position plus the relative
-// offset) and fit to the rebased arc's extent — the farthest body-relative
-// sample from the perilune offset, ×1.15 — so the whole drawn capture curve,
-// Body disk included, fills the canvas (ADR 0021 B). Falls back to a
-// body-radius multiple for a degenerate single-point arc. Takes an
-// already-fetched pass so callers that have one (SOIPassViewFraming) don't
-// re-run the forward prediction. Caller guarantees p.HasPerilunePt.
-func (w *World) framePass(p SOIPass) (center orbital.Vec3, radius float64) {
-	center = w.PerilunePosition(p)
-	var maxd float64
-	for _, s := range p.ArcSegments {
-		for _, rel := range s.RelPoints {
-			if d := rel.Sub(p.PeriluneRel).Norm(); d > maxd {
-				maxd = d
-			}
+// parentBodyOf returns the body b orbits (matched by ParentID), falling back
+// to the system root when no parent is found in the catalog. The SOI used by
+// the encounter-aware fit must be parent-relative (#143 — a moon's SOI against
+// the system *root* is wildly oversized).
+func (w *World) parentBodyOf(b bodies.CelestialBody) bodies.CelestialBody {
+	sys := w.System()
+	for i := range sys.Bodies {
+		if sys.Bodies[i].ID == b.ParentID {
+			return sys.Bodies[i]
 		}
 	}
-	radius = maxd * 1.15
-	if radius <= 0 {
-		radius = p.Body.RadiusMeters() * 50
-	}
-	return center, radius
-}
-
-// bodyApproachFraming frames body b for the approach views (ViewTarget /
-// ViewSOIPass). When an SOI pass reaches b it centers on the drawn encounter
-// arc — Local-to-Body, at b's current position (ADR 0021 B) — and fits to its
-// extent, with no craft widening, since the craft is a whole transfer away
-// and widening to it would shrink the arc back to a dot (issue #144). With no
-// pass it falls back to the pre-encounter approach frame (current position +
-// craft-distance widening).
-func (w *World) bodyApproachFraming(b bodies.CelestialBody) (center orbital.Vec3, radius float64, ok bool) {
-	if center, radius, hit := w.encounterFrame(b); hit {
-		return center, radius, true
-	}
-	return w.bodyApproachFallback(b)
-}
-
-// bodyApproachFallback frames body b's craft→body approach before any encounter
-// resolves: centered on b's *current* position, fit to its SOI and widened to
-// the craft→body distance so the approach line stays in frame and tightens as
-// the gap closes (ADR 0019 F). Always ok=true.
-func (w *World) bodyApproachFallback(b bodies.CelestialBody) (center orbital.Vec3, radius float64, ok bool) {
-	center = w.BodyPosition(b)
-	radius = physics.SOIRadius(b, w.System().Bodies[0]) * 1.3
-	if radius <= 0 {
-		radius = b.RadiusMeters() * 50
-	}
-	if c := w.ActiveCraft(); c != nil && c.SystemIdx == w.SystemIdx {
-		if dist := w.CraftInertial().Sub(center).Norm(); dist > radius {
-			radius = dist
-		}
-	}
-	return center, radius, true
-}
-
-// TargetViewFraming returns the camera center and auto-fit radius for
-// ViewTarget: framing the craft→target approach. Before an encounter is
-// predicted it centers on the body Target's current position and widens the fit
-// to the craft→target distance so the approach line stays in frame and zooms in
-// as the gap closes; once an SOI pass to the target resolves it centers on the
-// encounter arc (drawn Local-to-Body at the body's current position, ADR 0021
-// B) and fits to the arc's extent so the capture curve fills the canvas.
-// ok=false when there's no body target in the active system. v0.17.3+.
-func (w *World) TargetViewFraming() (center orbital.Vec3, radius float64, ok bool) {
-	if w.Target.Kind != TargetBody {
-		return orbital.Vec3{}, 0, false
-	}
-	sys := w.System()
-	if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sys.Bodies) {
-		return orbital.Vec3{}, 0, false
-	}
-	return w.bodyApproachFraming(sys.Bodies[w.Target.BodyIdx])
-}
-
-// SOIPassViewFraming returns the camera center and auto-fit radius for
-// ViewSOIPass (ADR 0019 F): framing the active SOI Pass's Body and its
-// encounter arc + Perilune marker. It mirrors TargetViewFraming's geometry but
-// sources the Pass Body from the pass itself, *not* the Target slot, so framing
-// an encounter never requires (or touches) the Target. The pass is the planted
-// (node-modified) one when nodes exist — so the view is available, and centered
-// on the encounter, while flying a planted transfer (issue #144) — else the
-// live pass. ok=false when there's no upcoming SOI Pass — the orbit view then
-// falls through to the ordinary focus center, mirroring how ViewTarget degrades
-// when the target clears. v0.18.0+.
-func (w *World) SOIPassViewFraming() (center orbital.Vec3, radius float64, ok bool) {
-	pass, ok := w.bestSOIPass()
-	if !ok {
-		return orbital.Vec3{}, 0, false
-	}
-	// Frame the drawn arc directly from the pass we already fetched (avoids a
-	// second forward prediction); fall back to the approach frame only when the
-	// pass couldn't place its arc.
-	if pass.HasPerilunePt {
-		center, radius = w.framePass(pass)
-		return center, radius, true
-	}
-	return w.bodyApproachFallback(pass.Body)
-}
-
-// FocusEncounterFraming frames the predicted encounter for the currently
-// focused body in the ordinary (non-Target / non-SOIPass) views: when an SOI
-// pass reaches the focus body it centers on the encounter arc and fits to its
-// extent, so a plain "focus the body" view shows the same capture curve
-// ViewTarget / ViewSOIPass would (issue #144 — the playtest "focus on Cursor"
-// path). ok=false unless the focus is a body with an active encounter, so the
-// orbit screen falls through to the ordinary focus center + zoom.
-func (w *World) FocusEncounterFraming() (center orbital.Vec3, radius float64, ok bool) {
-	if w.Focus.Kind != FocusBody {
-		return orbital.Vec3{}, 0, false
-	}
-	sys := w.System()
-	if w.Focus.BodyIdx < 0 || w.Focus.BodyIdx >= len(sys.Bodies) {
-		return orbital.Vec3{}, 0, false
-	}
-	return w.encounterFrame(sys.Bodies[w.Focus.BodyIdx])
+	return sys.Bodies[0]
 }
 
 func (w *World) systemOutermostRadius() float64 {
