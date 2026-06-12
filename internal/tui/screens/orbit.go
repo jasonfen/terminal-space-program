@@ -66,6 +66,26 @@ type OrbitView struct {
 	// camera lets the player watch the burn modify the orbit instead.
 	burnFrozenCenter *orbital.Vec3
 
+	// burnFrozen{Legs,Arcs,Rings} snapshot the predicted-trajectory LINE
+	// geometry — the dashed post-burn orbit (drawNodes legs), the purple
+	// SOI-pass arc, and its dotted SOI ring(s) (drawSOIPass) — captured on
+	// the last coasting frame and replayed steady while a finite burn fires
+	// so the "where am I heading" purple preview doesn't vanish at ignition.
+	// It otherwise would: executeDueNodesFor pops the firing node out of
+	// c.Nodes (so PredictedLegs / PlannedSOIPass go empty), and a live
+	// recompute off the mutating orbit whirls the geometry around the orbit
+	// (the original "crosshair circles the orbit and beyond" bug). Holding
+	// the pre-burn snapshot keeps the target on-screen — the player watches
+	// the live solid ellipse grow to meet it — without reviving the whirl.
+	// Markers (Δ node crosshairs, Perilune / SOI Entry-Exit) are NOT frozen:
+	// the crosshair whirl was the bug's subject and marker click/label state
+	// goes stale once the node is popped. Reset each coasting frame in
+	// drawNodes (the first overlay pass), repopulated by both overlay
+	// functions. Mirrors burnFrozenCenter's camera pin.
+	burnFrozenLegs  []predictLegDraw
+	burnFrozenArcs  []frozenArcLine
+	burnFrozenRings []bodies.CelestialBody
+
 	// titleBar tracks the column ranges of the right-aligned [Menu]
 	// and [Missions] click targets in the title bar (row 0). Set on
 	// each Render so HitAt-style hit-tests stay accurate after
@@ -1534,31 +1554,48 @@ func (v *OrbitView) computePredictedRender(w *sim.World) predictRenderData {
 	return data
 }
 
+// frozenArcLine is one captured SOI-pass arc line: the segments, the
+// anchor body ID to rebase them against (Local-to-Body, ADR 0021 B —
+// with the #157 root substitution already applied), and the colour they
+// were drawn in (bright or dim, per ADR 0020 B). Replayed steady during a
+// burn by drawSOIPass; see burnFrozenArcs.
+type frozenArcLine struct {
+	segs   []sim.SOISegment
+	anchor string
+	color  lipgloss.Color
+}
+
 func (v *OrbitView) drawNodes(w *sim.World) {
-	if w.ActiveCraft() == nil || len(w.ActiveCraft().Nodes) == 0 {
+	c := w.ActiveCraft()
+	if c == nil {
+		v.clearBurnFrozenLines()
 		return
 	}
-	// v0.10.1: suppress the ENTIRE node overlay (markers + dashed
-	// post-burn legs) while a finite burn is firing. The live craft
-	// state is mutated every integrator step, so NodeInertialPosition
-	// — which forward-propagates the *current* orbit to each node's
-	// trigger time — whirls the marker crosses around the orbit and
-	// outward every frame (the reported "crosshair circling the orbit
-	// and beyond"). v0.6.1 already skipped the dashed preview for this
-	// exact reason but did it AFTER the marker loop, so the markers
-	// kept spinning. Guard hoisted above the loop so both freeze
-	// together; the live ellipse + active-burn HUD carry the visual
-	// load until the burn completes (KSP freezes the node here too).
-	if w.ActiveCraft().ActiveBurn != nil {
+	// While a finite burn fires, replay the dashed post-burn orbit frozen
+	// from the last coasting frame instead of suppressing it (the v0.10.1
+	// behaviour). The firing node is popped from c.Nodes at ignition
+	// (executeDueNodesFor) and PredictedLegs short-circuits to nil under an
+	// ActiveBurn, so a live recompute is empty; the older inline recompute
+	// instead whirled the markers around the orbit. Holding the snapshot
+	// steady keeps the purple preview on-screen without reviving the whirl.
+	// Only the LEGS replay — the Δ node crosshairs stay off (they were the
+	// whirl's subject and carry click tags the burn has already popped).
+	if c.ActiveBurn != nil {
+		v.plotPredictedLegs(w, v.burnFrozenLegs)
 		return
 	}
-	homeID := w.ActiveCraft().Primary.ID
-	scale := v.canvas.Scale()
+	// Coasting: drawNodes runs first in the overlay pass (orbit.go ~865), so
+	// reset the whole frozen-lines snapshot here; drawSOIPass repopulates the
+	// arc + rings after us.
+	v.clearBurnFrozenLines()
+	if len(c.Nodes) == 0 {
+		return
+	}
 
 	// The node markers + dashed legs are a pure function of (craft, nodes,
 	// clock) for a coasting craft; cachedPredictedRender recomputes them
 	// only when that changes (ADR 0017 decision C). Projection and the
-	// zoom-skip below run every frame from the cached inertial geometry.
+	// zoom-skip run every frame from the cached inertial geometry.
 	data := v.cachedPredictedRender(w)
 
 	for _, m := range data.markers {
@@ -1570,7 +1607,25 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		// don't gate on IsBehindBody here.
 		drawMarker(v.canvas, m.pos, render.MarkerManeuver, render.MarkerNominal, m.tag.Color, m.tag)
 	}
-	for _, leg := range data.legs {
+	v.plotPredictedLegs(w, data.legs)
+	// Snapshot the dashed legs so an imminent ignition can keep them visible
+	// (replayed above). data.legs is cache-owned and not recomputed during a
+	// burn (drawNodes returns early before cachedPredictedRender), so holding
+	// the slice header is safe.
+	v.burnFrozenLegs = data.legs
+}
+
+// plotPredictedLegs plots the dashed post-burn legs onto the canvas: home-SOI
+// samples at their inertial positions, foreign-SOI samples rebased
+// Local-to-Body (ADR 0021 B). Shared by the live coasting path and the frozen
+// burn-time replay.
+func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
+	if w.ActiveCraft() == nil {
+		return
+	}
+	homeID := w.ActiveCraft().Primary.ID
+	scale := v.canvas.Scale()
+	for _, leg := range legs {
 		// Skip legs whose orbit projects too small to convey shape
 		// (heliocentric view of a planet-frame leg) — same rule as the
 		// live ellipse, keeping the canvas from painting a blob on top of
@@ -1584,9 +1639,6 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 			if seg.PrimaryID != homeID {
 				stride = 1 // foreign SOI — solid, eye-catching
 			}
-			// Foreign-SOI samples draw Local-to-Body — body-relative,
-			// anchored at the owning body's current position (ADR 0021 B);
-			// home-SOI samples draw at their inertial positions, unchanged.
 			for i, p := range w.SegmentDrawPoints(seg, homeID) {
 				if stride > 1 && i%stride == 0 {
 					continue
@@ -1595,6 +1647,26 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 			}
 		}
 	}
+}
+
+// plotArcLine plots one captured SOI-pass arc line (purple), rebasing its
+// segments Local-to-Body against the stored anchor. Shared by the live
+// coasting path and the frozen burn-time replay.
+func (v *OrbitView) plotArcLine(w *sim.World, line frozenArcLine) {
+	for _, seg := range line.segs {
+		for _, p := range w.SegmentDrawPoints(seg, line.anchor) {
+			v.canvas.PlotColored(p, line.color)
+		}
+	}
+}
+
+// clearBurnFrozenLines drops the frozen trajectory-line snapshot. Called at
+// the top of the coasting overlay pass (drawNodes) and whenever there's no
+// active craft, so a stale preview can't replay into the next burn.
+func (v *OrbitView) clearBurnFrozenLines() {
+	v.burnFrozenLegs = nil
+	v.burnFrozenArcs = v.burnFrozenArcs[:0]
+	v.burnFrozenRings = v.burnFrozenRings[:0]
 }
 
 // soiCounterfactualDim scales the no-burn arc's colour when a node is
@@ -1639,6 +1711,23 @@ func (v *OrbitView) drawSOIRing(w *sim.World, b bodies.CelestialBody) {
 // independent of the Target slot; the apoapsis-reach guard inside the
 // cached predictor keeps a stable orbit that reaches no SOI free.
 func (v *OrbitView) drawSOIPass(w *sim.World) {
+	// While a finite burn fires, replay the purple SOI-pass arc + its dotted
+	// SOI ring(s) frozen from the last coasting frame (lines only — no
+	// Perilune / Entry / Exit markers). Same rationale as drawNodes: the live
+	// pass is recomputed from the mutating orbit (and the planted node is
+	// gone), so it would vanish or jump; the frozen line keeps the encounter
+	// preview steady through the burn. drawNodes (the prior overlay pass) has
+	// already reset the snapshot on coasting frames.
+	if c := w.ActiveCraft(); c != nil && c.ActiveBurn != nil {
+		for _, b := range v.burnFrozenRings {
+			v.drawSOIRing(w, b)
+		}
+		for _, line := range v.burnFrozenArcs {
+			v.plotArcLine(w, line)
+		}
+		return
+	}
+
 	arc := v.cachedSOIPass(w)
 
 	// SOI Ring (ADR 0021 C): every body with an active pass — and only
@@ -1646,9 +1735,11 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 	// marker glyphs paint over the ring's dots.
 	if arc.cfOK {
 		v.drawSOIRing(w, arc.counterfactual.Body)
+		v.burnFrozenRings = append(v.burnFrozenRings, arc.counterfactual.Body)
 	}
 	if arc.plOK && (!arc.cfOK || arc.planned.Body.ID != arc.counterfactual.Body.ID) {
 		v.drawSOIRing(w, arc.planned.Body)
+		v.burnFrozenRings = append(v.burnFrozenRings, arc.planned.Body)
 	}
 
 	// The no-burn arc. With no node planted it IS the live pass, drawn
@@ -1679,22 +1770,18 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 		if arc.counterfactual.Body.ID == homeID {
 			homeID = w.System().Bodies[0].ID
 		}
-		for _, seg := range arc.counterfactual.ArcSegments {
-			for _, p := range w.SegmentDrawPoints(seg, homeID) {
-				v.canvas.PlotColored(p, arcColor)
-			}
+		// The arc line + its in-SOI residence continuation (#157): the whole
+		// onward path the craft will fly, drawn in one colour/brightness.
+		// Foreign (parent-frame) segments rebase Local-to-Body; root-frame
+		// segments draw at their inertial samples. Captured as one frozen line
+		// so a burn replays the same geometry steady.
+		line := frozenArcLine{
+			segs:   append(append([]sim.SOISegment{}, arc.counterfactual.ArcSegments...), arc.counterfactual.OnwardSegments...),
+			anchor: homeID,
+			color:  arcColor,
 		}
-		// In-SOI residence pass (#157): the post-exit continuation draws in
-		// the same colour/brightness as the in-SOI leg — the whole onward
-		// path the craft will fly, with or without a capture burn. Foreign
-		// (parent-frame) onward legs rebase Local-to-Body; root-frame legs
-		// draw at their inertial samples, as always. Empty for sibling
-		// passes, so the pre-entry picture is untouched.
-		for _, seg := range arc.counterfactual.OnwardSegments {
-			for _, p := range w.SegmentDrawPoints(seg, homeID) {
-				v.canvas.PlotColored(p, arcColor)
-			}
-		}
+		v.plotArcLine(w, line)
+		v.burnFrozenArcs = append(v.burnFrozenArcs, line)
 		if arc.counterfactual.HasPerilunePt {
 			st := markerState
 			if arc.counterfactual.Impact {
