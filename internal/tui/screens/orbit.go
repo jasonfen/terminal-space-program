@@ -40,6 +40,18 @@ type OrbitView struct {
 	lastFocus     sim.Focus
 	fitted        bool
 
+	// baseScale is the auto-fit pixels-per-meter the framing logic last
+	// computed (fitted-gate FocusZoomRadius, or a per-frame ViewTarget /
+	// ViewSOIPass / encounter override). userZoom is the player's manual `+`/`-`
+	// multiplier on top of it: the on-screen scale is baseScale × userZoom,
+	// re-applied every frame. Splitting them lets manual zoom survive the
+	// per-frame auto-refit of the override views — a bare canvas.ZoomBy would be
+	// stomped by the next FitTo (issue: encounter view couldn't be zoomed).
+	// userZoom resets to 1.0 whenever the framing context changes (the
+	// fitted-gate fires on system / focus / resize change).
+	baseScale float64
+	userZoom  float64
+
 	// burnFrozenCenter pins the canvas center for the duration of an
 	// active burn. Captured when ActiveBurn becomes non-nil, cleared
 	// when it returns to nil. v0.6.3 fix: focus-on-craft tracks the
@@ -205,6 +217,7 @@ func NewOrbitView(th Theme) *OrbitView {
 		canvas:        widgets.NewCanvas(80, 24),
 		theme:         th,
 		lastSystemIdx: -1,
+		userZoom:      1,
 		settings:      settings.Default(),
 	}
 }
@@ -252,9 +265,25 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 	v.fitted = false // force refit after resize
 }
 
-// ZoomIn / ZoomOut are thin wrappers for App to call on +/-.
-func (v *OrbitView) ZoomIn()  { v.canvas.ZoomBy(1.25) }
-func (v *OrbitView) ZoomOut() { v.canvas.ZoomBy(1.0 / 1.25) }
+// ZoomIn / ZoomOut are thin wrappers for App to call on +/-. They nudge the
+// manual-zoom multiplier (applied over the auto-fit base scale in Render), so
+// the zoom composes with — and survives — the per-frame auto-refit of the
+// ViewTarget / ViewSOIPass / encounter views rather than being stomped by their
+// next FitTo. Clamped to a wide but finite range so a held key can't drive the
+// scale to a degenerate value.
+func (v *OrbitView) ZoomIn()  { v.setUserZoom(v.userZoom * 1.25) }
+func (v *OrbitView) ZoomOut() { v.setUserZoom(v.userZoom / 1.25) }
+
+func (v *OrbitView) setUserZoom(z float64) {
+	const minZoom, maxZoom = 1e-4, 1e4
+	if z < minZoom {
+		z = minZoom
+	}
+	if z > maxZoom {
+		z = maxZoom
+	}
+	v.userZoom = z
+}
 
 // HitAt translates a screen-space mouse coordinate (col, row) into a
 // CellTag from the orbit canvas. The orbit screen renders title (1
@@ -348,6 +377,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		v.lastFocus = w.Focus
 		v.fitted = true
 		v.canvas.FitTo(w.FocusZoomRadius())
+		v.baseScale = v.canvas.Scale()
+		v.userZoom = 1 // fresh framing context — drop any manual zoom
 	}
 
 	v.canvas.Clear()
@@ -376,6 +407,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if tCenter, tRadius, ok := w.TargetViewFraming(); ok {
 			center = tCenter
 			v.canvas.FitTo(tRadius)
+			v.baseScale = v.canvas.Scale()
 		}
 	}
 	// ViewSOIPass (ADR 0019 F) frames the active SOI Pass's Body without
@@ -388,6 +420,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if pCenter, pRadius, ok := w.SOIPassViewFraming(); ok {
 			center = pCenter
 			v.canvas.FitTo(pRadius)
+			v.baseScale = v.canvas.Scale()
 		}
 	}
 	// Encounter framing for the ordinary focus paths (issue #144): ViewTarget /
@@ -402,8 +435,17 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if eCenter, eRadius, ok := w.FocusEncounterFraming(); ok {
 			center = eCenter
 			v.canvas.FitTo(eRadius)
+			v.baseScale = v.canvas.Scale()
 		}
 	}
+	// Compose the player's manual `+`/`-` zoom over the auto-fit base scale,
+	// every frame. The override views above re-FitTo each frame, so applying the
+	// multiplier here (rather than letting `+`/`-` poke the scale directly) is
+	// what lets manual zoom survive their refit. baseScale is the last auto-fit;
+	// on a non-override steady focus it's frozen, so this is the identity until
+	// the player zooms. The landed/primary zoom cap below still clamps the
+	// result.
+	v.canvas.SetScale(v.baseScale * v.userZoom)
 	v.canvas.Center(center)
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
