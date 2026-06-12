@@ -455,6 +455,48 @@ func (c *Canvas) RingColoredOutlineTagged(center orbital.Vec3, pxRadius int, tag
 	}
 }
 
+// ringDotSpacingPx is the circumference distance (pixels) between
+// successive dots of RingDottedColored — sparse enough that the ring
+// reads as a quiet dotted boundary cue rather than solid ink.
+const ringDotSpacingPx = 4
+
+// RingDottedColored draws a dotted screen-space circle of pxRadius
+// pixels around center — the SOI Ring (ADR 0021 C). A sphere's
+// orthographic projection is the same circle under every view basis, so
+// like RingColoredOutline the ring draws in screen space rather than as
+// a tilted world-plane ellipse. Dots are spaced ~ringDotSpacingPx of
+// circumference apart; the sample count carries the same
+// 4×(pxW+pxH) cap as the other ring primitives so an extreme-zoom
+// radius can't lock the render loop (the visible arc just goes sparse).
+func (c *Canvas) RingDottedColored(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
+	if pxRadius < 1 {
+		return
+	}
+	cx, cy, _ := c.Project(center)
+	samples := int(math.Round(2 * math.Pi * float64(pxRadius) / ringDotSpacingPx))
+	if samples < 8 {
+		samples = 8
+	}
+	maxSamples := 4 * (c.pxW + c.pxH)
+	if samples > maxSamples {
+		samples = maxSamples
+	}
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	tag := CellTag{Color: color}
+	for i := 0; i < samples; i++ {
+		theta := 2 * math.Pi * float64(i) / float64(samples)
+		px := cx + int(math.Round(float64(pxRadius)*math.Cos(theta)))
+		py := cy + int(math.Round(float64(pxRadius)*math.Sin(theta)))
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			continue
+		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = tag
+	}
+}
+
 // RingTiltedOutline draws a ring of radius rMeters around center
 // in the plane spanned by basis vectors e1, e2 (both in world
 // inertial frame, both unit-length, mutually orthogonal). v0.8.5.7+

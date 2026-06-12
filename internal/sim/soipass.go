@@ -22,8 +22,23 @@ type SOIPass struct {
 	Impact         bool                 // perilune radius is below the Body surface
 	PeriluneRel    orbital.Vec3         // body-relative offset of perilune from Body centre (Local-to-Body, ADR 0021 B)
 	HasPerilunePt  bool                 // false when the arc couldn't place the marker point
+	EntryRel       orbital.Vec3         // body-relative offset of the arc's SOI-entry ring crossing (ADR 0021 C)
+	ExitRel        orbital.Vec3         // body-relative offset of the SOI-exit ring crossing
+	HasEntry       bool                 // false when the arc's first sample isn't on the SOI Ring
+	HasExit        bool                 // false when the arc never exits — impact, horizon-truncated, node-capped
+	TimeToEntry    float64              // seconds from now to SOI entry (the SOI PASS chip's T-entry readout)
+	HasEntryTime   bool                 // false when the predictor reported no entry transition for the Body
 	ArcSegments    []SOISegment         // foreign-SOI arc (PrimaryID == Body.ID); draw via SegmentDrawPoints
 }
+
+// soiRingCrossingTol is the ring-proximity gate for the SOI Entry / Exit
+// markers, as a fraction of the SOI radius: the predictor opens a foreign
+// segment with a sample rebased at the (bisection-refined) crossing and
+// closes it with one at the crossing back out, so a genuine ring crossing
+// sits on the boundary to well within this; an arc that ends in the
+// interior — surface impact, horizon truncation, the node-capped
+// counterfactual — misses it and draws no Exit marker.
+const soiRingCrossingTol = 0.05
 
 // PerilunePosition returns the Perilune marker's canvas position under the
 // Local-to-Body Arc rule (ADR 0021 B): the pass Body's CURRENT position plus
@@ -33,6 +48,20 @@ type SOIPass struct {
 // marker converges to the true perilune.
 func (w *World) PerilunePosition(p SOIPass) orbital.Vec3 {
 	return w.BodyPosition(p.Body).Add(p.PeriluneRel)
+}
+
+// EntryPosition returns the SOI Entry marker's canvas position under the
+// Local-to-Body Arc rule (ADR 0021 C): the pass Body's CURRENT position plus
+// the body-relative ring-crossing offset — the same anchoring
+// SegmentDrawPoints gives the arc and PerilunePosition gives the Perilune,
+// so the glyph rides the drawn ring crossing. Callers gate on HasEntry.
+func (w *World) EntryPosition(p SOIPass) orbital.Vec3 {
+	return w.BodyPosition(p.Body).Add(p.EntryRel)
+}
+
+// ExitPosition is EntryPosition for the SOI Exit crossing; gate on HasExit.
+func (w *World) ExitPosition(p SOIPass) orbital.Vec3 {
+	return w.BodyPosition(p.Body).Add(p.ExitRel)
 }
 
 // PeriluneAltitude is the perilune radius above the Body's surface; negative
@@ -98,7 +127,13 @@ func (w *World) PlannedSOIPass() (SOIPass, bool) {
 		if !ok {
 			continue
 		}
-		pass.TimeToPerilune += leg.StartClock.Sub(now).Seconds()
+		// Rebase the leg-relative clocks to now — the legs begin when their
+		// node fires, in the future.
+		offset := leg.StartClock.Sub(now).Seconds()
+		pass.TimeToPerilune += offset
+		if pass.HasEntryTime {
+			pass.TimeToEntry += offset
+		}
 		if pass.TimeToPerilune < bestTCA {
 			bestTCA = pass.TimeToPerilune
 			best = pass
@@ -224,15 +259,45 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 
 	// Sample the trajectory over the bounded horizon and keep only the
 	// body's own segments — these span the transit (entry → perilune →
-	// exit), because PredictedSegmentsFrom rebases back out of the SOI on
+	// exit), because the predictor rebases back out of the SOI on
 	// exit, so any post-exit (escape / re-captured) samples land in a
 	// segment we drop here. A node-capped horizon naturally truncates the
 	// arc at the burn (ADR 0019 D: counterfactual never drawn past the node).
+	// The tuned call (same production tuning PredictedSegmentsFrom wraps)
+	// also reports each SOI transition, so the pass carries the predicted
+	// entry clock for the chip without re-deriving it from sampled points.
 	samples := adaptiveSampleCount(horizon, period)
-	segs := w.PredictedSegmentsFrom(state, primary, fromClock, horizon, samples)
+	segs, entries := w.predictedSegmentsFromTuned(state, primary, fromClock, horizon, samples, defaultPredictTuning())
 	for _, s := range segs {
 		if s.PrimaryID == best.Body.ID {
 			best.ArcSegments = append(best.ArcSegments, s)
+		}
+	}
+	for _, e := range entries {
+		if e.BodyID == best.Body.ID {
+			best.TimeToEntry = e.Clock.Sub(fromClock).Seconds()
+			best.HasEntryTime = true
+			break
+		}
+	}
+
+	// SOI Entry / Exit ring crossings (ADR 0021 C): the arc's first and
+	// last body-relative samples are the predictor's rebase points at the
+	// SOI boundary, so when they sit on the parent-relative ring (within
+	// soiRingCrossingTol) they place the Entry / Exit marker glyphs. soi
+	// is parent-relative by construction — the sibling scan above only
+	// admits bodies whose ParentID is `primary`.
+	if soi := physics.SOIRadius(best.Body, primary); soi > 0 && len(best.ArcSegments) > 0 {
+		onRing := func(rel orbital.Vec3) bool {
+			return math.Abs(rel.Norm()-soi) <= soi*soiRingCrossingTol
+		}
+		if first := best.ArcSegments[0].RelPoints; len(first) > 0 && onRing(first[0]) {
+			best.EntryRel = first[0]
+			best.HasEntry = true
+		}
+		if last := best.ArcSegments[len(best.ArcSegments)-1].RelPoints; len(last) > 0 && onRing(last[len(last)-1]) {
+			best.ExitRel = last[len(last)-1]
+			best.HasExit = true
 		}
 	}
 

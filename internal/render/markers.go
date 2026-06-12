@@ -16,6 +16,8 @@ const (
 	MarkerPerilune // periapsis within an upcoming SOI Pass (ADR 0019)
 	MarkerClosestApproach
 	MarkerManeuver // per-node colour exception — see MarkerColor
+	MarkerSOIEntry // SOI Pass arc crosses INTO the pass Body's SOI Ring (ADR 0021 C)
+	MarkerSOIExit  // SOI Pass arc crosses back OUT of the SOI Ring
 )
 
 // MarkerState modifies a marker's brightness/variant to convey what is
@@ -58,6 +60,10 @@ func MarkerGlyph(t MarkerType) rune {
 		return '✕'
 	case MarkerManeuver:
 		return 'Δ'
+	case MarkerSOIEntry:
+		return '▷'
+	case MarkerSOIExit:
+		return '◁'
 	}
 	return '?'
 }
@@ -97,6 +103,10 @@ func markerTypeColor(t MarkerType, base lipgloss.Color) lipgloss.Color {
 		return ColorMarkerPerilune
 	case MarkerClosestApproach:
 		return ColorMarkerClosestApproach
+	case MarkerSOIEntry:
+		return ColorMarkerSOIEntry
+	case MarkerSOIExit:
+		return ColorMarkerSOIExit
 	case MarkerManeuver:
 		// Documented exception (ADR 0020): the maneuver marker's colour is
 		// the post-burn leg colour passed by the caller, not a fixed type

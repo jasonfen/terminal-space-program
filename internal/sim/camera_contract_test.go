@@ -25,10 +25,14 @@ func moonCoast(t *testing.T, w *World) {
 
 // parentBody returns the body p orbits (its ParentID), or the system root when
 // p has no parent in the catalog. Test-side alias for the production lookup
-// the encounter-aware fit uses (ADR 0021 F / #143 — SOI must be
-// parent-relative, not root-relative).
+// behind BodySOIRadius, which the encounter-aware fit uses (ADR 0021 F /
+// #143 — SOI must be parent-relative, not root-relative).
 func parentBody(w *World, p bodies.CelestialBody) bodies.CelestialBody {
-	return w.parentBodyOf(p)
+	sys := w.System()
+	if par := sys.ParentOf(p); par != nil {
+		return *par
+	}
+	return sys.Bodies[0]
 }
 
 // TestViewModeCycleOrder pins ADR 0021 D: ViewTarget and ViewSOIPass left the

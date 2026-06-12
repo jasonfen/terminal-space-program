@@ -63,6 +63,8 @@ var (
 	ColorMarkerDescendingNode  = lipgloss.Color("#AF5FFF") // violet — descending node ◆
 	ColorMarkerPerilune        = lipgloss.Color("#FFAF00") // amber — perilune ⊕ (the periapsis within a pass SOI; shares the apsis amber)
 	ColorMarkerClosestApproach = lipgloss.Color("#FF5FAF") // hot pink — craft-to-craft closest approach ✕
+	ColorMarkerSOIEntry        = ColorForeignSOI           // orchid — SOI entry ▷ (shares the foreign-SOI arc hue it brackets, like Perilune shares the apsis amber)
+	ColorMarkerSOIExit         = ColorForeignSOI           // orchid — SOI exit ◁
 )
 
 // maneuverSegmentPalette cycles through distinct colors per planted
