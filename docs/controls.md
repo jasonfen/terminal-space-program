@@ -14,7 +14,7 @@ right-hand panel is your readout: the clock, what you're looking at, fuel and
 attitude, any burns you've planned, and a preview of where they'll put you.
 
 Speed time up or slow it down with `.` and `,` to watch the planets move;
-pause with `0` or space.
+pause with `0`.
 
 To go somewhere — say, the Moon:
 
