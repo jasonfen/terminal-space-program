@@ -685,7 +685,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// live Keplerian ellipse in its home primary's frame, translated
 	// into the system frame so it renders alongside planet orbits.
 	// Only bound orbits (a > 0) render; hyperbolic escape trajectories
-	// are already shown by the maneuver-preview SOI-segmented trace.
+	// are shown by the maneuver-preview SOI-segmented trace when nodes
+	// are planted, and by the in-SOI residence pass arc (#157) on a
+	// node-free escape — drawSOIPass covers the no-node flyby that used
+	// to draw nothing here.
 	//
 	// v0.6.1: orbits whose apoapsis projects to fewer than
 	// minOrbitPixels (≈ a body's pixel-tier diameter) are skipped at
@@ -1663,8 +1666,31 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 		// body-relative samples anchored at the pass Body's current
 		// position — the same rebase the planted-node legs get, so the dim
 		// counterfactual and the bright planned ink at one body agree.
+		//
+		// homeID trap (#157): for the in-SOI residence pass the pass Body
+		// IS the craft's primary, so the arc segments carry PrimaryID ==
+		// Primary.ID — and SegmentDrawPoints short-circuits home segments
+		// to their inertial sample positions, which would reintroduce the
+		// #147 smear for exactly this arc. Anchoring against the system
+		// root instead rebases the in-SOI leg at the Body's current
+		// position. A sibling pass never triggers the substitution — its
+		// Body is a sibling of the primary, not the primary itself.
 		homeID := w.ActiveCraft().Primary.ID
+		if arc.counterfactual.Body.ID == homeID {
+			homeID = w.System().Bodies[0].ID
+		}
 		for _, seg := range arc.counterfactual.ArcSegments {
+			for _, p := range w.SegmentDrawPoints(seg, homeID) {
+				v.canvas.PlotColored(p, arcColor)
+			}
+		}
+		// In-SOI residence pass (#157): the post-exit continuation draws in
+		// the same colour/brightness as the in-SOI leg — the whole onward
+		// path the craft will fly, with or without a capture burn. Foreign
+		// (parent-frame) onward legs rebase Local-to-Body; root-frame legs
+		// draw at their inertial samples, as always. Empty for sibling
+		// passes, so the pre-entry picture is untouched.
+		for _, seg := range arc.counterfactual.OnwardSegments {
 			for _, p := range w.SegmentDrawPoints(seg, homeID) {
 				v.canvas.PlotColored(p, arcColor)
 			}

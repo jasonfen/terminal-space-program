@@ -512,6 +512,13 @@ closest approach to the passed Body) and **Time to Perilune**. A SOI Pass
 whose Perilune falls below the Body's surface is an **Impact**. Once the
 player plants a Capture Burn at Perilune the Pass becomes a closed
 Capture Orbit — a different prediction (the node leg), not a SOI Pass.
+After SOI entry the Pass persists as the *in-SOI residence* variant
+(#157): while the Vessel is inside a non-root Body's SOI on a
+trajectory that leaves it, the same picture — ring, Local-to-Body arc,
+Perilune + SOI Exit markers, chip — draws around the current Primary
+(no Entry marker; that crossing is in the past) and continues past the
+exit into the onward path. A captured orbit (bound, apoapsis inside
+the SOI) quiets it.
 Distinct from **Encounter** (craft-to-craft — see Encounter math) and
 from the **Target** slot (a SOI Pass renders whether or not the Body is
 targeted). The HUD reports it as the SOI PASS block; on the orbit canvas
@@ -552,10 +559,16 @@ setting this deliberately is *not*).
 
 **SOI Ring**:
 The dim dotted ring drawn at a Body's parent-relative **Sphere of
-Influence** radius while a SOI Pass to it exists. Gives the
-**Local-to-Body Arc** its scale and a boundary to visibly enter and
-exit on; carries the SOI Entry and SOI Exit marker glyphs (ADR 0020
-family, per ADR 0021). Quiet bodies (no active Pass) draw no ring.
+Influence** radius while a SOI Pass to it exists — including the
+in-SOI escape-residence case (#157): while the active Vessel sits
+*inside* a non-root Body's SOI on a trajectory that leaves it
+(hyperbolic, or bound with apoapsis at/past the SOI radius), the ring
+persists around the current Primary, so SOI entry doesn't switch the
+boundary off mid-transit. Gives the **Local-to-Body Arc** its scale
+and a boundary to visibly enter and exit on; carries the SOI Entry and
+SOI Exit marker glyphs (ADR 0020 family, per ADR 0021). Quiet bodies —
+no active Pass, or a captured orbit wholly inside the SOI — draw no
+ring.
 _Avoid_: SOI circle, Influence boundary (informal).
 
 ### Launch & landing

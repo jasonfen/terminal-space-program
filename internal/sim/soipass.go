@@ -15,6 +15,13 @@ import (
 // always-on from the active craft's live state and is independent of the
 // Target slot — KSP shows the encounter whether or not the body is
 // targeted, and so do we.
+//
+// The in-SOI residence variant (#157) reuses the same shape after SOI
+// entry: while the craft sits inside a non-root Body's SOI on a trajectory
+// that leaves it, Body is the craft's *current* primary, HasEntry is false
+// (the crossing is in the past), and OnwardSegments carries the post-exit
+// continuation — so the ring/arc/marker pipeline keeps drawing through the
+// transit instead of switching off at the boundary.
 type SOIPass struct {
 	Body           bodies.CelestialBody // body whose SOI the live path crosses
 	PeriluneRadius float64              // distance to Body centre at closest approach (m)
@@ -29,6 +36,7 @@ type SOIPass struct {
 	TimeToEntry    float64              // seconds from now to SOI entry (the SOI PASS chip's T-entry readout)
 	HasEntryTime   bool                 // false when the predictor reported no entry transition for the Body
 	ArcSegments    []SOISegment         // foreign-SOI arc (PrimaryID == Body.ID); draw via SegmentDrawPoints
+	OnwardSegments []SOISegment         // in-SOI residence pass only (#157): the post-exit continuation (parent / heliocentric legs); nil for sibling passes
 }
 
 // soiRingCrossingTol is the ring-proximity gate for the SOI Entry / Exit
@@ -79,12 +87,21 @@ const soiPassHyperbolicHorizon = 24 * 3600.0
 // state, with no maneuver node required (ADR 0019 decisions A/B/C/E). This
 // is the always-on, Target-independent pass the canvas draws bright and the
 // SOI PASS chip reads when nothing is planted.
+//
+// When the sibling scan finds nothing AND the craft sits inside a non-root
+// body's SOI on a trajectory that leaves it, the in-SOI residence pass
+// takes over (#157) — the encounter picture used to switch off at the
+// exact moment of SOI entry, because the body had just become the primary
+// and so stopped being a sibling.
 func (w *World) LiveSOIPass() (SOIPass, bool) {
 	c := w.ActiveCraft()
 	if c == nil || c.Landed {
 		return SOIPass{}, false
 	}
-	return w.soiPassFromState(c.State, c.Primary, w.Clock.SimTime, math.Inf(1))
+	if p, ok := w.soiPassFromState(c.State, c.Primary, w.Clock.SimTime, math.Inf(1)); ok {
+		return p, true
+	}
+	return w.inSOIEscapePass(c.State, c.Primary, w.Clock.SimTime, math.Inf(1))
 }
 
 // CounterfactualSOIPass is the dual-arc "no-burn" pass (ADR 0019 D): the
@@ -104,7 +121,13 @@ func (w *World) CounterfactualSOIPass() (SOIPass, bool) {
 			return SOIPass{}, false
 		}
 	}
-	return w.soiPassFromState(c.State, c.Primary, w.Clock.SimTime, maxHorizon)
+	if p, ok := w.soiPassFromState(c.State, c.Primary, w.Clock.SimTime, maxHorizon); ok {
+		return p, true
+	}
+	// In-SOI residence fallback (#157), node-capped like the sibling scan:
+	// with a capture burn planted the dim no-burn arc shows the escape the
+	// craft flies if it doesn't fire, truncated at the node.
+	return w.inSOIEscapePass(c.State, c.Primary, w.Clock.SimTime, maxHorizon)
 }
 
 // PlannedSOIPass is the dual-arc "planned" pass (ADR 0019 D, bright path):
@@ -320,4 +343,124 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 	}
 
 	return best, true
+}
+
+// inSOIEscapePass synthesizes the in-SOI residence variant of the SOI Pass
+// (#157): while `state` sits inside a non-root `primary`'s SOI on a
+// trajectory that LEAVES it — hyperbolic/parabolic (e ≥ 1, a ≤ 0) or bound
+// with apoapsis at/past the parent-relative SOI radius — the encounter
+// picture must not switch off at SOI entry. The pass it returns feeds the
+// same ring/arc/marker pipeline as a sibling pass: Body is the current
+// primary, ArcSegments is the remaining in-SOI leg (entry is in the past,
+// so HasEntry stays false), and OnwardSegments carries the post-exit
+// continuation into the parent / heliocentric frames.
+//
+// A captured orbit (bound, apoapsis inside the SOI) returns ok=false — the
+// quiet case: a parked LEO or low lunar orbit draws its ellipse exactly as
+// before, with no ring. maxHorizon caps the prediction at the first
+// planted node for the counterfactual, as in soiPassFromState.
+func (w *World) inSOIEscapePass(state physics.StateVector, primary bodies.CelestialBody, fromClock time.Time, maxHorizon float64) (SOIPass, bool) {
+	soi := w.BodySOIRadius(primary)
+	if soi <= 0 {
+		return SOIPass{}, false // root primary — no enclosing SOI to leave
+	}
+	mu := primary.GravitationalParameter()
+	el := orbital.ElementsFromState(state.R, state.V, mu)
+	if math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return SOIPass{}, false
+	}
+	if el.A > 0 && el.E < 1 && el.Apoapsis() < soi {
+		return SOIPass{}, false // captured — bound wholly inside the SOI, the quiet case
+	}
+
+	// Horizon: ~one period for a bound-but-escaping orbit (it crosses the
+	// ring before apoapsis); the sim-day wall for an open trajectory
+	// (ADR 0019 B). A slow flyby's remaining transit can far exceed that
+	// wall — a lunar arrival spends ~2 days inside a 66 000 km SOI at
+	// ~1 km/s relative — and a horizon-truncated arc would end in the
+	// interior with no Exit and no onward path, so the horizon extends to
+	// the analytic exit crossing (+25 %, so the onward continuation gets
+	// ink too). maxHorizon (the counterfactual's first-node cap) clamps
+	// last: the no-burn arc is never drawn past the burn (ADR 0019 D).
+	period := orbitalPeriod(state, mu)
+	horizon := soiPassHyperbolicHorizon
+	if el.A > 0 && period > 0 && !math.IsNaN(period) && !math.IsInf(period, 0) {
+		horizon = period
+	}
+	if tExit, ok := orbital.TimeToRadiusOutbound(orbital.Vec3State{R: state.R, V: state.V}, mu, soi); ok {
+		if h := tExit * 1.25; h > horizon {
+			horizon = h
+		}
+	}
+	if maxHorizon < horizon {
+		horizon = maxHorizon
+	}
+	if horizon <= 0 {
+		return SOIPass{}, false
+	}
+
+	pass := SOIPass{Body: primary}
+
+	// Closest approach: analytic while the periapsis is still ahead
+	// (inbound, r·v < 0); once outbound the craft only recedes, so the
+	// closest *future* approach is the current radius, now.
+	if state.R.Dot(state.V) < 0 {
+		pass.PeriluneRadius = el.A * (1 - el.E) // periapsis radius, valid both sides of e=1
+		pass.Impact = pass.PeriluneRadius < primary.RadiusMeters()
+		rel := orbital.Vec3State{R: state.R, V: state.V}
+		if el.E >= 1 {
+			if t, ok := orbital.TimeToPeriapsisHyperbolic(rel, mu); ok && t > 0 {
+				pass.TimeToPerilune = t
+			}
+		} else if t := orbital.TimeToPeriapsis(rel, mu); t > 0 {
+			pass.TimeToPerilune = t
+		}
+	} else {
+		pass.PeriluneRadius = state.R.Norm()
+	}
+
+	// Sample the remaining transit plus the onward continuation. Unlike
+	// the sibling scan, segments past the exit are KEPT (OnwardSegments):
+	// the whole path the craft will fly draws, with or without a capture
+	// burn planted (#157).
+	samples := adaptiveSampleCount(horizon, period)
+	segs, _ := w.predictedSegmentsFromTuned(state, primary, fromClock, horizon, samples, defaultPredictTuning())
+	for _, s := range segs {
+		if s.PrimaryID == primary.ID {
+			pass.ArcSegments = append(pass.ArcSegments, s)
+		} else {
+			pass.OnwardSegments = append(pass.OnwardSegments, s)
+		}
+	}
+	if len(pass.ArcSegments) == 0 {
+		return SOIPass{}, false
+	}
+
+	// SOI Exit ring crossing (ADR 0021 C): the in-SOI leg's last sample is
+	// the predictor's (bisection-refined) rebase point at the boundary, so
+	// when it sits on the parent-relative ring it places the Exit marker;
+	// an arc that ends in the interior — impact, node-capped,
+	// horizon-truncated — draws no Exit. No Entry marker: the craft is
+	// already inside, the entry crossing is in the past.
+	if last := pass.ArcSegments[0].RelPoints; len(last) > 0 {
+		if r := last[len(last)-1]; math.Abs(r.Norm()-soi) <= soi*soiRingCrossingTol {
+			pass.ExitRel = r
+			pass.HasExit = true
+		}
+	}
+
+	// Perilune marker offset: the in-SOI sample closest to the body centre
+	// — the same placement rule as the sibling pass (Local-to-Body,
+	// ADR 0021 B; the chip carries the analytic value above).
+	minD := math.Inf(1)
+	for _, s := range pass.ArcSegments {
+		for _, r := range s.RelPoints {
+			if d := r.Norm(); d < minD {
+				minD = d
+				pass.PeriluneRel = r
+				pass.HasPerilunePt = true
+			}
+		}
+	}
+	return pass, true
 }
