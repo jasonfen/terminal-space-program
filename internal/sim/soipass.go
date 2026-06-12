@@ -98,6 +98,20 @@ func (w *World) PlannedSOIPass() (SOIPass, bool) {
 	return best, found
 }
 
+// bestSOIPass returns the most relevant upcoming SOI pass for framing: the
+// planned (node-modified) pass when nodes are planted — the bright path the
+// burns actually produce — else the live pass. Encounter-centered framing
+// (issue #144) reads it so "focus the body" / ViewTarget / ViewSOIPass all
+// center on the same predicted encounter the canvas draws, even while flying a
+// planted transfer whose *pre-burn* orbit can't yet reach the body (in which
+// case LiveSOIPass alone is false).
+func (w *World) bestSOIPass() (SOIPass, bool) {
+	if p, ok := w.PlannedSOIPass(); ok {
+		return p, true
+	}
+	return w.LiveSOIPass()
+}
+
 // firstNodeTime returns the earliest planted-node trigger time.
 func firstNodeTime(nodes []spacecraft.ManeuverNode) (time.Time, bool) {
 	if len(nodes) == 0 {

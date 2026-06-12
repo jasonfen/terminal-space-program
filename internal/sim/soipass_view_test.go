@@ -4,7 +4,9 @@ import (
 	"math"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
 // moonCoast puts the active craft on the node-free LEO→Moon coast where
@@ -21,11 +23,14 @@ func moonCoast(t *testing.T, w *World) {
 	c.Landed = false
 }
 
-// TestSOIPassViewFramingFramesPassBody: on the node-free LEO→Moon coast the
-// SOI-Pass framing centers on the Pass Body (the Moon), not the system origin,
-// and fits a positive radius — so ViewSOIPass has real geometry to frame
-// (ADR 0019 F, #137).
-func TestSOIPassViewFramingFramesPassBody(t *testing.T) {
+// TestSOIPassViewFramingFramesEncounter: on the node-free LEO→Moon coast the
+// SOI-Pass framing centers on the drawn encounter — the pass's PerilunePoint, a
+// sample on the foreign-SOI arc at the Moon's *arrival* location — not the
+// Moon's *current* position (ADR 0019 F, #137; #144). The two diverge by far
+// more than the SOI over a multi-day coast (the Earth–Moon system translates
+// along Earth's heliocentric orbit), so centering on the current position pushes
+// the encounter off-canvas — the bug this regression pins.
+func TestSOIPassViewFramingFramesEncounter(t *testing.T) {
 	w := mustWorld(t)
 	moonCoast(t, w)
 
@@ -41,10 +46,27 @@ func TestSOIPassViewFramingFramesPassBody(t *testing.T) {
 	if radius <= 0 {
 		t.Errorf("fit radius = %v, want > 0", radius)
 	}
-	moonPos := w.BodyPosition(pass.Body)
-	if got := center.Sub(moonPos).Norm(); got > 1 {
-		t.Errorf("framing center is %v m from the Pass Body, want centered on it", got)
+	if got := center.Sub(pass.PerilunePoint).Norm(); got > 1 {
+		t.Errorf("framing center is %v m from the drawn PerilunePoint, want centered on it", got)
 	}
+	current := w.BodyPosition(pass.Body)
+	// The encounter sits a whole transit-translation away from the Moon's
+	// current position — far more than the Moon's true SOI.
+	soiVsParent := physics.SOIRadius(pass.Body, parentBody(w, pass.Body))
+	if got := center.Sub(current).Norm(); got <= soiVsParent {
+		t.Fatalf("encounter only %v m from the Moon's current position (SOI %v m) — #144 repro premise stale", got, soiVsParent)
+	}
+}
+
+// parentBody returns the body p orbits (its ParentID), or the system root when
+// p has no parent in the catalog. Test helper for SOI-vs-parent checks.
+func parentBody(w *World, p bodies.CelestialBody) bodies.CelestialBody {
+	for _, b := range w.System().Bodies {
+		if b.ID == p.ParentID {
+			return b
+		}
+	}
+	return w.System().Bodies[0]
 }
 
 // TestSOIPassViewFramingNilWithoutPass: with no active SOI Pass (a stable LEO)
@@ -68,11 +90,15 @@ func TestSOIPassViewFramingNilWithoutPass(t *testing.T) {
 	}
 }
 
-// TestSOIPassViewFramingWidensForApproach: when the craft is still far outside
-// the Pass Body's SOI, the fit radius widens to the craft→Body distance so the
-// craft stays on-canvas during approach — the ADR 0019 F small-SOI watch-point
-// (the same widening TargetViewFraming applies).
-func TestSOIPassViewFramingWidensForApproach(t *testing.T) {
+// TestSOIPassViewFramingFitsToArcExtent: once an encounter resolves, the fit
+// frames the *drawn arc's* extent — every foreign-SOI arc sample lands within
+// the radius — so the whole capture curve fills the canvas. In the system frame
+// the body translates through the pass, smearing the in-SOI hyperbola across
+// many times the SOI, so an SOI-sized fit would frame a single point (issue
+// #144). The fit is also *not* widened to the craft→encounter distance: the
+// craft is a whole transfer away, and widening to it would shrink the arc back
+// to a dot.
+func TestSOIPassViewFramingFitsToArcExtent(t *testing.T) {
 	w := mustWorld(t)
 	moonCoast(t, w)
 
@@ -85,16 +111,20 @@ func TestSOIPassViewFramingWidensForApproach(t *testing.T) {
 		t.Fatal("SOIPassViewFraming returned ok=false with an active pass")
 	}
 
-	// Early on the LEO→Moon coast the craft is far outside Luna's SOI, so the
-	// fit must have widened to at least the craft→Moon distance.
-	dist := w.CraftInertial().Sub(center).Norm()
-	if dist <= 0 {
-		t.Fatal("craft→Body distance is non-positive; setup is degenerate")
+	// Every drawn arc sample is within the fit radius — the curve fills the
+	// canvas rather than overflowing it.
+	for _, s := range pass.ArcSegments {
+		for _, p := range s.Points {
+			if d := p.Sub(center).Norm(); d > radius {
+				t.Errorf("arc sample %.0f km from center exceeds fit radius %.0f km — capture curve overflows the canvas", d/1e3, radius/1e3)
+			}
+		}
 	}
-	if radius < dist {
-		t.Errorf("fit radius %v < craft→Body distance %v: craft would fall off-canvas during approach", radius, dist)
+	// And the fit is the arc's extent, not the craft→encounter distance: the
+	// distant craft is intentionally left off-canvas so the curve fills it.
+	if dist := w.CraftInertial().Sub(center).Norm(); radius >= dist {
+		t.Errorf("fit radius %.0f km ≥ craft→encounter distance %.0f km: framing widened to include the distant craft (pre-#144 behavior)", radius/1e3, dist/1e3)
 	}
-	_ = pass
 }
 
 // TestSOIPassViewSelectableInCycle: the `v` cycle offers ViewSOIPass only when

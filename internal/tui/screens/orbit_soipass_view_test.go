@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -44,6 +45,41 @@ func TestViewSOIPassRefitsToPassBody(t *testing.T) {
 	}
 	if !strings.Contains(out, "SOI PASS") {
 		t.Errorf("SOI PASS chip should render in ViewSOIPass with no Target set")
+	}
+}
+
+// TestPlainViewFocusBodyCentersOnEncounter is the screen-level regression for
+// the #144 playtest path: "focus on Cursor" in an ordinary view (ViewTilted —
+// not the v-cycle ViewTarget/ViewSOIPass). With an upcoming encounter the
+// canvas must re-center on the body's *arrival* position so the capture curve
+// is on-canvas, not its *current* position (off by the heliocentric transit
+// translation — the curve "not displayed until the maneuvers finish").
+func TestPlainViewFocusBodyCentersOnEncounter(t *testing.T) {
+	v := newSOIPassTestView()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	moonIdx := setupMoonCoast(t, w)
+	moon := w.System().Bodies[moonIdx]
+
+	// Ordinary view, focused on the Moon — the plain "look at the body" case.
+	w.ViewMode = sim.ViewTilted
+	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: moonIdx}
+	v.Render(w, 0, 200, 60)
+
+	got := v.canvas.CenterWorld()
+	eCenter, _, ok := w.FocusEncounterFraming()
+	if !ok {
+		t.Fatal("FocusEncounterFraming ok=false on the Moon coast; expected an encounter")
+	}
+	if d := got.Sub(eCenter).Norm(); d > 1 {
+		t.Errorf("canvas centered %.0f km off the encounter frame; the override didn't fire in ViewTilted", d/1e3)
+	}
+	// And that center is nowhere near the Moon's *current* position (the bug).
+	soi := physics.SOIRadius(moon, w.System().Bodies[0])
+	if d := got.Sub(w.BodyPosition(moon)).Norm(); d <= soi {
+		t.Errorf("canvas centered on the Moon's current position (%.0f km, SOI %.0f km) — #144 not fixed", d/1e3, soi/1e3)
 	}
 }
 

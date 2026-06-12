@@ -390,6 +390,20 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			v.canvas.FitTo(pRadius)
 		}
 	}
+	// Encounter framing for the ordinary focus paths (issue #144): ViewTarget /
+	// ViewSOIPass override the camera above; for every other view, when the
+	// focused body has an upcoming SOI pass, center on the predicted encounter
+	// (drawn at the body's *arrival* position, not its current one) and fit to
+	// the drawn arc's extent so the capture curve fills the canvas. Refits every
+	// frame like the two view overrides, so a burn planted *after* focusing the
+	// body still snaps the curve into frame regardless of focus-vs-plant
+	// ordering — the fitted-gate at the top of Render only refits on focus change.
+	if w.ViewMode != sim.ViewTarget && w.ViewMode != sim.ViewSOIPass {
+		if eCenter, eRadius, ok := w.FocusEncounterFraming(); ok {
+			center = eCenter
+			v.canvas.FitTo(eRadius)
+		}
+	}
 	v.canvas.Center(center)
 
 	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
