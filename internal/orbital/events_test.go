@@ -197,3 +197,68 @@ func TestTimeToNodeCrossingInclined(t *testing.T) {
 		t.Errorf("AN and DN crossings too close: AN=%.3f DN=%.3f", dtAN, dtDN)
 	}
 }
+
+// TestTimeToRadiusOutbound pins the SOI-exit time helper (#157) on both
+// sides of e = 1: the elliptic branch against known true-anomaly timing,
+// the hyperbolic branch against TimeToPeriapsisHyperbolic's antisymmetry
+// (an inbound craft at radius r crosses r outbound exactly 2× its
+// time-to-periapsis later), plus the unreachable-radius rejections.
+func TestTimeToRadiusOutbound(t *testing.T) {
+	a := 6.578e6
+	e := 0.05
+	period := 2 * math.Pi * math.Sqrt(a*a*a/muEarth)
+
+	// Elliptic, from periapsis: the apoapsis radius is crossed (outbound,
+	// grazing) exactly half a period later.
+	state := stateAtNu(0)
+	ra := a * (1 + e)
+	if dt, ok := TimeToRadiusOutbound(state, muEarth, ra); !ok || math.Abs(dt-period/2) > 1.0 {
+		t.Errorf("peri → apoapsis radius: got dt=%.3f ok=%v, want %.3f", dt, ok, period/2)
+	}
+	// Beyond apoapsis / below periapsis: never crossed.
+	if _, ok := TimeToRadiusOutbound(state, muEarth, ra*1.01); ok {
+		t.Error("radius beyond apoapsis: ok=true, want false")
+	}
+	if _, ok := TimeToRadiusOutbound(state, muEarth, a*(1-e)*0.99); ok {
+		t.Error("radius below periapsis: ok=true, want false")
+	}
+
+	// Elliptic, inbound (ν=−π/4 i.e. 7π/4): crossing the current radius
+	// outbound is symmetric about periapsis — Δν = π/4 → π/4 of anomaly
+	// each side, so dt equals the ν=−π/4 → +π/4 flight time.
+	inb := stateAtNu(-math.Pi / 4)
+	rNow := inb.R.Norm()
+	want := TimeToTrueAnomaly(-math.Pi/4, math.Pi/4, a, e, muEarth)
+	if dt, ok := TimeToRadiusOutbound(inb, muEarth, rNow); !ok || math.Abs(dt-want) > 1.0 {
+		t.Errorf("elliptic inbound, own radius: got dt=%.3f ok=%v, want %.3f", dt, ok, want)
+	}
+
+	// Hyperbolic, inbound at ν=−0.6: by time symmetry about periapsis the
+	// outbound crossing of the current radius lands at 2× the
+	// time-to-periapsis.
+	ah, eh := -8.0e6, 1.5
+	hin := hyperbolicStateAtNu(ah, eh, -0.6)
+	tp, okP := TimeToPeriapsisHyperbolic(hin, muEarth)
+	if !okP || tp <= 0 {
+		t.Fatalf("setup: hyperbolic time-to-periapsis %.3f ok=%v", tp, okP)
+	}
+	if dt, ok := TimeToRadiusOutbound(hin, muEarth, hin.R.Norm()); !ok || math.Abs(dt-2*tp) > 1.0 {
+		t.Errorf("hyperbolic inbound, own radius: got dt=%.3f ok=%v, want 2×t_peri=%.3f", dt, ok, 2*tp)
+	}
+	// Hyperbolic outbound: a larger radius is still ahead…
+	hout := hyperbolicStateAtNu(ah, eh, 0.6)
+	if dt, ok := TimeToRadiusOutbound(hout, muEarth, hout.R.Norm()*2); !ok || dt <= 0 {
+		t.Errorf("hyperbolic outbound, 2× radius: got dt=%.3f ok=%v, want > 0", dt, ok)
+	}
+	// …but a radius already passed is not.
+	if _, ok := TimeToRadiusOutbound(hout, muEarth, hout.R.Norm()*0.9); ok {
+		t.Error("hyperbolic outbound, radius behind: ok=true, want false")
+	}
+
+	// Circular orbits never cross a different radius.
+	rc := 7.0e6
+	circ := Vec3State{R: Vec3{X: rc}, V: Vec3{Y: math.Sqrt(muEarth / rc)}}
+	if _, ok := TimeToRadiusOutbound(circ, muEarth, rc*1.5); ok {
+		t.Error("circular orbit: ok=true, want false")
+	}
+}

@@ -86,6 +86,76 @@ func TimeToPeriapsisHyperbolic(state Vec3State, mu float64) (float64, bool) {
 	return -M / n, true
 }
 
+// TimeToRadiusOutbound returns the elapsed seconds from the given state to
+// the next time the trajectory crosses radius r moving OUTBOUND (ṙ > 0) —
+// the SOI-exit geometry: a craft inside a body's sphere on an escaping
+// trajectory crosses r exactly once on the way out (#157). Works on both
+// sides of e = 1: closed orbits route through TimeToTrueAnomaly (the
+// outbound crossing sits at ν = +acos((p/r − 1)/e), the (0, π) half-plane),
+// open orbits through the hyperbolic Kepler equation — the same
+// M = e·sinh H − H machinery as TimeToPeriapsisHyperbolic.
+//
+// ok=false when the orbit never reaches r (bound with apoapsis < r, or r
+// below periapsis), is circular/degenerate, or the crossing isn't ahead.
+func TimeToRadiusOutbound(state Vec3State, mu, r float64) (float64, bool) {
+	if mu <= 0 || r <= 0 {
+		return 0, false
+	}
+	el := ElementsFromState(state.R, state.V, mu)
+	p := el.A * (1 - el.E*el.E) // semi-latus rectum, positive both sides of e=1
+	if el.E < 1e-9 || math.IsNaN(p) || p <= 0 {
+		return 0, false
+	}
+	cosNu := (p/r - 1) / el.E
+	if cosNu < -1 || cosNu > 1 {
+		return 0, false // r below periapsis or beyond apoapsis — never crossed
+	}
+	nuExit := math.Acos(cosNu) // ∈ (0, π): the outbound crossing
+
+	if el.E < 1 {
+		if el.A <= 0 {
+			return 0, false
+		}
+		nuNow := TrueAnomalyFromState(state.R, state.V, mu, el)
+		dt := TimeToTrueAnomaly(nuNow, nuExit, el.A, el.E, mu)
+		if dt < 0 {
+			return 0, false
+		}
+		return dt, true
+	}
+
+	// Hyperbolic branch. Map the inbound half-plane to (−π, 0) so an
+	// approaching craft has M < 0, exactly as TimeToPeriapsisHyperbolic.
+	if el.A >= 0 {
+		return 0, false
+	}
+	nuNow := TrueAnomalyFromState(state.R, state.V, mu, el)
+	if nuNow > math.Pi {
+		nuNow -= 2 * math.Pi
+	}
+	meanAnom := func(nu float64) (float64, bool) {
+		denom := 1 + el.E*math.Cos(nu)
+		if denom <= 0 {
+			return 0, false // beyond the asymptote — not on the physical arc
+		}
+		sinhH := math.Sqrt(el.E*el.E-1) * math.Sin(nu) / denom
+		H := math.Asinh(sinhH)
+		return el.E*math.Sinh(H) - H, true
+	}
+	mNow, okNow := meanAnom(nuNow)
+	mExit, okExit := meanAnom(nuExit)
+	if !okNow || !okExit {
+		return 0, false
+	}
+	absA := -el.A
+	n := math.Sqrt(mu / (absA * absA * absA))
+	dt := (mExit - mNow) / n
+	if dt <= 0 {
+		return 0, false
+	}
+	return dt, true
+}
+
 // TimeToApoapsis returns elapsed seconds to the next apoapsis (ν=π).
 // Convenience wrapper around TimeToTrueAnomaly.
 func TimeToApoapsis(state Vec3State, mu float64) float64 {
