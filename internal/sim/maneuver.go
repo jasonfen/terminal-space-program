@@ -426,12 +426,16 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 			return &plan, nil
 		}
 
-		// Split: refine the finite coplanar departure (v0.6.2 iterator) so
-		// the burn delivers the target apoapsis under integration, then
-		// plant raise → plane change → capture.
+		// Split: plant raise → plane change → capture, with the arrival
+		// aimed at the Capture Orbit radius (GH #159, ADR 0018 extended to
+		// the split). The node-aligned phasing rendezvous with the target's
+		// CENTRE — exact when coplanar (a zero-angular-momentum radial
+		// plunge, the −200/−200 degenerate capture), loose when inclined —
+		// so the planted transfer trims the raise's far apsis off the
+		// target's ring by the impact parameter, putting the moon-frame
+		// perilune at rCapture on the prograde side.
 		w.LastTransfer.Strategy = "split"
 		plan := seed
-		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, c.Isp, rArrival)
 		// Override the seed's opposition phasing with the node-aligned
 		// departure/arrival so apoapsis lands on the node where the target
 		// is (the Δv magnitudes above are phasing-independent).
@@ -454,7 +458,27 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		planeChangeOffset := plan.Arrival.OffsetTime
 		captureOffset := plan.Arrival.OffsetTime
 		pcDv, pcTheta := planeChangeDv, planeChangeTheta
-		if nodeOK && depOK {
+		rFarAim := rArrival
+		aimed := false
+		if depOK {
+			if arr, ok := w.splitCaptureAim(c, target, muShared, muDestination,
+				rPark, rArrival, rCapture, splitWait, plan.TransferDt.Seconds(), depState); ok {
+				aimed = true
+				rFarAim = arr.RFar
+				pcDv, pcTheta = arr.PcDv, arr.PcTheta
+				planeChangeOffset = time.Duration((splitWait + arr.TEntry) * float64(time.Second))
+				captureOffset = time.Duration((splitWait + arr.TCapture) * float64(time.Second))
+				plan.Departure.DV = math.Abs(splitRaiseDv(muShared, rPark, rFarAim))
+				// Capture Δv re-sized for the actual hyperbolic perilune
+				// speed — the seed's analytic value assumed the ideal
+				// centre-aimed geometry it never flies.
+				plan.Arrival.DV = arr.CaptureDV
+			}
+		}
+		if !aimed && nodeOK && depOK {
+			// Capture-safe trim couldn't resolve the arrival — keep the
+			// pre-#159 centre-aimed timing refinement as the fallback (no
+			// worse than the prior behaviour).
 			raiseDir := spacecraft.DirectionUnit(spacecraft.BurnPrograde, depState.R, depState.V)
 			post := depState
 			post.V = depState.V.Add(raiseDir.Scale(seed.Departure.DV))
@@ -469,6 +493,9 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 				captureOffset = time.Duration((nodeTau + tCA) * float64(time.Second))
 			}
 		}
+		// Refine the finite coplanar departure (v0.6.2 iterator) so the
+		// burn delivers the (trimmed) far apsis under integration.
+		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, c.Isp, rFarAim)
 
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
 		if pcDv > 0 {
@@ -1613,6 +1640,185 @@ func splitFallbackPlaneChangeOffset(planeChangeOffset, captureOffset, pcDur, cap
 		return planeChangeOffset - sep
 	}
 	return earliest
+}
+
+// splitRaiseDv is the signed analytic departure Δv from a circular parking
+// orbit at rPark onto the coplanar transfer ellipse whose far apsis is rFar:
+// positive (prograde) for an outbound raise, negative for an inbound drop.
+func splitRaiseDv(mu, rPark, rFar float64) float64 {
+	a := (rPark + rFar) / 2
+	return math.Sqrt(mu*(2/rPark-1/a)) - math.Sqrt(mu/rPark)
+}
+
+// applyPlaneChangeImpulse applies the impulsive effect of a BurnPlaneChange
+// to a state: the horizontal velocity component rotates about the radial by
+// theta, the radial component is unchanged — the same geometry the planted
+// burn realises via spacecraft.planeChangeDirection (Δv = 2·v_hor·sin(θ/2)).
+func applyPlaneChangeImpulse(st physics.StateVector, theta float64) physics.StateVector {
+	rHat := st.R.Unit()
+	vRad := rHat.Scale(st.V.Dot(rHat))
+	vHor := st.V.Sub(vRad)
+	out := st
+	out.V = vRad.Add(vHor.Scale(math.Cos(theta))).Add(rHat.Cross(vHor).Scale(math.Sin(theta)))
+	return out
+}
+
+// splitArrival is the capture-safe split arrival geometry resolved by
+// splitCaptureAim (GH #159): the trimmed far-apsis aim plus the encounter
+// timing, plane-change sizing, and capture Δv measured on the trimmed arc.
+type splitArrival struct {
+	RFar      float64 // trimmed transfer far-apsis aim (m)
+	TEntry    float64 // s from departure to target-SOI entry (plane-change fire time)
+	TCapture  float64 // s from departure to the moon-frame perilune (capture fire time)
+	PcDv      float64 // plane-change Δv at SOI entry (≈0 for a coplanar arrival)
+	PcTheta   float64 // signed plane rotation for the BurnPlaneChange node
+	CaptureDV float64 // capture Δv from the actual hyperbolic perilune speed
+}
+
+// splitCaptureAim gives the split strategy the capture-safe arrival the
+// combined branch got from captureAimPoint (GH #159, extending ADR 0018 —
+// its decision D deferred exactly this). The node-aligned phasing (ADR 0006
+// A) rendezvous with the target's centre, so the natural moon-frame perilune
+// is a surface impact when coplanar and an unaimed high pass when inclined.
+// The split's only in-plane aim lever is the raise's far apsis: trimming it
+// off the target's orbit ring by the impact parameter b makes the craft
+// cross the ring radially offset — perpendicular to the (near-tangential)
+// approach v∞, i.e. a true b-plane offset — while along-track phasing slop
+// stays parallel to v∞ and only shifts the encounter time, which the
+// capture-fire refinement absorbs anyway.
+//
+// Prograde side: an outbound transfer arrives slower than the target, so
+// v∞ points anti-tangential and v̂∞ × n̂_target (captureAimPoint's prograde
+// convention) is radially INWARD — under the ring. An inbound transfer
+// arrives faster (v∞ tangential), flipping the prograde side to above the
+// ring. Both are the lever direction d(b_prograde)/d(rFar) = ∓1 used below.
+//
+// Like captureAimPoint it seeds analytically (b = r_p·√(1 + 2μ_t/(r_p·v∞²))
+// with r_p = rCapture and v∞ measured from the centre-aimed approach), then
+// re-measures the actual perilune — including the plane change applied at
+// SOI entry, mirroring the planted burn — and refines a few times. The
+// linear update pulls a too-high perilune DOWN to rCapture (the inclined
+// case: residual out-of-plane miss already exceeds b) as well as pushing
+// the coplanar centre-hit UP. ok=false when no candidate resolves a
+// prograde hyperbolic encounter; the caller keeps the pre-#159 plant.
+func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.CelestialBody,
+	muShared, muTarget, rPark, rFarSeed, rCapture, splitWait, tTransfer float64,
+	depState physics.StateVector) (splitArrival, bool) {
+	if muTarget <= 0 || rCapture <= 0 || tTransfer <= 0 || rPark <= 0 || rFarSeed == rPark {
+		return splitArrival{}, false
+	}
+	primary := c.Primary
+	depClock := w.Clock.SimTime.Add(time.Duration(splitWait * float64(time.Second)))
+	progradeDir := spacecraft.DirectionUnit(spacecraft.BurnPrograde, depState.R, depState.V)
+	if progradeDir.Norm() == 0 {
+		return splitArrival{}, false
+	}
+
+	type measurement struct {
+		arr      splitArrival
+		rp       float64 // moon-frame perilune radius (m)
+		vInf     float64 // hyperbolic excess speed (m/s)
+		b        float64 // achieved impact parameter |h|/v∞ (m)
+		prograde bool    // moon-frame angular momentum along the target's orbit normal
+	}
+	measure := func(rFar float64) (measurement, bool) {
+		post := depState
+		post.V = depState.V.Add(progradeDir.Scale(splitRaiseDv(muShared, rPark, rFar)))
+		tEntry, _, found := w.transferEncounterTimes(post, primary, target, depClock, tTransfer*1.2)
+		if !found {
+			return measurement{}, false
+		}
+		entry, ok := physics.KeplerStep(post, muShared, tEntry)
+		if !ok {
+			return measurement{}, false
+		}
+		var pcDv, pcTheta float64
+		if _, nTgt, okN := w.craftTargetPlaneNormals(c, target); okN {
+			pcDv, pcTheta = planeChangeAtState(entry, nTgt)
+			entry = applyPlaneChangeImpulse(entry, pcTheta)
+		}
+		entryClock := depClock.Add(time.Duration(tEntry * float64(time.Second)))
+		moonR := w.BodyPositionAt(target, entryClock).Sub(w.BodyPositionAt(primary, entryClock))
+		moonV := w.bodyInertialVelocityAt(target, entryClock).Sub(w.bodyInertialVelocityAt(primary, entryClock))
+		rel := orbital.Vec3State{R: entry.R.Sub(moonR), V: entry.V.Sub(moonV)}
+		el := orbital.ElementsFromState(rel.R, rel.V, muTarget)
+		if el.E <= 1 || el.A >= 0 {
+			return measurement{}, false
+		}
+		tPeri, okP := orbital.TimeToPeriapsisHyperbolic(rel, muTarget)
+		if !okP || tPeri < 0 {
+			return measurement{}, false
+		}
+		rp := el.A * (1 - el.E)
+		if rp <= 0 {
+			return measurement{}, false
+		}
+		vInf := math.Sqrt(muTarget / -el.A)
+		h := rel.R.Cross(rel.V)
+		vPeri := math.Sqrt(vInf*vInf + 2*muTarget/rp)
+		return measurement{
+			arr: splitArrival{
+				RFar:      rFar,
+				TEntry:    tEntry,
+				TCapture:  tEntry + tPeri,
+				PcDv:      pcDv,
+				PcTheta:   pcTheta,
+				CaptureDV: vPeri - math.Sqrt(muTarget/rp),
+			},
+			rp:       rp,
+			vInf:     vInf,
+			b:        h.Norm() / vInf,
+			prograde: h.Dot(moonR.Cross(moonV)) > 0,
+		}, true
+	}
+
+	// Centre-aimed (natural) arrival: reads the approach v∞ that sizes the
+	// desired impact parameter.
+	nat, ok := measure(rFarSeed)
+	if !ok {
+		return splitArrival{}, false
+	}
+	bDes := rCapture * math.Sqrt(1+2*muTarget/(rCapture*nat.vInf*nat.vInf))
+	// Lever sign: outbound trims the apsis BELOW the ring for a prograde
+	// offset, inbound trims it above.
+	lever := -1.0
+	if rFarSeed < rPark {
+		lever = 1.0
+	}
+	rFar := rFarSeed
+	var best measurement
+	haveBest := false
+	for iter := 0; iter < 6; iter++ {
+		m, ok := measure(rFar)
+		if !ok {
+			// Overshot past the SOI or a degenerate hyperbola — pull the
+			// trim halfway back toward the ring and retry.
+			rFar = (rFar + rFarSeed) / 2
+			if math.Abs(rFar-rFarSeed) < 1 {
+				break
+			}
+			continue
+		}
+		if m.prograde && (!haveBest || math.Abs(m.rp-rCapture) < math.Abs(best.rp-rCapture)) {
+			best, haveBest = m, true
+		}
+		if m.prograde && math.Abs(m.rp-rCapture) < 0.02*rCapture {
+			break
+		}
+		bSigned := m.b
+		if !m.prograde {
+			bSigned = -bSigned
+		}
+		next := rFar + lever*(bDes-bSigned)
+		if next <= 0 || (rFarSeed > rPark && next <= rPark) || (rFarSeed < rPark && next >= rPark) {
+			break
+		}
+		rFar = next
+	}
+	if !haveBest || best.rp <= target.RadiusMeters() {
+		return splitArrival{}, false
+	}
+	return best.arr, true
 }
 
 // intraPlaneChangeAllowance estimates the extra departure Δv a fused

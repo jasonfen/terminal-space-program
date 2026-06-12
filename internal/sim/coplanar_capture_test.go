@@ -277,13 +277,18 @@ func TestCombinedTransferArrivesSafePeriapsis(t *testing.T) {
 	}
 }
 
-// TestSplitArrivalPeriapsisCharacterization (ADR 0018 D): measures the
-// split (inclined) transfer's actual arrival periapsis. ADR 0018 scoped the
-// capture-aim fix to the combined path; this characterizes whether the split
-// also arrives at the target's centre (a collision). It asserts only that an
-// encounter resolves and logs the perilune — a sub-surface value is the
-// signal that the split needs the same offset-aim treatment (logged as a
-// follow-up, not fixed here: the split is entangled with #67/#68).
+// TestSplitArrivalPeriapsisCharacterization (ADR 0018 D, graduated by GH
+// #159): the split (inclined LEO→Luna) transfer's live-flown arrival
+// periapsis. ADR 0018 scoped the capture-aim fix to the combined path and
+// this test only *logged* the split's perilune — measured ~16,240 km radius
+// (~14,500 km altitude), a loose flyby far above the Capture Orbit radius
+// the capture Δv was sized for. GH #159 extends the capture-safe aim to the
+// split (apoapsis trimmed by the impact parameter), so this now asserts the
+// flown perilune lands near the Capture Orbit radius: above the surface and
+// within 2× rCapture. The 2× bound covers the impulsive-plan vs finite-burn
+// drift over a multi-day transfer flown with the production integrator at
+// 60 s sampling — the pre-fix 8.4× rCapture flyby fails it decisively, an
+// aimed arrival passes with margin.
 func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
 	w := mustWorld(t)
 	moonIdx, moon := findMoon(t, w)
@@ -323,13 +328,19 @@ func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
 		elapsed += chunkSecs
 	}
 	alt := minD - moon.RadiusMeters()
-	t.Logf("split arrival perilune = %.1f km (Luna radius %.1f km, altitude %.1f km)",
-		minD/1e3, moon.RadiusMeters()/1e3, alt/1e3)
+	rCapture := moon.RadiusMeters() + 200e3
+	t.Logf("split arrival perilune = %.1f km (Luna radius %.1f km, altitude %.1f km, Capture Orbit radius %.1f km)",
+		minD/1e3, moon.RadiusMeters()/1e3, alt/1e3, rCapture/1e3)
 	if math.IsInf(minD, 1) {
 		t.Fatal("split transfer never reached Luna — characterization unusable")
 	}
 	if alt <= 0 {
-		t.Logf("FOLLOW-UP (ADR 0018 D): the split also arrives sub-surface (impact) — it needs the same capture-aim offset; not fixed here (entangled with #67/#68)")
+		t.Errorf("split arrives sub-surface (impact): perilune %.1f km ≤ Luna radius %.1f km",
+			minD/1e3, moon.RadiusMeters()/1e3)
+	}
+	if minD > 2*rCapture {
+		t.Errorf("split perilune %.1f km is a loose flyby, not an aimed Capture Orbit arrival (want ≤ 2×rCapture = %.1f km; pre-#159 value ~16,240 km)",
+			minD/1e3, 2*rCapture/1e3)
 	}
 }
 

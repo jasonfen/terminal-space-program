@@ -1214,12 +1214,17 @@ plane change leaves the Vessel actually *in* the target's plane).
 A correct Transfer Plan must arrive **coplanar** with the target (≈0°
 relative inclination) **and at the Capture Orbit radius** — a safe
 periapsis (`destination radius + 200 km`), not the target's *centre*.
-Coplanar alone is insufficient: the combined Lambert solved to the
-target's centre arrives with a sub-surface perilune (a collision) while
-its Capture Burn Δv is sized for a periapsis it never reaches. So the
-combined Departure is aimed at an **in-plane offset** chosen so the
+Coplanar alone is insufficient: a transfer solved to the target's
+centre arrives with a sub-surface perilune (a collision) while its
+Capture Burn Δv is sized for a periapsis it never reaches. So the
+planted arrival is aimed at an **in-plane offset** chosen so the
 natural flyby perilune lands at the Capture Orbit radius, **prograde**
-around the target (the affordable capture direction — see GH #68). The
+around the target (the affordable capture direction — see GH #68): the
+combined Departure offsets its Lambert aim point, the split trims the
+raise's far apsis off the target's orbit ring by the impact parameter
+(GH #159 — pre-fix the split's node-aligned rendezvous dead-centred,
+a radial plunge when coplanar). The Δv *comparison* between the two
+stays centre-aimed so the offset never flips strategy selection. The
 HUD shows both candidate costs. This retires the old
 `I`-plane-match-then-`H` dance as a *requirement* (the manual tools
 remain available).
