@@ -326,6 +326,50 @@ func TestCancelWarpKeyDropsToOneX(t *testing.T) {
 	}
 }
 
+// TestYawKeysNudgePhi (ADR 0021 G): `{` / `}` nudge ViewTilt.Phi ±5°
+// with 360° wrap while in ViewTilted, flashing the resulting yaw —
+// and stay silent (no mutation, no toast) in any other ViewMode,
+// matching the Theta tilt keys' gating.
+func TestYawKeysNudgePhi(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if a.world.ViewMode != sim.ViewTilted {
+		t.Fatalf("expected the default ViewTilted, got %v", a.world.ViewMode)
+	}
+
+	// `}` yaws +5° and toasts the new value.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'}'}})
+	if a.world.ViewTilt.Phi != 5 {
+		t.Errorf("after `}`: Phi = %v, want 5", a.world.ViewTilt.Phi)
+	}
+	if a.statusMsg != "view: yaw 5°" {
+		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "view: yaw 5°")
+	}
+
+	// `{` twice crosses zero and wraps to 355° — no clamp.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'{'}})
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'{'}})
+	if a.world.ViewTilt.Phi != 355 {
+		t.Errorf("after `{` `{`: Phi = %v, want 355 (wrap below zero)", a.world.ViewTilt.Phi)
+	}
+	if a.statusMsg != "view: yaw 355°" {
+		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "view: yaw 355°")
+	}
+
+	// Outside ViewTilted the keys are a silent no-op.
+	a.world.ViewMode = sim.ViewTop
+	a.statusMsg = ""
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'}'}})
+	if a.world.ViewTilt.Phi != 355 {
+		t.Errorf("`}` in ViewTop mutated Phi to %v, want 355 (no-op)", a.world.ViewTilt.Phi)
+	}
+	if a.statusMsg != "" {
+		t.Errorf("`}` in ViewTop flashed %q, want silence", a.statusMsg)
+	}
+}
+
 // TestHelpOnF1AndTrimResetOnQuestion locks the v0.16 keybinding move:
 // Help opens on F1 (not `?`), and `?` now resets pitch trim.
 func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {

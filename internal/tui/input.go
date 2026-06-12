@@ -171,11 +171,18 @@ type Keymap struct {
 	// sim.World.NudgeViewTiltTheta. Bound to shift+↑ / shift+↓ —
 	// arrow keys don't have an uppercase form, so the explicit
 	// modifier syntax is required (W/S used capitals for letter-key
-	// shifts). Yaw φ controls are deliberately deferred to a post-
-	// ship playtest signal; the vessel is a single icon, so yaw
-	// isn't visually load-bearing the way tilt is.
+	// shifts).
 	TiltUp   key.Binding
 	TiltDown key.Binding
+
+	// YawLeft / YawRight (ADR 0021 G): nudge World.ViewTilt.Phi ±5°
+	// while ViewMode == ViewTilted, wrapping at 360° (no clamp —
+	// sim.World.NudgeViewTiltPhi owns step + wrap). Bound to { / },
+	// the shifted siblings of the [ / ] craft-cycle keys; a second
+	// shift+arrow pair was explicitly rejected because modified arrow
+	// keys are unreliable on common laptop keyboards/terminals.
+	YawLeft  key.Binding
+	YawRight key.Binding
 
 	// EndFlight (v0.11.4+, ADR 0004): removes a Crashed active
 	// vessel from the slate after a y/n confirm prompt. No-op when
@@ -279,6 +286,8 @@ func DefaultKeymap() Keymap {
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
 		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),
+		YawLeft:                   key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "yaw -5° (ViewTilted)")),
+		YawRight:                  key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "yaw +5° (ViewTilted)")),
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
 		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
 		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
