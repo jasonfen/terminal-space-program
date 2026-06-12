@@ -7,12 +7,16 @@ import "math"
 // and the maneuver-planner mini-canvas share the same camera angle
 // without per-screen coordination.
 //
-// Six modes: the v0.10.6 perspective-tilt view (the new zero-value
-// default), four hard-coded cardinal views (Top, Right, Bottom,
-// Left), plus the orbit-flat view that projects onto the active
-// craft's orbit plane regardless of inclination. Cycle order opens
-// on the tilted projection, walks through the cardinals, and ends
-// on orbit-flat as punctuation before wrapping.
+// Projections only, per the Camera Contract (ADR 0021): a ViewMode
+// never picks the camera's center or zoom — Focus picks *what* the
+// camera centres on, ViewMode picks *which projection*. Seven modes:
+// the v0.10.6 perspective-tilt view (the zero-value default), four
+// hard-coded cardinal views (Top, Right, Bottom, Left), the
+// orbit-flat view that projects onto the active craft's orbit plane
+// regardless of inclination, and the launch chase-cam. The v0.17.3
+// ViewTarget and v0.18.0 ViewSOIPass auto-framing views are retired
+// (ADR 0021 D) — reading an encounter is "focus the pass Body", and
+// the Local-to-Body arc draws the capture curve there.
 type ViewMode int
 
 const (
@@ -53,31 +57,6 @@ const (
 	// (no craft, e ≥ 1, a ≤ 0). Useful for reading the orbit's
 	// actual shape as if i = 0.
 	ViewOrbitFlat
-	// ViewTarget (v0.17.3+) centers the canvas on the current body Target
-	// and auto-frames the craft→target approach (refitting every frame as
-	// the gap closes), so the player can watch the projected orbit pass the
-	// target while hand-flying engine/RCS corrections. Reuses the orbit-flat
-	// projection basis. Selected from the `v` cycle, but only reachable when
-	// a body target is set (CycleViewMode skips it otherwise); falls back to
-	// the ordinary focus center when the target is cleared mid-view.
-	ViewTarget
-	// ViewSOIPass (v0.18.0+, ADR 0019 F) frames the Body of the active SOI
-	// Pass — the predicted transit of the live, unburned trajectory through a
-	// sibling Body's SOI — and auto-fits to that Body's SOI so the encounter
-	// arc + Perilune marker fill the canvas and the curvature near perilune
-	// reads clearly. Crucially it is *independent of the Target slot*: the SOI
-	// Pass renders whether or not the Body is targeted, and so does this view —
-	// entering/leaving it never touches w.Target. Reuses the orbit-flat
-	// projection basis and the TargetViewFraming widening geometry (against the
-	// Pass Body instead of the Target). When an encounter resolves it centers on
-	// the drawn perilune — the Body's current position plus the body-relative
-	// offset, where the Local-to-Body arc lives (ADR 0021 B; supersedes the
-	// #144 arrival-position centering). Selected from the `v` cycle, but only reachable when an
-	// upcoming SOI pass exists — the planted (node-modified) one while flying a
-	// transfer, else the live one (CycleViewMode skips it otherwise); falls back
-	// to the ordinary focus center when the pass disappears mid-view (craft
-	// captured, or the orbit no longer reaches the SOI).
-	ViewSOIPass
 	// ViewLaunch (v0.11.0+) is the chase-cam launch scene — a
 	// human-scale side view with the rocket centred, the horizon
 	// curving below in Body.SurfaceColor, and a body-fixed pad
@@ -108,10 +87,6 @@ func (m ViewMode) String() string {
 		return "left"
 	case ViewOrbitFlat:
 		return "orbit-flat"
-	case ViewTarget:
-		return "target"
-	case ViewSOIPass:
-		return "soi-pass"
 	case ViewLaunch:
 		return "launch"
 	}
@@ -119,10 +94,12 @@ func (m ViewMode) String() string {
 }
 
 // AllViewModes enumerates the modes in canonical cycle order.
-// Tilted → Top → Right → Bottom → Left → OrbitFlat → Tilted —
+// Tilted → Top → Right → Bottom → Left → OrbitFlat → Launch —
 // the v0.10.6+ tilt opens the cycle as the new zero-value default,
 // the four cardinal cameras follow (each rotates 90° around the
-// system), and orbit-flat lands last as punctuation before wrapping.
+// system), orbit-flat lands as punctuation, and the launch chase-cam
+// closes the lap before wrapping. ADR 0021 D removed the conditional
+// ViewTarget / ViewSOIPass slots — every mode is always selectable.
 var AllViewModes = [...]ViewMode{
 	ViewTilted,
 	ViewTop,
@@ -130,8 +107,6 @@ var AllViewModes = [...]ViewMode{
 	ViewBottom,
 	ViewLeft,
 	ViewOrbitFlat,
-	ViewTarget,
-	ViewSOIPass,
 	ViewLaunch,
 }
 
@@ -141,43 +116,13 @@ var AllViewModes = [...]ViewMode{
 // ADR 0021 D this `v` cycle is THE way out of the chase cam (the
 // apoapsis-floor auto-release is retired). ViewMode still advances
 // by one (cycle semantics are *advance*, not *restore* PrevViewMode).
+// A ViewMode change is a Framing Event (ADR 0021 A): the orbit screen
+// refits the canvas once in response, then leaves the camera alone.
 func (w *World) CycleViewMode() {
 	if w.ViewMode == ViewLaunch {
 		w.LaunchSessionActive = false
 	}
-	next := (w.ViewMode + 1) % ViewMode(len(AllViewModes))
-	// Skip view modes that have nothing to frame from the current world
-	// state, so a manual `v` cycle never lands on a dead view: ViewTarget
-	// needs a body Target, ViewSOIPass needs an upcoming SOI Pass (ADR 0019 F —
-	// reachable when bestSOIPass returns ok, planted or live, and entering it
-	// never touches w.Target). At most one full lap before giving up, so a state
-	// with every conditional mode unavailable can't spin forever.
-	for range AllViewModes {
-		if !w.viewModeSelectable(next) {
-			next = (next + 1) % ViewMode(len(AllViewModes))
-			continue
-		}
-		break
-	}
-	w.ViewMode = next
-}
-
-// viewModeSelectable reports whether the `v` cycle may land on mode m given
-// the current world state. The conditional modes are skipped when they'd
-// frame nothing; every other mode is always selectable.
-func (w *World) viewModeSelectable(m ViewMode) bool {
-	switch m {
-	case ViewTarget:
-		return w.Target.Kind == TargetBody
-	case ViewSOIPass:
-		// Any upcoming pass — the planted (node-modified) one while flying a
-		// transfer whose pre-burn orbit can't yet reach the body, else the live
-		// pass (issue #144). Gating on LiveSOIPass alone made the view
-		// unreachable during exactly the planted transfer it's most useful for.
-		_, ok := w.bestSOIPass()
-		return ok
-	}
-	return true
+	w.ViewMode = (w.ViewMode + 1) % ViewMode(len(AllViewModes))
 }
 
 // SetViewModeLaunch (v0.11.4+, ADR 0004) is the manual-jump path

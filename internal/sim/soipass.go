@@ -110,11 +110,12 @@ func (w *World) PlannedSOIPass() (SOIPass, bool) {
 
 // bestSOIPass returns the most relevant upcoming SOI pass for framing: the
 // planned (node-modified) pass when nodes are planted — the bright path the
-// burns actually produce — else the live pass. Encounter-centered framing
-// (issue #144) reads it so "focus the body" / ViewTarget / ViewSOIPass all
-// center on the same predicted encounter the canvas draws, even while flying a
-// planted transfer whose *pre-burn* orbit can't yet reach the body (in which
-// case LiveSOIPass alone is false).
+// burns actually produce — else the live pass. The encounter-aware
+// Framing-Event fit (FocusZoomRadius, ADR 0021 F) reads it so focusing the
+// pass Body fits to SOI scale, even while flying a planted transfer whose
+// *pre-burn* orbit can't yet reach the body (in which case LiveSOIPass alone
+// is false). Runs a forward prediction — call it at Framing Events, never per
+// frame (the Camera Contract retired the per-frame framers that used to).
 func (w *World) bestSOIPass() (SOIPass, bool) {
 	if p, ok := w.PlannedSOIPass(); ok {
 		return p, true
