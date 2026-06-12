@@ -1004,6 +1004,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusMsg = fmt.Sprintf("view: tilted %g°", theta)
 			a.statusExpires = time.Now().Add(1500 * time.Millisecond)
 			return a, nil
+		case key.Matches(m, a.keys.YawLeft), key.Matches(m, a.keys.YawRight):
+			// ADR 0021 G: nudge ViewTilted's yaw φ ±5°, wrapping at
+			// 360° (no clamp — yaw is a full turn around the orbit).
+			// Same gating as the tilt keys: silent outside ViewTilted
+			// so a stray brace in a cardinal view doesn't flash a
+			// misleading toast.
+			if a.world.ViewMode != sim.ViewTilted {
+				return a, nil
+			}
+			delta := sim.ViewTiltPhiStep
+			if key.Matches(m, a.keys.YawLeft) {
+				delta = -sim.ViewTiltPhiStep
+			}
+			phi := a.world.NudgeViewTiltPhi(delta)
+			a.statusMsg = fmt.Sprintf("view: yaw %g°", phi)
+			a.statusExpires = time.Now().Add(1500 * time.Millisecond)
+			return a, nil
 		}
 	}
 	return a, nil

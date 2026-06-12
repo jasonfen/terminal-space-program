@@ -81,3 +81,31 @@ func TestNudgeViewTiltThetaClamps(t *testing.T) {
 		t.Errorf("Theta = %v, want 25 (in-range nudge)", got)
 	}
 }
+
+// TestNudgeViewTiltPhiWraps (ADR 0021 G): { / } keys come in as ±5°
+// nudges through NudgeViewTiltPhi; unlike Theta's clamp, Phi must
+// wrap at 360° so the player can spin the yaw a full turn in either
+// direction without pinning at an edge.
+func TestNudgeViewTiltPhiWraps(t *testing.T) {
+	w := mustWorld(t)
+	// Plain in-range nudge from the 0° default.
+	if got := w.NudgeViewTiltPhi(ViewTiltPhiStep); got != 5 {
+		t.Errorf("Phi = %v, want 5 (single nudge)", got)
+	}
+	// A full lap of +5° presses lands back where it started — no clamp.
+	for i := 0; i < 72; i++ {
+		w.NudgeViewTiltPhi(ViewTiltPhiStep)
+	}
+	if w.ViewTilt.Phi != 5 {
+		t.Errorf("after a full +360° lap: Phi = %v, want 5 (wrap, not clamp)", w.ViewTilt.Phi)
+	}
+	// Crossing zero downward wraps to the top of the range.
+	if got := w.NudgeViewTiltPhi(-ViewTiltPhiStep * 2); got != 355 {
+		t.Errorf("Phi = %v, want 355 (5 - 10 wraps below zero)", got)
+	}
+	// And the result stays normalized to [0, 360) — never 360 itself.
+	w.ViewTilt.Phi = 355
+	if got := w.NudgeViewTiltPhi(ViewTiltPhiStep); got != 0 {
+		t.Errorf("Phi = %v, want 0 (355 + 5 normalizes to 0, not 360)", got)
+	}
+}

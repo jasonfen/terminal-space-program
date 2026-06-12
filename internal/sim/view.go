@@ -1,5 +1,7 @@
 package sim
 
+import "math"
+
 // ViewMode selects the canvas projection — which world axes map to
 // canvas X+ and Y+. v0.6.4+. World-level state so the orbit screen
 // and the maneuver-planner mini-canvas share the same camera angle
@@ -192,8 +194,8 @@ func (w *World) SetViewModeLaunch() {
 // ViewTilted applies to the projection basis. v0.10.6+. Per-session
 // UI state — not persisted to save (same convention as ViewMode and
 // InstantSAS). Theta is player-tunable via shift+up / shift+down at
-// the orbit screen; Phi is reserved for v0.10.7's launch-anchor
-// (player controls deferred to a post-ship playtest signal).
+// the orbit screen; Phi is player-tunable via { / } (ADR 0021 G,
+// completing the "adjust angles" half of the KSP map-view intent).
 type ViewTilt struct {
 	Theta float64
 	Phi   float64
@@ -231,4 +233,21 @@ func (w *World) NudgeViewTiltTheta(deltaDeg float64) float64 {
 		w.ViewTilt.Theta = ViewTiltThetaMaxDeg
 	}
 	return w.ViewTilt.Theta
+}
+
+// ViewTiltPhiStep is the per-press yaw nudge for the { / } keys.
+// Unlike Theta there is no min/max — yaw is a full turn around the
+// orbit, so the nudge wraps at 360° instead of clamping (ADR 0021 G).
+const ViewTiltPhiStep = 5.0
+
+// NudgeViewTiltPhi adds delta degrees to ViewTilt.Phi and wraps the
+// result into [0°, 360°) — spinning past either end keeps rotating
+// rather than pinning, unlike Theta's clamp. Returns the resulting
+// Phi so the caller can stamp it into a status flash. ADR 0021 G.
+func (w *World) NudgeViewTiltPhi(deltaDeg float64) float64 {
+	w.ViewTilt.Phi = math.Mod(w.ViewTilt.Phi+deltaDeg, 360)
+	if w.ViewTilt.Phi < 0 {
+		w.ViewTilt.Phi += 360
+	}
+	return w.ViewTilt.Phi
 }
