@@ -267,6 +267,24 @@ before committing it. Ephemeral TUI state (`selectedIdx`). Becomes a Target
 when the player commits it; otherwise has no effect on simulation or planner.
 _Avoid_: Selection, Highlight.
 
+**Camera Contract**:
+The rule that camera fit (center + zoom) is solely the player's: the sim
+may fit the canvas only once per **Framing Event**, and ambient sim-state
+changes (a SOI Pass appearing, an approach closing) never move the camera
+(ADR 0021). Three closed carve-outs answer player-initiated events:
+ViewLaunch auto-route on launch, the burn-frozen center during a Burn,
+and system-follows-active-vessel on vessel switch.
+_Avoid_: Auto-fit policy (names a mechanism, not the rule), Camera lock.
+
+**Framing Event**:
+A player action that changes the camera's framing context — a Focus
+change, a ViewMode change, or a System switch — and the only occasions
+the sim may fit the canvas. The fit *value* may read sim state (focusing
+a Body with an active SOI Pass fits to its SOI Ring); the fit *timing*
+may not. Manual zoom composes over the fitted base and persists until
+the next Framing Event.
+_Avoid_: Refit, Auto-frame (the per-frame behavior ADR 0021 retired).
+
 **Target**:
 What the active Vessel has committed as its aim slot — consumed by the
 maneuver planner, navball, and inclination/transfer planners. Each Vessel
@@ -497,9 +515,12 @@ Capture Orbit — a different prediction (the node leg), not a SOI Pass.
 Distinct from **Encounter** (craft-to-craft — see Encounter math) and
 from the **Target** slot (a SOI Pass renders whether or not the Body is
 targeted). The HUD reports it as the SOI PASS block; on the orbit canvas
-the **Perilune** point carries a marker (the unified marker glyph system).
+the in-SOI arc draws as a **Local-to-Body Arc** inside the Body's
+**SOI Ring**, and the **Perilune** point carries a marker (the unified
+marker glyph system).
 Design: ADR 0019 (`adr/0019-soi-pass-forward-prediction.md`) in the
-planning vault; markers per ADR 0020 (`adr/0020-unified-orbital-marker-glyphs.md`).
+planning vault; markers per ADR 0020 (`adr/0020-unified-orbital-marker-glyphs.md`);
+arc frame + camera per ADR 0021 (`adr/0021-player-owned-camera-local-to-body-arcs.md`).
 _Avoid_: Encounter (reserved for craft-to-craft), Intercept / Approach
 (Closest Approach is the craft-to-craft term), Conic patch (Patch names
 the arc, not the event).
@@ -513,6 +534,29 @@ an altitude above that Body's surface. Computed by the moon-frame
 with **Time to Perilune**, the seconds until the Vessel reaches it.
 _Avoid_: Periapsis (correct but unqualified — Perilune names the
 body-relative apsis of the predicted Pass specifically).
+
+**Local-to-Body Arc**:
+How any predicted trajectory segment inside a foreign SOI is drawn:
+sampled relative to the encounter Body and anchored at the Body's
+*current* position, so the hyperbola wraps the Body's drawn disk and
+converges to truth as arrival nears (ADR 0021 — KSP's local-to-body
+conic mode). Replaces drawing those samples at their heliocentric
+positions, where the Body's own motion smears the arc into an unreadable
+streak many times the SOI. Applies to every foreign-SOI segment — live
+Pass arc, counterfactual, and planted-node legs — so the pictures at one
+Body never disagree. The arc meets the heliocentric transfer leg with a
+deliberate break at the SOI boundary, made legible by the **SOI Ring**.
+_Avoid_: Rebased arc (mechanism, not the name), Encounter arc
+(Encounter is reserved for craft-to-craft), Relative mode (the KSP
+setting this deliberately is *not*).
+
+**SOI Ring**:
+The dim dotted ring drawn at a Body's parent-relative **Sphere of
+Influence** radius while a SOI Pass to it exists. Gives the
+**Local-to-Body Arc** its scale and a boundary to visibly enter and
+exit on; carries the SOI Entry and SOI Exit marker glyphs (ADR 0020
+family, per ADR 0021). Quiet bodies (no active Pass) draw no ring.
+_Avoid_: SOI circle, Influence boundary (informal).
 
 ### Launch & landing
 
@@ -1485,20 +1529,20 @@ Frame]] — see Flagged ambiguities.
 **ViewMode**:
 The world-level projection selector — which canvas projection the
 orbit and maneuver screens use to flatten 3D geometry onto the
-braille canvas. Eight values cycled via `v` in this order:
-**ViewTilted** (the default — 3D-style perspective using the active
-Vessel's perifocal basis with a polar tilt), **ViewTop** (drop world
-Z), **ViewRight** (look from +X), **ViewBottom** (Top with Y
-inverted), **ViewLeft** (Right mirrored), **ViewOrbitFlat** (project
-onto the active Vessel's orbit plane), **ViewTarget** (v0.17.3+,
-centers on the body Target and auto-frames the approach — only offered
-when a body Target is set), **ViewSOIPass** (v0.18.0+, frames the
-active SOI Pass body and auto-fits its SOI — only offered when
-`LiveSOIPass()` returns ok, entering it never changes the Target
-slot). Plus **ViewLaunch** (auto-routed on pad launch, not in the
-player `v` cycle). Stored on `World.ViewMode` so the orbit screen
-and the maneuver-planner mini-canvas share the same angle without
-per-screen coordination.
+braille canvas. Projections only, per the **Camera Contract** (ADR
+0021): a ViewMode never picks the camera's center or zoom. Values
+cycled via `v` in this order: **ViewTilted** (the default — 3D-style
+perspective using the active Vessel's perifocal basis with a
+player-tunable polar tilt and yaw), **ViewTop** (drop world Z),
+**ViewRight** (look from +X), **ViewBottom** (Top with Y inverted),
+**ViewLeft** (Right mirrored), **ViewOrbitFlat** (project onto the
+active Vessel's orbit plane). Plus **ViewLaunch** (auto-routed on pad
+launch; exited via manual `v` cycle). The v0.17.3 **ViewTarget** and
+v0.18.0 **ViewSOIPass** modes — which also set center and zoom — are
+retired by ADR 0021; encounter readability comes from the
+**Local-to-Body Arc** plus plain body Focus instead. Stored on
+`World.ViewMode` so the orbit screen and the maneuver-planner
+mini-canvas share the same angle without per-screen coordination.
 
 Distinct from [[#selection--view|Focus]] — Focus picks *what* the
 camera centres on (a system, a Body, a Vessel); ViewMode picks
