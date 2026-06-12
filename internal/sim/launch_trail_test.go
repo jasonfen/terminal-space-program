@@ -137,8 +137,8 @@ func TestLaunchTrailFIFOCap(t *testing.T) {
 // ViewLaunch clears the sentinel but must NOT clear LaunchTrail.
 // Player intuition: cycle out to OrbitView mid-ascent to read
 // instruments, cycle back to ViewLaunch and the breadcrumbs are
-// still there. Locks the asymmetry vs auto-release / hand-off,
-// which DO clear.
+// still there. Locks the asymmetry vs the switch-end release /
+// hand-off, which DO clear.
 func TestLaunchTrailSurvivesManualCycleOut(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {

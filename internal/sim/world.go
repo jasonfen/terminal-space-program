@@ -62,10 +62,11 @@ type World struct {
 	LastDockEvent *DockEvent
 
 	// LastLaunchReleaseEvent records the most recent ViewLaunch
-	// auto-release / hand-off-end so the App can surface an
+	// switch-end release so the App can surface an
 	// `"ORBIT READY — returning to <prev view>"` toast. Cleared by
 	// app.go after the message fires; same pattern as LastDockEvent.
-	// v0.11.0+.
+	// v0.11.0+ (the apoapsis-floor auto-release that also stamped
+	// this was retired by ADR 0021 D).
 	LastLaunchReleaseEvent *LaunchReleaseEvent
 
 	// Focus selects what the OrbitView canvas is centered on. Zero value
@@ -103,9 +104,9 @@ type World struct {
 
 	// LaunchSessionActive is the v0.11.0+ ViewLaunch session sentinel.
 	// True between the per-tick route handler firing on an active-slot
-	// Landed-false→true transition and the auto-release (ascent goes
-	// nearly orbital — apoapsis clear of the atmosphere and within the
-	// circularisation-Δv cap) or manual `v` cycle out. Distinguished from
+	// Landed-false→true transition and the manual `v` cycle out (or a
+	// switch onto a flying vessel — ADR 0021 D retired the apoapsis-
+	// floor auto-release). Distinguished from
 	// PrevViewMode because PrevViewMode's zero value (ViewTilted)
 	// collides with "no session" — the boolean is the unambiguous
 	// signal that session-scoped state (PrevViewMode, LaunchT0,
@@ -115,7 +116,8 @@ type World struct {
 	LaunchSessionActive bool
 
 	// PrevViewMode is the ViewMode the player was in when the route
-	// handler routed into ViewLaunch — restored by auto-release.
+	// handler routed into ViewLaunch — restored by the switch-end
+	// release (a manual `v` cycle advances instead of restoring).
 	// Meaningful only when LaunchSessionActive == true. Not persisted.
 	PrevViewMode ViewMode
 
@@ -135,13 +137,13 @@ type World struct {
 	// alt) samples the chase-cam scene re-projects each render so the
 	// trace visibly rotates with the body. FIFO cap 256, sampled at
 	// 1 s sim-time cadence. Cleared by the route handler at session
-	// open and by the auto-release / hand-off. Not persisted.
+	// open and by the switch-end release / hand-off. Not persisted.
 	LaunchTrail []TrailPoint
 
 	// LaunchZoom is the player's `+/-` zoom override for the chase-cam
 	// scene. 0 means auto-altitude-driven scale; non-zero pins the
-	// scale until session end (auto-release, switch-end, hand-off, or
-	// next route). Multiplicative ×0.8 per `+`, ×1.25 per `-`. Not
+	// scale until session end (manual `v` cycle, switch-end, hand-off,
+	// or next route). Multiplicative ×0.8 per `+`, ×1.25 per `-`. Not
 	// persisted.
 	LaunchZoom float64
 

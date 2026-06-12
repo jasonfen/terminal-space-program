@@ -1,7 +1,9 @@
-// Package sim — v0.11.0 Slice 1 regression suite for the ViewLaunch
-// route/release state machine. Tests exercise the per-tick handler
+// Package sim — regression suite for the ViewLaunch route/release
+// state machine (v0.11.0 Slice 1). Tests exercise the per-tick handler
 // installed in World.Tick that detects active-slot Landed-false→true
-// transitions and apo-crossing auto-release.
+// transitions, plus the ADR 0021 D contract that no ambient sim state
+// ends a session — leaving the chase cam is a manual `v` cycle (or a
+// player-initiated switch onto a flying vessel).
 package sim
 
 import (
@@ -18,7 +20,7 @@ import (
 // Landed=true), the next World.Tick fires the per-tick route handler:
 // ViewMode switches to ViewLaunch, a session opens
 // (LaunchSessionActive=true), and the prior ViewMode is stashed in
-// PrevViewMode so auto-release can later restore it.
+// PrevViewMode so the switch-end release can later restore it.
 //
 // Proves the path end-to-end: the route handler is wired into
 // World.Tick, the Landed-transition detection (wasActiveLanded
@@ -124,79 +126,6 @@ func TestLaunchRouteSeedsSessionState(t *testing.T) {
 	}
 }
 
-// TestLaunchAutoReleaseAtApoFloor — when the active craft is in
-// a circular orbit whose apoapsis is clear of the atmosphere and whose
-// circularisation Δv is within the cap, the per-tick handler's
-// auto-release predicate fires: PrevViewMode is restored to ViewMode,
-// LaunchSessionActive flips false, and the session-scoped state (T0,
-// MaxQ, trail, zoom) clears so the next route doesn't see stale data.
-//
-// The release predicate (launchAscentNearlyOrbital) is deliberately
-// stricter than the ORBIT READY / LaunchAnchor LaunchMissionFloorM gate:
-// it also requires the ascent to be near circularisation (see
-// TestLaunchNoReleaseWhenEccentric / TestLaunchReleaseWithinCircDvCap).
-// A 201 km circular orbit satisfies both halves (apo 201 km > Earth's
-// 150 km atmosphere cutoff; Δv→circ = 0).
-func TestLaunchAutoReleaseAtApoFloor(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	earth := w.Systems[0].FindBody("earth")
-	if earth == nil {
-		t.Fatal("setup: earth not found in default system")
-	}
-	mu := earth.GravitationalParameter()
-	primaryR := earth.RadiusMeters()
-
-	// 201 km circular orbit — apoAlt = 201 km, just past the 200 km
-	// floor. Same construction pattern as launch_anchor_test.go's
-	// `craftAt` helper.
-	r := primaryR + 201_000
-	v := math.Sqrt(mu / r)
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
-	c.Primary = *earth
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r},
-		V: orbital.Vec3{Y: v},
-		M: c.TotalMass(),
-	}
-	// Replace the default LEO craft with our synthesized 201 km craft.
-	w.Crafts = []*spacecraft.Spacecraft{c}
-	w.ActiveCraftIdx = 0
-
-	// Plant the world mid-session: route already fired, ViewMode is
-	// ViewLaunch, PrevViewMode remembers ViewTop.
-	w.LaunchSessionActive = true
-	w.PrevViewMode = ViewTop
-	w.ViewMode = ViewLaunch
-	w.LaunchT0 = w.Clock.SimTime
-	w.LaunchMaxQ = 1234.0
-	w.LaunchTrail = []TrailPoint{{LatDeg: 5, LonDeg: 6, AltM: 100_000}}
-	w.LaunchZoom = 0.5
-
-	w.Tick()
-
-	if w.LaunchSessionActive {
-		t.Error("after apo>floor + Tick: LaunchSessionActive still true, want false (auto-release)")
-	}
-	if w.ViewMode != ViewTop {
-		t.Errorf("ViewMode = %v, want ViewTop (restored from PrevViewMode)", w.ViewMode)
-	}
-	if w.LaunchMaxQ != 0 {
-		t.Errorf("LaunchMaxQ = %v, want 0 (release must clear)", w.LaunchMaxQ)
-	}
-	if w.LaunchZoom != 0 {
-		t.Errorf("LaunchZoom = %v, want 0 (release must clear)", w.LaunchZoom)
-	}
-	if len(w.LaunchTrail) != 0 {
-		t.Errorf("LaunchTrail len = %d, want 0 (release must clear)", len(w.LaunchTrail))
-	}
-	if !w.LaunchT0.IsZero() {
-		t.Errorf("LaunchT0 = %v, want zero (release must clear)", w.LaunchT0)
-	}
-}
-
 // launchSessionCraftAtApo plants the world mid-ViewLaunch-session with a
 // single active craft sitting AT apoapsis: position (R+apoAltM, 0, 0)
 // with a purely tangential velocity equal to the local circular speed
@@ -235,114 +164,33 @@ func launchSessionCraftAtApo(t *testing.T, apoAltM, dvToCircMS float64) (*World,
 	return w, orbital.ElementsFromState(c.State.R, c.State.V, mu)
 }
 
-// TestLaunchNoReleaseWhenEccentric — an orbit whose apoapsis is well
-// clear of the atmosphere but whose circularisation Δv exceeds the cap
-// (an ascent that has raised apoapsis but not yet built orbital speed)
-// must NOT auto-release: the chase-cam stays until the upper stage is
-// near circularisation.
-func TestLaunchNoReleaseWhenEccentric(t *testing.T) {
-	// 300 km apoapsis (> 150 km atmosphere), Δv→circ 1000 m/s (> 750 cap).
-	w, el := launchSessionCraftAtApo(t, 300_000, 1000)
+// TestLaunchNoAutoReleaseWhenOrbital — ADR 0021 D pin. A mid-session
+// ascent that goes fully orbital (apoapsis well clear of the
+// atmosphere, circular — the strongest trigger of the retired
+// apoapsis-floor auto-release) must NOT change ViewMode or end the
+// session: the chase cam stays until the player cycles `v`. Before
+// ADR 0021 this exact state restored PrevViewMode.
+func TestLaunchNoAutoReleaseWhenOrbital(t *testing.T) {
+	// 300 km circular orbit (apo > 150 km atmosphere cutoff, Δv→circ 0).
+	w, el := launchSessionCraftAtApo(t, 300_000, 0)
 	if el.E >= 1 || el.A <= 0 {
 		t.Fatalf("setup: orbit not bound (e=%.3f, a=%.0f)", el.E, el.A)
 	}
+	t0Before := w.LaunchT0
 
 	w.Tick()
 
 	if !w.LaunchSessionActive {
-		t.Error("eccentric ascent (Δv→circ 1000 > 750): session auto-released, want it to stay active")
+		t.Error("orbital ascent ended the session, want it to stay active (auto-release is retired)")
 	}
 	if w.ViewMode != ViewLaunch {
-		t.Errorf("ViewMode = %v, want ViewLaunch (no release until near circularisation)", w.ViewMode)
+		t.Errorf("ViewMode = %v, want ViewLaunch (no ambient sim state may change the view)", w.ViewMode)
 	}
-}
-
-// TestLaunchReleaseWithinCircDvCap — once the apoapsis is clear of the
-// atmosphere AND the circularisation Δv falls within the cap, the
-// session auto-releases even though the orbit is not perfectly circular.
-func TestLaunchReleaseWithinCircDvCap(t *testing.T) {
-	// 300 km apoapsis, Δv→circ 500 m/s (< 750 cap).
-	w, _ := launchSessionCraftAtApo(t, 300_000, 500)
-	w.Tick()
-
-	if w.LaunchSessionActive {
-		t.Error("ascent within Δv→circ cap (500 < 750): session still active, want auto-release")
+	if !w.LaunchT0.Equal(t0Before) {
+		t.Errorf("LaunchT0 changed %v → %v, want untouched (no release fired)", t0Before, w.LaunchT0)
 	}
-	if w.ViewMode != ViewTop {
-		t.Errorf("ViewMode = %v, want ViewTop (restored from PrevViewMode)", w.ViewMode)
-	}
-}
-
-// TestLaunchNoReleaseApoInsideAtmosphere — even a circular orbit whose
-// apoapsis is still inside the atmosphere must NOT auto-release: drag
-// would decay it, so it isn't a real orbit yet. Guards the atmosphere
-// half of the predicate independently of the Δv half.
-func TestLaunchNoReleaseApoInsideAtmosphere(t *testing.T) {
-	// 120 km apoapsis (< 150 km cutoff), circular (Δv→circ 0).
-	w, _ := launchSessionCraftAtApo(t, 120_000, 0)
-	w.Tick()
-
-	if !w.LaunchSessionActive {
-		t.Error("apoapsis inside the atmosphere: session auto-released, want it to stay active")
-	}
-	if w.ViewMode != ViewLaunch {
-		t.Errorf("ViewMode = %v, want ViewLaunch (apoapsis still in atmosphere)", w.ViewMode)
-	}
-}
-
-// TestLaunchAutoReleaseSkipsHyperbolic — a launch session whose
-// active craft is on a hyperbolic (e ≥ 1) or degenerate (a ≤ 0)
-// trajectory must NOT auto-release. Apoapsis is undefined on
-// hyperbolic orbits; the plan's contract is that the session stays
-// open until the trajectory becomes bound again (the player is in
-// a state they should be looking at anyway).
-//
-// Setup: craft at 100 km altitude with 1.5× local escape velocity,
-// guaranteeing e > 1.
-func TestLaunchAutoReleaseSkipsHyperbolic(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	earth := w.Systems[0].FindBody("earth")
-	if earth == nil {
-		t.Fatal("setup: earth not found")
-	}
-	mu := earth.GravitationalParameter()
-	primaryR := earth.RadiusMeters()
-
-	r := primaryR + 100_000
-	vEsc := math.Sqrt(2 * mu / r)
-	v := vEsc * 1.5 // generously hyperbolic
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
-	c.Primary = *earth
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r},
-		V: orbital.Vec3{Y: v},
-		M: c.TotalMass(),
-	}
-	// Pre-flight check: confirm the orbit is actually hyperbolic, so
-	// a future change to constants doesn't silently turn this test
-	// into a bound-orbit test that vacuously passes.
-	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	if el.E < 1 {
-		t.Fatalf("setup: orbit not hyperbolic (e = %.3f); test cannot exercise the exempt branch", el.E)
-	}
-
-	w.Crafts = []*spacecraft.Spacecraft{c}
-	w.ActiveCraftIdx = 0
-	w.LaunchSessionActive = true
-	w.PrevViewMode = ViewTop
-	w.ViewMode = ViewLaunch
-	w.LaunchT0 = w.Clock.SimTime
-
-	w.Tick()
-
-	if !w.LaunchSessionActive {
-		t.Error("hyperbolic orbit: session was auto-released, want it to stay active")
-	}
-	if w.ViewMode != ViewLaunch {
-		t.Errorf("ViewMode = %v, want ViewLaunch (no release on hyperbolic)", w.ViewMode)
+	if w.LastLaunchReleaseEvent != nil {
+		t.Errorf("LastLaunchReleaseEvent = %+v, want nil (no release toast without a release)", w.LastLaunchReleaseEvent)
 	}
 }
 
@@ -353,9 +201,8 @@ func TestLaunchAutoReleaseSkipsHyperbolic(t *testing.T) {
 // ViewTilted), matching the player's mental model: cycle = move
 // forward, not "go back."
 //
-// Auto-release will not fire again for this session even if apo
-// later crosses the floor — the sentinel is cleared, the player has
-// taken over view selection.
+// With ADR 0021 D this manual cycle is THE way out of the chase cam —
+// the sentinel clears and the player owns view selection from here.
 func TestManualCycleClearsSessionWithoutRestore(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -380,13 +227,14 @@ func TestManualCycleClearsSessionWithoutRestore(t *testing.T) {
 	}
 }
 
-// TestManualLaunchEntryNeverAutoReleases — a player who cycles into
+// TestManualLaunchEntryStaysPut — a player who cycles into
 // ViewLaunch outside of a session (LaunchSessionActive == false)
-// gets a standalone chase-cam view: the auto-release predicate
-// stays gated off, even when the active craft's apoapsis exceeds
-// LaunchMissionFloorM. Locks the contract that auto-release only
-// fires for *route-opened* sessions, not manually-entered views.
-func TestManualLaunchEntryNeverAutoReleases(t *testing.T) {
+// gets a standalone chase-cam view: the view stays put and no
+// session opens, even when the active craft is already orbital
+// (apoapsis past LaunchMissionFloorM). Pre-ADR-0021 this locked the
+// session gate on the auto-release predicate; with the release
+// retired it pins that ticking a manual entry perturbs nothing.
+func TestManualLaunchEntryStaysPut(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -395,8 +243,8 @@ func TestManualLaunchEntryNeverAutoReleases(t *testing.T) {
 	mu := earth.GravitationalParameter()
 	primaryR := earth.RadiusMeters()
 
-	// 201 km circular orbit — would trigger auto-release if a session
-	// were active.
+	// 201 km circular orbit — past the old apoapsis floor, so this
+	// would have been the strongest release trigger pre-ADR-0021.
 	r := primaryR + 201_000
 	v := math.Sqrt(mu / r)
 	c := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
@@ -518,9 +366,10 @@ func TestSwitchInSessionToLandedHandsOff(t *testing.T) {
 // PrevViewMode, session state clears. Player gets their saved view
 // back, focused on the new flying vessel.
 //
-// Critically the substitute vessel orbits at <200km apo, so the
-// auto-release predicate cannot fire and cover for an unimplemented
-// end-branch — the test isolates the switch handler's end quadrant.
+// The substitute vessel orbits at <200km apo — historically that kept
+// the (since-retired, ADR 0021 D) auto-release from covering for an
+// unimplemented end-branch; today the switch handler is the only
+// sim-side release, so the test isolates it by construction.
 func TestSwitchInSessionToFlyingEndsSession(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -530,9 +379,9 @@ func TestSwitchInSessionToFlyingEndsSession(t *testing.T) {
 	mu := earth.GravitationalParameter()
 	primaryR := earth.RadiusMeters()
 
-	// Replace the default LEO craft (apo > 200km would let auto-release
-	// fake the end behavior) with a 100km-circular craft — well below
-	// LaunchMissionFloorM so auto-release stays off.
+	// Replace the default LEO craft with a 100km-circular craft —
+	// below LaunchMissionFloorM (kept from the pre-ADR-0021 setup;
+	// harmless now that no apoapsis-floor release exists).
 	r := primaryR + 100_000
 	v := math.Sqrt(mu / r)
 	cLow := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
@@ -599,8 +448,9 @@ func TestSwitchNotInSessionToLandedOpensFreshSession(t *testing.T) {
 	mu := earth.GravitationalParameter()
 	primaryR := earth.RadiusMeters()
 
-	// Replace default LEO with a 100km craft so auto-release doesn't
-	// muddy the switch-handler behavior.
+	// Replace default LEO with a 100km craft (kept from the
+	// pre-ADR-0021 setup, when the apoapsis-floor auto-release could
+	// muddy switch-handler behavior).
 	r := primaryR + 100_000
 	v := math.Sqrt(mu / r)
 	cLow := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
@@ -666,9 +516,8 @@ func TestSwitchBetweenFlyingVesselsIsNoOp(t *testing.T) {
 	mu := earth.GravitationalParameter()
 	primaryR := earth.RadiusMeters()
 
-	// Two crafts at sub-floor circular orbits (well below the 200km
-	// auto-release predicate). Replace default idx 0 + a second
-	// craft appended at idx 1.
+	// Two crafts at low circular orbits. Replace default idx 0 + a
+	// second craft appended at idx 1.
 	craftAt := func(altM float64) *spacecraft.Spacecraft {
 		r := primaryR + altM
 		v := math.Sqrt(mu / r)
@@ -710,13 +559,13 @@ func TestSwitchBetweenFlyingVesselsIsNoOp(t *testing.T) {
 // with `ViewMode=ViewLaunch` and `LaunchSessionActive=false`. The
 // first post-load tick then re-fires routeToLaunchView on the
 // Landed vessel — and without a guard would capture
-// `PrevViewMode = ViewLaunch`, making auto-release a no-op when apo
-// later crosses the floor (the screen would stay on LAUNCH forever).
+// `PrevViewMode = ViewLaunch`, making the switch-end release a no-op
+// (it would "restore" back to ViewLaunch).
 //
 // Guard contract: when ViewMode is already ViewLaunch at the moment
 // of route, leave PrevViewMode at whatever it was (its zero value,
-// ViewTilted, on a fresh post-load World). Subsequent auto-release
-// restores to that non-ViewLaunch fallback.
+// ViewTilted, on a fresh post-load World). A subsequent switch-end
+// release restores to that non-ViewLaunch fallback.
 func TestLaunchRouteIgnoresViewLaunchAsPrevView(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -745,7 +594,7 @@ func TestLaunchRouteIgnoresViewLaunchAsPrevView(t *testing.T) {
 		t.Fatal("post-load tick: route handler didn't open a session, can't exercise the guard")
 	}
 	if w.PrevViewMode == ViewLaunch {
-		t.Errorf("PrevViewMode = ViewLaunch — guard failed; auto-release would later 'restore' back to ViewLaunch, a no-op")
+		t.Errorf("PrevViewMode = ViewLaunch — guard failed; a switch-end release would 'restore' back to ViewLaunch, a no-op")
 	}
 	if w.PrevViewMode != ViewTilted {
 		t.Errorf("PrevViewMode = %v, want ViewTilted (the zero-value fallback when guard suppresses the capture)", w.PrevViewMode)
