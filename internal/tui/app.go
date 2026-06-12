@@ -161,8 +161,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastDockEvent = nil
 		}
-		// v0.11.0+: ViewLaunch auto-release / hand-off toast. Same
-		// flash surface as docking; cleared after one fire.
+		// v0.11.0+: ViewLaunch switch-end release toast (ADR 0021 D
+		// retired the apoapsis-floor auto-release). Same flash
+		// surface as docking; cleared after one fire.
 		if e := a.world.LastLaunchReleaseEvent; e != nil {
 			a.statusMsg = fmt.Sprintf("ORBIT READY — returning to %s", e.PrevView)
 			a.statusExpires = time.Now().Add(4 * time.Second)

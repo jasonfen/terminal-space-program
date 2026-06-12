@@ -81,12 +81,14 @@ const (
 	// human-scale side view with the rocket centred, the horizon
 	// curving below in Body.SurfaceColor, and a body-fixed pad
 	// marker + breadcrumb trail. Routed into automatically on
-	// active-slot Landed-false→true transitions; auto-released when
-	// the ascent goes nearly orbital (apoapsis clear of the atmosphere
-	// and within the circularisation-Δv cap). Appended to
-	// the cycle (NOT prepended) so ViewTilted stays the zero-value
-	// default. ADR-0002 captures the rationale for shipping this as
-	// a distinct ViewMode instead of extending ViewTilted.
+	// active-slot Landed-false→true transitions (a named Camera
+	// Contract carve-out — it answers the player's launch command);
+	// left via a manual `v` cycle. ADR 0021 D retired the old
+	// apoapsis-floor auto-release — no ambient sim state moves the
+	// camera. Appended to the cycle (NOT prepended) so ViewTilted
+	// stays the zero-value default. ADR-0002 captures the rationale
+	// for shipping this as a distinct ViewMode instead of extending
+	// ViewTilted.
 	ViewLaunch
 )
 
@@ -134,10 +136,10 @@ var AllViewModes = [...]ViewMode{
 
 // CycleViewMode advances ViewMode to the next mode in cycle order.
 // Wraps around — modes are a small finite set. v0.11.0+: leaving
-// ViewLaunch via manual cycle clears LaunchSessionActive — the
-// player has taken over, no auto-release will fire even if apo
-// crosses the floor later. ViewMode still advances by one
-// (cycle semantics are *advance*, not *restore* PrevViewMode).
+// ViewLaunch via manual cycle clears LaunchSessionActive — and with
+// ADR 0021 D this `v` cycle is THE way out of the chase cam (the
+// apoapsis-floor auto-release is retired). ViewMode still advances
+// by one (cycle semantics are *advance*, not *restore* PrevViewMode).
 func (w *World) CycleViewMode() {
 	if w.ViewMode == ViewLaunch {
 		w.LaunchSessionActive = false
@@ -181,11 +183,11 @@ func (w *World) viewModeSelectable(m ViewMode) bool {
 // for the `V` (shift+v) keybinding: short-circuits the lowercase
 // `v` cycle and drops the player into ViewLaunch focused on the
 // active vessel. Stashes the prior ViewMode into PrevViewMode (so
-// the existing apo-floor auto-release can restore on liftoff) and
-// opens a session — same surface as routeToLaunchView, just
-// player-initiated rather than auto-routed. No active vessel is
-// not a precondition; the LaunchView.Render path covers the
-// nil-active case (sub-scope 5).
+// a switch-end release can restore it) and opens a session — same
+// surface as routeToLaunchView, just player-initiated rather than
+// auto-routed. Leaving is a manual `v` cycle (ADR 0021 D). No
+// active vessel is not a precondition; the LaunchView.Render path
+// covers the nil-active case (sub-scope 5).
 func (w *World) SetViewModeLaunch() {
 	w.routeToLaunchView()
 }

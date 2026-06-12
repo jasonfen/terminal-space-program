@@ -3,8 +3,8 @@
 // LaunchTrail is the body-fixed (lat, lon, alt, sampledAt) FIFO that
 // the chase-cam scene re-projects each render so the trace visibly
 // rotates with the body — the geographic launch site stays
-// geographic. Stored on World; cleared at session open / auto-release
-// / hand-off; survives a manual `v` cycle out + back.
+// geographic. Stored on World; cleared at session open / switch-end
+// release / hand-off; survives a manual `v` cycle out + back.
 //
 // Plan reference: designdocs/terminal-space-program/v0.11-plan.md → Slice v0.11.0 (Trail is
 // body-fixed locked decision).
@@ -29,8 +29,8 @@ type TrailPoint struct {
 
 // launchTrailCap is the FIFO cap on LaunchTrail. 256 points at the
 // 1 s sampling cadence give ~4 minutes of trail — long enough to
-// cover the full ascent from pad to the 200 km auto-release floor
-// at typical climb profiles. Older samples evict from the front.
+// cover the full ascent from pad to a ~200 km apoapsis at typical
+// climb profiles. Older samples evict from the front.
 const launchTrailCap = 256
 
 // launchTrailIntervalSec is the minimum sim-time gap between

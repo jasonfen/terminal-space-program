@@ -3,28 +3,27 @@
 // ViewLaunch is the chase-cam launch scene routed into automatically
 // when an active vessel transitions Landed false→true (Launchpad
 // spawn today; future Touchdown semantics will extend the trigger).
-// Auto-release fires when the ascent is essentially orbital: the orbit's
-// apoapsis has climbed clear of the primary's atmosphere AND the
-// impulsive circularisation Δv at that apoapsis is within
-// LaunchCircularizeDvCapMS — so the player stays in the chase-cam until
-// the upper stage has built most of its orbital velocity, then hands off
-// to the orbit view. (The ORBIT READY callout and the ViewTilted
-// LaunchAnchor keep their own LaunchMissionFloorM gate; this release is
-// deliberately stricter.)
+// Leaving the chase cam is a manual `v` cycle — ADR 0021 D retired the
+// apoapsis-floor auto-release, the one camera change driven by ambient
+// sim state. (The ORBIT READY callout and the ViewTilted LaunchAnchor
+// keep their LaunchMissionFloorM gate; only the view restore went.)
+// A session still ends without a `v` press when the player switches
+// active onto a flying vessel — that restore answers the player's
+// switch, not ambient sim state.
 //
 // This file owns the per-tick handler called from World.Tick and the
 // session-open/close helpers. Render-side (the chase-cam scene
 // itself) lives in internal/tui/screens/launch.go.
 //
 // Plan reference: designdocs/terminal-space-program/v0.11-plan.md → Slice v0.11.0.
-// Architectural rationale: designdocs/terminal-space-program/adr/0002-launch-view-as-distinct-viewmode.md.
+// Architectural rationale: designdocs/terminal-space-program/adr/0002-launch-view-as-distinct-viewmode.md
+// (auto-release clause superseded by adr/0021-player-owned-camera-local-to-body-arcs.md, decision D).
 package sim
 
 import (
 	"math"
 	"time"
 
-	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -33,13 +32,13 @@ import (
 // ViewLaunch. Called from World.Tick after integration so the
 // authoritative post-tick Landed state is visible.
 //
-// v0.11.0 Slice 1 tracer-bullet shape: detects the Landed-false→true
-// transition on the active craft and routes into ViewLaunch by
-// opening a session; releases the session when the orbit's apoapsis
-// crosses LaunchMissionFloorM (parity with v0.10.7's
-// LaunchAnchorPhi predicate). Subsequent slice-time tests will
-// extend this with the active-switch handler, manual-cycle clearing,
-// and pointer-keyed shadow disambiguation.
+// Detects the Landed-false→true transition on the active craft and
+// routes into ViewLaunch by opening a session; dispatches the
+// active-switch handler on pointer changes; samples the breadcrumb
+// trail while a session is open. There is no ambient release — ADR
+// 0021 D retired the apoapsis-floor auto-release, so the session ends
+// only on a manual `v` cycle (CycleViewMode) or a switch onto a
+// flying vessel (handleActiveCraftSwitch's end branch).
 func (w *World) tickLaunchView() {
 	active := w.ActiveCraft()
 
@@ -72,17 +71,14 @@ func (w *World) tickLaunchView() {
 		w.routeToLaunchView()
 	}
 
-	// 3. Auto-release once the ascent is essentially orbital (apoapsis
-	// clear of the atmosphere AND within the circularisation Δv cap).
-	// Gated on LaunchSessionActive so a manually-entered ViewLaunch (no
-	// session) stays put even when the predicate is satisfied.
-	if w.LaunchSessionActive && active != nil && launchAscentNearlyOrbital(active) {
-		w.releaseLaunchSession()
-	}
+	// 3. (Retired) Auto-release. Pre-ADR-0021 a session ended here when
+	// the ascent went nearly orbital (apoapsis clear of the atmosphere
+	// AND within a circularisation-Δv cap). ADR 0021 D retired it: the
+	// chase cam stays until the player cycles `v` — no ambient sim
+	// state moves the camera.
 
 	// 4. Trail sampling — gated on LaunchSessionActive (no breadcrumbs
-	// outside a real session). Runs after release so a freshly-
-	// released session doesn't sample one last point on the way out.
+	// outside a real session).
 	if w.LaunchSessionActive {
 		w.maybeSampleLaunchTrail()
 		w.updateLaunchMaxQ()
@@ -126,8 +122,9 @@ func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 		w.LaunchZoom = 0
 	case inSession && !newLanded:
 		// End: player switched onto a flying vessel mid-session.
-		// Restore PrevViewMode and clear all session state. Same
-		// effect as auto-release without the apo-floor predicate.
+		// Restore PrevViewMode and clear all session state. This is
+		// the only sim-side session end left after ADR 0021 D — it
+		// answers the player's switch, not ambient sim state.
 		w.releaseLaunchSession()
 	case !inSession && newLanded && newOnPad:
 		// Fresh inline session: player switched onto a fresh
@@ -148,49 +145,6 @@ func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 	// is moving between flying vessels with no launch state on either.
 }
 
-// LaunchCircularizeDvCapMS is the impulsive circularisation-Δv budget
-// (m/s) at or below which an ascent counts as "essentially orbital" —
-// the second half of the ViewLaunch auto-release predicate (the first
-// being an apoapsis clear of the atmosphere). At ~750 m/s the upper
-// stage has built nearly all of its orbital velocity, so the chase-cam
-// has served its purpose and the orbit view takes over. Chosen to be
-// comfortably above a clean low-orbit circularisation burn yet well
-// below the multi-km/s gap of an ascent still mid-gravity-turn.
-const LaunchCircularizeDvCapMS = 750.0
-
-// launchAscentNearlyOrbital reports whether the craft's current orbit is
-// far enough along to release the ViewLaunch session: its apoapsis sits
-// above the primary's atmosphere (above the surface for an airless body)
-// AND the impulsive circularisation Δv at that apoapsis is within
-// LaunchCircularizeDvCapMS. Hyperbolic / degenerate orbits (a ≤ 0,
-// e ≥ 1) return false — apoapsis is undefined there, and the session
-// stays open until the trajectory becomes bound.
-func launchAscentNearlyOrbital(c *spacecraft.Spacecraft) bool {
-	mu := c.Primary.GravitationalParameter()
-	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	// Apoapsis undefined on unbound / degenerate orbits.
-	if el.A <= 0 || el.E >= 1 {
-		return false
-	}
-	rApo := el.Apoapsis()
-	apoAlt := rApo - c.Primary.RadiusMeters()
-	// 1. Apoapsis must clear the atmosphere so drag can't decay it
-	// (above the surface for an airless body, where atmTop = 0).
-	atmTop := 0.0
-	if c.Primary.Atmosphere != nil {
-		atmTop = c.Primary.Atmosphere.CutoffAltitude
-	}
-	if apoAlt <= atmTop {
-		return false
-	}
-	// 2. Impulsive circularisation Δv at apoapsis: vis-viva speed there
-	// vs. the local circular speed (mirrors the LAUNCH HUD's Δv→circ
-	// readout in tui/screens/orbit.go). A circular orbit reads 0.
-	vApo := math.Sqrt(mu * (2/rApo - 1/el.A))
-	vCirc := math.Sqrt(mu / rApo)
-	return vCirc-vApo <= LaunchCircularizeDvCapMS
-}
-
 // LaunchReleaseEvent records a ViewLaunch session ending so the App's
 // status flash can surface a `"ORBIT READY — returning to <prev view>"`
 // toast. Same shape as LastDockEvent — App reads and clears.
@@ -201,9 +155,9 @@ type LaunchReleaseEvent struct {
 // releaseLaunchSession ends the current session: stamps the toast
 // event with the restored ViewMode's label, restores ViewMode to
 // PrevViewMode, clears the sentinel, and zeroes all session-scoped
-// state so the next route handler entry sees a clean slate. Called
-// from tickLaunchView when the auto-release predicate fires; also
-// invoked from the active-switch handler's "end" branch.
+// state so the next route handler entry sees a clean slate. Invoked
+// from the active-switch handler's "end" branch (ADR 0021 D retired
+// the per-tick apoapsis-floor auto-release that used to call this).
 func (w *World) releaseLaunchSession() {
 	w.LastLaunchReleaseEvent = &LaunchReleaseEvent{PrevView: w.PrevViewMode.String()}
 	w.ViewMode = w.PrevViewMode
@@ -269,12 +223,12 @@ func (w *World) NudgeLaunchZoom(dir int, currentAutoScale float64) {
 }
 
 // routeToLaunchView opens a fresh ViewLaunch session. Stashes the
-// current ViewMode in PrevViewMode so auto-release can later restore
-// it, sets the sentinel, switches ViewMode, and seeds the rest of
-// the session-scoped state: stamps LaunchT0 to current sim-time
-// (HUD T+ anchor), zeroes LaunchMaxQ, clears the breadcrumb trail,
-// resets LaunchZoom to auto. Idempotent guard lives in the caller
-// (tickLaunchView checks !LaunchSessionActive).
+// current ViewMode in PrevViewMode so the switch-end release can
+// later restore it, sets the sentinel, switches ViewMode, and seeds
+// the rest of the session-scoped state: stamps LaunchT0 to current
+// sim-time (HUD T+ anchor), zeroes LaunchMaxQ, clears the breadcrumb
+// trail, resets LaunchZoom to auto. Idempotent guard lives in the
+// caller (tickLaunchView checks !LaunchSessionActive).
 //
 // The `ViewMode != ViewLaunch` guard on the PrevViewMode capture
 // matters for save-load: persisted saves carry ViewMode but not
@@ -282,9 +236,9 @@ func (w *World) NudgeLaunchZoom(dir int, currentAutoScale float64) {
 // ViewMode=ViewLaunch and LaunchSessionActive=false. The first
 // post-load tick then re-fires this handler on the already-Landed
 // vessel; without the guard, PrevViewMode would capture ViewLaunch
-// and auto-release would later "restore" to ViewLaunch (a no-op).
-// Leaving PrevViewMode at its zero value (ViewTilted) on this path
-// is the correct fallback.
+// and the switch-end release would later "restore" to ViewLaunch
+// (a no-op). Leaving PrevViewMode at its zero value (ViewTilted) on
+// this path is the correct fallback.
 func (w *World) routeToLaunchView() {
 	if w.ViewMode != ViewLaunch {
 		w.PrevViewMode = w.ViewMode
