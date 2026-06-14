@@ -26,6 +26,7 @@ type Menu struct {
 	saveBtn     buttonRange
 	loadBtn     buttonRange
 	settingsBtn buttonRange
+	controlsBtn buttonRange
 	quitBtn     buttonRange
 	yesBtn      buttonRange
 	noBtn       buttonRange
@@ -64,6 +65,7 @@ func (m *Menu) Reset() {
 	m.saveBtn.set = false
 	m.loadBtn.set = false
 	m.settingsBtn.set = false
+	m.controlsBtn.set = false
 	m.quitBtn.set = false
 	m.yesBtn.set = false
 	m.noBtn.set = false
@@ -81,6 +83,7 @@ const (
 	MenuActionSave
 	MenuActionLoad
 	MenuActionSettings // v0.13: open the per-Chip visibility screen
+	MenuActionControls // ADR 0022: open the keyboard-layout / controls screen
 	MenuActionQuit
 )
 
@@ -99,6 +102,8 @@ func (m *Menu) HandleKey(s string) MenuAction {
 			return MenuActionLoad
 		case "t", "T":
 			return MenuActionSettings
+		case "c", "C":
+			return MenuActionControls
 		case "q", "Q":
 			return MenuActionQuit
 		case "esc":
@@ -141,6 +146,8 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 			// Opening a screen is reversible, so settings skips the
 			// click-confirm gate save/load/quit go through.
 			return MenuActionSettings
+		case m.controlsBtn.Hit(col, row):
+			return MenuActionControls
 		case m.saveBtn.Hit(col, row):
 			m.mode = menuModeConfirmSave
 		case m.loadBtn.Hit(col, row):
@@ -204,6 +211,7 @@ func (m *Menu) Render(width int) string {
 	m.saveBtn.set = false
 	m.loadBtn.set = false
 	m.settingsBtn.set = false
+	m.controlsBtn.set = false
 	m.quitBtn.set = false
 	m.yesBtn.set = false
 	m.noBtn.set = false
@@ -244,6 +252,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 		{"s", "[Save Game]", &m.saveBtn},
 		{"l", "[Load Game]", &m.loadBtn},
 		{"t", "[Settings]", &m.settingsBtn},
+		{"c", "[Controls]", &m.controlsBtn},
 		{"q", "[Quit]", &m.quitBtn},
 	}
 	for i, r := range rows {
@@ -267,7 +276,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/t/q"))
+	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/t/c/q"))
 	return lines
 }
 

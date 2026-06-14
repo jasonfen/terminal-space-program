@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jasonfen/terminal-space-program/internal/keylayout"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
@@ -30,6 +31,7 @@ const (
 	screenMissions
 	screenSpawn    // v0.8.2+: craft-type pick form on `n`.
 	screenSettings // v0.13 slice 3: per-Chip visibility toggles, reached from the menu.
+	screenControls // ADR 0022: keyboard-layout selector, reached from the menu.
 	screenBoss     // boss key: full-screen fake developer shell (backtick from any screen).
 )
 
@@ -60,6 +62,13 @@ type App struct {
 	// edits write through to orbitView's settings.Settings and persist to
 	// settings.json immediately (see toggleChip).
 	settingsScreen *screens.SettingsScreen
+
+	// controls is the keyboard-layout selector screen (ADR 0022); cycling
+	// it updates `layout` and persists via cycleLayout. layout is the active
+	// keyboard layout, applied to every keypress by normalizeKey before
+	// binding-matching and inverted for the F1 help labels.
+	controls *screens.ControlsScreen
+	layout   keylayout.Layout
 
 	// boss is the backtick "boss key" fake shell. bossReturnScreen records
 	// the screen that was active when it opened, and bossPrevPaused records
@@ -127,6 +136,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		world:      w,
 		theme:      th,
 		keys:       DefaultKeymap(),
+		layout:     keylayout.Resolve(prefs.KeyboardLayout),
 		active:     screenOrbit,
 		orbitView:  orbitView,
 		launchView: screens.NewLaunchView(sth, orbitView),
@@ -139,6 +149,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		spawn:      screens.NewSpawnCraft(sth),
 
 		settingsScreen: screens.NewSettingsScreen(sth),
+		controls:       screens.NewControlsScreen(sth),
 		boss:           screens.NewBossShell(sth),
 	}, nil
 }
@@ -406,10 +417,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
+		case screenControls:
+			switch a.controls.HandleClick(m.X, m.Y) {
+			case screens.ControlsActionCycleLayout:
+				a.cycleLayout()
+			case screens.ControlsActionCancel:
+				a.active = screenOrbit
+			}
 		}
 		return a, nil
 
 	case tea.KeyMsg:
+		// Keyboard-layout normalization (ADR 0022): translate the keypress
+		// from the player's layout back to its QWERTY position before any
+		// matching, so the Keymap and every raw-string handler stay QWERTY.
+		// Skipped for the boss shell, which consumes literal typed text — a
+		// QWERTZ player typing in the fake shell wants their real keycaps.
+		if a.active != screenBoss {
+			m = normalizeKey(a.layout, m)
+		}
 		// ctrl+c bypasses everything else (standard interrupt
 		// convention). Honored from any screen.
 		if key.Matches(m, a.keys.Quit) {
@@ -524,6 +550,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case screens.SettingsActionToggle:
 				a.toggleChip(chip)
 			case screens.SettingsActionCancel:
+				a.active = screenOrbit
+			}
+			return a, nil
+		}
+		// Controls screen (ADR 0022): the layout selector. Space/enter/←/→
+		// cycle the keyboard layout (persist via cycleLayout), esc backs out.
+		// Handled here so its keys don't fall through to the orbit keymap.
+		if a.active == screenControls {
+			switch a.controls.HandleKey(m.String()) {
+			case screens.ControlsActionCycleLayout:
+				a.cycleLayout()
+			case screens.ControlsActionCancel:
 				a.active = screenOrbit
 			}
 			return a, nil
@@ -1176,6 +1214,10 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.settingsScreen.Reset()
 		a.active = screenSettings
 		return a, nil
+	case screens.MenuActionControls:
+		a.controls.Reset()
+		a.active = screenControls
+		return a, nil
 	case screens.MenuActionQuit:
 		a.autosave()
 		return a, tea.Quit
@@ -1196,6 +1238,24 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 func (a *App) toggleChip(c settings.Chip) {
 	s := a.orbitView.Settings()
 	s.SetChip(c, !s.ChipEnabled(c))
+	a.orbitView.SetSettings(s)
+	if err := settings.Save(s); err != nil {
+		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+	}
+}
+
+// cycleLayout advances the keyboard layout to the next in cycle order and
+// persists it to settings.json immediately (ADR 0022) — mirroring
+// toggleChip's persist-on-change. The Settings value carried in orbitView is
+// the single source of truth for both chips and layout, so the layout write
+// rides on the same struct without clobbering the chip overrides. A failed
+// write flashes the footer but leaves the in-memory layout applied, so the
+// change still takes effect this session.
+func (a *App) cycleLayout() {
+	a.layout = keylayout.Next(a.layout)
+	s := a.orbitView.Settings()
+	s.KeyboardLayout = string(a.layout)
 	a.orbitView.SetSettings(s)
 	if err := settings.Save(s); err != nil {
 		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
@@ -1238,7 +1298,7 @@ func (a *App) View() string {
 	var base string
 	switch a.active {
 	case screenHelp:
-		base = a.help.Render(a.width, a.height)
+		base = a.help.Render(a.width, a.height, a.layout)
 	case screenBodyInfo:
 		base = a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
 	case screenManeuver:
@@ -1253,6 +1313,8 @@ func (a *App) View() string {
 		base = a.missions.Render(a.world, a.width)
 	case screenSettings:
 		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width)
+	case screenControls:
+		base = a.controls.Render(a.layout, a.width)
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
 	default:

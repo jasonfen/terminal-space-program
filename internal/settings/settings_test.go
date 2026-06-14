@@ -125,6 +125,32 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestKeyboardLayoutRoundTrips(t *testing.T) {
+	withConfigRoot(t, "")
+
+	// Default omits the field — an absent file is QWERTY (empty string).
+	if got := Default().KeyboardLayout; got != "" {
+		t.Errorf("Default KeyboardLayout = %q, want empty", got)
+	}
+
+	s := Default()
+	s.KeyboardLayout = "qwertz"
+	s.SetChip(ChipNodes, false) // co-persisted alongside the layout
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got.KeyboardLayout != "qwertz" {
+		t.Errorf("KeyboardLayout = %q after round-trip, want qwertz", got.KeyboardLayout)
+	}
+	if got.ChipEnabled(ChipNodes) {
+		t.Errorf("chip override lost when layout co-persisted")
+	}
+}
+
 func TestSaveIsIdempotent(t *testing.T) {
 	withConfigRoot(t, "")
 

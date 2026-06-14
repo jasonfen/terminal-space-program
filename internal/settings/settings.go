@@ -101,6 +101,14 @@ type Settings struct {
 	// default, so the defaults-all-on behaviour costs zero bytes on disk
 	// and unknown keys from a newer build are tolerated and ignored.
 	ChipVisibility map[Chip]bool `json:"chips,omitempty"`
+
+	// KeyboardLayout names the player's physical keyboard layout (ADR 0022),
+	// e.g. "qwerty" or "qwertz". The tui maps it to a keylayout.Layout to
+	// normalize keypresses to QWERTY positions before binding-matching.
+	// Empty (the common case / absent field) means QWERTY. Stored as a raw
+	// string so this package keeps zero dependency on keylayout — the tui
+	// owns resolution and validation.
+	KeyboardLayout string `json:"keyboardLayout,omitempty"`
 }
 
 // Default returns the all-defaults Settings: every Chip visible, no

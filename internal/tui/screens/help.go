@@ -5,6 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jasonfen/terminal-space-program/internal/keylayout"
 )
 
 // Help is the keybinding reference overlay. Invoked via F1 from any
@@ -35,7 +37,7 @@ type helpSection struct {
 var helpSections = []helpSection{
 	{"GENERAL", [][2]string{
 		{"F1", "toggle this help"},
-		{"esc", "back / close (or save/load/settings/quit menu on home)"},
+		{"esc", "back / close (or save/load/settings/controls/quit menu on home)"},
 		{"F5 / F9", "quicksave / quickload"},
 		{"q", "quit (confirm + autosave)"},
 		{"ctrl+c", "quit immediately"},
@@ -111,8 +113,11 @@ var helpSections = []helpSection{
 }
 
 // bodyLines builds the scrollable section content (everything between the
-// sticky title and footer), one terminal row per slice element.
-func (h *Help) bodyLines() []string {
+// sticky title and footer), one terminal row per slice element. Key tokens
+// (the left column) are Display-translated to the active layout so a QWERTZ
+// player's keycaps match the overlay (ADR 0022); descriptions are left
+// untouched so prose like "zoom in" keeps its letters.
+func (h *Help) bodyLines(layout keylayout.Layout) []string {
 	var lines []string
 	for si, s := range helpSections {
 		if si > 0 {
@@ -120,8 +125,9 @@ func (h *Help) bodyLines() []string {
 		}
 		lines = append(lines, h.theme.Primary.Render(s.header))
 		for _, r := range s.rows {
-			pad := strings.Repeat(" ", maxInt(0, 20-len([]rune(r[0]))))
-			lines = append(lines, "  "+h.theme.Primary.Render(r[0])+pad+r[1])
+			token := keylayout.DisplayToken(layout, r[0])
+			pad := strings.Repeat(" ", maxInt(0, 20-len([]rune(token))))
+			lines = append(lines, "  "+h.theme.Primary.Render(token)+pad+r[1])
 		}
 	}
 	return lines
@@ -130,9 +136,9 @@ func (h *Help) bodyLines() []string {
 // Render windows the body to the terminal height between a sticky title
 // and footer, and truncates each row to width. Clamps + caches the scroll
 // geometry so HandleKey paging stays in range.
-func (h *Help) Render(width, height int) string {
+func (h *Help) Render(width, height int, layout keylayout.Layout) string {
 	title := h.theme.Title.Render("terminal-space-program — keybindings")
-	body := h.bodyLines()
+	body := h.bodyLines(layout)
 
 	const topChrome = 2 // title + blank line
 	const botChrome = 1 // footer

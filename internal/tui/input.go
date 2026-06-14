@@ -1,6 +1,33 @@
 package tui
 
-import "github.com/charmbracelet/bubbles/key"
+import (
+	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/keylayout"
+)
+
+// normalizeKey maps a keypress from the player's keyboard layout back to its
+// QWERTY-position equivalent before any binding match (ADR 0022). Only
+// single printable runes are translated — modifier-prefixed keys (ctrl+…),
+// arrows, and function keys carry a non-Runes type and pass through
+// untouched, as do runes the active layout doesn't remap. This is the one
+// ingest chokepoint that lets DefaultKeymap and every raw-string screen
+// handler stay authored in QWERTY.
+func normalizeKey(layout keylayout.Layout, m tea.KeyMsg) tea.KeyMsg {
+	if layout == keylayout.QWERTY || m.Type != tea.KeyRunes || len(m.Runes) != 1 {
+		return m
+	}
+	r := keylayout.Normalize(layout, m.Runes[0])
+	if r == m.Runes[0] {
+		return m
+	}
+	// m is passed by value; replacing the Runes slice leaves the caller's
+	// original message unmodified. m.String() now reports the translated
+	// rune, so key.Matches and raw msg.String() comparisons both see QWERTY.
+	m.Runes = []rune{r}
+	return m
+}
 
 // Keymap centralises every binding the root model cares about. Screens
 // that need additional keys define them locally.
