@@ -91,7 +91,7 @@ readout shows you why before you watch it fall back.
 
 | Key | Action |
 |---|---|
-| `Esc` | Back, or open the save / load / settings / quit menu on the main view |
+| `Esc` | Back, or open the save / load / settings / controls / quit menu on the main view |
 | `Ctrl+C` | Quit immediately |
 | `F1` | Toggle the help overlay (scroll it with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`) |
 | `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
@@ -101,6 +101,15 @@ readout shows you why before you watch it fall back.
 | `.` / `,` | Speed time up / down (up to 100,000×; eases off around a burn) |
 | `G` | Auto-warp to the next burn — speeds time to 30 seconds before whichever burn fires first (any craft's), ramps back down, and hands you 1× to watch it arm. Tapping `.` / `,` cancels it back to your own warp; click the `[»Burn]` button to do the same |
 | `/` | Cancel warp — drop straight back to 1× from any warp level, and cancel auto-warp if it's running |
+
+### Keyboard layout
+
+The keys below are written for **QWERTY**. If you play on a **QWERTZ** keyboard
+(where the physical `Y` and `Z` keys are swapped), open `Esc → [Controls]` and
+switch the layout to QWERTZ. Every binding then stays under the same finger as
+on QWERTY, and the in-game help overlay (`F1`) relabels itself to match your
+keycaps. The choice is saved to your config and applies to every game. (AZERTY,
+Dvorak, and free per-key remapping aren't supported yet.)
 
 ### Map view
 
@@ -162,7 +171,7 @@ Click only — no dragging, no scroll-to-zoom.
 | Click | Action |
 |---|---|
 | `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`). Shows `[■Burn]` while running, dimmed when no burn is planned |
-| `[Menu]` (top-right) | Save / load / settings / quit menu |
+| `[Menu]` (top-right) | Save / load / settings / controls / quit menu |
 | `[Missions]` (top-right) | Mission list with pass / fail marks |
 | A body | Follow it with the camera (same as cursoring onto it) |
 | A craft | Follow it with the camera |
