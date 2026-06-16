@@ -111,6 +111,16 @@ type SOISegment struct {
 	PrimaryID string
 	Points    []orbital.Vec3 // inertial, system-primary-centered, at each sample's clock
 	RelPoints []orbital.Vec3 // offset from the owning primary's center at each sample's clock
+
+	// EntryEl is the body-relative two-body conic at the SOI-crossing that
+	// opened this segment (set only on segments born from a rebase, not the
+	// starting frame), with EntryClock the refined crossing wall-clock. They
+	// let a foreign-SOI segment be redrawn analytically — DensifyForeignArcs —
+	// so a sharp planted-leg perilune draws as a smooth curve instead of
+	// equal-time integrated facets (ADR 0023 D). HasEntryConic gates them.
+	EntryEl       orbital.Elements
+	EntryClock    time.Time
+	HasEntryConic bool
 }
 
 // SegmentDrawPoints returns the canvas plot positions for a predicted
@@ -544,6 +554,13 @@ predict:
 					PrimaryID: current.ID,
 					Points:    []orbital.Vec3{positions[current.ID].Add(state.R)},
 					RelPoints: []orbital.Vec3{state.R},
+					// state is now body-relative in the new primary's frame, so
+					// its elements are the entry conic for this segment (ADR 0023
+					// D). Recorded for the analytic leg-arc redraw; production
+					// drawing otherwise ignores it.
+					EntryEl:       orbital.ElementsFromState(state.R, state.V, muNow),
+					EntryClock:    rebaseClock,
+					HasEntryConic: true,
 				})
 			}
 		}

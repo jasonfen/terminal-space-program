@@ -166,7 +166,7 @@ func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	}
 	// The Orbit-metrics chip (its rows use the "apoapsis:" prefix) is
 	// suppressed during ascent — the SURFACE chip already carries ap/pe.
-	if strings.Contains(out, "apoapsis:") {
+	if strings.Contains(out, "Ap:") {
 		t.Errorf("expected Orbit-metrics chip suppressed during ascent (LAUNCH carries ap/pe).\nrender:\n%s", out)
 	}
 
@@ -181,7 +181,7 @@ func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	if strings.Contains(out, "SURFACE") {
 		t.Errorf("expected SURFACE chip to vanish once periapsis clears the atmosphere.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "apoapsis:") {
+	if !strings.Contains(out, "Ap:") {
 		t.Errorf("expected Orbit-metrics chip apoapsis row in stable orbit.\nrender:\n%s", out)
 	}
 }
@@ -223,11 +223,11 @@ func TestOrbitMetricsChipShowsTimeToApsides(t *testing.T) {
 	if strings.Contains(out, "SURFACE") {
 		t.Fatalf("expected the ORBIT chip, not SURFACE, for an orbit clear of the atmosphere.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "t→apo:") {
-		t.Errorf("expected a t→apo row in the ORBIT chip.\nrender:\n%s", out)
+	if !strings.Contains(out, "t→Ap:") {
+		t.Errorf("expected a t→Ap row in the ORBIT chip.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "t→peri:") {
-		t.Errorf("expected a t→peri row in the ORBIT chip.\nrender:\n%s", out)
+	if !strings.Contains(out, "t→Pe:") {
+		t.Errorf("expected a t→Pe row in the ORBIT chip.\nrender:\n%s", out)
 	}
 }
 

@@ -32,6 +32,96 @@ func plantKernCursorPass(t *testing.T, w *World) (SOIPass, float64) {
 	return pass, physics.SOIRadius(cursor, kern)
 }
 
+// TestAnalyticArcIsDenseAndSmooth pins the ADR 0023 D faceted-perilune fix:
+// the SOI-pass arc is redrawn from the body-relative encounter conic, so it
+// carries many points and no single chord spans a large fraction of the SOI —
+// the integrated arc's handful of uniform-time samples (which the gap-fill
+// connected into a visible polygon) are replaced by a dense, smooth curve.
+func TestAnalyticArcIsDenseAndSmooth(t *testing.T) {
+	w := mustWorld(t)
+	pass, soi := plantKernCursorPass(t, w)
+
+	var rel []orbital.Vec3
+	for _, s := range pass.ArcSegments {
+		rel = append(rel, s.RelPoints...)
+	}
+	if len(rel) < 50 {
+		t.Fatalf("analytic arc has only %d points — not densified (want the soiArcSamples redraw)", len(rel))
+	}
+	// No facet: the longest gap between consecutive arc points is a small
+	// fraction of the SOI, so straight-chord gap-fill can't read as a polygon
+	// edge.
+	var maxChord float64
+	for i := 1; i < len(rel); i++ {
+		if d := rel[i].Sub(rel[i-1]).Norm(); d > maxChord {
+			maxChord = d
+		}
+	}
+	if maxChord > 0.12*soi {
+		t.Errorf("largest arc chord %.0f km = %.2f×SOI — facets still visible, want < 0.12×SOI", maxChord/1e3, maxChord/soi)
+	}
+	// The marker still sits on the drawn curve: the closest arc point matches
+	// the analytic perilune (one conic, one source of truth — ADR 0023 B+D).
+	minD := math.Inf(1)
+	for _, r := range rel {
+		if d := r.Norm(); d < minD {
+			minD = d
+		}
+	}
+	if math.Abs(minD-pass.PeriluneRel.Norm()) > 0.02*soi {
+		t.Errorf("arc's closest point %.0f km vs analytic perilune %.0f km — marker off the drawn curve", minD/1e3, pass.PeriluneRel.Norm()/1e3)
+	}
+}
+
+// TestPlantedLegArcIsDenseAndSmooth pins the ADR 0023 D fix for the
+// planted-node legs path (DensifyForeignArcs over PredictedSegmentsFrom, what
+// plotPredictedLegs draws): a sharp perilune on a planted transfer draws as a
+// smooth analytic curve, not the equal-time integrated sampling's facets
+// (~0.45×perilune chords before the redraw). PredictedSegmentsFrom itself stays
+// integrated — only the draw builder densifies — so the integrated-behavior
+// tests above are untouched.
+func TestPlantedLegArcIsDenseAndSmooth(t *testing.T) {
+	w := mustWorld(t)
+	pass, _ := plantKernCursorPass(t, w)
+	rp := pass.PeriluneRadius
+
+	var rel []orbital.Vec3
+	sawFlybyConic := false // the transfer leg's flyby segment, born from an SOI crossing
+	for _, leg := range w.PredictedLegs() {
+		segs := w.DensifyForeignArcs(w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples))
+		for _, s := range segs {
+			if s.PrimaryID != pass.Body.ID {
+				continue
+			}
+			// The transfer leg crosses INTO Cursor's SOI, so its foreign
+			// segment carries an entry conic and is densified; the capture leg
+			// starts already in-frame (a bound post-burn orbit, no crossing) and
+			// legitimately has none — don't require it on every foreign segment.
+			if s.HasEntryConic {
+				sawFlybyConic = true
+			}
+			rel = append(rel, s.RelPoints...)
+		}
+	}
+	if !sawFlybyConic {
+		t.Fatal("no foreign leg segment carries an SOI-entry conic — the flyby wasn't densified")
+	}
+	if len(rel) < 50 {
+		t.Fatalf("planted-leg foreign arc has only %d points — not densified", len(rel))
+	}
+	maxNearPeri := 0.0
+	for i := 1; i < len(rel); i++ {
+		if rel[i].Norm() < 3*rp { // the sharp turn around the body
+			if d := rel[i].Sub(rel[i-1]).Norm(); d > maxNearPeri {
+				maxNearPeri = d
+			}
+		}
+	}
+	if maxNearPeri > 0.5*rp {
+		t.Errorf("sharpest planted-leg chord near periapsis %.0f km = %.2f×perilune — facets visible, want < 0.5×perilune", maxNearPeri/1e3, maxNearPeri/rp)
+	}
+}
+
 // TestForeignSegmentsRecordBodyRelativePoints: every predicted segment
 // carries body-relative samples (offset from its owning primary at each
 // sample's clock) alongside the inertial ones — the Local-to-Body Arc's
@@ -59,12 +149,18 @@ func TestForeignSegmentsRecordBodyRelativePoints(t *testing.T) {
 	if !pass.HasPerilunePt {
 		t.Fatal("pass has no perilune point")
 	}
-	if got := pass.PeriluneRel.Norm(); math.Abs(got-minD) > 1 {
-		t.Errorf("PeriluneRel norm = %.0f km, want the min body-relative sample distance %.0f km", got/1e3, minD/1e3)
+	// PeriluneRel is the analytic closest approach (ADR 0023 B): its norm
+	// matches the chip's PeriluneRadius exactly, replacing the old
+	// nearest-sample snap that re-phased each prediction.
+	if got := pass.PeriluneRel.Norm(); math.Abs(got-pass.PeriluneRadius) > 1 {
+		t.Errorf("PeriluneRel norm = %.0f km, want analytic PeriluneRadius %.0f km", got/1e3, pass.PeriluneRadius/1e3)
 	}
-	// The sampled minimum approximates the analytic perilune from above.
-	if minD < pass.PeriluneRadius*0.5 || minD > pass.PeriluneRadius*2+soi*0.05 {
-		t.Errorf("min body-relative distance %.0f km disagrees with PeriluneRadius %.0f km", minD/1e3, pass.PeriluneRadius/1e3)
+	// It still sits at the drawn arc's closest sample to SOI scale — the
+	// analytic point is two-body while the sample carries the integrated
+	// perturbation, so they agree closely without strictly bounding each
+	// other.
+	if math.Abs(pass.PeriluneRel.Norm()-minD) > 0.1*soi {
+		t.Errorf("analytic perilune %.0f km disagrees with nearest sample %.0f km by >0.1×SOI", pass.PeriluneRel.Norm()/1e3, minD/1e3)
 	}
 }
 

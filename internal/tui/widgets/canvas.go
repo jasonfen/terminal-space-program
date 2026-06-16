@@ -608,6 +608,77 @@ func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 	}
 }
 
+// PlotDenseLineColored plots a dotted line between world points a and b by
+// walking the projected pixel segment and setting one braille pixel every
+// `step` pixels (step=1 → solid, step≥2 → dashed texture). It keeps on-screen
+// dot spacing constant regardless of zoom: consecutive orbit/arc samples that
+// spread apart when zoomed in get the gap between them filled (ADR 0023 C).
+// The chord is exact under the affine projection, so no curve fidelity is
+// lost beyond the sampling already present.
+//
+// A chord longer than the canvas's shorter dimension is NOT bridged — those
+// samples straddle a fast periapsis arc or one sits well off-canvas (a
+// Hohmann transfer's off-screen apoapsis), where a straight fill would shoot
+// a line across the view. Such a pair falls back to the pre-gap-fill
+// behaviour: just the on-canvas endpoint dots, no connecting line.
+func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
+	if step < 1 {
+		step = 1
+	}
+	ax, ay, aOK := c.Project(a)
+	bx, by, bOK := c.Project(b)
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	plotPx := func(px, py int) {
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			return
+		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = CellTag{Color: color}
+	}
+	if !aOK && !bOK {
+		// Both off-canvas and sharing an off-edge — the whole chord is
+		// off-screen. A pair straddling the canvas still draws its visible run.
+		if (ax < 0 && bx < 0) || (ax >= c.pxW && bx >= c.pxW) ||
+			(ay < 0 && by < 0) || (ay >= c.pxH && by >= c.pxH) {
+			return
+		}
+	}
+	dx, dy := bx-ax, by-ay
+	n := dx
+	if n < 0 {
+		n = -n
+	}
+	if ady := dy; ady < 0 {
+		if -ady > n {
+			n = -ady
+		}
+	} else if ady > n {
+		n = ady
+	}
+	maxFill := c.pxW
+	if c.pxH < maxFill {
+		maxFill = c.pxH
+	}
+	if n > maxFill {
+		// Too long to bridge — endpoint dots only, no shooting line.
+		plotPx(ax, ay)
+		plotPx(bx, by)
+		return
+	}
+	for i := 0; i <= n; i += step {
+		if n == 0 {
+			plotPx(ax, ay)
+			break
+		}
+		plotPx(
+			ax+int(math.Round(float64(dx)*float64(i)/float64(n))),
+			ay+int(math.Round(float64(dy)*float64(i)/float64(n))),
+		)
+	}
+}
+
 // Cols / Rows expose the configured terminal cell dimensions.
 func (c *Canvas) Cols() int { return c.cols }
 func (c *Canvas) Rows() int { return c.rows }

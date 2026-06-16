@@ -1546,7 +1546,10 @@ func (v *OrbitView) computePredictedRender(w *sim.World) predictRenderData {
 		// period the leg's horizon spans, so a long inter-node horizon at
 		// high warp no longer smears the dashed orbit.
 		data.legs = append(data.legs, predictLegDraw{
-			segs:      w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples),
+			// Densify foreign-SOI segments analytically so a sharp planted-leg
+			// perilune reads as a smooth curve, not equal-time facets (ADR 0023
+			// D); home/parent segments pass through unchanged.
+			segs:      w.DensifyForeignArcs(w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples)),
 			color:     render.ManeuverSegmentColor(leg.NodeIndex),
 			apoapsisM: apo,
 		})
@@ -1635,15 +1638,29 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 			continue
 		}
 		for _, seg := range leg.segs {
-			stride := 2
-			if seg.PrimaryID != homeID {
-				stride = 1 // foreign SOI — solid, eye-catching
-			}
-			for i, p := range w.SegmentDrawPoints(seg, homeID) {
-				if stride > 1 && i%stride == 0 {
-					continue
+			pts := w.SegmentDrawPoints(seg, homeID)
+			if seg.PrimaryID == homeID {
+				// Home transfer leg: plain stride-2 scattered dots, NOT a
+				// gap-filled line. It's drawn in the primary's inertial frame
+				// and aims at the encounter's FUTURE position, while the
+				// encounter arc is rebased to the body's current position
+				// (ADR 0021) — connecting it into a line reads as a stray line
+				// shooting past the encounter. Densify only the encounter arcs.
+				for i, p := range pts {
+					if i%2 == 0 {
+						continue
+					}
+					v.canvas.PlotColored(p, leg.color)
 				}
-				v.canvas.PlotColored(p, leg.color)
+				continue
+			}
+			// Foreign-SOI segment — zoom-constant gap-fill so the encounter
+			// stays a dense readable arc when zoomed in (ADR 0023 C).
+			if len(pts) == 1 {
+				v.canvas.PlotColored(pts[0], leg.color)
+			}
+			for i := 0; i+1 < len(pts); i++ {
+				v.canvas.PlotDenseLineColored(pts[i], pts[i+1], leg.color, 2)
 			}
 		}
 	}
@@ -1654,8 +1671,16 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 // coasting path and the frozen burn-time replay.
 func (v *OrbitView) plotArcLine(w *sim.World, line frozenArcLine) {
 	for _, seg := range line.segs {
-		for _, p := range w.SegmentDrawPoints(seg, line.anchor) {
-			v.canvas.PlotColored(p, line.color)
+		// Zoom-constant dot cadence along the connected samples (ADR 0023 C)
+		// — fill stays within a segment, so an SOI-transition boundary isn't
+		// bridged by a chord. step=2 matches the foreign-SOI leg cadence
+		// after the playtest density trim.
+		pts := w.SegmentDrawPoints(seg, line.anchor)
+		if len(pts) == 1 {
+			v.canvas.PlotColored(pts[0], line.color)
+		}
+		for i := 0; i+1 < len(pts); i++ {
+			v.canvas.PlotDenseLineColored(pts[i], pts[i+1], line.color, 2)
 		}
 	}
 }

@@ -83,6 +83,15 @@ func (p SOIPass) PeriluneAltitude() float64 {
 // there is no period to bound it (ADR 0019 B).
 const soiPassHyperbolicHorizon = 24 * 3600.0
 
+// soiArcSamples is the point count for the analytic encounter arc (ADR 0023
+// D). The integrated pass carries only the few uniform-time samples that land
+// inside the SOI — a shallow flyby catches a handful, which the render-side
+// gap-fill connects into a visible polygon. Redrawing the foreign-SOI arc
+// from the body-relative conic at this density makes the hyperbola a smooth
+// curve at any zoom. Pure conic trig per point (no ephemeris), computed only
+// when the pass changes (the predict-on-change cache), so the density is cheap.
+const soiArcSamples = 96
+
 // LiveSOIPass computes the active craft's upcoming SOI pass from its live
 // state, with no maneuver node required (ADR 0019 decisions A/B/C/E). This
 // is the always-on, Target-independent pass the canvas draws bright and the
@@ -246,6 +255,8 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 	// Scan every sibling body the orbit can geometrically reach; keep the
 	// earliest SOI-entering pass.
 	var best SOIPass
+	var bestRelEl orbital.Elements
+	bestHasRelEl := false
 	bestTCA := math.Inf(1)
 	found := false
 	for _, b := range sys.Bodies {
@@ -272,7 +283,10 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 				PeriluneRadius: enc.Dist,
 				TimeToPerilune: enc.TCA,
 				Impact:         enc.Dist < b.RadiusMeters(),
+				PeriluneRel:    enc.PeriluneRel,
+				HasPerilunePt:  enc.HasPeriluneRel,
 			}
+			bestRelEl, bestHasRelEl = enc.RelEl, enc.HasRelEl
 			found = true
 		}
 	}
@@ -324,25 +338,127 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 		}
 	}
 
-	// Perilune marker offset: the foreign-arc sample closest to the body
-	// centre. RelPoints are body-relative at each sample's clock, so the
-	// minimum-norm sample IS the drawn closest approach (Local-to-Body,
-	// ADR 0021 B) — the draw site anchors it at the Body's current
-	// position via PerilunePosition. The glyph marks "which marker, what
-	// state" — the value lives in the chip (ADR 0020 C) — so the
-	// nearest-sample approximation is sufficient for placement.
-	minD := math.Inf(1)
-	for _, s := range best.ArcSegments {
-		for _, r := range s.RelPoints {
-			if d := r.Norm(); d < minD {
-				minD = d
-				best.PeriluneRel = r
-				best.HasPerilunePt = true
+	// Perilune marker offset: the analytic closest approach (rp along the
+	// periapsis direction, set on best above from targetPerilune) is the
+	// primary placement — it matches the chip's PeriluneRadius and rides the
+	// drawn hyperbola's true bottom instead of snapping to a sample that
+	// re-phases each prediction (ADR 0023 B). Fall back to the nearest
+	// in-arc sample only when the relative hyperbola was degenerate and no
+	// analytic direction was available.
+	if !best.HasPerilunePt {
+		minD := math.Inf(1)
+		for _, s := range best.ArcSegments {
+			for _, r := range s.RelPoints {
+				if d := r.Norm(); d < minD {
+					minD = d
+					best.PeriluneRel = r
+					best.HasPerilunePt = true
+				}
 			}
 		}
 	}
 
+	// Analytic encounter arc (ADR 0023 D): the integrated arc above carries
+	// only the few uniform-time samples that fall inside the SOI — a shallow
+	// flyby catches a handful, which the render-side gap-fill then connects
+	// with straight chords into a visible polygon (the faceted-perilune
+	// report). Redraw the foreign-SOI arc from the same body-relative conic
+	// that places the analytic perilune (decision B). The periapsis is reached
+	// at fromClock + the time-to-perilune the scan already found.
+	if bestHasRelEl {
+		periClock := fromClock.Add(time.Duration(best.TimeToPerilune * float64(time.Second)))
+		if seg, ok := w.analyticArcSegment(best.ArcSegments, bestRelEl, best.Body, periClock); ok {
+			best.ArcSegments = []SOISegment{seg}
+		}
+	}
+
 	return best, true
+}
+
+// analyticArcSegment rebuilds a foreign-SOI arc as a single dense segment
+// sampled from the body-relative conic relEl, between the integrated arc's
+// entry and exit true anomalies (ADR 0023 D). Even eccentric-anomaly spacing
+// concentrates points at periapsis, so a sharp flyby reads as a smooth curve
+// instead of the equal-time integrated sampling's few straight chords (which
+// span ~a full perilune radius at a tight perilune). The integrated endpoints
+// set the extent, so impact / node-cap / horizon truncation carry over
+// unchanged — only the shape between them becomes the smooth conic.
+//
+// Each sample keeps the SOISegment's "inertial position at each sample's clock"
+// contract: the body moves through the transit, so a sample's inertial Points
+// value uses the body's position at that sample's flyby time (periClock — the
+// ν=0 wall-clock — plus the analytic time-from-periapsis at its ν). Drawing
+// still rebases the body-relative offsets onto the body's CURRENT position
+// (SegmentDrawPoints, ADR 0021 B); honest Points just keep the field true for
+// any inertial-frame reader. ok=false (keep the integrated arc) when the conic
+// is degenerate or the sampler bails.
+func (w *World) analyticArcSegment(segs []SOISegment, relEl orbital.Elements, body bodies.CelestialBody, periClock time.Time) (SOISegment, bool) {
+	if len(segs) == 0 {
+		return SOISegment{}, false
+	}
+	first := segs[0].RelPoints
+	lastSeg := segs[len(segs)-1].RelPoints
+	if len(first) == 0 || len(lastSeg) == 0 {
+		return SOISegment{}, false
+	}
+	nuIn := orbital.TrueAnomalyAt(relEl, first[0])
+	nuOut := orbital.TrueAnomalyAt(relEl, lastSeg[len(lastSeg)-1])
+	rel := orbital.SampleConicArc(relEl, nuIn, nuOut, soiArcSamples)
+	if len(rel) < 2 {
+		return SOISegment{}, false
+	}
+	mu := body.GravitationalParameter()
+	pts := make([]orbital.Vec3, len(rel))
+	for i, r := range rel {
+		tau := orbital.SecsFromPeriapsisAt(relEl, orbital.TrueAnomalyAt(relEl, r), mu)
+		sampleClock := periClock.Add(time.Duration(tau * float64(time.Second)))
+		pts[i] = w.BodyPositionAt(body, sampleClock).Add(r)
+	}
+	return SOISegment{PrimaryID: body.ID, Points: pts, RelPoints: rel}, true
+}
+
+// DensifyForeignArcs replaces each foreign-SOI segment that carries an entry
+// conic (HasEntryConic — recorded by the predictor at an SOI-crossing rebase)
+// with its analytic redraw (ADR 0023 D), so the planted-node legs draw a sharp
+// perilune as a smooth curve instead of the equal-time integrated sampling's
+// facets (~0.45× perilune-radius chords at a tight perilune). Home / parent
+// segments and any without a recorded entry conic pass through unchanged. The
+// periapsis clock comes from the entry point's analytic time-from-periapsis,
+// the same timing analyticArcSegment uses per sample. Pure conic trig, no
+// re-integration; the leg-draw builder wraps PredictedSegmentsFrom with it.
+func (w *World) DensifyForeignArcs(segs []SOISegment) []SOISegment {
+	out := make([]SOISegment, 0, len(segs))
+	for _, seg := range segs {
+		if !seg.HasEntryConic || len(seg.RelPoints) == 0 {
+			out = append(out, seg)
+			continue
+		}
+		var body bodies.CelestialBody
+		found := false
+		for _, b := range w.System().Bodies {
+			if b.ID == seg.PrimaryID {
+				body, found = b, true
+				break
+			}
+		}
+		if !found {
+			out = append(out, seg)
+			continue
+		}
+		mu := body.GravitationalParameter()
+		nuEntry := orbital.TrueAnomalyAt(seg.EntryEl, seg.RelPoints[0])
+		tauEntry := orbital.SecsFromPeriapsisAt(seg.EntryEl, nuEntry, mu)
+		periClock := seg.EntryClock.Add(time.Duration(-tauEntry * float64(time.Second)))
+		dense, ok := w.analyticArcSegment([]SOISegment{seg}, seg.EntryEl, body, periClock)
+		if !ok {
+			out = append(out, seg)
+			continue
+		}
+		// Keep the entry-conic provenance on the redrawn segment.
+		dense.EntryEl, dense.EntryClock, dense.HasEntryConic = seg.EntryEl, seg.EntryClock, true
+		out = append(out, dense)
+	}
+	return out
 }
 
 // inSOIEscapePass synthesizes the in-SOI residence variant of the SOI Pass
@@ -449,18 +565,48 @@ func (w *World) inSOIEscapePass(state physics.StateVector, primary bodies.Celest
 		}
 	}
 
-	// Perilune marker offset: the in-SOI sample closest to the body centre
-	// — the same placement rule as the sibling pass (Local-to-Body,
-	// ADR 0021 B; the chip carries the analytic value above).
-	minD := math.Inf(1)
-	for _, s := range pass.ArcSegments {
-		for _, r := range s.RelPoints {
-			if d := r.Norm(); d < minD {
-				minD = d
-				pass.PeriluneRel = r
-				pass.HasPerilunePt = true
+	// Perilune marker offset: the analytic closest approach, matching the
+	// chip's PeriluneRadius above (ADR 0023 B). Inbound (r·v < 0) periapsis
+	// is ahead, at rp along the periapsis direction; outbound it is behind,
+	// so the closest *future* approach is the current position (consistent
+	// with PeriluneRadius = |state.R| in that branch). Both are body-relative
+	// — the frame RelPoints share. Fall back to the nearest in-arc sample
+	// only if the periapsis direction is undefined (near-circular).
+	if state.R.Dot(state.V) >= 0 {
+		pass.PeriluneRel = state.R
+		pass.HasPerilunePt = true
+	} else if dir, ok := orbital.PeriapsisDirection(state.R, state.V, mu); ok {
+		pass.PeriluneRel = dir.Scale(pass.PeriluneRadius)
+		pass.HasPerilunePt = true
+	}
+	if !pass.HasPerilunePt {
+		minD := math.Inf(1)
+		for _, s := range pass.ArcSegments {
+			for _, r := range s.RelPoints {
+				if d := r.Norm(); d < minD {
+					minD = d
+					pass.PeriluneRel = r
+					pass.HasPerilunePt = true
+				}
 			}
 		}
 	}
+
+	// Analytic in-SOI arc (ADR 0023 D), the same fix as the sibling pass: the
+	// integrated arc above is equal-time sampled, which starves a sharp
+	// perilune exactly where it turns hardest (chords ~a full perilune radius —
+	// "a sharp curve around a moon with visible angles"). Here the orbit `el`
+	// IS already the body-relative conic (the craft is inside `primary`'s SOI),
+	// so redraw straight from it. The periapsis clock comes from the current
+	// state's signed time-from-periapsis, valid on both the inbound (periapsis
+	// ahead) and outbound (periapsis behind) branches. Only the in-SOI
+	// ArcSegments are redrawn; the OnwardSegments (parent-frame continuation)
+	// keep their integrated samples.
+	tauNow := orbital.SecsFromPeriapsisAt(el, orbital.TrueAnomalyAt(el, state.R), mu)
+	periClock := fromClock.Add(time.Duration(-tauNow * float64(time.Second)))
+	if seg, ok := w.analyticArcSegment(pass.ArcSegments, el, primary, periClock); ok {
+		pass.ArcSegments = []SOISegment{seg}
+	}
+
 	return pass, true
 }

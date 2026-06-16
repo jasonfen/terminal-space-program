@@ -62,6 +62,42 @@ type Elements struct {
 // a state vector (r, v) and the central body's gravitational parameter μ.
 // Standard formulation from Vallado §2.5 / Curtis §4.3. Returns e=0 for
 // circular orbits (Ω and ω then undefined — left at zero rather than NaN).
+// EccentricityVector returns the orbit's eccentricity (Laplace–Runge–Lenz)
+// vector for state (r, v) under gravitational parameter mu. It points from
+// the focus toward periapsis, with magnitude equal to the scalar
+// eccentricity, expressed in the same frame as r and v. Returns the zero
+// vector when r or mu is degenerate.
+func EccentricityVector(r, v Vec3, mu float64) Vec3 {
+	rMag := r.Norm()
+	if rMag == 0 || mu == 0 {
+		return Vec3{}
+	}
+	// vMag*vMag (not v.Dot(v)) so ElementsFromState, which delegates here,
+	// stays bit-identical to its former inline computation — capture
+	// strategy selection rides on a knife-edge tie sensitive to this ULP.
+	vMag := v.Norm()
+	rDotV := r.X*v.X + r.Y*v.Y + r.Z*v.Z
+	coef1 := vMag*vMag - mu/rMag
+	return Vec3{
+		X: (coef1*r.X - rDotV*v.X) / mu,
+		Y: (coef1*r.Y - rDotV*v.Y) / mu,
+		Z: (coef1*r.Z - rDotV*v.Z) / mu,
+	}
+}
+
+// PeriapsisDirection returns the unit vector toward periapsis (the
+// normalized eccentricity vector) for state (r, v) under mu, in the frame
+// of r and v. ok=false when the orbit is too near-circular (|e| ≈ 0) for a
+// defined periapsis direction — callers should fall back rather than place a
+// marker along an arbitrary axis.
+func PeriapsisDirection(r, v Vec3, mu float64) (Vec3, bool) {
+	e := EccentricityVector(r, v, mu)
+	if e.Norm() < 1e-9 {
+		return Vec3{}, false
+	}
+	return e.Unit(), true
+}
+
 func ElementsFromState(r, v Vec3, mu float64) Elements {
 	rMag := r.Norm()
 	vMag := v.Norm()
@@ -76,14 +112,9 @@ func ElementsFromState(r, v Vec3, mu float64) Elements {
 	}
 	hMag := h.Norm()
 
-	// Eccentricity vector e = ((v² − μ/r)·r − (r·v)·v) / μ.
-	rDotV := r.X*v.X + r.Y*v.Y + r.Z*v.Z
-	coef1 := vMag*vMag - mu/rMag
-	eVec := Vec3{
-		X: (coef1*r.X - rDotV*v.X) / mu,
-		Y: (coef1*r.Y - rDotV*v.Y) / mu,
-		Z: (coef1*r.Z - rDotV*v.Z) / mu,
-	}
+	// Eccentricity vector e = ((v² − μ/r)·r − (r·v)·v) / μ — points to
+	// periapsis; |e| is the scalar eccentricity.
+	eVec := EccentricityVector(r, v, mu)
 	eMag := eVec.Norm()
 
 	// Semimajor axis a = -μ/(2ε).

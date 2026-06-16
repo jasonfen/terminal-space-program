@@ -758,13 +758,13 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		if ro.Hyperbolic {
 			lines = append(lines,
 				"  "+m.theme.Warning.Render("hyperbolic — escape trajectory"),
-				fmt.Sprintf("  new periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+				fmt.Sprintf("  new Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
 				fmt.Sprintf("  e:             %.3f", ro.Eccentricity),
 			)
 		} else {
 			lines = append(lines,
-				fmt.Sprintf("  new apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
-				fmt.Sprintf("  new periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+				fmt.Sprintf("  new Ap:        %.1f km alt", (ro.ApoMeters-primaryR)/1000),
+				fmt.Sprintf("  new Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
 				fmt.Sprintf("  new inclin.:   %.2f°", ro.Inclination*180/math.Pi),
 			)
 			const equatorialTol = 1e-3
