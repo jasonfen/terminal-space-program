@@ -208,6 +208,79 @@ type predictTuning struct {
 	// dt on long horizons — the #91 re-resolution asks for ~1 s steps
 	// across a lunar flyby but the 256 clamp hands back ~30 s.
 	MaxSubSteps int
+
+	// PeriapsisDense distributes the output samples uniformly in TRUE
+	// anomaly instead of uniform time for a bound starting orbit, so the
+	// fast periapsis arc gets as many points as the slow apoapsis arc
+	// (ADR 0023 C playtest follow-up). Equal-time bunches points at
+	// apoapsis and leaves periapsis coarse, which the gap-fill then draws
+	// as a straight chord shooting out of the departure orbit. Set only on
+	// the rendered-leg path (PredictedSegmentsFrom); the SOI-pass scans keep
+	// uniform time so the encounter arc's own dense sampling is undisturbed.
+	PeriapsisDense bool
+}
+
+// trueAnomalyStepSecs returns the per-output-sample durations (length
+// samples-1, summing to totalSeconds) that walk a bound leg uniformly in
+// TRUE anomaly — constant angular spacing along the curve, so periapsis is
+// sampled as densely as apoapsis and no straight chord cuts out of the
+// departure orbit (ADR 0023 C). ok=false for near-circular (already even),
+// non-elliptical, or degenerate orbits, where the caller keeps uniform time.
+func trueAnomalyStepSecs(state physics.StateVector, mu, totalSeconds float64, samples int) ([]float64, bool) {
+	if samples < 3 || totalSeconds <= 0 || mu <= 0 {
+		return nil, false
+	}
+	el := orbital.ElementsFromState(state.R, state.V, mu)
+	e := el.E
+	if el.A <= 0 || e < 0.05 || e >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return nil, false
+	}
+	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
+	if period <= 0 || math.IsNaN(period) || math.IsInf(period, 0) {
+		return nil, false
+	}
+	mean := 2 * math.Pi / period
+	beta := e / (1 + math.Sqrt(1-e*e))
+	// E ⇄ ν via the bounded-correction closed forms (both stay unwrapped).
+	nuOf := func(E float64) float64 { return E + 2*math.Atan2(beta*math.Sin(E), 1-beta*math.Cos(E)) }
+	eOf := func(nu float64) float64 { return nu - 2*math.Atan2(beta*math.Sin(nu), 1+beta*math.Cos(nu)) }
+	nu0 := orbital.TrueAnomalyFromState(state.R, state.V, mu, el)
+	E0 := eOf(nu0)
+	M0 := E0 - e*math.Sin(E0)
+	// Unwrapped eccentric anomaly at the horizon end — SolveKepler normalises
+	// M into [-π,π], so solve here without the mod (E ≈ M seeds the Newton).
+	Mend := M0 + mean*totalSeconds
+	Eend := E0 + mean*totalSeconds
+	for iter := 0; iter < 40; iter++ {
+		f := Eend - e*math.Sin(Eend) - Mend
+		fp := 1 - e*math.Cos(Eend)
+		if fp == 0 {
+			break
+		}
+		Eend -= f / fp
+		if math.Abs(f) < 1e-10 {
+			break
+		}
+	}
+	nuEnd := nuOf(Eend)
+	if nuEnd <= nu0 {
+		return nil, false
+	}
+	times := make([]float64, samples)
+	for i := range times {
+		nui := nu0 + (nuEnd-nu0)*float64(i)/float64(samples-1)
+		Ei := eOf(nui)
+		times[i] = (Ei - e*math.Sin(Ei) - M0) / mean
+	}
+	times[0], times[samples-1] = 0, totalSeconds
+	steps := make([]float64, samples-1)
+	for i := range steps {
+		steps[i] = times[i+1] - times[i]
+		if steps[i] <= 0 {
+			return nil, false // non-monotone (numerical) — fall back to uniform time
+		}
+	}
+	return steps, true
 }
 
 // defaultPredictTuning is the production fidelity profile for both
@@ -349,7 +422,9 @@ func (w *World) refineCrossingTime(sys bodies.System, preState physics.StateVect
 // Output shape (a slice of SOISegments) is unchanged so the renderer
 // keeps working.
 func (w *World) PredictedSegmentsFrom(post physics.StateVector, startPrimary bodies.CelestialBody, startClock time.Time, totalSeconds float64, samples int) []SOISegment {
-	segs, _ := w.predictedSegmentsFromTuned(post, startPrimary, startClock, totalSeconds, samples, defaultPredictTuning())
+	tu := defaultPredictTuning()
+	tu.PeriapsisDense = true // even angular spacing for the rendered leg (ADR 0023 C)
+	segs, _ := w.predictedSegmentsFromTuned(post, startPrimary, startClock, totalSeconds, samples, tu)
 	return segs
 }
 
@@ -375,6 +450,16 @@ func (w *World) predictedSegmentsFromTuned(post physics.StateVector, startPrimar
 	period := orbitalPeriod(state, muNow)
 	maxStep := predictMaxSubStep(period)
 	stepSecs := totalSeconds / float64(samples-1)
+	// Periapsis-dense legs walk a non-uniform per-sample schedule (uniform
+	// true anomaly); equal-time otherwise. Sub-step sizing (nSub below) keeps
+	// dt ≤ maxStep regardless, so integration accuracy and SOI detection are
+	// unaffected — only the output cadence changes (ADR 0023 C).
+	var stepSchedule []float64
+	if tu.PeriapsisDense {
+		if s, ok := trueAnomalyStepSecs(state, muNow, totalSeconds, samples); ok {
+			stepSchedule = s
+		}
+	}
 
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for _, b := range sys.Bodies {
@@ -390,6 +475,9 @@ func (w *World) predictedSegmentsFromTuned(post physics.StateVector, startPrimar
 
 predict:
 	for i := 1; i < samples; i++ {
+		if stepSchedule != nil {
+			stepSecs = stepSchedule[i-1]
+		}
 		nSub := int(math.Ceil(stepSecs / maxStep))
 		if nSub < 1 {
 			nSub = 1
