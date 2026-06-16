@@ -183,6 +183,41 @@ func TestInSOIPassGeometry(t *testing.T) {
 // TestInSOIPassQuietWhenCaptured pins the quiet case: a captured (bound,
 // apoapsis inside the SOI) orbit synthesizes no residence pass — a parked
 // low lunar orbit and a stable LEO draw exactly as before, no ring.
+// TestInSOIArcIsDenseAndSmooth pins the ADR 0023 D fix for the in-SOI
+// residence pass (#157): flown inside a moon's SOI on a sharp perilune, the
+// arc is redrawn from its body-relative conic, so consecutive points near the
+// fast periapsis stay close together — the equal-time integrated sampling
+// left chords ~a full perilune radius long ("a sharp curve around a moon with
+// visible angles").
+func TestInSOIArcIsDenseAndSmooth(t *testing.T) {
+	w := mustWorld(t)
+	moon, _ := hyperbolicInMoonSOI(t, w)
+	pass, ok := w.LiveSOIPass()
+	if !ok {
+		t.Fatal("no in-SOI residence pass on the escape hyperbola")
+	}
+	rp := moon.RadiusMeters() + 500e3 // the constructed perilune
+
+	var rel []orbital.Vec3
+	for _, s := range pass.ArcSegments {
+		rel = append(rel, s.RelPoints...)
+	}
+	if len(rel) < 50 {
+		t.Fatalf("in-SOI arc has only %d points — not densified (want the analytic redraw)", len(rel))
+	}
+	maxNearPeri := 0.0
+	for i := 1; i < len(rel); i++ {
+		if rel[i].Norm() < 3*rp { // the sharp turn around the moon
+			if d := rel[i].Sub(rel[i-1]).Norm(); d > maxNearPeri {
+				maxNearPeri = d
+			}
+		}
+	}
+	if maxNearPeri > 0.5*rp {
+		t.Errorf("sharpest in-SOI chord near periapsis %.0f km = %.2f×perilune — facets visible, want < 0.5×perilune", maxNearPeri/1e3, maxNearPeri/rp)
+	}
+}
+
 func TestInSOIPassQuietWhenCaptured(t *testing.T) {
 	w := mustWorld(t)
 	_, moon := findMoon(t, w)
