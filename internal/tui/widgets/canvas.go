@@ -608,6 +608,64 @@ func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 	}
 }
 
+// PlotDenseLineColored plots a dotted line between world points a and b by
+// walking the projected pixel segment and setting one braille pixel every
+// `step` pixels (step=1 → solid, step≥2 → dashed texture). It keeps on-screen
+// dot spacing constant regardless of zoom: consecutive orbit/arc samples that
+// spread apart when zoomed in get the gap between them filled (ADR 0023 C).
+// The chord is exact under the affine projection, so no curve fidelity is
+// lost beyond the sampling already present. Pixels off the canvas are
+// skipped, and a pair lying wholly off one edge is rejected cheaply so a
+// zoomed-in leg's off-screen samples cost nothing.
+func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
+	if step < 1 {
+		step = 1
+	}
+	ax, ay, aOK := c.Project(a)
+	bx, by, bOK := c.Project(b)
+	if !aOK && !bOK {
+		// Both off-canvas: skip when they share an off-edge (the whole chord
+		// is off-screen). A pair straddling the canvas still draws its
+		// visible run via the per-pixel bounds check below.
+		if (ax < 0 && bx < 0) || (ax >= c.pxW && bx >= c.pxW) ||
+			(ay < 0 && by < 0) || (ay >= c.pxH && by >= c.pxH) {
+			return
+		}
+	}
+	dx, dy := bx-ax, by-ay
+	n := dx
+	if n < 0 {
+		n = -n
+	}
+	if ady := dy; ady < 0 {
+		if -ady > n {
+			n = -ady
+		}
+	} else if ady > n {
+		n = ady
+	}
+	if lim := c.pxW + c.pxH; n > lim {
+		n = lim // defensive: a chord longer than the canvas is mostly off-screen
+	}
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	for i := 0; i <= n; i += step {
+		var px, py int
+		if n == 0 {
+			px, py = ax, ay
+		} else {
+			px = ax + int(math.Round(float64(dx)*float64(i)/float64(n)))
+			py = ay + int(math.Round(float64(dy)*float64(i)/float64(n)))
+		}
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			continue
+		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = CellTag{Color: color}
+	}
+}
+
 // Cols / Rows expose the configured terminal cell dimensions.
 func (c *Canvas) Cols() int { return c.cols }
 func (c *Canvas) Rows() int { return c.rows }
