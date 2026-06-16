@@ -100,6 +100,31 @@ func TestPlotDenseLineStepDashes(t *testing.T) {
 	}
 }
 
+// TestPlotDenseLineLongChordNotBridged: a chord longer than the canvas's
+// shorter dimension (here an on-canvas point to one far off-canvas — a
+// Hohmann transfer's off-screen apoapsis) is NOT bridged. Only the on-canvas
+// endpoint is dotted; no straight line shoots across the view (ADR 0023 C).
+func TestPlotDenseLineLongChordNotBridged(t *testing.T) {
+	c := NewCanvas(60, 30) // pixel grid 120 × 120
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+
+	color := lipgloss.Color("#33AAFF")
+	a := orbital.Vec3{}          // canvas centre, on-canvas
+	b := orbital.Vec3{X: 100000} // far off the right edge
+	c.PlotDenseLineColored(a, b, color, 1)
+
+	dots := taggedPixels(c, color)
+	if len(dots) != 1 {
+		t.Fatalf("long chord set %d pixels, want 1 (the on-canvas endpoint only — no shooting line)", len(dots))
+	}
+	cx, cy, _ := c.Project(a)
+	if dots[0][0] != cx || dots[0][1] != cy {
+		t.Errorf("plotted pixel %v, want the on-canvas endpoint (%d,%d)", dots[0], cx, cy)
+	}
+}
+
 // TestPlotDenseLineOffCanvasSkipped: a chord lying wholly off one edge sets
 // nothing and returns promptly (the same-off-edge guard), so a zoomed-in
 // leg's off-screen samples cost nothing.

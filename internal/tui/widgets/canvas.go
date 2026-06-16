@@ -614,19 +614,32 @@ func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 // dot spacing constant regardless of zoom: consecutive orbit/arc samples that
 // spread apart when zoomed in get the gap between them filled (ADR 0023 C).
 // The chord is exact under the affine projection, so no curve fidelity is
-// lost beyond the sampling already present. Pixels off the canvas are
-// skipped, and a pair lying wholly off one edge is rejected cheaply so a
-// zoomed-in leg's off-screen samples cost nothing.
+// lost beyond the sampling already present.
+//
+// A chord longer than the canvas's shorter dimension is NOT bridged — those
+// samples straddle a fast periapsis arc or one sits well off-canvas (a
+// Hohmann transfer's off-screen apoapsis), where a straight fill would shoot
+// a line across the view. Such a pair falls back to the pre-gap-fill
+// behaviour: just the on-canvas endpoint dots, no connecting line.
 func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
 	if step < 1 {
 		step = 1
 	}
 	ax, ay, aOK := c.Project(a)
 	bx, by, bOK := c.Project(b)
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	plotPx := func(px, py int) {
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			return
+		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = CellTag{Color: color}
+	}
 	if !aOK && !bOK {
-		// Both off-canvas: skip when they share an off-edge (the whole chord
-		// is off-screen). A pair straddling the canvas still draws its
-		// visible run via the per-pixel bounds check below.
+		// Both off-canvas and sharing an off-edge — the whole chord is
+		// off-screen. A pair straddling the canvas still draws its visible run.
 		if (ax < 0 && bx < 0) || (ax >= c.pxW && bx >= c.pxW) ||
 			(ay < 0 && by < 0) || (ay >= c.pxH && by >= c.pxH) {
 			return
@@ -644,25 +657,25 @@ func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, s
 	} else if ady > n {
 		n = ady
 	}
-	if lim := c.pxW + c.pxH; n > lim {
-		n = lim // defensive: a chord longer than the canvas is mostly off-screen
+	maxFill := c.pxW
+	if c.pxH < maxFill {
+		maxFill = c.pxH
 	}
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
+	if n > maxFill {
+		// Too long to bridge — endpoint dots only, no shooting line.
+		plotPx(ax, ay)
+		plotPx(bx, by)
+		return
 	}
 	for i := 0; i <= n; i += step {
-		var px, py int
 		if n == 0 {
-			px, py = ax, ay
-		} else {
-			px = ax + int(math.Round(float64(dx)*float64(i)/float64(n)))
-			py = ay + int(math.Round(float64(dy)*float64(i)/float64(n)))
+			plotPx(ax, ay)
+			break
 		}
-		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
-			continue
-		}
-		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = CellTag{Color: color}
+		plotPx(
+			ax+int(math.Round(float64(dx)*float64(i)/float64(n))),
+			ay+int(math.Round(float64(dy)*float64(i)/float64(n))),
+		)
 	}
 }
 

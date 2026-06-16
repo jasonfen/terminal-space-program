@@ -1635,13 +1635,14 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 			continue
 		}
 		for _, seg := range leg.segs {
-			// step=2 dashes the home-SOI leg, step=1 keeps a foreign-SOI arc
-			// solid and eye-catching — but as a zoom-constant pixel cadence
-			// along the connected samples now, so the dots stay dense when
-			// zoomed in instead of spreading apart (ADR 0023 C).
-			step := 2
+			// Zoom-constant pixel cadence along the connected samples so the
+			// dots stay dense when zoomed in instead of spreading apart
+			// (ADR 0023 C). step=4 dashes the home-SOI leg, step=2 keeps a
+			// foreign-SOI arc tighter/eye-catching — both halved from the
+			// initial cadence after playtest read it as too dense.
+			step := 4
 			if seg.PrimaryID != homeID {
-				step = 1 // foreign SOI — solid
+				step = 2 // foreign SOI
 			}
 			pts := w.SegmentDrawPoints(seg, homeID)
 			if len(pts) == 1 {
@@ -1659,15 +1660,16 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 // coasting path and the frozen burn-time replay.
 func (v *OrbitView) plotArcLine(w *sim.World, line frozenArcLine) {
 	for _, seg := range line.segs {
-		// Solid, zoom-constant dot cadence along the connected samples
-		// (ADR 0023 C) — fill stays within a segment, so an SOI-transition
-		// boundary isn't bridged by a chord.
+		// Zoom-constant dot cadence along the connected samples (ADR 0023 C)
+		// — fill stays within a segment, so an SOI-transition boundary isn't
+		// bridged by a chord. step=2 matches the foreign-SOI leg cadence
+		// after the playtest density trim.
 		pts := w.SegmentDrawPoints(seg, line.anchor)
 		if len(pts) == 1 {
 			v.canvas.PlotColored(pts[0], line.color)
 		}
 		for i := 0; i+1 < len(pts); i++ {
-			v.canvas.PlotDenseLineColored(pts[i], pts[i+1], line.color, 1)
+			v.canvas.PlotDenseLineColored(pts[i], pts[i+1], line.color, 2)
 		}
 	}
 }
