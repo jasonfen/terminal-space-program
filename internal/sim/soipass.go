@@ -417,6 +417,50 @@ func (w *World) analyticArcSegment(segs []SOISegment, relEl orbital.Elements, bo
 	return SOISegment{PrimaryID: body.ID, Points: pts, RelPoints: rel}, true
 }
 
+// DensifyForeignArcs replaces each foreign-SOI segment that carries an entry
+// conic (HasEntryConic — recorded by the predictor at an SOI-crossing rebase)
+// with its analytic redraw (ADR 0023 D), so the planted-node legs draw a sharp
+// perilune as a smooth curve instead of the equal-time integrated sampling's
+// facets (~0.45× perilune-radius chords at a tight perilune). Home / parent
+// segments and any without a recorded entry conic pass through unchanged. The
+// periapsis clock comes from the entry point's analytic time-from-periapsis,
+// the same timing analyticArcSegment uses per sample. Pure conic trig, no
+// re-integration; the leg-draw builder wraps PredictedSegmentsFrom with it.
+func (w *World) DensifyForeignArcs(segs []SOISegment) []SOISegment {
+	out := make([]SOISegment, 0, len(segs))
+	for _, seg := range segs {
+		if !seg.HasEntryConic || len(seg.RelPoints) == 0 {
+			out = append(out, seg)
+			continue
+		}
+		var body bodies.CelestialBody
+		found := false
+		for _, b := range w.System().Bodies {
+			if b.ID == seg.PrimaryID {
+				body, found = b, true
+				break
+			}
+		}
+		if !found {
+			out = append(out, seg)
+			continue
+		}
+		mu := body.GravitationalParameter()
+		nuEntry := orbital.TrueAnomalyAt(seg.EntryEl, seg.RelPoints[0])
+		tauEntry := orbital.SecsFromPeriapsisAt(seg.EntryEl, nuEntry, mu)
+		periClock := seg.EntryClock.Add(time.Duration(-tauEntry * float64(time.Second)))
+		dense, ok := w.analyticArcSegment([]SOISegment{seg}, seg.EntryEl, body, periClock)
+		if !ok {
+			out = append(out, seg)
+			continue
+		}
+		// Keep the entry-conic provenance on the redrawn segment.
+		dense.EntryEl, dense.EntryClock, dense.HasEntryConic = seg.EntryEl, seg.EntryClock, true
+		out = append(out, dense)
+	}
+	return out
+}
+
 // inSOIEscapePass synthesizes the in-SOI residence variant of the SOI Pass
 // (#157): while `state` sits inside a non-root `primary`'s SOI on a
 // trajectory that LEAVES it — hyperbolic/parabolic (e ≥ 1, a ≤ 0) or bound

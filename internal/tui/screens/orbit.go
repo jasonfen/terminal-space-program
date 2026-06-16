@@ -1546,7 +1546,10 @@ func (v *OrbitView) computePredictedRender(w *sim.World) predictRenderData {
 		// period the leg's horizon spans, so a long inter-node horizon at
 		// high warp no longer smears the dashed orbit.
 		data.legs = append(data.legs, predictLegDraw{
-			segs:      w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples),
+			// Densify foreign-SOI segments analytically so a sharp planted-leg
+			// perilune reads as a smooth curve, not equal-time facets (ADR 0023
+			// D); home/parent segments pass through unchanged.
+			segs:      w.DensifyForeignArcs(w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples)),
 			color:     render.ManeuverSegmentColor(leg.NodeIndex),
 			apoapsisM: apo,
 		})

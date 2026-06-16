@@ -73,6 +73,55 @@ func TestAnalyticArcIsDenseAndSmooth(t *testing.T) {
 	}
 }
 
+// TestPlantedLegArcIsDenseAndSmooth pins the ADR 0023 D fix for the
+// planted-node legs path (DensifyForeignArcs over PredictedSegmentsFrom, what
+// plotPredictedLegs draws): a sharp perilune on a planted transfer draws as a
+// smooth analytic curve, not the equal-time integrated sampling's facets
+// (~0.45×perilune chords before the redraw). PredictedSegmentsFrom itself stays
+// integrated — only the draw builder densifies — so the integrated-behavior
+// tests above are untouched.
+func TestPlantedLegArcIsDenseAndSmooth(t *testing.T) {
+	w := mustWorld(t)
+	pass, _ := plantKernCursorPass(t, w)
+	rp := pass.PeriluneRadius
+
+	var rel []orbital.Vec3
+	sawFlybyConic := false // the transfer leg's flyby segment, born from an SOI crossing
+	for _, leg := range w.PredictedLegs() {
+		segs := w.DensifyForeignArcs(w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples))
+		for _, s := range segs {
+			if s.PrimaryID != pass.Body.ID {
+				continue
+			}
+			// The transfer leg crosses INTO Cursor's SOI, so its foreign
+			// segment carries an entry conic and is densified; the capture leg
+			// starts already in-frame (a bound post-burn orbit, no crossing) and
+			// legitimately has none — don't require it on every foreign segment.
+			if s.HasEntryConic {
+				sawFlybyConic = true
+			}
+			rel = append(rel, s.RelPoints...)
+		}
+	}
+	if !sawFlybyConic {
+		t.Fatal("no foreign leg segment carries an SOI-entry conic — the flyby wasn't densified")
+	}
+	if len(rel) < 50 {
+		t.Fatalf("planted-leg foreign arc has only %d points — not densified", len(rel))
+	}
+	maxNearPeri := 0.0
+	for i := 1; i < len(rel); i++ {
+		if rel[i].Norm() < 3*rp { // the sharp turn around the body
+			if d := rel[i].Sub(rel[i-1]).Norm(); d > maxNearPeri {
+				maxNearPeri = d
+			}
+		}
+	}
+	if maxNearPeri > 0.5*rp {
+		t.Errorf("sharpest planted-leg chord near periapsis %.0f km = %.2f×perilune — facets visible, want < 0.5×perilune", maxNearPeri/1e3, maxNearPeri/rp)
+	}
+}
+
 // TestForeignSegmentsRecordBodyRelativePoints: every predicted segment
 // carries body-relative samples (offset from its owning primary at each
 // sample's clock) alongside the inertial ones — the Local-to-Body Arc's
