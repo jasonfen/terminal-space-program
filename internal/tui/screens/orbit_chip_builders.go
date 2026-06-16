@@ -229,8 +229,8 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 	lines = append(lines, fmt.Sprintf("  inclin.:    %s", incLabel))
 	if !cap.Hyperbolic {
 		lines = append(lines,
-			fmt.Sprintf("  apoapsis:   %.0f km alt", (cap.ApoapsisM-primaryR)/1000),
-			fmt.Sprintf("  periapsis:  %.0f km alt", (cap.PeriapsisM-primaryR)/1000),
+			fmt.Sprintf("  Ap:         %.0f km alt", (cap.ApoapsisM-primaryR)/1000),
+			fmt.Sprintf("  Pe:         %.0f km alt", (cap.PeriapsisM-primaryR)/1000),
 		)
 	}
 	return lines
@@ -540,14 +540,14 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	lines := []string{
 		v.theme.Primary.Render("ORBIT"),
 		chipRow("altitude:", fmt.Sprintf("%.1f km", c.Altitude()/1000)),
-		chipRow("apoapsis:", fmt.Sprintf("%.1f km", apoAlt/1000)),
+		chipRow("Ap:", fmt.Sprintf("%.1f km", apoAlt/1000)),
 	}
 	if tApo := orbital.TimeToApoapsis(st, mu); tApo >= 0 {
-		lines = append(lines, chipRow("t→apo:", formatDurationShort(tApo)))
+		lines = append(lines, chipRow("t→Ap:", formatDurationShort(tApo)))
 	}
-	lines = append(lines, chipRow("periapsis:", fmt.Sprintf("%.1f km", periAlt/1000)))
+	lines = append(lines, chipRow("Pe:", fmt.Sprintf("%.1f km", periAlt/1000)))
 	if tPeri := orbital.TimeToPeriapsis(st, mu); tPeri >= 0 {
-		lines = append(lines, chipRow("t→peri:", formatDurationShort(tPeri)))
+		lines = append(lines, chipRow("t→Pe:", formatDurationShort(tPeri)))
 	}
 	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
 	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
@@ -584,13 +584,13 @@ func (v *OrbitView) buildProjectedOrbitChip(w *sim.World) []string {
 	if ro.Hyperbolic {
 		lines = append(lines,
 			"  "+v.theme.Warning.Render("hyperbolic — escape"),
-			fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+			fmt.Sprintf("  Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
 			fmt.Sprintf("  e:         %.3f", ro.Eccentricity),
 		)
 	} else {
 		lines = append(lines,
-			fmt.Sprintf("  apoapsis:  %.1f km alt", (ro.ApoMeters-primaryR)/1000),
-			fmt.Sprintf("  periapsis: %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+			fmt.Sprintf("  Ap:        %.1f km alt", (ro.ApoMeters-primaryR)/1000),
+			fmt.Sprintf("  Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
 			fmt.Sprintf("  inclin.:   %.2f°", ro.Inclination*180/math.Pi),
 			fmt.Sprintf("  direction: %s", v.orbitDirectionLabel(ro.Inclination)),
 		)
@@ -662,9 +662,9 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			if ap.EntersSOI {
 				alt := ap.Dist - b.RadiusMeters()
 				if alt <= 0 {
-					lines = append(lines, chipRow("peri:", v.theme.Warning.Render("IMPACT")))
+					lines = append(lines, chipRow("perilune:", v.theme.Warning.Render("IMPACT")))
 				} else {
-					lines = append(lines, chipRow("peri:", fmt.Sprintf("%.0f km", alt/1000)))
+					lines = append(lines, chipRow("perilune:", fmt.Sprintf("%.0f km", alt/1000)))
 				}
 			} else {
 				lines = append(lines, chipRow("approach:", formatRangeM(ap.Dist)))
@@ -684,8 +684,8 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		if tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0) {
 			tPrimaryR := tc.Primary.RadiusMeters()
 			lines = append(lines,
-				chipRow("apoapsis:", fmt.Sprintf("%.1f km", (tEl.Apoapsis()-tPrimaryR)/1000)),
-				chipRow("periapsis:", fmt.Sprintf("%.1f km", (tEl.Periapsis()-tPrimaryR)/1000)),
+				chipRow("Ap:", fmt.Sprintf("%.1f km", (tEl.Apoapsis()-tPrimaryR)/1000)),
+				chipRow("Pe:", fmt.Sprintf("%.1f km", (tEl.Periapsis()-tPrimaryR)/1000)),
 				chipRow("inclin.:", fmt.Sprintf("%.2f°", tEl.I*180/math.Pi)),
 			)
 		}
@@ -803,7 +803,7 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 		lines = append(lines, chipRow("T-entry:", formatTCA(arc.counterfactual.TimeToEntry)))
 	}
 	lines = append(lines,
-		chipRow("peri:", periValue(arc.counterfactual)),
+		chipRow("perilune:", periValue(arc.counterfactual)),
 		chipRow("TCA:", formatTCA(arc.counterfactual.TimeToPerilune)))
 	return lines
 }
