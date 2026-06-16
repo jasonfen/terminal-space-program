@@ -1990,7 +1990,7 @@ func (w *World) refineCombinedCapture(plan *planner.TransferPlan, c *spacecraft.
 		return
 	}
 	entryClock := depClock.Add(time.Duration(tEntry * float64(time.Second)))
-	_, tPeri, ok := w.targetPerilune(stEntry, c.Primary, target, entryClock)
+	_, tPeri, _, ok := w.targetPerilune(stEntry, c.Primary, target, entryClock)
 	if !ok {
 		return
 	}
@@ -2006,20 +2006,28 @@ func (w *World) refineCombinedCapture(plan *planner.TransferPlan, c *spacecraft.
 // relative orbit isn't hyperbolic or perilune is already behind the craft.
 // Shared by refineCombinedCapture and the live PredictedTargetApproach
 // readout so both agree on where the encounter periapsis is.
-func (w *World) targetPerilune(stEntry physics.StateVector, primary, target bodies.CelestialBody, atClock time.Time) (rp, tToPeri float64, ok bool) {
+// The returned periRel is the perilune position relative to the target's
+// centre (rp along the periapsis direction, in the target-relative inertial
+// frame), so a caller can place the Perilune marker at the true analytic
+// closest approach rather than the nearest sampled arc point (ADR 0023 B).
+func (w *World) targetPerilune(stEntry physics.StateVector, primary, target bodies.CelestialBody, atClock time.Time) (rp, tToPeri float64, periRel orbital.Vec3, ok bool) {
 	moonR := w.BodyPositionAt(target, atClock).Sub(w.BodyPositionAt(primary, atClock))
 	moonV := w.bodyInertialVelocityAt(target, atClock).Sub(w.bodyInertialVelocityAt(primary, atClock))
 	rel := orbital.Vec3State{R: stEntry.R.Sub(moonR), V: stEntry.V.Sub(moonV)}
 	muTarget := target.GravitationalParameter()
 	el := orbital.ElementsFromState(rel.R, rel.V, muTarget)
 	if el.E <= 1 || el.A >= 0 {
-		return 0, 0, false
+		return 0, 0, orbital.Vec3{}, false
 	}
 	t, okp := orbital.TimeToPeriapsisHyperbolic(rel, muTarget)
 	if !okp || t < 0 {
-		return 0, 0, false
+		return 0, 0, orbital.Vec3{}, false
 	}
-	return el.A * (1 - el.E), t, true
+	rp = el.A * (1 - el.E)
+	if dir, dok := orbital.PeriapsisDirection(rel.R, rel.V, muTarget); dok {
+		periRel = dir.Scale(rp)
+	}
+	return rp, t, periRel, true
 }
 
 // TargetApproach summarises a craft's predicted closest approach to a body
@@ -2032,6 +2040,12 @@ type TargetApproach struct {
 	Dist      float64
 	TCA       float64
 	EntersSOI bool
+	// PeriluneRel is the analytic closest-approach point relative to the
+	// target's centre (rp along the periapsis direction), in the
+	// target-relative inertial frame. Set only when the SOI-entering
+	// hyperbola resolved a periapsis direction; HasPeriluneRel gates it.
+	PeriluneRel    orbital.Vec3
+	HasPeriluneRel bool
 }
 
 // scanTargetEncounter walks the bound (elliptic) arc starting at `state`
@@ -2074,8 +2088,8 @@ func (w *World) scanTargetEncounter(state physics.StateVector, primary, target b
 	if tEntry >= 0 {
 		if stEntry, k := physics.KeplerStep(state, mu, tEntry); k {
 			entryClock := fromClock.Add(time.Duration(tEntry * float64(time.Second)))
-			if rp, tPeri, okp := w.targetPerilune(stEntry, primary, target, entryClock); okp {
-				return TargetApproach{Dist: rp, TCA: tEntry + tPeri, EntersSOI: true}, true
+			if rp, tPeri, periRel, okp := w.targetPerilune(stEntry, primary, target, entryClock); okp {
+				return TargetApproach{Dist: rp, TCA: tEntry + tPeri, EntersSOI: true, PeriluneRel: periRel, HasPeriluneRel: periRel != (orbital.Vec3{})}, true
 			}
 		}
 		// SOI entry but the relative hyperbola was degenerate — report the

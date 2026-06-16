@@ -272,6 +272,8 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 				PeriluneRadius: enc.Dist,
 				TimeToPerilune: enc.TCA,
 				Impact:         enc.Dist < b.RadiusMeters(),
+				PeriluneRel:    enc.PeriluneRel,
+				HasPerilunePt:  enc.HasPeriluneRel,
 			}
 			found = true
 		}
@@ -324,20 +326,22 @@ func (w *World) soiPassFromState(state physics.StateVector, primary bodies.Celes
 		}
 	}
 
-	// Perilune marker offset: the foreign-arc sample closest to the body
-	// centre. RelPoints are body-relative at each sample's clock, so the
-	// minimum-norm sample IS the drawn closest approach (Local-to-Body,
-	// ADR 0021 B) — the draw site anchors it at the Body's current
-	// position via PerilunePosition. The glyph marks "which marker, what
-	// state" — the value lives in the chip (ADR 0020 C) — so the
-	// nearest-sample approximation is sufficient for placement.
-	minD := math.Inf(1)
-	for _, s := range best.ArcSegments {
-		for _, r := range s.RelPoints {
-			if d := r.Norm(); d < minD {
-				minD = d
-				best.PeriluneRel = r
-				best.HasPerilunePt = true
+	// Perilune marker offset: the analytic closest approach (rp along the
+	// periapsis direction, set on best above from targetPerilune) is the
+	// primary placement — it matches the chip's PeriluneRadius and rides the
+	// drawn hyperbola's true bottom instead of snapping to a sample that
+	// re-phases each prediction (ADR 0023 B). Fall back to the nearest
+	// in-arc sample only when the relative hyperbola was degenerate and no
+	// analytic direction was available.
+	if !best.HasPerilunePt {
+		minD := math.Inf(1)
+		for _, s := range best.ArcSegments {
+			for _, r := range s.RelPoints {
+				if d := r.Norm(); d < minD {
+					minD = d
+					best.PeriluneRel = r
+					best.HasPerilunePt = true
+				}
 			}
 		}
 	}
@@ -449,16 +453,29 @@ func (w *World) inSOIEscapePass(state physics.StateVector, primary bodies.Celest
 		}
 	}
 
-	// Perilune marker offset: the in-SOI sample closest to the body centre
-	// — the same placement rule as the sibling pass (Local-to-Body,
-	// ADR 0021 B; the chip carries the analytic value above).
-	minD := math.Inf(1)
-	for _, s := range pass.ArcSegments {
-		for _, r := range s.RelPoints {
-			if d := r.Norm(); d < minD {
-				minD = d
-				pass.PeriluneRel = r
-				pass.HasPerilunePt = true
+	// Perilune marker offset: the analytic closest approach, matching the
+	// chip's PeriluneRadius above (ADR 0023 B). Inbound (r·v < 0) periapsis
+	// is ahead, at rp along the periapsis direction; outbound it is behind,
+	// so the closest *future* approach is the current position (consistent
+	// with PeriluneRadius = |state.R| in that branch). Both are body-relative
+	// — the frame RelPoints share. Fall back to the nearest in-arc sample
+	// only if the periapsis direction is undefined (near-circular).
+	if state.R.Dot(state.V) >= 0 {
+		pass.PeriluneRel = state.R
+		pass.HasPerilunePt = true
+	} else if dir, ok := orbital.PeriapsisDirection(state.R, state.V, mu); ok {
+		pass.PeriluneRel = dir.Scale(pass.PeriluneRadius)
+		pass.HasPerilunePt = true
+	}
+	if !pass.HasPerilunePt {
+		minD := math.Inf(1)
+		for _, s := range pass.ArcSegments {
+			for _, r := range s.RelPoints {
+				if d := r.Norm(); d < minD {
+					minD = d
+					pass.PeriluneRel = r
+					pass.HasPerilunePt = true
+				}
 			}
 		}
 	}

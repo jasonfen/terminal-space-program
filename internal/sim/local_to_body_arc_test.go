@@ -59,12 +59,18 @@ func TestForeignSegmentsRecordBodyRelativePoints(t *testing.T) {
 	if !pass.HasPerilunePt {
 		t.Fatal("pass has no perilune point")
 	}
-	if got := pass.PeriluneRel.Norm(); math.Abs(got-minD) > 1 {
-		t.Errorf("PeriluneRel norm = %.0f km, want the min body-relative sample distance %.0f km", got/1e3, minD/1e3)
+	// PeriluneRel is the analytic closest approach (ADR 0023 B): its norm
+	// matches the chip's PeriluneRadius exactly, replacing the old
+	// nearest-sample snap that re-phased each prediction.
+	if got := pass.PeriluneRel.Norm(); math.Abs(got-pass.PeriluneRadius) > 1 {
+		t.Errorf("PeriluneRel norm = %.0f km, want analytic PeriluneRadius %.0f km", got/1e3, pass.PeriluneRadius/1e3)
 	}
-	// The sampled minimum approximates the analytic perilune from above.
-	if minD < pass.PeriluneRadius*0.5 || minD > pass.PeriluneRadius*2+soi*0.05 {
-		t.Errorf("min body-relative distance %.0f km disagrees with PeriluneRadius %.0f km", minD/1e3, pass.PeriluneRadius/1e3)
+	// It still sits at the drawn arc's closest sample to SOI scale — the
+	// analytic point is two-body while the sample carries the integrated
+	// perturbation, so they agree closely without strictly bounding each
+	// other.
+	if math.Abs(pass.PeriluneRel.Norm()-minD) > 0.1*soi {
+		t.Errorf("analytic perilune %.0f km disagrees with nearest sample %.0f km by >0.1×SOI", pass.PeriluneRel.Norm()/1e3, minD/1e3)
 	}
 }
 

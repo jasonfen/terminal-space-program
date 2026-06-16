@@ -190,3 +190,49 @@ func expectPFVec(t *testing.T, name string, got, want Vec3) {
 		t.Errorf("%s = %+v, want %+v", name, got, want)
 	}
 }
+
+// TestEccentricityVectorPointsToPeriapsis pins the analytic-perilune
+// foundation (ADR 0023 B): the eccentricity vector points from the focus to
+// periapsis with magnitude e, and PeriapsisDirection · rp reconstructs the
+// periapsis position. Placing the craft at periapsis (r along +x, v
+// perpendicular, speed above circular) makes the answer +x by construction.
+func TestEccentricityVectorPointsToPeriapsis(t *testing.T) {
+	const mu = 3.986e14
+	rp := 7.0e6
+	vc := math.Sqrt(mu / rp)
+	r := Vec3{X: rp}
+	v := Vec3{Y: vc * 1.1} // 10 % above circular → current point is periapsis
+
+	e := EccentricityVector(r, v, mu)
+	wantE := 1.1*1.1 - 1 // (v²·r/μ − 1) with r·v = 0
+	if math.Abs(e.Norm()-wantE) > 1e-9 {
+		t.Errorf("|e| = %.9f, want %.9f", e.Norm(), wantE)
+	}
+	if el := ElementsFromState(r, v, mu); math.Abs(el.E-e.Norm()) > 1e-9 {
+		t.Errorf("|e| = %.9f disagrees with Elements.E = %.9f", e.Norm(), el.E)
+	}
+	dir, ok := PeriapsisDirection(r, v, mu)
+	if !ok {
+		t.Fatal("PeriapsisDirection ok=false for an eccentric orbit")
+	}
+	if math.Abs(dir.X-1) > 1e-12 || math.Abs(dir.Y) > 1e-12 || math.Abs(dir.Z) > 1e-12 {
+		t.Errorf("periapsis direction = %+v, want +x", dir)
+	}
+	// rp·dir reconstructs the periapsis position we started at.
+	if peri := dir.Scale(rp); math.Abs(peri.X-rp) > 1e-3 || math.Abs(peri.Y) > 1e-3 {
+		t.Errorf("rp·dir = %+v, want the start position %+v", peri, r)
+	}
+}
+
+// TestPeriapsisDirectionCircularUndefined: a (near-)circular orbit has no
+// defined periapsis direction, so PeriapsisDirection reports ok=false and
+// the caller falls back rather than placing a marker on an arbitrary axis.
+func TestPeriapsisDirectionCircularUndefined(t *testing.T) {
+	const mu = 3.986e14
+	rp := 7.0e6
+	r := Vec3{X: rp}
+	v := Vec3{Y: math.Sqrt(mu / rp)} // exactly circular
+	if _, ok := PeriapsisDirection(r, v, mu); ok {
+		t.Error("PeriapsisDirection ok=true for a circular orbit, want false")
+	}
+}
