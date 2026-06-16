@@ -184,11 +184,7 @@ func TestPredictedSegmentsCoastMatchesKeplerArc(t *testing.T) {
 	horizon := period / 2
 	const samples = 128
 	startClock := w.Clock.SimTime
-	// Equal-time path: this guards integrator fidelity by comparing point i
-	// to an analytic Kepler step of i·dt, so it must use uniform-time samples.
-	// The periapsis-dense public wrapper's accuracy is covered separately by
-	// TestPeriapsisDenseLegMatchesKeplerArc.
-	segs, _ := w.predictedSegmentsFromTuned(post, primary, startClock, horizon, samples, defaultPredictTuning())
+	segs := w.PredictedSegmentsFrom(post, primary, startClock, horizon, samples)
 
 	if len(segs) != 1 {
 		ids := make([]string, len(segs))
@@ -223,88 +219,6 @@ func TestPredictedSegmentsCoastMatchesKeplerArc(t *testing.T) {
 	}
 	if maxErr > 1000 {
 		t.Errorf("predicted coast leg drifts %.0f m from the exact Kepler arc (want <1 km) — fixed-step Verlet truncation, not analytic propagation", maxErr)
-	}
-}
-
-// TestPeriapsisDenseLegMatchesKeplerArc: the periapsis-dense public wrapper
-// (PredictedSegmentsFrom) still places every sample on the exact Kepler arc —
-// at its own non-uniform sample time — and packs more samples through the
-// fast perigee than the slow apogee (ADR 0023 C). Same eccentric,
-// single-segment setup as the equal-time fidelity guard above.
-func TestPeriapsisDenseLegMatchesKeplerArc(t *testing.T) {
-	w := mustWorld(t)
-	craft := w.ActiveCraft()
-	primary := craft.Primary
-	mu := primary.GravitationalParameter()
-	R := primary.RadiusMeters()
-
-	rp := R + 1000e3
-	ra := R + 150000e3
-	a := (rp + ra) / 2
-	vp := math.Sqrt(mu * (2/rp - 1/a))
-	post := physics.StateVector{R: orbital.Vec3{X: rp}, V: orbital.Vec3{Y: vp}, M: craft.State.M}
-	period := 2 * math.Pi * math.Sqrt(a*a*a/mu)
-	horizon := period / 2 // perigee → apogee
-	const samples = 128
-	startClock := w.Clock.SimTime
-
-	segs := w.PredictedSegmentsFrom(post, primary, startClock, horizon, samples)
-	if len(segs) != 1 {
-		t.Fatalf("coast leg split into %d segments; want 1", len(segs))
-	}
-	pts := segs[0].Points
-	if len(pts) != samples {
-		t.Fatalf("got %d points, want %d", len(pts), samples)
-	}
-
-	steps, ok := eccentricAnomalyStepSecs(post, mu, horizon, samples)
-	if !ok {
-		t.Fatal("expected a periapsis-dense schedule for an eccentric leg")
-	}
-	sum := 0.0
-	for _, s := range steps {
-		if s <= 0 {
-			t.Fatalf("non-positive schedule step %.3fs", s)
-		}
-		sum += s
-	}
-	if math.Abs(sum-horizon) > 1 {
-		t.Errorf("schedule sums to %.0fs, want horizon %.0fs", sum, horizon)
-	}
-
-	// Every sample lies on the exact Kepler arc at its own (non-uniform) time.
-	tCum, maxErr := 0.0, 0.0
-	for i := 0; i < samples; i++ {
-		exact, kok := physics.KeplerStep(post, mu, tCum)
-		if !kok {
-			t.Fatalf("KeplerStep reference failed at sample %d", i)
-		}
-		bodyPos := w.BodyPositionAt(primary, startClock.Add(time.Duration(tCum*float64(time.Second))))
-		if e := pts[i].Sub(bodyPos).Sub(exact.R).Norm(); e > maxErr {
-			maxErr = e
-		}
-		if i < samples-1 {
-			tCum += steps[i]
-		}
-	}
-	if maxErr > 1000 {
-		t.Errorf("periapsis-dense leg drifts %.0f m from the exact Kepler arc (want <1 km)", maxErr)
-	}
-
-	// Dense at BOTH apsides in SPACE: the body-relative chord between
-	// consecutive points is shortest at perigee (first) and apogee (last) and
-	// widest at quadrature (middle) — even arc-length, densest where the orbit
-	// turns. (Uniform-E's largest TIME step is at apogee, but the craft is
-	// slow there, so the spatial spacing is small — that's the property that
-	// matters for dot density.)
-	rel := segs[0].RelPoints
-	chord := func(i int) float64 { return rel[i+1].Sub(rel[i]).Norm() }
-	mid := chord(samples / 2)
-	if chord(0) >= mid {
-		t.Errorf("perigee chord %.0f km not shorter than quadrature %.0f km — not apsis-dense", chord(0)/1e3, mid/1e3)
-	}
-	if chord(samples-2) >= mid {
-		t.Errorf("apogee chord %.0f km not shorter than quadrature %.0f km — not apsis-dense", chord(samples-2)/1e3, mid/1e3)
 	}
 }
 

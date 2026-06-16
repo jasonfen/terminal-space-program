@@ -100,13 +100,8 @@ func TestPredictDefaultsRouteThroughFixKnobs(t *testing.T) {
 	w := mustWorld(t)
 	leg := coplanarLEOTowardMoon(t, w)
 
-	// Site A: segment IDs + every point must match the default-tuned call —
-	// plus PeriapsisDense, the one knob PredictedSegmentsFrom adds on top of
-	// the default fidelity profile (ADR 0023 C). The guard still catches a
-	// revert to the legacy zero value, since that would drop the fix knobs.
-	wantTu := defaultPredictTuning()
-	wantTu.PeriapsisDense = true
-	wantSegs, _ := w.predictedSegmentsFromTuned(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples, wantTu)
+	// Site A: segment IDs + every point must match the default-tuned call.
+	wantSegs, _ := w.predictedSegmentsFromTuned(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples, defaultPredictTuning())
 	gotSegs := w.PredictedSegmentsFrom(leg.State, leg.Primary, leg.StartClock, leg.HorizonSecs, leg.Samples)
 	if len(gotSegs) != len(wantSegs) {
 		t.Fatalf("PredictedSegmentsFrom routed through wrong tuning: %d segments, want %d", len(gotSegs), len(wantSegs))

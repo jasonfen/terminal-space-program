@@ -1635,21 +1635,29 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 			continue
 		}
 		for _, seg := range leg.segs {
-			// Zoom-constant pixel cadence along the connected samples so the
-			// dots stay dense when zoomed in instead of spreading apart
-			// (ADR 0023 C). step=4 dashes the home-SOI leg, step=2 keeps a
-			// foreign-SOI arc tighter/eye-catching — both halved from the
-			// initial cadence after playtest read it as too dense.
-			step := 4
-			if seg.PrimaryID != homeID {
-				step = 2 // foreign SOI
-			}
 			pts := w.SegmentDrawPoints(seg, homeID)
+			if seg.PrimaryID == homeID {
+				// Home transfer leg: plain stride-2 scattered dots, NOT a
+				// gap-filled line. It's drawn in the primary's inertial frame
+				// and aims at the encounter's FUTURE position, while the
+				// encounter arc is rebased to the body's current position
+				// (ADR 0021) — connecting it into a line reads as a stray line
+				// shooting past the encounter. Densify only the encounter arcs.
+				for i, p := range pts {
+					if i%2 == 0 {
+						continue
+					}
+					v.canvas.PlotColored(p, leg.color)
+				}
+				continue
+			}
+			// Foreign-SOI segment — zoom-constant gap-fill so the encounter
+			// stays a dense readable arc when zoomed in (ADR 0023 C).
 			if len(pts) == 1 {
 				v.canvas.PlotColored(pts[0], leg.color)
 			}
 			for i := 0; i+1 < len(pts); i++ {
-				v.canvas.PlotDenseLineColored(pts[i], pts[i+1], leg.color, step)
+				v.canvas.PlotDenseLineColored(pts[i], pts[i+1], leg.color, 2)
 			}
 		}
 	}
