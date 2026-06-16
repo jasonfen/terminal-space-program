@@ -257,7 +257,7 @@ func TestPeriapsisDenseLegMatchesKeplerArc(t *testing.T) {
 		t.Fatalf("got %d points, want %d", len(pts), samples)
 	}
 
-	steps, ok := trueAnomalyStepSecs(post, mu, horizon, samples)
+	steps, ok := eccentricAnomalyStepSecs(post, mu, horizon, samples)
 	if !ok {
 		t.Fatal("expected a periapsis-dense schedule for an eccentric leg")
 	}
@@ -291,10 +291,20 @@ func TestPeriapsisDenseLegMatchesKeplerArc(t *testing.T) {
 		t.Errorf("periapsis-dense leg drifts %.0f m from the exact Kepler arc (want <1 km)", maxErr)
 	}
 
-	// Denser at periapsis: the first step (leg starts at perigee) is far
-	// shorter than the last step (crossing apogee at the end of this leg).
-	if steps[0] >= steps[samples-2] {
-		t.Errorf("perigee step %.0fs not shorter than apogee step %.0fs — not periapsis-dense", steps[0], steps[samples-2])
+	// Dense at BOTH apsides in SPACE: the body-relative chord between
+	// consecutive points is shortest at perigee (first) and apogee (last) and
+	// widest at quadrature (middle) — even arc-length, densest where the orbit
+	// turns. (Uniform-E's largest TIME step is at apogee, but the craft is
+	// slow there, so the spatial spacing is small — that's the property that
+	// matters for dot density.)
+	rel := segs[0].RelPoints
+	chord := func(i int) float64 { return rel[i+1].Sub(rel[i]).Norm() }
+	mid := chord(samples / 2)
+	if chord(0) >= mid {
+		t.Errorf("perigee chord %.0f km not shorter than quadrature %.0f km — not apsis-dense", chord(0)/1e3, mid/1e3)
+	}
+	if chord(samples-2) >= mid {
+		t.Errorf("apogee chord %.0f km not shorter than quadrature %.0f km — not apsis-dense", chord(samples-2)/1e3, mid/1e3)
 	}
 }
 
