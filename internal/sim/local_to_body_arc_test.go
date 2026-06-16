@@ -32,6 +32,47 @@ func plantKernCursorPass(t *testing.T, w *World) (SOIPass, float64) {
 	return pass, physics.SOIRadius(cursor, kern)
 }
 
+// TestAnalyticArcIsDenseAndSmooth pins the ADR 0023 D faceted-perilune fix:
+// the SOI-pass arc is redrawn from the body-relative encounter conic, so it
+// carries many points and no single chord spans a large fraction of the SOI —
+// the integrated arc's handful of uniform-time samples (which the gap-fill
+// connected into a visible polygon) are replaced by a dense, smooth curve.
+func TestAnalyticArcIsDenseAndSmooth(t *testing.T) {
+	w := mustWorld(t)
+	pass, soi := plantKernCursorPass(t, w)
+
+	var rel []orbital.Vec3
+	for _, s := range pass.ArcSegments {
+		rel = append(rel, s.RelPoints...)
+	}
+	if len(rel) < 50 {
+		t.Fatalf("analytic arc has only %d points — not densified (want the soiArcSamples redraw)", len(rel))
+	}
+	// No facet: the longest gap between consecutive arc points is a small
+	// fraction of the SOI, so straight-chord gap-fill can't read as a polygon
+	// edge.
+	var maxChord float64
+	for i := 1; i < len(rel); i++ {
+		if d := rel[i].Sub(rel[i-1]).Norm(); d > maxChord {
+			maxChord = d
+		}
+	}
+	if maxChord > 0.12*soi {
+		t.Errorf("largest arc chord %.0f km = %.2f×SOI — facets still visible, want < 0.12×SOI", maxChord/1e3, maxChord/soi)
+	}
+	// The marker still sits on the drawn curve: the closest arc point matches
+	// the analytic perilune (one conic, one source of truth — ADR 0023 B+D).
+	minD := math.Inf(1)
+	for _, r := range rel {
+		if d := r.Norm(); d < minD {
+			minD = d
+		}
+	}
+	if math.Abs(minD-pass.PeriluneRel.Norm()) > 0.02*soi {
+		t.Errorf("arc's closest point %.0f km vs analytic perilune %.0f km — marker off the drawn curve", minD/1e3, pass.PeriluneRel.Norm()/1e3)
+	}
+}
+
 // TestForeignSegmentsRecordBodyRelativePoints: every predicted segment
 // carries body-relative samples (offset from its owning primary at each
 // sample's clock) alongside the inertial ones — the Local-to-Body Arc's

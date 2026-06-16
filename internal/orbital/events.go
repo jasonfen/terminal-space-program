@@ -86,6 +86,39 @@ func TimeToPeriapsisHyperbolic(state Vec3State, mu float64) (float64, bool) {
 	return -M / n, true
 }
 
+// SecsFromPeriapsisAt returns the signed seconds from periapsis (ν=0) to true
+// anomaly nu along the conic el under gravitational parameter mu: negative
+// inbound (ν<0, before periapsis), positive outbound. It handles both the
+// elliptic (e<1) and hyperbolic (e>1) cases via the respective mean anomaly,
+// the inverse of the TimeTo* helpers above. Used to time the analytic
+// encounter-arc samples so each carries its true inertial position (ADR 0023
+// D). Returns 0 for a degenerate conic (a==0, e≈1, μ≤0).
+func SecsFromPeriapsisAt(el Elements, nu, mu float64) float64 {
+	if el.A == 0 || mu <= 0 || math.Abs(el.E-1) < 1e-9 {
+		return 0
+	}
+	if el.E < 1 {
+		n := math.Sqrt(mu / (el.A * el.A * el.A))
+		if n == 0 {
+			return 0
+		}
+		return meanFromTrue(nu, el.E) / n
+	}
+	denom := 1 + el.E*math.Cos(nu)
+	if denom <= 0 {
+		return 0 // beyond the asymptote — not on the physical arc
+	}
+	sinhH := math.Sqrt(el.E*el.E-1) * math.Sin(nu) / denom
+	H := math.Asinh(sinhH)
+	M := el.E*math.Sinh(H) - H
+	absA := -el.A
+	n := math.Sqrt(mu / (absA * absA * absA))
+	if n == 0 {
+		return 0
+	}
+	return M / n
+}
+
 // TimeToRadiusOutbound returns the elapsed seconds from the given state to
 // the next time the trajectory crosses radius r moving OUTBOUND (ṙ > 0) —
 // the SOI-exit geometry: a craft inside a body's sphere on an escaping
