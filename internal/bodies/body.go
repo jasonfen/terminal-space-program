@@ -102,6 +102,12 @@ type CelestialBody struct {
 	// varied pole directions; populating this field lets each one
 	// tip the right way once we have data.
 	AxialAzimuth float64 `json:"axialAzimuth,omitempty"`
+
+	// Texture is the optional data-driven surface-texture spec
+	// (ADR 0024). nil renders a flat solid disk; the generic render
+	// engine consumes a non-nil block. Cosmetic, not semantic —
+	// deliberately excluded from CatalogHash (see catalog.go).
+	Texture *Texture `json:"texture,omitempty"`
 }
 
 // Atmosphere is an exponential-density atmospheric model:
