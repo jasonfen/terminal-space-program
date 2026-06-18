@@ -216,7 +216,11 @@ func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg, scre
 		return nil
 	}
 	base := bodyTextureBase(b, subLatDeg, subLonDeg, screenUpX, screenUpY)
-	if base == nil || b.ID == "sun" || light == nil {
+	// Stars are the light source — exempt from day/night shading. The
+	// hardcoded "sun" stays; a data-driven body declaring a star kind
+	// (ADR 0024 PR3, e.g. Lumen) is exempt the same way.
+	isStar := b.ID == "sun" || (b.Texture != nil && b.Texture.Star != nil)
+	if base == nil || isStar || light == nil {
 		return base
 	}
 	return func(dx, dy, r int) lipgloss.Color {

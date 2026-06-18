@@ -32,7 +32,7 @@ func TestLumenBodiesRenderTextured(t *testing.T) {
 	textured := 0
 	for _, b := range lumen.Bodies {
 		if b.Texture == nil {
-			continue // the star carries no texture until PR3
+			continue
 		}
 		textured++
 		tex := TextureFor(b, pxRadius, 0, 0, 0, 1, nil)
@@ -53,7 +53,7 @@ func TestLumenBodiesRenderTextured(t *testing.T) {
 			t.Errorf("%s: rendered %d distinct color(s), want >= 2 (features not landing on disk?)", b.ID, len(seen))
 		}
 	}
-	if textured != 16 {
-		t.Errorf("expected 16 textured Lumen bodies (all but the star), got %d", textured)
+	if textured != 17 {
+		t.Errorf("expected all 17 Lumen bodies textured (16 surfaces + the star), got %d", textured)
 	}
 }

@@ -99,10 +99,20 @@ type LatLonPair struct {
 	Lon float64 `json:"lon"`
 }
 
-// TextureStar is the self-luminous star-surface kind. Granulation is
-// the granulation amplitude (0..1); Seed seeds the noise. Carried in
-// the schema from PR1; the engine consumes it starting PR3.
+// TextureStar is the self-luminous star-surface kind: concentric
+// limb darkening (bright Core → Surface → darker Limb) with optional
+// granulation jitter and sunspots. A body carrying a Star block is
+// exempt from day/night shading — it is the light source. Core /
+// Surface / Limb are hex colors; empty ones derive from the body's
+// Color. Granulation is the surface mottling amplitude (0..1); Seed
+// makes the (deterministic) granulation pattern reproducible. Spot is
+// the sunspot color; spot *positions* are taken from the texture's
+// Spots ellipses.
 type TextureStar struct {
+	Core        string  `json:"core,omitempty"`
+	Surface     string  `json:"surface,omitempty"`
+	Limb        string  `json:"limb,omitempty"`
+	Spot        string  `json:"spot,omitempty"`
 	Granulation float64 `json:"granulation,omitempty"`
 	Seed        int64   `json:"seed,omitempty"`
 }
@@ -152,9 +162,27 @@ func (t *Texture) Validate() error {
 				return fmt.Errorf("texture: mask biome %q has invalid color %q", kind, c)
 			}
 		}
+		for i, region := range t.Mask.Polys {
+			if region.Kind == "" {
+				return fmt.Errorf("texture: mask poly %d has empty kind", i)
+			}
+			if _, ok := t.Mask.Biomes[region.Kind]; !ok {
+				return fmt.Errorf("texture: mask poly %d kind %q has no biome color", i, region.Kind)
+			}
+			if len(region.Vertices) < 3 {
+				return fmt.Errorf("texture: mask poly %d (%s) has %d vertices, need >= 3", i, region.Kind, len(region.Vertices))
+			}
+		}
 	}
-	if t.Star != nil && (t.Star.Granulation < 0 || t.Star.Granulation > 1) {
-		return fmt.Errorf("texture: star granulation %g out of [0,1]", t.Star.Granulation)
+	if t.Star != nil {
+		if t.Star.Granulation < 0 || t.Star.Granulation > 1 {
+			return fmt.Errorf("texture: star granulation %g out of [0,1]", t.Star.Granulation)
+		}
+		for name, c := range map[string]string{"core": t.Star.Core, "surface": t.Star.Surface, "limb": t.Star.Limb, "spot": t.Star.Spot} {
+			if !validHexColor(c) {
+				return fmt.Errorf("texture: star %s has invalid color %q", name, c)
+			}
+		}
 	}
 	return nil
 }

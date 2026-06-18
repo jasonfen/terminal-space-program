@@ -1,6 +1,8 @@
 package render
 
 import (
+	"math"
+
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -38,12 +40,33 @@ type compiledCrater struct {
 	hasRim bool
 }
 
+// limbTintThreshold is the squared normalized disk radius beyond which
+// a limb-tint color paints the atmospheric-halo ring (matches Earth's
+// r2 > 0.92 atmosphere band).
+const limbTintThreshold = 0.92
+
+type compiledRegion struct {
+	verts [][2]float64 // (lat, lon) polygon, ray-cast point-in-polygon
+	color lipgloss.Color
+}
+
+type compiledStar struct {
+	core, surface, limb lipgloss.Color
+	spots               []continentEllipse // sunspot positions, color baked in
+	granulation         float64
+	seed                int64
+}
+
 type compiledTexture struct {
-	base       lipgloss.Color
-	bands      []compiledBand
-	continents []continentEllipse
-	spots      []continentEllipse
-	craters    []compiledCrater
+	base        lipgloss.Color
+	bands       []compiledBand
+	mask        []compiledRegion
+	continents  []continentEllipse
+	spots       []continentEllipse
+	craters     []compiledCrater
+	limbTint    lipgloss.Color
+	hasLimbTint bool
+	star        *compiledStar
 }
 
 // compileTexture turns a JSON texture spec into a per-pixel-ready form.
@@ -89,6 +112,43 @@ func compileTexture(t *bodies.Texture, fallbackBase string) *compiledTexture {
 		}
 		ct.craters = append(ct.craters, cr)
 	}
+	if t.Mask != nil {
+		for _, region := range t.Mask.Polys {
+			if len(region.Vertices) < 3 {
+				continue
+			}
+			verts := make([][2]float64, len(region.Vertices))
+			for i, v := range region.Vertices {
+				verts[i] = [2]float64{v.Lat, v.Lon}
+			}
+			ct.mask = append(ct.mask, compiledRegion{
+				verts: verts,
+				color: parseColor(t.Mask.Biomes[region.Kind], ct.base),
+			})
+		}
+	}
+	if t.LimbTint != "" {
+		ct.limbTint = lipgloss.Color(t.LimbTint)
+		ct.hasLimbTint = true
+	}
+	if t.Star != nil {
+		surface := parseColor(t.Star.Surface, ct.base)
+		cs := &compiledStar{
+			core:        parseColor(t.Star.Core, surface),
+			surface:     surface,
+			limb:        parseColor(t.Star.Limb, Shade(surface, 0.7)),
+			granulation: t.Star.Granulation,
+			seed:        t.Star.Seed,
+		}
+		spotColor := parseColor(t.Star.Spot, Shade(surface, 0.55))
+		for _, e := range t.Spots {
+			if e.LatR <= 0 || e.LonR <= 0 {
+				continue
+			}
+			cs.spots = append(cs.spots, toEllipseColor(e, parseColor(e.Color, spotColor)))
+		}
+		ct.star = cs
+	}
 	return ct
 }
 
@@ -116,6 +176,11 @@ func parseColor(hex string, fallback lipgloss.Color) lipgloss.Color {
 // latitude alone (valid even at a pole-on view, matching JupiterPixel-
 // Color); the ellipse kinds are gated on a valid longitude.
 func (ct *compiledTexture) colorAt(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
+	// A star is self-luminous: it ignores the surface kinds (and the
+	// caller's day/night shading is suppressed in TextureFor).
+	if ct.star != nil {
+		return ct.star.colorAt(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
+	}
 	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	color := ct.base
 	for _, b := range ct.bands {
@@ -126,6 +191,11 @@ func (ct *compiledTexture) colorAt(dx, dy, pxRadius int, subLatDeg, subLonDeg, s
 	}
 	if !ok {
 		return color
+	}
+	for _, region := range ct.mask {
+		if pointInLatLonPolygon(lat, lon, region.verts) {
+			color = region.color
+		}
 	}
 	for _, c := range ct.continents {
 		if inEllipse(lat, lon, c) {
@@ -146,7 +216,57 @@ func (ct *compiledTexture) colorAt(dx, dy, pxRadius int, subLatDeg, subLonDeg, s
 			}
 		}
 	}
+	if ct.hasLimbTint {
+		nx := float64(dx) / float64(pxRadius)
+		ny := float64(dy) / float64(pxRadius)
+		if nx*nx+ny*ny > limbTintThreshold {
+			color = ct.limbTint
+		}
+	}
 	return color
+}
+
+// colorAt shades a star surface: concentric limb darkening (core →
+// surface → limb by disk radius) with optional sunspots and granulation
+// mottling on the mid band. Mirrors SunPixelColor's band structure but
+// is fully data-driven.
+func (cs *compiledStar) colorAt(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
+	nx := float64(dx) / float64(pxRadius)
+	ny := float64(dy) / float64(pxRadius)
+	r2 := nx*nx + ny*ny
+	switch {
+	case r2 > 0.85:
+		return cs.limb
+	case r2 > 0.45:
+		lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
+		if !ok {
+			return cs.surface
+		}
+		for _, s := range cs.spots {
+			if inEllipse(lat, lon, s) {
+				return s.color
+			}
+		}
+		if cs.granulation > 0 {
+			return Shade(cs.surface, 1-cs.granulation*granuleNoise(lat, lon, cs.seed))
+		}
+		return cs.surface
+	default:
+		return cs.core
+	}
+}
+
+// granuleNoise returns a deterministic value in [0,1) for a lat/lon
+// cell, used to mottle a star's surface. Quantizing to ~6° cells gives
+// granule-sized blobs; the integer hash keeps it reproducible (no RNG)
+// and seedable per body.
+func granuleNoise(lat, lon float64, seed int64) float64 {
+	x := uint64(int64(math.Floor(lat / 6.0)))
+	y := uint64(int64(math.Floor(lon / 6.0)))
+	h := x*73856093 ^ y*19349663 ^ uint64(seed)*83492791
+	h = (h ^ (h >> 13)) * 0x5bd1e995
+	h ^= h >> 15
+	return float64(h&0xffff) / 65536.0
 }
 
 // ellipseNorm returns the squared normalized elliptical radius of
