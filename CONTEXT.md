@@ -1664,6 +1664,41 @@ _Avoid_: Camera direction (correct but ambiguous — a camera also
 has up and right), Out-of-screen axis, Normal (overloaded with
 orbit-normal h in [[#maneuver--thrust|Burn Mode]] math).
 
+**Body Texture**:
+The per-pixel surface a Body paints inside its disk — continents,
+craters, cloud bands, the day/night terminator — as opposed to the
+flat single-color disk a texture-less Body renders as. Resolved from
+a Body's **Texture Spec** and projected orthographically about the
+**Sub-Observer Point** (the lat/lon facing the camera), then darkened
+by the day/night **Shade** factor. Gated by a minimum pixel radius:
+below it a Body is too few pixels to texture and stays a solid disk,
+so textures only resolve as you approach.
+_Avoid_: Sprite (reserved for the Vessel's [[#vessel-construction--lifecycle|Launch Sprite]]),
+Skin, Map (collides with the OrbitView map).
+
+**Texture Spec**:
+A Body's declarative description of its surface, carried in the system
+JSON (ADR 0024): a base color plus typed **Feature Kinds**. The same
+spec drives every system, including user overlays — surfaces are
+content, not code. Cosmetic only: a Texture Spec never affects physics
+or Body references and is excluded from the Catalog Hash, so editing
+one never rejects a save.
+_Avoid_: Texture map (implies a bitmap; the spec is vector/parametric),
+Material (graphics-pipeline jargon this game doesn't use).
+
+**Feature Kind**:
+One of the typed surface elements a **Texture Spec** lists, each with
+its own look: **continents** (filled albedo regions, terrestrial),
+**craters** (rimmed, optionally rayed impact marks, airless bodies),
+**bands** (latitude cloud sweeps, gas/ice giants), **spots** (discrete
+storms like a Great Red Spot), **mask** (a rasterised land/ocean/
+desert/ice polygon grid with latitude biomes, Earth-class terrestrials),
+and **star** (limb darkening + granulation; a star is the light source
+and is exempt from Shade). A Body mixes whichever kinds fit its
+**archetype**.
+_Avoid_: Feature type (Kind is the canonical noun here), Layer
+(implies strict paint order the schema doesn't mandate).
+
 ### HUD & overlays
 
 How orbit-screen information is placed: a slim always-on column of core
