@@ -27,8 +27,25 @@ func TestTextureValidate(t *testing.T) {
 		{"continent zero radius", &Texture{Continents: []TextureEllipse{{Lat: 0, Lon: 0, LatR: 0, LonR: 5, Color: "#fff"}}}, true},
 		{"crater bad rim", &Texture{Craters: []TextureEllipse{{LatR: 1, LonR: 1, Rim: "nope"}}}, true},
 		{"mask biome bad color", &Texture{Mask: &TextureMask{Biomes: map[string]string{"land": "green"}}}, true},
+		{"mask good poly", &Texture{Mask: &TextureMask{
+			Biomes: map[string]string{"land": "#4E7A3A"},
+			Polys:  []TextureRegion{{Kind: "land", Vertices: []LatLonPair{{0, 0}, {1, 0}, {1, 1}}}},
+		}}, false},
+		{"mask poly empty kind", &Texture{Mask: &TextureMask{
+			Biomes: map[string]string{"land": "#4E7A3A"},
+			Polys:  []TextureRegion{{Vertices: []LatLonPair{{0, 0}, {1, 0}, {1, 1}}}},
+		}}, true},
+		{"mask poly unknown biome", &Texture{Mask: &TextureMask{
+			Biomes: map[string]string{"land": "#4E7A3A"},
+			Polys:  []TextureRegion{{Kind: "sea", Vertices: []LatLonPair{{0, 0}, {1, 0}, {1, 1}}}},
+		}}, true},
+		{"mask poly too few vertices", &Texture{Mask: &TextureMask{
+			Biomes: map[string]string{"land": "#4E7A3A"},
+			Polys:  []TextureRegion{{Kind: "land", Vertices: []LatLonPair{{0, 0}, {1, 0}}}},
+		}}, true},
 		{"star granulation out of range", &Texture{Star: &TextureStar{Granulation: 2}}, true},
-		{"star granulation ok", &Texture{Star: &TextureStar{Granulation: 0.12, Seed: 42}}, false},
+		{"star bad core color", &Texture{Star: &TextureStar{Core: "nope"}}, true},
+		{"star granulation ok", &Texture{Star: &TextureStar{Core: "#FFF0C0", Granulation: 0.12, Seed: 42}}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

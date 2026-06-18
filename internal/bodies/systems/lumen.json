@@ -7,6 +7,21 @@
   "bodies": [
     {
       "id": "lumen",
+      "texture": {
+        "star": {
+          "core": "#FFF0C0",
+          "surface": "#FFD27F",
+          "limb": "#E89030",
+          "spot": "#B86A28",
+          "granulation": 0.14,
+          "seed": 7
+        },
+        "spots": [
+          { "lat": 20, "lon": -48, "latR": 3, "lonR": 4 },
+          { "lat": -16, "lon": 52, "latR": 2, "lonR": 3 },
+          { "lat": 34, "lon": 18, "latR": 2, "lonR": 3 }
+        ]
+      },
       "name": "Lumen",
       "englishName": "Lumen",
       "bodyType": "Star",
@@ -56,13 +71,29 @@
       "id": "ember",
       "texture": {
         "base": "#5E3A6E",
-        "continents": [
-          { "lat": 0, "lon": 0, "latR": 30, "lonR": 35, "color": "#7A4A8E" },
-          { "lat": 30, "lon": -80, "latR": 20, "lonR": 30, "color": "#9B59B6" },
-          { "lat": -25, "lon": 70, "latR": 22, "lonR": 30, "color": "#452A52" },
-          { "lat": -50, "lon": -40, "latR": 15, "lonR": 35, "color": "#7A4A8E" },
-          { "lat": 55, "lon": 120, "latR": 14, "lonR": 40, "color": "#452A52" }
-        ]
+        "limbTint": "#B07FD8",
+        "mask": {
+          "biomes": {
+            "mid": "#7A4A8E",
+            "high": "#9B59B6",
+            "dark": "#452A52"
+          },
+          "polys": [
+            { "kind": "mid", "vertices": [
+              {"lat":10,"lon":-30},{"lat":20,"lon":0},{"lat":14,"lon":30},{"lat":-2,"lon":28},
+              {"lat":-12,"lon":5},{"lat":-8,"lon":-25} ] },
+            { "kind": "high", "vertices": [
+              {"lat":30,"lon":-80},{"lat":40,"lon":-55},{"lat":32,"lon":-40},{"lat":20,"lon":-55},{"lat":24,"lon":-78} ] },
+            { "kind": "dark", "vertices": [
+              {"lat":-20,"lon":60},{"lat":-10,"lon":85},{"lat":-22,"lon":100},{"lat":-36,"lon":90},{"lat":-34,"lon":66} ] },
+            { "kind": "mid", "vertices": [
+              {"lat":-50,"lon":-50},{"lat":-42,"lon":-25},{"lat":-52,"lon":-10},{"lat":-62,"lon":-30},{"lat":-58,"lon":-52} ] },
+            { "kind": "high", "vertices": [
+              {"lat":50,"lon":120},{"lat":60,"lon":150},{"lat":52,"lon":170},{"lat":42,"lon":155},{"lat":44,"lon":128} ] },
+            { "kind": "dark", "vertices": [
+              {"lat":8,"lon":110},{"lat":16,"lon":135},{"lat":4,"lon":150},{"lat":-6,"lon":132},{"lat":-2,"lon":112} ] }
+          ]
+        }
       },
       "name": "Ember",
       "englishName": "Ember",
@@ -94,23 +125,49 @@
       "id": "kern",
       "texture": {
         "base": "#1F5C82",
-        "continents": [
-          { "lat": 0, "lon": -60, "latR": 18, "lonR": 22, "color": "#4E7A3A" },
-          { "lat": -8, "lon": -44, "latR": 14, "lonR": 16, "color": "#4E7A3A" },
-          { "lat": 10, "lon": -74, "latR": 12, "lonR": 14, "color": "#3E6A2E" },
-          { "lat": 2, "lon": -50, "latR": 8, "lonR": 10, "color": "#C2A35A" },
-          { "lat": 12, "lon": 52, "latR": 20, "lonR": 24, "color": "#4E7A3A" },
-          { "lat": 0, "lon": 66, "latR": 13, "lonR": 16, "color": "#3E6A2E" },
-          { "lat": 22, "lon": 36, "latR": 12, "lonR": 14, "color": "#4E7A3A" },
-          { "lat": 46, "lon": 132, "latR": 18, "lonR": 30, "color": "#6E7A4A" },
-          { "lat": 34, "lon": 150, "latR": 12, "lonR": 18, "color": "#4E7A3A" },
-          { "lat": -36, "lon": -142, "latR": 16, "lonR": 30, "color": "#4E7A3A" },
-          { "lat": -46, "lon": -118, "latR": 12, "lonR": 20, "color": "#6E7A4A" },
-          { "lat": -10, "lon": 122, "latR": 14, "lonR": 20, "color": "#C2A35A" },
-          { "lat": -18, "lon": 136, "latR": 10, "lonR": 14, "color": "#C2A35A" },
-          { "lat": 86, "lon": 0, "latR": 7, "lonR": 180, "color": "#E8F0F6" },
-          { "lat": -86, "lon": 0, "latR": 7, "lonR": 180, "color": "#E8F0F6" }
-        ]
+        "limbTint": "#9DC8FF",
+        "mask": {
+          "biomes": {
+            "grass": "#4E7A3A",
+            "tropical": "#3E6A2E",
+            "desert": "#C2A35A",
+            "boreal": "#6E7A4A",
+            "ice": "#E8F0F6"
+          },
+          "polys": [
+            { "kind": "grass", "vertices": [
+              {"lat":-5,"lon":-90},{"lat":8,"lon":-85},{"lat":18,"lon":-70},{"lat":20,"lon":-55},
+              {"lat":12,"lon":-45},{"lat":2,"lon":-42},{"lat":-8,"lon":-48},{"lat":-15,"lon":-60},{"lat":-12,"lon":-78} ] },
+            { "kind": "grass", "vertices": [
+              {"lat":30,"lon":30},{"lat":34,"lon":55},{"lat":28,"lon":72},{"lat":15,"lon":75},
+              {"lat":6,"lon":65},{"lat":8,"lon":45},{"lat":18,"lon":32} ] },
+            { "kind": "grass", "vertices": [
+              {"lat":-28,"lon":-150},{"lat":-22,"lon":-130},{"lat":-26,"lon":-112},{"lat":-38,"lon":-110},
+              {"lat":-46,"lon":-125},{"lat":-44,"lon":-145},{"lat":-34,"lon":-152} ] },
+            { "kind": "boreal", "vertices": [
+              {"lat":38,"lon":118},{"lat":52,"lon":130},{"lat":54,"lon":155},{"lat":44,"lon":165},
+              {"lat":34,"lon":150},{"lat":32,"lon":128} ] },
+            { "kind": "grass", "vertices": [
+              {"lat":34,"lon":135},{"lat":40,"lon":150},{"lat":34,"lon":158},{"lat":30,"lon":142} ] },
+            { "kind": "desert", "vertices": [
+              {"lat":-6,"lon":108},{"lat":-2,"lon":128},{"lat":-10,"lon":142},{"lat":-22,"lon":140},
+              {"lat":-24,"lon":122},{"lat":-16,"lon":108} ] },
+            { "kind": "desert", "vertices": [
+              {"lat":2,"lon":-72},{"lat":8,"lon":-64},{"lat":4,"lon":-54},{"lat":-4,"lon":-52},{"lat":-6,"lon":-64} ] },
+            { "kind": "tropical", "vertices": [
+              {"lat":-12,"lon":-70},{"lat":-6,"lon":-55},{"lat":-14,"lon":-50},{"lat":-16,"lon":-62} ] },
+            { "kind": "tropical", "vertices": [
+              {"lat":6,"lon":55},{"lat":2,"lon":68},{"lat":-4,"lon":62},{"lat":0,"lon":50} ] },
+            { "kind": "boreal", "vertices": [
+              {"lat":-44,"lon":-140},{"lat":-40,"lon":-120},{"lat":-48,"lon":-118},{"lat":-50,"lon":-138} ] },
+            { "kind": "ice", "vertices": [
+              {"lat":80,"lon":-180},{"lat":82,"lon":-90},{"lat":80,"lon":0},{"lat":82,"lon":90},
+              {"lat":80,"lon":180},{"lat":89,"lon":180},{"lat":89,"lon":-180} ] },
+            { "kind": "ice", "vertices": [
+              {"lat":-80,"lon":-180},{"lat":-82,"lon":-90},{"lat":-80,"lon":0},{"lat":-82,"lon":90},
+              {"lat":-80,"lon":180},{"lat":-89,"lon":180},{"lat":-89,"lon":-180} ] }
+          ]
+        }
       },
       "name": "Kern",
       "englishName": "Kern",
@@ -142,6 +199,7 @@
       "id": "rust",
       "texture": {
         "base": "#C0502E",
+        "limbTint": "#E0A060",
         "continents": [
           { "lat": 10, "lon": 40, "latR": 16, "lonR": 20, "color": "#8A3A22" },
           { "lat": -20, "lon": -60, "latR": 14, "lonR": 22, "color": "#8A3A22" },
@@ -406,13 +464,29 @@
       "id": "shell",
       "texture": {
         "base": "#3A5A78",
-        "continents": [
-          { "lat": 5, "lon": -40, "latR": 12, "lonR": 16, "color": "#4A5848" },
-          { "lat": -15, "lon": 60, "latR": 10, "lonR": 14, "color": "#4A5848" },
-          { "lat": 30, "lon": 120, "latR": 8, "lonR": 12, "color": "#3E382E" },
-          { "lat": 80, "lon": 0, "latR": 10, "lonR": 180, "color": "#D8E4EC" },
-          { "lat": -80, "lon": 0, "latR": 10, "lonR": 180, "color": "#D8E4EC" }
-        ]
+        "limbTint": "#7FA8D8",
+        "mask": {
+          "biomes": {
+            "island": "#4A5848",
+            "volcanic": "#3E382E",
+            "ice": "#D8E4EC"
+          },
+          "polys": [
+            { "kind": "island", "vertices": [
+              {"lat":8,"lon":-40},{"lat":14,"lon":-28},{"lat":6,"lon":-20},{"lat":-4,"lon":-26},
+              {"lat":-6,"lon":-38},{"lat":2,"lon":-46} ] },
+            { "kind": "island", "vertices": [
+              {"lat":-12,"lon":55},{"lat":-6,"lon":66},{"lat":-14,"lon":72},{"lat":-22,"lon":64},{"lat":-18,"lon":54} ] },
+            { "kind": "island", "vertices": [
+              {"lat":28,"lon":118},{"lat":34,"lon":128},{"lat":28,"lon":136},{"lat":20,"lon":130},{"lat":22,"lon":118} ] },
+            { "kind": "volcanic", "vertices": [
+              {"lat":0,"lon":-32},{"lat":4,"lon":-26},{"lat":-2,"lon":-24},{"lat":-4,"lon":-30} ] },
+            { "kind": "ice", "vertices": [
+              {"lat":78,"lon":-180},{"lat":80,"lon":0},{"lat":78,"lon":180},{"lat":89,"lon":180},{"lat":89,"lon":-180} ] },
+            { "kind": "ice", "vertices": [
+              {"lat":-78,"lon":-180},{"lat":-80,"lon":0},{"lat":-78,"lon":180},{"lat":-89,"lon":180},{"lat":-89,"lon":-180} ] }
+          ]
+        }
       },
       "name": "Shell",
       "englishName": "Shell",
