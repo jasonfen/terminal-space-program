@@ -178,6 +178,19 @@ func mergeUserOverlay(systems []System, dir string) ([]System, []LoadWarning) {
 			continue
 		}
 		s.Source = "user"
+		// Fail-soft on broken/partial texture specs (ADR 0024): a
+		// cosmetic texture problem must never reject a user system.
+		// Drop the offending body's texture (→ flat disk) and surface
+		// a warning, but keep loading the system.
+		for i := range s.Bodies {
+			if err := s.Bodies[i].Texture.Validate(); err != nil {
+				warnings = append(warnings, LoadWarning{
+					Path: path,
+					Err:  fmt.Errorf("body %q: %w (rendering flat disk)", s.Bodies[i].ID, err),
+				})
+				s.Bodies[i].Texture = nil
+			}
+		}
 		// Conflict policy: user files win on system.Name match,
 		// otherwise append.
 		replaced := false

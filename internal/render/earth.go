@@ -228,6 +228,16 @@ func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg, scre
 // body, or nil if the body has no texture. Split out of TextureFor so
 // the v0.9.6 lighting wrapper has a single base closure to darken.
 func bodyTextureBase(b bodies.CelestialBody, subLatDeg, subLonDeg, screenUpX, screenUpY float64) BodyTexture {
+	// Data-driven path (ADR 0024): a body carrying a Texture spec is
+	// rendered by the generic engine. Sol's bodies have no Texture
+	// block yet (migrated in a later PR), so they fall through to the
+	// hand-written shaders below untouched.
+	if b.Texture != nil {
+		ct := compileTexture(b.Texture, b.Color)
+		return func(dx, dy, r int) lipgloss.Color {
+			return ct.colorAt(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
+		}
+	}
 	switch b.ID {
 	case "sun":
 		return func(dx, dy, r int) lipgloss.Color {
