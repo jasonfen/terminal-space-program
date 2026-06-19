@@ -6,80 +6,31 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Galilean-moon palette. Each moon gets two-to-three colors so
-// the disks read distinctly against the Jovian backdrop and from
-// each other. v0.8.5 textured-bodies trickle.
+// Galilean-moon palette. Retained as named colors; the per-moon
+// surfaces (Io's paterae, Europa's lineae, Ganymede's regiones,
+// Callisto's craters) are now data-driven from sol.json (ADR 0024 PR4),
+// replacing the Io/Europa/Ganymede/CallistoPixelColor shaders. The
+// shared orthographic projection (projectPixelToLatLon) below outlived
+// them — every texture kind uses it.
 const (
-	// Io — sulfur-yellow base, dark patera deposits, fresh-flow
-	// orange highlights. The "pizza moon" look.
+	// Io — sulfur-yellow base, dark patera deposits, fresh-flow orange.
 	ColorIoBase   = lipgloss.Color("#E8D940") // sulfurous yellow (matches palette entry)
 	ColorIoPatera = lipgloss.Color("#7A4A20") // dark volcanic deposits
 	ColorIoFresh  = lipgloss.Color("#E07530") // fresh flow orange
 
-	// Europa — bright water ice base with a network of dark linear
-	// cracks (lineae). The smoothest world in the Solar System.
+	// Europa — bright water ice base with dark linear cracks (lineae).
 	ColorEuropaIce  = lipgloss.Color("#E5DBC6") // pale ice
 	ColorEuropaLine = lipgloss.Color("#9A6F4A") // brown linea (cryomagma stains)
 
-	// Ganymede — split between bright young grooved terrain and
-	// dark ancient cratered terrain. Largest moon in the system.
+	// Ganymede — bright young grooved terrain vs. dark ancient terrain.
 	ColorGanymedeBright = lipgloss.Color("#C8B498") // grooved terrain
 	ColorGanymedeDark   = lipgloss.Color("#6E5A3E") // ancient cratered terrain
 	ColorGanymedeRay    = lipgloss.Color("#E0D2B0") // fresh impact ejecta
 
-	// Callisto — uniformly dark, heavily cratered, with bright
-	// crater rays from younger impacts (Valhalla, Asgard).
-	ColorCallistoBase  = lipgloss.Color("#5C4A36") // dark base
+	// Callisto — uniformly dark, heavily cratered, with bright rays.
+	ColorCallistoBase   = lipgloss.Color("#5C4A36") // dark base
 	ColorCallistoCrater = lipgloss.Color("#9A8260") // bright crater rim / ray
 )
-
-// ioPaterae is a coarse layout of dark volcanic deposits on Io.
-// Real Io has hundreds of paterae; we render six of the largest
-// (Pele, Loki, Pillan, etc.) so the disk reads as "spotted" rather
-// than uniformly yellow at telescopic resolutions.
-var ioPaterae = []continentEllipse{
-	{-19, 256, 6, 8, ColorIoPatera},  // Pele region
-	{13, 309, 7, 9, ColorIoPatera},   // Loki Patera (largest)
-	{-12, 243, 5, 6, ColorIoFresh},   // Pillan (active)
-	{45, 165, 5, 7, ColorIoPatera},   // North polar dark
-	{-50, 80, 6, 8, ColorIoPatera},   // South polar dark
-	{0, 30, 4, 5, ColorIoFresh},      // Equatorial fresh flow
-}
-
-// europaLineae are the dark crack-like bands streaking Europa.
-// They run roughly equatorially, in arcs not great circles, but
-// our orthographic projection treats them as lat/lon ellipses.
-var europaLineae = []continentEllipse{
-	{0, 0, 2, 80, ColorEuropaLine},     // Long equatorial linea
-	{18, -45, 2, 60, ColorEuropaLine},  // Mid-northern arc
-	{-22, 60, 2, 70, ColorEuropaLine},  // Mid-southern arc
-	{42, 100, 2, 50, ColorEuropaLine},  // High-northern band
-	{-40, -120, 2, 55, ColorEuropaLine}, // High-southern band
-}
-
-// ganymedeTerrain layers dark ancient terrain over a bright
-// grooved-terrain base. Galileo Regio (~70° W) is the iconic dark
-// patch; smaller dark blobs scatter the rest.
-var ganymedeTerrain = []continentEllipse{
-	{30, -70, 18, 22, ColorGanymedeDark},   // Galileo Regio (largest dark)
-	{-15, 80, 14, 16, ColorGanymedeDark},   // Marius Regio
-	{-50, -150, 12, 18, ColorGanymedeDark}, // Nicholson Regio
-	{45, 150, 10, 14, ColorGanymedeDark},   // Perrine Regio
-	// Bright crater ray accents.
-	{0, 165, 3, 3, ColorGanymedeRay},    // Osiris-like
-	{-25, -10, 2, 2, ColorGanymedeRay},  // Tros-like
-}
-
-// callistoCraters are bright crater + ring accents on Callisto's
-// dark base. Valhalla is the giant multi-ring impact (~600 km
-// across), iconic enough to render explicitly.
-var callistoCraters = []continentEllipse{
-	{15, 55, 5, 6, ColorCallistoCrater}, // Valhalla bright center
-	{40, 145, 4, 5, ColorCallistoCrater}, // Asgard
-	{-25, -90, 3, 4, ColorCallistoCrater},
-	{50, -60, 2, 3, ColorCallistoCrater},
-	{-40, 30, 3, 3, ColorCallistoCrater},
-}
 
 // projectPixelToLatLon does the orthographic dx,dy → (body lat,
 // body lon) transform with arbitrary sub-observer point and screen-
@@ -168,67 +119,4 @@ func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX,
 		absLon += 360
 	}
 	return lat, absLon, true
-}
-
-// IoPixelColor — sulfur-yellow base + scattered dark paterae +
-// occasional bright orange fresh flows. v0.8.5.7+ takes the full
-// sub-observer point for view-aware projection.
-func IoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
-	if !ok {
-		return ColorIoBase
-	}
-	color := ColorIoBase
-	for _, p := range ioPaterae {
-		if inEllipse(lat, lon, p) {
-			color = p.color
-		}
-	}
-	return color
-}
-
-// EuropaPixelColor — pale ice with a few dark linear lineae.
-// v0.8.5.7+.
-func EuropaPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
-	if !ok {
-		return ColorEuropaIce
-	}
-	for _, l := range europaLineae {
-		if inEllipse(lat, lon, l) {
-			return ColorEuropaLine
-		}
-	}
-	return ColorEuropaIce
-}
-
-// GanymedePixelColor — bright grooved terrain base + dark ancient
-// regiones + bright crater rays. v0.8.5.7+.
-func GanymedePixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
-	if !ok {
-		return ColorGanymedeBright
-	}
-	color := ColorGanymedeBright
-	for _, t := range ganymedeTerrain {
-		if inEllipse(lat, lon, t) {
-			color = t.color
-		}
-	}
-	return color
-}
-
-// CallistoPixelColor — uniformly dark base + scattered bright
-// crater rays (Valhalla, Asgard). v0.8.5.7+.
-func CallistoPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
-	lat, lon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
-	if !ok {
-		return ColorCallistoBase
-	}
-	for _, c := range callistoCraters {
-		if inEllipse(lat, lon, c) {
-			return ColorCallistoCrater
-		}
-	}
-	return ColorCallistoBase
 }

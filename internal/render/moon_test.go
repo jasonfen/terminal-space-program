@@ -2,83 +2,15 @@ package render
 
 import (
 	"testing"
-
-	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
 
-func TestMoonPixelColorHighland(t *testing.T) {
-	// Lunar far southwestern highland — clear of all maria and craters.
-	// Lat ≈ -50, lon ≈ 60. ny = sin(-50°) ≈ -0.766;
-	// nx = cos(-50°)*sin(60°) ≈ 0.557.
-	r := 32
-	dx := int(0.557 * float64(r))
-	dy := int(0.766 * float64(r)) // dy>0 = below body center on screen → southern hemisphere
-	got := MoonPixelColor(dx, dy, r, 0, 0, 0, 1)
-	if got != ColorMoonHighland {
-		t.Errorf("highland sample = %q, want %q", string(got), string(ColorMoonHighland))
-	}
-}
-
-func TestMoonPixelColorMare(t *testing.T) {
-	// Mare Imbrium, lat ≈ 33°, lon ≈ -16°. ny = sin(33°) ≈ 0.545;
-	// nx = cos(33°)*sin(-16°) ≈ -0.231.
-	r := 32
-	dx := int(-0.231 * float64(r))
-	dy := int(-0.545 * float64(r)) // dy<0 = above body center on screen → northern hemisphere
-	got := MoonPixelColor(dx, dy, r, 0, 0, 0, 1)
-	if got != ColorMoonMare {
-		t.Errorf("Mare Imbrium sample = %q, want %q", string(got), string(ColorMoonMare))
-	}
-}
-
-func TestMoonPixelColorCraterRay(t *testing.T) {
-	// Tycho, lat ≈ -43°, lon ≈ -11°. ny = sin(-43°) ≈ -0.682;
-	// nx = cos(-43°)*sin(-11°) ≈ -0.140.
-	r := 32
-	dx := int(-0.140 * float64(r))
-	dy := int(0.682 * float64(r)) // dy>0 = below body center on screen → southern hemisphere
-	got := MoonPixelColor(dx, dy, r, 0, 0, 0, 1)
-	if got != ColorMoonRay {
-		t.Errorf("Tycho sample = %q, want %q", string(got), string(ColorMoonRay))
-	}
-}
-
-func TestMoonPixelColorDeterministic(t *testing.T) {
-	r := 32
-	for dy := -r; dy <= r; dy += 4 {
-		for dx := -r; dx <= r; dx += 4 {
-			a := MoonPixelColor(dx, dy, r, 0, 0, 0, 1)
-			b := MoonPixelColor(dx, dy, r, 0, 0, 0, 1)
-			if a != b {
-				t.Fatalf("non-deterministic at (%d,%d): %q vs %q", dx, dy, string(a), string(b))
-			}
-		}
-	}
-}
-
-func TestMoonPixelColorMultiColor(t *testing.T) {
-	r := 32
-	r2 := r * r
-	seen := map[string]bool{}
-	for dy := -r; dy <= r; dy++ {
-		for dx := -r; dx <= r; dx++ {
-			if dx*dx+dy*dy > r2 {
-				continue
-			}
-			seen[string(MoonPixelColor(dx, dy, r, 0, 0, 0, 1))] = true
-		}
-	}
-	for _, want := range []string{string(ColorMoonHighland), string(ColorMoonMare), string(ColorMoonRay)} {
-		if !seen[want] {
-			t.Errorf("disk at r=%d missing color %q", r, want)
-		}
-	}
-}
-
+// TestTextureForDispatch checks the radius gate and that distinct
+// textured bodies produce distinct surfaces through the data-driven
+// engine (ADR 0024 PR4 — the old per-body switch is gone; textures
+// come from sol.json).
 func TestTextureForDispatch(t *testing.T) {
-	earth := bodies.CelestialBody{ID: "earth", BodyType: "Planet"}
-	moon := bodies.CelestialBody{ID: "moon", BodyType: "Moon"}
-	mars := bodies.CelestialBody{ID: "mars", BodyType: "Planet"}
+	earth := solCatalogBody(t, "earth")
+	moon := solCatalogBody(t, "moon")
 
 	if TextureFor(earth, BodyTextureMinRadius-1, 0, 0, 0, 1, nil) != nil {
 		t.Error("Earth below threshold should have no texture")
@@ -92,39 +24,19 @@ func TestTextureForDispatch(t *testing.T) {
 	if TextureFor(moon, BodyTextureMinRadius, 0, 0, 0, 1, nil) == nil {
 		t.Error("Moon at threshold should have texture")
 	}
-	// v0.7.6+: Mars and Jupiter now have textures.
-	if TextureFor(mars, 64, 0, 0, 0, 1, nil) == nil {
-		t.Error("Mars should have texture (added in v0.7.6)")
-	}
-	jupiter := bodies.CelestialBody{ID: "jupiter", BodyType: "Planet"}
-	if TextureFor(jupiter, 64, 0, 0, 0, 1, nil) == nil {
-		t.Error("Jupiter should have texture (added in v0.7.6)")
-	}
-	// v0.8.5+: Saturn / Galileans / Uranus / Neptune now have textures.
-	saturn := bodies.CelestialBody{ID: "saturn", BodyType: "Planet"}
-	if TextureFor(saturn, 64, 0, 0, 0, 1, nil) == nil {
-		t.Error("Saturn should have texture (added in v0.8.5)")
-	}
-	for _, id := range []string{"io", "europa", "ganymede", "callisto", "uranus", "neptune"} {
-		b := bodies.CelestialBody{ID: id, BodyType: "Moon"}
-		if TextureFor(b, 64, 0, 0, 0, 1, nil) == nil {
-			t.Errorf("%s should have texture (added in v0.8.5)", id)
+	// Every migrated body resolves to a texture at a readable radius.
+	for _, id := range []string{"sun", "mars", "jupiter", "saturn", "uranus", "neptune", "io", "europa", "ganymede", "callisto"} {
+		if TextureFor(solCatalogBody(t, id), 64, 0, 0, 0, 1, nil) == nil {
+			t.Errorf("%s should have a texture", id)
 		}
 	}
-	// v0.8.5.7+: Sun has a texture (limb darkening + sunspots).
-	sun := bodies.CelestialBody{ID: "sun", BodyType: "Star"}
-	if TextureFor(sun, 64, 0, 0, 0, 1, nil) == nil {
-		t.Error("Sun should have texture (added in v0.8.5.7)")
-	}
 
-	// Earth and Moon must dispatch to different functions — sanity
-	// check that the switch is not collapsing.
-	earthTex := TextureFor(earth, 32, 0, 0, 0, 1, nil)
-	moonTex := TextureFor(moon, 32, 0, 0, 0, 1, nil)
+	// Earth and Moon must render different surfaces — sanity that the
+	// engine isn't collapsing distinct specs. (0,0) is the disk center:
+	// Earth → lat 0, lon 0 (ocean/land), Moon → highland.
 	const r = 32
-	// Look at the same pixel offset on both: (0, 0) is the disk
-	// center. Earth at (0,0) → lat=0, lon=0 → over Africa → land
-	// color. Moon at (0,0) → lat=0, lon=0 → highland.
+	earthTex := TextureFor(earth, r, 0, 0, 0, 1, nil)
+	moonTex := TextureFor(moon, r, 0, 0, 0, 1, nil)
 	if string(earthTex(0, 0, r)) == string(moonTex(0, 0, r)) {
 		t.Error("Earth and Moon textures returned identical color at disk center")
 	}

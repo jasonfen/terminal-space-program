@@ -119,47 +119,68 @@ func TestSolarLightEclipseMultiplies(t *testing.T) {
 	}
 }
 
+// litTestBody is a minimal textured world (base + one continent) for
+// exercising the day/night shading wrapper independent of any specific
+// catalog body (ADR 0024 PR4).
+func litTestBody() bodies.CelestialBody {
+	return bodies.CelestialBody{
+		ID:    "litworld",
+		Color: "#4080C0",
+		Texture: &bodies.Texture{
+			Base:       "#4080C0",
+			Continents: []bodies.TextureEllipse{{Lat: 0, Lon: 0, LatR: 40, LonR: 40, Color: "#40A040"}},
+		},
+	}
+}
+
 func TestTextureForShadesNightSide(t *testing.T) {
-	earth := bodies.CelestialBody{ID: "earth", BodyType: "Planet"}
+	body := litTestBody()
 	const r = 32
 	// Sub-solar on the far side → the camera-center pixel is night.
 	light := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 180, EclipseFactor: 1}
-	shaded := TextureFor(earth, r, 0, 0, 0, 1, light)
-	if shaded == nil {
-		t.Fatal("earth texture nil")
+	shaded := TextureFor(body, r, 0, 0, 0, 1, light)
+	bare := TextureFor(body, r, 0, 0, 0, 1, nil)
+	if shaded == nil || bare == nil {
+		t.Fatal("texture nil")
 	}
-	bare := EarthPixelColor(0, 0, r, 0, 0, 0, 1)
 	got := shaded(0, 0, r)
-	if channelSum(t, got) >= channelSum(t, bare) {
-		t.Errorf("night-side pixel %q not darker than bare %q", got, bare)
+	if channelSum(t, got) >= channelSum(t, bare(0, 0, r)) {
+		t.Errorf("night-side pixel %q not darker than unshaded %q", got, bare(0, 0, r))
 	}
 }
 
 func TestTextureForSunExempt(t *testing.T) {
-	sun := bodies.CelestialBody{ID: "sun", BodyType: "Star"}
+	// A star-kind body is the light source — never shaded, even with a
+	// near-total eclipse factor.
+	sun := bodies.CelestialBody{ID: "sun", BodyType: "Star", Texture: &bodies.Texture{
+		Star: &bodies.TextureStar{Core: "#FFF6C8", Surface: "#FFD050", Limb: "#E89020"},
+	}}
 	const r = 32
 	light := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 180, EclipseFactor: 0.1}
-	tex := TextureFor(sun, r, 0, 0, 0, 1, light)
-	if tex == nil {
+	lit := TextureFor(sun, r, 0, 0, 0, 1, light)
+	bare := TextureFor(sun, r, 0, 0, 0, 1, nil)
+	if lit == nil || bare == nil {
 		t.Fatal("sun texture nil")
 	}
 	for _, p := range [][2]int{{0, 0}, {8, -4}, {-10, 6}} {
-		if got, want := tex(p[0], p[1], r), SunPixelColor(p[0], p[1], r, 0, 0, 0, 1); got != want {
-			t.Errorf("sun pixel (%d,%d) shaded: got %q want %q", p[0], p[1], got, want)
+		if got, want := lit(p[0], p[1], r), bare(p[0], p[1], r); got != want {
+			t.Errorf("sun pixel (%d,%d) shaded: got %q want %q (should be exempt)", p[0], p[1], got, want)
 		}
 	}
 }
 
 func TestTextureForNilLightUnshaded(t *testing.T) {
-	earth := bodies.CelestialBody{ID: "earth", BodyType: "Planet"}
+	body := litTestBody()
 	const r = 32
-	tex := TextureFor(earth, r, 0, 0, 0, 1, nil)
-	if tex == nil {
-		t.Fatal("earth texture nil")
+	nilTex := TextureFor(body, r, 0, 0, 0, 1, nil)
+	// Full light with the sub-solar point at the disk center → factor 1
+	// at center, so the center pixel equals the unshaded color.
+	full := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 0, EclipseFactor: 1}
+	litTex := TextureFor(body, r, 0, 0, 0, 1, full)
+	if nilTex == nil || litTex == nil {
+		t.Fatal("texture nil")
 	}
-	for _, p := range [][2]int{{5, 5}, {-12, 3}, {0, 0}} {
-		if got, want := tex(p[0], p[1], r), EarthPixelColor(p[0], p[1], r, 0, 0, 0, 1); got != want {
-			t.Errorf("nil-light pixel (%d,%d): got %q want %q", p[0], p[1], got, want)
-		}
+	if got, want := litTex(0, 0, r), nilTex(0, 0, r); got != want {
+		t.Errorf("sub-solar center pixel: got %q want unshaded %q", got, want)
 	}
 }

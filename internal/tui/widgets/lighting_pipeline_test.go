@@ -11,6 +11,27 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
+// loadSolBody fetches a body from the embedded Sol catalog by id.
+func loadSolBody(t *testing.T, id string) bodies.CelestialBody {
+	t.Helper()
+	systems, err := bodies.LoadAll()
+	if err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	for _, s := range systems {
+		if s.Name != "Sol" {
+			continue
+		}
+		for _, b := range s.Bodies {
+			if b.ID == id {
+				return b
+			}
+		}
+	}
+	t.Fatalf("Sol body %q not found", id)
+	return bodies.CelestialBody{}
+}
+
 // TestTerminatorReachesDistinctCells is the v0.9.6 end-to-end check:
 // a shaded body disk, painted through the real FillTexturedDiskTagged
 // → String() pixel-aggregation path, must emit ANSI and contain more
@@ -24,7 +45,10 @@ func TestTerminatorReachesDistinctCells(t *testing.T) {
 	c.Center(orbital.Vec3{})
 	c.Clear()
 
-	earth := bodies.CelestialBody{ID: "earth", BodyType: "Planet"}
+	// Earth's surface texture is data-driven from sol.json (ADR 0024),
+	// so load the real catalog body — a bare CelestialBody carries no
+	// Texture and would render flat.
+	earth := loadSolBody(t, "earth")
 	const r = 30
 	// Sub-solar at the +x limb → strong day/night gradient across
 	// the disk so adjacent cells differ.
