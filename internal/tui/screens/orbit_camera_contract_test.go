@@ -7,6 +7,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -173,6 +174,38 @@ func TestFocusBodyWithPassFitsToParentSOI(t *testing.T) {
 	v2.canvas.FitTo(moon.RadiusMeters() * 8)
 	if want := v2.canvas.Scale(); math.Abs(got-want) > want*1e-9 {
 		t.Errorf("without pass: scale %.6e, want the 8×-radius close-up fit %.6e", got, want)
+	}
+}
+
+// TestFocusBodyZoomsToTextureVisible pins the ADR 0024 surface-viewing
+// floor: focusing a body (without an active SOI pass) zooms it in far
+// enough that its disk renders the data-driven surface texture instead
+// of the flat placeholder. A planet-with-moons previously framed its
+// whole SOI, leaving the planet sub-pixel; the floor guarantees its
+// pixel radius clears render.BodyTextureMinRadius.
+func TestFocusBodyZoomsToTextureVisible(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Earth has a moon (Luna), so the pre-0024 default fit framed its
+	// SOI — the case that used to render the placeholder disk.
+	earthIdx, earth := -1, w.System().Bodies[0]
+	for i, b := range w.System().Bodies {
+		if b.ID == "earth" {
+			earthIdx, earth = i, b
+		}
+	}
+	if earthIdx < 0 {
+		t.Skip("Earth not in loaded Sol system")
+	}
+	v := newSOIPassTestView()
+	w.ViewMode = sim.ViewTilted
+	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: earthIdx}
+	v.Render(w, 0, 200, 60)
+	pxR := int(math.Round(earth.RadiusMeters() * v.canvas.Scale()))
+	if pxR < render.BodyTextureMinRadius {
+		t.Errorf("focused Earth pixel radius %d < texture threshold %d — would render the placeholder disk", pxR, render.BodyTextureMinRadius)
 	}
 }
 

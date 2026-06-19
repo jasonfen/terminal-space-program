@@ -408,6 +408,20 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		v.lastViewMode = w.ViewMode
 		v.fitted = true
 		v.canvas.FitTo(w.FocusZoomRadius())
+		// ADR 0024: a body focused for surface viewing must be zoomed
+		// enough to render its texture, not the flat placeholder disk.
+		// The default fit for a planet-with-moons frames its SOI, which
+		// leaves the planet sub-pixel; bump the scale so the body's
+		// pixel radius clears the texture threshold (with margin). An
+		// active SOI-pass encounter wants the wide framing, so skip it.
+		if b, ok := w.FocusedBody(); ok && !w.FocusIsEncounterFramed() {
+			if br := b.RadiusMeters(); br > 0 {
+				minScale := float64(render.BodyTextureMinRadius) / br
+				if v.canvas.Scale() < minScale {
+					v.canvas.SetScale(minScale)
+				}
+			}
+		}
 		v.baseScale = v.canvas.Scale()
 		v.userZoom = 1 // fresh framing context — drop any manual zoom
 		// A Framing Event mid-burn re-frames once, then re-freezes: drop

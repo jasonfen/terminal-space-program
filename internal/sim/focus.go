@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
@@ -163,6 +164,35 @@ func (w *World) systemOutermostRadius() float64 {
 		return 1e11
 	}
 	return maxR
+}
+
+// FocusedBody returns the body the camera is focused on, when Focus is
+// a FocusBody with a valid index. ok is false for system/craft focus or
+// an out-of-range index.
+func (w *World) FocusedBody() (bodies.CelestialBody, bool) {
+	if w.Focus.Kind != FocusBody {
+		return bodies.CelestialBody{}, false
+	}
+	sys := w.System()
+	if w.Focus.BodyIdx < 0 || w.Focus.BodyIdx >= len(sys.Bodies) {
+		return bodies.CelestialBody{}, false
+	}
+	return sys.Bodies[w.Focus.BodyIdx], true
+}
+
+// FocusIsEncounterFramed reports whether the current body focus is being
+// framed for an active SOI pass (ADR 0021 F) — i.e. FocusZoomRadius
+// returned the ~1.3× parent-SOI encounter fit rather than the default
+// surface-viewing fit. The orbit screen uses this to leave the wide
+// encounter framing alone instead of zooming in to show the body's
+// surface texture.
+func (w *World) FocusIsEncounterFramed() bool {
+	b, ok := w.FocusedBody()
+	if !ok {
+		return false
+	}
+	p, ok := w.bestSOIPass()
+	return ok && p.Body.ID == b.ID
 }
 
 // FocusName returns a short human label for the current focus.

@@ -17,8 +17,12 @@ func TestSubObserverLongitudeAtEpochReturnsBodyOffset(t *testing.T) {
 
 	mars := bodies.CelestialBody{ID: "mars", SideralRotation: 24.6229}
 	got = SubObserverLongitudeDeg(mars, rotationEpoch)
-	if math.Abs(got-MarsCenterLonEpoch) > 1e-9 {
-		t.Errorf("Mars at epoch = %v, want %v", got, MarsCenterLonEpoch)
+	// Source of truth for the per-body epoch offset is rotation.go's
+	// bodyEpochOffsetDeg; the *CenterLonEpoch mirror consts were
+	// retired with the per-body shaders (ADR 0024 PR4).
+	wantMars := bodyEpochOffsetDeg["mars"]
+	if math.Abs(got-wantMars) > 1e-9 {
+		t.Errorf("Mars at epoch = %v, want %v", got, wantMars)
 	}
 }
 

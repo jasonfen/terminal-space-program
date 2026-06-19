@@ -73,106 +73,6 @@ type continentEllipse struct {
 // the rendering resolution and is the new source of truth for
 // land / desert / ice classification.
 
-// earthClouds are a few hand-placed pale streaks suggesting global
-// cloud bands. Static for v0.7.2.1; rotation tied to sim time is a
-// follow-up if it adds enough to justify the threading work.
-// v0.7.6+: additional bands for ITCZ + extratropical storm tracks so
-// the disk reads with weather rather than flat continents.
-var earthClouds = []continentEllipse{
-	{18, -130, 3, 18, ColorEarthCloud}, // North Pacific
-	{-22, 50, 4, 28, ColorEarthCloud},  // Indian Ocean
-	{30, -45, 4, 14, ColorEarthCloud},  // North Atlantic
-	{-12, -100, 4, 15, ColorEarthCloud}, // South Pacific ITCZ
-	{55, 10, 3, 22, ColorEarthCloud},   // North European
-	{-50, -10, 3, 30, ColorEarthCloud}, // Southern Ocean storm track
-	{-50, 90, 3, 35, ColorEarthCloud},  // Roaring 40s (Indian Ocean)
-	{8, -40, 2, 12, ColorEarthCloud},   // Equatorial Atlantic ITCZ
-	{8, 140, 3, 18, ColorEarthCloud},   // Western Pacific ITCZ
-}
-
-// EarthPixelColor returns the surface color for a pixel at offset
-// (dx, dy) inside an Earth disk of pixel radius pxRadius. Caller is
-// responsible for clipping pixels to the disk.
-//
-// Projection: orthographic with sub-observer point at
-// (subLatDeg, subLonDeg). v0.8.5.7+ takes both — the canvas
-// computes them from the camera direction + body axis tilt + sim
-// time, so ViewTop on a tilted Earth shows polar regions and
-// ViewRight/Left/Bottom show the equator with surface features
-// drifting across.
-//
-// Source: v0.8.5.7's ellipse-table approximation was upgraded to
-// a polygon-rasterised 144×72 mask (earthGrid) — the per-pixel
-// path looks the cell up directly, so coastlines / islands /
-// peninsulas read recognisably instead of as smooth ellipse
-// blobs. Resolution order: ice cap > atmospheric limb (over
-// non-ice) > cloud > biome-shaded continent / desert > ocean.
-//
-// v0.8.5.7+: temperate land auto-shifts to tropical (|lat| < 23°)
-// or boreal (|lat| ≥ 55°); the outer ~8% of the disk (r² > 0.92)
-// blends to ColorEarthAtmosphere over non-ice pixels to give the
-// disk a recognisable blue-marble halo.
-func EarthPixelColor(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) lipgloss.Color {
-	if pxRadius < 1 {
-		return ColorEarthOcean
-	}
-	// Disk radial coord — used for the limb tint band.
-	nx := float64(dx) / float64(pxRadius)
-	ny := float64(dy) / float64(pxRadius)
-	r2 := nx*nx + ny*ny
-
-	lat, absLon, ok := projectPixelToLatLon(dx, dy, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
-	if !ok {
-		return ColorEarthOcean
-	}
-
-	// Look up the rasterised continental mask.
-	cell := earthCellAt(lat, absLon)
-	var color lipgloss.Color
-	switch cell {
-	case cellIce:
-		color = ColorEarthIce
-	case cellLand:
-		color = ColorEarthLand
-		// Biome shift by absolute latitude: tropical (deeper
-		// jungle), temperate (default), boreal (browner taiga).
-		absLat := lat
-		if absLat < 0 {
-			absLat = -absLat
-		}
-		switch {
-		case absLat < 23:
-			color = ColorEarthLandTropical
-		case absLat >= 55:
-			color = ColorEarthLandBoreal
-		}
-	case cellDesert:
-		color = ColorEarthDesert
-	default:
-		color = ColorEarthOcean
-	}
-	// Clouds layer on top of land or ocean alike — except over
-	// polar ice, where the ice already reads bright.
-	if color != ColorEarthIce {
-		for _, c := range earthClouds {
-			if inEllipse(lat, absLon, c) {
-				color = c.color
-				break
-			}
-		}
-	}
-	// Atmospheric limb tint. Real Earth from space has a visible
-	// blue halo at the disk edge from atmospheric scattering;
-	// painting the outer ~8% of the disk in a sky-blue tint reads
-	// as that halo. Skip for ice (poles already bright) and for
-	// clouds (already light enough that the tint adds no
-	// contrast).
-	if r2 > 0.92 && color != ColorEarthIce && color != ColorEarthCloud {
-		color = ColorEarthAtmosphere
-	}
-	return color
-}
-
 func inEllipse(lat, lon float64, c continentEllipse) bool {
 	dlat := lat - c.lat
 	dlon := lon - c.lon
@@ -231,68 +131,20 @@ func TextureFor(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg, scre
 // bodyTextureBase returns the unlit per-pixel surface shader for a
 // body, or nil if the body has no texture. Split out of TextureFor so
 // the v0.9.6 lighting wrapper has a single base closure to darken.
+//
+// ADR 0024: textures are fully data-driven. A body carrying a Texture
+// spec (every textured body in the embedded catalog, plus user
+// overlays) is rendered by the generic engine; bodies with no spec
+// render as a flat solid disk. The pre-0024 hardcoded `switch b.ID`
+// dispatch to per-body Go shaders was retired in PR4.
 func bodyTextureBase(b bodies.CelestialBody, subLatDeg, subLonDeg, screenUpX, screenUpY float64) BodyTexture {
-	// Data-driven path (ADR 0024): a body carrying a Texture spec is
-	// rendered by the generic engine. Sol's bodies have no Texture
-	// block yet (migrated in a later PR), so they fall through to the
-	// hand-written shaders below untouched.
-	if b.Texture != nil {
-		ct := compileTexture(b.Texture, b.Color)
-		return func(dx, dy, r int) lipgloss.Color {
-			return ct.colorAt(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
+	if b.Texture == nil {
+		return nil
 	}
-	switch b.ID {
-	case "sun":
-		return func(dx, dy, r int) lipgloss.Color {
-			return SunPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "earth":
-		return func(dx, dy, r int) lipgloss.Color {
-			return EarthPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "moon":
-		return func(dx, dy, r int) lipgloss.Color {
-			return MoonPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "mars":
-		return func(dx, dy, r int) lipgloss.Color {
-			return MarsPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "jupiter":
-		return func(dx, dy, r int) lipgloss.Color {
-			return JupiterPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "saturn":
-		return func(dx, dy, r int) lipgloss.Color {
-			return SaturnPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "uranus":
-		return func(dx, dy, r int) lipgloss.Color {
-			return UranusPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "neptune":
-		return func(dx, dy, r int) lipgloss.Color {
-			return NeptunePixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "io":
-		return func(dx, dy, r int) lipgloss.Color {
-			return IoPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "europa":
-		return func(dx, dy, r int) lipgloss.Color {
-			return EuropaPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "ganymede":
-		return func(dx, dy, r int) lipgloss.Color {
-			return GanymedePixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
-	case "callisto":
-		return func(dx, dy, r int) lipgloss.Color {
-			return CallistoPixelColor(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
-		}
+	ct := compileTexture(b.Texture, b.Color)
+	return func(dx, dy, r int) lipgloss.Color {
+		return ct.colorAt(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY)
 	}
-	return nil
 }
 
 // BodyHasTexture reports whether TextureFor would return non-nil.

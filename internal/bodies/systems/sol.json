@@ -6,6 +6,15 @@
   "bodies": [
     {
       "id": "sun",
+      "texture": {
+        "star": { "core": "#FFF6C8", "surface": "#FFD050", "limb": "#E89020", "spot": "#A06030" },
+        "spots": [
+          { "lat": 12, "lon": -25, "latR": 2, "lonR": 3 },
+          { "lat": -15, "lon": 18, "latR": 2, "lonR": 2 },
+          { "lat": 22, "lon": 60, "latR": 1, "lonR": 2 },
+          { "lat": -20, "lon": -55, "latR": 2, "lonR": 3 }
+        ]
+      },
       "name": "Sun",
       "englishName": "Sun",
       "bodyType": "Star",
@@ -74,6 +83,51 @@
     },
     {
       "id": "earth",
+      "texture": {
+        "base": "#1F5F94",
+        "limbTint": "#6FA8D6",
+        "mask": {
+          "biomes": { "land": "#5C8C4A", "desert": "#C8A06A", "ice": "#E5EEF6" },
+          "polys": [
+            { "kind": "land", "vertices": [ {"lat": 72, "lon": -156}, {"lat": 73, "lon": -130}, {"lat": 72, "lon": -100}, {"lat": 74, "lon": -80}, {"lat": 70, "lon": -75}, {"lat": 63, "lon": -77}, {"lat": 62, "lon": -85}, {"lat": 58, "lon": -95}, {"lat": 62, "lon": -75}, {"lat": 60, "lon": -65}, {"lat": 55, "lon": -60}, {"lat": 49, "lon": -52}, {"lat": 45, "lon": -58}, {"lat": 45, "lon": -68}, {"lat": 40, "lon": -72}, {"lat": 35, "lon": -76}, {"lat": 30, "lon": -80}, {"lat": 25, "lon": -80}, {"lat": 28, "lon": -86}, {"lat": 30, "lon": -90}, {"lat": 30, "lon": -95}, {"lat": 26, "lon": -97}, {"lat": 21, "lon": -97}, {"lat": 18, "lon": -94}, {"lat": 18, "lon": -88}, {"lat": 15, "lon": -88}, {"lat": 13, "lon": -85}, {"lat": 10, "lon": -83}, {"lat": 8, "lon": -80}, {"lat": 15, "lon": -95}, {"lat": 18, "lon": -103}, {"lat": 22, "lon": -106}, {"lat": 28, "lon": -114}, {"lat": 32, "lon": -117}, {"lat": 40, "lon": -124}, {"lat": 48, "lon": -125}, {"lat": 55, "lon": -132}, {"lat": 60, "lon": -148}, {"lat": 66, "lon": -163}, {"lat": 72, "lon": -156} ] },
+            { "kind": "land", "vertices": [ {"lat": 12, "lon": -72}, {"lat": 12, "lon": -62}, {"lat": 7, "lon": -55}, {"lat": 2, "lon": -50}, {"lat": -2, "lon": -45}, {"lat": -8, "lon": -35}, {"lat": -15, "lon": -39}, {"lat": -23, "lon": -41}, {"lat": -30, "lon": -50}, {"lat": -38, "lon": -57}, {"lat": -50, "lon": -68}, {"lat": -55, "lon": -68}, {"lat": -52, "lon": -72}, {"lat": -45, "lon": -74}, {"lat": -35, "lon": -73}, {"lat": -28, "lon": -71}, {"lat": -20, "lon": -70}, {"lat": -10, "lon": -78}, {"lat": -3, "lon": -80}, {"lat": 2, "lon": -78}, {"lat": 8, "lon": -77}, {"lat": 12, "lon": -72} ] },
+            { "kind": "land", "vertices": [ {"lat": 83, "lon": -30}, {"lat": 81, "lon": -15}, {"lat": 77, "lon": -18}, {"lat": 72, "lon": -22}, {"lat": 68, "lon": -25}, {"lat": 60, "lon": -45}, {"lat": 65, "lon": -52}, {"lat": 72, "lon": -55}, {"lat": 77, "lon": -65}, {"lat": 80, "lon": -55}, {"lat": 83, "lon": -30} ] },
+            { "kind": "land", "vertices": [ {"lat": 72, "lon": 30}, {"lat": 68, "lon": 40}, {"lat": 60, "lon": 55}, {"lat": 50, "lon": 50}, {"lat": 45, "lon": 38}, {"lat": 40, "lon": 28}, {"lat": 38, "lon": 23}, {"lat": 37, "lon": 14}, {"lat": 41, "lon": 9}, {"lat": 44, "lon": 8}, {"lat": 43, "lon": 5}, {"lat": 44, "lon": -2}, {"lat": 44, "lon": -9}, {"lat": 39, "lon": -10}, {"lat": 37, "lon": -8}, {"lat": 36, "lon": -6}, {"lat": 38, "lon": -2}, {"lat": 44, "lon": 0}, {"lat": 49, "lon": 0}, {"lat": 51, "lon": 4}, {"lat": 53, "lon": 7}, {"lat": 54, "lon": 9}, {"lat": 57, "lon": 12}, {"lat": 59, "lon": 17}, {"lat": 66, "lon": 22}, {"lat": 70, "lon": 25}, {"lat": 72, "lon": 30} ] },
+            { "kind": "land", "vertices": [ {"lat": 59, "lon": -3}, {"lat": 58, "lon": 0}, {"lat": 56, "lon": 1}, {"lat": 52, "lon": 2}, {"lat": 51, "lon": -1}, {"lat": 50, "lon": -5}, {"lat": 52, "lon": -5}, {"lat": 54, "lon": -8}, {"lat": 55, "lon": -10}, {"lat": 57, "lon": -7}, {"lat": 59, "lon": -3} ] },
+            { "kind": "land", "vertices": [ {"lat": 66, "lon": -23}, {"lat": 66, "lon": -14}, {"lat": 64, "lon": -14}, {"lat": 63, "lon": -19}, {"lat": 64, "lon": -23}, {"lat": 66, "lon": -23} ] },
+            { "kind": "land", "vertices": [ {"lat": 46, "lon": 8}, {"lat": 46, "lon": 13}, {"lat": 44, "lon": 13}, {"lat": 42, "lon": 14}, {"lat": 40, "lon": 18}, {"lat": 38, "lon": 17}, {"lat": 37, "lon": 15}, {"lat": 40, "lon": 14}, {"lat": 41, "lon": 12}, {"lat": 44, "lon": 10}, {"lat": 45, "lon": 7}, {"lat": 46, "lon": 8} ] },
+            { "kind": "land", "vertices": [ {"lat": 38, "lon": 13}, {"lat": 38, "lon": 15}, {"lat": 37, "lon": 15}, {"lat": 37, "lon": 13}, {"lat": 38, "lon": 13} ] },
+            { "kind": "land", "vertices": [ {"lat": 37, "lon": -8}, {"lat": 37, "lon": 10}, {"lat": 35, "lon": 23}, {"lat": 32, "lon": 32}, {"lat": 32, "lon": 35}, {"lat": 27, "lon": 35}, {"lat": 17, "lon": 38}, {"lat": 12, "lon": 42}, {"lat": 12, "lon": 50}, {"lat": 5, "lon": 47}, {"lat": -3, "lon": 41}, {"lat": -12, "lon": 40}, {"lat": -25, "lon": 35}, {"lat": -34, "lon": 29}, {"lat": -35, "lon": 23}, {"lat": -34, "lon": 19}, {"lat": -30, "lon": 15}, {"lat": -22, "lon": 12}, {"lat": -12, "lon": 13}, {"lat": -5, "lon": 9}, {"lat": 2, "lon": 6}, {"lat": 5, "lon": -2}, {"lat": 10, "lon": -10}, {"lat": 15, "lon": -16}, {"lat": 18, "lon": -16}, {"lat": 22, "lon": -16}, {"lat": 28, "lon": -12}, {"lat": 35, "lon": -6}, {"lat": 37, "lon": -8} ] },
+            { "kind": "land", "vertices": [ {"lat": -12, "lon": 49}, {"lat": -15, "lon": 50}, {"lat": -22, "lon": 47}, {"lat": -25, "lon": 45}, {"lat": -23, "lon": 44}, {"lat": -18, "lon": 44}, {"lat": -13, "lon": 47}, {"lat": -12, "lon": 49} ] },
+            { "kind": "land", "vertices": [ {"lat": 75, "lon": 50}, {"lat": 77, "lon": 100}, {"lat": 72, "lon": 145}, {"lat": 68, "lon": 180}, {"lat": 68, "lon": 178}, {"lat": 62, "lon": 175}, {"lat": 60, "lon": 162}, {"lat": 58, "lon": 150}, {"lat": 60, "lon": 140}, {"lat": 53, "lon": 142}, {"lat": 45, "lon": 138}, {"lat": 42, "lon": 130}, {"lat": 39, "lon": 122}, {"lat": 35, "lon": 120}, {"lat": 33, "lon": 122}, {"lat": 30, "lon": 121}, {"lat": 25, "lon": 118}, {"lat": 22, "lon": 110}, {"lat": 21, "lon": 108}, {"lat": 28, "lon": 95}, {"lat": 30, "lon": 90}, {"lat": 30, "lon": 80}, {"lat": 35, "lon": 75}, {"lat": 37, "lon": 70}, {"lat": 40, "lon": 60}, {"lat": 45, "lon": 55}, {"lat": 50, "lon": 50}, {"lat": 55, "lon": 50}, {"lat": 60, "lon": 60}, {"lat": 68, "lon": 65}, {"lat": 72, "lon": 55}, {"lat": 75, "lon": 50} ] },
+            { "kind": "land", "vertices": [ {"lat": 32, "lon": 75}, {"lat": 32, "lon": 80}, {"lat": 28, "lon": 88}, {"lat": 22, "lon": 90}, {"lat": 22, "lon": 89}, {"lat": 20, "lon": 87}, {"lat": 15, "lon": 80}, {"lat": 10, "lon": 78}, {"lat": 8, "lon": 77}, {"lat": 12, "lon": 75}, {"lat": 15, "lon": 73}, {"lat": 20, "lon": 73}, {"lat": 23, "lon": 70}, {"lat": 25, "lon": 68}, {"lat": 28, "lon": 70}, {"lat": 32, "lon": 75} ] },
+            { "kind": "land", "vertices": [ {"lat": 10, "lon": 80}, {"lat": 9, "lon": 82}, {"lat": 6, "lon": 82}, {"lat": 6, "lon": 80}, {"lat": 10, "lon": 80} ] },
+            { "kind": "land", "vertices": [ {"lat": 43, "lon": 130}, {"lat": 39, "lon": 130}, {"lat": 36, "lon": 129}, {"lat": 34, "lon": 128}, {"lat": 34, "lon": 126}, {"lat": 38, "lon": 125}, {"lat": 41, "lon": 126}, {"lat": 43, "lon": 130} ] },
+            { "kind": "land", "vertices": [ {"lat": 45, "lon": 142}, {"lat": 44, "lon": 145}, {"lat": 42, "lon": 144}, {"lat": 39, "lon": 142}, {"lat": 36, "lon": 140}, {"lat": 33, "lon": 137}, {"lat": 31, "lon": 131}, {"lat": 33, "lon": 130}, {"lat": 36, "lon": 134}, {"lat": 38, "lon": 138}, {"lat": 41, "lon": 140}, {"lat": 45, "lon": 142} ] },
+            { "kind": "land", "vertices": [ {"lat": 22, "lon": 100}, {"lat": 22, "lon": 108}, {"lat": 18, "lon": 108}, {"lat": 12, "lon": 110}, {"lat": 10, "lon": 105}, {"lat": 6, "lon": 102}, {"lat": 2, "lon": 102}, {"lat": 2, "lon": 100}, {"lat": 8, "lon": 98}, {"lat": 12, "lon": 99}, {"lat": 15, "lon": 97}, {"lat": 18, "lon": 95}, {"lat": 22, "lon": 100} ] },
+            { "kind": "land", "vertices": [ {"lat": 6, "lon": 95}, {"lat": 3, "lon": 99}, {"lat": -2, "lon": 102}, {"lat": -5, "lon": 105}, {"lat": -6, "lon": 105}, {"lat": -3, "lon": 102}, {"lat": 0, "lon": 99}, {"lat": 3, "lon": 96}, {"lat": 6, "lon": 95} ] },
+            { "kind": "land", "vertices": [ {"lat": -6, "lon": 105}, {"lat": -6, "lon": 114}, {"lat": -8, "lon": 114}, {"lat": -9, "lon": 110}, {"lat": -8, "lon": 105}, {"lat": -6, "lon": 105} ] },
+            { "kind": "land", "vertices": [ {"lat": 7, "lon": 117}, {"lat": 5, "lon": 119}, {"lat": 0, "lon": 119}, {"lat": -3, "lon": 116}, {"lat": -4, "lon": 113}, {"lat": -1, "lon": 110}, {"lat": 2, "lon": 110}, {"lat": 7, "lon": 114}, {"lat": 7, "lon": 117} ] },
+            { "kind": "land", "vertices": [ {"lat": 2, "lon": 121}, {"lat": -1, "lon": 122}, {"lat": -5, "lon": 120}, {"lat": -3, "lon": 119}, {"lat": 0, "lon": 120}, {"lat": 2, "lon": 121} ] },
+            { "kind": "land", "vertices": [ {"lat": -1, "lon": 131}, {"lat": -3, "lon": 142}, {"lat": -6, "lon": 147}, {"lat": -10, "lon": 150}, {"lat": -9, "lon": 146}, {"lat": -8, "lon": 140}, {"lat": -5, "lon": 134}, {"lat": -2, "lon": 132}, {"lat": -1, "lon": 131} ] },
+            { "kind": "land", "vertices": [ {"lat": 19, "lon": 121}, {"lat": 17, "lon": 122}, {"lat": 14, "lon": 121}, {"lat": 12, "lon": 124}, {"lat": 9, "lon": 124}, {"lat": 8, "lon": 122}, {"lat": 12, "lon": 122}, {"lat": 15, "lon": 120}, {"lat": 18, "lon": 120}, {"lat": 19, "lon": 121} ] },
+            { "kind": "land", "vertices": [ {"lat": -12, "lon": 130}, {"lat": -11, "lon": 142}, {"lat": -15, "lon": 145}, {"lat": -22, "lon": 150}, {"lat": -30, "lon": 153}, {"lat": -37, "lon": 150}, {"lat": -39, "lon": 146}, {"lat": -37, "lon": 140}, {"lat": -35, "lon": 137}, {"lat": -32, "lon": 133}, {"lat": -32, "lon": 126}, {"lat": -35, "lon": 118}, {"lat": -32, "lon": 115}, {"lat": -22, "lon": 113}, {"lat": -18, "lon": 122}, {"lat": -14, "lon": 127}, {"lat": -12, "lon": 130} ] },
+            { "kind": "land", "vertices": [ {"lat": -40, "lon": 145}, {"lat": -40, "lon": 148}, {"lat": -43, "lon": 148}, {"lat": -43, "lon": 145}, {"lat": -40, "lon": 145} ] },
+            { "kind": "land", "vertices": [ {"lat": -34, "lon": 173}, {"lat": -37, "lon": 178}, {"lat": -42, "lon": 174}, {"lat": -46, "lon": 170}, {"lat": -46, "lon": 167}, {"lat": -42, "lon": 171}, {"lat": -39, "lon": 173}, {"lat": -37, "lon": 175}, {"lat": -34, "lon": 173} ] },
+            { "kind": "land", "vertices": [ {"lat": 23, "lon": -82}, {"lat": 22, "lon": -76}, {"lat": 20, "lon": -74}, {"lat": 20, "lon": -77}, {"lat": 22, "lon": -84}, {"lat": 23, "lon": -82} ] },
+            { "kind": "land", "vertices": [ {"lat": 20, "lon": -73}, {"lat": 19, "lon": -68}, {"lat": 17, "lon": -68}, {"lat": 18, "lon": -72}, {"lat": 20, "lon": -73} ] },
+            { "kind": "land", "vertices": [ {"lat": -65, "lon": -180}, {"lat": -65, "lon": -60}, {"lat": -72, "lon": -45}, {"lat": -78, "lon": 0}, {"lat": -72, "lon": 60}, {"lat": -65, "lon": 100}, {"lat": -65, "lon": 145}, {"lat": -72, "lon": 165}, {"lat": -65, "lon": 180}, {"lat": -89, "lon": 180}, {"lat": -89, "lon": -180} ] },
+            { "kind": "desert", "vertices": [ {"lat": 32, "lon": -8}, {"lat": 32, "lon": 32}, {"lat": 25, "lon": 35}, {"lat": 18, "lon": 35}, {"lat": 15, "lon": 22}, {"lat": 17, "lon": 8}, {"lat": 18, "lon": -5}, {"lat": 22, "lon": -10}, {"lat": 28, "lon": -8}, {"lat": 32, "lon": -8} ] },
+            { "kind": "desert", "vertices": [ {"lat": 30, "lon": 35}, {"lat": 30, "lon": 50}, {"lat": 25, "lon": 56}, {"lat": 18, "lon": 55}, {"lat": 12, "lon": 50}, {"lat": 12, "lon": 43}, {"lat": 18, "lon": 38}, {"lat": 25, "lon": 35}, {"lat": 30, "lon": 35} ] },
+            { "kind": "desert", "vertices": [ {"lat": 48, "lon": 95}, {"lat": 48, "lon": 115}, {"lat": 42, "lon": 115}, {"lat": 38, "lon": 105}, {"lat": 38, "lon": 95}, {"lat": 42, "lon": 90}, {"lat": 48, "lon": 95} ] },
+            { "kind": "desert", "vertices": [ {"lat": -20, "lon": 122}, {"lat": -20, "lon": 138}, {"lat": -30, "lon": 138}, {"lat": -32, "lon": 130}, {"lat": -30, "lon": 122}, {"lat": -20, "lon": 122} ] },
+            { "kind": "desert", "vertices": [ {"lat": -22, "lon": -70}, {"lat": -22, "lon": -67}, {"lat": -30, "lon": -68}, {"lat": -30, "lon": -71}, {"lat": -22, "lon": -70} ] },
+            { "kind": "ice", "vertices": [ {"lat": 82, "lon": -32}, {"lat": 80, "lon": -18}, {"lat": 76, "lon": -22}, {"lat": 72, "lon": -26}, {"lat": 65, "lon": -45}, {"lat": 72, "lon": -52}, {"lat": 78, "lon": -55}, {"lat": 81, "lon": -45}, {"lat": 82, "lon": -32} ] },
+            { "kind": "ice", "vertices": [ {"lat": -66, "lon": -180}, {"lat": -66, "lon": -60}, {"lat": -72, "lon": -45}, {"lat": -78, "lon": 0}, {"lat": -72, "lon": 60}, {"lat": -66, "lon": 100}, {"lat": -66, "lon": 145}, {"lat": -72, "lon": 165}, {"lat": -66, "lon": 180}, {"lat": -89, "lon": 180}, {"lat": -89, "lon": -180} ] },
+            { "kind": "ice", "vertices": [ {"lat": 76, "lon": -180}, {"lat": 78, "lon": -90}, {"lat": 76, "lon": 0}, {"lat": 78, "lon": 90}, {"lat": 76, "lon": 180}, {"lat": 89, "lon": 180}, {"lat": 89, "lon": -180} ] }
+          ]
+        }
+      },
       "name": "Earth",
       "englishName": "Earth",
       "bodyType": "Planet",
@@ -107,6 +161,20 @@
     },
     {
       "id": "mars",
+      "texture": {
+        "base": "#B7553A",
+        "continents": [
+          { "lat": 15, "lon": 25, "latR": 18, "lonR": 22, "color": "#D9A07A" },
+          { "lat": 8, "lon": 70, "latR": 15, "lonR": 14, "color": "#7A3422" },
+          { "lat": -25, "lon": -85, "latR": 8, "lonR": 12, "color": "#7A3422" },
+          { "lat": 45, "lon": -25, "latR": 14, "lonR": 18, "color": "#7A3422" },
+          { "lat": -25, "lon": 130, "latR": 10, "lonR": 35, "color": "#7A3422" },
+          { "lat": -30, "lon": -50, "latR": 10, "lonR": 22, "color": "#7A3422" },
+          { "lat": -42, "lon": 70, "latR": 10, "lonR": 14, "color": "#D9A07A" },
+          { "lat": 82, "lon": 0, "latR": 10, "lonR": 180, "color": "#F0E8E0" },
+          { "lat": -80, "lon": 0, "latR": 12, "lonR": 180, "color": "#F0E8E0" }
+        ]
+      },
       "name": "Mars",
       "englishName": "Mars",
       "bodyType": "Planet",
@@ -137,6 +205,24 @@
     },
     {
       "id": "jupiter",
+      "texture": {
+        "base": "#7A6450",
+        "bands": [
+          { "latMin": -90, "latMax": -55, "color": "#7A6450" },
+          { "latMin": -55, "latMax": -38, "color": "#8B6240" },
+          { "latMin": -38, "latMax": -22, "color": "#D7B98C" },
+          { "latMin": -22, "latMax": -8, "color": "#8B6240" },
+          { "latMin": -8, "latMax": 8, "color": "#D7B98C" },
+          { "latMin": 8, "latMax": 18, "color": "#8B6240" },
+          { "latMin": 18, "latMax": 32, "color": "#D7B98C" },
+          { "latMin": 32, "latMax": 50, "color": "#8B6240" },
+          { "latMin": 50, "latMax": 65, "color": "#D7B98C" },
+          { "latMin": 65, "latMax": 90, "color": "#7A6450" }
+        ],
+        "spots": [
+          { "lat": -22, "lon": 0, "latR": 6, "lonR": 14, "color": "#A03A28" }
+        ]
+      },
       "name": "Jupiter",
       "englishName": "Jupiter",
       "bodyType": "Planet",
@@ -160,6 +246,19 @@
     },
     {
       "id": "saturn",
+      "texture": {
+        "base": "#9A8458",
+        "bands": [
+          { "latMin": -90, "latMax": -65, "color": "#9A8458" },
+          { "latMin": -65, "latMax": -38, "color": "#E8D9A8" },
+          { "latMin": -38, "latMax": -15, "color": "#B89968" },
+          { "latMin": -15, "latMax": 15, "color": "#E8D9A8" },
+          { "latMin": 15, "latMax": 38, "color": "#B89968" },
+          { "latMin": 38, "latMax": 65, "color": "#E8D9A8" },
+          { "latMin": 65, "latMax": 78, "color": "#9A8458" },
+          { "latMin": 78, "latMax": 90, "color": "#D9B070" }
+        ]
+      },
       "name": "Saturn",
       "englishName": "Saturn",
       "bodyType": "Planet",
@@ -183,6 +282,16 @@
     },
     {
       "id": "uranus",
+      "texture": {
+        "base": "#A8D8E0",
+        "bands": [
+          { "latMin": -90, "latMax": -60, "color": "#C0E0E8" },
+          { "latMin": -60, "latMax": -25, "color": "#8FC4D0" },
+          { "latMin": -25, "latMax": 25, "color": "#A8D8E0" },
+          { "latMin": 25, "latMax": 60, "color": "#8FC4D0" },
+          { "latMin": 60, "latMax": 90, "color": "#C0E0E8" }
+        ]
+      },
       "name": "Uranus",
       "englishName": "Uranus",
       "bodyType": "Planet",
@@ -206,6 +315,21 @@
     },
     {
       "id": "neptune",
+      "texture": {
+        "base": "#3A6FB8",
+        "bands": [
+          { "latMin": -90, "latMax": -60, "color": "#2A5494" },
+          { "latMin": -60, "latMax": -30, "color": "#3A6FB8" },
+          { "latMin": -30, "latMax": -10, "color": "#2A5494" },
+          { "latMin": -10, "latMax": 10, "color": "#3A6FB8" },
+          { "latMin": 10, "latMax": 35, "color": "#7AA4D8" },
+          { "latMin": 35, "latMax": 60, "color": "#2A5494" },
+          { "latMin": 60, "latMax": 90, "color": "#3A6FB8" }
+        ],
+        "spots": [
+          { "lat": -22, "lon": 30, "latR": 8, "lonR": 18, "color": "#1F3A6E" }
+        ]
+      },
       "name": "Neptune",
       "englishName": "Neptune",
       "bodyType": "Planet",
@@ -229,6 +353,48 @@
     },
     {
       "id": "moon",
+      "texture": {
+        "base": "#BFB8AA",
+        "continents": [
+          { "lat": 17, "lon": 59, "latR": 7, "lonR": 9, "color": "#4A4A55" },
+          { "lat": -4, "lon": 51, "latR": 8, "lonR": 9, "color": "#4A4A55" },
+          { "lat": -14, "lon": 35, "latR": 5, "lonR": 6, "color": "#4A4A55" },
+          { "lat": 8, "lon": 31, "latR": 9, "lonR": 11, "color": "#4A4A55" },
+          { "lat": 28, "lon": 18, "latR": 8, "lonR": 10, "color": "#4A4A55" },
+          { "lat": 33, "lon": -16, "latR": 13, "lonR": 17, "color": "#4A4A55" },
+          { "lat": 19, "lon": -57, "latR": 18, "lonR": 25, "color": "#4A4A55" },
+          { "lat": -24, "lon": -39, "latR": 6, "lonR": 6, "color": "#4A4A55" },
+          { "lat": -21, "lon": -17, "latR": 8, "lonR": 13, "color": "#4A4A55" },
+          { "lat": 56, "lon": 1, "latR": 4, "lonR": 35, "color": "#4A4A55" },
+          { "lat": 13, "lon": 4, "latR": 3, "lonR": 6, "color": "#4A4A55" },
+          { "lat": -10, "lon": -23, "latR": 4, "lonR": 5, "color": "#4A4A55" },
+          { "lat": 44, "lon": -32, "latR": 4, "lonR": 6, "color": "#4A4A55" },
+          { "lat": -19, "lon": -95, "latR": 5, "lonR": 7, "color": "#4A4A55" },
+          { "lat": 27, "lon": 147, "latR": 4, "lonR": 5, "color": "#4A4A55" },
+          { "lat": -34, "lon": 163, "latR": 4, "lonR": 6, "color": "#4A4A55" },
+          { "lat": -21, "lon": 129, "latR": 3, "lonR": 4, "color": "#4A4A55" },
+          { "lat": -53, "lon": -170, "latR": 18, "lonR": 25, "color": "#4A4A55" },
+          { "lat": -52, "lon": 170, "latR": 14, "lonR": 22, "color": "#4A4A55" },
+          { "lat": -58, "lon": -150, "latR": 12, "lonR": 18, "color": "#4A4A55" }
+        ],
+        "craters": [
+          { "lat": -43, "lon": -11, "latR": 3, "lonR": 3, "color": "#EFEAE0", "rays": true },
+          { "lat": 10, "lon": -20, "latR": 2, "lonR": 2, "color": "#EFEAE0", "rays": true },
+          { "lat": 8, "lon": -38, "latR": 2, "lonR": 2, "color": "#EFEAE0", "rays": true },
+          { "lat": 24, "lon": -48, "latR": 1, "lonR": 1, "color": "#EFEAE0", "rays": true },
+          { "lat": -4, "lon": -157, "latR": 2, "lonR": 3, "color": "#EFEAE0", "rays": true },
+          { "lat": -36, "lon": -151, "latR": 2, "lonR": 2, "color": "#EFEAE0", "rays": true },
+          { "lat": 1, "lon": -130, "latR": 3, "lonR": 4, "color": "#EFEAE0", "rays": true },
+          { "lat": 6, "lon": 141, "latR": 2, "lonR": 2, "color": "#EFEAE0", "rays": true },
+          { "lat": -23, "lon": 117, "latR": 2, "lonR": 2, "color": "#EFEAE0", "rays": true },
+          { "lat": 73, "lon": 4, "latR": 1, "lonR": 5, "color": "#EFEAE0", "rays": true },
+          { "lat": 72, "lon": -50, "latR": 1, "lonR": 4, "color": "#EFEAE0", "rays": true },
+          { "lat": 65, "lon": 175, "latR": 2, "lonR": 5, "color": "#EFEAE0", "rays": true },
+          { "lat": -85, "lon": -40, "latR": 1, "lonR": 6, "color": "#EFEAE0", "rays": true },
+          { "lat": -87, "lon": 30, "latR": 1, "lonR": 8, "color": "#EFEAE0", "rays": true },
+          { "lat": -79, "lon": 110, "latR": 1, "lonR": 5, "color": "#EFEAE0", "rays": true }
+        ]
+      },
       "name": "Moon",
       "englishName": "Moon",
       "bodyType": "Moon",
@@ -287,6 +453,17 @@
     },
     {
       "id": "io",
+      "texture": {
+        "base": "#E8D940",
+        "continents": [
+          { "lat": -19, "lon": 256, "latR": 6, "lonR": 8, "color": "#7A4A20" },
+          { "lat": 13, "lon": 309, "latR": 7, "lonR": 9, "color": "#7A4A20" },
+          { "lat": -12, "lon": 243, "latR": 5, "lonR": 6, "color": "#E07530" },
+          { "lat": 45, "lon": 165, "latR": 5, "lonR": 7, "color": "#7A4A20" },
+          { "lat": -50, "lon": 80, "latR": 6, "lonR": 8, "color": "#7A4A20" },
+          { "lat": 0, "lon": 30, "latR": 4, "lonR": 5, "color": "#E07530" }
+        ]
+      },
       "name": "Io",
       "englishName": "Io",
       "bodyType": "Moon",
@@ -306,6 +483,16 @@
     },
     {
       "id": "europa",
+      "texture": {
+        "base": "#E5DBC6",
+        "continents": [
+          { "lat": 0, "lon": 0, "latR": 2, "lonR": 80, "color": "#9A6F4A" },
+          { "lat": 18, "lon": -45, "latR": 2, "lonR": 60, "color": "#9A6F4A" },
+          { "lat": -22, "lon": 60, "latR": 2, "lonR": 70, "color": "#9A6F4A" },
+          { "lat": 42, "lon": 100, "latR": 2, "lonR": 50, "color": "#9A6F4A" },
+          { "lat": -40, "lon": -120, "latR": 2, "lonR": 55, "color": "#9A6F4A" }
+        ]
+      },
       "name": "Europa",
       "englishName": "Europa",
       "bodyType": "Moon",
@@ -325,6 +512,17 @@
     },
     {
       "id": "ganymede",
+      "texture": {
+        "base": "#C8B498",
+        "continents": [
+          { "lat": 30, "lon": -70, "latR": 18, "lonR": 22, "color": "#6E5A3E" },
+          { "lat": -15, "lon": 80, "latR": 14, "lonR": 16, "color": "#6E5A3E" },
+          { "lat": -50, "lon": -150, "latR": 12, "lonR": 18, "color": "#6E5A3E" },
+          { "lat": 45, "lon": 150, "latR": 10, "lonR": 14, "color": "#6E5A3E" },
+          { "lat": 0, "lon": 165, "latR": 3, "lonR": 3, "color": "#E0D2B0" },
+          { "lat": -25, "lon": -10, "latR": 2, "lonR": 2, "color": "#E0D2B0" }
+        ]
+      },
       "name": "Ganymede",
       "englishName": "Ganymede",
       "bodyType": "Moon",
@@ -344,6 +542,16 @@
     },
     {
       "id": "callisto",
+      "texture": {
+        "base": "#5C4A36",
+        "craters": [
+          { "lat": 15, "lon": 55, "latR": 5, "lonR": 6, "color": "#9A8260" },
+          { "lat": 40, "lon": 145, "latR": 4, "lonR": 5, "color": "#9A8260" },
+          { "lat": -25, "lon": -90, "latR": 3, "lonR": 4, "color": "#9A8260" },
+          { "lat": 50, "lon": -60, "latR": 2, "lonR": 3, "color": "#9A8260" },
+          { "lat": -40, "lon": 30, "latR": 3, "lonR": 3, "color": "#9A8260" }
+        ]
+      },
       "name": "Callisto",
       "englishName": "Callisto",
       "bodyType": "Moon",
