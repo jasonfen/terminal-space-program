@@ -56,6 +56,7 @@ var helpSections = []helpSection{
 		{"← / h", "move the body cursor previous"},
 		{"tab", "switch star system"},
 		{"i", "body info screen"},
+		{"M", "missions ladder (program / objective progress)"},
 	}},
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×)"},
