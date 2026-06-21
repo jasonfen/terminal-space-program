@@ -72,6 +72,45 @@ const (
 	KindRendezvous    Kind = "rendezvous"
 	KindDock          Kind = "dock"
 	KindReturnToBody  Kind = "return_to_body"
+
+	// KindEvent (ADR 0025 §6, v0.21) is the second objective family: it
+	// matches a semantic gameplay Action (Params.Action) that fired while the
+	// objective was active, rather than a world-state predicate. Used by
+	// control-teaching tutorial steps that leave no world trace.
+	KindEvent Kind = "event"
+)
+
+// Action is a semantic gameplay verb the player triggers, recorded downward
+// from the input layer (ADR 0025 §7, v0.21). The input resolves a keybinding
+// to an Action and records the Action — not the raw keystroke — so event
+// objectives survive rebinding (GH #130) and layout presets (ADR 0022). Like
+// Kind, the string values are modder-facing schema. Pure camera / navigation
+// / meta bindings (zoom, tilt, focus, help, quit) are deliberately excluded —
+// no tutorial verifies them.
+type Action string
+
+const (
+	ActionThrottleFull    Action = "throttle_full"
+	ActionThrottleCut     Action = "throttle_cut"
+	ActionThrottleUp      Action = "throttle_up"
+	ActionThrottleDown    Action = "throttle_down"
+	ActionOpenManeuver    Action = "open_maneuver"
+	ActionPlanTransfer    Action = "plan_transfer"
+	ActionPlanCircularize Action = "plan_circularize"
+	ActionPlanIncl        Action = "plan_incl"
+	ActionPlanRendezvous  Action = "plan_rendezvous"
+	ActionRefinePlan      Action = "refine_plan"
+	ActionClearNodes      Action = "clear_nodes"
+	ActionToggleBurn      Action = "toggle_burn"
+	ActionStage           Action = "stage"
+	ActionCycleTarget     Action = "cycle_target"
+	ActionClearTarget     Action = "clear_target"
+	ActionCycleView       Action = "cycle_view"
+	ActionCycleNavMode    Action = "cycle_navmode"
+	ActionAutoWarp        Action = "auto_warp"
+	ActionSpawnCraft      Action = "spawn_craft"
+	ActionUndock          Action = "undock"
+	ActionTranspose       Action = "transpose"
 )
 
 // FailCondition is an opt-in trigger that transitions an InProgress
@@ -142,6 +181,10 @@ type Params struct {
 	// than RelSpeedMs metres/second. v0.21+.
 	RangeM     float64 `json:"range_m,omitempty"`
 	RelSpeedMs float64 `json:"rel_speed_ms,omitempty"`
+
+	// Action is the semantic gameplay verb an Event objective matches
+	// (ADR 0025 §6/§7). KindEvent only. v0.21+.
+	Action Action `json:"action,omitempty"`
 }
 
 // Objective is the atomic pass/fail predicate (the pre-v0.21 Mission).
@@ -207,6 +250,14 @@ type EvalContext struct {
 	HasNode     bool // active craft has at least one planted maneuver node
 	HasTarget   bool // a body or craft is selected in the world target slot
 	Staged      bool // the player has decoupled a stage this session
+
+	// RecentActions are the semantic gameplay actions recorded since the last
+	// mission-eval tick (ADR 0025 §6, v0.21). The sim drains this each tick,
+	// so the event objective sees only actions fired during the current tick
+	// window — which, combined with Mission ordering (an objective is only
+	// evaluated while active), gives the "fired while InProgress" semantics
+	// without any per-objective watermark. Read by KindEvent.
+	RecentActions []Action
 }
 
 // Evaluate steps the objective one tick and returns the new status.
@@ -254,6 +305,26 @@ func (o Objective) evalKind(ctx EvalContext) Status {
 		return evalRendezvous(o.Params, ctx)
 	case KindDock:
 		return evalDock(o.Params, ctx)
+	case KindEvent:
+		return evalEvent(o.Params, ctx)
+	}
+	return InProgress
+}
+
+// evalEvent: pass when the objective's Action appears in the since-last-tick
+// action sink (ctx.RecentActions) — i.e. the player triggered that semantic
+// gameplay verb during this tick window. Because the sim drains the sink each
+// tick and Mission ordering only evaluates an objective while it is active, a
+// match here means the action fired while the objective was InProgress. A
+// missing Action param is inert (never matches). v0.21+ (ADR 0025 §6).
+func evalEvent(p Params, ctx EvalContext) Status {
+	if p.Action == "" {
+		return InProgress
+	}
+	for _, a := range ctx.RecentActions {
+		if a == p.Action {
+			return Passed
+		}
 	}
 	return InProgress
 }

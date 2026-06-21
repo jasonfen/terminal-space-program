@@ -192,6 +192,13 @@ type World struct {
 	// later slice. v0.21+.
 	stagedThisSession bool
 
+	// recentActions is the event-objective sink (ADR 0025 §6, v0.21): the
+	// semantic gameplay actions the TUI input layer recorded since the last
+	// mission-eval tick. Appended by RecordAction (downward from tui),
+	// consumed + drained by evaluateMissions each tick. Session scoped, not
+	// persisted.
+	recentActions []missions.Action
+
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
@@ -612,8 +619,13 @@ func (w *World) Tick() {
 				CompositeName: w.ActiveCraft().Name,
 			}
 		}
-		w.evaluateMissions()
 	}
+	// Mission eval runs every tick — even with an empty slate — so the event
+	// sink is drained each tick regardless of crafts (ADR 0025 §6). It
+	// early-returns when there's no active craft after draining, so actions
+	// recorded during an empty-slate window can't survive to latch a
+	// freshly-active event objective on the first post-spawn tick.
+	w.evaluateMissions()
 	// v0.11.0+: per-tick ViewLaunch route/release state machine.
 	// Runs after integration so the post-tick Landed state is
 	// authoritative (engine ignition clears Landed inside
@@ -636,6 +648,11 @@ type DockEvent struct {
 // sticky, so missions already Passed/Failed are cheap no-ops. v0.6.5+;
 // v0.21 (ADR 0025) the unit is a Mission of ordered Objectives.
 func (w *World) evaluateMissions() {
+	// Drain the event-action sink every tick regardless of mission state:
+	// actions recorded while no objective was active must not pile up and
+	// later latch a freshly-active event objective (ADR 0025 §6), and the
+	// slice must not grow unbounded. Reslice to [:0] keeps the backing array.
+	defer func() { w.recentActions = w.recentActions[:0] }()
 	if len(w.Missions) == 0 || w.ActiveCraft() == nil {
 		return
 	}
@@ -643,6 +660,15 @@ func (w *World) evaluateMissions() {
 	for i := range w.Missions {
 		w.Missions[i].Evaluate(ctx)
 	}
+}
+
+// RecordAction appends a semantic gameplay action to the per-tick event sink
+// the mission evaluator drains (ADR 0025 §6/§7, v0.21). Called downward by the
+// TUI input layer after it resolves a keybinding to an action — so events are
+// rebinding-proof and `missions` never imports `tui`. No-op-safe to call when
+// no mission is loaded (the sink is drained each tick anyway).
+func (w *World) RecordAction(a missions.Action) {
+	w.recentActions = append(w.recentActions, a)
 }
 
 // missionEvalContext snapshots the read-only slice of World state the
@@ -678,6 +704,7 @@ func (w *World) missionEvalContext() missions.EvalContext {
 		HasNode:        len(c.Nodes) > 0,
 		HasTarget:      w.Target.Kind != spacecraft.TargetNone,
 		Staged:         w.stagedThisSession,
+		RecentActions:  w.recentActions,
 	}
 	// Target-craft relative state (rendezvous), against the player's
 	// current target slot in the active craft's frame. Only when a craft
