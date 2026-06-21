@@ -74,6 +74,27 @@ const (
 	KindReturnToBody  Kind = "return_to_body"
 )
 
+// FailCondition is an opt-in trigger that transitions an InProgress
+// Objective to Failed (ADR 0025 §5, v0.21 — the first code path that
+// produces Failed). An Objective declares zero or more on its FailOn
+// list; declaring none means it never fails (retry forever). Like Kind,
+// the string values are part of the modder-facing schema — renaming one
+// breaks community catalogs. Both conditions read the Active Vessel
+// (per-craft binding is deferred to a v0.22 ADR amendment).
+type FailCondition string
+
+const (
+	// FailCrashed fails when the active craft is Crashed (the ADR 0004
+	// destructive surface-contact signal).
+	FailCrashed FailCondition = "crashed"
+	// FailOutOfFuel fails when the active craft has no main propellant
+	// left in ANY stage (TotalFuelKg <= 0). It reads the summed all-stage
+	// fuel, not the active stage, so a multi-stage craft whose bottom
+	// stage is spent but whose upper stages are full is not "out of fuel"
+	// — staging would continue the flight. RCS monoprop is excluded.
+	FailOutOfFuel FailCondition = "out_of_fuel"
+)
+
 // Params is the union of parameters across all objective kinds. Each
 // kind reads only the fields it cares about; the rest stay zero.
 type Params struct {
@@ -132,6 +153,12 @@ type Objective struct {
 	Kind        Kind   `json:"kind"`
 	Params      Params `json:"params"`
 	Status      Status `json:"status,omitempty"`
+
+	// FailOn is the opt-in set of conditions that fail this objective
+	// while it is InProgress (ADR 0025 §5, v0.21). Empty (the default)
+	// means the objective never fails. Additive to the v9 save shape
+	// (omitempty), so no schema bump. v0.21+.
+	FailOn []FailCondition `json:"fail_on,omitempty"`
 }
 
 // EvalContext is the minimum slice of World state an objective predicate
@@ -164,27 +191,50 @@ type EvalContext struct {
 	// fused with at least one other vessel). Read by dock. v0.21+.
 	Docked bool
 
-	// v0.21 (ADR 0025) resource + outcome snapshot. These are wired now so
-	// the slice-3 failure semantics (out_of_fuel / crashed) and slice-4
-	// outcome steps read a complete context; no v0.21 state-objective kind
-	// consumes them yet. FuelKg is the active stage's propellant; DvBudget
-	// is the active stage's remaining Δv (m/s).
-	FuelKg     float64
-	MonopropKg float64
-	DvBudget   float64
-	Crashed    bool
-	HasNode    bool // active craft has at least one planted maneuver node
-	HasTarget  bool // a body or craft is selected in the world target slot
-	Staged     bool // the player has decoupled a stage this session
+	// v0.21 (ADR 0025) resource + outcome snapshot. FuelKg is the active
+	// (bottom) stage's propellant; DvBudget is the active stage's remaining
+	// Δv (m/s); no v0.21 state-objective kind consumes either yet (slice-4
+	// outcome steps will). TotalFuelKg is the summed main propellant across
+	// ALL stages — the signal the out_of_fuel fail condition reads, since a
+	// spent bottom stage with full upper stages is not stranded (staging
+	// continues the flight). Crashed is the ADR 0004 destructive-contact
+	// flag read by the crashed fail condition.
+	FuelKg      float64
+	MonopropKg  float64
+	DvBudget    float64
+	TotalFuelKg float64
+	Crashed     bool
+	HasNode     bool // active craft has at least one planted maneuver node
+	HasTarget   bool // a body or craft is selected in the world target slot
+	Staged      bool // the player has decoupled a stage this session
 }
 
 // Evaluate steps the objective one tick and returns the new status.
 // Idempotent on terminal states (Passed/Failed return immediately).
 // Does not mutate the receiver — the caller owns the status.
+//
+// Pass takes precedence over fail on the same tick: a terminal status from
+// the kind predicate (today only Passed) wins even when a declared fail
+// condition is also met — achieving the goal beats, say, running the tanks
+// dry on touchdown. Only while the kind reports InProgress do the opt-in
+// fail_on conditions apply (ADR 0025 §5, v0.21).
 func (o Objective) Evaluate(ctx EvalContext) Status {
 	if o.Status != InProgress {
 		return o.Status
 	}
+	if s := o.evalKind(ctx); s != InProgress {
+		return s
+	}
+	if o.failOnTriggered(ctx) {
+		return Failed
+	}
+	return InProgress
+}
+
+// evalKind dispatches to the per-kind state predicate. An unknown kind
+// stays InProgress so an unrecognised catalog entry sits inert rather than
+// spuriously passing.
+func (o Objective) evalKind(ctx EvalContext) Status {
 	switch o.Kind {
 	case KindCircularize:
 		return evalCircularize(o.Params, ctx)
@@ -206,6 +256,25 @@ func (o Objective) Evaluate(ctx EvalContext) Status {
 		return evalDock(o.Params, ctx)
 	}
 	return InProgress
+}
+
+// failOnTriggered reports whether any of the objective's declared fail
+// conditions is currently met. An objective with no FailOn never triggers
+// (ADR 0025 §5: declare nothing → never fails, retry forever).
+func (o Objective) failOnTriggered(ctx EvalContext) bool {
+	for _, fc := range o.FailOn {
+		switch fc {
+		case FailCrashed:
+			if ctx.Crashed {
+				return true
+			}
+		case FailOutOfFuel:
+			if ctx.TotalFuelKg <= 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // evalDock: pass when the active craft is a docked composite. Grounded in
@@ -412,9 +481,9 @@ type Mission struct {
 // a later step can't latch before its predecessor (e.g. you can't
 // "return" before you "land"). An Objective that just Passed this tick
 // lets the next one be evaluated the same tick. The Mission Passes when
-// every Objective has Passed; it Fails the moment any Objective Fails (no
-// Objective produces Failed until the slice-3 failure semantics land). A
-// Mission with no Objectives never passes.
+// every Objective has Passed; it Fails the moment any Objective Fails —
+// which an objective does when one of its opt-in fail_on conditions fires
+// (ADR 0025 §5, v0.21). A Mission with no Objectives never passes.
 func (m *Mission) Evaluate(ctx EvalContext) Status {
 	if m.Status != InProgress {
 		return m.Status
@@ -459,9 +528,9 @@ func LoadCatalog(data []byte) (Catalog, error) {
 // Clone returns a deep copy of the mission slice. Used when seeding
 // World.Missions from a catalog so per-session status progression
 // doesn't mutate the shared template. The per-Mission Objectives /
-// Requires / Unlocks slices are copied too — a shallow copy would let a
-// cloned mission's objective-status mutation bleed back into the
-// embedded catalog.
+// Requires / Unlocks slices are copied too — and each Objective's FailOn
+// slice — because a shallow copy would let a cloned mission's mutation
+// bleed back into the embedded catalog.
 func Clone(ms []Mission) []Mission {
 	if len(ms) == 0 {
 		return nil
@@ -470,6 +539,9 @@ func Clone(ms []Mission) []Mission {
 	for i := range ms {
 		out[i] = ms[i]
 		out[i].Objectives = append([]Objective(nil), ms[i].Objectives...)
+		for j := range out[i].Objectives {
+			out[i].Objectives[j].FailOn = append([]FailCondition(nil), ms[i].Objectives[j].FailOn...)
+		}
 		out[i].Requires = append([]string(nil), ms[i].Requires...)
 		out[i].Unlocks = append([]string(nil), ms[i].Unlocks...)
 	}
