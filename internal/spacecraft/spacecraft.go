@@ -400,6 +400,20 @@ func (s *Spacecraft) EffectiveThrottle() float64 {
 // TotalMass returns dry + fuel + monoprop.
 func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel + s.Monoprop }
 
+// SurfaceLatLon returns the craft's body-fixed surface coordinates in
+// degrees (north-positive, east-positive): the soft-touchdown coords when
+// set, else the launchpad-spawn coords ("when non-zero, read these
+// instead"). Meaningful when the craft is Landed. Single source of truth
+// for both the landed-integration pin (sim.integrateLanded) and the
+// mission evaluator's surface position (sim.missionEvalContext). v0.21+.
+func (s *Spacecraft) SurfaceLatLon() (lat, lon float64) {
+	lat, lon = s.LaunchLatDeg, s.LaunchLonDeg
+	if s.LandedLatDeg != 0 || s.LandedLonDeg != 0 {
+		lat, lon = s.LandedLatDeg, s.LandedLonDeg
+	}
+	return lat, lon
+}
+
 // DefaultBallisticCoefficient is the v0.8.4 baseline (C_D · A / m)
 // for an S-IVB-1-class craft in m²/kg. Used as the fallback when
 // Spacecraft.BallisticCoefficient is zero — legacy saves and any

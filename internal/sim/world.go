@@ -186,6 +186,12 @@ type World struct {
 	// time; Status fields progress as the player flies. v0.6.5+.
 	Missions []missions.Mission
 
+	// stagedThisSession latches once the player decouples a stage; it
+	// feeds the mission evaluator's outcome context (ADR 0025). Session
+	// scoped (not persisted) — outcome objectives that need it land in a
+	// later slice. v0.21+.
+	stagedThisSession bool
+
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
@@ -633,16 +639,56 @@ func (w *World) evaluateMissions() {
 	if len(w.Missions) == 0 || w.ActiveCraft() == nil {
 		return
 	}
-	ctx := missions.EvalContext{
-		PrimaryID:      w.ActiveCraft().Primary.ID,
-		PrimaryRadiusM: w.ActiveCraft().Primary.RadiusMeters(),
-		PrimaryMu:      w.ActiveCraft().Primary.GravitationalParameter(),
-		State:          w.ActiveCraft().State,
-		SimTime:        w.Clock.SimTime,
-	}
+	ctx := w.missionEvalContext()
 	for i := range w.Missions {
 		w.Missions[i].Evaluate(ctx)
 	}
+}
+
+// missionEvalContext snapshots the read-only slice of World state the
+// mission evaluator needs, all relative to the Active Vessel. Returns the
+// zero EvalContext when there's no active craft. The resource/outcome
+// fields (fuel, monoprop, Δv, crashed, node/target/staged flags) are
+// populated even though no v0.21 state-objective kind reads them yet — the
+// slice-3 failure semantics and slice-4 outcome steps depend on a complete
+// context. v0.21 (ADR 0025).
+func (w *World) missionEvalContext() missions.EvalContext {
+	c := w.ActiveCraft()
+	if c == nil {
+		return missions.EvalContext{}
+	}
+	// Surface coordinates: same source of truth integrateLanded pins to,
+	// so the mission evaluates against the craft's actual landed position.
+	lat, lon := c.SurfaceLatLon()
+	ctx := missions.EvalContext{
+		PrimaryID:      c.Primary.ID,
+		PrimaryRadiusM: c.Primary.RadiusMeters(),
+		PrimaryMu:      c.Primary.GravitationalParameter(),
+		State:          c.State,
+		SimTime:        w.Clock.SimTime,
+		Landed:         c.Landed,
+		SurfaceLatDeg:  lat,
+		SurfaceLonDeg:  lon,
+		Crashed:        c.Crashed,
+		FuelKg:         c.ActiveStageFuel(),
+		MonopropKg:     c.Monoprop,
+		DvBudget:       c.RemainingDeltaV(),
+		Docked:         len(c.DockedComponents) > 0,
+		HasNode:        len(c.Nodes) > 0,
+		HasTarget:      w.Target.Kind != spacecraft.TargetNone,
+		Staged:         w.stagedThisSession,
+	}
+	// Target-craft relative state (rendezvous), against the player's
+	// current target slot in the active craft's frame. Only when a craft
+	// (not a body) is targeted, so non-rendezvous play skips the solve.
+	if w.Target.Kind == spacecraft.TargetCraft {
+		if rT, vT, ok := w.TargetStateRelativeToActivePrimary(); ok {
+			ctx.HasTargetCraft = true
+			ctx.TargetRangeM = c.State.R.Sub(rT).Norm()
+			ctx.TargetRelSpeedMs = c.State.V.Sub(vT).Norm()
+		}
+	}
+	return ctx
 }
 
 // ActiveMission returns the first in-progress mission, or nil if all

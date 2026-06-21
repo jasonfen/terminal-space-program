@@ -30,3 +30,19 @@ func TestNewInLEO(t *testing.T) {
 		t.Errorf("orbital speed = %.1f m/s, want ~7613 m/s", v)
 	}
 }
+
+// TestSurfaceLatLon — touchdown coords win when set; otherwise the
+// launchpad-spawn coords are used (the "when non-zero, read these instead"
+// fallback shared by integrateLanded and the mission evaluator).
+func TestSurfaceLatLon(t *testing.T) {
+	s := &Spacecraft{LaunchLatDeg: 28.6, LaunchLonDeg: -80.6}
+	// No touchdown coords → falls back to the launch site.
+	if lat, lon := s.SurfaceLatLon(); lat != 28.6 || lon != -80.6 {
+		t.Errorf("fallback: got (%v,%v), want (28.6,-80.6)", lat, lon)
+	}
+	// Touchdown coords set → they win.
+	s.LandedLatDeg, s.LandedLonDeg = -5, 120
+	if lat, lon := s.SurfaceLatLon(); lat != -5 || lon != 120 {
+		t.Errorf("touchdown: got (%v,%v), want (-5,120)", lat, lon)
+	}
+}

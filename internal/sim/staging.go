@@ -128,6 +128,7 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	// upper chain). Slate ordering: active idx is unchanged; the
 	// jettisoned stage sits at the end.
 	newActiveIdx = craftIdx
+	w.stagedThisSession = true // mission outcome context (ADR 0025)
 	return newActiveIdx, jettisonedIdx, nil
 }
 
