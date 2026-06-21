@@ -68,8 +68,9 @@ func TestLoadV8SaveReseedsMissions(t *testing.T) {
 
 	// Reseeded to the new nested catalog: every starter mission present,
 	// each with objectives, none carrying the dropped Passed progress.
-	if len(got.Missions) != 4 {
-		t.Fatalf("reseed: got %d missions, want 4 embedded starter missions", len(got.Missions))
+	base, _ := missions.DefaultCatalog()
+	if len(got.Missions) != len(base.Missions) {
+		t.Fatalf("reseed: got %d missions, want %d embedded starter missions", len(got.Missions), len(base.Missions))
 	}
 	for _, m := range got.Missions {
 		if len(m.Objectives) == 0 {

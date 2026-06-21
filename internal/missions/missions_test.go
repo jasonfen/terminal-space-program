@@ -239,33 +239,28 @@ func TestDefaultCatalogLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DefaultCatalog: %v", err)
 	}
-	if len(cat.Missions) != 4 {
-		t.Fatalf("expected 4 starter missions, got %d", len(cat.Missions))
+	if len(cat.Missions) == 0 {
+		t.Fatal("embedded catalog is empty")
 	}
-	wantIDs := map[string]bool{
-		"leo-circularize-1000": false,
-		"luna-orbit-insertion": false,
-		"mars-soi-flyby":       false,
-		"saturn-v-pad-to-leo":  false, // v0.9.2+
+	// Key rungs of the v0.21 tutorial→challenge ladder are present.
+	for _, id := range []string{"tut-orient", "tut-fly", "chal-high-orbit", "chal-luna-return", "chal-mars-flyby"} {
+		if _, ok := missionByID(cat, id); !ok {
+			t.Errorf("expected ladder mission %q in the embedded catalog", id)
+		}
 	}
+	// Every mission is well-formed: a non-empty id and at least one objective,
+	// each objective carrying a non-empty kind (an empty kind sits inert).
 	for _, m := range cat.Missions {
-		if _, ok := wantIDs[m.ID]; !ok {
-			t.Errorf("unexpected mission id %q", m.ID)
-			continue
+		if m.ID == "" {
+			t.Errorf("mission %q has an empty id", m.Name)
 		}
-		wantIDs[m.ID] = true
-		// Each starter mission wraps exactly one objective with a kind.
-		if len(m.Objectives) != 1 {
-			t.Errorf("mission %q: got %d objectives, want 1", m.ID, len(m.Objectives))
-			continue
+		if len(m.Objectives) == 0 {
+			t.Errorf("mission %q has no objectives", m.ID)
 		}
-		if m.Objectives[0].Kind == "" {
-			t.Errorf("mission %q: objective has empty kind", m.ID)
-		}
-	}
-	for id, found := range wantIDs {
-		if !found {
-			t.Errorf("missing mission id %q", id)
+		for j, o := range m.Objectives {
+			if o.Kind == "" {
+				t.Errorf("mission %q objective %d has an empty kind", m.ID, j)
+			}
 		}
 	}
 }

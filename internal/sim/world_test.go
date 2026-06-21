@@ -81,8 +81,8 @@ type bodies_CelestialBody = bodies.CelestialBody
 // render as 384k km from the Sun — closer than Mercury.
 func TestBodyPositionRecursesThroughHierarchy(t *testing.T) {
 	w, _ := NewWorld()
-	moonPtr := findBody(w,"Moon")
-	earthPtr := findBody(w,"Earth")
+	moonPtr := findBody(w, "Moon")
+	earthPtr := findBody(w, "Earth")
 	if moonPtr == nil || earthPtr == nil {
 		t.Skip("Moon or Earth missing from Sol")
 	}
@@ -112,7 +112,7 @@ func TestBodyPositionRecursesThroughHierarchy(t *testing.T) {
 func TestFindPrimaryNestedSOIWalk(t *testing.T) {
 	w, _ := NewWorld()
 	sys := w.System()
-	moon := findBody(w,"Moon")
+	moon := findBody(w, "Moon")
 	if moon == nil {
 		t.Skip("Moon missing from Sol")
 	}
@@ -141,7 +141,7 @@ func TestFindPrimaryGalileanMultiMoon(t *testing.T) {
 	w, _ := NewWorld()
 	sys := w.System()
 	for _, name := range []string{"Io", "Europa", "Ganymede", "Callisto"} {
-		moon := findBody(w,name)
+		moon := findBody(w, name)
 		if moon == nil {
 			t.Errorf("%s missing from Sol", name)
 			continue
@@ -344,25 +344,29 @@ func TestTickPassesCircularizeAtTarget(t *testing.T) {
 		V: orbital.Vec3{Y: v},
 		M: w.ActiveCraft().TotalMass(),
 	}
+
+	// Inject a single un-gated circularize mission so this exercises the
+	// Tick → evaluateMissions → circularize-passes path directly. (The seeded
+	// catalog's circularize rung is now requires-gated behind the tutorial —
+	// ADR 0025 Slice 6 — so it deliberately won't latch out of order.)
+	w.Missions = []missions.Mission{{
+		ID:   "test-circ",
+		Name: "Circularize",
+		Objectives: []missions.Objective{{
+			Kind: missions.KindCircularize,
+			Params: missions.Params{
+				PrimaryID:       w.ActiveCraft().Primary.ID,
+				AltitudeM:       1_000_000,
+				AltitudeTolPct:  0.05,
+				EccentricityCap: 0.01,
+			},
+		}},
+	}}
+
 	w.Tick()
 
-	var found *missions.Mission
-	for i := range w.Missions {
-		for j := range w.Missions[i].Objectives {
-			if w.Missions[i].Objectives[j].Kind == missions.KindCircularize {
-				found = &w.Missions[i]
-				break
-			}
-		}
-		if found != nil {
-			break
-		}
-	}
-	if found == nil {
-		t.Fatal("circularize mission not present in default catalog")
-	}
-	if found.Status != missions.Passed {
-		t.Errorf("circularize at 1000 km: got %v, want Passed", found.Status)
+	if got := w.Missions[0].Status; got != missions.Passed {
+		t.Errorf("circularize at 1000 km: got %v, want Passed", got)
 	}
 }
 

@@ -646,8 +646,10 @@ func (m Mission) FailedObjective() (Objective, bool) {
 // RequirementsMet reports whether every mission ID in this mission's
 // Requires list is present and true in passed (the set of already-Passed
 // mission IDs). A mission with no Requires is always met (an ungated rung).
-// Drives the ladder screen's locked-vs-available classification (ADR 0025
-// §2 / §"Locked rungs"). v0.21 Slice 5.
+// Gates both the ladder screen's locked-vs-available classification (ADR
+// 0025 §2 / §"Locked rungs") and — since v0.21 Slice 6 — the evaluator
+// itself: a locked mission is not evaluated, so its objectives can't latch
+// out of order (ADR 0025 §8: "requires gates the next mission"). v0.21.
 func (m Mission) RequirementsMet(passed map[string]bool) bool {
 	for _, id := range m.Requires {
 		if !passed[id] {
@@ -655,6 +657,18 @@ func (m Mission) RequirementsMet(passed map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+// PassedSet returns the set of mission IDs currently in the Passed state —
+// the prerequisite set RequirementsMet is checked against. v0.21 Slice 6.
+func PassedSet(ms []Mission) map[string]bool {
+	out := make(map[string]bool, len(ms))
+	for i := range ms {
+		if ms[i].Status == Passed {
+			out[ms[i].ID] = true
+		}
+	}
+	return out
 }
 
 // Catalog is a list of Missions, persisted to JSON. The starter catalog

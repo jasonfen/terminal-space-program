@@ -668,7 +668,16 @@ func (w *World) evaluateMissions() {
 		return
 	}
 	ctx := w.missionEvalContext()
+	// requires gates the evaluator, not just the ladder display (ADR 0025 §8,
+	// v0.21 Slice 6): skip any mission whose prerequisites haven't Passed so
+	// its objectives can't latch out of order. The passed set is snapshotted
+	// before the loop, so a prerequisite that passes this tick only unlocks
+	// its dependents on the next tick (one 50 ms step — imperceptible).
+	passed := missions.PassedSet(w.Missions)
 	for i := range w.Missions {
+		if !w.Missions[i].RequirementsMet(passed) {
+			continue
+		}
 		prev := w.Missions[i].Status
 		w.Missions[i].Evaluate(ctx)
 		// A fresh InProgress→Failed transition arms the chip's failure flash

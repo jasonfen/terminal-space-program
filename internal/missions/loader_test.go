@@ -47,8 +47,9 @@ func TestLoadAllNoOverlay(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Errorf("expected no warnings, got %v", warnings)
 	}
-	if len(cat.Missions) != 4 {
-		t.Errorf("expected 4 embedded missions, got %d", len(cat.Missions))
+	base, _ := DefaultCatalog()
+	if len(cat.Missions) != len(base.Missions) {
+		t.Errorf("expected %d embedded missions, got %d", len(base.Missions), len(cat.Missions))
 	}
 }
 
@@ -74,7 +75,7 @@ func TestLoadAllMergesUserOverlay(t *testing.T) {
 		t.Errorf("user mission objectives not parsed: %+v", m.Objectives)
 	}
 	// Embedded missions survive alongside the overlay.
-	if _, ok := missionByID(cat, "mars-soi-flyby"); !ok {
+	if _, ok := missionByID(cat, "chal-mars-flyby"); !ok {
 		t.Error("embedded mission dropped after overlay merge")
 	}
 }
@@ -84,17 +85,18 @@ func TestLoadAllMergesUserOverlay(t *testing.T) {
 // count doesn't grow.
 func TestLoadAllUserOverrideByID(t *testing.T) {
 	writeOverlay(t, map[string]string{
-		"override.json": `{"missions":[{"id":"mars-soi-flyby","name":"Mars flyby (custom)",
+		"override.json": `{"missions":[{"id":"chal-mars-flyby","name":"Mars flyby (custom)",
 			"objectives":[{"kind":"soi_flyby","params":{"primary_id":"mars"}}]}]}`,
 	})
 	cat, _, err := LoadAllWithWarnings()
 	if err != nil {
 		t.Fatalf("LoadAllWithWarnings: %v", err)
 	}
-	if len(cat.Missions) != 4 {
-		t.Errorf("override grew the catalog: got %d missions, want 4", len(cat.Missions))
+	base, _ := DefaultCatalog()
+	if len(cat.Missions) != len(base.Missions) {
+		t.Errorf("override grew the catalog: got %d missions, want %d", len(cat.Missions), len(base.Missions))
 	}
-	m, ok := missionByID(cat, "mars-soi-flyby")
+	m, ok := missionByID(cat, "chal-mars-flyby")
 	if !ok {
 		t.Fatal("overridden mission missing")
 	}
@@ -119,8 +121,8 @@ func TestLoadAllBadFileBecomesFailedMission(t *testing.T) {
 	if len(warnings) == 0 {
 		t.Error("expected a warning for the malformed overlay file")
 	}
-	// All four embedded missions still present.
-	for _, id := range []string{"leo-circularize-1000", "luna-orbit-insertion", "mars-soi-flyby", "saturn-v-pad-to-leo"} {
+	// A representative spread of embedded missions still present.
+	for _, id := range []string{"tut-orient", "chal-high-orbit", "chal-mars-flyby", "chal-pad-to-leo"} {
 		if _, ok := missionByID(cat, id); !ok {
 			t.Errorf("embedded mission %q dropped by a bad overlay file", id)
 		}
@@ -154,7 +156,8 @@ func TestLoadAllDropsWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
-	if len(cat.Missions) != 5 { // 4 embedded + 1 Failed placeholder
-		t.Errorf("got %d missions, want 5 (4 embedded + 1 failed placeholder)", len(cat.Missions))
+	base, _ := DefaultCatalog()
+	if len(cat.Missions) != len(base.Missions)+1 { // embedded + 1 Failed placeholder
+		t.Errorf("got %d missions, want %d (embedded + 1 failed placeholder)", len(cat.Missions), len(base.Missions)+1)
 	}
 }
