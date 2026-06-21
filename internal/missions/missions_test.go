@@ -31,8 +31,8 @@ func circularState(r, mu, alt float64) physics.StateVector {
 }
 
 func TestCircularizeStartsInProgress(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularize,
+	o := Objective{
+		Kind: KindCircularize,
 		Params: Params{
 			PrimaryID:       "earth",
 			AltitudeM:       1_000_000,
@@ -47,14 +47,14 @@ func TestCircularizeStartsInProgress(t *testing.T) {
 		PrimaryMu:      earthMu,
 		State:          circularState(earthRadius, earthMu, 500e3),
 	}
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Fatalf("at 500 km, expected InProgress, got %v", got)
 	}
 }
 
 func TestCircularizePassesAtTarget(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularize,
+	o := Objective{
+		Kind: KindCircularize,
 		Params: Params{
 			PrimaryID:       "earth",
 			AltitudeM:       1_000_000,
@@ -68,14 +68,14 @@ func TestCircularizePassesAtTarget(t *testing.T) {
 		PrimaryMu:      earthMu,
 		State:          circularState(earthRadius, earthMu, 1_000_000),
 	}
-	if got := m.Evaluate(ctx); got != Passed {
+	if got := o.Evaluate(ctx); got != Passed {
 		t.Fatalf("at 1000 km circular, expected Passed, got %v", got)
 	}
 }
 
 func TestCircularizeTolerance(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularize,
+	o := Objective{
+		Kind: KindCircularize,
 		Params: Params{
 			PrimaryID:       "earth",
 			AltitudeM:       1_000_000,
@@ -92,20 +92,20 @@ func TestCircularizeTolerance(t *testing.T) {
 		PrimaryMu:      earthMu,
 		State:          circularState(earthRadius, earthMu, insideAlt),
 	}
-	if got := m.Evaluate(ctx); got != Passed {
+	if got := o.Evaluate(ctx); got != Passed {
 		t.Errorf("inside tolerance, expected Passed, got %v", got)
 	}
 	// Outside tolerance: 10% under.
 	outsideAlt := 1_000_000 - 0.10*target
 	ctx.State = circularState(earthRadius, earthMu, outsideAlt)
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Errorf("outside tolerance, expected InProgress, got %v", got)
 	}
 }
 
 func TestCircularizeEccentricityCap(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularize,
+	o := Objective{
+		Kind: KindCircularize,
 		Params: Params{
 			PrimaryID:       "earth",
 			AltitudeM:       1_000_000,
@@ -131,14 +131,14 @@ func TestCircularizeEccentricityCap(t *testing.T) {
 		PrimaryMu:      earthMu,
 		State:          state,
 	}
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Fatalf("e=0.05 over cap=0.005, expected InProgress, got %v", got)
 	}
 }
 
 func TestCircularizeWrongPrimary(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularize,
+	o := Objective{
+		Kind: KindCircularize,
 		Params: Params{
 			PrimaryID:       "earth",
 			AltitudeM:       1_000_000,
@@ -154,14 +154,14 @@ func TestCircularizeWrongPrimary(t *testing.T) {
 		PrimaryMu:      moonMu,
 		State:          circularState(moonRadius, moonMu, 1_000_000),
 	}
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Fatalf("primary mismatch, expected InProgress, got %v", got)
 	}
 }
 
 func TestOrbitInsertionPassesOnBoundOrbit(t *testing.T) {
-	m := Mission{
-		Type:   TypeOrbitInsertion,
+	o := Objective{
+		Kind:   KindOrbitInsertion,
 		Params: Params{PrimaryID: "moon"},
 	}
 	ctx := EvalContext{
@@ -170,14 +170,14 @@ func TestOrbitInsertionPassesOnBoundOrbit(t *testing.T) {
 		PrimaryMu:      moonMu,
 		State:          circularState(moonRadius, moonMu, 100e3),
 	}
-	if got := m.Evaluate(ctx); got != Passed {
+	if got := o.Evaluate(ctx); got != Passed {
 		t.Fatalf("bound moon orbit, expected Passed, got %v", got)
 	}
 }
 
 func TestOrbitInsertionInProgressOnHyperbolic(t *testing.T) {
-	m := Mission{
-		Type:   TypeOrbitInsertion,
+	o := Objective{
+		Kind:   KindOrbitInsertion,
 		Params: Params{PrimaryID: "moon"},
 	}
 	// Velocity well above escape — hyperbolic.
@@ -194,43 +194,43 @@ func TestOrbitInsertionInProgressOnHyperbolic(t *testing.T) {
 		PrimaryMu:      moonMu,
 		State:          state,
 	}
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Fatalf("hyperbolic, expected InProgress, got %v", got)
 	}
 }
 
 func TestSOIFlybyPassesOnPrimaryMatch(t *testing.T) {
-	m := Mission{
-		Type:   TypeSOIFlyby,
+	o := Objective{
+		Kind:   KindSOIFlyby,
 		Params: Params{PrimaryID: "mars"},
 	}
 	ctx := EvalContext{PrimaryID: "mars"}
-	if got := m.Evaluate(ctx); got != Passed {
+	if got := o.Evaluate(ctx); got != Passed {
 		t.Fatalf("inside Mars SOI, expected Passed, got %v", got)
 	}
 }
 
 func TestSOIFlybyInProgressOtherwise(t *testing.T) {
-	m := Mission{
-		Type:   TypeSOIFlyby,
+	o := Objective{
+		Kind:   KindSOIFlyby,
 		Params: Params{PrimaryID: "mars"},
 	}
 	ctx := EvalContext{PrimaryID: "earth"}
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Fatalf("not in Mars SOI, expected InProgress, got %v", got)
 	}
 }
 
 func TestEvaluateIdempotentOnTerminal(t *testing.T) {
-	m := Mission{
-		Type:   TypeSOIFlyby,
+	o := Objective{
+		Kind:   KindSOIFlyby,
 		Params: Params{PrimaryID: "mars"},
 		Status: Passed,
 	}
-	// Even though we're back at Earth, a Passed mission stays Passed.
+	// Even though we're back at Earth, a Passed objective stays Passed.
 	ctx := EvalContext{PrimaryID: "earth"}
-	if got := m.Evaluate(ctx); got != Passed {
-		t.Fatalf("Passed mission should stay Passed, got %v", got)
+	if got := o.Evaluate(ctx); got != Passed {
+		t.Fatalf("Passed objective should stay Passed, got %v", got)
 	}
 }
 
@@ -243,10 +243,10 @@ func TestDefaultCatalogLoads(t *testing.T) {
 		t.Fatalf("expected 4 starter missions, got %d", len(cat.Missions))
 	}
 	wantIDs := map[string]bool{
-		"leo-circularize-1000":  false,
-		"luna-orbit-insertion":  false,
-		"mars-soi-flyby":        false,
-		"saturn-v-pad-to-leo":   false, // v0.9.2+
+		"leo-circularize-1000": false,
+		"luna-orbit-insertion": false,
+		"mars-soi-flyby":       false,
+		"saturn-v-pad-to-leo":  false, // v0.9.2+
 	}
 	for _, m := range cat.Missions {
 		if _, ok := wantIDs[m.ID]; !ok {
@@ -254,6 +254,14 @@ func TestDefaultCatalogLoads(t *testing.T) {
 			continue
 		}
 		wantIDs[m.ID] = true
+		// Each starter mission wraps exactly one objective with a kind.
+		if len(m.Objectives) != 1 {
+			t.Errorf("mission %q: got %d objectives, want 1", m.ID, len(m.Objectives))
+			continue
+		}
+		if m.Objectives[0].Kind == "" {
+			t.Errorf("mission %q: objective has empty kind", m.ID)
+		}
 	}
 	for id, found := range wantIDs {
 		if !found {
@@ -286,33 +294,43 @@ func TestCloneIsIndependent(t *testing.T) {
 	dup := Clone(cat.Missions)
 	dup[0].Status = Passed
 	if cat.Missions[0].Status == Passed {
-		t.Fatal("Clone shares backing memory with source")
+		t.Fatal("Clone shares mission-level backing memory with source")
+	}
+	// Deep copy: mutating a cloned mission's nested objective status must
+	// not bleed back into the source catalog. A shallow copy would alias
+	// the Objectives slice and corrupt the embedded template.
+	if len(dup[0].Objectives) == 0 {
+		t.Fatal("test setup: cloned mission has no objectives")
+	}
+	dup[0].Objectives[0].Status = Passed
+	if cat.Missions[0].Objectives[0].Status == Passed {
+		t.Fatal("Clone shares objective backing memory with source")
 	}
 }
 
 // Sanity check that EvalContext's SimTime field is wired but not
 // currently consumed — guards against accidentally tying behaviour
-// to wall-clock during the v0.6.5 scaffold.
+// to wall-clock during the pre-dwell scaffold.
 func TestEvalIgnoresSimTime(t *testing.T) {
-	m := Mission{
-		Type:   TypeSOIFlyby,
+	o := Objective{
+		Kind:   KindSOIFlyby,
 		Params: Params{PrimaryID: "mars"},
 	}
 	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	t2 := time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
 	ctx1 := EvalContext{PrimaryID: "earth", SimTime: t1}
 	ctx2 := EvalContext{PrimaryID: "earth", SimTime: t2}
-	if m.Evaluate(ctx1) != m.Evaluate(ctx2) {
-		t.Fatal("SimTime should not affect predicate outcome in v0.6.5")
+	if o.Evaluate(ctx1) != o.Evaluate(ctx2) {
+		t.Fatal("SimTime should not affect predicate outcome before dwell objectives")
 	}
 }
 
 // TestCircularizeFromPadInProgressBelowFloor — a low orbit
-// (periapsis below the configured floor) keeps the mission in
+// (periapsis below the configured floor) keeps the objective in
 // progress. v0.9.2+.
 func TestCircularizeFromPadInProgressBelowFloor(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularizeFromPad,
+	o := Objective{
+		Kind: KindCircularizeFromPad,
 		Params: Params{
 			PrimaryID:        "earth",
 			MinPeriapsisAltM: 200_000,
@@ -325,7 +343,7 @@ func TestCircularizeFromPadInProgressBelowFloor(t *testing.T) {
 		PrimaryMu:      earthMu,
 		State:          circularState(earthRadius, earthMu, 100e3),
 	}
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Errorf("100 km LEO with 200 km floor: got %v, want InProgress", got)
 	}
 }
@@ -334,8 +352,8 @@ func TestCircularizeFromPadInProgressBelowFloor(t *testing.T) {
 // periapsis above the floor passes, regardless of eccentricity.
 // v0.9.2+.
 func TestCircularizeFromPadPassesAboveFloor(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularizeFromPad,
+	o := Objective{
+		Kind: KindCircularizeFromPad,
 		Params: Params{
 			PrimaryID:        "earth",
 			MinPeriapsisAltM: 200_000,
@@ -348,17 +366,17 @@ func TestCircularizeFromPadPassesAboveFloor(t *testing.T) {
 		PrimaryMu:      earthMu,
 		State:          circularState(earthRadius, earthMu, 250e3),
 	}
-	if got := m.Evaluate(ctx); got != Passed {
+	if got := o.Evaluate(ctx); got != Passed {
 		t.Errorf("250 km LEO with 200 km floor: got %v, want Passed", got)
 	}
 }
 
 // TestCircularizeFromPadRejectsHyperbolic — an unbound (e ≥ 1)
-// trajectory keeps the mission in progress even if the
+// trajectory keeps the objective in progress even if the
 // instantaneous radius is above the floor. v0.9.2+.
 func TestCircularizeFromPadRejectsHyperbolic(t *testing.T) {
-	m := Mission{
-		Type: TypeCircularizeFromPad,
+	o := Objective{
+		Kind: KindCircularizeFromPad,
 		Params: Params{
 			PrimaryID:        "earth",
 			MinPeriapsisAltM: 200_000,
@@ -379,7 +397,7 @@ func TestCircularizeFromPadRejectsHyperbolic(t *testing.T) {
 		PrimaryMu:      earthMu,
 		State:          state,
 	}
-	if got := m.Evaluate(ctx); got != InProgress {
+	if got := o.Evaluate(ctx); got != InProgress {
 		t.Errorf("hyperbolic with floor: got %v, want InProgress", got)
 	}
 }

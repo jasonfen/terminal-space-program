@@ -267,10 +267,12 @@ func NewWorld() (*World, error) {
 	}
 	w.Calculator = orbital.ForSystem(w.System())
 
-	// v0.6.5: seed missions from the embedded starter catalog. A failure
-	// to load the catalog is non-fatal — missions are an additive
-	// feature and shouldn't block worldgen if the JSON is malformed.
-	if cat, err := missions.DefaultCatalog(); err == nil {
+	// v0.6.5: seed missions from the starter catalog. v0.21 (ADR 0025):
+	// LoadAll merges the embedded catalog with any user overlay and never
+	// hard-fails on a bad overlay file (it surfaces as a Failed
+	// placeholder mission), so this stays non-fatal — missions are an
+	// additive feature and shouldn't block worldgen.
+	if cat, err := missions.LoadAll(); err == nil {
 		w.Missions = missions.Clone(cat.Missions)
 	}
 
@@ -622,9 +624,11 @@ type DockEvent struct {
 	CompositeName string // name of the resulting composite craft
 }
 
-// evaluateMissions steps each mission's predicate against the live
-// craft state. Terminal-state missions are evaluated too, but their
-// status is sticky in missions.Mission.Evaluate. v0.6.5+.
+// evaluateMissions steps each mission against the live craft state.
+// Mission.Evaluate walks the mission's ordered objectives, mutating
+// per-objective and per-mission Status in place; terminal states are
+// sticky, so missions already Passed/Failed are cheap no-ops. v0.6.5+;
+// v0.21 (ADR 0025) the unit is a Mission of ordered Objectives.
 func (w *World) evaluateMissions() {
 	if len(w.Missions) == 0 || w.ActiveCraft() == nil {
 		return
@@ -637,7 +641,7 @@ func (w *World) evaluateMissions() {
 		SimTime:        w.Clock.SimTime,
 	}
 	for i := range w.Missions {
-		w.Missions[i].Status = w.Missions[i].Evaluate(ctx)
+		w.Missions[i].Evaluate(ctx)
 	}
 }
 

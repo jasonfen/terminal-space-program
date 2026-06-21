@@ -103,8 +103,10 @@ func TestLaunchMissionProgressEmptyWithoutMission(t *testing.T) {
 		t.Fatal("expected active craft from NewWorld")
 	}
 	for i := range w.Missions {
-		if w.Missions[i].Type == missions.TypeCircularizeFromPad {
-			w.Missions[i].Status = missions.Passed
+		for j := range w.Missions[i].Objectives {
+			if w.Missions[i].Objectives[j].Kind == missions.KindCircularizeFromPad {
+				w.Missions[i].Status = missions.Passed
+			}
 		}
 	}
 	if got := launchMissionProgress(w, c, 130_000); got != "" {
