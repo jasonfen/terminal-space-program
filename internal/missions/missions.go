@@ -168,8 +168,11 @@ type Params struct {
 	// radius, in metres. Circularize only.
 	AltitudeM float64 `json:"altitude_m,omitempty"`
 
-	// AltitudeTolPct is the fractional tolerance on |a − target|/target.
-	// 0.05 = ±5%. Circularize only.
+	// AltitudeTolPct is the fractional tolerance on the achieved altitude
+	// versus AltitudeM: the orbit passes when |alt − AltitudeM|/AltitudeM ≤
+	// AltitudeTolPct, where alt = semi-major axis − primary mean radius. So
+	// 0.05 = ±5% of the *target altitude* (±50 km on a 1000 km orbit), not of
+	// the orbital radius. Circularize only. v0.21 Slice 7.
 	AltitudeTolPct float64 `json:"altitude_tol_pct,omitempty"`
 
 	// EccentricityCap is the upper bound on eccentricity. Circularize
@@ -509,11 +512,15 @@ func evalCircularize(p Params, ctx EvalContext) Status {
 	if el.E > p.EccentricityCap {
 		return InProgress
 	}
-	target := ctx.PrimaryRadiusM + p.AltitudeM
-	if target <= 0 {
+	if p.AltitudeM <= 0 {
 		return InProgress
 	}
-	if math.Abs(el.A-target)/target > p.AltitudeTolPct {
+	// Tolerance is relative to the target ALTITUDE, not the orbital radius
+	// (v0.21 Slice 7 playtest fix). "±5% of a 1000 km orbit" now means ±50 km;
+	// the old radius-relative form was ±5% of the ~7371 km radius (±369 km),
+	// which let a 630 km orbit pass a "1000 km" objective.
+	alt := el.A - ctx.PrimaryRadiusM
+	if math.Abs(alt-p.AltitudeM)/p.AltitudeM > p.AltitudeTolPct {
 		return InProgress
 	}
 	return Passed

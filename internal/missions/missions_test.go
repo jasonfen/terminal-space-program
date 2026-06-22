@@ -79,27 +79,25 @@ func TestCircularizeTolerance(t *testing.T) {
 		Params: Params{
 			PrimaryID:       "earth",
 			AltitudeM:       1_000_000,
-			AltitudeTolPct:  0.05, // ±5% on |a − target|
+			AltitudeTolPct:  0.05, // ±5% of the target ALTITUDE → ±50 km
 			EccentricityCap: 0.005,
 		},
 	}
-	target := earthRadius + 1_000_000
-	// Inside tolerance: a within 5% of target.
-	insideAlt := 1_000_000 - 0.04*target // 4% under target
+	// Inside tolerance: 960 km — 4% under the 1000 km target altitude.
 	ctx := EvalContext{
 		PrimaryID:      "earth",
 		PrimaryRadiusM: earthRadius,
 		PrimaryMu:      earthMu,
-		State:          circularState(earthRadius, earthMu, insideAlt),
+		State:          circularState(earthRadius, earthMu, 960_000),
 	}
 	if got := o.Evaluate(ctx); got != Passed {
-		t.Errorf("inside tolerance, expected Passed, got %v", got)
+		t.Errorf("960 km (4%% under 1000 km), expected Passed, got %v", got)
 	}
-	// Outside tolerance: 10% under.
-	outsideAlt := 1_000_000 - 0.10*target
-	ctx.State = circularState(earthRadius, earthMu, outsideAlt)
+	// Outside tolerance: 900 km — 10% under. (Under the old radius-relative
+	// math a ~705 km orbit passed here; altitude-relative correctly rejects it.)
+	ctx.State = circularState(earthRadius, earthMu, 900_000)
 	if got := o.Evaluate(ctx); got != InProgress {
-		t.Errorf("outside tolerance, expected InProgress, got %v", got)
+		t.Errorf("900 km (10%% under 1000 km), expected InProgress, got %v", got)
 	}
 }
 
