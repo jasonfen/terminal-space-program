@@ -135,8 +135,23 @@ func (m *Missions) Render(w *sim.World, width int) string {
 		return b.String()
 	}
 
-	passed, failed := 0, 0
+	// Only show missions whose program the player has enabled (ADR 0025 §2 /
+	// v0.21 Slice 7). Both programs default off, so a fresh sandbox lands here.
+	var active []missions.Mission
 	for _, ms := range w.Missions {
+		if w.MissionProgramEnabled(ms.Program) {
+			active = append(active, ms)
+		}
+	}
+	if len(active) == 0 {
+		b.WriteString(m.theme.Dim.Render("  (missions off — enable Tutorial or Challenges in [Menu] → Settings)"))
+		b.WriteString("\n\n")
+		b.WriteString(m.theme.Footer.Render("[esc] back to orbit"))
+		return b.String()
+	}
+
+	passed, failed := 0, 0
+	for _, ms := range active {
 		switch ms.Status {
 		case missions.Passed:
 			passed++
@@ -144,14 +159,14 @@ func (m *Missions) Render(w *sim.World, width int) string {
 			failed++
 		}
 	}
-	summary := fmt.Sprintf("%d/%d complete", passed, len(w.Missions))
+	summary := fmt.Sprintf("%d/%d complete", passed, len(active))
 	if failed > 0 {
 		summary += fmt.Sprintf("  (%d failed)", failed)
 	}
 	b.WriteString("  " + m.theme.Primary.Render(summary))
 	b.WriteString("\n\n")
 
-	rows := classifyLadder(w.Missions)
+	rows := classifyLadder(active)
 
 	// Active card on top (ADR 0025 Slice 5 — Jason's "active card" layout):
 	// the current mission, expanded to its objective checklist with the

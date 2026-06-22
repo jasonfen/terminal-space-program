@@ -133,6 +133,9 @@ func New(scenario *sim.StartScenario) (*App, error) {
 	// screen, so they're dropped here on the rehydrating load.
 	prefs, _ := settings.Load()
 	orbitView.SetSettings(prefs)
+	// Gate the seeded mission programs by the persisted toggles (both default
+	// off — a fresh sandbox shows no missions until opted in). v0.21 Slice 7.
+	w.SetEnabledMissionPrograms(enabledProgramsFromSettings(prefs))
 	return &App{
 		world:      w,
 		theme:      th,
@@ -416,6 +419,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch action {
 			case screens.SettingsActionToggle:
 				a.toggleChip(chip)
+			case screens.SettingsActionToggleTutorial:
+				a.toggleMissionProgram(true)
+			case screens.SettingsActionToggleChallenges:
+				a.toggleMissionProgram(false)
 			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
@@ -551,6 +558,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch action {
 			case screens.SettingsActionToggle:
 				a.toggleChip(chip)
+			case screens.SettingsActionToggleTutorial:
+				a.toggleMissionProgram(true)
+			case screens.SettingsActionToggleChallenges:
+				a.toggleMissionProgram(false)
 			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
@@ -1116,6 +1127,9 @@ func (a *App) doLoad() error {
 		return err
 	}
 	a.world = w
+	// The loaded world starts with the nil ("all enabled") default; re-apply
+	// the player's program toggles so a load respects them. v0.21 Slice 7.
+	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
 	a.active = screenOrbit
 	return nil
 }
@@ -1269,6 +1283,41 @@ func (a *App) toggleChip(c settings.Chip) {
 	s := a.orbitView.Settings()
 	s.SetChip(c, !s.ChipEnabled(c))
 	a.orbitView.SetSettings(s)
+	if err := settings.Save(s); err != nil {
+		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+	}
+}
+
+// enabledProgramsFromSettings maps the persisted Tutorial/Challenges toggles
+// to the set of active mission-program names the World evaluator gates on
+// (ADR 0025 §2 / v0.21 Slice 7). Always returns a non-nil map so the World's
+// nil-default ("all enabled") is overridden — missions stay off until the
+// player opts in.
+func enabledProgramsFromSettings(s settings.Settings) map[string]bool {
+	enabled := map[string]bool{}
+	if s.TutorialEnabled {
+		enabled[missions.ProgramTutorial] = true
+	}
+	if s.ChallengesEnabled {
+		enabled[missions.ProgramChallenge] = true
+	}
+	return enabled
+}
+
+// toggleMissionProgram flips one gameplay program toggle (tutorial when true,
+// challenges when false), re-pushes the active-program set to the World, and
+// persists settings.json — mirroring toggleChip's persist-on-change. v0.21
+// Slice 7 (ADR 0025 §2).
+func (a *App) toggleMissionProgram(tutorial bool) {
+	s := a.orbitView.Settings()
+	if tutorial {
+		s.TutorialEnabled = !s.TutorialEnabled
+	} else {
+		s.ChallengesEnabled = !s.ChallengesEnabled
+	}
+	a.orbitView.SetSettings(s)
+	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(s))
 	if err := settings.Save(s); err != nil {
 		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
 		a.statusExpires = time.Now().Add(3 * time.Second)

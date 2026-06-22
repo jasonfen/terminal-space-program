@@ -104,6 +104,37 @@ func TestMissionsRenderSmoke(t *testing.T) {
 	}
 }
 
+func TestMissionsRenderProgramsOff(t *testing.T) {
+	scr := NewMissions(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Missions = []missions.Mission{
+		{ID: "t", Name: "TutMission", Program: missions.ProgramTutorial,
+			Objectives: []missions.Objective{{Kind: missions.KindEvent, Name: "view", Params: missions.Params{Action: missions.ActionCycleView}}}},
+		{ID: "c", Name: "ChalMission", Program: missions.ProgramChallenge,
+			Objectives: []missions.Objective{{Kind: missions.KindSOIFlyby, Params: missions.Params{PrimaryID: "moon"}}}},
+	}
+
+	// Both programs off → the screen shows the enable-in-Settings hint.
+	w.SetEnabledMissionPrograms(map[string]bool{})
+	out := scr.Render(w, 70)
+	if !strings.Contains(out, "enable") {
+		t.Errorf("all-programs-off should show the enable-in-Settings hint:\n%s", out)
+	}
+
+	// Enabling just the tutorial surfaces it and keeps challenges hidden.
+	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
+	out = scr.Render(w, 70)
+	if !strings.Contains(out, "TutMission") {
+		t.Errorf("tutorial-on should show the tutorial mission:\n%s", out)
+	}
+	if strings.Contains(out, "ChalMission") {
+		t.Errorf("challenges-off should hide challenge missions:\n%s", out)
+	}
+}
+
 func TestMissionsRenderEmpty(t *testing.T) {
 	scr := NewMissions(chipTestTheme())
 	w, err := sim.NewWorld()

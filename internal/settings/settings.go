@@ -105,6 +105,15 @@ type Settings struct {
 	// and unknown keys from a newer build are tolerated and ignored.
 	ChipVisibility map[Chip]bool `json:"chips,omitempty"`
 
+	// TutorialEnabled / ChallengesEnabled gate the two built-in mission
+	// programs (ADR 0025 §2 / v0.21 Slice 7). Both default false — a fresh
+	// sandbox shows no missions, chip, or evaluation until the player opts in
+	// via the Settings screen. The tui maps these to the set of enabled
+	// program names it pushes down to the World evaluator. omitempty keeps the
+	// default-off state costing zero bytes on disk (an absent field is off).
+	TutorialEnabled   bool `json:"tutorialEnabled,omitempty"`
+	ChallengesEnabled bool `json:"challengesEnabled,omitempty"`
+
 	// KeyboardLayout names the player's physical keyboard layout (ADR 0022),
 	// e.g. "qwerty" or "qwertz". The tui maps it to a keylayout.Layout to
 	// normalize keypresses to QWERTY positions before binding-matching.

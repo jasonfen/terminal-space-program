@@ -151,6 +151,39 @@ func TestKeyboardLayoutRoundTrips(t *testing.T) {
 	}
 }
 
+func TestMissionProgramsDefaultOff(t *testing.T) {
+	// A fresh sandbox shows no missions until the player opts in (v0.21 Slice 7).
+	s := Default()
+	if s.TutorialEnabled || s.ChallengesEnabled {
+		t.Errorf("mission programs should default OFF, got tutorial=%v challenges=%v",
+			s.TutorialEnabled, s.ChallengesEnabled)
+	}
+}
+
+func TestMissionProgramTogglesRoundTrip(t *testing.T) {
+	withConfigRoot(t, "")
+
+	s := Default()
+	s.TutorialEnabled = true // enable one, leave the other off
+	s.SetChip(ChipNodes, false)
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if !got.TutorialEnabled {
+		t.Error("TutorialEnabled lost across round-trip")
+	}
+	if got.ChallengesEnabled {
+		t.Error("ChallengesEnabled flipped on across round-trip")
+	}
+	if got.ChipEnabled(ChipNodes) {
+		t.Error("chip override lost when mission toggle co-persisted")
+	}
+}
+
 func TestSaveIsIdempotent(t *testing.T) {
 	withConfigRoot(t, "")
 
