@@ -1518,18 +1518,61 @@ generic).
 
 ### Objectives
 
+**Objective**:
+The atomic pass/fail predicate evaluated against live World state each
+tick — the smallest goal unit. Carries a `Kind` (which predicate to run),
+`Params` (kind-specific tuning, e.g. `MinAltitudeM`, `RangeM`), and a
+three-state `Status` machine: **InProgress → Passed | Failed** (terminal
+states sticky; `Evaluate` idempotent). Objectives come in two **families**:
+*state* objectives — instantaneous world-state predicates (Kinds
+**ReachAltitude**, **Circularize**, **OrbitInsertion**, **CircularizeFromPad**,
+**SOIFlyby**, **LandAtBody**, **Rendezvous**, **Dock**, **ReturnToBody**) —
+and *event* objectives (Kind **Event**), which match a semantic **Action**
+(below) fired while the Objective was active rather than a world-state
+predicate, for teaching controls that leave no world trace. An Objective
+may declare opt-in `FailOn` conditions (**crashed**, **out_of_fuel**) — the
+only path that produces Failed; declare none and it never fails (retry
+forever). Evaluated against the Active Vessel.
+
 **Mission**:
-A pass/fail objective evaluated against live World state each tick — the
-game's only goal layer. Carries a `Type` (which predicate to run),
-`Params` (predicate-specific tuning, e.g. `MinPeriapsisAltM`), and a
-three-state `Status` machine: **InProgress → Passed | Failed**. Terminal
-states (Passed, Failed) are sticky: once set, `Evaluate` is idempotent.
-Current Types: **Circularize**, **OrbitInsertion**, **SOIFlyby**,
-**CircularizeFromPad**. Missions are seeded from an embedded starter
-catalog at world init and round-trip through save. Evaluated only against
-the Active Vessel.
-_Avoid_: Quest, Objective (Objective is fine in prose for the abstract
-concept; reserve Mission for the concrete pass/fail unit), Achievement.
+An ordered list of Objectives plus metadata — the player-facing goal
+("Reach the Moon" as a checklist of sub-steps). The Mission carries the
+sequencing memory (an Objective is evaluated only once every earlier one
+has Passed) so each Objective stays memoryless: "Luna landing & return"
+is one Mission whose ordered Objectives are `[LandAtBody] → [ReturnToBody]`.
+Has its own rolled-up `Status` — Passes when every Objective has Passed,
+Fails the moment any Objective Fails. Seeded from an embedded starter
+catalog (+ user overlay) at world init; round-trips through save.
+
+**Program**:
+A lightweight campaign grouping — *not* a third container type. A Mission
+carries a `Program` tag (**tutorial**, **challenge**) plus `Requires` /
+`Unlocks` edges to other Missions, so the tutorial and any campaign are
+both gated Mission chains. `Requires` gates *evaluation*, not just display:
+a Mission whose prerequisites haven't Passed is skipped by the evaluator,
+so a later rung can't latch out of order. Each Program is opt-in — off by
+default, toggled in Settings.
+
+**Action**:
+A semantic gameplay verb the player triggers (e.g. `open_maneuver`,
+`stage`, `plan_transfer`), recorded *downward* from the input layer via
+`World.RecordAction` once a keybinding resolves to it — never the raw
+keystroke, so event Objectives survive rebinding and layout presets.
+Events flow `tui → sim → missions`; the `missions` package never imports
+upward. The curated set is ~20 gameplay verbs; pure camera / nav / meta
+bindings are excluded.
+
+**Player surface**:
+The missions screen (`M`, or the `[Missions]` button) is a gated **ladder**
+— the active Mission as a checklist card on top, locked rungs shown with
+what unlocks them, completed / failed rungs marked. An in-flight
+**checklist chip** (ADR 0010) shows the active Mission's current Objective
+plus N/M progress, flashes a Failed Mission for ~4 s before advancing, and
+surfaces the step's instruction inline for tutorial Missions.
+_Avoid_: Quest, Achievement; and don't swap the two core terms — the
+inversion is load-bearing (an Objective is one predicate; a Mission bundles
+several ordered Objectives). The pre-v0.21 naming, where a single predicate
+was itself called a "Mission," is retired.
 
 ### View & projection
 
@@ -1857,10 +1900,11 @@ conversation, between a player (P) and a dev (D):
 > **P:** And after the Burn, my Mission status — does it auto-complete
 > when I hit the right orbit?
 >
-> **D:** Each Tick the Mission's predicate (Circularize, OrbitInsertion,
-> SOIFlyby — yours is OrbitInsertion) evaluates against your Active
-> Vessel's state in its Primary's frame. When the predicate passes,
-> Status flips Passed and sticks. Only the Active Vessel counts.
+> **D:** Each Tick the Objectives in your active Mission evaluate in order
+> against your Active Vessel's state in its Primary's frame — yours is a
+> one-Objective Mission (the Objective's Kind is OrbitInsertion). When the
+> Objective passes, its Status flips Passed and sticks, and the Mission
+> rolls up to Passed. Only the Active Vessel counts.
 
 ## Flagged ambiguities
 

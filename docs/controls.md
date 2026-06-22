@@ -77,12 +77,12 @@ A good first attempt:
    READY** note appears — that's your cue to cut the throttle (`x`) and coast.
 7. Press `C` to plan a circularising burn at the top of your arc.
 8. Coast up to that point. The planned burn fires on its own and rounds out
-   your orbit. The pad-to-orbit mission completes once your low point clears
-   200 km, and the readout counts down to it along the way.
+   your orbit — once your low point also clears 200 km you're safely in orbit,
+   and the LAUNCH readout tracks the gap along the way.
 
 The whole thing runs on numbers, not memorised pitch tables: the high point
 climbs as you burn, ORBIT READY tells you when to stop, `C` sets up the last
-burn, and the mission tracker closes the gap. If a stage flames out early, the
+burn, and the LAUNCH readout closes the gap. If a stage flames out early, the
 readout shows you why before you watch it fall back.
 
 ## Keybindings
