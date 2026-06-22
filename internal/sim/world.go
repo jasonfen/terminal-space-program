@@ -668,7 +668,16 @@ func (w *World) evaluateMissions() {
 		return
 	}
 	ctx := w.missionEvalContext()
+	// requires gates the evaluator, not just the ladder display (ADR 0025 §8,
+	// v0.21 Slice 6): skip any mission whose prerequisites haven't Passed so
+	// its objectives can't latch out of order. The passed set is snapshotted
+	// before the loop, so a prerequisite that passes this tick only unlocks
+	// its dependents on the next tick (one 50 ms step — imperceptible).
+	passed := missions.PassedSet(w.Missions)
 	for i := range w.Missions {
+		if !w.Missions[i].RequirementsMet(passed) {
+			continue
+		}
 		prev := w.Missions[i].Status
 		w.Missions[i].Evaluate(ctx)
 		// A fresh InProgress→Failed transition arms the chip's failure flash
@@ -778,13 +787,19 @@ func (w *World) missionEvalContext() missions.EvalContext {
 	return ctx
 }
 
-// ActiveMission returns the first in-progress mission, or nil if all
-// missions are passed/failed (or none are loaded). v0.6.5+. Used by
-// the HUD to surface a single-line status — multi-mission UX is a
-// follow-up.
+// ActiveMission returns the first in-progress mission whose requirements are
+// met — the rung the player is actually working on — or nil if none qualifies
+// (all passed/failed/locked, or none loaded). v0.6.5+. The requires gate (ADR
+// 0025 §8, v0.21 Slice 6) matters because the evaluator now skips locked
+// missions, so a locked mission stays InProgress forever: without this gate
+// the in-flight chip (the only caller) could surface a locked mission with
+// frozen progress while the ladder screen — which classifies the same mission
+// as locked — shows a different active card. Both surfaces now share one
+// definition of "active". Used by the HUD to surface a single-line status.
 func (w *World) ActiveMission() *missions.Mission {
+	passed := missions.PassedSet(w.Missions)
 	for i := range w.Missions {
-		if w.Missions[i].Status == missions.InProgress {
+		if w.Missions[i].Status == missions.InProgress && w.Missions[i].RequirementsMet(passed) {
 			return &w.Missions[i]
 		}
 	}

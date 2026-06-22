@@ -57,13 +57,10 @@ type ladderRow struct {
 // its hint names the unmet prerequisites. v0.21 Slice 5 (ADR 0025 §2/§"Locked
 // rungs").
 func classifyLadder(ms []missions.Mission) []ladderRow {
-	passed := make(map[string]bool, len(ms))
+	passed := missions.PassedSet(ms)
 	nameByID := make(map[string]string, len(ms))
 	for i := range ms {
 		nameByID[ms[i].ID] = ms[i].Name
-		if ms[i].Status == missions.Passed {
-			passed[ms[i].ID] = true
-		}
 	}
 	activeAssigned := false
 	rows := make([]ladderRow, 0, len(ms))
@@ -161,7 +158,7 @@ func (m *Missions) Render(w *sim.World, width int) string {
 	// current step's hint, framed in the HUD box so it reads as "what now".
 	for _, r := range rows {
 		if r.Category == ladderActive {
-			b.WriteString(m.activeCard(r))
+			b.WriteString(m.activeCard(r, width))
 			b.WriteString("\n\n")
 			break
 		}
@@ -187,9 +184,15 @@ func (m *Missions) Render(w *sim.World, width int) string {
 // marker, and the current objective's hint text indented beneath it (the
 // hint that, by Jason's Slice-5 call, lives on the screen rather than the
 // in-flight chip).
-func (m *Missions) activeCard(r ladderRow) string {
-	var c strings.Builder
-	c.WriteString(m.theme.Primary.Render("ACTIVE: " + r.Name))
+func (m *Missions) activeCard(r ladderRow, width int) string {
+	// Clamp each content line to the terminal width less the box chrome
+	// (rounded border = 2 cols + Padding(0,1) = 2 cols) so a long objective
+	// hint can't push the box border off a narrow screen.
+	max := width - 4
+	if max < 8 {
+		max = 8
+	}
+	lines := []string{clipLine(m.theme.Primary.Render("ACTIVE: "+r.Name), max)}
 	currentSeen := false
 	for _, o := range r.Objectives {
 		marker, isCurrent := "  · ", false
@@ -202,19 +205,13 @@ func (m *Missions) activeCard(r ladderRow) string {
 			marker, isCurrent = "  ▸ ", true
 			currentSeen = true
 		}
-		label := o.Name
-		if label == "" {
-			label = string(o.Kind)
-		}
-		c.WriteByte('\n')
-		c.WriteString(marker + label)
+		lines = append(lines, clipLine(marker+o.Label(), max))
 		// The current step's hint surfaces here (no hint in the chip).
 		if isCurrent && o.Description != "" {
-			c.WriteByte('\n')
-			c.WriteString(m.theme.Dim.Render("      " + o.Description))
+			lines = append(lines, clipLine(m.theme.Dim.Render("      "+o.Description), max))
 		}
 	}
-	return m.theme.HUDBox.Render(c.String())
+	return m.theme.HUDBox.Render(strings.Join(lines, "\n"))
 }
 
 // ladderRowLine renders one non-active rung in the list below the card:

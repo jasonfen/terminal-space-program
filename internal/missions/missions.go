@@ -217,6 +217,20 @@ type Objective struct {
 	FailOn []FailCondition `json:"fail_on,omitempty"`
 }
 
+// Label returns the player-facing one-line label for an objective: its Name,
+// falling back to its Description, then to the raw Kind string. The player
+// surface (the checklist chip and the ladder card) shares this so an objective
+// authored with only a Description renders the same on both. v0.21 Slice 6.
+func (o Objective) Label() string {
+	if o.Name != "" {
+		return o.Name
+	}
+	if o.Description != "" {
+		return o.Description
+	}
+	return string(o.Kind)
+}
+
 // EvalContext is the minimum slice of World state an objective predicate
 // needs. Lifted out of sim so the missions package can depend only on
 // orbital/physics and avoid an import cycle. (Slice 2 expands this.)
@@ -646,8 +660,10 @@ func (m Mission) FailedObjective() (Objective, bool) {
 // RequirementsMet reports whether every mission ID in this mission's
 // Requires list is present and true in passed (the set of already-Passed
 // mission IDs). A mission with no Requires is always met (an ungated rung).
-// Drives the ladder screen's locked-vs-available classification (ADR 0025
-// §2 / §"Locked rungs"). v0.21 Slice 5.
+// Gates both the ladder screen's locked-vs-available classification (ADR
+// 0025 §2 / §"Locked rungs") and — since v0.21 Slice 6 — the evaluator
+// itself: a locked mission is not evaluated, so its objectives can't latch
+// out of order (ADR 0025 §8: "requires gates the next mission"). v0.21.
 func (m Mission) RequirementsMet(passed map[string]bool) bool {
 	for _, id := range m.Requires {
 		if !passed[id] {
@@ -655,6 +671,18 @@ func (m Mission) RequirementsMet(passed map[string]bool) bool {
 		}
 	}
 	return true
+}
+
+// PassedSet returns the set of mission IDs currently in the Passed state —
+// the prerequisite set RequirementsMet is checked against. v0.21 Slice 6.
+func PassedSet(ms []Mission) map[string]bool {
+	out := make(map[string]bool, len(ms))
+	for i := range ms {
+		if ms[i].Status == Passed {
+			out[ms[i].ID] = true
+		}
+	}
+	return out
 }
 
 // Catalog is a list of Missions, persisted to JSON. The starter catalog

@@ -1,58 +1,165 @@
 {
   "missions": [
     {
-      "id": "leo-circularize-1000",
-      "name": "Circularize at 1000 km LEO",
-      "description": "Reach a circular orbit around Earth at 1000 km altitude (±5%, e ≤ 0.005).",
+      "id": "tut-orient",
+      "name": "Flight School: Orientation",
+      "description": "Get your bearings — the camera and the target slot.",
+      "program": "tutorial",
       "objectives": [
         {
+          "name": "Change your view",
+          "description": "Press [v] to cycle the camera view.",
+          "kind": "event",
+          "params": { "action": "cycle_view" }
+        },
+        {
+          "name": "Pick a target",
+          "description": "Press [t] to cycle the target slot — aim for the Moon. [T] clears it.",
+          "kind": "event",
+          "params": { "action": "cycle_target" }
+        }
+      ]
+    },
+    {
+      "id": "tut-plan",
+      "name": "Flight School: Plan a Burn",
+      "description": "Open the planner and plant your first maneuver.",
+      "program": "tutorial",
+      "requires": ["tut-orient"],
+      "objectives": [
+        {
+          "name": "Open the planner",
+          "description": "Press [m] to open the maneuver planner.",
+          "kind": "event",
+          "params": { "action": "open_maneuver" }
+        },
+        {
+          "name": "Plant a transfer",
+          "description": "With the Moon targeted, press [H] to plant a transfer burn toward it.",
+          "kind": "event",
+          "params": { "action": "plan_transfer" }
+        }
+      ]
+    },
+    {
+      "id": "tut-fly",
+      "name": "Flight School: Fly It",
+      "description": "Execute a burn and climb away from your starting orbit.",
+      "program": "tutorial",
+      "requires": ["tut-plan"],
+      "objectives": [
+        {
+          "name": "Climb above 700 km",
+          "description": "Warp to your burn ([G]) or fire manually ([b]) and raise your altitude past 700 km.",
+          "kind": "reach_altitude",
+          "params": { "primary_id": "earth", "min_altitude_m": 700000 }
+        }
+      ]
+    },
+    {
+      "id": "chal-high-orbit",
+      "name": "Make a 1000 km Orbit",
+      "description": "Trim a clean, near-circular orbit at 1000 km.",
+      "program": "challenge",
+      "requires": ["tut-fly"],
+      "objectives": [
+        {
+          "name": "Circular orbit at 1000 km",
+          "description": "Raise and round out your orbit to 1000 km altitude (±5%, e ≤ 0.01).",
           "kind": "circularize",
           "params": {
             "primary_id": "earth",
             "altitude_m": 1000000,
             "altitude_tol_pct": 0.05,
-            "eccentricity_cap": 0.005
+            "eccentricity_cap": 0.01
           }
         }
       ]
     },
     {
-      "id": "luna-orbit-insertion",
-      "name": "Luna orbit insertion",
-      "description": "Capture into a bound orbit around Earth's Moon.",
+      "id": "chal-luna-flyby",
+      "name": "Luna Flyby",
+      "description": "Coast into the Moon's sphere of influence.",
+      "program": "challenge",
+      "requires": ["chal-high-orbit"],
       "objectives": [
         {
-          "kind": "orbit_insertion",
-          "params": {
-            "primary_id": "moon"
-          }
-        }
-      ]
-    },
-    {
-      "id": "mars-soi-flyby",
-      "name": "Mars SOI flyby",
-      "description": "Cross into Mars' sphere of influence.",
-      "objectives": [
-        {
+          "name": "Enter Luna's SOI",
+          "description": "Target the Moon, plant a transfer ([H]), and coast until the Moon's gravity takes over.",
           "kind": "soi_flyby",
-          "params": {
-            "primary_id": "mars"
-          }
+          "params": { "primary_id": "moon" }
         }
       ]
     },
     {
-      "id": "saturn-v-pad-to-leo",
-      "name": "Saturn V: pad to LEO",
-      "description": "Spawn a Saturn V on the launchpad (n → POSITION → launchpad → LATITUDE → 28.6° KSC). Manually fly the gravity turn — pitch east, stage as each booster empties — and circularize at periapsis above 200 km.",
+      "id": "chal-luna-capture",
+      "name": "Luna Capture",
+      "description": "Brake into a bound orbit around the Moon.",
+      "program": "challenge",
+      "requires": ["chal-luna-flyby"],
       "objectives": [
         {
-          "kind": "circularize_from_pad",
-          "params": {
-            "primary_id": "earth",
-            "min_periapsis_alt_m": 200000
-          }
+          "name": "Capture at Luna",
+          "description": "Burn retrograde near periapsis to drop into a bound lunar orbit (e < 1).",
+          "kind": "orbit_insertion",
+          "params": { "primary_id": "moon" }
+        }
+      ]
+    },
+    {
+      "id": "chal-luna-return",
+      "name": "Luna Landing & Return",
+      "description": "Land on the Moon, then bring it home.",
+      "program": "challenge",
+      "requires": ["chal-luna-capture"],
+      "objectives": [
+        {
+          "name": "Land on Luna",
+          "description": "Descend and touch down anywhere on the Moon's surface.",
+          "kind": "land_at_body",
+          "params": { "primary_id": "moon" }
+        },
+        {
+          "name": "Return to Earth",
+          "description": "Lift off, transfer back, and settle into a bound Earth orbit (or land).",
+          "kind": "return_to_body",
+          "params": { "primary_id": "earth" }
+        }
+      ]
+    },
+    {
+      "id": "chal-dock",
+      "name": "Rendezvous & Dock",
+      "description": "Bring two craft together and dock them.",
+      "program": "challenge",
+      "requires": ["chal-luna-return"],
+      "objectives": [
+        {
+          "name": "Spawn a partner",
+          "description": "Press [n] to spawn a second craft to rendezvous with.",
+          "kind": "event",
+          "params": { "action": "spawn_craft" }
+        },
+        {
+          "name": "Dock the two craft",
+          "description": "Target the other craft ([t]), close in ([K] plants a rendezvous nudge), and dock.",
+          "kind": "dock",
+          "params": {}
+        }
+      ]
+    },
+    {
+      "id": "chal-mars-flyby",
+      "name": "Mars Flyby",
+      "description": "Leave Earth's neighbourhood — fly past Mars.",
+      "program": "challenge",
+      "requires": ["chal-dock"],
+      "objectives": [
+        {
+          "name": "Enter Mars' SOI",
+          "description": "Plant an interplanetary transfer to Mars ([t] target Mars, [H]) and coast into its sphere of influence.",
+          "kind": "soi_flyby",
+          "params": { "primary_id": "mars" }
         }
       ]
     }

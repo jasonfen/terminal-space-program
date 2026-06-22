@@ -78,6 +78,16 @@ func TestLaunchMissionProgressMatchesCircularizeFromPad(t *testing.T) {
 	if c == nil {
 		t.Fatal("expected active craft from NewWorld")
 	}
+	// Inject an in-flight circularize_from_pad mission for the craft's primary
+	// (the embedded ladder no longer ships one — it can't verify a pad launch
+	// — so this exercises the launch-HUD path directly).
+	w.Missions = []missions.Mission{{
+		ID: "pad",
+		Objectives: []missions.Objective{{
+			Kind:   missions.KindCircularizeFromPad,
+			Params: missions.Params{PrimaryID: c.Primary.ID, MinPeriapsisAltM: 200_000},
+		}},
+	}}
 	got := launchMissionProgress(w, c, 130_000)
 	if got == "" {
 		t.Fatal("expected non-empty progress for active circularize_from_pad mission")
@@ -102,13 +112,15 @@ func TestLaunchMissionProgressEmptyWithoutMission(t *testing.T) {
 	if c == nil {
 		t.Fatal("expected active craft from NewWorld")
 	}
-	for i := range w.Missions {
-		for j := range w.Missions[i].Objectives {
-			if w.Missions[i].Objectives[j].Kind == missions.KindCircularizeFromPad {
-				w.Missions[i].Status = missions.Passed
-			}
-		}
-	}
+	// A Passed circularize_from_pad mission yields no launch-HUD row.
+	w.Missions = []missions.Mission{{
+		ID:     "pad",
+		Status: missions.Passed,
+		Objectives: []missions.Objective{{
+			Kind:   missions.KindCircularizeFromPad,
+			Params: missions.Params{PrimaryID: c.Primary.ID, MinPeriapsisAltM: 200_000},
+		}},
+	}}
 	if got := launchMissionProgress(w, c, 130_000); got != "" {
 		t.Errorf("progress with no in-flight mission = %q, want \"\"", got)
 	}
