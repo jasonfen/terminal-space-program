@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
@@ -298,6 +299,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// v0.8.6+: clear-all from the maneuver form. Replaces the
 		// retired N global keybinding.
 		a.world.ClearNodes()
+		a.world.RecordAction(missions.ActionClearNodes) // ADR 0025 §7
 		a.maneuver.ResetEditing()
 		a.world.Clock.Paused = false
 		a.active = screenOrbit
@@ -642,6 +644,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.bindManeuverTarget()
 				a.active = screenManeuver
 				a.world.Clock.Paused = true
+				a.world.RecordAction(missions.ActionOpenManeuver) // ADR 0025 §7
 			}
 			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
@@ -659,6 +662,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle Auto-Warp to the globally-soonest burn. A no-op when
 			// no burn is eligible (engage returns false silently).
 			a.world.ToggleAutoWarp()
+			a.world.RecordAction(missions.ActionAutoWarp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.CancelWarp):
 			// Drop straight to 1× from any warp state: cancel Auto-Warp
@@ -721,6 +725,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.spawn.Reset(a.world.System().Bodies, defaultParentID)
 			a.active = screenSpawn
+			a.world.RecordAction(missions.ActionSpawnCraft) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.PlanTransfer):
 			// v0.9.0+: H consumes World.Target instead of the implicit
@@ -732,6 +737,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch a.world.Target.Kind {
 				case sim.TargetBody:
 					_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
+					a.world.RecordAction(missions.ActionPlanTransfer) // ADR 0025 §7
 					// v0.12.x (ADR 0005): the intra-primary auto-plant is
 					// now a plane-aware dual-strategy solver (combined
 					// fused-Lambert vs split raise + apoapsis plane change)
@@ -784,6 +790,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						plan.DV, nodeLabel)
 				}
 				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.world.RecordAction(missions.ActionPlanIncl) // ADR 0025 §7
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PlanCircularize):
@@ -802,6 +809,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						plan.ApoAltM/1000, plan.DV)
 				}
 				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.world.RecordAction(missions.ActionPlanCircularize) // ADR 0025 §7
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PlanRendezvous):
@@ -821,6 +829,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival)
 				}
 				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Porkchop):
@@ -839,6 +848,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.CycleView):
 			a.world.CycleViewMode()
+			a.world.RecordAction(missions.ActionCycleView) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.Declutter):
 			// v0.13+ (ADR 0010): toggle the momentary "hide all overlays"
@@ -878,6 +888,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.statusMsg = fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr)
 				}
 				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
 			}
 			return a, nil
 
@@ -888,15 +899,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// was easy to trigger by accident.
 		case key.Matches(m, a.keys.ThrottleFull):
 			a.world.SetThrottle(1.0)
+			a.world.RecordAction(missions.ActionThrottleFull) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleCut):
 			a.world.SetThrottle(0)
+			a.world.RecordAction(missions.ActionThrottleCut) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleUp):
 			a.world.AdjustThrottle(0.1)
+			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleDown):
 			a.world.AdjustThrottle(-0.1)
+			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.AttitudePrograde):
 			a.handleAttitudeIntent(sim.IntentPrograde)
@@ -918,6 +933,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.ToggleBurn):
 			a.world.ToggleManualBurn()
+			a.world.RecordAction(missions.ActionToggleBurn) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.CycleEngine):
 			a.world.CycleEngineMode()
@@ -939,6 +955,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.world.Undock(a.world.ActiveCraftIdx) {
 				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
 				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Transpose):
@@ -947,6 +964,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// TEI) with the LM as a docked nose payload released via U.
 			switch err := a.world.Transpose(a.world.ActiveCraftIdx); {
 			case err == nil:
+				a.world.RecordAction(missions.ActionTranspose) // ADR 0025 §7
 				a.statusMsg = "transposed: SM is firing core — press U to release the LM"
 			case errors.Is(err, sim.ErrTransposeNotReady):
 				a.statusMsg = "transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)"
@@ -957,12 +975,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.CycleTarget):
 			a.world.CycleTarget(true)
+			a.world.RecordAction(missions.ActionCycleTarget) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ClearTarget):
 			a.world.ClearTarget()
+			a.world.RecordAction(missions.ActionClearTarget) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.CycleNavMode):
 			nav := a.world.CycleNavMode()
+			a.world.RecordAction(missions.ActionCycleNavMode) // ADR 0025 §7
 			a.statusMsg = fmt.Sprintf("nav: %s", nav)
 			a.statusExpires = time.Now().Add(2 * time.Second)
 			return a, nil
@@ -1000,6 +1021,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_, jettIdx, err := a.world.StageActive(a.world.ActiveCraftIdx)
 			switch {
 			case err == nil:
+				a.world.RecordAction(missions.ActionStage) // ADR 0025 §7
 				name := a.world.Crafts[jettIdx].Name
 				a.statusMsg = fmt.Sprintf("staged: %s jettisoned", name)
 				// v0.12 / ADR 0009: surface the transposition hint the
