@@ -64,6 +64,14 @@ const (
 	KindOrbitInsertion     Kind = "orbit_insertion"
 	KindSOIFlyby           Kind = "soi_flyby"
 	KindCircularizeFromPad Kind = "circularize_from_pad" // v0.9.2+
+
+	// v0.21 (ADR 0025 §3) — the new state-objective vocabulary. All are
+	// instantaneous current-state checks; dwell is deferred to v0.22.
+	KindReachAltitude Kind = "reach_altitude"
+	KindLandAtBody    Kind = "land_at_body"
+	KindRendezvous    Kind = "rendezvous"
+	KindDock          Kind = "dock"
+	KindReturnToBody  Kind = "return_to_body"
 )
 
 // Params is the union of parameters across all objective kinds. Each
@@ -94,6 +102,25 @@ type Params struct {
 	// LEO counts the same as a 200 × 200 km circular one.
 	// v0.9.2+.
 	MinPeriapsisAltM float64 `json:"min_periapsis_alt_m,omitempty"`
+
+	// MinAltitudeM is the minimum altitude above the primary's mean
+	// radius (m) for ReachAltitude to pass. v0.21+.
+	MinAltitudeM float64 `json:"min_altitude_m,omitempty"`
+
+	// SiteLatDeg / SiteLonDeg / SiteRadiusM constrain LandAtBody to a
+	// target landing zone: the touchdown must lie within SiteRadiusM
+	// (great-circle metres) of (SiteLatDeg, SiteLonDeg). Coordinates are
+	// north-positive, east-positive. When SiteRadiusM is zero the kind
+	// accepts a landing anywhere on the body. v0.21+.
+	SiteLatDeg  float64 `json:"site_lat_deg,omitempty"`
+	SiteLonDeg  float64 `json:"site_lon_deg,omitempty"`
+	SiteRadiusM float64 `json:"site_radius_m,omitempty"`
+
+	// RangeM / RelSpeedMs are the Rendezvous gates: the active craft must
+	// be within RangeM metres of the targeted craft AND closing slower
+	// than RelSpeedMs metres/second. v0.21+.
+	RangeM     float64 `json:"range_m,omitempty"`
+	RelSpeedMs float64 `json:"rel_speed_ms,omitempty"`
 }
 
 // Objective is the atomic pass/fail predicate (the pre-v0.21 Mission).
@@ -116,6 +143,39 @@ type EvalContext struct {
 	PrimaryMu      float64             // craft primary's GM
 	State          physics.StateVector // craft state in primary frame
 	SimTime        time.Time           // current sim time
+
+	// v0.21 (ADR 0025) surface/landing state. Landed is the ADR 0004
+	// surface-contact flag; SurfaceLatDeg/LonDeg are the craft's
+	// body-fixed touchdown coordinates (north-positive, east-positive),
+	// valid when Landed. Read by land_at_body and return_to_body.
+	Landed        bool
+	SurfaceLatDeg float64
+	SurfaceLonDeg float64
+
+	// v0.21 (ADR 0025) target-craft relative state, against the player's
+	// current target slot. HasTargetCraft is false when no craft is
+	// targeted; TargetRangeM / TargetRelSpeedMs are the instantaneous
+	// separation and closing speed. Read by rendezvous.
+	HasTargetCraft   bool
+	TargetRangeM     float64
+	TargetRelSpeedMs float64
+
+	// Docked is true when the active craft is a docked composite (it has
+	// fused with at least one other vessel). Read by dock. v0.21+.
+	Docked bool
+
+	// v0.21 (ADR 0025) resource + outcome snapshot. These are wired now so
+	// the slice-3 failure semantics (out_of_fuel / crashed) and slice-4
+	// outcome steps read a complete context; no v0.21 state-objective kind
+	// consumes them yet. FuelKg is the active stage's propellant; DvBudget
+	// is the active stage's remaining Δv (m/s).
+	FuelKg     float64
+	MonopropKg float64
+	DvBudget   float64
+	Crashed    bool
+	HasNode    bool // active craft has at least one planted maneuver node
+	HasTarget  bool // a body or craft is selected in the world target slot
+	Staged     bool // the player has decoupled a stage this session
 }
 
 // Evaluate steps the objective one tick and returns the new status.
@@ -134,6 +194,115 @@ func (o Objective) Evaluate(ctx EvalContext) Status {
 		return evalSOIFlyby(o.Params, ctx)
 	case KindCircularizeFromPad:
 		return evalCircularizeFromPad(o.Params, ctx)
+	case KindReachAltitude:
+		return evalReachAltitude(o.Params, ctx)
+	case KindReturnToBody:
+		return evalReturnToBody(o.Params, ctx)
+	case KindLandAtBody:
+		return evalLandAtBody(o.Params, ctx)
+	case KindRendezvous:
+		return evalRendezvous(o.Params, ctx)
+	case KindDock:
+		return evalDock(o.Params, ctx)
+	}
+	return InProgress
+}
+
+// evalDock: pass when the active craft is a docked composite. Grounded in
+// the durable composite state (DockedComponents) rather than the ephemeral
+// dock event, keeping the check instantaneous. The optional target_craft
+// param (ADR 0025 §3) is deferred — any dock satisfies the kind. v0.21+.
+func evalDock(_ Params, ctx EvalContext) Status {
+	if ctx.Docked {
+		return Passed
+	}
+	return InProgress
+}
+
+// evalRendezvous: pass when a craft is targeted and the active craft is
+// within RangeM metres of it AND closing slower than RelSpeedMs. Evaluated
+// against the player's current target slot rather than a catalog-named
+// craft, since runtime craft IDs aren't authorable in a static catalog.
+// v0.21+.
+func evalRendezvous(p Params, ctx EvalContext) Status {
+	if !ctx.HasTargetCraft {
+		return InProgress
+	}
+	if ctx.TargetRangeM <= p.RangeM && ctx.TargetRelSpeedMs <= p.RelSpeedMs {
+		return Passed
+	}
+	return InProgress
+}
+
+// evalLandAtBody: pass when the craft is Landed on the named primary. An
+// optional site (SiteRadiusM > 0) further requires the touchdown to lie
+// within SiteRadiusM great-circle metres of (SiteLatDeg, SiteLonDeg);
+// without a site, landing anywhere on the body passes. v0.21+.
+func evalLandAtBody(p Params, ctx EvalContext) Status {
+	if ctx.PrimaryID != p.PrimaryID {
+		return InProgress
+	}
+	if !ctx.Landed {
+		return InProgress
+	}
+	if p.SiteRadiusM <= 0 {
+		return Passed
+	}
+	d := greatCircleDistanceM(ctx.SurfaceLatDeg, ctx.SurfaceLonDeg, p.SiteLatDeg, p.SiteLonDeg, ctx.PrimaryRadiusM)
+	if d <= p.SiteRadiusM {
+		return Passed
+	}
+	return InProgress
+}
+
+// greatCircleDistanceM returns the surface distance (metres) between two
+// lat/lon points (degrees) on a sphere of the given radius, via the
+// haversine formula.
+func greatCircleDistanceM(lat1, lon1, lat2, lon2, radiusM float64) float64 {
+	const deg2rad = math.Pi / 180
+	phi1 := lat1 * deg2rad
+	phi2 := lat2 * deg2rad
+	dPhi := (lat2 - lat1) * deg2rad
+	dLambda := (lon2 - lon1) * deg2rad
+	a := math.Sin(dPhi/2)*math.Sin(dPhi/2) +
+		math.Cos(phi1)*math.Cos(phi2)*math.Sin(dLambda/2)*math.Sin(dLambda/2)
+	return radiusM * 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+}
+
+// evalReturnToBody: pass when the craft has "come back" to the named body
+// — its current primary matches AND it is either captured (a bound orbit,
+// e < 1) or Landed. A hyperbolic whizz-through of the SOI is not a return.
+// The there-and-back sequencing comes from the Mission's ordering; this
+// predicate just confirms the craft actually stayed. v0.21+.
+func evalReturnToBody(p Params, ctx EvalContext) Status {
+	if ctx.PrimaryID != p.PrimaryID {
+		return InProgress
+	}
+	if ctx.Landed {
+		return Passed
+	}
+	if ctx.PrimaryMu == 0 {
+		return InProgress
+	}
+	el := orbital.ElementsFromState(ctx.State.R, ctx.State.V, ctx.PrimaryMu)
+	if el.A <= 0 || math.IsNaN(el.A) || math.IsInf(el.A, 0) {
+		return InProgress
+	}
+	if el.E >= 1 {
+		return InProgress
+	}
+	return Passed
+}
+
+// evalReachAltitude: pass when the craft is in the named primary's frame
+// and its current altitude above the primary's mean radius reaches the
+// floor. A pure radial check — orbit shape is irrelevant. v0.21+.
+func evalReachAltitude(p Params, ctx EvalContext) Status {
+	if ctx.PrimaryID != p.PrimaryID {
+		return InProgress
+	}
+	if ctx.State.R.Norm()-ctx.PrimaryRadiusM >= p.MinAltitudeM {
+		return Passed
 	}
 	return InProgress
 }

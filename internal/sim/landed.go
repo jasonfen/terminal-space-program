@@ -47,13 +47,10 @@ func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration)
 	// v0.11.4 shipped LandedLatDeg/LonDeg (soft-touchdown coords) but
 	// never wired them in here — a soft-landed craft was re-pinned to
 	// its launch site projected onto the arrival body (or (0,0) for an
-	// orbit-spawned craft). Prefer the touchdown coords when set; fall
-	// back to the launchpad-spawn coords otherwise. Matches the field's
-	// documented "when non-zero, read these instead" contract.
-	lat, lon := c.LaunchLatDeg, c.LaunchLonDeg
-	if c.LandedLatDeg != 0 || c.LandedLonDeg != 0 {
-		lat, lon = c.LandedLatDeg, c.LandedLonDeg
-	}
+	// orbit-spawned craft). SurfaceLatLon prefers the touchdown coords
+	// when set, else the launchpad-spawn coords (v0.21: shared with the
+	// mission evaluator so both pin to the same point).
+	lat, lon := c.SurfaceLatLon()
 	dirRender := render.BodyFixedToWorld(c.Primary, lat, lon, w.Clock.SimTime)
 	c.State.R = orbital.Vec3{
 		X: radius * dirRender.X,
