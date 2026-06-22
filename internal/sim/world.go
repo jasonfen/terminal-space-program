@@ -673,6 +673,7 @@ func (w *World) missionEvalContext() missions.EvalContext {
 		FuelKg:         c.ActiveStageFuel(),
 		MonopropKg:     c.Monoprop,
 		DvBudget:       c.RemainingDeltaV(),
+		TotalFuelKg:    c.Fuel, // summed all-stage propellant (out_of_fuel)
 		Docked:         len(c.DockedComponents) > 0,
 		HasNode:        len(c.Nodes) > 0,
 		HasTarget:      w.Target.Kind != spacecraft.TargetNone,

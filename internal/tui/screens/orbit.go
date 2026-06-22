@@ -2213,7 +2213,10 @@ func formatDurationShort(sec float64) string {
 // string when no such mission is in flight. v0.9.4+.
 func launchMissionProgress(w *sim.World, c *spacecraft.Spacecraft, periAltM float64) string {
 	for _, m := range w.Missions {
-		if m.Status == missions.Passed {
+		// Only a still-active mission shows a live progress row; skip both
+		// Passed and (v0.21 ADR 0025 §5) Failed — a failed mission must not
+		// keep rendering as if in flight.
+		if m.Status != missions.InProgress {
 			continue
 		}
 		for _, o := range m.Objectives {
