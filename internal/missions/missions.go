@@ -217,6 +217,20 @@ type Objective struct {
 	FailOn []FailCondition `json:"fail_on,omitempty"`
 }
 
+// Label returns the player-facing one-line label for an objective: its Name,
+// falling back to its Description, then to the raw Kind string. The player
+// surface (the checklist chip and the ladder card) shares this so an objective
+// authored with only a Description renders the same on both. v0.21 Slice 6.
+func (o Objective) Label() string {
+	if o.Name != "" {
+		return o.Name
+	}
+	if o.Description != "" {
+		return o.Description
+	}
+	return string(o.Kind)
+}
+
 // EvalContext is the minimum slice of World state an objective predicate
 // needs. Lifted out of sim so the missions package can depend only on
 // orbital/physics and avoid an import cycle. (Slice 2 expands this.)

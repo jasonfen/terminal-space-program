@@ -115,6 +115,18 @@ func TestMissionFailedObjective(t *testing.T) {
 	}
 }
 
+func TestObjectiveLabel(t *testing.T) {
+	if got := (Objective{Name: "n", Description: "d", Kind: KindDock}).Label(); got != "n" {
+		t.Errorf("name-priority label = %q, want n", got)
+	}
+	if got := (Objective{Description: "d", Kind: KindDock}).Label(); got != "d" {
+		t.Errorf("description-fallback label = %q, want d", got)
+	}
+	if got := (Objective{Kind: KindDock}).Label(); got != "dock" {
+		t.Errorf("kind-fallback label = %q, want dock", got)
+	}
+}
+
 func TestFailConditionLabel(t *testing.T) {
 	if got := FailCrashed.Label(); got != "crashed" {
 		t.Errorf("FailCrashed label = %q, want crashed", got)

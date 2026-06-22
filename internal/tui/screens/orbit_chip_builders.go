@@ -144,17 +144,10 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 		// defend against an empty/all-passed mission slipping through anyway.
 		return []string{header}
 	}
-	label := obj.Name
-	if label == "" {
-		label = obj.Description
-	}
-	if label == "" {
-		label = string(obj.Kind)
-	}
 	passed, total := m.Progress()
 	return []string{
 		header,
-		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, label, passed, total),
+		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, obj.Label(), passed, total),
 	}
 }
 

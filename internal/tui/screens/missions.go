@@ -57,13 +57,10 @@ type ladderRow struct {
 // its hint names the unmet prerequisites. v0.21 Slice 5 (ADR 0025 §2/§"Locked
 // rungs").
 func classifyLadder(ms []missions.Mission) []ladderRow {
-	passed := make(map[string]bool, len(ms))
+	passed := missions.PassedSet(ms)
 	nameByID := make(map[string]string, len(ms))
 	for i := range ms {
 		nameByID[ms[i].ID] = ms[i].Name
-		if ms[i].Status == missions.Passed {
-			passed[ms[i].ID] = true
-		}
 	}
 	activeAssigned := false
 	rows := make([]ladderRow, 0, len(ms))
@@ -208,11 +205,7 @@ func (m *Missions) activeCard(r ladderRow, width int) string {
 			marker, isCurrent = "  ▸ ", true
 			currentSeen = true
 		}
-		label := o.Name
-		if label == "" {
-			label = string(o.Kind)
-		}
-		lines = append(lines, clipLine(marker+label, max))
+		lines = append(lines, clipLine(marker+o.Label(), max))
 		// The current step's hint surfaces here (no hint in the chip).
 		if isCurrent && o.Description != "" {
 			lines = append(lines, clipLine(m.theme.Dim.Render("      "+o.Description), max))

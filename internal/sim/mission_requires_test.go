@@ -45,3 +45,24 @@ func TestEvaluateMissionsGatesOnRequires(t *testing.T) {
 		t.Fatalf("B status = %v, want Passed once A passed", w.Missions[1].Status)
 	}
 }
+
+// ActiveMission (the chip's source) must skip a requires-locked rung even when
+// it is the first InProgress mission — otherwise the chip would surface a
+// frozen mission the evaluator never advances, disagreeing with the ladder
+// screen, which classifies the same rung as locked. v0.21 Slice 6.
+func TestActiveMissionSkipsLockedRungs(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Missions = []missions.Mission{
+		{ID: "locked", Name: "Locked", Requires: []string{"prereq"},
+			Objectives: []missions.Objective{{Kind: missions.KindSOIFlyby, Params: missions.Params{PrimaryID: "x"}}}},
+		{ID: "prereq", Name: "Prereq",
+			Objectives: []missions.Objective{{Kind: missions.KindSOIFlyby, Params: missions.Params{PrimaryID: "y"}}}},
+	}
+	am := w.ActiveMission()
+	if am == nil || am.ID != "prereq" {
+		t.Fatalf("ActiveMission = %v, want the unlocked 'prereq', not the locked rung ordered before it", am)
+	}
+}

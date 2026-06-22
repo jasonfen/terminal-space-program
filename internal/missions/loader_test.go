@@ -122,7 +122,7 @@ func TestLoadAllBadFileBecomesFailedMission(t *testing.T) {
 		t.Error("expected a warning for the malformed overlay file")
 	}
 	// A representative spread of embedded missions still present.
-	for _, id := range []string{"tut-orient", "chal-high-orbit", "chal-mars-flyby", "chal-pad-to-leo"} {
+	for _, id := range []string{"tut-orient", "chal-high-orbit", "chal-mars-flyby", "chal-dock"} {
 		if _, ok := missionByID(cat, id); !ok {
 			t.Errorf("embedded mission %q dropped by a bad overlay file", id)
 		}

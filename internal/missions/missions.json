@@ -13,8 +13,8 @@
           "params": { "action": "cycle_view" }
         },
         {
-          "name": "Target the Moon",
-          "description": "Press [t] to cycle the target slot; stop on the Moon. [T] clears it.",
+          "name": "Pick a target",
+          "description": "Press [t] to cycle the target slot — aim for the Moon. [T] clears it.",
           "kind": "event",
           "params": { "action": "cycle_target" }
         }
@@ -160,21 +160,6 @@
           "description": "Plant an interplanetary transfer to Mars ([t] target Mars, [H]) and coast into its sphere of influence.",
           "kind": "soi_flyby",
           "params": { "primary_id": "mars" }
-        }
-      ]
-    },
-    {
-      "id": "chal-pad-to-leo",
-      "name": "Saturn V: Pad to LEO",
-      "description": "Do it the hard way — launch a Saturn V from the pad.",
-      "program": "challenge",
-      "requires": ["chal-high-orbit"],
-      "objectives": [
-        {
-          "name": "Reach orbit from the pad",
-          "description": "Spawn a Saturn V on the launchpad ([n] → POSITION → launchpad → 28.6° KSC), fly the gravity turn — pitch east, stage as each booster empties — and circularize with periapsis above 200 km.",
-          "kind": "circularize_from_pad",
-          "params": { "primary_id": "earth", "min_periapsis_alt_m": 200000 }
         }
       ]
     }
