@@ -44,6 +44,7 @@ type Keymap struct {
 	Help       key.Binding
 	BodyInfo   key.Binding
 	Maneuver   key.Binding
+	Missions   key.Binding
 	NextBody   key.Binding
 	PrevBody   key.Binding
 	NextSystem key.Binding
@@ -252,6 +253,7 @@ func DefaultKeymap() Keymap {
 		Help:     key.NewBinding(key.WithKeys("f1"), key.WithHelp("F1", "help")),
 		BodyInfo: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "body info")),
 		Maneuver: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "maneuver")),
+		Missions: key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "missions (ladder)")),
 		NextBody: key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next body")),
 		PrevBody: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev body")),
 		// v0.7.3: NextSystem moved s → tab to free `s` for AttitudeRetrograde.

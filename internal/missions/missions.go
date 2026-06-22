@@ -134,6 +134,19 @@ const (
 	FailOutOfFuel FailCondition = "out_of_fuel"
 )
 
+// Label returns the player-facing phrasing of a fail condition, used by the
+// in-flight failure flash (ADR 0025 §5 / Slice 5). Falls back to the raw
+// schema string for any condition without an explicit label.
+func (fc FailCondition) Label() string {
+	switch fc {
+	case FailCrashed:
+		return "crashed"
+	case FailOutOfFuel:
+		return "out of fuel"
+	}
+	return string(fc)
+}
+
 // Params is the union of parameters across all objective kinds. Each
 // kind reads only the fields it cares about; the rest stay zero.
 type Params struct {
@@ -333,19 +346,28 @@ func evalEvent(p Params, ctx EvalContext) Status {
 // conditions is currently met. An objective with no FailOn never triggers
 // (ADR 0025 §5: declare nothing → never fails, retry forever).
 func (o Objective) failOnTriggered(ctx EvalContext) bool {
+	_, ok := o.FailReason(ctx)
+	return ok
+}
+
+// FailReason returns the first declared fail condition currently met and
+// true, or ("", false) when none is — the same predicate failOnTriggered
+// gates Evaluate on, but surfacing *which* condition fired so the player
+// surface can name it ("failed: crashed"). v0.21 Slice 5 (ADR 0025 §5).
+func (o Objective) FailReason(ctx EvalContext) (FailCondition, bool) {
 	for _, fc := range o.FailOn {
 		switch fc {
 		case FailCrashed:
 			if ctx.Crashed {
-				return true
+				return FailCrashed, true
 			}
 		case FailOutOfFuel:
 			if ctx.TotalFuelKg <= 0 {
-				return true
+				return FailOutOfFuel, true
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
 // evalDock: pass when the active craft is a docked composite. Grounded in
@@ -579,6 +601,60 @@ func (m *Mission) Evaluate(ctx EvalContext) Status {
 		m.Status = Passed
 	}
 	return m.Status
+}
+
+// Progress reports how many of the mission's objectives have Passed and
+// the total count — the "N/M" the checklist chip and ladder screen show.
+// Only Passed counts toward N; a Failed objective is not progress. v0.21
+// Slice 5 (ADR 0025).
+func (m Mission) Progress() (passed, total int) {
+	for i := range m.Objectives {
+		if m.Objectives[i].Status == Passed {
+			passed++
+		}
+	}
+	return passed, len(m.Objectives)
+}
+
+// CurrentObjective returns the first objective that has not yet Passed (the
+// one the player is working on) and true, or the zero Objective and false
+// when every objective has Passed or the mission has none. For an active
+// (InProgress) mission this is the first still-InProgress step; for a Failed
+// mission it is the step that failed. v0.21 Slice 5 (ADR 0025).
+func (m Mission) CurrentObjective() (Objective, bool) {
+	for i := range m.Objectives {
+		if m.Objectives[i].Status != Passed {
+			return m.Objectives[i], true
+		}
+	}
+	return Objective{}, false
+}
+
+// FailedObjective returns the first objective in the Failed state and true,
+// or the zero Objective and false when none has failed. The player surface
+// uses it (together with Objective.FailReason) to name why a mission died.
+// v0.21 Slice 5 (ADR 0025).
+func (m Mission) FailedObjective() (Objective, bool) {
+	for i := range m.Objectives {
+		if m.Objectives[i].Status == Failed {
+			return m.Objectives[i], true
+		}
+	}
+	return Objective{}, false
+}
+
+// RequirementsMet reports whether every mission ID in this mission's
+// Requires list is present and true in passed (the set of already-Passed
+// mission IDs). A mission with no Requires is always met (an ungated rung).
+// Drives the ladder screen's locked-vs-available classification (ADR 0025
+// §2 / §"Locked rungs"). v0.21 Slice 5.
+func (m Mission) RequirementsMet(passed map[string]bool) bool {
+	for _, id := range m.Requires {
+		if !passed[id] {
+			return false
+		}
+	}
+	return true
 }
 
 // Catalog is a list of Missions, persisted to JSON. The starter catalog

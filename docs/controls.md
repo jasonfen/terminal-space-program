@@ -96,6 +96,7 @@ readout shows you why before you watch it fall back.
 | `F1` | Toggle the help overlay (scroll it with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`) |
 | `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
 | `i` | Body info screen |
+| `M` | Mission ladder — your program / objective progress, with the active mission's checklist and locked rungs shown with what unlocks them (same screen as the `[Missions]` button) |
 | `Tab` | Switch star system (Sol → Alpha Centauri → TRAPPIST-1 → Kepler-452) |
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down (up to 100,000×; eases off around a burn) |
@@ -172,7 +173,7 @@ Click only — no dragging, no scroll-to-zoom.
 |---|---|
 | `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`). Shows `[■Burn]` while running, dimmed when no burn is planned |
 | `[Menu]` (top-right) | Save / load / settings / controls / quit menu |
-| `[Missions]` (top-right) | Mission list with pass / fail marks |
+| `[Missions]` (top-right) | Mission ladder — active mission checklist on top, the rest of the program below with locked rungs and pass / fail marks (same as `M`) |
 | A body | Follow it with the camera (same as cursoring onto it) |
 | A craft | Follow it with the camera |
 | A planned burn | Open the planner for that burn (its fire time is kept) |

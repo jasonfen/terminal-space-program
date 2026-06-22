@@ -647,6 +647,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.world.RecordAction(missions.ActionOpenManeuver) // ADR 0025 §7
 			}
 			return a, nil
+		case key.Matches(m, a.keys.Missions):
+			// `M` opens the mission ladder (ADR 0025 Slice 5) — the same
+			// screen as the title-bar [Missions] button. No RecordAction: the
+			// curated event vocabulary excludes pure-navigation bindings.
+			if a.active == screenOrbit {
+				a.active = screenMissions
+			}
+			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
 			// Manual warp cancels Auto-Warp, then applies (ADR 0016) —
 			// Disengage leaves Selected Warp untouched so the step lands

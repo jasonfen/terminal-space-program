@@ -199,6 +199,17 @@ type World struct {
 	// persisted.
 	recentActions []missions.Action
 
+	// missionFailMsg / missionFailUntil drive the checklist chip's
+	// transient failure flash (ADR 0025 §5 / Slice 5, v0.21). When a mission
+	// transitions InProgress→Failed, evaluateMissions records a player-facing
+	// message ("<name> failed: <reason>") and a wall-clock deadline
+	// missionFailFlashWindow out; MissionFailFlash reports it active until the
+	// deadline passes, after which the chip advances to the next mission. The
+	// deadline is wall-clock, not sim-time, so it expires even if the player
+	// pauses the instant they fail. Session scoped, not persisted.
+	missionFailMsg   string
+	missionFailUntil time.Time
+
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
@@ -658,8 +669,56 @@ func (w *World) evaluateMissions() {
 	}
 	ctx := w.missionEvalContext()
 	for i := range w.Missions {
+		prev := w.Missions[i].Status
 		w.Missions[i].Evaluate(ctx)
+		// A fresh InProgress→Failed transition arms the chip's failure flash
+		// (ADR 0025 §5). Naming the reason needs the failed objective: scan
+		// for it and ask which opt-in fail_on condition fired.
+		if prev == missions.InProgress && w.Missions[i].Status == missions.Failed {
+			var reason missions.FailCondition
+			if o, ok := w.Missions[i].FailedObjective(); ok {
+				if r, ok := o.FailReason(ctx); ok {
+					reason = r
+				}
+			}
+			w.flagMissionFailure(w.Missions[i].Name, reason)
+		}
 	}
+}
+
+// missionFailFlashWindow is how long (wall-clock) the checklist chip flashes
+// a just-failed mission before advancing to the next active one. Wall-clock,
+// not sim-time, so it still expires if the player pauses on failure.
+const missionFailFlashWindow = 4 * time.Second
+
+// flagMissionFailure records that mission `name` just died for `reason`, so
+// the checklist chip can flash it for missionFailFlashWindow. The newest
+// failure overwrites any prior flash. A blank reason yields a bare
+// "<name> failed" (no opt-in condition matched the failed objective).
+func (w *World) flagMissionFailure(name string, reason missions.FailCondition) {
+	if reason != "" {
+		w.missionFailMsg = name + " failed: " + reason.Label()
+	} else {
+		w.missionFailMsg = name + " failed"
+	}
+	w.missionFailUntil = time.Now().Add(missionFailFlashWindow)
+}
+
+// MissionFailFlash returns the active failure-flash text and true while a
+// just-failed mission is still within its flash window, or ("", false)
+// once the window has elapsed (or none has failed). The player surface (the
+// checklist chip) reads this each frame. v0.21 Slice 5 (ADR 0025 §5).
+func (w *World) MissionFailFlash() (string, bool) {
+	return missionFailFlashActive(w.missionFailMsg, w.missionFailUntil, time.Now())
+}
+
+// missionFailFlashActive is the pure window predicate behind MissionFailFlash,
+// split out so the time-window logic is testable without wall-clock.
+func missionFailFlashActive(msg string, until, now time.Time) (string, bool) {
+	if msg == "" || !now.Before(until) {
+		return "", false
+	}
+	return msg, true
 }
 
 // RecordAction appends a semantic gameplay action to the per-tick event sink

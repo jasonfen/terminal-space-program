@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
@@ -47,6 +48,9 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 		}
 		chips = append(chips, builtChip{id: id, corner: corner, lines: lines})
 	}
+	// The current goal sits directly under the pinned VESSEL chip — "who I am"
+	// then "what I'm doing" in the top-left status corner (ADR 0025 / Slice 5).
+	add(settings.ChipMissions, cornerTopLeft, v.buildMissionsChip(w))
 	// Top-left transient stack (stacking order = listed order, downward).
 	// The in-flight ● BURNS readout used to live here; v0.16 folds it into
 	// the bottom-right NODES chip (a live burn is the firing head of the
@@ -102,6 +106,56 @@ func (v *OrbitView) anyActiveBurn(w *sim.World) bool {
 		}
 	}
 	return false
+}
+
+// buildMissionsChip is the in-flight mission checklist chip (ADR 0025
+// §"Player surface" / Slice 5). A one-liner: the active mission's name plus
+// its current objective and N/M progress, so the player always sees "what
+// now" without opening the missions screen (which carries the full ladder +
+// hint text). On a mission failure it flashes "✗ <name> failed: <reason>" for
+// a few wall-clock seconds (World.MissionFailFlash) before advancing to the
+// next mission. Returns nil when no mission is active and nothing is flashing.
+// Honours the Settings toggle + F2 declutter like any chip (no force-show —
+// a failed mission isn't safety-critical the way a live burn is).
+func (v *OrbitView) buildMissionsChip(w *sim.World) []string {
+	flash, flashing := w.MissionFailFlash()
+	return v.missionChipLines(flash, flashing, w.ActiveMission())
+}
+
+// missionChipLines is the pure content selector behind buildMissionsChip,
+// split out so both the (World-armed) failure flash and the active-mission
+// forms are unit-testable without a live World. A live flash takes precedence
+// over the active mission — the mission that just failed is more urgent to
+// surface than the next one in the ladder.
+func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mission) []string {
+	if flashing {
+		return []string{
+			v.theme.Alert.Render("MISSION"),
+			v.theme.Alert.Render("  ✗ " + flash),
+		}
+	}
+	if m == nil {
+		return nil
+	}
+	header := v.theme.Primary.Render("MISSION") + "  " + m.Name
+	obj, ok := m.CurrentObjective()
+	if !ok {
+		// An InProgress mission always has a current (non-Passed) objective;
+		// defend against an empty/all-passed mission slipping through anyway.
+		return []string{header}
+	}
+	label := obj.Name
+	if label == "" {
+		label = obj.Description
+	}
+	if label == "" {
+		label = string(obj.Kind)
+	}
+	passed, total := m.Progress()
+	return []string{
+		header,
+		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, label, passed, total),
+	}
 }
 
 // buildAttitudeChip surfaces the held attitude / nav mode / engine mode /
