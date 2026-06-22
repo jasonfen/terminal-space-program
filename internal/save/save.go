@@ -48,8 +48,12 @@ import (
 // binding. The v7→v8 migration derives each craft's SystemIdx from which
 // loaded System contains its PrimaryID (Sol/0 fallback), so existing Sol
 // craft and any craft spawned by the buggy interim Lumen build both
-// migrate correctly; see migrateV7PayloadToV8.
-const SchemaVersion = 8
+// migrate correctly; see migrateV7PayloadToV8. v0.21 bumps to v9
+// (ADR 0025) — the mission shape inverts from a single typed predicate to
+// a Mission of ordered Objectives + campaign metadata. The v8→v9 migration
+// re-seeds: it drops the old single-predicate progress so the load path
+// reseeds the new ladder from the catalog; see migrateV8PayloadToV9.
+const SchemaVersion = 9
 
 // File is the on-disk envelope.
 type File struct {
@@ -467,6 +471,13 @@ func Load(path string) (*sim.World, error) {
 	// alone. v8+ saves already carry SystemIdx and skip this.
 	if f.Version < 8 {
 		migrateV7PayloadToV8(&f.Payload, systems)
+	}
+	// v0.21 / schema v9 (ADR 0025): the mission shape inverted (single
+	// predicate → Mission of ordered Objectives). Drop the old
+	// single-predicate progress so worldFromPayload reseeds the new ladder
+	// from the catalog. Payload-only, so it runs here on the wire payload.
+	if f.Version < 9 {
+		migrateV8PayloadToV9(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }
@@ -906,14 +917,15 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	// prime NextNodeID past every ID in play, so a post-load plant can't
 	// mint a colliding node ID. Mirrors EnsureCraftIDs above.
 	w.EnsureNodeIDs()
-	// v0.6.5: missions persist with status. v3+ saves carry an explicit
-	// (possibly-empty) Missions slice; v1/v2 saves wire-out as nil and
-	// get the embedded starter catalog seeded fresh so older saves
-	// gain the new feature without a manual edit. A failed catalog
-	// load is non-fatal — missions are additive.
+	// v0.6.5: missions persist with status. v9+ saves carry an explicit
+	// (possibly-empty) Missions slice in the nested shape; pre-v9 saves are
+	// re-seeded — migrateV8PayloadToV9 nils Missions so this branch loads
+	// the current ladder fresh (embedded + user overlay, via LoadAll,
+	// matching NewWorld). A failed catalog load is non-fatal — missions are
+	// additive.
 	if p.Missions != nil {
 		w.Missions = missions.Clone(p.Missions)
-	} else if cat, err := missions.DefaultCatalog(); err == nil {
+	} else if cat, err := missions.LoadAll(); err == nil {
 		w.Missions = missions.Clone(cat.Missions)
 	}
 	return w, nil

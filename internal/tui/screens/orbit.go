@@ -2213,21 +2213,26 @@ func formatDurationShort(sec float64) string {
 // string when no such mission is in flight. v0.9.4+.
 func launchMissionProgress(w *sim.World, c *spacecraft.Spacecraft, periAltM float64) string {
 	for _, m := range w.Missions {
-		if m.Type != missions.TypeCircularizeFromPad {
-			continue
-		}
 		if m.Status == missions.Passed {
 			continue
 		}
-		if m.Params.PrimaryID != c.Primary.ID {
-			continue
+		for _, o := range m.Objectives {
+			if o.Kind != missions.KindCircularizeFromPad {
+				continue
+			}
+			if o.Status == missions.Passed {
+				continue
+			}
+			if o.Params.PrimaryID != c.Primary.ID {
+				continue
+			}
+			target := o.Params.MinPeriapsisAltM
+			if target <= 0 {
+				target = launchMissionFloorM
+			}
+			return fmt.Sprintf("mission:    pe %s / %s target",
+				formatAltKm(periAltM), formatAltKm(target))
 		}
-		target := m.Params.MinPeriapsisAltM
-		if target <= 0 {
-			target = launchMissionFloorM
-		}
-		return fmt.Sprintf("mission:    pe %s / %s target",
-			formatAltKm(periAltM), formatAltKm(target))
 	}
 	return ""
 }

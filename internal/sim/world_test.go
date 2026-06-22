@@ -348,8 +348,13 @@ func TestTickPassesCircularizeAtTarget(t *testing.T) {
 
 	var found *missions.Mission
 	for i := range w.Missions {
-		if w.Missions[i].Type == missions.TypeCircularize {
-			found = &w.Missions[i]
+		for j := range w.Missions[i].Objectives {
+			if w.Missions[i].Objectives[j].Kind == missions.KindCircularize {
+				found = &w.Missions[i]
+				break
+			}
+		}
+		if found != nil {
 			break
 		}
 	}

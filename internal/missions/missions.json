@@ -4,41 +4,57 @@
       "id": "leo-circularize-1000",
       "name": "Circularize at 1000 km LEO",
       "description": "Reach a circular orbit around Earth at 1000 km altitude (±5%, e ≤ 0.005).",
-      "type": "circularize",
-      "params": {
-        "primary_id": "earth",
-        "altitude_m": 1000000,
-        "altitude_tol_pct": 0.05,
-        "eccentricity_cap": 0.005
-      }
+      "objectives": [
+        {
+          "kind": "circularize",
+          "params": {
+            "primary_id": "earth",
+            "altitude_m": 1000000,
+            "altitude_tol_pct": 0.05,
+            "eccentricity_cap": 0.005
+          }
+        }
+      ]
     },
     {
       "id": "luna-orbit-insertion",
       "name": "Luna orbit insertion",
       "description": "Capture into a bound orbit around Earth's Moon.",
-      "type": "orbit_insertion",
-      "params": {
-        "primary_id": "moon"
-      }
+      "objectives": [
+        {
+          "kind": "orbit_insertion",
+          "params": {
+            "primary_id": "moon"
+          }
+        }
+      ]
     },
     {
       "id": "mars-soi-flyby",
       "name": "Mars SOI flyby",
       "description": "Cross into Mars' sphere of influence.",
-      "type": "soi_flyby",
-      "params": {
-        "primary_id": "mars"
-      }
+      "objectives": [
+        {
+          "kind": "soi_flyby",
+          "params": {
+            "primary_id": "mars"
+          }
+        }
+      ]
     },
     {
       "id": "saturn-v-pad-to-leo",
       "name": "Saturn V: pad to LEO",
       "description": "Spawn a Saturn V on the launchpad (n → POSITION → launchpad → LATITUDE → 28.6° KSC). Manually fly the gravity turn — pitch east, stage as each booster empties — and circularize at periapsis above 200 km.",
-      "type": "circularize_from_pad",
-      "params": {
-        "primary_id": "earth",
-        "min_periapsis_alt_m": 200000
-      }
+      "objectives": [
+        {
+          "kind": "circularize_from_pad",
+          "params": {
+            "primary_id": "earth",
+            "min_periapsis_alt_m": 200000
+          }
+        }
+      ]
     }
   ]
 }

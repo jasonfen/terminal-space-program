@@ -1,21 +1,23 @@
-// Package missions defines pass/fail objectives evaluated against the
-// live sim state each Tick. v0.6.5+.
+// Package missions defines pass/fail Objectives and the Missions that
+// bundle them, evaluated against the live sim state each Tick.
 //
-// A Mission is a typed predicate over the spacecraft's current
-// (primary, state, sim-time) tuple. Three predicate kinds ship in the
-// v0.6.5 starter catalog:
+// Vocabulary (ADR 0025, v0.21 — a deliberate inversion of the pre-v0.21
+// naming, where a single predicate was called a "Mission"):
 //
-//   - Circularize: craft is in the named primary's frame, orbit is
-//     bound, eccentricity ≤ cap, and semimajor axis is within ±tol of
-//     target altitude (radius + altitude_m).
-//   - OrbitInsertion: craft is in the named primary's frame on a
-//     bound orbit (e < 1).
-//   - SOIFlyby: any tick where the craft's current primary ID matches
-//     the named body.
+//   - Objective — the atomic pass/fail predicate over the spacecraft's
+//     current (primary, state, sim-time) tuple. Four instantaneous kinds
+//     ship today (circularize, orbit_insertion, soi_flyby,
+//     circularize_from_pad); the v0.21 vocabulary grows in later slices.
+//   - Mission — an ordered list of Objectives plus campaign metadata
+//     (a `program` tag and `requires`/`unlocks` edges). The player sees a
+//     Mission as a checklist of sub-steps; the Mission carries the
+//     sequencing memory so each Objective stays memoryless. "Luna landing
+//     & return" is one Mission whose ordered Objectives are
+//     [land_at_luna] → [return_to_earth].
 //
-// Status is a three-state machine (InProgress → Passed | Failed).
-// Terminal states are sticky: Evaluate is idempotent on Passed/Failed
-// missions, so the per-tick caller can blindly walk all missions
+// Status is a three-state machine (InProgress → Passed | Failed) at both
+// levels. Terminal states are sticky: Evaluate is idempotent on
+// Passed/Failed, so the per-tick caller can blindly walk everything
 // without filtering.
 package missions
 
@@ -29,7 +31,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
-// Status is the mission state machine.
+// Status is the objective/mission state machine.
 type Status int
 
 const (
@@ -51,18 +53,20 @@ func (s Status) String() string {
 	return "?"
 }
 
-// Type discriminates the predicate kind. Stored in JSON as a string
-// so the catalog stays human-editable without leaking enum integers.
-type Type string
+// Kind discriminates the objective predicate kind. Stored in JSON as a
+// string so the catalog stays human-editable without leaking enum
+// integers. Kind names are part of the modder-facing schema (ADR 0025
+// §7) — renaming one breaks community catalogs.
+type Kind string
 
 const (
-	TypeCircularize         Type = "circularize"
-	TypeOrbitInsertion      Type = "orbit_insertion"
-	TypeSOIFlyby            Type = "soi_flyby"
-	TypeCircularizeFromPad  Type = "circularize_from_pad" // v0.9.2+
+	KindCircularize        Kind = "circularize"
+	KindOrbitInsertion     Kind = "orbit_insertion"
+	KindSOIFlyby           Kind = "soi_flyby"
+	KindCircularizeFromPad Kind = "circularize_from_pad" // v0.9.2+
 )
 
-// Params is the union of parameters across all predicate kinds. Each
+// Params is the union of parameters across all objective kinds. Each
 // kind reads only the fields it cares about; the rest stay zero.
 type Params struct {
 	// PrimaryID is the body whose frame the predicate evaluates in
@@ -92,21 +96,20 @@ type Params struct {
 	MinPeriapsisAltM float64 `json:"min_periapsis_alt_m,omitempty"`
 }
 
-// Mission groups the catalog metadata, the predicate parameters, and
-// the runtime status. JSON-serialisable for both the catalog and the
-// save file.
-type Mission struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
+// Objective is the atomic pass/fail predicate (the pre-v0.21 Mission).
+// JSON-serialisable for both the catalog and the save file.
+type Objective struct {
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
-	Type        Type   `json:"type"`
+	Kind        Kind   `json:"kind"`
 	Params      Params `json:"params"`
 	Status      Status `json:"status,omitempty"`
 }
 
-// EvalContext is the minimum slice of World state a mission predicate
+// EvalContext is the minimum slice of World state an objective predicate
 // needs. Lifted out of sim so the missions package can depend only on
-// orbital/physics and avoid an import cycle.
+// orbital/physics and avoid an import cycle. (Slice 2 expands this.)
 type EvalContext struct {
 	PrimaryID      string              // craft's current primary ID
 	PrimaryRadiusM float64             // craft primary's mean radius
@@ -115,21 +118,22 @@ type EvalContext struct {
 	SimTime        time.Time           // current sim time
 }
 
-// Evaluate steps the predicate one tick and returns the new status.
+// Evaluate steps the objective one tick and returns the new status.
 // Idempotent on terminal states (Passed/Failed return immediately).
-func (m Mission) Evaluate(ctx EvalContext) Status {
-	if m.Status != InProgress {
-		return m.Status
+// Does not mutate the receiver — the caller owns the status.
+func (o Objective) Evaluate(ctx EvalContext) Status {
+	if o.Status != InProgress {
+		return o.Status
 	}
-	switch m.Type {
-	case TypeCircularize:
-		return evalCircularize(m.Params, ctx)
-	case TypeOrbitInsertion:
-		return evalOrbitInsertion(m.Params, ctx)
-	case TypeSOIFlyby:
-		return evalSOIFlyby(m.Params, ctx)
-	case TypeCircularizeFromPad:
-		return evalCircularizeFromPad(m.Params, ctx)
+	switch o.Kind {
+	case KindCircularize:
+		return evalCircularize(o.Params, ctx)
+	case KindOrbitInsertion:
+		return evalOrbitInsertion(o.Params, ctx)
+	case KindSOIFlyby:
+		return evalSOIFlyby(o.Params, ctx)
+	case KindCircularizeFromPad:
+		return evalCircularizeFromPad(o.Params, ctx)
 	}
 	return InProgress
 }
@@ -213,9 +217,63 @@ func evalCircularizeFromPad(p Params, ctx EvalContext) Status {
 	return Passed
 }
 
-// Catalog is a list of missions, persisted to JSON. The starter
-// catalog ships embedded in the binary; future config-file work could
-// supply user-authored catalogs through the same shape.
+// Mission bundles an ordered list of Objectives plus campaign metadata.
+// A Program (ADR 0025 §2) is not a separate type — it is a lightweight
+// grouping expressed by the Program tag plus Requires/Unlocks edges
+// between Missions, so a campaign and the tutorial are both gated
+// Mission chains. JSON-serialisable for both the catalog and the save
+// file.
+type Mission struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	Program     string      `json:"program,omitempty"`  // campaign grouping tag
+	Requires    []string    `json:"requires,omitempty"` // mission IDs that must Pass before this unlocks
+	Unlocks     []string    `json:"unlocks,omitempty"`  // mission IDs this unlocks (informational)
+	Objectives  []Objective `json:"objectives"`
+	Status      Status      `json:"status,omitempty"`
+}
+
+// Evaluate steps the Mission's Objectives in catalog order and returns
+// the rolled-up Mission status, mutating per-Objective and Mission
+// Status in place. Sticky on terminal states.
+//
+// Ordering is the defining behaviour of a Mission-as-sequence: an
+// Objective is evaluated only once every earlier Objective has Passed, so
+// a later step can't latch before its predecessor (e.g. you can't
+// "return" before you "land"). An Objective that just Passed this tick
+// lets the next one be evaluated the same tick. The Mission Passes when
+// every Objective has Passed; it Fails the moment any Objective Fails (no
+// Objective produces Failed until the slice-3 failure semantics land). A
+// Mission with no Objectives never passes.
+func (m *Mission) Evaluate(ctx EvalContext) Status {
+	if m.Status != InProgress {
+		return m.Status
+	}
+	for i := range m.Objectives {
+		if m.Objectives[i].Status == Passed {
+			continue
+		}
+		s := m.Objectives[i].Evaluate(ctx)
+		m.Objectives[i].Status = s
+		if s == Failed {
+			m.Status = Failed
+			return m.Status
+		}
+		if s != Passed {
+			// Ordered: this objective is still in progress, so every
+			// later objective stays locked until it passes.
+			return m.Status
+		}
+	}
+	if len(m.Objectives) > 0 {
+		m.Status = Passed
+	}
+	return m.Status
+}
+
+// Catalog is a list of Missions, persisted to JSON. The starter catalog
+// ships embedded in the binary; user overlays load through LoadAll.
 type Catalog struct {
 	Missions []Mission `json:"missions"`
 }
@@ -230,13 +288,21 @@ func LoadCatalog(data []byte) (Catalog, error) {
 }
 
 // Clone returns a deep copy of the mission slice. Used when seeding
-// World.Missions from the embedded catalog so per-session status
-// progression doesn't mutate the shared template.
-func Clone(missions []Mission) []Mission {
-	if len(missions) == 0 {
+// World.Missions from a catalog so per-session status progression
+// doesn't mutate the shared template. The per-Mission Objectives /
+// Requires / Unlocks slices are copied too — a shallow copy would let a
+// cloned mission's objective-status mutation bleed back into the
+// embedded catalog.
+func Clone(ms []Mission) []Mission {
+	if len(ms) == 0 {
 		return nil
 	}
-	out := make([]Mission, len(missions))
-	copy(out, missions)
+	out := make([]Mission, len(ms))
+	for i := range ms {
+		out[i] = ms[i]
+		out[i].Objectives = append([]Objective(nil), ms[i].Objectives...)
+		out[i].Requires = append([]string(nil), ms[i].Requires...)
+		out[i].Unlocks = append([]string(nil), ms[i].Unlocks...)
+	}
 	return out
 }
