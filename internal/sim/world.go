@@ -210,6 +210,16 @@ type World struct {
 	missionFailMsg   string
 	missionFailUntil time.Time
 
+	// enabledMissionPrograms gates which mission programs (ADR 0025 §2 Program
+	// tag) the evaluator and player surface treat as active (v0.21 Slice 7).
+	// A nil map means "all programs enabled" — the back-compat default for
+	// tests and any path that never configured it; the tui pushes the real set
+	// (possibly empty = nothing active) from the persisted Tutorial/Challenges
+	// toggles via SetEnabledMissionPrograms. An untagged mission (Program == "")
+	// is never gated. Session scoped, not persisted (the toggles live in
+	// settings.json).
+	enabledMissionPrograms map[string]bool
+
 	// soiCheckCounter throttles primary-reevaluation — we only need to
 	// check every few ticks, not every Verlet sub-step.
 	soiCheckCounter int
@@ -675,6 +685,11 @@ func (w *World) evaluateMissions() {
 	// its dependents on the next tick (one 50 ms step — imperceptible).
 	passed := missions.PassedSet(w.Missions)
 	for i := range w.Missions {
+		// Program gating (ADR 0025 §2 / Slice 7): a mission in a disabled
+		// program is inert — not evaluated, never fails, never flashes.
+		if !w.MissionProgramEnabled(w.Missions[i].Program) {
+			continue
+		}
 		if !w.Missions[i].RequirementsMet(passed) {
 			continue
 		}
@@ -739,6 +754,25 @@ func (w *World) RecordAction(a missions.Action) {
 	w.recentActions = append(w.recentActions, a)
 }
 
+// SetEnabledMissionPrograms replaces the set of active mission programs — the
+// tui pushes this from the persisted Tutorial/Challenges toggles (ADR 0025 §2
+// / v0.21 Slice 7). A nil map is treated as "all programs enabled" (the
+// back-compat default); pass an empty non-nil map to disable every tagged
+// program (a fresh sandbox with nothing opted in).
+func (w *World) SetEnabledMissionPrograms(programs map[string]bool) {
+	w.enabledMissionPrograms = programs
+}
+
+// MissionProgramEnabled reports whether missions tagged with the given program
+// are active. An untagged mission (program == "") is always active; an
+// unconfigured World (nil set) treats every program as enabled. v0.21 Slice 7.
+func (w *World) MissionProgramEnabled(program string) bool {
+	if w.enabledMissionPrograms == nil || program == "" {
+		return true
+	}
+	return w.enabledMissionPrograms[program]
+}
+
 // missionEvalContext snapshots the read-only slice of World state the
 // mission evaluator needs, all relative to the Active Vessel. Returns the
 // zero EvalContext when there's no active craft. The resource/outcome
@@ -799,7 +833,9 @@ func (w *World) missionEvalContext() missions.EvalContext {
 func (w *World) ActiveMission() *missions.Mission {
 	passed := missions.PassedSet(w.Missions)
 	for i := range w.Missions {
-		if w.Missions[i].Status == missions.InProgress && w.Missions[i].RequirementsMet(passed) {
+		if w.Missions[i].Status == missions.InProgress &&
+			w.MissionProgramEnabled(w.Missions[i].Program) &&
+			w.Missions[i].RequirementsMet(passed) {
 			return &w.Missions[i]
 		}
 	}

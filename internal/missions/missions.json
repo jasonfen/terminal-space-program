@@ -61,7 +61,6 @@
       "name": "Make a 1000 km Orbit",
       "description": "Trim a clean, near-circular orbit at 1000 km.",
       "program": "challenge",
-      "requires": ["tut-fly"],
       "objectives": [
         {
           "name": "Circular orbit at 1000 km",

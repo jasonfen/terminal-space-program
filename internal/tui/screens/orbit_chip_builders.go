@@ -145,10 +145,17 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 		return []string{header}
 	}
 	passed, total := m.Progress()
-	return []string{
+	lines := []string{
 		header,
 		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, obj.Label(), passed, total),
 	}
+	// Tutorial steps surface their instruction ("Press [v] …") in-flight so the
+	// player learns the control without opening the missions screen (Slice 7
+	// playtest feedback). Challenge steps stay the clean one-liner.
+	if m.Program == missions.ProgramTutorial && obj.Description != "" {
+		lines = append(lines, v.theme.Dim.Render("    "+obj.Description))
+	}
+	return lines
 }
 
 // buildAttitudeChip surfaces the held attitude / nav mode / engine mode /

@@ -18,12 +18,18 @@ func TestSettingsRenderListsEveryChip(t *testing.T) {
 			t.Errorf("Render is missing chip %q (label %q)", c, c.Label())
 		}
 	}
-	// Default (all-on) shows every box checked, none empty.
-	if strings.Contains(out, "[ ]") {
-		t.Errorf("Default() should render every chip enabled, found an empty box:\n%s", out)
-	}
+	// Default: every chip on (checked); the two gameplay toggles default off.
 	if got := strings.Count(out, "[x]"); got != len(settings.AllChips) {
-		t.Errorf("checked-box count = %d, want %d", got, len(settings.AllChips))
+		t.Errorf("checked-box count = %d, want %d (all chips on, gameplay off)", got, len(settings.AllChips))
+	}
+	if got := strings.Count(out, "[ ]"); got != gameplayRows {
+		t.Errorf("empty-box count = %d, want %d (off-by-default gameplay toggles)", got, gameplayRows)
+	}
+	// Both gameplay toggle rows are listed.
+	for _, label := range []string{"Tutorial", "Challenge ladder"} {
+		if !strings.Contains(out, label) {
+			t.Errorf("Render is missing gameplay toggle %q", label)
+		}
 	}
 }
 
@@ -33,8 +39,9 @@ func TestSettingsRenderReflectsDisabled(t *testing.T) {
 	prefs := settings.Default()
 	prefs.SetChip(settings.ChipTarget, false)
 	out := s.Render(prefs, 80)
-	if strings.Count(out, "[ ]") != 1 {
-		t.Errorf("expected exactly one empty box for the disabled chip:\n%s", out)
+	// One disabled chip + the two off-by-default gameplay toggles = 3 empty.
+	if got, want := strings.Count(out, "[ ]"), 1+gameplayRows; got != want {
+		t.Errorf("empty-box count = %d, want %d (disabled chip + off gameplay toggles):\n%s", got, want, out)
 	}
 	if got, want := strings.Count(out, "[x]"), len(settings.AllChips)-1; got != want {
 		t.Errorf("checked-box count = %d, want %d", got, want)
@@ -62,10 +69,28 @@ func TestSettingsCursorNavigation(t *testing.T) {
 		t.Errorf("toggle at row 0 = %q, want %q", c, settings.AllChips[0])
 	}
 
-	// up wraps from row 0 to the last chip.
+	// up wraps from row 0 to the last row — now the Challenges gameplay toggle.
 	s.HandleKey("up")
-	if _, c := s.HandleKey(" "); c != settings.AllChips[n-1] {
-		t.Errorf("up-wrap toggle = %q, want last chip %q", c, settings.AllChips[n-1])
+	if a, _ := s.HandleKey(" "); a != SettingsActionToggleChallenges {
+		t.Errorf("up-wrap toggle action = %v, want ToggleChallenges (last row)", a)
+	}
+	_ = n
+}
+
+// The two gameplay rows below the chips toggle the tutorial / challenge
+// mission programs (v0.21 Slice 7).
+func TestSettingsGameplayToggles(t *testing.T) {
+	s := NewSettingsScreen(Theme{})
+	n := len(settings.AllChips)
+	for i := 0; i < n; i++ { // walk down onto the first gameplay row (Tutorial)
+		s.HandleKey("down")
+	}
+	if a, _ := s.HandleKey(" "); a != SettingsActionToggleTutorial {
+		t.Errorf("toggle at tutorial row = %v, want ToggleTutorial", a)
+	}
+	s.HandleKey("down")
+	if a, _ := s.HandleKey("enter"); a != SettingsActionToggleChallenges {
+		t.Errorf("toggle at challenges row = %v, want ToggleChallenges", a)
 	}
 }
 

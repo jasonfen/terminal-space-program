@@ -20,6 +20,10 @@ func TestEmbeddedTutorialProgression(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	// Realistic player config for this check: tutorial on, challenges off
+	// (both default off; the player opted into the tutorial). This also keeps
+	// the independent challenge ladder from interfering with the assertions.
+	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
 
 	statusByID := func(id string) missions.Status {
 		for i := range w.Missions {
@@ -71,13 +75,9 @@ func TestEmbeddedTutorialProgression(t *testing.T) {
 		t.Fatalf("tut-fly = %v after climbing above 700 km, want Passed", got)
 	}
 
-	// With the tutorial done, the first challenge is the active rung — and it
-	// stays InProgress (the craft is at 800 km, not a 1000 km circular), so
-	// the gating didn't let a later rung latch out of order.
-	if am := w.ActiveMission(); am == nil || am.ID != "chal-high-orbit" {
-		t.Fatalf("post-tutorial active mission = %v, want chal-high-orbit", am)
-	}
-	if got := statusByID("chal-high-orbit"); got != missions.InProgress {
-		t.Fatalf("chal-high-orbit = %v, want InProgress (not yet flown)", got)
+	// Tutorial complete and challenges disabled → no active mission remains
+	// (the challenge ladder is a separate, opted-out program here).
+	if am := w.ActiveMission(); am != nil {
+		t.Fatalf("active mission after tutorial = %v, want nil (challenges disabled)", am)
 	}
 }

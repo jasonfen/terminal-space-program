@@ -43,10 +43,17 @@ func (s *SettingsScreen) Reset() { s.cursor = 0 }
 type SettingsAction int
 
 const (
-	SettingsActionNone   SettingsAction = iota // unhandled key / click
-	SettingsActionCancel                       // esc / [Back] — return to orbit
-	SettingsActionToggle                       // flip the returned Chip's visibility
+	SettingsActionNone             SettingsAction = iota // unhandled key / click
+	SettingsActionCancel                                 // esc / [Back] — return to orbit
+	SettingsActionToggle                                 // flip the returned Chip's visibility
+	SettingsActionToggleTutorial                         // flip the tutorial mission program (Slice 7)
+	SettingsActionToggleChallenges                       // flip the challenge mission program (Slice 7)
 )
+
+// gameplayRows is the number of non-chip toggle rows (Tutorial, Challenges)
+// rendered below the chips (v0.21 Slice 7). They occupy cursor indices
+// [len(AllChips), len(AllChips)+gameplayRows).
+const gameplayRows = 2
 
 // HandleKey maps a raw key string to a SettingsAction. Up/down (and
 // k/j) move the cursor with wrap-around; space / enter toggles the
@@ -54,7 +61,7 @@ const (
 // Chip is the highlighted one; for every other action the Chip is the
 // zero value (callers switch on the action first).
 func (s *SettingsScreen) HandleKey(key string) (SettingsAction, settings.Chip) {
-	n := len(settings.AllChips)
+	n := len(settings.AllChips) + gameplayRows
 	switch key {
 	case "up", "k":
 		if n > 0 {
@@ -65,11 +72,26 @@ func (s *SettingsScreen) HandleKey(key string) (SettingsAction, settings.Chip) {
 			s.cursor = (s.cursor + 1) % n
 		}
 	case " ", "enter":
-		if n > 0 {
-			return SettingsActionToggle, settings.AllChips[s.cursor]
-		}
+		return s.toggleAt(s.cursor)
 	case "esc":
 		return SettingsActionCancel, ""
+	}
+	return SettingsActionNone, ""
+}
+
+// toggleAt maps a row index to its toggle action: the first len(AllChips) rows
+// are chip toggles, the two rows below are the Tutorial and Challenges program
+// toggles (v0.21 Slice 7).
+func (s *SettingsScreen) toggleAt(i int) (SettingsAction, settings.Chip) {
+	switch i {
+	case len(settings.AllChips):
+		return SettingsActionToggleTutorial, ""
+	case len(settings.AllChips) + 1:
+		return SettingsActionToggleChallenges, ""
+	default:
+		if i >= 0 && i < len(settings.AllChips) {
+			return SettingsActionToggle, settings.AllChips[i]
+		}
 	}
 	return SettingsActionNone, ""
 }
@@ -85,7 +107,7 @@ func (s *SettingsScreen) HandleClick(col, row int) (SettingsAction, settings.Chi
 	for i, br := range s.rowBtns {
 		if br.Hit(col, row) {
 			s.cursor = i
-			return SettingsActionToggle, settings.AllChips[i]
+			return s.toggleAt(i)
 		}
 	}
 	return SettingsActionNone, ""
@@ -124,7 +146,7 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width int) string {
 	// One row per Chip, in AllChips display order. Record each row as a
 	// full-width click target (index-aligned with AllChips) before
 	// appending it, so buttonRange.row matches the rendered line index.
-	s.rowBtns = make([]buttonRange, len(settings.AllChips))
+	s.rowBtns = make([]buttonRange, len(settings.AllChips)+gameplayRows)
 	for i, c := range settings.AllChips {
 		marker := "  "
 		if i == s.cursor {
@@ -138,6 +160,38 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width int) string {
 
 		text := box + " " + c.Label()
 		if i == s.cursor {
+			text = s.theme.Primary.Render(text)
+		}
+		lines = append(lines, marker+text)
+	}
+
+	// Gameplay section: the two built-in mission programs, off by default —
+	// the player opts in here (ADR 0025 §2 / v0.21 Slice 7).
+	lines = append(lines, "")
+	lines = append(lines, s.theme.Dim.Render("─── gameplay ───"))
+	lines = append(lines, "")
+	lines = append(lines, s.theme.Dim.Render("  Built-in missions. Off by default; opt in to fly them."))
+	lines = append(lines, "")
+	gameplay := []struct {
+		label string
+		on    bool
+	}{
+		{"Tutorial", prefs.TutorialEnabled},
+		{"Challenge ladder", prefs.ChallengesEnabled},
+	}
+	for j, g := range gameplay {
+		idx := len(settings.AllChips) + j
+		marker := "  "
+		if idx == s.cursor {
+			marker = "> "
+		}
+		box := "[ ]"
+		if g.on {
+			box = "[x]"
+		}
+		s.rowBtns[idx] = buttonRange{row: len(lines), colStart: 0, colEnd: width, set: true}
+		text := box + " " + g.label
+		if idx == s.cursor {
 			text = s.theme.Primary.Render(text)
 		}
 		lines = append(lines, marker+text)

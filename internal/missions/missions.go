@@ -31,6 +31,15 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
+// Program names the two built-in mission programs (ADR 0025 §2). A Mission's
+// Program tag groups it into a campaign that the player toggles on/off
+// independently (v0.21 Slice 7); an untagged Mission (Program == "") is never
+// gated. The string values are the modder-facing schema, like Kind/Action.
+const (
+	ProgramTutorial  = "tutorial"
+	ProgramChallenge = "challenge"
+)
+
 // Status is the objective/mission state machine.
 type Status int
 

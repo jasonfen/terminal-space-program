@@ -63,6 +63,37 @@ func TestMissionChipLinesFailureFlash(t *testing.T) {
 	}
 }
 
+func TestMissionChipLinesTutorialHint(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	// A tutorial-program mission surfaces the current step's instruction in
+	// the chip (Slice 7), so the player learns the control without leaving flight.
+	m := &missions.Mission{
+		ID:      "tut",
+		Name:    "Flight School",
+		Program: missions.ProgramTutorial,
+		Objectives: []missions.Objective{{
+			Kind:        missions.KindEvent,
+			Name:        "Change your view",
+			Description: "Press [v] to cycle the camera view.",
+			Params:      missions.Params{Action: missions.ActionCycleView},
+		}},
+	}
+	lines := v.missionChipLines("", false, m)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "Press [v]") {
+		t.Errorf("tutorial chip should surface the hint instruction:\n%s", joined)
+	}
+	if len(lines) != 3 {
+		t.Errorf("tutorial chip = %d lines, want 3 (header + objective + hint):\n%s", len(lines), joined)
+	}
+
+	// A challenge-program mission keeps the clean one-liner (no hint).
+	m.Program = missions.ProgramChallenge
+	if got := v.missionChipLines("", false, m); len(got) != 2 {
+		t.Errorf("challenge chip = %d lines, want 2 (no hint):\n%s", len(got), strings.Join(got, "\n"))
+	}
+}
+
 func TestMissionChipLinesNilWhenIdle(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	if got := v.missionChipLines("", false, nil); got != nil {
