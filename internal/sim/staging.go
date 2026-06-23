@@ -200,7 +200,7 @@ func buildJettisonedCraft(stages []spacecraft.Stage, parent *spacecraft.Spacecra
 	c := &spacecraft.Spacecraft{
 		Name:                 name,
 		LoadoutID:            bottom.LoadoutID,
-		Role:                 "jettisoned-stage",
+		Role:                 spacecraft.RoleJettisonedStage,
 		Glyph:                glyph,
 		Color:                color,
 		Throttle:             0, // passive — player isn't flying it.

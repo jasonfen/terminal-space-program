@@ -353,6 +353,14 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 	return c
 }
 
+// RoleJettisonedStage is the Role stamped on a spent stage popped into its
+// own passive craft by staging (World.StageActive → buildJettisonedCraft). It
+// marks debris: EnsureCommandSource never backfills it, so a spent booster
+// stays uncommandable across construction and save-load (ADR 0027). Lives
+// here so the sim staging code and the save-load backfill agree on one value
+// rather than two magic strings.
+const RoleJettisonedStage = "jettisoned-stage"
+
 // roleIsCrewedPod reports whether a loadout/vessel Role denotes a crewed
 // command pod, used by the command-source defaulting (ADR 0027): a
 // command-less vessel whose role is a crewed pod defaults to a crewed
@@ -382,6 +390,13 @@ const DefaultProbeAntennaPowerW = 2000.0
 // already-defaulted vessel), so it is idempotent.
 func EnsureCommandSource(c *Spacecraft) {
 	if len(c.Stages) == 0 {
+		return
+	}
+	// Jettisoned debris is never backfilled — a spent booster legitimately
+	// carries no command source and must stay passive. Guarding here (not just
+	// at the construction call sites) keeps the save-load backfill from
+	// resurrecting a saved spent stage into a commandable probe (ADR 0027).
+	if c.Role == RoleJettisonedStage {
 		return
 	}
 	for _, st := range c.Stages {

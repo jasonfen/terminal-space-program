@@ -305,6 +305,59 @@ func TestRoundtripTopLevelStageFields(t *testing.T) {
 	}
 }
 
+// TestJettisonedDebrisStaysDebrisAcrossSave (hardening, ADR 0027): a saved
+// spent booster (Role jettisoned-stage, no command source) must reload as
+// passive debris. The load-time EnsureCommandSource backfill is meant only
+// for pre-comms saves and must not resurrect debris into a commandable probe
+// (and a CommNet node).
+func TestJettisonedDebrisStaysDebrisAcrossSave(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// Swap in a multi-stage, crew-tended Saturn V so StageActive can pop a
+	// spent booster as real debris.
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	stack.Stages[len(stack.Stages)-1].CommandSource = spacecraft.CommandCrewed
+	stack.SyncFields()
+	w.Crafts[0] = stack
+	w.EnsureCraftIDs()
+	w.ActiveCraftIdx = 0
+
+	_, jettIdx, err := w.StageActive(0)
+	if err != nil {
+		t.Fatalf("StageActive: %v", err)
+	}
+	if w.Crafts[jettIdx].Controllable {
+		t.Fatal("setup: a freshly jettisoned booster should be passive debris")
+	}
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	var debris *spacecraft.Spacecraft
+	for _, c := range got.Crafts {
+		if c != nil && c.Role == spacecraft.RoleJettisonedStage {
+			debris = c
+			break
+		}
+	}
+	if debris == nil {
+		t.Fatal("jettisoned debris not found after reload")
+	}
+	if debris.Controllable {
+		t.Error("a saved spent booster must stay debris, not reload as a commandable probe")
+	}
+}
+
 // TestLoadOldSaveDockedComponentFallsBackSingleStage — a v6 save written
 // before ADR 0009 has DockedComponents with no "stages" array. Loading
 // it and undocking must fall back to the legacy single-stage rebuild
