@@ -139,6 +139,12 @@ type Keymap struct {
 	// the SM is the firing core with the LM as a docked nose payload.
 	Transpose key.Binding
 
+	// Deploy (v0.23 / ADR 0028): release the top carried payload as its
+	// own craft while staying on the carrier (drop-and-continue — the
+	// constellation / tug loop). The top-release sibling of Undock, but
+	// Undock switches to the released vessel and Deploy keeps the carrier.
+	Deploy key.Binding
+
 	// CycleTarget / ClearTarget (v0.9.0+): unified `World.Target` slot
 	// that planted-Hohmann (`H`) and plane-match (`I`) consume in
 	// place of the pre-v0.9 implicit body cursor. Cycle order:
@@ -300,6 +306,7 @@ func DefaultKeymap() Keymap {
 		CraftSlot:           key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to craft N")),
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
 		Transpose:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "transpose (SM → firing core, LM → nose payload)")),
+		Deploy:              key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "deploy top payload (keep carrier)")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / craft)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
 		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: orbit / surface / target")),

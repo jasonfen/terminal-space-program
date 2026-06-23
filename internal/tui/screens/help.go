@@ -99,6 +99,7 @@ var helpSections = []helpSection{
 		{"[ / ]", "cycle active craft"},
 		{"1-9", "jump to craft N (no-op when the slot is empty)"},
 		{"U", "undock the active composite"},
+		{"Y", "deploy the top carried payload (keep flying the carrier)"},
 		{"D", "transpose: SM → firing core, LM → releasable nose payload"},
 		{"t / T", "cycle / clear the target"},
 		{"space", "decouple bottom stage (bare chute capsule: arm the chute)"},

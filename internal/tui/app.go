@@ -977,6 +977,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
 			}
 			return a, nil
+		case key.Matches(m, a.keys.Deploy):
+			// v0.23 / ADR 0028: release the top carried payload, keep flying the
+			// carrier (drop-and-continue). World.Deploy self-records the deploy
+			// action (so any caller emits it) — no second RecordAction here.
+			if a.world.Deploy(a.world.ActiveCraftIdx) {
+				a.statusMsg = fmt.Sprintf("deployed payload — %d craft on the slate", len(a.world.Crafts))
+			} else {
+				a.statusMsg = "deploy: no payload to release (carrier carries no docked payload)"
+			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
+			return a, nil
 		case key.Matches(m, a.keys.Transpose):
 			// v0.12 / ADR 0009: one-shot Apollo transposition. Reorders
 			// the [Descent, Ascent, SM, CM] stack so the SM fires (LOI/
