@@ -139,6 +139,7 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `[` / `]` | Switch which craft you're flying (when you have more than one) |
 | `1`–`9` | Jump straight to craft N (does nothing if that slot is empty) |
 | `U` | Undock a docked craft back into its parts |
+| `Y` | Deploy the top carried payload as its own craft — releases a satellite/probe/station while you keep flying the carrier (press again to drop the next one). Undock (`U`) instead splits everything and switches you to a released piece |
 | `D` | Apollo transposition — flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it) |
 | `V` | Jump to the launch chase-cam, following your active craft |
 | `E` | End the flight — remove a crashed craft after a `y` / `n` confirm |

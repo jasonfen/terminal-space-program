@@ -178,7 +178,9 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if id == "" {
 			id = w.nextLoadoutID()
 		}
-		c = spacecraft.NewFromLoadout(id)
+		// v0.23 / ADR 0028 C3-3: a carrier loadout with a baked NosePayloadPlan
+		// spawns as a deployable composite; an ordinary loadout stays linear.
+		c = w.newCatalogCraft(id)
 	}
 	c.Name = w.nextCraftName(c.Name)
 
@@ -368,15 +370,23 @@ func (w *World) focusNewCraft() {
 
 // newCustomCraft builds the Spacecraft for a player-assembled stack.
 // With no nose-payload plan it is a plain linear craft (NewFromStages,
-// the v0.10.1 behaviour). With a single-entry plan `k` (v0.14 / ADR
-// 0011) it splits the top k stages off as a docked nose payload: the
-// result is a composite whose Stages are the full stack (core at the
-// bottom, firing) with DockedComponents recording the core and the
-// payload so the existing Undock (docking.go) releases the payload as a
-// coherent — possibly multi-stage — craft. The composite flies as the
-// core, the surviving firing vehicle. A malformed seam (k ≤ 0 or k ≥
-// len) degrades to a linear craft rather than erroring, so a stray plan
-// can never strand the spawn.
+// the v0.10.1 behaviour). With an N-entry plan (v0.14 single payload / v0.23
+// ADR 0028 C3-1 generalized to N) it splits the top stages off as docked
+// nose payloads: each plan entry is a count of contiguous TOP stages forming
+// one payload, ordered **top-down** (entry 0 is the topmost payload, e.g.
+// `[2,1]` = a 2-stage top payload over a 1-stage payload, over the carrier
+// core). The result is a composite whose Stages are the full stack (carrier
+// core at the bottom, firing) with DockedComponents recording the core and
+// every payload so Undock (docking.go) releases them and Deploy (ADR 0028 C3-2)
+// pops the top payload one press at a time. The composite flies as the core,
+// the surviving firing vehicle. A malformed plan (any entry ≤ 0, or the
+// payloads consuming the whole stack with no core left) degrades to a linear
+// craft rather than erroring, so a stray plan can never strand the spawn.
+//
+// DockedComponents are ordered **bottom-to-top** — core first, then each
+// payload from the bottom of the stack up — so the in-order concatenation of
+// component stages equals the composite's Stages. Undock peels stages
+// sequentially off that order; Deploy pops the **last** (topmost) component.
 //
 // This reuses dockedComponentFromStages — the same helper Transpose
 // (staging.go) uses to wrap the CSM core and LM nose payload — so a
@@ -388,26 +398,86 @@ func newCustomCraft(stages []spacecraft.Stage, nosePayloadPlan []int) *spacecraf
 	if c == nil || len(nosePayloadPlan) == 0 {
 		return c
 	}
-	k := nosePayloadPlan[0]
-	n := len(stages)
-	if k <= 0 || k >= n {
-		return c // malformed seam — leave it a linear craft
+	if !splitNosePayloads(c, nosePayloadPlan) {
+		return c // malformed plan — NewFromStages already left it a linear craft
 	}
-	coreStages := append([]spacecraft.Stage(nil), stages[:n-k]...)
-	payloadStages := append([]spacecraft.Stage(nil), stages[n-k:]...)
-
-	coreName := vehicleNameForStages(coreStages)
-	core := dockedComponentFromStages(coreStages, coreName, "custom")
-	payload := dockedComponentFromStages(
-		payloadStages, vehicleNameForStages(payloadStages), payloadRoleForStages(payloadStages))
-	c.DockedComponents = []spacecraft.DockedComponent{core, payload}
-
-	// Identity: fly as the core (the surviving firing vehicle), not the
-	// top-of-stack payload that NewFromStages defaulted the name/marker to.
-	c.Name = coreName
-	c.Glyph = coreStages[0].Glyph
-	c.Color = coreStages[0].Color
+	// Identity: a hand-assembled stack flies as the core (the surviving firing
+	// vehicle), not the top-of-stack payload that NewFromStages defaulted the
+	// name/marker to. (Catalog carriers keep their authored loadout identity —
+	// newCatalogCraft does not run this override.)
+	core := c.DockedComponents[0]
+	c.Name = core.Name
+	c.Glyph = core.Glyph
+	c.Color = core.Color
 	c.SyncFields()
+	return c
+}
+
+// splitNosePayloads converts an already-built linear craft into a docked
+// composite by attaching a carrier-core component plus one nose-payload
+// component per NosePayloadPlan entry (top-down: entry 0 is the topmost
+// payload). It mutates only c.DockedComponents (and re-syncs); the caller owns
+// identity (Name/Glyph/Color/LoadoutID). Returns false — leaving c untouched —
+// when the plan is malformed (any entry ≤ 0, or the payloads consume the whole
+// stack leaving no carrier core), so a stray plan degrades to a linear craft.
+//
+// DockedComponents come out **bottom-to-top** — core first, then each payload
+// from the bottom of the stack up — so their in-order stage concatenation
+// equals c.Stages: Undock peels stages sequentially off that order, and Deploy
+// (ADR 0028 C3-2) pops the last (topmost) component. Reuses
+// dockedComponentFromStages, the same helper Transpose uses, so a spawned
+// composite is byte-identical to a hand-flown dock and rides the same
+// Undock/save-load machinery (no schema bump). v0.23 / ADR 0028 (C3-1/C3-3).
+//
+// It sets only DockedComponents — which don't feed SyncFields — so it does NOT
+// re-sync: the caller already synced at construction (NewFromStages /
+// NewFromLoadout) and Stages are untouched here.
+func splitNosePayloads(c *spacecraft.Spacecraft, nosePayloadPlan []int) bool {
+	stages := c.Stages
+	n := len(stages)
+	total := 0
+	for _, k := range nosePayloadPlan {
+		if k <= 0 {
+			return false
+		}
+		total += k
+	}
+	if total >= n {
+		return false // payloads leave no carrier core
+	}
+
+	coreStages := append([]spacecraft.Stage(nil), stages[:n-total]...)
+	comps := make([]spacecraft.DockedComponent, 0, len(nosePayloadPlan)+1)
+	comps = append(comps, dockedComponentFromStages(coreStages, vehicleNameForStages(coreStages), "custom"))
+
+	// Walk the plan bottom-up: the LAST entry sits just above the core, the
+	// FIRST entry is the topmost payload. Peeling upward from the core seam
+	// keeps comps in composite-stage order.
+	off := n - total
+	for i := len(nosePayloadPlan) - 1; i >= 0; i-- {
+		k := nosePayloadPlan[i]
+		payloadStages := append([]spacecraft.Stage(nil), stages[off:off+k]...)
+		off += k
+		comps = append(comps, dockedComponentFromStages(
+			payloadStages, vehicleNameForStages(payloadStages), payloadRoleForStages(payloadStages)))
+	}
+	c.DockedComponents = comps
+	return true
+}
+
+// newCatalogCraft builds a catalog craft, assembling it into a deployable
+// docked composite when the loadout bakes in a NosePayloadPlan (ADR 0028 C3-3 —
+// carrier loadouts like "Comsat Carrier x3"). Plain NewFromLoadout otherwise.
+// Unlike newCustomCraft it keeps the loadout's authored identity (the carrier
+// shows as "Comsat Carrier", not its core stage). v0.23 / ADR 0028 C3-3.
+func (w *World) newCatalogCraft(id string) *spacecraft.Spacecraft {
+	c := spacecraft.NewFromLoadout(id)
+	if c == nil {
+		return c
+	}
+	if plan := spacecraft.LookupLoadout(id).NosePayloadPlan; len(plan) > 0 {
+		splitNosePayloads(c, plan) // no-op on a malformed plan → linear catalog craft
+	}
 	return c
 }
 

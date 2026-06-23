@@ -57,6 +57,14 @@ type Loadout struct {
 	// of the plan should be < len(Stages) (the top stage is the
 	// surviving core). Copied onto the Spacecraft in NewFromLoadout.
 	DecouplePlan []int
+	// NosePayloadPlan (v0.23 / ADR 0028 C3-3) bakes a carrier loadout's
+	// top-release split into the catalog: each entry is a count of contiguous
+	// TOP stages forming one docked nose payload, ordered top-down (the
+	// top-release counterpart of DecouplePlan's bottom-up groups). Nil ⇒ a
+	// plain linear craft. A carrier like "Comsat Carrier x3" declares [1,1,1]
+	// so the spawn assembles a carrier core + three deployable payloads; the
+	// sim spawn path honours it (see World.newCatalogCraft / splitNosePayloads).
+	NosePayloadPlan []int
 	// SlewRateDegPerSec (v0.10.0+) is the per-loadout attitude
 	// angular-rate cap (deg/s, sim-time). Zero => the global
 	// DefaultSlewRateDegPerSec. Loadout-level (not per-stage):
@@ -250,6 +258,10 @@ func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
 	if len(d.DecouplePlan) > 0 {
 		plan = append([]int(nil), d.DecouplePlan...)
 	}
+	var nosePlan []int
+	if len(d.NosePayloadPlan) > 0 {
+		nosePlan = append([]int(nil), d.NosePayloadPlan...)
+	}
 	return Loadout{
 		ID:                d.ID,
 		Name:              d.Name,
@@ -258,6 +270,7 @@ func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
 		Color:             d.Color,
 		Stages:            stages,
 		DecouplePlan:      plan,
+		NosePayloadPlan:   nosePlan,
 		SlewRateDegPerSec: d.SlewRateDegPerSec,
 		ScaleClass:        bodies.ScaleClass(d.ScaleClass),
 	}

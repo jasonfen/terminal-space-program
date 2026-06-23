@@ -18,6 +18,8 @@ func TestEmbeddedCatalogIntegrity(t *testing.T) {
 		KindCircularize: true, KindOrbitInsertion: true, KindSOIFlyby: true,
 		KindCircularizeFromPad: true, KindReachAltitude: true, KindLandAtBody: true,
 		KindRendezvous: true, KindDock: true, KindReturnToBody: true, KindEvent: true,
+		// Cycle 2 (ADR 0027) comms kinds — authored into the ladder by cycle 3.
+		KindRelayCoverage: true, KindEstablishContact: true,
 	}
 	validActions := map[Action]bool{
 		ActionThrottleFull: true, ActionThrottleCut: true, ActionThrottleUp: true,
@@ -27,6 +29,8 @@ func TestEmbeddedCatalogIntegrity(t *testing.T) {
 		ActionStage: true, ActionCycleTarget: true, ActionClearTarget: true,
 		ActionCycleView: true, ActionCycleNavMode: true, ActionAutoWarp: true,
 		ActionSpawnCraft: true, ActionUndock: true, ActionTranspose: true,
+		// Cycle 3 (ADR 0028) deploy verb — authored into the ladder by cycle 3.
+		ActionDeploy: true,
 	}
 
 	ids := make(map[string]bool, len(cat.Missions))

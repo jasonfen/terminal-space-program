@@ -493,6 +493,61 @@
         "kind": "relay",
         "range_m": 600000000000
       }
+    },
+    {
+      "id": "relay-comsat",
+      "name": "Relay Comsat",
+      "glyph": "➤",
+      "color": "#8CE0C0",
+      "tier": "payload",
+      "dry_mass_kg": 600,
+      "launch_sprite_rows_px": 4,
+      "launch_sprite_width_px": 2,
+      "launch_sprite_color": "#8CE0C0",
+      "command_source": "probe",
+      "antenna": {
+        "kind": "relay",
+        "range_m": 1000000000
+      }
+    },
+    {
+      "id": "science-probe",
+      "name": "Science Probe",
+      "glyph": "➤",
+      "color": "#9BE0FF",
+      "tier": "payload",
+      "dry_mass_kg": 450,
+      "launch_sprite_rows_px": 4,
+      "launch_sprite_width_px": 2,
+      "launch_sprite_color": "#9BE0FF",
+      "command_source": "probe",
+      "antenna": {
+        "kind": "direct",
+        "range_m": 10000000
+      }
+    },
+    {
+      "id": "ground-station-lander",
+      "name": "Ground Station",
+      "glyph": "➤",
+      "color": "#C0E0A0",
+      "tier": "payload",
+      "dry_mass_kg": 1500,
+      "fuel_mass_kg": 2500,
+      "fuel_capacity_kg": 2500,
+      "thrust_n": 22000,
+      "isp_s": 311,
+      "launch_sprite_rows_px": 5,
+      "launch_sprite_width_px": 3,
+      "launch_sprite_color": "#C0E0A0",
+      "launch_sprite_has_legs": true,
+      "fuel_type": "hypergolic",
+      "can_soft_land": true,
+      "command_source": "probe",
+      "antenna": {
+        "kind": "relay",
+        "range_m": 5000000000
+      }
     }
   ]
 }

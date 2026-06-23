@@ -161,6 +161,67 @@
           "params": { "primary_id": "mars" }
         }
       ]
+    },
+    {
+      "id": "chal-deploy-payload",
+      "name": "Deploy a Payload",
+      "description": "Carry a payload to orbit and release it on its own.",
+      "program": "challenge",
+      "objectives": [
+        {
+          "name": "Deploy a payload",
+          "description": "Spawn a carrier ([n] → Comsat Carrier x3 or Survey Pack), reach orbit, then press [Y] to release the top payload as its own craft.",
+          "kind": "event",
+          "params": { "action": "deploy" }
+        }
+      ]
+    },
+    {
+      "id": "chal-place-comsat",
+      "name": "Place a Comsat",
+      "description": "Put a relay comsat into a target orbit.",
+      "program": "challenge",
+      "requires": ["chal-deploy-payload"],
+      "objectives": [
+        {
+          "name": "Circular orbit at 800 km",
+          "description": "Fly your carrier into a near-circular orbit at ~800 km altitude.",
+          "kind": "circularize",
+          "params": {
+            "primary_id": "earth",
+            "altitude_m": 800000,
+            "altitude_tol_pct": 0.1,
+            "eccentricity_cap": 0.05
+          }
+        },
+        {
+          "name": "Deploy on station",
+          "description": "Once you're in the target orbit, press [Y] to release the comsat there.",
+          "kind": "event",
+          "params": { "action": "deploy" }
+        }
+      ]
+    },
+    {
+      "id": "chal-relay-constellation",
+      "name": "Relay Constellation",
+      "description": "Build out a relay network and bring three comsats online.",
+      "program": "challenge",
+      "requires": ["chal-place-comsat"],
+      "objectives": [
+        {
+          "name": "Deploy a relay comsat",
+          "description": "Launch a Comsat Carrier ([n]), reach orbit, and press [Y] to release a relay comsat.",
+          "kind": "event",
+          "params": { "action": "deploy" }
+        },
+        {
+          "name": "Three relays connected",
+          "description": "Deploy and position relay comsats until three are connected to the network at once.",
+          "kind": "relay_coverage",
+          "params": { "min_relays": 3 }
+        }
+      ]
     }
   ]
 }
