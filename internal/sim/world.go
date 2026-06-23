@@ -841,6 +841,16 @@ func (w *World) missionEvalContext() missions.EvalContext {
 		Staged:         w.stagedThisSession,
 		RecentActions:  w.recentActions,
 	}
+	// v0.23 / ADR 0027: project the CommNet graph down for coverage
+	// objectives (the missions package never imports sim).
+	if w.CommGraph != nil {
+		ctx.ActiveConnected = w.CommGraph.HasConnection(c.ID)
+		for _, oc := range w.Crafts {
+			if oc != nil && oc.AntennaKind == spacecraft.AntennaRelay && w.CommGraph.HasConnection(oc.ID) {
+				ctx.ConnectedRelayCount++
+			}
+		}
+	}
 	// Target-craft relative state (rendezvous), against the player's
 	// current target slot in the active craft's frame. Only when a craft
 	// (not a body) is targeted, so non-rendezvous play skips the solve.
