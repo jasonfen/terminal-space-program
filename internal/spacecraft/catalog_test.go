@@ -235,6 +235,108 @@ func TestMergeUserCatalogWinsOnID(t *testing.T) {
 	}
 }
 
+// C1-4: a user overlay loadout — referencing both a new user part and an
+// embedded catalog part — resolves into a flyable Loadout (Stages stamped
+// with the loadout ID, RCS derived from dry mass). Tested through the
+// merge + resolve path without mutating package globals.
+func TestUserOverlayLoadoutResolves(t *testing.T) {
+	dir := withUserCatalog(t)
+	user := `{
+		"parts": [{"id":"my-tug","name":"My Tug","glyph":"➤","color":"#ABCDEF","dry_mass_kg":300,"fuel_mass_kg":5000,"fuel_capacity_kg":5000,"thrust_n":20000,"isp_s":300}],
+		"loadouts": [{"id":"My-Rocket","name":"My Rocket","role":"custom","glyph":"➤","color":"#ABCDEF","parts":[{"part_id":"my-tug"},{"part_id":"s-ivb"}]}]
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "mine.json"), []byte(user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parts, defs, warnings, err := LoadCatalogWithWarnings()
+	if err != nil {
+		t.Fatalf("LoadCatalogWithWarnings: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("warnings = %d, want 0", len(warnings))
+	}
+	var def *LoadoutDef
+	for i := range defs {
+		if defs[i].ID == "My-Rocket" {
+			def = &defs[i]
+		}
+	}
+	if def == nil {
+		t.Fatal("user loadout not merged into the catalog")
+	}
+	if def.Source != "user" {
+		t.Errorf("user loadout Source = %q, want user", def.Source)
+	}
+	l := resolveLoadout(*def, parts)
+	if len(l.Stages) != 2 {
+		t.Fatalf("resolved stages = %d, want 2", len(l.Stages))
+	}
+	if l.Stages[0].Name != "My Tug" || l.Stages[0].LoadoutID != "My-Rocket" {
+		t.Errorf("bottom stage = %+v, want My Tug stamped My-Rocket", l.Stages[0])
+	}
+	mono, _, _, _ := DefaultRCSLoadout(300)
+	if l.Stages[0].MonopropMass != mono {
+		t.Errorf("RCS not derived from dry mass: mono = %g, want %g", l.Stages[0].MonopropMass, mono)
+	}
+	if l.Stages[1].Name != "S-IVB" { // resolved against the EMBEDDED catalog part
+		t.Errorf("top stage name = %q, want S-IVB (embedded part)", l.Stages[1].Name)
+	}
+}
+
+// C1-4: LoadCatalogOverlay wires the merged catalog into the package
+// globals (Loadouts / LoadoutOrder / StageCatalog) so the spawn form and
+// --list-loadouts see user mods, while preserving the embedded set.
+func TestLoadCatalogOverlayWiresGlobals(t *testing.T) {
+	savedLoadouts, savedOrder, savedCatalog := Loadouts, LoadoutOrder, StageCatalog
+	t.Cleanup(func() { Loadouts, LoadoutOrder, StageCatalog = savedLoadouts, savedOrder, savedCatalog })
+
+	dir := withUserCatalog(t)
+	user := `{"loadouts":[{"id":"Overlay-Test","name":"Overlay Test","role":"custom","glyph":"➤","color":"#FFFFFF","parts":[{"part_id":"capsule"}]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "o.json"), []byte(user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if warnings := LoadCatalogOverlay(); len(warnings) != 0 {
+		t.Errorf("warnings = %d, want 0", len(warnings))
+	}
+	if _, ok := Loadouts["Overlay-Test"]; !ok {
+		t.Error("overlay loadout not wired into Loadouts")
+	}
+	found := false
+	for _, id := range LoadoutOrder {
+		if id == "Overlay-Test" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("overlay loadout not appended to LoadoutOrder")
+	}
+	if _, ok := Loadouts[LoadoutSaturnVID]; !ok {
+		t.Error("embedded Saturn-V dropped after overlay merge")
+	}
+	if c := NewFromLoadout("Overlay-Test"); c == nil || len(c.Stages) != 1 {
+		t.Fatal("overlay loadout is not flyable via NewFromLoadout")
+	}
+}
+
+// C1-4: a malformed user overlay file is skipped with a warning; the
+// embedded catalog still wires through intact.
+func TestLoadCatalogOverlaySkipsMalformed(t *testing.T) {
+	savedLoadouts, savedOrder, savedCatalog := Loadouts, LoadoutOrder, StageCatalog
+	t.Cleanup(func() { Loadouts, LoadoutOrder, StageCatalog = savedLoadouts, savedOrder, savedCatalog })
+
+	dir := withUserCatalog(t)
+	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	warnings := LoadCatalogOverlay()
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %d, want 1", len(warnings))
+	}
+	if _, ok := Loadouts[LoadoutSaturnVID]; !ok {
+		t.Error("embedded catalog lost after a malformed overlay")
+	}
+}
+
 // C1-1: a malformed user file is skipped with a warning; the rest of the
 // catalog still loads (ADR 0026 §3 — skip-bad-with-warning).
 func TestLoadCatalogMalformedUserFileWarns(t *testing.T) {

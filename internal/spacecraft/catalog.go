@@ -181,6 +181,36 @@ func (p Part) ToStage() Stage {
 	}
 }
 
+// LoadCatalogOverlay re-resolves the runtime catalogs (Loadouts,
+// LoadoutOrder, StageCatalog) from the embedded data MERGED with the user
+// overlay (the XDG loadouts/ dir), and returns warnings for any malformed
+// user files (ADR 0026 §2/§3 — bodies-pattern overlay, skip-bad-with-warning).
+//
+// Init (buildLoadouts / buildStageCatalog) loads the EMBEDDED catalog only,
+// so package-var init and the golden tests stay deterministic. The app
+// calls this once at startup to layer in user mods; tests that need only
+// the embedded catalog skip it. User parts win on ID; user loadouts append
+// (or replace on ID) after the embedded set, so LoadoutOrder lists them
+// last. Embedded parse failures already panicked at init, so the error
+// from LoadCatalogWithWarnings is not re-surfaced here.
+func LoadCatalogOverlay() []CatalogWarning {
+	parts, defs, warnings, _ := LoadCatalogWithWarnings()
+	sc := make(map[string]StageModule, len(parts))
+	for id, p := range parts {
+		sc[id] = p.toStageModule()
+	}
+	lo := make(map[string]Loadout, len(defs))
+	order := make([]string, 0, len(defs))
+	for _, d := range defs {
+		lo[d.ID] = resolveLoadout(d, parts)
+		order = append(order, d.ID)
+	}
+	StageCatalog = sc
+	Loadouts = lo
+	LoadoutOrder = order
+	return warnings
+}
+
 // LoadCatalog reads the embedded parts + loadouts catalog, merges any
 // user overlay files, and returns the merged set. Warnings from malformed
 // user files are dropped — call LoadCatalogWithWarnings to inspect them.

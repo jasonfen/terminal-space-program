@@ -77,6 +77,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "terminal-space-program: skipping settings %s: %v\n", w.Path, w.Err)
 		}
 	}
+	// Loadout/parts catalog user overlay (ADR 0026). Layers any user
+	// loadouts/parts (the XDG loadouts/ dir) onto the embedded catalog so
+	// --list-loadouts and the spawn form reflect mods; a malformed file is
+	// skipped with a warning. Must run before printLists + buildScenario so
+	// modded loadouts are spawnable.
+	for _, w := range spacecraft.LoadCatalogOverlay() {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: skipping loadout %s: %v\n", w.Path, w.Err)
+	}
 
 	if listSystems || listBodies || listLoadout || listSites {
 		printLists(systems, raw.system, listSystems, listBodies, listLoadout, listSites)
