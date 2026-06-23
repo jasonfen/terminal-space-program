@@ -144,6 +144,99 @@ func TestConnectivityCannotRelayThroughDirectCraft(t *testing.T) {
 	}
 }
 
+// TestConnectivityPathDirect (C2-7): a directly-linked probe's recorded path
+// is the two-node chain probe→station (hops = 1).
+func TestConnectivityPathDirect(t *testing.T) {
+	nodes := []commNode{
+		station(0, 0, 100000),           // index 0
+		probeNode(1, 1000, 3000, false), // index 1
+	}
+	res := connectivityFull(nodes, nil)
+	if !res.connected[1] {
+		t.Fatal("a probe in range with clear LOS should be connected")
+	}
+	path := res.paths[1]
+	if len(path) != 2 || path[0] != 1 || path[len(path)-1] != 0 {
+		t.Errorf("direct path: got %v, want [1 0] (probe→station)", path)
+	}
+}
+
+// TestConnectivityPathViaRelay (C2-7): an occluded probe bridged by an
+// off-axis relay records the three-node chain probe→relay→station (hops = 2).
+func TestConnectivityPathViaRelay(t *testing.T) {
+	occ := []physics.OccluderBody{{Center: orbital.Vec3{}, Radius: 100}}
+	nodes := []commNode{
+		station(0, -1000, 100000),       // index 0
+		probeNode(1, 1000, 3000, false), // index 1 (direct link occluded)
+		{pos: orbital.Vec3{Y: 2000}, powerW: 100000, forwards: true}, // index 2 relay
+	}
+	res := connectivityFull(nodes, occ)
+	if !res.connected[1] {
+		t.Fatal("an off-axis relay should bridge the occluded probe")
+	}
+	path := res.paths[1]
+	if len(path) != 3 || path[0] != 1 || path[1] != 2 || path[2] != 0 {
+		t.Errorf("relay path: got %v, want [1 2 0] (probe→relay→station)", path)
+	}
+}
+
+// TestActiveCommPathDirect (C2-7): the active probe's path surfaces through
+// the World as world-frame points anchored on the craft and the station,
+// with hops = 1 for a direct link. Mirrors TestRecomputeCommGraphIntegration.
+func TestActiveCommPathDirect(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	tug := spacecraft.NewFromLoadout("Relay-Tug")
+	tug.SystemIdx = 0
+	gs := w.GroundStations[0]
+	sys := w.System()
+	body := *sys.FindBody(gs.BodyID)
+	offset := w.groundStationWorldPos(gs, body).Sub(w.BodyPosition(body))
+	tug.Primary = body
+	tug.State.R = offset.Add(offset.Unit().Scale(200000)) // 200 km above the station
+	w.Crafts[0] = tug
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+
+	pts, hops, connected := w.ActiveCommPath()
+	if !connected {
+		t.Fatal("a relay probe directly above a DSN station should be connected")
+	}
+	if hops != 1 {
+		t.Errorf("direct link hops: got %d, want 1", hops)
+	}
+	if len(pts) != 2 {
+		t.Fatalf("path points: got %d, want 2", len(pts))
+	}
+	craftPos := w.BodyPosition(tug.Primary).Add(tug.State.R)
+	if pts[0].Sub(craftPos).Norm() > 1 {
+		t.Errorf("path start should be the craft world position")
+	}
+	stationPos := w.groundStationWorldPos(gs, body)
+	if pts[len(pts)-1].Sub(stationPos).Norm() > 1 {
+		t.Errorf("path end should be the station world position")
+	}
+}
+
+// TestActiveCommPathDisconnected (C2-7): a disconnected probe and a crewed
+// active craft both report no drawable path.
+func TestActiveCommPathDisconnected(t *testing.T) {
+	w := mustWorld(t)
+	probe := spacecraft.NewFromLoadout("Relay-Tug")
+	probe.Primary = w.Crafts[0].Primary
+	probe.State = w.Crafts[0].State
+	w.Crafts[0] = probe
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{}} // disconnected
+	if _, _, connected := w.ActiveCommPath(); connected {
+		t.Error("a disconnected probe must report no path")
+	}
+}
+
 // TestCanCommandCraftSemantics (C2-4): crewed → always; debris → never;
 // unmanned probe → gated on the connectivity graph.
 func TestCanCommandCraftSemantics(t *testing.T) {

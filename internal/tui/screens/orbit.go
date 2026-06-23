@@ -902,6 +902,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// the *unburned* trajectory, drawn ahead of arrival with a Perilune
 		// marker — always-on, independent of the Target slot.
 		v.drawSOIPass(w)
+		// CommNet relay sightline (ADR 0027 / C2-7): the active probe's link
+		// chain to a ground station, when connected. Map-layer content like
+		// the node trajectory — drawn regardless of declutter (only the COMMS
+		// chip declutters); no-op for a manned or disconnected craft.
+		v.drawCommPath(w)
 	}
 
 	// Stamp the active projection in the canvas's bottom-left corner
@@ -1677,6 +1682,25 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 				v.canvas.PlotDenseLineColored(pts[i], pts[i+1], leg.color, 2)
 			}
 		}
+	}
+}
+
+// drawCommPath draws the active probe's CommNet relay sightline — the chain
+// from the probe through any relay hops to a ground station — as a sparse
+// teal dotted beam (step 3) on the canvas (ADR 0027 / C2-7). A no-op unless
+// the active craft is a connected probe (a manned or out-of-contact craft
+// returns no path). The chain points are absolute world positions — the same
+// frame the canvas projects bodies and craft in (body position + state) — so
+// no rebasing is needed. Every link is guaranteed unoccluded by a body in 3D
+// (the comm graph only links nodes with clear line of sight), so a straight
+// chord per segment is physically faithful.
+func (v *OrbitView) drawCommPath(w *sim.World) {
+	pts, _, connected := w.ActiveCommPath()
+	if !connected {
+		return
+	}
+	for i := 0; i+1 < len(pts); i++ {
+		v.canvas.PlotDenseLineColored(pts[i], pts[i+1], render.ColorCommLink, 3)
 	}
 }
 

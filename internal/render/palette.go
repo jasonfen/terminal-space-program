@@ -47,6 +47,12 @@ var (
 	// which clashed with the new fuel-type flame palette.
 	ColorRCSPuffOrigin = lipgloss.Color("#FFFFFF") // bright white — thruster ignition pixel
 	ColorRCSPuffTip    = ColorDim                  // dim grey — fading trail tip
+	// ColorCommLink is the CommNet relay sightline (ADR 0027 / C2-7) drawn
+	// from the active probe through any relay hops to a ground station —
+	// bright teal, drawn as a sparse dotted beam (step 3) so it reads as a
+	// signal link distinct from the slate live orbit, amber maneuver legs,
+	// and orchid SOI arcs.
+	ColorCommLink = lipgloss.Color("#34E2D0")
 )
 
 // Orbital-marker type colours (ADR 0020). The unified marker convention
