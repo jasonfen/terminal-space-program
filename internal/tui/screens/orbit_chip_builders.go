@@ -61,6 +61,16 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	add(settings.ChipDescent, cornerTopLeft, v.buildDescentChip(w))
 	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
 	add(settings.ChipAttitude, cornerTopLeft, v.buildAttitudeChip(w))
+	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
+	// vessel-state readouts. Force-shown while a just-blocked command is
+	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
+	// NO SIGNAL reason for a refused command is never hidden; otherwise it
+	// honours the toggle like any chip.
+	if lines := v.buildCommsChip(w); lines != nil {
+		if _, flashing := w.CommBlockedFlash(); flashing || v.chipEnabled(settings.ChipComms) {
+			chips = append(chips, builtChip{id: settings.ChipComms, corner: cornerTopLeft, lines: lines})
+		}
+	}
 	// Top-right stack: Orbit metrics on top, the Target readout beneath it
 	// (append order = top-to-bottom). Orbit metrics is always-on (empty id):
 	// the current orbit (apo/peri/incl) is never user-hideable from the
@@ -178,6 +188,47 @@ func (v *OrbitView) buildAttitudeChip(w *sim.World) []string {
 		fmt.Sprintf("  hold:    %s", c.AttitudeMode.String()),
 		fmt.Sprintf("  engine:  %s", c.EngineMode.String()),
 		fmt.Sprintf("  manual:  %s", manualState),
+	}
+}
+
+// buildCommsChip surfaces the active probe's CommNet link state (ADR 0027 /
+// C2-7): DIRECT (linked straight to a ground station), CONNECTED via N hops
+// (through relays), or NO SIGNAL. Hidden for a crewed vessel — it is never
+// command-gated — and for debris / no visible craft. assembleChips
+// force-shows it while a just-blocked command is flashing (CommBlockedFlash),
+// so the player learns why a command was refused even with the chip toggled
+// off; otherwise it honours the Settings toggle + F2 declutter like any chip.
+func (v *OrbitView) buildCommsChip(w *sim.World) []string {
+	c := w.ActiveCraft()
+	if c == nil || !w.CraftVisibleHere() {
+		return nil
+	}
+	if c.Crewed || !c.Controllable {
+		return nil // crewed craft are never gated; debris has no link to show
+	}
+	_, hops, connected := w.ActiveCommPath()
+	return v.commsChipLines(hops, connected)
+}
+
+// commsChipLines is the pure content selector behind buildCommsChip, split
+// out so the DIRECT / CONNECTED / NO SIGNAL forms are unit-testable without a
+// live World. A connected probe reads DIRECT for a single hop (straight to a
+// station) or "CONNECTED via N hops" through relays; a disconnected probe
+// reads NO SIGNAL in the alert style.
+func (v *OrbitView) commsChipLines(hops int, connected bool) []string {
+	if !connected {
+		return []string{
+			v.theme.Alert.Render("COMMS"),
+			v.theme.Alert.Render("  ⚠ NO SIGNAL"),
+		}
+	}
+	status := fmt.Sprintf("CONNECTED via %d hops", hops)
+	if hops <= 1 {
+		status = "DIRECT"
+	}
+	return []string{
+		v.theme.Primary.Render("COMMS"),
+		"  " + status,
 	}
 }
 

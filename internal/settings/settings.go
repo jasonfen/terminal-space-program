@@ -36,6 +36,7 @@ const (
 	ChipProjectedOrbit  Chip = "projectedOrbit"
 	ChipSOIPass         Chip = "soiPass"
 	ChipMissions        Chip = "missions" // v0.21 (ADR 0025): in-flight mission checklist
+	ChipComms           Chip = "comms"    // v0.23 (ADR 0027): CommNet link status
 )
 
 // Note: the Orbit-metrics readout and the active-burn (BURNS) readout are
@@ -63,6 +64,7 @@ var AllChips = []Chip{
 	ChipProjectedOrbit,
 	ChipSOIPass,
 	ChipMissions,
+	ChipComms,
 }
 
 // chipLabels maps each Chip to the human-readable name the Settings
@@ -81,6 +83,7 @@ var chipLabels = map[Chip]string{
 	ChipProjectedOrbit:  "Projected orbit",
 	ChipSOIPass:         "SOI pass",
 	ChipMissions:        "Mission checklist",
+	ChipComms:           "Comms link",
 }
 
 // Label returns the display name for c, falling back to the raw key for

@@ -34,15 +34,33 @@ func commLinkRangeM(pa, pb float64) float64 {
 
 // CommGraph is the cached per-tick connectivity result: the set of
 // unmanned craft (by stable ID) that currently have a connection to a
-// ground station.
+// ground station, plus — for each connected probe — the world-frame relay
+// chain it reaches the network through (probe, relays…, station), which the
+// comms HUD draws and counts hops from (C2-7).
 type CommGraph struct {
 	Connected map[uint64]bool
+	// Paths maps a connected probe's ID to its shortest relay chain as
+	// ordered world-frame points: the probe first, then each relay hop, then
+	// the terminal ground station. Absent for disconnected probes. The
+	// positions are the same absolute world frame the orbit canvas projects
+	// (body position + state), so the HUD draws segments without rebasing.
+	Paths map[uint64][]orbital.Vec3
 }
 
 // HasConnection reports whether the craft with the given ID has a network
 // connection this tick. nil-safe (a not-yet-computed graph → false).
 func (g *CommGraph) HasConnection(id uint64) bool {
 	return g != nil && g.Connected[id]
+}
+
+// Path returns the world-frame relay chain (probe→relays…→station) for the
+// craft with the given ID, or nil if it has no recorded connection this
+// tick. nil-safe.
+func (g *CommGraph) Path(id uint64) []orbital.Vec3 {
+	if g == nil {
+		return nil
+	}
+	return g.Paths[id]
 }
 
 // commNode is one node in the connectivity graph — a craft antenna or a
@@ -56,13 +74,31 @@ type commNode struct {
 	craftID  uint64 // 0 for stations
 }
 
+// connectivityResult is the full output of the connectivity solve: which
+// probes are connected, and the shortest relay path (as node indices,
+// probe→…→station) for each connected probe. RecomputeCommGraph maps the
+// node-index paths to world-frame positions; the bool map alone is enough
+// for the command gate (CanCommandCraft).
+type connectivityResult struct {
+	connected map[uint64]bool
+	paths     map[uint64][]int // probe id → node-index chain probe…station
+}
+
 // connectivity builds the adjacency graph over nodes (a link needs both
 // LOS — unoccluded by any body — and range) and returns, for each probe
 // node, whether a relay chain reaches a station. Forwarding is allowed
 // only through forwarder nodes (relays / stations); a direct-only craft is
-// a dead end you cannot relay through. Pure (no world state) so it is
-// unit-tested with synthetic nodes.
+// a dead end you cannot relay through. Thin bool-map wrapper over
+// connectivityFull for the command-gate callers and their tests.
 func connectivity(nodes []commNode, occ []physics.OccluderBody) map[uint64]bool {
+	return connectivityFull(nodes, occ).connected
+}
+
+// connectivityFull is the connectivity solve: it builds the adjacency graph
+// then, for each probe, runs a hop-shortest BFS to a station, recording both
+// the connected flag and the node-index path. Pure (no world state) so it is
+// unit-tested with synthetic nodes.
+func connectivityFull(nodes []commNode, occ []physics.OccluderBody) connectivityResult {
 	n := len(nodes)
 	adj := make([][]int, n)
 	for i := 0; i < n; i++ {
@@ -73,13 +109,17 @@ func connectivity(nodes []commNode, occ []physics.OccluderBody) map[uint64]bool 
 			}
 		}
 	}
-	out := map[uint64]bool{}
+	res := connectivityResult{connected: map[uint64]bool{}, paths: map[uint64][]int{}}
 	for i := 0; i < n; i++ {
-		if nodes[i].probe && bfsReachesStation(i, nodes, adj) {
-			out[nodes[i].craftID] = true
+		if !nodes[i].probe {
+			continue
+		}
+		if path := bfsPathToStation(i, nodes, adj); path != nil {
+			res.connected[nodes[i].craftID] = true
+			res.paths[nodes[i].craftID] = path
 		}
 	}
-	return out
+	return res
 }
 
 func commLinked(a, b commNode, occ []physics.OccluderBody) bool {
@@ -92,11 +132,18 @@ func commLinked(a, b commNode, occ []physics.OccluderBody) bool {
 	return !physics.SegmentOccludedByBody(a.pos, b.pos, occ)
 }
 
-// bfsReachesStation returns whether a relay chain from the start node
-// reaches any ground station. The start expands unconditionally (it is
-// transmitting); an intermediate node expands only if it can forward.
-func bfsReachesStation(start int, nodes []commNode, adj [][]int) bool {
+// bfsPathToStation returns the hop-shortest relay chain from the start node
+// to any ground station, as node indices [start, …, station], or nil if no
+// chain reaches a station. The start expands unconditionally (it is
+// transmitting); an intermediate node expands only if it can forward. BFS
+// order makes the first station reached the fewest-hops one; the predecessor
+// map reconstructs the chain.
+func bfsPathToStation(start int, nodes []commNode, adj [][]int) []int {
 	visited := make([]bool, len(nodes))
+	pred := make([]int, len(nodes))
+	for i := range pred {
+		pred[i] = -1
+	}
 	visited[start] = true
 	queue := []int{start}
 	for len(queue) > 0 {
@@ -106,16 +153,36 @@ func bfsReachesStation(start int, nodes []commNode, adj [][]int) bool {
 			continue // a non-forwarder (direct-only craft) cannot relay through
 		}
 		for _, nb := range adj[cur] {
+			if visited[nb] {
+				continue
+			}
+			visited[nb] = true
+			pred[nb] = cur
 			if nodes[nb].station {
-				return true
+				return reconstructPath(pred, start, nb)
 			}
-			if !visited[nb] {
-				visited[nb] = true
-				queue = append(queue, nb)
-			}
+			queue = append(queue, nb)
 		}
 	}
-	return false
+	return nil
+}
+
+// reconstructPath walks the predecessor map from end back to start and
+// returns the forward chain [start, …, end].
+func reconstructPath(pred []int, start, end int) []int {
+	var rev []int
+	for at := end; at != -1; at = pred[at] {
+		rev = append(rev, at)
+		if at == start {
+			break
+		}
+	}
+	// rev is end→start; flip to start→end.
+	path := make([]int, len(rev))
+	for i, v := range rev {
+		path[len(rev)-1-i] = v
+	}
+	return path
 }
 
 // RecomputeCommGraph rebuilds w.CommGraph for the active craft's system:
@@ -158,7 +225,38 @@ func (w *World) RecomputeCommGraph() {
 		})
 	}
 
-	w.CommGraph = &CommGraph{Connected: connectivity(nodes, occ)}
+	res := connectivityFull(nodes, occ)
+	paths := make(map[uint64][]orbital.Vec3, len(res.paths))
+	for id, idxPath := range res.paths {
+		pts := make([]orbital.Vec3, len(idxPath))
+		for i, ni := range idxPath {
+			pts[i] = nodes[ni].pos
+		}
+		paths[id] = pts
+	}
+	w.CommGraph = &CommGraph{Connected: res.connected, Paths: paths}
+}
+
+// ActiveCommPath returns the active craft's relay chain as ordered
+// world-frame points (probe, relays…, station), the hop count (number of
+// links = len(points)-1), and whether it is connected. Recomputes the graph
+// lazily if the cache is nil. connected is false for a crewed/non-probe
+// active craft (which has no BFS path) or a disconnected probe — the comms
+// HUD uses that to choose between DIRECT/CONNECTED and NO SIGNAL, and to
+// decide whether to draw the chain. (C2-7)
+func (w *World) ActiveCommPath() (points []orbital.Vec3, hops int, connected bool) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return nil, 0, false
+	}
+	if w.CommGraph == nil {
+		w.RecomputeCommGraph()
+	}
+	pts := w.CommGraph.Path(c.ID)
+	if len(pts) < 2 {
+		return nil, 0, false
+	}
+	return pts, len(pts) - 1, true
 }
 
 // groundStationWorldPos is a station's current world-frame position: its
