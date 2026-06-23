@@ -28,16 +28,32 @@ type OccluderBody struct {
 // strictly inside, or the perpendicular foot falls between the endpoints
 // at a distance strictly less than r. A grazing tangent (foot distance
 // exactly r) is treated as clear.
+// surfaceTol is the relative slack on the "endpoint buried inside the body"
+// test. A ground station's surface point is computed as radius×dir where dir
+// is a rotation of a unit vector, so |dir| carries ~1e-12 of normalization
+// error — enough that a strict pc·pc < r² test flickers the station between
+// "on the surface" and "buried" as the body rotates each tick, self-occluding
+// it (and every craft that relies on it) on alternating ticks. This tolerance
+// treats a point within a hair of the surface as on it (≈3 mm on Earth), far
+// below any genuinely sub-surface antenna (metres deep) yet far above the
+// micron-scale FP wobble. Applies only to the endpoint tests — the surface is
+// where antennas legitimately sit; the segment-crossing (foot) test stays
+// strict.
+const surfaceTol = 1e-9
+
 func RaySphereIntersect(p, q, centre orbital.Vec3, r float64) bool {
 	if r <= 0 {
 		return false
 	}
 	r2 := r * r
-	// Either endpoint strictly inside the sphere → blocked (buried antenna).
-	if pc := p.Sub(centre); pc.Dot(pc) < r2 {
+	buried := r2 * (1 - surfaceTol)
+	// Either endpoint strictly inside the sphere → blocked (buried antenna),
+	// with a surface tolerance so a station sitting at body radius isn't
+	// FP-flickered into "buried".
+	if pc := p.Sub(centre); pc.Dot(pc) < buried {
 		return true
 	}
-	if qc := q.Sub(centre); qc.Dot(qc) < r2 {
+	if qc := q.Sub(centre); qc.Dot(qc) < buried {
 		return true
 	}
 	d := q.Sub(p)
