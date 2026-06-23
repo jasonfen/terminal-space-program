@@ -244,6 +244,55 @@ func TestApolloStackManualFlipDropsLMAsOneCraft(t *testing.T) {
 	}
 }
 
+// TestUndockedApolloLMIsControllable (hardening, ADR 0027): after the Apollo
+// transpose + undock, the released LM must stay flyable. Its Descent/Ascent
+// stages carried no catalog command source, and Undock — unlike every other
+// craft-construction path — skipped the EnsureCommandSource backfill, so the
+// LM derived Controllable=false and could not be commanded to the surface.
+// The LM is crewed (astronauts aboard the ascent cabin), so it must not be
+// reduced to a relay-gated probe either.
+func TestUndockedApolloLMIsControllable(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
+	stack.Primary = w.Crafts[0].Primary
+	stack.State = w.Crafts[0].State
+	w.Crafts[0] = stack
+	w.ActiveCraftIdx = 0
+	crewTendActive(w)
+
+	for i := 0; i < 3; i++ { // drop the three Saturn stages → [Descent,Ascent,SM,CM]
+		if _, _, err := w.StageActive(0); err != nil {
+			t.Fatalf("Saturn drop #%d: %v", i, err)
+		}
+	}
+	if err := w.Transpose(0); err != nil {
+		t.Fatalf("Transpose: %v", err)
+	}
+	if !w.Undock(0) { // releases the LM (Descent+Ascent) and the CSM core (SM+CM)
+		t.Fatal("Undock returned false")
+	}
+
+	var lm *spacecraft.Spacecraft
+	for _, c := range w.Crafts {
+		if c != nil && len(c.Stages) == 2 && c.Stages[0].Name == "Descent" && c.Stages[1].Name == "Ascent" {
+			lm = c
+			break
+		}
+	}
+	if lm == nil {
+		t.Fatal("could not find the undocked LM in the slate")
+	}
+	if !lm.Controllable {
+		t.Error("the undocked LM must be controllable (flyable to the surface)")
+	}
+	if !lm.Crewed {
+		t.Error("the Apollo LM is crewed — it must not depend on a CommNet relay to command")
+	}
+}
+
 // TestTransposeClearsDecouplePlan — after a one-shot transpose (D), the
 // leftover loadout plan (the trailing LM "2" group, unconsumed because
 // the player transposed instead of staging the LM off) must be cleared.
