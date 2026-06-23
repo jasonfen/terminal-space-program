@@ -1,3 +1,181 @@
 {
-  "loadouts": []
+  "loadouts": [
+    {
+      "id": "S-IVB-1",
+      "name": "S-IVB",
+      "role": "transfer-stage",
+      "glyph": "➤",
+      "color": "#FFD93D",
+      "parts": [
+        {
+          "part_id": "s-ivb-1"
+        }
+      ]
+    },
+    {
+      "id": "ICPS",
+      "name": "ICPS",
+      "role": "transfer-stage",
+      "glyph": "➤",
+      "color": "#5BB3FF",
+      "parts": [
+        {
+          "part_id": "icps-1"
+        }
+      ]
+    },
+    {
+      "id": "RCS-tug",
+      "name": "RCS Tug",
+      "role": "tug",
+      "glyph": "➤",
+      "color": "#FF87D7",
+      "parts": [
+        {
+          "part_id": "rcs-tug"
+        }
+      ]
+    },
+    {
+      "id": "Lander",
+      "name": "Lander",
+      "role": "lander",
+      "glyph": "➤",
+      "color": "#5FFF87",
+      "parts": [
+        {
+          "part_id": "lander-descent"
+        },
+        {
+          "part_id": "lander-ascent"
+        }
+      ]
+    },
+    {
+      "id": "Saturn-V",
+      "name": "Saturn V",
+      "role": "launch-vehicle",
+      "glyph": "➤",
+      "color": "#FFD93D",
+      "parts": [
+        {
+          "part_id": "s-ic"
+        },
+        {
+          "part_id": "s-ii"
+        },
+        {
+          "part_id": "s-ivb"
+        }
+      ]
+    },
+    {
+      "id": "SLS-Block1",
+      "name": "SLS Block 1",
+      "role": "launch-vehicle",
+      "glyph": "➤",
+      "color": "#FF6B35",
+      "parts": [
+        {
+          "part_id": "srb"
+        },
+        {
+          "part_id": "core-rs25"
+        },
+        {
+          "part_id": "icps-sls"
+        }
+      ]
+    },
+    {
+      "id": "Falcon-9",
+      "name": "Falcon 9",
+      "role": "launch-vehicle",
+      "glyph": "➤",
+      "color": "#E8E8E8",
+      "parts": [
+        {
+          "part_id": "f9-s1"
+        },
+        {
+          "part_id": "f9-s2"
+        }
+      ]
+    },
+    {
+      "id": "Apollo-Stack",
+      "name": "Apollo Stack",
+      "role": "mission-stack",
+      "glyph": "➤",
+      "color": "#FFD93D",
+      "parts": [
+        {
+          "part_id": "s-ic"
+        },
+        {
+          "part_id": "s-ii"
+        },
+        {
+          "part_id": "s-ivb"
+        },
+        {
+          "part_id": "apollo-descent"
+        },
+        {
+          "part_id": "apollo-ascent"
+        },
+        {
+          "part_id": "apollo-sm"
+        },
+        {
+          "part_id": "command-module"
+        }
+      ],
+      "decouple_plan": [
+        1,
+        1,
+        1,
+        2
+      ]
+    },
+    {
+      "id": "Capsule",
+      "name": "Capsule",
+      "role": "capsule",
+      "glyph": "➤",
+      "color": "#B8C8E0",
+      "parts": [
+        {
+          "part_id": "capsule"
+        }
+      ]
+    },
+    {
+      "id": "Kern-Stack",
+      "name": "Kern Stack",
+      "role": "mission-stack",
+      "glyph": "➤",
+      "color": "#7BD3FF",
+      "parts": [
+        {
+          "part_id": "kern-boost"
+        },
+        {
+          "part_id": "kern-transfer"
+        },
+        {
+          "part_id": "kern-lander"
+        },
+        {
+          "part_id": "kern-pod"
+        }
+      ],
+      "decouple_plan": [
+        1,
+        1,
+        1
+      ],
+      "scale_class": "stripped-back"
+    }
+  ]
 }

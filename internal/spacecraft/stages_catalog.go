@@ -65,21 +65,22 @@ type StageModule struct {
 	launchSpriteHasLegs bool
 	// canSoftLand (v0.11.4-followup) marks stages designed to
 	// soft-land — populates the matching Stage.CanSoftLand flag
-	// via catalogCanSoftLandByName so the surface-arrival
-	// predicate gates correctly across staging. Today's true
-	// entries: lander (LM-derived descent stage), f9-s1 (Falcon
-	// 9 first stage with retro-burn recovery). Everything else
-	// stays false — Saturn V stages crash on contact, CSM crashes
-	// on contact, F9-S2 crashes on contact.
+	// (carried on the Part since v0.23/ADR 0026; previously copied
+	// onto loadout stages by Name) so the surface-arrival predicate
+	// gates correctly across staging. Today's true entries: lander
+	// (LM-derived descent stage), f9-s1 (Falcon 9 first stage with
+	// retro-burn recovery). Everything else stays false — Saturn V
+	// stages crash on contact, CSM crashes on contact, F9-S2 crashes
+	// on contact.
 	canSoftLand bool
 	// hasParachute (v0.12 Slice 3, ADR 0008) marks stages that carry a
-	// recovery parachute — populates Stage.HasParachute (directly in
-	// BuildStage, by-Name via catalogHasParachuteByName for the loadout
-	// literals) so the surface-arrival predicate's chute route and the
-	// Stage-action arm path gate correctly across staging. Today's true
-	// entries: csm (Apollo Command/Service Module) and capsule (the
-	// standalone re-entry test vehicle). Disjoint from canSoftLand —
-	// a capsule has no engine landing route, only the chute.
+	// recovery parachute — populates Stage.HasParachute (carried on the
+	// Part since v0.23/ADR 0026, for both configurator parts and the
+	// loadouts that reference them) so the surface-arrival predicate's
+	// chute route and the Stage-action arm path gate correctly across
+	// staging. Today's true entries: csm (Apollo Command/Service Module)
+	// and capsule (the standalone re-entry test vehicle). Disjoint from
+	// canSoftLand — a capsule has no engine landing route, only the chute.
 	hasParachute bool
 }
 

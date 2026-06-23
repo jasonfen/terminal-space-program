@@ -74,9 +74,14 @@ func TestCSMStageHasParachute(t *testing.T) {
 	if csm.CanSoftLand {
 		t.Errorf("csm has no engine landing capability — CanSoftLand should be false")
 	}
-	// The Apollo-Stack loadout's CSM literal resolves its flags by Name.
-	if !catalogHasParachuteByName("CSM") {
-		t.Errorf("catalogHasParachuteByName(CSM) should be true")
+	// The Apollo-Stack's surviving core — the split-out CM (command-module
+	// part, v0.12/ADR 0009) — carries the chute so the marquee arc earns a
+	// splashdown. (Pre-v0.23 this resolved a "CSM"-named stage's flags via a
+	// by-Name catalog lookup; ADR 0026 made the part carry the flag directly.)
+	apollo := NewFromLoadout(LoadoutApolloStackID)
+	cm := apollo.Stages[len(apollo.Stages)-1]
+	if cm.Name != "CM" || !cm.HasParachute {
+		t.Errorf("Apollo-Stack top stage = %q HasParachute=%v, want CM with chute", cm.Name, cm.HasParachute)
 	}
 }
 

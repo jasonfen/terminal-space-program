@@ -9,22 +9,22 @@ import "github.com/jasonfen/terminal-space-program/internal/bodies"
 //
 //   - S-IVB-1:    J-2-powered third stage. The v0.5.13+ default.
 //   - ICPS:       RL-10-powered low-TWR transfer stage. Returns from
-//                 v0.5.6 — long burns, less mass.
+//     v0.5.6 — long burns, less mass.
 //   - RCS-tug:    Pure-monoprop proximity-ops vehicle. No main engine;
-//                 navigates entirely on RCS. For docking maneuvers.
+//     navigates entirely on RCS. For docking maneuvers.
 //   - Lander:     Throttleable descent-stage profile (LM-derived). Lower
-//                 thrust, lower Isp, sized for surface maneuvering.
+//     thrust, lower Isp, sized for surface maneuvering.
 //   - Saturn-V:   3-stage Apollo launch vehicle (S-IC / S-II / S-IVB).
-//                 v0.9.1+. TWR > 1 at sea level on stage 1.
+//     v0.9.1+. TWR > 1 at sea level on stage 1.
 //   - SLS-Block1: 3-stage NASA heavy-lift (SRBs / Core / ICPS). v0.9.4+.
-//                 SRBs and core fire in parallel in real life; we
-//                 approximate as sequential.
+//     SRBs and core fire in parallel in real life; we
+//     approximate as sequential.
 //   - Falcon-9:   2-stage SpaceX LV (Merlin 1D × 9 / Merlin Vacuum).
-//                 v0.9.4+. Smaller stack, higher lift-off TWR.
+//     v0.9.4+. Smaller stack, higher lift-off TWR.
 //   - Apollo-Stack: Saturn-V launch chain + LM + CSM payload, 5
-//                 stages. v0.10.1+. Mid-stage Lander decouples to a
-//                 controllable craft (payload separation); CSM is
-//                 the surviving core.
+//     stages. v0.10.1+. Mid-stage Lander decouples to a
+//     controllable craft (payload separation); CSM is
+//     the surviving core.
 //
 // Future loadouts land alongside this catalog and are referenced
 // from Spacecraft.LoadoutID — a string lookup keeps the on-disk
@@ -199,194 +199,85 @@ func stageRCS(dryMass float64) (mp, monoCap, rcsThrust, rcsIsp float64) {
 	return DefaultRCSLoadout(dryMass)
 }
 
-// stage builds a single Stage with full tanks + the catalog's
-// default RCS pool. Used by the Loadouts map literals to keep the
-// per-stage structure terse. BallisticCoefficient stays 0 →
-// EffectiveBallisticCoefficient falls back to the spacecraft-level
-// default (0.01 m²/kg, the v0.8.4 LEO baseline). For multi-stage
-// loadouts that fly through atmosphere (Saturn-V S-IC at sea level)
-// use stageWithBC instead so per-stage drag is realistic.
-func stage(loadoutID, name, glyph, color string, dry, fuel, thrust, isp float64) Stage {
-	return stageWithBC(loadoutID, name, glyph, color, dry, fuel, thrust, isp, 0)
-}
-
-// stageWithBC adds an explicit BallisticCoefficient (m²/kg) for
-// stages that fly through atmosphere. v0.9.2.1+. BC = C_D · A / m;
-// for a Saturn-V S-IC booster (~80 m² cross-section, C_D ~0.3,
-// ~2.9 Mkg wet) ≈ 8e-6 m²/kg. Pre-v0.9.2.1 the default 0.01 was
-// 1250× too high, making sea-level drag dominate the launch.
-func stageWithBC(loadoutID, name, glyph, color string, dry, fuel, thrust, isp, bc float64) Stage {
-	mp, monoCap, rcsThrust, rcsIsp := stageRCS(dry)
-	return Stage{
-		LoadoutID:            loadoutID,
-		Name:                 name,
-		Glyph:                glyph,
-		Color:                color,
-		DryMass:              dry,
-		FuelMass:             fuel,
-		FuelCapacity:         fuel,
-		Thrust:               thrust,
-		Isp:                  isp,
-		MonopropMass:         mp,
-		MonopropCap:          monoCap,
-		RCSThrust:            rcsThrust,
-		RCSIsp:               rcsIsp,
-		BallisticCoefficient: bc,
-		LaunchSpriteRowsPx:   catalogLaunchSpriteRowsPxByName(name),
-		LaunchSpriteWidthPx:  catalogLaunchSpriteWidthPxByName(name),
-		LaunchSpriteColor:    catalogLaunchSpriteColorByName(name),
-		FuelType:             catalogFuelTypeByName(name),
-		LaunchSpriteHasLegs:  catalogLaunchSpriteHasLegsByName(name),
-		CanSoftLand:          catalogCanSoftLandByName(name),
-		HasParachute:         catalogHasParachuteByName(name),
+// buildLoadouts loads the embedded loadout catalog (data/loadouts.json +
+// data/parts.json) and resolves each LoadoutDef into a runtime Loadout,
+// returning the by-ID map and the embedded display order. Runs once at
+// package-var init (v0.23 / ADR 0026, C1-3 — loadouts are now data, not a
+// Go literal). Panics if the embedded data fails to load: a malformed
+// shipped catalog is a build/programmer error, like regexp.MustCompile.
+// The user-overlay merge (skip-bad-with-warning) is wired in at a higher
+// layer (C1-4); this init path reads embedded data only, so it stays
+// deterministic.
+func buildLoadouts() (map[string]Loadout, []string) {
+	parts, defs, err := loadEmbeddedCatalog()
+	if err != nil {
+		panic("spacecraft: embedded loadout catalog failed to load: " + err.Error())
 	}
-}
-
-// kernStage builds a Kern Stack stage. The Kern Stack's stage names
-// (Boost / Transfer / Pod) are terminal-native and deliberately absent
-// from the StageCatalog (the catalog holds the real fleet's parts), so
-// the by-Name sprite/flag lookups in stage() return zero for them. This
-// helper layers the launch-sprite silhouette, fuel type, and the
-// soft-land / parachute capability flags on directly, keeping the Kern
-// Stack self-contained in loadouts.go (ADR 0014 ships no new catalog
-// parts). "Lander" does resolve in the catalog, but we set it here too so
-// all four stages read from one place.
-func kernStage(name, glyph, color string, dry, fuel, thrust, isp, bc float64,
-	spriteRows, spriteWidth int, spriteColor, fuelType string,
-	hasLegs, canSoftLand, hasParachute bool) Stage {
-	s := stage(LoadoutKernStackID, name, glyph, color, dry, fuel, thrust, isp)
-	// v0.16: realistic per-stage ballistic coefficient (C_D·A/m, m²/kg).
-	// Without this kernStage fell through to the 0.01 default
-	// (EffectiveBallisticCoefficient), tuned for an in-space S-IVB where
-	// drag is always zero — on Kern's sea-level air (ρ=1.225) that capped
-	// the climb at a ~34 m/s terminal velocity (playtest: "won't reach
-	// 100 m/s vertical until the first stage is nearly burned"). Sized
-	// like the real launch fleet (Saturn-V S-IC ≈ 8e-6, Falcon-9 S1
-	// ≈ 7e-6) for the Kern Stack's slender ~2.5 m KSP-stock cross-section.
-	s.BallisticCoefficient = bc
-	s.LaunchSpriteRowsPx = spriteRows
-	s.LaunchSpriteWidthPx = spriteWidth
-	s.LaunchSpriteColor = spriteColor
-	s.FuelType = fuelType
-	s.LaunchSpriteHasLegs = hasLegs
-	s.CanSoftLand = canSoftLand
-	s.HasParachute = hasParachute
-	return s
-}
-
-// catalogHasParachuteByName looks up the StageCatalog's hasParachute
-// flag for a loadout stage by its Name field. Mirrors
-// catalogCanSoftLandByName (same LM→Lander alias for the Apollo-Stack
-// literal). v0.12 Slice 3 (ADR 0008): the Apollo-Stack's "CSM" literal
-// resolves against the catalog's "CSM" entry and so inherits its
-// parachute capability.
-func catalogHasParachuteByName(name string) bool {
-	if name == "LM" {
-		name = "Lander"
+	out := make(map[string]Loadout, len(defs))
+	order := make([]string, 0, len(defs))
+	for _, d := range defs {
+		out[d.ID] = resolveLoadout(d, parts)
+		order = append(order, d.ID)
 	}
-	for _, m := range StageCatalog {
-		if m.Name == name {
-			return m.hasParachute
+	return out, order
+}
+
+// resolveLoadout assembles a Loadout's Stages from its part references,
+// reproducing the pre-migration build exactly: each referenced Part
+// becomes a Stage (Part.ToStage), stamped with the loadout's ID, with the
+// RCS pool DERIVED from dry mass (stageRCS — the catalog convention, not
+// stored per part) and any per-instance override applied. Panics on an
+// unknown part ID (a malformed embedded catalog — see buildLoadouts).
+func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
+	stages := make([]Stage, 0, len(d.Parts))
+	for _, ref := range d.Parts {
+		p, ok := parts[ref.PartID]
+		if !ok {
+			panic("spacecraft: loadout " + d.ID + " references unknown part " + ref.PartID)
 		}
+		st := p.ToStage()
+		st.LoadoutID = d.ID // the loadout that produced this stage (jettison/HUD identity)
+		if ref.Override != nil {
+			applyPartOverride(&st, *ref.Override)
+		}
+		// RCS pool scales with dry mass (DefaultRCSLoadout) at build time,
+		// exactly as the pre-migration stage()/stageWithBC helpers did.
+		mp, monoCap, rcsThrust, rcsIsp := stageRCS(st.DryMass)
+		st.MonopropMass, st.MonopropCap, st.RCSThrust, st.RCSIsp = mp, monoCap, rcsThrust, rcsIsp
+		stages = append(stages, st)
 	}
-	return false
+	var plan []int
+	if len(d.DecouplePlan) > 0 {
+		plan = append([]int(nil), d.DecouplePlan...)
+	}
+	return Loadout{
+		ID:                d.ID,
+		Name:              d.Name,
+		Role:              d.Role,
+		Glyph:             d.Glyph,
+		Color:             d.Color,
+		Stages:            stages,
+		DecouplePlan:      plan,
+		SlewRateDegPerSec: d.SlewRateDegPerSec,
+		ScaleClass:        bodies.ScaleClass(d.ScaleClass),
+	}
 }
 
-// catalogLaunchSpriteRowsPxByName returns the StageCatalog
-// launchSpriteRowsPx that matches a loadout stage's Name. Used by
-// stageWithBC to populate LaunchSpriteRowsPx on loadout literals so
-// canonical Saturn-V / SLS / Falcon-9 / Apollo-Stack spawns render
-// the composed stack via the same data as configurator-built stacks
-// (v0.11.3 Slice 4; pivoted from ASCII to braille after the v0.11.3
-// playtest).
-//
-// Special case: the Apollo-Stack's "LM" stage maps to catalog ID
-// "lander" (Name = "Lander") — same physics, different loadout label.
-// catalogCanSoftLandByName looks up the StageCatalog's
-// canSoftLand flag for a stage by its Name field. Mirrors
-// catalogLaunchSpriteRowsPxByName — same LM→Lander alias for the
-// Apollo-Stack literal that uses "LM" as the Name but resolves
-// against the catalog's "Lander" entry. v0.11.4-followup.
-func catalogCanSoftLandByName(name string) bool {
-	if name == "LM" {
-		name = "Lander"
+// applyPartOverride applies a loadout's minimal per-instance knobs to a
+// stage built from a referenced part (ADR 0026 §1 — fuel fill / name /
+// color only). FuelFillFraction scales the part's full capacity. No
+// embedded loadout uses an override today (divergent stages are distinct
+// parts); it's the sanctioned data hook for authored loadouts (C1-5 / C3).
+func applyPartOverride(st *Stage, o PartOverride) {
+	if o.FuelFillFraction != nil {
+		st.FuelMass = st.FuelCapacity * *o.FuelFillFraction
 	}
-	for _, m := range StageCatalog {
-		if m.Name == name {
-			return m.canSoftLand
-		}
+	if o.Name != "" {
+		st.Name = o.Name
 	}
-	return false
-}
-
-func catalogLaunchSpriteRowsPxByName(name string) int {
-	if name == "LM" {
-		name = "Lander"
+	if o.Color != "" {
+		st.Color = o.Color
 	}
-	for _, m := range StageCatalog {
-		if m.Name == name {
-			return m.launchSpriteRowsPx
-		}
-	}
-	return 0
-}
-
-// catalogLaunchSpriteWidthPxByName mirrors catalogLaunchSpriteRowsPxByName
-// for the per-stage width — same LM→Lander alias. v0.11.5.
-func catalogLaunchSpriteWidthPxByName(name string) int {
-	if name == "LM" {
-		name = "Lander"
-	}
-	for _, m := range StageCatalog {
-		if m.Name == name {
-			return m.launchSpriteWidthPx
-		}
-	}
-	return 0
-}
-
-// catalogFuelTypeByName looks up the StageCatalog fuelType for a
-// loadout stage by Name (LM→Lander alias). v0.11.5.
-func catalogFuelTypeByName(name string) string {
-	if name == "LM" {
-		name = "Lander"
-	}
-	for _, m := range StageCatalog {
-		if m.Name == name {
-			return m.fuelType
-		}
-	}
-	return ""
-}
-
-// catalogLaunchSpriteColorByName looks up the StageCatalog
-// launchSpriteColor for a loadout stage by Name (LM→Lander alias).
-// v0.11.5-followup.
-func catalogLaunchSpriteColorByName(name string) string {
-	if name == "LM" {
-		name = "Lander"
-	}
-	for _, m := range StageCatalog {
-		if m.Name == name {
-			return m.launchSpriteColor
-		}
-	}
-	return ""
-}
-
-// catalogLaunchSpriteHasLegsByName looks up the StageCatalog
-// launchSpriteHasLegs flag for a loadout stage by Name
-// (LM→Lander alias). v0.11.5.
-func catalogLaunchSpriteHasLegsByName(name string) bool {
-	if name == "LM" {
-		name = "Lander"
-	}
-	for _, m := range StageCatalog {
-		if m.Name == name {
-			return m.launchSpriteHasLegs
-		}
-	}
-	return false
 }
 
 // VesselGlyph is the single marker every craft collapses to on the
@@ -399,306 +290,18 @@ func catalogLaunchSpriteHasLegsByName(name string) bool {
 // below references this constant; do not hand-pick a per-craft glyph.
 const VesselGlyph = "➤"
 
-// Loadouts indexes the v0.8.2 launch set + v0.9.1 Saturn-V by ID.
-// Future patches may load user overlays (similar to bodies/themes)
-// but the embedded catalog is canonical for now.
-//
-// v0.9.1+ shape: every loadout lists Stages bottom-first. Single-
-// stage loadouts (S-IVB-1, ICPS, RCS-tug, Lander) list one entry —
-// same physics as pre-v0.9.1. Saturn-V lists three entries: S-IC
-// booster (fires first, jettisons first), S-II sustainer, S-IVB
-// insertion (the core / payload).
-var Loadouts = map[string]Loadout{
-	LoadoutSIVB1ID: {
-		ID:    LoadoutSIVB1ID,
-		Name:  "S-IVB",
-		Role:  "transfer-stage",
-		Glyph: VesselGlyph,
-		Color: "#FFD93D", // saturated yellow (matches v0.7.1+ ColorCraftMarker)
-		Stages: []Stage{
-			stage(LoadoutSIVB1ID, "S-IVB", VesselGlyph, "#FFD93D", 11000, 40000, 1023000, 421),
-		},
-	},
-	LoadoutICPSID: {
-		ID:    LoadoutICPSID,
-		Name:  "ICPS",
-		Role:  "transfer-stage",
-		Glyph: VesselGlyph,
-		Color: "#5BB3FF", // ocean blue
-		Stages: []Stage{
-			stage(LoadoutICPSID, "ICPS", VesselGlyph, "#5BB3FF", 3500, 25000, 108000, 462),
-		},
-	},
-	LoadoutRCSTugID: {
-		ID:    LoadoutRCSTugID,
-		Name:  "RCS Tug",
-		Role:  "tug",
-		Glyph: VesselGlyph,
-		Color: "#FF87D7", // pink
-		Stages: []Stage{
-			stage(LoadoutRCSTugID, "RCS Tug", VesselGlyph, "#FF87D7", 200, 0, 0, 0),
-		},
-	},
-	LoadoutLanderID: {
-		ID:    LoadoutLanderID,
-		Name:  "Lander",
-		Role:  "lander",
-		Glyph: VesselGlyph,
-		Color: "#5FFF87", // mint
-		// v0.12 Slice 2 / ADR 0007: the Apollo-LM-style Lander is two
-		// stages — Descent (bottom: legs + soft-land + the powered-
-		// descent engine) and Ascent (top: returns to orbit). Surface-
-		// staging the descent on the ground leaves it as a Landed
-		// passive wreck and flies the ascent back up. Fuel-heavy
-		// descent (dry 2500 / fuel 9500 → ~3.0 km/s descent-burn Δv
-		// hauling the ascent) so a lunar landing doesn't run dry; the
-		// ascent (dry 1200 / fuel 1800 → ~2.8 km/s) returns to orbit.
-		// No DecouplePlan: the default single-pop drops Descent and
-		// leaves Ascent as the core. CanSoftLand + landing-leg
-		// silhouette ride per-Stage via the StageCatalog by-Name
-		// lookups (Descent / Ascent entries).
-		Stages: []Stage{
-			stage(LoadoutLanderID, "Descent", VesselGlyph, "#5FFF87", 2500, 9500, 45000, 311),
-			stage(LoadoutLanderID, "Ascent", VesselGlyph, "#7BFFA0", 1200, 1800, 16000, 311),
-		},
-	},
-	// Saturn-V (v0.9.1+): the canonical Apollo launch vehicle.
-	// Tuning per the v0.9 plan §v0.9.1 — TWR > 1 at sea level on
-	// stage 1 (S-IC: 35,100 kN against ~2.9 Mkg total mass = ~1.24
-	// at sea-level g). Stages bottom-first: S-IC fires + decouples
-	// first, S-II next, S-IVB is the core / payload that survives
-	// every decouple.
-	LoadoutSaturnVID: {
-		ID:    LoadoutSaturnVID,
-		Name:  "Saturn V",
-		Role:  "launch-vehicle",
-		Glyph: VesselGlyph,
-		Color: "#FFD93D",
-		Stages: []Stage{
-			// S-IC booster: F-1 cluster, sea-level Isp (the only
-			// stage that fires in atmosphere). BC tuned for the
-			// real S-IC's ~80 m² cross-section and ~2.9 Mkg wet
-			// mass: BC = C_D · A / m ≈ 0.3 · 80 / 2.9e6 ≈ 8e-6.
-			stageWithBC(LoadoutSaturnVID, "S-IC", VesselGlyph, "#FF8C42",
-				130000, 2160000, 35100000, 263, 8e-6),
-			// S-II sustainer: J-2 cluster, vacuum Isp. Smaller
-			// cross-section ~40 m² but mostly vacuum flight, so
-			// drag is negligible regardless. BC ≈ 0.3·40/480e3 ≈ 2.5e-5.
-			stageWithBC(LoadoutSaturnVID, "S-II", VesselGlyph, "#FFC042",
-				40000, 440000, 5140000, 421, 2.5e-5),
-			// S-IVB insertion: J-2 single, vacuum Isp. Same shape
-			// as the standalone S-IVB-1 loadout but lives as the
-			// top stage of the Saturn-V chain.
-			stageWithBC(LoadoutSaturnVID, "S-IVB", VesselGlyph, "#FFD93D",
-				11000, 109000, 1023000, 421, 6.25e-5),
-		},
-	},
-	// SLS Block 1 (v0.9.4+): NASA's heavy-lift LV, Artemis 1+. The
-	// SRBs and core stage actually fire in parallel from lift-off in
-	// real life; we model them as sequential stages here because the
-	// engine here is single-fire-per-stage. Lift-off TWR with SRBs
-	// alone ≈ 1.27 (vs real ~1.57 with both SRBs and core); the
-	// Δv lost during the boost phase is mostly recovered in stage 2,
-	// where our "fresh" core has all 979 t of LH2/LOX rather than
-	// the ~722 t left after firing for 126 s.
-	LoadoutSLSBlock1ID: {
-		ID:    LoadoutSLSBlock1ID,
-		Name:  "SLS Block 1",
-		Role:  "launch-vehicle",
-		Glyph: VesselGlyph,
-		Color: "#FF6B35",
-		Stages: []Stage{
-			// Twin 5-segment solid rocket boosters. Casings dropped
-			// at burnout. ~12.2 m² combined cross-section, ~1.47 Mkg
-			// wet → BC ≈ 0.3 · 12 / 1.47e6 ≈ 2.4e-6, but two long
-			// skinny solids alongside the core have higher effective
-			// drag — round to 8e-6 to match Saturn V S-IC scale.
-			stageWithBC(LoadoutSLSBlock1ID, "SRBs", VesselGlyph, "#E0E0E0",
-				198000, 1270000, 32000000, 268, 8e-6),
-			// Core stage: 4× RS-25 cluster, vacuum Isp (fires through
-			// most of the ascent above the dense atmosphere by the
-			// time SRBs separate at ~50 km). BC similar to S-II.
-			stageWithBC(LoadoutSLSBlock1ID, "Core", VesselGlyph, "#FF6B35",
-				85275, 979452, 9290000, 452, 2.5e-5),
-			// ICPS (Interim Cryogenic Propulsion Stage): RL10B-2,
-			// vacuum Isp. Same shape as the standalone ICPS loadout
-			// but lives as the top of the SLS chain. TLI-class burn,
-			// not orbital insertion — TWR is very low (~0.1).
-			stageWithBC(LoadoutSLSBlock1ID, "ICPS", VesselGlyph, "#5BB3FF",
-				3500, 25000, 110000, 462, 6.25e-5),
-		},
-	},
-	// Falcon 9 Block 5 (v0.9.4+): SpaceX two-stage LV. ~549 t fully
-	// fuelled — about a fifth of Saturn V / SLS by mass. Lift-off
-	// TWR ~1.4 (9× Merlin 1D = 7607 kN SL vs ~5380 kN weight). Stage
-	// 2's Merlin Vacuum gives TWR ~0.85 at ignition, similar to
-	// Saturn V S-II — same continuous-burn upper-stage profile.
-	LoadoutFalcon9ID: {
-		ID:    LoadoutFalcon9ID,
-		Name:  "Falcon 9",
-		Role:  "launch-vehicle",
-		Glyph: VesselGlyph,
-		Color: "#E8E8E8",
-		Stages: []Stage{
-			// First stage: 9× Merlin 1D, sea-level Isp. 3.7 m
-			// diameter, ~10.75 m² cross-section, ~437 t wet →
-			// BC ≈ 0.3 · 10.75 / 437e3 ≈ 7.4e-6.
-			stageWithBC(LoadoutFalcon9ID, "F9-S1", VesselGlyph, "#E8E8E8",
-				25600, 411000, 7607000, 282, 7.4e-6),
-			// Second stage: 1× Merlin Vacuum, vacuum Isp. Above the
-			// atmosphere by ignition, BC matters less — pick a
-			// vacuum-stage value similar to S-IVB.
-			stageWithBC(LoadoutFalcon9ID, "F9-S2", VesselGlyph, "#B0D8FF",
-				3900, 107500, 934000, 348, 5e-5),
-		},
-		// CanSoftLand is per-Stage: F9-S1 carries it (retro-burn
-		// recovery), F9-S2 does not (orbital re-entry > V_CRIT
-		// kinematically). After S1 decouples and becomes its own
-		// slate craft, S1.CanSoftLand=true rides with it; the
-		// surviving composite (just F9-S2) re-derives
-		// CanSoftLand=false via SyncFields. See
-		// stages_catalog.go for the catalog flag.
-	},
-	// Apollo-Stack (v0.10.1+): the full mission stack. The first
-	// three stages are the canonical Saturn-V tuning (byte-identical
-	// numbers — ascent flies the same). On top: a Lunar Module
-	// (Lander tier) then the Command/Service Module as the surviving
-	// core. Lift-off TWR with the LM+CSM payload: 35,100 kN against
-	// ~2.93 Mkg total ≈ 1.22 at sea-level g — still > 1.
-	LoadoutApolloStackID: {
-		ID:    LoadoutApolloStackID,
-		Name:  "Apollo Stack",
-		Role:  "mission-stack",
-		Glyph: VesselGlyph,
-		Color: "#FFD93D",
-		Stages: []Stage{
-			stageWithBC(LoadoutApolloStackID, "S-IC", VesselGlyph, "#FF8C42",
-				130000, 2160000, 35100000, 263, 8e-6),
-			stageWithBC(LoadoutApolloStackID, "S-II", VesselGlyph, "#FFC042",
-				40000, 440000, 5140000, 421, 2.5e-5),
-			stageWithBC(LoadoutApolloStackID, "S-IVB", VesselGlyph, "#FFD93D",
-				11000, 109000, 1023000, 421, 6.25e-5),
-			// Lunar Module — split into Descent + Ascent (v0.12 Slice 2
-			// / ADR 0007). Post-transposition (ADR 0009) the LM rides as
-			// a docked nose payload above the SM/CM core and is released
-			// via Undock for the lunar descent. Fuel trimmed to the ADR
-			// 0009 locked table: descent 9500→6310 (real abort reserve,
-			// ~2500 m/s cap), ascent 1800→1269 (~2200 m/s cap) — the LM
-			// no longer double-duties as the LOI engine, so it can shed
-			// the surplus. The LM is a negligible fraction of the
-			// ~2.93 Mkg stack, so lift-off TWR stays ~1.22.
-			stage(LoadoutApolloStackID, "Descent", VesselGlyph, "#5FFF87",
-				2500, 6310, 45000, 311),
-			stage(LoadoutApolloStackID, "Ascent", VesselGlyph, "#7BFFA0",
-				1200, 1269, 16000, 311),
-			// Command/Service Module — split into a propulsive Service
-			// Module + a passive Command Module (v0.12 / ADR 0009). The
-			// SM (SPS engine; SPS fuel trimmed 18400→16000) fires LOI and
-			// TEI once transposition makes it Stages[0]; the CM is the
-			// engineless parachute capsule that splashes down. SM dry
-			// 6000 + CM dry 5900 = the pre-split CSM dry 11900 → the
-			// split is mass-neutral and lift-off TWR is unchanged. SM
-			// below CM so the firing SPS sits beneath the passive capsule.
-			stage(LoadoutApolloStackID, "SM", VesselGlyph, "#C0C0FF",
-				6000, 16000, 91000, 314),
-			stage(LoadoutApolloStackID, "CM", VesselGlyph, "#B8C8E0",
-				5900, 0, 0, 0),
-		},
-		// v0.12 / ADR 0009: drop S-IC, S-II, S-IVB individually, then the
-		// trailing 2 releases the LM (Descent + Ascent) as a single
-		// 2-stage craft. After the three Saturn pops the active craft is
-		// [Descent, Ascent, SM, CM] — the pre-transposition state. From
-		// there the player either presses D (one-shot transpose: reorder
-		// so the SM fires, LM rides as a docked nose payload) OR stages
-		// once more to drop the LM as a free craft for the canonical
-		// manual flip (slew the [SM, CM] core 180°, RCS-dock to the LM).
-		// The 2-group keeps the LM intact either way — staging it one
-		// stage at a time would strand the Descent and split the lander.
-		// Sum (5) < 7 stages.
-		DecouplePlan: []int{1, 1, 1, 2},
-	},
-	// Re-entry capsule (v0.12 Slice 3, ADR 0008): single command-module
-	// stage carrying a parachute and no engine landing. HasParachute /
-	// !CanSoftLand ride per-Stage via the StageCatalog by-Name lookup
-	// (the "Capsule" entry). No main engine — the player de-orbits with
-	// RCS (or spawns sub-orbital) and recovers under chute.
-	LoadoutCapsuleID: {
-		ID:    LoadoutCapsuleID,
-		Name:  "Capsule",
-		Role:  "capsule",
-		Glyph: VesselGlyph,
-		Color: "#B8C8E0", // pale bare-metal command module
-		Stages: []Stage{
-			stage(LoadoutCapsuleID, "Capsule", VesselGlyph, "#B8C8E0", 5800, 0, 0, 0),
-		},
-	},
-	// Kern Stack (v0.15 / ADR 0014): the scale-matched Lumen vehicle.
-	// Four stages bottom-first [Boost, Transfer, Lander, Pod]. Masses are
-	// tuned for a ~6 km/s total ideal Δv (Boost ~2.3 + Transfer ~2.2 +
-	// Lander ~1.5 km/s) — enough for Lumen orbit (~3.4 km/s), a Cursor
-	// transfer + capture + descent, and the ascent/return, on the
-	// stripped-back scale. Lift-off TWR ≈ 1.50 against Kern's Earth-like
-	// surface g (320 kN vs ~21.3 t × g0) — retuned up from the original
-	// 250 kN / TWR 1.18 after a playtest found the pad climb glacial (the
-	// glacial climb itself was mostly the BC drag bug fixed below, not
-	// thrust). Thrust doesn't enter the ideal Δv budget, so the ~6 km/s
-	// sizing is unchanged. Isp values are
-	// KSP stock engines collapsed to one Isp per stage. ScaleClass tags it
-	// stripped-back for the spawn-form hint (never a filter, ADR 0014).
-	LoadoutKernStackID: {
-		ID:         LoadoutKernStackID,
-		Name:       "Kern Stack",
-		Role:       "mission-stack",
-		Glyph:      VesselGlyph,
-		Color:      "#7BD3FF", // Lumen-cyan — distinct from the real fleet's warm yellows
-		ScaleClass: bodies.ScaleStrippedBack,
-		Stages: []Stage{
-			// Boost: Mainsail-class kerolox first stage (Isp 285 sea-level —
-			// the only stage that fires in atmosphere). TWR ≈ 1.50 off the
-			// pad. BC 7e-6 (slender ~2.5 m stack, like Saturn-V S-IC) so
-			// Kern's thick air doesn't cap the climb.
-			kernStage("Boost", VesselGlyph, "#7BD3FF", 2000, 12000, 320000, 285, 7e-6,
-				14, 4, "#D8E6F0", FuelTypeKerolox, false, false, false),
-			// Transfer: Poodle-class vacuum stage (Isp 350) for the Kern
-			// orbit insertion and the Cursor transfer/capture burns. BC is a
-			// vacuum-stage value (drag negligible once Boost separates).
-			kernStage("Transfer", VesselGlyph, "#9BE0FF", 1000, 3500, 60000, 350, 2.5e-5,
-				10, 3, "#C8E0F0", FuelTypeHydrolox, false, false, false),
-			// Lander: Terrier-class throttleable descent/ascent engine
-			// (Isp 345) with legs — fires the powered descent to Cursor and
-			// the return-to-orbit burn. Soft-land qualified. (Cursor is
-			// airless; BC only matters if it ever flies in atmosphere.)
-			kernStage("Lander", VesselGlyph, "#5FFF87", 800, 1000, 16000, 345, 5e-5,
-				5, 3, "#D4C088", FuelTypeHypergolic, true, true, false),
-			// Pod: engineless crew capsule, the surviving core. Recovers
-			// under parachute (ADR 0008) — the "return" half of the budget.
-			// Deployed chute overrides BC (ChuteDeployedBC), so this value
-			// only applies to the brief pre-deploy free-fall.
-			kernStage("Pod", VesselGlyph, "#B8C8E0", 1000, 0, 0, 0, 5e-5,
-				6, 3, "#C8C8D0", "", false, false, true),
-		},
-		// Drop Boost, Transfer, Lander one at a time; the Pod survives every
-		// decouple and splashes down. Sum (3) < 4 stages.
-		DecouplePlan: []int{1, 1, 1},
-	},
-}
-
-// LoadoutOrder lists loadouts in canonical UI cycle order — the
-// v0.8.2+ spawn form's craft-type field cycles through this. v0.9.1
-// appends Saturn-V at the end so existing playtests keep landing on
-// S-IVB-1 by default. v0.9.4+ appends SLS Block 1 and Falcon 9.
-var LoadoutOrder = []string{
-	LoadoutSIVB1ID,
-	LoadoutICPSID,
-	LoadoutRCSTugID,
-	LoadoutLanderID,
-	LoadoutSaturnVID,
-	LoadoutSLSBlock1ID,
-	LoadoutFalcon9ID,
-	LoadoutApolloStackID,
-	LoadoutCapsuleID,
-	LoadoutKernStackID,
-}
+// Loadouts indexes the launch catalog by ID, and LoadoutOrder is the
+// canonical UI cycle order (the v0.8.2+ spawn form cycles through it).
+// v0.23 / ADR 0026 (C1-3): both are now resolved from the embedded
+// data/loadouts.json + data/parts.json at init via buildLoadouts, rather
+// than hardcoded Go literals — the loadout catalog is data, the last
+// hardcoded catalog in the project to move. The resolved Loadout shape
+// (Stages bottom-first, RCS derived from dry mass, per-loadout plans) and
+// every reader (NewFromLoadout / LookupLoadout / the spawn + staging +
+// save paths) are unchanged: only the source of the data moved, so every
+// loadout flies byte-identical (golden-tested). User overlays merge in at
+// a higher layer (C1-4).
+var Loadouts, LoadoutOrder = buildLoadouts()
 
 // LookupLoadout returns the catalog entry for the given ID, or the
 // S-IVB-1 default when the ID is empty / unknown. v0.8.2+: the
