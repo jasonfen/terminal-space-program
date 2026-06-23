@@ -81,11 +81,13 @@ type Part struct {
 
 // Antenna is the forward-compatible (ADR 0027) per-part antenna attribute:
 // kind is "none" | "direct" | "relay"; a direct antenna can use the
-// network, a relay antenna can also forward for others. Declared in the
+// network, a relay antenna can also forward for others. range_m is the
+// antenna's rated range in metres — the distance at which it reaches an
+// identical antenna (the CommNet combinability model). Declared in the
 // cycle-1 schema; cycle 2 reads it.
 type Antenna struct {
 	Kind   string  `json:"kind"`
-	PowerW float64 `json:"power_w,omitempty"`
+	RangeM float64 `json:"range_m,omitempty"`
 }
 
 // PartOverride carries the only per-instance knobs a loadout may apply to
@@ -183,7 +185,7 @@ func (p Part) ToStage() Stage {
 	}
 	if p.Antenna != nil {
 		st.AntennaKind = p.Antenna.Kind
-		st.AntennaPowerW = p.Antenna.PowerW
+		st.AntennaRangeM = p.Antenna.RangeM
 	}
 	return st
 }

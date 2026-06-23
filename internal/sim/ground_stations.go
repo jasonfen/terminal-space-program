@@ -25,16 +25,17 @@ var groundStationsFS embed.FS
 // LaunchSitePreset (a launchpad): a ground station is a network node. Key
 // is the short token, BodyID the body it sits on (its surface co-rotates),
 // LatDeg / LonEastDeg the body-fixed position (east-positive, pseudo-
-// Greenwich at simTime=0 — same convention as launch sites), AntennaPowerW
-// the relay power (ground stations are high-power; the two-endpoint range
-// formula is deferred tuning, ADR 0027 §2).
+// Greenwich at simTime=0 — same convention as launch sites), AntennaRangeM
+// the antenna's rated range in metres (the network anchor: ground stations
+// are long-ranged, so via combinability they extend a weak craft's reach —
+// ADR 0027 §2 amendment).
 type GroundStationPreset struct {
 	Key           string  `json:"key"`
 	Name          string  `json:"name"`
 	BodyID        string  `json:"body_id"`
 	LatDeg        float64 `json:"lat_deg"`
 	LonEastDeg    float64 `json:"lon_east_deg"`
-	AntennaPowerW float64 `json:"antenna_power_w"`
+	AntennaRangeM float64 `json:"antenna_range_m"`
 
 	// Source is a runtime annotation ("embedded" / "user"); excluded from
 	// JSON so it never affects round-trips.
@@ -62,13 +63,27 @@ func LoadGroundStations() ([]GroundStationPreset, []GroundStationWarning) {
 	return LoadGroundStationsWithWarnings()
 }
 
+// DefaultGroundStationRangeM is the rated range a station falls back to when
+// its entry carries no positive range — e.g. a user overlay authored before
+// the power_w→range_m rename (ADR 0027 §2 amendment), whose old key now
+// unmarshals to 0. Keeps a mis-keyed / un-ranged station functional at the DSN
+// tier instead of silently dead (commLinked rejects range<=0). The embedded
+// ring always carries explicit ranges, so this only ever rescues overlays.
+const DefaultGroundStationRangeM = 5.0e9
+
 // LoadGroundStationsWithWarnings loads the embedded catalog merged with the
 // user overlay ($XDG_CONFIG_HOME/terminal-space-program/ground_stations/*.json),
 // user winning on Key. A malformed embedded file panics (build error); a
-// malformed user file is skipped with a warning.
+// malformed user file is skipped with a warning. A station with no positive
+// range falls back to DefaultGroundStationRangeM.
 func LoadGroundStationsWithWarnings() ([]GroundStationPreset, []GroundStationWarning) {
-	stations := loadEmbeddedGroundStations()
-	return mergeUserGroundStations(stations, userGroundStationsDir())
+	stations, warnings := mergeUserGroundStations(loadEmbeddedGroundStations(), userGroundStationsDir())
+	for i := range stations {
+		if stations[i].AntennaRangeM <= 0 {
+			stations[i].AntennaRangeM = DefaultGroundStationRangeM
+		}
+	}
+	return stations, warnings
 }
 
 func loadEmbeddedGroundStations() []GroundStationPreset {

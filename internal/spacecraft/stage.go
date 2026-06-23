@@ -222,12 +222,14 @@ type Stage struct {
 	// vessel-level Crewed / Controllable mirrors from the whole stack.
 	CommandSource string `json:",omitempty"`
 
-	// AntennaKind / AntennaPowerW (v0.23 / ADR 0027) declare this stage's
-	// comms hardware (AntennaNone / AntennaDirect / AntennaRelay + power).
-	// Authored on the Part; SyncFields derives the vessel-level antenna
-	// (the highest-power one in the stack) for the connectivity graph.
+	// AntennaKind / AntennaRangeM (v0.23 / ADR 0027) declare this stage's
+	// comms hardware: kind (AntennaNone / AntennaDirect / AntennaRelay) plus a
+	// rated range in metres — the distance at which it reaches an identical
+	// antenna (the CommNet combinability model; see sim.commLinkRangeM).
+	// Authored on the Part; SyncFields derives the vessel-level antenna (the
+	// longest-ranged one in the stack) for the connectivity graph.
 	AntennaKind   string  `json:",omitempty"`
-	AntennaPowerW float64 `json:",omitempty"`
+	AntennaRangeM float64 `json:",omitempty"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.
@@ -318,11 +320,11 @@ func (s *Spacecraft) SyncFields() {
 	// (not just the bottom) — a probe core or relay antenna anywhere on
 	// the vessel makes the vessel controllable / relay-capable. Crewed
 	// wins over probe (a crewed pod is never comms-gated); the antenna is
-	// the highest-power one carried.
+	// the longest-ranged one carried.
 	s.Crewed = false
 	s.Controllable = false
 	s.AntennaKind = AntennaNone
-	s.AntennaPowerW = 0
+	s.AntennaRangeM = 0
 	for _, st := range s.Stages {
 		if IsCommandSource(st.CommandSource) {
 			s.Controllable = true
@@ -330,9 +332,9 @@ func (s *Spacecraft) SyncFields() {
 				s.Crewed = true
 			}
 		}
-		if st.AntennaKind != AntennaNone && st.AntennaPowerW > s.AntennaPowerW {
+		if st.AntennaKind != AntennaNone && st.AntennaRangeM > s.AntennaRangeM {
 			s.AntennaKind = st.AntennaKind
-			s.AntennaPowerW = st.AntennaPowerW
+			s.AntennaRangeM = st.AntennaRangeM
 		}
 	}
 }

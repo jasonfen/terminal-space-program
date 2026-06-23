@@ -6,7 +6,7 @@
       "body_id": "earth",
       "lat_deg": 35.43,
       "lon_east_deg": -116.89,
-      "antenna_power_w": 100000
+      "antenna_range_m": 5000000000
     },
     {
       "key": "madrid",
@@ -14,7 +14,7 @@
       "body_id": "earth",
       "lat_deg": 40.43,
       "lon_east_deg": -4.25,
-      "antenna_power_w": 100000
+      "antenna_range_m": 5000000000
     },
     {
       "key": "canberra",
@@ -22,7 +22,7 @@
       "body_id": "earth",
       "lat_deg": -35.4,
       "lon_east_deg": 148.98,
-      "antenna_power_w": 100000
+      "antenna_range_m": 5000000000
     }
   ]
 }

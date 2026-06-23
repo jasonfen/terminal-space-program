@@ -449,7 +449,7 @@
       "command_source": "probe",
       "antenna": {
         "kind": "relay",
-        "power_w": 4000
+        "range_m": 1000000000
       }
     },
     {
@@ -470,7 +470,28 @@
       "command_source": "probe",
       "antenna": {
         "kind": "direct",
-        "power_w": 1500
+        "range_m": 10000000
+      }
+    },
+    {
+      "id": "deep-space-relay",
+      "name": "Deep-Space Relay",
+      "glyph": "➤",
+      "color": "#FFD27F",
+      "tier": "tug",
+      "dry_mass_kg": 4200,
+      "fuel_mass_kg": 9000,
+      "fuel_capacity_kg": 9000,
+      "thrust_n": 12000,
+      "isp_s": 4000,
+      "launch_sprite_rows_px": 7,
+      "launch_sprite_width_px": 3,
+      "launch_sprite_color": "#FFD27F",
+      "fuel_type": "hydrolox",
+      "command_source": "probe",
+      "antenna": {
+        "kind": "relay",
+        "range_m": 600000000000
       }
     }
   ]

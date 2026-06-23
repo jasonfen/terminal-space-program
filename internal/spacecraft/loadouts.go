@@ -369,13 +369,42 @@ func roleIsCrewedPod(role string) bool {
 	return role == "capsule" || role == "mission-stack"
 }
 
-// DefaultProbeAntennaPowerW is the basic telemetry antenna a defaulted
-// probe core gets (ADR 0027): a bare launch vehicle / un-annotated custom
-// stack has a guidance + telemetry antenna in reality, so without one it
-// could never establish a connection and would be permanently
-// uncommandable once command-gating lands. Weaker than the dedicated
-// comsat / relay parts; the absolute value is deferred tuning.
-const DefaultProbeAntennaPowerW = 2000.0
+// Antenna tier rated ranges in metres (ADR 0027 §2 amendment, v0.22.x): the
+// reference tiers of the CommNet combinability model, where a link reaches
+// √(rangeₐ · range_b). These mirror the values authored in the catalog
+// (parts.json / ground_stations.json); kept here as named constants for the
+// default-probe backfill (EnsureCommandSource) and the save-compat re-ranging
+// of a pre-amendment save's antenna. Tier behaviour (vs the home DSN ≈ 5e9 m):
+// direct-basic reaches LEO→geostationary; relay-cislunar reaches the Moon and
+// forwards (the Relay-Tug); deep-space reaches Mars-class distances.
+const (
+	AntennaRangeDirectBasic   = 1.0e7  // near-Earth (LEO → geostationary), no forwarding
+	AntennaRangeRelayCislunar = 1.0e9  // Earth/Moon workhorse, forwards
+	AntennaRangeDeepSpace     = 6.0e11 // Mars-class near opposition (far-interplanetary tuning deferred, #182)
+)
+
+// DefaultProbeAntennaRangeM is the basic telemetry antenna a defaulted probe
+// core gets (ADR 0027): a bare launch vehicle / un-annotated custom stack has
+// a guidance + telemetry antenna in reality, so without one it could never
+// establish a connection and would be permanently uncommandable under the
+// command gate. The direct-basic tier.
+const DefaultProbeAntennaRangeM = AntennaRangeDirectBasic
+
+// DefaultAntennaRangeForKind returns the reference rated range for an antenna
+// kind. Used to re-range a pre-amendment save's antenna: those saves stored
+// the legacy antenna_power_w (now an ignored key), so the loaded range is 0 —
+// the save loader maps the surviving kind back to its tier. relay → cislunar,
+// direct → basic, none → 0.
+func DefaultAntennaRangeForKind(kind string) float64 {
+	switch kind {
+	case AntennaRelay:
+		return AntennaRangeRelayCislunar
+	case AntennaDirect:
+		return AntennaRangeDirectBasic
+	default:
+		return 0
+	}
+}
 
 // EnsureCommandSource stamps a default command source on a command-less
 // *vessel* so it stays controllable (ADR 0027 defaulting rule): if no
@@ -421,7 +450,7 @@ func EnsureCommandSource(c *Spacecraft) {
 	}
 	if !hasAntenna {
 		c.Stages[top].AntennaKind = AntennaDirect
-		c.Stages[top].AntennaPowerW = DefaultProbeAntennaPowerW
+		c.Stages[top].AntennaRangeM = DefaultProbeAntennaRangeM
 	}
 }
 

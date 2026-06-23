@@ -230,12 +230,13 @@ type Spacecraft struct {
 	Crewed       bool
 	Controllable bool
 
-	// AntennaKind / AntennaPowerW (v0.23 / ADR 0027): the vessel's
-	// effective comms antenna — the highest-power one across its stages,
-	// re-derived by SyncFields. Read by the connectivity graph (later
-	// cycle-2 slices). AntennaNone / zero means no antenna.
+	// AntennaKind / AntennaRangeM (v0.23 / ADR 0027): the vessel's
+	// effective comms antenna — the longest-ranged one across its stages,
+	// re-derived by SyncFields. Read by the connectivity graph. AntennaNone /
+	// zero means no antenna. AntennaRangeM is a rated range in metres (the
+	// combinability model; see sim.commLinkRangeM).
 	AntennaKind   string
-	AntennaPowerW float64
+	AntennaRangeM float64
 
 	// ChuteState (v0.12 Slice 3, ADR 0008): the runtime parachute
 	// deploy state — STOWED → ARMED → DEPLOYED, one-way, DEPLOYED

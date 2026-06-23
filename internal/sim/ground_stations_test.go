@@ -24,8 +24,8 @@ func TestGroundStationsDSNRing(t *testing.T) {
 		if s.BodyID != "earth" {
 			t.Errorf("station %q BodyID = %q, want earth (home body)", s.Key, s.BodyID)
 		}
-		if s.AntennaPowerW <= 0 {
-			t.Errorf("station %q has no antenna power", s.Key)
+		if s.AntennaRangeM <= 0 {
+			t.Errorf("station %q has no antenna range", s.Key)
 		}
 		if s.Source != "embedded" {
 			t.Errorf("station %q Source = %q, want embedded", s.Key, s.Source)
@@ -71,10 +71,10 @@ func TestGroundStationUserOverlay(t *testing.T) {
 	}
 	t.Setenv("XDG_CONFIG_HOME", root)
 
-	// Add a new station + override Goldstone's power.
+	// Add a new station + override Goldstone's range.
 	good := `{"stations":[
-		{"key":"luna-farside","name":"Luna Farside","body_id":"moon","lat_deg":0,"lon_east_deg":180,"antenna_power_w":50000},
-		{"key":"goldstone","name":"Goldstone (modded)","body_id":"earth","lat_deg":35.43,"lon_east_deg":-116.89,"antenna_power_w":250000}
+		{"key":"luna-farside","name":"Luna Farside","body_id":"moon","lat_deg":0,"lon_east_deg":180,"antenna_range_m":50000},
+		{"key":"goldstone","name":"Goldstone (modded)","body_id":"earth","lat_deg":35.43,"lon_east_deg":-116.89,"antenna_range_m":250000}
 	]}`
 	if err := os.WriteFile(filepath.Join(dir, "mine.json"), []byte(good), 0o644); err != nil {
 		t.Fatal(err)
@@ -94,7 +94,39 @@ func TestGroundStationUserOverlay(t *testing.T) {
 	if g, ok := byKey["luna-farside"]; !ok || g.BodyID != "moon" || g.Source != "user" {
 		t.Errorf("user station luna-farside not merged correctly: %+v", g)
 	}
-	if g := byKey["goldstone"]; g.AntennaPowerW != 250000 || g.Source != "user" {
+	if g := byKey["goldstone"]; g.AntennaRangeM != 250000 || g.Source != "user" {
 		t.Errorf("user override of goldstone failed: %+v", g)
 	}
+}
+
+// TestGroundStationLegacyKeyFallsBackToDefaultRange (#182): a user overlay
+// authored before the power_w→range_m rename uses the old key, which now
+// unmarshals to range 0. The loader must rescue it to the DSN-tier default so
+// the station stays functional rather than silently dead (commLinked rejects
+// range<=0).
+func TestGroundStationLegacyKeyFallsBackToDefaultRange(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "terminal-space-program", "ground_stations")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", root)
+
+	// Pre-amendment overlay: the legacy antenna_power_w key, no antenna_range_m.
+	legacy := `{"stations":[
+		{"key":"legacy","name":"Legacy Dish","body_id":"earth","lat_deg":0,"lon_east_deg":0,"antenna_power_w":250000}
+	]}`
+	if err := os.WriteFile(filepath.Join(dir, "legacy.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stations, _ := LoadGroundStations()
+	for _, s := range stations {
+		if s.Key == "legacy" {
+			if s.AntennaRangeM != DefaultGroundStationRangeM {
+				t.Errorf("legacy-key station range = %g, want default %g (rescued, not dead)", s.AntennaRangeM, DefaultGroundStationRangeM)
+			}
+			return
+		}
+	}
+	t.Error("legacy-key station was not loaded")
 }

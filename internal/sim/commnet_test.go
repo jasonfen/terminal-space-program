@@ -143,16 +143,17 @@ func TestCommandGateAllowsConnectedAndCrewed(t *testing.T) {
 }
 
 // station / probe / relay node builders for the synthetic-graph tests.
-// Positions are in meters along the X axis; powers chosen so the default
-// CommRangePerWatt makes "near" links close and "far" links break.
-func station(id uint64, x, p float64) commNode {
-	return commNode{pos: orbital.Vec3{X: x}, powerW: p, forwards: true, station: true}
+// Positions are in meters along the X axis; rated ranges chosen so the
+// combinability link range (√(rₐ·r_b)) makes "near" links close and "far"
+// links break.
+func station(id uint64, x, r float64) commNode {
+	return commNode{pos: orbital.Vec3{X: x}, rangeM: r, forwards: true, station: true}
 }
-func probeNode(id uint64, x, p float64, relay bool) commNode {
-	return commNode{pos: orbital.Vec3{X: x}, powerW: p, probe: true, craftID: id, forwards: relay}
+func probeNode(id uint64, x, r float64, relay bool) commNode {
+	return commNode{pos: orbital.Vec3{X: x}, rangeM: r, probe: true, craftID: id, forwards: relay}
 }
-func relayNode(x, p float64) commNode {
-	return commNode{pos: orbital.Vec3{X: x}, powerW: p, forwards: true}
+func relayNode(x, r float64) commNode {
+	return commNode{pos: orbital.Vec3{X: x}, rangeM: r, forwards: true}
 }
 
 func TestConnectivityDirectLink(t *testing.T) {
@@ -169,8 +170,7 @@ func TestConnectivityDirectLink(t *testing.T) {
 }
 
 func TestConnectivityOutOfRange(t *testing.T) {
-	// min(power) = 3000 → range = 3000 * CommRangePerWatt. Place the probe
-	// just past it.
+	// rng = √(100000·3000); place the probe just past it.
 	rng := commLinkRangeM(100000, 3000)
 	nodes := []commNode{
 		station(0, 0, 100000),
@@ -193,7 +193,7 @@ func TestConnectivityOccludedNeedsRelay(t *testing.T) {
 		t.Error("a probe occluded by a body with no relay should be disconnected")
 	}
 	// With an off-axis relay (y=2000) that clears the radius-100 body: linked.
-	relay := commNode{pos: orbital.Vec3{Y: 2000}, powerW: 100000, forwards: true}
+	relay := commNode{pos: orbital.Vec3{Y: 2000}, rangeM: 100000, forwards: true}
 	if !connectivity([]commNode{st, pr, relay}, occ)[1] {
 		t.Error("an off-axis relay with LOS to both should bridge the occluded probe")
 	}
@@ -210,7 +210,7 @@ func TestConnectivityCannotRelayThroughDirectCraft(t *testing.T) {
 		probeNode(2, 1000, 100000, false), // the probe we test (id 2)
 		// a direct-only craft sitting off-axis with LOS to both, but a
 		// non-forwarder (forwards=false):
-		{pos: orbital.Vec3{Y: 2000}, powerW: 100000, forwards: false, craftID: 9},
+		{pos: orbital.Vec3{Y: 2000}, rangeM: 100000, forwards: false, craftID: 9},
 	}
 	if connectivity(nodes, occ)[2] {
 		t.Error("a direct-only craft must not relay traffic through itself")
@@ -241,7 +241,7 @@ func TestConnectivityPathViaRelay(t *testing.T) {
 	nodes := []commNode{
 		station(0, -1000, 100000),       // index 0
 		probeNode(1, 1000, 3000, false), // index 1 (direct link occluded)
-		{pos: orbital.Vec3{Y: 2000}, powerW: 100000, forwards: true}, // index 2 relay
+		{pos: orbital.Vec3{Y: 2000}, rangeM: 100000, forwards: true}, // index 2 relay
 	}
 	res := connectivityFull(nodes, occ)
 	if !res.connected[1] {
@@ -307,6 +307,105 @@ func TestActiveCommPathDisconnected(t *testing.T) {
 	w.CommGraph = &CommGraph{Connected: map[uint64]bool{}} // disconnected
 	if _, _, connected := w.ActiveCommPath(); connected {
 		t.Error("a disconnected probe must report no path")
+	}
+}
+
+// radialAboveStation0 places craft c at distM straight up from DSN station 0
+// (clear radial line of sight, home system), so connectivity is gated by range
+// alone. craft-to-station distance == distM.
+func radialAboveStation0(t *testing.T, w *World, c *spacecraft.Spacecraft, distM float64) {
+	t.Helper()
+	gs := w.GroundStations[0]
+	sys := w.System()
+	body := *sys.FindBody(gs.BodyID)
+	up := w.groundStationWorldPos(gs, body).Sub(w.BodyPosition(body)).Unit()
+	c.SystemIdx = 0
+	c.Primary = body
+	c.State.R = up.Scale(body.RadiusMeters() + distM)
+}
+
+// connectedAt spawns the given loadout distM straight up from DSN station 0
+// (clear LOS) and reports whether it reaches the network — the integration
+// seam for the combinability/tier reach (#182, ADR 0027 §2 amendment).
+func connectedAt(t *testing.T, w *World, loadout string, distM float64) bool {
+	t.Helper()
+	c := spacecraft.NewFromLoadout(loadout)
+	radialAboveStation0(t, w, c, distM)
+	w.Crafts = []*spacecraft.Spacecraft{c}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+	return w.CommGraph.HasConnection(c.ID)
+}
+
+// TestCommReachTiers (#182): the combinability model + antenna tiers give each
+// tier its intended reach against the home DSN. The Relay-Tug fulfils
+// Earth/Moon; a basic antenna stops at geostationary; deep-space reaches
+// Mars-class; and the range limit is still real.
+func TestCommReachTiers(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	const (
+		geo     = 35_786e3   // geostationary
+		moon    = 384_400e3  // Earth–Moon
+		marsish = 40e9       // 40M km — within deep-space reach, beyond the relay tug
+		beyond  = 100e9      // 100M km — past even deep-space reach
+	)
+	// Relay-Tug: reaches geostationary AND the Moon (the headline fix).
+	if !connectedAt(t, w, "Relay-Tug", geo) {
+		t.Error("Relay-Tug must reach geostationary")
+	}
+	if !connectedAt(t, w, "Relay-Tug", moon) {
+		t.Error("Relay-Tug must reach the Moon (Earth/Moon workhorse)")
+	}
+	// Basic telemetry (Station-Keeper / direct-basic): geostationary yes, Moon no.
+	if !connectedAt(t, w, "Station-Keeper", geo) {
+		t.Error("a basic direct antenna must reach geostationary")
+	}
+	if connectedAt(t, w, "Station-Keeper", moon) {
+		t.Error("a basic direct antenna must NOT reach the Moon — that's the relay tug's job")
+	}
+	// Deep-space: reaches Mars-class where the relay tug cannot.
+	if !connectedAt(t, w, "Deep-Space-Relay", marsish) {
+		t.Error("the deep-space antenna must reach Mars-class distance")
+	}
+	if connectedAt(t, w, "Relay-Tug", marsish) {
+		t.Error("a relay tug must NOT reach Mars-class distance (needs a deep-space antenna)")
+	}
+	// The limit is still real — even deep-space drops out eventually.
+	if connectedAt(t, w, "Deep-Space-Relay", beyond) {
+		t.Error("even the deep-space antenna must read NO SIGNAL past its reach")
+	}
+}
+
+// TestCommRelayChainBridgesCislunar (#182): two Relay-Tugs link to each other
+// across cislunar distances, so a tug beyond direct DSN reach still reaches the
+// network through a forwarding tug — and is NO SIGNAL without it.
+func TestCommRelayChainBridgesCislunar(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	a := spacecraft.NewFromLoadout("Relay-Tug")
+	radialAboveStation0(t, w, a, 2_200_000_000) // 2.2M km — within DSN reach (~2.24M km)
+	b := spacecraft.NewFromLoadout("Relay-Tug")
+	radialAboveStation0(t, w, b, 3_000_000_000) // 3.0M km — beyond direct DSN reach
+	w.Crafts = []*spacecraft.Spacecraft{a, b}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(1)
+	w.RecomputeCommGraph()
+	if !w.CommGraph.HasConnection(b.ID) {
+		t.Error("tug B should reach the network through tug A (cislunar relay chain)")
+	}
+	// Drop the forwarding tug → B is beyond direct DSN reach → NO SIGNAL.
+	w.Crafts = []*spacecraft.Spacecraft{b}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+	if w.CommGraph.HasConnection(b.ID) {
+		t.Error("without the relay, tug B (beyond direct DSN reach) must read NO SIGNAL")
 	}
 }
 
