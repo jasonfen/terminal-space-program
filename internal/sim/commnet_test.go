@@ -40,6 +40,79 @@ func TestCommandGateBlocksDisconnectedProbe(t *testing.T) {
 	}
 }
 
+// TestCommandGateBlocksManualBurnAndRCS (hardening, ADR 0027): the gate must
+// also cover engine ignition (StartManualBurn, the `b` key) and RCS pulses —
+// the two direct-thrust commands the original C2-5 slice missed. A
+// disconnected probe is refused on both; a connection lets ignition through,
+// proving the craft can burn and the gate was the only blocker.
+func TestCommandGateBlocksManualBurnAndRCS(t *testing.T) {
+	w := mustWorld(t)
+	probe := spacecraft.NewFromLoadout("Relay-Tug")
+	probe.Primary = w.Crafts[0].Primary
+	probe.State = w.Crafts[0].State
+	w.Crafts[0] = probe
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{}} // disconnected
+
+	w.StartManualBurn()
+	if probe.ManualBurn != nil {
+		t.Error("StartManualBurn must be blocked for a disconnected probe")
+	}
+	if _, ok := w.CommBlockedFlash(); !ok {
+		t.Error("a blocked ignition must raise the NO SIGNAL flash")
+	}
+
+	probe.EngineMode = spacecraft.EngineRCS
+	if w.FireRCSPulse(spacecraft.BurnPrograde) {
+		t.Error("FireRCSPulse must be blocked for a disconnected probe")
+	}
+
+	// Reconnect → ignition proceeds.
+	probe.EngineMode = spacecraft.EngineMain
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{probe.ID: true}}
+	w.StartManualBurn()
+	if probe.ManualBurn == nil {
+		t.Error("a connected probe with fuel+thrust must ignite")
+	}
+}
+
+// TestCommandGateBlocksClearNodesAndTranspose (hardening, ADR 0027): the
+// wipe-all ClearNodes (sibling of the gated DeleteNode) and Transpose
+// (sibling of the gated StageActive) must also refuse a disconnected probe.
+func TestCommandGateBlocksClearNodesAndTranspose(t *testing.T) {
+	w := mustWorld(t)
+	probe := spacecraft.NewFromLoadout("Relay-Tug")
+	probe.Primary = w.Crafts[0].Primary
+	probe.State = w.Crafts[0].State
+	probe.Nodes = []ManeuverNode{{TriggerTime: w.Clock.SimTime.Add(time.Hour), DV: 10, Mode: spacecraft.BurnPrograde}}
+	w.Crafts[0] = probe
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{}} // disconnected
+
+	w.ClearNodes()
+	if len(probe.Nodes) != 1 {
+		t.Error("ClearNodes must be blocked for a disconnected probe (node should remain)")
+	}
+
+	// A TransposeReady but unmanned, disconnected probe is refused with ErrNoSignal.
+	tp := &spacecraft.Spacecraft{
+		Controllable: true,
+		Crewed:       false,
+		Stages: []spacecraft.Stage{
+			{Name: "Descent"}, {Name: "Ascent"}, {Name: "SM"}, {Name: "CM"},
+		},
+	}
+	w.Crafts[0] = tp
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{}}
+	if err := w.Transpose(0); !errors.Is(err, ErrNoSignal) {
+		t.Errorf("Transpose on a disconnected probe: got %v, want ErrNoSignal", err)
+	}
+}
+
 // TestCommandGateAllowsConnectedAndCrewed (C2-5): a connected probe and a
 // crewed vessel both accept commands.
 func TestCommandGateAllowsConnectedAndCrewed(t *testing.T) {

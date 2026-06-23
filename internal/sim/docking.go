@@ -145,6 +145,15 @@ func (w *World) Undock(idx int) bool {
 				V: c.State.V.Add(radialOut.Scale(offset * pushVMS)),
 			},
 		}
+		// ADR 0027: every other vessel-construction path (NewFromLoadout /
+		// NewFromStages / save-load) backfills a command source on a
+		// command-less stack so it stays controllable. Undock must too —
+		// otherwise a released component whose own stages carry no command
+		// source (e.g. an uncrewed custom payload, or a legacy single-stage
+		// rebuild) derives Controllable=false and becomes unflyable debris.
+		// No-op when the component already carries one (the crewed LM cabin,
+		// the CSM's CM), so it doesn't override authored roles.
+		spacecraft.EnsureCommandSource(s)
 		s.SyncFields()
 		s.State.M = s.TotalMass()
 		restored = append(restored, s)

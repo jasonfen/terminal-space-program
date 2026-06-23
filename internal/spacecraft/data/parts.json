@@ -339,6 +339,7 @@
     {
       "id": "apollo-ascent",
       "name": "Ascent",
+      "command_source": "crewed",
       "glyph": "➤",
       "color": "#7BFFA0",
       "dry_mass_kg": 1200,

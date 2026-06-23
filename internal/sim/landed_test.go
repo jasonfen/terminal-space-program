@@ -157,6 +157,7 @@ func TestEngineIgnitionClearsLanded(t *testing.T) {
 	}
 	c.Throttle = 1.0
 	c.AttitudeMode = spacecraft.BurnRadialOut
+	crewTend(c) // command gate (ADR 0027): this test exercises landed/ignition logic, not comms
 	w.StartManualBurn()
 	if c.Landed {
 		t.Error("StartManualBurn should clear Landed; got Landed=true")
@@ -214,6 +215,7 @@ func TestLandedNoseTracksLocalUpThroughWarp(t *testing.T) {
 
 	// Liftoff: with the nose correct the craft must actually rise.
 	alt0 := c.Altitude()
+	crewTend(c) // command gate (ADR 0027): this test exercises landed/ignition logic, not comms
 	w.StartManualBurn()
 	for i := 0; i < 60; i++ { // ~3 s at 1× / 50 ms base step
 		w.Tick()
@@ -258,6 +260,7 @@ func TestLandedCraftStaysAtPadAfterLiftoff(t *testing.T) {
 
 	c.Throttle = 1.0
 	c.AttitudeMode = spacecraft.BurnRadialOut
+	crewTend(c) // command gate (ADR 0027): this test exercises landed/ignition logic, not comms
 	w.StartManualBurn()
 	if c.Landed {
 		t.Fatal("setup: StartManualBurn should clear Landed")

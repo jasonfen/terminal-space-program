@@ -69,6 +69,7 @@ func TestLiftoffClearsOnPad(t *testing.T) {
 	}
 	c.AttitudeMode = spacecraft.BurnRadialOut
 	c.Throttle = 1.0
+	crewTend(c) // command gate (ADR 0027): this test exercises onpad/liftoff logic, not comms
 	w.StartManualBurn()
 	if c.OnPad {
 		t.Errorf("after StartManualBurn: OnPad=true, want false")

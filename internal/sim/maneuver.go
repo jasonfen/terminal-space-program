@@ -53,6 +53,9 @@ func (w *World) StartManualBurn() {
 	if c == nil {
 		return
 	}
+	if !w.canCommand(c) { // ADR 0027: igniting the engine is a command, gated without a connection
+		return
+	}
 	if c.ActiveBurn != nil || c.ManualBurn != nil {
 		return
 	}
@@ -2346,9 +2349,14 @@ func (e transferError) Error() string { return string(e) }
 // ClearNodes wipes every pending node from the active craft. v0.8.1+:
 // per-active-craft (was global pre-v0.8.1).
 func (w *World) ClearNodes() {
-	if c := w.ActiveCraft(); c != nil {
-		c.Nodes = nil
+	c := w.ActiveCraft()
+	if c == nil {
+		return
 	}
+	if !w.canCommand(c) { // ADR 0027: editing the flight plan is a command (matches DeleteNode)
+		return
+	}
+	c.Nodes = nil
 }
 
 // DeleteNode removes the node at idx from the active craft's plan.

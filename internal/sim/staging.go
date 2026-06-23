@@ -200,7 +200,7 @@ func buildJettisonedCraft(stages []spacecraft.Stage, parent *spacecraft.Spacecra
 	c := &spacecraft.Spacecraft{
 		Name:                 name,
 		LoadoutID:            bottom.LoadoutID,
-		Role:                 "jettisoned-stage",
+		Role:                 spacecraft.RoleJettisonedStage,
 		Glyph:                glyph,
 		Color:                color,
 		Throttle:             0, // passive — player isn't flying it.
@@ -302,6 +302,9 @@ func (w *World) Transpose(craftIdx int) error {
 	c := w.Crafts[craftIdx]
 	if c == nil {
 		return fmt.Errorf("%w: %d (nil)", ErrStageNoCraft, craftIdx)
+	}
+	if !w.canCommand(c) { // ADR 0027: transposition restructures the stack — a command
+		return ErrNoSignal
 	}
 	if !TransposeReady(c) {
 		return ErrTransposeNotReady
