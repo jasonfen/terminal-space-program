@@ -50,6 +50,9 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	if w.ActiveCraft() == nil || w.ActiveCraft().EngineMode != spacecraft.EngineRCS {
 		return false
 	}
+	if !w.canCommand(w.ActiveCraft()) { // ADR 0027: an RCS pulse delivers Δv — a command
+		return false
+	}
 	if w.ActiveCraft().ActiveBurn != nil {
 		return false
 	}

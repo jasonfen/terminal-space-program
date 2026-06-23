@@ -51,6 +51,11 @@ func spawnSaturnVOnPad(t *testing.T) (*sim.World, *spacecraft.Spacecraft) {
 	if !c.Landed {
 		t.Fatal("launchpad spawn should set Landed=true")
 	}
+	// A crewed Saturn V: these launch-view tests exercise rendering and
+	// flight physics, not the comms command gate (ADR 0027). Without a
+	// command source the unmanned-default stack would refuse ignition / RCS.
+	c.Stages[len(c.Stages)-1].CommandSource = spacecraft.CommandCrewed
+	c.SyncFields()
 	return w, c
 }
 

@@ -303,6 +303,9 @@ func (w *World) Transpose(craftIdx int) error {
 	if c == nil {
 		return fmt.Errorf("%w: %d (nil)", ErrStageNoCraft, craftIdx)
 	}
+	if !w.canCommand(c) { // ADR 0027: transposition restructures the stack — a command
+		return ErrNoSignal
+	}
 	if !TransposeReady(c) {
 		return ErrTransposeNotReady
 	}
