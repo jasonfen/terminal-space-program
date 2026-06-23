@@ -98,3 +98,35 @@ func TestGroundStationUserOverlay(t *testing.T) {
 		t.Errorf("user override of goldstone failed: %+v", g)
 	}
 }
+
+// TestGroundStationLegacyKeyFallsBackToDefaultRange (#182): a user overlay
+// authored before the power_w→range_m rename uses the old key, which now
+// unmarshals to range 0. The loader must rescue it to the DSN-tier default so
+// the station stays functional rather than silently dead (commLinked rejects
+// range<=0).
+func TestGroundStationLegacyKeyFallsBackToDefaultRange(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "terminal-space-program", "ground_stations")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", root)
+
+	// Pre-amendment overlay: the legacy antenna_power_w key, no antenna_range_m.
+	legacy := `{"stations":[
+		{"key":"legacy","name":"Legacy Dish","body_id":"earth","lat_deg":0,"lon_east_deg":0,"antenna_power_w":250000}
+	]}`
+	if err := os.WriteFile(filepath.Join(dir, "legacy.json"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stations, _ := LoadGroundStations()
+	for _, s := range stations {
+		if s.Key == "legacy" {
+			if s.AntennaRangeM != DefaultGroundStationRangeM {
+				t.Errorf("legacy-key station range = %g, want default %g (rescued, not dead)", s.AntennaRangeM, DefaultGroundStationRangeM)
+			}
+			return
+		}
+	}
+	t.Error("legacy-key station was not loaded")
+}

@@ -380,7 +380,7 @@ func roleIsCrewedPod(role string) bool {
 const (
 	AntennaRangeDirectBasic   = 1.0e7  // near-Earth (LEO → geostationary), no forwarding
 	AntennaRangeRelayCislunar = 1.0e9  // Earth/Moon workhorse, forwards
-	AntennaRangeDeepSpace     = 6.0e11 // interplanetary
+	AntennaRangeDeepSpace     = 6.0e11 // Mars-class near opposition (far-interplanetary tuning deferred, #182)
 )
 
 // DefaultProbeAntennaRangeM is the basic telemetry antenna a defaulted probe

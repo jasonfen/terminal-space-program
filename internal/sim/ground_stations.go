@@ -63,13 +63,27 @@ func LoadGroundStations() ([]GroundStationPreset, []GroundStationWarning) {
 	return LoadGroundStationsWithWarnings()
 }
 
+// DefaultGroundStationRangeM is the rated range a station falls back to when
+// its entry carries no positive range — e.g. a user overlay authored before
+// the power_w→range_m rename (ADR 0027 §2 amendment), whose old key now
+// unmarshals to 0. Keeps a mis-keyed / un-ranged station functional at the DSN
+// tier instead of silently dead (commLinked rejects range<=0). The embedded
+// ring always carries explicit ranges, so this only ever rescues overlays.
+const DefaultGroundStationRangeM = 5.0e9
+
 // LoadGroundStationsWithWarnings loads the embedded catalog merged with the
 // user overlay ($XDG_CONFIG_HOME/terminal-space-program/ground_stations/*.json),
 // user winning on Key. A malformed embedded file panics (build error); a
-// malformed user file is skipped with a warning.
+// malformed user file is skipped with a warning. A station with no positive
+// range falls back to DefaultGroundStationRangeM.
 func LoadGroundStationsWithWarnings() ([]GroundStationPreset, []GroundStationWarning) {
-	stations := loadEmbeddedGroundStations()
-	return mergeUserGroundStations(stations, userGroundStationsDir())
+	stations, warnings := mergeUserGroundStations(loadEmbeddedGroundStations(), userGroundStationsDir())
+	for i := range stations {
+		if stations[i].AntennaRangeM <= 0 {
+			stations[i].AntennaRangeM = DefaultGroundStationRangeM
+		}
+	}
+	return stations, warnings
 }
 
 func loadEmbeddedGroundStations() []GroundStationPreset {
