@@ -212,6 +212,90 @@
           "part_id": "deep-space-relay"
         }
       ]
+    },
+    {
+      "id": "Relay-Comsat",
+      "name": "Relay Comsat",
+      "role": "relay-sat",
+      "glyph": "➤",
+      "color": "#8CE0C0",
+      "parts": [
+        {
+          "part_id": "relay-comsat"
+        }
+      ]
+    },
+    {
+      "id": "Ground-Station-Lander",
+      "name": "Ground-Station Lander",
+      "role": "ground-station",
+      "glyph": "➤",
+      "color": "#C0E0A0",
+      "parts": [
+        {
+          "part_id": "ground-station-lander"
+        }
+      ]
+    },
+    {
+      "id": "Science-Probe",
+      "name": "Science Probe",
+      "role": "science-probe",
+      "glyph": "➤",
+      "color": "#9BE0FF",
+      "parts": [
+        {
+          "part_id": "science-probe"
+        }
+      ]
+    },
+    {
+      "id": "Comsat-Carrier-3",
+      "name": "Comsat Carrier x3",
+      "role": "carrier",
+      "glyph": "➤",
+      "color": "#8CE0C0",
+      "parts": [
+        {
+          "part_id": "ntr-tug"
+        },
+        {
+          "part_id": "relay-comsat"
+        },
+        {
+          "part_id": "relay-comsat"
+        },
+        {
+          "part_id": "relay-comsat"
+        }
+      ],
+      "nose_payload_plan": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "id": "Survey-Pack",
+      "name": "Survey Pack",
+      "role": "carrier",
+      "glyph": "➤",
+      "color": "#9BE0FF",
+      "parts": [
+        {
+          "part_id": "ntr-tug"
+        },
+        {
+          "part_id": "relay-comsat"
+        },
+        {
+          "part_id": "science-probe"
+        }
+      ],
+      "nose_payload_plan": [
+        1,
+        1
+      ]
     }
   ]
 }
