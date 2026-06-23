@@ -80,16 +80,20 @@ _Avoid_: Decouple group, Staging sequence, Separation script.
 
 **Nose Payload Plan**:
 The spawn-time, top-release counterpart to the **Decouple Plan**: a
-bottom-up list (one entry today) naming how many contiguous *top* Stages
-of a custom build or **Loadout** form a docked **nose payload** rather
-than linear firing-core Stages. At spawn the builder splits the stack at
-the **Dock Seam**, builds the core and the payload as separate Vessels,
-and **Docks** them into a ready **Composite** — so a player-assembled
-CSM+LM spawns *already* in the post-**Transposition** shape (SM firing
-core, LM an **Undock**-able nose payload), with no flip to fly. Where the
-Decouple Plan releases bottom Stages via **Staging**, the Nose Payload
-Plan pre-assembles the top group and hands release to **Undock**. Default
-(absent) ⇒ a plain linear Vessel, the historical custom-build behaviour.
+bottom-up list naming how many contiguous *top* Stages of a custom build
+or **Loadout** form each docked **nose payload**, ordered top-down. At
+spawn the builder splits the stack at each **Dock Seam** entry, builds
+the carrier core and each payload as separate Vessels, and **Docks** them
+into a ready **Composite** — so a player-assembled CSM+LM spawns *already*
+in the post-**Transposition** shape (SM firing core, LM an **Undock**-able
+nose payload), with no flip to fly. Where the Decouple Plan releases
+bottom Stages via **Staging**, the Nose Payload Plan pre-assembles the top
+group(s) and hands release to **Undock** (in-flight docking composites) or
+**Deploy** (carried payloads — v0.23 / ADR 0028). Default (absent) ⇒ a
+plain linear Vessel, the historical custom-build behaviour. A multi-entry
+plan (e.g. `[1,1,1]`) assembles a **Payload Stack** — a carrier with N
+stacked docked payloads; a single-entry plan is byte-identical to v0.14
+behaviour.
 _Avoid_: Payload plan, Top decouple plan, Reverse staging.
 
 **Dock Seam**:
@@ -1119,6 +1123,198 @@ Magnitude is deliberately tiny — enough to break the gate, small
 enough that the orbital math of each restored Vessel is essentially
 unchanged.
 _Avoid_: Undock push, Separation impulse, Decouple kick.
+
+### Deployable payloads & CommNet
+
+How a Carrier Vessel releases a carried payload (v0.23 / ADR 0028)
+and how uncrewed vessels maintain command through the relay network
+(v0.23 / ADR 0027). The section covers both cycles because Deploy
+depends on CommNet: the payloads that make Deploy useful (relay sats,
+ground stations) are CommNet nodes.
+
+**Deployable Payload**:
+A **Loadout** (or sub-stack) carried inside a **Composite** and
+intended to be released mid-flight as its own **Vessel** using the
+**Deploy** verb. A payload is defined entirely by its parts — a relay
+antenna makes it a relay node, soft-land legs + a relay antenna make it
+a **Ground Station**, a probe core makes it an uncrewed probe. There is
+**no Deployable/IsPayload flag** on the Docked Component; the player's
+choice of verb (Deploy vs Undock) determines behaviour (ADR 0028
+decision 4).
+_Avoid_: Satellite (ambiguous with passive Vessels), Cargo (reserved for
+inert cargo tonnage, which is deferred).
+
+**Deploy** (verb / action):
+The player action that releases the **topmost** nose payload from a
+**Carrier** Composite and **keeps the carrier as the active Vessel** —
+drop-and-continue. Bound to `Y`. Emits the `deploy` semantic **Action**
+(ADR 0025 vocabulary). Distinct from **Undock** (`U`): Undock releases
+and *switches* the active Vessel to the released component, and is used
+for in-flight docking composites that rendezvoused and docked. Deploy
+reuses the same Undock release mechanism (separation push, Spring Release,
+new craft ID stamped) — the only code difference is which Vessel stays
+active. Deploy is blocked on a Vessel with no carried payload (guard
+prompt rather than no-op).
+_Avoid_: Undock (distinct verb — different active-craft post-release
+behaviour and different tutorial/objective vocabulary), Release (valid
+prose, but Deploy is the canonical noun for this specific verb).
+
+**Carrier**:
+A **Vessel** (typically a relay tug or upper stage) whose **Nose Payload
+Plan** carries one or more **Deployable Payloads**. The Carrier stays
+active after each **Deploy** press, allowing a single launch to deploy a
+full constellation by pressing `Y` repeatedly in sequence. No special
+type or flag — "Carrier" is a descriptive role (see **Role**) for any
+Vessel that has a Payload Stack mounted on its nose.
+_Avoid_: Tug (the relay-tug loadout is a Carrier, but not all Carriers
+are tugs), Mothership (informal).
+
+**Payload Stack**:
+A **Composite** assembled at spawn from a multi-entry **Nose Payload
+Plan** (e.g. `[1,1,1]` — three single-stage payloads), producing a
+carrier core with N stacked docked payloads ordered top-down. The player
+deploys them one by one from the top with repeated **Deploy** presses; a
+single-entry plan is byte-identical to the v0.14 single-payload behaviour.
+Distinct from the **Stage** stack (the propulsion chain on the carrier
+core itself).
+_Avoid_: Payload manifest (that implies an inert-cargo model; this is
+docked-component identity), Multi-payload stack (verbose; Payload Stack
+is the canonical noun).
+
+**Role**:
+A descriptive UI string on `Spacecraft` and `Loadout` (`"relay-sat"`,
+`"science-probe"`, `"ground-station-lander"`, etc.) used only for player
+labels and spawn hints — **no behaviour is keyed on it**. Capabilities
+come from parts (a relay antenna confers relay behaviour; legs + relay
+confer ground-station behaviour), not from the Role string. Role is the
+observable shorthand for "what this craft does," not a behavioural
+taxonomy. Pre-v0.23 uses of Role (e.g. "Command Module" for the Apollo CM
+re-entry role) follow the same rule.
+_Avoid_: Craft type (implies a behavioural enum, which this is not),
+Vessel class (same problem), Kind (in this context; Kind is already the
+Objective family discriminator).
+
+**Relay Sat**:
+A descriptive **Role** for an orbiting relay-antenna **Vessel** —
+typically one deployed from a **Carrier** via **Deploy**. Its relay
+behaviour comes from having `antenna: {kind: relay}` on its probe stage;
+once in range and unoccluded it automatically joins the **CommNet** relay
+graph as a forwarding node, extending coverage without any player "enable
+relay" action. The relay comsat loadout is the canonical starter unit.
+_Avoid_: Relay satellite (verbose; Relay Sat is the canonical short form
+in prose), Relay drone, Comm sat.
+
+**Ground Station** (player-deployed):
+A **Vessel** with a relay antenna that has **Landed** on a Body's surface —
+automatically a body-fixed relay node in the **CommNet** graph, with no
+"establish station" action required. Distinct from the **DSN ground-station
+ring** (catalog stations baked into `ground_stations.json`, always present)
+and from a **Launch Site** (a (lat, lon) spawn preset). A player deploys
+one by flying a Ground-Station Lander loadout — soft-land legs + a relay
+antenna + a probe core on one stage — to a Body's surface and touching
+down; once **Landed**, the relay-antenna craft is immediately a body-fixed
+relay node, with no staging or "establish station" step. The relay graph
+treats Landed Vessels with relay antennas identically to DSN stations —
+they are body-fixed (co-rotating) relay nodes.
+_Avoid_: DSN (that's the catalog ring), Station (overloaded with space
+stations), Network node (engineering term, not player-facing).
+
+**CommNet** (Communications Network):
+The relay graph that determines whether an uncrewed **Vessel** can be
+commanded. Computed once per tick from all antenna-equipped Vessels plus
+the **DSN ground-station ring**; each probe Vessel's reachability is BFS
+from that Vessel through relay hops to any ground station. **Crewed**
+Vessels are never gated (they always have `Controllable = true`);
+uncrewed **probe** Vessels require a relay chain to be commandable.
+Implemented in `internal/sim/commnet.go`; exposed on `World.CommGraph`
+(v0.23 / ADR 0027).
+_Avoid_: Signal network, Radio network, KSP CommNet (same metaphor but a
+different implementation — no antennas-combine formula this cycle).
+
+**Command Source**:
+The per-**Stage** declaration of how a Vessel gets command authority.
+Three values: **crewed** (a crewed pod — always commandable, never relay-
+gated; `CommandCrewed`), **probe** (an uncrewed probe core — commandable
+only via a **CommNet** relay chain; `CommandProbe`), and none/empty (no
+command authority — a propulsion-only stage, debris). A Vessel is
+`Controllable` iff any stage is a command source; `Crewed` iff any stage
+is `crewed`. Old saves without explicit `command_source` fields get a
+default backfill so they remain fully controllable (no migration).
+_Avoid_: Pilot, Control authority (verbose), Command capability.
+
+**Antenna** (direct vs relay):
+The per-**Stage** communications hardware declaration. Two functional
+kinds (besides `none`):
+- **Direct** (`AntennaDirect`) — can receive commands from and report to
+  a ground station directly, but **cannot forward** traffic for other
+  Vessels. Reaches up to the direct-basic tier range.
+- **Relay** (`AntennaRelay`) — can use the network *and* forward traffic
+  for others, making the Vessel a potential relay hop. The `Controllable`
+  check gates forwarding so a dead probe can't silently relay for others.
+
+Both carry an `AntennaRangeM` (metres) that constrains link distance.
+Three informal tiers used in catalog comments: **direct-basic**
+(LEO-to-geostationary range; Station-Keeper), **relay-cislunar** (Moon
+and below; Relay-Tug and Relay Comsat), **deep-space** (Mars-class
+distances). These tiers are named conventions in catalog annotations, not
+an enum in code.
+_Avoid_: Omni vs High-gain (KSP's distinction — this model uses direct
+vs relay), Antenna power (the field is called `range_m` in the catalog
+JSON, not a watts/power figure).
+
+**DSN ground-station ring**:
+The catalog default **CommNet** anchor: three fixed ground stations
+embedded in `ground_stations.json` at ~120° longitude separation on the
+home body (the real Goldstone / Madrid / Canberra sites), each with a high
+station-class relay range (`DefaultGroundStationRangeM`, 5,000,000 km —
+above the relay-cislunar tier, below deep-space). Loaded at world init
+into `World.GroundStations`. Player-deployed **Ground Stations** extend
+this ring; the DSN ring itself cannot be removed by the player. User
+overlays can add or replace stations by `key`.
+_Avoid_: DSN ring (bare acronym — "DSN ground-station ring" on first use;
+DSN ring fine thereafter), Home network, Default stations.
+
+**Command gating / NO SIGNAL**:
+The control-authority enforcement layer (v0.23 / ADR 0027 C2-5). When a
+probe Vessel has no **CommNet** connection (`!World.CanCommandCraft(c)`),
+all command-mutating World methods (plant/edit/delete node, throttle, stage,
+set attitude/NavMode) return early without effect and emit a transient
+"NO SIGNAL" status flash. Planning reads (predictions, porkchop), camera,
+and warp are **not** gated — the player can still observe and plan, just
+not command. Crewed Vessels are never gated.
+_Avoid_: Signal loss (implies something broke; gating is intentional
+design), Comms blackout (implies a transient — gating is permanent until
+connectivity is restored).
+
+**Relay forwarding**:
+The property of an **AntennaRelay** node that allows it to pass command
+traffic onward to other Vessels in the **CommNet** graph. Only Vessels
+that are both `AntennaKind == relay` and `Controllable` can forward; a
+dead probe with a relay antenna is a dead end (it can receive but not
+forward). A **DSN ground-station ring** station is always a forwarding
+endpoint (the source of authority, not a relay hop). Forwarding is
+purely topological: the relay graph finds the shortest hop chain from a
+probe to any ground station; the relay path is rendered on the orbit
+canvas as a styled line (v0.23 ADR 0027 C2-7).
+_Avoid_: Retransmit (correct in RF but not player vocabulary), Relay
+hop (fine in prose for one segment of the chain; relay forwarding
+describes the property).
+
+**Coverage objectives** (`relay_coverage` / `establish_contact`):
+Two mission **Kinds** (ADR 0027 / ADR 0025) that evaluate the **CommNet**
+graph:
+- **`relay_coverage`** — passes when ≥N relay-antenna Vessels in the
+  slate all have `HasConnection == true`. Used for constellation
+  missions ("deploy and connect 3 relay sats").
+- **`establish_contact`** — passes when the active Vessel currently has
+  `HasConnection == true`. Instantaneous + pass-and-stick, like
+  `reach_altitude`.
+
+Both are slate-wide (they read `World.CommGraph`) and require no per-craft
+binding — the relay graph's reachability covers the durable "is the relay
+still connected?" check as long as coverage holds.
+_Avoid_: Connectivity objective (valid description; `relay_coverage` and
+`establish_contact` are the canonical Kind strings), Coverage check.
 
 ### Orbital geometry
 
