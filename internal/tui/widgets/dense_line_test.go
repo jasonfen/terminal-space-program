@@ -125,6 +125,63 @@ func TestPlotDenseLineLongChordNotBridged(t *testing.T) {
 	}
 }
 
+// TestPlotDenseLineForcedBridgesLongChord: the forced variant (for genuine
+// straight sightlines — a CommNet relay link) DOES bridge a chord longer than
+// the canvas, drawing the visible run all the way toward a far off-screen
+// endpoint — the case the guarded variant deliberately refuses (compare
+// TestPlotDenseLineLongChordNotBridged).
+func TestPlotDenseLineForcedBridgesLongChord(t *testing.T) {
+	c := NewCanvas(60, 30) // 120 × 120 px, centre (60,60)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+
+	color := lipgloss.Color("#34E2D0")
+	a := orbital.Vec3{}          // centre, on-canvas
+	b := orbital.Vec3{X: 100000} // far off the right edge
+	c.PlotDenseLineForcedColored(a, b, color, 1)
+
+	px := taggedPixels(c, color)
+	cx, cy, _ := c.Project(a) // (60,60)
+	if len(px) < 50 {
+		t.Fatalf("forced long chord set %d pixels, want the visible run (~%d, centre→right edge)", len(px), 120-cx)
+	}
+	for _, p := range px {
+		if p[1] != cy {
+			t.Errorf("pixel %v off the y=%d line", p, cy)
+		}
+		if p[0] < cx || p[0] >= 120 {
+			t.Errorf("pixel %v outside the visible run [%d,119]", p, cx)
+		}
+	}
+}
+
+// TestPlotDenseLineForcedClipsStraddle: a forced chord with BOTH endpoints
+// off-canvas on opposite sides (the guarded variant draws nothing — both
+// endpoint dots are off-screen) draws its full visible run, clipped to the
+// canvas, with bounded iteration.
+func TestPlotDenseLineForcedClipsStraddle(t *testing.T) {
+	c := NewCanvas(60, 30) // 120 × 120 px, centre (60,60)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+
+	color := lipgloss.Color("#34E2D0")
+	a := orbital.Vec3{X: -100} // → pixel x = -40 (off-left)
+	b := orbital.Vec3{X: 100}  // → pixel x = 160 (off-right)
+	c.PlotDenseLineForcedColored(a, b, color, 1)
+
+	px := taggedPixels(c, color)
+	if len(px) < 100 {
+		t.Errorf("forced straddle set %d pixels, want ~120 (the full visible width)", len(px))
+	}
+	for _, p := range px {
+		if p[0] < 0 || p[0] >= 120 || p[1] < 0 || p[1] >= 120 {
+			t.Errorf("pixel %v outside canvas bounds (clip failed)", p)
+		}
+	}
+}
+
 // TestPlotDenseLineOffCanvasSkipped: a chord lying wholly off one edge sets
 // nothing and returns promptly (the same-off-edge guard), so a zoomed-in
 // leg's off-screen samples cost nothing.
