@@ -190,6 +190,7 @@
     {
       "id": "csm",
       "name": "CSM",
+      "command_source": "crewed",
       "glyph": "➤",
       "color": "#C0C0FF",
       "tier": "payload",
@@ -223,6 +224,7 @@
     {
       "id": "command-module",
       "name": "CM",
+      "command_source": "crewed",
       "glyph": "➤",
       "color": "#B8C8E0",
       "tier": "payload",
@@ -251,6 +253,7 @@
     {
       "id": "capsule",
       "name": "Capsule",
+      "command_source": "crewed",
       "glyph": "➤",
       "color": "#B8C8E0",
       "tier": "payload",
@@ -417,6 +420,7 @@
     {
       "id": "kern-pod",
       "name": "Pod",
+      "command_source": "crewed",
       "glyph": "➤",
       "color": "#B8C8E0",
       "dry_mass_kg": 1000,

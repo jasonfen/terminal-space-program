@@ -86,6 +86,14 @@ func main() {
 	for _, w := range spacecraft.LoadCatalogOverlay() {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: skipping loadout %s: %v\n", w.Path, w.Err)
 	}
+	// CommNet ground-station overlay (ADR 0027). Surfaces malformed user
+	// ground_stations/*.json before bubbletea takes the screen; NewWorld
+	// loads the merged ring into World.GroundStations.
+	if _, warnings := sim.LoadGroundStationsWithWarnings(); len(warnings) > 0 {
+		for _, w := range warnings {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: skipping ground station %s: %v\n", w.Path, w.Err)
+		}
+	}
 
 	if listSystems || listBodies || listLoadout || listSites {
 		printLists(systems, raw.system, listSystems, listBodies, listLoadout, listSites)

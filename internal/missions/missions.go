@@ -87,6 +87,15 @@ const (
 	// objective was active, rather than a world-state predicate. Used by
 	// control-teaching tutorial steps that leave no world trace.
 	KindEvent Kind = "event"
+
+	// Coverage objectives (v0.23 / ADR 0027): instantaneous + pass-and-stick
+	// CommNet predicates (no accumulator, no save bump). KindRelayCoverage
+	// passes when at least Params.MinRelays relay-antenna craft currently
+	// reach a ground station — "deploy a connected constellation of N
+	// relays". KindEstablishContact passes when the ACTIVE craft currently
+	// has a network connection — "get this probe in contact".
+	KindRelayCoverage    Kind = "relay_coverage"
+	KindEstablishContact Kind = "establish_contact"
 )
 
 // Action is a semantic gameplay verb the player triggers, recorded downward
@@ -120,6 +129,7 @@ const (
 	ActionSpawnCraft      Action = "spawn_craft"
 	ActionUndock          Action = "undock"
 	ActionTranspose       Action = "transpose"
+	ActionDeploy          Action = "deploy" // v0.23 / ADR 0028 (cycle 3 emits it; added with the comms cycle's vocab pass)
 )
 
 // FailCondition is an opt-in trigger that transitions an InProgress
@@ -210,6 +220,10 @@ type Params struct {
 	// Action is the semantic gameplay verb an Event objective matches
 	// (ADR 0025 §6/§7). KindEvent only. v0.21+.
 	Action Action `json:"action,omitempty"`
+
+	// MinRelays is the number of connected relay-antenna craft
+	// KindRelayCoverage requires (ADR 0027). v0.23+.
+	MinRelays int `json:"min_relays,omitempty"`
 }
 
 // Objective is the atomic pass/fail predicate (the pre-v0.21 Mission).
@@ -297,6 +311,14 @@ type EvalContext struct {
 	// evaluated while active), gives the "fired while InProgress" semantics
 	// without any per-objective watermark. Read by KindEvent.
 	RecentActions []Action
+
+	// CommNet connectivity snapshot (v0.23 / ADR 0027), projected down from
+	// World.CommGraph so the missions package stays free of any sim import.
+	// ActiveConnected is whether the active craft currently reaches a ground
+	// station; ConnectedRelayCount is how many relay-antenna craft in the
+	// slate currently do. Read by the coverage objectives.
+	ActiveConnected     bool
+	ConnectedRelayCount int
 }
 
 // Evaluate steps the objective one tick and returns the new status.
@@ -346,6 +368,33 @@ func (o Objective) evalKind(ctx EvalContext) Status {
 		return evalDock(o.Params, ctx)
 	case KindEvent:
 		return evalEvent(o.Params, ctx)
+	case KindRelayCoverage:
+		return evalRelayCoverage(o.Params, ctx)
+	case KindEstablishContact:
+		return evalEstablishContact(o.Params, ctx)
+	}
+	return InProgress
+}
+
+// evalRelayCoverage: pass when at least MinRelays relay-antenna craft
+// currently reach a ground station (ADR 0027). Instantaneous + sticky
+// (the Mission latches the Passed status). A non-positive MinRelays is
+// inert so a malformed entry can't pass for free.
+func evalRelayCoverage(p Params, ctx EvalContext) Status {
+	if p.MinRelays <= 0 {
+		return InProgress
+	}
+	if ctx.ConnectedRelayCount >= p.MinRelays {
+		return Passed
+	}
+	return InProgress
+}
+
+// evalEstablishContact: pass when the active craft currently has a network
+// connection (ADR 0027). Instantaneous + sticky.
+func evalEstablishContact(p Params, ctx EvalContext) Status {
+	if ctx.ActiveConnected {
+		return Passed
 	}
 	return InProgress
 }

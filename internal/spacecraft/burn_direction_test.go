@@ -14,9 +14,9 @@ import (
 func testEarth() bodies.CelestialBody {
 	return bodies.CelestialBody{
 		ID:              "earth",
-		MeanRadius:      6371,                                                // km
-		Mass:            bodies.Mass{Value: 5.972, Exponent: 24},             // kg
-		SideralRotation: 23.9345,                                             // hours (sidereal day)
+		MeanRadius:      6371,                                    // km
+		Mass:            bodies.Mass{Value: 5.972, Exponent: 24}, // kg
+		SideralRotation: 23.9345,                                 // hours (sidereal day)
 	}
 }
 

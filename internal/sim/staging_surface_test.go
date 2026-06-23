@@ -31,6 +31,7 @@ func landMoonLander(t *testing.T) (*World, *spacecraft.Spacecraft) {
 	c.LandedLatDeg, c.LandedLonDeg = 10.0, 45.0
 	w.Crafts = []*spacecraft.Spacecraft{c}
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 	// Seed R/V from the landed coords so the pre-stage state is realistic.
 	integrateLanded(w, c, time.Second)
 	return w, c
@@ -175,6 +176,7 @@ func TestExtractedLMSurfaceStagesDescentAlone(t *testing.T) {
 	stack.State = w.Crafts[0].State
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	// Drop S-IC, S-II, S-IVB (the [1,1,1] plan), then transpose + undock
 	// to release the LM as its own 2-stage craft.
@@ -209,6 +211,7 @@ func TestExtractedLMSurfaceStagesDescentAlone(t *testing.T) {
 	lm.Landed = true
 	lm.LandedLatDeg, lm.LandedLonDeg = -5.0, 120.0
 	w.SetActiveCraftIdx(lmIdx)
+	crewTend(lm) // testing surface staging, not comms
 	integrateLanded(w, lm, time.Second)
 
 	_, descentIdx, err := w.StageActive(lmIdx)
@@ -247,6 +250,7 @@ func TestDecouplePlanAdvancesOnEachPress(t *testing.T) {
 	stack.State = w.Crafts[0].State
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	wantRemaining := [][]int{
 		{1, 1, 2}, // after S-IC

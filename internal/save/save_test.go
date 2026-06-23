@@ -1383,3 +1383,59 @@ func TestRoundtripPreservesMoonPhase(t *testing.T) {
 			d, before, after)
 	}
 }
+
+// TestCommsAttributesRoundtrip (C2-1, ADR 0027): per-stage command_source
+// + antenna survive a save/load round-trip, and a pre-comms craft (stages
+// with no command source) is backfilled to controllable on load.
+func TestCommsAttributesRoundtrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	// A relay probe (ntr-tug): probe command source + relay antenna.
+	tug := spacecraft.NewFromLoadout("Relay-Tug")
+	tug.Primary = w.Crafts[0].Primary
+	tug.State = w.Crafts[0].State
+	w.Crafts[0] = tug
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	c := got.Crafts[0]
+	if c.Stages[0].CommandSource != spacecraft.CommandProbe {
+		t.Errorf("command source = %q, want probe after round-trip", c.Stages[0].CommandSource)
+	}
+	if c.Stages[0].AntennaKind != spacecraft.AntennaRelay || c.Stages[0].AntennaPowerW != 4000 {
+		t.Errorf("antenna = %q/%g, want relay/4000 after round-trip", c.Stages[0].AntennaKind, c.Stages[0].AntennaPowerW)
+	}
+	if !c.Controllable || c.Crewed {
+		t.Errorf("probe vessel: Controllable=%v Crewed=%v, want true/false", c.Controllable, c.Crewed)
+	}
+
+	// Pre-comms craft: strip the command source from every stage (an old
+	// save shape), confirm the load-time backfill restores controllability.
+	w2, _ := sim.NewWorld()
+	for i := range w2.Crafts[0].Stages {
+		w2.Crafts[0].Stages[i].CommandSource = ""
+	}
+	w2.Crafts[0].SyncFields()
+	if w2.Crafts[0].Controllable {
+		t.Fatal("precondition: stripped craft should be uncontrollable before save")
+	}
+	path2 := filepath.Join(t.TempDir(), "old.json")
+	if err := save.Save(w2, path2); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got2, err := save.Load(path2)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !got2.Crafts[0].Controllable {
+		t.Error("pre-comms craft should be backfilled to controllable on load")
+	}
+}

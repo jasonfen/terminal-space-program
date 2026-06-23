@@ -139,7 +139,7 @@ type Vec3 struct {
 // v5 reader (none in production, but possible for tooling) would
 // still see a coherent craft.
 type Craft struct {
-	ID               uint64  `json:"id,omitempty"` // v0.14.x / schema v7: stable Spacecraft.ID (ADR 0012). Pre-v7 saves omit it; migrateV6PayloadToV7 assigns one per slate position.
+	ID               uint64  `json:"id,omitempty"`         // v0.14.x / schema v7: stable Spacecraft.ID (ADR 0012). Pre-v7 saves omit it; migrateV6PayloadToV7 assigns one per slate position.
 	SystemIdx        int     `json:"system_idx,omitempty"` // v0.16 / schema v8: per-Vessel System binding (ADR 0015). Index into the name-sorted-Sol-first systems. Sol=0 omitted. Pre-v8 saves derive it from PrimaryID via migrateV7PayloadToV8. Distinct from Payload.SystemIdx (the world-level viewed system).
 	Name             string  `json:"name"`
 	DryMass          float64 `json:"dry_mass"`
@@ -279,6 +279,16 @@ type Stage struct {
 	// Spacecraft.HasParachute mirror. Pre-Slice-3 saves load with the
 	// field absent → default-false, matching every pre-Slice-3 stage.
 	HasParachute bool `json:"has_parachute,omitempty"`
+
+	// CommandSource / Antenna (v0.23 / ADR 0027, schema v9 additive — NO
+	// bump): per-Stage comms attributes, round-tripped so a saved probe
+	// or relay sat reloads with its connectivity role intact. Pre-comms
+	// saves load with these absent → empty, and the load-time
+	// EnsureCommandSource backfill stamps a default command source on the
+	// surviving core so old vessels stay controllable.
+	CommandSource string  `json:"command_source,omitempty"`
+	AntennaKind   string  `json:"antenna_kind,omitempty"`
+	AntennaPowerW float64 `json:"antenna_power_w,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -773,6 +783,12 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				c.Color = l.Color
 			}
 		}
+		// v0.23 / ADR 0027: backfill a default command source on pre-comms
+		// craft (no per-stage CommandSource) so old saves stay controllable;
+		// the Role resolved above decides crewed vs probe. No-op for
+		// post-comms saves whose stages already carry the attribute.
+		spacecraft.EnsureCommandSource(c)
+		c.SyncFields()
 		for _, dc := range wc.DockedComponents {
 			c.DockedComponents = append(c.DockedComponents, spacecraft.DockedComponent{
 				Name:             dc.Name,

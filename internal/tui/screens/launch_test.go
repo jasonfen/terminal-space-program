@@ -288,6 +288,13 @@ func TestDroppedStageVisibleAfterDecouple(t *testing.T) {
 		t.Skipf("Saturn V loadout has %d stages, need >= 2 to decouple", len(active.Stages))
 	}
 	active.Landed = false
+	// v0.23 / ADR 0027: this test exercises the decouple/render path, not
+	// comms — crew-tend the stack so staging isn't comms-gated (a probe on
+	// the KSC pad has no DSN line-of-sight).
+	if len(active.Stages) > 0 {
+		active.Stages[len(active.Stages)-1].CommandSource = spacecraft.CommandCrewed
+		active.SyncFields()
+	}
 	rNorm := active.State.R.Norm()
 	active.State.R = active.State.R.Scale((rNorm + 1000) / rNorm)
 

@@ -348,8 +348,66 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 		DecouplePlan:         plan,
 		SlewRateDegPerSec:    l.SlewRateDegPerSec,
 	}
+	EnsureCommandSource(c)
 	c.SyncFields()
 	return c
+}
+
+// roleIsCrewedPod reports whether a loadout/vessel Role denotes a crewed
+// command pod, used by the command-source defaulting (ADR 0027): a
+// command-less vessel whose role is a crewed pod defaults to a crewed
+// command source, otherwise to an uncrewed probe core.
+func roleIsCrewedPod(role string) bool {
+	return role == "capsule" || role == "mission-stack"
+}
+
+// DefaultProbeAntennaPowerW is the basic telemetry antenna a defaulted
+// probe core gets (ADR 0027): a bare launch vehicle / un-annotated custom
+// stack has a guidance + telemetry antenna in reality, so without one it
+// could never establish a connection and would be permanently
+// uncommandable once command-gating lands. Weaker than the dedicated
+// comsat / relay parts; the absolute value is deferred tuning.
+const DefaultProbeAntennaPowerW = 2000.0
+
+// EnsureCommandSource stamps a default command source on a command-less
+// *vessel* so it stays controllable (ADR 0027 defaulting rule): if no
+// stage is already a command source, the surviving core (top stage) gets
+// CommandCrewed when the vessel's role is a crewed pod, else CommandProbe.
+// A defaulted PROBE (not crewed — crew fly without contact) also gets a
+// basic direct antenna if the vessel carries none, so it can actually
+// reach the network. Applied at vessel construction (NewFromLoadout /
+// NewFromStages) and at save-load — NOT to jettisoned stages, so a spent
+// booster with no core stays passive debris. No-op once any stage declares
+// a command source (the catalog-authored crewed pods / probes, or an
+// already-defaulted vessel), so it is idempotent.
+func EnsureCommandSource(c *Spacecraft) {
+	if len(c.Stages) == 0 {
+		return
+	}
+	for _, st := range c.Stages {
+		if IsCommandSource(st.CommandSource) {
+			return
+		}
+	}
+	top := len(c.Stages) - 1
+	if roleIsCrewedPod(c.Role) {
+		c.Stages[top].CommandSource = CommandCrewed
+		return
+	}
+	c.Stages[top].CommandSource = CommandProbe
+	// A defaulted probe needs an antenna to be reachable; add a basic one
+	// only if the whole vessel carries no antenna already.
+	hasAntenna := false
+	for _, st := range c.Stages {
+		if st.AntennaKind != AntennaNone {
+			hasAntenna = true
+			break
+		}
+	}
+	if !hasAntenna {
+		c.Stages[top].AntennaKind = AntennaDirect
+		c.Stages[top].AntennaPowerW = DefaultProbeAntennaPowerW
+	}
 }
 
 // NewFromStages constructs a Spacecraft from a player-assembled
@@ -398,6 +456,7 @@ func NewFromStages(stages []Stage) *Spacecraft {
 		BallisticCoefficient: DefaultBallisticCoefficient,
 		Stages:               cp,
 	}
+	EnsureCommandSource(c)
 	c.SyncFields()
 	return c
 }

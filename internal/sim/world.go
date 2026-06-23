@@ -186,6 +186,20 @@ type World struct {
 	// time; Status fields progress as the player flies. v0.6.5+.
 	Missions []missions.Mission
 
+	// GroundStations is the CommNet ground-station catalog (v0.23 / ADR
+	// 0027): the home-body DSN ring plus any user overlay, loaded at
+	// NewWorld. Each station co-rotates with its body; its world position
+	// is computed on demand (the connectivity graph slice). Data-driven —
+	// extra stations or stations on other bodies are just catalog entries.
+	// Not persisted (rebuilt from the catalog on load).
+	GroundStations []GroundStationPreset
+
+	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
+	// ADR 0027): which unmanned probes currently reach a ground station.
+	// Rebuilt each Tick by RecomputeCommGraph after physics; read by
+	// CanCommandCraft + coverage objectives + the comms HUD. Transient.
+	CommGraph *CommGraph
+
 	// stagedThisSession latches once the player decouples a stage; it
 	// feeds the mission evaluator's outcome context (ADR 0025). Session
 	// scoped (not persisted) — outcome objectives that need it land in a
@@ -209,6 +223,12 @@ type World struct {
 	// pauses the instant they fail. Session scoped, not persisted.
 	missionFailMsg   string
 	missionFailUntil time.Time
+
+	// commBlockedUntil drives the "NO SIGNAL" transient (v0.23 / ADR 0027):
+	// set when a player command is gated on an unmanned vessel that has no
+	// network connection. Wall-clock deadline like missionFailUntil; the
+	// HUD reads CommBlockedFlash. Session scoped, not persisted.
+	commBlockedUntil time.Time
 
 	// enabledMissionPrograms gates which mission programs (ADR 0025 §2 Program
 	// tag) the evaluator and player surface treat as active (v0.21 Slice 7).
@@ -309,6 +329,13 @@ func NewWorld() (*World, error) {
 	if cat, err := missions.LoadAll(); err == nil {
 		w.Missions = missions.Clone(cat.Missions)
 	}
+
+	// v0.23 / ADR 0027: load the CommNet ground-station catalog (embedded
+	// DSN ring + user overlay). Non-fatal — a bad overlay file is skipped
+	// with a warning and the embedded ring still loads; comms is additive
+	// and must not block worldgen. Warnings are surfaced at startup
+	// (cmd/main.go) like the other overlay catalogs.
+	w.GroundStations, _ = LoadGroundStations()
 
 	// Spawn spacecraft in LEO. v0.1: craft is always in Sol.
 	// v0.8.1+: spawned into the multi-craft slate; subsequent craft
@@ -646,6 +673,12 @@ func (w *World) Tick() {
 	// early-returns when there's no active craft after draining, so actions
 	// recorded during an empty-slate window can't survive to latch a
 	// freshly-active event objective on the first post-spawn tick.
+	//
+	// v0.23 / ADR 0027: rebuild the CommNet connectivity graph after
+	// physics (positions are final) and before mission eval (coverage
+	// objectives read it). Gates command of unmanned vessels via
+	// CanCommandCraft. Cheap at the typical few-vessels + 3-stations scale.
+	w.RecomputeCommGraph()
 	w.evaluateMissions()
 	// v0.11.0+: per-tick ViewLaunch route/release state machine.
 	// Runs after integration so the post-tick Landed state is
@@ -807,6 +840,16 @@ func (w *World) missionEvalContext() missions.EvalContext {
 		HasTarget:      w.Target.Kind != spacecraft.TargetNone,
 		Staged:         w.stagedThisSession,
 		RecentActions:  w.recentActions,
+	}
+	// v0.23 / ADR 0027: project the CommNet graph down for coverage
+	// objectives (the missions package never imports sim).
+	if w.CommGraph != nil {
+		ctx.ActiveConnected = w.CommGraph.HasConnection(c.ID)
+		for _, oc := range w.Crafts {
+			if oc != nil && oc.AntennaKind == spacecraft.AntennaRelay && w.CommGraph.HasConnection(oc.ID) {
+				ctx.ConnectedRelayCount++
+			}
+		}
 	}
 	// Target-craft relative state (rendezvous), against the player's
 	// current target slot in the active craft's frame. Only when a craft

@@ -218,6 +218,25 @@ type Spacecraft struct {
 	// auto-deploy check. `omitempty`-default-false.
 	HasParachute bool
 
+	// Crewed / Controllable (v0.23 / ADR 0027): vessel-level mirrors of
+	// the per-stage CommandSource, re-derived by SyncFields across the
+	// whole stack on every staging / dock / load. Controllable is true
+	// when the vessel has any command source (crewed pod or probe core);
+	// Crewed is true when any is a crewed pod (crewed vessels are never
+	// comms-gated). A vessel with neither is passive debris. Construction
+	// (NewFromLoadout / NewFromStages) and save-load stamp a default
+	// command source on a command-less *vessel* so it stays controllable;
+	// jettisoned stages get no default, so a spent booster is debris.
+	Crewed       bool
+	Controllable bool
+
+	// AntennaKind / AntennaPowerW (v0.23 / ADR 0027): the vessel's
+	// effective comms antenna — the highest-power one across its stages,
+	// re-derived by SyncFields. Read by the connectivity graph (later
+	// cycle-2 slices). AntennaNone / zero means no antenna.
+	AntennaKind   string
+	AntennaPowerW float64
+
 	// ChuteState (v0.12 Slice 3, ADR 0008): the runtime parachute
 	// deploy state — STOWED → ARMED → DEPLOYED, one-way, DEPLOYED
 	// terminal. Lives alongside Landed / Crashed (the other surface-
@@ -504,6 +523,15 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	v := math.Sqrt(mu / r)
 	c := NewFromLoadout(LoadoutSIVB1ID)
 	c.Name = "S-IVB-1" // first vessel of the slate keeps the historical instance name.
+	// v0.23 / ADR 0027: the player's starting vessel is crew-tended, so it
+	// is never comms-gated — the player learns to fly without a connectivity
+	// constraint on their first ship; the probes they later launch ARE gated.
+	// Overrides the probe core EnsureCommandSource stamped at construction.
+	if len(c.Stages) > 0 {
+		top := len(c.Stages) - 1
+		c.Stages[top].CommandSource = CommandCrewed
+		c.SyncFields()
+	}
 	c.Primary = earth
 	// v0.8.6+: rotate the body-frame circular state into world coords
 	// so the orbit physically lies in Earth's equatorial plane (passes

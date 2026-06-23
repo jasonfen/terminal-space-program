@@ -22,6 +22,7 @@ func twoStageBurner(t *testing.T, w *World, dvRemaining float64) *spacecraft.Spa
 		{Name: "lower", DryMass: 500, FuelMass: 20, FuelCapacity: 20, Thrust: 200000, Isp: 250},
 		{Name: "upper", DryMass: 800, FuelMass: 4000, FuelCapacity: 4000, Thrust: 200000, Isp: 300},
 	}
+	crewTend(c) // synthetic stages carry no command source; crew-tend so commands aren't comms-gated
 	c.SyncFields()
 	c.State.M = c.TotalMass()
 	c.ActiveBurn = &spacecraft.ActiveBurn{

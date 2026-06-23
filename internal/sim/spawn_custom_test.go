@@ -83,6 +83,7 @@ func TestSpawnCustomLanderSplitStages(t *testing.T) {
 	if c.Stages[0].Name != "Descent" || c.Stages[1].Name != "Ascent" {
 		t.Fatalf("stack order wrong: bottom=%q top=%q", c.Stages[0].Name, c.Stages[1].Name)
 	}
+	crewTend(c) // testing the staging split, not comms
 
 	// Stage once: drops the Descent as its own craft, leaving the Ascent.
 	_, jidx, err := w.StageActive(w.ActiveCraftIdx)

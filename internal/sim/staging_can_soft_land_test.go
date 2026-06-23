@@ -36,6 +36,7 @@ func TestApolloStackLanderDecoupleCarriesCanSoftLand(t *testing.T) {
 	apollo.State = w.Crafts[0].State
 	w.Crafts[0] = apollo
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	// Stage 0 = S-IC bottom. Composite's CanSoftLand = false
 	// (S-IC doesn't land).
@@ -124,6 +125,7 @@ func TestFalcon9FirstStageDecoupleCarriesCanSoftLand(t *testing.T) {
 	f9.State = w.Crafts[0].State
 	w.Crafts[0] = f9
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	if !f9.CanSoftLand {
 		t.Errorf("F9 at spawn: CanSoftLand=false, want true (F9-S1 bottom carries flag)")
