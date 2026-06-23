@@ -186,6 +186,14 @@ type World struct {
 	// time; Status fields progress as the player flies. v0.6.5+.
 	Missions []missions.Mission
 
+	// GroundStations is the CommNet ground-station catalog (v0.23 / ADR
+	// 0027): the home-body DSN ring plus any user overlay, loaded at
+	// NewWorld. Each station co-rotates with its body; its world position
+	// is computed on demand (the connectivity graph slice). Data-driven —
+	// extra stations or stations on other bodies are just catalog entries.
+	// Not persisted (rebuilt from the catalog on load).
+	GroundStations []GroundStationPreset
+
 	// stagedThisSession latches once the player decouples a stage; it
 	// feeds the mission evaluator's outcome context (ADR 0025). Session
 	// scoped (not persisted) — outcome objectives that need it land in a
@@ -309,6 +317,13 @@ func NewWorld() (*World, error) {
 	if cat, err := missions.LoadAll(); err == nil {
 		w.Missions = missions.Clone(cat.Missions)
 	}
+
+	// v0.23 / ADR 0027: load the CommNet ground-station catalog (embedded
+	// DSN ring + user overlay). Non-fatal — a bad overlay file is skipped
+	// with a warning and the embedded ring still loads; comms is additive
+	// and must not block worldgen. Warnings are surfaced at startup
+	// (cmd/main.go) like the other overlay catalogs.
+	w.GroundStations, _ = LoadGroundStations()
 
 	// Spawn spacecraft in LEO. v0.1: craft is always in Sol.
 	// v0.8.1+: spawned into the multi-craft slate; subsequent craft
