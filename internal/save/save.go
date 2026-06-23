@@ -286,9 +286,15 @@ type Stage struct {
 	// saves load with these absent → empty, and the load-time
 	// EnsureCommandSource backfill stamps a default command source on the
 	// surviving core so old vessels stay controllable.
+	//
+	// AntennaRangeM is a rated range in metres (v0.22.x combinability model,
+	// ADR 0027 §2 amendment), renamed from the original antenna_power_w. A
+	// pre-amendment save carries antenna_power_w (now an ignored key) → this
+	// field loads as 0; wireStagesToSim backfills the rated range from the
+	// antenna kind so those saves keep working without a schema bump.
 	CommandSource string  `json:"command_source,omitempty"`
 	AntennaKind   string  `json:"antenna_kind,omitempty"`
-	AntennaPowerW float64 `json:"antenna_power_w,omitempty"`
+	AntennaRangeM float64 `json:"antenna_range_m,omitempty"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is

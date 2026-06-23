@@ -89,7 +89,7 @@ func TestCatalogRoundTrip(t *testing.T) {
 				HasParachute:         false,
 				// Forward-compatible (cycle 2 / ADR 0027) — declared now.
 				CommandSource: "none",
-				Antenna:       &Antenna{Kind: "relay", PowerW: 5000},
+				Antenna:       &Antenna{Kind: "relay", RangeM: 5000},
 			},
 			{
 				ID:            "test-capsule",

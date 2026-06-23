@@ -37,7 +37,15 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			HasParachute:         s.HasParachute,
 			CommandSource:        s.CommandSource,
 			AntennaKind:          s.AntennaKind,
-			AntennaPowerW:        s.AntennaPowerW,
+			AntennaRangeM:        s.AntennaRangeM,
+		}
+		// Save-compat (ADR 0027 §2 amendment): a pre-amendment save stored the
+		// antenna's legacy power in antenna_power_w (now an ignored key), so
+		// AntennaRangeM loads as 0 even though the antenna kind survives. A real
+		// antenna always has a positive range, so kind!=none with range 0
+		// uniquely marks an old save — re-range it from its kind's tier.
+		if out[i].AntennaKind != spacecraft.AntennaNone && out[i].AntennaRangeM == 0 {
+			out[i].AntennaRangeM = spacecraft.DefaultAntennaRangeForKind(out[i].AntennaKind)
 		}
 	}
 	return out
@@ -73,7 +81,7 @@ func simStagesToWire(stages []spacecraft.Stage) []Stage {
 			HasParachute:         s.HasParachute,
 			CommandSource:        s.CommandSource,
 			AntennaKind:          s.AntennaKind,
-			AntennaPowerW:        s.AntennaPowerW,
+			AntennaRangeM:        s.AntennaRangeM,
 		}
 	}
 	return out

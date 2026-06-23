@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1437,6 +1438,46 @@ func TestRoundtripPreservesMoonPhase(t *testing.T) {
 	}
 }
 
+// TestPreAmendmentAntennaReRanged (#182, ADR 0027 §2 amendment): a save
+// written before the rated-range amendment stored the antenna's legacy power
+// in antenna_power_w. On load the new antenna_range_m is absent (0), so the
+// loader re-ranges the surviving antenna kind to its tier — a relay antenna
+// comes back at the cislunar range, not dead. Simulated by renaming the new
+// save's antenna_range_m key back to the legacy antenna_power_w.
+func TestPreAmendmentAntennaReRanged(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	tug := spacecraft.NewFromLoadout("Relay-Tug")
+	tug.Primary = w.Crafts[0].Primary
+	tug.State = w.Crafts[0].State
+	w.Crafts[0] = tug
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	old := strings.ReplaceAll(string(raw), "antenna_range_m", "antenna_power_w")
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	s := got.Crafts[0].Stages[0]
+	if s.AntennaKind != spacecraft.AntennaRelay || s.AntennaRangeM != spacecraft.AntennaRangeRelayCislunar {
+		t.Errorf("pre-amendment antenna = %q/%g, want relay/%g (re-ranged from kind on load)",
+			s.AntennaKind, s.AntennaRangeM, spacecraft.AntennaRangeRelayCislunar)
+	}
+}
+
 // TestCommsAttributesRoundtrip (C2-1, ADR 0027): per-stage command_source
 // + antenna survive a save/load round-trip, and a pre-comms craft (stages
 // with no command source) is backfilled to controllable on load.
@@ -1463,8 +1504,8 @@ func TestCommsAttributesRoundtrip(t *testing.T) {
 	if c.Stages[0].CommandSource != spacecraft.CommandProbe {
 		t.Errorf("command source = %q, want probe after round-trip", c.Stages[0].CommandSource)
 	}
-	if c.Stages[0].AntennaKind != spacecraft.AntennaRelay || c.Stages[0].AntennaPowerW != 4000 {
-		t.Errorf("antenna = %q/%g, want relay/4000 after round-trip", c.Stages[0].AntennaKind, c.Stages[0].AntennaPowerW)
+	if c.Stages[0].AntennaKind != spacecraft.AntennaRelay || c.Stages[0].AntennaRangeM != spacecraft.AntennaRangeRelayCislunar {
+		t.Errorf("antenna = %q/%g, want relay/%g after round-trip", c.Stages[0].AntennaKind, c.Stages[0].AntennaRangeM, spacecraft.AntennaRangeRelayCislunar)
 	}
 	if !c.Controllable || c.Crewed {
 		t.Errorf("probe vessel: Controllable=%v Crewed=%v, want true/false", c.Controllable, c.Crewed)

@@ -19,17 +19,16 @@ import (
 // coverage objectives + the comms HUD (later slices). Transient — never
 // persisted; rebuilt each tick.
 
-// CommRangePerWatt is the placeholder link-range scale: the max link
-// distance (m) is this constant times the WEAKER endpoint's antenna power
-// (W). The two-endpoint range-combination formula is deferred tuning
-// (ADR 0027 §2 floats ∝ √(Pₐ·P_b)); this conservative min-power form ships
-// until playtest decides the real curve.
-const CommRangePerWatt = 5000.0
-
-// commLinkRangeM is the max distance at which two antennas can link, from
-// the weaker of the two powers (placeholder — see CommRangePerWatt).
-func commLinkRangeM(pa, pb float64) float64 {
-	return math.Min(pa, pb) * CommRangePerWatt
+// commLinkRangeM is the max distance at which two antennas can link, under
+// the KSP-style combinability model (ADR 0027 §2 amendment, v0.22.x): each
+// antenna carries a RATED RANGE (m) — the distance at which it reaches an
+// identical antenna — and the link range between two is the geometric mean of
+// their rated ranges. This lets a powerful ground station extend a weak
+// craft's reach (√ of a big and a small range lands usefully far), instead of
+// the old min-power form that capped every link at the weaker antenna. The
+// rated ranges themselves are the antenna tier values authored in the catalog.
+func commLinkRangeM(ra, rb float64) float64 {
+	return math.Sqrt(ra * rb)
 }
 
 // CommGraph is the cached per-tick connectivity result: the set of
@@ -67,11 +66,11 @@ func (g *CommGraph) Path(id uint64) []orbital.Vec3 {
 // ground station, with the world-frame position the LOS + range tests use.
 type commNode struct {
 	pos      orbital.Vec3
-	powerW   float64
-	forwards bool   // can relay traffic onward: a relay antenna + Controllable, or a ground station
-	station  bool   // a ground station (a connection sink)
-	probe    bool   // an unmanned controllable craft — a BFS source that needs a connection
-	craftID  uint64 // 0 for stations
+	rangeM   float64 // antenna rated range (m) — see commLinkRangeM
+	forwards bool    // can relay traffic onward: a relay antenna + Controllable, or a ground station
+	station  bool    // a ground station (a connection sink)
+	probe    bool    // an unmanned controllable craft — a BFS source that needs a connection
+	craftID  uint64  // 0 for stations
 }
 
 // connectivityResult is the full output of the connectivity solve: which
@@ -123,10 +122,10 @@ func connectivityFull(nodes []commNode, occ []physics.OccluderBody) connectivity
 }
 
 func commLinked(a, b commNode, occ []physics.OccluderBody) bool {
-	if a.powerW <= 0 || b.powerW <= 0 {
+	if a.rangeM <= 0 || b.rangeM <= 0 {
 		return false
 	}
-	if a.pos.Sub(b.pos).Norm() > commLinkRangeM(a.powerW, b.powerW) {
+	if a.pos.Sub(b.pos).Norm() > commLinkRangeM(a.rangeM, b.rangeM) {
 		return false
 	}
 	return !physics.SegmentOccludedByBody(a.pos, b.pos, occ)
@@ -207,7 +206,7 @@ func (w *World) RecomputeCommGraph() {
 		}
 		nodes = append(nodes, commNode{
 			pos:      w.groundStationWorldPos(st, *body),
-			powerW:   st.AntennaPowerW,
+			rangeM:   st.AntennaRangeM,
 			forwards: true,
 			station:  true,
 		})
@@ -218,7 +217,7 @@ func (w *World) RecomputeCommGraph() {
 		}
 		nodes = append(nodes, commNode{
 			pos:      w.BodyPosition(c.Primary).Add(c.State.R),
-			powerW:   c.AntennaPowerW,
+			rangeM:   c.AntennaRangeM,
 			forwards: c.AntennaKind == spacecraft.AntennaRelay && c.Controllable,
 			probe:    c.Controllable && !c.Crewed,
 			craftID:  c.ID,

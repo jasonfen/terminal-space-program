@@ -88,7 +88,7 @@ type StageModule struct {
 	// a loadout-referenced part does via Part.ToStage.
 	commandSource string
 	antennaKind   string
-	antennaPowerW float64
+	antennaRangeM float64
 }
 
 // Catalog stage IDs.
@@ -203,11 +203,11 @@ func (p Part) toStageModule() StageModule {
 		hasParachute:        p.HasParachute,
 		commandSource:       p.CommandSource,
 		antennaKind:         antennaKindOf(p),
-		antennaPowerW:       antennaPowerOf(p),
+		antennaRangeM:       antennaRangeOf(p),
 	}
 }
 
-// antennaKindOf / antennaPowerOf read a Part's optional antenna safely.
+// antennaKindOf / antennaRangeOf read a Part's optional antenna safely.
 func antennaKindOf(p Part) string {
 	if p.Antenna == nil {
 		return AntennaNone
@@ -215,11 +215,11 @@ func antennaKindOf(p Part) string {
 	return p.Antenna.Kind
 }
 
-func antennaPowerOf(p Part) float64 {
+func antennaRangeOf(p Part) float64 {
 	if p.Antenna == nil {
 		return 0
 	}
-	return p.Antenna.PowerW
+	return p.Antenna.RangeM
 }
 
 // StageCatalogOrder is the configurator's canonical cycle order —
@@ -287,7 +287,7 @@ func BuildStage(id string) (Stage, bool) {
 		HasParachute:         m.hasParachute,
 		CommandSource:        m.commandSource,
 		AntennaKind:          m.antennaKind,
-		AntennaPowerW:        m.antennaPowerW,
+		AntennaRangeM:        m.antennaRangeM,
 	}, true
 }
 

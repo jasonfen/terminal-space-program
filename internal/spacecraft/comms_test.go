@@ -32,21 +32,21 @@ func TestCommandSourceDerivation(t *testing.T) {
 }
 
 // TestAntennaDerivation (C2-1): the vessel antenna mirror is the
-// highest-power antenna across the stack; a vessel with none reads none.
+// longest-ranged antenna across the stack; a vessel with none reads none.
 func TestAntennaDerivation(t *testing.T) {
-	tug := NewFromLoadout("Relay-Tug") // ntr-tug carries a relay antenna @ 4000 W
-	if tug.AntennaKind != AntennaRelay || tug.AntennaPowerW != 4000 {
-		t.Errorf("Relay-Tug antenna = %q/%g, want relay/4000", tug.AntennaKind, tug.AntennaPowerW)
+	tug := NewFromLoadout("Relay-Tug") // ntr-tug carries the relay-cislunar antenna
+	if tug.AntennaKind != AntennaRelay || tug.AntennaRangeM != AntennaRangeRelayCislunar {
+		t.Errorf("Relay-Tug antenna = %q/%g, want relay/%g", tug.AntennaKind, tug.AntennaRangeM, AntennaRangeRelayCislunar)
 	}
-	probe := NewFromLoadout("Station-Keeper") // ion-keeper: direct @ 1500 W
-	if probe.AntennaKind != AntennaDirect || probe.AntennaPowerW != 1500 {
-		t.Errorf("Station-Keeper antenna = %q/%g, want direct/1500", probe.AntennaKind, probe.AntennaPowerW)
+	probe := NewFromLoadout("Station-Keeper") // ion-keeper: direct-basic
+	if probe.AntennaKind != AntennaDirect || probe.AntennaRangeM != AntennaRangeDirectBasic {
+		t.Errorf("Station-Keeper antenna = %q/%g, want direct/%g", probe.AntennaKind, probe.AntennaRangeM, AntennaRangeDirectBasic)
 	}
 	// Saturn-V has no authored antenna, but as a defaulted probe it gets a
 	// basic telemetry antenna so it can be reached (else uncommandable).
 	sat := NewFromLoadout(LoadoutSaturnVID)
-	if sat.AntennaKind != AntennaDirect || sat.AntennaPowerW != DefaultProbeAntennaPowerW {
-		t.Errorf("Saturn-V antenna = %q/%g, want direct/%g (defaulted probe telemetry)", sat.AntennaKind, sat.AntennaPowerW, DefaultProbeAntennaPowerW)
+	if sat.AntennaKind != AntennaDirect || sat.AntennaRangeM != DefaultProbeAntennaRangeM {
+		t.Errorf("Saturn-V antenna = %q/%g, want direct/%g (defaulted probe telemetry)", sat.AntennaKind, sat.AntennaRangeM, DefaultProbeAntennaRangeM)
 	}
 	// A crewed vessel needs no antenna (crew are never comms-gated).
 	apollo := NewFromLoadout(LoadoutCapsuleID)

@@ -25,16 +25,17 @@ var groundStationsFS embed.FS
 // LaunchSitePreset (a launchpad): a ground station is a network node. Key
 // is the short token, BodyID the body it sits on (its surface co-rotates),
 // LatDeg / LonEastDeg the body-fixed position (east-positive, pseudo-
-// Greenwich at simTime=0 — same convention as launch sites), AntennaPowerW
-// the relay power (ground stations are high-power; the two-endpoint range
-// formula is deferred tuning, ADR 0027 §2).
+// Greenwich at simTime=0 — same convention as launch sites), AntennaRangeM
+// the antenna's rated range in metres (the network anchor: ground stations
+// are long-ranged, so via combinability they extend a weak craft's reach —
+// ADR 0027 §2 amendment).
 type GroundStationPreset struct {
 	Key           string  `json:"key"`
 	Name          string  `json:"name"`
 	BodyID        string  `json:"body_id"`
 	LatDeg        float64 `json:"lat_deg"`
 	LonEastDeg    float64 `json:"lon_east_deg"`
-	AntennaPowerW float64 `json:"antenna_power_w"`
+	AntennaRangeM float64 `json:"antenna_range_m"`
 
 	// Source is a runtime annotation ("embedded" / "user"); excluded from
 	// JSON so it never affects round-trips.

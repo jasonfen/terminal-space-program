@@ -200,6 +200,18 @@
           "part_id": "ion-keeper"
         }
       ]
+    },
+    {
+      "id": "Deep-Space-Relay",
+      "name": "Deep-Space Relay",
+      "role": "tug",
+      "glyph": "➤",
+      "color": "#FFD27F",
+      "parts": [
+        {
+          "part_id": "deep-space-relay"
+        }
+      ]
     }
   ]
 }
