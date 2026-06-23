@@ -10,6 +10,34 @@ const (
 	FuelTypeSolid      = "solid"      // APCP (SLS SRB) — orange-red
 )
 
+// Command-source constants (v0.23 / ADR 0027). A stage's CommandSource
+// declares whether it is a control point and, if so, whether crewed.
+// Empty ("") means none (the stage is not a command source). A vessel is
+// Controllable iff ≥1 stage is a command source; Crewed iff any is crewed
+// (else it is an unmanned probe, comms-gated in the connectivity slices).
+const (
+	CommandNone   = ""       // not a command source (tank / engine / spent booster)
+	CommandCrewed = "crewed" // a crewed pod — flown by its crew, never comms-gated
+	CommandProbe  = "probe"  // an uncrewed probe core — needs a connection to be commanded
+)
+
+// IsCommandSource reports whether a CommandSource value makes a stage a
+// control point (crewed or probe — not none/empty/unknown).
+func IsCommandSource(src string) bool {
+	return src == CommandCrewed || src == CommandProbe
+}
+
+// Antenna-kind constants (v0.23 / ADR 0027). A stage's AntennaKind
+// declares its comms hardware: a direct antenna can use the network
+// (reach a ground station, possibly via relays) but cannot forward
+// traffic; a relay antenna can also forward for other vessels. Empty
+// ("") means no antenna.
+const (
+	AntennaNone   = ""       // no antenna
+	AntennaDirect = "direct" // can use the network, cannot forward for others
+	AntennaRelay  = "relay"  // can use AND forward (a comm-sat / ground-station relay)
+)
+
 // Stage describes one decouplable propulsion module on a spacecraft.
 // v0.9.1+. The Stages slice on Spacecraft is the source of truth for
 // dry mass / fuel / engine numbers; the historical flat fields
@@ -186,6 +214,20 @@ type Stage struct {
 	// every staging / dock / load so the capability rides the hardware
 	// across a decouple. `omitempty`.
 	HasParachute bool `json:",omitempty"`
+
+	// CommandSource (v0.23 / ADR 0027) declares whether this stage is a
+	// control point: CommandCrewed / CommandProbe / CommandNone (empty).
+	// Authored on the Part (ADR 0026 catalog) and carried here so it
+	// rides the hardware across staging/dock/save; SyncFields derives the
+	// vessel-level Crewed / Controllable mirrors from the whole stack.
+	CommandSource string `json:",omitempty"`
+
+	// AntennaKind / AntennaPowerW (v0.23 / ADR 0027) declare this stage's
+	// comms hardware (AntennaNone / AntennaDirect / AntennaRelay + power).
+	// Authored on the Part; SyncFields derives the vessel-level antenna
+	// (the highest-power one in the stack) for the connectivity graph.
+	AntennaKind   string  `json:",omitempty"`
+	AntennaPowerW float64 `json:",omitempty"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.
@@ -272,6 +314,27 @@ func (s *Spacecraft) SyncFields() {
 	// bottom stage too — the chute becomes "active" only once the
 	// chute-bearing stage is the surviving core (Stages[0]).
 	s.HasParachute = bottom.HasParachute
+	// v0.23 / ADR 0027: comms mirrors derived across the WHOLE stack
+	// (not just the bottom) — a probe core or relay antenna anywhere on
+	// the vessel makes the vessel controllable / relay-capable. Crewed
+	// wins over probe (a crewed pod is never comms-gated); the antenna is
+	// the highest-power one carried.
+	s.Crewed = false
+	s.Controllable = false
+	s.AntennaKind = AntennaNone
+	s.AntennaPowerW = 0
+	for _, st := range s.Stages {
+		if IsCommandSource(st.CommandSource) {
+			s.Controllable = true
+			if st.CommandSource == CommandCrewed {
+				s.Crewed = true
+			}
+		}
+		if st.AntennaKind != AntennaNone && st.AntennaPowerW > s.AntennaPowerW {
+			s.AntennaKind = st.AntennaKind
+			s.AntennaPowerW = st.AntennaPowerW
+		}
+	}
 }
 
 // ActiveStageFuel returns the bottom (currently-firing) stage's

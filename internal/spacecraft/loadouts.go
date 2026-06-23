@@ -348,8 +348,42 @@ func NewFromLoadout(loadoutID string) *Spacecraft {
 		DecouplePlan:         plan,
 		SlewRateDegPerSec:    l.SlewRateDegPerSec,
 	}
+	EnsureCommandSource(c)
 	c.SyncFields()
 	return c
+}
+
+// roleIsCrewedPod reports whether a loadout/vessel Role denotes a crewed
+// command pod, used by the command-source defaulting (ADR 0027): a
+// command-less vessel whose role is a crewed pod defaults to a crewed
+// command source, otherwise to an uncrewed probe core.
+func roleIsCrewedPod(role string) bool {
+	return role == "capsule" || role == "mission-stack"
+}
+
+// EnsureCommandSource stamps a default command source on a command-less
+// *vessel* so it stays controllable (ADR 0027 defaulting rule): if no
+// stage is already a command source, the surviving core (top stage) gets
+// CommandCrewed when the vessel's role is a crewed pod, else CommandProbe.
+// Applied at vessel construction (NewFromLoadout / NewFromStages) and at
+// save-load — NOT to jettisoned stages, so a spent booster with no core
+// stays passive debris. No-op once any stage declares a command source
+// (the catalog-authored crewed pods / probes, or an already-defaulted
+// vessel), so it is idempotent.
+func EnsureCommandSource(c *Spacecraft) {
+	if len(c.Stages) == 0 {
+		return
+	}
+	for _, st := range c.Stages {
+		if IsCommandSource(st.CommandSource) {
+			return
+		}
+	}
+	src := CommandProbe
+	if roleIsCrewedPod(c.Role) {
+		src = CommandCrewed
+	}
+	c.Stages[len(c.Stages)-1].CommandSource = src
 }
 
 // NewFromStages constructs a Spacecraft from a player-assembled
@@ -398,6 +432,7 @@ func NewFromStages(stages []Stage) *Spacecraft {
 		BallisticCoefficient: DefaultBallisticCoefficient,
 		Stages:               cp,
 	}
+	EnsureCommandSource(c)
 	c.SyncFields()
 	return c
 }

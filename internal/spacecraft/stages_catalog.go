@@ -82,6 +82,13 @@ type StageModule struct {
 	// and capsule (the standalone re-entry test vehicle). Disjoint from
 	// canSoftLand — a capsule has no engine landing route, only the chute.
 	hasParachute bool
+	// commandSource / antenna (v0.23 / ADR 0027): comms part attributes,
+	// carried onto the built Stage by BuildStage so a configurator-picked
+	// part contributes its connectivity role to a custom stack, exactly as
+	// a loadout-referenced part does via Part.ToStage.
+	commandSource string
+	antennaKind   string
+	antennaPowerW float64
 }
 
 // Catalog stage IDs.
@@ -194,7 +201,25 @@ func (p Part) toStageModule() StageModule {
 		launchSpriteHasLegs: p.LaunchSpriteHasLegs,
 		canSoftLand:         p.CanSoftLand,
 		hasParachute:        p.HasParachute,
+		commandSource:       p.CommandSource,
+		antennaKind:         antennaKindOf(p),
+		antennaPowerW:       antennaPowerOf(p),
 	}
+}
+
+// antennaKindOf / antennaPowerOf read a Part's optional antenna safely.
+func antennaKindOf(p Part) string {
+	if p.Antenna == nil {
+		return AntennaNone
+	}
+	return p.Antenna.Kind
+}
+
+func antennaPowerOf(p Part) float64 {
+	if p.Antenna == nil {
+		return 0
+	}
+	return p.Antenna.PowerW
 }
 
 // StageCatalogOrder is the configurator's canonical cycle order —
@@ -260,6 +285,9 @@ func BuildStage(id string) (Stage, bool) {
 		LaunchSpriteHasLegs:  m.launchSpriteHasLegs,
 		CanSoftLand:          m.canSoftLand,
 		HasParachute:         m.hasParachute,
+		CommandSource:        m.commandSource,
+		AntennaKind:          m.antennaKind,
+		AntennaPowerW:        m.antennaPowerW,
 	}, true
 }
 

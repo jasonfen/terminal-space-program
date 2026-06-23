@@ -113,9 +113,10 @@ func (s *Spacecraft) BurnDirectionForBurn(mode BurnMode, rT, vT orbital.Vec3, pl
 // direction. Public so tests can exercise the rotation math directly.
 //
 // Frame:
-//   up    = r̂                          (local vertical)
-//   east  = unit(spinAxis × up)         (local east on the body)
-//   north = up × east                   (right-handed local frame)
+//
+//	up    = r̂                          (local vertical)
+//	east  = unit(spinAxis × up)         (local east on the body)
+//	north = up × east                   (right-handed local frame)
 //
 // Rotation about north tilts the thrust vector east (+pitch) or west
 // (-pitch) without changing the heading component. At the poles

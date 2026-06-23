@@ -154,10 +154,11 @@ func (w CatalogWarning) Error() string {
 // The part's own identity fields ride along (Name / Glyph / Color); the
 // loadout-level LoadoutID is stamped by the loadout-assembly path
 // (C1-3 NewFromLoadout), not here, since a part doesn't know which
-// loadout references it. Tier and the forward-compatible comms attributes
-// have no Stage counterpart yet and are intentionally dropped.
+// loadout references it. Tier (configurator metadata) has no Stage
+// counterpart and is dropped. The comms attributes (command_source /
+// antenna, ADR 0027) DO ride onto the Stage now (cycle 2 / C2-1).
 func (p Part) ToStage() Stage {
-	return Stage{
+	st := Stage{
 		DryMass:              p.DryMassKg,
 		FuelMass:             p.FuelMassKg,
 		FuelCapacity:         p.FuelCapacityKg,
@@ -178,7 +179,13 @@ func (p Part) ToStage() Stage {
 		LaunchSpriteHasLegs:  p.LaunchSpriteHasLegs,
 		CanSoftLand:          p.CanSoftLand,
 		HasParachute:         p.HasParachute,
+		CommandSource:        p.CommandSource,
 	}
+	if p.Antenna != nil {
+		st.AntennaKind = p.Antenna.Kind
+		st.AntennaPowerW = p.Antenna.PowerW
+	}
+	return st
 }
 
 // LoadCatalogOverlay re-resolves the runtime catalogs (Loadouts,

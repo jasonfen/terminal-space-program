@@ -35,6 +35,9 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			BallisticCoefficient: s.BallisticCoefficient,
 			CanSoftLand:          s.CanSoftLand,
 			HasParachute:         s.HasParachute,
+			CommandSource:        s.CommandSource,
+			AntennaKind:          s.AntennaKind,
+			AntennaPowerW:        s.AntennaPowerW,
 		}
 	}
 	return out
@@ -68,6 +71,9 @@ func simStagesToWire(stages []spacecraft.Stage) []Stage {
 			BallisticCoefficient: s.BallisticCoefficient,
 			CanSoftLand:          s.CanSoftLand,
 			HasParachute:         s.HasParachute,
+			CommandSource:        s.CommandSource,
+			AntennaKind:          s.AntennaKind,
+			AntennaPowerW:        s.AntennaPowerW,
 		}
 	}
 	return out

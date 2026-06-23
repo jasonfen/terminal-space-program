@@ -1,0 +1,101 @@
+package spacecraft
+
+import "testing"
+
+// TestCommandSourceDerivation (C2-1, ADR 0027): SyncFields derives the
+// vessel-level Crewed / Controllable mirrors from the per-stage command
+// sources, and construction defaults a command-less vessel so it stays
+// controllable.
+func TestCommandSourceDerivation(t *testing.T) {
+	cases := []struct {
+		loadout         string
+		wantCrewed      bool
+		wantControllabe bool
+	}{
+		{LoadoutApolloStackID, true, true}, // CM is a crewed command source
+		{LoadoutCapsuleID, true, true},     // crewed re-entry capsule
+		{LoadoutKernStackID, true, true},   // crewed Pod core
+		{LoadoutSaturnVID, false, true},    // no crew part → defaulted probe core
+		{LoadoutSIVB1ID, false, true},      // single transfer stage → defaulted probe
+		{"Relay-Tug", false, true},         // explicit probe (data-only loadout)
+		{"Station-Keeper", false, true},    // explicit probe
+	}
+	for _, c := range cases {
+		v := NewFromLoadout(c.loadout)
+		if v.Crewed != c.wantCrewed {
+			t.Errorf("%s Crewed = %v, want %v", c.loadout, v.Crewed, c.wantCrewed)
+		}
+		if v.Controllable != c.wantControllabe {
+			t.Errorf("%s Controllable = %v, want %v", c.loadout, v.Controllable, c.wantControllabe)
+		}
+	}
+}
+
+// TestAntennaDerivation (C2-1): the vessel antenna mirror is the
+// highest-power antenna across the stack; a vessel with none reads none.
+func TestAntennaDerivation(t *testing.T) {
+	tug := NewFromLoadout("Relay-Tug") // ntr-tug carries a relay antenna @ 4000 W
+	if tug.AntennaKind != AntennaRelay || tug.AntennaPowerW != 4000 {
+		t.Errorf("Relay-Tug antenna = %q/%g, want relay/4000", tug.AntennaKind, tug.AntennaPowerW)
+	}
+	probe := NewFromLoadout("Station-Keeper") // ion-keeper: direct @ 1500 W
+	if probe.AntennaKind != AntennaDirect || probe.AntennaPowerW != 1500 {
+		t.Errorf("Station-Keeper antenna = %q/%g, want direct/1500", probe.AntennaKind, probe.AntennaPowerW)
+	}
+	sat := NewFromLoadout(LoadoutSaturnVID) // no antenna anywhere
+	if sat.AntennaKind != AntennaNone || sat.AntennaPowerW != 0 {
+		t.Errorf("Saturn-V antenna = %q/%g, want none/0", sat.AntennaKind, sat.AntennaPowerW)
+	}
+}
+
+// TestEnsureCommandSourceDefaulting (C2-1): EnsureCommandSource stamps the
+// surviving core of a command-less vessel — crewed for a crewed-pod role,
+// else probe — and is a no-op once any stage is a command source.
+func TestEnsureCommandSourceDefaulting(t *testing.T) {
+	// Command-less stack, generic role → top stage defaults to probe.
+	c := &Spacecraft{Role: "launch-vehicle", Stages: []Stage{
+		{Name: "booster", DryMass: 1000},
+		{Name: "core", DryMass: 500},
+	}}
+	EnsureCommandSource(c)
+	if c.Stages[1].CommandSource != CommandProbe {
+		t.Errorf("top stage command source = %q, want probe", c.Stages[1].CommandSource)
+	}
+	if c.Stages[0].CommandSource != CommandNone {
+		t.Errorf("bottom stage should stay none, got %q", c.Stages[0].CommandSource)
+	}
+
+	// Crewed-pod role → defaults to crewed.
+	crew := &Spacecraft{Role: "capsule", Stages: []Stage{{Name: "pod", DryMass: 500}}}
+	EnsureCommandSource(crew)
+	if crew.Stages[0].CommandSource != CommandCrewed {
+		t.Errorf("crewed-pod default = %q, want crewed", crew.Stages[0].CommandSource)
+	}
+
+	// Already has a command source → no-op (does not overwrite or add).
+	existing := &Spacecraft{Role: "custom", Stages: []Stage{
+		{Name: "probe", DryMass: 100, CommandSource: CommandProbe},
+		{Name: "tank", DryMass: 200},
+	}}
+	EnsureCommandSource(existing)
+	if existing.Stages[1].CommandSource != CommandNone {
+		t.Errorf("no-op expected, but top stage got %q", existing.Stages[1].CommandSource)
+	}
+}
+
+// TestJettisonedStageIsDebris (C2-1): a craft built directly from
+// command-less stages WITHOUT the construction defaulting (the
+// buildJettisonedCraft path) derives Controllable=false — a spent booster
+// is passive debris, not a vessel.
+func TestJettisonedStageIsDebris(t *testing.T) {
+	debris := &Spacecraft{Role: "launch-vehicle", Stages: []Stage{
+		{Name: "S-IC", DryMass: 130000},
+	}}
+	debris.SyncFields() // no EnsureCommandSource — mirrors buildJettisonedCraft
+	if debris.Controllable {
+		t.Error("a jettisoned command-less booster should be debris (Controllable=false)")
+	}
+	if debris.Crewed {
+		t.Error("debris should not read as crewed")
+	}
+}

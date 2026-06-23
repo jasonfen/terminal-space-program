@@ -96,10 +96,10 @@ type BurnMode int
 const (
 	BurnPrograde BurnMode = iota
 	BurnRetrograde
-	BurnNormalPlus    // orbit normal (+h direction)
-	BurnNormalMinus   // orbit normal (-h direction)
-	BurnRadialOut     // away from primary
-	BurnRadialIn      // toward primary
+	BurnNormalPlus  // orbit normal (+h direction)
+	BurnNormalMinus // orbit normal (-h direction)
+	BurnRadialOut   // away from primary
+	BurnRadialIn    // toward primary
 
 	// Surface-relative modes (v0.9.2+) — live SAS only, not planted-
 	// node modes. Direction = ±(v_surface).Unit() where v_surface =

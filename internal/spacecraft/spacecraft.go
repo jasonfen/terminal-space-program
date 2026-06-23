@@ -218,6 +218,25 @@ type Spacecraft struct {
 	// auto-deploy check. `omitempty`-default-false.
 	HasParachute bool
 
+	// Crewed / Controllable (v0.23 / ADR 0027): vessel-level mirrors of
+	// the per-stage CommandSource, re-derived by SyncFields across the
+	// whole stack on every staging / dock / load. Controllable is true
+	// when the vessel has any command source (crewed pod or probe core);
+	// Crewed is true when any is a crewed pod (crewed vessels are never
+	// comms-gated). A vessel with neither is passive debris. Construction
+	// (NewFromLoadout / NewFromStages) and save-load stamp a default
+	// command source on a command-less *vessel* so it stays controllable;
+	// jettisoned stages get no default, so a spent booster is debris.
+	Crewed       bool
+	Controllable bool
+
+	// AntennaKind / AntennaPowerW (v0.23 / ADR 0027): the vessel's
+	// effective comms antenna — the highest-power one across its stages,
+	// re-derived by SyncFields. Read by the connectivity graph (later
+	// cycle-2 slices). AntennaNone / zero means no antenna.
+	AntennaKind   string
+	AntennaPowerW float64
+
 	// ChuteState (v0.12 Slice 3, ADR 0008): the runtime parachute
 	// deploy state — STOWED → ARMED → DEPLOYED, one-way, DEPLOYED
 	// terminal. Lives alongside Landed / Crashed (the other surface-
