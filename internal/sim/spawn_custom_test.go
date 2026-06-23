@@ -176,6 +176,76 @@ func TestSpawnNosePayloadCompositeAssembles(t *testing.T) {
 	}
 }
 
+// TestSpawnMultiNosePayloadComposite — v0.23 / ADR 0028 C3-1. A two-entry
+// NosePayloadPlan generalizes the v0.14 single-payload split to N: each entry
+// is a count of contiguous TOP stages forming one docked payload, ordered
+// top-down ([1,1] = topmost payload of 1 stage atop a second 1-stage payload,
+// over the carrier core). The composite spawns with carrier + N payloads as
+// DockedComponents ordered bottom-to-top (core first, then each payload from
+// the bottom up), so the composite-stage order matches and Undock's sequential
+// stage-peel releases each as its own craft.
+func TestSpawnMultiNosePayloadComposite(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sic, _ := spacecraft.BuildStage(spacecraft.StageModuleSICID)
+	sivb, _ := spacecraft.BuildStage(spacecraft.StageModuleSIVBID)
+	csm, _ := spacecraft.BuildStage(spacecraft.StageModuleCSMID)
+
+	c, err := w.SpawnCraft(SpawnSpec{
+		CustomStages:    []spacecraft.Stage{sic, sivb, csm},
+		NosePayloadPlan: []int{1, 1}, // CSM is the top payload, S-IVB the next below; S-IC is the carrier core
+		ParentBodyID:    "earth",
+		AltitudeM:       400e3,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft(multi-payload): %v", err)
+	}
+
+	// Full stack preserved, carrier core at the bottom and firing.
+	wantStack := []string{"S-IC", "S-IVB", "CSM"}
+	for i, want := range wantStack {
+		if c.Stages[i].Name != want {
+			t.Errorf("Stages[%d] = %q, want %q", i, c.Stages[i].Name, want)
+		}
+	}
+	if c.Thrust <= 0 || c.Stages[0].Name != "S-IC" {
+		t.Errorf("composite firing core = %q @ %.0fN, want S-IC with thrust", c.Stages[0].Name, c.Thrust)
+	}
+	if !strings.HasPrefix(c.Name, "S-IC") {
+		t.Errorf("composite name = %q, want an S-IC* name (flies as the carrier core)", c.Name)
+	}
+
+	// Three docked components, ordered bottom-to-top: core, lower payload, top payload.
+	if len(c.DockedComponents) != 3 {
+		t.Fatalf("DockedComponents = %d, want 3 (core + 2 payloads)", len(c.DockedComponents))
+	}
+	wantComps := []string{"S-IC", "S-IVB", "CSM"}
+	for i, want := range wantComps {
+		comp := c.DockedComponents[i]
+		if len(comp.Stages) != 1 || comp.Stages[0].Name != want {
+			t.Errorf("DockedComponents[%d] = %d stages (%q), want single %q", i, len(comp.Stages), comp.Stages[0].Name, want)
+		}
+	}
+
+	// Undock still releases every component as its own coherent craft.
+	if !w.Undock(w.ActiveCraftIdx) {
+		t.Fatal("Undock of the multi-payload composite returned false")
+	}
+	got := map[string]bool{}
+	for _, cc := range w.Crafts {
+		if len(cc.Stages) == 1 {
+			got[cc.Stages[0].Name] = true
+		}
+	}
+	for _, name := range []string{"S-IC", "S-IVB", "CSM"} {
+		if !got[name] {
+			t.Errorf("Undock did not release a standalone %q craft", name)
+		}
+	}
+}
+
 // TestSpawnNosePayloadAbsentIsLinear — control for ADR 0011: the SAME
 // stack with no NosePayloadPlan spawns as a plain linear craft (no
 // DockedComponents), staging single-pops, and a malformed seam degrades
