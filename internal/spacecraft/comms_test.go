@@ -42,9 +42,16 @@ func TestAntennaDerivation(t *testing.T) {
 	if probe.AntennaKind != AntennaDirect || probe.AntennaPowerW != 1500 {
 		t.Errorf("Station-Keeper antenna = %q/%g, want direct/1500", probe.AntennaKind, probe.AntennaPowerW)
 	}
-	sat := NewFromLoadout(LoadoutSaturnVID) // no antenna anywhere
-	if sat.AntennaKind != AntennaNone || sat.AntennaPowerW != 0 {
-		t.Errorf("Saturn-V antenna = %q/%g, want none/0", sat.AntennaKind, sat.AntennaPowerW)
+	// Saturn-V has no authored antenna, but as a defaulted probe it gets a
+	// basic telemetry antenna so it can be reached (else uncommandable).
+	sat := NewFromLoadout(LoadoutSaturnVID)
+	if sat.AntennaKind != AntennaDirect || sat.AntennaPowerW != DefaultProbeAntennaPowerW {
+		t.Errorf("Saturn-V antenna = %q/%g, want direct/%g (defaulted probe telemetry)", sat.AntennaKind, sat.AntennaPowerW, DefaultProbeAntennaPowerW)
+	}
+	// A crewed vessel needs no antenna (crew are never comms-gated).
+	apollo := NewFromLoadout(LoadoutCapsuleID)
+	if apollo.AntennaKind != AntennaNone {
+		t.Errorf("crewed Capsule should not get a defaulted antenna, got %q", apollo.AntennaKind)
 	}
 }
 

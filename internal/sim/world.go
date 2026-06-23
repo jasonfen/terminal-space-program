@@ -194,6 +194,12 @@ type World struct {
 	// Not persisted (rebuilt from the catalog on load).
 	GroundStations []GroundStationPreset
 
+	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
+	// ADR 0027): which unmanned probes currently reach a ground station.
+	// Rebuilt each Tick by RecomputeCommGraph after physics; read by
+	// CanCommandCraft + coverage objectives + the comms HUD. Transient.
+	CommGraph *CommGraph
+
 	// stagedThisSession latches once the player decouples a stage; it
 	// feeds the mission evaluator's outcome context (ADR 0025). Session
 	// scoped (not persisted) — outcome objectives that need it land in a
@@ -661,6 +667,12 @@ func (w *World) Tick() {
 	// early-returns when there's no active craft after draining, so actions
 	// recorded during an empty-slate window can't survive to latch a
 	// freshly-active event objective on the first post-spawn tick.
+	//
+	// v0.23 / ADR 0027: rebuild the CommNet connectivity graph after
+	// physics (positions are final) and before mission eval (coverage
+	// objectives read it). Gates command of unmanned vessels via
+	// CanCommandCraft. Cheap at the typical few-vessels + 3-stations scale.
+	w.RecomputeCommGraph()
 	w.evaluateMissions()
 	// v0.11.0+: per-tick ViewLaunch route/release state machine.
 	// Runs after integration so the post-tick Landed state is
