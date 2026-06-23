@@ -2,10 +2,58 @@ package spacecraft
 
 import (
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
+
+// TestNewFromLoadoutResolvedGolden locks the C1-3 data-resolved loadouts
+// (ADR 0026): NewFromLoadout must reproduce the pre-migration stages
+// byte-identically — the per-loadout LoadoutID stamp, the RCS pool derived
+// from dry mass, and the divergent stages that became distinct catalog
+// parts (Apollo's ADR-0009-trimmed LM fuel; the CSM-blue SM that differs
+// from the silver catalog service-module).
+func TestNewFromLoadoutResolvedGolden(t *testing.T) {
+	sv := NewFromLoadout(LoadoutSaturnVID)
+	if len(sv.Stages) != 3 {
+		t.Fatalf("Saturn-V stages = %d, want 3", len(sv.Stages))
+	}
+	mono, cap, thr, isp := DefaultRCSLoadout(130000)
+	wantSIC := Stage{
+		LoadoutID: LoadoutSaturnVID, Name: "S-IC", Glyph: VesselGlyph, Color: "#FF8C42",
+		DryMass: 130000, FuelMass: 2160000, FuelCapacity: 2160000, Thrust: 35100000, Isp: 263,
+		MonopropMass: mono, MonopropCap: cap, RCSThrust: thr, RCSIsp: isp,
+		BallisticCoefficient: 8e-6, LaunchSpriteRowsPx: 24, LaunchSpriteWidthPx: 5,
+		LaunchSpriteColor: "#F5EFE0", FuelType: FuelTypeKerolox,
+	}
+	if !reflect.DeepEqual(sv.Stages[0], wantSIC) {
+		t.Errorf("Saturn-V S-IC resolution drift:\n want %+v\n  got %+v", wantSIC, sv.Stages[0])
+	}
+	for _, s := range sv.Stages {
+		if s.LoadoutID != LoadoutSaturnVID {
+			t.Errorf("Saturn-V stage %q LoadoutID = %q, want %q", s.Name, s.LoadoutID, LoadoutSaturnVID)
+		}
+	}
+
+	ap := NewFromLoadout(LoadoutApolloStackID)
+	byName := map[string]Stage{}
+	for _, s := range ap.Stages {
+		byName[s.Name] = s
+		if s.LoadoutID != LoadoutApolloStackID {
+			t.Errorf("Apollo stage %q LoadoutID = %q, want %q", s.Name, s.LoadoutID, LoadoutApolloStackID)
+		}
+	}
+	if d := byName["Descent"]; d.FuelMass != 6310 || d.FuelCapacity != 6310 {
+		t.Errorf("Apollo Descent fuel = %g/%g, want 6310 (ADR 0009 trim)", d.FuelMass, d.FuelCapacity)
+	}
+	if a := byName["Ascent"]; a.FuelMass != 1269 {
+		t.Errorf("Apollo Ascent fuel = %g, want 1269 (ADR 0009 trim)", a.FuelMass)
+	}
+	if sm := byName["SM"]; sm.Color != "#C0C0FF" {
+		t.Errorf("Apollo SM color = %q, want #C0C0FF (distinct from catalog service-module)", sm.Color)
+	}
+}
 
 // TestLoadoutsCatalogShape — every entry in LoadoutOrder must map
 // to a non-empty Loadouts entry, and each entry must have non-empty

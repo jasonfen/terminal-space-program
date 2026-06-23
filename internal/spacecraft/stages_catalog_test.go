@@ -1,6 +1,63 @@
 package spacecraft
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+// TestBuildStageGoldenByteIdentical pins the FULL Stage that BuildStage
+// produces for representative catalog parts, so the ADR 0026 (C1-2)
+// migration of the catalog data into data/parts.json — and any future
+// edit to that file — stays byte-identical to the pre-migration Go
+// literal. s-ivb anchors a fuelled engine stage (dry 11000 ⇒ the RCS pool
+// derives to round numbers); capsule anchors an engineless parachute part
+// (RCS still scales from dry mass). The RCS pool is derived at build time
+// via DefaultRCSLoadout, not stored per part — asserted here against that
+// same canonical derivation.
+func TestBuildStageGoldenByteIdentical(t *testing.T) {
+	sivbMono, sivbCap, sivbThr, sivbIsp := DefaultRCSLoadout(11000)
+	wantSIVB := Stage{
+		Name:                 "S-IVB",
+		Glyph:                VesselGlyph,
+		Color:                "#FFD93D",
+		DryMass:              11000,
+		FuelMass:             109000,
+		FuelCapacity:         109000,
+		Thrust:               1023000,
+		Isp:                  421,
+		MonopropMass:         sivbMono,
+		MonopropCap:          sivbCap,
+		RCSThrust:            sivbThr,
+		RCSIsp:               sivbIsp,
+		BallisticCoefficient: 6.25e-5,
+		LaunchSpriteRowsPx:   12,
+		LaunchSpriteWidthPx:  3,
+		LaunchSpriteColor:    "#D8D8D8",
+		FuelType:             FuelTypeHydrolox,
+	}
+	if got, ok := BuildStage(StageModuleSIVBID); !ok || !reflect.DeepEqual(got, wantSIVB) {
+		t.Errorf("BuildStage(s-ivb) byte-identity drift:\n want %+v\n  got %+v (ok=%v)", wantSIVB, got, ok)
+	}
+
+	capMono, capCap, capThr, capIsp := DefaultRCSLoadout(5800)
+	wantCapsule := Stage{
+		Name:                "Capsule",
+		Glyph:               VesselGlyph,
+		Color:               "#B8C8E0",
+		DryMass:             5800,
+		MonopropMass:        capMono,
+		MonopropCap:         capCap,
+		RCSThrust:           capThr,
+		RCSIsp:              capIsp,
+		LaunchSpriteRowsPx:  6,
+		LaunchSpriteWidthPx: 3,
+		LaunchSpriteColor:   "#C8C8D0",
+		HasParachute:        true,
+	}
+	if got, ok := BuildStage(StageModuleCapsuleID); !ok || !reflect.DeepEqual(got, wantCapsule) {
+		t.Errorf("BuildStage(capsule) byte-identity drift:\n want %+v\n  got %+v (ok=%v)", wantCapsule, got, ok)
+	}
+}
 
 // TestEveryEngineBearingStageHasFuelType (v0.11.5 sub-scope 4): every
 // catalog stage with Thrust > 0 carries a non-empty FuelType so a

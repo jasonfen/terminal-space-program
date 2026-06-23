@@ -65,21 +65,22 @@ type StageModule struct {
 	launchSpriteHasLegs bool
 	// canSoftLand (v0.11.4-followup) marks stages designed to
 	// soft-land — populates the matching Stage.CanSoftLand flag
-	// via catalogCanSoftLandByName so the surface-arrival
-	// predicate gates correctly across staging. Today's true
-	// entries: lander (LM-derived descent stage), f9-s1 (Falcon
-	// 9 first stage with retro-burn recovery). Everything else
-	// stays false — Saturn V stages crash on contact, CSM crashes
-	// on contact, F9-S2 crashes on contact.
+	// (carried on the Part since v0.23/ADR 0026; previously copied
+	// onto loadout stages by Name) so the surface-arrival predicate
+	// gates correctly across staging. Today's true entries: lander
+	// (LM-derived descent stage), f9-s1 (Falcon 9 first stage with
+	// retro-burn recovery). Everything else stays false — Saturn V
+	// stages crash on contact, CSM crashes on contact, F9-S2 crashes
+	// on contact.
 	canSoftLand bool
 	// hasParachute (v0.12 Slice 3, ADR 0008) marks stages that carry a
-	// recovery parachute — populates Stage.HasParachute (directly in
-	// BuildStage, by-Name via catalogHasParachuteByName for the loadout
-	// literals) so the surface-arrival predicate's chute route and the
-	// Stage-action arm path gate correctly across staging. Today's true
-	// entries: csm (Apollo Command/Service Module) and capsule (the
-	// standalone re-entry test vehicle). Disjoint from canSoftLand —
-	// a capsule has no engine landing route, only the chute.
+	// recovery parachute — populates Stage.HasParachute (carried on the
+	// Part since v0.23/ADR 0026, for both configurator parts and the
+	// loadouts that reference them) so the surface-arrival predicate's
+	// chute route and the Stage-action arm path gate correctly across
+	// staging. Today's true entries: csm (Apollo Command/Service Module)
+	// and capsule (the standalone re-entry test vehicle). Disjoint from
+	// canSoftLand — a capsule has no engine landing route, only the chute.
 	hasParachute bool
 }
 
@@ -138,226 +139,62 @@ const (
 	apolloLMAscentFuel  = 1269.0 // ascent  1800 → 1269 (~2200 m/s cap)
 )
 
-// StageCatalog indexes the parts library by ID. The numbers mirror
-// the inline loadout literals in loadouts.go (see file-level note).
-// The CSM is net-new in v0.10.1 — Apollo Command/Service Module:
-// CM + SM dry ≈ 11,900 kg, SPS storable propellant ≈ 18,400 kg,
-// SPS thrust 91.2 kN @ Isp 314 s. It can do real orbital maneuvers,
-// which is what makes it a rendezvous-relevant payload tier.
-var StageCatalog = map[string]StageModule{
-	StageModuleSICID: {
-		ID: StageModuleSICID, Name: "S-IC", Glyph: VesselGlyph, Color: "#FF8C42",
-		Tier: "booster", dry: 130000, fuel: 2160000, thrust: 35100000, isp: 263, bc: 8e-6,
-		launchSpriteRowsPx:  24,
-		launchSpriteWidthPx: 5,
-		// Real S-IC was matte white with black roll patterns. Warm
-		// cream keeps a hint of the catalog's S-IC-orange identity so
-		// adjacent stages still read as distinct bands.
-		launchSpriteColor: "#F5EFE0",
-		fuelType:          FuelTypeKerolox,
-	},
-	StageModuleSIIID: {
-		ID: StageModuleSIIID, Name: "S-II", Glyph: VesselGlyph, Color: "#FFC042",
-		Tier: "sustainer", dry: 40000, fuel: 440000, thrust: 5140000, isp: 421, bc: 2.5e-5,
-		launchSpriteRowsPx:  20,
-		launchSpriteWidthPx: 4,
-		launchSpriteColor:   "#E8E8E8", // neutral pale — matches real S-II white paint
-		fuelType:            FuelTypeHydrolox,
-	},
-	StageModuleSIVBID: {
-		ID: StageModuleSIVBID, Name: "S-IVB", Glyph: VesselGlyph, Color: "#FFD93D",
-		Tier: "transfer", dry: 11000, fuel: 109000, thrust: 1023000, isp: 421, bc: 6.25e-5,
-		launchSpriteRowsPx:  12,
-		launchSpriteWidthPx: 3,
-		launchSpriteColor:   "#D8D8D8", // slightly cooler off-white capping the Saturn V trio
-		fuelType:            FuelTypeHydrolox,
-	},
-	StageModuleICPSID: {
-		ID: StageModuleICPSID, Name: "ICPS", Glyph: VesselGlyph, Color: "#5BB3FF",
-		// GH #89: thrust mirrors the standalone ICPS loadout (108000 N),
-		// the canonical referent for a configurator part named "ICPS" —
-		// not the 110000 N variant the SLS-Block1 loadout embeds. Was
-		// 110000, which violated the file-level "flies identically to its
-		// canonical loadout stage" promise for a player adding the part.
-		Tier: "transfer", dry: 3500, fuel: 25000, thrust: 108000, isp: 462, bc: 6.25e-5,
-		launchSpriteRowsPx:  8,
-		launchSpriteWidthPx: 3,
-		launchSpriteColor:   "#C0C8D0", // muted cool grey — tames the saturated slate-blue Color
-		fuelType:            FuelTypeHydrolox,
-	},
-	StageModuleSRBID: {
-		ID: StageModuleSRBID, Name: "SRBs", Glyph: VesselGlyph, Color: "#E0E0E0",
-		Tier: "booster", dry: 198000, fuel: 1270000, thrust: 32000000, isp: 268, bc: 8e-6,
-		launchSpriteRowsPx:  28,
-		launchSpriteWidthPx: 5,
-		// SRB Color is already neutral grey — no override needed.
-		fuelType: FuelTypeSolid,
-	},
-	StageModuleCoreRS25ID: {
-		ID: StageModuleCoreRS25ID, Name: "Core", Glyph: VesselGlyph, Color: "#FF6B35",
-		Tier: "sustainer", dry: 85275, fuel: 979452, thrust: 9290000, isp: 452, bc: 2.5e-5,
-		launchSpriteRowsPx:  24,
-		launchSpriteWidthPx: 4,
-		// Real SLS core foam insulation is brick orange. Mute it so
-		// the booster-grey + core-orange stack doesn't shout.
-		launchSpriteColor: "#C45A2B",
-		fuelType:          FuelTypeHydrolox,
-	},
-	StageModuleF9S1ID: {
-		ID: StageModuleF9S1ID, Name: "F9-S1", Glyph: VesselGlyph, Color: "#E8E8E8",
-		Tier: "booster", dry: 25600, fuel: 411000, thrust: 7607000, isp: 282, bc: 7.4e-6,
-		launchSpriteRowsPx:  20,
-		launchSpriteWidthPx: 3,
-		fuelType:            FuelTypeKerolox,
-		canSoftLand:         true,
-	},
-	StageModuleF9S2ID: {
-		ID: StageModuleF9S2ID, Name: "F9-S2", Glyph: VesselGlyph, Color: "#B0D8FF",
-		Tier: "transfer", dry: 3900, fuel: 107500, thrust: 934000, isp: 348, bc: 5e-5,
-		launchSpriteRowsPx:  8,
-		launchSpriteWidthPx: 3,
-		fuelType:            FuelTypeKerolox,
-	},
-	// NOTE (GH #89): only this entry's sprite/name/flag fields are read —
-	// the catalog*ByName helpers resolve "LM"→"Lander" for sprite + soft-
-	// land + parachute lookups. Its dry/fuel/thrust are DEAD for stage
-	// construction: BuildModule intercepts StageModuleLanderID and expands
-	// to Descent+Ascent (the only stages ever built from this id), so no
-	// flying stage is ever constructed from the 4000/8000/45000 below.
-	// They are intentionally unreachable — do not trust them as the
-	// Lander's mass budget (the live numbers are the Descent+Ascent split).
-	StageModuleLanderID: {
-		ID: StageModuleLanderID, Name: "Lander", Glyph: VesselGlyph, Color: "#5FFF87",
-		Tier: "payload", dry: 4000, fuel: 8000, thrust: 45000, isp: 311, bc: 0,
-		launchSpriteRowsPx:  5,
-		launchSpriteWidthPx: 3,
-		// Real LM descent stage was wrapped in gold foil over an
-		// aluminium frame. Muted gold reads as "metal hardware"
-		// alongside the Saturn V whites instead of mint-green.
-		launchSpriteColor:   "#D4C088",
-		fuelType:            FuelTypeHypergolic,
-		launchSpriteHasLegs: true,
-		canSoftLand:         true,
-	},
-	// Lander descent stage (v0.12 Slice 2 / ADR 0007): the bottom half
-	// of the 2-stage Lander — keeps the v0.11.5 Lander silhouette
-	// (squat body, splayed legs, hypergolic flame) and the soft-land
-	// qualification. Fuel-heavy like the real LM descent stage: it
-	// fires the entire powered descent hauling the ascent stage as
-	// dead-weight payload, so it needs the lion's share of propellant.
-	// With dry 2500 / fuel 9500 the descent-burn Δv (full stack) is
-	// ~3.0 km/s — comfortably more than a lunar descent (the original
-	// 6000 kg gave only ~2.1 km/s and ran dry mid-landing). Thrust
-	// stays 45 kN (the original single-Lander descent engine).
-	StageModuleLanderDescentID: {
-		ID: StageModuleLanderDescentID, Name: "Descent", Glyph: VesselGlyph, Color: "#5FFF87",
-		Tier: "payload", dry: 2500, fuel: 9500, thrust: 45000, isp: 311, bc: 0,
-		launchSpriteRowsPx:  5,
-		launchSpriteWidthPx: 3,
-		launchSpriteColor:   "#D4C088", // muted gold foil — matches single Lander
-		fuelType:            FuelTypeHypergolic,
-		launchSpriteHasLegs: true,
-		canSoftLand:         true,
-	},
-	// Lander ascent stage (v0.12 Slice 2 / ADR 0007): the top half —
-	// smaller, no legs (they stayed on the descent stage), its own
-	// hypergolic engine sized for the lunar-ascent-to-orbit Δv (~2.8
-	// km/s with dry 1200 / fuel 1800). Carries canSoftLand=true anyway
-	// (a forgiving sandbox choice — a player who flies the bare ascent
-	// stage back down soft-lands rather than crashes; see ADR 0007
-	// decision 5).
-	StageModuleLanderAscentID: {
-		ID: StageModuleLanderAscentID, Name: "Ascent", Glyph: VesselGlyph, Color: "#7BFFA0",
-		Tier: "payload", dry: 1200, fuel: 1800, thrust: 16000, isp: 311, bc: 0,
-		launchSpriteRowsPx:  3,
-		launchSpriteWidthPx: 2,
-		launchSpriteColor:   "#C8C8B0", // pale metal — distinct band above the gold descent
-		fuelType:            FuelTypeHypergolic,
-		canSoftLand:         true,
-	},
-	StageModuleCSMID: {
-		ID: StageModuleCSMID, Name: "CSM", Glyph: VesselGlyph, Color: "#C0C0FF",
-		Tier: "payload", dry: 11900, fuel: 18400, thrust: 91000, isp: 314, bc: 0,
-		launchSpriteRowsPx:  10,
-		launchSpriteWidthPx: 2,
-		// CSM Service Module was bare aluminium — silver-white.
-		launchSpriteColor:   "#C8C8D0",
-		fuelType:            FuelTypeHypergolic,
-		// v0.12 Slice 3 (ADR 0008): the CSM survives the Apollo decouple
-		// chain to re-entry and earns an Earth splashdown under chute.
-		hasParachute: true,
-	},
-	// v0.12 / ADR 0009: Service Module — the propulsive half of the split
-	// CSM. Carries the SPS engine + all the storable propellant and does
-	// LOI / mid-course corrections / TEI. Dry ~6,000 kg; SPS fuel trimmed
-	// 18,400→16,000 (ADR 0009 locked table). NO parachute — it is
-	// jettisoned before re-entry. Sprite mirrors the CSM service-module
-	// silhouette (silver, slim) so the post-transposition Stages[0]=SM
-	// renders an engine bell.
-	StageModuleServiceModuleID: {
-		ID: StageModuleServiceModuleID, Name: "SM", Glyph: VesselGlyph, Color: "#C8C8D0",
-		Tier: "payload", dry: 6000, fuel: 16000, thrust: 91000, isp: 314, bc: 0,
-		launchSpriteRowsPx:  6,
-		launchSpriteWidthPx: 2,
-		launchSpriteColor:   "#C8C8D0", // bare aluminium service module
-		fuelType:            FuelTypeHypergolic,
-	},
-	// v0.12 / ADR 0009: Command Module — the passive half of the split
-	// CSM and the true surviving core. Engineless crew capsule with a
-	// recovery parachute (ADR 0008 model); the only piece that splashes
-	// down. Dry ~5,900 kg (CSM dry 11,900 − SM 6,000). No main engine.
-	StageModuleCommandModuleID: {
-		ID: StageModuleCommandModuleID, Name: "CM", Glyph: VesselGlyph, Color: "#B8C8E0",
-		Tier: "payload", dry: 5900, fuel: 0, thrust: 0, isp: 0, bc: 0,
-		launchSpriteRowsPx:  6,
-		launchSpriteWidthPx: 3,
-		launchSpriteColor:   "#D8D8E0", // pale command-module cone (distinct from HUD #B8C8E0)
-		// fuelType intentionally unset — no main engine (RCS-only).
-		hasParachute: true,
-	},
-	// v0.14 / ADR 0011: the Apollo CSM+LM composite configurator pick.
-	// This catalog row exists only so the part-picker has a Name/Glyph/Tier
-	// to preview; BuildModule expands the id to the real [SM, CM, Descent,
-	// Ascent] stages (the numbers here are the SM's, for any sum-less
-	// reader). Glyph is the SM/CSM marker since the SM is the firing core.
-	StageModuleApolloCSMLMID: {
-		ID: StageModuleApolloCSMLMID, Name: "CSM+LM", Glyph: VesselGlyph, Color: "#C0C0FF",
-		Tier: "payload", dry: 6000, fuel: 16000, thrust: 91000, isp: 314, bc: 0,
-		// Sprite fields mirror the SM (the firing core). BuildModule
-		// intercepts this id and expands it to real [SM, CM, Descent,
-		// Ascent] stages, so the single-stage form is never rendered — but
-		// the catalog-shape invariant wants every pick buildable with a
-		// sprite, matching the "lander" meta-module precedent.
-		launchSpriteRowsPx:  6,
-		launchSpriteWidthPx: 2,
-		launchSpriteColor:   "#C8C8D0",
-		fuelType:            FuelTypeHypergolic,
-	},
-	// Re-entry capsule (v0.12 Slice 3, ADR 0008): a minimal command-
-	// module-class stage carrying a parachute and NO engine landing
-	// capability — the clean, directly-spawnable test vehicle for the
-	// chute subsystem (one spawn, a de-orbit, a `space` press). Sized
-	// roughly like an Apollo Command Module alone (the CSM minus the
-	// Service Module): ~5,800 kg dry, a small RCS-only attitude budget,
-	// no main engine. bc 0 → the stowed/armed BC falls back to the
-	// default; only the deployed chute's ChuteDeployedBC matters for its
-	// descent.
-	StageModuleCapsuleID: {
-		ID: StageModuleCapsuleID, Name: "Capsule", Glyph: VesselGlyph, Color: "#B8C8E0",
-		Tier: "payload", dry: 5800, fuel: 0, thrust: 0, isp: 0, bc: 0,
-		launchSpriteRowsPx:  6,
-		launchSpriteWidthPx: 3,
-		launchSpriteColor:   "#C8C8D0", // bare-metal command module
-		// fuelType intentionally unset — no main engine (RCS-only).
-		hasParachute: true,
-	},
-	StageModuleRCSTugID: {
-		ID: StageModuleRCSTugID, Name: "RCS Tug", Glyph: VesselGlyph, Color: "#FF87D7",
-		Tier: "tug", dry: 200, fuel: 0, thrust: 0, isp: 0, bc: 0,
-		launchSpriteRowsPx:  4,
-		launchSpriteWidthPx: 2,
-		// fuelType intentionally unset — pure monoprop, no main engine.
-	},
+// StageCatalog indexes the parts library by ID. v0.23 / ADR 0026 (C1-2):
+// the data now lives in the embedded data/parts.json (loaded at package
+// init via buildStageCatalog) rather than a hardcoded Go literal — the
+// first cut toward the normalized, modder-overridable parts catalog. The
+// in-memory StageModule shape and every reader (BuildStage / BuildModule /
+// the catalog*ByName loadout helpers) are unchanged: the migration moved
+// the *source* of the data, not its representation or behaviour, so the
+// catalog flies byte-identical (golden-tested). The numbers mirror the
+// inline loadout literals in loadouts.go (see file-level note).
+//
+// Embedded-catalog load is deliberately fatal: a malformed shipped
+// parts.json is a build/programmer error, not a recoverable runtime
+// condition (mirrors regexp.MustCompile). The *user overlay* path —
+// skip-bad-with-warning — is wired in at a higher layer (C1-4), not here,
+// so BuildStage stays I/O-free and the golden tests stay deterministic.
+var StageCatalog = buildStageCatalog()
+
+// buildStageCatalog loads the embedded parts catalog and indexes it by ID
+// as StageModules. Runs once at package-var init. Panics if the embedded
+// data fails to load (it must always load — see StageCatalog).
+func buildStageCatalog() map[string]StageModule {
+	parts, _, err := loadEmbeddedCatalog()
+	if err != nil {
+		panic("spacecraft: embedded parts catalog failed to load: " + err.Error())
+	}
+	out := make(map[string]StageModule, len(parts))
+	for id, p := range parts {
+		out[id] = p.toStageModule()
+	}
+	return out
+}
+
+// toStageModule projects a data-driven Part onto the in-memory StageModule
+// the stage catalog and BuildStage operate on. The RCS pool is NOT carried
+// here — it is derived from dry mass at BuildStage time (the catalog
+// convention, via DefaultRCSLoadout), exactly as before the migration.
+func (p Part) toStageModule() StageModule {
+	return StageModule{
+		ID:                  p.ID,
+		Name:                p.Name,
+		Glyph:               p.Glyph,
+		Color:               p.Color,
+		Tier:                p.Tier,
+		dry:                 p.DryMassKg,
+		fuel:                p.FuelMassKg,
+		thrust:              p.ThrustN,
+		isp:                 p.IspS,
+		bc:                  p.BallisticCoefficient,
+		launchSpriteRowsPx:  p.LaunchSpriteRowsPx,
+		launchSpriteWidthPx: p.LaunchSpriteWidthPx,
+		launchSpriteColor:   p.LaunchSpriteColor,
+		fuelType:            p.FuelType,
+		launchSpriteHasLegs: p.LaunchSpriteHasLegs,
+		canSoftLand:         p.CanSoftLand,
+		hasParachute:        p.HasParachute,
+	}
 }
 
 // StageCatalogOrder is the configurator's canonical cycle order —

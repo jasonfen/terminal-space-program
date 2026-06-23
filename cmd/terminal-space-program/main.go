@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -77,6 +78,14 @@ func main() {
 			fmt.Fprintf(os.Stderr, "terminal-space-program: skipping settings %s: %v\n", w.Path, w.Err)
 		}
 	}
+	// Loadout/parts catalog user overlay (ADR 0026). Layers any user
+	// loadouts/parts (the XDG loadouts/ dir) onto the embedded catalog so
+	// --list-loadouts and the spawn form reflect mods; a malformed file is
+	// skipped with a warning. Must run before printLists + buildScenario so
+	// modded loadouts are spawnable.
+	for _, w := range spacecraft.LoadCatalogOverlay() {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: skipping loadout %s: %v\n", w.Path, w.Err)
+	}
 
 	if listSystems || listBodies || listLoadout || listSites {
 		printLists(systems, raw.system, listSystems, listBodies, listLoadout, listSites)
@@ -128,9 +137,26 @@ func printLists(systems []bodies.System, systemFilter string, sys, bodiesL, load
 		}
 	}
 	if loadouts {
+		// Reflect the merged catalog (embedded + user overlay, ADR 0026) so a
+		// modder can confirm their loadouts/*.json loaded: each loadout with
+		// its resolved stage names, then the full parts catalog.
 		fmt.Println("Loadouts:")
 		for _, id := range spacecraft.LoadoutOrder {
-			fmt.Printf("  %s\n", id)
+			l := spacecraft.Loadouts[id]
+			names := make([]string, len(l.Stages))
+			for i, s := range l.Stages {
+				names[i] = s.Name
+			}
+			fmt.Printf("  %-16s %-16s [%s]\n", id, l.Name, strings.Join(names, ", "))
+		}
+		fmt.Println("Parts:")
+		pids := make([]string, 0, len(spacecraft.StageCatalog))
+		for pid := range spacecraft.StageCatalog {
+			pids = append(pids, pid)
+		}
+		sort.Strings(pids)
+		for _, pid := range pids {
+			fmt.Printf("  %-16s %s\n", pid, spacecraft.StageCatalog[pid].Name)
 		}
 	}
 	if sites {
