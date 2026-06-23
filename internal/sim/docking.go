@@ -73,12 +73,7 @@ func (w *World) Undock(idx int) bool {
 		separationM = 35.0
 		pushVMS     = 0.05
 	)
-	radialOut := c.State.R
-	if radialOut.Norm() > 0 {
-		radialOut = radialOut.Scale(1 / radialOut.Norm())
-	} else {
-		radialOut = orbital.Vec3{X: 1}
-	}
+	radialOut := radialOutUnit(c)
 
 	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
 	n := len(c.DockedComponents)
@@ -157,6 +152,18 @@ func (w *World) Undock(idx int) bool {
 	return true
 }
 
+// radialOutUnit returns the unit vector pointing radially outward from the
+// craft's primary (its position direction), or +X when the craft sits exactly
+// at the origin. Shared by Undock and Deploy for the separation push that
+// keeps released components clear of one another / the carrier.
+func radialOutUnit(c *spacecraft.Spacecraft) orbital.Vec3 {
+	r := c.State.R
+	if r.Norm() > 0 {
+		return r.Scale(1 / r.Norm())
+	}
+	return orbital.Vec3{X: 1}
+}
+
 // restoreComponentCraft synthesizes a standalone *Spacecraft from a docked
 // component and the LIVE stages peeled off the composite, placed at (r, v).
 // Shared by Undock (releases every component) and Deploy (pops the top
@@ -227,21 +234,24 @@ func (w *World) Deploy(idx int) bool {
 	keep := len(c.Stages) - cnt
 	payloadStages := append([]spacecraft.Stage(nil), c.Stages[keep:]...)
 
-	// Push the payload clear of the carrier: radial-out 35 m + 0.05 m/s drift,
-	// the same separation scale Undock uses. The carrier holds its state.
+	// Push the payload clear of the auto-dock proximity gate, or checkDocking
+	// re-fuses it onto the carrier next tick and the deploy silently undoes
+	// itself. The carrier holds its state, so the whole gap is this one-sided
+	// push — it must exceed DockingDistM, unlike Undock's symmetric ±spread
+	// (two components, ~2× the per-side offset). Exceed DockingVMS too so the
+	// velocity gate independently keeps them apart as they drift.
 	const (
-		separationM = 35.0
-		pushVMS     = 0.05
+		separationM = DockingDistM * 1.5 // 75 m > the 50 m proximity gate
+		pushVMS     = DockingVMS * 1.5   // 0.15 m/s > the 0.1 m/s velocity gate
 	)
-	radialOut := c.State.R
-	if radialOut.Norm() > 0 {
-		radialOut = radialOut.Scale(1 / radialOut.Norm())
-	} else {
-		radialOut = orbital.Vec3{X: 1}
-	}
+	radialOut := radialOutUnit(c)
 	released := w.restoreComponentCraft(c, top, payloadStages,
 		c.State.R.Add(radialOut.Scale(separationM)),
 		c.State.V.Add(radialOut.Scale(pushVMS)))
+	// Unique slate name (Relay Comsat-1, -2, …) so a constellation of identical
+	// payloads stays distinguishable in target-cycle / HUD — every other spawn
+	// path (SpawnCraft, buildJettisonedCraft) names new craft this way.
+	released.Name = w.nextCraftName(released.Name)
 	w.stampCraftID(released) // fresh stable identity (ADR 0012)
 
 	// Shrink the carrier: drop the top component + its stages. Own backing

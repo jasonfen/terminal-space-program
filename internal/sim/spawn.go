@@ -428,6 +428,10 @@ func newCustomCraft(stages []spacecraft.Stage, nosePayloadPlan []int) *spacecraf
 // dockedComponentFromStages, the same helper Transpose uses, so a spawned
 // composite is byte-identical to a hand-flown dock and rides the same
 // Undock/save-load machinery (no schema bump). v0.23 / ADR 0028 (C3-1/C3-3).
+//
+// It sets only DockedComponents — which don't feed SyncFields — so it does NOT
+// re-sync: the caller already synced at construction (NewFromStages /
+// NewFromLoadout) and Stages are untouched here.
 func splitNosePayloads(c *spacecraft.Spacecraft, nosePayloadPlan []int) bool {
 	stages := c.Stages
 	n := len(stages)
@@ -458,7 +462,6 @@ func splitNosePayloads(c *spacecraft.Spacecraft, nosePayloadPlan []int) bool {
 			payloadStages, vehicleNameForStages(payloadStages), payloadRoleForStages(payloadStages)))
 	}
 	c.DockedComponents = comps
-	c.SyncFields()
 	return true
 }
 

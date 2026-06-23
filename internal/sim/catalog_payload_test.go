@@ -58,6 +58,17 @@ func TestSpawnComsatCarrierComposite(t *testing.T) {
 	if !released.Controllable {
 		t.Errorf("released comsat not Controllable — probe command source not restored")
 	}
+
+	// Deploying a second identical comsat must get a distinct slate name, so a
+	// constellation of identical payloads stays distinguishable in the HUD.
+	first := released.Name
+	if !w.Deploy(w.ActiveCraftIdx) {
+		t.Fatal("second Deploy returned false")
+	}
+	second := w.Crafts[len(w.Crafts)-1].Name
+	if first == second {
+		t.Errorf("two deployed comsats share the name %q — they must be uniquely numbered", first)
+	}
 }
 
 // TestPayloadLoadoutAttributes — v0.23 / ADR 0028 C3-3. The three starter

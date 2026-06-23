@@ -108,6 +108,32 @@ func TestDeployDownToBareCarrier(t *testing.T) {
 	}
 }
 
+// TestDeployedPayloadDoesNotReFuse — v0.23 / ADR 0028 C3-2 regression. The
+// released payload must clear the auto-dock proximity gate (DockingDistM /
+// DockingVMS), or checkDocking re-fuses it onto the carrier on the next tick
+// and the deploy silently undoes itself. The carrier holds its state, so the
+// gap is the one-sided separation push — it must exceed the gate, unlike
+// Undock's symmetric spread.
+func TestDeployedPayloadDoesNotReFuse(t *testing.T) {
+	w, carrier := deployCarrier(t)
+	if !w.Deploy(w.ActiveCraftIdx) {
+		t.Fatal("Deploy returned false")
+	}
+	n := len(w.Crafts)
+	comps := len(carrier.DockedComponents)
+
+	// checkDocking runs every physics tick; it must NOT re-dock the freshly
+	// deployed payload back onto the carrier.
+	w.checkDocking()
+
+	if len(w.Crafts) != n {
+		t.Errorf("slate %d → %d after checkDocking: the deployed payload re-fused onto the carrier", n, len(w.Crafts))
+	}
+	if len(carrier.DockedComponents) != comps {
+		t.Errorf("carrier components %d → %d: a craft re-docked onto it", comps, len(carrier.DockedComponents))
+	}
+}
+
 func containsAction(acts []missions.Action, want missions.Action) bool {
 	for _, a := range acts {
 		if a == want {
