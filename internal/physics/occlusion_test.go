@@ -70,3 +70,28 @@ func TestSegmentOccludedByBody(t *testing.T) {
 		t.Error("no occluders should never occlude")
 	}
 }
+
+// TestRaySphereSurfaceTolerance (v0.22.1): a ground station's surface point is
+// computed as radius×dir, where dir carries ~1e-12 of normalization error, so
+// its distance from centre straddles the radius by microns. A strict interior
+// test flickered such a station into "buried inside the body" on alternating
+// ticks, self-occluding it (and every craft relying on it). The endpoint test
+// now tolerates a point essentially on the surface, while still catching a
+// genuinely sub-surface antenna.
+func TestRaySphereSurfaceTolerance(t *testing.T) {
+	c := orbital.Vec3{}
+	const r = 6.371e6 // Earth-ish radius (metres), where the bug showed up
+	up := orbital.Vec3{X: r + 1e6} // a craft 1000 km up — the link's other end
+
+	// A surface point a hair *inside* r (well within the surface skin) is a
+	// station on the ground, not a buried antenna → not occluded.
+	nearSurface := orbital.Vec3{X: r * (1 - 1e-11)} // ~64 µm inside
+	if RaySphereIntersect(nearSurface, up, c, r) {
+		t.Error("a point a hair inside the surface (a ground station) must not be occluded")
+	}
+	// A point genuinely below the surface (10 m down) is still buried.
+	deep := orbital.Vec3{X: r - 10}
+	if !RaySphereIntersect(deep, up, c, r) {
+		t.Error("a point well below the surface must be occluded")
+	}
+}

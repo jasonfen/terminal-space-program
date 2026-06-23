@@ -310,6 +310,38 @@ func TestActiveCommPathDisconnected(t *testing.T) {
 	}
 }
 
+// TestCommGraphStableWithClearLOS (v0.22.1 regression): a craft parked with a
+// clear radial line of sight to a ground station must stay connected as the
+// body rotates. Pre-fix, the station's surface point FP-flickered into "buried
+// inside the body", self-occluding it and toggling the craft's connection on
+// ~every other tick (the playtest-reported ~0.5 s "flipping" in low orbit).
+func TestCommGraphStableWithClearLOS(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	tug := spacecraft.NewFromLoadout("Relay-Tug")
+	tug.SystemIdx = 0
+	gs := w.GroundStations[0]
+	sys := w.System()
+	body := *sys.FindBody(gs.BodyID)
+	offset := w.groundStationWorldPos(gs, body).Sub(w.BodyPosition(body)) // surface point, body-relative
+	tug.Primary = body
+	tug.State.R = offset.Add(offset.Unit().Scale(1_000_000)) // 1000 km straight up → clear LOS
+	w.Crafts[0] = tug
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+
+	base := w.Clock.SimTime
+	for k := 0; k < 200; k++ { // 20 sim-seconds of body rotation, fine steps
+		w.Clock.SimTime = base.Add(time.Duration(k) * 100 * time.Millisecond)
+		w.RecomputeCommGraph()
+		if !w.CommGraph.HasConnection(tug.ID) {
+			t.Fatalf("connection dropped at step %d with clear line of sight — station self-occlusion flicker regressed", k)
+		}
+	}
+}
+
 // TestCanCommandCraftSemantics (C2-4): crewed → always; debris → never;
 // unmanned probe → gated on the connectivity graph.
 func TestCanCommandCraftSemantics(t *testing.T) {
