@@ -9,6 +9,24 @@ import (
 // threeCraftSlate spawns two siblings so the slate is [A, B, C] with
 // distinct stable IDs, and returns the three craft pointers. Active is
 // left at idx 0 (A).
+// crewTend marks a craft crew-tended (never comms-gated, ADR 0027) for
+// tests that exercise non-comms logic on a craft that would otherwise
+// default to an out-of-contact probe and trip the command gate. v0.23.
+func crewTend(c *spacecraft.Spacecraft) {
+	if c == nil || len(c.Stages) == 0 {
+		return
+	}
+	c.Stages[len(c.Stages)-1].CommandSource = spacecraft.CommandCrewed
+	c.SyncFields()
+}
+
+// crewTendActive crew-tends the active craft (nil-safe). Used by tests
+// that build a probe stack and exercise a gated command (stage / throttle)
+// without testing comms.
+func crewTendActive(w *World) {
+	crewTend(w.ActiveCraft())
+}
+
 func threeCraftSlate(t *testing.T) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
 	t.Helper()
 	w := mustWorld(t)
@@ -20,6 +38,12 @@ func threeCraftSlate(t *testing.T) (*World, *spacecraft.Spacecraft, *spacecraft.
 	}
 	if len(w.Crafts) != 3 {
 		t.Fatalf("want 3 crafts, got %d", len(w.Crafts))
+	}
+	// v0.23 / ADR 0027: these helper craft exercise slate/targeting/warp
+	// logic, not comms — keep them crew-tended so the command gate never
+	// interferes (comms gating has its own dedicated tests).
+	for _, c := range w.Crafts {
+		crewTend(c)
 	}
 	a, b, c := w.Crafts[0], w.Crafts[1], w.Crafts[2]
 	// Distinct, nonzero IDs.

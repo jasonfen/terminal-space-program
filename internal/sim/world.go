@@ -224,6 +224,12 @@ type World struct {
 	missionFailMsg   string
 	missionFailUntil time.Time
 
+	// commBlockedUntil drives the "NO SIGNAL" transient (v0.23 / ADR 0027):
+	// set when a player command is gated on an unmanned vessel that has no
+	// network connection. Wall-clock deadline like missionFailUntil; the
+	// HUD reads CommBlockedFlash. Session scoped, not persisted.
+	commBlockedUntil time.Time
+
 	// enabledMissionPrograms gates which mission programs (ADR 0025 §2 Program
 	// tag) the evaluator and player surface treat as active (v0.21 Slice 7).
 	// A nil map means "all programs enabled" — the back-compat default for

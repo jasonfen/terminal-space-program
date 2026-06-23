@@ -115,6 +115,9 @@ func (w *World) SetThrottle(t float64) {
 	if c == nil {
 		return
 	}
+	if !w.canCommand(c) { // ADR 0027: no new throttle command without a connection
+		return
+	}
 	if t < 0 {
 		t = 0
 	} else if t > 1 {
@@ -146,9 +149,14 @@ func (w *World) AdjustThrottle(delta float64) {
 // manual burn is already in flight on that craft, the engine
 // direction takes effect on the next tick. v0.8.1+: per-active-craft.
 func (w *World) SetAttitudeMode(mode spacecraft.BurnMode) {
-	if c := w.ActiveCraft(); c != nil {
-		c.AttitudeMode = mode
+	c := w.ActiveCraft()
+	if c == nil {
+		return
 	}
+	if !w.canCommand(c) { // ADR 0027: attitude is a command, gated without a connection
+		return
+	}
+	c.AttitudeMode = mode
 }
 
 // PlanNode inserts a node into the active craft's Nodes slice,
@@ -159,6 +167,9 @@ func (w *World) SetAttitudeMode(mode spacecraft.BurnMode) {
 func (w *World) PlanNode(n ManeuverNode) {
 	c := w.ActiveCraft()
 	if c == nil {
+		return
+	}
+	if !w.canCommand(c) { // ADR 0027: committing a node is a command (covers transfer/plan commits too)
 		return
 	}
 	c.Nodes = append(c.Nodes, n)
@@ -1229,7 +1240,9 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64, opts Tra
 // component of the integrated Δv is Δv_ideal × sin(α)/α (perpendicular
 // components sum to zero by symmetry). To deliver Δv_target we request
 // Δv such that Δv × sin(α(Δv))/α(Δv) = Δv_target, where
-//   α(Δv) = (Δv·m / F) × n_craft / 2 = k · Δv,  k = m·n/(2F)
+//
+//	α(Δv) = (Δv·m / F) × n_craft / 2 = k · Δv,  k = m·n/(2F)
+//
 // Substituting: sin(k·Δv) = k·Δv_target → Δv = asin(k·Δv_target)/k.
 //
 // Returns the ideal Δv unchanged if k·Δv_target ≥ 1 (geometrically
@@ -2349,6 +2362,9 @@ func (w *World) DeleteNode(idx int) {
 		return
 	}
 	if idx < 0 || idx >= len(c.Nodes) {
+		return
+	}
+	if !w.canCommand(c) { // ADR 0027: editing the flight plan is a command
 		return
 	}
 	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)

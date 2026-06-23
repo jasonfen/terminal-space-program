@@ -34,6 +34,7 @@ func TestStageActiveOnSaturnVPopsBottomStage(t *testing.T) {
 	saturn.State = w.Crafts[0].State
 	w.Crafts[0] = saturn
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	beforeStageCount := len(saturn.Stages)
 	beforeBottomFuel := saturn.Stages[0].FuelMass
@@ -144,6 +145,7 @@ func TestStageActiveDoesNotImmediatelyReDock(t *testing.T) {
 	saturn.State = w.Crafts[0].State
 	w.Crafts[0] = saturn
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	if _, _, err := w.StageActive(0); err != nil {
 		t.Fatalf("StageActive: %v", err)
@@ -174,6 +176,7 @@ func TestStageActiveAdvancesEngineToNextStage(t *testing.T) {
 	saturn.State = w.Crafts[0].State
 	w.Crafts[0] = saturn
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	// S-IC bottom stage thrust pre-stage.
 	if saturn.Thrust != 35100000 {
@@ -209,6 +212,7 @@ func TestApolloStackManualFlipDropsLMAsOneCraft(t *testing.T) {
 	stack.State = w.Crafts[0].State
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	// Drop the three Saturn stages → pre-transposition [Descent, Ascent, SM, CM].
 	for i := 0; i < 3; i++ {
@@ -255,6 +259,7 @@ func TestTransposeClearsDecouplePlan(t *testing.T) {
 	stack.State = w.Crafts[0].State
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	for i := 0; i < 3; i++ {
 		if _, _, err := w.StageActive(0); err != nil {
@@ -295,6 +300,7 @@ func TestTransposeRejectsWrongShape(t *testing.T) {
 	stack.State = w.Crafts[0].State
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	if err := w.Transpose(0); !errors.Is(err, ErrTransposeNotReady) {
 		t.Errorf("Transpose on full stack: err = %v, want ErrTransposeNotReady", err)
@@ -323,6 +329,7 @@ func TestApolloStackDecoupleChainThenTranspose(t *testing.T) {
 	stack.State = w.Crafts[0].State
 	w.Crafts[0] = stack
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	if len(stack.Stages) != 7 {
 		t.Fatalf("Apollo-Stack should start 7-stage, got %d", len(stack.Stages))
@@ -421,6 +428,7 @@ func TestStageActivePreservesAttitudeOnDroppedStage(t *testing.T) {
 	saturn.CurrentAttitudeDir = orbital.Vec3{X: 0.5, Y: 0, Z: 0.5}
 	w.Crafts[0] = saturn
 	w.ActiveCraftIdx = 0
+	crewTendActive(w)
 
 	parentCmd := saturn.CurrentAttitudeDir
 	_, jettIdx, err := w.StageActive(0)

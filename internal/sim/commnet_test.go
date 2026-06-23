@@ -1,12 +1,73 @@
 package sim
 
 import (
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
+
+// TestCommandGateBlocksDisconnectedProbe (C2-5, ADR 0027): the command
+// methods refuse to mutate an out-of-contact unmanned probe and raise the
+// NO SIGNAL flash; the onboard plan is untouched.
+func TestCommandGateBlocksDisconnectedProbe(t *testing.T) {
+	w := mustWorld(t)
+	probe := spacecraft.NewFromLoadout("Relay-Tug")
+	probe.Primary = w.Crafts[0].Primary
+	probe.State = w.Crafts[0].State
+	w.Crafts[0] = probe
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{}} // force "no connection"
+
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(time.Hour), DV: 10, Mode: spacecraft.BurnPrograde})
+	if len(probe.Nodes) != 0 {
+		t.Error("PlanNode must be blocked for a disconnected probe")
+	}
+	if _, ok := w.CommBlockedFlash(); !ok {
+		t.Error("a blocked command must raise the NO SIGNAL flash")
+	}
+	probe.Throttle = 0.5
+	w.SetThrottle(1.0)
+	if probe.Throttle != 0.5 {
+		t.Error("SetThrottle must be blocked for a disconnected probe")
+	}
+	if _, _, err := w.StageActive(0); !errors.Is(err, ErrNoSignal) {
+		t.Errorf("StageActive on a disconnected probe: got %v, want ErrNoSignal", err)
+	}
+}
+
+// TestCommandGateAllowsConnectedAndCrewed (C2-5): a connected probe and a
+// crewed vessel both accept commands.
+func TestCommandGateAllowsConnectedAndCrewed(t *testing.T) {
+	w := mustWorld(t)
+	probe := spacecraft.NewFromLoadout("Relay-Tug")
+	probe.Primary = w.Crafts[0].Primary
+	probe.State = w.Crafts[0].State
+	w.Crafts[0] = probe
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{probe.ID: true}}
+	w.PlanNode(ManeuverNode{TriggerTime: w.Clock.SimTime.Add(time.Hour), DV: 10, Mode: spacecraft.BurnPrograde})
+	if len(probe.Nodes) != 1 {
+		t.Error("a connected probe must accept a node")
+	}
+
+	crew := spacecraft.NewFromLoadout(spacecraft.LoadoutCapsuleID)
+	crew.Primary = w.Crafts[0].Primary
+	crew.State = w.Crafts[0].State
+	w.Crafts = append(w.Crafts, crew)
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(1)
+	w.CommGraph = nil // even with no graph, a crewed craft bypasses connectivity
+	w.SetThrottle(0.7)
+	if crew.Throttle != 0.7 {
+		t.Error("a crewed craft must accept commands regardless of connectivity")
+	}
+}
 
 // station / probe / relay node builders for the synthetic-graph tests.
 // Positions are in meters along the X axis; powers chosen so the default

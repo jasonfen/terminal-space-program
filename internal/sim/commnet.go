@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -186,4 +187,31 @@ func (w *World) CanCommandCraft(c *spacecraft.Spacecraft) bool {
 		w.RecomputeCommGraph()
 	}
 	return w.CommGraph.HasConnection(c.ID)
+}
+
+// noSignalFlashWindow is how long the "NO SIGNAL" transient stays up after
+// a command is blocked (wall-clock, so it expires even while paused).
+const noSignalFlashWindow = 2 * time.Second
+
+// canCommand gates a player command on craft c (which must be non-nil).
+// Returns true if the command may proceed; otherwise flags the NO SIGNAL
+// transient and returns false. Used by the command methods (throttle,
+// attitude, node plant/delete, staging, nav mode) to block new commands to
+// an out-of-contact unmanned probe while letting its onboard plan run.
+func (w *World) canCommand(c *spacecraft.Spacecraft) bool {
+	if w.CanCommandCraft(c) {
+		return true
+	}
+	w.commBlockedUntil = time.Now().Add(noSignalFlashWindow)
+	return false
+}
+
+// CommBlockedFlash returns ("NO SIGNAL", true) while a just-blocked command
+// is within its flash window, else ("", false). The HUD reads this each
+// frame (the comms chip / status flash, C2-7).
+func (w *World) CommBlockedFlash() (string, bool) {
+	if time.Now().Before(w.commBlockedUntil) {
+		return "NO SIGNAL", true
+	}
+	return "", false
 }

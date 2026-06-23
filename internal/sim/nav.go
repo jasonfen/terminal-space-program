@@ -7,16 +7,16 @@ import "github.com/jasonfen/terminal-space-program/internal/spacecraft"
 // KSP-style: the player cycles a single mode and the same six axis
 // keys reinterpret accordingly.
 //
-//   NavOrbit   — prograde ≡ +v̂ in the active craft's primary-relative
-//                frame (the v0.7.3+ default).
-//   NavSurface — prograde ≡ +(v − ω×r), velocity relative to the
-//                rotating atmosphere; useful for ascent. Only prograde
-//                / retrograde rebind in this mode (KSP shows orbital
-//                normal/radial on the surface navball too).
-//   NavTarget  — prograde ≡ unit(v_active − v_target), retrograde its
-//                flip; radial± rebinds to BurnTarget / BurnAntiTarget
-//                (toward / away from target). Only valid when
-//                World.Target.Kind == TargetCraft. v0.9.3+.
+//	NavOrbit   — prograde ≡ +v̂ in the active craft's primary-relative
+//	             frame (the v0.7.3+ default).
+//	NavSurface — prograde ≡ +(v − ω×r), velocity relative to the
+//	             rotating atmosphere; useful for ascent. Only prograde
+//	             / retrograde rebind in this mode (KSP shows orbital
+//	             normal/radial on the surface navball too).
+//	NavTarget  — prograde ≡ unit(v_active − v_target), retrograde its
+//	             flip; radial± rebinds to BurnTarget / BurnAntiTarget
+//	             (toward / away from target). Only valid when
+//	             World.Target.Kind == TargetCraft. v0.9.3+.
 type NavMode int
 
 const (
@@ -101,6 +101,9 @@ func (w *World) ResolveAttitudeIntent(intent AttitudeIntent) spacecraft.BurnMode
 // player never lands on a mode that silently degrades back to orbit.
 // Returns the new mode for the caller's HUD flash.
 func (w *World) CycleNavMode() NavMode {
+	// Not comms-gated (ADR 0027): NavMode is the navball reference frame —
+	// a display / SAS-reference toggle (like the camera), not a new command
+	// to the vessel. The gated attitude command is SetAttitudeMode.
 	hasCraftTarget := w.Target.Kind == TargetCraft
 	for i := 0; i < 3; i++ {
 		w.NavMode = (w.NavMode + 1) % 3

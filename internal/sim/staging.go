@@ -27,6 +27,10 @@ var (
 	// one stage entry. Real spawn paths always populate Stages via
 	// NewFromLoadout, so this is a defensive check.
 	ErrStageEmpty = errors.New("stage: craft has no stages")
+	// ErrNoSignal — the craft is an unmanned probe out of network contact
+	// (ADR 0027); staging is a command and is blocked. canCommand also
+	// raises the NO SIGNAL flash.
+	ErrNoSignal = errors.New("stage: no signal (unmanned craft out of contact)")
 	// ErrStageOnlyOne — craft has only one stage left. Dropping
 	// the only stage would leave the player with nothing to
 	// control, which is the wrong default. Status-flash + no-op.
@@ -66,6 +70,9 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	}
 	if len(c.Stages) == 0 {
 		return 0, 0, ErrStageEmpty
+	}
+	if !w.canCommand(c) { // ADR 0027: staging is a command, blocked without a connection
+		return 0, 0, ErrNoSignal
 	}
 
 	// v0.12 Slice 2 / ADR 0007: a Decouple Plan lets a press release

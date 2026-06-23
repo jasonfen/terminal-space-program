@@ -523,6 +523,15 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	v := math.Sqrt(mu / r)
 	c := NewFromLoadout(LoadoutSIVB1ID)
 	c.Name = "S-IVB-1" // first vessel of the slate keeps the historical instance name.
+	// v0.23 / ADR 0027: the player's starting vessel is crew-tended, so it
+	// is never comms-gated — the player learns to fly without a connectivity
+	// constraint on their first ship; the probes they later launch ARE gated.
+	// Overrides the probe core EnsureCommandSource stamped at construction.
+	if len(c.Stages) > 0 {
+		top := len(c.Stages) - 1
+		c.Stages[top].CommandSource = CommandCrewed
+		c.SyncFields()
+	}
 	c.Primary = earth
 	// v0.8.6+: rotate the body-frame circular state into world coords
 	// so the orbit physically lies in Earth's equatorial plane (passes
