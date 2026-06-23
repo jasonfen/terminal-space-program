@@ -337,6 +337,40 @@ func TestLoadCatalogOverlaySkipsMalformed(t *testing.T) {
 	}
 }
 
+// C1-5: the data-only modding-proof loadouts (Relay Tug / Station Keeper)
+// resolve into flyable craft with NO Go change, and their parts carry the
+// forward-compatible command_source + antenna attributes (cycle 2 / ADR
+// 0027) authored purely in data.
+func TestModdingProofLoadouts(t *testing.T) {
+	for _, id := range []string{"Relay-Tug", "Station-Keeper"} {
+		c := NewFromLoadout(id)
+		if c == nil || len(c.Stages) != 1 {
+			t.Errorf("NewFromLoadout(%q) is not a flyable single-stage craft", id)
+			continue
+		}
+		if c.Thrust <= 0 {
+			t.Errorf("%s has no main thrust (Thrust=%g)", id, c.Thrust)
+		}
+	}
+	parts, _, _, err := LoadCatalogWithWarnings()
+	if err != nil {
+		t.Fatalf("LoadCatalogWithWarnings: %v", err)
+	}
+	ntr, ok := parts["ntr-tug"]
+	if !ok {
+		t.Fatal("ntr-tug part missing from the embedded catalog")
+	}
+	if ntr.CommandSource != "probe" {
+		t.Errorf("ntr-tug command_source = %q, want probe", ntr.CommandSource)
+	}
+	if ntr.Antenna == nil || ntr.Antenna.Kind != "relay" {
+		t.Errorf("ntr-tug antenna = %+v, want kind=relay", ntr.Antenna)
+	}
+	if ion := parts["ion-keeper"]; ion.Antenna == nil || ion.Antenna.Kind != "direct" {
+		t.Errorf("ion-keeper antenna = %+v, want kind=direct", ion.Antenna)
+	}
+}
+
 // C1-1: a malformed user file is skipped with a warning; the rest of the
 // catalog still loads (ADR 0026 §3 — skip-bad-with-warning).
 func TestLoadCatalogMalformedUserFileWarns(t *testing.T) {

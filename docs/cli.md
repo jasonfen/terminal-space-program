@@ -42,7 +42,7 @@ terminal-space-program --list-launch-sites
 | `--version`, `-v` | Print the version + build commit. |
 | `--list-systems` | List the available star systems. |
 | `--list-bodies` | List bodies (their IDs). Honours `--system`; otherwise lists every system. |
-| `--list-loadouts` | List the craft loadout IDs. |
+| `--list-loadouts` | List the merged catalog — every loadout with its resolved stages, then the parts catalog. Reflects your user overlay (see [Custom vehicles](#custom-vehicles)), so a modded loadout shows up here once it loads. |
 | `--list-launch-sites` | List the named launch sites. |
 
 ### Where to start
@@ -94,3 +94,16 @@ explicit `--lat`/`--lon` (and `--orbit BODY` to choose the body).
 - Body and loadout names are the catalog **IDs** — run the matching `--list-*`
   flag if a name is rejected (e.g. the Moon's ID is `moon`, Lumen's home planet
   is `kern`).
+
+## Custom vehicles
+
+Vehicle loadouts and stage parts are **data, not code**. Drop a `.json` file in
+`$XDG_CONFIG_HOME/terminal-space-program/loadouts/` (or
+`~/.config/terminal-space-program/loadouts/` when `XDG_CONFIG_HOME` is unset) to
+add your own loadouts and parts, or override a built-in by reusing its `id`. A
+**part** is one atomic stage (engine + tank + structure fused); a **loadout** is
+an ordered list of part references (bottom stage first) plus optional
+`decouple_plan` / `scale_class`. Run `terminal-space-program --list-loadouts` to
+see the merged catalog and confirm your overlay loaded — a malformed file is
+skipped with a warning to stderr and never fails the rest. The built-in catalog
+(the shape to copy) ships embedded in the binary under `internal/spacecraft/data/`.

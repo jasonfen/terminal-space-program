@@ -91,6 +91,16 @@ terminal-space-program --version
 **[command-line reference](docs/cli.md)** for every flag, units, defaults, and
 more examples.
 
+## Custom vehicles
+
+Vehicle loadouts and stage parts are **data, not code**. Drop a `.json` file in
+`~/.config/terminal-space-program/loadouts/` (or under `$XDG_CONFIG_HOME`) to add
+your own loadouts and parts, or override a built-in by reusing its `id`. A loadout
+is an ordered list of part references; a part is one atomic stage. Run
+`terminal-space-program --list-loadouts` to see the merged catalog and confirm
+yours loaded — a malformed file is skipped with a warning, never failing the rest.
+See the [command-line reference](docs/cli.md#custom-vehicles) for the format.
+
 ## Learn more
 
 - **[Controls & flight guide](docs/controls.md)** — a quick tour, a launch

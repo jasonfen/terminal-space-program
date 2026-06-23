@@ -425,6 +425,48 @@
       "launch_sprite_width_px": 3,
       "launch_sprite_color": "#C8C8D0",
       "has_parachute": true
+    },
+    {
+      "id": "ntr-tug",
+      "name": "NTR Tug",
+      "glyph": "➤",
+      "color": "#8CE0C0",
+      "tier": "tug",
+      "dry_mass_kg": 3000,
+      "fuel_mass_kg": 11000,
+      "fuel_capacity_kg": 11000,
+      "thrust_n": 67000,
+      "isp_s": 900,
+      "launch_sprite_rows_px": 8,
+      "launch_sprite_width_px": 3,
+      "launch_sprite_color": "#8CE0C0",
+      "fuel_type": "hydrolox",
+      "command_source": "probe",
+      "antenna": {
+        "kind": "relay",
+        "power_w": 4000
+      }
+    },
+    {
+      "id": "ion-keeper",
+      "name": "Ion Keeper",
+      "glyph": "➤",
+      "color": "#C49BFF",
+      "tier": "tug",
+      "dry_mass_kg": 900,
+      "fuel_mass_kg": 700,
+      "fuel_capacity_kg": 700,
+      "thrust_n": 2500,
+      "isp_s": 3000,
+      "launch_sprite_rows_px": 5,
+      "launch_sprite_width_px": 2,
+      "launch_sprite_color": "#C49BFF",
+      "fuel_type": "hydrolox",
+      "command_source": "probe",
+      "antenna": {
+        "kind": "direct",
+        "power_w": 1500
+      }
     }
   ]
 }
