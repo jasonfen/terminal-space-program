@@ -679,6 +679,99 @@ func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, s
 	}
 }
 
+// PlotDenseLineForcedColored draws a dotted line between world points a and b
+// like PlotDenseLineColored, but WITHOUT the "too long to bridge" guard: it
+// always connects the two points, clipping the segment to the canvas so a link
+// to a far off-screen endpoint draws its visible run with O(canvas) iteration
+// rather than O(projected distance). Use for a genuine straight sightline — a
+// CommNet relay link (C2-7) — where the chord IS the real path and must draw
+// all the way toward its (possibly off-screen) far endpoint, e.g. a Moon→Earth
+// relay hop. Orbit-arc chords keep the guarded variant, which refuses to bridge
+// a long chord because that chord is NOT a real straight path across the view.
+func (c *Canvas) PlotDenseLineForcedColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
+	if step < 1 {
+		step = 1
+	}
+	ax, ay, _ := c.Project(a)
+	bx, by, _ := c.Project(b)
+	cax, cay, cbx, cby, ok := clipSegmentToCanvas(ax, ay, bx, by, c.pxW, c.pxH)
+	if !ok {
+		return // segment lies wholly off the canvas
+	}
+	if c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	plotPx := func(px, py int) {
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			return
+		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = CellTag{Color: color}
+	}
+	dx, dy := cbx-cax, cby-cay
+	n := dx
+	if n < 0 {
+		n = -n
+	}
+	if ady := dy; ady < 0 {
+		if -ady > n {
+			n = -ady
+		}
+	} else if ady > n {
+		n = ady
+	}
+	if n == 0 {
+		plotPx(cax, cay)
+		return
+	}
+	for i := 0; i <= n; i += step {
+		plotPx(
+			cax+int(math.Round(float64(dx)*float64(i)/float64(n))),
+			cay+int(math.Round(float64(dy)*float64(i)/float64(n))),
+		)
+	}
+}
+
+// clipSegmentToCanvas clips the pixel segment [(ax,ay),(bx,by)] to the canvas
+// rectangle [0,w-1]×[0,h-1] via Liang-Barsky, returning the clipped integer
+// endpoints and ok=false when the segment lies wholly outside. Bounds the
+// forced dense-line iteration so a link to a far off-screen endpoint costs
+// O(canvas), not O(projected distance).
+func clipSegmentToCanvas(ax, ay, bx, by, w, h int) (int, int, int, int, bool) {
+	x0, y0 := float64(ax), float64(ay)
+	dx, dy := float64(bx-ax), float64(by-ay)
+	maxX, maxY := float64(w-1), float64(h-1)
+	p := [4]float64{-dx, dx, -dy, dy}
+	q := [4]float64{x0, maxX - x0, y0, maxY - y0}
+	u0, u1 := 0.0, 1.0
+	for i := 0; i < 4; i++ {
+		if p[i] == 0 {
+			if q[i] < 0 {
+				return 0, 0, 0, 0, false // parallel to an edge and outside it
+			}
+			continue
+		}
+		t := q[i] / p[i]
+		if p[i] < 0 {
+			if t > u1 {
+				return 0, 0, 0, 0, false
+			}
+			if t > u0 {
+				u0 = t
+			}
+		} else {
+			if t < u0 {
+				return 0, 0, 0, 0, false
+			}
+			if t < u1 {
+				u1 = t
+			}
+		}
+	}
+	return int(math.Round(x0 + u0*dx)), int(math.Round(y0 + u0*dy)),
+		int(math.Round(x0 + u1*dx)), int(math.Round(y0 + u1*dy)), true
+}
+
 // Cols / Rows expose the configured terminal cell dimensions.
 func (c *Canvas) Cols() int { return c.cols }
 func (c *Canvas) Rows() int { return c.rows }

@@ -43,3 +43,30 @@ func TestDrawCommPath(t *testing.T) {
 		t.Error("a connected probe should draw its relay path on the canvas")
 	}
 }
+
+// TestDrawCommPathBridgesLongHop: a relay hop longer than the canvas (a
+// Moon→Earth-scale leg) must still draw its visible run. The hop here straddles
+// the whole canvas with both endpoints off-screen — the old guarded line
+// primitive would draw nothing (both endpoint dots off-canvas), so a changed
+// canvas proves drawCommPath force-bridges the link instead of dot-only.
+func TestDrawCommPathBridgesLongHop(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.canvas.Resize(60, 30) // 120 × 120 px grid
+	v.canvas.SetScale(1)
+	v.canvas.Center(orbital.Vec3{})
+
+	c := &spacecraft.Spacecraft{ID: 1, Controllable: true}
+	w := &sim.World{Crafts: []*spacecraft.Spacecraft{c}, ActiveCraftIdx: 0}
+	w.CommGraph = &sim.CommGraph{
+		Connected: map[uint64]bool{1: true},
+		// Endpoints project to x=-40 and x=160 — both off-canvas, straddling
+		// the 120px-wide view: the guarded variant draws 0 pixels here.
+		Paths: map[uint64][]orbital.Vec3{1: {{X: -100}, {X: 100}}},
+	}
+	v.canvas.Clear()
+	blank := v.canvas.String()
+	v.drawCommPath(w)
+	if v.canvas.String() == blank {
+		t.Error("drawCommPath must force-bridge a long straddling relay hop (guarded would draw nothing)")
+	}
+}

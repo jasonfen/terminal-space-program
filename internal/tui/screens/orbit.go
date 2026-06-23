@@ -1700,7 +1700,12 @@ func (v *OrbitView) drawCommPath(w *sim.World) {
 		return
 	}
 	for i := 0; i+1 < len(pts); i++ {
-		v.canvas.PlotDenseLineColored(pts[i], pts[i+1], render.ColorCommLink, 3)
+		// Force-bridge: a relay link is a real straight sightline, so it must
+		// draw all the way toward its (often off-screen) far endpoint — a
+		// Moon→Earth hop spans far more than the canvas. The guarded variant
+		// would dot-only such a hop (the orbit-arc rule); the forced variant
+		// clips to the canvas and draws the visible run (C2-7 follow-up).
+		v.canvas.PlotDenseLineForcedColored(pts[i], pts[i+1], render.ColorCommLink, 3)
 	}
 }
 
