@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -128,34 +129,9 @@ func (w *World) Undock(idx int) bool {
 		// current position. For 2 components: -25 m and +25 m on
 		// the radial axis. For N: even spacing in [-1, +1].
 		offset := -1.0 + 2.0*float64(i)/float64(n-1)
-		s := &spacecraft.Spacecraft{
-			Name:      comp.Name,
-			LoadoutID: comp.LoadoutID,
-			Role:      comp.Role,
-			Glyph:     comp.Glyph,
-			Color:     comp.Color,
-			Throttle:  1.0,
-			Stages:    stages,
-			Primary:   c.Primary,
-			// v0.16 / ADR 0015: an undocked component stays in the
-			// composite's System.
-			SystemIdx: c.SystemIdx,
-			State: physics.StateVector{
-				R: c.State.R.Add(radialOut.Scale(offset * separationM)),
-				V: c.State.V.Add(radialOut.Scale(offset * pushVMS)),
-			},
-		}
-		// ADR 0027: every other vessel-construction path (NewFromLoadout /
-		// NewFromStages / save-load) backfills a command source on a
-		// command-less stack so it stays controllable. Undock must too —
-		// otherwise a released component whose own stages carry no command
-		// source (e.g. an uncrewed custom payload, or a legacy single-stage
-		// rebuild) derives Controllable=false and becomes unflyable debris.
-		// No-op when the component already carries one (the crewed LM cabin,
-		// the CSM's CM), so it doesn't override authored roles.
-		spacecraft.EnsureCommandSource(s)
-		s.SyncFields()
-		s.State.M = s.TotalMass()
+		s := w.restoreComponentCraft(c, comp, stages,
+			c.State.R.Add(radialOut.Scale(offset*separationM)),
+			c.State.V.Add(radialOut.Scale(offset*pushVMS)))
 		restored = append(restored, s)
 	}
 
@@ -178,6 +154,113 @@ func (w *World) Undock(idx int) bool {
 	// DockCrafts).
 	w.SetActiveCraftIdx(idx)
 	w.StopManualBurn()
+	return true
+}
+
+// restoreComponentCraft synthesizes a standalone *Spacecraft from a docked
+// component and the LIVE stages peeled off the composite, placed at (r, v).
+// Shared by Undock (releases every component) and Deploy (pops the top
+// payload). v0.23 / ADR 0028.
+//
+// ADR 0027: every other vessel-construction path (NewFromLoadout /
+// NewFromStages / save-load) backfills a command source on a command-less
+// stack so it stays controllable. A released component must too — otherwise a
+// payload whose own stages carry no command source (an uncrewed custom
+// payload, a legacy single-stage rebuild) derives Controllable=false and
+// becomes unflyable debris. EnsureCommandSource is a no-op when the component
+// already carries one (a crewed cabin), so it never overrides authored roles.
+func (w *World) restoreComponentCraft(c *spacecraft.Spacecraft, comp spacecraft.DockedComponent, stages []spacecraft.Stage, r, v orbital.Vec3) *spacecraft.Spacecraft {
+	s := &spacecraft.Spacecraft{
+		Name:      comp.Name,
+		LoadoutID: comp.LoadoutID,
+		Role:      comp.Role,
+		Glyph:     comp.Glyph,
+		Color:     comp.Color,
+		Throttle:  1.0,
+		Stages:    stages,
+		Primary:   c.Primary,
+		// v0.16 / ADR 0015: a released component stays in the composite's System.
+		SystemIdx: c.SystemIdx,
+		State:     physics.StateVector{R: r, V: v},
+	}
+	spacecraft.EnsureCommandSource(s)
+	s.SyncFields()
+	s.State.M = s.TotalMass()
+	return s
+}
+
+// Deploy releases the **topmost** nose payload of the composite at idx as its
+// own craft while keeping the carrier active — the drop-and-continue verb for
+// constellations and tugs (ADR 0028 decisions 3/4/7). Each press pops one
+// payload: the last DockedComponent (the top of the stack) is peeled off,
+// leaving the carrier flying with one fewer payload; once only the carrier
+// core remains it reverts to a plain craft. Emits the `deploy` semantic
+// action (ADR 0025 vocab) for the mission model.
+//
+// Contrast with Undock, which explodes the whole composite at once and
+// switches the active craft to a released component. Deploy reuses Undock's
+// per-component synthesis (separation push, command-source backfill, stable
+// ID) via restoreComponentCraft but releases just the top and never changes
+// the active craft. No-op (returns false) when the craft is not a loaded
+// composite (fewer than two components). v0.23 / ADR 0028 C3-2.
+func (w *World) Deploy(idx int) bool {
+	if idx < 0 || idx >= len(w.Crafts) {
+		return false
+	}
+	c := w.Crafts[idx]
+	if c == nil || len(c.DockedComponents) < 2 {
+		return false
+	}
+
+	// The top payload is the last component; its live stages are the top of
+	// the composite's Stages (newCustomCraft / DockCrafts / Transpose all build
+	// Stages as the in-order concatenation of the components, bottom-to-top).
+	top := c.DockedComponents[len(c.DockedComponents)-1]
+	cnt := len(top.Stages)
+	if cnt <= 0 || cnt >= len(c.Stages) {
+		// Malformed component breakdown (no per-stage record, or it claims the
+		// whole stack) — refuse rather than strand the carrier. The legacy
+		// single-stage prorate path Undock falls back to isn't reachable for
+		// deployable composites, which always carry full Stages breakdowns.
+		return false
+	}
+	keep := len(c.Stages) - cnt
+	payloadStages := append([]spacecraft.Stage(nil), c.Stages[keep:]...)
+
+	// Push the payload clear of the carrier: radial-out 35 m + 0.05 m/s drift,
+	// the same separation scale Undock uses. The carrier holds its state.
+	const (
+		separationM = 35.0
+		pushVMS     = 0.05
+	)
+	radialOut := c.State.R
+	if radialOut.Norm() > 0 {
+		radialOut = radialOut.Scale(1 / radialOut.Norm())
+	} else {
+		radialOut = orbital.Vec3{X: 1}
+	}
+	released := w.restoreComponentCraft(c, top, payloadStages,
+		c.State.R.Add(radialOut.Scale(separationM)),
+		c.State.V.Add(radialOut.Scale(pushVMS)))
+	w.stampCraftID(released) // fresh stable identity (ADR 0012)
+
+	// Shrink the carrier: drop the top component + its stages. Own backing
+	// arrays so the carrier never aliases the released payload's stages.
+	c.Stages = append([]spacecraft.Stage(nil), c.Stages[:keep]...)
+	c.DockedComponents = c.DockedComponents[:len(c.DockedComponents)-1]
+	if len(c.DockedComponents) < 2 {
+		// Only the carrier core is left — it's no longer a composite.
+		c.DockedComponents = nil
+	}
+	c.SyncFields()
+	c.State.M = c.TotalMass()
+
+	w.Crafts = append(w.Crafts, released)
+	// The carrier keeps flying — no SetActiveCraftIdx, no StopManualBurn:
+	// Deploy is drop-and-continue, so an in-progress burn / planted node on
+	// the carrier survives (Undock drops them because the composite ceases to
+	// exist; the carrier here does not).
+	w.RecordAction(missions.ActionDeploy)
 	return true
 }
 
