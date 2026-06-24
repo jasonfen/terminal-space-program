@@ -183,6 +183,32 @@ func TestSettingsScreenRoundTripPersists(t *testing.T) {
 	}
 }
 
+// TestVABOpensFromMenuAndCloses — the pause menu `b` key opens the Vehicle
+// Assembly screen (v0.24 / ADR 0029), its keys are consumed by the screen,
+// and Esc returns to orbit.
+func TestVABOpensFromMenuAndCloses(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.menu.Reset()
+	a.active = screenMenu
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	if a.active != screenVAB {
+		t.Fatalf("after menu `b`, active = %v, want screenVAB", a.active)
+	}
+	// A build key is consumed by the screen (does not fall through / crash).
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}) // new stage
+	if a.active != screenVAB {
+		t.Errorf("VAB build key leaked screen change: active = %v", a.active)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.active != screenOrbit {
+		t.Errorf("after esc, active = %v, want screenOrbit", a.active)
+	}
+}
+
 // Clicking the target ± buttons holds BurnTarget / BurnAntiTarget.
 func TestDispatchNavballControlTarget(t *testing.T) {
 	a, err := New(nil)

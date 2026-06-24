@@ -25,6 +25,7 @@ type Menu struct {
 	backBtn     buttonRange
 	saveBtn     buttonRange
 	loadBtn     buttonRange
+	vabBtn      buttonRange
 	settingsBtn buttonRange
 	controlsBtn buttonRange
 	quitBtn     buttonRange
@@ -64,6 +65,7 @@ func (m *Menu) Reset() {
 	m.mode = menuModeList
 	m.saveBtn.set = false
 	m.loadBtn.set = false
+	m.vabBtn.set = false
 	m.settingsBtn.set = false
 	m.controlsBtn.set = false
 	m.quitBtn.set = false
@@ -82,6 +84,7 @@ const (
 	MenuActionCancel                   // esc / [Back] — return to orbit
 	MenuActionSave
 	MenuActionLoad
+	MenuActionVAB      // v0.24 / ADR 0029: open the Vehicle Assembly (VAB) screen
 	MenuActionSettings // v0.13: open the per-Chip visibility screen
 	MenuActionControls // ADR 0022: open the keyboard-layout / controls screen
 	MenuActionQuit
@@ -100,6 +103,8 @@ func (m *Menu) HandleKey(s string) MenuAction {
 			return MenuActionSave
 		case "l", "L":
 			return MenuActionLoad
+		case "b", "B":
+			return MenuActionVAB
 		case "t", "T":
 			return MenuActionSettings
 		case "c", "C":
@@ -142,6 +147,10 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 	switch m.mode {
 	case menuModeList:
 		switch {
+		case m.vabBtn.Hit(col, row):
+			// Opening a screen is reversible, so the VAB skips the
+			// click-confirm gate save/load/quit go through.
+			return MenuActionVAB
 		case m.settingsBtn.Hit(col, row):
 			// Opening a screen is reversible, so settings skips the
 			// click-confirm gate save/load/quit go through.
@@ -210,6 +219,7 @@ func (m *Menu) Render(width int) string {
 	// Reset confirm-button visibility — only the active mode sets them.
 	m.saveBtn.set = false
 	m.loadBtn.set = false
+	m.vabBtn.set = false
 	m.settingsBtn.set = false
 	m.controlsBtn.set = false
 	m.quitBtn.set = false
@@ -251,6 +261,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 	rows := []entry{
 		{"s", "[Save Game]", &m.saveBtn},
 		{"l", "[Load Game]", &m.loadBtn},
+		{"b", "[Build (VAB)]", &m.vabBtn},
 		{"t", "[Settings]", &m.settingsBtn},
 		{"c", "[Controls]", &m.controlsBtn},
 		{"q", "[Quit]", &m.quitBtn},
@@ -276,7 +287,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/t/c/q"))
+	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/b/t/c/q"))
 	return lines
 }
 

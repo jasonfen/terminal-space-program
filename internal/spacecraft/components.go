@@ -89,6 +89,25 @@ func buildComponents() map[string]Component {
 	return comps
 }
 
+// ComposeStage aggregates a list of component IDs into a runtime Stage,
+// deriving the RCS pool from dry mass exactly as the loadout-resolve path
+// does (DefaultRCSLoadout) so a VAB preview matches the eventually-spawned
+// craft. Returns a non-empty warning string when the components don't form
+// a valid stage (an unknown component, or mixed fuel chemistry — ADR 0029
+// §3); the returned Stage is then the zero value. Used by the VAB screen
+// (internal/tui/screens/vab.go), which can't reach the unexported
+// aggregation internals.
+func ComposeStage(componentIDs []string, comps map[string]Component) (Stage, string) {
+	agg, err := composePart(Part{Components: componentIDs}, comps)
+	if err != nil {
+		return Stage{}, err.Error()
+	}
+	st := agg.ToStage()
+	mp, monoCap, rcsThrust, rcsIsp := DefaultRCSLoadout(st.DryMass)
+	st.MonopropMass, st.MonopropCap, st.RCSThrust, st.RCSIsp = mp, monoCap, rcsThrust, rcsIsp
+	return st, ""
+}
+
 // aggregateComponents resolves every composed Part (one with a non-empty
 // Components list) into its flat scalar stats and returns the resolved
 // parts map plus a CatalogWarning per Part that fails validation. Atomic

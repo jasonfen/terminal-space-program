@@ -37,7 +37,7 @@ type helpSection struct {
 var helpSections = []helpSection{
 	{"GENERAL", [][2]string{
 		{"F1", "toggle this help"},
-		{"esc", "back / close (or save/load/settings/controls/quit menu on home)"},
+		{"esc", "back / close (or save/load/build/settings/controls/quit menu on home)"},
 		{"F5 / F9", "quicksave / quickload"},
 		{"q", "quit (confirm + autosave)"},
 		{"ctrl+c", "quit immediately"},
@@ -103,6 +103,16 @@ var helpSections = []helpSection{
 		{"D", "transpose: SM → firing core, LM → releasable nose payload"},
 		{"t / T", "cycle / clear the target"},
 		{"space", "decouple bottom stage (bare chute capsule: arm the chute)"},
+	}},
+	{"VEHICLE ASSEMBLY (VAB)", [][2]string{
+		{"esc → b", "open the VAB from the pause menu (Build)"},
+		{"tab", "switch pane (palette ↔ stack)"},
+		{"←/→ ↑/↓", "move the palette / stack cursor"},
+		{"a", "add the selected component to the stage (or part as a new stage)"},
+		{"n / x", "new empty stage on top / remove component or stage"},
+		{"d", "toggle dock seam below the stage (nose payload, [U]ndock-released)"},
+		{"c", "toggle fused decouple (stage drops with the group below)"},
+		{"s / o", "save the design (name it) / open a saved design"},
 	}},
 	{"MOUSE", [][2]string{
 		{"click body", "focus that body"},
