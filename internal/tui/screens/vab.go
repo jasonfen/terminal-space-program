@@ -398,6 +398,18 @@ func (v *VAB) Warnings() []string {
 	}
 	stages := v.resolvedStages()
 	var w []string
+	// An invalid composed stage (a component missing from the live catalog,
+	// e.g. a design loaded after a mod was removed, or a mixed-fuel stage)
+	// resolves to a silent zero Stage — surface why instead of showing a
+	// blank "no engine / dry 0kg" row with no explanation.
+	for i, vs := range v.stages {
+		if vs.isCatalog() {
+			continue
+		}
+		if _, warn := spacecraft.ComposeStage(vs.components, v.comps); warn != "" {
+			w = append(w, fmt.Sprintf("stage %d invalid: %s", i+1, warn))
+		}
+	}
 	hasEngine, hasCommand := false, false
 	for _, st := range stages {
 		if st.Thrust > 0 {
@@ -469,7 +481,12 @@ func (v *VAB) loadDesign(d spacecraft.Design) {
 	}
 	v.stages = nil
 	for _, ref := range d.Loadout.Parts {
-		if p, ok := byID[ref.PartID]; ok && len(p.Components) > 0 {
+		// A part present in the design's own Parts list is a composed stage
+		// (toDesign only emits design-local composed Parts); anything else is
+		// a reference to an atomic catalog part. Discriminate on PRESENCE, not
+		// component count — an empty composed stage (0 components) is still a
+		// composed stage and must not round-trip into a bogus catalog ref.
+		if p, ok := byID[ref.PartID]; ok {
 			v.stages = append(v.stages, vabStage{components: append([]string(nil), p.Components...)})
 		} else {
 			v.stages = append(v.stages, vabStage{catalogPartID: ref.PartID})

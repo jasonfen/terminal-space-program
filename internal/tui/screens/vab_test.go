@@ -195,6 +195,34 @@ func TestVABSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// TestVABEmptyStageRoundTrip — an empty composed stage (added with [n], no
+// components) survives save/load as a composed stage, not a bogus catalog
+// reference (the discriminator is design-local presence, not component count).
+func TestVABEmptyStageRoundTrip(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	v := NewVAB(Theme{})
+	v.Reset(testVABComps())
+	v.addComponentToCurrent("eng")
+	v.addComponentToCurrent("tank")
+	v.newStage() // an empty composed stage on top
+	v.name = "Has Empty"
+	if err := spacecraft.SaveDesign(v.toDesign()); err != nil {
+		t.Fatalf("SaveDesign: %v", err)
+	}
+	v.Reset(testVABComps())
+	v.refreshDesigns()
+	if len(v.designs) != 1 {
+		t.Fatalf("designs = %d, want 1", len(v.designs))
+	}
+	v.loadDesign(v.designs[0])
+	if len(v.stages) != 2 {
+		t.Fatalf("reloaded stages = %d, want 2", len(v.stages))
+	}
+	if v.stages[1].isCatalog() {
+		t.Error("empty composed stage round-tripped into a catalog reference")
+	}
+}
+
 // TestVABDecouplePlanRoundTrip — the decouple-fuse flags survive a
 // derive→apply round-trip.
 func TestVABDecouplePlanRoundTrip(t *testing.T) {

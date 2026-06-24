@@ -91,9 +91,10 @@ func (v *VAB) handleNamingKey(key string) VABAction {
 		if r := []rune(v.name); len(r) > 0 {
 			v.name = string(r[:len(r)-1])
 		}
-	case "space":
-		v.name += " "
 	default:
+		// Bubble Tea reports the spacebar as " " (a single rune), not "space",
+		// so the single-rune default covers it along with every printable
+		// character; multi-rune keys (arrows, "tab", …) are ignored.
 		if len([]rune(key)) == 1 {
 			v.name += key
 		}

@@ -76,6 +76,16 @@ func (d Design) Resolve() (Loadout, []CatalogWarning) {
 	}
 	designParts, aggWarn := aggregateComponents(designParts, comps)
 	warnings = append(warnings, aggWarn...)
+	// A composed part that fails to aggregate (unknown component, mixed fuel)
+	// is left UNAGGREGATED with zero scalars — resolving it would build a
+	// flyable-but-dead ghost stage (0 thrust / 0 mass), and the spawn path
+	// only errors on an EMPTY loadout, never a degenerate one. Reject the
+	// whole design instead so the caller surfaces the failure rather than
+	// spawning dead weight (e.g. a design referencing a since-removed overlay
+	// component, or a hand-edited mixed-fuel stage).
+	if len(aggWarn) > 0 {
+		return Loadout{}, warnings
+	}
 	// Merge the global catalog parts with the design's design-scoped parts.
 	merged := make(map[string]Part, len(globalParts)+len(designParts))
 	for id, p := range globalParts {

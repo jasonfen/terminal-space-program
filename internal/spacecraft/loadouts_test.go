@@ -388,29 +388,12 @@ func TestLanderStageDeltaVBudgets(t *testing.T) {
 }
 
 // stackDeltaV returns the ideal (rocket-equation) Δv of a bottom-first
-// stage list flown as a single drop-stage chain: each stage fires hauling
-// itself plus everything above it, then is jettisoned. Mirrors the mass
-// convention of TestLanderStageDeltaVBudgets (dry + main fuel only; RCS
-// monoprop is ignored). Engineless / fuelless stages (the parachute Pod)
-// contribute mass but no Δv.
+// stage list flown as a single drop-stage chain. Delegates to the
+// production StackStats so the loadout-budget tests and the VAB readout
+// can never drift apart on the Δv convention (dry + main fuel only; RCS
+// monoprop ignored; engineless / fuelless stages contribute mass but no Δv).
 func stackDeltaV(stages []Stage) float64 {
-	massAtOrAbove := func(i int) float64 {
-		m := 0.0
-		for j := i; j < len(stages); j++ {
-			m += stages[j].DryMass + stages[j].FuelMass
-		}
-		return m
-	}
-	total := 0.0
-	for i, s := range stages {
-		if s.FuelMass <= 0 || s.Isp <= 0 {
-			continue
-		}
-		m0 := massAtOrAbove(i)
-		m1 := m0 - s.FuelMass
-		total += s.Isp * g0 * math.Log(m0/m1)
-	}
-	return total
+	return StackStats(stages).TotalDV
 }
 
 // TestKernStackShape — ADR 0014 Slice C/D. The Kern Stack is the one

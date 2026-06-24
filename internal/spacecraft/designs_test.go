@@ -226,6 +226,32 @@ func TestDeleteDesign(t *testing.T) {
 	}
 }
 
+// TestDesignResolveRejectsBrokenComposedPart — a design whose composed part
+// fails aggregation (mixed fuel chemistry) resolves to an EMPTY loadout +
+// warnings, not a flyable-but-dead ghost stage. The spawn path keys off the
+// empty loadout to surface the failure instead of spawning dead weight.
+func TestDesignResolveRejectsBrokenComposedPart(t *testing.T) {
+	_, overlayDir := withDesignsAndOverlay(t)
+	comps := `{"components":[
+		{"id":"x-eng","kind":"engine","dry_mass_kg":500,"thrust_n":1000000,"isp_s":300,"fuel_type":"kerolox"},
+		{"id":"x-hydro","kind":"tank","dry_mass_kg":100,"fuel_capacity_kg":2000,"fuel_type":"hydrolox"}
+	]}`
+	if err := os.WriteFile(filepath.Join(overlayDir, "c.json"), []byte(comps), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := Design{
+		Loadout: LoadoutDef{ID: "broken", Name: "Broken", Parts: []PartRef{{PartID: "_broken_s0"}}},
+		Parts:   []Part{{ID: "_broken_s0", Components: []string{"x-eng", "x-hydro"}}},
+	}
+	l, warnings := d.Resolve()
+	if len(l.Stages) != 0 {
+		t.Errorf("mixed-fuel design resolved %d stages, want 0 (rejected)", len(l.Stages))
+	}
+	if len(warnings) == 0 {
+		t.Error("expected an aggregation warning for the mixed-fuel composed stage")
+	}
+}
+
 // TestDesignResolveSkipsBadRef — a design whose loadout references a part
 // that exists nowhere resolves to a warning, not a panic (hand-edited
 // design files must not crash the app).
