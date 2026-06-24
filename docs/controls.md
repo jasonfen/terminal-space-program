@@ -91,7 +91,7 @@ readout shows you why before you watch it fall back.
 
 | Key | Action |
 |---|---|
-| `Esc` | Back, or open the save / load / settings / controls / quit menu on the main view |
+| `Esc` | Back, or open the save / load / build / settings / controls / quit menu on the main view |
 | `Ctrl+C` | Quit immediately |
 | `F1` | Toggle the help overlay (scroll it with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`) |
 | `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
@@ -125,7 +125,7 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (only in the tilted view) |
 | `shift+←` / `shift+→` | Yaw the 3D view left / right in 5° steps, wrapping all the way around (only in the tilted view) |
 | `F2` | Declutter — hide all overlays (the corner chips and the navball) for a clean look at the orbit. Press again to bring them back. Your core telemetry column stays put |
-| `n` | Open the spawn form (craft, where to start, which body, altitude, direction). Pick **Custom…** to build your own rocket stack: on the stack field, `←` / `→` browse parts, `a` adds one on top, `x` removes the top one |
+| `n` | Open the spawn form (craft, where to start, which body, altitude, direction). Pick **Custom…** to build a quick stack from whole modules, or pick one of your **saved designs** (listed after Custom…) built in the VAB (`Esc → [Build (VAB)]`) |
 | `H` | Plan a transfer to your target. To a moon of the planet you're at, it works out two ways to get there and plans the cheaper one, showing you both fuel costs. To another planet, it plans a standard Hohmann transfer. To a moon's parent planet, it plans an escape |
 | `I` | Plan a burn to match your target's orbital tilt (or to level out to the equator when nothing is targeted) |
 | `C` | Plan a circularising burn at the top of your orbit — pairs with the ORBIT READY cue on launch. Won't work if the top of your orbit is still inside the atmosphere or you're on an escape trajectory |
@@ -223,3 +223,38 @@ turn it on for low-thrust craft or big burns where the loss is noticeable.
 
 The cursor opens on the cheapest cell. A `·` marks cells where no transfer was
 found — `Enter` does nothing there.
+
+### Vehicle Assembly (VAB) (`Esc → [Build (VAB)]`)
+
+The VAB is where you design a custom vehicle from fine parts and save it to
+launch later. You compose **components** — engines, fuel tanks, command cores,
+antennas, and structure — into stages, stack the stages into a vehicle, and
+read a live **Δv / TWR / mass** panel as you go. Saved designs are global (they
+survive across games) and show up in the spawn form (`n`) alongside the
+built-in craft, so you design once and launch many.
+
+| Key | Action |
+|---|---|
+| `Tab` | Switch the active pane (palette ↔ stack) |
+| `←` / `→` | Move the palette cursor (browse components by kind, then catalog parts) |
+| `↑` / `↓` | Move the cursor in the active pane |
+| `a` | Add the selected component to the current stage — or, for a catalog part, add it as a new whole stage |
+| `n` | Start a new empty stage on top |
+| `x` | Remove the last component from the stage (or the whole stage when it's empty / a catalog part) |
+| `d` | Toggle a **dock seam** below the stage — everything above the seam becomes a nose payload you release with Undock (`U`) instead of staging. Mark several seams for several payloads |
+| `c` | Toggle a **fused decouple** — the stage drops together with the group below it on one staging press |
+| `s` | Name and save the design |
+| `o` | Open a saved design to edit (`x` deletes the highlighted one) |
+| `Esc` | Back to the map |
+
+A stage can hold only **one fuel chemistry** — the VAB won't let you mix, say,
+a kerolox engine with a hydrolox tank in the same stage. Multiple engines in
+one stage are fine and combine honestly (thrust adds; the effective Isp is the
+thrust-weighted blend). Soft warnings flag the usual snags — no engine, no
+command source (it defaults to a probe core on spawn), or a lift-off TWR below
+1 — but never block you from saving.
+
+Designs are stored as portable files under
+`$XDG_CONFIG_HOME/terminal-space-program/designs/` (typically
+`~/.config/terminal-space-program/designs/`); copy one into the
+`loadouts/` overlay dir next to it to share it as a mod.
