@@ -167,9 +167,16 @@ var StageCatalog = buildStageCatalog()
 // as StageModules. Runs once at package-var init. Panics if the embedded
 // data fails to load (it must always load — see StageCatalog).
 func buildStageCatalog() map[string]StageModule {
-	parts, _, err := loadEmbeddedCatalog()
+	comps, parts, _, err := loadEmbeddedCatalog()
 	if err != nil {
 		panic("spacecraft: embedded parts catalog failed to load: " + err.Error())
+	}
+	// Aggregate composed parts (ADR 0029) so a composed catalog part would
+	// project its derived stats. The embedded catalog is all-atomic this
+	// cycle (pass-through); a bad embedded composition is a build error.
+	parts, aggWarnings := aggregateComponents(parts, comps)
+	if len(aggWarnings) > 0 {
+		panic("spacecraft: embedded composed part failed aggregation: " + aggWarnings[0].Error())
 	}
 	out := make(map[string]StageModule, len(parts))
 	for id, p := range parts {

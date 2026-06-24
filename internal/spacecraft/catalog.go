@@ -27,7 +27,7 @@ import (
 // and need the catalog only at spawn time, so the loadout catalog is not
 // wired into BodyCatalogHash.
 
-//go:embed data/parts.json data/loadouts.json
+//go:embed data/components.json data/parts.json data/loadouts.json
 var catalogFS embed.FS
 
 // Part is a normalized, data-authored atomic stage — engine + tank +
@@ -77,6 +77,15 @@ type Part struct {
 	// Antenna declares the part's antenna {kind, power}.
 	CommandSource string   `json:"command_source,omitempty"`
 	Antenna       *Antenna `json:"antenna,omitempty"`
+
+	// Components (v0.24 / ADR 0029 §1, the VAB cycle) optionally declares
+	// this Part a composition of finer Components by ID. Absent ⇒ the Part
+	// is atomic and its inline scalar fields above are authoritative
+	// (unchanged, byte-identical). Present ⇒ the scalar fields are DERIVED
+	// by aggregateComponents at load time (thrust-weighted Isp, additive
+	// mass / capacity, single fuel type per stage). Zero migration: today's
+	// catalog declares no components, so every existing Part stays atomic.
+	Components []string `json:"components,omitempty"`
 }
 
 // Antenna is the forward-compatible (ADR 0027) per-part antenna attribute:
@@ -132,11 +141,14 @@ type LoadoutDef struct {
 }
 
 // Catalog is the on-disk envelope shared by the embedded data files and
-// user overlay files: a list of parts and/or loadouts. Both lists are
-// optional, so a user file may add just parts, just loadouts, or both.
+// user overlay files: a list of components, parts and/or loadouts. All
+// lists are optional, so a user file may add just components, just parts,
+// just loadouts, or any mix (the modding path; v0.24 / ADR 0029 added the
+// components list one level below parts).
 type Catalog struct {
-	Parts    []Part       `json:"parts,omitempty"`
-	Loadouts []LoadoutDef `json:"loadouts,omitempty"`
+	Components []Component  `json:"components,omitempty"`
+	Parts      []Part       `json:"parts,omitempty"`
+	Loadouts   []LoadoutDef `json:"loadouts,omitempty"`
 }
 
 // CatalogWarning records a user overlay file that failed to load. Mirrors
@@ -203,7 +215,7 @@ func (p Part) ToStage() Stage {
 // last. Embedded parse failures already panicked at init, so the error
 // from LoadCatalogWithWarnings is not re-surfaced here.
 func LoadCatalogOverlay() []CatalogWarning {
-	parts, defs, warnings, _ := LoadCatalogWithWarnings()
+	comps, parts, defs, warnings, _ := loadMergedCatalog()
 	sc := make(map[string]StageModule, len(parts))
 	for id, p := range parts {
 		sc[id] = p.toStageModule()
@@ -217,6 +229,7 @@ func LoadCatalogOverlay() []CatalogWarning {
 	StageCatalog = sc
 	Loadouts = lo
 	LoadoutOrder = order
+	Components = comps
 	return warnings
 }
 
@@ -230,31 +243,52 @@ func LoadCatalog() (map[string]Part, []LoadoutDef, error) {
 
 // LoadCatalogWithWarnings is the warning-aware variant. The returned
 // warnings slice holds a CatalogWarning per user overlay file that failed
-// to parse; embedded-catalog parse failures surface as a hard error (the
-// embedded set must always load). This is the ADR 0026 "LoadAllWithWarnings
-// style" entrypoint, mirroring bodies.LoadAllWithWarnings.
+// to parse (and per composed Part that failed aggregation); embedded-catalog
+// parse failures surface as a hard error (the embedded set must always
+// load). This is the ADR 0026 "LoadAllWithWarnings style" entrypoint,
+// mirroring bodies.LoadAllWithWarnings. The returned parts are aggregated:
+// a composed Part (ADR 0029) carries its derived scalar stats, so every
+// downstream reader (resolveLoadout / ToStage) sees flat fields exactly as
+// for an atomic part.
 func LoadCatalogWithWarnings() (map[string]Part, []LoadoutDef, []CatalogWarning, error) {
-	parts, loadouts, err := loadEmbeddedCatalog()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	parts, loadouts, warnings := mergeUserCatalog(parts, loadouts, userCatalogDir())
-	return parts, loadouts, warnings, nil
+	_, parts, loadouts, warnings, err := loadMergedCatalog()
+	return parts, loadouts, warnings, err
 }
 
-func loadEmbeddedCatalog() (map[string]Part, []LoadoutDef, error) {
+// loadMergedCatalog is the single internal entrypoint that loads the
+// embedded catalog, merges the user overlay (skip-bad-with-warning), and
+// aggregates composed parts (ADR 0029 §2). Shared by the public
+// LoadCatalog* wrappers and LoadCatalogOverlay so components, parts and
+// loadouts are always resolved through one consistent path. Aggregation
+// warnings (unknown component / mixed fuel) join the overlay warnings.
+func loadMergedCatalog() (map[string]Component, map[string]Part, []LoadoutDef, []CatalogWarning, error) {
+	comps, parts, loadouts, err := loadEmbeddedCatalog()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	comps, parts, loadouts, warnings := mergeUserCatalog(comps, parts, loadouts, userCatalogDir())
+	parts, aggWarnings := aggregateComponents(parts, comps)
+	warnings = append(warnings, aggWarnings...)
+	return comps, parts, loadouts, warnings, nil
+}
+
+func loadEmbeddedCatalog() (map[string]Component, map[string]Part, []LoadoutDef, error) {
+	comps := map[string]Component{}
 	parts := map[string]Part{}
 	var loadouts []LoadoutDef
-	// Two embedded files (parts + loadouts) folded into one merged catalog;
-	// either may hold either list (the shared envelope).
-	for _, name := range []string{"data/parts.json", "data/loadouts.json"} {
+	// Three embedded files (components + parts + loadouts) folded into one
+	// merged catalog; any may hold any list (the shared envelope).
+	for _, name := range []string{"data/components.json", "data/parts.json", "data/loadouts.json"} {
 		data, err := catalogFS.ReadFile(name)
 		if err != nil {
-			return nil, nil, fmt.Errorf("read embedded %s: %w", name, err)
+			return nil, nil, nil, fmt.Errorf("read embedded %s: %w", name, err)
 		}
 		var cat Catalog
 		if err := json.Unmarshal(data, &cat); err != nil {
-			return nil, nil, fmt.Errorf("parse %s: %w", name, err)
+			return nil, nil, nil, fmt.Errorf("parse %s: %w", name, err)
+		}
+		for _, c := range cat.Components {
+			comps[c.ID] = c
 		}
 		for _, p := range cat.Parts {
 			parts[p.ID] = p
@@ -264,24 +298,26 @@ func loadEmbeddedCatalog() (map[string]Part, []LoadoutDef, error) {
 			loadouts = append(loadouts, cat.Loadouts[i])
 		}
 	}
-	return parts, loadouts, nil
+	return comps, parts, loadouts, nil
 }
 
 // mergeUserCatalog overlays every *.json file in dir onto the embedded
-// catalog. A user part wins on ID (replaces the embedded entry); a user
-// loadout replaces on ID, else appends. A missing dir is fine (overlay is
-// optional); a malformed file is skipped with a warning. Factored out (and
-// taking dir) so it can be unit-tested against a temp dir.
-func mergeUserCatalog(parts map[string]Part, loadouts []LoadoutDef, dir string) (map[string]Part, []LoadoutDef, []CatalogWarning) {
+// catalog. A user component / part wins on ID (replaces the embedded
+// entry); a user loadout replaces on ID, else appends. A missing dir is
+// fine (overlay is optional); a malformed file is skipped with a warning.
+// Factored out (and taking dir) so it can be unit-tested against a temp
+// dir. Aggregation of composed parts runs AFTER the merge (loadMergedCatalog)
+// so a composed part may reference an overlay component.
+func mergeUserCatalog(comps map[string]Component, parts map[string]Part, loadouts []LoadoutDef, dir string) (map[string]Component, map[string]Part, []LoadoutDef, []CatalogWarning) {
 	if dir == "" {
-		return parts, loadouts, nil
+		return comps, parts, loadouts, nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return parts, loadouts, nil
+			return comps, parts, loadouts, nil
 		}
-		return parts, loadouts, []CatalogWarning{{Path: dir, Err: err}}
+		return comps, parts, loadouts, []CatalogWarning{{Path: dir, Err: err}}
 	}
 	var warnings []CatalogWarning
 	for _, e := range entries {
@@ -298,6 +334,9 @@ func mergeUserCatalog(parts map[string]Part, loadouts []LoadoutDef, dir string) 
 		if err := json.Unmarshal(data, &cat); err != nil {
 			warnings = append(warnings, CatalogWarning{Path: path, Err: err})
 			continue
+		}
+		for _, c := range cat.Components {
+			comps[c.ID] = c // user wins on ID
 		}
 		for _, p := range cat.Parts {
 			parts[p.ID] = p // user wins on ID
@@ -317,7 +356,7 @@ func mergeUserCatalog(parts map[string]Part, loadouts []LoadoutDef, dir string) 
 			}
 		}
 	}
-	return parts, loadouts, warnings
+	return comps, parts, loadouts, warnings
 }
 
 // userCatalogDir resolves the user loadout-overlay directory:

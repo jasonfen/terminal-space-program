@@ -217,9 +217,17 @@ func stageRCS(dryMass float64) (mp, monoCap, rcsThrust, rcsIsp float64) {
 // layer (C1-4); this init path reads embedded data only, so it stays
 // deterministic.
 func buildLoadouts() (map[string]Loadout, []string) {
-	parts, defs, err := loadEmbeddedCatalog()
+	comps, parts, defs, err := loadEmbeddedCatalog()
 	if err != nil {
 		panic("spacecraft: embedded loadout catalog failed to load: " + err.Error())
+	}
+	// Resolve any composed parts (ADR 0029) before loadout assembly. The
+	// embedded catalog declares no components this cycle, so this is a
+	// pass-through for the shipped fleet; an aggregation warning on the
+	// embedded set is a build error (like the unknown-part-ID panic below).
+	parts, aggWarnings := aggregateComponents(parts, comps)
+	if len(aggWarnings) > 0 {
+		panic("spacecraft: embedded composed part failed aggregation: " + aggWarnings[0].Error())
 	}
 	out := make(map[string]Loadout, len(defs))
 	order := make([]string, 0, len(defs))
