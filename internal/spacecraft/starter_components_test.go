@@ -1,9 +1,85 @@
 package spacecraft
 
 import (
+	"math"
 	"reflect"
 	"testing"
 )
+
+// TestStarterComponentsAggregateCleanly — every embedded component is
+// individually valid (composes into a one-component stage with no warning),
+// carries the fields its kind needs, and each of the five kinds ships a
+// selection (engines/tanks have several so clustering + tank-sizing are real
+// choices). Guards the v0.24 starter content against a malformed addition.
+func TestStarterComponentsAggregateCleanly(t *testing.T) {
+	comps, _, _, err := loadEmbeddedCatalog()
+	if err != nil {
+		t.Fatalf("loadEmbeddedCatalog: %v", err)
+	}
+	byKind := map[string]int{}
+	for id, c := range comps {
+		byKind[c.Kind]++
+		if _, warn := ComposeStage([]string{id}, comps); warn != "" {
+			t.Errorf("component %q does not aggregate cleanly: %s", id, warn)
+		}
+		if c.DryMassKg <= 0 {
+			t.Errorf("component %q has non-positive dry mass", id)
+		}
+		switch c.Kind {
+		case ComponentEngine:
+			if c.ThrustN <= 0 || c.IspS <= 0 || c.FuelType == "" {
+				t.Errorf("engine %q missing thrust/Isp/fuel: %+v", id, c)
+			}
+		case ComponentTank:
+			if c.FuelCapacityKg <= 0 || c.FuelType == "" {
+				t.Errorf("tank %q missing capacity/fuel: %+v", id, c)
+			}
+		case ComponentCommandCore:
+			if !IsCommandSource(c.CommandSource) {
+				t.Errorf("command-core %q has no command source: %+v", id, c)
+			}
+		case ComponentAntenna:
+			if c.AntennaKind == AntennaNone || c.RangeM <= 0 {
+				t.Errorf("antenna %q missing kind/range: %+v", id, c)
+			}
+		case ComponentStructure:
+			// dry mass only — already checked above.
+		default:
+			t.Errorf("component %q has unknown kind %q", id, c.Kind)
+		}
+	}
+	for _, k := range []string{ComponentEngine, ComponentTank, ComponentCommandCore, ComponentAntenna, ComponentStructure} {
+		if byKind[k] == 0 {
+			t.Errorf("no components of kind %q ship", k)
+		}
+	}
+	if byKind[ComponentEngine] < 3 || byKind[ComponentTank] < 3 {
+		t.Errorf("want a real selection, got %d engines / %d tanks", byKind[ComponentEngine], byKind[ComponentTank])
+	}
+}
+
+// TestStarterEngineClusterThrustWeighted — two different same-chemistry
+// engines from the catalog cluster honestly: thrust adds and the effective
+// Isp is the thrust-weighted blend (the property the spread of engines makes
+// meaningful).
+func TestStarterEngineClusterThrustWeighted(t *testing.T) {
+	comps, _, _, err := loadEmbeddedCatalog()
+	if err != nil {
+		t.Fatalf("loadEmbeddedCatalog: %v", err)
+	}
+	a, b := comps["rd180-booster"], comps["merlin-sustainer"] // both kerolox, different Isp
+	st, warn := ComposeStage([]string{"rd180-booster", "merlin-sustainer"}, comps)
+	if warn != "" {
+		t.Fatalf("kerolox cluster should aggregate: %s", warn)
+	}
+	if st.Thrust != a.ThrustN+b.ThrustN {
+		t.Errorf("cluster thrust = %g, want %g", st.Thrust, a.ThrustN+b.ThrustN)
+	}
+	wantIsp := (a.ThrustN + b.ThrustN) / (a.ThrustN/a.IspS + b.ThrustN/b.IspS)
+	if math.Abs(st.Isp-wantIsp) > 1e-6 {
+		t.Errorf("cluster Isp_eff = %g, want %g (thrust-weighted)", st.Isp, wantIsp)
+	}
+}
 
 // TestProbeSatComposedFromComponents — the v0.24 starter dogfood (ADR 0029
 // S4): the embedded "Probe-Sat" loadout is built from a composed part

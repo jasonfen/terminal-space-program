@@ -12,6 +12,61 @@
       "fuel_type": "kerolox"
     },
     {
+      "id": "rd180-booster",
+      "name": "RD-180 Booster",
+      "kind": "engine",
+      "dry_mass_kg": 5500,
+      "thrust_n": 3830000,
+      "isp_s": 311,
+      "fuel_type": "kerolox"
+    },
+    {
+      "id": "merlin-sustainer",
+      "name": "Merlin 1D",
+      "kind": "engine",
+      "dry_mass_kg": 470,
+      "thrust_n": 845000,
+      "isp_s": 282,
+      "fuel_type": "kerolox"
+    },
+    {
+      "id": "j2-upper",
+      "name": "J-2 Upper",
+      "kind": "engine",
+      "dry_mass_kg": 1500,
+      "thrust_n": 1033000,
+      "isp_s": 421,
+      "fuel_type": "hydrolox"
+    },
+    {
+      "id": "rl10-vac",
+      "name": "RL-10 Vacuum",
+      "kind": "engine",
+      "dry_mass_kg": 280,
+      "thrust_n": 110000,
+      "isp_s": 451,
+      "fuel_type": "hydrolox"
+    },
+    {
+      "id": "sps-transfer",
+      "name": "SPS Transfer Engine",
+      "kind": "engine",
+      "dry_mass_kg": 300,
+      "thrust_n": 91000,
+      "isp_s": 314,
+      "fuel_type": "hypergolic"
+    },
+    {
+      "id": "lmde-descent",
+      "name": "LMDE Descent Engine",
+      "kind": "engine",
+      "dry_mass_kg": 200,
+      "thrust_n": 45000,
+      "isp_s": 311,
+      "fuel_type": "hypergolic"
+    },
+
+    {
       "id": "probe-tank-1k",
       "name": "FT-1000 Tank",
       "kind": "tank",
@@ -20,6 +75,47 @@
       "fuel_type": "kerolox"
     },
     {
+      "id": "kero-tank-500",
+      "name": "FT-500 Tank",
+      "kind": "tank",
+      "dry_mass_kg": 60,
+      "fuel_capacity_kg": 500,
+      "fuel_type": "kerolox"
+    },
+    {
+      "id": "kero-tank-4k",
+      "name": "FT-4000 Tank",
+      "kind": "tank",
+      "dry_mass_kg": 350,
+      "fuel_capacity_kg": 4000,
+      "fuel_type": "kerolox"
+    },
+    {
+      "id": "hydro-tank-2k",
+      "name": "HT-2000 Tank",
+      "kind": "tank",
+      "dry_mass_kg": 260,
+      "fuel_capacity_kg": 2000,
+      "fuel_type": "hydrolox"
+    },
+    {
+      "id": "hydro-tank-8k",
+      "name": "HT-8000 Tank",
+      "kind": "tank",
+      "dry_mass_kg": 950,
+      "fuel_capacity_kg": 8000,
+      "fuel_type": "hydrolox"
+    },
+    {
+      "id": "hyper-tank-15",
+      "name": "PT-1500 Tank",
+      "kind": "tank",
+      "dry_mass_kg": 140,
+      "fuel_capacity_kg": 1500,
+      "fuel_type": "hypergolic"
+    },
+
+    {
       "id": "probe-core",
       "name": "OKTO Probe Core",
       "kind": "command-core",
@@ -27,12 +123,64 @@
       "command_source": "probe"
     },
     {
+      "id": "crew-capsule",
+      "name": "Mk1 Capsule",
+      "kind": "command-core",
+      "dry_mass_kg": 800,
+      "command_source": "crewed",
+      "has_parachute": true
+    },
+    {
+      "id": "lander-can",
+      "name": "Lander Can",
+      "kind": "command-core",
+      "dry_mass_kg": 600,
+      "command_source": "crewed",
+      "can_soft_land": true
+    },
+
+    {
       "id": "probe-antenna",
       "name": "DA-5 Direct Antenna",
       "kind": "antenna",
       "dry_mass_kg": 20,
       "antenna_kind": "direct",
       "range_m": 10000000
+    },
+    {
+      "id": "relay-15",
+      "name": "RA-15 Relay",
+      "kind": "antenna",
+      "dry_mass_kg": 100,
+      "antenna_kind": "relay",
+      "range_m": 1000000000
+    },
+    {
+      "id": "dsn-dish",
+      "name": "DSN-88 Deep-Space Dish",
+      "kind": "antenna",
+      "dry_mass_kg": 200,
+      "antenna_kind": "direct",
+      "range_m": 600000000000
+    },
+
+    {
+      "id": "adapter-tr2",
+      "name": "TR-2 Stack Adapter",
+      "kind": "structure",
+      "dry_mass_kg": 40
+    },
+    {
+      "id": "aero-fairing",
+      "name": "Aero Fairing",
+      "kind": "structure",
+      "dry_mass_kg": 60
+    },
+    {
+      "id": "ballast-plate",
+      "name": "Ballast Plate",
+      "kind": "structure",
+      "dry_mass_kg": 200
     }
   ]
 }
