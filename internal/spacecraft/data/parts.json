@@ -548,6 +548,22 @@
         "kind": "relay",
         "range_m": 5000000000
       }
+    },
+    {
+      "id": "probe-sat-stage",
+      "name": "Probe Sat",
+      "glyph": "➤",
+      "color": "#5BB3FF",
+      "tier": "payload",
+      "launch_sprite_rows_px": 6,
+      "launch_sprite_width_px": 2,
+      "launch_sprite_color": "#5BB3FF",
+      "components": [
+        "probe-engine",
+        "probe-tank-1k",
+        "probe-core",
+        "probe-antenna"
+      ]
     }
   ]
 }

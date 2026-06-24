@@ -1,3 +1,38 @@
 {
-  "components": []
+  "components": [
+    {
+      "id": "probe-engine",
+      "name": "LT-50 Probe Engine",
+      "glyph": "➤",
+      "color": "#FFD93D",
+      "kind": "engine",
+      "dry_mass_kg": 200,
+      "thrust_n": 50000,
+      "isp_s": 320,
+      "fuel_type": "kerolox"
+    },
+    {
+      "id": "probe-tank-1k",
+      "name": "FT-1000 Tank",
+      "kind": "tank",
+      "dry_mass_kg": 100,
+      "fuel_capacity_kg": 1000,
+      "fuel_type": "kerolox"
+    },
+    {
+      "id": "probe-core",
+      "name": "OKTO Probe Core",
+      "kind": "command-core",
+      "dry_mass_kg": 80,
+      "command_source": "probe"
+    },
+    {
+      "id": "probe-antenna",
+      "name": "DA-5 Direct Antenna",
+      "kind": "antenna",
+      "dry_mass_kg": 20,
+      "antenna_kind": "direct",
+      "range_m": 10000000
+    }
+  ]
 }

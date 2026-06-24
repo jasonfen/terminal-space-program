@@ -346,7 +346,17 @@ func LookupLoadout(id string) Loadout {
 // from Stages so pre-v0.9.1 readers keep working without per-site
 // changes.
 func NewFromLoadout(loadoutID string) *Spacecraft {
-	l := LookupLoadout(loadoutID)
+	return NewFromLoadoutValue(LookupLoadout(loadoutID))
+}
+
+// NewFromLoadoutValue constructs a Spacecraft from a resolved Loadout VALUE
+// (not a catalog ID). The spawn path for saved VAB designs uses this: a
+// design resolves to a Loadout that lives OUTSIDE the global Loadouts map
+// (ADR 0029 §4 — designs are a separate namespace), so it can't go through
+// the ID-keyed NewFromLoadout. Identical otherwise — copies Stages +
+// DecouplePlan, defaults the command source, and syncs — so a design-spawned
+// craft is byte-identical to the equivalent catalog craft.
+func NewFromLoadoutValue(l Loadout) *Spacecraft {
 	stages := make([]Stage, len(l.Stages))
 	copy(stages, l.Stages)
 	// Copy the decouple plan (own backing array) so StageActive's

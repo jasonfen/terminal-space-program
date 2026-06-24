@@ -531,6 +531,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				spec := sim.SpawnSpec{
 					LoadoutID:       a.spawn.SelectedLoadoutID(),
+					DesignID:        a.spawn.SelectedDesignID(),
 					CustomStages:    a.spawn.SelectedCustomStages(),
 					NosePayloadPlan: a.spawn.SelectedNosePayloadPlan(),
 					ParentBodyID:    a.spawn.SelectedParentID(),
@@ -760,7 +761,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if c := a.world.ActiveCraft(); c != nil {
 				defaultParentID = c.Primary.ID
 			}
-			a.spawn.Reset(a.world.System().Bodies, defaultParentID)
+			// v0.24 / ADR 0029: offer saved VAB designs alongside catalog
+			// loadouts. ListDesigns is read here (not in the form) so the
+			// form stays filesystem-free and testable.
+			designs, _ := spacecraft.ListDesigns()
+			a.spawn.Reset(a.world.System().Bodies, defaultParentID, designs)
 			a.active = screenSpawn
 			a.world.RecordAction(missions.ActionSpawnCraft) // ADR 0025 §7
 			return a, nil

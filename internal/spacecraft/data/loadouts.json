@@ -296,6 +296,18 @@
         1,
         1
       ]
+    },
+    {
+      "id": "Probe-Sat",
+      "name": "Probe Sat",
+      "role": "probe",
+      "glyph": "➤",
+      "color": "#5BB3FF",
+      "parts": [
+        {
+          "part_id": "probe-sat-stage"
+        }
+      ]
     }
   ]
 }
