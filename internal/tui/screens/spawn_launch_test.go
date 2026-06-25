@@ -19,6 +19,14 @@ func moonLike() bodies.CelestialBody {
 		Mass: bodies.Mass{Value: 7.342, Exponent: 22}, MeanRadius: 1737.4}
 }
 
+// superEarthLike is a heavy-gravity body (surface g ≈ 13 m/s²) where a Lumen
+// launcher (Vector V, TWR ≈ 1.2) lifts off but the real Saturn V (TWR ≈ 0.93)
+// cannot — used to exercise the [f]-toggle launch-gate re-validation.
+func superEarthLike() bodies.CelestialBody {
+	return bodies.CelestialBody{ID: "superearth", EnglishName: "SuperEarth",
+		Mass: bodies.Mass{Value: 7.905, Exponent: 24}, MeanRadius: 6371}
+}
+
 func wetMass(l spacecraft.Loadout) float64 {
 	return spacecraft.SumDryMass(l.Stages) + spacecraft.SumFuelMass(l.Stages)
 }
@@ -131,6 +139,36 @@ func TestLaunchpadNeverStickyOnOrbitOnlyCraft(t *testing.T) {
 			t.Fatalf("launchpad stuck on a craft that can't lift off: idx=%d id=%q",
 				s.loadoutIdx, s.SelectedLoadoutID())
 		}
+	}
+}
+
+// TestFilterToggleResnapsLaunchpad — the [f] system-filter toggle re-validates
+// the launch gate, like cycleField (ADR 0031 / S11 review fix): if the craft
+// the cursor lands on after the toggle can't lift off the selected parent, a
+// launchpad selection snaps back to orbit. On a heavy parent, the filtered
+// Lumen top row (Vector V) lifts off but the show-all top row (Saturn V) does
+// not, so toggling must drop launchpad.
+func TestFilterToggleResnapsLaunchpad(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset([]bodies.CelestialBody{superEarthLike()}, "superearth", nil, bodies.ScaleStrippedBack)
+	// Filtered (Lumen) top row is Vector V, which lifts off the heavy parent.
+	if got := s.SelectedLoadoutID(); got != "Vector-V" {
+		t.Fatalf("setup: filtered top row = %q, want Vector-V", got)
+	}
+	s.fieldIdx = 1
+	for i := 0; i < 4 && !s.SelectedLaunchpad(); i++ {
+		s.HandleKey("right")
+	}
+	if !s.SelectedLaunchpad() {
+		t.Fatal("setup: could not select launchpad for Vector V on the heavy parent")
+	}
+	// Show-all top row becomes Saturn V (TWR < 1 here) → launchpad must drop.
+	s.HandleKey("f")
+	if s.SelectedLoadoutID() != "Saturn-V" {
+		t.Fatalf("after [f], top row = %q, want Saturn-V (show-all)", s.SelectedLoadoutID())
+	}
+	if s.SelectedLaunchpad() {
+		t.Error("[f] left launchpad selected on a craft that can't lift off the parent")
 	}
 }
 

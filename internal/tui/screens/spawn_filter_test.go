@@ -70,8 +70,8 @@ func TestShowAllToggleRevealsAndRefilters(t *testing.T) {
 	if !all["Kern-Stack"] || !all["Saturn-V"] {
 		t.Error("show-all should reveal every craft (real and stripped-back)")
 	}
-	if s.loadoutIdx != 0 || s.fieldIdx != 0 {
-		t.Errorf("toggle should re-point to top of CRAFT TYPE, got idx=%d field=%d", s.loadoutIdx, s.fieldIdx)
+	if s.loadoutIdx != 0 {
+		t.Errorf("toggle should re-point the cursor to the top of the re-filtered list, got idx=%d", s.loadoutIdx)
 	}
 
 	s.HandleKey("f")
@@ -80,6 +80,28 @@ func TestShowAllToggleRevealsAndRefilters(t *testing.T) {
 	}
 	if visibleIDs(s)["Kern-Stack"] {
 		t.Error("re-filter should hide the Kern Stack again")
+	}
+}
+
+// TestFilterToggleIgnoredInStackEditor — [f] is a no-op while focused on the
+// Custom STACK editor, so it can't yank the player out mid-build (ADR 0031 /
+// S11 review fix). Mirrors the field-guarding of the [a]/[x]/[d] stack keys.
+func TestFilterToggleIgnoredInStackEditor(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "", nil, bodies.ScaleReal)
+	// Select Custom and focus the STACK editor.
+	s.fieldIdx = 0
+	for !s.IsCustomSelected() {
+		s.HandleKey("right")
+	}
+	s.fieldIdx = stackFieldIdx
+	beforeShowAll := s.showAll
+	s.HandleKey("f")
+	if s.showAll != beforeShowAll {
+		t.Error("[f] toggled the filter while in the STACK editor (should be a no-op)")
+	}
+	if s.fieldIdx != stackFieldIdx || !s.IsCustomSelected() {
+		t.Errorf("[f] yanked focus out of the STACK editor (field=%d custom=%v)", s.fieldIdx, s.IsCustomSelected())
 	}
 }
 

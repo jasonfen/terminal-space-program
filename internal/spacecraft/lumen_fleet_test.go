@@ -1,7 +1,6 @@
 package spacecraft
 
 import (
-	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -20,31 +19,14 @@ func kernBody() bodies.CelestialBody {
 	return bodies.CelestialBody{Mass: bodies.Mass{Value: 5.2915158, Exponent: 22}, MeanRadius: 600}
 }
 
-// stagedDeltaV is the total ideal Δv of a bottom-first stack: each stage burns
-// the mass of every stage above it as payload, then is dropped (serial
-// staging). Engineless / empty stages contribute nothing.
-func stagedDeltaV(stages []Stage) float64 {
-	const g0 = 9.80665
-	wet := make([]float64, len(stages))
-	for i, s := range stages {
-		wet[i] = s.DryMass + s.FuelMass
-	}
-	dv := 0.0
-	for i, s := range stages {
-		if s.Thrust <= 0 || s.FuelMass <= 0 {
-			continue
-		}
-		above := 0.0
-		for j := i + 1; j < len(stages); j++ {
-			above += wet[j]
-		}
-		dv += s.Isp * g0 * math.Log((wet[i]+above)/(s.DryMass+above))
-	}
-	return dv
-}
+// Staged Δv reuses the production budget: stackDeltaV (loadouts_test.go) wraps
+// StackStats(stages).TotalDV — the same serial-staging rocket-equation Δv the
+// VAB readout and spawn path use — so the Lumen eval can't drift from it.
 
 // launchTWR is the lift-off thrust-to-weight of a loadout on body: bottom-stage
-// thrust over full-stack weight (the same gate craftLiftsOff uses, ADR 0031/S9).
+// thrust over full-stack weight, using the SAME wet-mass basis (dry+fuel, no
+// monoprop) as the production gate craftLiftsOff (ADR 0031/S9), so the eval
+// matches what actually decides launchpad availability.
 func launchTWR(l Loadout, body *bodies.CelestialBody) float64 {
 	wet := SumDryMass(l.Stages) + SumFuelMass(l.Stages)
 	g := body.GravitationalParameter() / (body.RadiusMeters() * body.RadiusMeters())
@@ -65,7 +47,7 @@ func TestLumenLaunchersReachKernOrbit(t *testing.T) {
 		if l.Scale() != bodies.ScaleStrippedBack {
 			t.Errorf("%s should be stripped-back scale, got %q", id, l.Scale())
 		}
-		dv := stagedDeltaV(l.Stages)
+		dv := stackDeltaV(l.Stages)
 		if dv < kernOrbitDV {
 			t.Errorf("%s Δv = %.0f m/s, below the %.0f Kern-orbit budget", id, dv, kernOrbitDV)
 		}
@@ -83,7 +65,7 @@ func TestLumenLaunchersReachKernOrbit(t *testing.T) {
 // budget (~1.2 km/s; Cursor orbital velocity ≈ 0.56 km/s).
 func TestSocketLanderCursorBudget(t *testing.T) {
 	l := Loadouts["Socket-Lander"]
-	if dv := stagedDeltaV(l.Stages); dv < 1200 {
+	if dv := stackDeltaV(l.Stages); dv < 1200 {
 		t.Errorf("Socket Lander land+return Δv = %.0f m/s, want ≥ 1200 for Cursor", dv)
 	}
 }

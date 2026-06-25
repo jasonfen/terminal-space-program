@@ -63,6 +63,22 @@ type SpawnCraft struct {
 	// spawn-anywhere escape hatch, now an explicit toggle). Reset to false on
 	// each open; flipped by the [f] key.
 	showAll bool
+
+	// designStages (ADR 0031 / S11 review fix) caches each saved design's
+	// resolved Stages, parallel to designs, resolved ONCE at Reset rather than
+	// re-resolving (which re-parses the embedded catalog + stats the overlay
+	// dir) on every render/cycle inside the launch gate.
+	designStages [][]spacecraft.Stage
+
+	// Grouping memo (ADR 0031 / S10 review fix). groupedLoadouts() is reached
+	// many times per render (the row loop + every index accessor); it depends
+	// only on the filter inputs (showAll, systemScale), so cache the result and
+	// rebuild only when those change. groupsValid guards the never-computed
+	// zero value (showAll=false / scale="" is a real state, not "uncomputed").
+	groups        []loadoutGroup
+	groupsShowAll bool
+	groupsScale   bodies.ScaleClass
+	groupsValid   bool
 }
 
 // stackFieldIdx is the form-field index of the STACK editor — only
@@ -104,6 +120,14 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 	s.partIdx = 0
 	s.nosePayloadCount = 0
 	s.designs = designs
+	// Resolve each design's stages once here (S11 review fix) so the launch
+	// gate reads a cached slice instead of re-resolving the catalog per frame.
+	s.designStages = make([][]spacecraft.Stage, len(designs))
+	for i, d := range designs {
+		l, _ := d.Resolve()
+		s.designStages[i] = l.Stages
+	}
+	s.groupsValid = false // invalidate the grouping memo for the new system/scale
 	s.systemScale = systemScale
 	s.showAll = false
 	s.posMode = posOrbit
@@ -191,6 +215,11 @@ type loadoutGroup struct {
 // the flattened result is a permutation of the visible set (each appears once).
 // Empty groups are omitted.
 func (s *SpawnCraft) groupedLoadouts() []loadoutGroup {
+	// Memoized on the filter inputs (S10 review fix): a render hits this many
+	// times but the grouping changes only when showAll / systemScale change.
+	if s.groupsValid && s.groupsShowAll == s.showAll && s.groupsScale == s.systemScale {
+		return s.groups
+	}
 	known := make(map[string]bool, len(craftCategories))
 	groups := make([]loadoutGroup, 0, len(craftCategories)+1)
 	for _, c := range craftCategories {
@@ -214,7 +243,8 @@ func (s *SpawnCraft) groupedLoadouts() []loadoutGroup {
 	if len(other) > 0 {
 		groups = append(groups, loadoutGroup{label: craftCategoryOtherLabel, ids: other})
 	}
-	return groups
+	s.groups, s.groupsShowAll, s.groupsScale, s.groupsValid = groups, s.showAll, s.systemScale, true
+	return s.groups
 }
 
 // orderedLoadoutIDs is the flattened grouped catalog order — the visible loadout
@@ -267,9 +297,11 @@ func (s *SpawnCraft) selectedCraftStages() []spacecraft.Stage {
 	case s.IsCustomSelected():
 		return s.customStages
 	case s.IsDesignSelected():
-		if d := s.selectedDesign(); d != nil {
-			l, _ := d.Resolve()
-			return l.Stages
+		// Read the stages resolved once at Reset (S11 review fix) — no per-frame
+		// catalog re-resolve.
+		i := s.loadoutIdx - s.visibleCatalogCount() - 1
+		if i >= 0 && i < len(s.designStages) {
+			return s.designStages[i]
 		}
 		return nil
 	default:
@@ -482,13 +514,20 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 		}
 	case "f":
 		// ADR 0031 / S10: toggle the scale-class system filter (filter to the
-		// current system ↔ show all systems' craft). Re-point to the top of the
-		// freshly-filtered list and focus CRAFT TYPE, so the changed list reads
-		// clearly and the cursor can't strand on a now-hidden row or the STACK
-		// field (which is unreachable once the cursor leaves Custom).
-		s.showAll = !s.showAll
-		s.loadoutIdx = 0
-		s.fieldIdx = 0
+		// current system ↔ show all systems' craft). No-op in the Custom STACK
+		// editor so it can't yank the player mid-build — the sibling stack keys
+		// [a]/[x]/[d] are likewise field-guarded (S11 review fix). Re-point to
+		// the top of the freshly-filtered list (the old index may now be hidden
+		// / out of range) and keep the current field focus. Re-validate the
+		// launch gate so a launchpad selection can't survive onto a craft that
+		// can't lift off the parent — the same snap-back cycleField applies.
+		if s.fieldIdx != stackFieldIdx {
+			s.showAll = !s.showAll
+			s.loadoutIdx = 0
+			if s.posMode == posLaunchpad && !s.launchpadAllowed() {
+				s.posMode = posOrbit
+			}
+		}
 	}
 	return SpawnActionNone
 }
@@ -597,8 +636,8 @@ func (s *SpawnCraft) Render(width int) string {
 	// non-selectable; the cursor (loadoutIdx) walks only the selectable rows,
 	// which follow groupedLoadouts()'s flattened order — so `idx` below tracks
 	// the running selectable index and the catalog rows end exactly at
-	// len(LoadoutOrder) (the Custom index), keeping the index arithmetic in
-	// IsCustomSelected / IsDesignSelected unchanged.
+	// visibleCatalogCount() (the Custom index — the filtered count, not
+	// len(LoadoutOrder)), keeping IsCustomSelected / IsDesignSelected in step.
 	lines = append(lines, s.fieldHeader(0, "CRAFT TYPE"))
 	// ADR 0031 / S10: the scale-class system filter note + [f] hint.
 	if s.showAll {
@@ -620,8 +659,8 @@ func (s *SpawnCraft) Render(width int) string {
 			idx++
 		}
 	}
-	// Trailing "Custom & Designs" group — never filtered (ADR 0031). idx is
-	// now len(LoadoutOrder), so the Custom row lands on the Custom index.
+	// Trailing "Custom & Designs" group — never filtered (ADR 0031). idx is now
+	// visibleCatalogCount(), so the Custom row lands on the Custom index.
 	lines = append(lines, "  "+s.theme.Primary.Render("Custom & Designs"))
 	lines = append(lines, s.craftRow(idx, "✎ Custom…  build-your-own  — assemble a stage stack"))
 	idx++
