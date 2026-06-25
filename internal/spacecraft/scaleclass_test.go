@@ -6,19 +6,20 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
 
-// The whole existing real fleet carries real, Earth-sized Δv budgets, so
-// every such catalog loadout reports real — including those that never set
-// the field (empty normalizes to real, ADR 0014). We do not rescale the
-// real fleet. The lone exception is the scale-matched Kern Stack (Slice
-// C/D), explicitly tagged stripped-back and asserted in TestKernStackShape.
+// Scale Class is opt-in: a loadout that never sets the field normalizes to
+// real (ADR 0014), and the stripped-back fleet (the Kern Stack + the ADR 0031
+// Lumen counterparts) reads stripped-back ONLY because it sets the tag
+// explicitly. This asserts both halves — untagged ⇒ real, and nothing reads
+// stripped-back without the explicit tag — without hardcoding which loadouts
+// are which (the fleet grows).
 func TestLoadoutScaleDefaultsToReal(t *testing.T) {
 	for _, id := range LoadoutOrder {
-		if id == LoadoutKernStackID {
-			continue // the one stripped-back vehicle
-		}
 		l := Loadouts[id]
-		if got := l.Scale(); got != bodies.ScaleReal {
-			t.Errorf("loadout %q Scale() = %q, want %q", id, got, bodies.ScaleReal)
+		if l.ScaleClass == "" && l.Scale() != bodies.ScaleReal {
+			t.Errorf("untagged loadout %q Scale() = %q, want %q", id, l.Scale(), bodies.ScaleReal)
+		}
+		if l.Scale() == bodies.ScaleStrippedBack && l.ScaleClass != bodies.ScaleStrippedBack {
+			t.Errorf("loadout %q reads stripped-back without an explicit scale_class tag", id)
 		}
 	}
 }
