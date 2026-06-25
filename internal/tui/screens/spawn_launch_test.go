@@ -23,10 +23,11 @@ func wetMass(l spacecraft.Loadout) float64 {
 	return spacecraft.SumDryMass(l.Stages) + spacecraft.SumFuelMass(l.Stages)
 }
 
-// loadoutIndex returns a loadout's selectable cursor index in grouped order.
-func loadoutIndex(t *testing.T, id string) int {
+// loadoutIndex returns a loadout's selectable cursor index in the form's
+// (filtered) grouped order.
+func loadoutIndex(t *testing.T, s *SpawnCraft, id string) int {
 	t.Helper()
-	for i, x := range orderedLoadoutIDs() {
+	for i, x := range s.orderedLoadoutIDs() {
 		if x == id {
 			return i
 		}
@@ -75,10 +76,10 @@ func TestCraftLiftsOff(t *testing.T) {
 // launchpad for an orbit-only craft, but does for a launcher (ADR 0031 / S9).
 func TestLaunchpadGateSkipsOrbitOnlyCraft(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil)
+	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "")
 
 	// Orbit-only: the Comsat Carrier can't lift off Earth.
-	s.loadoutIdx = loadoutIndex(t, "Comsat-Carrier-3")
+	s.loadoutIdx = loadoutIndex(t, s, "Comsat-Carrier-3")
 	if s.launchpadAllowed() {
 		t.Fatal("Comsat Carrier should not allow launchpad on Earth")
 	}
@@ -91,7 +92,7 @@ func TestLaunchpadGateSkipsOrbitOnlyCraft(t *testing.T) {
 	}
 
 	// Launcher: Saturn V reaches launchpad within a couple of cycles.
-	s.loadoutIdx = loadoutIndex(t, "Saturn-V")
+	s.loadoutIdx = loadoutIndex(t, s, "Saturn-V")
 	if !s.launchpadAllowed() {
 		t.Fatal("Saturn V should allow launchpad on Earth")
 	}
@@ -114,8 +115,8 @@ func TestLaunchpadGateSkipsOrbitOnlyCraft(t *testing.T) {
 // orbit (ADR 0031 / S9). Tests the invariant across the whole list.
 func TestLaunchpadNeverStickyOnOrbitOnlyCraft(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil)
-	s.loadoutIdx = loadoutIndex(t, "Saturn-V")
+	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "")
+	s.loadoutIdx = loadoutIndex(t, s, "Saturn-V")
 	s.fieldIdx = 1
 	for i := 0; i < 4 && !s.SelectedLaunchpad(); i++ {
 		s.HandleKey("right")
@@ -137,7 +138,7 @@ func TestLaunchpadNeverStickyOnOrbitOnlyCraft(t *testing.T) {
 // (ADR 0031 / S9 render smoke).
 func TestRenderShowsCrewTags(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil)
+	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "")
 	out := s.Render(120)
 	if !strings.Contains(out, "crewed") {
 		t.Error("render missing a 'crewed' tag (e.g. Apollo Stack)")

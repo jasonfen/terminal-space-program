@@ -50,6 +50,19 @@ type SpawnCraft struct {
 	// launch surface). Injected at Reset by the App (spacecraft.ListDesigns)
 	// so the form has no filesystem side effects and tests stay isolated.
 	designs []spacecraft.Design
+
+	// systemScale (v0.24 / ADR 0031 / S10) is the active System's Scale Class,
+	// injected at Reset. Catalog loadouts whose Scale() differs are hidden from
+	// the CRAFT TYPE picker by default (real fleet in Sol, stripped-back fleet
+	// in Lumen) — amending ADR 0014's no-filter rule. The empty value
+	// normalizes to ScaleReal, so a system without a Scale Class shows the real
+	// fleet.
+	systemScale bodies.ScaleClass
+	// showAll (v0.24 / ADR 0031 / S10) is the opt-out: when true the scale
+	// filter is off and every catalog loadout is listed (ADR 0014's
+	// spawn-anywhere escape hatch, now an explicit toggle). Reset to false on
+	// each open; flipped by the [f] key.
+	showAll bool
 }
 
 // stackFieldIdx is the form-field index of the STACK editor — only
@@ -84,13 +97,15 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 // the parent-field cursor lands on initially (typically the active
 // craft's current primary). v0.8.2+: replaces the v0.8.2-pre
 // no-arg Reset.
-func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design) {
+func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass) {
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
 	s.customStages = nil
 	s.partIdx = 0
 	s.nosePayloadCount = 0
 	s.designs = designs
+	s.systemScale = systemScale
+	s.showAll = false
 	s.posMode = posOrbit
 	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
 	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
@@ -114,12 +129,27 @@ const (
 	SpawnActionConfirm             // enter — caller reads accessors
 )
 
-// loadoutChoiceCount is the number of CRAFT TYPE rows — every catalog
-// loadout, the synthetic "Custom…" entry, then every saved design (v0.24).
-// Grouping (ADR 0031 / S8) reorders the catalog rows into category groups but
-// does not change their count, so this index arithmetic is unchanged.
+// visibleCatalogCount is the number of catalog loadout rows currently shown —
+// after the scale-class system filter (ADR 0031 / S10). The Custom entry sits
+// at this index and saved designs follow it, so all the CRAFT TYPE index math
+// keys off this, NOT len(LoadoutOrder) (which is the unfiltered total).
+func (s *SpawnCraft) visibleCatalogCount() int {
+	return len(s.orderedLoadoutIDs())
+}
+
+// loadoutChoiceCount is the number of selectable CRAFT TYPE rows — the visible
+// catalog loadouts (after the system filter), the synthetic "Custom…" entry,
+// then every saved design (v0.24). Headers are not counted (ADR 0031 / S8/S10).
 func (s *SpawnCraft) loadoutChoiceCount() int {
-	return len(spacecraft.LoadoutOrder) + 1 + len(s.designs)
+	return s.visibleCatalogCount() + 1 + len(s.designs)
+}
+
+// loadoutVisible reports whether a catalog loadout is shown given the active
+// system's Scale Class and the show-all toggle (ADR 0031 / S10): with the
+// filter on, only loadouts whose Scale() matches the system are shown; show-all
+// lists everything. The empty system scale normalizes to ScaleReal.
+func (s *SpawnCraft) loadoutVisible(id string) bool {
+	return s.showAll || spacecraft.Loadouts[id].Scale() == s.systemScale.Normalize()
 }
 
 // craftCategory is one CRAFT TYPE display group (ADR 0031 / S8): a stable key
@@ -152,20 +182,22 @@ type loadoutGroup struct {
 	ids   []string
 }
 
-// groupedLoadouts arranges every catalog loadout (LoadoutOrder) into ordered
-// category groups — the spawn form's CRAFT TYPE display and cursor order
-// (ADR 0031). Within a group, loadouts keep LoadoutOrder order. A loadout whose
+// groupedLoadouts arranges the VISIBLE catalog loadouts into ordered category
+// groups — the spawn form's CRAFT TYPE display and cursor order (ADR 0031).
+// Visibility is the scale-class system filter (S10): with the filter on, only
+// loadouts matching the active system's scale appear; show-all lists every
+// loadout. Within a group, loadouts keep LoadoutOrder order. A loadout whose
 // Category matches no known key is collected into a trailing "Other" group, so
-// the flattened result is always a permutation of LoadoutOrder (every loadout
-// appears exactly once). Empty groups are omitted.
-func groupedLoadouts() []loadoutGroup {
+// the flattened result is a permutation of the visible set (each appears once).
+// Empty groups are omitted.
+func (s *SpawnCraft) groupedLoadouts() []loadoutGroup {
 	known := make(map[string]bool, len(craftCategories))
 	groups := make([]loadoutGroup, 0, len(craftCategories)+1)
 	for _, c := range craftCategories {
 		known[c.key] = true
 		var ids []string
 		for _, id := range spacecraft.LoadoutOrder {
-			if spacecraft.Loadouts[id].Category == c.key {
+			if spacecraft.Loadouts[id].Category == c.key && s.loadoutVisible(id) {
 				ids = append(ids, id)
 			}
 		}
@@ -175,7 +207,7 @@ func groupedLoadouts() []loadoutGroup {
 	}
 	var other []string
 	for _, id := range spacecraft.LoadoutOrder {
-		if !known[spacecraft.Loadouts[id].Category] {
+		if !known[spacecraft.Loadouts[id].Category] && s.loadoutVisible(id) {
 			other = append(other, id)
 		}
 	}
@@ -185,14 +217,13 @@ func groupedLoadouts() []loadoutGroup {
 	return groups
 }
 
-// orderedLoadoutIDs is the flattened grouped catalog order — the loadout IDs in
-// the sequence the CRAFT TYPE cursor walks (a permutation of LoadoutOrder). The
-// index into this slice is loadoutIdx for the catalog rows (0 .. len-1); the
-// Custom entry and saved designs follow at len(LoadoutOrder) and beyond,
-// unchanged by grouping.
-func orderedLoadoutIDs() []string {
+// orderedLoadoutIDs is the flattened grouped catalog order — the visible loadout
+// IDs in the sequence the CRAFT TYPE cursor walks. The index into this slice is
+// loadoutIdx for the catalog rows (0 .. len-1); the Custom entry and saved
+// designs follow at visibleCatalogCount() and beyond.
+func (s *SpawnCraft) orderedLoadoutIDs() []string {
 	ids := make([]string, 0, len(spacecraft.LoadoutOrder))
-	for _, g := range groupedLoadouts() {
+	for _, g := range s.groupedLoadouts() {
 		ids = append(ids, g.ids...)
 	}
 	return ids
@@ -204,7 +235,7 @@ func (s *SpawnCraft) selectedDesign() *spacecraft.Design {
 	if !s.IsDesignSelected() {
 		return nil
 	}
-	i := s.loadoutIdx - len(spacecraft.LoadoutOrder) - 1
+	i := s.loadoutIdx - s.visibleCatalogCount() - 1
 	if i < 0 || i >= len(s.designs) {
 		return nil
 	}
@@ -260,16 +291,17 @@ func (s *SpawnCraft) launchpadAllowed() bool {
 }
 
 // IsCustomSelected reports whether the cursor is on the synthetic
-// "Custom…" CRAFT TYPE entry. v0.10.1+.
+// "Custom…" CRAFT TYPE entry — the row right after the visible catalog
+// loadouts (the index shifts with the system filter; ADR 0031 / S10). v0.10.1+.
 func (s *SpawnCraft) IsCustomSelected() bool {
-	return s.loadoutIdx == len(spacecraft.LoadoutOrder)
+	return s.loadoutIdx == s.visibleCatalogCount()
 }
 
 // IsDesignSelected reports whether the cursor is on a saved-design row (the
 // rows after "Custom…"). v0.24 / ADR 0029.
 func (s *SpawnCraft) IsDesignSelected() bool {
-	return s.loadoutIdx > len(spacecraft.LoadoutOrder) &&
-		s.loadoutIdx <= len(spacecraft.LoadoutOrder)+len(s.designs)
+	v := s.visibleCatalogCount()
+	return s.loadoutIdx > v && s.loadoutIdx <= v+len(s.designs)
 }
 
 // SelectedDesignID returns the saved design's ID under the cursor, or "" when
@@ -278,7 +310,7 @@ func (s *SpawnCraft) SelectedDesignID() string {
 	if !s.IsDesignSelected() {
 		return ""
 	}
-	return s.designs[s.loadoutIdx-len(spacecraft.LoadoutOrder)-1].ID()
+	return s.designs[s.loadoutIdx-s.visibleCatalogCount()-1].ID()
 }
 
 // SelectedLoadoutID returns the loadout ID for the current cursor, or "" when
@@ -288,10 +320,9 @@ func (s *SpawnCraft) SelectedLoadoutID() string {
 	if s.IsCustomSelected() || s.IsDesignSelected() {
 		return ""
 	}
-	// Map loadoutIdx through the grouped display order (a permutation of
-	// LoadoutOrder), not LoadoutOrder itself — the cursor walks the grouped
-	// sequence (ADR 0031 / S8).
-	ids := orderedLoadoutIDs()
+	// Map loadoutIdx through the grouped, filtered display order — the cursor
+	// walks the visible grouped sequence (ADR 0031 / S8/S10).
+	ids := s.orderedLoadoutIDs()
 	if len(ids) == 0 {
 		return ""
 	}
@@ -449,6 +480,15 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() && len(s.customStages) > 1 {
 			s.nosePayloadCount = (s.nosePayloadCount + 1) % len(s.customStages)
 		}
+	case "f":
+		// ADR 0031 / S10: toggle the scale-class system filter (filter to the
+		// current system ↔ show all systems' craft). Re-point to the top of the
+		// freshly-filtered list and focus CRAFT TYPE, so the changed list reads
+		// clearly and the cursor can't strand on a now-hidden row or the STACK
+		// field (which is unreachable once the cursor leaves Custom).
+		s.showAll = !s.showAll
+		s.loadoutIdx = 0
+		s.fieldIdx = 0
 	}
 	return SpawnActionNone
 }
@@ -560,9 +600,17 @@ func (s *SpawnCraft) Render(width int) string {
 	// len(LoadoutOrder) (the Custom index), keeping the index arithmetic in
 	// IsCustomSelected / IsDesignSelected unchanged.
 	lines = append(lines, s.fieldHeader(0, "CRAFT TYPE"))
+	// ADR 0031 / S10: the scale-class system filter note + [f] hint.
+	if s.showAll {
+		lines = append(lines, "  "+s.theme.Dim.Render(
+			"showing all systems' craft — [f] filter to this system"))
+	} else if hidden := len(spacecraft.LoadoutOrder) - s.visibleCatalogCount(); hidden > 0 {
+		lines = append(lines, "  "+s.theme.Dim.Render(fmt.Sprintf(
+			"%d craft from other systems hidden — [f] show all", hidden)))
+	}
 	lines = append(lines, "")
 	idx := 0
-	for _, g := range groupedLoadouts() {
+	for _, g := range s.groupedLoadouts() {
 		lines = append(lines, "  "+s.theme.Primary.Render(g.label))
 		for _, id := range g.ids {
 			l := spacecraft.Loadouts[id]
@@ -742,7 +790,7 @@ func (s *SpawnCraft) Render(width int) string {
 	lines = append(lines, "")
 	lines = append(lines, s.theme.Dim.Render(strings.Repeat("─", 60)))
 	lines = append(lines, s.theme.Footer.Render(
-		"[tab] field  [←/→] cycle  [enter] spawn  [esc] cancel"))
+		"[tab] field  [←/→] cycle  [f] system filter  [enter] spawn  [esc] cancel"))
 
 	return strings.Join(lines, "\n")
 }

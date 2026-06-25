@@ -7,14 +7,24 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
+// formShowAll returns a spawn form with the scale-class system filter OFF, so
+// every catalog loadout is visible — the baseline for the grouping invariants
+// (which are about all loadouts, independent of the S10 filter).
+func formShowAll() *SpawnCraft {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "", nil, "")
+	s.showAll = true
+	return s
+}
+
 // TestGroupedLoadoutsIsPermutationOfLoadoutOrder — grouping reorders the
 // catalog into category groups but must neither drop, duplicate, nor invent a
-// loadout: the flattened grouped order is a permutation of LoadoutOrder
-// (ADR 0031 / S8). This invariant is what keeps the loadoutIdx arithmetic
-// (IsCustomSelected / IsDesignSelected, which key off len(LoadoutOrder)) valid
-// under grouping — same count, just reordered.
+// loadout: with the filter off, the flattened grouped order is a permutation of
+// LoadoutOrder (ADR 0031 / S8). This invariant keeps the loadoutIdx arithmetic
+// valid under grouping — same count, just reordered.
 func TestGroupedLoadoutsIsPermutationOfLoadoutOrder(t *testing.T) {
-	ids := orderedLoadoutIDs()
+	s := formShowAll()
+	ids := s.orderedLoadoutIDs()
 	if len(ids) != len(spacecraft.LoadoutOrder) {
 		t.Fatalf("grouped order has %d ids, LoadoutOrder has %d", len(ids), len(spacecraft.LoadoutOrder))
 	}
@@ -34,7 +44,8 @@ func TestGroupedLoadoutsIsPermutationOfLoadoutOrder(t *testing.T) {
 // mod / future loadouts with an unknown category, not a home for the built-in
 // fleet; if a built-in lands there, its category key is wrong or missing.
 func TestEveryEmbeddedLoadoutMapsToKnownCategory(t *testing.T) {
-	for _, g := range groupedLoadouts() {
+	s := formShowAll()
+	for _, g := range s.groupedLoadouts() {
 		if g.label == craftCategoryOtherLabel {
 			t.Errorf("built-in loadouts fell into %q: %v — assign each a known category",
 				craftCategoryOtherLabel, g.ids)
@@ -46,12 +57,11 @@ func TestEveryEmbeddedLoadoutMapsToKnownCategory(t *testing.T) {
 // order, and within a group loadouts keep LoadoutOrder order. Pins the on-screen
 // ordering contract (ADR 0031 / S8).
 func TestGroupedLoadoutsRespectCategoryOrder(t *testing.T) {
-	groups := groupedLoadouts()
-	// Category order: each group's label index in craftCategories must be
-	// non-decreasing down the list ("Other" sorts last by construction).
+	s := formShowAll()
+	groups := s.groupedLoadouts()
 	lastRank := -1
 	for _, g := range groups {
-		rank := len(craftCategories) // "Other" default
+		rank := len(craftCategories) // "Other" default — sorts last
 		for i, c := range craftCategories {
 			if c.label == g.label {
 				rank = i
@@ -63,7 +73,6 @@ func TestGroupedLoadoutsRespectCategoryOrder(t *testing.T) {
 		}
 		lastRank = rank
 	}
-	// Within-group: LoadoutOrder order preserved.
 	pos := map[string]int{}
 	for i, id := range spacecraft.LoadoutOrder {
 		pos[id] = i
@@ -83,9 +92,8 @@ func TestGroupedLoadoutsRespectCategoryOrder(t *testing.T) {
 // cursor never lands on a header — headers are not in the index space
 // (ADR 0031 / S8).
 func TestSelectedLoadoutIDWalksGroupedOrder(t *testing.T) {
-	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
-	want := orderedLoadoutIDs()
+	s := formShowAll()
+	want := s.orderedLoadoutIDs()
 	for i, id := range want {
 		s.loadoutIdx = i
 		if got := s.SelectedLoadoutID(); got != id {
@@ -99,14 +107,11 @@ func TestSelectedLoadoutIDWalksGroupedOrder(t *testing.T) {
 	}
 }
 
-// TestCustomCyclingStillReachesCustomAndDesigns — the existing right-cycling
-// path through every catalog row still lands on Custom, and a saved design
-// after it is reachable and resolves to its design id (ADR 0031 / S8 must not
-// regress the v0.24 design rows). Uses HandleKey, the real navigation path.
+// TestCustomCyclingStillReachesCustomAndDesigns — the right-cycling path through
+// every catalog row still lands on Custom (ADR 0031 / S8 must not regress the
+// v0.24 design rows). With the filter off, Custom sits at len(LoadoutOrder).
 func TestCustomCyclingStillReachesCustomAndDesigns(t *testing.T) {
-	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
-	// Right-cycle to the Custom entry — equals the catalog loadout count.
+	s := formShowAll()
 	s.fieldIdx = 0
 	for !s.IsCustomSelected() {
 		s.HandleKey("right")
@@ -120,10 +125,9 @@ func TestCustomCyclingStillReachesCustomAndDesigns(t *testing.T) {
 // category header and the trailing "Custom & Designs" header (render smoke;
 // ADR 0031 / S8).
 func TestRenderShowsCategoryHeaders(t *testing.T) {
-	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s := formShowAll()
 	out := s.Render(100)
-	for _, g := range groupedLoadouts() {
+	for _, g := range s.groupedLoadouts() {
 		if !strings.Contains(out, g.label) {
 			t.Errorf("render missing category header %q", g.label)
 		}
