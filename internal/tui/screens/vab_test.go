@@ -271,7 +271,7 @@ func TestVABRenderSmoke(t *testing.T) {
 	v.addComponentToCurrent("tank")
 	v.addComponentToCurrent("core")
 	build := v.Render(100)
-	for _, want := range []string{"Vehicle Assembly", "STACK", "total Δv", "PALETTE", "[a] add"} {
+	for _, want := range []string{"Vehicle Assembly", "VEHICLE", "Σ Δv", "PALETTE", "inspect", "[a] add"} {
 		if !contains(build, want) {
 			t.Errorf("build render missing %q", want)
 		}

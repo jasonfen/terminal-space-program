@@ -29,6 +29,13 @@ type Component struct {
 	Glyph string `json:"glyph,omitempty"`
 	Color string `json:"color,omitempty"`
 
+	// Description is an optional one-line blurb surfaced by the VAB part
+	// inspector (ADR 0030 §7). Purely cosmetic catalog data — like Glyph /
+	// Color it carries no save-hash weight (there is no parts-catalog hash;
+	// ADR 0026 §4) and is omitempty so existing catalogs round-trip
+	// byte-identical.
+	Description string `json:"description,omitempty"`
+
 	// Kind is one of the ComponentKind* constants; it selects which Stage
 	// scalars this component contributes during aggregation.
 	Kind string `json:"kind"`

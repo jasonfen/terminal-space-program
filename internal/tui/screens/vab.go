@@ -33,6 +33,13 @@ type VAB struct {
 	stages   []vabStage
 	stageIdx int
 
+	// stackCursor is the single linear cursor over the vehicle column's
+	// flattened rows (ADR 0030 §3): stage-header rows and their component
+	// groups interleaved in display order, so ↑/↓ walk stages AND their
+	// components with no separate horizontal axis. stageIdx is kept synced
+	// to the cursor's stage so the existing model ops act on the right stage.
+	stackCursor int
+
 	focus vabFocus
 	mode  vabMode
 
@@ -111,6 +118,7 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.comps = comps
 	v.stages = nil
 	v.stageIdx = 0
+	v.stackCursor = 0
 	v.paletteIdx = 0
 	v.focus = focusPalette
 	v.mode = vabModeBuild
@@ -159,7 +167,7 @@ func (v *VAB) addSelected() {
 	if !it.isComponent {
 		v.stages = append(v.stages, vabStage{catalogPartID: it.id})
 		v.stageIdx = len(v.stages) - 1
-		v.focus = focusStack
+		v.focusStageInStack(v.stageIdx)
 		return
 	}
 	v.addComponentToCurrent(it.id)
@@ -180,7 +188,7 @@ func (v *VAB) addComponentToCurrent(id string) {
 	if v.stages[v.stageIdx].isCatalog() {
 		v.stages = append(v.stages, vabStage{components: []string{id}})
 		v.stageIdx = len(v.stages) - 1
-		v.focus = focusStack
+		v.focusStageInStack(v.stageIdx)
 		return
 	}
 	if warn := v.fuelConflict(v.stages[v.stageIdx].components, id); warn != "" {
@@ -188,7 +196,7 @@ func (v *VAB) addComponentToCurrent(id string) {
 		return
 	}
 	v.stages[v.stageIdx].components = append(v.stages[v.stageIdx].components, id)
-	v.focus = focusStack
+	v.focusStageInStack(v.stageIdx)
 	v.flash = ""
 }
 
@@ -221,7 +229,7 @@ func (v *VAB) stageFuelType(comps []string) string {
 func (v *VAB) newStage() {
 	v.stages = append(v.stages, vabStage{})
 	v.stageIdx = len(v.stages) - 1
-	v.focus = focusStack
+	v.focusStageInStack(v.stageIdx)
 }
 
 // removeFromCurrent pops the last component off the current composed stage,
@@ -495,7 +503,8 @@ func (v *VAB) loadDesign(d spacecraft.Design) {
 	v.applyNosePayloadPlan(d.Loadout.NosePayloadPlan)
 	v.applyDecouplePlan(d.Loadout.DecouplePlan)
 	v.stageIdx = 0
-	v.focus = focusStack
+	v.focus = focusStack // a loaded vehicle becomes the active column
+	v.focusStageInStack(v.stageIdx)
 	v.mode = vabModeBuild
 }
 
@@ -521,4 +530,282 @@ func slugifyDesign(name string) string {
 		s = "design"
 	}
 	return s
+}
+
+// --- linear stack cursor, canonical fold, and editing ops (ADR 0030) ---
+
+// vabGroup is a kind-folded run of identical components within a stage
+// (canonical fold-all, ADR 0030 §4): every instance of one component ID,
+// counted. Groups display ordered by kind (vabKindOrder) then ID.
+type vabGroup struct {
+	compID string
+	kind   string
+	count  int
+}
+
+// vabRow is one navigable row in the vehicle column's flattened display list
+// (ADR 0030 §3): a stage header, or a component group under it. group == -1
+// marks the stage-header row; group >= 0 indexes that stage's groups.
+type vabRow struct {
+	stageIdx int
+	group    int
+}
+
+func (r vabRow) isHeader() bool { return r.group < 0 }
+
+// componentGroups folds a composed stage's flat component list into canonical
+// kind-ordered ×N groups (ADR 0030 §4). Nil for an atomic catalog stage — an
+// opaque block has no addressable components. Order is physically free to
+// canonicalize because aggregation sums regardless of order (ADR 0029 §2).
+func (v *VAB) componentGroups(i int) []vabGroup {
+	if i < 0 || i >= len(v.stages) || v.stages[i].isCatalog() {
+		return nil
+	}
+	counts := map[string]int{}
+	var firstSeen []string
+	for _, id := range v.stages[i].components {
+		if counts[id] == 0 {
+			firstSeen = append(firstSeen, id)
+		}
+		counts[id]++
+	}
+	groups := make([]vabGroup, 0, len(firstSeen))
+	for _, id := range firstSeen {
+		groups = append(groups, vabGroup{compID: id, kind: v.comps[id].Kind, count: counts[id]})
+	}
+	sort.SliceStable(groups, func(a, b int) bool {
+		if ra, rb := kindRank(groups[a].kind), kindRank(groups[b].kind); ra != rb {
+			return ra < rb
+		}
+		return groups[a].compID < groups[b].compID
+	})
+	return groups
+}
+
+// stackRows builds the vehicle column's navigable rows in DISPLAY order (top
+// stage first): each stage header followed by its component groups. The
+// linear stack cursor (stackCursor) indexes this slice.
+func (v *VAB) stackRows() []vabRow {
+	var rows []vabRow
+	for i := len(v.stages) - 1; i >= 0; i-- {
+		rows = append(rows, vabRow{stageIdx: i, group: -1})
+		for g := range v.componentGroups(i) {
+			rows = append(rows, vabRow{stageIdx: i, group: g})
+		}
+	}
+	return rows
+}
+
+// currentRow returns the flattened row under the stack cursor (clamped); false
+// when the stack is empty.
+func (v *VAB) currentRow() (vabRow, bool) {
+	rows := v.stackRows()
+	if len(rows) == 0 {
+		return vabRow{}, false
+	}
+	v.stackCursor = clampI(v.stackCursor, 0, len(rows)-1)
+	return rows[v.stackCursor], true
+}
+
+// syncStageIdx keeps the legacy active-stage index aligned with the cursor so
+// the existing model ops act on the stage the cursor is in.
+func (v *VAB) syncStageIdx() {
+	if r, ok := v.currentRow(); ok {
+		v.stageIdx = r.stageIdx
+	}
+}
+
+// headerRowIndex finds the flattened-row index of stage i's header row.
+func (v *VAB) headerRowIndex(i int) int {
+	for idx, r := range v.stackRows() {
+		if r.stageIdx == i && r.isHeader() {
+			return idx
+		}
+	}
+	return 0
+}
+
+// focusStageInStack moves the stack cursor onto stage i's header (after add /
+// new / structural edits so the vehicle view follows the change). It does NOT
+// change which column has focus — building stays in the palette.
+func (v *VAB) focusStageInStack(i int) {
+	v.stageIdx = i
+	v.stackCursor = v.headerRowIndex(i)
+}
+
+// moveStackCursor moves the linear cursor by step (clamped, no wrap — a
+// vehicle has a top and a bottom) and re-syncs the active stage.
+func (v *VAB) moveStackCursor(step int) {
+	rows := v.stackRows()
+	if len(rows) == 0 {
+		return
+	}
+	v.stackCursor = clampI(v.stackCursor+step, 0, len(rows)-1)
+	v.syncStageIdx()
+}
+
+// removeStageAt splices out stage i.
+func (v *VAB) removeStageAt(i int) {
+	if i < 0 || i >= len(v.stages) {
+		return
+	}
+	v.stages = append(v.stages[:i], v.stages[i+1:]...)
+}
+
+// removeOneComponent removes the first occurrence of compID from stage i.
+func (v *VAB) removeOneComponent(i int, compID string) {
+	if i < 0 || i >= len(v.stages) {
+		return
+	}
+	cs := v.stages[i].components
+	for k, id := range cs {
+		if id == compID {
+			v.stages[i].components = append(cs[:k], cs[k+1:]...)
+			return
+		}
+	}
+}
+
+// removeUnderCursor deletes what the cursor is on: one instance of a component
+// group, or the whole stage when the cursor is on a stage header (ADR 0030
+// §3) — replacing the baseline's pop-last-only remove.
+func (v *VAB) removeUnderCursor() {
+	r, ok := v.currentRow()
+	if !ok {
+		return
+	}
+	if r.isHeader() {
+		v.removeStageAt(r.stageIdx)
+	} else {
+		groups := v.componentGroups(r.stageIdx)
+		if r.group < len(groups) {
+			v.removeOneComponent(r.stageIdx, groups[r.group].compID)
+		}
+	}
+	v.clampCursor()
+	v.syncStageIdx()
+	v.flash = ""
+}
+
+// quantityDelta bumps the count of the component group under the cursor up or
+// down (ADR 0030 §5) — the cluster ergonomics that pair with the ×N fold.
+// Adding one more of the SAME component never conflicts on fuel chemistry.
+func (v *VAB) quantityDelta(d int) {
+	r, ok := v.currentRow()
+	if !ok || r.isHeader() {
+		v.flash = "select a component (↑/↓) to change its count"
+		return
+	}
+	groups := v.componentGroups(r.stageIdx)
+	if r.group >= len(groups) {
+		return
+	}
+	id := groups[r.group].compID
+	if d > 0 {
+		v.stages[r.stageIdx].components = append(v.stages[r.stageIdx].components, id)
+	} else {
+		v.removeOneComponent(r.stageIdx, id)
+	}
+	v.clampCursor()
+	v.syncStageIdx()
+	v.flash = ""
+}
+
+// reorderStage moves the cursor's stage one position toward the top (dir +1)
+// or the bottom (dir -1) of the stack (ADR 0030 §5). The whole vabStage rides
+// along with its seam / decouple flags, so a seam stays attached to the stage
+// it was set on.
+func (v *VAB) reorderStage(dir int) {
+	r, ok := v.currentRow()
+	if !ok {
+		return
+	}
+	i := r.stageIdx
+	j := i + dir
+	if j < 0 || j >= len(v.stages) {
+		return
+	}
+	v.stages[i], v.stages[j] = v.stages[j], v.stages[i]
+	v.focus = focusStack
+	v.focusStageInStack(j)
+	v.flash = ""
+}
+
+// duplicateStage clones the cursor's stage and inserts the copy directly above
+// it (ADR 0030 §5). The clone starts with fresh boundary flags so it doesn't
+// inherit surprising staging.
+func (v *VAB) duplicateStage() {
+	r, ok := v.currentRow()
+	if !ok {
+		return
+	}
+	i := r.stageIdx
+	src := v.stages[i]
+	clone := vabStage{
+		components:    append([]string(nil), src.components...),
+		catalogPartID: src.catalogPartID,
+	}
+	ns := make([]vabStage, 0, len(v.stages)+1)
+	ns = append(ns, v.stages[:i+1]...)
+	ns = append(ns, clone)
+	ns = append(ns, v.stages[i+1:]...)
+	v.stages = ns
+	v.focus = focusStack
+	v.focusStageInStack(i + 1)
+	v.flash = ""
+}
+
+// clampCursor re-clamps the stack cursor after a structural edit.
+func (v *VAB) clampCursor() {
+	rows := v.stackRows()
+	v.stackCursor = clampI(v.stackCursor, 0, maxInt(0, len(rows)-1))
+}
+
+// jumpSection jumps by a whole section (ADR 0030 §7, PgUp/PgDn): between stage
+// headers in the vehicle column, or between kind groups in the palette.
+func (v *VAB) jumpSection(dir int) {
+	if v.focus == focusStack {
+		v.jumpStage(dir)
+		return
+	}
+	v.jumpKind(dir)
+}
+
+// jumpStage moves the stack cursor to the previous / next stage header.
+func (v *VAB) jumpStage(dir int) {
+	rows := v.stackRows()
+	if len(rows) == 0 {
+		return
+	}
+	v.stackCursor = clampI(v.stackCursor, 0, len(rows)-1)
+	for i := v.stackCursor + dir; i >= 0 && i < len(rows); i += dir {
+		if rows[i].isHeader() {
+			v.stackCursor = i
+			v.syncStageIdx()
+			return
+		}
+	}
+}
+
+// jumpKind moves the palette cursor to the first item of the previous / next
+// kind section.
+func (v *VAB) jumpKind(dir int) {
+	if len(v.palette) == 0 {
+		return
+	}
+	var starts []int
+	lastKind := "\x00"
+	for i, it := range v.palette {
+		if k, _ := v.paletteItemLabel(it); k != lastKind {
+			starts = append(starts, i)
+			lastKind = k
+		}
+	}
+	cur := 0
+	for s, idx := range starts {
+		if idx <= v.paletteIdx {
+			cur = s
+		}
+	}
+	v.paletteIdx = starts[clampI(cur+dir, 0, len(starts)-1)]
 }

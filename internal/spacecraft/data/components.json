@@ -9,7 +9,8 @@
       "dry_mass_kg": 200,
       "thrust_n": 50000,
       "isp_s": 320,
-      "fuel_type": "kerolox"
+      "fuel_type": "kerolox",
+      "description": "A light kerolox kick motor for probes and upper stages."
     },
     {
       "id": "rd180-booster",
@@ -18,7 +19,8 @@
       "dry_mass_kg": 5500,
       "thrust_n": 3830000,
       "isp_s": 311,
-      "fuel_type": "kerolox"
+      "fuel_type": "kerolox",
+      "description": "High-thrust kerolox first-stage engine; cluster for heavy lift."
     },
     {
       "id": "merlin-sustainer",
@@ -27,7 +29,8 @@
       "dry_mass_kg": 470,
       "thrust_n": 845000,
       "isp_s": 282,
-      "fuel_type": "kerolox"
+      "fuel_type": "kerolox",
+      "description": "Compact kerolox engine — clusters cleanly for a sustainer stage."
     },
     {
       "id": "j2-upper",
@@ -36,7 +39,8 @@
       "dry_mass_kg": 1500,
       "thrust_n": 1033000,
       "isp_s": 421,
-      "fuel_type": "hydrolox"
+      "fuel_type": "hydrolox",
+      "description": "Hydrolox upper-stage engine with strong vacuum Isp."
     },
     {
       "id": "rl10-vac",
@@ -45,7 +49,8 @@
       "dry_mass_kg": 280,
       "thrust_n": 110000,
       "isp_s": 451,
-      "fuel_type": "hydrolox"
+      "fuel_type": "hydrolox",
+      "description": "Efficient hydrolox vacuum engine for transfer and injection burns."
     },
     {
       "id": "sps-transfer",
@@ -54,7 +59,8 @@
       "dry_mass_kg": 300,
       "thrust_n": 91000,
       "isp_s": 314,
-      "fuel_type": "hypergolic"
+      "fuel_type": "hypergolic",
+      "description": "Storable hypergolic engine — restartable for long coasts and capture."
     },
     {
       "id": "lmde-descent",
@@ -63,7 +69,38 @@
       "dry_mass_kg": 200,
       "thrust_n": 45000,
       "isp_s": 311,
-      "fuel_type": "hypergolic"
+      "fuel_type": "hypergolic",
+      "description": "Throttleable hypergolic descent engine for landers."
+    },
+    {
+      "id": "f1-booster",
+      "name": "F-1 Booster",
+      "kind": "engine",
+      "dry_mass_kg": 8400,
+      "thrust_n": 6770000,
+      "isp_s": 263,
+      "fuel_type": "kerolox",
+      "description": "Enormous kerolox first-stage engine — the heavy-lift workhorse."
+    },
+    {
+      "id": "nerva-ntr",
+      "name": "NERVA NTR",
+      "kind": "engine",
+      "dry_mass_kg": 6800,
+      "thrust_n": 246000,
+      "isp_s": 850,
+      "fuel_type": "hydrolox",
+      "description": "Nuclear-thermal engine: very high Isp on liquid-hydrogen (hydrolox tanks)."
+    },
+    {
+      "id": "srb-solid",
+      "name": "S-25 Solid Booster",
+      "kind": "engine",
+      "dry_mass_kg": 3000,
+      "thrust_n": 4000000,
+      "isp_s": 240,
+      "fuel_type": "solid",
+      "description": "Strap-on solid motor — huge liftoff thrust, pair with a solid casing."
     },
 
     {
@@ -72,7 +109,8 @@
       "kind": "tank",
       "dry_mass_kg": 100,
       "fuel_capacity_kg": 1000,
-      "fuel_type": "kerolox"
+      "fuel_type": "kerolox",
+      "description": "Small kerolox tank."
     },
     {
       "id": "kero-tank-500",
@@ -80,7 +118,8 @@
       "kind": "tank",
       "dry_mass_kg": 60,
       "fuel_capacity_kg": 500,
-      "fuel_type": "kerolox"
+      "fuel_type": "kerolox",
+      "description": "Tiny kerolox tank for trim and probes."
     },
     {
       "id": "kero-tank-4k",
@@ -88,7 +127,17 @@
       "kind": "tank",
       "dry_mass_kg": 350,
       "fuel_capacity_kg": 4000,
-      "fuel_type": "kerolox"
+      "fuel_type": "kerolox",
+      "description": "Mid kerolox tank — the staple booster propellant unit."
+    },
+    {
+      "id": "kero-tank-9k",
+      "name": "FT-9000 Tank",
+      "kind": "tank",
+      "dry_mass_kg": 720,
+      "fuel_capacity_kg": 9000,
+      "fuel_type": "kerolox",
+      "description": "Large kerolox tank for heavy first stages."
     },
     {
       "id": "hydro-tank-2k",
@@ -96,7 +145,8 @@
       "kind": "tank",
       "dry_mass_kg": 260,
       "fuel_capacity_kg": 2000,
-      "fuel_type": "hydrolox"
+      "fuel_type": "hydrolox",
+      "description": "Mid hydrolox tank for upper stages."
     },
     {
       "id": "hydro-tank-8k",
@@ -104,7 +154,8 @@
       "kind": "tank",
       "dry_mass_kg": 950,
       "fuel_capacity_kg": 8000,
-      "fuel_type": "hydrolox"
+      "fuel_type": "hydrolox",
+      "description": "Large hydrolox tank for NTR and high-energy stages."
     },
     {
       "id": "hyper-tank-15",
@@ -112,7 +163,17 @@
       "kind": "tank",
       "dry_mass_kg": 140,
       "fuel_capacity_kg": 1500,
-      "fuel_type": "hypergolic"
+      "fuel_type": "hypergolic",
+      "description": "Storable hypergolic propellant tank for service and landing stages."
+    },
+    {
+      "id": "solid-casing",
+      "name": "Solid Casing",
+      "kind": "tank",
+      "dry_mass_kg": 4000,
+      "fuel_capacity_kg": 40000,
+      "fuel_type": "solid",
+      "description": "Cast solid-propellant casing — feeds a solid booster, cannot be drained early."
     },
 
     {
@@ -120,7 +181,8 @@
       "name": "OKTO Probe Core",
       "kind": "command-core",
       "dry_mass_kg": 80,
-      "command_source": "probe"
+      "command_source": "probe",
+      "description": "Uncrewed guidance core — commandable only with a comms link."
     },
     {
       "id": "crew-capsule",
@@ -128,7 +190,8 @@
       "kind": "command-core",
       "dry_mass_kg": 800,
       "command_source": "crewed",
-      "has_parachute": true
+      "has_parachute": true,
+      "description": "One-seat crew capsule with a recovery parachute."
     },
     {
       "id": "lander-can",
@@ -136,7 +199,8 @@
       "kind": "command-core",
       "dry_mass_kg": 600,
       "command_source": "crewed",
-      "can_soft_land": true
+      "can_soft_land": true,
+      "description": "Crewed lander cabin rated for powered soft landings."
     },
 
     {
@@ -145,7 +209,8 @@
       "kind": "antenna",
       "dry_mass_kg": 20,
       "antenna_kind": "direct",
-      "range_m": 10000000
+      "range_m": 10000000,
+      "description": "Short-range direct antenna — reaches the network but cannot relay."
     },
     {
       "id": "relay-15",
@@ -153,7 +218,8 @@
       "kind": "antenna",
       "dry_mass_kg": 100,
       "antenna_kind": "relay",
-      "range_m": 1000000000
+      "range_m": 1000000000,
+      "description": "Relay antenna — uses the network and forwards for other vessels."
     },
     {
       "id": "dsn-dish",
@@ -161,26 +227,30 @@
       "kind": "antenna",
       "dry_mass_kg": 200,
       "antenna_kind": "direct",
-      "range_m": 600000000000
+      "range_m": 600000000000,
+      "description": "Deep-space direct dish for interplanetary range."
     },
 
     {
       "id": "adapter-tr2",
       "name": "TR-2 Stack Adapter",
       "kind": "structure",
-      "dry_mass_kg": 40
+      "dry_mass_kg": 40,
+      "description": "Inert adapter joining stages of different diameters."
     },
     {
       "id": "aero-fairing",
       "name": "Aero Fairing",
       "kind": "structure",
-      "dry_mass_kg": 60
+      "dry_mass_kg": 60,
+      "description": "Protective payload fairing (inert mass)."
     },
     {
       "id": "ballast-plate",
       "name": "Ballast Plate",
       "kind": "structure",
-      "dry_mass_kg": 200
+      "dry_mass_kg": 200,
+      "description": "Dead-weight ballast for trimming a stack's balance."
     }
   ]
 }
