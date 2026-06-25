@@ -116,8 +116,86 @@ const (
 
 // loadoutChoiceCount is the number of CRAFT TYPE rows — every catalog
 // loadout, the synthetic "Custom…" entry, then every saved design (v0.24).
+// Grouping (ADR 0031 / S8) reorders the catalog rows into category groups but
+// does not change their count, so this index arithmetic is unchanged.
 func (s *SpawnCraft) loadoutChoiceCount() int {
 	return len(spacecraft.LoadoutOrder) + 1 + len(s.designs)
+}
+
+// craftCategory is one CRAFT TYPE display group (ADR 0031 / S8): a stable key
+// authored on each Loadout via the catalog `category` field, and the header
+// label shown in the spawn form. The slice order below IS the on-screen group
+// order; the key→label→order mapping is a fixed UI table, not data.
+type craftCategory struct {
+	key   string
+	label string
+}
+
+var craftCategories = []craftCategory{
+	{"launch-vehicles", "Launch Vehicles"},
+	{"mission-stacks", "Crewed Mission Stacks"},
+	{"upper-stages", "Upper Stages"},
+	{"landers-capsules", "Landers & Capsules"},
+	{"tugs-relays", "Tugs & Relays"},
+	{"satellites-payloads", "Satellites & Payloads"},
+}
+
+// craftCategoryOtherLabel is the trailing bucket for loadouts whose Category is
+// empty or matches no known key — so a future / mod-authored loadout never
+// vanishes from the picker (ADR 0031).
+const craftCategoryOtherLabel = "Other"
+
+// loadoutGroup is a rendered CRAFT TYPE category: a header label and the
+// catalog loadout IDs under it, in display order.
+type loadoutGroup struct {
+	label string
+	ids   []string
+}
+
+// groupedLoadouts arranges every catalog loadout (LoadoutOrder) into ordered
+// category groups — the spawn form's CRAFT TYPE display and cursor order
+// (ADR 0031). Within a group, loadouts keep LoadoutOrder order. A loadout whose
+// Category matches no known key is collected into a trailing "Other" group, so
+// the flattened result is always a permutation of LoadoutOrder (every loadout
+// appears exactly once). Empty groups are omitted.
+func groupedLoadouts() []loadoutGroup {
+	known := make(map[string]bool, len(craftCategories))
+	groups := make([]loadoutGroup, 0, len(craftCategories)+1)
+	for _, c := range craftCategories {
+		known[c.key] = true
+		var ids []string
+		for _, id := range spacecraft.LoadoutOrder {
+			if spacecraft.Loadouts[id].Category == c.key {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			groups = append(groups, loadoutGroup{label: c.label, ids: ids})
+		}
+	}
+	var other []string
+	for _, id := range spacecraft.LoadoutOrder {
+		if !known[spacecraft.Loadouts[id].Category] {
+			other = append(other, id)
+		}
+	}
+	if len(other) > 0 {
+		groups = append(groups, loadoutGroup{label: craftCategoryOtherLabel, ids: other})
+	}
+	return groups
+}
+
+// orderedLoadoutIDs is the flattened grouped catalog order — the loadout IDs in
+// the sequence the CRAFT TYPE cursor walks (a permutation of LoadoutOrder). The
+// index into this slice is loadoutIdx for the catalog rows (0 .. len-1); the
+// Custom entry and saved designs follow at len(LoadoutOrder) and beyond,
+// unchanged by grouping.
+func orderedLoadoutIDs() []string {
+	ids := make([]string, 0, len(spacecraft.LoadoutOrder))
+	for _, g := range groupedLoadouts() {
+		ids = append(ids, g.ids...)
+	}
+	return ids
 }
 
 // IsCustomSelected reports whether the cursor is on the synthetic
@@ -149,10 +227,17 @@ func (s *SpawnCraft) SelectedLoadoutID() string {
 	if s.IsCustomSelected() || s.IsDesignSelected() {
 		return ""
 	}
-	if s.loadoutIdx < 0 || s.loadoutIdx >= len(spacecraft.LoadoutOrder) {
-		return spacecraft.LoadoutOrder[0]
+	// Map loadoutIdx through the grouped display order (a permutation of
+	// LoadoutOrder), not LoadoutOrder itself — the cursor walks the grouped
+	// sequence (ADR 0031 / S8).
+	ids := orderedLoadoutIDs()
+	if len(ids) == 0 {
+		return ""
 	}
-	return spacecraft.LoadoutOrder[s.loadoutIdx]
+	if s.loadoutIdx < 0 || s.loadoutIdx >= len(ids) {
+		return ids[0]
+	}
+	return ids[s.loadoutIdx]
 }
 
 // SelectedCustomStages returns a copy of the player-assembled stack
@@ -393,58 +478,36 @@ func (s *SpawnCraft) Render(width int) string {
 	lines = append(lines, s.theme.Title.Render(titleText))
 	lines = append(lines, "")
 
-	// Field 0: craft type — list with the cursor row highlighted.
+	// Field 0: craft type — catalog loadouts grouped under category headers
+	// (ADR 0031 / S8), then a trailing "Custom & Designs" group with the
+	// synthetic "Custom…" entry and any saved VAB designs. Headers are
+	// non-selectable; the cursor (loadoutIdx) walks only the selectable rows,
+	// which follow groupedLoadouts()'s flattened order — so `idx` below tracks
+	// the running selectable index and the catalog rows end exactly at
+	// len(LoadoutOrder) (the Custom index), keeping the index arithmetic in
+	// IsCustomSelected / IsDesignSelected unchanged.
 	lines = append(lines, s.fieldHeader(0, "CRAFT TYPE"))
 	lines = append(lines, "")
-	for i, id := range spacecraft.LoadoutOrder {
-		l := spacecraft.Loadouts[id]
-		row := fmt.Sprintf("%s %s  %s  — %s",
-			l.Glyph, l.Name, l.Role, propulsionSummary(l))
-		marker := "  "
-		if i == s.loadoutIdx {
-			marker = s.theme.Warning.Render("→ ")
-			if s.fieldIdx == 0 {
-				row = s.theme.Warning.Render(row)
-			} else {
-				row = s.theme.Primary.Render(row)
-			}
-		} else {
-			row = s.theme.Dim.Render(row)
+	idx := 0
+	for _, g := range groupedLoadouts() {
+		lines = append(lines, "  "+s.theme.Primary.Render(g.label))
+		for _, id := range g.ids {
+			l := spacecraft.Loadouts[id]
+			row := fmt.Sprintf("%s %s  %s  — %s",
+				l.Glyph, l.Name, l.Role, propulsionSummary(l))
+			lines = append(lines, s.craftRow(idx, row))
+			idx++
 		}
-		lines = append(lines, "  "+marker+row)
 	}
-	// v0.10.1+: synthetic "Custom…" row — opens the STACK editor.
-	{
-		customRow := "✎ Custom…  build-your-own  — assemble a stage stack"
-		marker := "  "
-		if s.IsCustomSelected() {
-			marker = s.theme.Warning.Render("→ ")
-			if s.fieldIdx == 0 {
-				customRow = s.theme.Warning.Render(customRow)
-			} else {
-				customRow = s.theme.Primary.Render(customRow)
-			}
-		} else {
-			customRow = s.theme.Dim.Render(customRow)
-		}
-		lines = append(lines, "  "+marker+customRow)
-	}
-	// v0.24 / ADR 0029: saved VAB designs, listed after "Custom…".
-	for di, d := range s.designs {
-		idx := len(spacecraft.LoadoutOrder) + 1 + di
-		row := fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts))
-		marker := "  "
-		if s.loadoutIdx == idx {
-			marker = s.theme.Warning.Render("→ ")
-			if s.fieldIdx == 0 {
-				row = s.theme.Warning.Render(row)
-			} else {
-				row = s.theme.Primary.Render(row)
-			}
-		} else {
-			row = s.theme.Dim.Render(row)
-		}
-		lines = append(lines, "  "+marker+row)
+	// Trailing "Custom & Designs" group — never filtered (ADR 0031). idx is
+	// now len(LoadoutOrder), so the Custom row lands on the Custom index.
+	lines = append(lines, "  "+s.theme.Primary.Render("Custom & Designs"))
+	lines = append(lines, s.craftRow(idx, "✎ Custom…  build-your-own  — assemble a stage stack"))
+	idx++
+	for _, d := range s.designs {
+		lines = append(lines, s.craftRow(idx,
+			fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts))))
+		idx++
 	}
 
 	// v0.10.1+ STACK editor — only when Custom is selected. Shows the
@@ -599,6 +662,26 @@ func (s *SpawnCraft) Render(width int) string {
 		"[tab] field  [←/→] cycle  [enter] spawn  [esc] cancel"))
 
 	return strings.Join(lines, "\n")
+}
+
+// craftRow renders one selectable CRAFT TYPE row (a catalog loadout, the
+// Custom entry, or a saved design) at selectable index `idx`: the cursor
+// marker plus the row's selection styling — warning when the cursor is on it
+// and CRAFT TYPE is focused, primary when selected-but-unfocused, dim
+// otherwise. Factored from the three formerly-duplicated row blocks (ADR 0031
+// / S8). Group headers are rendered inline by Render and are not rows.
+func (s *SpawnCraft) craftRow(idx int, label string) string {
+	marker := "  "
+	row := s.theme.Dim.Render(label)
+	if s.loadoutIdx == idx {
+		marker = s.theme.Warning.Render("→ ")
+		if s.fieldIdx == 0 {
+			row = s.theme.Warning.Render(label)
+		} else {
+			row = s.theme.Primary.Render(label)
+		}
+	}
+	return "  " + marker + row
 }
 
 // fieldHeader returns the header label, highlighted when the field

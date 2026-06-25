@@ -65,14 +65,16 @@ func TestSpawnCustomEntryReachableAndEmpty(t *testing.T) {
 	if s.SelectedCustomStages() != nil {
 		t.Error("empty custom stack should yield nil stages")
 	}
-	// Cycling forward once more wraps back to the first real loadout.
+	// Cycling forward once more wraps back to the first real loadout — which,
+	// under ADR 0031 grouping, is the first row in grouped display order
+	// (orderedLoadoutIDs[0]), not LoadoutOrder[0].
 	s.HandleKey("right")
 	if s.IsCustomSelected() {
 		t.Error("Custom should wrap back to a real loadout")
 	}
-	if s.SelectedLoadoutID() != spacecraft.LoadoutOrder[0] {
-		t.Errorf("after wrap, loadout = %q, want %q",
-			s.SelectedLoadoutID(), spacecraft.LoadoutOrder[0])
+	if want := orderedLoadoutIDs()[0]; s.SelectedLoadoutID() != want {
+		t.Errorf("after wrap, loadout = %q, want %q (grouped order)",
+			s.SelectedLoadoutID(), want)
 	}
 }
 

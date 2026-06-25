@@ -80,6 +80,12 @@ type Loadout struct {
 	// bodies.ScaleStrippedBack. Never used to filter craft by System —
 	// any Loadout can be spawned in any System.
 	ScaleClass bodies.ScaleClass
+
+	// Category (v0.24 / ADR 0031) is the spawn-form display-grouping key the
+	// CRAFT TYPE picker headers loadouts under (e.g. "launch-vehicles"). Copied
+	// from LoadoutDef.Category; display-only, hash-free, distinct from Role.
+	// Empty/unknown ⇒ the UI's trailing "Other" bucket.
+	Category string
 }
 
 // DefaultSlewRateDegPerSec is the attitude slew-rate cap applied to
@@ -281,6 +287,7 @@ func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
 		NosePayloadPlan:   nosePlan,
 		SlewRateDegPerSec: d.SlewRateDegPerSec,
 		ScaleClass:        bodies.ScaleClass(d.ScaleClass),
+		Category:          d.Category,
 	}
 }
 

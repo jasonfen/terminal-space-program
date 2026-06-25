@@ -135,6 +135,16 @@ type LoadoutDef struct {
 	SlewRateDegPerSec float64   `json:"slew_rate_deg_per_sec,omitempty"`
 	ScaleClass        string    `json:"scale_class,omitempty"`
 
+	// Category (v0.24 / ADR 0031) is the spawn-form display grouping key
+	// (e.g. "launch-vehicles", "satellites-payloads") — the CRAFT TYPE
+	// picker headers loadouts under it. Display-only and NOT part of any
+	// hash (the loadout catalog has no save-hash gate; catalog.go header),
+	// distinct from the functionally-overloaded Role. An absent/unknown key
+	// falls into a trailing "Other" bucket in the UI so a loadout never
+	// vanishes; the key→label→order mapping is a fixed UI table in the
+	// screens package, not data.
+	Category string `json:"category,omitempty"`
+
 	// Source is a runtime annotation ("embedded" / "user"), excluded from
 	// JSON so it never affects round-trips or any future hash use.
 	Source string `json:"-"`
