@@ -104,6 +104,23 @@ func (l Loadout) Scale() bodies.ScaleClass {
 	return l.ScaleClass.Normalize()
 }
 
+// Crewed reports whether the loadout flies with crew — true iff any stage
+// declares a crewed command source (CommandCrewed), the same predicate
+// SyncFields derives onto Spacecraft.Crewed (ADR 0027). The spawn-form CRAFT
+// TYPE picker surfaces this as a crewed/uncrewed tag (ADR 0031 / S9). A
+// command-less loadout whose Role is a crewed pod defaults to crewed only at
+// construction (EnsureCommandSource); no shipped loadout relies on that, so
+// this catalog-level predicate reads the explicit stage sources directly — the
+// standalone Lander (probe-defaulted) correctly reads uncrewed.
+func (l Loadout) Crewed() bool {
+	for _, st := range l.Stages {
+		if st.CommandSource == CommandCrewed {
+			return true
+		}
+	}
+	return false
+}
+
 // DryMass returns the bottom stage's dry mass (single-stage
 // equivalent for pre-v0.9.1 readers; sum-across-stages is via
 // SumDryMass(l.Stages) when the caller wants it).

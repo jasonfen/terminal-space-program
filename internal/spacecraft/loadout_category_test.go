@@ -33,3 +33,23 @@ func TestLoadoutCategoryRoundTrips(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadoutCrewed — the spawn-form crew tag predicate (ADR 0031 / S9):
+// crewed iff any stage declares a crewed command source. The crewed-pod
+// stacks (Apollo / Kern / Capsule) read crewed; launch vehicles, probes,
+// carriers, and the probe-defaulted standalone Lander read uncrewed.
+func TestLoadoutCrewed(t *testing.T) {
+	crewed := []string{"Apollo-Stack", "Kern-Stack", "Capsule"}
+	uncrewed := []string{"Saturn-V", "Falcon-9", "Relay-Comsat", "Science-Probe",
+		"Comsat-Carrier-3", "Lander"}
+	for _, id := range crewed {
+		if !Loadouts[id].Crewed() {
+			t.Errorf("loadout %q should be crewed", id)
+		}
+	}
+	for _, id := range uncrewed {
+		if Loadouts[id].Crewed() {
+			t.Errorf("loadout %q should be uncrewed", id)
+		}
+	}
+}

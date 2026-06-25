@@ -198,6 +198,67 @@ func orderedLoadoutIDs() []string {
 	return ids
 }
 
+// selectedDesign returns the saved design under the cursor, or nil when a
+// design row is not selected. v0.24 / ADR 0029.
+func (s *SpawnCraft) selectedDesign() *spacecraft.Design {
+	if !s.IsDesignSelected() {
+		return nil
+	}
+	i := s.loadoutIdx - len(spacecraft.LoadoutOrder) - 1
+	if i < 0 || i >= len(s.designs) {
+		return nil
+	}
+	return &s.designs[i]
+}
+
+// craftLiftsOff reports whether a craft with the given bottom-stage thrust (N)
+// and total wet mass (kg) can lift off body — its surface TWR ≥ 1, i.e. thrust
+// ≥ weight = m·g with g = μ/R² (ADR 0031 / S9, the physics surface-launch
+// gate). A nil body or non-positive mass/radius reads as "can't lift off".
+func craftLiftsOff(bottomThrustN, wetMassKg float64, body *bodies.CelestialBody) bool {
+	if body == nil || wetMassKg <= 0 {
+		return false
+	}
+	r := body.RadiusMeters()
+	if r <= 0 {
+		return false
+	}
+	g := body.GravitationalParameter() / (r * r)
+	return bottomThrustN >= wetMassKg*g
+}
+
+// selectedCraftStages returns the bottom-first stages of the currently selected
+// craft — a catalog loadout, the Custom stack, or a saved design (resolved
+// against the live catalog) — for the launch gate. Empty when no craft / no
+// stages are determinable.
+func (s *SpawnCraft) selectedCraftStages() []spacecraft.Stage {
+	switch {
+	case s.IsCustomSelected():
+		return s.customStages
+	case s.IsDesignSelected():
+		if d := s.selectedDesign(); d != nil {
+			l, _ := d.Resolve()
+			return l.Stages
+		}
+		return nil
+	default:
+		return spacecraft.LookupLoadout(s.SelectedLoadoutID()).Stages
+	}
+}
+
+// launchpadAllowed reports whether POSITION=launchpad is offered for the
+// current craft + parent: the craft must lift off the selected parent (surface
+// TWR ≥ 1; ADR 0031 / S9). Permissive when the craft's stages can't be
+// determined (e.g. an empty Custom stack) — the gate never blocks spuriously.
+func (s *SpawnCraft) launchpadAllowed() bool {
+	stages := s.selectedCraftStages()
+	if len(stages) == 0 {
+		return true
+	}
+	wet := spacecraft.SumDryMass(stages) + spacecraft.SumFuelMass(stages)
+	return craftLiftsOff(stages[0].Thrust, wet, s.currentParent())
+}
+
 // IsCustomSelected reports whether the cursor is on the synthetic
 // "Custom…" CRAFT TYPE entry. v0.10.1+.
 func (s *SpawnCraft) IsCustomSelected() bool {
@@ -445,6 +506,12 @@ func (s *SpawnCraft) cycleField(step int) {
 		s.partIdx = wrapIdx(s.partIdx+step, len(spacecraft.StageCatalogOrder))
 	case 1:
 		s.posMode = spawnPosMode(wrapIdx(int(s.posMode)+step, 3))
+		// ADR 0031 / S9: skip launchpad in the cycle when the selected craft
+		// can't lift off the selected parent (one extra step in the same
+		// direction — only launchpad is gated, so one suffices).
+		if s.posMode == posLaunchpad && !s.launchpadAllowed() {
+			s.posMode = spawnPosMode(wrapIdx(int(s.posMode)+step, 3))
+		}
 	case 2:
 		if len(s.parentBodies) > 0 {
 			s.parentIdx = wrapIdx(s.parentIdx+step, len(s.parentBodies))
@@ -457,6 +524,12 @@ func (s *SpawnCraft) cycleField(step int) {
 		}
 	case 4:
 		s.retrograde = !s.retrograde
+	}
+	// ADR 0031 / S9: a launchpad selection the new craft/parent can't support
+	// (after cycling CRAFT TYPE or PARENT) snaps back to orbit, so the form
+	// never confirms a pad spawn for a craft that can't lift off.
+	if s.posMode == posLaunchpad && !s.launchpadAllowed() {
+		s.posMode = posOrbit
 	}
 }
 
@@ -493,8 +566,8 @@ func (s *SpawnCraft) Render(width int) string {
 		lines = append(lines, "  "+s.theme.Primary.Render(g.label))
 		for _, id := range g.ids {
 			l := spacecraft.Loadouts[id]
-			row := fmt.Sprintf("%s %s  %s  — %s",
-				l.Glyph, l.Name, l.Role, propulsionSummary(l))
+			row := fmt.Sprintf("%s %s  %s  %s  — %s",
+				l.Glyph, l.Name, crewTag(l), l.Role, propulsionSummary(l))
 			lines = append(lines, s.craftRow(idx, row))
 			idx++
 		}
@@ -592,6 +665,16 @@ func (s *SpawnCraft) Render(width int) string {
 		posLabel = "circular orbit"
 	}
 	lines = append(lines, "  "+s.fieldValue(1, posLabel))
+	// ADR 0031 / S9: when the selected craft can't lift off the selected
+	// parent, the cycle skips launchpad — note why, so the missing option
+	// doesn't read as a bug.
+	if !s.launchpadAllowed() {
+		note := "launchpad unavailable — TWR < 1 on this body"
+		if pb := s.currentParent(); pb != nil {
+			note = fmt.Sprintf("launchpad unavailable — can't lift off %s (TWR < 1)", pb.EnglishName)
+		}
+		lines = append(lines, "  "+s.theme.Dim.Render(note))
+	}
 
 	// Field-3 + field-4 dim/disable masks vary by mode:
 	// - orbit:     all three orbit-defining fields enabled
@@ -718,6 +801,17 @@ func (s *SpawnCraft) currentParent() *bodies.CelestialBody {
 		return nil
 	}
 	return &s.parentBodies[s.parentIdx]
+}
+
+// crewTag is the spawn-form crewed/uncrewed label for a loadout, derived from
+// its Crewed predicate — any stage with a crewed command source (ADR 0031 /
+// S9). Plain text (no per-tag color) so it composes with the row's
+// selection styling without nested ANSI.
+func crewTag(l spacecraft.Loadout) string {
+	if l.Crewed() {
+		return "crewed"
+	}
+	return "uncrewed"
 }
 
 // propulsionSummary one-lines a loadout's main-engine + RCS shape
