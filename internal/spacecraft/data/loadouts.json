@@ -4,6 +4,7 @@
       "id": "S-IVB-1",
       "name": "S-IVB",
       "role": "transfer-stage",
+      "category": "upper-stages",
       "glyph": "➤",
       "color": "#FFD93D",
       "parts": [
@@ -16,6 +17,7 @@
       "id": "ICPS",
       "name": "ICPS",
       "role": "transfer-stage",
+      "category": "upper-stages",
       "glyph": "➤",
       "color": "#5BB3FF",
       "parts": [
@@ -28,6 +30,7 @@
       "id": "RCS-tug",
       "name": "RCS Tug",
       "role": "tug",
+      "category": "tugs-relays",
       "glyph": "➤",
       "color": "#FF87D7",
       "parts": [
@@ -40,6 +43,7 @@
       "id": "Lander",
       "name": "Lander",
       "role": "lander",
+      "category": "landers-capsules",
       "glyph": "➤",
       "color": "#5FFF87",
       "parts": [
@@ -55,6 +59,7 @@
       "id": "Saturn-V",
       "name": "Saturn V",
       "role": "launch-vehicle",
+      "category": "launch-vehicles",
       "glyph": "➤",
       "color": "#FFD93D",
       "parts": [
@@ -73,6 +78,7 @@
       "id": "SLS-Block1",
       "name": "SLS Block 1",
       "role": "launch-vehicle",
+      "category": "launch-vehicles",
       "glyph": "➤",
       "color": "#FF6B35",
       "parts": [
@@ -91,6 +97,7 @@
       "id": "Falcon-9",
       "name": "Falcon 9",
       "role": "launch-vehicle",
+      "category": "launch-vehicles",
       "glyph": "➤",
       "color": "#E8E8E8",
       "parts": [
@@ -106,6 +113,7 @@
       "id": "Apollo-Stack",
       "name": "Apollo Stack",
       "role": "mission-stack",
+      "category": "mission-stacks",
       "glyph": "➤",
       "color": "#FFD93D",
       "parts": [
@@ -142,6 +150,7 @@
       "id": "Capsule",
       "name": "Capsule",
       "role": "capsule",
+      "category": "landers-capsules",
       "glyph": "➤",
       "color": "#B8C8E0",
       "parts": [
@@ -154,6 +163,7 @@
       "id": "Kern-Stack",
       "name": "Kern Stack",
       "role": "mission-stack",
+      "category": "mission-stacks",
       "glyph": "➤",
       "color": "#7BD3FF",
       "parts": [
@@ -181,6 +191,7 @@
       "id": "Relay-Tug",
       "name": "Relay Tug",
       "role": "tug",
+      "category": "tugs-relays",
       "glyph": "➤",
       "color": "#8CE0C0",
       "parts": [
@@ -193,6 +204,7 @@
       "id": "Station-Keeper",
       "name": "Station Keeper",
       "role": "tug",
+      "category": "tugs-relays",
       "glyph": "➤",
       "color": "#C49BFF",
       "parts": [
@@ -205,6 +217,7 @@
       "id": "Deep-Space-Relay",
       "name": "Deep-Space Relay",
       "role": "tug",
+      "category": "tugs-relays",
       "glyph": "➤",
       "color": "#FFD27F",
       "parts": [
@@ -217,6 +230,7 @@
       "id": "Relay-Comsat",
       "name": "Relay Comsat",
       "role": "relay-sat",
+      "category": "satellites-payloads",
       "glyph": "➤",
       "color": "#8CE0C0",
       "parts": [
@@ -229,6 +243,7 @@
       "id": "Ground-Station-Lander",
       "name": "Ground-Station Lander",
       "role": "ground-station",
+      "category": "satellites-payloads",
       "glyph": "➤",
       "color": "#C0E0A0",
       "parts": [
@@ -241,6 +256,7 @@
       "id": "Science-Probe",
       "name": "Science Probe",
       "role": "science-probe",
+      "category": "satellites-payloads",
       "glyph": "➤",
       "color": "#9BE0FF",
       "parts": [
@@ -253,6 +269,7 @@
       "id": "Comsat-Carrier-3",
       "name": "Comsat Carrier x3",
       "role": "carrier",
+      "category": "satellites-payloads",
       "glyph": "➤",
       "color": "#8CE0C0",
       "parts": [
@@ -279,6 +296,7 @@
       "id": "Survey-Pack",
       "name": "Survey Pack",
       "role": "carrier",
+      "category": "satellites-payloads",
       "glyph": "➤",
       "color": "#9BE0FF",
       "parts": [
@@ -301,6 +319,7 @@
       "id": "Probe-Sat",
       "name": "Probe Sat",
       "role": "probe",
+      "category": "satellites-payloads",
       "glyph": "➤",
       "color": "#5BB3FF",
       "parts": [
@@ -308,6 +327,211 @@
           "part_id": "probe-sat-stage"
         }
       ]
+    },
+    {
+      "id": "Vector-V",
+      "name": "Vector V",
+      "role": "launch-vehicle",
+      "category": "launch-vehicles",
+      "glyph": "➤",
+      "color": "#7BD3FF",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "vector-1" },
+        { "part_id": "vector-2" },
+        { "part_id": "buffer-stage" }
+      ]
+    },
+    {
+      "id": "Raster-LS",
+      "name": "Raster Launch System",
+      "role": "launch-vehicle",
+      "category": "launch-vehicles",
+      "glyph": "➤",
+      "color": "#6FA8DC",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "raster-srb" },
+        { "part_id": "raster-core" },
+        { "part_id": "spool-stage" }
+      ]
+    },
+    {
+      "id": "Packet-9",
+      "name": "Packet 9",
+      "role": "launch-vehicle",
+      "category": "launch-vehicles",
+      "glyph": "➤",
+      "color": "#C8E0F0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "packet-1" },
+        { "part_id": "packet-2" }
+      ]
+    },
+    {
+      "id": "Buffer",
+      "name": "Buffer",
+      "role": "transfer-stage",
+      "category": "upper-stages",
+      "glyph": "➤",
+      "color": "#8CC8E0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "buffer-stage" }
+      ]
+    },
+    {
+      "id": "Spool",
+      "name": "Spool",
+      "role": "transfer-stage",
+      "category": "upper-stages",
+      "glyph": "➤",
+      "color": "#7FB8D8",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "spool-stage" }
+      ]
+    },
+    {
+      "id": "Socket-Lander",
+      "name": "Socket Lander",
+      "role": "lander",
+      "category": "landers-capsules",
+      "glyph": "➤",
+      "color": "#5FE0C0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "socket-descent" },
+        { "part_id": "socket-ascent" }
+      ]
+    },
+    {
+      "id": "Token-Pod",
+      "name": "Token Pod",
+      "role": "capsule",
+      "category": "landers-capsules",
+      "glyph": "➤",
+      "color": "#B8C8E0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "kern-pod" }
+      ]
+    },
+    {
+      "id": "Nudge-Tug",
+      "name": "Nudge Tug",
+      "role": "tug",
+      "category": "tugs-relays",
+      "glyph": "➤",
+      "color": "#C49BFF",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "nudge-tug" }
+      ]
+    },
+    {
+      "id": "Thread-Relay",
+      "name": "Thread Relay",
+      "role": "tug",
+      "category": "tugs-relays",
+      "glyph": "➤",
+      "color": "#8CE0C0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "thread-relay" }
+      ]
+    },
+    {
+      "id": "Heartbeat-Keeper",
+      "name": "Heartbeat Keeper",
+      "role": "tug",
+      "category": "tugs-relays",
+      "glyph": "➤",
+      "color": "#C49BFF",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "heartbeat-keeper" }
+      ]
+    },
+    {
+      "id": "Uplink-Relay",
+      "name": "Uplink Relay",
+      "role": "tug",
+      "category": "tugs-relays",
+      "glyph": "➤",
+      "color": "#FFD27F",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "uplink-relay" }
+      ]
+    },
+    {
+      "id": "Relay-Node",
+      "name": "Relay Node",
+      "role": "relay-sat",
+      "category": "satellites-payloads",
+      "glyph": "➤",
+      "color": "#8CE0C0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "relay-node" }
+      ]
+    },
+    {
+      "id": "Endpoint-Station",
+      "name": "Endpoint Station",
+      "role": "ground-station",
+      "category": "satellites-payloads",
+      "glyph": "➤",
+      "color": "#C0E0A0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "endpoint-station" }
+      ]
+    },
+    {
+      "id": "Scalar-Probe",
+      "name": "Scalar Probe",
+      "role": "science-probe",
+      "category": "satellites-payloads",
+      "glyph": "➤",
+      "color": "#9BE0FF",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "scalar-probe" }
+      ]
+    },
+    {
+      "id": "Node-Carrier-3",
+      "name": "Node Carrier x3",
+      "role": "carrier",
+      "category": "satellites-payloads",
+      "glyph": "➤",
+      "color": "#8CE0C0",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "thread-relay" },
+        { "part_id": "relay-node" },
+        { "part_id": "relay-node" },
+        { "part_id": "relay-node" }
+      ],
+      "nose_payload_plan": [1, 1, 1]
+    },
+    {
+      "id": "Scan-Pack",
+      "name": "Scan Pack",
+      "role": "carrier",
+      "category": "satellites-payloads",
+      "glyph": "➤",
+      "color": "#9BE0FF",
+      "scale_class": "stripped-back",
+      "parts": [
+        { "part_id": "thread-relay" },
+        { "part_id": "relay-node" },
+        { "part_id": "scalar-probe" }
+      ],
+      "nose_payload_plan": [1, 1]
     }
   ]
 }

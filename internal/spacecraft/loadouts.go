@@ -80,6 +80,12 @@ type Loadout struct {
 	// bodies.ScaleStrippedBack. Never used to filter craft by System —
 	// any Loadout can be spawned in any System.
 	ScaleClass bodies.ScaleClass
+
+	// Category (v0.24 / ADR 0031) is the spawn-form display-grouping key the
+	// CRAFT TYPE picker headers loadouts under (e.g. "launch-vehicles"). Copied
+	// from LoadoutDef.Category; display-only, hash-free, distinct from Role.
+	// Empty/unknown ⇒ the UI's trailing "Other" bucket.
+	Category string
 }
 
 // DefaultSlewRateDegPerSec is the attitude slew-rate cap applied to
@@ -96,6 +102,23 @@ const DefaultSlewRateDegPerSec = 15.0
 // never used to filter the craft list (ADR 0014).
 func (l Loadout) Scale() bodies.ScaleClass {
 	return l.ScaleClass.Normalize()
+}
+
+// Crewed reports whether the loadout flies with crew — true iff any stage
+// declares a crewed command source (CommandCrewed), the same predicate
+// SyncFields derives onto Spacecraft.Crewed (ADR 0027). The spawn-form CRAFT
+// TYPE picker surfaces this as a crewed/uncrewed tag (ADR 0031 / S9). A
+// command-less loadout whose Role is a crewed pod defaults to crewed only at
+// construction (EnsureCommandSource); no shipped loadout relies on that, so
+// this catalog-level predicate reads the explicit stage sources directly — the
+// standalone Lander (probe-defaulted) correctly reads uncrewed.
+func (l Loadout) Crewed() bool {
+	for _, st := range l.Stages {
+		if st.CommandSource == CommandCrewed {
+			return true
+		}
+	}
+	return false
 }
 
 // DryMass returns the bottom stage's dry mass (single-stage
@@ -281,6 +304,7 @@ func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
 		NosePayloadPlan:   nosePlan,
 		SlewRateDegPerSec: d.SlewRateDegPerSec,
 		ScaleClass:        bodies.ScaleClass(d.ScaleClass),
+		Category:          d.Category,
 	}
 }
 

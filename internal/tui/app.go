@@ -765,7 +765,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// loadouts. ListDesigns is read here (not in the form) so the
 			// form stays filesystem-free and testable.
 			designs, _ := spacecraft.ListDesigns()
-			a.spawn.Reset(a.world.System().Bodies, defaultParentID, designs)
+			// ADR 0031 / S10: pass the active System's Scale Class so the form
+			// filters the catalog to system-matching craft (sys is a local so
+			// the pointer-receiver Scale() is callable).
+			sys := a.world.System()
+			a.spawn.Reset(sys.Bodies, defaultParentID, designs, sys.Scale())
 			a.active = screenSpawn
 			a.world.RecordAction(missions.ActionSpawnCraft) // ADR 0025 §7
 			return a, nil

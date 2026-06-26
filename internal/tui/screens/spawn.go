@@ -50,6 +50,35 @@ type SpawnCraft struct {
 	// launch surface). Injected at Reset by the App (spacecraft.ListDesigns)
 	// so the form has no filesystem side effects and tests stay isolated.
 	designs []spacecraft.Design
+
+	// systemScale (v0.24 / ADR 0031 / S10) is the active System's Scale Class,
+	// injected at Reset. Catalog loadouts whose Scale() differs are hidden from
+	// the CRAFT TYPE picker by default (real fleet in Sol, stripped-back fleet
+	// in Lumen) — amending ADR 0014's no-filter rule. The empty value
+	// normalizes to ScaleReal, so a system without a Scale Class shows the real
+	// fleet.
+	systemScale bodies.ScaleClass
+	// showAll (v0.24 / ADR 0031 / S10) is the opt-out: when true the scale
+	// filter is off and every catalog loadout is listed (ADR 0014's
+	// spawn-anywhere escape hatch, now an explicit toggle). Reset to false on
+	// each open; flipped by the [f] key.
+	showAll bool
+
+	// designStages (ADR 0031 / S11 review fix) caches each saved design's
+	// resolved Stages, parallel to designs, resolved ONCE at Reset rather than
+	// re-resolving (which re-parses the embedded catalog + stats the overlay
+	// dir) on every render/cycle inside the launch gate.
+	designStages [][]spacecraft.Stage
+
+	// Grouping memo (ADR 0031 / S10 review fix). groupedLoadouts() is reached
+	// many times per render (the row loop + every index accessor); it depends
+	// only on the filter inputs (showAll, systemScale), so cache the result and
+	// rebuild only when those change. groupsValid guards the never-computed
+	// zero value (showAll=false / scale="" is a real state, not "uncomputed").
+	groups        []loadoutGroup
+	groupsShowAll bool
+	groupsScale   bodies.ScaleClass
+	groupsValid   bool
 }
 
 // stackFieldIdx is the form-field index of the STACK editor — only
@@ -84,13 +113,23 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 // the parent-field cursor lands on initially (typically the active
 // craft's current primary). v0.8.2+: replaces the v0.8.2-pre
 // no-arg Reset.
-func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design) {
+func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass) {
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
 	s.customStages = nil
 	s.partIdx = 0
 	s.nosePayloadCount = 0
 	s.designs = designs
+	// Resolve each design's stages once here (S11 review fix) so the launch
+	// gate reads a cached slice instead of re-resolving the catalog per frame.
+	s.designStages = make([][]spacecraft.Stage, len(designs))
+	for i, d := range designs {
+		l, _ := d.Resolve()
+		s.designStages[i] = l.Stages
+	}
+	s.groupsValid = false // invalidate the grouping memo for the new system/scale
+	s.systemScale = systemScale
+	s.showAll = false
 	s.posMode = posOrbit
 	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
 	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
@@ -114,23 +153,187 @@ const (
 	SpawnActionConfirm             // enter — caller reads accessors
 )
 
-// loadoutChoiceCount is the number of CRAFT TYPE rows — every catalog
-// loadout, the synthetic "Custom…" entry, then every saved design (v0.24).
+// visibleCatalogCount is the number of catalog loadout rows currently shown —
+// after the scale-class system filter (ADR 0031 / S10). The Custom entry sits
+// at this index and saved designs follow it, so all the CRAFT TYPE index math
+// keys off this, NOT len(LoadoutOrder) (which is the unfiltered total).
+func (s *SpawnCraft) visibleCatalogCount() int {
+	return len(s.orderedLoadoutIDs())
+}
+
+// loadoutChoiceCount is the number of selectable CRAFT TYPE rows — the visible
+// catalog loadouts (after the system filter), the synthetic "Custom…" entry,
+// then every saved design (v0.24). Headers are not counted (ADR 0031 / S8/S10).
 func (s *SpawnCraft) loadoutChoiceCount() int {
-	return len(spacecraft.LoadoutOrder) + 1 + len(s.designs)
+	return s.visibleCatalogCount() + 1 + len(s.designs)
+}
+
+// loadoutVisible reports whether a catalog loadout is shown given the active
+// system's Scale Class and the show-all toggle (ADR 0031 / S10): with the
+// filter on, only loadouts whose Scale() matches the system are shown; show-all
+// lists everything. The empty system scale normalizes to ScaleReal.
+func (s *SpawnCraft) loadoutVisible(id string) bool {
+	return s.showAll || spacecraft.Loadouts[id].Scale() == s.systemScale.Normalize()
+}
+
+// craftCategory is one CRAFT TYPE display group (ADR 0031 / S8): a stable key
+// authored on each Loadout via the catalog `category` field, and the header
+// label shown in the spawn form. The slice order below IS the on-screen group
+// order; the key→label→order mapping is a fixed UI table, not data.
+type craftCategory struct {
+	key   string
+	label string
+}
+
+var craftCategories = []craftCategory{
+	{"launch-vehicles", "Launch Vehicles"},
+	{"mission-stacks", "Crewed Mission Stacks"},
+	{"upper-stages", "Upper Stages"},
+	{"landers-capsules", "Landers & Capsules"},
+	{"tugs-relays", "Tugs & Relays"},
+	{"satellites-payloads", "Satellites & Payloads"},
+}
+
+// craftCategoryOtherLabel is the trailing bucket for loadouts whose Category is
+// empty or matches no known key — so a future / mod-authored loadout never
+// vanishes from the picker (ADR 0031).
+const craftCategoryOtherLabel = "Other"
+
+// loadoutGroup is a rendered CRAFT TYPE category: a header label and the
+// catalog loadout IDs under it, in display order.
+type loadoutGroup struct {
+	label string
+	ids   []string
+}
+
+// groupedLoadouts arranges the VISIBLE catalog loadouts into ordered category
+// groups — the spawn form's CRAFT TYPE display and cursor order (ADR 0031).
+// Visibility is the scale-class system filter (S10): with the filter on, only
+// loadouts matching the active system's scale appear; show-all lists every
+// loadout. Within a group, loadouts keep LoadoutOrder order. A loadout whose
+// Category matches no known key is collected into a trailing "Other" group, so
+// the flattened result is a permutation of the visible set (each appears once).
+// Empty groups are omitted.
+func (s *SpawnCraft) groupedLoadouts() []loadoutGroup {
+	// Memoized on the filter inputs (S10 review fix): a render hits this many
+	// times but the grouping changes only when showAll / systemScale change.
+	if s.groupsValid && s.groupsShowAll == s.showAll && s.groupsScale == s.systemScale {
+		return s.groups
+	}
+	known := make(map[string]bool, len(craftCategories))
+	groups := make([]loadoutGroup, 0, len(craftCategories)+1)
+	for _, c := range craftCategories {
+		known[c.key] = true
+		var ids []string
+		for _, id := range spacecraft.LoadoutOrder {
+			if spacecraft.Loadouts[id].Category == c.key && s.loadoutVisible(id) {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			groups = append(groups, loadoutGroup{label: c.label, ids: ids})
+		}
+	}
+	var other []string
+	for _, id := range spacecraft.LoadoutOrder {
+		if !known[spacecraft.Loadouts[id].Category] && s.loadoutVisible(id) {
+			other = append(other, id)
+		}
+	}
+	if len(other) > 0 {
+		groups = append(groups, loadoutGroup{label: craftCategoryOtherLabel, ids: other})
+	}
+	s.groups, s.groupsShowAll, s.groupsScale, s.groupsValid = groups, s.showAll, s.systemScale, true
+	return s.groups
+}
+
+// orderedLoadoutIDs is the flattened grouped catalog order — the visible loadout
+// IDs in the sequence the CRAFT TYPE cursor walks. The index into this slice is
+// loadoutIdx for the catalog rows (0 .. len-1); the Custom entry and saved
+// designs follow at visibleCatalogCount() and beyond.
+func (s *SpawnCraft) orderedLoadoutIDs() []string {
+	ids := make([]string, 0, len(spacecraft.LoadoutOrder))
+	for _, g := range s.groupedLoadouts() {
+		ids = append(ids, g.ids...)
+	}
+	return ids
+}
+
+// selectedDesign returns the saved design under the cursor, or nil when a
+// design row is not selected. v0.24 / ADR 0029.
+func (s *SpawnCraft) selectedDesign() *spacecraft.Design {
+	if !s.IsDesignSelected() {
+		return nil
+	}
+	i := s.loadoutIdx - s.visibleCatalogCount() - 1
+	if i < 0 || i >= len(s.designs) {
+		return nil
+	}
+	return &s.designs[i]
+}
+
+// craftLiftsOff reports whether a craft with the given bottom-stage thrust (N)
+// and total wet mass (kg) can lift off body — its surface TWR ≥ 1, i.e. thrust
+// ≥ weight = m·g with g = μ/R² (ADR 0031 / S9, the physics surface-launch
+// gate). A nil body or non-positive mass/radius reads as "can't lift off".
+func craftLiftsOff(bottomThrustN, wetMassKg float64, body *bodies.CelestialBody) bool {
+	if body == nil || wetMassKg <= 0 {
+		return false
+	}
+	r := body.RadiusMeters()
+	if r <= 0 {
+		return false
+	}
+	g := body.GravitationalParameter() / (r * r)
+	return bottomThrustN >= wetMassKg*g
+}
+
+// selectedCraftStages returns the bottom-first stages of the currently selected
+// craft — a catalog loadout, the Custom stack, or a saved design (resolved
+// against the live catalog) — for the launch gate. Empty when no craft / no
+// stages are determinable.
+func (s *SpawnCraft) selectedCraftStages() []spacecraft.Stage {
+	switch {
+	case s.IsCustomSelected():
+		return s.customStages
+	case s.IsDesignSelected():
+		// Read the stages resolved once at Reset (S11 review fix) — no per-frame
+		// catalog re-resolve.
+		i := s.loadoutIdx - s.visibleCatalogCount() - 1
+		if i >= 0 && i < len(s.designStages) {
+			return s.designStages[i]
+		}
+		return nil
+	default:
+		return spacecraft.LookupLoadout(s.SelectedLoadoutID()).Stages
+	}
+}
+
+// launchpadAllowed reports whether POSITION=launchpad is offered for the
+// current craft + parent: the craft must lift off the selected parent (surface
+// TWR ≥ 1; ADR 0031 / S9). Permissive when the craft's stages can't be
+// determined (e.g. an empty Custom stack) — the gate never blocks spuriously.
+func (s *SpawnCraft) launchpadAllowed() bool {
+	stages := s.selectedCraftStages()
+	if len(stages) == 0 {
+		return true
+	}
+	wet := spacecraft.SumDryMass(stages) + spacecraft.SumFuelMass(stages)
+	return craftLiftsOff(stages[0].Thrust, wet, s.currentParent())
 }
 
 // IsCustomSelected reports whether the cursor is on the synthetic
-// "Custom…" CRAFT TYPE entry. v0.10.1+.
+// "Custom…" CRAFT TYPE entry — the row right after the visible catalog
+// loadouts (the index shifts with the system filter; ADR 0031 / S10). v0.10.1+.
 func (s *SpawnCraft) IsCustomSelected() bool {
-	return s.loadoutIdx == len(spacecraft.LoadoutOrder)
+	return s.loadoutIdx == s.visibleCatalogCount()
 }
 
 // IsDesignSelected reports whether the cursor is on a saved-design row (the
 // rows after "Custom…"). v0.24 / ADR 0029.
 func (s *SpawnCraft) IsDesignSelected() bool {
-	return s.loadoutIdx > len(spacecraft.LoadoutOrder) &&
-		s.loadoutIdx <= len(spacecraft.LoadoutOrder)+len(s.designs)
+	v := s.visibleCatalogCount()
+	return s.loadoutIdx > v && s.loadoutIdx <= v+len(s.designs)
 }
 
 // SelectedDesignID returns the saved design's ID under the cursor, or "" when
@@ -139,7 +342,7 @@ func (s *SpawnCraft) SelectedDesignID() string {
 	if !s.IsDesignSelected() {
 		return ""
 	}
-	return s.designs[s.loadoutIdx-len(spacecraft.LoadoutOrder)-1].ID()
+	return s.designs[s.loadoutIdx-s.visibleCatalogCount()-1].ID()
 }
 
 // SelectedLoadoutID returns the loadout ID for the current cursor, or "" when
@@ -149,10 +352,16 @@ func (s *SpawnCraft) SelectedLoadoutID() string {
 	if s.IsCustomSelected() || s.IsDesignSelected() {
 		return ""
 	}
-	if s.loadoutIdx < 0 || s.loadoutIdx >= len(spacecraft.LoadoutOrder) {
-		return spacecraft.LoadoutOrder[0]
+	// Map loadoutIdx through the grouped, filtered display order — the cursor
+	// walks the visible grouped sequence (ADR 0031 / S8/S10).
+	ids := s.orderedLoadoutIDs()
+	if len(ids) == 0 {
+		return ""
 	}
-	return spacecraft.LoadoutOrder[s.loadoutIdx]
+	if s.loadoutIdx < 0 || s.loadoutIdx >= len(ids) {
+		return ids[0]
+	}
+	return ids[s.loadoutIdx]
 }
 
 // SelectedCustomStages returns a copy of the player-assembled stack
@@ -303,6 +512,22 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 		if s.fieldIdx == stackFieldIdx && s.IsCustomSelected() && len(s.customStages) > 1 {
 			s.nosePayloadCount = (s.nosePayloadCount + 1) % len(s.customStages)
 		}
+	case "f":
+		// ADR 0031 / S10: toggle the scale-class system filter (filter to the
+		// current system ↔ show all systems' craft). No-op in the Custom STACK
+		// editor so it can't yank the player mid-build — the sibling stack keys
+		// [a]/[x]/[d] are likewise field-guarded (S11 review fix). Re-point to
+		// the top of the freshly-filtered list (the old index may now be hidden
+		// / out of range) and keep the current field focus. Re-validate the
+		// launch gate so a launchpad selection can't survive onto a craft that
+		// can't lift off the parent — the same snap-back cycleField applies.
+		if s.fieldIdx != stackFieldIdx {
+			s.showAll = !s.showAll
+			s.loadoutIdx = 0
+			if s.posMode == posLaunchpad && !s.launchpadAllowed() {
+				s.posMode = posOrbit
+			}
+		}
 	}
 	return SpawnActionNone
 }
@@ -360,6 +585,12 @@ func (s *SpawnCraft) cycleField(step int) {
 		s.partIdx = wrapIdx(s.partIdx+step, len(spacecraft.StageCatalogOrder))
 	case 1:
 		s.posMode = spawnPosMode(wrapIdx(int(s.posMode)+step, 3))
+		// ADR 0031 / S9: skip launchpad in the cycle when the selected craft
+		// can't lift off the selected parent (one extra step in the same
+		// direction — only launchpad is gated, so one suffices).
+		if s.posMode == posLaunchpad && !s.launchpadAllowed() {
+			s.posMode = spawnPosMode(wrapIdx(int(s.posMode)+step, 3))
+		}
 	case 2:
 		if len(s.parentBodies) > 0 {
 			s.parentIdx = wrapIdx(s.parentIdx+step, len(s.parentBodies))
@@ -372,6 +603,12 @@ func (s *SpawnCraft) cycleField(step int) {
 		}
 	case 4:
 		s.retrograde = !s.retrograde
+	}
+	// ADR 0031 / S9: a launchpad selection the new craft/parent can't support
+	// (after cycling CRAFT TYPE or PARENT) snaps back to orbit, so the form
+	// never confirms a pad spawn for a craft that can't lift off.
+	if s.posMode == posLaunchpad && !s.launchpadAllowed() {
+		s.posMode = posOrbit
 	}
 }
 
@@ -393,58 +630,44 @@ func (s *SpawnCraft) Render(width int) string {
 	lines = append(lines, s.theme.Title.Render(titleText))
 	lines = append(lines, "")
 
-	// Field 0: craft type — list with the cursor row highlighted.
+	// Field 0: craft type — catalog loadouts grouped under category headers
+	// (ADR 0031 / S8), then a trailing "Custom & Designs" group with the
+	// synthetic "Custom…" entry and any saved VAB designs. Headers are
+	// non-selectable; the cursor (loadoutIdx) walks only the selectable rows,
+	// which follow groupedLoadouts()'s flattened order — so `idx` below tracks
+	// the running selectable index and the catalog rows end exactly at
+	// visibleCatalogCount() (the Custom index — the filtered count, not
+	// len(LoadoutOrder)), keeping IsCustomSelected / IsDesignSelected in step.
 	lines = append(lines, s.fieldHeader(0, "CRAFT TYPE"))
+	// ADR 0031 / S10: the scale-class system filter note + [f] hint.
+	if s.showAll {
+		lines = append(lines, "  "+s.theme.Dim.Render(
+			"showing all systems' craft — [f] filter to this system"))
+	} else if hidden := len(spacecraft.LoadoutOrder) - s.visibleCatalogCount(); hidden > 0 {
+		lines = append(lines, "  "+s.theme.Dim.Render(fmt.Sprintf(
+			"%d craft from other systems hidden — [f] show all", hidden)))
+	}
 	lines = append(lines, "")
-	for i, id := range spacecraft.LoadoutOrder {
-		l := spacecraft.Loadouts[id]
-		row := fmt.Sprintf("%s %s  %s  — %s",
-			l.Glyph, l.Name, l.Role, propulsionSummary(l))
-		marker := "  "
-		if i == s.loadoutIdx {
-			marker = s.theme.Warning.Render("→ ")
-			if s.fieldIdx == 0 {
-				row = s.theme.Warning.Render(row)
-			} else {
-				row = s.theme.Primary.Render(row)
-			}
-		} else {
-			row = s.theme.Dim.Render(row)
+	idx := 0
+	for _, g := range s.groupedLoadouts() {
+		lines = append(lines, "  "+s.theme.Primary.Render(g.label))
+		for _, id := range g.ids {
+			l := spacecraft.Loadouts[id]
+			row := fmt.Sprintf("%s %s  %s  %s  — %s",
+				l.Glyph, l.Name, crewTag(l), l.Role, propulsionSummary(l))
+			lines = append(lines, s.craftRow(idx, row))
+			idx++
 		}
-		lines = append(lines, "  "+marker+row)
 	}
-	// v0.10.1+: synthetic "Custom…" row — opens the STACK editor.
-	{
-		customRow := "✎ Custom…  build-your-own  — assemble a stage stack"
-		marker := "  "
-		if s.IsCustomSelected() {
-			marker = s.theme.Warning.Render("→ ")
-			if s.fieldIdx == 0 {
-				customRow = s.theme.Warning.Render(customRow)
-			} else {
-				customRow = s.theme.Primary.Render(customRow)
-			}
-		} else {
-			customRow = s.theme.Dim.Render(customRow)
-		}
-		lines = append(lines, "  "+marker+customRow)
-	}
-	// v0.24 / ADR 0029: saved VAB designs, listed after "Custom…".
-	for di, d := range s.designs {
-		idx := len(spacecraft.LoadoutOrder) + 1 + di
-		row := fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts))
-		marker := "  "
-		if s.loadoutIdx == idx {
-			marker = s.theme.Warning.Render("→ ")
-			if s.fieldIdx == 0 {
-				row = s.theme.Warning.Render(row)
-			} else {
-				row = s.theme.Primary.Render(row)
-			}
-		} else {
-			row = s.theme.Dim.Render(row)
-		}
-		lines = append(lines, "  "+marker+row)
+	// Trailing "Custom & Designs" group — never filtered (ADR 0031). idx is now
+	// visibleCatalogCount(), so the Custom row lands on the Custom index.
+	lines = append(lines, "  "+s.theme.Primary.Render("Custom & Designs"))
+	lines = append(lines, s.craftRow(idx, "✎ Custom…  build-your-own  — assemble a stage stack"))
+	idx++
+	for _, d := range s.designs {
+		lines = append(lines, s.craftRow(idx,
+			fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts))))
+		idx++
 	}
 
 	// v0.10.1+ STACK editor — only when Custom is selected. Shows the
@@ -529,6 +752,16 @@ func (s *SpawnCraft) Render(width int) string {
 		posLabel = "circular orbit"
 	}
 	lines = append(lines, "  "+s.fieldValue(1, posLabel))
+	// ADR 0031 / S9: when the selected craft can't lift off the selected
+	// parent, the cycle skips launchpad — note why, so the missing option
+	// doesn't read as a bug.
+	if !s.launchpadAllowed() {
+		note := "launchpad unavailable — TWR < 1 on this body"
+		if pb := s.currentParent(); pb != nil {
+			note = fmt.Sprintf("launchpad unavailable — can't lift off %s (TWR < 1)", pb.EnglishName)
+		}
+		lines = append(lines, "  "+s.theme.Dim.Render(note))
+	}
 
 	// Field-3 + field-4 dim/disable masks vary by mode:
 	// - orbit:     all three orbit-defining fields enabled
@@ -596,9 +829,29 @@ func (s *SpawnCraft) Render(width int) string {
 	lines = append(lines, "")
 	lines = append(lines, s.theme.Dim.Render(strings.Repeat("─", 60)))
 	lines = append(lines, s.theme.Footer.Render(
-		"[tab] field  [←/→] cycle  [enter] spawn  [esc] cancel"))
+		"[tab] field  [←/→] cycle  [f] system filter  [enter] spawn  [esc] cancel"))
 
 	return strings.Join(lines, "\n")
+}
+
+// craftRow renders one selectable CRAFT TYPE row (a catalog loadout, the
+// Custom entry, or a saved design) at selectable index `idx`: the cursor
+// marker plus the row's selection styling — warning when the cursor is on it
+// and CRAFT TYPE is focused, primary when selected-but-unfocused, dim
+// otherwise. Factored from the three formerly-duplicated row blocks (ADR 0031
+// / S8). Group headers are rendered inline by Render and are not rows.
+func (s *SpawnCraft) craftRow(idx int, label string) string {
+	marker := "  "
+	row := s.theme.Dim.Render(label)
+	if s.loadoutIdx == idx {
+		marker = s.theme.Warning.Render("→ ")
+		if s.fieldIdx == 0 {
+			row = s.theme.Warning.Render(label)
+		} else {
+			row = s.theme.Primary.Render(label)
+		}
+	}
+	return "  " + marker + row
 }
 
 // fieldHeader returns the header label, highlighted when the field
@@ -635,6 +888,17 @@ func (s *SpawnCraft) currentParent() *bodies.CelestialBody {
 		return nil
 	}
 	return &s.parentBodies[s.parentIdx]
+}
+
+// crewTag is the spawn-form crewed/uncrewed label for a loadout, derived from
+// its Crewed predicate — any stage with a crewed command source (ADR 0031 /
+// S9). Plain text (no per-tag color) so it composes with the row's
+// selection styling without nested ANSI.
+func crewTag(l spacecraft.Loadout) string {
+	if l.Crewed() {
+		return "crewed"
+	}
+	return "uncrewed"
 }
 
 // propulsionSummary one-lines a loadout's main-engine + RCS shape

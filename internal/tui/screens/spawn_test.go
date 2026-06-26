@@ -50,7 +50,7 @@ func selectCustom(s *SpawnCraft) {
 // branch.
 func TestSpawnCustomEntryReachableAndEmpty(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s.Reset(nil, "", nil, "")
 	selectCustom(s)
 
 	if !s.IsCustomSelected() {
@@ -65,14 +65,16 @@ func TestSpawnCustomEntryReachableAndEmpty(t *testing.T) {
 	if s.SelectedCustomStages() != nil {
 		t.Error("empty custom stack should yield nil stages")
 	}
-	// Cycling forward once more wraps back to the first real loadout.
+	// Cycling forward once more wraps back to the first real loadout — which,
+	// under ADR 0031 grouping, is the first row in grouped display order
+	// (orderedLoadoutIDs[0]), not LoadoutOrder[0].
 	s.HandleKey("right")
 	if s.IsCustomSelected() {
 		t.Error("Custom should wrap back to a real loadout")
 	}
-	if s.SelectedLoadoutID() != spacecraft.LoadoutOrder[0] {
-		t.Errorf("after wrap, loadout = %q, want %q",
-			s.SelectedLoadoutID(), spacecraft.LoadoutOrder[0])
+	if want := s.orderedLoadoutIDs()[0]; s.SelectedLoadoutID() != want {
+		t.Errorf("after wrap, loadout = %q, want %q (grouped order)",
+			s.SelectedLoadoutID(), want)
 	}
 }
 
@@ -81,7 +83,7 @@ func TestSpawnCustomEntryReachableAndEmpty(t *testing.T) {
 // only once Custom is selected.
 func TestSpawnStackFieldReachableOnlyInCustom(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s.Reset(nil, "", nil, "")
 
 	// Non-custom: Tab through a full cycle never lands on stackFieldIdx.
 	for i := 0; i < 12; i++ {
@@ -119,7 +121,7 @@ func TestSpawnStackFieldReachableOnlyInCustom(t *testing.T) {
 // CRAFT TYPE, and Tab onward from STACK continues to POSITION (field 1).
 func TestSpawnTabFromCustomReachesStackFirst(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s.Reset(nil, "", nil, "")
 	selectCustom(s)
 
 	if s.fieldIdx != 0 {
@@ -146,7 +148,7 @@ func TestSpawnTabFromCustomReachesStackFirst(t *testing.T) {
 // picker, [a] appends the picked part on top, [x] removes the top.
 func TestSpawnStackAddRemove(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s.Reset(nil, "", nil, "")
 	selectCustom(s)
 	s.fieldIdx = stackFieldIdx
 
@@ -192,7 +194,7 @@ func TestSpawnListsSavedDesigns(t *testing.T) {
 		{Loadout: spacecraft.LoadoutDef{ID: "mun-hopper", Name: "Mun Hopper", Parts: []spacecraft.PartRef{{PartID: "x"}}}},
 	}
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", designs)
+	s.Reset(nil, "", designs, "")
 
 	steps := 0
 	for !s.IsDesignSelected() && steps < len(spacecraft.LoadoutOrder)+5 {
@@ -230,7 +232,7 @@ func pickPart(s *SpawnCraft, id string) {
 // payload without the player marking it by hand.
 func TestSpawnDockSeamFromCSMLMModule(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s.Reset(nil, "", nil, "")
 	selectCustom(s)
 	s.fieldIdx = stackFieldIdx
 
@@ -254,7 +256,7 @@ func TestSpawnDockSeamFromCSMLMModule(t *testing.T) {
 // at least one stage. v0.14 / ADR 0011.
 func TestSpawnDockSeamCycleAndClamp(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s.Reset(nil, "", nil, "")
 	selectCustom(s)
 	s.fieldIdx = stackFieldIdx
 
@@ -293,7 +295,7 @@ func TestSpawnDockSeamCycleAndClamp(t *testing.T) {
 // for Custom and reflects added parts.
 func TestSpawnRenderShowsStackEditor(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil)
+	s.Reset(nil, "", nil, "")
 
 	if strings.Contains(s.Render(80), "STACK (bottom → top)") {
 		t.Error("STACK editor rendered for a non-custom loadout")
