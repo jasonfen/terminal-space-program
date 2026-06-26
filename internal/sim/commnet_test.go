@@ -566,3 +566,71 @@ func TestKernDSNConnectsProbe(t *testing.T) {
 		t.Error("a basic-antenna probe in low Kern orbit should reach the Kern DSN ring")
 	}
 }
+
+// TestNearHomeBypassesOcclusion (v0.24.1): the home-telemetry blanket links a
+// near-home probe to a ground station on its own primary even when the body
+// occludes the line of sight — but only to stations on that same body.
+func TestNearHomeBypassesOcclusion(t *testing.T) {
+	// A body at the origin sits squarely between probe and station, so an
+	// ordinary link is occluded (but in range).
+	occ := []physics.OccluderBody{{Center: orbital.Vec3{}, Radius: 6_371_000}}
+	probe := commNode{pos: orbital.Vec3{X: 7_000_000}, rangeM: 1e7, probe: true, bodyID: "earth"}
+	station := commNode{pos: orbital.Vec3{X: -6_371_000}, rangeM: 5e9, station: true, forwards: true, bodyID: "earth"}
+
+	if commLinked(probe, station, occ) {
+		t.Fatal("an occluded probe/station pair must not link without the home blanket")
+	}
+	probe.nearHome = true
+	if !commLinked(probe, station, occ) {
+		t.Error("a near-home probe must link to a station on its primary despite occlusion")
+	}
+	station.bodyID = "mars"
+	if commLinked(probe, station, occ) {
+		t.Error("the home blanket must not link to a station on a different body")
+	}
+}
+
+// TestNearHomeConnectsLowEarthOrbit (v0.24.1): regression for the playtest
+// report "spawn at 500 km around Earth → NO SIGNAL". The 3 DSN stations sit at
+// ~35-40° latitude and a 500 km orbit's horizon cone is only ~22°, so Earth
+// occludes every station from an equatorial spawn — the home blanket must
+// cover it instead.
+func TestNearHomeConnectsLowEarthOrbit(t *testing.T) {
+	w := mustWorld(t)
+	w.Crafts = nil
+	w.ActiveCraftIdx = -1
+	c, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:    "Science-Probe",
+		ParentBodyID: "earth",
+		AltitudeM:    500_000, // deep in the DSN coverage gap
+		Inclination:  0,       // equatorial: never reaches the mid-latitude ring
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	w.RecomputeCommGraph()
+	if !w.CommGraph.HasConnection(c.ID) {
+		t.Error("a probe in a 500 km equatorial Earth orbit should be connected via the home-telemetry blanket")
+	}
+}
+
+// TestNearHomeOnlyAroundStationBodies (v0.24.1): the blanket is gated to bodies
+// that actually host stations. A low lunar orbit (no stations on the Moon,
+// Earth's stations far out of range) stays NO SIGNAL.
+func TestNearHomeOnlyAroundStationBodies(t *testing.T) {
+	w := mustWorld(t)
+	w.Crafts = nil
+	w.ActiveCraftIdx = -1
+	c, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:    "Science-Probe",
+		ParentBodyID: "moon",
+		AltitudeM:    100_000,
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	w.RecomputeCommGraph()
+	if w.CommGraph.HasConnection(c.ID) {
+		t.Error("a probe in low lunar orbit (no Moon stations, Earth out of range) must read NO SIGNAL")
+	}
+}
