@@ -71,6 +71,11 @@ type commNode struct {
 	station  bool    // a ground station (a connection sink)
 	probe    bool    // an unmanned controllable craft — a BFS source that needs a connection
 	craftID  uint64  // 0 for stations
+	// bodyID ties a node to a body: for a station, the body it sits on; for a
+	// craft, the primary it orbits. nearHome (craft only) marks a craft inside
+	// the home-telemetry blanket of its primary — see nearHomeRadiiFactor.
+	bodyID   string
+	nearHome bool
 }
 
 // connectivityResult is the full output of the connectivity solve: which
@@ -121,14 +126,42 @@ func connectivityFull(nodes []commNode, occ []physics.OccluderBody) connectivity
 	return res
 }
 
+// nearHomeRadiiFactor sets the "home telemetry blanket": a controllable craft
+// in a low orbit of a body that hosts ground stations is treated as connected
+// regardless of line-of-sight to any single station, modelling the dense
+// near-body ground network (plus short relays) real low orbits enjoy. The DSN
+// ring sits at mid latitudes, so without this a low / equatorial orbit can't
+// see any station (the body itself occludes them all) and reads NO SIGNAL even
+// right after launch. The zone is a body-radius multiple, NOT a flat altitude,
+// so it scales across the Earth-class home world and the ~10× smaller Kern:
+// connected when the craft is within nearHomeRadiiFactor × the primary's radius
+// of its centre (≈ 0.5 R altitude). That comfortably covers the low-orbit gap
+// and overlaps the altitude where ordinary LOS to the ~40° stations takes over
+// (≈ 0.31 R); above the zone, normal LOS + range + relays govern.
+const nearHomeRadiiFactor = 1.5
+
 func commLinked(a, b commNode, occ []physics.OccluderBody) bool {
 	if a.rangeM <= 0 || b.rangeM <= 0 {
 		return false
+	}
+	// Home telemetry blanket: a near-home probe links to a ground station on
+	// its own primary regardless of occlusion (the home network always has a
+	// station in view). Range is always satisfied this close, so this only
+	// bypasses the LOS test.
+	if nearHomeLink(a, b) || nearHomeLink(b, a) {
+		return true
 	}
 	if a.pos.Sub(b.pos).Norm() > commLinkRangeM(a.rangeM, b.rangeM) {
 		return false
 	}
 	return !physics.SegmentOccludedByBody(a.pos, b.pos, occ)
+}
+
+// nearHomeLink reports whether probe p, inside the near-home zone of its
+// primary, reaches station s sitting on that same body — the home-blanket link
+// that bypasses occlusion (see nearHomeRadiiFactor).
+func nearHomeLink(p, s commNode) bool {
+	return p.probe && p.nearHome && s.station && s.bodyID != "" && s.bodyID == p.bodyID
 }
 
 // bfsPathToStation returns the hop-shortest relay chain from the start node
@@ -199,28 +232,38 @@ func (w *World) RecomputeCommGraph() {
 	}
 
 	var nodes []commNode
+	stationBodies := map[string]bool{} // bodies that host a station in this system
 	for _, st := range w.GroundStations {
 		body := sys.FindBody(st.BodyID)
 		if body == nil {
 			continue // station's body is not in this system
 		}
+		stationBodies[st.BodyID] = true
 		nodes = append(nodes, commNode{
 			pos:      w.groundStationWorldPos(st, *body),
 			rangeM:   st.AntennaRangeM,
 			forwards: true,
 			station:  true,
+			bodyID:   st.BodyID,
 		})
 	}
 	for _, c := range w.Crafts {
 		if c == nil || c.SystemIdx != sysIdx || c.AntennaKind == spacecraft.AntennaNone {
 			continue
 		}
+		// nearHome: in a low orbit of a body that hosts ground stations (its
+		// primary), so the home blanket reaches it regardless of LOS. c.State.R
+		// is the craft position relative to its primary's centre.
+		nearHome := stationBodies[c.Primary.ID] &&
+			c.State.R.Norm() <= nearHomeRadiiFactor*c.Primary.RadiusMeters()
 		nodes = append(nodes, commNode{
 			pos:      w.BodyPosition(c.Primary).Add(c.State.R),
 			rangeM:   c.AntennaRangeM,
 			forwards: c.AntennaKind == spacecraft.AntennaRelay && c.Controllable,
 			probe:    c.Controllable && !c.Crewed,
 			craftID:  c.ID,
+			bodyID:   c.Primary.ID,
+			nearHome: nearHome,
 		})
 	}
 
@@ -231,9 +274,35 @@ func (w *World) RecomputeCommGraph() {
 		for i, ni := range idxPath {
 			pts[i] = nodes[ni].pos
 		}
+		// A near-home probe links to every station on its primary (occlusion
+		// bypassed), so the BFS may terminate on an arbitrary, possibly
+		// far-side one. Repoint that single home hop to the NEAREST station so
+		// the HUD beam doesn't stab through the planet.
+		if len(idxPath) == 2 && nodes[idxPath[0]].nearHome {
+			if np, ok := nearestStationPos(nodes, nodes[idxPath[0]]); ok {
+				pts[1] = np
+			}
+		}
 		paths[id] = pts
 	}
 	w.CommGraph = &CommGraph{Connected: res.connected, Paths: paths}
+}
+
+// nearestStationPos returns the world position of the closest ground station
+// on probe p's primary body, for drawing a sensible home-blanket beam.
+func nearestStationPos(nodes []commNode, p commNode) (orbital.Vec3, bool) {
+	best := math.MaxFloat64
+	var pos orbital.Vec3
+	found := false
+	for _, n := range nodes {
+		if !n.station || n.bodyID != p.bodyID {
+			continue
+		}
+		if d := n.pos.Sub(p.pos).Norm(); d < best {
+			best, pos, found = d, n.pos, true
+		}
+	}
+	return pos, found
 }
 
 // ActiveCommPath returns the active craft's relay chain as ordered

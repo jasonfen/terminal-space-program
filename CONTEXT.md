@@ -1356,6 +1356,13 @@ the **DSN ground-station ring**; each probe Vessel's reachability is BFS
 from that Vessel through relay hops to any ground station. **Crewed**
 Vessels are never gated (they always have `Controllable = true`);
 uncrewed **probe** Vessels require a relay chain to be commandable.
+A **home-telemetry blanket** (v0.24.1) short-circuits the LOS test for a
+probe in a low orbit of a body that hosts ground stations: within
+`nearHomeRadiiFactor` (1.5) × the primary's radius of its centre (≈ 0.5 R
+altitude — ~3,200 km at Earth, ~300 km at Kern), the probe is connected
+regardless of occlusion, modelling the dense near-body network. Without it
+a low / equatorial orbit can't see the mid-latitude DSN ring at all (the
+body occludes every station) and would read NO SIGNAL right after launch.
 Implemented in `internal/sim/commnet.go`; exposed on `World.CommGraph`
 (v0.23 / ADR 0027).
 _Avoid_: Signal network, Radio network, KSP CommNet (same metaphor but a
