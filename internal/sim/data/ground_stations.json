@@ -23,6 +23,30 @@
       "lat_deg": -35.4,
       "lon_east_deg": 148.98,
       "antenna_range_m": 5000000000
+    },
+    {
+      "key": "stdin",
+      "name": "Stdin DSN",
+      "body_id": "kern",
+      "lat_deg": 35.0,
+      "lon_east_deg": -116.0,
+      "antenna_range_m": 5000000000
+    },
+    {
+      "key": "stdout",
+      "name": "Stdout DSN",
+      "body_id": "kern",
+      "lat_deg": 40.0,
+      "lon_east_deg": -4.0,
+      "antenna_range_m": 5000000000
+    },
+    {
+      "key": "stderr",
+      "name": "Stderr DSN",
+      "body_id": "kern",
+      "lat_deg": -35.0,
+      "lon_east_deg": 149.0,
+      "antenna_range_m": 5000000000
     }
   ]
 }

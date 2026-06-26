@@ -48,10 +48,29 @@ func TestAntennaDerivation(t *testing.T) {
 	if sat.AntennaKind != AntennaDirect || sat.AntennaRangeM != DefaultProbeAntennaRangeM {
 		t.Errorf("Saturn-V antenna = %q/%g, want direct/%g (defaulted probe telemetry)", sat.AntennaKind, sat.AntennaRangeM, DefaultProbeAntennaRangeM)
 	}
-	// A crewed vessel needs no antenna (crew are never comms-gated).
-	apollo := NewFromLoadout(LoadoutCapsuleID)
-	if apollo.AntennaKind != AntennaNone {
-		t.Errorf("crewed Capsule should not get a defaulted antenna, got %q", apollo.AntennaKind)
+	// v0.24: every vessel carries a basic antenna so it appears on the
+	// CommNet — including crewed pods (cosmetic for them, since crew are
+	// never comms-gated, but the network model stays uniform).
+	cap := NewFromLoadout(LoadoutCapsuleID)
+	if cap.AntennaKind != AntennaDirect || cap.AntennaRangeM != DefaultProbeAntennaRangeM {
+		t.Errorf("crewed Capsule antenna = %q/%g, want direct/%g (all vessels get a basic antenna)", cap.AntennaKind, cap.AntennaRangeM, DefaultProbeAntennaRangeM)
+	}
+}
+
+// TestAllVesselsCarryAntenna (v0.24): every catalog loadout — crewed pods
+// included — comes out with an antenna, so it shows on the CommNet and a
+// probe can reach a ground station. Crewed pods used to ship antenna-less
+// (they declare their own command_source, so the old EnsureCommandSource
+// short-circuited before the antenna backfill).
+func TestAllVesselsCarryAntenna(t *testing.T) {
+	for _, id := range LoadoutOrder {
+		v := NewFromLoadout(id)
+		if v == nil {
+			t.Fatalf("NewFromLoadout(%q) = nil", id)
+		}
+		if v.AntennaKind == AntennaNone || v.AntennaRangeM <= 0 {
+			t.Errorf("loadout %q has no antenna (%q/%g); every vessel should carry one", id, v.AntennaKind, v.AntennaRangeM)
+		}
 	}
 }
 
@@ -72,21 +91,31 @@ func TestEnsureCommandSourceDefaulting(t *testing.T) {
 		t.Errorf("bottom stage should stay none, got %q", c.Stages[0].CommandSource)
 	}
 
-	// Crewed-pod role → defaults to crewed.
+	// Crewed-pod role → defaults to crewed, and (v0.24) also gets a basic
+	// antenna so it appears on the network.
 	crew := &Spacecraft{Role: "capsule", Stages: []Stage{{Name: "pod", DryMass: 500}}}
 	EnsureCommandSource(crew)
 	if crew.Stages[0].CommandSource != CommandCrewed {
 		t.Errorf("crewed-pod default = %q, want crewed", crew.Stages[0].CommandSource)
 	}
+	if crew.Stages[0].AntennaKind != AntennaDirect {
+		t.Errorf("crewed-pod antenna = %q, want a defaulted direct antenna", crew.Stages[0].AntennaKind)
+	}
 
-	// Already has a command source → no-op (does not overwrite or add).
+	// Already has a command source → command-source defaulting is a no-op
+	// (does not overwrite or add a second). The antenna backfill still runs,
+	// independently: this probe declares a command source but no antenna, so
+	// it would be uncommandable without one — the core gets a basic antenna.
 	existing := &Spacecraft{Role: "custom", Stages: []Stage{
 		{Name: "probe", DryMass: 100, CommandSource: CommandProbe},
 		{Name: "tank", DryMass: 200},
 	}}
 	EnsureCommandSource(existing)
 	if existing.Stages[1].CommandSource != CommandNone {
-		t.Errorf("no-op expected, but top stage got %q", existing.Stages[1].CommandSource)
+		t.Errorf("command-source no-op expected, but top stage got %q", existing.Stages[1].CommandSource)
+	}
+	if existing.Stages[len(existing.Stages)-1].AntennaKind != AntennaDirect {
+		t.Errorf("a command-source craft with no antenna should get a basic one backfilled, got %q", existing.Stages[len(existing.Stages)-1].AntennaKind)
 	}
 }
 

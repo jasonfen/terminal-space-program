@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -508,5 +509,60 @@ func TestRecomputeCommGraphIntegration(t *testing.T) {
 	w.RecomputeCommGraph()
 	if w.CommGraph.HasConnection(tug.ID) {
 		t.Error("a probe with no antenna cannot have a connection")
+	}
+}
+
+// TestKernDSNConnectsProbe (v0.24): a basic-antenna probe in low Kern orbit
+// (the Lumen home world) reaches the Kern DSN ring. Before the Kern ring
+// existed, ground stations were Earth-only and the graph filtered
+// out-of-system stations away, so a probe launched in Lumen could never
+// connect regardless of its antenna. This proves the "earth, kern" goal.
+func TestKernDSNConnectsProbe(t *testing.T) {
+	w := mustWorld(t)
+	// Browse to the Lumen system so Kern and its DSN ring are active.
+	lumen := -1
+	for i := range w.Systems {
+		if strings.EqualFold(w.Systems[i].Name, "Lumen") {
+			lumen = i
+			break
+		}
+	}
+	if lumen < 0 {
+		t.Fatal("Lumen system not loaded")
+	}
+	w.SystemIdx = lumen
+	w.Calculator = orbital.ForSystem(w.System())
+
+	// Find a Kern ground station; place a basic-antenna probe just above it
+	// (clear radial LOS, so connectivity is gated by range alone).
+	var gs GroundStationPreset
+	found := false
+	for _, s := range w.GroundStations {
+		if s.BodyID == "kern" {
+			gs, found = s, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("no Kern ground station in the catalog")
+	}
+	sys := w.System()
+	kern := sys.FindBody("kern")
+	if kern == nil {
+		t.Fatal("Kern not in the Lumen system")
+	}
+	up := w.groundStationWorldPos(gs, *kern).Sub(w.BodyPosition(*kern)).Unit()
+
+	probe := spacecraft.NewFromLoadout("Science-Probe") // direct-basic antenna, probe core
+	probe.SystemIdx = lumen
+	probe.Primary = *kern
+	probe.State.R = up.Scale(kern.RadiusMeters() + 200_000) // 200 km up
+	w.Crafts = []*spacecraft.Spacecraft{probe}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+
+	if !w.CommGraph.HasConnection(probe.ID) {
+		t.Error("a basic-antenna probe in low Kern orbit should reach the Kern DSN ring")
 	}
 }

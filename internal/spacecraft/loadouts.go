@@ -438,11 +438,13 @@ const (
 	AntennaRangeDeepSpace     = 6.0e11 // Mars-class near opposition (far-interplanetary tuning deferred, #182)
 )
 
-// DefaultProbeAntennaRangeM is the basic telemetry antenna a defaulted probe
-// core gets (ADR 0027): a bare launch vehicle / un-annotated custom stack has
-// a guidance + telemetry antenna in reality, so without one it could never
-// establish a connection and would be permanently uncommandable under the
-// command gate. The direct-basic tier.
+// DefaultProbeAntennaRangeM is the basic telemetry antenna EnsureCommandSource
+// backfills onto any vessel that carries none (ADR 0027): a bare launch
+// vehicle / un-annotated custom stack / crewed pod has a guidance + telemetry
+// antenna in reality, so without one a probe could never establish a
+// connection and would be permanently uncommandable under the command gate.
+// The direct-basic tier. (Name kept for back-compat; the default is no longer
+// probe-only — every vessel gets it, v0.24.)
 const DefaultProbeAntennaRangeM = AntennaRangeDirectBasic
 
 // DefaultAntennaRangeForKind returns the reference rated range for an antenna
@@ -461,41 +463,58 @@ func DefaultAntennaRangeForKind(kind string) float64 {
 	}
 }
 
-// EnsureCommandSource stamps a default command source on a command-less
-// *vessel* so it stays controllable (ADR 0027 defaulting rule): if no
-// stage is already a command source, the surviving core (top stage) gets
-// CommandCrewed when the vessel's role is a crewed pod, else CommandProbe.
-// A defaulted PROBE (not crewed — crew fly without contact) also gets a
-// basic direct antenna if the vessel carries none, so it can actually
-// reach the network. Applied at vessel construction (NewFromLoadout /
-// NewFromStages) and at save-load — NOT to jettisoned stages, so a spent
-// booster with no core stays passive debris. No-op once any stage declares
-// a command source (the catalog-authored crewed pods / probes, or an
-// already-defaulted vessel), so it is idempotent.
+// EnsureCommandSource makes a vessel network-ready (ADR 0027 defaulting
+// rule). Two backfills, both idempotent and both skipped for jettisoned
+// debris:
+//
+//  1. Command source: if no stage already declares one, the surviving core
+//     (top stage) gets CommandCrewed when the vessel's role is a crewed pod,
+//     else CommandProbe.
+//  2. Antenna: if the whole vessel carries no antenna, the core gets a basic
+//     direct telemetry antenna — for EVERY commandable vessel, crewed or
+//     probe (v0.24). A probe without one would be permanently uncommandable
+//     under the comms gate; a crewed pod is never gated, so for it the
+//     antenna is presence-only (it appears on the CommNet, can't relay), but
+//     "all vessels carry an antenna" keeps the network model uniform.
+//
+// The antenna backfill runs independently of the command-source one: a
+// catalog crewed pod declares its own command_source (so step 1 is a no-op)
+// yet still needs step 2 to put it on the network. Applied at vessel
+// construction (NewFromLoadout / NewFromStages) and at save-load — NOT to
+// jettisoned stages, so a spent booster with no core stays passive debris.
 func EnsureCommandSource(c *Spacecraft) {
 	if len(c.Stages) == 0 {
 		return
 	}
 	// Jettisoned debris is never backfilled — a spent booster legitimately
-	// carries no command source and must stay passive. Guarding here (not just
-	// at the construction call sites) keeps the save-load backfill from
-	// resurrecting a saved spent stage into a commandable probe (ADR 0027).
+	// carries no command source (and no antenna) and must stay passive.
+	// Guarding here (not just at the construction call sites) keeps the
+	// save-load backfill from resurrecting a saved spent stage into a
+	// commandable probe (ADR 0027).
 	if c.Role == RoleJettisonedStage {
 		return
 	}
+	top := len(c.Stages) - 1
+
+	// 1. Default command source, only if none is declared (keeps a catalog
+	//    crewed pod / probe untouched; idempotent on a re-call).
+	hasCmd := false
 	for _, st := range c.Stages {
 		if IsCommandSource(st.CommandSource) {
-			return
+			hasCmd = true
+			break
 		}
 	}
-	top := len(c.Stages) - 1
-	if roleIsCrewedPod(c.Role) {
-		c.Stages[top].CommandSource = CommandCrewed
-		return
+	if !hasCmd {
+		if roleIsCrewedPod(c.Role) {
+			c.Stages[top].CommandSource = CommandCrewed
+		} else {
+			c.Stages[top].CommandSource = CommandProbe
+		}
 	}
-	c.Stages[top].CommandSource = CommandProbe
-	// A defaulted probe needs an antenna to be reachable; add a basic one
-	// only if the whole vessel carries no antenna already.
+
+	// 2. Basic antenna, only if the vessel carries none — independent of the
+	//    command source above, so a catalog crewed pod gets one too.
 	hasAntenna := false
 	for _, st := range c.Stages {
 		if st.AntennaKind != AntennaNone {

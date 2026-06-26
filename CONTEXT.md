@@ -1388,19 +1388,31 @@ Three informal tiers used in catalog comments: **direct-basic**
 and below; Relay-Tug and Relay Comsat), **deep-space** (Mars-class
 distances). These tiers are named conventions in catalog annotations, not
 an enum in code.
+
+Every commandable Vessel carries at least one antenna: `EnsureCommandSource`
+backfills a **direct-basic** antenna onto any non-debris Vessel that carries
+none — probe *and* crewed pod (v0.24). A probe without one would be
+permanently uncommandable under **command gating**; a **Crewed** Vessel is
+never gated, so for it the basic antenna is presence-only (it shows on the
+**CommNet** as a non-forwarding node, and the comms chip stays hidden), but
+"all Vessels carry an antenna" keeps the network model uniform.
 _Avoid_: Omni vs High-gain (KSP's distinction — this model uses direct
 vs relay), Antenna power (the field is called `range_m` in the catalog
 JSON, not a watts/power figure).
 
 **DSN ground-station ring**:
-The catalog default **CommNet** anchor: three fixed ground stations
-embedded in `ground_stations.json` at ~120° longitude separation on the
-home body (the real Goldstone / Madrid / Canberra sites), each with a high
-station-class relay range (`DefaultGroundStationRangeM`, 5,000,000 km —
-above the relay-cislunar tier, below deep-space). Loaded at world init
-into `World.GroundStations`. Player-deployed **Ground Stations** extend
-this ring; the DSN ring itself cannot be removed by the player. User
-overlays can add or replace stations by `key`.
+The catalog default **CommNet** anchor: a ring of three fixed ground
+stations embedded in `ground_stations.json` at ~120° longitude separation,
+each with a high station-class relay range (`DefaultGroundStationRangeM`,
+5,000,000 km — above the relay-cislunar tier, below deep-space). One ring
+sits on **each home body with launch infrastructure** — Earth in Sol (the
+real Goldstone / Madrid / Canberra sites) and **Kern** in Lumen (Stdin /
+Stdout / Stderr, the three standard streams) — so a Vessel launched in
+either system can reach the network (v0.24). The connectivity graph only
+includes stations whose body is in the active craft's system, so the rings
+never cross-talk. Loaded at world init into `World.GroundStations`.
+Player-deployed **Ground Stations** extend a ring; the DSN rings cannot be
+removed by the player. User overlays can add or replace stations by `key`.
 _Avoid_: DSN ring (bare acronym — "DSN ground-station ring" on first use;
 DSN ring fine thereafter), Home network, Default stations.
 
