@@ -33,6 +33,7 @@ const (
 	screenSpawn    // v0.8.2+: craft-type pick form on `n`.
 	screenSettings // v0.13 slice 3: per-Chip visibility toggles, reached from the menu.
 	screenControls // ADR 0022: keyboard-layout selector, reached from the menu.
+	screenVAB      // v0.24 / ADR 0029: Vehicle Assembly (VAB) builder, reached from the menu.
 	screenBoss     // boss key: full-screen fake developer shell (backtick from any screen).
 )
 
@@ -70,6 +71,12 @@ type App struct {
 	// binding-matching and inverted for the F1 help labels.
 	controls *screens.ControlsScreen
 	layout   keylayout.Layout
+
+	// vab is the Vehicle Assembly builder (v0.24 / ADR 0029), reached from
+	// the pause menu. It owns the designs-store interaction (save / load /
+	// delete) directly — designs are app-managed catalog data, not world
+	// state — so opening it from the menu is the only wiring the App needs.
+	vab *screens.VAB
 
 	// boss is the backtick "boss key" fake shell. bossReturnScreen records
 	// the screen that was active when it opened, and bossPrevPaused records
@@ -154,6 +161,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 
 		settingsScreen: screens.NewSettingsScreen(sth),
 		controls:       screens.NewControlsScreen(sth),
+		vab:            screens.NewVAB(sth),
 		boss:           screens.NewBossShell(sth),
 	}, nil
 }
@@ -523,6 +531,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				spec := sim.SpawnSpec{
 					LoadoutID:       a.spawn.SelectedLoadoutID(),
+					DesignID:        a.spawn.SelectedDesignID(),
 					CustomStages:    a.spawn.SelectedCustomStages(),
 					NosePayloadPlan: a.spawn.SelectedNosePayloadPlan(),
 					ParentBodyID:    a.spawn.SelectedParentID(),
@@ -575,6 +584,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case screens.ControlsActionCycleLayout:
 				a.cycleLayout()
 			case screens.ControlsActionCancel:
+				a.active = screenOrbit
+			}
+			return a, nil
+		}
+		// VAB (v0.24 / ADR 0029): the Vehicle Assembly builder owns its own
+		// keymap (palette / stack / save / load); esc backs out to orbit.
+		// Handled here so its keys don't fall through to the orbit flight
+		// controls.
+		if a.active == screenVAB {
+			if a.vab.HandleKey(m.String()) == screens.VABActionCancel {
 				a.active = screenOrbit
 			}
 			return a, nil
@@ -742,7 +761,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if c := a.world.ActiveCraft(); c != nil {
 				defaultParentID = c.Primary.ID
 			}
-			a.spawn.Reset(a.world.System().Bodies, defaultParentID)
+			// v0.24 / ADR 0029: offer saved VAB designs alongside catalog
+			// loadouts. ListDesigns is read here (not in the form) so the
+			// form stays filesystem-free and testable.
+			designs, _ := spacecraft.ListDesigns()
+			a.spawn.Reset(a.world.System().Bodies, defaultParentID, designs)
 			a.active = screenSpawn
 			a.world.RecordAction(missions.ActionSpawnCraft) // ADR 0025 §7
 			return a, nil
@@ -1273,6 +1296,12 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.controls.Reset()
 		a.active = screenControls
 		return a, nil
+	case screens.MenuActionVAB:
+		// Open the Vehicle Assembly builder with the live component catalog
+		// (embedded + user overlay). Reversible, so no confirm gate.
+		a.vab.Reset(spacecraft.Components)
+		a.active = screenVAB
+		return a, nil
 	case screens.MenuActionQuit:
 		a.autosave()
 		return a, tea.Quit
@@ -1405,6 +1434,8 @@ func (a *App) View() string {
 		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width)
 	case screenControls:
 		base = a.controls.Render(a.layout, a.width)
+	case screenVAB:
+		base = a.vab.Render(a.width)
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
 	default:

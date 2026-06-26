@@ -23,7 +23,9 @@ and a list of Stages. The catalog (`internal/spacecraft/loadouts.go`) of
 designs the player picks from at spawn time; `NewFromLoadout` instantiates
 a Vessel from one. Loadouts also carry per-vehicle tuning like
 `SlewRateDegPerSec`.
-_Avoid_: Template, Blueprint, Design.
+_Avoid_: Template, Blueprint. (**Design** is now a *distinct* noun — a
+player-saved VAB vehicle, v0.24 / ADR 0029 — so don't call a built-in Loadout
+a Design.)
 
 **Stage**:
 One decoupleable propulsion module on a Vessel. Convention: `Stages[0]` is
@@ -104,6 +106,79 @@ pick drops the four Apollo Stages `[SM, CM, Descent, Ascent]` with the
 seam set between `CM` and `Descent`, so the spawned Composite fires the
 SM and carries the LM as an Undockable payload.
 _Avoid_: Payload boundary, Split point, Stack divider.
+
+**Part**:
+The normalized, data-authored catalog stage (`internal/spacecraft/catalog.go`,
+ADR 0026): one **Part** materializes into one runtime **Stage** via `ToStage`
+at spawn, and a **Loadout** references Parts by ID rather than inlining Stage
+literals. A Part is **atomic** when its scalar stats (dry mass, fuel, thrust,
+Isp, …) are authored inline, or **composed** when it instead declares a
+`components` list and its stats are **derived by Aggregation** at load time
+(v0.24 / ADR 0029). The two are indistinguishable downstream — both become one
+flat Stage — so the runtime never knows which it was; today's whole catalog is
+atomic, so the migration to composability cost zero changes. Embedded + user
+overlay catalog files supply Parts (user wins on ID).
+_Avoid_: Stage (a Part *becomes* a Stage, but a Part is catalog data, a Stage
+is runtime state), Component (the finer noun below), Module.
+
+**Component** (v0.24 / ADR 0029):
+The finest catalog noun — one level below a **Part**. A composed Part lists
+Components by ID; **Aggregation** collapses them into the Part's flat scalars.
+Five **Component Kinds** ship: **engine** (thrust / Isp / fuel type), **tank**
+(fuel capacity / fuel type), **command-core** (a control point — crewed or
+probe — plus optional soft-land / parachute), **antenna** (direct / relay +
+range), and **structure** (inert dry mass: adapters, fairings, ballast). The
+**VAB** composes vehicles from Components. **NB:** this is a *different* noun
+from a **Docked Component** (an element of a **Composite**) — see Flagged
+ambiguities.
+_Avoid_: Part (a Component is finer — many compose one Part), Docked Component
+(unrelated — that's a composite element), Module.
+
+**Aggregation** (v0.24 / ADR 0029):
+The load-time pass that derives a composed **Part**'s flat **Stage** scalars
+from its **Components**: dry mass and tank capacity are **additive** (Σ);
+multiple engines combine honestly — thrust adds (`Thrust = ΣF_i`) and the
+effective Isp is the **thrust-weighted** parallel-engine blend `Isp_eff = ΣF_i
+/ Σ(F_i / Isp_i)` (exact for a single fuel pool); command-source and antenna
+attributes ride up. A stage holds **one fuel chemistry** — a mixed-chemistry
+Part is a catalog warning and the VAB rejects it in the editor — which keeps
+the single-`FuelMass`-pool runtime and the burn integrator untouched.
+_Avoid_: Composition (the act, not the math), Summing (only mass/capacity sum —
+Isp is thrust-weighted, not summed).
+
+**Vehicle Assembly (VAB)**:
+The in-game builder screen (`internal/tui/screens/vab.go`, v0.24 / ADR 0029),
+reached from the pause menu (`Esc → [Build (VAB)]`). The player composes
+**Components** into stages, stacks stages into a vehicle, marks **Dock Seams**
+(N **Nose Payloads**) and fused decouple groups, and reads a live **Δv / TWR /
+mass** panel — then saves the result as a **Design**. Like every screen it
+reads shared state and routes mutations elsewhere; here it owns the **Designs
+Store** I/O directly (designs are app-managed catalog data, not World state).
+_Avoid_: Editor, Configurator (that name belongs to the spawn-form quick stack
+builder — coarser, whole-modules-only, not persistent), Workshop.
+
+**Design** (v0.24 / ADR 0029):
+A saved custom vehicle built in the **VAB**: a **Loadout** plus the **composed
+Parts** it references, serialized as a self-contained catalog fragment. A
+Design is **catalog data, not save state** — global across games, no
+save-schema bump — and lives in the **Designs Store**. At spawn it resolves
+against the live catalog into a flyable Loadout (composed Parts aggregated,
+atomic refs resolved, plans carried), so a Design flies identically to a
+built-in Loadout, and the spawn form lists Designs alongside the built-ins
+(design once, launch many). A first-class noun, distinct from a built-in
+**Loadout**.
+_Avoid_: Loadout (a Design is a *player-saved* vehicle that resolves to its own
+Loadout, outside the built-in catalog namespace), Blueprint, Craft file.
+
+**Designs Store** (v0.24 / ADR 0029):
+The app-managed directory of saved **Designs**
+(`$XDG_CONFIG_HOME/terminal-space-program/designs/`), kept distinct from the
+hand-authored modder overlay (`loadouts/`) so app-written files never override
+a built-in by ID collision. The **VAB** owns its writes and deletes. A Design
+file is a portable catalog fragment — copy it into the sibling `loadouts/`
+overlay to publish it as a mod.
+_Avoid_: Save dir (that is the game-save location, `save.json`), Catalog (the
+embedded / built-in set).
 
 **Service Module (SM)**:
 The propulsive half of the Apollo command-and-service module: carries the
@@ -2179,7 +2254,8 @@ in code review means the opposite of "high BC" in an aerospace paper.
 Always confirm which convention the speaker is using before discussing
 specific values.
 
-**"Component"** collides with **Stage** as a word for "part of a Vessel":
+**"Component"** is a three-way collision — two runtime senses plus, from
+v0.24, a catalog one:
 
 - **Stage** — one element of a Vessel's decoupleable propulsion stack
   (`Stages[i]`). Carries dry mass, fuel, thrust, Isp, ballistic
@@ -2190,20 +2266,28 @@ specific values.
   dry mass, capacities, engine numbers) but **not** state, Maneuver
   Nodes, or Burns. Used by **Undocking** to restore the pre-Dock
   Vessels. Player concept: *the original ship I docked in*.
+- **Component** (catalog, v0.24 / ADR 0029) — the finest *catalog* noun:
+  an engine / tank / command-core / antenna / structure that **composes
+  into a Part** via **Aggregation**. It is build-time catalog data, not a
+  runtime element of a Vessel at all. Player concept: *a part I bolt onto
+  a stage in the VAB*.
 
-Both are "parts of a Vessel" but at different abstraction levels. A
-Composite has both: its **Stages** are the concatenated propulsion
-stack (lead's + partner's, appended on top), its **Docked Components**
-are the original Vessel identities it can decompose back into. Docking
-does **not** add one Component per Stage — it adds *one Component per
-pre-Dock Vessel*, even if that Vessel had multiple stages.
+The first two are "parts of a Vessel" at different abstraction levels; the
+third is catalog data one level *below* a Stage (Components → a composed
+**Part** → one **Stage**). A Composite has both runtime senses: its
+**Stages** are the concatenated propulsion stack (lead's + partner's,
+appended on top), its **Docked Components** are the original Vessel
+identities it can decompose back into. Docking does **not** add one Docked
+Component per Stage — it adds *one per pre-Dock Vessel*, even if that Vessel
+had multiple stages.
 
-**Resolution:** "Stage" is the unambiguous term for the propulsion unit.
-Bare "component" in code-review prose should be qualified as "Docked
-Component" when ambiguity threatens. A diagnostic: if you see
-`len(c.Stages) == 3 && len(c.DockedComponents) == 2`, that's a Composite
-of two pre-Dock Vessels whose stage counts sum to 3 (probably 1+2 or
-2+1).
+**Resolution:** "Stage" is the unambiguous term for the runtime propulsion
+unit. Qualify bare "component" as **Docked Component** (a composite element)
+or **catalog Component** (a VAB build-part) when ambiguity threatens — they
+never appear in the same breath, since one is runtime and the other is
+build-time. A diagnostic: if you see `len(c.Stages) == 3 &&
+len(c.DockedComponents) == 2`, that's a Composite of two pre-Dock Vessels
+whose stage counts sum to 3 (probably 1+2 or 2+1).
 
 **"Encounter"** has two distinct meanings split across domains:
 

@@ -217,9 +217,17 @@ func stageRCS(dryMass float64) (mp, monoCap, rcsThrust, rcsIsp float64) {
 // layer (C1-4); this init path reads embedded data only, so it stays
 // deterministic.
 func buildLoadouts() (map[string]Loadout, []string) {
-	parts, defs, err := loadEmbeddedCatalog()
+	comps, parts, defs, err := loadEmbeddedCatalog()
 	if err != nil {
 		panic("spacecraft: embedded loadout catalog failed to load: " + err.Error())
+	}
+	// Resolve any composed parts (ADR 0029) before loadout assembly. The
+	// embedded catalog declares no components this cycle, so this is a
+	// pass-through for the shipped fleet; an aggregation warning on the
+	// embedded set is a build error (like the unknown-part-ID panic below).
+	parts, aggWarnings := aggregateComponents(parts, comps)
+	if len(aggWarnings) > 0 {
+		panic("spacecraft: embedded composed part failed aggregation: " + aggWarnings[0].Error())
 	}
 	out := make(map[string]Loadout, len(defs))
 	order := make([]string, 0, len(defs))
@@ -338,7 +346,17 @@ func LookupLoadout(id string) Loadout {
 // from Stages so pre-v0.9.1 readers keep working without per-site
 // changes.
 func NewFromLoadout(loadoutID string) *Spacecraft {
-	l := LookupLoadout(loadoutID)
+	return NewFromLoadoutValue(LookupLoadout(loadoutID))
+}
+
+// NewFromLoadoutValue constructs a Spacecraft from a resolved Loadout VALUE
+// (not a catalog ID). The spawn path for saved VAB designs uses this: a
+// design resolves to a Loadout that lives OUTSIDE the global Loadouts map
+// (ADR 0029 §4 — designs are a separate namespace), so it can't go through
+// the ID-keyed NewFromLoadout. Identical otherwise — copies Stages +
+// DecouplePlan, defaults the command source, and syncs — so a design-spawned
+// craft is byte-identical to the equivalent catalog craft.
+func NewFromLoadoutValue(l Loadout) *Spacecraft {
 	stages := make([]Stage, len(l.Stages))
 	copy(stages, l.Stages)
 	// Copy the decouple plan (own backing array) so StageActive's

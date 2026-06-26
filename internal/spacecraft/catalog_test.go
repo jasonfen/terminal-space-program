@@ -217,10 +217,11 @@ func TestMergeUserCatalogWinsOnID(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Seed an "embedded" catalog the user file should override on ID.
+	comps := map[string]Component{}
 	parts := map[string]Part{"shared": {ID: "shared", Name: "Embedded Version", DryMassKg: 1}}
 	loadouts := []LoadoutDef{{ID: "rocket", Name: "Embedded Rocket", Source: "embedded"}}
 
-	parts, loadouts, warnings := mergeUserCatalog(parts, loadouts, dir)
+	_, parts, loadouts, warnings := mergeUserCatalog(comps, parts, loadouts, dir)
 	if len(warnings) != 0 {
 		t.Errorf("warnings = %d, want 0", len(warnings))
 	}

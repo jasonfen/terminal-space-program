@@ -85,6 +85,14 @@ type SpawnSpec struct {
 	Inclination float64
 	Alongside   bool
 
+	// DesignID (v0.24 / ADR 0029) names a saved VAB design to spawn. When
+	// set it takes precedence over LoadoutID / CustomStages: SpawnCraft loads
+	// the design from the app-managed store, resolves it against the live
+	// catalog (composed parts aggregated, atomic refs resolved, decouple +
+	// nose-payload plans carried), and builds the craft — so a design flies
+	// identically to an equivalent catalog loadout. Placement is orthogonal.
+	DesignID string
+
 	// CustomStages (v0.10.1+) is a player-assembled stage list from
 	// the spawn-form stack configurator, bottom-first (same
 	// convention as Loadout.Stages). When non-empty it builds the
@@ -162,7 +170,20 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	active := w.ActiveCraft()
 
 	var c *spacecraft.Spacecraft
-	if len(spec.CustomStages) > 0 {
+	if spec.DesignID != "" {
+		// v0.24 / ADR 0029: spawn a saved VAB design. Resolve it against the
+		// live catalog; an unknown or unresolvable design is a surfaced error
+		// rather than a silent fallback.
+		d, ok, _ := spacecraft.LoadDesign(spec.DesignID)
+		if !ok {
+			return nil, fmt.Errorf("spawn: design %q not found", spec.DesignID)
+		}
+		l, warns := d.Resolve()
+		if len(l.Stages) == 0 {
+			return nil, fmt.Errorf("spawn: design %q failed to resolve (%d warnings)", spec.DesignID, len(warns))
+		}
+		c = newDesignCraft(l)
+	} else if len(spec.CustomStages) > 0 {
 		// v0.10.1+: player-assembled stack from the configurator.
 		// Ignores LoadoutID — a custom craft is not a catalog
 		// archetype. NewFromStages returns nil only on an empty
@@ -463,6 +484,23 @@ func splitNosePayloads(c *spacecraft.Spacecraft, nosePayloadPlan []int) bool {
 	}
 	c.DockedComponents = comps
 	return true
+}
+
+// newDesignCraft builds a craft from a saved design's resolved Loadout
+// (v0.24 / ADR 0029). Mirrors newCatalogCraft — a baked NosePayloadPlan
+// assembles a deployable docked composite, an ordinary design stays linear —
+// but builds from a Loadout value (designs live outside the global Loadouts
+// map). The design keeps its authored identity (name / glyph / colour) just
+// like a catalog carrier.
+func newDesignCraft(l spacecraft.Loadout) *spacecraft.Spacecraft {
+	c := spacecraft.NewFromLoadoutValue(l)
+	if c == nil {
+		return c
+	}
+	if len(l.NosePayloadPlan) > 0 {
+		splitNosePayloads(c, l.NosePayloadPlan) // no-op on a malformed plan → linear
+	}
+	return c
 }
 
 // newCatalogCraft builds a catalog craft, assembling it into a deployable

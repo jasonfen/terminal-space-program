@@ -4,6 +4,8 @@ Newest first. Per-version detail: [state-of-game.md](../designdocs/terminal-spac
 
 ---
 
+**v0.24.0** — In-game Vehicle Assembly Building (ADR 0029). A new `Esc → [Build (VAB)]` screen lets you compose fine **components** (engine / tank / command-core / antenna / structure) into stages, stack stages into a vehicle, mark N dock seams for nose payloads and fused decouple groups, and read a live Δv / TWR / mass panel as you build. Cashes in ADR 0026's forward-compat note: a catalog `Part` gains an optional `components` list whose stats are derived by aggregation (thrust adds; Isp is the thrust-weighted blend; one fuel chemistry per stage), so existing atomic parts stay byte-identical. Designs save as portable catalog fragments under `~/.config/terminal-space-program/designs/` and appear in the spawn form (`n`) alongside the built-ins — design once, launch many. Closes ADR 0028's deferred configurator N-seam. No save break.
+
 **v0.23.0** — Deployable payloads (ADR 0028, PR #186). A new `Y` Deploy verb releases the top carried payload as its own craft while keeping the carrier active — distinct from Undock, which switches you to the released piece. `NosePayloadPlan` supports N stacked payloads so one launch can deploy a full constellation; five starter loadouts ship (Relay Comsat, Ground-Station Lander, Science Probe, Comsat Carrier ×3, Survey Pack). Soft-landing a relay-antenna craft auto-joins the CommNet graph as a player-deployed ground station with no extra step. No save break.
 
 **v0.22.3** — CommNet relay-path rendering fix (PR #185). Long relay hops weren't drawn all the way to the destination. A new canvas primitive draws the beam without the too-long-chord guard, so the full relay chain renders at any zoom. No save break.

@@ -29,6 +29,19 @@ Each vessel is bound for its lifetime to the system it spawns in — the simulat
 
 When your live trajectory is heading into a body's sphere of influence, the orbit map draws the full encounter arc ahead of arrival — entry, perilune, and exit — with a Perilune `⊕` marker and an always-on **SOI PASS** chip showing the altitude and time to closest approach. No need to target the body first. Every orbital marker (apoapsis, periapsis, nodes, closest approach, maneuver nodes) is now a single colored glyph: shape is type, color is type, brightness is state (nominal / counterfactual / alarm). To read an encounter up close, press `f` to focus the body it passes — the camera fits to the body's sphere of influence so the capture curve fills the canvas, and from there the view is yours: `+`/`-` zoom holds until you change focus, view, or system.
 
+Recently introduced: an in-game **Vehicle Assembly Building (VAB)**. From the
+main view press `Esc → [Build (VAB)]` to design your own rocket from fine
+parts — compose engines, fuel tanks, command cores, antennas, and structure
+into stages, stack the stages, mark dock seams for nose payloads, and watch a
+live **Δv / TWR / mass** readout as you build. Save a design and it shows up in
+the spawn form (`n`) alongside the built-in craft, so you design once and
+launch many. Designs are portable files under
+`~/.config/terminal-space-program/designs/` (KSP `.craft`-style); drop one into
+the sibling `loadouts/` overlay dir to share it as a mod. Multiple engines in a
+stage combine honestly (thrust adds, Isp is the thrust-weighted blend) and a
+stage holds a single fuel chemistry, so everything you build flies on the same
+honest physics as the shipped fleet.
+
 The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
 [NOTICE.md](NOTICE.md) for the full acknowledgments list.

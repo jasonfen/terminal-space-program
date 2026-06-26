@@ -43,6 +43,13 @@ type SpawnCraft struct {
 	// cycles it; adding the composite "CSM+LM" pick pre-sets it to the
 	// LM's stage count. Clamped to [0, len-1] so the core keeps ≥1 stage.
 	nosePayloadCount int
+
+	// designs (v0.24 / ADR 0029) are the saved VAB designs offered as CRAFT
+	// TYPE rows AFTER the synthetic "Custom…" entry — the "design once,
+	// launch many" split (the VAB is the design surface, the spawn form the
+	// launch surface). Injected at Reset by the App (spacecraft.ListDesigns)
+	// so the form has no filesystem side effects and tests stay isolated.
+	designs []spacecraft.Design
 }
 
 // stackFieldIdx is the form-field index of the STACK editor — only
@@ -77,12 +84,13 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 // the parent-field cursor lands on initially (typically the active
 // craft's current primary). v0.8.2+: replaces the v0.8.2-pre
 // no-arg Reset.
-func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string) {
+func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design) {
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
 	s.customStages = nil
 	s.partIdx = 0
 	s.nosePayloadCount = 0
+	s.designs = designs
 	s.posMode = posOrbit
 	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
 	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
@@ -106,21 +114,39 @@ const (
 	SpawnActionConfirm             // enter — caller reads accessors
 )
 
-// loadoutChoiceCount is the number of CRAFT TYPE rows — every
-// catalog loadout plus the synthetic "Custom…" entry at the end.
-func loadoutChoiceCount() int { return len(spacecraft.LoadoutOrder) + 1 }
+// loadoutChoiceCount is the number of CRAFT TYPE rows — every catalog
+// loadout, the synthetic "Custom…" entry, then every saved design (v0.24).
+func (s *SpawnCraft) loadoutChoiceCount() int {
+	return len(spacecraft.LoadoutOrder) + 1 + len(s.designs)
+}
 
 // IsCustomSelected reports whether the cursor is on the synthetic
-// "Custom…" CRAFT TYPE entry (the last row). v0.10.1+.
+// "Custom…" CRAFT TYPE entry. v0.10.1+.
 func (s *SpawnCraft) IsCustomSelected() bool {
 	return s.loadoutIdx == len(spacecraft.LoadoutOrder)
 }
 
-// SelectedLoadoutID returns the loadout ID for the current cursor,
-// or "" when the synthetic Custom entry is selected (the caller
-// then reads SelectedCustomStages instead). v0.10.1+.
+// IsDesignSelected reports whether the cursor is on a saved-design row (the
+// rows after "Custom…"). v0.24 / ADR 0029.
+func (s *SpawnCraft) IsDesignSelected() bool {
+	return s.loadoutIdx > len(spacecraft.LoadoutOrder) &&
+		s.loadoutIdx <= len(spacecraft.LoadoutOrder)+len(s.designs)
+}
+
+// SelectedDesignID returns the saved design's ID under the cursor, or "" when
+// a design row is not selected. v0.24 / ADR 0029.
+func (s *SpawnCraft) SelectedDesignID() string {
+	if !s.IsDesignSelected() {
+		return ""
+	}
+	return s.designs[s.loadoutIdx-len(spacecraft.LoadoutOrder)-1].ID()
+}
+
+// SelectedLoadoutID returns the loadout ID for the current cursor, or "" when
+// the synthetic Custom entry or a saved design is selected (the caller then
+// reads SelectedCustomStages / SelectedDesignID instead). v0.10.1+.
 func (s *SpawnCraft) SelectedLoadoutID() string {
-	if s.IsCustomSelected() {
+	if s.IsCustomSelected() || s.IsDesignSelected() {
 		return ""
 	}
 	if s.loadoutIdx < 0 || s.loadoutIdx >= len(spacecraft.LoadoutOrder) {
@@ -327,8 +353,8 @@ func (s *SpawnCraft) pickedPartID() string {
 func (s *SpawnCraft) cycleField(step int) {
 	switch s.fieldIdx {
 	case 0:
-		// +1 row for the synthetic "Custom…" entry. v0.10.1+.
-		s.loadoutIdx = wrapIdx(s.loadoutIdx+step, loadoutChoiceCount())
+		// +1 row for "Custom…", + the saved designs (v0.24). v0.10.1+.
+		s.loadoutIdx = wrapIdx(s.loadoutIdx+step, s.loadoutChoiceCount())
 	case stackFieldIdx:
 		// STACK field: ←/→ moves the catalog part-picker cursor.
 		s.partIdx = wrapIdx(s.partIdx+step, len(spacecraft.StageCatalogOrder))
@@ -402,6 +428,23 @@ func (s *SpawnCraft) Render(width int) string {
 			customRow = s.theme.Dim.Render(customRow)
 		}
 		lines = append(lines, "  "+marker+customRow)
+	}
+	// v0.24 / ADR 0029: saved VAB designs, listed after "Custom…".
+	for di, d := range s.designs {
+		idx := len(spacecraft.LoadoutOrder) + 1 + di
+		row := fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts))
+		marker := "  "
+		if s.loadoutIdx == idx {
+			marker = s.theme.Warning.Render("→ ")
+			if s.fieldIdx == 0 {
+				row = s.theme.Warning.Render(row)
+			} else {
+				row = s.theme.Primary.Render(row)
+			}
+		} else {
+			row = s.theme.Dim.Render(row)
+		}
+		lines = append(lines, "  "+marker+row)
 	}
 
 	// v0.10.1+ STACK editor — only when Custom is selected. Shows the
