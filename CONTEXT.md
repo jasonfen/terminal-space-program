@@ -180,6 +180,55 @@ overlay to publish it as a mod.
 _Avoid_: Save dir (that is the game-save location, `save.json`), Catalog (the
 embedded / built-in set).
 
+**Craft Category** (v0.24 / ADR 0031):
+A display-only, hash-excluded grouping label on a **Loadout** that clusters
+the spawn-form CRAFT TYPE picker under ~6 non-selectable headers: **Launch
+Vehicles**, **Crewed Mission Stacks**, **Upper Stages**, **Landers &
+Capsules**, **Tugs & Relays**, **Satellites & Payloads**. A trailing
+**Custom & Designs** group holds the inline stack builder and saved VAB
+**Designs** and is never filtered. Distinct from **Role**, which is
+functionally overloaded (drives command-source defaulting) and must not be
+repurposed for display. An unknown or absent `category` falls into "Other."
+_Avoid_: Role (that is a behaviour-driving field, not a display group),
+Group (ambiguous — use Craft Category when referring to the picker grouping).
+
+**Surface-Launch Gate** (v0.24 / ADR 0031):
+The physics predicate that determines whether `POSITION = launchpad` is
+offered in the spawn form: the selected craft's bottom stage must achieve
+**TWR ≥ 1** against the selected parent body's surface gravity. Derived
+dynamically — no stored flag — so the gate is body-aware ("Moon yes, Earth
+no" for a lander), auto-correct for new craft added to the catalog, and
+never out of sync with actual launch capability. When the gate fails, the
+launchpad option is skipped or shown as unavailable.
+_Avoid_: Launch flag, Launchable badge (static alternatives — rejected
+because they can't express body-dependent launch ability).
+
+**System Filter** / **Show-All Toggle** (v0.24 / ADR 0031):
+The spawn-form mechanism that hides off-**Scale Class** craft by default
+(see **Scale Class**). The filter keys on Scale Class — `real` craft appear
+in Sol (and any future Earth-class system); `stripped-back` craft appear in
+Lumen (and any future stripped-back system). The `[f]` key is the **show-all
+toggle**: when on, every catalog Loadout is listed regardless of scale;
+Custom & Designs entries are always exempt (user content is never filtered).
+Amends ADR 0014's no-filter rule, preserved as an opt-out, not removed.
+_Avoid_: Hard filter (the filter is an opt-out, not a hard gate), Per-system
+binding (the filter keys on Scale Class, not a per-loadout system list).
+
+**Lumen Fleet** (v0.24 / ADR 0031):
+The full-parity roster of **stripped-back** counterpart Loadouts for the
+Lumen system — one role-for-role equivalent of every Sol catalog entry,
+named in the **Lumen computing/typography theme** (extending the Kern Stack
+precedent: Vector V, Raster Launch System, Packet 9, Buffer, Spool, Socket
+Lander, Token Pod, Nudge Tug, Thread Relay, Heartbeat Keeper, Uplink Relay,
+Relay Node, Endpoint Station, Scalar Probe, Node Carrier ×3, Scan Pack).
+Each vehicle is sized to Lumen's ~3.4 km/s-to-orbit budget and validated by
+a Δv eval test. Together with the **Kern Stack** they give Lumen a complete,
+flyable fleet visible by default when the spawn form is opened in that
+system.
+_Avoid_: Lumen analogs (implies copies — these are in-universe vehicles with
+their own names), Kern-named variants (the Kern Stack is one vehicle; the
+fleet is named in the broader computing-term theme).
+
 **Service Module (SM)**:
 The propulsive half of the Apollo command-and-service module: carries the
 SPS engine and all its storable propellant. Performs lunar-orbit
@@ -565,10 +614,16 @@ A coarse size/difficulty tag shared by a System and a Loadout: **real**
 ~3.4 km/s to orbit, modelled on the Kerbal Space Program stock system).
 Purely a classification: the integrator derives all dynamics from a
 Body's mass and radius, so a System needs no Scale Class to work. The
-tag drives only the spawn form's craft hint (the Δv-to-orbit / "best
-for" line) — craft are **not** filtered by it; any Loadout can fly in
-any System. **Lumen** is the canonical stripped-back System; the **Kern
-Stack** is its scale-matched mission vehicle.
+tag drives the spawn form's **system filter** (v0.24 / ADR 0031) and the
+per-craft Δv-to-orbit hint: the spawn picker shows only Loadouts whose
+Scale Class matches the active System's by default, so Sol shows the
+real fleet and Lumen shows the stripped-back fleet. The **System Filter**
+is an opt-out — a show-all toggle (`[f]`) reveals every Loadout and
+preserves the spawn-anywhere escape hatch as an explicit choice. (Prior to
+ADR 0031, craft were **not** filtered; the old "best for" hint was the only
+signal.) **Lumen** is the canonical stripped-back System; the **Kern Stack**
+plus the full **Lumen Fleet** (v0.24 / ADR 0031) are its scale-matched
+vehicles. Cite ADR 0031 for the filter reversal.
 _Avoid_: Difficulty, Tier (overloaded), Realism mode.
 
 **Sphere of Influence (SOI)**:
