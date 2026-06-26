@@ -8,56 +8,67 @@ import (
 	"testing"
 )
 
-// TestGroundStationsDSNRing (C2-3, ADR 0027): the embedded catalog is a
-// 3-station DSN ring on the home body, spread around the globe (~120°
-// apart) and high-power.
+// TestGroundStationsDSNRing (C2-3, ADR 0027; v0.24): the embedded catalog
+// holds a 3-station DSN ring on each home body — Earth (Sol) and Kern
+// (Lumen) — each spread around the globe (~120° apart) and high-power, so a
+// vessel launched in either system can reach the network.
 func TestGroundStationsDSNRing(t *testing.T) {
 	stations, warnings := LoadGroundStations()
 	if len(warnings) != 0 {
 		t.Errorf("warnings = %d, want 0", len(warnings))
 	}
-	if len(stations) != 3 {
-		t.Fatalf("DSN ring = %d stations, want 3", len(stations))
-	}
-	lons := make([]float64, 0, 3)
+	// Group the embedded ring by home body.
+	byBody := map[string][]GroundStationPreset{}
 	for _, s := range stations {
-		if s.BodyID != "earth" {
-			t.Errorf("station %q BodyID = %q, want earth (home body)", s.Key, s.BodyID)
+		if s.Source != "embedded" {
+			t.Errorf("station %q Source = %q, want embedded", s.Key, s.Source)
 		}
 		if s.AntennaRangeM <= 0 {
 			t.Errorf("station %q has no antenna range", s.Key)
 		}
-		if s.Source != "embedded" {
-			t.Errorf("station %q Source = %q, want embedded", s.Key, s.Source)
-		}
-		// normalize longitude to [0, 360) for gap analysis
-		lon := math.Mod(s.LonEastDeg+360, 360)
-		lons = append(lons, lon)
+		byBody[s.BodyID] = append(byBody[s.BodyID], s)
 	}
-	// Each consecutive longitude gap should be wide (well past 60°), the
-	// "~120° apart" DSN spread that gives near-continuous home coverage.
+	// Every home body with launch infrastructure carries a DSN ring.
+	for _, home := range []string{"earth", "kern"} {
+		ring := byBody[home]
+		if len(ring) != 3 {
+			t.Errorf("%s DSN ring = %d stations, want 3", home, len(ring))
+			continue
+		}
+		assertRingSpread(t, home, ring)
+	}
+}
+
+// assertRingSpread checks the three stations of a DSN ring sit ~120° apart
+// in longitude (each consecutive gap well past 60°), the spread that gives
+// near-continuous home coverage as the body rotates.
+func assertRingSpread(t *testing.T, body string, ring []GroundStationPreset) {
+	t.Helper()
+	lons := make([]float64, 0, len(ring))
+	for _, s := range ring {
+		lons = append(lons, math.Mod(s.LonEastDeg+360, 360)) // normalize to [0,360)
+	}
 	sort.Float64s(lons)
 	for i := range lons {
-		next := lons[(i+1)%3]
-		gap := next - lons[i]
-		if i == 2 {
-			gap = lons[0] + 360 - lons[2]
+		gap := lons[(i+1)%len(lons)] - lons[i]
+		if i == len(lons)-1 {
+			gap = lons[0] + 360 - lons[len(lons)-1]
 		}
 		if gap < 60 {
-			t.Errorf("longitude gap %d = %.1f°, want > 60° (stations clustered, not a ring)", i, gap)
+			t.Errorf("%s longitude gap %d = %.1f°, want > 60° (stations clustered, not a ring)", body, i, gap)
 		}
 	}
 }
 
 // TestNewWorldLoadsGroundStations (C2-3): NewWorld populates
-// World.GroundStations from the catalog.
+// World.GroundStations from the catalog — both home-body DSN rings.
 func TestNewWorldLoadsGroundStations(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	if len(w.GroundStations) != 3 {
-		t.Errorf("World.GroundStations = %d, want 3 (DSN ring)", len(w.GroundStations))
+	if len(w.GroundStations) != 6 {
+		t.Errorf("World.GroundStations = %d, want 6 (Earth + Kern DSN rings)", len(w.GroundStations))
 	}
 }
 
