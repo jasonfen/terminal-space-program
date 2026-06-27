@@ -229,6 +229,11 @@ func TestOrbitMetricsChipShowsTimeToApsides(t *testing.T) {
 	if !strings.Contains(out, "t→Pe:") {
 		t.Errorf("expected a t→Pe row in the ORBIT chip.\nrender:\n%s", out)
 	}
+	// The orbital period sits alongside the apsis-time readouts so a
+	// comsat placement can be tuned to a target period (e.g. synchronous).
+	if !strings.Contains(out, "period:") {
+		t.Errorf("expected a period row in the ORBIT chip.\nrender:\n%s", out)
+	}
 }
 
 // TestLaunchHUDHidesOnStableSubMissionFloorOrbit — regression for the

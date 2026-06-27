@@ -498,6 +498,11 @@ func TestProjectedOrbitIsSeparateChip(t *testing.T) {
 	if !strings.Contains(proj, "PROJECTED ORBIT") {
 		t.Errorf("the projected chip must render once a node is planted:\n%s", proj)
 	}
+	// The projected (elliptical) orbit carries a period readout so a
+	// comsat insertion burn can be tuned to a target period before firing.
+	if !strings.Contains(proj, "period:") {
+		t.Errorf("the projected chip must show the resulting orbital period:\n%s", proj)
+	}
 
 	// End to end: both headers appear in a rendered frame.
 	out := v.Render(w, 0, 120, 40)
