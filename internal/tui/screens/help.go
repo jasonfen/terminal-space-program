@@ -91,6 +91,7 @@ var helpSections = []helpSection{
 		{"?", "reset pitch trim to 0"},
 		{"b", "engage / cut the manual burn (main engine)"},
 		{"r", "engine: main / rcs"},
+		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
 		{"k", "SAS model: slew / instant"},
 		{";", "NavMode cycle: Orbit → Surface → Target"},
 	}},

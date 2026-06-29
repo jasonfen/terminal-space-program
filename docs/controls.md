@@ -156,6 +156,7 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `q` / `e` | Point radial+ / radial- (away from / toward the body) |
 | `b` | Light / cut the main engine (needs throttle above zero) |
 | `r` | Switch between the main engine and RCS thrusters |
+| `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) for fine trim |
 | `k` | Steering style: smooth turning (the default) or instant snap |
 | `;` | Switch the autopilot's reference: Orbit → Surface → Target (skips Target when none is set) |
 | `W` / `S` | Point along / against your ground speed — matches your velocity relative to the spinning atmosphere. Use this for the launch gravity turn |
@@ -164,8 +165,11 @@ Dvorak, and free per-key remapping aren't supported yet.)
 
 The pointing keys only aim the craft — `b` is what actually fires the engine.
 In RCS mode those same keys also fire one small thruster pulse per press (hold
-a key for a steady stream). The readouts show which engine is armed, how much
-RCS fuel you have, and how much Δv it's worth.
+a key for a steady stream). Each pulse is 0.1 m/s by default; press `p` to step
+it down to 0.01 or 0.001 m/s for fine work like nulling out an orbital period to
+the second (see the [constellation deployment guide](constellation-deploy.md)).
+The readouts show which engine is armed, the current pulse size, how much RCS
+fuel you have, and how much Δv it's worth.
 
 ### Mouse
 

@@ -984,6 +984,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.CycleEngine):
 			a.world.CycleEngineMode()
 			return a, nil
+		case key.Matches(m, a.keys.CycleRCSScale):
+			a.world.CycleRCSPulseScale()
+			if c := a.world.ActiveCraft(); c != nil {
+				if c.EngineMode == spacecraft.EngineRCS {
+					a.statusMsg = fmt.Sprintf("rcs pulse %g m/s", c.RCSPulseDV())
+				} else {
+					a.statusMsg = fmt.Sprintf("rcs pulse %g m/s (press r for rcs)", c.RCSPulseDV())
+				}
+				a.statusExpires = time.Now().Add(3 * time.Second)
+			}
+			return a, nil
 		case key.Matches(m, a.keys.NextCraft):
 			a.world.CycleActiveCraft(1)
 			return a, nil

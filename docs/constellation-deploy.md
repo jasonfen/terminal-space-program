@@ -170,7 +170,9 @@ what a comsat's own trim budget cares about.
   let each comsat trim its own final position with its onboard budget.
 - **Coarse carrier + comsat cleanup** is usually the cheapest overall plan: a
   low-`m` (cheap, fast) carrier phasing that gets each sat *close*, finished off
-  by the sat's own station-keeping delta-v.
+  by the sat's own station-keeping delta-v. Trim a comsat in RCS mode (`r`) and
+  step the pulse down with `p` (0.1 → 0.01 → 0.001 m/s) to null its period to the
+  second without overshooting.
 - **Need finer than a second?** Tune the **projected apoapsis** instead of the
   period — it reads to 0.1 km, and at a typical comsat orbit ~1 km of apoapsis is
   ~1 second of period (`dT/dr_apo = ¾·T/a`), so it's an even sharper lever. You'll

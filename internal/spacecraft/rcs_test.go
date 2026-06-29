@@ -24,6 +24,39 @@ func TestApplyRCSPulseDeliversQuantumDV(t *testing.T) {
 	}
 }
 
+// TestApplyRCSPulseFineLevelScalesDV: a pulse at fine level N must
+// change |v| by RCSDvQuantum/10^N, and an out-of-range level falls
+// back to the coarse quantum.
+func TestApplyRCSPulseFineLevelScalesDV(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+
+	cases := []struct {
+		level  int
+		wantDV float64
+	}{
+		{0, 0.1},
+		{1, 0.01},
+		{2, 0.001},
+		{RCSFineLevels, 0.1}, // out of range → coarse fallback
+		{-1, 0.1},            // negative → coarse fallback
+	}
+	for _, c := range cases {
+		sc := NewInLEO(*earth)
+		sc.RCSFineLevel = c.level
+		if got := sc.RCSPulseDV(); math.Abs(got-c.wantDV) > 1e-12 {
+			t.Errorf("level %d: RCSPulseDV() = %g, want %g", c.level, got, c.wantDV)
+		}
+		v0 := sc.OrbitalSpeed()
+		if !sc.ApplyRCSPulse(BurnPrograde) {
+			t.Fatalf("level %d: ApplyRCSPulse returned false on a fueled craft", c.level)
+		}
+		if got := sc.OrbitalSpeed(); math.Abs(got-(v0+c.wantDV)) > 1e-9 {
+			t.Errorf("level %d: Δ|v| = %g, want %g", c.level, got-v0, c.wantDV)
+		}
+	}
+}
+
 // TestApplyRCSPulseConsumesMonoprop: every pulse should debit the
 // monoprop pool by some positive amount and never go negative.
 func TestApplyRCSPulseConsumesMonoprop(t *testing.T) {
