@@ -2236,6 +2236,29 @@ func formatDurationShort(sec float64) string {
 	return fmt.Sprintf("%dh%02dm", h, m)
 }
 
+// formatPeriod renders an orbital period keeping seconds at every scale —
+// "45s" / "3m45s" / "6h04m21s". It differs from formatDurationShort only in
+// the hour band, where the latter drops seconds to keep live countdowns
+// (t→Ap / t→Pe / TCA) from ticking a noisy seconds digit. The period is a
+// near-static readout the player tunes a resonant / phasing orbit against,
+// and minute rounding there is ±30s — which over m revolutions amplifies to
+// ±360°·m·δ/T of placement error per slot. Seconds make the period the sharp
+// tuning lever the use case needs. v0.24.4+.
+func formatPeriod(sec float64) string {
+	if sec < 60 {
+		return fmt.Sprintf("%.0fs", sec)
+	}
+	if sec < 3600 {
+		m := int(sec) / 60
+		s := int(sec) % 60
+		return fmt.Sprintf("%dm%02ds", m, s)
+	}
+	h := int(sec) / 3600
+	m := (int(sec) % 3600) / 60
+	s := int(sec) % 60
+	return fmt.Sprintf("%dh%02dm%02ds", h, m, s)
+}
+
 // launchMissionProgress returns the pe-altitude-vs-mission-floor
 // row for the LAUNCH HUD when the active craft is flying a
 // circularize_from_pad mission for its current primary. Empty

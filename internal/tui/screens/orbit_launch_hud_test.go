@@ -65,6 +65,35 @@ func TestFormatDurationShortBands(t *testing.T) {
 	}
 }
 
+// TestFormatPeriodKeepsSeconds exercises the period formatter that the
+// ORBIT and PROJECTED ORBIT chips render through. Unlike
+// formatDurationShort, it keeps seconds in the hour band so a resonant /
+// phasing orbit can be tuned to better than the ±30s the minute-rounded
+// readout allowed. The 21861s case is the worked example: a 5h47m target
+// raised by 21/20 to a 6h04m21s phasing period for a 4-sat constellation.
+func TestFormatPeriodKeepsSeconds(t *testing.T) {
+	cases := []struct {
+		sec  float64
+		want string
+	}{
+		{0, "0s"},
+		{12, "12s"},
+		{60, "1m00s"},
+		{225, "3m45s"},
+		{3599, "59m59s"},
+		{3600, "1h00m00s"},
+		{4920, "1h22m00s"},
+		{20820, "5h47m00s"},
+		{21861, "6h04m21s"},
+	}
+	for _, c := range cases {
+		got := formatPeriod(c.sec)
+		if got != c.want {
+			t.Errorf("formatPeriod(%g) = %q, want %q", c.sec, got, c.want)
+		}
+	}
+}
+
 // TestLaunchMissionProgressMatchesCircularizeFromPad — when the world
 // has an in-flight circularize_from_pad mission for the active
 // craft's primary, the progress line shows current pe / target.
