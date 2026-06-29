@@ -146,7 +146,11 @@ tug's budget to about a quarter of it — at the cost of 4× the warp time.
 
 The **ORBIT** chip and the **PROJECTED ORBIT** chip both show the orbital period
 (`2π√(a³/μ)`) under the time-to-apoapsis / time-to-periapsis lines — that's your
-tuning instrument.
+tuning instrument. As of **v0.24.4** the period reads down to the second
+(`6h04m21s`) rather than rounding to the minute, so you can tune a phasing orbit
+to roughly 1-second precision. The placement error that leaves is
+`Δφ ≈ 360°·m·δ/T` per slot — a fraction of a degree for any sane `m`, well below
+what a comsat's own trim budget cares about.
 
 1. Circularize the carrier into the target orbit; note its period `T` on the
    ORBIT chip.
@@ -167,5 +171,9 @@ tuning instrument.
 - **Coarse carrier + comsat cleanup** is usually the cheapest overall plan: a
   low-`m` (cheap, fast) carrier phasing that gets each sat *close*, finished off
   by the sat's own station-keeping delta-v.
+- **Need finer than a second?** Tune the **projected apoapsis** instead of the
+  period — it reads to 0.1 km, and at a typical comsat orbit ~1 km of apoapsis is
+  ~1 second of period (`dT/dr_apo = ¾·T/a`), so it's an even sharper lever. You'll
+  rarely need it now that the period shows seconds.
 - There is currently **no automated constellation/phasing helper** — the whole
   flow above is manual.
