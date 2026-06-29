@@ -119,6 +119,11 @@ type Keymap struct {
 	// keypress in addition to setting the held attitude.
 	CycleEngine key.Binding
 
+	// CycleRCSScale (v0.24.5+): step the RCS per-pulse Δv magnitude
+	// across 0.1 → 0.01 → 0.001 m/s for fine orbital-period trim. Bound
+	// to `p` for "pulse." Only affects RCS-mode pulses.
+	CycleRCSScale key.Binding
+
 	// NextCraft / PrevCraft (v0.8.1+): cycle the active craft in the
 	// multi-craft slate. No-op when only one craft is loaded.
 	NextCraft key.Binding
@@ -301,6 +306,7 @@ func DefaultKeymap() Keymap {
 		AttitudeRadialIn:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "attitude: radial-")),
 		ToggleBurn:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "engage / cut manual burn")),
 		CycleEngine:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "engine: main / rcs")),
+		CycleRCSScale:       key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "rcs pulse step (fine)")),
 		NextCraft:           key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next craft")),
 		PrevCraft:           key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev craft")),
 		CraftSlot:           key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to craft N")),

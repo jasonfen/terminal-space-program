@@ -271,6 +271,11 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 			fmt.Sprintf("  monoprop:  %.0f kg", c.Monoprop),
 			fmt.Sprintf("  rcs Δv:    %.0f m/s", c.RCSDeltaV()),
 		)
+		// In RCS mode, surface the per-pulse step so the player can see
+		// the fine-trim level the `p` key cycles. v0.24.5+.
+		if c.EngineMode == spacecraft.EngineRCS {
+			lines = append(lines, fmt.Sprintf("  rcs pulse: %g m/s", c.RCSPulseDV()))
+		}
 	}
 	return lines
 }

@@ -27,6 +27,47 @@ func TestCycleEngineMode(t *testing.T) {
 	}
 }
 
+// TestCycleRCSPulseScaleWrapsAndScalesPulse: cycling steps the level
+// 0→1→2→0, the reported per-pulse Δv tracks it (0.1 / 0.01 / 0.001),
+// and a fired pulse delivers the level's Δv.
+func TestCycleRCSPulseScaleWrapsAndScalesPulse(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.EngineMode = spacecraft.EngineRCS
+
+	if c.RCSFineLevel != 0 || math.Abs(c.RCSPulseDV()-0.1) > 1e-12 {
+		t.Fatalf("default level %d / dv %g, want 0 / 0.1", c.RCSFineLevel, c.RCSPulseDV())
+	}
+
+	want := []struct {
+		level int
+		dv    float64
+	}{{1, 0.01}, {2, 0.001}, {0, 0.1}}
+	for i, wcase := range want {
+		w.CycleRCSPulseScale()
+		if c.RCSFineLevel != wcase.level || math.Abs(c.RCSPulseDV()-wcase.dv) > 1e-12 {
+			t.Errorf("cycle %d: level %d / dv %g, want %d / %g",
+				i+1, c.RCSFineLevel, c.RCSPulseDV(), wcase.level, wcase.dv)
+		}
+		v0 := c.OrbitalSpeed()
+		if !w.FireRCSPulse(spacecraft.BurnPrograde) {
+			t.Fatalf("cycle %d: FireRCSPulse returned false", i+1)
+		}
+		if got := c.OrbitalSpeed() - v0; math.Abs(got-wcase.dv) > 1e-9 {
+			t.Errorf("cycle %d: Δ|v| = %g, want %g", i+1, got, wcase.dv)
+		}
+	}
+}
+
+// TestCycleRCSPulseScaleNilSafe: no active craft → no panic.
+func TestCycleRCSPulseScaleNilSafe(t *testing.T) {
+	w := &World{}
+	w.CycleRCSPulseScale() // must not panic
+}
+
 // TestFireRCSPulseGatesOnEngineMode: in EngineMain mode, FireRCSPulse
 // should be a no-op even with a fully-fueled craft. Switching to
 // EngineRCS and pulsing must change |v|.

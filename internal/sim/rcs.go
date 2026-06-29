@@ -24,6 +24,20 @@ func (w *World) CycleEngineMode() {
 	w.ActiveCraft().EngineMode = spacecraft.EngineMain
 }
 
+// CycleRCSPulseScale steps the active craft's RCS pulse magnitude to the
+// next fine level, wrapping after the finest: 0.1 → 0.01 → 0.001 → 0.1
+// m/s. The dedicated `p` fine-trim key; mirrors CycleEngineMode. No-op
+// without an active craft. Only RCS pulses read the level, so cycling in
+// main-engine mode is harmless — the new step takes effect once `r`
+// switches to RCS. v0.24.5+.
+func (w *World) CycleRCSPulseScale() {
+	c := w.ActiveCraft()
+	if c == nil {
+		return
+	}
+	c.RCSFineLevel = (c.RCSFineLevel + 1) % spacecraft.RCSFineLevels
+}
+
 // RCSActive reports whether the active craft is currently in RCS
 // engine mode. Nil-safe (no craft → false), mirroring the
 // CycleEngineMode guard. Used by the navball panel to colour the

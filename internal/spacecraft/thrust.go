@@ -42,6 +42,22 @@ func (e EngineMode) String() string {
 // a few seconds. v0.8.0+.
 const RCSDvQuantum = 0.1
 
+// RCSFineLevels is how many per-pulse magnitudes the RCS fine-trim
+// cycle steps through before wrapping: the coarse RCSDvQuantum, then
+// ÷10 and ÷100 (0.1 → 0.01 → 0.001 m/s). v0.24.5+.
+const RCSFineLevels = 3
+
+// RCSPulseDV returns the per-pulse Δv for the craft's current RCS fine
+// level: RCSDvQuantum (0.1 m/s) at level 0, divided by 10 each level up
+// (0.01 m/s, 0.001 m/s) for sub-second orbital-period trim. A level
+// outside [0, RCSFineLevels) falls back to the coarse default. v0.24.5+.
+func (s *Spacecraft) RCSPulseDV() float64 {
+	if s.RCSFineLevel <= 0 || s.RCSFineLevel >= RCSFineLevels {
+		return RCSDvQuantum
+	}
+	return RCSDvQuantum / math.Pow(10, float64(s.RCSFineLevel))
+}
+
 // ApplyRCSPulse delivers one RCSDvQuantum of Δv in the given burn
 // direction, debiting monoprop via the rocket equation against the
 // RCSIsp engine. No-op if monoprop is empty or RCSThrust / RCSIsp are
@@ -72,7 +88,7 @@ func (s *Spacecraft) ApplyRCSPulseWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 	if dir.Norm() == 0 {
 		return false
 	}
-	dv := RCSDvQuantum
+	dv := s.RCSPulseDV()
 	// Rocket equation against monoprop pool only — main fuel
 	// untouched. m0 = TotalMass; m1 = m0 · exp(-Δv / (Isp·g0)).
 	m0 := s.TotalMass()

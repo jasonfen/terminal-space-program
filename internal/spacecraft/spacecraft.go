@@ -131,6 +131,14 @@ type Spacecraft struct {
 	AttitudeMode BurnMode
 	EngineMode   EngineMode
 
+	// RCSFineLevel selects the per-pulse Δv magnitude for live RCS
+	// trim: level 0 = the coarse RCSDvQuantum (0.1 m/s), each level up
+	// divides by 10 (0.01, 0.001 m/s) for sub-second orbital-period
+	// trim on a low-budget comsat. Transient manual-flight state — not
+	// persisted (resets to coarse on load) and dropped on dock,
+	// alongside AttitudeMode / EngineMode.
+	RCSFineLevel int
+
 	// CurrentAttitudeDir (v0.10.0+) is the craft's *actual* nose
 	// unit vector in the same world/primary frame as State.R/V —
 	// the physical orientation, distinct from the *commanded*
