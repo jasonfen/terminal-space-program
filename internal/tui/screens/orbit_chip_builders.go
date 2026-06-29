@@ -659,7 +659,7 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	// synchronous period for steady ground coverage). a > 0 and e < 1 are
 	// guaranteed above, so the period is finite.
 	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
-	lines = append(lines, chipRow("period:", formatDurationShort(period)))
+	lines = append(lines, chipRow("period:", formatPeriod(period)))
 	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
 	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
 	if periAlt < 0 {
@@ -707,7 +707,7 @@ func (v *OrbitView) buildProjectedOrbitChip(w *sim.World) []string {
 		lines = append(lines,
 			fmt.Sprintf("  Ap:        %.1f km alt", (ro.ApoMeters-primaryR)/1000),
 			fmt.Sprintf("  Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
-			fmt.Sprintf("  period:    %s", formatDurationShort(projPeriod)),
+			fmt.Sprintf("  period:    %s", formatPeriod(projPeriod)),
 			fmt.Sprintf("  inclin.:   %.2f°", ro.Inclination*180/math.Pi),
 			fmt.Sprintf("  direction: %s", v.orbitDirectionLabel(ro.Inclination)),
 		)
