@@ -118,6 +118,9 @@ See the [command-line reference](docs/cli.md#custom-vehicles) for the format.
 
 - **[Controls & flight guide](docs/controls.md)** — a quick tour, a launch
   walkthrough, and the full list of keys.
+- **[Constellation deployment](docs/constellation-deploy.md)** — dropping an
+  evenly-spaced ring of comsats from one carrier, and the phasing-orbit math
+  that makes it cheap.
 - **[Command-line reference](docs/cli.md)** — every startup flag with examples.
 - **[Version history](docs/version-history.md)** — what landed in each release.
 
