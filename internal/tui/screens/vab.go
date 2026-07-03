@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -49,6 +50,13 @@ type VAB struct {
 	designs []spacecraft.Design
 	loadIdx int
 
+	// target is the vehicle-level Σ Δv target in m/s (ADR 0032 §8), 0 == none.
+	// Session-only: it drives the stats-strip readout and the tank-row hint but
+	// is never written into a saved Design, and Reset clears it.
+	target float64
+	// targetInput is the in-progress typed value while in vabModeTarget.
+	targetInput string
+
 	// flash is a transient one-line notice (validation reject / save result).
 	flash string
 }
@@ -78,6 +86,7 @@ const (
 	vabModeBuild  vabMode = iota
 	vabModeNaming         // typing a name to save
 	vabModeLoad           // picking a saved design to load / delete
+	vabModeTarget         // typing a Σ Δv target (ADR 0032 §8)
 )
 
 // vabStage is one stage under assembly: either a composition of component
@@ -123,6 +132,8 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.focus = focusStack // vehicle-primary: common edits happen in the vehicle column (ADR 0032 §2)
 	v.mode = vabModeBuild
 	v.name = ""
+	v.target = 0
+	v.targetInput = ""
 	v.flash = ""
 	v.buildPalette()
 }
@@ -935,6 +946,100 @@ func (v *VAB) crackOpen() {
 	after := v.stageDV(v.resolveStage(cracked))
 	v.flash = fmt.Sprintf("cracked %q: Δv %.0f→%.0f", name, before, after)
 	v.syncStageIdx()
+}
+
+// --- Σ Δv target + tank-row hint (ADR 0032 §8) ---
+
+// setTarget parses the typed input into the session Σ Δv target. An empty
+// string clears the target; a non-numeric or negative value is rejected with a
+// flash and leaves the target unchanged. Returns true when the input was
+// accepted (so the caller can leave target mode).
+func (v *VAB) setTarget(input string) bool {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		v.target = 0
+		v.flash = "Σ Δv target cleared"
+		return true
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < 0 {
+		v.flash = "target must be a number ≥ 0"
+		return false
+	}
+	v.target = f
+	v.flash = fmt.Sprintf("Σ Δv target %.0f m/s", f)
+	return true
+}
+
+// targetReadout is the vehicle stats strip: the plain Σ Δv line, or — when a
+// target is set — the "current / target (delta)" form (ADR 0032 §8).
+func (v *VAB) targetReadout(stats spacecraft.VehicleStats) string {
+	if v.target > 0 {
+		return fmt.Sprintf("Σ Δv %.0f / %.0f (%+.0f) m/s · %.1f t · TWR %.2f",
+			stats.TotalDV, v.target, stats.TotalDV-v.target, stats.TotalMass/1000, stats.LiftoffTWR)
+	}
+	return fmt.Sprintf("Σ Δv %.0f m/s · %.1f t · TWR %.2f",
+		stats.TotalDV, stats.TotalMass/1000, stats.LiftoffTWR)
+}
+
+// sigmaWithTank returns the whole-stack Σ Δv if `extra` more of compID were in
+// stage i (ADR 0032 §8 — computed against Σ, since adding a tank to one stage
+// lowers every stage below it, so a per-stage number would lie).
+func (v *VAB) sigmaWithTank(i int, compID string, extra int) float64 {
+	stages := make([]spacecraft.Stage, len(v.stages))
+	for k, vs := range v.stages {
+		if k == i && !vs.isCatalog() {
+			comps := append([]string(nil), vs.components...)
+			for e := 0; e < extra; e++ {
+				comps = append(comps, compID)
+			}
+			st, _ := spacecraft.ComposeStage(comps, v.comps)
+			stages[k] = st
+		} else {
+			stages[k] = v.resolveStage(vs)
+		}
+	}
+	return spacecraft.StackStats(stages).TotalDV
+}
+
+// tankHint is the optional one-line hint under the stats strip when a target is
+// set and the cursor is on a tank row (ADR 0032 §8): the count of that tank to
+// add to close the Σ gap ("FT-9000: +2 → Σ ≈ 9280 ✓"), or "unreachable with
+// <tank>" when the tank's dry-mass asymptote can't reach the target. Empty when
+// no target, no tank row selected, or the target is already met.
+func (v *VAB) tankHint() string {
+	if v.target <= 0 {
+		return ""
+	}
+	r, ok := v.currentRow()
+	if !ok || r.isHeader() {
+		return ""
+	}
+	groups := v.rowGroups(r.stageIdx)
+	if r.group >= len(groups) {
+		return ""
+	}
+	g := groups[r.group]
+	if g.placeholder || v.comps[g.compID].Kind != spacecraft.ComponentTank {
+		return ""
+	}
+	if v.Stats().TotalDV >= v.target {
+		return "" // met — the strip's (+delta) already says so
+	}
+	name := v.compName(v.comps[g.compID])
+	const maxAdd = 200
+	prev := v.Stats().TotalDV
+	for k := 1; k <= maxAdd; k++ {
+		s := v.sigmaWithTank(r.stageIdx, g.compID, k)
+		if s >= v.target {
+			return fmt.Sprintf("%s: +%d → Σ ≈ %.0f ✓", name, k, s)
+		}
+		if s <= prev+0.1 { // another whole tank barely moves Σ — asymptote below target
+			return fmt.Sprintf("unreachable with %s", name)
+		}
+		prev = s
+	}
+	return fmt.Sprintf("unreachable with %s", name)
 }
 
 // reorderStage moves the cursor's stage one position toward the top (dir +1)

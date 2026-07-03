@@ -2,6 +2,7 @@ package screens
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -18,6 +19,8 @@ func (v *VAB) HandleKey(key string) VABAction {
 		return v.handleNamingKey(key)
 	case vabModeLoad:
 		return v.handleLoadKey(key)
+	case vabModeTarget:
+		return v.handleTargetKey(key)
 	default:
 		return v.handleBuildKey(key)
 	}
@@ -70,11 +73,49 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 		v.toggleDockSeam()
 	case "c":
 		v.toggleDecoupleFuse()
+	case "t":
+		v.enterTargetMode()
 	case "s":
 		v.flash = ""
 		v.mode = vabModeNaming
 	case "o":
 		v.enterLoadMode()
+	}
+	return VABActionNone
+}
+
+// enterTargetMode opens the Σ Δv target numeric input, pre-filling the current
+// target (ADR 0032 §8).
+func (v *VAB) enterTargetMode() {
+	if v.target > 0 {
+		v.targetInput = strconv.FormatFloat(v.target, 'f', 0, 64)
+	} else {
+		v.targetInput = ""
+	}
+	v.flash = ""
+	v.mode = vabModeTarget
+}
+
+// handleTargetKey drives the Σ Δv target input (maneuver-form idiom): digits +
+// one decimal point, enter to set (empty clears), esc to cancel.
+func (v *VAB) handleTargetKey(key string) VABAction {
+	switch key {
+	case "esc":
+		v.mode = vabModeBuild
+	case "enter":
+		if v.setTarget(v.targetInput) {
+			v.mode = vabModeBuild
+		}
+	case "backspace":
+		if r := []rune(v.targetInput); len(r) > 0 {
+			v.targetInput = string(r[:len(r)-1])
+		}
+	default:
+		if len(key) == 1 {
+			if c := key[0]; (c >= '0' && c <= '9') || c == '.' {
+				v.targetInput += key
+			}
+		}
 	}
 	return VABActionNone
 }
@@ -176,6 +217,8 @@ func (v *VAB) Render(width int) string {
 		return v.renderNaming(width)
 	case vabModeLoad:
 		return v.renderLoad(width)
+	case vabModeTarget:
+		return v.renderTarget(width)
 	default:
 		return v.renderBuild(width)
 	}
@@ -214,7 +257,7 @@ func (v *VAB) renderBuild(width int) string {
 	foot = append(foot, v.theme.Footer.Render(
 		"[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"))
 	foot = append(foot, v.theme.Footer.Render(
-		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [s] save  [o] open  [esc] back"))
+		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open  [esc] back"))
 
 	return strings.Join(head, "\n") + "\n\n" + body + "\n" + strings.Join(foot, "\n")
 }
@@ -398,8 +441,10 @@ func (v *VAB) renderVehicleColumn(w int) []string {
 	}
 	stages := v.resolvedStages()
 	stats := spacecraft.StackStats(stages)
-	lines = append(lines, v.theme.Primary.Render(truncWidth(fmt.Sprintf(
-		"Σ Δv %.0f m/s · %.1f t · TWR %.2f", stats.TotalDV, stats.TotalMass/1000, stats.LiftoffTWR), w)))
+	lines = append(lines, v.theme.Primary.Render(truncWidth(v.targetReadout(stats), w)))
+	if hint := v.tankHint(); hint != "" {
+		lines = append(lines, v.theme.Warning.Render(truncWidth("  ↳ "+hint, w)))
+	}
 	lines = append(lines, "")
 	if len(v.stages) == 0 {
 		lines = append(lines, v.theme.Dim.Render("(empty — pick a part and press [a])"))
@@ -568,6 +613,23 @@ func (v *VAB) renderNaming(width int) string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, v.theme.Footer.Render("[enter] save  [esc] cancel"))
+	return strings.Join(lines, "\n")
+}
+
+// renderTarget is the Σ Δv target input modal (ADR 0032 §8).
+func (v *VAB) renderTarget(width int) string {
+	var lines []string
+	lines = append(lines, v.theme.Title.Render("terminal-space-program — Σ Δv target"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+v.theme.Primary.Render("target Σ Δv (m/s): ")+v.theme.Warning.Render(v.targetInput+"▏"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+v.theme.Dim.Render(fmt.Sprintf("current Σ Δv: %.0f m/s", v.Stats().TotalDV)))
+	lines = append(lines, "")
+	if v.flash != "" {
+		lines = append(lines, "  "+v.theme.Warning.Render(v.flash))
+		lines = append(lines, "")
+	}
+	lines = append(lines, v.theme.Footer.Render("[enter] set  [empty ⏎] clear  [esc] cancel"))
 	return strings.Join(lines, "\n")
 }
 
