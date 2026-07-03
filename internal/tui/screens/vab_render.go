@@ -64,6 +64,8 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 		v.reorderStage(-1)
 	case "y":
 		v.duplicateStage()
+	case "enter":
+		v.crackOpen()
 	case "d":
 		v.toggleDockSeam()
 	case "c":
@@ -212,7 +214,7 @@ func (v *VAB) renderBuild(width int) string {
 	foot = append(foot, v.theme.Footer.Render(
 		"[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"))
 	foot = append(foot, v.theme.Footer.Render(
-		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [d] dock seam  [c] fuse  [s] save  [o] open  [esc] back"))
+		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [s] save  [o] open  [esc] back"))
 
 	return strings.Join(head, "\n") + "\n\n" + body + "\n" + strings.Join(foot, "\n")
 }

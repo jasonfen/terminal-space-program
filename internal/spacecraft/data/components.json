@@ -175,6 +175,24 @@
       "fuel_type": "solid",
       "description": "Cast solid-propellant casing — feeds a solid booster, cannot be drained early."
     },
+    {
+      "id": "kero-tank-100k",
+      "name": "FT-100k Bulk Tank",
+      "kind": "tank",
+      "dry_mass_kg": 8000,
+      "fuel_capacity_kg": 100000,
+      "fuel_type": "kerolox",
+      "description": "Bulk kerolox tank for heavy first stages — one unit replaces a stack of FT-9000s."
+    },
+    {
+      "id": "hydro-tank-25k",
+      "name": "HT-25k Bulk Tank",
+      "kind": "tank",
+      "dry_mass_kg": 3000,
+      "fuel_capacity_kg": 25000,
+      "fuel_type": "hydrolox",
+      "description": "Bulk hydrolox tank for high-energy sustainer and transfer stages."
+    },
 
     {
       "id": "probe-core",

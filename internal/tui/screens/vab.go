@@ -894,6 +894,49 @@ func indexOfStr(xs []string, s string) int {
 	return -1
 }
 
+// stageDV is the isolated Δv of a single resolved stage (a one-stage stack),
+// used for the crack-open before/after delta.
+func (v *VAB) stageDV(st spacecraft.Stage) float64 {
+	return spacecraft.StackStats([]spacecraft.Stage{st}).TotalDV
+}
+
+// crackOpen converts the atomic catalog stage under the cursor into its
+// authored seed components in place (ADR 0032 §6), so the player can start
+// from a shipped part and tweak it. The seam / decouple flags ride along. The
+// flash shows the honest Δv delta — the composed aggregate may differ from the
+// opaque part (the seed is seed-only, never the part's stats, §6). A part with
+// no seed, or a non-catalog / non-header row, is a no-op with an explanatory
+// flash. There is no un-crack key: delete + re-add the part reverses it.
+func (v *VAB) crackOpen() {
+	r, ok := v.currentRow()
+	if !ok || !r.isHeader() {
+		return // enter only cracks a stage header
+	}
+	vs := v.stages[r.stageIdx]
+	if !vs.isCatalog() {
+		return // a composed stage has nothing to crack open
+	}
+	m, known := spacecraft.StageCatalog[vs.catalogPartID]
+	name := vs.catalogPartID
+	if known && m.Name != "" {
+		name = m.Name
+	}
+	if !known || len(m.VabSeed) == 0 {
+		v.flash = fmt.Sprintf("%q has no decomposition", name)
+		return
+	}
+	before := v.stageDV(v.resolveStage(vs))
+	cracked := vabStage{
+		components:    append([]string(nil), m.VabSeed...),
+		dockSeamBelow: vs.dockSeamBelow,
+		decoupleFused: vs.decoupleFused,
+	}
+	v.stages[r.stageIdx] = cracked
+	after := v.stageDV(v.resolveStage(cracked))
+	v.flash = fmt.Sprintf("cracked %q: Δv %.0f→%.0f", name, before, after)
+	v.syncStageIdx()
+}
+
 // reorderStage moves the cursor's stage one position toward the top (dir +1)
 // or the bottom (dir -1) of the stack (ADR 0030 §5). The whole vabStage rides
 // along with its seam / decouple flags, so a seam stays attached to the stage
