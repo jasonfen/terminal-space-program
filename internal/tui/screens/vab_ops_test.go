@@ -172,18 +172,27 @@ func TestVABDuplicateStage(t *testing.T) {
 	}
 }
 
-// TestVABColumnSwitchKeys — ←/→ switch the active column and never steal a
-// cursor (ADR 0030 §3); the cumbersome focus-stealing behavior is gone.
+// TestVABColumnSwitchKeys — tab is the ONLY column switch now (ADR 0032 §3);
+// the default focus is the vehicle column (vehicle-primary, §2) and ←/→ no
+// longer switch columns — they edit the focused row.
 func TestVABColumnSwitchKeys(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
-	v.HandleKey("right")
 	if v.focus != focusStack {
-		t.Errorf("→ focus = %v, want focusStack", v.focus)
+		t.Errorf("default focus = %v, want focusStack (vehicle-primary)", v.focus)
 	}
-	v.HandleKey("left")
+	v.HandleKey("tab")
 	if v.focus != focusPalette {
-		t.Errorf("← focus = %v, want focusPalette", v.focus)
+		t.Errorf("tab focus = %v, want focusPalette", v.focus)
+	}
+	v.HandleKey("shift+tab")
+	if v.focus != focusStack {
+		t.Errorf("shift+tab focus = %v, want focusStack", v.focus)
+	}
+	// ←/→ must not switch columns anymore.
+	v.HandleKey("left")
+	if v.focus != focusStack {
+		t.Errorf("← switched columns, focus = %v, want focusStack unchanged", v.focus)
 	}
 }
 

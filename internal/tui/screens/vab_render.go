@@ -27,13 +27,14 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 	switch key {
 	case "esc":
 		return VABActionCancel
-	// ←/→ switch columns spatially (palette on the left, vehicle on the
-	// right) — they never steal focus or move a cursor anymore (ADR 0030 §3).
+	// ←/→ (and h/l for vim parity) edit the focused vehicle row — swap its
+	// component within kind (ADR 0032 §3). They no longer switch columns.
 	case "left", "h":
-		v.focus = focusPalette
+		v.swapRow(-1)
 	case "right", "l":
-		v.focus = focusStack
-	case "tab":
+		v.swapRow(+1)
+	// tab / shift+tab are the only column switch now (ADR 0032 §3).
+	case "tab", "shift+tab":
 		if v.focus == focusPalette {
 			v.focus = focusStack
 		} else {
@@ -209,7 +210,7 @@ func (v *VAB) renderBuild(width int) string {
 	}
 	foot = append(foot, v.theme.Dim.Render(strings.Repeat("─", clampI(width, 40, 100))))
 	foot = append(foot, v.theme.Footer.Render(
-		"[←/→] column  [↑/↓] move  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"))
+		"[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"))
 	foot = append(foot, v.theme.Footer.Render(
 		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [d] dock seam  [c] fuse  [s] save  [o] open  [esc] back"))
 
@@ -414,7 +415,7 @@ func (v *VAB) renderVehicleColumn(w int) []string {
 			}
 			lines = append(lines, v.stageHeaderLine(r.stageIdx, stats, sel, cursorOn, w))
 		} else {
-			groups := v.componentGroups(r.stageIdx)
+			groups := v.rowGroups(r.stageIdx)
 			if r.group < len(groups) {
 				lines = append(lines, v.groupLine(groups[r.group], sel, cursorOn, w))
 			}
@@ -464,10 +465,17 @@ func (v *VAB) stageHeaderLine(i int, stats spacecraft.VehicleStats, sel, cursorO
 // groupLine renders one kind-folded component group: a kind-colored glyph, the
 // component name, and a ×N count when clustered (ADR 0030 §4).
 func (v *VAB) groupLine(g vabGroup, sel, cursorOn bool, w int) string {
-	glyph := v.componentStyle(g.compID).Render(v.componentGlyph(g.compID))
-	name := v.compName(v.comps[g.compID])
-	if g.count > 1 {
-		name += fmt.Sprintf(" ×%d", g.count)
+	var glyph, name string
+	if g.placeholder {
+		// "engine —" / "tank —": a dim prompt row ←/→ fills in (ADR 0032 §5).
+		glyph = v.theme.Dim.Render(glyphForKind(g.kind))
+		name = g.kind + " —"
+	} else {
+		glyph = v.componentStyle(g.compID).Render(v.componentGlyph(g.compID))
+		name = v.compName(v.comps[g.compID])
+		if g.count > 1 {
+			name += fmt.Sprintf(" ×%d", g.count)
+		}
 	}
 	name = truncWidth(name, w-6)
 	marker := "    "

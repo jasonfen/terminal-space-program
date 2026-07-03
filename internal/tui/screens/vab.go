@@ -120,7 +120,7 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.stageIdx = 0
 	v.stackCursor = 0
 	v.paletteIdx = 0
-	v.focus = focusPalette
+	v.focus = focusStack // vehicle-primary: common edits happen in the vehicle column (ADR 0032 §2)
 	v.mode = vabModeBuild
 	v.name = ""
 	v.flash = ""
@@ -225,11 +225,19 @@ func (v *VAB) stageFuelType(comps []string) string {
 	return ""
 }
 
-// newStage appends an empty composed stage on top and selects it.
+// newStage appends an empty composed stage on top, brings focus to the
+// vehicle column, and lands the cursor on the stage's first editable row (the
+// engine placeholder) so the n → ←/→ → +/− build loop needs no palette trip
+// (ADR 0032 §5).
 func (v *VAB) newStage() {
 	v.stages = append(v.stages, vabStage{})
 	v.stageIdx = len(v.stages) - 1
+	v.focus = focusStack
 	v.focusStageInStack(v.stageIdx)
+	rows := v.stackRows()
+	if h := v.stackCursor; h+1 < len(rows) && !rows[h+1].isHeader() && rows[h+1].stageIdx == v.stageIdx {
+		v.stackCursor = h + 1
+	}
 }
 
 // removeFromCurrent pops the last component off the current composed stage,
@@ -541,6 +549,11 @@ type vabGroup struct {
 	compID string
 	kind   string
 	count  int
+	// placeholder marks a synthetic "engine —" / "tank —" prompt row on a
+	// stage missing that propulsion kind (ADR 0032 §5): compID == "", count
+	// == 0. ←/→ cycles it from none through the catalog; the first real pick
+	// appends the component and the row becomes an ordinary group.
+	placeholder bool
 }
 
 // vabRow is one navigable row in the vehicle column's flattened display list
@@ -582,14 +595,63 @@ func (v *VAB) componentGroups(i int) []vabGroup {
 	return groups
 }
 
+// placeholderKinds returns the propulsion kinds (engine / tank) that stage i
+// should surface as placeholder rows (ADR 0032 §5). A truly-empty composed
+// stage prompts for both; once one propulsion kind is present the OTHER stays
+// prompted (so the n → ←/→ → +/− loop needs no palette trip), but a stage
+// carrying only non-propulsion parts (a structure/core payload) stays clean.
+// Nil for atomic catalog stages — an opaque block has no editable rows.
+func (v *VAB) placeholderKinds(i int) []string {
+	if i < 0 || i >= len(v.stages) || v.stages[i].isCatalog() {
+		return nil
+	}
+	comps := v.stages[i].components
+	hasEngine, hasTank := false, false
+	for _, id := range comps {
+		switch v.comps[id].Kind {
+		case spacecraft.ComponentEngine:
+			hasEngine = true
+		case spacecraft.ComponentTank:
+			hasTank = true
+		}
+	}
+	empty := len(comps) == 0
+	var ks []string
+	if !hasEngine && (empty || hasTank) {
+		ks = append(ks, spacecraft.ComponentEngine)
+	}
+	if !hasTank && (empty || hasEngine) {
+		ks = append(ks, spacecraft.ComponentTank)
+	}
+	return ks
+}
+
+// rowGroups is the vehicle column's display/navigation group list for stage i:
+// the canonical real groups plus any placeholder rows, sorted into kind order
+// so a placeholder slots into its kind's position (ADR 0032 §5). Row-addressed
+// ops (swap / quantity / remove) and the renderer index into this list.
+func (v *VAB) rowGroups(i int) []vabGroup {
+	groups := v.componentGroups(i)
+	for _, k := range v.placeholderKinds(i) {
+		groups = append(groups, vabGroup{kind: k, placeholder: true})
+	}
+	sort.SliceStable(groups, func(a, b int) bool {
+		if ra, rb := kindRank(groups[a].kind), kindRank(groups[b].kind); ra != rb {
+			return ra < rb
+		}
+		return groups[a].compID < groups[b].compID
+	})
+	return groups
+}
+
 // stackRows builds the vehicle column's navigable rows in DISPLAY order (top
-// stage first): each stage header followed by its component groups. The
-// linear stack cursor (stackCursor) indexes this slice.
+// stage first): each stage header followed by its component groups (real and
+// placeholder). The linear stack cursor (stackCursor) indexes this slice.
 func (v *VAB) stackRows() []vabRow {
 	var rows []vabRow
 	for i := len(v.stages) - 1; i >= 0; i-- {
 		rows = append(rows, vabRow{stageIdx: i, group: -1})
-		for g := range v.componentGroups(i) {
+		for g := range v.rowGroups(i) {
 			rows = append(rows, vabRow{stageIdx: i, group: g})
 		}
 	}
@@ -677,8 +739,9 @@ func (v *VAB) removeUnderCursor() {
 	if r.isHeader() {
 		v.removeStageAt(r.stageIdx)
 	} else {
-		groups := v.componentGroups(r.stageIdx)
-		if r.group < len(groups) {
+		groups := v.rowGroups(r.stageIdx)
+		// A placeholder row has no real component to remove — leave it be.
+		if r.group < len(groups) && !groups[r.group].placeholder {
 			v.removeOneComponent(r.stageIdx, groups[r.group].compID)
 		}
 	}
@@ -696,8 +759,12 @@ func (v *VAB) quantityDelta(d int) {
 		v.flash = "select a component (↑/↓) to change its count"
 		return
 	}
-	groups := v.componentGroups(r.stageIdx)
+	groups := v.rowGroups(r.stageIdx)
 	if r.group >= len(groups) {
+		return
+	}
+	if groups[r.group].placeholder {
+		v.flash = "pick a component (←/→) before setting its count"
 		return
 	}
 	id := groups[r.group].compID
@@ -709,6 +776,122 @@ func (v *VAB) quantityDelta(d int) {
 	v.clampCursor()
 	v.syncStageIdx()
 	v.flash = ""
+}
+
+// stageEngineChem returns the fuel chemistry of stage i's engine(s) — the
+// chemistry leader that fuelled non-engine rows follow (ADR 0032 §4). Empty
+// when the stage has no fuelled engine yet.
+func (v *VAB) stageEngineChem(i int) string {
+	if i < 0 || i >= len(v.stages) {
+		return ""
+	}
+	for _, id := range v.stages[i].components {
+		if c, ok := v.comps[id]; ok && c.Kind == spacecraft.ComponentEngine && c.FuelType != "" {
+			return c.FuelType
+		}
+	}
+	return ""
+}
+
+// swapCandidates lists the component IDs a row of the given kind may cycle
+// through, sorted for a stable order (ADR 0032 §4). The engine kind is the
+// chemistry leader — every engine is a candidate. Other fuelled kinds (tanks)
+// are filtered to the stage's engine chemistry so a swap never lands them in
+// an incompatible state; non-fuelled kinds cycle their whole kind.
+func (v *VAB) swapCandidates(i int, kind string) []string {
+	chem := v.stageEngineChem(i)
+	var ids []string
+	for id, c := range v.comps {
+		if c.Kind != kind {
+			continue
+		}
+		if kind != spacecraft.ComponentEngine && c.FuelType != "" && chem != "" && c.FuelType != chem {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// replaceGroup swaps every instance of oldID in stage i for newID — a fold
+// group cycles as a unit, preserving its ×N count.
+func (v *VAB) replaceGroup(i int, oldID, newID string) {
+	if i < 0 || i >= len(v.stages) {
+		return
+	}
+	for k, id := range v.stages[i].components {
+		if id == oldID {
+			v.stages[i].components[k] = newID
+		}
+	}
+}
+
+// swapRow cycles the component of the fold row under the cursor within its
+// kind (ADR 0032 §3/§4, the maneuver-form idiom): the engine row leads
+// chemistry (cycles all engines), fuelled rows cycle compatible-only, a
+// placeholder row cycles from none through the catalog and the first pick adds
+// the component. Header rows, the palette, and empty candidate sets are
+// no-ops. Only the vehicle column edits — ←/→ in the palette does nothing.
+func (v *VAB) swapRow(dir int) {
+	if v.focus != focusStack {
+		return
+	}
+	r, ok := v.currentRow()
+	if !ok || r.isHeader() {
+		return
+	}
+	groups := v.rowGroups(r.stageIdx)
+	if r.group < 0 || r.group >= len(groups) {
+		return
+	}
+	g := groups[r.group]
+	cands := v.swapCandidates(r.stageIdx, g.kind)
+	if len(cands) == 0 {
+		v.flash = fmt.Sprintf("no compatible %s to swap to", g.kind)
+		return
+	}
+	if g.placeholder {
+		// Cycle [none, cand0, cand1, …] starting at none; landing back on none
+		// keeps the placeholder, any other lands a real component.
+		idx := wrapIdx(dir, len(cands)+1)
+		if idx == 0 {
+			return
+		}
+		v.stages[r.stageIdx].components = append(v.stages[r.stageIdx].components, cands[idx-1])
+		v.syncStageIdx()
+		v.flash = ""
+		return
+	}
+	var next string
+	switch cur := indexOfStr(cands, g.compID); {
+	case cur < 0 && dir >= 0:
+		// Current component fell out of the candidate set (e.g. a tank left
+		// stranded by a chemistry-crossing engine swap) — step in from the edge
+		// so one ←/→ repairs it.
+		next = cands[0]
+	case cur < 0:
+		next = cands[len(cands)-1]
+	default:
+		next = cands[wrapIdx(cur+dir, len(cands))]
+	}
+	if next == g.compID {
+		return
+	}
+	v.replaceGroup(r.stageIdx, g.compID, next)
+	v.clampCursor()
+	v.syncStageIdx()
+	v.flash = ""
+}
+
+// indexOfStr returns the index of s in xs, or -1.
+func indexOfStr(xs []string, s string) int {
+	for i, x := range xs {
+		if x == s {
+			return i
+		}
+	}
+	return -1
 }
 
 // reorderStage moves the cursor's stage one position toward the top (dir +1)
