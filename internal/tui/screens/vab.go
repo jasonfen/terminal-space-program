@@ -136,6 +136,14 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.targetInput = ""
 	v.flash = ""
 	v.buildPalette()
+	// Auto-seed one empty stage so the vehicle column is immediately editable
+	// on entry: the cursor lands on its engine placeholder and ←/→ picks a part
+	// with no palette trip and no `n` press. Without this the vehicle-primary
+	// default (ADR 0032 §2) focuses an empty column, so reaching the palette
+	// needed a stray `tab` first — the placeholder build loop (§5) now runs the
+	// moment the screen opens.
+	v.newStage()
+	v.flash = ""
 }
 
 // buildPalette assembles the flat palette: components grouped by kind (in

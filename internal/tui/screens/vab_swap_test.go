@@ -72,16 +72,18 @@ func TestVABPlaceholderRowsAppear(t *testing.T) {
 	}
 }
 
-// TestVABBuildLoopNoPaletteTrip — the n → ←/→ → ←/→ loop builds an
-// engine+tank stage entirely in the vehicle column, no palette add (ADR 0032
-// §5). Also checks the tank placeholder survives the engine pick.
+// TestVABBuildLoopNoPaletteTrip — the ←/→ → ←/→ loop builds an engine+tank
+// stage entirely in the vehicle column, no palette add (ADR 0032 §5). Reset
+// auto-seeds the first stage with the cursor on its engine placeholder, so the
+// loop runs the moment the screen opens. Also checks the tank placeholder
+// survives the engine pick.
 func TestVABBuildLoopNoPaletteTrip(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
-	v.newStage()
-	// newStage lands the cursor on the engine placeholder.
+	// Reset auto-seeds an empty stage 0 with the cursor already on its engine
+	// placeholder — no `n` needed.
 	if r, ok := v.currentRow(); !ok || r.isHeader() || !v.rowGroups(r.stageIdx)[r.group].placeholder {
-		t.Fatalf("after newStage the cursor is not on a placeholder row: %+v", r)
+		t.Fatalf("after Reset the cursor is not on a placeholder row: %+v", r)
 	}
 	v.swapRow(+1) // pick the first engine
 	if countComp(v.stages[0], "eng") != 1 {
