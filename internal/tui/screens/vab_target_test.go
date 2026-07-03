@@ -59,6 +59,10 @@ func TestVABSetTargetValidation(t *testing.T) {
 	if v.setTarget("x.y") || v.target != 9200 {
 		t.Error("non-numeric should be rejected and leave target unchanged")
 	}
+	// A typed 0 clears (accepted), rather than reading as a silent "no target".
+	if !v.setTarget("0") || v.target != 0 {
+		t.Errorf("setTarget(\"0\") should clear: accepted=%v target=%g", v.setTarget("0"), v.target)
+	}
 }
 
 // TestVABTargetReadout — with a target set the stats strip shows the

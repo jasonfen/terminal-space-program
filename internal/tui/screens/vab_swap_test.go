@@ -231,6 +231,37 @@ func TestVABCursorWalkPlaceholderTransition(t *testing.T) {
 	}
 }
 
+// TestVABNoPhantomStage — the auto-seeded empty stage is never orphaned into a
+// phantom zero-mass stage: adding a catalog part reuses it, and `n` on an
+// already-empty stage does not stack another empty (regression for the
+// auto-seed fix).
+func TestVABNoPhantomStage(t *testing.T) {
+	// Entry → add a catalog part reuses the seed → exactly one catalog stage.
+	v := NewVAB(Theme{})
+	v.Reset(map[string]spacecraft.Component{}) // palette = catalog parts only
+	v.addSelected()
+	if len(v.stages) != 1 || !v.stages[0].isCatalog() {
+		t.Errorf("catalog-add on entry: stages=%d, want one catalog stage", len(v.stages))
+	}
+
+	// Entry → `n` reuses the empty seed rather than stacking a second empty.
+	v2 := NewVAB(Theme{})
+	v2.Reset(testVABComps())
+	v2.newStage()
+	if len(v2.stages) != 1 {
+		t.Errorf("n on an empty seed: stages=%d, want 1 (no phantom)", len(v2.stages))
+	}
+	// After building the seed, `n` DOES add a fresh stage.
+	v2.addComponentToCurrent("eng")
+	v2.newStage()
+	if len(v2.stages) != 2 {
+		t.Errorf("n on a filled stage: stages=%d, want 2", len(v2.stages))
+	}
+	if !v2.isEmptyComposed(1) {
+		t.Error("the new stage should be an empty composed stage")
+	}
+}
+
 func hasWarningContaining(ws []string, sub string) bool {
 	for _, w := range ws {
 		if strings.Contains(w, sub) {

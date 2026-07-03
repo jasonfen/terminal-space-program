@@ -447,7 +447,7 @@ func (v *VAB) renderVehicleColumn(w int) []string {
 	}
 	lines = append(lines, "")
 	if len(v.stages) == 0 {
-		lines = append(lines, v.theme.Dim.Render("(empty — pick a part and press [a])"))
+		lines = append(lines, v.theme.Dim.Render("(empty — [n] new stage · [tab] palette · [a] add)"))
 		return lines
 	}
 	rows := v.stackRows()

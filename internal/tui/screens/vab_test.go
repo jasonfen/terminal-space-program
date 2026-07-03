@@ -147,14 +147,14 @@ func TestVABCatalogPartAsStage(t *testing.T) {
 	if len(v.palette) == 0 {
 		t.Fatal("palette empty — expected single-stage catalog parts")
 	}
-	// Reset auto-seeds an empty composed stage; adding a catalog part appends
-	// an opaque atomic stage on top of it.
+	// Reset auto-seeds one empty composed stage; adding a catalog part reuses
+	// that empty stage in place rather than orphaning it as a phantom, so the
+	// result is exactly one atomic catalog stage.
 	v.addSelected()
-	top := v.stages[len(v.stages)-1]
-	if !top.isCatalog() {
-		t.Fatalf("top stage is not an atomic catalog stage: %+v", top)
+	if len(v.stages) != 1 || !v.stages[0].isCatalog() {
+		t.Fatalf("expected one atomic catalog stage, got %d (catalog=%v)", len(v.stages), len(v.stages) == 1 && v.stages[0].isCatalog())
 	}
-	if v.resolveStage(top).DryMass <= 0 {
+	if v.resolveStage(v.stages[0]).DryMass <= 0 {
 		t.Error("catalog stage resolved to zero dry mass")
 	}
 }

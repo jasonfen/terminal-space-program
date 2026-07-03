@@ -184,6 +184,13 @@ func (v *VAB) addSelected() {
 	}
 	it := v.palette[v.paletteIdx]
 	if !it.isComponent {
+		// Reuse an empty current composed stage (e.g. the auto-seed) rather than
+		// orphaning it below a new catalog stage as a phantom zero-mass stage.
+		if v.isEmptyComposed(v.stageIdx) {
+			v.stages[v.stageIdx] = vabStage{catalogPartID: it.id}
+			v.focusStageInStack(v.stageIdx)
+			return
+		}
 		v.stages = append(v.stages, vabStage{catalogPartID: it.id})
 		v.stageIdx = len(v.stages) - 1
 		v.focusStageInStack(v.stageIdx)
@@ -249,7 +256,13 @@ func (v *VAB) stageFuelType(comps []string) string {
 // engine placeholder) so the n → ←/→ → +/− build loop needs no palette trip
 // (ADR 0032 §5).
 func (v *VAB) newStage() {
-	v.stages = append(v.stages, vabStage{})
+	// If the top stage is already an untouched empty composed stage (the
+	// auto-seed, or a just-pressed `n`), reuse it instead of stacking another
+	// empty phantom — an empty stage contributes nothing but a dead 0-mass
+	// slot to a saved / spawned vehicle.
+	if n := len(v.stages); n == 0 || !v.isEmptyComposed(n-1) {
+		v.stages = append(v.stages, vabStage{})
+	}
 	v.stageIdx = len(v.stages) - 1
 	v.focus = focusStack
 	v.focusStageInStack(v.stageIdx)
@@ -257,6 +270,13 @@ func (v *VAB) newStage() {
 	if h := v.stackCursor; h+1 < len(rows) && !rows[h+1].isHeader() && rows[h+1].stageIdx == v.stageIdx {
 		v.stackCursor = h + 1
 	}
+}
+
+// isEmptyComposed reports whether stage i exists and is a composed stage with
+// no components yet (the auto-seed / a freshly-`n`ed stage) — the state that
+// must not be orphaned into a saved design as a phantom zero-mass stage.
+func (v *VAB) isEmptyComposed(i int) bool {
+	return i >= 0 && i < len(v.stages) && !v.stages[i].isCatalog() && len(v.stages[i].components) == 0
 }
 
 // removeFromCurrent pops the last component off the current composed stage,
@@ -605,12 +625,7 @@ func (v *VAB) componentGroups(i int) []vabGroup {
 	for _, id := range firstSeen {
 		groups = append(groups, vabGroup{compID: id, kind: v.comps[id].Kind, count: counts[id]})
 	}
-	sort.SliceStable(groups, func(a, b int) bool {
-		if ra, rb := kindRank(groups[a].kind), kindRank(groups[b].kind); ra != rb {
-			return ra < rb
-		}
-		return groups[a].compID < groups[b].compID
-	})
+	sort.SliceStable(groups, func(a, b int) bool { return lessVabGroup(groups[a], groups[b]) })
 	return groups
 }
 
@@ -654,13 +669,18 @@ func (v *VAB) rowGroups(i int) []vabGroup {
 	for _, k := range v.placeholderKinds(i) {
 		groups = append(groups, vabGroup{kind: k, placeholder: true})
 	}
-	sort.SliceStable(groups, func(a, b int) bool {
-		if ra, rb := kindRank(groups[a].kind), kindRank(groups[b].kind); ra != rb {
-			return ra < rb
-		}
-		return groups[a].compID < groups[b].compID
-	})
+	sort.SliceStable(groups, func(a, b int) bool { return lessVabGroup(groups[a], groups[b]) })
 	return groups
+}
+
+// lessVabGroup is the canonical fold order (ADR 0030 §4): by kind, then
+// component ID. Shared by componentGroups and rowGroups so the vehicle column
+// and its placeholder-augmented view can never sort differently.
+func lessVabGroup(a, b vabGroup) bool {
+	if ra, rb := kindRank(a.kind), kindRank(b.kind); ra != rb {
+		return ra < rb
+	}
+	return a.compID < b.compID
 }
 
 // stackRows builds the vehicle column's navigable rows in DISPLAY order (top
@@ -974,6 +994,13 @@ func (v *VAB) setTarget(input string) bool {
 		v.flash = "target must be a number ≥ 0"
 		return false
 	}
+	if f == 0 {
+		// A typed 0 clears rather than silently reading as "no target" — the
+		// readout / hint both gate on target > 0.
+		v.target = 0
+		v.flash = "Σ Δv target cleared"
+		return true
+	}
 	v.target = f
 	v.flash = fmt.Sprintf("Σ Δv target %.0f m/s", f)
 	return true
@@ -1031,14 +1058,22 @@ func (v *VAB) tankHint() string {
 	if g.placeholder || v.comps[g.compID].Kind != spacecraft.ComponentTank {
 		return ""
 	}
-	if v.Stats().TotalDV >= v.target {
+	// Resolve the stack once; only the cursor's stage changes as tanks are
+	// added, so the other stages are computed a single time and the target
+	// stage grows one component per step (not a full re-resolve per step).
+	base := v.resolvedStages()
+	cur := spacecraft.StackStats(base).TotalDV
+	if cur >= v.target {
 		return "" // met — the strip's (+delta) already says so
 	}
 	name := v.compName(v.comps[g.compID])
+	comps := append([]string(nil), v.stages[r.stageIdx].components...)
+	prev := cur
 	const maxAdd = 200
-	prev := v.Stats().TotalDV
 	for k := 1; k <= maxAdd; k++ {
-		s := v.sigmaWithTank(r.stageIdx, g.compID, k)
+		comps = append(comps, g.compID)
+		base[r.stageIdx], _ = spacecraft.ComposeStage(comps, v.comps)
+		s := spacecraft.StackStats(base).TotalDV
 		if s >= v.target {
 			return fmt.Sprintf("%s: +%d → Σ ≈ %.0f ✓", name, k, s)
 		}
