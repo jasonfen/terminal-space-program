@@ -154,8 +154,63 @@ reached from the pause menu (`Esc → [Build (VAB)]`). The player composes
 mass** panel — then saves the result as a **Design**. Like every screen it
 reads shared state and routes mutations elsewhere; here it owns the **Designs
 Store** I/O directly (designs are app-managed catalog data, not World state).
+Since v0.25 / ADR 0032 the editing model is **In-Place Row Editing** (below):
+the screen opens focused on the vehicle column with the cursor on a fresh
+stage's **Placeholder Row**, and common edits happen on the rows without
+visiting the palette.
 _Avoid_: Editor, Configurator (that name belongs to the spawn-form quick stack
 builder — coarser, whole-modules-only, not persistent), Workshop.
+
+**In-Place Row Editing** (v0.25 / ADR 0032):
+The VAB editing idiom — the maneuver-form pattern (`tab` moves focus, `←/→`
+changes the focused field's value) applied to the kind-folded vehicle rows.
+`←/→` **swaps the selected row's Component within its kind** (cycle engines on
+an engine row, tanks on a tank row); `tab`/`shift+tab` is the sole column
+switch. The bag model and **Design** schema are unchanged — only the
+interaction over them.
+_Avoid_: Slot form (rejected — a strict 1-engine+1-tank form can't hold the
+honest multi-engine cluster), Modal picker.
+
+**Chemistry Leader** (v0.25 / ADR 0032):
+The rule that resolves the tank↔engine chemistry deadlock during **In-Place
+Row Editing**: the **engine row cycles ALL engines** and so *leads* the stage's
+fuel chemistry; **fuelled (tank) rows cycle compatible-only**, following the
+engine. A chemistry-crossing engine swap lands and leaves the stage
+soft-invalid (the **Aggregation** mixed-fuel warning) until each tank row is
+re-cycled to the new chemistry — one `←/→` per tank. The `[a]` add path still
+rejects mismatches outright.
+_Avoid_: Permissive cycling (rejected — tanks would spend most of the cycle
+invalid), Whole-stage rechem key.
+
+**Placeholder Row** (v0.25 / ADR 0032):
+A synthetic `engine —` / `tank —` prompt row the VAB shows on a stage missing
+that propulsion kind, so `←/→` fills it in from nothing through the catalog
+with no palette trip. A truly-empty stage shows both; once one propulsion kind
+is present the *other* stays prompted; a non-propulsion (structure/core-only)
+stage shows none. Modeled as a **vabGroup** with an empty `compID`; not a real
+Component until picked.
+_Avoid_: Empty slot, Ghost part.
+
+**Crack-Open** + **Vab Seed** (v0.25 / ADR 0032):
+Crack-Open is the `enter`-on-a-catalog-stage-header action that converts an
+atomic catalog **Part** into its editable seed **Components** in place (seam /
+decouple flags ride along), with a flash showing the honest Δv delta. The seed
+is a **Vab Seed** — an optional `vab_seed` component-ID list on a **Part** that
+is **seed-only and never stat-bearing**: **Aggregation** reads `components`,
+never `vab_seed`, so the part keeps its authored scalars and loadouts / budget
+evals / golden tests are untouched by construction. The cracked aggregate may
+differ from the part; that delta is shown, not hidden.
+_Avoid_: Decompose (implies the part's *stats* come from the seed — they never
+do), Explode.
+
+**Σ Δv Target** (v0.25 / ADR 0032):
+A session-only vehicle-level Δv goal (`t`), not persisted into a **Design**.
+The stats strip renders `current / target (delta)`; with a tank row selected a
+**hint** shows the count of that tank to add to close the gap (`+2 → Σ ≈ 9280
+✓`) or reports it unreachable. Computed against whole-stack Σ (adding a tank to
+one stage lowers every stage below it). A hint, deliberately not a solver.
+_Avoid_: Optimizer, Solver (there is no engine suggestion or multi-variable
+solve).
 
 **Design** (v0.24 / ADR 0029):
 A saved custom vehicle built in the **VAB**: a **Loadout** plus the **composed
