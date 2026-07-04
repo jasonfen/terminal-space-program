@@ -2,6 +2,7 @@ package screens
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -18,6 +19,8 @@ func (v *VAB) HandleKey(key string) VABAction {
 		return v.handleNamingKey(key)
 	case vabModeLoad:
 		return v.handleLoadKey(key)
+	case vabModeTarget:
+		return v.handleTargetKey(key)
 	default:
 		return v.handleBuildKey(key)
 	}
@@ -27,13 +30,14 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 	switch key {
 	case "esc":
 		return VABActionCancel
-	// ←/→ switch columns spatially (palette on the left, vehicle on the
-	// right) — they never steal focus or move a cursor anymore (ADR 0030 §3).
+	// ←/→ (and h/l for vim parity) edit the focused vehicle row — swap its
+	// component within kind (ADR 0032 §3). They no longer switch columns.
 	case "left", "h":
-		v.focus = focusPalette
+		v.swapRow(-1)
 	case "right", "l":
-		v.focus = focusStack
-	case "tab":
+		v.swapRow(+1)
+	// tab / shift+tab are the only column switch now (ADR 0032 §3).
+	case "tab", "shift+tab":
 		if v.focus == focusPalette {
 			v.focus = focusStack
 		} else {
@@ -63,15 +67,55 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 		v.reorderStage(-1)
 	case "y":
 		v.duplicateStage()
+	case "enter":
+		v.crackOpen()
 	case "d":
 		v.toggleDockSeam()
 	case "c":
 		v.toggleDecoupleFuse()
+	case "t":
+		v.enterTargetMode()
 	case "s":
 		v.flash = ""
 		v.mode = vabModeNaming
 	case "o":
 		v.enterLoadMode()
+	}
+	return VABActionNone
+}
+
+// enterTargetMode opens the Σ Δv target numeric input, pre-filling the current
+// target (ADR 0032 §8).
+func (v *VAB) enterTargetMode() {
+	if v.target > 0 {
+		v.targetInput = strconv.FormatFloat(v.target, 'f', 0, 64)
+	} else {
+		v.targetInput = ""
+	}
+	v.flash = ""
+	v.mode = vabModeTarget
+}
+
+// handleTargetKey drives the Σ Δv target input (maneuver-form idiom): digits +
+// one decimal point, enter to set (empty clears), esc to cancel.
+func (v *VAB) handleTargetKey(key string) VABAction {
+	switch key {
+	case "esc":
+		v.mode = vabModeBuild
+	case "enter":
+		if v.setTarget(v.targetInput) {
+			v.mode = vabModeBuild
+		}
+	case "backspace":
+		if r := []rune(v.targetInput); len(r) > 0 {
+			v.targetInput = string(r[:len(r)-1])
+		}
+	default:
+		if len(key) == 1 {
+			if c := key[0]; (c >= '0' && c <= '9') || c == '.' {
+				v.targetInput += key
+			}
+		}
 	}
 	return VABActionNone
 }
@@ -173,6 +217,8 @@ func (v *VAB) Render(width int) string {
 		return v.renderNaming(width)
 	case vabModeLoad:
 		return v.renderLoad(width)
+	case vabModeTarget:
+		return v.renderTarget(width)
 	default:
 		return v.renderBuild(width)
 	}
@@ -209,9 +255,9 @@ func (v *VAB) renderBuild(width int) string {
 	}
 	foot = append(foot, v.theme.Dim.Render(strings.Repeat("─", clampI(width, 40, 100))))
 	foot = append(foot, v.theme.Footer.Render(
-		"[←/→] column  [↑/↓] move  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"))
+		"[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"))
 	foot = append(foot, v.theme.Footer.Render(
-		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [d] dock seam  [c] fuse  [s] save  [o] open  [esc] back"))
+		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open  [esc] back"))
 
 	return strings.Join(head, "\n") + "\n\n" + body + "\n" + strings.Join(foot, "\n")
 }
@@ -395,11 +441,13 @@ func (v *VAB) renderVehicleColumn(w int) []string {
 	}
 	stages := v.resolvedStages()
 	stats := spacecraft.StackStats(stages)
-	lines = append(lines, v.theme.Primary.Render(truncWidth(fmt.Sprintf(
-		"Σ Δv %.0f m/s · %.1f t · TWR %.2f", stats.TotalDV, stats.TotalMass/1000, stats.LiftoffTWR), w)))
+	lines = append(lines, v.theme.Primary.Render(truncWidth(v.targetReadout(stats), w)))
+	if hint := v.tankHint(); hint != "" {
+		lines = append(lines, v.theme.Warning.Render(truncWidth("  ↳ "+hint, w)))
+	}
 	lines = append(lines, "")
 	if len(v.stages) == 0 {
-		lines = append(lines, v.theme.Dim.Render("(empty — pick a part and press [a])"))
+		lines = append(lines, v.theme.Dim.Render("(empty — [n] new stage · [tab] palette · [a] add)"))
 		return lines
 	}
 	rows := v.stackRows()
@@ -414,7 +462,7 @@ func (v *VAB) renderVehicleColumn(w int) []string {
 			}
 			lines = append(lines, v.stageHeaderLine(r.stageIdx, stats, sel, cursorOn, w))
 		} else {
-			groups := v.componentGroups(r.stageIdx)
+			groups := v.rowGroups(r.stageIdx)
 			if r.group < len(groups) {
 				lines = append(lines, v.groupLine(groups[r.group], sel, cursorOn, w))
 			}
@@ -464,10 +512,17 @@ func (v *VAB) stageHeaderLine(i int, stats spacecraft.VehicleStats, sel, cursorO
 // groupLine renders one kind-folded component group: a kind-colored glyph, the
 // component name, and a ×N count when clustered (ADR 0030 §4).
 func (v *VAB) groupLine(g vabGroup, sel, cursorOn bool, w int) string {
-	glyph := v.componentStyle(g.compID).Render(v.componentGlyph(g.compID))
-	name := v.compName(v.comps[g.compID])
-	if g.count > 1 {
-		name += fmt.Sprintf(" ×%d", g.count)
+	var glyph, name string
+	if g.placeholder {
+		// "engine —" / "tank —": a dim prompt row ←/→ fills in (ADR 0032 §5).
+		glyph = v.theme.Dim.Render(glyphForKind(g.kind))
+		name = g.kind + " —"
+	} else {
+		glyph = v.componentStyle(g.compID).Render(v.componentGlyph(g.compID))
+		name = v.compName(v.comps[g.compID])
+		if g.count > 1 {
+			name += fmt.Sprintf(" ×%d", g.count)
+		}
 	}
 	name = truncWidth(name, w-6)
 	marker := "    "
@@ -558,6 +613,23 @@ func (v *VAB) renderNaming(width int) string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, v.theme.Footer.Render("[enter] save  [esc] cancel"))
+	return strings.Join(lines, "\n")
+}
+
+// renderTarget is the Σ Δv target input modal (ADR 0032 §8).
+func (v *VAB) renderTarget(width int) string {
+	var lines []string
+	lines = append(lines, v.theme.Title.Render("terminal-space-program — Σ Δv target"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+v.theme.Primary.Render("target Σ Δv (m/s): ")+v.theme.Warning.Render(v.targetInput+"▏"))
+	lines = append(lines, "")
+	lines = append(lines, "  "+v.theme.Dim.Render(fmt.Sprintf("current Σ Δv: %.0f m/s", v.Stats().TotalDV)))
+	lines = append(lines, "")
+	if v.flash != "" {
+		lines = append(lines, "  "+v.theme.Warning.Render(v.flash))
+		lines = append(lines, "")
+	}
+	lines = append(lines, v.theme.Footer.Render("[enter] set  [empty ⏎] clear  [esc] cancel"))
 	return strings.Join(lines, "\n")
 }
 

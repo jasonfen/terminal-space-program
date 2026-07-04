@@ -108,8 +108,8 @@ var helpSections = []helpSection{
 	}},
 	{"VEHICLE ASSEMBLY (VAB)", [][2]string{
 		{"esc → b", "open the VAB from the pause menu (Build)"},
-		{"tab", "switch active column (palette ↔ vehicle)"},
-		{"← / →", "switch column (palette on left, vehicle on right)"},
+		{"tab", "switch active column (palette ↔ vehicle) — the only column switch"},
+		{"← / →", "swap the selected vehicle row's part within its kind (engine leads chemistry)"},
 		{"↑ / ↓", "move cursor in the active column"},
 		{"PgUp / PgDn", "jump to next/prev kind section (palette) or stage (vehicle)"},
 		{"a", "add the selected component to the current stage (or part as a new stage)"},
@@ -117,8 +117,10 @@ var helpSections = []helpSection{
 		{"+ / -", "increase / decrease count of the component group under the cursor"},
 		{"[ / ]", "move the cursor's stage down / up in the stack (reorder)"},
 		{"y", "duplicate the stage under the cursor"},
+		{"enter", "crack an atomic catalog part into its editable seed components"},
 		{"d", "toggle dock seam below the stage (nose payload, [U]ndock-released)"},
 		{"c", "toggle fused decouple (stage drops with the group below)"},
+		{"t", "set a Σ Δv target (a tank row then hints the count to reach it)"},
 		{"s / o", "save the design (name it) / open a saved design"},
 	}},
 	{"MOUSE", [][2]string{

@@ -2,6 +2,7 @@
   "parts": [
     {
       "id": "s-ic",
+      "vab_seed": ["f1-booster", "f1-booster", "f1-booster", "f1-booster", "f1-booster", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "adapter-tr2"],
       "name": "S-IC",
       "glyph": "➤",
       "color": "#FF8C42",
@@ -19,6 +20,7 @@
     },
     {
       "id": "s-ii",
+      "vab_seed": ["j2-upper", "j2-upper", "j2-upper", "j2-upper", "j2-upper", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k"],
       "name": "S-II",
       "glyph": "➤",
       "color": "#FFC042",
@@ -36,6 +38,7 @@
     },
     {
       "id": "s-ivb",
+      "vab_seed": ["j2-upper", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k"],
       "name": "S-IVB",
       "glyph": "➤",
       "color": "#FFD93D",
@@ -53,6 +56,7 @@
     },
     {
       "id": "icps",
+      "vab_seed": ["rl10-vac", "hydro-tank-25k"],
       "name": "ICPS",
       "glyph": "➤",
       "color": "#5BB3FF",
@@ -70,6 +74,7 @@
     },
     {
       "id": "srb",
+      "vab_seed": ["srb-solid", "srb-solid", "srb-solid", "srb-solid", "srb-solid", "srb-solid", "srb-solid", "srb-solid", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing", "solid-casing"],
       "name": "SRBs",
       "glyph": "➤",
       "color": "#E0E0E0",
@@ -86,6 +91,7 @@
     },
     {
       "id": "core-rs25",
+      "vab_seed": ["j2-upper", "j2-upper", "j2-upper", "j2-upper", "j2-upper", "j2-upper", "j2-upper", "j2-upper", "j2-upper", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k", "hydro-tank-25k"],
       "name": "Core",
       "glyph": "➤",
       "color": "#FF6B35",
@@ -103,6 +109,7 @@
     },
     {
       "id": "f9-s1",
+      "vab_seed": ["merlin-sustainer", "merlin-sustainer", "merlin-sustainer", "merlin-sustainer", "merlin-sustainer", "merlin-sustainer", "merlin-sustainer", "merlin-sustainer", "merlin-sustainer", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k", "kero-tank-100k"],
       "name": "F9-S1",
       "glyph": "➤",
       "color": "#E8E8E8",
@@ -120,6 +127,7 @@
     },
     {
       "id": "f9-s2",
+      "vab_seed": ["merlin-sustainer", "kero-tank-100k"],
       "name": "F9-S2",
       "glyph": "➤",
       "color": "#B0D8FF",
@@ -189,6 +197,7 @@
     },
     {
       "id": "csm",
+      "vab_seed": ["sps-transfer", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "crew-capsule"],
       "name": "CSM",
       "command_source": "crewed",
       "glyph": "➤",
@@ -265,6 +274,7 @@
     },
     {
       "id": "rcs-tug",
+      "vab_seed": ["ballast-plate"],
       "name": "RCS Tug",
       "glyph": "➤",
       "color": "#FF87D7",

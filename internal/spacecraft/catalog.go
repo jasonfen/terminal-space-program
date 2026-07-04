@@ -86,6 +86,17 @@ type Part struct {
 	// mass / capacity, single fuel type per stage). Zero migration: today's
 	// catalog declares no components, so every existing Part stays atomic.
 	Components []string `json:"components,omitempty"`
+
+	// VabSeed (v0.25 / ADR 0032 §6) is an OPTIONAL component-ID list used
+	// ONLY to seed the VAB working stage when the player cracks this atomic
+	// part open (enter on its stage header). It NEVER drives runtime stats:
+	// composePart / aggregateComponents read Components, never VabSeed, so the
+	// part keeps its inline scalar fields authoritative and loadouts, budget
+	// evals, and golden tests are unaffected by construction. The cracked
+	// stage's aggregate may differ from the part — that delta is shown, not
+	// hidden (§6). Hash-free and overlay-moddable like the rest of the
+	// parts catalog (ADR 0026 §4).
+	VabSeed []string `json:"vab_seed,omitempty"`
 }
 
 // Antenna is the forward-compatible (ADR 0027) per-part antenna attribute:

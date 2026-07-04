@@ -100,7 +100,8 @@ func TestVABDeltaVHandWorked(t *testing.T) {
 func TestVABSeamCyclingPlan(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
-	for i := 0; i < 3; i++ { // three single-component stages
+	v.addComponentToCurrent("tank") // fill the auto-seeded stage 0
+	for i := 0; i < 2; i++ {         // two more single-component stages
 		v.newStage()
 		v.addComponentToCurrent("tank")
 	}
@@ -146,12 +147,14 @@ func TestVABCatalogPartAsStage(t *testing.T) {
 	if len(v.palette) == 0 {
 		t.Fatal("palette empty — expected single-stage catalog parts")
 	}
-	// Cursor starts at 0 (a catalog part); add it.
+	// Reset auto-seeds one empty composed stage; adding a catalog part reuses
+	// that empty stage in place rather than orphaning it as a phantom, so the
+	// result is exactly one atomic catalog stage.
 	v.addSelected()
 	if len(v.stages) != 1 || !v.stages[0].isCatalog() {
-		t.Fatalf("expected one atomic catalog stage, got %d stages (catalog=%v)", len(v.stages), len(v.stages) == 1 && v.stages[0].isCatalog())
+		t.Fatalf("expected one atomic catalog stage, got %d (catalog=%v)", len(v.stages), len(v.stages) == 1 && v.stages[0].isCatalog())
 	}
-	if v.resolvedStages()[0].DryMass <= 0 {
+	if v.resolveStage(v.stages[0]).DryMass <= 0 {
 		t.Error("catalog stage resolved to zero dry mass")
 	}
 }
@@ -248,6 +251,7 @@ func TestVABDecouplePlanRoundTrip(t *testing.T) {
 func TestVABWarnings(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
+	v.stages = nil // a truly-empty stack (Reset auto-seeds one stage)
 	if w := v.Warnings(); len(w) != 1 {
 		t.Errorf("empty stack warnings = %v, want one (empty)", w)
 	}

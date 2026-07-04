@@ -33,9 +33,14 @@ Recently introduced: an in-game **Vehicle Assembly Building (VAB)**. From the
 main view press `Esc → [Build (VAB)]` to design your own rocket from fine
 parts — compose engines, fuel tanks, command cores, antennas, and structure
 into stages, stack the stages, mark dock seams for nose payloads, and watch a
-live **Δv / TWR / mass** readout as you build. Save a design and it shows up in
-the spawn form (`n`) alongside the built-in craft, so you design once and
-launch many. Designs are portable files under
+live **Δv / TWR / mass** readout as you build. Editing is in place,
+maneuver-form style: you open onto a stage, press `←/→` on its engine or tank
+row to swap that part within its kind (the engine leads the stage's chemistry),
+`+/-` to add more, and `enter` on a shipped catalog part (an S-IVB, a Falcon
+booster) to **crack it open** into editable components and tweak from there. Set
+a `t` **Σ Δv target** and a tank row will hint how many tanks close the gap.
+Save a design and it shows up in the spawn form (`n`) alongside the built-in
+craft, so you design once and launch many. Designs are portable files under
 `~/.config/terminal-space-program/designs/` (KSP `.craft`-style); drop one into
 the sibling `loadouts/` overlay dir to share it as a mod. Multiple engines in a
 stage combine honestly (thrust adds, Isp is the thrust-weighted blend) and a

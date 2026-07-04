@@ -89,6 +89,13 @@ type StageModule struct {
 	commandSource string
 	antennaKind   string
 	antennaRangeM float64
+	// VabSeed (v0.25 / ADR 0032 §6) is the part's optional crack-open seed
+	// — the component-ID list the VAB expands this atomic block into when the
+	// player presses enter on its stage header. Carried through from
+	// Part.VabSeed; nil for parts with no authored decomposition. Never
+	// touches the built Stage (BuildStage ignores it) — it is a VAB-editing
+	// convenience only.
+	VabSeed []string
 }
 
 // Catalog stage IDs.
@@ -211,6 +218,7 @@ func (p Part) toStageModule() StageModule {
 		commandSource:       p.CommandSource,
 		antennaKind:         antennaKindOf(p),
 		antennaRangeM:       antennaRangeOf(p),
+		VabSeed:             p.VabSeed,
 	}
 }
 

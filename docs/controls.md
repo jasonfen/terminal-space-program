@@ -238,10 +238,16 @@ read a live **Δv / TWR / mass** panel as you go. Saved designs are global (they
 survive across games) and show up in the spawn form (`n`) alongside the
 built-in craft, so you design once and launch many.
 
+Editing happens **in place** on the vehicle rows, the same idiom as the
+maneuver form: the VAB opens focused on the vehicle column with the cursor on a
+fresh stage's `engine —` placeholder, and `←/→` cycles that row's part. You
+rarely need the palette at all — `←/→` to pick an engine, `↓` and `←/→` for a
+tank, `+/-` for the count, done.
+
 | Key | Action |
 |---|---|
-| `Tab` | Switch the active column (palette ↔ vehicle) |
-| `←` / `→` | Switch column — palette on the left, vehicle (stack) on the right |
+| `Tab` | Switch the active column (palette ↔ vehicle) — the **only** column switch now |
+| `←` / `→` | Swap the selected vehicle row's part within its kind — cycle engines on an engine row, tanks on a tank row. On an empty stage the `engine —` / `tank —` placeholder rows cycle from nothing through the catalog. No-op on a stage header or in the palette |
 | `↑` / `↓` | Move the cursor in the active column |
 | `PgUp` / `PgDn` | Jump to the previous / next kind section in the palette, or to the previous / next stage in the vehicle column |
 | `a` | Add the selected component to the current stage — or, for a catalog part, add it as a new whole stage |
@@ -250,15 +256,21 @@ built-in craft, so you design once and launch many.
 | `+` / `-` | Increase / decrease the count of the component group under the cursor (the `×N` cluster count) |
 | `[` / `]` | Move the cursor's stage down / up in the stack (reorder) |
 | `y` | Duplicate the stage under the cursor |
+| `Enter` | **Crack open** the atomic catalog part under the cursor (a stage header) into its editable seed components, so you can start from a shipped stage — an S-IVB, a Falcon booster — and tweak it. A flash shows the honest Δv change; parts with no decomposition stay whole |
 | `d` | Toggle a **dock seam** below the stage — everything above the seam becomes a nose payload you release with Undock (`U`) instead of staging. Mark several seams for several payloads |
 | `c` | Toggle a **fused decouple** — the stage drops together with the group below it on one staging press |
+| `t` | Set a session **Σ Δv target**. The stats strip then reads `current / target (delta)`, and with a tank row selected a hint shows how many of that tank close the gap (`+2 → Σ ≈ 9280 ✓`) or that it is unreachable |
 | `s` | Name and save the design |
 | `o` | Open a saved design to edit (`x` deletes the highlighted one) |
 | `Esc` | Back to the map |
 
 A stage can hold only **one fuel chemistry** — the VAB won't let you mix, say,
-a kerolox engine with a hydrolox tank in the same stage. Multiple engines in
-one stage are fine and combine honestly (thrust adds; the effective Isp is the
+a kerolox engine with a hydrolox tank in the same stage. The **engine row leads
+the chemistry**: cycling the engine with `←/→` can cross chemistries (a kerolox
+→ hydrolox swap lands and leaves the stage briefly flagged), and the tank rows
+then cycle only the new chemistry, so one `←/→` per tank repairs the mix. Adding
+a mismatched part with `a` is still rejected outright. Multiple engines in one
+stage are fine and combine honestly (thrust adds; the effective Isp is the
 thrust-weighted blend). Soft warnings flag the usual snags — no engine, no
 command source (it defaults to a probe core on spawn), or a lift-off TWR below
 1 — but never block you from saving.

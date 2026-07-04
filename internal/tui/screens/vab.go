@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -49,6 +50,13 @@ type VAB struct {
 	designs []spacecraft.Design
 	loadIdx int
 
+	// target is the vehicle-level Σ Δv target in m/s (ADR 0032 §8), 0 == none.
+	// Session-only: it drives the stats-strip readout and the tank-row hint but
+	// is never written into a saved Design, and Reset clears it.
+	target float64
+	// targetInput is the in-progress typed value while in vabModeTarget.
+	targetInput string
+
 	// flash is a transient one-line notice (validation reject / save result).
 	flash string
 }
@@ -78,6 +86,7 @@ const (
 	vabModeBuild  vabMode = iota
 	vabModeNaming         // typing a name to save
 	vabModeLoad           // picking a saved design to load / delete
+	vabModeTarget         // typing a Σ Δv target (ADR 0032 §8)
 )
 
 // vabStage is one stage under assembly: either a composition of component
@@ -120,11 +129,21 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.stageIdx = 0
 	v.stackCursor = 0
 	v.paletteIdx = 0
-	v.focus = focusPalette
+	v.focus = focusStack // vehicle-primary: common edits happen in the vehicle column (ADR 0032 §2)
 	v.mode = vabModeBuild
 	v.name = ""
+	v.target = 0
+	v.targetInput = ""
 	v.flash = ""
 	v.buildPalette()
+	// Auto-seed one empty stage so the vehicle column is immediately editable
+	// on entry: the cursor lands on its engine placeholder and ←/→ picks a part
+	// with no palette trip and no `n` press. Without this the vehicle-primary
+	// default (ADR 0032 §2) focuses an empty column, so reaching the palette
+	// needed a stray `tab` first — the placeholder build loop (§5) now runs the
+	// moment the screen opens.
+	v.newStage()
+	v.flash = ""
 }
 
 // buildPalette assembles the flat palette: components grouped by kind (in
@@ -165,6 +184,13 @@ func (v *VAB) addSelected() {
 	}
 	it := v.palette[v.paletteIdx]
 	if !it.isComponent {
+		// Reuse an empty current composed stage (e.g. the auto-seed) rather than
+		// orphaning it below a new catalog stage as a phantom zero-mass stage.
+		if v.isEmptyComposed(v.stageIdx) {
+			v.stages[v.stageIdx] = vabStage{catalogPartID: it.id}
+			v.focusStageInStack(v.stageIdx)
+			return
+		}
 		v.stages = append(v.stages, vabStage{catalogPartID: it.id})
 		v.stageIdx = len(v.stages) - 1
 		v.focusStageInStack(v.stageIdx)
@@ -225,11 +251,32 @@ func (v *VAB) stageFuelType(comps []string) string {
 	return ""
 }
 
-// newStage appends an empty composed stage on top and selects it.
+// newStage appends an empty composed stage on top, brings focus to the
+// vehicle column, and lands the cursor on the stage's first editable row (the
+// engine placeholder) so the n → ←/→ → +/− build loop needs no palette trip
+// (ADR 0032 §5).
 func (v *VAB) newStage() {
-	v.stages = append(v.stages, vabStage{})
+	// If the top stage is already an untouched empty composed stage (the
+	// auto-seed, or a just-pressed `n`), reuse it instead of stacking another
+	// empty phantom — an empty stage contributes nothing but a dead 0-mass
+	// slot to a saved / spawned vehicle.
+	if n := len(v.stages); n == 0 || !v.isEmptyComposed(n-1) {
+		v.stages = append(v.stages, vabStage{})
+	}
 	v.stageIdx = len(v.stages) - 1
+	v.focus = focusStack
 	v.focusStageInStack(v.stageIdx)
+	rows := v.stackRows()
+	if h := v.stackCursor; h+1 < len(rows) && !rows[h+1].isHeader() && rows[h+1].stageIdx == v.stageIdx {
+		v.stackCursor = h + 1
+	}
+}
+
+// isEmptyComposed reports whether stage i exists and is a composed stage with
+// no components yet (the auto-seed / a freshly-`n`ed stage) — the state that
+// must not be orphaned into a saved design as a phantom zero-mass stage.
+func (v *VAB) isEmptyComposed(i int) bool {
+	return i >= 0 && i < len(v.stages) && !v.stages[i].isCatalog() && len(v.stages[i].components) == 0
 }
 
 // removeFromCurrent pops the last component off the current composed stage,
@@ -541,6 +588,11 @@ type vabGroup struct {
 	compID string
 	kind   string
 	count  int
+	// placeholder marks a synthetic "engine —" / "tank —" prompt row on a
+	// stage missing that propulsion kind (ADR 0032 §5): compID == "", count
+	// == 0. ←/→ cycles it from none through the catalog; the first real pick
+	// appends the component and the row becomes an ordinary group.
+	placeholder bool
 }
 
 // vabRow is one navigable row in the vehicle column's flattened display list
@@ -573,23 +625,72 @@ func (v *VAB) componentGroups(i int) []vabGroup {
 	for _, id := range firstSeen {
 		groups = append(groups, vabGroup{compID: id, kind: v.comps[id].Kind, count: counts[id]})
 	}
-	sort.SliceStable(groups, func(a, b int) bool {
-		if ra, rb := kindRank(groups[a].kind), kindRank(groups[b].kind); ra != rb {
-			return ra < rb
-		}
-		return groups[a].compID < groups[b].compID
-	})
+	sort.SliceStable(groups, func(a, b int) bool { return lessVabGroup(groups[a], groups[b]) })
 	return groups
 }
 
+// placeholderKinds returns the propulsion kinds (engine / tank) that stage i
+// should surface as placeholder rows (ADR 0032 §5). A truly-empty composed
+// stage prompts for both; once one propulsion kind is present the OTHER stays
+// prompted (so the n → ←/→ → +/− loop needs no palette trip), but a stage
+// carrying only non-propulsion parts (a structure/core payload) stays clean.
+// Nil for atomic catalog stages — an opaque block has no editable rows.
+func (v *VAB) placeholderKinds(i int) []string {
+	if i < 0 || i >= len(v.stages) || v.stages[i].isCatalog() {
+		return nil
+	}
+	comps := v.stages[i].components
+	hasEngine, hasTank := false, false
+	for _, id := range comps {
+		switch v.comps[id].Kind {
+		case spacecraft.ComponentEngine:
+			hasEngine = true
+		case spacecraft.ComponentTank:
+			hasTank = true
+		}
+	}
+	empty := len(comps) == 0
+	var ks []string
+	if !hasEngine && (empty || hasTank) {
+		ks = append(ks, spacecraft.ComponentEngine)
+	}
+	if !hasTank && (empty || hasEngine) {
+		ks = append(ks, spacecraft.ComponentTank)
+	}
+	return ks
+}
+
+// rowGroups is the vehicle column's display/navigation group list for stage i:
+// the canonical real groups plus any placeholder rows, sorted into kind order
+// so a placeholder slots into its kind's position (ADR 0032 §5). Row-addressed
+// ops (swap / quantity / remove) and the renderer index into this list.
+func (v *VAB) rowGroups(i int) []vabGroup {
+	groups := v.componentGroups(i)
+	for _, k := range v.placeholderKinds(i) {
+		groups = append(groups, vabGroup{kind: k, placeholder: true})
+	}
+	sort.SliceStable(groups, func(a, b int) bool { return lessVabGroup(groups[a], groups[b]) })
+	return groups
+}
+
+// lessVabGroup is the canonical fold order (ADR 0030 §4): by kind, then
+// component ID. Shared by componentGroups and rowGroups so the vehicle column
+// and its placeholder-augmented view can never sort differently.
+func lessVabGroup(a, b vabGroup) bool {
+	if ra, rb := kindRank(a.kind), kindRank(b.kind); ra != rb {
+		return ra < rb
+	}
+	return a.compID < b.compID
+}
+
 // stackRows builds the vehicle column's navigable rows in DISPLAY order (top
-// stage first): each stage header followed by its component groups. The
-// linear stack cursor (stackCursor) indexes this slice.
+// stage first): each stage header followed by its component groups (real and
+// placeholder). The linear stack cursor (stackCursor) indexes this slice.
 func (v *VAB) stackRows() []vabRow {
 	var rows []vabRow
 	for i := len(v.stages) - 1; i >= 0; i-- {
 		rows = append(rows, vabRow{stageIdx: i, group: -1})
-		for g := range v.componentGroups(i) {
+		for g := range v.rowGroups(i) {
 			rows = append(rows, vabRow{stageIdx: i, group: g})
 		}
 	}
@@ -677,8 +778,9 @@ func (v *VAB) removeUnderCursor() {
 	if r.isHeader() {
 		v.removeStageAt(r.stageIdx)
 	} else {
-		groups := v.componentGroups(r.stageIdx)
-		if r.group < len(groups) {
+		groups := v.rowGroups(r.stageIdx)
+		// A placeholder row has no real component to remove — leave it be.
+		if r.group < len(groups) && !groups[r.group].placeholder {
 			v.removeOneComponent(r.stageIdx, groups[r.group].compID)
 		}
 	}
@@ -696,8 +798,12 @@ func (v *VAB) quantityDelta(d int) {
 		v.flash = "select a component (↑/↓) to change its count"
 		return
 	}
-	groups := v.componentGroups(r.stageIdx)
+	groups := v.rowGroups(r.stageIdx)
 	if r.group >= len(groups) {
+		return
+	}
+	if groups[r.group].placeholder {
+		v.flash = "pick a component (←/→) before setting its count"
 		return
 	}
 	id := groups[r.group].compID
@@ -709,6 +815,274 @@ func (v *VAB) quantityDelta(d int) {
 	v.clampCursor()
 	v.syncStageIdx()
 	v.flash = ""
+}
+
+// stageEngineChem returns the fuel chemistry of stage i's engine(s) — the
+// chemistry leader that fuelled non-engine rows follow (ADR 0032 §4). Empty
+// when the stage has no fuelled engine yet.
+func (v *VAB) stageEngineChem(i int) string {
+	if i < 0 || i >= len(v.stages) {
+		return ""
+	}
+	for _, id := range v.stages[i].components {
+		if c, ok := v.comps[id]; ok && c.Kind == spacecraft.ComponentEngine && c.FuelType != "" {
+			return c.FuelType
+		}
+	}
+	return ""
+}
+
+// swapCandidates lists the component IDs a row of the given kind may cycle
+// through, sorted for a stable order (ADR 0032 §4). The engine kind is the
+// chemistry leader — every engine is a candidate. Other fuelled kinds (tanks)
+// are filtered to the stage's engine chemistry so a swap never lands them in
+// an incompatible state; non-fuelled kinds cycle their whole kind.
+func (v *VAB) swapCandidates(i int, kind string) []string {
+	chem := v.stageEngineChem(i)
+	var ids []string
+	for id, c := range v.comps {
+		if c.Kind != kind {
+			continue
+		}
+		if kind != spacecraft.ComponentEngine && c.FuelType != "" && chem != "" && c.FuelType != chem {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// replaceGroup swaps every instance of oldID in stage i for newID — a fold
+// group cycles as a unit, preserving its ×N count.
+func (v *VAB) replaceGroup(i int, oldID, newID string) {
+	if i < 0 || i >= len(v.stages) {
+		return
+	}
+	for k, id := range v.stages[i].components {
+		if id == oldID {
+			v.stages[i].components[k] = newID
+		}
+	}
+}
+
+// swapRow cycles the component of the fold row under the cursor within its
+// kind (ADR 0032 §3/§4, the maneuver-form idiom): the engine row leads
+// chemistry (cycles all engines), fuelled rows cycle compatible-only, a
+// placeholder row cycles from none through the catalog and the first pick adds
+// the component. Header rows, the palette, and empty candidate sets are
+// no-ops. Only the vehicle column edits — ←/→ in the palette does nothing.
+func (v *VAB) swapRow(dir int) {
+	if v.focus != focusStack {
+		return
+	}
+	r, ok := v.currentRow()
+	if !ok || r.isHeader() {
+		return
+	}
+	groups := v.rowGroups(r.stageIdx)
+	if r.group < 0 || r.group >= len(groups) {
+		return
+	}
+	g := groups[r.group]
+	cands := v.swapCandidates(r.stageIdx, g.kind)
+	if len(cands) == 0 {
+		v.flash = fmt.Sprintf("no compatible %s to swap to", g.kind)
+		return
+	}
+	if g.placeholder {
+		// Cycle [none, cand0, cand1, …] starting at none; landing back on none
+		// keeps the placeholder, any other lands a real component.
+		idx := wrapIdx(dir, len(cands)+1)
+		if idx == 0 {
+			return
+		}
+		v.stages[r.stageIdx].components = append(v.stages[r.stageIdx].components, cands[idx-1])
+		v.syncStageIdx()
+		v.flash = ""
+		return
+	}
+	var next string
+	switch cur := indexOfStr(cands, g.compID); {
+	case cur < 0 && dir >= 0:
+		// Current component fell out of the candidate set (e.g. a tank left
+		// stranded by a chemistry-crossing engine swap) — step in from the edge
+		// so one ←/→ repairs it.
+		next = cands[0]
+	case cur < 0:
+		next = cands[len(cands)-1]
+	default:
+		next = cands[wrapIdx(cur+dir, len(cands))]
+	}
+	if next == g.compID {
+		return
+	}
+	v.replaceGroup(r.stageIdx, g.compID, next)
+	v.clampCursor()
+	v.syncStageIdx()
+	v.flash = ""
+}
+
+// indexOfStr returns the index of s in xs, or -1.
+func indexOfStr(xs []string, s string) int {
+	for i, x := range xs {
+		if x == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// stageDV is the isolated Δv of a single resolved stage (a one-stage stack),
+// used for the crack-open before/after delta.
+func (v *VAB) stageDV(st spacecraft.Stage) float64 {
+	return spacecraft.StackStats([]spacecraft.Stage{st}).TotalDV
+}
+
+// crackOpen converts the atomic catalog stage under the cursor into its
+// authored seed components in place (ADR 0032 §6), so the player can start
+// from a shipped part and tweak it. The seam / decouple flags ride along. The
+// flash shows the honest Δv delta — the composed aggregate may differ from the
+// opaque part (the seed is seed-only, never the part's stats, §6). A part with
+// no seed, or a non-catalog / non-header row, is a no-op with an explanatory
+// flash. There is no un-crack key: delete + re-add the part reverses it.
+func (v *VAB) crackOpen() {
+	r, ok := v.currentRow()
+	if !ok || !r.isHeader() {
+		return // enter only cracks a stage header
+	}
+	vs := v.stages[r.stageIdx]
+	if !vs.isCatalog() {
+		return // a composed stage has nothing to crack open
+	}
+	m, known := spacecraft.StageCatalog[vs.catalogPartID]
+	name := vs.catalogPartID
+	if known && m.Name != "" {
+		name = m.Name
+	}
+	if !known || len(m.VabSeed) == 0 {
+		v.flash = fmt.Sprintf("%q has no decomposition", name)
+		return
+	}
+	before := v.stageDV(v.resolveStage(vs))
+	cracked := vabStage{
+		components:    append([]string(nil), m.VabSeed...),
+		dockSeamBelow: vs.dockSeamBelow,
+		decoupleFused: vs.decoupleFused,
+	}
+	v.stages[r.stageIdx] = cracked
+	after := v.stageDV(v.resolveStage(cracked))
+	v.flash = fmt.Sprintf("cracked %q: Δv %.0f→%.0f", name, before, after)
+	v.syncStageIdx()
+}
+
+// --- Σ Δv target + tank-row hint (ADR 0032 §8) ---
+
+// setTarget parses the typed input into the session Σ Δv target. An empty
+// string clears the target; a non-numeric or negative value is rejected with a
+// flash and leaves the target unchanged. Returns true when the input was
+// accepted (so the caller can leave target mode).
+func (v *VAB) setTarget(input string) bool {
+	s := strings.TrimSpace(input)
+	if s == "" {
+		v.target = 0
+		v.flash = "Σ Δv target cleared"
+		return true
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < 0 {
+		v.flash = "target must be a number ≥ 0"
+		return false
+	}
+	if f == 0 {
+		// A typed 0 clears rather than silently reading as "no target" — the
+		// readout / hint both gate on target > 0.
+		v.target = 0
+		v.flash = "Σ Δv target cleared"
+		return true
+	}
+	v.target = f
+	v.flash = fmt.Sprintf("Σ Δv target %.0f m/s", f)
+	return true
+}
+
+// targetReadout is the vehicle stats strip: the plain Σ Δv line, or — when a
+// target is set — the "current / target (delta)" form (ADR 0032 §8).
+func (v *VAB) targetReadout(stats spacecraft.VehicleStats) string {
+	if v.target > 0 {
+		return fmt.Sprintf("Σ Δv %.0f / %.0f (%+.0f) m/s · %.1f t · TWR %.2f",
+			stats.TotalDV, v.target, stats.TotalDV-v.target, stats.TotalMass/1000, stats.LiftoffTWR)
+	}
+	return fmt.Sprintf("Σ Δv %.0f m/s · %.1f t · TWR %.2f",
+		stats.TotalDV, stats.TotalMass/1000, stats.LiftoffTWR)
+}
+
+// sigmaWithTank returns the whole-stack Σ Δv if `extra` more of compID were in
+// stage i (ADR 0032 §8 — computed against Σ, since adding a tank to one stage
+// lowers every stage below it, so a per-stage number would lie).
+func (v *VAB) sigmaWithTank(i int, compID string, extra int) float64 {
+	stages := make([]spacecraft.Stage, len(v.stages))
+	for k, vs := range v.stages {
+		if k == i && !vs.isCatalog() {
+			comps := append([]string(nil), vs.components...)
+			for e := 0; e < extra; e++ {
+				comps = append(comps, compID)
+			}
+			st, _ := spacecraft.ComposeStage(comps, v.comps)
+			stages[k] = st
+		} else {
+			stages[k] = v.resolveStage(vs)
+		}
+	}
+	return spacecraft.StackStats(stages).TotalDV
+}
+
+// tankHint is the optional one-line hint under the stats strip when a target is
+// set and the cursor is on a tank row (ADR 0032 §8): the count of that tank to
+// add to close the Σ gap ("FT-9000: +2 → Σ ≈ 9280 ✓"), or "unreachable with
+// <tank>" when the tank's dry-mass asymptote can't reach the target. Empty when
+// no target, no tank row selected, or the target is already met.
+func (v *VAB) tankHint() string {
+	if v.target <= 0 {
+		return ""
+	}
+	r, ok := v.currentRow()
+	if !ok || r.isHeader() {
+		return ""
+	}
+	groups := v.rowGroups(r.stageIdx)
+	if r.group >= len(groups) {
+		return ""
+	}
+	g := groups[r.group]
+	if g.placeholder || v.comps[g.compID].Kind != spacecraft.ComponentTank {
+		return ""
+	}
+	// Resolve the stack once; only the cursor's stage changes as tanks are
+	// added, so the other stages are computed a single time and the target
+	// stage grows one component per step (not a full re-resolve per step).
+	base := v.resolvedStages()
+	cur := spacecraft.StackStats(base).TotalDV
+	if cur >= v.target {
+		return "" // met — the strip's (+delta) already says so
+	}
+	name := v.compName(v.comps[g.compID])
+	comps := append([]string(nil), v.stages[r.stageIdx].components...)
+	prev := cur
+	const maxAdd = 200
+	for k := 1; k <= maxAdd; k++ {
+		comps = append(comps, g.compID)
+		base[r.stageIdx], _ = spacecraft.ComposeStage(comps, v.comps)
+		s := spacecraft.StackStats(base).TotalDV
+		if s >= v.target {
+			return fmt.Sprintf("%s: +%d → Σ ≈ %.0f ✓", name, k, s)
+		}
+		if s <= prev+0.1 { // another whole tank barely moves Σ — asymptote below target
+			return fmt.Sprintf("unreachable with %s", name)
+		}
+		prev = s
+	}
+	return fmt.Sprintf("unreachable with %s", name)
 }
 
 // reorderStage moves the cursor's stage one position toward the top (dir +1)
