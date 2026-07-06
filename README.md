@@ -132,3 +132,13 @@ See the [command-line reference](docs/cli.md#custom-vehicles) for the format.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=jasonfen%2Fterminal-space-program&type=date&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&theme=dark&legend=bottom-right&sealed_token=d7Clv4dIAuGhv05nJowEVzCtq1KRIRa2hCiTrzAjtCkFg4w_TFdAMZrJcRFGAa-pqKRbzr46rgcTUPIIT4ahVvZrDZfx0r1VLvvORQB_YDohDHhbl_7Xjte1AwP0CMd8AK2WuWDbj3rUVTajPbbuqANaBHi1BRbjkIQH54EFfbICSON0uenGXtSc-1-O" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&legend=bottom-right&sealed_token=d7Clv4dIAuGhv05nJowEVzCtq1KRIRa2hCiTrzAjtCkFg4w_TFdAMZrJcRFGAa-pqKRbzr46rgcTUPIIT4ahVvZrDZfx0r1VLvvORQB_YDohDHhbl_7Xjte1AwP0CMd8AK2WuWDbj3rUVTajPbbuqANaBHi1BRbjkIQH54EFfbICSON0uenGXtSc-1-O" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&legend=bottom-right&sealed_token=d7Clv4dIAuGhv05nJowEVzCtq1KRIRa2hCiTrzAjtCkFg4w_TFdAMZrJcRFGAa-pqKRbzr46rgcTUPIIT4ahVvZrDZfx0r1VLvvORQB_YDohDHhbl_7Xjte1AwP0CMd8AK2WuWDbj3rUVTajPbbuqANaBHi1BRbjkIQH54EFfbICSON0uenGXtSc-1-O" />
+ </picture>
+</a>
