@@ -232,8 +232,8 @@ hand-authored modder overlay (`loadouts/`) so app-written files never override
 a built-in by ID collision. The **VAB** owns its writes and deletes. A Design
 file is a portable catalog fragment — copy it into the sibling `loadouts/`
 overlay to publish it as a mod.
-_Avoid_: Save dir (that is the game-save location, `save.json`), Catalog (the
-embedded / built-in set).
+_Avoid_: Save dir (that is the game-save location — the **Saves directory**,
+`saves/`), Catalog (the embedded / built-in set).
 
 **Craft Category** (v0.24 / ADR 0031):
 A display-only, hash-excluded grouping label on a **Loadout** that clusters
@@ -2251,6 +2251,50 @@ because the choice is a derived consequence of (burn? warp? SOI margin?),
 not a player or planner decision.
 _Avoid_: Integrator (often correct, but ambiguous — every mode is an
 integrator), Stepper.
+
+### Persistence & saves
+
+**Save** (v0.26 / ADR 0033):
+A persisted snapshot of the game **World** — a versioned JSON envelope
+(header **Meta** + `Payload`) written as one file in the **Saves
+directory**. Replaces the pre-v0.26 single fixed `save.json` slot.
+_Avoid_: Slot (there is no longer a fixed number of them), Save file
+(correct but overloaded — the envelope, not the directory).
+
+**Saves directory** (v0.26 / ADR 0033):
+The app-managed folder holding every **Save**,
+`$XDG_STATE_HOME/terminal-space-program/saves/`. The directory *is* the
+source of truth — the browser lists it by parsing each envelope's **Meta**
+header, with no sidecar index to fall out of sync.
+_Avoid_: Save dir (fine informally), Slot folder.
+
+**Named save** (v0.26 / ADR 0033):
+A **Save** with a player-chosen **Save name**, created via **Save-As** and
+never overwritten except by explicit player action on that exact row. The
+deliberate lane, as opposed to the managed **Quicksave** / **Autosave**
+lanes.
+_Avoid_: Manual save (rejected — naming is the distinguishing feature, and
+"Named" reads cleanly against Quicksave/Autosave), Profile, Campaign (the
+game has no campaign layer — Saves are flat and independent).
+
+**Save name** (v0.26 / ADR 0033):
+The human-readable display label stored in a **Save**'s envelope **Meta**.
+**Not** unique (two Saves may share a name, told apart by saved-at
+timestamp) and **not** the on-disk filename (filenames are opaque; rename is
+a pure Meta rewrite). Defaults on Save-As to *active vessel + in-game day*.
+_Avoid_: Slug, Filename, Title.
+
+**Quicksave** (v0.26 / ADR 0033):
+The single reserved **Save** written by **F5** and loaded instantly by
+**F9**; ephemeral, always overwritten in place, never a **Named save**.
+_Avoid_: Snapshot, F5 save.
+
+**Autosave** (v0.26 / ADR 0033):
+A reserved *rotating* **Save** lane (a ring of 3: `autosave-1/2/3`, oldest
+overwritten) written on a real-time interval + on quit. Event-driven
+autosave (SOI entry, staging, landing) is a deferred follow-on.
+_Avoid_: Backup, Checkpoint (reserved for a possible future event-driven
+lane).
 
 ## Example dialogue
 
