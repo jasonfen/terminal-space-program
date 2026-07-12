@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ var (
 func TestSavesListRendersRows(t *testing.T) {
 	sc := NewSavesScreen(savesTheme())
 	sc.Open(SavesModeLoad, savesFixture(), "default")
-	out := sc.Render(110)
+	out := sc.Render(110, 40)
 
 	for _, want := range []string{
 		"Apollo run", "2000-03-14", "Kern Stack", // named row columns
@@ -115,11 +116,11 @@ func TestSavesListRendersRows(t *testing.T) {
 func TestSavesSaveModeShowsNewRow(t *testing.T) {
 	sc := NewSavesScreen(savesTheme())
 	sc.Open(SavesModeSave, savesFixture(), "default")
-	if out := sc.Render(110); !strings.Contains(out, "New save") {
+	if out := sc.Render(110, 40); !strings.Contains(out, "New save") {
 		t.Errorf("save-mode render missing the New save row\n%s", out)
 	}
 	sc.Open(SavesModeLoad, savesFixture(), "default")
-	if out := sc.Render(110); strings.Contains(out, "New save") {
+	if out := sc.Render(110, 40); strings.Contains(out, "New save") {
 		t.Errorf("load-mode render must not show the New save row\n%s", out)
 	}
 }
@@ -134,7 +135,7 @@ func TestSavesSaveAsDefaultName(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter on New save row returned %v, want None (opens naming)", cmd.Kind)
 	}
-	if out := sc.Render(110); !strings.Contains(out, "Kern Stack — 2000-03-14") {
+	if out := sc.Render(110, 40); !strings.Contains(out, "Kern Stack — 2000-03-14") {
 		t.Fatalf("naming input not prefilled with the default name\n%s", out)
 	}
 	cmd := sc.HandleKey(keyEnter)
@@ -180,7 +181,7 @@ func TestSavesOverwriteTargetsSelectedFile(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter on named row returned %v, want None (confirm gate)", cmd.Kind)
 	}
-	if out := sc.Render(110); !strings.Contains(out, "Overwrite") {
+	if out := sc.Render(110, 40); !strings.Contains(out, "Overwrite") {
 		t.Fatalf("no overwrite confirm prompt rendered\n%s", out)
 	}
 	cmd := sc.HandleKey(keyRunes("y"))
@@ -200,7 +201,7 @@ func TestSavesReservedLaneNotOverwritable(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter on reserved lane returned %v, want None", cmd.Kind)
 	}
-	if out := sc.Render(110); strings.Contains(out, "Overwrite") {
+	if out := sc.Render(110, 40); strings.Contains(out, "Overwrite") {
 		t.Fatalf("reserved lane opened an overwrite confirm\n%s", out)
 	}
 }
@@ -248,7 +249,7 @@ func TestSavesLoadConfirmGate(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter returned %v before the confirm gate", cmd.Kind)
 	}
-	if out := sc.Render(110); !strings.Contains(out, "Load and discard current state?") {
+	if out := sc.Render(110, 40); !strings.Contains(out, "Load and discard current state?") {
 		t.Fatalf("missing the §H load confirm prompt\n%s", out)
 	}
 	if cmd := sc.HandleKey(keyRunes("n")); cmd.Kind != SavesActionNone {
@@ -271,7 +272,7 @@ func TestSavesDeleteConfirm(t *testing.T) {
 	if cmd := sc.HandleKey(keyRunes("d")); cmd.Kind != SavesActionNone {
 		t.Fatalf("d returned %v, want None (confirm gate)", cmd.Kind)
 	}
-	if out := sc.Render(110); !strings.Contains(out, "Delete") {
+	if out := sc.Render(110, 40); !strings.Contains(out, "Delete") {
 		t.Fatalf("missing the delete confirm prompt\n%s", out)
 	}
 	cmd := sc.HandleKey(keyRunes("y"))
@@ -290,7 +291,7 @@ func TestSavesUnreadableRowNotLoadable(t *testing.T) {
 	sc := NewSavesScreen(savesTheme())
 	sc.Open(SavesModeLoad, entries, "default")
 
-	out := sc.Render(110)
+	out := sc.Render(110, 40)
 	if !strings.Contains(out, "unreadable (newer version)") {
 		t.Fatalf("unreadable row missing its reason label\n%s", out)
 	}
@@ -303,7 +304,7 @@ func TestSavesUnreadableRowNotLoadable(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter on unreadable row returned %v, want None", cmd.Kind)
 	}
-	if strings.Contains(sc.Render(110), "Load and discard") {
+	if strings.Contains(sc.Render(110, 40), "Load and discard") {
 		t.Errorf("unreadable row opened a load confirm")
 	}
 	// Rename disabled.
@@ -331,7 +332,7 @@ func TestSavesSetEntriesClampsCursor(t *testing.T) {
 	}
 	// And an emptied list renders its placeholder without panicking.
 	sc.SetEntries(nil)
-	if out := sc.Render(110); !strings.Contains(out, "no saves") {
+	if out := sc.Render(110, 40); !strings.Contains(out, "no saves") {
 		t.Errorf("empty list missing placeholder\n%s", out)
 	}
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
@@ -359,7 +360,7 @@ func TestSavesEscCancels(t *testing.T) {
 func TestSavesClickTargets(t *testing.T) {
 	sc := NewSavesScreen(savesTheme())
 	sc.Open(SavesModeLoad, savesFixture(), "default")
-	_ = sc.Render(110) // populate click ranges
+	_ = sc.Render(110, 40) // populate click ranges
 
 	// Click the second row: selects it, no action yet.
 	btn := sc.rowBtns[1]
@@ -371,7 +372,7 @@ func TestSavesClickTargets(t *testing.T) {
 		t.Fatalf("cursor = %d after row click, want 1", sc.cursor)
 	}
 	// Click it again: activates (load confirm opens).
-	_ = sc.Render(110)
+	_ = sc.Render(110, 40)
 	if cmd := sc.HandleClick(col, btn.row); cmd.Kind != SavesActionNone {
 		t.Fatalf("second row click returned %v, want None (confirm gate)", cmd.Kind)
 	}
@@ -379,16 +380,84 @@ func TestSavesClickTargets(t *testing.T) {
 		t.Fatalf("state = %v after activating row click, want confirm-load", sc.state)
 	}
 	// [Yes] click commits the load of the clicked row.
-	_ = sc.Render(110)
+	_ = sc.Render(110, 40)
 	yes := sc.yesBtn
 	cmd := sc.HandleClick((yes.colStart+yes.colEnd)/2, yes.row)
 	if cmd.Kind != SavesActionLoad || cmd.ID != "autosave-1.json" {
 		t.Fatalf("[Yes] click = %+v, want Load autosave-1.json", cmd)
 	}
 	// [Back] cancels out of the screen.
-	_ = sc.Render(110)
+	_ = sc.Render(110, 40)
 	back := sc.backBtn
 	if cmd := sc.HandleClick((back.colStart+back.colEnd)/2, back.row); cmd.Kind != SavesActionCancel {
 		t.Fatalf("[Back] click = %+v, want Cancel", cmd)
 	}
 }
+
+// TestSavesPadCellDisplayWidth — finding 8. padCell measures cells by
+// display width (not rune count) and always leaves a trailing gap, so a
+// wide-rune (CJK/emoji) cell and an overflowing cell both occupy exactly
+// width+gap columns instead of shoving the later columns out of line or
+// fusing into them.
+func TestSavesPadCellDisplayWidth(t *testing.T) {
+	want := savesColName + lipgloss.Width(savesColGap) // width + gap, in display cells
+	cases := map[string]string{
+		"ascii-short": "abc",
+		"cjk-wide":    "好好好", // 3 runes, 6 display cells
+		"overflow":    strings.Repeat("x", 40),
+		"exact-fill":  strings.Repeat("A", savesColName),
+	}
+	for name, in := range cases {
+		got := padCell(in, savesColName)
+		if w := lipgloss.Width(got); w != want {
+			t.Errorf("%s: padCell width = %d display cells, want %d (width+gap)", name, w, want)
+		}
+	}
+	// Overflow ellipsizes rather than fusing.
+	over := strings.TrimRight(padCell(strings.Repeat("x", 40), savesColName), " ")
+	if !strings.HasSuffix(over, "…") {
+		t.Errorf("overflow padCell should ellipsize, got %q", over)
+	}
+}
+
+// TestSavesListWindowsToHeight — finding 7. A list taller than the height
+// budget renders only a cursor-centred window (so the title/header never
+// scroll off the top of the alt-screen), with "more" indicators; the
+// cursor row stays visible and off-window rows record no click target.
+func TestSavesListWindowsToHeight(t *testing.T) {
+	var entries []save.SaveInfo
+	for i := 0; i < 20; i++ {
+		entries = append(entries, save.SaveInfo{
+			ID:   fmt.Sprintf("save-%02d.json", i),
+			Meta: save.Meta{Name: fmt.Sprintf("game-%02d", i), SavedAt: time.Now()},
+			Lane: save.LaneNamed,
+		})
+	}
+	sc := NewSavesScreen(savesTheme())
+	sc.Open(SavesModeLoad, entries, "default")
+	for i := 0; i < 10; i++ { // cursor into the middle
+		sc.HandleKey(keyDown)
+	}
+
+	out := sc.Render(80, 20)
+	if lines := strings.Count(out, "\n") + 1; lines > 20 {
+		t.Errorf("rendered %d lines, want <= height 20 (windowing failed)\n%s", lines, out)
+	}
+	if !strings.Contains(out, "game-10") {
+		t.Errorf("cursor row game-10 not in the window\n%s", out)
+	}
+	if strings.Contains(out, "game-00") {
+		t.Errorf("far row game-00 rendered despite the window\n%s", out)
+	}
+	if !strings.Contains(out, "more") {
+		t.Errorf("no ↑/↓ more indicator rendered\n%s", out)
+	}
+	// Off-window rows carry no click target; the cursor row does.
+	if sc.rowBtns[0].set {
+		t.Error("off-window row 0 recorded a click target — clicks would misfire")
+	}
+	if !sc.rowBtns[10].set {
+		t.Error("cursor row 10 has no click target")
+	}
+}
+
