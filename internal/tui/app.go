@@ -119,6 +119,12 @@ type App struct {
 	// clock. Zero means "not armed yet".
 	lastAutosave time.Time
 
+	// guestSave, when non-nil, marks this App as a multiplayer guest
+	// session (v0.27 S3, ADR 0034): every autosave surface writes
+	// through this per-player sink instead of the host's local saves,
+	// and the local Saves surface (F5/F9, menu Save/Load) is disabled.
+	guestSave func(*sim.World) error
+
 	// endFlightConfirm (v0.11.4+, ADR 0004) gates the [E] end-flight
 	// removal behind a y/n confirm. When true, the orbit screen
 	// renders a footer prompt and the next y/Y commits the removal;
@@ -197,6 +203,30 @@ func New(scenario *sim.StartScenario) (*App, error) {
 // Init kicks off the tick loop.
 func (a *App) Init() tea.Cmd {
 	return sim.TickCmd(a.world.Clock.BaseStep)
+}
+
+// World exposes the live sim state for the multiplayer serve layer —
+// the final persist on session disconnect runs after the program has
+// stopped, so the read is race-free. Screens keep going through sim
+// methods; this is not a mutation door.
+func (a *App) World() *sim.World { return a.world }
+
+// SetGuestPersistence flips this App into guest-session mode: sink
+// replaces every local autosave write and the local Saves surface is
+// refused with a toast. v0.27 S3 (ADR 0034).
+func (a *App) SetGuestPersistence(sink func(*sim.World) error) { a.guestSave = sink }
+
+// NewWithWorld builds an App around an existing world — the
+// multiplayer reconnect path, where the player's persisted world is
+// restored instead of a fresh default start.
+func NewWithWorld(w *sim.World) (*App, error) {
+	a, err := New(nil)
+	if err != nil {
+		return nil, err
+	}
+	a.world = w
+	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
+	return a, nil
 }
 
 // sizeGated reports whether the terminal is below the playable floor
@@ -1237,8 +1267,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // targets quicksave.json (v0.26 / ADR 0033 §D), so it can never touch
 // a named save.
 func (a *App) doSave() error {
+	if a.guestSave != nil {
+		return errGuestSaves
+	}
 	return save.WriteQuicksave(a.world)
 }
+
+// errGuestSaves refuses the local Saves surface in a guest session —
+// the per-player payload autosaves server-side instead (v0.27 S3).
+var errGuestSaves = errors.New("no local saves in a session — your program autosaves server-side")
 
 // doLoad replaces the live world with the quicksave lane — F9 stays
 // instant, no confirm (ADR 0033 §H). An empty lane (no F5 yet) is
@@ -1253,6 +1290,9 @@ func (a *App) doSave() error {
 // autosave: a stray mid-session F9 must never silently discard live
 // progress, so resuming an autosave stays an explicit menu action.
 func (a *App) doLoad() error {
+	if a.guestSave != nil {
+		return errGuestSaves
+	}
 	err := a.loadWorldByID(save.QuicksaveID)
 	if errors.Is(err, fs.ErrNotExist) {
 		if a.hasResumableAutosave() {
@@ -1302,6 +1342,10 @@ func (a *App) loadWorldByID(id string) error {
 // flash a message on. Console-printable saves can be wired later if
 // needed.
 func (a *App) autosave() {
+	if a.guestSave != nil {
+		_ = a.guestSave(a.world)
+		return
+	}
 	_ = save.WriteAutosave(a.world)
 }
 
@@ -1337,6 +1381,10 @@ func (a *App) maybeAutosave(now time.Time) {
 		return
 	}
 	a.lastAutosave = now // re-arm even on error so a failing disk isn't hammered every tick
+	if a.guestSave != nil {
+		_ = a.guestSave(a.world)
+		return
+	}
 	_ = save.WriteAutosave(a.world)
 }
 
@@ -1437,9 +1485,21 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 	// screen is reversible, so like Settings/VAB there is no confirm
 	// gate here — the destructive confirms (§H) live in the screen.
 	case screens.MenuActionSave:
+		// Guests have no local Saves surface (v0.27 S3) — same refusal
+		// as F5/F9, surfaced as a toast over the orbit screen.
+		if a.guestSave != nil {
+			a.flashStatus("save", errGuestSaves)
+			a.active = screenOrbit
+			return a, nil
+		}
 		a.openSaves(screens.SavesModeSave)
 		return a, nil
 	case screens.MenuActionLoad:
+		if a.guestSave != nil {
+			a.flashStatus("load", errGuestSaves)
+			a.active = screenOrbit
+			return a, nil
+		}
 		a.openSaves(screens.SavesModeLoad)
 		return a, nil
 	case screens.MenuActionSettings:

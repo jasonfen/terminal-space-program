@@ -1,0 +1,320 @@
+// Package sessiondir is the server-side session directory for
+// multiplayer (v0.27 S3, ADR 0034): a versioned session.json holding
+// the player roster, outstanding invite codes, and the body-catalog
+// hash, plus one SchemaVersion-8 save envelope per enrolled player.
+// The local single-player save.json and saves/ directory are never
+// touched by anything here.
+//
+// The Store serialises in-process mutations behind a mutex — every
+// ssh session lives in the host's process (the ssh-only MVP has no
+// wire), so this is the whole concurrency story. A `serve invite`
+// CLI run against a live server is a separate process and races
+// last-write-wins; acceptable while sessions are friends-hosted.
+package sessiondir
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base32"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/save"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
+)
+
+// MetaVersion is the session.json schema version. Bump + migrate on
+// shape changes, mirroring the save-envelope discipline.
+const MetaVersion = 1
+
+// Roster roles. Host is the one privileged role (ADR 0034): the
+// player whose machine runs the session, with invite and removal
+// authority. Everyone else is a guest.
+const (
+	RoleHost  = "host"
+	RoleGuest = "guest"
+)
+
+// HostFingerprint marks the host's roster entry: the host plays
+// in-process over local stdio, so there is no ssh key to print.
+const HostFingerprint = "local"
+
+var (
+	ErrUnknownInvite = errors.New("sessiondir: unknown or already-used invite code")
+	ErrNotEnrolled   = errors.New("sessiondir: fingerprint not in roster")
+)
+
+// Player is one roster entry. Fingerprint is the ssh public-key
+// SHA256 fingerprint (the stable identity — handles are editable).
+type Player struct {
+	Fingerprint string    `json:"fingerprint"`
+	Handle      string    `json:"handle"`
+	Role        string    `json:"role"`
+	EnrolledAt  time.Time `json:"enrolled_at"`
+	Calibrated  bool      `json:"calibrated"`
+}
+
+// Invite is one outstanding (unredeemed) invite code. The handle is
+// pre-bound at mint and editable at enroll (ADR 0034 addendum).
+type Invite struct {
+	Code      string    `json:"code"`
+	Handle    string    `json:"handle"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Meta is the session.json shape.
+type Meta struct {
+	Version         int      `json:"version"`
+	BodyCatalogHash string   `json:"body_catalog_hash"`
+	Roster          []Player `json:"roster"`
+	Invites         []Invite `json:"invites"`
+}
+
+// Store owns one session directory. All mutations re-read
+// session.json under the lock, so a CLI mint between server reads is
+// picked up on the next connect.
+type Store struct {
+	dir string
+	mu  sync.Mutex
+}
+
+// DefaultDir is $XDG_STATE_HOME/terminal-space-program/session
+// (falling back to ~/.local/state), sibling of save.json and saves/.
+func DefaultDir() (string, error) {
+	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
+		return filepath.Join(x, "terminal-space-program", "session"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".local", "state", "terminal-space-program", "session"), nil
+}
+
+// Open creates the directory if needed and initialises session.json
+// on first use, stamping the current body-catalog hash.
+func Open(dir string) (*Store, error) {
+	if err := os.MkdirAll(filepath.Join(dir, "players"), 0o755); err != nil {
+		return nil, fmt.Errorf("sessiondir: %w", err)
+	}
+	s := &Store{dir: dir}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := os.Stat(s.metaPath()); errors.Is(err, os.ErrNotExist) {
+		hash, err := bodies.CatalogHash()
+		if err != nil {
+			return nil, fmt.Errorf("sessiondir: catalog hash: %w", err)
+		}
+		if err := s.writeMeta(Meta{Version: MetaVersion, BodyCatalogHash: hash}); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
+}
+
+func (s *Store) metaPath() string { return filepath.Join(s.dir, "session.json") }
+
+// Meta returns a fresh read of session.json.
+func (s *Store) Meta() (Meta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readMeta()
+}
+
+func (s *Store) readMeta() (Meta, error) {
+	data, err := os.ReadFile(s.metaPath())
+	if err != nil {
+		return Meta{}, fmt.Errorf("sessiondir: %w", err)
+	}
+	var m Meta
+	if err := json.Unmarshal(data, &m); err != nil {
+		return Meta{}, fmt.Errorf("sessiondir: parse session.json: %w", err)
+	}
+	if m.Version > MetaVersion {
+		return Meta{}, fmt.Errorf("sessiondir: session.json version %d is newer than this build (%d)", m.Version, MetaVersion)
+	}
+	return m, nil
+}
+
+// writeMeta persists atomically (tmpfile + rename), matching the save
+// package's crash discipline.
+func (s *Store) writeMeta(m Meta) error {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return fmt.Errorf("sessiondir: %w", err)
+	}
+	tmp := s.metaPath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("sessiondir: %w", err)
+	}
+	if err := os.Rename(tmp, s.metaPath()); err != nil {
+		return fmt.Errorf("sessiondir: %w", err)
+	}
+	return nil
+}
+
+// EnsureHost auto-enrolls the serving player as roster entry #1 with
+// the Host role on first --serve (idempotent — an existing host entry
+// is returned untouched, so a renamed handle survives restarts).
+func (s *Store) EnsureHost(handle string) (Player, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return Player{}, err
+	}
+	for _, p := range m.Roster {
+		if p.Role == RoleHost {
+			return p, nil
+		}
+	}
+	host := Player{
+		Fingerprint: HostFingerprint,
+		Handle:      handle,
+		Role:        RoleHost,
+		EnrolledAt:  time.Now().UTC(),
+		Calibrated:  true, // the host's own terminal is theirs to judge
+	}
+	m.Roster = append([]Player{host}, m.Roster...)
+	return host, s.writeMeta(m)
+}
+
+// MintInvite creates a one-time code pre-bound to handle.
+func (s *Store) MintInvite(handle string) (Invite, error) {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return Invite{}, errors.New("sessiondir: invite needs a handle")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return Invite{}, err
+	}
+	code, err := mintCode()
+	if err != nil {
+		return Invite{}, err
+	}
+	inv := Invite{Code: code, Handle: handle, CreatedAt: time.Now().UTC()}
+	m.Invites = append(m.Invites, inv)
+	return inv, s.writeMeta(m)
+}
+
+// mintCode returns a short read-out-loud code ("AB2C-DE3F"): 40 bits
+// from crypto/rand in base32 (A–Z, 2–7 — no 0/O or 1/I confusion).
+func mintCode() (string, error) {
+	raw := make([]byte, 5)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("sessiondir: %w", err)
+	}
+	c := base32.StdEncoding.EncodeToString(raw) // 8 chars, no padding at 5 bytes
+	return c[:4] + "-" + c[4:], nil
+}
+
+// Peek validates an invite code without consuming it — the enroll
+// flow shows the pre-bound handle for editing before committing.
+func (s *Store) Peek(code string) (Invite, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return Invite{}, err
+	}
+	for _, inv := range m.Invites {
+		if normalizeCode(inv.Code) == normalizeCode(code) {
+			return inv, nil
+		}
+	}
+	return Invite{}, ErrUnknownInvite
+}
+
+// Enroll redeems the code (one-time) and adds the player to the
+// roster in a single locked step. The code is re-validated here, so a
+// Peek that raced another enrollment fails cleanly instead of
+// double-spending. Calibrated is stamped true — the enroll flow runs
+// behind the calibration card.
+func (s *Store) Enroll(code, fingerprint, handle string) (Player, error) {
+	handle = strings.TrimSpace(handle)
+	if handle == "" {
+		return Player{}, errors.New("sessiondir: handle can't be empty")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return Player{}, err
+	}
+	idx := -1
+	for i, inv := range m.Invites {
+		if normalizeCode(inv.Code) == normalizeCode(code) {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return Player{}, ErrUnknownInvite
+	}
+	m.Invites = append(m.Invites[:idx], m.Invites[idx+1:]...)
+	p := Player{
+		Fingerprint: fingerprint,
+		Handle:      handle,
+		Role:        RoleGuest,
+		EnrolledAt:  time.Now().UTC(),
+		Calibrated:  true,
+	}
+	m.Roster = append(m.Roster, p)
+	return p, s.writeMeta(m)
+}
+
+func normalizeCode(c string) string {
+	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(c), "-", ""))
+}
+
+// FindPlayer looks a fingerprint up in the roster.
+func (s *Store) FindPlayer(fingerprint string) (Player, error) {
+	m, err := s.Meta()
+	if err != nil {
+		return Player{}, err
+	}
+	for _, p := range m.Roster {
+		if p.Fingerprint == fingerprint {
+			return p, nil
+		}
+	}
+	return Player{}, ErrNotEnrolled
+}
+
+// payloadPath maps a fingerprint to its envelope file. Fingerprints
+// contain '/' (base64), so the filename is a sha256 hex of it.
+func (s *Store) payloadPath(fingerprint string) string {
+	sum := sha256.Sum256([]byte(fingerprint))
+	return filepath.Join(s.dir, "players", hex.EncodeToString(sum[:])+".json")
+}
+
+// SavePlayer persists the player's world as a SchemaVersion-8
+// envelope (the existing save machinery, arbitrary path).
+func (s *Store) SavePlayer(fingerprint string, w *sim.World) error {
+	return save.Save(w, s.payloadPath(fingerprint))
+}
+
+// LoadPlayer restores the player's world. fs.ErrNotExist means no
+// payload yet (first session); save.ErrCatalogMismatch propagates so
+// the connect path can reject rather than corrupt (ADR 0034 — reuses
+// the existing save mechanism).
+func (s *Store) LoadPlayer(fingerprint string) (*sim.World, error) {
+	return save.Load(s.payloadPath(fingerprint))
+}
+
+// HasPayload reports whether the player has a persisted world.
+func (s *Store) HasPayload(fingerprint string) bool {
+	_, err := os.Stat(s.payloadPath(fingerprint))
+	return err == nil
+}

@@ -1,18 +1,20 @@
 // Package serve hosts the embedded SSH front door for multiplayer
-// sessions (ADR 0034 addendum, v0.27 S1). `--serve` starts a wish
-// listener next to the host's in-process game; every inbound SSH
-// connection gets a fresh, ephemeral single-player World running in
-// this process. No identity, no persistence, no shared store yet —
-// those are later slices. Any public key is accepted for now;
-// enrollment gates arrive with S3.
+// sessions (ADR 0034, v0.27). `--serve` starts a wish listener next
+// to the host's in-process game. S1 gave every connection a fresh
+// ephemeral World; S3 adds identity and persistence: unknown keys go
+// through the invite-code enroll flow, enrolled keys resume their
+// per-player world from the session directory, and every guest's
+// autosaves write back there — never into the host's local saves.
 package serve
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,7 +22,11 @@ import (
 	"github.com/charmbracelet/wish"
 	"github.com/charmbracelet/wish/activeterm"
 	bm "github.com/charmbracelet/wish/bubbletea"
+	gossh "golang.org/x/crypto/ssh"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
+	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
 )
 
@@ -30,18 +36,21 @@ const DefaultPort = 23234
 // Config shapes a Server. Addr is a listen address ("[host]:port";
 // use port 0 to let the OS pick — Addr() reports the bound address).
 // HostKeyPath locates the server's ed25519 identity; a missing key is
-// generated there on first start.
+// generated there on first start. SessionDir is the session store
+// (roster, invites, per-player payloads); empty means the XDG default.
 type Config struct {
 	Addr        string
 	HostKeyPath string
+	SessionDir  string
 }
 
 // Server is a running (or startable) SSH listener whose sessions each
 // run their own game. The listener is bound in New so port conflicts
 // surface before the host's own TUI takes the screen.
 type Server struct {
-	ssh *ssh.Server
-	ln  net.Listener
+	ssh   *ssh.Server
+	ln    net.Listener
+	store *sessiondir.Store
 }
 
 // DefaultHostKeyPath returns the per-host SSH identity path, sibling
@@ -59,21 +68,38 @@ func DefaultHostKeyPath() (string, error) {
 	return filepath.Join(home, ".local", "state", "terminal-space-program", "ssh_host_ed25519_key"), nil
 }
 
-// New binds cfg.Addr and prepares the wish server. The host key is
-// created at cfg.HostKeyPath if absent (ed25519). Serve must be called
-// to start accepting sessions.
+// New binds cfg.Addr, opens the session store (auto-enrolling the
+// host as roster entry #1 on first serve), and prepares the wish
+// server. The host key is created at cfg.HostKeyPath if absent.
+// Serve must be called to start accepting sessions.
 func New(cfg Config) (*Server, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.HostKeyPath), 0o755); err != nil {
 		return nil, fmt.Errorf("serve: host key dir: %w", err)
 	}
+	dir := cfg.SessionDir
+	if dir == "" {
+		var err error
+		if dir, err = sessiondir.DefaultDir(); err != nil {
+			return nil, fmt.Errorf("serve: %w", err)
+		}
+	}
+	store, err := sessiondir.Open(dir)
+	if err != nil {
+		return nil, fmt.Errorf("serve: %w", err)
+	}
+	if _, err := store.EnsureHost(hostHandle()); err != nil {
+		return nil, fmt.Errorf("serve: enroll host: %w", err)
+	}
+	srv := &Server{store: store}
 	s, err := wish.NewServer(
 		wish.WithAddress(cfg.Addr),
 		wish.WithHostKeyPath(cfg.HostKeyPath),
-		// S1: every key is welcome — sessions are ephemeral and hold no
-		// identity. S3 replaces this with roster-enrollment checks.
+		// Any key may connect — identity is resolved in-session: known
+		// fingerprints resume, unknown ones face the invite-code flow.
 		wish.WithPublicKeyAuth(func(ssh.Context, ssh.PublicKey) bool { return true }),
 		wish.WithMiddleware(
-			bm.Middleware(sessionHandler),
+			bm.Middleware(srv.sessionHandler),
+			srv.persistMiddleware,   // runs after the game ends — final payload write
 			activeterm.Middleware(), // require a PTY before handing off to bubbletea
 		),
 	)
@@ -84,7 +110,17 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("serve: listen %s: %w", cfg.Addr, err)
 	}
-	return &Server{ssh: s, ln: ln}, nil
+	srv.ssh, srv.ln = s, ln
+	return srv, nil
+}
+
+// hostHandle names the host's roster entry: the OS username, or
+// "host" when that's unresolvable.
+func hostHandle() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	return "host"
 }
 
 // Addr reports the bound listen address (useful with ":0").
@@ -105,23 +141,98 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.ssh.Shutdown(ctx)
 }
 
-// sessionHandler builds the per-connection game: a fresh default-start
-// World, exactly like launching the binary bare. The bubbletea
-// middleware wires the session's PTY as the program's input/output and
-// translates SSH window changes into tea.WindowSizeMsg.
-func sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
-	app, opts, err := newSessionApp()
+// Context keys stashed on the ssh session so the persist middleware
+// can reach the game state after the program ends.
+type ctxKey int
+
+const (
+	ctxKeyApp ctxKey = iota
+	ctxKeyFingerprint
+)
+
+// sessionHandler builds the per-connection model. Enrolled keys go
+// straight to their game (restored from the session directory when a
+// payload exists); unknown keys get the guest flow (card → code →
+// handle). The bubbletea middleware wires the session's PTY as the
+// program's input/output and translates window changes.
+func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
+	opts := []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseAllMotion()}
+	key := sess.PublicKey()
+	if key == nil {
+		wish.Fatalln(sess, "terminal-space-program: public-key auth required")
+		return nil, nil
+	}
+	fp := gossh.FingerprintSHA256(key)
+
+	app, err := s.newGuestApp(fp)
 	if err != nil {
+		if errors.Is(err, save.ErrCatalogMismatch) {
+			wish.Fatalln(sess, "terminal-space-program: your saved program was created under a different body catalog than this build — ask your host to sort the session directory out")
+			return nil, nil
+		}
 		wish.Fatalln(sess, "terminal-space-program:", err)
 		return nil, nil
 	}
-	// v0.27 S2: guests confirm braille + color rendering before the
-	// game starts — undetectable server-side, so we ask.
-	return withCalibrationCard(app), opts
+	sess.Context().SetValue(ctxKeyApp, app)
+	sess.Context().SetValue(ctxKeyFingerprint, fp)
+
+	if _, err := s.store.FindPlayer(fp); err == nil {
+		// Enrolled reconnect: no card, no code — resume.
+		return app, opts
+	}
+	return newGuestFlow(s.store, fp, app), opts
 }
 
-// newSessionApp is the per-session game factory, split from the ssh
-// plumbing so World independence is testable headlessly.
+// newGuestApp builds the game for fp: the persisted world when a
+// payload exists (catalog-checked by the save machinery), a fresh
+// default start otherwise. Either way autosaves are redirected into
+// the per-player payload.
+func (s *Server) newGuestApp(fp string) (*tui.App, error) {
+	var app *tui.App
+	w, err := s.store.LoadPlayer(fp)
+	switch {
+	case err == nil:
+		if app, err = tui.NewWithWorld(w); err != nil {
+			return nil, err
+		}
+	case errors.Is(err, fs.ErrNotExist):
+		if app, err = tui.New(nil); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, err
+	}
+	app.SetGuestPersistence(func(w *sim.World) error {
+		return s.store.SavePlayer(fp, w)
+	})
+	return app, nil
+}
+
+// persistMiddleware writes the final per-player payload after the
+// session's program has fully stopped (bm's handler returns only
+// then, so the read is race-free). Covers hard disconnects — the
+// in-App quit path persists too, via the guest sink. Unenrolled
+// visitors (flow abandoned) leave nothing behind.
+func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
+	return func(sess ssh.Session) {
+		next(sess)
+		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)
+		if !ok {
+			return
+		}
+		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
+		if !ok {
+			return
+		}
+		if _, err := s.store.FindPlayer(fp); err != nil {
+			return // never enrolled — ephemeral visit
+		}
+		_ = s.store.SavePlayer(fp, app.World())
+	}
+}
+
+// newSessionApp is the S1-era ephemeral factory, kept for the
+// headless World-independence test.
 func newSessionApp() (tea.Model, []tea.ProgramOption, error) {
 	app, err := tui.New(nil)
 	if err != nil {
