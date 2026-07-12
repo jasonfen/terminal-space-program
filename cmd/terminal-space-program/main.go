@@ -11,6 +11,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -104,6 +105,18 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
 		os.Exit(2)
+	}
+
+	// v0.26 (ADR 0033 §G): one-time migration of the legacy single-slot
+	// save.json into the saves/ directory as a named save. Fires only
+	// while saves/ is absent; the legacy file stays behind untouched as
+	// a downgrade safety net. Never fatal — on failure the player starts
+	// without the import and the probe retries next run (saves/ is only
+	// created by a successful write).
+	if info, imported, err := save.ImportLegacyIfNeeded(); err != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: legacy save import skipped: %v\n", err)
+	} else if imported {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: imported legacy save.json as %q\n", info.Meta.Name)
 	}
 
 	app, err := tui.New(scenario)
