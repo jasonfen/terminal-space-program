@@ -420,6 +420,29 @@ func TestSavesPadCellDisplayWidth(t *testing.T) {
 	}
 }
 
+// TestSavesRenderNeverExceedsHeight — a terminal too short for even the
+// fixed chrome must still not emit more than `height` lines (else the
+// alt-screen scrolls the title off the top). Render clamps as a safety
+// net below the windowing floor.
+func TestSavesRenderNeverExceedsHeight(t *testing.T) {
+	var entries []save.SaveInfo
+	for i := 0; i < 12; i++ {
+		entries = append(entries, save.SaveInfo{
+			ID:   fmt.Sprintf("save-%02d.json", i),
+			Meta: save.Meta{Name: fmt.Sprintf("game-%02d", i), SavedAt: time.Now()},
+			Lane: save.LaneNamed,
+		})
+	}
+	sc := NewSavesScreen(savesTheme())
+	sc.Open(SavesModeLoad, entries, "default")
+	for _, h := range []int{5, 6, 7, 8, 10} {
+		out := sc.Render(80, h)
+		if lines := strings.Count(out, "\n") + 1; lines > h {
+			t.Errorf("Render(_, %d) = %d lines, want <= %d\n%s", h, lines, h, out)
+		}
+	}
+}
+
 // TestSavesListWindowsToHeight — finding 7. A list taller than the height
 // budget renders only a cursor-centred window (so the title/header never
 // scroll off the top of the alt-screen), with "more" indicators; the
