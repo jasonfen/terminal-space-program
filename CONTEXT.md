@@ -1600,6 +1600,12 @@ players and their vessels, stored by a server that runs no physics and
 holds no clock.
 _Avoid_: Lobby, Server (the machine, not the world).
 
+**Host**:
+The player whose machine runs a Session — the one roster role with
+invite and removal authority. Every other participant is a plain
+player; there are no further ranks.
+_Avoid_: Admin, owner, op.
+
 **Subspace**:
 The sim-time a player currently occupies within a Session. Warp is
 independent across Subspaces; vessels physically interact only within
