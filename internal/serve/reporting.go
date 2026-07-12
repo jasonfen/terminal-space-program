@@ -20,11 +20,25 @@ type reportingModel struct {
 	inner tea.Model
 	app   *tui.App
 	rep   *relay.Reporter
+	srv   *Server
+	owner string
+
+	// handle cache: fingerprint → display name, refreshed lazily so
+	// each tick doesn't re-read session.json. A new enrollee's handle
+	// appears within the refresh window.
+	handles   map[string]string
+	handlesAt time.Time
 }
+
+const handleRefresh = 5 * time.Second
 
 // withReporting wraps app so its world reports to the store as owner.
 func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
-	return reportingModel{inner: app, app: app, rep: relay.NewReporter(s.relay, owner)}
+	return reportingModel{
+		inner: app, app: app,
+		rep: relay.NewReporter(s.relay, owner),
+		srv: s, owner: owner,
+	}
 }
 
 func (m reportingModel) Init() tea.Cmd { return m.inner.Init() }
@@ -33,9 +47,33 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	inner, cmd := m.inner.Update(msg)
 	m.inner = inner
 	if _, ok := msg.(sim.TickMsg); ok {
-		m.rep.Tick(m.app.World(), time.Now())
+		now := time.Now()
+		w := m.app.World()
+		m.rep.Tick(w, now)
+		// v0.27 S5: refresh this world's ghost slate from the store —
+		// the screens read w.Ghosts like any other world state.
+		if m.handles == nil || now.Sub(m.handlesAt) >= handleRefresh {
+			m.handles = m.rosterHandles()
+			m.handlesAt = now
+		}
+		w.Ghosts = relay.GhostsFor(w, m.srv.relay.Snapshot(m.owner), m.handles)
 	}
 	return m, cmd
+}
+
+// rosterHandles reads the fingerprint→handle join from the session
+// roster. Failures yield an empty map (ghosts render nameless rather
+// than not at all).
+func (m reportingModel) rosterHandles() map[string]string {
+	meta, err := m.srv.store.Meta()
+	if err != nil {
+		return map[string]string{}
+	}
+	out := make(map[string]string, len(meta.Roster))
+	for _, p := range meta.Roster {
+		out[p.Fingerprint] = p.Handle
+	}
+	return out
 }
 
 func (m reportingModel) View() string { return m.inner.View() }

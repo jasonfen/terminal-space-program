@@ -194,6 +194,14 @@ type World struct {
 	// Not persisted (rebuilt from the catalog on load).
 	GroundStations []GroundStationPreset
 
+	// Ghosts are other players' craft evaluated at THIS world's
+	// sim-time (v0.27 S5, ADR 0034 — Kepler ghosts). Written each tick
+	// by the multiplayer serve layer from the session store; empty in
+	// single-player. Render-only and transient: never persisted, never
+	// physically interactive, already gated to this world's active
+	// system by the writer.
+	Ghosts []Ghost
+
 	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
 	// ADR 0027): which unmanned probes currently reach a ground station.
 	// Rebuilt each Tick by RecomputeCommGraph after physics; read by

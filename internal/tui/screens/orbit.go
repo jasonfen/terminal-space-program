@@ -731,6 +731,26 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// blob over the parent body that doesn't read as an orbit. The
 	// vessel chevron stays drawn so the craft's presence is still
 	// communicated.
+	// v0.27 S5 (ADR 0034): Kepler ghosts — other players' craft,
+	// already evaluated at this world's sim-time and gated to this
+	// system by the serve layer. Dim marker + glyph + handle label,
+	// drawn before own craft so a shared cell always shows the real
+	// vessel. Display only: no hit-test tag, no orbit ellipse — the
+	// marker is the rendezvous cue, the track is the owner's business.
+	for _, g := range w.Ghosts {
+		ghostColor := lipgloss.Color(render.ColorDim)
+		v.canvas.PlotColored(g.Pos, ghostColor)
+		if gl := []rune(g.Glyph); len(gl) > 0 {
+			v.canvas.SetCellOverlayColored(g.Pos, gl[0], ghostColor)
+		}
+		if g.Handle != "" {
+			// Project yields pixel coords; braille cells are 2×4 px.
+			if px, py, ok := v.canvas.Project(g.Pos); ok {
+				v.canvas.SetCellLabelColored(px/2+2, py/4, g.Handle, ghostColor)
+			}
+		}
+	}
+
 	if w.CraftVisibleHere() {
 		c := w.ActiveCraft()
 		muCraft := c.Primary.GravitationalParameter()
