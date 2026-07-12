@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/ssh"
@@ -24,6 +25,7 @@ import (
 	bm "github.com/charmbracelet/wish/bubbletea"
 	gossh "golang.org/x/crypto/ssh"
 
+	"github.com/jasonfen/terminal-space-program/internal/relay"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -51,6 +53,7 @@ type Server struct {
 	ssh   *ssh.Server
 	ln    net.Listener
 	store *sessiondir.Store
+	relay *relay.Store
 }
 
 // DefaultHostKeyPath returns the per-host SSH identity path, sibling
@@ -90,7 +93,7 @@ func New(cfg Config) (*Server, error) {
 	if _, err := store.EnsureHost(hostHandle()); err != nil {
 		return nil, fmt.Errorf("serve: enroll host: %w", err)
 	}
-	srv := &Server{store: store}
+	srv := &Server{store: store, relay: relay.NewStore()}
 	s, err := wish.NewServer(
 		wish.WithAddress(cfg.Addr),
 		wish.WithHostKeyPath(cfg.HostKeyPath),
@@ -176,11 +179,12 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	sess.Context().SetValue(ctxKeyApp, app)
 	sess.Context().SetValue(ctxKeyFingerprint, fp)
 
+	game := s.withReporting(app, fp) // v0.27 S4: sessions feed the store
 	if _, err := s.store.FindPlayer(fp); err == nil {
 		// Enrolled reconnect: no card, no code — resume.
-		return app, opts
+		return game, opts
 	}
-	return newGuestFlow(s.store, fp, app), opts
+	return newGuestFlow(s.store, fp, game), opts
 }
 
 // newGuestApp builds the game for fp: the persisted world when a
@@ -199,6 +203,15 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 		if app, err = tui.New(nil); err != nil {
 			return nil, err
 		}
+		// Join at the frontier (v0.27 S4, ADR 0034): a NEW player's
+		// clock starts at the max subspace time across live sessions
+		// and persisted payloads — you can never start in someone's
+		// past. Craft state vectors are time-local, so relabelling
+		// "now" is safe. Reconnects (the branch above) keep their own
+		// stored time instead.
+		if f, ok := s.frontier(); ok && f.After(app.World().Clock.SimTime) {
+			app.World().Clock.SimTime = f
+		}
 	default:
 		return nil, err
 	}
@@ -206,6 +219,25 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 		return s.store.SavePlayer(fp, w)
 	})
 	return app, nil
+}
+
+// frontier combines the live store's max subspace time with the
+// persisted payloads' — offline players hold the frontier too.
+func (s *Server) frontier() (time.Time, bool) {
+	live, okLive := s.relay.Frontier()
+	stored, okStored := s.store.LatestSimTime()
+	switch {
+	case okLive && okStored:
+		if stored.After(live) {
+			return stored, true
+		}
+		return live, true
+	case okLive:
+		return live, true
+	case okStored:
+		return stored, true
+	}
+	return time.Time{}, false
 }
 
 // persistMiddleware writes the final per-player payload after the

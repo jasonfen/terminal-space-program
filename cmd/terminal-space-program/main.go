@@ -164,7 +164,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: serving SSH guests on %s (host key %s)\n", srv.Addr(), keyPath)
 	}
 
-	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseAllMotion())
+	// The host's own game reports into the session store like any
+	// guest's (v0.27 S4) — wrap it when serving.
+	var model tea.Model = app
+	if srv != nil {
+		model = srv.HostModel(app)
+	}
+
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	_, runErr := p.Run()
 	if srv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

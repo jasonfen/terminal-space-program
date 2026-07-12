@@ -318,3 +318,40 @@ func (s *Store) HasPayload(fingerprint string) bool {
 	_, err := os.Stat(s.payloadPath(fingerprint))
 	return err == nil
 }
+
+// LatestSimTime scans every persisted player payload for the maximum
+// stored subspace time — offline players hold the frontier (v0.27 S4,
+// ADR 0034: you can never start in someone's past, online or not).
+// ok is false when no payload parses. Unreadable files are skipped:
+// frontier is a floor, not an integrity check.
+func (s *Store) LatestSimTime() (time.Time, bool) {
+	entries, err := os.ReadDir(filepath.Join(s.dir, "players"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var max time.Time
+	found := false
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.dir, "players", e.Name()))
+		if err != nil {
+			continue
+		}
+		var probe struct {
+			Payload struct {
+				SimTimeNano int64 `json:"sim_time_unix_nano"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(data, &probe) != nil || probe.Payload.SimTimeNano == 0 {
+			continue
+		}
+		t := time.Unix(0, probe.Payload.SimTimeNano).UTC()
+		if !found || t.After(max) {
+			max = t
+			found = true
+		}
+	}
+	return max, found
+}
