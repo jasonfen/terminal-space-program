@@ -3,6 +3,9 @@ package tui
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
@@ -33,6 +36,35 @@ func TestSavesScreenFreezesSim(t *testing.T) {
 	}
 	if a.active != screenOrbit {
 		t.Errorf("active = %v, want screenOrbit after cancel", a.active)
+	}
+}
+
+// TestQuitFromSavesDoesNotPersistFreeze — a ctrl+c quit while the Saves
+// browser is open must autosave the pre-open gameplay pause state, not
+// the browser's transient freeze: a session that was running resumes
+// running on reload, not paused.
+func TestQuitFromSavesDoesNotPersistFreeze(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if a.world.Clock.Paused {
+		t.Fatal("world started paused — test premise broken")
+	}
+	a.openSaves(screens.SavesModeSave) // freezes the clock
+	if !a.world.Clock.Paused {
+		t.Fatal("openSaves did not freeze the clock")
+	}
+
+	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC}) // quit-autosaves the ring
+
+	w, err := save.LoadID("autosave-1.json")
+	if err != nil {
+		t.Fatalf("LoadID(autosave-1.json): %v", err)
+	}
+	if w.Clock.Paused {
+		t.Error("quit-from-browser persisted the transient freeze (Paused=true); reload should resume running")
 	}
 }
 

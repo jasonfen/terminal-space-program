@@ -241,15 +241,20 @@ func List() ([]SaveInfo, error) {
 	return infos, nil
 }
 
-// unreadableNote classifies a header-parse failure into a short,
+// unreadableNote classifies a header read/parse failure into a short,
 // player-facing reason for the browser. A schema-range rejection means
-// the file was written by a different (usually newer) build; anything
-// else is treated as corruption.
+// the file was written by a different (usually newer) build; a
+// permission/IO failure means the bytes couldn't be read at all (not
+// that they're bad); anything else is malformed content.
 func unreadableNote(err error) string {
-	if errors.Is(err, ErrSchemaMismatch) {
+	switch {
+	case errors.Is(err, ErrSchemaMismatch):
 		return "newer version"
+	case errors.Is(err, os.ErrPermission):
+		return "no access"
+	default:
+		return "corrupt"
 	}
-	return "corrupt"
 }
 
 // stampMeta builds the Meta header for a write happening now. name is

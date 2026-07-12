@@ -550,6 +550,16 @@ func (sc *SavesScreen) Render(width, height int) string {
 	for i, ln := range lines {
 		lines[i] = clipLine(ln, width)
 	}
+	// Safety net for terminals too short for even the fixed chrome
+	// (height < ~8): listWindow bounds the LIST, but the header + tail can
+	// still exceed a tiny height. Keep the TOP (title, header, cursor
+	// window) and drop the overflowing tail rather than letting the
+	// alt-screen scroll the title off the top — the exact symptom the
+	// windowing prevents at normal sizes. A no-op whenever the content
+	// already fits (the common case).
+	if height > 0 && len(lines) > height {
+		lines = lines[:height]
+	}
 	return strings.Join(lines, "\n")
 }
 

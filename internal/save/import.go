@@ -119,12 +119,14 @@ func ImportLegacyIfNeeded() (SaveInfo, bool, error) {
 	if err := writeAtomic(filepath.Join(dir, id), out); err != nil {
 		return SaveInfo{}, false, err
 	}
-	// Settle the migration only after the imported file is safely on
-	// disk. A crash between the two leaves the marker absent → retry
-	// (worst case a duplicate import, never a lost save).
-	if err := markLegacyImported(marker); err != nil {
-		return SaveInfo{}, false, fmt.Errorf("write import marker: %w", err)
-	}
+	// Settle the migration only after the imported file is safely on disk.
+	// The write is best-effort: the import itself already succeeded, so a
+	// failed marker must NOT be reported as an error — that would mislog
+	// the run as "skipped" even though the save landed. Its only cost is a
+	// harmless duplicate re-import next launch (the save is never lost),
+	// and it can only fail if the same directory we just wrote to became
+	// unwritable, which is vanishingly unlikely.
+	_ = markLegacyImported(marker)
 	return SaveInfo{ID: id, Meta: *meta, Lane: LaneNamed}, true, nil
 }
 

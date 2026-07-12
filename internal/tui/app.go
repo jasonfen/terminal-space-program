@@ -493,6 +493,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ctrl+c bypasses everything else (standard interrupt
 		// convention). Honored from any screen.
 		if key.Matches(m, a.keys.Quit) {
+			// The Saves browser freezes the clock while it's up (finding 4);
+			// that freeze is transient UI state, not a gameplay pause, so
+			// don't let a quit-from-browser persist Paused=true into the
+			// autosave — restore the pre-open state first so the reloaded
+			// session resumes exactly as it was running.
+			if a.active == screenSaves {
+				a.world.Clock.Paused = a.savesPrevPaused
+			}
 			a.autosave()
 			return a, tea.Quit
 		}
