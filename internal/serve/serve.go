@@ -115,7 +115,9 @@ func sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOption) {
 		wish.Fatalln(sess, "terminal-space-program:", err)
 		return nil, nil
 	}
-	return app, opts
+	// v0.27 S2: guests confirm braille + color rendering before the
+	// game starts — undetectable server-side, so we ask.
+	return withCalibrationCard(app), opts
 }
 
 // newSessionApp is the per-session game factory, split from the ssh
