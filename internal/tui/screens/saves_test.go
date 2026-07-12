@@ -280,6 +280,44 @@ func TestSavesDeleteConfirm(t *testing.T) {
 	}
 }
 
+// TestSavesUnreadableRowNotLoadable — finding 6. An Unreadable entry
+// (corrupt / newer-version) renders with its reason label but is NOT
+// loadable or renamable; it stays deletable so the player can clear it.
+func TestSavesUnreadableRowNotLoadable(t *testing.T) {
+	entries := []save.SaveInfo{
+		{ID: "save-newer.json", Lane: save.LaneNamed, Unreadable: true, Note: "newer version"},
+	}
+	sc := NewSavesScreen(savesTheme())
+	sc.Open(SavesModeLoad, entries, "default")
+
+	out := sc.Render(110)
+	if !strings.Contains(out, "unreadable (newer version)") {
+		t.Fatalf("unreadable row missing its reason label\n%s", out)
+	}
+	// A directory holding a file must never read as empty.
+	if strings.Contains(out, "no saves yet") {
+		t.Errorf("rendered the empty-list message despite a listed (unreadable) entry\n%s", out)
+	}
+
+	// Enter must NOT open a load confirm — nothing to hydrate.
+	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
+		t.Fatalf("enter on unreadable row returned %v, want None", cmd.Kind)
+	}
+	if strings.Contains(sc.Render(110), "Load and discard") {
+		t.Errorf("unreadable row opened a load confirm")
+	}
+	// Rename disabled.
+	if cmd := sc.HandleKey(keyRunes("r")); cmd.Kind != SavesActionNone || sc.state != savesStateBrowse {
+		t.Fatalf("r on unreadable row: cmd=%v state=%v, want no-op", cmd.Kind, sc.state)
+	}
+	// Delete still works — the player can clear the bad file.
+	sc.HandleKey(keyRunes("d"))
+	cmd := sc.HandleKey(keyRunes("y"))
+	if cmd.Kind != SavesActionDelete || cmd.ID != "save-newer.json" {
+		t.Fatalf("delete of unreadable = %+v, want Delete save-newer.json", cmd)
+	}
+}
+
 // TestSavesSetEntriesClampsCursor — refreshing the list after a delete
 // keeps the cursor in range.
 func TestSavesSetEntriesClampsCursor(t *testing.T) {

@@ -13,34 +13,52 @@ import (
 	"time"
 )
 
+// legacyImportMarker is the path of the bookkeeping file that records
+// the one-time legacy save.json → saves/ migration has settled. It sits
+// beside the legacy save.json (the state dir), NOT inside saves/ — so a
+// quicksave/autosave that creates saves/ before the import, or a
+// once-failed import that left an empty saves/ behind, can never be
+// mistaken for a completed migration. The earlier bare os.Stat(saves/)
+// gate had exactly that false positive: any saves/ directory looked
+// "settled", permanently hiding an un-imported legacy save.
+func legacyImportMarker() (string, error) {
+	legacy, err := DefaultPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(legacy), ".legacy-imported"), nil
+}
+
 // ImportLegacyIfNeeded migrates the legacy single-slot save.json into
-// the saves directory as a named save — once. The probe fires only
-// while saves/ is absent (idempotent: any saves directory, even an
-// empty one, means the import already settled or the player started
-// fresh on v0.26+). The legacy file is read, never rewritten or
-// deleted — it stays behind untouched as a downgrade safety net (§G:
-// a pre-v0.26 binary still reads it).
+// the saves directory as a named save — once. It runs whenever the
+// import has not yet settled (the marker is absent) AND a legacy
+// save.json is present; a successful import drops the marker so it
+// never repeats, and a FAILED import leaves the marker absent so the
+// next startup retries (the marker, not the mere existence of saves/,
+// is what gates the retry). The legacy file is read, never rewritten or
+// deleted — it stays behind untouched as a downgrade safety net (§G: a
+// pre-v0.26 binary still reads it).
 //
 // The default name derives from the save's IN-GAME date, which lives
 // in Payload.SimTimeNano — hence the one full unmarshal of the one
 // legacy file. ClockT0 is wall-clock save time, not the in-game date,
-// and must not be substituted; it seeds Meta.SavedAt instead, so the
-// imported entry sorts truthfully in the browser. The payload bytes
-// are carried through raw, Rename-style, with the original schema
-// Version riding along untouched — LoadID migrates it on load like
-// any older save.
+// and must not be substituted; SavedAt derives from it (in memory only
+// — Meta.SavedAt is never persisted) so the imported entry sorts
+// truthfully in the browser. The payload bytes are carried through
+// raw, Rename-style, with the original schema Version riding along
+// untouched — LoadID migrates it on load like any older save.
 //
 // Returns the imported entry and true when the migration ran; the
 // zero SaveInfo and false when there was nothing to do.
 func ImportLegacyIfNeeded() (SaveInfo, bool, error) {
-	dir, err := SavesDir()
+	marker, err := legacyImportMarker()
 	if err != nil {
 		return SaveInfo{}, false, err
 	}
-	if _, err := os.Stat(dir); err == nil {
-		return SaveInfo{}, false, nil // saves/ exists — import already settled
+	if _, err := os.Stat(marker); err == nil {
+		return SaveInfo{}, false, nil // marker present — import already settled
 	} else if !os.IsNotExist(err) {
-		return SaveInfo{}, false, fmt.Errorf("probe saves dir: %w", err)
+		return SaveInfo{}, false, fmt.Errorf("probe import marker: %w", err)
 	}
 	legacy, err := DefaultPath()
 	if err != nil {
@@ -49,7 +67,9 @@ func ImportLegacyIfNeeded() (SaveInfo, bool, error) {
 	data, err := os.ReadFile(legacy)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return SaveInfo{}, false, nil // fresh install — nothing to import
+			// Fresh install — nothing to import. Deliberately no marker:
+			// if a legacy save is ever dropped in later, it still imports.
+			return SaveInfo{}, false, nil
 		}
 		return SaveInfo{}, false, fmt.Errorf("read legacy save: %w", err)
 	}
@@ -66,12 +86,15 @@ func ImportLegacyIfNeeded() (SaveInfo, bool, error) {
 	if err := json.Unmarshal(rf.Payload, &p); err != nil {
 		return SaveInfo{}, false, fmt.Errorf("parse legacy payload: %w", err)
 	}
-	meta := &Meta{Name: "Imported save", SavedAt: time.Now().UTC()}
+	meta := &Meta{Name: "Imported save"}
 	if p.SimTimeNano != 0 {
 		meta.InGameEpoch = time.Unix(0, p.SimTimeNano).UTC()
 		meta.Name = "Imported " + meta.InGameEpoch.Format("2006-01-02")
 	}
 	if rf.ClockT0 != 0 {
+		// Derived, non-persisted (json:"-") — for the returned SaveInfo
+		// and the browser's newest-first sort. The legacy ClockT0 rides
+		// through in rf, so List recomputes the same value on read.
 		meta.SavedAt = time.Unix(0, rf.ClockT0).UTC()
 	}
 	if i := p.ActiveCraftIdx; i >= 0 && i < len(p.Crafts) {
@@ -88,9 +111,29 @@ func ImportLegacyIfNeeded() (SaveInfo, bool, error) {
 	if err != nil {
 		return SaveInfo{}, false, fmt.Errorf("marshal imported save: %w", err)
 	}
+	dir, err := SavesDir()
+	if err != nil {
+		return SaveInfo{}, false, err
+	}
 	id := mintID()
 	if err := writeAtomic(filepath.Join(dir, id), out); err != nil {
 		return SaveInfo{}, false, err
 	}
+	// Settle the migration only after the imported file is safely on
+	// disk. A crash between the two leaves the marker absent → retry
+	// (worst case a duplicate import, never a lost save).
+	if err := markLegacyImported(marker); err != nil {
+		return SaveInfo{}, false, fmt.Errorf("write import marker: %w", err)
+	}
 	return SaveInfo{ID: id, Meta: *meta, Lane: LaneNamed}, true, nil
+}
+
+// markLegacyImported drops the settled-migration marker (finding: the
+// retry gate). The content is human-facing only — presence is what
+// matters.
+func markLegacyImported(marker string) error {
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return fmt.Errorf("create state dir: %w", err)
+	}
+	return os.WriteFile(marker, []byte("v0.26 legacy save.json imported (ADR 0033 §G)\n"), 0o644)
 }

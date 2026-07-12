@@ -108,11 +108,12 @@ func main() {
 	}
 
 	// v0.26 (ADR 0033 §G): one-time migration of the legacy single-slot
-	// save.json into the saves/ directory as a named save. Fires only
-	// while saves/ is absent; the legacy file stays behind untouched as
-	// a downgrade safety net. Never fatal — on failure the player starts
-	// without the import and the probe retries next run (saves/ is only
-	// created by a successful write).
+	// save.json into the saves/ directory as a named save. Gated on a
+	// settled-marker (not the mere existence of saves/, which an autosave
+	// or a once-failed import can create), so a failed import retries next
+	// run instead of hiding the legacy save forever. The legacy file stays
+	// behind untouched as a downgrade safety net. Never fatal — on failure
+	// the player just starts without the import.
 	if info, imported, err := save.ImportLegacyIfNeeded(); err != nil {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: legacy save import skipped: %v\n", err)
 	} else if imported {

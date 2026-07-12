@@ -171,8 +171,11 @@ func TestReadHeaderSkipsCatalogAndPayload(t *testing.T) {
 	if m.Name != "Handmade" || m.ActiveVesselName != "Apollo" || m.SystemName != "Sol" {
 		t.Errorf("Meta = %+v", m)
 	}
-	if want := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC); !m.SavedAt.Equal(want) {
-		t.Errorf("SavedAt = %v, want %v", m.SavedAt, want)
+	// SavedAt derives from the envelope clock_t0 (the single source of
+	// truth), NOT from any persisted saved_at key — the "saved_at":
+	// "2026-07-01…" above is an ignored legacy key and must NOT win.
+	if want := time.Unix(0, 1234567890).UTC(); !m.SavedAt.Equal(want) {
+		t.Errorf("SavedAt = %v, want ClockT0-derived %v (saved_at key must be ignored)", m.SavedAt, want)
 	}
 
 	// Sanity: the same file is rejected by the full Load path on the
@@ -568,5 +571,94 @@ func TestDeleteRemovesTargetedFile(t *testing.T) {
 	}
 	if got := jsonFiles(t, dir); len(got) != 1 || got[0] != b.ID {
 		t.Fatalf("saves dir = %v, want exactly [%s]", got, b.ID)
+	}
+}
+
+// TestSavedAtNotPersisted — the wall-clock write time lives ONLY in the
+// envelope's clock_t0; Meta must not also persist a saved_at key (the
+// pre-release duplication that finding 10 removed). List still surfaces
+// a non-zero SavedAt because it derives from clock_t0 on read.
+func TestSavedAtNotPersisted(t *testing.T) {
+	dir := testSavesDir(t)
+	w := newTestWorld(t)
+
+	info, err := save.WriteNamed(w, "no dup")
+	if err != nil {
+		t.Fatalf("WriteNamed: %v", err)
+	}
+	// The returned entry carries the derived SavedAt (from the ClockT0
+	// just written), so callers still see a real time.
+	if info.Meta.SavedAt.IsZero() {
+		t.Error("returned SavedAt is zero, want the ClockT0-derived write time")
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, info.ID))
+	if err != nil {
+		t.Fatalf("read save: %v", err)
+	}
+	if bytes.Contains(raw, []byte("saved_at")) {
+		t.Errorf("save JSON persists a saved_at key — must be derived from clock_t0 only:\n%s", raw)
+	}
+	if !bytes.Contains(raw, []byte("clock_t0")) {
+		t.Errorf("save JSON missing clock_t0 (the wall-clock source of truth):\n%s", raw)
+	}
+
+	// And List recomputes the same SavedAt from clock_t0 on read.
+	infos, err := save.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(infos) != 1 || infos[0].Meta.SavedAt.IsZero() {
+		t.Errorf("List SavedAt not derived from clock_t0: %+v", infos)
+	}
+}
+
+// TestListSurfacesUnreadable — finding 6. A corrupt .json and a
+// newer-build (schema v+1) save are LISTED as flagged, non-loadable
+// entries rather than silently dropped: a directory that plainly holds
+// files must never render as "(no saves yet)", and a newer-version save
+// must stay visible on a downgrade. Valid saves list normally alongside.
+func TestListSurfacesUnreadable(t *testing.T) {
+	dir := testSavesDir(t)
+	w := newTestWorld(t)
+
+	good, err := save.WriteNamed(w, "readable")
+	if err != nil {
+		t.Fatalf("WriteNamed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "save-corrupt.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newer := `{"version": 999, "generator": "future", "clock_t0": 1, "payload": {}}`
+	if err := os.WriteFile(filepath.Join(dir, "save-newer.json"), []byte(newer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	infos, err := save.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(infos) != 3 {
+		t.Fatalf("List = %d entries, want 3 (1 valid + 2 flagged)", len(infos))
+	}
+
+	byID := map[string]save.SaveInfo{}
+	for _, in := range infos {
+		byID[in.ID] = in
+	}
+	if g := byID[good.ID]; g.Unreadable {
+		t.Errorf("valid save flagged unreadable: %+v", g)
+	}
+	corrupt, ok := byID["save-corrupt.json"]
+	if !ok || !corrupt.Unreadable || corrupt.Note != "corrupt" {
+		t.Errorf("corrupt entry = %+v, want Unreadable with Note=corrupt", corrupt)
+	}
+	future, ok := byID["save-newer.json"]
+	if !ok || !future.Unreadable || future.Note != "newer version" {
+		t.Errorf("newer entry = %+v, want Unreadable with Note=\"newer version\"", future)
+	}
+	// The valid save sorts above the (zero-SavedAt) flagged ones.
+	if infos[0].ID != good.ID {
+		t.Errorf("newest entry = %q, want the valid save %q first", infos[0].ID, good.ID)
 	}
 }
