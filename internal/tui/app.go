@@ -96,6 +96,14 @@ type App struct {
 	bossReturnScreen screenID
 	bossPrevPaused   bool
 
+	// savesPrevPaused records the sim pause state when the Saves screen
+	// opened (finding 4). The Saves browser freezes the clock while it is
+	// up so a save can't capture a world that drifted (or crashed) while
+	// the player typed a name; exit restores the prior state — mirroring
+	// the boss-key save/restore. A load exits by replacing the world
+	// outright, so it never restores this.
+	savesPrevPaused bool
+
 	// statusMsg flashes a one-line notice in the HUD footer for ~3
 	// seconds after save / load. Cleared by clearStatusAfter via a
 	// scheduled tea.Cmd.
@@ -1205,12 +1213,39 @@ func (a *App) doSave() error {
 // instant, no confirm (ADR 0033 §H). An empty lane (no F5 yet) is
 // surfaced as a clear "no quicksave" message rather than a raw
 // file-not-found; failures leave the existing world untouched.
+//
+// When there is no quicksave but an autosave IS on disk (the common
+// quit → relaunch → F9 case, whose quit state landed in the autosave
+// ring, not the quicksave lane), the message points the player at the
+// Saves browser instead of dead-ending — the signpost fix for
+// batch-review finding 5. F9 deliberately does NOT auto-load the
+// autosave: a stray mid-session F9 must never silently discard live
+// progress, so resuming an autosave stays an explicit menu action.
 func (a *App) doLoad() error {
 	err := a.loadWorldByID(save.QuicksaveID)
 	if errors.Is(err, fs.ErrNotExist) {
+		if a.hasResumableAutosave() {
+			return errors.New("no quicksave — press Esc → Load to resume your autosave")
+		}
 		return errors.New("no quicksave yet — press F5 first")
 	}
 	return err
+}
+
+// hasResumableAutosave reports whether the saves directory holds at
+// least one readable autosave-ring entry — the state F9 points the
+// player at when the quicksave lane is empty (finding 5).
+func (a *App) hasResumableAutosave() bool {
+	infos, err := save.List()
+	if err != nil {
+		return false
+	}
+	for _, in := range infos {
+		if in.Lane == save.LaneAutosave && !in.Unreadable {
+			return true
+		}
+	}
+	return false
 }
 
 // loadWorldByID hydrates the save id and swaps it in as the live
@@ -1258,6 +1293,16 @@ func (a *App) maybeAutosave(now time.Time) {
 		return
 	}
 	if now.Sub(a.lastAutosave) < interval {
+		return
+	}
+	// Don't autosave a frozen world. Wall-clock ticks keep flowing while
+	// the sim is paused (pause menu, boss key, maneuver planning, a long
+	// idle), but the state never changes — firing here would evict all
+	// three distinct recovery slots with identical snapshots. The anchor
+	// is intentionally NOT re-armed on this skip, so the first tick after
+	// unpause captures one honest live snapshot instead of none. (Fix:
+	// batch-review finding 2.)
+	if a.world.Clock.Paused {
 		return
 	}
 	a.lastAutosave = now // re-arm even on error so a failing disk isn't hammered every tick
@@ -1404,7 +1449,22 @@ func (a *App) openSaves(mode screens.SavesMode) {
 		a.toast(fmt.Sprintf("saves listing failed: %v", err))
 	}
 	a.saves.Open(mode, entries, defaultSaveName(a.world))
+	// Freeze the clock while the browser is up (finding 4) — a Save-As
+	// captured a drifting world otherwise, since the pause menu itself
+	// keeps the sim running. Restored on exit (see closeSavesToOrbit).
+	a.savesPrevPaused = a.world.Clock.Paused
+	a.world.Clock.Paused = true
 	a.active = screenSaves
+}
+
+// closeSavesToOrbit leaves the Saves browser back to the flight view,
+// restoring the pause state the sim had before it opened (finding 4).
+// Used by every non-load exit — cancel, Save-As, overwrite. A load does
+// NOT route through here: it swaps in a fresh world whose own pause
+// state applies.
+func (a *App) closeSavesToOrbit() {
+	a.world.Clock.Paused = a.savesPrevPaused
+	a.active = screenOrbit
 }
 
 // refreshSaves re-lists the directory into the open Saves screen after
@@ -1437,7 +1497,7 @@ func defaultSaveName(w *sim.World) string {
 func (a *App) applySavesCommand(cmd screens.SavesCommand) (tea.Model, tea.Cmd) {
 	switch cmd.Kind {
 	case screens.SavesActionCancel:
-		a.active = screenOrbit
+		a.closeSavesToOrbit()
 	case screens.SavesActionLoad:
 		if err := a.loadWorldByID(cmd.ID); err != nil {
 			a.toast(fmt.Sprintf("load failed: %v", err))
@@ -1463,14 +1523,14 @@ func (a *App) applySavesCommand(cmd screens.SavesCommand) (tea.Model, tea.Cmd) {
 			a.toast(fmt.Sprintf("save failed: %v", err))
 		} else {
 			a.toast(fmt.Sprintf("saved '%s'", cmd.Name))
-			a.active = screenOrbit
+			a.closeSavesToOrbit()
 		}
 	case screens.SavesActionOverwrite:
 		if err := save.Overwrite(cmd.ID, a.world); err != nil {
 			a.toast(fmt.Sprintf("overwrite failed: %v", err))
 		} else {
 			a.toast(fmt.Sprintf("overwrote '%s'", cmd.Name))
-			a.active = screenOrbit
+			a.closeSavesToOrbit()
 		}
 	}
 	return a, nil
