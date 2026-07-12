@@ -353,6 +353,18 @@ func autosaveVictim(dir string) string {
 	return victim
 }
 
+// rawFile mirrors File with the Payload held as raw bytes, for
+// envelope-only rewrites (Rename, the legacy import) that must not
+// perturb World state they never decoded.
+type rawFile struct {
+	Version         int             `json:"version"`
+	Generator       string          `json:"generator"`
+	ClockT0         int64           `json:"clock_t0"`
+	BodyCatalogHash string          `json:"body_catalog_hash"`
+	Meta            *Meta           `json:"meta,omitempty"`
+	Payload         json.RawMessage `json:"payload"`
+}
+
 // LoadID fully hydrates the save id from the saves directory — the
 // same validated Load path (schema range, catalog hash, migrations)
 // as the legacy single slot.
@@ -396,16 +408,7 @@ func Rename(id, name string) error {
 	if err != nil {
 		return fmt.Errorf("read save: %w", err)
 	}
-	// rawFile mirrors File with the Payload held as raw bytes so the
-	// rewrite can't perturb World state it never decoded.
-	var rf struct {
-		Version         int             `json:"version"`
-		Generator       string          `json:"generator"`
-		ClockT0         int64           `json:"clock_t0"`
-		BodyCatalogHash string          `json:"body_catalog_hash"`
-		Meta            *Meta           `json:"meta,omitempty"`
-		Payload         json.RawMessage `json:"payload"`
-	}
+	var rf rawFile
 	if err := json.Unmarshal(data, &rf); err != nil {
 		return fmt.Errorf("parse save: %w", err)
 	}

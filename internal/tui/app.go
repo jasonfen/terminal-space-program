@@ -3,6 +3,8 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1155,24 +1157,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// doSave writes the current world to the default save path.
+// doSave writes the current world to the quicksave lane — F5 always
+// targets quicksave.json (v0.26 / ADR 0033 §D), so it can never touch
+// a named save.
 func (a *App) doSave() error {
-	path, err := save.DefaultPath()
-	if err != nil {
-		return err
-	}
-	return save.Save(a.world, path)
+	return save.WriteQuicksave(a.world)
 }
 
-// doLoad replaces the live world with the one persisted at the default
-// save path. Failures leave the existing world untouched.
+// doLoad replaces the live world with the quicksave lane — F9 stays
+// instant, no confirm (ADR 0033 §H). An empty lane (no F5 yet) is
+// surfaced as a clear "no quicksave" message rather than a raw
+// file-not-found; failures leave the existing world untouched.
 func (a *App) doLoad() error {
-	path, err := save.DefaultPath()
+	w, err := save.LoadID(save.QuicksaveID)
 	if err != nil {
-		return err
-	}
-	w, err := save.Load(path)
-	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return errors.New("no quicksave yet — press F5 first")
+		}
 		return err
 	}
 	a.world = w
@@ -1183,11 +1184,13 @@ func (a *App) doLoad() error {
 	return nil
 }
 
-// autosave persists on quit. Errors are swallowed — the user is leaving
-// and there's no surface to flash a message on. Console-printable saves
-// can be wired later if needed.
+// autosave persists on quit into the rotating autosave ring (v0.26 /
+// ADR 0033 §E) — never the named lane, never the legacy single slot.
+// Errors are swallowed — the user is leaving and there's no surface to
+// flash a message on. Console-printable saves can be wired later if
+// needed.
 func (a *App) autosave() {
-	_ = a.doSave()
+	_ = save.WriteAutosave(a.world)
 }
 
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
@@ -1282,6 +1285,9 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 // quit).
 func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 	switch action {
+	// Interim (v0.26 S2): [Save Game]/[Load Game] ride the same
+	// quicksave lane as F5/F9 via doSave/doLoad until S3 replaces both
+	// items with the unified Saves screen (ADR 0033 §F).
 	case screens.MenuActionSave:
 		if err := a.doSave(); err != nil {
 			a.statusMsg = fmt.Sprintf("save failed: %v", err)
@@ -1397,13 +1403,15 @@ func (a *App) cycleLayout() {
 	}
 }
 
-// flashStatus writes a transient message to the HUD footer.
+// flashStatus writes a transient message to the HUD footer. The
+// success path names the quicksave lane — F5/F9 are its only callers
+// (v0.26 / ADR 0033 §D).
 func (a *App) flashStatus(op string, err error) {
 	if err != nil {
 		a.statusMsg = fmt.Sprintf("%s failed: %v", op, err)
 	} else {
-		path, _ := save.DefaultPath()
-		a.statusMsg = fmt.Sprintf("%s ok — %s", op, path)
+		dir, _ := save.SavesDir()
+		a.statusMsg = fmt.Sprintf("%s ok — %s", op, filepath.Join(dir, save.QuicksaveID))
 	}
 	a.statusExpires = time.Now().Add(3 * time.Second)
 }
