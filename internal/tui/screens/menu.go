@@ -10,12 +10,14 @@ import (
 // footer prompt with a centered modal that doubles as a "what can I
 // do from here" entry point. v0.7.3.3+.
 //
-// v0.7.4+ adds clickable controls. The list state shows three labelled
-// buttons; clicking any transitions into a confirm sub-state with
-// [Yes] / [No] buttons. Yes triggers the corresponding MenuAction;
-// No returns to the list. The keyboard path keeps the legacy direct
-// flow (s/l/q execute immediately) so muscle memory still works —
-// the confirm gate is for the mouse path only.
+// v0.7.4+ adds clickable controls. Screen-opening rows (Save / Load /
+// VAB / Settings / Controls) fire their action on click directly —
+// opening a screen is reversible. Quit keeps a mouse-only confirm
+// sub-state with [Yes] / [No] buttons; the keyboard path keeps the
+// legacy direct flow (q executes immediately) so muscle memory still
+// works. v0.26 (ADR 0033 §F) rehomed Save / Load onto the Saves
+// screen, which owns its own destructive confirms (§H) — so their
+// click-confirm gates moved there with them.
 type Menu struct {
 	theme Theme
 	mode  menuMode
@@ -38,8 +40,6 @@ type menuMode int
 
 const (
 	menuModeList menuMode = iota
-	menuModeConfirmSave
-	menuModeConfirmLoad
 	menuModeConfirmQuit
 )
 
@@ -158,9 +158,12 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 		case m.controlsBtn.Hit(col, row):
 			return MenuActionControls
 		case m.saveBtn.Hit(col, row):
-			m.mode = menuModeConfirmSave
+			// v0.26 (ADR 0033 §F): Save / Load open the Saves screen —
+			// reversible like VAB / Settings, so no click-confirm gate;
+			// the screen owns the destructive confirms (§H).
+			return MenuActionSave
 		case m.loadBtn.Hit(col, row):
-			m.mode = menuModeConfirmLoad
+			return MenuActionLoad
 		case m.quitBtn.Hit(col, row):
 			m.mode = menuModeConfirmQuit
 		}
@@ -178,15 +181,10 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 }
 
 // confirmAction returns the MenuAction matching the current confirm
-// sub-state. Used by both the keyboard "y" / enter path and the
-// mouse [Yes] click path.
+// sub-state (quit is the only one left post-v0.26). Used by both the
+// keyboard "y" / enter path and the mouse [Yes] click path.
 func (m *Menu) confirmAction() MenuAction {
-	switch m.mode {
-	case menuModeConfirmSave:
-		return MenuActionSave
-	case menuModeConfirmLoad:
-		return MenuActionLoad
-	case menuModeConfirmQuit:
+	if m.mode == menuModeConfirmQuit {
 		return MenuActionQuit
 	}
 	return MenuActionNone
@@ -233,10 +231,6 @@ func (m *Menu) Render(width int) string {
 	switch m.mode {
 	case menuModeList:
 		lines = append(lines, m.renderList(rowOffset)...)
-	case menuModeConfirmSave:
-		lines = append(lines, m.renderConfirm(rowOffset, "Save current game to disk?", "save")...)
-	case menuModeConfirmLoad:
-		lines = append(lines, m.renderConfirm(rowOffset, "Load saved game and discard current state?", "load")...)
 	case menuModeConfirmQuit:
 		lines = append(lines, m.renderConfirm(rowOffset, "Quit (autosaves on exit)?", "quit")...)
 	}

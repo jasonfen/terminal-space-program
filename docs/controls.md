@@ -136,7 +136,7 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `P` | Porkchop plot for the body under the map cursor (not your `t` target). `Enter` on a cell plans that transfer. For another planet only — moon targets point you back to `H`. Press `o` inside for transfer options |
 | `R` | Refine the plan — recompute the transfer from where you are right now and update the arrival |
 | `m` | Open the maneuver planner |
-| `F5` / `F9` | Quicksave / quickload |
+| `F5` / `F9` | Quicksave / quickload — a fixed quick slot, separate from your named saves (see **Saves** below) |
 | `[` / `]` | Switch which craft you're flying (when you have more than one) |
 | `1`–`9` | Jump straight to craft N (does nothing if that slot is empty) |
 | `U` | Undock a docked craft back into its parts |
@@ -144,6 +144,22 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `D` | Apollo transposition — flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it) |
 | `V` | Jump to the launch chase-cam, following your active craft |
 | `E` | End the flight — remove a crashed craft after a `y` / `n` confirm |
+
+### Saves (`Esc → [Save Game]` / `[Load Game]`)
+
+One browser for every save: your named saves plus the managed quicksave
+(`F5`) and the three rotating autosaves, newest first, with when it was
+saved, the in-game date, and the vessel you were flying. `[Save Game]`
+opens it in save mode (with a `＋ New save…` row), `[Load Game]` in load
+mode.
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Move the save cursor (click a row to select it; click again to activate) |
+| `Enter` | Load mode: load the save (asks first). Save mode: `＋ New save…` prompts for a name (prefilled with your vessel + in-game day), an existing named save asks to overwrite it |
+| `d` | Delete the highlighted save (asks first — works on quicksave / autosaves too) |
+| `r` | Rename a named save. The quicksave / autosave slots are managed and can't be renamed or overwritten by hand |
+| `Esc` | Back |
 
 ### Manual flight
 
