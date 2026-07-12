@@ -56,11 +56,20 @@ import (
 const SchemaVersion = 9
 
 // File is the on-disk envelope.
+//
+// Meta (v0.26 / ADR 0033, schema v9 additive — NO bump, §J) is the
+// saves-browser header: display name, wall-clock SavedAt, in-game
+// epoch, active vessel, system. nil for legacy envelopes (the
+// single-slot Save writer stamps none) — a v9 save lacking Meta still
+// loads, and ReadHeader derives SavedAt from ClockT0 for ordering.
+// SchemaVersion tracks the Payload shape; envelope-level bookkeeping
+// rides along additively.
 type File struct {
 	Version         int     `json:"version"`
 	Generator       string  `json:"generator"`
 	ClockT0         int64   `json:"clock_t0"`
 	BodyCatalogHash string  `json:"body_catalog_hash"`
+	Meta            *Meta   `json:"meta,omitempty"`
 	Payload         Payload `json:"payload"`
 }
 
@@ -415,22 +424,51 @@ func DefaultPath() (string, error) {
 
 // Save serialises w to path, creating parent directories as needed.
 // Atomic on POSIX: writes to a sibling tmpfile and renames into place.
+//
+// This is the legacy single-slot writer — it stamps no Meta, keeping
+// the pre-v0.26 envelope shape byte-compatible for downgraded
+// binaries (ADR 0033 §G leaves the old save.json untouched as a
+// safety net). The saves-directory lanes (saves.go) stamp Meta via
+// the same buildFile + writeFileAtomic path.
 func Save(w *sim.World, path string) error {
-	hash, err := bodies.CatalogHash()
+	f, err := buildFile(w, nil)
 	if err != nil {
 		return err
 	}
-	f := File{
+	return writeFileAtomic(path, f)
+}
+
+// buildFile assembles the on-disk envelope for w, stamping the given
+// Meta header (nil for the legacy Meta-less shape).
+func buildFile(w *sim.World, meta *Meta) (File, error) {
+	hash, err := bodies.CatalogHash()
+	if err != nil {
+		return File{}, err
+	}
+	return File{
 		Version:         SchemaVersion,
 		Generator:       fmt.Sprintf("tsp %s", version.Version),
 		ClockT0:         time.Now().UnixNano(),
 		BodyCatalogHash: hash,
+		Meta:            meta,
 		Payload:         payloadFromWorld(w),
-	}
+	}, nil
+}
+
+// writeFileAtomic marshals the envelope and writes it via the shared
+// tmp + atomic-rename path — every saves-directory writer reuses this
+// (ADR 0033: no new write mechanics).
+func writeFileAtomic(path string, f File) error {
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal save: %w", err)
 	}
+	return writeAtomic(path, data)
+}
+
+// writeAtomic writes data to path atomically on POSIX: parent dirs
+// created, sibling tmpfile, rename into place.
+func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create save dir: %w", err)
 	}
