@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/settings"
@@ -48,6 +49,7 @@ const (
 	SettingsActionToggle                                 // flip the returned Chip's visibility
 	SettingsActionToggleTutorial                         // flip the tutorial mission program (Slice 7)
 	SettingsActionToggleChallenges                       // flip the challenge mission program (Slice 7)
+	SettingsActionCycleAutosave                          // cycle the autosave interval (v0.26 S4 / ADR 0033 §E)
 )
 
 // gameplayRows is the number of non-chip toggle rows (Tutorial, Challenges)
@@ -55,13 +57,18 @@ const (
 // [len(AllChips), len(AllChips)+gameplayRows).
 const gameplayRows = 2
 
+// savesRows is the number of saves-section rows below the gameplay
+// toggles — currently just the autosave-interval cycler (v0.26 S4). It
+// occupies cursor index len(AllChips)+gameplayRows.
+const savesRows = 1
+
 // HandleKey maps a raw key string to a SettingsAction. Up/down (and
 // k/j) move the cursor with wrap-around; space / enter toggles the
 // highlighted Chip; esc backs out to orbit. On a toggle the returned
 // Chip is the highlighted one; for every other action the Chip is the
 // zero value (callers switch on the action first).
 func (s *SettingsScreen) HandleKey(key string) (SettingsAction, settings.Chip) {
-	n := len(settings.AllChips) + gameplayRows
+	n := len(settings.AllChips) + gameplayRows + savesRows
 	switch key {
 	case "up", "k":
 		if n > 0 {
@@ -81,13 +88,16 @@ func (s *SettingsScreen) HandleKey(key string) (SettingsAction, settings.Chip) {
 
 // toggleAt maps a row index to its toggle action: the first len(AllChips) rows
 // are chip toggles, the two rows below are the Tutorial and Challenges program
-// toggles (v0.21 Slice 7).
+// toggles (v0.21 Slice 7), and the last row cycles the autosave interval
+// (v0.26 S4).
 func (s *SettingsScreen) toggleAt(i int) (SettingsAction, settings.Chip) {
 	switch i {
 	case len(settings.AllChips):
 		return SettingsActionToggleTutorial, ""
 	case len(settings.AllChips) + 1:
 		return SettingsActionToggleChallenges, ""
+	case len(settings.AllChips) + gameplayRows:
+		return SettingsActionCycleAutosave, ""
 	default:
 		if i >= 0 && i < len(settings.AllChips) {
 			return SettingsActionToggle, settings.AllChips[i]
@@ -146,7 +156,7 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width int) string {
 	// One row per Chip, in AllChips display order. Record each row as a
 	// full-width click target (index-aligned with AllChips) before
 	// appending it, so buttonRange.row matches the rendered line index.
-	s.rowBtns = make([]buttonRange, len(settings.AllChips)+gameplayRows)
+	s.rowBtns = make([]buttonRange, len(settings.AllChips)+gameplayRows+savesRows)
 	for i, c := range settings.AllChips {
 		marker := "  "
 		if i == s.cursor {
@@ -197,9 +207,41 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width int) string {
 		lines = append(lines, marker+text)
 	}
 
+	// Saves section: the periodic-autosave interval (v0.26 S4 / ADR 0033
+	// §E). A value row rather than a checkbox — space/enter cycles it
+	// through settings.AutosaveIntervalSteps; 0 renders as "off" (the
+	// on-quit autosave still fires regardless).
+	lines = append(lines, "")
+	lines = append(lines, s.theme.Dim.Render("─── saves ───"))
+	lines = append(lines, "")
+	lines = append(lines, s.theme.Dim.Render("  Periodic autosave into the rotating ring. Off keeps quit-autosave only."))
+	lines = append(lines, "")
+	{
+		idx := len(settings.AllChips) + gameplayRows
+		marker := "  "
+		if idx == s.cursor {
+			marker = "> "
+		}
+		s.rowBtns[idx] = buttonRange{row: len(lines), colStart: 0, colEnd: width, set: true}
+		text := "Autosave interval: ‹" + autosaveIntervalLabel(prefs.AutosaveIntervalMinutes()) + "›"
+		if idx == s.cursor {
+			text = s.theme.Primary.Render(text)
+		}
+		lines = append(lines, marker+text)
+	}
+
 	lines = append(lines, "")
 	lines = append(lines, s.theme.Footer.Render("[↑/↓] move  [space] toggle  [esc] back"))
 	return strings.Join(lines, "\n")
+}
+
+// autosaveIntervalLabel renders an interval-in-minutes as the Settings
+// row's value text: "off" for 0, "N min" otherwise.
+func autosaveIntervalLabel(min int) string {
+	if min <= 0 {
+		return "off"
+	}
+	return fmt.Sprintf("%d min", min)
 }
 
 // HitBackButton reports whether a click at (col, row) lands on the

@@ -69,10 +69,11 @@ func TestSettingsCursorNavigation(t *testing.T) {
 		t.Errorf("toggle at row 0 = %q, want %q", c, settings.AllChips[0])
 	}
 
-	// up wraps from row 0 to the last row — now the Challenges gameplay toggle.
+	// up wraps from row 0 to the last row — now the autosave-interval row
+	// (v0.26 S4).
 	s.HandleKey("up")
-	if a, _ := s.HandleKey(" "); a != SettingsActionToggleChallenges {
-		t.Errorf("up-wrap toggle action = %v, want ToggleChallenges (last row)", a)
+	if a, _ := s.HandleKey(" "); a != SettingsActionCycleAutosave {
+		t.Errorf("up-wrap toggle action = %v, want CycleAutosave (last row)", a)
 	}
 	_ = n
 }
@@ -91,6 +92,66 @@ func TestSettingsGameplayToggles(t *testing.T) {
 	s.HandleKey("down")
 	if a, _ := s.HandleKey("enter"); a != SettingsActionToggleChallenges {
 		t.Errorf("toggle at challenges row = %v, want ToggleChallenges", a)
+	}
+}
+
+// The autosave-interval row sits below the gameplay toggles and cycles
+// on space/enter (v0.26 S4 / ADR 0033 §E).
+func TestSettingsAutosaveIntervalRow(t *testing.T) {
+	s := NewSettingsScreen(Theme{})
+	n := len(settings.AllChips) + gameplayRows
+	for i := 0; i < n; i++ { // walk down onto the autosave row (last)
+		s.HandleKey("down")
+	}
+	if a, _ := s.HandleKey(" "); a != SettingsActionCycleAutosave {
+		t.Errorf("action at autosave row = %v, want CycleAutosave", a)
+	}
+	if a, _ := s.HandleKey("enter"); a != SettingsActionCycleAutosave {
+		t.Errorf("enter at autosave row = %v, want CycleAutosave", a)
+	}
+}
+
+// The autosave row renders the current interval — "5 min" at the
+// default, "off" when disabled.
+func TestSettingsRenderShowsAutosaveInterval(t *testing.T) {
+	s := NewSettingsScreen(Theme{})
+
+	out := s.Render(settings.Default(), 80)
+	if !strings.Contains(out, "Autosave interval") {
+		t.Errorf("Render is missing the autosave-interval row:\n%s", out)
+	}
+	if !strings.Contains(out, "5 min") {
+		t.Errorf("Render is missing the default interval value %q:\n%s", "5 min", out)
+	}
+
+	prefs := settings.Default()
+	prefs.SetAutosaveIntervalMin(0)
+	out = s.Render(prefs, 80)
+	if !strings.Contains(out, "off") {
+		t.Errorf("Render with interval 0 is missing %q:\n%s", "off", out)
+	}
+}
+
+// Clicking the autosave row cycles it, mirroring the chip rows'
+// full-width click targets.
+func TestSettingsClickAutosaveRow(t *testing.T) {
+	s := NewSettingsScreen(Theme{})
+	const width = 80
+	out := s.Render(settings.Default(), width)
+	lines := strings.Split(out, "\n")
+
+	row := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "Autosave interval") {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatalf("could not locate the autosave-interval row in render")
+	}
+	if a, _ := s.HandleClick(0, row); a != SettingsActionCycleAutosave {
+		t.Errorf("click autosave row = %v, want CycleAutosave", a)
 	}
 }
 

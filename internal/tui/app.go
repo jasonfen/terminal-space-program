@@ -102,6 +102,15 @@ type App struct {
 	statusMsg     string
 	statusExpires time.Time
 
+	// lastAutosave is the wall-clock time of the last periodic-autosave
+	// check anchor (v0.26 S4 / ADR 0033 §E): armed by the first physics
+	// tick, reset on every interval fire. Deliberately wall-clock — the
+	// timer must not accelerate under warp — and fed from the tea.Tick
+	// timestamp carried in sim.TickMsg (see maybeAutosave), never from
+	// an inline time.Now(), so tests can drive it with a synthetic
+	// clock. Zero means "not armed yet".
+	lastAutosave time.Time
+
 	// endFlightConfirm (v0.11.4+, ADR 0004) gates the [E] end-flight
 	// removal behind a y/n confirm. When true, the orbit screen
 	// renders a footer prompt and the next y/Y commits the removal;
@@ -188,6 +197,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case sim.TickMsg:
 		a.world.Tick()
+		// v0.26 S4: periodic autosave, driven by the wall-clock stamp
+		// tea.Tick put in the TickMsg — real minutes, never game minutes,
+		// so warp can't accelerate it.
+		a.maybeAutosave(time.Time(m))
 		// v0.8.3+: surface docking events as a status flash. Cleared
 		// here so a single fusion only flashes once.
 		if e := a.world.LastDockEvent; e != nil {
@@ -442,6 +455,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.toggleMissionProgram(true)
 			case screens.SettingsActionToggleChallenges:
 				a.toggleMissionProgram(false)
+			case screens.SettingsActionCycleAutosave:
+				a.cycleAutosaveInterval()
 			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
@@ -584,6 +599,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.toggleMissionProgram(true)
 			case screens.SettingsActionToggleChallenges:
 				a.toggleMissionProgram(false)
+			case screens.SettingsActionCycleAutosave:
+				a.cycleAutosaveInterval()
 			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
@@ -1222,6 +1239,31 @@ func (a *App) autosave() {
 	_ = save.WriteAutosave(a.world)
 }
 
+// maybeAutosave fires the periodic autosave (v0.26 S4 / ADR 0033 §E)
+// when the player's wall-clock interval has elapsed since the last
+// fire. now is the tea.Tick timestamp from the current sim.TickMsg —
+// the injected clock — so the check never reads time.Now() itself and
+// stays testable. An interval of 0 ("off" in Settings) disables the
+// periodic lane entirely; the on-quit autosave is independent. The
+// first tick only arms the anchor (no save at startup — the world is
+// seconds old). Write errors are swallowed like the quit path's:
+// autosave is a background safety net and must never interrupt flight.
+func (a *App) maybeAutosave(now time.Time) {
+	interval := a.orbitView.Settings().AutosaveInterval()
+	if interval <= 0 {
+		return
+	}
+	if a.lastAutosave.IsZero() {
+		a.lastAutosave = now
+		return
+	}
+	if now.Sub(a.lastAutosave) < interval {
+		return
+	}
+	a.lastAutosave = now // re-arm even on error so a failing disk isn't hammered every tick
+	_ = save.WriteAutosave(a.world)
+}
+
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode
 // it sets the held attitude (the v0.7.3.2 explicit-engage UX stays —
 // `b` actually fires the engine). In EngineRCS mode the same keypress
@@ -1487,6 +1529,23 @@ func (a *App) toggleMissionProgram(tutorial bool) {
 	}
 	a.orbitView.SetSettings(s)
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(s))
+	if err := settings.Save(s); err != nil {
+		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+	}
+}
+
+// cycleAutosaveInterval advances the periodic-autosave interval to the
+// next step in settings.AutosaveIntervalSteps (v0.26 S4 / ADR 0033 §E)
+// and persists it — mirroring toggleChip's persist-on-change. Cycling
+// deliberately does not reset lastAutosave: the anchor is "time of the
+// last save/arm", and the next tick compares it against the new
+// interval, so shortening the interval can fire promptly and
+// lengthening it just waits longer.
+func (a *App) cycleAutosaveInterval() {
+	s := a.orbitView.Settings()
+	s.SetAutosaveIntervalMin(settings.NextAutosaveIntervalMin(s.AutosaveIntervalMinutes()))
+	a.orbitView.SetSettings(s)
 	if err := settings.Save(s); err != nil {
 		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
 		a.statusExpires = time.Now().Add(3 * time.Second)

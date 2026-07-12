@@ -13,6 +13,8 @@
 // mutates it through SetChip; nothing here imports the tui.
 package settings
 
+import "time"
+
 // Chip identifies one toggle-able orbit-screen Chip — the contextual
 // blocks that ADR 0010 moves out of the slim HUD column and onto canvas
 // corners. The string value is the stable JSON key in settings.json.
@@ -124,6 +126,67 @@ type Settings struct {
 	// string so this package keeps zero dependency on keylayout — the tui
 	// owns resolution and validation.
 	KeyboardLayout string `json:"keyboardLayout,omitempty"`
+
+	// AutosaveIntervalMin is the wall-clock interval, in real minutes,
+	// between periodic autosaves into the rotating ring (v0.26 S4 /
+	// ADR 0033 §E). A pointer so the two meaningful "empty" states stay
+	// distinct under omitempty: nil (absent field — the common case)
+	// means the 5-minute default, while an explicit 0 means "off"
+	// (interval autosave disabled; the on-quit autosave still fires).
+	// Read through AutosaveInterval / AutosaveIntervalMinutes rather
+	// than dereferencing directly.
+	AutosaveIntervalMin *int `json:"autosaveIntervalMin,omitempty"`
+}
+
+// DefaultAutosaveIntervalMin is the periodic-autosave default (real
+// minutes) when the player hasn't set one — ADR 0033 §E's 5 minutes.
+const DefaultAutosaveIntervalMin = 5
+
+// AutosaveIntervalSteps is the cycle the Settings screen's
+// autosave-interval row walks, in order: off, then increasing real-
+// minute intervals. Display-ordered and append-sensitive like AllChips.
+var AutosaveIntervalSteps = []int{0, 1, 5, 10, 15, 30}
+
+// NextAutosaveIntervalMin returns the step after cur in
+// AutosaveIntervalSteps, wrapping from the last back to the first
+// (off). A cur outside the canonical list — a hand-edited
+// settings.json — re-enters the cycle at the first step rather than
+// being unreachable forever.
+func NextAutosaveIntervalMin(cur int) int {
+	for i, v := range AutosaveIntervalSteps {
+		if v == cur {
+			return AutosaveIntervalSteps[(i+1)%len(AutosaveIntervalSteps)]
+		}
+	}
+	return AutosaveIntervalSteps[0]
+}
+
+// AutosaveIntervalMinutes returns the effective periodic-autosave
+// interval in real minutes: the default when unset, 0 when disabled.
+// A hand-edited negative value clamps to 0 (off) rather than yielding
+// a nonsense negative duration.
+func (s Settings) AutosaveIntervalMinutes() int {
+	if s.AutosaveIntervalMin == nil {
+		return DefaultAutosaveIntervalMin
+	}
+	if *s.AutosaveIntervalMin < 0 {
+		return 0
+	}
+	return *s.AutosaveIntervalMin
+}
+
+// AutosaveInterval returns the effective interval as a duration; 0
+// means interval autosave is disabled.
+func (s Settings) AutosaveInterval() time.Duration {
+	return time.Duration(s.AutosaveIntervalMinutes()) * time.Minute
+}
+
+// SetAutosaveIntervalMin records an explicit interval (0 = off). A
+// fresh pointer per call, so Settings values copied around the tui
+// never alias each other's interval.
+func (s *Settings) SetAutosaveIntervalMin(m int) {
+	v := m
+	s.AutosaveIntervalMin = &v
 }
 
 // Default returns the all-defaults Settings: every Chip visible, no

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // withConfigRoot points XDG_CONFIG_HOME at a fresh temp dir and returns
@@ -184,6 +185,125 @@ func TestMissionProgramTogglesRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAutosaveIntervalDefaultsToFiveMinutes(t *testing.T) {
+	// The zero value / an absent file means the 5-minute default
+	// (ADR 0033 §E), not "off".
+	s := Default()
+	if got := s.AutosaveIntervalMinutes(); got != DefaultAutosaveIntervalMin {
+		t.Errorf("AutosaveIntervalMinutes = %d, want %d", got, DefaultAutosaveIntervalMin)
+	}
+	if got := s.AutosaveInterval(); got != 5*time.Minute {
+		t.Errorf("AutosaveInterval = %v, want 5m", got)
+	}
+}
+
+func TestAutosaveIntervalAbsentFieldYieldsDefault(t *testing.T) {
+	// A pre-v0.26 settings.json has no autosaveIntervalMin key; loading
+	// it must yield the 5-minute default, not off.
+	withConfigRoot(t, `{"chips":{"stages":false}}`)
+
+	s, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got := s.AutosaveIntervalMinutes(); got != DefaultAutosaveIntervalMin {
+		t.Errorf("AutosaveIntervalMinutes = %d, want default %d", got, DefaultAutosaveIntervalMin)
+	}
+}
+
+func TestAutosaveIntervalRoundTrips(t *testing.T) {
+	withConfigRoot(t, "")
+
+	s := Default()
+	s.SetAutosaveIntervalMin(15)
+	s.SetChip(ChipNodes, false) // co-persisted alongside the interval
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got.AutosaveIntervalMinutes() != 15 {
+		t.Errorf("AutosaveIntervalMinutes = %d after round-trip, want 15", got.AutosaveIntervalMinutes())
+	}
+	if got.ChipEnabled(ChipNodes) {
+		t.Error("chip override lost when interval co-persisted")
+	}
+}
+
+func TestAutosaveIntervalOffRoundTrips(t *testing.T) {
+	// The omitempty trap: an explicit 0 ("off") must survive a
+	// Save/Load round-trip and NOT collapse back to the 5-min default.
+	withConfigRoot(t, "")
+
+	s := Default()
+	s.SetAutosaveIntervalMin(0)
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got.AutosaveIntervalMinutes() != 0 {
+		t.Errorf("AutosaveIntervalMinutes = %d after round-trip, want 0 (off)", got.AutosaveIntervalMinutes())
+	}
+	if got.AutosaveInterval() != 0 {
+		t.Errorf("AutosaveInterval = %v, want 0 (disabled)", got.AutosaveInterval())
+	}
+}
+
+func TestAutosaveIntervalNegativeClampsToOff(t *testing.T) {
+	// A hand-edited negative value degrades to "off" rather than a
+	// nonsense negative duration.
+	withConfigRoot(t, `{"autosaveIntervalMin":-3}`)
+
+	s, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got := s.AutosaveIntervalMinutes(); got != 0 {
+		t.Errorf("AutosaveIntervalMinutes = %d, want 0 (clamped)", got)
+	}
+}
+
+func TestNextAutosaveIntervalCyclesSteps(t *testing.T) {
+	// Cycling walks the canonical steps in order and wraps from the last
+	// back to Off.
+	cur := AutosaveIntervalSteps[0]
+	for i := 1; i <= len(AutosaveIntervalSteps); i++ {
+		cur = NextAutosaveIntervalMin(cur)
+		want := AutosaveIntervalSteps[i%len(AutosaveIntervalSteps)]
+		if cur != want {
+			t.Fatalf("step %d: NextAutosaveIntervalMin = %d, want %d", i, cur, want)
+		}
+	}
+	// A value outside the canonical list (hand-edited file) re-enters the
+	// cycle at the first step.
+	if got := NextAutosaveIntervalMin(7); got != AutosaveIntervalSteps[0] {
+		t.Errorf("NextAutosaveIntervalMin(7) = %d, want %d (re-enter cycle)", got, AutosaveIntervalSteps[0])
+	}
+}
+
+func TestAutosaveIntervalStepsIncludeDefaultAndOff(t *testing.T) {
+	// The Settings row cycles AutosaveIntervalSteps; the default and the
+	// off state must both be reachable.
+	hasDefault, hasOff := false, false
+	for _, v := range AutosaveIntervalSteps {
+		if v == DefaultAutosaveIntervalMin {
+			hasDefault = true
+		}
+		if v == 0 {
+			hasOff = true
+		}
+	}
+	if !hasDefault || !hasOff {
+		t.Errorf("AutosaveIntervalSteps = %v, want both 0 (off) and %d (default) present",
+			AutosaveIntervalSteps, DefaultAutosaveIntervalMin)
+	}
+}
+
 func TestSaveIsIdempotent(t *testing.T) {
 	withConfigRoot(t, "")
 
@@ -224,6 +344,10 @@ func TestSaveOmitsDefaultsWhenNoOverrides(t *testing.T) {
 	}
 	if _, ok := raw["chips"]; ok {
 		t.Errorf("default Save wrote a %q key; want it omitted, got %s", "chips", data)
+	}
+	if _, ok := raw["autosaveIntervalMin"]; ok {
+		t.Errorf("default Save wrote an %q key; want it omitted (absent = 5-min default), got %s",
+			"autosaveIntervalMin", data)
 	}
 }
 
