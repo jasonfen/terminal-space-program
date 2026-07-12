@@ -80,6 +80,36 @@ func TestIntervalAutosaveRotatesRing(t *testing.T) {
 	}
 }
 
+// TestIntervalAutosaveSkippedWhilePaused — finding 2. Wall-clock ticks
+// keep flowing while the sim is paused, but the frozen world must not
+// autosave: three idle intervals must not evict all three ring slots
+// with identical snapshots. Unpausing captures exactly one honest
+// snapshot on the next due tick.
+func TestIntervalAutosaveSkippedWhilePaused(t *testing.T) {
+	dir := testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	t0 := time.Now()
+	tickAt(a, t0) // arm
+	a.world.Clock.Paused = true
+
+	for i := 1; i <= 3; i++ {
+		tickAt(a, t0.Add(time.Duration(i)*5*time.Minute))
+	}
+	if files := savesDirFiles(t, dir); len(files) != 0 {
+		t.Fatalf("saves dir = %v after 3 paused intervals, want empty (a frozen world must not autosave)", files)
+	}
+
+	a.world.Clock.Paused = false
+	tickAt(a, t0.Add(4*5*time.Minute))
+	if files := savesDirFiles(t, dir); len(files) != 1 {
+		t.Fatalf("saves dir = %v after unpause, want exactly one autosave", files)
+	}
+}
+
 // TestIntervalAutosaveDisabledByZero — interval 0 ("off") suppresses
 // the periodic autosave entirely, while the on-quit autosave still
 // fires (S2 behaviour, unaffected by the setting).

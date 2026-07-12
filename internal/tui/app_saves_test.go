@@ -126,6 +126,32 @@ func TestQuickloadEmptyLane(t *testing.T) {
 	}
 }
 
+// TestQuickloadEmptyLanePointsToAutosave — finding 5. When there is no
+// quicksave but an autosave IS on disk (the quit → relaunch → F9 case),
+// F9 stays a no-op signpost — it does NOT auto-load, so a stray
+// mid-session F9 can't silently discard live progress — and the message
+// points the player at the Saves browser (Load) instead of dead-ending.
+func TestQuickloadEmptyLanePointsToAutosave(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.autosave() // a quit-style autosave lands in the ring; no quicksave
+	old := a.world
+
+	a.Update(tea.KeyMsg{Type: tea.KeyF9})
+	if a.world != old {
+		t.Fatal("F9 auto-loaded the autosave — it must stay a no-op signpost, not swap the world")
+	}
+	if !strings.Contains(a.statusMsg, "no quicksave") {
+		t.Errorf("statusMsg = %q, want a no-quicksave message", a.statusMsg)
+	}
+	if !strings.Contains(a.statusMsg, "Load") {
+		t.Errorf("statusMsg = %q, want it to point at the Saves browser (Esc → Load)", a.statusMsg)
+	}
+}
+
 // TestQuitAutosavesToRing — ctrl+c quit writes the rotating autosave
 // ring (ADR 0033 §E), not a named save and not the legacy single-slot
 // save.json.
