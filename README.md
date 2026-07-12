@@ -47,6 +47,17 @@ stage combine honestly (thrust adds, Isp is the thrust-weighted blend) and a
 stage holds a single fuel chemistry, so everything you build flies on the same
 honest physics as the shipped fleet.
 
+Recently introduced: a multi-save system. `Esc → [Save Game]` / `[Load Game]`
+opens one browser for every save — your named saves (create one with the
+`＋ New save…` row, or overwrite an existing one), plus the managed quicksave
+lane (`F5` to save, `F9` to instant-load, no confirm) and three rotating
+autosaves (a real-time interval, 5 minutes by default and tunable in Settings,
+plus one on quit). The old single `save.json` is auto-imported as a named save
+the first time you launch this version and is left in place, untouched, as a
+downgrade safety net. Saves are flat, independent files under
+`~/.local/state/terminal-space-program/saves/` (`$XDG_STATE_HOME` if set) — no
+save-schema change, so existing saves load exactly as before.
+
 The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
 [NOTICE.md](NOTICE.md) for the full acknowledgments list.
