@@ -45,7 +45,15 @@ func TestSSHSmoke(t *testing.T) {
 	sessA := dialGameSession(t, srv.Addr())
 	sessB := dialGameSession(t, srv.Addr())
 
-	// First frame: the orbit screen (system name in the header chip).
+	// First frame: the calibration card (v0.27 S2); accept it on both.
+	for _, s := range []*gameSession{sessA, sessB} {
+		s.waitFor(t, "[y/n]")
+		if _, err := s.stdin.Write([]byte("y")); err != nil {
+			t.Fatalf("accept calibration card: %v", err)
+		}
+	}
+
+	// Then the game: the orbit screen (system name in the header chip).
 	sessA.waitFor(t, "Sol")
 	sessB.waitFor(t, "Sol")
 

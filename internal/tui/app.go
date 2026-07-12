@@ -199,6 +199,14 @@ func (a *App) Init() tea.Cmd {
 	return sim.TickCmd(a.world.Clock.BaseStep)
 }
 
+// sizeGated reports whether the terminal is below the playable floor
+// (v0.27 S2). Width 0 means no WindowSizeMsg yet — not gated, View's
+// "initializing…" placeholder covers that instant.
+func (a *App) sizeGated() bool {
+	return a.width > 0 &&
+		(a.width < screens.MinTerminalWidth || a.height < screens.MinTerminalHeight)
+}
+
 // Update routes every tea.Msg. Globals handled here; screen-scoped
 // keys delegate to the active screen.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -356,6 +364,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {
 			return a, nil
 		}
+		// v0.27 S2: clicks against a gate screen would hit-test stale
+		// layouts — drop them like gated keys.
+		if a.sizeGated() {
+			return a, nil
+		}
 		switch a.active {
 		case screenOrbit:
 			// v0.7.4+: title-bar [Menu] / [Missions] buttons take
@@ -503,6 +516,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.autosave()
 			return a, tea.Quit
+		}
+		// v0.27 S2: while the size gate is up, gameplay keys are
+		// swallowed — the player can't see what a keypress would do.
+		// Quit above stays honored from the gated state.
+		if a.sizeGated() {
+			return a, nil
 		}
 		// Boss key: a single global keypress (backtick) swaps the whole
 		// screen to a fake developer shell, and swaps back on
@@ -1693,6 +1712,12 @@ func finiteBurnDuration(dv, mass, thrust float64) time.Duration {
 func (a *App) View() string {
 	if a.width == 0 {
 		return "initializing…"
+	}
+	// v0.27 S2 (ADR 0034): below the playable floor the gate replaces
+	// every screen — local and ssh alike. The sim keeps ticking; only
+	// rendering and gameplay input are held.
+	if a.sizeGated() {
+		return screens.RenderSizeGate(a.width, a.height)
 	}
 	var base string
 	switch a.active {
