@@ -71,9 +71,11 @@ func TestMenuButtonRowsMatchRenderedLines(t *testing.T) {
 		}
 	}
 
-	// Confirm state: [Yes] / [No] on the same row recorded.
-	saveCol := (m.saveBtn.colStart + m.saveBtn.colEnd) / 2
-	m.HandleClick(saveCol, m.saveBtn.row)
+	// Confirm state: [Yes] / [No] on the same row recorded. Quit is
+	// the only click-confirm gate left (v0.26 moved Save / Load onto
+	// the Saves screen, which owns its own confirms).
+	quitCol := (m.quitBtn.colStart + m.quitBtn.colEnd) / 2
+	m.HandleClick(quitCol, m.quitBtn.row)
 	out = m.Render(80)
 	lines = strings.Split(out, "\n")
 	if m.yesBtn.row >= len(lines) || !strings.Contains(lines[m.yesBtn.row], "[Yes]") {
@@ -93,11 +95,12 @@ func min(a, b int) int {
 	return b
 }
 
-// TestMenuClickConfirmFlow: clicking Save / Load / Quit in the list
-// state transitions into a confirm sub-screen rather than firing
-// immediately. [Yes] then commits the action; [No] returns to the
-// list. The keyboard direct path still bypasses confirm (covered
-// above) — confirm gating is mouse-only.
+// TestMenuClickConfirmFlow: clicking Quit in the list state
+// transitions into a confirm sub-screen rather than firing
+// immediately; [Yes] then commits, [No] returns to the list. Save /
+// Load clicks fire their action directly — v0.26 (ADR 0033 §F) made
+// them screen-openers like VAB / Settings, with the destructive
+// confirms living on the Saves screen itself.
 func TestMenuClickConfirmFlow(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
@@ -108,13 +111,25 @@ func TestMenuClickConfirmFlow(t *testing.T) {
 	m := NewMenu(th)
 	_ = m.Render(80) // populate button ranges
 
-	// Click Save in the list — should not immediately fire MenuActionSave.
+	// Save / Load clicks open the Saves screen directly — no gate.
 	saveCol := (m.saveBtn.colStart + m.saveBtn.colEnd) / 2
-	if got := m.HandleClick(saveCol, m.saveBtn.row); got != MenuActionNone {
-		t.Errorf("Save list click: got %v, want MenuActionNone (confirm gate)", got)
+	if got := m.HandleClick(saveCol, m.saveBtn.row); got != MenuActionSave {
+		t.Errorf("Save list click: got %v, want MenuActionSave (opens the Saves screen)", got)
 	}
-	if m.mode != menuModeConfirmSave {
-		t.Errorf("mode after Save click = %v, want menuModeConfirmSave", m.mode)
+	_ = m.Render(80)
+	loadCol := (m.loadBtn.colStart + m.loadBtn.colEnd) / 2
+	if got := m.HandleClick(loadCol, m.loadBtn.row); got != MenuActionLoad {
+		t.Errorf("Load list click: got %v, want MenuActionLoad (opens the Saves screen)", got)
+	}
+
+	// Click Quit in the list — should not immediately fire MenuActionQuit.
+	_ = m.Render(80)
+	quitCol := (m.quitBtn.colStart + m.quitBtn.colEnd) / 2
+	if got := m.HandleClick(quitCol, m.quitBtn.row); got != MenuActionNone {
+		t.Errorf("Quit list click: got %v, want MenuActionNone (confirm gate)", got)
+	}
+	if m.mode != menuModeConfirmQuit {
+		t.Errorf("mode after Quit click = %v, want menuModeConfirmQuit", m.mode)
 	}
 
 	// Re-render to populate Yes/No ranges, click No → back to list.
@@ -129,12 +144,11 @@ func TestMenuClickConfirmFlow(t *testing.T) {
 
 	// List → confirm again, this time Yes → commits.
 	_ = m.Render(80)
-	loadCol := (m.loadBtn.colStart + m.loadBtn.colEnd) / 2
-	m.HandleClick(loadCol, m.loadBtn.row)
+	m.HandleClick(quitCol, m.quitBtn.row)
 	_ = m.Render(80)
 	yesCol := (m.yesBtn.colStart + m.yesBtn.colEnd) / 2
-	if got := m.HandleClick(yesCol, m.yesBtn.row); got != MenuActionLoad {
-		t.Errorf("Yes click after Load: got %v, want MenuActionLoad", got)
+	if got := m.HandleClick(yesCol, m.yesBtn.row); got != MenuActionQuit {
+		t.Errorf("Yes click after Quit: got %v, want MenuActionQuit", got)
 	}
 	if m.mode != menuModeList {
 		t.Errorf("mode after Yes click = %v, want menuModeList (back to list)", m.mode)
@@ -161,13 +175,13 @@ func TestMenuKeyboardConfirmStillWorks(t *testing.T) {
 		t.Errorf("HandleKey(y) after Quit click: got %v, want MenuActionQuit", got)
 	}
 
-	// Click Save, then press 'n' to cancel.
+	// Click Quit again, then press 'n' to cancel.
 	m.Reset()
 	_ = m.Render(80)
-	saveCol := (m.saveBtn.colStart + m.saveBtn.colEnd) / 2
-	m.HandleClick(saveCol, m.saveBtn.row)
+	quitCol = (m.quitBtn.colStart + m.quitBtn.colEnd) / 2
+	m.HandleClick(quitCol, m.quitBtn.row)
 	if got := m.HandleKey("n"); got != MenuActionNone {
-		t.Errorf("HandleKey(n) after Save click: got %v, want MenuActionNone", got)
+		t.Errorf("HandleKey(n) after Quit click: got %v, want MenuActionNone", got)
 	}
 	if m.mode != menuModeList {
 		t.Errorf("mode after n: got %v, want menuModeList", m.mode)

@@ -36,6 +36,7 @@ const (
 	screenSettings // v0.13 slice 3: per-Chip visibility toggles, reached from the menu.
 	screenControls // ADR 0022: keyboard-layout selector, reached from the menu.
 	screenVAB      // v0.24 / ADR 0029: Vehicle Assembly (VAB) builder, reached from the menu.
+	screenSaves    // v0.26 / ADR 0033 §F: unified Saves browser, reached from the menu's Save/Load items.
 	screenBoss     // boss key: full-screen fake developer shell (backtick from any screen).
 )
 
@@ -79,6 +80,13 @@ type App struct {
 	// delete) directly — designs are app-managed catalog data, not world
 	// state — so opening it from the menu is the only wiring the App needs.
 	vab *screens.VAB
+
+	// saves is the unified Saves browser (v0.26 / ADR 0033 §F), reached
+	// from both pause-menu items ([Save Game] opens it in save-mode,
+	// [Load Game] in load-mode). The screen is filesystem-free: the App
+	// passes the save.List() listing at open/refresh and dispatches the
+	// returned SavesCommands against the save package.
+	saves *screens.SavesScreen
 
 	// boss is the backtick "boss key" fake shell. bossReturnScreen records
 	// the screen that was active when it opened, and bossPrevPaused records
@@ -164,6 +172,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		settingsScreen: screens.NewSettingsScreen(sth),
 		controls:       screens.NewControlsScreen(sth),
 		vab:            screens.NewVAB(sth),
+		saves:          screens.NewSavesScreen(sth),
 		boss:           screens.NewBossShell(sth),
 	}, nil
 }
@@ -443,6 +452,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case screens.ControlsActionCancel:
 				a.active = screenOrbit
 			}
+		case screenSaves:
+			return a.applySavesCommand(a.saves.HandleClick(m.X, m.Y))
 		}
 		return a, nil
 
@@ -599,6 +610,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.active = screenOrbit
 			}
 			return a, nil
+		}
+		// Saves browser (v0.26 / ADR 0033 §F): list navigation, confirm
+		// gates, and the name input all live in the screen; finalised
+		// intents come back as SavesCommands and are dispatched against
+		// the save package here. Handled before the global switch so its
+		// keys (and typed save names) never fall through to flight
+		// controls.
+		if a.active == screenSaves {
+			return a.applySavesCommand(a.saves.HandleKey(m))
 		}
 		// Maneuver screen has its own text input that eats most keys;
 		// esc-to-cancel goes through the screen's handler so it can
@@ -1169,11 +1189,20 @@ func (a *App) doSave() error {
 // surfaced as a clear "no quicksave" message rather than a raw
 // file-not-found; failures leave the existing world untouched.
 func (a *App) doLoad() error {
-	w, err := save.LoadID(save.QuicksaveID)
+	err := a.loadWorldByID(save.QuicksaveID)
+	if errors.Is(err, fs.ErrNotExist) {
+		return errors.New("no quicksave yet — press F5 first")
+	}
+	return err
+}
+
+// loadWorldByID hydrates the save id and swaps it in as the live
+// world — the single world-swap path shared by F9 quickload and the
+// Saves-screen browser load (post-confirm). Failures leave the
+// existing world untouched.
+func (a *App) loadWorldByID(id string) error {
+	w, err := save.LoadID(id)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return errors.New("no quicksave yet — press F5 first")
-		}
 		return err
 	}
 	a.world = w
@@ -1285,26 +1314,15 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 // quit).
 func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 	switch action {
-	// Interim (v0.26 S2): [Save Game]/[Load Game] ride the same
-	// quicksave lane as F5/F9 via doSave/doLoad until S3 replaces both
-	// items with the unified Saves screen (ADR 0033 §F).
+	// v0.26 S3 (ADR 0033 §F): both menu items open the unified Saves
+	// screen; the entry point selects save-mode vs load-mode. Opening a
+	// screen is reversible, so like Settings/VAB there is no confirm
+	// gate here — the destructive confirms (§H) live in the screen.
 	case screens.MenuActionSave:
-		if err := a.doSave(); err != nil {
-			a.statusMsg = fmt.Sprintf("save failed: %v", err)
-		} else {
-			a.statusMsg = "saved"
-		}
-		a.statusExpires = time.Now().Add(3 * time.Second)
-		a.active = screenOrbit
+		a.openSaves(screens.SavesModeSave)
 		return a, nil
 	case screens.MenuActionLoad:
-		if err := a.doLoad(); err != nil {
-			a.statusMsg = fmt.Sprintf("load failed: %v", err)
-		} else {
-			a.statusMsg = "loaded"
-		}
-		a.statusExpires = time.Now().Add(3 * time.Second)
-		a.active = screenOrbit
+		a.openSaves(screens.SavesModeLoad)
 		return a, nil
 	case screens.MenuActionSettings:
 		// Navigating to a screen is harmless + reversible, so unlike
@@ -1331,6 +1349,96 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	return a, nil
+}
+
+// openSaves lists the saves directory and opens the unified Saves
+// screen (v0.26 / ADR 0033 §F) in the given entry-point mode. A
+// listing failure still opens the (empty) screen with a toast — the
+// save-mode "＋ New save…" row must stay reachable even when the scan
+// hiccups.
+func (a *App) openSaves(mode screens.SavesMode) {
+	entries, err := save.List()
+	if err != nil {
+		a.toast(fmt.Sprintf("saves listing failed: %v", err))
+	}
+	a.saves.Open(mode, entries, defaultSaveName(a.world))
+	a.active = screenSaves
+}
+
+// refreshSaves re-lists the directory into the open Saves screen after
+// an in-screen mutation (delete / rename).
+func (a *App) refreshSaves() {
+	entries, err := save.List()
+	if err != nil {
+		a.toast(fmt.Sprintf("saves listing failed: %v", err))
+		return
+	}
+	a.saves.SetEntries(entries)
+}
+
+// defaultSaveName is the Save-As prefill (ADR 0033 §B): the active
+// vessel plus the in-game day, the latter in the same layout the orbit
+// HUD's clock chip renders.
+func defaultSaveName(w *sim.World) string {
+	day := w.Clock.SimTime.Format("2006-01-02")
+	if c := w.ActiveCraft(); c != nil {
+		return c.Name + " — " + day
+	}
+	return day
+}
+
+// applySavesCommand dispatches a finalised SavesCommand from the Saves
+// screen against the save package. The screen has already run every
+// confirm gate (§H), so each destructive kind executes directly here.
+// Load / Save-As / Overwrite exit to orbit; delete / rename stay on
+// the screen with a refreshed listing.
+func (a *App) applySavesCommand(cmd screens.SavesCommand) (tea.Model, tea.Cmd) {
+	switch cmd.Kind {
+	case screens.SavesActionCancel:
+		a.active = screenOrbit
+	case screens.SavesActionLoad:
+		if err := a.loadWorldByID(cmd.ID); err != nil {
+			a.toast(fmt.Sprintf("load failed: %v", err))
+		} else {
+			a.toast(fmt.Sprintf("loaded %s", cmd.Name))
+		}
+	case screens.SavesActionDelete:
+		if err := save.Delete(cmd.ID); err != nil {
+			a.toast(fmt.Sprintf("delete failed: %v", err))
+		} else {
+			a.toast(fmt.Sprintf("deleted %s", cmd.Name))
+		}
+		a.refreshSaves()
+	case screens.SavesActionRename:
+		if err := save.Rename(cmd.ID, cmd.Name); err != nil {
+			a.toast(fmt.Sprintf("rename failed: %v", err))
+		} else {
+			a.toast(fmt.Sprintf("renamed to '%s'", cmd.Name))
+		}
+		a.refreshSaves()
+	case screens.SavesActionSaveNew:
+		if _, err := save.WriteNamed(a.world, cmd.Name); err != nil {
+			a.toast(fmt.Sprintf("save failed: %v", err))
+		} else {
+			a.toast(fmt.Sprintf("saved '%s'", cmd.Name))
+			a.active = screenOrbit
+		}
+	case screens.SavesActionOverwrite:
+		if err := save.Overwrite(cmd.ID, a.world); err != nil {
+			a.toast(fmt.Sprintf("overwrite failed: %v", err))
+		} else {
+			a.toast(fmt.Sprintf("overwrote '%s'", cmd.Name))
+			a.active = screenOrbit
+		}
+	}
+	return a, nil
+}
+
+// toast flashes a transient one-line notice in the HUD footer for ~3s
+// (the generic sibling of flashStatus, which is F5/F9-specific).
+func (a *App) toast(msg string) {
+	a.statusMsg = msg
+	a.statusExpires = time.Now().Add(3 * time.Second)
 }
 
 // toggleChip flips Chip c's visibility in the shared settings.Settings
@@ -1459,6 +1567,8 @@ func (a *App) View() string {
 		base = a.controls.Render(a.layout, a.width)
 	case screenVAB:
 		base = a.vab.Render(a.width)
+	case screenSaves:
+		base = a.saves.Render(a.width)
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
 	default:

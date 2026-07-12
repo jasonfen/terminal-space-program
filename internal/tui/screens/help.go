@@ -42,6 +42,13 @@ var helpSections = []helpSection{
 		{"q", "quit (confirm + autosave)"},
 		{"ctrl+c", "quit immediately"},
 	}},
+	{"SAVES (menu → Save / Load Game)", [][2]string{
+		{"↑ / ↓", "move the save cursor"},
+		{"enter", "load-mode: load (confirms) · save-mode: new save / overwrite"},
+		{"d", "delete the highlighted save (confirms)"},
+		{"r", "rename a named save (quicksave / autosaves can't be renamed)"},
+		{"esc", "back to the map"},
+	}},
 	{"CAMERA & VIEW", [][2]string{
 		{"f / F", "cycle camera focus forward / back (system → bodies → craft)"},
 		{"g", "reset camera to the whole system"},
