@@ -1,17 +1,20 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/save"
+	"github.com/jasonfen/terminal-space-program/internal/serve"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -27,6 +30,8 @@ func main() {
 		listBodies  bool
 		listLoadout bool
 		listSites   bool
+		serveMode   bool
+		servePort   int
 	)
 	flag.BoolVar(&showVersion, "version", false, "print version + commit and exit")
 	flag.BoolVar(&showVersion, "v", false, "print version + commit and exit (shorthand)")
@@ -46,6 +51,8 @@ func main() {
 	flag.BoolVar(&listBodies, "list-bodies", false, "list bodies (honours --system) and exit")
 	flag.BoolVar(&listLoadout, "list-loadouts", false, "list craft loadouts and exit")
 	flag.BoolVar(&listSites, "list-launch-sites", false, "list named launch sites and exit")
+	flag.BoolVar(&serveMode, "serve", false, "host a multiplayer session: play here and accept SSH guests (ADR 0034)")
+	flag.IntVar(&servePort, "serve-port", serve.DefaultPort, "SSH listener port for --serve")
 	flag.Parse()
 
 	if showVersion {
@@ -126,9 +133,38 @@ func main() {
 		os.Exit(1)
 	}
 
+	// v0.27 S1 (ADR 0034): --serve starts the embedded SSH listener next
+	// to the host's own in-process game. Guests get fresh ephemeral
+	// Worlds; the session ends for everyone when the host quits.
+	var srv *serve.Server
+	if serveMode {
+		keyPath, err := serve.DefaultHostKeyPath()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+			os.Exit(1)
+		}
+		srv, err = serve.New(serve.Config{Addr: fmt.Sprintf(":%d", servePort), HostKeyPath: keyPath})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+			os.Exit(1)
+		}
+		go func() {
+			if err := srv.Serve(); err != nil {
+				fmt.Fprintf(os.Stderr, "terminal-space-program: ssh listener: %v\n", err)
+			}
+		}()
+		fmt.Fprintf(os.Stderr, "terminal-space-program: serving SSH guests on %s (host key %s)\n", srv.Addr(), keyPath)
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseAllMotion())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+	_, runErr := p.Run()
+	if srv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = srv.Shutdown(ctx)
+		cancel()
+	}
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", runErr)
 		os.Exit(1)
 	}
 }
