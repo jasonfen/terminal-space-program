@@ -1588,6 +1588,51 @@ other systems read from.
 _Avoid_: Timer (different semantics — timers count down), SimTime,
 GameTime.
 
+### Multiplayer time
+
+The nouns for the subspace multiplayer model (ADR 0034, design-level).
+One shared world, per-player time: players disagree about "now", never
+about where a body is at a given time.
+
+**Session**:
+A hosted multiplayer world — one body catalog plus the roster of
+players and their vessels, stored by a server that runs no physics and
+holds no clock.
+_Avoid_: Lobby, Server (the machine, not the world).
+
+**Subspace**:
+The sim-time a player currently occupies within a Session. Warp is
+independent across Subspaces; vessels physically interact only within
+the same Subspace.
+_Avoid_: Timeline, time branch, temporal layer (a Subspace is a time
+coordinate, not a world fork).
+
+**Frontier**:
+The maximum Subspace time across all vessels in a Session — the world's
+"now". New players join at the Frontier.
+_Avoid_: Latest subspace, head.
+
+**Ghost**:
+The render-only appearance of a vessel from another Subspace: its
+last-reported orbit evaluated at the viewer's sim-time. Honest but
+stale — correct while the owner coasts, corrected on their next report.
+Never physically interactive.
+_Avoid_: Shadow, phantom, remote vessel (a Ghost is a projection, not
+the vessel).
+
+**Sync**:
+The forward-only verb for joining another player's Subspace: the player
+who is behind Auto-Warps to the other's sim-time, living through every
+clamp, node, and SOI transition en route. There is no backward Sync.
+_Avoid_: Time-jump, teleport, rewind.
+
+**Proximity Co-Warp**:
+The clamp that couples same-Subspace vessels closer than the proximity
+radius: Effective Warp becomes the minimum over the coupled players,
+and Subspace splits are blocked until separation. A member of the
+Effective-≤-Selected clamp family.
+_Avoid_: Warp lock (it doesn't pin to 1×), warp vote.
+
 ### Transfer planning
 
 The vocabulary for moving a Vessel from one orbit to another — typically
