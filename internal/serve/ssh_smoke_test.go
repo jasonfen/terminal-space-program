@@ -14,17 +14,22 @@ import (
 	cssh "golang.org/x/crypto/ssh"
 )
 
-// The S1 ssh smoke test (v0.27 plan): in-test wish server, real
-// x/crypto/ssh client. Key auth accepted, pty granted, first rendered
-// frame is the game, WindowChange reflows, and two concurrent
-// connections run divergent Worlds — all under -race.
-func TestSSHSmoke(t *testing.T) {
+// startTestServer boots a wish server on a random port with temp
+// state, returning it ready for connections.
+func startTestServer(t *testing.T) *Server {
+	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	keyPath := filepath.Join(t.TempDir(), "ssh_host_ed25519_key")
-
-	srv, err := New(Config{Addr: "127.0.0.1:0", HostKeyPath: keyPath})
+	srv, err := New(Config{
+		Addr:        "127.0.0.1:0",
+		HostKeyPath: keyPath,
+		SessionDir:  t.TempDir(),
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		t.Fatalf("host key not generated at %s: %v", keyPath, err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve() }()
@@ -36,24 +41,59 @@ func TestSSHSmoke(t *testing.T) {
 			t.Errorf("Serve returned: %v", err)
 		}
 	})
+	return srv
+}
 
-	if _, err := os.Stat(keyPath); err != nil {
-		t.Fatalf("host key not generated at %s: %v", keyPath, err)
+// newClientKey generates a fresh client identity and returns its
+// signer plus the fingerprint the server will see.
+func newClientKey(t *testing.T) (cssh.Signer, string) {
+	t.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate client key: %v", err)
 	}
+	signer, err := cssh.NewSignerFromKey(priv)
+	if err != nil {
+		t.Fatalf("client signer: %v", err)
+	}
+	sshPub, err := cssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatalf("client pubkey: %v", err)
+	}
+	return signer, cssh.FingerprintSHA256(sshPub)
+}
+
+// enrollDirect adds a fingerprint to the roster without the in-game
+// flow — for tests whose subject isn't enrollment.
+func enrollDirect(t *testing.T, srv *Server, fp, handle string) {
+	t.Helper()
+	inv, err := srv.store.MintInvite(handle)
+	if err != nil {
+		t.Fatalf("MintInvite: %v", err)
+	}
+	if _, err := srv.store.Enroll(inv.Code, fp, handle); err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+}
+
+// The S1 ssh smoke test (v0.27 plan): in-test wish server, real
+// x/crypto/ssh client. Key auth accepted, pty granted, first rendered
+// frame is the game, WindowChange reflows, and two concurrent
+// connections run divergent Worlds — all under -race. Keys are
+// pre-enrolled; the enroll flow has its own integration test.
+func TestSSHSmoke(t *testing.T) {
+	srv := startTestServer(t)
+
+	sigA, fpA := newClientKey(t)
+	sigB, fpB := newClientKey(t)
+	enrollDirect(t, srv, fpA, "alice")
+	enrollDirect(t, srv, fpB, "bob")
 
 	// Two concurrent sessions — independent Worlds over real ssh.
-	sessA := dialGameSession(t, srv.Addr())
-	sessB := dialGameSession(t, srv.Addr())
+	sessA := dialGameSession(t, srv.Addr(), sigA)
+	sessB := dialGameSession(t, srv.Addr(), sigB)
 
-	// First frame: the calibration card (v0.27 S2); accept it on both.
-	for _, s := range []*gameSession{sessA, sessB} {
-		s.waitFor(t, "[y/n]")
-		if _, err := s.stdin.Write([]byte("y")); err != nil {
-			t.Fatalf("accept calibration card: %v", err)
-		}
-	}
-
-	// Then the game: the orbit screen (system name in the header chip).
+	// Enrolled keys skip the card/flow: the first frame is the game.
 	sessA.waitFor(t, "Sol")
 	sessB.waitFor(t, "Sol")
 
@@ -78,8 +118,9 @@ func TestSSHSmoke(t *testing.T) {
 // gameSession is one live ssh connection running the game, with its
 // stdout captured for frame assertions.
 type gameSession struct {
-	sess  *cssh.Session
-	stdin interface{ Write([]byte) (int, error) }
+	client *cssh.Client
+	sess   *cssh.Session
+	stdin  interface{ Write([]byte) (int, error) }
 
 	mu  sync.Mutex
 	buf strings.Builder
@@ -111,20 +152,12 @@ func (g *gameSession) waitUntil(t *testing.T, what string, pred func(string) boo
 	t.Fatalf("timed out waiting for %s; last frame tail:\n%s", what, tail(stripANSI(g.output()), 400))
 }
 
-// dialGameSession connects a fresh ed25519 client key, requests a pty,
-// and starts the remote game shell, capturing stdout.
-func dialGameSession(t *testing.T, addr string) *gameSession {
+// dialGameSession connects with the given client key, requests a pty,
+// and starts the remote shell, capturing stdout.
+func dialGameSession(t *testing.T, addr string, signer cssh.Signer) *gameSession {
 	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate client key: %v", err)
-	}
-	signer, err := cssh.NewSignerFromKey(priv)
-	if err != nil {
-		t.Fatalf("client signer: %v", err)
-	}
 	client, err := cssh.Dial("tcp", addr, &cssh.ClientConfig{
-		User:            "smoke",
+		User:            "guest",
 		Auth:            []cssh.AuthMethod{cssh.PublicKeys(signer)},
 		HostKeyCallback: cssh.InsecureIgnoreHostKey(),
 		Timeout:         5 * time.Second,
@@ -138,7 +171,7 @@ func dialGameSession(t *testing.T, addr string) *gameSession {
 	if err != nil {
 		t.Fatalf("new session: %v", err)
 	}
-	g := &gameSession{sess: sess}
+	g := &gameSession{client: client, sess: sess}
 	stdin, err := sess.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)

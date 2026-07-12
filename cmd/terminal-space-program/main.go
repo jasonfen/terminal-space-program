@@ -23,6 +23,14 @@ import (
 )
 
 func main() {
+	// `serve …` subcommands (v0.27 S3) short-circuit before flag
+	// parsing — they administer the multiplayer session store, not a
+	// game start.
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		runServeCLI(os.Args[2:])
+		return
+	}
+
 	var (
 		showVersion bool
 		raw         rawFlags
