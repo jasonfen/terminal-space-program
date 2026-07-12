@@ -484,9 +484,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Keyboard-layout normalization (ADR 0022): translate the keypress
 		// from the player's layout back to its QWERTY position before any
 		// matching, so the Keymap and every raw-string handler stay QWERTY.
-		// Skipped for the boss shell, which consumes literal typed text — a
-		// QWERTZ player typing in the fake shell wants their real keycaps.
-		if a.active != screenBoss {
+		// Skipped while a screen is capturing literal text (the boss shell,
+		// a Saves name input) — a QWERTZ player typing there wants their
+		// real keycaps, not a transposed rune (finding 3).
+		if !a.capturingText() {
 			m = normalizeKey(a.layout, m)
 		}
 		// ctrl+c bypasses everything else (standard interrupt
@@ -510,7 +511,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
-		if key.Matches(m, a.keys.BossKey) {
+		// The boss key opens from any screen — EXCEPT while a screen is
+		// capturing literal text (a Saves name input), where a backtick is
+		// a character the player is typing, not the boss hotkey (finding 9).
+		if key.Matches(m, a.keys.BossKey) && !a.capturingText() {
 			a.bossReturnScreen = a.active
 			a.bossPrevPaused = a.world.Clock.Paused
 			a.world.Clock.Paused = true // freeze the sim while "away"
@@ -1467,6 +1471,24 @@ func (a *App) closeSavesToOrbit() {
 	a.active = screenOrbit
 }
 
+// capturingText reports whether the active screen is currently taking
+// literal typed text into a free-text field. While it is, the App
+// bypasses keyboard-layout normalization (finding 3) and the global
+// boss-key intercept (finding 9) so the raw keycaps reach the field: a
+// QWERTZ player's letters aren't transposed and a literal backtick types
+// a backtick instead of opening the boss shell. The boss shell is always
+// capturing; the Saves browser only during name entry (Save-As/rename).
+// Extend here as future free-text surfaces (VAB, spawn, search) land.
+func (a *App) capturingText() bool {
+	switch a.active {
+	case screenBoss:
+		return true
+	case screenSaves:
+		return a.saves.CapturingText()
+	}
+	return false
+}
+
 // refreshSaves re-lists the directory into the open Saves screen after
 // an in-screen mutation (delete / rename).
 func (a *App) refreshSaves() {
@@ -1687,7 +1709,7 @@ func (a *App) View() string {
 	case screenVAB:
 		base = a.vab.Render(a.width)
 	case screenSaves:
-		base = a.saves.Render(a.width)
+		base = a.saves.Render(a.width, a.height)
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
 	default:

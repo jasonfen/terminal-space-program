@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/save"
 )
@@ -130,6 +131,16 @@ func (sc *SavesScreen) SetEntries(entries []save.SaveInfo) {
 
 // Mode reports the entry-point mode the screen was opened in.
 func (sc *SavesScreen) Mode() SavesMode { return sc.mode }
+
+// CapturingText reports whether the screen is in a free-text sub-state
+// (Save-As / rename name entry) — every keystroke is literal input for
+// the name field, so the App must not keyboard-layout-normalize it or
+// let global hotkeys (the backtick boss key) intercept it (findings 3 +
+// 9). Browse and confirm states are NOT capturing: their keys are
+// commands and route normally.
+func (sc *SavesScreen) CapturingText() bool {
+	return sc.state == savesStateNameNew || sc.state == savesStateRename
+}
 
 // EntryCount reports the number of listed saves (excluding the
 // save-mode New-save row).
@@ -371,28 +382,75 @@ func formatSavedAt(t time.Time) string {
 	return t.Local().Format("2006-01-02 15:04")
 }
 
-// Column layout: marker(2) + name(26) + savedat(18) + ingame(12) + vessel.
+// Column layout: marker(2) + name(26) + savedat(18) + ingame(12) + vessel,
+// each column followed by savesColGap so adjacent cells never fuse.
 const (
 	savesColName    = 26
 	savesColSavedAt = 18
 	savesColInGame  = 12
+	savesColGap     = "  " // explicit inter-column gap (finding 8)
 )
 
-// padCell pads / rune-truncates a cell to width (ellipsis on cut),
-// plus two trailing gap spaces.
+// padCell renders s in a fixed-width column: display-width-truncated
+// (ellipsis on overflow), padded to width, then an explicit 2-space gap.
+// Width is measured with lipgloss.Width (via truncWidth), so wide runes
+// (CJK, emoji) occupy the right number of display cells instead of being
+// over-counted one-per-rune — which previously misaligned every column
+// after a wide cell. The trailing gap stops a full-width cell from
+// fusing into the next column. Apply to plain, un-styled text.
 func padCell(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		return string(r[:width-1]) + "…"
+	s = truncWidth(s, width)
+	if pad := width - lipgloss.Width(s); pad > 0 {
+		s += strings.Repeat(" ", pad)
 	}
-	return s + strings.Repeat(" ", width-len(r))
+	return s + savesColGap
+}
+
+// listWindow returns the [start,end) slice of the n rows to render so
+// the list plus the screen's fixed chrome fits within height, always
+// keeping the cursor row inside the window. A non-positive height (no
+// budget) or a list that already fits returns the full range. chrome
+// budgets the non-list lines: title + blank + header above, and the
+// blank + the tallest state tail (a §H confirm block) plus the two
+// "N more" indicators below — so the window never overflows even mid
+// confirm.
+func (sc *SavesScreen) listWindow(n, height int) (start, end int) {
+	if height <= 0 {
+		return 0, n
+	}
+	const chrome = 11
+	capRows := height - chrome
+	if capRows < 1 {
+		capRows = 1
+	}
+	if capRows >= n {
+		return 0, n
+	}
+	start = sc.cursor - capRows/2
+	if start < 0 {
+		start = 0
+	}
+	end = start + capRows
+	if end > n {
+		end = n
+		start = end - capRows
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start, end
 }
 
 // Render composes the screen: title + [Back], the mode header, the
-// column header, one row per entry (cursor-marked), and the
+// column header, a cursor-windowed slice of the rows, and the
 // state-specific footer (confirm prompt / name input / key legend).
-// Click-target ranges are recorded in absolute row terms, menu-style.
-func (sc *SavesScreen) Render(width int) string {
+// height bounds the total output so a long list never overflows the
+// alt-screen (which truncates from the TOP, hiding the title/header);
+// the list is windowed around the cursor to fit. A non-positive height
+// disables the clamp (shows everything) — handy for tests and any caller
+// with no height budget. Click-target ranges are recorded in absolute
+// row terms, menu-style.
+func (sc *SavesScreen) Render(width, height int) string {
 	var lines []string
 
 	// Row 0: title + right-aligned [Back] (menu pattern).
@@ -415,44 +473,51 @@ func (sc *SavesScreen) Render(width int) string {
 		padCell("IN-GAME", savesColInGame) + "VESSEL"
 	lines = append(lines, sc.theme.Dim.Render(header))
 
-	// Rows.
-	sc.rowBtns = make([]buttonRange, sc.rowCount())
-	rowIdx := 0
-	// addRow renders one selectable row. dimmed forces the Dim style even
-	// off-cursor (an unreadable/non-loadable entry) while the cursor
-	// marker still tracks selection so it can be selected for deletion.
-	addRow := func(body string, dimmed bool) {
-		marker := "  "
-		style := sc.theme.Primary
-		if dimmed {
-			style = sc.theme.Dim
-		}
-		if rowIdx == sc.cursor {
-			marker = "▸ "
-			if !dimmed {
-				style = sc.theme.Warning
-			}
-		}
-		sc.rowBtns[rowIdx] = buttonRange{
-			row:      len(lines),
-			colStart: 0,
-			colEnd:   width,
-			set:      true,
-		}
-		lines = append(lines, clipLine(marker+style.Render(body), width))
-		rowIdx++
+	// Rows. Assemble every selectable row first (New-save row + entries),
+	// then render only a cursor-centred window that fits the height so the
+	// whole screen stays within the alt-screen (finding 7). rowBtns for
+	// off-window rows stay unset, so a click can never land on a row that
+	// isn't drawn.
+	type savesRow struct {
+		body   string
+		dimmed bool
 	}
+	var rows []savesRow
 	if sc.hasNewRow() {
-		addRow("＋ New save…", false)
+		rows = append(rows, savesRow{body: "＋ New save…"})
 	}
 	for _, info := range sc.entries {
 		body := padCell(displaySaveName(info), savesColName) +
 			padCell(formatSavedAt(info.Meta.SavedAt), savesColSavedAt) +
 			padCell(formatInGameDate(info.Meta.InGameEpoch), savesColInGame) +
 			info.Meta.ActiveVesselName
-		addRow(body, info.Unreadable)
+		rows = append(rows, savesRow{body: body, dimmed: info.Unreadable})
 	}
-	if len(sc.entries) == 0 && !sc.hasNewRow() {
+
+	sc.rowBtns = make([]buttonRange, len(rows))
+	start, end := sc.listWindow(len(rows), height)
+	if start > 0 {
+		lines = append(lines, sc.theme.Dim.Render(fmt.Sprintf("  ↑ %d more", start)))
+	}
+	for i := start; i < end; i++ {
+		marker := "  "
+		style := sc.theme.Primary
+		if rows[i].dimmed {
+			style = sc.theme.Dim
+		}
+		if i == sc.cursor {
+			marker = "▸ "
+			if !rows[i].dimmed {
+				style = sc.theme.Warning
+			}
+		}
+		sc.rowBtns[i] = buttonRange{row: len(lines), colStart: 0, colEnd: width, set: true}
+		lines = append(lines, clipLine(marker+style.Render(rows[i].body), width))
+	}
+	if end < len(rows) {
+		lines = append(lines, sc.theme.Dim.Render(fmt.Sprintf("  ↓ %d more", len(rows)-end)))
+	}
+	if len(rows) == 0 {
 		lines = append(lines, sc.theme.Dim.Render("  (no saves yet — F5 quicksaves, or save from the menu)"))
 	}
 	lines = append(lines, "")
