@@ -118,10 +118,14 @@ func TestImportLegacyIfNeededFreshInstall(t *testing.T) {
 	}
 }
 
-// TestImportLegacyIfNeededSavesDirExists — an existing saves/
-// directory (even empty) means the import already settled; the legacy
-// file never re-imports.
-func TestImportLegacyIfNeededSavesDirExists(t *testing.T) {
+// TestImportRetriesWhenSavesDirExistsButNotSettled — regression for the
+// finding-1 retry gate. A saves/ directory that exists for some OTHER
+// reason (a quicksave/autosave wrote it, or a prior import failed after
+// MkdirAll but before the imported file landed) must NOT block the
+// migration: with the settled-marker absent, an existing saves/ dir
+// still imports the legacy save. The old bare-Stat(saves/) gate hid the
+// legacy save forever here.
+func TestImportRetriesWhenSavesDirExistsButNotSettled(t *testing.T) {
 	dir := testSavesDir(t)
 	w := newTestWorld(t)
 
@@ -132,17 +136,56 @@ func TestImportLegacyIfNeededSavesDirExists(t *testing.T) {
 	if err := save.Save(w, legacyPath); err != nil {
 		t.Fatalf("Save legacy fixture: %v", err)
 	}
+	// saves/ already present (a quicksave got there first) but the
+	// migration never settled — no marker.
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll saves: %v", err)
 	}
 
-	if _, imported, err := save.ImportLegacyIfNeeded(); err != nil {
+	_, imported, err := save.ImportLegacyIfNeeded()
+	if err != nil {
 		t.Fatalf("ImportLegacyIfNeeded: %v", err)
-	} else if imported {
-		t.Error("imported despite an existing saves/ directory")
+	}
+	if !imported {
+		t.Fatal("did not import despite an existing-but-unsettled saves/ dir — the legacy save would be lost")
+	}
+	if files := jsonFiles(t, dir); len(files) != 1 {
+		t.Errorf("saves dir = %v, want the one imported file", files)
+	}
+}
+
+// TestImportMarkerBlocksReimport — once the migration has settled (the
+// marker is written), the legacy save never re-imports, even if the
+// player later deletes every file in saves/. The import is one-time;
+// deleting the imported game must not resurrect it every launch.
+func TestImportMarkerBlocksReimport(t *testing.T) {
+	dir := testSavesDir(t)
+	w := newTestWorld(t)
+
+	legacyPath, err := save.DefaultPath()
+	if err != nil {
+		t.Fatalf("DefaultPath: %v", err)
+	}
+	if err := save.Save(w, legacyPath); err != nil {
+		t.Fatalf("Save legacy fixture: %v", err)
+	}
+
+	info, imported, err := save.ImportLegacyIfNeeded()
+	if err != nil || !imported {
+		t.Fatalf("first import: imported=%v err=%v", imported, err)
+	}
+	// Player deletes the imported save.
+	if err := save.Delete(info.ID); err != nil {
+		t.Fatalf("Delete imported: %v", err)
+	}
+
+	if _, again, err := save.ImportLegacyIfNeeded(); err != nil {
+		t.Fatalf("second ImportLegacyIfNeeded: %v", err)
+	} else if again {
+		t.Error("re-imported after the marker settled — the migration must be one-time")
 	}
 	if files := jsonFiles(t, dir); len(files) != 0 {
-		t.Errorf("saves dir = %v, want empty", files)
+		t.Errorf("saves dir = %v, want empty (deleted, not resurrected)", files)
 	}
 }
 

@@ -231,7 +231,7 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 		// Rename is a benign Meta edit (no confirm, §H) but is
 		// disabled on the reserved lanes (§F) — they carry no player
 		// name by design.
-		if info, ok := sc.entryAt(sc.cursor); ok && info.Lane == save.LaneNamed {
+		if info, ok := sc.entryAt(sc.cursor); ok && info.Lane == save.LaneNamed && !info.Unreadable {
 			sc.pendingID, sc.pendingName = info.ID, displaySaveName(info)
 			sc.beginNaming(savesStateRename, info.Meta.Name)
 		}
@@ -282,6 +282,11 @@ func (sc *SavesScreen) activateCursor() SavesCommand {
 	if !ok {
 		return SavesCommand{}
 	}
+	if info.Unreadable {
+		// A corrupt / newer-version file can't be loaded or overwritten
+		// in place; it's listed only so it's visible and deletable (§C).
+		return SavesCommand{}
+	}
 	sc.pendingID, sc.pendingName = info.ID, displaySaveName(info)
 	if sc.mode == SavesModeSave {
 		if info.Lane != save.LaneNamed {
@@ -324,6 +329,14 @@ func (sc *SavesScreen) beginNaming(state savesState, prefill string) {
 // legacy file), and a lane badge for the reserved quicksave/autosave
 // lanes — which carry no player name by design (§D).
 func displaySaveName(info save.SaveInfo) string {
+	if info.Unreadable {
+		// Kept within the name column (savesColName=26) so it isn't
+		// ellipsised: "unreadable (newer version)" is exactly 26.
+		if info.Note != "" {
+			return "unreadable (" + info.Note + ")"
+		}
+		return "unreadable"
+	}
 	switch info.Lane {
 	case save.LaneQuicksave:
 		return "[QUICKSAVE]"
@@ -405,12 +418,20 @@ func (sc *SavesScreen) Render(width int) string {
 	// Rows.
 	sc.rowBtns = make([]buttonRange, sc.rowCount())
 	rowIdx := 0
-	addRow := func(body string) {
+	// addRow renders one selectable row. dimmed forces the Dim style even
+	// off-cursor (an unreadable/non-loadable entry) while the cursor
+	// marker still tracks selection so it can be selected for deletion.
+	addRow := func(body string, dimmed bool) {
 		marker := "  "
 		style := sc.theme.Primary
+		if dimmed {
+			style = sc.theme.Dim
+		}
 		if rowIdx == sc.cursor {
 			marker = "▸ "
-			style = sc.theme.Warning
+			if !dimmed {
+				style = sc.theme.Warning
+			}
 		}
 		sc.rowBtns[rowIdx] = buttonRange{
 			row:      len(lines),
@@ -422,14 +443,14 @@ func (sc *SavesScreen) Render(width int) string {
 		rowIdx++
 	}
 	if sc.hasNewRow() {
-		addRow("＋ New save…")
+		addRow("＋ New save…", false)
 	}
 	for _, info := range sc.entries {
 		body := padCell(displaySaveName(info), savesColName) +
 			padCell(formatSavedAt(info.Meta.SavedAt), savesColSavedAt) +
 			padCell(formatInGameDate(info.Meta.InGameEpoch), savesColInGame) +
 			info.Meta.ActiveVesselName
-		addRow(body)
+		addRow(body, info.Unreadable)
 	}
 	if len(sc.entries) == 0 && !sc.hasNewRow() {
 		lines = append(lines, sc.theme.Dim.Render("  (no saves yet — F5 quicksaves, or save from the menu)"))

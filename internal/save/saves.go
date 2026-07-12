@@ -29,17 +29,23 @@ import (
 // a pre-v0.26 v9 envelope (no meta key) still loads (§J); the legacy
 // single-slot Save writer stamps no Meta at all.
 //
-// SavedAt is wall-clock write time (the newest-first sort key);
 // InGameEpoch is the simulation clock (Payload.SimTimeNano) at save
-// time — the two are distinct and must not be conflated. Name is the
-// player-facing Save name; reserved lanes (quicksave/autosave) leave
-// it empty and are labelled by Lane instead.
+// time. Name is the player-facing Save name; reserved lanes
+// (quicksave/autosave) leave it empty and are labelled by Lane instead.
 type Meta struct {
 	Name             string    `json:"name,omitempty"`
-	SavedAt          time.Time `json:"saved_at,omitzero"`
 	InGameEpoch      time.Time `json:"in_game_epoch,omitzero"`
 	ActiveVesselName string    `json:"active_vessel_name,omitempty"`
 	SystemName       string    `json:"system_name,omitempty"`
+
+	// SavedAt is the wall-clock write time — but it is NOT persisted
+	// (json:"-"). The envelope's ClockT0 is the single on-disk source of
+	// that timestamp; SavedAt is DERIVED from it on every read (ReadHeader
+	// / List / the import), so assigning this field has no on-disk effect.
+	// It stays on Meta only as the browser's ready-to-render sort +
+	// display value. (Pre-v0.26.0 the two were persisted side by side —
+	// pure duplication; de-duplicated before release, ADR 0033.)
+	SavedAt time.Time `json:"-"`
 }
 
 // Lane classifies a saves-directory entry by its reserved-filename
@@ -71,10 +77,20 @@ var ErrReservedLane = errors.New("save: reserved quicksave/autosave lane")
 // SaveInfo is one saves-directory listing entry: the opaque filename
 // (the stable ID every targeted operation takes), its parsed Meta,
 // and which lane the filename falls in.
+//
+// Unreadable flags an entry whose header would not parse — a corrupt
+// file, or one written by a newer build (a post-downgrade schema-v(N+1)
+// save). List surfaces these rather than dropping them (ADR 0033 §C):
+// silently hiding a file makes a directory that clearly holds saves
+// read as empty, and — worse — a newer-build save would vanish on a
+// downgrade with no trace. The browser renders them dimmed and
+// non-loadable, with Note as the reason; SavedAt/Meta are zero.
 type SaveInfo struct {
-	ID   string
-	Meta Meta
-	Lane Lane
+	ID         string
+	Meta       Meta
+	Lane       Lane
+	Unreadable bool
+	Note       string // human-facing reason when Unreadable (e.g. "newer version", "corrupt")
 }
 
 // SavesDir returns the saves-directory path,
@@ -121,20 +137,21 @@ func readRawHeader(path string) (header, error) {
 
 // ReadHeader returns the envelope's Meta without hydrating the
 // Payload: no World rebuild, no body-catalog load or hash check (ADR
-// 0033 §C — the browser lists N files this way). For a Meta-less
-// pre-v0.26 envelope, SavedAt is derived from ClockT0 (which is
-// wall-clock save time, so newest-first ordering still works); the
-// in-game date is unknowable from the header and InGameEpoch stays
-// zero — only a full Payload read (Load) can recover it.
+// 0033 §C — the browser lists N files this way). SavedAt is always
+// derived from the envelope's ClockT0 (wall-clock save time — the
+// single source of truth, never persisted on Meta itself), so a
+// stamped and a Meta-less pre-v0.26 envelope order identically. The
+// in-game date is unknowable from a Meta-less header and InGameEpoch
+// stays zero — only a full Payload read (Load) can recover it.
 func ReadHeader(path string) (Meta, error) {
 	h, err := readRawHeader(path)
 	if err != nil {
 		return Meta{}, err
 	}
-	if h.Meta != nil {
-		return *h.Meta, nil
-	}
 	var m Meta
+	if h.Meta != nil {
+		m = *h.Meta
+	}
 	if h.ClockT0 != 0 {
 		m.SavedAt = time.Unix(0, h.ClockT0).UTC()
 	}
@@ -179,8 +196,11 @@ func idPath(id string) (string, error) {
 // List scans the saves directory and header-parses every entry,
 // newest SavedAt first (ties broken by filename for determinism). A
 // missing directory lists as empty — first run, before any save
-// exists. Entries that fail the header parse (foreign or corrupt
-// files) are skipped rather than aborting the whole listing.
+// exists. A .json file whose header will not parse (corrupt, or a
+// newer-build schema version after a downgrade) is surfaced as an
+// Unreadable entry rather than silently dropped (§C) — it sorts to the
+// bottom on a zero SavedAt and the browser shows it dimmed and
+// non-loadable. Only non-.json strays and tmpfiles are skipped.
 func List() ([]SaveInfo, error) {
 	dir, err := SavesDir()
 	if err != nil {
@@ -201,6 +221,12 @@ func List() ([]SaveInfo, error) {
 		}
 		m, err := ReadHeader(filepath.Join(dir, name))
 		if err != nil {
+			infos = append(infos, SaveInfo{
+				ID:         name,
+				Lane:       laneOf(name),
+				Unreadable: true,
+				Note:       unreadableNote(err),
+			})
 			continue
 		}
 		infos = append(infos, SaveInfo{ID: name, Meta: m, Lane: laneOf(name)})
@@ -215,15 +241,27 @@ func List() ([]SaveInfo, error) {
 	return infos, nil
 }
 
+// unreadableNote classifies a header-parse failure into a short,
+// player-facing reason for the browser. A schema-range rejection means
+// the file was written by a different (usually newer) build; anything
+// else is treated as corruption.
+func unreadableNote(err error) string {
+	if errors.Is(err, ErrSchemaMismatch) {
+		return "newer version"
+	}
+	return "corrupt"
+}
+
 // stampMeta builds the Meta header for a write happening now. name is
 // empty for the reserved lanes (§D — quicksave/autosaves carry full
 // metadata but no player name). The system column is the active
 // vessel's own System (ADR 0015 — per-Vessel binding), falling back
 // to the world-level viewed system when there is no active craft.
 func stampMeta(w *sim.World, name string) *Meta {
+	// SavedAt is intentionally not stamped here — it is derived from the
+	// envelope ClockT0 on read (see Meta). InGameEpoch is the sim clock.
 	m := &Meta{
 		Name:        name,
-		SavedAt:     time.Now().UTC(),
 		InGameEpoch: w.Clock.SimTime,
 	}
 	if c := w.ActiveCraft(); c != nil {
@@ -268,6 +306,10 @@ func WriteNamed(w *sim.World, name string) (SaveInfo, error) {
 	if err := writeFileAtomic(filepath.Join(dir, id), f); err != nil {
 		return SaveInfo{}, err
 	}
+	// Populate the derived SavedAt in the returned entry from the
+	// envelope ClockT0 just written, so the caller sees the same
+	// wall-clock time List will read back (SavedAt is never persisted).
+	meta.SavedAt = time.Unix(0, f.ClockT0).UTC()
 	return SaveInfo{ID: id, Meta: *meta, Lane: LaneNamed}, nil
 }
 
@@ -314,9 +356,9 @@ func WriteQuicksave(w *sim.World) error {
 
 // WriteAutosave writes w into the rotating autosave ring (ADR 0033
 // §E): a missing slot is filled before any rotation, otherwise the
-// slot with the oldest SavedAt is overwritten — and an unreadable or
-// Meta-less ring file counts as oldest (it is the least valuable
-// thing in the ring, so it goes first).
+// slot with the oldest ClockT0 is overwritten — and an unreadable ring
+// file counts as the first victim (it is the least valuable thing in
+// the ring, so it goes first).
 func WriteAutosave(w *sim.World) error {
 	dir, err := SavesDir()
 	if err != nil {
@@ -330,8 +372,9 @@ func WriteAutosave(w *sim.World) error {
 }
 
 // autosaveVictim picks the ring slot the next autosave overwrites:
-// first missing slot, else unreadable/Meta-less slot, else oldest
-// SavedAt.
+// first missing slot, else unreadable slot, else oldest ClockT0 (the
+// wall-clock write time — SavedAt is derived from it, so comparing the
+// envelope field directly is the same ordering without a Meta derive).
 func autosaveVictim(dir string) string {
 	for _, id := range autosaveIDs {
 		if _, err := os.Stat(filepath.Join(dir, id)); err != nil {
@@ -339,15 +382,15 @@ func autosaveVictim(dir string) string {
 		}
 	}
 	victim := autosaveIDs[0]
-	var oldest time.Time
+	var oldest int64
 	haveOldest := false
 	for _, id := range autosaveIDs {
 		h, err := readRawHeader(filepath.Join(dir, id))
-		if err != nil || h.Meta == nil {
-			return id
+		if err != nil {
+			return id // unreadable ring file — evict first
 		}
-		if !haveOldest || h.Meta.SavedAt.Before(oldest) {
-			victim, oldest, haveOldest = id, h.Meta.SavedAt, true
+		if !haveOldest || h.ClockT0 < oldest {
+			victim, oldest, haveOldest = id, h.ClockT0, true
 		}
 	}
 	return victim
@@ -392,10 +435,11 @@ func Delete(id string) error {
 
 // Rename sets the save's display name — a pure Meta rewrite (ADR 0033
 // §B): same filename, Payload bytes carried through untouched as raw
-// JSON, SavedAt preserved so the rename doesn't reorder the list.
-// Reserved lanes refuse (§F). A Meta-less legacy file gains a Meta on
-// rename, with SavedAt backfilled from ClockT0 (the in-game date
-// stays unknowable from the header and is left zero).
+// JSON, ClockT0 carried through so the rename doesn't reorder the list
+// (SavedAt derives from it, so ordering is preserved for free).
+// Reserved lanes refuse (§F). A Meta-less legacy file gains an empty
+// Meta on rename to hold the name; the in-game date stays unknowable
+// from the header and is left zero.
 func Rename(id, name string) error {
 	if laneOf(id) != LaneNamed {
 		return fmt.Errorf("%w: %s", ErrReservedLane, id)
@@ -414,9 +458,6 @@ func Rename(id, name string) error {
 	}
 	if rf.Meta == nil {
 		rf.Meta = &Meta{}
-		if rf.ClockT0 != 0 {
-			rf.Meta.SavedAt = time.Unix(0, rf.ClockT0).UTC()
-		}
 	}
 	rf.Meta.Name = name
 	out, err := json.MarshalIndent(rf, "", "  ")
