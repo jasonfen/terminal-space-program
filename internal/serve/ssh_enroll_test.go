@@ -17,6 +17,20 @@ func lastSimDate(out string) string {
 	return m[len(m)-1][1]
 }
 
+// lastWarp parses the most recently rendered warp chip ("warp 100x"
+// → "100"). The LAST match is the newest frame, so laddering warp up
+// or down can wait on the live value — plain substring matching can't
+// ("warp 100000x" contains "warp 10000x").
+var warpRE = regexp.MustCompile(`warp (\d+)x`)
+
+func lastWarp(out string) string {
+	m := warpRE.FindAllStringSubmatch(stripANSI(out), -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return m[len(m)-1][1]
+}
+
 // The S3 enroll-flow integration test (v0.27 plan): invite → card →
 // code → handle → game; disconnect persists the player's world;
 // reconnect by key skips the flow and resumes the same program.
@@ -51,14 +65,25 @@ func TestSSHEnrollFlow(t *testing.T) {
 		d0 = lastSimDate(out)
 		return d0 != ""
 	})
-	typeKeys(t, sess, ".....") // 100000x (one key per write — a burst
-	// coalesces into a single multi-rune KeyMsg and matches nothing)
+	// Ladder the warp one confirmed step at a time — a byte burst
+	// coalesces into one multi-rune KeyMsg and matches nothing, and on
+	// slow runners even spaced writes can outrun the render loop.
+	for _, want := range []string{"10", "100", "1000", "10000", "100000"} {
+		mustWrite(t, sess, ".")
+		sess.waitUntil(t, "warp chip "+want+"x", func(out string) bool {
+			return lastWarp(out) == want
+		})
+	}
 	sess.waitUntil(t, "sim date to advance under warp", func(out string) bool {
 		d := lastSimDate(out)
 		return d != "" && d != d0
 	})
-	typeKeys(t, sess, ",,,,,") // back to 1x
-	sess.waitFor(t, "warp 1x")
+	for _, want := range []string{"10000", "1000", "100", "10", "1"} { // back down to 1x
+		mustWrite(t, sess, ",")
+		sess.waitUntil(t, "warp chip "+want+"x", func(out string) bool {
+			return lastWarp(out) == want
+		})
+	}
 	time.Sleep(150 * time.Millisecond) // let a settled 1x frame land
 	advanced := lastSimDate(sess.output())
 	if advanced == "" || advanced == d0 {
@@ -91,15 +116,5 @@ func mustWrite(t *testing.T, g *gameSession, s string) {
 	t.Helper()
 	if _, err := g.stdin.Write([]byte(s)); err != nil {
 		t.Fatalf("write %q: %v", s, err)
-	}
-}
-
-// typeKeys sends one keypress per write with a gap, so each byte
-// arrives as its own KeyMsg instead of a coalesced rune burst.
-func typeKeys(t *testing.T, g *gameSession, keys string) {
-	t.Helper()
-	for _, r := range keys {
-		mustWrite(t, g, string(r))
-		time.Sleep(40 * time.Millisecond)
 	}
 }
