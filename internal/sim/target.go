@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -23,6 +24,7 @@ const (
 	TargetBody  = spacecraft.TargetBody
 	TargetCraft = spacecraft.TargetCraft
 	TargetSite  = spacecraft.TargetSite
+	TargetGhost = spacecraft.TargetGhost
 )
 
 // SetTargetBody sets the body target by system index. Out-of-range
@@ -168,8 +170,52 @@ func (w *World) TargetState() (orbital.Vec3State, bool) {
 			R: primaryPos.Add(c.State.R),
 			V: primaryV.Add(c.State.V),
 		}, true
+	case TargetGhost:
+		// v0.27 S6 (ADR 0034): a remote player's craft, resolved from
+		// the transient ghost slate — already evaluated at this world's
+		// sim-time. A stale ref (owner offline before this server run,
+		// craft gone, other system) simply doesn't resolve.
+		g, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID)
+		if !ok {
+			return orbital.Vec3State{}, false
+		}
+		primary, ok := w.bodyInSystemByID(g.PrimaryID)
+		if !ok {
+			return orbital.Vec3State{}, false
+		}
+		return orbital.Vec3State{
+			R: g.Pos,
+			V: w.bodyInertialVelocity(primary).Add(g.Vel),
+		}, true
 	}
 	return orbital.Vec3State{}, false
+}
+
+// ghostByRef finds a ghost by owner + craft ID in the transient slate.
+func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
+	for _, g := range w.Ghosts {
+		if g.Owner == owner && g.CraftID == craftID {
+			return g, true
+		}
+	}
+	return Ghost{}, false
+}
+
+// bodyInSystemByID scans the active system for a body ID.
+func (w *World) bodyInSystemByID(id string) (bodies.CelestialBody, bool) {
+	for _, b := range w.System().Bodies {
+		if b.ID == id {
+			return b, true
+		}
+	}
+	return bodies.CelestialBody{}, false
+}
+
+// SetTargetGhost aims the active craft at a remote player's craft
+// (v0.27 S6). The Session screen is the selection surface.
+func (w *World) SetTargetGhost(owner string, craftID uint64) {
+	w.Target = Target{Kind: TargetGhost, CraftID: craftID, GhostOwner: owner}
+	w.mirrorTargetToActiveCraft()
 }
 
 // CraftInertialVelocity returns a craft's velocity in the system-
@@ -196,12 +242,30 @@ func (w *World) CraftInertialVelocity(c *spacecraft.Spacecraft) orbital.Vec3 {
 // in the active's frame. Cross-primary case: convert via inertial,
 // subtract the active primary's pose. v0.9.3+.
 func (w *World) TargetStateRelativeToActivePrimary() (rT, vT orbital.Vec3, ok bool) {
-	if w.Target.Kind != TargetCraft {
+	if w.Target.Kind != TargetCraft && w.Target.Kind != TargetGhost {
 		return orbital.Vec3{}, orbital.Vec3{}, false
 	}
 	active := w.ActiveCraft()
 	if active == nil {
 		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	// Ghost targets (v0.27 S6): the slate already holds the ghost's
+	// world-frame position at this world's sim-time, so rendezvous
+	// tooling (closest approach, |v_rel|, TGT nav modes) works against
+	// a remote player's craft exactly as against a local one.
+	if w.Target.Kind == TargetGhost {
+		g, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID)
+		if !ok {
+			return orbital.Vec3{}, orbital.Vec3{}, false
+		}
+		primary, ok := w.bodyInSystemByID(g.PrimaryID)
+		if !ok {
+			return orbital.Vec3{}, orbital.Vec3{}, false
+		}
+		activePrimaryR := w.BodyPosition(active.Primary)
+		activePrimaryV := w.bodyInertialVelocity(active.Primary)
+		ghostInertialV := w.bodyInertialVelocity(primary).Add(g.Vel)
+		return g.Pos.Sub(activePrimaryR), ghostInertialV.Sub(activePrimaryV), true
 	}
 	t, _, ok := w.craftByID(w.Target.CraftID)
 	if !ok {
@@ -230,6 +294,13 @@ func (w *World) TargetName() string {
 	case TargetCraft:
 		if c, _, ok := w.craftByID(w.Target.CraftID); ok {
 			return c.Name
+		}
+	case TargetGhost:
+		if g, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID); ok {
+			if g.Handle != "" {
+				return g.Handle + "'s " + g.Name
+			}
+			return g.Name
 		}
 	}
 	return ""

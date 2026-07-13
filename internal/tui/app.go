@@ -38,6 +38,7 @@ const (
 	screenVAB      // v0.24 / ADR 0029: Vehicle Assembly (VAB) builder, reached from the menu.
 	screenSaves    // v0.26 / ADR 0033 §F: unified Saves browser, reached from the menu's Save/Load items.
 	screenBoss     // boss key: full-screen fake developer shell (backtick from any screen).
+	screenSession  // v0.27 S6 / ADR 0034: multiplayer roster + invites, on `O`.
 )
 
 // App is the root tea.Model. It owns the world, theme, keymap, and which
@@ -95,6 +96,12 @@ type App struct {
 	boss             *screens.BossShell
 	bossReturnScreen screenID
 	bossPrevPaused   bool
+
+	// session is the multiplayer roster screen (v0.27 S6, ADR 0034).
+	// Renders from world.Session (the serve-layer slate); its admin
+	// commands (mint/revoke/remove) are executed by the serve wrapper
+	// via SessionAdminMsg — the App only dispatches.
+	session *screens.SessionScreen
 
 	// savesPrevPaused records the sim pause state when the Saves screen
 	// opened (finding 4). The Saves browser freezes the clock while it is
@@ -197,6 +204,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		vab:            screens.NewVAB(sth),
 		saves:          screens.NewSavesScreen(sth),
 		boss:           screens.NewBossShell(sth),
+		session:        screens.NewSessionScreen(sth),
 	}, nil
 }
 
@@ -706,6 +714,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.active == screenSaves {
 			return a.applySavesCommand(a.saves.HandleKey(m))
 		}
+		// Session roster (v0.27 S6 / ADR 0034): navigation, the mint
+		// input, and confirm gates live in the screen; finalised
+		// intents come back as SessionCommands. Handled before the
+		// global switch so typed invite handles never reach flight
+		// controls.
+		if a.active == screenSession {
+			return a.applySessionCommand(a.session.HandleKey(a.world, m))
+		}
 		// Maneuver screen has its own text input that eats most keys;
 		// esc-to-cancel goes through the screen's handler so it can
 		// clean up.
@@ -791,6 +807,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// curated event vocabulary excludes pure-navigation bindings.
 			if a.active == screenOrbit {
 				a.active = screenMissions
+			}
+			return a, nil
+		case key.Matches(m, a.keys.Session):
+			// `O` opens the multiplayer session roster (v0.27 S6 / ADR
+			// 0034). Works in single-player too — the screen explains
+			// how to host.
+			if a.active == screenOrbit {
+				a.session.Reset()
+				a.active = screenSession
 			}
 			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
@@ -1572,6 +1597,8 @@ func (a *App) capturingText() bool {
 		return true
 	case screenSaves:
 		return a.saves.CapturingText()
+	case screenSession:
+		return a.session.CapturingText()
 	}
 	return false
 }
@@ -1596,6 +1623,30 @@ func defaultSaveName(w *sim.World) string {
 		return c.Name + " — " + day
 	}
 	return day
+}
+
+// applySessionCommand dispatches a finalised SessionCommand (v0.27 S6
+// / ADR 0034). Target + toast are world/App-local; the admin trio
+// (mint / revoke / remove) is re-emitted as a SessionAdminMsg for the
+// serve-layer wrapper, which owns the session store — the App knows
+// nothing about sessiondir.
+func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cmd) {
+	switch cmd.Kind {
+	case screens.SessionCmdClose:
+		a.active = screenOrbit
+	case screens.SessionCmdTargetGhost:
+		a.world.SetTargetGhost(cmd.Owner, cmd.CraftID)
+		a.statusMsg = fmt.Sprintf("target: %s's craft", cmd.Handle)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.active = screenOrbit
+	case screens.SessionCmdToast:
+		a.statusMsg = cmd.Message
+		a.statusExpires = time.Now().Add(3 * time.Second)
+	case screens.SessionCmdMint, screens.SessionCmdRevoke, screens.SessionCmdRemove:
+		msg := screens.SessionAdminMsg{Cmd: cmd}
+		return a, func() tea.Msg { return msg }
+	}
+	return a, nil
 }
 
 // applySavesCommand dispatches a finalised SavesCommand from the Saves
@@ -1805,6 +1856,8 @@ func (a *App) View() string {
 		base = a.saves.Render(a.width, a.height)
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
+	case screenSession:
+		base = a.session.Render(a.world, a.width)
 	default:
 		if a.world.ViewMode == sim.ViewLaunch {
 			base = a.launchView.Render(a.world, a.width, a.height)

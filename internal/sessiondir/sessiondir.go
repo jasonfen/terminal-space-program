@@ -278,6 +278,48 @@ func normalizeCode(c string) string {
 	return strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(c), "-", ""))
 }
 
+// RevokeInvite deletes an unredeemed code. ErrUnknownInvite when the
+// code doesn't exist (already redeemed, already revoked, or a typo).
+func (s *Store) RevokeInvite(code string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return err
+	}
+	for i, inv := range m.Invites {
+		if normalizeCode(inv.Code) == normalizeCode(code) {
+			m.Invites = append(m.Invites[:i], m.Invites[i+1:]...)
+			return s.writeMeta(m)
+		}
+	}
+	return ErrUnknownInvite
+}
+
+// RemovePlayer drops a guest from the roster: their key no longer
+// resumes and they'd need a fresh invite. The persisted payload stays
+// on disk — a re-invited player finds their program intact. The host
+// entry can't be removed. A live session isn't kicked (MVP): removal
+// gates the NEXT connect.
+func (s *Store) RemovePlayer(fingerprint string) error {
+	if fingerprint == HostFingerprint {
+		return errors.New("sessiondir: can't remove the host")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return err
+	}
+	for i, p := range m.Roster {
+		if p.Fingerprint == fingerprint {
+			m.Roster = append(m.Roster[:i], m.Roster[i+1:]...)
+			return s.writeMeta(m)
+		}
+	}
+	return ErrNotEnrolled
+}
+
 // FindPlayer looks a fingerprint up in the roster.
 func (s *Store) FindPlayer(fingerprint string) (Player, error) {
 	m, err := s.Meta()
