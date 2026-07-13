@@ -130,6 +130,53 @@ func TestInviteLifecycle(t *testing.T) {
 	}
 }
 
+// Revoke deletes an unredeemed code; removing a player drops the
+// roster entry but keeps their payload (a re-invite resumes it). The
+// host can't be removed.
+func TestRevokeAndRemove(t *testing.T) {
+	s := openStore(t)
+	inv, err := s.MintInvite("dave")
+	if err != nil {
+		t.Fatalf("MintInvite: %v", err)
+	}
+	if err := s.RevokeInvite(inv.Code); err != nil {
+		t.Fatalf("RevokeInvite: %v", err)
+	}
+	if _, err := s.Peek(inv.Code); !errors.Is(err, ErrUnknownInvite) {
+		t.Error("revoked code still peekable")
+	}
+	if err := s.RevokeInvite(inv.Code); !errors.Is(err, ErrUnknownInvite) {
+		t.Errorf("double revoke: %v", err)
+	}
+
+	inv2, _ := s.MintInvite("dave")
+	if _, err := s.Enroll(inv2.Code, "SHA256:dave", "dave"); err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if err := s.SavePlayer("SHA256:dave", w); err != nil {
+		t.Fatalf("SavePlayer: %v", err)
+	}
+	if err := s.RemovePlayer("SHA256:dave"); err != nil {
+		t.Fatalf("RemovePlayer: %v", err)
+	}
+	if _, err := s.FindPlayer("SHA256:dave"); !errors.Is(err, ErrNotEnrolled) {
+		t.Error("removed player still enrolled")
+	}
+	if !s.HasPayload("SHA256:dave") {
+		t.Error("removal deleted the payload; re-invites should resume")
+	}
+	if _, err := s.EnsureHost("jason"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemovePlayer(HostFingerprint); err == nil {
+		t.Error("host removal allowed")
+	}
+}
+
 // Player payloads round-trip through the SchemaVersion-8 envelope:
 // the restored world carries the same craft and sim clock.
 func TestPlayerPayloadRoundTrip(t *testing.T) {

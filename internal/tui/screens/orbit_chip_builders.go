@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -61,6 +62,11 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	add(settings.ChipDescent, cornerTopLeft, v.buildDescentChip(w))
 	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
 	add(settings.ChipAttitude, cornerTopLeft, v.buildAttitudeChip(w))
+	// SESSION moments (v0.27 S6 / ADR 0034): join/leave/sync events as
+	// a transient top-left chip. Always-on when events are fresh (empty
+	// id — moments are too short-lived to warrant a Settings toggle);
+	// declutter still clears it via the empty-id path.
+	add("", cornerTopLeft, v.buildSessionEventsChip(w))
 	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
 	// vessel-state readouts. Force-shown while a just-blocked command is
 	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
@@ -104,6 +110,41 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 		}
 	}
 	return chips
+}
+
+// sessionEventChipTTL is how long a join/leave/sync moment stays on
+// the canvas — wall clock, so warp can't stretch or blink it.
+const sessionEventChipTTL = 6 * time.Second
+
+// buildSessionEventsChip renders recent multiplayer session moments
+// (v0.27 S6). Nil outside a session or when every event has aged out.
+func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
+	if len(w.SessionEvents) == 0 {
+		return nil
+	}
+	now := time.Now()
+	var rows []string
+	for _, e := range w.SessionEvents {
+		if now.Sub(e.At) > sessionEventChipTTL {
+			continue
+		}
+		switch e.Kind {
+		case sim.SessionEventJoin:
+			rows = append(rows, "◇ "+e.Handle+" joined")
+		case sim.SessionEventLeave:
+			rows = append(rows, "◇ "+e.Handle+" left")
+		case sim.SessionEventSync:
+			rows = append(rows, "◇ "+e.Handle+" synced to you")
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	lines := []string{v.theme.Primary.Render("SESSION")}
+	for _, r := range rows {
+		lines = append(lines, v.theme.Dim.Render(r))
+	}
+	return lines
 }
 
 // anyActiveBurn reports whether any craft in the slate has an in-flight

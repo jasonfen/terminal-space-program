@@ -9,13 +9,15 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
+	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
-// reportingModel wraps a session's game and feeds the relay store on
-// every sim tick (v0.27 S4). Reports run inside the session's own
-// update loop — same goroutine as the World mutation, so no locking
-// enters the sim. The wrapper is transparent to everything else:
-// input, rendering, and quit pass straight through.
+// reportingModel wraps a session's game: it feeds the relay store on
+// every sim tick (v0.27 S4), refreshes the world's ghost slate (S5)
+// and session slate (S6), and executes the Session screen's admin
+// commands against the session store — everything runs inside the
+// session's own update loop, same goroutine as the World mutation.
+// The wrapper is transparent to everything else.
 type reportingModel struct {
 	inner tea.Model
 	app   *tui.App
@@ -23,14 +25,14 @@ type reportingModel struct {
 	srv   *Server
 	owner string
 
-	// handle cache: fingerprint → display name, refreshed lazily so
-	// each tick doesn't re-read session.json. A new enrollee's handle
-	// appears within the refresh window.
-	handles   map[string]string
-	handlesAt time.Time
+	// meta cache: roster + invites, refreshed lazily so each tick
+	// doesn't re-read session.json. Admin commands force a refresh so
+	// a freshly minted code shows immediately.
+	meta   sessiondir.Meta
+	metaAt time.Time
 }
 
-const handleRefresh = 5 * time.Second
+const metaRefresh = 5 * time.Second
 
 // withReporting wraps app so its world reports to the store as owner.
 func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
@@ -44,36 +46,89 @@ func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
 func (m reportingModel) Init() tea.Cmd { return m.inner.Init() }
 
 func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Session-admin intents from the Session screen (v0.27 S6): the
+	// wrapper owns the store access; the App below only dispatched.
+	if admin, ok := msg.(screens.SessionAdminMsg); ok {
+		switch admin.Cmd.Kind {
+		case screens.SessionCmdMint:
+			_, _ = m.srv.store.MintInvite(admin.Cmd.Handle)
+		case screens.SessionCmdRevoke:
+			_ = m.srv.store.RevokeInvite(admin.Cmd.Code)
+		case screens.SessionCmdRemove:
+			_ = m.srv.store.RemovePlayer(admin.Cmd.Fingerprint)
+		}
+		m.metaAt = time.Time{} // force refresh — the list is the feedback
+		m.refreshSession(time.Now())
+		return m, nil
+	}
+
 	inner, cmd := m.inner.Update(msg)
 	m.inner = inner
 	if _, ok := msg.(sim.TickMsg); ok {
 		now := time.Now()
-		w := m.app.World()
-		m.rep.Tick(w, now)
-		// v0.27 S5: refresh this world's ghost slate from the store —
-		// the screens read w.Ghosts like any other world state.
-		if m.handles == nil || now.Sub(m.handlesAt) >= handleRefresh {
-			m.handles = m.rosterHandles()
-			m.handlesAt = now
-		}
-		w.Ghosts = relay.GhostsFor(w, m.srv.relay.Snapshot(m.owner), m.handles)
+		m.rep.Tick(m.app.World(), now)
+		m.refreshSession(now)
 	}
 	return m, cmd
 }
 
-// rosterHandles reads the fingerprint→handle join from the session
-// roster. Failures yield an empty map (ghosts render nameless rather
-// than not at all).
-func (m reportingModel) rosterHandles() map[string]string {
-	meta, err := m.srv.store.Meta()
-	if err != nil {
-		return map[string]string{}
+// refreshSession rebuilds the world's ghost + session slates from the
+// store, roster, and presence.
+func (m *reportingModel) refreshSession(now time.Time) {
+	if m.meta.Version == 0 || now.Sub(m.metaAt) >= metaRefresh {
+		if meta, err := m.srv.store.Meta(); err == nil {
+			m.meta = meta
+			m.metaAt = now
+		}
 	}
-	out := make(map[string]string, len(meta.Roster))
-	for _, p := range meta.Roster {
-		out[p.Fingerprint] = p.Handle
+	w := m.app.World()
+
+	handles := make(map[string]string, len(m.meta.Roster))
+	for _, p := range m.meta.Roster {
+		handles[p.Fingerprint] = p.Handle
 	}
-	return out
+	// Ghosts (S5): everyone else's craft at this world's sim-time.
+	w.Ghosts = relay.GhostsFor(w, m.srv.relay.Snapshot(m.owner), handles)
+
+	// Session slate (S6). Snapshot("") includes the viewer's own
+	// report — the roster row marked "you".
+	reports := map[string]relay.CraftReport{}
+	for _, r := range m.srv.relay.Snapshot("") {
+		reports[r.Owner] = r
+	}
+	info := &sim.SessionInfo{
+		IsHost: m.owner == sessiondir.HostFingerprint,
+		Self:   m.owner,
+	}
+	for _, p := range m.meta.Roster {
+		row := sim.SessionPlayer{
+			Fingerprint: p.Fingerprint,
+			Handle:      p.Handle,
+			Role:        p.Role,
+			Online:      m.srv.presence.isOnline(p.Fingerprint),
+		}
+		if rep, ok := reports[p.Fingerprint]; ok {
+			row.HasReport = true
+			row.DeltaT = rep.SubspaceTime.Sub(w.Clock.SimTime)
+			row.CraftCount = len(rep.Crafts)
+			if len(rep.Crafts) > 0 {
+				row.System = rep.Crafts[0].System
+				row.Primary = rep.Crafts[0].Primary
+			}
+		}
+		info.Players = append(info.Players, row)
+	}
+	if info.IsHost {
+		for _, inv := range m.meta.Invites {
+			info.Invites = append(info.Invites, sim.SessionInvite{
+				Code:   inv.Code,
+				Handle: inv.Handle,
+				Age:    now.Sub(inv.CreatedAt),
+			})
+		}
+	}
+	w.Session = info
+	w.SessionEvents = m.srv.presence.eventsFor(m.owner)
 }
 
 func (m reportingModel) View() string { return m.inner.View() }
@@ -85,6 +140,5 @@ func (s *Server) HostModel(app *tui.App) tea.Model {
 	return s.withReporting(app, sessiondir.HostFingerprint)
 }
 
-// Relay exposes the session store (S5/S6 read ghosts and roster
-// state from it).
+// Relay exposes the session store (tests and later slices read it).
 func (s *Server) Relay() *relay.Store { return s.relay }

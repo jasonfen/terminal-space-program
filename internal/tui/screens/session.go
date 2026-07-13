@@ -1,0 +1,306 @@
+package screens
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/sim"
+)
+
+// SessionScreen is the multiplayer roster (v0.27 S6, ADR 0034): one
+// row per player — online state, handle, last-known system/SOI, craft
+// count, subspace Δt vs the viewer — plus, for the host, the Invites
+// section (mint / outstanding codes / revoke / remove player, the
+// same operations as the `serve invite` CLI). Persistent state gets a
+// screen; moments get chips (the orbit canvas shows join/leave).
+//
+// It renders from w.Session (the serve-layer slate) and returns
+// SessionCommands for the App/serve layers to execute — the screen
+// itself mutates nothing.
+type SessionScreen struct {
+	theme  Theme
+	cursor int // index into the players list
+
+	inviteCursor  int  // index into the invites list (host)
+	inInvites     bool // cursor focus: players vs invites section
+	minting       bool // typing a new invite's handle
+	mintInput     []rune
+	confirmRemove bool // pending [x] confirmation on the selected player
+}
+
+func NewSessionScreen(th Theme) *SessionScreen { return &SessionScreen{theme: th} }
+
+// SessionCommandKind enumerates what the screen asks the app to do.
+type SessionCommandKind int
+
+const (
+	SessionCmdNone SessionCommandKind = iota
+	SessionCmdClose
+	SessionCmdTargetGhost // aim at Owner/CraftID
+	SessionCmdMint        // mint invite for Handle
+	SessionCmdRevoke      // revoke invite Code
+	SessionCmdRemove      // remove player Fingerprint
+	SessionCmdToast       // surface Message
+)
+
+// SessionCommand is the screen's finalized action.
+type SessionCommand struct {
+	Kind        SessionCommandKind
+	Owner       string
+	CraftID     uint64
+	Handle      string
+	Code        string
+	Fingerprint string
+	Message     string
+}
+
+// SessionAdminMsg carries a mint/revoke/remove intent out of the App
+// to the serve-layer wrapper (which owns the session store). In
+// single-player nothing handles it — the message is inert.
+type SessionAdminMsg struct{ Cmd SessionCommand }
+
+// Reset re-arms the screen for a fresh open.
+func (s *SessionScreen) Reset() {
+	s.cursor, s.inviteCursor = 0, 0
+	s.inInvites, s.minting, s.confirmRemove = false, false, false
+	s.mintInput = nil
+}
+
+// CapturingText reports whether the mint input is armed (the App
+// skips keyboard-layout normalization while typing literal text).
+func (s *SessionScreen) CapturingText() bool { return s.minting }
+
+// HandleKey routes a keypress. w supplies the slate (rows, ghosts for
+// targeting).
+func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
+	info := w.Session
+	if info == nil {
+		if msg.String() == "esc" || msg.String() == "O" || msg.String() == "q" {
+			return SessionCommand{Kind: SessionCmdClose}
+		}
+		return SessionCommand{}
+	}
+
+	if s.minting {
+		switch msg.Type {
+		case tea.KeyEnter:
+			handle := strings.TrimSpace(string(s.mintInput))
+			s.minting, s.mintInput = false, nil
+			if handle == "" {
+				return SessionCommand{}
+			}
+			return SessionCommand{Kind: SessionCmdMint, Handle: handle}
+		case tea.KeyEscape:
+			s.minting, s.mintInput = false, nil
+			return SessionCommand{}
+		case tea.KeyBackspace:
+			if len(s.mintInput) > 0 {
+				s.mintInput = s.mintInput[:len(s.mintInput)-1]
+			}
+			return SessionCommand{}
+		case tea.KeyRunes:
+			for _, r := range msg.Runes {
+				if len(s.mintInput) < 24 {
+					s.mintInput = append(s.mintInput, r)
+				}
+			}
+			return SessionCommand{}
+		}
+		return SessionCommand{}
+	}
+
+	if s.confirmRemove {
+		s.confirmRemove = false
+		if msg.String() == "y" || msg.String() == "Y" {
+			if p, ok := s.selectedPlayer(info); ok {
+				return SessionCommand{Kind: SessionCmdRemove, Fingerprint: p.Fingerprint, Handle: p.Handle}
+			}
+		}
+		return SessionCommand{}
+	}
+
+	switch msg.String() {
+	case "esc", "q", "O":
+		return SessionCommand{Kind: SessionCmdClose}
+	case "up", "k":
+		s.moveCursor(info, -1)
+	case "down", "j":
+		s.moveCursor(info, +1)
+	case "tab":
+		if info.IsHost && len(info.Invites) > 0 {
+			s.inInvites = !s.inInvites
+		}
+	case "t":
+		p, ok := s.selectedPlayer(info)
+		if !ok {
+			return SessionCommand{}
+		}
+		if p.Fingerprint == info.Self {
+			return SessionCommand{Kind: SessionCmdToast, Message: "that's you"}
+		}
+		// Aim at the player's first ghosted craft — the slate is
+		// already gated to this system and evaluated at our time.
+		for _, g := range w.Ghosts {
+			if g.Owner == p.Fingerprint {
+				return SessionCommand{Kind: SessionCmdTargetGhost, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
+			}
+		}
+		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to target"}
+	case "i":
+		if info.IsHost {
+			s.minting = true
+			s.mintInput = nil
+		}
+	case "r":
+		if info.IsHost && s.inInvites {
+			if inv, ok := s.selectedInvite(info); ok {
+				return SessionCommand{Kind: SessionCmdRevoke, Code: inv.Code, Handle: inv.Handle}
+			}
+		}
+	case "x":
+		if info.IsHost && !s.inInvites {
+			if p, ok := s.selectedPlayer(info); ok && p.Role != "host" {
+				s.confirmRemove = true
+			}
+		}
+	}
+	return SessionCommand{}
+}
+
+func (s *SessionScreen) moveCursor(info *sim.SessionInfo, d int) {
+	if s.inInvites {
+		s.inviteCursor = clamp(s.inviteCursor+d, 0, len(info.Invites)-1)
+		return
+	}
+	s.cursor = clamp(s.cursor+d, 0, len(info.Players)-1)
+}
+
+func (s *SessionScreen) selectedPlayer(info *sim.SessionInfo) (sim.SessionPlayer, bool) {
+	if s.cursor < 0 || s.cursor >= len(info.Players) {
+		return sim.SessionPlayer{}, false
+	}
+	return info.Players[s.cursor], true
+}
+
+func (s *SessionScreen) selectedInvite(info *sim.SessionInfo) (sim.SessionInvite, bool) {
+	if s.inviteCursor < 0 || s.inviteCursor >= len(info.Invites) {
+		return sim.SessionInvite{}, false
+	}
+	return info.Invites[s.inviteCursor], true
+}
+
+func clamp(v, lo, hi int) int {
+	if hi < lo {
+		return lo
+	}
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// Render draws the roster.
+func (s *SessionScreen) Render(w *sim.World, width int) string {
+	var b strings.Builder
+	title := s.theme.Title.Render(" SESSION ")
+	info := w.Session
+	if info == nil {
+		b.WriteString(title + "\n\n")
+		b.WriteString("  Not in a multiplayer session.\n\n")
+		b.WriteString(s.theme.Dim.Render("  Host one with --serve; guests join over ssh (see serve invite).") + "\n\n")
+		b.WriteString(s.theme.Footer.Render("  [esc] close"))
+		return b.String()
+	}
+
+	b.WriteString(title + s.theme.Dim.Render(fmt.Sprintf("  %d players", len(info.Players))) + "\n\n")
+	for i, p := range info.Players {
+		marker := "  "
+		if !s.inInvites && i == s.cursor {
+			marker = s.theme.Primary.Render("▸ ")
+		}
+		dot := s.theme.Dim.Render("○")
+		if p.Online {
+			dot = s.theme.Primary.Render("●")
+		}
+		name := p.Handle
+		var tags []string
+		if p.Role == "host" {
+			tags = append(tags, "host")
+		}
+		if p.Fingerprint == info.Self {
+			tags = append(tags, "you")
+		}
+		if p.DockedGuest {
+			tags = append(tags, "docked") // inert until v0.28
+		}
+		if len(tags) > 0 {
+			name += s.theme.Dim.Render(" (" + strings.Join(tags, ", ") + ")")
+		}
+		where := "—"
+		if p.System != "" {
+			where = p.System
+			if p.Primary != "" {
+				where += "/" + p.Primary
+			}
+		}
+		craft := fmt.Sprintf("%d craft", p.CraftCount)
+		b.WriteString(fmt.Sprintf("  %s%s %-32s %-16s %-9s %s\n",
+			marker, dot, name, where, craft, formatDeltaT(p, info.Self == p.Fingerprint)))
+	}
+
+	if info.IsHost {
+		b.WriteString("\n" + s.theme.Title.Render(" INVITES ") + "\n\n")
+		if s.minting {
+			b.WriteString("  new invite handle: " + string(s.mintInput) + "▌\n")
+		} else if len(info.Invites) == 0 {
+			b.WriteString(s.theme.Dim.Render("  no outstanding codes — [i] to mint one") + "\n")
+		}
+		for i, inv := range info.Invites {
+			marker := "  "
+			if s.inInvites && i == s.inviteCursor {
+				marker = s.theme.Primary.Render("▸ ")
+			}
+			b.WriteString(fmt.Sprintf("  %s%s  %-16s %s\n",
+				marker, inv.Code, inv.Handle, s.theme.Dim.Render(compactDuration(inv.Age)+" old")))
+		}
+	}
+
+	b.WriteString("\n")
+	if s.confirmRemove {
+		if p, ok := s.selectedPlayer(info); ok {
+			b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  remove %s from the session? [y/n]", p.Handle)) + "\n")
+		}
+	}
+	keys := "  [t] target craft"
+	if info.IsHost {
+		keys += "  [i] invite  [r] revoke code  [x] remove player  [tab] section"
+	}
+	keys += "  [esc] close"
+	b.WriteString(s.theme.Footer.Render(keys))
+	return b.String()
+}
+
+// formatDeltaT renders the subspace gap: "+2d4h ahead", "-3h12m
+// behind", "in sync" inside a couple of seconds.
+func formatDeltaT(p sim.SessionPlayer, isSelf bool) string {
+	if isSelf {
+		return ""
+	}
+	if !p.HasReport {
+		return "—"
+	}
+	d := p.DeltaT
+	if d > -2*time.Second && d < 2*time.Second {
+		return "in sync"
+	}
+	if d > 0 {
+		return "+" + compactDuration(d) + " ahead"
+	}
+	return "-" + compactDuration(-d) + " behind"
+}

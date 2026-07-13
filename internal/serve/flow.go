@@ -16,9 +16,10 @@ import (
 // Enrolled reconnects never see this model; the session handler hands
 // them the game directly.
 type guestFlow struct {
-	store *sessiondir.Store
-	fp    string    // ssh public-key fingerprint (the identity)
-	game  tea.Model // *tui.App, guest sink already attached
+	store    *sessiondir.Store
+	fp       string             // ssh public-key fingerprint (the identity)
+	game     tea.Model          // the session's game (guest sink attached)
+	onEnroll func(handle string) // presence/chip hook, fired at commit (may be nil)
 
 	phase    flowPhase
 	declined bool
@@ -36,8 +37,8 @@ const (
 	phaseHandle
 )
 
-func newGuestFlow(store *sessiondir.Store, fp string, game tea.Model) tea.Model {
-	return guestFlow{store: store, fp: fp, game: game}
+func newGuestFlow(store *sessiondir.Store, fp string, game tea.Model, onEnroll func(handle string)) tea.Model {
+	return guestFlow{store: store, fp: fp, game: game, onEnroll: onEnroll}
 }
 
 func (m guestFlow) Init() tea.Cmd { return nil }
@@ -116,13 +117,17 @@ func (m guestFlow) updateCode(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m guestFlow) updateHandle(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch k.Type {
 	case tea.KeyEnter:
-		if _, err := m.store.Enroll(m.code, m.fp, string(m.input)); err != nil {
+		p, err := m.store.Enroll(m.code, m.fp, string(m.input))
+		if err != nil {
 			// The code was spent between Peek and commit (or the handle
 			// is empty) — back to the code prompt with the reason.
 			m.errMsg = err.Error()
 			m.phase = phaseCode
 			m.input = nil
 			return m, nil
+		}
+		if m.onEnroll != nil {
+			m.onEnroll(p.Handle)
 		}
 		return m.startGame()
 	case tea.KeyBackspace:

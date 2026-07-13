@@ -24,7 +24,7 @@ func newFlowFixture(t *testing.T) (*sessiondir.Store, tea.Model) {
 	if err != nil {
 		t.Fatalf("newSessionApp: %v", err)
 	}
-	return store, newGuestFlow(store, testFP, game)
+	return store, newGuestFlow(store, testFP, game, nil)
 }
 
 func typeString(m tea.Model, s string) tea.Model {

@@ -50,10 +50,11 @@ type Config struct {
 // run their own game. The listener is bound in New so port conflicts
 // surface before the host's own TUI takes the screen.
 type Server struct {
-	ssh   *ssh.Server
-	ln    net.Listener
-	store *sessiondir.Store
-	relay *relay.Store
+	ssh      *ssh.Server
+	ln       net.Listener
+	store    *sessiondir.Store
+	relay    *relay.Store
+	presence *presence
 }
 
 // DefaultHostKeyPath returns the per-host SSH identity path, sibling
@@ -93,7 +94,10 @@ func New(cfg Config) (*Server, error) {
 	if _, err := store.EnsureHost(hostHandle()); err != nil {
 		return nil, fmt.Errorf("serve: enroll host: %w", err)
 	}
-	srv := &Server{store: store, relay: relay.NewStore()}
+	srv := &Server{store: store, relay: relay.NewStore(), presence: newPresence()}
+	// The host plays in-process and is online for the session's whole
+	// life — no join chip for them (serve start isn't a "moment").
+	srv.presence.markOnline(sessiondir.HostFingerprint)
 	s, err := wish.NewServer(
 		wish.WithAddress(cfg.Addr),
 		wish.WithHostKeyPath(cfg.HostKeyPath),
@@ -151,6 +155,7 @@ type ctxKey int
 const (
 	ctxKeyApp ctxKey = iota
 	ctxKeyFingerprint
+	ctxKeyJoined // set once this session marked presence-online
 )
 
 // sessionHandler builds the per-connection model. Enrolled keys go
@@ -180,11 +185,23 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	sess.Context().SetValue(ctxKeyFingerprint, fp)
 
 	game := s.withReporting(app, fp) // v0.27 S4: sessions feed the store
-	if _, err := s.store.FindPlayer(fp); err == nil {
-		// Enrolled reconnect: no card, no code — resume.
+	if p, err := s.store.FindPlayer(fp); err == nil {
+		// Enrolled reconnect: no card, no code — resume. Presence +
+		// join chip fire now; the middleware pairs the leave.
+		s.presence.markOnline(fp)
+		s.presence.event(sim.SessionEventJoin, fp, p.Handle)
+		sess.Context().SetValue(ctxKeyJoined, true)
 		return game, opts
 	}
-	return newGuestFlow(s.store, fp, game), opts
+	// Unknown key → enroll flow. Presence starts when (if) the flow
+	// commits the enrollment.
+	ctx := sess.Context()
+	onEnroll := func(handle string) {
+		s.presence.markOnline(fp)
+		s.presence.event(sim.SessionEventJoin, fp, handle)
+		ctx.SetValue(ctxKeyJoined, true)
+	}
+	return newGuestFlow(s.store, fp, game, onEnroll), opts
 }
 
 // newGuestApp builds the game for fp: the persisted world when a
@@ -248,11 +265,18 @@ func (s *Server) frontier() (time.Time, bool) {
 func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
 		next(sess)
-		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)
+		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
 		if !ok {
 			return
 		}
-		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
+		// Presence: pair the join marked at connect/enroll (v0.27 S6).
+		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); joined {
+			s.presence.markOffline(fp)
+			if p, err := s.store.FindPlayer(fp); err == nil {
+				s.presence.event(sim.SessionEventLeave, fp, p.Handle)
+			}
+		}
+		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)
 		if !ok {
 			return
 		}

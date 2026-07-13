@@ -202,6 +202,13 @@ type World struct {
 	// system by the writer.
 	Ghosts []Ghost
 
+	// Session and SessionEvents are the multiplayer roster slate and
+	// recent join/leave/sync moments (v0.27 S6) — same contract as
+	// Ghosts: serve-layer written, screen read, transient, nil/empty
+	// in single-player.
+	Session       *SessionInfo
+	SessionEvents []SessionEvent
+
 	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
 	// ADR 0027): which unmanned probes currently reach a ground station.
 	// Rebuilt each Tick by RecomputeCommGraph after physics; read by

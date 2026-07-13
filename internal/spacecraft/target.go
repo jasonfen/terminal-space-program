@@ -23,6 +23,11 @@ const (
 	// TargetSite is reserved; not populated until landing-site
 	// targeting ships post-v0.9.
 	TargetSite
+	// TargetGhost references another player's craft by owner
+	// fingerprint + craft ID (v0.27 S6, ADR 0034). Resolves against
+	// the world's transient ghost slate — a stale ref (owner gone,
+	// craft staged away) resolves to nothing, same as TargetNone.
+	TargetGhost
 )
 
 // Target identifies what a single craft is aiming at. The zero
@@ -33,5 +38,11 @@ const (
 type Target struct {
 	Kind    TargetKind
 	BodyIdx int    // when Kind==TargetBody
-	CraftID uint64 // when Kind==TargetCraft — the target's stable Spacecraft.ID (ADR 0012)
+	CraftID uint64 // when Kind==TargetCraft or TargetGhost — the target's stable Spacecraft.ID (ADR 0012)
+
+	// GhostOwner names the remote player (key fingerprint) when
+	// Kind==TargetGhost (v0.27 S6, ADR 0034). Session-local by
+	// nature: a save that carries a dangling ghost ref just resolves
+	// to nothing on load.
+	GhostOwner string `json:"ghost_owner,omitempty"`
 }

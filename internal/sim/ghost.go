@@ -10,9 +10,11 @@ import "github.com/jasonfen/terminal-space-program/internal/orbital"
 // draws it dim with the owner's handle; physics never sees it.
 type Ghost struct {
 	Owner     string // ssh key fingerprint (roster identity)
+	CraftID   uint64 // the remote craft's stable ID (target resolution)
 	Handle    string // display name, joined from the session roster
 	Name      string // craft name
 	Glyph     string // craft glyph (may be empty)
 	PrimaryID string // SOI primary the ghost orbits
-	Pos       orbital.Vec3
+	Pos       orbital.Vec3 // world-frame position at this world's sim-time
+	Vel       orbital.Vec3 // primary-relative velocity at this world's sim-time
 }

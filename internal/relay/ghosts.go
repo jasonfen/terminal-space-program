@@ -40,11 +40,13 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 			}
 			out = append(out, sim.Ghost{
 				Owner:     rep.Owner,
+				CraftID:   cs.ID,
 				Handle:    handles[rep.Owner],
 				Name:      cs.Name,
 				Glyph:     cs.Glyph,
 				PrimaryID: cs.Primary,
 				Pos:       w.BodyPosition(primary).Add(st.R),
+				Vel:       st.V,
 			})
 		}
 	}
