@@ -209,6 +209,11 @@ type World struct {
 	Session       *SessionInfo
 	SessionEvents []SessionEvent
 
+	// LastSyncArrival is set when a Sync warp reaches its target time
+	// (v0.27 S7) and cleared by the serve wrapper after firing the
+	// arrival chips. Transient, like LastDockEvent.
+	LastSyncArrival *SyncArrival
+
 	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
 	// ADR 0027): which unmanned probes currently reach a ground station.
 	// Rebuilt each Tick by RecomputeCommGraph after physics; read by

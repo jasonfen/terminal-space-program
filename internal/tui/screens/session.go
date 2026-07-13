@@ -40,6 +40,7 @@ const (
 	SessionCmdNone SessionCommandKind = iota
 	SessionCmdClose
 	SessionCmdTargetGhost // aim at Owner/CraftID
+	SessionCmdSync        // Sync-to: Auto-Warp to Time (v0.27 S7)
 	SessionCmdMint        // mint invite for Handle
 	SessionCmdRevoke      // revoke invite Code
 	SessionCmdRemove      // remove player Fingerprint
@@ -55,6 +56,7 @@ type SessionCommand struct {
 	Code        string
 	Fingerprint string
 	Message     string
+	Time        time.Time // SessionCmdSync: the subspace time to chase
 }
 
 // SessionAdminMsg carries a mint/revoke/remove intent out of the App
@@ -149,6 +151,20 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 			}
 		}
 		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to target"}
+	case "s":
+		// Sync-to (v0.27 S7): forward only — the laggard always comes
+		// forward (ADR 0034); someone behind you syncs to you instead.
+		p, ok := s.selectedPlayer(info)
+		if !ok || p.Fingerprint == info.Self {
+			return SessionCommand{}
+		}
+		if !p.HasReport {
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no reported time to sync to"}
+		}
+		if p.DeltaT <= 0 {
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " is behind you — they sync to you"}
+		}
+		return SessionCommand{Kind: SessionCmdSync, Handle: p.Handle, Time: w.Clock.SimTime.Add(p.DeltaT)}
 	case "i":
 		if info.IsHost {
 			s.minting = true
@@ -277,7 +293,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 			b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  remove %s from the session? [y/n]", p.Handle)) + "\n")
 		}
 	}
-	keys := "  [t] target craft"
+	keys := "  [t] target craft  [s] sync-to"
 	if info.IsHost {
 		keys += "  [i] invite  [r] revoke code  [x] remove player  [tab] section"
 	}

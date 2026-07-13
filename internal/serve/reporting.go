@@ -30,7 +30,16 @@ type reportingModel struct {
 	// a freshly minted code shows immediately.
 	meta   sessiondir.Meta
 	metaAt time.Time
+
+	// localEvents are this session's own moments (the "synced to X"
+	// arrival chip) — appended to the world's event slate alongside
+	// the broadcast ring, pruned by the same wall TTL.
+	localEvents []sim.SessionEvent
 }
+
+// localEventTTL matches the chip's on-screen life; pruning here just
+// keeps the slice from growing over a long session.
+const localEventTTL = 10 * time.Second
 
 const metaRefresh = 5 * time.Second
 
@@ -66,10 +75,34 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.inner = inner
 	if _, ok := msg.(sim.TickMsg); ok {
 		now := time.Now()
-		m.rep.Tick(m.app.World(), now)
+		w := m.app.World()
+		m.rep.Tick(w, now)
+		// Sync arrival (S7): chip on both sides — broadcast "X synced
+		// to you" through the presence ring, keep "synced to X" local.
+		if arr := w.LastSyncArrival; arr != nil {
+			w.LastSyncArrival = nil
+			ownHandle := m.owner
+			if h, ok := m.handleOf(m.owner); ok {
+				ownHandle = h
+			}
+			m.srv.presence.event(sim.SessionEventSync, m.owner, ownHandle)
+			m.localEvents = append(m.localEvents, sim.SessionEvent{
+				Kind: sim.SessionEventSyncedTo, Owner: m.owner, Handle: arr.Handle, At: now,
+			})
+		}
 		m.refreshSession(now)
 	}
 	return m, cmd
+}
+
+// handleOf resolves a fingerprint through the cached roster.
+func (m *reportingModel) handleOf(fp string) (string, bool) {
+	for _, p := range m.meta.Roster {
+		if p.Fingerprint == fp {
+			return p.Handle, true
+		}
+	}
+	return "", false
 }
 
 // refreshSession rebuilds the world's ghost + session slates from the
@@ -128,7 +161,17 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		}
 	}
 	w.Session = info
-	w.SessionEvents = m.srv.presence.eventsFor(m.owner)
+
+	// Broadcast moments (own excluded) + this session's local ones.
+	events := m.srv.presence.eventsFor(m.owner)
+	kept := m.localEvents[:0]
+	for _, e := range m.localEvents {
+		if now.Sub(e.At) <= localEventTTL {
+			kept = append(kept, e)
+		}
+	}
+	m.localEvents = kept
+	w.SessionEvents = append(events, m.localEvents...)
 }
 
 func (m reportingModel) View() string { return m.inner.View() }

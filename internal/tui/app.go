@@ -1639,6 +1639,17 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		a.statusMsg = fmt.Sprintf("target: %s's craft", cmd.Handle)
 		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit
+	case screens.SessionCmdSync:
+		// Sync-to (v0.27 S7 / ADR 0034): Auto-Warp to the player's
+		// subspace time. The screen already refused backward targets;
+		// this guard covers a slate that moved between frames.
+		if a.world.EngageSyncWarp(cmd.Time, cmd.Handle) {
+			a.statusMsg = fmt.Sprintf("syncing to %s — auto-warp engaged", cmd.Handle)
+		} else {
+			a.statusMsg = fmt.Sprintf("can't sync — %s is no longer ahead", cmd.Handle)
+		}
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.active = screenOrbit
 	case screens.SessionCmdToast:
 		a.statusMsg = cmd.Message
 		a.statusExpires = time.Now().Add(3 * time.Second)

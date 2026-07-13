@@ -64,6 +64,7 @@ var helpSections = []helpSection{
 		{"tab", "switch star system"},
 		{"i", "body info screen"},
 		{"M", "missions ladder (program / objective progress)"},
+		{"O", "session roster (multiplayer: players, Δt, invites, sync-to)"},
 	}},
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×)"},

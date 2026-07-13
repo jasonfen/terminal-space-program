@@ -120,6 +120,23 @@ terminal-space-program --version
 **[command-line reference](docs/cli.md)** for every flag, units, defaults, and
 more examples.
 
+## Multiplayer (ssh)
+
+Host a shared session straight from your own game — no separate server:
+
+```bash
+terminal-space-program --serve                 # play AND accept guests (port 23234)
+terminal-space-program serve invite dave       # mint a one-time invite code
+ssh -p 23234 your-host                         # guests join from any terminal
+```
+
+Guests enroll once with the invite code (their ssh key becomes their identity)
+and get their own persistent space program on your machine. Everyone warps
+time **independently**: other players appear as dim "ghost" craft evaluated
+at *your* clock, and the `O` session roster shows who's ahead or behind —
+`s` sync-warps you forward to a player's time to fly formation. Warp clamps,
+planted burns, and SOI transitions are all honored en route.
+
 ## Custom vehicles
 
 Vehicle loadouts and stage parts are **data, not code**. Drop a `.json` file in
