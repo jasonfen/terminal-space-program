@@ -58,7 +58,7 @@ const (
 // other axes stay orbit-relative.
 func (w *World) ResolveAttitudeIntent(intent AttitudeIntent) spacecraft.BurnMode {
 	nav := w.NavMode
-	if nav == NavTarget && w.Target.Kind != TargetCraft {
+	if nav == NavTarget && !w.HasRelativeTarget() {
 		nav = NavOrbit
 	}
 	switch nav {
@@ -104,7 +104,7 @@ func (w *World) CycleNavMode() NavMode {
 	// Not comms-gated (ADR 0027): NavMode is the navball reference frame —
 	// a display / SAS-reference toggle (like the camera), not a new command
 	// to the vessel. The gated attitude command is SetAttitudeMode.
-	hasCraftTarget := w.Target.Kind == TargetCraft
+	hasCraftTarget := w.HasRelativeTarget()
 	for i := 0; i < 3; i++ {
 		w.NavMode = (w.NavMode + 1) % 3
 		if w.NavMode != NavTarget || hasCraftTarget {
@@ -118,7 +118,7 @@ func (w *World) CycleNavMode() NavMode {
 // drops or swaps off a craft target. Called from every Target mutator
 // so NavMode stays self-consistent with what the HUD displays. v0.9.3+.
 func (w *World) reconcileNavMode() {
-	if w.NavMode == NavTarget && w.Target.Kind != TargetCraft {
+	if w.NavMode == NavTarget && !w.HasRelativeTarget() {
 		w.NavMode = NavOrbit
 	}
 }

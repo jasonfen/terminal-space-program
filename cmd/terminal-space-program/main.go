@@ -177,6 +177,9 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		_ = srv.Shutdown(ctx)
 		cancel()
+		// Guests' final payload writes run as their force-closed
+		// sessions unwind — don't exit the process under them.
+		srv.Wait(5 * time.Second)
 	}
 	if runErr != nil {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", runErr)

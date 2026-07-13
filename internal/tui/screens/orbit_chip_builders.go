@@ -870,26 +870,80 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			chipRow("closing:", fmt.Sprintf("%+.2f m/s", closing)),
 		)
 		if tc.Primary.ID == c.Primary.ID {
-			if rT, vT, ok := w.TargetStateRelativeToActivePrimary(); ok {
-				active := orbital.Vec3State{R: c.State.R, V: c.State.V}
-				target := orbital.Vec3State{R: rT, V: vT}
-				mu := c.Primary.GravitationalParameter()
-				const horizon = 4 * 3600.0
-				if tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, horizon); err == nil {
-					lines = append(lines,
-						chipRow("TCA:", formatTCA(tCA)),
-						chipRow("CA:", formatRangeM(distCA)),
-					)
-				}
-			}
+			lines = append(lines, v.closestApproachRows(w, c)...)
 			if rangeM < 50 && vRel < 0.1 {
 				dockStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
 				lines = append(lines, "  "+dockStyle.Render("DOCK READY"))
 			}
 		}
 		return lines
+	case sim.TargetGhost:
+		// v0.27 review follow-up: a remote player's craft. Same rows as
+		// a local craft target — orbit, range, |v_rel|, closing, CA/TCA
+		// — resolved from the ghost slate (already at this world's
+		// sim-time). No DOCK READY: cross-player docking is v0.28.
+		g, gPrimary, ok := w.ResolveTargetGhost()
+		if !ok {
+			return nil
+		}
+		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("ghost:", w.TargetName())}
+		gRel := g.Pos.Sub(w.BodyPosition(gPrimary))
+		gMu := gPrimary.GravitationalParameter()
+		gFrame := orbital.ReferenceFrameForPrimary(gPrimary)
+		gEl := orbital.ElementsFromStateInFrame(gRel, g.Vel, gMu, gFrame)
+		if gEl.A > 0 && !math.IsNaN(gEl.A) && !math.IsInf(gEl.A, 0) {
+			gPrimaryR := gPrimary.RadiusMeters()
+			lines = append(lines,
+				chipRow("Ap:", fmt.Sprintf("%.1f km", (gEl.Apoapsis()-gPrimaryR)/1000)),
+				chipRow("Pe:", fmt.Sprintf("%.1f km", (gEl.Periapsis()-gPrimaryR)/1000)),
+				chipRow("inclin.:", fmt.Sprintf("%.2f°", gEl.I*180/math.Pi)),
+			)
+		}
+		rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+		if !ok {
+			return lines
+		}
+		rRel := rT.Sub(c.State.R)
+		vRelVec := vT.Sub(c.State.V)
+		rangeM := rRel.Norm()
+		vRel := vRelVec.Norm()
+		var closing float64
+		if rangeM > 0 {
+			closing = -rRel.Dot(vRelVec) / rangeM
+		}
+		lines = append(lines,
+			chipRow("range:", formatRangeM(rangeM)),
+			chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", vRel)),
+			chipRow("closing:", fmt.Sprintf("%+.2f m/s", closing)),
+		)
+		if gPrimary.ID == c.Primary.ID {
+			lines = append(lines, v.closestApproachRows(w, c)...)
+		}
+		return lines
 	}
 	return nil
+}
+
+// closestApproachRows computes the TCA/CA rows against the current
+// relative target (craft or ghost) — shared by both TARGET chip
+// branches so the approach math lives once.
+func (v *OrbitView) closestApproachRows(w *sim.World, c *spacecraft.Spacecraft) []string {
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		return nil
+	}
+	active := orbital.Vec3State{R: c.State.R, V: c.State.V}
+	target := orbital.Vec3State{R: rT, V: vT}
+	mu := c.Primary.GravitationalParameter()
+	const horizon = 4 * 3600.0
+	tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, horizon)
+	if err != nil {
+		return nil
+	}
+	return []string{
+		chipRow("TCA:", formatTCA(tCA)),
+		chipRow("CA:", formatRangeM(distCA)),
+	}
 }
 
 // buildSOIPassChip surfaces the always-on SOI Pass readout (ADR 0019): the

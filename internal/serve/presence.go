@@ -44,11 +44,12 @@ func (p *presence) isOnline(fp string) bool {
 	return p.online[fp] > 0
 }
 
-// event appends a session moment, trimming the ring.
-func (p *presence) event(kind sim.SessionEventKind, owner, handle string) {
+// event appends a session moment, trimming the ring. to addresses the
+// event at one player (empty = broadcast).
+func (p *presence) event(kind sim.SessionEventKind, owner, handle, to string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.events = append(p.events, sim.SessionEvent{Kind: kind, Owner: owner, Handle: handle, At: time.Now()})
+	p.events = append(p.events, sim.SessionEvent{Kind: kind, Owner: owner, Handle: handle, To: to, At: time.Now()})
 	if len(p.events) > presenceEventCap {
 		p.events = p.events[len(p.events)-presenceEventCap:]
 	}
@@ -60,9 +61,13 @@ func (p *presence) eventsFor(viewer string) []sim.SessionEvent {
 	defer p.mu.Unlock()
 	var out []sim.SessionEvent
 	for _, e := range p.events {
-		if e.Owner != viewer {
-			out = append(out, e)
+		if e.Owner == viewer {
+			continue
 		}
+		if e.To != "" && e.To != viewer {
+			continue // addressed at someone else ("X synced to YOU")
+		}
+		out = append(out, e)
 	}
 	return out
 }

@@ -13,7 +13,7 @@ import (
 func TestSyncWarpArrivalTimeEquality(t *testing.T) {
 	w := mustWorld(t)
 	target := w.Clock.SimTime.Add(10 * 24 * time.Hour)
-	if !w.EngageSyncWarp(target, "alice") {
+	if !w.EngageSyncWarp(target, "SHA256:alice", "alice") {
 		t.Fatal("EngageSyncWarp refused a forward target")
 	}
 	if !w.AutoWarp.Sync {
@@ -45,10 +45,10 @@ func TestSyncWarpArrivalTimeEquality(t *testing.T) {
 // forward; rewinding forks recorded history (ADR 0034).
 func TestSyncWarpForwardOnly(t *testing.T) {
 	w := mustWorld(t)
-	if w.EngageSyncWarp(w.Clock.SimTime.Add(-time.Hour), "alice") {
+	if w.EngageSyncWarp(w.Clock.SimTime.Add(-time.Hour), "SHA256:alice", "alice") {
 		t.Error("backward sync engaged")
 	}
-	if w.EngageSyncWarp(w.Clock.SimTime, "alice") {
+	if w.EngageSyncWarp(w.Clock.SimTime, "SHA256:alice", "alice") {
 		t.Error("zero-gap sync engaged")
 	}
 	if w.AutoWarp != nil {
@@ -71,7 +71,7 @@ func TestSyncWarpClampsAcrossPlantedNode(t *testing.T) {
 		Mode:        spacecraft.BurnPrograde,
 	})
 	target := w.Clock.SimTime.Add(2 * 24 * time.Hour)
-	if !w.EngageSyncWarp(target, "alice") {
+	if !w.EngageSyncWarp(target, "SHA256:alice", "alice") {
 		t.Fatal("EngageSyncWarp refused")
 	}
 
@@ -109,7 +109,7 @@ func TestSyncWarpTwoWorldFormation(t *testing.T) {
 	wA, wB := mustWorld(t), mustWorld(t)
 	wA.Clock.SimTime = wA.Clock.SimTime.Add(10 * 24 * time.Hour) // A leads
 
-	if !wB.EngageSyncWarp(wA.Clock.SimTime, "alice") {
+	if !wB.EngageSyncWarp(wA.Clock.SimTime, "SHA256:alice", "alice") {
 		t.Fatal("EngageSyncWarp refused")
 	}
 	for i := 0; i < 500000 && wB.AutoWarp != nil; i++ {

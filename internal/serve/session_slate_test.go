@@ -30,7 +30,7 @@ func TestSessionSlatePopulated(t *testing.T) {
 		t.Fatalf("MintInvite: %v", err)
 	}
 	srv.presence.markOnline("SHA256:gern")
-	srv.presence.event(sim.SessionEventJoin, "SHA256:gern", "gern")
+	srv.presence.event(sim.SessionEventJoin, "SHA256:gern", "gern", "")
 
 	hostApp, err := tui.New(nil)
 	if err != nil {
@@ -100,7 +100,7 @@ func TestSyncArrivalChips(t *testing.T) {
 	// resolve releases and stamps LastSyncArrival; the wrapper turns
 	// it into events.
 	w := guestApp.World()
-	if !w.EngageSyncWarp(w.Clock.SimTime.Add(time.Hour), "jason") {
+	if !w.EngageSyncWarp(w.Clock.SimTime.Add(time.Hour), sessiondir.HostFingerprint, "jason") {
 		t.Fatal("EngageSyncWarp refused")
 	}
 	w.Clock.SimTime = w.Clock.SimTime.Add(2 * time.Hour)

@@ -66,4 +66,9 @@ type SessionEvent struct {
 	Owner  string
 	Handle string
 	At     time.Time
+
+	// To addresses an event at one player (fingerprint): a Sync event
+	// is only meaningful to the player whose subspace was joined.
+	// Empty means broadcast (join/leave).
+	To string
 }

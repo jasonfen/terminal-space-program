@@ -201,6 +201,33 @@ func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
 	return Ghost{}, false
 }
 
+// HasRelativeTarget reports whether the target slot holds something
+// with a live relative state — a local craft or a remote ghost (v0.27
+// review follow-up). Every gate that used to spell Kind==TargetCraft
+// for "can I do target-relative work" goes through here so ghost
+// targets light up the same surfaces.
+func (w *World) HasRelativeTarget() bool {
+	return w.Target.Kind == TargetCraft || w.Target.Kind == TargetGhost
+}
+
+// ResolveTargetGhost resolves a ghost target to its slate entry and
+// SOI primary. ok=false when the target isn't a ghost or the ref is
+// stale (owner gone, craft gone, other system).
+func (w *World) ResolveTargetGhost() (Ghost, bodies.CelestialBody, bool) {
+	if w.Target.Kind != TargetGhost {
+		return Ghost{}, bodies.CelestialBody{}, false
+	}
+	g, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID)
+	if !ok {
+		return Ghost{}, bodies.CelestialBody{}, false
+	}
+	primary, ok := w.bodyInSystemByID(g.PrimaryID)
+	if !ok {
+		return Ghost{}, bodies.CelestialBody{}, false
+	}
+	return g, primary, true
+}
+
 // bodyInSystemByID scans the active system for a body ID.
 func (w *World) bodyInSystemByID(id string) (bodies.CelestialBody, bool) {
 	for _, b := range w.System().Bodies {
@@ -216,6 +243,7 @@ func (w *World) bodyInSystemByID(id string) (bodies.CelestialBody, bool) {
 func (w *World) SetTargetGhost(owner string, craftID uint64) {
 	w.Target = Target{Kind: TargetGhost, CraftID: craftID, GhostOwner: owner}
 	w.mirrorTargetToActiveCraft()
+	w.reconcileNavMode() // ghost targets keep NavTarget valid (HasRelativeTarget)
 }
 
 // CraftInertialVelocity returns a craft's velocity in the system-

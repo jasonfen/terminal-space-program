@@ -34,6 +34,7 @@ type AutoWarpTarget struct {
 	// planted nodes en route are lived through, not skipped.
 	Sync       bool
 	SyncHandle string // whose time we're chasing (arrival chip text)
+	SyncOwner  string // their fingerprint — the serve layer re-freezes T from their latest report (a leader at warp is a moving target)
 }
 
 // autoWarpEngaged reports whether the driver is active.
@@ -104,6 +105,7 @@ func (w *World) DisengageAutoWarp() { w.AutoWarp = nil }
 // wrapper to fire the arrival chips on both sides. Transient.
 type SyncArrival struct {
 	Handle string // whose subspace we arrived in
+	Owner  string // their fingerprint — addresses the "synced to you" chip
 }
 
 // EngageSyncWarp aims Auto-Warp at a fixed sim-time — Sync to another
@@ -111,11 +113,11 @@ type SyncArrival struct {
 // SimTime returns false (the laggard always comes forward; rewinding
 // would fork recorded history). handle labels the arrival chip.
 // Engaging replaces any node-chase in progress and auto-unpauses.
-func (w *World) EngageSyncWarp(target time.Time, handle string) bool {
+func (w *World) EngageSyncWarp(target time.Time, owner, handle string) bool {
 	if !target.After(w.Clock.SimTime) {
 		return false
 	}
-	w.AutoWarp = &AutoWarpTarget{T: target, Sync: true, SyncHandle: handle}
+	w.AutoWarp = &AutoWarpTarget{T: target, Sync: true, SyncOwner: owner, SyncHandle: handle}
 	w.Clock.Paused = false
 	return true
 }
@@ -177,7 +179,7 @@ func (w *World) resolveAutoWarp() {
 	if w.AutoWarp.Sync {
 		if !w.Clock.SimTime.Before(w.AutoWarp.T) {
 			w.Clock.WarpIdx = 0
-			w.LastSyncArrival = &SyncArrival{Handle: w.AutoWarp.SyncHandle}
+			w.LastSyncArrival = &SyncArrival{Handle: w.AutoWarp.SyncHandle, Owner: w.AutoWarp.SyncOwner}
 			w.DisengageAutoWarp()
 		}
 		return

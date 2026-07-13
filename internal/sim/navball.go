@@ -67,7 +67,7 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 	}
 
 	nav := w.NavMode
-	if nav == NavTarget && w.Target.Kind != TargetCraft {
+	if nav == NavTarget && !w.HasRelativeTarget() {
 		nav = NavOrbit
 	}
 
@@ -280,7 +280,7 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 	radialOutGlyph := NavballGlyphRadialOut
 	radialInGlyph := NavballGlyphRadialIn
 	radialColor := render.ColorNavballMarkerRadial
-	if w.NavMode == NavTarget && w.Target.Kind == TargetCraft {
+	if w.NavMode == NavTarget && w.HasRelativeTarget() {
 		radialOutGlyph = NavballGlyphTarget
 		radialInGlyph = NavballGlyphAntiTarget
 		radialColor = render.ColorNavballMarkerTarget
