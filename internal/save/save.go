@@ -661,7 +661,13 @@ func payloadFromWorld(w *sim.World) Payload {
 		// v0.9.3 polish: per-craft Target. Skip serialising when
 		// the craft has no target so untargeted craft still write
 		// out the same minimal JSON they did pre-polish.
-		if c.Target.Kind != spacecraft.TargetNone {
+		//
+		// Ghost targets (v0.27) are session-local — the owner
+		// fingerprint isn't persisted, so a saved ghost ref could
+		// never resolve again. Normalise to no-target instead of
+		// writing a permanently-stuck Kind (also keeps the persisted
+		// Kind vocabulary at its pre-v0.27 range — no schema bump).
+		if c.Target.Kind != spacecraft.TargetNone && c.Target.Kind != spacecraft.TargetGhost {
 			wc.Target = &Target{
 				Kind:    int(c.Target.Kind),
 				BodyIdx: c.Target.BodyIdx,

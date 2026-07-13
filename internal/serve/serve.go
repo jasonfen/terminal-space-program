@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,6 +56,11 @@ type Server struct {
 	store    *sessiondir.Store
 	relay    *relay.Store
 	presence *presence
+
+	// sessions tracks in-flight session handlers (including their
+	// final persist) so shutdown can wait for payload writes instead
+	// of racing process exit (review follow-up).
+	sessions sync.WaitGroup
 }
 
 // DefaultHostKeyPath returns the per-host SSH identity path, sibling
@@ -148,6 +154,22 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.ssh.Shutdown(ctx)
 }
 
+// Wait blocks until every session handler (and its final payload
+// persist) has finished, or the timeout passes. Call after Shutdown —
+// force-closed connections still unwind through persistMiddleware,
+// and the process must not exit under them.
+func (s *Server) Wait(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		s.sessions.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
+}
+
 // Context keys stashed on the ssh session so the persist middleware
 // can reach the game state after the program ends.
 type ctxKey int
@@ -172,6 +194,14 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	}
 	fp := gossh.FingerprintSHA256(key)
 
+	// One live session per key (review follow-up): a second connection
+	// would load the same payload into a second divergent World and the
+	// two would fight over the relay report and the payload file.
+	if s.presence.isOnline(fp) {
+		wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
+		return nil, nil
+	}
+
 	app, err := s.newGuestApp(fp)
 	if err != nil {
 		if errors.Is(err, save.ErrCatalogMismatch) {
@@ -189,7 +219,7 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 		// Enrolled reconnect: no card, no code — resume. Presence +
 		// join chip fire now; the middleware pairs the leave.
 		s.presence.markOnline(fp)
-		s.presence.event(sim.SessionEventJoin, fp, p.Handle)
+		s.presence.event(sim.SessionEventJoin, fp, p.Handle, "")
 		sess.Context().SetValue(ctxKeyJoined, true)
 		return game, opts
 	}
@@ -197,8 +227,15 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	// commits the enrollment.
 	ctx := sess.Context()
 	onEnroll := func(handle string) {
+		// Re-apply the frontier at the COMMIT (review follow-up): the
+		// connect-time sample goes stale while the player sits in the
+		// card/code/handle prompts and other subspaces advance. The
+		// game's tick loop hasn't started yet, so the relabel is safe.
+		if f, ok := s.frontier(); ok && f.After(app.World().Clock.SimTime) {
+			app.World().Clock.SimTime = f
+		}
 		s.presence.markOnline(fp)
-		s.presence.event(sim.SessionEventJoin, fp, handle)
+		s.presence.event(sim.SessionEventJoin, fp, handle, "")
 		ctx.SetValue(ctxKeyJoined, true)
 	}
 	return newGuestFlow(s.store, fp, game, onEnroll), opts
@@ -264,6 +301,8 @@ func (s *Server) frontier() (time.Time, bool) {
 // visitors (flow abandoned) leave nothing behind.
 func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
+		s.sessions.Add(1)
+		defer s.sessions.Done()
 		next(sess)
 		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
 		if !ok {
@@ -273,7 +312,7 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); joined {
 			s.presence.markOffline(fp)
 			if p, err := s.store.FindPlayer(fp); err == nil {
-				s.presence.event(sim.SessionEventLeave, fp, p.Handle)
+				s.presence.event(sim.SessionEventLeave, fp, p.Handle, "")
 			}
 		}
 		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)

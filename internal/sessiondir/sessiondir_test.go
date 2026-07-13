@@ -130,6 +130,33 @@ func TestInviteLifecycle(t *testing.T) {
 	}
 }
 
+// Review follow-up: a fingerprint that is already enrolled gets its
+// existing identity back — no duplicate roster rows, and the second
+// code is not spent.
+func TestEnrollDedupesFingerprint(t *testing.T) {
+	s := openStore(t)
+	inv1, _ := s.MintInvite("dave")
+	inv2, _ := s.MintInvite("dave-again")
+	p1, err := s.Enroll(inv1.Code, "SHA256:dave", "dave")
+	if err != nil {
+		t.Fatalf("first Enroll: %v", err)
+	}
+	p2, err := s.Enroll(inv2.Code, "SHA256:dave", "someone-new")
+	if err != nil {
+		t.Fatalf("second Enroll: %v", err)
+	}
+	if p2.Handle != p1.Handle {
+		t.Errorf("second enroll changed identity: %q -> %q", p1.Handle, p2.Handle)
+	}
+	m, _ := s.Meta()
+	if len(m.Roster) != 1 {
+		t.Errorf("roster rows = %d, want 1 (no duplicates per key)", len(m.Roster))
+	}
+	if _, err := s.Peek(inv2.Code); err != nil {
+		t.Error("second code was spent by an idempotent re-enroll")
+	}
+}
+
 // Revoke deletes an unredeemed code; removing a player drops the
 // roster entry but keeps their payload (a re-invite resumes it). The
 // host can't be removed.
@@ -177,7 +204,7 @@ func TestRevokeAndRemove(t *testing.T) {
 	}
 }
 
-// Player payloads round-trip through the SchemaVersion-8 envelope:
+// Player payloads round-trip through the save envelope:
 // the restored world carries the same craft and sim clock.
 func TestPlayerPayloadRoundTrip(t *testing.T) {
 	s := openStore(t)

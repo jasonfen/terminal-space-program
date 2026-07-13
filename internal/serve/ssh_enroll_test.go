@@ -99,6 +99,15 @@ func TestSSHEnrollFlow(t *testing.T) {
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
+	// Wait for the session teardown to mark presence offline — the
+	// one-live-session-per-key guard refuses a reconnect that races
+	// the old session's unwind.
+	for srv.presence.isOnline(fp) {
+		if time.Now().After(deadline) {
+			t.Fatal("session never went offline after quit")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 
 	// --- Reconnect with the same key: no card, no code — resume.
 	sess2 := dialGameSession(t, srv.Addr(), signer)

@@ -1302,6 +1302,11 @@ func (a *App) doSave() error {
 // the per-player payload autosaves server-side instead (v0.27 S3).
 var errGuestSaves = errors.New("no local saves in a session — your program autosaves server-side")
 
+// errGuestSettings refuses the Settings/Controls screens in a guest
+// session — they write the host machine's settings file (v0.27 review
+// follow-up; per-guest settings are a later cycle).
+var errGuestSettings = errors.New("settings belong to the host in a session")
+
 // doLoad replaces the live world with the quicksave lane — F9 stays
 // instant, no confirm (ADR 0033 §H). An empty lane (no F5 yet) is
 // surfaced as a clear "no quicksave" message rather than a raw
@@ -1385,6 +1390,13 @@ func (a *App) autosave() {
 // autosave is a background safety net and must never interrupt flight.
 func (a *App) maybeAutosave(now time.Time) {
 	interval := a.orbitView.Settings().AutosaveInterval()
+	// Guests persist server-side on a fixed cadence (v0.27 review
+	// follow-up): AutosaveInterval is the HOST's setting — a host with
+	// autosave off must not silently disable every guest's periodic
+	// persistence, leaving only the disconnect-time write.
+	if a.guestSave != nil {
+		interval = 5 * time.Minute
+	}
 	if interval <= 0 {
 		return
 	}
@@ -1528,6 +1540,14 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.openSaves(screens.SavesModeLoad)
 		return a, nil
 	case screens.MenuActionSettings:
+		// Guests share the host's process — Settings/Controls write the
+		// HOST machine's settings.json, so both are refused in a guest
+		// session (v0.27 review follow-up).
+		if a.guestSave != nil {
+			a.flashStatus("settings", errGuestSettings)
+			a.active = screenOrbit
+			return a, nil
+		}
 		// Navigating to a screen is harmless + reversible, so unlike
 		// save/load/quit there is no confirm gate. Reset the cursor so the
 		// screen always opens on the first Chip.
@@ -1535,6 +1555,11 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.active = screenSettings
 		return a, nil
 	case screens.MenuActionControls:
+		if a.guestSave != nil {
+			a.flashStatus("controls", errGuestSettings)
+			a.active = screenOrbit
+			return a, nil
+		}
 		a.controls.Reset()
 		a.active = screenControls
 		return a, nil
@@ -1643,7 +1668,7 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		// Sync-to (v0.27 S7 / ADR 0034): Auto-Warp to the player's
 		// subspace time. The screen already refused backward targets;
 		// this guard covers a slate that moved between frames.
-		if a.world.EngageSyncWarp(cmd.Time, cmd.Handle) {
+		if a.world.EngageSyncWarp(cmd.Time, cmd.Owner, cmd.Handle) {
 			a.statusMsg = fmt.Sprintf("syncing to %s — auto-warp engaged", cmd.Handle)
 		} else {
 			a.statusMsg = fmt.Sprintf("can't sync — %s is no longer ahead", cmd.Handle)

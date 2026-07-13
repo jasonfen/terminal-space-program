@@ -1,7 +1,7 @@
 // Package sessiondir is the server-side session directory for
 // multiplayer (v0.27 S3, ADR 0034): a versioned session.json holding
 // the player roster, outstanding invite codes, and the body-catalog
-// hash, plus one SchemaVersion-8 save envelope per enrolled player.
+// hash, plus one save envelope per enrolled player (current save.SchemaVersion).
 // The local single-player save.json and saves/ directory are never
 // touched by anything here.
 //
@@ -252,6 +252,15 @@ func (s *Store) Enroll(code, fingerprint, handle string) (Player, error) {
 	if err != nil {
 		return Player{}, err
 	}
+	// One roster entry per key (review follow-up): a fingerprint that
+	// is already enrolled — a second concurrent session redeeming a
+	// second code — gets its existing identity back and the code is
+	// NOT spent. RemovePlayer's single-match delete stays sound.
+	for _, p := range m.Roster {
+		if p.Fingerprint == fingerprint {
+			return p, nil
+		}
+	}
 	idx := -1
 	for i, inv := range m.Invites {
 		if normalizeCode(inv.Code) == normalizeCode(code) {
@@ -341,8 +350,9 @@ func (s *Store) payloadPath(fingerprint string) string {
 	return filepath.Join(s.dir, "players", hex.EncodeToString(sum[:])+".json")
 }
 
-// SavePlayer persists the player's world as a SchemaVersion-8
-// envelope (the existing save machinery, arbitrary path).
+// SavePlayer persists the player's world as a save envelope at the
+// package's current SchemaVersion (the existing save machinery,
+// arbitrary path).
 func (s *Store) SavePlayer(fingerprint string, w *sim.World) error {
 	return save.Save(w, s.payloadPath(fingerprint))
 }

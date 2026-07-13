@@ -85,7 +85,9 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if h, ok := m.handleOf(m.owner); ok {
 				ownHandle = h
 			}
-			m.srv.presence.event(sim.SessionEventSync, m.owner, ownHandle)
+			// Addressed at the player whose subspace was joined — third
+			// parties don't get told "X synced to you" (review follow-up).
+			m.srv.presence.event(sim.SessionEventSync, m.owner, ownHandle, arr.Owner)
 			m.localEvents = append(m.localEvents, sim.SessionEvent{
 				Kind: sim.SessionEventSyncedTo, Owner: m.owner, Handle: arr.Handle, At: now,
 			})
@@ -128,6 +130,15 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	reports := map[string]relay.CraftReport{}
 	for _, r := range m.srv.relay.Snapshot("") {
 		reports[r.Owner] = r
+	}
+	// A sync target is a moving clock (review follow-up): while the
+	// chase runs, re-freeze T from the leader's latest report — the
+	// node-edit re-freeze pattern applied to subspaces. Same goroutine
+	// as the tick, so the write is safe.
+	if w.AutoWarp != nil && w.AutoWarp.Sync && w.AutoWarp.SyncOwner != "" {
+		if rep, ok := reports[w.AutoWarp.SyncOwner]; ok && rep.SubspaceTime.After(w.AutoWarp.T) {
+			w.AutoWarp.T = rep.SubspaceTime
+		}
 	}
 	info := &sim.SessionInfo{
 		IsHost: m.owner == sessiondir.HostFingerprint,

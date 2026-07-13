@@ -86,6 +86,13 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		return SessionCommand{}
 	}
 
+	// Normalise section focus (review follow-up): revoking the last
+	// invite while focused there must not strand the cursor in an
+	// empty section with tab gated off.
+	if s.inInvites && len(info.Invites) == 0 {
+		s.inInvites = false
+	}
+
 	if s.minting {
 		switch msg.Type {
 		case tea.KeyEnter:
@@ -164,7 +171,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if p.DeltaT <= 0 {
 			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " is behind you — they sync to you"}
 		}
-		return SessionCommand{Kind: SessionCmdSync, Handle: p.Handle, Time: w.Clock.SimTime.Add(p.DeltaT)}
+		return SessionCommand{Kind: SessionCmdSync, Owner: p.Fingerprint, Handle: p.Handle, Time: w.Clock.SimTime.Add(p.DeltaT)}
 	case "i":
 		if info.IsHost {
 			s.minting = true
@@ -272,7 +279,14 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 
 	if info.IsHost {
 		b.WriteString("\n" + s.theme.Title.Render(" INVITES ") + "\n\n")
-		if s.minting {
+		// Normalise section focus (review follow-up): revoking the last
+	// invite while focused there must not strand the cursor in an
+	// empty section with tab gated off.
+	if s.inInvites && len(info.Invites) == 0 {
+		s.inInvites = false
+	}
+
+	if s.minting {
 			b.WriteString("  new invite handle: " + string(s.mintInput) + "▌\n")
 		} else if len(info.Invites) == 0 {
 			b.WriteString(s.theme.Dim.Render("  no outstanding codes — [i] to mint one") + "\n")
