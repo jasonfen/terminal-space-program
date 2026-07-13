@@ -97,6 +97,7 @@ readout shows you why before you watch it fall back.
 | `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
 | `i` | Body info screen |
 | `M` | Mission ladder — your program / objective progress, with the active mission's checklist and locked rungs shown with what unlocks them (same screen as the `[Missions]` button). Missions are **off by default** — enable the Tutorial and/or Challenge ladder in `[Menu]` → Settings |
+| `O` | Session roster (multiplayer) — one row per player with online state, last-known system, craft count, and their time offset vs you. `t` targets a player's ghost craft for rendezvous planning; `s` **sync-warps** you forward to a player's time (forward only — a player behind you syncs to you). Hosts also mint (`i`), revoke (`r`) invite codes and remove players (`x`) here. Single-player shows how to host with `--serve` |
 | `Tab` | Switch star system (Sol → Alpha Centauri → TRAPPIST-1 → Kepler-452) |
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down (up to 100,000×; eases off around a burn) |

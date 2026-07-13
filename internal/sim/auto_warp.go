@@ -25,6 +25,15 @@ type AutoWarpTarget struct {
 	CraftID uint64
 	NodeID  uint64
 	T       time.Time
+
+	// Sync (v0.27 S7, ADR 0034): when true the driver chases a fixed
+	// sim-time — another player's subspace — instead of a node. No
+	// node identity, no re-freeze, no lead: arrival is AT T, at 1×,
+	// in the shared subspace. Every warp clamp (burn cap, SOI guard,
+	// node ramp, the approach term anchored at T) applies unchanged —
+	// planted nodes en route are lived through, not skipped.
+	Sync       bool
+	SyncHandle string // whose time we're chasing (arrival chip text)
 }
 
 // autoWarpEngaged reports whether the driver is active.
@@ -90,6 +99,27 @@ func (w *World) ToggleAutoWarp() bool {
 // resolveAutoWarp additionally forces WarpIdx to 1×.
 func (w *World) DisengageAutoWarp() { w.AutoWarp = nil }
 
+// SyncArrival marks a completed Sync (v0.27 S7) — set by
+// resolveAutoWarp at release, consumed (and cleared) by the serve
+// wrapper to fire the arrival chips on both sides. Transient.
+type SyncArrival struct {
+	Handle string // whose subspace we arrived in
+}
+
+// EngageSyncWarp aims Auto-Warp at a fixed sim-time — Sync to another
+// player (v0.27 S7, ADR 0034). Forward only: a target at or behind
+// SimTime returns false (the laggard always comes forward; rewinding
+// would fork recorded history). handle labels the arrival chip.
+// Engaging replaces any node-chase in progress and auto-unpauses.
+func (w *World) EngageSyncWarp(target time.Time, handle string) bool {
+	if !target.After(w.Clock.SimTime) {
+		return false
+	}
+	w.AutoWarp = &AutoWarpTarget{T: target, Sync: true, SyncHandle: handle}
+	w.Clock.Paused = false
+	return true
+}
+
 // soonestEligibleBurn finds the earliest BurnStart among the vessels in
 // the active vessel's System whose nodes are resolved, identified, and
 // more than autoWarpLeadTime out, and returns that craft+node identity
@@ -138,6 +168,18 @@ func (w *World) soonestEligibleBurn() (craftID, nodeID uint64, burnStart time.Ti
 // No-op when not engaged.
 func (w *World) resolveAutoWarp() {
 	if !w.autoWarpEngaged() {
+		return
+	}
+	// Sync mode (v0.27 S7): a fixed sim-time target — nothing to
+	// invalidate or re-freeze. The approach term has ramped the rate
+	// to the 1× floor by T, so release overshoot is at most one base
+	// step.
+	if w.AutoWarp.Sync {
+		if !w.Clock.SimTime.Before(w.AutoWarp.T) {
+			w.Clock.WarpIdx = 0
+			w.LastSyncArrival = &SyncArrival{Handle: w.AutoWarp.SyncHandle}
+			w.DisengageAutoWarp()
+		}
 		return
 	}
 	n, ok := w.nodeByID(w.AutoWarp.CraftID, w.AutoWarp.NodeID)

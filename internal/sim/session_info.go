@@ -53,7 +53,8 @@ type SessionEventKind int
 const (
 	SessionEventJoin SessionEventKind = iota
 	SessionEventLeave
-	SessionEventSync
+	SessionEventSync     // someone arrived at your subspace ("X synced to you")
+	SessionEventSyncedTo // you arrived at theirs ("synced to X") — local only, never broadcast
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

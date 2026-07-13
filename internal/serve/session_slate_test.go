@@ -84,6 +84,56 @@ func TestSessionSlatePopulated(t *testing.T) {
 	}
 }
 
+// A sync arrival fires chips on both sides: "synced to X" locally,
+// "X synced to you" through the broadcast ring (S7).
+func TestSyncArrivalChips(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+
+	guestApp, err := srv.newGuestApp("SHA256:gern")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	guest := tick(srv.withReporting(guestApp, "SHA256:gern"))
+
+	// Engage a short sync and jump past its target — the next tick's
+	// resolve releases and stamps LastSyncArrival; the wrapper turns
+	// it into events.
+	w := guestApp.World()
+	if !w.EngageSyncWarp(w.Clock.SimTime.Add(time.Hour), "jason") {
+		t.Fatal("EngageSyncWarp refused")
+	}
+	w.Clock.SimTime = w.Clock.SimTime.Add(2 * time.Hour)
+	guest, _ = guest.Update(sim.TickMsg(time.Now()))
+
+	var sawLocal bool
+	for _, e := range w.SessionEvents {
+		if e.Kind == sim.SessionEventSyncedTo && e.Handle == "jason" {
+			sawLocal = true
+		}
+	}
+	if !sawLocal {
+		t.Errorf("syncer's own arrival chip missing: %+v", w.SessionEvents)
+	}
+
+	// The host (any other viewer) sees the broadcast side.
+	hostApp, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	_ = tick(srv.HostModel(hostApp))
+	var sawBroadcast bool
+	for _, e := range hostApp.World().SessionEvents {
+		if e.Kind == sim.SessionEventSync && e.Handle == "gern" {
+			sawBroadcast = true
+		}
+	}
+	if !sawBroadcast {
+		t.Errorf("host missing the synced-to-you chip: %+v", hostApp.World().SessionEvents)
+	}
+	_ = guest
+}
+
 // SessionAdminMsg executes mint/revoke/remove against the store and
 // refreshes the slate immediately.
 func TestSessionAdminCommands(t *testing.T) {

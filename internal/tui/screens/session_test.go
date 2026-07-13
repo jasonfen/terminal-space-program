@@ -173,6 +173,34 @@ func TestSessionScreenRemoveConfirm(t *testing.T) {
 	}
 }
 
+// Sync flow: [s] on a player ahead emits the sync command with their
+// subspace time; behind → refusal toast (forward only); no report →
+// toast.
+func TestSessionScreenSync(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+
+	s.HandleKey(w, key("j")) // gern: +2d4h ahead
+	cmd := s.HandleKey(w, key("s"))
+	if cmd.Kind != SessionCmdSync || cmd.Handle != "gern" {
+		t.Fatalf("sync command = %+v", cmd)
+	}
+	want := w.Clock.SimTime.Add(2*24*time.Hour + 4*time.Hour)
+	if !cmd.Time.Equal(want) {
+		t.Errorf("sync target = %v, want %v", cmd.Time, want)
+	}
+
+	s.HandleKey(w, key("j")) // dave: -3h behind
+	if cmd := s.HandleKey(w, key("s")); cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "behind you") {
+		t.Errorf("[s] on a laggard = %+v, want forward-only refusal", cmd)
+	}
+
+	s.HandleKey(w, key("j")) // pat: no report
+	if cmd := s.HandleKey(w, key("s")); cmd.Kind != SessionCmdToast {
+		t.Errorf("[s] with no report = %+v, want toast", cmd)
+	}
+}
+
 // Target flow: [t] on a player with a ghost emits the target command;
 // on yourself it toasts.
 func TestSessionScreenTarget(t *testing.T) {
