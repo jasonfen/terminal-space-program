@@ -2422,9 +2422,9 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		// slate shift between plant and fire doesn't retarget the burn.
 		var rT, vT orbital.Vec3
 		if n.IsTargetRelative() {
-			if tc, _, ok := w.craftByID(n.TargetCraftID); ok && tc.Primary.ID == c.Primary.ID {
-				rT, vT = tc.State.R, tc.State.V
-			}
+			// v0.28 S4: resolves a local craft ref or a remote ghost ref
+			// (owner + remote id) against the ghost slate.
+			rT, vT, _ = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
 		}
 		if n.Duration == 0 {
 			// A BurnPlaneChange or BurnVector node degrades to impulsive
@@ -2438,14 +2438,15 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 			}
 		} else {
 			c.ActiveBurn = &ActiveBurn{
-				Mode:           n.Mode,
-				DVRemaining:    n.DV,
-				EndTime:        n.BurnEnd(),
-				PrimaryID:      n.PrimaryID,
-				Throttle:       n.EffectiveThrottle(),
-				TargetCraftID:  n.TargetCraftID,
-				PlaneChangeRad: n.PlaneChangeRad,
-				BurnDirUnit:    n.BurnDirUnit,
+				Mode:             n.Mode,
+				DVRemaining:      n.DV,
+				EndTime:          n.BurnEnd(),
+				PrimaryID:        n.PrimaryID,
+				Throttle:         n.EffectiveThrottle(),
+				TargetCraftID:    n.TargetCraftID,
+				TargetGhostOwner: n.TargetGhostOwner, // v0.28 S4: carry the ghost ref onto the running burn
+				PlaneChangeRad:   n.PlaneChangeRad,
+				BurnDirUnit:      n.BurnDirUnit,
 			}
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.
@@ -2492,9 +2493,8 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 	// state + the target bound at plant (mirrors executeDueNodesFor).
 	var rT, vT orbital.Vec3
 	if n.IsTargetRelative() {
-		if tc, _, ok := w.craftByID(n.TargetCraftID); ok && tc.Primary.ID == c.Primary.ID {
-			rT, vT = tc.State.R, tc.State.V
-		}
+		// v0.28 S4: local craft ref or remote ghost ref (via ghost slate).
+		rT, vT, _ = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
 	}
 	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)
 	if dir.Norm() == 0 {

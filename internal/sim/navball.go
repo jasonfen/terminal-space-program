@@ -366,12 +366,9 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 	for i, n := range active.Nodes {
 		nrT, nvT := rT, vT
 		if n.IsTargetRelative() {
-			nrT, nvT = orbital.Vec3{}, orbital.Vec3{}
-			resolved := false
-			if tc, _, ok := w.craftByID(n.TargetCraftID); ok && tc.Primary.ID == active.Primary.ID {
-				nrT, nvT = tc.State.R, tc.State.V
-				resolved = true
-			}
+			// v0.28 S4: local craft ref or remote ghost ref (ghost slate).
+			var resolved bool
+			nrT, nvT, resolved = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, active.Primary)
 			// Stale / unbound target-relative node: skip the marker
 			// rather than letting DirectionUnitTarget's degenerate
 			// fall-through math (e.g. unit(rT - rA) with rT=0 →

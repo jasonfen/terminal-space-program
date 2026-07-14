@@ -1461,9 +1461,9 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 		burnDir = c.ActiveBurn.BurnDirUnit
 	}
 	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftID != 0 {
-		if tc, _, ok := w.craftByID(c.ActiveBurn.TargetCraftID); ok && tc.Primary.ID == c.Primary.ID {
-			rT, vT = tc.State.R, tc.State.V
-		}
+		// v0.28 S4: resolves a local craft ref or a remote ghost ref
+		// (owner + remote id) against the ghost slate each tick.
+		rT, vT, _ = w.nodeTargetRelState(c.ActiveBurn.TargetGhostOwner, c.ActiveBurn.TargetCraftID, c.Primary)
 	} else {
 		rT, vT, _ = w.TargetStateRelativeToActivePrimary()
 	}

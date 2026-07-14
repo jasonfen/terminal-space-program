@@ -632,6 +632,14 @@ func payloadFromWorld(w *sim.World) Payload {
 			if !n.TriggerTime.IsZero() {
 				trigNano = n.TriggerTime.UnixNano()
 			}
+			// v0.28 S4: a node planted against a ghost (remote player's
+			// craft) drops its ghost ref on save — the owner fingerprint
+			// isn't persisted, and its TargetCraftID is a REMOTE id that
+			// would collide with a local id on load. DropGhostRef zeroes
+			// both while keeping the burn geometry. No-op for local /
+			// untargeted nodes. Mirrors the ghost-target normalisation
+			// below. n is a copy, so this doesn't mutate the live world.
+			n.DropGhostRef()
 			wc.Nodes = append(wc.Nodes, Node{
 				ID:              n.ID,
 				TriggerTimeNano: trigNano,
@@ -647,15 +655,19 @@ func payloadFromWorld(w *sim.World) Payload {
 			})
 		}
 		if c.ActiveBurn != nil {
+			// v0.28 S4: drop a ghost ref on a running burn for the same
+			// reason as nodes above — the copy keeps the live burn intact.
+			ab := *c.ActiveBurn
+			ab.DropGhostRef()
 			wc.ActiveBurn = &ActiveBurn{
-				Mode:           int(c.ActiveBurn.Mode),
-				DVRemaining:    c.ActiveBurn.DVRemaining,
-				EndTimeNano:    c.ActiveBurn.EndTime.UnixNano(),
-				PrimaryID:      c.ActiveBurn.PrimaryID,
-				Throttle:       c.ActiveBurn.Throttle,
-				TargetCraftID:  c.ActiveBurn.TargetCraftID,
-				PlaneChangeRad: c.ActiveBurn.PlaneChangeRad,
-				BurnDirUnit:    vec3From(c.ActiveBurn.BurnDirUnit),
+				Mode:           int(ab.Mode),
+				DVRemaining:    ab.DVRemaining,
+				EndTimeNano:    ab.EndTime.UnixNano(),
+				PrimaryID:      ab.PrimaryID,
+				Throttle:       ab.Throttle,
+				TargetCraftID:  ab.TargetCraftID,
+				PlaneChangeRad: ab.PlaneChangeRad,
+				BurnDirUnit:    vec3From(ab.BurnDirUnit),
 			}
 		}
 		// v0.9.3 polish: per-craft Target. Skip serialising when

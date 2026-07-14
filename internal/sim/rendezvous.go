@@ -4,6 +4,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -36,9 +37,15 @@ type rendezvousAdvisoryCache struct {
 	lastSimTime time.Time
 	activeIdx   int
 	targetID    uint64 // stable Spacecraft.ID of the cached target (ADR 0012)
-	advisory    planner.RendezvousAdvisory
-	ok          bool
-	populated   bool
+	// targetGhostOwner distinguishes a ghost target from a local craft
+	// that happens to share the id (v0.28 S4): "" for a local craft, the
+	// remote player's handle for a ghost. Part of the cache key so
+	// switching between a local craft and a same-id ghost never serves a
+	// stale advisory.
+	targetGhostOwner string
+	advisory         planner.RendezvousAdvisory
+	ok               bool
+	populated        bool
 }
 
 // rendezvousRecomputeInterval is the sim-time gap that forces a
@@ -72,42 +79,69 @@ const rendezvousBurnLeadPad = 5 * time.Second
 // primaries, degenerate state) and the HUD hides the block.
 func (w *World) RecommendedRendezvousBurn() (planner.RendezvousAdvisory, bool) {
 	active := w.ActiveCraft()
-	if active == nil || w.Target.Kind != TargetCraft {
+	// v0.28 S4: a ghost (remote player's craft) is a valid rendezvous
+	// target too — HasRelativeTarget covers both local craft and ghosts.
+	if active == nil || !w.HasRelativeTarget() {
 		w.rendezvousCache = rendezvousAdvisoryCache{}
 		return planner.RendezvousAdvisory{}, false
 	}
-	t, _, ok := w.craftByID(w.Target.CraftID)
-	if !ok || t.Primary.EnglishName != active.Primary.EnglishName {
+	primary, ok := w.rendezvousTargetPrimary()
+	if !ok || primary.EnglishName != active.Primary.EnglishName {
 		// Different-primary case is a gate, not an advisory — the
 		// HUD just hides the block (cross-SOI rendezvous is out of
 		// the v0.10.2 scope, matches v0.9.3 NextClosestApproach).
 		return planner.RendezvousAdvisory{}, false
 	}
 
-	// Cache key: (active, target, sim-time within interval).
+	// Cache key: (active, target, ghost-owner, sim-time within interval).
 	if w.rendezvousCache.populated &&
 		w.rendezvousCache.activeIdx == w.ActiveCraftIdx &&
 		w.rendezvousCache.targetID == w.Target.CraftID &&
+		w.rendezvousCache.targetGhostOwner == w.Target.GhostOwner &&
 		w.Clock.SimTime.Sub(w.rendezvousCache.lastSimTime) < rendezvousRecomputeInterval {
 		return w.rendezvousCache.advisory, w.rendezvousCache.ok
 	}
 
-	advisory, ok := w.computeRendezvousAdvisory(active, t)
+	advisory, ok := w.computeRendezvousAdvisory(active, primary)
 	w.rendezvousCache = rendezvousAdvisoryCache{
-		lastSimTime: w.Clock.SimTime,
-		activeIdx:   w.ActiveCraftIdx,
-		targetID:    w.Target.CraftID,
-		advisory:    advisory,
-		ok:          ok,
-		populated:   true,
+		lastSimTime:      w.Clock.SimTime,
+		activeIdx:        w.ActiveCraftIdx,
+		targetID:         w.Target.CraftID,
+		targetGhostOwner: w.Target.GhostOwner,
+		advisory:         advisory,
+		ok:               ok,
+		populated:        true,
 	}
 	return advisory, ok
 }
 
+// rendezvousTargetPrimary returns the SOI primary the current target
+// orbits, for both a local craft target and a remote ghost (v0.28 S4).
+// ok=false when no relative target is set or the ref is stale.
+func (w *World) rendezvousTargetPrimary() (bodies.CelestialBody, bool) {
+	switch w.Target.Kind {
+	case TargetCraft:
+		t, _, ok := w.craftByID(w.Target.CraftID)
+		if !ok {
+			return bodies.CelestialBody{}, false
+		}
+		return t.Primary, true
+	case TargetGhost:
+		_, primary, ok := w.ResolveTargetGhost()
+		return primary, ok
+	}
+	return bodies.CelestialBody{}, false
+}
+
 // computeRendezvousAdvisory does the uncached work: gather primary-
 // relative states, compute currentCA via NextClosestApproach, check
-// the docked gate, then hand off to the planner.
-func (w *World) computeRendezvousAdvisory(active, target *spacecraft.Spacecraft) (planner.RendezvousAdvisory, bool) {
+// the docked gate, then hand off to the planner. targetPrimary is the
+// SOI primary the target orbits — the same body as active.Primary here
+// (same-primary gated upstream); it works identically whether the
+// target is a local craft or a remote ghost (v0.28 S4), since the
+// relative state comes from TargetStateRelativeToActivePrimary which
+// already resolves both.
+func (w *World) computeRendezvousAdvisory(active *spacecraft.Spacecraft, targetPrimary bodies.CelestialBody) (planner.RendezvousAdvisory, bool) {
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
 	if !ok {
 		return planner.RendezvousAdvisory{}, false
@@ -134,12 +168,12 @@ func (w *World) computeRendezvousAdvisory(active, target *spacecraft.Spacecraft)
 	// longer orbital period, capped so the predictor's grid stays
 	// dense.
 	horizon := rendezvousHorizonSeconds(stateA, stateB, mu)
-	_, currentCA, _, err := planner.NextClosestApproach(stateA, stateB, target.Primary, mu, horizon)
+	_, currentCA, _, err := planner.NextClosestApproach(stateA, stateB, targetPrimary, mu, horizon)
 	if err != nil {
 		return planner.RendezvousAdvisory{}, false
 	}
 
-	advisory := planner.RecommendRendezvousNudge(stateA, stateB, target.Primary, mu, horizon, currentCA)
+	advisory := planner.RecommendRendezvousNudge(stateA, stateB, targetPrimary, mu, horizon, currentCA)
 	if !advisory.Ok {
 		// no-improvement / Lambert-divergence / degenerate-axes:
 		// caller surfaces advisory.Reason in the HUD; bool=true here
@@ -204,14 +238,16 @@ func (w *World) PlanRendezvousNudge() (*planner.RendezvousAdvisory, error) {
 	if c == nil {
 		return nil, ErrRendezvousNoCraft
 	}
-	if w.Target.Kind != TargetCraft {
+	// v0.28 S4: ghost targets (remote players' craft) plant just like
+	// local craft targets — HasRelativeTarget covers both.
+	if !w.HasRelativeTarget() {
 		return nil, ErrRendezvousNoTarget
 	}
-	t, _, ok := w.craftByID(w.Target.CraftID)
+	primary, ok := w.rendezvousTargetPrimary()
 	if !ok {
 		return nil, ErrRendezvousNoTarget
 	}
-	if t.Primary.EnglishName != c.Primary.EnglishName {
+	if primary.EnglishName != c.Primary.EnglishName {
 		return nil, ErrRendezvousDifferentPrimaries
 	}
 
@@ -239,6 +275,10 @@ func (w *World) PlanRendezvousNudge() (*planner.RendezvousAdvisory, error) {
 		PrimaryID:     c.Primary.ID,
 		Throttle:      1.0,
 		TargetCraftID: w.Target.CraftID, // bind by stable ID (ADR 0012)
+		// v0.28 S4: for a ghost target, carry the remote owner so the
+		// node ref resolves against the ghost slate (empty for a local
+		// craft target — w.Target.GhostOwner is "" unless Kind==Ghost).
+		TargetGhostOwner: w.Target.GhostOwner,
 	}
 	w.PlanNode(node)
 	out := advisory
