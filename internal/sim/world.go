@@ -216,6 +216,18 @@ type World struct {
 	Session       *SessionInfo
 	SessionEvents []SessionEvent
 
+	// DockGuest is set when one of this player's craft rides in another
+	// player's live stack (Docked-as-Guest, v0.28 S5, ADR 0034 §6). The
+	// serve layer writes it each tick from the dock ledger; the guest's
+	// whole subspace is then warp-coupled (min-wins) to the stack via
+	// CoWarpState.WithDockCoupling folded into CoWarp, so the guest can
+	// always slam 1× and burn but can't out-warp the owner. nil when not
+	// a guest. Transient, never persisted (the persisted cross-ref lives
+	// in the session directory). Also drives the tui: Undock while a
+	// DockGuest is set signals the owner to split, rather than a local
+	// Undock.
+	DockGuest *DockGuestLink
+
 	// LastSyncArrival is set when a Sync warp reaches its target time
 	// (v0.27 S7) and cleared by the serve wrapper after firing the
 	// arrival chips. Transient, like LastDockEvent.

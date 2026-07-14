@@ -415,17 +415,33 @@ func (w *World) DockCrafts(idxA, idxB int) {
 	if idxB == w.ActiveCraftIdx {
 		lead, drop = idxB, idxA
 	}
+	w.fuseComposite(lead, drop)
+}
+
+// fuseComposite fuses the craft at dropIdx into the craft at leadIdx,
+// producing one composite that keeps the LEAD's identity, and returns the
+// composite plus its slate index after the drop slot is removed. Unlike
+// DockCrafts (which picks lead/drop from ActiveCraftIdx), the caller fixes
+// which slot leads — DockGuestCraft forces the docker to lead so the fused
+// stack takes on the docker's identity and this World's ownership regardless
+// of which slot is active. The mass/velocity/stage/component/reindex math is
+// identical to the classic single-World dock. ok is false for invalid or nil
+// slots or a zero-mass pair. v0.28 S5.
+func (w *World) fuseComposite(lead, drop int) (*spacecraft.Spacecraft, int, bool) {
+	if lead == drop || lead < 0 || drop < 0 || lead >= len(w.Crafts) || drop >= len(w.Crafts) {
+		return nil, -1, false
+	}
 	a := w.Crafts[lead]
 	b := w.Crafts[drop]
 	if a == nil || b == nil {
-		return
+		return nil, -1, false
 	}
 
 	mA := a.TotalMass()
 	mB := b.TotalMass()
 	mTotal := mA + mB
 	if mTotal <= 0 {
-		return
+		return nil, -1, false
 	}
 
 	composite := *a // shallow copy preserves the lead partner's identity.
@@ -514,4 +530,5 @@ func (w *World) DockCrafts(idxA, idxB int) {
 		// craft pointer follows. Same craft, no target rebind.
 		w.ActiveCraftIdx--
 	}
+	return &composite, newLead, true
 }
