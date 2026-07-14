@@ -16,5 +16,6 @@ type Ghost struct {
 	Glyph     string // craft glyph (may be empty)
 	PrimaryID string // SOI primary the ghost orbits
 	Pos       orbital.Vec3 // world-frame position at this world's sim-time
+	RelPos    orbital.Vec3 // primary-relative position at this world's sim-time
 	Vel       orbital.Vec3 // primary-relative velocity at this world's sim-time
 }
