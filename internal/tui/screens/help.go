@@ -50,7 +50,7 @@ var helpSections = []helpSection{
 		{"esc", "back to the map"},
 	}},
 	{"CAMERA & VIEW", [][2]string{
-		{"f / F", "cycle camera focus forward / back (system → bodies → craft)"},
+		{"f / F", "cycle camera focus forward / back (system → bodies → craft; exits spectate)"},
 		{"g", "reset camera to the whole system"},
 		{"+ / -", "zoom in / out"},
 		{"v", "cycle view (tilted / top / right / bottom / left / flat / launch)"},
@@ -65,6 +65,14 @@ var helpSections = []helpSection{
 		{"i", "body info screen"},
 		{"M", "missions ladder (program / objective progress)"},
 		{"O", "session roster (multiplayer: players, Δt, invites, sync-to)"},
+	}},
+	{"MULTIPLAYER (session screen — open with O)", [][2]string{
+		{"t", "target the selected player's ghost craft (rendezvous / K nudge)"},
+		{"v", "spectate — fit + camera-follow their ghost's orbit ([f] to return)"},
+		{"s", "sync-warp forward to a player ahead of you (forward only)"},
+		{"h", "start / stop hosting — accept ssh guests (stop confirms, drops guests)"},
+		{"i / r / x", "host only: mint invite / revoke code / remove player"},
+		{"J", "transfer control of a cross-player docked stack to the guest (map)"},
 	}},
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×)"},

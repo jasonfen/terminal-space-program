@@ -97,7 +97,7 @@ readout shows you why before you watch it fall back.
 | `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
 | `i` | Body info screen |
 | `M` | Mission ladder — your program / objective progress, with the active mission's checklist and locked rungs shown with what unlocks them (same screen as the `[Missions]` button). Missions are **off by default** — enable the Tutorial and/or Challenge ladder in `[Menu]` → Settings |
-| `O` | Session roster (multiplayer) — one row per player with online state, last-known system, craft count, and their time offset vs you. `t` targets a player's ghost craft for rendezvous planning; `s` **sync-warps** you forward to a player's time (forward only — a player behind you syncs to you). Hosts also mint (`i`), revoke (`r`) invite codes and remove players (`x`) here, and toggle the SSH listener with `h` (start hosting from single-player; stop it, dropping guests, while hosting). Single-player offers `h` to start hosting in-place — no restart, no `--serve` |
+| `O` | Session roster (multiplayer) — one row per player with online state, last-known system, craft count, and their time offset vs you. `t` targets a player's ghost craft for rendezvous planning; `v` **spectates** — fits the camera to that player's ghost orbit and then follows it, so you can watch their burns re-shape the ellipse (press `f` to return to your own craft); `s` **sync-warps** you forward to a player's time (forward only — a player behind you syncs to you). Hosts also mint (`i`), revoke (`r`) invite codes and remove players (`x`) here, and toggle the SSH listener with `h` (start hosting from single-player; stop it, dropping guests, while hosting). Single-player offers `h` to start hosting in-place — no restart, no `--serve`. Other players' craft are drawn as dim **ghost** orbits on your map (evaluated at *your* clock), and coming within 10 km of a player you're synced with **couples** your time-warp to theirs so neither of you can skip past the other during an approach |
 | `Tab` | Switch star system (Sol → Alpha Centauri → TRAPPIST-1 → Kepler-452) |
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down (up to 100,000×; eases off around a burn) |
@@ -120,7 +120,7 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `→` / `l` | Move the map cursor to the next body. This cursor feeds the body info screen (`i`) and the porkchop plot (`P`) — it does **not** set your travel target. For that, use `t` / `T` |
 | `←` / `h` | Move the map cursor to the previous body |
 | `+` / `-` | Zoom in / out |
-| `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your craft) |
+| `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your craft). Also the way back from **spectating** a player's ghost (`v` on the `O` roster) — it returns the camera to your own craft |
 | `g` | Reset the camera to the whole system |
 | `v` | Cycle the view (tilted → top → right → bottom → left → flat → launch). Tilted is the default — a 3D-style perspective that shows orbits leaning in space. Views are projections only: the camera re-frames once when you change focus, view, or system, and otherwise stays exactly where you put it — to read an upcoming encounter, focus the body it passes (`f`) and the camera fits to its sphere of influence so the capture curve fills the canvas |
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (only in the tilted view) |
@@ -143,6 +143,7 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `U` | Undock a docked craft back into its parts |
 | `Y` | Deploy the top carried payload as its own craft — releases a satellite/probe/station while you keep flying the carrier (press again to drop the next one). Undock (`U`) instead splits everything and switches you to a released piece |
 | `D` | Apollo transposition — flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it) |
+| `J` | **Transfer control** of a cross-player docked stack to the guest riding in it — the whole stack, and the flying of it, changes hands instantly (a chip confirms on both sides; refused mid-burn). Multiplayer only; the guest can always `U` **undock** their own component regardless |
 | `V` | Jump to the launch chase-cam, following your active craft |
 | `E` | End the flight — remove a crashed craft after a `y` / `n` confirm |
 
