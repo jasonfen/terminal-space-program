@@ -46,7 +46,12 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 				Glyph:     cs.Glyph,
 				PrimaryID: cs.Primary,
 				Pos:       w.BodyPosition(primary).Add(st.R),
-				Vel:       st.V,
+				// v0.28 S2: retain the primary-relative state (st.R paired
+				// with st.V) so the orbit screen can rebuild the ghost's
+				// Keplerian ellipse via the own-craft ElementsFromState
+				// pipeline. Pos stays the world-frame marker position.
+				RelPos: st.R,
+				Vel:    st.V,
 			})
 		}
 	}

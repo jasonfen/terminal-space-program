@@ -144,4 +144,14 @@ func TestGhostSOIPrimaryOffset(t *testing.T) {
 	if ghosts[0].PrimaryID != moon {
 		t.Errorf("PrimaryID = %q, want %q", ghosts[0].PrimaryID, moon)
 	}
+	// v0.28 S2: the primary-relative state (RelPos, Vel) is retained on the
+	// ghost — not discarded into the world-frame sum — so the orbit screen
+	// can rebuild the ellipse via ElementsFromState. At dt=0 it equals the
+	// reported state exactly.
+	if d := ghosts[0].RelPos.Sub(rel).Norm(); d > 1e-6 {
+		t.Errorf("RelPos off reported by %.3g m (got %v, want %v)", d, ghosts[0].RelPos, rel)
+	}
+	if d := ghosts[0].Vel.Sub(vel).Norm(); d > 1e-6 {
+		t.Errorf("Vel off reported by %.3g m/s", d)
+	}
 }
