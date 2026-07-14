@@ -1035,6 +1035,16 @@ func (w *World) clampedWarp() float64 {
 		// skipped here: with none of the clamps (period guard, approach
 		// ramps) able to run, forcing the top factor would have nothing
 		// to ramp it back down before a burn.
+		//
+		// Exception (v0.28 S5): a Docked-as-Guest player who handed their
+		// only craft over into another player's stack has an empty slate
+		// but is still warp-coupled to that stack (min-wins, folded onto
+		// CoWarp). Honour that clamp here so the guest can't out-warp the
+		// owner while flying nothing — undock-anytime depends on the seam
+		// times staying locked.
+		if w.CoWarp.Coupled && w.CoWarp.MinWarp > 0 && selected > w.CoWarp.MinWarp {
+			selected = w.CoWarp.MinWarp
+		}
 		return selected
 	}
 	// v0.16 / ADR 0016: while Auto-Warp is engaged (and not paused) the

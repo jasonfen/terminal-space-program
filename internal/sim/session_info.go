@@ -57,6 +57,9 @@ const (
 	SessionEventSyncedTo       // you arrived at theirs ("synced to X") — local only, never broadcast
 	SessionEventCoWarpCoupled  // co-warp coupled with a nearby player (v0.28 S1) — local only
 	SessionEventCoWarpReleased // co-warp released on separation (v0.28 S1) — local only
+	SessionEventDocked         // cross-player dock fused ("docked with X", v0.28 S5)
+	SessionEventUndocked       // cross-player stack split ("undocked from X", v0.28 S5)
+	SessionEventTransfer       // stack control handed over ("control → X", v0.28 S5)
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

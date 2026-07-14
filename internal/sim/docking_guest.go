@@ -141,6 +141,69 @@ func (w *World) UndockGuest(compositeIdx int, guestOwner string, guestCraftID ui
 	return restored, true
 }
 
+// RemoveCraftByID lifts the craft with the given stable ID out of the slate
+// and returns it (v0.28 S5) — the guest side of a cross-player dock, where a
+// player's craft leaves their own World to ride in the docker's stack. The
+// active-craft index follows the removal so the player keeps flying a valid
+// craft (or, if they removed their only craft while docking as guest, the
+// index clamps and ActiveCraft() may be nil until they switch/undock). ok is
+// false when no craft matches. The returned craft is detached — the caller
+// hands it to the ledger; nothing in this World still references it.
+func (w *World) RemoveCraftByID(id uint64) (*spacecraft.Spacecraft, bool) {
+	_, idx, ok := w.craftByID(id)
+	if !ok {
+		return nil, false
+	}
+	c := w.Crafts[idx]
+	// Checkpoint the outgoing active target before the slate shifts.
+	if w.ActiveCraftIdx >= 0 && w.ActiveCraftIdx < len(w.Crafts) {
+		if a := w.Crafts[w.ActiveCraftIdx]; a != nil {
+			a.Target = w.Target
+		}
+	}
+	active := w.ActiveCraftIdx
+	w.Crafts = append(w.Crafts[:idx], w.Crafts[idx+1:]...)
+	switch {
+	case idx < active:
+		active--
+	case idx == active:
+		// The active craft left; land on a neighbouring slot if any.
+		if active >= len(w.Crafts) {
+			active = len(w.Crafts) - 1
+		}
+	}
+	if active < 0 {
+		w.ActiveCraftIdx = 0 // empty slate — index is inert until a craft returns
+		w.Target = spacecraft.Target{}
+	} else {
+		w.ActiveCraftIdx = -1 // force SetActiveCraftIdx to load the new active's target
+		w.SetActiveCraftIdx(active)
+	}
+	return c, true
+}
+
+// AdoptCraft appends a craft that already carries a stable ID into the slate
+// WITHOUT restamping it (v0.28 S5) — the receiving side of a cross-player
+// handoff: the docker adopting a handed-over guest craft, or the guest
+// receiving its component back on undock. Advances NextCraftID past the
+// adopted ID so a later local spawn can't collide. Optionally makes it active.
+// Returns the new slate index.
+func (w *World) AdoptCraft(c *spacecraft.Spacecraft, makeActive bool) int {
+	if c == nil {
+		return -1
+	}
+	w.Crafts = append(w.Crafts, c)
+	if c.ID != 0 && w.NextCraftID <= c.ID {
+		w.NextCraftID = c.ID + 1
+	}
+	w.stampCraftID(c) // no-op when it already has an ID
+	idx := len(w.Crafts) - 1
+	if makeActive {
+		w.SetActiveCraftIdx(idx)
+	}
+	return idx
+}
+
 // tagStackOwnership is the Transfer-control retag (v0.28 S5, ADR 0034 §6 +
 // addendum): handing an entire cross-player stack from fromOwner to toOwner
 // flips every component's provenance. Components owned by the World that held
@@ -221,6 +284,15 @@ func (s CoWarpState) WithDockCoupling(ownerHandle string, ownerEffWarp float64) 
 		s.Partners = append(append([]string(nil), s.Partners...), ownerHandle)
 	}
 	return s
+}
+
+// StackMidBurn reports whether the craft is actively thrusting — a planted
+// finite burn (ActiveBurn) or a player-held manual burn (ManualBurn) in
+// flight (v0.28 S5). Transfer Control is refused while a cross-player stack
+// is mid-burn (ADR 0034 addendum: "refused mid-burn") so the integrator and
+// mass-loss state don't hand off across the ownership seam.
+func StackMidBurn(c *spacecraft.Spacecraft) bool {
+	return c != nil && (c.ActiveBurn != nil || c.ManualBurn != nil)
 }
 
 // StackHasGuest reports whether the craft is a composite carrying any
