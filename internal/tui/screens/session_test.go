@@ -201,6 +201,61 @@ func TestSessionScreenSync(t *testing.T) {
 	}
 }
 
+// Solo: the screen is the hosting entry point. [h] emits StartHost and
+// the explainer advertises it (v0.28 S3).
+func TestSessionScreenSoloStartHost(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if out := s.Render(w, 120); !strings.Contains(out, "[h] start hosting") {
+		t.Errorf("solo explainer missing the host hint:\n%s", out)
+	}
+	if cmd := s.HandleKey(w, key("h")); cmd.Kind != SessionCmdStartHost {
+		t.Errorf("[h] solo = %+v, want SessionCmdStartHost", cmd)
+	}
+}
+
+// Hosting: [h] arms a confirm naming the guest count; y stops, n
+// cancels. The prompt is host-only.
+func TestSessionScreenStopHostConfirm(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true) // one online guest (gern)
+
+	if cmd := s.HandleKey(w, key("h")); cmd.Kind != SessionCmdNone {
+		t.Fatalf("[h] emitted %v before confirm", cmd.Kind)
+	}
+	if out := s.Render(w, 120); !strings.Contains(out, "stop hosting? drops 1 guest(s)") {
+		t.Errorf("stop-host confirm prompt missing:\n%s", out)
+	}
+	if !strings.Contains(s.Render(w, 120), "[h] stop hosting") {
+		t.Error("host key hints missing the stop-hosting toggle")
+	}
+	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdStopHost {
+		t.Errorf("confirm y = %+v, want SessionCmdStopHost", cmd)
+	}
+
+	// n cancels — no command, confirm cleared.
+	s.HandleKey(w, key("h"))
+	if cmd := s.HandleKey(w, key("n")); cmd.Kind != SessionCmdNone {
+		t.Errorf("confirm n = %+v, want no command", cmd)
+	}
+}
+
+// A guest never reaches the host toggle: their slate is never IsHost,
+// so [h] is inert and the stop-hosting hint is absent.
+func TestSessionScreenGuestNoHost(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, false)
+	if cmd := s.HandleKey(w, key("h")); cmd.Kind != SessionCmdNone {
+		t.Errorf("[h] as guest = %+v, want no command", cmd)
+	}
+	if strings.Contains(s.Render(w, 120), "stop hosting") {
+		t.Error("guest screen offers the stop-hosting toggle")
+	}
+}
+
 // Target flow: [t] on a player with a ghost emits the target command;
 // on yourself it toasts.
 func TestSessionScreenTarget(t *testing.T) {
