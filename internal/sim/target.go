@@ -191,6 +191,39 @@ func (w *World) TargetState() (orbital.Vec3State, bool) {
 	return orbital.Vec3State{}, false
 }
 
+// nodeTargetRelState resolves a maneuver node's (or active burn's) bound
+// target to its state in the given primary's relative frame, handling
+// both a local craft ref (owner == "") and a remote ghost ref
+// (owner != "", v0.28 S4 / ADR 0034). Rendezvous tooling is same-primary
+// gated, so ok=false when the target orbits a different body — matching
+// the pre-v0.28 craftByID call sites. A stale ref (craft or ghost gone,
+// other primary) resolves to ok=false, degrading the burn to no-op
+// exactly as a vanished local craft does.
+//
+// Ghost state is taken from g.Pos (world-frame marker at this world's
+// sim-time) minus the primary's position — the same Pos-based derivation
+// TargetStateRelativeToActivePrimary uses, so it doesn't depend on the
+// optional RelPos field being populated. Velocity is g.Vel (already
+// primary-relative); for the shared-primary case the primary's own
+// velocity cancels.
+func (w *World) nodeTargetRelState(owner string, craftID uint64, primary bodies.CelestialBody) (rT, vT orbital.Vec3, ok bool) {
+	if craftID == 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	if owner != "" {
+		g, ok := w.ghostByRef(owner, craftID)
+		if !ok || g.PrimaryID != primary.ID {
+			return orbital.Vec3{}, orbital.Vec3{}, false
+		}
+		return g.Pos.Sub(w.BodyPosition(primary)), g.Vel, true
+	}
+	tc, _, ok := w.craftByID(craftID)
+	if !ok || tc.Primary.ID != primary.ID {
+		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	return tc.State.R, tc.State.V, true
+}
+
 // ghostByRef finds a ghost by owner + craft ID in the transient slate.
 func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
 	for _, g := range w.Ghosts {

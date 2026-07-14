@@ -127,6 +127,20 @@ type ManeuverNode struct {
 	// craft the player chose, or degrades to no-op if that craft is gone
 	// (resolve via World.craftByID at fire time). Zero means "no target".
 	TargetCraftID uint64 `json:",omitempty"`
+	// TargetGhostOwner (v0.28 S4, ADR 0034) names the remote player (ssh
+	// key fingerprint) when this node was planted against a *ghost* —
+	// another player's coasting craft. When non-empty, TargetCraftID is
+	// the REMOTE craft's stable id, resolved against the transient ghost
+	// slate (World.ghostByRef) rather than the local slate. Empty (the
+	// common case) means TargetCraftID is a local craft id — unchanged
+	// v0.14.x behaviour. A coasting ghost is Kepler-exact between reports,
+	// so a node planted against it has craft-to-craft plan quality; when
+	// the ghost burns the plan goes stale and the player replans — the
+	// report corrects the ghost, not the node. NEVER persisted: save
+	// drops the whole ref (owner + remote id) so a reloaded node can't
+	// mistake a remote id for a local one. Zero-value-omitempty, no
+	// schema bump.
+	TargetGhostOwner string `json:",omitempty"`
 	// PlaneChangeRad (v0.10.4+) is the signed orbital-plane rotation
 	// angle (radians) for a BurnPlaneChange node — the angle the
 	// horizontal velocity is rotated through about the radial axis.
@@ -163,6 +177,29 @@ func (n *ManeuverNode) SetTargetCraftID(id uint64) { n.TargetCraftID = id }
 
 // ClearTargetCraftID unbinds the node's target. v0.14.x.
 func (n *ManeuverNode) ClearTargetCraftID() { n.TargetCraftID = 0 }
+
+// TargetGhostRef returns the node's ghost target ref — the remote
+// player's owner handle + craft id — and ok=false when the node isn't
+// bound to a ghost. v0.28 S4 (ADR 0034).
+func (n ManeuverNode) TargetGhostRef() (owner string, craftID uint64, ok bool) {
+	if n.TargetGhostOwner == "" || n.TargetCraftID == 0 {
+		return "", 0, false
+	}
+	return n.TargetGhostOwner, n.TargetCraftID, true
+}
+
+// DropGhostRef clears a ghost target ref (owner + the remote craft id).
+// Called on save so a session-local ghost binding never persists and a
+// remote id can't be reloaded as a local one — the burn geometry
+// (mode / Δv / direction) is untouched. No-op for local-craft or
+// untargeted nodes. v0.28 S4.
+func (n *ManeuverNode) DropGhostRef() {
+	if n.TargetGhostOwner == "" {
+		return
+	}
+	n.TargetGhostOwner = ""
+	n.TargetCraftID = 0
+}
 
 // IsTargetRelative reports whether this node's burn mode requires a
 // target craft state to resolve direction. v0.9.3+.
@@ -240,6 +277,11 @@ type ActiveBurn struct {
 	// tick (via craftByID) so the burn keeps tracking even if the player
 	// swaps World.Target or the slate shifts mid-burn.
 	TargetCraftID uint64 `json:",omitempty"`
+	// TargetGhostOwner (v0.28 S4) mirrors ManeuverNode.TargetGhostOwner
+	// onto the running burn: when non-empty, TargetCraftID is a REMOTE
+	// craft id resolved against the ghost slate each tick. Empty ⇒ local
+	// ref, unchanged behaviour. Never persisted (save drops the ref).
+	TargetGhostOwner string `json:",omitempty"`
 	// PlaneChangeRad (v0.10.4+) carries the BurnPlaneChange rotation
 	// angle from the firing node onto the running burn, so the
 	// attitude/thrust path can resolve the tilted plane-change
@@ -259,6 +301,18 @@ func (b ActiveBurn) TargetCraftIDValue() (uint64, bool) {
 		return 0, false
 	}
 	return b.TargetCraftID, true
+}
+
+// DropGhostRef clears a ghost target ref (owner + the remote craft id)
+// from a running burn, mirroring ManeuverNode.DropGhostRef so a save
+// mid-burn against a ghost never persists a session-local remote id.
+// No-op for local-craft or untargeted burns. v0.28 S4.
+func (b *ActiveBurn) DropGhostRef() {
+	if b.TargetGhostOwner == "" {
+		return
+	}
+	b.TargetGhostOwner = ""
+	b.TargetCraftID = 0
 }
 
 // BurnStalled reports whether a planted burn is paused waiting for the

@@ -1554,6 +1554,7 @@ func nodeFingerprint(nodes []spacecraft.ManeuverNode) uint64 {
 		h = mixU64(h, uint64(n.Event))
 		h = mixU64(h, math.Float64bits(n.Throttle))
 		h = mixU64(h, n.TargetCraftID)
+		h = mixStr(h, n.TargetGhostOwner) // v0.28 S4: ghost ref distinguishes a remote target
 		h = mixU64(h, math.Float64bits(n.PlaneChangeRad))
 		h = mixU64(h, math.Float64bits(n.BurnDirUnit.X))
 		h = mixU64(h, math.Float64bits(n.BurnDirUnit.Y))
