@@ -33,7 +33,14 @@ import (
 
 // MetaVersion is the session.json schema version. Bump + migrate on
 // shape changes, mirroring the save-envelope discipline.
-const MetaVersion = 1
+//
+// v1 (v0.27): roster + invites + catalog hash.
+// v2 (v0.28 S5): adds Docks — the cross-player-dock cross-ref, so a
+// guest riding another player's stack (whose craft therefore isn't in
+// its own payload) resumes docked-as-guest on reconnect. A v1
+// session.json migrates forward (Docks defaults empty) via
+// migrateMetaV1ToV2; live v0.27 sessions never break.
+const MetaVersion = 2
 
 // Roster roles. Host is the one privileged role (ADR 0034): the
 // player whose machine runs the session, with invite and removal
@@ -70,12 +77,36 @@ type Invite struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// DockLink is one cross-player dock's durable cross-ref (v0.28 S5, ADR
+// 0034 §6). It is the persisted, serialisable subset of the live
+// relay.DockRecord — enough for a reconnecting session to resume: the
+// stack owner + composite, and the guest player + their craft riding in
+// it. The transient in-flight payloads (the craft handoffs) are NOT
+// persisted; a dock that was mid-handshake at shutdown resolves fresh.
+// Phase is the relay.DockPhase int (0 pending / 1 active); sessiondir
+// stays below relay so it carries the raw int rather than importing it.
+type DockLink struct {
+	ID            uint64 `json:"id"`
+	Owner         string `json:"owner"`
+	OwnerHandle   string `json:"owner_handle,omitempty"`
+	DockerCraftID uint64 `json:"docker_craft_id"`
+	CompositeID   uint64 `json:"composite_id,omitempty"`
+	GuestOwner    string `json:"guest_owner"`
+	GuestHandle   string `json:"guest_handle,omitempty"`
+	GuestCraftID  uint64 `json:"guest_craft_id"`
+	Phase         int    `json:"phase"`
+}
+
 // Meta is the session.json shape.
 type Meta struct {
 	Version         int      `json:"version"`
 	BodyCatalogHash string   `json:"body_catalog_hash"`
 	Roster          []Player `json:"roster"`
 	Invites         []Invite `json:"invites"`
+	// Docks is the cross-player-dock cross-ref (v2+, v0.28 S5). Empty
+	// in a fresh or non-docking session; the serve layer syncs it from
+	// the live relay ledger on change.
+	Docks []DockLink `json:"docks,omitempty"`
 }
 
 // Store owns one session directory. All mutations re-read
@@ -141,7 +172,44 @@ func (s *Store) readMeta() (Meta, error) {
 	if m.Version > MetaVersion {
 		return Meta{}, fmt.Errorf("sessiondir: session.json version %d is newer than this build (%d)", m.Version, MetaVersion)
 	}
+	migrateMeta(&m)
 	return m, nil
+}
+
+// migrateMeta walks a just-read Meta forward through the typed migration
+// ladder to the current MetaVersion, mirroring save.Load's per-step
+// migrateV{N}toV{N+1} discipline. Each step is a pure shape fix; the last
+// stamps Version = MetaVersion so a re-write persists at the current schema.
+func migrateMeta(m *Meta) {
+	if m.Version < 2 {
+		migrateMetaV1ToV2(m)
+	}
+	m.Version = MetaVersion
+}
+
+// migrateMetaV1ToV2 carries a v0.27 session (roster/invites, no docks)
+// forward: v1 had no cross-player docking, so Docks is simply absent. The
+// nil default is already correct — the function exists to keep the ladder
+// explicit and to give the next shape change a home. v0.28 S5.
+func migrateMetaV1ToV2(m *Meta) {
+	if m.Docks == nil {
+		m.Docks = nil // explicit: a v1 session never had docks
+	}
+}
+
+// SetDocks persists the cross-player-dock cross-ref (v0.28 S5). The serve
+// layer calls it when the live relay ledger changes, so a reconnecting
+// guest resumes docked-as-guest. Re-reads under the lock so a concurrent
+// roster edit isn't clobbered.
+func (s *Store) SetDocks(docks []DockLink) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return err
+	}
+	m.Docks = docks
+	return s.writeMeta(m)
 }
 
 // writeMeta persists atomically (tmpfile + rename), matching the save

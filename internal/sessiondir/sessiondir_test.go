@@ -275,3 +275,79 @@ func TestLoadPlayerErrors(t *testing.T) {
 		t.Errorf("stale catalog: err = %v, want save.ErrCatalogMismatch", err)
 	}
 }
+
+// TestMigrateV1SessionForward — a live v0.27 session.json (schema v1:
+// roster + invites, no docks) must survive into v0.28. Writing a raw v1
+// file and reading it back migrates to the current MetaVersion with the
+// roster intact and an empty Docks; a re-write persists at v2. This is the
+// load-bearing "sessions migrate, never break" guarantee (ADR 0034 addendum).
+func TestMigrateV1SessionForward(t *testing.T) {
+	dir := t.TempDir()
+	// Hand-write a v0.27-shaped session.json (Version 1, no docks field).
+	v1 := `{
+  "version": 1,
+  "body_catalog_hash": "deadbeef",
+  "roster": [
+    {"fingerprint": "local", "handle": "jason", "role": "host", "calibrated": true},
+    {"fingerprint": "SHA256:gern", "handle": "gern", "role": "guest", "calibrated": true}
+  ],
+  "invites": [{"code": "AB2C-DE3F", "handle": "ada"}]
+}`
+	if err := os.MkdirAll(dir+"/players", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir+"/session.json", []byte(v1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(dir) // Open must not re-init over the existing file
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	m, err := s.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	if m.Version != MetaVersion {
+		t.Errorf("migrated Version = %d, want %d", m.Version, MetaVersion)
+	}
+	if len(m.Roster) != 2 || m.Roster[1].Handle != "gern" {
+		t.Errorf("roster not carried forward: %+v", m.Roster)
+	}
+	if len(m.Invites) != 1 || m.Invites[0].Code != "AB2C-DE3F" {
+		t.Errorf("invites not carried forward: %+v", m.Invites)
+	}
+	if len(m.Docks) != 0 {
+		t.Errorf("migrated v1 session gained docks: %+v", m.Docks)
+	}
+	if m.BodyCatalogHash != "deadbeef" {
+		t.Errorf("catalog hash changed on migrate: %q", m.BodyCatalogHash)
+	}
+
+	// A dock cross-ref persists and round-trips at v2.
+	links := []DockLink{{
+		ID: 1, Owner: "local", OwnerHandle: "jason", DockerCraftID: 1,
+		CompositeID: 1, GuestOwner: "SHA256:gern", GuestHandle: "gern",
+		GuestCraftID: 200, Phase: 1,
+	}}
+	if err := s.SetDocks(links); err != nil {
+		t.Fatalf("SetDocks: %v", err)
+	}
+	m2, err := s.Meta()
+	if err != nil {
+		t.Fatalf("Meta after SetDocks: %v", err)
+	}
+	if len(m2.Docks) != 1 || m2.Docks[0].GuestCraftID != 200 || m2.Docks[0].Phase != 1 {
+		t.Errorf("dock cross-ref not persisted: %+v", m2.Docks)
+	}
+
+	// The on-disk file is now stamped v2.
+	data, _ := os.ReadFile(dir + "/session.json")
+	var probe struct {
+		Version int `json:"version"`
+	}
+	_ = json.Unmarshal(data, &probe)
+	if probe.Version != MetaVersion {
+		t.Errorf("on-disk version = %d, want %d", probe.Version, MetaVersion)
+	}
+}
