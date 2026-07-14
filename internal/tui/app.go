@@ -1695,6 +1695,15 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		a.statusMsg = fmt.Sprintf("target: %s's craft", cmd.Handle)
 		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit
+	case screens.SessionCmdSpectate:
+		// Spectate (v0.28 S6 / ADR 0034): camera-follow a remote player's
+		// ghost. Read-only — no guestSave gate, reachable by host and guest
+		// alike. Fits once to the ghost's drawn orbit extent (Framing Event)
+		// then tracks it; [f]/[g] return to own-craft framing.
+		a.world.SpectateGhost(cmd.Owner, cmd.CraftID)
+		a.statusMsg = fmt.Sprintf("spectating %s — [f] to return", cmd.Handle)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.active = screenOrbit
 	case screens.SessionCmdSync:
 		// Sync-to (v0.27 S7 / ADR 0034): Auto-Warp to the player's
 		// subspace time. The screen already refused backward targets;

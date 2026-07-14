@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"math"
+
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
@@ -17,6 +19,14 @@ const (
 	// FocusCraft centers on the spacecraft's inertial position. Only
 	// reachable when CraftVisibleHere is true.
 	FocusCraft
+	// FocusGhost centers on a remote player's ghost — the Spectate mode
+	// (v0.28 S6, ADR 0034). Entered only from the Session screen's [v]
+	// row action, never in the CycleFocus rotation. The camera tracks
+	// the ghost's world position each frame; the single Framing-Event
+	// fit frames its drawn orbit extent. Reports moving the ghost never
+	// re-fit (ADR 0021). The ghost is addressed by (owner, craft ID) so
+	// a stale slate degrades gracefully rather than dangling a pointer.
+	FocusGhost
 )
 
 // Focus describes the current OrbitView center. The zero value (FocusSystem,
@@ -24,12 +34,27 @@ const (
 type Focus struct {
 	Kind    FocusKind
 	BodyIdx int
+	// GhostOwner + GhostCraftID address the spectated ghost when
+	// Kind == FocusGhost (v0.28 S6). Kept as a value ref, not a pointer,
+	// so Focus stays comparable — CycleFocus and the orbit screen's
+	// framing-event guard both rely on struct equality.
+	GhostOwner   string
+	GhostCraftID uint64
 }
 
 // CycleFocus advances the focus to the next target (or previous if
 // forward=false). Order: System → Body(0) → Body(1) → … → Body(n-1) →
 // Craft (only if CraftVisibleHere) → System.
 func (w *World) CycleFocus(forward bool) {
+	// Spectate exit (v0.28 S6): a ghost focus is outside the cycle, so any
+	// focus key returns you home rather than advancing off a non-member.
+	// This is the "return-to-own-craft focus key" the Spectate spec names —
+	// one more Framing Event restoring own-craft framing (or the system
+	// view when no craft is visible here).
+	if w.Focus.Kind == FocusGhost {
+		w.Focus = w.ownCraftFocus()
+		return
+	}
 	targets := w.focusTargets()
 	if len(targets) == 0 {
 		return
@@ -49,8 +74,30 @@ func (w *World) CycleFocus(forward bool) {
 	w.Focus = targets[idx]
 }
 
-// ResetFocus snaps back to the system-wide view.
+// ResetFocus snaps back to the system-wide view. Also the coarse exit
+// from Spectate (v0.28 S6) — [g] leaves a ghost focus like any other.
 func (w *World) ResetFocus() { w.Focus = Focus{Kind: FocusSystem} }
+
+// ownCraftFocus is the framing to return to when leaving a transient
+// focus (Spectate): the active craft when it's visible here, else the
+// system view. v0.28 S6.
+func (w *World) ownCraftFocus() Focus {
+	if w.CraftVisibleHere() {
+		return Focus{Kind: FocusCraft}
+	}
+	return Focus{Kind: FocusSystem}
+}
+
+// SpectateGhost enters Spectate mode on a remote player's ghost (v0.28
+// S6, ADR 0034): the camera fits once to the ghost's drawn orbit extent
+// (a Framing Event) then tracks the ghost as focus, pan/zoom free and no
+// re-fit on report corrections. Read-only — it adds no write surface, so
+// it's reachable by host and guest alike. The Session screen is the
+// selection surface; the ref is validated lazily at render (a vanished
+// ghost degrades to the system view via FocusPosition/FocusZoomRadius).
+func (w *World) SpectateGhost(owner string, craftID uint64) {
+	w.Focus = Focus{Kind: FocusGhost, GhostOwner: owner, GhostCraftID: craftID}
+}
 
 // focusTargets enumerates the valid focus cycle for the current system.
 // Rebuilt each cycle rather than cached because CraftVisibleHere is
@@ -78,6 +125,14 @@ func (w *World) FocusPosition() orbital.Vec3 {
 	case FocusCraft:
 		if w.CraftVisibleHere() {
 			return w.CraftInertial()
+		}
+	case FocusGhost:
+		// Track the spectated ghost's world position each frame (v0.28 S6).
+		// A vanished ghost (owner disconnected, craft gone, left system)
+		// degrades to the system origin rather than dangling — Spectate
+		// stays live but the view falls back gracefully.
+		if g, ok := w.ghostByRef(w.Focus.GhostOwner, w.Focus.GhostCraftID); ok {
+			return g.Pos
 		}
 	}
 	return orbital.Vec3{}
@@ -148,6 +203,22 @@ func (w *World) FocusZoomRadius() float64 {
 			}
 			return alt * 3
 		}
+	case FocusGhost:
+		// Frame the ghost's whole drawn ellipse (v0.28 S6, ADR 0034). The
+		// same S2 ghost-orbit pipeline: ElementsFromState off the ghost's
+		// retained primary-relative state and its primary's μ. Centered on
+		// the ghost — a point on its own orbit — the far side of the ellipse
+		// is at most one major axis (2a) away, so 2a frames the whole track
+		// from any phase. Evaluated once, at the Framing Event; report
+		// corrections that move the ghost never re-run this (ADR 0021).
+		if g, ok := w.ghostByRef(w.Focus.GhostOwner, w.Focus.GhostCraftID); ok {
+			if primary, ok := w.bodyInSystemByID(g.PrimaryID); ok {
+				el := orbital.ElementsFromState(g.RelPos, g.Vel, primary.GravitationalParameter())
+				if el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) {
+					return 2 * el.A
+				}
+			}
+		}
 	}
 	return w.systemOutermostRadius()
 }
@@ -207,6 +278,17 @@ func (w *World) FocusName() string {
 		if w.ActiveCraft() != nil {
 			return w.ActiveCraft().Name
 		}
+	case FocusGhost:
+		// Spectate label (v0.28 S6): "spectating <handle>" so the title-bar
+		// focus readout says whose ghost the camera is following.
+		if g, ok := w.ghostByRef(w.Focus.GhostOwner, w.Focus.GhostCraftID); ok {
+			who := g.Handle
+			if who == "" {
+				who = g.Name
+			}
+			return "spectating " + who
+		}
+		return "spectating"
 	}
 	return "System-wide"
 }
