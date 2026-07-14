@@ -1678,6 +1678,20 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 	case screens.SessionCmdToast:
 		a.statusMsg = cmd.Message
 		a.statusExpires = time.Now().Add(3 * time.Second)
+	case screens.SessionCmdStartHost:
+		// In-UI hosting (v0.28 S3 / ADR 0034). Host-only by
+		// construction: a guest session carries a guestSave sink, so it
+		// can never start a listener of its own — the same guard that
+		// refuses guests local saves + settings.
+		if a.guestSave != nil {
+			a.toast("guests can't host — you're already in someone's session")
+			return a, nil
+		}
+		msg := screens.SessionHostMsg{Start: true}
+		return a, func() tea.Msg { return msg }
+	case screens.SessionCmdStopHost:
+		msg := screens.SessionHostMsg{Start: false}
+		return a, func() tea.Msg { return msg }
 	case screens.SessionCmdMint, screens.SessionCmdRevoke, screens.SessionCmdRemove:
 		msg := screens.SessionAdminMsg{Cmd: cmd}
 		return a, func() tea.Msg { return msg }
@@ -1738,6 +1752,12 @@ func (a *App) toast(msg string) {
 	a.statusMsg = msg
 	a.statusExpires = time.Now().Add(3 * time.Second)
 }
+
+// Toast flashes msg in the HUD footer — the exported door for the
+// serve-layer wrapper to surface lazy-hosting outcomes (listener
+// started, port conflict) on the host's own screen instead of a
+// pre-TUI stderr line (v0.28 S3, ADR 0034).
+func (a *App) Toast(msg string) { a.toast(msg) }
 
 // toggleChip flips Chip c's visibility in the shared settings.Settings
 // and persists it to settings.json immediately (persist-on-toggle — no

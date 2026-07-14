@@ -1,6 +1,9 @@
 package serve
 
 import (
+	"context"
+	"fmt"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +27,12 @@ type reportingModel struct {
 	rep   *relay.Reporter
 	srv   *Server
 	owner string
+
+	// port is the listener port a lazy [h] start binds (v0.28 S3).
+	// When srv is nil the wrapper is inert — solo play — until the
+	// Session screen's [h] starts hosting; srv/rep/owner come alive
+	// then. The --serve headless path hands srv in already live.
+	port int
 
 	// meta cache: roster + invites, refreshed lazily so each tick
 	// doesn't re-read session.json. Admin commands force a refresh so
@@ -61,9 +70,21 @@ func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
 func (m reportingModel) Init() tea.Cmd { return m.inner.Init() }
 
 func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Lazy hosting lifecycle (v0.28 S3): [h] on the Session screen
+	// arrives here as a SessionHostMsg. Start binds the listener;
+	// stop shuts it down. Handled before the pass-through so the
+	// inner App never sees it.
+	if host, ok := msg.(screens.SessionHostMsg); ok {
+		if host.Start {
+			return m.startHosting()
+		}
+		return m.stopHosting()
+	}
+
 	// Session-admin intents from the Session screen (v0.27 S6): the
 	// wrapper owns the store access; the App below only dispatched.
-	if admin, ok := msg.(screens.SessionAdminMsg); ok {
+	// Inert until a server exists (solo has nothing to administer).
+	if admin, ok := msg.(screens.SessionAdminMsg); ok && m.srv != nil {
 		switch admin.Cmd.Kind {
 		case screens.SessionCmdMint:
 			_, _ = m.srv.store.MintInvite(admin.Cmd.Handle)
@@ -79,7 +100,8 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	inner, cmd := m.inner.Update(msg)
 	m.inner = inner
-	if _, ok := msg.(sim.TickMsg); ok {
+	// Solo (no listener): pure pass-through — no store, no reports.
+	if _, ok := msg.(sim.TickMsg); ok && m.srv != nil {
 		now := time.Now()
 		w := m.app.World()
 		m.rep.Tick(w, now)
@@ -219,6 +241,92 @@ func (m reportingModel) View() string { return m.inner.View() }
 // a special case on the wire). main runs the returned model.
 func (s *Server) HostModel(app *tui.App) tea.Model {
 	return s.withReporting(app, sessiondir.HostFingerprint)
+}
+
+// WrapHost always wraps app in the reporting model (v0.28 S3): the
+// wrapper is now present in solo play too. A non-nil srv (the --serve
+// headless path) reports immediately as the host; a nil srv stays
+// inert until [h] on the Session screen lazily binds a listener on
+// port. Value-receiver models: main reads back the final model's
+// HostServer() to shut a lazily started listener down at exit.
+func WrapHost(app *tui.App, srv *Server, port int) tea.Model {
+	m := reportingModel{inner: app, app: app, port: port}
+	if srv != nil {
+		m.srv = srv
+		m.owner = sessiondir.HostFingerprint
+		m.rep = relay.NewReporter(srv.relay, m.owner)
+	}
+	return m
+}
+
+// HostServer returns the live listener when this wrapper is hosting,
+// else nil — the door main uses after Run to shut a lazily started
+// server down gracefully.
+func (m reportingModel) HostServer() *Server { return m.srv }
+
+// startHosting lazily binds the SSH listener and flips the wrapper
+// live as the host (v0.28 S3). Bind failures — port already in use,
+// host-key trouble — surface as a toast on the host's own screen
+// instead of a pre-TUI stderr line. Idempotent: a second [h] while
+// already hosting is a no-op.
+func (m reportingModel) startHosting() (tea.Model, tea.Cmd) {
+	if m.srv != nil {
+		return m, nil
+	}
+	keyPath, err := DefaultHostKeyPath()
+	if err != nil {
+		m.app.Toast(fmt.Sprintf("can't host: %v", err))
+		return m, nil
+	}
+	srv, err := New(Config{Addr: fmt.Sprintf(":%d", m.port), HostKeyPath: keyPath})
+	if err != nil {
+		m.app.Toast(fmt.Sprintf("can't host: %v", err))
+		return m, nil
+	}
+	go func() {
+		// A post-bind listener failure (rare) goes to stderr — this
+		// goroutine must not touch the App, which the tea Update loop
+		// owns. The common failure (port already in use) is caught
+		// synchronously by New above and toasted on the Update goroutine.
+		if err := srv.Serve(); err != nil {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: ssh listener: %v\n", err)
+		}
+	}()
+	m.srv = srv
+	m.owner = sessiondir.HostFingerprint
+	m.rep = relay.NewReporter(srv.relay, m.owner)
+	m.app.Toast(fmt.Sprintf("hosting on %s — invite guests with serve invite", srv.Addr()))
+	// Populate the roster now so the Session screen flips to host-mode
+	// immediately instead of on the next tick.
+	m.refreshSession(time.Now())
+	return m, nil
+}
+
+// stopHosting shuts the listener down and drops back to solo (v0.28
+// S3). The confirm ("drops N guests — progress persists") is the
+// screen's; here we execute. Shutdown runs in the background so the
+// host's tick loop isn't blocked — guests' final payloads still
+// unwind through persistMiddleware. Idempotent.
+func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
+	if m.srv == nil {
+		return m, nil
+	}
+	srv := m.srv
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = srv.Shutdown(ctx)
+		cancel()
+		srv.Wait(5 * time.Second)
+	}()
+	m.srv, m.rep, m.owner = nil, nil, ""
+	// Back to solo: clear the slates the wrapper had been feeding so the
+	// Session screen shows the [h]-start dead-end again.
+	w := m.app.World()
+	w.Session, w.Ghosts, w.SessionEvents = nil, nil, nil
+	m.meta, m.metaAt = sessiondir.Meta{}, time.Time{}
+	m.localEvents = nil
+	m.app.Toast("hosting stopped")
+	return m, nil
 }
 
 // Relay exposes the session store (tests and later slices read it).

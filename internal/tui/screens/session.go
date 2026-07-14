@@ -26,9 +26,10 @@ type SessionScreen struct {
 
 	inviteCursor  int  // index into the invites list (host)
 	inInvites     bool // cursor focus: players vs invites section
-	minting       bool // typing a new invite's handle
-	mintInput     []rune
-	confirmRemove bool // pending [x] confirmation on the selected player
+	minting         bool // typing a new invite's handle
+	mintInput       []rune
+	confirmRemove   bool // pending [x] confirmation on the selected player
+	confirmStopHost bool // pending [h] stop-hosting confirmation (v0.28 S3)
 }
 
 func NewSessionScreen(th Theme) *SessionScreen { return &SessionScreen{theme: th} }
@@ -45,6 +46,8 @@ const (
 	SessionCmdRevoke      // revoke invite Code
 	SessionCmdRemove      // remove player Fingerprint
 	SessionCmdToast       // surface Message
+	SessionCmdStartHost   // solo → start hosting (v0.28 S3)
+	SessionCmdStopHost    // hosting → stop the listener (v0.28 S3)
 )
 
 // SessionCommand is the screen's finalized action.
@@ -64,10 +67,17 @@ type SessionCommand struct {
 // single-player nothing handles it — the message is inert.
 type SessionAdminMsg struct{ Cmd SessionCommand }
 
+// SessionHostMsg carries a start/stop-hosting intent out of the App to
+// the always-present reporting wrapper (v0.28 S3, ADR 0034). Start
+// lazily binds the SSH listener; Stop shuts it down. In a build with
+// no wrapper (there is always one now) it is inert.
+type SessionHostMsg struct{ Start bool }
+
 // Reset re-arms the screen for a fresh open.
 func (s *SessionScreen) Reset() {
 	s.cursor, s.inviteCursor = 0, 0
 	s.inInvites, s.minting, s.confirmRemove = false, false, false
+	s.confirmStopHost = false
 	s.mintInput = nil
 }
 
@@ -80,8 +90,14 @@ func (s *SessionScreen) CapturingText() bool { return s.minting }
 func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	info := w.Session
 	if info == nil {
-		if msg.String() == "esc" || msg.String() == "O" || msg.String() == "q" {
+		// Solo: the screen is the entry point for hosting (v0.28 S3).
+		// [h] asks the always-present wrapper to start the listener; the
+		// App refuses it for a guest by construction (guestSave gate).
+		switch msg.String() {
+		case "esc", "O", "q":
 			return SessionCommand{Kind: SessionCmdClose}
+		case "h":
+			return SessionCommand{Kind: SessionCmdStartHost}
 		}
 		return SessionCommand{}
 	}
@@ -127,6 +143,14 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 			if p, ok := s.selectedPlayer(info); ok {
 				return SessionCommand{Kind: SessionCmdRemove, Fingerprint: p.Fingerprint, Handle: p.Handle}
 			}
+		}
+		return SessionCommand{}
+	}
+
+	if s.confirmStopHost {
+		s.confirmStopHost = false
+		if msg.String() == "y" || msg.String() == "Y" {
+			return SessionCommand{Kind: SessionCmdStopHost}
 		}
 		return SessionCommand{}
 	}
@@ -189,6 +213,12 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 				s.confirmRemove = true
 			}
 		}
+	case "h":
+		// Host-only stop toggle (v0.28 S3): confirm before dropping
+		// guests. Guests never reach this — their slate is never IsHost.
+		if info.IsHost {
+			s.confirmStopHost = true
+		}
 	}
 	return SessionCommand{}
 }
@@ -215,6 +245,18 @@ func (s *SessionScreen) selectedInvite(info *sim.SessionInfo) (sim.SessionInvite
 	return info.Invites[s.inviteCursor], true
 }
 
+// onlineGuests counts online roster members other than the viewer
+// (the host) — the population a stop-hosting drops (v0.28 S3).
+func onlineGuests(info *sim.SessionInfo) int {
+	n := 0
+	for _, p := range info.Players {
+		if p.Online && p.Fingerprint != info.Self {
+			n++
+		}
+	}
+	return n
+}
+
 func clamp(v, lo, hi int) int {
 	if hi < lo {
 		return lo
@@ -236,8 +278,8 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if info == nil {
 		b.WriteString(title + "\n\n")
 		b.WriteString("  Not in a multiplayer session.\n\n")
-		b.WriteString(s.theme.Dim.Render("  Host one with --serve; guests join over ssh (see serve invite).") + "\n\n")
-		b.WriteString(s.theme.Footer.Render("  [esc] close"))
+		b.WriteString(s.theme.Dim.Render("  [h] start hosting — accept ssh guests on this machine; invite them with serve invite.") + "\n\n")
+		b.WriteString(s.theme.Footer.Render("  [h] start hosting   [esc] close"))
 		return b.String()
 	}
 
@@ -307,9 +349,12 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 			b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  remove %s from the session? [y/n]", p.Handle)) + "\n")
 		}
 	}
+	if s.confirmStopHost {
+		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
+	}
 	keys := "  [t] target craft  [s] sync-to"
 	if info.IsHost {
-		keys += "  [i] invite  [r] revoke code  [x] remove player  [tab] section"
+		keys += "  [i] invite  [r] revoke code  [x] remove player  [h] stop hosting  [tab] section"
 	}
 	keys += "  [esc] close"
 	b.WriteString(s.theme.Footer.Render(keys))

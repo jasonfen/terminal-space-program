@@ -165,14 +165,20 @@ func main() {
 	}
 
 	// The host's own game reports into the session store like any
-	// guest's (v0.27 S4) — wrap it when serving.
-	var model tea.Model = app
-	if srv != nil {
-		model = srv.HostModel(app)
-	}
+	// guest's (v0.27 S4). v0.28 S3: the App is ALWAYS wrapped now — a
+	// nil srv leaves the wrapper inert until [h] on the Session screen
+	// starts hosting from inside the running TUI. --serve hands srv in
+	// live for headless/scripted parity.
+	model := serve.WrapHost(app, srv, servePort)
 
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseAllMotion())
-	_, runErr := p.Run()
+	final, runErr := p.Run()
+	// Recover any listener — the one --serve started, or one [h] started
+	// mid-session — from the final model (value-receiver wrapper carries
+	// the live srv forward). A mid-session [h] stop leaves it nil.
+	if hs, ok := final.(interface{ HostServer() *serve.Server }); ok {
+		srv = hs.HostServer()
+	}
 	if srv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		_ = srv.Shutdown(ctx)
