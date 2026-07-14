@@ -41,6 +41,7 @@ const (
 	SessionCmdNone SessionCommandKind = iota
 	SessionCmdClose
 	SessionCmdTargetGhost // aim at Owner/CraftID
+	SessionCmdSpectate    // Spectate: camera-follow Owner/CraftID's ghost (v0.28 S6)
 	SessionCmdSync        // Sync-to: Auto-Warp to Time (v0.27 S7)
 	SessionCmdMint        // mint invite for Handle
 	SessionCmdRevoke      // revoke invite Code
@@ -182,6 +183,21 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 			}
 		}
 		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to target"}
+	case "v":
+		// Spectate (v0.28 S6, ADR 0034): camera-follow the player's ghost.
+		// Absent on your own row — you can't spectate yourself (no ghost of
+		// your own exists in the slate anyway). Read-only; reachable by
+		// host and guest alike.
+		p, ok := s.selectedPlayer(info)
+		if !ok || p.Fingerprint == info.Self {
+			return SessionCommand{}
+		}
+		for _, g := range w.Ghosts {
+			if g.Owner == p.Fingerprint {
+				return SessionCommand{Kind: SessionCmdSpectate, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
+			}
+		}
+		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to spectate"}
 	case "s":
 		// Sync-to (v0.27 S7): forward only — the laggard always comes
 		// forward (ADR 0034); someone behind you syncs to you instead.
@@ -352,7 +368,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if s.confirmStopHost {
 		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
 	}
-	keys := "  [t] target craft  [s] sync-to"
+	keys := "  [t] target craft  [v] spectate  [s] sync-to"
 	if info.IsHost {
 		keys += "  [i] invite  [r] revoke code  [x] remove player  [h] stop hosting  [tab] section"
 	}

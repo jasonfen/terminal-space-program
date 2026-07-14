@@ -1,7 +1,10 @@
 package sim
 
 import (
+	"math"
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // TestFocusDefaultsToCraft: v0.6.1 spawns the camera focused on the
@@ -141,6 +144,59 @@ func TestFocusPositionForCraftMatchesCraftInertial(t *testing.T) {
 	want := w.CraftInertial()
 	if got.Sub(want).Norm() > 1e-6 {
 		t.Errorf("FocusCraft position: got %+v, want %+v", got, want)
+	}
+}
+
+// TestSpectateGhostFocusResolvers: v0.28 S6 — FocusGhost tracks the ghost's
+// world position and fits to its drawn orbit extent (2a), and both resolvers
+// degrade gracefully to the system frame when the ghost ref is stale.
+func TestSpectateGhostFocusResolvers(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Landed = false
+	mu := c.Primary.GravitationalParameter()
+	r := c.Primary.RadiusMeters() + 800e3
+	rel := orbital.Vec3{X: r}
+	vel := orbital.Vec3{Y: math.Sqrt(mu / r)}
+	g := Ghost{
+		Owner: "SHA256:guest", CraftID: 7, Handle: "gern", Name: "gern's ship",
+		PrimaryID: c.Primary.ID,
+		Pos:       w.BodyPosition(c.Primary).Add(rel), RelPos: rel, Vel: vel,
+	}
+	w.Ghosts = []Ghost{g}
+
+	w.SpectateGhost(g.Owner, g.CraftID)
+	if w.Focus.Kind != FocusGhost || w.Focus.GhostOwner != g.Owner || w.Focus.GhostCraftID != g.CraftID {
+		t.Fatalf("SpectateGhost focus = %+v", w.Focus)
+	}
+	if got := w.FocusPosition(); got.Sub(g.Pos).Norm() > 1e-6 {
+		t.Errorf("FocusGhost position: got %+v, want ghost Pos %+v", got, g.Pos)
+	}
+	el := orbital.ElementsFromState(rel, vel, mu)
+	if got, want := w.FocusZoomRadius(), 2*el.A; math.Abs(got-want) > want*1e-9 {
+		t.Errorf("FocusGhost zoom radius: got %g, want 2a=%g", got, want)
+	}
+	if w.FocusName() != "spectating gern" {
+		t.Errorf("FocusName = %q, want 'spectating gern'", w.FocusName())
+	}
+
+	// Stale ref (ghost gone): both resolvers fall back, no dangling ref.
+	w.Ghosts = nil
+	if got := w.FocusPosition(); got != (orbital.Vec3{}) {
+		t.Errorf("stale ghost FocusPosition = %+v, want origin", got)
+	}
+	if got := w.FocusZoomRadius(); got != w.systemOutermostRadius() {
+		t.Errorf("stale ghost FocusZoomRadius = %g, want systemOutermostRadius %g", got, w.systemOutermostRadius())
+	}
+
+	// CycleFocus off a ghost returns to own craft (the spectate exit).
+	w.SpectateGhost(g.Owner, g.CraftID)
+	w.CycleFocus(true)
+	if w.Focus.Kind != FocusCraft {
+		t.Errorf("CycleFocus off ghost = %+v, want FocusCraft", w.Focus)
 	}
 }
 

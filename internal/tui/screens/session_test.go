@@ -276,3 +276,32 @@ func TestSessionScreenTarget(t *testing.T) {
 		t.Errorf("[t] with no ghost = %+v, want toast", cmd)
 	}
 }
+
+// Spectate flow (v0.28 S6): [v] on a player with a ghost emits the
+// spectate command; on your own row it is absent (no command); on a
+// player with no ghost in the slate it toasts. The footer advertises it.
+func TestSessionScreenSpectate(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 42, Handle: "gern"}}
+
+	if !strings.Contains(s.Render(w, 120), "[v] spectate") {
+		t.Error("footer missing the [v] spectate hint")
+	}
+
+	// Own row (cursor starts on self): [v] is absent — no spectate command.
+	if cmd := s.HandleKey(w, key("v")); cmd.Kind == SessionCmdSpectate {
+		t.Errorf("[v] on own row emitted spectate: %+v", cmd)
+	}
+
+	s.HandleKey(w, key("j")) // move to gern
+	cmd := s.HandleKey(w, key("v"))
+	if cmd.Kind != SessionCmdSpectate || cmd.Owner != "SHA256:guest" || cmd.CraftID != 42 {
+		t.Errorf("spectate command = %+v, want SessionCmdSpectate owner=SHA256:guest craft=42", cmd)
+	}
+
+	s.HandleKey(w, key("j")) // dave — no ghost in slate
+	if cmd := s.HandleKey(w, key("v")); cmd.Kind != SessionCmdToast {
+		t.Errorf("[v] with no ghost = %+v, want toast", cmd)
+	}
+}

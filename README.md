@@ -130,12 +130,25 @@ terminal-space-program serve invite dave       # mint a one-time invite code
 ssh -p 23234 your-host                         # guests join from any terminal
 ```
 
+You can also start hosting from inside a running game — no restart, no
+`--serve`: open the `O` session roster and press `h` (press it again to stop,
+which drops guests but keeps everyone's progress).
+
 Guests enroll once with the invite code (their ssh key becomes their identity)
 and get their own persistent space program on your machine. Everyone warps
-time **independently**: other players appear as dim "ghost" craft evaluated
-at *your* clock, and the `O` session roster shows who's ahead or behind —
-`s` sync-warps you forward to a player's time to fly formation. Warp clamps,
-planted burns, and SOI transitions are all honored en route.
+time **independently**: other players appear as dim "ghost" craft — with their
+orbits drawn on your map — evaluated at *your* clock, and the `O` session
+roster shows who's ahead or behind. From that roster, `s` sync-warps you
+forward to a player's time to fly formation, and `v` **spectates** a player —
+fitting the camera to their ghost orbit and following it so you can watch their
+burns play out. Warp clamps, planted burns, and SOI transitions are all honored
+en route.
+
+Once you're together, proximity does the rest: come within 10 km of a player
+you're synced with and your time-warp **couples** to theirs, so neither can
+skip ahead during the approach. Dock your craft to theirs and you fly one
+shared stack — the guest can `U` undock their own component at any time, and
+the pilot can hand the whole stack over with `J` **transfer control**.
 
 ## Custom vehicles
 
