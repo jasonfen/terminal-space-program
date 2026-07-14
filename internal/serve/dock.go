@@ -50,11 +50,23 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 	}
 
 	// Persist the durable cross-ref on any transition so a reconnecting guest
-	// resumes. The ledger is the source of truth; SetDocks writes the full
-	// current snapshot, so concurrent writers from different sessions converge.
+	// resumes.
 	if changed {
-		_ = m.srv.store.SetDocks(recordsToDockLinks(m.srv.dock.Records()))
+		_ = m.srv.persistDocks()
 	}
+}
+
+// persistDocks writes the dock ledger's current durable cross-ref to disk under
+// the persist guard (v0.28 finding 3). The ledger is the source of truth; the
+// guard serialises persists across sessions and dock.Records() is re-snapshotted
+// INSIDE the lock, so the last writer always persists the truly-current full
+// ledger — a concurrent session's newly-added dock can't be lost to a stale
+// snapshot racing to disk (ledger mutations are already ledger-mutex serial, so
+// re-reading under the guard converges the persisted state).
+func (s *Server) persistDocks() error {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	return s.store.SetDocks(recordsToDockLinks(s.dock.Records()))
 }
 
 // dockLinksToRecords adapts the persisted cross-ref into live ledger records

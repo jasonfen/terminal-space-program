@@ -213,6 +213,15 @@ func (l *DockLedger) Seed(records []DockRecord) {
 func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]CraftReport) []DockChip {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// Fast path (v0.28 finding 4): the overwhelmingly common tick has no live
+	// docks, so skip the full owner scan — just clear any stale docked-as-guest
+	// slate and return. Still under the single global lock: the 2-party MVP
+	// runs at a scale where per-tick contention doesn't warrant fine-grained
+	// locking; this only removes the O(records) walk when there's nothing to do.
+	if len(l.records) == 0 {
+		w.DockGuest = nil
+		return nil
+	}
 	var chips []DockChip
 	w.DockGuest = nil // rebuilt below if still a guest in some active dock
 	for id, r := range l.records {

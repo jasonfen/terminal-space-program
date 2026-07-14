@@ -240,6 +240,97 @@ func TestDisconnectReconnectResumesDockedAsGuest(t *testing.T) {
 	}
 }
 
+// TestTransferAdoptRestampsCollidingCompositeID: the migrating composite's
+// origin-World ID collides with a craft native to the recipient's World
+// (per-World ID spaces are independent). The recipient must restamp on adopt so
+// CompositeID resolves the composite — not the colliding native craft — and a
+// later undock-as-guest still hands the old owner its craft back (v0.28
+// finding 1: the permanent-desync regression).
+func TestTransferAdoptRestampsCollidingCompositeID(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	const guestID = 400
+	wA, wB := alignedPair(t, guestID)
+	dockerID := wA.ActiveCraft().ID
+	now := time.Now()
+
+	// Give B a NATIVE craft whose ID equals A's docker/composite ID. After the
+	// stack migrates to B, its origin ID (dockerID) would alias this craft.
+	collider := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	collider.Primary = wB.ActiveCraft().Primary
+	collider.State = wB.ActiveCraft().State
+	collider.ID = dockerID
+	wB.AdoptCraft(collider, false)
+	if collider.ID != dockerID {
+		t.Fatalf("collider not seeded with docker id: %d != %d", collider.ID, dockerID)
+	}
+
+	// Dock: A claims, B hands over, A fuses.
+	ledger.Claim(fpA, "alice", dockerID, fpB, "bob", guestID)
+	reports := reportMap(store, wA, wB, now)
+	ledger.Reconcile(wB, fpB, reports)
+	ledger.Reconcile(wA, fpA, reports)
+	if len(wA.Crafts) != 1 || !sim.StackHasGuest(wA.Crafts[0]) {
+		t.Fatalf("A did not fuse a cross-player stack")
+	}
+
+	// Transfer control to B (roles swap). A migrates out, B adopts.
+	if !ledger.RequestTransfer(fpA) {
+		t.Fatalf("RequestTransfer refused")
+	}
+	ledger.Reconcile(wA, fpA, reports) // A migrates the stack out
+	reports = reportMap(store, wA, wB, now.Add(time.Second))
+	ledger.Reconcile(wB, fpB, reports) // B adopts the transferred stack
+
+	// B now owns the composite AND the colliding native craft — both must be
+	// independently addressable, and CompositeID must resolve the composite.
+	rec := ledger.Records()
+	if len(rec) != 1 {
+		t.Fatalf("ledger records = %d, want 1", len(rec))
+	}
+	compID := rec[0].CompositeID
+	comp, _, ok := wB.CraftByID(compID)
+	if !ok || !sim.StackHasGuest(comp) {
+		t.Fatalf("CompositeID %d does not resolve the migrated composite (collision with native id %d)", compID, dockerID)
+	}
+	if c, _, ok := wB.CraftByID(dockerID); !ok || c != collider {
+		t.Errorf("native collider id %d no longer resolves to the collider craft", dockerID)
+	}
+
+	// A (now the guest) undocks: B splits it out and hands A's craft back.
+	if !ledger.RequestUndock(fpA, dockerID) {
+		t.Fatalf("RequestUndock refused for the demoted old owner")
+	}
+	reports = reportMap(store, wA, wB, now.Add(2*time.Second))
+	ledger.Reconcile(wB, fpB, reports) // B splits A's component out
+	ledger.Reconcile(wA, fpA, reports) // A receives its craft home
+	if _, _, ok := wA.CraftByID(dockerID); !ok {
+		t.Fatalf("A never got its craft %d back — permanent desync (finding 1)", dockerID)
+	}
+	if wA.DockGuest != nil {
+		t.Errorf("A still docked-as-guest after undock")
+	}
+	if len(ledger.Records()) != 0 {
+		t.Errorf("ledger still holds %d records after undock", len(ledger.Records()))
+	}
+}
+
+// TestReconcileEmptyLedgerFastPath: with no live docks, Reconcile takes the
+// O(1) fast path — it still clears any stale docked-as-guest slate and returns
+// no chips (v0.28 finding 4).
+func TestReconcileEmptyLedgerFastPath(t *testing.T) {
+	ledger := NewDockLedger()
+	w := newWorld(t)
+	w.DockGuest = &sim.DockGuestLink{OwnerFP: fpA, OwnerHandle: "alice"} // stale
+	chips := ledger.Reconcile(w, fpB, nil)
+	if chips != nil {
+		t.Errorf("empty-ledger Reconcile returned chips: %+v", chips)
+	}
+	if w.DockGuest != nil {
+		t.Errorf("empty-ledger Reconcile did not clear stale DockGuest: %+v", w.DockGuest)
+	}
+}
+
 func hasChip(chips []DockChip, kind sim.SessionEventKind) bool {
 	for _, c := range chips {
 		if c.Kind == kind {

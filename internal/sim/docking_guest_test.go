@@ -203,6 +203,84 @@ func TestDockCouplingClampsWorldWarp(t *testing.T) {
 	}
 }
 
+// TestAdoptCraftRestampsOnCollision: adopting a craft whose stable ID collides
+// with a craft already in this World's slate (per-World ID spaces are
+// independent) stamps a fresh unique id IN PLACE, leaving both craft
+// independently addressable via CraftByID (v0.28 finding 1).
+func TestAdoptCraftRestampsOnCollision(t *testing.T) {
+	w, _ := NewWorld()
+	native := w.Crafts[0]
+	nativeID := native.ID
+	if nativeID == 0 {
+		t.Fatal("native craft has no stable ID")
+	}
+
+	// An incoming craft from another World that happens to carry the same ID.
+	incoming := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	incoming.ID = nativeID
+
+	idx := w.AdoptCraft(incoming, false)
+	if idx < 0 {
+		t.Fatalf("AdoptCraft returned %d", idx)
+	}
+	// Restamped in place to a fresh, distinct, nonzero id.
+	if incoming.ID == nativeID || incoming.ID == 0 {
+		t.Fatalf("incoming id = %d (native %d): want a fresh nonzero id", incoming.ID, nativeID)
+	}
+	// Both resolve to the correct craft — no aliasing.
+	if c, _, ok := w.CraftByID(nativeID); !ok || c != native {
+		t.Errorf("native id %d no longer resolves to the native craft", nativeID)
+	}
+	if c, _, ok := w.CraftByID(incoming.ID); !ok || c != incoming {
+		t.Errorf("incoming id %d does not resolve to the incoming craft", incoming.ID)
+	}
+	// NextCraftID stays ahead of the freshly stamped id.
+	if incoming.ID >= w.NextCraftID {
+		t.Errorf("NextCraftID %d not ahead of adopted id %d", w.NextCraftID, incoming.ID)
+	}
+}
+
+// TestAdoptCraftPreservesUnusedID: a non-zero incoming ID not present in the
+// slate is preserved — the guest-gets-its-component-back path must keep
+// guestCraftID unchanged (v0.28 finding 1).
+func TestAdoptCraftPreservesUnusedID(t *testing.T) {
+	w, _ := NewWorld()
+	incoming := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	const unused = 999999
+	incoming.ID = unused
+	w.AdoptCraft(incoming, false)
+	if incoming.ID != unused {
+		t.Errorf("unused id restamped to %d, want preserved %d", incoming.ID, unused)
+	}
+	if w.NextCraftID <= unused {
+		t.Errorf("NextCraftID %d not advanced past adopted id %d", w.NextCraftID, unused)
+	}
+}
+
+// TestWithDockCouplingAppendsPartnerWithoutCorruption: the per-tick fold
+// appends the owner handle in place without disturbing an existing Partners
+// slice's contents (v0.28 finding 5 — in-place append must not corrupt the
+// caller's slice or drop dedup).
+func TestWithDockCouplingAppendsPartnerWithoutCorruption(t *testing.T) {
+	base := CoWarpState{Coupled: true, MinWarp: 100, Partners: []string{"ada"}}
+	got := base.WithDockCoupling("gern", 8)
+	// Owner appended, existing partner intact.
+	if len(got.Partners) != 2 || got.Partners[0] != "ada" || got.Partners[1] != "gern" {
+		t.Errorf("Partners = %v, want [ada gern]", got.Partners)
+	}
+	// Dedup: an owner already present via a range couple is not duplicated.
+	deduped := CoWarpState{Coupled: true, MinWarp: 5, Partners: []string{"gern"}}.WithDockCoupling("gern", 8)
+	n := 0
+	for _, p := range deduped.Partners {
+		if p == "gern" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("owner duplicated in Partners: %v", deduped.Partners)
+	}
+}
+
 // TestRetagStackForTransfer: transfer flips ownership — the holder's own
 // components become the departing guest's, and the recipient's guest
 // components become the new holder's own. Idempotent for a same-owner call.

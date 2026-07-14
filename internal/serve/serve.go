@@ -62,6 +62,13 @@ type Server struct {
 	// final persist) so shutdown can wait for payload writes instead
 	// of racing process exit (review follow-up).
 	sessions sync.WaitGroup
+
+	// persistMu serialises dock cross-ref persists across sessions (v0.28
+	// finding 3). Two sessions racing SetDocks could otherwise interleave
+	// stale snapshots and drop a concurrently-added dock; holding this while
+	// re-snapshotting dock.Records() makes the last writer persist the truly-
+	// current full ledger (ledger mutations are already ledger-mutex serial).
+	persistMu sync.Mutex
 }
 
 // DefaultHostKeyPath returns the per-host SSH identity path, sibling

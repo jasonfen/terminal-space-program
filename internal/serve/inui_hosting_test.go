@@ -25,6 +25,49 @@ func hostServer(t *testing.T, m tea.Model) *Server {
 	return rm.HostServer()
 }
 
+// TestStopHostingClearsCoWarpAndDockGuest: stopping hosting while co-warp
+// coupled (or docked-as-guest) must clear the coupling slates. The tick path
+// that recomputes them is gated on m.srv != nil, so a stale w.CoWarp.MinWarp
+// would throttle solo warp forever and a stale w.DockGuest would keep a bogus
+// docked-as-guest status (v0.28 finding 2).
+func TestStopHostingClearsCoWarpAndDockGuest(t *testing.T) {
+	srv := newOfflineServer(t)
+	app, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	m := srv.HostModel(app)
+
+	// Simulate a live co-warp couple + docked-as-guest ride at stop time.
+	w := app.World()
+	w.CoWarp = sim.CoWarpState{Coupled: true, MinWarp: 1, Partners: []string{"gern"}}
+	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:gern", OwnerHandle: "gern"}
+	w.Clock.WarpIdx = 5 // player selects a fast warp
+	if got := w.EffectiveWarp(); got != 1 {
+		t.Fatalf("pre-stop EffectiveWarp = %v, want clamped to co-warp 1×", got)
+	}
+
+	rm, ok := m.(reportingModel)
+	if !ok {
+		t.Fatalf("model is %T, not reportingModel", m)
+	}
+	stopped, _ := rm.stopHosting()
+	if _, ok := stopped.(reportingModel); !ok {
+		t.Fatalf("stopped model is %T", stopped)
+	}
+
+	// Co-warp + dock-guest slates cleared; warp no longer clamped by them.
+	if w.CoWarp.Coupled || w.CoWarp.MinWarp != 0 || w.CoWarp.Partners != nil {
+		t.Errorf("w.CoWarp not reset after stopHosting: %+v", w.CoWarp)
+	}
+	if w.DockGuest != nil {
+		t.Errorf("w.DockGuest not cleared after stopHosting: %+v", w.DockGuest)
+	}
+	if got := w.EffectiveWarp(); got == 1 {
+		t.Errorf("warp still clamped to 1× after stopHosting — stale co-warp clamp persists")
+	}
+}
+
 // A solo wrapper (nil server) is a transparent pass-through: no store,
 // no reports, no session slate — the App plays as if unwrapped.
 func TestSoloWrapperInert(t *testing.T) {
