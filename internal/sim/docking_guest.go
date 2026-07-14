@@ -182,21 +182,35 @@ func (w *World) RemoveCraftByID(id uint64) (*spacecraft.Spacecraft, bool) {
 	return c, true
 }
 
-// AdoptCraft appends a craft that already carries a stable ID into the slate
-// WITHOUT restamping it (v0.28 S5) — the receiving side of a cross-player
-// handoff: the docker adopting a handed-over guest craft, or the guest
-// receiving its component back on undock. Advances NextCraftID past the
-// adopted ID so a later local spawn can't collide. Optionally makes it active.
+// AdoptCraft appends a craft carrying a stable ID into the slate on the
+// receiving side of a cross-player handoff (v0.28 S5) — the docker adopting a
+// handed-over guest craft, the guest receiving its component back on undock, or
+// a Transfer-Control recipient adopting the whole migrating composite. Craft-ID
+// spaces are PER-WORLD and independent (both start low), so an incoming ID from
+// the origin World can collide with a native craft already in this slate; when
+// it does — or when the craft carries no ID at all — we stamp a FRESH id from
+// NextCraftID (restamped in place, so a caller reading c.ID after the call sees
+// the new id). A non-zero, unused incoming ID is PRESERVED (the guest-gets-its-
+// component-back case, which must keep guestCraftID; NextCraftID only moves
+// forward, so a preserved id never collides with a future local spawn).
+// Advances NextCraftID past a preserved ID and optionally makes it active.
 // Returns the new slate index.
 func (w *World) AdoptCraft(c *spacecraft.Spacecraft, makeActive bool) int {
 	if c == nil {
 		return -1
 	}
+	// Collision check must run BEFORE the append so craftByID scans only the
+	// existing slate, not c itself. A hit forces a fresh stamp below.
+	if c.ID != 0 {
+		if _, _, taken := w.craftByID(c.ID); taken {
+			c.ID = 0
+		}
+	}
 	w.Crafts = append(w.Crafts, c)
 	if c.ID != 0 && w.NextCraftID <= c.ID {
 		w.NextCraftID = c.ID + 1
 	}
-	w.stampCraftID(c) // no-op when it already has an ID
+	w.stampCraftID(c) // no-op when it kept its ID; fresh id when zeroed above
 	idx := len(w.Crafts) - 1
 	if makeActive {
 		w.SetActiveCraftIdx(idx)
@@ -281,7 +295,12 @@ func (s CoWarpState) WithDockCoupling(ownerHandle string, ownerEffWarp float64) 
 		}
 	}
 	if !found && ownerHandle != "" {
-		s.Partners = append(append([]string(nil), s.Partners...), ownerHandle)
+		// Append in place: this runs every tick while docked-as-guest, so the
+		// full-copy form was needless churn. Safe against caller aliasing —
+		// ComputeCoWarp builds a fresh Partners slice each tick and the caller
+		// folds straight back into the same field (w.CoWarp = w.CoWarp.With...),
+		// so no other reference retains the pre-fold slice (v0.28 finding 5).
+		s.Partners = append(s.Partners, ownerHandle)
 	}
 	return s
 }

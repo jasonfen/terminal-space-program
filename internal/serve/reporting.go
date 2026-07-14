@@ -354,6 +354,14 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	// Session screen shows the [h]-start dead-end again.
 	w := m.app.World()
 	w.Session, w.Ghosts, w.SessionEvents = nil, nil, nil
+	// Clear the multiplayer coupling slates too (v0.28 finding 2): the tick
+	// path that recomputes co-warp / docked-as-guest is gated on m.srv != nil,
+	// so once hosting stops it never runs again. A stale w.CoWarp.MinWarp would
+	// throttle solo warp forever, and a stale w.DockGuest would keep a bogus
+	// docked-as-guest status. Also drop the per-owner hysteresis memory.
+	w.CoWarp = sim.CoWarpState{}
+	w.DockGuest = nil
+	m.coWarp = nil
 	m.meta, m.metaAt = sessiondir.Meta{}, time.Time{}
 	m.localEvents = nil
 	m.app.Toast("hosting stopped")

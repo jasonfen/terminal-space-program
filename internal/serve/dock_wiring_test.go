@@ -1,15 +1,67 @@
 package serve
 
 import (
+	"sync"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/relay"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
 )
+
+// TestPersistDocksConvergesUnderConcurrency: the guarded, re-snapshotting
+// persist keeps the persisted cross-ref equal to the live ledger even when
+// sessions race to persist while docks are being added — no concurrently-added
+// dock is dropped by a stale snapshot (v0.28 finding 3). Runs under -race.
+func TestPersistDocksConvergesUnderConcurrency(t *testing.T) {
+	srv := newOfflineServer(t)
+
+	// Re-snapshot semantics: a single persist writes the CURRENT full ledger.
+	srv.dock.Seed([]relay.DockRecord{{ID: 1, Owner: "a", GuestOwner: "b", GuestCraftID: 10, Phase: relay.DockActive}})
+	if err := srv.persistDocks(); err != nil {
+		t.Fatalf("persistDocks: %v", err)
+	}
+
+	// Race: goroutines add a dock then persist, exercising the guard while the
+	// ledger mutates underneath concurrent snapshots.
+	const n = 8
+	var wg sync.WaitGroup
+	for i := 2; i <= n; i++ {
+		wg.Add(1)
+		go func(id uint64) {
+			defer wg.Done()
+			srv.dock.Seed([]relay.DockRecord{{ID: id, Owner: "a", GuestOwner: "b", GuestCraftID: id, Phase: relay.DockActive}})
+			_ = srv.persistDocks()
+		}(uint64(i))
+	}
+	wg.Wait()
+
+	// A final persist converges the on-disk set to the live ledger.
+	if err := srv.persistDocks(); err != nil {
+		t.Fatalf("final persistDocks: %v", err)
+	}
+	live := srv.dock.Records()
+	meta, err := srv.store.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	if len(meta.Docks) != len(live) {
+		t.Fatalf("persisted %d docks, live ledger has %d — a concurrent add was dropped", len(meta.Docks), len(live))
+	}
+	persisted := map[uint64]bool{}
+	for _, d := range meta.Docks {
+		persisted[d.ID] = true
+	}
+	for _, r := range live {
+		if !persisted[r.ID] {
+			t.Errorf("live dock %d missing from persisted cross-ref", r.ID)
+		}
+	}
+}
 
 // hostStackHasGuest reports whether the host world's first craft is a
 // cross-player stack (composite carrying a guest component).
