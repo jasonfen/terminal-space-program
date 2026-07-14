@@ -137,6 +137,10 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			rows = append(rows, "◇ "+e.Handle+" synced to you")
 		case sim.SessionEventSyncedTo:
 			rows = append(rows, "◇ synced to "+e.Handle)
+		case sim.SessionEventCoWarpCoupled:
+			rows = append(rows, "◇ warp coupled with "+e.Handle)
+		case sim.SessionEventCoWarpReleased:
+			rows = append(rows, "◇ warp released with "+e.Handle)
 		}
 	}
 	if len(rows) == 0 {

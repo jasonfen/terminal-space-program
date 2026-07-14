@@ -202,6 +202,13 @@ type World struct {
 	// system by the writer.
 	Ghosts []Ghost
 
+	// CoWarp is the transient proximity co-warp slate (v0.28 S1, ADR
+	// 0034 §5): written each tick by the serve layer from ComputeCoWarp,
+	// read by clampedWarp for the min-over-coupled-players clamp. Same
+	// contract as Ghosts — serve-written, transient, never persisted,
+	// zero-value (uncoupled) in single-player.
+	CoWarp CoWarpState
+
 	// Session and SessionEvents are the multiplayer roster slate and
 	// recent join/leave/sync moments (v0.27 S6) — same contract as
 	// Ghosts: serve-layer written, screen read, transient, nil/empty
@@ -1025,6 +1032,19 @@ func (w *World) clampedWarp() float64 {
 	// engaged driver freezes time rather than racing ahead.
 	if w.autoWarpEngaged() && !w.Clock.Paused {
 		selected = WarpFactors[len(WarpFactors)-1]
+	}
+	// v0.28 S1 (ADR 0034 §5): proximity co-warp. While the active craft
+	// is coupled to a nearby same-subspace player, Effective Warp is the
+	// min over the coupled players' Effective warps — a partner's 10×
+	// burn cap (or lower selection) propagates so both step in lock, and
+	// chains propagate hop-by-hop because each reports its post-clamp
+	// rate. Another member of the Effective-≤-Selected family; the
+	// couple/decouple gate + hysteresis live in ComputeCoWarp, here we
+	// only take the min. Placed before the burn/period clamps so those
+	// can only reduce further, and before the degenerate-period early
+	// return so a coupled clamp still applies there.
+	if w.CoWarp.Coupled && w.CoWarp.MinWarp > 0 && selected > w.CoWarp.MinWarp {
+		selected = w.CoWarp.MinWarp
 	}
 	// Any craft in flight in a finite or manual burn forces the
 	// 10× cap — high warp during thrust would let the integrator

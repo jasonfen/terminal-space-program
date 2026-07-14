@@ -117,6 +117,14 @@ func (w *World) EngageSyncWarp(target time.Time, owner, handle string) bool {
 	if !target.After(w.Clock.SimTime) {
 		return false
 	}
+	// v0.28 S1 (ADR 0034 §5): subspace splits are blocked while co-warped.
+	// Syncing to another subspace would warp the viewer away from the
+	// player they are coupled to — the couple must break (separate past
+	// the hysteresis band) first. min-wins already caps the rate so the
+	// warp couldn't make progress; refusing outright is the legible form.
+	if w.CoWarpCoupled() {
+		return false
+	}
 	w.AutoWarp = &AutoWarpTarget{T: target, Sync: true, SyncOwner: owner, SyncHandle: handle}
 	w.Clock.Paused = false
 	return true
