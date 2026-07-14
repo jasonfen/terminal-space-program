@@ -79,8 +79,15 @@ func TestSessionSlatePopulated(t *testing.T) {
 	if len(ginfo.Invites) != 0 {
 		t.Error("guest slate leaked invites")
 	}
-	if len(guestApp.World().SessionEvents) != 0 {
-		t.Errorf("guest sees their own join: %+v", guestApp.World().SessionEvents)
+	// The guest's own join is excluded from their chips. (Co-warp couple
+	// chips can appear here — both worlds spawn the same coincident LEO
+	// craft in the same subspace, which legitimately couples, v0.28 S1 —
+	// so assert specifically on the absence of a join chip, the thing
+	// this case is about.)
+	for _, e := range guestApp.World().SessionEvents {
+		if e.Kind == sim.SessionEventJoin {
+			t.Errorf("guest sees a join chip (own join not excluded): %+v", e)
+		}
 	}
 }
 

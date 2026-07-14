@@ -53,8 +53,10 @@ type SessionEventKind int
 const (
 	SessionEventJoin SessionEventKind = iota
 	SessionEventLeave
-	SessionEventSync     // someone arrived at your subspace ("X synced to you")
-	SessionEventSyncedTo // you arrived at theirs ("synced to X") — local only, never broadcast
+	SessionEventSync           // someone arrived at your subspace ("X synced to you")
+	SessionEventSyncedTo       // you arrived at theirs ("synced to X") — local only, never broadcast
+	SessionEventCoWarpCoupled  // co-warp coupled with a nearby player (v0.28 S1) — local only
+	SessionEventCoWarpReleased // co-warp released on separation (v0.28 S1) — local only
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

@@ -37,10 +37,21 @@ const (
 type Reporter struct {
 	Owner string
 
-	store    *Store
-	lastWall time.Time
-	lastKeys []craftKey
+	store       *Store
+	lastWall    time.Time
+	lastKeys    []craftKey
+	lastEffWarp float64
 }
+
+// effWarpRelTol is the relative change in Effective warp that forces a
+// re-report between heartbeats (v0.28 S1). Effective warp changes without
+// any element change — a partner picks a lower warp, or a co-warp min
+// kicks in — and proximity co-warp needs that promptly, not only at the
+// 5 s heartbeat, or two coupled players drift out of the same subspace.
+// A relative tolerance ignores the sub-percent jitter the period-guard
+// clamp shows against Verlet element drift while still firing on any real
+// warp-factor step (all ≥2×).
+const effWarpRelTol = 1e-3
 
 // craftKey is the per-craft change-detection signature.
 type craftKey struct {
@@ -60,17 +71,31 @@ func NewReporter(store *Store, owner string) *Reporter {
 // cadence must not warp with sim time).
 func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	keys, states := snapshotWorld(w)
+	effWarp := w.EffectiveWarp()
 	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat
-	if !due && keysEqual(r.lastKeys, keys) {
+	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
 		return
 	}
 	r.lastWall = now
 	r.lastKeys = keys
+	r.lastEffWarp = effWarp
 	r.store.Report(CraftReport{
 		Owner:        r.Owner,
 		SubspaceTime: w.Clock.SimTime,
 		Crafts:       states,
+		EffWarp:      effWarp,
 	})
+}
+
+// effWarpChanged reports whether the Effective warp moved beyond the
+// relative tolerance since the last report — the co-warp re-report
+// trigger (see effWarpRelTol).
+func effWarpChanged(prev, cur float64) bool {
+	scale := math.Max(math.Abs(prev), math.Abs(cur))
+	if scale == 0 {
+		return false
+	}
+	return math.Abs(cur-prev) > effWarpRelTol*scale
 }
 
 // snapshotWorld converts the world's craft slate into wire states

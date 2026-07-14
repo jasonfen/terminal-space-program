@@ -42,6 +42,13 @@ type CraftReport struct {
 	Owner        string       `json:"owner"`
 	SubspaceTime time.Time    `json:"subspace_time"`
 	Crafts       []CraftState `json:"crafts"`
+
+	// EffWarp is the reporter's current Effective warp — the post-clamp
+	// rate its World actually stepped this report (v0.28 S1, ADR 0034 §5).
+	// Proximity co-warp reads it to take the min over coupled players, so
+	// a partner's 10× burn cap propagates. A plain float, serialisable
+	// like everything else crossing this interface (store discipline).
+	EffWarp float64 `json:"eff_warp,omitempty"`
 }
 
 // Store holds the latest report per owner and fans new reports out to

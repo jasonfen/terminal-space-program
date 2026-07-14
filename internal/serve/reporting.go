@@ -32,9 +32,15 @@ type reportingModel struct {
 	metaAt time.Time
 
 	// localEvents are this session's own moments (the "synced to X"
-	// arrival chip) — appended to the world's event slate alongside
-	// the broadcast ring, pruned by the same wall TTL.
+	// arrival chip, co-warp couple/release) — appended to the world's
+	// event slate alongside the broadcast ring, pruned by the same wall
+	// TTL.
 	localEvents []sim.SessionEvent
+
+	// coWarp is the per-owner coupled memory (v0.28 S1) — ComputeCoWarp's
+	// hysteresis input, carried across ticks so a coupled pair keeps the
+	// wider decouple gate. Owner fingerprint → coupled-last-tick.
+	coWarp map[string]bool
 }
 
 // localEventTTL matches the chip's on-screen life; pruning here just
@@ -123,7 +129,28 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		handles[p.Fingerprint] = p.Handle
 	}
 	// Ghosts (S5): everyone else's craft at this world's sim-time.
-	w.Ghosts = relay.GhostsFor(w, m.srv.relay.Snapshot(m.owner), handles)
+	others := m.srv.relay.Snapshot(m.owner)
+	w.Ghosts = relay.GhostsFor(w, others, handles)
+
+	// Co-warp (v0.28 S1, ADR 0034 §5): couple the viewer's active craft
+	// to any nearby same-subspace player and write the min-over-Effective
+	// clamp onto the World for next tick's clampedWarp; emit couple/
+	// release chips on transitions. Same seam as ghosts — reads the
+	// store's reports (which now carry EffWarp), writes transient state.
+	peers := relay.CoWarpPeersFrom(w, others, handles)
+	cw := w.ComputeCoWarp(peers, m.coWarp)
+	m.coWarp = cw.CoupledOwners
+	w.CoWarp = cw.State
+	for _, h := range cw.NewlyCoupled {
+		m.localEvents = append(m.localEvents, sim.SessionEvent{
+			Kind: sim.SessionEventCoWarpCoupled, Handle: h, At: now,
+		})
+	}
+	for _, h := range cw.Released {
+		m.localEvents = append(m.localEvents, sim.SessionEvent{
+			Kind: sim.SessionEventCoWarpReleased, Handle: h, At: now,
+		})
+	}
 
 	// Session slate (S6). Snapshot("") includes the viewer's own
 	// report — the roster row marked "you".
