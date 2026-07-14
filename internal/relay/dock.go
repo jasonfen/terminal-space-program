@@ -160,6 +160,19 @@ func (l *DockLedger) ActiveGuestDock(fp string) (*DockRecord, bool) {
 	return nil, false
 }
 
+// IsGuest reports whether fp is the guest in any active cross-player dock —
+// the source for the Session roster's Docked-as-Guest marker (v0.28 S5).
+func (l *DockLedger) IsGuest(fp string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range l.records {
+		if r.GuestOwner == fp && r.Phase == DockActive {
+			return true
+		}
+	}
+	return false
+}
+
 // Records returns a durable-field snapshot of every live dock — the session
 // directory persists this as the reconnect cross-ref.
 func (l *DockLedger) Records() []DockRecord {

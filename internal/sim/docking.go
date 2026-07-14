@@ -30,6 +30,14 @@ func (w *World) Undock(idx int) bool {
 	if c == nil || len(c.DockedComponents) < 2 {
 		return false
 	}
+	// v0.28 S5: a cross-player stack must not be split locally — that would
+	// clone the guest's craft into this (the owner's) World while the guest
+	// still believes it's docked. The guest undocks their own component
+	// through the dock ledger (UndockGuest); this local path handles only
+	// same-player composites (every component owned by this World).
+	if StackHasGuest(c) {
+		return false
+	}
 
 	// v0.12 / ADR 0009: decide whether the composite carries a full
 	// per-component stage breakdown. When every component records its

@@ -41,6 +41,18 @@ const (
 	screenSession  // v0.27 S6 / ADR 0034: multiplayer roster + invites, on `O`.
 )
 
+// UndockGuestMsg and TransferControlMsg are cross-player-docking intents the
+// App emits up to the serve reporting wrapper, which owns the dock ledger
+// (v0.28 S5). Same pattern as SessionHostMsg / SessionAdminMsg: the App can't
+// reach the ledger (sim sits below serve), so the flight key produces a
+// command the wrapper intercepts in its Update. Both are inert in solo play —
+// the App only emits them for a cross-player stack, which never exists without
+// a server.
+type UndockGuestMsg struct{}
+
+// TransferControlMsg requests handing the active cross-player stack to the guest.
+type TransferControlMsg struct{}
+
 // App is the root tea.Model. It owns the world, theme, keymap, and which
 // screen is active. Screens read from the shared world; they don't
 // mutate it.
@@ -1142,11 +1154,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.SwitchToCraftIdx(int(m.String()[0]-'0') - 1)
 			return a, nil
 		case key.Matches(m, a.keys.Undock):
+			// v0.28 S5: while docked-as-guest (one of my craft rides in
+			// another player's stack), U signals that stack's owner to split
+			// MY component and hand it back — undock-anytime, never gated
+			// behind the host. Emitted up to the serve reporting wrapper
+			// (which owns the dock ledger); a no-op in solo play.
+			if a.world.DockGuest != nil {
+				return a, func() tea.Msg { return UndockGuestMsg{} }
+			}
 			if a.world.Undock(a.world.ActiveCraftIdx) {
 				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
 				a.statusExpires = time.Now().Add(3 * time.Second)
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
 			}
+			return a, nil
+		case key.Matches(m, a.keys.TransferControl):
+			// v0.28 S5, ADR 0034 §6: hand a cross-player stack I own to the
+			// guest — instant, roles swap, refused mid-burn (the ledger
+			// enforces the refusal). Only meaningful while flying a stack that
+			// carries a guest and I'm not myself the guest.
+			if active := a.world.ActiveCraft(); active != nil && sim.StackHasGuest(active) && a.world.DockGuest == nil {
+				return a, func() tea.Msg { return TransferControlMsg{} }
+			}
+			a.statusMsg = "transfer: not flying a cross-player stack"
+			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.Deploy):
 			// v0.23 / ADR 0028: release the top carried payload, keep flying the

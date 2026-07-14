@@ -81,6 +81,25 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.stopHosting()
 	}
 
+	// Cross-player docking intents (v0.28 S5): the App can't reach the dock
+	// ledger (sim sits below serve), so a flight key emits one of these and
+	// the wrapper acts on it. Inert without a server. RequestUndock is the
+	// guest's undock-anytime signal; RequestTransfer hands the stack over.
+	if _, ok := msg.(tui.UndockGuestMsg); ok {
+		if m.srv != nil {
+			if w := m.app.World(); w.DockGuest != nil {
+				m.srv.dock.RequestUndock(m.owner, w.DockGuest.GuestCraftID)
+			}
+		}
+		return m, nil
+	}
+	if _, ok := msg.(tui.TransferControlMsg); ok {
+		if m.srv != nil {
+			m.srv.dock.RequestTransfer(m.owner)
+		}
+		return m, nil
+	}
+
 	// Session-admin intents from the Session screen (v0.27 S6): the
 	// wrapper owns the store access; the App below only dispatched.
 	// Inert until a server exists (solo has nothing to administer).
@@ -189,6 +208,14 @@ func (m *reportingModel) refreshSession(now time.Time) {
 			w.AutoWarp.T = rep.SubspaceTime
 		}
 	}
+	// Cross-player docking (v0.28 S5): detect contact against a co-warp-
+	// coupled ghost, advance every dock touching this session, fold the
+	// docked-as-guest coupling, and persist the cross-ref on transitions.
+	// Runs after ghosts + co-warp so detection sees fresh ghost positions
+	// and cw.CoupledOwners, and before the roster build so DockedGuest is
+	// current. Mutates w (fuses/splits craft) — same goroutine as the tick.
+	m.reconcileDocking(w, cw.CoupledOwners, reports, handles, now)
+
 	info := &sim.SessionInfo{
 		IsHost: m.owner == sessiondir.HostFingerprint,
 		Self:   m.owner,
@@ -199,6 +226,10 @@ func (m *reportingModel) refreshSession(now time.Time) {
 			Handle:      p.Handle,
 			Role:        p.Role,
 			Online:      m.srv.presence.isOnline(p.Fingerprint),
+			// Docked-as-Guest marker goes live in v0.28 S5 (inert in v0.27):
+			// true while any of this player's craft rides in another player's
+			// live stack.
+			DockedGuest: m.srv.dock.IsGuest(p.Fingerprint),
 		}
 		if rep, ok := reports[p.Fingerprint]; ok {
 			row.HasReport = true

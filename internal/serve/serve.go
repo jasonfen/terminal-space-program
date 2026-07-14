@@ -55,6 +55,7 @@ type Server struct {
 	ln       net.Listener
 	store    *sessiondir.Store
 	relay    *relay.Store
+	dock     *relay.DockLedger
 	presence *presence
 
 	// sessions tracks in-flight session handlers (including their
@@ -100,7 +101,14 @@ func New(cfg Config) (*Server, error) {
 	if _, err := store.EnsureHost(hostHandle()); err != nil {
 		return nil, fmt.Errorf("serve: enroll host: %w", err)
 	}
-	srv := &Server{store: store, relay: relay.NewStore(), presence: newPresence()}
+	srv := &Server{store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(), presence: newPresence()}
+	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
+	// durable cross-ref persisted in session.json seeds the live ledger, so
+	// a guest whose craft rode along in another player's stack reconnects
+	// straight back into docked-as-guest.
+	if m, err := store.Meta(); err == nil {
+		srv.dock.Seed(dockLinksToRecords(m.Docks))
+	}
 	// The host plays in-process and is online for the session's whole
 	// life — no join chip for them (serve start isn't a "moment").
 	srv.presence.markOnline(sessiondir.HostFingerprint)
