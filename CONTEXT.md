@@ -1633,11 +1633,38 @@ clamp, node, and SOI transition en route. There is no backward Sync.
 _Avoid_: Time-jump, teleport, rewind.
 
 **Proximity Co-Warp**:
-The clamp that couples same-Subspace vessels closer than the proximity
-radius: Effective Warp becomes the minimum over the coupled players,
-and Subspace splits are blocked until separation. A member of the
-Effective-≤-Selected clamp family.
+The clamp that couples same-Subspace vessels inside the proximity
+gate — close in both range *and* relative velocity, so a fast flyby
+never couples: Effective Warp becomes the minimum over the coupled
+players, and Subspace splits are blocked until separation. Coupling
+releases only beyond a wider band than it engages (hysteresis), so
+boundary drift can't flap it. A member of the Effective-≤-Selected
+clamp family.
 _Avoid_: Warp lock (it doesn't pin to 1×), warp vote.
+
+**Docked-as-Guest**:
+The state of a player one of whose craft rides as a component in a
+Stack owned by another player. The guest's Subspace is co-warp
+coupled to the stack (min-wins — the guest can always drop to 1× and
+burn, never out-warp the owner), they may fly any other craft they
+own meanwhile, and they can always undock their own component, which
+returns live. The owning player — the active approacher at dock time
+— simulates and flies the whole stack.
+_Avoid_: Passenger (implies no agency), hostage, rider.
+
+**Transfer Control**:
+The verb that hands an entire cross-player docked Stack from its
+owner to the guest, instantly and unconditionally — the roles swap.
+Refused only while the stack is mid-burn.
+_Avoid_: Handover request (there is no offer/accept step).
+
+**Spectate**:
+The camera verb for watching another player: frame their Ghost and
+its orbit once, then track it at the viewer's own sim-time. Purely a
+view — no interaction, no time coupling; a spectated burn appears as
+the Ghost's orbit re-shaping when reports land.
+_Avoid_: Observe mode, follow-cam (it's one Framing Event plus focus,
+not a new mode).
 
 ### Transfer planning
 
