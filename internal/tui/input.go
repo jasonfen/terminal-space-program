@@ -151,6 +151,14 @@ type Keymap struct {
 	// Undock switches to the released vessel and Deploy keeps the carrier.
 	Deploy key.Binding
 
+	// TransferControl (v0.28 S5, ADR 0034 §6): hand a cross-player docked
+	// stack from its owner to the guest, instantly (roles swap; refused
+	// mid-burn). Bound to `J` — free in the keymap and in the uppercase
+	// composite-verb family (U undock / D transpose / Y deploy). Only
+	// meaningful while flying a cross-player stack; a no-op otherwise. The
+	// F1 overlay + README mirror is the S6 docs pass, not bound here.
+	TransferControl key.Binding
+
 	// CycleTarget / ClearTarget (v0.9.0+): unified `World.Target` slot
 	// that planted-Hohmann (`H`) and plane-match (`I`) consume in
 	// place of the pre-v0.9 implicit body cursor. Cycle order:
@@ -315,6 +323,7 @@ func DefaultKeymap() Keymap {
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
 		Transpose:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "transpose (SM → firing core, LM → nose payload)")),
 		Deploy:              key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "deploy top payload (keep carrier)")),
+		TransferControl:     key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "transfer control of a cross-player stack")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / craft)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
 		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: orbit / surface / target")),

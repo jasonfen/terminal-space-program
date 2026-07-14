@@ -380,6 +380,20 @@ type DockedComponent struct {
 	// firing Stages[0] is drained while docked, so the snapshot fuel
 	// goes stale — see sim.Undock).
 	Stages []Stage
+
+	// Owner + CraftID (v0.28 S5 / ADR 0034 cross-player docking):
+	// ownership provenance for a component in a cross-player stack. Owner
+	// is the guest player's fingerprint when this component rides in
+	// another player's stack; empty means it belongs to the World that
+	// holds the composite (the current stack owner). CraftID is the
+	// component's pre-dock stable Spacecraft.ID — for a guest component
+	// it is the ID UndockGuest hands back so the craft returns to its
+	// owner's World unchanged. Both zero-value/empty for a same-player
+	// dock (the classic single-World composite), so old saves and local
+	// docking are untouched; additive omitempty on the wire, no save
+	// schema bump (matching the CanSoftLand / Stages precedent above).
+	Owner   string
+	CraftID uint64
 }
 
 // AsDockedComponent captures s's identity + capacity fields into a
@@ -404,6 +418,12 @@ func (s *Spacecraft) AsDockedComponent() DockedComponent {
 		// v0.12 / ADR 0009: record the full stage breakdown so a
 		// multi-stage component (the LM) round-trips through Undock.
 		Stages: append([]Stage(nil), s.Stages...),
+		// v0.28 S5: carry the pre-dock stable identity. Local docking
+		// still stamps fresh IDs on undock (Undock ignores this), but a
+		// cross-player dock reads it back so the guest craft returns home
+		// with the same ID. Owner is left empty here — DockGuestCraft
+		// stamps it on the guest's contributed components.
+		CraftID: s.ID,
 	}
 }
 

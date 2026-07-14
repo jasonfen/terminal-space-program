@@ -302,7 +302,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 			tags = append(tags, "you")
 		}
 		if p.DockedGuest {
-			tags = append(tags, "docked") // inert until v0.28
+			tags = append(tags, "docked") // v0.28 S5: live — riding another player's stack
 		}
 		if len(tags) > 0 {
 			name += s.theme.Dim.Render(" (" + strings.Join(tags, ", ") + ")")

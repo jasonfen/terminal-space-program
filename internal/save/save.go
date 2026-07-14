@@ -376,6 +376,15 @@ type DockedComponent struct {
 	// sim.Undock fall back to the legacy single-stage rebuild —
 	// matching every pre-ADR-0009 composite.
 	Stages []Stage `json:"stages,omitempty"`
+	// Owner / CraftID (v0.28 S5, ADR 0034 cross-player docking): the
+	// component's ownership provenance. Owner is a guest player's
+	// fingerprint when this component rides in the docker's stack; empty
+	// for a same-player composite. CraftID is the component's pre-dock
+	// stable ID, handed back on cross-player undock. Additive omitempty,
+	// no schema bump — absent → "" / 0, exactly a single-World composite,
+	// so every pre-v0.28 save and all local docking round-trips unchanged.
+	Owner   string `json:"owner,omitempty"`
+	CraftID uint64 `json:"craft_id,omitempty"`
 }
 
 // ActiveBurn mirrors sim.ActiveBurn. Throttle (v0.7.6+, schema v4)
@@ -625,6 +634,8 @@ func payloadFromWorld(w *sim.World) Payload {
 				CanSoftLand:      dc.CanSoftLand,
 				HasParachute:     dc.HasParachute,
 				Stages:           simStagesToWire(dc.Stages),
+				Owner:            dc.Owner,
+				CraftID:          dc.CraftID,
 			})
 		}
 		for _, n := range c.Nodes {
@@ -868,6 +879,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 				CanSoftLand:      dc.CanSoftLand,
 				HasParachute:     dc.HasParachute,
 				Stages:           wireStagesToSim(dc.Stages),
+				Owner:            dc.Owner,
+				CraftID:          dc.CraftID,
 			})
 		}
 		// v0.8.1+: per-craft Nodes / ActiveBurn loaded directly from
