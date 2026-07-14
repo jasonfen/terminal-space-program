@@ -737,8 +737,48 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// drawn before own craft so a shared cell always shows the real
 	// vessel. Display only: no hit-test tag, no orbit ellipse — the
 	// marker is the rendezvous cue, the track is the owner's business.
+	// v0.28 S2 (ADR 0034 addendum): each ghost also draws its orbit
+	// as a dim ellipse via the own-craft pipeline. The ghost's retained
+	// primary-relative state (RelPos, Vel) feeds ElementsFromState with
+	// the ghost's own mu, offset onto the ghost's primary. Bound orbits
+	// only (a > 0); hyperbolic ghosts stay glyph-only (conic-arc path
+	// deferred). Reuses the minOrbitPixels gate and the far-side-dashed
+	// + primary-occluded ellipse renderer, so a ghost track reads like a
+	// local craft's but dim. Targeting a ghost promotes its ellipse to
+	// the TARGET green with denser sampling, mirroring the non-active-
+	// craft target treatment below. Drawn before the marker so the
+	// marker wins its cell; no camera re-fit (ADR 0021: drawn geometry
+	// never triggers a fit).
+	tgtGhost, _, ghostTargeted := w.ResolveTargetGhost()
 	for _, g := range w.Ghosts {
 		ghostColor := lipgloss.Color(render.ColorDim)
+		isTarget := ghostTargeted && g.Owner == tgtGhost.Owner && g.CraftID == tgtGhost.CraftID
+		gPrimaryIdx := -1
+		for i := range sys.Bodies {
+			if sys.Bodies[i].ID == g.PrimaryID {
+				gPrimaryIdx = i
+				break
+			}
+		}
+		if gPrimaryIdx >= 0 {
+			gp := sys.Bodies[gPrimaryIdx]
+			el := orbital.ElementsFromState(g.RelPos, g.Vel, gp.GravitationalParameter())
+			orbitVisible := el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
+			if orbitVisible {
+				gPrimaryPos := w.BodyPosition(gp)
+				gPxR := BodyPixelRadius(gp, false, scale, canvasReach)
+				orbitColor := lipgloss.Color(render.ColorDim)
+				stride := 5
+				if isTarget {
+					orbitColor = render.ColorTarget
+					stride = 3
+				}
+				v.canvas.DrawEllipseOffsetFarSideDashed(el, gPrimaryPos, 180, stride, gPrimaryPos, gPxR, orbitColor)
+			}
+		}
+		if isTarget {
+			ghostColor = render.ColorTarget
+		}
 		v.canvas.PlotColored(g.Pos, ghostColor)
 		if gl := []rune(g.Glyph); len(gl) > 0 {
 			v.canvas.SetCellOverlayColored(g.Pos, gl[0], ghostColor)
