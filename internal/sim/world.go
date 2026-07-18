@@ -218,6 +218,15 @@ type World struct {
 	// single-player.
 	RendezvousArm *RendezvousArm
 
+	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
+	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
+	// recomputes the approach at the committed τ each tick and sets
+	// Degraded when the partner has drifted a couple-radius past the
+	// committed baseline. ApproachM is the live approach for the S2
+	// warning chip. Transient, serve-written like CoWarp.
+	RendezvousDegraded  bool
+	RendezvousApproachM float64
+
 	// Session and SessionEvents are the multiplayer roster slate and
 	// recent join/leave/sync moments (v0.27 S6) — same contract as
 	// Ghosts: serve-layer written, screen read, transient, nil/empty

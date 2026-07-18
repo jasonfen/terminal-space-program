@@ -134,11 +134,11 @@ type RendezvousArrival struct {
 // has Engaged back, so the first to Engage never warps solo. Forward-only
 // (tau at/behind SimTime is refused — the laggard Syncs forward). Replaces
 // any prior arm.
-func (w *World) EngageRendezvousWarp(partner string, tau time.Time) bool {
+func (w *World) EngageRendezvousWarp(partner string, tau time.Time, committedCA float64) bool {
 	if !tau.After(w.Clock.SimTime) {
 		return false
 	}
-	w.RendezvousArm = &RendezvousArm{TargetOwner: partner, Tau: tau}
+	w.RendezvousArm = &RendezvousArm{TargetOwner: partner, Tau: tau, CommittedCA: committedCA}
 	return true
 }
 
@@ -173,6 +173,7 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 		if w.rendezvousWarpEngaged() {
 			w.DisengageAutoWarp()
 		}
+		w.refreshRendezvousDegrade(peers)
 		return
 	}
 	var partner *CoWarpPeer
@@ -197,6 +198,10 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 		// Partner retracted or dropped mid-coast — release both sides.
 		w.DisengageRendezvousWarp()
 	}
+	// Hold-τ degrade recompute (v0.29 S1): flag when the held encounter has
+	// slipped past the committed baseline. Runs after start/cancel so it
+	// reflects this tick's engaged state.
+	w.refreshRendezvousDegrade(peers)
 }
 
 // EngageSyncWarp aims Auto-Warp at a fixed sim-time — Sync to another

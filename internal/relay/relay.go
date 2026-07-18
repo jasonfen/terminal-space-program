@@ -60,6 +60,7 @@ type CraftReport struct {
 	// serialisable values — store discipline preserved.
 	RendezvousTarget string    `json:"rendezvous_target,omitempty"`
 	RendezvousTau    time.Time `json:"rendezvous_tau,omitempty"`
+	RendezvousCA     float64   `json:"rendezvous_ca,omitempty"` // committed predicted approach at τ (m) — the responder's adopted baseline
 }
 
 // Store holds the latest report per owner and fans new reports out to

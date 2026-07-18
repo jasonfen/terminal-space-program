@@ -79,9 +79,11 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	// does — not gated behind the heartbeat.
 	var rzTarget string
 	var rzTau time.Time
+	var rzCA float64
 	if w.RendezvousArm != nil {
 		rzTarget = w.RendezvousArm.TargetOwner
 		rzTau = w.RendezvousArm.Tau
+		rzCA = w.RendezvousArm.CommittedCA
 	}
 	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat || r.lastRzTarget != rzTarget
 	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
@@ -98,6 +100,7 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		EffWarp:          effWarp,
 		RendezvousTarget: rzTarget,
 		RendezvousTau:    rzTau,
+		RendezvousCA:     rzCA,
 	})
 }
 

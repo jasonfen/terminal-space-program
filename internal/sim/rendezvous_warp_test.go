@@ -3,20 +3,63 @@ package sim
 import (
 	"testing"
 	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
+
+// Hold-τ degrade recompute: while the coast runs, a partner holding the
+// committed encounter raises no flag; one that drifts a couple-radius past
+// the committed approach at τ does — and τ is never re-targeted.
+func TestRendezvousDegradeHeldEncounter(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(time.Minute) // short dt so the approach at τ ≈ the offset
+	a := w.ActiveCraft()
+	same := func(dR orbital.Vec3) []CoWarpCraft {
+		return []CoWarpCraft{{Primary: primary, R: a.State.R.Add(dR), V: a.State.V}}
+	}
+	peer := func(crafts []CoWarpCraft) CoWarpPeer {
+		return CoWarpPeer{
+			Owner: "SHA256:gern", Handle: "gern", SubspaceTime: st, EffWarp: 50,
+			ArmedTowardViewer: true, Crafts: crafts,
+		}
+	}
+
+	// Committed approach 0; partner coincident at τ → no degrade.
+	w.EngageRendezvousWarp("SHA256:gern", tau, 0)
+	w.DriveRendezvousWarp([]CoWarpPeer{peer(same(orbital.Vec3{}))})
+	if !w.rendezvousWarpEngaged() {
+		t.Fatal("precondition: coast engaged")
+	}
+	if w.RendezvousDegraded {
+		t.Error("degraded while the partner holds the committed encounter")
+	}
+
+	// Partner drifts 50 km off the committed approach → degrade + readout.
+	tauBefore := w.RendezvousArm.Tau
+	w.DriveRendezvousWarp([]CoWarpPeer{peer(same(orbital.Vec3{X: 50000}))})
+	if !w.RendezvousDegraded {
+		t.Error("no degrade flag after the partner drifted 50 km off τ")
+	}
+	if w.RendezvousApproachM < 40000 {
+		t.Errorf("RendezvousApproachM = %v, want ~50 km", w.RendezvousApproachM)
+	}
+	if !w.RendezvousArm.Tau.Equal(tauBefore) {
+		t.Error("τ was re-targeted — the encounter must be held, only warned")
+	}
+}
 
 // Engage records the arm and is forward-only: an encounter at or behind
 // SimTime is refused (the laggard Syncs forward; you never warp backward).
 func TestEngageRendezvousWarpForwardOnly(t *testing.T) {
 	w, _, st := anchorWorld(t)
 
-	if w.EngageRendezvousWarp("SHA256:gern", st.Add(-time.Hour)) {
+	if w.EngageRendezvousWarp("SHA256:gern", st.Add(-time.Hour), 0) {
 		t.Error("engaged toward a past encounter")
 	}
 	if w.RendezvousArm != nil {
 		t.Error("arm set despite forward-only refusal")
 	}
-	if !w.EngageRendezvousWarp("SHA256:gern", st.Add(72*time.Hour)) {
+	if !w.EngageRendezvousWarp("SHA256:gern", st.Add(72*time.Hour), 0) {
 		t.Fatal("refused a future encounter")
 	}
 	if w.RendezvousArm == nil || w.RendezvousArm.TargetOwner != "SHA256:gern" {
@@ -32,7 +75,7 @@ func TestEngageRendezvousWarpForwardOnly(t *testing.T) {
 // but unpartnered holds warp unchanged (no solo drift).
 func TestDriveRendezvousWarpWaitsForPartner(t *testing.T) {
 	w, primary, st := anchorWorld(t)
-	w.EngageRendezvousWarp("SHA256:gern", st.Add(72*time.Hour))
+	w.EngageRendezvousWarp("SHA256:gern", st.Add(72*time.Hour), 0)
 	peer := armPeer(w, primary, st, 50, "gern")
 	peer.ArmedTowardViewer = false // partner hasn't Engaged yet
 
@@ -47,7 +90,7 @@ func TestDriveRendezvousWarpWaitsForPartner(t *testing.T) {
 func TestDriveRendezvousWarpStartsOnMutual(t *testing.T) {
 	w, primary, st := anchorWorld(t)
 	tau := st.Add(72 * time.Hour)
-	w.EngageRendezvousWarp("SHA256:gern", tau)
+	w.EngageRendezvousWarp("SHA256:gern", tau, 0)
 	w.Clock.Paused = true
 	peer := armPeer(w, primary, st, 50, "gern") // ArmedTowardViewer = true
 
@@ -68,7 +111,7 @@ func TestDriveRendezvousWarpStartsOnMutual(t *testing.T) {
 func TestDriveRendezvousWarpCancelsOnRetract(t *testing.T) {
 	w, primary, st := anchorWorld(t)
 	tau := st.Add(72 * time.Hour)
-	w.EngageRendezvousWarp("SHA256:gern", tau)
+	w.EngageRendezvousWarp("SHA256:gern", tau, 0)
 	peer := armPeer(w, primary, st, 50, "gern")
 	w.DriveRendezvousWarp([]CoWarpPeer{peer}) // engaged
 	if !w.rendezvousWarpEngaged() {
@@ -90,7 +133,7 @@ func TestDriveRendezvousWarpCancelsOnRetract(t *testing.T) {
 func TestDisengageRendezvousWarp(t *testing.T) {
 	w, primary, st := anchorWorld(t)
 	w.Clock.WarpIdx = 3
-	w.EngageRendezvousWarp("SHA256:gern", st.Add(72*time.Hour))
+	w.EngageRendezvousWarp("SHA256:gern", st.Add(72*time.Hour), 0)
 	peer := armPeer(w, primary, st, 50, "gern")
 	w.DriveRendezvousWarp([]CoWarpPeer{peer})
 
@@ -108,7 +151,7 @@ func TestDisengageRendezvousWarp(t *testing.T) {
 func TestRendezvousWarpArrivalHandsOff(t *testing.T) {
 	w, primary, st := anchorWorld(t)
 	tau := st.Add(72 * time.Hour)
-	w.EngageRendezvousWarp("SHA256:gern", tau)
+	w.EngageRendezvousWarp("SHA256:gern", tau, 0)
 	peer := armPeer(w, primary, st, 50, "gern")
 	w.DriveRendezvousWarp([]CoWarpPeer{peer})
 

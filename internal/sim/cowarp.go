@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -92,6 +93,11 @@ type CoWarpPeer struct {
 	// responder adopts verbatim when it Engages back (v0.29 S1). Zero when
 	// the peer is not armed toward the viewer.
 	RendezvousTau time.Time
+
+	// RendezvousCA is the peer's committed predicted approach at Tau (m) —
+	// carried alongside RendezvousTau so a responder adopts the initiator's
+	// authoritative baseline, not its own staler recompute (v0.29 S1).
+	RendezvousCA float64
 }
 
 // RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29 S1,
@@ -102,6 +108,7 @@ type CoWarpPeer struct {
 type RendezvousArm struct {
 	TargetOwner string    // fingerprint of the partner Engaged toward
 	Tau         time.Time // committed absolute encounter sim-time
+	CommittedCA float64   // m — the predicted approach at Tau when Engaged (the degrade baseline)
 }
 
 // rendezvousArmedWith reports whether the viewer has Engaged a Rendezvous
@@ -252,4 +259,69 @@ func sameSubspace(a, b time.Time) bool {
 		d = -d
 	}
 	return d <= coWarpSubspaceToleranceSec
+}
+
+// rendezvousCAAtTau returns the range between the anchor and its armed
+// partner at the committed encounter τ — both Kepler-propagated from the
+// viewer's sim-time to τ in the shared primary frame (v0.29 S1). Held τ:
+// this measures the approach AT τ, it does not re-search for a new minimum
+// (ADR 0034 v0.29 addendum — a degrading encounter warns, never
+// re-targets). ok=false when not armed, the anchor can't propagate, or no
+// same-primary partner craft is in the peer set.
+func (w *World) rendezvousCAAtTau(peers []CoWarpPeer) (float64, bool) {
+	if w.RendezvousArm == nil {
+		return 0, false
+	}
+	anchor := w.ActiveCraft()
+	if anchor == nil || anchor.Landed || anchor.Crashed {
+		return 0, false
+	}
+	dt := w.RendezvousArm.Tau.Sub(w.Clock.SimTime).Seconds()
+	if dt <= 0 {
+		return 0, false
+	}
+	mu := anchor.Primary.GravitationalParameter()
+	mine, ok := physics.KeplerStep(physics.StateVector{R: anchor.State.R, V: anchor.State.V, M: 1}, mu, dt)
+	if !ok {
+		return 0, false
+	}
+	for _, p := range peers {
+		if p.Owner != w.RendezvousArm.TargetOwner || !p.ArmedTowardViewer {
+			continue
+		}
+		for _, c := range p.Crafts {
+			if c.Primary != anchor.Primary.ID {
+				continue
+			}
+			theirs, ok := physics.KeplerStep(physics.StateVector{R: c.R, V: c.V, M: 1}, mu, dt)
+			if !ok {
+				continue
+			}
+			return mine.R.Sub(theirs.R).Norm(), true
+		}
+	}
+	return 0, false
+}
+
+// refreshRendezvousDegrade recomputes the held encounter's approach each
+// tick while the coast runs and flags a degrade when the partner has
+// drifted more than a couple-radius past the committed baseline (v0.29
+// S1) — the S2 warning chip's trigger. τ is held regardless. Clears the
+// flag when not coasting. RendezvousApproachM carries the live approach
+// for the chip's readout.
+func (w *World) refreshRendezvousDegrade(peers []CoWarpPeer) {
+	w.RendezvousDegraded = false
+	w.RendezvousApproachM = 0
+	if !w.rendezvousWarpEngaged() || w.RendezvousArm == nil {
+		return
+	}
+	caAtTau, ok := w.rendezvousCAAtTau(peers)
+	if !ok {
+		return
+	}
+	w.RendezvousApproachM = caAtTau
+	// A couple-radius of drift past the committed approach is "the
+	// encounter you agreed to has meaningfully slipped" — reusing the
+	// couple gate keeps the threshold tied to whether you'd still couple.
+	w.RendezvousDegraded = caAtTau-w.RendezvousArm.CommittedCA > coWarpCoupleRangeM
 }

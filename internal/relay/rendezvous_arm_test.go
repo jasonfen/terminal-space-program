@@ -20,13 +20,14 @@ func TestRendezvousArmThroughSeam(t *testing.T) {
 	handles := map[string]string{ownerB: "bob", ownerA: "alice"}
 	tau := wA.Clock.SimTime.Add(72 * time.Hour)
 
-	// B Engages a Rendezvous Warp toward A.
-	if !wB.EngageRendezvousWarp(ownerA, tau) {
+	// B Engages a Rendezvous Warp toward A with an 8 km committed approach.
+	const committedCA = 8000.0
+	if !wB.EngageRendezvousWarp(ownerA, tau, committedCA) {
 		t.Fatal("B failed to engage")
 	}
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
-	// A adapts B's report — the arm-toward-viewer + τ survive the wire.
+	// A adapts B's report — arm-toward-viewer + τ + committed CA survive.
 	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA)
 	if len(peers) != 1 {
 		t.Fatalf("got %d peers, want 1", len(peers))
@@ -37,9 +38,12 @@ func TestRendezvousArmThroughSeam(t *testing.T) {
 	if !peers[0].RendezvousTau.Equal(tau) {
 		t.Errorf("RendezvousTau = %v, want committed τ %v", peers[0].RendezvousTau, tau)
 	}
+	if peers[0].RendezvousCA != committedCA {
+		t.Errorf("RendezvousCA = %v, want committed %v on the wire", peers[0].RendezvousCA, committedCA)
+	}
 
-	// A Engages back → mutual arm couples them 50 km apart.
-	wA.EngageRendezvousWarp(ownerB, tau)
+	// A adopts the initiator's τ + CA and Engages back → mutual couple 50 km apart.
+	wA.EngageRendezvousWarp(ownerB, peers[0].RendezvousTau, peers[0].RendezvousCA)
 	res := wA.ComputeCoWarp(peers, nil)
 	if !res.State.Coupled {
 		t.Error("mutual arm did not couple across the seam at 50 km")
@@ -55,7 +59,7 @@ func TestRendezvousArmNotForViewer(t *testing.T) {
 
 	const ownerA, ownerB = "SHA256:alice", "SHA256:bob"
 	handles := map[string]string{ownerB: "bob"}
-	wB.EngageRendezvousWarp("SHA256:carol", wA.Clock.SimTime.Add(time.Hour)) // toward someone else
+	wB.EngageRendezvousWarp("SHA256:carol", wA.Clock.SimTime.Add(time.Hour), 0) // toward someone else
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
 	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA)
