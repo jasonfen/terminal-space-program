@@ -1630,17 +1630,39 @@ the vessel).
 The forward-only verb for joining another player's Subspace: the player
 who is behind Auto-Warps to the other's sim-time, living through every
 clamp, node, and SOI transition en route. There is no backward Sync.
+Collapsing Δt this way is the prerequisite for **Rendezvous Warp**: you
+Sync into the same Subspace, then coast to the encounter together.
 _Avoid_: Time-jump, teleport, rewind.
 
 **Proximity Co-Warp**:
-The clamp that couples same-Subspace vessels inside the proximity
-gate — close in both range *and* relative velocity, so a fast flyby
-never couples: Effective Warp becomes the minimum over the coupled
-players, and Subspace splits are blocked until separation. Coupling
-releases only beyond a wider band than it engages (hysteresis), so
-boundary drift can't flap it. A member of the Effective-≤-Selected
-clamp family.
+The **proximity-gated** trigger of Co-Warp: it couples same-Subspace
+vessels inside the proximity gate — close in both range *and* relative
+velocity, so a fast flyby never couples. While coupled, Effective Warp
+becomes the minimum over the coupled players and Subspace splits are
+blocked until separation. Coupling releases only beyond a wider band
+than it engages (hysteresis), so boundary drift can't flap it. A member
+of the Effective-≤-Selected clamp family. Its sibling trigger is
+**Rendezvous Warp**, which reaches the same coupled state before the
+gate, by mutual consent.
 _Avoid_: Warp lock (it doesn't pin to 1×), warp vote.
+
+**Rendezvous Warp**:
+The **mutual-consent** trigger of Co-Warp: it couples two *same-Subspace*
+players *before* the proximity gate so they can fast-forward the coast
+to an encounter together instead of desyncing on independent warp. Each
+player **Engages** it toward the other — a Session-screen row action to
+initiate, a main-screen key to join a pending one; there is no separate
+accept verb, the responder Engages the same Rendezvous Warp. Once both
+have Engaged, their Subspaces rate-lock (min-wins) and Auto-Warp to the
+committed **Time of Closest Approach**, arriving already Co-Warped with
+Δt≈0 — the coupling then continues seamlessly as **Proximity Co-Warp**
+without a drop-and-recouple. The initiator's TCA is authoritative
+(carried in the request). The committed encounter is *held* through the
+coast: a degrading encounter warns but never re-targets, and either
+player may cancel at any time (both release at the same synced sim-time).
+Prerequisite: same Subspace — a diverged pair **Syncs** first.
+_Avoid_: Rendezvous request / handshake (there is no offer/accept step),
+Co-Sync (conflates with **Sync**), Warp lock.
 
 **Docked-as-Guest**:
 The state of a player one of whose craft rides as a component in a
