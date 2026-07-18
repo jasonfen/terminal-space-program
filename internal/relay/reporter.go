@@ -37,10 +37,11 @@ const (
 type Reporter struct {
 	Owner string
 
-	store       *Store
-	lastWall    time.Time
-	lastKeys    []craftKey
-	lastEffWarp float64
+	store        *Store
+	lastWall     time.Time
+	lastKeys     []craftKey
+	lastEffWarp  float64
+	lastRzTarget string // last-reported Rendezvous Warp target (v0.29 S1) — a change forces a report
 }
 
 // effWarpRelTol is the relative change in Effective warp that forces a
@@ -72,18 +73,31 @@ func NewReporter(store *Store, owner string) *Reporter {
 func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	keys, states := snapshotWorld(w)
 	effWarp := w.EffectiveWarp()
-	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat
+	// Rendezvous Warp arm (v0.29 S1): an arm/disarm must reach the partner
+	// promptly (they can't Engage back if they never see it), so a change
+	// in the outgoing intent forces a report the same way an EffWarp change
+	// does — not gated behind the heartbeat.
+	var rzTarget string
+	var rzTau time.Time
+	if w.RendezvousArm != nil {
+		rzTarget = w.RendezvousArm.TargetOwner
+		rzTau = w.RendezvousArm.Tau
+	}
+	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat || r.lastRzTarget != rzTarget
 	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
 		return
 	}
 	r.lastWall = now
 	r.lastKeys = keys
 	r.lastEffWarp = effWarp
+	r.lastRzTarget = rzTarget
 	r.store.Report(CraftReport{
-		Owner:        r.Owner,
-		SubspaceTime: w.Clock.SimTime,
-		Crafts:       states,
-		EffWarp:      effWarp,
+		Owner:            r.Owner,
+		SubspaceTime:     w.Clock.SimTime,
+		Crafts:           states,
+		EffWarp:          effWarp,
+		RendezvousTarget: rzTarget,
+		RendezvousTau:    rzTau,
 	})
 }
 

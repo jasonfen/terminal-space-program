@@ -79,6 +79,36 @@ type CoWarpPeer struct {
 	SubspaceTime time.Time
 	EffWarp      float64
 	Crafts       []CoWarpCraft
+
+	// ArmedTowardViewer is set by the relay adapter when this peer has a
+	// live Rendezvous Warp intent aimed at the viewer (v0.29 S1, ADR 0034
+	// v0.29 addendum). Combined with the viewer's own RendezvousArm
+	// targeting this peer, the two are *mutually* armed and couple before
+	// the proximity gate — the second Co-Warp trigger.
+	ArmedTowardViewer bool
+
+	// RendezvousTau is the peer's committed encounter sim-time when
+	// ArmedTowardViewer — the initiator's authoritative TCA, which the
+	// responder adopts verbatim when it Engages back (v0.29 S1). Zero when
+	// the peer is not armed toward the viewer.
+	RendezvousTau time.Time
+}
+
+// RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29 S1,
+// ADR 0034 v0.29 addendum): the partner they have Engaged toward and the
+// committed encounter sim-time (the initiator's authoritative Time of
+// Closest Approach). Transient like AutoWarp/CoWarp — never persisted,
+// cleared on cancel, on arrival at Tau, and on partner disconnect.
+type RendezvousArm struct {
+	TargetOwner string    // fingerprint of the partner Engaged toward
+	Tau         time.Time // committed absolute encounter sim-time
+}
+
+// rendezvousArmedWith reports whether the viewer has Engaged a Rendezvous
+// Warp toward owner. The mutual condition (both sides armed) also needs
+// the peer's ArmedTowardViewer, checked in ComputeCoWarp.
+func (w *World) rendezvousArmedWith(owner string) bool {
+	return w.RendezvousArm != nil && w.RendezvousArm.TargetOwner == owner
 }
 
 // CoWarpState is the transient co-warp slate the reporting layer writes
@@ -136,8 +166,19 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 		// within the tolerance window anyway. Gating coupledNow on it
 		// keeps State/chips/clamp consistent (no couple without a clamp).
 		if anchorOK && p.EffWarp > 0 && sameSubspace(viewerT, p.SubspaceTime) {
-			if rng, vrel, ok := closestApproach(anchor, p.Crafts); ok {
-				coupledNow = coupleDecide(wasCoupled, rng, vrel)
+			switch {
+			case w.rendezvousArmedWith(p.Owner) && p.ArmedTowardViewer:
+				// Rendezvous trigger (v0.29 S1): both players Engaged toward
+				// each other and share a Subspace — couple *before* the
+				// proximity gate so they can coast to the encounter rate-
+				// locked. On arrival the arm clears; the same coupled state
+				// then continues on the proximity branch below (wasCoupled
+				// carries the hysteresis memory) — no drop-and-recouple.
+				coupledNow = true
+			default:
+				if rng, vrel, ok := closestApproach(anchor, p.Crafts); ok {
+					coupledNow = coupleDecide(wasCoupled, rng, vrel)
+				}
 			}
 		}
 		res.CoupledOwners[p.Owner] = coupledNow

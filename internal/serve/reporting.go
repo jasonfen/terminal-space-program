@@ -178,7 +178,11 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// clamp onto the World for next tick's clampedWarp; emit couple/
 	// release chips on transitions. Same seam as ghosts — reads the
 	// store's reports (which now carry EffWarp), writes transient state.
-	peers := relay.CoWarpPeersFrom(w, others, handles)
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner)
+	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
+	// committed encounter from this tick's mutual-arm state, before the
+	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.
+	w.DriveRendezvousWarp(peers)
 	cw := w.ComputeCoWarp(peers, m.coWarp)
 	m.coWarp = cw.CoupledOwners
 	w.CoWarp = cw.State

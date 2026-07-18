@@ -49,6 +49,17 @@ type CraftReport struct {
 	// a partner's 10× burn cap propagates. A plain float, serialisable
 	// like everything else crossing this interface (store discipline).
 	EffWarp float64 `json:"eff_warp,omitempty"`
+
+	// RendezvousTarget / RendezvousTau carry the reporter's outgoing
+	// Rendezvous Warp intent (v0.29 S1, ADR 0034 v0.29 addendum): the
+	// fingerprint they have Engaged toward and the committed encounter
+	// sim-time. Empty when not armed. CoWarpPeersFrom turns a report whose
+	// RendezvousTarget names the viewer into CoWarpPeer.ArmedTowardViewer,
+	// so the mutual-arm couple trigger can fire; the responder reads the
+	// τ to adopt the initiator's authoritative encounter time. Plain
+	// serialisable values — store discipline preserved.
+	RendezvousTarget string    `json:"rendezvous_target,omitempty"`
+	RendezvousTau    time.Time `json:"rendezvous_tau,omitempty"`
 }
 
 // Store holds the latest report per owner and fans new reports out to

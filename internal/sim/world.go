@@ -209,6 +209,15 @@ type World struct {
 	// zero-value (uncoupled) in single-player.
 	CoWarp CoWarpState
 
+	// RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29
+	// S1, ADR 0034 v0.29 addendum): the partner Engaged toward and the
+	// committed encounter sim-time. Set by EngageRendezvousWarp, read by
+	// ComputeCoWarp for the mutual-arm couple trigger and by the serve
+	// layer to relay the intent. Transient like CoWarp/AutoWarp — never
+	// persisted, cleared on cancel/arrival/partner-disconnect; nil in
+	// single-player.
+	RendezvousArm *RendezvousArm
+
 	// Session and SessionEvents are the multiplayer roster slate and
 	// recent join/leave/sync moments (v0.27 S6) — same contract as
 	// Ghosts: serve-layer written, screen read, transient, nil/empty
@@ -232,6 +241,11 @@ type World struct {
 	// (v0.27 S7) and cleared by the serve wrapper after firing the
 	// arrival chips. Transient, like LastDockEvent.
 	LastSyncArrival *SyncArrival
+
+	// LastRendezvousArrival is set when a Rendezvous Warp coast reaches the
+	// committed encounter τ (v0.29 S1) and cleared by the serve wrapper
+	// after firing the arrival chip. Transient, like LastSyncArrival.
+	LastRendezvousArrival *RendezvousArrival
 
 	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
 	// ADR 0027): which unmanned probes currently reach a ground station.

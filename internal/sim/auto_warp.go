@@ -35,6 +35,16 @@ type AutoWarpTarget struct {
 	Sync       bool
 	SyncHandle string // whose time we're chasing (arrival chip text)
 	SyncOwner  string // their fingerprint — the serve layer re-freezes T from their latest report (a leader at warp is a moving target)
+
+	// Rendezvous (v0.29 S1, ADR 0034 v0.29 addendum): when true the driver
+	// is the shared coast to a mutually-armed encounter — a fixed sim-time
+	// target like Sync, but the target is held (never re-frozen) and
+	// arrival clears the viewer's RendezvousArm so Proximity Co-Warp takes
+	// over the final approach. Started by DriveRendezvousWarp only once
+	// both players are armed.
+	Rendezvous       bool
+	RendezvousOwner  string // partner fingerprint (retract detection + chip)
+	RendezvousHandle string // partner handle (arrival chip text)
 }
 
 // autoWarpEngaged reports whether the driver is active.
@@ -106,6 +116,87 @@ func (w *World) DisengageAutoWarp() { w.AutoWarp = nil }
 type SyncArrival struct {
 	Handle string // whose subspace we arrived in
 	Owner  string // their fingerprint — addresses the "synced to you" chip
+}
+
+// RendezvousArrival marks a completed Rendezvous Warp (v0.29 S1) — set by
+// resolveAutoWarp when the shared coast reaches τ, consumed (and cleared)
+// by the serve wrapper to fire the arrival chip. Transient, like
+// SyncArrival.
+type RendezvousArrival struct {
+	Handle string // the partner whose encounter we arrived at
+	Owner  string // their fingerprint
+}
+
+// EngageRendezvousWarp records the viewer's Rendezvous Warp intent toward
+// partner, committed to the encounter sim-time tau — the initiator's
+// authoritative TCA (v0.29 S1, ADR 0034 v0.29 addendum). It does NOT start
+// the shared coast: DriveRendezvousWarp starts it only once the partner
+// has Engaged back, so the first to Engage never warps solo. Forward-only
+// (tau at/behind SimTime is refused — the laggard Syncs forward). Replaces
+// any prior arm.
+func (w *World) EngageRendezvousWarp(partner string, tau time.Time) bool {
+	if !tau.After(w.Clock.SimTime) {
+		return false
+	}
+	w.RendezvousArm = &RendezvousArm{TargetOwner: partner, Tau: tau}
+	return true
+}
+
+// DisengageRendezvousWarp cancels the viewer's Rendezvous Warp: clear the
+// arm and, if the shared coast had started, release the Auto-Warp
+// (Selected Warp untouched). Either player's cancel releases both — the
+// retraction travels the wire and the partner's DriveRendezvousWarp sees
+// the arm vanish and cancels in turn.
+func (w *World) DisengageRendezvousWarp() {
+	w.RendezvousArm = nil
+	if w.rendezvousWarpEngaged() {
+		w.DisengageAutoWarp()
+	}
+}
+
+// rendezvousWarpEngaged reports whether the Auto-Warp driver is the shared
+// rendezvous coast (vs a node chase or a Sync).
+func (w *World) rendezvousWarpEngaged() bool {
+	return w.AutoWarp != nil && w.AutoWarp.Rendezvous
+}
+
+// DriveRendezvousWarp starts or cancels the shared coast to the committed
+// encounter from this tick's mutual-arm state (v0.29 S1). Called each tick
+// after the co-warp peers are built. The coast starts only once BOTH
+// players are armed toward each other in the same Subspace (no solo
+// drift); if the partner retracts or drops mid-coast it cancels — either
+// side's cancel releases both. Arrival is handled in resolveAutoWarp (it
+// clears the arm), so an armless world with the coast still flagged just
+// releases it here defensively.
+func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
+	if w.RendezvousArm == nil {
+		if w.rendezvousWarpEngaged() {
+			w.DisengageAutoWarp()
+		}
+		return
+	}
+	var partner *CoWarpPeer
+	for i := range peers {
+		p := &peers[i]
+		if p.Owner == w.RendezvousArm.TargetOwner && p.ArmedTowardViewer &&
+			sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
+			partner = p
+			break
+		}
+	}
+	switch {
+	case partner != nil && !w.rendezvousWarpEngaged():
+		w.AutoWarp = &AutoWarpTarget{
+			T:                w.RendezvousArm.Tau,
+			Rendezvous:       true,
+			RendezvousOwner:  w.RendezvousArm.TargetOwner,
+			RendezvousHandle: partner.Handle,
+		}
+		w.Clock.Paused = false
+	case partner == nil && w.rendezvousWarpEngaged():
+		// Partner retracted or dropped mid-coast — release both sides.
+		w.DisengageRendezvousWarp()
+	}
 }
 
 // EngageSyncWarp aims Auto-Warp at a fixed sim-time — Sync to another
@@ -188,6 +279,18 @@ func (w *World) resolveAutoWarp() {
 		if !w.Clock.SimTime.Before(w.AutoWarp.T) {
 			w.Clock.WarpIdx = 0
 			w.LastSyncArrival = &SyncArrival{Handle: w.AutoWarp.SyncHandle, Owner: w.AutoWarp.SyncOwner}
+			w.DisengageAutoWarp()
+		}
+		return
+	}
+	// Rendezvous mode (v0.29 S1): fixed encounter τ, held (never re-frozen
+	// like a Sync leader). At τ, hand off to Proximity Co-Warp — drop to
+	// 1×, clear the arm, and record the arrival for the S2 chip.
+	if w.AutoWarp.Rendezvous {
+		if !w.Clock.SimTime.Before(w.AutoWarp.T) {
+			w.Clock.WarpIdx = 0
+			w.LastRendezvousArrival = &RendezvousArrival{Handle: w.AutoWarp.RendezvousHandle, Owner: w.AutoWarp.RendezvousOwner}
+			w.RendezvousArm = nil
 			w.DisengageAutoWarp()
 		}
 		return
