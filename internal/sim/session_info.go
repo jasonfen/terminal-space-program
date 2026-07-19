@@ -30,6 +30,13 @@ type SessionPlayer struct {
 	// DockedGuest marks a player riding someone's stack. Inert until
 	// the v0.28 "touch" cycle ships cross-player docking.
 	DockedGuest bool
+
+	// WantsRendezvous / RendezvousOut are the roster-row Rendezvous Warp
+	// markers (v0.29 S2): this player is armed toward the viewer awaiting
+	// a response / the viewer is armed toward this player. Both render as
+	// row tags on the Session screen.
+	WantsRendezvous bool
+	RendezvousOut   bool
 }
 
 // SessionInvite is one outstanding invite code (host's screen only).
@@ -60,6 +67,13 @@ const (
 	SessionEventDocked         // cross-player dock fused ("docked with X", v0.28 S5)
 	SessionEventUndocked       // cross-player stack split ("undocked from X", v0.28 S5)
 	SessionEventTransfer       // stack control handed over ("control → X", v0.28 S5)
+
+	// Rendezvous Warp moments (v0.29 S2) — all local-only: each side's
+	// serve wrapper derives them from its own World transitions.
+	SessionEventRendezvousArmed     // a partner armed toward you ("X wants to rendezvous")
+	SessionEventRendezvousArrived   // the shared coast reached τ ("rendezvous with X — encounter reached")
+	SessionEventRendezvousCancelled // the arm/coast was released before τ ("rendezvous with X cancelled")
+	SessionEventRendezvousDegraded  // the held encounter slipped past the committed approach
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

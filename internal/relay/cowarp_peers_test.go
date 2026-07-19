@@ -42,7 +42,7 @@ func TestCoWarpMinWinsThroughSeam(t *testing.T) {
 
 	// A evaluates co-warp against the store and clamps to B's cap.
 	handles := map[string]string{ownerB: "bob"}
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles)
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA)
 	res := wA.ComputeCoWarp(peers, nil)
 	if !res.State.Coupled || res.State.MinWarp != 10 {
 		t.Fatalf("co-warp state = %+v, want coupled at MinWarp 10", res.State)
@@ -66,7 +66,7 @@ func TestCoWarpCoupleThenDecoupleThroughSeam(t *testing.T) {
 	NewReporter(store, ownerA).Tick(wA, time.Now())
 	repB := NewReporter(store, ownerB)
 	repB.Tick(wB, time.Now())
-	res := wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles), nil)
+	res := wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA), nil)
 	if !res.State.Coupled || len(res.NewlyCoupled) != 1 {
 		t.Fatalf("first eval = %+v, want a fresh couple", res)
 	}
@@ -76,7 +76,7 @@ func TestCoWarpCoupleThenDecoupleThroughSeam(t *testing.T) {
 	wB.ActiveCraft().State.R.X += 50_000
 	wB.ActiveCraft().State.V.X += 50 // move the elements so the report fires
 	repB.Tick(wB, time.Now().Add(time.Second))
-	res = wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles), res.CoupledOwners)
+	res = wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA), res.CoupledOwners)
 	if res.State.Coupled {
 		t.Error("still coupled after B drifted 50 km")
 	}

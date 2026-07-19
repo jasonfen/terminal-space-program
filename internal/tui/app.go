@@ -830,6 +830,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.active = screenSession
 			}
 			return a, nil
+		case m.String() == "y" && a.active == screenOrbit && a.world.RendezvousInvite != nil:
+			// Rendezvous Warp respond (v0.29 S2): join the pending invite
+			// from the main screen — no trip to the Session screen. The
+			// responder adopts the initiator's committed τ+CA verbatim off
+			// the wire; the coast starts when the drive sees the mutual
+			// arm. `y` is contextual: without a pending invite it stays a
+			// free key. Forward-only refusal covers a τ that passed
+			// between frames (the invite slate drops it next tick anyway).
+			inv := a.world.RendezvousInvite
+			if a.world.EngageRendezvousWarp(inv.Owner, inv.Handle, inv.Tau, inv.CA) {
+				a.toast(fmt.Sprintf("rendezvous with %s — coasting to the encounter together", inv.Handle))
+			} else {
+				a.toast(fmt.Sprintf("can't join %s — the encounter time has passed", inv.Handle))
+			}
+			return a, nil
 		case key.Matches(m, a.keys.WarpUp):
 			// Manual warp cancels Auto-Warp, then applies (ADR 0016) —
 			// Disengage leaves Selected Warp untouched so the step lands
@@ -852,6 +867,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and reset Selected Warp to the 1× floor (WarpIdx 0). Pause
 			// state is left as-is — this stops accelerating time, it
 			// doesn't resume a paused clock.
+			//
+			// Rendezvous Warp (v0.29 S2): `/` is also the cancel
+			// affordance for an armed/coasting rendezvous. Disengaging
+			// only the Auto-Warp would leave the arm set and the drive
+			// would restart the coast next tick — the arm must clear too
+			// (either side's cancel releases both, via the wire).
+			if a.world.RendezvousArm != nil || a.world.RendezvousWarpEngaged() {
+				a.world.DisengageRendezvousWarp()
+				a.toast("rendezvous warp cancelled")
+			}
 			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpIdx = 0
 			return a, nil
@@ -1712,6 +1737,25 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 			a.statusMsg = fmt.Sprintf("syncing to %s — auto-warp engaged", cmd.Handle)
 		} else {
 			a.statusMsg = fmt.Sprintf("can't sync — %s is no longer ahead", cmd.Handle)
+		}
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.active = screenOrbit
+	case screens.SessionCmdRendezvous:
+		// Rendezvous Warp initiate (v0.29 S2 / ADR 0034 v0.29 addendum):
+		// target the partner's ghost (the advisory + TARGET chip context),
+		// commit the encounter — the K-nudge advisory's post-burn τ+CA, or
+		// the current-course closest approach — and arm toward them. The
+		// coast starts only when they respond (mutual arm); the screen
+		// already gated same-subspace and ghost presence.
+		a.world.SetTargetGhost(cmd.Owner, cmd.CraftID)
+		tau, ca, ok := a.world.RendezvousCommit()
+		switch {
+		case !ok:
+			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
+		case a.world.EngageRendezvousWarp(cmd.Owner, cmd.Handle, tau, ca):
+			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s — waiting for them to join", cmd.Handle)
+		default:
+			a.statusMsg = fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle)
 		}
 		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit

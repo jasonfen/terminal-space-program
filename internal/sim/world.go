@@ -209,6 +209,41 @@ type World struct {
 	// zero-value (uncoupled) in single-player.
 	CoWarp CoWarpState
 
+	// RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29
+	// S1, ADR 0034 v0.29 addendum): the partner Engaged toward and the
+	// committed encounter sim-time. Set by EngageRendezvousWarp, read by
+	// ComputeCoWarp for the mutual-arm couple trigger and by the serve
+	// layer to relay the intent. Transient like CoWarp/AutoWarp — never
+	// persisted, cleared on cancel/arrival/partner-disconnect; nil in
+	// single-player.
+	RendezvousArm *RendezvousArm
+
+	// RendezvousInvite is the incoming half of the mutual arm (v0.29 S2):
+	// a peer armed toward the viewer who has not Engaged back yet.
+	// Refreshed each tick by DriveRendezvousWarp from the co-warp peer
+	// set; the orbit HUD renders the persistent join prompt from it. Nil
+	// while the viewer holds an outgoing arm (pairwise MVP — respond or
+	// cancel first) and once the committed τ has passed. Transient,
+	// serve-written like CoWarp.
+	RendezvousInvite *RendezvousInvite
+
+	// RendezvousHold freezes the viewer's effective warp while the shared
+	// coast runs and the armed partner is paused or behind-diverged
+	// (v0.29 review): the coast leader waits instead of sailing to τ
+	// alone and blowing the subspace tolerance. Set each tick by
+	// DriveRendezvousWarp, read by clampedWarp — a member of the
+	// Effective-≤-Selected clamp family. Transient, serve-written.
+	RendezvousHold bool
+
+	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
+	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
+	// recomputes the approach at the committed τ each tick and sets
+	// Degraded when the partner has drifted a couple-radius past the
+	// committed baseline. ApproachM is the live approach for the S2
+	// warning chip. Transient, serve-written like CoWarp.
+	RendezvousDegraded  bool
+	RendezvousApproachM float64
+
 	// Session and SessionEvents are the multiplayer roster slate and
 	// recent join/leave/sync moments (v0.27 S6) — same contract as
 	// Ghosts: serve-layer written, screen read, transient, nil/empty
@@ -232,6 +267,11 @@ type World struct {
 	// (v0.27 S7) and cleared by the serve wrapper after firing the
 	// arrival chips. Transient, like LastDockEvent.
 	LastSyncArrival *SyncArrival
+
+	// LastRendezvousArrival is set when a Rendezvous Warp coast reaches the
+	// committed encounter τ (v0.29 S1) and cleared by the serve wrapper
+	// after firing the arrival chip. Transient, like LastSyncArrival.
+	LastRendezvousArrival *RendezvousArrival
 
 	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
 	// ADR 0027): which unmanned probes currently reach a ground station.
@@ -1054,6 +1094,14 @@ func (w *World) clampedWarp() float64 {
 	// engaged driver freezes time rather than racing ahead.
 	if w.autoWarpEngaged() && !w.Clock.Paused {
 		selected = WarpFactors[len(WarpFactors)-1]
+	}
+	// v0.29 review: rendezvous hold — while the shared coast runs and the
+	// armed partner is paused or behind-diverged, the leader's time
+	// freezes entirely (an effective pause without touching Clock.Paused
+	// or Selected Warp). DriveRendezvousWarp owns the flag; releasing it
+	// restores exactly the state the player had.
+	if w.RendezvousHold {
+		return 0
 	}
 	// v0.28 S1 (ADR 0034 §5): proximity co-warp. While the active craft
 	// is coupled to a nearby same-subspace player, Effective Warp is the

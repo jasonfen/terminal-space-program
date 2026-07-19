@@ -67,6 +67,12 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// id — moments are too short-lived to warrant a Settings toggle);
 	// declutter still clears it via the empty-id path.
 	add("", cornerTopLeft, v.buildSessionEventsChip(w))
+	// RENDEZVOUS (v0.29 S2): the persistent Rendezvous Warp surface —
+	// join prompt / armed-waiting / coasting readout. Always-on while
+	// the state machine is live (empty id): the join prompt is the
+	// anti-overlook affordance and the coast readout carries the cancel
+	// key; F2 declutter still clears it like SESSION.
+	add("", cornerTopLeft, v.buildRendezvousChip(w))
 	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
 	// vessel-state readouts. Force-shown while a just-blocked command is
 	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
@@ -123,24 +129,37 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 		return nil
 	}
 	now := time.Now()
-	var rows []string
+	type row struct {
+		text  string
+		alert bool // rendered in the Alert style instead of Dim
+	}
+	var rows []row
+	plain := func(text string) { rows = append(rows, row{text: text}) }
 	for _, e := range w.SessionEvents {
 		if now.Sub(e.At) > sessionEventChipTTL {
 			continue
 		}
 		switch e.Kind {
 		case sim.SessionEventJoin:
-			rows = append(rows, "◇ "+e.Handle+" joined")
+			plain("◇ " + e.Handle + " joined")
 		case sim.SessionEventLeave:
-			rows = append(rows, "◇ "+e.Handle+" left")
+			plain("◇ " + e.Handle + " left")
 		case sim.SessionEventSync:
-			rows = append(rows, "◇ "+e.Handle+" synced to you")
+			plain("◇ " + e.Handle + " synced to you")
 		case sim.SessionEventSyncedTo:
-			rows = append(rows, "◇ synced to "+e.Handle)
+			plain("◇ synced to " + e.Handle)
 		case sim.SessionEventCoWarpCoupled:
-			rows = append(rows, "◇ warp coupled with "+e.Handle)
+			plain("◇ warp coupled with " + e.Handle)
 		case sim.SessionEventCoWarpReleased:
-			rows = append(rows, "◇ warp released with "+e.Handle)
+			plain("◇ warp released with " + e.Handle)
+		case sim.SessionEventRendezvousArmed:
+			plain("◇ " + e.Handle + " wants to rendezvous — [y] join")
+		case sim.SessionEventRendezvousArrived:
+			plain("◇ rendezvous: encounter reached — " + e.Handle + " alongside")
+		case sim.SessionEventRendezvousCancelled:
+			plain("◇ rendezvous with " + e.Handle + " cancelled")
+		case sim.SessionEventRendezvousDegraded:
+			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
 		}
 	}
 	if len(rows) == 0 {
@@ -148,9 +167,71 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 	}
 	lines := []string{v.theme.Primary.Render("SESSION")}
 	for _, r := range rows {
-		lines = append(lines, v.theme.Dim.Render(r))
+		if r.alert {
+			lines = append(lines, v.theme.Alert.Render(r.text))
+		} else {
+			lines = append(lines, v.theme.Dim.Render(r.text))
+		}
 	}
 	return lines
+}
+
+// buildRendezvousChip is the persistent Rendezvous Warp surface (v0.29
+// S2, ADR 0034 v0.29 addendum) — one chip, three states, priority
+// engaged > armed > invited:
+//   - coasting: the shared coast runs — countdown to τ, the committed
+//     approach, the live recomputed approach, the degrade warning, and
+//     the cancel key;
+//   - armed-waiting: the viewer Engaged, the partner hasn't — the warp
+//     holds (no solo drift) so the chip says why time isn't moving;
+//   - invited: a partner armed toward the viewer — the anti-overlook
+//     join prompt ([y] responds from here, no trip to the Session
+//     screen).
+//
+// Nil when the state machine is idle, which is almost always.
+func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
+	now := w.Clock.SimTime
+	switch {
+	case w.RendezvousWarpEngaged():
+		aw := w.AutoWarp
+		lines := []string{
+			v.theme.Primary.Render("RENDEZVOUS"),
+			"  coasting with " + aw.RendezvousHandle + " to the encounter",
+			chipRow("τ in:", compactDuration(aw.T.Sub(now))),
+		}
+		if arm := w.RendezvousArm; arm != nil {
+			lines = append(lines, chipRow("committed:", formatRangeM(arm.CommittedCA)))
+		}
+		if w.RendezvousApproachM > 0 {
+			lines = append(lines, chipRow("approach:", formatRangeM(w.RendezvousApproachM)))
+		}
+		if w.RendezvousHold {
+			lines = append(lines, "  "+v.theme.Warning.Render("⏸ holding — waiting for "+aw.RendezvousHandle))
+		}
+		if w.RendezvousDegraded {
+			lines = append(lines, "  "+v.theme.Alert.Render("⚠ encounter degraded — partner drifted off the plan"))
+		}
+		return append(lines, v.theme.Dim.Render("  [/] cancel"))
+	case w.RendezvousArm != nil:
+		arm := w.RendezvousArm
+		return []string{
+			v.theme.Primary.Render("RENDEZVOUS"),
+			v.theme.Warning.Render("  armed → " + arm.Handle + " — waiting for them to join"),
+			chipRow("τ in:", compactDuration(arm.Tau.Sub(now))),
+			chipRow("CA:", formatRangeM(arm.CommittedCA)),
+			v.theme.Dim.Render("  [/] cancel"),
+		}
+	case w.RendezvousInvite != nil:
+		inv := w.RendezvousInvite
+		return []string{
+			v.theme.Primary.Render("RENDEZVOUS"),
+			v.theme.Warning.Render("  ◇ " + inv.Handle + " wants to rendezvous"),
+			chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
+			chipRow("CA:", formatRangeM(inv.CA)),
+			v.theme.Warning.Render("  [y] join"),
+		}
+	}
+	return nil
 }
 
 // anyActiveBurn reports whether any craft in the slate has an in-flight

@@ -50,6 +50,15 @@ type reportingModel struct {
 	// hysteresis input, carried across ticks so a coupled pair keeps the
 	// wider decouple gate. Owner fingerprint → coupled-last-tick.
 	coWarp map[string]bool
+
+	// Rendezvous Warp transition memory (v0.29 S2): last tick's arm /
+	// invite / degrade state, so refreshSession can chip only the
+	// transitions (armed / cancelled / degraded) instead of every tick.
+	rzPartnerOwner  string // outgoing arm's target last tick ("" = unarmed)
+	rzPartnerHandle string
+	rzInviteFrom    string // incoming invite's owner last tick ("" = none)
+	rzInviteHandle  string
+	rzDegraded      bool
 }
 
 // localEventTTL matches the chip's on-screen life; pruning here just
@@ -144,6 +153,59 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// emitRendezvousEvents derives the Rendezvous Warp session moments from
+// the World slate's tick-over-tick transitions (v0.29 S2): a partner's
+// new arm toward the viewer, arrival at τ (consuming the sim's
+// LastRendezvousArrival, mirroring the Sync arrival), a cancel/retract
+// releasing an arm before τ, and the hold-τ degrade flag going up. All
+// local-only chips — each side derives its own from its own World.
+func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
+	chip := func(kind sim.SessionEventKind, handle string) {
+		m.localEvents = append(m.localEvents, sim.SessionEvent{Kind: kind, Handle: handle, At: now})
+	}
+
+	// Arrival first: it clears the arm too, and must not read as a cancel.
+	arrived := false
+	if arr := w.LastRendezvousArrival; arr != nil {
+		w.LastRendezvousArrival = nil
+		chip(sim.SessionEventRendezvousArrived, arr.Handle)
+		arrived = true
+	}
+	// Outgoing arm released before τ — own cancel, partner retract, or
+	// partner drop all land here.
+	if m.rzPartnerOwner != "" && w.RendezvousArm == nil && !arrived {
+		chip(sim.SessionEventRendezvousCancelled, m.rzPartnerHandle)
+	}
+	if arm := w.RendezvousArm; arm != nil {
+		// The arm carries its own display handle (captured at Engage) so
+		// the cancel chip never needs a roster lookup (v0.29 review).
+		m.rzPartnerOwner, m.rzPartnerHandle = arm.TargetOwner, arm.Handle
+	} else {
+		m.rzPartnerOwner, m.rzPartnerHandle = "", ""
+	}
+
+	// Incoming invite: chip the arm moment; a retracted-unanswered invite
+	// (initiator cancelled, or τ passed) chips as cancelled.
+	switch inv := w.RendezvousInvite; {
+	case inv != nil && inv.Owner != m.rzInviteFrom:
+		chip(sim.SessionEventRendezvousArmed, inv.Handle)
+		m.rzInviteFrom, m.rzInviteHandle = inv.Owner, inv.Handle
+	case inv == nil && m.rzInviteFrom != "" && w.RendezvousArm == nil:
+		// Gone without the viewer arming back — not a respond, a retract.
+		chip(sim.SessionEventRendezvousCancelled, m.rzInviteHandle)
+		fallthrough
+	case inv == nil:
+		m.rzInviteFrom, m.rzInviteHandle = "", ""
+	}
+
+	// Hold-τ degrade: warn on the up-transition only (the persistent
+	// RENDEZVOUS chip carries the live approach readout).
+	if w.RendezvousDegraded && !m.rzDegraded {
+		chip(sim.SessionEventRendezvousDegraded, m.rzPartnerHandle)
+	}
+	m.rzDegraded = w.RendezvousDegraded
+}
+
 // handleOf resolves a fingerprint through the cached roster.
 func (m *reportingModel) handleOf(fp string) (string, bool) {
 	for _, p := range m.meta.Roster {
@@ -178,7 +240,14 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// clamp onto the World for next tick's clampedWarp; emit couple/
 	// release chips on transitions. Same seam as ghosts — reads the
 	// store's reports (which now carry EffWarp), writes transient state.
-	peers := relay.CoWarpPeersFrom(w, others, handles)
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner)
+	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
+	// committed encounter from this tick's mutual-arm state, before the
+	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.
+	w.DriveRendezvousWarp(peers)
+	// Rendezvous Warp chips (v0.29 S2): turn this tick's slate
+	// transitions into session moments.
+	m.emitRendezvousEvents(w, now)
 	cw := w.ComputeCoWarp(peers, m.coWarp)
 	m.coWarp = cw.CoupledOwners
 	w.CoWarp = cw.State
@@ -220,6 +289,14 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		IsHost: m.owner == sessiondir.HostFingerprint,
 		Self:   m.owner,
 	}
+	// Rendezvous roster markers (v0.29 S2): who is armed toward the
+	// viewer, and whom the viewer is armed toward.
+	armedTowardViewer := map[string]bool{}
+	for _, p := range peers {
+		if p.ArmedTowardViewer {
+			armedTowardViewer[p.Owner] = true
+		}
+	}
 	for _, p := range m.meta.Roster {
 		row := sim.SessionPlayer{
 			Fingerprint: p.Fingerprint,
@@ -230,6 +307,9 @@ func (m *reportingModel) refreshSession(now time.Time) {
 			// true while any of this player's craft rides in another player's
 			// live stack.
 			DockedGuest: m.srv.dock.IsGuest(p.Fingerprint),
+
+			WantsRendezvous: armedTowardViewer[p.Fingerprint],
+			RendezvousOut:   w.RendezvousArm != nil && w.RendezvousArm.TargetOwner == p.Fingerprint,
 		}
 		if rep, ok := reports[p.Fingerprint]; ok {
 			row.HasReport = true
@@ -361,6 +441,21 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	// docked-as-guest status. Also drop the per-owner hysteresis memory.
 	w.CoWarp = sim.CoWarpState{}
 	w.DockGuest = nil
+	// Rendezvous Warp state is driven by the same gated tick path — clear
+	// it too, or a stale arm/coast/invite would outlive the session
+	// (v0.29 S2, same reasoning as the CoWarp clear above).
+	w.DisengageRendezvousWarp()
+	w.RendezvousInvite = nil
+	w.RendezvousDegraded, w.RendezvousApproachM = false, 0
+	w.RendezvousHold = false
+	// Arrival slates too (v0.29 review): a coast or sync arriving on the
+	// same tick hosting stops must not fire a spurious chip in the next
+	// hosting session.
+	w.LastRendezvousArrival = nil
+	w.LastSyncArrival = nil
+	m.rzPartnerOwner, m.rzPartnerHandle = "", ""
+	m.rzInviteFrom, m.rzInviteHandle = "", ""
+	m.rzDegraded = false
 	m.coWarp = nil
 	m.meta, m.metaAt = sessiondir.Meta{}, time.Time{}
 	m.localEvents = nil

@@ -70,6 +70,7 @@ var helpSections = []helpSection{
 		{"t", "target the selected player's ghost craft (rendezvous / K nudge)"},
 		{"v", "spectate — fit + camera-follow their ghost's orbit ([f] to return)"},
 		{"s", "sync-warp forward to a player ahead of you (forward only)"},
+		{"w", "rendezvous warp — arm a rate-locked coast to your encounter with them"},
 		{"h", "start / stop hosting — accept ssh guests (stop confirms, drops guests)"},
 		{"i / r / x", "host only: mint invite / revoke code / remove player"},
 		{"J", "transfer control of a cross-player docked stack to the guest (map)"},
@@ -78,7 +79,8 @@ var helpSections = []helpSection{
 		{".", "warp up (1× … 100000×)"},
 		{",", "warp down"},
 		{"G", "auto-warp to 30 s before the next burn, then 1×"},
-		{"/", "cancel warp — drop to 1× (also cancels auto-warp)"},
+		{"y", "join a pending rendezvous warp (when a player arms toward you)"},
+		{"/", "cancel warp — drop to 1× (also cancels auto-warp / rendezvous warp)"},
 		{"0", "pause / resume"},
 	}},
 	{"PLAN BURNS", [][2]string{

@@ -144,6 +144,15 @@ fitting the camera to their ghost orbit and following it so you can watch their
 burns play out. Warp clamps, planted burns, and SOI transitions are all honored
 en route.
 
+Closing the distance takes orbits of coasting, so warp there *together*:
+`w` on a player's roster row arms a **rendezvous warp** toward your predicted
+closest approach with them. They get a persistent prompt on their main screen —
+`y` joins — and from that moment your warps are rate-locked (slowest wins) all
+the way to the encounter, planted burns firing en route. Either side cancels
+with `/`; if the encounter drifts off the committed approach mid-coast, a
+warning chip says so. You arrive at closest approach at 1× — already coupled —
+and slide straight into the final approach.
+
 Once you're together, proximity does the rest: come within 10 km of a player
 you're synced with and your time-warp **couples** to theirs, so neither can
 skip ahead during the approach. Dock your craft to theirs and you fly one

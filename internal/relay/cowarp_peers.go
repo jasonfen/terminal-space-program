@@ -20,7 +20,7 @@ import (
 // after the report nor an SOI exit — but a burning peer reports every
 // tick (elements change), so the propagation gap it feeds co-warp with is
 // one tick, not one heartbeat.
-func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string) []sim.CoWarpPeer {
+func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string) []sim.CoWarpPeer {
 	sysName := w.System().Name
 	viewerT := w.Clock.SimTime
 	var out []sim.CoWarpPeer
@@ -52,6 +52,13 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			SubspaceTime: rep.SubspaceTime,
 			EffWarp:      rep.EffWarp,
 			Crafts:       crafts,
+			// Rendezvous Warp (v0.29 S1): this peer is armed toward the
+			// viewer iff its report's intent names us. The committed τ rides
+			// along so the responder can adopt the initiator's value.
+			ArmedTowardViewer: rep.RendezvousTarget != "" && rep.RendezvousTarget == viewerFP,
+			RendezvousTau:     rep.RendezvousTau,
+			RendezvousCA:      rep.RendezvousCA,
+			Paused:            rep.Paused,
 		})
 	}
 	return out
