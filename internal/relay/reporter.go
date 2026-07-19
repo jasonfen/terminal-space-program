@@ -41,7 +41,9 @@ type Reporter struct {
 	lastWall     time.Time
 	lastKeys     []craftKey
 	lastEffWarp  float64
-	lastRzTarget string // last-reported Rendezvous Warp target (v0.29 S1) — a change forces a report
+	lastRzTarget string    // last-reported Rendezvous Warp target (v0.29 S1) — a change forces a report
+	lastRzTau    time.Time // last-reported committed τ — a re-commit toward the SAME partner must also propagate promptly (v0.29 review)
+	lastPaused   bool      // last-reported pause state — the partner's hold-the-leader keys on it (v0.29 review)
 }
 
 // effWarpRelTol is the relative change in Effective warp that forces a
@@ -85,7 +87,9 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		rzTau = w.RendezvousArm.Tau
 		rzCA = w.RendezvousArm.CommittedCA
 	}
-	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat || r.lastRzTarget != rzTarget
+	paused := w.Clock.Paused
+	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat ||
+		r.lastRzTarget != rzTarget || !r.lastRzTau.Equal(rzTau) || r.lastPaused != paused
 	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
 		return
 	}
@@ -93,6 +97,8 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	r.lastKeys = keys
 	r.lastEffWarp = effWarp
 	r.lastRzTarget = rzTarget
+	r.lastRzTau = rzTau
+	r.lastPaused = paused
 	r.store.Report(CraftReport{
 		Owner:            r.Owner,
 		SubspaceTime:     w.Clock.SimTime,
@@ -101,6 +107,7 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		RendezvousTarget: rzTarget,
 		RendezvousTau:    rzTau,
 		RendezvousCA:     rzCA,
+		Paused:           paused,
 	})
 }
 

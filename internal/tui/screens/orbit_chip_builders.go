@@ -205,6 +205,9 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		if w.RendezvousApproachM > 0 {
 			lines = append(lines, chipRow("approach:", formatRangeM(w.RendezvousApproachM)))
 		}
+		if w.RendezvousHold {
+			lines = append(lines, "  "+v.theme.Warning.Render("⏸ holding — waiting for "+aw.RendezvousHandle))
+		}
 		if w.RendezvousDegraded {
 			lines = append(lines, "  "+v.theme.Alert.Render("⚠ encounter degraded — partner drifted off the plan"))
 		}
@@ -213,7 +216,7 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		arm := w.RendezvousArm
 		return []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
-			v.theme.Warning.Render("  armed → " + v.sessionHandleFor(w, arm.TargetOwner) + " — waiting for them to join"),
+			v.theme.Warning.Render("  armed → " + arm.Handle + " — waiting for them to join"),
 			chipRow("τ in:", compactDuration(arm.Tau.Sub(now))),
 			chipRow("CA:", formatRangeM(arm.CommittedCA)),
 			v.theme.Dim.Render("  [/] cancel"),
@@ -229,20 +232,6 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		}
 	}
 	return nil
-}
-
-// sessionHandleFor resolves a fingerprint to a display handle through
-// the session roster slate, falling back to the fingerprint itself
-// outside a session (better an ugly row than an anonymous one).
-func (v *OrbitView) sessionHandleFor(w *sim.World, fp string) string {
-	if w.Session != nil {
-		for _, p := range w.Session.Players {
-			if p.Fingerprint == fp {
-				return p.Handle
-			}
-		}
-	}
-	return fp
 }
 
 // anyActiveBurn reports whether any craft in the slate has an in-flight

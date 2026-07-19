@@ -159,7 +159,7 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // LastRendezvousArrival, mirroring the Sync arrival), a cancel/retract
 // releasing an arm before τ, and the hold-τ degrade flag going up. All
 // local-only chips — each side derives its own from its own World.
-func (m *reportingModel) emitRendezvousEvents(w *sim.World, handles map[string]string, now time.Time) {
+func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
 	chip := func(kind sim.SessionEventKind, handle string) {
 		m.localEvents = append(m.localEvents, sim.SessionEvent{Kind: kind, Handle: handle, At: now})
 	}
@@ -177,12 +177,9 @@ func (m *reportingModel) emitRendezvousEvents(w *sim.World, handles map[string]s
 		chip(sim.SessionEventRendezvousCancelled, m.rzPartnerHandle)
 	}
 	if arm := w.RendezvousArm; arm != nil {
-		m.rzPartnerOwner = arm.TargetOwner
-		if h, ok := handles[arm.TargetOwner]; ok {
-			m.rzPartnerHandle = h
-		} else {
-			m.rzPartnerHandle = arm.TargetOwner
-		}
+		// The arm carries its own display handle (captured at Engage) so
+		// the cancel chip never needs a roster lookup (v0.29 review).
+		m.rzPartnerOwner, m.rzPartnerHandle = arm.TargetOwner, arm.Handle
 	} else {
 		m.rzPartnerOwner, m.rzPartnerHandle = "", ""
 	}
@@ -250,7 +247,7 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	w.DriveRendezvousWarp(peers)
 	// Rendezvous Warp chips (v0.29 S2): turn this tick's slate
 	// transitions into session moments.
-	m.emitRendezvousEvents(w, handles, now)
+	m.emitRendezvousEvents(w, now)
 	cw := w.ComputeCoWarp(peers, m.coWarp)
 	m.coWarp = cw.CoupledOwners
 	w.CoWarp = cw.State
@@ -450,6 +447,12 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	w.DisengageRendezvousWarp()
 	w.RendezvousInvite = nil
 	w.RendezvousDegraded, w.RendezvousApproachM = false, 0
+	w.RendezvousHold = false
+	// Arrival slates too (v0.29 review): a coast or sync arriving on the
+	// same tick hosting stops must not fire a spurious chip in the next
+	// hosting session.
+	w.LastRendezvousArrival = nil
+	w.LastSyncArrival = nil
 	m.rzPartnerOwner, m.rzPartnerHandle = "", ""
 	m.rzInviteFrom, m.rzInviteHandle = "", ""
 	m.rzDegraded = false

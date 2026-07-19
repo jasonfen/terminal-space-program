@@ -90,7 +90,7 @@ func TestRendezvousCancelChipOnRetract(t *testing.T) {
 
 	w := hostApp.World()
 	tau := w.Clock.SimTime.Add(3 * time.Hour)
-	w.EngageRendezvousWarp("SHA256:gern", tau, 500)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 500)
 	srv.relay.Report(gernArmedReport(w, sessiondir.HostFingerprint, tau))
 
 	m, _ = m.Update(sim.TickMsg(time.Now()))
@@ -139,14 +139,19 @@ func TestRendezvousArrivalChip(t *testing.T) {
 	m = tick(m)
 
 	w := hostApp.World()
-	// A near-immediate τ: the first tick starts the coast, then the sim
-	// clock steps past τ and resolveAutoWarp records the arrival.
-	tau := w.Clock.SimTime.Add(50 * time.Millisecond)
-	w.EngageRendezvousWarp("SHA256:gern", tau, 500)
+	// A near τ: the first tick starts the coast, then the sim clock steps
+	// past τ and resolveAutoWarp records the arrival. Enough headroom that
+	// the arm can't hit the expiry gate before the coast engages (the
+	// clock runs in wall time at 1× under -race scheduling).
+	tau := w.Clock.SimTime.Add(500 * time.Millisecond)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 500)
 	srv.relay.Report(gernArmedReport(w, sessiondir.HostFingerprint, tau))
 	m, _ = m.Update(sim.TickMsg(time.Now()))
+	if !w.RendezvousWarpEngaged() {
+		t.Fatal("coast did not engage on the mutual arm")
+	}
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		m, _ = m.Update(sim.TickMsg(time.Now()))
 		var arrived bool

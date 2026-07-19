@@ -96,7 +96,7 @@ func TestCancelWarpCancelsRendezvous(t *testing.T) {
 	}
 	w := a.world
 	tau := w.Clock.SimTime.Add(3 * time.Hour)
-	w.EngageRendezvousWarp("SHA256:guest", tau, 0)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 0)
 	w.AutoWarp = &sim.AutoWarpTarget{T: tau, Rendezvous: true, RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern"}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})

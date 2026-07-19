@@ -839,7 +839,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// free key. Forward-only refusal covers a τ that passed
 			// between frames (the invite slate drops it next tick anyway).
 			inv := a.world.RendezvousInvite
-			if a.world.EngageRendezvousWarp(inv.Owner, inv.Tau, inv.CA) {
+			if a.world.EngageRendezvousWarp(inv.Owner, inv.Handle, inv.Tau, inv.CA) {
 				a.toast(fmt.Sprintf("rendezvous with %s — coasting to the encounter together", inv.Handle))
 			} else {
 				a.toast(fmt.Sprintf("can't join %s — the encounter time has passed", inv.Handle))
@@ -1752,7 +1752,7 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		switch {
 		case !ok:
 			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
-		case a.world.EngageRendezvousWarp(cmd.Owner, tau, ca):
+		case a.world.EngageRendezvousWarp(cmd.Owner, cmd.Handle, tau, ca):
 			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s — waiting for them to join", cmd.Handle)
 		default:
 			a.statusMsg = fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle)

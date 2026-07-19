@@ -108,7 +108,17 @@ func (w *World) ToggleAutoWarp() bool {
 // so the player falls back to exactly the warp they had. This is the
 // manual-cancel / node-invalidated path; the reached-target path in
 // resolveAutoWarp additionally forces WarpIdx to 1×.
-func (w *World) DisengageAutoWarp() { w.AutoWarp = nil }
+//
+// A rendezvous coast is arm + driver as one unit (v0.29 review): every
+// disengage path — manual warp keys, [G] toggle, [/] — must clear the
+// arm too, or DriveRendezvousWarp restarts the coast (and force-unpauses)
+// on the next serve tick, making the cancel a silent no-op.
+func (w *World) DisengageAutoWarp() {
+	if w.rendezvousWarpEngaged() {
+		w.RendezvousArm = nil
+	}
+	w.AutoWarp = nil
+}
 
 // SyncArrival marks a completed Sync (v0.27 S7) — set by
 // resolveAutoWarp at release, consumed (and cleared) by the serve
@@ -129,16 +139,18 @@ type RendezvousArrival struct {
 
 // EngageRendezvousWarp records the viewer's Rendezvous Warp intent toward
 // partner, committed to the encounter sim-time tau — the initiator's
-// authoritative TCA (v0.29 S1, ADR 0034 v0.29 addendum). It does NOT start
-// the shared coast: DriveRendezvousWarp starts it only once the partner
-// has Engaged back, so the first to Engage never warps solo. Forward-only
-// (tau at/behind SimTime is refused — the laggard Syncs forward). Replaces
-// any prior arm.
-func (w *World) EngageRendezvousWarp(partner string, tau time.Time, committedCA float64) bool {
+// authoritative TCA (v0.29 S1, ADR 0034 v0.29 addendum). handle is the
+// partner's display name, captured here so chips and the HUD never have
+// to resolve a fingerprint through a possibly-stale roster. It does NOT
+// start the shared coast: DriveRendezvousWarp starts it only once the
+// partner has Engaged back, so the first to Engage never warps solo.
+// Forward-only (tau at/behind SimTime is refused — the laggard Syncs
+// forward). Replaces any prior arm.
+func (w *World) EngageRendezvousWarp(partner, handle string, tau time.Time, committedCA float64) bool {
 	if !tau.After(w.Clock.SimTime) {
 		return false
 	}
-	w.RendezvousArm = &RendezvousArm{TargetOwner: partner, Tau: tau, CommittedCA: committedCA}
+	w.RendezvousArm = &RendezvousArm{TargetOwner: partner, Handle: handle, Tau: tau, CommittedCA: committedCA}
 	return true
 }
 
@@ -188,7 +200,12 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 	}
 	for i := range peers {
 		p := &peers[i]
-		if p.ArmedTowardViewer && p.RendezvousTau.After(w.Clock.SimTime) {
+		// Same-subspace gate (v0.29 review): an invite from a diverged
+		// peer is not joinable — Engage would succeed but the coast could
+		// never start, so surfacing it would make the [y] prompt a lie.
+		// The prompt reappears if the pair converges again.
+		if p.ArmedTowardViewer && p.RendezvousTau.After(w.Clock.SimTime) &&
+			sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
 			w.RendezvousInvite = &RendezvousInvite{
 				Owner: p.Owner, Handle: p.Handle, Tau: p.RendezvousTau, CA: p.RendezvousCA,
 			}
@@ -197,54 +214,108 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 	}
 }
 
-// DriveRendezvousWarp starts or cancels the shared coast to the committed
-// encounter from this tick's mutual-arm state (v0.29 S1). Called each tick
-// after the co-warp peers are built. The coast starts only once BOTH
-// players are armed toward each other in the same Subspace (no solo
-// drift); if the partner retracts or drops mid-coast it cancels — either
-// side's cancel releases both. Arrival is handled in resolveAutoWarp (it
-// clears the arm), so an armless world with the coast still flagged just
-// releases it here defensively.
+// DriveRendezvousWarp starts, holds, or cancels the shared coast to the
+// committed encounter from this tick's mutual-arm state (v0.29 S1).
+// Called each tick after the co-warp peers are built. The coast starts
+// only once BOTH players are armed toward each other in the same Subspace
+// (no solo drift); a genuine retract or disconnect mid-coast cancels —
+// either side's cancel releases both. Arrival is handled in
+// resolveAutoWarp (it clears the arm), so an armless world with the coast
+// still flagged just releases it here defensively.
 func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
-	if w.RendezvousArm == nil {
+	w.driveRendezvousCoast(peers)
+	// One shared tail (v0.29 review): the degrade recompute reflects this
+	// tick's engaged state, and the invite refresh runs after start/cancel
+	// so a retract this tick can immediately surface another pending arm
+	// (the unarmed viewer is the responder case).
+	w.refreshRendezvousDegrade(peers)
+	w.refreshRendezvousInvite(peers)
+}
+
+func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
+	w.RendezvousHold = false
+	arm := w.RendezvousArm
+	if arm == nil {
 		if w.rendezvousWarpEngaged() {
 			w.DisengageAutoWarp()
 		}
-		w.refreshRendezvousDegrade(peers)
-		// The unarmed viewer is the responder case — a peer's pending arm
-		// surfaces here (v0.29 S2).
-		w.refreshRendezvousInvite(peers)
 		return
 	}
+	// Arm expiry (v0.29 review): an un-started arm whose τ has passed can
+	// never couple — the partner's invite already dropped it (forward-only),
+	// so holding it would freeze the state machine (stuck "waiting" chip,
+	// all future invites suppressed).
+	if !w.rendezvousWarpEngaged() && !arm.Tau.After(w.Clock.SimTime) {
+		w.RendezvousArm = nil
+		return
+	}
+	// Re-arm reconciliation (v0.29 review): the coast must always reflect
+	// the CURRENT arm. A new partner drops the old coast (the start case
+	// below re-aims); a re-committed τ re-freezes T so the driver, the
+	// arm, and the wire never disagree on the encounter time.
+	if w.rendezvousWarpEngaged() {
+		if w.AutoWarp.RendezvousOwner != arm.TargetOwner {
+			w.AutoWarp = nil // the arm survives — this is a re-aim, not a cancel
+		} else if !w.AutoWarp.T.Equal(arm.Tau) {
+			w.AutoWarp.T = arm.Tau
+		}
+	}
+	// Partner match is by identity only. The same-subspace gate applies to
+	// STARTING the coast (below) — an engaged coast instead holds through a
+	// transient divergence (v0.29 review): pause/report gaps must not read
+	// as a retract and destroy the mutual encounter.
 	var partner *CoWarpPeer
 	for i := range peers {
 		p := &peers[i]
-		if p.Owner == w.RendezvousArm.TargetOwner && p.ArmedTowardViewer &&
-			sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
+		if p.Owner == arm.TargetOwner && p.ArmedTowardViewer {
 			partner = p
 			break
 		}
 	}
 	switch {
 	case partner != nil && !w.rendezvousWarpEngaged():
+		// Don't clobber an engaged Sync or node-chase (v0.29 review): the
+		// player's later explicit Auto-Warp wins; the mutual arm waits and
+		// the coast starts once that driver releases.
+		if w.AutoWarp != nil {
+			return
+		}
+		if !sameSubspace(w.Clock.SimTime, partner.SubspaceTime) {
+			return
+		}
+		handle := partner.Handle
+		if handle == "" {
+			handle = arm.Handle
+		}
 		w.AutoWarp = &AutoWarpTarget{
-			T:                w.RendezvousArm.Tau,
+			T:                arm.Tau,
 			Rendezvous:       true,
-			RendezvousOwner:  w.RendezvousArm.TargetOwner,
-			RendezvousHandle: partner.Handle,
+			RendezvousOwner:  arm.TargetOwner,
+			RendezvousHandle: handle,
 		}
 		w.Clock.Paused = false
 	case partner == nil && w.rendezvousWarpEngaged():
-		// Partner retracted or dropped mid-coast — release both sides.
+		// Arrival window (v0.29 review): near τ the partner's arm clearing
+		// is their own ARRIVAL, not a retract — Δt inside the subspace
+		// tolerance means the laggard crosses τ within that window. Finish
+		// the coast; resolveAutoWarp fires the arrival normally.
+		if w.AutoWarp.T.Sub(w.Clock.SimTime).Seconds() <= coWarpSubspaceToleranceSec {
+			return
+		}
+		// Partner genuinely retracted or dropped mid-coast — release both.
 		w.DisengageRendezvousWarp()
+	case partner != nil && w.rendezvousWarpEngaged():
+		// Hold-the-leader (v0.29 review): a paused partner (frozen clock)
+		// or a divergence with the viewer ahead must not let the leader
+		// sail to τ alone. The leader freezes (clampedWarp reads the
+		// flag); the one behind coasts on and closes the gap; the pair
+		// re-locks inside the tolerance. Deadlock-free because only the
+		// AHEAD side ever holds.
+		ahead := w.Clock.SimTime.Sub(partner.SubspaceTime).Seconds()
+		if (partner.Paused && ahead >= 0) || ahead > coWarpSubspaceToleranceSec {
+			w.RendezvousHold = true
+		}
 	}
-	// Hold-τ degrade recompute (v0.29 S1): flag when the held encounter has
-	// slipped past the committed baseline. Runs after start/cancel so it
-	// reflects this tick's engaged state.
-	w.refreshRendezvousDegrade(peers)
-	// Invite slate (v0.29 S2): after start/cancel so a retract this tick
-	// can immediately surface another peer's pending arm.
-	w.refreshRendezvousInvite(peers)
 }
 
 // EngageSyncWarp aims Auto-Warp at a fixed sim-time — Sync to another

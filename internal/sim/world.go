@@ -227,6 +227,14 @@ type World struct {
 	// serve-written like CoWarp.
 	RendezvousInvite *RendezvousInvite
 
+	// RendezvousHold freezes the viewer's effective warp while the shared
+	// coast runs and the armed partner is paused or behind-diverged
+	// (v0.29 review): the coast leader waits instead of sailing to τ
+	// alone and blowing the subspace tolerance. Set each tick by
+	// DriveRendezvousWarp, read by clampedWarp — a member of the
+	// Effective-≤-Selected clamp family. Transient, serve-written.
+	RendezvousHold bool
+
 	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
 	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
 	// recomputes the approach at the committed τ each tick and sets
@@ -1086,6 +1094,14 @@ func (w *World) clampedWarp() float64 {
 	// engaged driver freezes time rather than racing ahead.
 	if w.autoWarpEngaged() && !w.Clock.Paused {
 		selected = WarpFactors[len(WarpFactors)-1]
+	}
+	// v0.29 review: rendezvous hold — while the shared coast runs and the
+	// armed partner is paused or behind-diverged, the leader's time
+	// freezes entirely (an effective pause without touching Clock.Paused
+	// or Selected Warp). DriveRendezvousWarp owns the flag; releasing it
+	// restores exactly the state the player had.
+	if w.RendezvousHold {
+		return 0
 	}
 	// v0.28 S1 (ADR 0034 §5): proximity co-warp. While the active craft
 	// is coupled to a nearby same-subspace player, Effective Warp is the

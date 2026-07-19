@@ -27,7 +27,7 @@ func TestRendezvousInviteSlate(t *testing.T) {
 	}
 
 	// Viewer Engages back (mutual arm) → the prompt clears.
-	w.EngageRendezvousWarp(peer.Owner, tau, 1234)
+	w.EngageRendezvousWarp(peer.Owner, "gern", tau, 1234)
 	w.DriveRendezvousWarp([]CoWarpPeer{peer})
 	if w.RendezvousInvite != nil {
 		t.Error("invite survived the viewer's own arm (mutual — nothing to respond to)")
@@ -61,7 +61,7 @@ func TestRendezvousWarpEngagedExported(t *testing.T) {
 	if w.RendezvousWarpEngaged() {
 		t.Fatal("engaged before any arm")
 	}
-	w.EngageRendezvousWarp("SHA256:gern", st.Add(72*time.Hour), 0)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", st.Add(72*time.Hour), 0)
 	w.DriveRendezvousWarp([]CoWarpPeer{armPeer(w, primary, st, 50, "gern")})
 	if !w.RendezvousWarpEngaged() {
 		t.Error("not engaged after the mutual arm started the coast")

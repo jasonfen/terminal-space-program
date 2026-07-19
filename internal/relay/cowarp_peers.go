@@ -58,6 +58,7 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			ArmedTowardViewer: rep.RendezvousTarget != "" && rep.RendezvousTarget == viewerFP,
 			RendezvousTau:     rep.RendezvousTau,
 			RendezvousCA:      rep.RendezvousCA,
+			Paused:            rep.Paused,
 		})
 	}
 	return out

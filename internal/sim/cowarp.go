@@ -87,6 +87,13 @@ type CoWarpPeer struct {
 	EffWarp      float64
 	Crafts       []CoWarpCraft
 
+	// Paused distinguishes a deliberately paused partner (frozen clock)
+	// from one merely reporting EffWarp 0 — the rendezvous hold keys on
+	// it (v0.29 review). EffWarp alone can't carry this: a held viewer
+	// also reports 0, and treating any 0 as "paused" would deadlock both
+	// sides into mutual holds.
+	Paused bool
+
 	// ArmedTowardViewer is set by the relay adapter when this peer has a
 	// live Rendezvous Warp intent aimed at the viewer (v0.29 S1, ADR 0034
 	// v0.29 addendum). Combined with the viewer's own RendezvousArm
@@ -113,8 +120,19 @@ type CoWarpPeer struct {
 // cleared on cancel, on arrival at Tau, and on partner disconnect.
 type RendezvousArm struct {
 	TargetOwner string    // fingerprint of the partner Engaged toward
+	Handle      string    // partner display name, captured at Engage (chips/HUD never fall back to a raw fingerprint)
 	Tau         time.Time // committed absolute encounter sim-time
-	CommittedCA float64   // m — the predicted approach at Tau when Engaged (the degrade baseline)
+	CommittedCA float64   // m — the predicted post-plan approach at Tau when Engaged (HUD "committed" row)
+
+	// degradeBaseCA is the hold-τ warning baseline: the first approach
+	// actually measured once the shared coast engages (v0.29 review).
+	// CommittedCA can't serve as the baseline — on the advisory path it
+	// is the POST-burn promise while the recompute measures the current
+	// ballistic course, which would flag "degraded" from the first tick
+	// with nothing drifted. Warning on drift past the coast-start
+	// measure keeps the semantics "the encounter got worse mid-coast".
+	degradeBaseCA  float64
+	degradeBaseSet bool
 }
 
 // rendezvousArmedWith reports whether the viewer has Engaged a Rendezvous
@@ -291,6 +309,11 @@ func (w *World) rendezvousCAAtTau(peers []CoWarpPeer) (float64, bool) {
 	if !ok {
 		return 0, false
 	}
+	// Min over the partner's same-primary craft (v0.29 review), mirroring
+	// closestApproach: a partner flying near a deployed probe must not have
+	// the probe's range — first in report order — masquerade as the
+	// encounter.
+	best := math.Inf(1)
 	for _, p := range peers {
 		if p.Owner != w.RendezvousArm.TargetOwner || !p.ArmedTowardViewer {
 			continue
@@ -303,31 +326,72 @@ func (w *World) rendezvousCAAtTau(peers []CoWarpPeer) (float64, bool) {
 			if !ok {
 				continue
 			}
-			return mine.R.Sub(theirs.R).Norm(), true
+			if r := mine.R.Sub(theirs.R).Norm(); r < best {
+				best = r
+			}
 		}
 	}
-	return 0, false
+	if math.IsInf(best, 1) {
+		return 0, false
+	}
+	return best, true
+}
+
+// armedPartnerLacksLocalCraft reports whether the armed partner is still
+// present in the peer set but has no craft left in the anchor's SOI —
+// the partner flew the encounter's neighborhood entirely (v0.29 review).
+// The degrade watchdog treats that as a broken encounter rather than
+// going silently blind.
+func (w *World) armedPartnerLacksLocalCraft(peers []CoWarpPeer) bool {
+	anchor := w.ActiveCraft()
+	if anchor == nil || w.RendezvousArm == nil {
+		return false
+	}
+	for _, p := range peers {
+		if p.Owner != w.RendezvousArm.TargetOwner || !p.ArmedTowardViewer {
+			continue
+		}
+		for _, c := range p.Crafts {
+			if c.Primary == anchor.Primary.ID {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // refreshRendezvousDegrade recomputes the held encounter's approach each
-// tick while the coast runs and flags a degrade when the partner has
-// drifted more than a couple-radius past the committed baseline (v0.29
-// S1) — the S2 warning chip's trigger. τ is held regardless. Clears the
-// flag when not coasting. RendezvousApproachM carries the live approach
-// for the chip's readout.
+// tick while the coast runs and flags a degrade when the encounter has
+// drifted more than a couple-radius past the coast-start baseline (v0.29
+// S1, re-baselined in the v0.29 review — see RendezvousArm.degradeBaseCA
+// for why CommittedCA can't be the baseline) — the S2 warning chip's
+// trigger. τ is held regardless. Clears the flag when not coasting.
+// RendezvousApproachM carries the live approach for the chip's readout.
 func (w *World) refreshRendezvousDegrade(peers []CoWarpPeer) {
 	w.RendezvousDegraded = false
 	w.RendezvousApproachM = 0
-	if !w.rendezvousWarpEngaged() || w.RendezvousArm == nil {
+	arm := w.RendezvousArm
+	if !w.rendezvousWarpEngaged() || arm == nil {
 		return
 	}
 	caAtTau, ok := w.rendezvousCAAtTau(peers)
 	if !ok {
+		// No measurable approach. Almost always benign (τ reached, report
+		// gap) — except a partner who left the anchor's SOI entirely: the
+		// encounter is then broken and the watchdog must warn, not go
+		// silently blind exactly when things are most wrong (v0.29 review).
+		if w.Clock.SimTime.Before(arm.Tau) && w.armedPartnerLacksLocalCraft(peers) {
+			w.RendezvousDegraded = true
+		}
 		return
 	}
+	if !arm.degradeBaseSet {
+		arm.degradeBaseSet, arm.degradeBaseCA = true, caAtTau
+	}
 	w.RendezvousApproachM = caAtTau
-	// A couple-radius of drift past the committed approach is "the
-	// encounter you agreed to has meaningfully slipped" — reusing the
+	// A couple-radius of drift past the coast-start measure is "the
+	// encounter you set out on has meaningfully slipped" — reusing the
 	// couple gate keeps the threshold tied to whether you'd still couple.
-	w.RendezvousDegraded = caAtTau-w.RendezvousArm.CommittedCA > coWarpCoupleRangeM
+	w.RendezvousDegraded = caAtTau-arm.degradeBaseCA > coWarpCoupleRangeM
 }

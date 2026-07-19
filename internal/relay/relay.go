@@ -61,6 +61,11 @@ type CraftReport struct {
 	RendezvousTarget string    `json:"rendezvous_target,omitempty"`
 	RendezvousTau    time.Time `json:"rendezvous_tau,omitempty"`
 	RendezvousCA     float64   `json:"rendezvous_ca,omitempty"` // committed predicted approach at τ (m) — the responder's adopted baseline
+
+	// Paused marks a deliberately paused reporter (Clock.Paused), as
+	// opposed to an EffWarp of 0 from a hold or clamp — the rendezvous
+	// hold-the-leader logic keys on it (v0.29 review).
+	Paused bool `json:"paused,omitempty"`
 }
 
 // Store holds the latest report per owner and fans new reports out to

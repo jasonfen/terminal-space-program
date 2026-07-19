@@ -50,7 +50,7 @@ func TestRendezvousChipInvitePrompt(t *testing.T) {
 func TestRendezvousChipArmedWaiting(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := rendezvousChipWorld(t)
-	w.EngageRendezvousWarp("SHA256:guest", w.Clock.SimTime.Add(2*time.Hour), 900)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", w.Clock.SimTime.Add(2*time.Hour), 900)
 	w.Session = &sim.SessionInfo{Players: []sim.SessionPlayer{
 		{Fingerprint: "SHA256:guest", Handle: "gern"},
 	}}
@@ -66,7 +66,7 @@ func TestRendezvousChipCoastingAndDegraded(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := rendezvousChipWorld(t)
 	tau := w.Clock.SimTime.Add(2 * time.Hour)
-	w.EngageRendezvousWarp("SHA256:guest", tau, 900)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 900)
 	w.AutoWarp = &sim.AutoWarpTarget{
 		T: tau, Rendezvous: true,
 		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
@@ -88,6 +88,13 @@ func TestRendezvousChipCoastingAndDegraded(t *testing.T) {
 	joined = strings.Join(v.buildRendezvousChip(w), "\n")
 	if !strings.Contains(joined, "degraded") {
 		t.Errorf("no degrade warning after the encounter slipped:\n%s", joined)
+	}
+
+	// Hold-the-leader (v0.29 review): the freeze is surfaced, not silent.
+	w.RendezvousHold = true
+	joined = strings.Join(v.buildRendezvousChip(w), "\n")
+	if !strings.Contains(joined, "holding — waiting for gern") {
+		t.Errorf("hold state not surfaced on the chip:\n%s", joined)
 	}
 }
 

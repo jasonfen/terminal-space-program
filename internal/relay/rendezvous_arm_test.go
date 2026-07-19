@@ -22,7 +22,7 @@ func TestRendezvousArmThroughSeam(t *testing.T) {
 
 	// B Engages a Rendezvous Warp toward A with an 8 km committed approach.
 	const committedCA = 8000.0
-	if !wB.EngageRendezvousWarp(ownerA, tau, committedCA) {
+	if !wB.EngageRendezvousWarp(ownerA, "alice", tau, committedCA) {
 		t.Fatal("B failed to engage")
 	}
 	NewReporter(store, ownerB).Tick(wB, time.Now())
@@ -43,10 +43,39 @@ func TestRendezvousArmThroughSeam(t *testing.T) {
 	}
 
 	// A adopts the initiator's τ + CA and Engages back → mutual couple 50 km apart.
-	wA.EngageRendezvousWarp(ownerB, peers[0].RendezvousTau, peers[0].RendezvousCA)
+	wA.EngageRendezvousWarp(ownerB, "bob", peers[0].RendezvousTau, peers[0].RendezvousCA)
 	res := wA.ComputeCoWarp(peers, nil)
 	if !res.State.Coupled {
 		t.Error("mutual arm did not couple across the seam at 50 km")
+	}
+}
+
+// A re-commit toward the SAME partner with a new τ forces a report
+// immediately (v0.29 review) — the partner must never adopt a stale τ
+// off a heartbeat-delayed report. A pause flip force-reports too (the
+// hold-the-leader keys on it).
+func TestReporterForcesOnTauAndPauseChange(t *testing.T) {
+	store := NewStore()
+	w := newWorld(t)
+	const owner = "SHA256:bob"
+	rep := NewReporter(store, owner)
+	tau1 := w.Clock.SimTime.Add(48 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:alice", "alice", tau1, 0)
+	rep.Tick(w, time.Now())
+
+	// Same partner, new τ — nothing else changed; must still report.
+	tau2 := w.Clock.SimTime.Add(60 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:alice", "alice", tau2, 0)
+	rep.Tick(w, time.Now())
+	if got := store.Snapshot("")[0].RendezvousTau; !got.Equal(tau2) {
+		t.Errorf("reported τ = %v after re-commit, want %v (stale-τ split-brain)", got, tau2)
+	}
+
+	// Pause flip rides the wire promptly.
+	w.Clock.Paused = true
+	rep.Tick(w, time.Now())
+	if !store.Snapshot("")[0].Paused {
+		t.Error("pause flip did not force a report — the partner's hold would lag the heartbeat")
 	}
 }
 
@@ -59,7 +88,7 @@ func TestRendezvousArmNotForViewer(t *testing.T) {
 
 	const ownerA, ownerB = "SHA256:alice", "SHA256:bob"
 	handles := map[string]string{ownerB: "bob"}
-	wB.EngageRendezvousWarp("SHA256:carol", wA.Clock.SimTime.Add(time.Hour), 0) // toward someone else
+	wB.EngageRendezvousWarp("SHA256:carol", "carol", wA.Clock.SimTime.Add(time.Hour), 0) // toward someone else
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
 	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA)
