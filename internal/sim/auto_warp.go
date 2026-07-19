@@ -160,6 +160,43 @@ func (w *World) rendezvousWarpEngaged() bool {
 	return w.AutoWarp != nil && w.AutoWarp.Rendezvous
 }
 
+// RendezvousWarpEngaged is the exported form for the tui (v0.29 S2) —
+// the RENDEZVOUS chip forks its armed-waiting vs coasting state on it.
+func (w *World) RendezvousWarpEngaged() bool { return w.rendezvousWarpEngaged() }
+
+// RendezvousInvite is a peer's live Rendezvous Warp intent aimed at the
+// viewer, awaiting a response (v0.29 S2): who, and the committed τ +
+// predicted approach the responder adopts verbatim on join. The World
+// slate field of the same name carries at most one (pairwise MVP).
+type RendezvousInvite struct {
+	Owner  string    // partner fingerprint — EngageRendezvousWarp's target on respond
+	Handle string    // display name for the prompt/chip
+	Tau    time.Time // the initiator's committed encounter sim-time
+	CA     float64   // m — the initiator's committed predicted approach
+}
+
+// refreshRendezvousInvite rebuilds the invite slate from this tick's
+// peer set (v0.29 S2). At most one invite surfaces: the first armed
+// peer with a still-future τ, and only while the viewer has no outgoing
+// arm — once mutually armed (or armed elsewhere) there is nothing to
+// respond to. A past-τ arm is dropped here rather than surfaced, since
+// Engage would refuse it (forward-only).
+func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
+	w.RendezvousInvite = nil
+	if w.RendezvousArm != nil {
+		return
+	}
+	for i := range peers {
+		p := &peers[i]
+		if p.ArmedTowardViewer && p.RendezvousTau.After(w.Clock.SimTime) {
+			w.RendezvousInvite = &RendezvousInvite{
+				Owner: p.Owner, Handle: p.Handle, Tau: p.RendezvousTau, CA: p.RendezvousCA,
+			}
+			return
+		}
+	}
+}
+
 // DriveRendezvousWarp starts or cancels the shared coast to the committed
 // encounter from this tick's mutual-arm state (v0.29 S1). Called each tick
 // after the co-warp peers are built. The coast starts only once BOTH
@@ -174,6 +211,9 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 			w.DisengageAutoWarp()
 		}
 		w.refreshRendezvousDegrade(peers)
+		// The unarmed viewer is the responder case — a peer's pending arm
+		// surfaces here (v0.29 S2).
+		w.refreshRendezvousInvite(peers)
 		return
 	}
 	var partner *CoWarpPeer
@@ -202,6 +242,9 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 	// slipped past the committed baseline. Runs after start/cancel so it
 	// reflects this tick's engaged state.
 	w.refreshRendezvousDegrade(peers)
+	// Invite slate (v0.29 S2): after start/cancel so a retract this tick
+	// can immediately surface another peer's pending arm.
+	w.refreshRendezvousInvite(peers)
 }
 
 // EngageSyncWarp aims Auto-Warp at a fixed sim-time — Sync to another

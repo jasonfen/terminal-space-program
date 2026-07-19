@@ -56,6 +56,12 @@ const (
 	coWarpSubspaceToleranceSec = 120.0
 )
 
+// CoWarpSubspaceTolerance is the exported form of the same-subspace gate
+// (v0.29 S2): the Session screen's Rendezvous Warp row action refuses a
+// partner whose |Δt| exceeds it ("Sync first") so the arm can actually
+// couple rather than sit dead across a subspace divergence.
+const CoWarpSubspaceTolerance = time.Duration(coWarpSubspaceToleranceSec) * time.Second
+
 // CoWarpCraft is one peer craft placed in the anchor's frame — primary-
 // relative position/velocity already propagated to the viewer's sim-time
 // (the relay adapter Kepler-steps the last report across the subspace

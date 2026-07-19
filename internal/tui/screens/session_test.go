@@ -277,6 +277,70 @@ func TestSessionScreenTarget(t *testing.T) {
 	}
 }
 
+// Rendezvous Warp flow (v0.29 S2): [w] on a same-subspace player with a
+// ghost emits the rendezvous command; own row is absent; a player in
+// another subspace gets the "Sync first" refusal; no ghost / no report
+// toast. The footer advertises it.
+func TestSessionScreenRendezvous(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	// gern in Δt tolerance for this test (the fixture has them +2d4h out).
+	w.Session.Players[1].DeltaT = 30 * time.Second
+	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 42, Handle: "gern"}}
+
+	if !strings.Contains(s.Render(w, 120), "[w] rendezvous") {
+		t.Error("footer missing the [w] rendezvous hint")
+	}
+
+	// Own row: absent — no command.
+	if cmd := s.HandleKey(w, key("w")); cmd.Kind != SessionCmdNone {
+		t.Errorf("[w] on own row = %+v, want none", cmd)
+	}
+
+	s.HandleKey(w, key("j")) // gern — in tolerance, has a ghost
+	cmd := s.HandleKey(w, key("w"))
+	if cmd.Kind != SessionCmdRendezvous || cmd.Owner != "SHA256:guest" || cmd.CraftID != 42 || cmd.Handle != "gern" {
+		t.Errorf("rendezvous command = %+v", cmd)
+	}
+
+	// Out of Δt tolerance → "Sync first" refusal.
+	w.Session.Players[1].DeltaT = 2 * 24 * time.Hour
+	if cmd := s.HandleKey(w, key("w")); cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "Sync") {
+		t.Errorf("[w] across subspaces = %+v, want Sync-first toast", cmd)
+	}
+	w.Session.Players[1].DeltaT = 30 * time.Second
+
+	// No ghost in this system → toast.
+	w.Ghosts = nil
+	if cmd := s.HandleKey(w, key("w")); cmd.Kind != SessionCmdToast {
+		t.Errorf("[w] with no ghost = %+v, want toast", cmd)
+	}
+
+	// No report at all → toast.
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j")) // pat: never reported
+	if cmd := s.HandleKey(w, key("w")); cmd.Kind != SessionCmdToast {
+		t.Errorf("[w] with no report = %+v, want toast", cmd)
+	}
+}
+
+// Roster rows carry the Rendezvous Warp markers (v0.29 S2): incoming
+// arm ("wants rendezvous") and outgoing arm ("rendezvous armed").
+func TestSessionScreenRendezvousRowMarkers(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Session.Players[1].WantsRendezvous = true
+	w.Session.Players[2].RendezvousOut = true
+
+	out := s.Render(w, 120)
+	if !strings.Contains(out, "wants rendezvous") {
+		t.Errorf("incoming-arm marker missing:\n%s", out)
+	}
+	if !strings.Contains(out, "rendezvous armed") {
+		t.Errorf("outgoing-arm marker missing:\n%s", out)
+	}
+}
+
 // Spectate flow (v0.28 S6): [v] on a player with a ghost emits the
 // spectate command; on your own row it is absent (no command); on a
 // player with no ghost in the slate it toasts. The footer advertises it.

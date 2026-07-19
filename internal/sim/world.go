@@ -218,6 +218,15 @@ type World struct {
 	// single-player.
 	RendezvousArm *RendezvousArm
 
+	// RendezvousInvite is the incoming half of the mutual arm (v0.29 S2):
+	// a peer armed toward the viewer who has not Engaged back yet.
+	// Refreshed each tick by DriveRendezvousWarp from the co-warp peer
+	// set; the orbit HUD renders the persistent join prompt from it. Nil
+	// while the viewer holds an outgoing arm (pairwise MVP — respond or
+	// cancel first) and once the committed τ has passed. Transient,
+	// serve-written like CoWarp.
+	RendezvousInvite *RendezvousInvite
+
 	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
 	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
 	// recomputes the approach at the committed τ each tick and sets

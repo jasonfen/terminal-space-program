@@ -115,6 +115,44 @@ func (w *World) RecommendedRendezvousBurn() (planner.RendezvousAdvisory, bool) {
 	return advisory, ok
 }
 
+// rendezvousCommitHorizonSec bounds the current-course closest-approach
+// search RendezvousCommit falls back to — the same 4 h window the TARGET
+// chip's TCA row uses, so the committed encounter is one the player can
+// already see on the HUD. Tunable.
+const rendezvousCommitHorizonSec = 4 * 3600.0
+
+// RendezvousCommit returns the encounter the initiator commits a
+// Rendezvous Warp to (v0.29 S2, ADR 0034 v0.29 addendum): the absolute
+// τ and its predicted approach against the current relative target.
+// Prefers the K-nudge advisory's post-burn encounter — the initiator is
+// expected to plant that burn and live through it en route — and falls
+// back to the current-course closest approach when the advisory has no
+// useful nudge (the encounter is already set up). ok=false when no
+// encounter can be found at all: no relative target, cross-primary, or
+// no approach inside the horizon — the App toasts instead of arming.
+func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
+	if adv, aok := w.RecommendedRendezvousBurn(); aok && adv.Ok {
+		return w.Clock.SimTime.Add(time.Duration(adv.TArrival * float64(time.Second))), adv.AchievableCA, true
+	}
+	active := w.ActiveCraft()
+	if active == nil || !w.HasRelativeTarget() {
+		return time.Time{}, 0, false
+	}
+	rT, vT, rok := w.TargetStateRelativeToActivePrimary()
+	if !rok {
+		return time.Time{}, 0, false
+	}
+	mu := active.Primary.GravitationalParameter()
+	tCA, distCA, _, err := planner.NextClosestApproach(
+		orbital.Vec3State{R: active.State.R, V: active.State.V},
+		orbital.Vec3State{R: rT, V: vT},
+		active.Primary, mu, rendezvousCommitHorizonSec)
+	if err != nil || tCA <= 0 {
+		return time.Time{}, 0, false
+	}
+	return w.Clock.SimTime.Add(time.Duration(tCA * float64(time.Second))), distCA, true
+}
+
 // rendezvousTargetPrimary returns the SOI primary the current target
 // orbits, for both a local craft target and a remote ghost (v0.28 S4).
 // ok=false when no relative target is set or the ref is stale.

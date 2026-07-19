@@ -24,8 +24,8 @@ type SessionScreen struct {
 	theme  Theme
 	cursor int // index into the players list
 
-	inviteCursor  int  // index into the invites list (host)
-	inInvites     bool // cursor focus: players vs invites section
+	inviteCursor    int  // index into the invites list (host)
+	inInvites       bool // cursor focus: players vs invites section
 	minting         bool // typing a new invite's handle
 	mintInput       []rune
 	confirmRemove   bool // pending [x] confirmation on the selected player
@@ -49,6 +49,7 @@ const (
 	SessionCmdToast       // surface Message
 	SessionCmdStartHost   // solo → start hosting (v0.28 S3)
 	SessionCmdStopHost    // hosting → stop the listener (v0.28 S3)
+	SessionCmdRendezvous  // arm a Rendezvous Warp toward Owner's ghost Owner/CraftID (v0.29 S2)
 )
 
 // SessionCommand is the screen's finalized action.
@@ -198,6 +199,28 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 			}
 		}
 		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to spectate"}
+	case "w":
+		// Rendezvous Warp (v0.29 S2, ADR 0034 v0.29 addendum): arm the
+		// cooperative coast to the encounter with this player. Gated like
+		// Sync/Spectate — absent on your own row — plus the same-subspace
+		// Δt gate: across a real subspace divergence the arm could never
+		// couple, so refuse with the actionable fix (Sync first).
+		p, ok := s.selectedPlayer(info)
+		if !ok || p.Fingerprint == info.Self {
+			return SessionCommand{}
+		}
+		if !p.HasReport {
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no reported position to rendezvous with"}
+		}
+		if p.DeltaT > sim.CoWarpSubspaceTolerance || p.DeltaT < -sim.CoWarpSubspaceTolerance {
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " is in another subspace — Sync first, then rendezvous"}
+		}
+		for _, g := range w.Ghosts {
+			if g.Owner == p.Fingerprint {
+				return SessionCommand{Kind: SessionCmdRendezvous, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
+			}
+		}
+		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to rendezvous with"}
 	case "s":
 		// Sync-to (v0.27 S7): forward only — the laggard always comes
 		// forward (ADR 0034); someone behind you syncs to you instead.
@@ -320,6 +343,13 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		if p.DockedGuest {
 			tags = append(tags, "docked") // v0.28 S5: live — riding another player's stack
 		}
+		// Rendezvous Warp arm markers (v0.29 S2): who's waiting on whom.
+		if p.WantsRendezvous {
+			tags = append(tags, "wants rendezvous")
+		}
+		if p.RendezvousOut {
+			tags = append(tags, "rendezvous armed")
+		}
 		if len(tags) > 0 {
 			name += s.theme.Dim.Render(" (" + strings.Join(tags, ", ") + ")")
 		}
@@ -338,13 +368,13 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if info.IsHost {
 		b.WriteString("\n" + s.theme.Title.Render(" INVITES ") + "\n\n")
 		// Normalise section focus (review follow-up): revoking the last
-	// invite while focused there must not strand the cursor in an
-	// empty section with tab gated off.
-	if s.inInvites && len(info.Invites) == 0 {
-		s.inInvites = false
-	}
+		// invite while focused there must not strand the cursor in an
+		// empty section with tab gated off.
+		if s.inInvites && len(info.Invites) == 0 {
+			s.inInvites = false
+		}
 
-	if s.minting {
+		if s.minting {
 			b.WriteString("  new invite handle: " + string(s.mintInput) + "▌\n")
 		} else if len(info.Invites) == 0 {
 			b.WriteString(s.theme.Dim.Render("  no outstanding codes — [i] to mint one") + "\n")
@@ -368,7 +398,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if s.confirmStopHost {
 		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
 	}
-	keys := "  [t] target craft  [v] spectate  [s] sync-to"
+	keys := "  [t] target craft  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.IsHost {
 		keys += "  [i] invite  [r] revoke code  [x] remove player  [h] stop hosting  [tab] section"
 	}
