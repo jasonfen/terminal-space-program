@@ -744,6 +744,13 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			BodyIdx: p.Focus.BodyIdx,
 		},
 	}
+	// v0.23 / ADR 0027: the CommNet ground-station catalog is transient —
+	// loaded from the embedded ring + user overlay, never written to the
+	// save (it is catalog data, not player state). NewWorld loads it, so a
+	// world rehydrated from a save must too: without it the connectivity
+	// solve has no station sinks, so every unmanned craft reads NO SIGNAL
+	// and CanCommandCraft refuses new commands to it.
+	w.GroundStations, _ = sim.LoadGroundStations()
 	// v0.9.3 polish: per-craft Target supersedes the payload-level
 	// slot. Per-craft restores happen below, in the wireCrafts loop.
 	// The payload-level field is read here only for backwards-compat
