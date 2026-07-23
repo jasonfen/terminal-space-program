@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -543,6 +544,55 @@ func onlineGuests(info *sim.SessionInfo) int {
 	return n
 }
 
+// Fixed-width table columns for the roster and the invites list
+// (v0.30.1). Laid out in TERMINAL CELLS, not bytes: the name cell
+// carries styled tags, and the cursor marker (▸) and presence dots
+// (●/○) are multi-byte runes — so fmt's %-Ns, which counts bytes,
+// cannot lay this out. Promoting a player used to visibly shift every
+// column after the name because the styled "(admin)" tag spent its
+// invisible ANSI bytes out of the column budget.
+const (
+	colName         = 34
+	colWhere        = 16
+	colCraft        = 18
+	colInviteCode   = 12
+	colInviteHandle = 20
+	// rowIndent is the lead-in every roster row shares: two spaces, the
+	// two-cell cursor marker, the one-cell presence dot, and a space.
+	rowIndent = 6
+)
+
+// padStyled pads cell with spaces to exactly w terminal cells,
+// measuring display width so ANSI escapes and multi-byte runes don't
+// skew it. Unlike the Saves screen's padCell it neither truncates nor
+// appends a gap, because the roster's name cell arrives already styled
+// — truncation happens on the plain text first, via truncWidth.
+func padStyled(cell string, w int) string {
+	if pad := w - lipgloss.Width(cell); pad > 0 {
+		return cell + strings.Repeat(" ", pad)
+	}
+	return cell
+}
+
+// nameCell renders "handle (tag, tag)" into exactly w cells, with the
+// tags dimmed. The handle owns the budget and the tags take what's
+// left, so a long handle costs its own tags rather than the table's
+// alignment.
+func (s *SessionScreen) nameCell(handle string, tags []string, w int) string {
+	if len(tags) == 0 {
+		return padStyled(truncWidth(handle, w), w)
+	}
+	suffix := " (" + strings.Join(tags, ", ") + ")"
+	hw := lipgloss.Width(handle)
+	if hw+lipgloss.Width(suffix) > w {
+		if hw >= w {
+			return padStyled(truncWidth(handle, w), w)
+		}
+		suffix = truncWidth(suffix, w-hw)
+	}
+	return padStyled(handle+s.theme.Dim.Render(suffix), w)
+}
+
 func clamp(v, lo, hi int) int {
 	if hi < lo {
 		return lo
@@ -570,6 +620,10 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	}
 
 	b.WriteString(title + s.theme.Dim.Render(fmt.Sprintf("  %d players", len(info.Players))) + "\n\n")
+	b.WriteString(s.theme.Dim.Render(strings.Repeat(" ", rowIndent)+
+		padStyled("PLAYER", colName)+" "+
+		padStyled("LOCATION", colWhere)+" "+
+		padStyled("CRAFT", colCraft)+" TIME") + "\n")
 	for i, p := range info.Players {
 		marker := "  "
 		if !s.inInvites && i == s.cursor {
@@ -579,7 +633,6 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		if p.Online {
 			dot = s.theme.Primary.Render("●")
 		}
-		name := p.Handle
 		var tags []string
 		switch p.Role {
 		case "host":
@@ -600,9 +653,6 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		if p.RendezvousOut {
 			tags = append(tags, "rendezvous armed")
 		}
-		if len(tags) > 0 {
-			name += s.theme.Dim.Render(" (" + strings.Join(tags, ", ") + ")")
-		}
 		where := "—"
 		if p.System != "" {
 			where = p.System
@@ -615,13 +665,20 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		// viewer's system and fewer craft are targetable here than reported,
 		// spell out the targetable-here count so "%d craft" doesn't mislead
 		// (v0.30 S6 trap). Other-system players read from the system column.
+		// Never on your own row (v0.30.1): the ghost slate excludes the
+		// viewer by construction — you don't ghost yourself — so the count
+		// would always read "(0 here)". It measures what YOU can target,
+		// which is meaningless pointed at yourself.
 		here := len(playerGhosts(w, p.Fingerprint))
 		craft := fmt.Sprintf("%d craft", p.CraftCount)
-		if p.System != "" && p.System == w.System().Name && here < p.CraftCount {
+		if p.Fingerprint != info.Self && p.System != "" && p.System == w.System().Name && here < p.CraftCount {
 			craft = fmt.Sprintf("%d craft (%d here)", p.CraftCount, here)
 		}
-		b.WriteString(fmt.Sprintf("  %s%s %-32s %-16s %-16s %s\n",
-			marker, dot, name, where, craft, formatDeltaT(p, info.Self == p.Fingerprint)))
+		b.WriteString("  " + padStyled(marker, 2) + dot + " " +
+			s.nameCell(p.Handle, tags, colName) + " " +
+			padStyled(where, colWhere) + " " +
+			padStyled(craft, colCraft) + " " +
+			formatDeltaT(p, info.Self == p.Fingerprint) + "\n")
 
 		// Craft picker (v0.30 S6): when this player's sub-list is open,
 		// enumerate their targetable ghosts (glyph + name) with a second
@@ -655,13 +712,20 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		} else if len(info.Invites) == 0 {
 			b.WriteString(s.theme.Dim.Render("  no outstanding codes — [i] to mint one") + "\n")
 		}
+		if len(info.Invites) > 0 {
+			b.WriteString(s.theme.Dim.Render("    "+
+				padStyled("CODE", colInviteCode)+" "+
+				padStyled("HANDLE", colInviteHandle)+" AGE") + "\n")
+		}
 		for i, inv := range info.Invites {
 			marker := "  "
 			if s.inInvites && i == s.inviteCursor {
 				marker = s.theme.Primary.Render("▸ ")
 			}
-			b.WriteString(fmt.Sprintf("  %s%s  %-16s %s\n",
-				marker, inv.Code, inv.Handle, s.theme.Dim.Render(compactDuration(inv.Age)+" old")))
+			b.WriteString("  " + padStyled(marker, 2) +
+				padStyled(truncWidth(inv.Code, colInviteCode), colInviteCode) + " " +
+				padStyled(truncWidth(inv.Handle, colInviteHandle), colInviteHandle) + " " +
+				s.theme.Dim.Render(compactDuration(inv.Age)+" old") + "\n")
 		}
 	}
 

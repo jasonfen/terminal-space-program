@@ -796,3 +796,135 @@ func TestSessionScreenRestartRefusalToast(t *testing.T) {
 		t.Error("guest [u] armed the restart confirm")
 	}
 }
+
+// dimCSI wraps text in a real dim/reset pair, hand-built so the test
+// doesn't depend on lipgloss's environment-dependent color profile
+// (same technique as the navball panel tests).
+func dimCSI(s string) string { return "\x1b[2m" + s + "\x1b[0m" }
+
+// displayCol reports where needle starts in TERMINAL CELLS, not bytes —
+// the roster's markers (▸) and presence dots (●/○) are multi-byte runes,
+// so a byte offset says nothing about alignment.
+func displayCol(t *testing.T, line, needle string) int {
+	t.Helper()
+	i := strings.Index(line, needle)
+	if i < 0 {
+		t.Fatalf("%q not found in %q", needle, line)
+	}
+	return lipgloss.Width(line[:i])
+}
+
+// padCell must pad to a display width, so a styled cell occupies the
+// same number of columns as a plain one. This is the actual defect
+// behind the playtest report: fmt's %-32s counts the invisible ANSI
+// bytes of a styled tag against the column budget, so promoting a
+// player (which adds a styled "(admin)") shifted every column after it.
+func TestPadStyledIgnoresANSI(t *testing.T) {
+	plain := padStyled("gern", 20)
+	styled := padStyled("gern"+dimCSI(" (admin)"), 20)
+	if lipgloss.Width(plain) != 20 || lipgloss.Width(styled) != 20 {
+		t.Errorf("padCell widths = plain %d, styled %d, want 20 and 20",
+			lipgloss.Width(plain), lipgloss.Width(styled))
+	}
+}
+
+// Over-long content is truncated into its column instead of pushing the
+// rest of the row right.
+func TestTruncWidthFitsColumn(t *testing.T) {
+	got := truncWidth(strings.Repeat("verylonghandle", 4), 20)
+	if lipgloss.Width(got) > 20 {
+		t.Errorf("truncPlain width = %d, want <= 20 (%q)", lipgloss.Width(got), got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("truncated text should be ellipsised, got %q", got)
+	}
+	if short := truncWidth("gern", 20); short != "gern" {
+		t.Errorf("truncPlain shortened a fitting string: %q", short)
+	}
+}
+
+// The roster is a fixed-width table: every row puts its columns in the
+// same terminal cell, whatever the name cell holds (v0.30.1, playtest).
+func TestSessionScreenColumnsStayAligned(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	rowFor := func(w *sim.World, handle string) string {
+		for _, line := range strings.Split(stripANSI(s.Render(w, 140)), "\n") {
+			if strings.Contains(line, handle) {
+				return line
+			}
+		}
+		t.Fatalf("no roster row for %q", handle)
+		return ""
+	}
+
+	// A tagged row (jason — "host, you") and an untagged one (dave) must
+	// agree on where the location column starts.
+	w := sessionWorld(t, true)
+	tagged := displayCol(t, rowFor(w, "jason"), "Sol/earth")
+	plain := displayCol(t, rowFor(w, "dave"), "Lumen/lumen")
+	if tagged != plain {
+		t.Errorf("location column: tagged row at cell %d, untagged at %d — table is ragged", tagged, plain)
+	}
+
+	// The reported case: promoting must not move gern's columns.
+	before := displayCol(t, rowFor(w, "gern"), "Sol/moon")
+	beforeCraft := displayCol(t, rowFor(w, "gern"), "1 craft")
+	w.Session.Players[1].Role = "admin"
+	if after := displayCol(t, rowFor(w, "gern"), "Sol/moon"); before != after {
+		t.Errorf("promoting shifted the location column: cell %d → %d", before, after)
+	}
+	if after := displayCol(t, rowFor(w, "gern"), "1 craft"); beforeCraft != after {
+		t.Errorf("promoting shifted the craft column: cell %d → %d", beforeCraft, after)
+	}
+
+	// An over-long handle is truncated into its column, not allowed to
+	// push the row's remaining columns right.
+	w2 := sessionWorld(t, true)
+	w2.Session.Players[1].Handle = strings.Repeat("verylonghandle", 4)
+	if got, want := displayCol(t, rowFor(w2, "Sol/moon"), "Sol/moon"), plain; got != want {
+		t.Errorf("a long handle broke the table: location at cell %d, want %d", got, want)
+	}
+}
+
+// The invites table holds its columns too, whatever the code length.
+func TestSessionScreenInviteColumnsStayAligned(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Session.Invites = []sim.SessionInvite{
+		{Code: "AB2C-DE3F", Handle: "newbie", Age: 3 * time.Minute},
+		{Code: "SHORT", Handle: "second", Age: time.Minute},
+	}
+	lines := strings.Split(stripANSI(s.Render(w, 140)), "\n")
+	var a, b string
+	for _, l := range lines {
+		if strings.Contains(l, "newbie") {
+			a = l
+		}
+		if strings.Contains(l, "second") {
+			b = l
+		}
+	}
+	if x, y := displayCol(t, a, "newbie"), displayCol(t, b, "second"); x != y {
+		t.Errorf("invite handle column is ragged: cell %d vs %d\n  %q\n  %q", x, y, a, b)
+	}
+}
+
+// Your own row must never carry the "(N here)" annotation (v0.30.1).
+// The ghost slate deliberately excludes the viewer — you don't ghost
+// yourself — so playerGhosts is always empty for your own fingerprint,
+// and the S6 annotation read "2 craft (0 here)" on every self row with
+// craft. The count is about what YOU can target; it is meaningless
+// pointed at yourself.
+func TestSessionScreenSelfRowHasNoTargetableCount(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true) // jason is self, 2 craft, in Sol
+	out := stripANSI(s.Render(w, 140))
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "jason") && strings.Contains(line, "here)") {
+			t.Errorf("self row claims a targetable count:\n  %q", line)
+		}
+	}
+	if !strings.Contains(out, "2 craft") {
+		t.Errorf("self row lost its craft count:\n%s", out)
+	}
+}
