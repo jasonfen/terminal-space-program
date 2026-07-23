@@ -286,7 +286,9 @@ func TestSessionScreenAdminView(t *testing.T) {
 	if !strings.Contains(out, "INVITES") || !strings.Contains(out, "[i] invite") {
 		t.Errorf("admin screen missing the invites pane:\n%s", out)
 	}
-	if strings.Contains(out, "[p] promote/demote") || strings.Contains(out, "[x] remove player") || strings.Contains(out, "stop hosting") {
+	// Admins can remove guests (S3), so [x] is theirs; but delegation and
+	// server lifecycle stay host-only.
+	if strings.Contains(out, "[p] promote/demote") || strings.Contains(out, "stop hosting") {
 		t.Errorf("admin screen offers host-only keys:\n%s", out)
 	}
 	// [i] arms minting for the admin.
@@ -298,6 +300,54 @@ func TestSessionScreenAdminView(t *testing.T) {
 	s.HandleKey(w, key("j")) // move off self
 	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdNone {
 		t.Errorf("admin [p] = %+v, want no command (delegation is host-only)", cmd)
+	}
+}
+
+// Removal row-gating for an admin viewer (v0.30 S3): [x] arms on a
+// guest row, but not on another admin's row, the host's row, or the
+// viewer's own row.
+func TestSessionScreenAdminRemoveGating(t *testing.T) {
+	// Viewer is gern (a promoted admin). Fixture roster: host, gern
+	// (self), dave, pat — mark dave an admin, pat stays a guest.
+	w := sessionWorld(t, false)
+	w.Session.CanAdminister = true
+	w.Session.Players[2].Role = "admin" // dave → admin
+
+	// Row 0 host: not offered.
+	s := NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("x"))
+	if s.confirmRemove {
+		t.Error("[x] armed on the host row")
+	}
+
+	// Row 1 self (gern): not offered.
+	s = NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("x"))
+	if s.confirmRemove {
+		t.Error("[x] armed on the viewer's own row")
+	}
+
+	// Row 2 dave (admin): an admin can't remove another admin.
+	s = NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("x"))
+	if s.confirmRemove {
+		t.Error("[x] armed on another admin's row")
+	}
+
+	// Row 3 pat (guest): offered → confirm → removal command.
+	s = NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("x"))
+	if !s.confirmRemove {
+		t.Fatal("[x] didn't arm on a guest row")
+	}
+	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdRemove || cmd.Fingerprint != "SHA256:never" {
+		t.Errorf("guest removal command = %+v", cmd)
 	}
 }
 

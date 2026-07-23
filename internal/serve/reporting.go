@@ -128,6 +128,13 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case screens.SessionCmdRevoke:
 			_ = m.srv.store.RevokeInvite(admin.Cmd.Code)
 		case screens.SessionCmdRemove:
+			// Target-aware guardrail (v0.30 S3): an admin may remove guests
+			// but not the host, another admin, or themselves. MayAdminister
+			// passed above; MayRemove adds the actor×target rules.
+			if !m.srv.store.MayRemove(m.owner, admin.Cmd.Fingerprint) {
+				m.app.Toast("you can't remove that player")
+				return m, nil
+			}
 			_ = m.srv.store.RemovePlayer(admin.Cmd.Fingerprint)
 		case screens.SessionCmdPromote, screens.SessionCmdDemote:
 			// Delegation is host-only — an admin can neither create nor

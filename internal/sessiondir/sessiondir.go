@@ -438,6 +438,52 @@ func (s *Store) MayDelegate(fingerprint string) bool {
 	return p.Role == RoleHost
 }
 
+// MayRemove reports whether actor may remove target from the roster
+// (v0.30 S3, #224) — the guardrail matrix for the first admin power that
+// can lock someone out. The rules keep escalation single-rooted:
+//
+//   - the actor must carry the admin capability (host or admin);
+//   - nobody removes themselves (avoids a self-inflicted lockout);
+//   - nobody removes the host (the session's root);
+//   - an admin may not remove another admin — only the host may
+//     (mirrors promotion being host-only).
+//
+// Both fingerprints must be enrolled. The store's RemovePlayer still
+// guards the host independently; this predicate is the actor-aware gate
+// the serve handler consults before calling it.
+func (s *Store) MayRemove(actor, target string) bool {
+	if actor == target {
+		return false
+	}
+	m, err := s.Meta()
+	if err != nil {
+		return false
+	}
+	var actorRole, targetRole string
+	var haveActor, haveTarget bool
+	for _, p := range m.Roster {
+		switch p.Fingerprint {
+		case actor:
+			actorRole, haveActor = p.Role, true
+		case target:
+			targetRole, haveTarget = p.Role, true
+		}
+	}
+	if !haveActor || !haveTarget {
+		return false
+	}
+	if !roleMayAdminister(actorRole) {
+		return false
+	}
+	if targetRole == RoleHost {
+		return false
+	}
+	if actorRole == RoleAdmin && targetRole == RoleAdmin {
+		return false
+	}
+	return true
+}
+
 // PromoteAdmin grants the admin role to an enrolled guest by
 // fingerprint. Idempotent — re-promoting an admin is a no-op. The host
 // is rejected (already root) and an unknown fingerprint returns
