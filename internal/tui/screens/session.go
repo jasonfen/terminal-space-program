@@ -346,6 +346,51 @@ func mayRemoveRow(info *sim.SessionInfo, p sim.SessionPlayer) bool {
 	return true
 }
 
+// releasesPageURL is where an install without adopt tooling is pointed
+// to update manually (v0.30 S5).
+const releasesPageURL = "github.com/jasonfen/terminal-space-program/releases"
+
+// adopting reports whether the [u] restart should be framed as adopting
+// an available release: a newer version exists AND the supervisor
+// signalled adopt-capability. Absent either, [u] is a plain restart and
+// the readout points at the manual update path — the UI never offers an
+// update it can't perform.
+func adopting(info *sim.SessionInfo) bool {
+	return info.AvailableVersion != "" && info.AdoptCapable
+}
+
+// restartKeyLabel is the footer label for [u] — "restart to adopt vX"
+// when adopting, else a plain "restart server".
+func restartKeyLabel(info *sim.SessionInfo) string {
+	if adopting(info) {
+		return "[u] restart to adopt " + displayVer(info.AvailableVersion)
+	}
+	return "[u] restart server"
+}
+
+// restartPrompt is the confirmation line for [u], adopt-aware and naming
+// the drop count.
+func restartPrompt(info *sim.SessionInfo) string {
+	if adopting(info) {
+		return fmt.Sprintf("restart to adopt %s? drops %d player(s) — progress persists, they reconnect",
+			displayVer(info.AvailableVersion), onlineGuests(info))
+	}
+	return fmt.Sprintf("restart server? drops %d player(s) — progress persists, they reconnect", onlineGuests(info))
+}
+
+// displayVer normalises a version string for display: a numeric SemVer
+// gets a leading "v" (release ldflags strip it); a non-numeric build
+// string like "dev" is shown as-is.
+func displayVer(v string) string {
+	if v == "" {
+		return v
+	}
+	if v[0] >= '0' && v[0] <= '9' {
+		return "v" + v
+	}
+	return v
+}
+
 // onlineGuests counts online roster members other than the viewer
 // (the host) — the population a stop-hosting drops (v0.28 S3).
 func onlineGuests(info *sim.SessionInfo) int {
@@ -464,11 +509,27 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
 	}
 	if s.confirmRestart {
-		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  restart server? drops %d player(s) — progress persists, they reconnect [y/n]", onlineGuests(info))) + "\n")
+		b.WriteString(s.theme.Alert.Render("  "+restartPrompt(info)+" [y/n]") + "\n")
 	}
+
+	// Version surface (v0.30 S5): always show the running version; when a
+	// newer release exists, show it, and — on a box with no adopt tooling
+	// — point at the manual update path so the UI never offers an update
+	// it can't perform.
+	if info.RunningVersion != "" {
+		line := "  running " + displayVer(info.RunningVersion)
+		if info.AvailableVersion != "" {
+			line += " — update available: " + displayVer(info.AvailableVersion)
+		}
+		b.WriteString(s.theme.Dim.Render(line) + "\n")
+		if info.AvailableVersion != "" && !info.AdoptCapable {
+			b.WriteString(s.theme.Dim.Render("  update manually — "+releasesPageURL) + "\n")
+		}
+	}
+
 	keys := "  [t] target craft  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
-		keys += "  [i] invite  [r] revoke code  [x] remove player  [u] restart server"
+		keys += "  [i] invite  [r] revoke code  [x] remove player  " + restartKeyLabel(info)
 	}
 	if info.IsHost {
 		keys += "  [p] promote/demote  [h] stop hosting"

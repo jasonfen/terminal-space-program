@@ -58,6 +58,12 @@ type Server struct {
 	dock     *relay.DockLedger
 	presence *presence
 
+	// ver is the running-vs-available version readout (v0.30 S5). Created
+	// here (no network — just the running version + adopt-capability env);
+	// its background poll starts in Serve, so unit tests that never call
+	// Serve stay off the wire.
+	ver *versionSurface
+
 	// sessions tracks in-flight session handlers (including their
 	// final persist) so shutdown can wait for payload writes instead
 	// of racing process exit (review follow-up).
@@ -108,7 +114,7 @@ func New(cfg Config) (*Server, error) {
 	if _, err := store.EnsureHost(hostHandle()); err != nil {
 		return nil, fmt.Errorf("serve: enroll host: %w", err)
 	}
-	srv := &Server{store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(), presence: newPresence()}
+	srv := &Server{store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(), presence: newPresence(), ver: newVersionSurface()}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
 	// a guest whose craft rode along in another player's stack reconnects
@@ -155,8 +161,13 @@ func hostHandle() string {
 func (s *Server) Addr() string { return s.ln.Addr().String() }
 
 // Serve accepts sessions until Shutdown; it blocks. A graceful
-// shutdown returns nil.
+// shutdown returns nil. The version-surface poll runs for the listener's
+// life (v0.30 S5) — started here, not in New, so it is off the wire in
+// unit tests that never serve.
 func (s *Server) Serve() error {
+	stop := make(chan struct{})
+	go s.ver.watch(stop)
+	defer close(stop)
 	err := s.ssh.Serve(s.ln)
 	if err != nil && !errors.Is(err, ssh.ErrServerClosed) {
 		return err
