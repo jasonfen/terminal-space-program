@@ -113,6 +113,15 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// wrapper owns the store access; the App below only dispatched.
 	// Inert until a server exists (solo has nothing to administer).
 	if admin, ok := msg.(screens.SessionAdminMsg); ok && m.srv != nil {
+		// Authorization is a capability enforced HERE, not in the UI (v0.30
+		// S1, #222). The Session screen hides admin keys from guests, but
+		// that is UX, not the security boundary: a guest's forged intent
+		// reaches this handler directly and must be refused. Refusal is a
+		// silent no-op plus a toast to the sender — never a crash.
+		if !m.srv.store.MayAdminister(m.owner) {
+			m.app.Toast("only the host can administer the session")
+			return m, nil
+		}
 		switch admin.Cmd.Kind {
 		case screens.SessionCmdMint:
 			_, _ = m.srv.store.MintInvite(admin.Cmd.Handle)

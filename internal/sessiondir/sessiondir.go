@@ -397,6 +397,29 @@ func (s *Store) RemovePlayer(fingerprint string) error {
 	return ErrNotEnrolled
 }
 
+// MayAdminister reports whether the given fingerprint may perform
+// session-admin actions — minting/revoking invites and removing
+// players. It is the single authorization predicate the serve-layer
+// handler consults before acting (v0.30 S1, #222): authorization is a
+// capability decided here, in the store, not a UI-presentation detail.
+// Today only the host qualifies; the admin role (v0.30 S2) extends
+// roleMayAdminister without touching any caller. An unknown or
+// unenrolled fingerprint may not administer.
+func (s *Store) MayAdminister(fingerprint string) bool {
+	p, err := s.FindPlayer(fingerprint)
+	if err != nil {
+		return false
+	}
+	return roleMayAdminister(p.Role)
+}
+
+// roleMayAdminister centralises which roster roles carry the admin
+// capability, so granting the admin role (S2) is a one-line change here
+// rather than a re-plumb of every caller.
+func roleMayAdminister(role string) bool {
+	return role == RoleHost
+}
+
 // FindPlayer looks a fingerprint up in the roster.
 func (s *Store) FindPlayer(fingerprint string) (Player, error) {
 	m, err := s.Meta()

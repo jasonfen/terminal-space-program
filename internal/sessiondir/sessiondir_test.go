@@ -84,6 +84,33 @@ func TestEnsureHostIdempotent(t *testing.T) {
 	}
 }
 
+// MayAdminister is the capability predicate the serve handler gates on
+// (v0.30 S1, #222): true for the host, false for guests and for
+// fingerprints not in the roster.
+func TestMayAdminister(t *testing.T) {
+	s := openStore(t)
+	if _, err := s.EnsureHost("jason"); err != nil {
+		t.Fatalf("EnsureHost: %v", err)
+	}
+	inv, err := s.MintInvite("dave")
+	if err != nil {
+		t.Fatalf("MintInvite: %v", err)
+	}
+	if _, err := s.Enroll(inv.Code, "SHA256:guest", "dave"); err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+
+	if !s.MayAdminister(HostFingerprint) {
+		t.Error("host may not administer")
+	}
+	if s.MayAdminister("SHA256:guest") {
+		t.Error("guest may administer")
+	}
+	if s.MayAdminister("SHA256:stranger") {
+		t.Error("unenrolled fingerprint may administer")
+	}
+}
+
 // Invite codes are one-time: enroll consumes; a second enroll (or a
 // bogus code) is rejected. Peek validates without consuming, and the
 // handle is editable at enroll.

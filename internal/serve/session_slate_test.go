@@ -178,3 +178,37 @@ func TestSessionAdminCommands(t *testing.T) {
 		t.Errorf("remove via admin msg: %v", err)
 	}
 }
+
+// Authorization is enforced in the handler, not the UI (v0.30 S1, #222):
+// an admin intent forged from a guest-owned session — the UI never
+// offers it, but the message reaches the handler directly — is refused,
+// leaving the store untouched.
+func TestSessionAdminAuthorizedInHandler(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+	enrollDirect(t, srv, "SHA256:mallory", "mallory")
+
+	guestApp, err := srv.newGuestApp("SHA256:mallory")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	// The guest's own wrapper, owned by the guest fingerprint.
+	guest := tick(srv.withReporting(guestApp, "SHA256:mallory"))
+
+	// Forge each admin intent from the guest session.
+	guest, _ = guest.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdMint, Handle: "sneaky",
+	}})
+	guest, _ = guest.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdRemove, Fingerprint: "SHA256:gern",
+	}})
+	_ = guest
+
+	meta, _ := srv.store.Meta()
+	if len(meta.Invites) != 0 {
+		t.Errorf("guest forged a mint: invites = %+v", meta.Invites)
+	}
+	if _, err := srv.store.FindPlayer("SHA256:gern"); err != nil {
+		t.Errorf("guest forged a removal: gern is gone (%v)", err)
+	}
+}
