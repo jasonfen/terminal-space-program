@@ -580,3 +580,81 @@ func TestSessionScreenSpectate(t *testing.T) {
 		t.Errorf("[v] with no ghost = %+v, want toast", cmd)
 	}
 }
+
+// Ghost picker (v0.30 S6, #220): a player flying 2+ targetable craft
+// gets a craft sub-list on [t]; the cursor picks one, and t/v/w all act
+// on the selection. esc pops the sub-list one level before closing.
+func TestSessionScreenGhostPicker(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	// gern (players[1]) flies three craft, all in the viewer's system.
+	// In tolerance so [w] resolves rather than refusing across subspaces.
+	w.Session.Players[1].DeltaT = 30 * time.Second
+	w.Ghosts = []sim.Ghost{
+		{Owner: "SHA256:guest", CraftID: 10, Handle: "gern", Name: "Scout", Glyph: "^"},
+		{Owner: "SHA256:guest", CraftID: 11, Handle: "gern", Name: "Hauler", Glyph: "#"},
+		{Owner: "SHA256:guest", CraftID: 12, Handle: "gern", Name: "Probe", Glyph: "."},
+	}
+	s.HandleKey(w, key("j")) // move to gern
+
+	// First [t] on a multi-craft player opens the picker, no target yet.
+	if cmd := s.HandleKey(w, key("t")); cmd.Kind != SessionCmdNone {
+		t.Fatalf("[t] on multi-craft player = %+v, want none (opens picker)", cmd)
+	}
+	// The sub-list enumerates the ghosts by name.
+	out := s.Render(w, 120)
+	for _, want := range []string{"Scout", "Hauler", "Probe"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("picker missing craft %q:\n%s", want, out)
+		}
+	}
+
+	// Move to the second craft and target it.
+	s.HandleKey(w, key("j"))
+	if cmd := s.HandleKey(w, key("t")); cmd.Kind != SessionCmdTargetGhost || cmd.CraftID != 11 {
+		t.Errorf("[t] on selection = %+v, want target craft 11", cmd)
+	}
+	// v and w honour the same selection (all three verbs fixed at once).
+	if cmd := s.HandleKey(w, key("v")); cmd.Kind != SessionCmdSpectate || cmd.CraftID != 11 {
+		t.Errorf("[v] on selection = %+v, want spectate craft 11", cmd)
+	}
+	if cmd := s.HandleKey(w, key("w")); cmd.Kind != SessionCmdRendezvous || cmd.CraftID != 11 {
+		t.Errorf("[w] on selection = %+v, want rendezvous craft 11", cmd)
+	}
+
+	// esc pops the sub-list one level (no close); a second esc closes.
+	if cmd := s.HandleKey(w, key("esc")); cmd.Kind != SessionCmdNone {
+		t.Errorf("esc in picker = %+v, want none (pop)", cmd)
+	}
+	if cmd := s.HandleKey(w, key("esc")); cmd.Kind != SessionCmdClose {
+		t.Errorf("esc after pop = %+v, want close", cmd)
+	}
+}
+
+// A single-craft player keeps the one-keystroke behaviour — [t] targets
+// immediately, no picker step (v0.30 S6).
+func TestSessionScreenGhostPickerSingleCraft(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 7, Handle: "gern", Name: "Solo"}}
+	s.HandleKey(w, key("j")) // gern
+	if cmd := s.HandleKey(w, key("t")); cmd.Kind != SessionCmdTargetGhost || cmd.CraftID != 7 {
+		t.Errorf("[t] single craft = %+v, want immediate target craft 7", cmd)
+	}
+}
+
+// The roster row distinguishes craft targetable here from the reported
+// total (v0.30 S6 trap): a "%d craft" count from the report can include
+// landed / other-system craft with zero targetable ghosts in-system.
+func TestSessionScreenTargetableCount(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	// gern reports 3 craft (in the viewer's Sol system) but only one is
+	// a targetable ghost here — the other two are landed.
+	w.Session.Players[1].CraftCount = 3
+	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 1, Handle: "gern", Name: "Scout"}}
+	out := s.Render(w, 120)
+	if !strings.Contains(out, "3 craft (1 here)") {
+		t.Errorf("row should distinguish targetable-here count:\n%s", out)
+	}
+}
