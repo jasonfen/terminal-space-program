@@ -346,6 +346,10 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		CanAdminister: m.srv.store.MayAdminister(m.owner),
 		Self:          m.owner,
 	}
+	// Version surface (v0.30 S5): universal readout, adopt gated.
+	if m.srv.ver != nil {
+		info.RunningVersion, info.AvailableVersion, info.AdoptCapable = m.srv.ver.snapshot()
+	}
 	// Rendezvous roster markers (v0.29 S2): who is armed toward the
 	// viewer, and whom the viewer is armed toward.
 	armedTowardViewer := map[string]bool{}
