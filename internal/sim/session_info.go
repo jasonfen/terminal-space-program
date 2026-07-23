@@ -79,6 +79,12 @@ const (
 	SessionEventRendezvousArrived   // the shared coast reached τ ("rendezvous with X — encounter reached")
 	SessionEventRendezvousCancelled // the arm/coast was released before τ ("rendezvous with X cancelled")
 	SessionEventRendezvousDegraded  // the held encounter slipped past the committed approach
+
+	// SessionEventServerRestart announces an admin-triggered graceful
+	// restart to every connected player before the listener drains
+	// (v0.30 S4) — a warning, not a silent drop; progress persists and a
+	// reconnect resumes.
+	SessionEventServerRestart
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

@@ -65,6 +65,26 @@ type reportingModel struct {
 // keeps the slice from growing over a long session.
 const localEventTTL = 10 * time.Second
 
+// restartExitCode is the dedicated marker the supervising service
+// manager keys on to tell an admin-requested restart from a crash
+// (v0.30 S4, contract agreed with the deploy host): systemd's
+// ExecStopPost runs tsp-adopt (pull + verify + install) only on
+// $EXIT_STATUS == 42, then Restart=always relaunches. 42 is clear of
+// clean-exit (0), Go panic (2), and signal death (128+N), so it is
+// unambiguous. A plain os.Exit, not a signal — a child can't cleanly
+// signal its supervisor to do work between restarts.
+const restartExitCode = 42
+
+// exitFunc indirects os.Exit so the drain-and-restart path is testable
+// without killing the test process. restartAnnounceGrace is the pause
+// between broadcasting the restart notice and closing the listener, so
+// connected screens render the warning before they are dropped; tests
+// zero it.
+var (
+	exitFunc             = os.Exit
+	restartAnnounceGrace = 1500 * time.Millisecond
+)
+
 const metaRefresh = 5 * time.Second
 
 // withReporting wraps app so its world reports to the store as owner.
@@ -88,6 +108,13 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.startHosting()
 		}
 		return m.stopHosting()
+	}
+
+	// Admin server restart (v0.30 S4): drain everyone and exit with the
+	// supervisor marker. Inert without a server; authorization enforced
+	// here, not just in the UI.
+	if _, ok := msg.(screens.SessionRestartMsg); ok && m.srv != nil {
+		return m.restartServer()
 	}
 
 	// Cross-player docking intents (v0.28 S5): the App can't reach the dock
@@ -453,12 +480,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	srv := m.srv
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = srv.Shutdown(ctx)
-		cancel()
-		srv.Wait(5 * time.Second)
-	}()
+	go srv.drainAndClose()
 	m.srv, m.rep, m.owner = nil, nil, ""
 	// Back to solo: clear the slates the wrapper had been feeding so the
 	// Session screen shows the [h]-start dead-end again.
@@ -491,6 +513,46 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	m.localEvents = nil
 	m.app.Toast("hosting stopped")
 	return m, nil
+}
+
+// restartServer drains every connected player and exits with the
+// supervisor marker so the service manager relaunches the process
+// (v0.30 S4). Authorization is enforced here — an admin (or the host)
+// only; a guest's forged intent is refused with a toast. The drain runs
+// in the background so the triggering session's tick loop isn't blocked;
+// it announces the restart, pauses briefly so connected screens render
+// the warning, then closes the listener (persisting every guest's final
+// payload via persistMiddleware) before os.Exit(42).
+func (m reportingModel) restartServer() (tea.Model, tea.Cmd) {
+	if m.srv == nil {
+		return m, nil
+	}
+	if !m.srv.store.MayAdminister(m.owner) {
+		m.app.Toast("only an admin can restart the server")
+		return m, nil
+	}
+	srv, actor := m.srv, m.owner
+	// Announce now so the next tick carries the warning to every screen.
+	srv.presence.event(sim.SessionEventServerRestart, actor, "", "")
+	m.app.Toast("restarting server — draining sessions, everyone reconnects")
+	go func() {
+		time.Sleep(restartAnnounceGrace)
+		srv.drainAndClose()
+		exitFunc(restartExitCode)
+	}()
+	return m, nil
+}
+
+// drainAndClose gracefully stops the listener and waits for every
+// in-flight session to unwind, which writes each guest's final payload
+// through persistMiddleware (v0.28 S3). Shared by the host's
+// stop-hosting toggle and the admin restart (v0.30 S4) so the drain
+// lives in one place. It does not exit the process.
+func (s *Server) drainAndClose() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_ = s.Shutdown(ctx)
+	cancel()
+	s.Wait(5 * time.Second)
 }
 
 // Relay exposes the session store (tests and later slices read it).

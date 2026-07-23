@@ -30,6 +30,7 @@ type SessionScreen struct {
 	mintInput       []rune
 	confirmRemove   bool // pending [x] confirmation on the selected player
 	confirmStopHost bool // pending [h] stop-hosting confirmation (v0.28 S3)
+	confirmRestart  bool // pending [u] server-restart confirmation (v0.30 S4)
 }
 
 func NewSessionScreen(th Theme) *SessionScreen { return &SessionScreen{theme: th} }
@@ -52,6 +53,7 @@ const (
 	SessionCmdRendezvous  // arm a Rendezvous Warp toward Owner's ghost Owner/CraftID (v0.29 S2)
 	SessionCmdPromote     // host promotes Fingerprint (guest → admin) (v0.30 S2)
 	SessionCmdDemote      // host demotes Fingerprint (admin → guest) (v0.30 S2)
+	SessionCmdRestart     // admin drain-and-restart the server (v0.30 S4)
 )
 
 // SessionCommand is the screen's finalized action.
@@ -78,11 +80,17 @@ type SessionAdminMsg struct{ Cmd SessionCommand }
 // no wrapper (there is always one now) it is inert.
 type SessionHostMsg struct{ Start bool }
 
+// SessionRestartMsg carries an admin's drain-and-restart intent out of
+// the App to the serve-layer wrapper (v0.30 S4). The wrapper enforces
+// authorization, drains connected players, and exits with a marker the
+// supervising service manager restarts on. Inert in single-player.
+type SessionRestartMsg struct{}
+
 // Reset re-arms the screen for a fresh open.
 func (s *SessionScreen) Reset() {
 	s.cursor, s.inviteCursor = 0, 0
 	s.inInvites, s.minting, s.confirmRemove = false, false, false
-	s.confirmStopHost = false
+	s.confirmStopHost, s.confirmRestart = false, false
 	s.mintInput = nil
 }
 
@@ -156,6 +164,14 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		s.confirmStopHost = false
 		if msg.String() == "y" || msg.String() == "Y" {
 			return SessionCommand{Kind: SessionCmdStopHost}
+		}
+		return SessionCommand{}
+	}
+
+	if s.confirmRestart {
+		s.confirmRestart = false
+		if msg.String() == "y" || msg.String() == "Y" {
+			return SessionCommand{Kind: SessionCmdRestart}
 		}
 		return SessionCommand{}
 	}
@@ -278,6 +294,13 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		// guests. Guests never reach this — their slate is never IsHost.
 		if info.IsHost {
 			s.confirmStopHost = true
+		}
+	case "u":
+		// Admin server restart (v0.30 S4): drain everyone and exit with a
+		// marker the supervisor restarts on. Confirm first (states the
+		// drop count). Host and admins; guests never reach it.
+		if info.CanAdminister {
+			s.confirmRestart = true
 		}
 	}
 	return SessionCommand{}
@@ -440,9 +463,12 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if s.confirmStopHost {
 		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
 	}
+	if s.confirmRestart {
+		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  restart server? drops %d player(s) — progress persists, they reconnect [y/n]", onlineGuests(info))) + "\n")
+	}
 	keys := "  [t] target craft  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
-		keys += "  [i] invite  [r] revoke code  [x] remove player"
+		keys += "  [i] invite  [r] revoke code  [x] remove player  [u] restart server"
 	}
 	if info.IsHost {
 		keys += "  [p] promote/demote  [h] stop hosting"

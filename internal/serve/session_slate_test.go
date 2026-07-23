@@ -306,3 +306,59 @@ func TestAdminRemovalGuardrails(t *testing.T) {
 		t.Errorf("admin couldn't remove a guest: %v", err)
 	}
 }
+
+// An admin restart drains and exits with the supervisor marker; a guest
+// can't trigger it, enforced at the handler (v0.30 S4, #225). The restart
+// is announced to connected players before the listener closes.
+func TestAdminRestartExitsWithMarker(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+
+	// Capture the exit instead of killing the test process; skip the grace.
+	done := make(chan int, 1)
+	oldExit, oldGrace := exitFunc, restartAnnounceGrace
+	exitFunc = func(code int) { done <- code }
+	restartAnnounceGrace = 0
+	t.Cleanup(func() { exitFunc, restartAnnounceGrace = oldExit, oldGrace })
+
+	// A guest can't restart: the forged intent is refused, no exit.
+	guestApp, err := srv.newGuestApp("SHA256:gern")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	guest := tick(srv.withReporting(guestApp, "SHA256:gern"))
+	_, _ = guest.Update(screens.SessionRestartMsg{})
+	select {
+	case code := <-done:
+		t.Fatalf("guest triggered a restart (exit %d)", code)
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	// The host can: it exits with the dedicated marker.
+	hostApp, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	host := tick(srv.HostModel(hostApp))
+	_, _ = host.Update(screens.SessionRestartMsg{})
+
+	// The announcement is broadcast synchronously, before the drain.
+	sawAnnounce := false
+	for _, e := range srv.presence.eventsFor("SHA256:gern") {
+		if e.Kind == sim.SessionEventServerRestart {
+			sawAnnounce = true
+		}
+	}
+	if !sawAnnounce {
+		t.Error("restart wasn't announced to connected players")
+	}
+
+	select {
+	case code := <-done:
+		if code != restartExitCode {
+			t.Errorf("restart exit code = %d, want %d", code, restartExitCode)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("restart never exited")
+	}
+}
