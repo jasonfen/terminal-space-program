@@ -251,9 +251,9 @@ func TestSessionScreenPromoteKey(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
 
-	// Cursor on the host — [p] must not act.
-	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdNone {
-		t.Errorf("[p] on host's own row = %+v, want no command", cmd)
+	// Cursor on the host — [p] must not act, and must say why (v0.30.1).
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdToast {
+		t.Errorf("[p] on host's own row = %+v, want a refusal toast", cmd)
 	}
 
 	s.HandleKey(w, key("j")) // gern (guest)
@@ -298,8 +298,8 @@ func TestSessionScreenAdminView(t *testing.T) {
 	s.HandleKey(w, key("esc"))
 	// [p] is inert for a non-host.
 	s.HandleKey(w, key("j")) // move off self
-	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdNone {
-		t.Errorf("admin [p] = %+v, want no command (delegation is host-only)", cmd)
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdToast {
+		t.Errorf("admin [p] = %+v, want a refusal toast (delegation is host-only)", cmd)
 	}
 }
 
@@ -385,10 +385,10 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 		t.Errorf("admin [u] didn't arm restart confirm (cmd %+v)", cmd)
 	}
 
-	// A guest doesn't: [u] inert, no hint.
+	// A guest doesn't: [u] refuses (with a reason, v0.30.1) and no hint.
 	guestScreen := NewSessionScreen(sessionTheme())
 	wg := sessionWorld(t, false)
-	if cmd := guestScreen.HandleKey(wg, key("u")); cmd.Kind != SessionCmdNone || guestScreen.confirmRestart {
+	if cmd := guestScreen.HandleKey(wg, key("u")); cmd.Kind != SessionCmdToast || guestScreen.confirmRestart {
 		t.Errorf("guest [u] armed a restart (cmd %+v)", cmd)
 	}
 	if strings.Contains(guestScreen.Render(wg, 120), "restart server") {
@@ -709,5 +709,90 @@ func TestSessionScreenGhostPickerSlateShrinks(t *testing.T) {
 	w.Ghosts = w.Ghosts[:2]
 	if cmd := s.HandleKey(w, key("t")); cmd.Kind != SessionCmdTargetGhost || cmd.CraftID != 11 {
 		t.Errorf("[t] after the slate shrank = %+v, want the clamped last craft 11", cmd)
+	}
+}
+
+// Every refusal path for the admin keys must SAY why (v0.30.1). A silent
+// no-op is indistinguishable from a dead key — the [p] report that
+// prompted this was the host pressing it on their own row, with the
+// screen giving no reason at all.
+func TestSessionScreenPromoteRefusalsToast(t *testing.T) {
+	toastFor := func(setup func(w *sim.World, s *SessionScreen)) string {
+		w := sessionWorld(t, true)
+		s := NewSessionScreen(sessionTheme())
+		setup(w, s)
+		cmd := s.HandleKey(w, key("p"))
+		if cmd.Kind != SessionCmdToast {
+			t.Fatalf("[p] refusal = %+v, want a toast explaining why", cmd)
+		}
+		return cmd.Message
+	}
+
+	// The reported case: cursor sits on the host's own row by default.
+	if msg := toastFor(func(*sim.World, *SessionScreen) {}); !strings.Contains(msg, "yourself") {
+		t.Errorf("[p] on own row toast = %q, want it to say you can't promote yourself", msg)
+	}
+	// Hosting alone — nobody to promote yet.
+	if msg := toastFor(func(w *sim.World, s *SessionScreen) {
+		w.Session.Players = w.Session.Players[:1]
+	}); !strings.Contains(msg, "invite") {
+		t.Errorf("[p] solo toast = %q, want it to point at inviting a player", msg)
+	}
+	// A promoted admin can't delegate — single-rooted escalation.
+	if msg := toastFor(func(w *sim.World, s *SessionScreen) {
+		w.Session.IsHost = false
+		w.Session.CanAdminister = true
+		s.HandleKey(w, key("j"))
+	}); !strings.Contains(msg, "only the host") {
+		t.Errorf("admin [p] toast = %q, want it to say delegation is host-only", msg)
+	}
+}
+
+func TestSessionScreenRemoveRefusalsToast(t *testing.T) {
+	// Viewer is gern, a promoted admin: host, gern (self), dave, pat.
+	toastAt := func(steps int, setup func(w *sim.World)) string {
+		w := sessionWorld(t, false)
+		w.Session.CanAdminister = true
+		if setup != nil {
+			setup(w)
+		}
+		s := NewSessionScreen(sessionTheme())
+		for i := 0; i < steps; i++ {
+			s.HandleKey(w, key("j"))
+		}
+		cmd := s.HandleKey(w, key("x"))
+		if cmd.Kind != SessionCmdToast {
+			t.Fatalf("[x] refusal at row %d = %+v, want a toast", steps, cmd)
+		}
+		return cmd.Message
+	}
+
+	if msg := toastAt(0, nil); !strings.Contains(msg, "host") {
+		t.Errorf("[x] on host row toast = %q, want it to name the host", msg)
+	}
+	if msg := toastAt(1, nil); !strings.Contains(msg, "yourself") {
+		t.Errorf("[x] on own row toast = %q, want it to say you can't remove yourself", msg)
+	}
+	if msg := toastAt(2, func(w *sim.World) { w.Session.Players[2].Role = "admin" }); !strings.Contains(msg, "only the host") {
+		t.Errorf("admin [x] on another admin toast = %q, want host-only", msg)
+	}
+	// A plain guest has no removal capability at all.
+	w := sessionWorld(t, false)
+	s := NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	if cmd := s.HandleKey(w, key("x")); cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "admin") {
+		t.Errorf("guest [x] = %+v, want a toast naming the required capability", cmd)
+	}
+}
+
+func TestSessionScreenRestartRefusalToast(t *testing.T) {
+	w := sessionWorld(t, false) // plain guest: no admin capability
+	s := NewSessionScreen(sessionTheme())
+	cmd := s.HandleKey(w, key("u"))
+	if cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "restart") {
+		t.Errorf("guest [u] = %+v, want a toast explaining the refusal", cmd)
+	}
+	if s.confirmRestart {
+		t.Error("guest [u] armed the restart confirm")
 	}
 }

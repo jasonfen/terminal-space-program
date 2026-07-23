@@ -302,26 +302,53 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	case "x":
 		// Removal is reachable by the host and admins (v0.30 S3), gated
 		// per-row by the same guardrail the handler enforces: never self,
-		// the host, or (for an admin actor) another admin.
-		if info.CanAdminister && !s.inInvites && !s.inCraftList {
-			if p, ok := s.selectedPlayer(info); ok && mayRemoveRow(info, p) {
-				s.confirmRemove = true
-			}
+		// the host, or (for an admin actor) another admin. Every refusal
+		// toasts (v0.30.1) — see the note on [p] below.
+		if msg, refused := s.sectionRefusal("[x] removes a player"); refused {
+			return toast(msg)
 		}
+		if !info.CanAdminister {
+			return toast("only the host or an admin can remove players")
+		}
+		p, ok := s.selectedPlayer(info)
+		if !ok {
+			break
+		}
+		if why := removeRefusal(info, p); why != "" {
+			return toast(why)
+		}
+		s.confirmRemove = true
 	case "p":
 		// Host-only delegation (v0.30 S2): promote a guest to admin or
 		// demote an admin back to guest. Single-rooted — an admin never
-		// sees this. Absent on the host's own row and on non-guest/admin
-		// rows.
-		if info.IsHost && !s.inInvites && !s.inCraftList {
-			if p, ok := s.selectedPlayer(info); ok && p.Fingerprint != info.Self {
-				switch p.Role {
-				case "guest":
-					return SessionCommand{Kind: SessionCmdPromote, Fingerprint: p.Fingerprint, Handle: p.Handle}
-				case "admin":
-					return SessionCommand{Kind: SessionCmdDemote, Fingerprint: p.Fingerprint, Handle: p.Handle}
-				}
-			}
+		// gets this.
+		//
+		// Every rejection path SAYS why (v0.30.1). These gates used to
+		// fall through to a bare no-op, which is indistinguishable from a
+		// dead key: the first live report of this feature was the host
+		// pressing [p] with the cursor still on their own row (where it
+		// starts) and concluding the key was broken.
+		if msg, refused := s.sectionRefusal("[p] promotes a player"); refused {
+			return toast(msg)
+		}
+		if !info.IsHost {
+			return toast("only the host can promote or demote admins")
+		}
+		if len(info.Players) <= 1 {
+			return toast("no one to promote yet — invite a player first")
+		}
+		p, ok := s.selectedPlayer(info)
+		if !ok {
+			break
+		}
+		if p.Fingerprint == info.Self {
+			return toast("you can't promote yourself")
+		}
+		switch p.Role {
+		case "guest":
+			return SessionCommand{Kind: SessionCmdPromote, Fingerprint: p.Fingerprint, Handle: p.Handle}
+		case "admin":
+			return SessionCommand{Kind: SessionCmdDemote, Fingerprint: p.Fingerprint, Handle: p.Handle}
 		}
 	case "h":
 		// Host-only stop toggle (v0.28 S3): confirm before dropping
@@ -332,10 +359,14 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	case "u":
 		// Admin server restart (v0.30 S4): drain everyone and exit with a
 		// marker the supervisor restarts on. Confirm first (states the
-		// drop count). Host and admins; guests never reach it.
-		if info.CanAdminister && !s.inCraftList {
-			s.confirmRestart = true
+		// drop count). Host and admins; a guest gets the reason (v0.30.1).
+		if s.inCraftList {
+			return toast("close the craft list first — [esc]")
 		}
+		if !info.CanAdminister {
+			return toast("only the host or an admin can restart the server")
+		}
+		s.confirmRestart = true
 	}
 	return SessionCommand{}
 }
@@ -414,22 +445,45 @@ func (s *SessionScreen) selectedInvite(info *sim.SessionInfo) (sim.SessionInvite
 	return info.Invites[s.inviteCursor], true
 }
 
-// mayRemoveRow mirrors sessiondir.MayRemove for UI gating (v0.30 S3):
-// the screen only offers [x] on rows the viewer is actually allowed to
-// remove. The handler re-checks authoritatively — this just avoids
-// dangling a key that would no-op.
-func mayRemoveRow(info *sim.SessionInfo, p sim.SessionPlayer) bool {
-	if !info.CanAdminister {
-		return false
+// toast is the screen's "refused, and here's why" reply. Every admin-key
+// rejection returns one (v0.30.1): the keys are gated by capability AND
+// by which row the cursor is on, so a bare no-op leaves the player unable
+// to tell a refusal from a broken key.
+func toast(msg string) SessionCommand {
+	return SessionCommand{Kind: SessionCmdToast, Message: msg}
+}
+
+// sectionRefusal reports whether a row-action key should be refused
+// because the cursor isn't on a player row at all — the craft picker or
+// the invites pane has focus. what names the key for the message, e.g.
+// "[x] removes a player".
+func (s *SessionScreen) sectionRefusal(what string) (string, bool) {
+	if s.inCraftList {
+		return "close the craft list first — [esc]", true
 	}
-	if p.Fingerprint == info.Self || p.Role == "host" {
-		return false
+	if s.inInvites {
+		return what + " — [tab] back to the roster", true
+	}
+	return "", false
+}
+
+// removeRefusal mirrors sessiondir.MayRemove for UI gating (v0.30 S3),
+// returning the reason a row can't be removed or "" when it can. The
+// handler re-checks authoritatively; this exists so the screen can say
+// why instead of dangling a key that silently no-ops. Assumes the viewer
+// already carries the admin capability.
+func removeRefusal(info *sim.SessionInfo, p sim.SessionPlayer) string {
+	if p.Fingerprint == info.Self {
+		return "you can't remove yourself"
+	}
+	if p.Role == "host" {
+		return "you can't remove the host"
 	}
 	// An admin (can administer but isn't the host) can't remove another admin.
 	if !info.IsHost && p.Role == "admin" {
-		return false
+		return "only the host can remove an admin"
 	}
-	return true
+	return ""
 }
 
 // releasesPageURL is where an install without adopt tooling is pointed
