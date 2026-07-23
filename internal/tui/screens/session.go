@@ -250,8 +250,11 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 			}
 		}
 	case "x":
-		if info.IsHost && !s.inInvites {
-			if p, ok := s.selectedPlayer(info); ok && p.Role != "host" {
+		// Removal is reachable by the host and admins (v0.30 S3), gated
+		// per-row by the same guardrail the handler enforces: never self,
+		// the host, or (for an admin actor) another admin.
+		if info.CanAdminister && !s.inInvites {
+			if p, ok := s.selectedPlayer(info); ok && mayRemoveRow(info, p) {
 				s.confirmRemove = true
 			}
 		}
@@ -300,6 +303,24 @@ func (s *SessionScreen) selectedInvite(info *sim.SessionInfo) (sim.SessionInvite
 		return sim.SessionInvite{}, false
 	}
 	return info.Invites[s.inviteCursor], true
+}
+
+// mayRemoveRow mirrors sessiondir.MayRemove for UI gating (v0.30 S3):
+// the screen only offers [x] on rows the viewer is actually allowed to
+// remove. The handler re-checks authoritatively — this just avoids
+// dangling a key that would no-op.
+func mayRemoveRow(info *sim.SessionInfo, p sim.SessionPlayer) bool {
+	if !info.CanAdminister {
+		return false
+	}
+	if p.Fingerprint == info.Self || p.Role == "host" {
+		return false
+	}
+	// An admin (can administer but isn't the host) can't remove another admin.
+	if !info.IsHost && p.Role == "admin" {
+		return false
+	}
+	return true
 }
 
 // onlineGuests counts online roster members other than the viewer
@@ -421,10 +442,10 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	}
 	keys := "  [t] target craft  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
-		keys += "  [i] invite  [r] revoke code"
+		keys += "  [i] invite  [r] revoke code  [x] remove player"
 	}
 	if info.IsHost {
-		keys += "  [x] remove player  [p] promote/demote  [h] stop hosting"
+		keys += "  [p] promote/demote  [h] stop hosting"
 	}
 	if info.CanAdminister {
 		keys += "  [tab] section"

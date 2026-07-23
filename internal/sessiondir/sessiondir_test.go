@@ -175,6 +175,55 @@ func TestPromoteDemoteRole(t *testing.T) {
 	}
 }
 
+// MayRemove encodes the actor×target guardrail matrix (v0.30 S3, #224):
+// host removes guests and admins; an admin removes only guests; nobody
+// removes the host or themselves; guests remove no one.
+func TestMayRemoveGuardrails(t *testing.T) {
+	s := openStore(t)
+	if _, err := s.EnsureHost("jason"); err != nil {
+		t.Fatalf("EnsureHost: %v", err)
+	}
+	// adminA, adminB (promoted), guestA, guestB.
+	for _, e := range []struct{ fp, handle string }{
+		{"SHA256:adminA", "adminA"}, {"SHA256:adminB", "adminB"},
+		{"SHA256:guestA", "guestA"}, {"SHA256:guestB", "guestB"},
+	} {
+		inv, _ := s.MintInvite(e.handle)
+		if _, err := s.Enroll(inv.Code, e.fp, e.handle); err != nil {
+			t.Fatalf("Enroll %s: %v", e.handle, err)
+		}
+	}
+	if err := s.PromoteAdmin("SHA256:adminA"); err != nil {
+		t.Fatalf("promote adminA: %v", err)
+	}
+	if err := s.PromoteAdmin("SHA256:adminB"); err != nil {
+		t.Fatalf("promote adminB: %v", err)
+	}
+
+	cases := []struct {
+		name           string
+		actor, target  string
+		want           bool
+	}{
+		{"host removes guest", HostFingerprint, "SHA256:guestA", true},
+		{"host removes admin", HostFingerprint, "SHA256:adminA", true},
+		{"host removes self", HostFingerprint, HostFingerprint, false},
+		{"admin removes guest", "SHA256:adminA", "SHA256:guestA", true},
+		{"admin removes another admin", "SHA256:adminA", "SHA256:adminB", false},
+		{"admin removes self", "SHA256:adminA", "SHA256:adminA", false},
+		{"admin removes host", "SHA256:adminA", HostFingerprint, false},
+		{"guest removes guest", "SHA256:guestA", "SHA256:guestB", false},
+		{"guest removes admin", "SHA256:guestA", "SHA256:adminA", false},
+		{"actor not enrolled", "SHA256:nobody", "SHA256:guestA", false},
+		{"target not enrolled", HostFingerprint, "SHA256:nobody", false},
+	}
+	for _, c := range cases {
+		if got := s.MayRemove(c.actor, c.target); got != c.want {
+			t.Errorf("%s: MayRemove(%s, %s) = %v, want %v", c.name, c.actor, c.target, got, c.want)
+		}
+	}
+}
+
 // Invite codes are one-time: enroll consumes; a second enroll (or a
 // bogus code) is rejected. Peek validates without consuming, and the
 // handle is editable at enroll.
