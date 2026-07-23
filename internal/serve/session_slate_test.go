@@ -2,11 +2,14 @@ package serve
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
@@ -361,4 +364,70 @@ func TestAdminRestartExitsWithMarker(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("restart never exited")
 	}
+}
+
+// The restarting player's own progress must reach disk before the
+// process exits (v0.30 S7 review). The drain persists every OTHER
+// player through persistMiddleware, but os.Exit skips this App's
+// quit-path autosave — and the restarter's own session is the one that
+// can't unwind while it is the one doing the draining. Covers both
+// restarter shapes: the host (local autosave ring) and a promoted
+// admin connected as a guest (the server-side payload sink).
+func TestAdminRestartPersistsRestarterProgress(t *testing.T) {
+	oldExit, oldGrace := exitFunc, restartAnnounceGrace
+	restartAnnounceGrace = 0
+	t.Cleanup(func() { exitFunc, restartAnnounceGrace = oldExit, oldGrace })
+
+	t.Run("promoted admin persists through the guest sink", func(t *testing.T) {
+		srv := newOfflineServer(t)
+		enrollDirect(t, srv, "SHA256:gern", "gern")
+		if err := srv.store.PromoteAdmin("SHA256:gern"); err != nil {
+			t.Fatalf("PromoteAdmin: %v", err)
+		}
+		done := make(chan int, 1)
+		exitFunc = func(code int) { done <- code }
+
+		adminApp, err := srv.newGuestApp("SHA256:gern")
+		if err != nil {
+			t.Fatalf("newGuestApp: %v", err)
+		}
+		persisted := 0
+		adminApp.SetGuestPersistence(func(*sim.World) error { persisted++; return nil })
+
+		admin := tick(srv.withReporting(adminApp, "SHA256:gern"))
+		_, _ = admin.Update(screens.SessionRestartMsg{})
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("restart never exited")
+		}
+		if persisted == 0 {
+			t.Error("the restarting admin's own world was never persisted before exit")
+		}
+	})
+
+	t.Run("host persists into the autosave ring", func(t *testing.T) {
+		srv := newOfflineServer(t) // isolates XDG_STATE_HOME
+		done := make(chan int, 1)
+		exitFunc = func(code int) { done <- code }
+
+		hostApp, err := tui.New(nil)
+		if err != nil {
+			t.Fatalf("tui.New: %v", err)
+		}
+		host := tick(srv.HostModel(hostApp))
+		_, _ = host.Update(screens.SessionRestartMsg{})
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("restart never exited")
+		}
+		dir, err := save.SavesDir()
+		if err != nil {
+			t.Fatalf("SavesDir: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "autosave-1.json")); err != nil {
+			t.Errorf("host restart wrote no autosave (%v) — progress since the last periodic save is lost", err)
+		}
+	})
 }

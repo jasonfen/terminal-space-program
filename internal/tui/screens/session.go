@@ -26,6 +26,8 @@ type SessionScreen struct {
 
 	inviteCursor    int  // index into the invites list (host)
 	inInvites       bool // cursor focus: players vs invites section
+	inCraftList     bool // cursor focus: selected player's craft sub-list (v0.30 S6)
+	craftCursor     int  // index into the selected player's ghost sub-list
 	minting         bool // typing a new invite's handle
 	mintInput       []rune
 	confirmRemove   bool // pending [x] confirmation on the selected player
@@ -88,8 +90,9 @@ type SessionRestartMsg struct{}
 
 // Reset re-arms the screen for a fresh open.
 func (s *SessionScreen) Reset() {
-	s.cursor, s.inviteCursor = 0, 0
-	s.inInvites, s.minting, s.confirmRemove = false, false, false
+	s.cursor, s.inviteCursor, s.craftCursor = 0, 0, 0
+	s.inInvites, s.inCraftList = false, false
+	s.minting, s.confirmRemove = false, false
 	s.confirmStopHost, s.confirmRestart = false, false
 	s.mintInput = nil
 }
@@ -120,6 +123,24 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	// empty section with tab gated off.
 	if s.inInvites && len(info.Invites) == 0 {
 		s.inInvites = false
+	}
+
+	// Normalise craft-picker focus (v0.30 S6): if the selected player's
+	// targetable ghosts vanished (they landed the craft or left the
+	// system between ticks), pop the sub-list so keys can't strand on an
+	// empty picker. A slate that merely SHRANK clamps instead (S7 review)
+	// — leaving the cursor past the end deadened t/v/w silently.
+	if s.inCraftList {
+		p, ok := s.selectedPlayer(info)
+		n := 0
+		if ok {
+			n = len(playerGhosts(w, p.Fingerprint))
+		}
+		if n == 0 {
+			s.inCraftList = false
+		} else {
+			s.craftCursor = clamp(s.craftCursor, 0, n-1)
+		}
 	}
 
 	if s.minting {
@@ -177,14 +198,22 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	}
 
 	switch msg.String() {
-	case "esc", "q", "O":
+	case "esc":
+		// esc pops the craft sub-list one level before closing the screen
+		// (v0.30 S6).
+		if s.inCraftList {
+			s.inCraftList = false
+			return SessionCommand{}
+		}
+		return SessionCommand{Kind: SessionCmdClose}
+	case "q", "O":
 		return SessionCommand{Kind: SessionCmdClose}
 	case "up", "k":
-		s.moveCursor(info, -1)
+		s.moveCursor(w, info, -1)
 	case "down", "j":
-		s.moveCursor(info, +1)
+		s.moveCursor(w, info, +1)
 	case "tab":
-		if info.CanAdminister && len(info.Invites) > 0 {
+		if info.CanAdminister && !s.inCraftList && len(info.Invites) > 0 {
 			s.inInvites = !s.inInvites
 		}
 	case "t":
@@ -195,14 +224,14 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if p.Fingerprint == info.Self {
 			return SessionCommand{Kind: SessionCmdToast, Message: "that's you"}
 		}
-		// Aim at the player's first ghosted craft — the slate is
-		// already gated to this system and evaluated at our time.
-		for _, g := range w.Ghosts {
-			if g.Owner == p.Fingerprint {
-				return SessionCommand{Kind: SessionCmdTargetGhost, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
-			}
+		g, ok, empty := s.pickGhost(w, p)
+		if empty {
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to target"}
 		}
-		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to target"}
+		if !ok {
+			return SessionCommand{} // 2+ craft: the sub-list is now open — pick one
+		}
+		return SessionCommand{Kind: SessionCmdTargetGhost, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
 	case "v":
 		// Spectate (v0.28 S6, ADR 0034): camera-follow the player's ghost.
 		// Absent on your own row — you can't spectate yourself (no ghost of
@@ -212,18 +241,21 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if !ok || p.Fingerprint == info.Self {
 			return SessionCommand{}
 		}
-		for _, g := range w.Ghosts {
-			if g.Owner == p.Fingerprint {
-				return SessionCommand{Kind: SessionCmdSpectate, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
-			}
+		g, ok, empty := s.pickGhost(w, p)
+		if empty {
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to spectate"}
 		}
-		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to spectate"}
+		if !ok {
+			return SessionCommand{}
+		}
+		return SessionCommand{Kind: SessionCmdSpectate, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
 	case "w":
 		// Rendezvous Warp (v0.29 S2, ADR 0034 v0.29 addendum): arm the
 		// cooperative coast to the encounter with this player. Gated like
 		// Sync/Spectate — absent on your own row — plus the same-subspace
 		// Δt gate: across a real subspace divergence the arm could never
-		// couple, so refuse with the actionable fix (Sync first).
+		// couple, so refuse with the actionable fix (Sync first). The
+		// per-player gates fire before the craft picker opens.
 		p, ok := s.selectedPlayer(info)
 		if !ok || p.Fingerprint == info.Self {
 			return SessionCommand{}
@@ -234,12 +266,14 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if p.DeltaT > sim.CoWarpSubspaceTolerance || p.DeltaT < -sim.CoWarpSubspaceTolerance {
 			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " is in another subspace — Sync first, then rendezvous"}
 		}
-		for _, g := range w.Ghosts {
-			if g.Owner == p.Fingerprint {
-				return SessionCommand{Kind: SessionCmdRendezvous, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
-			}
+		g, ok, empty := s.pickGhost(w, p)
+		if empty {
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to rendezvous with"}
 		}
-		return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to rendezvous with"}
+		if !ok {
+			return SessionCommand{}
+		}
+		return SessionCommand{Kind: SessionCmdRendezvous, Owner: g.Owner, CraftID: g.CraftID, Handle: p.Handle}
 	case "s":
 		// Sync-to (v0.27 S7): forward only — the laggard always comes
 		// forward (ADR 0034); someone behind you syncs to you instead.
@@ -255,7 +289,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		}
 		return SessionCommand{Kind: SessionCmdSync, Owner: p.Fingerprint, Handle: p.Handle, Time: w.Clock.SimTime.Add(p.DeltaT)}
 	case "i":
-		if info.CanAdminister {
+		if info.CanAdminister && !s.inCraftList {
 			s.minting = true
 			s.mintInput = nil
 		}
@@ -269,7 +303,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		// Removal is reachable by the host and admins (v0.30 S3), gated
 		// per-row by the same guardrail the handler enforces: never self,
 		// the host, or (for an admin actor) another admin.
-		if info.CanAdminister && !s.inInvites {
+		if info.CanAdminister && !s.inInvites && !s.inCraftList {
 			if p, ok := s.selectedPlayer(info); ok && mayRemoveRow(info, p) {
 				s.confirmRemove = true
 			}
@@ -279,7 +313,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		// demote an admin back to guest. Single-rooted — an admin never
 		// sees this. Absent on the host's own row and on non-guest/admin
 		// rows.
-		if info.IsHost && !s.inInvites {
+		if info.IsHost && !s.inInvites && !s.inCraftList {
 			if p, ok := s.selectedPlayer(info); ok && p.Fingerprint != info.Self {
 				switch p.Role {
 				case "guest":
@@ -292,26 +326,78 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	case "h":
 		// Host-only stop toggle (v0.28 S3): confirm before dropping
 		// guests. Guests never reach this — their slate is never IsHost.
-		if info.IsHost {
+		if info.IsHost && !s.inCraftList {
 			s.confirmStopHost = true
 		}
 	case "u":
 		// Admin server restart (v0.30 S4): drain everyone and exit with a
 		// marker the supervisor restarts on. Confirm first (states the
 		// drop count). Host and admins; guests never reach it.
-		if info.CanAdminister {
+		if info.CanAdminister && !s.inCraftList {
 			s.confirmRestart = true
 		}
 	}
 	return SessionCommand{}
 }
 
-func (s *SessionScreen) moveCursor(info *sim.SessionInfo, d int) {
+func (s *SessionScreen) moveCursor(w *sim.World, info *sim.SessionInfo, d int) {
+	if s.inCraftList {
+		if p, ok := s.selectedPlayer(info); ok {
+			n := len(playerGhosts(w, p.Fingerprint))
+			s.craftCursor = clamp(s.craftCursor+d, 0, n-1)
+		}
+		return
+	}
 	if s.inInvites {
 		s.inviteCursor = clamp(s.inviteCursor+d, 0, len(info.Invites)-1)
 		return
 	}
 	s.cursor = clamp(s.cursor+d, 0, len(info.Players)-1)
+}
+
+// playerGhosts returns the viewer's ghost-slate entries owned by the
+// given fingerprint, in slate order (v0.30 S6). The slate is already
+// filtered to non-landed craft in the viewer's current system by the
+// relay layer, so this is the set of the player's targetable craft.
+func playerGhosts(w *sim.World, fingerprint string) []sim.Ghost {
+	var out []sim.Ghost
+	for _, g := range w.Ghosts {
+		if g.Owner == fingerprint {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// pickGhost resolves which of a player's ghosted craft a t/v/w verb acts
+// on (v0.30 S6, #220). With exactly one targetable ghost it returns it
+// for a single-keystroke action. With two or more, and the sub-list not
+// yet open, it opens the craft picker and returns ok=false (no action
+// this press); a subsequent verb, with the sub-list open, returns the
+// highlighted craft. With none it returns empty=true so the caller can
+// toast the right "no craft here" message.
+func (s *SessionScreen) pickGhost(w *sim.World, p sim.SessionPlayer) (g sim.Ghost, ok, empty bool) {
+	ghosts := playerGhosts(w, p.Fingerprint)
+	if len(ghosts) == 0 {
+		return sim.Ghost{}, false, true
+	}
+	if s.inCraftList {
+		if s.craftCursor < 0 || s.craftCursor >= len(ghosts) {
+			return sim.Ghost{}, false, false
+		}
+		return ghosts[s.craftCursor], true, false
+	}
+	if len(ghosts) == 1 {
+		return ghosts[0], true, false
+	}
+	// Opening the picker takes focus off the invites pane (S7 review).
+	// t/v/w act on the player row from either section, but the sub-list
+	// only renders when the invites pane isn't focused — so opening it
+	// without this left the screen in an invisible picker mode where j/k
+	// drove a craft cursor the player could not see.
+	s.inInvites = false
+	s.inCraftList, s.craftCursor = true, 0
+	return sim.Ghost{}, false, false
 }
 
 func (s *SessionScreen) selectedPlayer(info *sim.SessionInfo) (sim.SessionPlayer, bool) {
@@ -470,9 +556,35 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 				where += "/" + p.Primary
 			}
 		}
+		// Craft count: the reported total can include landed / other-
+		// system craft the viewer can't target. When the player is in the
+		// viewer's system and fewer craft are targetable here than reported,
+		// spell out the targetable-here count so "%d craft" doesn't mislead
+		// (v0.30 S6 trap). Other-system players read from the system column.
+		here := len(playerGhosts(w, p.Fingerprint))
 		craft := fmt.Sprintf("%d craft", p.CraftCount)
-		b.WriteString(fmt.Sprintf("  %s%s %-32s %-16s %-9s %s\n",
+		if p.System != "" && p.System == w.System().Name && here < p.CraftCount {
+			craft = fmt.Sprintf("%d craft (%d here)", p.CraftCount, here)
+		}
+		b.WriteString(fmt.Sprintf("  %s%s %-32s %-16s %-16s %s\n",
 			marker, dot, name, where, craft, formatDeltaT(p, info.Self == p.Fingerprint)))
+
+		// Craft picker (v0.30 S6): when this player's sub-list is open,
+		// enumerate their targetable ghosts (glyph + name) with a second
+		// cursor, mirroring the two-level invites idiom.
+		if s.inCraftList && !s.inInvites && i == s.cursor {
+			for gi, g := range playerGhosts(w, p.Fingerprint) {
+				gmark := "      "
+				if gi == s.craftCursor {
+					gmark = "    " + s.theme.Primary.Render("▸ ")
+				}
+				glyph := g.Glyph
+				if glyph == "" {
+					glyph = "·"
+				}
+				b.WriteString(gmark + glyph + " " + s.theme.Dim.Render(g.Name) + "\n")
+			}
+		}
 	}
 
 	if info.CanAdminister {
