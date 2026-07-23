@@ -1435,6 +1435,14 @@ func (a *App) autosave() {
 	_ = save.WriteAutosave(a.world)
 }
 
+// PersistNow writes the world through whichever persistence surface this
+// App is wired to — the per-player sink in a guest session, the local
+// autosave ring otherwise. It exists for the serve layer's admin
+// drain-and-restart (v0.30 S4), which leaves the process via os.Exit and
+// so never reaches the quit path's autosave. Call it on the Bubble Tea
+// update goroutine: it reads the live world.
+func (a *App) PersistNow() { a.autosave() }
+
 // maybeAutosave fires the periodic autosave (v0.26 S4 / ADR 0033 §E)
 // when the player's wall-clock interval has elapsed since the last
 // fire. now is the tea.Tick timestamp from the current sim.TickMsg —
