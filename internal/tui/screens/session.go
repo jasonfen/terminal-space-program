@@ -30,6 +30,7 @@ type SessionScreen struct {
 	mintInput       []rune
 	confirmRemove   bool // pending [x] confirmation on the selected player
 	confirmStopHost bool // pending [h] stop-hosting confirmation (v0.28 S3)
+	confirmRestart  bool // pending [u] server-restart confirmation (v0.30 S4)
 }
 
 func NewSessionScreen(th Theme) *SessionScreen { return &SessionScreen{theme: th} }
@@ -52,6 +53,7 @@ const (
 	SessionCmdRendezvous  // arm a Rendezvous Warp toward Owner's ghost Owner/CraftID (v0.29 S2)
 	SessionCmdPromote     // host promotes Fingerprint (guest → admin) (v0.30 S2)
 	SessionCmdDemote      // host demotes Fingerprint (admin → guest) (v0.30 S2)
+	SessionCmdRestart     // admin drain-and-restart the server (v0.30 S4)
 )
 
 // SessionCommand is the screen's finalized action.
@@ -78,11 +80,17 @@ type SessionAdminMsg struct{ Cmd SessionCommand }
 // no wrapper (there is always one now) it is inert.
 type SessionHostMsg struct{ Start bool }
 
+// SessionRestartMsg carries an admin's drain-and-restart intent out of
+// the App to the serve-layer wrapper (v0.30 S4). The wrapper enforces
+// authorization, drains connected players, and exits with a marker the
+// supervising service manager restarts on. Inert in single-player.
+type SessionRestartMsg struct{}
+
 // Reset re-arms the screen for a fresh open.
 func (s *SessionScreen) Reset() {
 	s.cursor, s.inviteCursor = 0, 0
 	s.inInvites, s.minting, s.confirmRemove = false, false, false
-	s.confirmStopHost = false
+	s.confirmStopHost, s.confirmRestart = false, false
 	s.mintInput = nil
 }
 
@@ -156,6 +164,14 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		s.confirmStopHost = false
 		if msg.String() == "y" || msg.String() == "Y" {
 			return SessionCommand{Kind: SessionCmdStopHost}
+		}
+		return SessionCommand{}
+	}
+
+	if s.confirmRestart {
+		s.confirmRestart = false
+		if msg.String() == "y" || msg.String() == "Y" {
+			return SessionCommand{Kind: SessionCmdRestart}
 		}
 		return SessionCommand{}
 	}
@@ -279,6 +295,13 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if info.IsHost {
 			s.confirmStopHost = true
 		}
+	case "u":
+		// Admin server restart (v0.30 S4): drain everyone and exit with a
+		// marker the supervisor restarts on. Confirm first (states the
+		// drop count). Host and admins; guests never reach it.
+		if info.CanAdminister {
+			s.confirmRestart = true
+		}
 	}
 	return SessionCommand{}
 }
@@ -321,6 +344,51 @@ func mayRemoveRow(info *sim.SessionInfo, p sim.SessionPlayer) bool {
 		return false
 	}
 	return true
+}
+
+// releasesPageURL is where an install without adopt tooling is pointed
+// to update manually (v0.30 S5).
+const releasesPageURL = "github.com/jasonfen/terminal-space-program/releases"
+
+// adopting reports whether the [u] restart should be framed as adopting
+// an available release: a newer version exists AND the supervisor
+// signalled adopt-capability. Absent either, [u] is a plain restart and
+// the readout points at the manual update path — the UI never offers an
+// update it can't perform.
+func adopting(info *sim.SessionInfo) bool {
+	return info.AvailableVersion != "" && info.AdoptCapable
+}
+
+// restartKeyLabel is the footer label for [u] — "restart to adopt vX"
+// when adopting, else a plain "restart server".
+func restartKeyLabel(info *sim.SessionInfo) string {
+	if adopting(info) {
+		return "[u] restart to adopt " + displayVer(info.AvailableVersion)
+	}
+	return "[u] restart server"
+}
+
+// restartPrompt is the confirmation line for [u], adopt-aware and naming
+// the drop count.
+func restartPrompt(info *sim.SessionInfo) string {
+	if adopting(info) {
+		return fmt.Sprintf("restart to adopt %s? drops %d player(s) — progress persists, they reconnect",
+			displayVer(info.AvailableVersion), onlineGuests(info))
+	}
+	return fmt.Sprintf("restart server? drops %d player(s) — progress persists, they reconnect", onlineGuests(info))
+}
+
+// displayVer normalises a version string for display: a numeric SemVer
+// gets a leading "v" (release ldflags strip it); a non-numeric build
+// string like "dev" is shown as-is.
+func displayVer(v string) string {
+	if v == "" {
+		return v
+	}
+	if v[0] >= '0' && v[0] <= '9' {
+		return "v" + v
+	}
+	return v
 }
 
 // onlineGuests counts online roster members other than the viewer
@@ -440,9 +508,28 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if s.confirmStopHost {
 		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
 	}
+	if s.confirmRestart {
+		b.WriteString(s.theme.Alert.Render("  "+restartPrompt(info)+" [y/n]") + "\n")
+	}
+
+	// Version surface (v0.30 S5): always show the running version; when a
+	// newer release exists, show it, and — on a box with no adopt tooling
+	// — point at the manual update path so the UI never offers an update
+	// it can't perform.
+	if info.RunningVersion != "" {
+		line := "  running " + displayVer(info.RunningVersion)
+		if info.AvailableVersion != "" {
+			line += " — update available: " + displayVer(info.AvailableVersion)
+		}
+		b.WriteString(s.theme.Dim.Render(line) + "\n")
+		if info.AvailableVersion != "" && !info.AdoptCapable {
+			b.WriteString(s.theme.Dim.Render("  update manually — "+releasesPageURL) + "\n")
+		}
+	}
+
 	keys := "  [t] target craft  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
-		keys += "  [i] invite  [r] revoke code  [x] remove player"
+		keys += "  [i] invite  [r] revoke code  [x] remove player  " + restartKeyLabel(info)
 	}
 	if info.IsHost {
 		keys += "  [p] promote/demote  [h] stop hosting"

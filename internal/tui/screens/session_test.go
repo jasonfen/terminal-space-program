@@ -351,6 +351,109 @@ func TestSessionScreenAdminRemoveGating(t *testing.T) {
 	}
 }
 
+// Restart (v0.30 S4): [u] arms a confirm naming the drop count; y emits
+// the restart command. Reachable by host and admin; a plain guest never
+// sees the key.
+func TestSessionScreenRestartConfirm(t *testing.T) {
+	// Host viewer: one online guest (gern).
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+
+	if cmd := s.HandleKey(w, key("u")); cmd.Kind != SessionCmdNone {
+		t.Fatalf("[u] emitted %v before confirm", cmd.Kind)
+	}
+	if out := s.Render(w, 120); !strings.Contains(out, "restart server? drops 1 player(s)") {
+		t.Errorf("restart confirm prompt missing:\n%s", out)
+	}
+	if !strings.Contains(s.Render(w, 120), "[u] restart server") {
+		t.Error("admin footer missing the restart hint")
+	}
+	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdRestart {
+		t.Errorf("confirm y = %+v, want SessionCmdRestart", cmd)
+	}
+	// n cancels.
+	s.HandleKey(w, key("u"))
+	if cmd := s.HandleKey(w, key("n")); cmd.Kind != SessionCmdNone {
+		t.Errorf("confirm n = %+v, want no command", cmd)
+	}
+
+	// An admin (CanAdminister, not IsHost) also gets it.
+	adminScreen := NewSessionScreen(sessionTheme())
+	wa := sessionWorld(t, false)
+	wa.Session.CanAdminister = true
+	if cmd := adminScreen.HandleKey(wa, key("u")); cmd.Kind != SessionCmdNone || !adminScreen.confirmRestart {
+		t.Errorf("admin [u] didn't arm restart confirm (cmd %+v)", cmd)
+	}
+
+	// A guest doesn't: [u] inert, no hint.
+	guestScreen := NewSessionScreen(sessionTheme())
+	wg := sessionWorld(t, false)
+	if cmd := guestScreen.HandleKey(wg, key("u")); cmd.Kind != SessionCmdNone || guestScreen.confirmRestart {
+		t.Errorf("guest [u] armed a restart (cmd %+v)", cmd)
+	}
+	if strings.Contains(guestScreen.Render(wg, 120), "restart server") {
+		t.Error("guest screen offers the restart key")
+	}
+}
+
+// Version surface (v0.30 S5): the running version always shows; an
+// available release reframes [u] as "restart to adopt" only when the box
+// is adopt-capable, otherwise it points at the manual update path and [u]
+// stays a plain restart.
+func TestSessionScreenVersionSurface(t *testing.T) {
+	// Running only, no update.
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Session.RunningVersion = "0.30.0"
+	out := s.Render(w, 120)
+	if !strings.Contains(out, "running v0.30.0") {
+		t.Errorf("running version missing:\n%s", out)
+	}
+	if strings.Contains(out, "update available") || strings.Contains(out, "restart to adopt") {
+		t.Errorf("spurious update UI with no available version:\n%s", out)
+	}
+	if !strings.Contains(out, "[u] restart server") {
+		t.Error("plain restart key missing")
+	}
+
+	// Update available + adopt-capable → adopt framing.
+	s = NewSessionScreen(sessionTheme())
+	w.Session.AvailableVersion = "v0.31.0"
+	w.Session.AdoptCapable = true
+	out = s.Render(w, 120)
+	if !strings.Contains(out, "update available: v0.31.0") {
+		t.Errorf("available version missing:\n%s", out)
+	}
+	if !strings.Contains(out, "[u] restart to adopt v0.31.0") {
+		t.Errorf("adopt affordance missing:\n%s", out)
+	}
+	if strings.Contains(out, "update manually") {
+		t.Error("adopt-capable box shows the manual path")
+	}
+	// The confirm is adopt-aware.
+	s.HandleKey(w, key("u"))
+	if !strings.Contains(s.Render(w, 120), "restart to adopt v0.31.0? drops") {
+		t.Errorf("adopt confirm prompt missing:\n%s", s.Render(w, 120))
+	}
+
+	// Update available + NOT adopt-capable → manual path, plain restart.
+	s = NewSessionScreen(sessionTheme())
+	w.Session.AdoptCapable = false
+	out = s.Render(w, 120)
+	if !strings.Contains(out, "update available: v0.31.0") {
+		t.Error("readout should still show the available version without adopt tooling")
+	}
+	if !strings.Contains(out, "update manually — "+releasesPageURL) {
+		t.Errorf("manual update path missing:\n%s", out)
+	}
+	if strings.Contains(out, "restart to adopt") {
+		t.Error("adopt affordance shown without adopt capability (the UI would lie)")
+	}
+	if !strings.Contains(out, "[u] restart server") {
+		t.Error("plain restart key missing on a non-adopt box")
+	}
+}
+
 // A guest never reaches the host toggle: their slate is never IsHost,
 // so [h] is inert and the stop-hosting hint is absent.
 func TestSessionScreenGuestNoHost(t *testing.T) {

@@ -57,6 +57,16 @@ type SessionInfo struct {
 	Self          string // viewer's fingerprint — the screen marks "you"
 	Players       []SessionPlayer
 	Invites       []SessionInvite // populated for the host and admins
+
+	// Version surface (v0.30 S5). RunningVersion is always set on a
+	// server; AvailableVersion is the newest published release when one is
+	// newer than running (else ""); AdoptCapable is whether the supervisor
+	// signalled adopt-capability — only then is the [u] restart-to-adopt
+	// affordance offered (else the screen points at the manual update
+	// path). The readout is universal; only the adopt action is gated.
+	RunningVersion   string
+	AvailableVersion string
+	AdoptCapable     bool
 }
 
 // SessionEventKind enumerates the moments the chip stack surfaces.
@@ -79,6 +89,12 @@ const (
 	SessionEventRendezvousArrived   // the shared coast reached τ ("rendezvous with X — encounter reached")
 	SessionEventRendezvousCancelled // the arm/coast was released before τ ("rendezvous with X cancelled")
 	SessionEventRendezvousDegraded  // the held encounter slipped past the committed approach
+
+	// SessionEventServerRestart announces an admin-triggered graceful
+	// restart to every connected player before the listener drains
+	// (v0.30 S4) — a warning, not a silent drop; progress persists and a
+	// reconnect resumes.
+	SessionEventServerRestart
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

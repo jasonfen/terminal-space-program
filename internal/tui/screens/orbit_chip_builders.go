@@ -160,6 +160,8 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			plain("◇ rendezvous with " + e.Handle + " cancelled")
 		case sim.SessionEventRendezvousDegraded:
 			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
+		case sim.SessionEventServerRestart:
+			rows = append(rows, row{text: "⚠ server restarting — reconnect in a moment, progress saved", alert: true})
 		}
 	}
 	if len(rows) == 0 {
