@@ -34,8 +34,9 @@ func sessionWorld(t *testing.T, isHost bool) *sim.World {
 		self = "SHA256:guest"
 	}
 	w.Session = &sim.SessionInfo{
-		IsHost: isHost,
-		Self:   self,
+		IsHost:        isHost,
+		CanAdminister: isHost, // the host administers; admins are covered separately
+		Self:          self,
 		Players: []sim.SessionPlayer{
 			{Fingerprint: "local", Handle: "jason", Role: "host", Online: true,
 				HasReport: true, System: "Sol", Primary: "earth", CraftCount: 2, DeltaT: 0},
@@ -240,6 +241,113 @@ func TestSessionScreenStopHostConfirm(t *testing.T) {
 	s.HandleKey(w, key("h"))
 	if cmd := s.HandleKey(w, key("n")); cmd.Kind != SessionCmdNone {
 		t.Errorf("confirm n = %+v, want no command", cmd)
+	}
+}
+
+// Promote/demote (v0.30 S2) is host-only: [p] on a guest row emits
+// Promote, on an admin row emits Demote, and is inert on the host's own
+// row.
+func TestSessionScreenPromoteKey(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+
+	// Cursor on the host — [p] must not act.
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdNone {
+		t.Errorf("[p] on host's own row = %+v, want no command", cmd)
+	}
+
+	s.HandleKey(w, key("j")) // gern (guest)
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdPromote || cmd.Fingerprint != "SHA256:guest" {
+		t.Errorf("[p] on guest = %+v, want Promote", cmd)
+	}
+
+	// Flip gern to admin — [p] now demotes.
+	w.Session.Players[1].Role = "admin"
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdDemote || cmd.Fingerprint != "SHA256:guest" {
+		t.Errorf("[p] on admin = %+v, want Demote", cmd)
+	}
+
+	if !strings.Contains(s.Render(w, 120), "[p] promote/demote") {
+		t.Error("host footer missing the promote/demote hint")
+	}
+	if !strings.Contains(s.Render(w, 120), "admin") {
+		t.Error("admin role tag missing on the roster row")
+	}
+}
+
+// An admin (CanAdminister but not IsHost) sees and uses the invites
+// pane, but never the host-only delegation / removal / lifecycle keys.
+func TestSessionScreenAdminView(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, false)
+	w.Session.CanAdminister = true // promoted admin, still not the host
+
+	out := s.Render(w, 120)
+	if !strings.Contains(out, "INVITES") || !strings.Contains(out, "[i] invite") {
+		t.Errorf("admin screen missing the invites pane:\n%s", out)
+	}
+	// Admins can remove guests (S3), so [x] is theirs; but delegation and
+	// server lifecycle stay host-only.
+	if strings.Contains(out, "[p] promote/demote") || strings.Contains(out, "stop hosting") {
+		t.Errorf("admin screen offers host-only keys:\n%s", out)
+	}
+	// [i] arms minting for the admin.
+	if s.HandleKey(w, key("i")); !s.CapturingText() {
+		t.Error("admin [i] didn't arm the mint input")
+	}
+	s.HandleKey(w, key("esc"))
+	// [p] is inert for a non-host.
+	s.HandleKey(w, key("j")) // move off self
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdNone {
+		t.Errorf("admin [p] = %+v, want no command (delegation is host-only)", cmd)
+	}
+}
+
+// Removal row-gating for an admin viewer (v0.30 S3): [x] arms on a
+// guest row, but not on another admin's row, the host's row, or the
+// viewer's own row.
+func TestSessionScreenAdminRemoveGating(t *testing.T) {
+	// Viewer is gern (a promoted admin). Fixture roster: host, gern
+	// (self), dave, pat — mark dave an admin, pat stays a guest.
+	w := sessionWorld(t, false)
+	w.Session.CanAdminister = true
+	w.Session.Players[2].Role = "admin" // dave → admin
+
+	// Row 0 host: not offered.
+	s := NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("x"))
+	if s.confirmRemove {
+		t.Error("[x] armed on the host row")
+	}
+
+	// Row 1 self (gern): not offered.
+	s = NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("x"))
+	if s.confirmRemove {
+		t.Error("[x] armed on the viewer's own row")
+	}
+
+	// Row 2 dave (admin): an admin can't remove another admin.
+	s = NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("x"))
+	if s.confirmRemove {
+		t.Error("[x] armed on another admin's row")
+	}
+
+	// Row 3 pat (guest): offered → confirm → removal command.
+	s = NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("x"))
+	if !s.confirmRemove {
+		t.Fatal("[x] didn't arm on a guest row")
+	}
+	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdRemove || cmd.Fingerprint != "SHA256:never" {
+		t.Errorf("guest removal command = %+v", cmd)
 	}
 }
 

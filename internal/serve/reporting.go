@@ -128,7 +128,27 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case screens.SessionCmdRevoke:
 			_ = m.srv.store.RevokeInvite(admin.Cmd.Code)
 		case screens.SessionCmdRemove:
+			// Target-aware guardrail (v0.30 S3): an admin may remove guests
+			// but not the host, another admin, or themselves. MayAdminister
+			// passed above; MayRemove adds the actor×target rules.
+			if !m.srv.store.MayRemove(m.owner, admin.Cmd.Fingerprint) {
+				m.app.Toast("you can't remove that player")
+				return m, nil
+			}
 			_ = m.srv.store.RemovePlayer(admin.Cmd.Fingerprint)
+		case screens.SessionCmdPromote, screens.SessionCmdDemote:
+			// Delegation is host-only — an admin can neither create nor
+			// remove another admin (single-rooted, v0.30 S2). MayAdminister
+			// passed (host or admin); narrow to the host via MayDelegate.
+			if !m.srv.store.MayDelegate(m.owner) {
+				m.app.Toast("only the host can promote or demote admins")
+				return m, nil
+			}
+			if admin.Cmd.Kind == screens.SessionCmdPromote {
+				_ = m.srv.store.PromoteAdmin(admin.Cmd.Fingerprint)
+			} else {
+				_ = m.srv.store.DemoteAdmin(admin.Cmd.Fingerprint)
+			}
 		}
 		m.metaAt = time.Time{} // force refresh — the list is the feedback
 		m.refreshSession(time.Now())
@@ -295,8 +315,9 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	m.reconcileDocking(w, cw.CoupledOwners, reports, handles, now)
 
 	info := &sim.SessionInfo{
-		IsHost: m.owner == sessiondir.HostFingerprint,
-		Self:   m.owner,
+		IsHost:        m.owner == sessiondir.HostFingerprint,
+		CanAdminister: m.srv.store.MayAdminister(m.owner),
+		Self:          m.owner,
 	}
 	// Rendezvous roster markers (v0.29 S2): who is armed toward the
 	// viewer, and whom the viewer is armed toward.
@@ -331,7 +352,7 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		}
 		info.Players = append(info.Players, row)
 	}
-	if info.IsHost {
+	if info.CanAdminister {
 		for _, inv := range m.meta.Invites {
 			info.Invites = append(info.Invites, sim.SessionInvite{
 				Code:   inv.Code,

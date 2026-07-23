@@ -212,3 +212,97 @@ func TestSessionAdminAuthorizedInHandler(t *testing.T) {
 		t.Errorf("guest forged a removal: gern is gone (%v)", err)
 	}
 }
+
+// The host promotes a guest to admin; the admin can then mint/revoke
+// invites, but delegation stays host-only — a forged promote from the
+// admin's own session is refused (v0.30 S2, #223).
+func TestAdminRoleCapabilities(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+	enrollDirect(t, srv, "SHA256:newbie", "newbie")
+
+	// Host promotes gern.
+	hostApp, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	host := tick(srv.HostModel(hostApp))
+	host, _ = host.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdPromote, Fingerprint: "SHA256:gern",
+	}})
+	_ = host
+	if p, _ := srv.store.FindPlayer("SHA256:gern"); p.Role != sessiondir.RoleAdmin {
+		t.Fatalf("host promote didn't take: role = %q", p.Role)
+	}
+
+	// gern's own session: admin may mint.
+	gernApp, err := srv.newGuestApp("SHA256:gern")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	gern := tick(srv.withReporting(gernApp, "SHA256:gern"))
+	// The admin sees the invite pane.
+	if info := gernApp.World().Session; info == nil || !info.CanAdminister || info.IsHost {
+		t.Fatalf("admin slate = %+v (want CanAdminister, not IsHost)", info)
+	}
+	gern, _ = gern.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdMint, Handle: "fromadmin",
+	}})
+	if meta, _ := srv.store.Meta(); len(meta.Invites) != 1 || meta.Invites[0].Handle != "fromadmin" {
+		t.Errorf("admin mint failed: invites = %+v", meta.Invites)
+	}
+
+	// But delegation is host-only: gern forging a promote is refused.
+	gern, _ = gern.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdPromote, Fingerprint: "SHA256:newbie",
+	}})
+	_ = gern
+	if p, _ := srv.store.FindPlayer("SHA256:newbie"); p.Role != sessiondir.RoleGuest {
+		t.Errorf("admin promoted another player: newbie role = %q", p.Role)
+	}
+}
+
+// An admin can remove a guest, but the removal guardrails hold at the
+// handler even for forged intents: an admin can't remove another admin
+// or the host (v0.30 S3, #224).
+func TestAdminRemovalGuardrails(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:adminA", "adminA")
+	enrollDirect(t, srv, "SHA256:adminB", "adminB")
+	enrollDirect(t, srv, "SHA256:guest", "guest")
+	if err := srv.store.PromoteAdmin("SHA256:adminA"); err != nil {
+		t.Fatalf("promote adminA: %v", err)
+	}
+	if err := srv.store.PromoteAdmin("SHA256:adminB"); err != nil {
+		t.Fatalf("promote adminB: %v", err)
+	}
+
+	adminApp, err := srv.newGuestApp("SHA256:adminA")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	admin := tick(srv.withReporting(adminApp, "SHA256:adminA"))
+
+	// Forged removal of the host and of another admin: both refused.
+	admin, _ = admin.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdRemove, Fingerprint: sessiondir.HostFingerprint,
+	}})
+	admin, _ = admin.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdRemove, Fingerprint: "SHA256:adminB",
+	}})
+	if _, err := srv.store.FindPlayer(sessiondir.HostFingerprint); err != nil {
+		t.Errorf("admin removed the host: %v", err)
+	}
+	if _, err := srv.store.FindPlayer("SHA256:adminB"); err != nil {
+		t.Errorf("admin removed another admin: %v", err)
+	}
+
+	// A guest, though: allowed.
+	admin, _ = admin.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdRemove, Fingerprint: "SHA256:guest",
+	}})
+	_ = admin
+	if _, err := srv.store.FindPlayer("SHA256:guest"); !errors.Is(err, sessiondir.ErrNotEnrolled) {
+		t.Errorf("admin couldn't remove a guest: %v", err)
+	}
+}
