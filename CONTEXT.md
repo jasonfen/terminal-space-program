@@ -1601,10 +1601,21 @@ holds no clock.
 _Avoid_: Lobby, Server (the machine, not the world).
 
 **Host**:
-The player whose machine runs a Session — the one roster role with
-invite and removal authority. Every other participant is a plain
-player; there are no further ranks.
-_Avoid_: Admin, owner, op.
+The player whose machine runs a Session — its root operator. Carries
+invite and removal authority, and is the only role that may *delegate*
+that authority by promoting a player to **Admin** (and demoting them
+again). There is exactly one Host per Session; the role never transfers
+and the Host can never be removed.
+_Avoid_: Owner, op, superuser.
+
+**Admin**:
+A player the Host has promoted to carry the Session's administrative
+capability: mint and revoke invites, remove players, restart the server.
+An Admin cannot delegate — only the Host promotes and demotes — and
+cannot remove the Host, another Admin, or themselves. Escalation stays
+single-rooted: every Admin traces back to the one Host, and no chain of
+promotions can outflank them.
+_Avoid_: Moderator, co-host, operator, mod.
 
 **Subspace**:
 The sim-time a player currently occupies within a Session. Warp is
