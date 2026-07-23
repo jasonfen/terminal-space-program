@@ -212,3 +212,52 @@ func TestSessionAdminAuthorizedInHandler(t *testing.T) {
 		t.Errorf("guest forged a removal: gern is gone (%v)", err)
 	}
 }
+
+// The host promotes a guest to admin; the admin can then mint/revoke
+// invites, but delegation stays host-only — a forged promote from the
+// admin's own session is refused (v0.30 S2, #223).
+func TestAdminRoleCapabilities(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+	enrollDirect(t, srv, "SHA256:newbie", "newbie")
+
+	// Host promotes gern.
+	hostApp, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	host := tick(srv.HostModel(hostApp))
+	host, _ = host.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdPromote, Fingerprint: "SHA256:gern",
+	}})
+	_ = host
+	if p, _ := srv.store.FindPlayer("SHA256:gern"); p.Role != sessiondir.RoleAdmin {
+		t.Fatalf("host promote didn't take: role = %q", p.Role)
+	}
+
+	// gern's own session: admin may mint.
+	gernApp, err := srv.newGuestApp("SHA256:gern")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	gern := tick(srv.withReporting(gernApp, "SHA256:gern"))
+	// The admin sees the invite pane.
+	if info := gernApp.World().Session; info == nil || !info.CanAdminister || info.IsHost {
+		t.Fatalf("admin slate = %+v (want CanAdminister, not IsHost)", info)
+	}
+	gern, _ = gern.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdMint, Handle: "fromadmin",
+	}})
+	if meta, _ := srv.store.Meta(); len(meta.Invites) != 1 || meta.Invites[0].Handle != "fromadmin" {
+		t.Errorf("admin mint failed: invites = %+v", meta.Invites)
+	}
+
+	// But delegation is host-only: gern forging a promote is refused.
+	gern, _ = gern.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdPromote, Fingerprint: "SHA256:newbie",
+	}})
+	_ = gern
+	if p, _ := srv.store.FindPlayer("SHA256:newbie"); p.Role != sessiondir.RoleGuest {
+		t.Errorf("admin promoted another player: newbie role = %q", p.Role)
+	}
+}

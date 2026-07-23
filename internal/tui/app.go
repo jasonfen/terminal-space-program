@@ -1776,7 +1776,8 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 	case screens.SessionCmdStopHost:
 		msg := screens.SessionHostMsg{Start: false}
 		return a, func() tea.Msg { return msg }
-	case screens.SessionCmdMint, screens.SessionCmdRevoke, screens.SessionCmdRemove:
+	case screens.SessionCmdMint, screens.SessionCmdRevoke, screens.SessionCmdRemove,
+		screens.SessionCmdPromote, screens.SessionCmdDemote:
 		msg := screens.SessionAdminMsg{Cmd: cmd}
 		return a, func() tea.Msg { return msg }
 	}

@@ -111,6 +111,70 @@ func TestMayAdminister(t *testing.T) {
 	}
 }
 
+// PromoteAdmin/DemoteAdmin round-trip a guest through the admin role
+// (v0.30 S2): the role persists, MayAdminister flips with it, delegation
+// stays host-only, and the host's role is immutable.
+func TestPromoteDemoteRole(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := s.EnsureHost("jason"); err != nil {
+		t.Fatalf("EnsureHost: %v", err)
+	}
+	inv, _ := s.MintInvite("dave")
+	if _, err := s.Enroll(inv.Code, "SHA256:dave", "dave"); err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+
+	// Promote → admin, may administer but may not delegate.
+	if err := s.PromoteAdmin("SHA256:dave"); err != nil {
+		t.Fatalf("PromoteAdmin: %v", err)
+	}
+	if !s.MayAdminister("SHA256:dave") {
+		t.Error("promoted admin may not administer")
+	}
+	if s.MayDelegate("SHA256:dave") {
+		t.Error("admin may delegate — escalation not single-rooted")
+	}
+	if !s.MayDelegate(HostFingerprint) {
+		t.Error("host may not delegate")
+	}
+	// Idempotent grant.
+	if err := s.PromoteAdmin("SHA256:dave"); err != nil {
+		t.Errorf("re-promote not idempotent: %v", err)
+	}
+
+	// Persists across a reopen (role rides the roster string).
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if p, _ := s2.FindPlayer("SHA256:dave"); p.Role != RoleAdmin {
+		t.Errorf("admin role not persisted: role = %q", p.Role)
+	}
+	if m2, _ := s2.Meta(); m2.Version != MetaVersion {
+		t.Errorf("promote bumped MetaVersion to %d (want additive, %d)", m2.Version, MetaVersion)
+	}
+
+	// Demote → guest.
+	if err := s2.DemoteAdmin("SHA256:dave"); err != nil {
+		t.Fatalf("DemoteAdmin: %v", err)
+	}
+	if s2.MayAdminister("SHA256:dave") {
+		t.Error("demoted player still administers")
+	}
+
+	// Guards: host immutable, unknown fingerprint rejected.
+	if err := s2.PromoteAdmin(HostFingerprint); err == nil {
+		t.Error("promoting the host was allowed")
+	}
+	if err := s2.PromoteAdmin("SHA256:nobody"); !errors.Is(err, ErrNotEnrolled) {
+		t.Errorf("promote unknown fingerprint: err = %v, want ErrNotEnrolled", err)
+	}
+}
+
 // Invite codes are one-time: enroll consumes; a second enroll (or a
 // bogus code) is rejected. Peek validates without consuming, and the
 // handle is editable at enroll.

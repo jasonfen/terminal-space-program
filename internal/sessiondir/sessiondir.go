@@ -42,11 +42,16 @@ import (
 // migrateMetaV1ToV2; live v0.27 sessions never break.
 const MetaVersion = 2
 
-// Roster roles. Host is the one privileged role (ADR 0034): the
-// player whose machine runs the session, with invite and removal
-// authority. Everyone else is a guest.
+// Roster roles. Host is the session's root operator (ADR 0034): the
+// player whose machine runs the session, with invite/removal authority
+// and the sole power to delegate administration. Admin is a guest the
+// host has promoted — it carries the invite/removal capability but not
+// delegation (single-rooted escalation, v0.30 S2). Everyone else is a
+// guest. The role is a plain persisted string on the roster entry, so
+// adding admin is additive: no MetaVersion bump, no migration.
 const (
 	RoleHost  = "host"
+	RoleAdmin = "admin"
 	RoleGuest = "guest"
 )
 
@@ -414,10 +419,63 @@ func (s *Store) MayAdminister(fingerprint string) bool {
 }
 
 // roleMayAdminister centralises which roster roles carry the admin
-// capability, so granting the admin role (S2) is a one-line change here
-// rather than a re-plumb of every caller.
+// capability (mint/revoke invites, remove guests). The host and any
+// promoted admin qualify; a plain guest does not.
 func roleMayAdminister(role string) bool {
-	return role == RoleHost
+	return role == RoleHost || role == RoleAdmin
+}
+
+// MayDelegate reports whether the fingerprint may promote a guest to
+// admin or demote an admin back to guest. Single-rooted escalation
+// (v0.30 S2): only the host delegates administration — an admin can
+// neither create nor remove another admin. Kept distinct from
+// MayAdminister so the escalation tree stays single-rooted.
+func (s *Store) MayDelegate(fingerprint string) bool {
+	p, err := s.FindPlayer(fingerprint)
+	if err != nil {
+		return false
+	}
+	return p.Role == RoleHost
+}
+
+// PromoteAdmin grants the admin role to an enrolled guest by
+// fingerprint. Idempotent — re-promoting an admin is a no-op. The host
+// is rejected (already root) and an unknown fingerprint returns
+// ErrNotEnrolled. Only the host should call this (enforced at the
+// handler via MayDelegate); the store guards the host-role invariant.
+func (s *Store) PromoteAdmin(fingerprint string) error {
+	return s.setRole(fingerprint, RoleAdmin)
+}
+
+// DemoteAdmin returns an admin to guest by fingerprint. Idempotent for
+// a player already a guest; rejects the host and unknown fingerprints.
+func (s *Store) DemoteAdmin(fingerprint string) error {
+	return s.setRole(fingerprint, RoleGuest)
+}
+
+// setRole is the shared guest↔admin role mutation. The host's role is
+// immutable (it is the single root); an unknown fingerprint is
+// ErrNotEnrolled.
+func (s *Store) setRole(fingerprint, role string) error {
+	if fingerprint == HostFingerprint {
+		return errors.New("sessiondir: can't change the host's role")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return err
+	}
+	for i := range m.Roster {
+		if m.Roster[i].Fingerprint == fingerprint {
+			if m.Roster[i].Role == RoleHost {
+				return errors.New("sessiondir: can't change the host's role")
+			}
+			m.Roster[i].Role = role
+			return s.writeMeta(m)
+		}
+	}
+	return ErrNotEnrolled
 }
 
 // FindPlayer looks a fingerprint up in the roster.

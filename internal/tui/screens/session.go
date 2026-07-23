@@ -50,6 +50,8 @@ const (
 	SessionCmdStartHost   // solo → start hosting (v0.28 S3)
 	SessionCmdStopHost    // hosting → stop the listener (v0.28 S3)
 	SessionCmdRendezvous  // arm a Rendezvous Warp toward Owner's ghost Owner/CraftID (v0.29 S2)
+	SessionCmdPromote     // host promotes Fingerprint (guest → admin) (v0.30 S2)
+	SessionCmdDemote      // host demotes Fingerprint (admin → guest) (v0.30 S2)
 )
 
 // SessionCommand is the screen's finalized action.
@@ -64,8 +66,9 @@ type SessionCommand struct {
 	Time        time.Time // SessionCmdSync: the subspace time to chase
 }
 
-// SessionAdminMsg carries a mint/revoke/remove intent out of the App
-// to the serve-layer wrapper (which owns the session store). In
+// SessionAdminMsg carries a session-admin intent (mint/revoke/remove,
+// or host-only promote/demote) out of the App to the serve-layer
+// wrapper, which owns the session store and enforces authorization. In
 // single-player nothing handles it — the message is inert.
 type SessionAdminMsg struct{ Cmd SessionCommand }
 
@@ -165,7 +168,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	case "down", "j":
 		s.moveCursor(info, +1)
 	case "tab":
-		if info.IsHost && len(info.Invites) > 0 {
+		if info.CanAdminister && len(info.Invites) > 0 {
 			s.inInvites = !s.inInvites
 		}
 	case "t":
@@ -236,12 +239,12 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		}
 		return SessionCommand{Kind: SessionCmdSync, Owner: p.Fingerprint, Handle: p.Handle, Time: w.Clock.SimTime.Add(p.DeltaT)}
 	case "i":
-		if info.IsHost {
+		if info.CanAdminister {
 			s.minting = true
 			s.mintInput = nil
 		}
 	case "r":
-		if info.IsHost && s.inInvites {
+		if info.CanAdminister && s.inInvites {
 			if inv, ok := s.selectedInvite(info); ok {
 				return SessionCommand{Kind: SessionCmdRevoke, Code: inv.Code, Handle: inv.Handle}
 			}
@@ -250,6 +253,21 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if info.IsHost && !s.inInvites {
 			if p, ok := s.selectedPlayer(info); ok && p.Role != "host" {
 				s.confirmRemove = true
+			}
+		}
+	case "p":
+		// Host-only delegation (v0.30 S2): promote a guest to admin or
+		// demote an admin back to guest. Single-rooted — an admin never
+		// sees this. Absent on the host's own row and on non-guest/admin
+		// rows.
+		if info.IsHost && !s.inInvites {
+			if p, ok := s.selectedPlayer(info); ok && p.Fingerprint != info.Self {
+				switch p.Role {
+				case "guest":
+					return SessionCommand{Kind: SessionCmdPromote, Fingerprint: p.Fingerprint, Handle: p.Handle}
+				case "admin":
+					return SessionCommand{Kind: SessionCmdDemote, Fingerprint: p.Fingerprint, Handle: p.Handle}
+				}
 			}
 		}
 	case "h":
@@ -334,8 +352,11 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		}
 		name := p.Handle
 		var tags []string
-		if p.Role == "host" {
+		switch p.Role {
+		case "host":
 			tags = append(tags, "host")
+		case "admin":
+			tags = append(tags, "admin")
 		}
 		if p.Fingerprint == info.Self {
 			tags = append(tags, "you")
@@ -365,7 +386,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 			marker, dot, name, where, craft, formatDeltaT(p, info.Self == p.Fingerprint)))
 	}
 
-	if info.IsHost {
+	if info.CanAdminister {
 		b.WriteString("\n" + s.theme.Title.Render(" INVITES ") + "\n\n")
 		// Normalise section focus (review follow-up): revoking the last
 		// invite while focused there must not strand the cursor in an
@@ -399,8 +420,14 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
 	}
 	keys := "  [t] target craft  [v] spectate  [s] sync-to  [w] rendezvous warp"
+	if info.CanAdminister {
+		keys += "  [i] invite  [r] revoke code"
+	}
 	if info.IsHost {
-		keys += "  [i] invite  [r] revoke code  [x] remove player  [h] stop hosting  [tab] section"
+		keys += "  [x] remove player  [p] promote/demote  [h] stop hosting"
+	}
+	if info.CanAdminister {
+		keys += "  [tab] section"
 	}
 	keys += "  [esc] close"
 	b.WriteString(s.theme.Footer.Render(keys))

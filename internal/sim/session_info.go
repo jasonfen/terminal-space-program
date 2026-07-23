@@ -48,10 +48,15 @@ type SessionInvite struct {
 
 // SessionInfo is the Session screen's whole slate.
 type SessionInfo struct {
-	IsHost  bool
-	Self    string // viewer's fingerprint — the screen marks "you"
-	Players []SessionPlayer
-	Invites []SessionInvite // populated only for the host
+	IsHost bool // viewer is the session's root host (promote/demote, stop-hosting)
+	// CanAdminister is true for the host and any promoted admin (v0.30
+	// S2): the invite pane and mint/revoke are gated on this, not on
+	// IsHost. Authorization is still enforced in the serve handler — this
+	// only drives what the screen offers.
+	CanAdminister bool
+	Self          string // viewer's fingerprint — the screen marks "you"
+	Players       []SessionPlayer
+	Invites       []SessionInvite // populated for the host and admins
 }
 
 // SessionEventKind enumerates the moments the chip stack surfaces.
