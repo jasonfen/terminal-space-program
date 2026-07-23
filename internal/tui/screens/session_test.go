@@ -658,3 +658,56 @@ func TestSessionScreenTargetableCount(t *testing.T) {
 		t.Errorf("row should distinguish targetable-here count:\n%s", out)
 	}
 }
+
+// Opening the craft picker from the invites pane must pull focus back to
+// the player rows (v0.30 S7 review). t/v/w always act on the selected
+// player row, but the sub-list only renders when the invites pane isn't
+// focused — so without this the screen enters an invisible picker mode
+// where j/k silently drive a craft cursor the player can't see.
+func TestSessionScreenGhostPickerFromInvitesPane(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Ghosts = []sim.Ghost{
+		{Owner: "SHA256:guest", CraftID: 10, Handle: "gern", Name: "Scout"},
+		{Owner: "SHA256:guest", CraftID: 11, Handle: "gern", Name: "Hauler"},
+	}
+	s.HandleKey(w, key("j"))   // gern
+	s.HandleKey(w, key("tab")) // focus the invites pane
+	s.HandleKey(w, key("t"))   // opens the picker
+
+	out := s.Render(w, 120)
+	for _, want := range []string{"Scout", "Hauler"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("picker opened from the invites pane but never rendered %q:\n%s", want, out)
+		}
+	}
+	// The cursor now drives the craft list, not the invites section.
+	s.HandleKey(w, key("j"))
+	if cmd := s.HandleKey(w, key("t")); cmd.Kind != SessionCmdTargetGhost || cmd.CraftID != 11 {
+		t.Errorf("[t] after moving in the picker = %+v, want target craft 11", cmd)
+	}
+}
+
+// A shrinking ghost slate must not strand the craft cursor past the end
+// (v0.30 S7 review): pickGhost would return no selection and no empty
+// flag, so t/v/w silently did nothing — with no toast — until the player
+// happened to press an arrow key.
+func TestSessionScreenGhostPickerSlateShrinks(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Ghosts = []sim.Ghost{
+		{Owner: "SHA256:guest", CraftID: 10, Handle: "gern", Name: "Scout"},
+		{Owner: "SHA256:guest", CraftID: 11, Handle: "gern", Name: "Hauler"},
+		{Owner: "SHA256:guest", CraftID: 12, Handle: "gern", Name: "Probe"},
+	}
+	s.HandleKey(w, key("j")) // gern
+	s.HandleKey(w, key("t")) // open the picker
+	s.HandleKey(w, key("j"))
+	s.HandleKey(w, key("j")) // craft cursor on Probe (index 2)
+
+	// gern lands Probe between ticks: the slate drops to two.
+	w.Ghosts = w.Ghosts[:2]
+	if cmd := s.HandleKey(w, key("t")); cmd.Kind != SessionCmdTargetGhost || cmd.CraftID != 11 {
+		t.Errorf("[t] after the slate shrank = %+v, want the clamped last craft 11", cmd)
+	}
+}

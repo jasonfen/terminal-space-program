@@ -128,10 +128,18 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	// Normalise craft-picker focus (v0.30 S6): if the selected player's
 	// targetable ghosts vanished (they landed the craft or left the
 	// system between ticks), pop the sub-list so keys can't strand on an
-	// empty picker.
+	// empty picker. A slate that merely SHRANK clamps instead (S7 review)
+	// — leaving the cursor past the end deadened t/v/w silently.
 	if s.inCraftList {
-		if p, ok := s.selectedPlayer(info); !ok || len(playerGhosts(w, p.Fingerprint)) == 0 {
+		p, ok := s.selectedPlayer(info)
+		n := 0
+		if ok {
+			n = len(playerGhosts(w, p.Fingerprint))
+		}
+		if n == 0 {
 			s.inCraftList = false
+		} else {
+			s.craftCursor = clamp(s.craftCursor, 0, n-1)
 		}
 	}
 
@@ -382,6 +390,12 @@ func (s *SessionScreen) pickGhost(w *sim.World, p sim.SessionPlayer) (g sim.Ghos
 	if len(ghosts) == 1 {
 		return ghosts[0], true, false
 	}
+	// Opening the picker takes focus off the invites pane (S7 review).
+	// t/v/w act on the player row from either section, but the sub-list
+	// only renders when the invites pane isn't focused — so opening it
+	// without this left the screen in an invisible picker mode where j/k
+	// drove a craft cursor the player could not see.
+	s.inInvites = false
 	s.inCraftList, s.craftCursor = true, 0
 	return sim.Ghost{}, false, false
 }

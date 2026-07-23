@@ -146,7 +146,7 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// reaches this handler directly and must be refused. Refusal is a
 		// silent no-op plus a toast to the sender — never a crash.
 		if !m.srv.store.MayAdminister(m.owner) {
-			m.app.Toast("only the host can administer the session")
+			m.app.Toast("you can't administer this session")
 			return m, nil
 		}
 		switch admin.Cmd.Kind {
@@ -522,11 +522,13 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 // restartServer drains every connected player and exits with the
 // supervisor marker so the service manager relaunches the process
 // (v0.30 S4). Authorization is enforced here — an admin (or the host)
-// only; a guest's forged intent is refused with a toast. The drain runs
-// in the background so the triggering session's tick loop isn't blocked;
-// it announces the restart, pauses briefly so connected screens render
-// the warning, then closes the listener (persisting every guest's final
-// payload via persistMiddleware) before os.Exit(42).
+// only; a guest's forged intent is refused with a toast. It persists the
+// restarter's own world synchronously (the one payload the drain can't
+// write), then drains in the background so the triggering session's tick
+// loop isn't blocked; the drain announces the restart, pauses briefly so
+// connected screens render the warning, then closes the listener
+// (persisting every guest's final payload via persistMiddleware) before
+// os.Exit(42).
 func (m reportingModel) restartServer() (tea.Model, tea.Cmd) {
 	if m.srv == nil {
 		return m, nil
@@ -536,9 +538,20 @@ func (m reportingModel) restartServer() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	srv, actor := m.srv, m.owner
+	// Persist the restarter's OWN world first (v0.30 S7 review). The
+	// drain writes every other player's payload through
+	// persistMiddleware, but this App never unwinds that way: the host
+	// has no ssh session at all, and an admin guest's session is the one
+	// session that can't finish while it is the one doing the draining.
+	// os.Exit skips the quit path's autosave, so without this the player
+	// who pressed [u] loses everything since their last periodic save —
+	// all of it, on a box with the autosave interval set to off.
+	// Synchronous, on the update goroutine, because it reads the live
+	// world; the drain goroutine below must not touch it.
+	m.app.PersistNow()
 	// Announce now so the next tick carries the warning to every screen.
 	srv.presence.event(sim.SessionEventServerRestart, actor, "", "")
-	m.app.Toast("restarting server — draining sessions, everyone reconnects")
+	m.app.Toast("restarting server — draining sessions, progress saved")
 	go func() {
 		time.Sleep(restartAnnounceGrace)
 		srv.drainAndClose()
