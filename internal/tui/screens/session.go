@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -302,26 +303,53 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	case "x":
 		// Removal is reachable by the host and admins (v0.30 S3), gated
 		// per-row by the same guardrail the handler enforces: never self,
-		// the host, or (for an admin actor) another admin.
-		if info.CanAdminister && !s.inInvites && !s.inCraftList {
-			if p, ok := s.selectedPlayer(info); ok && mayRemoveRow(info, p) {
-				s.confirmRemove = true
-			}
+		// the host, or (for an admin actor) another admin. Every refusal
+		// toasts (v0.30.1) — see the note on [p] below.
+		if msg, refused := s.sectionRefusal("[x] removes a player"); refused {
+			return toast(msg)
 		}
+		if !info.CanAdminister {
+			return toast("only the host or an admin can remove players")
+		}
+		p, ok := s.selectedPlayer(info)
+		if !ok {
+			break
+		}
+		if why := removeRefusal(info, p); why != "" {
+			return toast(why)
+		}
+		s.confirmRemove = true
 	case "p":
 		// Host-only delegation (v0.30 S2): promote a guest to admin or
 		// demote an admin back to guest. Single-rooted — an admin never
-		// sees this. Absent on the host's own row and on non-guest/admin
-		// rows.
-		if info.IsHost && !s.inInvites && !s.inCraftList {
-			if p, ok := s.selectedPlayer(info); ok && p.Fingerprint != info.Self {
-				switch p.Role {
-				case "guest":
-					return SessionCommand{Kind: SessionCmdPromote, Fingerprint: p.Fingerprint, Handle: p.Handle}
-				case "admin":
-					return SessionCommand{Kind: SessionCmdDemote, Fingerprint: p.Fingerprint, Handle: p.Handle}
-				}
-			}
+		// gets this.
+		//
+		// Every rejection path SAYS why (v0.30.1). These gates used to
+		// fall through to a bare no-op, which is indistinguishable from a
+		// dead key: the first live report of this feature was the host
+		// pressing [p] with the cursor still on their own row (where it
+		// starts) and concluding the key was broken.
+		if msg, refused := s.sectionRefusal("[p] promotes a player"); refused {
+			return toast(msg)
+		}
+		if !info.IsHost {
+			return toast("only the host can promote or demote admins")
+		}
+		if len(info.Players) <= 1 {
+			return toast("no one to promote yet — invite a player first")
+		}
+		p, ok := s.selectedPlayer(info)
+		if !ok {
+			break
+		}
+		if p.Fingerprint == info.Self {
+			return toast("you can't promote yourself")
+		}
+		switch p.Role {
+		case "guest":
+			return SessionCommand{Kind: SessionCmdPromote, Fingerprint: p.Fingerprint, Handle: p.Handle}
+		case "admin":
+			return SessionCommand{Kind: SessionCmdDemote, Fingerprint: p.Fingerprint, Handle: p.Handle}
 		}
 	case "h":
 		// Host-only stop toggle (v0.28 S3): confirm before dropping
@@ -332,10 +360,14 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	case "u":
 		// Admin server restart (v0.30 S4): drain everyone and exit with a
 		// marker the supervisor restarts on. Confirm first (states the
-		// drop count). Host and admins; guests never reach it.
-		if info.CanAdminister && !s.inCraftList {
-			s.confirmRestart = true
+		// drop count). Host and admins; a guest gets the reason (v0.30.1).
+		if s.inCraftList {
+			return toast("close the craft list first — [esc]")
 		}
+		if !info.CanAdminister {
+			return toast("only the host or an admin can restart the server")
+		}
+		s.confirmRestart = true
 	}
 	return SessionCommand{}
 }
@@ -414,22 +446,45 @@ func (s *SessionScreen) selectedInvite(info *sim.SessionInfo) (sim.SessionInvite
 	return info.Invites[s.inviteCursor], true
 }
 
-// mayRemoveRow mirrors sessiondir.MayRemove for UI gating (v0.30 S3):
-// the screen only offers [x] on rows the viewer is actually allowed to
-// remove. The handler re-checks authoritatively — this just avoids
-// dangling a key that would no-op.
-func mayRemoveRow(info *sim.SessionInfo, p sim.SessionPlayer) bool {
-	if !info.CanAdminister {
-		return false
+// toast is the screen's "refused, and here's why" reply. Every admin-key
+// rejection returns one (v0.30.1): the keys are gated by capability AND
+// by which row the cursor is on, so a bare no-op leaves the player unable
+// to tell a refusal from a broken key.
+func toast(msg string) SessionCommand {
+	return SessionCommand{Kind: SessionCmdToast, Message: msg}
+}
+
+// sectionRefusal reports whether a row-action key should be refused
+// because the cursor isn't on a player row at all — the craft picker or
+// the invites pane has focus. what names the key for the message, e.g.
+// "[x] removes a player".
+func (s *SessionScreen) sectionRefusal(what string) (string, bool) {
+	if s.inCraftList {
+		return "close the craft list first — [esc]", true
 	}
-	if p.Fingerprint == info.Self || p.Role == "host" {
-		return false
+	if s.inInvites {
+		return what + " — [tab] back to the roster", true
+	}
+	return "", false
+}
+
+// removeRefusal mirrors sessiondir.MayRemove for UI gating (v0.30 S3),
+// returning the reason a row can't be removed or "" when it can. The
+// handler re-checks authoritatively; this exists so the screen can say
+// why instead of dangling a key that silently no-ops. Assumes the viewer
+// already carries the admin capability.
+func removeRefusal(info *sim.SessionInfo, p sim.SessionPlayer) string {
+	if p.Fingerprint == info.Self {
+		return "you can't remove yourself"
+	}
+	if p.Role == "host" {
+		return "you can't remove the host"
 	}
 	// An admin (can administer but isn't the host) can't remove another admin.
 	if !info.IsHost && p.Role == "admin" {
-		return false
+		return "only the host can remove an admin"
 	}
-	return true
+	return ""
 }
 
 // releasesPageURL is where an install without adopt tooling is pointed
@@ -489,6 +544,55 @@ func onlineGuests(info *sim.SessionInfo) int {
 	return n
 }
 
+// Fixed-width table columns for the roster and the invites list
+// (v0.30.1). Laid out in TERMINAL CELLS, not bytes: the name cell
+// carries styled tags, and the cursor marker (▸) and presence dots
+// (●/○) are multi-byte runes — so fmt's %-Ns, which counts bytes,
+// cannot lay this out. Promoting a player used to visibly shift every
+// column after the name because the styled "(admin)" tag spent its
+// invisible ANSI bytes out of the column budget.
+const (
+	colName         = 34
+	colWhere        = 16
+	colCraft        = 18
+	colInviteCode   = 12
+	colInviteHandle = 20
+	// rowIndent is the lead-in every roster row shares: two spaces, the
+	// two-cell cursor marker, the one-cell presence dot, and a space.
+	rowIndent = 6
+)
+
+// padStyled pads cell with spaces to exactly w terminal cells,
+// measuring display width so ANSI escapes and multi-byte runes don't
+// skew it. Unlike the Saves screen's padCell it neither truncates nor
+// appends a gap, because the roster's name cell arrives already styled
+// — truncation happens on the plain text first, via truncWidth.
+func padStyled(cell string, w int) string {
+	if pad := w - lipgloss.Width(cell); pad > 0 {
+		return cell + strings.Repeat(" ", pad)
+	}
+	return cell
+}
+
+// nameCell renders "handle (tag, tag)" into exactly w cells, with the
+// tags dimmed. The handle owns the budget and the tags take what's
+// left, so a long handle costs its own tags rather than the table's
+// alignment.
+func (s *SessionScreen) nameCell(handle string, tags []string, w int) string {
+	if len(tags) == 0 {
+		return padStyled(truncWidth(handle, w), w)
+	}
+	suffix := " (" + strings.Join(tags, ", ") + ")"
+	hw := lipgloss.Width(handle)
+	if hw+lipgloss.Width(suffix) > w {
+		if hw >= w {
+			return padStyled(truncWidth(handle, w), w)
+		}
+		suffix = truncWidth(suffix, w-hw)
+	}
+	return padStyled(handle+s.theme.Dim.Render(suffix), w)
+}
+
 func clamp(v, lo, hi int) int {
 	if hi < lo {
 		return lo
@@ -516,6 +620,10 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	}
 
 	b.WriteString(title + s.theme.Dim.Render(fmt.Sprintf("  %d players", len(info.Players))) + "\n\n")
+	b.WriteString(s.theme.Dim.Render(strings.Repeat(" ", rowIndent)+
+		padStyled("PLAYER", colName)+" "+
+		padStyled("LOCATION", colWhere)+" "+
+		padStyled("CRAFT", colCraft)+" TIME") + "\n")
 	for i, p := range info.Players {
 		marker := "  "
 		if !s.inInvites && i == s.cursor {
@@ -525,7 +633,6 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		if p.Online {
 			dot = s.theme.Primary.Render("●")
 		}
-		name := p.Handle
 		var tags []string
 		switch p.Role {
 		case "host":
@@ -546,9 +653,6 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		if p.RendezvousOut {
 			tags = append(tags, "rendezvous armed")
 		}
-		if len(tags) > 0 {
-			name += s.theme.Dim.Render(" (" + strings.Join(tags, ", ") + ")")
-		}
 		where := "—"
 		if p.System != "" {
 			where = p.System
@@ -561,13 +665,20 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		// viewer's system and fewer craft are targetable here than reported,
 		// spell out the targetable-here count so "%d craft" doesn't mislead
 		// (v0.30 S6 trap). Other-system players read from the system column.
+		// Never on your own row (v0.30.1): the ghost slate excludes the
+		// viewer by construction — you don't ghost yourself — so the count
+		// would always read "(0 here)". It measures what YOU can target,
+		// which is meaningless pointed at yourself.
 		here := len(playerGhosts(w, p.Fingerprint))
 		craft := fmt.Sprintf("%d craft", p.CraftCount)
-		if p.System != "" && p.System == w.System().Name && here < p.CraftCount {
+		if p.Fingerprint != info.Self && p.System != "" && p.System == w.System().Name && here < p.CraftCount {
 			craft = fmt.Sprintf("%d craft (%d here)", p.CraftCount, here)
 		}
-		b.WriteString(fmt.Sprintf("  %s%s %-32s %-16s %-16s %s\n",
-			marker, dot, name, where, craft, formatDeltaT(p, info.Self == p.Fingerprint)))
+		b.WriteString("  " + padStyled(marker, 2) + dot + " " +
+			s.nameCell(p.Handle, tags, colName) + " " +
+			padStyled(where, colWhere) + " " +
+			padStyled(craft, colCraft) + " " +
+			formatDeltaT(p, info.Self == p.Fingerprint) + "\n")
 
 		// Craft picker (v0.30 S6): when this player's sub-list is open,
 		// enumerate their targetable ghosts (glyph + name) with a second
@@ -601,13 +712,20 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		} else if len(info.Invites) == 0 {
 			b.WriteString(s.theme.Dim.Render("  no outstanding codes — [i] to mint one") + "\n")
 		}
+		if len(info.Invites) > 0 {
+			b.WriteString(s.theme.Dim.Render("    "+
+				padStyled("CODE", colInviteCode)+" "+
+				padStyled("HANDLE", colInviteHandle)+" AGE") + "\n")
+		}
 		for i, inv := range info.Invites {
 			marker := "  "
 			if s.inInvites && i == s.inviteCursor {
 				marker = s.theme.Primary.Render("▸ ")
 			}
-			b.WriteString(fmt.Sprintf("  %s%s  %-16s %s\n",
-				marker, inv.Code, inv.Handle, s.theme.Dim.Render(compactDuration(inv.Age)+" old")))
+			b.WriteString("  " + padStyled(marker, 2) +
+				padStyled(truncWidth(inv.Code, colInviteCode), colInviteCode) + " " +
+				padStyled(truncWidth(inv.Handle, colInviteHandle), colInviteHandle) + " " +
+				s.theme.Dim.Render(compactDuration(inv.Age)+" old") + "\n")
 		}
 	}
 

@@ -251,9 +251,9 @@ func TestSessionScreenPromoteKey(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
 
-	// Cursor on the host — [p] must not act.
-	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdNone {
-		t.Errorf("[p] on host's own row = %+v, want no command", cmd)
+	// Cursor on the host — [p] must not act, and must say why (v0.30.1).
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdToast {
+		t.Errorf("[p] on host's own row = %+v, want a refusal toast", cmd)
 	}
 
 	s.HandleKey(w, key("j")) // gern (guest)
@@ -298,8 +298,8 @@ func TestSessionScreenAdminView(t *testing.T) {
 	s.HandleKey(w, key("esc"))
 	// [p] is inert for a non-host.
 	s.HandleKey(w, key("j")) // move off self
-	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdNone {
-		t.Errorf("admin [p] = %+v, want no command (delegation is host-only)", cmd)
+	if cmd := s.HandleKey(w, key("p")); cmd.Kind != SessionCmdToast {
+		t.Errorf("admin [p] = %+v, want a refusal toast (delegation is host-only)", cmd)
 	}
 }
 
@@ -385,10 +385,10 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 		t.Errorf("admin [u] didn't arm restart confirm (cmd %+v)", cmd)
 	}
 
-	// A guest doesn't: [u] inert, no hint.
+	// A guest doesn't: [u] refuses (with a reason, v0.30.1) and no hint.
 	guestScreen := NewSessionScreen(sessionTheme())
 	wg := sessionWorld(t, false)
-	if cmd := guestScreen.HandleKey(wg, key("u")); cmd.Kind != SessionCmdNone || guestScreen.confirmRestart {
+	if cmd := guestScreen.HandleKey(wg, key("u")); cmd.Kind != SessionCmdToast || guestScreen.confirmRestart {
 		t.Errorf("guest [u] armed a restart (cmd %+v)", cmd)
 	}
 	if strings.Contains(guestScreen.Render(wg, 120), "restart server") {
@@ -709,5 +709,222 @@ func TestSessionScreenGhostPickerSlateShrinks(t *testing.T) {
 	w.Ghosts = w.Ghosts[:2]
 	if cmd := s.HandleKey(w, key("t")); cmd.Kind != SessionCmdTargetGhost || cmd.CraftID != 11 {
 		t.Errorf("[t] after the slate shrank = %+v, want the clamped last craft 11", cmd)
+	}
+}
+
+// Every refusal path for the admin keys must SAY why (v0.30.1). A silent
+// no-op is indistinguishable from a dead key — the [p] report that
+// prompted this was the host pressing it on their own row, with the
+// screen giving no reason at all.
+func TestSessionScreenPromoteRefusalsToast(t *testing.T) {
+	toastFor := func(setup func(w *sim.World, s *SessionScreen)) string {
+		w := sessionWorld(t, true)
+		s := NewSessionScreen(sessionTheme())
+		setup(w, s)
+		cmd := s.HandleKey(w, key("p"))
+		if cmd.Kind != SessionCmdToast {
+			t.Fatalf("[p] refusal = %+v, want a toast explaining why", cmd)
+		}
+		return cmd.Message
+	}
+
+	// The reported case: cursor sits on the host's own row by default.
+	if msg := toastFor(func(*sim.World, *SessionScreen) {}); !strings.Contains(msg, "yourself") {
+		t.Errorf("[p] on own row toast = %q, want it to say you can't promote yourself", msg)
+	}
+	// Hosting alone — nobody to promote yet.
+	if msg := toastFor(func(w *sim.World, s *SessionScreen) {
+		w.Session.Players = w.Session.Players[:1]
+	}); !strings.Contains(msg, "invite") {
+		t.Errorf("[p] solo toast = %q, want it to point at inviting a player", msg)
+	}
+	// A promoted admin can't delegate — single-rooted escalation.
+	if msg := toastFor(func(w *sim.World, s *SessionScreen) {
+		w.Session.IsHost = false
+		w.Session.CanAdminister = true
+		s.HandleKey(w, key("j"))
+	}); !strings.Contains(msg, "only the host") {
+		t.Errorf("admin [p] toast = %q, want it to say delegation is host-only", msg)
+	}
+}
+
+func TestSessionScreenRemoveRefusalsToast(t *testing.T) {
+	// Viewer is gern, a promoted admin: host, gern (self), dave, pat.
+	toastAt := func(steps int, setup func(w *sim.World)) string {
+		w := sessionWorld(t, false)
+		w.Session.CanAdminister = true
+		if setup != nil {
+			setup(w)
+		}
+		s := NewSessionScreen(sessionTheme())
+		for i := 0; i < steps; i++ {
+			s.HandleKey(w, key("j"))
+		}
+		cmd := s.HandleKey(w, key("x"))
+		if cmd.Kind != SessionCmdToast {
+			t.Fatalf("[x] refusal at row %d = %+v, want a toast", steps, cmd)
+		}
+		return cmd.Message
+	}
+
+	if msg := toastAt(0, nil); !strings.Contains(msg, "host") {
+		t.Errorf("[x] on host row toast = %q, want it to name the host", msg)
+	}
+	if msg := toastAt(1, nil); !strings.Contains(msg, "yourself") {
+		t.Errorf("[x] on own row toast = %q, want it to say you can't remove yourself", msg)
+	}
+	if msg := toastAt(2, func(w *sim.World) { w.Session.Players[2].Role = "admin" }); !strings.Contains(msg, "only the host") {
+		t.Errorf("admin [x] on another admin toast = %q, want host-only", msg)
+	}
+	// A plain guest has no removal capability at all.
+	w := sessionWorld(t, false)
+	s := NewSessionScreen(sessionTheme())
+	s.HandleKey(w, key("j"))
+	if cmd := s.HandleKey(w, key("x")); cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "admin") {
+		t.Errorf("guest [x] = %+v, want a toast naming the required capability", cmd)
+	}
+}
+
+func TestSessionScreenRestartRefusalToast(t *testing.T) {
+	w := sessionWorld(t, false) // plain guest: no admin capability
+	s := NewSessionScreen(sessionTheme())
+	cmd := s.HandleKey(w, key("u"))
+	if cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "restart") {
+		t.Errorf("guest [u] = %+v, want a toast explaining the refusal", cmd)
+	}
+	if s.confirmRestart {
+		t.Error("guest [u] armed the restart confirm")
+	}
+}
+
+// dimCSI wraps text in a real dim/reset pair, hand-built so the test
+// doesn't depend on lipgloss's environment-dependent color profile
+// (same technique as the navball panel tests).
+func dimCSI(s string) string { return "\x1b[2m" + s + "\x1b[0m" }
+
+// displayCol reports where needle starts in TERMINAL CELLS, not bytes —
+// the roster's markers (▸) and presence dots (●/○) are multi-byte runes,
+// so a byte offset says nothing about alignment.
+func displayCol(t *testing.T, line, needle string) int {
+	t.Helper()
+	i := strings.Index(line, needle)
+	if i < 0 {
+		t.Fatalf("%q not found in %q", needle, line)
+	}
+	return lipgloss.Width(line[:i])
+}
+
+// padCell must pad to a display width, so a styled cell occupies the
+// same number of columns as a plain one. This is the actual defect
+// behind the playtest report: fmt's %-32s counts the invisible ANSI
+// bytes of a styled tag against the column budget, so promoting a
+// player (which adds a styled "(admin)") shifted every column after it.
+func TestPadStyledIgnoresANSI(t *testing.T) {
+	plain := padStyled("gern", 20)
+	styled := padStyled("gern"+dimCSI(" (admin)"), 20)
+	if lipgloss.Width(plain) != 20 || lipgloss.Width(styled) != 20 {
+		t.Errorf("padCell widths = plain %d, styled %d, want 20 and 20",
+			lipgloss.Width(plain), lipgloss.Width(styled))
+	}
+}
+
+// Over-long content is truncated into its column instead of pushing the
+// rest of the row right.
+func TestTruncWidthFitsColumn(t *testing.T) {
+	got := truncWidth(strings.Repeat("verylonghandle", 4), 20)
+	if lipgloss.Width(got) > 20 {
+		t.Errorf("truncPlain width = %d, want <= 20 (%q)", lipgloss.Width(got), got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("truncated text should be ellipsised, got %q", got)
+	}
+	if short := truncWidth("gern", 20); short != "gern" {
+		t.Errorf("truncPlain shortened a fitting string: %q", short)
+	}
+}
+
+// The roster is a fixed-width table: every row puts its columns in the
+// same terminal cell, whatever the name cell holds (v0.30.1, playtest).
+func TestSessionScreenColumnsStayAligned(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	rowFor := func(w *sim.World, handle string) string {
+		for _, line := range strings.Split(stripANSI(s.Render(w, 140)), "\n") {
+			if strings.Contains(line, handle) {
+				return line
+			}
+		}
+		t.Fatalf("no roster row for %q", handle)
+		return ""
+	}
+
+	// A tagged row (jason — "host, you") and an untagged one (dave) must
+	// agree on where the location column starts.
+	w := sessionWorld(t, true)
+	tagged := displayCol(t, rowFor(w, "jason"), "Sol/earth")
+	plain := displayCol(t, rowFor(w, "dave"), "Lumen/lumen")
+	if tagged != plain {
+		t.Errorf("location column: tagged row at cell %d, untagged at %d — table is ragged", tagged, plain)
+	}
+
+	// The reported case: promoting must not move gern's columns.
+	before := displayCol(t, rowFor(w, "gern"), "Sol/moon")
+	beforeCraft := displayCol(t, rowFor(w, "gern"), "1 craft")
+	w.Session.Players[1].Role = "admin"
+	if after := displayCol(t, rowFor(w, "gern"), "Sol/moon"); before != after {
+		t.Errorf("promoting shifted the location column: cell %d → %d", before, after)
+	}
+	if after := displayCol(t, rowFor(w, "gern"), "1 craft"); beforeCraft != after {
+		t.Errorf("promoting shifted the craft column: cell %d → %d", beforeCraft, after)
+	}
+
+	// An over-long handle is truncated into its column, not allowed to
+	// push the row's remaining columns right.
+	w2 := sessionWorld(t, true)
+	w2.Session.Players[1].Handle = strings.Repeat("verylonghandle", 4)
+	if got, want := displayCol(t, rowFor(w2, "Sol/moon"), "Sol/moon"), plain; got != want {
+		t.Errorf("a long handle broke the table: location at cell %d, want %d", got, want)
+	}
+}
+
+// The invites table holds its columns too, whatever the code length.
+func TestSessionScreenInviteColumnsStayAligned(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Session.Invites = []sim.SessionInvite{
+		{Code: "AB2C-DE3F", Handle: "newbie", Age: 3 * time.Minute},
+		{Code: "SHORT", Handle: "second", Age: time.Minute},
+	}
+	lines := strings.Split(stripANSI(s.Render(w, 140)), "\n")
+	var a, b string
+	for _, l := range lines {
+		if strings.Contains(l, "newbie") {
+			a = l
+		}
+		if strings.Contains(l, "second") {
+			b = l
+		}
+	}
+	if x, y := displayCol(t, a, "newbie"), displayCol(t, b, "second"); x != y {
+		t.Errorf("invite handle column is ragged: cell %d vs %d\n  %q\n  %q", x, y, a, b)
+	}
+}
+
+// Your own row must never carry the "(N here)" annotation (v0.30.1).
+// The ghost slate deliberately excludes the viewer — you don't ghost
+// yourself — so playerGhosts is always empty for your own fingerprint,
+// and the S6 annotation read "2 craft (0 here)" on every self row with
+// craft. The count is about what YOU can target; it is meaningless
+// pointed at yourself.
+func TestSessionScreenSelfRowHasNoTargetableCount(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true) // jason is self, 2 craft, in Sol
+	out := stripANSI(s.Render(w, 140))
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "jason") && strings.Contains(line, "here)") {
+			t.Errorf("self row claims a targetable count:\n  %q", line)
+		}
+	}
+	if !strings.Contains(out, "2 craft") {
+		t.Errorf("self row lost its craft count:\n%s", out)
 	}
 }
