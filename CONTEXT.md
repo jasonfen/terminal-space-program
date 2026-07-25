@@ -1699,6 +1699,30 @@ the Ghost's orbit re-shaping when reports land.
 _Avoid_: Observe mode, follow-cam (it's one Framing Event plus focus,
 not a new mode).
 
+**Commitment**:
+A live mutual obligation between two players that outlives either one's
+attention: an Engaged **Rendezvous Warp** through to its committed Time
+of Closest Approach, or a **Docked-as-Guest** craft riding another
+player's Stack. Distinguished from **Proximity Co-Warp**, which forms by
+itself whenever two players drift close and strands nobody when it
+lapses — a Commitment is entered deliberately, and leaves the other
+player waiting if it dies.
+_Avoid_: Contract, pact, agreement (nothing is offered or accepted —
+both sides simply Engage), lock.
+
+**Reprieve**:
+A stay on a Session's disconnection. A Session whose player has gone
+silent keeps simulating for as long as it carries a live **Commitment**,
+so a closed laptop on one side doesn't strand the other mid-coast or tear
+a docked craft out of their Stack. Bounded at both ends: a Rendezvous
+Warp's Reprieve expires at its committed Time of Closest Approach, a
+dock's after a fixed span, and any Reprieve ends as soon as its
+Commitment resolves. A player may always displace their own reprieved
+Session by reconnecting.
+_Avoid_: Hold (already means nearly the opposite under **Rendezvous
+Warp** — freezing the leader's clock for a lagging partner), grace
+period, keepalive, linger.
+
 ### Transfer planning
 
 The vocabulary for moving a Vessel from one orbit to another — typically
