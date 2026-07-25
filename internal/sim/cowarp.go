@@ -54,6 +54,15 @@ const (
 	// tight against the hours/days a real subspace divergence spans.
 	// Tunable.
 	coWarpSubspaceToleranceSec = 120.0
+
+	// coWarpStepSafety is how many ticks of the same-subspace window a
+	// coupled player must leave in hand (#244). The min-warp clamp is
+	// derived from the partner's relayed report, so it is never fresher
+	// than the previous tick; capping the per-tick advance at the full
+	// window would put a pair exactly on the edge after one unclamped
+	// step and over it after any additional report lag. Two leaves a
+	// whole tick of slack. Tunable.
+	coWarpStepSafety = 2.0
 )
 
 // CoWarpSubspaceTolerance is the exported form of the same-subspace gate
@@ -168,6 +177,34 @@ type CoWarpResult struct {
 // this tick — read by the split guard (EngageSyncWarp) and available to
 // the HUD. v0.28 S1.
 func (w *World) CoWarpCoupled() bool { return w.CoWarp.Coupled }
+
+// subspaceStepCap is the highest Effective Warp a player sharing a
+// subspace may run at, or 0 when nothing is shared and the full ladder
+// stands (#244).
+//
+// The same-subspace gate is a fixed span of sim-time while warp climbs in
+// ×10 rungs, so at the top rungs a single tick covers more sim-time than
+// the window can hold. That matters because the couple itself is gated on
+// sameSubspace: a player who steps out of the window in one tick stops
+// being coupled, which releases the min-warp clamp that was holding them
+// — the escape removes its own brake, and the pair diverges without
+// limit. Bounding the per-tick advance to a fraction of the window keeps
+// the gate wider than one step at any selectable rate, so the clamp
+// always gets a tick in which to act.
+//
+// Armed-but-not-yet-coupled counts too: refreshRendezvousInvite gates the
+// incoming prompt on sameSubspace, so an initiator who races ahead
+// withdraws their own invite before anyone can join it.
+func (w *World) subspaceStepCap() float64 {
+	if !w.CoWarp.Coupled && w.RendezvousArm == nil {
+		return 0
+	}
+	step := w.Clock.BaseStep.Seconds()
+	if step <= 0 {
+		return 0
+	}
+	return coWarpSubspaceToleranceSec / (coWarpStepSafety * step)
+}
 
 // ComputeCoWarp evaluates proximity co-warp against the viewer's active
 // craft (the anchor) for this tick. `prev` is the per-owner coupled map
