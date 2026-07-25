@@ -1085,6 +1085,11 @@ func (w *World) clampedWarp() float64 {
 		if w.CoWarp.Coupled && w.CoWarp.MinWarp > 0 && selected > w.CoWarp.MinWarp {
 			selected = w.CoWarp.MinWarp
 		}
+		// #244: a coupled guest flying nothing still owns a subspace clock,
+		// so the same one-tick-inside-the-window bound applies here too.
+		if cap := w.subspaceStepCap(); cap > 0 && selected > cap {
+			selected = cap
+		}
 		return selected
 	}
 	// v0.16 / ADR 0016: while Auto-Warp is engaged (and not paused) the
@@ -1115,6 +1120,15 @@ func (w *World) clampedWarp() float64 {
 	// return so a coupled clamp still applies there.
 	if w.CoWarp.Coupled && w.CoWarp.MinWarp > 0 && selected > w.CoWarp.MinWarp {
 		selected = w.CoWarp.MinWarp
+	}
+	// #244: min-wins above only propagates a partner's *reported* rate,
+	// which is always at least a tick stale — it cannot stop the tick that
+	// leaves the subspace in the first place. Bound the per-tick advance to
+	// a fraction of the same-subspace window so the couple survives long
+	// enough for that clamp to apply. Placed alongside it, before the
+	// burn/period clamps, so those can only reduce further.
+	if cap := w.subspaceStepCap(); cap > 0 && selected > cap {
+		selected = cap
 	}
 	// Any craft in flight in a finite or manual burn forces the
 	// 10× cap — high warp during thrust would let the integrator
