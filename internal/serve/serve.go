@@ -162,6 +162,17 @@ func New(cfg Config) (*Server, error) {
 		// MaxTimeout alongside it — that caps total session life and would
 		// disconnect players who are present and playing.
 		wish.WithIdleTimeout(idle),
+		// ADR 0036: wrap every connection so the instant it last moved bytes
+		// is readable from outside its session's goroutine — the measure of
+		// how long a peer has been silent, and the origin a Reprieve's cap is
+		// counted from. ConnCallback is the only place the raw net.Conn is
+		// visible, and the Context it hands us is the same one the session
+		// reads back through sess.Context().
+		ssh.WrapConn(func(ctx ssh.Context, conn net.Conn) net.Conn {
+			ac := newActivityConn(conn, time.Now)
+			ctx.SetValue(ctxKeyConn, ac)
+			return ac
+		}),
 		// Any key may connect — identity is resolved in-session: known
 		// fingerprints resume, unknown ones face the invite-code flow.
 		wish.WithPublicKeyAuth(func(ssh.Context, ssh.PublicKey) bool { return true }),
@@ -238,6 +249,7 @@ const (
 	ctxKeyApp ctxKey = iota
 	ctxKeyFingerprint
 	ctxKeyJoined // set once this session marked presence-online
+	ctxKeyConn   // the session's activityConn (ADR 0036), stashed by ConnCallback
 )
 
 // sessionHandler builds the per-connection model. Enrolled keys go
