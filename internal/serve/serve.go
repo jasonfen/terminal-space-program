@@ -95,6 +95,19 @@ type Server struct {
 	// of racing process exit (review follow-up).
 	sessions sync.WaitGroup
 
+	// live is the session registry the Reprieve sweeper works from (ADR
+	// 0036): fingerprint → the connection behind it. Deliberately holds no
+	// *sim.World — the sweeper runs outside every session's tick loop.
+	live *sessionRegistry
+
+	// Reprieve timings, fields rather than constants so tests can drive
+	// the sweeper without real-time waits. idleTimeout is recorded because
+	// the sweeper has to reconstruct the deadline the I/O path would have
+	// set, to avoid ever shortening one.
+	idleTimeout    time.Duration
+	sweepEvery     time.Duration
+	reprieveWindow time.Duration
+
 	// persistMu serialises dock cross-ref persists across sessions (v0.28
 	// finding 3). Two sessions racing SetDocks could otherwise interleave
 	// stale snapshots and drop a concurrently-added dock; holding this while
@@ -140,7 +153,11 @@ func New(cfg Config) (*Server, error) {
 	if _, err := store.EnsureHost(hostHandle()); err != nil {
 		return nil, fmt.Errorf("serve: enroll host: %w", err)
 	}
-	srv := &Server{store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(), presence: newPresence(), ver: newVersionSurface()}
+	srv := &Server{
+		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(),
+		presence: newPresence(), ver: newVersionSurface(),
+		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
+	}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
 	// a guest whose craft rode along in another player's stack reconnects
@@ -155,6 +172,7 @@ func New(cfg Config) (*Server, error) {
 	if idle == 0 {
 		idle = DefaultIdleTimeout
 	}
+	srv.idleTimeout = idle
 	s, err := wish.NewServer(
 		wish.WithAddress(cfg.Addr),
 		wish.WithHostKeyPath(cfg.HostKeyPath),
@@ -212,6 +230,9 @@ func (s *Server) Addr() string { return s.ln.Addr().String() }
 func (s *Server) Serve() error {
 	stop := make(chan struct{})
 	go s.ver.watch(stop)
+	// The Reprieve sweeper (ADR 0036) lives exactly as long as the
+	// listener. Without it every Reprieve silently caps at one idle window.
+	go s.sweepReprieves(stop)
 	defer close(stop)
 	err := s.ssh.Serve(s.ln)
 	if err != nil && !errors.Is(err, ssh.ErrServerClosed) {
@@ -250,6 +271,7 @@ const (
 	ctxKeyFingerprint
 	ctxKeyJoined // set once this session marked presence-online
 	ctxKeyConn   // the session's activityConn (ADR 0036), stashed by ConnCallback
+	ctxKeyLive   // the session's registry entry (ADR 0036)
 )
 
 // sessionHandler builds the per-connection model. Enrolled keys go
@@ -285,6 +307,12 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	}
 	sess.Context().SetValue(ctxKeyApp, app)
 	sess.Context().SetValue(ctxKeyFingerprint, fp)
+	// Register for the Reprieve sweeper (ADR 0036) — after the one-session-
+	// per-key guard above, so a refused second connection can never displace
+	// the entry of the session that beat it. Paired in persistMiddleware.
+	ls := &liveSession{conn: sessionActivity(sess.Context())}
+	s.live.add(fp, ls)
+	sess.Context().SetValue(ctxKeyLive, ls)
 
 	game := s.withReporting(app, fp) // v0.27 S4: sessions feed the store
 	if p, err := s.store.FindPlayer(fp); err == nil {
@@ -379,6 +407,11 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
 		if !ok {
 			return
+		}
+		// Out of the sweeper's sight before anything else: this connection
+		// is gone, and a Reprieve for it would extend a dead deadline.
+		if ls, ok := sess.Context().Value(ctxKeyLive).(*liveSession); ok {
+			s.live.remove(fp, ls)
 		}
 		// Presence: pair the join marked at connect/enroll (v0.27 S6).
 		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); joined {
