@@ -26,6 +26,20 @@ type stubConn struct {
 
 	mu        sync.Mutex
 	deadlines []time.Time
+	closed    bool
+}
+
+func (c *stubConn) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	return nil
+}
+
+func (c *stubConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
 }
 
 func (c *stubConn) Read([]byte) (int, error)  { return c.readN, c.readErr }

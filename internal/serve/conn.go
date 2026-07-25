@@ -86,3 +86,11 @@ func sessionActivity(ctx ssh.Context) *activityConn {
 	ac, _ := ctx.Value(ctxKeyConn).(*activityConn)
 	return ac
 }
+
+// sessionDone returns the channel persistMiddleware closes once this
+// session's payload write has landed — what a reclaiming connection
+// waits on before loading the world.
+func sessionDone(ctx ssh.Context) chan struct{} {
+	done, _ := ctx.Value(ctxKeyDone).(chan struct{})
+	return done
+}

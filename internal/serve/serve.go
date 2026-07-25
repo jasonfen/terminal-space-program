@@ -107,6 +107,7 @@ type Server struct {
 	idleTimeout    time.Duration
 	sweepEvery     time.Duration
 	reprieveWindow time.Duration
+	reclaimWait    time.Duration
 
 	// persistMu serialises dock cross-ref persists across sessions (v0.28
 	// finding 3). Two sessions racing SetDocks could otherwise interleave
@@ -157,6 +158,7 @@ func New(cfg Config) (*Server, error) {
 		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(),
 		presence: newPresence(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
+		reclaimWait: defaultReclaimWait,
 	}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
@@ -272,6 +274,7 @@ const (
 	ctxKeyJoined // set once this session marked presence-online
 	ctxKeyConn   // the session's activityConn (ADR 0036), stashed by ConnCallback
 	ctxKeyLive   // the session's registry entry (ADR 0036)
+	ctxKeyDone   // closed after this session's final payload write (ADR 0036)
 )
 
 // sessionHandler builds the per-connection model. Enrolled keys go
@@ -291,7 +294,14 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	// One live session per key (review follow-up): a second connection
 	// would load the same payload into a second divergent World and the
 	// two would fight over the relay report and the payload file.
-	if s.presence.isOnline(fp) {
+	//
+	// Unless the session holding the slot is unattended (ADR 0036), in
+	// which case this connection takes it over: without that, a Reprieve
+	// would lock a player out of their own program for as long as the
+	// encounter they committed to. displaceAbsent refuses when anyone
+	// might still be at the controls, and returns only once the displaced
+	// session's payload is safely written.
+	if s.presence.isOnline(fp) && !s.displaceAbsent(fp) {
 		wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
 		return nil, nil
 	}
@@ -310,7 +320,7 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	// Register for the Reprieve sweeper (ADR 0036) — after the one-session-
 	// per-key guard above, so a refused second connection can never displace
 	// the entry of the session that beat it. Paired in persistMiddleware.
-	ls := &liveSession{conn: sessionActivity(sess.Context())}
+	ls := &liveSession{conn: sessionActivity(sess.Context()), done: sessionDone(sess.Context())}
 	s.live.add(fp, ls)
 	sess.Context().SetValue(ctxKeyLive, ls)
 
@@ -403,6 +413,13 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
 		s.sessions.Add(1)
 		defer s.sessions.Done()
+		// Opened before the session runs and closed last of all, after the
+		// payload write below (ADR 0036): a connection reclaiming this slot
+		// waits on it, so it can never load a world this session is still
+		// about to overwrite.
+		done := make(chan struct{})
+		defer close(done)
+		sess.Context().SetValue(ctxKeyDone, done)
 		next(sess)
 		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
 		if !ok {

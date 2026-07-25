@@ -24,6 +24,12 @@ const (
 // (internal/relay/reporter.go:35).
 type liveSession struct {
 	conn *activityConn
+
+	// done is closed once this session's final payload write has landed —
+	// at the very end of persistMiddleware, after SavePlayer. A reclaiming
+	// connection waits on it so it can never load a world the session it
+	// displaced is still about to overwrite.
+	done chan struct{}
 }
 
 // sessionRegistry tracks live sessions by fingerprint so the sweeper can
@@ -53,6 +59,13 @@ func (r *sessionRegistry) remove(fp string, s *liveSession) {
 	if r.live[fp] == s {
 		delete(r.live, fp)
 	}
+}
+
+func (r *sessionRegistry) get(fp string) (*liveSession, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.live[fp]
+	return s, ok
 }
 
 // snapshot copies the registry so the caller can act on it without
