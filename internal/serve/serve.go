@@ -36,15 +36,41 @@ import (
 // DefaultPort is the SSH listener port when --serve-port isn't given.
 const DefaultPort = 23234
 
+// DefaultIdleTimeout bounds how long a session may go with no traffic in
+// either direction before the connection is dropped (#243).
+//
+// Without it a connection never dies on its own. A guest's game runs
+// server-side, driven by its own tick loop, so a client whose machine
+// sleeps leaves behind a half-open TCP that nothing reaps: the session
+// keeps running and warping unattended, presence keeps counting it
+// online, and — because a key may hold only one live session — its owner
+// is locked out of their own program behind a socket nobody is using.
+//
+// The deadline covers reads and writes both, which is what makes it bite
+// on an absent peer rather than merely a quiet one: frames the server
+// renders back up in the send buffer, the blocked write passes the
+// deadline, and the connection is torn down through persistMiddleware
+// like any other disconnect — payload written, slot freed.
+//
+// Generous on purpose. The cost of firing early is small (progress is
+// persisted and a reconnect resumes) but not nothing: a player who
+// pauses and walks away renders no new frames, so a short timeout would
+// disconnect someone sitting right there. Ten minutes is far longer than
+// anyone stares at a paused screen and far shorter than a laptop lid
+// stays shut.
+const DefaultIdleTimeout = 10 * time.Minute
+
 // Config shapes a Server. Addr is a listen address ("[host]:port";
 // use port 0 to let the OS pick — Addr() reports the bound address).
 // HostKeyPath locates the server's ed25519 identity; a missing key is
 // generated there on first start. SessionDir is the session store
 // (roster, invites, per-player payloads); empty means the XDG default.
+// IdleTimeout overrides DefaultIdleTimeout; zero takes the default.
 type Config struct {
 	Addr        string
 	HostKeyPath string
 	SessionDir  string
+	IdleTimeout time.Duration
 }
 
 // Server is a running (or startable) SSH listener whose sessions each
@@ -125,9 +151,17 @@ func New(cfg Config) (*Server, error) {
 	// The host plays in-process and is online for the session's whole
 	// life — no join chip for them (serve start isn't a "moment").
 	srv.presence.markOnline(sessiondir.HostFingerprint)
+	idle := cfg.IdleTimeout
+	if idle == 0 {
+		idle = DefaultIdleTimeout
+	}
 	s, err := wish.NewServer(
 		wish.WithAddress(cfg.Addr),
 		wish.WithHostKeyPath(cfg.HostKeyPath),
+		// #243: reap connections whose peer has gone away. Deliberately no
+		// MaxTimeout alongside it — that caps total session life and would
+		// disconnect players who are present and playing.
+		wish.WithIdleTimeout(idle),
 		// Any key may connect — identity is resolved in-session: known
 		// fingerprints resume, unknown ones face the invite-code flow.
 		wish.WithPublicKeyAuth(func(ssh.Context, ssh.PublicKey) bool { return true }),
