@@ -153,9 +153,13 @@ func (w *World) rendezvousArmedWith(owner string) bool {
 
 // CoWarpState is the transient co-warp slate the reporting layer writes
 // onto the World each tick and clampedWarp reads: whether the anchor is
-// coupled to anyone this tick and, if so, the min Effective warp to clamp
-// to. Never persisted; empty in single-player. Partners is the coupled
-// handles for HUD/debug.
+// coupled to anyone this tick and the min Effective warp to clamp to.
+// MinWarp 0 with Coupled set means coupled-with-no-clamp (#248): every
+// coupled peer is the engaged rendezvous coast's partner, whose stale
+// reported rate is exempt from min-wins — clampedWarp guards on
+// MinWarp > 0, so both sides derive the coast rate independently instead
+// of deadlocking on each other's report. Never persisted; empty in
+// single-player. Partners is the coupled handles for HUD/debug.
 type CoWarpState struct {
 	Coupled  bool
 	MinWarp  float64
@@ -226,6 +230,7 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 	for _, p := range peers {
 		wasCoupled := prev[p.Owner]
 		coupledNow := false
+		clampExempt := false
 		// A non-positive Effective warp (a paused partner, Warp()==0)
 		// imposes no co-warp constraint — the min would freeze the
 		// viewer, which is not what a buddy tapping pause should do. Such
@@ -243,6 +248,20 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 				// then continues on the proximity branch below (wasCoupled
 				// carries the hysteresis memory) — no drop-and-recouple.
 				coupledNow = true
+				// #248: while the shared coast is ENGAGED, this partner's
+				// reported EffWarp must NOT feed the min. The report is their
+				// own post-clamp rate, always ≥1 tick stale, so min-wins over
+				// it can only ratchet down — two players engaging at 1× pin
+				// each other at 1× forever and the coast runs in real time.
+				// Instead both sides derive the rate independently and
+				// identically from the shared τ + constants: max-seed →
+				// subspaceStepCap → approach ramp (clampedWarp). Per-peer
+				// exemption, not a blanket skip: a third proximity-coupled
+				// peer still contributes its min below. Legible here because
+				// DriveRendezvousWarp runs before ComputeCoWarp each tick.
+				// Armed-but-not-yet-coasting keeps min-wins (nothing seeds
+				// the rate up yet, and the couple must not outrun the gate).
+				clampExempt = w.rendezvousWarpEngaged()
 			default:
 				if rng, vrel, ok := closestApproach(anchor, p.Crafts); ok {
 					coupledNow = coupleDecide(wasCoupled, rng, vrel)
@@ -258,7 +277,7 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 		}
 		if coupledNow {
 			res.State.Partners = append(res.State.Partners, p.Handle)
-			if p.EffWarp < minWarp {
+			if !clampExempt && p.EffWarp < minWarp {
 				minWarp = p.EffWarp
 			}
 		}
@@ -269,9 +288,16 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 	// clamp already dropped it from the min. No handle survives to chip a
 	// release, which is acceptable for this edge (the common decouple —
 	// drifting apart in-system — keeps the peer present, so it chips).
-	if len(res.State.Partners) > 0 && !math.IsInf(minWarp, 1) {
+	//
+	// Coupled-with-no-min-contribution (#248: every coupled peer is the
+	// clamp-exempt coast partner) leaves MinWarp at its zero value —
+	// clampedWarp guards on MinWarp > 0, so 0 naturally means "coupled,
+	// no min-wins clamp" and the coast resolves its own rate.
+	if len(res.State.Partners) > 0 {
 		res.State.Coupled = true
-		res.State.MinWarp = minWarp
+		if !math.IsInf(minWarp, 1) {
+			res.State.MinWarp = minWarp
+		}
 	}
 	return res
 }

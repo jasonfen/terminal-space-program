@@ -1117,7 +1117,11 @@ func (w *World) clampedWarp() float64 {
 	// couple/decouple gate + hysteresis live in ComputeCoWarp, here we
 	// only take the min. Placed before the burn/period clamps so those
 	// can only reduce further, and before the degenerate-period early
-	// return so a coupled clamp still applies there.
+	// return so a coupled clamp still applies there. The MinWarp > 0
+	// guard is load-bearing (#248): an engaged rendezvous coast couples
+	// with MinWarp 0 — no min-wins over the partner's stale report —
+	// and resolves its rate from the max-seed above bounded by the
+	// step cap and approach ramp below.
 	if w.CoWarp.Coupled && w.CoWarp.MinWarp > 0 && selected > w.CoWarp.MinWarp {
 		selected = w.CoWarp.MinWarp
 	}
