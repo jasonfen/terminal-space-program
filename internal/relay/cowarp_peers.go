@@ -20,7 +20,13 @@ import (
 // after the report nor an SOI exit — but a burning peer reports every
 // tick (elements change), so the propagation gap it feeds co-warp with is
 // one tick, not one heartbeat.
-func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string) []sim.CoWarpPeer {
+//
+// away is the serve layer's per-owner session-liveness verdict (#253):
+// reports carry what a peer's WORLD is doing, not whether anyone is at
+// its controls, so the caller supplies Server.isAway's answer and it
+// rides the peer as standing state. nil means nobody is away (solo /
+// tests).
+func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string, away map[string]bool) []sim.CoWarpPeer {
 	sysName := w.System().Name
 	viewerT := w.Clock.SimTime
 	var out []sim.CoWarpPeer
@@ -59,6 +65,7 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			RendezvousTau:     rep.RendezvousTau,
 			RendezvousCA:      rep.RendezvousCA,
 			Paused:            rep.Paused,
+			Away:              away[rep.Owner],
 		})
 	}
 	return out

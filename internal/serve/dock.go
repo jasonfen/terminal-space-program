@@ -45,7 +45,11 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 
 	// Docked-as-guest: fold the min-wins coupling to the stack owner into the
 	// co-warp state (reuses S1's clampedWarp clamp), on top of any range couple.
+	// The owner's live Away state is stamped here too (#253): the ledger
+	// rebuilds DockGuest each tick from records + reports, neither of which
+	// knows session liveness — only the server does.
 	if w.DockGuest != nil {
+		w.DockGuest.OwnerAway = m.srv.isAway(w.DockGuest.OwnerFP)
 		w.CoWarp = w.CoWarp.WithDockCoupling(w.DockGuest.OwnerHandle, w.DockGuest.OwnerEffWarp)
 	}
 

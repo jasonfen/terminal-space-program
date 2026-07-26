@@ -234,6 +234,7 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 
 func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	w.RendezvousHold = false
+	w.RendezvousPartnerAway = false
 	arm := w.RendezvousArm
 	if arm == nil {
 		if w.rendezvousWarpEngaged() {
@@ -272,6 +273,11 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 			break
 		}
 	}
+	// Mirror the armed partner's Away onto the slate (#253): a standing
+	// state the chip renders for as long as it is true, cleared at the
+	// top of every drive tick like RendezvousHold. State, not an event —
+	// the 6 s went-quiet chip expires while Away lasts hours by design.
+	w.RendezvousPartnerAway = partner != nil && partner.Away
 	switch {
 	case partner != nil && !w.rendezvousWarpEngaged():
 		// Don't clobber an engaged Sync or node-chase (v0.29 review): the

@@ -296,7 +296,14 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// clamp onto the World for next tick's clampedWarp; emit couple/
 	// release chips on transitions. Same seam as ghosts — reads the
 	// store's reports (which now carry EffWarp), writes transient state.
-	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner)
+	// Away rides along per owner (#253): reports say what a peer's world
+	// is doing, only the server knows whether anyone is at its controls,
+	// and the flight view needs that as standing state, not a 6 s chip.
+	away := make(map[string]bool, len(others))
+	for _, r := range others {
+		away[r.Owner] = m.srv.isAway(r.Owner)
+	}
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, away)
 	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
 	// committed encounter from this tick's mutual-arm state, before the
 	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.
@@ -513,6 +520,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	w.RendezvousInvite = nil
 	w.RendezvousDegraded, w.RendezvousApproachM = false, 0
 	w.RendezvousHold = false
+	w.RendezvousPartnerAway = false
 	// Arrival slates too (v0.29 review): a coast or sync arriving on the
 	// same tick hosting stops must not fire a spurious chip in the next
 	// hosting session.

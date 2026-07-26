@@ -127,6 +127,17 @@ type CoWarpPeer struct {
 	// sides into mutual holds.
 	Paused bool
 
+	// Away is the peer's live nobody-at-the-controls state (#253, ADR
+	// 0036): their session is still simulating — a Commitment Reprieve
+	// holds it open — but nobody is watching. Set by the relay adapter
+	// from the server's per-session liveness; DriveRendezvousWarp mirrors
+	// the armed partner's value onto the world slate so the flight view
+	// carries a STANDING indication instead of only the 6 s went-quiet
+	// chip. False for an offline peer — that is a different thing (their
+	// craft stop flying), and it is the report set, not this flag, that
+	// goes empty then.
+	Away bool
+
 	// ArmedTowardViewer is set by the relay adapter when this peer has a
 	// live Rendezvous Warp intent aimed at the viewer (v0.29 S1, ADR 0034
 	// v0.29 addendum). Combined with the viewer's own RendezvousArm
