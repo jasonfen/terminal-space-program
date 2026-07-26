@@ -160,6 +160,31 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			plain("◇ rendezvous with " + e.Handle + " cancelled")
 		case sim.SessionEventRendezvousDegraded:
 			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
+		case sim.SessionEventWentQuiet:
+			// ADR 0036: addressed at the partner holding the Commitment, so
+			// it names what is still being held up rather than merely
+			// reporting that someone stopped answering.
+			held := e.Detail
+			if held == "" {
+				held = "commitment"
+			}
+			plain("◇ " + e.Handle + " went quiet — " + held + " held")
+		case sim.SessionEventBack:
+			plain("◇ " + e.Handle + " is back")
+		case sim.SessionEventResumed:
+			// Opens the replay of the interval this player missed (ADR 0036
+			// S6). Sim-time, not wall clock: what matters is how far their
+			// craft flew, which under warp bears no relation to how long
+			// their laptop was shut.
+			resumed := "◇ resumed — " + compactDuration(e.Elapsed) + " ran while you were away"
+			if e.Detail != "" {
+				// The replay is bounded so it cannot bury the orbit view; say
+				// so rather than truncating in silence.
+				resumed += " (" + e.Detail + ")"
+			}
+			plain(resumed)
+		case sim.SessionEventTimedOut:
+			rows = append(rows, row{text: "⚠ " + e.Handle + "'s session timed out — they never came back", alert: true})
 		case sim.SessionEventServerRestart:
 			rows = append(rows, row{text: "⚠ server restarting — reconnect in a moment, progress saved", alert: true})
 		}

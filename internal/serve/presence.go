@@ -47,9 +47,18 @@ func (p *presence) isOnline(fp string) bool {
 // event appends a session moment, trimming the ring. to addresses the
 // event at one player (empty = broadcast).
 func (p *presence) event(kind sim.SessionEventKind, owner, handle, to string) {
+	p.eventWith(kind, owner, handle, to, "")
+}
+
+// eventWith is event plus display context — ADR 0036 carries which
+// Commitment is holding an away session up, so the partner learns what is
+// at stake rather than only that someone went quiet.
+func (p *presence) eventWith(kind sim.SessionEventKind, owner, handle, to, detail string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.events = append(p.events, sim.SessionEvent{Kind: kind, Owner: owner, Handle: handle, To: to, At: time.Now()})
+	p.events = append(p.events, sim.SessionEvent{
+		Kind: kind, Owner: owner, Handle: handle, To: to, Detail: detail, At: time.Now(),
+	})
 	if len(p.events) > presenceEventCap {
 		p.events = p.events[len(p.events)-presenceEventCap:]
 	}

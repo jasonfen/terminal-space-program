@@ -633,6 +633,13 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		if p.Online {
 			dot = s.theme.Primary.Render("●")
 		}
+		// Away (ADR 0036 S5): connected and still simulating, but nobody at
+		// the controls. Half-filled between online and offline, because that
+		// is exactly where the state sits — and dimmed, since the thing the
+		// reader needs to know is that this player will not answer.
+		if p.Away {
+			dot = s.theme.Dim.Render("◐")
+		}
 		var tags []string
 		switch p.Role {
 		case "host":
@@ -642,6 +649,9 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		}
 		if p.Fingerprint == info.Self {
 			tags = append(tags, "you")
+		}
+		if p.Away {
+			tags = append(tags, "away") // ADR 0036 S5: the glyph alone is too subtle to carry it
 		}
 		if p.DockedGuest {
 			tags = append(tags, "docked") // v0.28 S5: live — riding another player's stack

@@ -369,6 +369,11 @@ func (m *reportingModel) refreshSession(now time.Time) {
 			// live stack.
 			DockedGuest: m.srv.dock.IsGuest(p.Fingerprint),
 
+			// Away (ADR 0036 S5): still simulating, nobody at the controls.
+			// Without it a reprieved session reads as Online for hours and
+			// the roster tells a partner someone is there who is not.
+			Away: m.srv.isAway(p.Fingerprint),
+
 			WantsRendezvous: armedTowardViewer[p.Fingerprint],
 			RendezvousOut:   w.RendezvousArm != nil && w.RendezvousArm.TargetOwner == p.Fingerprint,
 		}
@@ -396,6 +401,10 @@ func (m *reportingModel) refreshSession(now time.Time) {
 
 	// Broadcast moments (own excluded) + this session's local ones.
 	events := m.srv.presence.eventsFor(m.owner)
+	// ADR 0036 S6: bank this session's own moments while nobody is
+	// watching, and replay them when somebody is. Before the TTL trim
+	// below — that trim is what would otherwise destroy them.
+	m.bankOrReplay(w.Clock.SimTime, now)
 	kept := m.localEvents[:0]
 	for _, e := range m.localEvents {
 		if now.Sub(e.At) <= localEventTTL {

@@ -40,8 +40,24 @@ func startTestServer(t *testing.T) *Server {
 		if err := <-done; err != nil {
 			t.Errorf("Serve returned: %v", err)
 		}
+		// Force-closed sessions still unwind through persistMiddleware and
+		// write their payload. Returning without waiting leaves that write
+		// racing t.TempDir's cleanup of the very directory it writes into.
+		srv.Wait(5 * time.Second)
 	})
 	return srv
+}
+
+// stopServer ends the listener, every live session, and the payload
+// writes they unwind into — the teardown any test that opens a real
+// session needs, for the reason above.
+func stopServer(t *testing.T, srv *Server, done chan error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+	<-done
+	srv.Wait(5 * time.Second)
 }
 
 // newClientKey generates a fresh client identity and returns its

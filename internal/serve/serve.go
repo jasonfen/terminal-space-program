@@ -36,15 +36,41 @@ import (
 // DefaultPort is the SSH listener port when --serve-port isn't given.
 const DefaultPort = 23234
 
+// DefaultIdleTimeout bounds how long a session may go with no traffic in
+// either direction before the connection is dropped (#243).
+//
+// Without it a connection never dies on its own. A guest's game runs
+// server-side, driven by its own tick loop, so a client whose machine
+// sleeps leaves behind a half-open TCP that nothing reaps: the session
+// keeps running and warping unattended, presence keeps counting it
+// online, and — because a key may hold only one live session — its owner
+// is locked out of their own program behind a socket nobody is using.
+//
+// The deadline covers reads and writes both, which is what makes it bite
+// on an absent peer rather than merely a quiet one: frames the server
+// renders back up in the send buffer, the blocked write passes the
+// deadline, and the connection is torn down through persistMiddleware
+// like any other disconnect — payload written, slot freed.
+//
+// Generous on purpose. The cost of firing early is small (progress is
+// persisted and a reconnect resumes) but not nothing: a player who
+// pauses and walks away renders no new frames, so a short timeout would
+// disconnect someone sitting right there. Ten minutes is far longer than
+// anyone stares at a paused screen and far shorter than a laptop lid
+// stays shut.
+const DefaultIdleTimeout = 10 * time.Minute
+
 // Config shapes a Server. Addr is a listen address ("[host]:port";
 // use port 0 to let the OS pick — Addr() reports the bound address).
 // HostKeyPath locates the server's ed25519 identity; a missing key is
 // generated there on first start. SessionDir is the session store
 // (roster, invites, per-player payloads); empty means the XDG default.
+// IdleTimeout overrides DefaultIdleTimeout; zero takes the default.
 type Config struct {
 	Addr        string
 	HostKeyPath string
 	SessionDir  string
+	IdleTimeout time.Duration
 }
 
 // Server is a running (or startable) SSH listener whose sessions each
@@ -68,6 +94,35 @@ type Server struct {
 	// final persist) so shutdown can wait for payload writes instead
 	// of racing process exit (review follow-up).
 	sessions sync.WaitGroup
+
+	// live is the session registry the Reprieve sweeper works from (ADR
+	// 0036): fingerprint → the connection behind it. Deliberately holds no
+	// *sim.World — the sweeper runs outside every session's tick loop.
+	live *sessionRegistry
+
+	// away remembers which players have been announced as gone silent, so
+	// the transition chips once however long the silence lasts and the
+	// return reaches the same partner (ADR 0036 S5).
+	away *awayWatch
+
+	// mail banks the moments that fall while a session runs unattended,
+	// so the player who comes back gets an account of the interval
+	// instead of a world whose clock silently jumped (ADR 0036 S6).
+	mail *awayMail
+
+	// admit serialises connections arriving on the same key across the
+	// whole displace-and-register window (ADR 0036 S4 review).
+	admit *admission
+
+	// Reprieve timings, fields rather than constants so tests can drive
+	// the sweeper without real-time waits. idleTimeout is recorded because
+	// the sweeper has to reconstruct the deadline the I/O path would have
+	// set, to avoid ever shortening one.
+	idleTimeout    time.Duration
+	sweepEvery     time.Duration
+	reprieveWindow time.Duration
+	reclaimWait    time.Duration
+	awayAfter      time.Duration
 
 	// persistMu serialises dock cross-ref persists across sessions (v0.28
 	// finding 3). Two sessions racing SetDocks could otherwise interleave
@@ -114,7 +169,13 @@ func New(cfg Config) (*Server, error) {
 	if _, err := store.EnsureHost(hostHandle()); err != nil {
 		return nil, fmt.Errorf("serve: enroll host: %w", err)
 	}
-	srv := &Server{store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(), presence: newPresence(), ver: newVersionSurface()}
+	srv := &Server{
+		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(),
+		presence: newPresence(), ver: newVersionSurface(),
+		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
+		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
+		away: newAwayWatch(), mail: newAwayMail(), admit: newAdmission(),
+	}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
 	// a guest whose craft rode along in another player's stack reconnects
@@ -125,9 +186,29 @@ func New(cfg Config) (*Server, error) {
 	// The host plays in-process and is online for the session's whole
 	// life — no join chip for them (serve start isn't a "moment").
 	srv.presence.markOnline(sessiondir.HostFingerprint)
+	idle := cfg.IdleTimeout
+	if idle == 0 {
+		idle = DefaultIdleTimeout
+	}
+	srv.idleTimeout = idle
 	s, err := wish.NewServer(
 		wish.WithAddress(cfg.Addr),
 		wish.WithHostKeyPath(cfg.HostKeyPath),
+		// #243: reap connections whose peer has gone away. Deliberately no
+		// MaxTimeout alongside it — that caps total session life and would
+		// disconnect players who are present and playing.
+		wish.WithIdleTimeout(idle),
+		// ADR 0036: wrap every connection so the instant it last moved bytes
+		// is readable from outside its session's goroutine — the measure of
+		// how long a peer has been silent, and the origin a Reprieve's cap is
+		// counted from. ConnCallback is the only place the raw net.Conn is
+		// visible, and the Context it hands us is the same one the session
+		// reads back through sess.Context().
+		ssh.WrapConn(func(ctx ssh.Context, conn net.Conn) net.Conn {
+			ac := newActivityConn(conn, time.Now)
+			ctx.SetValue(ctxKeyConn, ac)
+			return ac
+		}),
 		// Any key may connect — identity is resolved in-session: known
 		// fingerprints resume, unknown ones face the invite-code flow.
 		wish.WithPublicKeyAuth(func(ssh.Context, ssh.PublicKey) bool { return true }),
@@ -167,6 +248,9 @@ func (s *Server) Addr() string { return s.ln.Addr().String() }
 func (s *Server) Serve() error {
 	stop := make(chan struct{})
 	go s.ver.watch(stop)
+	// The Reprieve sweeper (ADR 0036) lives exactly as long as the
+	// listener. Without it every Reprieve silently caps at one idle window.
+	go s.sweepReprieves(stop)
 	defer close(stop)
 	err := s.ssh.Serve(s.ln)
 	if err != nil && !errors.Is(err, ssh.ErrServerClosed) {
@@ -204,6 +288,9 @@ const (
 	ctxKeyApp ctxKey = iota
 	ctxKeyFingerprint
 	ctxKeyJoined // set once this session marked presence-online
+	ctxKeyConn   // the session's activityConn (ADR 0036), stashed by ConnCallback
+	ctxKeyLive   // the session's registry entry (ADR 0036)
+	ctxKeyDone   // closed after this session's final payload write (ADR 0036)
 )
 
 // sessionHandler builds the per-connection model. Enrolled keys go
@@ -223,9 +310,33 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	// One live session per key (review follow-up): a second connection
 	// would load the same payload into a second divergent World and the
 	// two would fight over the relay report and the payload file.
+	//
+	// Unless the session holding the slot is unattended (ADR 0036), in
+	// which case this connection takes it over: without that, a Reprieve
+	// would lock a player out of their own program for as long as the
+	// encounter they committed to. displaceAbsent refuses when anyone
+	// might still be at the controls, and returns only once the displaced
+	// session's payload is safely written.
+	// Serialised per key from here until this connection has registered and
+	// marked itself online: reclaim tears a session down and then waits for
+	// its payload, and two connections racing through that window would
+	// both be admitted into divergent Worlds.
+	defer s.admit.enter(fp)()
+
+	reclaimed := false
 	if s.presence.isOnline(fp) {
-		wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
-		return nil, nil
+		switch s.displaceAbsent(fp) {
+		case reclaimRefused:
+			wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
+			return nil, nil
+		case reclaimStalled:
+			// Their old session is gone; telling them to disconnect it would
+			// be a lie, and loading its world now could lose the write still
+			// in flight.
+			wish.Fatalln(sess, "terminal-space-program: your previous session is still shutting down — reconnect in a moment")
+			return nil, nil
+		}
+		reclaimed = true
 	}
 
 	app, err := s.newGuestApp(fp)
@@ -239,13 +350,25 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	}
 	sess.Context().SetValue(ctxKeyApp, app)
 	sess.Context().SetValue(ctxKeyFingerprint, fp)
+	// Register for the Reprieve sweeper (ADR 0036) — after the one-session-
+	// per-key guard above, so a refused second connection can never displace
+	// the entry of the session that beat it. Paired in persistMiddleware.
+	ls := &liveSession{conn: sessionActivity(sess.Context()), done: sessionDone(sess.Context())}
+	s.live.add(fp, ls)
+	sess.Context().SetValue(ctxKeyLive, ls)
 
 	game := s.withReporting(app, fp) // v0.27 S4: sessions feed the store
 	if p, err := s.store.FindPlayer(fp); err == nil {
 		// Enrolled reconnect: no card, no code — resume. Presence +
 		// join chip fire now; the middleware pairs the leave.
 		s.presence.markOnline(fp)
-		s.presence.event(sim.SessionEventJoin, fp, p.Handle, "")
+		// A reclaim announces nothing (ADR 0036 S5): the displaced session
+		// suppressed its leave, so a join here would arrive unpaired and
+		// read as an arrival to a partner who never saw a departure. The
+		// sweeper's next pass surfaces the return as "is back" instead.
+		if !reclaimed {
+			s.presence.event(sim.SessionEventJoin, fp, p.Handle, "")
+		}
 		sess.Context().SetValue(ctxKeyJoined, true)
 		return game, opts
 	}
@@ -329,16 +452,44 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
 		s.sessions.Add(1)
 		defer s.sessions.Done()
+		// Opened before the session runs and closed last of all, after the
+		// payload write below (ADR 0036): a connection reclaiming this slot
+		// waits on it, so it can never load a world this session is still
+		// about to overwrite.
+		done := make(chan struct{})
+		defer close(done)
+		sess.Context().SetValue(ctxKeyDone, done)
 		next(sess)
 		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
 		if !ok {
 			return
 		}
+		// Out of the sweeper's sight before anything else: this connection
+		// is gone, and a Reprieve for it would extend a dead deadline.
+		ls, _ := sess.Context().Value(ctxKeyLive).(*liveSession)
+		if ls != nil {
+			s.live.remove(fp, ls)
+		}
 		// Presence: pair the join marked at connect/enroll (v0.27 S6).
 		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); joined {
 			s.presence.markOffline(fp)
-			if p, err := s.store.FindPlayer(fp); err == nil {
-				s.presence.event(sim.SessionEventLeave, fp, p.Handle, "")
+			// A displaced session announces nothing (ADR 0036 S5): its player
+			// is not leaving, they are resuming on another connection, and
+			// mid-coast a leave chip reads as the rendezvous dying.
+			if ls == nil || !ls.displaced.Load() {
+				if p, err := s.store.FindPlayer(fp); err == nil {
+					s.presence.event(departureKind(ls, s.awayAfter), fp, p.Handle, "")
+				}
+				// This session ended rather than handing over, so its banked
+				// interval ends with it (ADR 0036 S6), and so does any record
+				// that a partner was told it went quiet — there is no return
+				// coming to close that story. A displaced session leaves both
+				// for the connection taking its place, which is why neither is
+				// cleaned up by the sweeper: for the whole reclaim window the
+				// fingerprint holds no registry entry, and a sweep landing
+				// there would drop the record that the "is back" chip needs.
+				s.mail.drop(fp)
+				s.away.clear(fp)
 			}
 		}
 		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)

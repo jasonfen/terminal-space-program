@@ -31,6 +31,13 @@ type SessionPlayer struct {
 	// the v0.28 "touch" cycle ships cross-player docking.
 	DockedGuest bool
 
+	// Away marks a player whose session is still simulating but who has
+	// gone silent (ADR 0036). Distinct from Online being false, which
+	// means the session is gone: an Away player's craft keep flying, keep
+	// holding the frontier, and keep whatever Commitment earned them a
+	// Reprieve — there is simply nobody at the controls.
+	Away bool
+
 	// WantsRendezvous / RendezvousOut are the roster-row Rendezvous Warp
 	// markers (v0.29 S2): this player is armed toward the viewer awaiting
 	// a response / the viewer is armed toward this player. Both render as
@@ -95,6 +102,18 @@ const (
 	// (v0.30 S4) — a warning, not a silent drop; progress persists and a
 	// reconnect resumes.
 	SessionEventServerRestart
+
+	// Reprieve moments (ADR 0036), addressed at the player holding a
+	// Commitment with the one who went silent — the person whose own
+	// flight now depends on an empty chair.
+	SessionEventWentQuiet // their peer stopped answering; the Commitment holds the session up
+	SessionEventBack      // they are answering again (woken, or reconnected and displaced)
+	SessionEventTimedOut  // the session ended while away — nobody ever came back
+
+	// SessionEventResumed opens the replay of everything that happened
+	// while this player's own session ran unattended — local only, and
+	// the only event carrying Elapsed.
+	SessionEventResumed
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —
@@ -111,4 +130,16 @@ type SessionEvent struct {
 	// is only meaningful to the player whose subspace was joined.
 	// Empty means broadcast (join/leave).
 	To string
+
+	// Detail is extra display context for events that need it — ADR 0036
+	// uses it for which Commitment is holding an away session up
+	// ("rendezvous" / "dock"), so the partner learns what is at stake
+	// rather than only that someone went quiet.
+	Detail string
+
+	// Elapsed is how much sim-time ran unattended, carried by
+	// SessionEventResumed (ADR 0036 S6). A player who reconnects after
+	// hours away lands in a world whose clock jumped; this is the number
+	// that accounts for it. Zero on every other kind.
+	Elapsed time.Duration
 }
