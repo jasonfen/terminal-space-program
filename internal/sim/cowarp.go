@@ -87,6 +87,14 @@ const (
 // one tick against a ≤window-old baseline and still fires. The baseline
 // FREEZES while degraded, so a genuine drift stays flagged instead of
 // being absorbed by the next recapture. Tunable.
+//
+// Accepted blind spot: genuine drift that stays under the bar within
+// every single window is absorbed into the recaptured baseline and never
+// trips, no matter how far it compounds — the price of option 2 under
+// #251. An impulsive burn can't slip through this way (its step-change
+// lands whole against a ≤window-old baseline), and slow drift on the
+// scale that matters here comes from low-thrust cheating over hours,
+// which the encounter's own approach readout still exposes.
 const degradeRebaseAfter = 10 * time.Minute
 
 // CoWarpSubspaceTolerance is the exported form of the same-subspace gate
