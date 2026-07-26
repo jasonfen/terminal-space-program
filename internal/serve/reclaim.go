@@ -42,7 +42,9 @@ func (s *Server) displaceAbsent(fp string) bool {
 		return false
 	}
 	// Out of the registry first, so the sweeper stops reprieving something
-	// that is on its way down.
+	// that is on its way down. Flagged before the close so its teardown
+	// reads the flag and stays quiet: the player is resuming, not leaving.
+	sess.displaced.Store(true)
 	s.live.remove(fp, sess)
 	_ = sess.conn.Close()
 	if sess.done == nil {

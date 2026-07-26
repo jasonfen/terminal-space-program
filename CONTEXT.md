@@ -1723,6 +1723,20 @@ _Avoid_: Hold (already means nearly the opposite under **Rendezvous
 Warp** — freezing the leader's clock for a lagging partner), grace
 period, keepalive, linger.
 
+**Away**:
+The state of a Session that is still simulating with nobody at the
+controls: its player has gone silent, but their craft keep flying, keep
+holding the join frontier, and keep whatever **Commitment** earned them a
+**Reprieve**. Distinct from *offline*, where the Session is gone
+entirely, and from the Reprieve itself, which is what holds an Away
+Session up — an Away Session with no Commitment is simply about to be
+reaped. Measured on a short leash (a minute of silence), because it
+drives display only; the decision to displace an Away Session for a
+reconnecting player uses a far stricter test.
+_Avoid_: Idle (the Session is anything but — it is warping), AFK,
+asleep, disconnected (it is still connected, which is the whole
+problem).
+
 ### Transfer planning
 
 The vocabulary for moving a Vessel from one orbit to another — typically

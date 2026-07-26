@@ -2,6 +2,7 @@ package serve
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,14 @@ const (
 // (internal/relay/reporter.go:35).
 type liveSession struct {
 	conn *activityConn
+
+	// displaced marks a session torn down by its own key reconnecting
+	// (ADR 0036), rather than one that ended. Its teardown announces
+	// nothing: a reclaim is one player resuming, and mid-coast a leave
+	// chip reads as the rendezvous dying — the opposite of what a reclaim
+	// preserves. Written by the reclaiming goroutine, read by the
+	// displaced session's own, so it is atomic.
+	displaced atomic.Bool
 
 	// done is closed once this session's final payload write has landed —
 	// at the very end of persistMiddleware, after SavePlayer. A reclaiming
@@ -101,6 +110,7 @@ func (s *Server) sweepReprieves(stop <-chan struct{}) {
 			return
 		case now := <-tick.C:
 			s.extendReprieves(now)
+			s.noteAway(now)
 		}
 	}
 }

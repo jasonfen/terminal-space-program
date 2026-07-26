@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	cssh "golang.org/x/crypto/ssh"
 )
 
@@ -255,6 +256,17 @@ func TestReconnectDisplacesItsOwnReprievedSession(t *testing.T) {
 	}
 	if msg := back.text(); strings.Contains(msg, "already has a live session") {
 		t.Errorf("the reconnecting player was refused: %q", msg)
+	}
+
+	// And it reads as one player resuming, not one leaving and another
+	// arriving (ADR 0036 S5). Mid-coast a leave chip reads as the
+	// rendezvous dying, which is the opposite of what a reclaim preserves.
+	if got := eventsOf(srv, sim.SessionEventLeave, fpB); len(got) != 0 {
+		t.Errorf("a reclaim announced %d departures — mid-coast that reads as the coast dying", len(got))
+	}
+	if got := eventsOf(srv, sim.SessionEventJoin, fpB); len(got) != 1 {
+		t.Errorf("a reclaim announced %d joins, want only the original connect's — an unpaired "+
+			"join arrives as an arrival to a partner who never saw a departure", len(got))
 	}
 	_ = asleep
 }

@@ -100,6 +100,11 @@ type Server struct {
 	// *sim.World — the sweeper runs outside every session's tick loop.
 	live *sessionRegistry
 
+	// away remembers which players have been announced as gone silent, so
+	// the transition chips once however long the silence lasts and the
+	// return reaches the same partner (ADR 0036 S5).
+	away *awayWatch
+
 	// Reprieve timings, fields rather than constants so tests can drive
 	// the sweeper without real-time waits. idleTimeout is recorded because
 	// the sweeper has to reconstruct the deadline the I/O path would have
@@ -108,6 +113,7 @@ type Server struct {
 	sweepEvery     time.Duration
 	reprieveWindow time.Duration
 	reclaimWait    time.Duration
+	awayAfter      time.Duration
 
 	// persistMu serialises dock cross-ref persists across sessions (v0.28
 	// finding 3). Two sessions racing SetDocks could otherwise interleave
@@ -158,7 +164,7 @@ func New(cfg Config) (*Server, error) {
 		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(),
 		presence: newPresence(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
-		reclaimWait: defaultReclaimWait,
+		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter, away: newAwayWatch(),
 	}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
@@ -301,9 +307,13 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	// encounter they committed to. displaceAbsent refuses when anyone
 	// might still be at the controls, and returns only once the displaced
 	// session's payload is safely written.
-	if s.presence.isOnline(fp) && !s.displaceAbsent(fp) {
-		wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
-		return nil, nil
+	reclaimed := false
+	if s.presence.isOnline(fp) {
+		if !s.displaceAbsent(fp) {
+			wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
+			return nil, nil
+		}
+		reclaimed = true
 	}
 
 	app, err := s.newGuestApp(fp)
@@ -329,7 +339,13 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 		// Enrolled reconnect: no card, no code — resume. Presence +
 		// join chip fire now; the middleware pairs the leave.
 		s.presence.markOnline(fp)
-		s.presence.event(sim.SessionEventJoin, fp, p.Handle, "")
+		// A reclaim announces nothing (ADR 0036 S5): the displaced session
+		// suppressed its leave, so a join here would arrive unpaired and
+		// read as an arrival to a partner who never saw a departure. The
+		// sweeper's next pass surfaces the return as "is back" instead.
+		if !reclaimed {
+			s.presence.event(sim.SessionEventJoin, fp, p.Handle, "")
+		}
 		sess.Context().SetValue(ctxKeyJoined, true)
 		return game, opts
 	}
@@ -427,14 +443,18 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		}
 		// Out of the sweeper's sight before anything else: this connection
 		// is gone, and a Reprieve for it would extend a dead deadline.
-		if ls, ok := sess.Context().Value(ctxKeyLive).(*liveSession); ok {
+		ls, _ := sess.Context().Value(ctxKeyLive).(*liveSession)
+		if ls != nil {
 			s.live.remove(fp, ls)
 		}
 		// Presence: pair the join marked at connect/enroll (v0.27 S6).
 		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); joined {
 			s.presence.markOffline(fp)
-			if p, err := s.store.FindPlayer(fp); err == nil {
-				s.presence.event(sim.SessionEventLeave, fp, p.Handle, "")
+			// A displaced session announces nothing (ADR 0036 S5): its player
+			// is not leaving, they are resuming on another connection, and
+			// mid-coast a leave chip reads as the rendezvous dying.
+			if p, err := s.store.FindPlayer(fp); err == nil && (ls == nil || !ls.displaced.Load()) {
+				s.presence.event(departureKind(ls, s.awayAfter), fp, p.Handle, "")
 			}
 		}
 		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)

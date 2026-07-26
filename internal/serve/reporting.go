@@ -369,6 +369,11 @@ func (m *reportingModel) refreshSession(now time.Time) {
 			// live stack.
 			DockedGuest: m.srv.dock.IsGuest(p.Fingerprint),
 
+			// Away (ADR 0036 S5): still simulating, nobody at the controls.
+			// Without it a reprieved session reads as Online for hours and
+			// the roster tells a partner someone is there who is not.
+			Away: m.srv.isAway(p.Fingerprint),
+
 			WantsRendezvous: armedTowardViewer[p.Fingerprint],
 			RendezvousOut:   w.RendezvousArm != nil && w.RendezvousArm.TargetOwner == p.Fingerprint,
 		}
