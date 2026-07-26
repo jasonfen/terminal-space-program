@@ -238,9 +238,10 @@ type World struct {
 	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
 	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
 	// recomputes the approach at the committed τ each tick and sets
-	// Degraded when the partner has drifted a couple-radius past the
-	// committed baseline. ApproachM is the live approach for the S2
-	// warning chip. Transient, serve-written like CoWarp.
+	// Degraded when the encounter has worsened past a recent baseline by
+	// more than an encounter-scaled bar (#251 — see degradeSlipFrac /
+	// degradeRebaseAfter in cowarp.go). ApproachM is the live approach
+	// for the S2 warning chip. Transient, serve-written like CoWarp.
 	RendezvousDegraded  bool
 	RendezvousApproachM float64
 
