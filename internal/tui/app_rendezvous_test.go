@@ -86,6 +86,48 @@ func TestRendezvousRespondKey(t *testing.T) {
 	}
 }
 
+// #250: [y] on a blocked (subspace-gapped) invite must refuse — Engage
+// would succeed (τ is still future) but the coast could never start, so
+// the key has to no-op with an attribution instead of arming a dead
+// rendezvous. The refusal's Sync advice is direction-aware (forward-
+// only): a viewer behind can Sync to their time; a viewer ahead cannot,
+// so the initiator must Sync forward instead.
+func TestRendezvousRespondKeyRefusesBlockedInvite(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	w := a.world
+	w.RendezvousInvite = &sim.RendezvousInvite{
+		Owner: "SHA256:guest", Handle: "gern",
+		Tau: w.Clock.SimTime.Add(3 * time.Hour), CA: 900,
+		Blocked: true, AheadBy: -3 * time.Minute,
+	}
+
+	// Viewer behind the initiator: Sync forward is the way in.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if w.RendezvousArm != nil {
+		t.Fatal("y armed a rendezvous across a subspace gap (coast can never start)")
+	}
+	if !strings.Contains(a.statusMsg, "Sync to their time first") {
+		t.Errorf("refusal %q does not point at Sync as the way in", a.statusMsg)
+	}
+
+	// Viewer ahead of the initiator: Sync into the past is impossible —
+	// the refusal must not instruct it.
+	w.RendezvousInvite.AheadBy = 3 * time.Minute
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if w.RendezvousArm != nil {
+		t.Fatal("y armed a rendezvous across a viewer-ahead subspace gap")
+	}
+	if !strings.Contains(a.statusMsg, "they must Sync to your time") {
+		t.Errorf("viewer-ahead refusal %q does not flip the advice to the initiator", a.statusMsg)
+	}
+	if strings.Contains(a.statusMsg, "Sync to their time") {
+		t.Errorf("viewer-ahead refusal %q instructs Syncing into the past", a.statusMsg)
+	}
+}
+
 // CancelWarp `/` extends to Rendezvous Warp (v0.29 S2): it releases the
 // arm and the shared coast, not just the Auto-Warp driver — otherwise
 // DriveRendezvousWarp would restart the coast next tick.

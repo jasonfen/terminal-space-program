@@ -196,9 +196,10 @@ func (w *World) CoWarpCoupled() bool { return w.CoWarp.Coupled }
 // the gate wider than one step at any selectable rate, so the clamp
 // always gets a tick in which to act.
 //
-// Armed-but-not-yet-coupled counts too: refreshRendezvousInvite gates the
-// incoming prompt on sameSubspace, so an initiator who races ahead
-// withdraws their own invite before anyone can join it.
+// Armed-but-not-yet-coupled counts too: refreshRendezvousInvite marks
+// the incoming prompt Blocked outside sameSubspace (#250), so an
+// initiator who races ahead turns their own invite non-joinable before
+// anyone can answer it.
 func (w *World) subspaceStepCap() float64 {
 	if !w.CoWarp.Coupled && w.RendezvousArm == nil {
 		return 0

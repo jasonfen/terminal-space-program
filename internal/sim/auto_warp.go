@@ -185,6 +185,17 @@ type RendezvousInvite struct {
 	Handle string    // display name for the prompt/chip
 	Tau    time.Time // the initiator's committed encounter sim-time
 	CA     float64   // m — the initiator's committed predicted approach
+
+	// Blocked marks an invite from a subspace-diverged peer (#250): the
+	// intent is live, but the coast could never start across the gap, so
+	// the prompt renders as a non-joinable attribution ([y] suppressed,
+	// the direction-correct Sync named as the way in) instead of silently
+	// vanishing. AheadBy is the signed viewer-minus-initiator subspace
+	// offset (positive: the viewer is ahead — Sync is forward-only, so
+	// then the initiator is the one who must Sync). Both zero while
+	// joinable.
+	Blocked bool
+	AheadBy time.Duration
 }
 
 // refreshRendezvousInvite rebuilds the invite slate from this tick's
@@ -193,25 +204,94 @@ type RendezvousInvite struct {
 // arm — once mutually armed (or armed elsewhere) there is nothing to
 // respond to. A past-τ arm is dropped here rather than surfaced, since
 // Engage would refuse it (forward-only).
+//
+// A subspace-diverged peer's arm is kept but Blocked (#250) rather than
+// dropped: Engage would succeed yet the coast could never start, so the
+// join affordance is a lie — but so is a prompt that vanishes without
+// attribution. A joinable invite always wins over a blocked one; the
+// blocked one turns joinable again if the pair converges.
 func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 	w.RendezvousInvite = nil
 	if w.RendezvousArm != nil {
 		return
 	}
+	var blocked *RendezvousInvite
 	for i := range peers {
 		p := &peers[i]
-		// Same-subspace gate (v0.29 review): an invite from a diverged
-		// peer is not joinable — Engage would succeed but the coast could
-		// never start, so surfacing it would make the [y] prompt a lie.
-		// The prompt reappears if the pair converges again.
-		if p.ArmedTowardViewer && p.RendezvousTau.After(w.Clock.SimTime) &&
-			sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
+		if !p.ArmedTowardViewer || !p.RendezvousTau.After(w.Clock.SimTime) {
+			continue
+		}
+		if sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
 			w.RendezvousInvite = &RendezvousInvite{
 				Owner: p.Owner, Handle: p.Handle, Tau: p.RendezvousTau, CA: p.RendezvousCA,
 			}
 			return
 		}
+		if blocked == nil {
+			blocked = &RendezvousInvite{
+				Owner: p.Owner, Handle: p.Handle, Tau: p.RendezvousTau, CA: p.RendezvousCA,
+				Blocked: true, AheadBy: w.Clock.SimTime.Sub(p.SubspaceTime),
+			}
+		}
 	}
+	w.RendezvousInvite = blocked
+}
+
+// RendezvousWaitReason classifies why an armed Rendezvous Warp has not
+// started coasting (#250). Deliberately an enum-plus-data shape rather
+// than a bag of bools — #221's CommGraph work wants the same "classify
+// the reason and say it" pattern, so the vocabulary should converge.
+type RendezvousWaitReason int
+
+const (
+	// RendezvousWaitNone: no arm held, or the shared coast is running.
+	RendezvousWaitNone RendezvousWaitReason = iota
+	// RendezvousWaitPartner: genuinely waiting — the partner has not
+	// Engaged back (or has no report in this tick's peer set).
+	RendezvousWaitPartner
+	// RendezvousWaitSubspaceGap: the pair has diverged past
+	// CoWarpSubspaceTolerance, so the coast cannot start no matter what
+	// the partner does — Sync is the only way back.
+	RendezvousWaitSubspaceGap
+)
+
+// RendezvousWait is the classified armed-but-not-coasting slate (#250):
+// the reason the coast has not started, plus the signed viewer-minus-
+// partner subspace offset when that reason is a gap (positive: the
+// viewer warped ahead). Zero value when idle or coasting.
+type RendezvousWait struct {
+	Reason  RendezvousWaitReason
+	AheadBy time.Duration // gap direction/magnitude; zero unless Reason is SubspaceGap
+}
+
+// refreshRendezvousWait reclassifies the armed-but-not-coasting state
+// each tick (#250), after driveRendezvousCoast so it reflects this
+// tick's engaged state. Set/cleared only here — same single-writer
+// ownership as RendezvousHold and the invite slate. The gap check reads
+// the partner's report regardless of ArmedTowardViewer: the initiator
+// case (partner not yet armed back) is exactly where the divergence is
+// otherwise invisible.
+func (w *World) refreshRendezvousWait(peers []CoWarpPeer) {
+	w.RendezvousWait = RendezvousWait{}
+	arm := w.RendezvousArm
+	if arm == nil || w.rendezvousWarpEngaged() {
+		return
+	}
+	for i := range peers {
+		p := &peers[i]
+		if p.Owner != arm.TargetOwner {
+			continue
+		}
+		if !sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
+			w.RendezvousWait = RendezvousWait{
+				Reason:  RendezvousWaitSubspaceGap,
+				AheadBy: w.Clock.SimTime.Sub(p.SubspaceTime),
+			}
+			return
+		}
+		break
+	}
+	w.RendezvousWait = RendezvousWait{Reason: RendezvousWaitPartner}
 }
 
 // DriveRendezvousWarp starts, holds, or cancels the shared coast to the
@@ -224,10 +304,12 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 // still flagged just releases it here defensively.
 func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 	w.driveRendezvousCoast(peers)
-	// One shared tail (v0.29 review): the degrade recompute reflects this
-	// tick's engaged state, and the invite refresh runs after start/cancel
-	// so a retract this tick can immediately surface another pending arm
-	// (the unarmed viewer is the responder case).
+	// One shared tail (v0.29 review): the wait classification and degrade
+	// recompute reflect this tick's engaged state, and the invite refresh
+	// runs after start/cancel so a retract this tick can immediately
+	// surface another pending arm (the unarmed viewer is the responder
+	// case).
+	w.refreshRendezvousWait(peers)
 	w.refreshRendezvousDegrade(peers)
 	w.refreshRendezvousInvite(peers)
 }

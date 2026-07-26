@@ -223,8 +223,9 @@ type World struct {
 	// Refreshed each tick by DriveRendezvousWarp from the co-warp peer
 	// set; the orbit HUD renders the persistent join prompt from it. Nil
 	// while the viewer holds an outgoing arm (pairwise MVP — respond or
-	// cancel first) and once the committed τ has passed. Transient,
-	// serve-written like CoWarp.
+	// cancel first) and once the committed τ has passed. An invite across
+	// a subspace gap survives with Blocked set (#250) — attributable but
+	// not joinable. Transient, serve-written like CoWarp.
 	RendezvousInvite *RendezvousInvite
 
 	// RendezvousHold freezes the viewer's effective warp while the shared
@@ -234,6 +235,14 @@ type World struct {
 	// DriveRendezvousWarp, read by clampedWarp — a member of the
 	// Effective-≤-Selected clamp family. Transient, serve-written.
 	RendezvousHold bool
+
+	// RendezvousWait classifies why an armed Rendezvous Warp has not
+	// started coasting (#250): genuinely waiting on the partner vs a
+	// subspace gap someone warped open (with the signed Δt saying who is
+	// ahead). Set each tick by DriveRendezvousWarp, read by the armed
+	// RENDEZVOUS chip so it stops blaming the partner for a self-made
+	// gap. Transient, serve-written like RendezvousHold.
+	RendezvousWait RendezvousWait
 
 	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
 	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
