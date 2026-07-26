@@ -108,6 +108,13 @@ type CoWarpPeer struct {
 	// v0.29 addendum). Combined with the viewer's own RendezvousArm
 	// targeting this peer, the two are *mutually* armed and couple before
 	// the proximity gate — the second Co-Warp trigger.
+	//
+	// "Live" means a live SESSION, not merely a live report (#252 review):
+	// the adapter suppresses this flag (and RendezvousTau/CA) for an owner
+	// with no live session, so a disconnected-for-good partner's frozen
+	// report reads as a retract here rather than an immortal arm. A
+	// reprieved-away session still counts as live — its silence is held
+	// for, never cancelled.
 	ArmedTowardViewer bool
 
 	// RendezvousTau is the peer's committed encounter sim-time when
@@ -129,11 +136,23 @@ type CoWarpPeer struct {
 // commitment to one encounter: reaching Tau outside couple range advances
 // the waypoint (Tau/CommittedCA are re-derived and the coast continues)
 // rather than clearing the arm, so the range-free coupling and rate-lock
-// span the whole multi-maneuver approach. The arm ends exactly two ways:
-// an explicit cancel by either player, or the proximity handoff when a
-// waypoint arrives inside couple range and Proximity Co-Warp takes over.
-// Transient like AutoWarp/CoWarp — never persisted; also cleared on
-// partner disconnect.
+// span the whole multi-maneuver approach. The arm ends exactly two ways
+// by intent: an explicit cancel by either player, or the proximity
+// handoff when a waypoint arrives inside couple range and Proximity
+// Co-Warp takes over.
+//
+// Lifetime requires a live partner SESSION (#252 review, finding 1).
+// With the arm unbounded in time, "the partner is still in this" has to
+// mean their session exists — attended or reprieved-away — not that a
+// report of theirs exists: the relay store never scrubs reports, so a
+// partner who disconnects for good leaves a frozen report whose intent
+// bit would otherwise hold this arm (and its 0×-hold or dead-orbit
+// coast) forever. The serve layer enforces it at the peer seam
+// (relay.CoWarpPeersFrom's liveness input): a dead session's relayed arm
+// is suppressed, which the coast reads as a genuine retract — so a
+// partner disconnect releases the arm through the normal cancel path,
+// not through any wire message the departed session never got to send.
+// Transient like AutoWarp/CoWarp — never persisted.
 type RendezvousArm struct {
 	TargetOwner string    // fingerprint of the partner Engaged toward
 	Handle      string    // partner display name, captured at Engage (chips/HUD never fall back to a raw fingerprint)
@@ -152,6 +171,16 @@ type RendezvousArm struct {
 	// degraded encounter measured against the previous waypoint.
 	degradeBaseCA  float64
 	degradeBaseSet bool
+
+	// peerGoneAt is the sim-time the partner's report first vanished from
+	// the peer set entirely while the coast sat at/after τ (#252 review,
+	// finding 3) — zero while the peer is present. A one-tick dropout at
+	// exactly the crossing tick (all partner craft filtered: landed,
+	// cross-system, degenerate KeplerStep) must not destroy the standing
+	// intent when every other transient gap is held through; the coast
+	// idles until the peer has been absent for more than the tolerance
+	// window's worth of sim-time, then releases as a retract.
+	peerGoneAt time.Time
 }
 
 // rendezvousArmedWith reports whether the viewer has Engaged a Rendezvous

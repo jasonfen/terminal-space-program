@@ -306,7 +306,22 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// clamp onto the World for next tick's clampedWarp; emit couple/
 	// release chips on transitions. Same seam as ghosts — reads the
 	// store's reports (which now carry EffWarp), writes transient state.
-	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner)
+	// Session liveness for the adapter's rendezvous-arm gate (#252 review,
+	// finding 1): presence is the serve layer's "has a live session right
+	// now" — marked online at connect/enroll, offline only when the session
+	// unwinds through persistMiddleware. A reprieved-away session's
+	// connection is still up, so it stays online and its arm stays honored
+	// (silence is not retract); a session reaped at the Reprieve ceiling,
+	// or any for-good disconnect, drops out of presence while its final
+	// report sits frozen in the relay store forever — exactly the report
+	// whose arm must NOT keep the survivor's standing intent alive.
+	live := make(map[string]bool, len(others))
+	for _, r := range others {
+		if m.srv.presence.isOnline(r.Owner) {
+			live[r.Owner] = true
+		}
+	}
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live)
 	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
 	// committed encounter from this tick's mutual-arm state, before the
 	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.

@@ -20,7 +20,22 @@ import (
 // after the report nor an SOI exit — but a burning peer reports every
 // tick (elements change), so the propagation gap it feeds co-warp with is
 // one tick, not one heartbeat.
-func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string) []sim.CoWarpPeer {
+//
+// live is the serve layer's session-liveness input: owner fingerprint →
+// has a live session right now (attended or reprieved-away — an Away
+// session is still simulating and still counts; that is the point of the
+// Reprieve). It gates the RENDEZVOUS ARM fields only, not the peer (#252
+// review, finding 1): the store never scrubs reports, so a partner who
+// disconnects for good leaves a frozen report with RendezvousTarget
+// still set — an immortal arm that would hold the survivor's standing
+// intent (and its 0×-hold / dead-orbit coast) forever. A rendezvous
+// intent requires a live SESSION, not a live report; suppressing the arm
+// here makes the sim's normal retract path fire, with its normal cancel
+// chip. A live session's report gaps are unaffected — the arm rides
+// through however stale the report is, so a silent reprieved partner is
+// held for, never cancelled. A nil map means no owner is live (the safe
+// default for callers with no liveness source).
+func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string, live map[string]bool) []sim.CoWarpPeer {
 	sysName := w.System().Name
 	viewerT := w.Clock.SimTime
 	var out []sim.CoWarpPeer
@@ -46,20 +61,26 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 		if len(crafts) == 0 {
 			continue
 		}
-		out = append(out, sim.CoWarpPeer{
+		p := sim.CoWarpPeer{
 			Owner:        rep.Owner,
 			Handle:       handles[rep.Owner],
 			SubspaceTime: rep.SubspaceTime,
 			EffWarp:      rep.EffWarp,
 			Crafts:       crafts,
-			// Rendezvous Warp (v0.29 S1): this peer is armed toward the
-			// viewer iff its report's intent names us. The committed τ rides
-			// along so the responder can adopt the initiator's value.
-			ArmedTowardViewer: rep.RendezvousTarget != "" && rep.RendezvousTarget == viewerFP,
-			RendezvousTau:     rep.RendezvousTau,
-			RendezvousCA:      rep.RendezvousCA,
-			Paused:            rep.Paused,
-		})
+			Paused:       rep.Paused,
+		}
+		// Rendezvous Warp (v0.29 S1): this peer is armed toward the viewer
+		// iff its report's intent names us AND its session is live (#252
+		// review — see the liveness rationale above). The committed τ rides
+		// along so the responder can adopt the initiator's value; a dead
+		// session's τ/CA are suppressed with the arm so nothing downstream
+		// adopts a dead waypoint.
+		if live[rep.Owner] && rep.RendezvousTarget != "" && rep.RendezvousTarget == viewerFP {
+			p.ArmedTowardViewer = true
+			p.RendezvousTau = rep.RendezvousTau
+			p.RendezvousCA = rep.RendezvousCA
+		}
+		out = append(out, p)
 	}
 	return out
 }

@@ -281,14 +281,24 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	// Partner match is by identity only. The same-subspace gate applies to
 	// STARTING the coast (below) — an engaged coast instead holds through a
 	// transient divergence (v0.29 review): pause/report gaps must not read
-	// as a retract and destroy the mutual encounter.
+	// as a retract and destroy the mutual encounter. peerPresent tells the
+	// waypoint resolution apart the two ways partner can be nil (#252
+	// review, finding 3): report in the set with the arm withdrawn — a
+	// genuine retract (the serve liveness gate also lands here for a dead
+	// session, finding 1) — versus the whole peer absent this tick, which
+	// at/after τ gets the dropout grace instead of an instant release.
 	var partner *CoWarpPeer
+	peerPresent := false
 	for i := range peers {
 		p := &peers[i]
-		if p.Owner == arm.TargetOwner && p.ArmedTowardViewer {
-			partner = p
-			break
+		if p.Owner != arm.TargetOwner {
+			continue
 		}
+		peerPresent = true
+		if p.ArmedTowardViewer {
+			partner = p
+		}
+		break
 	}
 	// τ authority across a waypoint advance (#252): both sides re-derive
 	// the next waypoint independently at their own τ-crossing, so their
@@ -306,8 +316,17 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	// mid-coast cannot win against the partner's earlier relayed τ — with
 	// the arm a standing intent, a waypoint is sequencing, not commitment,
 	// and the earlier encounter is always an acceptable next waypoint.
+	// The min-lead floor (#252 review, finding 4) applies to adoption
+	// exactly as it does to our own derivation: a relayed τ 1 s out would
+	// be crossed next tick, forcing an immediate re-resolution and a
+	// spurious waypoint chip. Deterministic on both sides — the floor is a
+	// shared constant over each side's own clock, and skipping changes
+	// nothing about convergence: a skipped sub-lead τ means we cross our
+	// own τ and re-derive, the partner crosses theirs within the lead and
+	// re-derives too (their derivation refuses sub-lead τs), and min-τ
+	// then converges the two fresh waypoints within one relay hop as usual.
 	if partner != nil && w.rendezvousWarpEngaged() &&
-		partner.RendezvousTau.After(w.Clock.SimTime) &&
+		partner.RendezvousTau.After(w.Clock.SimTime.Add(rendezvousWaypointMinLead)) &&
 		(partner.RendezvousTau.Before(arm.Tau) || !arm.Tau.After(w.Clock.SimTime)) {
 		arm.Tau, arm.CommittedCA = partner.RendezvousTau, partner.RendezvousCA
 		arm.degradeBaseSet = false // a new waypoint means a new baseline (#251 interaction)
@@ -316,7 +335,20 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	// τ reached (#252): the arm is a standing mutual intent — the
 	// committed encounter is a waypoint, not the end.
 	if w.rendezvousWarpEngaged() && !w.Clock.SimTime.Before(arm.Tau) {
-		w.resolveRendezvousWaypoint(arm, partner, peers)
+		w.resolveRendezvousWaypoint(arm, partner, peerPresent, peers)
+		// Hold-the-leader applies whenever the coast is engaged, waypoint
+		// resolved or not (#252 review, finding 2). The past-τ idle
+		// (derivation failing and retrying — a legitimately long-lived
+		// state under the standing intent) used to return before the hold
+		// case below, so a paused or behind-diverged partner no longer
+		// froze the ahead side: the viewer walked on at the 1× floor,
+		// the pair decoupled past the tolerance window, and both then sat
+		// at 1× with a live arm and a gap that never closes. Evaluated
+		// after the resolution so a handoff/release this tick (coast now
+		// disengaged) is never held.
+		if w.rendezvousWarpEngaged() && partner != nil {
+			w.holdRendezvousLeader(partner)
+		}
 		return
 	}
 	switch {
@@ -353,16 +385,22 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 		// Partner genuinely retracted or dropped mid-coast — release both.
 		w.DisengageRendezvousWarp()
 	case partner != nil && w.rendezvousWarpEngaged():
-		// Hold-the-leader (v0.29 review): a paused partner (frozen clock)
-		// or a divergence with the viewer ahead must not let the leader
-		// sail to τ alone. The leader freezes (clampedWarp reads the
-		// flag); the one behind coasts on and closes the gap; the pair
-		// re-locks inside the tolerance. Deadlock-free because only the
-		// AHEAD side ever holds.
-		ahead := w.Clock.SimTime.Sub(partner.SubspaceTime).Seconds()
-		if (partner.Paused && ahead >= 0) || ahead > coWarpSubspaceToleranceSec {
-			w.RendezvousHold = true
-		}
+		w.holdRendezvousLeader(partner)
+	}
+}
+
+// holdRendezvousLeader raises the hold flag when the engaged coast's
+// viewer must wait for its partner (v0.29 review): a paused partner
+// (frozen clock) or a divergence with the viewer ahead must not let the
+// leader sail on alone. The leader freezes (clampedWarp reads the flag);
+// the one behind coasts on and closes the gap; the pair re-locks inside
+// the tolerance. Deadlock-free because only the AHEAD side ever holds.
+// Applies to every engaged coasting tick — pre-τ and the past-τ idle
+// alike (#252 review, finding 2).
+func (w *World) holdRendezvousLeader(partner *CoWarpPeer) {
+	ahead := w.Clock.SimTime.Sub(partner.SubspaceTime).Seconds()
+	if (partner.Paused && ahead >= 0) || ahead > coWarpSubspaceToleranceSec {
+		w.RendezvousHold = true
 	}
 }
 
@@ -375,10 +413,19 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 //   - outside, mutual arm intact → advance: re-derive the next encounter,
 //     re-freeze the driver on it, re-base the degrade baseline, and
 //     record the advance for the waypoint chip;
-//   - outside, mutual arm gone → the partner cancelled at the waypoint
-//     (or handed off on a range measurement we don't share): there is no
-//     standing intent left to advance, so release both, consistent with
-//     the mid-coast retract rule.
+//   - outside, peer present but arm gone → the partner cancelled at the
+//     waypoint (or handed off on a range measurement we don't share, or
+//     their session died and the liveness gate suppressed their frozen
+//     arm — finding 1): there is no standing intent left to advance, so
+//     release both immediately, consistent with the mid-coast retract
+//     rule;
+//   - outside, peer absent from the set entirely → dropout grace (#252
+//     review, finding 3): every pre-τ transient gap is held through, so a
+//     one-tick peer dropout at exactly the crossing tick (all partner
+//     craft filtered that tick) must not destroy the standing intent and
+//     mis-chip "cancelled". Idle — don't advance, don't release — until
+//     the peer has been absent for more than the tolerance window's worth
+//     of sim-time (arm.peerGoneAt), then release as a retract.
 //
 // The handoff check deliberately runs only AT a waypoint, not every
 // coasting tick: a transient pass through 10 km at warp mid-coast is a
@@ -386,7 +433,7 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 // pair at 1× short of their encounter. At τ the approach ramp has already
 // glided the rate to the 1× floor, which is exactly the state Proximity
 // Co-Warp expects to inherit.
-func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPeer, peers []CoWarpPeer) {
+func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPeer, peerPresent bool, peers []CoWarpPeer) {
 	anchor := w.ActiveCraft()
 	if anchor != nil && !anchor.Landed && !anchor.Crashed {
 		// Partner matched by identity alone — at the handoff the partner's
@@ -410,9 +457,23 @@ func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPee
 		}
 	}
 	if partner == nil {
-		w.DisengageRendezvousWarp()
+		// Peer present with the arm withdrawn is a genuine retract (or the
+		// liveness gate's dead-session suppression) — release immediately,
+		// as mid-coast. Only a whole-peer dropout gets the grace.
+		if peerPresent {
+			w.DisengageRendezvousWarp()
+			return
+		}
+		if arm.peerGoneAt.IsZero() {
+			arm.peerGoneAt = w.Clock.SimTime
+			return // idle: clampedWarp floors the past-τ coast at 1×
+		}
+		if w.Clock.SimTime.Sub(arm.peerGoneAt).Seconds() > coWarpSubspaceToleranceSec {
+			w.DisengageRendezvousWarp()
+		}
 		return
 	}
+	arm.peerGoneAt = time.Time{} // peer back inside the grace — full window next time
 	if tau, ca, ok := w.rendezvousNextWaypoint(partner); ok {
 		arm.Tau, arm.CommittedCA = tau, ca
 		arm.degradeBaseSet = false // per-waypoint re-baseline (#251 interaction)

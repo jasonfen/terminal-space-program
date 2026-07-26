@@ -268,3 +268,167 @@ func TestRendezvousInviteRequiresSameSubspace(t *testing.T) {
 		t.Errorf("invite surfaced across a subspace divergence: %+v", w.RendezvousInvite)
 	}
 }
+
+// #252 review, finding 2: hold-the-leader applies whenever the coast is
+// engaged, waypoint resolved or not. The past-τ idle (waypoint derivation
+// failing and retrying — a state the standing intent legitimized as
+// long-lived) used to early-return before the hold case, so a paused or
+// behind-diverged partner no longer froze the ahead side: the viewer
+// walked on at the 1× floor, the pair decoupled past the tolerance
+// window, and both then sat at 1× with a live arm and a gap that never
+// closes — permanent divergence, exit only by manual cancel.
+func TestRendezvousHoldAppliesPastTau(t *testing.T) {
+	w, _, st := anchorWorld(t)
+	tau := st.Add(time.Hour)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 0)
+	// Present and armed, but with no same-primary craft in the set — every
+	// waypoint derivation comes up empty, so the coast idles and retries.
+	peer := CoWarpPeer{
+		Owner: "SHA256:gern", Handle: "gern", SubspaceTime: st,
+		EffWarp: 50, ArmedTowardViewer: true, RendezvousTau: tau,
+	}
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.rendezvousWarpEngaged() {
+		t.Fatal("precondition: coast engaged")
+	}
+
+	// Past τ, derivation still failing; the partner pauses behind the
+	// viewer → the viewer (ahead) must hold, not walk on at the 1× floor.
+	w.Clock.SimTime = tau.Add(10 * time.Second)
+	peer.Paused = true
+	peer.SubspaceTime = tau.Add(-5 * time.Minute)
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if w.RendezvousArm == nil || !w.rendezvousWarpEngaged() {
+		t.Fatal("the past-τ retry released the intent")
+	}
+	if !w.RendezvousHold {
+		t.Error("no hold past τ for a paused, behind partner — the leader walks ahead and the pair diverges for good")
+	}
+	if got := w.EffectiveWarp(); got != 0 {
+		t.Errorf("EffectiveWarp = %v during a past-τ hold, want 0", got)
+	}
+
+	// Partner resumes inside the tolerance → hold releases; the coast
+	// keeps retrying the waypoint (deadlock-free: only the AHEAD side
+	// ever holds, and it just stopped being ahead-of-a-stopped-clock).
+	peer.Paused = false
+	peer.SubspaceTime = w.Clock.SimTime
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if w.RendezvousHold {
+		t.Error("hold survived the partner's resume — the pair can't re-lock")
+	}
+	if w.RendezvousArm == nil || !w.rendezvousWarpEngaged() {
+		t.Error("intent lost across the resume")
+	}
+}
+
+// #252 review, finding 3: a transient peer dropout at the τ-crossing tick
+// (all partner craft filtered that tick: landed / cross-system /
+// degenerate KeplerStep → the whole peer absent from the set) must not
+// destroy the standing intent and mis-chip "cancelled" — every other
+// transient gap is held through. The partner has to stay absent for more
+// than the tolerance window's worth of sim-time before the release fires
+// as a retract.
+func TestRendezvousCrossingDropoutGrace(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(time.Hour)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 0)
+	peer := armPeer(w, primary, st, 50, "gern")
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.rendezvousWarpEngaged() {
+		t.Fatal("precondition: coast engaged")
+	}
+
+	// One-tick dropout at exactly the crossing tick.
+	w.Clock.SimTime = tau
+	w.DriveRendezvousWarp(nil)
+	if w.RendezvousArm == nil || !w.rendezvousWarpEngaged() {
+		t.Fatal("a one-tick peer dropout at the τ-crossing destroyed the standing intent")
+	}
+	if w.LastRendezvousWaypoint != nil {
+		t.Error("waypoint advanced against a missing peer")
+	}
+
+	// Peer back next tick → the coast carries on and the grace clock
+	// clears (a later dropout must get the FULL window again).
+	w.Clock.SimTime = tau.Add(time.Second)
+	peer.SubspaceTime = w.Clock.SimTime
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if w.RendezvousArm == nil || !w.rendezvousWarpEngaged() {
+		t.Fatal("intent lost after the peer came back")
+	}
+	if !w.RendezvousArm.peerGoneAt.IsZero() {
+		t.Error("grace clock not cleared by the peer's return")
+	}
+
+	// Gone again, and STAYING gone past the tolerance window of sim-time
+	// → released as a retract.
+	w.Clock.SimTime = tau.Add(2 * time.Second)
+	w.DriveRendezvousWarp(nil)
+	if w.RendezvousArm == nil {
+		t.Fatal("released on the first missing tick — no grace at all")
+	}
+	w.Clock.SimTime = w.Clock.SimTime.Add(time.Duration(coWarpSubspaceToleranceSec)*time.Second + time.Second)
+	w.DriveRendezvousWarp(nil)
+	if w.RendezvousArm != nil || w.rendezvousWarpEngaged() {
+		t.Error("partner absent past the grace window still held — the dropout release never fires")
+	}
+}
+
+// A genuine retract at the crossing tick — peer present, arm withdrawn —
+// still releases both immediately, exactly as mid-coast: the finding-3
+// grace is for peer DROPOUTS only, never for an explicit cancel.
+func TestRendezvousRetractAtCrossingReleasesImmediately(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(time.Hour)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 0)
+	peer := armPeer(w, primary, st, 50, "gern")
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.rendezvousWarpEngaged() {
+		t.Fatal("precondition: coast engaged")
+	}
+
+	w.Clock.SimTime = tau
+	peer.SubspaceTime = tau
+	peer.ArmedTowardViewer = false // partner cancelled at the waypoint
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if w.RendezvousArm != nil || w.rendezvousWarpEngaged() {
+		t.Error("a genuine retract at the crossing was held — the cancel must release both immediately")
+	}
+}
+
+// #252 review, finding 4: a partner-relayed τ inside the waypoint min
+// lead is not adopted. Adopting a τ 1 s out would cross it next tick and
+// force an immediate re-resolution plus a spurious waypoint chip; our own
+// derivation already refuses such a τ (rendezvousWaypointMinLead), so the
+// adoption path must apply the same floor.
+func TestRendezvousMinTauAdoptionRespectsMinLead(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(time.Hour)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 0)
+	peer := armPeer(w, primary, st, 50, "gern")
+	peer.RendezvousTau = tau
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.rendezvousWarpEngaged() {
+		t.Fatal("precondition: coast engaged")
+	}
+
+	// Future and earlier than ours, but inside the min lead → skipped.
+	peer.RendezvousTau = st.Add(time.Second)
+	peer.RendezvousCA = 123
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.RendezvousArm.Tau.Equal(tau) {
+		t.Errorf("adopted a sub-min-lead relayed τ: arm.Tau = %v, want the held %v", w.RendezvousArm.Tau, tau)
+	}
+	if !w.AutoWarp.T.Equal(tau) {
+		t.Errorf("driver re-frozen onto a sub-min-lead τ: T = %v", w.AutoWarp.T)
+	}
+
+	// Past the min lead → adopted (min-future-τ authority unchanged).
+	adopt := st.Add(time.Minute)
+	peer.RendezvousTau = adopt
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.RendezvousArm.Tau.Equal(adopt) {
+		t.Errorf("did not adopt the partner's earlier valid τ: arm.Tau = %v, want %v", w.RendezvousArm.Tau, adopt)
+	}
+}
