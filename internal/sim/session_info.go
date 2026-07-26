@@ -93,9 +93,10 @@ const (
 	// Rendezvous Warp moments (v0.29 S2) — all local-only: each side's
 	// serve wrapper derives them from its own World transitions.
 	SessionEventRendezvousArmed     // a partner armed toward you ("X wants to rendezvous")
-	SessionEventRendezvousArrived   // the shared coast reached τ ("rendezvous with X — encounter reached")
-	SessionEventRendezvousCancelled // the arm/coast was released before τ ("rendezvous with X cancelled")
+	SessionEventRendezvousArrived   // a waypoint arrived inside couple range — the proximity handoff ("rendezvous with X — encounter reached")
+	SessionEventRendezvousCancelled // the arm/coast was released by a cancel/retract ("rendezvous with X cancelled")
 	SessionEventRendezvousDegraded  // the held encounter slipped past the committed approach
+	SessionEventRendezvousWaypoint  // a waypoint passed outside couple range — the standing intent advanced (#252)
 
 	// SessionEventServerRestart announces an admin-triggered graceful
 	// restart to every connected player before the listener drains

@@ -28,7 +28,7 @@ func TestRendezvousArmThroughSeam(t *testing.T) {
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
 	// A adapts B's report — arm-toward-viewer + τ + committed CA survive.
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA)
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB))
 	if len(peers) != 1 {
 		t.Fatalf("got %d peers, want 1", len(peers))
 	}
@@ -91,8 +91,60 @@ func TestRendezvousArmNotForViewer(t *testing.T) {
 	wB.EngageRendezvousWarp("SHA256:carol", "carol", wA.Clock.SimTime.Add(time.Hour), 0) // toward someone else
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA)
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB))
 	if len(peers) == 1 && peers[0].ArmedTowardViewer {
 		t.Error("ArmedTowardViewer set for an arm aimed at a third player")
+	}
+}
+
+// live builds the adapter's liveness input marking the given owners as
+// holding live sessions.
+func live(owners ...string) map[string]bool {
+	m := map[string]bool{}
+	for _, o := range owners {
+		m[o] = true
+	}
+	return m
+}
+
+// The rendezvous intent requires a LIVE session, not a live report (#252
+// review, finding 1). The store never scrubs reports, so a partner who
+// disconnects mid-intent and never returns leaves a frozen report with
+// RendezvousTarget still set — without the liveness gate the survivor's
+// ArmedTowardViewer stays true forever, retract is never detected, and
+// the survivor holds/coasts against a dead craft indefinitely. The
+// adapter must suppress the arm fields for an owner with no live
+// session, while a live-but-silent (reprieved-away) owner's arm rides
+// through untouched.
+func TestRendezvousArmRequiresLiveSession(t *testing.T) {
+	store := NewStore()
+	wA, wB := newWorld(t), newWorld(t)
+	wB.Clock.SimTime = wA.Clock.SimTime
+
+	const ownerA, ownerB = "SHA256:alice", "SHA256:bob"
+	handles := map[string]string{ownerB: "bob"}
+	tau := wA.Clock.SimTime.Add(72 * time.Hour)
+	if !wB.EngageRendezvousWarp(ownerA, "alice", tau, 8000) {
+		t.Fatal("B failed to engage")
+	}
+	NewReporter(store, ownerB).Tick(wB, time.Now())
+
+	// B live but silent (reprieved-away): the frozen report's arm holds.
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB))
+	if len(peers) != 1 || !peers[0].ArmedTowardViewer {
+		t.Fatal("a live-but-silent session's arm was suppressed — a report gap must not read as retract")
+	}
+
+	// B's session ends (reaped / disconnected for good); the report stays.
+	peers = CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live())
+	if len(peers) != 1 {
+		t.Fatalf("got %d peers, want 1 — liveness suppresses the arm, not the peer", len(peers))
+	}
+	if peers[0].ArmedTowardViewer {
+		t.Error("ArmedTowardViewer true for an owner with no live session — a dead partner's frozen arm is immortal")
+	}
+	if !peers[0].RendezvousTau.IsZero() || peers[0].RendezvousCA != 0 {
+		t.Errorf("RendezvousTau/CA not suppressed with the arm: τ=%v ca=%v",
+			peers[0].RendezvousTau, peers[0].RendezvousCA)
 	}
 }

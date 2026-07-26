@@ -158,6 +158,11 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			plain("◇ rendezvous: encounter reached — " + e.Handle + " alongside")
 		case sim.SessionEventRendezvousCancelled:
 			plain("◇ rendezvous with " + e.Handle + " cancelled")
+		case sim.SessionEventRendezvousWaypoint:
+			// #252: the standing intent passed an encounter outside couple
+			// range and re-aimed — the RENDEZVOUS chip carries the new τ/CA,
+			// this moment just says the advance was deliberate.
+			plain("◇ rendezvous: waypoint passed — coasting on with " + e.Handle)
 		case sim.SessionEventRendezvousDegraded:
 			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
 		case sim.SessionEventWentQuiet:
