@@ -36,12 +36,15 @@ type AutoWarpTarget struct {
 	SyncHandle string // whose time we're chasing (arrival chip text)
 	SyncOwner  string // their fingerprint — the serve layer re-freezes T from their latest report (a leader at warp is a moving target)
 
-	// Rendezvous (v0.29 S1, ADR 0034 v0.29 addendum): when true the driver
-	// is the shared coast to a mutually-armed encounter — a fixed sim-time
-	// target like Sync, but the target is held (never re-frozen) and
-	// arrival clears the viewer's RendezvousArm so Proximity Co-Warp takes
-	// over the final approach. Started by DriveRendezvousWarp only once
-	// both players are armed.
+	// Rendezvous (v0.29 S1, ADR 0034 v0.29 addendum; reshaped for #252):
+	// when true the driver is the shared coast of a standing mutual
+	// rendezvous intent. T is the CURRENT waypoint's τ — held while
+	// coasted at, but re-frozen by driveRendezvousCoast whenever the
+	// waypoint advances (τ reached outside couple range) or the partner's
+	// earlier relayed τ is adopted. The driver releases only at the
+	// proximity handoff (τ reached inside couple range, where Proximity
+	// Co-Warp takes over) or on either player's cancel. Started by
+	// DriveRendezvousWarp only once both players are armed.
 	Rendezvous       bool
 	RendezvousOwner  string // partner fingerprint (retract detection + chip)
 	RendezvousHandle string // partner handle (arrival chip text)
@@ -129,17 +132,29 @@ type SyncArrival struct {
 }
 
 // RendezvousArrival marks a completed Rendezvous Warp (v0.29 S1) — set by
-// resolveAutoWarp when the shared coast reaches τ, consumed (and cleared)
-// by the serve wrapper to fire the arrival chip. Transient, like
-// SyncArrival.
+// driveRendezvousCoast at the proximity handoff (the coast reached a
+// waypoint inside couple range, #252), consumed (and cleared) by the
+// serve wrapper to fire the arrival chip. Transient, like SyncArrival.
 type RendezvousArrival struct {
 	Handle string // the partner whose encounter we arrived at
 	Owner  string // their fingerprint
 }
 
+// RendezvousWaypoint marks a passed waypoint on a standing rendezvous
+// intent (#252) — set by driveRendezvousCoast when the coast reaches the
+// committed τ outside couple range and advances to a newly derived
+// encounter. Consumed (and cleared) by the serve wrapper to fire the
+// waypoint chip: an advance must be visible (a silent one reads as the
+// coast being broken), but it is neither an arrival nor a cancel.
+type RendezvousWaypoint struct {
+	Handle string // the partner the intent is held with
+	Owner  string // their fingerprint
+}
+
 // EngageRendezvousWarp records the viewer's Rendezvous Warp intent toward
 // partner, committed to the encounter sim-time tau — the initiator's
-// authoritative TCA (v0.29 S1, ADR 0034 v0.29 addendum). handle is the
+// authoritative TCA, which becomes the standing intent's FIRST waypoint
+// (#252) (v0.29 S1, ADR 0034 v0.29 addendum). handle is the
 // partner's display name, captured here so chips and the HUD never have
 // to resolve a fingerprint through a possibly-stale roster. It does NOT
 // start the shared coast: DriveRendezvousWarp starts it only once the
@@ -214,14 +229,17 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 	}
 }
 
-// DriveRendezvousWarp starts, holds, or cancels the shared coast to the
-// committed encounter from this tick's mutual-arm state (v0.29 S1).
-// Called each tick after the co-warp peers are built. The coast starts
-// only once BOTH players are armed toward each other in the same Subspace
-// (no solo drift); a genuine retract or disconnect mid-coast cancels —
-// either side's cancel releases both. Arrival is handled in
-// resolveAutoWarp (it clears the arm), so an armless world with the coast
-// still flagged just releases it here defensively.
+// DriveRendezvousWarp starts, holds, advances, or cancels the shared
+// coast of the standing rendezvous intent from this tick's mutual-arm
+// state (v0.29 S1, reshaped for #252). Called each tick after the
+// co-warp peers are built. The coast starts only once BOTH players are
+// armed toward each other in the same Subspace (no solo drift); a
+// genuine retract or disconnect mid-coast cancels — either side's cancel
+// releases both. Reaching the committed τ is resolved HERE, not in
+// resolveAutoWarp, because deciding between the proximity handoff and a
+// waypoint advance needs this tick's peer set (craft ranges + relayed
+// τs), which the sim tick path doesn't carry. An armless world with the
+// coast still flagged just releases it here defensively.
 func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 	w.driveRendezvousCoast(peers)
 	// One shared tail (v0.29 review): the degrade recompute reflects this
@@ -272,6 +290,35 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 			break
 		}
 	}
+	// τ authority across a waypoint advance (#252): both sides re-derive
+	// the next waypoint independently at their own τ-crossing, so their
+	// new τs will disagree (different advisories, different relayed craft
+	// states). Deterministic rule, no negotiation loop: the EARLIER future
+	// τ wins (min-τ) — min is commutative and idempotent, so both sides
+	// converge on the same waypoint within one relay hop, leaning on the
+	// re-freeze below to keep the driver, the arm, and the wire agreeing.
+	// The future-only guard ignores the partner's still-relayed PREVIOUS τ
+	// (now in the past) in the ticks right after an advance; it also lets
+	// a side whose own derivation failed (stale past τ, coasting at the 1×
+	// floor) adopt the partner's fresh waypoint as a rescue. Residual skew
+	// while converging is absorbed by the same-subspace tolerance and the
+	// hold. Documented trade-off: a deliberate re-Engage to a LATER τ
+	// mid-coast cannot win against the partner's earlier relayed τ — with
+	// the arm a standing intent, a waypoint is sequencing, not commitment,
+	// and the earlier encounter is always an acceptable next waypoint.
+	if partner != nil && w.rendezvousWarpEngaged() &&
+		partner.RendezvousTau.After(w.Clock.SimTime) &&
+		(partner.RendezvousTau.Before(arm.Tau) || !arm.Tau.After(w.Clock.SimTime)) {
+		arm.Tau, arm.CommittedCA = partner.RendezvousTau, partner.RendezvousCA
+		arm.degradeBaseSet = false // a new waypoint means a new baseline (#251 interaction)
+		w.AutoWarp.T = arm.Tau
+	}
+	// τ reached (#252): the arm is a standing mutual intent — the
+	// committed encounter is a waypoint, not the end.
+	if w.rendezvousWarpEngaged() && !w.Clock.SimTime.Before(arm.Tau) {
+		w.resolveRendezvousWaypoint(arm, partner, peers)
+		return
+	}
 	switch {
 	case partner != nil && !w.rendezvousWarpEngaged():
 		// Don't clobber an engaged Sync or node-chase (v0.29 review): the
@@ -295,10 +342,11 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 		}
 		w.Clock.Paused = false
 	case partner == nil && w.rendezvousWarpEngaged():
-		// Arrival window (v0.29 review): near τ the partner's arm clearing
-		// is their own ARRIVAL, not a retract — Δt inside the subspace
-		// tolerance means the laggard crosses τ within that window. Finish
-		// the coast; resolveAutoWarp fires the arrival normally.
+		// Arrival window (v0.29 review, re-read for #252): near τ the
+		// partner's arm clearing is their own proximity handoff, not a
+		// retract — Δt inside the subspace tolerance means the laggard
+		// crosses τ within that window. Finish the coast; the waypoint
+		// resolution above then decides handoff-vs-advance at τ.
 		if w.AutoWarp.T.Sub(w.Clock.SimTime).Seconds() <= coWarpSubspaceToleranceSec {
 			return
 		}
@@ -316,6 +364,70 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 			w.RendezvousHold = true
 		}
 	}
+}
+
+// resolveRendezvousWaypoint decides what reaching the committed τ means
+// for the standing intent (#252):
+//   - inside the proximity couple gate → the intent has done its job:
+//     drop to 1×, chip the arrival, release arm + driver. Proximity
+//     Co-Warp continues the SAME coupled state (the wasCoupled hysteresis
+//     in ComputeCoWarp carries it) — no drop-and-recouple tick;
+//   - outside, mutual arm intact → advance: re-derive the next encounter,
+//     re-freeze the driver on it, re-base the degrade baseline, and
+//     record the advance for the waypoint chip;
+//   - outside, mutual arm gone → the partner cancelled at the waypoint
+//     (or handed off on a range measurement we don't share): there is no
+//     standing intent left to advance, so release both, consistent with
+//     the mid-coast retract rule.
+//
+// The handoff check deliberately runs only AT a waypoint, not every
+// coasting tick: a transient pass through 10 km at warp mid-coast is a
+// crossing, not the rendezvous being complete, and must not strand the
+// pair at 1× short of their encounter. At τ the approach ramp has already
+// glided the rate to the 1× floor, which is exactly the state Proximity
+// Co-Warp expects to inherit.
+func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPeer, peers []CoWarpPeer) {
+	anchor := w.ActiveCraft()
+	if anchor != nil && !anchor.Landed && !anchor.Crashed {
+		// Partner matched by identity alone — at the handoff the partner's
+		// own arm may already be cleared (their side resolved first), so
+		// ArmedTowardViewer is deliberately not required here.
+		for i := range peers {
+			if peers[i].Owner != arm.TargetOwner {
+				continue
+			}
+			if rng, vrel, ok := closestApproach(anchor, peers[i].Crafts); ok &&
+				rng <= coWarpCoupleRangeM && vrel <= coWarpCoupleSpeedMs {
+				w.Clock.WarpIdx = 0
+				w.LastRendezvousArrival = &RendezvousArrival{
+					Handle: w.AutoWarp.RendezvousHandle, Owner: w.AutoWarp.RendezvousOwner,
+				}
+				w.RendezvousArm = nil
+				w.DisengageAutoWarp()
+				return
+			}
+			break
+		}
+	}
+	if partner == nil {
+		w.DisengageRendezvousWarp()
+		return
+	}
+	if tau, ca, ok := w.rendezvousNextWaypoint(partner); ok {
+		arm.Tau, arm.CommittedCA = tau, ca
+		arm.degradeBaseSet = false // per-waypoint re-baseline (#251 interaction)
+		w.AutoWarp.T = tau
+		w.LastRendezvousWaypoint = &RendezvousWaypoint{
+			Handle: w.AutoWarp.RendezvousHandle, Owner: w.AutoWarp.RendezvousOwner,
+		}
+		return
+	}
+	// Derivation came up empty this tick (partner craft missing from the
+	// report, or no approach inside the horizon). NOT a cancel — the
+	// intent ends only on explicit cancel or the proximity handoff. Keep
+	// the passed τ: clampedWarp floors a past-τ rendezvous coast at 1×,
+	// and we retry every tick; the partner's relayed τ can also rescue us
+	// via the min-τ adoption above.
 }
 
 // EngageSyncWarp aims Auto-Warp at a fixed sim-time — Sync to another
@@ -402,16 +514,14 @@ func (w *World) resolveAutoWarp() {
 		}
 		return
 	}
-	// Rendezvous mode (v0.29 S1): fixed encounter τ, held (never re-frozen
-	// like a Sync leader). At τ, hand off to Proximity Co-Warp — drop to
-	// 1×, clear the arm, and record the arrival for the S2 chip.
+	// Rendezvous mode (v0.29 S1, reshaped for #252): the arm is a standing
+	// mutual intent and T is only the CURRENT waypoint, so reaching it is
+	// NOT resolved here — deciding between the proximity handoff and a
+	// waypoint advance needs the peer set, which this sim-tick path never
+	// sees. driveRendezvousCoast resolves it on the serve pass of the same
+	// tick; until then clampedWarp floors a past-T rendezvous coast at 1×
+	// so nothing races ahead of an unresolved waypoint.
 	if w.AutoWarp.Rendezvous {
-		if !w.Clock.SimTime.Before(w.AutoWarp.T) {
-			w.Clock.WarpIdx = 0
-			w.LastRendezvousArrival = &RendezvousArrival{Handle: w.AutoWarp.RendezvousHandle, Owner: w.AutoWarp.RendezvousOwner}
-			w.RendezvousArm = nil
-			w.DisengageAutoWarp()
-		}
 		return
 	}
 	n, ok := w.nodeByID(w.AutoWarp.CraftID, w.AutoWarp.NodeID)

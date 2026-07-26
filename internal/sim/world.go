@@ -210,12 +210,14 @@ type World struct {
 	CoWarp CoWarpState
 
 	// RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29
-	// S1, ADR 0034 v0.29 addendum): the partner Engaged toward and the
-	// committed encounter sim-time. Set by EngageRendezvousWarp, read by
-	// ComputeCoWarp for the mutual-arm couple trigger and by the serve
-	// layer to relay the intent. Transient like CoWarp/AutoWarp — never
-	// persisted, cleared on cancel/arrival/partner-disconnect; nil in
-	// single-player.
+	// S1, ADR 0034 v0.29 addendum; a standing mutual intent since #252):
+	// the partner Engaged toward and the CURRENT waypoint's encounter
+	// sim-time — it survives reaching τ, which only advances the waypoint.
+	// Set by EngageRendezvousWarp, read by ComputeCoWarp for the
+	// mutual-arm couple trigger and by the serve layer to relay the
+	// intent. Transient like CoWarp/AutoWarp — never persisted, cleared on
+	// cancel, on the proximity handoff at couple range, and on partner
+	// disconnect; nil in single-player.
 	RendezvousArm *RendezvousArm
 
 	// RendezvousInvite is the incoming half of the mutual arm (v0.29 S2):
@@ -268,10 +270,17 @@ type World struct {
 	// arrival chips. Transient, like LastDockEvent.
 	LastSyncArrival *SyncArrival
 
-	// LastRendezvousArrival is set when a Rendezvous Warp coast reaches the
-	// committed encounter τ (v0.29 S1) and cleared by the serve wrapper
+	// LastRendezvousArrival is set when a Rendezvous Warp coast reaches a
+	// waypoint inside proximity couple range — the handoff that ends the
+	// standing intent (v0.29 S1, #252) — and cleared by the serve wrapper
 	// after firing the arrival chip. Transient, like LastSyncArrival.
 	LastRendezvousArrival *RendezvousArrival
+
+	// LastRendezvousWaypoint is set when the coast reaches a waypoint
+	// OUTSIDE couple range and advances to a newly derived encounter
+	// (#252) — the intent continues. Consumed by the serve wrapper for
+	// the waypoint chip. Transient, like LastRendezvousArrival.
+	LastRendezvousWaypoint *RendezvousWaypoint
 
 	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
 	// ADR 0027): which unmanned probes currently reach a ground station.
@@ -1192,6 +1201,16 @@ func (w *World) clampedWarp() float64 {
 			if selected > maxApproachWarp {
 				selected = maxApproachWarp
 			}
+		} else if w.AutoWarp.Rendezvous && selected > 1 {
+			// #252: a rendezvous coast survives its waypoint (standing
+			// intent), so T can sit at/behind SimTime for the tick(s)
+			// between the sim tick crossing it and the serve pass
+			// resolving it (handoff or advance) — and for as long as a
+			// waypoint re-derivation keeps coming up empty. Without a
+			// floor the approach ramp above no longer applies and the
+			// max-seed would fly the pair past an unresolved waypoint at
+			// the step cap; hold 1× until the waypoint resolves.
+			selected = 1
 		}
 	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()

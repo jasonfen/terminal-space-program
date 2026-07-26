@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/relay"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -122,6 +123,81 @@ func TestRendezvousCancelChipOnRetract(t *testing.T) {
 	}
 	if !cancelled {
 		t.Errorf("no cancelled chip after the retract: %+v", w.SessionEvents)
+	}
+}
+
+// Reaching a waypoint outside couple range through the reporting model
+// (#252): the arm survives, the waypoint advances, and the wrapper
+// consumes the advance slate into the waypoint chip — never a silent
+// advance, never an arrival/cancel chip.
+func TestRendezvousWaypointChip(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+
+	hostApp, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	var m tea.Model = srv.HostModel(hostApp)
+	m = tick(m)
+
+	w := hostApp.World()
+	tau := w.Clock.SimTime.Add(2 * time.Minute)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 5.4e6)
+	// gern sits ~5,400 km ahead along-track on a slightly longer period —
+	// far outside the couple gate at τ, but with a FUTURE closest approach
+	// inside the commit horizon so the next waypoint can be derived (a
+	// plain radial offset has its closest approach at t=0).
+	hc := w.ActiveCraft()
+	ahead, ok := physics.KeplerStep(
+		physics.StateVector{R: hc.State.R, V: hc.State.V, M: 1},
+		hc.Primary.GravitationalParameter(), 735)
+	if !ok {
+		t.Fatal("kepler step failed placing gern's craft")
+	}
+	far := gernArmedReport(w, sessiondir.HostFingerprint, tau)
+	far.Crafts[0].R, far.Crafts[0].V = ahead.R, ahead.V.Scale(1.002)
+	srv.relay.Report(far)
+	m, _ = m.Update(sim.TickMsg(time.Now()))
+	if !w.RendezvousWarpEngaged() {
+		t.Fatal("mutual arm did not start the coast")
+	}
+
+	// Cross τ far apart; keep the partner's report in the same subspace.
+	w.Clock.SimTime = tau
+	far2 := gernArmedReport(w, sessiondir.HostFingerprint, tau)
+	far2.Crafts[0].R, far2.Crafts[0].V = ahead.R, ahead.V.Scale(1.002)
+	far2.SubspaceTime = tau
+	srv.relay.Report(far2)
+	m, _ = m.Update(sim.TickMsg(time.Now()))
+	_ = m
+
+	if w.RendezvousArm == nil || !w.RendezvousWarpEngaged() {
+		t.Fatalf("standing intent did not survive τ outside couple range: arm=%+v autowarp=%+v",
+			w.RendezvousArm, w.AutoWarp)
+	}
+	if !w.RendezvousArm.Tau.After(tau) {
+		t.Errorf("waypoint did not advance: τ=%v (committed %v)", w.RendezvousArm.Tau, tau)
+	}
+	if w.LastRendezvousWaypoint != nil {
+		t.Error("waypoint slate not consumed by the wrapper")
+	}
+	var waypoint, arrivedOrCancelled bool
+	for _, e := range w.SessionEvents {
+		switch e.Kind {
+		case sim.SessionEventRendezvousWaypoint:
+			if e.Handle == "gern" {
+				waypoint = true
+			}
+		case sim.SessionEventRendezvousArrived, sim.SessionEventRendezvousCancelled:
+			arrivedOrCancelled = true
+		}
+	}
+	if !waypoint {
+		t.Errorf("no waypoint chip after the advance: %+v", w.SessionEvents)
+	}
+	if arrivedOrCancelled {
+		t.Errorf("waypoint advance mis-chipped as arrival/cancel: %+v", w.SessionEvents)
 	}
 }
 

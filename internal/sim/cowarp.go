@@ -123,15 +123,22 @@ type CoWarpPeer struct {
 }
 
 // RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29 S1,
-// ADR 0034 v0.29 addendum): the partner they have Engaged toward and the
-// committed encounter sim-time (the initiator's authoritative Time of
-// Closest Approach). Transient like AutoWarp/CoWarp — never persisted,
-// cleared on cancel, on arrival at Tau, and on partner disconnect.
+// ADR 0034 v0.29 addendum): the partner they have Engaged toward, plus the
+// CURRENT waypoint — encounter sim-time and predicted approach. Since #252
+// the arm is a STANDING mutual intent ("we are rendezvousing"), not a
+// commitment to one encounter: reaching Tau outside couple range advances
+// the waypoint (Tau/CommittedCA are re-derived and the coast continues)
+// rather than clearing the arm, so the range-free coupling and rate-lock
+// span the whole multi-maneuver approach. The arm ends exactly two ways:
+// an explicit cancel by either player, or the proximity handoff when a
+// waypoint arrives inside couple range and Proximity Co-Warp takes over.
+// Transient like AutoWarp/CoWarp — never persisted; also cleared on
+// partner disconnect.
 type RendezvousArm struct {
 	TargetOwner string    // fingerprint of the partner Engaged toward
 	Handle      string    // partner display name, captured at Engage (chips/HUD never fall back to a raw fingerprint)
-	Tau         time.Time // committed absolute encounter sim-time
-	CommittedCA float64   // m — the predicted post-plan approach at Tau when Engaged (HUD "committed" row)
+	Tau         time.Time // the current waypoint's absolute encounter sim-time
+	CommittedCA float64   // m — the predicted approach at Tau, re-derived per waypoint (HUD "committed" row)
 
 	// degradeBaseCA is the hold-τ warning baseline: the first approach
 	// actually measured once the shared coast engages (v0.29 review).
@@ -140,6 +147,9 @@ type RendezvousArm struct {
 	// ballistic course, which would flag "degraded" from the first tick
 	// with nothing drifted. Warning on drift past the coast-start
 	// measure keeps the semantics "the encounter got worse mid-coast".
+	// Per-waypoint: degradeBaseSet is reset whenever the waypoint
+	// advances (#252), or every advance would instantly read as a
+	// degraded encounter measured against the previous waypoint.
 	degradeBaseCA  float64
 	degradeBaseSet bool
 }
@@ -244,9 +254,14 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 				// Rendezvous trigger (v0.29 S1): both players Engaged toward
 				// each other and share a Subspace — couple *before* the
 				// proximity gate so they can coast to the encounter rate-
-				// locked. On arrival the arm clears; the same coupled state
-				// then continues on the proximity branch below (wasCoupled
-				// carries the hysteresis memory) — no drop-and-recouple.
+				// locked. The arm is a standing intent (#252): it persists
+				// across waypoint advances, so this branch stays the
+				// coupling source for the whole multi-maneuver approach. It
+				// clears only at the proximity handoff (a waypoint reached
+				// inside couple range) or on cancel; at the handoff the same
+				// coupled state continues on the proximity branch below
+				// (wasCoupled carries the hysteresis memory) — no
+				// drop-and-recouple.
 				coupledNow = true
 				// #248: while the shared coast is ENGAGED, this partner's
 				// reported EffWarp must NOT feed the min. The report is their

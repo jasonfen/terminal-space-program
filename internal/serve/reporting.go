@@ -211,10 +211,12 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // emitRendezvousEvents derives the Rendezvous Warp session moments from
 // the World slate's tick-over-tick transitions (v0.29 S2): a partner's
-// new arm toward the viewer, arrival at τ (consuming the sim's
-// LastRendezvousArrival, mirroring the Sync arrival), a cancel/retract
-// releasing an arm before τ, and the hold-τ degrade flag going up. All
-// local-only chips — each side derives its own from its own World.
+// new arm toward the viewer, the proximity handoff (consuming the sim's
+// LastRendezvousArrival, mirroring the Sync arrival), a waypoint advance
+// on the standing intent (#252, consuming LastRendezvousWaypoint), a
+// cancel/retract releasing the arm, and the hold-τ degrade flag going
+// up. All local-only chips — each side derives its own from its own
+// World.
 func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
 	chip := func(kind sim.SessionEventKind, handle string) {
 		m.localEvents = append(m.localEvents, sim.SessionEvent{Kind: kind, Handle: handle, At: now})
@@ -226,6 +228,14 @@ func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
 		w.LastRendezvousArrival = nil
 		chip(sim.SessionEventRendezvousArrived, arr.Handle)
 		arrived = true
+	}
+	// Waypoint advance (#252): the standing intent passed an encounter
+	// outside couple range and re-aimed at the next one. The arm stays
+	// up, so this can never read as a cancel — but it must be visible
+	// (a silent advance reads as the coast being broken).
+	if wp := w.LastRendezvousWaypoint; wp != nil {
+		w.LastRendezvousWaypoint = nil
+		chip(sim.SessionEventRendezvousWaypoint, wp.Handle)
 	}
 	// Outgoing arm released before τ — own cancel, partner retract, or
 	// partner drop all land here.
@@ -517,6 +527,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	// same tick hosting stops must not fire a spurious chip in the next
 	// hosting session.
 	w.LastRendezvousArrival = nil
+	w.LastRendezvousWaypoint = nil
 	w.LastSyncArrival = nil
 	m.rzPartnerOwner, m.rzPartnerHandle = "", ""
 	m.rzInviteFrom, m.rzInviteHandle = "", ""
