@@ -153,6 +153,69 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	return w.Clock.SimTime.Add(time.Duration(tCA * float64(time.Second))), distCA, true
 }
 
+// rendezvousWaypointMinLead is the minimum forward distance a newly
+// derived waypoint must have from SimTime (#252). Guards the advance loop
+// against a closest-approach search whose grid minimum sits essentially
+// at "now" (a pair at their CA and separating): re-committing to a τ a
+// tick away would advance — and chip — every tick. Below the lead the
+// derivation reports not-found and the coast idles at the 1× floor
+// instead.
+const rendezvousWaypointMinLead = 5 * time.Second
+
+// rendezvousNextWaypoint derives the standing intent's next waypoint
+// after the previous one passed (#252). Two paths, mirroring the Engage
+// commit:
+//   - the target slot still holds the armed partner's ghost → reuse
+//     RendezvousCommit verbatim, so a planted next nudge's post-burn
+//     encounter is honoured exactly like the first one was;
+//   - otherwise (player retargeted mid-coast, or the ghost slate is
+//     momentarily stale) → target-slot-independent fallback: the
+//     current-course closest approach against the partner's same-primary
+//     craft from this tick's peer set (min over crafts, like
+//     rendezvousCAAtTau — a deployed probe must not masquerade as the
+//     encounter).
+//
+// A passive-flyby waypoint (no useful nudge, encounter is whatever the
+// current course gives) is a legitimate result, not a failure. ok=false
+// only when no future approach can be found at all this tick.
+func (w *World) rendezvousNextWaypoint(partner *CoWarpPeer) (tau time.Time, ca float64, ok bool) {
+	floor := w.Clock.SimTime.Add(rendezvousWaypointMinLead)
+	if w.Target.Kind == TargetGhost && w.Target.GhostOwner == partner.Owner {
+		if t, c, cok := w.RendezvousCommit(); cok && t.After(floor) {
+			return t, c, true
+		}
+	}
+	active := w.ActiveCraft()
+	if active == nil || active.Landed || active.Crashed {
+		return time.Time{}, 0, false
+	}
+	mu := active.Primary.GravitationalParameter()
+	if mu <= 0 {
+		return time.Time{}, 0, false
+	}
+	best := math.Inf(1)
+	for _, c := range partner.Crafts {
+		if c.Primary != active.Primary.ID {
+			continue
+		}
+		tCA, distCA, _, err := planner.NextClosestApproach(
+			orbital.Vec3State{R: active.State.R, V: active.State.V},
+			orbital.Vec3State{R: c.R, V: c.V},
+			active.Primary, mu, rendezvousCommitHorizonSec)
+		if err != nil || tCA <= 0 {
+			continue
+		}
+		at := w.Clock.SimTime.Add(time.Duration(tCA * float64(time.Second)))
+		if !at.After(floor) {
+			continue
+		}
+		if distCA < best {
+			best, tau, ca, ok = distCA, at, distCA, true
+		}
+	}
+	return tau, ca, ok
+}
+
 // rendezvousTargetPrimary returns the SOI primary the current target
 // orbits, for both a local craft target and a remote ghost (v0.28 S4).
 // ok=false when no relative target is set or the ref is stale.

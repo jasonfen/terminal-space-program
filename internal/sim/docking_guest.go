@@ -284,7 +284,10 @@ type DockGuestLink struct {
 // resulting MinWarp is the lesser of any range-coupled peer and the owner's
 // warp, so the guest can always select lower (slam 1× and burn) but can't
 // out-warp the owner. A non-positive ownerEffWarp (paused owner) imposes no
-// coupling, matching ComputeCoWarp's paused-peer handling.
+// coupling, matching ComputeCoWarp's paused-peer handling. A coupled state
+// carrying MinWarp 0 (#248: an engaged rendezvous coast exempts its partner
+// from min-wins) still adopts the owner's warp — the coast exemption is the
+// partner's, never the stack owner's, so the guest stays clamped.
 func (s CoWarpState) WithDockCoupling(ownerHandle string, ownerEffWarp float64) CoWarpState {
 	if ownerEffWarp <= 0 {
 		return s

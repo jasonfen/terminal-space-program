@@ -1659,19 +1659,27 @@ _Avoid_: Warp lock (it doesn't pin to 1×), warp vote.
 
 **Rendezvous Warp**:
 The **mutual-consent** trigger of Co-Warp: it couples two *same-Subspace*
-players *before* the proximity gate so they can fast-forward the coast
-to an encounter together instead of desyncing on independent warp. Each
+players *before* the proximity gate so they can fast-forward a whole
+rendezvous together instead of desyncing on independent warp. Each
 player **Engages** it toward the other — a Session-screen row action to
 initiate, a main-screen key to join a pending one; there is no separate
 accept verb, the responder Engages the same Rendezvous Warp. Once both
-have Engaged, their Subspaces rate-lock (min-wins) and Auto-Warp to the
-committed **Time of Closest Approach**, arriving already Co-Warped with
-Δt≈0 — the coupling then continues seamlessly as **Proximity Co-Warp**
-without a drop-and-recouple. The initiator's TCA is authoritative
-(carried in the request). The committed encounter is *held* through the
-coast: a degrading encounter warns but never re-targets, and either
-player may cancel at any time (both release at the same synced sim-time).
-Prerequisite: same Subspace — a diverged pair **Syncs** first.
+have Engaged, the arm is a **standing mutual intent** — "we are
+rendezvousing", not a commitment to one encounter. The pair's Subspaces
+rate-lock and Auto-Warp coasts to the committed **Time of Closest
+Approach** (the initiator's TCA, carried in the request, is the first
+one), but reaching it is a *waypoint*, not the end: outside proximity
+couple range the next encounter is re-derived — a passive flyby is a
+legitimate waypoint — and the coast continues, the earlier of the two
+sides' re-derived τs winning so both stay aimed at the same waypoint.
+Every maneuver of the approach sequence is thus flown rate-locked, with
+no Sync between maneuvers. Each waypoint is *held* while coasted at: a
+degrading encounter warns but never re-targets mid-coast. The intent
+ends exactly two ways — either player cancels (both release at the same
+synced sim-time), or a waypoint arrives inside the proximity gate, where
+**Proximity Co-Warp** takes over without a drop-and-recouple and the arm
+is released. Prerequisite: same Subspace — a diverged pair **Syncs**
+first.
 _Avoid_: Rendezvous request / handshake (there is no offer/accept step),
 Co-Sync (conflates with **Sync**), Warp lock.
 

@@ -186,6 +186,14 @@ func TestWithDockCouplingMinWins(t *testing.T) {
 	if got.Coupled {
 		t.Error("paused owner (0×) forced a coupling")
 	}
+	// Coupled-with-no-min-contribution (#248: an engaged rendezvous coast
+	// exempts its partner from min-wins, leaving Coupled=true, MinWarp=0):
+	// the owner's warp must still land as the clamp — a guest cannot
+	// out-warp the stack owner just because their coast carries no min.
+	got = CoWarpState{Coupled: true, MinWarp: 0, Partners: []string{"ada"}}.WithDockCoupling("gern", 8)
+	if !got.Coupled || got.MinWarp != 8 {
+		t.Errorf("coupled+0 fold = %+v, want coupled@8 (owner clamp survives the coast exemption)", got)
+	}
 }
 
 // TestDockCouplingClampsWorldWarp: with the fold written onto World.CoWarp,

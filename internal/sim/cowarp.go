@@ -151,6 +151,13 @@ type CoWarpPeer struct {
 	// v0.29 addendum). Combined with the viewer's own RendezvousArm
 	// targeting this peer, the two are *mutually* armed and couple before
 	// the proximity gate — the second Co-Warp trigger.
+	//
+	// "Live" means a live SESSION, not merely a live report (#252 review):
+	// the adapter suppresses this flag (and RendezvousTau/CA) for an owner
+	// with no live session, so a disconnected-for-good partner's frozen
+	// report reads as a retract here rather than an immortal arm. A
+	// reprieved-away session still counts as live — its silence is held
+	// for, never cancelled.
 	ArmedTowardViewer bool
 
 	// RendezvousTau is the peer's committed encounter sim-time when
@@ -166,15 +173,34 @@ type CoWarpPeer struct {
 }
 
 // RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29 S1,
-// ADR 0034 v0.29 addendum): the partner they have Engaged toward and the
-// committed encounter sim-time (the initiator's authoritative Time of
-// Closest Approach). Transient like AutoWarp/CoWarp — never persisted,
-// cleared on cancel, on arrival at Tau, and on partner disconnect.
+// ADR 0034 v0.29 addendum): the partner they have Engaged toward, plus the
+// CURRENT waypoint — encounter sim-time and predicted approach. Since #252
+// the arm is a STANDING mutual intent ("we are rendezvousing"), not a
+// commitment to one encounter: reaching Tau outside couple range advances
+// the waypoint (Tau/CommittedCA are re-derived and the coast continues)
+// rather than clearing the arm, so the range-free coupling and rate-lock
+// span the whole multi-maneuver approach. The arm ends exactly two ways
+// by intent: an explicit cancel by either player, or the proximity
+// handoff when a waypoint arrives inside couple range and Proximity
+// Co-Warp takes over.
+//
+// Lifetime requires a live partner SESSION (#252 review, finding 1).
+// With the arm unbounded in time, "the partner is still in this" has to
+// mean their session exists — attended or reprieved-away — not that a
+// report of theirs exists: the relay store never scrubs reports, so a
+// partner who disconnects for good leaves a frozen report whose intent
+// bit would otherwise hold this arm (and its 0×-hold or dead-orbit
+// coast) forever. The serve layer enforces it at the peer seam
+// (relay.CoWarpPeersFrom's liveness input): a dead session's relayed arm
+// is suppressed, which the coast reads as a genuine retract — so a
+// partner disconnect releases the arm through the normal cancel path,
+// not through any wire message the departed session never got to send.
+// Transient like AutoWarp/CoWarp — never persisted.
 type RendezvousArm struct {
 	TargetOwner string    // fingerprint of the partner Engaged toward
 	Handle      string    // partner display name, captured at Engage (chips/HUD never fall back to a raw fingerprint)
-	Tau         time.Time // committed absolute encounter sim-time
-	CommittedCA float64   // m — the predicted post-plan approach at Tau when Engaged (HUD "committed" row)
+	Tau         time.Time // the current waypoint's absolute encounter sim-time
+	CommittedCA float64   // m — the predicted approach at Tau, re-derived per waypoint (HUD "committed" row)
 
 	// degradeBaseCA is the hold-τ warning baseline: the most recent
 	// HEALTHY approach measured while the shared coast runs (v0.29
@@ -189,9 +215,24 @@ type RendezvousArm struct {
 	// Degrade recaptures every degradeRebaseAfter while healthy. Warning
 	// on drift past a recent measure keeps the semantics "the encounter
 	// got worse mid-coast".
+	// Per-waypoint: degradeBaseSet is reset whenever the waypoint
+	// advances or a partner's min-τ waypoint is adopted (#252), or every
+	// advance would instantly read as a degraded encounter measured
+	// against the previous waypoint — the next healthy recompute then
+	// re-stamps BOTH degradeBaseCA and degradeBaseAt for the new leg.
 	degradeBaseCA  float64
 	degradeBaseAt  time.Time
 	degradeBaseSet bool
+
+	// peerGoneAt is the sim-time the partner's report first vanished from
+	// the peer set entirely while the coast sat at/after τ (#252 review,
+	// finding 3) — zero while the peer is present. A one-tick dropout at
+	// exactly the crossing tick (all partner craft filtered: landed,
+	// cross-system, degenerate KeplerStep) must not destroy the standing
+	// intent when every other transient gap is held through; the coast
+	// idles until the peer has been absent for more than the tolerance
+	// window's worth of sim-time, then releases as a retract.
+	peerGoneAt time.Time
 }
 
 // rendezvousArmedWith reports whether the viewer has Engaged a Rendezvous
@@ -203,9 +244,13 @@ func (w *World) rendezvousArmedWith(owner string) bool {
 
 // CoWarpState is the transient co-warp slate the reporting layer writes
 // onto the World each tick and clampedWarp reads: whether the anchor is
-// coupled to anyone this tick and, if so, the min Effective warp to clamp
-// to. Never persisted; empty in single-player. Partners is the coupled
-// handles for HUD/debug.
+// coupled to anyone this tick and the min Effective warp to clamp to.
+// MinWarp 0 with Coupled set means coupled-with-no-clamp (#248): every
+// coupled peer is the engaged rendezvous coast's partner, whose stale
+// reported rate is exempt from min-wins — clampedWarp guards on
+// MinWarp > 0, so both sides derive the coast rate independently instead
+// of deadlocking on each other's report. Never persisted; empty in
+// single-player. Partners is the coupled handles for HUD/debug.
 type CoWarpState struct {
 	Coupled  bool
 	MinWarp  float64
@@ -242,9 +287,10 @@ func (w *World) CoWarpCoupled() bool { return w.CoWarp.Coupled }
 // the gate wider than one step at any selectable rate, so the clamp
 // always gets a tick in which to act.
 //
-// Armed-but-not-yet-coupled counts too: refreshRendezvousInvite gates the
-// incoming prompt on sameSubspace, so an initiator who races ahead
-// withdraws their own invite before anyone can join it.
+// Armed-but-not-yet-coupled counts too: refreshRendezvousInvite marks
+// the incoming prompt Blocked outside sameSubspace (#250), so an
+// initiator who races ahead turns their own invite non-joinable before
+// anyone can answer it.
 func (w *World) subspaceStepCap() float64 {
 	if !w.CoWarp.Coupled && w.RendezvousArm == nil {
 		return 0
@@ -276,6 +322,7 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 	for _, p := range peers {
 		wasCoupled := prev[p.Owner]
 		coupledNow := false
+		clampExempt := false
 		// A non-positive Effective warp (a paused partner, Warp()==0)
 		// imposes no co-warp constraint — the min would freeze the
 		// viewer, which is not what a buddy tapping pause should do. Such
@@ -289,10 +336,29 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 				// Rendezvous trigger (v0.29 S1): both players Engaged toward
 				// each other and share a Subspace — couple *before* the
 				// proximity gate so they can coast to the encounter rate-
-				// locked. On arrival the arm clears; the same coupled state
-				// then continues on the proximity branch below (wasCoupled
-				// carries the hysteresis memory) — no drop-and-recouple.
+				// locked. The arm is a standing intent (#252): it persists
+				// across waypoint advances, so this branch stays the
+				// coupling source for the whole multi-maneuver approach. It
+				// clears only at the proximity handoff (a waypoint reached
+				// inside couple range) or on cancel; at the handoff the same
+				// coupled state continues on the proximity branch below
+				// (wasCoupled carries the hysteresis memory) — no
+				// drop-and-recouple.
 				coupledNow = true
+				// #248: while the shared coast is ENGAGED, this partner's
+				// reported EffWarp must NOT feed the min. The report is their
+				// own post-clamp rate, always ≥1 tick stale, so min-wins over
+				// it can only ratchet down — two players engaging at 1× pin
+				// each other at 1× forever and the coast runs in real time.
+				// Instead both sides derive the rate independently and
+				// identically from the shared τ + constants: max-seed →
+				// subspaceStepCap → approach ramp (clampedWarp). Per-peer
+				// exemption, not a blanket skip: a third proximity-coupled
+				// peer still contributes its min below. Legible here because
+				// DriveRendezvousWarp runs before ComputeCoWarp each tick.
+				// Armed-but-not-yet-coasting keeps min-wins (nothing seeds
+				// the rate up yet, and the couple must not outrun the gate).
+				clampExempt = w.rendezvousWarpEngaged()
 			default:
 				if rng, vrel, ok := closestApproach(anchor, p.Crafts); ok {
 					coupledNow = coupleDecide(wasCoupled, rng, vrel)
@@ -308,7 +374,7 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 		}
 		if coupledNow {
 			res.State.Partners = append(res.State.Partners, p.Handle)
-			if p.EffWarp < minWarp {
+			if !clampExempt && p.EffWarp < minWarp {
 				minWarp = p.EffWarp
 			}
 		}
@@ -319,9 +385,16 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 	// clamp already dropped it from the min. No handle survives to chip a
 	// release, which is acceptable for this edge (the common decouple —
 	// drifting apart in-system — keeps the peer present, so it chips).
-	if len(res.State.Partners) > 0 && !math.IsInf(minWarp, 1) {
+	//
+	// Coupled-with-no-min-contribution (#248: every coupled peer is the
+	// clamp-exempt coast partner) leaves MinWarp at its zero value —
+	// clampedWarp guards on MinWarp > 0, so 0 naturally means "coupled,
+	// no min-wins clamp" and the coast resolves its own rate.
+	if len(res.State.Partners) > 0 {
 		res.State.Coupled = true
-		res.State.MinWarp = minWarp
+		if !math.IsInf(minWarp, 1) {
+			res.State.MinWarp = minWarp
+		}
 	}
 	return res
 }

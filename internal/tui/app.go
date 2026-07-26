@@ -839,6 +839,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// free key. Forward-only refusal covers a τ that passed
 			// between frames (the invite slate drops it next tick anyway).
 			inv := a.world.RendezvousInvite
+			if inv.Blocked {
+				// #250: a subspace-gapped invite renders join-suppressed;
+				// the key must refuse too — Engage would succeed (τ is
+				// still future) but the coast could never start. Sync is
+				// forward-only, so a viewer who is ahead can't come back:
+				// the advice flips to the initiator Syncing forward.
+				advice := "Sync to their time first"
+				if inv.AheadBy > 0 {
+					advice = "they must Sync to your time"
+				}
+				a.toast(fmt.Sprintf("can't join %s — subspace gap, %s", inv.Handle, advice))
+				return a, nil
+			}
 			if a.world.EngageRendezvousWarp(inv.Owner, inv.Handle, inv.Tau, inv.CA) {
 				a.toast(fmt.Sprintf("rendezvous with %s — coasting to the encounter together", inv.Handle))
 			} else {
@@ -849,10 +862,32 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Manual warp cancels Auto-Warp, then applies (ADR 0016) —
 			// Disengage leaves Selected Warp untouched so the step lands
 			// from the player's own rate.
+			//
+			// Except during an engaged Rendezvous Warp coast (#249):
+			// there the key's intent is "hurry this along", not "abandon
+			// the rendezvous" — the intent asymmetry vs [/], which IS the
+			// deliberate cancel. DisengageAutoWarp must clear the arm on
+			// every cancel path (or DriveRendezvousWarp restarts the
+			// coast next tick), and the retraction travels the wire, so
+			// routing warp keys through it silently tore down the
+			// rendezvous for BOTH players. The coast owns its rate
+			// (#248), leaving nothing for the key to adjust — so refuse,
+			// with a toast pointing at [/]. Plain node-chase / Sync
+			// Auto-Warp keeps cancel-on-warp-key below.
+			if a.world.RendezvousWarpEngaged() {
+				a.toast("rendezvous coast owns the rate — [/] to cancel")
+				return a, nil
+			}
 			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpUp()
 			return a, nil
 		case key.Matches(m, a.keys.WarpDown):
+			// Same refusal as WarpUp during a rendezvous coast — see the
+			// rationale above.
+			if a.world.RendezvousWarpEngaged() {
+				a.toast("rendezvous coast owns the rate — [/] to cancel")
+				return a, nil
+			}
 			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpDown()
 			return a, nil

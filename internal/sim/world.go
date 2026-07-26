@@ -210,12 +210,14 @@ type World struct {
 	CoWarp CoWarpState
 
 	// RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29
-	// S1, ADR 0034 v0.29 addendum): the partner Engaged toward and the
-	// committed encounter sim-time. Set by EngageRendezvousWarp, read by
-	// ComputeCoWarp for the mutual-arm couple trigger and by the serve
-	// layer to relay the intent. Transient like CoWarp/AutoWarp — never
-	// persisted, cleared on cancel/arrival/partner-disconnect; nil in
-	// single-player.
+	// S1, ADR 0034 v0.29 addendum; a standing mutual intent since #252):
+	// the partner Engaged toward and the CURRENT waypoint's encounter
+	// sim-time — it survives reaching τ, which only advances the waypoint.
+	// Set by EngageRendezvousWarp, read by ComputeCoWarp for the
+	// mutual-arm couple trigger and by the serve layer to relay the
+	// intent. Transient like CoWarp/AutoWarp — never persisted, cleared on
+	// cancel, on the proximity handoff at couple range, and on partner
+	// disconnect; nil in single-player.
 	RendezvousArm *RendezvousArm
 
 	// RendezvousInvite is the incoming half of the mutual arm (v0.29 S2):
@@ -223,8 +225,9 @@ type World struct {
 	// Refreshed each tick by DriveRendezvousWarp from the co-warp peer
 	// set; the orbit HUD renders the persistent join prompt from it. Nil
 	// while the viewer holds an outgoing arm (pairwise MVP — respond or
-	// cancel first) and once the committed τ has passed. Transient,
-	// serve-written like CoWarp.
+	// cancel first) and once the committed τ has passed. An invite across
+	// a subspace gap survives with Blocked set (#250) — attributable but
+	// not joinable. Transient, serve-written like CoWarp.
 	RendezvousInvite *RendezvousInvite
 
 	// RendezvousHold freezes the viewer's effective warp while the shared
@@ -244,6 +247,14 @@ type World struct {
 	// went-quiet SessionEvent to know it. Transient, serve-written like
 	// RendezvousHold.
 	RendezvousPartnerAway bool
+
+	// RendezvousWait classifies why an armed Rendezvous Warp has not
+	// started coasting (#250): genuinely waiting on the partner vs a
+	// subspace gap someone warped open (with the signed Δt saying who is
+	// ahead). Set each tick by DriveRendezvousWarp, read by the armed
+	// RENDEZVOUS chip so it stops blaming the partner for a self-made
+	// gap. Transient, serve-written like RendezvousHold.
+	RendezvousWait RendezvousWait
 
 	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
 	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
@@ -279,10 +290,17 @@ type World struct {
 	// arrival chips. Transient, like LastDockEvent.
 	LastSyncArrival *SyncArrival
 
-	// LastRendezvousArrival is set when a Rendezvous Warp coast reaches the
-	// committed encounter τ (v0.29 S1) and cleared by the serve wrapper
+	// LastRendezvousArrival is set when a Rendezvous Warp coast reaches a
+	// waypoint inside proximity couple range — the handoff that ends the
+	// standing intent (v0.29 S1, #252) — and cleared by the serve wrapper
 	// after firing the arrival chip. Transient, like LastSyncArrival.
 	LastRendezvousArrival *RendezvousArrival
+
+	// LastRendezvousWaypoint is set when the coast reaches a waypoint
+	// OUTSIDE couple range and advances to a newly derived encounter
+	// (#252) — the intent continues. Consumed by the serve wrapper for
+	// the waypoint chip. Transient, like LastRendezvousArrival.
+	LastRendezvousWaypoint *RendezvousWaypoint
 
 	// CommGraph is the cached per-tick CommNet connectivity result (v0.23 /
 	// ADR 0027): which unmanned probes currently reach a ground station.
@@ -1128,7 +1146,11 @@ func (w *World) clampedWarp() float64 {
 	// couple/decouple gate + hysteresis live in ComputeCoWarp, here we
 	// only take the min. Placed before the burn/period clamps so those
 	// can only reduce further, and before the degenerate-period early
-	// return so a coupled clamp still applies there.
+	// return so a coupled clamp still applies there. The MinWarp > 0
+	// guard is load-bearing (#248): an engaged rendezvous coast couples
+	// with MinWarp 0 — no min-wins over the partner's stale report —
+	// and resolves its rate from the max-seed above bounded by the
+	// step cap and approach ramp below.
 	if w.CoWarp.Coupled && w.CoWarp.MinWarp > 0 && selected > w.CoWarp.MinWarp {
 		selected = w.CoWarp.MinWarp
 	}
@@ -1199,6 +1221,16 @@ func (w *World) clampedWarp() float64 {
 			if selected > maxApproachWarp {
 				selected = maxApproachWarp
 			}
+		} else if w.AutoWarp.Rendezvous && selected > 1 {
+			// #252: a rendezvous coast survives its waypoint (standing
+			// intent), so T can sit at/behind SimTime for the tick(s)
+			// between the sim tick crossing it and the serve pass
+			// resolving it (handoff or advance) — and for as long as a
+			// waypoint re-derivation keeps coming up empty. Without a
+			// floor the approach ramp above no longer applies and the
+			// max-seed would fly the pair past an unresolved waypoint at
+			// the step cap; hold 1× until the waypoint resolves.
+			selected = 1
 		}
 	}
 	mu := w.ActiveCraft().Primary.GravitationalParameter()

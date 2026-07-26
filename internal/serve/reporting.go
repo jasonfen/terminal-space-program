@@ -211,10 +211,12 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // emitRendezvousEvents derives the Rendezvous Warp session moments from
 // the World slate's tick-over-tick transitions (v0.29 S2): a partner's
-// new arm toward the viewer, arrival at τ (consuming the sim's
-// LastRendezvousArrival, mirroring the Sync arrival), a cancel/retract
-// releasing an arm before τ, and the hold-τ degrade flag going up. All
-// local-only chips — each side derives its own from its own World.
+// new arm toward the viewer, the proximity handoff (consuming the sim's
+// LastRendezvousArrival, mirroring the Sync arrival), a waypoint advance
+// on the standing intent (#252, consuming LastRendezvousWaypoint), a
+// cancel/retract releasing the arm, and the hold-τ degrade flag going
+// up. All local-only chips — each side derives its own from its own
+// World.
 func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
 	chip := func(kind sim.SessionEventKind, handle string) {
 		m.localEvents = append(m.localEvents, sim.SessionEvent{Kind: kind, Handle: handle, At: now})
@@ -226,6 +228,14 @@ func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
 		w.LastRendezvousArrival = nil
 		chip(sim.SessionEventRendezvousArrived, arr.Handle)
 		arrived = true
+	}
+	// Waypoint advance (#252): the standing intent passed an encounter
+	// outside couple range and re-aimed at the next one. The arm stays
+	// up, so this can never read as a cancel — but it must be visible
+	// (a silent advance reads as the coast being broken).
+	if wp := w.LastRendezvousWaypoint; wp != nil {
+		w.LastRendezvousWaypoint = nil
+		chip(sim.SessionEventRendezvousWaypoint, wp.Handle)
 	}
 	// Outgoing arm released before τ — own cancel, partner retract, or
 	// partner drop all land here.
@@ -241,8 +251,15 @@ func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
 	}
 
 	// Incoming invite: chip the arm moment; a retracted-unanswered invite
-	// (initiator cancelled, or τ passed) chips as cancelled.
+	// (initiator cancelled, or τ passed) chips as cancelled. A Blocked
+	// invite (#250 subspace gap) is neither: the "[y] join" moment would
+	// lie while the join is suppressed (the persistent chip carries the
+	// attribution), and its appearance is a gap, not a retract — so the
+	// bookkeeping just resets, and re-convergence chips the arm moment
+	// fresh.
 	switch inv := w.RendezvousInvite; {
+	case inv != nil && inv.Blocked:
+		m.rzInviteFrom, m.rzInviteHandle = "", ""
 	case inv != nil && inv.Owner != m.rzInviteFrom:
 		chip(sim.SessionEventRendezvousArmed, inv.Handle)
 		m.rzInviteFrom, m.rzInviteHandle = inv.Owner, inv.Handle
@@ -296,14 +313,28 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// clamp onto the World for next tick's clampedWarp; emit couple/
 	// release chips on transitions. Same seam as ghosts — reads the
 	// store's reports (which now carry EffWarp), writes transient state.
+	// Session liveness for the adapter's rendezvous-arm gate (#252 review,
+	// finding 1): presence is the serve layer's "has a live session right
+	// now" — marked online at connect/enroll, offline only when the session
+	// unwinds through persistMiddleware. A reprieved-away session's
+	// connection is still up, so it stays online and its arm stays honored
+	// (silence is not retract); a session reaped at the Reprieve ceiling,
+	// or any for-good disconnect, drops out of presence while its final
+	// report sits frozen in the relay store forever — exactly the report
+	// whose arm must NOT keep the survivor's standing intent alive.
+	//
 	// Away rides along per owner (#253): reports say what a peer's world
 	// is doing, only the server knows whether anyone is at its controls,
 	// and the flight view needs that as standing state, not a 6 s chip.
+	live := make(map[string]bool, len(others))
 	away := make(map[string]bool, len(others))
 	for _, r := range others {
+		if m.srv.presence.isOnline(r.Owner) {
+			live[r.Owner] = true
+		}
 		away[r.Owner] = m.srv.isAway(r.Owner)
 	}
-	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, away)
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live, away)
 	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
 	// committed encounter from this tick's mutual-arm state, before the
 	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.
@@ -521,10 +552,12 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	w.RendezvousDegraded, w.RendezvousApproachM = false, 0
 	w.RendezvousHold = false
 	w.RendezvousPartnerAway = false
+	w.RendezvousWait = sim.RendezvousWait{}
 	// Arrival slates too (v0.29 review): a coast or sync arriving on the
 	// same tick hosting stops must not fire a spurious chip in the next
 	// hosting session.
 	w.LastRendezvousArrival = nil
+	w.LastRendezvousWaypoint = nil
 	w.LastSyncArrival = nil
 	m.rzPartnerOwner, m.rzPartnerHandle = "", ""
 	m.rzInviteFrom, m.rzInviteHandle = "", ""

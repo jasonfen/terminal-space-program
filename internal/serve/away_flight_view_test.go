@@ -26,6 +26,11 @@ func TestRendezvousPartnerAwayFollowsSession(t *testing.T) {
 	const gernFP = "SHA256:gern"
 	srv := newOfflineServer(t)
 	enrollDirect(t, srv, gernFP, "gern")
+	// The partner needs a live session for their arm to count at all
+	// (#252 review: a dead session's relayed arm is suppressed at the
+	// peer seam). Presence is the liveness input; the srv.live registry
+	// below separately drives the Away verdict.
+	srv.presence.markOnline(gernFP)
 
 	hostApp, err := tui.New(nil)
 	if err != nil {
@@ -42,7 +47,8 @@ func TestRendezvousPartnerAwayFollowsSession(t *testing.T) {
 	if !w.RendezvousWarpEngaged() {
 		t.Fatal("mutual arm did not start the coast")
 	}
-	// No session registered for gern at all: offline, not away.
+	// No conn in the live registry for gern yet: nothing has gone
+	// silent, so the partner must not read as away.
 	if w.RendezvousPartnerAway {
 		t.Fatal("partner marked away with no live session")
 	}
