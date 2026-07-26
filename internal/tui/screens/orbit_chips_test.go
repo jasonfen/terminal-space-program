@@ -39,6 +39,23 @@ func blankCanvas(cols, rows int) string {
 	return strings.Join(lines, "\n")
 }
 
+// assertChipCellWidthConsistent guards the chip → canvas contract:
+// padChipBlock measures chip lines in terminal cells (lipgloss.Width)
+// while overlayStyledBlock splices them per rune (splitStyledCells).
+// A glyph where the two disagree — any width-2 emoji, e.g. the 💤 the
+// away line originally used (#253) — makes the overlaid canvas row one
+// cell wider than the canvas for every such line. Every line a chip
+// builder emits must measure the same both ways.
+func assertChipCellWidthConsistent(t *testing.T, context string, lines []string) {
+	t.Helper()
+	for i, l := range lines {
+		if mw, sc := lipgloss.Width(l), len(splitStyledCells(l)); mw != sc {
+			t.Errorf("%s line %d: lipgloss.Width=%d cells but splitStyledCells splices %d — width-2 glyph on the chip path? %q",
+				context, i, mw, sc, l)
+		}
+	}
+}
+
 func TestPadChipBlockUniformWidth(t *testing.T) {
 	in := []string{"NODES", "  ▸ #1 prograde 120 m/s", "  imp"}
 	out, w := padChipBlock(in)

@@ -152,6 +152,43 @@ func TestDockGuestChipOwnerAway(t *testing.T) {
 	}
 }
 
+// Regression guard for the 💤 defect (#253 review): the away lines were
+// the first chip content whose glyph measured 2 terminal cells but
+// spliced as 1 rune, overflowing the canvas row on overlay. Run every
+// glyph-bearing chip state through the measure-vs-splice consistency
+// check so the next width-2 glyph can't sneak onto the chip path.
+func TestChipLinesMeasureOneCellPerSplicedRune(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+
+	// Invite prompt (◇).
+	w.RendezvousInvite = &sim.RendezvousInvite{
+		Owner: "SHA256:guest", Handle: "gern", Tau: tau, CA: 900,
+	}
+	assertChipCellWidthConsistent(t, "rendezvous invite chip", v.buildRendezvousChip(w))
+	w.RendezvousInvite = nil
+
+	// Coasting with every standing line lit: hold (⏸), away (z),
+	// degraded (⚠).
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 900)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+	w.RendezvousApproachM = 1200
+	w.RendezvousHold = true
+	w.RendezvousPartnerAway = true
+	w.RendezvousDegraded = true
+	assertChipCellWidthConsistent(t, "rendezvous coasting chip", v.buildRendezvousChip(w))
+
+	// Docked-as-guest away line (z).
+	w.DockGuest = &sim.DockGuestLink{
+		OwnerFP: "SHA256:host", OwnerHandle: "vex", OwnerAway: true,
+	}
+	assertChipCellWidthConsistent(t, "dock guest chip", v.buildDockGuestChip(w))
+}
+
 // The SESSION moments chip renders the four new rendezvous kinds
 // (v0.29 S2) alongside the existing vocabulary.
 func TestSessionEventsChipRendezvousKinds(t *testing.T) {

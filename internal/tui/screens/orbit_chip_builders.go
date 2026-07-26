@@ -244,8 +244,13 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		// like the hold line above — the went-quiet SESSION chip expires in
 		// 6 s while Away lasts hours by design, and this is precisely the
 		// fact a player weighing the encounter needs on screen.
+		//
+		// The "z" glyph must stay width-1: padChipBlock measures chip lines
+		// in terminal cells (lipgloss.Width) but splitStyledCells splices
+		// per rune, so a width-2 emoji (💤) desyncs the two and overflows
+		// the canvas row by one cell for every away line overlaid.
 		if w.RendezvousPartnerAway {
-			lines = append(lines, "  "+v.theme.Warning.Render("💤 "+aw.RendezvousHandle+" is away — their session is still flying"))
+			lines = append(lines, "  "+v.theme.Warning.Render("z "+aw.RendezvousHandle+" is away — their session is still flying"))
 		}
 		if w.RendezvousDegraded {
 			lines = append(lines, "  "+v.theme.Alert.Render("⚠ encounter degraded — partner drifted off the plan"))
@@ -288,7 +293,9 @@ func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
 	}
 	return []string{
 		v.theme.Primary.Render("DOCKED"),
-		"  " + v.theme.Warning.Render("💤 " + dg.OwnerHandle + " is away — their session is still flying"),
+		// "z" not 💤 — chip glyphs must be width-1 (see the away line in
+		// buildRendezvousChip for why).
+		"  " + v.theme.Warning.Render("z " + dg.OwnerHandle + " is away — their session is still flying"),
 	}
 }
 
