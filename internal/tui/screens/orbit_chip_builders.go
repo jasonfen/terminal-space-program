@@ -215,6 +215,11 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 //     join prompt ([y] responds from here, no trip to the Session
 //     screen).
 //
+// Across a subspace gap (#250) the armed and invited states swap their
+// call to action for an attribution: the armed line names who is ahead
+// and points at Sync instead of blaming the partner, and a Blocked
+// invite renders dimmed with [y] suppressed instead of vanishing.
+//
 // Nil when the state machine is idle, which is almost always.
 func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 	now := w.Clock.SimTime
@@ -241,15 +246,37 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		return append(lines, v.theme.Dim.Render("  [/] cancel"))
 	case w.RendezvousArm != nil:
 		arm := w.RendezvousArm
+		status := v.theme.Warning.Render("  armed → " + arm.Handle + " — waiting for them to join")
+		if wt := w.RendezvousWait; wt.Reason == sim.RendezvousWaitSubspaceGap {
+			// #250: "waiting for them to join" would blame the partner for
+			// a gap the viewer (or the partner) warped open — name who is
+			// ahead and the actual fix instead.
+			who := "you are " + compactDuration(wt.AheadBy) + " ahead of " + arm.Handle
+			if wt.AheadBy < 0 {
+				who = arm.Handle + " is " + compactDuration(-wt.AheadBy) + " ahead of you"
+			}
+			status = v.theme.Alert.Render("  cannot couple — " + who + " — Sync to rejoin")
+		}
 		return []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
-			v.theme.Warning.Render("  armed → " + arm.Handle + " — waiting for them to join"),
+			status,
 			chipRow("τ in:", compactDuration(arm.Tau.Sub(now))),
 			chipRow("CA:", formatRangeM(arm.CommittedCA)),
 			v.theme.Dim.Render("  [/] cancel"),
 		}
 	case w.RendezvousInvite != nil:
 		inv := w.RendezvousInvite
+		if inv.Blocked {
+			// #250: the invite is real but unjoinable across the subspace
+			// gap — a dimmed attribution with the join key suppressed, so
+			// the prompt explains itself instead of vanishing.
+			return []string{
+				v.theme.Primary.Render("RENDEZVOUS"),
+				v.theme.Dim.Render("  ◇ " + inv.Handle + " wants to rendezvous — subspace gap, Sync to join"),
+				chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
+				chipRow("CA:", formatRangeM(inv.CA)),
+			}
+		}
 		return []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			v.theme.Warning.Render("  ◇ " + inv.Handle + " wants to rendezvous"),

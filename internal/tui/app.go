@@ -839,6 +839,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// free key. Forward-only refusal covers a τ that passed
 			// between frames (the invite slate drops it next tick anyway).
 			inv := a.world.RendezvousInvite
+			if inv.Blocked {
+				// #250: a subspace-gapped invite renders join-suppressed;
+				// the key must refuse too — Engage would succeed (τ is
+				// still future) but the coast could never start.
+				a.toast(fmt.Sprintf("can't join %s — subspace gap, Sync to their time first", inv.Handle))
+				return a, nil
+			}
 			if a.world.EngageRendezvousWarp(inv.Owner, inv.Handle, inv.Tau, inv.CA) {
 				a.toast(fmt.Sprintf("rendezvous with %s — coasting to the encounter together", inv.Handle))
 			} else {

@@ -255,8 +255,10 @@ func TestRendezvousCAUsesNearestCraft(t *testing.T) {
 	}
 }
 
-// An invite from a peer in a diverged subspace is not surfaced — the
-// [y] prompt must never offer a join that could not couple.
+// An invite from a peer in a diverged subspace is never JOINABLE — the
+// [y] prompt must not offer a join that could not couple. Since #250 it
+// still surfaces, as a Blocked attribution (the silent drop blamed
+// nobody); the join affordance stays suppressed.
 func TestRendezvousInviteRequiresSameSubspace(t *testing.T) {
 	w, primary, st := anchorWorld(t)
 	peer := armPeer(w, primary, st, 50, "gern")
@@ -264,7 +266,7 @@ func TestRendezvousInviteRequiresSameSubspace(t *testing.T) {
 	peer.SubspaceTime = st.Add(-time.Hour) // a real subspace divergence
 
 	w.DriveRendezvousWarp([]CoWarpPeer{peer})
-	if w.RendezvousInvite != nil {
-		t.Errorf("invite surfaced across a subspace divergence: %+v", w.RendezvousInvite)
+	if inv := w.RendezvousInvite; inv == nil || !inv.Blocked {
+		t.Errorf("invite = %+v across a subspace divergence, want surfaced-but-Blocked (#250)", inv)
 	}
 }

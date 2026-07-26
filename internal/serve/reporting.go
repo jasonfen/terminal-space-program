@@ -241,8 +241,15 @@ func (m *reportingModel) emitRendezvousEvents(w *sim.World, now time.Time) {
 	}
 
 	// Incoming invite: chip the arm moment; a retracted-unanswered invite
-	// (initiator cancelled, or τ passed) chips as cancelled.
+	// (initiator cancelled, or τ passed) chips as cancelled. A Blocked
+	// invite (#250 subspace gap) is neither: the "[y] join" moment would
+	// lie while the join is suppressed (the persistent chip carries the
+	// attribution), and its appearance is a gap, not a retract — so the
+	// bookkeeping just resets, and re-convergence chips the arm moment
+	// fresh.
 	switch inv := w.RendezvousInvite; {
+	case inv != nil && inv.Blocked:
+		m.rzInviteFrom, m.rzInviteHandle = "", ""
 	case inv != nil && inv.Owner != m.rzInviteFrom:
 		chip(sim.SessionEventRendezvousArmed, inv.Handle)
 		m.rzInviteFrom, m.rzInviteHandle = inv.Owner, inv.Handle
@@ -513,6 +520,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	w.RendezvousInvite = nil
 	w.RendezvousDegraded, w.RendezvousApproachM = false, 0
 	w.RendezvousHold = false
+	w.RendezvousWait = sim.RendezvousWait{}
 	// Arrival slates too (v0.29 review): a coast or sync arriving on the
 	// same tick hosting stops must not fire a spurious chip in the next
 	// hosting session.

@@ -62,6 +62,58 @@ func TestRendezvousChipArmedWaiting(t *testing.T) {
 	}
 }
 
+// #250: when the armed pair has diverged past the subspace window, the
+// chip must stop blaming the partner ("waiting for them to join") and
+// name the actual condition — who is ahead, and that Sync is the way
+// back.
+func TestRendezvousChipArmedSubspaceGap(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", w.Clock.SimTime.Add(2*time.Hour), 900)
+	w.RendezvousWait = sim.RendezvousWait{
+		Reason: sim.RendezvousWaitSubspaceGap, AheadBy: 2 * time.Minute,
+	}
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	for _, want := range []string{"cannot couple", "you are 2m0s ahead of gern", "Sync to rejoin"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("gap chip missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "waiting for them to join") {
+		t.Errorf("gap chip still blames the partner:\n%s", joined)
+	}
+
+	// The partner ahead instead — the wording flips direction.
+	w.RendezvousWait.AheadBy = -2 * time.Minute
+	joined = strings.Join(v.buildRendezvousChip(w), "\n")
+	if !strings.Contains(joined, "gern is 2m0s ahead of you") {
+		t.Errorf("partner-ahead gap not worded from their side:\n%s", joined)
+	}
+}
+
+// #250 responder side: a blocked (subspace-gapped) invite renders as a
+// dimmed attribution with the [y] join affordance suppressed, instead
+// of vanishing.
+func TestRendezvousChipInviteBlocked(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.RendezvousInvite = &sim.RendezvousInvite{
+		Owner: "SHA256:guest", Handle: "gern",
+		Tau: w.Clock.SimTime.Add(2 * time.Hour), CA: 900,
+		Blocked: true, AheadBy: -3 * time.Minute,
+	}
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	for _, want := range []string{"gern wants to rendezvous", "subspace gap", "Sync to join"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("blocked invite chip missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "[y]") {
+		t.Errorf("blocked invite still offers [y] join:\n%s", joined)
+	}
+}
+
 func TestRendezvousChipCoastingAndDegraded(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := rendezvousChipWorld(t)
