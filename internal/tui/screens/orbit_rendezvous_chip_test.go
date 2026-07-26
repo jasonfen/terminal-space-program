@@ -64,8 +64,9 @@ func TestRendezvousChipArmedWaiting(t *testing.T) {
 
 // #250: when the armed pair has diverged past the subspace window, the
 // chip must stop blaming the partner ("waiting for them to join") and
-// name the actual condition — who is ahead, and that Sync is the way
-// back.
+// name the actual condition — who is ahead, and the direction-correct
+// fix. Sync is forward-only, so a viewer who is ahead cannot Sync back:
+// only the laggard's side may say "Sync to rejoin".
 func TestRendezvousChipArmedSubspaceGap(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := rendezvousChipWorld(t)
@@ -74,27 +75,40 @@ func TestRendezvousChipArmedSubspaceGap(t *testing.T) {
 		Reason: sim.RendezvousWaitSubspaceGap, AheadBy: 2 * time.Minute,
 	}
 
+	// Viewer ahead: Sync (forward-only) can't reach the partner behind —
+	// the partner must come forward.
 	joined := strings.Join(v.buildRendezvousChip(w), "\n")
-	for _, want := range []string{"cannot couple", "you are 2m0s ahead of gern", "Sync to rejoin"} {
+	for _, want := range []string{"cannot couple", "you are 2m0s ahead of gern", "they must Sync to you"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("gap chip missing %q:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "Sync to rejoin") {
+		t.Errorf("viewer-ahead gap tells the viewer to Sync into the past:\n%s", joined)
 	}
 	if strings.Contains(joined, "waiting for them to join") {
 		t.Errorf("gap chip still blames the partner:\n%s", joined)
 	}
 
-	// The partner ahead instead — the wording flips direction.
+	// The partner ahead instead — the wording flips direction and the
+	// viewer is the one who can Sync forward.
 	w.RendezvousWait.AheadBy = -2 * time.Minute
 	joined = strings.Join(v.buildRendezvousChip(w), "\n")
-	if !strings.Contains(joined, "gern is 2m0s ahead of you") {
-		t.Errorf("partner-ahead gap not worded from their side:\n%s", joined)
+	for _, want := range []string{"gern is 2m0s ahead of you", "Sync to rejoin"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("partner-ahead gap chip missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "they must Sync to you") {
+		t.Errorf("partner-ahead gap points the fix at the wrong side:\n%s", joined)
 	}
 }
 
 // #250 responder side: a blocked (subspace-gapped) invite renders as a
 // dimmed attribution with the [y] join affordance suppressed, instead
-// of vanishing.
+// of vanishing. The Sync advice is direction-aware (forward-only): a
+// viewer behind the initiator can Sync to join; a viewer ahead cannot,
+// so the initiator must Sync forward instead.
 func TestRendezvousChipInviteBlocked(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := rendezvousChipWorld(t)
@@ -103,6 +117,8 @@ func TestRendezvousChipInviteBlocked(t *testing.T) {
 		Tau: w.Clock.SimTime.Add(2 * time.Hour), CA: 900,
 		Blocked: true, AheadBy: -3 * time.Minute,
 	}
+
+	// Viewer behind the initiator: Sync forward is the way in.
 	joined := strings.Join(v.buildRendezvousChip(w), "\n")
 	for _, want := range []string{"gern wants to rendezvous", "subspace gap", "Sync to join"} {
 		if !strings.Contains(joined, want) {
@@ -111,6 +127,22 @@ func TestRendezvousChipInviteBlocked(t *testing.T) {
 	}
 	if strings.Contains(joined, "[y]") {
 		t.Errorf("blocked invite still offers [y] join:\n%s", joined)
+	}
+
+	// Viewer ahead of the initiator: Sync into the past is impossible —
+	// the advice flips to the initiator, [y] stays suppressed.
+	w.RendezvousInvite.AheadBy = 3 * time.Minute
+	joined = strings.Join(v.buildRendezvousChip(w), "\n")
+	for _, want := range []string{"gern wants to rendezvous", "subspace gap", "they must Sync to you"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("viewer-ahead blocked invite chip missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "Sync to join") {
+		t.Errorf("viewer-ahead blocked invite tells the viewer to Sync into the past:\n%s", joined)
+	}
+	if strings.Contains(joined, "[y]") {
+		t.Errorf("viewer-ahead blocked invite still offers [y] join:\n%s", joined)
 	}
 }
 

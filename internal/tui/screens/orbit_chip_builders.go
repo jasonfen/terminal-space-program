@@ -250,12 +250,15 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		if wt := w.RendezvousWait; wt.Reason == sim.RendezvousWaitSubspaceGap {
 			// #250: "waiting for them to join" would blame the partner for
 			// a gap the viewer (or the partner) warped open — name who is
-			// ahead and the actual fix instead.
+			// ahead and the actual fix instead. Sync is forward-only, so
+			// the fix depends on direction: the laggard comes forward.
 			who := "you are " + compactDuration(wt.AheadBy) + " ahead of " + arm.Handle
+			fix := "they must Sync to you"
 			if wt.AheadBy < 0 {
 				who = arm.Handle + " is " + compactDuration(-wt.AheadBy) + " ahead of you"
+				fix = "Sync to rejoin"
 			}
-			status = v.theme.Alert.Render("  cannot couple — " + who + " — Sync to rejoin")
+			status = v.theme.Alert.Render("  cannot couple — " + who + " — " + fix)
 		}
 		return []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
@@ -269,10 +272,16 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		if inv.Blocked {
 			// #250: the invite is real but unjoinable across the subspace
 			// gap — a dimmed attribution with the join key suppressed, so
-			// the prompt explains itself instead of vanishing.
+			// the prompt explains itself instead of vanishing. Sync is
+			// forward-only: a viewer who is ahead cannot Sync back, the
+			// initiator has to come forward.
+			gap := "subspace gap, Sync to join"
+			if inv.AheadBy > 0 {
+				gap = "subspace gap, they must Sync to you"
+			}
 			return []string{
 				v.theme.Primary.Render("RENDEZVOUS"),
-				v.theme.Dim.Render("  ◇ " + inv.Handle + " wants to rendezvous — subspace gap, Sync to join"),
+				v.theme.Dim.Render("  ◇ " + inv.Handle + " wants to rendezvous — " + gap),
 				chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 				chipRow("CA:", formatRangeM(inv.CA)),
 			}

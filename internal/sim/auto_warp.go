@@ -189,9 +189,11 @@ type RendezvousInvite struct {
 	// Blocked marks an invite from a subspace-diverged peer (#250): the
 	// intent is live, but the coast could never start across the gap, so
 	// the prompt renders as a non-joinable attribution ([y] suppressed,
-	// Sync named as the way in) instead of silently vanishing. AheadBy is
-	// the signed viewer-minus-initiator subspace offset (positive: the
-	// viewer is ahead). Both zero while joinable.
+	// the direction-correct Sync named as the way in) instead of silently
+	// vanishing. AheadBy is the signed viewer-minus-initiator subspace
+	// offset (positive: the viewer is ahead — Sync is forward-only, so
+	// then the initiator is the one who must Sync). Both zero while
+	// joinable.
 	Blocked bool
 	AheadBy time.Duration
 }

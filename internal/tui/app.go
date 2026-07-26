@@ -842,8 +842,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if inv.Blocked {
 				// #250: a subspace-gapped invite renders join-suppressed;
 				// the key must refuse too — Engage would succeed (τ is
-				// still future) but the coast could never start.
-				a.toast(fmt.Sprintf("can't join %s — subspace gap, Sync to their time first", inv.Handle))
+				// still future) but the coast could never start. Sync is
+				// forward-only, so a viewer who is ahead can't come back:
+				// the advice flips to the initiator Syncing forward.
+				advice := "Sync to their time first"
+				if inv.AheadBy > 0 {
+					advice = "they must Sync to your time"
+				}
+				a.toast(fmt.Sprintf("can't join %s — subspace gap, %s", inv.Handle, advice))
 				return a, nil
 			}
 			if a.world.EngageRendezvousWarp(inv.Owner, inv.Handle, inv.Tau, inv.CA) {
