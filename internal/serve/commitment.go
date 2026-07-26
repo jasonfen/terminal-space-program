@@ -14,11 +14,18 @@ const (
 	// to derive one from — it lasts until somebody undocks.
 	dockReprieveCap = 2 * time.Hour
 
-	// rendezvousReprieveMargin covers the gap between the coast's arithmetic
-	// end and the session actually noticing: arrival lands on the session's
-	// own tick, the report crosses to the store, and the sweeper sees it a
-	// tick later.
-	rendezvousReprieveMargin = 5 * time.Minute
+	// rendezvousTauOvershoot is how far past the committed TCA — in SIM
+	// time — a coast may drift before the Reprieve stops being extended.
+	// It covers arrival landing on the session's own tick and the report
+	// crossing to the store, both of which happen after τ in the session's
+	// own clock.
+	//
+	// Sim time, not wall clock, and the distinction matters because the
+	// obvious reading is wrong. Under warp five sim-minutes is a fraction
+	// of a second of real time, so this is no use as a grace period for
+	// wall-clock lag, and it bounds nothing in wall-clock terms: see
+	// commitment.expiry.
+	rendezvousTauOvershoot = 5 * time.Minute
 
 	// maxUnattendedReprieve is the ceiling on unattended simulation, counted
 	// from the last time the peer spoke. It exists for the pathological
@@ -69,11 +76,22 @@ func (c commitment) expiry(now, lastIO time.Time) time.Time {
 	if c.kind == commitDock {
 		return lastIO.Add(dockReprieveCap)
 	}
-	// The coast is what has to finish, and its worst case is 1× real time:
-	// the sim-time left to the TCA is therefore an upper bound on the wall
-	// time left, and any warp only brings it in sooner. Recomputed every
-	// sweep, so it converges as the unattended session ticks toward τ.
-	coast := now.Add(c.toGo + rendezvousReprieveMargin)
+	// Two bounds, and only one of them is a clock.
+	//
+	// The first releases the Reprieve once the coast can no longer be
+	// ahead of the session: it is `now + toGo + overshoot`, but `now`
+	// cancels against the `now.Before(...)` it is compared with, so what
+	// it actually tests is `toGo > -overshoot` — purely a question about
+	// the session's own sim-time, recomputed each sweep as its clock
+	// advances toward τ. It does not bound wall-clock at all, and an
+	// earlier version of this comment claimed it did.
+	//
+	// The wall-clock bound is the second one, and it is the only one: a
+	// ceiling counted from the last time the peer spoke. Without it a τ
+	// committed weeks of sim-time out on a paused or 1×-pinned coast would
+	// hold the connection open indefinitely, because the sim-time test
+	// above would keep passing.
+	coast := now.Add(c.toGo + rendezvousTauOvershoot)
 	if ceiling := lastIO.Add(maxUnattendedReprieve); coast.After(ceiling) {
 		return ceiling
 	}

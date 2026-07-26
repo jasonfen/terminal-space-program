@@ -1,16 +1,31 @@
 package serve
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// heldMomentCap bounds one player's bank. An away session can bank for
-// hours, and the newest moments are the ones that explain the world the
-// player is opening their lid onto.
-const heldMomentCap = 32
+const (
+	// heldMomentCap bounds one player's bank. An away session can bank for
+	// hours, and the newest moments are the ones that explain the world the
+	// player is opening their lid onto.
+	heldMomentCap = 32
+
+	// maxReplayedMoments bounds what reaches the canvas at once. Every
+	// replayed moment is re-stamped to the same instant, so they render as
+	// one block for the full chip TTL; a whole bank would exceed a normal
+	// terminal's height and bury the orbit view it is meant to explain.
+	maxReplayedMoments = 6
+
+	// minReportedAway is the shortest interval worth announcing. A player
+	// who paused, read for a minute and carried on has technically been
+	// unattended by the frames-drained measure, and "resumed — 0s ran while
+	// you were away" is noise about nothing.
+	minReportedAway = time.Minute
+)
 
 // bank is one player's unattended interval: when it opened, in their own
 // sim-time, and the moments that fell during it.
@@ -96,19 +111,60 @@ func (a *awayMail) drop(fp string) {
 // expired on arrival, which is exactly the failure this slice exists to
 // fix.
 func (m *reportingModel) bankOrReplay(simNow, now time.Time) {
+	// Only the session currently holding this slot may touch the bank.
+	//
+	// A displaced session keeps ticking until its program unwinds, and it
+	// leaves the registry at the *start* of the reclaim — closing its
+	// connection is what unblocks its loop, so it reliably gets ticks in
+	// afterwards. Without this guard it reads as not-away (no registry
+	// entry), takes the replay branch, and drains the bank into a slice
+	// discarded seconds later, leaving the returning player with nothing.
+	// The hazard is not the writer outliving the reader; it is the dying
+	// writer becoming a reader.
+	if _, live := m.srv.live.get(m.owner); !live {
+		return
+	}
 	if m.srv.isAway(m.owner) {
+		// Copied, not moved. isAway keys on frames drained, so a player
+		// sitting on a paused, static screen reads as away while being right
+		// there; moving their moments would take chips off the screen of
+		// someone watching. Banking a copy keeps a misclassification free,
+		// which is what the short away threshold assumes.
 		m.srv.mail.hold(m.owner, simNow, m.localEvents)
-		m.localEvents = nil
 		return
 	}
 	held, since, ok := m.srv.mail.take(m.owner)
 	if !ok {
 		return
 	}
+	// Anything still inside its TTL was on screen a moment ago — the copy
+	// above means a player who never really left would otherwise see their
+	// own moments twice.
+	unseen := held[:0]
+	for _, e := range held {
+		if now.Sub(e.At) > localEventTTL {
+			unseen = append(unseen, e)
+		}
+	}
+	held = unseen
+	// The chip stack is corner-anchored on the canvas and every replayed
+	// moment lands at once: a full bank would bury the orbit view and clip
+	// the other chips. Newest kept, the rest counted.
+	dropped := 0
+	if len(held) > maxReplayedMoments {
+		dropped = len(held) - maxReplayedMoments
+		held = held[len(held)-maxReplayedMoments:]
+	}
+	elapsed := simNow.Sub(since)
+	if len(held) == 0 && elapsed < minReportedAway {
+		return // nothing happened, and no time to speak of: no account owed
+	}
 	// The account comes first, then what it is accounting for.
-	m.localEvents = append(m.localEvents, sim.SessionEvent{
-		Kind: sim.SessionEventResumed, At: now, Elapsed: simNow.Sub(since),
-	})
+	resumed := sim.SessionEvent{Kind: sim.SessionEventResumed, At: now, Elapsed: elapsed}
+	if dropped > 0 {
+		resumed.Detail = fmt.Sprintf("+%d earlier", dropped)
+	}
+	m.localEvents = append(m.localEvents, resumed)
 	for _, e := range held {
 		e.At = now
 		m.localEvents = append(m.localEvents, e)

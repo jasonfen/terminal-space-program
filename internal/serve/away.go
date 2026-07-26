@@ -60,20 +60,6 @@ func (a *awayWatch) clear(fp string) {
 	delete(a.told, fp)
 }
 
-// retain forgets players who no longer hold a session. A session reaped
-// while away is gone for good, and its departure is announced by its own
-// teardown — leaving the record behind would fire a stale "is back" at
-// whoever reconnects on that key next.
-func (a *awayWatch) retain(live map[string]*liveSession) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	for fp := range a.told {
-		if _, ok := live[fp]; !ok {
-			delete(a.told, fp)
-		}
-	}
-}
-
 // noteAway turns this sweep's away states into transitions, and chips the
 // player each one costs something: the partner mid-coast, not the whole
 // roster. An uncommitted player going quiet chips nobody — the reap
@@ -81,9 +67,15 @@ func (a *awayWatch) retain(live map[string]*liveSession) {
 //
 // Runs in the sweeper goroutine beside extendReprieves, on the same
 // snapshots, and touches no *sim.World.
+//
+// Records are never cleaned up from here. A reclaim leaves the
+// fingerprint out of the registry for the whole teardown-and-payload
+// window, so a sweep that dropped absent fingerprints would delete the
+// record the returning session needs and the partner who was told
+// "went quiet" would never hear it closed. Ending sessions clear their
+// own record in persistMiddleware instead.
 func (s *Server) noteAway(now time.Time) {
 	live := s.live.snapshot()
-	defer s.away.retain(live)
 	if len(live) == 0 {
 		return
 	}

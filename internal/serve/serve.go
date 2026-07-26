@@ -110,6 +110,10 @@ type Server struct {
 	// instead of a world whose clock silently jumped (ADR 0036 S6).
 	mail *awayMail
 
+	// admit serialises connections arriving on the same key across the
+	// whole displace-and-register window (ADR 0036 S4 review).
+	admit *admission
+
 	// Reprieve timings, fields rather than constants so tests can drive
 	// the sweeper without real-time waits. idleTimeout is recorded because
 	// the sweeper has to reconstruct the deadline the I/O path would have
@@ -170,7 +174,7 @@ func New(cfg Config) (*Server, error) {
 		presence: newPresence(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
 		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
-		away: newAwayWatch(), mail: newAwayMail(),
+		away: newAwayWatch(), mail: newAwayMail(), admit: newAdmission(),
 	}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
@@ -313,10 +317,23 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	// encounter they committed to. displaceAbsent refuses when anyone
 	// might still be at the controls, and returns only once the displaced
 	// session's payload is safely written.
+	// Serialised per key from here until this connection has registered and
+	// marked itself online: reclaim tears a session down and then waits for
+	// its payload, and two connections racing through that window would
+	// both be admitted into divergent Worlds.
+	defer s.admit.enter(fp)()
+
 	reclaimed := false
 	if s.presence.isOnline(fp) {
-		if !s.displaceAbsent(fp) {
+		switch s.displaceAbsent(fp) {
+		case reclaimRefused:
 			wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
+			return nil, nil
+		case reclaimStalled:
+			// Their old session is gone; telling them to disconnect it would
+			// be a lie, and loading its world now could lose the write still
+			// in flight.
+			wish.Fatalln(sess, "terminal-space-program: your previous session is still shutting down — reconnect in a moment")
 			return nil, nil
 		}
 		reclaimed = true
@@ -464,9 +481,15 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 					s.presence.event(departureKind(ls, s.awayAfter), fp, p.Handle, "")
 				}
 				// This session ended rather than handing over, so its banked
-				// interval ends with it (ADR 0036 S6). A displaced one leaves
-				// the bank for the connection taking its place.
+				// interval ends with it (ADR 0036 S6), and so does any record
+				// that a partner was told it went quiet — there is no return
+				// coming to close that story. A displaced session leaves both
+				// for the connection taking its place, which is why neither is
+				// cleaned up by the sweeper: for the whole reclaim window the
+				// fingerprint holds no registry entry, and a sweep landing
+				// there would drop the record that the "is back" chip needs.
 				s.mail.drop(fp)
+				s.away.clear(fp)
 			}
 		}
 		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)

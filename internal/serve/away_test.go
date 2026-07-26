@@ -229,7 +229,7 @@ func TestDisplacedSessionAnnouncesNeitherLeaveNorJoin(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		close(ls.done)
 	}()
-	if !srv.displaceAbsent(fpA) {
+	if srv.displaceAbsent(fpA) != reclaimTookOver {
 		t.Fatal("displaceAbsent refused an absent session")
 	}
 	if !ls.displaced.Load() {

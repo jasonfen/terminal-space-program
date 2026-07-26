@@ -198,7 +198,7 @@ func TestCommitmentExpiry(t *testing.T) {
 			// time left — any warp only makes it arrive sooner.
 			name: "rendezvous: the coast's worst-case wall time plus a margin",
 			c:    commitment{kind: commitRendezvous, toGo: 90 * time.Minute},
-			want: now.Add(90*time.Minute + rendezvousReprieveMargin),
+			want: now.Add(90*time.Minute + rendezvousTauOvershoot),
 		},
 		{
 			// A TCA committed weeks of sim-time out is normally minutes of
@@ -213,7 +213,7 @@ func TestCommitmentExpiry(t *testing.T) {
 			// session's own tick): let it land, don't extend indefinitely.
 			name: "rendezvous: the TCA already went by",
 			c:    commitment{kind: commitRendezvous, toGo: -5 * time.Minute},
-			want: now.Add(-5*time.Minute + rendezvousReprieveMargin),
+			want: now.Add(-5*time.Minute + rendezvousTauOvershoot),
 		},
 	}
 	for _, tc := range cases {

@@ -103,7 +103,7 @@ func TestDisplaceWaitsForThePayloadWrite(t *testing.T) {
 	srv := newOfflineServer(t)
 	stub, done := registerWithDone(t, srv, fpA, time.Now().Add(-30*time.Minute))
 
-	returned := make(chan bool, 1)
+	returned := make(chan reclaimResult, 1)
 	go func() { returned <- srv.displaceAbsent(fpA) }()
 
 	// It must have torn the old connection down...
@@ -126,8 +126,8 @@ func TestDisplaceWaitsForThePayloadWrite(t *testing.T) {
 	close(done) // the payload has landed
 	select {
 	case ok := <-returned:
-		if !ok {
-			t.Error("displaceAbsent = false after a clean handover, want true")
+		if ok != reclaimTookOver {
+			t.Error("displaceAbsent did not take over after a clean handover")
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("displaceAbsent never returned after the payload landed")
@@ -144,7 +144,7 @@ func TestDisplaceRefusesAnAttendedSession(t *testing.T) {
 	srv := newOfflineServer(t)
 	stub, _ := registerWithDone(t, srv, fpA, time.Now().Add(-time.Second))
 
-	if srv.displaceAbsent(fpA) {
+	if srv.displaceAbsent(fpA) != reclaimRefused {
 		t.Error("displaced a session whose peer spoke a second ago — that is a player at the controls")
 	}
 	if stub.isClosed() {
@@ -161,8 +161,8 @@ func TestDisplaceRefusesAnAttendedSession(t *testing.T) {
 // session — and letting a key in there would fork its world.
 func TestDisplaceRefusesWhenNothingIsRegistered(t *testing.T) {
 	srv := newOfflineServer(t)
-	if srv.displaceAbsent(fpA) {
-		t.Error("displaceAbsent = true with no registered session — it displaced nothing and said it did")
+	if srv.displaceAbsent(fpA) != reclaimRefused {
+		t.Error("displaceAbsent took over with no registered session — it displaced nothing and said it did")
 	}
 }
 
@@ -175,8 +175,8 @@ func TestDisplaceGivesUpIfThePayloadNeverLands(t *testing.T) {
 	registerWithDone(t, srv, fpA, time.Now().Add(-30*time.Minute))
 
 	start := time.Now()
-	if srv.displaceAbsent(fpA) {
-		t.Error("displaceAbsent = true though the displaced session never wrote its payload")
+	if got := srv.displaceAbsent(fpA); got != reclaimStalled {
+		t.Errorf("displaceAbsent = %v, want reclaimStalled — the payload never landed", got)
 	}
 	if elapsed := time.Since(start); elapsed < srv.reclaimWait {
 		t.Errorf("gave up after %v, before the %v it should wait", elapsed, srv.reclaimWait)
@@ -298,4 +298,65 @@ func TestReconnectRefusedWhileAttended(t *testing.T) {
 		t.Error("the attended session was displaced by the second connection")
 	}
 	_ = attended
+}
+
+// Review finding 2. Reclaim reads the registry, tears a session down and
+// then waits up to reclaimWait for its payload. Without a per-key lock
+// two connections on the same key both pass that test and are both
+// admitted — two live sessions loading the same payload into divergent
+// Worlds, which is exactly what the one-session-per-key guard exists to
+// prevent. The wait makes the window orders of magnitude wider than the
+// instantaneous check it replaced.
+func TestReclaimIsSerialisedPerKey(t *testing.T) {
+	srv := newOfflineServer(t)
+	srv.reclaimWait = 2 * time.Second
+	_, done := registerWithDone(t, srv, fpA, time.Now().Add(-30*time.Minute))
+
+	results := make(chan reclaimResult, 2)
+	for range 2 {
+		go func() {
+			defer srv.admit.enter(fpA)()
+			results <- srv.displaceAbsent(fpA)
+		}()
+	}
+	// The first one through closes the handover; the second must find the
+	// slot already gone rather than displacing it a second time.
+	time.Sleep(100 * time.Millisecond)
+	close(done)
+
+	var tookOver int
+	for range 2 {
+		select {
+		case r := <-results:
+			if r == reclaimTookOver {
+				tookOver++
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("a reclaim never returned")
+		}
+	}
+	if tookOver != 1 {
+		t.Errorf("%d connections took the slot over, want exactly 1 — two live sessions would load "+
+			"the same payload into divergent Worlds", tookOver)
+	}
+}
+
+// Review finding 3. A reclaim that gives up has already closed the old
+// session and cannot un-close it. Leaving it flagged as displaced means
+// its teardown announces nothing and keeps its banked interval, so the
+// player is disconnected in silence and their next connect replays an
+// interval the saved payload already reflects.
+func TestStalledReclaimReleasesTheOldSession(t *testing.T) {
+	srv := newOfflineServer(t)
+	srv.reclaimWait = 50 * time.Millisecond
+	registerWithDone(t, srv, fpA, time.Now().Add(-30*time.Minute))
+	ls, _ := srv.live.get(fpA)
+
+	if got := srv.displaceAbsent(fpA); got != reclaimStalled {
+		t.Fatalf("displaceAbsent = %v, want reclaimStalled", got)
+	}
+	if ls.displaced.Load() {
+		t.Error("the old session is still flagged as handing over to a connection that gave up — " +
+			"its departure goes unannounced and its bank never drops")
+	}
 }

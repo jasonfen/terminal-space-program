@@ -176,7 +176,13 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			// S6). Sim-time, not wall clock: what matters is how far their
 			// craft flew, which under warp bears no relation to how long
 			// their laptop was shut.
-			plain("◇ resumed — " + compactDuration(e.Elapsed) + " ran while you were away")
+			resumed := "◇ resumed — " + compactDuration(e.Elapsed) + " ran while you were away"
+			if e.Detail != "" {
+				// The replay is bounded so it cannot bury the orbit view; say
+				// so rather than truncating in silence.
+				resumed += " (" + e.Detail + ")"
+			}
+			plain(resumed)
 		case sim.SessionEventTimedOut:
 			rows = append(rows, row{text: "⚠ " + e.Handle + "'s session timed out — they never came back", alert: true})
 		case sim.SessionEventServerRestart:
