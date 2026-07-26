@@ -172,3 +172,57 @@ func TestRendezvousWarpArrivalHandsOff(t *testing.T) {
 		t.Errorf("arrival not recorded for the chip: %+v", w.LastRendezvousArrival)
 	}
 }
+
+// A mutually-armed pair must be able to raise the shared coast's rate.
+//
+// Regression for #248: engaging a rendezvous max-seeds the warp baseline,
+// but mutual arms also couple the pair, and the couple applies min-wins
+// over each partner's last *reported* Effective warp — which is their own
+// post-clamp rate, always at least a tick stale. Two players who both
+// engage at 1x therefore clamp each other to 1x and report 1x forever:
+// min-wins can only ratchet down, so there is no path up and no
+// tie-breaker. The coast then runs in real time (a 3 h encounter takes
+// 3 h of wall clock).
+func TestRendezvousCoastRaisesSharedRate(t *testing.T) {
+	wa, _, sta := anchorWorld(t)
+	wb, _, stb := anchorWorld(t)
+	tau := sta.Add(3 * time.Hour)
+
+	wa.EngageRendezvousWarp("SHA256:b", "b", tau, 0)
+	wb.EngageRendezvousWarp("SHA256:a", "a", tau, 0)
+
+	peer := func(owner, handle string, st time.Time, eff float64) []CoWarpPeer {
+		return []CoWarpPeer{{
+			Owner: owner, Handle: handle, SubspaceTime: st,
+			EffWarp: eff, ArmedTowardViewer: true, RendezvousTau: tau,
+		}}
+	}
+
+	// Each tick every side sees the other's PREVIOUS tick's reported
+	// Effective warp — the staleness relay.Report actually has.
+	effA, effB := wa.EffectiveWarp(), wb.EffectiveWarp()
+	prevA, prevB := map[string]bool{}, map[string]bool{}
+	for tick := 0; tick < 8; tick++ {
+		pa := peer("SHA256:b", "b", stb, effB)
+		pb := peer("SHA256:a", "a", sta, effA)
+		wa.DriveRendezvousWarp(pa)
+		wb.DriveRendezvousWarp(pb)
+		ra := wa.ComputeCoWarp(pa, prevA)
+		rb := wb.ComputeCoWarp(pb, prevB)
+		wa.CoWarp, wb.CoWarp = ra.State, rb.State
+		prevA, prevB = ra.CoupledOwners, rb.CoupledOwners
+		effA, effB = wa.EffectiveWarp(), wb.EffectiveWarp()
+	}
+
+	if !wa.rendezvousWarpEngaged() || !wb.rendezvousWarpEngaged() {
+		t.Fatal("precondition: the shared coast never engaged")
+	}
+	if !wa.CoWarp.Coupled {
+		t.Fatal("precondition: mutual arms did not couple the pair")
+	}
+	if effA <= 1 || effB <= 1 {
+		t.Errorf("shared coast pinned at its starting rate (effA=%v effB=%v): "+
+			"min-wins over a stale report cannot ratchet up, so a %v encounter "+
+			"runs in real time", effA, effB, tau.Sub(sta))
+	}
+}
