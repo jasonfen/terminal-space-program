@@ -238,6 +238,16 @@ type World struct {
 	// Effective-≤-Selected clamp family. Transient, serve-written.
 	RendezvousHold bool
 
+	// RendezvousPartnerAway mirrors the armed partner's live Away state
+	// (#253, ADR 0036): their session still flies — a Commitment Reprieve
+	// holds it open — but nobody is at the controls. Set each tick by
+	// DriveRendezvousWarp from the co-warp peer slate, rendered by the
+	// RENDEZVOUS chip as a standing line; Away is a state that lasts
+	// hours by design, so the flight view must not depend on the 6 s
+	// went-quiet SessionEvent to know it. Transient, serve-written like
+	// RendezvousHold.
+	RendezvousPartnerAway bool
+
 	// RendezvousWait classifies why an armed Rendezvous Warp has not
 	// started coasting (#250): genuinely waiting on the partner vs a
 	// subspace gap someone warped open (with the signed Δt saying who is
@@ -249,9 +259,10 @@ type World struct {
 	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
 	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
 	// recomputes the approach at the committed τ each tick and sets
-	// Degraded when the partner has drifted a couple-radius past the
-	// committed baseline. ApproachM is the live approach for the S2
-	// warning chip. Transient, serve-written like CoWarp.
+	// Degraded when the encounter has worsened past a recent baseline by
+	// more than an encounter-scaled bar (#251 — see degradeSlipFrac /
+	// degradeRebaseAfter in cowarp.go). ApproachM is the live approach
+	// for the S2 warning chip. Transient, serve-written like CoWarp.
 	RendezvousDegraded  bool
 	RendezvousApproachM float64
 

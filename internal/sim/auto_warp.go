@@ -337,6 +337,7 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 
 func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	w.RendezvousHold = false
+	w.RendezvousPartnerAway = false
 	arm := w.RendezvousArm
 	if arm == nil {
 		if w.rendezvousWarpEngaged() {
@@ -385,6 +386,18 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 		}
 		break
 	}
+	// Mirror the armed partner's Away onto the slate (#253): a standing
+	// state the chip renders for as long as it is true, cleared at the
+	// top of every drive tick like RendezvousHold. State, not an event —
+	// the 6 s went-quiet chip expires while Away lasts hours by design.
+	// Must run on EVERY tick with a matched partner, so it sits here,
+	// before any of the branches/returns below: the τ-resolution path
+	// (#252) can idle past τ for hours retrying a failing derivation and
+	// return early each tick — exactly the stretch an asleep partner
+	// produces (they can't burn the next encounter into existence), so
+	// mirroring after that return would blank the away line in precisely
+	// its motivating scenario (#253).
+	w.RendezvousPartnerAway = partner != nil && partner.Away
 	// τ authority across a waypoint advance (#252): both sides re-derive
 	// the next waypoint independently at their own τ-crossing, so their
 	// new τs will disagree (different advisories, different relayed craft

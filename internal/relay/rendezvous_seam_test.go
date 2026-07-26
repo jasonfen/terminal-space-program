@@ -28,7 +28,7 @@ func TestRendezvousArmThroughSeam(t *testing.T) {
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
 	// A adapts B's report — arm-toward-viewer + τ + committed CA survive.
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB))
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil)
 	if len(peers) != 1 {
 		t.Fatalf("got %d peers, want 1", len(peers))
 	}
@@ -91,7 +91,7 @@ func TestRendezvousArmNotForViewer(t *testing.T) {
 	wB.EngageRendezvousWarp("SHA256:carol", "carol", wA.Clock.SimTime.Add(time.Hour), 0) // toward someone else
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB))
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil)
 	if len(peers) == 1 && peers[0].ArmedTowardViewer {
 		t.Error("ArmedTowardViewer set for an arm aimed at a third player")
 	}
@@ -130,13 +130,13 @@ func TestRendezvousArmRequiresLiveSession(t *testing.T) {
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
 	// B live but silent (reprieved-away): the frozen report's arm holds.
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB))
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil)
 	if len(peers) != 1 || !peers[0].ArmedTowardViewer {
 		t.Fatal("a live-but-silent session's arm was suppressed — a report gap must not read as retract")
 	}
 
 	// B's session ends (reaped / disconnected for good); the report stays.
-	peers = CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live())
+	peers = CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(), nil)
 	if len(peers) != 1 {
 		t.Fatalf("got %d peers, want 1 — liveness suppresses the arm, not the peer", len(peers))
 	}

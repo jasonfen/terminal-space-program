@@ -263,6 +263,15 @@ type DockGuestLink struct {
 	OwnerHandle  string  // stack owner's display handle (for chips + status)
 	OwnerEffWarp float64 // owner's reported Effective warp — the coupling min
 	GuestCraftID uint64  // the guest's craft riding in the stack
+
+	// OwnerAway is the stack owner's live nobody-at-the-controls state
+	// (#253, ADR 0036): their session — and this player's craft riding in
+	// its stack — still flies under a Commitment Reprieve, but nobody is
+	// watching. Written by the serve layer beside the coupling fold (the
+	// relay ledger that rebuilds this link each tick has no session
+	// liveness to consult); the flight view renders it as a standing line,
+	// the docked-as-guest sibling of RendezvousPartnerAway.
+	OwnerAway bool
 }
 
 // WithDockCoupling folds a docked-as-guest coupling into the co-warp state

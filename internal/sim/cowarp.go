@@ -63,7 +63,39 @@ const (
 	// step and over it after any additional report lag. Two leaves a
 	// whole tick of slack. Tunable.
 	coWarpStepSafety = 2.0
+
+	// degradeSlipFrac scales the degrade bar to the encounter it guards
+	// (#251): the watchdog trips at max(coWarpCoupleRangeM, degradeSlipFrac
+	// × baseline CA). The quantity thresholded is a PREDICTION — the
+	// approach at τ from Kepler-stepping both craft across the remaining
+	// horizon — so its error scales with the encounter's inputs (a 1 m/s
+	// relayed-velocity error is tens of km at τ over a multi-hour coast),
+	// while a fixed couple-radius bar read 0.18% of a 5,605 km encounter
+	// as "partner drifted off the plan". 5% tolerates ~280 km on that
+	// encounter yet keeps a genuine 50 km drift on a close one firing
+	// (the coWarpCoupleRangeM floor still stands). Tunable.
+	degradeSlipFrac = 0.05
 )
+
+// degradeRebaseAfter is how much sim-time may pass before a HEALTHY
+// degrade baseline is recaptured from the current estimate (#251). The
+// τ-prediction converges as the horizon shrinks, so comparing forever
+// against the coast-start capture — the worst estimate ever taken —
+// slowly accumulates pure estimator convergence into a trip. Re-basing
+// while healthy keeps the reference recent (convergence creep per window
+// is far under the bar), while a real maneuver's step-change lands within
+// one tick against a ≤window-old baseline and still fires. The baseline
+// FREEZES while degraded, so a genuine drift stays flagged instead of
+// being absorbed by the next recapture. Tunable.
+//
+// Accepted blind spot: genuine drift that stays under the bar within
+// every single window is absorbed into the recaptured baseline and never
+// trips, no matter how far it compounds — the price of option 2 under
+// #251. An impulsive burn can't slip through this way (its step-change
+// lands whole against a ≤window-old baseline), and slow drift on the
+// scale that matters here comes from low-thrust cheating over hours,
+// which the encounter's own approach readout still exposes.
+const degradeRebaseAfter = 10 * time.Minute
 
 // CoWarpSubspaceTolerance is the exported form of the same-subspace gate
 // (v0.29 S2): the Session screen's Rendezvous Warp row action refuses a
@@ -102,6 +134,17 @@ type CoWarpPeer struct {
 	// also reports 0, and treating any 0 as "paused" would deadlock both
 	// sides into mutual holds.
 	Paused bool
+
+	// Away is the peer's live nobody-at-the-controls state (#253, ADR
+	// 0036): their session is still simulating — a Commitment Reprieve
+	// holds it open — but nobody is watching. Set by the relay adapter
+	// from the server's per-session liveness; DriveRendezvousWarp mirrors
+	// the armed partner's value onto the world slate so the flight view
+	// carries a STANDING indication instead of only the 6 s went-quiet
+	// chip. False for an offline peer — that is a different thing (their
+	// craft stop flying), and it is the report set, not this flag, that
+	// goes empty then.
+	Away bool
 
 	// ArmedTowardViewer is set by the relay adapter when this peer has a
 	// live Rendezvous Warp intent aimed at the viewer (v0.29 S1, ADR 0034
@@ -159,17 +202,26 @@ type RendezvousArm struct {
 	Tau         time.Time // the current waypoint's absolute encounter sim-time
 	CommittedCA float64   // m — the predicted approach at Tau, re-derived per waypoint (HUD "committed" row)
 
-	// degradeBaseCA is the hold-τ warning baseline: the first approach
-	// actually measured once the shared coast engages (v0.29 review).
-	// CommittedCA can't serve as the baseline — on the advisory path it
-	// is the POST-burn promise while the recompute measures the current
-	// ballistic course, which would flag "degraded" from the first tick
-	// with nothing drifted. Warning on drift past the coast-start
-	// measure keeps the semantics "the encounter got worse mid-coast".
+	// degradeBaseCA is the hold-τ warning baseline: the most recent
+	// HEALTHY approach measured while the shared coast runs (v0.29
+	// review, re-based per #251). CommittedCA can't serve as the baseline
+	// — on the advisory path it is the POST-burn promise while the
+	// recompute measures the current ballistic course, which would flag
+	// "degraded" from the first tick with nothing drifted. Nor can the
+	// coast-START measure serve forever: the approach is a prediction
+	// whose error shrinks with the horizon, so the first capture is the
+	// worst one, and holding it turns estimator convergence into fake
+	// drift. degradeBaseAt is the capture's sim-time; refreshRendezvous-
+	// Degrade recaptures every degradeRebaseAfter while healthy. Warning
+	// on drift past a recent measure keeps the semantics "the encounter
+	// got worse mid-coast".
 	// Per-waypoint: degradeBaseSet is reset whenever the waypoint
-	// advances (#252), or every advance would instantly read as a
-	// degraded encounter measured against the previous waypoint.
+	// advances or a partner's min-τ waypoint is adopted (#252), or every
+	// advance would instantly read as a degraded encounter measured
+	// against the previous waypoint — the next healthy recompute then
+	// re-stamps BOTH degradeBaseCA and degradeBaseAt for the new leg.
 	degradeBaseCA  float64
+	degradeBaseAt  time.Time
 	degradeBaseSet bool
 
 	// peerGoneAt is the sim-time the partner's report first vanished from
@@ -471,9 +523,10 @@ func (w *World) armedPartnerLacksLocalCraft(peers []CoWarpPeer) bool {
 
 // refreshRendezvousDegrade recomputes the held encounter's approach each
 // tick while the coast runs and flags a degrade when the encounter has
-// drifted more than a couple-radius past the coast-start baseline (v0.29
-// S1, re-baselined in the v0.29 review — see RendezvousArm.degradeBaseCA
-// for why CommittedCA can't be the baseline) — the S2 warning chip's
+// worsened past a recent baseline by more than an encounter-scaled bar
+// (v0.29 S1; see RendezvousArm.degradeBaseCA for why CommittedCA can't be
+// the baseline, and degradeSlipFrac / degradeRebaseAfter for the #251
+// false-fire the scaling + re-basing prevent) — the S2 warning chip's
 // trigger. τ is held regardless. Clears the flag when not coasting.
 // RendezvousApproachM carries the live approach for the chip's readout.
 func (w *World) refreshRendezvousDegrade(peers []CoWarpPeer) {
@@ -495,11 +548,23 @@ func (w *World) refreshRendezvousDegrade(peers []CoWarpPeer) {
 		return
 	}
 	if !arm.degradeBaseSet {
-		arm.degradeBaseSet, arm.degradeBaseCA = true, caAtTau
+		arm.degradeBaseSet, arm.degradeBaseCA, arm.degradeBaseAt = true, caAtTau, w.Clock.SimTime
 	}
 	w.RendezvousApproachM = caAtTau
-	// A couple-radius of drift past the coast-start measure is "the
-	// encounter you set out on has meaningfully slipped" — reusing the
-	// couple gate keeps the threshold tied to whether you'd still couple.
-	w.RendezvousDegraded = caAtTau-arm.degradeBaseCA > coWarpCoupleRangeM
+	// The bar scales with the encounter (#251): one couple-radius is the
+	// floor — "would you still couple there" stays the close-encounter
+	// meaning — but a distant encounter tolerates proportionate movement,
+	// because at that scale the recomputed approach is a long-horizon
+	// prediction whose input error alone dwarfs 10 km. Drift is signed:
+	// only a WORSENING approach warns (an improving one is re-based below).
+	bar := math.Max(coWarpCoupleRangeM, degradeSlipFrac*arm.degradeBaseCA)
+	w.RendezvousDegraded = caAtTau-arm.degradeBaseCA > bar
+	// While healthy, recapture the baseline every degradeRebaseAfter of
+	// sim-time so estimator convergence (the estimate migrating as the
+	// horizon shrinks) never accumulates into a trip; while degraded the
+	// baseline freezes, so a genuine drift stays flagged against the
+	// pre-drift measure until the partner corrects back inside the bar.
+	if !w.RendezvousDegraded && w.Clock.SimTime.Sub(arm.degradeBaseAt) >= degradeRebaseAfter {
+		arm.degradeBaseCA, arm.degradeBaseAt = caAtTau, w.Clock.SimTime
+	}
 }

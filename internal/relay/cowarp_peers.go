@@ -35,7 +35,14 @@ import (
 // through however stale the report is, so a silent reprieved partner is
 // held for, never cancelled. A nil map means no owner is live (the safe
 // default for callers with no liveness source).
-func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string, live map[string]bool) []sim.CoWarpPeer {
+//
+// away is the serve layer's per-owner Away verdict (#253): reports carry
+// what a peer's WORLD is doing, not whether anyone is at its controls, so
+// the caller supplies Server.isAway's answer and it rides the peer as
+// standing state. Orthogonal to live — an away session is still live
+// (that is the Reprieve), so its arm survives while Away marks it
+// unattended. nil means nobody is away (solo / tests).
+func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string, live, away map[string]bool) []sim.CoWarpPeer {
 	sysName := w.System().Name
 	viewerT := w.Clock.SimTime
 	var out []sim.CoWarpPeer
@@ -68,6 +75,7 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			EffWarp:      rep.EffWarp,
 			Crafts:       crafts,
 			Paused:       rep.Paused,
+			Away:         away[rep.Owner],
 		}
 		// Rendezvous Warp (v0.29 S1): this peer is armed toward the viewer
 		// iff its report's intent names us AND its session is live (#252

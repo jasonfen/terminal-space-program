@@ -42,7 +42,7 @@ func TestCoWarpMinWinsThroughSeam(t *testing.T) {
 
 	// A evaluates co-warp against the store and clamps to B's cap.
 	handles := map[string]string{ownerB: "bob"}
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil)
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil, nil)
 	res := wA.ComputeCoWarp(peers, nil)
 	if !res.State.Coupled || res.State.MinWarp != 10 {
 		t.Fatalf("co-warp state = %+v, want coupled at MinWarp 10", res.State)
@@ -66,7 +66,7 @@ func TestCoWarpCoupleThenDecoupleThroughSeam(t *testing.T) {
 	NewReporter(store, ownerA).Tick(wA, time.Now())
 	repB := NewReporter(store, ownerB)
 	repB.Tick(wB, time.Now())
-	res := wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil), nil)
+	res := wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil, nil), nil)
 	if !res.State.Coupled || len(res.NewlyCoupled) != 1 {
 		t.Fatalf("first eval = %+v, want a fresh couple", res)
 	}
@@ -76,11 +76,34 @@ func TestCoWarpCoupleThenDecoupleThroughSeam(t *testing.T) {
 	wB.ActiveCraft().State.R.X += 50_000
 	wB.ActiveCraft().State.V.X += 50 // move the elements so the report fires
 	repB.Tick(wB, time.Now().Add(time.Second))
-	res = wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil), res.CoupledOwners)
+	res = wA.ComputeCoWarp(CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil, nil), res.CoupledOwners)
 	if res.State.Coupled {
 		t.Error("still coupled after B drifted 50 km")
 	}
 	if len(res.Released) != 1 || res.Released[0] != "bob" {
 		t.Errorf("Released = %v, want [bob]", res.Released)
+	}
+}
+
+// Away rides the adapter (#253): the serve layer's per-owner session-
+// liveness verdict lands on the peer as standing state — reports alone
+// can't carry it, they say what a world is doing, not whether anyone is
+// at its controls. A nil map (solo, tests) means nobody is away.
+func TestCoWarpPeersCarryAway(t *testing.T) {
+	store := NewStore()
+	wA, wB := newWorld(t), newWorld(t)
+	wB.Clock.SimTime = wA.Clock.SimTime
+	const ownerA, ownerB = "SHA256:alice", "SHA256:bob"
+	NewReporter(store, ownerA).Tick(wA, time.Now())
+	NewReporter(store, ownerB).Tick(wB, time.Now())
+	handles := map[string]string{ownerB: "bob"}
+
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil, map[string]bool{ownerB: true})
+	if len(peers) != 1 || !peers[0].Away {
+		t.Fatalf("peers = %+v, want bob carried as Away", peers)
+	}
+	peers = CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, nil, nil)
+	if len(peers) != 1 || peers[0].Away {
+		t.Fatalf("peers = %+v, want no Away from a nil map", peers)
 	}
 }

@@ -73,6 +73,10 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// anti-overlook affordance and the coast readout carries the cancel
 	// key; F2 declutter still clears it like SESSION.
 	add("", cornerTopLeft, v.buildRendezvousChip(w))
+	// DOCKED (#253): the standing away line for the other Commitment kind
+	// — renders only while docked-as-guest with the stack owner away.
+	// Always-on like RENDEZVOUS (empty id); F2 declutter still clears it.
+	add("", cornerTopLeft, v.buildDockGuestChip(w))
 	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
 	// vessel-state readouts. Force-shown while a just-blocked command is
 	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
@@ -245,6 +249,19 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		if w.RendezvousHold {
 			lines = append(lines, "  "+v.theme.Warning.Render("⏸ holding — waiting for "+aw.RendezvousHandle))
 		}
+		// Standing away line (#253): the partner's session flies on under
+		// the Commitment Reprieve with nobody at the controls. State-driven
+		// like the hold line above — the went-quiet SESSION chip expires in
+		// 6 s while Away lasts hours by design, and this is precisely the
+		// fact a player weighing the encounter needs on screen.
+		//
+		// The "z" glyph must stay width-1: padChipBlock measures chip lines
+		// in terminal cells (lipgloss.Width) but splitStyledCells splices
+		// per rune, so a width-2 emoji (💤) desyncs the two and overflows
+		// the canvas row by one cell for every away line overlaid.
+		if w.RendezvousPartnerAway {
+			lines = append(lines, "  "+v.theme.Warning.Render("z "+aw.RendezvousHandle+" is away — their session is still flying"))
+		}
 		if w.RendezvousDegraded {
 			lines = append(lines, "  "+v.theme.Alert.Render("⚠ encounter degraded — partner drifted off the plan"))
 		}
@@ -300,6 +317,27 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		}
 	}
 	return nil
+}
+
+// buildDockGuestChip is the docked-as-guest standing away surface (#253):
+// while one of this player's craft rides in another player's stack, the
+// stack owner going Away — session still flying under the Commitment
+// Reprieve, nobody at the controls — needs an on-screen representation
+// that outlives the 6 s went-quiet SESSION chip. The dock itself has no
+// persistent flight-view chip (couple/dock moments are TTL'd SESSION
+// events), so this renders only while the owner is actually away and
+// stays nil otherwise.
+func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
+	dg := w.DockGuest
+	if dg == nil || !dg.OwnerAway {
+		return nil
+	}
+	return []string{
+		v.theme.Primary.Render("DOCKED"),
+		// "z" not 💤 — chip glyphs must be width-1 (see the away line in
+		// buildRendezvousChip for why).
+		"  " + v.theme.Warning.Render("z " + dg.OwnerHandle + " is away — their session is still flying"),
+	}
 }
 
 // anyActiveBurn reports whether any craft in the slate has an in-flight

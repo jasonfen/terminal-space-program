@@ -322,13 +322,19 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// or any for-good disconnect, drops out of presence while its final
 	// report sits frozen in the relay store forever — exactly the report
 	// whose arm must NOT keep the survivor's standing intent alive.
+	//
+	// Away rides along per owner (#253): reports say what a peer's world
+	// is doing, only the server knows whether anyone is at its controls,
+	// and the flight view needs that as standing state, not a 6 s chip.
 	live := make(map[string]bool, len(others))
+	away := make(map[string]bool, len(others))
 	for _, r := range others {
 		if m.srv.presence.isOnline(r.Owner) {
 			live[r.Owner] = true
 		}
+		away[r.Owner] = m.srv.isAway(r.Owner)
 	}
-	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live)
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live, away)
 	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
 	// committed encounter from this tick's mutual-arm state, before the
 	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.
@@ -545,6 +551,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	w.RendezvousInvite = nil
 	w.RendezvousDegraded, w.RendezvousApproachM = false, 0
 	w.RendezvousHold = false
+	w.RendezvousPartnerAway = false
 	w.RendezvousWait = sim.RendezvousWait{}
 	// Arrival slates too (v0.29 review): a coast or sync arriving on the
 	// same tick hosting stops must not fire a spurious chip in the next
