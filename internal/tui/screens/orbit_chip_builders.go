@@ -171,6 +171,12 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			plain("◇ " + e.Handle + " went quiet — " + held + " held")
 		case sim.SessionEventBack:
 			plain("◇ " + e.Handle + " is back")
+		case sim.SessionEventResumed:
+			// Opens the replay of the interval this player missed (ADR 0036
+			// S6). Sim-time, not wall clock: what matters is how far their
+			// craft flew, which under warp bears no relation to how long
+			// their laptop was shut.
+			plain("◇ resumed — " + compactDuration(e.Elapsed) + " ran while you were away")
 		case sim.SessionEventTimedOut:
 			rows = append(rows, row{text: "⚠ " + e.Handle + "'s session timed out — they never came back", alert: true})
 		case sim.SessionEventServerRestart:

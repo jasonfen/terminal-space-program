@@ -64,6 +64,27 @@ func TestSessionScreenMarksAway(t *testing.T) {
 	}
 }
 
+// The returning player's account of the interval they missed (ADR 0036
+// S6), opening the replay of the moments that fell while they were gone.
+func TestSessionEventsChipResumed(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	now := time.Now()
+	w.SessionEvents = []sim.SessionEvent{
+		{Kind: sim.SessionEventResumed, Elapsed: 2*time.Hour + 19*time.Minute, At: now},
+		{Kind: sim.SessionEventRendezvousArrived, Handle: "ansi", At: now},
+	}
+	joined := strings.Join(v.buildSessionEventsChip(w), "\n")
+	if !strings.Contains(joined, "resumed — 2h19m ran while you were away") {
+		t.Errorf("resume chip missing or misworded:\n%s", joined)
+	}
+	// The replayed moment rides right behind it, so the elapsed figure has
+	// something to account for.
+	if !strings.Contains(joined, "encounter reached") {
+		t.Errorf("the replayed moment did not render alongside the resume:\n%s", joined)
+	}
+}
+
 // Detail is display context, not a required field: a went-quiet chip that
 // somehow arrives without it must still read as a sentence.
 func TestWentQuietChipWithoutDetail(t *testing.T) {

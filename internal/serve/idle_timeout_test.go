@@ -79,7 +79,7 @@ func TestAbsentPeerIsReaped(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve() }()
-	t.Cleanup(func() { _ = srv.ln.Close(); <-done })
+	t.Cleanup(func() { stopServer(t, srv, done) })
 
 	signer, fp := newClientKey(t)
 	enrollDirect(t, srv, fp, "gern")

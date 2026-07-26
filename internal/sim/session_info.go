@@ -109,6 +109,11 @@ const (
 	SessionEventWentQuiet // their peer stopped answering; the Commitment holds the session up
 	SessionEventBack      // they are answering again (woken, or reconnected and displaced)
 	SessionEventTimedOut  // the session ended while away — nobody ever came back
+
+	// SessionEventResumed opens the replay of everything that happened
+	// while this player's own session ran unattended — local only, and
+	// the only event carrying Elapsed.
+	SessionEventResumed
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —
@@ -131,4 +136,10 @@ type SessionEvent struct {
 	// ("rendezvous" / "dock"), so the partner learns what is at stake
 	// rather than only that someone went quiet.
 	Detail string
+
+	// Elapsed is how much sim-time ran unattended, carried by
+	// SessionEventResumed (ADR 0036 S6). A player who reconnects after
+	// hours away lands in a world whose clock jumped; this is the number
+	// that accounts for it. Zero on every other kind.
+	Elapsed time.Duration
 }

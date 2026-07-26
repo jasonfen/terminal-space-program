@@ -105,6 +105,11 @@ type Server struct {
 	// return reaches the same partner (ADR 0036 S5).
 	away *awayWatch
 
+	// mail banks the moments that fall while a session runs unattended,
+	// so the player who comes back gets an account of the interval
+	// instead of a world whose clock silently jumped (ADR 0036 S6).
+	mail *awayMail
+
 	// Reprieve timings, fields rather than constants so tests can drive
 	// the sweeper without real-time waits. idleTimeout is recorded because
 	// the sweeper has to reconstruct the deadline the I/O path would have
@@ -164,7 +169,8 @@ func New(cfg Config) (*Server, error) {
 		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(),
 		presence: newPresence(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
-		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter, away: newAwayWatch(),
+		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
+		away: newAwayWatch(), mail: newAwayMail(),
 	}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
@@ -453,8 +459,14 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 			// A displaced session announces nothing (ADR 0036 S5): its player
 			// is not leaving, they are resuming on another connection, and
 			// mid-coast a leave chip reads as the rendezvous dying.
-			if p, err := s.store.FindPlayer(fp); err == nil && (ls == nil || !ls.displaced.Load()) {
-				s.presence.event(departureKind(ls, s.awayAfter), fp, p.Handle, "")
+			if ls == nil || !ls.displaced.Load() {
+				if p, err := s.store.FindPlayer(fp); err == nil {
+					s.presence.event(departureKind(ls, s.awayAfter), fp, p.Handle, "")
+				}
+				// This session ended rather than handing over, so its banked
+				// interval ends with it (ADR 0036 S6). A displaced one leaves
+				// the bank for the connection taking its place.
+				s.mail.drop(fp)
 			}
 		}
 		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)

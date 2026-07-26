@@ -401,6 +401,10 @@ func (m *reportingModel) refreshSession(now time.Time) {
 
 	// Broadcast moments (own excluded) + this session's local ones.
 	events := m.srv.presence.eventsFor(m.owner)
+	// ADR 0036 S6: bank this session's own moments while nobody is
+	// watching, and replay them when somebody is. Before the TTL trim
+	// below — that trim is what would otherwise destroy them.
+	m.bankOrReplay(w.Clock.SimTime, now)
 	kept := m.localEvents[:0]
 	for _, e := range m.localEvents {
 		if now.Sub(e.At) <= localEventTTL {
