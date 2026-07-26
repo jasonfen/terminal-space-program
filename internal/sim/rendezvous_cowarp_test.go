@@ -77,6 +77,53 @@ func TestRendezvousArmDifferentSubspaceDoesNotCouple(t *testing.T) {
 	}
 }
 
+// Per-peer SCOPE of the #248 min-wins exemption: while the shared coast
+// is engaged, only the armed PARTNER's stale reported rate is excluded
+// from the min — a proximity-coupled third peer must still clamp.
+//
+// This pins the exemption against the tempting refactor to a blanket
+// skip (`if rendezvousWarpEngaged() { skip min accumulation }` before the
+// peer loop): every pairwise test still passes under that form, but a
+// third player station-keeping next to the viewer would lose min-wins
+// entirely — the viewer's max-seeded coast would out-warp them and break
+// the couple's step-in-lock invariant. The exemption is a property of
+// the peer (clampExempt inside the rendezvous branch), not of the tick.
+func TestRendezvousCoastThirdPeerMinStillWins(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(72 * time.Hour)
+
+	// Partner B: mutually armed, shared coast engaged. Reports 1× — the
+	// stale post-clamp rate the #248 exemption exists to ignore. If it
+	// leaked into the min, MinWarp would come out 1, not 5.
+	partner := armPeer(w, primary, st, 1, "gern")
+	w.EngageRendezvousWarp(partner.Owner, "gern", tau, 0)
+	w.DriveRendezvousWarp([]CoWarpPeer{partner})
+	if !w.rendezvousWarpEngaged() {
+		t.Fatal("precondition: the shared coast did not engage")
+	}
+
+	// Peer C: proximity-coupled the ordinary way (5 km, 0 m/s, same
+	// subspace, same primary), reporting Effective warp 5.
+	third := peerAt(w, primary, st, 5, orbital.Vec3{X: 5000}, orbital.Vec3{}, "cass")
+
+	res := w.ComputeCoWarp([]CoWarpPeer{partner, third}, nil)
+	if !res.State.Coupled {
+		t.Fatal("not coupled to the armed partner + proximity peer")
+	}
+	if len(res.State.Partners) != 2 {
+		t.Fatalf("Partners = %v, want both gern and cass coupled", res.State.Partners)
+	}
+	if res.State.MinWarp != 5 {
+		t.Errorf("MinWarp = %v, want C's 5 (B's stale 1x excluded per-peer, C still clamps)",
+			res.State.MinWarp)
+	}
+	w.CoWarp = res.State
+	if got := w.EffectiveWarp(); got != 5 {
+		t.Errorf("EffectiveWarp = %v, want 5 — the third peer's min must cap the "+
+			"max-seeded coast through clampedWarp", got)
+	}
+}
+
 // Seamless Rendezvous→Proximity handoff at arrival: while mutually armed
 // AND within the gate the pair is coupled; when the arm clears (AutoWarp
 // reached τ) the SAME coupled state continues via the proximity decouple
