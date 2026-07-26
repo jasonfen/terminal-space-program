@@ -849,10 +849,32 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Manual warp cancels Auto-Warp, then applies (ADR 0016) —
 			// Disengage leaves Selected Warp untouched so the step lands
 			// from the player's own rate.
+			//
+			// Except during an engaged Rendezvous Warp coast (#249):
+			// there the key's intent is "hurry this along", not "abandon
+			// the rendezvous" — the intent asymmetry vs [/], which IS the
+			// deliberate cancel. DisengageAutoWarp must clear the arm on
+			// every cancel path (or DriveRendezvousWarp restarts the
+			// coast next tick), and the retraction travels the wire, so
+			// routing warp keys through it silently tore down the
+			// rendezvous for BOTH players. The coast owns its rate
+			// (#248), leaving nothing for the key to adjust — so refuse,
+			// with a toast pointing at [/]. Plain node-chase / Sync
+			// Auto-Warp keeps cancel-on-warp-key below.
+			if a.world.RendezvousWarpEngaged() {
+				a.toast("rendezvous coast owns the rate — [/] to cancel")
+				return a, nil
+			}
 			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpUp()
 			return a, nil
 		case key.Matches(m, a.keys.WarpDown):
+			// Same refusal as WarpUp during a rendezvous coast — see the
+			// rationale above.
+			if a.world.RendezvousWarpEngaged() {
+				a.toast("rendezvous coast owns the rate — [/] to cancel")
+				return a, nil
+			}
 			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpDown()
 			return a, nil

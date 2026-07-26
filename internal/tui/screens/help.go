@@ -78,8 +78,8 @@ var helpSections = []helpSection{
 		{"J", "transfer control of a cross-player docked stack to the guest (map)"},
 	}},
 	{"TIME & WARP", [][2]string{
-		{".", "warp up (1× … 100000×)"},
-		{",", "warp down"},
+		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},
+		{",", "warp down (inert during a rendezvous coast — [/] cancels)"},
 		{"G", "auto-warp to 30 s before the next burn, then 1×"},
 		{"y", "join a pending rendezvous warp (when a player arms toward you)"},
 		{"/", "cancel warp — drop to 1× (also cancels auto-warp / rendezvous warp)"},

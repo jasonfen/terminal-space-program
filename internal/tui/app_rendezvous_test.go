@@ -107,3 +107,68 @@ func TestCancelWarpCancelsRendezvous(t *testing.T) {
 		t.Error("/ left the Auto-Warp engaged")
 	}
 }
+
+// Warp keys during an engaged rendezvous coast (#249): `.`/`,` refuse —
+// arm intact, coast intact, Selected Warp untouched — and surface a
+// toast pointing at `/`, the one deliberate cancel gesture. Before the
+// fix a single tap silently cancelled the rendezvous for both players.
+func TestWarpKeysInertDuringRendezvousCoast(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	w := a.world
+	tau := w.Clock.SimTime.Add(3 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 0)
+	w.AutoWarp = &sim.AutoWarpTarget{T: tau, Rendezvous: true, RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern"}
+	idx := w.Clock.WarpIdx
+
+	for _, r := range []rune{'.', ','} {
+		a.statusMsg = ""
+		a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if w.RendezvousArm == nil {
+			t.Fatalf("%q cleared the rendezvous arm", r)
+		}
+		if w.AutoWarp == nil || !w.AutoWarp.Rendezvous {
+			t.Fatalf("%q disengaged the rendezvous coast (AutoWarp=%+v)", r, w.AutoWarp)
+		}
+		if w.Clock.WarpIdx != idx {
+			t.Errorf("%q moved Selected Warp: WarpIdx %d, want %d", r, w.Clock.WarpIdx, idx)
+		}
+		if !strings.Contains(a.statusMsg, "/") {
+			t.Errorf("%q gave no feedback pointing at [/]: status %q", r, a.statusMsg)
+		}
+	}
+}
+
+// The refusal is scoped to the rendezvous coast: a plain node-chase
+// Auto-Warp — and a Sync — keep today's behavior, where a manual warp
+// key cancels the driver and then applies the step (ADR 0016).
+func TestWarpKeysStillCancelPlainAutoWarp(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	w := a.world
+
+	// Node-chase: `.` cancels the driver and warps up.
+	w.AutoWarp = &sim.AutoWarpTarget{T: w.Clock.SimTime.Add(time.Hour)}
+	idx := w.Clock.WarpIdx
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'.'}})
+	if w.AutoWarp != nil {
+		t.Error(". left a node-chase Auto-Warp engaged")
+	}
+	if w.Clock.WarpIdx != idx+1 {
+		t.Errorf(". did not warp up: WarpIdx %d, want %d", w.Clock.WarpIdx, idx+1)
+	}
+
+	// Sync: `,` cancels the driver and warps down.
+	w.AutoWarp = &sim.AutoWarpTarget{T: w.Clock.SimTime.Add(time.Hour), Sync: true, SyncHandle: "gern", SyncOwner: "SHA256:guest"}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{','}})
+	if w.AutoWarp != nil {
+		t.Error(", left a Sync Auto-Warp engaged")
+	}
+	if w.Clock.WarpIdx != idx {
+		t.Errorf(", did not warp down: WarpIdx %d, want %d", w.Clock.WarpIdx, idx)
+	}
+}

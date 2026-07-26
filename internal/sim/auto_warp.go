@@ -110,9 +110,12 @@ func (w *World) ToggleAutoWarp() bool {
 // resolveAutoWarp additionally forces WarpIdx to 1×.
 //
 // A rendezvous coast is arm + driver as one unit (v0.29 review): every
-// disengage path — manual warp keys, [G] toggle, [/] — must clear the
-// arm too, or DriveRendezvousWarp restarts the coast (and force-unpauses)
-// on the next serve tick, making the cancel a silent no-op.
+// disengage path — [G] toggle, [/] — must clear the arm too, or
+// DriveRendezvousWarp restarts the coast (and force-unpauses) on the
+// next serve tick, making the cancel a silent no-op. The manual warp
+// keys no longer reach here during an engaged coast (#249): their
+// intent is "adjust the rate", not "cancel", so the tui refuses them
+// with a toast instead of calling this.
 func (w *World) DisengageAutoWarp() {
 	if w.rendezvousWarpEngaged() {
 		w.RendezvousArm = nil
