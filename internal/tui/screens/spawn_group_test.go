@@ -12,7 +12,7 @@ import (
 // (which are about all loadouts, independent of the S10 filter).
 func formShowAll() *SpawnCraft {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "")
+	s.Reset(nil, "", nil, "", nil)
 	s.showAll = true
 	return s
 }

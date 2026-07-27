@@ -401,8 +401,15 @@ func (w *World) ActiveCommPath() (points []orbital.Vec3, hops int, connected boo
 // body's position plus the body-fixed surface point (co-rotating with the
 // body) at sim time.
 func (w *World) groundStationWorldPos(st GroundStationPreset, body bodies.CelestialBody) orbital.Vec3 {
+	return w.groundStationWorldPosAt(st, body, w.Clock.SimTime)
+}
+
+// groundStationWorldPosAt is groundStationWorldPos at an explicit time —
+// the band sampler (#221) sweeps station rotation phase through it while
+// the body's orbital position stays frozen at SimTime.
+func (w *World) groundStationWorldPosAt(st GroundStationPreset, body bodies.CelestialBody, t time.Time) orbital.Vec3 {
 	r := body.RadiusMeters()
-	dir := render.BodyFixedToWorld(body, st.LatDeg, st.LonEastDeg, w.Clock.SimTime)
+	dir := render.BodyFixedToWorld(body, st.LatDeg, st.LonEastDeg, t)
 	return w.BodyPosition(body).Add(orbital.Vec3{X: r * dir.X, Y: r * dir.Y, Z: r * dir.Z})
 }
 

@@ -1027,7 +1027,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// filters the catalog to system-matching craft (sys is a local so
 			// the pointer-receiver Scale() is callable).
 			sys := a.world.System()
-			a.spawn.Reset(sys.Bodies, defaultParentID, designs, sys.Scale())
+			a.spawn.Reset(sys.Bodies, defaultParentID, designs, sys.Scale(), a.world.CommBandCoverage)
 			a.active = screenSpawn
 			a.world.RecordAction(missions.ActionSpawnCraft) // ADR 0025 §7
 			return a, nil

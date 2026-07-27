@@ -84,7 +84,7 @@ func TestCraftLiftsOff(t *testing.T) {
 // launchpad for an orbit-only craft, but does for a launcher (ADR 0031 / S9).
 func TestLaunchpadGateSkipsOrbitOnlyCraft(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "")
+	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "", nil)
 
 	// Orbit-only: the Comsat Carrier can't lift off Earth.
 	s.loadoutIdx = loadoutIndex(t, s, "Comsat-Carrier-3")
@@ -123,7 +123,7 @@ func TestLaunchpadGateSkipsOrbitOnlyCraft(t *testing.T) {
 // orbit (ADR 0031 / S9). Tests the invariant across the whole list.
 func TestLaunchpadNeverStickyOnOrbitOnlyCraft(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "")
+	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "", nil)
 	s.loadoutIdx = loadoutIndex(t, s, "Saturn-V")
 	s.fieldIdx = 1
 	for i := 0; i < 4 && !s.SelectedLaunchpad(); i++ {
@@ -150,7 +150,7 @@ func TestLaunchpadNeverStickyOnOrbitOnlyCraft(t *testing.T) {
 // not, so toggling must drop launchpad.
 func TestFilterToggleResnapsLaunchpad(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset([]bodies.CelestialBody{superEarthLike()}, "superearth", nil, bodies.ScaleStrippedBack)
+	s.Reset([]bodies.CelestialBody{superEarthLike()}, "superearth", nil, bodies.ScaleStrippedBack, nil)
 	// Filtered (Lumen) top row is Vector V, which lifts off the heavy parent.
 	if got := s.SelectedLoadoutID(); got != "Vector-V" {
 		t.Fatalf("setup: filtered top row = %q, want Vector-V", got)
@@ -176,7 +176,7 @@ func TestFilterToggleResnapsLaunchpad(t *testing.T) {
 // (ADR 0031 / S9 render smoke).
 func TestRenderShowsCrewTags(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "")
+	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "", nil)
 	out := s.Render(120)
 	if !strings.Contains(out, "crewed") {
 		t.Error("render missing a 'crewed' tag (e.g. Apollo Stack)")
