@@ -200,6 +200,90 @@ func TestChatTabIgnoresOfflineAndSelf(t *testing.T) {
 	}
 }
 
+// Review fixes (v0.32 batch): DM parsing must survive the roster's own
+// legal handles, and the input must not fight other armed prompts.
+
+func TestChatDMMultiWordHandle(t *testing.T) {
+	a := newChatApp(t)
+	a.world.Session.Players = append(a.world.Session.Players,
+		sim.SessionPlayer{Fingerprint: "SHA256:mc", Handle: "mission control", Online: true})
+	openChat(t, a)
+	typeRunes(a, "@mission control hold the burn")
+	m := sendMsg(chatPress(a, tea.KeyMsg{Type: tea.KeyEnter}))
+	if m == nil || m.To != "SHA256:mc" || m.ToHandle != "mission control" {
+		t.Fatalf("a handle containing spaces must resolve greedily; got %+v", m)
+	}
+	if m.Text != "hold the burn" {
+		t.Fatalf("the message must be what follows the full handle; got %q", m.Text)
+	}
+}
+
+func TestChatTabCompletedMultiWordHandleSends(t *testing.T) {
+	// The completion the game itself produces must be sendable — the
+	// review scenario had tab produce "@mission control" and Enter
+	// refuse it.
+	a := newChatApp(t)
+	a.world.Session.Players = append(a.world.Session.Players,
+		sim.SessionPlayer{Fingerprint: "SHA256:mc", Handle: "mission control", Online: true})
+	openChat(t, a)
+	typeRunes(a, "@mis")
+	chatPress(a, tea.KeyMsg{Type: tea.KeyTab})
+	if got := string(a.chatInput); got != "@mission control" {
+		t.Fatalf("tab must complete the full handle; got %q", got)
+	}
+	typeRunes(a, " go")
+	if m := sendMsg(chatPress(a, tea.KeyMsg{Type: tea.KeyEnter})); m == nil || m.To != "SHA256:mc" {
+		t.Fatalf("the game's own completion must send; got %+v", m)
+	}
+}
+
+func TestChatTabCyclesPastMultiWordCandidate(t *testing.T) {
+	a := newChatApp(t)
+	a.world.Session.Players = append(a.world.Session.Players,
+		sim.SessionPlayer{Fingerprint: "SHA256:mc", Handle: "gern control", Online: true})
+	openChat(t, a)
+	typeRunes(a, "@g")
+	seen := map[string]bool{}
+	for i := 0; i < 6; i++ {
+		chatPress(a, tea.KeyMsg{Type: tea.KeyTab})
+		seen[string(a.chatInput)] = true
+	}
+	if !seen["@gern"] || !seen["@gale"] || !seen["@gern control"] {
+		t.Fatalf("cycling must reach every candidate even past a multi-word completion; saw %v", seen)
+	}
+}
+
+func TestChatDMAmbiguousHandleRefused(t *testing.T) {
+	a := newChatApp(t)
+	a.world.Session.Players = append(a.world.Session.Players,
+		sim.SessionPlayer{Fingerprint: "SHA256:gern2", Handle: "Gern", Online: true})
+	openChat(t, a)
+	typeRunes(a, "@gern which one are you")
+	if sendMsg(chatPress(a, tea.KeyMsg{Type: tea.KeyEnter})) != nil {
+		t.Fatalf("an ambiguous handle (case-collision) must refuse — a private line must never route by enrollment order")
+	}
+	if !a.capturingText() || a.statusMsg == "" {
+		t.Fatalf("ambiguity refusal must toast and keep the draft")
+	}
+}
+
+func TestChatTildeInertDuringEndFlightConfirm(t *testing.T) {
+	a := newChatApp(t)
+	a.endFlightConfirm = true
+	chatPress(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'~'}})
+	if a.capturingText() {
+		t.Fatalf("~ must not open chat over an armed END FLIGHT confirm")
+	}
+}
+
+func TestRestoreChatDraft(t *testing.T) {
+	a := newChatApp(t)
+	a.RestoreChatDraft("@gern hold")
+	if !a.capturingText() || string(a.chatInput) != "@gern hold" {
+		t.Fatalf("RestoreChatDraft must reopen the overlay with the draft; input=%q", string(a.chatInput))
+	}
+}
+
 func TestChatInputRuneCap(t *testing.T) {
 	a := newChatApp(t)
 	openChat(t, a)

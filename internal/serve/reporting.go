@@ -148,7 +148,12 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if chat.To != "" && !m.srv.presence.isOnline(chat.To) {
+			// Hand the draft back instead of destroying it — the target
+			// can drop in the gap between the roster tick that showed
+			// them online and Enter (v0.32 review finding). Mirrors the
+			// App-side refusals, which all keep the text.
 			m.app.Toast(chat.ToHandle + " is offline — not sent")
+			m.app.RestoreChatDraft("@" + chat.ToHandle + " " + chat.Text)
 			return m, nil
 		}
 		ownHandle := m.owner

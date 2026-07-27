@@ -3,6 +3,7 @@ package serve
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // ADR 0035 §1: chat lives in its own capped ring beside presence, so a
@@ -77,6 +78,31 @@ func TestChatRingTextRuneCap(t *testing.T) {
 	}
 	if !strings.HasPrefix(long, got) {
 		t.Fatalf("truncation must be rune-safe (prefix of the original)")
+	}
+}
+
+func TestChatRingCrossTrafficDoesNotEvictFresh(t *testing.T) {
+	// Review fix (v0.32 batch): the cap used to count lines the viewer
+	// can never see, so B↔C DM spam evicted A's still-fresh broadcast.
+	c := newChatRing()
+	c.post("fpA", "alice", "", "", "my burn is in 40")
+	for i := 0; i < 40; i++ {
+		c.post("fpB", "bob", "fpC", "carol", "spam")
+		c.post("fpC", "carol", "fpB", "bob", "spam back")
+	}
+	lines := c.linesFor("fpA")
+	if len(lines) != 1 || lines[0].Text != "my burn is in 40" {
+		t.Fatalf("third-party DM traffic must not evict a viewer's fresh line; got %d lines", len(lines))
+	}
+}
+
+func TestChatRingPrunesByServerTTL(t *testing.T) {
+	c := newChatRing()
+	c.postAt("fpA", "alice", "", "", "ancient", time.Now().Add(-chatServerTTL-time.Second))
+	c.post("fpA", "alice", "", "", "fresh")
+	lines := c.linesFor("fpB")
+	if len(lines) != 1 || lines[0].Text != "fresh" {
+		t.Fatalf("expired lines must prune on post; got %+v", lines)
 	}
 }
 

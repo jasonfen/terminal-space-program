@@ -631,16 +631,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Chat capture (ADR 0035 S3): while the input is up, every key
 		// is text or an editing action — the unconditional return keeps
-		// flight controls, screens, and the boss key out of reach. Sits
-		// above endFlightConfirm by construction, but the two can't
-		// coexist: the confirm swallows ~, and while chatting E is text.
+		// flight controls, screens, and the boss key out of reach.
+		// While chatting E is text, so the end-flight confirm can never
+		// arm underneath an open input.
 		if a.chatOpen {
 			return a.handleChatKey(m)
 		}
 		// ~ opens chat from the flight view (ADR 0035 §4; U+007E, a
 		// different rune from the U+0060 boss key, and absent from every
-		// layout map so normalization passed it through untouched).
-		if a.active == screenOrbit && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
+		// layout map so normalization passed it through untouched). Not
+		// while the END FLIGHT confirm is armed — the ~ falls through to
+		// the confirm's swallow-everything intercept below, instead of
+		// opening an overlay that hides an armed destructive prompt
+		// (v0.32 review finding).
+		if a.active == screenOrbit && !a.endFlightConfirm && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
 			if a.world.Session == nil {
 				// Solo: say so — a dead key reads as broken (v0.30 lesson).
 				a.toast("chat is multiplayer — host or join a session [O]")
@@ -1820,10 +1824,15 @@ func (a *App) chatAppend(r rune) {
 }
 
 // sendChat parses the drafted line and emits the ChatSendMsg the serve
-// wrapper acts on. A leading @handle addresses a DM: case-insensitive
-// exact match against the ONLINE roster; a miss refuses to send and
-// leaves the text intact — never a silent fall-back to broadcast
-// (ADR 0035 §7).
+// wrapper acts on. A leading @ addresses a DM: the target is resolved
+// by the LONGEST online-roster handle matching the head of the text
+// (handles may legally contain spaces — "mission control" must be
+// DM-able, and tab-complete produces exactly that draft; v0.32 review
+// finding), case-insensitively, self excluded. A miss refuses to send
+// and leaves the text intact — never a silent fall-back to broadcast
+// (ADR 0035 §7) — and so does an AMBIGUOUS handle (two online players
+// whose handles fold to the same string): a private line must never
+// route by enrollment order (v0.32 review finding).
 func (a *App) sendChat() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(string(a.chatInput))
 	if text == "" {
@@ -1832,10 +1841,14 @@ func (a *App) sendChat() (tea.Model, tea.Cmd) {
 	}
 	msg := ChatSendMsg{Text: text}
 	if strings.HasPrefix(text, "@") {
-		handle, rest, _ := strings.Cut(text[1:], " ")
-		p, ok := a.chatLookup(handle)
-		if !ok {
-			a.toast("no online player \"" + handle + "\" — not sent")
+		p, rest, matches := a.chatResolveDM(text[1:])
+		if matches == 0 {
+			first, _, _ := strings.Cut(text[1:], " ")
+			a.toast("no online player \"" + first + "\" — not sent")
+			return a, nil
+		}
+		if matches > 1 {
+			a.toast("\"" + p.Handle + "\" is ambiguous — two players share it; not sent")
 			return a, nil
 		}
 		rest = strings.TrimSpace(rest)
@@ -1849,22 +1862,51 @@ func (a *App) sendChat() (tea.Model, tea.Cmd) {
 	return a, func() tea.Msg { return msg }
 }
 
-// chatLookup resolves a handle against the online roster, excluding the
-// viewer — you cannot DM yourself, and completion should not offer it.
-func (a *App) chatLookup(handle string) (sim.SessionPlayer, bool) {
+// chatResolveDM matches the head of body (the text after the leading @)
+// against the online roster, longest handle first: a handle matches when
+// body starts with it case-insensitively and the next byte is a space or
+// the end. Returns the matched player, the remaining message, and how
+// many ONLINE players carry the winning handle (0 = no match, >1 =
+// ambiguous — the caller refuses).
+func (a *App) chatResolveDM(body string) (sim.SessionPlayer, string, int) {
 	info := a.world.Session
 	if info == nil {
-		return sim.SessionPlayer{}, false
+		return sim.SessionPlayer{}, "", 0
 	}
+	var best sim.SessionPlayer
+	bestLen, matches := 0, 0
 	for _, p := range info.Players {
-		if !p.Online || p.Fingerprint == info.Self {
+		if !p.Online || p.Fingerprint == info.Self || p.Handle == "" {
 			continue
 		}
-		if strings.EqualFold(p.Handle, handle) {
-			return p, true
+		h := p.Handle
+		if len(body) < len(h) || !strings.EqualFold(body[:len(h)], h) {
+			continue
+		}
+		if len(body) > len(h) && body[len(h)] != ' ' {
+			continue
+		}
+		switch {
+		case len(h) > bestLen:
+			best, bestLen, matches = p, len(h), 1
+		case len(h) == bestLen:
+			matches++
 		}
 	}
-	return sim.SessionPlayer{}, false
+	if matches == 0 {
+		return sim.SessionPlayer{}, "", 0
+	}
+	return best, body[bestLen:], matches
+}
+
+// RestoreChatDraft reopens the chat input with the given draft — the
+// serve wrapper's door for handing a refused DM back to the player
+// instead of destroying up to 120 typed runes (v0.32 review finding:
+// the target can go offline between the roster tick and Enter).
+func (a *App) RestoreChatDraft(draft string) {
+	a.chatOpen = true
+	a.chatInput = []rune(draft)
+	a.chatTabbing = false
 }
 
 // chatTabComplete completes a leading @prefix against the online
@@ -1872,11 +1914,15 @@ func (a *App) chatLookup(handle string) (sim.SessionPlayer, bool) {
 // @word itself completes — once a space is typed the handle is
 // committed and tab is inert.
 func (a *App) chatTabComplete() {
-	cur := string(a.chatInput)
-	if !strings.HasPrefix(cur, "@") || strings.ContainsRune(cur, ' ') {
-		return
-	}
+	// The no-spaces guard applies only when STARTING a cycle — while a
+	// cycle is live the input is exactly "@<candidate>", which may
+	// itself contain spaces ("mission control"), and tab must keep
+	// cycling past it to the other candidates (v0.32 review finding).
 	if !a.chatTabbing {
+		cur := string(a.chatInput)
+		if !strings.HasPrefix(cur, "@") || strings.ContainsRune(cur, ' ') {
+			return
+		}
 		a.chatTabbing, a.chatTabBase, a.chatTabIdx = true, cur[1:], -1
 	}
 	info := a.world.Session
