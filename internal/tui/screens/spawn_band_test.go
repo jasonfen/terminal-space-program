@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // #221 part 2: the spawn form flags posOrbit presets that fall in the
@@ -12,9 +13,9 @@ import (
 // itself never derives coverage.
 
 // bandStub returns a canned coverage per altitude (km-keyed), defaulting
-// to full coverage.
-func bandStub(byAltKm map[int]float64) func(string, float64) (float64, bool) {
-	return func(bodyID string, altM float64) (float64, bool) {
+// to full coverage, and records the antenna range of the last call.
+func bandStub(byAltKm map[int]float64) func(string, float64, float64) (float64, bool) {
+	return func(bodyID string, altM, antennaRangeM float64) (float64, bool) {
 		if cov, ok := byAltKm[int(altM/1000)]; ok {
 			return cov, true
 		}
@@ -26,7 +27,7 @@ func bandTestBodies() []bodies.CelestialBody {
 	return []bodies.CelestialBody{{ID: "earth", Name: "Earth"}}
 }
 
-func resetWithBand(s *SpawnCraft, cov func(string, float64) (float64, bool)) {
+func resetWithBand(s *SpawnCraft, cov func(string, float64, float64) (float64, bool)) {
 	s.Reset(bandTestBodies(), "earth", nil, "", cov)
 }
 
@@ -65,6 +66,41 @@ func TestSpawnFormNoBandWarningWithoutSampler(t *testing.T) {
 	setAltPreset(t, s, 5000)
 	if out := s.Render(80); strings.Contains(out, "degraded comms band") {
 		t.Errorf("no sampler injected → no claim made:\n%s", out)
+	}
+}
+
+// Review fixes (v0.32 batch): the warning must describe the craft being
+// spawned — crewed loadouts are never comms-gated so they get no
+// warning, and the sampler receives the selected stack's best antenna
+// so a relay craft isn't warned off the constellation-building spawn.
+
+func TestSpawnFormCrewedLoadoutNeverWarned(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	resetWithBand(s, bandStub(map[int]float64{5000: 0.5}))
+	selectCustom(s)
+	s.customStages = []spacecraft.Stage{{Name: "Pod", CommandSource: spacecraft.CommandCrewed}}
+	setAltPreset(t, s, 5000)
+	if out := s.Render(80); strings.Contains(out, "degraded comms band") || strings.Contains(out, "out of network reach") {
+		t.Errorf("a crewed craft is never comms-gated — no warning applies:\n%s", out)
+	}
+}
+
+func TestSpawnFormPassesSelectedAntennaToSampler(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	var gotRange float64
+	s.Reset(bandTestBodies(), "earth", nil, "", func(bodyID string, altM, antennaRangeM float64) (float64, bool) {
+		gotRange = antennaRangeM
+		return 1.0, true
+	})
+	selectCustom(s)
+	s.customStages = []spacecraft.Stage{{
+		Name: "Bus", CommandSource: spacecraft.CommandProbe,
+		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+	}}
+	setAltPreset(t, s, 5000)
+	_ = s.Render(80)
+	if gotRange != spacecraft.AntennaRangeRelayCislunar {
+		t.Errorf("sampler must receive the selected stack's antenna range; got %g", gotRange)
 	}
 }
 

@@ -58,6 +58,49 @@ func TestDisconnectReasonIgnoresDeadEndNeighbours(t *testing.T) {
 	}
 }
 
+func TestDisconnectReasonIgnoresDisconnectedRelay(t *testing.T) {
+	// Review finding (v0.32 batch): a probe travelling WITH a relay,
+	// both beyond every station's reach — the standard send-a-probe-
+	// plus-relay-outward flow. The dead relay next door is not "the
+	// network in range": another relay changes nothing, so the advice
+	// must be antenna for BOTH craft, and two craft in the identical
+	// predicament must never read contradictory advice.
+	nodes := []commNode{
+		station(0, 1e9, 100000), // far beyond everyone
+		probeNode(1, 0, 3000, false),
+		probeNode(2, 500, 100000, true), // relay antenna, also disconnected
+	}
+	res := connectivityFull(nodes, nil)
+	reasons := classifyDisconnects(nodes, res)
+	if got := reasons[1]; got != CommDisconnectOutOfRange {
+		t.Errorf("probe beside a DISCONNECTED relay: reason = %v, want CommDisconnectOutOfRange (a dead relay is not the network)", got)
+	}
+	if got := reasons[2]; got != CommDisconnectOutOfRange {
+		t.Errorf("the relay itself: reason = %v, want CommDisconnectOutOfRange", got)
+	}
+}
+
+func TestDisconnectReasonCountsConnectedRelay(t *testing.T) {
+	// The complement: a CONNECTED relay in range (occluded from the
+	// probe) IS the network — the geometry is the problem, advise a
+	// relay. Station←→relay link is clear; probe is in range of the
+	// relay only, with a body on that segment.
+	occ := []physics.OccluderBody{{Center: orbital.Vec3{X: 95000}, Radius: 50}}
+	nodes := []commNode{
+		station(0, 0, 100000),
+		probeNode(1, 100000, 3000, false), // out of station range (√(3e3·1e5)≈17.3 km)
+		relayNode(90000, 100000),          // linked to the station, networked
+	}
+	res := connectivityFull(nodes, occ)
+	if res.connected[1] {
+		t.Fatalf("probe should be disconnected (occluded from the relay)")
+	}
+	reasons := classifyDisconnects(nodes, res)
+	if got := reasons[1]; got != CommDisconnectBlocked {
+		t.Errorf("probe occluded from a CONNECTED relay in range: reason = %v, want CommDisconnectBlocked", got)
+	}
+}
+
 func TestDisconnectReasonConnectedProbeHasNone(t *testing.T) {
 	nodes := []commNode{
 		station(0, 0, 100000),

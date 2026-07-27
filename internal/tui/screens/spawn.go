@@ -81,21 +81,21 @@ type SpawnCraft struct {
 	groupsValid   bool
 
 	// bandCoverage (#221, ADR 0027 v0.32 amendment §2) samples the live
-	// CommNet model for a (bodyID, altitude) — injected at Reset (the App
-	// passes World.CommBandCoverage) so the form itself never derives
-	// coverage; a second formula here would drift from the model. nil
-	// (tests, no world) ⇒ no warning is ever claimed. bandCache memoises
-	// per parentIdx|altIdx — sampling costs ~400 connectivity solves, fine
-	// once per cursor position, wasteful per render frame.
-	bandCoverage func(bodyID string, altM float64) (float64, bool)
-	bandCache    map[[2]int]float64
+	// CommNet model for a (bodyID, altitude, antenna) — injected at Reset
+	// (the App passes World.CommBandCoverage) so the form itself never
+	// derives coverage; a second formula here would drift from the model.
+	// nil (tests, no world) ⇒ no warning is ever claimed. bandCache
+	// memoises per (parent, altitude, antenna) — sampling costs ~400
+	// connectivity solves, fine once per cursor position, wasteful per
+	// render frame.
+	bandCoverage func(bodyID string, altM, antennaRangeM float64) (float64, bool)
+	bandCache    map[bandCacheKey]float64
 }
 
-// spawnBandDegradedBelow mirrors sim.CommBandDegradedThreshold without
-// importing the value into the render path: coverage under this flags
-// the preset; exactly zero switches to the out-of-reach wording (a
-// relay is a bum steer when nothing is in range at all).
-const spawnBandDegradedBelow = 0.995
+type bandCacheKey struct {
+	parentIdx, altIdx int
+	antennaRangeM     float64
+}
 
 // stackFieldIdx is the form-field index of the STACK editor — only
 // reachable (Tab includes it) when the Custom loadout is selected.
@@ -129,9 +129,9 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 // the parent-field cursor lands on initially (typically the active
 // craft's current primary). v0.8.2+: replaces the v0.8.2-pre
 // no-arg Reset.
-func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass, bandCoverage func(bodyID string, altM float64) (float64, bool)) {
+func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass, bandCoverage func(bodyID string, altM, antennaRangeM float64) (float64, bool)) {
 	s.bandCoverage = bandCoverage
-	s.bandCache = map[[2]int]float64{}
+	s.bandCache = map[bandCacheKey]float64{}
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
 	s.customStages = nil
@@ -856,11 +856,15 @@ func (s *SpawnCraft) Render(width int) string {
 }
 
 // bandWarning classifies the focused (parent, altitude) preset against
-// the sampled CommNet coverage (#221): a preset in the degraded band
-// names the band AND the fix (relays); zero coverage is the out-of-range
-// case and must not advise a relay. Empty when the sampler is absent,
-// the position mode doesn't orbit, or coverage is clean — the form never
-// guesses.
+// the sampled CommNet coverage (#221) FOR THE CRAFT BEING SPAWNED: a
+// crewed loadout is never comms-gated so it gets no warning at all, and
+// the sampler models the selected craft's own best antenna — a Relay-Tug
+// at the Moon links home and must not be warned off the exact spawn the
+// band pressure exists to motivate (v0.32 review finding). A preset in
+// the degraded band names the band AND the fix (relays); zero coverage
+// is the out-of-range case and must not advise a relay. Empty when the
+// sampler is absent, the position mode doesn't orbit, or coverage is
+// clean — the form never guesses.
 func (s *SpawnCraft) bandWarning() string {
 	if s.bandCoverage == nil || s.posMode != posOrbit {
 		return ""
@@ -868,10 +872,14 @@ func (s *SpawnCraft) bandWarning() string {
 	if s.parentIdx < 0 || s.parentIdx >= len(s.parentBodies) {
 		return ""
 	}
-	key := [2]int{s.parentIdx, s.altIdx}
+	crewed, antennaRangeM := spawnCommsProfile(s.selectedCraftStages())
+	if crewed {
+		return "" // crewed vessels are never comms-gated
+	}
+	key := bandCacheKey{parentIdx: s.parentIdx, altIdx: s.altIdx, antennaRangeM: antennaRangeM}
 	cov, cached := s.bandCache[key]
 	if !cached {
-		c, ok := s.bandCoverage(s.parentBodies[s.parentIdx].ID, s.SelectedAltitudeM())
+		c, ok := s.bandCoverage(s.parentBodies[s.parentIdx].ID, s.SelectedAltitudeM(), antennaRangeM)
 		if !ok {
 			return ""
 		}
@@ -881,10 +889,27 @@ func (s *SpawnCraft) bandWarning() string {
 	switch {
 	case cov <= 0:
 		return "⚠ out of network reach — no signal at this body"
-	case cov < spawnBandDegradedBelow:
+	case cov < sim.CommBandDegradedThreshold:
 		return fmt.Sprintf("⚠ degraded comms band — ~%d%% coverage, relays advised", int(cov*100+0.5))
 	}
 	return ""
+}
+
+// spawnCommsProfile derives the comms-relevant shape of a stage list the
+// way vessel construction does: crewed if any stage carries a crewed
+// command source, and the best stage antenna's rated range (zero → the
+// caller lets the sampler assume the EnsureCommandSource direct-basic
+// backfill every non-debris vessel receives).
+func spawnCommsProfile(stages []spacecraft.Stage) (crewed bool, antennaRangeM float64) {
+	for _, st := range stages {
+		if st.CommandSource == spacecraft.CommandCrewed {
+			crewed = true
+		}
+		if st.AntennaKind != spacecraft.AntennaNone && st.AntennaRangeM > antennaRangeM {
+			antennaRangeM = st.AntennaRangeM
+		}
+	}
+	return crewed, antennaRangeM
 }
 
 // craftRow renders one selectable CRAFT TYPE row (a catalog loadout, the

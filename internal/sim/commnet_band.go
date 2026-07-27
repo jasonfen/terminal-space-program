@@ -36,22 +36,31 @@ const (
 	CommBandDegradedThreshold = 0.995
 )
 
-// CommBandCoverage samples connectivity for a hypothetical direct-basic
-// probe in a circular EQUATORIAL orbit of bodyID at altM, over orbit
-// phase × body rotation phase, and returns the connected fraction.
-// ok=false when the body is not in the viewed system. Equatorial in the
-// body-equatorial frame (frame.go is the boundary) — the amendment's
-// scratch harness sampled ecliptic-frame orbits and its inclination
-// figures were confounded with axial tilt; the form spawns exactly one
-// plane (posOrbit has no inclination field), and this samples that
-// plane. Live craft are deliberately excluded: the label describes the
-// preset band of the station model, deterministic per (body, altitude),
-// not the player's current relay constellation.
-func (w *World) CommBandCoverage(bodyID string, altM float64) (float64, bool) {
+// CommBandCoverage samples connectivity for a hypothetical probe with
+// the given antenna rated range (≤0 → the direct-basic backfill every
+// non-debris vessel carries) in a circular EQUATORIAL orbit of bodyID
+// at altM, over orbit phase × body rotation phase, and returns the
+// connected fraction. The antenna matters (v0.32 review finding): a
+// Relay-Tug at the Moon links to Earth's ring while a direct-basic
+// probe there is genuinely out of reach — warning the relay spawn "out
+// of network reach" would steer the player off the exact constellation
+// the band exists to motivate. ok=false when the body is not in the
+// viewed system. Equatorial in the body-equatorial frame (frame.go is
+// the boundary) — the amendment's scratch harness sampled ecliptic-
+// frame orbits and its inclination figures were confounded with axial
+// tilt; the form spawns exactly one plane (posOrbit has no inclination
+// field), and this samples that plane. Live craft are deliberately
+// excluded: the label describes the preset band of the station model,
+// deterministic per (body, altitude, antenna), not the player's current
+// relay constellation.
+func (w *World) CommBandCoverage(bodyID string, altM, antennaRangeM float64) (float64, bool) {
 	sys := w.System()
 	body := sys.FindBody(bodyID)
 	if body == nil || altM <= 0 {
 		return 0, false
+	}
+	if antennaRangeM <= 0 {
+		antennaRangeM = spacecraft.DefaultProbeAntennaRangeM
 	}
 
 	// Occluders: every body in the system, frozen at SimTime — orbital
@@ -85,9 +94,15 @@ func (w *World) CommBandCoverage(bodyID string, altM float64) (float64, bool) {
 	bodyPos := w.BodyPosition(*body)
 
 	rotSamples := commBandRotationSamples
-	rotPeriod := body.SideralRotationSeconds()
-	if rotPeriod <= 0 {
-		rotSamples = 1 // a non-rotating body has one station geometry
+	// Sweep by |period|: SideralRotation is signed (retrograde Venus /
+	// Uranus are negative), and a retrograde host sweeps its stations
+	// the same as a prograde one — collapsing to a single sample would
+	// reintroduce the aliasing this grid exists to prevent (v0.32
+	// review finding). Only a genuinely non-rotating body (period 0)
+	// has one station geometry.
+	rotPeriod := math.Abs(body.SideralRotationSeconds())
+	if rotPeriod == 0 {
+		rotSamples = 1
 	}
 
 	connected, total := 0, 0
@@ -119,7 +134,7 @@ func (w *World) CommBandCoverage(bodyID string, altM float64) (float64, bool) {
 			rBody := orbital.Vec3{X: r * math.Cos(phi), Y: r * math.Sin(phi)}
 			probe := commNode{
 				pos:      bodyPos.Add(frame.ToWorld(rBody)),
-				rangeM:   spacecraft.AntennaRangeDirectBasic,
+				rangeM:   antennaRangeM,
 				probe:    true,
 				craftID:  probeID,
 				bodyID:   bodyID,
