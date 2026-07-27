@@ -53,6 +53,17 @@ type UndockGuestMsg struct{}
 // TransferControlMsg requests handing the active cross-player stack to the guest.
 type TransferControlMsg struct{}
 
+// ChatSendMsg is a chat line on its way up to the serve wrapper, which
+// owns the chat ring (ADR 0035). To/ToHandle address a DM at one player
+// (resolved against the online roster before sending); both empty means
+// broadcast. Inert in solo play — chat is unavailable without a session,
+// like the rest of SessionInfo.
+type ChatSendMsg struct {
+	Text     string
+	To       string // target fingerprint, "" = broadcast
+	ToHandle string
+}
+
 // App is the root tea.Model. It owns the world, theme, keymap, and which
 // screen is active. Screens read from the shared world; they don't
 // mutate it.

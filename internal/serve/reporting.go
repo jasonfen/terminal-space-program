@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -133,6 +134,37 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.srv != nil {
 			m.srv.dock.RequestTransfer(m.owner)
 		}
+		return m, nil
+	}
+
+	// Chat send (ADR 0035 S2): the input overlay emits the line; the
+	// wrapper owns the ring. The overlay already refuses unmatched or
+	// offline @handles (keeping the typed text), but that is UX — this
+	// handler re-checks liveness so a stale roster snapshot can't slip a
+	// DM to a dead session, and resolves the sender's handle through the
+	// roster so the rendered name can't be spoofed by the screen.
+	if chat, ok := msg.(tui.ChatSendMsg); ok {
+		if m.srv == nil || strings.TrimSpace(chat.Text) == "" {
+			return m, nil
+		}
+		if chat.To != "" && !m.srv.presence.isOnline(chat.To) {
+			m.app.Toast(chat.ToHandle + " is offline — not sent")
+			return m, nil
+		}
+		ownHandle := m.owner
+		h, ok := m.handleOf(m.owner)
+		if !ok {
+			// A send can beat the first tick's lazy meta refresh — read
+			// the roster now rather than render a raw fingerprint.
+			if meta, err := m.srv.store.Meta(); err == nil {
+				m.meta, m.metaAt = meta, time.Now()
+				h, ok = m.handleOf(m.owner)
+			}
+		}
+		if ok {
+			ownHandle = h
+		}
+		m.srv.chat.post(m.owner, ownHandle, chat.To, chat.ToHandle, chat.Text)
 		return m, nil
 	}
 
@@ -451,6 +483,10 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	}
 	m.localEvents = kept
 	w.SessionEvents = append(events, m.localEvents...)
+
+	// Chat slate (ADR 0035): the viewer's cut of the chat ring — own
+	// lines included, other players' DMs excluded.
+	w.ChatLines = m.srv.chat.linesFor(m.owner)
 }
 
 func (m reportingModel) View() string { return m.inner.View() }
@@ -536,7 +572,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	// Back to solo: clear the slates the wrapper had been feeding so the
 	// Session screen shows the [h]-start dead-end again.
 	w := m.app.World()
-	w.Session, w.Ghosts, w.SessionEvents = nil, nil, nil
+	w.Session, w.Ghosts, w.SessionEvents, w.ChatLines = nil, nil, nil, nil
 	// Clear the multiplayer coupling slates too (v0.28 finding 2): the tick
 	// path that recomputes co-warp / docked-as-guest is gated on m.srv != nil,
 	// so once hosting stops it never runs again. A stale w.CoWarp.MinWarp would
