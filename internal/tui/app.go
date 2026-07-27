@@ -161,7 +161,26 @@ type App struct {
 	// n/N/Esc cancels. Session-only state — not persisted (the
 	// confirmation has no meaning across a save / load boundary).
 	endFlightConfirm bool
+
+	// Chat input overlay (ADR 0035 S3). App-level rather than a screen
+	// so the capturingText obligation is one unconditional check — not
+	// another arm of the per-screen switch a future screen could forget.
+	// While chatOpen the sim keeps running and every key is text or an
+	// editing action (accepted cost: flight keys are captured). The tab
+	// state drives @handle completion cycling: chatTabbing marks a cycle
+	// in progress (any edit ends it), chatTabBase is the typed prefix
+	// the candidate list is built from (may legitimately be empty — a
+	// bare @ matches everyone), chatTabIdx the candidate last offered.
+	chatOpen    bool
+	chatInput   []rune
+	chatTabbing bool
+	chatTabBase string
+	chatTabIdx  int
 }
+
+// chatInputRuneCap mirrors the serve-side message cap (the ring
+// truncates authoritatively; capping here keeps typing honest).
+const chatInputRuneCap = 120
 
 // New builds a root App. Returns an error if systems can't load. When
 // scenario is non-nil, the fresh world's default LEO seed is replaced per
@@ -608,6 +627,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.Clock.Paused = true // freeze the sim while "away"
 			a.boss.Reset()              // fresh lived-in session each open
 			a.active = screenBoss
+			return a, nil
+		}
+		// Chat capture (ADR 0035 S3): while the input is up, every key
+		// is text or an editing action — the unconditional return keeps
+		// flight controls, screens, and the boss key out of reach. Sits
+		// above endFlightConfirm by construction, but the two can't
+		// coexist: the confirm swallows ~, and while chatting E is text.
+		if a.chatOpen {
+			return a.handleChatKey(m)
+		}
+		// ~ opens chat from the flight view (ADR 0035 §4; U+007E, a
+		// different rune from the U+0060 boss key, and absent from every
+		// layout map so normalization passed it through untouched).
+		if a.active == screenOrbit && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
+			if a.world.Session == nil {
+				// Solo: say so — a dead key reads as broken (v0.30 lesson).
+				a.toast("chat is multiplayer — host or join a session [O]")
+				return a, nil
+			}
+			a.chatOpen = true
+			a.chatInput = a.chatInput[:0]
+			a.chatTabbing = false
 			return a, nil
 		}
 		// v0.11.4+ (ADR 0004): end-flight y/n confirm intercept. When
@@ -1728,6 +1769,11 @@ func (a *App) closeSavesToOrbit() {
 // capturing; the Saves browser only during name entry (Save-As/rename).
 // Extend here as future free-text surfaces (VAB, spawn, search) land.
 func (a *App) capturingText() bool {
+	// The chat overlay is App-level, not a screen — checked before the
+	// per-screen switch so it can never be forgotten there (ADR 0035).
+	if a.chatOpen {
+		return true
+	}
 	switch a.active {
 	case screenBoss:
 		return true
@@ -1737,6 +1783,120 @@ func (a *App) capturingText() bool {
 		return a.session.CapturingText()
 	}
 	return false
+}
+
+// handleChatKey routes every keypress while the chat input is up
+// (ADR 0035 S3). Switch on msg.Type, not String, and return
+// unconditionally — the mint-invite discipline — so nothing leaks to
+// flight controls.
+func (a *App) handleChatKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.Type {
+	case tea.KeyEscape:
+		a.chatOpen, a.chatInput, a.chatTabbing = false, a.chatInput[:0], false
+	case tea.KeyEnter:
+		return a.sendChat()
+	case tea.KeyBackspace:
+		if len(a.chatInput) > 0 {
+			a.chatInput = a.chatInput[:len(a.chatInput)-1]
+		}
+		a.chatTabbing = false
+	case tea.KeyTab:
+		a.chatTabComplete()
+	case tea.KeySpace:
+		a.chatAppend(' ')
+	case tea.KeyRunes:
+		for _, r := range m.Runes {
+			a.chatAppend(r)
+		}
+	}
+	return a, nil
+}
+
+func (a *App) chatAppend(r rune) {
+	if len(a.chatInput) < chatInputRuneCap {
+		a.chatInput = append(a.chatInput, r)
+	}
+	a.chatTabbing = false
+}
+
+// sendChat parses the drafted line and emits the ChatSendMsg the serve
+// wrapper acts on. A leading @handle addresses a DM: case-insensitive
+// exact match against the ONLINE roster; a miss refuses to send and
+// leaves the text intact — never a silent fall-back to broadcast
+// (ADR 0035 §7).
+func (a *App) sendChat() (tea.Model, tea.Cmd) {
+	text := strings.TrimSpace(string(a.chatInput))
+	if text == "" {
+		a.chatOpen, a.chatInput = false, a.chatInput[:0]
+		return a, nil
+	}
+	msg := ChatSendMsg{Text: text}
+	if strings.HasPrefix(text, "@") {
+		handle, rest, _ := strings.Cut(text[1:], " ")
+		p, ok := a.chatLookup(handle)
+		if !ok {
+			a.toast("no online player \"" + handle + "\" — not sent")
+			return a, nil
+		}
+		rest = strings.TrimSpace(rest)
+		if rest == "" {
+			a.toast("message is empty — not sent")
+			return a, nil
+		}
+		msg = ChatSendMsg{Text: rest, To: p.Fingerprint, ToHandle: p.Handle}
+	}
+	a.chatOpen, a.chatInput, a.chatTabbing = false, a.chatInput[:0], false
+	return a, func() tea.Msg { return msg }
+}
+
+// chatLookup resolves a handle against the online roster, excluding the
+// viewer — you cannot DM yourself, and completion should not offer it.
+func (a *App) chatLookup(handle string) (sim.SessionPlayer, bool) {
+	info := a.world.Session
+	if info == nil {
+		return sim.SessionPlayer{}, false
+	}
+	for _, p := range info.Players {
+		if !p.Online || p.Fingerprint == info.Self {
+			continue
+		}
+		if strings.EqualFold(p.Handle, handle) {
+			return p, true
+		}
+	}
+	return sim.SessionPlayer{}, false
+}
+
+// chatTabComplete completes a leading @prefix against the online
+// roster; repeated tab cycles the matches (ADR 0035 §7). Only the
+// @word itself completes — once a space is typed the handle is
+// committed and tab is inert.
+func (a *App) chatTabComplete() {
+	cur := string(a.chatInput)
+	if !strings.HasPrefix(cur, "@") || strings.ContainsRune(cur, ' ') {
+		return
+	}
+	if !a.chatTabbing {
+		a.chatTabbing, a.chatTabBase, a.chatTabIdx = true, cur[1:], -1
+	}
+	info := a.world.Session
+	if info == nil {
+		return
+	}
+	var cands []string
+	for _, p := range info.Players {
+		if !p.Online || p.Fingerprint == info.Self {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(p.Handle), strings.ToLower(a.chatTabBase)) {
+			cands = append(cands, p.Handle)
+		}
+	}
+	if len(cands) == 0 {
+		return
+	}
+	a.chatTabIdx = (a.chatTabIdx + 1) % len(cands)
+	a.chatInput = []rune("@" + cands[a.chatTabIdx])
 }
 
 // refreshSaves re-lists the directory into the open Saves screen after
@@ -2107,6 +2267,17 @@ func (a *App) View() string {
 		}
 		prompt := fmt.Sprintf("END FLIGHT — remove %s? [y/n]", name)
 		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
+	}
+	// Chat input (ADR 0035 S3) rides the same band and wins it while
+	// open — it is the live actionable state. A concurrent toast (a DM
+	// refusal) rides along after the draft so refusals stay visible
+	// while the text waits to be fixed.
+	if a.chatOpen {
+		line := "~ " + string(a.chatInput) + "▏"
+		if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
+			line += "  " + a.theme.Warning.Render(a.statusMsg)
+		}
+		base = overlayBottomBorder(base, a.theme.Primary.Render(line), border)
 	}
 	return base
 }
