@@ -269,7 +269,8 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 	case w.RendezvousArm != nil:
 		arm := w.RendezvousArm
 		status := v.theme.Warning.Render("  armed → " + arm.Handle + " — waiting for them to join")
-		if wt := w.RendezvousWait; wt.Reason == sim.RendezvousWaitSubspaceGap {
+		switch wt := w.RendezvousWait; wt.Reason {
+		case sim.RendezvousWaitSubspaceGap:
 			// #250: "waiting for them to join" would blame the partner for
 			// a gap the viewer (or the partner) warped open — name who is
 			// ahead and the actual fix instead. Sync is forward-only, so
@@ -281,6 +282,11 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 				fix = "Sync to rejoin"
 			}
 			status = v.theme.Alert.Render("  cannot couple — " + who + " — " + fix)
+		case sim.RendezvousWaitSelf:
+			// #260: same misattribution family — the partner DID join, and
+			// the viewer's own Sync or node-chase is what defers the coast.
+			// Own the wait instead of blaming them or advising a Sync.
+			status = v.theme.Warning.Render("  your Auto-Warp is running — coast starts when it releases")
 		}
 		return []string{
 			v.theme.Primary.Render("RENDEZVOUS"),

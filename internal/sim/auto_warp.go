@@ -271,6 +271,11 @@ const (
 	// CoWarpSubspaceTolerance, so the coast cannot start no matter what
 	// the partner does — Sync is the only way back.
 	RendezvousWaitSubspaceGap
+	// RendezvousWaitSelf: the partner HAS armed back, but the viewer's
+	// own non-rendezvous Auto-Warp (a Sync or node-chase) is engaged —
+	// driveRendezvousCoast defers the coast start rather than clobber it
+	// (#260), so the wait is the viewer's own doing, not the partner's.
+	RendezvousWaitSelf
 )
 
 // RendezvousWait is the classified armed-but-not-coasting slate (#250):
@@ -299,6 +304,21 @@ func (w *World) refreshRendezvousWait(peers []CoWarpPeer) {
 		p := &peers[i]
 		if p.Owner != arm.TargetOwner {
 			continue
+		}
+		// Own-driver deferral (#260): the partner HAS armed back, but the
+		// viewer's own Sync or node-chase holds the driver, so
+		// driveRendezvousCoast defers the coast start. The predicate is an
+		// exact mirror of that don't-clobber branch (partner armed back +
+		// `w.AutoWarp != nil` with the coast not engaged), so the
+		// classifier can never disagree with the driver. Checked BEFORE
+		// the gap — also mirroring the driver's order — because Self is
+		// the actionable reason: the player must release their own driver
+		// first regardless, and that driver may be the very Sync that is
+		// closing the gap ("Sync to rejoin" while already Syncing would
+		// be nonsense advice).
+		if p.ArmedTowardViewer && w.AutoWarp != nil && !w.AutoWarp.Rendezvous {
+			w.RendezvousWait = RendezvousWait{Reason: RendezvousWaitSelf}
+			return
 		}
 		if !sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
 			w.RendezvousWait = RendezvousWait{
