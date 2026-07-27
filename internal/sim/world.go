@@ -273,6 +273,11 @@ type World struct {
 	Session       *SessionInfo
 	SessionEvents []SessionEvent
 
+	// ChatLines is the viewer's slice of the transient chat ring
+	// (ADR 0035) — same contract as SessionEvents, but its own ring on
+	// the serve side so chat volume can never evict session moments.
+	ChatLines []ChatLine
+
 	// DockGuest is set when one of this player's craft rides in another
 	// player's live stack (Docked-as-Guest, v0.28 S5, ADR 0034 §6). The
 	// serve layer writes it each tick from the dock ledger; the guest's
