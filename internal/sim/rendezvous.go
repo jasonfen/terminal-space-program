@@ -138,6 +138,20 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	if active == nil || !w.HasRelativeTarget() {
 		return time.Time{}, 0, false
 	}
+	// Shared-primary gate (#261): the fallback below Kepler-propagates the
+	// target's state around the ACTIVE craft's primary. For a target
+	// orbiting another body, TargetStateRelativeToActivePrimary happily
+	// converts via inertial — but the converted state is not on a conic
+	// around this primary, so a closest approach found on it is
+	// dynamically meaningless. Gate on primary IDENTITY (the same signal
+	// rendezvousNextWaypoint's peer-set fallback filters on, c.Primary ==
+	// active.Primary.ID), never on state math: refusing here lets the
+	// standing intent (#252) fall through to the same-primary peer-set
+	// search and, when that too is empty, to idle-and-retry with the
+	// degrade warning up (armedPartnerLacksLocalCraft).
+	if primary, pok := w.rendezvousTargetPrimary(); !pok || primary.ID != active.Primary.ID {
+		return time.Time{}, 0, false
+	}
 	rT, vT, rok := w.TargetStateRelativeToActivePrimary()
 	if !rok {
 		return time.Time{}, 0, false
