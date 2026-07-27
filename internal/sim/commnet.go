@@ -121,6 +121,12 @@ type commNode struct {
 type connectivityResult struct {
 	connected map[uint64]bool
 	paths     map[uint64][]int // probe id → node-index chain probe…station
+	// networked marks, per node index, membership in the live network: a
+	// station, or a forwarder with an unoccluded relay chain to one. The
+	// reason classifier (#221) counts only these as "the network in
+	// range" — a disconnected relay next to a disconnected probe is not
+	// evidence that a relay would help (v0.32 review finding).
+	networked []bool
 }
 
 // connectivity builds the adjacency graph over nodes (a link needs both
@@ -158,16 +164,40 @@ func connectivityFull(nodes []commNode, occ []physics.OccluderBody) connectivity
 			res.paths[nodes[i].craftID] = path
 		}
 	}
+	// Multi-source BFS from every station, expanding through forwarders
+	// only: which nodes are part of the live network? Covers crewed
+	// relays too (they carry no probe BFS entry but forward fine).
+	res.networked = make([]bool, n)
+	var queue []int
+	for i := 0; i < n; i++ {
+		if nodes[i].station {
+			res.networked[i] = true
+			queue = append(queue, i)
+		}
+	}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, nb := range adj[cur] {
+			if res.networked[nb] || !nodes[nb].forwards {
+				continue
+			}
+			res.networked[nb] = true
+			queue = append(queue, nb)
+		}
+	}
 	return res
 }
 
 // classifyDisconnects is the post-hoc pass over the solved graph (#221):
-// for each disconnected probe, is any piece of the NETWORK — a station
-// or a forwarding relay — within link range, occlusion ignored? If so
-// the failure is geometry (relay needed); if not, reach (stronger
-// antenna). Dead-end neighbours (direct-only craft) don't count: being
-// in range of one says nothing about reaching the network. Pure, like
-// connectivityFull, so it unit-tests on synthetic nodes.
+// for each disconnected probe, is any piece of the LIVE network — a
+// station, or a forwarder that itself reaches one (res.networked) —
+// within link range, occlusion ignored? If so the failure is geometry
+// (relay needed); if not, reach (stronger antenna). Dead-end neighbours
+// don't count, and neither does a DISCONNECTED relay: a probe and a
+// relay travelling together beyond every station's reach must both read
+// "stronger antenna", not contradict each other (v0.32 review finding).
+// Pure, like connectivityFull, so it unit-tests on synthetic nodes.
 func classifyDisconnects(nodes []commNode, res connectivityResult) map[uint64]CommDisconnectReason {
 	reasons := map[uint64]CommDisconnectReason{}
 	for i, p := range nodes {
@@ -176,7 +206,7 @@ func classifyDisconnects(nodes []commNode, res connectivityResult) map[uint64]Co
 		}
 		reason := CommDisconnectOutOfRange
 		for j, n := range nodes {
-			if j == i || (!n.station && !n.forwards) {
+			if j == i || !res.networked[j] {
 				continue
 			}
 			if p.rangeM <= 0 || n.rangeM <= 0 {
