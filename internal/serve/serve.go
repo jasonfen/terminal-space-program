@@ -83,6 +83,7 @@ type Server struct {
 	relay    *relay.Store
 	dock     *relay.DockLedger
 	presence *presence
+	chat     *chatRing
 
 	// ver is the running-vs-available version readout (v0.30 S5). Created
 	// here (no network — just the running version + adopt-capability env);
@@ -171,7 +172,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	srv := &Server{
 		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(),
-		presence: newPresence(), ver: newVersionSurface(),
+		presence: newPresence(), chat: newChatRing(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
 		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
 		away: newAwayWatch(), mail: newAwayMail(), admit: newAdmission(),
