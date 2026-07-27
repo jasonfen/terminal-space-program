@@ -79,7 +79,23 @@ type SpawnCraft struct {
 	groupsShowAll bool
 	groupsScale   bodies.ScaleClass
 	groupsValid   bool
+
+	// bandCoverage (#221, ADR 0027 v0.32 amendment §2) samples the live
+	// CommNet model for a (bodyID, altitude) — injected at Reset (the App
+	// passes World.CommBandCoverage) so the form itself never derives
+	// coverage; a second formula here would drift from the model. nil
+	// (tests, no world) ⇒ no warning is ever claimed. bandCache memoises
+	// per parentIdx|altIdx — sampling costs ~400 connectivity solves, fine
+	// once per cursor position, wasteful per render frame.
+	bandCoverage func(bodyID string, altM float64) (float64, bool)
+	bandCache    map[[2]int]float64
 }
+
+// spawnBandDegradedBelow mirrors sim.CommBandDegradedThreshold without
+// importing the value into the render path: coverage under this flags
+// the preset; exactly zero switches to the out-of-reach wording (a
+// relay is a bum steer when nothing is in range at all).
+const spawnBandDegradedBelow = 0.995
 
 // stackFieldIdx is the form-field index of the STACK editor — only
 // reachable (Tab includes it) when the Custom loadout is selected.
@@ -113,7 +129,9 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 // the parent-field cursor lands on initially (typically the active
 // craft's current primary). v0.8.2+: replaces the v0.8.2-pre
 // no-arg Reset.
-func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass) {
+func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass, bandCoverage func(bodyID string, altM float64) (float64, bool)) {
+	s.bandCoverage = bandCoverage
+	s.bandCache = map[[2]int]float64{}
 	s.fieldIdx = 0
 	s.loadoutIdx = 0
 	s.customStages = nil
@@ -815,6 +833,9 @@ func (s *SpawnCraft) Render(width int) string {
 		lines = append(lines, s.fieldHeader(3, "ALTITUDE"))
 		altLabel := fmt.Sprintf("%d km", altitudePresets[s.altIdx])
 		lines = append(lines, "  "+s.fieldValueDimmed(3, altLabel, dimAlt))
+		if warn := s.bandWarning(); warn != "" {
+			lines = append(lines, "  "+s.theme.Warning.Render(warn))
+		}
 	}
 
 	// Field 4: direction — toggle. Ignored in launchpad mode.
@@ -832,6 +853,38 @@ func (s *SpawnCraft) Render(width int) string {
 		"[tab] field  [←/→] cycle  [f] system filter  [enter] spawn  [esc] cancel"))
 
 	return strings.Join(lines, "\n")
+}
+
+// bandWarning classifies the focused (parent, altitude) preset against
+// the sampled CommNet coverage (#221): a preset in the degraded band
+// names the band AND the fix (relays); zero coverage is the out-of-range
+// case and must not advise a relay. Empty when the sampler is absent,
+// the position mode doesn't orbit, or coverage is clean — the form never
+// guesses.
+func (s *SpawnCraft) bandWarning() string {
+	if s.bandCoverage == nil || s.posMode != posOrbit {
+		return ""
+	}
+	if s.parentIdx < 0 || s.parentIdx >= len(s.parentBodies) {
+		return ""
+	}
+	key := [2]int{s.parentIdx, s.altIdx}
+	cov, cached := s.bandCache[key]
+	if !cached {
+		c, ok := s.bandCoverage(s.parentBodies[s.parentIdx].ID, s.SelectedAltitudeM())
+		if !ok {
+			return ""
+		}
+		cov = c
+		s.bandCache[key] = cov
+	}
+	switch {
+	case cov <= 0:
+		return "⚠ out of network reach — no signal at this body"
+	case cov < spawnBandDegradedBelow:
+		return fmt.Sprintf("⚠ degraded comms band — ~%d%% coverage, relays advised", int(cov*100+0.5))
+	}
+	return ""
 }
 
 // craftRow renders one selectable CRAFT TYPE row (a catalog loadout, the

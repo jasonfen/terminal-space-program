@@ -21,7 +21,7 @@ func visibleIDs(s *SpawnCraft) map[string]bool {
 // stripped-back system does the reverse.
 func TestSystemFilterByScaleClass(t *testing.T) {
 	real := NewSpawnCraft(Theme{})
-	real.Reset(nil, "", nil, bodies.ScaleReal)
+	real.Reset(nil, "", nil, bodies.ScaleReal, nil)
 	rv := visibleIDs(real)
 	if !rv["Saturn-V"] {
 		t.Error("real system should show Saturn V")
@@ -31,7 +31,7 @@ func TestSystemFilterByScaleClass(t *testing.T) {
 	}
 
 	strip := NewSpawnCraft(Theme{})
-	strip.Reset(nil, "", nil, bodies.ScaleStrippedBack)
+	strip.Reset(nil, "", nil, bodies.ScaleStrippedBack, nil)
 	sv := visibleIDs(strip)
 	if !sv["Kern-Stack"] {
 		t.Error("stripped-back system should show Kern Stack")
@@ -45,7 +45,7 @@ func TestSystemFilterByScaleClass(t *testing.T) {
 // value) normalizes to real, so it shows the real fleet (ADR 0031 / S10).
 func TestUnsetSystemScaleShowsRealFleet(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "")
+	s.Reset(nil, "", nil, "", nil)
 	v := visibleIDs(s)
 	if !v["Saturn-V"] || v["Kern-Stack"] {
 		t.Error("unset system scale should behave as real (show real, hide stripped-back)")
@@ -57,7 +57,7 @@ func TestUnsetSystemScaleShowsRealFleet(t *testing.T) {
 // the top of CRAFT TYPE so it can't strand on a now-hidden row (ADR 0031 / S10).
 func TestShowAllToggleRevealsAndRefilters(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, bodies.ScaleReal)
+	s.Reset(nil, "", nil, bodies.ScaleReal, nil)
 	if visibleIDs(s)["Kern-Stack"] {
 		t.Fatal("precondition: Kern Stack hidden under the real filter")
 	}
@@ -88,7 +88,7 @@ func TestShowAllToggleRevealsAndRefilters(t *testing.T) {
 // S11 review fix). Mirrors the field-guarding of the [a]/[x]/[d] stack keys.
 func TestFilterToggleIgnoredInStackEditor(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, bodies.ScaleReal)
+	s.Reset(nil, "", nil, bodies.ScaleReal, nil)
 	// Select Custom and focus the STACK editor.
 	s.fieldIdx = 0
 	for !s.IsCustomSelected() {
@@ -113,7 +113,7 @@ func TestCustomAndDesignsExemptFromFilter(t *testing.T) {
 		{Loadout: spacecraft.LoadoutDef{ID: "lumen-probe", Name: "Lumen Probe", Parts: []spacecraft.PartRef{{PartID: "x"}}}},
 	}
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", designs, bodies.ScaleReal)
+	s.Reset(nil, "", designs, bodies.ScaleReal, nil)
 	v := s.visibleCatalogCount()
 	s.loadoutIdx = v
 	if !s.IsCustomSelected() {
@@ -131,7 +131,7 @@ func TestCustomAndDesignsExemptFromFilter(t *testing.T) {
 // row (ADR 0031 / S10).
 func TestEmptyFilterDegradesGracefully(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, bodies.ScaleClass("exotic"))
+	s.Reset(nil, "", nil, bodies.ScaleClass("exotic"), nil)
 	if got := s.visibleCatalogCount(); got != 0 {
 		t.Fatalf("expected no catalog loadouts for an unknown scale, got %d", got)
 	}
