@@ -101,6 +101,86 @@ func TestRendezvousWaitPartnerAbsent(t *testing.T) {
 	}
 }
 
+// #260: with the partner armed back but the viewer's own Sync engaged,
+// driveRendezvousCoast defers the coast start (the don't-clobber rule) —
+// the classification must be RendezvousWaitSelf, not Partner: the partner
+// did join, and the wait is the viewer's own driver. Once that driver
+// releases, the deferred coast starts on the next drive tick.
+func TestRendezvousWaitSelfWhileOwnDriverDefers(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(72 * time.Hour)
+	peer := armPeer(w, primary, st, 50, "gern") // partner HAS armed back
+	peer.RendezvousTau = tau
+	w.RendezvousArm = &RendezvousArm{TargetOwner: peer.Owner, Handle: "gern", Tau: tau}
+	if !w.EngageSyncWarp(st.Add(time.Hour), "SHA256:vex", "vex") {
+		t.Fatal("Sync refused")
+	}
+
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if w.RendezvousWarpEngaged() {
+		t.Fatal("coast clobbered the engaged Sync")
+	}
+	if got := w.RendezvousWait; got.Reason != RendezvousWaitSelf || got.AheadBy != 0 {
+		t.Fatalf("Wait = %+v, want RendezvousWaitSelf (own driver defers, partner joined)", got)
+	}
+
+	// Own driver releases → the deferred coast starts, wait slate clears.
+	w.DisengageAutoWarp()
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.RendezvousWarpEngaged() {
+		t.Fatal("coast did not start after the own driver released")
+	}
+	if got := w.RendezvousWait; got.Reason != RendezvousWaitNone {
+		t.Errorf("Wait = %+v after the coast started, want RendezvousWaitNone", got)
+	}
+}
+
+// #260 precedence: an own-driver deferral ALSO across a subspace gap
+// classifies Self, mirroring the driver's order (the don't-clobber check
+// runs before the same-subspace gate) — the player must release their own
+// driver first regardless, and that driver may be the very Sync that is
+// closing the gap. Once it releases, the gap becomes the live reason.
+func TestRendezvousWaitSelfWinsOverGapUntilRelease(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(72 * time.Hour)
+	gap := gapDuration()
+	peer := armPeer(w, primary, st.Add(-gap), 50, "gern") // armed back, viewer ahead
+	peer.RendezvousTau = tau
+	w.RendezvousArm = &RendezvousArm{TargetOwner: peer.Owner, Handle: "gern", Tau: tau}
+	w.AutoWarp = &AutoWarpTarget{T: st.Add(time.Hour)} // an engaged node-chase
+
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if got := w.RendezvousWait; got.Reason != RendezvousWaitSelf || got.AheadBy != 0 {
+		t.Fatalf("Wait = %+v, want Self winning over the gap while the own driver defers", got)
+	}
+
+	// Driver released, gap still open → the gap is now the reason.
+	w.DisengageAutoWarp()
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if got := w.RendezvousWait; got.Reason != RendezvousWaitSubspaceGap || got.AheadBy != gap {
+		t.Errorf("Wait = %+v after release across the gap, want gap with AheadBy=+%v", got, gap)
+	}
+}
+
+// #260 mirror bound: without the partner armed back there is no deferral —
+// the driver's don't-clobber branch never runs — so an engaged own driver
+// must NOT flip the classification away from Partner: releasing it would
+// not start the coast, the partner genuinely hasn't joined.
+func TestRendezvousWaitPartnerStillBlamedWhenNotArmedBack(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	peer := armPeer(w, primary, st, 50, "gern")
+	peer.ArmedTowardViewer = false // partner hasn't Engaged back
+	w.RendezvousArm = &RendezvousArm{TargetOwner: peer.Owner, Handle: "gern", Tau: st.Add(72 * time.Hour)}
+	if !w.EngageSyncWarp(st.Add(time.Hour), "SHA256:vex", "vex") {
+		t.Fatal("Sync refused")
+	}
+
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if got := w.RendezvousWait; got.Reason != RendezvousWaitPartner {
+		t.Errorf("Wait = %+v with the partner not armed back, want Partner", got)
+	}
+}
+
 // The responder side of #250: an out-of-window invite is kept and
 // exposed as Blocked (with the signed Δt) rather than silently dropped,
 // and becomes joinable again when the pair converges. A past-τ arm is

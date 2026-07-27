@@ -104,6 +104,37 @@ func TestRendezvousChipArmedSubspaceGap(t *testing.T) {
 	}
 }
 
+// #260: while the viewer's own Sync or node-chase defers the coast start
+// (RendezvousWaitSelf), the armed chip must own the wait — name the
+// viewer's running Auto-Warp — and neither blame the partner ("waiting
+// for them to join") nor reach for the gap vocabulary (Sync-to-rejoin):
+// the partner already joined, and no Sync is owed.
+func TestRendezvousChipArmedWaitSelf(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", w.Clock.SimTime.Add(2*time.Hour), 900)
+	w.RendezvousWait = sim.RendezvousWait{Reason: sim.RendezvousWaitSelf}
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	for _, want := range []string{
+		"RENDEZVOUS",
+		"your Auto-Warp is running — coast starts when it releases",
+		"[/] cancel",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("wait-self chip missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "waiting for them to join") {
+		t.Errorf("wait-self chip still blames the partner:\n%s", joined)
+	}
+	for _, gapism := range []string{"Sync to rejoin", "they must Sync to you", "cannot couple"} {
+		if strings.Contains(joined, gapism) {
+			t.Errorf("wait-self chip borrows the gap wording %q:\n%s", gapism, joined)
+		}
+	}
+}
+
 // #250 responder side: a blocked (subspace-gapped) invite renders as a
 // dimmed attribution with the [y] join affordance suppressed, instead
 // of vanishing. The Sync advice is direction-aware (forward-only): a
