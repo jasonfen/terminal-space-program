@@ -109,6 +109,10 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	add(settings.ChipSOIPass, cornerTopRight, v.buildSOIPassChip(w))
 	// Remaining fixed corners.
 	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
+	// CHAT stacks under STAGES, its own corner slot away from the
+	// session moments (ADR 0035 §2). Always-on like SESSION — a
+	// coordination line must not be togglable into silence.
+	add("", cornerBottomLeft, v.buildChatChip(w))
 	// NODES (bottom-right) now also carries any in-flight burn as its
 	// firing head (v0.16). A live burn is safety-critical, so when one is
 	// in flight the chip force-shows — bypassing both the ChipNodes
@@ -167,6 +171,12 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			// range and re-aimed — the RENDEZVOUS chip carries the new τ/CA,
 			// this moment just says the advance was deliberate.
 			plain("◇ rendezvous: waypoint passed — coasting on with " + e.Handle)
+		case sim.SessionEventDocked:
+			plain("◇ docked with " + e.Handle)
+		case sim.SessionEventUndocked:
+			plain("◇ undocked from " + e.Handle)
+		case sim.SessionEventTransfer:
+			plain("◇ control handed to " + e.Handle)
 		case sim.SessionEventRendezvousDegraded:
 			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
 		case sim.SessionEventWentQuiet:
@@ -210,6 +220,53 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 		}
 	}
 	return lines
+}
+
+// chatChipTTL is deliberately long against the 6 s session-moment TTL
+// (ADR 0035 §2): missing "X joined" is fine; missing "burning in 30 s"
+// because you were looking at the navball is not. Depth shows the tail
+// of the conversation, not one nudge. Both playtest-tunable.
+const (
+	chatChipTTL   = 30 * time.Second
+	chatChipDepth = 4
+)
+
+// buildChatChip renders the recent chat lines (ADR 0035 S4) — its own
+// builder and corner so chat volume and session moments never contend.
+// A DM renders visibly distinct from a broadcast: ">gern: …" on the
+// sender's echo, "gern>you: …" for the recipient — ASCII '>' on
+// purpose; the arrow runes are EastAsian-ambiguous width (the ☾-class
+// trap). Nil when quiet or aged out.
+func (v *OrbitView) buildChatChip(w *sim.World) []string {
+	if len(w.ChatLines) == 0 {
+		return nil
+	}
+	self := ""
+	if w.Session != nil {
+		self = w.Session.Self
+	}
+	now := time.Now()
+	var rows []string
+	for _, l := range w.ChatLines {
+		if now.Sub(l.At) > chatChipTTL {
+			continue
+		}
+		switch {
+		case l.To == "":
+			rows = append(rows, v.theme.Dim.Render(l.Handle+": "+l.Text))
+		case l.Owner == self:
+			rows = append(rows, v.theme.Warning.Render(">"+l.ToHandle+": "+l.Text))
+		default:
+			rows = append(rows, v.theme.Warning.Render(l.Handle+">you: "+l.Text))
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	if len(rows) > chatChipDepth {
+		rows = rows[len(rows)-chatChipDepth:]
+	}
+	return append([]string{v.theme.Primary.Render("CHAT")}, rows...)
 }
 
 // buildRendezvousChip is the persistent Rendezvous Warp surface (v0.29
