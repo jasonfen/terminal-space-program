@@ -504,20 +504,29 @@ func (v *OrbitView) buildCommsChip(w *sim.World) []string {
 		return nil // crewed craft are never gated; debris has no link to show
 	}
 	_, hops, connected := w.ActiveCommPath()
-	return v.commsChipLines(hops, connected)
+	return v.commsChipLines(hops, connected, w.CommGraph.Reason(c.ID))
 }
 
 // commsChipLines is the pure content selector behind buildCommsChip, split
 // out so the DIRECT / CONNECTED / NO SIGNAL forms are unit-testable without a
 // live World. A connected probe reads DIRECT for a single hop (straight to a
 // station) or "CONNECTED via N hops" through relays; a disconnected probe
-// reads NO SIGNAL in the alert style.
-func (v *OrbitView) commsChipLines(hops int, connected bool) []string {
+// reads NO SIGNAL in the alert style plus the classified cause (#221):
+// name the cause AND the fix, and never steer at the wrong remedy — an
+// unclassified disconnect degrades to the bare form rather than guess.
+func (v *OrbitView) commsChipLines(hops int, connected bool, reason sim.CommDisconnectReason) []string {
 	if !connected {
-		return []string{
+		lines := []string{
 			v.theme.Alert.Render("COMMS"),
 			v.theme.Alert.Render("  ⚠ NO SIGNAL"),
 		}
+		switch reason {
+		case sim.CommDisconnectBlocked:
+			lines = append(lines, v.theme.Dim.Render("  no station in view — relay needed"))
+		case sim.CommDisconnectOutOfRange:
+			lines = append(lines, v.theme.Dim.Render("  out of range — stronger antenna needed"))
+		}
+		return lines
 	}
 	status := fmt.Sprintf("CONNECTED via %d hops", hops)
 	if hops <= 1 {

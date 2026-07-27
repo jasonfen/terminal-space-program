@@ -44,7 +44,32 @@ type CommGraph struct {
 	// positions are the same absolute world frame the orbit canvas projects
 	// (body position + state), so the HUD draws segments without rebasing.
 	Paths map[uint64][]orbital.Vec3
+	// Reasons classifies each DISCONNECTED probe (#221, ADR 0027 v0.32
+	// amendment): the bare false collapsed three failure paths and the
+	// chip could only say NO SIGNAL with no hint that a relay — not a
+	// bigger antenna — was the answer (or vice versa). Absent for
+	// connected probes.
+	Reasons map[uint64]CommDisconnectReason
 }
+
+// CommDisconnectReason classifies why a probe has no connection this
+// tick — the enum-plus-data shape from RendezvousWaitReason, scoped to
+// the two reasons that are never actively wrong advice. The finer
+// diagnosis (no antenna fitted, relay chain broken upstream) is
+// deferred: the broken-chain case needs the BFS to report where the
+// chain failed, a larger slice than #221 warrants.
+type CommDisconnectReason int
+
+const (
+	// CommDisconnectNone: connected, not a probe, or not yet classified.
+	CommDisconnectNone CommDisconnectReason = iota
+	// CommDisconnectBlocked: the network is in range but no unoccluded
+	// path exists — the geometry is the problem, a relay is the fix.
+	CommDisconnectBlocked
+	// CommDisconnectOutOfRange: no station or relay is in link range at
+	// all — reach is the problem, a stronger antenna is the fix.
+	CommDisconnectOutOfRange
+)
 
 // HasConnection reports whether the craft with the given ID has a network
 // connection this tick. nil-safe (a not-yet-computed graph → false).
@@ -60,6 +85,16 @@ func (g *CommGraph) Path(id uint64) []orbital.Vec3 {
 		return nil
 	}
 	return g.Paths[id]
+}
+
+// Reason returns why the craft with the given ID is disconnected, or
+// CommDisconnectNone for a connected craft / not-yet-computed graph.
+// nil-safe.
+func (g *CommGraph) Reason(id uint64) CommDisconnectReason {
+	if g == nil {
+		return CommDisconnectNone
+	}
+	return g.Reasons[id]
 }
 
 // commNode is one node in the connectivity graph — a craft antenna or a
@@ -124,6 +159,37 @@ func connectivityFull(nodes []commNode, occ []physics.OccluderBody) connectivity
 		}
 	}
 	return res
+}
+
+// classifyDisconnects is the post-hoc pass over the solved graph (#221):
+// for each disconnected probe, is any piece of the NETWORK — a station
+// or a forwarding relay — within link range, occlusion ignored? If so
+// the failure is geometry (relay needed); if not, reach (stronger
+// antenna). Dead-end neighbours (direct-only craft) don't count: being
+// in range of one says nothing about reaching the network. Pure, like
+// connectivityFull, so it unit-tests on synthetic nodes.
+func classifyDisconnects(nodes []commNode, res connectivityResult) map[uint64]CommDisconnectReason {
+	reasons := map[uint64]CommDisconnectReason{}
+	for i, p := range nodes {
+		if !p.probe || res.connected[p.craftID] {
+			continue
+		}
+		reason := CommDisconnectOutOfRange
+		for j, n := range nodes {
+			if j == i || (!n.station && !n.forwards) {
+				continue
+			}
+			if p.rangeM <= 0 || n.rangeM <= 0 {
+				continue
+			}
+			if n.pos.Sub(p.pos).Norm() <= commLinkRangeM(p.rangeM, n.rangeM) {
+				reason = CommDisconnectBlocked
+				break
+			}
+		}
+		reasons[p.craftID] = reason
+	}
+	return reasons
 }
 
 // nearHomeRadiiFactor sets the "home telemetry blanket": a controllable craft
@@ -285,7 +351,11 @@ func (w *World) RecomputeCommGraph() {
 		}
 		paths[id] = pts
 	}
-	w.CommGraph = &CommGraph{Connected: res.connected, Paths: paths}
+	w.CommGraph = &CommGraph{
+		Connected: res.connected,
+		Paths:     paths,
+		Reasons:   classifyDisconnects(nodes, res),
+	}
 }
 
 // nearestStationPos returns the world position of the closest ground station

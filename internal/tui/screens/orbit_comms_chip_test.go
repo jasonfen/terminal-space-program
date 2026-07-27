@@ -15,7 +15,7 @@ import (
 
 func TestCommsChipLinesDirect(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	lines := v.commsChipLines(1, true)
+	lines := v.commsChipLines(1, true, sim.CommDisconnectNone)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "COMMS") {
 		t.Errorf("chip missing COMMS header:\n%s", joined)
@@ -30,7 +30,7 @@ func TestCommsChipLinesDirect(t *testing.T) {
 
 func TestCommsChipLinesRelayed(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	joined := strings.Join(v.commsChipLines(3, true), "\n")
+	joined := strings.Join(v.commsChipLines(3, true, sim.CommDisconnectNone), "\n")
 	if !strings.Contains(joined, "CONNECTED via 3 hops") {
 		t.Errorf("a three-hop link should read CONNECTED via 3 hops:\n%s", joined)
 	}
@@ -38,7 +38,7 @@ func TestCommsChipLinesRelayed(t *testing.T) {
 
 func TestCommsChipLinesNoSignal(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	joined := strings.Join(v.commsChipLines(0, false), "\n")
+	joined := strings.Join(v.commsChipLines(0, false, sim.CommDisconnectNone), "\n")
 	if !strings.Contains(joined, "NO SIGNAL") {
 		t.Errorf("a disconnected probe should read NO SIGNAL:\n%s", joined)
 	}
