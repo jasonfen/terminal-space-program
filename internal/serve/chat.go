@@ -17,10 +17,15 @@ type chatRing struct {
 	lines []sim.ChatLine
 }
 
-// chatLineCap bounds the ring. Sized so the 3–4 visible lines a chip
-// stack shows can never miss during cross-traffic; eviction only drops
-// lines already far older than the display TTL.
-const chatLineCap = 32
+// The ring prunes by AGE first (chatServerTTL, comfortably past the
+// 30 s chip TTL) — a count-only cap counts lines the viewer can never
+// see, so two other players' DM spam would evict a viewer's still-fresh
+// visible line (v0.32 review finding). chatLineCap remains only as a
+// memory backstop against a flood inside one TTL window.
+const (
+	chatLineCap   = 256
+	chatServerTTL = 2 * time.Minute
+)
 
 // chatMessageRuneCap bounds one message. The mint input's 24 is far too
 // short for "node is 200m off, burning in 30" (ADR 0035 impl. note).
@@ -31,10 +36,16 @@ func newChatRing() *chatRing {
 }
 
 // post appends a line, truncating to chatMessageRuneCap runes and
-// trimming the ring. to/toHandle address a DM (empty = broadcast).
+// pruning the ring. to/toHandle address a DM (empty = broadcast).
 // Roster validation happens in the intent handler, which owns store and
 // presence access — the ring is storage.
 func (c *chatRing) post(owner, handle, to, toHandle, text string) {
+	c.postAt(owner, handle, to, toHandle, text, time.Now())
+}
+
+// postAt is post with an explicit timestamp, split out so tests can
+// exercise the TTL prune without waiting it out.
+func (c *chatRing) postAt(owner, handle, to, toHandle, text string, at time.Time) {
 	if r := []rune(text); len(r) > chatMessageRuneCap {
 		text = string(r[:chatMessageRuneCap])
 	}
@@ -42,8 +53,16 @@ func (c *chatRing) post(owner, handle, to, toHandle, text string) {
 	defer c.mu.Unlock()
 	c.lines = append(c.lines, sim.ChatLine{
 		Owner: owner, Handle: handle, To: to, ToHandle: toHandle,
-		Text: text, At: time.Now(),
+		Text: text, At: at,
 	})
+	cutoff := time.Now().Add(-chatServerTTL)
+	kept := c.lines[:0]
+	for _, l := range c.lines {
+		if l.At.After(cutoff) {
+			kept = append(kept, l)
+		}
+	}
+	c.lines = kept
 	if len(c.lines) > chatLineCap {
 		c.lines = c.lines[len(c.lines)-chatLineCap:]
 	}
