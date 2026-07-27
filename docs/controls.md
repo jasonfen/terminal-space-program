@@ -101,7 +101,7 @@ readout shows you why before you watch it fall back.
 | `Tab` | Switch star system (Sol → Alpha Centauri → TRAPPIST-1 → Kepler-452) |
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down (up to 100,000×; eases off around a burn). Inert while a rendezvous-warp coast is engaged — the coast owns the rate, and `/` is the one gesture that cancels it |
-| `G` | Auto-warp to the next burn — speeds time to 30 seconds before whichever burn fires first (any craft's), ramps back down, and hands you 1× to watch it arm. Tapping `.` / `,` cancels it back to your own warp; click the `[»Burn]` button to do the same |
+| `G` | Auto-warp to the next burn — speeds time to 30 seconds before whichever burn fires first (any craft's), ramps back down, and hands you 1× to watch it arm. Tapping `.` / `,` cancels it back to your own warp; click the `[»Burn]` button to do the same. Inert while a rendezvous-warp coast is engaged — like the warp keys, `/` is the one gesture that cancels the coast |
 | `/` | Cancel warp — drop straight back to 1× from any warp level, and cancel auto-warp or an armed/coasting rendezvous warp if one is running |
 
 ### Keyboard layout
@@ -195,7 +195,7 @@ Click only — no dragging, no scroll-to-zoom.
 
 | Click | Action |
 |---|---|
-| `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`). Shows `[■Burn]` while running, dimmed when no burn is planned |
+| `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`, including staying inert during a rendezvous-warp coast). Shows `[■Burn]` while running, dimmed when no burn is planned |
 | `[Menu]` (top-right) | Save / load / settings / controls / quit menu |
 | `[Missions]` (top-right) | Mission ladder — active mission checklist on top, the rest of the program below with locked rungs and pass / fail marks (same as `M`). Off by default; enable a program in `[Menu]` → Settings |
 | A body | Follow it with the camera (same as cursoring onto it) |
