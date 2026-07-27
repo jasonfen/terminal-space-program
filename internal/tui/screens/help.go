@@ -80,7 +80,7 @@ var helpSections = []helpSection{
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},
 		{",", "warp down (inert during a rendezvous coast — [/] cancels)"},
-		{"G", "auto-warp to 30 s before the next burn, then 1×"},
+		{"G", "auto-warp to 30 s before the next burn, then 1× (inert during a rendezvous coast)"},
 		{"y", "join a pending rendezvous warp (when a player arms toward you)"},
 		{"/", "cancel warp — drop to 1× (also cancels auto-warp / rendezvous warp)"},
 		{"0", "pause / resume"},
@@ -149,7 +149,7 @@ var helpSections = []helpSection{
 		{"click node", "open the planner for that node (canvas glyph or NODES row)"},
 		{"click empty", "open the planner at the projected orbit point"},
 		{"click HUD", "open body info"},
-		{"[»Burn]", "toggle auto-warp to the next burn (same as G); [■Burn] while running, dimmed when none planned"},
+		{"[»Burn]", "toggle auto-warp to the next burn (same as G, inert during a rendezvous coast); [■Burn] while running, dimmed when none planned"},
 	}},
 }
 

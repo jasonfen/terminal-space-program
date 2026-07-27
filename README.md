@@ -159,9 +159,9 @@ Closing the distance takes orbits of coasting, so warp there *together*:
 closest approach with them. They get a persistent prompt on their main screen —
 `y` joins — and from that moment your warps are rate-locked (slowest wins) all
 the way to the encounter, planted burns firing en route. Either side cancels
-with `/` — and only with `/`: the manual warp keys are inert while the
-coast runs (it owns the rate), so a stray `.` can't tear the rendezvous
-down. If the encounter drifts off the committed approach mid-coast, a
+with `/` — and only with `/`: the manual warp keys and the auto-warp
+toggle (`G` / `[»Burn]`) are inert while the coast runs (it owns the
+rate), so a stray `.` or `G` can't tear the rendezvous down. If the encounter drifts off the committed approach mid-coast, a
 warning chip says so. You arrive at closest approach at 1× — already coupled —
 and slide straight into the final approach.
 

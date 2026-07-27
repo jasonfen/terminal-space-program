@@ -214,3 +214,65 @@ func TestWarpKeysStillCancelPlainAutoWarp(t *testing.T) {
 		t.Errorf(", did not warp down: WarpIdx %d, want %d", w.Clock.WarpIdx, idx)
 	}
 }
+
+// Toggle paths during an engaged rendezvous coast (#259, sibling of
+// #249): `G` and the mouse [»Burn] button route through ToggleAutoWarp
+// → DisengageAutoWarp, which clears the arm and retracts it over the
+// wire — before the fix one tap silently cancelled the rendezvous for
+// BOTH players. Like the warp keys (#256), they refuse with a toast;
+// [/] stays the single deliberate cancel gesture.
+func TestToggleAutoWarpInertDuringRendezvousCoast(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	w := a.world
+	tau := w.Clock.SimTime.Add(3 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 0)
+	w.AutoWarp = &sim.AutoWarpTarget{T: tau, Rendezvous: true, RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern"}
+
+	// The G key.
+	a.statusMsg = ""
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if w.RendezvousArm == nil {
+		t.Fatal("G cleared the rendezvous arm")
+	}
+	if w.AutoWarp == nil || !w.AutoWarp.Rendezvous {
+		t.Fatalf("G disengaged the rendezvous coast (AutoWarp=%+v)", w.AutoWarp)
+	}
+	if !strings.Contains(a.statusMsg, "/") {
+		t.Errorf("G gave no feedback pointing at [/]: status %q", a.statusMsg)
+	}
+
+	// The mouse [»Burn] button shares the same handler — no mouse-event
+	// test seam exists (HitBurnButton needs a laid-out frame), so the
+	// shared handler is exercised directly.
+	a.statusMsg = ""
+	if a.toggleAutoWarpBurn() {
+		t.Error("toggleAutoWarpBurn reported the toggle ran during an engaged coast")
+	}
+	if w.RendezvousArm == nil {
+		t.Fatal("[»Burn] cleared the rendezvous arm")
+	}
+	if w.AutoWarp == nil || !w.AutoWarp.Rendezvous {
+		t.Fatalf("[»Burn] disengaged the rendezvous coast (AutoWarp=%+v)", w.AutoWarp)
+	}
+	if !strings.Contains(a.statusMsg, "/") {
+		t.Errorf("[»Burn] gave no feedback pointing at [/]: status %q", a.statusMsg)
+	}
+}
+
+// The refusal is scoped to the rendezvous coast: a plain node-chase
+// Auto-Warp keeps today's behavior, where G toggles the driver off.
+func TestToggleAutoWarpStillTogglesPlainAutoWarp(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	w := a.world
+	w.AutoWarp = &sim.AutoWarpTarget{T: w.Clock.SimTime.Add(time.Hour)}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if w.AutoWarp != nil {
+		t.Error("G left a plain node-chase Auto-Warp engaged")
+	}
+}

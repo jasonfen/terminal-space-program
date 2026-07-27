@@ -436,7 +436,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// v0.16 / ADR 0016: the [»Burn] button toggles Auto-Warp
 			// (click-equivalent of `G`). A no-op when no burn is eligible.
 			if a.orbitView.HitBurnButton(m.X, m.Y) {
-				a.world.ToggleAutoWarp()
+				a.toggleAutoWarpBurn()
 				return a, nil
 			}
 			// Framed navball panel is opaque and drawn over the
@@ -894,8 +894,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.AutoWarp):
 			// Toggle Auto-Warp to the globally-soonest burn. A no-op when
 			// no burn is eligible (engage returns false silently).
-			a.world.ToggleAutoWarp()
-			a.world.RecordAction(missions.ActionAutoWarp) // ADR 0025 §7
+			if a.toggleAutoWarpBurn() {
+				a.world.RecordAction(missions.ActionAutoWarp) // ADR 0025 §7
+			}
 			return a, nil
 		case key.Matches(m, a.keys.CancelWarp):
 			// Drop straight to 1× from any warp state: cancel Auto-Warp
@@ -1874,6 +1875,28 @@ func (a *App) applySavesCommand(cmd screens.SavesCommand) (tea.Model, tea.Cmd) {
 		}
 	}
 	return a, nil
+}
+
+// toggleAutoWarpBurn carries the shared intent behind the `G` key and
+// the mouse [»Burn] button: toggle Auto-Warp to the globally-soonest
+// burn. Reports whether the toggle ran.
+//
+// Except during an engaged Rendezvous Warp coast (#259, sibling of
+// #249): ToggleAutoWarp routes through DisengageAutoWarp, which must
+// clear the arm on every cancel path (or DriveRendezvousWarp restarts
+// the coast next tick), and the retraction travels the wire — so a
+// stray G / click silently tore down the rendezvous for BOTH players.
+// As with the warp keys (#256), the guard lives here at the input
+// layer, where the intent is known, and [/] stays the single
+// deliberate cancel gesture — the toggle paths refuse with a toast
+// instead. Plain node-chase / Sync Auto-Warp keeps today's toggle.
+func (a *App) toggleAutoWarpBurn() bool {
+	if a.world.RendezvousWarpEngaged() {
+		a.toast("rendezvous coast running — [/] to cancel")
+		return false
+	}
+	a.world.ToggleAutoWarp()
+	return true
 }
 
 // toast flashes a transient one-line notice in the HUD footer for ~3s
