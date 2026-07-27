@@ -67,6 +67,7 @@ var helpSections = []helpSection{
 		{"O", "session roster (multiplayer: players, Δt, invites, sync-to)"},
 	}},
 	{"MULTIPLAYER (session screen — open with O)", [][2]string{
+		{"~", "chat (flight view): type + enter broadcasts; @handle DMs, tab completes; esc bails"},
 		{"t", "target their ghost craft — 2+ craft opens a picker ([esc] backs out)"},
 		{"v", "spectate — fit + camera-follow their ghost's orbit ([f] to return)"},
 		{"s", "sync-warp forward to a player ahead of you (forward only)"},

@@ -171,6 +171,14 @@ skip ahead during the approach. Dock your craft to theirs and you fly one
 shared stack — the guest can `U` undock their own component at any time, and
 the pilot can hand the whole stack over with `J` **transfer control**.
 
+Coordinate it all without leaving the sim: `~` opens **chat** on the flight
+view. Type and press enter to broadcast to the session; a leading `@handle`
+sends a private line (tab completes the handle against who's online — a typo
+refuses to send rather than broadcasting by accident). The sim keeps running
+while you type, `esc` bails, and messages ride the map as transient chips for
+~30 seconds — chat is live coordination, not a message board: nothing is
+stored, and it never depends on your craft's CommNet link.
+
 ## Custom vehicles
 
 Vehicle loadouts and stage parts are **data, not code**. Drop a `.json` file in

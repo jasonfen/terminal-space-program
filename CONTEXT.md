@@ -1490,6 +1490,32 @@ _Avoid_: Signal loss (implies something broke; gating is intentional
 design), Comms blackout (implies a transient — gating is permanent until
 connectivity is restored).
 
+**Disconnect Reason** (v0.32 / #221, ADR 0027 amendment):
+The classification carried beside a disconnected probe's `Connected:
+false` in the **CommGraph** — *blocked* (the network is in link range
+but no unoccluded path exists → "no station in view — relay needed")
+or *out of range* (nothing in range at all → "out of range — stronger
+antenna needed"). Exactly two reasons by design: the minimum set that
+is never actively wrong advice. The comms chip renders the reason
+under `⚠ NO SIGNAL`; an unclassified disconnect renders the bare form
+rather than guess. The finer diagnosis (no antenna fitted, relay chain
+broken upstream) is explicitly deferred.
+_Avoid_: Error code, failure mode (it advises the player, it does not
+report a fault).
+
+**Degraded Band** (v0.32 / #221):
+The real coverage gap between a home body's **Home Telemetry Blanket**
+edge and the altitude where line-of-sight to the mid-latitude DSN ring
+becomes reliable — ~40-minute blackouts per orbit. Deliberate, not a
+bug: it is the pressure that makes relay constellations worth building,
+and it is never retuned away. Its altitudes are **per-primary** (Earth
+degrades at 5,000–10,000 km; Kern, ~10× smaller, at 500–2,000 km —
+exactly inverted), so the spawn form's band warning is computed by
+sampling the live connectivity model per parent body
+(`World.CommBandCoverage`), never from a hardcoded table.
+_Avoid_: Dead zone (suggests no fix exists — relays fix it), coverage
+bug.
+
 **Relay forwarding**:
 The property of an **AntennaRelay** node that allows it to pass command
 traffic onward to other Vessels in the **CommNet** graph. Only Vessels
@@ -1744,6 +1770,24 @@ reconnecting player uses a far stricter test.
 _Avoid_: Idle (the Session is anything but — it is warping), AFK,
 asleep, disconnected (it is still connected, which is the whole
 problem).
+
+**Chat** (v0.32 / ADR 0035):
+The live co-op coordination channel between the players of a Session —
+**not a messaging system**. `~` opens a one-line input on the flight
+view; enter broadcasts, a leading `@handle` sends a private line
+(tab-completed against the online roster; a miss refuses to send rather
+than fall back to broadcast). Transient by design: lines live in their
+own capped server-side ring (never the presence ring — chat volume must
+not evict session moments), render as chips for ~30 s, and nothing is
+stored — a reconnecting player has no history, deliberately. The sim
+keeps running while typing (flight keys become text — accepted cost),
+and chat is **never CommNet-gated**: it is two people talking, not two
+vessels transmitting, and matters most during exactly the blackouts the
+**Degraded Band** creates. Lines are stamped in wall clock only — with
+per-player **Subspace** time there is no coherent sim-time stamp for a
+message between players whose clocks disagree.
+_Avoid_: Messaging, DM system (the `@handle` form is an addressed line,
+not a mailbox), comms (reserved for CommNet).
 
 ### Transfer planning
 
