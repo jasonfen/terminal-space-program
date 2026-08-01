@@ -29,19 +29,25 @@ import (
 const (
 	// coWarpCoupleRangeM / coWarpCoupleSpeedMs are the couple gate: the
 	// anchor and a peer craft must be within BOTH to begin coupling.
-	// 10 km is a rendezvous neighbourhood; 100 m/s |v_rel| is slow
-	// enough to be station-keeping rather than a flyby. Tunables —
-	// playtest may move them (ADR addendum: "seems good for now").
-	coWarpCoupleRangeM  = 10_000.0
+	// 35 km is a rendezvous neighbourhood — the v0.32 live playtest moved
+	// it up from 10 km (#291): a real rendezvous transiently passed
+	// ~14.9 km without coupling, and comparable games / real proximity
+	// ops begin the terminal phase at 20–50 km (35 is that band's middle).
+	// 100 m/s |v_rel| is slow enough to be station-keeping rather than a
+	// flyby; the velocity term drew no complaints live and stayed put.
+	// Tunables.
+	coWarpCoupleRangeM  = 35_000.0
 	coWarpCoupleSpeedMs = 100.0
 
 	// coWarpDecoupleRangeM / coWarpDecoupleSpeedMs are the decouple gate.
 	// Wider than the couple gate on purpose (hysteresis): once coupled,
-	// separation past 12 km OR 120 m/s is required to release. The band
+	// separation past 42 km OR 120 m/s is required to release. The band
 	// between the two gates is where a coupled pair stays coupled, so
-	// small station-keeping excursions across 10 km / 100 m/s don't flap
-	// the clamp or re-emit couple/release chips every tick. Tunables.
-	coWarpDecoupleRangeM  = 12_000.0
+	// small station-keeping excursions across 35 km / 100 m/s don't flap
+	// the clamp or re-emit couple/release chips every tick. The range
+	// scales with the couple range (same 1.2 ratio as the pre-#291
+	// 10/12 km pair). Tunables.
+	coWarpDecoupleRangeM  = 42_000.0
 	coWarpDecoupleSpeedMs = 120.0
 
 	// coWarpSubspaceToleranceSec bounds |Δt| between the viewer's sim-time
@@ -555,7 +561,7 @@ func (w *World) refreshRendezvousDegrade(peers []CoWarpPeer) {
 	// floor — "would you still couple there" stays the close-encounter
 	// meaning — but a distant encounter tolerates proportionate movement,
 	// because at that scale the recomputed approach is a long-horizon
-	// prediction whose input error alone dwarfs 10 km. Drift is signed:
+	// prediction whose input error alone dwarfs 35 km. Drift is signed:
 	// only a WORSENING approach warns (an improving one is re-based below).
 	bar := math.Max(coWarpCoupleRangeM, degradeSlipFrac*arm.degradeBaseCA)
 	w.RendezvousDegraded = caAtTau-arm.degradeBaseCA > bar

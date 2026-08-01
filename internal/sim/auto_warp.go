@@ -546,7 +546,7 @@ func (w *World) holdRendezvousLeader(partner *CoWarpPeer) {
 //     of sim-time (arm.peerGoneAt), then release as a retract.
 //
 // The handoff check deliberately runs only AT a waypoint, not every
-// coasting tick: a transient pass through 10 km at warp mid-coast is a
+// coasting tick: a transient pass through couple range at warp mid-coast is a
 // crossing, not the rendezvous being complete, and must not strand the
 // pair at 1× short of their encounter. At τ the approach ramp has already
 // glided the rate to the 1× floor, which is exactly the state Proximity

@@ -243,7 +243,7 @@ func crossPeer(from *World, owner, handle string, eff float64) []CoWarpPeer {
 func TestRendezvousArmSurvivesTauOutsideCoupleRange(t *testing.T) {
 	wa, _, sta := anchorWorld(t)
 	wb, _, _ := anchorWorld(t)
-	// The playtest shape: thousands of km at τ, far outside the 10 km gate.
+	// The playtest shape: thousands of km at τ, far outside the 35 km gate.
 	aheadAlongTrack(t, wb)
 	tau := sta.Add(time.Hour)
 	wa.EngageRendezvousWarp("SHA256:b", "b", tau, 5.4e6)

@@ -165,7 +165,7 @@ rate), so a stray `.` or `G` can't tear the rendezvous down. If the encounter dr
 warning chip says so. You arrive at closest approach at 1× — already coupled —
 and slide straight into the final approach.
 
-Once you're together, proximity does the rest: come within 10 km of a player
+Once you're together, proximity does the rest: come within 35 km of a player
 you're synced with and your time-warp **couples** to theirs, so neither can
 skip ahead during the approach. Dock your craft to theirs and you fly one
 shared stack — the guest can `U` undock their own component at any time, and

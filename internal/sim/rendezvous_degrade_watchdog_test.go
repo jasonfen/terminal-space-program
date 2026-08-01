@@ -92,7 +92,7 @@ func TestRendezvousDegradeToleratesRelayNoiseAtDistance(t *testing.T) {
 }
 
 // A close committed encounter (~60 km chord): the proportional bar sits at
-// its 10 km floor, so scaling alone cannot absorb the ~30 km the estimate
+// its 35 km floor, so scaling alone cannot absorb the ~30 km the estimate
 // converges by as the horizon shrinks — only re-basing against a RECENT
 // measure keeps slow convergence from accumulating into a trip.
 func TestRendezvousDegradeRebasesConvergingEstimate(t *testing.T) {
@@ -112,7 +112,7 @@ func TestRendezvousDegradeStillFiresOnStepChange(t *testing.T) {
 	a := w.ActiveCraft()
 	mu := a.Primary.GravitationalParameter()
 	a0 := physics.StateVector{R: a.State.R, V: a.State.V, M: 1}
-	p0 := coastPartner(t, w, 8) // ~60 km chord: bar at the 10 km floor
+	p0 := coastPartner(t, w, 8) // ~60 km chord: bar at the 35 km floor
 	st := w.Clock.SimTime
 	tau := st.Add(3 * time.Hour)
 	if !w.EngageRendezvousWarp("SHA256:gern", "gern", tau, p0.R.Sub(a0.R).Norm()) {
