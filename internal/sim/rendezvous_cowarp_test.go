@@ -11,13 +11,13 @@ import (
 // the viewer (ArmedTowardViewer), offset far outside the proximity gate
 // so only the mutual arm — never range — could couple it.
 func armPeer(w *World, primary string, st time.Time, ew float64, handle string) CoWarpPeer {
-	p := peerAt(w, primary, st, ew, orbital.Vec3{X: 50000}, orbital.Vec3{}, handle) // 50 km out
+	p := peerAt(w, primary, st, ew, orbital.Vec3{X: 100_000}, orbital.Vec3{}, handle) // 100 km out
 	p.ArmedTowardViewer = true
 	return p
 }
 
 // Mutual arm couples the pair BEFORE the proximity gate: both Engaged
-// toward each other, same subspace, but 50 km apart — proximity alone
+// toward each other, same subspace, but 100 km apart — proximity alone
 // would never couple, the Rendezvous trigger does.
 func TestRendezvousArmCouplesBeforeGate(t *testing.T) {
 	w, primary, st := anchorWorld(t)
@@ -26,7 +26,7 @@ func TestRendezvousArmCouplesBeforeGate(t *testing.T) {
 
 	res := w.ComputeCoWarp([]CoWarpPeer{peer}, nil)
 	if !res.State.Coupled {
-		t.Fatal("mutual arm did not couple at 50 km (pre-proximity trigger missing)")
+		t.Fatal("mutual arm did not couple at 100 km (pre-proximity trigger missing)")
 	}
 	if res.State.MinWarp != 50 {
 		t.Errorf("MinWarp = %v, want the partner's 50", res.State.MinWarp)

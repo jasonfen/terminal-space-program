@@ -48,7 +48,7 @@ func TestDriveRendezvousWarpMirrorsPartnerAway(t *testing.T) {
 // existence), so a mirror placed below the τ-reached early return would
 // leave the flag cleared-and-never-set for the whole stretch and silently
 // blank the standing away line in exactly its motivating scenario. The
-// peer sits 50 km out on a plain radial offset: outside the couple gate,
+// peer sits 100 km out on a plain radial offset: outside the couple gate,
 // and a shape whose closest approach is at t=0, so rendezvousNextWaypoint
 // can never derive an advance — the coast idles at the passed τ, retrying.
 func TestRendezvousAwayLineSurvivesTauCrossing(t *testing.T) {
@@ -66,7 +66,7 @@ func TestRendezvousAwayLineSurvivesTauCrossing(t *testing.T) {
 		t.Fatal("precondition: Away not mirrored pre-τ")
 	}
 
-	// The crossing tick: both clocks at τ, still 50 km apart — the
+	// The crossing tick: both clocks at τ, still 100 km apart — the
 	// waypoint-resolution path runs (and its derivation fails → idle).
 	w.Clock.SimTime = tau
 	peer.SubspaceTime = tau

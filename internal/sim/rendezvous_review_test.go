@@ -207,9 +207,9 @@ func TestRendezvousDegradeBaselinesAtCoastStart(t *testing.T) {
 	}
 
 	// The encounter actually worsens past a couple-radius → degrade.
-	w.DriveRendezvousWarp([]CoWarpPeer{at(orbital.Vec3{X: 65_000})})
+	w.DriveRendezvousWarp([]CoWarpPeer{at(orbital.Vec3{X: 90_000})})
 	if !w.RendezvousDegraded {
-		t.Error("no degrade after the encounter slipped 15 km past the coast-start measure")
+		t.Error("no degrade after the encounter slipped 40 km past the coast-start measure")
 	}
 }
 

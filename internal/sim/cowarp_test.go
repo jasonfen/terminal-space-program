@@ -39,7 +39,7 @@ func peerAt(w *World, primary string, st time.Time, ew float64, dR, dV orbital.V
 	}
 }
 
-// Inside 10 km and ≤100 m/s with the same primary + subspace couples,
+// Inside 35 km and ≤100 m/s with the same primary + subspace couples,
 // emits a couple transition, and reports the partner's Effective warp as
 // the min.
 func TestComputeCoWarpCouples(t *testing.T) {
@@ -62,7 +62,7 @@ func TestComputeCoWarpCouples(t *testing.T) {
 }
 
 // A fast pass through the radius is a crossing, not a rendezvous: within
-// 10 km but |v_rel| > 100 m/s does not couple.
+// the couple radius but |v_rel| > 100 m/s does not couple.
 func TestComputeCoWarpFlybyDoesNotCouple(t *testing.T) {
 	w, primary, st := anchorWorld(t)
 	peer := peerAt(w, primary, st, 50, orbital.Vec3{X: 5000}, orbital.Vec3{X: 150}, "bob")
@@ -97,20 +97,20 @@ func TestComputeCoWarpDifferentPrimaryDoesNotCouple(t *testing.T) {
 	}
 }
 
-// Hysteresis: in the 10–12 km band, an uncoupled pair stays uncoupled and
+// Hysteresis: in the 35–42 km band, an uncoupled pair stays uncoupled and
 // a coupled pair stays coupled — across repeated ticks, with no flap and
 // no repeated chips.
 func TestComputeCoWarpHysteresisNoFlap(t *testing.T) {
 	w, primary, st := anchorWorld(t)
-	// 11 km: inside the decouple band, outside the couple band.
-	band := peerAt(w, primary, st, 50, orbital.Vec3{X: 11000}, orbital.Vec3{}, "bob")
+	// 38 km: inside the decouple band, outside the couple band.
+	band := peerAt(w, primary, st, 50, orbital.Vec3{X: 38_000}, orbital.Vec3{}, "bob")
 
 	// Uncoupled entering the band: never couples, never chips.
 	prev := map[string]bool(nil)
 	for i := 0; i < 10; i++ {
 		res := w.ComputeCoWarp([]CoWarpPeer{band}, prev)
 		if res.State.Coupled {
-			t.Fatalf("tick %d: coupled at 11 km from uncoupled", i)
+			t.Fatalf("tick %d: coupled at 38 km from uncoupled", i)
 		}
 		if len(res.NewlyCoupled) != 0 || len(res.Released) != 0 {
 			t.Fatalf("tick %d: spurious transition %+v", i, res)
@@ -123,7 +123,7 @@ func TestComputeCoWarpHysteresisNoFlap(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		res := w.ComputeCoWarp([]CoWarpPeer{band}, prev)
 		if !res.State.Coupled {
-			t.Fatalf("tick %d: released at 11 km from coupled (flap)", i)
+			t.Fatalf("tick %d: released at 38 km from coupled (flap)", i)
 		}
 		if len(res.NewlyCoupled) != 0 || len(res.Released) != 0 {
 			t.Fatalf("tick %d: spurious transition %+v", i, res)
@@ -132,17 +132,53 @@ func TestComputeCoWarpHysteresisNoFlap(t *testing.T) {
 	}
 }
 
-// Past the decouple band (>12 km) a coupled pair releases and chips once.
+// Past the decouple band (>42 km) a coupled pair releases and chips once.
 func TestComputeCoWarpDecouples(t *testing.T) {
 	w, primary, st := anchorWorld(t)
-	gone := peerAt(w, primary, st, 50, orbital.Vec3{X: 13000}, orbital.Vec3{}, "bob")
+	gone := peerAt(w, primary, st, 50, orbital.Vec3{X: 45_000}, orbital.Vec3{}, "bob")
 
 	res := w.ComputeCoWarp([]CoWarpPeer{gone}, map[string]bool{"SHA256:bob": true})
 	if res.State.Coupled {
-		t.Error("still coupled past 13 km")
+		t.Error("still coupled past 45 km")
 	}
 	if len(res.Released) != 1 || res.Released[0] != "bob" {
 		t.Errorf("Released = %v, want [bob]", res.Released)
+	}
+}
+
+// #291 retune regression: the v0.32 live playtest's best pass (~14.9 km,
+// low v_rel) sat outside the old 10 km gate and never coupled. Under the
+// widened gate a slow pair at 30 km couples; release still requires
+// separating past the scaled hysteresis (>42 km) or a fast excursion
+// (>120 m/s) — each independently sufficient once coupled.
+func TestComputeCoWarpCouplesAtPlaytestRange(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	near := peerAt(w, primary, st, 50, orbital.Vec3{X: 30_000}, orbital.Vec3{}, "bob")
+
+	res := w.ComputeCoWarp([]CoWarpPeer{near}, nil)
+	if !res.State.Coupled {
+		t.Fatal("30 km / low v_rel did not couple — the #291 retune regressed")
+	}
+
+	// Inside 42 km at a station-keeping rate: stays coupled.
+	inBand := peerAt(w, primary, st, 50, orbital.Vec3{X: 41_000}, orbital.Vec3{X: 110}, "bob")
+	res2 := w.ComputeCoWarp([]CoWarpPeer{inBand}, res.CoupledOwners)
+	if !res2.State.Coupled {
+		t.Fatal("released inside the 42 km / 120 m/s decouple band")
+	}
+
+	// Past 42 km releases even at low v_rel.
+	farOut := peerAt(w, primary, st, 50, orbital.Vec3{X: 43_000}, orbital.Vec3{}, "bob")
+	res3 := w.ComputeCoWarp([]CoWarpPeer{farOut}, res2.CoupledOwners)
+	if res3.State.Coupled {
+		t.Error("still coupled past the 42 km decouple range")
+	}
+
+	// Past 120 m/s releases even at close range.
+	fast := peerAt(w, primary, st, 50, orbital.Vec3{X: 30_000}, orbital.Vec3{X: 130}, "bob")
+	res4 := w.ComputeCoWarp([]CoWarpPeer{fast}, res2.CoupledOwners)
+	if res4.State.Coupled {
+		t.Error("still coupled past the 120 m/s decouple speed")
 	}
 }
 
