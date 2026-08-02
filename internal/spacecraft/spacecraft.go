@@ -547,6 +547,16 @@ func (s *Spacecraft) OrbitalSpeed() float64 { return s.State.V.Norm() }
 // is a better fit for the no-payload Luna-mission profile this default
 // targets.
 func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
+	return NewInLEOAtPhase(earth, 0)
+}
+
+// NewInLEOAtPhase is NewInLEO generalised over the position on the
+// orbit: the same default S-IVB-1 on the same 500 km circular
+// equatorial orbit, placed phaseDeg degrees prograde around the ring
+// from the seed spot (body-frame +X). NewInLEO is exactly phase 0.
+// The multiplayer fleet reset (--reset-fleet) uses this to space each
+// enrolled player's fresh vessel evenly around one shared orbit.
+func NewInLEOAtPhase(earth bodies.CelestialBody, phaseDeg float64) *Spacecraft {
 	r := earth.RadiusMeters() + 500e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
@@ -567,10 +577,15 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	// over the equator), not the world XY plane (which is offset by
 	// Earth's 23.44° axial tilt). Pre-v0.8.5.7 there were no tilts so
 	// the two coincided.
+	//
+	// The phase rotates position and velocity together about the body
+	// frame's pole, so every phase yields the identical circular orbit:
+	// at th=0 this reduces to the historical {X: r} / {Y: v} seed.
+	th := phaseDeg * math.Pi / 180
 	frame := orbital.ReferenceFrameForPrimary(earth)
 	c.State = physics.StateVector{
-		R: frame.ToWorld(orbital.Vec3{X: r}),
-		V: frame.ToWorld(orbital.Vec3{Y: v}),
+		R: frame.ToWorld(orbital.Vec3{X: r * math.Cos(th), Y: r * math.Sin(th)}),
+		V: frame.ToWorld(orbital.Vec3{X: -v * math.Sin(th), Y: v * math.Cos(th)}),
 		M: c.TotalMass(),
 	}
 	return c
