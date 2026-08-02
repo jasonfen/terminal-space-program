@@ -524,10 +524,17 @@ func (w *World) holdRendezvousLeader(partner *CoWarpPeer) {
 
 // resolveRendezvousWaypoint decides what reaching the committed τ means
 // for the standing intent (#252):
-//   - inside the proximity couple gate → the intent has done its job:
-//     drop to 1×, chip the arrival, release arm + driver. Proximity
-//     Co-Warp continues the SAME coupled state (the wasCoupled hysteresis
-//     in ComputeCoWarp carries it) — no drop-and-recouple tick;
+//   - inside the couple RANGE — velocity term deliberately not consulted
+//     (#299) → the intent has done its job: drop to 1×, chip the arrival,
+//     release arm + driver. A transfer-orbit encounter always arrives
+//     fast, and killing that velocity needs the pilot burning at closest
+//     approach, which needs the driver released — requiring the velocity
+//     term here made the coast blow through every good encounter. The
+//     velocity term still gates Proximity Co-Warp coupling itself: a slow
+//     arrival continues the SAME coupled state (the wasCoupled hysteresis
+//     in ComputeCoWarp carries it) with no drop-and-recouple tick, a fast
+//     arrival is released-but-not-coupled and couples once the pilot has
+//     matched velocities;
 //   - outside, mutual arm intact → advance: re-derive the next encounter,
 //     re-freeze the driver on it, re-base the degrade baseline, and
 //     record the advance for the waypoint chip;
@@ -561,8 +568,8 @@ func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPee
 			if peers[i].Owner != arm.TargetOwner {
 				continue
 			}
-			if rng, vrel, ok := closestApproach(anchor, peers[i].Crafts); ok &&
-				rng <= coWarpCoupleRangeM && vrel <= coWarpCoupleSpeedMs {
+			if rng, _, ok := closestApproach(anchor, peers[i].Crafts); ok &&
+				rng <= coWarpCoupleRangeM {
 				w.Clock.WarpIdx = 0
 				w.LastRendezvousArrival = &RendezvousArrival{
 					Handle: w.AutoWarp.RendezvousHandle, Owner: w.AutoWarp.RendezvousOwner,

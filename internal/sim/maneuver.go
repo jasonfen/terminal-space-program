@@ -80,6 +80,14 @@ func (w *World) StartManualBurn() {
 	// soft-landing's Landed=false→true transition doesn't fire the
 	// ViewLaunch auto-route (which gates on OnPad).
 	c.OnPad = false
+	// #298: the pilot taking manual thrust supersedes the standing
+	// rendezvous intent — release arm + driver so the coast can't warp
+	// against the burn (mirrors the driver yielding to node burns).
+	// Clearing the arm matters as much as the driver: an arm left
+	// standing restarts the coast on the next serve tick.
+	if w.rendezvousWarpEngaged() {
+		w.DisengageRendezvousWarp()
+	}
 	c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
 }
 

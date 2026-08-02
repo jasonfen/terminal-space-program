@@ -81,6 +81,12 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	if !w.ActiveCraft().ApplyRCSPulseWithTarget(mode, rT, vT) {
 		return false
 	}
+	// #298: a pulse is Δv the same as a main-engine burn — the pilot
+	// maneuvering supersedes the standing rendezvous intent, so release
+	// arm + driver rather than letting the coast warp against the match.
+	if w.rendezvousWarpEngaged() {
+		w.DisengageRendezvousWarp()
+	}
 	w.recordRCSPuff(dir)
 	return true
 }
