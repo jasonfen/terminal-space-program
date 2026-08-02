@@ -189,6 +189,31 @@ func TimeToRadiusOutbound(state Vec3State, mu, r float64) (float64, bool) {
 	return dt, true
 }
 
+// ApsisDegenerateEcc is the eccentricity below which the apsides stop
+// being locatable points on the orbit (#286). At exactly e = 0 apoapsis
+// is genuinely undefined — every point is the same radius — and
+// TrueAnomalyFromState returns 0 for any such state, so TimeToApoapsis
+// degenerates to a constant half-period no matter where the craft is.
+// Just above zero the apsides exist but the eccentricity vector is
+// numerical noise, so the direction they point in is meaningless too.
+//
+// 1e-6 is ~14 m of apsis separation in LEO: below anything a player can
+// fly to deliberately, and three orders of magnitude under the ~3e-5 the
+// smallest measured remedy pulse produced (0.1 m/s prograde, Ap +0.4 km).
+//
+// This is a DISPLAY convention, not a physics gate: a readout that names
+// a specific instant must not do so when no such instant exists. Node
+// scheduling deliberately does NOT consult it — on a circular orbit
+// every point is apoapsis, so a burn placed at the nominal one is
+// physically identical to any other, and refusing to resolve would leave
+// the node unfired forever.
+const ApsisDegenerateEcc = 1e-6
+
+// ApsisDefined reports whether the apsides are distinguishable enough
+// for an apsis-anchored countdown to mean anything. See
+// ApsisDegenerateEcc.
+func ApsisDefined(e float64) bool { return e >= ApsisDegenerateEcc }
+
 // TimeToApoapsis returns elapsed seconds to the next apoapsis (ν=π).
 // Convenience wrapper around TimeToTrueAnomaly.
 func TimeToApoapsis(state Vec3State, mu float64) float64 {

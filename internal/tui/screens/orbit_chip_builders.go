@@ -325,7 +325,7 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		return append(lines, v.theme.Dim.Render("  [/] cancel"))
 	case w.RendezvousArm != nil:
 		arm := w.RendezvousArm
-		status := v.theme.Warning.Render("  armed → " + arm.Handle + " — waiting for them to join")
+		status := v.theme.Warning.Render("  armed → " + arm.Handle + CraftTag(arm.CraftName) + " — waiting for them to join")
 		switch wt := w.RendezvousWait; wt.Reason {
 		case sim.RendezvousWaitSubspaceGap:
 			// #250: "waiting for them to join" would blame the partner for
@@ -366,20 +366,32 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			}
 			return []string{
 				v.theme.Primary.Render("RENDEZVOUS"),
-				v.theme.Dim.Render("  ◇ " + inv.Handle + " wants to rendezvous — " + gap),
+				v.theme.Dim.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous — " + gap),
 				chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 				chipRow("CA:", formatRangeM(inv.CA)),
 			}
 		}
 		return []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
-			v.theme.Warning.Render("  ◇ " + inv.Handle + " wants to rendezvous"),
+			v.theme.Warning.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous"),
 			chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 			chipRow("CA:", formatRangeM(inv.CA)),
 			v.theme.Warning.Render("  [y] join"),
 		}
 	}
 	return nil
+}
+
+// CraftTag renders a vessel name as a parenthetical to hang off a
+// player's handle — "gern (Relay Tug-1)" (#295). Empty for an unnamed
+// craft (an older peer's report carries no active-craft marker), so the
+// caller's line degrades to the bare handle instead of an empty "()".
+// Exported because the flight view's arm toast composes the same line.
+func CraftTag(name string) string {
+	if name == "" {
+		return ""
+	}
+	return " (" + name + ")"
 }
 
 // buildDockGuestChip is the docked-as-guest standing away surface (#253):
@@ -953,12 +965,26 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 		chipRow("altitude:", fmt.Sprintf("%.1f km", c.Altitude()/1000)),
 		chipRow("Ap:", fmt.Sprintf("%.1f km", apoAlt/1000)),
 	}
-	if tApo := orbital.TimeToApoapsis(st, mu); tApo >= 0 {
-		lines = append(lines, chipRow("t→Ap:", formatDurationShort(tApo)))
+	// On a circular orbit the apsides are not locatable points (#286), so
+	// the countdowns say "—" rather than the constant half-period the
+	// underlying helpers fall back to. A frozen number that looks live is
+	// worse than an honest blank: players read it as phase information and
+	// tried to time rendezvous off two craft that both showed P/2.
+	apsisTime := func(secs float64) (string, bool) {
+		if !orbital.ApsisDefined(el.E) {
+			return "—", true
+		}
+		if secs < 0 {
+			return "", false
+		}
+		return formatDurationShort(secs), true
+	}
+	if s, ok := apsisTime(orbital.TimeToApoapsis(st, mu)); ok {
+		lines = append(lines, chipRow("t→Ap:", s))
 	}
 	lines = append(lines, chipRow("Pe:", fmt.Sprintf("%.1f km", periAlt/1000)))
-	if tPeri := orbital.TimeToPeriapsis(st, mu); tPeri >= 0 {
-		lines = append(lines, chipRow("t→Pe:", formatDurationShort(tPeri)))
+	if s, ok := apsisTime(orbital.TimeToPeriapsis(st, mu)); ok {
+		lines = append(lines, chipRow("t→Pe:", s))
 	}
 	// Full orbital period, alongside the apsis-time readouts — the number
 	// a comsat placement is tuned to (e.g. a synchronous or semi-

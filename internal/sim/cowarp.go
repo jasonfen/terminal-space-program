@@ -176,6 +176,14 @@ type CoWarpPeer struct {
 	// carried alongside RendezvousTau so a responder adopts the initiator's
 	// authoritative baseline, not its own staler recompute (v0.29 S1).
 	RendezvousCA float64
+
+	// ActiveCraftName is the vessel this peer is flying, read off their
+	// report's active-craft marker (#288). The join prompt names it (#295)
+	// so the responder answers "gern's Relay Tug-1 wants to rendezvous",
+	// not just "gern" — the live wrong-vessel arm was caught from this
+	// seat, and only by an implausible CA. Empty when the peer's report
+	// carries no marker.
+	ActiveCraftName string
 }
 
 // RendezvousArm is the viewer's outgoing Rendezvous Warp intent (v0.29 S1,
@@ -205,6 +213,7 @@ type CoWarpPeer struct {
 type RendezvousArm struct {
 	TargetOwner string    // fingerprint of the partner Engaged toward
 	Handle      string    // partner display name, captured at Engage (chips/HUD never fall back to a raw fingerprint)
+	CraftName   string    // the vessel that armed — captured at Engage (#295), so a wrong-vessel arm is visible from the arming seat
 	Tau         time.Time // the current waypoint's absolute encounter sim-time
 	CommittedCA float64   // m — the predicted approach at Tau, re-derived per waypoint (HUD "committed" row)
 

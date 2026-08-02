@@ -679,10 +679,19 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		// viewer by construction — you don't ghost yourself — so the count
 		// would always read "(0 here)". It measures what YOU can target,
 		// which is meaningless pointed at yourself.
+		// With no live report there is no count to state (#297): rendering
+		// the zero value turned "hasn't connected since the server started"
+		// into "their fleet is empty" — read, minutes after a fleet-reset
+		// deploy, as the reset having wiped everyone. LOCATION already falls
+		// back to "—" on the same row; the count mirrors it.
 		here := len(playerGhosts(w, p.Fingerprint))
-		craft := fmt.Sprintf("%d craft", p.CraftCount)
-		if p.Fingerprint != info.Self && p.System != "" && p.System == w.System().Name && here < p.CraftCount {
+		craft := "—"
+		switch {
+		case !p.HasReport:
+		case p.Fingerprint != info.Self && p.System != "" && p.System == w.System().Name && here < p.CraftCount:
 			craft = fmt.Sprintf("%d craft (%d here)", p.CraftCount, here)
+		default:
+			craft = fmt.Sprintf("%d craft", p.CraftCount)
 		}
 		b.WriteString("  " + padStyled(marker, 2) + dot + " " +
 			s.nameCell(p.Handle, tags, colName) + " " +

@@ -2014,7 +2014,11 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		case !ok:
 			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
 		case a.world.EngageRendezvousWarp(cmd.Owner, cmd.Handle, tau, ca):
-			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s — waiting for them to join", cmd.Handle)
+			// Name the acting craft (#295): arming acts on whatever slot is
+			// active, and a player who cycled it earlier has no other way to
+			// catch a wrong-vessel arm before the invitation goes out.
+			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join",
+				cmd.Handle, screens.CraftTag(a.world.RendezvousArm.CraftName))
 		default:
 			a.statusMsg = fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle)
 		}

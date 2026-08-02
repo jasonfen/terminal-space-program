@@ -87,6 +87,12 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			p.ArmedTowardViewer = true
 			p.RendezvousTau = rep.RendezvousTau
 			p.RendezvousCA = rep.RendezvousCA
+			// Name the vessel behind the invite (#295) — the arm always acts
+			// through the reporter's active craft, so the report's marker
+			// (#288) is exactly the right source.
+			if active, aok := rep.ActiveCraft(); aok {
+				p.ActiveCraftName = active.Name
+			}
 		}
 		out = append(out, p)
 	}

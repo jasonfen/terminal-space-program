@@ -13,12 +13,17 @@ import (
 // Rendezvous advisory errors. Exported so app.go's status flash can
 // switch on them via errors.Is, mirroring the PlanCircularize* family
 // (see maneuver.go:1132). v0.10.2+.
+//
+// The reasons carry no "rendezvous:" prefix (#285): the flight view
+// labels the refusal at the display layer, exactly as it does for
+// `circularize:` and `save:`, so a prefix here rendered twice
+// ("rendezvous: rendezvous: no craft target") on every K refusal.
 var (
-	ErrRendezvousNoTarget           = transferError("rendezvous: no craft target")
-	ErrRendezvousDifferentPrimaries = transferError("rendezvous: target around a different primary")
-	ErrRendezvousAlreadyDocked      = transferError("rendezvous: already in DOCK READY range")
-	ErrRendezvousNoImprovement      = transferError("rendezvous: no useful nudge in range")
-	ErrRendezvousNoCraft            = transferError("rendezvous: no active craft")
+	ErrRendezvousNoTarget           = transferError("no craft target")
+	ErrRendezvousDifferentPrimaries = transferError("target around a different primary")
+	ErrRendezvousAlreadyDocked      = transferError("already in DOCK READY range")
+	ErrRendezvousNoImprovement      = transferError("no useful nudge in range")
+	ErrRendezvousNoCraft            = transferError("no active craft")
 )
 
 // rendezvousAdvisoryCache stores the most recent recommendation so
