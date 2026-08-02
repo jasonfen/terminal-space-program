@@ -456,9 +456,12 @@ func (m *reportingModel) refreshSession(now time.Time) {
 			row.HasReport = true
 			row.DeltaT = rep.SubspaceTime.Sub(w.Clock.SimTime)
 			row.CraftCount = len(rep.Crafts)
-			if len(rep.Crafts) > 0 {
-				row.System = rep.Crafts[0].System
-				row.Primary = rep.Crafts[0].Primary
+			// LOCATION follows the craft they are FLYING, not a fixed slot
+			// (#288) — a partner reads this column to find someone, and slot
+			// 0 is wherever their oldest vessel happens to be.
+			if active, aok := rep.ActiveCraft(); aok {
+				row.System = active.System
+				row.Primary = active.Primary
 			}
 		}
 		info.Players = append(info.Players, row)

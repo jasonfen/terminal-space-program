@@ -44,6 +44,7 @@ type Reporter struct {
 	lastRzTarget string    // last-reported Rendezvous Warp target (v0.29 S1) — a change forces a report
 	lastRzTau    time.Time // last-reported committed τ — a re-commit toward the SAME partner must also propagate promptly (v0.29 review)
 	lastPaused   bool      // last-reported pause state — the partner's hold-the-leader keys on it (v0.29 review)
+	lastActiveID uint64    // last-reported active craft (#288) — a switch moves no orbit, so nothing else would trigger a report
 }
 
 // effWarpRelTol is the relative change in Effective warp that forces a
@@ -88,8 +89,18 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		rzCA = w.RendezvousArm.CommittedCA
 	}
 	paused := w.Clock.Paused
+	// Active craft (#288): switching craft changes no orbit, so the
+	// element-based change detector below is blind to it — but the roster's
+	// LOCATION and every verb aimed at this player read through it. Force a
+	// report the same way an arm change does, or a partner is told where
+	// someone used to be until the next heartbeat.
+	var activeID uint64
+	if active := w.ActiveCraft(); active != nil {
+		activeID = active.ID
+	}
 	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat ||
-		r.lastRzTarget != rzTarget || !r.lastRzTau.Equal(rzTau) || r.lastPaused != paused
+		r.lastRzTarget != rzTarget || !r.lastRzTau.Equal(rzTau) || r.lastPaused != paused ||
+		r.lastActiveID != activeID
 	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
 		return
 	}
@@ -99,10 +110,12 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	r.lastRzTarget = rzTarget
 	r.lastRzTau = rzTau
 	r.lastPaused = paused
+	r.lastActiveID = activeID
 	r.store.Report(CraftReport{
 		Owner:            r.Owner,
 		SubspaceTime:     w.Clock.SimTime,
 		Crafts:           states,
+		ActiveCraftID:    activeID,
 		EffWarp:          effWarp,
 		RendezvousTarget: rzTarget,
 		RendezvousTau:    rzTau,

@@ -43,6 +43,14 @@ type CraftReport struct {
 	SubspaceTime time.Time    `json:"subspace_time"`
 	Crafts       []CraftState `json:"crafts"`
 
+	// ActiveCraftID names which of Crafts the reporter is actually
+	// flying (#288). Without it a consumer can only read a fixed slot,
+	// which told partners a four-craft pilot was at the Sun for a whole
+	// session because slot 0 held a heliocentric craft. Zero (omitted)
+	// means "unmarked" — ActiveCraft falls back to the first slot, the
+	// pre-#288 behaviour.
+	ActiveCraftID uint64 `json:"active_craft_id,omitempty"`
+
 	// EffWarp is the reporter's current Effective warp — the post-clamp
 	// rate its World actually stepped this report (v0.28 S1, ADR 0034 §5).
 	// Proximity co-warp reads it to take the min over coupled players, so
@@ -66,6 +74,24 @@ type CraftReport struct {
 	// opposed to an EffWarp of 0 from a hold or clamp — the rendezvous
 	// hold-the-leader logic keys on it (v0.29 review).
 	Paused bool `json:"paused,omitempty"`
+}
+
+// ActiveCraft returns the craft the reporter is flying — the one a
+// partner means by "where are they" (#288) and the one any verb aimed at
+// the player acts through. Falls back to the first slot when the report
+// carries no marker or names a craft that has since left the set, so an
+// unmarked report reads exactly as it did before the marker existed.
+// ok=false only for a genuinely empty slate.
+func (r CraftReport) ActiveCraft() (CraftState, bool) {
+	if len(r.Crafts) == 0 {
+		return CraftState{}, false
+	}
+	for _, cs := range r.Crafts {
+		if cs.ID == r.ActiveCraftID {
+			return cs, true
+		}
+	}
+	return r.Crafts[0], true
 }
 
 // Store holds the latest report per owner and fans new reports out to
