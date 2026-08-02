@@ -111,6 +111,26 @@ func parseDistanceM(s string) (float64, error) {
 	return val * mult, nil
 }
 
+// validateResetFleet guards --reset-fleet. It is a serve-time fleet
+// administration action — meaningless without a session to reset — so
+// it is refused without --serve rather than silently ignored. It is
+// also refused alongside scenario flags: the reset places the host's
+// vessel on ring slot 0 (the default fresh-start seed), and a custom
+// scenario start would put the host's craft somewhere else entirely,
+// silently breaking the "everyone on the same ring" guarantee.
+func validateResetFleet(resetFleet, serveMode, hasScenario bool) error {
+	if !resetFleet {
+		return nil
+	}
+	if !serveMode {
+		return fmt.Errorf("--reset-fleet requires --serve (it resets the multiplayer session's fleet at server startup)")
+	}
+	if hasScenario {
+		return fmt.Errorf("--reset-fleet can't be combined with scenario flags — the host's vessel is placed on the reset ring's default slot")
+	}
+	return nil
+}
+
 // launchSiteKeys lists the short CLI tokens for the named launch sites.
 func launchSiteKeys() []string {
 	keys := make([]string, len(sim.LaunchSites))
