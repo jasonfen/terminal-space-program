@@ -953,12 +953,26 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 		chipRow("altitude:", fmt.Sprintf("%.1f km", c.Altitude()/1000)),
 		chipRow("Ap:", fmt.Sprintf("%.1f km", apoAlt/1000)),
 	}
-	if tApo := orbital.TimeToApoapsis(st, mu); tApo >= 0 {
-		lines = append(lines, chipRow("t→Ap:", formatDurationShort(tApo)))
+	// On a circular orbit the apsides are not locatable points (#286), so
+	// the countdowns say "—" rather than the constant half-period the
+	// underlying helpers fall back to. A frozen number that looks live is
+	// worse than an honest blank: players read it as phase information and
+	// tried to time rendezvous off two craft that both showed P/2.
+	apsisTime := func(secs float64) (string, bool) {
+		if !orbital.ApsisDefined(el.E) {
+			return "—", true
+		}
+		if secs < 0 {
+			return "", false
+		}
+		return formatDurationShort(secs), true
+	}
+	if s, ok := apsisTime(orbital.TimeToApoapsis(st, mu)); ok {
+		lines = append(lines, chipRow("t→Ap:", s))
 	}
 	lines = append(lines, chipRow("Pe:", fmt.Sprintf("%.1f km", periAlt/1000)))
-	if tPeri := orbital.TimeToPeriapsis(st, mu); tPeri >= 0 {
-		lines = append(lines, chipRow("t→Pe:", formatDurationShort(tPeri)))
+	if s, ok := apsisTime(orbital.TimeToPeriapsis(st, mu)); ok {
+		lines = append(lines, chipRow("t→Pe:", s))
 	}
 	// Full orbital period, alongside the apsis-time readouts — the number
 	// a comsat placement is tuned to (e.g. a synchronous or semi-
