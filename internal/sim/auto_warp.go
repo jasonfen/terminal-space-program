@@ -168,7 +168,18 @@ func (w *World) EngageRendezvousWarp(partner, handle string, tau time.Time, comm
 	if !tau.After(w.Clock.SimTime) {
 		return false
 	}
-	w.RendezvousArm = &RendezvousArm{TargetOwner: partner, Handle: handle, Tau: tau, CommittedCA: committedCA}
+	// The acting craft is captured here for the same reason the handle is
+	// (#295): arming acts on whatever craft is active, and a player who
+	// cycled their slot earlier has no other way to see which vessel just
+	// committed to the encounter.
+	craftName := ""
+	if c := w.ActiveCraft(); c != nil {
+		craftName = c.Name
+	}
+	w.RendezvousArm = &RendezvousArm{
+		TargetOwner: partner, Handle: handle, CraftName: craftName,
+		Tau: tau, CommittedCA: committedCA,
+	}
 	return true
 }
 
@@ -199,10 +210,11 @@ func (w *World) RendezvousWarpEngaged() bool { return w.rendezvousWarpEngaged() 
 // predicted approach the responder adopts verbatim on join. The World
 // slate field of the same name carries at most one (pairwise MVP).
 type RendezvousInvite struct {
-	Owner  string    // partner fingerprint — EngageRendezvousWarp's target on respond
-	Handle string    // display name for the prompt/chip
-	Tau    time.Time // the initiator's committed encounter sim-time
-	CA     float64   // m — the initiator's committed predicted approach
+	Owner     string    // partner fingerprint — EngageRendezvousWarp's target on respond
+	Handle    string    // display name for the prompt/chip
+	CraftName string    // the vessel the initiator armed (#295) — empty when their report carries no marker
+	Tau       time.Time // the initiator's committed encounter sim-time
+	CA        float64   // m — the initiator's committed predicted approach
 
 	// Blocked marks an invite from a subspace-diverged peer (#250): the
 	// intent is live, but the coast could never start across the gap, so
@@ -241,13 +253,15 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 		}
 		if sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
 			w.RendezvousInvite = &RendezvousInvite{
-				Owner: p.Owner, Handle: p.Handle, Tau: p.RendezvousTau, CA: p.RendezvousCA,
+				Owner: p.Owner, Handle: p.Handle, CraftName: p.ActiveCraftName,
+				Tau: p.RendezvousTau, CA: p.RendezvousCA,
 			}
 			return
 		}
 		if blocked == nil {
 			blocked = &RendezvousInvite{
-				Owner: p.Owner, Handle: p.Handle, Tau: p.RendezvousTau, CA: p.RendezvousCA,
+				Owner: p.Owner, Handle: p.Handle, CraftName: p.ActiveCraftName,
+				Tau: p.RendezvousTau, CA: p.RendezvousCA,
 				Blocked: true, AheadBy: w.Clock.SimTime.Sub(p.SubspaceTime),
 			}
 		}

@@ -325,7 +325,7 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		return append(lines, v.theme.Dim.Render("  [/] cancel"))
 	case w.RendezvousArm != nil:
 		arm := w.RendezvousArm
-		status := v.theme.Warning.Render("  armed → " + arm.Handle + " — waiting for them to join")
+		status := v.theme.Warning.Render("  armed → " + arm.Handle + CraftTag(arm.CraftName) + " — waiting for them to join")
 		switch wt := w.RendezvousWait; wt.Reason {
 		case sim.RendezvousWaitSubspaceGap:
 			// #250: "waiting for them to join" would blame the partner for
@@ -366,20 +366,32 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			}
 			return []string{
 				v.theme.Primary.Render("RENDEZVOUS"),
-				v.theme.Dim.Render("  ◇ " + inv.Handle + " wants to rendezvous — " + gap),
+				v.theme.Dim.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous — " + gap),
 				chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 				chipRow("CA:", formatRangeM(inv.CA)),
 			}
 		}
 		return []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
-			v.theme.Warning.Render("  ◇ " + inv.Handle + " wants to rendezvous"),
+			v.theme.Warning.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous"),
 			chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 			chipRow("CA:", formatRangeM(inv.CA)),
 			v.theme.Warning.Render("  [y] join"),
 		}
 	}
 	return nil
+}
+
+// CraftTag renders a vessel name as a parenthetical to hang off a
+// player's handle — "gern (Relay Tug-1)" (#295). Empty for an unnamed
+// craft (an older peer's report carries no active-craft marker), so the
+// caller's line degrades to the bare handle instead of an empty "()".
+// Exported because the flight view's arm toast composes the same line.
+func CraftTag(name string) string {
+	if name == "" {
+		return ""
+	}
+	return " (" + name + ")"
 }
 
 // buildDockGuestChip is the docked-as-guest standing away surface (#253):
