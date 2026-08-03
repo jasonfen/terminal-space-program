@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -146,5 +147,57 @@ func TestCooldownRefusalTellsThePilotOnce(t *testing.T) {
 	}
 	if again := ledger.Reconcile(wA, fpA, none); len(again) != 0 {
 		t.Errorf("the latch refusal chipped a second time: %+v", again)
+	}
+}
+
+// TestUnknownDockPhaseSelfRetires is #337. DockLink.Phase crosses session.json
+// as a bare int, so a binary rolled back past the release that introduced a
+// phase value gets seeded with a number it has no case for: reconcileOwner and
+// reconcileGuest both fall through, nothing ever ends the record, and Claim's
+// engaged-record guard refuses BOTH craft forever — an immortal record no
+// reaper can reach. A phase this binary cannot advance is a record it cannot
+// honour, so it retires rather than bricking the pair.
+func TestUnknownDockPhaseSelfRetires(t *testing.T) {
+	ledger := NewDockLedger()
+	w := newWorld(t)
+	const dockerID = 4001
+	w.ActiveCraft().ID = dockerID
+
+	ledger.SeedFull([]DockSnapshot{{
+		ID: 5, Owner: fpA, OwnerHandle: "alice", DockerCraftID: dockerID,
+		CompositeID: dockerID, GuestOwner: fpB, GuestHandle: "bob",
+		GuestCraftID: 4002, Phase: DockPhase(99),
+	}}, loadedSystems(t))
+
+	ledger.Reconcile(w, fpA, map[string]CraftReport{})
+	if recs := ledger.Records(); len(recs) != 0 {
+		t.Fatalf("a record in an unhandled phase outlived a reconcile: %+v", recs)
+	}
+	if _, ok := ledger.Claim(fpA, "alice", dockerID, fpB, "bob", 4002); !ok {
+		t.Errorf("the pair is still un-dockable after the unhandled record retired")
+	}
+}
+
+// TestUnknownDockPhaseHoldingACraftIsKept is the ADR 0040 §1 exception to the
+// retirement above: a record parking a payload is holding the ONLY copy of a
+// craft. Retiring it would destroy the vessel that durability exists to save,
+// and an immortal record is recoverable by running a binary that understands
+// the phase again — a deleted craft is not.
+func TestUnknownDockPhaseHoldingACraftIsKept(t *testing.T) {
+	ledger := NewDockLedger()
+	w := newWorld(t)
+	const dockerID = 4003
+	w.ActiveCraft().ID = dockerID
+	wire := save.CraftToWire(w.ActiveCraft())
+
+	ledger.SeedFull([]DockSnapshot{{
+		ID: 6, Owner: fpA, OwnerHandle: "alice", DockerCraftID: dockerID,
+		CompositeID: dockerID, GuestOwner: fpB, GuestHandle: "bob",
+		GuestCraftID: 4004, Phase: DockPhase(99), ReturnPayload: &wire,
+	}}, loadedSystems(t))
+
+	ledger.Reconcile(w, fpA, map[string]CraftReport{})
+	if recs := ledger.Records(); len(recs) != 1 {
+		t.Errorf("an unhandled record holding the only copy of a craft was reaped: %+v", recs)
 	}
 }

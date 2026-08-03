@@ -514,6 +514,22 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 	var chips []DockChip
 	w.DockGuest = nil // rebuilt below if still a guest in some active dock
 	for id, r := range l.records {
+		// #337: a phase this binary has no case for. DockLink.Phase crosses
+		// the session directory as a bare int, so a rollback past the release
+		// that introduced a phase value seeds records nothing here can
+		// advance: both reconcile arms fall through, no reaper reaches them,
+		// and Claim's engaged-record guard refuses both craft forever. A
+		// record we cannot honour retires instead of bricking the pair —
+		// unless it is holding a payload, which is the ADR 0040 §1 rule: that
+		// craft exists in no World and no save, and an immortal record is
+		// recoverable by running a binary that understands the phase again,
+		// while a deleted vessel is not.
+		if r.Phase != DockPending && r.Phase != DockActive && r.Phase != DockCooldown {
+			if !r.hasParkedPayload() {
+				delete(l.records, id)
+			}
+			continue
+		}
 		// ADR 0038 §5: a Cooldown record is the re-arm-by-leaving latch, not
 		// a live dock — neither reconcileOwner nor reconcileGuest touches it.
 		// Either side of the pair can notice the separation and clear it, so
