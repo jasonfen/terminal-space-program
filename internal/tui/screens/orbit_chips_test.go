@@ -490,6 +490,89 @@ func TestNodesChipForceShowsWhenMultipleNodesQueued(t *testing.T) {
 	}
 }
 
+// TestNodesChipForceShowIsPerCraftNotFleetWide (#333): the staleness
+// hazard the force-show gate exists for is per-vessel — every node
+// behind the first ON THE SAME CRAFT was computed against an orbit that
+// no longer exists once the first one fires. Two different craft each
+// carrying exactly one node have no such hazard on either vessel, so
+// summing across the fleet must not force the chip past a declutter +
+// disabled toggle the player explicitly chose.
+func TestNodesChipForceShowIsPerCraftNotFleetWide(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	s := settings.Default()
+	for _, chipID := range settings.AllChips {
+		s.SetChip(chipID, false)
+	}
+	v.SetSettings(s)
+	v.SetDeclutter(true)
+
+	active := w.ActiveCraft()
+	if active == nil {
+		t.Fatal("expected an active craft")
+	}
+	active.Nodes = []spacecraft.ManeuverNode{
+		{Mode: spacecraft.BurnPrograde, DV: 42, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+	}
+	second := &spacecraft.Spacecraft{
+		Name:    "relay",
+		Primary: active.Primary,
+		State:   active.State,
+		Stages:  []spacecraft.Stage{{DryMass: 1000}},
+		Nodes: []spacecraft.ManeuverNode{
+			{Mode: spacecraft.BurnPrograde, DV: 10, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+		},
+	}
+	second.SyncFields()
+	w.Crafts = append(w.Crafts, second)
+
+	out := v.Render(w, 0, 120, 40)
+	if strings.Contains(out, "NODES") {
+		t.Errorf("one node each on two different craft force-showed NODES past the toggle/declutter — the hazard is per-craft, not fleet-wide:\n%s", out)
+	}
+}
+
+// TestNodesChipOverflowCountIsPerCraft (#333): the "(+N more)" overflow
+// annotation must count the SAME craft's own remaining queue that the
+// "next" node line above it names — folding in another craft's
+// unrelated nodes misdescribes whose queue is actually stale.
+func TestNodesChipOverflowCountIsPerCraft(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	active := w.ActiveCraft()
+	if active == nil {
+		t.Fatal("expected an active craft")
+	}
+	active.Nodes = []spacecraft.ManeuverNode{
+		{DV: 10, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+	}
+	other := &spacecraft.Spacecraft{
+		Name:    "relay",
+		Primary: active.Primary,
+		State:   active.State,
+		Stages:  []spacecraft.Stage{{DryMass: 1000}},
+		Nodes: []spacecraft.ManeuverNode{
+			{DV: 5, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+			{DV: 6, TriggerTime: w.Clock.SimTime.Add(2 * time.Minute)},
+			{DV: 7, TriggerTime: w.Clock.SimTime.Add(3 * time.Minute)},
+		},
+	}
+	other.SyncFields()
+	w.Crafts = append(w.Crafts, other)
+
+	joined := strings.Join(v.buildNodesChip(w), "\n")
+	if strings.Contains(joined, "more") {
+		t.Errorf("active craft has a single node; overflow count leaked another craft's queue:\n%s", joined)
+	}
+}
+
 // TestOrbitMetricsShowsDirectionIndicator — issue #63: the ORBIT chip
 // carries an explicit prograde/retrograde orbit-direction readout so a
 // genuine reversal is never confused with a projection/shading artifact.

@@ -354,10 +354,13 @@ func (v *OrbitView) buildStagesChip(w *sim.World) []string {
 }
 
 // totalQueuedNodes sums every craft's planted-but-unfired node count.
-// Shared by buildNodesChip (the "(+N more)" overflow count) and
-// assembleChips's #293 force-show gate — more than one node queued
-// anywhere is exactly the staleness hazard the chip exists to surface,
-// so both read the same total.
+// Used only to decide whether the NODES chip has anything to show at
+// all (buildNodesChip's top-of-function relevance check) — a fleet
+// with a node planted on ANY craft is a fleet where the chip belongs on
+// screen, even if the active craft itself is currently node-free.
+//
+// #333: this total is deliberately NOT used for the force-show gate or
+// the "(+N more)" overflow count anymore — see activeCraftQueuedNodes.
 func totalQueuedNodes(w *sim.World) int {
 	total := 0
 	for _, c := range w.Crafts {
@@ -366,6 +369,24 @@ func totalQueuedNodes(w *sim.World) int {
 		}
 	}
 	return total
+}
+
+// activeCraftQueuedNodes reports the ACTIVE craft's own planted-but-
+// unfired node count (#333). The staleness hazard the NODES chip
+// force-show exists to surface is per-vessel: every node behind the
+// first ON THE SAME CRAFT was computed against an orbit that no longer
+// exists once the first one fires. A different craft's queue doesn't
+// stale this one, so summing across the fleet (the old totalQueuedNodes
+// use here) force-showed the chip — bypassing a declutter + disabled
+// toggle the player explicitly chose — for constellations where no
+// single vessel actually carried the hazard. Returns 0 with no active
+// craft.
+func activeCraftQueuedNodes(w *sim.World) int {
+	ac := w.ActiveCraft()
+	if ac == nil {
+		return 0
+	}
+	return len(ac.Nodes)
 }
 
 // buildNodesChip is the bottom-right burn-schedule chip: any in-flight
@@ -426,9 +447,13 @@ func (v *OrbitView) buildNodesChip(w *sim.World) []string {
 				hudNodeMarker, label, dt, n.Mode.String(), n.DV)
 		}
 		lines = append(lines, line, "  "+kind)
-	}
-	if total > 1 {
-		lines = append(lines, v.theme.Dim.Render(fmt.Sprintf("  (+%d more → [m])", total-1)))
+		// #333: the overflow count is nc's OWN remaining queue, not the
+		// fleet-wide total — mixing in another craft's nodes here would
+		// describe a different vessel's queue as if it were stale on
+		// THIS one.
+		if craftTotal := len(nc.Nodes); craftTotal > 1 {
+			lines = append(lines, v.theme.Dim.Render(fmt.Sprintf("  (+%d more → [m])", craftTotal-1)))
+		}
 	}
 	return lines
 }

@@ -126,13 +126,19 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// in flight the chip force-shows — bypassing both the ChipNodes
 	// Settings toggle and F2 declutter — so it can never be hidden.
 	// #293 extends the same force-show rationale to the staleness
-	// hazard: once more than one node is queued anywhere, every node
-	// behind the first was computed against an orbit that no longer
-	// exists once the first one fires, so the count must be visible
-	// the same way a live burn is. With ≤1 node queued and nothing
-	// burning, the chip honours the toggle + declutter like any chip.
+	// hazard: once more than one node is queued on the ACTIVE craft,
+	// every node behind the first was computed against an orbit that no
+	// longer exists once the first one fires, so the count must be
+	// visible the same way a live burn is. #333: this is strictly
+	// per-craft (activeCraftQueuedNodes), not the old fleet-wide sum — a
+	// different craft's queue firing doesn't stale the one this player
+	// is watching, so a small constellation with one node per vessel no
+	// longer force-shows a chip the player explicitly decluttered. With
+	// ≤1 node queued on the active craft and nothing burning, the chip
+	// honours the toggle + declutter like any chip.
 	if lines := v.buildNodesChip(w); lines != nil {
-		if v.anyActiveBurn(w) || totalQueuedNodes(w) > 1 || v.chipEnabled(settings.ChipNodes) {
+		forced := v.anyActiveBurn(w) || activeCraftQueuedNodes(w) > 1
+		if forced || v.chipEnabled(settings.ChipNodes) {
 			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines})
 		}
 	}
