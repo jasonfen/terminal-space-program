@@ -644,7 +644,7 @@ func wrapIdx(i, n int) int {
 func (s *SpawnCraft) Render(width int) string {
 	var lines []string
 
-	const titleText = "terminal-space-program — spawn craft"
+	const titleText = "terminal-space-program — spawn vessel"
 	lines = append(lines, s.theme.Title.Render(titleText))
 	lines = append(lines, "")
 
@@ -656,14 +656,18 @@ func (s *SpawnCraft) Render(width int) string {
 	// the running selectable index and the catalog rows end exactly at
 	// visibleCatalogCount() (the Custom index — the filtered count, not
 	// len(LoadoutOrder)), keeping IsCustomSelected / IsDesignSelected in step.
-	lines = append(lines, s.fieldHeader(0, "CRAFT TYPE"))
+	lines = append(lines, s.fieldHeader(0, "VESSEL TYPE"))
 	// ADR 0031 / S10: the scale-class system filter note + [f] hint.
 	if s.showAll {
 		lines = append(lines, "  "+s.theme.Dim.Render(
-			"showing all systems' craft — [f] filter to this system"))
+			"showing all systems' vessels — [f] filter to this system"))
 	} else if hidden := len(spacecraft.LoadoutOrder) - s.visibleCatalogCount(); hidden > 0 {
+		noun := "vessels"
+		if hidden == 1 {
+			noun = "vessel"
+		}
 		lines = append(lines, "  "+s.theme.Dim.Render(fmt.Sprintf(
-			"%d craft from other systems hidden — [f] show all", hidden)))
+			"%d %s from other systems hidden — [f] show all", hidden, noun)))
 	}
 	lines = append(lines, "")
 	idx := 0
