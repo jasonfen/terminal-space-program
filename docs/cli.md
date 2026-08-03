@@ -3,7 +3,7 @@
 `terminal-space-program` opens, by default, with a vessel in a 500 km low Earth
 orbit. The flags below let you boot straight into a different starting
 scenario — a system, a body to orbit or launch from, an orbit shape, a launch
-site, and a craft. They only shape a **fresh** game; loading a save from the
+site, and a vessel. They only shape a **fresh** game; loading a save from the
 in-game menu restores that save unchanged.
 
 All flags are optional. With none, the start is exactly as before.
@@ -51,7 +51,7 @@ terminal-space-program --list-launch-sites
 |---|---|---|
 | `--system NAME` | `Sol` | Star system, by name (`Sol`, `Lumen`, …). Case-insensitive. |
 | `--orbit BODY` | `earth` (or the system's first planet) | Body to orbit or launch from, by **ID** or English name (see `--list-bodies`). `--parent` and `--body` are accepted as synonyms. |
-| `--loadout NAME` | `S-IVB-1` | Craft loadout ID (`Saturn-V`, `Apollo-Stack`, `Kern-Stack`, …; see `--list-loadouts`). |
+| `--loadout NAME` | `S-IVB-1` | Vessel loadout ID (`Saturn-V`, `Apollo-Stack`, `Kern-Stack`, …; see `--list-loadouts`). |
 
 A vessel is bound for its lifetime to the system it spawns in, and the camera
 follows it — so `--system Lumen` drops you straight into Lumen with the flight
