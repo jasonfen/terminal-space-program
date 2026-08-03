@@ -90,7 +90,16 @@ var (
 const metaRefresh = 5 * time.Second
 
 // withReporting wraps app so its world reports to the store as owner.
+// Called once per new session (ssh connect/reconnect, or the host
+// starting to host), so it's also the single place that delivers a
+// player's pending session note (#274) — today only the legacy
+// handle-collision auto-rename produces one, surfaced as a toast on
+// the owner's own screen the moment their session comes up, then
+// cleared so it fires exactly once.
 func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
+	if note, err := s.store.ConsumePendingNote(owner); err == nil && note != "" {
+		app.Toast(note)
+	}
 	return reportingModel{
 		inner: app, app: app,
 		rep: relay.NewReporter(s.relay, owner),
@@ -200,7 +209,14 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch admin.Cmd.Kind {
 		case screens.SessionCmdMint:
-			_, _ = m.srv.store.MintInvite(admin.Cmd.Handle)
+			// #274: MintInvite refuses a handle that case-insensitively
+			// collides with the roster or another outstanding invite —
+			// this used to be silently discarded (`_, _ = ...`), so the
+			// host never learned a mint failed and could hand out a code
+			// bound to a handle that could never enroll cleanly.
+			if _, err := m.srv.store.MintInvite(admin.Cmd.Handle); err != nil {
+				m.app.Toast(err.Error())
+			}
 		case screens.SessionCmdRevoke:
 			_ = m.srv.store.RevokeInvite(admin.Cmd.Code)
 		case screens.SessionCmdRemove:

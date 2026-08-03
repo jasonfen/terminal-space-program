@@ -491,3 +491,209 @@ func TestMigrateV1SessionForward(t *testing.T) {
 		t.Errorf("on-disk version = %d, want %d", probe.Version, MetaVersion)
 	}
 }
+
+// #274: MintInvite refuses a handle that collides case-insensitively
+// with an existing roster entry, and the store is left untouched.
+func TestMintInviteRefusesCaseInsensitiveRosterCollision(t *testing.T) {
+	s := openStore(t)
+	inv1, err := s.MintInvite("gern")
+	if err != nil {
+		t.Fatalf("MintInvite gern: %v", err)
+	}
+	if _, err := s.Enroll(inv1.Code, "SHA256:gern", "gern"); err != nil {
+		t.Fatalf("Enroll gern: %v", err)
+	}
+	if _, err := s.MintInvite("Gern"); err == nil {
+		t.Fatal("MintInvite accepted a case-different collision with an enrolled handle")
+	}
+	m, _ := s.Meta()
+	if len(m.Invites) != 0 {
+		t.Errorf("a refused mint left an invite behind: %+v", m.Invites)
+	}
+}
+
+// #274: MintInvite also refuses a collision against another
+// outstanding (unredeemed) invite's pre-bound handle — catching the
+// clash at the host's mint step, before a second player is ever
+// handed a code that can't enroll.
+func TestMintInviteRefusesCaseInsensitiveInviteCollision(t *testing.T) {
+	s := openStore(t)
+	if _, err := s.MintInvite("dave"); err != nil {
+		t.Fatalf("first MintInvite: %v", err)
+	}
+	if _, err := s.MintInvite("DAVE"); err == nil {
+		t.Fatal("MintInvite accepted a case-different collision with an outstanding invite")
+	}
+	m, _ := s.Meta()
+	if len(m.Invites) != 1 {
+		t.Errorf("a refused mint left a second invite behind: %+v", m.Invites)
+	}
+}
+
+// #274: Enroll refuses a (possibly hand-edited) handle that collides
+// case-insensitively with an already-enrolled roster entry, and the
+// invite code is NOT spent — the player can retry with a different
+// handle using the same code.
+func TestEnrollRefusesCaseInsensitiveRosterCollision(t *testing.T) {
+	s := openStore(t)
+	inv1, err := s.MintInvite("gern")
+	if err != nil {
+		t.Fatalf("MintInvite gern: %v", err)
+	}
+	if _, err := s.Enroll(inv1.Code, "SHA256:gern", "gern"); err != nil {
+		t.Fatalf("Enroll gern: %v", err)
+	}
+	inv2, err := s.MintInvite("someone-new")
+	if err != nil {
+		t.Fatalf("MintInvite someone-new: %v", err)
+	}
+	if _, err := s.Enroll(inv2.Code, "SHA256:other", "GERN"); err == nil {
+		t.Fatal("Enroll accepted a case-different collision with an enrolled handle")
+	}
+	m, _ := s.Meta()
+	if len(m.Roster) != 1 {
+		t.Fatalf("a refused enroll added a roster row: %+v", m.Roster)
+	}
+	// The code survives the refusal — Peek still finds it.
+	if _, err := s.Peek(inv2.Code); err != nil {
+		t.Errorf("refused enroll spent the invite code: %v", err)
+	}
+}
+
+// #274: a pre-fix roster already carrying a case-insensitive
+// collision (planted directly, bypassing the now-guarded Enroll, to
+// simulate data written before this fix shipped) is deterministically
+// repaired at Open: the later enrollee (by roster/enrollment order)
+// is renamed with a numeric suffix, and both the renamed player and
+// the collision counterpart who kept their name get a pending session
+// note.
+func TestOpenDedupesLegacyRosterHandleCollision(t *testing.T) {
+	dir := t.TempDir()
+	seed, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (seed): %v", err)
+	}
+	m, err := seed.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	m.Roster = []Player{
+		{Fingerprint: HostFingerprint, Handle: "jason", Role: RoleHost},
+		{Fingerprint: "SHA256:first", Handle: "gern", Role: RoleGuest},
+		{Fingerprint: "SHA256:second", Handle: "gern", Role: RoleGuest},
+	}
+	if err := seed.writeMeta(m); err != nil {
+		t.Fatalf("seed writeMeta: %v", err)
+	}
+
+	// Re-open: this is the "load" that must repair the legacy collision.
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (repair): %v", err)
+	}
+	m2, err := s.Meta()
+	if err != nil {
+		t.Fatalf("Meta after repair: %v", err)
+	}
+	if len(m2.Roster) != 3 {
+		t.Fatalf("roster rows = %d, want 3", len(m2.Roster))
+	}
+	byFP := map[string]Player{}
+	for _, p := range m2.Roster {
+		byFP[p.Fingerprint] = p
+	}
+	if byFP["SHA256:first"].Handle != "gern" {
+		t.Errorf("first (earlier) enrollee's handle changed: %+v", byFP["SHA256:first"])
+	}
+	if byFP["SHA256:second"].Handle != "gern2" {
+		t.Errorf("later enrollee not renamed to gern2: %+v", byFP["SHA256:second"])
+	}
+	if byFP["SHA256:first"].PendingNote == "" {
+		t.Error("collision counterpart (kept name) has no pending session note")
+	}
+	if byFP["SHA256:second"].PendingNote == "" {
+		t.Error("renamed player has no pending session note")
+	}
+
+	// Idempotent across repeated loads: reopening again must not
+	// compound the suffix (gern2 -> gern22).
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (second load): %v", err)
+	}
+	m3, err := s2.Meta()
+	if err != nil {
+		t.Fatalf("Meta after second load: %v", err)
+	}
+	byFP3 := map[string]Player{}
+	for _, p := range m3.Roster {
+		byFP3[p.Fingerprint] = p
+	}
+	if byFP3["SHA256:second"].Handle != "gern2" {
+		t.Errorf("second load compounded the rename: %+v", byFP3["SHA256:second"])
+	}
+}
+
+// A legacy collision that differs only by case ("gern" vs "Gern")
+// keeps the later entrant's OWN typed case in the rename — only a
+// disambiguating numeric suffix is added, the case they chose is
+// never silently rewritten.
+func TestOpenDedupePreservesLaterEntrantCase(t *testing.T) {
+	dir := t.TempDir()
+	seed, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (seed): %v", err)
+	}
+	m, err := seed.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	m.Roster = []Player{
+		{Fingerprint: HostFingerprint, Handle: "jason", Role: RoleHost},
+		{Fingerprint: "SHA256:first", Handle: "gern", Role: RoleGuest},
+		{Fingerprint: "SHA256:second", Handle: "Gern", Role: RoleGuest},
+	}
+	if err := seed.writeMeta(m); err != nil {
+		t.Fatalf("seed writeMeta: %v", err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (repair): %v", err)
+	}
+	m2, _ := s.Meta()
+	for _, p := range m2.Roster {
+		if p.Fingerprint == "SHA256:second" && p.Handle != "Gern2" {
+			t.Errorf("later entrant's case not preserved: got %q, want %q", p.Handle, "Gern2")
+		}
+	}
+}
+
+// ConsumePendingNote returns a player's pending note exactly once,
+// then clears it — a second consume is silent (empty, no error).
+func TestConsumePendingNoteFiresOnce(t *testing.T) {
+	s := openStore(t)
+	inv, err := s.MintInvite("dave")
+	if err != nil {
+		t.Fatalf("MintInvite: %v", err)
+	}
+	if _, err := s.Enroll(inv.Code, "SHA256:dave", "dave"); err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	m, _ := s.Meta()
+	for i := range m.Roster {
+		if m.Roster[i].Fingerprint == "SHA256:dave" {
+			m.Roster[i].PendingNote = "test note"
+		}
+	}
+	if err := s.writeMeta(m); err != nil {
+		t.Fatalf("writeMeta: %v", err)
+	}
+	note, err := s.ConsumePendingNote("SHA256:dave")
+	if err != nil || note != "test note" {
+		t.Fatalf("first consume = %q, %v; want %q, nil", note, err, "test note")
+	}
+	note2, err := s.ConsumePendingNote("SHA256:dave")
+	if err != nil || note2 != "" {
+		t.Fatalf("second consume = %q, %v; want empty, nil", note2, err)
+	}
+}

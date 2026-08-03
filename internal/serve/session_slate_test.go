@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,6 +180,35 @@ func TestSessionAdminCommands(t *testing.T) {
 	}})
 	if _, err := srv.store.FindPlayer("SHA256:gern"); !errors.Is(err, sessiondir.ErrNotEnrolled) {
 		t.Errorf("remove via admin msg: %v", err)
+	}
+}
+
+// A colliding mint (#274) is refused, and the reason reaches the
+// admin's own screen as a toast. Previously the admin handler
+// discarded MintInvite's error entirely (`_, _ =
+// m.srv.store.MintInvite(...)`), so a doomed invite — bound to a
+// handle that could never land as a distinct roster identity — was
+// minted silently, with nothing telling the host why the code they
+// handed out couldn't be redeemed cleanly.
+func TestSessionAdminMintCollisionSurfacesRefusal(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+
+	hostApp, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	m := tick(srv.HostModel(hostApp))
+
+	m, _ = m.Update(screens.SessionAdminMsg{Cmd: screens.SessionCommand{
+		Kind: screens.SessionCmdMint, Handle: "GERN",
+	}})
+	if meta, _ := srv.store.Meta(); len(meta.Invites) != 0 {
+		t.Fatalf("colliding mint was not refused: invites = %+v", meta.Invites)
+	}
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "collide") {
+		t.Errorf("mint refusal not surfaced to the admin: %q", out)
 	}
 }
 
