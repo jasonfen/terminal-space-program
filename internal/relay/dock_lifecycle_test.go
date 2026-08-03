@@ -126,6 +126,61 @@ func TestUndockSetsMutualTargets(t *testing.T) {
 	}
 }
 
+// TestUndockTargetsTheStackWithAMultiVesselGuest is #327: ADR 0038 §6 on the
+// guest side worked only by accident. SetTargetGhost ran BEFORE AdoptCraft,
+// and AdoptCraft(_, true) ends in SetActiveCraftIdx, whose last act is to
+// reload w.Target from the INCOMING craft — a restored component with a zero
+// Target. With a one-vessel guest the outgoing craft IS the incoming one, so
+// the ghost target is checkpointed and read straight back; with two vessels
+// the ghost target lands on the guest's OTHER vessel (silently replacing
+// whatever it was aimed at) and the guest undocks blind. Very reachable:
+// DetectGuestContact scans every ghost a guest owns, so a docker can claim a
+// vessel the guest isn't even flying.
+func TestUndockTargetsTheStackWithAMultiVesselGuest(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	const guestID = 1009
+	wA, wB := alignedPair(t, guestID)
+	now := time.Now()
+
+	// B owns a second vessel and is flying it while the first rides in A's
+	// stack. It is aimed at a body of its own, which the undock must not touch.
+	second := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	second.Primary = wB.ActiveCraft().Primary
+	second.State = wB.ActiveCraft().State
+	wB.AdoptCraft(second, false)
+	secondTarget := spacecraft.Target{Kind: spacecraft.TargetBody, BodyIdx: 1}
+	second.Target = secondTarget
+	secondID := second.ID
+
+	ledger.Claim(fpA, "alice", wA.ActiveCraft().ID, fpB, "bob", guestID)
+	reports := reportMap(store, wA, wB, now)
+	ledger.Reconcile(wB, fpB, reports) // B hands craft 1 over
+	ledger.Reconcile(wA, fpA, reports) // A fuses
+	compositeID := wA.Crafts[0].ID
+
+	// B flies its second vessel while docked-as-guest.
+	_, idx, ok := wB.CraftByID(secondID)
+	if !ok {
+		t.Fatalf("B lost its second vessel on handover")
+	}
+	wB.SetActiveCraftIdx(idx)
+
+	if !ledger.RequestUndock(fpB, guestID) {
+		t.Fatalf("RequestUndock refused")
+	}
+	reports = reportMap(store, wA, wB, now.Add(time.Second))
+	ledger.Reconcile(wA, fpA, reports)
+	ledger.Reconcile(wB, fpB, reports)
+
+	if wB.Target.Kind != sim.TargetGhost || wB.Target.GhostOwner != fpA || wB.Target.CraftID != compositeID {
+		t.Errorf("guest target = %+v, want a ghost target at (%s, %d) — the returned vessel undocked blind", wB.Target, fpA, compositeID)
+	}
+	if second.Target != secondTarget {
+		t.Errorf("the guest's OTHER vessel had its target overwritten: %+v, want %+v", second.Target, secondTarget)
+	}
+}
+
 // TestReturnAtNanoSurvivesRestart (#304, durability): the release-time stamp
 // a live undock's subspace-gap placement reads at delivery must round-trip
 // the same way, or a restart between the split and the guest's own tick

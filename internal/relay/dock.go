@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -36,12 +37,13 @@ const (
 	DockActive
 	// DockCooldown: the pair just undocked (a live handback, not a Parcel)
 	// and the record is held open purely as the ADR 0038 §5 re-arm-by-
-	// leaving latch — Claim()'s existing craft-ID dedup keeps refusing a
-	// fresh dock between this SAME pair of craft until reconcileCooldown
-	// observes them past ReArmDistM and drops the record. Nothing else reads
-	// a Cooldown record: RequestUndock/RequestRelease/RequestTransfer/
-	// ReclaimTarget all gate on DockActive, so a cooling-down pair is
-	// invisible to every other verb.
+	// leaving latch — Claim refuses a fresh dock between this SAME pair of
+	// craft (isPair, both endpoints — never a third party, #326) until
+	// reconcileCooldown observes them past ReArmDistM, or sim.ReArmCeiling of
+	// sim-time passes with the range unreadable, and drops the record.
+	// Nothing else reads a Cooldown record: RequestUndock/RequestRelease/
+	// RequestTransfer/ReclaimTarget all gate on DockActive, so a cooling-down
+	// pair is invisible to every other verb.
 	DockCooldown
 )
 
@@ -101,6 +103,16 @@ type DockRecord struct {
 	// their empty seat while they were gone (ADR 0040 §4). Delivered on
 	// their next connect — otherwise their vehicle is simply missing.
 	reclaimNotice bool
+	// reArmNoticed / reArmNoticeTo are the ADR 0038 §5 latch's evidence
+	// (#326). DetectGuestContact fires every tick, so a latched pair sitting
+	// inside the docking gates refuses a Claim every tick; reArmNoticed makes
+	// that ONE chip for the life of the latch, and reArmNoticeTo names the
+	// fingerprint owed it until their own next reconcile can raise it (chips
+	// are addressed to the session whose reconcile returns them). Deliberately
+	// NOT durable — there is no room on the persisted DockLink for them, and a
+	// restart re-telling a pilot once is not spam.
+	reArmNoticed  bool
+	reArmNoticeTo string
 	// reclaimAtNano is the absent owner's sim-time at the moment their stack
 	// was lifted out of their persisted payload (review finding on ADR 0040
 	// §4): the payload can be hours stale by the time the reclaimer's own
@@ -127,6 +139,9 @@ func (r *DockRecord) hasParkedPayload() bool {
 type DockChip struct {
 	Kind   sim.SessionEventKind
 	Handle string
+	// Detail is the reason, in the player's words, for the kinds that render
+	// one verbatim (the refusal chips). Empty on every other moment.
+	Detail string
 }
 
 // DockLedger is the shared, in-process ledger of live cross-player docks.
@@ -147,11 +162,36 @@ func NewDockLedger() *DockLedger {
 // has closed on. Refused (ok=false) when either craft is already engaged in a
 // dock — the guard that keeps a simultaneous mutual approach from opening two
 // crossed records (the ledger mutex serialises, so the first writer wins; the
-// passive-station MVP posture means only one side is actively claiming).
+// passive-station MVP posture means only one side is actively claiming) — or
+// when this exact PAIR is still holding an ADR 0038 §5 re-arm latch.
+//
+// The two guards are deliberately different widths (#326). An engaged record
+// (Pending/Active) means a craft is party to a live dock, and it must refuse on
+// EITHER endpoint: a craft already fused into someone's stack cannot also be
+// claimed by a third player. A Cooldown record is not a dock at all — it is a
+// statement about ONE pair ("you two backed apart yet?") — so it may only ever
+// refuse that same pair. Refusing on either endpoint made one couple's latch
+// disable docking for both of their craft against everybody, which is how a
+// vessel ended up permanently un-dockable.
 func (l *DockLedger) Claim(owner, ownerHandle string, dockerCraftID uint64, guestOwner, guestHandle string, guestCraftID uint64) (*DockRecord, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, r := range l.records {
+		if r.Phase == DockCooldown {
+			if r.isPair(owner, dockerCraftID, guestOwner, guestCraftID) {
+				// Leave evidence, once per latch: the detector re-claims every
+				// tick for as long as the pair drift inside the gates, so the
+				// notice is armed once and delivered on the claimer's own next
+				// reconcile (#326). Silence here is #308 at the one verb with
+				// no key to press.
+				if !r.reArmNoticed {
+					r.reArmNoticed = true
+					r.reArmNoticeTo = owner
+				}
+				return nil, false
+			}
+			continue
+		}
 		if r.involvesCraft(owner, dockerCraftID) || r.involvesCraft(guestOwner, guestCraftID) {
 			return nil, false
 		}
@@ -175,6 +215,15 @@ func (l *DockLedger) Claim(owner, ownerHandle string, dockerCraftID uint64, gues
 func (r *DockRecord) involvesCraft(fp string, craftID uint64) bool {
 	return (r.Owner == fp && r.DockerCraftID == craftID) ||
 		(r.GuestOwner == fp && r.GuestCraftID == craftID)
+}
+
+// isPair reports whether r's two endpoints are exactly these two craft, in
+// either orientation — the same pair, not merely a record one of them is in.
+// Orientation-blind because roles flip: a control transfer swaps owner and
+// guest, so the pair a latch names can be written either way round.
+func (r *DockRecord) isPair(fp1 string, id1 uint64, fp2 string, id2 uint64) bool {
+	return (r.Owner == fp1 && r.DockerCraftID == id1 && r.GuestOwner == fp2 && r.GuestCraftID == id2) ||
+		(r.Owner == fp2 && r.DockerCraftID == id2 && r.GuestOwner == fp1 && r.GuestCraftID == id1)
 }
 
 // RequestUndock flags the guest's active dock for a split (guest-initiated,
@@ -419,6 +468,17 @@ func (l *DockLedger) Records() []DockRecord {
 	return out
 }
 
+// RecordCount is how many docks the ledger currently holds. The serve layer
+// samples it either side of a Reconcile to notice a record ENDING (#326): a
+// re-arm latch clearing, or any other teardown, produces no chip, no craft
+// movement and no successful Claim, so without this the flush that persists it
+// never fires and the record comes back from disk on the next restart.
+func (l *DockLedger) RecordCount() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.records)
+}
+
 // Seed installs durable records (from the session directory on server start)
 // so a dock that outlived a restart resumes. Only the durable fields are
 // carried; the in-flight payload handoffs were transient and are gone.
@@ -454,13 +514,32 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 	var chips []DockChip
 	w.DockGuest = nil // rebuilt below if still a guest in some active dock
 	for id, r := range l.records {
+		// #337: a phase this binary has no case for. DockLink.Phase crosses
+		// the session directory as a bare int, so a rollback past the release
+		// that introduced a phase value seeds records nothing here can
+		// advance: both reconcile arms fall through, no reaper reaches them,
+		// and Claim's engaged-record guard refuses both craft forever. A
+		// record we cannot honour retires instead of bricking the pair —
+		// unless it is holding a payload, which is the ADR 0040 §1 rule: that
+		// craft exists in no World and no save, and an immortal record is
+		// recoverable by running a binary that understands the phase again,
+		// while a deleted vessel is not.
+		if r.Phase != DockPending && r.Phase != DockActive && r.Phase != DockCooldown {
+			if !r.hasParkedPayload() {
+				delete(l.records, id)
+			}
+			continue
+		}
 		// ADR 0038 §5: a Cooldown record is the re-arm-by-leaving latch, not
 		// a live dock — neither reconcileOwner nor reconcileGuest touches it.
 		// Either side of the pair can notice the separation and clear it, so
 		// check both regardless of which one owner is.
 		if r.Phase == DockCooldown {
-			if (r.Owner == owner || r.GuestOwner == owner) && l.reconcileCooldown(w, r, owner, reports) {
-				delete(l.records, id)
+			if r.Owner == owner || r.GuestOwner == owner {
+				r.raiseReArmNotice(owner, &chips)
+				if l.reconcileCooldown(w, r, owner, reports) {
+					delete(l.records, id)
+				}
 			}
 			continue
 		}
@@ -487,6 +566,25 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 // partner isn't reporting yet — an unresolvable range is not evidence of
 // separation.
 func (l *DockLedger) reconcileCooldown(w *sim.World, r *DockRecord, owner string, reports map[string]CraftReport) bool {
+	// Ceiling first (#326): every "can't tell" answer below holds the latch,
+	// and a partner who left — the ordinary reason to undock — is permanently
+	// un-tellable. sim.ReArmCeiling of sim-time since the release stamp ends
+	// it regardless. returnAtNano is the stamp reconcileOwner wrote when it
+	// parked the handback that became this latch; it is already durable
+	// (DockSnapshot.ReturnAtNano), so the ceiling survives the restart that
+	// re-seeds the latch with an empty report store — which is precisely the
+	// state in which nothing else can ever clear it. Nothing reads it once the
+	// return is delivered, so the cooldown phase owns it from here.
+	//
+	// No stamp at all means an origin that predates it (or a record built by
+	// hand): retire rather than latch forever, since an un-ceilinged latch is
+	// the failure this bound exists to prevent.
+	if r.returnAtNano == 0 {
+		return true
+	}
+	if w.Clock.SimTime.Sub(time.Unix(0, r.returnAtNano)) > sim.ReArmCeiling {
+		return true
+	}
 	var localID uint64
 	var remoteOwner string
 	var remoteID uint64
@@ -513,6 +611,33 @@ func (l *DockLedger) reconcileCooldown(w *sim.World, r *DockRecord, owner string
 		return local.State.R.Sub(g.RelPos).Norm() > sim.ReArmDistM
 	}
 	return false // partner's craft not resolvable in this frame — hold
+}
+
+// raiseReArmNotice delivers the once-per-latch explanation for a Claim the
+// re-arm latch refused (#326), if owner is the session owed it. The refusal
+// happens inside Claim, which has no session to chip; this is the first moment
+// the claimer's own reconcile comes round. Rendered as a plain warning row
+// carrying Detail verbatim — the same shape every other cross-player refusal
+// uses (SessionEventTransferRefused is already the ledger's generic "here is
+// why that didn't happen" chip: the reclaim path sends "take control: …"
+// through it too), so no new chip vocabulary is needed to stop being silent.
+func (r *DockRecord) raiseReArmNotice(owner string, chips *[]DockChip) {
+	if r.reArmNoticeTo != owner {
+		return
+	}
+	r.reArmNoticeTo = ""
+	who := r.GuestHandle
+	if r.GuestOwner == owner {
+		who = r.OwnerHandle
+	}
+	if who == "" {
+		who = "them"
+	}
+	*chips = append(*chips, DockChip{
+		Kind:   sim.SessionEventTransferRefused,
+		Handle: who,
+		Detail: fmt.Sprintf("docking held off — back %.0f m clear of %s before docking again", sim.ReArmDistM, who),
+	})
 }
 
 // reconcileOwner runs the stack owner's side of a dock. Returns true when the
@@ -753,14 +878,24 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 			sim.SafeHandback(r.returnPayload)
 			if r.parcel {
 				kind = sim.SessionEventParcelReturned
-			} else {
+			}
+			w.AdoptCraft(r.returnPayload, true)
+			if !r.parcel {
 				// ADR 0038 §6: I undock already targeting the stack I just
 				// left. Skipped for a Parcel — I only just reconnected, and
 				// "targeting the ghost of a stack I haven't seen in hours" is
 				// a stranger opening move than starting blank.
+				//
+				// Strictly AFTER the adoption (#327). AdoptCraft(_, true) ends
+				// in SetActiveCraftIdx, which checkpoints w.Target onto the
+				// OUTGOING craft and then reloads it from the incoming one —
+				// and a restored component is built with a zero Target. Setting
+				// the ghost first therefore stamped it on whatever vessel the
+				// guest happened to be flying and then cleared w.Target, which
+				// only looked correct because a one-vessel guest's outgoing
+				// craft IS the incoming one.
 				w.SetTargetGhost(r.Owner, r.CompositeID)
 			}
-			w.AdoptCraft(r.returnPayload, true)
 			r.returnPayload = nil
 			*chips = append(*chips, DockChip{Kind: kind, Handle: r.OwnerHandle})
 			if r.parcel {
