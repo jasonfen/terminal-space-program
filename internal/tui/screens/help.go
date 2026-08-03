@@ -77,7 +77,7 @@ var helpSections = []helpSection{
 		{"i / r / x", "host + admins: mint invite / revoke code / remove player"},
 		{"p", "host only: promote the selected player to admin / demote them"},
 		{"u", "host + admins: restart the server (drains guests, they reconnect)"},
-		{"J", "transfer control of a cross-player docked stack to the guest (map)"},
+		{"J", "transfer control of a cross-player docked stack to the guest — refused when they aren't in the session (map)"},
 	}},
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},
@@ -123,7 +123,7 @@ var helpSections = []helpSection{
 		{"f", "spawn form: toggle scale-class system filter (show all ↔ filter to this system)"},
 		{"[ / ]", "cycle active craft"},
 		{"1-9", "jump to craft N (no-op when the slot is empty)"},
-		{"U", "undock the active composite"},
+		{"U", "undock the active composite (cross-player stack: release your partner's craft — theirs comes back even if they're offline)"},
 		{"Y", "deploy the top carried payload (keep flying the carrier)"},
 		{"D", "transpose: SM → firing core, LM → releasable nose payload"},
 		{"t / T", "cycle / clear the target"},

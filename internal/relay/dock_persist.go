@@ -50,7 +50,10 @@ type DockSnapshot struct {
 	UndockRefused   bool
 	TransferTo      string
 	Aborted         bool
+	ReleaseAsk      bool
+	ReleaseAsParcel bool
 	Parcel          bool
+	ParcelAtNano    int64
 }
 
 // FullRecords snapshots every live dock in full, converting the parked craft
@@ -74,7 +77,10 @@ func (l *DockLedger) FullRecords() []DockSnapshot {
 			UndockRefused:   r.undockRefused,
 			TransferTo:      r.transferTo,
 			Aborted:         r.aborted,
+			ReleaseAsk:      r.releaseAsk,
+			ReleaseAsParcel: r.releaseAsParcel,
 			Parcel:          r.parcel,
+			ParcelAtNano:    r.parcelAtNano,
 		})
 	}
 	return out
@@ -102,7 +108,10 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 			undockRefused:   s.UndockRefused,
 			transferTo:      s.TransferTo,
 			aborted:         s.Aborted,
+			releaseAsk:      s.ReleaseAsk,
+			releaseAsParcel: s.ReleaseAsParcel,
 			parcel:          s.Parcel,
+			parcelAtNano:    s.ParcelAtNano,
 		}
 		l.records[rec.ID] = rec
 		if rec.ID >= l.nextID {

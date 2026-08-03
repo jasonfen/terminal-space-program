@@ -5,13 +5,13 @@
 // contract end-to-end and confirm the reported behaviour does not
 // match the actual sim state:
 //
-//   1. After plant + one Tick, ActiveBurn must remain nil and the
-//      planted node must have a TriggerTime well in the future
-//      (past the half-period mark for a periapsis-departure orbit).
-//   2. Across a 200-tick coast (warp 100×) the planted node stays
-//      dormant — ActiveBurn nil, fuel constant.
-//   3. Coasting all the way through apoapsis fires the planted burn
-//      (fuel decreases).
+//  1. After plant + one Tick, ActiveBurn must remain nil and the
+//     planted node must have a TriggerTime well in the future
+//     (past the half-period mark for a periapsis-departure orbit).
+//  2. Across a 200-tick coast (warp 100×) the planted node stays
+//     dormant — ActiveBurn nil, fuel constant.
+//  3. Coasting all the way through apoapsis fires the planted burn
+//     (fuel decreases).
 //
 // All three pass at v0.11.0 Slice 1.7: the sim plants, resolves, and
 // fires correctly. The original perception report likely traced to

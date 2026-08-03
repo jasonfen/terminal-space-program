@@ -99,7 +99,7 @@ func TestCrossPlayerDockHandshakeAndUndock(t *testing.T) {
 		t.Fatalf("RequestUndock refused")
 	}
 	reports = reportMap(store, wA, wB, now.Add(2*time.Second))
-	ledger.Reconcile(wA, fpA, reports) // A splits the guest out
+	ledger.Reconcile(wA, fpA, reports)           // A splits the guest out
 	uChips := ledger.Reconcile(wB, fpB, reports) // B receives its craft
 
 	if wB.DockGuest != nil {

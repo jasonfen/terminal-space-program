@@ -120,6 +120,11 @@ const (
 	// SessionEventUndocked because I did not ask for it and was not there —
 	// the chip has to account for a ship appearing on my slate.
 	SessionEventParcelReturned
+	// SessionEventReleaseRefused: my owner-seat release could not peel the
+	// guest's components because they sit under my own — the post-transfer
+	// configuration (#314, ADR 0040 §5). Addressed at the owner who pressed
+	// the key; the way out is to hand control back.
+	SessionEventReleaseRefused
 	// SessionEventControlReclaimed: the stack I owned was taken back from my
 	// empty seat by the guest riding in it (ADR 0040 §4). Addressed at the
 	// returning owner, who would otherwise find their vehicle simply gone.

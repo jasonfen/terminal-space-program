@@ -114,6 +114,22 @@ func (m reportingModel) transferControl() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// releaseGuest handles the owner seat's [U] on a cross-player stack (ADR
+// 0040 §3). The App has already refused the structural case against its own
+// World; what is decided here is whether the guest is there to catch it —
+// live, and the handback is the ordinary one; gone, and it becomes a Parcel.
+func (m reportingModel) releaseGuest() (tea.Model, tea.Cmd) {
+	ok, why := m.srv.dock.RequestRelease(m.owner, m.srv.presence.isOnline)
+	if ok {
+		return m, nil
+	}
+	m.localEvents = append(m.localEvents, sim.SessionEvent{
+		Kind: sim.SessionEventTransferRefused, Detail: why, At: time.Now(),
+	})
+	m.app.Toast(why)
+	return m, nil
+}
+
 // persistDocks writes the dock ledger's current durable cross-ref to disk under
 // the persist guard (v0.28 finding 3). The ledger is the source of truth; the
 // guard serialises persists across sessions and dock.Records() is re-snapshotted
@@ -141,7 +157,9 @@ func dockLinksToSnapshots(links []sessiondir.DockLink) []relay.DockSnapshot {
 			GuestPayload: l.GuestPayload, ReturnPayload: l.ReturnPayload,
 			TransferPayload: l.TransferPayload,
 			UndockAsk:       l.UndockAsk, UndockRefused: l.UndockRefused,
-			TransferTo: l.TransferTo, Aborted: l.Aborted, Parcel: l.Parcel,
+			TransferTo: l.TransferTo, Aborted: l.Aborted,
+			ReleaseAsk: l.ReleaseAsk, ReleaseAsParcel: l.ReleaseAsParcel,
+			Parcel: l.Parcel, ParcelAtNano: l.ParcelAtNano,
 		})
 	}
 	return out
@@ -160,7 +178,9 @@ func snapshotsToDockLinks(snaps []relay.DockSnapshot) []sessiondir.DockLink {
 			GuestPayload: r.GuestPayload, ReturnPayload: r.ReturnPayload,
 			TransferPayload: r.TransferPayload,
 			UndockAsk:       r.UndockAsk, UndockRefused: r.UndockRefused,
-			TransferTo: r.TransferTo, Aborted: r.Aborted, Parcel: r.Parcel,
+			TransferTo: r.TransferTo, Aborted: r.Aborted,
+			ReleaseAsk: r.ReleaseAsk, ReleaseAsParcel: r.ReleaseAsParcel,
+			Parcel: r.Parcel, ParcelAtNano: r.ParcelAtNano,
 		})
 	}
 	return out

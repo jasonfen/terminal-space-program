@@ -130,6 +130,12 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if _, ok := msg.(tui.ReleaseGuestMsg); ok {
+		if m.srv != nil {
+			return m.releaseGuest()
+		}
+		return m, nil
+	}
 	if _, ok := msg.(tui.TransferControlMsg); ok {
 		if m.srv != nil {
 			return m.transferControl()

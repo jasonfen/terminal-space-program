@@ -240,8 +240,8 @@ func TestConnectivityPathDirect(t *testing.T) {
 func TestConnectivityPathViaRelay(t *testing.T) {
 	occ := []physics.OccluderBody{{Center: orbital.Vec3{}, Radius: 100}}
 	nodes := []commNode{
-		station(0, -1000, 100000),       // index 0
-		probeNode(1, 1000, 3000, false), // index 1 (direct link occluded)
+		station(0, -1000, 100000),                                    // index 0
+		probeNode(1, 1000, 3000, false),                              // index 1 (direct link occluded)
 		{pos: orbital.Vec3{Y: 2000}, rangeM: 100000, forwards: true}, // index 2 relay
 	}
 	res := connectivityFull(nodes, occ)
@@ -349,10 +349,10 @@ func TestCommReachTiers(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	const (
-		geo     = 35_786e3   // geostationary
-		moon    = 384_400e3  // Earth–Moon
-		marsish = 40e9       // 40M km — within deep-space reach, beyond the relay tug
-		beyond  = 100e9      // 100M km — past even deep-space reach
+		geo     = 35_786e3  // geostationary
+		moon    = 384_400e3 // Earth–Moon
+		marsish = 40e9      // 40M km — within deep-space reach, beyond the relay tug
+		beyond  = 100e9     // 100M km — past even deep-space reach
 	)
 	// Relay-Tug: reaches geostationary AND the Moon (the headline fix).
 	if !connectedAt(t, w, "Relay-Tug", geo) {

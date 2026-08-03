@@ -217,6 +217,10 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			rows = append(rows,
 				row{text: "◇ " + e.Handle + " released your craft while you were away"},
 				row{text: "  it is back on your slate — throttle zero, main engine, no hold"})
+		case sim.SessionEventReleaseRefused:
+			rows = append(rows,
+				row{text: "⚠ release refused — " + e.Handle + "'s craft sits under yours", alert: true},
+				row{text: "  hand control back [J], then they release"})
 		case sim.SessionEventControlReclaimed:
 			rows = append(rows,
 				row{text: "⚠ " + e.Handle + " took the stack back while you were away", alert: true},
@@ -587,7 +591,7 @@ func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
 		v.theme.Primary.Render("DOCKED"),
 		// "z" not 💤 — chip glyphs must be width-1 (see the away line in
 		// buildRendezvousChip for why).
-		"  " + v.theme.Warning.Render("z " + dg.OwnerHandle + " is away — their session is still flying"),
+		"  " + v.theme.Warning.Render("z "+dg.OwnerHandle+" is away — their session is still flying"),
 	}
 }
 

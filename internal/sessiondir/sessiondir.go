@@ -124,7 +124,10 @@ type DockLink struct {
 	UndockRefused   bool        `json:"undock_refused,omitempty"`
 	TransferTo      string      `json:"transfer_to,omitempty"`
 	Aborted         bool        `json:"aborted,omitempty"`
+	ReleaseAsk      bool        `json:"release_ask,omitempty"`
+	ReleaseAsParcel bool        `json:"release_as_parcel,omitempty"`
 	Parcel          bool        `json:"parcel,omitempty"`
+	ParcelAtNano    int64       `json:"parcel_at_unix_nano,omitempty"`
 }
 
 // Meta is the session.json shape.
@@ -247,7 +250,10 @@ func migrateMetaV2ToV3(m *Meta) {
 		m.Docks[i].UndockRefused = false
 		m.Docks[i].TransferTo = ""
 		m.Docks[i].Aborted = false
+		m.Docks[i].ReleaseAsk = false
+		m.Docks[i].ReleaseAsParcel = false
 		m.Docks[i].Parcel = false
+		m.Docks[i].ParcelAtNano = 0
 	}
 }
 

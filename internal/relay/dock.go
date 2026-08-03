@@ -2,6 +2,7 @@ package relay
 
 import (
 	"sync"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -62,11 +63,15 @@ type DockRecord struct {
 	undockRefused   bool                   // docker→guest: your undock was refused, you're still docked (#307)
 	transferTo      string                 // owner→recipient: pending control transfer target
 	aborted         bool                   // docker couldn't fuse / the stack is gone — the dock ends
+	releaseAsk      bool                   // owner→own tick: release the guest's component (ADR 0040 §3)
+	releaseAsParcel bool                   // that release is going to a guest who isn't there
 	// parcel marks a returnPayload the owner released while the guest was
-	// NOT there to receive it live (ADR 0040 §3). It changes only what the
-	// guest is told on delivery — a Parcel arrives with an explanation
-	// rather than reading as an undock they did not ask for.
-	parcel bool
+	// NOT there to receive it live (ADR 0040 §3). It changes what the guest
+	// is told on delivery — a Parcel arrives with an explanation rather than
+	// reading as an undock they did not ask for — and, with parcelAtNano,
+	// how far it is propagated to reach the guest's sim-time.
+	parcel       bool
+	parcelAtNano int64
 }
 
 // hasParkedPayload reports whether the record is holding a craft that exists
@@ -208,6 +213,38 @@ func (l *DockLedger) transferRefusalLocked(owner string, live func(string) bool)
 		return ""
 	}
 	return transferNoStack
+}
+
+// RequestRelease is the docker-side release (ADR 0040 §3): the owner of a
+// cross-player stack asks for the guest's component to be handed back, and
+// the answer does not depend on the guest being there. Before this, the only
+// path out of a composite was guest-initiated, so a guest who disconnected
+// while docked stranded the docker indefinitely — no in-game recourse, and on
+// 2026-08-02 recovery took a server-side --reset-fleet (#312).
+//
+// live reports session liveness. A live guest gets the ordinary handback on
+// the owner's next reconcile; an absent one gets a Parcel: safed, placed
+// across the subspace gap, and delivered with an explanation when they next
+// connect. Deciding which at ASK time (rather than at reconcile) keeps the
+// ledger's own reconcile free of session knowledge; a guest who reconnects in
+// the gap simply receives a Parcel that is also correct.
+//
+// ok is false with the player-facing reason. The structural refusal — the
+// guest's components sitting under the owner's after a control transfer (#314,
+// ADR 0040 §5) — is decided against the World by GuestReleaseRefusal at the
+// seat, which is where the composite can actually be inspected.
+func (l *DockLedger) RequestRelease(owner string, live func(string) bool) (bool, string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range l.records {
+		if r.Owner != owner || r.Phase != DockActive {
+			continue
+		}
+		r.releaseAsk = true
+		r.releaseAsParcel = live != nil && !live(r.GuestOwner)
+		return true, ""
+	}
+	return false, "release: not flying a cross-player stack"
 }
 
 // ActiveGuestDock returns the active record in which fp is the guest, if any —
@@ -385,6 +422,36 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
 			return false
 		}
+		// Release request: the owner hands the guest's component back (ADR
+		// 0040 §3). Same split as the guest's own ask; what differs is only
+		// what happens when nobody is there to catch it.
+		if r.releaseAsk {
+			r.releaseAsk = false
+			asParcel := r.releaseAsParcel
+			r.releaseAsParcel = false
+			restored, ok := w.UndockGuest(cidx, r.GuestOwner, r.GuestCraftID)
+			if !ok {
+				// The guest's components are under the owner's — a control
+				// transfer moved them there without restacking the vehicle
+				// (#314, §5). The seat refuses this synchronously via
+				// GuestReleaseRefusal; reaching here means the stack changed
+				// under the ask, so say so rather than mis-slice.
+				*chips = append(*chips, DockChip{Kind: sim.SessionEventReleaseRefused, Handle: r.GuestHandle})
+				return false
+			}
+			if asParcel {
+				// Nobody is at the other seat, so the craft has to arrive fit
+				// to be found: clear of the stack it left (here, while the
+				// stack's state is what the push is relative to) and, at
+				// delivery, inert and placed at the guest's own sim-time.
+				sim.SeparationPush(restored)
+				r.parcel = true
+				r.parcelAtNano = w.Clock.SimTime.UnixNano()
+			}
+			r.returnPayload = restored
+			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
+			return false
+		}
 		// Transfer request: migrate the whole stack to the guest (roles swap),
 		// unless mid-burn (refused, retried next tick).
 		if r.transferTo != "" {
@@ -445,9 +512,27 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 	case DockActive:
 		// Undock/abort completion: the docker handed my craft back.
 		if r.returnPayload != nil {
+			kind := sim.SessionEventUndocked
+			if r.parcel {
+				// A Parcel: released while I was not there. It has been
+				// coasting on the record ever since, so place it at MY
+				// sim-time before it joins my slate — a craft dropped in at
+				// the owner's hour-old state would be kilometres wrong.
+				if r.parcelAtNano != 0 {
+					dt := w.Clock.SimTime.Sub(time.Unix(0, r.parcelAtNano)).Seconds()
+					sim.PlaceAcrossSubspaceGap(r.returnPayload, dt)
+				}
+				// Safed at DELIVERY, not at release: the throttle and the
+				// live burn state are not part of a craft's persisted form,
+				// so safing at release would be undone by the first restart
+				// the Parcel outlived. Arriving inert is the invariant; where
+				// it is applied has to be the arrival.
+				sim.SafeHandback(r.returnPayload)
+				kind = sim.SessionEventParcelReturned
+			}
 			w.AdoptCraft(r.returnPayload, true)
 			r.returnPayload = nil
-			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.OwnerHandle})
+			*chips = append(*chips, DockChip{Kind: kind, Handle: r.OwnerHandle})
 			return true
 		}
 		// #307: my undock was refused on the owner's side. I'm still docked —

@@ -333,8 +333,8 @@ func CompositeEngineSummary(c *spacecraft.Spacecraft) (totalThrust, weightedIsp 
 // |v_rel| = DockingVMS while sharing the same primary frame fuse
 // into a single composite at the next tick. v0.8.3+.
 const (
-	DockingDistM = 50.0  // metres — KSP-ish "soft capture" distance.
-	DockingVMS   = 0.1   // m/s — typical proximity-ops null-residual.
+	DockingDistM = 50.0 // metres — KSP-ish "soft capture" distance.
+	DockingVMS   = 0.1  // m/s — typical proximity-ops null-residual.
 )
 
 // checkDocking scans every craft pair in the same primary frame

@@ -317,7 +317,7 @@ func TestRendezvousWaypointAdvanceRebasesDegrade(t *testing.T) {
 		return []CoWarpPeer{{
 			Owner: "SHA256:gern", Handle: "gern", SubspaceTime: at, EffWarp: 50,
 			ArmedTowardViewer: true, RendezvousTau: tau,
-			Crafts:            []CoWarpCraft{{Primary: primary, R: r, V: v}},
+			Crafts: []CoWarpCraft{{Primary: primary, R: r, V: v}},
 		}}
 	}
 

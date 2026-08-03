@@ -110,7 +110,7 @@ func TestVABSwapEngineLeadsAllEngines(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(chemVABComps())
 	v.stages = []vabStage{{components: []string{"k-eng", "k-eng", "k-tank"}}} // eng ×2
-	v.stackCursor = v.headerRowIndex(0) + 1                                    // engine group (rank 0)
+	v.stackCursor = v.headerRowIndex(0) + 1                                   // engine group (rank 0)
 	if r, _ := v.currentRow(); v.rowGroups(r.stageIdx)[r.group].compID != "k-eng" {
 		t.Fatalf("cursor not on the engine group")
 	}

@@ -236,15 +236,15 @@ const (
 // axis key would steer toward, resolved via ResolveAttitudeIntent +
 // BurnDirectionWithTarget. So:
 //
-//   NavOrbit   — orbit-frame prograde / retrograde / normal± / radial±
-//                (six cardinals using the radial-diamond glyphs ◇ ◆)
-//   NavSurface — prograde / retrograde swap to surface-relative
-//                velocity; normal± / radial± stay orbit-frame
-//                (matches ResolveAttitudeIntent's NavSurface fallthrough)
-//   NavTarget  — prograde / retrograde swap to target-relative velocity;
-//                radial+ / radial- swap to BurnTarget / BurnAntiTarget
-//                (toward / away from target) and use the target glyphs
-//                ◉ ◌ in target color so the swap is visible at a glance
+//	NavOrbit   — orbit-frame prograde / retrograde / normal± / radial±
+//	             (six cardinals using the radial-diamond glyphs ◇ ◆)
+//	NavSurface — prograde / retrograde swap to surface-relative
+//	             velocity; normal± / radial± stay orbit-frame
+//	             (matches ResolveAttitudeIntent's NavSurface fallthrough)
+//	NavTarget  — prograde / retrograde swap to target-relative velocity;
+//	             radial+ / radial- swap to BurnTarget / BurnAntiTarget
+//	             (toward / away from target) and use the target glyphs
+//	             ◉ ◌ in target color so the swap is visible at a glance
 //
 // This makes the marker set match the SAS hold semantics exactly:
 // each glyph sits at the direction the corresponding axis key would

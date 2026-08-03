@@ -41,7 +41,7 @@ type Basis struct {
 type CellTag struct {
 	Color    lipgloss.Color
 	BodyID   string
-	NodeIdx  int  // 0 = no node; otherwise 1 + Nodes-slice index
+	NodeIdx  int // 0 = no node; otherwise 1 + Nodes-slice index
 	IsVessel bool
 }
 
