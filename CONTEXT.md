@@ -1681,7 +1681,8 @@ than it engages (hysteresis), so boundary drift can't flap it. A member
 of the Effective-≤-Selected clamp family. Its sibling trigger is
 **Rendezvous Warp**, which reaches the same coupled state before the
 gate, by mutual consent.
-_Avoid_: Warp lock (it doesn't pin to 1×), warp vote.
+_Avoid_: Warp lock (it doesn't pin to 1× — the standing on-screen surface
+is the **Time Lock** line), warp vote.
 
 **Rendezvous Warp**:
 The **mutual-consent** trigger of Co-Warp: it couples two *same-Subspace*
@@ -1690,8 +1691,8 @@ rendezvous together instead of desyncing on independent warp. Each
 player **Engages** it toward the other — a Session-screen row action to
 initiate, a main-screen key to join a pending one; there is no separate
 accept verb, the responder Engages the same Rendezvous Warp. Once both
-have Engaged, the arm is a **standing mutual intent** — "we are
-rendezvousing", not a commitment to one encounter. The pair's Subspaces
+have Engaged, the arm is an **Agreement** — a standing mutual intent,
+"we are rendezvousing", not a commitment to one encounter. The pair's Subspaces
 rate-lock and Auto-Warp coasts to the committed **Time of Closest
 Approach** (the initiator's TCA, carried in the request, is the first
 one), but reaching it is a *waypoint*, not the end: outside proximity
@@ -1700,14 +1701,92 @@ legitimate waypoint — and the coast continues, the earlier of the two
 sides' re-derived τs winning so both stay aimed at the same waypoint.
 Every maneuver of the approach sequence is thus flown rate-locked, with
 no Sync between maneuvers. Each waypoint is *held* while coasted at: a
-degrading encounter warns but never re-targets mid-coast. The intent
-ends exactly two ways — either player cancels (both release at the same
-synced sim-time), or a waypoint arrives inside the proximity gate, where
-**Proximity Co-Warp** takes over without a drop-and-recouple and the arm
-is released. Prerequisite: same Subspace — a diverged pair **Syncs**
-first.
+degrading encounter warns but never re-targets mid-coast. The Agreement
+ends exactly two ways — the pair **docks**, or either player cancels
+(both release at the same synced sim-time). A waypoint arriving inside
+the proximity gate does *not* end it: the Auto-Warp driver ends there
+and the ship is handed back, but the Agreement is **demoted, not
+ended**, into the **Terminal Phase**, and the pair stays time-locked
+through the braking burns and the creep across the gate. There is no
+distance tripwire — a pilot who swings 100 km wide is still
+rendezvousing, and the lock holds while they fly back. Prerequisite:
+same Subspace — a diverged pair **Syncs** first.
 _Avoid_: Rendezvous request / handshake (there is no offer/accept step),
-Co-Sync (conflates with **Sync**), Warp lock.
+Co-Sync (conflates with **Sync**), Warp lock (the standing on-screen
+surface is the **Time Lock** line).
+
+**Agreement** (v0.33 / ADR 0037):
+The standing mutual intent that exists once both players have **Engaged**
+a **Rendezvous Warp** — the rendezvous-specific narrowing of
+**Commitment**. Every Agreement is a Commitment (it earns a **Reprieve**;
+it strands the other player if it dies), but not every Commitment is an
+Agreement — a **Docked-as-Guest** craft riding another player's Stack is
+the other kind. An Agreement fixes the **Pilot in Command** / **Copilot**
+seats at invite time, survives the τ handoff into the **Terminal Phase**,
+and ends only on dock or explicit cancel. Blessed as a term despite
+**Commitment**'s general caution against it: it names the *relationship*,
+which really is mutual and standing. The caution still binds the verb —
+there is no offering or accepting an Agreement, both sides simply Engage
+the same Rendezvous Warp.
+_Avoid_: Contract, pact, handshake. Do not stretch *Agreement* to cover
+the docked kind of Commitment.
+
+**Terminal Phase** (v0.33 / ADR 0037):
+The stretch of a rendezvous from the τ handoff to contact: the Auto-Warp
+driver has ended and the ship is back in the pilot's hands, but the
+**Agreement** is demoted rather than ended, so the pair stays time-locked
+through the braking burns, the waits between them, and the creep across
+the proximity gate. Named because it is the phase the standing intent was
+invented for — before ADR 0037 it was the one stretch that lost shared
+time, and the first completed multiplayer dock spent ~32 real minutes in
+it, most of them stuck at 1×.
+_Avoid_: Final approach (**Approach** is already avoided under **Closest
+Approach**), endgame, close phase.
+
+**Pilot in Command** (v0.33 / ADR 0037):
+The seat held by the player who *initiated* the **Rendezvous Warp**. They
+fly the pair's clock for the life of the **Agreement**: the pair's rate is
+their selected warp, and their pause holds the pair outright. Seats are
+fixed at invite time and never swap. Inside an Agreement this replaces
+min-wins; a plain **Proximity Co-Warp** between players with no Agreement
+has no Pilot in Command and keeps slower-wins.
+_Avoid_: Leader, master, driver (that names the Auto-Warp mechanism),
+Host (that is the Session role, unrelated).
+
+**Copilot** (v0.33 / ADR 0037):
+The accepter's seat in an **Agreement**. Their warp keys default to
+following the **Pilot in Command**; they may **Brake** the pair down or
+cancel out, but can never push it faster — a hands-on pilot's clock can
+never be yanked forward. The `[y]` join prompt says which seat you are
+taking. Because the Copilot *derives* rather than min-wins, two players
+cannot ratchet each other down on stale reports.
+_Avoid_: Follower, second, passenger (avoided under **Docked-as-Guest**),
+Guest (that is the docking role, not a time seat).
+
+**Brake** (v0.33 / ADR 0037):
+The **Copilot**'s only authority over the pair's time — a lower selection
+wins downward inside an **Agreement**, while a higher one never wins
+upward. A Copilot pause is a Brake like any other; a **Pilot in Command**
+pause is not a Brake but a hold, by seat authority. Either side's active
+burn brakes the pair to the burn cap automatically, and the physical clamp
+family (approach ramp, subspace step cap) still floors everything beneath
+both seats.
+_Avoid_: Veto, override (it only ever slows), min-wins (that is the
+no-Agreement rule this replaces).
+
+**Time Lock** (v0.33 / ADR 0037):
+The standing on-screen line naming a live constraint on the player's warp
+— who holds it and at what rate — so a lock is never unexplained. Inside
+an **Agreement** the RENDEZVOUS chip carries it, adding your seat and
+*what* is holding the rate when it isn't you ("held: fenbot burning",
+"held: copilot braking"); without one, a plain **Proximity Co-Warp** gets
+the minimal standing TIME LOCK line. The blessed exception to the
+glossary's ban on *lock*: it names this **surface**, never the coupling
+itself — vessels still **couple**, and a **Commitment** is still not a
+lock. Standing state gets a standing display; the v0.30 lesson (silent
+no-ops read as broken) applied to warp.
+_Avoid_: Warp lock (names a mechanism and wrongly implies pinning to 1×),
+warp vote, "lock" as a bare synonym for coupling or **Commitment**.
 
 **Docked-as-Guest**:
 The state of a player one of whose craft rides as a component in a
@@ -1765,8 +1844,13 @@ player's Stack. Distinguished from **Proximity Co-Warp**, which forms by
 itself whenever two players drift close and strands nobody when it
 lapses — a Commitment is entered deliberately, and leaves the other
 player waiting if it dies.
-_Avoid_: Contract, pact, agreement (nothing is offered or accepted —
-both sides simply Engage), lock.
+_Avoid_: Contract, pact, lock (bare — the standing warp display is the
+**Time Lock**, a specific surface, not a synonym for Commitment).
+**Agreement** is *not* avoided but it is narrower: it names the
+Rendezvous Warp kind only (see its entry), so every Agreement is a
+Commitment and a Docked-as-Guest craft is a Commitment that is not an
+Agreement. The old caution stands for the verb — nothing is offered or
+accepted, both sides simply Engage.
 
 **Reprieve**:
 A stay on a Session's disconnection. A Session whose player has gone
@@ -2728,3 +2812,21 @@ the orbital elements being projected were interpreted in). The
 **Perifocal Basis** is the canvas-Basis flavour pulled out of the
 perifocal *frame* — same word collision in miniature, and the entry
 above names it carefully.
+
+**A Rendezvous Warp's Reprieve bound vs. the Agreement's lifetime** now
+disagree, and the disagreement is unresolved:
+
+- **Reprieve** (ADR 0036) bounds a Rendezvous Warp's stay on
+  disconnection at *its committed Time of Closest Approach*.
+- **Agreement** (ADR 0037 §1) no longer ends at τ — it is demoted into
+  the **Terminal Phase** and runs on to dock or explicit cancel. ADR 0037
+  states the existing lifetime rules "carry over unchanged," and the
+  shipped code does not move the Reprieve bound.
+
+**Not resolved here.** Read literally, an away partner's Reprieve can
+lapse at τ while the Agreement that earned it still stands — so the
+Terminal Phase is the one stretch of a Commitment that does not hold up
+an **Away** Session. That may well be intended (the Terminal Phase is
+hands-on flying by construction, and a partner who has gone silent
+through it is not coming back to brake), but no ADR says so. Do not
+assume either reading in code or prose; ask before relying on it.
