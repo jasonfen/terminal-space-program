@@ -428,6 +428,21 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// current. Mutates w (fuses/splits craft) — same goroutine as the tick.
 	m.reconcileDocking(w, cw.CoupledOwners, reports, handles, now)
 
+	// Rider view (ADR 0038 S4): while riding in another player's stack,
+	// name which of the owner's reported craft IS that stack (their
+	// ActiveCraftID — DockGuestCraft always fuses onto the docker's
+	// existing craft in place, so it keeps naming the composite for as
+	// long as the owner flies it) and point the camera at it. Read here
+	// rather than inside reconcileDocking/setDockGuest because both those
+	// live in the relay ledger, which only knows dock records — not which
+	// of a report's crafts the owner is actually flying.
+	if w.DockGuest != nil {
+		if rep, ok := reports[w.DockGuest.OwnerFP]; ok {
+			w.DockGuest.OwnerActiveCraftID = rep.ActiveCraftID
+		}
+		w.FollowDockGuestStack()
+	}
+
 	info := &sim.SessionInfo{
 		IsHost:        m.owner == sessiondir.HostFingerprint,
 		CanAdminister: m.srv.store.MayAdminister(m.owner),

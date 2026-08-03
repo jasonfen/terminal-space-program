@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -256,6 +257,16 @@ func (w *World) AdoptCraft(c *spacecraft.Spacecraft, makeActive bool) int {
 	idx := len(w.Crafts) - 1
 	if makeActive {
 		w.SetActiveCraftIdx(idx)
+		// A real, flyable craft just landed on the active slot. If the
+		// camera was spectating a ghost (rider view, ADR 0038 §2 — most
+		// commonly the guest's own stack while docked) it must return to
+		// the player's own craft: a safe handback that leaves the view
+		// parked on the stack you just left reads as though nothing
+		// happened. SetActiveCraftIdx only resets Focus on a cross-system
+		// switch, so a same-system handback needs this explicit check.
+		if w.Focus.Kind == FocusGhost {
+			w.Focus = w.ownCraftFocus()
+		}
 	}
 	return idx
 }
@@ -314,6 +325,65 @@ type DockGuestLink struct {
 	// liveness to consult); the flight view renders it as a standing line,
 	// the docked-as-guest sibling of RendezvousPartnerAway.
 	OwnerAway bool
+
+	// OwnerActiveCraftID is the stack owner's currently-reported active
+	// craft ID — the ghost that IS the stack this player rides in (ADR
+	// 0038 S4). DockGuestCraft always fuses onto the docker's existing
+	// craft in place (the composite keeps the docker's identity, §"Cross-
+	// player docking" above), so the owner's own reported ActiveCraftID
+	// names the fused composite for as long as they keep flying it. Zero
+	// until the owner's first report lands; the rider-view camera and
+	// badged panels both degrade gracefully (ok=false) rather than
+	// tracking craft ID 0.
+	OwnerActiveCraftID uint64
+}
+
+// FollowDockGuestStack keeps the rider's camera on the stack they are
+// riding (ADR 0038 §2 — the follow-stack camera). The guest's own Crafts
+// slate goes empty at the fuse (#301), so FocusCraft has nothing left to
+// track; rather than invent a new Focus kind, this reuses Spectate's
+// FocusGhost (v0.28 S6) — "watch a remote craft" is exactly the rider's
+// situation. Safe to call every tick: assigning the identical Focus value
+// is a no-op by struct equality (the same idiom CycleFocus and
+// SetActiveCraftIdx already rely on), so a genuine Framing Event — a real
+// re-fit — only happens on the tick the tracked ref actually changes:
+// entering the ride, or the owner moving to a different active craft.
+// Manual pan/zoom the player applies afterward composes over that fit and
+// persists across ticks exactly as it does for a manually-entered
+// Spectate. No-op while not docked as a guest.
+func (w *World) FollowDockGuestStack() {
+	if w.DockGuest == nil {
+		return
+	}
+	want := Focus{Kind: FocusGhost, GhostOwner: w.DockGuest.OwnerFP, GhostCraftID: w.DockGuest.OwnerActiveCraftID}
+	if w.Focus != want {
+		w.Focus = want
+	}
+}
+
+// DockGuestStackGhost resolves the stack this player rides in to its live
+// ghost + SOI primary (ADR 0038 §2 "badged panels"): the VESSEL/ORBIT
+// chips read this to show the stack's real flight data — badged with the
+// owner's handle — instead of the bare "why is this empty" placeholder.
+// ok is false with no DockGuest, no ghost report yet (owner hasn't
+// reported since the fuse), or the ghost's primary not resolving in the
+// viewer's current system (owner in a different system/body) — every
+// case degrades to the caller's existing empty-slate fallback rather than
+// a dangling reference.
+func (w *World) DockGuestStackGhost() (Ghost, *bodies.CelestialBody, bool) {
+	if w.DockGuest == nil {
+		return Ghost{}, nil, false
+	}
+	g, ok := w.ghostByRef(w.DockGuest.OwnerFP, w.DockGuest.OwnerActiveCraftID)
+	if !ok {
+		return Ghost{}, nil, false
+	}
+	sys := w.System()
+	primary := sys.FindBody(g.PrimaryID)
+	if primary == nil {
+		return Ghost{}, nil, false
+	}
+	return g, primary, true
 }
 
 // WithDockCoupling folds a docked-as-guest coupling into the co-warp state

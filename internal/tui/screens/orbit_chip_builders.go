@@ -79,9 +79,11 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// RENDEZVOUS is: it explains a constraint the player can't otherwise
 	// see. Nil inside an agreement, where the chip above says it better.
 	add("", cornerTopLeft, v.buildTimeLockChip(w))
-	// DOCKED (#253): the standing away line for the other Commitment kind
-	// — renders only while docked-as-guest with the stack owner away.
-	// Always-on like RENDEZVOUS (empty id); F2 declutter still clears it.
+	// DOCKED (ADR 0038 S4): the rider-view standing block — unconditional
+	// while one of this player's craft rides in another player's stack
+	// (names the ride + the exits), with #253's owner-away line folded in
+	// as an extra row rather than a second surface. Always-on like
+	// RENDEZVOUS (empty id); F2 declutter still clears it.
 	add("", cornerTopLeft, v.buildDockGuestChip(w))
 	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
 	// vessel-state readouts. Force-shown while a just-blocked command is
@@ -603,25 +605,54 @@ func CraftTag(name string) string {
 	return " (" + name + ")"
 }
 
-// buildDockGuestChip is the docked-as-guest standing away surface (#253):
-// while one of this player's craft rides in another player's stack, the
-// stack owner going Away — session still flying under the Commitment
-// Reprieve, nobody at the controls — needs an on-screen representation
-// that outlives the 6 s went-quiet SESSION chip. The dock itself has no
-// persistent flight-view chip (couple/dock moments are TTL'd SESSION
-// events), so this renders only while the owner is actually away and
-// stays nil otherwise.
+// buildDockGuestChip is the rider-view standing DOCKED block (ADR 0038
+// S4): while one of this player's craft rides in another player's stack,
+// this renders on EVERY frame — not only while the owner is away, which
+// was #253's older and narrower treatment — naming the ride and the way
+// out. Half of every dock used to be experienced as a crash (#301, the
+// absorbed seat's whole flight UI blanking with no explanation); this is
+// the standing surface that replaces the silence.
+//
+// The exit list forks on whether the stack owner has a live Session right
+// now (w.DockOwnerOnline, the same presence gate ADR 0040 §4's empty-seat
+// reclaim already uses): a connected owner — even an idle/Away one — gets
+// the ask-first phrasing, since undocking is theirs to grant; an owner
+// with no live Session at all is the empty-seat case, where [J] grants
+// instantly (ADR 0040 §4), so the row says so and the now-meaningless
+// "ask to undock" drops — there is nobody to ask.
+//
+// #253's away line survives as an EXTRA row on this same block rather
+// than a second, competing one — "one surface, not two" (ADR 0038
+// consequences). An away owner is by definition still connected
+// (Server.isAway is false for an offline fingerprint), so the away row
+// and the empty-seat exit fork never both fire.
 func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
 	dg := w.DockGuest
-	if dg == nil || !dg.OwnerAway {
+	if dg == nil {
 		return nil
 	}
-	return []string{
+	handle := dg.OwnerHandle
+	if handle == "" {
+		handle = "their"
+	}
+	lines := []string{
 		v.theme.Primary.Render("DOCKED"),
+		"  " + v.theme.Dim.Render("◇ riding in "+handle+"'s stack"),
+	}
+	if w.DockOwnerOnline() {
+		lines = append(lines,
+			v.theme.Dim.Render("  [J] request control"),
+			v.theme.Dim.Render("  [u] ask to undock"),
+		)
+	} else {
+		lines = append(lines, v.theme.Warning.Render("  [J] take the stick (pilot's gone)"))
+	}
+	if dg.OwnerAway {
 		// "z" not 💤 — chip glyphs must be width-1 (see the away line in
 		// buildRendezvousChip for why).
-		"  " + v.theme.Warning.Render("z "+dg.OwnerHandle+" is away — their session is still flying"),
+		lines = append(lines, "  "+v.theme.Warning.Render("z "+handle+" is away — their session is still flying"))
 	}
+	return lines
 }
 
 // anyActiveBurn reports whether any craft in the slate has an in-flight
@@ -1148,7 +1179,13 @@ func (v *OrbitView) buildChuteChip(w *sim.World) []string {
 // instead of the live orbit being replaced by the projection.
 func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	if !w.CraftVisibleHere() {
-		return nil
+		// ADR 0038 S4 part 3 ("badged panels"): riding in another player's
+		// stack is the commonest reason CraftVisibleHere is false with no
+		// active craft — and it's exactly when there IS a live orbit to
+		// show, the stack's. buildDockGuestOrbitChip returns nil for every
+		// other !CraftVisibleHere case (no DockGuest, or no ghost report
+		// yet), so the ORBIT chip's existing silence is unchanged there.
+		return v.buildDockGuestOrbitChip(w)
 	}
 	c := w.ActiveCraft()
 	if c == nil {
@@ -1203,6 +1240,47 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	lines = append(lines, chipRow("period:", formatPeriod(period)))
 	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
 	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
+	if periAlt < 0 {
+		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
+	}
+	return lines
+}
+
+// buildDockGuestOrbitChip is the ORBIT chip's badged rider-view sibling
+// (ADR 0038 S4 part 3): while riding in another player's stack, the
+// guest's own Crafts slate is empty, so the live-craft ORBIT readout above
+// has nothing to draw — exactly when there IS an orbit worth showing, the
+// stack's. Mirrors buildOrbitMetricsChip's own-craft element derivation
+// (same ElementsFromStateInFrame call) but reads the ghost's
+// primary-relative state instead of a local craft's, and headers with the
+// owner's handle so the numbers are never mistaken for the player's own
+// ship. Returns nil with no DockGuest, no ghost report yet, or a
+// degenerate/hyperbolic resolved orbit — the caller (buildOrbitMetricsChip)
+// falls through to its existing silent nil in all of those.
+func (v *OrbitView) buildDockGuestOrbitChip(w *sim.World) []string {
+	g, primary, ok := w.DockGuestStackGhost()
+	if !ok {
+		return nil
+	}
+	mu := primary.GravitationalParameter()
+	frame := orbital.ReferenceFrameForPrimary(*primary)
+	el := orbital.ElementsFromStateInFrame(g.RelPos, g.Vel, mu, frame)
+	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
+		return nil
+	}
+	primaryR := primary.RadiusMeters()
+	apoAlt := el.Apoapsis() - primaryR
+	periAlt := el.Periapsis() - primaryR
+	header := "ORBIT"
+	if w.DockGuest.OwnerHandle != "" {
+		header = "ORBIT — " + w.DockGuest.OwnerHandle + "'s stack"
+	}
+	lines := []string{
+		v.theme.Primary.Render(header),
+		chipRow("Ap:", fmt.Sprintf("%.1f km", apoAlt/1000)),
+		chipRow("Pe:", fmt.Sprintf("%.1f km", periAlt/1000)),
+		chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)),
+	}
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
 	}

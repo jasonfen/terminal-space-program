@@ -317,28 +317,58 @@ func TestRendezvousChipPartnerAway(t *testing.T) {
 	}
 }
 
-// The other Commitment kind gets the same treatment (#253): while docked
-// as guest, the stack owner going away surfaces as a standing line driven
-// by the DockGuest slate. There is no persistent dock chip otherwise, so
-// the builder renders only while the owner is away.
-func TestDockGuestChipOwnerAway(t *testing.T) {
+// The standing DOCKED block (ADR 0038 S4) is unconditional while riding in
+// another player's stack — a strictly wider surface than #253's original
+// away-only line. The exit list forks on whether the stack owner has a
+// live Session right now (ADR 0040 §4's empty-seat presence gate, reused
+// via the roster rather than reinvented); #253's away line survives as an
+// extra row on this SAME block, never a second competing one (ADR 0038
+// consequences: "one surface, not two").
+func TestDockGuestChipStandingBlock(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := rendezvousChipWorld(t)
 	if chip := v.buildDockGuestChip(w); chip != nil {
 		t.Errorf("dock chip rendered while not docked as guest:\n%s", strings.Join(chip, "\n"))
 	}
+
 	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:host", OwnerHandle: "vex"}
-	if chip := v.buildDockGuestChip(w); chip != nil {
-		t.Errorf("dock chip rendered while the stack owner is at the controls:\n%s", strings.Join(chip, "\n"))
-	}
-	w.DockGuest.OwnerAway = true
+	w.Session = &sim.SessionInfo{Players: []sim.SessionPlayer{
+		{Fingerprint: "SHA256:host", Handle: "vex", Online: true},
+	}}
 	joined := strings.Join(v.buildDockGuestChip(w), "\n")
+	for _, want := range []string{"DOCKED", "riding in vex's stack", "[J] request control", "[u] ask to undock"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("live-owner standing block missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "take the stick") {
+		t.Errorf("live-owner block offers the empty-seat exit:\n%s", joined)
+	}
+
+	// Owner away but still connected (#253): an extra row on the SAME
+	// block, not a second one, and the live-owner exits stay put.
+	w.DockGuest.OwnerAway = true
+	joined = strings.Join(v.buildDockGuestChip(w), "\n")
 	if !strings.Contains(joined, "vex is away — their session is still flying") {
 		t.Errorf("no standing away line while the stack owner is away:\n%s", joined)
 	}
+	if !strings.Contains(joined, "[u] ask to undock") {
+		t.Errorf("away row replaced the exits instead of joining them:\n%s", joined)
+	}
 	w.DockGuest.OwnerAway = false
-	if chip := v.buildDockGuestChip(w); chip != nil {
-		t.Errorf("away line still shown after the owner returned:\n%s", strings.Join(chip, "\n"))
+
+	// Empty seat (ADR 0040 §4 / amendment 3): the owner has no live Session
+	// at all. The exit list changes and [u] drops — there is nobody to ask.
+	w.Session.Players[0].Online = false
+	joined = strings.Join(v.buildDockGuestChip(w), "\n")
+	if !strings.Contains(joined, "[J] take the stick (pilot's gone)") {
+		t.Errorf("empty-seat block missing the reclaim exit:\n%s", joined)
+	}
+	if strings.Contains(joined, "ask to undock") {
+		t.Errorf("empty-seat block still offers 'ask to undock' — nobody to ask:\n%s", joined)
+	}
+	if strings.Contains(joined, "request control") {
+		t.Errorf("empty-seat block still offers the ask-first phrasing:\n%s", joined)
 	}
 }
 
