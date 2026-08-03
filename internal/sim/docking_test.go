@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -337,5 +338,69 @@ func TestDockingActivePartnerKeepsName(t *testing.T) {
 	composite := w.Crafts[w.ActiveCraftIdx]
 	if composite.Name != "LM" {
 		t.Errorf("composite name = %q, want LM (active partner)", composite.Name)
+	}
+}
+
+// TestUndockRefusalIsExhaustiveAndSpeaks (#308): every path on which Undock
+// returns false hands back a reason, and a splittable composite hands back
+// none. Live, a legitimate refusal on a cross-player stack was indistinguishable
+// from a dead key and cost an evening of diagnosis; the pairing is what keeps
+// `U` from ever no-opping in silence again.
+func TestUndockRefusalIsExhaustiveAndSpeaks(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	a := w.Crafts[0]
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+
+	// Out of range, and a plain (non-composite) craft.
+	for _, idx := range []int{-1, len(w.Crafts)} {
+		if got := w.UndockRefusal(idx); got == "" {
+			t.Errorf("UndockRefusal(%d) on an invalid index gave no reason", idx)
+		}
+	}
+	if got := w.UndockRefusal(0); got == "" {
+		t.Error("UndockRefusal on a plain craft gave no reason")
+	}
+
+	// A cross-player stack: refused (the guest releases it from their seat),
+	// and it must say so.
+	guest := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	guest.Primary = *earth
+	guest.ID = 77
+	guest.State = physics.StateVector{R: a.State.R.Add(orbital.Vec3{X: 6}), V: a.State.V, M: guest.TotalMass()}
+	if _, _, ok := w.DockGuestCraft(0, guest, "SHA256:someone"); !ok {
+		t.Fatal("DockGuestCraft failed")
+	}
+	reason := w.UndockRefusal(0)
+	if reason == "" {
+		t.Fatal("UndockRefusal on a cross-player stack gave no reason")
+	}
+	if !strings.Contains(reason, "guest") {
+		t.Errorf("cross-player refusal %q does not point at the guest's seat", reason)
+	}
+	if w.Undock(0) {
+		t.Error("Undock split a cross-player stack locally")
+	}
+
+	// A same-player composite: no reason, and it splits. Without this the
+	// exhaustiveness above would be satisfied by refusing everything.
+	w2, _ := NewWorld()
+	earth2 := w2.Systems[0].FindBody("Earth")
+	lm := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	lm.Primary = *earth2
+	lm.State = physics.StateVector{
+		R: w2.Crafts[0].State.R.Add(orbital.Vec3{X: 10}),
+		V: w2.Crafts[0].State.V,
+		M: lm.TotalMass(),
+	}
+	w2.Crafts = append(w2.Crafts, lm)
+	if _, _, ok := w2.checkDocking(); !ok {
+		t.Fatal("expected dock to fire")
+	}
+	if got := w2.UndockRefusal(0); got != "" {
+		t.Errorf("UndockRefusal on a splittable composite = %q, want none", got)
+	}
+	if !w2.Undock(0) {
+		t.Error("Undock refused a composite it reported no reason to refuse")
 	}
 }

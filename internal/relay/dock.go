@@ -54,8 +54,9 @@ type DockRecord struct {
 	returnPayload   *spacecraft.Spacecraft // docker→guest: restored craft on undock/abort
 	transferPayload *spacecraft.Spacecraft // old owner→new owner: the whole migrating stack
 	undockAsk       bool                   // guest→docker: split my component
+	undockRefused   bool                   // docker→guest: your undock was refused, you're still docked (#307)
 	transferTo      string                 // owner→recipient: pending control transfer target
-	aborted         bool                   // docker couldn't fuse — guest reclaims its craft
+	aborted         bool                   // docker couldn't fuse / the stack is gone — the dock ends
 }
 
 // DockChip is a moment the reconcile surfaces for the caller to turn into a
@@ -277,18 +278,37 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		return false
 
 	case DockActive:
+		// #309: the composite this record names resolves in nobody's World.
+		// Restore keeps the durable fields but the craft payloads are
+		// transient, so a server restart that finds no live composite leaves
+		// the record pointing at nothing — and nothing reaped it: the
+		// fall-through below kept it, [U] kept it, and the guest was flagged
+		// docked-as-guest to a phantom stack indefinitely (measured on the
+		// production host: 5½ hours, cleared only by --reset-fleet). The stack
+		// is gone, so the dock is over; abort it and let the guest's own
+		// reconcile learn that and say so.
+		if _, _, ok := w.CraftByID(r.CompositeID); !ok {
+			r.aborted = true
+			r.undockAsk, r.transferTo = false, ""
+			return false
+		}
 		// Undock request: split the guest's component and hand it back.
 		if r.undockAsk {
 			r.undockAsk = false
-			_, cidx, ok := w.CraftByID(r.CompositeID)
-			if ok {
-				if restored, ok := w.UndockGuest(cidx, r.GuestOwner, r.GuestCraftID); ok {
-					r.returnPayload = restored
-					*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
-				}
+			_, cidx, _ := w.CraftByID(r.CompositeID) // resolved above
+			restored, ok := w.UndockGuest(cidx, r.GuestOwner, r.GuestCraftID)
+			if !ok {
+				// #307: the guest's components are no longer the top of the
+				// stack — a control transfer moved them to the bottom without
+				// restacking the vehicle, and peeling the tail there would
+				// hand each player the other's hardware. Refusing is right;
+				// staying silent is what made this look like a broken key, so
+				// tell the guest and leave the dock standing.
+				r.undockRefused = true
+				return false
 			}
-			// If the composite or component is gone, fall through — the guest
-			// side will time out waiting; MVP treats this as the dock ending.
+			r.returnPayload = restored
+			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
 			return false
 		}
 		// Transfer request: migrate the whole stack to the guest (roles swap),
@@ -325,9 +345,19 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 // reconcileGuest runs the guest's side of a dock. Returns true when the
 // record is finished and should be dropped.
 func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[string]CraftReport, chips *[]DockChip) bool {
-	// Abort: the docker couldn't fuse — reclaim the handed-over craft.
-	if r.aborted && r.returnPayload != nil {
-		w.AdoptCraft(r.returnPayload, true)
+	// Abort: the dock ended on the docker's side.
+	if r.aborted {
+		if r.returnPayload != nil {
+			// The docker couldn't fuse — reclaim the handed-over craft.
+			w.AdoptCraft(r.returnPayload, true)
+			return true
+		}
+		// #309: nothing comes back — the stack this dock named no longer
+		// exists, so the craft riding in it went with it. Drop the record so
+		// the guest stops being flagged docked-as-guest to a phantom, and say
+		// what happened: the docked marker vanishing on its own is the same
+		// silence this batch is about.
+		*chips = append(*chips, DockChip{Kind: sim.SessionEventDockLost, Handle: r.OwnerHandle})
 		return true
 	}
 	switch r.Phase {
@@ -349,6 +379,12 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 			r.returnPayload = nil
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.OwnerHandle})
 			return true
+		}
+		// #307: my undock was refused on the owner's side. I'm still docked —
+		// surface it so the key doesn't read as dead, then carry on.
+		if r.undockRefused {
+			r.undockRefused = false
+			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndockRefused, Handle: r.OwnerHandle})
 		}
 		l.setDockGuest(w, r, reports)
 		return false

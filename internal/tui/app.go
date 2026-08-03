@@ -1279,11 +1279,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.world.DockGuest != nil {
 				return a, func() tea.Msg { return UndockGuestMsg{} }
 			}
-			if a.world.Undock(a.world.ActiveCraftIdx) {
+			// #308: say why when it refuses. The key is bound and the stack is
+			// real, so a bare no-op reads as a broken game — and the commonest
+			// refusal (a cross-player stack) has an answer the player can act
+			// on. UndockRefusal is exhaustive over Undock's false paths, so
+			// there is no third branch that falls through in silence.
+			if reason := a.world.UndockRefusal(a.world.ActiveCraftIdx); reason != "" {
+				a.statusMsg = reason
+			} else if a.world.Undock(a.world.ActiveCraftIdx) {
 				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
-				a.statusExpires = time.Now().Add(3 * time.Second)
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
 			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.TransferControl):
 			// v0.28 S5, ADR 0034 §6: hand a cross-player stack I own to the
