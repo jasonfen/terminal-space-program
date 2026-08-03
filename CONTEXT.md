@@ -1714,16 +1714,40 @@ The state of a player one of whose craft rides as a component in a
 Stack owned by another player. The guest's Subspace is co-warp
 coupled to the stack (min-wins — the guest can always drop to 1× and
 burn, never out-warp the owner), they may fly any other craft they
-own meanwhile, and they can always undock their own component, which
-returns live. The owning player — the active approacher at dock time
-— simulates and flies the whole stack.
+own meanwhile, and they can always get their own component back: a
+guest who docked in undocks directly (their component is
+top-anchored and returns live), while a guest by role-swap — the
+former owner after a **Transfer Control** — exits by the two-step
+(hand control back, then the other party releases), because only
+the top-anchored correspondence survives staging. The owning player
+— the active approacher at dock time — simulates and flies the
+whole stack, and can always release an absent guest's component as
+a **Parcel**.
 _Avoid_: Passenger (implies no agency), hostage, rider.
 
 **Transfer Control**:
 The verb that hands an entire cross-player docked Stack from its
-owner to the guest, instantly and unconditionally — the roles swap.
-Refused only while the stack is mid-burn.
+owner to the guest, instantly — the roles swap. Refused while the
+stack is mid-burn, and when the recipient has no live Session
+(handing someone the stick needs someone there to take it; the
+refusal says so). The mirror case grants instead of refusing: a
+guest requesting control of a stack whose *owner's* Session is not
+live takes the stick immediately — giving the stick needs a live
+recipient, taking it back from an empty seat needs nobody's
+permission.
 _Avoid_: Handover request (there is no offer/accept step).
+
+**Parcel**:
+A craft parked durably on the dock ledger for delivery to a player
+who is not there to receive it live: an absent guest's component
+released by the owner, or a stack reclaimed from an absent owner's
+empty seat. A Parcel survives server restarts, arrives in the
+neutral-safe **Undocking** configuration Kepler-propagated across
+the Subspace gap, and announces itself with a chip when its owner
+next connects. A dock record holding an undelivered Parcel is
+healthy, not dangling.
+_Avoid_: Mailbox / inbox (nothing is addressed or browsed — delivery
+is automatic on connect), escrow, limbo craft.
 
 **Spectate**:
 The camera verb for watching another player: frame their Ghost and
