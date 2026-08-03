@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +71,12 @@ var (
 	ErrNotEnrolled   = errors.New("sessiondir: fingerprint not in roster")
 )
 
+// foldHandle normalises a handle for case-insensitive comparison
+// (#274): "Gern" and "gern" must be treated as the same identity when
+// checking uniqueness, even though the stored Handle preserves the
+// player's chosen case.
+func foldHandle(h string) string { return strings.ToLower(strings.TrimSpace(h)) }
+
 // Player is one roster entry. Fingerprint is the ssh public-key
 // SHA256 fingerprint (the stable identity — handles are editable).
 type Player struct {
@@ -78,6 +85,17 @@ type Player struct {
 	Role        string    `json:"role"`
 	EnrolledAt  time.Time `json:"enrolled_at"`
 	Calibrated  bool      `json:"calibrated"`
+
+	// PendingNote is a durable, deliver-once session note (#274):
+	// surfaced to the player as a toast the next time they connect,
+	// then cleared via ConsumePendingNote. Additive field — an
+	// existing roster row without it deserialises to "", a no-op, so
+	// no MetaVersion bump is needed (same additive precedent as Role
+	// gaining RoleAdmin). Used today for the legacy handle-collision
+	// auto-rename: both the renamed player and the collision
+	// counterpart who kept their name get one, so both learn a
+	// previously-ambiguous pair is now distinct.
+	PendingNote string `json:"pending_note,omitempty"`
 }
 
 // Invite is one outstanding (unredeemed) invite code. The handle is
@@ -171,7 +189,13 @@ func DefaultDir() (string, error) {
 }
 
 // Open creates the directory if needed and initialises session.json
-// on first use, stamping the current body-catalog hash.
+// on first use, stamping the current body-catalog hash. Opening an
+// EXISTING session also repairs any legacy roster handle collision
+// (#274, see dedupeRosterHandles) — a one-shot fix-up run at load,
+// mirroring the versioned migration ladder but keyed on content
+// rather than a version number, since case-insensitive uniqueness
+// wasn't the persisted shape changing, just a rule that used to be
+// unenforced.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "players"), 0o755); err != nil {
 		return nil, fmt.Errorf("sessiondir: %w", err)
@@ -187,8 +211,115 @@ func Open(dir string) (*Store, error) {
 		if err := s.writeMeta(Meta{Version: MetaVersion, BodyCatalogHash: hash}); err != nil {
 			return nil, err
 		}
+		return s, nil
+	}
+	m, err := s.readMeta()
+	if err != nil {
+		return nil, err
+	}
+	if repairLegacyHandleCollisions(&m) {
+		if err := s.writeMeta(m); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
+}
+
+// repairLegacyHandleCollisions runs dedupeRosterHandles over m.Roster
+// and, for each rename it makes, logs a server-log line and stamps a
+// PendingNote on both the renamed player and the collision
+// counterpart who kept their name (#274). Reports whether it changed
+// anything, so the caller only persists when there was something to
+// persist.
+func repairLegacyHandleCollisions(m *Meta) bool {
+	renames := dedupeRosterHandles(m.Roster)
+	for _, r := range renames {
+		log.Printf("sessiondir: legacy roster handle collision at load — renamed %q to %q (fingerprint %s) to keep handles case-insensitively unique (#274)", r.From, r.To, r.Fingerprint)
+		for i := range m.Roster {
+			switch {
+			case m.Roster[i].Fingerprint == r.Fingerprint:
+				m.Roster[i].PendingNote = fmt.Sprintf(
+					"your handle collided with another player's (case-insensitively) — you've been renamed to %q so you can both be DMed unambiguously", r.To)
+			case foldHandle(m.Roster[i].Handle) == foldHandle(r.From) && m.Roster[i].Fingerprint != r.Fingerprint:
+				m.Roster[i].PendingNote = fmt.Sprintf(
+					"a roster handle collision with your name was resolved — the other player is now %q", r.To)
+			}
+		}
+	}
+	return len(renames) > 0
+}
+
+// handleRename is one deterministic legacy-collision fix dedupeRosterHandles made.
+type handleRename struct {
+	Fingerprint string
+	From        string
+	To          string
+}
+
+// dedupeRosterHandles walks roster in enrollment order (its natural
+// append order — the host first, guests in the order they enrolled)
+// and renames any entry whose handle case-insensitively collides with
+// an EARLIER entry: the Nth colliding handle becomes "<handle>2",
+// "<handle>3", ... skipping any candidate suffix that would itself
+// collide. It mutates roster in place and returns the renames made.
+//
+// This is a pure function of roster order and handles, so calling it
+// again on an already-fixed roster (or, if the caller never persists,
+// on the same still-colliding input) always reproduces the same
+// result — "gern2", never "gern22" — which is what makes the legacy
+// fix at Open safe to run on every load rather than exactly once
+// (#274).
+func dedupeRosterHandles(roster []Player) []handleRename {
+	seen := make(map[string]bool, len(roster))
+	var renames []handleRename
+	for i := range roster {
+		folded := foldHandle(roster[i].Handle)
+		if !seen[folded] {
+			seen[folded] = true
+			continue
+		}
+		orig := roster[i].Handle
+		suffix := 2
+		var next, foldedNext string
+		for {
+			next = fmt.Sprintf("%s%d", orig, suffix)
+			foldedNext = foldHandle(next)
+			if !seen[foldedNext] {
+				break
+			}
+			suffix++
+		}
+		seen[foldedNext] = true
+		roster[i].Handle = next
+		renames = append(renames, handleRename{
+			Fingerprint: roster[i].Fingerprint,
+			From:        orig,
+			To:          next,
+		})
+	}
+	return renames
+}
+
+// ConsumePendingNote returns and clears fingerprint's pending session
+// note (#274), if any — empty string and no error when there is none.
+// Clearing is persisted immediately so the note is delivered exactly
+// once, even if the process restarts between the read and the next
+// mutation.
+func (s *Store) ConsumePendingNote(fingerprint string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.readMeta()
+	if err != nil {
+		return "", err
+	}
+	for i := range m.Roster {
+		if m.Roster[i].Fingerprint == fingerprint && m.Roster[i].PendingNote != "" {
+			note := m.Roster[i].PendingNote
+			m.Roster[i].PendingNote = ""
+			return note, s.writeMeta(m)
+		}
+	}
+	return "", nil
 }
 
 func (s *Store) metaPath() string { return filepath.Join(s.dir, "session.json") }
@@ -324,7 +455,11 @@ func (s *Store) EnsureHost(handle string) (Player, error) {
 	return host, s.writeMeta(m)
 }
 
-// MintInvite creates a one-time code pre-bound to handle.
+// MintInvite creates a one-time code pre-bound to handle. The handle
+// must be case-insensitively unique against both the roster and any
+// other outstanding invite (#274) — refused here rather than left to
+// surface only once the guest tries to enroll, so the host learns
+// about a collision before ever handing out a code that can't land.
 func (s *Store) MintInvite(handle string) (Invite, error) {
 	handle = strings.TrimSpace(handle)
 	if handle == "" {
@@ -336,6 +471,9 @@ func (s *Store) MintInvite(handle string) (Invite, error) {
 	if err != nil {
 		return Invite{}, err
 	}
+	if p, ok := findHandleCollision(handle, m.Roster, m.Invites); ok {
+		return Invite{}, fmt.Errorf("sessiondir: handle %q collides with %q (case-insensitive) — pick a different handle", handle, p)
+	}
 	code, err := mintCode()
 	if err != nil {
 		return Invite{}, err
@@ -343,6 +481,24 @@ func (s *Store) MintInvite(handle string) (Invite, error) {
 	inv := Invite{Code: code, Handle: handle, CreatedAt: time.Now().UTC()}
 	m.Invites = append(m.Invites, inv)
 	return inv, s.writeMeta(m)
+}
+
+// findHandleCollision reports the first existing roster handle or
+// outstanding invite handle that case-insensitively matches handle,
+// if any.
+func findHandleCollision(handle string, roster []Player, invites []Invite) (string, bool) {
+	folded := foldHandle(handle)
+	for _, p := range roster {
+		if foldHandle(p.Handle) == folded {
+			return p.Handle, true
+		}
+	}
+	for _, inv := range invites {
+		if foldHandle(inv.Handle) == folded {
+			return inv.Handle, true
+		}
+	}
+	return "", false
 }
 
 // mintCode returns a short read-out-loud code ("AB2C-DE3F"): 40 bits
@@ -407,6 +563,15 @@ func (s *Store) Enroll(code, fingerprint, handle string) (Player, error) {
 	}
 	if idx < 0 {
 		return Player{}, ErrUnknownInvite
+	}
+	// Case-insensitive uniqueness against the roster (#274) — checked
+	// here, not just at mint, because the handle is editable at this
+	// step (ADR 0034 addendum) and could be hand-edited into a
+	// collision even when the pre-bound handle was clean. Checked
+	// BEFORE consuming the invite, so a refusal leaves the code intact
+	// for a retry with a different handle.
+	if collidesWith, ok := findHandleCollision(handle, m.Roster, nil); ok {
+		return Player{}, fmt.Errorf("sessiondir: handle %q collides with %q (case-insensitive) — pick a different handle", handle, collidesWith)
 	}
 	m.Invites = append(m.Invites[:idx], m.Invites[idx+1:]...)
 	p := Player{
