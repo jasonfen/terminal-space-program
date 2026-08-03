@@ -201,9 +201,9 @@ func TestMayRemoveGuardrails(t *testing.T) {
 	}
 
 	cases := []struct {
-		name           string
-		actor, target  string
-		want           bool
+		name          string
+		actor, target string
+		want          bool
 	}{
 		{"host removes guest", HostFingerprint, "SHA256:guestA", true},
 		{"host removes admin", HostFingerprint, "SHA256:adminA", true},

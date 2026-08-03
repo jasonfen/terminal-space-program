@@ -171,13 +171,13 @@ func TestDeriveFlightPhaseDescentAirless(t *testing.T) {
 
 func TestFlightPhaseString(t *testing.T) {
 	cases := map[FlightPhase]string{
-		PhaseCoast:     "coast",
-		PhasePrelaunch: "prelaunch",
-		PhaseAscent:    "ascent",
-		PhaseTransfer:  "transfer",
-		PhaseApproach:  "approach",
-		PhaseDescent:   "descent",
-		PhaseLanded:    "landed",
+		PhaseCoast:      "coast",
+		PhasePrelaunch:  "prelaunch",
+		PhaseAscent:     "ascent",
+		PhaseTransfer:   "transfer",
+		PhaseApproach:   "approach",
+		PhaseDescent:    "descent",
+		PhaseLanded:     "landed",
 		FlightPhase(99): "coast", // unknown falls back to coast
 	}
 	for p, want := range cases {

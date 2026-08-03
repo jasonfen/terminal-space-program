@@ -101,7 +101,7 @@ func TestVABSeamCyclingPlan(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
 	v.addComponentToCurrent("tank") // fill the auto-seeded stage 0
-	for i := 0; i < 2; i++ {         // two more single-component stages
+	for i := 0; i < 2; i++ {        // two more single-component stages
 		v.newStage()
 		v.addComponentToCurrent("tank")
 	}

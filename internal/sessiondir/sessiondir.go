@@ -40,7 +40,13 @@ import (
 // its own payload) resumes docked-as-guest on reconnect. A v1
 // session.json migrates forward (Docks defaults empty) via
 // migrateMetaV1ToV2; live v0.27 sessions never break.
-const MetaVersion = 2
+// v3 (ADR 0040, #311/#313): each DockLink gains the in-flight half of
+// its record — the parked craft payloads and the request flags. v2
+// persisted a dock's identity but not its substance, so a restart under
+// a handover destroyed the craft and left the record pointing at
+// nothing. A v2 session.json migrates forward via migrateMetaV2ToV3:
+// its docks simply carry no payloads, which is exactly what they did.
+const MetaVersion = 3
 
 // Roster roles. Host is the session's root operator (ADR 0034): the
 // player whose machine runs the session, with invite/removal authority
@@ -90,6 +96,13 @@ type Invite struct {
 // persisted; a dock that was mid-handshake at shutdown resolves fresh.
 // Phase is the relay.DockPhase int (0 pending / 1 active); sessiondir
 // stays below relay so it carries the raw int rather than importing it.
+//
+// v3 (ADR 0040) adds the in-flight half. A craft parked on a dock record
+// — a migrating stack mid-[J], a Parcel awaiting an absent guest — exists
+// NOWHERE else, so it is persisted here as the save package's per-craft
+// wire form (the same shape a save carries). The request flags ride along
+// for the same reason: a keypress in flight at shutdown must still be
+// waiting when the recipient comes back.
 type DockLink struct {
 	ID            uint64 `json:"id"`
 	Owner         string `json:"owner"`
@@ -100,6 +113,28 @@ type DockLink struct {
 	GuestHandle   string `json:"guest_handle,omitempty"`
 	GuestCraftID  uint64 `json:"guest_craft_id"`
 	Phase         int    `json:"phase"`
+
+	// In-flight handoffs (v3+). Omitted entirely for a settled dock, so a
+	// session.json for a session that never parks a payload looks exactly
+	// like its v2 self.
+	GuestPayload    *save.Craft `json:"guest_payload,omitempty"`
+	ReturnPayload   *save.Craft `json:"return_payload,omitempty"`
+	TransferPayload *save.Craft `json:"transfer_payload,omitempty"`
+	UndockAsk       bool        `json:"undock_ask,omitempty"`
+	UndockRefused   bool        `json:"undock_refused,omitempty"`
+	TransferTo      string      `json:"transfer_to,omitempty"`
+	Aborted         bool        `json:"aborted,omitempty"`
+	ReleaseAsk      bool        `json:"release_ask,omitempty"`
+	ReleaseAsParcel bool        `json:"release_as_parcel,omitempty"`
+	Parcel          bool        `json:"parcel,omitempty"`
+	ParcelAtNano    int64       `json:"parcel_at_unix_nano,omitempty"`
+	ReclaimNotice   bool        `json:"reclaim_notice,omitempty"`
+	// ReclaimAtNano is the absent owner's sim-time when an empty-seat
+	// reclaim's stack was lifted out of their persisted program (review
+	// finding on ADR 0040 §4) — carried so a restart between the reclaim
+	// and its delivery doesn't lose the stamp the Kepler-advance at
+	// delivery needs.
+	ReclaimAtNano int64 `json:"reclaim_at_unix_nano,omitempty"`
 }
 
 // Meta is the session.json shape.
@@ -189,6 +224,9 @@ func migrateMeta(m *Meta) {
 	if m.Version < 2 {
 		migrateMetaV1ToV2(m)
 	}
+	if m.Version < 3 {
+		migrateMetaV2ToV3(m)
+	}
 	m.Version = MetaVersion
 }
 
@@ -199,6 +237,32 @@ func migrateMeta(m *Meta) {
 func migrateMetaV1ToV2(m *Meta) {
 	if m.Docks == nil {
 		m.Docks = nil // explicit: a v1 session never had docks
+	}
+}
+
+// migrateMetaV2ToV3 carries a v0.28-era session forward (ADR 0040): v2
+// persisted a dock's identity but not its substance, so every restored
+// link arrives with no parked payload and no pending request flag —
+// which is precisely the state it was in. The zero values are already
+// correct; clearing them explicitly keeps the ladder honest and makes
+// the one thing v2 could NOT express visible at the seam. A v2 record
+// whose composite resolves in nobody's World is still reaped by the
+// #309 path on the owner's first reconcile.
+func migrateMetaV2ToV3(m *Meta) {
+	for i := range m.Docks {
+		m.Docks[i].GuestPayload = nil
+		m.Docks[i].ReturnPayload = nil
+		m.Docks[i].TransferPayload = nil
+		m.Docks[i].UndockAsk = false
+		m.Docks[i].UndockRefused = false
+		m.Docks[i].TransferTo = ""
+		m.Docks[i].Aborted = false
+		m.Docks[i].ReleaseAsk = false
+		m.Docks[i].ReleaseAsParcel = false
+		m.Docks[i].Parcel = false
+		m.Docks[i].ParcelAtNano = 0
+		m.Docks[i].ReclaimNotice = false
+		m.Docks[i].ReclaimAtNano = 0
 	}
 }
 

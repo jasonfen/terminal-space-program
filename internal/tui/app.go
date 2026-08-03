@@ -53,6 +53,13 @@ type UndockGuestMsg struct{}
 // TransferControlMsg requests handing the active cross-player stack to the guest.
 type TransferControlMsg struct{}
 
+// ReleaseGuestMsg is the OWNER seat's [U] on a cross-player stack (ADR 0040
+// §3): release the guest's component through the ledger rather than splitting
+// locally, which would clone their craft into this World. It travels the same
+// route as the other two — the App can't reach the ledger — and works whether
+// or not the guest is connected: an absent guest's component becomes a Parcel.
+type ReleaseGuestMsg struct{}
+
 // ChatSendMsg is a chat line on its way up to the serve wrapper, which
 // owns the chat ring (ADR 0035). To/ToHandle address a DM at one player
 // (resolved against the online roster before sending); both empty means
@@ -1297,6 +1304,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.world.DockGuest != nil {
 				return a, func() tea.Msg { return UndockGuestMsg{} }
 			}
+			// ADR 0040 §3: from the OWNER seat of a cross-player stack, [U]
+			// releases the guest's component through the ledger. Before this
+			// the key simply refused here, so a guest who disconnected while
+			// docked left the docker holding a composite with no way out from
+			// either seat (#312). The structural exception stands (§5): after
+			// a control transfer the other party's components sit at the
+			// bottom, where a peel would swap the two players' vehicles —
+			// GuestReleaseRefusal says so and names the two-step.
+			if active := a.world.ActiveCraft(); sim.StackHasGuest(active) {
+				if reason := a.world.GuestReleaseRefusal(a.world.ActiveCraftIdx); reason != "" {
+					a.statusMsg = reason
+					a.statusExpires = time.Now().Add(3 * time.Second)
+					return a, nil
+				}
+				a.statusMsg = "releasing your partner's craft…"
+				a.statusExpires = time.Now().Add(3 * time.Second)
+				return a, func() tea.Msg { return ReleaseGuestMsg{} }
+			}
 			// #308: say why when it refuses. The key is bound and the stack is
 			// real, so a bare no-op reads as a broken game — and the commonest
 			// refusal (a cross-player stack) has an answer the player can act
@@ -1315,7 +1340,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// guest — instant, roles swap, refused mid-burn (the ledger
 			// enforces the refusal). Only meaningful while flying a stack that
 			// carries a guest and I'm not myself the guest.
-			if active := a.world.ActiveCraft(); active != nil && sim.StackHasGuest(active) && a.world.DockGuest == nil {
+			// ADR 0040 §4: from the guest seat the same key asks for the
+			// stick back, and against an owner whose session is not live the
+			// ledger grants it outright. The wrapper decides which of the two
+			// meanings applies — it is the side that knows who is connected.
+			if a.world.DockGuest != nil {
+				return a, func() tea.Msg { return TransferControlMsg{} }
+			}
+			if active := a.world.ActiveCraft(); active != nil && sim.StackHasGuest(active) {
 				return a, func() tea.Msg { return TransferControlMsg{} }
 			}
 			a.statusMsg = "transfer: not flying a cross-player stack"

@@ -85,8 +85,8 @@ func TestDockingSkipsFastClose(t *testing.T) {
 	b := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
 	b.Primary = *earth
 	b.State = physics.StateVector{
-		R: w.Crafts[0].State.R.Add(orbital.Vec3{X: 10}),       // 10 m close
-		V: w.Crafts[0].State.V.Add(orbital.Vec3{Y: 5}),         // 5 m/s relative
+		R: w.Crafts[0].State.R.Add(orbital.Vec3{X: 10}), // 10 m close
+		V: w.Crafts[0].State.V.Add(orbital.Vec3{Y: 5}),  // 5 m/s relative
 		M: b.TotalMass(),
 	}
 	w.Crafts = append(w.Crafts, b)

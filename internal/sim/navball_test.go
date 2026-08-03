@@ -105,10 +105,10 @@ func TestNavballSubObserverProjectsCardinals(t *testing.T) {
 	radialIn := spacecraft.DirectionUnit(spacecraft.BurnRadialIn, c.State.R, c.State.V)
 
 	checks := []struct {
-		name     string
-		dir      orbital.Vec3
-		wantLat  float64
-		wantLon  float64
+		name      string
+		dir       orbital.Vec3
+		wantLat   float64
+		wantLon   float64
 		ignoreLon bool // true for poles where lon is undefined
 	}{
 		{"prograde", progradeDir, 0, 0, false},
@@ -231,16 +231,16 @@ func TestNavballMarkersOrbitMode(t *testing.T) {
 		byGlyph[m.Glyph] = i
 	}
 	checks := []struct {
-		glyph    rune
-		wantLat  float64
-		wantLon  float64
+		glyph     rune
+		wantLat   float64
+		wantLon   float64
 		ignoreLon bool
 	}{
 		{NavballGlyphPrograde, 0, 0, false},
 		{NavballGlyphRetrograde, 0, 180, true},
 		{NavballGlyphNormalPlus, 90, 0, true},
 		{NavballGlyphNormalMinus, -90, 0, true},
-		{NavballGlyphRadialOut, 0, 0, true},  // ±90 lon
+		{NavballGlyphRadialOut, 0, 0, true}, // ±90 lon
 		{NavballGlyphRadialIn, 0, 0, true},
 	}
 	for _, c := range checks {

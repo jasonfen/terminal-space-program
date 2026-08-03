@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -125,14 +126,25 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(tui.UndockGuestMsg); ok {
 		if m.srv != nil {
 			if w := m.app.World(); w.DockGuest != nil {
-				m.srv.dock.RequestUndock(m.owner, w.DockGuest.GuestCraftID)
+				if m.srv.dock.RequestUndock(m.owner, w.DockGuest.GuestCraftID) {
+					// The ask lives only in the in-process ledger until this
+					// lands — same unflushed-window fix as RequestTransfer /
+					// RequestRelease (ADR 0040 review).
+					_ = m.srv.persistDocks()
+				}
 			}
+		}
+		return m, nil
+	}
+	if _, ok := msg.(tui.ReleaseGuestMsg); ok {
+		if m.srv != nil {
+			return m.releaseGuest()
 		}
 		return m, nil
 	}
 	if _, ok := msg.(tui.TransferControlMsg); ok {
 		if m.srv != nil {
-			m.srv.dock.RequestTransfer(m.owner)
+			return m.transferControl()
 		}
 		return m, nil
 	}
@@ -663,6 +675,20 @@ func (m reportingModel) restartServer() (tea.Model, tea.Cmd) {
 	go func() {
 		time.Sleep(restartAnnounceGrace)
 		srv.drainAndClose()
+		// persistMiddleware (folded into the drain above) only ever writes a
+		// session's OWN craft payload — it knows nothing about the
+		// cross-player dock ledger. Same backstop as the SIGTERM path
+		// (restart_signal.go): this is the last stop before the process
+		// exits, so flush the ledger's current state once more here
+		// regardless of whether whatever changed it also flushed itself.
+		// The admin restart is a real, reachable, player-triggered exit
+		// (CONTEXT.md's Admin capability) — not swallowing the error: there
+		// is nothing left to recover once the process is gone, so a silent
+		// failure here is data loss that's only discovered on next boot,
+		// exactly the #311 shape this ledger exists to close.
+		if err := srv.persistDocks(); err != nil {
+			log.Printf("admin restart: dock ledger did not flush before exit: %v", err)
+		}
 		exitFunc(restartExitCode)
 	}()
 	return m, nil

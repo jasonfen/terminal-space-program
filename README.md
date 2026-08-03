@@ -183,7 +183,13 @@ player you're synced with, closing slower than 100 m/s, and your time-warp
 `TIME LOCK` line says who and at what rate. The session roster's `RANGE` column
 shows how close you already are. Dock your craft to theirs and you fly one
 shared stack — the guest can `U` undock their own component at any time, and
-the pilot can hand the whole stack over with `J` **transfer control**.
+the pilot can hand the whole stack over with `J` **transfer control** (refused
+if they aren't in the session — someone has to be there to take the stick).
+Nobody ever gets stuck: the pilot's `U` releases a partner's craft even if
+they've disconnected, and it's waiting for them, safed, when they come back;
+and if the pilot is the one who's gone, the guest riding their stack can
+press `J` right back to take the stick themselves — an empty seat needs
+nobody's permission.
 
 Coordinate it all without leaving the sim: `~` opens **chat** on the flight
 view. Type and press enter to broadcast to the session; a leading `@handle`

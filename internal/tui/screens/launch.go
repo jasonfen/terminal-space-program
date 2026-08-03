@@ -969,4 +969,3 @@ func overlayHUDStrip(canvasStr, hud string) string {
 	}
 	return canvasStr[:idx+1] + hud
 }
-

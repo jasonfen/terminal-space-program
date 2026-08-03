@@ -17,8 +17,8 @@ import (
 // them the game directly.
 type guestFlow struct {
 	store    *sessiondir.Store
-	fp       string             // ssh public-key fingerprint (the identity)
-	game     tea.Model          // the session's game (guest sink attached)
+	fp       string              // ssh public-key fingerprint (the identity)
+	game     tea.Model           // the session's game (guest sink attached)
 	onEnroll func(handle string) // presence/chip hook, fired at commit (may be nil)
 
 	phase    flowPhase

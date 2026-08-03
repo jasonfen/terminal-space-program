@@ -245,7 +245,7 @@ func TestComputeCoWarpMinWinsClampsWorld(t *testing.T) {
 	if got := w.EffectiveWarp(); got != 1000 {
 		t.Fatalf("baseline EffectiveWarp = %v, want 1000", got)
 	}
-	slow := peerAt(w, primary, st, 10, orbital.Vec3{X: 4000}, orbital.Vec3{}, "bob")  // burn-capped partner
+	slow := peerAt(w, primary, st, 10, orbital.Vec3{X: 4000}, orbital.Vec3{}, "bob")   // burn-capped partner
 	fast := peerAt(w, primary, st, 100, orbital.Vec3{X: 6000}, orbital.Vec3{}, "gwen") // coasting partner
 
 	res := w.ComputeCoWarp([]CoWarpPeer{slow, fast}, nil)

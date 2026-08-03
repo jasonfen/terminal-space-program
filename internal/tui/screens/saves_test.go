@@ -483,4 +483,3 @@ func TestSavesListWindowsToHeight(t *testing.T) {
 		t.Error("cursor row 10 has no click target")
 	}
 }
-

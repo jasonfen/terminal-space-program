@@ -178,7 +178,7 @@ func exactNoseTolDir(t *testing.T, localUp orbital.Vec3) orbital.Vec3 {
 	for i := -200000; i <= 200000; i++ {
 		y := y0 + float64(i)*1e-16
 		n := orbital.Vec3{X: x, Y: y}
-		if n.Scale(1 / n.Norm()).Dot(localUp) == CrashNoseTol {
+		if n.Scale(1/n.Norm()).Dot(localUp) == CrashNoseTol {
 			return n
 		}
 	}

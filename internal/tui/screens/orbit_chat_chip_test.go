@@ -31,8 +31,8 @@ func TestChatChipRendersBroadcastAndDMs(t *testing.T) {
 	}
 	joined := strings.Join(v.buildChatChip(w), "\n")
 	for _, want := range []string{
-		"gern: node is 200m off", // broadcast, sender named
-		"me: copy",               // own broadcast — you see what you said
+		"gern: node is 200m off",   // broadcast, sender named
+		"me: copy",                 // own broadcast — you see what you said
 		"gern>you: hold your burn", // DM received — visibly distinct
 		">gern: on my way",         // DM sent — the own echo names the target
 	} {

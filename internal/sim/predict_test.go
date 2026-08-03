@@ -383,7 +383,7 @@ func TestIntegrateSpacecraftSwitchesPrimaryMidTick(t *testing.T) {
 	// caps sub-steps at 1024 and dt at period/100, but per-sub-step
 	// SOI check should still fire when the boundary is crossed
 	// regardless of how the dt is sized.
-	w.integrateOneCraft(w.ActiveCraft(), time.Duration(3 * 86400 * float64(time.Second)))
+	w.integrateOneCraft(w.ActiveCraft(), time.Duration(3*86400*float64(time.Second)))
 
 	if w.ActiveCraft().Primary.ID == homeID {
 		t.Errorf("live integrator stayed in home primary %q after 3-day escape; SOI check did not fire mid-tick",
@@ -426,7 +426,7 @@ func TestIntegrateSpacecraftMatchesPredictorAcrossSOI(t *testing.T) {
 	// the predictor integrated forward through.
 	w.ActiveCraft().State = startState
 	w.Clock.SimTime = w.Clock.SimTime.Add(time.Duration(dt * float64(time.Second)))
-	w.integrateOneCraft(w.ActiveCraft(), time.Duration(dt * float64(time.Second)))
+	w.integrateOneCraft(w.ActiveCraft(), time.Duration(dt*float64(time.Second)))
 
 	gap := w.ActiveCraft().State.R.Sub(predicted.R).Norm()
 	// The two paths share Verlet step + SOI-rebase math; allow 1e6 m

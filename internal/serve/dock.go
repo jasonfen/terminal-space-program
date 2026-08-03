@@ -3,6 +3,8 @@ package serve
 import (
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/jasonfen/terminal-space-program/internal/relay"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -37,9 +39,22 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 	}
 
 	// Advance every dock touching this session against its World.
+	craftsBefore := len(w.Crafts)
 	chips := m.srv.dock.Reconcile(w, m.owner, reports)
 	for _, c := range chips {
 		m.localEvents = append(m.localEvents, sim.SessionEvent{Kind: c.Kind, Handle: c.Handle, At: now})
+		changed = true
+	}
+	// The guest side of a DockPending record parks its craft on the record
+	// (reconcileGuest lifts it out of w and into the ledger's in-memory
+	// payload) without producing a chip — nothing player-facing happened
+	// yet, so the chip loop above never sets changed. But that parking IS
+	// the moment the craft's only copy moves off this World and onto the
+	// ledger, so it needs the same flush a chip-producing transition gets:
+	// a restart between here and whatever later transition happens to flush
+	// would otherwise drop the craft silently (ADR 0040 review). A changed
+	// craft count is the observable trace of that move.
+	if len(w.Crafts) != craftsBefore {
 		changed = true
 	}
 
@@ -96,6 +111,51 @@ func (m *reportingModel) dockedWith(partner string) bool {
 	return false
 }
 
+// transferControl handles a [J] press (ADR 0040 §2). The ledger decides;
+// this turns a refusal into a moment the player actually sees, carrying the
+// reason verbatim. A silent no-op here is what made [U] read as a broken key
+// (#308) — the second cross-player verb does not repeat it.
+func (m reportingModel) transferControl() (tea.Model, tea.Cmd) {
+	// ADR 0040 §4: from the GUEST seat the same key means the mirror thing —
+	// take the stick back. It is granted, not requested, when the owner's
+	// seat is empty.
+	if w := m.app.World(); w != nil && w.DockGuest != nil {
+		return m.reclaimStack()
+	}
+	ok, why := m.srv.dock.RequestTransfer(m.owner, m.srv.presence.isOnline)
+	if ok {
+		// The ask lives only in the in-process ledger until this lands — a
+		// restart before some later, unrelated transition happens to flush
+		// it would silently drop the request (ADR 0040 review).
+		_ = m.srv.persistDocks()
+		return m, nil
+	}
+	m.localEvents = append(m.localEvents, sim.SessionEvent{
+		Kind: sim.SessionEventTransferRefused, Detail: why, At: time.Now(),
+	})
+	m.app.Toast(why)
+	return m, nil
+}
+
+// releaseGuest handles the owner seat's [U] on a cross-player stack (ADR
+// 0040 §3). The App has already refused the structural case against its own
+// World; what is decided here is whether the guest is there to catch it —
+// live, and the handback is the ordinary one; gone, and it becomes a Parcel.
+func (m reportingModel) releaseGuest() (tea.Model, tea.Cmd) {
+	ok, why := m.srv.dock.RequestRelease(m.owner, m.srv.presence.isOnline)
+	if ok {
+		// Same reasoning as RequestTransfer above: flush the ask now rather
+		// than leaving it to whatever transition happens to come next.
+		_ = m.srv.persistDocks()
+		return m, nil
+	}
+	m.localEvents = append(m.localEvents, sim.SessionEvent{
+		Kind: sim.SessionEventTransferRefused, Detail: why, At: time.Now(),
+	})
+	m.app.Toast(why)
+	return m, nil
+}
+
 // persistDocks writes the dock ledger's current durable cross-ref to disk under
 // the persist guard (v0.28 finding 3). The ledger is the source of truth; the
 // guard serialises persists across sessions and dock.Records() is re-snapshotted
@@ -106,34 +166,49 @@ func (m *reportingModel) dockedWith(partner string) bool {
 func (s *Server) persistDocks() error {
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
-	return s.store.SetDocks(recordsToDockLinks(s.dock.Records()))
+	return s.store.SetDocks(snapshotsToDockLinks(s.dock.FullRecords()))
 }
 
-// dockLinksToRecords adapts the persisted cross-ref into live ledger records
-// (durable fields only — the transient handoff payloads were not persisted).
-func dockLinksToRecords(links []sessiondir.DockLink) []relay.DockRecord {
-	out := make([]relay.DockRecord, 0, len(links))
+// dockLinksToSnapshots adapts the persisted cross-ref into live ledger
+// records. ADR 0040: the in-flight half rides along, so a handover parked
+// when the server went down completes on the recipient's next connect.
+func dockLinksToSnapshots(links []sessiondir.DockLink) []relay.DockSnapshot {
+	out := make([]relay.DockSnapshot, 0, len(links))
 	for _, l := range links {
-		out = append(out, relay.DockRecord{
+		out = append(out, relay.DockSnapshot{
 			ID: l.ID, Owner: l.Owner, OwnerHandle: l.OwnerHandle,
 			DockerCraftID: l.DockerCraftID, CompositeID: l.CompositeID,
 			GuestOwner: l.GuestOwner, GuestHandle: l.GuestHandle,
 			GuestCraftID: l.GuestCraftID, Phase: relay.DockPhase(l.Phase),
+			GuestPayload: l.GuestPayload, ReturnPayload: l.ReturnPayload,
+			TransferPayload: l.TransferPayload,
+			UndockAsk:       l.UndockAsk, UndockRefused: l.UndockRefused,
+			TransferTo: l.TransferTo, Aborted: l.Aborted,
+			ReleaseAsk: l.ReleaseAsk, ReleaseAsParcel: l.ReleaseAsParcel,
+			Parcel: l.Parcel, ParcelAtNano: l.ParcelAtNano,
+			ReclaimNotice: l.ReclaimNotice, ReclaimAtNano: l.ReclaimAtNano,
 		})
 	}
 	return out
 }
 
-// recordsToDockLinks projects the live ledger's durable fields to the
-// persisted form.
-func recordsToDockLinks(recs []relay.DockRecord) []sessiondir.DockLink {
-	out := make([]sessiondir.DockLink, 0, len(recs))
-	for _, r := range recs {
+// snapshotsToDockLinks projects the live ledger's full state to the persisted
+// form.
+func snapshotsToDockLinks(snaps []relay.DockSnapshot) []sessiondir.DockLink {
+	out := make([]sessiondir.DockLink, 0, len(snaps))
+	for _, r := range snaps {
 		out = append(out, sessiondir.DockLink{
 			ID: r.ID, Owner: r.Owner, OwnerHandle: r.OwnerHandle,
 			DockerCraftID: r.DockerCraftID, CompositeID: r.CompositeID,
 			GuestOwner: r.GuestOwner, GuestHandle: r.GuestHandle,
 			GuestCraftID: r.GuestCraftID, Phase: int(r.Phase),
+			GuestPayload: r.GuestPayload, ReturnPayload: r.ReturnPayload,
+			TransferPayload: r.TransferPayload,
+			UndockAsk:       r.UndockAsk, UndockRefused: r.UndockRefused,
+			TransferTo: r.TransferTo, Aborted: r.Aborted,
+			ReleaseAsk: r.ReleaseAsk, ReleaseAsParcel: r.ReleaseAsParcel,
+			Parcel: r.Parcel, ParcelAtNano: r.ParcelAtNano,
+			ReclaimNotice: r.ReclaimNotice, ReclaimAtNano: r.ReclaimAtNano,
 		})
 	}
 	return out

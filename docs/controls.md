@@ -141,10 +141,10 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `F5` / `F9` | Quicksave / quickload — a fixed quick slot, separate from your named saves (see **Saves** below) |
 | `[` / `]` | Switch which craft you're flying (when you have more than one) |
 | `1`–`9` | Jump straight to craft N (does nothing if that slot is empty) |
-| `U` | Undock a docked craft back into its parts |
+| `U` | Undock a docked craft back into its parts. On a **cross-player** stack you own it releases your partner's craft through the dock ledger instead of splitting locally — and it works whether or not they are connected: an absent partner's craft is parked as a **Parcel** and delivered, safed and correctly placed, the moment they next connect |
 | `Y` | Deploy the top carried payload as its own craft — releases a satellite/probe/station while you keep flying the carrier (press again to drop the next one). Undock (`U`) instead splits everything and switches you to a released piece |
 | `D` | Apollo transposition — flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it) |
-| `J` | **Transfer control** of a cross-player docked stack to the guest riding in it — the whole stack, and the flying of it, changes hands instantly (a chip confirms on both sides; refused mid-burn). Multiplayer only; the guest can always `U` **undock** their own component regardless |
+| `J` | **Transfer control** of a cross-player docked stack to the guest riding in it — the whole stack, and the flying of it, changes hands instantly (a chip confirms on both sides; refused mid-burn, and refused when your partner has no live session — handing someone the stick needs someone there to take it). Multiplayer only; the guest can always `U` **undock** their own component regardless, and a guest riding a stack whose owner has gone can press `J` to take the stick back immediately |
 | `V` | Jump to the launch chase-cam, following your active craft |
 | `E` | End the flight — remove a crashed craft after a `y` / `n` confirm |
 
