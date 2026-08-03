@@ -1340,7 +1340,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// guest — instant, roles swap, refused mid-burn (the ledger
 			// enforces the refusal). Only meaningful while flying a stack that
 			// carries a guest and I'm not myself the guest.
-			if active := a.world.ActiveCraft(); active != nil && sim.StackHasGuest(active) && a.world.DockGuest == nil {
+			// ADR 0040 §4: from the guest seat the same key asks for the
+			// stick back, and against an owner whose session is not live the
+			// ledger grants it outright. The wrapper decides which of the two
+			// meanings applies — it is the side that knows who is connected.
+			if a.world.DockGuest != nil {
+				return a, func() tea.Msg { return TransferControlMsg{} }
+			}
+			if active := a.world.ActiveCraft(); active != nil && sim.StackHasGuest(active) {
 				return a, func() tea.Msg { return TransferControlMsg{} }
 			}
 			a.statusMsg = "transfer: not flying a cross-player stack"

@@ -103,6 +103,12 @@ func (m *reportingModel) dockedWith(partner string) bool {
 // reason verbatim. A silent no-op here is what made [U] read as a broken key
 // (#308) — the second cross-player verb does not repeat it.
 func (m reportingModel) transferControl() (tea.Model, tea.Cmd) {
+	// ADR 0040 §4: from the GUEST seat the same key means the mirror thing —
+	// take the stick back. It is granted, not requested, when the owner's
+	// seat is empty.
+	if w := m.app.World(); w != nil && w.DockGuest != nil {
+		return m.reclaimStack()
+	}
 	ok, why := m.srv.dock.RequestTransfer(m.owner, m.srv.presence.isOnline)
 	if ok {
 		return m, nil
@@ -160,6 +166,7 @@ func dockLinksToSnapshots(links []sessiondir.DockLink) []relay.DockSnapshot {
 			TransferTo: l.TransferTo, Aborted: l.Aborted,
 			ReleaseAsk: l.ReleaseAsk, ReleaseAsParcel: l.ReleaseAsParcel,
 			Parcel: l.Parcel, ParcelAtNano: l.ParcelAtNano,
+			ReclaimNotice: l.ReclaimNotice,
 		})
 	}
 	return out
@@ -181,6 +188,7 @@ func snapshotsToDockLinks(snaps []relay.DockSnapshot) []sessiondir.DockLink {
 			TransferTo: r.TransferTo, Aborted: r.Aborted,
 			ReleaseAsk: r.ReleaseAsk, ReleaseAsParcel: r.ReleaseAsParcel,
 			Parcel: r.Parcel, ParcelAtNano: r.ParcelAtNano,
+			ReclaimNotice: r.ReclaimNotice,
 		})
 	}
 	return out

@@ -128,6 +128,7 @@ type DockLink struct {
 	ReleaseAsParcel bool        `json:"release_as_parcel,omitempty"`
 	Parcel          bool        `json:"parcel,omitempty"`
 	ParcelAtNano    int64       `json:"parcel_at_unix_nano,omitempty"`
+	ReclaimNotice   bool        `json:"reclaim_notice,omitempty"`
 }
 
 // Meta is the session.json shape.
@@ -254,6 +255,7 @@ func migrateMetaV2ToV3(m *Meta) {
 		m.Docks[i].ReleaseAsParcel = false
 		m.Docks[i].Parcel = false
 		m.Docks[i].ParcelAtNano = 0
+		m.Docks[i].ReclaimNotice = false
 	}
 }
 

@@ -77,7 +77,7 @@ var helpSections = []helpSection{
 		{"i / r / x", "host + admins: mint invite / revoke code / remove player"},
 		{"p", "host only: promote the selected player to admin / demote them"},
 		{"u", "host + admins: restart the server (drains guests, they reconnect)"},
-		{"J", "transfer control of a cross-player docked stack to the guest — refused when they aren't in the session (map)"},
+		{"J", "hand a cross-player stack to the guest (refused if they aren't in the session); from the guest seat, take the stick back when the pilot has gone (map)"},
 	}},
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},

@@ -260,6 +260,10 @@ func (s *Server) Serve() error {
 	// The Reprieve sweeper (ADR 0036) lives exactly as long as the
 	// listener. Without it every Reprieve silently caps at one idle window.
 	go s.sweepReprieves(stop)
+	// ADR 0040 §6: the supervisor's stop signal — the hourly auto-adopt of a
+	// release tag, on the production host — announces itself to every session
+	// before the listener drains, instead of arriving as a silent yank.
+	go s.watchRestartSignals(stop)
 	defer close(stop)
 	err := s.ssh.Serve(s.ln)
 	if err != nil && !errors.Is(err, ssh.ErrServerClosed) {

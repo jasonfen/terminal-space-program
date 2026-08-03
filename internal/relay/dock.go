@@ -72,6 +72,10 @@ type DockRecord struct {
 	// how far it is propagated to reach the guest's sim-time.
 	parcel       bool
 	parcelAtNano int64
+	// reclaimNotice is owed to a player whose stack was taken back from
+	// their empty seat while they were gone (ADR 0040 §4). Delivered on
+	// their next connect — otherwise their vehicle is simply missing.
+	reclaimNotice bool
 }
 
 // hasParkedPayload reports whether the record is holding a craft that exists
@@ -245,6 +249,71 @@ func (l *DockLedger) RequestRelease(owner string, live func(string) bool) (bool,
 		return true, ""
 	}
 	return false, "release: not flying a cross-player stack"
+}
+
+// ReclaimTarget resolves the dock a guest is asking to take control of from
+// an empty seat (ADR 0040 §4), returning the record as it stands plus a
+// player-facing refusal ("" when the reclaim may go ahead).
+//
+// The rule is the mirror of §2 and deliberately asymmetric: GIVING someone the
+// stick needs a live recipient, because delivery runs on their tick; TAKING it
+// back from a seat nobody is sitting in needs nobody's permission. Making the
+// ask wait durably for the owner instead would be #312's stranding wearing a
+// different hat — a player riding a stack they cannot fly and cannot leave,
+// for as long as the other person stays away.
+//
+// Resolving and granting are separate calls because the migration in between
+// is not the ledger's to do: the stack is sitting in the absent owner's
+// persisted payload, which only the serve layer can open.
+func (l *DockLedger) ReclaimTarget(guestOwner string, live func(string) bool) (DockRecord, string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range l.records {
+		if r.GuestOwner != guestOwner || r.Phase != DockActive {
+			continue
+		}
+		if live != nil && live(r.Owner) {
+			who := r.OwnerHandle
+			if who == "" {
+				who = "the pilot"
+			}
+			return DockRecord{}, "take control: " + who + " is at the controls — ask them to hand it over"
+		}
+		if r.CompositeID == 0 {
+			return DockRecord{}, "take control: this dock has no stack to take"
+		}
+		cp := *r
+		return cp, ""
+	}
+	return DockRecord{}, "take control: you are not riding anyone's stack"
+}
+
+// GrantReclaim completes an empty-seat reclaim: the migrating stack (lifted
+// out of the absent owner's payload by the caller) is parked for delivery,
+// the ownership tags are flipped, and the roles swap so the reclaimer owns
+// the dock and the absent player becomes its guest. The returning owner is
+// owed an explanation, which rides the record until they connect.
+//
+// ok is false when the record moved under the caller — a reclaim that raced
+// something else must not be applied to whatever the record became.
+func (l *DockLedger) GrantReclaim(recordID uint64, guestOwner string, stack *spacecraft.Spacecraft) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	r, ok := l.records[recordID]
+	if !ok || stack == nil || r.GuestOwner != guestOwner || r.Phase != DockActive {
+		return false
+	}
+	oldOwner, oldOwnerHandle := r.Owner, r.OwnerHandle
+	oldDockerCraftID := r.DockerCraftID
+	sim.RetagStackForTransfer(stack, oldOwner, guestOwner)
+	r.transferPayload = stack
+	r.transferTo = ""
+	r.Owner, r.OwnerHandle = r.GuestOwner, r.GuestHandle
+	r.DockerCraftID = r.GuestCraftID
+	r.GuestOwner, r.GuestHandle = oldOwner, oldOwnerHandle
+	r.GuestCraftID = oldDockerCraftID
+	r.reclaimNotice = true
+	return true
 }
 
 // ActiveGuestDock returns the active record in which fp is the guest, if any —
@@ -534,6 +603,13 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 			r.returnPayload = nil
 			*chips = append(*chips, DockChip{Kind: kind, Handle: r.OwnerHandle})
 			return true
+		}
+		// ADR 0040 §4: my stack was taken back from my empty seat while I was
+		// gone. Say so — a vehicle that is simply missing on reconnect is the
+		// same silence this whole batch is about.
+		if r.reclaimNotice {
+			r.reclaimNotice = false
+			*chips = append(*chips, DockChip{Kind: sim.SessionEventControlReclaimed, Handle: r.OwnerHandle})
 		}
 		// #307: my undock was refused on the owner's side. I'm still docked —
 		// surface it so the key doesn't read as dead, then carry on.
