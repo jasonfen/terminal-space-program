@@ -6,10 +6,10 @@ little more explanation.
 
 ## Quick tour
 
-You start as a craft called **S-IVB-1** in a 500 km circular orbit around
+You start as a vessel called **S-IVB-1** in a 500 km circular orbit around
 Earth, moving prograde (the direction of travel). The left panel is the map —
 the Sun (or whatever you've focused on) in the middle, planets on their real
-orbits, and your craft as a little chevron pointing the way it's moving. The
+orbits, and your vessel as a little chevron pointing the way it's moving. The
 right-hand panel is your readout: the clock, what you're looking at, fuel and
 attitude, any burns you've planned, and a preview of where they'll put you.
 
@@ -46,7 +46,7 @@ burn's length is worked out for you. A live preview shows the orbit you'll end
 up with as you tweak the numbers. Press Enter to lock it in.
 
 For hands-on, stick-and-throttle flying: `z` to throttle up, the
-`w` `s` `a` `d` `q` `e` keys to point the craft, then `b` to light the engine.
+`w` `s` `a` `d` `q` `e` keys to point the vessel, then `b` to light the engine.
 
 ### Surface launches
 
@@ -97,12 +97,12 @@ readout shows you why before you watch it fall back.
 | `` ` `` | **Boss key** — instantly swap the whole screen for a convincing fake developer shell (works from any screen). Type `exit`, `logout`, or `Ctrl+D` to drop back into the game right where you left off. Deliberately left out of the in-game help overlay so it stays discreet |
 | `i` | Body info screen |
 | `M` | Mission ladder — your program / objective progress, with the active mission's checklist and locked rungs shown with what unlocks them (same screen as the `[Missions]` button). Missions are **off by default** — enable the Tutorial and/or Challenge ladder in `[Menu]` → Settings |
-| `O` | Session roster (multiplayer) — one row per player with online state, last-known system, craft count, and their time offset vs you. `t` targets a player's ghost craft for rendezvous planning — when they have more than one craft in your system the row expands into a picker so you aim at the right ship (`esc` backs out one level), and the count reads `3 craft (1 here)` when some of theirs are landed or in another system; `v` **spectates** — fits the camera to that player's ghost orbit and then follows it, so you can watch their burns re-shape the ellipse (press `f` to return to your own craft); `s` **sync-warps** you forward to a player's time (forward only — a player behind you syncs to you); `w` arms a **rendezvous warp** — once the other player answers the main-screen prompt with `y`, both warps rate-lock (slowest wins) and you coast together to your predicted closest approach, arriving at 1× already warp-coupled. Arrival hands the ship back but keeps you time-locked through the whole terminal phase — the proposer flies the pair's clock, the joiner rides copilot — until you dock or either side presses `/`. Hosts and admins mint (`i`), revoke (`r`) invite codes and remove players (`x`) here, and restart the server with `u` — which warns every connected player, drains them with their progress saved (yours included), and exits into the supervisor that relaunches it; where the host machine is set up to self-update, `u` reads as *restart to adopt vX.Y.Z* once a newer release is published, and otherwise points at the releases page. The host alone delegates: `p` promotes the selected player to **admin** or demotes them back. An admin carries the invite/removal/restart capability but cannot promote anyone, remove another admin, remove the host, or remove themselves — escalation stays single-rooted. The host also toggles the SSH listener with `h` (start hosting from single-player; stop it, dropping guests, while hosting). Single-player offers `h` to start hosting in-place — no restart, no `--serve`. Other players' craft are drawn as dim **ghost** orbits on your map (evaluated at *your* clock), and coming within 35 km of a player you're synced with, closing slower than 100 m/s, **couples** your time-warp to theirs so neither of you can skip past the other during an approach — the roster's `RANGE` column shows how close you already are, and the rule is spelled out under the table |
-| `~` | **Chat** (multiplayer, flight view) — opens a one-line input on the canvas edge; type and press `enter` to broadcast to the session, `esc` to bail. A leading `@handle` sends a **private line** (rendered distinctly on both ends); `tab` completes the handle against the online roster and cycles matches, and a typo'd or offline handle *refuses to send* — your text stays put to fix, it never falls back to a broadcast. The sim keeps running while you type (flight keys are text until you close the input), and messages show as transient chips for ~30 s. Chat is live coordination, not messaging: nothing is stored, reconnecting shows no history, and it works regardless of your craft's CommNet state — you're two people talking, not two vessels transmitting |
+| `O` | Session roster (multiplayer) — one row per player with online state, last-known system, vessel count, and their time offset vs you. `t` targets a player's ghost vessel for rendezvous planning — when they have more than one vessel in your system the row expands into a picker so you aim at the right vessel (`esc` backs out one level), and the count reads `3 vessels (1 here)` when some of theirs are landed or in another system; `v` **spectates** — fits the camera to that player's ghost orbit and then follows it, so you can watch their burns re-shape the ellipse (press `f` to return to your own vessel); `s` **sync-warps** you forward to a player's time (forward only — a player behind you syncs to you); `w` arms a **rendezvous warp** — once the other player answers the main-screen prompt with `y`, both warps rate-lock (slowest wins) and you coast together to your predicted closest approach, arriving at 1× already warp-coupled. Arrival hands the vessel back but keeps you time-locked through the whole terminal phase — the proposer flies the pair's clock, the joiner rides copilot — until you dock or either side presses `/`. Hosts and admins mint (`i`), revoke (`r`) invite codes and remove players (`x`) here, and restart the server with `u` — which warns every connected player, drains them with their progress saved (yours included), and exits into the supervisor that relaunches it; where the host machine is set up to self-update, `u` reads as *restart to adopt vX.Y.Z* once a newer release is published, and otherwise points at the releases page. The host alone delegates: `p` promotes the selected player to **admin** or demotes them back. An admin carries the invite/removal/restart capability but cannot promote anyone, remove another admin, remove the host, or remove themselves — escalation stays single-rooted. The host also toggles the SSH listener with `h` (start hosting from single-player; stop it, dropping guests, while hosting). Single-player offers `h` to start hosting in-place — no restart, no `--serve`. Other players' vessels are drawn as dim **ghost** orbits on your map (evaluated at *your* clock), and coming within 35 km of a player you're synced with, closing slower than 100 m/s, **couples** your time-warp to theirs so neither of you can skip past the other during an approach — the roster's `RANGE` column shows how close you already are, and the rule is spelled out under the table |
+| `~` | **Chat** (multiplayer, flight view) — opens a one-line input on the canvas edge; type and press `enter` to broadcast to the session, `esc` to bail. A leading `@handle` sends a **private line** (rendered distinctly on both ends); `tab` completes the handle against the online roster and cycles matches, and a typo'd or offline handle *refuses to send* — your text stays put to fix, it never falls back to a broadcast. The sim keeps running while you type (flight keys are text until you close the input), and messages show as transient chips for ~30 s. Chat is live coordination, not messaging: nothing is stored, reconnecting shows no history, and it works regardless of your vessel's CommNet state — you're two people talking, not two vessels transmitting |
 | `Tab` | Switch star system (Sol → Alpha Centauri → TRAPPIST-1 → Kepler-452) |
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down (up to 100,000×; eases off around a burn). Inert while a rendezvous-warp coast is engaged — the coast owns the rate, and `/` is the one gesture that cancels it. In a rendezvous **terminal phase** these become the copilot's brake: `,` slows the pair a rung, `.` releases back to following the other player's clock, and neither can push the pair faster than the player who proposed the rendezvous |
-| `G` | Auto-warp to the next burn — speeds time to 30 seconds before whichever burn fires first (any craft's), ramps back down, and hands you 1× to watch it arm. Tapping `.` / `,` cancels it back to your own warp; click the `[»Burn]` button to do the same. Inert while a rendezvous-warp coast is engaged — like the warp keys, `/` is the one gesture that cancels the coast |
+| `G` | Auto-warp to the next burn — speeds time to 30 seconds before whichever burn fires first (any vessel's), ramps back down, and hands you 1× to watch it arm. Tapping `.` / `,` cancels it back to your own warp; click the `[»Burn]` button to do the same. Inert while a rendezvous-warp coast is engaged — like the warp keys, `/` is the one gesture that cancels the coast |
 | `/` | Cancel warp — drop straight back to 1× from any warp level, and cancel auto-warp or an armed/coasting rendezvous warp if one is running |
 
 ### Keyboard layout
@@ -121,32 +121,32 @@ Dvorak, and free per-key remapping aren't supported yet.)
 | `→` / `l` | Move the map cursor to the next body. This cursor feeds the body info screen (`i`) and the porkchop plot (`P`) — it does **not** set your travel target. For that, use `t` / `T` |
 | `←` / `h` | Move the map cursor to the previous body |
 | `+` / `-` | Zoom in / out |
-| `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your craft). Also the way back from **spectating** a player's ghost (`v` on the `O` roster) — it returns the camera to your own craft |
+| `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Also the way back from **spectating** a player's ghost (`v` on the `O` roster) — it returns the camera to your own vessel |
 | `g` | Reset the camera to the whole system |
 | `v` | Cycle the view (tilted → top → right → bottom → left → flat → launch). Tilted is the default — a 3D-style perspective that shows orbits leaning in space. Views are projections only: the camera re-frames once when you change focus, view, or system, and otherwise stays exactly where you put it — to read an upcoming encounter, focus the body it passes (`f`) and the camera fits to its sphere of influence so the capture curve fills the canvas |
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (only in the tilted view) |
 | `shift+←` / `shift+→` | Yaw the 3D view left / right in 5° steps, wrapping all the way around (only in the tilted view) |
 | `F2` | Declutter — hide all overlays (the corner chips and the navball) for a clean look at the orbit. Press again to bring them back. Your core telemetry column stays put |
-| `n` | Open the spawn form (craft, where to start, which body, altitude, direction). Pick **Custom…** to build a quick stack from whole modules, or pick one of your **saved designs** (listed after Custom…) built in the VAB (`Esc → [Build (VAB)]`). Craft are grouped by category and filtered to the current system's scale class by default — use `[f]` to see all systems' craft |
-| `f` | Inside the spawn form: toggle the **scale-class system filter** — shows all systems' craft when off, hides off-scale craft when on (on by default) |
+| `n` | Open the spawn form (vessel, where to start, which body, altitude, direction). Pick **Custom…** to build a quick stack from whole modules, or pick one of your **saved designs** (listed after Custom…) built in the VAB (`Esc → [Build (VAB)]`). Vessels are grouped by category and filtered to the current system's scale class by default — use `[f]` to see all systems' vessels |
+| `f` | Inside the spawn form: toggle the **scale-class system filter** — shows all systems' vessels when off, hides off-scale vessels when on (on by default) |
 | `H` | Plan a transfer to your target. To a moon of the planet you're at, it works out two ways to get there and plans the cheaper one, showing you both fuel costs. To another planet, it plans a standard Hohmann transfer. To a moon's parent planet, it plans an escape |
 | `I` | Plan a burn to match your target's orbital tilt (or to level out to the equator when nothing is targeted) |
 | `C` | Plan a circularising burn at the top of your orbit — pairs with the ORBIT READY cue on launch. Won't work if the top of your orbit is still inside the atmosphere or you're on an escape trajectory |
-| `K` | Plan a small nudge to close in on a target craft. Reads the closest-approach numbers in the target readout. Needs a craft target sharing your planet, and only works when there's an improvement to be had |
-| `t` / `T` | Pick / clear your target (other craft nearby → bodies in the system → none) |
-| `space` | Drop the bottom stage of your craft (only if it has more than one). On a bare capsule with a parachute, this arms the chute instead — it opens on its own once you hit the atmosphere |
+| `K` | Plan a small nudge to close in on a target vessel. Reads the closest-approach numbers in the target readout. Needs a vessel target sharing your planet, and only works when there's an improvement to be had |
+| `t` / `T` | Pick / clear your target (other vessels nearby → bodies in the system → none) |
+| `space` | Drop the bottom stage of your vessel (only if it has more than one). On a bare capsule with a parachute, this arms the chute instead — it opens on its own once you hit the atmosphere |
 | `P` | Porkchop plot for the body under the map cursor (not your `t` target). `Enter` on a cell plans that transfer. For another planet only — moon targets point you back to `H`. Press `o` inside for transfer options |
 | `R` | Refine the plan — recompute the transfer from where you are right now and update the arrival |
 | `m` | Open the maneuver planner |
 | `F5` / `F9` | Quicksave / quickload — a fixed quick slot, separate from your named saves (see **Saves** below) |
-| `[` / `]` | Switch which craft you're flying (when you have more than one) |
-| `1`–`9` | Jump straight to craft N (does nothing if that slot is empty) |
-| `U` | Undock a docked craft back into its parts. On a **cross-player** stack you own it releases your partner's craft through the dock ledger instead of splitting locally — and it works whether or not they are connected: an absent partner's craft is parked as a **Parcel** and delivered, safed and correctly placed, the moment they next connect |
-| `Y` | Deploy the top carried payload as its own craft — releases a satellite/probe/station while you keep flying the carrier (press again to drop the next one). Undock (`U`) instead splits everything and switches you to a released piece |
+| `[` / `]` | Switch which vessel you're flying (when you have more than one) |
+| `1`–`9` | Jump straight to vessel N (does nothing if that slot is empty) |
+| `U` | Undock a docked vessel back into its parts. On a **cross-player** stack you own it releases your partner's vessel through the dock ledger instead of splitting locally — and it works whether or not they are connected: an absent partner's vessel is parked as a **Parcel** and delivered, safed and correctly placed, the moment they next connect |
+| `Y` | Deploy the top carried payload as its own vessel — releases a satellite/probe/station while you keep flying the carrier (press again to drop the next one). Undock (`U`) instead splits everything and switches you to a released piece |
 | `D` | Apollo transposition — flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it) |
 | `J` | **Transfer control** of a cross-player docked stack to the guest riding in it — the whole stack, and the flying of it, changes hands instantly (a chip confirms on both sides; refused mid-burn, and refused when your partner has no live session — handing someone the stick needs someone there to take it). Multiplayer only; the guest can always `U` **undock** their own component regardless, and a guest riding a stack whose owner has gone can press `J` to take the stick back immediately |
-| `V` | Jump to the launch chase-cam, following your active craft |
-| `E` | End the flight — remove a crashed craft after a `y` / `n` confirm |
+| `V` | Jump to the launch chase-cam, following your active vessel |
+| `E` | End the flight — remove a crashed vessel after a `y` / `n` confirm |
 
 ### Saves (`Esc → [Save Game]` / `[Load Game]`)
 
@@ -182,7 +182,7 @@ mode.
 | `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
 | `?` | Clear the manual tip (reset pitch trim to 0) |
 
-The pointing keys only aim the craft — `b` is what actually fires the engine.
+The pointing keys only aim the vessel — `b` is what actually fires the engine.
 In RCS mode those same keys also fire one small thruster pulse per press (hold
 a key for a steady stream). Each pulse is 0.1 m/s by default; press `p` to step
 it down to 0.01 or 0.001 m/s for fine work like nulling out an orbital period to
@@ -200,7 +200,7 @@ Click only — no dragging, no scroll-to-zoom.
 | `[Menu]` (top-right) | Save / load / settings / controls / quit menu |
 | `[Missions]` (top-right) | Mission ladder — active mission checklist on top, the rest of the program below with locked rungs and pass / fail marks (same as `M`). Off by default; enable a program in `[Menu]` → Settings |
 | A body | Follow it with the camera (same as cursoring onto it) |
-| A craft | Follow it with the camera |
+| A vessel | Follow it with the camera |
 | A planned burn | Open the planner for that burn (its fire time is kept) |
 | Empty space | Open the planner with a new burn at the nearest point on your orbit |
 | A readout panel | Open body info |
@@ -217,13 +217,13 @@ Click only — no dragging, no scroll-to-zoom.
 | `Enter` | Lock in the burn |
 | `Esc` | Cancel and go back |
 | `Ctrl+D` | Delete the burn you're editing (does nothing when creating a new one) |
-| `c` / `C` | Clear every planned burn for this craft |
+| `c` / `C` | Clear every planned burn for this vessel |
 
-The panel lists all the burns you've planned for the current craft —
+The panel lists all the burns you've planned for the current vessel —
 direction, Δv, and a countdown — with the one you're editing marked, so you
 can see your whole schedule, not just the burn in front of you.
 
-The Δv you enter sets the burn's length automatically; craft with no engine
+The Δv you enter sets the burn's length automatically; vessels with no engine
 fall back to an instant nudge. The "when" field lets you fire at a set time or
 at the next high point, low point, or orbital-plane crossing. Throttle is saved
 per burn, so changing your live throttle while coasting won't slow down a burn
@@ -232,7 +232,7 @@ you've already planned. The preview updates the resulting orbit as you edit.
 The **refine** toggle spends a little extra Δv to make up for the fuel lost
 steering and fighting gravity during a long burn, so you end up where an
 instant burn of the same size would have put you. Leave it off for short burns;
-turn it on for low-thrust craft or big burns where the loss is noticeable.
+turn it on for low-thrust vessels or big burns where the loss is noticeable.
 
 ### Porkchop plot (`P`)
 
@@ -255,7 +255,7 @@ launch later. You compose **components** — engines, fuel tanks, command cores,
 antennas, and structure — into stages, stack the stages into a vehicle, and
 read a live **Δv / TWR / mass** panel as you go. Saved designs are global (they
 survive across games) and show up in the spawn form (`n`) alongside the
-built-in craft, so you design once and launch many.
+built-in vessels, so you design once and launch many.
 
 Editing happens **in place** on the vehicle rows, the same idiom as the
 maneuver form: the VAB opens focused on the vehicle column with the cursor on a
