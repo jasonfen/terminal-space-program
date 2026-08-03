@@ -240,19 +240,28 @@ func TestReconnectDisplacesItsOwnReprievedSession(t *testing.T) {
 		t.Fatal("the session was reaped before the reconnect — nothing left to displace")
 	}
 
-	// The player opens the lid somewhere else and reconnects.
+	// The player opens the lid somewhere else and reconnects. Rather than
+	// polling live.snapshot() against a wall-clock deadline (#318 — the
+	// poll's own lock contention and 25ms sleep granularity were adding to
+	// the load it was trying to observe, and clustered failures landed
+	// right at the old 15s budget on loaded CI runners), wait on the
+	// signal sessionHandler fires the instant the reclaim actually lands.
+	// The 15s budget is now purely a hang guard, not the measured event.
 	back := dialShell(t, srv, signer, true)
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		if cur, ok := srv.live.snapshot()[fp]; ok && cur != first {
-			break
+	select {
+	case got := <-srv.reclaimed:
+		if got != fp {
+			t.Fatalf("reclaim signal fired for %q, want %q", got, fp)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the reconnecting player never took over their own reprieved session — " +
-				"locked out of their own program behind a socket nobody is using, which is " +
-				"the lockout the idle timeout exists to prevent")
-		}
-		time.Sleep(25 * time.Millisecond)
+	case <-time.After(15 * time.Second):
+		t.Fatal("the reconnecting player never took over their own reprieved session — " +
+			"locked out of their own program behind a socket nobody is using, which is " +
+			"the lockout the idle timeout exists to prevent")
+	}
+	if cur, ok := srv.live.snapshot()[fp]; !ok || cur == first {
+		t.Fatal("the reclaim signal fired but the registry entry never changed identity — " +
+			"locked out of their own program behind a socket nobody is using, which is " +
+			"the lockout the idle timeout exists to prevent")
 	}
 	if msg := back.text(); strings.Contains(msg, "already has a live session") {
 		t.Errorf("the reconnecting player was refused: %q", msg)
