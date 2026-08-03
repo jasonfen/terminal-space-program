@@ -146,6 +146,99 @@ func TestComposeChipsClipsOversizeChipWithoutPanic(t *testing.T) {
 	}
 }
 
+// TestComposeChipsBudgetProtectsCriticalChipFromOverflow (#328/#334):
+// composeChips had NO height bound on the top-left stack at all —
+// topLeftRow grew past cRows with nothing to stop it, and
+// overlayStyledBlock silently drops any row outside [0, cRows). A
+// high-priority chip appended late (the real DOCKED block, in
+// assembleChips' order) absorbed all the accumulated overflow from the
+// filler chips ahead of it and vanished with no signal anything was
+// lost — TestComposeChipsClipsOversizeChipWithoutPanic above only
+// checks the row COUNT survives, which passes even on total content
+// loss. Reproduces the #328 report's numbers: an 80x24 terminal's
+// canvas is 21 rows; three filler chips (mirroring VESSEL/MISSION/
+// SESSION/TIME LOCK) consume all 21 rows between them, and a critical
+// chip appended after them must still render in full rather than being
+// silently dropped or clipped.
+func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 78, 21 // an 80x24 terminal's canvas (totalRows-3)
+
+	filler := func(n int) []string {
+		lines := make([]string, n)
+		for i := range lines {
+			lines[i] = "row"
+		}
+		return lines
+	}
+	chips := []builtChip{
+		{corner: cornerTopLeft, lines: filler(6), priority: chipPriorityCore},   // VESSEL-sized
+		{corner: cornerTopLeft, lines: filler(3)},                               // MISSION-sized filler
+		{corner: cornerTopLeft, lines: filler(2)},                               // SESSION-sized filler
+		{corner: cornerTopLeft, lines: filler(2)},                               // TIME LOCK-sized filler
+		{corner: cornerTopLeft, lines: []string{
+			"DOCKED", "  riding in bob's stack", "  [J] request control", "  [U] ask to undock",
+		}, priority: chipPriorityForced},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if !strings.Contains(out, "DOCKED") {
+		t.Fatalf("critical chip (DOCKED) silently lost to top-left overflow:\n%s", out)
+	}
+	if !strings.Contains(out, "riding in bob's stack") || !strings.Contains(out, "[U] ask to undock") {
+		t.Errorf("critical chip rendered but truncated — its own content was clipped:\n%s", out)
+	}
+}
+
+// TestComposeChipsBudgetClampsBottomRightAgainstNavball (#334): at
+// 80x24, navballReservedRows(w, cCols, 21) returns navballPanelH+1 = 20,
+// so bottomRightRow = cRows-1-navballReserved = 0 — a force-shown NODES
+// chip (4 content lines, block height 6) placed there lands at
+// atRow = 0-6+1 = -5, and overlayStyledBlock drops every row outside
+// [0, cRows), leaving only the block's bottom border on canvas row 0.
+// A force-shown (critical-priority) chip that cannot fit above the
+// navball must still render in full rather than vanish upward off the
+// canvas.
+func TestComposeChipsBudgetClampsBottomRightAgainstNavball(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 78, 21
+	const navballReserved = navballPanelH + 1 // == 20, matches navballReservedRows at this size
+
+	chips := []builtChip{
+		{id: settings.ChipNodes, corner: cornerBottomRight, lines: []string{
+			"NODES", "  ▸ #1 prograde 42 m/s", "  imp", "  (+1 more → [m])",
+		}, priority: chipPriorityForced},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
+	if !strings.Contains(out, "NODES") || !strings.Contains(out, "▸ #1 prograde 42 m/s") {
+		t.Fatalf("force-shown NODES chip lost above the navball reservation:\n%s", out)
+	}
+}
+
+// TestComposeChipsClampsTwoCriticalChipsThatTogetherOverflow exercises the
+// last-resort clamp directly (admitChipsByBudget's drop-lower-priority
+// pass never runs here — both chips are chipPriorityForced, so both are
+// admitted unconditionally, and their combined height exceeds the
+// corner's entire budget). composeChips must still keep the SECOND
+// critical chip fully on-canvas by pulling it back up to overlap the
+// first, rather than let it run off the bottom edge and have
+// overlayStyledBlock silently drop the overflow rows.
+func TestComposeChipsClampsTwoCriticalChipsThatTogetherOverflow(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 40, 10 // small on purpose: two 8-row blocks won't both fit
+
+	chips := []builtChip{
+		{corner: cornerTopLeft, lines: []string{"FIRST", "a", "b", "c", "d", "e"}, priority: chipPriorityCore},
+		{corner: cornerTopLeft, lines: []string{"SECOND", "f", "g", "h", "i", "j"}, priority: chipPriorityForced},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if got := strings.Count(out, "\n") + 1; got != cRows {
+		t.Fatalf("output row count = %d, want %d (canvas height preserved)", got, cRows)
+	}
+	if !strings.Contains(out, "SECOND") || !strings.Contains(out, "j") {
+		t.Errorf("second critical chip lost/truncated when it couldn't fit below the first:\n%s", out)
+	}
+}
+
 func TestChipEnabledRespectsSettingsAndDeclutter(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	if !v.chipEnabled(settings.ChipStages) {

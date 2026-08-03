@@ -41,13 +41,22 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// must not be able to hide fuel/Δv mid-burn. v0.13 playtest move:
 	// VESSEL/PROPELLANT left the right-hand column to live on the canvas.
 	if lines := v.buildVesselChip(w); lines != nil {
-		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines})
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityCore})
 	}
 	add := func(id settings.Chip, corner chipCorner, lines []string) {
 		if lines == nil || !v.chipEnabled(id) {
 			return
 		}
 		chips = append(chips, builtChip{id: id, corner: corner, lines: lines})
+	}
+	// addPriority is add's twin for the handful of chips that must never
+	// be silently dropped by admitChipsByBudget when a corner overflows
+	// (#328/#334) — see the chipPriority* doc comment in orbit_chips.go.
+	addPriority := func(id settings.Chip, corner chipCorner, lines []string, priority int) {
+		if lines == nil || !v.chipEnabled(id) {
+			return
+		}
+		chips = append(chips, builtChip{id: id, corner: corner, lines: lines, priority: priority})
 	}
 	// The current goal sits directly under the pinned VESSEL chip — "who I am"
 	// then "what I'm doing" in the top-left status corner (ADR 0025 / Slice 5).
@@ -83,8 +92,12 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// while one of this player's craft rides in another player's stack
 	// (names the ride + the exits), with #253's owner-away line folded in
 	// as an extra row rather than a second surface. Always-on like
-	// RENDEZVOUS (empty id); F2 declutter still clears it.
-	add("", cornerTopLeft, v.buildDockGuestChip(w))
+	// RENDEZVOUS (empty id); F2 declutter still clears it. #328: this is
+	// the rider's only surviving route to [J] request control / [U]
+	// undock once absorbed into another player's stack, so it carries
+	// chipPriorityForced — admitChipsByBudget must never silently drop it
+	// for space the way it dropped every ordinary chip ahead of it.
+	addPriority("", cornerTopLeft, v.buildDockGuestChip(w), chipPriorityForced)
 	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
 	// vessel-state readouts. Force-shown while a just-blocked command is
 	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
@@ -100,7 +113,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// the current orbit (apo/peri/incl) is never user-hideable from the
 	// Settings screen, mirroring the always-on ● BURNS readout — both are
 	// too load-bearing to toggle off. F2 declutter still clears them.
-	add("", cornerTopRight, v.buildOrbitMetricsChip(w))
+	addPriority("", cornerTopRight, v.buildOrbitMetricsChip(w), chipPriorityCore)
 	// PROJECTED ORBIT sits to the LEFT of the always-on ORBIT readout (issue
 	// #63 follow-up) so current + projected show together during a burn
 	// without growing the top-right column's height — leaving vertical room
@@ -139,7 +152,17 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	if lines := v.buildNodesChip(w); lines != nil {
 		forced := v.anyActiveBurn(w) || activeCraftQueuedNodes(w) > 1
 		if forced || v.chipEnabled(settings.ChipNodes) {
-			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines})
+			// #334: only a genuinely FORCED render (bypassing the toggle)
+			// gets chipPriorityForced's "never drop for space, clamp
+			// instead" guarantee. A merely toggle-enabled NODES chip is a
+			// normal-priority chip like any other — if it can't fit, the
+			// player's own toggle choice is what loses, not a silent
+			// safety-critical readout.
+			priority := chipPriorityNormal
+			if forced {
+				priority = chipPriorityForced
+			}
+			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines, priority: priority})
 		}
 	}
 	return chips
@@ -555,12 +578,17 @@ func rendezvousHoldLabel(h sim.RendezvousRateHolder, handle string) string {
 // slow, proximity co-warp coupled them, and min-wins is quietly setting
 // the player's rate. Who, and what the clock is doing — the RENDEZVOUS
 // chip carries the same facts with far more context inside an agreement,
-// so this stays out of its way there.
+// so this stays out of its way there. #328 review: a docked rider's
+// coupling comes from WithDockCoupling, not an agreement either — the
+// standing DOCKED block already says "riding in X's stack", which is
+// the same fact ("your clock isn't yours right now, X's is") stated in
+// flight terms, so this stays out of ITS way too rather than stacking a
+// second "warp locked with X" line directly above it.
 //
 // The v0.30 lesson (a silent no-op reads as broken) applied to warp: a
-// lock on the player's time is always explained on screen.
+// lock on the player's time is always explained on screen — somewhere.
 func (v *OrbitView) buildTimeLockChip(w *sim.World) []string {
-	if !w.CoWarp.Coupled || v.rendezvousExplainsCoupledLock(w) {
+	if !w.CoWarp.Coupled || v.rendezvousExplainsCoupledLock(w) || v.dockGuestExplainsCoupledLock(w) {
 		return nil
 	}
 	partners := strings.Join(w.CoWarp.Partners, ", ")
@@ -571,6 +599,27 @@ func (v *OrbitView) buildTimeLockChip(w *sim.World) []string {
 		v.theme.Primary.Render("TIME LOCK"),
 		v.theme.Dim.Render("  warp locked with " + partners + " — " + WarpLabel(w.EffectiveWarp())),
 	}
+}
+
+// dockGuestExplainsCoupledLock reports whether the standing DOCKED block
+// (buildDockGuestChip) already explains the exact co-warp lock
+// buildTimeLockChip would otherwise state (#328 review, mirroring
+// rendezvousExplainsCoupledLock's specificity discipline). True only
+// when this player is riding as a DockGuest AND the CoWarp coupling
+// actually names that same stack owner — a rider coincidentally also
+// proximity-coupled to a third, unrelated player still needs TIME LOCK
+// to explain THAT lock, since DOCKED never mentions them.
+func (v *OrbitView) dockGuestExplainsCoupledLock(w *sim.World) bool {
+	dg := w.DockGuest
+	if dg == nil {
+		return false
+	}
+	for _, p := range w.CoWarp.Partners {
+		if p == dg.OwnerHandle {
+			return true
+		}
+	}
+	return false
 }
 
 // rendezvousExplainsCoupledLock reports whether the RENDEZVOUS chip is

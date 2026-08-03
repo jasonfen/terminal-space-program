@@ -164,6 +164,39 @@ func TestTimeLockChipShowsWhenCoupledToADifferentPlayerThanTheArm(t *testing.T) 
 	}
 }
 
+// ADR 0038 S4 review (#328): a docked rider's CoWarp coupling comes from
+// WithDockCoupling (internal/serve/dock.go), not a RENDEZVOUS agreement —
+// there is no seat, no rate negotiation, just "you're riding in their
+// stack, so you share their clock." The standing DOCKED block already
+// says exactly that ("riding in X's stack"), so TIME LOCK repeating
+// "warp locked with X" directly above it is two surfaces for one fact
+// (S4's own stated goal was "one surface, not two"). Mirrors
+// rendezvousExplainsCoupledLock: suppress only when the DockGuest's
+// owner is the SAME partner the co-warp coupling names, the same
+// specificity discipline as the rendezvous case.
+func TestTimeLockChipSuppressedForDockGuest(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:bob", OwnerHandle: "bob"}
+	w.CoWarp = sim.CoWarpState{Coupled: true, MinWarp: 10, Partners: []string{"bob"}}
+
+	if chip := v.buildTimeLockChip(w); chip != nil {
+		t.Errorf("TIME LOCK duplicated the DOCKED block's own lock explanation:\n%s", strings.Join(chip, "\n"))
+	}
+
+	// Coupled to a DIFFERENT player than the one the rider is docked
+	// with: the DOCKED block never mentions that player, so the lock
+	// must still be explained somewhere.
+	w.CoWarp = sim.CoWarpState{Coupled: true, MinWarp: 10, Partners: []string{"someone-else"}}
+	chip := v.buildTimeLockChip(w)
+	if chip == nil {
+		t.Fatalf("TIME LOCK suppressed while coupled to a player DOCKED doesn't name")
+	}
+	if joined := strings.Join(chip, "\n"); !strings.Contains(joined, "someone-else") {
+		t.Errorf("TIME LOCK line missing the actual partner:\n%s", joined)
+	}
+}
+
 // #280 / ADR 0037 §4: the SESSION chip gets CHAT's depth cap so any burst
 // stays bounded. Before it, every moment inside the 6 s TTL rendered —
 // 852 coupled/released moments in one live session grew a block tall
