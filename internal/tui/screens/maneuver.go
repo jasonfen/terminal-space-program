@@ -487,7 +487,7 @@ func (m *Maneuver) parsedDV() float64 {
 // Render composes the preview canvas + form panel.
 func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	if w.ActiveCraft() == nil {
-		return "no spacecraft"
+		return "no vessel"
 	}
 
 	m.canvas.Clear()

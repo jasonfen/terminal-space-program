@@ -262,7 +262,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		}
 		return []string{
 			v.theme.Primary.Render("NO VESSEL"),
-			"  " + v.theme.Warning.Render("your craft slate is empty"),
+			"  " + v.theme.Warning.Render("your vessel slate is empty"),
 			v.theme.Dim.Render("  [n] launch a new flight"),
 		}
 	}

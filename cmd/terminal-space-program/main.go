@@ -55,14 +55,14 @@ func main() {
 	flag.StringVar(&raw.launchSite, "launch-site", "", "named launch site (KSC, Baikonur, Plesetsk, Equator, North-Pole)")
 	flag.Float64Var(&raw.lat, "lat", 0, "launchpad latitude in degrees north (implies --launchpad)")
 	flag.Float64Var(&raw.lon, "lon", 0, "launchpad longitude in degrees east (implies --launchpad)")
-	flag.StringVar(&raw.loadout, "loadout", "", "craft loadout, e.g. Saturn-V or Kern-Stack (default S-IVB-1)")
+	flag.StringVar(&raw.loadout, "loadout", "", "vessel loadout, e.g. Saturn-V or Kern-Stack (default S-IVB-1)")
 	flag.BoolVar(&listSystems, "list-systems", false, "list available star systems and exit")
 	flag.BoolVar(&listBodies, "list-bodies", false, "list bodies (honours --system) and exit")
-	flag.BoolVar(&listLoadout, "list-loadouts", false, "list craft loadouts and exit")
+	flag.BoolVar(&listLoadout, "list-loadouts", false, "list vessel loadouts and exit")
 	flag.BoolVar(&listSites, "list-launch-sites", false, "list named launch sites and exit")
 	flag.BoolVar(&serveMode, "serve", false, "host a multiplayer session: play here and accept SSH guests (ADR 0034)")
 	flag.IntVar(&servePort, "serve-port", serve.DefaultPort, "SSH listener port for --serve")
-	flag.BoolVar(&resetFleet, "reset-fleet", false, "with --serve: one-shot fleet reset at startup — wipe every enrolled player's craft slate to one default vessel on a shared 500x500 km ring and align all subspace clocks (previous saves are backed up)")
+	flag.BoolVar(&resetFleet, "reset-fleet", false, "with --serve: one-shot fleet reset at startup — wipe every enrolled player's vessel slate to one default vessel on a shared 500x500 km ring and align all subspace clocks (previous saves are backed up)")
 	flag.Parse()
 
 	if showVersion {
@@ -183,15 +183,19 @@ func main() {
 			for _, e := range entries {
 				switch {
 				case e.Host:
-					fmt.Fprintf(os.Stderr, "  %s (host): in-process world → 1 craft, phase %.1f°, clock aligned\n", e.Handle, e.PhaseDeg)
+					fmt.Fprintf(os.Stderr, "  %s (host): in-process world → 1 vessel, phase %.1f°, clock aligned\n", e.Handle, e.PhaseDeg)
 				case e.BackupPath != "":
-					old := fmt.Sprintf("%d craft", e.OldCraftCount)
+					craftNoun := "vessels"
+					if e.OldCraftCount == 1 {
+						craftNoun = "vessel"
+					}
+					old := fmt.Sprintf("%d %s", e.OldCraftCount, craftNoun)
 					if e.OldCraftCount < 0 {
 						old = "unreadable save"
 					}
-					fmt.Fprintf(os.Stderr, "  %s: %s → 1 craft, phase %.1f°, backup %s\n", e.Handle, old, e.PhaseDeg, e.BackupPath)
+					fmt.Fprintf(os.Stderr, "  %s: %s → 1 vessel, phase %.1f°, backup %s\n", e.Handle, old, e.PhaseDeg, e.BackupPath)
 				default:
-					fmt.Fprintf(os.Stderr, "  %s: no previous save → 1 craft, phase %.1f°\n", e.Handle, e.PhaseDeg)
+					fmt.Fprintf(os.Stderr, "  %s: no previous save → 1 vessel, phase %.1f°\n", e.Handle, e.PhaseDeg)
 				}
 			}
 		}

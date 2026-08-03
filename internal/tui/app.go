@@ -723,7 +723,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					LongitudeOffset: a.spawn.SelectedLongitudeEastDeg(),
 				}
 				if c, err := a.world.SpawnCraft(spec); err == nil {
-					a.statusMsg = fmt.Sprintf("spawned craft %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
+					a.statusMsg = fmt.Sprintf("spawned vessel %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
 					a.statusExpires = time.Now().Add(3 * time.Second)
 				} else {
 					// Surface the failure instead of silently returning to
@@ -1083,7 +1083,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						a.statusExpires = time.Now().Add(6 * time.Second)
 					}
 				case sim.TargetCraft:
-					a.statusMsg = "H targets bodies — for craft, plan via [m]"
+					a.statusMsg = "H targets bodies — for vessels, plan via [m]"
 					a.statusExpires = time.Now().Add(3 * time.Second)
 				}
 			}
@@ -1106,7 +1106,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case sim.TargetBody:
 					plan, err = a.world.PlanPlaneMatch(a.world.Target.BodyIdx)
 				case sim.TargetCraft:
-					a.statusMsg = "I targets bodies — for craft, plan via [m]"
+					a.statusMsg = "I targets bodies — for vessels, plan via [m]"
 					a.statusExpires = time.Now().Add(3 * time.Second)
 					return a, nil
 				default:
@@ -1318,7 +1318,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.statusExpires = time.Now().Add(3 * time.Second)
 					return a, nil
 				}
-				a.statusMsg = "releasing your partner's craft…"
+				a.statusMsg = "releasing your partner's vessel…"
 				a.statusExpires = time.Now().Add(3 * time.Second)
 				return a, func() tea.Msg { return ReleaseGuestMsg{} }
 			}
@@ -1358,7 +1358,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// carrier (drop-and-continue). World.Deploy self-records the deploy
 			// action (so any caller emits it) — no second RecordAction here.
 			if a.world.Deploy(a.world.ActiveCraftIdx) {
-				a.statusMsg = fmt.Sprintf("deployed payload — %d craft on the slate", len(a.world.Crafts))
+				a.statusMsg = fmt.Sprintf("deployed payload — %d vessels on the slate", len(a.world.Crafts))
 			} else {
 				a.statusMsg = "deploy: no payload to release (carrier carries no docked payload)"
 			}
@@ -2035,7 +2035,7 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		a.active = screenOrbit
 	case screens.SessionCmdTargetGhost:
 		a.world.SetTargetGhost(cmd.Owner, cmd.CraftID)
-		a.statusMsg = fmt.Sprintf("target: %s's craft", cmd.Handle)
+		a.statusMsg = fmt.Sprintf("target: %s's vessel", cmd.Handle)
 		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit
 	case screens.SessionCmdSpectate:

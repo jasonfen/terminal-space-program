@@ -21,16 +21,16 @@ import (
 // Errors returned by StageActive.
 var (
 	// ErrStageNoCraft — caller passed a craftIdx outside the slate.
-	ErrStageNoCraft = errors.New("stage: no craft at idx")
+	ErrStageNoCraft = errors.New("stage: no vessel at idx")
 	// ErrStageEmpty — craft has no Stages slice (legacy literal-
 	// constructed test fixture). The staging path requires at least
 	// one stage entry. Real spawn paths always populate Stages via
 	// NewFromLoadout, so this is a defensive check.
-	ErrStageEmpty = errors.New("stage: craft has no stages")
+	ErrStageEmpty = errors.New("stage: vessel has no stages")
 	// ErrNoSignal — the craft is an unmanned probe out of network contact
 	// (ADR 0027); staging is a command and is blocked. canCommand also
 	// raises the NO SIGNAL flash.
-	ErrNoSignal = errors.New("stage: no signal (unmanned craft out of contact)")
+	ErrNoSignal = errors.New("stage: no signal (unmanned vessel out of contact)")
 	// ErrStageOnlyOne — craft has only one stage left. Dropping
 	// the only stage would leave the player with nothing to
 	// control, which is the wrong default. Status-flash + no-op.

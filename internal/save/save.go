@@ -413,7 +413,7 @@ type ActiveBurn struct {
 var (
 	ErrSchemaMismatch  = errors.New("save: schema version mismatch")
 	ErrCatalogMismatch = errors.New("save: body catalog hash mismatch")
-	ErrCraftPrimary    = errors.New("save: craft primary not found in loaded systems")
+	ErrCraftPrimary    = errors.New("save: vessel primary not found in loaded systems")
 )
 
 // DefaultPath returns the platform-appropriate save path. Honors
