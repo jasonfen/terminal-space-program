@@ -106,34 +106,43 @@ func (m *reportingModel) dockedWith(partner string) bool {
 func (s *Server) persistDocks() error {
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
-	return s.store.SetDocks(recordsToDockLinks(s.dock.Records()))
+	return s.store.SetDocks(snapshotsToDockLinks(s.dock.FullRecords()))
 }
 
-// dockLinksToRecords adapts the persisted cross-ref into live ledger records
-// (durable fields only — the transient handoff payloads were not persisted).
-func dockLinksToRecords(links []sessiondir.DockLink) []relay.DockRecord {
-	out := make([]relay.DockRecord, 0, len(links))
+// dockLinksToSnapshots adapts the persisted cross-ref into live ledger
+// records. ADR 0040: the in-flight half rides along, so a handover parked
+// when the server went down completes on the recipient's next connect.
+func dockLinksToSnapshots(links []sessiondir.DockLink) []relay.DockSnapshot {
+	out := make([]relay.DockSnapshot, 0, len(links))
 	for _, l := range links {
-		out = append(out, relay.DockRecord{
+		out = append(out, relay.DockSnapshot{
 			ID: l.ID, Owner: l.Owner, OwnerHandle: l.OwnerHandle,
 			DockerCraftID: l.DockerCraftID, CompositeID: l.CompositeID,
 			GuestOwner: l.GuestOwner, GuestHandle: l.GuestHandle,
 			GuestCraftID: l.GuestCraftID, Phase: relay.DockPhase(l.Phase),
+			GuestPayload: l.GuestPayload, ReturnPayload: l.ReturnPayload,
+			TransferPayload: l.TransferPayload,
+			UndockAsk:       l.UndockAsk, UndockRefused: l.UndockRefused,
+			TransferTo: l.TransferTo, Aborted: l.Aborted, Parcel: l.Parcel,
 		})
 	}
 	return out
 }
 
-// recordsToDockLinks projects the live ledger's durable fields to the
-// persisted form.
-func recordsToDockLinks(recs []relay.DockRecord) []sessiondir.DockLink {
-	out := make([]sessiondir.DockLink, 0, len(recs))
-	for _, r := range recs {
+// snapshotsToDockLinks projects the live ledger's full state to the persisted
+// form.
+func snapshotsToDockLinks(snaps []relay.DockSnapshot) []sessiondir.DockLink {
+	out := make([]sessiondir.DockLink, 0, len(snaps))
+	for _, r := range snaps {
 		out = append(out, sessiondir.DockLink{
 			ID: r.ID, Owner: r.Owner, OwnerHandle: r.OwnerHandle,
 			DockerCraftID: r.DockerCraftID, CompositeID: r.CompositeID,
 			GuestOwner: r.GuestOwner, GuestHandle: r.GuestHandle,
 			GuestCraftID: r.GuestCraftID, Phase: int(r.Phase),
+			GuestPayload: r.GuestPayload, ReturnPayload: r.ReturnPayload,
+			TransferPayload: r.TransferPayload,
+			UndockAsk:       r.UndockAsk, UndockRefused: r.UndockRefused,
+			TransferTo: r.TransferTo, Aborted: r.Aborted, Parcel: r.Parcel,
 		})
 	}
 	return out

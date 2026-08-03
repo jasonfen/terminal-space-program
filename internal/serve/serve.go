@@ -26,6 +26,7 @@ import (
 	bm "github.com/charmbracelet/wish/bubbletea"
 	gossh "golang.org/x/crypto/ssh"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/relay"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
@@ -181,8 +182,15 @@ func New(cfg Config) (*Server, error) {
 	// durable cross-ref persisted in session.json seeds the live ledger, so
 	// a guest whose craft rode along in another player's stack reconnects
 	// straight back into docked-as-guest.
-	if m, err := store.Meta(); err == nil {
-		srv.dock.Seed(dockLinksToRecords(m.Docks))
+	// ADR 0040 S1: the seed now carries the in-flight half too, rehydrated
+	// against the loaded body catalog — a [J] or a Parcel caught by a restart
+	// is delivered on the recipient's next connect rather than destroyed.
+	if m, err := store.Meta(); err == nil && len(m.Docks) > 0 {
+		systems, err := bodies.LoadAll()
+		if err != nil {
+			return nil, fmt.Errorf("serve: load body catalog for dock restore: %w", err)
+		}
+		srv.dock.SeedFull(dockLinksToSnapshots(m.Docks), systems)
 	}
 	// The host plays in-process and is online for the session's whole
 	// life — no join chip for them (serve start isn't a "moment").

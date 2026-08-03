@@ -35,9 +35,13 @@ const (
 	DockActive
 )
 
-// DockRecord is one cross-player dock. The exported fields are the durable
-// cross-ref (persisted in the session directory); the unexported fields are
-// transient in-process handoffs consumed on the reconciling side's tick.
+// DockRecord is one cross-player dock. The exported fields are the cross-ref
+// (owner, composite/guest IDs, phase); the unexported fields are the in-flight
+// handoffs consumed on the reconciling side's tick. ADR 0040: BOTH halves are
+// durable now — FullRecords/SeedFull round-trip the payloads and request flags
+// through the session directory, so a handover in flight when the server
+// restarts completes on the recipient's next connect instead of destroying the
+// craft (#311). Nothing on a record is transient any more.
 type DockRecord struct {
 	ID            uint64
 	Owner         string // current stack owner fingerprint (flips on transfer)
@@ -49,7 +53,8 @@ type DockRecord struct {
 	GuestCraftID  uint64 // the guest's craft riding in the stack (returned on undock)
 	Phase         DockPhase
 
-	// transient handoffs — in-process craft moves (a v2 wire serialises them)
+	// in-flight handoffs — craft moves between Worlds (persisted: see
+	// dock_persist.go; a v2 wire serialises the same shape)
 	guestPayload    *spacecraft.Spacecraft // guest→docker: craft to fuse
 	returnPayload   *spacecraft.Spacecraft // docker→guest: restored craft on undock/abort
 	transferPayload *spacecraft.Spacecraft // old owner→new owner: the whole migrating stack
@@ -57,6 +62,20 @@ type DockRecord struct {
 	undockRefused   bool                   // docker→guest: your undock was refused, you're still docked (#307)
 	transferTo      string                 // owner→recipient: pending control transfer target
 	aborted         bool                   // docker couldn't fuse / the stack is gone — the dock ends
+	// parcel marks a returnPayload the owner released while the guest was
+	// NOT there to receive it live (ADR 0040 §3). It changes only what the
+	// guest is told on delivery — a Parcel arrives with an explanation
+	// rather than reading as an undock they did not ask for.
+	parcel bool
+}
+
+// hasParkedPayload reports whether the record is holding a craft that exists
+// NOWHERE else — the only copy, waiting on a recipient's tick. Such a record
+// is healthy however phantom it looks from the other seat: the #309 reaper
+// must not end a dock whose composite is "missing" precisely because it is
+// sitting on the record awaiting delivery (ADR 0040 §1).
+func (r *DockRecord) hasParkedPayload() bool {
+	return r.guestPayload != nil || r.returnPayload != nil || r.transferPayload != nil
 }
 
 // DockChip is a moment the reconcile surfaces for the caller to turn into a
@@ -287,15 +306,25 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		// production host: 5½ hours, cleared only by --reset-fleet). The stack
 		// is gone, so the dock is over; abort it and let the guest's own
 		// reconcile learn that and say so.
-		if _, _, ok := w.CraftByID(r.CompositeID); !ok {
-			r.aborted = true
-			r.undockAsk, r.transferTo = false, ""
+		//
+		// ADR 0040 §1: unless the record is holding a payload. A restored
+		// handover parks the ONLY copy of the stack on the record, which from
+		// this seat is indistinguishable from a phantom — and reaping there
+		// would destroy the craft durability exists to save.
+		_, cidx, live := w.CraftByID(r.CompositeID)
+		if !live {
+			if !r.hasParkedPayload() {
+				r.aborted = true
+				r.undockAsk, r.transferTo = false, ""
+			}
+			// Either the dock just ended, or this record is holding the stack
+			// itself pending delivery. Nothing below can act on a composite
+			// that isn't in this World.
 			return false
 		}
 		// Undock request: split the guest's component and hand it back.
 		if r.undockAsk {
 			r.undockAsk = false
-			_, cidx, _ := w.CraftByID(r.CompositeID) // resolved above
 			restored, ok := w.UndockGuest(cidx, r.GuestOwner, r.GuestCraftID)
 			if !ok {
 				// #307: the guest's components are no longer the top of the
@@ -314,11 +343,7 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		// Transfer request: migrate the whole stack to the guest (roles swap),
 		// unless mid-burn (refused, retried next tick).
 		if r.transferTo != "" {
-			comp, _, ok := w.CraftByID(r.CompositeID)
-			if !ok {
-				r.transferTo = ""
-				return false
-			}
+			comp := w.Crafts[cidx] // resolved above
 			if sim.StackMidBurn(comp) {
 				return false // refused mid-burn — retry
 			}
