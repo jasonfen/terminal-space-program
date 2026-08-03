@@ -146,6 +146,61 @@ func TestComputeCoWarpDecouples(t *testing.T) {
 	}
 }
 
+// A peer who drops out of the peer slice entirely — not a range/velocity
+// separation but an owner absent from the report set this tick — never
+// enters the main loop, so it can't fire the explicit release path
+// (ADR 0037 §4 review, the #275-family "a lock ends chiplessly" gap).
+// The sweep reads w.CoWarp — the caller's last-committed State, still
+// holding the PREVIOUS tick's Partners at call time, exactly as
+// reporting.go's `cw := w.ComputeCoWarp(...); w.CoWarp = cw.State`
+// sequencing leaves it — for any handle that vanished outright.
+func TestComputeCoWarpReleasesOnOmission(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	near := peerAt(w, primary, st, 50, orbital.Vec3{X: 5000}, orbital.Vec3{}, "bob")
+	res := w.ComputeCoWarp([]CoWarpPeer{near}, nil)
+	if !res.State.Coupled {
+		t.Fatal("precondition: coupled")
+	}
+	w.CoWarp = res.State // mirrors the caller committing this tick's State
+
+	// bob's report vanishes entirely next tick — an omission, not a
+	// range/velocity separation.
+	res2 := w.ComputeCoWarp(nil, res.CoupledOwners)
+	if len(res2.Released) != 1 || res2.Released[0] != "bob" {
+		t.Errorf("Released = %v, want [bob] on omission", res2.Released)
+	}
+	if res2.State.Coupled {
+		t.Error("still coupled after the peer vanished from the report set")
+	}
+}
+
+// The omission sweep must not invent a release for a peer who was never
+// coupled in the first place.
+func TestComputeCoWarpOmissionSweepIgnoresNeverCoupled(t *testing.T) {
+	w, _, _ := anchorWorld(t)
+	// Nobody has ever coupled — w.CoWarp sits at its zero value.
+	res := w.ComputeCoWarp(nil, nil)
+	if len(res.Released) != 0 {
+		t.Errorf("Released = %v, want none — nobody was ever coupled", res.Released)
+	}
+}
+
+// An explicit separation (the peer is still present, just out of range)
+// must not ALSO trip the omission sweep for the same handle in the same
+// tick — exactly one release chip per real change.
+func TestComputeCoWarpOmissionSweepDoesNotDoubleFireWithExplicitRelease(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	near := peerAt(w, primary, st, 50, orbital.Vec3{X: 5000}, orbital.Vec3{}, "bob")
+	res := w.ComputeCoWarp([]CoWarpPeer{near}, nil)
+	w.CoWarp = res.State
+
+	far := peerAt(w, primary, st, 50, orbital.Vec3{X: 45_000}, orbital.Vec3{}, "bob")
+	res2 := w.ComputeCoWarp([]CoWarpPeer{far}, res.CoupledOwners)
+	if len(res2.Released) != 1 || res2.Released[0] != "bob" {
+		t.Errorf("Released = %v, want exactly one [bob], not double-fired", res2.Released)
+	}
+}
+
 // #291 retune regression: the v0.32 live playtest's best pass (~14.9 km,
 // low v_rel) sat outside the old 10 km gate and never coupled. Under the
 // widened gate a slow pair at 30 km couples; release still requires

@@ -406,8 +406,11 @@ func (w *World) subspaceStepCap() float64 {
 // craft (the anchor) for this tick. `prev` is the per-owner coupled map
 // returned last tick — it supplies the hysteresis memory so a coupled
 // pair uses the wider decouple gate. The returned CoupledOwners becomes
-// next tick's `prev`. Pure over its inputs (no World mutation) so the
-// caller assigns State to w.CoWarp; testable with hand-built peers.
+// next tick's `prev`. No World mutation — the caller assigns State to
+// w.CoWarp after this returns — so it's testable with hand-built peers;
+// it does, however, READ w.CoWarp (the state the caller committed from
+// the PREVIOUS call, still unoverwritten at this point) for the omission
+// sweep below, the one input that doesn't round-trip through `prev`.
 //
 // Anchor gating (ADR 0015 / 0025 precedent): only the viewer's active
 // craft anchors co-warp in the MVP — a passive craft of the viewer near
@@ -508,13 +511,31 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 			}
 		}
 	}
-	// A peer that vanished from the report set (left the system, ended
-	// flight) while coupled is released silently by omission: it is absent
-	// from CoupledOwners so next tick treats it as uncoupled, and the
-	// clamp already dropped it from the min. No handle survives to chip a
-	// release, which is acceptable for this edge (the common decouple —
-	// drifting apart in-system — keeps the peer present, so it chips).
+	// A peer that vanished from the report set entirely (left the system,
+	// ended flight, went offline) is absent from `peers` above, so the
+	// main loop never visits its owner at all: no explicit release fires
+	// for it (ADR 0037 §4 review — the #275-family "a lock ends
+	// chiplessly" gap). It is still absent from CoupledOwners, so next
+	// tick's hysteresis correctly treats it as uncoupled, and the clamp
+	// already dropped it from the min — only the RELEASE CHIP itself was
+	// missing.
 	//
+	// Sweep w.CoWarp — the caller's last-COMMITTED State, which still
+	// holds the PREVIOUS tick's Partners at this point (the caller only
+	// overwrites it with this call's State after ComputeCoWarp returns,
+	// per reporting.go's `cw := w.ComputeCoWarp(...); w.CoWarp = cw.State`
+	// sequencing) — for any handle that isn't among THIS tick's peers at
+	// all, and release it exactly like an explicit separation would. A
+	// handle present in `peers` this tick was already visited by the main
+	// loop above (coupled, or explicitly released into res.Released), so
+	// checking presence there is what keeps this from double-firing
+	// alongside an explicit release in the same tick.
+	for _, handle := range w.CoWarp.Partners {
+		if coWarpPeerHandlePresent(peers, handle) {
+			continue
+		}
+		res.Released = append(res.Released, handle)
+	}
 	// Coupled-with-no-min-contribution (#248: every coupled peer is the
 	// clamp-exempt coast partner) leaves MinWarp at its zero value —
 	// clampedWarp guards on MinWarp > 0, so 0 naturally means "coupled,
@@ -562,6 +583,18 @@ func closestApproach(anchor *spacecraft.Spacecraft, crafts []CoWarpCraft) (range
 		}
 	}
 	return rangeM, vrelMs, ok
+}
+
+// coWarpPeerHandlePresent reports whether handle belongs to any peer in
+// this tick's slice — the omission sweep's test for "still visited by
+// the main loop above" (ADR 0037 §4 review).
+func coWarpPeerHandlePresent(peers []CoWarpPeer, handle string) bool {
+	for _, p := range peers {
+		if p.Handle == handle {
+			return true
+		}
+	}
+	return false
 }
 
 // sameSubspace reports whether two subspace times are close enough to be

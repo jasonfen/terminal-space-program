@@ -497,7 +497,7 @@ func rendezvousHoldLabel(h sim.RendezvousRateHolder, handle string) string {
 // The v0.30 lesson (a silent no-op reads as broken) applied to warp: a
 // lock on the player's time is always explained on screen.
 func (v *OrbitView) buildTimeLockChip(w *sim.World) []string {
-	if !w.CoWarp.Coupled || w.RendezvousArm != nil {
+	if !w.CoWarp.Coupled || v.rendezvousExplainsCoupledLock(w) {
 		return nil
 	}
 	partners := strings.Join(w.CoWarp.Partners, ", ")
@@ -508,6 +508,31 @@ func (v *OrbitView) buildTimeLockChip(w *sim.World) []string {
 		v.theme.Primary.Render("TIME LOCK"),
 		v.theme.Dim.Render("  warp locked with " + partners + " — " + WarpLabel(w.EffectiveWarp())),
 	}
+}
+
+// rendezvousExplainsCoupledLock reports whether the RENDEZVOUS chip is
+// already rendering the exact lock buildTimeLockChip would otherwise
+// state (ADR 0037 §3 review). The old gate suppressed TIME LOCK whenever
+// ANY RendezvousArm existed, which was too broad two ways: armed-waiting
+// (RendezvousArm != nil but no reciprocal arm yet — RENDEZVOUS shows
+// "waiting for them to join", never a rate) and an arm toward player A
+// while the viewer is actually co-warp coupled to an unrelated player B
+// (RENDEZVOUS never mentions B at all). Suppression is correct only when
+// BOTH hold: the arm has become a standing agreement that narrates a rate
+// (coasting or the demoted terminal phase — RendezvousWarpEngaged /
+// RendezvousApproachPhase), AND the viewer is actually coupled with that
+// same partner right now.
+func (v *OrbitView) rendezvousExplainsCoupledLock(w *sim.World) bool {
+	arm := w.RendezvousArm
+	if arm == nil || !(w.RendezvousWarpEngaged() || w.RendezvousApproachPhase()) {
+		return false
+	}
+	for _, p := range w.CoWarp.Partners {
+		if p == arm.Handle {
+			return true
+		}
+	}
+	return false
 }
 
 // WarpLabel renders a warp factor the way the title-bar clock chip does

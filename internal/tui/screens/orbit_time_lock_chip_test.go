@@ -117,6 +117,53 @@ func TestTimeLockChipForPlainProximityLock(t *testing.T) {
 	}
 }
 
+// ADR 0037 §3 review: the old `RendezvousArm != nil` gate suppressed the
+// TIME LOCK line for ANY arm, including armed-waiting — no reciprocal arm
+// yet, no coast, nothing on the RENDEZVOUS chip naming a rate. A
+// coincidental proximity couple with a third player in that state left
+// nothing on screen explaining the lock at all.
+func TestTimeLockChipShowsWhileArmedWaiting(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.CoWarp = sim.CoWarpState{Coupled: true, MinWarp: 10, Partners: []string{"gern"}}
+	w.EngageRendezvousWarpAs("SHA256:guest", "gern", w.Clock.SimTime.Add(time.Hour), 6000, true)
+	// Deliberately NOT engaging the coast and NOT setting Approach — this
+	// is the armed-waiting sub-state (partner hasn't reciprocated yet).
+
+	chip := v.buildTimeLockChip(w)
+	if chip == nil {
+		t.Fatalf("TIME LOCK suppressed while merely armed-waiting")
+	}
+	joined := strings.Join(chip, "\n")
+	for _, want := range []string{"TIME LOCK", "gern"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("TIME LOCK line missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+// ADR 0037 §3 review: an arm toward player A must not blank out a lock the
+// viewer is actually holding with an unrelated player B — RENDEZVOUS only
+// ever narrates the arm's own target, never B.
+func TestTimeLockChipShowsWhenCoupledToADifferentPlayerThanTheArm(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.CoWarp = sim.CoWarpState{Coupled: true, MinWarp: 10, Partners: []string{"berta"}}
+	w.EngageRendezvousWarpAs("SHA256:guest", "gern", w.Clock.SimTime.Add(time.Hour), 6000, true)
+	w.RendezvousArm.Approach = true
+
+	chip := v.buildTimeLockChip(w)
+	if chip == nil {
+		t.Fatalf("TIME LOCK suppressed while coupled to a player the arm doesn't name")
+	}
+	joined := strings.Join(chip, "\n")
+	for _, want := range []string{"TIME LOCK", "berta"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("TIME LOCK line missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 // #280 / ADR 0037 §4: the SESSION chip gets CHAT's depth cap so any burst
 // stays bounded. Before it, every moment inside the 6 s TTL rendered —
 // 852 coupled/released moments in one live session grew a block tall
