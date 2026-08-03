@@ -343,22 +343,45 @@ type DockGuestLink struct {
 // slate goes empty at the fuse (#301), so FocusCraft has nothing left to
 // track; rather than invent a new Focus kind, this reuses Spectate's
 // FocusGhost (v0.28 S6) — "watch a remote craft" is exactly the rider's
-// situation. Safe to call every tick: assigning the identical Focus value
-// is a no-op by struct equality (the same idiom CycleFocus and
-// SetActiveCraftIdx already rely on), so a genuine Framing Event — a real
-// re-fit — only happens on the tick the tracked ref actually changes:
-// entering the ride, or the owner moving to a different active craft.
-// Manual pan/zoom the player applies afterward composes over that fit and
-// persists across ticks exactly as it does for a manually-entered
-// Spectate. No-op while not docked as a guest.
+// situation. Called unconditionally every tick from the serve layer's
+// refreshSession, so it must not fight the player: the rider camera is a
+// convenience, not a lock (#331). The follow is a Framing Event only when
+// the *tracked ref* itself changes — entering the ride, or the owner
+// switching to a different active craft — never merely because w.Focus
+// currently disagrees with it. That disagreement is exactly what a
+// player-initiated Focus write (f/g's CycleFocus Spectate-exit, Spectate
+// on a third player, focusNewCraft after a mid-ride spawn) looks like, and
+// it must stick until the ride itself moves.
+//
+// dockGuestFollowedRef (on World) records the last ref this function
+// itself wrote — not the last Focus value, which the player is free to
+// overwrite. Comparing the desired ref against that latch, rather than
+// against the live w.Focus, is what tells "the ref changed, re-fit" apart
+// from "the player changed Focus away from a ref that hasn't moved, leave
+// it be". Once released this way the follow re-engages automatically the
+// moment the ref does change (owner switches craft), per the ADR 0038 §2
+// ruling: convenience, not a permanent lock.
 func (w *World) FollowDockGuestStack() {
 	if w.DockGuest == nil {
+		// Not riding: clear the latch so a *future* dock always treats
+		// entry as a fresh Framing Event, rather than possibly matching a
+		// stale ref left over from a previous ride.
+		w.dockGuestFollowedRef = Focus{}
 		return
 	}
 	want := Focus{Kind: FocusGhost, GhostOwner: w.DockGuest.OwnerFP, GhostCraftID: w.DockGuest.OwnerActiveCraftID}
-	if w.Focus != want {
-		w.Focus = want
+	if want == w.dockGuestFollowedRef {
+		// The ride hasn't changed since this function last wrote it, so
+		// whatever w.Focus holds now was set afterward by the player (or
+		// is still this same ref — the idempotent case). Either way,
+		// leave it alone.
+		return
 	}
+	// A genuine Framing Event: entering the ride, or the owner moved to a
+	// different active craft underneath the rider. Re-fit regardless of
+	// whatever Focus currently holds.
+	w.Focus = want
+	w.dockGuestFollowedRef = want
 }
 
 // DockGuestStackGhost resolves the stack this player rides in to its live

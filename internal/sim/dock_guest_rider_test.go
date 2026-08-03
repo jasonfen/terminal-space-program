@@ -78,6 +78,11 @@ func TestFollowDockGuestStackNoopWhenNotDocked(t *testing.T) {
 // equality, but the method must not, say, needlessly re-derive a
 // different-looking Focus value that would upset a consumer comparing by
 // equality for the Framing Event gate.
+//
+// NOTE: this restates the implementation (two calls, nothing else changes
+// in between) rather than pinning the interesting case — see #331 and the
+// tests below, which change Focus *between* calls the way a player
+// actually would.
 func TestFollowDockGuestStackIdempotent(t *testing.T) {
 	w := riderTestWorld(t)
 	g := dockGuestGhost(w)
@@ -87,6 +92,110 @@ func TestFollowDockGuestStackIdempotent(t *testing.T) {
 	w.FollowDockGuestStack()
 	if w.Focus != first {
 		t.Errorf("FollowDockGuestStack changed an already-tracking Focus: %+v -> %+v", first, w.Focus)
+	}
+}
+
+// TestFollowDockGuestStackReleasesOnPlayerFocusChange (#331 case 1): f/g
+// are documented CAMERA & VIEW keys. Pressing one while riding a stack
+// exits FocusGhost via CycleFocus's Spectate-exit clause. The very next
+// tick's FollowDockGuestStack call (unconditional every tick from
+// reporting.go's refreshSession) must not stamp the ghost focus straight
+// back — that silently defeats the key.
+func TestFollowDockGuestStackReleasesOnPlayerFocusChange(t *testing.T) {
+	w := riderTestWorld(t)
+	g := dockGuestGhost(w)
+	w.DockGuest = &DockGuestLink{OwnerFP: g.Owner, OwnerHandle: g.Handle, OwnerActiveCraftID: g.CraftID}
+	w.FollowDockGuestStack()
+	if w.Focus.Kind != FocusGhost {
+		t.Fatalf("setup: expected the follow-stack camera to engage, got %+v", w.Focus)
+	}
+
+	// Player presses f/g: CycleFocus's Spectate-exit clause returns to
+	// own-craft (or system) framing.
+	w.CycleFocus(true)
+	afterKey := w.Focus
+	if afterKey.Kind == FocusGhost {
+		t.Fatalf("setup: CycleFocus did not leave FocusGhost: %+v", afterKey)
+	}
+
+	w.FollowDockGuestStack()
+	if w.Focus != afterKey {
+		t.Errorf("FollowDockGuestStack overrode a player-initiated f/g focus change: got %+v, want %+v", w.Focus, afterKey)
+	}
+}
+
+// TestFollowDockGuestStackReleasesOnSpectate (#331 case 2): a rider
+// Spectating a third player (the Session screen's [v] row action, app.go's
+// SessionCmdSpectate handler calling SpectateGhost) must not have the very
+// next tick snap the camera back to the stack they're riding — the toast
+// promises "spectating carol — [f] to return" and the camera must
+// actually move there.
+func TestFollowDockGuestStackReleasesOnSpectate(t *testing.T) {
+	w := riderTestWorld(t)
+	g := dockGuestGhost(w)
+	w.DockGuest = &DockGuestLink{OwnerFP: g.Owner, OwnerHandle: g.Handle, OwnerActiveCraftID: g.CraftID}
+	w.FollowDockGuestStack()
+
+	third := Ghost{
+		Owner: "SHA256:carol", CraftID: 7, Handle: "carol", Name: "carol's ship",
+		PrimaryID: g.PrimaryID, Pos: g.Pos, RelPos: g.RelPos, Vel: g.Vel,
+	}
+	w.Ghosts = append(w.Ghosts, third)
+	w.SpectateGhost(third.Owner, third.CraftID)
+
+	w.FollowDockGuestStack()
+
+	if w.Focus.Kind != FocusGhost || w.Focus.GhostOwner != third.Owner || w.Focus.GhostCraftID != third.CraftID {
+		t.Errorf("FollowDockGuestStack overrode a Spectate: got %+v, want ghost ref %s/%d", w.Focus, third.Owner, third.CraftID)
+	}
+}
+
+// TestFollowDockGuestStackReleasesOnSpawnFocus (#331 case 3): a rider who
+// spawns a second vessel while still docked gets focusNewCraft (spawn.go)
+// pointing Focus at the new craft. The next tick must not force the
+// camera back onto the owner's stack — that split-brain (panels on the
+// new craft, camera locked on the stack) was unrecoverable by f/g.
+func TestFollowDockGuestStackReleasesOnSpawnFocus(t *testing.T) {
+	w := riderTestWorld(t)
+	g := dockGuestGhost(w)
+	w.DockGuest = &DockGuestLink{OwnerFP: g.Owner, OwnerHandle: g.Handle, OwnerActiveCraftID: g.CraftID}
+	w.FollowDockGuestStack()
+
+	w.focusNewCraft()
+	if w.Focus.Kind != FocusCraft {
+		t.Fatalf("setup: focusNewCraft did not set FocusCraft: %+v", w.Focus)
+	}
+
+	w.FollowDockGuestStack()
+	if w.Focus.Kind != FocusCraft {
+		t.Errorf("FollowDockGuestStack overrode a post-spawn focus: got %+v", w.Focus)
+	}
+}
+
+// TestFollowDockGuestStackReassertsWhenRideChanges pins the other half of
+// the #331 ruling: the rider camera is a convenience, not a permanent
+// lock — once the ridden stack itself changes (the owner switches active
+// craft underneath the rider), the follow may re-assert even though the
+// player had released it.
+func TestFollowDockGuestStackReassertsWhenRideChanges(t *testing.T) {
+	w := riderTestWorld(t)
+	g := dockGuestGhost(w)
+	w.DockGuest = &DockGuestLink{OwnerFP: g.Owner, OwnerHandle: g.Handle, OwnerActiveCraftID: g.CraftID}
+	w.FollowDockGuestStack()
+
+	w.CycleFocus(true) // player releases the follow (f/g)
+	if w.Focus.Kind == FocusGhost {
+		t.Fatal("setup: expected the player's focus change to leave FocusGhost")
+	}
+
+	// The owner moves to a different active craft (e.g. Transfer Control,
+	// or switching stacks) — the ride itself changed, so it re-fits.
+	newCraftID := g.CraftID + 1
+	w.DockGuest.OwnerActiveCraftID = newCraftID
+	w.FollowDockGuestStack()
+
+	if w.Focus.Kind != FocusGhost || w.Focus.GhostCraftID != newCraftID {
+		t.Errorf("FollowDockGuestStack did not re-assert on a ride change: %+v", w.Focus)
 	}
 }
 
