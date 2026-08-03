@@ -116,6 +116,17 @@ type Server struct {
 	// whole displace-and-register window (ADR 0036 S4 review).
 	admit *admission
 
+	// reclaimed fires fp the instant a reconnecting connection finishes
+	// taking over a displaced session's slot in live (ADR 0036) — i.e.
+	// the moment live.snapshot()[fp] gains the new session's identity.
+	// Always allocated, buffered, and sent to non-blocking: production
+	// never reads it, so an unread send is simply dropped and costs one
+	// buffered channel per Server. Exists so tests can select on the
+	// actual event instead of polling live.snapshot() against a wall-clock
+	// deadline (#318) — the poll's own lock contention and sleep
+	// granularity were adding to the load it was trying to observe.
+	reclaimed chan string
+
 	// Reprieve timings, fields rather than constants so tests can drive
 	// the sweeper without real-time waits. idleTimeout is recorded because
 	// the sweeper has to reconstruct the deadline the I/O path would have
@@ -177,6 +188,7 @@ func New(cfg Config) (*Server, error) {
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
 		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
 		away: newAwayWatch(), mail: newAwayMail(), admit: newAdmission(),
+		reclaimed: make(chan string, 4),
 	}
 	// Resume any cross-player docks that outlived a restart (v0.28 S5): the
 	// durable cross-ref persisted in session.json seeds the live ledger, so
@@ -369,6 +381,15 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	ls := &liveSession{conn: sessionActivity(sess.Context()), done: sessionDone(sess.Context())}
 	s.live.add(fp, ls)
 	sess.Context().SetValue(ctxKeyLive, ls)
+	if reclaimed {
+		// The identity change a reconnecting player's own displaced session
+		// just underwent — see the reclaimed field's doc for why this is a
+		// channel rather than a test hook function (#318).
+		select {
+		case s.reclaimed <- fp:
+		default:
+		}
+	}
 
 	game := s.withReporting(app, fp) // v0.27 S4: sessions feed the store
 	if p, err := s.store.FindPlayer(fp); err == nil {
