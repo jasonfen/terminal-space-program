@@ -2,6 +2,7 @@ package screens
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -54,7 +55,46 @@ type builtChip struct {
 	// for cornerTopRight; ignored (normal stacking) when there's no prior
 	// top-right chip to sit beside.
 	leftOfPrev bool
+	// priority controls which chips survive when a corner's stack would
+	// otherwise overflow the canvas (#328/#334 — see admitChipsByBudget).
+	// Defaults to chipPriorityNormal; the shared "add" helper in
+	// assembleChips never sets it, so every ordinary toggleable chip
+	// competes on equal footing and only chipPriorityCore/chipPriorityForced
+	// chips are called out explicitly.
+	priority int
 }
+
+// Priority tiers for admitChipsByBudget (#328/#334). Highest first:
+//
+//   - chipPriorityCore (100): unconditionally pinned core telemetry that
+//     predates chip toggles entirely — VESSEL and the top-right ORBIT
+//     metrics chip. Never gated by Settings or declutter, so it must
+//     never be silently dropped for space either.
+//   - chipPriorityForced (90): chips a game-state rule force-shows past
+//     the Settings toggle AND F2 declutter, because losing them
+//     silently would hide a safety/continuity fact the player has no
+//     other way to see: DOCKED (ADR 0038 S4 — the rider's only
+//     surviving route to [J]/[U] once absorbed into another player's
+//     stack, #328) and NODES while force-shown (a live burn, or more
+//     than one queued node on the active craft, #333/#334).
+//   - chipPriorityNormal (0, the zero value): every ordinary toggleable/
+//     contextual chip. Competes for whatever budget chipPriorityCore
+//     and chipPriorityForced chips leave behind; the first class
+//     dropped when a corner would overflow.
+//
+// chipPriorityForced and up are "critical": admitChipsByBudget never
+// drops them for space, and composeChips clamps their placement onto
+// the canvas as a last resort (accepting an overlap with whatever's
+// beneath) rather than let them run off-canvas and be silently clipped
+// by overlayStyledBlock. Everything below that line is dropped whole
+// rather than partially rendered — a corner that doesn't fit shows a
+// clean, shorter stack, never a lone border fragment.
+const (
+	chipPriorityCore     = 100
+	chipPriorityForced   = 90
+	chipPriorityNormal   = 0
+	chipPriorityCritical = chipPriorityForced // admission threshold
+)
 
 // chipRect is the absolute screen-cell rectangle a composited Chip
 // occupied this frame, used by the orbit screen's mouse dispatch to route
@@ -93,6 +133,72 @@ func padChipBlock(lines []string) ([]string, int) {
 	return out, width
 }
 
+// admitChipsByBudget decides, independently per corner, which of chips
+// survive this frame without that corner's stack running off the canvas
+// (#328/#334). composeChips used to have no height bound at all:
+// topLeftRow / bottomRightRow could walk past the canvas edge with
+// nothing to stop them, and overlayStyledBlock silently drops any row
+// outside [0, cRows) — so an always-on chip late in a corner's stack
+// (DOCKED, appended after VESSEL/MISSION/SESSION/TIME LOCK, #328) or one
+// squeezed against the navball reservation (NODES, #334) could vanish
+// with no signal anything was lost.
+//
+// Each corner gets a real budget: the number of rows it can stack into
+// before hitting the opposite edge of the canvas (or the navball, for
+// bottom-right). Candidates are considered highest builtChip.priority
+// first — ties keep their original relative order (a stable sort), so a
+// corner that fits comfortably within budget is admitted in full and
+// composeChips lays it out identically to a flat, unconditional append.
+// A chip that would push the running total past budget is dropped
+// (not admitted) rather than placed and clipped; a smaller, later chip
+// in priority order can still land in whatever budget remains. Chips at
+// chipPriorityForced or above ("critical") are always admitted
+// regardless of budget — composeChips clamps their placement onto the
+// canvas as a last resort instead of dropping them, since losing DOCKED
+// or a force-shown NODES chip silently is worse than an overlap.
+// leftOfPrev chips don't grow their corner's column (they share a row
+// band with the chip beside them), so they bypass the budget check
+// entirely and are always admitted.
+func admitChipsByBudget(chips []builtChip, cRows, navballReserved int) []bool {
+	budget := map[chipCorner]int{
+		cornerTopLeft:     cRows,
+		cornerTopRight:    cRows,
+		cornerBottomLeft:  cRows - 1,
+		cornerBottomRight: cRows - navballReserved,
+	}
+	admitted := make([]bool, len(chips))
+	type candidate struct {
+		idx      int
+		priority int
+		bh       int
+	}
+	byCorner := make(map[chipCorner][]candidate)
+	for i, c := range chips {
+		if c.leftOfPrev {
+			admitted[i] = true
+			continue
+		}
+		if len(c.lines) == 0 {
+			admitted[i] = true // no footprint; the render loop skips it too
+			continue
+		}
+		bh := len(c.lines) + 2 // + the chip's own border
+		byCorner[c.corner] = append(byCorner[c.corner], candidate{idx: i, priority: c.priority, bh: bh})
+	}
+	for _, cands := range byCorner {
+		sort.SliceStable(cands, func(a, b int) bool { return cands[a].priority > cands[b].priority })
+		used := 0
+		for _, c := range cands {
+			critical := c.priority >= chipPriorityCritical
+			if critical || used+c.bh <= budget[chips[c.idx].corner] {
+				admitted[c.idx] = true
+				used += c.bh
+			}
+		}
+	}
+	return admitted
+}
+
 // composeChips paints each chip onto canvasStr at its corner, stacking
 // multiple chips in a corner with a one-row gap, and records each chip's
 // screen rectangle in v.chipRects for mouse routing. navballReserved is
@@ -104,10 +210,15 @@ func padChipBlock(lines []string) ([]string, int) {
 //
 // Top-left chips start one row down so they clear the canvas's "focus:"
 // label at (0,0); bottom-left chips stop one row up so they clear the
-// "view:" label on the last row.
+// "view:" label on the last row. admitChipsByBudget decides which chips
+// survive an overflowing corner before this loop ever runs; chips it
+// drops are skipped here, and chips it keeps despite exceeding budget
+// (chipPriorityCritical and up) are clamped onto the canvas rather than
+// let overlayStyledBlock silently clip them off an edge.
 func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved, screenColOffset, screenRowOffset int, chips []builtChip) string {
 	v.chipRects = v.chipRects[:0]
 	lines := strings.Split(canvasStr, "\n")
+	admitted := admitChipsByBudget(chips, cRows, navballReserved)
 
 	// Per-corner stacking cursors. Top corners grow downward from their
 	// start row; bottom corners grow upward from their start row. v0.13:
@@ -122,7 +233,10 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	// can sit beside it (same top row, immediately to its left).
 	lastTRStartRow, lastTRCol, haveTR := 0, 0, false
 
-	for _, chip := range chips {
+	for i, chip := range chips {
+		if !admitted[i] {
+			continue
+		}
 		padded, w := padChipBlock(chip.lines)
 		if len(padded) == 0 || w == 0 {
 			continue
@@ -159,6 +273,26 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		}
 		if atCol < 0 {
 			atCol = 0
+		}
+		// Last-resort clamp (#328/#334): a critical chip is always
+		// admitted above even when it overruns its corner's budget (two
+		// critical chips together can still exceed cRows). Rather than
+		// let it run off the canvas edge and have overlayStyledBlock
+		// silently drop those rows, pull it back on-canvas — accepting
+		// an overlap with whatever's beneath rather than losing it.
+		// Non-critical chips never need this: admitChipsByBudget only
+		// admits them when they already fit.
+		if chip.priority >= chipPriorityCritical {
+			switch chip.corner {
+			case cornerTopLeft, cornerTopRight:
+				if atRow+bh > cRows {
+					atRow = cRows - bh
+				}
+			case cornerBottomLeft, cornerBottomRight:
+				if atRow < 0 {
+					atRow = 0
+				}
+			}
 		}
 		lines = overlayStyledBlock(lines, block, atRow, atCol, cCols)
 		v.chipRects = append(v.chipRects, chipRect{
@@ -277,7 +411,10 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 					fmt.Sprintf("  velocity:  %.2f km/s", g.Vel.Norm()/1000),
 				)
 			}
-			lines = append(lines, v.theme.Dim.Render("  [u] release it"))
+			// #330: [U], matching the actual uppercase Undock binding —
+			// see the sibling comment on the DOCKED block's "ask to
+			// undock" row in orbit_chip_builders.go.
+			lines = append(lines, v.theme.Dim.Render("  [U] release it"))
 			return lines
 		}
 		return []string{
@@ -351,10 +488,13 @@ func (v *OrbitView) buildStagesChip(w *sim.World) []string {
 }
 
 // totalQueuedNodes sums every craft's planted-but-unfired node count.
-// Shared by buildNodesChip (the "(+N more)" overflow count) and
-// assembleChips's #293 force-show gate — more than one node queued
-// anywhere is exactly the staleness hazard the chip exists to surface,
-// so both read the same total.
+// Used only to decide whether the NODES chip has anything to show at
+// all (buildNodesChip's top-of-function relevance check) — a fleet
+// with a node planted on ANY craft is a fleet where the chip belongs on
+// screen, even if the active craft itself is currently node-free.
+//
+// #333: this total is deliberately NOT used for the force-show gate or
+// the "(+N more)" overflow count anymore — see activeCraftQueuedNodes.
 func totalQueuedNodes(w *sim.World) int {
 	total := 0
 	for _, c := range w.Crafts {
@@ -363,6 +503,24 @@ func totalQueuedNodes(w *sim.World) int {
 		}
 	}
 	return total
+}
+
+// activeCraftQueuedNodes reports the ACTIVE craft's own planted-but-
+// unfired node count (#333). The staleness hazard the NODES chip
+// force-show exists to surface is per-vessel: every node behind the
+// first ON THE SAME CRAFT was computed against an orbit that no longer
+// exists once the first one fires. A different craft's queue doesn't
+// stale this one, so summing across the fleet (the old totalQueuedNodes
+// use here) force-showed the chip — bypassing a declutter + disabled
+// toggle the player explicitly chose — for constellations where no
+// single vessel actually carried the hazard. Returns 0 with no active
+// craft.
+func activeCraftQueuedNodes(w *sim.World) int {
+	ac := w.ActiveCraft()
+	if ac == nil {
+		return 0
+	}
+	return len(ac.Nodes)
 }
 
 // buildNodesChip is the bottom-right burn-schedule chip: any in-flight
@@ -423,9 +581,13 @@ func (v *OrbitView) buildNodesChip(w *sim.World) []string {
 				hudNodeMarker, label, dt, n.Mode.String(), n.DV)
 		}
 		lines = append(lines, line, "  "+kind)
-	}
-	if total > 1 {
-		lines = append(lines, v.theme.Dim.Render(fmt.Sprintf("  (+%d more → [m])", total-1)))
+		// #333: the overflow count is nc's OWN remaining queue, not the
+		// fleet-wide total — mixing in another craft's nodes here would
+		// describe a different vessel's queue as if it were stale on
+		// THIS one.
+		if craftTotal := len(nc.Nodes); craftTotal > 1 {
+			lines = append(lines, v.theme.Dim.Render(fmt.Sprintf("  (+%d more → [m])", craftTotal-1)))
+		}
 	}
 	return lines
 }

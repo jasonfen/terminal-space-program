@@ -3,6 +3,7 @@ package screens
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -59,7 +60,7 @@ func TestDockGuestRenderLooksRight(t *testing.T) {
 				}
 			}
 			if tc.online {
-				if !strings.Contains(out, "[J] request control") || !strings.Contains(out, "[u] ask to undock") {
+				if !strings.Contains(out, "[J] request control") || !strings.Contains(out, "[U] ask to undock") {
 					t.Errorf("%s render missing the live-owner exits", tc.name)
 				}
 			} else {
@@ -74,5 +75,45 @@ func TestDockGuestRenderLooksRight(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDockGuestRenderAt80x24IncludesDockedBlock (#328): the standing
+// DOCKED block was silently clipped entirely off-canvas at 80x24 — the
+// most common terminal size. composeChips had no height bound on the
+// top-left stack at all: topLeftRow grew past cRows with nothing to
+// stop it, and overlayStyledBlock silently drops any row outside
+// [0, cRows). DOCKED is appended late in assembleChips' top-left order,
+// so it absorbed all the accumulated overflow from VESSEL/MISSION/
+// SESSION/TIME LOCK ahead of it and rendered nowhere. It is the rider's
+// only surviving route to [J] request control / [U] undock, so unlike
+// most chips it must never be silently lost to overflow.
+func TestDockGuestRenderAt80x24IncludesDockedBlock(t *testing.T) {
+	v := NewOrbitView(riderViewTheme())
+	v.Resize(80, 24)
+
+	w := dockGuestStackGhostWorld(t)
+	w.Session = &sim.SessionInfo{Players: []sim.SessionPlayer{
+		{Fingerprint: w.DockGuest.OwnerFP, Handle: w.DockGuest.OwnerHandle, Online: true},
+	}}
+	// Reproduce the #328 report's exact top-left stack: VESSEL (badged,
+	// grown to 6 lines by the ghost report) + MISSION + SESSION + TIME
+	// LOCK ahead of DOCKED — the combination that pushed DOCKED's block
+	// to rows 21-26 on a 21-row canvas, entirely past the edge. (The dock
+	// coupling also drives buildTimeLockChip's own #328 fix — see the
+	// TIME LOCK suppression test — but this render-level test stands on
+	// the structural composeChips budget alone, independent of that.)
+	w.SessionEvents = []sim.SessionEvent{
+		{Kind: sim.SessionEventJoin, Handle: "bob", At: time.Now()},
+	}
+	w.CoWarp = sim.CoWarpState{Coupled: true, MinWarp: 10, Partners: []string{"bob"}}
+
+	out := v.Render(w, 0, 80, 24)
+	t.Logf("=== DockGuest render at 80x24 ===\n%s", out)
+
+	for _, want := range []string{"DOCKED", "riding in bob's stack", "[J] request control", "[U] ask to undock"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("80x24 render missing %q — the rider's only route to [J]/[U] was clipped off-canvas", want)
+		}
 	}
 }

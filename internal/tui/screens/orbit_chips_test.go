@@ -146,6 +146,99 @@ func TestComposeChipsClipsOversizeChipWithoutPanic(t *testing.T) {
 	}
 }
 
+// TestComposeChipsBudgetProtectsCriticalChipFromOverflow (#328/#334):
+// composeChips had NO height bound on the top-left stack at all —
+// topLeftRow grew past cRows with nothing to stop it, and
+// overlayStyledBlock silently drops any row outside [0, cRows). A
+// high-priority chip appended late (the real DOCKED block, in
+// assembleChips' order) absorbed all the accumulated overflow from the
+// filler chips ahead of it and vanished with no signal anything was
+// lost — TestComposeChipsClipsOversizeChipWithoutPanic above only
+// checks the row COUNT survives, which passes even on total content
+// loss. Reproduces the #328 report's numbers: an 80x24 terminal's
+// canvas is 21 rows; three filler chips (mirroring VESSEL/MISSION/
+// SESSION/TIME LOCK) consume all 21 rows between them, and a critical
+// chip appended after them must still render in full rather than being
+// silently dropped or clipped.
+func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 78, 21 // an 80x24 terminal's canvas (totalRows-3)
+
+	filler := func(n int) []string {
+		lines := make([]string, n)
+		for i := range lines {
+			lines[i] = "row"
+		}
+		return lines
+	}
+	chips := []builtChip{
+		{corner: cornerTopLeft, lines: filler(6), priority: chipPriorityCore},   // VESSEL-sized
+		{corner: cornerTopLeft, lines: filler(3)},                               // MISSION-sized filler
+		{corner: cornerTopLeft, lines: filler(2)},                               // SESSION-sized filler
+		{corner: cornerTopLeft, lines: filler(2)},                               // TIME LOCK-sized filler
+		{corner: cornerTopLeft, lines: []string{
+			"DOCKED", "  riding in bob's stack", "  [J] request control", "  [U] ask to undock",
+		}, priority: chipPriorityForced},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if !strings.Contains(out, "DOCKED") {
+		t.Fatalf("critical chip (DOCKED) silently lost to top-left overflow:\n%s", out)
+	}
+	if !strings.Contains(out, "riding in bob's stack") || !strings.Contains(out, "[U] ask to undock") {
+		t.Errorf("critical chip rendered but truncated — its own content was clipped:\n%s", out)
+	}
+}
+
+// TestComposeChipsBudgetClampsBottomRightAgainstNavball (#334): at
+// 80x24, navballReservedRows(w, cCols, 21) returns navballPanelH+1 = 20,
+// so bottomRightRow = cRows-1-navballReserved = 0 — a force-shown NODES
+// chip (4 content lines, block height 6) placed there lands at
+// atRow = 0-6+1 = -5, and overlayStyledBlock drops every row outside
+// [0, cRows), leaving only the block's bottom border on canvas row 0.
+// A force-shown (critical-priority) chip that cannot fit above the
+// navball must still render in full rather than vanish upward off the
+// canvas.
+func TestComposeChipsBudgetClampsBottomRightAgainstNavball(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 78, 21
+	const navballReserved = navballPanelH + 1 // == 20, matches navballReservedRows at this size
+
+	chips := []builtChip{
+		{id: settings.ChipNodes, corner: cornerBottomRight, lines: []string{
+			"NODES", "  ▸ #1 prograde 42 m/s", "  imp", "  (+1 more → [m])",
+		}, priority: chipPriorityForced},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
+	if !strings.Contains(out, "NODES") || !strings.Contains(out, "▸ #1 prograde 42 m/s") {
+		t.Fatalf("force-shown NODES chip lost above the navball reservation:\n%s", out)
+	}
+}
+
+// TestComposeChipsClampsTwoCriticalChipsThatTogetherOverflow exercises the
+// last-resort clamp directly (admitChipsByBudget's drop-lower-priority
+// pass never runs here — both chips are chipPriorityForced, so both are
+// admitted unconditionally, and their combined height exceeds the
+// corner's entire budget). composeChips must still keep the SECOND
+// critical chip fully on-canvas by pulling it back up to overlap the
+// first, rather than let it run off the bottom edge and have
+// overlayStyledBlock silently drop the overflow rows.
+func TestComposeChipsClampsTwoCriticalChipsThatTogetherOverflow(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 40, 10 // small on purpose: two 8-row blocks won't both fit
+
+	chips := []builtChip{
+		{corner: cornerTopLeft, lines: []string{"FIRST", "a", "b", "c", "d", "e"}, priority: chipPriorityCore},
+		{corner: cornerTopLeft, lines: []string{"SECOND", "f", "g", "h", "i", "j"}, priority: chipPriorityForced},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if got := strings.Count(out, "\n") + 1; got != cRows {
+		t.Fatalf("output row count = %d, want %d (canvas height preserved)", got, cRows)
+	}
+	if !strings.Contains(out, "SECOND") || !strings.Contains(out, "j") {
+		t.Errorf("second critical chip lost/truncated when it couldn't fit below the first:\n%s", out)
+	}
+}
+
 func TestChipEnabledRespectsSettingsAndDeclutter(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	if !v.chipEnabled(settings.ChipStages) {
@@ -490,6 +583,89 @@ func TestNodesChipForceShowsWhenMultipleNodesQueued(t *testing.T) {
 	}
 }
 
+// TestNodesChipForceShowIsPerCraftNotFleetWide (#333): the staleness
+// hazard the force-show gate exists for is per-vessel — every node
+// behind the first ON THE SAME CRAFT was computed against an orbit that
+// no longer exists once the first one fires. Two different craft each
+// carrying exactly one node have no such hazard on either vessel, so
+// summing across the fleet must not force the chip past a declutter +
+// disabled toggle the player explicitly chose.
+func TestNodesChipForceShowIsPerCraftNotFleetWide(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	s := settings.Default()
+	for _, chipID := range settings.AllChips {
+		s.SetChip(chipID, false)
+	}
+	v.SetSettings(s)
+	v.SetDeclutter(true)
+
+	active := w.ActiveCraft()
+	if active == nil {
+		t.Fatal("expected an active craft")
+	}
+	active.Nodes = []spacecraft.ManeuverNode{
+		{Mode: spacecraft.BurnPrograde, DV: 42, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+	}
+	second := &spacecraft.Spacecraft{
+		Name:    "relay",
+		Primary: active.Primary,
+		State:   active.State,
+		Stages:  []spacecraft.Stage{{DryMass: 1000}},
+		Nodes: []spacecraft.ManeuverNode{
+			{Mode: spacecraft.BurnPrograde, DV: 10, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+		},
+	}
+	second.SyncFields()
+	w.Crafts = append(w.Crafts, second)
+
+	out := v.Render(w, 0, 120, 40)
+	if strings.Contains(out, "NODES") {
+		t.Errorf("one node each on two different craft force-showed NODES past the toggle/declutter — the hazard is per-craft, not fleet-wide:\n%s", out)
+	}
+}
+
+// TestNodesChipOverflowCountIsPerCraft (#333): the "(+N more)" overflow
+// annotation must count the SAME craft's own remaining queue that the
+// "next" node line above it names — folding in another craft's
+// unrelated nodes misdescribes whose queue is actually stale.
+func TestNodesChipOverflowCountIsPerCraft(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	active := w.ActiveCraft()
+	if active == nil {
+		t.Fatal("expected an active craft")
+	}
+	active.Nodes = []spacecraft.ManeuverNode{
+		{DV: 10, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+	}
+	other := &spacecraft.Spacecraft{
+		Name:    "relay",
+		Primary: active.Primary,
+		State:   active.State,
+		Stages:  []spacecraft.Stage{{DryMass: 1000}},
+		Nodes: []spacecraft.ManeuverNode{
+			{DV: 5, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+			{DV: 6, TriggerTime: w.Clock.SimTime.Add(2 * time.Minute)},
+			{DV: 7, TriggerTime: w.Clock.SimTime.Add(3 * time.Minute)},
+		},
+	}
+	other.SyncFields()
+	w.Crafts = append(w.Crafts, other)
+
+	joined := strings.Join(v.buildNodesChip(w), "\n")
+	if strings.Contains(joined, "more") {
+		t.Errorf("active craft has a single node; overflow count leaked another craft's queue:\n%s", joined)
+	}
+}
+
 // TestOrbitMetricsShowsDirectionIndicator — issue #63: the ORBIT chip
 // carries an explicit prograde/retrograde orbit-direction readout so a
 // genuine reversal is never confused with a projection/shading artifact.
@@ -718,7 +894,7 @@ func TestEmptySlateSaysSo(t *testing.T) {
 	// new flight" would be the wrong advice.
 	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:bob", OwnerHandle: "bob"}
 	out = strings.Join(v.buildVesselChip(w), "\n")
-	if !strings.Contains(out, "bob") || !strings.Contains(out, "[u]") {
+	if !strings.Contains(out, "bob") || !strings.Contains(out, "[U]") {
 		t.Errorf("docked-as-guest empty slate does not name the stack or the release key:\n%s", out)
 	}
 	if strings.Contains(out, "[n]") {
