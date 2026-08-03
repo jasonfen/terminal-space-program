@@ -41,12 +41,22 @@ func SafeHandback(c *spacecraft.Spacecraft) {
 }
 
 // SeparationPush nudges a returned craft clear of the stack it just left —
-// 75 m and 0.15 m/s radially out, deliberately outside BOTH docking gates so
-// neither proximity nor closing rate can re-fuse the pair while the pilot is
-// still setting the safed ship up. Same magnitudes Deploy uses for the same
-// reason; shared so the cross-player return path can't drift from the local
-// one (#304: the cross-player path had no push at all, and the pair re-fused
-// nine seconds after the undock).
+// 75 m and 0.15 m/s along-track (prograde/retrograde), deliberately outside
+// BOTH docking gates at the moment it's applied so neither proximity nor
+// closing rate can re-fuse the pair while the pilot is still setting the
+// safed ship up. Same magnitudes Deploy uses for the same reason.
+//
+// Along-track rather than radial (#343): a radial push and position offset
+// still leaves the pair on slightly different orbital energy, and the
+// resulting secular along-track drift can carry them back inside the
+// docking gates well within a single orbit — measured on this codebase's own
+// numbers (see docking_test.go), not merely asserted. An along-track
+// impulse deliberately changes semi-major axis instead, so the separation it
+// creates grows over time rather than reversing. The cross-player path's own
+// ADR 0038 §5 re-arm latch (DockCooldown) is the backstop for this call
+// site; the local Undock split gets its own mirror latch (localReArm) for
+// the same reason, since that path calls its own separation push rather than
+// this one and previously had no latch at all.
 func SeparationPush(c *spacecraft.Spacecraft) {
 	if c == nil {
 		return
@@ -55,9 +65,9 @@ func SeparationPush(c *spacecraft.Spacecraft) {
 		separationM = DockingDistM * 1.5 // 75 m > the 50 m proximity gate
 		pushVMS     = DockingVMS * 1.5   // 0.15 m/s > the 0.1 m/s velocity gate
 	)
-	out := radialOutUnit(c)
-	c.State.R = c.State.R.Add(out.Scale(separationM))
-	c.State.V = c.State.V.Add(out.Scale(pushVMS))
+	along := progradeUnit(c)
+	c.State.R = c.State.R.Add(along.Scale(separationM))
+	c.State.V = c.State.V.Add(along.Scale(pushVMS))
 }
 
 // PlaceAcrossSubspaceGap Kepler-propagates a craft's primary-relative state by

@@ -9,6 +9,25 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
+// localReArm is the same-World mirror of the cross-player re-arm-by-leaving
+// latch (ADR 0038 §5, internal/relay/dock.go's DockCooldown) for a pair of
+// craft that just came apart in THIS World's own slate. #343: the
+// cross-player path already refuses a fresh Claim between the same pair
+// until they clear ReArmDistM (or ReArmCeiling of sim-time passes with the
+// range unreadable) — the local path had no such memory at all, so once the
+// initial separation push closed again (secular drift, or two vessels that
+// simply drift together for unrelated reasons) checkDocking re-fused them
+// with nothing standing in the way.
+//
+// Held only in memory — never persisted. Undock's along-track push (#343)
+// means the pair's positions diverge secularly rather than closing on a
+// fixed schedule, so a latch that resets across a save/load costs nothing
+// worth a save-schema bump for.
+type localReArm struct {
+	idA, idB   uint64
+	releasedAt time.Time
+}
+
 // Undock splits the craft at idx back into its DockedComponents,
 // removing the composite from the slate and inserting one craft
 // per component. Each restored craft inherits a share of the
@@ -63,19 +82,35 @@ func (w *World) Undock(idx int) bool {
 		totalCapMono += comp.MonopropCapacity
 	}
 
-	// Synthesize new craft, pushed apart by a small offset along a
-	// 1-AU axis (radial-out from primary). Per-side offset 35 m
-	// (so 2-component split is 70 m total — outside DockingDistM
-	// of 50 m, no immediate re-fuse); +0.05 m/s relative gives
-	// them clear separation drift.
+	// Synthesize new craft, pushed apart along the velocity vector
+	// (prograde/retrograde) rather than radially (#343: a radial push
+	// leaves the pair on slightly different orbital energy whose secular
+	// along-track drift can still bring them back inside the docking
+	// gates over time; an along-track impulse deliberately changes
+	// semi-major axis so the separation grows and does not reverse).
+	//
+	// Sized by the ADJACENT gap, not the span between the two ends
+	// (#342): the old scheme fixed the OUTER span at a constant 70 m
+	// total and packed every component in between, so the gap between
+	// neighbours shrank to 70/(n-1) m as n grew — 35 m at n=3, 17.5 m at
+	// n=5 — both inside DockingDistM (50 m) and DockingVMS (0.1 m/s), so
+	// checkDocking re-fused the composite on the very next tick for any
+	// stack of 3+ components. (Easy to reach in play: a loaded carrier
+	// already holds its payloads as DockedComponents, so docking onto one
+	// starts at n≥3.) gapM/gapVMS are the same 75 m / 0.15 m/s magnitude
+	// sim.SeparationPush already uses for the cross-player path, reused
+	// here so the two paths agree on what "clear" means; every adjacent
+	// pair of restored components ends up exactly gapM apart regardless
+	// of n.
 	const (
-		separationM = 35.0
-		pushVMS     = 0.05
+		gapM   = DockingDistM * 1.5 // 75 m — comfortably outside the 50 m gate
+		gapVMS = DockingVMS * 1.5   // 0.15 m/s — comfortably outside the 0.1 m/s gate
 	)
-	radialOut := radialOutUnit(c)
+	alongTrack := progradeUnit(c)
 
 	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
 	n := len(c.DockedComponents)
+	half := float64(n-1) / 2.0
 	stageOffset := 0 // running index into c.Stages for the breakdown path
 	for i, comp := range c.DockedComponents {
 		var stages []spacecraft.Stage
@@ -119,13 +154,14 @@ func (w *World) Undock(idx int) bool {
 				HasParachute: comp.HasParachute,
 			}}
 		}
-		// Spread components symmetrically around the composite's
-		// current position. For 2 components: -25 m and +25 m on
-		// the radial axis. For N: even spacing in [-1, +1].
-		offset := -1.0 + 2.0*float64(i)/float64(n-1)
+		// Symmetric integer offsets centred on zero (-(n-1)/2 .. +(n-1)/2
+		// in steps of 1) so every ADJACENT pair is exactly one gapM/gapVMS
+		// apart, independent of n — the #342 fix. n==1 can't reach here
+		// (Undock refuses below 2 components), so half is never NaN.
+		offset := float64(i) - half
 		s := w.restoreComponentCraft(c, comp, stages,
-			c.State.R.Add(radialOut.Scale(offset*separationM)),
-			c.State.V.Add(radialOut.Scale(offset*pushVMS)))
+			c.State.R.Add(alongTrack.Scale(offset*gapM)),
+			c.State.V.Add(alongTrack.Scale(offset*gapVMS)))
 		restored = append(restored, s)
 	}
 
@@ -136,6 +172,25 @@ func (w *World) Undock(idx int) bool {
 	// resolving by ID through the insert shift — no remap needed.
 	for _, s := range restored {
 		w.stampCraftID(s)
+	}
+
+	// #343: arm a same-World re-arm latch (localReArm) for every pair among
+	// the just-restored components, mirroring the cross-player DockCooldown
+	// latch's shape — checkDocking refuses to re-fuse any of these pairs
+	// until they've separated past ReArmDistM or ReArmCeiling of sim-time
+	// has passed, regardless of what the proximity gates alone say. Covers
+	// both the along-track push's own secular drift and two of these
+	// components simply drifting back together for unrelated reasons.
+	var releasedAt time.Time
+	if w.Clock != nil {
+		releasedAt = w.Clock.SimTime
+	}
+	for i := 0; i < len(restored); i++ {
+		for j := i + 1; j < len(restored); j++ {
+			w.localReArms = append(w.localReArms, localReArm{
+				idA: restored[i].ID, idB: restored[j].ID, releasedAt: releasedAt,
+			})
+		}
 	}
 
 	// Replace composite slot with restored components in place.
@@ -181,14 +236,31 @@ func (w *World) UndockRefusal(idx int) string {
 
 // radialOutUnit returns the unit vector pointing radially outward from the
 // craft's primary (its position direction), or +X when the craft sits exactly
-// at the origin. Shared by Undock and Deploy for the separation push that
-// keeps released components clear of one another / the carrier.
+// at the origin. Shared by Deploy for its separation push, and by
+// progradeUnit below as the fallback when velocity can't define a direction.
 func radialOutUnit(c *spacecraft.Spacecraft) orbital.Vec3 {
 	r := c.State.R
 	if r.Norm() > 0 {
 		return r.Scale(1 / r.Norm())
 	}
 	return orbital.Vec3{X: 1}
+}
+
+// progradeUnit returns the unit vector along the craft's current velocity
+// (prograde) direction, falling back to radialOutUnit when the craft has no
+// velocity to define one (e.g. landed at a pole, V≈0). Shared by Undock's
+// local split and SeparationPush for the along-track separation push (#343):
+// a purely radial push and position offset leaves a pair on slightly
+// different orbital energy, whose secular along-track drift can still carry
+// them back inside the docking gates after the fact; pushing along the
+// velocity vector instead deliberately changes semi-major axis, so the
+// separation it creates grows rather than reversing.
+func progradeUnit(c *spacecraft.Spacecraft) orbital.Vec3 {
+	v := c.State.V
+	if v.Norm() > 0 {
+		return v.Scale(1 / v.Norm())
+	}
+	return radialOutUnit(c)
 }
 
 // restoreComponentCraft synthesizes a standalone *Spacecraft from a docked
@@ -365,6 +437,46 @@ const ReArmDistM = DockingDistM * 2 // 100 m
 // vessel is never un-dockable for a session.
 const ReArmCeiling = 10 * time.Minute
 
+// pruneLocalReArms drops any local re-arm latch (#343) whose pair has
+// separated past ReArmDistM, has outlived ReArmCeiling of sim-time since
+// release, or names a craft no longer on the slate (staged / ended flight —
+// nothing left to guard). Same shape as the cross-player reconcileCooldown,
+// run once per checkDocking pass rather than per candidate pair.
+func (w *World) pruneLocalReArms() {
+	if len(w.localReArms) == 0 {
+		return
+	}
+	kept := w.localReArms[:0]
+	for _, r := range w.localReArms {
+		if w.Clock != nil && !r.releasedAt.IsZero() && w.Clock.SimTime.Sub(r.releasedAt) > ReArmCeiling {
+			continue
+		}
+		aC, _, aOK := w.craftByID(r.idA)
+		bC, _, bOK := w.craftByID(r.idB)
+		if !aOK || !bOK {
+			continue
+		}
+		if aC.State.R.Sub(bC.State.R).Norm() > ReArmDistM {
+			continue // cleared — the pair backed apart, latch has done its job
+		}
+		kept = append(kept, r)
+	}
+	w.localReArms = kept
+}
+
+// isLocalReArmed reports whether idA/idB currently hold a same-World re-arm
+// latch (#343) — true holds the pair apart from checkDocking's auto-fuse
+// regardless of what the proximity gates say. Assumes pruneLocalReArms has
+// already run this tick.
+func (w *World) isLocalReArmed(idA, idB uint64) bool {
+	for _, r := range w.localReArms {
+		if (r.idA == idA && r.idB == idB) || (r.idA == idB && r.idB == idA) {
+			return true
+		}
+	}
+	return false
+}
+
 // checkDocking scans every craft pair in the same primary frame
 // for a docking-eligible encounter (proximity + relative velocity
 // below the gate). On a match, calls DockCrafts and returns —
@@ -374,6 +486,7 @@ func (w *World) checkDocking() (int, int, bool) {
 	if len(w.Crafts) < 2 {
 		return 0, 0, false
 	}
+	w.pruneLocalReArms()
 	for i := 0; i < len(w.Crafts); i++ {
 		a := w.Crafts[i]
 		if a == nil {
@@ -428,6 +541,12 @@ func (w *World) checkDocking() (int, int, bool) {
 			}
 			dv := a.State.V.Sub(b.State.V)
 			if dv.Norm() > DockingVMS {
+				continue
+			}
+			// #343: a just-undocked (or otherwise latched) pair stays apart
+			// regardless of proximity — the local mirror of the cross-player
+			// re-arm-by-leaving latch.
+			if w.isLocalReArmed(a.ID, b.ID) {
 				continue
 			}
 			w.DockCrafts(i, j)

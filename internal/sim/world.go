@@ -61,6 +61,15 @@ type World struct {
 	// v0.8.3+.
 	LastDockEvent *DockEvent
 
+	// localReArms holds the same-World re-arm-by-leaving latches (#343)
+	// armed by Undock for every pair of components it just split apart —
+	// checkDocking refuses to re-fuse a latched pair until they clear
+	// ReArmDistM or ReArmCeiling of sim-time elapses. Transient — never
+	// persisted (see docking.go's localReArm doc comment); a save/load
+	// simply drops any latch in flight, which the along-track separation
+	// push (#343) makes an acceptable trade against a save-schema bump.
+	localReArms []localReArm
+
 	// LastLaunchReleaseEvent records the most recent ViewLaunch
 	// switch-end release so the App can surface an
 	// `"ORBIT READY — returning to <prev view>"` toast. Cleared by
