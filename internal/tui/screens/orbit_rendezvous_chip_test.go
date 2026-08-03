@@ -336,7 +336,7 @@ func TestDockGuestChipStandingBlock(t *testing.T) {
 		{Fingerprint: "SHA256:host", Handle: "vex", Online: true},
 	}}
 	joined := strings.Join(v.buildDockGuestChip(w), "\n")
-	for _, want := range []string{"DOCKED", "riding in vex's stack", "[J] request control", "[u] ask to undock"} {
+	for _, want := range []string{"DOCKED", "riding in vex's stack", "[J] request control", "[U] ask to undock"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("live-owner standing block missing %q:\n%s", want, joined)
 		}
@@ -352,7 +352,7 @@ func TestDockGuestChipStandingBlock(t *testing.T) {
 	if !strings.Contains(joined, "vex is away — their session is still flying") {
 		t.Errorf("no standing away line while the stack owner is away:\n%s", joined)
 	}
-	if !strings.Contains(joined, "[u] ask to undock") {
+	if !strings.Contains(joined, "[U] ask to undock") {
 		t.Errorf("away row replaced the exits instead of joining them:\n%s", joined)
 	}
 	w.DockGuest.OwnerAway = false

@@ -647,7 +647,12 @@ func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
 	if w.DockOwnerOnline() {
 		lines = append(lines,
 			v.theme.Dim.Render("  [J] request control"),
-			v.theme.Dim.Render("  [u] ask to undock"),
+			// #330: relabel to [U] — Undock is bound uppercase
+			// (input.go, key.NewBinding(key.WithKeys("U"))) and there is
+			// no lowercase u binding anywhere in internal/tui. A rider
+			// following the lowercase advertisement pressed a dead key.
+			// docs/controls.md and the F1 overlay both already say U.
+			v.theme.Dim.Render("  [U] ask to undock"),
 		)
 	} else {
 		lines = append(lines, v.theme.Warning.Render("  [J] take the stick (pilot's gone)"))

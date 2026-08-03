@@ -718,7 +718,7 @@ func TestEmptySlateSaysSo(t *testing.T) {
 	// new flight" would be the wrong advice.
 	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:bob", OwnerHandle: "bob"}
 	out = strings.Join(v.buildVesselChip(w), "\n")
-	if !strings.Contains(out, "bob") || !strings.Contains(out, "[u]") {
+	if !strings.Contains(out, "bob") || !strings.Contains(out, "[U]") {
 		t.Errorf("docked-as-guest empty slate does not name the stack or the release key:\n%s", out)
 	}
 	if strings.Contains(out, "[n]") {

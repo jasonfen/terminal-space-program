@@ -59,7 +59,7 @@ func TestDockGuestRenderLooksRight(t *testing.T) {
 				}
 			}
 			if tc.online {
-				if !strings.Contains(out, "[J] request control") || !strings.Contains(out, "[u] ask to undock") {
+				if !strings.Contains(out, "[J] request control") || !strings.Contains(out, "[U] ask to undock") {
 					t.Errorf("%s render missing the live-owner exits", tc.name)
 				}
 			} else {

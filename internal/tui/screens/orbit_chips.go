@@ -277,7 +277,10 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 					fmt.Sprintf("  velocity:  %.2f km/s", g.Vel.Norm()/1000),
 				)
 			}
-			lines = append(lines, v.theme.Dim.Render("  [u] release it"))
+			// #330: [U], matching the actual uppercase Undock binding —
+			// see the sibling comment on the DOCKED block's "ask to
+			// undock" row in orbit_chip_builders.go.
+			lines = append(lines, v.theme.Dim.Render("  [U] release it"))
 			return lines
 		}
 		return []string{
