@@ -23,9 +23,9 @@ the keyboard. No mouse required, no GUI, just a single binary in your terminal.
 Under the hood it's a real orbital-mechanics sim: gravity, fuel, atmospheric drag, and timing all
 matter, the way they do in real life. Unlike KSP (without mods), the default game renders our solar system. Launches are hard, they take 7.5km/s for LEO - just like real life. The moon is inclined, the earth is tilted on its axis. To match the real solar systems, there are real life vessels with accurate loadouts of thrust.
 
-Recently introduced: a familiar 1/10th-scale system named Lumen; home to a familiar planet, Kernel, with two moons, Cursor and Glyph - and a nearby red planet, Rust. A Lumen-specific vessel is scaled to that environment. It's a little rough appearance-wise as no textures have ported over to that system, but vessels fly and hit familiar Delta-V marks for launch, Cursor (Mun) transfers, etc. From a default game launch press TAB to cycle through the available solar systems until you reach Lumen. Press F to cycle to the planet Kernel, then press N to spawn a craft there.
+Recently introduced: a familiar 1/10th-scale system named Lumen; home to a familiar planet, Kernel, with two moons, Cursor and Glyph - and a nearby red planet, Rust. A Lumen-specific vessel is scaled to that environment. It's a little rough appearance-wise as no textures have ported over to that system, but vessels fly and hit familiar Delta-V marks for launch, Cursor (Mun) transfers, etc. From a default game launch press TAB to cycle through the available solar systems until you reach Lumen. Press F to cycle to the planet Kernel, then press N to spawn a vessel there.
 
-Each vessel is bound for its lifetime to the system it spawns in — the simulator flies every vessel against its own system and the camera follows your *active* vessel's system, so a craft parked in Sol keeps orbiting while you fly in Lumen (TAB stays a browse-only camera toggle). Adding Lumen also changed the body catalog, so the on-disk save format moved to v8; older saves auto-migrate on load.
+Each vessel is bound for its lifetime to the system it spawns in — the simulator flies every vessel against its own system and the camera follows your *active* vessel's system, so a vessel parked in Sol keeps orbiting while you fly in Lumen (TAB stays a browse-only camera toggle). Adding Lumen also changed the body catalog, so the on-disk save format moved to v8; older saves auto-migrate on load.
 
 When your live trajectory is heading into a body's sphere of influence, the orbit map draws the full encounter arc ahead of arrival — entry, perilune, and exit — with a Perilune `⊕` marker and an always-on **SOI PASS** chip showing the altitude and time to closest approach. No need to target the body first. Every orbital marker (apoapsis, periapsis, nodes, closest approach, maneuver nodes) is now a single colored glyph: shape is type, color is type, brightness is state (nominal / counterfactual / alarm). To read an encounter up close, press `f` to focus the body it passes — the camera fits to the body's sphere of influence so the capture curve fills the canvas, and from there the view is yours: `+`/`-` zoom holds until you change focus, view, or system.
 
@@ -40,7 +40,7 @@ row to swap that part within its kind (the engine leads the stage's chemistry),
 booster) to **crack it open** into editable components and tweak from there. Set
 a `t` **Σ Δv target** and a tank row will hint how many tanks close the gap.
 Save a design and it shows up in the spawn form (`n`) alongside the built-in
-craft, so you design once and launch many. Designs are portable files under
+vessels, so you design once and launch many. Designs are portable files under
 `~/.config/terminal-space-program/designs/` (KSP `.craft`-style); drop one into
 the sibling `loadouts/` overlay dir to share it as a mod. Multiple engines in a
 stage combine honestly (thrust adds, Isp is the thrust-weighted blend) and a
@@ -144,11 +144,11 @@ key adopts a newer release when one is published.
 
 Guests enroll once with the invite code (their ssh key becomes their identity)
 and get their own persistent space program on your machine. Everyone warps
-time **independently**: other players appear as dim "ghost" craft — with their
+time **independently**: other players appear as dim "ghost" vessels — with their
 orbits drawn on your map — evaluated at *your* clock, and the `O` session
 roster shows who's ahead or behind. From that roster, `t` targets one of their
-craft (with more than one in your system, it opens a picker so you aim at the
-right ship), `s` sync-warps you forward to a player's time to fly formation,
+vessels (with more than one in your system, it opens a picker so you aim at the
+right vessel), `s` sync-warps you forward to a player's time to fly formation,
 and `v` **spectates** a player —
 fitting the camera to their ghost orbit and following it so you can watch their
 burns play out. Warp clamps, planted burns, and SOI transitions are all honored
@@ -165,7 +165,7 @@ rate), so a stray `.` or `G` can't tear the rendezvous down. If the encounter dr
 warning chip says so. You arrive at closest approach at 1× — already coupled —
 and slide straight into the final approach.
 
-**The agreement doesn't end there.** Arriving hands the ship back so you can
+**The agreement doesn't end there.** Arriving hands the vessel back so you can
 brake at closest approach, but the two of you stay time-locked through the
 whole terminal phase — the burns, the waiting, the last few hundred metres —
 so nobody has to sit at 1× while the other lines up. In that phase the player
@@ -181,11 +181,11 @@ Proximity does the rest for players with no agreement: come within 35 km of a
 player you're synced with, closing slower than 100 m/s, and your time-warp
 **couples** to theirs, so neither can skip ahead during the approach — a
 `TIME LOCK` line says who and at what rate. The session roster's `RANGE` column
-shows how close you already are. Dock your craft to theirs and you fly one
+shows how close you already are. Dock your vessel to theirs and you fly one
 shared stack — the guest can `U` undock their own component at any time, and
 the pilot can hand the whole stack over with `J` **transfer control** (refused
 if they aren't in the session — someone has to be there to take the stick).
-Nobody ever gets stuck: the pilot's `U` releases a partner's craft even if
+Nobody ever gets stuck: the pilot's `U` releases a partner's vessel even if
 they've disconnected, and it's waiting for them, safed, when they come back;
 and if the pilot is the one who's gone, the guest riding their stack can
 press `J` right back to take the stick themselves — an empty seat needs
@@ -197,7 +197,7 @@ sends a private line (tab completes the handle against who's online — a typo
 refuses to send rather than broadcasting by accident). The sim keeps running
 while you type, `esc` bails, and messages ride the map as transient chips for
 ~30 seconds — chat is live coordination, not a message board: nothing is
-stored, and it never depends on your craft's CommNet link.
+stored, and it never depends on your vessel's CommNet link.
 
 ## Custom vehicles
 
