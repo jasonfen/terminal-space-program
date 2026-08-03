@@ -129,19 +129,19 @@
     {
       "id": "chal-dock",
       "name": "Rendezvous & Dock",
-      "description": "Bring two craft together and dock them.",
+      "description": "Bring two vessels together and dock them.",
       "program": "challenge",
       "requires": ["chal-luna-return"],
       "objectives": [
         {
           "name": "Spawn a partner",
-          "description": "Press [n] to spawn a second craft to rendezvous with.",
+          "description": "Press [n] to spawn a second vessel to rendezvous with.",
           "kind": "event",
           "params": { "action": "spawn_craft" }
         },
         {
-          "name": "Dock the two craft",
-          "description": "Target the other craft ([t]), close in ([K] plants a rendezvous nudge), and dock.",
+          "name": "Dock the two vessels",
+          "description": "Target the other vessel ([t]), close in ([K] plants a rendezvous nudge), and dock.",
           "kind": "dock",
           "params": {}
         }
@@ -170,7 +170,7 @@
       "objectives": [
         {
           "name": "Deploy a payload",
-          "description": "Spawn a carrier ([n] → Comsat Carrier x3 or Survey Pack), reach orbit, then press [Y] to release the top payload as its own craft.",
+          "description": "Spawn a carrier ([n] → Comsat Carrier x3 or Survey Pack), reach orbit, then press [Y] to release the top payload as its own vessel.",
           "kind": "event",
           "params": { "action": "deploy" }
         }
