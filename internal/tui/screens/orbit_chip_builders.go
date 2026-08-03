@@ -202,7 +202,7 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			// #307: two rows because the second one is the way out — the
 			// refusal alone would leave the player stuck with no next move.
 			rows = append(rows,
-				row{text: "⚠ undock refused — your craft is not on top of the stack", alert: true},
+				row{text: "⚠ undock refused — your vessel is not on top of the stack", alert: true},
 				row{text: "  have " + e.Handle + " hand control back, then release"})
 		case sim.SessionEventTransferRefused:
 			// ADR 0040 §2: the reason travels with the moment, so the chip
@@ -215,11 +215,11 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			rows = append(rows, row{text: "⚠ " + reason, alert: true})
 		case sim.SessionEventParcelReturned:
 			rows = append(rows,
-				row{text: "◇ " + e.Handle + " released your craft while you were away"},
+				row{text: "◇ " + e.Handle + " released your vessel while you were away"},
 				row{text: "  it is back on your slate — throttle zero, main engine, no hold"})
 		case sim.SessionEventReleaseRefused:
 			rows = append(rows,
-				row{text: "⚠ release refused — " + e.Handle + "'s craft sits under yours", alert: true},
+				row{text: "⚠ release refused — " + e.Handle + "'s vessel sits under yours", alert: true},
 				row{text: "  hand control back [J], then they release"})
 		case sim.SessionEventControlReclaimed:
 			rows = append(rows,
@@ -748,7 +748,7 @@ func (v *OrbitView) activeBurnLines(w *sim.World) []string {
 		if remaining < 0 {
 			remaining = 0
 		}
-		tag := fmt.Sprintf("craft %d", i+1)
+		tag := fmt.Sprintf("vessel %d", i+1)
 		if i == w.ActiveCraftIdx {
 			tag += " (active)"
 		}
