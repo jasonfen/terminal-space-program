@@ -49,3 +49,28 @@ func TestRendezvousReasonToErr_S1DistinctReasons(t *testing.T) {
 		}
 	}
 }
+
+// TestRendezvousReasonToErr_S2PhasingCoachBucket — ADR 0039 S2 / #277:
+// the four inner Lambert-lookahead dead ends share ONE remedy — none of
+// them found a real encounter to score, so K has nothing more specific
+// to say than "make a phasing burn". This is the SAME wording Engage's
+// own no-encounter refusal uses (rendezvousPhasingCoachMsg), so the two
+// refusal chains stop pointing at each other: before this, `w` said "use
+// K", and K said "no useful nudge in range" — a dead end with no
+// explanation on either side (#277).
+func TestRendezvousReasonToErr_S2PhasingCoachBucket(t *testing.T) {
+	for _, reason := range []string{
+		"no lambert convergence", "degenerate axes", "horizon too short", "ca-verify failed",
+	} {
+		got := rendezvousReasonToErr(reason)
+		if !errors.Is(got, ErrRendezvousNoEncounter) {
+			t.Errorf("reason %q → %v, want ErrRendezvousNoEncounter", reason, got)
+		}
+	}
+	// "no improvement available" is a DIFFERENT situation (the geometry
+	// is already about as good as a nudge gets) and must stay out of the
+	// phasing-coach bucket.
+	if got := rendezvousReasonToErr("no improvement available"); errors.Is(got, ErrRendezvousNoEncounter) {
+		t.Errorf("\"no improvement available\" wrongly joined the phasing-coach bucket: %v", got)
+	}
+}

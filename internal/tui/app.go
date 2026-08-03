@@ -2075,7 +2075,12 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		tau, ca, ok := a.world.RendezvousCommit()
 		switch {
 		case !ok:
-			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
+			// ADR 0039 S2 / #277: name the doctrine's own remedy instead of
+			// pointing at K — K's own refusal for this same "no real
+			// encounter" situation used to say the opposite ("no useful
+			// nudge in range"), so the two refusals dead-ended into each
+			// other with no way out. Both sides now coach the same burn.
+			a.statusMsg = fmt.Sprintf("no encounter with %s on current courses — make a phasing burn (wide prograde or radial) and watch the CA shrink", cmd.Handle)
 		// The seat is fixed here (ADR 0037 §2): proposing the rendezvous
 		// makes you pilot-in-command of the pair's time once the terminal
 		// phase begins.

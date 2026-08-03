@@ -104,7 +104,8 @@ func rendezvousGeometryNotUseful(err error) bool {
 	return errors.Is(err, ErrRendezvousNoImprovement) ||
 		errors.Is(err, ErrRendezvousBurnTooLarge) ||
 		errors.Is(err, ErrRendezvousUnsafePeriapsis) ||
-		errors.Is(err, ErrRendezvousShapeMismatch)
+		errors.Is(err, ErrRendezvousShapeMismatch) ||
+		errors.Is(err, ErrRendezvousNoEncounter)
 }
 
 // TestPlanRendezvousNudge_PlantsOneNode — the happy path for the K

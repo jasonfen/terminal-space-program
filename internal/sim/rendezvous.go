@@ -36,7 +36,26 @@ var (
 	ErrRendezvousShapeMismatch   = transferError("orbits differ in shape — circularize [C] or plan a transfer [H] first")
 	ErrRendezvousBurnTooLarge    = transferError("nudge would exceed the burn ceiling — use the transfer planner [H/I/m]")
 	ErrRendezvousUnsafePeriapsis = transferError("nudge would drop periapsis unsafely — plan a transfer instead [H/I/m]")
+
+	// ErrRendezvousNoEncounter (ADR 0039 S2, #277): the shared
+	// phasing-coach remedy for "no real encounter to score" — both K's
+	// inner Lambert-lookahead dead ends and Engage's own commit-search
+	// failure return this, in the doctrine's own words, so the two
+	// refusal chains stop pointing at each other. Before this, `w` said
+	// "plant a nudge [K] first" and K said "no useful nudge in range" —
+	// each pointing at the other with no way out.
+	ErrRendezvousNoEncounter = transferError(rendezvousPhasingCoachMsg)
 )
+
+// rendezvousPhasingCoachMsg is the doctrine-prescribed remedy surfaced
+// whenever no real encounter can be found on the current courses: a
+// matched-orbit stalemate (zero relative drift, an encounter can never
+// form, #276) and a slow-converging geometry (a real encounter exists
+// but isn't found/committable within the search window, #277) both get
+// the same actionable words, deliberately with no computed numbers (ADR
+// 0039 §2) — "bring the encounter to you" rather than either coasting
+// toward a slow one or being told nothing at all.
+const rendezvousPhasingCoachMsg = "no encounter on current courses — make a phasing burn (wide prograde or radial) and watch the CA shrink"
 
 // rendezvousReasonToErr maps a planner.RendezvousAdvisory's Reason tag
 // (populated when Ok=false) to the sim-layer sentinel PlanRendezvousNudge
@@ -44,10 +63,11 @@ var (
 // unable to tell "spend more Δv than a nudge allows" from "this is
 // already as good as it gets" from "this cannot ever converge". The four
 // inner Lambert-lookahead dead ends ("no lambert convergence",
-// "degenerate axes", "horizon too short", "ca-verify failed") are not yet
-// split out of the generic ErrRendezvousNoImprovement bucket here — ADR
-// 0039 S2 gives them their own shared phasing-coach wording, matching
-// Engage's own no-encounter refusal.
+// "degenerate axes", "horizon too short", "ca-verify failed") share the
+// ADR 0039 §2 phasing-coach bucket: none of them found a real encounter
+// to score, so none of them has a more specific remedy than "make a
+// phasing burn" — the same wording Engage's own no-encounter refusal
+// uses (#277).
 func rendezvousReasonToErr(reason string) error {
 	switch reason {
 	case "docked":
@@ -58,8 +78,10 @@ func rendezvousReasonToErr(reason string) error {
 		return ErrRendezvousBurnTooLarge
 	case "burn drops periapsis unsafely":
 		return ErrRendezvousUnsafePeriapsis
-	default: // "no improvement available", "no lambert convergence", "degenerate axes", "horizon too short", "ca-verify failed"
+	case "no improvement available":
 		return ErrRendezvousNoImprovement
+	default: // "no lambert convergence", "degenerate axes", "horizon too short", "ca-verify failed"
+		return ErrRendezvousNoEncounter
 	}
 }
 
