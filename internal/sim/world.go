@@ -299,6 +299,15 @@ type World struct {
 	// Undock.
 	DockGuest *DockGuestLink
 
+	// dockGuestFollowedRef is the last FocusGhost ref FollowDockGuestStack
+	// itself force-wrote (#331). Comparing the desired ref against THIS —
+	// not against the live w.Focus — is what lets a player-initiated Focus
+	// change (f/g, Spectate, a fresh spawn) release the rider's follow
+	// camera until the ridden stack itself changes: see
+	// FollowDockGuestStack in docking_guest.go. Transient camera
+	// bookkeeping, never persisted.
+	dockGuestFollowedRef Focus
+
 	// LastSyncArrival is set when a Sync warp reaches its target time
 	// (v0.27 S7) and cleared by the serve wrapper after firing the
 	// arrival chips. Transient, like LastDockEvent.
