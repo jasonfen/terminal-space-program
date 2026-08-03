@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"log"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -93,10 +94,40 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 	}
 
 	// Persist the durable cross-ref on any transition so a reconnecting guest
-	// resumes.
-	if changed {
-		_ = m.srv.persistDocks()
+	// resumes — or on a tick after one failed, until one lands (#335).
+	if changed || m.srv.dockFlushOwed() {
+		if err := m.srv.persistDocks(); err != nil {
+			// Not swallowed. reclaimFromEmptySeat treats this exact failure as
+			// fatal and undoes its migration, because the parked payload is the
+			// only copy of a craft; the handback here is in the same position —
+			// w.UndockGuest has already shrunk the owner's composite in place —
+			// but its undo is not available from this side of the seam. What is
+			// available is refusing to forget: say so once, and keep re-flushing
+			// every tick until the ledger reaches disk, so the window a restart
+			// could fall into is one tick rather than open-ended.
+			m.srv.markDockFlushFailed(err)
+		}
 	}
+}
+
+// dockFlushOwed reports whether a previous dock-ledger flush failed and has
+// not since succeeded (#335).
+func (s *Server) dockFlushOwed() bool {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	return s.dockPersistFailed
+}
+
+// markDockFlushFailed records a failed flush and logs the first one of a run.
+// Logged once per run rather than per tick: the tick loop retries ~20×/s, and
+// a full disk would otherwise bury the operator's own logs while they fix it.
+func (s *Server) markDockFlushFailed(err error) {
+	s.persistMu.Lock()
+	defer s.persistMu.Unlock()
+	if !s.dockPersistFailed {
+		log.Printf("dock ledger: could not be written (%v) — a craft handed between players is parked on the ledger and exists nowhere else; retrying every tick", err)
+	}
+	s.dockPersistFailed = true
 }
 
 // dockedWith reports whether this session and partner share a FUSED
@@ -178,7 +209,13 @@ func (m reportingModel) releaseGuest() (tea.Model, tea.Cmd) {
 func (s *Server) persistDocks() error {
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
-	return s.store.SetDocks(snapshotsToDockLinks(s.dock.FullRecords()))
+	err := s.store.SetDocks(snapshotsToDockLinks(s.dock.FullRecords()))
+	if err == nil {
+		// Whatever a previous flush failed to carry out is on disk now — this
+		// writes the whole ledger, not a delta (#335).
+		s.dockPersistFailed = false
+	}
+	return err
 }
 
 // dockLinksToSnapshots adapts the persisted cross-ref into live ledger

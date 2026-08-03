@@ -143,6 +143,17 @@ type Server struct {
 	// re-snapshotting dock.Records() makes the last writer persist the truly-
 	// current full ledger (ledger mutations are already ledger-mutex serial).
 	persistMu sync.Mutex
+
+	// dockPersistFailed is set when a dock-ledger flush errors and cleared
+	// when one lands (#335). The undock handback shrinks the owner's
+	// composite in place and leaves the guest's craft on the record as its
+	// only copy, so a dropped flush leaves disk holding a pre-undock record
+	// that a restart would restore over a world that has already moved on —
+	// the identical window reclaimFromEmptySeat treats as fatal. The next
+	// tick re-flushes on the strength of this flag rather than waiting for
+	// some later, unrelated transition to happen to carry the state out.
+	// Guarded by persistMu, which every flush already takes.
+	dockPersistFailed bool
 }
 
 // DefaultHostKeyPath returns the per-host SSH identity path, sibling
