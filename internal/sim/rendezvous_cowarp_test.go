@@ -31,8 +31,13 @@ func TestRendezvousArmCouplesBeforeGate(t *testing.T) {
 	if res.State.MinWarp != 50 {
 		t.Errorf("MinWarp = %v, want the partner's 50", res.State.MinWarp)
 	}
-	if len(res.NewlyCoupled) != 1 || res.NewlyCoupled[0] != "gern" {
-		t.Errorf("NewlyCoupled = %v, want [gern]", res.NewlyCoupled)
+	// ADR 0037 §4: the agreement's own couple state is never chip-worthy.
+	// The arm announces itself (armed / waypoint / arrived / cancelled
+	// moments) and the RENDEZVOUS chip renders it as standing state; a
+	// "warp coupled with gern" moment on top is the per-tick flap's first
+	// tick, not information.
+	if len(res.NewlyCoupled) != 0 {
+		t.Errorf("NewlyCoupled = %v, want none — the agreement is not a couple moment", res.NewlyCoupled)
 	}
 }
 

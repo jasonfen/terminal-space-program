@@ -256,6 +256,15 @@ type World struct {
 	// gap. Transient, serve-written like RendezvousHold.
 	RendezvousWait RendezvousWait
 
+	// RendezvousRate is the terminal phase's standing rate slate (ADR 0037
+	// §2): the viewer's seat, the ceiling the pair's rate is held to, and
+	// who is holding it. Set each tick by DriveRendezvousWarp, read by
+	// clampedWarp (another member of the Effective-≤-Selected family) and
+	// by the RENDEZVOUS chip, which renders the holder so a locked warp key
+	// always explains itself. Transient, serve-written like RendezvousHold;
+	// the zero value is every solo tick.
+	RendezvousRate RendezvousRateState
+
 	// RendezvousDegraded / RendezvousApproachM are the hold-τ degrade slate
 	// (v0.29 S1): while the shared coast runs, DriveRendezvousWarp
 	// recomputes the approach at the committed τ each tick and sets
@@ -1142,6 +1151,28 @@ func (w *World) clampedWarp() float64 {
 	if w.RendezvousHold {
 		return 0
 	}
+	// ADR 0037 §2: inside a rendezvous agreement's TERMINAL phase the
+	// pair's rate is the initiator's selection. The copilot's own selection
+	// is not the pair's rate — their seat FOLLOWS, so max-seed the baseline
+	// exactly as the Auto-Warp driver does and let the ceiling below (and
+	// every physical clamp after it) pick the real number. Not while paused:
+	// a copilot's pause is a brake like any other, and Clock.Warp()'s 0
+	// carries it. Only when there is a ceiling to follow — an initiator
+	// whose report hasn't reached us yet publishes none, and following
+	// nothing would be a free ride to the top of the ladder.
+	if rr := w.RendezvousRate; rr.Seat != RendezvousSeatNone {
+		if rr.Seat == RendezvousSeatCopilot && rr.PartnerRate > 0 && !w.Clock.Paused {
+			selected = WarpFactors[len(WarpFactors)-1]
+		}
+		if rr.PartnerRate > 0 && selected > rr.PartnerRate {
+			selected = rr.PartnerRate
+		}
+		// The copilot's own brake is read live off the arm, not off the
+		// relayed slate, so their key takes effect on the very next tick.
+		if b, ok := w.rendezvousBrakeFactor(); ok && selected > b {
+			selected = b
+		}
+	}
 	// v0.28 S1 (ADR 0034 §5): proximity co-warp. While the active craft
 	// is coupled to a nearby same-subspace player, Effective Warp is the
 	// min over the coupled players' Effective warps — a partner's 10×
@@ -1173,8 +1204,8 @@ func (w *World) clampedWarp() float64 {
 	// blast past the EndTime in a single tick. Walking all crafts
 	// (not just the active one) catches a planted burn firing on a
 	// non-active craft while the player is flying another.
-	if w.anyCraftThrusting() && selected > 10 {
-		selected = 10
+	if w.anyCraftThrusting() && selected > burnWarpCap {
+		selected = burnWarpCap
 	}
 	// v0.8.6.x+: throttle-change clamp. A throttle adjust at high
 	// warp ramps thrust faster than the integrator's per-tick step

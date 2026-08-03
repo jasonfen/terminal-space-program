@@ -103,6 +103,33 @@ const (
 // which the encounter's own approach readout still exposes.
 const degradeRebaseAfter = 10 * time.Minute
 
+// CoWarpCoupleRangeM / CoWarpCoupleSpeedMs are the exported form of the
+// couple gate (ADR 0037 §5). The neighbourhood rule was documented and
+// nowhere else: nothing in the game named the range or the closing speed
+// at which two players' warps lock together, so a pilot on approach could
+// only discover it by crossing it. The Session roster and the F1 help
+// overlay state the rule in these numbers, so the display can never drift
+// from what the sim gates on.
+const (
+	CoWarpCoupleRangeM  = coWarpCoupleRangeM
+	CoWarpCoupleSpeedMs = coWarpCoupleSpeedMs
+)
+
+// PeerRange is the range from the viewer's anchor craft to the nearest of
+// a peer's craft sharing its SOI primary — the Session roster's RANGE
+// column. ok=false when there is no anchor or no same-primary craft to
+// measure against, which the roster renders as a blank rather than a
+// zero: a fabricated 0 m reads as "right next to you" (#297's lesson
+// about zero values presented as facts).
+func (w *World) PeerRange(p CoWarpPeer) (float64, bool) {
+	anchor := w.ActiveCraft()
+	if anchor == nil {
+		return 0, false
+	}
+	rng, _, ok := closestApproach(anchor, p.Crafts)
+	return rng, ok
+}
+
 // CoWarpSubspaceTolerance is the exported form of the same-subspace gate
 // (v0.29 S2): the Session screen's Rendezvous Warp row action refuses a
 // partner whose |Δt| exceeds it ("Sync first") so the arm can actually
@@ -177,6 +204,33 @@ type CoWarpPeer struct {
 	// authoritative baseline, not its own staler recompute (v0.29 S1).
 	RendezvousCA float64
 
+	// RendezvousInitiator is this peer's SEAT in the mutual agreement (ADR
+	// 0037 §2) — true when they proposed the rendezvous and therefore fly
+	// the pair's clock through the terminal phase. Meaningful only
+	// alongside ArmedTowardViewer. Both sides relay their own bit rather
+	// than deriving one from the other, so a reconnect can't leave the pair
+	// disagreeing about who is in command; when the two bits are equal
+	// (both claim it, or an older peer claims neither) the rate rule
+	// declines to resolve a seat and the pair falls back to min-wins.
+	RendezvousInitiator bool
+
+	// RendezvousRate is this peer's published contribution to the pair's
+	// rate in the terminal phase (ADR 0037 §2): the initiator publishes
+	// their SELECTED warp, the copilot publishes their brake, and either
+	// side folds in its own burn cap first. 0 means "this seat imposes no
+	// ceiling" — a following copilot with nothing burning.
+	//
+	// Load-bearing that this is a selection, never a derived rate: the
+	// receiving side's own rate is a function of it, so relaying a
+	// post-clamp value back would close the #248 loop and ratchet the pair
+	// to 1×.
+	RendezvousRate float64
+
+	// RendezvousBurning marks the published rate as coming from this peer's
+	// active burn rather than a chosen brake, so the partner's chip can say
+	// "held: gern burning" instead of blaming a deliberate brake.
+	RendezvousBurning bool
+
 	// ActiveCraftName is the vessel this peer is flying, read off their
 	// report's active-craft marker (#288). The join prompt names it (#295)
 	// so the responder answers "gern's Relay Tug-1 wants to rendezvous",
@@ -216,6 +270,37 @@ type RendezvousArm struct {
 	CraftName   string    // the vessel that armed — captured at Engage (#295), so a wrong-vessel arm is visible from the arming seat
 	Tau         time.Time // the current waypoint's absolute encounter sim-time
 	CommittedCA float64   // m — the predicted approach at Tau, re-derived per waypoint (HUD "committed" row)
+
+	// Initiator is this side's SEAT in the agreement (ADR 0037 §2), fixed
+	// at invite time: the player who proposed the rendezvous is
+	// pilot-in-command of the pair's time, the accepter takes the copilot
+	// seat. Captured at Engage and relayed, so both sides agree on roles
+	// under reconnect. When neither side (or both) claims the seat — an
+	// older peer, or two crossed invites — the rate rule degrades to
+	// today's symmetric min-wins rather than guessing.
+	Initiator bool
+
+	// Approach demotes the agreement to the TERMINAL PHASE (ADR 0037 §1).
+	// Set at the τ handoff, where #299's release still ends the driver and
+	// hands the ship back at 1× — but the mutual intent survives, so the
+	// pair stays time-locked through the braking burns, waits, and gate
+	// creep of the final approach (#302). There is deliberately no distance
+	// tripwire: a pilot who swings 100 km wide is still rendezvousing. The
+	// agreement ends only on dock or an explicit cancel by either side.
+	Approach bool
+
+	// BrakeIdx is the COPILOT's downward-only rate selection inside the
+	// terminal phase (ADR 0037 §2): an index into WarpFactors, or -1 while
+	// following the initiator. The copilot's warp keys move it — down
+	// brakes the pair, up releases back toward following — and it can only
+	// ever lower the pair's rate, never push it. Meaningless (and left at
+	// its -1 "following" value) in the initiator's seat.
+	//
+	// The zero value is 0, i.e. a 1× brake, which is wrong for a fresh
+	// arm — EngageRendezvousWarpAs stamps -1 explicitly, and the τ handoff
+	// re-stamps it, so no arm ever reaches the terminal phase with an
+	// unintended brake.
+	BrakeIdx int
 
 	// degradeBaseCA is the hold-τ warning baseline: the most recent
 	// HEALTHY approach measured while the shared coast runs (v0.29
@@ -321,8 +406,11 @@ func (w *World) subspaceStepCap() float64 {
 // craft (the anchor) for this tick. `prev` is the per-owner coupled map
 // returned last tick — it supplies the hysteresis memory so a coupled
 // pair uses the wider decouple gate. The returned CoupledOwners becomes
-// next tick's `prev`. Pure over its inputs (no World mutation) so the
-// caller assigns State to w.CoWarp; testable with hand-built peers.
+// next tick's `prev`. No World mutation — the caller assigns State to
+// w.CoWarp after this returns — so it's testable with hand-built peers;
+// it does, however, READ w.CoWarp (the state the caller committed from
+// the PREVIOUS call, still unoverwritten at this point) for the omission
+// sweep below, the one input that doesn't round-trip through `prev`.
 //
 // Anchor gating (ADR 0015 / 0025 precedent): only the viewer's active
 // craft anchors co-warp in the MVP — a passive craft of the viewer near
@@ -345,9 +433,18 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 		// subspace clock, so Δt grows and the subspace gate releases them
 		// within the tolerance window anyway. Gating coupledNow on it
 		// keeps State/chips/clamp consistent (no couple without a clamp).
-		if anchorOK && p.EffWarp > 0 && sameSubspace(viewerT, p.SubspaceTime) {
+		//
+		// The gate is deliberately NOT applied to the agreement branch (ADR
+		// 0037 §4): a partner held at 0× by the leader-hold is the most
+		// coupled two players can be, and reading their 0 as "not a couple"
+		// is the #275 flap itself — the hold drives the report to 0, the
+		// pair uncouples, the hold lifts, they couple again, 852 times in a
+		// session. Inside an agreement the rate comes from the seats, not
+		// from that report, so nothing downstream needs it to be positive.
+		armed := w.rendezvousArmedWith(p.Owner) && p.ArmedTowardViewer
+		if anchorOK && (p.EffWarp > 0 || armed) && sameSubspace(viewerT, p.SubspaceTime) {
 			switch {
-			case w.rendezvousArmedWith(p.Owner) && p.ArmedTowardViewer:
+			case armed:
 				// Rendezvous trigger (v0.29 S1): both players Engaged toward
 				// each other and share a Subspace — couple *before* the
 				// proximity gate so they can coast to the encounter rate-
@@ -373,7 +470,18 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 				// DriveRendezvousWarp runs before ComputeCoWarp each tick.
 				// Armed-but-not-yet-coasting keeps min-wins (nothing seeds
 				// the rate up yet, and the couple must not outrun the gate).
-				clampExempt = w.rendezvousWarpEngaged()
+				// The demoted TERMINAL phase is exempt for the same reason
+				// the coast is (ADR 0037 §1/§2): its rate is the initiator's
+				// selection, derived from inputs neither side reads back off
+				// the other, so feeding the partner's stale post-clamp report
+				// into the min would reintroduce the #248 ratchet in
+				// precisely the phase where a pilot is trying to warp between
+				// braking burns. The terminal phase claims the exemption only
+				// once the SEATS resolve — an ambiguous pair (both claiming
+				// the initiator seat, or a peer from before ADR 0037) has no
+				// authority to derive a rate from, so it keeps min-wins.
+				clampExempt = w.rendezvousWarpEngaged() ||
+					w.rendezvousSeatWith(&p) != RendezvousSeatNone
 			default:
 				if rng, vrel, ok := closestApproach(anchor, p.Crafts); ok {
 					coupledNow = coupleDecide(wasCoupled, rng, vrel)
@@ -381,7 +489,16 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 			}
 		}
 		res.CoupledOwners[p.Owner] = coupledNow
+		// One chip per REAL change (ADR 0037 §4). A couple that exists
+		// because two players have a standing agreement is not a moment —
+		// it is the agreement, which announces its own beginning, waypoints,
+		// arrival and end, and which the RENDEZVOUS chip renders as standing
+		// state throughout. Suppressing its transitions here erases the
+		// per-tick flap by construction rather than by tuning the hold and
+		// couple constants apart, and stops the arrival tick from chipping a
+		// "warp released" contradiction on top of "encounter reached".
 		switch {
+		case armed:
 		case coupledNow && !wasCoupled:
 			res.NewlyCoupled = append(res.NewlyCoupled, p.Handle)
 		case !coupledNow && wasCoupled:
@@ -394,13 +511,31 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 			}
 		}
 	}
-	// A peer that vanished from the report set (left the system, ended
-	// flight) while coupled is released silently by omission: it is absent
-	// from CoupledOwners so next tick treats it as uncoupled, and the
-	// clamp already dropped it from the min. No handle survives to chip a
-	// release, which is acceptable for this edge (the common decouple —
-	// drifting apart in-system — keeps the peer present, so it chips).
+	// A peer that vanished from the report set entirely (left the system,
+	// ended flight, went offline) is absent from `peers` above, so the
+	// main loop never visits its owner at all: no explicit release fires
+	// for it (ADR 0037 §4 review — the #275-family "a lock ends
+	// chiplessly" gap). It is still absent from CoupledOwners, so next
+	// tick's hysteresis correctly treats it as uncoupled, and the clamp
+	// already dropped it from the min — only the RELEASE CHIP itself was
+	// missing.
 	//
+	// Sweep w.CoWarp — the caller's last-COMMITTED State, which still
+	// holds the PREVIOUS tick's Partners at this point (the caller only
+	// overwrites it with this call's State after ComputeCoWarp returns,
+	// per reporting.go's `cw := w.ComputeCoWarp(...); w.CoWarp = cw.State`
+	// sequencing) — for any handle that isn't among THIS tick's peers at
+	// all, and release it exactly like an explicit separation would. A
+	// handle present in `peers` this tick was already visited by the main
+	// loop above (coupled, or explicitly released into res.Released), so
+	// checking presence there is what keeps this from double-firing
+	// alongside an explicit release in the same tick.
+	for _, handle := range w.CoWarp.Partners {
+		if coWarpPeerHandlePresent(peers, handle) {
+			continue
+		}
+		res.Released = append(res.Released, handle)
+	}
 	// Coupled-with-no-min-contribution (#248: every coupled peer is the
 	// clamp-exempt coast partner) leaves MinWarp at its zero value —
 	// clampedWarp guards on MinWarp > 0, so 0 naturally means "coupled,
@@ -448,6 +583,18 @@ func closestApproach(anchor *spacecraft.Spacecraft, crafts []CoWarpCraft) (range
 		}
 	}
 	return rangeM, vrelMs, ok
+}
+
+// coWarpPeerHandlePresent reports whether handle belongs to any peer in
+// this tick's slice — the omission sweep's test for "still visited by
+// the main loop above" (ADR 0037 §4 review).
+func coWarpPeerHandlePresent(peers []CoWarpPeer, handle string) bool {
+	for _, p := range peers {
+		if p.Handle == handle {
+			return true
+		}
+	}
+	return false
 }
 
 // sameSubspace reports whether two subspace times are close enough to be

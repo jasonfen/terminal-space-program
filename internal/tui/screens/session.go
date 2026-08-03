@@ -555,6 +555,7 @@ const (
 	colName         = 34
 	colWhere        = 16
 	colCraft        = 18
+	colRange        = 10
 	colInviteCode   = 12
 	colInviteHandle = 20
 	// rowIndent is the lead-in every roster row shares: two spaces, the
@@ -623,7 +624,8 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	b.WriteString(s.theme.Dim.Render(strings.Repeat(" ", rowIndent)+
 		padStyled("PLAYER", colName)+" "+
 		padStyled("LOCATION", colWhere)+" "+
-		padStyled("CRAFT", colCraft)+" TIME") + "\n")
+		padStyled("CRAFT", colCraft)+" "+
+		padStyled("RANGE", colRange)+" TIME") + "\n")
 	for i, p := range info.Players {
 		marker := "  "
 		if !s.inInvites && i == s.cursor {
@@ -693,10 +695,23 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		default:
 			craft = fmt.Sprintf("%d craft", p.CraftCount)
 		}
+		// RANGE (ADR 0037 §5): the live distance to their nearest craft in
+		// your SOI, so the warp-lock neighbourhood is a number you watch
+		// close rather than a line you cross blind. Blank — never "0 m" —
+		// when there is nothing to measure, mirroring the CRAFT and
+		// LOCATION columns' honesty about missing reports (#297).
+		rangeCell := "—"
+		if p.HasRange && p.Fingerprint != info.Self {
+			rangeCell = formatRangeM(p.RangeM)
+			if p.RangeM <= sim.CoWarpCoupleRangeM {
+				rangeCell = s.theme.Primary.Render(rangeCell)
+			}
+		}
 		b.WriteString("  " + padStyled(marker, 2) + dot + " " +
 			s.nameCell(p.Handle, tags, colName) + " " +
 			padStyled(where, colWhere) + " " +
 			padStyled(craft, colCraft) + " " +
+			padStyled(rangeCell, colRange) + " " +
 			formatDeltaT(p, info.Self == p.Fingerprint) + "\n")
 
 		// Craft picker (v0.30 S6): when this player's sub-list is open,
@@ -747,6 +762,13 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 				s.theme.Dim.Render(compactDuration(inv.Age)+" old") + "\n")
 		}
 	}
+
+	// State the neighbourhood rule where the ranges are read (ADR 0037 §5).
+	// Quoted from the sim's own gate constants so the sentence can never
+	// drift from the behaviour it describes.
+	b.WriteString(s.theme.Dim.Render(fmt.Sprintf(
+		"\n  warps lock together inside %.0f km when you're closing slower than %.0f m/s",
+		sim.CoWarpCoupleRangeM/1000, sim.CoWarpCoupleSpeedMs)) + "\n")
 
 	b.WriteString("\n")
 	if s.confirmRemove {

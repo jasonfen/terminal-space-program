@@ -165,6 +165,17 @@ type RendezvousWaypoint struct {
 // Forward-only (tau at/behind SimTime is refused — the laggard Syncs
 // forward). Replaces any prior arm.
 func (w *World) EngageRendezvousWarp(partner, handle string, tau time.Time, committedCA float64) bool {
+	return w.EngageRendezvousWarpAs(partner, handle, tau, committedCA, false)
+}
+
+// EngageRendezvousWarpAs is EngageRendezvousWarp with the seat named
+// (ADR 0037 §2). The Session screen's row action arms as the INITIATOR —
+// pilot-in-command of the pair's time once the terminal phase begins —
+// and the main-screen [y] join arms as the copilot, which is what the
+// plain EngageRendezvousWarp wrapper above does. Roles are fixed here, at
+// invite time, and relayed, so neither side can drift into disagreeing
+// about who flies the clock.
+func (w *World) EngageRendezvousWarpAs(partner, handle string, tau time.Time, committedCA float64, initiator bool) bool {
 	if !tau.After(w.Clock.SimTime) {
 		return false
 	}
@@ -179,9 +190,16 @@ func (w *World) EngageRendezvousWarp(partner, handle string, tau time.Time, comm
 	w.RendezvousArm = &RendezvousArm{
 		TargetOwner: partner, Handle: handle, CraftName: craftName,
 		Tau: tau, CommittedCA: committedCA,
+		Initiator: initiator,
+		BrakeIdx:  rendezvousFollowing,
 	}
 	return true
 }
+
+// rendezvousFollowing is RendezvousArm.BrakeIdx's "no brake" value — the
+// copilot's default seat behaviour (ADR 0037 §2). Not zero, which is a
+// real 1× brake.
+const rendezvousFollowing = -1
 
 // DisengageRendezvousWarp cancels the viewer's Rendezvous Warp: clear the
 // arm and, if the shared coast had started, release the Auto-Warp
@@ -204,6 +222,42 @@ func (w *World) rendezvousWarpEngaged() bool {
 // RendezvousWarpEngaged is the exported form for the tui (v0.29 S2) —
 // the RENDEZVOUS chip forks its armed-waiting vs coasting state on it.
 func (w *World) RendezvousWarpEngaged() bool { return w.rendezvousWarpEngaged() }
+
+// rendezvousApproachPhase reports whether a demoted agreement is standing:
+// the τ handoff has happened, the driver is released and the pilot is
+// flying the terminal phase by hand, but the pair is still time-locked
+// (ADR 0037 §1).
+func (w *World) rendezvousApproachPhase() bool {
+	return w.RendezvousArm != nil && w.RendezvousArm.Approach
+}
+
+// RendezvousApproachPhase is the exported form for the tui — the
+// RENDEZVOUS chip's standing approach state and the copilot's warp-key
+// semantics both fork on it.
+func (w *World) RendezvousApproachPhase() bool { return w.rendezvousApproachPhase() }
+
+// rendezvousRateGoverned reports whether the agreement itself is setting
+// the pair's rate — the shared coast pre-τ (τ-derived on both sides) or
+// the initiator's clock in the terminal phase (ADR 0037 §2). Either way
+// the partner's relayed Effective warp must NOT feed the co-warp min:
+// that is the #248 stale-report ratchet, and both phases derive the rate
+// from inputs neither side reads back off the other.
+func (w *World) rendezvousRateGoverned() bool {
+	return w.rendezvousWarpEngaged() || w.rendezvousApproachPhase()
+}
+
+// EndRendezvousOnDock releases a standing agreement with partner because
+// the pair have docked — one of ADR 0037 §1's exactly two end conditions
+// (the other being an explicit cancel). Reports whether it ended one, so
+// the serve layer can suppress the cancel chip: docking is the rendezvous
+// succeeding, and the dock's own moment already says so.
+func (w *World) EndRendezvousOnDock(partner string) bool {
+	if w.RendezvousArm == nil || w.RendezvousArm.TargetOwner != partner {
+		return false
+	}
+	w.DisengageRendezvousWarp()
+	return true
+}
 
 // RendezvousInvite is a peer's live Rendezvous Warp intent aimed at the
 // viewer, awaiting a response (v0.29 S2): who, and the committed τ +
@@ -311,7 +365,10 @@ type RendezvousWait struct {
 func (w *World) refreshRendezvousWait(peers []CoWarpPeer) {
 	w.RendezvousWait = RendezvousWait{}
 	arm := w.RendezvousArm
-	if arm == nil || w.rendezvousWarpEngaged() {
+	// A demoted agreement is not waiting for anything (ADR 0037 §1) — the
+	// coast is over by design, not deferred, so classifying it here would
+	// put the armed-waiting chip back up behind the terminal phase.
+	if arm == nil || arm.Approach || w.rendezvousWarpEngaged() {
 		return
 	}
 	for i := range peers {
@@ -366,6 +423,10 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 	// case).
 	w.refreshRendezvousWait(peers)
 	w.refreshRendezvousDegrade(peers)
+	// The seat/rate slate is part of the same tail (ADR 0037 §2): it reads
+	// this tick's peer set and the phase the drive above just settled, and
+	// clampedWarp reads it on the sim tick that follows.
+	w.refreshRendezvousRate(peers)
 	w.refreshRendezvousInvite(peers)
 }
 
@@ -382,8 +443,10 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	// Arm expiry (v0.29 review): an un-started arm whose τ has passed can
 	// never couple — the partner's invite already dropped it (forward-only),
 	// so holding it would freeze the state machine (stuck "waiting" chip,
-	// all future invites suppressed).
-	if !w.rendezvousWarpEngaged() && !arm.Tau.After(w.Clock.SimTime) {
+	// all future invites suppressed). A DEMOTED arm is exempt (ADR 0037 §1):
+	// its τ is deliberately in the past — the handoff happened there — and
+	// the terminal phase it now stands for has no time bound at all.
+	if !w.rendezvousWarpEngaged() && !arm.Approach && !arm.Tau.After(w.Clock.SimTime) {
 		w.RendezvousArm = nil
 		return
 	}
@@ -432,6 +495,14 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	// mirroring after that return would blank the away line in precisely
 	// its motivating scenario (#253).
 	w.RendezvousPartnerAway = partner != nil && partner.Away
+	// Terminal phase (ADR 0037 §1): the agreement is demoted, not ended —
+	// no driver, no waypoints, no τ. All that is left to drive is its
+	// lifetime (retract / dropout grace) and the leader hold that keeps the
+	// pair inside one subspace while the pilot brakes.
+	if arm.Approach {
+		w.driveRendezvousApproach(arm, partner, peerPresent)
+		return
+	}
 	// τ authority across a waypoint advance (#252): both sides re-derive
 	// the next waypoint independently at their own τ-crossing, so their
 	// new τs will disagree (different advisories, different relayed craft
@@ -521,6 +592,39 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	}
 }
 
+// driveRendezvousApproach runs one tick of the demoted terminal phase
+// (ADR 0037 §1). The agreement ends exactly two ways here — an explicit
+// cancel by either side (the partner's retract arrives as their arm
+// vanishing from a report that is still present) and the dock
+// (EndRendezvousOnDock, driven from the serve layer's ledger). Everything
+// else is held through, on purpose: there is no distance tripwire, no τ
+// expiry, and a partner who has gone quiet is waited for.
+//
+// The lifetime rules are lifted verbatim from the coast so the two phases
+// can't disagree about what a missing peer means: a whole-peer dropout
+// gets the tolerance-window grace (a single filtered tick must not tear
+// down a live rendezvous), while a present peer with the arm withdrawn —
+// which is also where the serve liveness gate lands a dead session — is a
+// genuine retract and releases at once.
+func (w *World) driveRendezvousApproach(arm *RendezvousArm, partner *CoWarpPeer, peerPresent bool) {
+	if partner == nil {
+		if peerPresent {
+			w.DisengageRendezvousWarp()
+			return
+		}
+		if arm.peerGoneAt.IsZero() {
+			arm.peerGoneAt = w.Clock.SimTime
+			return
+		}
+		if w.Clock.SimTime.Sub(arm.peerGoneAt).Seconds() > coWarpSubspaceToleranceSec {
+			w.DisengageRendezvousWarp()
+		}
+		return
+	}
+	arm.peerGoneAt = time.Time{} // peer back inside the grace — full window next time
+	w.holdRendezvousLeader(partner)
+}
+
 // holdRendezvousLeader raises the hold flag when the engaged coast's
 // viewer must wait for its partner (v0.29 review): a paused partner
 // (frozen clock) or a divergence with the viewer ahead must not let the
@@ -588,8 +692,21 @@ func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPee
 				w.LastRendezvousArrival = &RendezvousArrival{
 					Handle: w.AutoWarp.RendezvousHandle, Owner: w.AutoWarp.RendezvousOwner,
 				}
-				w.RendezvousArm = nil
-				w.DisengageAutoWarp()
+				// ADR 0037 §1: DEMOTE, don't end. #299's handoff is kept
+				// exactly — the driver goes and the ship is handed back at 1×
+				// so the pilot can brake at closest approach — but the mutual
+				// agreement survives into the terminal phase, which is the
+				// stretch it was invented for (#302: 32 real minutes of 1×
+				// waiting between braking burns, with solo warp splitting the
+				// subspaces and proximity co-warp unable to couple until
+				// |v_rel| is under the very number being worked down).
+				arm.Approach = true
+				arm.BrakeIdx = rendezvousFollowing
+				arm.degradeBaseSet = false
+				arm.peerGoneAt = time.Time{}
+				// Not DisengageAutoWarp: that clears the arm on every path by
+				// design (#249/#259), which is exactly what must not happen here.
+				w.AutoWarp = nil
 				return
 			}
 			break

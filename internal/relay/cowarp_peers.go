@@ -87,6 +87,12 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			p.ArmedTowardViewer = true
 			p.RendezvousTau = rep.RendezvousTau
 			p.RendezvousCA = rep.RendezvousCA
+			// Seat + published rate (ADR 0037 §2). Gated with the arm on
+			// purpose: a dead session's frozen report must not keep clamping
+			// the survivor's clock any more than it keeps their arm alive.
+			p.RendezvousInitiator = rep.RendezvousInitiator
+			p.RendezvousRate = rep.RendezvousRate
+			p.RendezvousBurning = rep.RendezvousBurning
 			// Name the vessel behind the invite (#295) — the arm always acts
 			// through the reporter's active craft, so the report's marker
 			// (#288) is exactly the right source.

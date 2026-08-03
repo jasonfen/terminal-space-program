@@ -157,7 +157,7 @@ en route.
 Closing the distance takes orbits of coasting, so warp there *together*:
 `w` on a player's roster row arms a **rendezvous warp** toward your predicted
 closest approach with them. They get a persistent prompt on their main screen —
-`y` joins — and from that moment your warps are rate-locked (slowest wins) all
+`y` joins — and from that moment your warps are rate-locked all
 the way to the encounter, planted burns firing en route. Either side cancels
 with `/` — and only with `/`: the manual warp keys and the auto-warp
 toggle (`G` / `[»Burn]`) are inert while the coast runs (it owns the
@@ -165,9 +165,23 @@ rate), so a stray `.` or `G` can't tear the rendezvous down. If the encounter dr
 warning chip says so. You arrive at closest approach at 1× — already coupled —
 and slide straight into the final approach.
 
-Once you're together, proximity does the rest: come within 35 km of a player
-you're synced with and your time-warp **couples** to theirs, so neither can
-skip ahead during the approach. Dock your craft to theirs and you fly one
+**The agreement doesn't end there.** Arriving hands the ship back so you can
+brake at closest approach, but the two of you stay time-locked through the
+whole terminal phase — the burns, the waiting, the last few hundred metres —
+so nobody has to sit at 1× while the other lines up. In that phase the player
+who *proposed* the rendezvous flies the pair's clock; whoever joined rides
+copilot, and can brake the pair (`,`) or release back to following (`.`) but
+never push it faster. Either side burning holds you both at the burn cap. The
+`RENDEZVOUS` block on the map always says whose clock you're on and what's
+holding it, so a warp key that does nothing always explains itself. It ends
+when you dock, or when either of you presses `/` — flying 100 km wide to set up
+a better approach won't drop it.
+
+Proximity does the rest for players with no agreement: come within 35 km of a
+player you're synced with, closing slower than 100 m/s, and your time-warp
+**couples** to theirs, so neither can skip ahead during the approach — a
+`TIME LOCK` line says who and at what rate. The session roster's `RANGE` column
+shows how close you already are. Dock your craft to theirs and you fly one
 shared stack — the guest can `U` undock their own component at any time, and
 the pilot can hand the whole stack over with `J` **transfer control**.
 

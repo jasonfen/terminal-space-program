@@ -38,6 +38,16 @@ type SessionPlayer struct {
 	// Reprieve — there is simply nobody at the controls.
 	Away bool
 
+	// RangeM is the live range from the viewer's active craft to this
+	// player's nearest craft in the same SOI (ADR 0037 §5) — the column
+	// that makes the 35 km warp-lock neighbourhood learnable by watching a
+	// number close, rather than by crossing an invisible line. HasRange is
+	// false when there is nothing to measure (no anchor, no same-primary
+	// craft, no report), and the roster then renders a blank instead of a
+	// zero distance.
+	HasRange bool
+	RangeM   float64
+
 	// WantsRendezvous / RendezvousOut are the roster-row Rendezvous Warp
 	// markers (v0.29 S2): this player is armed toward the viewer awaiting
 	// a response / the viewer is armed toward this player. Both render as

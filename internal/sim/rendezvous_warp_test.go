@@ -178,8 +178,11 @@ func TestRendezvousCoupleRangeHandoffAtTau(t *testing.T) {
 	if w.rendezvousWarpEngaged() {
 		t.Error("coast still engaged after the proximity handoff")
 	}
-	if w.RendezvousArm != nil {
-		t.Error("arm not released at the proximity handoff")
+	// ADR 0037 §1 demotes the agreement here rather than ending it: the
+	// driver still goes and the ship is still handed back, but the mutual
+	// intent survives into the terminal phase.
+	if w.RendezvousArm == nil || !w.RendezvousArm.Approach {
+		t.Errorf("arm not demoted to the approach phase at the proximity handoff: %+v", w.RendezvousArm)
 	}
 	if w.Clock.WarpIdx != 0 {
 		t.Errorf("did not drop to 1× at arrival: WarpIdx = %d", w.Clock.WarpIdx)
