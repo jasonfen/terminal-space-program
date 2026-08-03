@@ -10,6 +10,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
+	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
 // ADR 0040 review: persistDocks only fired on chip-producing transitions, so
@@ -52,6 +53,56 @@ func TestReleaseAskSurvivesRestart(t *testing.T) {
 	recs := restarted.dock.FullRecords()
 	if len(recs) != 1 || !recs[0].ReleaseAsk {
 		t.Fatalf("the release ask did not survive a restart: %+v", recs)
+	}
+}
+
+// TestAdminRestartFlushesLedgerBeforeExit: the coordinator's follow-up on
+// the SIGTERM fix. drainAndClose has three callers; the SIGTERM path grew
+// a backstop flush, but the admin restart ([u] on the Session screen, a
+// player-triggered, reachable Admin capability per CONTEXT.md) exits the
+// same way without one. Any ledger mutation that reached the ledger without
+// flushing itself is lost the moment this exits, same #311 shape as the
+// SIGTERM gap.
+func TestAdminRestartFlushesLedgerBeforeExit(t *testing.T) {
+	dir := t.TempDir()
+	srv := serverOver(t, dir)
+	srv.dock.SeedFull([]relay.DockSnapshot{{
+		ID: 50, Owner: sessiondir.HostFingerprint, OwnerHandle: "host",
+		DockerCraftID: 1, CompositeID: 70,
+		GuestOwner: "SHA256:gern", GuestHandle: "gern", GuestCraftID: 6,
+		Phase: relay.DockActive,
+	}}, nil)
+	if err := srv.persistDocks(); err != nil {
+		t.Fatalf("test setup: persistDocks: %v", err)
+	}
+	// A ledger mutation that lands only in memory, same as the SIGTERM test.
+	if ok, _ := srv.dock.RequestRelease(sessiondir.HostFingerprint, func(string) bool { return true }); !ok {
+		t.Fatalf("test setup: RequestRelease refused")
+	}
+
+	oldExit, oldGrace := exitFunc, restartAnnounceGrace
+	defer func() { exitFunc, restartAnnounceGrace = oldExit, oldGrace }()
+	restartAnnounceGrace = 0
+	exited := make(chan int, 1)
+	exitFunc = func(code int) { exited <- code }
+
+	hostApp, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	host := tick(srv.HostModel(hostApp))
+	_, _ = host.Update(screens.SessionRestartMsg{})
+
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("the admin restart never exited")
+	}
+
+	restarted := serverOver(t, dir)
+	recs := restarted.dock.FullRecords()
+	if len(recs) != 1 || !recs[0].ReleaseAsk {
+		t.Fatalf("the admin restart exited without flushing pending ledger state: %+v", recs)
 	}
 }
 

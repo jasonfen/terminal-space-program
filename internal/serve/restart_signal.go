@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -55,11 +56,20 @@ func (s *Server) restartOnSignal(sig <-chan os.Signal, stop <-chan struct{}) {
 	// itself at its own call site now, but this is the last stop before the
 	// process exits, so flush the ledger's current state once more here
 	// regardless — a belt-and-braces backstop against any transition that
-	// reaches the ledger without flushing itself, now or added later. Unlike
-	// drainAndClose, which stopHosting and the admin restart also share and
-	// fire in the background, this runs synchronously on the SIGTERM path,
-	// so there is nothing left to race it before exit.
-	_ = s.persistDocks()
+	// reaches the ledger without flushing itself, now or added later. The
+	// admin restart (reporting.go's restartServer) carries the identical
+	// backstop at its own exit point; stopHosting deliberately does not —
+	// it backgrounds the drain and never exits the process, so there is a
+	// later tick to flush on. Unlike drainAndClose itself, which those three
+	// callers share, this runs synchronously on the SIGTERM path, so there
+	// is nothing left to race it before exit.
+	//
+	// Not swallowed: at process exit there is nothing left to recover, so a
+	// silent failure here is data loss that surfaces only on next boot —
+	// exactly the #311 shape this ledger exists to close.
+	if err := s.persistDocks(); err != nil {
+		log.Printf("SIGTERM restart: dock ledger did not flush before exit: %v", err)
+	}
 	// Plain zero: the supervisor asked for this stop and is already going to
 	// relaunch. The 42 marker means "and run the adopt tooling first", which
 	// is precisely what has just happened.
