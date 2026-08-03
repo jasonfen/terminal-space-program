@@ -119,10 +119,10 @@ func (w *World) GuestReleaseRefusal(idx int) string {
 	c := w.Crafts[idx]
 	guestOwner, ok := StackGuestOwner(c)
 	if !ok {
-		return "release: this vessel carries nobody else's craft"
+		return "release: this vessel carries nobody else's vessel"
 	}
 	if _, _, _, ok := guestTopBlock(c, guestOwner, 0); !ok {
-		return "release: their craft sits under yours — hand control back [J], then they release"
+		return "release: their vessel sits under yours — hand control back [J], then they release"
 	}
 	return ""
 }
