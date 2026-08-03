@@ -531,6 +531,14 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	if partner != nil && w.rendezvousWarpEngaged() &&
 		partner.RendezvousTau.After(w.Clock.SimTime.Add(rendezvousWaypointMinLead)) &&
 		(partner.RendezvousTau.Before(arm.Tau) || !arm.Tau.After(w.Clock.SimTime)) {
+		// ADR 0039 S3 (batch-review follow-up, PR #319): adoption is a
+		// waypoint transition exactly like resolveRendezvousWaypoint's own
+		// derivation below — the degradeBaseSet reset on the next line
+		// already treats it that way ("a new waypoint means a new
+		// baseline"), so the CA trend row must too, or PrevCommittedCA goes
+		// stale across an adoption and the row can compare across TWO
+		// transitions instead of one, misreporting the direction.
+		arm.PrevCommittedCA, arm.PrevCommittedCASet = arm.CommittedCA, true
 		arm.Tau, arm.CommittedCA = partner.RendezvousTau, partner.RendezvousCA
 		arm.degradeBaseSet = false // a new waypoint means a new baseline (#251 interaction)
 		w.AutoWarp.T = arm.Tau
@@ -731,6 +739,11 @@ func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPee
 	}
 	arm.peerGoneAt = time.Time{} // peer back inside the grace — full window next time
 	if tau, ca, ok := w.rendezvousNextWaypoint(partner); ok {
+		// ADR 0039 S3: capture the outgoing CA as the trend row's "previous"
+		// point before it's overwritten — must happen every advance, not
+		// just the first, so the trend always compares the two most recent
+		// waypoints.
+		arm.PrevCommittedCA, arm.PrevCommittedCASet = arm.CommittedCA, true
 		arm.Tau, arm.CommittedCA = tau, ca
 		arm.degradeBaseSet = false // per-waypoint re-baseline (#251 interaction)
 		w.AutoWarp.T = tau

@@ -75,8 +75,8 @@ func TestPlanRendezvousNudge_GhostRefusalPathsGone(t *testing.T) {
 
 	adv, err := w.PlanRendezvousNudge()
 	if err != nil {
-		if errors.Is(err, ErrRendezvousNoImprovement) {
-			t.Skipf("ghost geometry yielded no useful nudge; not a regression")
+		if rendezvousGeometryNotUseful(err) {
+			t.Skipf("ghost geometry yielded no useful nudge (%v); not a regression", err)
 		}
 		t.Fatalf("PlanRendezvousNudge against ghost: %v (refusal path not gone)", err)
 	}
@@ -102,8 +102,8 @@ func TestPlanRendezvousNudge_LocalCraftHasNoGhostOwner(t *testing.T) {
 	w := rendezvousTwoCraftWorld(t)
 	c := w.ActiveCraft()
 	if _, err := w.PlanRendezvousNudge(); err != nil {
-		if errors.Is(err, ErrRendezvousNoImprovement) {
-			t.Skip("no useful nudge in this geometry")
+		if rendezvousGeometryNotUseful(err) {
+			t.Skipf("no useful nudge in this geometry (%v)", err)
 		}
 		t.Fatalf("PlanRendezvousNudge: %v", err)
 	}
@@ -157,8 +157,8 @@ func TestRendezvousGhostNode_StaleNoAutoUpdate(t *testing.T) {
 	c := w.ActiveCraft()
 
 	if _, err := w.PlanRendezvousNudge(); err != nil {
-		if errors.Is(err, ErrRendezvousNoImprovement) {
-			t.Skip("no useful nudge in this geometry")
+		if rendezvousGeometryNotUseful(err) {
+			t.Skipf("no useful nudge in this geometry (%v)", err)
 		}
 		t.Fatalf("PlanRendezvousNudge: %v", err)
 	}

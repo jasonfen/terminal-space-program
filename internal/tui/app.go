@@ -921,7 +921,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the moment the seat is taken — it is the only point where the
 			// asymmetry is a choice rather than a surprise.
 			if a.world.EngageRendezvousWarpAs(inv.Owner, inv.Handle, inv.Tau, inv.CA, false) {
-				a.toast(fmt.Sprintf("rendezvous with %s — coasting together; you fly copilot ([,] brakes the pair, [/] cancels)", inv.Handle))
+				a.toast(fmt.Sprintf("rendezvous with %s — coasting together; you fly copilot ([,] brakes the pair, [/] cancels)%s",
+					inv.Handle, rendezvousGapNoteSuffix(a.world, inv.CA)))
 			} else {
 				a.toast(fmt.Sprintf("can't join %s — the encounter time has passed", inv.Handle))
 			}
@@ -1158,8 +1159,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err != nil {
 					a.statusMsg = fmt.Sprintf("rendezvous: %v", err)
 				} else {
-					a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs",
-						adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival)
+					// ADR 0039 S1: arrival speed rides along as a plain info
+					// row — no gate, no judgment, it just sizes the
+					// hand-flown part of the job (#290 found this invisible
+					// at plan time: a "successful" plant that in fact
+					// arrived 4.6 m/s under the lock gate, with nothing on
+					// screen warning the player before they committed).
+					a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs, arriving ~%.0f m/s",
+						adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival, adv.ArrivalSpeed)
 				}
 				a.statusExpires = time.Now().Add(3 * time.Second)
 				a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
@@ -2069,7 +2076,12 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		tau, ca, ok := a.world.RendezvousCommit()
 		switch {
 		case !ok:
-			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
+			// ADR 0039 S2 / #277: name the doctrine's own remedy instead of
+			// pointing at K — K's own refusal for this same "no real
+			// encounter" situation used to say the opposite ("no useful
+			// nudge in range"), so the two refusals dead-ended into each
+			// other with no way out. Both sides now coach the same burn.
+			a.statusMsg = fmt.Sprintf("no encounter with %s on current courses — make a phasing burn (wide prograde or radial) and watch the CA shrink", cmd.Handle)
 		// The seat is fixed here (ADR 0037 §2): proposing the rendezvous
 		// makes you pilot-in-command of the pair's time once the terminal
 		// phase begins.
@@ -2077,8 +2089,8 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 			// Name the acting craft (#295): arming acts on whatever slot is
 			// active, and a player who cycled it earlier has no other way to
 			// catch a wrong-vessel arm before the invitation goes out.
-			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join",
-				cmd.Handle, screens.CraftTag(a.world.RendezvousArm.CraftName))
+			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join%s",
+				cmd.Handle, screens.CraftTag(a.world.RendezvousArm.CraftName), rendezvousGapNoteSuffix(a.world, ca))
 		default:
 			a.statusMsg = fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle)
 		}
@@ -2220,6 +2232,19 @@ func (a *App) toggleAutoWarpBurn() bool {
 
 // toast flashes a transient one-line notice in the HUD footer for ~3s
 // (the generic sibling of flashStatus, which is F5/F9-specific).
+// rendezvousGapNoteSuffix appends the ADR 0039 S3 gap note to an Engage
+// success message when the committed CA is far above the couple/lock
+// gate — "" otherwise, so callers can splice it in unconditionally.
+// Named at the display layer (the message text) over sim.World's
+// RendezvousNeedsBurnToClose (the domain judgment), mirroring how
+// refusal reasons are composed elsewhere in this file.
+func rendezvousGapNoteSuffix(w *sim.World, ca float64) string {
+	if !w.RendezvousNeedsBurnToClose(ca) {
+		return ""
+	}
+	return " — a burn will be needed to close this"
+}
+
 func (a *App) toast(msg string) {
 	a.statusMsg = msg
 	a.statusExpires = time.Now().Add(3 * time.Second)

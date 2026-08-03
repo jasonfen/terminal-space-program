@@ -359,6 +359,12 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		}
 		if arm := w.RendezvousArm; arm != nil {
 			lines = append(lines, chipRow("committed:", formatRangeM(arm.CommittedCA)))
+			// ADR 0039 S3 / #281: the trend across waypoint re-derivations —
+			// distinct from the degrade warning below, which compares
+			// against a baseline that re-bases every waypoint and so can
+			// never catch a standing intent that worsens a little each
+			// time. Silent until there are two committed CAs to compare.
+			lines = append(lines, rendezvousTrendLines(*arm, v.theme)...)
 		}
 		if w.RendezvousApproachM > 0 {
 			lines = append(lines, chipRow("approach:", formatRangeM(w.RendezvousApproachM)))
@@ -440,6 +446,29 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			// are fixed at invite time, so this prompt is the only place the
 			// asymmetry is a choice rather than a later surprise.
 			v.theme.Warning.Render("  [y] join as copilot — " + inv.Handle + " sets the pair's warp"),
+		}
+	}
+	return nil
+}
+
+// rendezvousTrendLines renders the CA trend row (ADR 0039 S3 / #281):
+// silent before the first waypoint advance (arm.PrevCommittedCASet
+// false — a single CA has no trend), a quiet "shrinking" line when the
+// latest waypoint improved on the one before it, or a two-line warning
+// naming both the numbers and the doctrine's own diagnosis when it
+// didn't. Equal values (no change) render nothing — neither claim is
+// true of a flat trend.
+func rendezvousTrendLines(arm sim.RendezvousArm, theme Theme) []string {
+	if !arm.PrevCommittedCASet {
+		return nil
+	}
+	switch {
+	case arm.CommittedCA < arm.PrevCommittedCA:
+		return []string{theme.Dim.Render("  CA " + formatRangeM(arm.CommittedCA) + " ↘ shrinking")}
+	case arm.CommittedCA > arm.PrevCommittedCA:
+		return []string{
+			theme.Alert.Render("  ⚠ CA growing each pass (" + formatRangeM(arm.PrevCommittedCA) + " → " + formatRangeM(arm.CommittedCA) + ")"),
+			theme.Alert.Render("    — phasing direction is wrong"),
 		}
 	}
 	return nil

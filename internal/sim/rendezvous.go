@@ -24,7 +24,66 @@ var (
 	ErrRendezvousAlreadyDocked      = transferError("already in DOCK READY range")
 	ErrRendezvousNoImprovement      = transferError("no useful nudge in range")
 	ErrRendezvousNoCraft            = transferError("no active vessel")
+
+	// ErrRendezvousShapeMismatch / ErrRendezvousBurnTooLarge /
+	// ErrRendezvousUnsafePeriapsis (ADR 0039 S1, #278): distinct refusal
+	// reasons that used to all collapse into ErrRendezvousNoImprovement.
+	// Each names the actual planner gate that fired and, where one
+	// exists, the remedy — so "the nudge would be expensive" no longer
+	// reads identically to "rendezvous is impossible" or "the geometry is
+	// already optimal". Wording for the burn-too-large case is #278's own
+	// proposed text verbatim.
+	ErrRendezvousShapeMismatch   = transferError("orbits differ in shape — circularize [C] or plan a transfer [H] first")
+	ErrRendezvousBurnTooLarge    = transferError("nudge would exceed the burn ceiling — use the transfer planner [H/I/m]")
+	ErrRendezvousUnsafePeriapsis = transferError("nudge would drop periapsis unsafely — plan a transfer instead [H/I/m]")
+
+	// ErrRendezvousNoEncounter (ADR 0039 S2, #277): the shared
+	// phasing-coach remedy for "no real encounter to score" — both K's
+	// inner Lambert-lookahead dead ends and Engage's own commit-search
+	// failure return this, in the doctrine's own words, so the two
+	// refusal chains stop pointing at each other. Before this, `w` said
+	// "plant a nudge [K] first" and K said "no useful nudge in range" —
+	// each pointing at the other with no way out.
+	ErrRendezvousNoEncounter = transferError(rendezvousPhasingCoachMsg)
 )
+
+// rendezvousPhasingCoachMsg is the doctrine-prescribed remedy surfaced
+// whenever no real encounter can be found on the current courses: a
+// matched-orbit stalemate (zero relative drift, an encounter can never
+// form, #276) and a slow-converging geometry (a real encounter exists
+// but isn't found/committable within the search window, #277) both get
+// the same actionable words, deliberately with no computed numbers (ADR
+// 0039 §2) — "bring the encounter to you" rather than either coasting
+// toward a slow one or being told nothing at all.
+const rendezvousPhasingCoachMsg = "no encounter on current courses — make a phasing burn (wide prograde or radial) and watch the CA shrink"
+
+// rendezvousReasonToErr maps a planner.RendezvousAdvisory's Reason tag
+// (populated when Ok=false) to the sim-layer sentinel PlanRendezvousNudge
+// returns. #278: collapsing every reason into one string left the player
+// unable to tell "spend more Δv than a nudge allows" from "this is
+// already as good as it gets" from "this cannot ever converge". The four
+// inner Lambert-lookahead dead ends ("no lambert convergence",
+// "degenerate axes", "horizon too short", "ca-verify failed") share the
+// ADR 0039 §2 phasing-coach bucket: none of them found a real encounter
+// to score, so none of them has a more specific remedy than "make a
+// phasing burn" — the same wording Engage's own no-encounter refusal
+// uses (#277).
+func rendezvousReasonToErr(reason string) error {
+	switch reason {
+	case "docked":
+		return ErrRendezvousAlreadyDocked
+	case "orbit shape mismatch":
+		return ErrRendezvousShapeMismatch
+	case "burn too large — use H/I/m":
+		return ErrRendezvousBurnTooLarge
+	case "burn drops periapsis unsafely":
+		return ErrRendezvousUnsafePeriapsis
+	case "no improvement available":
+		return ErrRendezvousNoImprovement
+	default: // "no lambert convergence", "degenerate axes", "horizon too short", "ca-verify failed"
+		return ErrRendezvousNoEncounter
+	}
+}
 
 // rendezvousAdvisoryCache stores the most recent recommendation so
 // the per-frame TARGET HUD readout does not have to re-run the
@@ -135,6 +194,27 @@ const rendezvousCommitHorizonSec = 4 * 3600.0
 // useful nudge (the encounter is already set up). ok=false when no
 // encounter can be found at all: no relative target, cross-primary, or
 // no approach inside the horizon — the App toasts instead of arming.
+// rendezvousGapNoteBar is the "far above the lock gate" bar for the
+// engage-time gap note (ADR 0039 S3, #281): a generous multiple of the
+// couple gate, not "just outside" it — a committed CA a little past
+// coWarpCoupleRangeM is still a normal near-miss the coast can plausibly
+// narrow on its own across waypoints. This only fires once riding
+// waypoints alone plainly will not close it — #281's live case grew
+// 4,400 km → 11,049 km, orders of magnitude past this bar, with nothing
+// on screen ever saying a burn was needed.
+const rendezvousGapNoteBar = 3 * coWarpCoupleRangeM // 105 km
+
+// RendezvousNeedsBurnToClose reports whether a committed CA is far
+// enough above the couple/lock gate that a deliberate burn — not just
+// riding waypoints — will be needed to actually close it (ADR 0039 S3).
+// Called at Engage time on both sides (the initiator's own commit and
+// the responder's join, which adopts the same τ/CA off the wire) so the
+// choice to coast toward a wide encounter is visible up front rather
+// than discovered after riding it for days.
+func (w *World) RendezvousNeedsBurnToClose(ca float64) bool {
+	return ca >= rendezvousGapNoteBar
+}
+
 func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	if adv, aok := w.RecommendedRendezvousBurn(); aok && adv.Ok {
 		return w.Clock.SimTime.Add(time.Duration(adv.TArrival * float64(time.Second))), adv.AchievableCA, true
@@ -376,11 +456,10 @@ func (w *World) PlanRendezvousNudge() (*planner.RendezvousAdvisory, error) {
 		return nil, ErrRendezvousNoImprovement
 	}
 	if !advisory.Ok {
-		// Computed, but the answer is "no useful nudge".
-		if advisory.Reason == "docked" {
-			return nil, ErrRendezvousAlreadyDocked
-		}
-		return nil, ErrRendezvousNoImprovement
+		// Computed, but the answer is "no useful nudge" — #278: the
+		// specific reason travels to the player instead of collapsing
+		// into one generic refusal.
+		return nil, rendezvousReasonToErr(advisory.Reason)
 	}
 
 	leadBuffer := w.rendezvousLeadBuffer(c, advisory.AxisUnit)

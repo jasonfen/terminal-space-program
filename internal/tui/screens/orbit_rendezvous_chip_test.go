@@ -213,6 +213,81 @@ func TestRendezvousChipCoastingAndDegraded(t *testing.T) {
 	}
 }
 
+// TestRendezvousChipTrendRowShrinking — ADR 0039 S3 / #281: once a
+// second waypoint has been derived, the chip shows whether the encounter
+// is converging. A shrinking CommittedCA (577 km → 430 km) reads as
+// quiet good news, not a warning.
+func TestRendezvousChipTrendRowShrinking(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 430_000)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+	w.RendezvousArm.PrevCommittedCA = 577_000
+	w.RendezvousArm.PrevCommittedCASet = true
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	if !strings.Contains(joined, "shrinking") {
+		t.Errorf("no shrinking-trend row for a converging CA:\n%s", joined)
+	}
+	if strings.Contains(joined, "phasing direction is wrong") {
+		t.Errorf("diverging warning shown for a converging CA:\n%s", joined)
+	}
+}
+
+// TestRendezvousChipTrendRowGrowing — the mirror case, matching the
+// ADR's own worked example: committed CA grew 577 km → 1,100 km across a
+// waypoint. Must warn AND name the doctrine's own diagnosis ("phasing
+// direction is wrong") — the degrade watchdog's own baseline can't catch
+// this (it re-bases every waypoint, ADR 0039 S3's whole reason for
+// being), so this trend row is the only signal a diverging standing
+// intent gets.
+func TestRendezvousChipTrendRowGrowing(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 1_100_000)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+	w.RendezvousArm.PrevCommittedCA = 577_000
+	w.RendezvousArm.PrevCommittedCASet = true
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	for _, want := range []string{"⚠", "growing", "phasing direction is wrong"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("diverging-trend row missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+// TestRendezvousChipTrendRowSilentBeforeFirstAdvance — with only the
+// initial commit (no waypoint advance yet), there is exactly one CA data
+// point — no trend to show, and the row must not appear (a false
+// "shrinking"/"growing" claim from a single point would be worse than
+// silence).
+func TestRendezvousChipTrendRowSilentBeforeFirstAdvance(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 900)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	for _, unwanted := range []string{"shrinking", "growing", "phasing direction is wrong"} {
+		if strings.Contains(joined, unwanted) {
+			t.Errorf("trend row rendered before any waypoint advance (%q present):\n%s", unwanted, joined)
+		}
+	}
+}
+
 // #253: Away is persistent state (the partner's session flies on under the
 // Commitment Reprieve with nobody at the controls), so the coasting chip
 // carries a STANDING away line driven by the world slate — present while
