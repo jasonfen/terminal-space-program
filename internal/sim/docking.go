@@ -63,19 +63,31 @@ func (w *World) Undock(idx int) bool {
 		totalCapMono += comp.MonopropCapacity
 	}
 
-	// Synthesize new craft, pushed apart by a small offset along a
-	// 1-AU axis (radial-out from primary). Per-side offset 35 m
-	// (so 2-component split is 70 m total — outside DockingDistM
-	// of 50 m, no immediate re-fuse); +0.05 m/s relative gives
-	// them clear separation drift.
+	// Synthesize new craft, pushed apart radially so they don't immediately
+	// re-dock.
+	//
+	// Sized by the ADJACENT gap, not the span between the two ends (#342):
+	// the old scheme fixed the OUTER span at a constant 70 m total and
+	// packed every component in between, so the gap between neighbours
+	// shrank to 70/(n-1) m as n grew — 35 m at n=3, 17.5 m at n=5 — both
+	// inside DockingDistM (50 m) and DockingVMS (0.1 m/s), so checkDocking
+	// re-fused the composite on the very next tick for any stack of 3+
+	// components. (Easy to reach in play: a loaded carrier already holds
+	// its payloads as DockedComponents, so docking onto one starts at
+	// n≥3.) gapM/gapVMS are the same 75 m / 0.15 m/s magnitude
+	// sim.SeparationPush already uses for the cross-player path, reused
+	// here so the two paths agree on what "clear" means; every adjacent
+	// pair of restored components ends up exactly gapM apart regardless of
+	// n.
 	const (
-		separationM = 35.0
-		pushVMS     = 0.05
+		gapM   = DockingDistM * 1.5 // 75 m — comfortably outside the 50 m gate
+		gapVMS = DockingVMS * 1.5   // 0.15 m/s — comfortably outside the 0.1 m/s gate
 	)
 	radialOut := radialOutUnit(c)
 
 	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
 	n := len(c.DockedComponents)
+	half := float64(n-1) / 2.0
 	stageOffset := 0 // running index into c.Stages for the breakdown path
 	for i, comp := range c.DockedComponents {
 		var stages []spacecraft.Stage
@@ -119,13 +131,14 @@ func (w *World) Undock(idx int) bool {
 				HasParachute: comp.HasParachute,
 			}}
 		}
-		// Spread components symmetrically around the composite's
-		// current position. For 2 components: -25 m and +25 m on
-		// the radial axis. For N: even spacing in [-1, +1].
-		offset := -1.0 + 2.0*float64(i)/float64(n-1)
+		// Symmetric integer offsets centred on zero (-(n-1)/2 .. +(n-1)/2
+		// in steps of 1) so every ADJACENT pair is exactly one gapM/gapVMS
+		// apart, independent of n — the #342 fix. n==1 can't reach here
+		// (Undock refuses below 2 components), so half is never NaN.
+		offset := float64(i) - half
 		s := w.restoreComponentCraft(c, comp, stages,
-			c.State.R.Add(radialOut.Scale(offset*separationM)),
-			c.State.V.Add(radialOut.Scale(offset*pushVMS)))
+			c.State.R.Add(radialOut.Scale(offset*gapM)),
+			c.State.V.Add(radialOut.Scale(offset*gapVMS)))
 		restored = append(restored, s)
 	}
 
