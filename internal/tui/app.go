@@ -1158,8 +1158,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if err != nil {
 					a.statusMsg = fmt.Sprintf("rendezvous: %v", err)
 				} else {
-					a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs",
-						adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival)
+					// ADR 0039 S1: arrival speed rides along as a plain info
+					// row — no gate, no judgment, it just sizes the
+					// hand-flown part of the job (#290 found this invisible
+					// at plan time: a "successful" plant that in fact
+					// arrived 4.6 m/s under the lock gate, with nothing on
+					// screen warning the player before they committed).
+					a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs, arriving ~%.0f m/s",
+						adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival, adv.ArrivalSpeed)
 				}
 				a.statusExpires = time.Now().Add(3 * time.Second)
 				a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7

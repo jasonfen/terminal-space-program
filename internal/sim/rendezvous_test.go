@@ -61,6 +61,52 @@ func TestRecommendedRendezvousBurn_TwoCraftLEO(t *testing.T) {
 	}
 }
 
+// rotateAboutAxis rotates v about unit-ish axis by angle radians
+// (Rodrigues' formula). Test-only helper for constructing a co-orbital
+// lag geometry from an existing circular craft state without hardcoding
+// mu, altitude, or primary.
+func rotateAboutAxis(v, axis orbital.Vec3, angle float64) orbital.Vec3 {
+	axis = axis.Unit()
+	cos, sin := math.Cos(angle), math.Sin(angle)
+	return v.Scale(cos).Add(axis.Cross(v).Scale(sin)).Add(axis.Scale(axis.Dot(v) * (1 - cos)))
+}
+
+// rendezvousSmallLagWorld places the sister craft on the SAME circular
+// orbit as the active craft, lagging by a small phase angle — mirrors
+// the planner package's CoOrbitalLagging fixture so PlanRendezvousNudge
+// has a small, deterministic, always-plantable nudge, unlike
+// rendezvousTwoCraftWorld's ~200 km altitude gap (legitimately "burn too
+// large" territory, ADR 0039 S1).
+func rendezvousSmallLagWorld(t *testing.T) *World {
+	t.Helper()
+	w := rendezvousTwoCraftWorld(t)
+	active := w.Crafts[0]
+	target := w.Crafts[1]
+	h := active.State.R.Cross(active.State.V)
+	axis := h.Unit()
+	angle := -0.5 * math.Pi / 180
+	target.State.R = rotateAboutAxis(active.State.R, axis, angle)
+	target.State.V = rotateAboutAxis(active.State.V, axis, angle)
+	target.Primary = active.Primary
+	return w
+}
+
+// rendezvousGeometryNotUseful reports whether err is one of the planner
+// refusals meaning "this test's default geometry didn't happen to yield
+// a plantable nudge" — used by tests whose purpose is the plant/gate
+// machinery, not a specific geometry outcome, so they skip rather than
+// fail when the default two-craft setup (or a ghost mirror of it) lands
+// somewhere the Lambert scan legitimately refuses. ADR 0039 S1 split
+// #278's single collapsed reason into several distinct sentinels; any of
+// them here is "not a regression", just a geometry the fixed default
+// spawn (90° phase, matched altitude or not) happened to produce.
+func rendezvousGeometryNotUseful(err error) bool {
+	return errors.Is(err, ErrRendezvousNoImprovement) ||
+		errors.Is(err, ErrRendezvousBurnTooLarge) ||
+		errors.Is(err, ErrRendezvousUnsafePeriapsis) ||
+		errors.Is(err, ErrRendezvousShapeMismatch)
+}
+
 // TestPlanRendezvousNudge_PlantsOneNode — the happy path for the K
 // keybinding's plant action. Verifies node fields match the advisory
 // + the lead buffer + TargetCraftIdx one-based encoding.
@@ -73,8 +119,8 @@ func TestPlanRendezvousNudge_PlantsOneNode(t *testing.T) {
 
 	adv, err := w.PlanRendezvousNudge()
 	if err != nil {
-		if errors.Is(err, ErrRendezvousNoImprovement) {
-			t.Skipf("two-craft LEO geometry yielded no useful nudge in this case; not a regression")
+		if rendezvousGeometryNotUseful(err) {
+			t.Skipf("two-craft LEO geometry yielded no useful nudge in this case (%v); not a regression", err)
 		}
 		t.Fatalf("PlanRendezvousNudge: %v", err)
 	}
@@ -107,6 +153,33 @@ func TestPlanRendezvousNudge_PlantsOneNode(t *testing.T) {
 	}
 	if n.TriggerTime.Sub(w.Clock.SimTime) < rendezvousBurnLeadMin {
 		t.Errorf("TriggerTime lead %v < min %v", n.TriggerTime.Sub(w.Clock.SimTime), rendezvousBurnLeadMin)
+	}
+}
+
+// TestPlanRendezvousNudge_ArrivalSpeedCarriesThrough — ADR 0039 S1: the
+// planner's ArrivalSpeed (|v_rel| at the achieved CA) must survive
+// unmodified from RecommendRendezvousNudge through PlanRendezvousNudge's
+// returned pointer, since app.go's status flash reads it off exactly
+// this value to render the "arriving ~N m/s" info row.
+func TestPlanRendezvousNudge_ArrivalSpeedCarriesThrough(t *testing.T) {
+	w := rendezvousSmallLagWorld(t)
+	c := w.ActiveCraft()
+
+	adv, err := w.PlanRendezvousNudge()
+	if err != nil {
+		if rendezvousGeometryNotUseful(err) {
+			t.Skipf("small-lag geometry yielded no useful nudge (%v); not a regression", err)
+		}
+		t.Fatalf("PlanRendezvousNudge: %v", err)
+	}
+	if !adv.Ok {
+		t.Fatalf("expected Ok=true, got Reason=%q", adv.Reason)
+	}
+	if adv.ArrivalSpeed <= 0 {
+		t.Errorf("ArrivalSpeed = %.3f, want > 0 on a successful plant", adv.ArrivalSpeed)
+	}
+	if len(c.Nodes) != 1 {
+		t.Fatalf("expected 1 node after plant, got %d", len(c.Nodes))
 	}
 }
 

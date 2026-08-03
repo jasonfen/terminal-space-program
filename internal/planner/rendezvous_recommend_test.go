@@ -230,3 +230,97 @@ func TestRecommendRendezvousNudge_PeriapsisGate(t *testing.T) {
 		t.Errorf("expected Reason=\"burn drops periapsis unsafely\" (or ceiling reason if DV exceeds it), got %q (DV=%.0f, axis=%s)", adv.Reason, adv.DV, adv.Axis)
 	}
 }
+
+// eccentricStateAtRadius builds a state at radius r, phase phaseRad, whose
+// velocity is purely tangential at magnitude k times the local circular
+// speed. k > 1 puts r at PERIAPSIS of the resulting ellipse, with
+// eccentricity e = k² − 1 (derived from p = r·k² and r = p/(1+e) at
+// periapsis). k == 1 reproduces circularStateAtRadius exactly.
+func eccentricStateAtRadius(r, phaseRad, k, mu float64) orbital.Vec3State {
+	s := circularStateAtRadius(r, phaseRad, mu)
+	return orbital.Vec3State{R: s.R, V: s.V.Scale(k)}
+}
+
+// TestRecommendRendezvousNudge_ShapeMismatch — ADR 0039 S1 / #290: a
+// chaser on a sharply eccentric orbit (e≈0.69) against a circular target
+// at the same periapsis radius is exactly the shape iterated K-nudges
+// drifted into live (567×408 km chaser vs a ~500×500 km target) — CA
+// *worsened* after the burn because a single-axis nudge cannot correct
+// an orbit-shape mismatch, only a position offset. The gate must refuse
+// before ever running the Lambert lookahead, with a reason distinct from
+// every existing tag so the HUD can point at C/H instead of retrying K.
+func TestRecommendRendezvousNudge_ShapeMismatch(t *testing.T) {
+	r := 6.771e6
+	target := circularStateAtRadius(r, 0, muEarth)
+	chaser := eccentricStateAtRadius(r, -0.5*math.Pi/180, 1.3, muEarth) // e≈0.69
+
+	adv := RecommendRendezvousNudge(chaser, target, bodies.CelestialBody{}, muEarth, 6000, 1_000_000)
+	if adv.Ok {
+		t.Fatalf("expected Ok=false for a shape-mismatched chaser/target pair, got DV=%.1f axis=%s", adv.DV, adv.Axis)
+	}
+	if adv.Reason != "orbit shape mismatch" {
+		t.Errorf("Reason = %q, want \"orbit shape mismatch\"", adv.Reason)
+	}
+}
+
+// TestRecommendRendezvousNudge_ArrivalSpeedPopulated — ADR 0039 S1: every
+// successful plant quotes predicted arrival speed as a plain info row
+// ("CA 9 km, arriving ~540 m/s"). #290 traced the earlier blind spot
+// directly: a K-plant that read as a clean "success" in fact arrived at
+// 95.4 m/s, 4.6 under the lock gate, invisible at plan time because
+// nothing on the advisory carried it. ArrivalSpeed must be the |v_rel|
+// AT the achieved closest approach (not the current, pre-burn v_rel),
+// so recompute it independently here and compare.
+func TestRecommendRendezvousNudge_ArrivalSpeedPopulated(t *testing.T) {
+	r := 6.771e6
+	target := circularStateAtRadius(r, 0, muEarth)
+	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, muEarth)
+
+	_, currentCA, _, err := NextClosestApproach(chaser, target, bodies.CelestialBody{}, muEarth, 6000)
+	if err != nil {
+		t.Fatalf("predictor err: %v", err)
+	}
+
+	adv := RecommendRendezvousNudge(chaser, target, bodies.CelestialBody{}, muEarth, 6000, currentCA)
+	if !adv.Ok {
+		t.Fatalf("expected Ok=true, got Reason=%q", adv.Reason)
+	}
+	if adv.ArrivalSpeed <= 0 {
+		t.Fatalf("ArrivalSpeed = %.3f, want > 0", adv.ArrivalSpeed)
+	}
+
+	// Independently recompute |v_rel| at the achieved CA from the
+	// perturbed post-burn chaser state and compare.
+	perturbed := orbital.Vec3State{R: chaser.R, V: chaser.V.Add(adv.AxisUnit.Scale(adv.DV))}
+	_, _, wantVRel, err := NextClosestApproach(perturbed, target, bodies.CelestialBody{}, muEarth, 6000)
+	if err != nil {
+		t.Fatalf("verification predictor err: %v", err)
+	}
+	if diff := math.Abs(adv.ArrivalSpeed - wantVRel.Norm()); diff > 1e-6 {
+		t.Errorf("ArrivalSpeed = %.6f, want %.6f (|v_rel| at achieved CA)", adv.ArrivalSpeed, wantVRel.Norm())
+	}
+}
+
+// TestRecommendRendezvousNudge_NearMatchedShapePasses — a small
+// eccentricity delta (e≈0.01, well under the mismatch threshold) must
+// NOT trip the new gate: this is K's actual working domain — a small
+// phase/altitude offset between near-identical orbits (#278's repro:
+// 551×499.8 km vs 500×500 km, e-delta of a few thousandths at LEO
+// scale) — and the existing burn-too-large / periapsis-safety gates
+// downstream already cover it appropriately depending on geometry. This
+// guards the threshold isn't so wide it swallows K's real domain.
+func TestRecommendRendezvousNudge_NearMatchedShapePasses(t *testing.T) {
+	r := 6.771e6
+	target := circularStateAtRadius(r, 0, muEarth)
+	chaser := eccentricStateAtRadius(r, -0.5*math.Pi/180, 1.005, muEarth) // e≈0.01
+
+	_, currentCA, _, err := NextClosestApproach(chaser, target, bodies.CelestialBody{}, muEarth, 6000)
+	if err != nil {
+		t.Fatalf("predictor err: %v", err)
+	}
+
+	adv := RecommendRendezvousNudge(chaser, target, bodies.CelestialBody{}, muEarth, 6000, currentCA)
+	if adv.Reason == "orbit shape mismatch" {
+		t.Errorf("near-matched shapes (e-delta≈0.01) tripped the mismatch gate; got DV=%.1f", adv.DV)
+	}
+}

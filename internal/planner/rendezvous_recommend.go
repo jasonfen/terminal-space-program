@@ -77,6 +77,15 @@ type RendezvousAdvisory struct {
 	AchievableCA float64 // m — what the recommended burn delivers
 	TArrival     float64 // s — time-to-CA from now after the burn
 
+	// ArrivalSpeed is |v_rel| AT the achieved closest approach (post-burn),
+	// m/s — populated only on Ok=true (ADR 0039 S1). Pure information, no
+	// gate: it sizes the hand-flown part of the job ("CA 9 km, arriving
+	// ~540 m/s") rather than judging it. #290 found this invisible at plan
+	// time: a K-plant that read as a clean success in fact arrived at
+	// 95.4 m/s, 4.6 under the lock gate, with no readout anywhere warning
+	// the player before they committed to it.
+	ArrivalSpeed float64
+
 	LambertIdealDV float64 // m/s — |full Lambert ΔV| (always ≥ DV; gap shows projection loss)
 
 	Reason string // populated when Ok=false: "no improvement available" | "no lambert convergence" | "degenerate axes" | "horizon too short" | "burn too large — use H/I/m" | "burn drops periapsis unsafely"
@@ -131,6 +140,25 @@ func RecommendRendezvousNudge(
 
 	if mu <= 0 || horizon <= 0 {
 		out.Reason = "horizon too short"
+		return out
+	}
+
+	// Step 0 (ADR 0039 S1 / #290): orbit-shape mismatch gate. K's nudge is
+	// a single-axis velocity push on the chaser's EXISTING orbit, not a
+	// re-shape — it works by refining a position offset between two
+	// already-similar orbits. When the chaser and target eccentricities
+	// have drifted apart, the axis projection doesn't converge toward
+	// rendezvous, it walks the chaser further from the target's shape:
+	// #290's live sequence spent 275 m/s across two "successful" nudges
+	// to end up FARTHER away (CA 577 km → 1,110 km) after the first nudge
+	// itself pushed the chaser's shape away from the target's. Refuse
+	// before spending any Lambert work and point at the tools built for
+	// shape changes (circularize [C], transfer [H]) rather than offering
+	// another diverging position-only burn.
+	eccA := orbital.ElementsFromState(stateA.R, stateA.V, mu).E
+	eccB := orbital.ElementsFromState(stateB.R, stateB.V, mu).E
+	if math.Abs(eccA-eccB) > shapeMismatchEccDelta {
+		out.Reason = "orbit shape mismatch"
 		return out
 	}
 
@@ -213,7 +241,7 @@ func RecommendRendezvousNudge(
 		R: stateA.R,
 		V: stateA.V.Add(bestAxisUnit.Scale(bestProj)),
 	}
-	tStar, caStar, _, err := NextClosestApproach(perturbed, stateB, primary, mu, horizon)
+	tStar, caStar, vRelStar, err := NextClosestApproach(perturbed, stateB, primary, mu, horizon)
 	if err != nil {
 		out.Reason = "ca-verify failed"
 		return out
@@ -282,6 +310,7 @@ func RecommendRendezvousNudge(
 	out.AxisUnit = bestAxisUnit
 	out.AchievableCA = caStar
 	out.TArrival = tStar
+	out.ArrivalSpeed = vRelStar.Norm()
 	return out
 }
 
@@ -295,6 +324,20 @@ func RecommendRendezvousNudge(
 // H / I / m planners. Const, not a knob — the player intent is
 // "small nudge to refine an already-close intercept."
 const maxNudgeDV = 300.0 // m/s
+
+// shapeMismatchEccDelta is the eccentricity-difference threshold above
+// which chaser and target are considered shape-mismatched (ADR 0039 S1).
+// Eccentricity is already a dimensionless, scale-free shape measure, so
+// one constant works across every body scale (real vs stripped-back).
+// Calibrated to sit clear of the ordinary near-matched case a nudge is
+// built for (#278's repro — 551×499.8 km vs 500×500 km LEO — is an
+// e-delta of a few thousandths at real-body scale) while still catching
+// a genuinely diverged shape (#290's post-nudge chaser reached e≈0.01–
+// 0.02 after just one bad plant, climbing fast under iteration). Tuned
+// conservatively wide rather than tight: a missed mismatch still falls
+// through to the burn-too-large / periapsis-safety gates below, but a
+// false trigger would refuse K inside its actual working domain.
+const shapeMismatchEccDelta = 0.05
 
 var allAxisLabels = []AxisLabel{
 	AxisPrograde,
