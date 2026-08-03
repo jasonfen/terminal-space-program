@@ -152,17 +152,62 @@ func (l *DockLedger) RequestUndock(guestOwner string, guestCraftID uint64) bool 
 // RequestTransfer flags the owner's active stack for a control handover to
 // the guest (2-party: the recipient is unambiguous — ADR 0034 addendum). The
 // docker's next reconcile migrates the stack unless it's mid-burn (refused,
-// retried). ok is false when the caller owns no active cross-player stack.
-func (l *DockLedger) RequestTransfer(owner string) bool {
+// retried). live reports whether a fingerprint has a live Session.
+//
+// ok is false with the player-facing reason from TransferRefusal, which it
+// consults rather than re-deriving — the two cannot drift, so a refused [J]
+// can never be silent (#308's lesson at the second cross-player verb).
+func (l *DockLedger) RequestTransfer(owner string, live func(string) bool) (bool, string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if why := l.transferRefusalLocked(owner, live); why != "" {
+		return false, why
+	}
 	for _, r := range l.records {
 		if r.Owner == owner && r.Phase == DockActive {
 			r.transferTo = r.GuestOwner
-			return true
+			return true, ""
 		}
 	}
-	return false
+	return false, transferNoStack
+}
+
+// TransferRefusal says, in the player's words, why RequestTransfer(owner)
+// will refuse — or "" when the stack will change hands. Exhaustive over the
+// synchronous refusals by construction (RequestTransfer consults it); the
+// mid-burn refusal is deliberately NOT here, because it is a wait rather than
+// a no — the reconcile retries it every tick until the burn ends.
+func (l *DockLedger) TransferRefusal(owner string, live func(string) bool) string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.transferRefusalLocked(owner, live)
+}
+
+const transferNoStack = "transfer: not flying a cross-player stack"
+
+// transferRefusalLocked is the body of TransferRefusal; the caller holds the
+// ledger mutex.
+func (l *DockLedger) transferRefusalLocked(owner string, live func(string) bool) string {
+	for _, r := range l.records {
+		if r.Owner != owner || r.Phase != DockActive {
+			continue
+		}
+		// ADR 0040 §2: handing someone the stick needs someone there to take
+		// it. Delivery runs on the RECIPIENT's tick, so a handover to an
+		// absent partner strips the stack out of the only World simulating it
+		// and leaves the sender a passenger in a vehicle that exists in
+		// nobody's sky, parked outside time until they come back. Durability
+		// (S1) makes that survivable; it should not be reachable on purpose.
+		if live != nil && !live(r.GuestOwner) {
+			who := r.GuestHandle
+			if who == "" {
+				who = "your partner"
+			}
+			return "transfer: " + who + " is not in the session — nobody is there to take the stick"
+		}
+		return ""
+	}
+	return transferNoStack
 }
 
 // ActiveGuestDock returns the active record in which fp is the guest, if any —

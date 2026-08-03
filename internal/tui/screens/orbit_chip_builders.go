@@ -204,6 +204,23 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			rows = append(rows,
 				row{text: "⚠ undock refused — your craft is not on top of the stack", alert: true},
 				row{text: "  have " + e.Handle + " hand control back, then release"})
+		case sim.SessionEventTransferRefused:
+			// ADR 0040 §2: the reason travels with the moment, so the chip
+			// says what stopped the handover rather than that one didn't
+			// happen. Detail is already a sentence from the ledger.
+			reason := e.Detail
+			if reason == "" {
+				reason = "transfer refused"
+			}
+			rows = append(rows, row{text: "⚠ " + reason, alert: true})
+		case sim.SessionEventParcelReturned:
+			rows = append(rows,
+				row{text: "◇ " + e.Handle + " released your craft while you were away"},
+				row{text: "  it is back on your slate — throttle zero, main engine, no hold"})
+		case sim.SessionEventControlReclaimed:
+			rows = append(rows,
+				row{text: "⚠ " + e.Handle + " took the stack back while you were away", alert: true},
+				row{text: "  they were riding in it and your seat was empty"})
 		case sim.SessionEventDockLost:
 			rows = append(rows, row{text: "⚠ dock with " + e.Handle + " ended — the stack no longer exists", alert: true})
 		case sim.SessionEventRendezvousDegraded:

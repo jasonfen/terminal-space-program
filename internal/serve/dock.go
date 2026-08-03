@@ -3,6 +3,8 @@ package serve
 import (
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/jasonfen/terminal-space-program/internal/relay"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -94,6 +96,22 @@ func (m *reportingModel) dockedWith(partner string) bool {
 		}
 	}
 	return false
+}
+
+// transferControl handles a [J] press (ADR 0040 §2). The ledger decides;
+// this turns a refusal into a moment the player actually sees, carrying the
+// reason verbatim. A silent no-op here is what made [U] read as a broken key
+// (#308) — the second cross-player verb does not repeat it.
+func (m reportingModel) transferControl() (tea.Model, tea.Cmd) {
+	ok, why := m.srv.dock.RequestTransfer(m.owner, m.srv.presence.isOnline)
+	if ok {
+		return m, nil
+	}
+	m.localEvents = append(m.localEvents, sim.SessionEvent{
+		Kind: sim.SessionEventTransferRefused, Detail: why, At: time.Now(),
+	})
+	m.app.Toast(why)
+	return m, nil
 }
 
 // persistDocks writes the dock ledger's current durable cross-ref to disk under

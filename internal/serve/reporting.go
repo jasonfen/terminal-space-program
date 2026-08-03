@@ -132,7 +132,7 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if _, ok := msg.(tui.TransferControlMsg); ok {
 		if m.srv != nil {
-			m.srv.dock.RequestTransfer(m.owner)
+			return m.transferControl()
 		}
 		return m, nil
 	}

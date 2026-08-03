@@ -13,6 +13,10 @@ const (
 	fpB = "SHA256:bob"
 )
 
+// allOnline is the presence predicate for tests that are not about the
+// presence gate: both players are in the session.
+func allOnline(string) bool { return true }
+
 // reportMap ticks both Worlds into the store and returns the owner→report
 // map the dock reconcile reads (for the guest's warp coupling).
 func reportMap(store *Store, wA, wB *sim.World, now time.Time) map[string]CraftReport {
@@ -175,7 +179,7 @@ func TestTransferControlSwapsRolesRefusedMidBurn(t *testing.T) {
 
 	// Mid-burn: transfer is refused (stack stays with A).
 	stack.ManualBurn = &spacecraft.ManualBurn{StartTime: wA.Clock.SimTime}
-	if !ledger.RequestTransfer(fpA) {
+	if ok, _ := ledger.RequestTransfer(fpA, allOnline); !ok {
 		t.Fatalf("RequestTransfer refused outright")
 	}
 	ledger.Reconcile(wA, fpA, reports)
@@ -275,7 +279,7 @@ func TestTransferAdoptRestampsCollidingCompositeID(t *testing.T) {
 	}
 
 	// Transfer control to B (roles swap). A migrates out, B adopts.
-	if !ledger.RequestTransfer(fpA) {
+	if ok, _ := ledger.RequestTransfer(fpA, allOnline); !ok {
 		t.Fatalf("RequestTransfer refused")
 	}
 	ledger.Reconcile(wA, fpA, reports) // A migrates the stack out
@@ -348,7 +352,7 @@ func TestUndockAfterTransferRefusesAndTellsTheGuest(t *testing.T) {
 	reports := reportMap(store, wA, wB, now)
 	ledger.Reconcile(wB, fpB, reports)
 	ledger.Reconcile(wA, fpA, reports)
-	if !ledger.RequestTransfer(fpA) {
+	if ok, _ := ledger.RequestTransfer(fpA, allOnline); !ok {
 		t.Fatalf("RequestTransfer refused")
 	}
 	ledger.Reconcile(wA, fpA, reports)
@@ -375,7 +379,7 @@ func TestUndockAfterTransferRefusesAndTellsTheGuest(t *testing.T) {
 
 	// Recovery: B hands control back, which puts B's own components on top,
 	// and B releases. Both players end up holding their own vehicle.
-	if !ledger.RequestTransfer(fpB) {
+	if ok, _ := ledger.RequestTransfer(fpB, allOnline); !ok {
 		t.Fatalf("RequestTransfer back to A refused")
 	}
 	reports = reportMap(store, wA, wB, now.Add(3*time.Second))

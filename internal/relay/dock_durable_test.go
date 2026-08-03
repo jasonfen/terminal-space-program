@@ -59,7 +59,7 @@ func TestTransferMidHandoverSurvivesRestart(t *testing.T) {
 
 	// [J] with B offline: A's tick migrates the stack out. It now exists
 	// ONLY on the ledger record — B's session is not running to receive it.
-	if !ledger.RequestTransfer(fpA) {
+	if ok, _ := ledger.RequestTransfer(fpA, allOnline); !ok {
 		t.Fatalf("RequestTransfer refused")
 	}
 	ledger.Reconcile(wA, fpA, reports)
@@ -118,7 +118,7 @@ func TestParkedPayloadIsNotReapedAsPhantom(t *testing.T) {
 	reports := reportMap(store, wA, wB, now)
 	ledger.Reconcile(wB, fpB, reports)
 	ledger.Reconcile(wA, fpA, reports)
-	if !ledger.RequestTransfer(fpA) {
+	if ok, _ := ledger.RequestTransfer(fpA, allOnline); !ok {
 		t.Fatalf("RequestTransfer refused")
 	}
 	ledger.Reconcile(wA, fpA, reports)

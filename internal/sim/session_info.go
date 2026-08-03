@@ -110,6 +110,21 @@ const (
 	// guest, whose docked-as-guest marker would otherwise just vanish.
 	SessionEventDockLost
 
+	// SessionEventTransferRefused: my [J] was refused before anything moved
+	// (ADR 0040 §2) — most often because the partner has no live session, so
+	// there is nobody there to take the stick. Detail carries the reason
+	// verbatim; addressed at the player who pressed the key.
+	SessionEventTransferRefused
+	// SessionEventParcelReturned: a craft the owner released while I was away
+	// arrived with me on connect (ADR 0040 §3). Distinct from
+	// SessionEventUndocked because I did not ask for it and was not there —
+	// the chip has to account for a ship appearing on my slate.
+	SessionEventParcelReturned
+	// SessionEventControlReclaimed: the stack I owned was taken back from my
+	// empty seat by the guest riding in it (ADR 0040 §4). Addressed at the
+	// returning owner, who would otherwise find their vehicle simply gone.
+	SessionEventControlReclaimed
+
 	// Rendezvous Warp moments (v0.29 S2) — all local-only: each side's
 	// serve wrapper derives them from its own World transitions.
 	SessionEventRendezvousArmed     // a partner armed toward you ("X wants to rendezvous")
