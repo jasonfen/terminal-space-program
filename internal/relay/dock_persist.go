@@ -56,6 +56,14 @@ type DockSnapshot struct {
 	ParcelAtNano    int64
 	ReclaimNotice   bool
 	ReclaimAtNano   int64
+	// DockNotice (ADR 0038 S1) is the absorbed guest's pending "you just got
+	// docked" chip, owed at fuse — round-tripped so a restart between the
+	// fuse and the guest's next tick doesn't drop it.
+	DockNotice bool
+	// ReturnAtNano (ADR 0038 S2) is the release-time stamp a live undock's
+	// subspace-gap placement reads at delivery, generalising ParcelAtNano to
+	// every return, not just Parcels.
+	ReturnAtNano int64
 }
 
 // FullRecords snapshots every live dock in full, converting the parked craft
@@ -85,6 +93,8 @@ func (l *DockLedger) FullRecords() []DockSnapshot {
 			ParcelAtNano:    r.parcelAtNano,
 			ReclaimNotice:   r.reclaimNotice,
 			ReclaimAtNano:   r.reclaimAtNano,
+			DockNotice:      r.dockNotice,
+			ReturnAtNano:    r.returnAtNano,
 		})
 	}
 	return out
@@ -118,6 +128,8 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 			parcelAtNano:    s.ParcelAtNano,
 			reclaimNotice:   s.ReclaimNotice,
 			reclaimAtNano:   s.ReclaimAtNano,
+			dockNotice:      s.DockNotice,
+			returnAtNano:    s.ReturnAtNano,
 		}
 		l.records[rec.ID] = rec
 		if rec.ID >= l.nextID {

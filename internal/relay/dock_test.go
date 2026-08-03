@@ -109,8 +109,16 @@ func TestCrossPlayerDockHandshakeAndUndock(t *testing.T) {
 	if !ok {
 		t.Fatalf("B did not get craft %d back", guestID)
 	}
-	if got.State.R != stackR || got.State.V != stackV {
-		t.Errorf("returned craft state %v/%v != stack seam %v/%v", got.State.R, got.State.V, stackR, stackV)
+	// ADR 0038 §4/§5: the returned craft clears the seam by the separation
+	// push rather than landing frozen on top of it (was an exact-equality
+	// check pre-0038 — see TestLiveUndockPushesClearOfTheStack for the push
+	// magnitude and TestLiveUndockPlacesAcrossSubspaceGap for the
+	// subspace-gap propagation this generalises from the Parcel-only path).
+	if d := got.State.R.Sub(stackR).Norm(); d <= sim.DockingDistM {
+		t.Errorf("returned craft state %v is only %v m from stack seam %v — inside the docking gate", got.State.R, d, stackR)
+	}
+	if dv := got.State.V.Sub(stackV).Norm(); dv <= sim.DockingVMS {
+		t.Errorf("returned craft closing rate %v is only %v m/s from the seam — inside the docking gate", got.State.V, dv)
 	}
 	if !hasChip(uChips, sim.SessionEventUndocked) {
 		t.Errorf("no undocked chip: %+v", uChips)
@@ -119,9 +127,13 @@ func TestCrossPlayerDockHandshakeAndUndock(t *testing.T) {
 	if len(wA.Crafts) != 1 || sim.StackHasGuest(wA.Crafts[0]) {
 		t.Errorf("A's composite did not revert after undock")
 	}
-	// The dock is fully torn down.
-	if len(ledger.Records()) != 0 {
-		t.Errorf("ledger still holds %d records after undock", len(ledger.Records()))
+	// ADR 0038 §5: the record is held open as the re-arm-by-leaving latch
+	// (Cooldown), not torn down outright — see
+	// TestReArmLatchBlocksImmediateReclaimUntilSeparation for the latch
+	// itself clearing once the pair backs off past ReArmDistM.
+	recs := ledger.Records()
+	if len(recs) != 1 || recs[0].Phase != DockCooldown {
+		t.Errorf("ledger records after undock = %+v, want one Cooldown latch", recs)
 	}
 }
 

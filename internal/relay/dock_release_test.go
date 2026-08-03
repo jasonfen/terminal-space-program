@@ -133,8 +133,12 @@ func TestOwnerReleaseWithTheGuestPresentIsTheNormalUndock(t *testing.T) {
 	if hasChip(gChips, sim.SessionEventParcelReturned) {
 		t.Errorf("a live release arrived as a Parcel: %+v", gChips)
 	}
-	if got.State.R != stackR {
-		t.Errorf("live handback state %v != the seam %v", got.State.R, stackR)
+	// ADR 0038 §4/§5 generalises the Parcel-only separation push to every
+	// live undock (#304): the craft lands clear of the stack, not frozen at
+	// its exact seam — this is what stopped the pair silently re-fusing nine
+	// seconds after undocking.
+	if d := got.State.R.Sub(stackR).Norm(); d <= sim.DockingDistM {
+		t.Errorf("live handback state %v is only %v m from the seam %v — inside the docking gate", got.State.R, d, stackR)
 	}
 }
 

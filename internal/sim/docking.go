@@ -337,6 +337,15 @@ const (
 	DockingVMS   = 0.1  // m/s — typical proximity-ops null-residual.
 )
 
+// ReArmDistM is the re-arm-by-leaving distance (ADR 0038 §5): once a
+// cross-player pair undocks, a fresh Claim() between the SAME pair of craft
+// is refused until they separate past this distance — "back away first,
+// then you can dock again," a rule with no invisible timer for a drift-back
+// to silently outlast. Deliberately past DockingDistM's 50 m gate (the ADR's
+// "~100 m, just outside the gate band") so re-arming isn't a coin-flip right
+// at the boundary the 75 m SeparationPush lands just inside of.
+const ReArmDistM = DockingDistM * 2 // 100 m
+
 // checkDocking scans every craft pair in the same primary frame
 // for a docking-eligible encounter (proximity + relative velocity
 // below the gate). On a match, calls DockCrafts and returns —
