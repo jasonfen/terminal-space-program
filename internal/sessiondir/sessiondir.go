@@ -135,6 +135,10 @@ type DockLink struct {
 	// and its delivery doesn't lose the stamp the Kepler-advance at
 	// delivery needs.
 	ReclaimAtNano int64 `json:"reclaim_at_unix_nano,omitempty"`
+	// DockNotice (ADR 0038 S1) is the absorbed guest's pending "you just got
+	// docked" chip, owed at fuse — round-tripped so a restart between the
+	// fuse and the guest's next tick doesn't drop it.
+	DockNotice bool `json:"dock_notice,omitempty"`
 }
 
 // Meta is the session.json shape.

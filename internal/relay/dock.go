@@ -65,6 +65,13 @@ type DockRecord struct {
 	aborted         bool                   // docker couldn't fuse / the stack is gone — the dock ends
 	releaseAsk      bool                   // owner→own tick: release the guest's component (ADR 0040 §3)
 	releaseAsParcel bool                   // that release is going to a guest who isn't there
+	// dockNotice is owed to the ABSORBED guest at fuse (ADR 0038 S1, #301):
+	// the docker's own reconcile chips itself the instant it fuses the
+	// stack, but the guest's craft left ITS World on an earlier tick with no
+	// moment at all — from that seat a successful dock was indistinguishable
+	// from a crash. Set the instant the docker's side flips Pending→Active;
+	// consumed (and cleared) on the guest's own next reconcile.
+	dockNotice bool
 	// parcel marks a returnPayload the owner released while the guest was
 	// NOT there to receive it live (ADR 0040 §3). It changes what the guest
 	// is told on delivery — a Parcel arrives with an explanation rather than
@@ -489,6 +496,11 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		}
 		r.CompositeID = comp.ID
 		r.Phase = DockActive
+		// ADR 0038 S1 (#301): the guest's own chip can't be raised HERE —
+		// this reconcile is running against the OWNER's World, and chips
+		// returned here are addressed to the owner. Flag it for the guest's
+		// own next reconcile to raise instead.
+		r.dockNotice = true
 		*chips = append(*chips, DockChip{Kind: sim.SessionEventDocked, Handle: r.GuestHandle})
 		return false
 
@@ -624,6 +636,13 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 		return false
 
 	case DockActive:
+		// ADR 0038 S1 (#301): the fuse just happened to me on the owner's
+		// tick, which can't chip a moment into MY session's slate — raise it
+		// here, the first chance this side gets.
+		if r.dockNotice {
+			r.dockNotice = false
+			*chips = append(*chips, DockChip{Kind: sim.SessionEventDocked, Handle: r.OwnerHandle})
+		}
 		// Undock/abort completion: the docker handed my craft back.
 		if r.returnPayload != nil {
 			kind := sim.SessionEventUndocked
