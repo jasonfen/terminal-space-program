@@ -184,6 +184,50 @@ func TestPlanRendezvousNudge_ArrivalSpeedCarriesThrough(t *testing.T) {
 	}
 }
 
+// TestPlanRendezvousNudge_SecondPressReplacesOwnNode — #293: pressing K
+// twice in a row must not stack a second, now-stale node behind the
+// first. The second plant replaces the craft's own previous unfired K
+// node instead of queuing behind it — verified by the node count
+// staying at 1 and the node's stable ID changing (proof the second
+// plant is a fresh re-plant, not a no-op that happened to leave the
+// original node in place).
+func TestPlanRendezvousNudge_SecondPressReplacesOwnNode(t *testing.T) {
+	w := rendezvousSmallLagWorld(t)
+	c := w.ActiveCraft()
+
+	_, err := w.PlanRendezvousNudge()
+	if err != nil {
+		if rendezvousGeometryNotUseful(err) {
+			t.Skipf("small-lag geometry yielded no useful nudge (%v); not a regression", err)
+		}
+		t.Fatalf("PlanRendezvousNudge (1st press): %v", err)
+	}
+	if got := len(c.Nodes); got != 1 {
+		t.Fatalf("after 1st K: expected 1 node, got %d", got)
+	}
+	firstID := c.Nodes[0].ID
+	if firstID == 0 {
+		t.Fatal("first planted node has zero ID")
+	}
+	if c.Nodes[0].AdvisoryKey != AdvisoryKeyRendezvousNudge {
+		t.Errorf("AdvisoryKey = %q, want %q", c.Nodes[0].AdvisoryKey, AdvisoryKeyRendezvousNudge)
+	}
+
+	_, err = w.PlanRendezvousNudge()
+	if err != nil {
+		if rendezvousGeometryNotUseful(err) {
+			t.Skipf("small-lag geometry yielded no useful nudge on 2nd press (%v); not a regression", err)
+		}
+		t.Fatalf("PlanRendezvousNudge (2nd press): %v", err)
+	}
+	if got := len(c.Nodes); got != 1 {
+		t.Fatalf("after 2nd K: expected the node count to STAY at 1 (replace, not stack), got %d", got)
+	}
+	if c.Nodes[0].ID == firstID {
+		t.Error("2nd K plant kept the 1st node's stable ID — expected a fresh re-plant with a new ID")
+	}
+}
+
 // TestPlanRendezvousNudge_NoTarget — without a craft target the
 // planter must reject with ErrRendezvousNoTarget and plant nothing.
 func TestPlanRendezvousNudge_NoTarget(t *testing.T) {

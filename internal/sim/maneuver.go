@@ -1162,12 +1162,17 @@ func (w *World) PlanCircularizeAtApoapsis() (*CircularizePlan, error) {
 		// Already circular (or beyond) at apoapsis — nothing to plant.
 		return nil, ErrCircularizeBadOrbit
 	}
+	// #293: a second C press replaces its own previous unfired
+	// circularize node instead of stacking a stale duplicate behind
+	// it — see the matching comment in PlanRendezvousNudge.
+	w.replaceAdvisoryNode(c, AdvisoryKeyCircularize)
 	w.PlanNode(ManeuverNode{
-		Mode:      spacecraft.BurnPrograde,
-		DV:        dv,
-		Duration:  c.BurnTimeForDV(dv),
-		Event:     spacecraft.TriggerNextApo,
-		PrimaryID: c.Primary.ID,
+		Mode:        spacecraft.BurnPrograde,
+		DV:          dv,
+		Duration:    c.BurnTimeForDV(dv),
+		Event:       spacecraft.TriggerNextApo,
+		PrimaryID:   c.Primary.ID,
+		AdvisoryKey: AdvisoryKeyCircularize,
 	})
 	return &CircularizePlan{
 		DV:        dv,

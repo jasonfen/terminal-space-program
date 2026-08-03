@@ -2430,6 +2430,54 @@ func TestPlanCircularizeAtApoapsisPlantsProgradeNode(t *testing.T) {
 	}
 }
 
+// TestPlanCircularizeAtApoapsisSecondPressReplacesOwnNode — #293: a
+// second C press must replace the craft's own previous unfired
+// circularize node rather than stacking a stale duplicate behind it.
+// Node count stays at 1 and the stable ID changes across the two
+// plants, proving the second call is a fresh re-plant rather than a
+// no-op leaving the original node in place.
+func TestPlanCircularizeAtApoapsisSecondPressReplacesOwnNode(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	const (
+		periAlt = 200e3
+		apoAlt  = 1000e3
+	)
+	rPeri := primaryR + periAlt
+	rApo := primaryR + apoAlt
+	a := (rPeri + rApo) / 2
+	vPeri := math.Sqrt(mu * (2/rPeri - 1/a))
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	c.State.R = frame.ToWorld(orbital.Vec3{X: rPeri})
+	c.State.V = frame.ToWorld(orbital.Vec3{Y: vPeri})
+
+	if _, err := w.PlanCircularizeAtApoapsis(); err != nil {
+		t.Fatalf("PlanCircularizeAtApoapsis (1st press): %v", err)
+	}
+	if got := len(c.Nodes); got != 1 {
+		t.Fatalf("after 1st C: expected 1 node, got %d", got)
+	}
+	firstID := c.Nodes[0].ID
+	if firstID == 0 {
+		t.Fatal("first planted node has zero ID")
+	}
+	if c.Nodes[0].AdvisoryKey != AdvisoryKeyCircularize {
+		t.Errorf("AdvisoryKey = %q, want %q", c.Nodes[0].AdvisoryKey, AdvisoryKeyCircularize)
+	}
+
+	if _, err := w.PlanCircularizeAtApoapsis(); err != nil {
+		t.Fatalf("PlanCircularizeAtApoapsis (2nd press): %v", err)
+	}
+	if got := len(c.Nodes); got != 1 {
+		t.Fatalf("after 2nd C: expected the node count to STAY at 1 (replace, not stack), got %d", got)
+	}
+	if c.Nodes[0].ID == firstID {
+		t.Error("2nd C plant kept the 1st node's stable ID — expected a fresh re-plant with a new ID")
+	}
+}
+
 // TestPlanCircularizeAtApoapsisRejectsBelowAtmosphere — sub-orbital
 // trajectory whose apoapsis sits inside the atmosphere returns
 // ErrCircularizeBelowAtmosphere; planting in the atmosphere would

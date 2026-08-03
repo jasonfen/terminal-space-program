@@ -122,10 +122,15 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// NODES (bottom-right) now also carries any in-flight burn as its
 	// firing head (v0.16). A live burn is safety-critical, so when one is
 	// in flight the chip force-shows — bypassing both the ChipNodes
-	// Settings toggle and F2 declutter — so it can never be hidden. With
-	// nothing burning it honours the toggle + declutter like any chip.
+	// Settings toggle and F2 declutter — so it can never be hidden.
+	// #293 extends the same force-show rationale to the staleness
+	// hazard: once more than one node is queued anywhere, every node
+	// behind the first was computed against an orbit that no longer
+	// exists once the first one fires, so the count must be visible
+	// the same way a live burn is. With ≤1 node queued and nothing
+	// burning, the chip honours the toggle + declutter like any chip.
 	if lines := v.buildNodesChip(w); lines != nil {
-		if v.anyActiveBurn(w) || v.chipEnabled(settings.ChipNodes) {
+		if v.anyActiveBurn(w) || totalQueuedNodes(w) > 1 || v.chipEnabled(settings.ChipNodes) {
 			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines})
 		}
 	}
