@@ -443,6 +443,51 @@ func TestOrbitMetricsAlwaysOnAndLiveBurnForceShows(t *testing.T) {
 	}
 }
 
+// TestNodesChipForceShowsWhenMultipleNodesQueued — #293: staleness is
+// exactly "more than one node queued" (every node after the first fires
+// against an orbit it was never computed for), so 2+ queued nodes
+// force-show the NODES chip past the ChipNodes toggle AND F2 declutter —
+// extending the existing live-burn force-show rationale rather than
+// adding a second, differently-gated one. A single queued node must NOT
+// force-show; it still honours the toggle/declutter like any chip.
+func TestNodesChipForceShowsWhenMultipleNodesQueued(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	// Disable every toggleable Chip (incl. ChipNodes) and declutter, same
+	// setup as the live-burn force-show test.
+	s := settings.Default()
+	for _, chipID := range settings.AllChips {
+		s.SetChip(chipID, false)
+	}
+	v.SetSettings(s)
+	v.SetDeclutter(true)
+
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.Nodes = []spacecraft.ManeuverNode{
+		{Mode: spacecraft.BurnPrograde, DV: 42, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
+	}
+	out := v.Render(w, 0, 120, 40)
+	if strings.Contains(out, "NODES") {
+		t.Errorf("a single queued node must not force-show past the toggle/declutter:\n%s", out)
+	}
+
+	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+		Mode: spacecraft.BurnRetrograde, DV: 7, TriggerTime: w.Clock.SimTime.Add(2 * time.Minute),
+	})
+	out = v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "NODES") {
+		t.Errorf("2+ queued nodes must force-show the NODES chip past the toggle/declutter:\n%s", out)
+	}
+}
+
 // TestOrbitMetricsShowsDirectionIndicator — issue #63: the ORBIT chip
 // carries an explicit prograde/retrograde orbit-direction readout so a
 // genuine reversal is never confused with a projection/shading artifact.

@@ -330,6 +330,21 @@ func (v *OrbitView) buildStagesChip(w *sim.World) []string {
 	}
 }
 
+// totalQueuedNodes sums every craft's planted-but-unfired node count.
+// Shared by buildNodesChip (the "(+N more)" overflow count) and
+// assembleChips's #293 force-show gate — more than one node queued
+// anywhere is exactly the staleness hazard the chip exists to surface,
+// so both read the same total.
+func totalQueuedNodes(w *sim.World) int {
+	total := 0
+	for _, c := range w.Crafts {
+		if c != nil {
+			total += len(c.Nodes)
+		}
+	}
+	return total
+}
+
 // buildNodesChip is the bottom-right burn-schedule chip: any in-flight
 // burn(s) as the firing head, then the planted-node chain summarised as
 // the next node plus a "(+N more → [m])" overflow count. The full
@@ -343,12 +358,7 @@ func (v *OrbitView) buildStagesChip(w *sim.World) []string {
 // hidden by the toggle or declutter.
 func (v *OrbitView) buildNodesChip(w *sim.World) []string {
 	burnLines := v.activeBurnLines(w)
-	total := 0
-	for _, c := range w.Crafts {
-		if c != nil {
-			total += len(c.Nodes)
-		}
-	}
+	total := totalQueuedNodes(w)
 	if len(burnLines) == 0 && total == 0 {
 		return nil
 	}

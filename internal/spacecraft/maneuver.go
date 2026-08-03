@@ -158,6 +158,20 @@ type ManeuverNode struct {
 	// round-trips it additively, following the CurrentAttitudeDir
 	// schema-v6 precedent — no migration.
 	BurnDirUnit orbital.Vec3 `json:",omitempty"`
+	// AdvisoryKey (#293) tags a node planted by a single-keystroke
+	// advisory planner — "K" (PlanRendezvousNudge) or "C"
+	// (PlanCircularizeAtApoapsis) — with which key planted it. A second
+	// press of the SAME key replaces its own previous unfired node
+	// instead of stacking a stale duplicate behind it (the sim layer's
+	// replaceAdvisoryNode matches on this field before planting); a
+	// different advisory key, or an ordinary multi-step plan (H/I/
+	// porkchop/manual), never touches another key's queued node. Empty
+	// string (the zero-value omitempty default) means "not a
+	// replaceable advisory node" — the common case for every node type
+	// that predates this field. Additive zero-value-omitempty, same
+	// precedent as ID / TargetCraftID / PlaneChangeRad / BurnDirUnit —
+	// no save-schema migration needed.
+	AdvisoryKey string `json:",omitempty"`
 }
 
 // TargetCraftIDValue returns the bound target craft's stable ID and

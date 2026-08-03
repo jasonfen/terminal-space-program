@@ -464,6 +464,13 @@ func (w *World) PlanRendezvousNudge() (*planner.RendezvousAdvisory, error) {
 
 	leadBuffer := w.rendezvousLeadBuffer(c, advisory.AxisUnit)
 
+	// #293: a second K press replaces its own previous unfired nudge
+	// node instead of stacking a stale duplicate behind it — every
+	// advisory is computed from the craft's CURRENT orbit, so a node
+	// queued behind an earlier one would fire against an orbit it was
+	// never computed for. Must run before the append below.
+	w.replaceAdvisoryNode(c, AdvisoryKeyRendezvousNudge)
+
 	mode := axisLabelToBurnMode(advisory.Axis)
 	node := ManeuverNode{
 		Mode:          mode,
@@ -478,6 +485,7 @@ func (w *World) PlanRendezvousNudge() (*planner.RendezvousAdvisory, error) {
 		// node ref resolves against the ghost slate (empty for a local
 		// craft target — w.Target.GhostOwner is "" unless Kind==Ghost).
 		TargetGhostOwner: w.Target.GhostOwner,
+		AdvisoryKey:      AdvisoryKeyRendezvousNudge,
 	}
 	w.PlanNode(node)
 	out := advisory

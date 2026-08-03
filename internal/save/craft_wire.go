@@ -115,6 +115,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			TargetCraftID:   n.TargetCraftID,
 			PlaneChangeRad:  n.PlaneChangeRad,
 			BurnDirUnit:     vec3From(n.BurnDirUnit),
+			AdvisoryKey:     n.AdvisoryKey,
 		})
 	}
 	if c.ActiveBurn != nil {
@@ -298,6 +299,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			TargetCraftID:  n.TargetCraftID,
 			PlaneChangeRad: n.PlaneChangeRad,
 			BurnDirUnit:    vec3To(n.BurnDirUnit),
+			AdvisoryKey:    n.AdvisoryKey,
 		})
 	}
 	if wc.ActiveBurn != nil {

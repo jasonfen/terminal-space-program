@@ -344,6 +344,13 @@ type Node struct {
 	// departure). Additive/omitempty, following the CurrentAttitudeDir
 	// precedent; absent → zero vector for non-BurnVector nodes. No migration.
 	BurnDirUnit Vec3 `json:"burn_dir_unit,omitempty"`
+	// AdvisoryKey (#293, additive omitempty) mirrors
+	// spacecraft.ManeuverNode.AdvisoryKey — which single-keystroke
+	// advisory planter ("rendezvous-nudge" / "circularize") planted this
+	// node, so a repeat press still replaces its own reloaded node
+	// instead of stacking behind it. Absent → "", the correct value for
+	// every node type that predates this field. No migration.
+	AdvisoryKey string `json:"advisory_key,omitempty"`
 }
 
 // DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.

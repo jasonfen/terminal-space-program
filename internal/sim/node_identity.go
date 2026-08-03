@@ -54,6 +54,49 @@ func (w *World) EnsureNodeIDs() {
 	}
 }
 
+// Advisory key tags (#293). PlanRendezvousNudge (K) and
+// PlanCircularizeAtApoapsis (C) stamp their planted node's
+// spacecraft.ManeuverNode.AdvisoryKey with one of these so a repeat
+// press replaces its own previous unfired node instead of stacking a
+// stale duplicate behind it — see replaceAdvisoryNode.
+const (
+	AdvisoryKeyRendezvousNudge = "rendezvous-nudge"
+	AdvisoryKeyCircularize     = "circularize"
+)
+
+// replaceAdvisoryNode removes every node on c whose AdvisoryKey matches
+// key before a fresh single-keystroke advisory plant (#293's
+// "replace, don't stack" ruling). No-op when key is empty (guards
+// against accidentally stripping ordinary, non-advisory nodes, which
+// carry the zero-value "" tag) or when no matching node exists (the
+// key's first press).
+//
+// Every node in c.Nodes is by definition unfired — executeDueNodesFor
+// pops fired nodes out of the slice the same tick they fire — so "the
+// craft's own previous UNFIRED node" reduces to exactly this: any
+// currently-queued node carrying the same key. Once a node has fired
+// (moved into c.ActiveBurn or applied instantly) it is already gone
+// from c.Nodes, so a fresh advisory plant after that point starts
+// clean without needing to distinguish fired from unfired itself.
+//
+// Scoped to c's own Nodes slice — replacing an advisory node never
+// touches another craft's queue, and a different AdvisoryKey (e.g. C's
+// node when K is pressed) is left untouched: only the same key's own
+// node is replaced, per the ruling.
+func (w *World) replaceAdvisoryNode(c *spacecraft.Spacecraft, key string) {
+	if key == "" || c == nil {
+		return
+	}
+	kept := c.Nodes[:0]
+	for _, n := range c.Nodes {
+		if n.AdvisoryKey == key {
+			continue
+		}
+		kept = append(kept, n)
+	}
+	c.Nodes = kept
+}
+
 // nodeByID returns the planted node with stable ID nodeID on the craft
 // with stable ID craftID, and ok=false when either no longer resolves —
 // the craft was removed, the node was deleted or re-planted, or an id is
