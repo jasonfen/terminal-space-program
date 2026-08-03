@@ -17,13 +17,13 @@ import (
 // The reasons carry no "rendezvous:" prefix (#285): the flight view
 // labels the refusal at the display layer, exactly as it does for
 // `circularize:` and `save:`, so a prefix here rendered twice
-// ("rendezvous: rendezvous: no craft target") on every K refusal.
+// ("rendezvous: rendezvous: no vessel target") on every K refusal.
 var (
-	ErrRendezvousNoTarget           = transferError("no craft target")
+	ErrRendezvousNoTarget           = transferError("no vessel target")
 	ErrRendezvousDifferentPrimaries = transferError("target around a different primary")
 	ErrRendezvousAlreadyDocked      = transferError("already in DOCK READY range")
 	ErrRendezvousNoImprovement      = transferError("no useful nudge in range")
-	ErrRendezvousNoCraft            = transferError("no active craft")
+	ErrRendezvousNoCraft            = transferError("no active vessel")
 )
 
 // rendezvousAdvisoryCache stores the most recent recommendation so

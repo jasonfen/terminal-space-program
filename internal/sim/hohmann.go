@@ -47,10 +47,10 @@ func (w *World) HohmannPreviewFor(bodyIdx int) HohmannPreview {
 		return HohmannPreview{TargetName: target.EnglishName, Note: "system primary — no orbital radius"}
 	}
 	if w.ActiveCraft() == nil {
-		return HohmannPreview{TargetName: target.EnglishName, Note: "no spacecraft"}
+		return HohmannPreview{TargetName: target.EnglishName, Note: "no vessel"}
 	}
 	if !w.CraftVisibleHere() {
-		return HohmannPreview{TargetName: target.EnglishName, Note: "spacecraft not in this system"}
+		return HohmannPreview{TargetName: target.EnglishName, Note: "vessel not in this system"}
 	}
 
 	var mu, r1, r2 float64

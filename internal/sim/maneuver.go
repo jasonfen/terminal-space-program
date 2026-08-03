@@ -1891,7 +1891,7 @@ func (w *World) fusedIntraPrimaryDeparture(seed planner.TransferPlan, muShared f
 	}
 	depState, ok := physics.KeplerStep(c.State, muShared, waitTime.Seconds())
 	if !ok {
-		return planner.TransferPlan{}, transferError("fused: craft parking orbit not elliptic")
+		return planner.TransferPlan{}, transferError("fused: vessel parking orbit not elliptic")
 	}
 	primary := c.Primary
 	arrEpoch := w.Clock.SimTime.Add(waitTime + seed.TransferDt)
@@ -2339,13 +2339,13 @@ func transferNodeToManeuver(tn planner.TransferNode, now time.Time, craft *space
 
 var (
 	errInvalidTransferTarget = transferError("invalid transfer target body")
-	errNoCraftForTransfer    = transferError("no craft to plan transfer for")
+	errNoCraftForTransfer    = transferError("no vessel to plan transfer for")
 	errNoRefineTarget        = transferError("no pending transfer to refine")
-	errSamePrimaryUseHohmann = transferError("target shares craft's primary — use [H] auto-Hohmann instead of porkchop")
+	errSamePrimaryUseHohmann = transferError("target shares vessel's primary — use [H] auto-Hohmann instead of porkchop")
 
 	// PlanCircularizeAtApoapsis errors. Exported so app.go's status
 	// flash can switch on them with errors.Is. v0.9.4+.
-	ErrNoCraftForCircularize      = transferError("circularize: no active craft")
+	ErrNoCraftForCircularize      = transferError("circularize: no active vessel")
 	ErrCircularizeBelowAtmosphere = transferError("circularize: apoapsis below atmosphere — keep climbing")
 	ErrCircularizeBadOrbit        = transferError("circularize: hyperbolic / degenerate orbit")
 )

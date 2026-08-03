@@ -15,7 +15,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-var errNoActiveCraftToCopy = errors.New("spawn: no active craft to copy")
+var errNoActiveCraftToCopy = errors.New("spawn: no active vessel to copy")
 
 // surfaceSpawnPosVel computes the **primary-relative** position and
 // velocity of a point on `primary`'s rotating surface at the given
