@@ -36,8 +36,10 @@ func TestRendezvousRangeOnlyHandoffAtTau(t *testing.T) {
 	if w.rendezvousWarpEngaged() {
 		t.Error("coast still engaged at τ inside couple range — a fast arrival must still hand the ship back")
 	}
-	if w.RendezvousArm != nil {
-		t.Error("arm not released at τ inside couple range")
+	// ADR 0037 §1: the driver goes, the agreement is demoted — the pair
+	// stays time-locked through the braking burns that follow.
+	if w.RendezvousArm == nil || !w.RendezvousArm.Approach {
+		t.Errorf("arm not demoted to the approach phase at τ inside couple range: %+v", w.RendezvousArm)
 	}
 	if w.Clock.WarpIdx != 0 {
 		t.Errorf("did not drop to 1× at arrival: WarpIdx = %d", w.Clock.WarpIdx)

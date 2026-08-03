@@ -908,8 +908,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.toast(fmt.Sprintf("can't join %s — subspace gap, %s", inv.Handle, advice))
 				return a, nil
 			}
-			if a.world.EngageRendezvousWarp(inv.Owner, inv.Handle, inv.Tau, inv.CA) {
-				a.toast(fmt.Sprintf("rendezvous with %s — coasting to the encounter together", inv.Handle))
+			// Joining takes the COPILOT seat (ADR 0037 §2): the initiator
+			// flies the pair's clock through the terminal phase and you may
+			// brake it down or cancel out, never push it faster. Say so at
+			// the moment the seat is taken — it is the only point where the
+			// asymmetry is a choice rather than a surprise.
+			if a.world.EngageRendezvousWarpAs(inv.Owner, inv.Handle, inv.Tau, inv.CA, false) {
+				a.toast(fmt.Sprintf("rendezvous with %s — coasting together; you fly copilot ([,] brakes the pair, [/] cancels)", inv.Handle))
 			} else {
 				a.toast(fmt.Sprintf("can't join %s — the encounter time has passed", inv.Handle))
 			}
@@ -2020,7 +2025,10 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		switch {
 		case !ok:
 			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
-		case a.world.EngageRendezvousWarp(cmd.Owner, cmd.Handle, tau, ca):
+		// The seat is fixed here (ADR 0037 §2): proposing the rendezvous
+		// makes you pilot-in-command of the pair's time once the terminal
+		// phase begins.
+		case a.world.EngageRendezvousWarpAs(cmd.Owner, cmd.Handle, tau, ca, true):
 			// Name the acting craft (#295): arming acts on whatever slot is
 			// active, and a player who cycled it earlier has no other way to
 			// catch a wrong-vessel arm before the invitation goes out.

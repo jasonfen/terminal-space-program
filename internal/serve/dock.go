@@ -53,11 +53,47 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 		w.CoWarp = w.CoWarp.WithDockCoupling(w.DockGuest.OwnerHandle, w.DockGuest.OwnerEffWarp)
 	}
 
+	// Docking is one of the two ways a standing rendezvous agreement ends
+	// (ADR 0037 §1) — the other is an explicit cancel. Once the pair are
+	// one stack there is no rendezvous left to hold, and the dock's own
+	// coupling takes over the warp lock. Clearing the transition memory
+	// alongside suppresses the cancel chip: this is the rendezvous
+	// succeeding, and "docked with X" already says so.
+	if arm := w.RendezvousArm; arm != nil && m.dockedWith(arm.TargetOwner) {
+		if w.EndRendezvousOnDock(arm.TargetOwner) {
+			m.rzPartnerOwner, m.rzPartnerHandle = "", ""
+		}
+	}
+
 	// Persist the durable cross-ref on any transition so a reconnecting guest
 	// resumes.
 	if changed {
 		_ = m.srv.persistDocks()
 	}
+}
+
+// dockedWith reports whether this session and partner share a FUSED
+// cross-player dock, in either direction (ADR 0037 §1's dock end
+// condition — the seat that owns the stack flips on transfer, so the
+// check must not care which side is which). Deliberately DockActive only:
+// a pending claim is a dock being attempted, and it can still abort back
+// to two free craft — ending the agreement on the claim would drop the
+// pair's time lock in the middle of the approach that the claim is part
+// of, which is the exact failure ADR 0037 exists to fix.
+func (m *reportingModel) dockedWith(partner string) bool {
+	if m.srv == nil || partner == "" {
+		return false
+	}
+	for _, r := range m.srv.dock.Records() {
+		if r.Phase != relay.DockActive {
+			continue
+		}
+		if (r.Owner == m.owner && r.GuestOwner == partner) ||
+			(r.GuestOwner == m.owner && r.Owner == partner) {
+			return true
+		}
+	}
+	return false
 }
 
 // persistDocks writes the dock ledger's current durable cross-ref to disk under

@@ -217,6 +217,37 @@ type RendezvousArm struct {
 	Tau         time.Time // the current waypoint's absolute encounter sim-time
 	CommittedCA float64   // m — the predicted approach at Tau, re-derived per waypoint (HUD "committed" row)
 
+	// Initiator is this side's SEAT in the agreement (ADR 0037 §2), fixed
+	// at invite time: the player who proposed the rendezvous is
+	// pilot-in-command of the pair's time, the accepter takes the copilot
+	// seat. Captured at Engage and relayed, so both sides agree on roles
+	// under reconnect. When neither side (or both) claims the seat — an
+	// older peer, or two crossed invites — the rate rule degrades to
+	// today's symmetric min-wins rather than guessing.
+	Initiator bool
+
+	// Approach demotes the agreement to the TERMINAL PHASE (ADR 0037 §1).
+	// Set at the τ handoff, where #299's release still ends the driver and
+	// hands the ship back at 1× — but the mutual intent survives, so the
+	// pair stays time-locked through the braking burns, waits, and gate
+	// creep of the final approach (#302). There is deliberately no distance
+	// tripwire: a pilot who swings 100 km wide is still rendezvousing. The
+	// agreement ends only on dock or an explicit cancel by either side.
+	Approach bool
+
+	// BrakeIdx is the COPILOT's downward-only rate selection inside the
+	// terminal phase (ADR 0037 §2): an index into WarpFactors, or -1 while
+	// following the initiator. The copilot's warp keys move it — down
+	// brakes the pair, up releases back toward following — and it can only
+	// ever lower the pair's rate, never push it. Meaningless (and left at
+	// its -1 "following" value) in the initiator's seat.
+	//
+	// The zero value is 0, i.e. a 1× brake, which is wrong for a fresh
+	// arm — EngageRendezvousWarpAs stamps -1 explicitly, and the τ handoff
+	// re-stamps it, so no arm ever reaches the terminal phase with an
+	// unintended brake.
+	BrakeIdx int
+
 	// degradeBaseCA is the hold-τ warning baseline: the most recent
 	// HEALTHY approach measured while the shared coast runs (v0.29
 	// review, re-based per #251). CommittedCA can't serve as the baseline
@@ -373,7 +404,14 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 				// DriveRendezvousWarp runs before ComputeCoWarp each tick.
 				// Armed-but-not-yet-coasting keeps min-wins (nothing seeds
 				// the rate up yet, and the couple must not outrun the gate).
-				clampExempt = w.rendezvousWarpEngaged()
+				// The demoted TERMINAL phase is exempt for the same reason
+				// the coast is (ADR 0037 §1/§2): its rate is the initiator's
+				// selection, derived from inputs neither side reads back off
+				// the other, so feeding the partner's stale post-clamp report
+				// into the min would reintroduce the #248 ratchet in
+				// precisely the phase where a pilot is trying to warp between
+				// braking burns.
+				clampExempt = w.rendezvousRateGoverned()
 			default:
 				if rng, vrel, ok := closestApproach(anchor, p.Crafts); ok {
 					coupledNow = coupleDecide(wasCoupled, rng, vrel)
