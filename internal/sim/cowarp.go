@@ -324,6 +324,21 @@ type RendezvousArm struct {
 	degradeBaseAt  time.Time
 	degradeBaseSet bool
 
+	// PrevCommittedCA / PrevCommittedCASet (ADR 0039 S3, #281): the CA at
+	// the waypoint immediately before the current one, captured by
+	// resolveRendezvousWaypoint just before it overwrites CommittedCA on
+	// an advance. Feeds the RENDEZVOUS chip's trend row — "did the last
+	// waypoint get better or worse" — a question the degrade watchdog
+	// above can't answer, because its own baseline re-bases with the
+	// drift it's supposed to catch (see degradeBaseCA's doc comment): a
+	// standing intent that worsens by a little every waypoint never trips
+	// it, since each re-derivation re-commits a fresh (worse) baseline.
+	// Unset before the first waypoint advance, so the chip stays silent
+	// until there are two committed CAs to compare — a single point has
+	// no trend.
+	PrevCommittedCA    float64
+	PrevCommittedCASet bool
+
 	// peerGoneAt is the sim-time the partner's report first vanished from
 	// the peer set entirely while the coast sat at/after τ (#252 review,
 	// finding 3) — zero while the peer is present. A one-tick dropout at

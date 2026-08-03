@@ -731,6 +731,11 @@ func (w *World) resolveRendezvousWaypoint(arm *RendezvousArm, partner *CoWarpPee
 	}
 	arm.peerGoneAt = time.Time{} // peer back inside the grace — full window next time
 	if tau, ca, ok := w.rendezvousNextWaypoint(partner); ok {
+		// ADR 0039 S3: capture the outgoing CA as the trend row's "previous"
+		// point before it's overwritten — must happen every advance, not
+		// just the first, so the trend always compares the two most recent
+		// waypoints.
+		arm.PrevCommittedCA, arm.PrevCommittedCASet = arm.CommittedCA, true
 		arm.Tau, arm.CommittedCA = tau, ca
 		arm.degradeBaseSet = false // per-waypoint re-baseline (#251 interaction)
 		w.AutoWarp.T = tau

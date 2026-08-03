@@ -921,7 +921,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the moment the seat is taken — it is the only point where the
 			// asymmetry is a choice rather than a surprise.
 			if a.world.EngageRendezvousWarpAs(inv.Owner, inv.Handle, inv.Tau, inv.CA, false) {
-				a.toast(fmt.Sprintf("rendezvous with %s — coasting together; you fly copilot ([,] brakes the pair, [/] cancels)", inv.Handle))
+				a.toast(fmt.Sprintf("rendezvous with %s — coasting together; you fly copilot ([,] brakes the pair, [/] cancels)%s",
+					inv.Handle, rendezvousGapNoteSuffix(a.world, inv.CA)))
 			} else {
 				a.toast(fmt.Sprintf("can't join %s — the encounter time has passed", inv.Handle))
 			}
@@ -2088,8 +2089,8 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 			// Name the acting craft (#295): arming acts on whatever slot is
 			// active, and a player who cycled it earlier has no other way to
 			// catch a wrong-vessel arm before the invitation goes out.
-			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join",
-				cmd.Handle, screens.CraftTag(a.world.RendezvousArm.CraftName))
+			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join%s",
+				cmd.Handle, screens.CraftTag(a.world.RendezvousArm.CraftName), rendezvousGapNoteSuffix(a.world, ca))
 		default:
 			a.statusMsg = fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle)
 		}
@@ -2231,6 +2232,19 @@ func (a *App) toggleAutoWarpBurn() bool {
 
 // toast flashes a transient one-line notice in the HUD footer for ~3s
 // (the generic sibling of flashStatus, which is F5/F9-specific).
+// rendezvousGapNoteSuffix appends the ADR 0039 S3 gap note to an Engage
+// success message when the committed CA is far above the couple/lock
+// gate — "" otherwise, so callers can splice it in unconditionally.
+// Named at the display layer (the message text) over sim.World's
+// RendezvousNeedsBurnToClose (the domain judgment), mirroring how
+// refusal reasons are composed elsewhere in this file.
+func rendezvousGapNoteSuffix(w *sim.World, ca float64) string {
+	if !w.RendezvousNeedsBurnToClose(ca) {
+		return ""
+	}
+	return " — a burn will be needed to close this"
+}
+
 func (a *App) toast(msg string) {
 	a.statusMsg = msg
 	a.statusExpires = time.Now().Add(3 * time.Second)

@@ -194,6 +194,27 @@ const rendezvousCommitHorizonSec = 4 * 3600.0
 // useful nudge (the encounter is already set up). ok=false when no
 // encounter can be found at all: no relative target, cross-primary, or
 // no approach inside the horizon — the App toasts instead of arming.
+// rendezvousGapNoteBar is the "far above the lock gate" bar for the
+// engage-time gap note (ADR 0039 S3, #281): a generous multiple of the
+// couple gate, not "just outside" it — a committed CA a little past
+// coWarpCoupleRangeM is still a normal near-miss the coast can plausibly
+// narrow on its own across waypoints. This only fires once riding
+// waypoints alone plainly will not close it — #281's live case grew
+// 4,400 km → 11,049 km, orders of magnitude past this bar, with nothing
+// on screen ever saying a burn was needed.
+const rendezvousGapNoteBar = 3 * coWarpCoupleRangeM // 105 km
+
+// RendezvousNeedsBurnToClose reports whether a committed CA is far
+// enough above the couple/lock gate that a deliberate burn — not just
+// riding waypoints — will be needed to actually close it (ADR 0039 S3).
+// Called at Engage time on both sides (the initiator's own commit and
+// the responder's join, which adopts the same τ/CA off the wire) so the
+// choice to coast toward a wide encounter is visible up front rather
+// than discovered after riding it for days.
+func (w *World) RendezvousNeedsBurnToClose(ca float64) bool {
+	return ca >= rendezvousGapNoteBar
+}
+
 func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	if adv, aok := w.RecommendedRendezvousBurn(); aok && adv.Ok {
 		return w.Clock.SimTime.Add(time.Duration(adv.TArrival * float64(time.Second))), adv.AchievableCA, true
