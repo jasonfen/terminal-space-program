@@ -171,6 +171,130 @@ func TestGuestPressingJRoutesToReclaim(t *testing.T) {
 	}
 }
 
+// TestReclaimSurvivesAPersistFailure: the worst finding in the review of
+// ADR 0040 S4. reclaimFromEmptySeat used to discard persistDocks' error with
+// `_ = s.persistDocks()` AFTER the stack had already been removed from the
+// absent owner's saved program and granted in the in-memory ledger. If that
+// persist failed, the only remaining copy of the stack lived in memory —
+// exactly the #311 failure shape this whole PR exists to close, just moved
+// one call deeper. The fix must surface the failure to the caller and must
+// not leave the stack in neither the owner's save nor a persisted ledger.
+func TestReclaimSurvivesAPersistFailure(t *testing.T) {
+	const absentFP = "SHA256:gern"
+	dir := t.TempDir()
+	srv := serverOver(t, dir)
+	enrollDirect(t, srv, absentFP, "gern")
+	rec := parkedStackFor(t, srv, absentFP, sessiondir.HostFingerprint)
+	if err := srv.persistDocks(); err != nil {
+		t.Fatalf("test setup: persistDocks: %v", err)
+	}
+
+	// Make the ledger's own persist fail from here on: session.json's
+	// directory becomes unwritable, so SetDocks's tmpfile+rename can't
+	// land. The per-player payload directory is untouched, so SavePlayer
+	// still works — only the ledger flush breaks.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	err := srv.reclaimFromEmptySeat(rec, sessiondir.HostFingerprint)
+	if err == nil {
+		t.Fatalf("reclaim reported success while the ledger persist failed — the grant exists only in memory")
+	}
+
+	_ = os.Chmod(dir, 0o755) // restore so the assertions below can read state
+
+	after, loadErr := srv.store.LoadPlayer(absentFP)
+	if loadErr != nil {
+		t.Fatalf("LoadPlayer: %v", loadErr)
+	}
+	_, _, inOwnerSave := after.CraftByID(rec.CompositeID)
+
+	recs := srv.dock.FullRecords()
+	var inLedger bool
+	for _, r := range recs {
+		if r.ID == rec.ID && r.TransferPayload != nil {
+			inLedger = true
+		}
+	}
+
+	if !inOwnerSave && !inLedger {
+		t.Fatalf("the stack exists in neither the owner's save nor the ledger after a failed persist — it is lost")
+	}
+}
+
+// TestReclaimAdvancesTheStackToCurrentTime: S4 review finding. The reclaimed
+// stack used to arrive verbatim from the absent owner's hours-old persisted
+// payload — no orbital advance — so it showed up kilometres from where it
+// actually is by the reclaimer's current sim-time. Parcels already fix this
+// at delivery via sim.PlaceAcrossSubspaceGap (see reconcileGuest's r.parcel
+// branch); the reclaimed stack must get the same treatment, the same way,
+// at the reclaimer's delivery.
+func TestReclaimAdvancesTheStackToCurrentTime(t *testing.T) {
+	const absentFP = "SHA256:gern"
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, absentFP, "gern")
+
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	guest := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	guest.Primary = w.ActiveCraft().Primary
+	guest.State = w.ActiveCraft().State
+	guest.ID = 300
+	w.AdoptCraft(guest, false)
+	comp, _, ok := w.DockGuestCraft(0, guest, sessiondir.HostFingerprint)
+	if !ok {
+		t.Fatalf("DockGuestCraft refused")
+	}
+	preState := comp.State
+	primary := comp.Primary
+	capturedAt := w.Clock.SimTime
+
+	if err := srv.store.SavePlayer(absentFP, w); err != nil {
+		t.Fatalf("SavePlayer: %v", err)
+	}
+	rec := relay.DockRecord{
+		ID: 41, Owner: absentFP, OwnerHandle: "gern", DockerCraftID: 1,
+		CompositeID: comp.ID, GuestOwner: sessiondir.HostFingerprint, GuestHandle: "host",
+		GuestCraftID: 300, Phase: relay.DockActive,
+	}
+	srv.dock.SeedFull([]relay.DockSnapshot{{
+		ID: rec.ID, Owner: rec.Owner, OwnerHandle: rec.OwnerHandle, DockerCraftID: rec.DockerCraftID,
+		CompositeID: rec.CompositeID, GuestOwner: rec.GuestOwner, GuestHandle: rec.GuestHandle,
+		GuestCraftID: rec.GuestCraftID, Phase: rec.Phase,
+	}}, nil)
+
+	if err := srv.reclaimFromEmptySeat(rec, sessiondir.HostFingerprint); err != nil {
+		t.Fatalf("reclaim refused: %v", err)
+	}
+
+	// Delivery happens hours later, on the reclaimer's own clock.
+	wRecipient, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	wRecipient.Crafts = nil
+	wRecipient.Clock.SimTime = capturedAt.Add(6 * time.Hour)
+	srv.dock.Reconcile(wRecipient, sessiondir.HostFingerprint, nil)
+
+	if len(wRecipient.Crafts) != 1 {
+		t.Fatalf("reclaimer holds %d craft after delivery, want 1", len(wRecipient.Crafts))
+	}
+	got := wRecipient.Crafts[0]
+
+	expected := &spacecraft.Spacecraft{State: preState, Primary: primary}
+	if !sim.PlaceAcrossSubspaceGap(expected, wRecipient.Clock.SimTime.Sub(capturedAt).Seconds()) {
+		t.Fatalf("test setup: PlaceAcrossSubspaceGap on the reference craft failed")
+	}
+	if got.State.R != expected.State.R || got.State.V != expected.State.V {
+		t.Errorf("delivered stack state = %+v, want Kepler-advanced to current time %+v (still at the stale capture-time state: %v)",
+			got.State, expected.State, got.State.R == preState.R)
+	}
+}
+
 // TestSupervisorRestartAnnouncesAndNeverGates (ADR 0040 §6): the stop signal
 // the hourly auto-adopt sends fires the restart moment before the listener
 // drains — and it fires with docks live, because with a durable ledger a

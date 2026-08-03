@@ -39,9 +39,22 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 	}
 
 	// Advance every dock touching this session against its World.
+	craftsBefore := len(w.Crafts)
 	chips := m.srv.dock.Reconcile(w, m.owner, reports)
 	for _, c := range chips {
 		m.localEvents = append(m.localEvents, sim.SessionEvent{Kind: c.Kind, Handle: c.Handle, At: now})
+		changed = true
+	}
+	// The guest side of a DockPending record parks its craft on the record
+	// (reconcileGuest lifts it out of w and into the ledger's in-memory
+	// payload) without producing a chip — nothing player-facing happened
+	// yet, so the chip loop above never sets changed. But that parking IS
+	// the moment the craft's only copy moves off this World and onto the
+	// ledger, so it needs the same flush a chip-producing transition gets:
+	// a restart between here and whatever later transition happens to flush
+	// would otherwise drop the craft silently (ADR 0040 review). A changed
+	// craft count is the observable trace of that move.
+	if len(w.Crafts) != craftsBefore {
 		changed = true
 	}
 
@@ -111,6 +124,10 @@ func (m reportingModel) transferControl() (tea.Model, tea.Cmd) {
 	}
 	ok, why := m.srv.dock.RequestTransfer(m.owner, m.srv.presence.isOnline)
 	if ok {
+		// The ask lives only in the in-process ledger until this lands — a
+		// restart before some later, unrelated transition happens to flush
+		// it would silently drop the request (ADR 0040 review).
+		_ = m.srv.persistDocks()
 		return m, nil
 	}
 	m.localEvents = append(m.localEvents, sim.SessionEvent{
@@ -127,6 +144,9 @@ func (m reportingModel) transferControl() (tea.Model, tea.Cmd) {
 func (m reportingModel) releaseGuest() (tea.Model, tea.Cmd) {
 	ok, why := m.srv.dock.RequestRelease(m.owner, m.srv.presence.isOnline)
 	if ok {
+		// Same reasoning as RequestTransfer above: flush the ask now rather
+		// than leaving it to whatever transition happens to come next.
+		_ = m.srv.persistDocks()
 		return m, nil
 	}
 	m.localEvents = append(m.localEvents, sim.SessionEvent{
@@ -166,7 +186,7 @@ func dockLinksToSnapshots(links []sessiondir.DockLink) []relay.DockSnapshot {
 			TransferTo: l.TransferTo, Aborted: l.Aborted,
 			ReleaseAsk: l.ReleaseAsk, ReleaseAsParcel: l.ReleaseAsParcel,
 			Parcel: l.Parcel, ParcelAtNano: l.ParcelAtNano,
-			ReclaimNotice: l.ReclaimNotice,
+			ReclaimNotice: l.ReclaimNotice, ReclaimAtNano: l.ReclaimAtNano,
 		})
 	}
 	return out
@@ -188,7 +208,7 @@ func snapshotsToDockLinks(snaps []relay.DockSnapshot) []sessiondir.DockLink {
 			TransferTo: r.TransferTo, Aborted: r.Aborted,
 			ReleaseAsk: r.ReleaseAsk, ReleaseAsParcel: r.ReleaseAsParcel,
 			Parcel: r.Parcel, ParcelAtNano: r.ParcelAtNano,
-			ReclaimNotice: r.ReclaimNotice,
+			ReclaimNotice: r.ReclaimNotice, ReclaimAtNano: r.ReclaimAtNano,
 		})
 	}
 	return out

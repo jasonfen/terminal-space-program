@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -75,9 +76,37 @@ func (s *Server) reclaimFromEmptySeat(rec relay.DockRecord, reclaimer string) er
 	if err := s.store.SavePlayer(rec.Owner, w); err != nil {
 		return fmt.Errorf("their program could not be written: %w", err)
 	}
-	if !s.dock.GrantReclaim(rec.ID, reclaimer, stack) {
+	// w.Clock.SimTime is the absent owner's sim-time as of the payload this
+	// stack came from — the reclaim-review fix (§4 finding): the payload can
+	// be hours stale by the time the reclaimer's own tick delivers it, so
+	// this rides along and reconcileOwner Kepler-advances the stack to the
+	// reclaimer's current sim-time before adopting it, the same way a
+	// Parcel is placed via parcelAtNano.
+	if !s.dock.GrantReclaim(rec.ID, reclaimer, stack, w.Clock.SimTime.UnixNano()) {
 		return errors.New("the dock changed while the stack was being handed over")
 	}
-	_ = s.persistDocks()
+	if err := s.persistDocks(); err != nil {
+		// The grant only lives in the in-process ledger until this persist
+		// lands — a restart before the next successful one would drop the
+		// stack silently, exactly the #311 shape this ledger exists to
+		// close. Undo both halves of the migration so the stack survives
+		// SOMEWHERE durable: back on the owner's saved program, and the
+		// ledger record back to its pre-grant shape. rec is that pre-grant
+		// snapshot — ReclaimTarget took it before GrantReclaim touched
+		// anything.
+		s.dock.RestoreRecord(rec.ID, rec)
+		w.Crafts = append(w.Crafts, stack)
+		if resaveErr := s.store.SavePlayer(rec.Owner, w); resaveErr != nil {
+			// Both halves of the undo failed: the ledger record is back to
+			// pre-grant shape (so it no longer claims to hold the stack),
+			// but the owner's save was never rewritten with the stack back
+			// in it either. The stack now exists only in the in-memory
+			// `stack` this call is about to drop — log loudly, there is no
+			// durable copy left to point at.
+			log.Printf("reclaim: %s's stack could not be saved back after a ledger persist failure (persist: %v, resave: %v) — the stack has no durable copy", rec.Owner, err, resaveErr)
+			return fmt.Errorf("the handover could not be saved, and could not be undone either — get help: %w", err)
+		}
+		return fmt.Errorf("the handover could not be saved, try again: %w", err)
+	}
 	return nil
 }

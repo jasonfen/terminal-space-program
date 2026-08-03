@@ -76,6 +76,16 @@ type DockRecord struct {
 	// their empty seat while they were gone (ADR 0040 §4). Delivered on
 	// their next connect — otherwise their vehicle is simply missing.
 	reclaimNotice bool
+	// reclaimAtNano is the absent owner's sim-time at the moment their stack
+	// was lifted out of their persisted payload (review finding on ADR 0040
+	// §4): the payload can be hours stale by the time the reclaimer's own
+	// tick delivers it, so reconcileOwner Kepler-advances transferPayload to
+	// the reclaimer's current sim-time before adopting it — the same
+	// treatment a Parcel gets via parcelAtNano, just keyed to the reclaim
+	// path since an ordinary control transfer's transferPayload needs none
+	// of this (both sides are live and roughly time-aligned already). Zero
+	// means "not a reclaim-sourced transfer" — nothing to advance.
+	reclaimAtNano int64
 }
 
 // hasParkedPayload reports whether the record is holding a craft that exists
@@ -294,9 +304,15 @@ func (l *DockLedger) ReclaimTarget(guestOwner string, live func(string) bool) (D
 // the dock and the absent player becomes its guest. The returning owner is
 // owed an explanation, which rides the record until they connect.
 //
+// capturedAtNano is the absent owner's sim-time when their payload was
+// loaded — the caller's w.Clock.SimTime at that moment (review finding on
+// ADR 0040 §4). reconcileOwner uses it to Kepler-advance the stack to the
+// reclaimer's current sim-time before adopting it, so it doesn't arrive
+// however many hours stale the owner's absence made the payload.
+//
 // ok is false when the record moved under the caller — a reclaim that raced
 // something else must not be applied to whatever the record became.
-func (l *DockLedger) GrantReclaim(recordID uint64, guestOwner string, stack *spacecraft.Spacecraft) bool {
+func (l *DockLedger) GrantReclaim(recordID uint64, guestOwner string, stack *spacecraft.Spacecraft, capturedAtNano int64) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	r, ok := l.records[recordID]
@@ -308,11 +324,28 @@ func (l *DockLedger) GrantReclaim(recordID uint64, guestOwner string, stack *spa
 	sim.RetagStackForTransfer(stack, oldOwner, guestOwner)
 	r.transferPayload = stack
 	r.transferTo = ""
+	r.reclaimAtNano = capturedAtNano
 	r.Owner, r.OwnerHandle = r.GuestOwner, r.GuestHandle
 	r.DockerCraftID = r.GuestCraftID
 	r.GuestOwner, r.GuestHandle = oldOwner, oldOwnerHandle
 	r.GuestCraftID = oldDockerCraftID
 	r.reclaimNotice = true
+	return true
+}
+
+// RestoreRecord overwrites the record at recordID with snapshot verbatim —
+// the undo side of GrantReclaim, used when the migration's persist fails
+// after the grant already landed in memory (ADR 0040 §4 review). ok is false
+// when the record is no longer there to restore (it moved or ended under the
+// caller); the caller owns deciding what that means.
+func (l *DockLedger) RestoreRecord(recordID uint64, snapshot DockRecord) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	r, ok := l.records[recordID]
+	if !ok {
+		return false
+	}
+	*r = snapshot
 	return true
 }
 
@@ -417,6 +450,18 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 	// swapped on the old owner's tick). Adopt the migrated composite into
 	// this World and fly it — the new owner is no longer a guest.
 	if r.transferPayload != nil {
+		// Reclaim-sourced arrivals carry a capture-time stamp because the
+		// payload came out of the absent owner's persisted program rather
+		// than a live tick — it can be hours stale by the time this delivers
+		// (review finding on ADR 0040 §4). Kepler-advance it to now, the same
+		// way a Parcel is placed via parcelAtNano. An ordinary control
+		// transfer's payload has no stamp (both sides are live and already
+		// time-aligned) and is adopted verbatim, as before.
+		if r.reclaimAtNano != 0 {
+			dt := w.Clock.SimTime.Sub(time.Unix(0, r.reclaimAtNano)).Seconds()
+			sim.PlaceAcrossSubspaceGap(r.transferPayload, dt)
+			r.reclaimAtNano = 0
+		}
 		w.AdoptCraft(r.transferPayload, true)
 		r.CompositeID = r.transferPayload.ID
 		r.transferPayload = nil

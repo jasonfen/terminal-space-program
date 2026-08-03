@@ -49,6 +49,17 @@ func (s *Server) restartOnSignal(sig <-chan os.Signal, stop <-chan struct{}) {
 	// the listener drains under them. The same grace the admin restart uses.
 	time.Sleep(restartAnnounceGrace)
 	s.drainAndClose()
+	// persistMiddleware (folded into the drain above) only ever writes a
+	// session's OWN craft payload — it knows nothing about the cross-player
+	// dock ledger. ADR 0040 review: every dock mutation is supposed to flush
+	// itself at its own call site now, but this is the last stop before the
+	// process exits, so flush the ledger's current state once more here
+	// regardless — a belt-and-braces backstop against any transition that
+	// reaches the ledger without flushing itself, now or added later. Unlike
+	// drainAndClose, which stopHosting and the admin restart also share and
+	// fire in the background, this runs synchronously on the SIGTERM path,
+	// so there is nothing left to race it before exit.
+	_ = s.persistDocks()
 	// Plain zero: the supervisor asked for this stop and is already going to
 	// relaunch. The 42 marker means "and run the adopt tooling first", which
 	// is precisely what has just happened.

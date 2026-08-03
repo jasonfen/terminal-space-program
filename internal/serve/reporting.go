@@ -125,7 +125,12 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(tui.UndockGuestMsg); ok {
 		if m.srv != nil {
 			if w := m.app.World(); w.DockGuest != nil {
-				m.srv.dock.RequestUndock(m.owner, w.DockGuest.GuestCraftID)
+				if m.srv.dock.RequestUndock(m.owner, w.DockGuest.GuestCraftID) {
+					// The ask lives only in the in-process ledger until this
+					// lands — same unflushed-window fix as RequestTransfer /
+					// RequestRelease (ADR 0040 review).
+					_ = m.srv.persistDocks()
+				}
 			}
 		}
 		return m, nil

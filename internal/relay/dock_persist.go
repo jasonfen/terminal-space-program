@@ -55,6 +55,7 @@ type DockSnapshot struct {
 	Parcel          bool
 	ParcelAtNano    int64
 	ReclaimNotice   bool
+	ReclaimAtNano   int64
 }
 
 // FullRecords snapshots every live dock in full, converting the parked craft
@@ -83,6 +84,7 @@ func (l *DockLedger) FullRecords() []DockSnapshot {
 			Parcel:          r.parcel,
 			ParcelAtNano:    r.parcelAtNano,
 			ReclaimNotice:   r.reclaimNotice,
+			ReclaimAtNano:   r.reclaimAtNano,
 		})
 	}
 	return out
@@ -115,6 +117,7 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 			parcel:          s.Parcel,
 			parcelAtNano:    s.ParcelAtNano,
 			reclaimNotice:   s.ReclaimNotice,
+			reclaimAtNano:   s.ReclaimAtNano,
 		}
 		l.records[rec.ID] = rec
 		if rec.ID >= l.nextID {
