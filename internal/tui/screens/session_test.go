@@ -64,8 +64,8 @@ func TestSessionScreenRows(t *testing.T) {
 
 	for _, want := range []string{
 		"jason", "(host, you)",
-		"gern", "Sol/moon", "1 craft", "+2d4h ahead",
-		"dave", "Lumen/lumen", "3 craft", "-3h0m behind",
+		"gern", "Sol/moon", "1 vessel", "+2d4h ahead",
+		"dave", "Lumen/lumen", "3 vessels", "-3h0m behind",
 		"pat", "—", // never reported
 	} {
 		if !strings.Contains(out, want) {
@@ -643,18 +643,18 @@ func TestSessionScreenGhostPickerSingleCraft(t *testing.T) {
 	}
 }
 
-// The roster row distinguishes craft targetable here from the reported
-// total (v0.30 S6 trap): a "%d craft" count from the report can include
-// landed / other-system craft with zero targetable ghosts in-system.
+// The roster row distinguishes vessels targetable here from the reported
+// total (v0.30 S6 trap): a "%d vessels" count from the report can include
+// landed / other-system vessels with zero targetable ghosts in-system.
 func TestSessionScreenTargetableCount(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
-	// gern reports 3 craft (in the viewer's Sol system) but only one is
+	// gern reports 3 vessels (in the viewer's Sol system) but only one is
 	// a targetable ghost here — the other two are landed.
 	w.Session.Players[1].CraftCount = 3
 	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 1, Handle: "gern", Name: "Scout"}}
 	out := s.Render(w, 120)
-	if !strings.Contains(out, "3 craft (1 here)") {
+	if !strings.Contains(out, "3 vessels (1 here)") {
 		t.Errorf("row should distinguish targetable-here count:\n%s", out)
 	}
 }
@@ -868,13 +868,13 @@ func TestSessionScreenColumnsStayAligned(t *testing.T) {
 
 	// The reported case: promoting must not move gern's columns.
 	before := displayCol(t, rowFor(w, "gern"), "Sol/moon")
-	beforeCraft := displayCol(t, rowFor(w, "gern"), "1 craft")
+	beforeCraft := displayCol(t, rowFor(w, "gern"), "1 vessel")
 	w.Session.Players[1].Role = "admin"
 	if after := displayCol(t, rowFor(w, "gern"), "Sol/moon"); before != after {
 		t.Errorf("promoting shifted the location column: cell %d → %d", before, after)
 	}
-	if after := displayCol(t, rowFor(w, "gern"), "1 craft"); beforeCraft != after {
-		t.Errorf("promoting shifted the craft column: cell %d → %d", beforeCraft, after)
+	if after := displayCol(t, rowFor(w, "gern"), "1 vessel"); beforeCraft != after {
+		t.Errorf("promoting shifted the vessel column: cell %d → %d", beforeCraft, after)
 	}
 
 	// An over-long handle is truncated into its column, not allowed to
@@ -912,19 +912,19 @@ func TestSessionScreenInviteColumnsStayAligned(t *testing.T) {
 // Your own row must never carry the "(N here)" annotation (v0.30.1).
 // The ghost slate deliberately excludes the viewer — you don't ghost
 // yourself — so playerGhosts is always empty for your own fingerprint,
-// and the S6 annotation read "2 craft (0 here)" on every self row with
-// craft. The count is about what YOU can target; it is meaningless
+// and the S6 annotation read "2 vessels (0 here)" on every self row with
+// vessels. The count is about what YOU can target; it is meaningless
 // pointed at yourself.
 func TestSessionScreenSelfRowHasNoTargetableCount(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
-	w := sessionWorld(t, true) // jason is self, 2 craft, in Sol
+	w := sessionWorld(t, true) // jason is self, 2 vessels, in Sol
 	out := stripANSI(s.Render(w, 140))
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "jason") && strings.Contains(line, "here)") {
 			t.Errorf("self row claims a targetable count:\n  %q", line)
 		}
 	}
-	if !strings.Contains(out, "2 craft") {
-		t.Errorf("self row lost its craft count:\n%s", out)
+	if !strings.Contains(out, "2 vessels") {
+		t.Errorf("self row lost its vessel count:\n%s", out)
 	}
 }

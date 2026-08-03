@@ -227,7 +227,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		}
 		g, ok, empty := s.pickGhost(w, p)
 		if empty {
-			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to target"}
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no vessels in this system to target"}
 		}
 		if !ok {
 			return SessionCommand{} // 2+ craft: the sub-list is now open — pick one
@@ -244,7 +244,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		}
 		g, ok, empty := s.pickGhost(w, p)
 		if empty {
-			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to spectate"}
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no vessels in this system to spectate"}
 		}
 		if !ok {
 			return SessionCommand{}
@@ -269,7 +269,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		}
 		g, ok, empty := s.pickGhost(w, p)
 		if empty {
-			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no craft in this system to rendezvous with"}
+			return SessionCommand{Kind: SessionCmdToast, Message: p.Handle + " has no vessels in this system to rendezvous with"}
 		}
 		if !ok {
 			return SessionCommand{}
@@ -362,7 +362,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		// marker the supervisor restarts on. Confirm first (states the
 		// drop count). Host and admins; a guest gets the reason (v0.30.1).
 		if s.inCraftList {
-			return toast("close the craft list first — [esc]")
+			return toast("close the vessel list first — [esc]")
 		}
 		if !info.CanAdminister {
 			return toast("only the host or an admin can restart the server")
@@ -460,7 +460,7 @@ func toast(msg string) SessionCommand {
 // "[x] removes a player".
 func (s *SessionScreen) sectionRefusal(what string) (string, bool) {
 	if s.inCraftList {
-		return "close the craft list first — [esc]", true
+		return "close the vessel list first — [esc]", true
 	}
 	if s.inInvites {
 		return what + " — [tab] back to the roster", true
@@ -563,6 +563,15 @@ const (
 	rowIndent = 6
 )
 
+// vesselNoun returns "vessel" for a count of exactly one and "vessels"
+// otherwise ("vessel" is not its own plural, unlike "craft").
+func vesselNoun(n int) string {
+	if n == 1 {
+		return "vessel"
+	}
+	return "vessels"
+}
+
 // padStyled pads cell with spaces to exactly w terminal cells,
 // measuring display width so ANSI escapes and multi-byte runes don't
 // skew it. Unlike the Saves screen's padCell it neither truncates nor
@@ -624,7 +633,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	b.WriteString(s.theme.Dim.Render(strings.Repeat(" ", rowIndent)+
 		padStyled("PLAYER", colName)+" "+
 		padStyled("LOCATION", colWhere)+" "+
-		padStyled("CRAFT", colCraft)+" "+
+		padStyled("VESSEL", colCraft)+" "+
 		padStyled("RANGE", colRange)+" TIME") + "\n")
 	for i, p := range info.Players {
 		marker := "  "
@@ -691,9 +700,9 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		switch {
 		case !p.HasReport:
 		case p.Fingerprint != info.Self && p.System != "" && p.System == w.System().Name && here < p.CraftCount:
-			craft = fmt.Sprintf("%d craft (%d here)", p.CraftCount, here)
+			craft = fmt.Sprintf("%d %s (%d here)", p.CraftCount, vesselNoun(p.CraftCount), here)
 		default:
-			craft = fmt.Sprintf("%d craft", p.CraftCount)
+			craft = fmt.Sprintf("%d %s", p.CraftCount, vesselNoun(p.CraftCount))
 		}
 		// RANGE (ADR 0037 §5): the live distance to their nearest craft in
 		// your SOI, so the warp-lock neighbourhood is a number you watch
@@ -798,7 +807,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		}
 	}
 
-	keys := "  [t] target craft  [v] spectate  [s] sync-to  [w] rendezvous warp"
+	keys := "  [t] target vessel  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
 		keys += "  [i] invite  [r] revoke code  [x] remove player  " + restartKeyLabel(info)
 	}
