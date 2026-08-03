@@ -10,12 +10,13 @@ import (
 // into the single ErrRendezvousNoImprovement ("no useful nudge in range"),
 // so a genuinely actionable "burn too large" refusal read identically to
 // "no improvement available" (geometry is already optimal) and to a
-// mismatched-shape refusal. This slice (S1) gives each of those a
+// mismatched-shape refusal. rendezvousReasonToErr gives each of those a
 // DISTINCT sentinel with its own remedy text. The four inner Lambert-
 // failure tags ("no lambert convergence", "degenerate axes", "horizon too
-// short", "ca-verify failed") are deliberately NOT split out yet — they
-// still fall back to ErrRendezvousNoImprovement here; S2 gives them their
-// own shared phasing-coach wording.
+// short", "ca-verify failed") are covered separately, by
+// TestRendezvousReasonToErr_S2PhasingCoachBucket below — they share the
+// ADR 0039 §2 phasing-coach wording (ErrRendezvousNoEncounter), not this
+// slice's ErrRendezvousNoImprovement.
 func TestRendezvousReasonToErr_S1DistinctReasons(t *testing.T) {
 	cases := []struct {
 		reason string

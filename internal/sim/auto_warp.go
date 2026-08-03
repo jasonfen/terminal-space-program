@@ -531,6 +531,14 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	if partner != nil && w.rendezvousWarpEngaged() &&
 		partner.RendezvousTau.After(w.Clock.SimTime.Add(rendezvousWaypointMinLead)) &&
 		(partner.RendezvousTau.Before(arm.Tau) || !arm.Tau.After(w.Clock.SimTime)) {
+		// ADR 0039 S3 (batch-review follow-up, PR #319): adoption is a
+		// waypoint transition exactly like resolveRendezvousWaypoint's own
+		// derivation below — the degradeBaseSet reset on the next line
+		// already treats it that way ("a new waypoint means a new
+		// baseline"), so the CA trend row must too, or PrevCommittedCA goes
+		// stale across an adoption and the row can compare across TWO
+		// transitions instead of one, misreporting the direction.
+		arm.PrevCommittedCA, arm.PrevCommittedCASet = arm.CommittedCA, true
 		arm.Tau, arm.CommittedCA = partner.RendezvousTau, partner.RendezvousCA
 		arm.degradeBaseSet = false // a new waypoint means a new baseline (#251 interaction)
 		w.AutoWarp.T = arm.Tau

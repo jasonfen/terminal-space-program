@@ -61,3 +61,52 @@ func TestRendezvousArmTracksPrevCommittedCAOnWaypointAdvance(t *testing.T) {
 		t.Errorf("PrevCommittedCA = %.0f, want the pre-advance CommittedCA %.0f", wa.RendezvousArm.PrevCommittedCA, firstCA)
 	}
 }
+
+// TestRendezvousArmTracksPrevCommittedCAOnMinTauAdoption — batch-review
+// follow-up (PR #319): the min-τ adoption path in DriveRendezvousWarp
+// (partner.RendezvousTau wins, ~auto_warp.go:534) overwrites CommittedCA
+// exactly like resolveRendezvousWaypoint's own-derivation advance does,
+// but — unlike that site — did not stamp PrevCommittedCA/
+// PrevCommittedCASet before this fix. The codebase already treats
+// adoption as a new waypoint everywhere else (the adjacent
+// "degradeBaseSet = false // a new waypoint means a new baseline"), so
+// the trend must too: leaving PrevCommittedCA stale here means the row
+// can compare across TWO waypoint transitions instead of one, rendering
+// "↘ shrinking" when the most recent transition actually grew — an
+// actively misleading readout in the one feature whose whole job is
+// telling the pilot honestly whether they are converging.
+func TestRendezvousArmTracksPrevCommittedCAOnMinTauAdoption(t *testing.T) {
+	w, primary, st := anchorWorld(t)
+	tau := st.Add(time.Hour)
+	w.EngageRendezvousWarp("SHA256:gern", "gern", tau, 900)
+	peer := armPeer(w, primary, st, 50, "gern")
+	peer.RendezvousTau = tau
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+	if !w.rendezvousWarpEngaged() {
+		t.Fatal("precondition: coast engaged")
+	}
+	if w.RendezvousArm.PrevCommittedCASet {
+		t.Fatal("precondition: no waypoint transition has happened yet")
+	}
+	preAdoptionCA := w.RendezvousArm.CommittedCA
+
+	// Partner's earlier τ, past the min lead → adopted (mirrors
+	// TestRendezvousMinTauAdoptionRespectsMinLead).
+	adopt := st.Add(time.Minute)
+	peer.RendezvousTau = adopt
+	peer.RendezvousCA = 12_345
+	w.DriveRendezvousWarp([]CoWarpPeer{peer})
+
+	if !w.RendezvousArm.Tau.Equal(adopt) {
+		t.Fatalf("precondition: adoption did not fire — arm.Tau = %v, want %v", w.RendezvousArm.Tau, adopt)
+	}
+	if w.RendezvousArm.CommittedCA != 12_345 {
+		t.Fatalf("precondition: CommittedCA = %.0f, want the adopted 12345", w.RendezvousArm.CommittedCA)
+	}
+	if !w.RendezvousArm.PrevCommittedCASet {
+		t.Fatal("PrevCommittedCASet not raised on min-τ adoption")
+	}
+	if w.RendezvousArm.PrevCommittedCA != preAdoptionCA {
+		t.Errorf("PrevCommittedCA = %.0f, want the pre-adoption CommittedCA %.0f", w.RendezvousArm.PrevCommittedCA, preAdoptionCA)
+	}
+}
