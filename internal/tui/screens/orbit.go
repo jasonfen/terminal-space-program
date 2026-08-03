@@ -1044,7 +1044,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	craftChip := ""
 	if n := len(w.Crafts); n > 1 {
-		craftChip = fmt.Sprintf(" — CRAFT %d/%d", w.ActiveCraftIdx+1, n)
+		craftChip = fmt.Sprintf(" — VESSEL %d/%d", w.ActiveCraftIdx+1, n)
 	}
 	title := v.renderTitleBar(sys.Name+craftChip, w, totalCols)
 
