@@ -45,6 +45,16 @@ type OrbitView struct {
 	lastViewMode  sim.ViewMode
 	fitted        bool
 
+	// lastCraftHere completes the framing context (#310). Losing the craft
+	// you are focused on changes the framing as surely as changing focus
+	// does, but Focus.Kind stays FocusCraft, so none of the fields above
+	// move: the centre — recomputed every frame — snapped to the system
+	// origin while the scale stayed at the craft's old alt×3 fit, which in
+	// Sol is the Sun at hard magnification with no explanation. Tracking
+	// craft visibility makes losing (or regaining) it a Framing Event, so
+	// FocusZoomRadius' system-wide fall-through actually runs.
+	lastCraftHere bool
+
 	// baseScale is the auto-fit pixels-per-meter the Framing-Event fit
 	// last computed (FocusZoomRadius). userZoom is the player's manual
 	// `+`/`-` multiplier on top of it: the on-screen scale is
@@ -401,11 +411,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// target (body or craft) we still re-center every frame below; this
 	// path only fires when the framing *context* changes, not when the
 	// target moves.
+	craftHere := w.CraftVisibleHere()
 	if v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus ||
-		v.lastViewMode != w.ViewMode || !v.fitted {
+		v.lastViewMode != w.ViewMode || v.lastCraftHere != craftHere || !v.fitted {
 		v.lastSystemIdx = w.SystemIdx
 		v.lastFocus = w.Focus
 		v.lastViewMode = w.ViewMode
+		v.lastCraftHere = craftHere
 		v.fitted = true
 		v.canvas.FitTo(w.FocusZoomRadius())
 		// ADR 0024: a body focused for surface viewing must be zoomed

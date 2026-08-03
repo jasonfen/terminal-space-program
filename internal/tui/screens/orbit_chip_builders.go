@@ -177,6 +177,14 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			plain("◇ undocked from " + e.Handle)
 		case sim.SessionEventTransfer:
 			plain("◇ control handed to " + e.Handle)
+		case sim.SessionEventUndockRefused:
+			// #307: two rows because the second one is the way out — the
+			// refusal alone would leave the player stuck with no next move.
+			rows = append(rows,
+				row{text: "⚠ undock refused — your craft is not on top of the stack", alert: true},
+				row{text: "  have " + e.Handle + " hand control back, then release"})
+		case sim.SessionEventDockLost:
+			rows = append(rows, row{text: "⚠ dock with " + e.Handle + " ended — the stack no longer exists", alert: true})
 		case sim.SessionEventRendezvousDegraded:
 			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
 		case sim.SessionEventWentQuiet:

@@ -640,3 +640,71 @@ func TestBuildNodesChipMergesActiveBurn(t *testing.T) {
 		t.Errorf("chip should be nil with no burn and no nodes, got %v", got)
 	}
 }
+
+// TestEmptySlateSaysSo (#310): with no craft at all the flight view used to
+// render nothing where the VESSEL chip goes, while the camera fell through to
+// the system origin at the old craft-scale zoom — a hard-zoomed star and no
+// explanation. The chip must state the situation and offer the way out, and it
+// must distinguish "you have no craft" from "your craft is riding in someone
+// else's stack", which are different situations with different next moves.
+func TestEmptySlateSaysSo(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Crafts = nil
+	w.ActiveCraftIdx = 0
+
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	if out == "" {
+		t.Fatal("empty craft slate renders nothing — the state the player cannot decode")
+	}
+	if !strings.Contains(out, "empty") {
+		t.Errorf("empty-slate chip does not say the slate is empty:\n%s", out)
+	}
+	if !strings.Contains(out, "[n]") {
+		t.Errorf("empty-slate chip offers no way out:\n%s", out)
+	}
+
+	// Docked as guest: the slate is empty for a reason we know, and "launch a
+	// new flight" would be the wrong advice.
+	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:bob", OwnerHandle: "bob"}
+	out = strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(out, "bob") || !strings.Contains(out, "[u]") {
+		t.Errorf("docked-as-guest empty slate does not name the stack or the release key:\n%s", out)
+	}
+	if strings.Contains(out, "[n]") {
+		t.Errorf("docked-as-guest chip offers a new launch as if the craft were gone:\n%s", out)
+	}
+}
+
+// TestLosingTheCraftRefits (#310): losing every craft is a framing change even
+// though Focus.Kind stays FocusCraft. Without it the centre snaps to the system
+// origin (FocusPosition's fall-through) while the scale stays at the craft's
+// alt×3 fit — the two halves of "the view jumped to the Sun, zoomed hard in"
+// from one cause. The fit must be re-resolved, which lands on the system-wide
+// radius instead.
+func TestLosingTheCraftRefits(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Focus = sim.Focus{Kind: sim.FocusCraft}
+	v.Render(w, 0, 120, 40) // first frame fits to the craft's altitude
+	craftScale := v.baseScale
+	if craftScale <= 0 {
+		t.Fatalf("craft-focused fit produced no scale (%v)", craftScale)
+	}
+
+	w.Crafts = nil // the slate empties — [J] hands the last craft away
+	v.Render(w, 0, 120, 40)
+	if v.baseScale == craftScale {
+		t.Errorf("losing the craft left the camera at the craft-scale fit %v — the Sun at hard zoom", craftScale)
+	}
+	// The system-wide fall-through is a far coarser scale than an orbit fit.
+	if v.baseScale >= craftScale {
+		t.Errorf("post-loss fit %v is not zoomed out relative to the craft fit %v", v.baseScale, craftScale)
+	}
+}

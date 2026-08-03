@@ -90,6 +90,16 @@ const (
 	SessionEventUndocked       // cross-player stack split ("undocked from X", v0.28 S5)
 	SessionEventTransfer       // stack control handed over ("control → X", v0.28 S5)
 
+	// SessionEventUndockRefused: my undock-as-guest was refused on the stack
+	// owner's side — my components are no longer the top of the stack, so
+	// peeling them would swap the two players' vehicles (#307). Addressed at
+	// the guest, who pressed the key and is still docked.
+	SessionEventUndockRefused
+	// SessionEventDockLost: the cross-player stack this dock named no longer
+	// exists (#309) — the craft riding in it went with it. Addressed at the
+	// guest, whose docked-as-guest marker would otherwise just vanish.
+	SessionEventDockLost
+
 	// Rendezvous Warp moments (v0.29 S2) — all local-only: each side's
 	// serve wrapper derives them from its own World transitions.
 	SessionEventRendezvousArmed     // a partner armed toward you ("X wants to rendezvous")

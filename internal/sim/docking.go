@@ -23,21 +23,10 @@ import (
 // AttitudeMode / EngineMode are dropped — they were tied to the
 // composite, which no longer exists.
 func (w *World) Undock(idx int) bool {
-	if idx < 0 || idx >= len(w.Crafts) {
+	if w.UndockRefusal(idx) != "" {
 		return false
 	}
 	c := w.Crafts[idx]
-	if c == nil || len(c.DockedComponents) < 2 {
-		return false
-	}
-	// v0.28 S5: a cross-player stack must not be split locally — that would
-	// clone the guest's craft into this (the owner's) World while the guest
-	// still believes it's docked. The guest undocks their own component
-	// through the dock ledger (UndockGuest); this local path handles only
-	// same-player composites (every component owned by this World).
-	if StackHasGuest(c) {
-		return false
-	}
 
 	// v0.12 / ADR 0009: decide whether the composite carries a full
 	// per-component stage breakdown. When every component records its
@@ -158,6 +147,34 @@ func (w *World) Undock(idx int) bool {
 	w.SetActiveCraftIdx(idx)
 	w.StopManualBurn()
 	return true
+}
+
+// UndockRefusal says, in the player's words, why Undock(idx) will refuse — or
+// "" when it will split the composite. It is exhaustive over Undock's false
+// paths BY CONSTRUCTION: Undock consults it instead of re-deriving the
+// conditions, so the two cannot drift and a refused `U` can never be silent
+// (#308 — live, a legitimate refusal read as "undock is broken" and cost an
+// evening of diagnosis from the wrong premise).
+//
+// Each string names the situation and, where there is one, the way out. The
+// caller renders it verbatim.
+func (w *World) UndockRefusal(idx int) string {
+	if idx < 0 || idx >= len(w.Crafts) || w.Crafts[idx] == nil {
+		return "undock: no vessel selected"
+	}
+	c := w.Crafts[idx]
+	if len(c.DockedComponents) < 2 {
+		return "undock: nothing is docked to this vessel"
+	}
+	// v0.28 S5: a cross-player stack must not be split locally — that would
+	// clone the guest's craft into this (the owner's) World while the guest
+	// still believes it's docked. The guest undocks their own component
+	// through the dock ledger (UndockGuest); this local path handles only
+	// same-player composites (every component owned by this World).
+	if StackHasGuest(c) {
+		return "undock: cross-player stack — the guest releases it from their seat"
+	}
+	return ""
 }
 
 // radialOutUnit returns the unit vector pointing radially outward from the

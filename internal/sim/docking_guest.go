@@ -79,11 +79,14 @@ func (w *World) DockGuestCraft(dockerIdx int, guest *spacecraft.Spacecraft, gues
 // when non-zero, disambiguates one guest among several sharing an owner (not
 // reachable in the 2-party MVP).
 //
-// Returns ok=false when the composite has no components tagged for guestOwner
-// (nothing to undock) or the indices are invalid. MVP limitation: a guest that
-// docked a multi-component composite is rebuilt as a single multi-stage craft
-// from its first component's identity — the sub-composite seams are not
-// preserved (passive-station posture docks a single craft; noted for playtest).
+// Returns ok=false when the indices are invalid, or when the guest's sub-stack
+// isn't a peelable top block — see guestTopBlock for what that means and why a
+// refusal beats a mis-slice (#307). The caller must SAY SO rather than drop a
+// refusal on the floor: silence here reads as a broken key from the guest's
+// seat. MVP limitation: a guest that docked a multi-component composite is
+// rebuilt as a single multi-stage craft from its first component's identity —
+// the sub-composite seams are not preserved (passive-station posture docks a
+// single craft; noted for playtest).
 func (w *World) UndockGuest(compositeIdx int, guestOwner string, guestCraftID uint64) (*spacecraft.Spacecraft, bool) {
 	if compositeIdx < 0 || compositeIdx >= len(w.Crafts) || guestOwner == "" {
 		return nil, false
@@ -93,31 +96,8 @@ func (w *World) UndockGuest(compositeIdx int, guestOwner string, guestCraftID ui
 		return nil, false
 	}
 
-	// Collect the guest's components (by owner, optionally pinned to
-	// guestCraftID) and the count of live stages they occupy. Components map
-	// to c.Stages in order (bottom-to-top); the guest's ride on TOP of the
-	// docker's, so their live stages are the tail of c.Stages — the same
-	// geometry Deploy peels.
-	var guestComps []spacecraft.DockedComponent
-	guestStageCnt := 0
-	keepComps := make([]spacecraft.DockedComponent, 0, len(c.DockedComponents))
-	for _, dc := range c.DockedComponents {
-		isGuest := dc.Owner == guestOwner && (guestCraftID == 0 || dc.CraftID == guestCraftID)
-		if isGuest {
-			guestComps = append(guestComps, dc)
-			guestStageCnt += len(dc.Stages)
-		} else {
-			keepComps = append(keepComps, dc)
-		}
-	}
-	if len(guestComps) == 0 {
-		return nil, false
-	}
-	// The guest's stages must tile the top of the composite exactly for the
-	// live-stage peel — every cross-player component carries its Stages
-	// breakdown (DockGuestCraft fuses live craft, never the legacy flat
-	// form), so this holds; refuse rather than mis-slice if it doesn't.
-	if guestStageCnt <= 0 || guestStageCnt >= len(c.Stages) {
+	guestComps, keepComps, guestStageCnt, ok := guestTopBlock(c, guestOwner, guestCraftID)
+	if !ok {
 		return nil, false
 	}
 	keep := len(c.Stages) - guestStageCnt
@@ -139,6 +119,68 @@ func (w *World) UndockGuest(compositeIdx int, guestOwner string, guestCraftID ui
 	c.SyncFields()
 	c.State.M = c.TotalMass()
 	return restored, true
+}
+
+// guestTopBlock resolves the guest's sub-stack inside composite c: the
+// components to peel, the components the composite keeps, and the count of
+// LIVE stages the peel takes off the top of c.Stages. ok=false means the peel
+// is not well-defined and the caller must refuse.
+//
+// The peel is POSITIONAL — the tail of c.Stages — so it is only sound while
+// the OWNERSHIP selector picks the same components position does: the guest's
+// must be the topmost ones, contiguous. That holds at dock time, because
+// DockGuestCraft appends the guest's components last. It stops holding after a
+// control transfer: RetagStackForTransfer rewrites Owner WITHOUT restacking
+// the vehicle, so the demoted owner's components are now the guest's and they
+// sit at the BOTTOM. Slicing the tail there hands each player the other's
+// hardware, under their own name and stable ID, silently and permanently — the
+// tags then describe the corrupted attribution, so a repair dock/undock cycle
+// faithfully re-entrenches it (#307).
+//
+// Refusing is the honest answer rather than peeling the head instead. Staging
+// pops stages off the BOTTOM of c.Stages without touching DockedComponents
+// (staging.go), so head-slicing is not generally well-defined — which is the
+// same reason World.Undock guards its breakdown path with a tiling check
+// before trusting the component→stage correspondence. The one structural
+// correspondence that survives staging is top-anchored, and that is exactly
+// what this function requires. A refused peel is recoverable in play: hand
+// control back, which flips the tags again and puts the other party's
+// components on top, where they can be released.
+func guestTopBlock(c *spacecraft.Spacecraft, guestOwner string, guestCraftID uint64) (guest, keep []spacecraft.DockedComponent, stageCnt int, ok bool) {
+	isGuest := func(dc spacecraft.DockedComponent) bool {
+		return dc.Owner == guestOwner && (guestCraftID == 0 || dc.CraftID == guestCraftID)
+	}
+	// The maximal guest-owned suffix — the block a tail slice would peel.
+	n := len(c.DockedComponents)
+	start := n
+	for start > 0 && isGuest(c.DockedComponents[start-1]) {
+		start--
+	}
+	if start == n {
+		return nil, nil, 0, false // nothing of the guest's is on top
+	}
+	// Every guest component must lie inside that suffix. One below a docker
+	// component means the block is not top-anchored (the post-transfer case).
+	for i := 0; i < start; i++ {
+		if isGuest(c.DockedComponents[i]) {
+			return nil, nil, 0, false
+		}
+	}
+	for _, dc := range c.DockedComponents[start:] {
+		if len(dc.Stages) == 0 {
+			return nil, nil, 0, false // no breakdown — nothing to tile the peel with
+		}
+		stageCnt += len(dc.Stages)
+	}
+	// The peel must leave the docker something to fly, and cannot claim more
+	// live stages than the composite has.
+	if stageCnt <= 0 || stageCnt >= len(c.Stages) {
+		return nil, nil, 0, false
+	}
+	// keep owns its backing array: a later append onto the composite's
+	// component list must not write into the departing guest's entries.
+	keep = append([]spacecraft.DockedComponent(nil), c.DockedComponents[:start]...)
+	return c.DockedComponents[start:], keep, stageCnt, true
 }
 
 // RemoveCraftByID lifts the craft with the given stable ID out of the slate

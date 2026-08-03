@@ -246,7 +246,25 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		if w.ActiveCraft() != nil {
 			return []string{v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)")}
 		}
-		return nil
+		// #310: an empty slate used to render nothing at all. The camera
+		// meanwhile fell through to the system origin, so the player was left
+		// staring at a hard-zoomed star with no explanation — live, two people
+		// hunting for exactly this state, one with the source open, failed to
+		// read it for hours. Say it — and say WHY it is empty when we know:
+		// riding in another player's stack is not the same situation as having
+		// no craft, and offering "launch a new flight" there would be wrong.
+		if dg := w.DockGuest; dg != nil {
+			return []string{
+				v.theme.Primary.Render("VESSEL"),
+				"  " + v.theme.Warning.Render("docked in "+dg.OwnerHandle+"'s stack"),
+				v.theme.Dim.Render("  [u] release it"),
+			}
+		}
+		return []string{
+			v.theme.Primary.Render("NO VESSEL"),
+			"  " + v.theme.Warning.Render("your craft slate is empty"),
+			v.theme.Dim.Render("  [n] launch a new flight"),
+		}
 	}
 	c := w.ActiveCraft()
 	lines := []string{

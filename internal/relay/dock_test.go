@@ -297,21 +297,173 @@ func TestTransferAdoptRestampsCollidingCompositeID(t *testing.T) {
 		t.Errorf("native collider id %d no longer resolves to the collider craft", dockerID)
 	}
 
-	// A (now the guest) undocks: B splits it out and hands A's craft back.
+	// A (now the guest) undocks. Its components are at the BOTTOM of the stack
+	// — the transfer flipped the tags without restacking the vehicle — so the
+	// split is refused rather than handing each player the other's hardware
+	// (#307). A stays docked and is TOLD; see
+	// TestUndockAfterTransferRefusesAndTellsTheGuest for the seam-level
+	// assertions and the recovery.
 	if !ledger.RequestUndock(fpA, dockerID) {
 		t.Fatalf("RequestUndock refused for the demoted old owner")
 	}
 	reports = reportMap(store, wA, wB, now.Add(2*time.Second))
-	ledger.Reconcile(wB, fpB, reports) // B splits A's component out
-	ledger.Reconcile(wA, fpA, reports) // A receives its craft home
-	if _, _, ok := wA.CraftByID(dockerID); !ok {
-		t.Fatalf("A never got its craft %d back — permanent desync (finding 1)", dockerID)
+	ledger.Reconcile(wB, fpB, reports) // B attempts the split
+	ledger.Reconcile(wA, fpA, reports) // A learns it was refused
+	if len(wA.Crafts) != 0 {
+		t.Errorf("A received %d craft from a refused undock", len(wA.Crafts))
 	}
-	if wA.DockGuest != nil {
-		t.Errorf("A still docked-as-guest after undock")
+	if wA.DockGuest == nil {
+		t.Errorf("A dropped out of docked-as-guest on a refused undock")
 	}
+	if len(ledger.Records()) != 1 {
+		t.Errorf("ledger holds %d records after a refused undock, want the dock still standing", len(ledger.Records()))
+	}
+}
+
+// TestUndockAfterTransferRefusesAndTellsTheGuest (#307 + #308): the sequence
+// that swapped the two players' vehicles live. A docks B's craft, hands control
+// to B, then asks to undock. Its components now sit at the bottom of the stack
+// while the tags call them the guest's, so the tail peel would return B's
+// vehicle under A's name and stable ID. The split is refused, A is told, and
+// handing control back makes the release work — with the right hardware, checked
+// by MASS, the one field neither the name-rewrite nor the ID-restamp preserves.
+func TestUndockAfterTransferRefusesAndTellsTheGuest(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	const guestID = 400
+	wA, wB := alignedPair(t, guestID)
+	// Distinct vehicles: same-loadout craft would make the mass assertion
+	// vacuous, and mass is the only discriminator the bug leaves intact.
+	wB.ActiveCraft().Stages = spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID).Stages
+	wB.ActiveCraft().SyncFields()
+	dockerID := wA.ActiveCraft().ID
+	massA, massB := wA.ActiveCraft().TotalMass(), wB.ActiveCraft().TotalMass()
+	if massA == massB {
+		t.Fatalf("test vehicles are indistinguishable by mass (%v) — assertions would be vacuous", massA)
+	}
+	now := time.Now()
+
+	// Dock, then hand control to B.
+	ledger.Claim(fpA, "alice", dockerID, fpB, "bob", guestID)
+	reports := reportMap(store, wA, wB, now)
+	ledger.Reconcile(wB, fpB, reports)
+	ledger.Reconcile(wA, fpA, reports)
+	if !ledger.RequestTransfer(fpA) {
+		t.Fatalf("RequestTransfer refused")
+	}
+	ledger.Reconcile(wA, fpA, reports)
+	reports = reportMap(store, wA, wB, now.Add(time.Second))
+	ledger.Reconcile(wB, fpB, reports)
+
+	// A asks to undock. Refused — and A hears about it.
+	if !ledger.RequestUndock(fpA, dockerID) {
+		t.Fatalf("RequestUndock refused for the demoted old owner")
+	}
+	reports = reportMap(store, wA, wB, now.Add(2*time.Second))
+	ledger.Reconcile(wB, fpB, reports)
+	chips := ledger.Reconcile(wA, fpA, reports)
+	if len(wA.Crafts) != 0 {
+		t.Fatalf("A received %d craft from a refused undock (mass %v — B's is %v)",
+			len(wA.Crafts), wA.Crafts[0].TotalMass(), massB)
+	}
+	if !hasChip(chips, sim.SessionEventUndockRefused) {
+		t.Errorf("refused undock produced no moment for A — the key reads as dead: %+v", chips)
+	}
+	if wA.DockGuest == nil {
+		t.Errorf("A left docked-as-guest by a refused undock")
+	}
+
+	// Recovery: B hands control back, which puts B's own components on top,
+	// and B releases. Both players end up holding their own vehicle.
+	if !ledger.RequestTransfer(fpB) {
+		t.Fatalf("RequestTransfer back to A refused")
+	}
+	reports = reportMap(store, wA, wB, now.Add(3*time.Second))
+	ledger.Reconcile(wB, fpB, reports) // B migrates the stack out
+	ledger.Reconcile(wA, fpA, reports) // A adopts it and owns again
+	if !ledger.RequestUndock(fpB, guestID) {
+		t.Fatalf("RequestUndock refused for B after the handback")
+	}
+	reports = reportMap(store, wA, wB, now.Add(4*time.Second))
+	ledger.Reconcile(wA, fpA, reports) // A splits B's component out
+	ledger.Reconcile(wB, fpB, reports) // B receives its craft home
+
+	if len(wB.Crafts) != 1 {
+		t.Fatalf("B holds %d craft after the handback release, want 1", len(wB.Crafts))
+	}
+	if got := wB.Crafts[0].TotalMass(); got != massB {
+		t.Errorf("B got a vehicle of mass %v, want its own %v (A's is %v)", got, massB, massA)
+	}
+	if len(wA.Crafts) != 1 {
+		t.Fatalf("A holds %d craft after the handback release, want 1", len(wA.Crafts))
+	}
+	if got := wA.Crafts[0].TotalMass(); got != massA {
+		t.Errorf("A kept a vehicle of mass %v, want its own %v (B's is %v)", got, massA, massB)
+	}
+}
+
+// TestRestoredDockWithNoLiveCompositeIsReaped (#309): a record seeded from the
+// session directory outlives the craft payloads, which are transient. Measured
+// on the production host, such a record sat in DockActive for 5½ hours pointing
+// at a composite that existed in nobody's save — nothing reaped it, and [U] did
+// not clear it either, so the guest stayed flagged docked-as-guest to a phantom
+// stack. The owner's first reconcile must notice and end the dock.
+func TestRestoredDockWithNoLiveCompositeIsReaped(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	wA, wB := alignedPair(t, 400)
+	now := time.Now()
+
+	// Exactly the persisted shape: durable fields only, DockActive, naming a
+	// composite ID that resolves in neither World.
+	const phantomID = 9999
+	if _, _, ok := wA.CraftByID(phantomID); ok {
+		t.Fatalf("phantom composite id %d unexpectedly resolves", phantomID)
+	}
+	ledger.Seed([]DockRecord{{
+		ID: 3, Owner: fpA, OwnerHandle: "alice", DockerCraftID: wA.ActiveCraft().ID,
+		CompositeID: phantomID, GuestOwner: fpB, GuestHandle: "bob",
+		GuestCraftID: 400, Phase: DockActive,
+	}})
+
+	reports := reportMap(store, wA, wB, now)
+	ledger.Reconcile(wA, fpA, reports) // owner notices the composite is gone
+	chips := ledger.Reconcile(wB, fpB, reports)
+
 	if len(ledger.Records()) != 0 {
-		t.Errorf("ledger still holds %d records after undock", len(ledger.Records()))
+		t.Errorf("phantom dock survived reconcile: %+v", ledger.Records())
+	}
+	if wB.DockGuest != nil {
+		t.Errorf("B still flagged docked-as-guest to a stack that does not exist: %+v", wB.DockGuest)
+	}
+	if !hasChip(chips, sim.SessionEventDockLost) {
+		t.Errorf("the dock ended with no moment for B — the marker just vanishes: %+v", chips)
+	}
+}
+
+// TestUndockAskOnPhantomCompositeReapsRecord (#309): pressing [U] against a
+// restored record whose composite is gone must not leave the record standing.
+// The pre-fix undockAsk branch looked the composite up, failed, and returned
+// false anyway — its comment claimed the guest side would time out, and a sweep
+// for that reaper found none.
+func TestUndockAskOnPhantomCompositeReapsRecord(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	wA, wB := alignedPair(t, 400)
+	now := time.Now()
+	ledger.Seed([]DockRecord{{
+		ID: 4, Owner: fpA, OwnerHandle: "alice", DockerCraftID: wA.ActiveCraft().ID,
+		CompositeID: 8888, GuestOwner: fpB, GuestHandle: "bob",
+		GuestCraftID: 400, Phase: DockActive,
+	}})
+	if !ledger.RequestUndock(fpB, 400) {
+		t.Fatalf("RequestUndock refused on the restored record")
+	}
+	reports := reportMap(store, wA, wB, now)
+	ledger.Reconcile(wA, fpA, reports)
+	ledger.Reconcile(wB, fpB, reports)
+	if len(ledger.Records()) != 0 {
+		t.Errorf("[U] left the phantom dock standing: %+v", ledger.Records())
 	}
 }
 

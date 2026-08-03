@@ -289,6 +289,99 @@ func TestWithDockCouplingAppendsPartnerWithoutCorruption(t *testing.T) {
 	}
 }
 
+// transferredStack builds a cross-player composite and then flips its
+// ownership tags the way a control transfer does — WITHOUT restacking the
+// vehicle, which is exactly the state #307 lives in. It returns the composite,
+// the two parties' fingerprints AFTER the flip (newGuestFP is the demoted
+// original docker, whose components now sit at the BOTTOM), and each party's
+// pre-dock mass so attribution can be checked by the one field the bug does
+// not rewrite.
+func transferredStack(t *testing.T) (w *World, comp *spacecraft.Spacecraft, newOwnerFP, newGuestFP string, dockerID uint64, dockerMass, guestMass float64) {
+	t.Helper()
+	w, _ = NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	docker := w.Crafts[0]
+	docker.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	vc := math.Sqrt(earth.GravitationalParameter() / docker.State.R.Norm())
+	docker.State.V = orbital.Vec3{Y: vc}
+	dockerID, dockerMass = docker.ID, docker.TotalMass()
+
+	// A DIFFERENT vehicle, so mass tells the two apart. Name and stable ID are
+	// both rewritten on the corrupt path (restoreComponentCraft takes the
+	// component's name, then the caller stamps guestCraftID), so mass is the
+	// only surviving discriminator.
+	guest := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+	guest.Primary = *earth
+	guest.ID = 99
+	guest.State = physics.StateVector{R: docker.State.R.Add(orbital.Vec3{X: 8}), V: docker.State.V, M: guest.TotalMass()}
+	guestMass = guest.TotalMass()
+	if math.Abs(dockerMass-guestMass) < 1 {
+		t.Fatalf("test vehicles are indistinguishable by mass (%v vs %v) — the assertion would be vacuous", dockerMass, guestMass)
+	}
+
+	newGuestFP, newOwnerFP = "SHA256:alice-the-docker", guestFP
+	comp, _, ok := w.DockGuestCraft(0, guest, newOwnerFP)
+	if !ok {
+		t.Fatalf("DockGuestCraft failed")
+	}
+	// Control transfer: the docker hands the stack to the guest. Tags flip,
+	// the vehicle does not restack — so the demoted docker's components are
+	// now the guest's AND they are the bottom of the stack.
+	RetagStackForTransfer(comp, newGuestFP, newOwnerFP)
+	return w, comp, newOwnerFP, newGuestFP, dockerID, dockerMass, guestMass
+}
+
+// TestUndockGuestRefusesWhenTheGuestIsNotOnTop (#307): after a control
+// transfer the demoted owner's components sit at the BOTTOM of the stack while
+// the ownership tags say they are the guest's. Peeling the tail there returned
+// the OTHER player's vehicle under this player's name and stable ID — silently,
+// and permanently, since a repair dock/undock cycle re-entrenched the corrupted
+// tags. Refuse instead.
+func TestUndockGuestRefusesWhenTheGuestIsNotOnTop(t *testing.T) {
+	w, comp, _, newGuestFP, dockerID, dockerMass, guestMass := transferredStack(t)
+	stackMass := comp.TotalMass()
+
+	restored, ok := w.UndockGuest(0, newGuestFP, dockerID)
+	if ok {
+		// The pre-fix failure: ok, with the wrong hardware attached.
+		t.Fatalf("UndockGuest peeled a bottom-anchored guest: returned mass %v (its own vehicle is %v, the other player's is %v)",
+			restored.TotalMass(), dockerMass, guestMass)
+	}
+	// Refusing must leave the stack whole — no half-split, no mass lost.
+	if got := comp.TotalMass(); math.Abs(got-stackMass) > 1e-6 {
+		t.Errorf("refused undock still mutated the stack: mass %v, want %v", got, stackMass)
+	}
+	if len(comp.DockedComponents) != 2 || !StackHasGuest(comp) {
+		t.Errorf("refused undock disturbed the composite: %d components, cross-player=%v",
+			len(comp.DockedComponents), StackHasGuest(comp))
+	}
+}
+
+// TestUndockGuestAfterTransferBackReturnsTheRightHardware (#307): the guard
+// must be capable of a positive, or the refusal above proves nothing. Handing
+// control back flips the tags again and puts the other party's components on
+// top, where they peel correctly — and the craft that comes home carries ITS
+// OWN mass, which is the attribution the bug got wrong.
+func TestUndockGuestAfterTransferBackReturnsTheRightHardware(t *testing.T) {
+	w, comp, newOwnerFP, newGuestFP, _, dockerMass, guestMass := transferredStack(t)
+
+	// Control goes back to the original docker: the other party is the guest
+	// again, its components on top.
+	RetagStackForTransfer(comp, newOwnerFP, newGuestFP)
+
+	restored, ok := w.UndockGuest(0, newOwnerFP, 99)
+	if !ok {
+		t.Fatal("UndockGuest refused a top-anchored guest — the guard refuses everything")
+	}
+	if got := restored.TotalMass(); math.Abs(got-guestMass) > 1e-3 {
+		t.Errorf("returned craft mass = %v, want the guest's own %v (got the other player's %v?)", got, guestMass, dockerMass)
+	}
+	if got := w.Crafts[0].TotalMass(); math.Abs(got-dockerMass) > 1e-3 {
+		t.Errorf("remaining stack mass = %v, want the docker's own %v", got, dockerMass)
+	}
+}
+
 // TestRetagStackForTransfer: transfer flips ownership — the holder's own
 // components become the departing guest's, and the recipient's guest
 // components become the new holder's own. Idempotent for a same-owner call.
