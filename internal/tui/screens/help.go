@@ -76,7 +76,7 @@ var helpSections = []helpSection{
 		{"h", "start / stop hosting — accept ssh guests (stop confirms, drops guests)"},
 		{"i / r / x", "host + admins: mint invite / revoke code / remove player"},
 		{"p", "host only: promote the selected player to admin / demote them"},
-		{"u", "host + admins: restart the server (drains guests, they reconnect)"},
+		{"F4", "host + admins: restart the server (drains guests, they reconnect)"},
 		{"J", "hand a cross-player stack to the guest (refused if they aren't in the session); from the guest seat, take the stick back when the pilot has gone (map)"},
 	}},
 	{"TIME & WARP", [][2]string{

@@ -125,6 +125,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyEnter}
 	case "esc":
 		return tea.KeyMsg{Type: tea.KeyEscape}
+	case "f4":
+		return tea.KeyMsg{Type: tea.KeyF4}
 	default:
 		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 	}
@@ -351,28 +353,28 @@ func TestSessionScreenAdminRemoveGating(t *testing.T) {
 	}
 }
 
-// Restart (v0.30 S4): [u] arms a confirm naming the drop count; y emits
-// the restart command. Reachable by host and admin; a plain guest never
-// sees the key.
+// Restart (v0.30 S4, rebound off `u` to [F4] in #289): [F4] arms a
+// confirm naming the drop count; y emits the restart command. Reachable
+// by host and admin; a plain guest never sees the key.
 func TestSessionScreenRestartConfirm(t *testing.T) {
 	// Host viewer: one online guest (gern).
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
 
-	if cmd := s.HandleKey(w, key("u")); cmd.Kind != SessionCmdNone {
-		t.Fatalf("[u] emitted %v before confirm", cmd.Kind)
+	if cmd := s.HandleKey(w, key("f4")); cmd.Kind != SessionCmdNone {
+		t.Fatalf("[F4] emitted %v before confirm", cmd.Kind)
 	}
 	if out := s.Render(w, 120); !strings.Contains(out, "restart server? drops 1 player(s)") {
 		t.Errorf("restart confirm prompt missing:\n%s", out)
 	}
-	if !strings.Contains(s.Render(w, 120), "[u] restart server") {
+	if !strings.Contains(s.Render(w, 120), "[F4] restart server") {
 		t.Error("admin footer missing the restart hint")
 	}
 	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdRestart {
 		t.Errorf("confirm y = %+v, want SessionCmdRestart", cmd)
 	}
 	// n cancels.
-	s.HandleKey(w, key("u"))
+	s.HandleKey(w, key("f4"))
 	if cmd := s.HandleKey(w, key("n")); cmd.Kind != SessionCmdNone {
 		t.Errorf("confirm n = %+v, want no command", cmd)
 	}
@@ -381,25 +383,74 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 	adminScreen := NewSessionScreen(sessionTheme())
 	wa := sessionWorld(t, false)
 	wa.Session.CanAdminister = true
-	if cmd := adminScreen.HandleKey(wa, key("u")); cmd.Kind != SessionCmdNone || !adminScreen.confirmRestart {
-		t.Errorf("admin [u] didn't arm restart confirm (cmd %+v)", cmd)
+	if cmd := adminScreen.HandleKey(wa, key("f4")); cmd.Kind != SessionCmdNone || !adminScreen.confirmRestart {
+		t.Errorf("admin [F4] didn't arm restart confirm (cmd %+v)", cmd)
 	}
 
-	// A guest doesn't: [u] refuses (with a reason, v0.30.1) and no hint.
+	// A guest doesn't: [F4] refuses (with a reason, v0.30.1) and no hint.
 	guestScreen := NewSessionScreen(sessionTheme())
 	wg := sessionWorld(t, false)
-	if cmd := guestScreen.HandleKey(wg, key("u")); cmd.Kind != SessionCmdToast || guestScreen.confirmRestart {
-		t.Errorf("guest [u] armed a restart (cmd %+v)", cmd)
+	if cmd := guestScreen.HandleKey(wg, key("f4")); cmd.Kind != SessionCmdToast || guestScreen.confirmRestart {
+		t.Errorf("guest [F4] armed a restart (cmd %+v)", cmd)
 	}
 	if strings.Contains(guestScreen.Render(wg, 120), "restart server") {
 		t.Error("guest screen offers the restart key")
 	}
 }
 
+// #289: `u` is freed. The near-miss this closes was a guest reaching for
+// the flight view's [U] undock with the roster still open and landing on
+// the host-only restart instead — confirmed only because the guest
+// lacked admin (see #289 comment 3). An admin holding the same letter had
+// nothing standing between a mis-press and a drain-and-restart. `u` must
+// now be a plain no-op on this screen for host, admin, and guest alike —
+// not merely gated, but unbound, so no letter is shared between the
+// roster's one irreversible action and any flight verb.
+func TestSessionScreenRestartKeyFreedFromU(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	if cmd := s.HandleKey(w, key("u")); cmd.Kind != SessionCmdNone || s.confirmRestart {
+		t.Errorf("host [u] = %+v (confirmRestart=%v), want a no-op — u must not restart anything", cmd, s.confirmRestart)
+	}
+
+	adminScreen := NewSessionScreen(sessionTheme())
+	wa := sessionWorld(t, false)
+	wa.Session.CanAdminister = true
+	if cmd := adminScreen.HandleKey(wa, key("u")); cmd.Kind != SessionCmdNone || adminScreen.confirmRestart {
+		t.Errorf("admin [u] = %+v (confirmRestart=%v), want a no-op", cmd, adminScreen.confirmRestart)
+	}
+
+	guestScreen := NewSessionScreen(sessionTheme())
+	wg := sessionWorld(t, false)
+	if cmd := guestScreen.HandleKey(wg, key("u")); cmd.Kind != SessionCmdNone {
+		t.Errorf("guest [u] = %+v, want a silent no-op (not even a refusal toast)", cmd)
+	}
+}
+
+// #289: the roster states, in its own footer, that flight controls don't
+// apply here — the mitigation kept for the accepted s/w/t overlap (the
+// leader-key pattern is annoying once, never destructive, per the
+// decision). Shown for host and guest alike since the confusion isn't
+// role-gated.
+func TestSessionScreenFlightKeysInactiveFooter(t *testing.T) {
+	const want = "flight controls are inactive on this screen"
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	if out := s.Render(w, 120); !strings.Contains(out, want) {
+		t.Errorf("host roster missing flight-keys-inactive footer:\n%s", out)
+	}
+
+	guestScreen := NewSessionScreen(sessionTheme())
+	wg := sessionWorld(t, false)
+	if out := guestScreen.Render(wg, 120); !strings.Contains(out, want) {
+		t.Errorf("guest roster missing flight-keys-inactive footer:\n%s", out)
+	}
+}
+
 // Version surface (v0.30 S5): the running version always shows; an
-// available release reframes [u] as "restart to adopt" only when the box
-// is adopt-capable, otherwise it points at the manual update path and [u]
-// stays a plain restart.
+// available release reframes [F4] as "restart to adopt" only when the box
+// is adopt-capable, otherwise it points at the manual update path and
+// [F4] stays a plain restart. (Key moved off `u` in #289.)
 func TestSessionScreenVersionSurface(t *testing.T) {
 	// Running only, no update.
 	s := NewSessionScreen(sessionTheme())
@@ -412,7 +463,7 @@ func TestSessionScreenVersionSurface(t *testing.T) {
 	if strings.Contains(out, "update available") || strings.Contains(out, "restart to adopt") {
 		t.Errorf("spurious update UI with no available version:\n%s", out)
 	}
-	if !strings.Contains(out, "[u] restart server") {
+	if !strings.Contains(out, "[F4] restart server") {
 		t.Error("plain restart key missing")
 	}
 
@@ -424,14 +475,14 @@ func TestSessionScreenVersionSurface(t *testing.T) {
 	if !strings.Contains(out, "update available: v0.31.0") {
 		t.Errorf("available version missing:\n%s", out)
 	}
-	if !strings.Contains(out, "[u] restart to adopt v0.31.0") {
+	if !strings.Contains(out, "[F4] restart to adopt v0.31.0") {
 		t.Errorf("adopt affordance missing:\n%s", out)
 	}
 	if strings.Contains(out, "update manually") {
 		t.Error("adopt-capable box shows the manual path")
 	}
 	// The confirm is adopt-aware.
-	s.HandleKey(w, key("u"))
+	s.HandleKey(w, key("f4"))
 	if !strings.Contains(s.Render(w, 120), "restart to adopt v0.31.0? drops") {
 		t.Errorf("adopt confirm prompt missing:\n%s", s.Render(w, 120))
 	}
@@ -449,7 +500,7 @@ func TestSessionScreenVersionSurface(t *testing.T) {
 	if strings.Contains(out, "restart to adopt") {
 		t.Error("adopt affordance shown without adopt capability (the UI would lie)")
 	}
-	if !strings.Contains(out, "[u] restart server") {
+	if !strings.Contains(out, "[F4] restart server") {
 		t.Error("plain restart key missing on a non-adopt box")
 	}
 }
@@ -788,12 +839,12 @@ func TestSessionScreenRemoveRefusalsToast(t *testing.T) {
 func TestSessionScreenRestartRefusalToast(t *testing.T) {
 	w := sessionWorld(t, false) // plain guest: no admin capability
 	s := NewSessionScreen(sessionTheme())
-	cmd := s.HandleKey(w, key("u"))
+	cmd := s.HandleKey(w, key("f4"))
 	if cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "restart") {
-		t.Errorf("guest [u] = %+v, want a toast explaining the refusal", cmd)
+		t.Errorf("guest [F4] = %+v, want a toast explaining the refusal", cmd)
 	}
 	if s.confirmRestart {
-		t.Error("guest [u] armed the restart confirm")
+		t.Error("guest [F4] armed the restart confirm")
 	}
 }
 

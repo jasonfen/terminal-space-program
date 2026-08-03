@@ -138,9 +138,10 @@ Running the session lives on that roster too. The host mints (`i`) and revokes
 (`r`) invite codes and removes players (`x`), and can share the load: `p`
 promotes a player to **admin**, who then handles invites and removals without
 being able to promote anyone else, remove another admin, or remove the host.
-`u` restarts the server — everyone is warned, drained with their progress
+`F4` restarts the server — everyone is warned, drained with their progress
 saved, and reconnects a moment later; on a box set up to self-update, the same
-key adopts a newer release when one is published.
+key adopts a newer release when one is published. (Deliberately not a letter:
+no irreversible admin action shares a key with a flight verb.)
 
 Guests enroll once with the invite code (their ssh key becomes their identity)
 and get their own persistent space program on your machine. Everyone warps
