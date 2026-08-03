@@ -254,11 +254,31 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		// riding in another player's stack is not the same situation as having
 		// no craft, and offering "launch a new flight" there would be wrong.
 		if dg := w.DockGuest; dg != nil {
-			return []string{
+			lines := []string{
 				v.theme.Primary.Render("VESSEL"),
 				"  " + v.theme.Warning.Render("docked in "+dg.OwnerHandle+"'s stack"),
-				v.theme.Dim.Render("  [u] release it"),
 			}
+			// ADR 0038 S4 part 3 ("badged panels"): once the stack's ghost
+			// report has landed, upgrade from the bare "why is this empty"
+			// placeholder to its real flight data — badged with the owner's
+			// handle so the numbers are never mistaken for this player's own
+			// ship. Ghosts don't carry fuel/mass/Δv (never reported over the
+			// wire, ADR 0034), so this shows what IS available: identity,
+			// primary, and velocity — the same fields the ORBIT chip's
+			// badged sibling (buildDockGuestOrbitChip) also draws from.
+			if g, primary, ok := w.DockGuestStackGhost(); ok {
+				name := g.Name
+				if name == "" {
+					name = "(unnamed)"
+				}
+				lines = append(lines,
+					"  "+name,
+					"  primary:   "+primary.EnglishName,
+					fmt.Sprintf("  velocity:  %.2f km/s", g.Vel.Norm()/1000),
+				)
+			}
+			lines = append(lines, v.theme.Dim.Render("  [u] release it"))
+			return lines
 		}
 		return []string{
 			v.theme.Primary.Render("NO VESSEL"),

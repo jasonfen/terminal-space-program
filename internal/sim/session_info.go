@@ -184,3 +184,27 @@ type SessionEvent struct {
 	// that accounts for it. Zero on every other kind.
 	Elapsed time.Duration
 }
+
+// DockOwnerOnline reports whether the stack owner named by DockGuest has a
+// live Session right now (ADR 0038 amendment 3 / ADR 0040 §4's empty-seat
+// gate). This is the SAME presence gate the reclaim flow already uses —
+// Server.presence.isOnline — reused here via the roster the reporting
+// layer already fills in each tick (SessionInfo.Players[].Online) rather
+// than plumbing a second copy through the docking ledger. Distinct from
+// DockGuest.OwnerAway, which is true for an idle-but-still-connected owner
+// (ADR 0036): an Away owner still holds their seat, so [u] stays theirs to
+// grant; only a Session that is not live at all is an empty seat. False
+// (renders as empty-seat) with no DockGuest, or no matching roster row —
+// conservative by design, since an unconfirmed owner should not offer the
+// "ask them" flow.
+func (w *World) DockOwnerOnline() bool {
+	if w.DockGuest == nil || w.Session == nil {
+		return false
+	}
+	for _, p := range w.Session.Players {
+		if p.Fingerprint == w.DockGuest.OwnerFP {
+			return p.Online
+		}
+	}
+	return false
+}

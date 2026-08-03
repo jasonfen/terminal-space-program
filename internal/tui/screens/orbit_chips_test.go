@@ -2,12 +2,14 @@ package screens
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -721,6 +723,81 @@ func TestEmptySlateSaysSo(t *testing.T) {
 	}
 	if strings.Contains(out, "[n]") {
 		t.Errorf("docked-as-guest chip offers a new launch as if the craft were gone:\n%s", out)
+	}
+}
+
+// dockGuestStackGhostWorld builds a World with no local craft, docked as a
+// guest in "bob"'s stack, whose ghost carries a real 500 km circular orbit
+// around Earth — the fixture both badged-panel tests (VESSEL and ORBIT)
+// share (ADR 0038 S4 part 3).
+func dockGuestStackGhostWorld(t *testing.T) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	earth := w.Systems[0].FindBody("Earth")
+	w.Crafts = nil
+	w.ActiveCraftIdx = 0
+	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:bob", OwnerHandle: "bob", OwnerActiveCraftID: 42}
+
+	mu := earth.GravitationalParameter()
+	r := earth.RadiusMeters() + 500e3
+	rel := orbital.Vec3{X: r}
+	vel := orbital.Vec3{Y: math.Sqrt(mu / r)}
+	w.Ghosts = []sim.Ghost{{
+		Owner: "SHA256:bob", CraftID: 42, Handle: "bob", Name: "bob's stack",
+		PrimaryID: earth.ID,
+		Pos:       w.BodyPosition(*earth).Add(rel), RelPos: rel, Vel: vel,
+	}}
+	return w
+}
+
+// TestDockGuestVesselChipShowsBadgedFlightData (ADR 0038 S4 part 3): once
+// the stack's ghost report has landed, the VESSEL chip upgrades from the
+// bare #310 "why is this empty" placeholder to the stack's real flight
+// data — name, primary, velocity — badged as the owner's rather than the
+// player's own, so the numbers never read as this player's ship.
+func TestDockGuestVesselChipShowsBadgedFlightData(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := dockGuestStackGhostWorld(t)
+
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	for _, want := range []string{"bob", "bob's stack", "Earth", "velocity:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("badged VESSEL chip missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestDockGuestOrbitChipShowsBadgedShape (ADR 0038 S4 part 3): the
+// always-on ORBIT chip goes dark whenever !CraftVisibleHere (today,
+// riding as a guest) — exactly when there IS a live orbit to show, the
+// stack's. It must render the ghost's orbit shape, badged with the
+// owner's handle.
+func TestDockGuestOrbitChipShowsBadgedShape(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := dockGuestStackGhostWorld(t)
+
+	out := strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	if out == "" {
+		t.Fatal("ORBIT chip renders nothing while docked as a guest with a live ghost")
+	}
+	for _, want := range []string{"bob", "Ap:", "Pe:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("badged ORBIT chip missing %q:\n%s", want, out)
+		}
+	}
+
+	// Solo, no craft at all, no DockGuest: still nil — no stack to badge.
+	w2, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w2.Crafts = nil
+	w2.ActiveCraftIdx = 0
+	if got := v.buildOrbitMetricsChip(w2); got != nil {
+		t.Errorf("ORBIT chip rendered with no craft and no DockGuest:\n%s", strings.Join(got, "\n"))
 	}
 }
 
