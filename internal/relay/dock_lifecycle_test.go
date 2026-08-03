@@ -4,7 +4,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // TestLiveUndockPushesClearOfTheStack (#304, zero subspace skew): a live
@@ -224,5 +226,109 @@ func TestFuseNoticeSurvivesRestart(t *testing.T) {
 	guestChips := fresh.Reconcile(wB, fpB, reports)
 	if !hasChip(guestChips, sim.SessionEventDocked) {
 		t.Errorf("the absorbed guest's fuse notice did not survive a restart: %+v", guestChips)
+	}
+}
+
+// TestLiveUndockAlwaysReturnsASafedCraft (#303) extends the Parcel-only
+// safing (TestOwnerReleasesAnAbsentGuestAsAParcel) to the LIVE cross-player
+// path: the guest's craft comes back inert regardless of what the docker had
+// dialled in while flying the stack. Measured repro: 10% throttle, RCS,
+// Target Retrograde inherited from the docker onto a craft the guest had left
+// at 100%/main/prograde.
+func TestLiveUndockAlwaysReturnsASafedCraft(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	const guestID = 1005
+	wA, wB := alignedPair(t, guestID)
+	now := time.Now()
+
+	ledger.Claim(fpA, "alice", wA.ActiveCraft().ID, fpB, "bob", guestID)
+	reports := reportMap(store, wA, wB, now)
+	ledger.Reconcile(wB, fpB, reports)
+	ledger.Reconcile(wA, fpA, reports)
+
+	// The docker flies the fused stack with a different control setup than
+	// the guest ever chose.
+	stack := wA.Crafts[0]
+	stack.Throttle = 0.1
+	stack.EngineMode = spacecraft.EngineRCS
+	stack.AttitudeMode = spacecraft.BurnTargetRetrograde
+	stack.ManualBurn = &spacecraft.ManualBurn{StartTime: wA.Clock.SimTime}
+
+	if !ledger.RequestUndock(fpB, guestID) {
+		t.Fatalf("RequestUndock refused")
+	}
+	reports = reportMap(store, wA, wB, now.Add(time.Second))
+	ledger.Reconcile(wA, fpA, reports)
+	ledger.Reconcile(wB, fpB, reports)
+
+	got, _, ok := wB.CraftByID(guestID)
+	if !ok {
+		t.Fatalf("B did not get craft %d back", guestID)
+	}
+	if got.Throttle != 0 {
+		t.Errorf("returned craft throttle = %v, want 0", got.Throttle)
+	}
+	if got.EngineMode != spacecraft.EngineMain {
+		t.Errorf("returned craft engine mode = %v, want main", got.EngineMode)
+	}
+	if got.AttitudeMode != spacecraft.BurnPrograde {
+		t.Errorf("returned craft attitude hold = %v, want the neutral default", got.AttitudeMode)
+	}
+	if got.ActiveBurn != nil || got.ManualBurn != nil {
+		t.Errorf("returned craft arrived with a burn running")
+	}
+}
+
+// TestReArmLatchBlocksImmediateReclaimUntilSeparation (ADR 0038 §5): undocking
+// disarms auto-dock with that partner (same craft pair) until they back away
+// past ReArmDistM. Pre-fix there is no latch at all — the ledger record is
+// torn down completely the instant the guest receives its craft, so a fresh
+// Claim on the exact same pair succeeds immediately, which is exactly the
+// silent-instant-re-fuse risk the ADR calls out.
+func TestReArmLatchBlocksImmediateReclaimUntilSeparation(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	const guestID = 1006
+	wA, wB := alignedPair(t, guestID)
+	dockerID := wA.ActiveCraft().ID
+	now := time.Now()
+
+	ledger.Claim(fpA, "alice", dockerID, fpB, "bob", guestID)
+	reports := reportMap(store, wA, wB, now)
+	ledger.Reconcile(wB, fpB, reports)
+	ledger.Reconcile(wA, fpA, reports)
+
+	if !ledger.RequestUndock(fpB, guestID) {
+		t.Fatalf("RequestUndock refused")
+	}
+	reports = reportMap(store, wA, wB, now.Add(time.Second))
+	ledger.Reconcile(wA, fpA, reports)
+	ledger.Reconcile(wB, fpB, reports)
+
+	// Immediately drifting back within the gates (the "pilot still setting up
+	// the safed ship" scenario): a fresh claim on the SAME pair must refuse.
+	if _, ok := ledger.Claim(fpA, "alice", dockerID, fpB, "bob", guestID); ok {
+		t.Fatalf("re-claim succeeded before the pair backed away — the re-arm latch did not hold")
+	}
+
+	// Separate for real, well past ReArmDistM, and let the owner's side
+	// notice on its next reconcile.
+	guestIdx := -1
+	for i, c := range wB.Crafts {
+		if c != nil && c.ID == guestID {
+			guestIdx = i
+		}
+	}
+	if guestIdx < 0 {
+		t.Fatalf("guest craft not found in B's slate")
+	}
+	wB.Crafts[guestIdx].State.R = wB.Crafts[guestIdx].State.R.Add(orbital.Vec3{X: 2 * sim.ReArmDistM})
+
+	reports = reportMap(store, wA, wB, now.Add(2*time.Second))
+	ledger.Reconcile(wA, fpA, reports) // owner side notices the separation, clears the latch
+
+	if _, ok := ledger.Claim(fpA, "alice", dockerID, fpB, "bob", guestID); !ok {
+		t.Fatalf("re-claim still refused after backing away past the re-arm distance")
 	}
 }

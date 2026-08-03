@@ -34,6 +34,15 @@ const (
 	// DockActive: the guest craft is fused into the docker's stack and the
 	// ride is live — the guest is Docked-as-Guest, warp-coupled to the stack.
 	DockActive
+	// DockCooldown: the pair just undocked (a live handback, not a Parcel)
+	// and the record is held open purely as the ADR 0038 §5 re-arm-by-
+	// leaving latch — Claim()'s existing craft-ID dedup keeps refusing a
+	// fresh dock between this SAME pair of craft until reconcileCooldown
+	// observes them past ReArmDistM and drops the record. Nothing else reads
+	// a Cooldown record: RequestUndock/RequestRelease/RequestTransfer/
+	// ReclaimTarget all gate on DockActive, so a cooling-down pair is
+	// invisible to every other verb.
+	DockCooldown
 )
 
 // DockRecord is one cross-player dock. The exported fields are the cross-ref
@@ -445,6 +454,16 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 	var chips []DockChip
 	w.DockGuest = nil // rebuilt below if still a guest in some active dock
 	for id, r := range l.records {
+		// ADR 0038 §5: a Cooldown record is the re-arm-by-leaving latch, not
+		// a live dock — neither reconcileOwner nor reconcileGuest touches it.
+		// Either side of the pair can notice the separation and clear it, so
+		// check both regardless of which one owner is.
+		if r.Phase == DockCooldown {
+			if (r.Owner == owner || r.GuestOwner == owner) && l.reconcileCooldown(w, r, owner, reports) {
+				delete(l.records, id)
+			}
+			continue
+		}
 		switch {
 		case r.Owner == owner:
 			if l.reconcileOwner(w, r, &chips) {
@@ -457,6 +476,43 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 		}
 	}
 	return chips
+}
+
+// reconcileCooldown reports whether a re-arm-by-leaving latch (ADR 0038 §5)
+// has cleared: the pair named by r has separated past ReArmDistM, as seen
+// from whichever side is calling (owner is this session's own fingerprint —
+// either the stack owner or the departed guest). Returns true (clear the
+// latch) when there's nothing left of ours to guard, or the partner's craft
+// has backed off far enough; false holds it open, including when the
+// partner isn't reporting yet — an unresolvable range is not evidence of
+// separation.
+func (l *DockLedger) reconcileCooldown(w *sim.World, r *DockRecord, owner string, reports map[string]CraftReport) bool {
+	var localID uint64
+	var remoteOwner string
+	var remoteID uint64
+	if r.Owner == owner {
+		localID, remoteOwner, remoteID = r.DockerCraftID, r.GuestOwner, r.GuestCraftID
+	} else {
+		localID, remoteOwner, remoteID = r.GuestCraftID, r.Owner, r.DockerCraftID
+	}
+	local, _, ok := w.CraftByID(localID)
+	if !ok {
+		return true // our own craft is gone (staged, ended flight) — nothing to guard
+	}
+	rep, ok := reports[remoteOwner]
+	if !ok {
+		return false // no report from the partner yet — can't tell, hold the latch
+	}
+	// Reuse GhostsFor rather than re-deriving the same Kepler propagation —
+	// the exact substrate the flight HUD's own range reading uses, so the
+	// latch clears at the same moment the pilot sees "clear" on screen.
+	for _, g := range GhostsFor(w, []CraftReport{rep}, nil) {
+		if g.CraftID != remoteID || g.PrimaryID != local.Primary.ID {
+			continue
+		}
+		return local.State.R.Sub(g.RelPos).Norm() > sim.ReArmDistM
+	}
+	return false // partner's craft not resolvable in this frame — hold
 }
 
 // reconcileOwner runs the stack owner's side of a dock. Returns true when the
@@ -687,23 +743,36 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 				dt := w.Clock.SimTime.Sub(time.Unix(0, r.parcelAtNano)).Seconds()
 				sim.PlaceAcrossSubspaceGap(r.returnPayload, dt)
 			}
+			// Safed at DELIVERY, not at release: the throttle and the live
+			// burn state are not part of a craft's persisted form, so safing
+			// at release would be undone by the first restart a Parcel
+			// outlived — and a live handback needs the exact same invariant
+			// regardless (#303: the docker's throttle/engine mode/attitude
+			// hold must never ride home with the guest). Every return leaves
+			// inert now, not just Parcels.
+			sim.SafeHandback(r.returnPayload)
 			if r.parcel {
-				// Safed at DELIVERY, not at release: the throttle and the
-				// live burn state are not part of a craft's persisted form,
-				// so safing at release would be undone by the first restart
-				// the Parcel outlived. Arriving inert is the invariant; where
-				// it is applied has to be the arrival.
-				sim.SafeHandback(r.returnPayload)
 				kind = sim.SessionEventParcelReturned
 			} else {
 				// ADR 0038 §6: I undock already targeting the stack I just
-				// left.
+				// left. Skipped for a Parcel — I only just reconnected, and
+				// "targeting the ghost of a stack I haven't seen in hours" is
+				// a stranger opening move than starting blank.
 				w.SetTargetGhost(r.Owner, r.CompositeID)
 			}
 			w.AdoptCraft(r.returnPayload, true)
 			r.returnPayload = nil
 			*chips = append(*chips, DockChip{Kind: kind, Handle: r.OwnerHandle})
-			return true
+			if r.parcel {
+				// Parcel teardown is unchanged: I wasn't there to re-approach
+				// anything, so there is nothing for a re-arm latch to guard.
+				return true
+			}
+			// ADR 0038 §5: hold the record open as the re-arm-by-leaving
+			// latch rather than tearing it down — reconcileCooldown (either
+			// side) clears it once we've backed off past ReArmDistM.
+			r.Phase = DockCooldown
+			return false
 		}
 		// ADR 0040 §4: my stack was taken back from my empty seat while I was
 		// gone. Say so — a vehicle that is simply missing on reconnect is the
