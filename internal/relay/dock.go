@@ -72,6 +72,15 @@ type DockRecord struct {
 	// from a crash. Set the instant the docker's side flips Pending→Active;
 	// consumed (and cleared) on the guest's own next reconcile.
 	dockNotice bool
+	// returnAtNano is the owner's sim-time when ANY returnPayload was parked
+	// — a live handback or a Parcel — so reconcileGuest can Kepler-advance
+	// the craft to the RECEIVING guest's own sim-time before adoption (ADR
+	// 0038 §4 generalises the Parcel-only ADR 0040 stamp to every return: a
+	// live guest's World can sit a few seconds off the docker's too, and at
+	// LEO speed that is kilometres of unpropagated error, #304). parcelAtNano
+	// below is kept for a Parcel already in flight from before this field
+	// existed; reconcileGuest prefers returnAtNano and falls back to it.
+	returnAtNano int64
 	// parcel marks a returnPayload the owner released while the guest was
 	// NOT there to receive it live (ADR 0040 §3). It changes what the guest
 	// is told on delivery — a Parcel arrives with an explanation rather than
@@ -544,7 +553,18 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 				r.undockRefused = true
 				return false
 			}
+			// ADR 0038 §4, generalising the ADR 0040 S3 Parcel-only helpers
+			// to every live undock (#304): clear the stack by the same push
+			// a Parcel gets, computed HERE against the composite's current
+			// state before it changes further, and stamp the release time so
+			// delivery can Kepler-advance to the guest's own sim-time rather
+			// than adopting verbatim.
+			sim.SeparationPush(restored)
 			r.returnPayload = restored
+			r.returnAtNano = w.Clock.SimTime.UnixNano()
+			// ADR 0038 §6: the docker undocks already targeting the guest's
+			// departing craft.
+			w.SetTargetGhost(r.GuestOwner, r.GuestCraftID)
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
 			return false
 		}
@@ -565,16 +585,21 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 				*chips = append(*chips, DockChip{Kind: sim.SessionEventReleaseRefused, Handle: r.GuestHandle})
 				return false
 			}
-			if asParcel {
-				// Nobody is at the other seat, so the craft has to arrive fit
-				// to be found: clear of the stack it left (here, while the
-				// stack's state is what the push is relative to) and, at
-				// delivery, inert and placed at the guest's own sim-time.
-				sim.SeparationPush(restored)
-				r.parcel = true
-				r.parcelAtNano = w.Clock.SimTime.UnixNano()
-			}
+			// Same push and gap-stamp for BOTH branches below (ADR 0038
+			// generalises this from the Parcel-only path — a single call,
+			// not a second copy of the magnitude): clear of the stack it
+			// left, computed against the composite's current state.
+			sim.SeparationPush(restored)
 			r.returnPayload = restored
+			r.returnAtNano = w.Clock.SimTime.UnixNano()
+			if asParcel {
+				// Nobody is at the other seat: mark it so delivery knows to
+				// explain rather than assume the guest asked for this.
+				r.parcel = true
+				r.parcelAtNano = r.returnAtNano
+			} else {
+				w.SetTargetGhost(r.GuestOwner, r.GuestCraftID)
+			}
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
 			return false
 		}
@@ -646,15 +671,23 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 		// Undock/abort completion: the docker handed my craft back.
 		if r.returnPayload != nil {
 			kind := sim.SessionEventUndocked
+			// ADR 0038 §4, generalised from the Parcel-only ADR 0040 stamp:
+			// Kepler-advance the craft to MY OWN sim-time before it joins my
+			// slate — a live guest's World can sit a few seconds off the
+			// docker's too (subspace clocks are only guaranteed equal within
+			// co-warp tolerance), and at LEO speed that is kilometres of
+			// error if adopted verbatim (#304). returnAtNano covers every
+			// return; parcelAtNano is the fallback for a Parcel already in
+			// flight from before returnAtNano existed.
+			switch {
+			case r.returnAtNano != 0:
+				dt := w.Clock.SimTime.Sub(time.Unix(0, r.returnAtNano)).Seconds()
+				sim.PlaceAcrossSubspaceGap(r.returnPayload, dt)
+			case r.parcel && r.parcelAtNano != 0:
+				dt := w.Clock.SimTime.Sub(time.Unix(0, r.parcelAtNano)).Seconds()
+				sim.PlaceAcrossSubspaceGap(r.returnPayload, dt)
+			}
 			if r.parcel {
-				// A Parcel: released while I was not there. It has been
-				// coasting on the record ever since, so place it at MY
-				// sim-time before it joins my slate — a craft dropped in at
-				// the owner's hour-old state would be kilometres wrong.
-				if r.parcelAtNano != 0 {
-					dt := w.Clock.SimTime.Sub(time.Unix(0, r.parcelAtNano)).Seconds()
-					sim.PlaceAcrossSubspaceGap(r.returnPayload, dt)
-				}
 				// Safed at DELIVERY, not at release: the throttle and the
 				// live burn state are not part of a craft's persisted form,
 				// so safing at release would be undone by the first restart
@@ -662,6 +695,10 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 				// it is applied has to be the arrival.
 				sim.SafeHandback(r.returnPayload)
 				kind = sim.SessionEventParcelReturned
+			} else {
+				// ADR 0038 §6: I undock already targeting the stack I just
+				// left.
+				w.SetTargetGhost(r.Owner, r.CompositeID)
 			}
 			w.AdoptCraft(r.returnPayload, true)
 			r.returnPayload = nil
