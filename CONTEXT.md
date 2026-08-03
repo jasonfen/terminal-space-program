@@ -2163,12 +2163,13 @@ when a useful **Nudge** is available. Carries the Δv magnitude, the
 recommended axis (one of the eight velocity-frame axes — six
 self-relative **Burn Modes** plus TargetPrograde and TargetRetrograde),
 the axis unit vector, the **Current CA** and **Achievable CA**, the
-post-burn **Time of Closest Approach**, and the full Lambert ideal Δv
-(always ≥ the recommended scalar — the gap shows how much the
-axis-projection lost). When no useful Nudge exists, the advisory
-returns `Ok=false` with a `Reason` tag the HUD surfaces verbatim
-("no improvement available", "burn too large — use H/I/m", "burn drops
-periapsis unsafely", etc.). HUD recompute is sim-time-throttled to
+post-burn **Time of Closest Approach**, the **Arrival Speed**, and the
+full Lambert ideal Δv (always ≥ the recommended scalar — the gap shows
+how much the axis-projection lost). When no useful Nudge exists, the
+advisory returns `Ok=false` with a `Reason` tag the HUD surfaces
+verbatim ("no improvement available", "burn too large — use H/I/m",
+"burn drops periapsis unsafely", "orbit shape mismatch", etc.). HUD
+recompute is sim-time-throttled to
 500 ms per cache hit — at warp the recompute rate naturally tracks
 how fast the trajectories are changing.
 _Avoid_: Burn recommendation (generic — covers any planner output),
@@ -2181,12 +2182,46 @@ intended to improve **Closest Approach** without re-shaping the orbit.
 The output of the **Rendezvous Advisory** pipeline. "Nudge" is the
 canonical short form; "Rendezvous Nudge" is the long form when context
 needs disambiguation (e.g. distinguishing from a transfer-plan
-midcourse correction). Three gates filter what counts as a Nudge:
-the **Improvement Floor** (is it worth recommending?), the **Nudge
-Ceiling** (is it small enough to call a nudge?), and the
-**Orbit-Safety Gate** (does it leave the chaser's orbit intact?).
+midcourse correction). Four gates filter what counts as a Nudge: the
+**Shape-Match Gate** (are these two orbits even the same *kind* of
+problem?), the **Improvement Floor** (is it worth recommending?), the
+**Nudge Ceiling** (is it small enough to call a nudge?), and the
+**Orbit-Safety Gate** (does it leave the chaser's orbit intact?). The
+Shape-Match Gate runs first, before any Lambert work; the other three
+judge a candidate burn that already exists.
 _Avoid_: Correction (ambiguous with mid-course corrections on a
 transfer leg), Trim (collides with **PitchTrim**), Bump.
+
+**Shape-Match Gate** (v0.34 / ADR 0039):
+The first filter in the **Rendezvous Advisory** pipeline, and the only
+one that runs *before* any Lambert work: if the two orbits' eccentricities
+differ by more than **0.05**, no **Nudge** is offered at all. Failure tag
+surfaced verbatim: "orbit shape mismatch"; the player sees "orbits differ
+in shape — circularize [C] or plan a transfer [H] first". Needed because
+a position-only nudge answers "where", not "what shape" — between orbits
+of genuinely different shape each burn improves **Closest Approach**
+slightly while making the next one worse, so iterating `K` diverges
+instead of converging (#290). Keyed on eccentricity rather than
+semi-major axis deliberately: a pure *size* mismatch produces a large Δv
+that the **Nudge Ceiling** already catches, so gating on size too would
+refuse twice for one reason. Tuned wide rather than tight — a missed
+mismatch still falls through to the other three gates, while a
+false positive would refuse a rendezvous that would have worked.
+_Avoid_: Eccentricity gate (names the implementation, not the question),
+Shape filter, Orbit-mismatch check.
+
+**Arrival Speed** (v0.34 / ADR 0039):
+The relative speed |v_rel| at the **Closest Approach** a **Nudge** would
+achieve — what you will be closing at when you get there. Reported
+alongside the CA it belongs to ("CA 9 km, arriving ~540 m/s") and
+populated only on a successful advisory. **Pure information: it never
+gates anything.** That is the doctrine of ADR 0039 — Δv is cheap and
+waiting is the real cost, so *arriving hot is fine*; the pilot needs to
+know how much hand-flying the arrival implies, not to be refused for it.
+Before v0.34 this was invisible at plan time, so a plan that looked good
+by CA alone could commit you to an arrival you had no fuel to kill.
+_Avoid_: Closing speed (informal), Approach velocity, v_rel (the raw
+symbol — fine in code, not in prose).
 
 **Improvement Floor**:
 The two-prong gate that decides whether a **Rendezvous Advisory** is
