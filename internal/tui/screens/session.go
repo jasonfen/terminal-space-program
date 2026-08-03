@@ -33,7 +33,7 @@ type SessionScreen struct {
 	mintInput       []rune
 	confirmRemove   bool // pending [x] confirmation on the selected player
 	confirmStopHost bool // pending [h] stop-hosting confirmation (v0.28 S3)
-	confirmRestart  bool // pending [u] server-restart confirmation (v0.30 S4)
+	confirmRestart  bool // pending [F4] server-restart confirmation (v0.30 S4; moved off `u` in #289)
 }
 
 func NewSessionScreen(th Theme) *SessionScreen { return &SessionScreen{theme: th} }
@@ -357,10 +357,24 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if info.IsHost && !s.inCraftList {
 			s.confirmStopHost = true
 		}
-	case "u":
+	case "f4":
 		// Admin server restart (v0.30 S4): drain everyone and exit with a
 		// marker the supervisor restarts on. Confirm first (states the
 		// drop count). Host and admins; a guest gets the reason (v0.30.1).
+		//
+		// Moved off `u` in #289: `u` shares a letter with the flight
+		// view's `U` undock, and a guest reaching for undock with the
+		// roster still open landed on this instead — refused only
+		// because they lacked admin. An admin holding the same
+		// muscle-memory keystroke would have had nothing but a y/n
+		// prompt between a mis-press and drain-and-restart. The
+		// decision (issue #289): no irreversible admin action may
+		// share a letter with any flight verb, case-insensitively — and
+		// every letter a-z is already claimed by some flight binding
+		// (upper or lower case), so the fix moves restart onto a
+		// function key instead of hunting for a free letter. The y/n
+		// confirm below stays as the second line of defense, not the
+		// first.
 		if s.inCraftList {
 			return toast("close the vessel list first — [esc]")
 		}
@@ -500,16 +514,17 @@ func adopting(info *sim.SessionInfo) bool {
 	return info.AvailableVersion != "" && info.AdoptCapable
 }
 
-// restartKeyLabel is the footer label for [u] — "restart to adopt vX"
-// when adopting, else a plain "restart server".
+// restartKeyLabel is the footer label for [F4] — "restart to adopt vX"
+// when adopting, else a plain "restart server". Moved off `u` in #289
+// (see the case "f4" comment in HandleKey for why).
 func restartKeyLabel(info *sim.SessionInfo) string {
 	if adopting(info) {
-		return "[u] restart to adopt " + displayVer(info.AvailableVersion)
+		return "[F4] restart to adopt " + displayVer(info.AvailableVersion)
 	}
-	return "[u] restart server"
+	return "[F4] restart server"
 }
 
-// restartPrompt is the confirmation line for [u], adopt-aware and naming
+// restartPrompt is the confirmation line for [F4], adopt-aware and naming
 // the drop count.
 func restartPrompt(info *sim.SessionInfo) string {
 	if adopting(info) {
@@ -806,6 +821,13 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 			b.WriteString(s.theme.Dim.Render("  update manually — "+releasesPageURL) + "\n")
 		}
 	}
+
+	// #289: t/v/s/w here are roster verbs, not the flight view's attitude
+	// and target keys that happen to share those letters — an accepted
+	// once-annoying overlap (the decision doesn't "fix" it), but worth a
+	// standing reminder since it's the same confusion that misdirected a
+	// player toward [F4] before the restart verb moved off `u`.
+	b.WriteString(s.theme.Dim.Render("  flight controls are inactive on this screen — only the keys below apply") + "\n")
 
 	keys := "  [t] target vessel  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
