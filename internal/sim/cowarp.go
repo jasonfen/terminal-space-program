@@ -403,9 +403,18 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 		// subspace clock, so Δt grows and the subspace gate releases them
 		// within the tolerance window anyway. Gating coupledNow on it
 		// keeps State/chips/clamp consistent (no couple without a clamp).
-		if anchorOK && p.EffWarp > 0 && sameSubspace(viewerT, p.SubspaceTime) {
+		//
+		// The gate is deliberately NOT applied to the agreement branch (ADR
+		// 0037 §4): a partner held at 0× by the leader-hold is the most
+		// coupled two players can be, and reading their 0 as "not a couple"
+		// is the #275 flap itself — the hold drives the report to 0, the
+		// pair uncouples, the hold lifts, they couple again, 852 times in a
+		// session. Inside an agreement the rate comes from the seats, not
+		// from that report, so nothing downstream needs it to be positive.
+		armed := w.rendezvousArmedWith(p.Owner) && p.ArmedTowardViewer
+		if anchorOK && (p.EffWarp > 0 || armed) && sameSubspace(viewerT, p.SubspaceTime) {
 			switch {
-			case w.rendezvousArmedWith(p.Owner) && p.ArmedTowardViewer:
+			case armed:
 				// Rendezvous trigger (v0.29 S1): both players Engaged toward
 				// each other and share a Subspace — couple *before* the
 				// proximity gate so they can coast to the encounter rate-
@@ -450,7 +459,16 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 			}
 		}
 		res.CoupledOwners[p.Owner] = coupledNow
+		// One chip per REAL change (ADR 0037 §4). A couple that exists
+		// because two players have a standing agreement is not a moment —
+		// it is the agreement, which announces its own beginning, waypoints,
+		// arrival and end, and which the RENDEZVOUS chip renders as standing
+		// state throughout. Suppressing its transitions here erases the
+		// per-tick flap by construction rather than by tuning the hold and
+		// couple constants apart, and stops the arrival tick from chipping a
+		// "warp released" contradiction on top of "encounter reached".
 		switch {
+		case armed:
 		case coupledNow && !wasCoupled:
 			res.NewlyCoupled = append(res.NewlyCoupled, p.Handle)
 		case !coupledNow && wasCoupled:

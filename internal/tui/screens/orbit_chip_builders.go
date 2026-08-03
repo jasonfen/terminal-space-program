@@ -73,6 +73,12 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// anti-overlook affordance and the coast readout carries the cancel
 	// key; F2 declutter still clears it like SESSION.
 	add("", cornerTopLeft, v.buildRendezvousChip(w))
+	// TIME LOCK (ADR 0037 §3): the minimal standing line for a plain
+	// proximity lock — no agreement, so nothing else on screen would say
+	// the player's warp is being held. Always-on for the same reason
+	// RENDEZVOUS is: it explains a constraint the player can't otherwise
+	// see. Nil inside an agreement, where the chip above says it better.
+	add("", cornerTopLeft, v.buildTimeLockChip(w))
 	// DOCKED (#253): the standing away line for the other Commitment kind
 	// — renders only while docked-as-guest with the stack owner away.
 	// Always-on like RENDEZVOUS (empty id); F2 declutter still clears it.
@@ -128,7 +134,22 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 
 // sessionEventChipTTL is how long a join/leave/sync moment stays on
 // the canvas — wall clock, so warp can't stretch or blink it.
-const sessionEventChipTTL = 6 * time.Second
+//
+// sessionEventChipDepth caps how many rows can be on screen at once
+// (#280, ADR 0037 §4). The chip used to render every moment inside its
+// TTL with no bound, so a burst — 852 coupled/released moments in one
+// live session — grew a block tall enough to occlude the flight view.
+// ADR 0037 removes the structural source of that burst by never chipping
+// the couple state inside an agreement, but the cap is defense in depth:
+// the same CHAT depth-cap pattern (oldest dropped first), so any
+// legitimate burst stays bounded no matter where it comes from. Same
+// depth as CHAT — the ADR asks for that chip's pattern, and two capped
+// stacks in the same view have no reason to disagree about "a few rows".
+// Playtest-tunable.
+const (
+	sessionEventChipTTL   = 6 * time.Second
+	sessionEventChipDepth = chatChipDepth
+)
 
 // buildSessionEventsChip renders recent multiplayer session moments
 // (v0.27 S6). Nil outside a session or when every event has aged out.
@@ -219,6 +240,14 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 	if len(rows) == 0 {
 		return nil
 	}
+	// Depth cap (#280): show the tail — the newest moments — and drop the
+	// oldest, exactly as CHAT does. A two-row event (the undock refusal
+	// with its way out) is trimmed as rows, not as events; losing the lead
+	// of a stale pair costs less than an occluded flight view, and both
+	// rows survive whenever the pair is inside the cap.
+	if len(rows) > sessionEventChipDepth {
+		rows = rows[len(rows)-sessionEventChipDepth:]
+	}
 	lines := []string{v.theme.Primary.Render("SESSION")}
 	for _, r := range rows {
 		if r.alert {
@@ -298,6 +327,8 @@ func (v *OrbitView) buildChatChip(w *sim.World) []string {
 func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 	now := w.Clock.SimTime
 	switch {
+	case w.RendezvousApproachPhase():
+		return v.rendezvousApproachLines(w)
 	case w.RendezvousWarpEngaged():
 		aw := w.AutoWarp
 		lines := []string{
@@ -391,6 +422,92 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		}
 	}
 	return nil
+}
+
+// rendezvousApproachLines is the RENDEZVOUS chip's fourth state: the
+// standing terminal phase (ADR 0037 §1/§3). The τ handoff has released
+// the driver and handed the ship back, but the pair is still time-locked,
+// and a persistent constraint on the player's warp must be represented by
+// persistent state — #305's 30m12s clamp was announced by exactly one
+// 6-second transient.
+//
+// Four facts, in the order a pilot needs them: who you're flying with,
+// which seat you hold, what the pair's clock is doing, and — only when it
+// isn't you — what is holding it there. That last row is the answer to
+// "why do my warp keys do nothing".
+func (v *OrbitView) rendezvousApproachLines(w *sim.World) []string {
+	arm := w.RendezvousArm
+	rr := w.RendezvousRate
+	handle := arm.Handle
+	if rr.Handle != "" {
+		handle = rr.Handle
+	}
+	lines := []string{
+		v.theme.Primary.Render("RENDEZVOUS"),
+		"  approach with " + handle + CraftTag(arm.CraftName),
+	}
+	// The seat is only meaningful once both sides have resolved it; an
+	// unseated pair is on plain min-wins and saying "pilot" would be a lie.
+	switch rr.Seat {
+	case sim.RendezvousSeatPilot:
+		lines = append(lines, chipRow("seat:", "pilot — your warp keys fly the pair"))
+	case sim.RendezvousSeatCopilot:
+		lines = append(lines, chipRow("seat:", "copilot — [,] brakes the pair, [.] follows"))
+	}
+	lines = append(lines, chipRow("rate:", WarpLabel(w.EffectiveWarp())))
+	if held := rendezvousHoldLabel(w.RendezvousRateHold(), handle); held != "" {
+		lines = append(lines, chipRow("held:", held))
+	}
+	if w.RendezvousHold {
+		lines = append(lines, "  "+v.theme.Warning.Render("⏸ holding — waiting for "+handle))
+	}
+	// Standing away line (#253) — same reasoning as on the coasting state:
+	// Away lasts hours, the went-quiet moment lasts six seconds. "z" stays
+	// width-1 (see buildRendezvousChip's note on the ☾-class trap).
+	if w.RendezvousPartnerAway {
+		lines = append(lines, "  "+v.theme.Warning.Render("z "+handle+" is away — their session is still flying"))
+	}
+	return append(lines, v.theme.Dim.Render("  [/] cancel"))
+}
+
+// rendezvousHoldLabel names what is holding the pair's rate when it isn't
+// the viewer's own selection. Empty when it is — a "held: you" row would
+// be noise on the one state that needs no explanation.
+func rendezvousHoldLabel(h sim.RendezvousRateHolder, handle string) string {
+	switch h {
+	case sim.RendezvousRateFollowing:
+		return handle + "'s warp — they fly the clock"
+	case sim.RendezvousRatePartnerBraking:
+		return handle + " braking the pair"
+	case sim.RendezvousRatePartnerBurning:
+		return handle + " burning"
+	case sim.RendezvousRatePartnerPaused:
+		return handle + " paused"
+	}
+	return ""
+}
+
+// buildTimeLockChip is the minimal standing surface for a warp lock with
+// NO agreement behind it (ADR 0037 §3): two players drifted close and
+// slow, proximity co-warp coupled them, and min-wins is quietly setting
+// the player's rate. Who, and what the clock is doing — the RENDEZVOUS
+// chip carries the same facts with far more context inside an agreement,
+// so this stays out of its way there.
+//
+// The v0.30 lesson (a silent no-op reads as broken) applied to warp: a
+// lock on the player's time is always explained on screen.
+func (v *OrbitView) buildTimeLockChip(w *sim.World) []string {
+	if !w.CoWarp.Coupled || w.RendezvousArm != nil {
+		return nil
+	}
+	partners := strings.Join(w.CoWarp.Partners, ", ")
+	if partners == "" {
+		return nil
+	}
+	return []string{
+		v.theme.Primary.Render("TIME LOCK"),
+		v.theme.Dim.Render("  warp locked with " + partners + " — " + WarpLabel(w.EffectiveWarp())),
+	}
 }
 
 // WarpLabel renders a warp factor the way the title-bar clock chip does
