@@ -423,6 +423,10 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 	// case).
 	w.refreshRendezvousWait(peers)
 	w.refreshRendezvousDegrade(peers)
+	// The seat/rate slate is part of the same tail (ADR 0037 §2): it reads
+	// this tick's peer set and the phase the drive above just settled, and
+	// clampedWarp reads it on the sim tick that follows.
+	w.refreshRendezvousRate(peers)
 	w.refreshRendezvousInvite(peers)
 }
 

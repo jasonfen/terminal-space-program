@@ -177,6 +177,33 @@ type CoWarpPeer struct {
 	// authoritative baseline, not its own staler recompute (v0.29 S1).
 	RendezvousCA float64
 
+	// RendezvousInitiator is this peer's SEAT in the mutual agreement (ADR
+	// 0037 §2) — true when they proposed the rendezvous and therefore fly
+	// the pair's clock through the terminal phase. Meaningful only
+	// alongside ArmedTowardViewer. Both sides relay their own bit rather
+	// than deriving one from the other, so a reconnect can't leave the pair
+	// disagreeing about who is in command; when the two bits are equal
+	// (both claim it, or an older peer claims neither) the rate rule
+	// declines to resolve a seat and the pair falls back to min-wins.
+	RendezvousInitiator bool
+
+	// RendezvousRate is this peer's published contribution to the pair's
+	// rate in the terminal phase (ADR 0037 §2): the initiator publishes
+	// their SELECTED warp, the copilot publishes their brake, and either
+	// side folds in its own burn cap first. 0 means "this seat imposes no
+	// ceiling" — a following copilot with nothing burning.
+	//
+	// Load-bearing that this is a selection, never a derived rate: the
+	// receiving side's own rate is a function of it, so relaying a
+	// post-clamp value back would close the #248 loop and ratchet the pair
+	// to 1×.
+	RendezvousRate float64
+
+	// RendezvousBurning marks the published rate as coming from this peer's
+	// active burn rather than a chosen brake, so the partner's chip can say
+	// "held: gern burning" instead of blaming a deliberate brake.
+	RendezvousBurning bool
+
 	// ActiveCraftName is the vessel this peer is flying, read off their
 	// report's active-craft marker (#288). The join prompt names it (#295)
 	// so the responder answers "gern's Relay Tug-1 wants to rendezvous",
@@ -410,8 +437,12 @@ func (w *World) ComputeCoWarp(peers []CoWarpPeer, prev map[string]bool) CoWarpRe
 				// the other, so feeding the partner's stale post-clamp report
 				// into the min would reintroduce the #248 ratchet in
 				// precisely the phase where a pilot is trying to warp between
-				// braking burns.
-				clampExempt = w.rendezvousRateGoverned()
+				// braking burns. The terminal phase claims the exemption only
+				// once the SEATS resolve — an ambiguous pair (both claiming
+				// the initiator seat, or a peer from before ADR 0037) has no
+				// authority to derive a rate from, so it keeps min-wins.
+				clampExempt = w.rendezvousWarpEngaged() ||
+					w.rendezvousSeatWith(&p) != RendezvousSeatNone
 			default:
 				if rng, vrel, ok := closestApproach(anchor, p.Crafts); ok {
 					coupledNow = coupleDecide(wasCoupled, rng, vrel)

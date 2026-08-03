@@ -70,6 +70,26 @@ type CraftReport struct {
 	RendezvousTau    time.Time `json:"rendezvous_tau,omitempty"`
 	RendezvousCA     float64   `json:"rendezvous_ca,omitempty"` // committed predicted approach at τ (m) — the responder's adopted baseline
 
+	// RendezvousInitiator / RendezvousRate / RendezvousBurning carry the
+	// reporter's SEAT and its contribution to the pair's rate in a
+	// rendezvous agreement's terminal phase (ADR 0037 §2). The initiator
+	// publishes their selected warp, the copilot their brake, either folded
+	// with their own burn cap; 0 means "this seat imposes no ceiling".
+	//
+	// The role must be unambiguous under reconnect, so it rides the wire
+	// explicitly rather than being inferred from who Engaged first — a
+	// reconnecting session rebuilds its arm from its own state, and two
+	// sides guessing from report order could disagree about who is in
+	// command. A peer that publishes neither bit (an older build) leaves
+	// the seats unresolved, and the pair keeps min-wins.
+	//
+	// RendezvousRate is a SELECTION, never a post-clamp rate: the receiving
+	// side's own rate is derived from it, so relaying a derived value back
+	// would close the #248 loop and ratchet the pair to 1×.
+	RendezvousInitiator bool    `json:"rendezvous_initiator,omitempty"`
+	RendezvousRate      float64 `json:"rendezvous_rate,omitempty"`
+	RendezvousBurning   bool    `json:"rendezvous_burning,omitempty"`
+
 	// Paused marks a deliberately paused reporter (Clock.Paused), as
 	// opposed to an EffWarp of 0 from a hold or clamp — the rendezvous
 	// hold-the-leader logic keys on it (v0.29 review).

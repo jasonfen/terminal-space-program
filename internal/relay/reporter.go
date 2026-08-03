@@ -44,6 +44,8 @@ type Reporter struct {
 	lastRzTarget string    // last-reported Rendezvous Warp target (v0.29 S1) — a change forces a report
 	lastRzTau    time.Time // last-reported committed τ — a re-commit toward the SAME partner must also propagate promptly (v0.29 review)
 	lastPaused   bool      // last-reported pause state — the partner's hold-the-leader keys on it (v0.29 review)
+	lastRzRate   float64   // last-reported seat rate (ADR 0037 §2) — the partner clamps to it, so a change must not wait for the heartbeat
+	lastRzSeat   bool      // last-reported initiator seat — cheap, and a re-arm can flip it
 	lastActiveID uint64    // last-reported active craft (#288) — a switch moves no orbit, so nothing else would trigger a report
 }
 
@@ -88,6 +90,13 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		rzTau = w.RendezvousArm.Tau
 		rzCA = w.RendezvousArm.CommittedCA
 	}
+	// Seat + rate (ADR 0037 §2): in the terminal phase the partner's clock
+	// is a function of this number, so it has to travel as promptly as the
+	// arm does — a warp key whose effect waits up to a heartbeat is the
+	// unresponsive-keys complaint (#302) rebuilt on the wire.
+	rzSeat := w.RendezvousInitiatorSeat()
+	rzRate := w.RendezvousSeatRate()
+	rzBurning := w.RendezvousSeatBurning()
 	paused := w.Clock.Paused
 	// Active craft (#288): switching craft changes no orbit, so the
 	// element-based change detector below is blind to it — but the roster's
@@ -100,7 +109,8 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	}
 	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat ||
 		r.lastRzTarget != rzTarget || !r.lastRzTau.Equal(rzTau) || r.lastPaused != paused ||
-		r.lastActiveID != activeID
+		r.lastActiveID != activeID ||
+		r.lastRzRate != rzRate || r.lastRzSeat != rzSeat
 	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
 		return
 	}
@@ -111,6 +121,7 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	r.lastRzTau = rzTau
 	r.lastPaused = paused
 	r.lastActiveID = activeID
+	r.lastRzRate, r.lastRzSeat = rzRate, rzSeat
 	r.store.Report(CraftReport{
 		Owner:            r.Owner,
 		SubspaceTime:     w.Clock.SimTime,
@@ -120,7 +131,12 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		RendezvousTarget: rzTarget,
 		RendezvousTau:    rzTau,
 		RendezvousCA:     rzCA,
-		Paused:           paused,
+
+		RendezvousInitiator: rzSeat,
+		RendezvousRate:      rzRate,
+		RendezvousBurning:   rzBurning,
+
+		Paused: paused,
 	})
 }
 

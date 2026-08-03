@@ -597,6 +597,10 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	w.RendezvousHold = false
 	w.RendezvousPartnerAway = false
 	w.RendezvousWait = sim.RendezvousWait{}
+	// ADR 0037 §2's seat/rate slate rides the same gated tick path — a
+	// stale copilot ceiling would clamp solo warp forever, exactly as a
+	// stale CoWarp.MinWarp would.
+	w.RendezvousRate = sim.RendezvousRateState{}
 	// Arrival slates too (v0.29 review): a coast or sync arriving on the
 	// same tick hosting stops must not fire a spurious chip in the next
 	// hosting session.

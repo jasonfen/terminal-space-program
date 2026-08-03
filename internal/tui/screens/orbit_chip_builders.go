@@ -384,11 +384,20 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			v.theme.Warning.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous"),
 			chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 			chipRow("CA:", formatRangeM(inv.CA)),
-			v.theme.Warning.Render("  [y] join"),
+			// Name the seat at the moment it is taken (ADR 0037 §2): roles
+			// are fixed at invite time, so this prompt is the only place the
+			// asymmetry is a choice rather than a later surprise.
+			v.theme.Warning.Render("  [y] join as copilot — " + inv.Handle + " sets the pair's warp"),
 		}
 	}
 	return nil
 }
+
+// WarpLabel renders a warp factor the way the title-bar clock chip does
+// ("1000x"), so a rate quoted in a chip row or a toast reads identically
+// to the one in the clock. ASCII 'x', not '×': chip glyphs must stay
+// width-1 (see the away line in buildRendezvousChip).
+func WarpLabel(f float64) string { return fmt.Sprintf("%.0fx", f) }
 
 // CraftTag renders a vessel name as a parenthetical to hang off a
 // player's handle — "gern (Relay Tug-1)" (#295). Empty for an unnamed

@@ -939,6 +939,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.toast("rendezvous coast owns the rate — [/] to cancel")
 				return a, nil
 			}
+			// Copilot seat (ADR 0037 §2): warp up RELEASES the brake back
+			// toward following the initiator; it can never push the pair
+			// past them. Refusing here, at the input layer where the intent
+			// is known, is what makes "never faster" a property rather than
+			// a convention.
+			if a.releaseRendezvousBrake() {
+				return a, nil
+			}
 			a.world.DisengageAutoWarp()
 			a.world.Clock.WarpUp()
 			return a, nil
@@ -947,6 +955,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// rationale above.
 			if a.world.RendezvousWarpEngaged() {
 				a.toast("rendezvous coast owns the rate — [/] to cancel")
+				return a, nil
+			}
+			// Copilot seat (ADR 0037 §2): warp down BRAKES the pair — the
+			// one direction the copilot's selection carries.
+			if a.brakeRendezvousPair() {
 				return a, nil
 			}
 			a.world.DisengageAutoWarp()
@@ -2111,6 +2124,44 @@ func (a *App) applySavesCommand(cmd screens.SavesCommand) (tea.Model, tea.Cmd) {
 		}
 	}
 	return a, nil
+}
+
+// brakeRendezvousPair / releaseRendezvousBrake give the warp keys their
+// copilot meaning inside a rendezvous agreement's terminal phase (ADR
+// 0037 §2). Each reports whether it consumed the press, so the normal
+// warp path runs untouched in every other seat and phase.
+//
+// Both toast, always: a key that silently does nothing is the exact
+// failure #302 recorded from the seat, and the v0.30 lesson that silent
+// no-ops read as broken applies to warp above everything else.
+func (a *App) brakeRendezvousPair() bool {
+	if a.world.RendezvousRate.Seat != sim.RendezvousSeatCopilot {
+		return false
+	}
+	brake, ok := a.world.StepRendezvousBrake(false)
+	if !ok {
+		return false
+	}
+	a.toast(fmt.Sprintf("braking the pair to %s — [.] releases back to following %s",
+		screens.WarpLabel(brake), a.world.RendezvousRate.Handle))
+	return true
+}
+
+func (a *App) releaseRendezvousBrake() bool {
+	if a.world.RendezvousRate.Seat != sim.RendezvousSeatCopilot {
+		return false
+	}
+	brake, ok := a.world.StepRendezvousBrake(true)
+	switch {
+	case !ok:
+		a.toast(fmt.Sprintf("you're copilot — %s flies the pair's clock; [,] brakes, [/] cancels",
+			a.world.RendezvousRate.Handle))
+	case brake == 0:
+		a.toast(fmt.Sprintf("following %s — the pair runs at their warp", a.world.RendezvousRate.Handle))
+	default:
+		a.toast(fmt.Sprintf("brake eased to %s", screens.WarpLabel(brake)))
+	}
+	return true
 }
 
 // toggleAutoWarpBurn carries the shared intent behind the `G` key and
