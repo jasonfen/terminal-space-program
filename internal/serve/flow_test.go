@@ -115,6 +115,75 @@ func TestFlowBadCode(t *testing.T) {
 	}
 }
 
+// #332: a handle collision at the commit step must bounce the guest
+// back to the HANDLE prompt (with the invite still unconsumed), not
+// the invite-code prompt carrying a message about their handle. The
+// player can then just edit the handle and retry with the same code.
+func TestFlowHandleCollisionReturnsToHandlePrompt(t *testing.T) {
+	store, m := newFlowFixture(t)
+	// Seed a roster row occupying "gern" directly (an already-enrolled
+	// player), then hand our guest an unrelated invite so their
+	// pre-bound handle doesn't itself collide.
+	seedInv, err := store.MintInvite("gern")
+	if err != nil {
+		t.Fatalf("MintInvite gern: %v", err)
+	}
+	if _, err := store.Enroll(seedInv.Code, "SHA256:seed", "gern"); err != nil {
+		t.Fatalf("seed Enroll: %v", err)
+	}
+	inv, err := store.MintInvite("dave")
+	if err != nil {
+		t.Fatalf("MintInvite dave: %v", err)
+	}
+
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 45})
+	m = typeString(m, "y")
+	m = typeString(m, inv.Code)
+	m = pressEnter(m)
+	if out := stripANSI(m.View()); !strings.Contains(out, "your handle:") {
+		t.Fatalf("expected the prefilled handle prompt, got:\n%s", out)
+	}
+
+	// Clear the prefilled "dave" and type a handle that collides
+	// (case-insensitively) with the already-enrolled "gern".
+	for i := 0; i < 10; i++ {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	m = typeString(m, "GERN")
+	m = pressEnter(m)
+
+	out := stripANSI(m.View())
+	if !strings.Contains(out, "your handle:") {
+		t.Fatalf("expected to stay on the HANDLE prompt after a handle collision, got:\n%s", out)
+	}
+	if strings.Contains(out, "invite code:") {
+		t.Fatalf("bounced back to the CODE prompt instead of the handle prompt:\n%s", out)
+	}
+	if !strings.Contains(out, "collides") {
+		t.Fatalf("expected the collision error on the handle prompt, got:\n%s", out)
+	}
+
+	// The invite must still be unconsumed — a retry with a different
+	// handle on the SAME code must succeed.
+	if _, err := store.Peek(inv.Code); err != nil {
+		t.Fatalf("invite was consumed despite the collision refusal: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	m = typeString(m, "davey")
+	m = pressEnter(m)
+	m, _ = m.Update(sim.TickMsg(time.Now()))
+	if out := stripANSI(m.View()); !strings.Contains(out, "warp 1x") {
+		t.Fatalf("expected the game after a corrected retry, got:\n%s", firstLines(out, 3))
+	}
+	p, err := store.FindPlayer(testFP)
+	if err != nil || p.Handle != "davey" {
+		t.Errorf("FindPlayer = %+v, %v; want handle davey", p, err)
+	}
+}
+
 // The shared size gate holds behind the flow too: enrolling on an
 // undersized pty lands on the gate, not a broken frame.
 func TestFlowEnrollIntoSizeGate(t *testing.T) {

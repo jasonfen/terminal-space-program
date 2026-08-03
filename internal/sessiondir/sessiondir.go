@@ -614,13 +614,27 @@ func (s *Store) Enroll(code, fingerprint, handle string) (Player, error) {
 	if idx < 0 {
 		return Player{}, ErrUnknownInvite
 	}
-	// Case-insensitive uniqueness against the roster (#274) — checked
-	// here, not just at mint, because the handle is editable at this
-	// step (ADR 0034 addendum) and could be hand-edited into a
-	// collision even when the pre-bound handle was clean. Checked
-	// BEFORE consuming the invite, so a refusal leaves the code intact
-	// for a retry with a different handle.
-	if collidesWith, ok := findHandleCollision(handle, m.Roster, nil); ok {
+	// Case-insensitive uniqueness against the roster AND any OTHER
+	// outstanding invite (#274, #332) — checked here, not just at
+	// mint, because the handle is editable at this step (ADR 0034
+	// addendum) and could be hand-edited into a collision even when
+	// the pre-bound handle was clean. Matches MintInvite's own
+	// comparison set: without the invite check, a handle minted for
+	// one player but not yet redeemed could be claimed by a second
+	// player enrolling first, permanently orphaning the first player's
+	// code. otherInvites excludes the invite being redeemed itself —
+	// the overwhelmingly common path is accepting the pre-bound
+	// handle unedited, which must not "collide" with its own
+	// still-outstanding invite. Checked BEFORE consuming the invite,
+	// so a refusal leaves the code intact for a retry with a
+	// different handle.
+	otherInvites := make([]Invite, 0, len(m.Invites))
+	for i, inv := range m.Invites {
+		if i != idx {
+			otherInvites = append(otherInvites, inv)
+		}
+	}
+	if collidesWith, ok := findHandleCollision(handle, m.Roster, otherInvites); ok {
 		return Player{}, fmt.Errorf("sessiondir: handle %q collides with %q (case-insensitive) — pick a different handle", handle, collidesWith)
 	}
 	m.Invites = append(m.Invites[:idx], m.Invites[idx+1:]...)

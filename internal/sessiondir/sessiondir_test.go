@@ -916,3 +916,55 @@ func TestPendingNoteAppendsAcrossRepeatedRepairs(t *testing.T) {
 		}
 	}
 }
+
+// #332: Enroll must refuse a handle that case-insensitively collides
+// with an OUTSTANDING INVITE, not just the roster — matching
+// MintInvite's own check. Without this, a host mints "gern" for Bob;
+// before Bob redeems it, Alice enrolls (on an unrelated code) as
+// "Gern"; Bob's code is now permanently dead — the exact failure the
+// mint-side check exists to prevent, arriving through the enroll
+// door instead.
+func TestEnrollRefusesCaseInsensitiveInviteCollision(t *testing.T) {
+	s := openStore(t)
+	bobInvite, err := s.MintInvite("gern")
+	if err != nil {
+		t.Fatalf("MintInvite gern (bob): %v", err)
+	}
+	aliceInvite, err := s.MintInvite("someone-else")
+	if err != nil {
+		t.Fatalf("MintInvite someone-else (alice): %v", err)
+	}
+	if _, err := s.Enroll(aliceInvite.Code, "SHA256:alice", "GERN"); err == nil {
+		t.Fatal("Enroll accepted a handle colliding with another outstanding invite")
+	}
+	// Both invites must survive the refusal: Alice's because a refused
+	// enroll never spends the code, Bob's because it was never
+	// touched.
+	if _, err := s.Peek(aliceInvite.Code); err != nil {
+		t.Errorf("refused enroll spent alice's invite code: %v", err)
+	}
+	if _, err := s.Peek(bobInvite.Code); err != nil {
+		t.Errorf("bob's invite code was disturbed by alice's refused enroll: %v", err)
+	}
+	// Bob can still redeem his own code for "gern" cleanly afterward.
+	if _, err := s.Enroll(bobInvite.Code, "SHA256:bob", "gern"); err != nil {
+		t.Fatalf("bob's own enroll for his own pre-bound handle failed: %v", err)
+	}
+}
+
+// #332 regression guard: Enroll must NOT refuse a player redeeming
+// their OWN invite with its own pre-bound handle (the ordinary,
+// overwhelmingly common path) just because that invite is still
+// sitting in m.Invites at the moment of the check — the collision
+// check must exclude the invite being redeemed from the invite set it
+// compares against.
+func TestEnrollAcceptsOwnPreboundHandle(t *testing.T) {
+	s := openStore(t)
+	inv, err := s.MintInvite("dave")
+	if err != nil {
+		t.Fatalf("MintInvite: %v", err)
+	}
+	if _, err := s.Enroll(inv.Code, "SHA256:dave", "dave"); err != nil {
+		t.Fatalf("Enroll with own pre-bound handle refused: %v", err)
+	}
+}
