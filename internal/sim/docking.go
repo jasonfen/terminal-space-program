@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"time"
+
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
@@ -345,6 +347,23 @@ const (
 // "~100 m, just outside the gate band") so re-arming isn't a coin-flip right
 // at the boundary the 75 m SeparationPush lands just inside of.
 const ReArmDistM = DockingDistM * 2 // 100 m
+
+// ReArmCeiling bounds how long a re-arm latch may hold when the distance it
+// waits on can never be read (#326). The latch clears on a POSITIVE range
+// reading, and a partner who is landed, in another system, in another SOI, or
+// simply not reporting yields no reading at all — so the ordinary reason to
+// undock (one of you leaves) is exactly the case that holds the latch open
+// forever, and a restart re-seeds it from disk with an empty report store.
+//
+// Measured in SIM-time against the release stamp the record already carries,
+// not wall time: the latch is a statement about the pair's flight ("back away
+// first"), and sim-time is the clock that flight happens on — under warp a
+// pair who have not separated in ten minutes of flying are not about to. It
+// costs nothing durable, since the stamp is a field the record already
+// persists. Far beyond ADR 0038 §5's "silent instant re-fuse" worry, so it
+// cannot expire a latch that is still doing its job; short enough that a
+// vessel is never un-dockable for a session.
+const ReArmCeiling = 10 * time.Minute
 
 // checkDocking scans every craft pair in the same primary frame
 // for a docking-eligible encounter (proximity + relative velocity

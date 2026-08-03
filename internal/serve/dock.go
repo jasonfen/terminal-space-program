@@ -40,9 +40,21 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 
 	// Advance every dock touching this session against its World.
 	craftsBefore := len(w.Crafts)
+	recordsBefore := m.srv.dock.RecordCount()
 	chips := m.srv.dock.Reconcile(w, m.owner, reports)
 	for _, c := range chips {
-		m.localEvents = append(m.localEvents, sim.SessionEvent{Kind: c.Kind, Handle: c.Handle, At: now})
+		m.localEvents = append(m.localEvents, sim.SessionEvent{
+			Kind: c.Kind, Handle: c.Handle, Detail: c.Detail, At: now,
+		})
+		changed = true
+	}
+	// A record ENDING is a durable transition with none of the three traces
+	// above (#326). The ADR 0038 §5 re-arm latch clearing is the case that
+	// bit: entering cooldown persisted (it rides the undocked chip), leaving
+	// it did not, so the delete lived in memory and the next restart re-seeded
+	// a latch that by then had no way left to clear — a vessel permanently
+	// un-dockable. The record count is the observable trace of any teardown.
+	if m.srv.dock.RecordCount() != recordsBefore {
 		changed = true
 	}
 	// The guest side of a DockPending record parks its craft on the record
