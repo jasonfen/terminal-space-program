@@ -753,14 +753,24 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 			sim.SafeHandback(r.returnPayload)
 			if r.parcel {
 				kind = sim.SessionEventParcelReturned
-			} else {
+			}
+			w.AdoptCraft(r.returnPayload, true)
+			if !r.parcel {
 				// ADR 0038 §6: I undock already targeting the stack I just
 				// left. Skipped for a Parcel — I only just reconnected, and
 				// "targeting the ghost of a stack I haven't seen in hours" is
 				// a stranger opening move than starting blank.
+				//
+				// Strictly AFTER the adoption (#327). AdoptCraft(_, true) ends
+				// in SetActiveCraftIdx, which checkpoints w.Target onto the
+				// OUTGOING craft and then reloads it from the incoming one —
+				// and a restored component is built with a zero Target. Setting
+				// the ghost first therefore stamped it on whatever vessel the
+				// guest happened to be flying and then cleared w.Target, which
+				// only looked correct because a one-vessel guest's outgoing
+				// craft IS the incoming one.
 				w.SetTargetGhost(r.Owner, r.CompositeID)
 			}
-			w.AdoptCraft(r.returnPayload, true)
 			r.returnPayload = nil
 			*chips = append(*chips, DockChip{Kind: kind, Handle: r.OwnerHandle})
 			if r.parcel {
