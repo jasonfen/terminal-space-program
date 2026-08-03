@@ -697,3 +697,274 @@ func TestConsumePendingNoteFiresOnce(t *testing.T) {
 		t.Fatalf("second consume = %q, %v; want empty, nil", note2, err)
 	}
 }
+
+// #329: dedupeRosterHandles must not displace an innocent third party.
+// Roster [gern(A), gern(B), gern2(C)] processed in enrollment order:
+// B collides with A and must NOT be handed C's already-taken "gern2" —
+// C never collided with anyone and must keep their own handle. The
+// old (buggy) algorithm seeded `seen` incrementally, so it let B take
+// "gern2" (not yet "seen" at B's turn) and then renamed C out of their
+// own handle when C's turn exposed the manufactured collision.
+func TestOpenDedupeDoesNotDisplaceThirdParty(t *testing.T) {
+	dir := t.TempDir()
+	seed, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (seed): %v", err)
+	}
+	m, err := seed.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	m.Roster = []Player{
+		{Fingerprint: HostFingerprint, Handle: "jason", Role: RoleHost},
+		{Fingerprint: "SHA256:A", Handle: "gern", Role: RoleGuest},
+		{Fingerprint: "SHA256:B", Handle: "gern", Role: RoleGuest},
+		{Fingerprint: "SHA256:C", Handle: "gern2", Role: RoleGuest},
+	}
+	if err := seed.writeMeta(m); err != nil {
+		t.Fatalf("seed writeMeta: %v", err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (repair): %v", err)
+	}
+	m2, err := s.Meta()
+	if err != nil {
+		t.Fatalf("Meta after repair: %v", err)
+	}
+	byFP := map[string]Player{}
+	for _, p := range m2.Roster {
+		byFP[p.Fingerprint] = p
+	}
+	if byFP["SHA256:C"].Handle != "gern2" {
+		t.Fatalf("innocent third party displaced: %+v", byFP["SHA256:C"])
+	}
+	if byFP["SHA256:A"].Handle != "gern" {
+		t.Errorf("earlier entrant's handle changed: %+v", byFP["SHA256:A"])
+	}
+	if byFP["SHA256:B"].Handle == "gern" || byFP["SHA256:B"].Handle == "gern2" {
+		t.Errorf("later colliding entrant not disambiguated away from a taken handle: %+v", byFP["SHA256:B"])
+	}
+	if byFP["SHA256:C"].PendingNote != "" {
+		t.Errorf("innocent third party got a pending note it shouldn't have: %+v", byFP["SHA256:C"])
+	}
+
+	// Idempotent across a second load: no further renames, no
+	// suffix compounding (e.g. never "gern22").
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (second load): %v", err)
+	}
+	m3, err := s2.Meta()
+	if err != nil {
+		t.Fatalf("Meta after second load: %v", err)
+	}
+	byFP3 := map[string]Player{}
+	for _, p := range m3.Roster {
+		byFP3[p.Fingerprint] = p
+	}
+	if byFP3["SHA256:B"].Handle != byFP["SHA256:B"].Handle {
+		t.Errorf("second load changed B's handle again: %q -> %q", byFP["SHA256:B"].Handle, byFP3["SHA256:B"].Handle)
+	}
+	if byFP3["SHA256:C"].Handle != "gern2" {
+		t.Errorf("second load displaced C: %+v", byFP3["SHA256:C"])
+	}
+}
+
+// #329: the repair must also seed `seen` from outstanding invites, not
+// just the roster — otherwise it can mint a roster rename directly
+// onto a handle a live invite is already pre-bound to, permanently
+// orphaning that invite (EnrollWithInvite's roster-collision guard
+// would then refuse it forever).
+func TestOpenDedupeAvoidsOutstandingInviteCollision(t *testing.T) {
+	dir := t.TempDir()
+	seed, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (seed): %v", err)
+	}
+	m, err := seed.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	m.Roster = []Player{
+		{Fingerprint: HostFingerprint, Handle: "jason", Role: RoleHost},
+		{Fingerprint: "SHA256:A", Handle: "gern", Role: RoleGuest},
+		{Fingerprint: "SHA256:B", Handle: "gern", Role: RoleGuest},
+	}
+	m.Invites = []Invite{
+		{Code: "AAAA-BBBB", Handle: "gern2"},
+	}
+	if err := seed.writeMeta(m); err != nil {
+		t.Fatalf("seed writeMeta: %v", err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (repair): %v", err)
+	}
+	m2, err := s.Meta()
+	if err != nil {
+		t.Fatalf("Meta after repair: %v", err)
+	}
+	for _, p := range m2.Roster {
+		if p.Fingerprint == "SHA256:B" && foldHandle(p.Handle) == "gern2" {
+			t.Fatalf("rename landed on a handle an outstanding invite is pre-bound to: %+v", p)
+		}
+	}
+}
+
+// #329: PendingNote must APPEND rather than assign, so a player who
+// accumulates two separate facts across two separate repair passes
+// (an unconsumed "you were renamed" note from one pass, then a
+// "someone else collided with your name" note from a later pass, once
+// more legacy junk data collides with the handle they were renamed
+// to) learns both — not just the last one written.
+func TestPendingNoteAppendsAcrossRepeatedRepairs(t *testing.T) {
+	dir := t.TempDir()
+	seed, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (seed): %v", err)
+	}
+	m, err := seed.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	// Round 1: a plain two-way legacy collision. "second" gets renamed
+	// to "gern2" and gets a PendingNote; "first" (kept name) gets a
+	// counterpart PendingNote.
+	m.Roster = []Player{
+		{Fingerprint: HostFingerprint, Handle: "jason", Role: RoleHost},
+		{Fingerprint: "SHA256:first", Handle: "gern", Role: RoleGuest},
+		{Fingerprint: "SHA256:second", Handle: "gern", Role: RoleGuest},
+	}
+	if err := seed.writeMeta(m); err != nil {
+		t.Fatalf("seed writeMeta: %v", err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (round 1 repair): %v", err)
+	}
+	m1, err := s.Meta()
+	if err != nil {
+		t.Fatalf("Meta after round 1: %v", err)
+	}
+	var secondNoteRound1 string
+	for _, p := range m1.Roster {
+		if p.Fingerprint == "SHA256:second" {
+			if p.Handle != "gern2" {
+				t.Fatalf("round 1: second not renamed to gern2: %+v", p)
+			}
+			secondNoteRound1 = p.PendingNote
+			if secondNoteRound1 == "" {
+				t.Fatal("round 1: second has no pending note")
+			}
+		}
+	}
+
+	// Round 2: without "second" ever consuming their note, more legacy
+	// junk data (simulating an out-of-band edit / further pre-existing
+	// data) introduces a THIRD entry that collides with "second"'s new
+	// handle "gern2". "second" is the earlier entrant this round, so
+	// it keeps "gern2" and becomes the collision COUNTERPART for the
+	// new entry's rename — while still holding its round-1 unconsumed
+	// note.
+	m1.Roster = append(m1.Roster, Player{Fingerprint: "SHA256:third", Handle: "gern2", Role: RoleGuest})
+	if err := s.writeMeta(m1); err != nil {
+		t.Fatalf("seed round 2 writeMeta: %v", err)
+	}
+	s2, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (round 2 repair): %v", err)
+	}
+	m2, err := s2.Meta()
+	if err != nil {
+		t.Fatalf("Meta after round 2: %v", err)
+	}
+	var secondNoteRound2 string
+	for _, p := range m2.Roster {
+		if p.Fingerprint == "SHA256:second" {
+			if p.Handle != "gern2" {
+				t.Fatalf("round 2: second's handle changed unexpectedly: %+v", p)
+			}
+			secondNoteRound2 = p.PendingNote
+		}
+		if p.Fingerprint == "SHA256:third" && p.Handle == "gern2" {
+			t.Fatalf("round 2: third not disambiguated away from second's handle: %+v", p)
+		}
+	}
+	if !strings.Contains(secondNoteRound2, secondNoteRound1) {
+		t.Errorf("round 2 note lost the round 1 fact: round1=%q round2=%q", secondNoteRound1, secondNoteRound2)
+	}
+	if secondNoteRound2 == secondNoteRound1 {
+		t.Errorf("round 2 note didn't append the new counterpart fact: %q", secondNoteRound2)
+	}
+
+	// A third load with nothing new to repair must not touch the note
+	// again (idempotent).
+	s3, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open (round 3, no-op): %v", err)
+	}
+	m3, err := s3.Meta()
+	if err != nil {
+		t.Fatalf("Meta after round 3: %v", err)
+	}
+	for _, p := range m3.Roster {
+		if p.Fingerprint == "SHA256:second" && p.PendingNote != secondNoteRound2 {
+			t.Errorf("a no-op load changed second's note: %q -> %q", secondNoteRound2, p.PendingNote)
+		}
+	}
+}
+
+// #332: Enroll must refuse a handle that case-insensitively collides
+// with an OUTSTANDING INVITE, not just the roster — matching
+// MintInvite's own check. Without this, a host mints "gern" for Bob;
+// before Bob redeems it, Alice enrolls (on an unrelated code) as
+// "Gern"; Bob's code is now permanently dead — the exact failure the
+// mint-side check exists to prevent, arriving through the enroll
+// door instead.
+func TestEnrollRefusesCaseInsensitiveInviteCollision(t *testing.T) {
+	s := openStore(t)
+	bobInvite, err := s.MintInvite("gern")
+	if err != nil {
+		t.Fatalf("MintInvite gern (bob): %v", err)
+	}
+	aliceInvite, err := s.MintInvite("someone-else")
+	if err != nil {
+		t.Fatalf("MintInvite someone-else (alice): %v", err)
+	}
+	if _, err := s.Enroll(aliceInvite.Code, "SHA256:alice", "GERN"); err == nil {
+		t.Fatal("Enroll accepted a handle colliding with another outstanding invite")
+	}
+	// Both invites must survive the refusal: Alice's because a refused
+	// enroll never spends the code, Bob's because it was never
+	// touched.
+	if _, err := s.Peek(aliceInvite.Code); err != nil {
+		t.Errorf("refused enroll spent alice's invite code: %v", err)
+	}
+	if _, err := s.Peek(bobInvite.Code); err != nil {
+		t.Errorf("bob's invite code was disturbed by alice's refused enroll: %v", err)
+	}
+	// Bob can still redeem his own code for "gern" cleanly afterward.
+	if _, err := s.Enroll(bobInvite.Code, "SHA256:bob", "gern"); err != nil {
+		t.Fatalf("bob's own enroll for his own pre-bound handle failed: %v", err)
+	}
+}
+
+// #332 regression guard: Enroll must NOT refuse a player redeeming
+// their OWN invite with its own pre-bound handle (the ordinary,
+// overwhelmingly common path) just because that invite is still
+// sitting in m.Invites at the moment of the check — the collision
+// check must exclude the invite being redeemed from the invite set it
+// compares against.
+func TestEnrollAcceptsOwnPreboundHandle(t *testing.T) {
+	s := openStore(t)
+	inv, err := s.MintInvite("dave")
+	if err != nil {
+		t.Fatalf("MintInvite: %v", err)
+	}
+	if _, err := s.Enroll(inv.Code, "SHA256:dave", "dave"); err != nil {
+		t.Fatalf("Enroll with own pre-bound handle refused: %v", err)
+	}
+}

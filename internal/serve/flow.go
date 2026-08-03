@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"errors"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -119,11 +120,22 @@ func (m guestFlow) updateHandle(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		p, err := m.store.Enroll(m.code, m.fp, string(m.input))
 		if err != nil {
-			// The code was spent between Peek and commit (or the handle
-			// is empty) — back to the code prompt with the reason.
 			m.errMsg = err.Error()
-			m.phase = phaseCode
-			m.input = nil
+			if errors.Is(err, sessiondir.ErrUnknownInvite) {
+				// The code itself was spent (or revoked) between Peek
+				// and commit — there's no code left to retry a handle
+				// against, so back to the code prompt.
+				m.phase = phaseCode
+				m.input = nil
+			} else {
+				// A handle problem (empty, or a case-insensitive
+				// collision, #332) — the code is still valid and
+				// unconsumed. Stay on the handle prompt so the player
+				// can just edit the handle they typed and retry with
+				// the same code, instead of being bounced back to
+				// re-enter a code that was never the issue.
+				m.phase = phaseHandle
+			}
 			return m, nil
 		}
 		if m.onEnroll != nil {
@@ -183,14 +195,18 @@ func (m guestFlow) View() string {
 		lines = append(lines, "  (enter to submit, esc to disconnect)")
 		return strings.Join(lines, "\n")
 	case phaseHandle:
-		return strings.Join([]string{
+		lines := []string{
 			"",
 			"  TERMINAL SPACE PROGRAM — join session",
 			"",
 			"  your handle: " + string(m.input) + "▌",
 			"",
-			"  (edit if you like — enter to join, esc to disconnect)",
-		}, "\n")
+		}
+		if m.errMsg != "" {
+			lines = append(lines, "  "+m.errMsg, "")
+		}
+		lines = append(lines, "  (edit if you like — enter to join, esc to disconnect)")
+		return strings.Join(lines, "\n")
 	}
 	// phaseCard — the terminal capability check (v0.27 S2): braille
 	// and color support are undetectable server-side, so we ask.

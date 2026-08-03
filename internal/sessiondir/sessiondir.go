@@ -234,27 +234,44 @@ func Open(dir string) (*Store, error) {
 }
 
 // repairLegacyHandleCollisions runs dedupeRosterHandles over m.Roster
-// and, for each rename it makes, logs a server-log line and stamps a
-// PendingNote on both the renamed player and the collision
-// counterpart who kept their name (#274). Reports whether it changed
-// anything, so the caller only persists when there was something to
-// persist.
+// (seeded against m.Invites too, #329) and, for each rename it makes,
+// logs a server-log line and stamps a PendingNote on both the renamed
+// player and the collision counterpart who kept their name (#274).
+// Reports whether it changed anything, so the caller only persists
+// when there was something to persist.
 func repairLegacyHandleCollisions(m *Meta) bool {
-	renames := dedupeRosterHandles(m.Roster)
+	renames := dedupeRosterHandles(m.Roster, m.Invites)
 	for _, r := range renames {
 		log.Printf("sessiondir: legacy roster handle collision at load — renamed %q to %q (fingerprint %s) to keep handles case-insensitively unique (#274)", r.From, r.To, r.Fingerprint)
 		for i := range m.Roster {
 			switch {
 			case m.Roster[i].Fingerprint == r.Fingerprint:
-				m.Roster[i].PendingNote = fmt.Sprintf(
-					"your handle collided with another player's (case-insensitively) — you've been renamed to %q so you can both be DMed unambiguously", r.To)
+				m.Roster[i].PendingNote = appendPendingNote(m.Roster[i].PendingNote, fmt.Sprintf(
+					"your handle collided with another player's (case-insensitively) — you've been renamed to %q so you can both be DMed unambiguously", r.To))
 			case foldHandle(m.Roster[i].Handle) == foldHandle(r.From) && m.Roster[i].Fingerprint != r.Fingerprint:
-				m.Roster[i].PendingNote = fmt.Sprintf(
-					"a roster handle collision with your name was resolved — the other player is now %q", r.To)
+				m.Roster[i].PendingNote = appendPendingNote(m.Roster[i].PendingNote, fmt.Sprintf(
+					"a roster handle collision with your name was resolved — the other player is now %q", r.To))
 			}
 		}
 	}
 	return len(renames) > 0
+}
+
+// appendPendingNote adds a newly-learned fact to a player's pending
+// session note (#329) instead of overwriting it. A player can
+// accumulate more than one unconsumed fact across separate repair
+// passes (renamed in one pass, then a collision counterpart in a
+// later one, or vice versa) — ConsumePendingNote still delivers and
+// clears the combined string exactly once, so nothing here changes
+// the deliver-once contract, it just means the single delivery can
+// carry more than one sentence. toast display is one line (App.Toast
+// / a.toast — see tui/app.go), so facts are joined with "; " rather
+// than a newline.
+func appendPendingNote(existing, add string) string {
+	if existing == "" {
+		return add
+	}
+	return existing + "; " + add
 }
 
 // handleRename is one deterministic legacy-collision fix dedupeRosterHandles made.
@@ -268,22 +285,46 @@ type handleRename struct {
 // append order — the host first, guests in the order they enrolled)
 // and renames any entry whose handle case-insensitively collides with
 // an EARLIER entry: the Nth colliding handle becomes "<handle>2",
-// "<handle>3", ... skipping any candidate suffix that would itself
-// collide. It mutates roster in place and returns the renames made.
+// "<handle>3", ... skipping any candidate suffix that is already
+// TAKEN — by any roster handle, any outstanding invite's pre-bound
+// handle, or a rename target already chosen earlier in this same
+// pass. It mutates roster in place and returns the renames made.
 //
-// This is a pure function of roster order and handles, so calling it
-// again on an already-fixed roster (or, if the caller never persists,
-// on the same still-colliding input) always reproduces the same
-// result — "gern2", never "gern22" — which is what makes the legacy
-// fix at Open safe to run on every load rather than exactly once
-// (#274).
-func dedupeRosterHandles(roster []Player) []handleRename {
-	seen := make(map[string]bool, len(roster))
+// `reserved` is seeded from EVERY roster handle and EVERY invite
+// handle up front, before any renaming happens (#329) — not built up
+// incrementally as the loop goes. The earlier incremental version let
+// a rename target land on a handle belonging to an entry not yet
+// visited (e.g. roster [gern(A), gern(B), gern2(C)]: B's first free
+// candidate "gern2" wasn't "seen" yet at B's turn, so B took C's own
+// handle, and C — who never collided with anyone — got displaced by
+// C's own turn exposing the manufactured collision). Seeding
+// up front closes that: a candidate can never take a handle that
+// exists ANYWHERE, roster or invite, at the time the repair runs.
+//
+// `firstSeen` is the separate, still-incremental set that decides
+// whether THIS entry is itself a duplicate needing a rename — the
+// canonical (first-seen) holder of a handle is never renamed.
+//
+// This is a pure function of roster order, handles, and invites, so
+// calling it again on an already-fixed roster (or, if the caller
+// never persists, on the same still-colliding input) always
+// reproduces the same result — "gern2", never "gern22" — which is
+// what makes the legacy fix at Open safe to run on every load rather
+// than exactly once (#274).
+func dedupeRosterHandles(roster []Player, invites []Invite) []handleRename {
+	reserved := make(map[string]bool, len(roster)+len(invites))
+	for i := range roster {
+		reserved[foldHandle(roster[i].Handle)] = true
+	}
+	for _, inv := range invites {
+		reserved[foldHandle(inv.Handle)] = true
+	}
+	firstSeen := make(map[string]bool, len(roster))
 	var renames []handleRename
 	for i := range roster {
 		folded := foldHandle(roster[i].Handle)
-		if !seen[folded] {
-			seen[folded] = true
+		if !firstSeen[folded] {
+			firstSeen[folded] = true
 			continue
 		}
 		orig := roster[i].Handle
@@ -292,12 +333,13 @@ func dedupeRosterHandles(roster []Player) []handleRename {
 		for {
 			next = fmt.Sprintf("%s%d", orig, suffix)
 			foldedNext = foldHandle(next)
-			if !seen[foldedNext] {
+			if !reserved[foldedNext] {
 				break
 			}
 			suffix++
 		}
-		seen[foldedNext] = true
+		reserved[foldedNext] = true
+		firstSeen[foldedNext] = true
 		roster[i].Handle = next
 		renames = append(renames, handleRename{
 			Fingerprint: roster[i].Fingerprint,
@@ -572,13 +614,27 @@ func (s *Store) Enroll(code, fingerprint, handle string) (Player, error) {
 	if idx < 0 {
 		return Player{}, ErrUnknownInvite
 	}
-	// Case-insensitive uniqueness against the roster (#274) — checked
-	// here, not just at mint, because the handle is editable at this
-	// step (ADR 0034 addendum) and could be hand-edited into a
-	// collision even when the pre-bound handle was clean. Checked
-	// BEFORE consuming the invite, so a refusal leaves the code intact
-	// for a retry with a different handle.
-	if collidesWith, ok := findHandleCollision(handle, m.Roster, nil); ok {
+	// Case-insensitive uniqueness against the roster AND any OTHER
+	// outstanding invite (#274, #332) — checked here, not just at
+	// mint, because the handle is editable at this step (ADR 0034
+	// addendum) and could be hand-edited into a collision even when
+	// the pre-bound handle was clean. Matches MintInvite's own
+	// comparison set: without the invite check, a handle minted for
+	// one player but not yet redeemed could be claimed by a second
+	// player enrolling first, permanently orphaning the first player's
+	// code. otherInvites excludes the invite being redeemed itself —
+	// the overwhelmingly common path is accepting the pre-bound
+	// handle unedited, which must not "collide" with its own
+	// still-outstanding invite. Checked BEFORE consuming the invite,
+	// so a refusal leaves the code intact for a retry with a
+	// different handle.
+	otherInvites := make([]Invite, 0, len(m.Invites))
+	for i, inv := range m.Invites {
+		if i != idx {
+			otherInvites = append(otherInvites, inv)
+		}
+	}
+	if collidesWith, ok := findHandleCollision(handle, m.Roster, otherInvites); ok {
 		return Player{}, fmt.Errorf("sessiondir: handle %q collides with %q (case-insensitive) — pick a different handle", handle, collidesWith)
 	}
 	m.Invites = append(m.Invites[:idx], m.Invites[idx+1:]...)
