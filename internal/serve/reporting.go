@@ -428,9 +428,16 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// Rendezvous roster markers (v0.29 S2): who is armed toward the
 	// viewer, and whom the viewer is armed toward.
 	armedTowardViewer := map[string]bool{}
+	// Live range per player (ADR 0037 §5): measured off the same peer set
+	// the couple gate itself reads, so the number in the RANGE column and
+	// the number the clamp decides on can never be two different things.
+	rangeTo := map[string]float64{}
 	for _, p := range peers {
 		if p.ArmedTowardViewer {
 			armedTowardViewer[p.Owner] = true
+		}
+		if r, ok := w.PeerRange(p); ok {
+			rangeTo[p.Owner] = r
 		}
 	}
 	for _, p := range m.meta.Roster {
@@ -451,6 +458,9 @@ func (m *reportingModel) refreshSession(now time.Time) {
 
 			WantsRendezvous: armedTowardViewer[p.Fingerprint],
 			RendezvousOut:   w.RendezvousArm != nil && w.RendezvousArm.TargetOwner == p.Fingerprint,
+		}
+		if r, ok := rangeTo[p.Fingerprint]; ok {
+			row.HasRange, row.RangeM = true, r
 		}
 		if rep, ok := reports[p.Fingerprint]; ok {
 			row.HasReport = true

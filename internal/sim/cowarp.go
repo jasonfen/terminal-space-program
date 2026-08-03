@@ -103,6 +103,33 @@ const (
 // which the encounter's own approach readout still exposes.
 const degradeRebaseAfter = 10 * time.Minute
 
+// CoWarpCoupleRangeM / CoWarpCoupleSpeedMs are the exported form of the
+// couple gate (ADR 0037 §5). The neighbourhood rule was documented and
+// nowhere else: nothing in the game named the range or the closing speed
+// at which two players' warps lock together, so a pilot on approach could
+// only discover it by crossing it. The Session roster and the F1 help
+// overlay state the rule in these numbers, so the display can never drift
+// from what the sim gates on.
+const (
+	CoWarpCoupleRangeM  = coWarpCoupleRangeM
+	CoWarpCoupleSpeedMs = coWarpCoupleSpeedMs
+)
+
+// PeerRange is the range from the viewer's anchor craft to the nearest of
+// a peer's craft sharing its SOI primary — the Session roster's RANGE
+// column. ok=false when there is no anchor or no same-primary craft to
+// measure against, which the roster renders as a blank rather than a
+// zero: a fabricated 0 m reads as "right next to you" (#297's lesson
+// about zero values presented as facts).
+func (w *World) PeerRange(p CoWarpPeer) (float64, bool) {
+	anchor := w.ActiveCraft()
+	if anchor == nil {
+		return 0, false
+	}
+	rng, _, ok := closestApproach(anchor, p.Crafts)
+	return rng, ok
+}
+
 // CoWarpSubspaceTolerance is the exported form of the same-subspace gate
 // (v0.29 S2): the Session screen's Rendezvous Warp row action refuses a
 // partner whose |Δt| exceeds it ("Sync first") so the arm can actually
