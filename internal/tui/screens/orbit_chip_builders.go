@@ -1505,10 +1505,12 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		if rangeM > 0 {
 			closing = -rRel.Dot(vRelVec) / rangeM
 		}
+		leadDeg, leadOK := w.TargetLeadAngleDeg()
 		lines = append(lines,
 			chipRow("range:", formatRangeM(rangeM)),
 			chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", vRel)),
 			chipRow("closing:", fmt.Sprintf("%+.2f m/s", closing)),
+			chipRow("lead:", targetLeadLabel(leadDeg, leadOK)),
 		)
 		if tc.Primary.ID == c.Primary.ID {
 			lines = append(lines, v.closestApproachRows(w, c)...)
@@ -1552,10 +1554,12 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		if rangeM > 0 {
 			closing = -rRel.Dot(vRelVec) / rangeM
 		}
+		leadDeg, leadOK := w.TargetLeadAngleDeg()
 		lines = append(lines,
 			chipRow("range:", formatRangeM(rangeM)),
 			chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", vRel)),
 			chipRow("closing:", fmt.Sprintf("%+.2f m/s", closing)),
+			chipRow("lead:", targetLeadLabel(leadDeg, leadOK)),
 		)
 		if gPrimary.ID == c.Primary.ID {
 			lines = append(lines, v.closestApproachRows(w, c)...)
@@ -1563,6 +1567,28 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		return lines
 	}
 	return nil
+}
+
+// targetLeadLabel renders World.TargetLeadAngleDeg's reading as a chip
+// value (#287): phasing direction is the first decision of any
+// rendezvous, and a bare signed number is exactly the kind of thing
+// that's ambiguous in the seat at the moment it matters — so the sign
+// is always paired with a plain "ahead"/"behind" word rather than left
+// for the pilot to decode a convention. "—" when the reading isn't
+// meaningful (different primary / no shared SOI, or a degenerate orbit)
+// rather than a misleading number.
+func targetLeadLabel(angleDeg float64, ok bool) string {
+	if !ok {
+		return "—"
+	}
+	switch {
+	case angleDeg > 0:
+		return fmt.Sprintf("%+.0f° (ahead)", angleDeg)
+	case angleDeg < 0:
+		return fmt.Sprintf("%+.0f° (behind)", angleDeg)
+	default:
+		return "0° (aligned)"
+	}
 }
 
 // closestApproachRows computes the TCA/CA rows against the current
