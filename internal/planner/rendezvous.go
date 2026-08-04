@@ -49,11 +49,52 @@ func NextClosestApproach(
 	mu, horizon float64,
 ) (t, dist float64, vRel orbital.Vec3, err error) {
 	_ = primary // captured in the signature for future cross-frame work
+	res, err := closestApproach(stateA, stateB, mu, horizon)
+	if err != nil {
+		return 0, 0, orbital.Vec3{}, err
+	}
+	return res.t, res.dist, res.vRel, nil
+}
+
+// NextClosestApproachPositions is NextClosestApproach plus the two
+// craft's positions at the refined closest-approach time — the map's ✕
+// marker (ADR 0020 / #346) plots both ends of the encounter there. The
+// positions come from the exact same re-propagation that produces
+// `dist`, so a marker at posA/posB is always exactly `dist` apart —
+// there is no separate position pass to drift out of sync with the
+// scalar HUD readout.
+func NextClosestApproachPositions(
+	stateA, stateB orbital.Vec3State,
+	mu, horizon float64,
+) (t, dist float64, posA, posB orbital.Vec3, err error) {
+	res, err := closestApproach(stateA, stateB, mu, horizon)
+	if err != nil {
+		return 0, 0, orbital.Vec3{}, orbital.Vec3{}, err
+	}
+	return res.t, res.dist, res.posA, res.posB, nil
+}
+
+// closestApproachResult is the shared outcome of the sampling +
+// parabolic-refinement pipeline both NextClosestApproach and
+// NextClosestApproachPositions expose slices of.
+type closestApproachResult struct {
+	t    float64
+	dist float64
+	vRel orbital.Vec3
+	posA orbital.Vec3
+	posB orbital.Vec3
+}
+
+// closestApproach is NextClosestApproach's algorithm body, extracted so
+// the position-carrying variant can share it exactly rather than
+// re-deriving the sampling/refinement math. See NextClosestApproach's
+// doc comment for the algorithm description.
+func closestApproach(stateA, stateB orbital.Vec3State, mu, horizon float64) (closestApproachResult, error) {
 	if horizon <= 0 {
-		return 0, 0, orbital.Vec3{}, errors.New("rendezvous: non-positive horizon")
+		return closestApproachResult{}, errors.New("rendezvous: non-positive horizon")
 	}
 	if mu <= 0 {
-		return 0, 0, orbital.Vec3{}, errors.New("rendezvous: non-positive mu")
+		return closestApproachResult{}, errors.New("rendezvous: non-positive mu")
 	}
 
 	sA := physics.StateVector{R: stateA.R, V: stateA.V}
@@ -146,5 +187,11 @@ func NextClosestApproach(
 		rB = physics.StepVerlet(rB, mu, step)
 		remaining -= step
 	}
-	return tStar, rA.R.Sub(rB.R).Norm(), rA.V.Sub(rB.V), nil
+	return closestApproachResult{
+		t:    tStar,
+		dist: rA.R.Sub(rB.R).Norm(),
+		vRel: rA.V.Sub(rB.V),
+		posA: rA.R,
+		posB: rB.R,
+	}, nil
 }

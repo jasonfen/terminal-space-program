@@ -1340,6 +1340,25 @@ func (c *Canvas) CountColor(color lipgloss.Color) int {
 	return n
 }
 
+// CountOverlayColor reports how many cells carry the given pinned overlay
+// color (SetCellOverlayColored / SetCellLabelColored) — the sibling of
+// CountColor for the overlay-glyph channel, which paints independently of
+// the pixelTag majority (see SetCellOverlayColored's doc comment). An
+// untagged marker glyph (drawMarker called with an empty CellTag — the
+// apsis / node / closest-approach markers) never touches pixelTags, so
+// CountColor can't see it; this is the assertion callers need instead to
+// distinguish e.g. a dimmed MarkerCounterfactual glyph from its bright
+// MarkerNominal counterpart.
+func (c *Canvas) CountOverlayColor(color lipgloss.Color) int {
+	n := 0
+	for _, oc := range c.cellOverlayColors {
+		if oc == color {
+			n++
+		}
+	}
+	return n
+}
+
 // joinRows is the uncolored fast path used when no color regions are
 // registered.
 func (c *Canvas) joinRows(rows []string) string {
