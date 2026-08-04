@@ -450,6 +450,46 @@ before committing it. Ephemeral TUI state (`selectedIdx`). Becomes a Target
 when the player commits it; otherwise has no effect on simulation or planner.
 _Avoid_: Selection, Highlight.
 
+**Inspect** (ADR 0041):
+The on-demand identity highlight in the OrbitView: stepping a key (or
+clicking) moves it through drawn entities — Vessels, ghosts, orbit lines,
+markers — and the inspected entity flares with a name chip. Committing it
+makes it the Target: the same hover→commit contract as Cursor, generalized
+beyond bodies. Ephemeral TUI state; answers "whose is this line" so that
+color never has to carry identity.
+_Avoid_: Hover, Selection.
+
+**Line Class** (ADR 0041):
+Which of three families a drawn trajectory belongs to, carried by line
+style alone: **Real** (solid — a live orbit; bright for the active
+Vessel, dim for anyone else), **Planned** (dashed — node legs,
+predictions, encounter arcs), **Scenery** (dotted — body orbits, the SOI
+Ring). Color stays semantic (targeting, alarm state) and is never
+identity.
+_Avoid_: Line type, Stroke.
+
+**Pan** (ADR 0042):
+The player's view offset from the tracked Focus — arrows slide the view
+while center tracking continues, displaced; cleared by `g` or any
+refocus. Purely view state; never moves Focus or Target.
+_Avoid_: Scroll, Offset camera.
+
+**Zoom Memory** (ADR 0042):
+Each focus target remembers the zoom multiplier the player last used on
+it; returning restores it, and a resize refits the base while keeping the
+multiplier. Amends the original ADR 0021 rule that reset manual zoom at
+every Framing Event.
+
+**Proximity View** (ADR 0043):
+The target-relative close-range ViewMode: the frame is pinned to the
+Target in LVLH orientation (orbital prograde screen-right, the primary
+screen-down), showing both hulls at true meter scale, the predicted
+relative drift path, range rings, and the dock gate as a place on
+screen. The picture for the last kilometers that the world-frame
+OrbitView cannot hold steady. Entered and left by a toggling jump key;
+entry is a Framing Event fitted from current range.
+_Avoid_: Docking view, RPO screen.
+
 **Camera Contract**:
 The rule that camera fit (center + zoom) is solely the player's: the sim
 may fit the canvas only once per **Framing Event**, and ambient sim-state
@@ -464,8 +504,8 @@ A player action that changes the camera's framing context — a Focus
 change, a ViewMode change, or a System switch — and the only occasions
 the sim may fit the canvas. The fit *value* may read sim state (focusing
 a Body with an active SOI Pass fits to its SOI Ring); the fit *timing*
-may not. Manual zoom composes over the fitted base and persists until
-the next Framing Event.
+may not. Manual zoom composes over the fitted base; per **Zoom Memory**
+(ADR 0042) each focus target restores the multiplier last used on it.
 _Avoid_: Refit, Auto-frame (the per-frame behavior ADR 0021 retired).
 
 **Target**:
