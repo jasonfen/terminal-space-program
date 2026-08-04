@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"math"
+
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -340,6 +342,75 @@ func (w *World) TargetStateRelativeToActivePrimary() (rT, vT orbital.Vec3, ok bo
 	activePrimaryR := w.BodyPosition(active.Primary)
 	activePrimaryV := w.bodyInertialVelocity(active.Primary)
 	return targetInertialR.Sub(activePrimaryR), targetInertialV.Sub(activePrimaryV), true
+}
+
+// TargetLeadAngleDeg answers the phase-order question a rendezvous
+// planning step needs first (#287): is the active craft ahead of or
+// behind its craft/ghost target along the shared orbit? Returns the
+// signed along-track angle from the active craft to the target, in
+// degrees, range (-180, 180]. Positive means the target is AHEAD of the
+// active craft along its direction of orbital motion — i.e. the active
+// craft is trailing and must lower its orbit to catch up; negative means
+// the target is behind.
+//
+// The angle is measured about the active craft's own specific angular
+// momentum axis (h = r x v, unit vector), which is exactly "signed by
+// the direction of the craft's motion" — the sign is intrinsic to how
+// the active craft is actually flying, not an assumption about which
+// way orbits in this system usually go. The target's position is used
+// as-is (not first forced coplanar): projecting a vector onto the plane
+// perpendicular to h and then taking the signed angle from the active
+// craft's radius vector is exactly what
+// atan2(hHat . (r_active x r_target), r_active . r_target) computes (the
+// out-of-plane component of r_target cancels in both the numerator and
+// denominator), so a non-coplanar target still yields a usable
+// along-track answer via that projection rather than refusing outright.
+//
+// ok=false when there is no craft/ghost target, the target doesn't
+// resolve, or the target orbits a different primary than the active
+// craft — a phase angle spanning two different SOIs has no shared
+// reference orbit to measure it in, so the caller should render "—"
+// rather than a misleading number (issue #287 decision: craft targets
+// only, and only when both craft share a primary).
+func (w *World) TargetLeadAngleDeg() (float64, bool) {
+	if w.Target.Kind != TargetCraft && w.Target.Kind != TargetGhost {
+		return 0, false
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		return 0, false
+	}
+	var targetPrimary bodies.CelestialBody
+	switch w.Target.Kind {
+	case TargetCraft:
+		t, _, ok := w.craftByID(w.Target.CraftID)
+		if !ok {
+			return 0, false
+		}
+		targetPrimary = t.Primary
+	case TargetGhost:
+		_, primary, ok := w.ResolveTargetGhost()
+		if !ok {
+			return 0, false
+		}
+		targetPrimary = primary
+	}
+	if targetPrimary.ID != c.Primary.ID {
+		return 0, false
+	}
+	rT, _, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		return 0, false
+	}
+	a := c.State.R
+	h := a.Cross(c.State.V)
+	hNorm := h.Norm()
+	if hNorm == 0 || a.Norm() == 0 {
+		return 0, false // degenerate orbit (e.g. radial fall) — no defined plane
+	}
+	hHat := h.Scale(1 / hNorm)
+	theta := math.Atan2(hHat.Dot(a.Cross(rT)), a.Dot(rT))
+	return theta * 180 / math.Pi, true
 }
 
 // TargetName returns a short human label for the current target,
