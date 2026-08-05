@@ -413,6 +413,90 @@ func (w *World) TargetLeadAngleDeg() (float64, bool) {
 	return theta * 180 / math.Pi, true
 }
 
+// TargetSharesActivePrimary reports whether the active craft's bound
+// craft/ghost target orbits the SAME primary as the active craft — the
+// gate every same-primary-only piece of rendezvous-adjacent tooling
+// built on TargetStateRelativeToActivePrimary needs (TargetPlaneNodePositions,
+// the map's Closest-Approach marker, #346): cross-SOI rendezvous is
+// already out of scope for the rendezvous tooling (see CONTEXT.md's
+// Rendezvous entry), and a target re-expressed in the active craft's
+// frame across two different primaries doesn't correspond to a point on
+// that target's own drawn orbit. False for a body/site target or no
+// target at all.
+func (w *World) TargetSharesActivePrimary() bool {
+	c := w.ActiveCraft()
+	if c == nil {
+		return false
+	}
+	switch w.Target.Kind {
+	case TargetCraft:
+		t, _, ok := w.craftByID(w.Target.CraftID)
+		return ok && t.Primary.ID == c.Primary.ID
+	case TargetGhost:
+		_, primary, ok := w.ResolveTargetGhost()
+		return ok && primary.ID == c.Primary.ID
+	default:
+		return false
+	}
+}
+
+// TargetPlaneNodePositions locates the active craft's crossings of its
+// bound target's orbital plane — an Ascending / Descending Node pair
+// measured against the TARGET's plane, unlike orbital.TimeToNodeCrossing's
+// usual reference-plane sense (the primary's equator / the ecliptic; see
+// the Ascending Node / Descending Node glossary entries). The map's ◇ / ◆
+// markers (ADR 0020 §3 / #346) plot these two points on the active
+// craft's own orbit.
+//
+// Reuses TimeToNodeCrossing exactly rather than re-deriving node-crossing
+// math: PlanPlaneMatch already solves "coplanar with X" by re-expressing
+// the craft's state in a frame whose Z axis is X's orbit normal
+// (orbital.FrameFromNormal) and asking the ordinary reference-plane
+// helper for its crossings in that frame — this does the same thing with
+// the target CRAFT/ghost's relative angular momentum (rT × vT) standing
+// in for a body's catalog-derived orbit normal.
+//
+// ok (hasAN / hasDN) is false when: there's no active craft, no bound
+// craft/ghost target, the target orbits a different primary (see
+// TargetSharesActivePrimary), the target's relative state is degenerate
+// (coincident position, zero relative angular momentum), or the two
+// planes are within TimeToNodeCrossing's own equatorial tolerance of
+// coincident (no defined line of nodes). hasAN and hasDN are reported
+// independently in case only one resolves.
+func (w *World) TargetPlaneNodePositions() (anPos, dnPos orbital.Vec3, hasAN, hasDN bool) {
+	c := w.ActiveCraft()
+	if c == nil || !w.TargetSharesActivePrimary() {
+		return orbital.Vec3{}, orbital.Vec3{}, false, false
+	}
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		return orbital.Vec3{}, orbital.Vec3{}, false, false
+	}
+	nTarget := rT.Cross(vT)
+	if nTarget.Norm() == 0 {
+		return orbital.Vec3{}, orbital.Vec3{}, false, false
+	}
+	mu := c.Primary.GravitationalParameter()
+	planeFrame := orbital.FrameFromNormal(nTarget)
+	stateTF := orbital.Vec3State{
+		R: planeFrame.FromWorld(c.State.R),
+		V: planeFrame.FromWorld(c.State.V),
+	}
+	tAN := orbital.TimeToNodeCrossing(stateTF, mu, true)
+	tDN := orbital.TimeToNodeCrossing(stateTF, mu, false)
+	if tAN >= 0 {
+		post, postPrimary := w.propagateCraftWithPrimary(tAN)
+		anPos = w.BodyPosition(postPrimary).Add(post.R)
+		hasAN = true
+	}
+	if tDN >= 0 {
+		post, postPrimary := w.propagateCraftWithPrimary(tDN)
+		dnPos = w.BodyPosition(postPrimary).Add(post.R)
+		hasDN = true
+	}
+	return anPos, dnPos, hasAN, hasDN
+}
+
 // TargetName returns a short human label for the current target,
 // suitable for the TARGET HUD block. Empty string when no target is
 // set or the index is stale.

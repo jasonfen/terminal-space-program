@@ -786,6 +786,23 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					stride = 3
 				}
 				v.canvas.DrawEllipseOffsetFarSideDashed(el, gPrimaryPos, 180, stride, gPrimaryPos, gPxR, orbitColor)
+				if isTarget {
+					// Target's Ap/Pe (ADR 0020 / #346): the targeted
+					// ghost's own apsides, dimmed via MarkerCounterfactual
+					// — the same brightness convention the SOI Pass
+					// counterfactual arc uses (nominal = "yours", dim =
+					// "someone/something else's") — so the active craft's
+					// own Ap/Pe (drawn nominal below) stay the visually
+					// dominant pair.
+					peri := gPrimaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
+					apo := gPrimaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
+					if !v.canvas.IsBehindBody(peri, gPrimaryPos, gPxR) {
+						drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+					}
+					if !v.canvas.IsBehindBody(apo, gPrimaryPos, gPxR) {
+						drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+					}
+				}
 			}
 		}
 		if isTarget {
@@ -929,6 +946,22 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					stride = 3
 				}
 				v.canvas.DrawEllipseOffsetFarSideDashed(otherEl, otherPrimaryPos, 180, stride, otherPrimaryPos, otherPxR, otherColor)
+				if isTarget {
+					// Target's Ap/Pe (ADR 0020 / #346): the targeted
+					// craft's own apsides, dimmed via MarkerCounterfactual
+					// — same brightness convention as the ghost target
+					// above and the SOI Pass counterfactual arc (nominal
+					// = "yours", dim = "someone else's") — so the active
+					// craft's own Ap/Pe stay the visually dominant pair.
+					peri := otherPrimaryPos.Add(orbital.PositionAtTrueAnomaly(otherEl, 0))
+					apo := otherPrimaryPos.Add(orbital.PositionAtTrueAnomaly(otherEl, math.Pi))
+					if !v.canvas.IsBehindBody(peri, otherPrimaryPos, otherPxR) {
+						drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+					}
+					if !v.canvas.IsBehindBody(apo, otherPrimaryPos, otherPxR) {
+						drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+					}
+				}
 			}
 			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
 				v.canvas.PlotColored(otherInertial, otherColor)
@@ -979,6 +1012,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// the node trajectory — drawn regardless of declutter (only the COMMS
 		// chip declutters); no-op for a manned or disconnected craft.
 		v.drawCommPath(w)
+		// Closest-Approach ✕ + target-plane ◇/◆ nodes (ADR 0020 / #346):
+		// both are no-ops without a bound craft/ghost target sharing the
+		// active craft's primary.
+		v.drawClosestApproachMarker(w)
+		v.drawTargetPlaneNodes(w)
 	}
 
 	// Stamp the active projection in the canvas's bottom-left corner

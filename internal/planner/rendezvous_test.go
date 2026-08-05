@@ -171,3 +171,68 @@ func TestNextClosestApproachInvalidMu(t *testing.T) {
 		t.Error("zero mu: expected err")
 	}
 }
+
+// TestNextClosestApproachPositionsAgreesWithScalarDist — the ✕ marker's
+// two positions (#346) must be exactly `dist` apart, since the map plots
+// posA/posB directly as the encounter's two ends. Cross-checks
+// NextClosestApproachPositions against NextClosestApproach on the same
+// inputs: same t and dist (shared closestApproach core), and
+// |posA-posB| == dist to float precision.
+func TestNextClosestApproachPositionsAgreesWithScalarDist(t *testing.T) {
+	r := 6.771e6
+	a := circularState(r, 0, muEarth)
+	b := circularState(r, math.Pi/2, muEarth)
+	const horizon = 6000.0
+
+	tCA, dist, _, err := NextClosestApproach(a, b, bodies.CelestialBody{}, muEarth, horizon)
+	if err != nil {
+		t.Fatalf("NextClosestApproach err: %v", err)
+	}
+	tCA2, dist2, posA, posB, err := NextClosestApproachPositions(a, b, muEarth, horizon)
+	if err != nil {
+		t.Fatalf("NextClosestApproachPositions err: %v", err)
+	}
+	if tCA2 != tCA {
+		t.Errorf("t mismatch: scalar=%v positions=%v", tCA, tCA2)
+	}
+	if dist2 != dist {
+		t.Errorf("dist mismatch: scalar=%v positions=%v", dist, dist2)
+	}
+	if gotSep := posA.Sub(posB).Norm(); math.Abs(gotSep-dist) > 1e-6 {
+		t.Errorf("|posA-posB|=%v, want == dist (%v)", gotSep, dist)
+	}
+}
+
+// TestNextClosestApproachPositionsIdenticalStatesCoincide — same state
+// for both craft: closest approach is "now" at distance 0, so both
+// reported positions should coincide with that shared state.
+func TestNextClosestApproachPositionsIdenticalStatesCoincide(t *testing.T) {
+	r := 6.771e6
+	s := circularState(r, 0, muEarth)
+	_, dist, posA, posB, err := NextClosestApproachPositions(s, s, muEarth, 3600)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if dist > 1.0 {
+		t.Errorf("identical states: dist=%v, want ≈0", dist)
+	}
+	if got := posA.Sub(posB).Norm(); got > 1.0 {
+		t.Errorf("identical states: |posA-posB|=%v, want ≈0", got)
+	}
+	if got := posA.Sub(s.R).Norm(); got > 1.0 {
+		t.Errorf("posA=%v, want ≈ initial state %v", posA, s.R)
+	}
+}
+
+// TestNextClosestApproachPositionsInvalidInputs — non-positive horizon
+// / mu propagate the same errors as NextClosestApproach.
+func TestNextClosestApproachPositionsInvalidInputs(t *testing.T) {
+	r := 6.771e6
+	s := circularState(r, 0, muEarth)
+	if _, _, _, _, err := NextClosestApproachPositions(s, s, muEarth, 0); err == nil {
+		t.Error("zero horizon: expected err")
+	}
+	if _, _, _, _, err := NextClosestApproachPositions(s, s, 0, 3600); err == nil {
+		t.Error("zero mu: expected err")
+	}
+}

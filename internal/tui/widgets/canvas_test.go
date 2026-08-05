@@ -224,6 +224,35 @@ func TestSetCellOverlayColoredWinsOverBodyColor(t *testing.T) {
 	}
 }
 
+// TestCountOverlayColor verifies the overlay-color counting sibling of
+// CountColor (#346): SetCellOverlayColored pins a glyph's color on the
+// separate cellOverlayColors channel, which CountColor's pixelTag-majority
+// scan never sees (an untagged marker — an empty CellTag — never writes to
+// pixelTags at all), so a distinct counting path is needed to assert
+// glyph-level color distinctions in tests.
+func TestCountOverlayColor(t *testing.T) {
+	c := NewCanvas(20, 10)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+	c.Clear()
+
+	bright := lipgloss.Color("#5FD75F")
+	dim := lipgloss.Color("#2F6B2F")
+	c.SetCellOverlayColored(orbital.Vec3{X: 0, Y: 0}, '▲', bright)
+	c.SetCellOverlayColored(orbital.Vec3{X: 4, Y: 0}, '▼', dim)
+	c.SetCellOverlayColored(orbital.Vec3{X: -4, Y: 0}, '▼', dim)
+
+	if got := c.CountOverlayColor(bright); got != 1 {
+		t.Errorf("CountOverlayColor(bright) = %d, want 1", got)
+	}
+	if got := c.CountOverlayColor(dim); got != 2 {
+		t.Errorf("CountOverlayColor(dim) = %d, want 2", got)
+	}
+	if got := c.CountOverlayColor(lipgloss.Color("#000000")); got != 0 {
+		t.Errorf("CountOverlayColor(unused color) = %d, want 0", got)
+	}
+}
+
 // TestRingOutlineHugeRadiusDoesNotHang: v0.5.15 regression — pre-fix
 // a ring with pxRadius in the millions (Saturn rings projected at
 // extreme zoom) looped pxRadius*8 ≈ billions of times, locking the

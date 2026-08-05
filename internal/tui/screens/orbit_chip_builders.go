@@ -1602,8 +1602,10 @@ func (v *OrbitView) closestApproachRows(w *sim.World, c *spacecraft.Spacecraft) 
 	active := orbital.Vec3State{R: c.State.R, V: c.State.V}
 	target := orbital.Vec3State{R: rT, V: vT}
 	mu := c.Primary.GravitationalParameter()
-	const horizon = 4 * 3600.0
-	tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, horizon)
+	// closestApproachHorizonSec (orbit_target_markers.go) — shared with
+	// the map's ✕ marker so the chip's numbers and the marker's position
+	// always describe the same encounter.
+	tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, closestApproachHorizonSec)
 	if err != nil {
 		return nil
 	}
