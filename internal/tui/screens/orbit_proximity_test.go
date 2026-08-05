@@ -10,6 +10,8 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
 // newProximityTestView is newSOIPassTestView sized to a real terminal
@@ -524,6 +526,325 @@ func TestProximityCuesRenderAt80x24(t *testing.T) {
 	for i, l := range lines[1:] {
 		if width := lipgloss.Width(l); width > 80 {
 			t.Errorf("row %d is %d cols wide, want ≤ 80", i+1, width)
+		}
+	}
+}
+
+// --- Hull-sprite slice tests (issue #348 §1) ---
+
+// TestProximitySpriteHysteresis pins proximitySpriteVisible's arm-high /
+// release-low band directly: growing UP through proximitySpriteEnterCells
+// switches a glyph to its sprite; shrinking back DOWN, the sprite survives
+// until it drops below proximitySpriteExitCells. Both directions, plus the
+// dead zone in between where whichever state was already active holds.
+func TestProximitySpriteHysteresis(t *testing.T) {
+	cases := []struct {
+		name        string
+		shown       bool
+		heightCells float64
+		want        bool
+	}{
+		{"glyph, well below enter, stays glyph", false, 1.0, false},
+		{"glyph, just below enter, stays glyph", false, proximitySpriteEnterCells - 0.01, false},
+		{"glyph, exactly at enter, switches to sprite", false, proximitySpriteEnterCells, true},
+		{"glyph, above enter, switches to sprite", false, 10.0, true},
+		{"sprite, still well above exit, stays sprite", true, 10.0, true},
+		{"sprite, exactly at exit, stays sprite (>=)", true, proximitySpriteExitCells, true},
+		{"sprite, just below exit, falls back to glyph", true, proximitySpriteExitCells - 0.01, false},
+		{"sprite, in the hysteresis band, stays sprite", true, (proximitySpriteEnterCells + proximitySpriteExitCells) / 2, true},
+		{"glyph, in the hysteresis band, stays glyph", false, (proximitySpriteEnterCells + proximitySpriteExitCells) / 2, false},
+		{"sprite, height collapsed to zero, falls back to glyph", true, 0, false},
+	}
+	for _, c := range cases {
+		if got := proximitySpriteVisible(c.shown, c.heightCells); got != c.want {
+			t.Errorf("%s: proximitySpriteVisible(shown=%v, %.3f) = %v, want %v",
+				c.name, c.shown, c.heightCells, got, c.want)
+		}
+	}
+}
+
+// TestProximitySpriteHeightCellsNoSpriteOrScale pins the two "no sprite"
+// guard cases proximitySpriteHeightCells owes: a stack with no
+// LaunchSprite-catalogued stage, and a non-positive scale — both must
+// read as 0 cells (glyph), never panic on the division.
+func TestProximitySpriteHeightCellsNoSpriteOrScale(t *testing.T) {
+	spriteless := []spacecraft.Stage{{LaunchSpriteRowsPx: 0}}
+	if got := proximitySpriteHeightCells(spriteless, 1.0); got != 0 {
+		t.Errorf("spriteless stack: got %v cells, want 0", got)
+	}
+	tall := []spacecraft.Stage{{LaunchSpriteRowsPx: 10, LaunchSpriteWidthPx: 2, Color: "#FFFFFF"}}
+	if got := proximitySpriteHeightCells(tall, 0); got != 0 {
+		t.Errorf("zero scale: got %v cells, want 0", got)
+	}
+	if got := proximitySpriteHeightCells(tall, -1); got != 0 {
+		t.Errorf("negative scale: got %v cells, want 0", got)
+	}
+}
+
+// TestProximityHullSpriteSpansExpectedCellsAtEntryFit is the "seeded
+// range" quality-bar test: at a 20 m separation — inside
+// proximityFitFloorM (50 m), so the entry fit pins to the game's own
+// DOCK READY floor rather than scaling with range — a 24 m-tall stack
+// (16 sub-pixel rows × vesselSubPixelM) spans the height
+// proximityFitRadius's own documented entry-fit math (Canvas.FitTo:
+// scale = 0.45 × shorter-pixel-axis / radius) predicts, derived here
+// independently of the production code under test rather than by
+// re-calling it, so a scale-formula regression can't silently agree
+// with itself.
+func TestProximityHullSpriteSpansExpectedCellsAtEntryFit(t *testing.T) {
+	const rangeM = 20.0
+	const rows = 16
+	stages := []spacecraft.Stage{{LaunchSpriteRowsPx: rows, LaunchSpriteWidthPx: 2, Color: "#ABCDEF"}}
+
+	w := proximityWorld(t, orbital.Vec3{X: rangeM})
+	w.Crafts[0].Stages = stages
+	w.Crafts[1].Stages = stages
+	v := newProximityTestView(t, 104, 24)
+	w.ViewMode = sim.ViewProximity
+	v.Render(w, 0, 104, 24)
+
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused")
+	}
+	fitRadius := proximityFitRadius(st)
+	shorterPx := float64(v.canvas.Cols() * 2)
+	if h := float64(v.canvas.Rows() * 4); h < shorterPx {
+		shorterPx = h
+	}
+	wantScale := 0.45 * shorterPx / fitRadius
+	if got := v.canvas.Scale(); math.Abs(got-wantScale)/wantScale > 1e-9 {
+		t.Fatalf("canvas scale = %.6f, want %.6f (FitTo's own documented formula)", got, wantScale)
+	}
+
+	wantCells := float64(rows) * vesselSubPixelM * wantScale / canvasCellPxH
+	if wantCells < proximitySpriteEnterCells {
+		t.Fatalf("test setup: stack only spans %.2f cells at entry fit, need >= %v to exercise the sprite path",
+			wantCells, proximitySpriteEnterCells)
+	}
+	if got := proximitySpriteHeightCells(stages, v.canvas.Scale()); math.Abs(got-wantCells) > 1e-6 {
+		t.Errorf("sprite height = %.3f cells, want %.3f", got, wantCells)
+	}
+
+	// And the hull actually reached the canvas in the stage's own colour
+	// — the end-to-end check that drawProximityVessels wired the height
+	// math through to real ink, not just that the formula agrees with
+	// itself.
+	if n := v.canvas.CountColor(lipgloss.Color("#ABCDEF")); n == 0 {
+		t.Error("no hull-sprite ink found on canvas at entry-fit scale")
+	}
+}
+
+// TestProximityHullPositionsMatchLVLHAnchors extends
+// TestProximityFrameOrientation's own construction (trailing +
+// below-primary) to the hull-sprite path: with both vessels' Stages
+// enlarged enough to guarantee the sprite threshold at this range, the
+// composed silhouette must still land AT each vessel's true LVLH anchor
+// — own vessel's hull registers a vessel-hit at its own screen cell,
+// target's hull at its own, and the trailing/below relationship the
+// glyph-only test already pins survives unchanged (the sprite's anchor
+// point is the same world position the old glyph used; only what's
+// painted around it changed).
+func TestProximityHullPositionsMatchLVLHAnchors(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	w.ActiveCraftIdx = 0
+	active := w.ActiveCraft()
+	frame, ok := orbital.LVLHBasis(active.State.R, active.State.V)
+	if !ok {
+		t.Fatal("precondition: no LVLH frame for the spawned orbit")
+	}
+	tgtR, tgtV := active.State.R, active.State.V
+	w.Crafts[1].Primary = active.Primary
+	w.Crafts[1].State.R = tgtR
+	w.Crafts[1].State.V = tgtV
+	active.State.R = tgtR.
+		Add(frame.AlongTrack.Scale(-600)).
+		Add(frame.RadialOut.Scale(-300))
+	w.SetTargetCraft(1)
+	w.ViewMode = sim.ViewProximity
+
+	// Deliberately (and unrealistically) oversized for the ~670 m
+	// separation — this test is about WHERE the hull lands, not the
+	// realism of its size, and a big stack removes any doubt that both
+	// crossed the sprite threshold at whatever scale the entry fit
+	// (proportional to range, not floored at this distance) lands on.
+	big := []spacecraft.Stage{{LaunchSpriteRowsPx: 400, LaunchSpriteWidthPx: 4, Color: "#112233"}}
+	active.Stages = big
+	w.Crafts[1].Stages = big
+
+	v := newProximityTestView(t, 104, 24)
+	v.Render(w, 0, 104, 24)
+
+	if !v.proxOwnSpriteShown {
+		t.Fatal("own vessel did not switch to the hull sprite — test setup too small")
+	}
+	if !v.proxTargetSpriteShown {
+		t.Fatal("target did not switch to the hull sprite — test setup too small")
+	}
+
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused")
+	}
+	tx, ty, _ := v.canvas.Project(st.TargetWorld)
+	cx, cy, onCanvas := v.canvas.Project(st.CraftWorld)
+	if !onCanvas {
+		t.Fatal("own vessel off canvas at the entry fit")
+	}
+	if cx >= tx {
+		t.Errorf("trailing vessel anchor at px %d, target at %d — behind must still render LEFT of the target with the sprite path", cx, tx)
+	}
+	if cy <= ty {
+		t.Errorf("below vessel anchor at py %d, target at %d — below must still render BELOW the target with the sprite path", cy, ty)
+	}
+
+	ownCol, ownRow, onCanvas := v.canvasCell(st.CraftWorld)
+	if !onCanvas {
+		t.Fatal("own vessel cell off canvas")
+	}
+	if hit := v.canvas.HitAt(ownCol, ownRow); !hit.IsVessel {
+		t.Error("own vessel's anchor cell doesn't read as a vessel hit with the hull sprite drawn")
+	}
+	tgtCol, tgtRow, onCanvas := v.canvasCell(st.TargetWorld)
+	if !onCanvas {
+		t.Fatal("target cell off canvas")
+	}
+	if hit := v.canvas.HitAt(tgtCol, tgtRow); !hit.IsVessel {
+		t.Error("target's anchor cell doesn't read as a vessel hit with the hull sprite drawn")
+	}
+}
+
+// TestProximityGhostTargetFallsBackToGlyph: a multiplayer ghost target
+// carries a name, a glyph and a Kepler-propagated state — never a stage
+// stack — so no range should ever switch it to a hull sprite; it stays
+// the diamond glyph regardless of how close the pair gets.
+func TestProximityGhostTargetFallsBackToGlyph(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	w.ActiveCraftIdx = 0
+	active := w.ActiveCraft()
+	primary := active.Primary
+	primaryPos := w.BodyPosition(primary)
+	// 40 m away — well inside the range a real vessel with any
+	// catalog-sized stack would already be rendering as a sprite.
+	ghostWorldPos := primaryPos.Add(active.State.R).Add(orbital.Vec3{X: 40})
+	w.Ghosts = []sim.Ghost{{
+		Owner: "SHA256:ghosttest", CraftID: 99, Handle: "remote",
+		Name: "Remote Craft", PrimaryID: primary.ID,
+		Pos: ghostWorldPos, Vel: active.State.V,
+	}}
+	w.SetTargetGhost("SHA256:ghosttest", 99)
+	w.ViewMode = sim.ViewProximity
+
+	v := newProximityTestView(t, 104, 24)
+	v.Render(w, 0, 104, 24)
+
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused for a ghost target")
+	}
+	if v.proxTargetSpriteShown {
+		t.Error("ghost target latched a hull sprite — ghosts carry no composition data")
+	}
+	col, row, onCanvas := v.canvasCell(st.TargetWorld)
+	if !onCanvas {
+		t.Fatal("ghost target off canvas")
+	}
+	if hit := v.canvas.HitAt(col, row); !hit.IsVessel {
+		t.Error("ghost target's glyph fallback did not tag IsVessel")
+	}
+}
+
+// TestProximityHullWinsRingOverlapSamePixel pins the draw-order
+// requirement directly at the canvas level: when a ring (or any other
+// backdrop cue) happens to ink the exact same braille sub-pixel the
+// hull sprite also occupies, the sprite — drawn after, per
+// renderProximity's call order — must win the pixel outright, not just
+// tie a per-cell majority vote.
+func TestProximityHullWinsRingOverlapSamePixel(t *testing.T) {
+	v := newProximityTestView(t, 104, 24)
+	frame := orbital.LVLHFrame{
+		AlongTrack: orbital.Vec3{X: 1},
+		RadialOut:  orbital.Vec3{Y: 1},
+		CrossTrack: orbital.Vec3{Z: 1},
+	}
+	v.canvas.SetBasis(widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut})
+	v.canvas.SetScale(1.0) // 1 px per metre
+	v.canvas.Center(orbital.Vec3{})
+	target := orbital.Vec3{}
+
+	// Tall enough (20 rows * 1.5 m stride = 30 m, well past the 3-cell
+	// enter threshold at 1 px/m) that the hysteresis gate isn't what's
+	// under test here — the overlap is.
+	stages := []spacecraft.Stage{{LaunchSpriteRowsPx: 20, LaunchSpriteWidthPx: 2, Color: "#123456"}}
+	sprite := ComposeLaunchSprite(stages, orbital.Vec3{}, v.canvas.Basis(), vesselSubPixelM)
+	if len(sprite) == 0 {
+		t.Fatal("setup: no composed sprite")
+	}
+	overlapWorld := target.Add(sprite[0].OffsetWorld)
+
+	// Paint a ring pixel at the EXACT same world point first — standing
+	// in for a range ring or dock gate that happens to cross the
+	// sprite's footprint (drawProximityRangeRings / drawProximityDockGate
+	// both run before drawProximityVessels in renderProximity).
+	v.canvas.PlotColored(overlapWorld, render.ColorDim)
+
+	shown := false
+	if !v.drawProximityHull(&shown, stages, orbital.Vec3{}, target, frame) {
+		t.Fatal("drawProximityHull refused a tall stack at 1 px/m")
+	}
+
+	if n := v.canvas.CountColor(render.ColorDim); n != 0 {
+		t.Errorf("ring colour still present after the hull overwrote the shared pixel: %d cells", n)
+	}
+	if n := v.canvas.CountColor(lipgloss.Color("#123456")); n == 0 {
+		t.Error("hull stage colour did not become the cell's colour over the ring ink")
+	}
+	col, row, onCanvas := v.canvasCell(overlapWorld)
+	if !onCanvas {
+		t.Fatal("overlap point off canvas")
+	}
+	if hit := v.canvas.HitAt(col, row); !hit.IsVessel {
+		t.Error("the shared cell doesn't read as a vessel hit — the ring pixel's tag is winning the overlap")
+	}
+}
+
+// TestProximityHullsRenderAt104x24 re-runs the layout smoke test at the
+// screen's actual minimum supported terminal size (screens.MinTerminalWidth
+// = 104, not the 80 the rest of this file's tests use for headroom) with
+// both vessels enlarged enough to force the hull-sprite path, so a sprite
+// that overruns a row or corrupts the frame at the real floor fails here.
+func TestProximityHullsRenderAt104x24(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 40})
+	big := []spacecraft.Stage{{LaunchSpriteRowsPx: 20, LaunchSpriteWidthPx: 2, Color: "#445566"}}
+	w.Crafts[0].Stages = big
+	w.Crafts[1].Stages = big
+	v := newProximityTestView(t, MinTerminalWidth, 24)
+	w.ViewMode = sim.ViewProximity
+	out := v.Render(w, 0, MinTerminalWidth, 24)
+
+	if !v.proxOwnSpriteShown || !v.proxTargetSpriteShown {
+		t.Fatal("test setup: hull sprites did not engage for either vessel")
+	}
+
+	lines := strings.Split(out, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("rendered %d rows, want 24", len(lines))
+	}
+	for i, l := range lines[1:] {
+		if width := lipgloss.Width(l); width > MinTerminalWidth {
+			t.Errorf("row %d is %d cols wide, want ≤ %d", i+1, width, MinTerminalWidth)
 		}
 	}
 }

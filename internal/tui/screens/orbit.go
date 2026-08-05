@@ -103,6 +103,20 @@ type OrbitView struct {
 	mapPanOffset orbital.Vec3
 	mapPanSaved  bool
 
+	// proxOwnSpriteShown / proxTargetSpriteShown latch the Proximity
+	// View glyph→hull-sprite transition (issue #348 §1) per vessel, so
+	// the picture doesn't flicker between the two right at the switch
+	// point: entering the sprite state takes a taller silhouette than
+	// leaving it holds onto (see proximitySpriteVisible's hysteresis
+	// band, orbit_proximity.go). Kept separate per vessel because a
+	// small ghost/craft and a large stack at different ranges don't
+	// cross the band together. Session-only render state, reset
+	// alongside v.fitted/burnFrozenCenter at every Framing Event so a
+	// newly targeted vessel starts from its own measured height rather
+	// than inheriting the previous target's latch.
+	proxOwnSpriteShown    bool
+	proxTargetSpriteShown bool
+
 	// panOffset (ADR 0042, CONTEXT.md "Pan") is the player's ↑↓←→ view
 	// offset from the tracked Focus, in world units. Render adds it to
 	// FocusPosition() every frame — so the camera keeps tracking a moving
