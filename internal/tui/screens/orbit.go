@@ -602,20 +602,18 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.canvas.SetScale(v.baseScale * v.userZoom)
 	v.canvas.Center(center)
 
-	// Dotted orbit ellipses for each body with a nonzero semimajor axis.
-	// v0.10.6+: far-side arc renders at stride*2 (visually dashed) in
-	// the dedicated dim-grey ColorBodyOrbit — KSP-aligned quiet
-	// backdrop. bodyPxR=0 skips disk occlusion; the system primary at
-	// origin doesn't meaningfully occlude body orbits at heliocentric
-	// zoom. Pre-v0.10.6 this was a flat DrawEllipseDotted with no
-	// depth read.
+	// Dotted (Scenery-class, ADR 0041 §2) orbit ellipses for each body
+	// with a nonzero semimajor axis — KSP-aligned quiet backdrop in the
+	// dedicated dim-grey ColorBodyOrbit. bodyPxR=0 skips disk occlusion;
+	// the system primary at origin doesn't meaningfully occlude body
+	// orbits at heliocentric zoom.
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		if b.SemimajorAxis == 0 {
 			continue
 		}
 		el := orbital.ElementsFromBody(b)
-		v.canvas.DrawEllipseOffsetFarSideDashed(el, orbital.Vec3{}, 360, 5, orbital.Vec3{}, 0, render.ColorBodyOrbit)
+		v.canvas.DrawEllipseClass(el, orbital.Vec3{}, 360, widgets.ClassScenery, orbital.Vec3{}, 0, render.ColorBodyOrbit)
 	}
 
 	// Plot each body at its perceived-size disk. System primary (index 0)
@@ -913,13 +911,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			if orbitVisible {
 				gPrimaryPos := w.BodyPosition(gp)
 				gPxR := BodyPixelRadius(gp, false, scale, canvasReach)
+				// Real class (ADR 0041 §2): a ghost's orbit is solid dim
+				// like any other real craft's, promoted to TARGET green —
+				// same pattern, not a denser one — when targeted.
 				orbitColor := lipgloss.Color(render.ColorDim)
-				spacingPx := 4
 				if isTarget {
 					orbitColor = render.ColorTarget
-					spacingPx = 3
 				}
-				v.canvas.DrawEllipseOffsetFarSideDashed(el, gPrimaryPos, 180, spacingPx, gPrimaryPos, gPxR, orbitColor)
+				v.canvas.DrawEllipseClass(el, gPrimaryPos, 180, widgets.ClassReal, gPrimaryPos, gPxR, orbitColor)
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
 					// ghost's own apsides, dimmed via MarkerCounterfactual
@@ -970,7 +969,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// same check.
 		primaryPxR := BodyPixelRadius(c.Primary, false, scale, canvasReach)
 		if orbitVisible {
-			v.canvas.DrawEllipseOffsetFarSideDashed(el, primaryPos, 360, 2, primaryPos, primaryPxR, render.ColorCurrentOrbit)
+			// Real class, bright (ADR 0041 §2): the active vessel's live
+			// orbit — solid, contiguous ink.
+			v.canvas.DrawEllipseClass(el, primaryPos, 360, widgets.ClassReal, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 			// Unified single-glyph markers (ADR 0020): ▼ periapsis / ▲
@@ -1072,14 +1073,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				otherColor = render.ColorTarget
 			}
 			if otherOrbitVisible {
-				// Target gets denser sampling (a dot every 3 px vs
-				// every 4 for plain non-active craft) so its track
-				// reads as brighter / more prominent than peers.
-				spacingPx := 4
-				if isTarget {
-					spacingPx = 3
-				}
-				v.canvas.DrawEllipseOffsetFarSideDashed(otherEl, otherPrimaryPos, 180, spacingPx, otherPrimaryPos, otherPxR, otherColor)
+				// Real class (ADR 0041 §2): another craft's orbit is solid
+				// like the active vessel's — the TARGET promotion above is
+				// a color change, not a denser pattern.
+				v.canvas.DrawEllipseClass(otherEl, otherPrimaryPos, 180, widgets.ClassReal, otherPrimaryPos, otherPxR, otherColor)
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
 					// craft's own apsides, dimmed via MarkerCounterfactual
@@ -1903,17 +1900,18 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 		}
 		for _, seg := range leg.segs {
 			// Every segment — home and foreign alike — inks as one
-			// phase-continuous polyline at a constant on-screen dot cadence
-			// (ADR 0023 C, generalised by ADR 0042 §3). The home transfer leg
-			// used to be scattered stride-2 dots on the theory that joining it
-			// up read as a stray line shooting past the encounter; that
-			// disconnect is really the inertial-leg-vs-rebased-arc gap at the
-			// SOI boundary (the leg aims at the body's FUTURE position, the
-			// encounter arc is rebased to its CURRENT one), and dotting the
-			// leg only hid it by making the leg unreadable when zoomed in.
-			// Fill stays within a segment, so an SOI transition is still never
+			// phase-continuous DASHED polyline (Planned class, ADR 0041
+			// §2): a plan's before-it-fires consequence. The home transfer
+			// leg used to be scattered stride-2 dots on the theory that
+			// joining it up read as a stray line shooting past the
+			// encounter; that disconnect is really the
+			// inertial-leg-vs-rebased-arc gap at the SOI boundary (the leg
+			// aims at the body's FUTURE position, the encounter arc is
+			// rebased to its CURRENT one), and dotting the leg only hid it
+			// by making the leg unreadable when zoomed in. Fill stays
+			// within a segment, so an SOI transition is still never
 			// bridged.
-			v.canvas.PlotDensePolylineColored(w.SegmentDrawPoints(seg, homeID), leg.color, 2)
+			v.canvas.PlotPolylineClass(w.SegmentDrawPoints(seg, homeID), leg.color, widgets.ClassPlanned)
 		}
 	}
 }
@@ -1947,11 +1945,11 @@ func (v *OrbitView) drawCommPath(w *sim.World) {
 // coasting path and the frozen burn-time replay.
 func (v *OrbitView) plotArcLine(w *sim.World, line frozenArcLine) {
 	for _, seg := range line.segs {
-		// Zoom-constant dot cadence along the connected samples (ADR 0023 C)
-		// — fill stays within a segment, so an SOI-transition boundary isn't
-		// bridged by a chord. step=2 matches the foreign-SOI leg cadence
-		// after the playtest density trim.
-		v.canvas.PlotDensePolylineColored(w.SegmentDrawPoints(seg, line.anchor), line.color, 2)
+		// Planned class (ADR 0041 §2): an encounter arc is a predicted
+		// consequence like a node leg, so it dashes the same way. Fill
+		// stays within a segment, so an SOI-transition boundary isn't
+		// bridged by a chord.
+		v.canvas.PlotPolylineClass(w.SegmentDrawPoints(seg, line.anchor), line.color, widgets.ClassPlanned)
 	}
 }
 

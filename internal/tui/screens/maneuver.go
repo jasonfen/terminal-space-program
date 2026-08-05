@@ -515,9 +515,10 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	}
 	m.canvas.FillColoredDisk(orbital.Vec3{}, primaryPxR, primaryColor)
 
-	// Current orbit. Empty colour → uses Plot for back-compat with
-	// the existing white-on-default rendering of this canvas.
-	m.canvas.DrawEllipseOffsetOccluded(currentEl, orbital.Vec3{}, 360, 3, orbital.Vec3{}, primaryPxR, "")
+	// Current orbit — Real class, solid (ADR 0041 §2). Empty colour →
+	// uses Plot for back-compat with the existing white-on-default
+	// rendering of this canvas.
+	m.canvas.DrawEllipseClass(currentEl, orbital.Vec3{}, 360, widgets.ClassReal, orbital.Vec3{}, primaryPxR, "")
 
 	// v0.9.3 polish: target craft's orbit + current position when it
 	// shares the active craft's primary. The maneuver canvas centers
@@ -530,7 +531,9 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 			tEl := orbital.ElementsFromState(tc.State.R, tc.State.V, mu)
 			tOrbitVisible := tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0)
 			if tOrbitVisible {
-				m.canvas.DrawEllipseOffsetOccluded(tEl, orbital.Vec3{}, 360, 3, orbital.Vec3{}, primaryPxR, render.ColorTarget)
+				// Still Real class — the TARGET green is a colour swap,
+				// not a different line style (ADR 0041 §2).
+				m.canvas.DrawEllipseClass(tEl, orbital.Vec3{}, 360, widgets.ClassReal, orbital.Vec3{}, primaryPxR, render.ColorTarget)
 			}
 			if !m.canvas.IsBehindBody(tc.State.R, orbital.Vec3{}, primaryPxR) {
 				m.canvas.PlotColored(tc.State.R, render.ColorTarget)
@@ -568,13 +571,30 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 	shadowPeriod := orbitalPeriodOrFallback(shadowState, shadowMu)
 	pts := planner.Predict(shadowState, shadowMu, shadowPeriod, 256)
 	primaryGap := w.BodyPosition(shadowPrimary).Sub(w.BodyPosition(c.Primary))
+	// Planned class, dashed (ADR 0041 §2): this is a predicted trajectory
+	// — the orbit the burn WOULD produce, not a real one. Previously every
+	// sample plotted its own untagged dot regardless of its neighbours,
+	// which at 256 fixed samples read as solid rather than the "plans are
+	// dashed" vocabulary calls for. Runs are broken at each occluded
+	// (behind-primary) point exactly as before, so a run never bridges a
+	// gap the body actually occludes; each surviving run gets a fresh
+	// phase-continuous dash, same as node legs.
+	var visibleRun []orbital.Vec3
+	flushShadowRun := func() {
+		if len(visibleRun) > 0 {
+			m.canvas.PlotPolylineClass(visibleRun, "", widgets.ClassPlanned)
+			visibleRun = visibleRun[:0]
+		}
+	}
 	for _, p := range pts {
 		pp := p.Add(primaryGap)
 		if m.canvas.IsBehindBody(pp, orbital.Vec3{}, primaryPxR) {
+			flushShadowRun()
 			continue
 		}
-		m.canvas.Plot(pp)
+		visibleRun = append(visibleRun, pp)
 	}
+	flushShadowRun()
 
 	// Craft cluster — skip if behind primary in the active view.
 	if !m.canvas.IsBehindBody(c.State.R, orbital.Vec3{}, primaryPxR) {

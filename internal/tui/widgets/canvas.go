@@ -457,8 +457,12 @@ func (c *Canvas) RingColoredOutlineTagged(center orbital.Vec3, pxRadius int, tag
 
 // ringDotSpacingPx is the circumference distance (pixels) between
 // successive dots of RingDottedColored — sparse enough that the ring
-// reads as a quiet dotted boundary cue rather than solid ink.
-const ringDotSpacingPx = 4
+// reads as a quiet dotted boundary cue rather than solid ink. ADR 0041
+// §2: the SOI Ring is Scenery (dotted, faint) alongside body orbits, so
+// this shares body orbits' classSceneryNearSpacingPx cadence exactly
+// (folded from its own previously-separate value of 4) rather than a
+// second, incidentally-close number.
+const ringDotSpacingPx = classSceneryNearSpacingPx
 
 // RingDottedColored draws a dotted screen-space circle of pxRadius
 // pixels around center — the SOI Ring (ADR 0021 C). A sphere's
@@ -675,6 +679,98 @@ func (c *Canvas) PlotDensePolylineColored(pts []orbital.Vec3, color lipgloss.Col
 		phase = c.walkPixelSegment(ax, ay, bx, by, tag, step, phase, 0, 0, 0)
 		ax, ay = bx, by
 	}
+}
+
+// plotDensePolylineDashedColored is PlotDensePolylineColored's dashed
+// sibling (ADR 0041 §2 / issue #346's LineClass vocabulary): instead of a
+// single lit pixel every `step` px, it inks a contiguous run of `onPx`
+// pixels followed by a gap of `offPx` pixels, repeating — a genuine dash
+// pattern rather than sparse dots. Phase carries across the whole
+// polyline exactly like PlotDensePolylineColored, so the dash/gap cadence
+// holds across joins instead of restarting (and therefore looking solid)
+// at every sample.
+func (c *Canvas) plotDensePolylineDashedColored(pts []orbital.Vec3, color lipgloss.Color, onPx, offPx int) {
+	if len(pts) == 0 {
+		return
+	}
+	if len(pts) == 1 {
+		c.PlotColored(pts[0], color)
+		return
+	}
+	tag := CellTag{Color: color}
+	phase := 0.0
+	ax, ay := c.projectPx(pts[0])
+	for i := 1; i < len(pts); i++ {
+		bx, by := c.projectPx(pts[i])
+		phase = c.walkPixelDashSegment(ax, ay, bx, by, tag, onPx, offPx, phase)
+		ax, ay = bx, by
+	}
+}
+
+// walkPixelDashSegment is walkPixelSegment's dashed sibling: it inks every
+// integer pixel of ON-SCREEN ARC LENGTH that falls in the "on" part of a
+// repeating onPx-on / offPx-off cycle, instead of a single dot per `step`.
+// Walking pixel-by-pixel (rather than jumping straight to each mark, as
+// walkPixelSegment does) is what makes a dash a CONTIGUOUS run instead of
+// a lone point; the cost is still bounded by the canvas-clipped run
+// length, so it stays cheap. `phase` is the position within the cycle the
+// curve already occupies, carried across chords/segments the same way
+// walkPixelSegment carries its dot phase, so a dash never restarts (and
+// therefore never reads as solid) at a chord or polyline join.
+func (c *Canvas) walkPixelDashSegment(ax, ay, bx, by float64, tag CellTag, onPx, offPx int, phase float64) float64 {
+	if onPx < 1 {
+		onPx = 1
+	}
+	if offPx < 0 {
+		offPx = 0
+	}
+	cycle := float64(onPx + offPx)
+	if !(phase >= 0) { // NaN-safe
+		phase = 0
+	}
+	full := segLenPx(ax, ay, bx, by)
+	newPhase := math.Mod(phase+full, cycle)
+	cax, cay, cbx, cby, ok := clipSegmentToCanvas(ax, ay, bx, by, c.pxW, c.pxH)
+	if !ok {
+		return newPhase
+	}
+	tagged := tag != (CellTag{})
+	if tagged && c.pixelTags == nil {
+		c.pixelTags = make(map[[2]int]CellTag)
+	}
+	plotPx := func(px, py int) {
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			return
+		}
+		c.dc.Set(px, py)
+		if tagged {
+			c.pixelTags[[2]int{px, py}] = tag
+		}
+	}
+	// Length clipped off the a-end still counts toward the cycle position,
+	// matching walkPixelSegment's `lead` so the dash pattern doesn't slide
+	// when the visible run changes.
+	lead := phase + segLenPx(ax, ay, cax, cay)
+	clipLen := segLenPx(cax, cay, cbx, cby)
+	if clipLen == 0 {
+		if math.Mod(lead, cycle) < float64(onPx) {
+			plotPx(int(math.Round(cax)), int(math.Round(cay)))
+		}
+		return newPhase
+	}
+	dx, dy := cbx-cax, cby-cay
+	steps := int(math.Ceil(clipLen))
+	for s := 0; s <= steps; s++ {
+		d := float64(s)
+		if d > clipLen {
+			d = clipLen
+		}
+		if math.Mod(lead+d, cycle) < float64(onPx) {
+			f := d / clipLen
+			plotPx(int(math.Round(cax+dx*f)), int(math.Round(cay+dy*f)))
+		}
+	}
+	return newPhase
 }
 
 // walkPixelSegment inks the pixel segment (ax,ay)→(bx,by), clipped to the
@@ -1021,28 +1117,6 @@ func (c *Canvas) DrawEllipseOffsetFarSideDashed(
 		nearSpacingPx = 1
 	}
 	c.drawEllipseAdaptive(el, offset, minSamples, nearSpacingPx, nearSpacingPx*2, bodyPos, bodyPxR, color)
-}
-
-// DrawEllipseOffsetOccluded plots a dotted ellipse but cuts anything
-// IsBehindBody-occluded by the supplied (bodyPos, bodyPxR) — strict
-// occlusion with no far-side dashing, unlike
-// DrawEllipseOffsetFarSideDashed. v0.6.4+ side-view variant; writes
-// through the colour path when `color` is non-empty, otherwise plain
-// untagged pixels.
-//
-// As with its sibling, ADR 0042 §3 reinterprets the count arguments:
-// `minSamples` is a floor on the adaptive coarse pass and `spacingPx` is
-// the dot spacing in canvas pixels.
-func (c *Canvas) DrawEllipseOffsetOccluded(
-	el orbital.Elements,
-	offset orbital.Vec3,
-	minSamples int,
-	spacingPx int,
-	bodyPos orbital.Vec3,
-	bodyPxR int,
-	color lipgloss.Color,
-) {
-	c.drawEllipseAdaptive(el, offset, minSamples, spacingPx, spacingPx, bodyPos, bodyPxR, color)
 }
 
 // Plot sets the pixel at the given world coord. No-op if off-canvas.

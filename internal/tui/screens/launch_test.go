@@ -595,7 +595,7 @@ func TestLaunchViewRendersRCSPuffs(t *testing.T) {
 
 // The launch / landing chase-cam must draw the active craft's
 // current-orbit ellipse the same way the orbit-map screens do
-// (drawOrbitPath → DrawEllipseOffsetFarSideDashed). The view is built
+// (drawOrbitPath → DrawEllipseClass, Real class). The view is built
 // with a nil hudSource so the side chips (which echo velocity /
 // apoapsis / inclination and would differ on V alone) are suppressed —
 // the orbit ellipse on the canvas becomes the only V-dependent output
