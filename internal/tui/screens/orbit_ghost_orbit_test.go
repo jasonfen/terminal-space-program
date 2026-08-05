@@ -226,27 +226,30 @@ func TestSubPixelGhostOrbitGated(t *testing.T) {
 	}
 }
 
-// Targeting a ghost promotes its ellipse to the TARGET treatment: denser
-// sampling (stride 3 vs 5), mirroring a targeted local craft. With no color in
-// the headless frame, the promotion is observed as more ellipse ink.
+// Targeting a ghost promotes its ellipse to the TARGET treatment. Pre-ADR
+// 0041 this was denser sampling (stride 3 vs 5); under the LineClass
+// vocabulary (issue #346) a ghost's orbit is Real class either way — solid
+// dim, promoted to solid TARGET green — so color, not density, is the
+// promoted signal, checked the same way TestSubPixelGhostOrbitGated checks
+// ColorDim ink: CountColor reads the per-pixel tag regardless of the
+// headless renderer's lack of ANSI.
 func TestTargetedGhostOrbitPromoted(t *testing.T) {
 	v := NewOrbitView(ghostTestTheme())
 	v.Resize(200, 60)
 
 	w, ownR, _ := leoWorld(t)
-	base := countBraille(v.Render(w, 0, 200, 60))
 	g := circularGhost(w, ownR.Norm()*1.6)
 	w.Ghosts = []sim.Ghost{g}
 
-	untarg := countBraille(v.Render(w, 0, 200, 60))
-	if untarg-base < 20 {
-		t.Fatalf("untargeted ghost drew only %d cells past baseline — no ellipse to promote", untarg-base)
+	v.Render(w, 0, 200, 60)
+	if untarg := v.canvas.CountColor(lipgloss.Color(render.ColorTarget)); untarg != 0 {
+		t.Fatalf("untargeted ghost already inked %d TARGET-colour cells", untarg)
 	}
 
 	w.SetTargetGhost(g.Owner, g.CraftID)
-	targ := countBraille(v.Render(w, 0, 200, 60))
-	if targ <= untarg {
-		t.Errorf("targeting a ghost did not densify its ellipse (%d→%d) — not promoted", untarg, targ)
+	v.Render(w, 0, 200, 60)
+	if targ := v.canvas.CountColor(lipgloss.Color(render.ColorTarget)); targ < 15 {
+		t.Errorf("targeting a ghost inked only %d TARGET-colour cells — ellipse not promoted", targ)
 	}
 }
 

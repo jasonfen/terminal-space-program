@@ -370,7 +370,7 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 	v.drawHorizonAndFill(body, bodyCentre)
 
 	// Current-orbit ellipse, rendered exactly as the orbit-map screens
-	// do (same DrawEllipseOffsetFarSideDashed path + apo/peri markers).
+	// do (same DrawEllipseClass Real-class path + apo/peri markers).
 	// Drawn after the body fill so the near arc paints over the disk and
 	// the far arc is depth-culled behind it; drawn before the surface
 	// markers + rocket so those layer on top. v0.14+.
@@ -613,7 +613,9 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 	}
 	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
 	primaryPxR := BodyPixelRadius(craft.Primary, false, scale, canvasReach)
-	v.canvas.DrawEllipseOffsetFarSideDashed(el, bodyCentre, 360, 2, bodyCentre, primaryPxR, render.ColorCurrentOrbit)
+	// Real class, bright (ADR 0041 §2) — same treatment as the orbit map's
+	// own-craft ellipse.
+	v.canvas.DrawEllipseClass(el, bodyCentre, 360, widgets.ClassReal, bodyCentre, primaryPxR, render.ColorCurrentOrbit)
 	peri := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, 0))
 	apo := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 	// Unified single-glyph apsis markers (ADR 0020) — same ▼/▲ as the
