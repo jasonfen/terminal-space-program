@@ -512,7 +512,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// stage a burn there — because that is a place, not an
 			// identity question: you already know whose line it is. Any
 			// other line stops the click at identity.
-			ownOrbitLine := ownerHit && ownerRef.Kind == screens.InspectVessel &&
+			//
+			// hit.OwnerTied vetoes it: where your line and someone
+			// else's ink the cell equally, the click is genuinely
+			// ambiguous, and the two readings do not cost the same. The
+			// identity reading paints a name chip you can dismiss; the
+			// own-line reading pauses the clock and swaps to the
+			// maneuver screen. On a coin toss, take the reversible one —
+			// the ADR 0041 §3 contract is identity ON DEMAND, and a
+			// question that sometimes answers with a mode change reads
+			// as a misfire. Zoom in and the tie resolves itself.
+			ownOrbitLine := ownerHit && !hit.OwnerTied &&
+				ownerRef.Kind == screens.InspectVessel &&
 				a.world.ActiveCraft() != nil && ownerRef.CraftID == a.world.ActiveCraft().ID
 			switch {
 			case hit.IsVessel:

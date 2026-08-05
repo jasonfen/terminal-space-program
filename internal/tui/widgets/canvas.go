@@ -3,6 +3,7 @@
 package widgets
 
 import (
+	"cmp"
 	"math"
 	"strings"
 
@@ -57,6 +58,18 @@ type CellTag struct {
 	// (focus, open the node form, move the body Cursor) that Inspect does
 	// not change.
 	Owner string
+	// OwnerTied is a HitAt OUTPUT only — never set by a drawer, and
+	// ignored on any tag passed into a draw helper. It reports that two
+	// or more owners inked the same number of the cell's pixels, so the
+	// Owner above is the tie-break's answer rather than a majority's.
+	//
+	// It exists because the click paths are not symmetric: resolving an
+	// ambiguous cell to ANOTHER vessel costs a name chip, while resolving
+	// it to your OWN vessel's orbit line falls through to "stage a burn
+	// here" and changes screen. A coin-toss that sometimes opens the
+	// planner reads as a broken click, so the App gates that fallthrough
+	// on the cell being unambiguous.
+	OwnerTied bool
 }
 
 // DefaultBasis is the top-down projection: world X axis maps to
@@ -997,14 +1010,51 @@ func (c *Canvas) Unproject(px, py int) orbital.Vec3 {
 		Add(c.basis.Y.Scale(relY))
 }
 
+// cellCentreDist2 is the squared pixel distance from a cell-local braille
+// pixel (dx ∈ [0,2), dy ∈ [0,4)) to the geometric centre of its terminal
+// cell, in HALF-pixel units so the arithmetic stays integral: the centre
+// sits at (0.5, 1.5), which doubles to (1, 3).
+//
+// A braille pixel is cellW/2 wide and cellH/4 tall, and a terminal cell is
+// roughly twice as tall as it is wide, so the two axes are close enough to
+// square that an unweighted metric is honest here.
+func cellCentreDist2(dx, dy int) int {
+	x, y := 2*dx-1, 2*dy-3
+	return x*x + y*y
+}
+
+// hitCandidates accumulates, per tag value, how many of a cell's pixels
+// carry it and how close its closest pixel got to the cell centre. Both
+// are needed to resolve a hit deterministically: count is the primary
+// rule, distance is the tie-break.
+type hitCandidates[K comparable] struct {
+	count map[K]int
+	dist  map[K]int
+}
+
+func newHitCandidates[K comparable]() hitCandidates[K] {
+	return hitCandidates[K]{count: map[K]int{}, dist: map[K]int{}}
+}
+
+func (h hitCandidates[K]) add(k K, dist2 int) {
+	if nearest, seen := h.dist[k]; !seen || dist2 < nearest {
+		h.dist[k] = dist2
+	}
+	h.count[k]++
+}
+
 // HitAt aggregates the CellTag fields recorded on the 2×4 pixels
 // of the terminal cell at (col, row). Returns the most-common
-// non-empty BodyID among those pixels (with first-seen as the tie-
-// breaker). NodeIdx and IsVessel resolve the same way (most common
-// non-zero / true wins). Color falls out of the existing String()
-// aggregation and is not returned here. v0.6.4+: paired with the
-// app's MouseMsg dispatch so a click resolves to "what sim object
-// is this cell rendering?"
+// non-empty BodyID among those pixels; NodeIdx and IsVessel resolve
+// the same way (most common non-zero / true wins). Color falls out
+// of the existing String() aggregation and is not returned here.
+// v0.6.4+: paired with the app's MouseMsg dispatch so a click
+// resolves to "what sim object is this cell rendering?"
+//
+// Resolution is DETERMINISTIC, on every platform and every call: see
+// pickHit for the tie-break ladder. It has to be — the caller turns a
+// hit into a mode change, and a click that answers differently on two
+// consecutive presses reads as a broken input, not as an ambiguity.
 //
 // (col, row) outside the canvas → zero-value CellTag (no hit).
 // Cells whose pixel set is entirely untagged also return zero —
@@ -1017,9 +1067,9 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 	if len(c.pixelTags) == 0 {
 		return CellTag{}
 	}
-	bodyCounts := map[string]int{}
-	nodeCounts := map[int]int{}
-	ownerCounts := map[string]int{}
+	bodies := newHitCandidates[string]()
+	nodes := newHitCandidates[int]()
+	owners := newHitCandidates[string]()
 	vesselCount := 0
 	pxStart, pyStart := col*2, row*4
 	for dx := 0; dx < 2; dx++ {
@@ -1028,14 +1078,15 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 			if !ok {
 				continue
 			}
+			d2 := cellCentreDist2(dx, dy)
 			if tag.BodyID != "" {
-				bodyCounts[tag.BodyID]++
+				bodies.add(tag.BodyID, d2)
 			}
 			if tag.NodeIdx != 0 {
-				nodeCounts[tag.NodeIdx]++
+				nodes.add(tag.NodeIdx, d2)
 			}
 			if tag.Owner != "" {
-				ownerCounts[tag.Owner]++
+				owners.add(tag.Owner, d2)
 			}
 			if tag.IsVessel {
 				vesselCount++
@@ -1046,43 +1097,68 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 	if vesselCount > 0 {
 		hit.IsVessel = true
 	}
-	if best, n := mostCommonString(bodyCounts); n > 0 {
+	if best, n, _ := pickHit(bodies); n > 0 {
 		hit.BodyID = best
 	}
-	if best, n := mostCommonInt(nodeCounts); n > 0 {
+	if best, n, _ := pickHit(nodes); n > 0 {
 		hit.NodeIdx = best
 	}
 	// Owner resolves the same most-common-wins way (ADR 0041 §3): a cell
 	// straddling two orbit lines answers with whichever owns more of its
 	// eight pixels, which is also the one the player can see more of.
-	if best, n := mostCommonString(ownerCounts); n > 0 {
+	// When neither owns more, OwnerTied says so, and the caller is
+	// expected to pick its LEAST destructive reading of the click.
+	if best, n, tied := pickHit(owners); n > 0 {
 		hit.Owner = best
+		hit.OwnerTied = tied
 	}
 	return hit
 }
 
-func mostCommonString(counts map[string]int) (string, int) {
-	var best string
-	bestN := 0
-	for k, n := range counts {
-		if n > bestN {
-			bestN = n
-			best = k
+// pickHit resolves one cell's candidates to a single winner, plus whether
+// the win was a genuine tie.
+//
+// The ladder, in order:
+//
+//  1. Most pixels in the cell wins — the ADR 0041 §3 rule, and the one
+//     the player can see: whichever entity inked more of the cell.
+//  2. Exact count tie → the candidate whose closest pixel is nearest the
+//     cell centre, i.e. nearest to where the click landed. A cell is all
+//     the sub-cell resolution a terminal mouse report gives us, so its
+//     centre is the best available stand-in for the click point.
+//  3. Still tied → the ordered key, purely so the answer is a function of
+//     the pixels and nothing else.
+//
+// Rung 3 exists only as a backstop and is deliberately LAST: on its own
+// it would systematically hand ties to the lowest-sorting key, which for
+// Inspect owner keys ("v:1", "v:2", …) means the lowest craft ID —
+// usually the active vessel, whose orbit line is the one click path with
+// a destructive fallthrough (stage a burn). Rungs 1 and 2 are grounded in
+// what is on screen; rung 3 is grounded in nothing, so it decides least.
+//
+// This used to be a bare `for k, n := range counts` keeping the first key
+// that beat the running max, with no tie-break at all — which meant Go's
+// per-range randomized map iteration picked the winner of every tie. It is
+// the same latent class of bug pickDominantColor was fixed for in
+// v0.7.2.1, missed here when hit-testing arrived in v0.6.4 and unreachable
+// in practice until ADR 0041 §3 put a SECOND owner's ink on the map beside
+// your own.
+func pickHit[K cmp.Ordered](h hitCandidates[K]) (best K, bestN int, tied bool) {
+	bestDist, atBest := 0, 0
+	for k, n := range h.count {
+		d := h.dist[k]
+		switch {
+		case n > bestN:
+			best, bestN, bestDist, atBest = k, n, d, 1
+		case n < bestN:
+		default:
+			atBest++
+			if d < bestDist || (d == bestDist && k < best) {
+				best, bestDist = k, d
+			}
 		}
 	}
-	return best, bestN
-}
-
-func mostCommonInt(counts map[int]int) (int, int) {
-	var best int
-	bestN := 0
-	for k, n := range counts {
-		if n > bestN {
-			bestN = n
-			best = k
-		}
-	}
-	return best, bestN
+	return best, bestN, atBest > 1
 }
 
 // IsBehindBody reports whether a world point `samplePos` is occluded
