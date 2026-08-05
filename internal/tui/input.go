@@ -263,6 +263,33 @@ type Keymap struct {
 	// Transient and unsaved; never hides the slim HUD column.
 	Declutter key.Binding
 
+	// Inspect (ADR 0041 §3 / #346): step the on-demand identity
+	// highlight through everything the orbit map DREW this frame —
+	// vessels, ghosts, bodies, planted nodes, the closest-approach
+	// pair, and their orbit lines. The inspected entity flares with a
+	// name chip; a further press steps on, and the lap ends by wrapping
+	// through "nothing inspected."
+	//
+	// Bound to `j`. It is free in DefaultKeymap and in every
+	// screen-local handler (the screens that use `j` for list
+	// navigation — help, settings, controls, saves, session, VAB —
+	// all return before the global switch, so they never collide), and
+	// it sits in the vim-navigation family this keymap already speaks
+	// on the map: `h`/`l` browse bodies, `j` steps the highlight. Its
+	// shift partner `J` (transfer control of a cross-player stack)
+	// refuses unless you are flying one, so a mis-shift costs nothing —
+	// which is why `c`/`u`/`y` were passed over despite also being
+	// free (`C` plants a burn, `U` undocks, `Y` deploys).
+	Inspect key.Binding
+
+	// InspectCommit (ADR 0041 §3): Enter commits the inspected entity
+	// as Target — the same hover→commit contract the body Cursor has,
+	// generalised past bodies. Deliberately only meaningful WHILE
+	// inspecting (the App gates on OrbitView.Inspecting), so Enter
+	// stays a free key on the orbit screen otherwise. Committing also
+	// leaves Inspect: the question has been answered and acted on.
+	InspectCommit key.Binding
+
 	// BossKey: a single global keypress that swaps the whole screen to a
 	// fake developer shell and back. Backtick is chosen because it is a
 	// fast key right under Esc that the game does not otherwise use; while
@@ -356,6 +383,8 @@ func DefaultKeymap() Keymap {
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
 		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
 		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
+		Inspect:                   key.NewBinding(key.WithKeys("j"), key.WithHelp("j", "inspect: step identity highlight (esc exits)")),
+		InspectCommit:             key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "inspect: commit inspected entity as target")),
 		BossKey:                   key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "")),
 	}
 }

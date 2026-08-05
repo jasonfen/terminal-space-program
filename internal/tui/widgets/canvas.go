@@ -43,6 +43,20 @@ type CellTag struct {
 	BodyID   string
 	NodeIdx  int // 0 = no node; otherwise 1 + Nodes-slice index
 	IsVessel bool
+	// Owner is the Inspect identity key of whatever drew this pixel
+	// (ADR 0041 §3 / #346) — an opaque string minted by the caller, so
+	// the canvas never has to know what a vessel, ghost, body, node or
+	// closest-approach pair IS. It is the field that extends hit-testing
+	// from the three glyph/disk cases above to ORBIT LINES: the class
+	// drawers (lineclass.go) thread a tag through, so every lit pixel of
+	// a trajectory answers "whose line is this?" on a click, which is
+	// exactly the question ADR 0041 diagnosed as unanswerable.
+	//
+	// Deliberately independent of BodyID / NodeIdx / IsVessel rather than
+	// replacing them: those three drive pre-existing click ACTIONS
+	// (focus, open the node form, move the body Cursor) that Inspect does
+	// not change.
+	Owner string
 }
 
 // DefaultBasis is the top-down projection: world X axis maps to
@@ -664,14 +678,21 @@ func (c *Canvas) PlotDenseLineForcedColored(a, b orbital.Vec3, color lipgloss.Co
 // inks solid regardless of `step`, because every segment re-plots its own
 // start pixel. A single point plots as a dot.
 func (c *Canvas) PlotDensePolylineColored(pts []orbital.Vec3, color lipgloss.Color, step int) {
+	c.plotDensePolylineTagged(pts, CellTag{Color: color}, step)
+}
+
+// plotDensePolylineTagged is PlotDensePolylineColored carrying the full
+// CellTag (colour + Inspect Owner) onto every pixel it lights, so a
+// trajectory's pixels answer HitAt the way a body disk or vessel glyph
+// already does (ADR 0041 §3).
+func (c *Canvas) plotDensePolylineTagged(pts []orbital.Vec3, tag CellTag, step int) {
 	if len(pts) == 0 {
 		return
 	}
 	if len(pts) == 1 {
-		c.PlotColored(pts[0], color)
+		c.PlotColoredTagged(pts[0], tag)
 		return
 	}
-	tag := CellTag{Color: color}
 	phase := 0.0
 	ax, ay := c.projectPx(pts[0])
 	for i := 1; i < len(pts); i++ {
@@ -690,14 +711,20 @@ func (c *Canvas) PlotDensePolylineColored(pts []orbital.Vec3, color lipgloss.Col
 // holds across joins instead of restarting (and therefore looking solid)
 // at every sample.
 func (c *Canvas) plotDensePolylineDashedColored(pts []orbital.Vec3, color lipgloss.Color, onPx, offPx int) {
+	c.plotDensePolylineDashedTagged(pts, CellTag{Color: color}, onPx, offPx)
+}
+
+// plotDensePolylineDashedTagged is plotDensePolylineDashedColored carrying
+// the full CellTag (colour + Inspect Owner) — the Planned-class sibling of
+// plotDensePolylineTagged.
+func (c *Canvas) plotDensePolylineDashedTagged(pts []orbital.Vec3, tag CellTag, onPx, offPx int) {
 	if len(pts) == 0 {
 		return
 	}
 	if len(pts) == 1 {
-		c.PlotColored(pts[0], color)
+		c.PlotColoredTagged(pts[0], tag)
 		return
 	}
-	tag := CellTag{Color: color}
 	phase := 0.0
 	ax, ay := c.projectPx(pts[0])
 	for i := 1; i < len(pts); i++ {
@@ -992,6 +1019,7 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 	}
 	bodyCounts := map[string]int{}
 	nodeCounts := map[int]int{}
+	ownerCounts := map[string]int{}
 	vesselCount := 0
 	pxStart, pyStart := col*2, row*4
 	for dx := 0; dx < 2; dx++ {
@@ -1005,6 +1033,9 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 			}
 			if tag.NodeIdx != 0 {
 				nodeCounts[tag.NodeIdx]++
+			}
+			if tag.Owner != "" {
+				ownerCounts[tag.Owner]++
 			}
 			if tag.IsVessel {
 				vesselCount++
@@ -1020,6 +1051,12 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 	}
 	if best, n := mostCommonInt(nodeCounts); n > 0 {
 		hit.NodeIdx = best
+	}
+	// Owner resolves the same most-common-wins way (ADR 0041 §3): a cell
+	// straddling two orbit lines answers with whichever owns more of its
+	// eight pixels, which is also the one the player can see more of.
+	if best, n := mostCommonString(ownerCounts); n > 0 {
+		hit.Owner = best
 	}
 	return hit
 }

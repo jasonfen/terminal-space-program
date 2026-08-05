@@ -121,6 +121,8 @@ Dvorak, and free per-key remapping aren't supported yet.)
 |---|---|
 | `l` | Move the map cursor to the next body. This cursor feeds the body info screen (`i`) and the porkchop plot (`P`) — it does **not** set your travel target. For that, use `t` / `T` |
 | `h` | Move the map cursor to the previous body |
+| `j` | **Inspect** — ask the map what something is. Each press steps a bright highlight onto the next thing drawn (bodies, your vessel, other vessels, other players' ghosts, planned burns, the closest-approach ✕) and names it in a small chip beside it; one more press than there are things clears it again, and `Esc` drops it immediately. Nothing is labelled until you ask, which is why orbit colours are free to mean *targeting* rather than *who owns this*. You can also click any orbit line or marker to jump the highlight straight there |
+| `Enter` | While inspecting: make the highlighted thing your target (the same commit the body cursor does, but it works on vessels and other players too) and clear the highlight. Things that can't be a target — your own vessel, the star, a planned burn, the ✕ — say so instead |
 | `↑` `↓` `←` `→` | Pan the map — slides the view off the tracked center without losing it: the camera keeps following your focus, just displaced. `g` or any refocus snaps it back |
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Also the way back from **spectating** a player's ghost (`v` on the `O` roster) — it returns the camera to your own vessel |
@@ -204,6 +206,7 @@ Click only — no dragging, no scroll-to-zoom.
 | A body | Follow it with the camera (same as cursoring onto it) |
 | A vessel | Follow it with the camera |
 | A planned burn | Open the planner for that burn (its fire time is kept) |
+| An orbit line | **Inspect** it — the line flares and a name chip says whose it is (the same highlight `j` steps through; `Enter` makes it your target, `Esc` clears it). Clicking a body, a vessel or a burn marker inspects it *as well as* doing the thing above. Your **own** orbit line is the exception: clicking it still plants a burn there, since you already know whose line that is |
 | Empty space | Open the planner with a new burn at the nearest point on your orbit |
 | A readout panel | Open body info |
 | A porkchop cell | Move the cursor there (then `Enter` to plan it) |

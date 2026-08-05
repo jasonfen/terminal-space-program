@@ -86,11 +86,22 @@ const (
 // panic, since a caller passing it is a mistake to fix, not a state worth
 // crashing the render loop over).
 func (c *Canvas) DrawEllipseClass(el orbital.Elements, offset orbital.Vec3, minSpans int, class LineClass, bodyPos orbital.Vec3, bodyPxR int, color lipgloss.Color) {
+	c.DrawEllipseClassTagged(el, offset, minSpans, class, bodyPos, bodyPxR, CellTag{Color: color})
+}
+
+// DrawEllipseClassTagged is DrawEllipseClass with the full CellTag —
+// colour PLUS the Inspect Owner key (ADR 0041 §3 / #346) — recorded on
+// every pixel of the curve. This is the natural place to thread line
+// ownership: the class drawers are already the one chokepoint every
+// trajectory call site goes through, so tagging here means a click
+// anywhere on ANY drawn orbit resolves to the entity that owns it, with
+// no per-call-site hit-test code.
+func (c *Canvas) DrawEllipseClassTagged(el orbital.Elements, offset orbital.Vec3, minSpans int, class LineClass, bodyPos orbital.Vec3, bodyPxR int, tag CellTag) {
 	near, far := classRealNearSpacingPx, classRealFarSpacingPx
 	if class == ClassScenery {
 		near, far = classSceneryNearSpacingPx, classSceneryFarSpacingPx
 	}
-	c.drawEllipseAdaptive(el, offset, minSpans, near, far, bodyPos, bodyPxR, color)
+	c.drawEllipseAdaptiveTagged(el, offset, minSpans, near, far, bodyPos, bodyPxR, tag)
 }
 
 // PlotPolylineClass draws a run of world points as one connected curve at
@@ -102,12 +113,20 @@ func (c *Canvas) DrawEllipseClass(el orbital.Elements, offset orbital.Vec3, minS
 // supported — each call restarts its own phase at 0, matching how every
 // current Planned call site already draws one call per connected run).
 func (c *Canvas) PlotPolylineClass(pts []orbital.Vec3, color lipgloss.Color, class LineClass) {
+	c.PlotPolylineClassTagged(pts, CellTag{Color: color}, class)
+}
+
+// PlotPolylineClassTagged is PlotPolylineClass with the full CellTag —
+// colour plus the Inspect Owner key (ADR 0041 §3) — on every lit pixel.
+// The polyline sibling of DrawEllipseClassTagged; see that doc comment
+// for why the class drawers are where line ownership is threaded.
+func (c *Canvas) PlotPolylineClassTagged(pts []orbital.Vec3, tag CellTag, class LineClass) {
 	switch class {
 	case ClassPlanned:
-		c.plotDensePolylineDashedColored(pts, color, classPlannedDashPx, classPlannedGapPx)
+		c.plotDensePolylineDashedTagged(pts, tag, classPlannedDashPx, classPlannedGapPx)
 	case ClassScenery:
-		c.PlotDensePolylineColored(pts, color, classSceneryNearSpacingPx)
+		c.plotDensePolylineTagged(pts, tag, classSceneryNearSpacingPx)
 	default: // ClassReal
-		c.PlotDensePolylineColored(pts, color, classRealNearSpacingPx)
+		c.plotDensePolylineTagged(pts, tag, classRealNearSpacingPx)
 	}
 }

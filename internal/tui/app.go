@@ -497,6 +497,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			hit := a.orbitView.HitAt(m.X, m.Y)
+			// Inspect (ADR 0041 §3): a click on ANY tagged pixel drives
+			// the same highlight the [j] cycle does — glyphs and disks
+			// as before, and now orbit-line pixels too, since the class
+			// drawers carry an owner tag. Applied before the action
+			// switch and unconditionally, so a click both DOES its
+			// existing thing and answers "what is this?".
+			ownerRef, ownerHit := screens.InspectRef{}, false
+			if hit.Owner != "" {
+				ownerRef, ownerHit = a.orbitView.InspectByOwner(hit.Owner)
+			}
+			// A hit on the ACTIVE vessel's own orbit line keeps its
+			// v0.6.4 meaning — click a point on your own trajectory to
+			// stage a burn there — because that is a place, not an
+			// identity question: you already know whose line it is. Any
+			// other line stops the click at identity.
+			ownOrbitLine := ownerHit && ownerRef.Kind == screens.InspectVessel &&
+				a.world.ActiveCraft() != nil && ownerRef.CraftID == a.world.ActiveCraft().ID
 			switch {
 			case hit.IsVessel:
 				if a.world.CraftVisibleHere() {
@@ -517,6 +534,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						break
 					}
 				}
+			case ownerHit && !ownOrbitLine:
+				// Orbit-line (or other owner-tagged) pixel with no
+				// vessel / node / body action of its own: the flare and
+				// the name chip ARE the response. Swallowed here so it
+				// doesn't fall through to the stage-a-burn path below —
+				// clicking someone else's track must not plant anything
+				// on yours.
 			case a.orbitView.IsCanvasClick(m.X, m.Y):
 				// Empty-canvas click → stage a new burn at the
 				// orbit point nearest the click. v0.6.4: the user
@@ -846,6 +870,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Back):
+			// Inspect (ADR 0041 §3) claims Esc first: while a highlight
+			// is up, Esc means "put the map back", not "open the menu".
+			// A player who just asked what something was and got their
+			// answer reaches for Esc to dismiss it — landing in the
+			// save/load modal instead would be a jarring non-sequitur.
+			if a.active == screenOrbit && a.orbitView.Inspecting() {
+				a.orbitView.InspectClear()
+				return a, nil
+			}
 			// v0.7.3.3: Esc on the home (orbit) view opens the
 			// splash menu (save / load / quit). Replaces the
 			// v0.7.3.1 inline "Quit and save? [y/N]" footer prompt
@@ -1210,6 +1243,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The launch screen shares this OrbitView, so it declutters
 			// in step.
 			a.orbitView.SetDeclutter(!a.orbitView.Declutter())
+			return a, nil
+		case key.Matches(m, a.keys.Inspect):
+			// Inspect (ADR 0041 §3 / #346): step the identity highlight
+			// through what the map drew this frame. Orbit screen only —
+			// the highlight is a property of that map, and the set it
+			// steps through is rebuilt by that map's own render.
+			if a.active == screenOrbit {
+				a.orbitView.InspectNext()
+			}
+			return a, nil
+		case key.Matches(m, a.keys.InspectCommit) && a.active == screenOrbit && a.orbitView.Inspecting():
+			// Enter commits the inspected entity as Target — the body
+			// Cursor's hover→commit contract, generalised. Gated on
+			// Inspecting so Enter is otherwise still a free key here.
+			a.commitInspect()
 			return a, nil
 		case key.Matches(m, a.keys.JumpToLaunchView):
 			// v0.11.4+ (ADR 0004): manual jump to ViewLaunch focused
@@ -2255,6 +2303,76 @@ func rendezvousGapNoteSuffix(w *sim.World, ca float64) string {
 		return ""
 	}
 	return " — a burn will be needed to close this"
+}
+
+// commitInspect binds the currently-inspected entity into the Target
+// slot (ADR 0041 §3 / #346) — the same hover→commit contract the body
+// Cursor already had, generalised past bodies to vessels, ghosts and
+// back again.
+//
+// It lives on the App, not the screen: OrbitView reports WHAT is
+// inspected and the App decides what that means, so the screen keeps
+// its no-world-mutation rule and the commit goes through the existing
+// sim setters (SetTargetBody / SetTargetCraft / SetTargetGhost) rather
+// than a second targeting path.
+//
+// Entities the Target slot can't hold — your own vessel, the system
+// primary, a planted node, the closest-approach pair — are a no-op that
+// SAYS so. A silent refusal reads as a broken key, and the whole point
+// of Inspect is that the map answers questions.
+func (a *App) commitInspect() {
+	ref, targetable, ok := a.orbitView.InspectedRef()
+	if !ok {
+		return
+	}
+	name := a.orbitView.InspectedName()
+	if !targetable {
+		a.toast(fmt.Sprintf("%s can't be a target", name))
+		return
+	}
+	switch ref.Kind {
+	case screens.InspectBody:
+		idx := -1
+		for i, b := range a.world.System().Bodies {
+			if b.ID == ref.BodyID {
+				idx = i
+				break
+			}
+		}
+		if idx <= 0 {
+			a.toast(fmt.Sprintf("%s can't be a target", name))
+			return
+		}
+		a.world.SetTargetBody(idx)
+		// Keep the body Cursor in step: committing a body from the map
+		// is the same act as browsing to it with h/l and is consumed by
+		// the same planners (H / I / P read selectedBody), so leaving
+		// the Cursor pointing elsewhere would split one selection into
+		// two disagreeing ones.
+		a.selectedBody = idx
+	case screens.InspectVessel:
+		idx := -1
+		for i, c := range a.world.Crafts {
+			if c != nil && c.ID == ref.CraftID {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 || idx == a.world.ActiveCraftIdx {
+			a.toast(fmt.Sprintf("%s can't be a target", name))
+			return
+		}
+		a.world.SetTargetCraft(idx)
+	case screens.InspectGhost:
+		a.world.SetTargetGhost(ref.Owner, ref.CraftID)
+	default:
+		a.toast(fmt.Sprintf("%s can't be a target", name))
+		return
+	}
+	// Committing ends the question: the highlight comes down and the
+	// TARGET readouts take over as the standing display of the choice.
+	a.orbitView.InspectClear()
+	a.toast(fmt.Sprintf("target: %s", name))
 }
 
 func (a *App) toast(msg string) {
