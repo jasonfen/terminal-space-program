@@ -153,3 +153,38 @@ func TestPanClearsOnViewModeChange(t *testing.T) {
 		t.Errorf("panOffset survived a ViewMode change: %+v, want zero", v.panOffset)
 	}
 }
+
+// TestPanSurvivesResize pins the explicit decision made alongside Zoom
+// Memory (ADR 0042): a bare resize is NOT a refocus, so — mirroring
+// TestZoomMemoryResizeKeepsMultiplier for userZoom — it must leave the pan
+// offset exactly as the player left it. Render's contextChanged guard is
+// false on a resize (SystemIdx/Focus/ViewMode/craftHere are all unchanged;
+// only v.fitted flips because Resize clears it), so the reset lives inside
+// `if contextChanged` alongside the Zoom Memory restore, not in the outer
+// `if contextChanged || !v.fitted` block that also runs on a resize.
+func TestPanSurvivesResize(t *testing.T) {
+	v := newSOIPassTestView()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.ViewMode = sim.ViewTilted
+	w.Focus = sim.Focus{Kind: sim.FocusSystem}
+	v.Render(w, 0, 200, 60)
+
+	v.PanRight()
+	v.PanUp()
+	v.Render(w, 0, 200, 60)
+	want := v.panOffset
+	if want == (orbital.Vec3{}) {
+		t.Fatal("precondition: panOffset should be nonzero after PanRight+PanUp")
+	}
+
+	// Same focus context, different canvas dimensions — a bare resize.
+	v.Resize(320, 90)
+	v.Render(w, 0, 320, 90)
+
+	if v.panOffset != want {
+		t.Errorf("resize cleared or altered the pan offset: got %+v, want kept %+v", v.panOffset, want)
+	}
+}
