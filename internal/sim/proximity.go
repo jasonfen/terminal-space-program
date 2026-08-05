@@ -1,7 +1,11 @@
 package sim
 
 import (
+	"math"
+	"time"
+
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
 // Proximity View (ADR 0043) — the sim half. This file owns three things:
@@ -211,4 +215,165 @@ func (w *World) ProximityHintActive() bool {
 		return false
 	}
 	return w.ProximityAvailable()
+}
+
+// ProximityDockGateReady reports whether the pair sits inside BOTH
+// docking gates right now — exactly checkDocking's own auto-fuse
+// predicate (DockingDistM / DockingVMS), reused rather than
+// re-thresholded so the dock-gate ring's green state and the game's
+// actual "you are about to dock" moment can never drift apart (issue
+// #348 §1: "DOCK READY becomes a place on screen").
+func (w *World) ProximityDockGateReady(st ProximityState) bool {
+	return st.RangeM < DockingDistM && st.VRelMS < DockingVMS
+}
+
+// ProximityDriftHorizonMin / ProximityDriftHorizonMax bound the no-burn
+// drift forecast (issue #348 §1): "a few minutes to tens of minutes" in
+// the issue's own words. The screen picks a horizon inside this band
+// from the current zoom (see orbit_proximity.go's
+// proximityDriftHorizonFor) and hands it to ProximityDriftPath — the sim
+// owns the physics of walking the horizon forward, the screen owns how
+// far ahead is worth looking at the player's current scale.
+const (
+	ProximityDriftHorizonMin = 2 * time.Minute
+	ProximityDriftHorizonMax = 30 * time.Minute
+)
+
+// proximityDriftSamples is the target number of points on the drawn
+// drift curve — plenty for a dashed polyline over a few-minutes-to-tens-
+// of-minutes horizon at docking-relevant relative speeds (impactPathSamples
+// uses 180 for a full 30-minute descent arc that can pass through
+// atmosphere; this curve is always vacuum two-body, so it needs far less
+// density to read smoothly).
+const proximityDriftSamples = 60
+
+// proximityDriftSubStepCap bounds the drift forecast's integrator
+// sub-step, seconds. predictMaxSubStep alone can return up to
+// predictMaxSubStepCap (120 s) for a long-period orbit, which is far
+// coarser than the whole drift horizon can afford to lose to a single
+// step's dt² truncation on the Verlet fallback path (reached only for a
+// non-Kepler-eligible state — an atmosphere-skimming or hyperbolic
+// craft). 5 s keeps a full 30-minute horizon under proximityDriftMaxSubSteps.
+const proximityDriftSubStepCap = 5.0
+
+// proximityDriftMaxSubSteps caps total integrator work per forecast so a
+// degenerate state (tiny period → tiny sub-step) can't stall the render
+// loop — same role as impactMaxSubSteps.
+const proximityDriftMaxSubSteps = 1024
+
+// ProximityDriftPoint is one sample of the no-burn relative-drift
+// forecast: the active vessel's position relative to the target,
+// expressed in the LVLH frame the TARGET'S OWN STATE defines AT THAT
+// FUTURE INSTANT — not today's frame. orbital.LVLHBasis's doc comment
+// explains why the basis has to rotate with the target; a caller that
+// reused today's frame for every future sample would draw a curve that
+// lies (a target-and-chaser pair sitting still relative to each other in
+// the CO-ROTATING frame — e.g. two craft on the same circular orbit at a
+// fixed phase offset — would instead sweep around like an inertial
+// orbit, because the frozen frame keeps rotating relative to the actual
+// physics while the physics itself doesn't).
+//
+// Local follows LVLHFrame.ToFrame's axis order: X = along-track,
+// Y = radial-out, Z = cross-track, all metres.
+type ProximityDriftPoint struct {
+	T     time.Duration
+	Local orbital.Vec3
+}
+
+// ProximityDriftPath forward-propagates BOTH the active vessel and the
+// target — using predictStep, the repo's one propagator, exactly like
+// forwardBallisticPath's established reuse pattern (descent.go) — and
+// differences their states at each sample instant, expressed in the
+// target's LVLH frame resolved fresh at that instant. No CW
+// linearization: this is the exact two-body difference, sampled.
+//
+// The target's own drag coefficient isn't generally available (a ghost
+// target has no Spacecraft at all; even a local craft target's bc is a
+// simplifying stand-in for whatever the OTHER player is actually flying)
+// so it propagates with bc=0 — a reasonable default since proximity ops
+// are, by construction, well clear of any atmosphere dense enough for
+// the choice to matter over a few-to-tens-of-minutes horizon.
+//
+// Both states propagate under the ACTIVE vessel's primary/mu — the same
+// simplification TargetStateRelativeToActivePrimary already makes for
+// every other relative-vector readout this view draws from (range,
+// |v_rel|, closing): Proximity View exists for two craft sharing a
+// neighbourhood, which in practice means sharing a primary.
+//
+// ok is false only for the same degenerate-input cases the rest of this
+// file already refuses (no active craft, no resolvable vessel/ghost
+// target, no defined LVLH frame at the current or a future instant) or a
+// non-positive horizon.
+func (w *World) ProximityDriftPath(horizon time.Duration) ([]ProximityDriftPoint, bool) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return nil, false
+	}
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		return nil, false
+	}
+	frame0, ok := orbital.LVLHBasis(rT, vT)
+	if !ok {
+		return nil, false
+	}
+	primary := c.Primary
+	mu := primary.GravitationalParameter()
+	total := horizon.Seconds()
+	if mu <= 0 || total <= 0 {
+		return nil, false
+	}
+
+	craftState := c.State
+	targetState := physics.StateVector{R: rT, V: vT}
+	craftBC := c.EffectiveBallisticCoefficient()
+	const targetBC = 0.0
+
+	dt := predictMaxSubStep(orbitalPeriod(craftState, mu))
+	if td := predictMaxSubStep(orbitalPeriod(targetState, mu)); td < dt {
+		dt = td
+	}
+	if dt > proximityDriftSubStepCap {
+		dt = proximityDriftSubStepCap
+	}
+	steps := int(math.Ceil(total / dt))
+	if steps < 1 {
+		steps = 1
+	}
+	if steps > proximityDriftMaxSubSteps {
+		steps = proximityDriftMaxSubSteps
+		dt = total / float64(steps)
+	}
+	sampleEvery := steps / proximityDriftSamples
+	if sampleEvery < 1 {
+		sampleEvery = 1
+	}
+
+	points := make([]ProximityDriftPoint, 0, proximityDriftSamples+2)
+	points = append(points, ProximityDriftPoint{Local: frame0.ToFrame(craftState.R.Sub(rT))})
+
+	elapsed := 0.0
+	for i := 0; i < steps; i++ {
+		craftState = predictStep(craftState, mu, dt, primary, craftBC)
+		targetState = predictStep(targetState, mu, dt, primary, targetBC)
+		elapsed += dt
+		if (i+1)%sampleEvery != 0 && i != steps-1 {
+			continue
+		}
+		frame, ok := orbital.LVLHBasis(targetState.R, targetState.V)
+		if !ok {
+			// Degenerate future frame (radial fall / zero speed) — stop
+			// extending the curve rather than draw a bogus point; every
+			// sample taken so far is still valid.
+			break
+		}
+		points = append(points, ProximityDriftPoint{
+			T:     time.Duration(elapsed * float64(time.Second)),
+			Local: frame.ToFrame(craftState.R.Sub(targetState.R)),
+		})
+	}
+	if len(points) < 2 {
+		return nil, false
+	}
+	return points, true
 }
