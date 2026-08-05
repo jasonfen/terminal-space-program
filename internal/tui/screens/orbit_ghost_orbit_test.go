@@ -209,22 +209,54 @@ func TestSubPixelGhostOrbitGated(t *testing.T) {
 		return v.canvas.CountColor(lipgloss.Color(render.ColorDim))
 	}
 
-	// Above the primary's surface (so not occluded) yet well below the pixel
+	// The baseline is the SAME frame with no ghost at all. Stating the two
+	// gated cases as deltas against it is what makes this test bite: a bare
+	// `gated <= N` threshold passed even with the gate deleted from the draw
+	// path, because a sub-6px ellipse is only a couple of cells of ink and
+	// any tolerance loose enough to admit the marker also admitted the whole
+	// tiny ellipse. The marker is exactly one cell, so the contract is
+	// "adds a marker" versus "adds a marker AND a ring", and those are
+	// separable however few cells the ring costs.
+	w.Ghosts = nil
+	baseline := ghostInk()
+
+	// Above the primary's surface (so not occluded) yet just below the pixel
 	// gate → no ellipse, just the marker.
-	tinyR := 2 * bodyR // apoapsis*scale < gate/2 < 6 px
+	//
+	// JUST below, not far below: an orbit at 2× the body radius here
+	// projects to a fraction of a pixel, so drawing its ellipse and
+	// suppressing it produce the same picture and the assertion can't tell
+	// the gate from its absence (it passed with the gate deleted). At 0.9×
+	// the gate radius the ring is ~5 px across — plainly visible ink if it
+	// were drawn — which is where the threshold actually has to hold.
+	tinyR := 0.9 * gateR // apoapsis*scale ≈ 5.4 px, just under the 6 px gate
 	w.Ghosts = []sim.Ghost{circularGhost(w, tinyR)}
-	gated := ghostInk()
-	if gated > 4 {
-		t.Errorf("sub-pixel ghost orbit inked %d cells — gate not applied (marker only expected)", gated)
+	gated := ghostInk() - baseline
+	if gated > markerOnlyCells {
+		t.Errorf("sub-pixel ghost added %d cells over the ghost-free frame — gate not applied (marker only, ≤%d, expected)",
+			gated, markerOnlyCells)
 	}
 
 	// Same ghost, orbit comfortably above the gate → ellipse appears.
 	bigR := 4 * gateR // apoapsis*scale ≈ 24 px
 	w.Ghosts = []sim.Ghost{circularGhost(w, bigR)}
-	if shown := ghostInk(); shown < 15 {
-		t.Errorf("above-gate ghost orbit inked only %d cells — gate mis-firing", shown)
+	shown := ghostInk() - baseline
+	if shown < 15 {
+		t.Errorf("above-gate ghost added only %d cells — gate mis-firing", shown)
+	}
+	// And the two cases must be distinguishable at all: if the gate were
+	// removed, `gated` would grow toward `shown` and this ordering is what
+	// notices.
+	if gated >= shown {
+		t.Errorf("gated ghost (%d cells) inked as much as the above-gate one (%d) — the gate is doing nothing",
+			gated, shown)
 	}
 }
+
+// markerOnlyCells is the ink a gated ghost is allowed: its own position
+// marker. One cell, plus one of slack for the case where the marker's
+// braille pixel straddles a cell boundary with the backdrop.
+const markerOnlyCells = 2
 
 // Targeting a ghost promotes its ellipse to the TARGET treatment. Pre-ADR
 // 0041 this was denser sampling (stride 3 vs 5); under the LineClass

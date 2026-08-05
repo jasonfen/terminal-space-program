@@ -144,12 +144,28 @@ func (w *World) ToggleProximityView() (entered bool, refusal string) {
 			// Defensive: never toggle out of Proximity into Proximity.
 			back = ViewTilted
 		}
+		if back == ViewLaunch && !w.LaunchSessionActive {
+			// The chase-cam we jumped from has since been released (an
+			// active-vessel switch onto a flying vessel, or a `v` cycle out
+			// of the stack). Restoring ViewLaunch anyway would drop the
+			// player into a scene with no session behind it — T+ frozen at
+			// zero, no trail, no max-Q — which reads as a broken view
+			// rather than a return. Fall through to the map underneath it.
+			back = w.baseProjection(ViewLaunch)
+		}
 		w.ViewMode = back
 		return false, ""
 	}
 	if reason := w.ProximityRefusal(); reason != "" {
 		return false, reason
 	}
+	// The return address may legitimately be ViewLaunch — the two jump keys
+	// are documented to stack. What keeps that from becoming the mutual
+	// capture issue #348's review found is the mirror-image invariant on
+	// the other side: routeToLaunchView never records a SCENE in
+	// PrevViewMode, only the projection underneath it (see its doc
+	// comment), so this chain is always at most one hop deep and always
+	// bottoms out on the map.
 	w.ProxReturnView = w.ViewMode
 	w.ViewMode = ViewProximity
 	// Entering answers the hint, so it stops asking until the pair

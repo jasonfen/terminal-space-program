@@ -254,12 +254,23 @@ type OrbitView struct {
 	// inspectable" true by construction instead of by a parallel
 	// visibility test that could drift from the renderer.
 	//
+	// drawnOwners is the wider index behind the same identities: every
+	// entity that INKED this frame, keyed by InspectRef.OwnerKey, whether
+	// or not its own marker landed on the canvas. It is deliberately a
+	// superset of inspectables — an entity can be off-canvas while a long
+	// arc of its orbit crosses the view, and a click on that arc still has
+	// to answer "whose line is this?" (and still has to NOT fall through to
+	// stage-a-burn). The `[j]` cycle keeps using the narrower on-canvas set,
+	// because a cycle stop with nothing visible to flare would be a dead
+	// press.
+	//
 	// inspectRef is the entity currently flaring, held ACROSS frames by
 	// identity (not by index into the slice above) so the highlight
 	// stays on the same vessel while the map redraws and the vessel
 	// moves. Transient screen state: cleared at every Framing Event,
 	// never persisted, never mirrored into the world.
 	inspectables []inspectable
+	drawnOwners  map[string]inspectable
 	inspectRef   InspectRef
 }
 
@@ -500,6 +511,16 @@ func (v *OrbitView) pan(dx, dy int) {
 // before the canvas content, so we offset (col-1, row-2). Returns a
 // zero-value CellTag when the click lands outside the canvas
 // content area, which the caller treats as "no hit." v0.6.4+.
+// OnCanvas reports whether a world point projects inside the canvas at
+// the frame's current camera — the same question every inspectable draw
+// site asks before making an entity a `[j]` cycle stop. Exported so the
+// App layer can distinguish "the entity is in frame" from "only its orbit
+// line is", which are different click contracts (see InspectByOwner).
+func (v *OrbitView) OnCanvas(p orbital.Vec3) bool {
+	_, _, ok := v.canvas.Project(p)
+	return ok
+}
+
 func (v *OrbitView) HitAt(screenCol, screenRow int) widgets.CellTag {
 	return v.canvas.HitAt(screenCol-1, screenRow-2)
 }
@@ -724,6 +745,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		bodyRef := InspectRef{Kind: InspectBody, BodyID: b.ID}
 		v.canvas.DrawEllipseClassTagged(el, orbital.Vec3{}, 360, widgets.ClassScenery, orbital.Vec3{}, 0,
 			widgets.CellTag{Color: v.inspectLineColor(bodyRef, render.ColorBodyOrbit), Owner: bodyRef.OwnerKey()})
+		// The track is now tagged, so it can be clicked even when the body
+		// itself is off-canvas — register the owner here, separately from
+		// the cycle stop the disk adds below when it IS on-canvas.
+		v.registerDrawnOwner(bodyRef, inspectBodyName(b.EnglishName), w.BodyPosition(b), i > 0)
 	}
 
 	// Plot each body at its perceived-size disk. System primary (index 0)
@@ -1053,6 +1078,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				}
 				v.canvas.DrawEllipseClassTagged(el, gPrimaryPos, 180, widgets.ClassReal, gPrimaryPos, gPxR,
 					widgets.CellTag{Color: v.inspectLineColor(ghostRef, orbitColor), Owner: ghostRef.OwnerKey()})
+				// Owner-only registration: a click on this track resolves
+				// to the ghost even when the ghost itself is off-canvas.
+				v.registerDrawnOwner(ghostRef, inspectGhostName(g.Handle, g.Name), g.Pos, true)
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
 					// ghost's own apsides, dimmed via MarkerCounterfactual
@@ -1132,6 +1160,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// hand-built one.
 			if _, _, onCanvas := v.canvas.Project(craftInertial); onCanvas {
 				v.addInspectable(activeRef, c.Name, craftInertial, false)
+			} else if orbitVisible {
+				// Zoomed in on a stretch of your own track with the vessel
+				// itself off-frame: the line is still yours, and the App
+				// reads that to keep click-to-stage-a-burn working there.
+				v.registerDrawnOwner(activeRef, c.Name, craftInertial, false)
 			}
 		}
 		// v0.8.3+: engine-firing flame trail behind the active craft
@@ -1225,6 +1258,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			if other.ID != 0 {
 				if _, _, onCanvas := v.canvas.Project(otherInertial); onCanvas {
 					v.addInspectable(otherRef, other.Name, otherInertial, true)
+				} else if otherOrbitVisible {
+					// The vessel is off-frame but its track crosses the view.
+					// Owner-only, so `[j]` doesn't stop on something invisible
+					// — but a click on that track still names it, and still
+					// doesn't plant a burn on YOUR orbit.
+					v.registerDrawnOwner(otherRef, other.Name, otherInertial, true)
 				}
 			}
 			otherColor = v.inspectLineColor(otherRef, otherColor)

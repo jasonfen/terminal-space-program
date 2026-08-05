@@ -363,12 +363,41 @@ const descentRateFloorMps = 0.1
 // DescentCorridor is the surface view's descent instrument block:
 // altitude, descent rate, time to impact, and the burn margin, plus the
 // impact forecast the arc and the ground marker are drawn from.
+//
+// HorizontalRateMps / FlightPathAngleDeg are the two readings the older
+// airless-body DESCENT chip carried that the corridor's own four numbers
+// don't imply. They live here so the surface view can show ONE block
+// during a descent instead of two that disagree about sign conventions —
+// the corridor says `descent: 40 m/s` where DESCENT said `v_vert: -40.0
+// m/s`, and having both on screen at once was the duplication this
+// resolves. The chip's other two rows are genuinely redundant and did not
+// come along: `twr` asks "can I stop", which Margin answers better
+// (it accounts for the altitude and speed a bare thrust-to-weight can't),
+// and `sas` is the ATTITUDE chip's own row.
 type DescentCorridor struct {
 	AltitudeM      float64
 	DescentRateMps float64 // surface-relative, positive = falling
-	Impact         ImpactPrediction
-	Margin         BurnMargin
+	// HorizontalRateMps is the surface-relative speed ACROSS the ground —
+	// the component the descent rate says nothing about, and the one that
+	// decides a touchdown from a smear when the vertical rate is already
+	// nulled.
+	HorizontalRateMps float64
+	// FlightPathAngleDeg is the surface-relative velocity's angle out of
+	// the local horizontal: 0 = flying level, −90 = straight down.
+	// HasFPA is false below the speed floor where the angle is numerical
+	// dust rather than a heading.
+	FlightPathAngleDeg float64
+	HasFPA             bool
+	Impact             ImpactPrediction
+	Margin             BurnMargin
 }
+
+// fpaSpeedFloorMps is the surface-relative speed below which the flight
+// path angle stops meaning anything — at a metre per second of total
+// motion the ratio of two near-zero components is noise, not a heading.
+// Carried over verbatim from the DESCENT chip's own threshold so the
+// folded rows read identically to the ones they replace.
+const fpaSpeedFloorMps = 1.0
 
 // DescentCorridorFor builds the corridor for a craft, or reports
 // ok=false when the craft isn't in a descent worth instrumenting. The
@@ -379,22 +408,8 @@ type DescentCorridor struct {
 // toward periapsis, but never reaching the surface), with no separate
 // phase predicate to drift out of step with the picture on the canvas.
 func DescentCorridorFor(c *spacecraft.Spacecraft, horizon time.Duration) (DescentCorridor, bool) {
-	if c == nil || c.Landed || c.Crashed {
-		return DescentCorridor{}, false
-	}
-	mu := c.Primary.GravitationalParameter()
-	if mu <= 0 || c.Primary.RadiusMeters() <= 0 {
-		return DescentCorridor{}, false
-	}
-	rNorm := c.State.R.Norm()
-	alt := c.Altitude()
-	if rNorm <= 0 || alt <= 0 {
-		return DescentCorridor{}, false
-	}
-	rHat := c.State.R.Scale(1 / rNorm)
-	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
-	descentRate := -vRel.Dot(rHat)
-	if !(descentRate >= descentRateFloorMps) {
+	k, ok := descentKinematics(c)
+	if !ok {
 		return DescentCorridor{}, false
 	}
 	impact, ok := PredictImpact(c, horizon)
@@ -402,16 +417,69 @@ func DescentCorridorFor(c *spacecraft.Spacecraft, horizon time.Duration) (Descen
 		return DescentCorridor{}, false
 	}
 	return DescentCorridor{
-		AltitudeM:      alt,
-		DescentRateMps: descentRate,
-		Impact:         impact,
+		AltitudeM:          k.altM,
+		DescentRateMps:     k.descentRate,
+		HorizontalRateMps:  k.horizRate,
+		FlightPathAngleDeg: k.fpaDeg,
+		HasFPA:             k.hasFPA,
+		Impact:             impact,
 		Margin: ComputeBurnMargin(
 			c.Thrust,
 			c.TotalMass(),
-			mu/(rNorm*rNorm),
-			descentRate,
-			alt,
+			k.gLocal,
+			k.descentRate,
+			k.altM,
 			c.RemainingDeltaV(),
 		),
 	}, true
+}
+
+// descentKinematics is DescentCorridorFor's CHEAP half: everything
+// derivable from the craft's current state alone, with no forward
+// propagation. Split out so callers that only need "is this thing
+// falling?" — the DESCENDING hint's crossing state machine — can ask
+// without paying for an impact forecast they'd throw away. ok=false on
+// exactly the states DescentCorridorFor has always refused before it
+// reaches PredictImpact.
+type descentKinematicsResult struct {
+	altM        float64
+	descentRate float64
+	horizRate   float64
+	fpaDeg      float64
+	hasFPA      bool
+	gLocal      float64
+}
+
+func descentKinematics(c *spacecraft.Spacecraft) (descentKinematicsResult, bool) {
+	if c == nil || c.Landed || c.Crashed {
+		return descentKinematicsResult{}, false
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu <= 0 || c.Primary.RadiusMeters() <= 0 {
+		return descentKinematicsResult{}, false
+	}
+	rNorm := c.State.R.Norm()
+	alt := c.Altitude()
+	if rNorm <= 0 || alt <= 0 {
+		return descentKinematicsResult{}, false
+	}
+	rHat := c.State.R.Scale(1 / rNorm)
+	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	vVert := vRel.Dot(rHat)
+	descentRate := -vVert
+	if !(descentRate >= descentRateFloorMps) {
+		return descentKinematicsResult{}, false
+	}
+	horiz := vRel.Sub(rHat.Scale(vVert)).Norm()
+	res := descentKinematicsResult{
+		altM:        alt,
+		descentRate: descentRate,
+		horizRate:   horiz,
+		gLocal:      mu / (rNorm * rNorm),
+	}
+	if vRel.Norm() > fpaSpeedFloorMps {
+		res.fpaDeg = math.Atan2(vVert, horiz) * 180 / math.Pi
+		res.hasFPA = true
+	}
+	return res, true
 }
