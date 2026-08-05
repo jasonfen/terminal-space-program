@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -337,5 +338,192 @@ func TestProximityHintAbsentFarAway(t *testing.T) {
 	w.Tick()
 	if out := v.Render(w, 0, 80, 24); strings.Contains(out, "CLOSE RANGE") {
 		t.Errorf("hint chip at 500 km\n%s", out)
+	}
+}
+
+// --- Cue slice tests (issue #348 §1) ---
+
+// TestProximityRangeRingsVisibleByZoom pins drawProximityRangeRings'
+// "only draw what fits at the current zoom" rule directly against
+// proximityRingVisible, the O(1) gate every ring call goes through
+// before the O(segments) polyline walk. At a 20 km separation, the
+// entry fit frames roughly 45 km — comfortably wide enough for the
+// 10 km ring to clear proximityRingMinPixels, but the 1 km and 100 m
+// rings project to under a pixel and must be skipped rather than drawn
+// as noise.
+func TestProximityRangeRingsVisibleByZoom(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 20_000})
+	v := newProximityTestView(t, 80, 24)
+	w.ViewMode = sim.ViewProximity
+	v.Render(w, 0, 80, 24)
+
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused")
+	}
+	if !v.proximityRingVisible(st, 10_000) {
+		t.Error("10 km ring not visible at a 20 km separation — should clear the pixel floor")
+	}
+	if v.proximityRingVisible(st, 1_000) {
+		t.Error("1 km ring visible at a 20 km separation — should be sub-pixel and skipped")
+	}
+	if v.proximityRingVisible(st, 100) {
+		t.Error("100 m ring visible at a 20 km separation — should be sub-pixel and skipped")
+	}
+}
+
+// TestProximityRangeRingsSkippedWhenEngulfed is the other half of "only
+// draw what fits at the current zoom": once the view is fitted tight
+// enough (a ~10 m separation, so the fit floor takes over), the 10 km
+// and 1 km rings are so much larger than the framed view that the whole
+// canvas sits deep inside them — the circle itself never crosses a
+// single pixel, which the naive "is the bounding box on screen" check
+// would miss (a huge ring's bounding box always overlaps a small
+// canvas). The 50 m dock gate, by contrast, is close enough to the fit
+// radius to still cross the canvas and must stay visible.
+func TestProximityRangeRingsSkippedWhenEngulfed(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 10})
+	v := newProximityTestView(t, 80, 24)
+	w.ViewMode = sim.ViewProximity
+	v.Render(w, 0, 80, 24)
+
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused")
+	}
+	if v.proximityRingVisible(st, 10_000) {
+		t.Error("10 km ring reported visible at a 10 m separation — the canvas is entirely inside it")
+	}
+	if v.proximityRingVisible(st, 1_000) {
+		t.Error("1 km ring reported visible at a 10 m separation — the canvas is entirely inside it")
+	}
+	if !v.proximityRingVisible(st, sim.DockingDistM) {
+		t.Error("50 m dock gate not visible at a 10 m separation — it should still cross the framed view")
+	}
+}
+
+// TestProximityDockGateColorReady: the gate ring renders ColorTarget
+// green exactly when the pair is inside BOTH DockingDistM and
+// DockingVMS — the same predicate table TestProximityDockGateReady
+// exercises at the sim layer, here confirmed to actually reach the
+// canvas in the right colour. Compared as a DELTA rather than an
+// absolute count, because the target vessel's own glyph is always drawn
+// ColorTarget (drawProximityVessels) regardless of gate state — the
+// ready scene must show MORE ColorTarget cells than the not-ready scene
+// (the gate ring's own ~dozens of dotted cells switching from dim to
+// green), not merely "some."
+func TestProximityDockGateColorReady(t *testing.T) {
+	readyW := proximityWorld(t, orbital.Vec3{X: 30}) // inside DockingDistM, matched v (v_rel = 0)
+	readyV := newProximityTestView(t, 80, 24)
+	readyW.ViewMode = sim.ViewProximity
+	readyV.Render(readyW, 0, 80, 24)
+	readySt, ok := readyW.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused (ready case)")
+	}
+	if !readyW.ProximityDockGateReady(readySt) {
+		t.Fatal("precondition: ready case is not actually ready")
+	}
+
+	notReadyW := proximityWorld(t, orbital.Vec3{X: 100}) // outside DockingDistM, matched v
+	notReadyV := newProximityTestView(t, 80, 24)
+	notReadyW.ViewMode = sim.ViewProximity
+	notReadyV.Render(notReadyW, 0, 80, 24)
+	notReadySt, ok := notReadyW.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused (not-ready case)")
+	}
+	if notReadyW.ProximityDockGateReady(notReadySt) {
+		t.Fatal("precondition: not-ready case is actually ready")
+	}
+	if !readyV.proximityRingVisible(readySt, sim.DockingDistM) {
+		t.Fatal("precondition: gate ring not visible in the ready scene")
+	}
+	if !notReadyV.proximityRingVisible(notReadySt, sim.DockingDistM) {
+		t.Fatal("precondition: gate ring not visible in the not-ready scene")
+	}
+
+	readyGreen := readyV.canvas.CountColor(render.ColorTarget)
+	notReadyGreen := notReadyV.canvas.CountColor(render.ColorTarget)
+	if readyGreen <= notReadyGreen {
+		t.Errorf("ColorTarget cells: ready=%d, not-ready=%d — the gate ring should add green cells the not-ready scene doesn't have", readyGreen, notReadyGreen)
+	}
+}
+
+// TestProximityDriftPathDrawsPlannedClass: the drift path reaches the
+// canvas as ClassPlanned (dashed) ink in render.ColorPlannedNode — the
+// end-to-end wiring check that drawProximityDriftPath actually calls
+// sim.ProximityDriftPath and plots what comes back, not just that the
+// sim math is right (already covered at the sim layer).
+func TestProximityDriftPathDrawsPlannedClass(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 2_000})
+	v := newProximityTestView(t, 80, 24)
+	w.ViewMode = sim.ViewProximity
+	v.Render(w, 0, 80, 24)
+
+	if n := v.canvas.CountColor(render.ColorPlannedNode); n == 0 {
+		t.Error("no ColorPlannedNode ink found on canvas — drift path did not draw")
+	}
+}
+
+// TestProximityVelocityVectorOrientation checks
+// proximityVelocityVectorEndpoint — the pure direction math behind the
+// v_rel stub — for a known relative velocity: purely along the target's
+// +AlongTrack, the endpoint must decompose to a POSITIVE along-track
+// offset from the craft (the +V-bar side), zero radial.
+func TestProximityVelocityVectorOrientation(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 800})
+	// Own vessel closes along the target's +AlongTrack direction — set
+	// directly via the same LVLH frame the scene resolves, so the
+	// expectation is stated in the frame's own vocabulary.
+	active := w.ActiveCraft()
+	tc := w.Crafts[1]
+	frame, ok := orbital.LVLHBasis(tc.State.R, tc.State.V)
+	if !ok {
+		t.Fatal("precondition: no LVLH frame")
+	}
+	active.State.V = tc.State.V.Add(frame.AlongTrack.Scale(3))
+
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused")
+	}
+	if st.RelVel.Norm() == 0 {
+		t.Fatal("precondition: RelVel is zero")
+	}
+
+	const scale = 0.01 // pixels-per-metre; only the DIRECTION is under test
+	end, ok := proximityVelocityVectorEndpoint(st, scale)
+	if !ok {
+		t.Fatal("proximityVelocityVectorEndpoint refused a nonzero RelVel")
+	}
+	local := st.Frame.ToFrame(end.Sub(st.CraftWorld))
+	if local.X <= 0 {
+		t.Errorf("along-track = %g, want > 0 (stub should point toward +V-bar)", local.X)
+	}
+	if math.Abs(local.Y) > 1e-6 {
+		t.Errorf("radial = %g, want ~0 (relative velocity is pure along-track)", local.Y)
+	}
+}
+
+// TestProximityCuesRenderAt80x24 re-runs the core's layout smoke test
+// (TestProximityRendersAt80x24) at a range that actually exercises every
+// cue this slice adds — rings, dock gate, drift path, v_rel stub — so a
+// cue that overruns a row or corrupts the frame at the minimum supported
+// terminal size fails here rather than shipping unnoticed.
+func TestProximityCuesRenderAt80x24(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 5_000})
+	v := newProximityTestView(t, 80, 24)
+	w.ViewMode = sim.ViewProximity
+	out := v.Render(w, 0, 80, 24)
+
+	lines := strings.Split(out, "\n")
+	if len(lines) != 24 {
+		t.Fatalf("rendered %d rows, want 24", len(lines))
+	}
+	for i, l := range lines[1:] {
+		if width := lipgloss.Width(l); width > 80 {
+			t.Errorf("row %d is %d cols wide, want ≤ 80", i+1, width)
+		}
 	}
 }

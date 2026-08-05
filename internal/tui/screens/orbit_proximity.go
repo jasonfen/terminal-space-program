@@ -2,6 +2,8 @@ package screens
 
 import (
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -119,7 +121,11 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 		// does on the map — the centre keeps tracking, just offset.
 		v.canvas.Center(st.TargetWorld.Add(v.panOffset))
 		v.drawProximityAxes(w, st)
+		v.drawProximityRangeRings(w, st)
+		v.drawProximityDockGate(w, st)
+		v.drawProximityDriftPath(w, st)
 		v.drawProximityVessels(w, st)
+		v.drawProximityVelocityVector(st)
 	}
 	// The no-target case draws nothing on the canvas on purpose: the
 	// explanation and both ways out ride the PROXIMITY chip, which paints
@@ -223,6 +229,263 @@ func proximityPrimaryName(w *sim.World) string {
 		return c.Primary.EnglishName
 	}
 	return "primary"
+}
+
+// Cue slice (issue #348 §1, follow-up to the Proximity View core in PR
+// #357): the drift path, range rings, dock gate, and v_rel vector stub.
+// Hull sprites at true scale are the slice after this one.
+
+// proximityDriftHorizonFloorMps floors the relative speed
+// proximityDriftHorizonFor divides by. A pair sitting almost exactly
+// matched in velocity (the stable end-state of a good approach) would
+// otherwise make "time to cross the framed radius" blow up toward +Inf;
+// the floor just means that case takes the horizon ceiling instead of a
+// division that has to be special-cased.
+const proximityDriftHorizonFloorMps = 0.01
+
+// proximityDriftHorizonFor picks how far ahead the no-burn drift path
+// looks: enough time, at the CURRENT |v_rel|, to cross roughly the
+// radius the Framing Event fitted — so a tight zoom (close range, small
+// frame) gets a proportionally short forecast and a wide one gets a
+// longer one, instead of a fixed window that either vanishes into a dot
+// at wide zoom or rockets off-canvas at close range. Clamped to
+// [ProximityDriftHorizonMin, ProximityDriftHorizonMax] (issue #348 §1's
+// own words: "a few minutes to tens of minutes"). Stated here, not
+// re-derived per call site, so the PR has exactly one place to point at
+// for "why this horizon."
+func proximityDriftHorizonFor(v *OrbitView, st sim.ProximityState) time.Duration {
+	scale := v.canvas.Scale()
+	if scale <= 0 {
+		return sim.ProximityDriftHorizonMin
+	}
+	halfSpanPx := float64(v.canvas.Cols() * 2)
+	if h := float64(v.canvas.Rows() * 4); h < halfSpanPx {
+		halfSpanPx = h
+	}
+	halfSpanPx /= 2
+	halfSpanM := halfSpanPx / scale
+
+	speed := st.VRelMS
+	if speed < proximityDriftHorizonFloorMps {
+		speed = proximityDriftHorizonFloorMps
+	}
+	horizon := time.Duration(halfSpanM / speed * float64(time.Second))
+	if horizon < sim.ProximityDriftHorizonMin {
+		return sim.ProximityDriftHorizonMin
+	}
+	if horizon > sim.ProximityDriftHorizonMax {
+		return sim.ProximityDriftHorizonMax
+	}
+	return horizon
+}
+
+// drawProximityDriftPath draws the no-burn forecast: where the active
+// vessel drifts relative to the target over the next few minutes if
+// nobody touches the throttle. ClassPlanned (dashed) — a plan, not a
+// live orbit (ADR 0041 §2), the same vocabulary the ascent/descent arcs
+// use for "what happens if flight continues exactly as it is now."
+//
+// sim.ProximityDriftPath hands back LVLH-LOCAL coordinates, each
+// resolved in the TARGET's frame at that future instant (see its doc
+// comment for why that matters). Re-anchoring every point at TODAY's
+// target position using TODAY's frame axes is what turns "a series of
+// co-rotating-frame offsets" into a single curve on the canvas Camera
+// Contract holds fixed for this render — it's the same picture a pilot
+// re-entering this view at each future instant would see, drawn as one
+// continuous line from where they are now.
+func (v *OrbitView) drawProximityDriftPath(w *sim.World, st sim.ProximityState) {
+	horizon := proximityDriftHorizonFor(v, st)
+	samples, ok := w.ProximityDriftPath(horizon)
+	if !ok || len(samples) < 2 {
+		return
+	}
+	pts := make([]orbital.Vec3, len(samples))
+	for i, s := range samples {
+		pts[i] = st.TargetWorld.
+			Add(st.Frame.AlongTrack.Scale(s.Local.X)).
+			Add(st.Frame.RadialOut.Scale(s.Local.Y)).
+			Add(st.Frame.CrossTrack.Scale(s.Local.Z))
+	}
+	v.canvas.PlotPolylineClass(pts, render.ColorPlannedNode, widgets.ClassPlanned)
+}
+
+// proximityRingRadii are the log-spaced range rings issue #348 §1 asks
+// for: 10 km, 1 km, 100 m — a coarse decade ladder a pilot can eyeball
+// distance against without reading the range chip. The 50 m dock gate
+// (sim.DockingDistM) is drawn separately by drawProximityDockGate: it
+// isn't a fourth entry here because its colour is gated on |v_rel| too,
+// not radius alone.
+var proximityRingRadii = []float64{10_000, 1_000, 100}
+
+// proximityRingSegments is how many straight edges approximate each
+// ring. The braille canvas's own pixel grid (cols*2 × rows*4) is coarse
+// enough at any terminal size this game actually supports that this many
+// segments is indistinguishable from a true circle — unlike
+// DrawEllipseClass's adaptive flattening, this never needs to scale with
+// projected radius because a range ring is always a perfect circle in
+// the LVLH plane, never foreshortened by a tilted orbit.
+const proximityRingSegments = 96
+
+// proximityRingMinPixels is the same floor drawSOIRing already uses
+// (soiRingMinPixels, internal/tui/screens/orbit.go): below this a ring's
+// outline degenerates into scattered noise rather than a readable
+// circle, so it's skipped entirely rather than drawn wrong.
+const proximityRingMinPixels = 4
+
+// proximityRingPoints samples a closed circle of radiusM around center,
+// in the plane spanned by e1/e2 (both unit length, mutually orthogonal)
+// — the raw material PlotPolylineClass turns into a dotted or dashed
+// ring via its own arc-length-stable dash machinery. Closed by repeating
+// the first point.
+func proximityRingPoints(center, e1, e2 orbital.Vec3, radiusM float64) []orbital.Vec3 {
+	pts := make([]orbital.Vec3, 0, proximityRingSegments+1)
+	for i := 0; i <= proximityRingSegments; i++ {
+		theta := 2 * math.Pi * float64(i) / float64(proximityRingSegments)
+		pts = append(pts, center.
+			Add(e1.Scale(radiusM*math.Cos(theta))).
+			Add(e2.Scale(radiusM*math.Sin(theta))))
+	}
+	return pts
+}
+
+// proximityRingVisible reports whether a ring of radiusM around
+// st.TargetWorld would show at least a readable arc on the current
+// canvas: O(1) on the projected radius against the viewport rectangle,
+// so a ring far outside the current zoom never reaches the O(segments)
+// polyline walk at all (the same budget-before-you-draw discipline
+// drawSOIRing already uses for the SOI Ring).
+//
+// A ring is visible exactly when its CIRCUMFERENCE crosses the canvas
+// rectangle — not merely when its bounding box overlaps it, which would
+// wrongly call a ring "visible" when it has zoomed in so far past the
+// canvas that the whole screen sits deep inside it and the drawn line
+// never comes near a single pixel (the log rings are exactly the case
+// this matters for: at close range the 10 km/1 km rings dwarf the framed
+// view). The standard circle-vs-rectangle test: the circle crosses the
+// rect iff the rect's NEAREST point to the centre is inside-or-on the
+// circle and its FARTHEST point (always a corner) is outside-or-on it.
+func (v *OrbitView) proximityRingVisible(st sim.ProximityState, radiusM float64) bool {
+	scale := v.canvas.Scale()
+	if scale <= 0 {
+		return false
+	}
+	pxR := radiusM * scale
+	if pxR < proximityRingMinPixels {
+		return false
+	}
+	cx, cy, _ := v.canvas.Project(st.TargetWorld)
+	fcx, fcy := float64(cx), float64(cy)
+	pxW, pxH := float64(v.canvas.Cols()*2), float64(v.canvas.Rows()*4)
+
+	nearX := math.Max(0, math.Min(fcx, pxW))
+	nearY := math.Max(0, math.Min(fcy, pxH))
+	if math.Hypot(nearX-fcx, nearY-fcy) > pxR {
+		return false // the whole canvas lies outside the ring
+	}
+	farX := math.Max(fcx, pxW-fcx)
+	farY := math.Max(fcy, pxH-fcy)
+	if math.Hypot(farX, farY) < pxR {
+		return false // the whole canvas lies inside the ring; the line never crosses it
+	}
+	return true
+}
+
+// drawProximityRangeRings draws the log-spaced range rings around the
+// target, skipping any ring that doesn't clear proximityRingMinPixels or
+// falls entirely outside the canvas at the current zoom. ClassScenery
+// (dotted, faint) — backdrop distance cues, never the thing being flown.
+// Each ring carries a narrow label at its +V-bar crossing so the faint
+// ink still reads as a specific distance rather than an unlabeled
+// decoration; on-canvas gated the same way the axis end labels are.
+func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState) {
+	dim := v.theme.Dim.GetForeground()
+	for _, r := range proximityRingRadii {
+		if !v.proximityRingVisible(st, r) {
+			continue
+		}
+		pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, r)
+		v.canvas.PlotPolylineClass(pts, render.ColorDim, widgets.ClassScenery)
+		labelPt := st.TargetWorld.Add(st.Frame.AlongTrack.Scale(r))
+		if col, row, onCanvas := v.canvasCell(labelPt); onCanvas {
+			v.canvas.SetCellLabelColored(col, row, formatRangeM(r), dim)
+		}
+	}
+}
+
+// drawProximityDockGate draws the 50 m dock-gate ring (sim.DockingDistM)
+// — the one ring whose COLOR carries state rather than just its
+// presence: dim while outside either gate, ColorTarget green exactly
+// when the pair sits inside BOTH DockingDistM and DockingVMS
+// (sim.ProximityDockGateReady — the same predicate checkDocking's
+// auto-fuse uses, so the ring's green threshold and the game's actual
+// "you are about to dock" threshold can never drift apart). This is
+// issue #348 §1's "DOCK READY becomes a place on screen."
+//
+// No separate DOCK READY text callout is added alongside it: the ready
+// state is inherently momentary (checkDocking auto-fuses the pair the
+// very next tick it holds true), so a chip would flicker on and off
+// faster than a player could read it — exactly the failure the hint
+// chip's hysteresis band exists to prevent elsewhere in this file. A
+// ring doesn't need that guard because it's a place, not a popup: it's
+// already there, faint, before the moment arrives, and it simply changes
+// colour when the moment does.
+func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
+	const gateRadius = sim.DockingDistM
+	if !v.proximityRingVisible(st, gateRadius) {
+		return
+	}
+	color := render.ColorDim
+	if w.ProximityDockGateReady(st) {
+		color = render.ColorTarget
+	}
+	pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, gateRadius)
+	v.canvas.PlotPolylineClass(pts, color, widgets.ClassScenery)
+}
+
+// proximityVelocityStubPx is the v_rel vector stub's length in canvas
+// sub-pixels — the same order of magnitude as the ascent view's
+// nose/prograde stubs (ascentMarkerStubPx), long enough to read a
+// direction at a glance without swamping the vessel glyph it's anchored
+// to.
+const proximityVelocityStubPx = 8.0
+
+// proximityVelocityVectorEndpoint computes the world point the v_rel stub
+// reaches from st.CraftWorld: the active vessel's velocity relative to
+// the target (st.RelVel, world axes), unit-scaled to
+// proximityVelocityStubPx worth of canvas pixels at the given
+// pixels-per-metre scale. Split out from drawProximityVelocityVector as
+// a pure function so the DIRECTION math — the part issue #348 §1's third
+// cue is actually about — can be checked by a test without inspecting
+// canvas pixels. ok is false for the two cases nothing sensible can be
+// drawn: no relative motion (RelVel = 0, nothing to point at) or a
+// non-positive scale.
+func proximityVelocityVectorEndpoint(st sim.ProximityState, scale float64) (orbital.Vec3, bool) {
+	n := st.RelVel.Norm()
+	if n == 0 || scale <= 0 {
+		return orbital.Vec3{}, false
+	}
+	dir := st.RelVel.Scale(1 / n)
+	step := proximityVelocityStubPx / scale
+	return st.CraftWorld.Add(dir.Scale(step)), true
+}
+
+// drawProximityVelocityVector draws a short stub from the active vessel
+// in the direction of v_rel — issue #348 §1's third cue.
+// render.ColorNavballMarkerPrograde: this is a "which way am I moving"
+// marker, the same semantic role that colour already carries on the
+// navball and the ascent attitude stubs (ADR 0041: colour is semantic,
+// never identity, so it is NOT the active vessel's own marker colour
+// here).
+//
+// A direction stub rather than a magnitude-scaled arrow: the range chip
+// already gives the number, and at docking-relevant speeds (cm/s to a
+// few m/s) a to-scale vector would be sub-pixel most of the time anyway.
+func (v *OrbitView) drawProximityVelocityVector(st sim.ProximityState) {
+	end, ok := proximityVelocityVectorEndpoint(st, v.canvas.Scale())
+	if !ok {
+		return
+	}
+	v.canvas.PlotDenseLineColored(st.CraftWorld, end, render.ColorNavballMarkerPrograde, 1)
 }
 
 // drawProximityVessels stamps the two hulls-for-now: the target dead

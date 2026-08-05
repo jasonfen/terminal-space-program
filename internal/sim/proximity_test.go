@@ -3,6 +3,7 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
@@ -324,6 +325,205 @@ func TestProximityHintResetsOnRetarget(t *testing.T) {
 	w.updateProximityHint()
 	if w.ProximityHintActive() {
 		t.Error("hint survived losing the target")
+	}
+}
+
+// coCircularProximityWorld builds two vessels on the SAME circular orbit
+// (idx 1 = target, unchanged from the spawn; idx 0 = active, rotated by
+// deltaTheta about the orbit normal so it sits deltaTheta further along
+// the same circle) — the formation-flying configuration
+// TestProximityDriftPathMatchesAnalyticCoCircular checks against a
+// closed-form result. Returns the world and the shared orbital radius.
+func coCircularProximityWorld(t *testing.T, deltaTheta float64) (*World, float64) {
+	t.Helper()
+	w := mustWorld(t)
+	if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if len(w.Crafts) < 2 {
+		t.Fatalf("expected 2 vessels after spawn, got %d", len(w.Crafts))
+	}
+	w.ActiveCraftIdx = 0
+	active := w.ActiveCraft()
+	tgtR, tgtV := active.State.R, active.State.V
+	w.Crafts[1].Primary = active.Primary
+	w.Crafts[1].State.R = tgtR
+	w.Crafts[1].State.V = tgtV
+
+	frame, ok := orbital.LVLHBasis(tgtR, tgtV)
+	if !ok {
+		t.Fatal("precondition: no LVLH frame for the spawned circular orbit")
+	}
+	n := frame.CrossTrack
+	active.State.R = rotateAboutAxis(tgtR, n, deltaTheta)
+	active.State.V = rotateAboutAxis(tgtV, n, deltaTheta)
+	w.SetTargetCraft(1)
+	return w, tgtR.Norm()
+}
+
+// TestProximityDriftPathMatchesAnalyticCoCircular checks
+// ProximityDriftPath against a closed-form result that is entirely
+// independent of predictStep/KeplerStep: two craft on the SAME circular
+// orbit at a fixed angular phase offset Δθ have an EXACTLY constant
+// separation in the LVLH frame for all time — elementary circular-motion
+// geometry, since both craft's angle advances by the identical ω·t, so
+// their angular difference (and therefore the r̂/v̂-frame decomposition
+// of their separation) never changes:
+//
+//	local_along  = r·sin(Δθ)
+//	local_radial = r·(cos(Δθ) − 1)
+//	local_cross  = 0
+//
+// This single scenario does double duty as the frozen-frame regression
+// guard the issue calls for: a caller that reused TODAY's frame for
+// every future sample (instead of resolving each sample's frame from
+// the target's OWN state at that instant) would show these two craft
+// sweeping around each other as the real physics rotates out from under
+// the frozen axes — exactly the bug orbital.LVLHBasis's doc comment
+// warns about. Holding constant across the WHOLE returned path is what
+// this test actually checks, not just at t=0.
+func TestProximityDriftPathMatchesAnalyticCoCircular(t *testing.T) {
+	const deltaTheta = 0.05 // rad — a few km of arc at LEO altitude
+	w, r := coCircularProximityWorld(t, deltaTheta)
+
+	points, ok := w.ProximityDriftPath(10 * time.Minute)
+	if !ok {
+		t.Fatal("ProximityDriftPath refused a resolvable co-circular pair")
+	}
+	if len(points) < 2 {
+		t.Fatalf("got %d points, want at least 2", len(points))
+	}
+
+	want := orbital.Vec3{
+		X: r * math.Sin(deltaTheta),
+		Y: r * (math.Cos(deltaTheta) - 1),
+	}
+	const tol = 0.05 // metres — exact Kepler propagation, FP roundoff only
+	for i, p := range points {
+		if d := p.Local.Sub(want).Norm(); d > tol {
+			t.Errorf("point %d (t=%s): Local = %+v, want %+v (off by %.4f m) — co-circular formation should show near-zero drift", i, p.T, p.Local, want, d)
+		}
+	}
+}
+
+// TestProximityDriftPathMatchesAnalyticDifferentRadii is the
+// non-degenerate companion to the co-circular test above: two craft on
+// DIFFERENT circular orbits (r1 = target, r2 = active), sharing a plane,
+// so their separation genuinely changes shape over the horizon. Closed
+// form (elementary circular-motion geometry, independent of
+// predictStep): with target angle θ1(t) = ω1·t (reference zero) and
+// craft angle θ2(t) = θ0 + ω2·t,
+//
+//	local_along(t)  = r2·sin(θ0 + (ω2 − ω1)·t)
+//	local_radial(t) = r2·cos(θ0 + (ω2 − ω1)·t) − r1
+//
+// checked at every sample's OWN elapsed time (ProximityDriftPoint.T),
+// not just at the end of the horizon.
+func TestProximityDriftPathMatchesAnalyticDifferentRadii(t *testing.T) {
+	w := mustWorld(t)
+	if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if len(w.Crafts) < 2 {
+		t.Fatalf("expected 2 vessels after spawn, got %d", len(w.Crafts))
+	}
+	w.ActiveCraftIdx = 0
+	active := w.ActiveCraft()
+	tgtR, tgtV := active.State.R, active.State.V
+	w.Crafts[1].Primary = active.Primary
+	w.Crafts[1].State.R = tgtR
+	w.Crafts[1].State.V = tgtV
+
+	frame, ok := orbital.LVLHBasis(tgtR, tgtV)
+	if !ok {
+		t.Fatal("precondition: no LVLH frame for the spawned circular orbit")
+	}
+	mu := active.Primary.GravitationalParameter()
+	r1 := tgtR.Norm()
+	const theta0 = 0.3 // rad — craft starts ahead of the target
+	r2Val := r1 + 50e3 // 50 km higher than the target's circular radius
+	v2 := math.Sqrt(mu / r2Val)
+
+	n := frame.CrossTrack
+	rHat0 := rotateAboutAxis(tgtR.Scale(1/r1), n, theta0)
+	vHat0 := rotateAboutAxis(frame.AlongTrack, n, theta0)
+	active.State.R = rHat0.Scale(r2Val)
+	active.State.V = vHat0.Scale(v2)
+	w.SetTargetCraft(1)
+
+	omega1 := math.Sqrt(mu / (r1 * r1 * r1))
+	omega2 := math.Sqrt(mu / (r2Val * r2Val * r2Val))
+
+	points, ok := w.ProximityDriftPath(10 * time.Minute)
+	if !ok {
+		t.Fatal("ProximityDriftPath refused a resolvable pair")
+	}
+	if len(points) < 2 {
+		t.Fatalf("got %d points, want at least 2", len(points))
+	}
+
+	const tol = 0.5 // metres — exact Kepler propagation, FP roundoff only
+	for i, p := range points {
+		secs := p.T.Seconds()
+		phase := theta0 + (omega2-omega1)*secs
+		want := orbital.Vec3{
+			X: r2Val * math.Sin(phase),
+			Y: r2Val*math.Cos(phase) - r1,
+		}
+		if d := p.Local.Sub(want).Norm(); d > tol {
+			t.Errorf("point %d (t=%s): Local = %+v, want %+v (off by %.4f m)", i, p.T, p.Local, want, d)
+		}
+	}
+}
+
+// TestProximityDriftPathRefusalPaths: the same degenerate-input cases
+// the rest of Proximity View already refuses (no active craft, no
+// resolvable target) must refuse here too, plus a non-positive horizon —
+// ProximityDriftPath's own new guard.
+func TestProximityDriftPathRefusalPaths(t *testing.T) {
+	w := proximityPairWorld(t, orbital.Vec3{X: 1000}, orbital.Vec3{})
+	if _, ok := w.ProximityDriftPath(10 * time.Minute); !ok {
+		t.Fatal("refused a resolvable vessel target")
+	}
+	if _, ok := w.ProximityDriftPath(0); ok {
+		t.Error("accepted a zero horizon")
+	}
+	if _, ok := w.ProximityDriftPath(-time.Minute); ok {
+		t.Error("accepted a negative horizon")
+	}
+
+	w.ClearTarget()
+	if _, ok := w.ProximityDriftPath(10 * time.Minute); ok {
+		t.Error("accepted a world with no target")
+	}
+}
+
+// TestProximityDockGateReady checks all four quadrants around the
+// DockingDistM / DockingVMS thresholds — ready iff BOTH gates are
+// satisfied, using the exact same constants checkDocking's auto-fuse
+// reads, so the ring and the actual dock event can never disagree.
+func TestProximityDockGateReady(t *testing.T) {
+	w := mustWorld(t)
+	tests := []struct {
+		name      string
+		rangeM    float64
+		vRelMS    float64
+		wantReady bool
+	}{
+		{"inside both gates", DockingDistM - 1, DockingVMS - 0.01, true},
+		{"outside range, inside velocity", DockingDistM + 1, DockingVMS - 0.01, false},
+		{"inside range, outside velocity", DockingDistM - 1, DockingVMS + 0.01, false},
+		{"outside both gates", DockingDistM + 1, DockingVMS + 0.01, false},
+		{"exactly at range threshold (not <)", DockingDistM, DockingVMS - 0.01, false},
+		{"exactly at velocity threshold (not <)", DockingDistM - 1, DockingVMS, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			st := ProximityState{RangeM: tc.rangeM, VRelMS: tc.vRelMS}
+			if got := w.ProximityDockGateReady(st); got != tc.wantReady {
+				t.Errorf("range=%.1f vRel=%.3f: ready=%v, want %v", tc.rangeM, tc.vRelMS, got, tc.wantReady)
+			}
+		})
 	}
 }
 
