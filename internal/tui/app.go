@@ -1271,13 +1271,24 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.commitInspect()
 			return a, nil
 		case key.Matches(m, a.keys.JumpToLaunchView):
-			// v0.11.4+ (ADR 0004): manual jump to ViewLaunch focused
-			// on the active vessel — skips the lowercase `v` cycle.
-			// No-op without an active vessel; the launch view's own
-			// "no active vessel" render path covers the empty-slate
-			// case if the player jumps after end-flight clears the
-			// slate (sub-scope 5).
-			a.world.SetViewModeLaunch()
+			// Launch/surface toggling jump key (issue #348 §4, mirrors
+			// `o`'s ProximityView below): press to enter a fresh
+			// chase-cam session framed for the moment, press again to
+			// return to the map exactly as it was left. Orbit screen
+			// only, same reasoning as ProximityView — it's a ViewMode of
+			// that screen's canvas, not a screen of its own. Leaving
+			// reuses releaseLaunchSession, whose LastLaunchReleaseEvent
+			// already surfaces the "ORBIT READY — returning to X" toast
+			// on the next Tick (the same plumbing the switch-triggered
+			// release uses), so only entry and refusal need a toast here.
+			if a.active == screenOrbit {
+				entered, refusal := a.world.ToggleLaunchView()
+				if refusal != "" {
+					a.toast("launch view — " + refusal)
+				} else if entered {
+					a.toast("launch view — [V] returns to the map")
+				}
+			}
 			return a, nil
 		case key.Matches(m, a.keys.ProximityView):
 			// Proximity View (ADR 0043 / #348): toggle into and out of the

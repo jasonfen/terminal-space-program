@@ -491,12 +491,17 @@ relative drift path, range rings, and the dock gate as a place on
 screen. The picture for the last kilometers that the world-frame
 OrbitView cannot hold steady. Entered and left by a toggling jump key
 (`o`); entry is a Framing Event fitted from current range. Target-gated —
-only a Vessel or a remote player's ghost can be the centre, and the `v`
-cycle steps over the mode when the Target is anything else. It is a
-ViewMode, not a screen: chips, navball and every flight key behave
-exactly as they do on the map, and it keeps its own Zoom Memory slot
-(keyed by Target, not Focus) so the jump out and back leaves the map's
-zoom and pan untouched.
+only a Vessel or a remote player's ghost can be the centre — but NOT a
+stop on the [[#view--projection|ViewMode]] `v` cycle at all (issue #348
+§4): that cycle walks the six map projections only, so an unavailable
+Target simply means the toggle key refuses rather than the cycle
+skipping a slot. It is a ViewMode, not a screen: chips, navball and
+every flight key behave exactly as they do on the map, and it keeps its
+own Zoom Memory slot (keyed by Target, not Focus) so the jump out and
+back leaves the map's zoom and pan untouched. The launch/surface chase-cam
+(`V`) is the same shape — its own toggling jump key, altitude-derived
+entry scale, also outside the `v` cycle — and the two can stack (jumping
+to Proximity from inside the chase-cam and back).
 _Avoid_: Docking view, RPO screen.
 
 **Camera Contract**:
@@ -2383,20 +2388,26 @@ Frame]] — see Flagged ambiguities.
 **ViewMode**:
 The world-level projection selector — which canvas projection the
 orbit and maneuver screens use to flatten 3D geometry onto the
-braille canvas. Projections only, per the **Camera Contract** (ADR
-0021): a ViewMode never picks the camera's center or zoom. Values
-cycled via `v` in this order: **ViewTilted** (the default — 3D-style
-perspective using the active Vessel's perifocal basis with a
-player-tunable polar tilt and yaw), **ViewTop** (drop world Z),
-**ViewRight** (look from +X), **ViewBottom** (Top with Y inverted),
-**ViewLeft** (Right mirrored), **ViewOrbitFlat** (project onto the
-active Vessel's orbit plane). Plus **ViewLaunch** (auto-routed on pad
-launch; exited via manual `v` cycle). The v0.17.3 **ViewTarget** and
-v0.18.0 **ViewSOIPass** modes — which also set center and zoom — are
-retired by ADR 0021; encounter readability comes from the
-**Local-to-Body Arc** plus plain body Focus instead. Stored on
-`World.ViewMode` so the orbit screen and the maneuver-planner
-mini-canvas share the same angle without per-screen coordination.
+braille canvas. Eight values, two shapes (issue #348 §4, ADR 0043).
+Six are pure projections, cycled via `v` in this order: **ViewTilted**
+(the default — 3D-style perspective using the active Vessel's
+perifocal basis with a player-tunable polar tilt and yaw),
+**ViewTop** (drop world Z), **ViewRight** (look from +X),
+**ViewBottom** (Top with Y inverted), **ViewLeft** (Right mirrored),
+**ViewOrbitFlat** (project onto the active Vessel's orbit plane) —
+per the **Camera Contract** (ADR 0021), none of these six ever picks
+the camera's center or zoom, only which projection. The other two —
+**ViewLaunch** (the chase-cam, auto-routed on pad launch, or
+player-jumped) and **Proximity View** — are scenes, not cycle stops:
+each is its own toggling jump key (`V`, `o`) that re-centres and
+re-scales the camera on entry as its own Framing Event, and pressing
+the key again returns to the map exactly as it was left. The v0.17.3
+**ViewTarget** and v0.18.0 **ViewSOIPass** modes — which also set
+center and zoom — are retired by ADR 0021; encounter readability
+comes from the **Local-to-Body Arc** plus plain body Focus instead.
+Stored on `World.ViewMode` so the orbit screen and the
+maneuver-planner mini-canvas share the same angle without
+per-screen coordination.
 
 Distinct from [[#selection--view|Focus]] — Focus picks *what* the
 camera centres on (a system, a Body, a Vessel); ViewMode picks

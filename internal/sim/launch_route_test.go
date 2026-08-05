@@ -196,13 +196,16 @@ func TestLaunchNoAutoReleaseWhenOrbital(t *testing.T) {
 
 // TestManualCycleClearsSessionWithoutRestore — when the player
 // manually presses `v` to leave ViewLaunch mid-session, the session
-// sentinel clears but PrevViewMode is NOT restored. ViewMode advances
-// to the next mode in the cycle order (ViewLaunch → wraps to
-// ViewTilted), matching the player's mental model: cycle = move
-// forward, not "go back."
+// sentinel clears. Issue #348 §4 took ViewLaunch out of the `v` cycle
+// entirely (it's the `V` toggle's job now), so there is no "next slot
+// after Launch" to land on any more — CycleViewMode instead anchors on
+// PrevViewMode (the map the toggle key would have returned to,
+// baseProjection) and advances ONE step from there. `v` still isn't a
+// restore: it lands one past PrevViewMode, not on it.
 //
-// With ADR 0021 D this manual cycle is THE way out of the chase cam —
-// the sentinel clears and the player owns view selection from here.
+// This is also the toggle key's own escape hatch: cycling out of
+// ViewLaunch still clears the sentinel, same as ADR 0021 D established,
+// even though `V` (ToggleLaunchView) is the normal way out now.
 func TestManualCycleClearsSessionWithoutRestore(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -221,9 +224,9 @@ func TestManualCycleClearsSessionWithoutRestore(t *testing.T) {
 	if w.LaunchSessionActive {
 		t.Error("after manual cycle out of ViewLaunch: LaunchSessionActive = true, want false")
 	}
-	if w.ViewMode != ViewTilted {
-		t.Errorf("ViewMode = %v, want ViewTilted (next after ViewLaunch in the cycle), NOT %v (PrevViewMode — cycle is advance, not restore)",
-			w.ViewMode, w.PrevViewMode)
+	if w.ViewMode != ViewRight {
+		t.Errorf("ViewMode = %v, want ViewRight (one step past PrevViewMode=ViewTop, NOT ViewTop itself — cycle is advance, not restore)",
+			w.ViewMode)
 	}
 }
 
