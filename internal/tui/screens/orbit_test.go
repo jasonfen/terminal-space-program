@@ -721,3 +721,147 @@ func TestRCSPuffsRenderWhite(t *testing.T) {
 			string(render.ColorRCSPuffTip), string(render.ColorDim))
 	}
 }
+
+// TestZoomMemoryFirstVisitFitsFresh: ADR 0042 — the first Render at a
+// focus target that has no recorded zoom starts at 1× (the pre-0042
+// behavior), not some stale carry-over from another target.
+func TestZoomMemoryFirstVisitFitsFresh(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(80, 24)
+	w, _ := sim.NewWorld()
+	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: 1}
+
+	v.Render(w, 0, 80, 24)
+
+	if v.userZoom != 1 {
+		t.Errorf("first visit userZoom = %v, want 1 (fresh fit)", v.userZoom)
+	}
+}
+
+// TestZoomMemoryReturnRestoresMultiplier: ADR 0042's headline behavior —
+// zoom in on a focus, look away at a different focus (which resets to a
+// fresh 1x, per first-visit), then come back: the original focus's
+// multiplier is restored rather than reset again.
+func TestZoomMemoryReturnRestoresMultiplier(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(80, 24)
+	w, _ := sim.NewWorld()
+	bodyA := sim.Focus{Kind: sim.FocusBody, BodyIdx: 1}
+	bodyB := sim.Focus{Kind: sim.FocusBody, BodyIdx: 2}
+
+	w.Focus = bodyA
+	v.Render(w, 0, 80, 24)
+	v.ZoomIn()
+	v.ZoomIn()
+	want := v.userZoom
+	if want == 1 {
+		t.Fatalf("setup: ZoomIn twice left userZoom at 1, test can't distinguish restore from reset")
+	}
+
+	w.Focus = bodyB
+	v.Render(w, 0, 80, 24)
+	if v.userZoom != 1 {
+		t.Fatalf("switching to a never-visited focus: userZoom = %v, want 1 (fresh fit)", v.userZoom)
+	}
+
+	w.Focus = bodyA
+	v.Render(w, 0, 80, 24)
+	if v.userZoom != want {
+		t.Errorf("returning to bodyA: userZoom = %v, want restored %v", v.userZoom, want)
+	}
+}
+
+// TestZoomMemoryResizeKeepsMultiplier: ADR 0042 rule 2 — a terminal
+// resize refits baseScale to the new canvas dimensions but must never
+// reset the player's zoom multiplier, unlike every other Framing Event.
+// Uses FocusSystem rather than a small terminal body: a body focus can
+// hit the ADR 0024 body-texture minScale clamp, which is a pure function
+// of the body's radius and would make baseScale identical across canvas
+// sizes for a reason unrelated to what this test checks.
+func TestZoomMemoryResizeKeepsMultiplier(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(80, 24)
+	w, _ := sim.NewWorld()
+	w.Focus = sim.Focus{Kind: sim.FocusSystem}
+
+	v.Render(w, 0, 80, 24)
+	v.ZoomIn()
+	want := v.userZoom
+	baseBefore := v.baseScale
+
+	v.Resize(160, 48) // same focus context, different canvas
+	v.Render(w, 0, 160, 48)
+
+	if v.userZoom != want {
+		t.Errorf("resize changed userZoom: got %v, want kept %v", v.userZoom, want)
+	}
+	if v.baseScale == baseBefore {
+		t.Errorf("resize did not refit baseScale to the new canvas dimensions")
+	}
+}
+
+// TestZoomMemoryKeyedPerFocus: the multiplier map holds one entry per
+// focus target, not a single scalar — zooming differently on two bodies
+// and bouncing between them must not clobber either entry.
+func TestZoomMemoryKeyedPerFocus(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(80, 24)
+	w, _ := sim.NewWorld()
+	bodyA := sim.Focus{Kind: sim.FocusBody, BodyIdx: 1}
+	bodyB := sim.Focus{Kind: sim.FocusBody, BodyIdx: 2}
+
+	w.Focus = bodyA
+	v.Render(w, 0, 80, 24)
+	v.ZoomIn()
+	zoomA := v.userZoom
+
+	w.Focus = bodyB
+	v.Render(w, 0, 80, 24)
+	v.ZoomOut()
+	zoomB := v.userZoom
+
+	if zoomA == zoomB {
+		t.Fatalf("setup: zoomA (%v) and zoomB (%v) must differ to prove per-key storage", zoomA, zoomB)
+	}
+
+	w.Focus = bodyA
+	v.Render(w, 0, 80, 24)
+	if v.userZoom != zoomA {
+		t.Errorf("bodyA restore after visiting bodyB: got %v, want %v", v.userZoom, zoomA)
+	}
+
+	w.Focus = bodyB
+	v.Render(w, 0, 80, 24)
+	if v.userZoom != zoomB {
+		t.Errorf("bodyB restore after revisiting bodyA: got %v, want %v", v.userZoom, zoomB)
+	}
+}
+
+// TestZoomMemoryDisambiguatesAcrossSystems: sim.Focus.BodyIdx is only
+// unique within one system's Bodies slice, so the same BodyIdx in two
+// different systems (Sol vs. a second system reached via CycleSystem)
+// must not share a remembered zoom — the zoomMemoryKey includes
+// SystemIdx precisely to guard this.
+func TestZoomMemoryDisambiguatesAcrossSystems(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(80, 24)
+	w, _ := sim.NewWorld()
+	if len(w.Systems) < 2 {
+		t.Skip("need at least two systems to test cross-system disambiguation")
+	}
+	body := sim.Focus{Kind: sim.FocusBody, BodyIdx: 1}
+
+	w.Focus = body
+	v.Render(w, 0, 80, 24)
+	v.ZoomIn()
+	zoomSolBody1 := v.userZoom
+
+	w.CycleSystem()
+	v.Render(w, 0, 80, 24) // System switch is a Framing Event: same Focus value, new system
+	if v.userZoom != 1 {
+		t.Errorf("body index 1 in the new system: userZoom = %v, want 1 (fresh fit, not Sol's leftover zoom)", v.userZoom)
+	}
+	if v.userZoom == zoomSolBody1 {
+		t.Errorf("new system's fresh fit accidentally matched Sol's remembered zoom (%v); systems are not disambiguated", zoomSolBody1)
+	}
+}

@@ -94,10 +94,14 @@ func TestManualZoomPersistsOnSteadyFocus(t *testing.T) {
 	}
 }
 
-// TestFramingEventResetsZoom: userZoom resets at the next Framing Event — a
-// Focus change and a ViewMode change each re-fit once and drop the manual
-// multiplier (ADR 0021 A: fresh framing context, fresh zoom).
-func TestFramingEventResetsZoom(t *testing.T) {
+// TestFramingEventZoomMemory pins the ADR 0042 amendment to the Camera
+// Contract: a Framing Event still fits the canvas exactly once (ADR 0021
+// A unchanged), but userZoom is no longer unconditionally dropped to 1 —
+// it is restored per focus target. A Focus change to a target with no
+// recorded visit fits fresh at 1x; a later Framing Event that returns to
+// an already-zoomed target (here, a ViewMode change with the focus held
+// steady) restores that target's multiplier instead of resetting it.
+func TestFramingEventZoomMemory(t *testing.T) {
 	v := newSOIPassTestView()
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -114,20 +118,27 @@ func TestFramingEventResetsZoom(t *testing.T) {
 		t.Fatal("precondition: userZoom should be off 1 after ZoomIn")
 	}
 
-	// Focus change → Framing Event → zoom reset.
+	// Focus change to a never-visited target → Framing Event → fresh 1x.
 	w.Focus = sim.Focus{Kind: sim.FocusCraft}
 	v.Render(w, 0, 200, 60)
 	if v.userZoom != 1 {
-		t.Errorf("focus change did not reset userZoom: %v", v.userZoom)
+		t.Errorf("focus change to an unvisited target did not fit fresh: userZoom = %v, want 1", v.userZoom)
 	}
 
-	// ViewMode change → Framing Event → zoom reset.
+	// Zoom on this (now-visited) FocusCraft target, then trigger a second
+	// Framing Event — a ViewMode change — with the focus held steady.
+	// Zoom Memory keys on focus, not on (focus, ViewMode), so this must
+	// restore the multiplier just set rather than reset it to 1.
 	v.ZoomIn()
 	v.Render(w, 0, 200, 60)
+	zoomed := v.userZoom
+	if zoomed == 1 {
+		t.Fatal("precondition: userZoom should be off 1 after the second ZoomIn")
+	}
 	w.CycleViewMode()
 	v.Render(w, 0, 200, 60)
-	if v.userZoom != 1 {
-		t.Errorf("view-mode change did not reset userZoom: %v", v.userZoom)
+	if v.userZoom != zoomed {
+		t.Errorf("view-mode change on a steady, already-zoomed focus did not restore the multiplier: got %v, want %v", v.userZoom, zoomed)
 	}
 }
 
