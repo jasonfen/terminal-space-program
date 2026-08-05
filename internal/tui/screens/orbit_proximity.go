@@ -10,6 +10,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -24,9 +25,10 @@ import (
 // key and every readout behaves exactly as it does on the map — the
 // picture changes, the cockpit does not.
 //
-// This slice draws deliberately little: two glyphs, the V-bar / R-bar
+// The core slice drew deliberately little: two glyphs, the V-bar / R-bar
 // cross, and a readout chip. The drift path, range rings and dock gate
-// are the follow-up cue slice; hull sprites the one after.
+// followed as the cue slice; hull sprites at true relative scale are this
+// slice. View seams (jump-key polish) are the one after.
 
 // proximityFitMarginFrac is how much room past the current range the
 // entry fit leaves. Canvas.FitTo frames a circle of the given radius at
@@ -105,6 +107,8 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 			v.InspectClear()
 		}
 		v.burnFrozenCenter = nil
+		v.proxOwnSpriteShown = false
+		v.proxTargetSpriteShown = false
 	}
 
 	v.canvas.Clear()
@@ -233,7 +237,7 @@ func proximityPrimaryName(w *sim.World) string {
 
 // Cue slice (issue #348 §1, follow-up to the Proximity View core in PR
 // #357): the drift path, range rings, dock gate, and v_rel vector stub.
-// Hull sprites at true scale are the slice after this one.
+// Hull sprites at true scale (also #348 §1) follow further down this file.
 
 // proximityDriftHorizonFloorMps floors the relative speed
 // proximityDriftHorizonFor divides by. A pair sitting almost exactly
@@ -488,29 +492,194 @@ func (v *OrbitView) drawProximityVelocityVector(st sim.ProximityState) {
 	v.canvas.PlotDenseLineColored(st.CraftWorld, end, render.ColorNavballMarkerPrograde, 1)
 }
 
-// drawProximityVessels stamps the two hulls-for-now: the target dead
-// centre and the active vessel wherever the relative state puts it. Hull
-// sprites at true scale are the follow-up slice; a glyph at the true
-// POSITION is what this slice owes.
+// Hull-sprite slice (issue #348 §1, follow-up to the cue slice above):
+// inside a few hundred meters both craft render as their real
+// composed-from-stages silhouettes — the Launch-Sprite machinery
+// launch.go / launch_sprite.go already own — at true relative scale and
+// position; a glyph the rest of the time. View seams are the slice
+// after this one.
+
+// proximitySpriteEnterCells / proximitySpriteExitCells are the
+// glyph→hull-sprite transition's hysteresis band, stated in terminal
+// CELLS rather than metres — the metres a given cell count corresponds
+// to fall out of the current zoom (ADR 0043 §1: "true relative scale
+// and position"), not a fixed distance the picture has to chase. Below
+// proximitySpriteExitCells tall the composed silhouette has collapsed
+// to a smear a cell or two high — the same illegible-past-this-point
+// failure vesselSpriteBelowCellFloor guards on the launch screen, just
+// with headroom instead of a bare single-cell floor, so the switch
+// happens while there's still a recognisable shape to switch to.
+//
+// EnterCells > ExitCells opens the same arm-high/release-low band
+// proximityHintRangeM/proximityHintReleaseM already use for the CLOSE
+// RANGE chip: growing UP through 3 cells tall switches a glyph to its
+// sprite; shrinking back down, the sprite holds until it drops below 2.
+// Without the gap, a vessel sitting (or drifting slowly) right at the
+// switch point would repaint every frame.
+const (
+	proximitySpriteEnterCells = 3.0
+	proximitySpriteExitCells  = 2.0
+)
+
+// proximitySpriteVisible applies the hysteresis band above to one
+// vessel's measured sprite height. shown is that vessel's OWN latch
+// from the previous frame — OrbitView.proxOwnSpriteShown /
+// proxTargetSpriteShown are kept as two separate bools rather than one
+// shared flag precisely so a small ghost/craft and a large stack at
+// different ranges can cross the band independently.
+func proximitySpriteVisible(shown bool, heightCells float64) bool {
+	if shown {
+		return heightCells >= proximitySpriteExitCells
+	}
+	return heightCells >= proximitySpriteEnterCells
+}
+
+// proximitySpriteHeightCells is the composed launch sprite's on-screen
+// height in terminal CELLS at the Proximity canvas's current scale
+// (pixels-per-metre): the same real-world stride (vesselSubPixelM) and
+// row count (composedStackRows, launch_sprite.go) the launch screen's
+// own cell floor already uses, converted against canvasCellPxH instead
+// of launch's bare single-cell test (vesselSpriteBelowCellFloor). 0 for
+// a stack with no composed rows (no LaunchSprite-catalogued stage) or a
+// non-positive scale — both read as "no sprite, use the glyph."
+func proximitySpriteHeightCells(stages []spacecraft.Stage, scale float64) float64 {
+	rows := composedStackRows(stages)
+	if rows <= 0 || scale <= 0 {
+		return 0
+	}
+	heightPx := float64(rows) * vesselSubPixelM * scale
+	return heightPx / canvasCellPxH
+}
+
+// proximityTargetHullInputs resolves what the TARGET side of the
+// hull-sprite draw has to work with. A local vessel target carries its
+// own Stages + CurrentAttitudeDir, exactly like any other craft the
+// launch screen already composes (drawSOICraft's own precedent — a
+// sibling vessel in view gets its own sprite, not a shared one). A
+// multiplayer ghost carries neither: Ghost (ghost.go) is a name, a
+// glyph and a Kepler-propagated state — nothing about how the vessel is
+// built — so it falls back to the diamond-glyph path below rather than
+// invent a class-default silhouette this slice has no data to justify
+// (see the PR body for the explicit call).
+func proximityTargetHullInputs(w *sim.World) ([]spacecraft.Stage, orbital.Vec3) {
+	c, _, ok := w.ResolveTargetCraft()
+	if !ok || c == nil {
+		return nil, orbital.Vec3{}
+	}
+	return c.Stages, c.CurrentAttitudeDir
+}
+
+// drawProximityHull attempts the composed-from-stages silhouette at
+// anchorWorld, in the target-centred LVLH basis (screen-right =
+// AlongTrack, screen-down = −RadialOut) that renderProximity already
+// pinned as the canvas basis for this frame.
+//
+// True relative scale: ComposeLaunchSprite's per-dot stride is the
+// FIXED real-world vesselSubPixelM (launch_sprite.go's own precedent —
+// "the composed geometry is real metres, and it is the canvas's zoom
+// that turns those metres into screen pixels"). Proximity's canvas
+// already carries the LVLH pixels-per-metre scale the Framing Event
+// fitted (renderProximity / proximityFitRadius), so reusing the launch
+// composers here needs no scale translation of its own: a true 10 m
+// vessel composes to true 10 m of canvas real-estate, whatever that
+// happens to project to at the current zoom.
+//
+// Orientation: attitudeDir is projected into the screen plane exactly
+// as the launch screen's gravity-turn lean already does
+// (stackDirScreen, inside the Compose* functions) — a genuine
+// continuous lean within the LVLH plane, not a snap to a fixed pose.
+// What it can NOT do is rotate out of that plane: any attitude
+// component along the frame's CrossTrack axis (toward/away from the
+// camera) has no representation in a flat sprite, so a hull banking on
+// that axis renders at its in-plane projection — the nearest pose the
+// machinery supports, the same limitation the launch screen already
+// lives with. Full 3-D rotation is deferred, not built here (ADR 0043
+// §2: port-alignment gameplay, the feature that would actually need
+// it, is visibility-only for now).
+//
+// shown is the caller's per-vessel hysteresis latch (proximitySpriteVisible);
+// this updates it in place. Returns false — *shown left cleared —
+// whenever there's nothing to compose or it doesn't clear the
+// hysteresis band, so the caller's existing glyph fallback runs
+// unchanged.
+func (v *OrbitView) drawProximityHull(shown *bool, stages []spacecraft.Stage, attitudeDir orbital.Vec3, anchorWorld orbital.Vec3, frame orbital.LVLHFrame) bool {
+	heightCells := proximitySpriteHeightCells(stages, v.canvas.Scale())
+	*shown = proximitySpriteVisible(*shown, heightCells)
+	if !*shown {
+		return false
+	}
+	basis := widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut}
+	sprite := ComposeLaunchSprite(stages, attitudeDir, basis, vesselSubPixelM)
+	if sprite == nil {
+		// Defensive: composedStackRows and ComposeLaunchSprite agree on
+		// what counts as "no sprite" (taperRowBetween is their shared
+		// source of truth), so heightCells should already have been 0
+		// and *shown false above — this only guards a future drift
+		// between the two.
+		*shown = false
+		return false
+	}
+	bell := ComposeEngineBell(stages, attitudeDir, basis, vesselSubPixelM)
+	legs := ComposeLegs(stages, attitudeDir, basis, vesselSubPixelM)
+	// No flame / canopy: both are transient equipment state (an active
+	// burn, a deployed chute) rather than hull geometry, and issue #348
+	// §1 asks for the SILHOUETTE at scale — the bell and legs are
+	// static stage-stack geometry the same way the body rectangles are,
+	// so they stay; exhaust and canopies are a different visual claim
+	// this slice doesn't make.
+	for _, pixels := range [][]SpritePixel{sprite, bell, legs} {
+		for _, p := range pixels {
+			// Tagged IsVessel (not plain PlotColored, unlike the launch
+			// screen's drawComposedRocket): Proximity's click routing
+			// resolves a vessel hit through HitAt/IsVessel
+			// (app.go), and the sprite should be clickable across its
+			// whole silhouette, not just the single anchor pixel the
+			// disk-glyph fallback tags.
+			v.canvas.PlotColoredTagged(anchorWorld.Add(p.OffsetWorld),
+				widgets.CellTag{Color: p.Color, IsVessel: true})
+		}
+	}
+	return true
+}
+
+// drawProximityVessels stamps the two vessels: the target dead centre
+// and the active vessel wherever the relative state puts it. Each side
+// tries the true-scale hull sprite first (drawProximityHull) and falls
+// back to the pre-existing disk-and-glyph marker exactly as before
+// whenever there's no composable stack or the silhouette hasn't cleared
+// the hysteresis band yet — "glyphs beyond" the ADR's own words for the
+// far side of this same rule.
 func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
-	v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
-		widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
-	v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)
+	targetStages, targetAttitude := proximityTargetHullInputs(w)
+	if !v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame) {
+		v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
+			widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
+		v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)
+	}
 
 	activeColor := render.ColorCraftMarker
 	glyph := '▲'
-	if c := w.ActiveCraft(); c != nil {
-		if c.Color != "" {
-			activeColor = lipgloss.Color(c.Color)
+	active := w.ActiveCraft()
+	if active != nil {
+		if active.Color != "" {
+			activeColor = lipgloss.Color(active.Color)
 		}
-		if g := []rune(c.Glyph); len(g) > 0 {
+		if g := []rune(active.Glyph); len(g) > 0 {
 			glyph = g[0]
 		}
 	}
 	if _, _, onCanvas := v.canvasCell(st.CraftWorld); onCanvas {
-		v.canvas.FillColoredDiskTagged(st.CraftWorld, 1,
-			widgets.CellTag{Color: activeColor, IsVessel: true})
-		v.canvas.SetCellOverlayColored(st.CraftWorld, glyph, activeColor)
+		var ownStages []spacecraft.Stage
+		var ownAttitude orbital.Vec3
+		if active != nil {
+			ownStages = active.Stages
+			ownAttitude = active.CurrentAttitudeDir
+		}
+		if !v.drawProximityHull(&v.proxOwnSpriteShown, ownStages, ownAttitude, st.CraftWorld, st.Frame) {
+			v.canvas.FillColoredDiskTagged(st.CraftWorld, 1,
+				widgets.CellTag{Color: activeColor, IsVessel: true})
+			v.canvas.SetCellOverlayColored(st.CraftWorld, glyph, activeColor)
+		}
 		return
 	}
 	// Zoomed past your own vessel. The entry fit can't produce this, but a
