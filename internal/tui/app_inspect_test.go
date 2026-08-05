@@ -1,12 +1,14 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
@@ -272,25 +274,23 @@ func TestBodyClickStillMovesTheCursorAndAlsoInspects(t *testing.T) {
 // both wrong and destructive when the line belongs to someone else. Now it
 // answers whose line it is and stops there.
 func TestClickingAnotherVesselsOrbitLineInspectsInsteadOfPlanting(t *testing.T) {
-	a := inspectApp(t)
-	active := a.world.ActiveCraft()
-	if active == nil {
-		t.Skip("no active vessel in the default world")
+	// Both a roomy terminal and the supported floor: the two ellipses land
+	// on far fewer cells at the floor size, so the cell the fixture picks
+	// there is a tighter constraint on the click router than the wide case
+	// — and the floor is where two lines are most likely to share one.
+	for _, size := range []struct{ w, h int }{
+		{200, 60},
+		{screens.MinTerminalWidth, screens.MinTerminalHeight},
+	} {
+		t.Run(fmt.Sprintf("%dx%d", size.w, size.h), func(t *testing.T) {
+			clickSistersOrbitLine(t, size.w, size.h)
+		})
 	}
-	// A sister vessel on a clearly larger orbit, so its ellipse has pixels
-	// nowhere near the active vessel's.
-	sister := *active
-	sister.Name = "Sister"
-	sister.ID = 0
-	sister.State.R = active.State.R.Scale(1.6)
-	sister.State.V = active.State.V.Scale(1 / 1.6)
-	a.world.Crafts = append(a.world.Crafts, &sister)
-	a.world.EnsureCraftIDs()
-	a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
-	a.orbitView.ZoomOut()
-	a.orbitView.ZoomOut()
-	a.View()
+}
 
+func clickSistersOrbitLine(t *testing.T, width, height int) {
+	t.Helper()
+	a, sister := sisterApp(t, width, height)
 	want := screens.InspectRef{Kind: screens.InspectVessel, CraftID: sister.ID}
 	col, row, ok := findOwnerCell(a, want.OwnerKey())
 	if !ok {
@@ -313,13 +313,137 @@ func TestClickingAnotherVesselsOrbitLineInspectsInsteadOfPlanting(t *testing.T) 
 	}
 }
 
+// sisterApp is the two-vessels-on-the-map fixture: the default world plus
+// a copy of the active vessel on a clearly larger orbit, framed and
+// rendered at the requested terminal size so the canvas has both ellipses
+// on it. Returns the app and the sister (whose ID is assigned by
+// EnsureCraftIDs, so read it back off the pointer, never assume 2).
+func sisterApp(t *testing.T, width, height int) (*App, *spacecraft.Spacecraft) {
+	t.Helper()
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	a.View()
+
+	active := a.world.ActiveCraft()
+	if active == nil {
+		t.Skip("no active vessel in the default world")
+	}
+	sister := *active
+	sister.Name = "Sister"
+	sister.ID = 0
+	sister.State.R = active.State.R.Scale(1.6)
+	sister.State.V = active.State.V.Scale(1 / 1.6)
+	a.world.Crafts = append(a.world.Crafts, &sister)
+	a.world.EnsureCraftIDs()
+	a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
+	a.orbitView.ZoomOut()
+	a.orbitView.ZoomOut()
+	a.View()
+	return a, &sister
+}
+
+// TestClickingTheSameOrbitCellAlwaysAnswersTheSame is the cross-platform
+// regression for the flake this fixture shipped with: the sister's orbit
+// line resolved through a randomized map iteration inside HitAt, so a cell
+// where the two ellipses inked equally answered "the sister" on one call
+// and "you" on the next — roughly a one-in-ten failure on arm64 AND
+// amd64, which read as a commit- and platform-sensitive break because CI
+// only ever draws one sample per push.
+//
+// Asserting stability rather than a specific owner keeps the test honest
+// about geometry it does not control: which vessel wins any given cell is
+// the renderer's business, but it must be the SAME answer every time.
+func TestClickingTheSameOrbitCellAlwaysAnswersTheSame(t *testing.T) {
+	a, sister := sisterApp(t, 200, 60)
+	key := screens.InspectRef{Kind: screens.InspectVessel, CraftID: sister.ID}.OwnerKey()
+
+	checked := 0
+	for r := 2; r < a.height-1; r++ {
+		for c := 1; c < a.width-1; c++ {
+			first := a.orbitView.HitAt(c, r)
+			if first.Owner == "" {
+				continue
+			}
+			for i := 0; i < 25; i++ {
+				got := a.orbitView.HitAt(c, r)
+				if got.Owner != first.Owner || got.OwnerTied != first.OwnerTied {
+					t.Fatalf("cell (%d,%d) resolved to %q (tied=%v) then %q (tied=%v) — the hit-test is not deterministic",
+						c, r, first.Owner, first.OwnerTied, got.Owner, got.OwnerTied)
+				}
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Skip("no owner-tagged cells on the canvas")
+	}
+	t.Logf("checked %d owner-tagged cells (sister key %q)", checked, key)
+}
+
+// TestClickingAnAmbiguousOrbitCellNeverOpensThePlanner: where your line
+// and someone else's ink a cell equally, the click has no single right
+// answer — but the two candidate answers cost very different things. The
+// identity reading paints a chip; the own-line reading pauses the clock,
+// swaps to the maneuver screen and stages a burn. ADR 0041 §3 makes
+// Inspect identity ON DEMAND, so an ambiguous point-and-ask must never
+// cash out as a mode change.
+func TestClickingAnAmbiguousOrbitCellNeverOpensThePlanner(t *testing.T) {
+	a, _ := sisterApp(t, 200, 60)
+
+	col, row, ok := findTiedOwnerCell(a)
+	if !ok {
+		t.Skip("the two ellipses did not share a cell evenly on this canvas")
+	}
+
+	nodesBefore := len(a.world.ActiveCraft().Nodes)
+	orbit := a.active
+	a.Update(tea.MouseMsg{X: col, Y: row, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+
+	if a.active != orbit {
+		t.Errorf("clicking an ambiguous orbit cell left the map for %v", a.active)
+	}
+	if n := len(a.world.ActiveCraft().Nodes); n != nodesBefore {
+		t.Errorf("clicking an ambiguous orbit cell planted a node (%d -> %d)", nodesBefore, n)
+	}
+	if _, _, inspecting := a.orbitView.InspectedRef(); !inspecting {
+		t.Error("clicking an ambiguous orbit cell inspected nothing — it should still answer with one of the two")
+	}
+}
+
+// findTiedOwnerCell scans for an orbit-line cell whose owners split the
+// pixel count evenly — the ambiguous case, deliberately sought here
+// rather than avoided.
+func findTiedOwnerCell(a *App) (col, row int, ok bool) {
+	for r := 2; r < a.height-1; r++ {
+		for c := 1; c < a.width-1; c++ {
+			hit := a.orbitView.HitAt(c, r)
+			if hit.OwnerTied && hit.BodyID == "" && !hit.IsVessel && hit.NodeIdx == 0 {
+				return c, r, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // findOwnerCell scans the orbit canvas for a cell whose hit-test resolves
 // to the given Inspect owner key, returning its SCREEN coordinates.
+//
+// Tied cells are skipped. The two ellipses in this fixture pass close
+// enough to share a handful of cells one pixel each, and such a cell is
+// not the subject of any test here — clicking one asks the tie-break a
+// question, not the click router. Picking one by accident is what made
+// this scan's first hit a coin toss: the caller would find a cell only
+// while the wanted owner won the tie, then click it and get the other
+// owner on the next roll.
 func findOwnerCell(a *App, owner string) (col, row int, ok bool) {
 	for r := 2; r < a.height-1; r++ {
 		for c := 1; c < a.width-1; c++ {
 			hit := a.orbitView.HitAt(c, r)
-			if hit.Owner == owner && hit.BodyID == "" && !hit.IsVessel && hit.NodeIdx == 0 {
+			if hit.Owner == owner && !hit.OwnerTied &&
+				hit.BodyID == "" && !hit.IsVessel && hit.NodeIdx == 0 {
 				return c, r, true
 			}
 		}
