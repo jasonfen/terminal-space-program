@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -188,7 +189,7 @@ func TestSubPixelGhostOrbitGated(t *testing.T) {
 	c.State.V = orbital.Vec3{Y: math.Sqrt(mu / rOwn)}
 	c.State.M = c.TotalMass()
 
-	base := countBraille(v.Render(w, 0, 200, 60))
+	v.Render(w, 0, 200, 60)
 	scale := v.canvas.Scale()
 	if scale <= 0 {
 		t.Fatal("non-positive canvas scale")
@@ -198,21 +199,30 @@ func TestSubPixelGhostOrbitGated(t *testing.T) {
 		t.Skipf("frame not zoomed out enough (gate radius %.2g < 4×body %.2g)", gateR, 4*bodyR)
 	}
 
+	// Measure the ghost's OWN ink (its dim colour) rather than a whole-frame
+	// braille delta: since ADR 0042 §3 the body-orbit ellipses fill in their
+	// visible arcs properly instead of scattering a couple of dots, so a
+	// small ring landing on that busier backdrop adds few *new* lit cells
+	// while still drawing its full track.
+	ghostInk := func() int {
+		v.Render(w, 0, 200, 60)
+		return v.canvas.CountColor(lipgloss.Color(render.ColorDim))
+	}
+
 	// Above the primary's surface (so not occluded) yet well below the pixel
-	// gate → no ellipse.
+	// gate → no ellipse, just the marker.
 	tinyR := 2 * bodyR // apoapsis*scale < gate/2 < 6 px
 	w.Ghosts = []sim.Ghost{circularGhost(w, tinyR)}
-	gated := countBraille(v.Render(w, 0, 200, 60))
-	if gated-base > 6 {
-		t.Errorf("sub-pixel ghost orbit drew %d cells past baseline — gate not applied", gated-base)
+	gated := ghostInk()
+	if gated > 4 {
+		t.Errorf("sub-pixel ghost orbit inked %d cells — gate not applied (marker only expected)", gated)
 	}
 
 	// Same ghost, orbit comfortably above the gate → ellipse appears.
 	bigR := 4 * gateR // apoapsis*scale ≈ 24 px
 	w.Ghosts = []sim.Ghost{circularGhost(w, bigR)}
-	shown := countBraille(v.Render(w, 0, 200, 60))
-	if shown-base < 20 {
-		t.Errorf("above-gate ghost orbit drew only %d cells past baseline — gate mis-firing", shown-base)
+	if shown := ghostInk(); shown < 15 {
+		t.Errorf("above-gate ghost orbit inked only %d cells — gate mis-firing", shown)
 	}
 }
 
