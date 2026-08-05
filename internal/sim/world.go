@@ -142,6 +142,15 @@ type World struct {
 	// handler at session open. Not persisted.
 	LaunchMaxQ float64
 
+	// LaunchMaxQAltM is the altitude (m) at which LaunchMaxQ was
+	// measured — the mark the ascent Q-band chip (issue #348 §3 / ADR
+	// 0043) draws on its vertical scale. Ratcheted alongside LaunchMaxQ
+	// in updateLaunchMaxQ; cleared everywhere LaunchMaxQ is. Zero is
+	// ambiguous with "measured at the pad", so callers gate on LaunchMaxQ
+	// > 0 (AscentQBand.HasMaxQ) rather than testing this field directly.
+	// Not persisted.
+	LaunchMaxQAltM float64
+
 	// LaunchTrail is the breadcrumb buffer of body-fixed (lat, lon,
 	// alt) samples the chase-cam scene re-projects each render so the
 	// trace visibly rotates with the body. FIFO cap 256, sampled at

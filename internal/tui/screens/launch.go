@@ -162,9 +162,17 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// trajectory lands. Ballistic-from-now, so an active burn walks it
 	// live — see sim.PredictImpact.
 	corridor, descending := sim.DescentCorridorFor(craft, sim.DescentPredictHorizon)
+	// The ascent half (ADR 0043 §3 / issue #348): the mirror-image gate —
+	// climbing, not falling — so exactly one of the two instrument sets is
+	// ever live for a given state (sim.AscentCueFor's doc comment; pinned
+	// by TestAscentCueForGatingMatrix). Bundles the nose/prograde vectors,
+	// the predicted path ahead, and the atmosphere/Q band behind one call
+	// for the same reason the descent corridor is one call: the scene and
+	// the chip must never disagree.
+	ascent, ascending := sim.AscentCueFor(w, craft, sim.AscentPredictHorizon)
 
 	if craft != nil && craft.Primary.MeanRadius > 0 {
-		v.renderScene(w, craft, corridor, descending)
+		v.renderScene(w, craft, corridor, descending, ascent, ascending)
 	} else if craft == nil {
 		// v0.11.4+ (sub-scope 5): the end-flight path can leave the
 		// slate empty mid-session (the player removes the only
@@ -215,6 +223,21 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 				corner:   cornerTopRight,
 				lines:    v.descentCorridorLines(corridor),
 				priority: chipPriorityForced,
+			})
+		}
+		// ATMOSPHERE is the ascent half's own chip (issue #348 §3),
+		// mirroring DESCENT CORRIDOR's placement and empty-id treatment —
+		// same corner, same "always-on while the gate holds, F2 still
+		// clears it" rule. Unlike the corridor's stop-margin alarm, nothing
+		// here is safety-critical (there's no "can this still be stopped"
+		// question during an ascent), so it competes for space at normal
+		// priority instead of chipPriorityForced. Gated additionally on
+		// HasQBand — an airless-body ascent gets the nose/prograde markers
+		// and the arc but has no atmosphere to chart.
+		if ascending && ascent.HasQBand && v.hudSource.chipEnabled("") {
+			chips = append(chips, builtChip{
+				corner: cornerTopRight,
+				lines:  v.ascentQBandLines(ascent.QBand),
 			})
 		}
 		canvasStr = v.hudSource.composeChips(canvasStr, cCols, cRows, nbReserved, 1, 2, chips)
@@ -355,7 +378,7 @@ func (v *LaunchView) renderNoActiveVesselMessage() {
 // local-up (radial from body centre). Depth axis points laterally —
 // useful for hemisphere culling. ViewTilt.Theta is suppressed inside
 // ViewLaunch per ADR-0002.
-func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, corridor sim.DescentCorridor, descending bool) {
+func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, corridor sim.DescentCorridor, descending bool, ascent sim.AscentCue, ascending bool) {
 	body := craft.Primary
 	// craft.State.R is primary-relative (Earth-centred for a LEO craft,
 	// Moon-centred for a Luna-orbiting craft, etc.). The render layer
@@ -407,8 +430,15 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 	// descent arc is the near-term detail of that same orbit and should
 	// win where they overlap) and before the surface markers + rocket, so
 	// the pad, the tower and the vessel still layer on top.
+	//
+	// Ascent half (ADR 0043 §3 / issue #348): the dashed path ahead of a
+	// climbing vessel, same layering rule. descending/ascending are
+	// mutually exclusive (sim.AscentCueFor's doc comment), so at most one
+	// of these ever draws.
 	if descending {
 		v.drawDescentArc(bodyCentre, camFromBody, corridor)
+	} else if ascending {
+		v.drawAscentArc(bodyCentre, ascent.Arc)
 	}
 
 	// Pad marker at the active craft's launch site, depth-culled.
@@ -441,6 +471,15 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 			}
 		}
 		v.canvas.SetCellOverlay(camWorld, glyph)
+	}
+
+	// Ascent half (ADR 0043 §3 / issue #348): nose-vs-prograde vector
+	// stubs anchored right on the sprite, drawn after the rocket so they
+	// read against it rather than under it. Only meaningful while
+	// ascending — HasAttitude is additionally false pre-first-tick or
+	// while sitting dead still on the pad (AttitudeVectorsFor).
+	if ascending && ascent.HasAttitude {
+		v.drawAscentAttitudeMarkers(ascent.Attitude, camWorld, scale)
 	}
 
 	// RCS puffs (v0.11.5 sub-scope 5): visible in the chase-cam so
@@ -744,6 +783,134 @@ func formatAltitude(m float64) string {
 		return fmt.Sprintf("%.2f km", m/1000)
 	}
 	return fmt.Sprintf("%.0f m", m)
+}
+
+// drawAscentArc inks the predicted path ahead of a climbing vessel (ADR
+// 0043 §3 / issue #348) — the ascent mirror of drawDescentArc. ClassPlanned
+// (dashed): a PLAN, not a live orbit (ADR 0041 §2, PR #353), same
+// treatment as the descent arc. Unlike the descent arc there's no
+// alarm/margin state to promote the colour with — an ascent has nothing
+// analogous to "can this stop in time" — so the arc is always the plain
+// planned-cyan.
+//
+// Nothing here needs to detect "the path exits the view" or "the vessel
+// reaches orbit" explicitly: the canvas's own segment clipping
+// (walkPixelDashSegment / clipSegmentToCanvas) already bounds the drawn
+// run to what's on-screen, and sim.PredictAscentPath already returns a
+// path capped to the ascent horizon whether or not it ever finds ground
+// contact.
+func (v *LaunchView) drawAscentArc(bodyCentre orbital.Vec3, arc sim.AscentPath) {
+	if len(arc.Path) < 2 {
+		return
+	}
+	pts := make([]orbital.Vec3, len(arc.Path))
+	for i, p := range arc.Path {
+		pts[i] = bodyCentre.Add(p)
+	}
+	v.canvas.PlotPolylineClass(pts, render.ColorPlannedNode, widgets.ClassPlanned)
+}
+
+// ascentMarkerStubPx is the stub length, in canvas sub-pixels, each
+// attitude vector extends from the sprite (issue #348 §3). In the same
+// units drawRCSPuffs uses for its own short direction indicators
+// (puffStep = 5 sub-pixels) — bumped slightly so the nose/prograde
+// divergence during a gravity turn reads as two separated stubs rather
+// than overlapping dots at small pitch angles.
+const ascentMarkerStubPx = 6.0
+
+// drawAscentAttitudeMarkers plots the nose and prograde vector stubs from
+// the active vessel's screen position (ADR 0043 §3 / issue #348): a
+// gravity turn is exactly the story of these two directions drifting
+// apart and then converging again near MECO, and putting them right on
+// the sprite makes that story readable without reading the corner
+// navball. Colors reuse the navball's own vocabulary
+// (render.ColorNavballMarkerNoseFront / ColorNavballMarkerPrograde) so
+// "nose" and "prograde" mean the same hue everywhere in the UI.
+func (v *LaunchView) drawAscentAttitudeMarkers(vec sim.AttitudeVectors, anchorWorld orbital.Vec3, scaleMPerPx float64) {
+	if scaleMPerPx <= 0 || vec.NoseDir.Norm() == 0 || vec.ProgradeDir.Norm() == 0 {
+		return
+	}
+	step := ascentMarkerStubPx * scaleMPerPx
+	v.canvas.PlotDenseLineColored(anchorWorld, anchorWorld.Add(vec.NoseDir.Scale(step)), render.ColorNavballMarkerNoseFront, 1)
+	v.canvas.PlotDenseLineColored(anchorWorld, anchorWorld.Add(vec.ProgradeDir.Scale(step)), render.ColorNavballMarkerPrograde, 1)
+}
+
+// ascentQBandRows is the number of altitude bands the ATMOSPHERE chip's
+// vertical scale divides the atmosphere into — top row is the cutoff
+// altitude (the top of the modelled atmosphere), bottom row is the
+// ground. Six is enough to place the current-altitude and max-Q marks
+// distinctly without making the chip taller than the DESCENT CORRIDOR
+// chip it never coexists with.
+const ascentQBandRows = 6
+
+// Glyphs for the ATMOSPHERE chip's vertical scale: the vessel's current
+// band, the band the peak-Q-so-far was measured in, and a bare tick for
+// every other band. Single-cell, no wide/combining runes — the chip's
+// padChipBlock right-pads by rune count, and a double-width glyph here
+// would throw that off (the same "no %-Ns padding" trap the launch HUD
+// strip already documents for byte-vs-rune widths).
+const (
+	ascentQBandCraftGlyph = "▶"
+	ascentQBandMaxQGlyph  = "✕"
+	ascentQBandTickGlyph  = "│"
+)
+
+// qBandRowIndex maps an altitude within [0, cutoffM] onto one of `rows`
+// bands, top row 0 = cutoffM (the atmosphere's outer edge), bottom row
+// rows-1 = the ground. Altitudes outside the range clamp to the nearest
+// edge — a vessel already well clear of the atmosphere still reads at
+// the top row rather than an undefined or out-of-range index.
+func qBandRowIndex(altM, cutoffM float64, rows int) int {
+	if cutoffM <= 0 || rows <= 0 {
+		return 0
+	}
+	frac := altM / cutoffM
+	if frac < 0 {
+		frac = 0
+	} else if frac > 1 {
+		frac = 1
+	}
+	idx := int((1 - frac) * float64(rows))
+	if idx >= rows {
+		idx = rows - 1
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	return idx
+}
+
+// ascentQBandLines renders the ATMOSPHERE chip: a vertical scale from the
+// atmosphere's outer edge down to the ground, the vessel's current
+// position on it, and the altitude of the peak dynamic pressure measured
+// so far this session. See sim.AscentQBand's doc comment for why the mark
+// is "the peak measured so far" rather than a forecast eventual peak —
+// the ballistic-from-now ascent arc has no future thrust program to
+// integrate a real forecast from.
+func (v *LaunchView) ascentQBandLines(qb sim.AscentQBand) []string {
+	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, ascentQBandRows)
+	maxRow := -1
+	if qb.HasMaxQ {
+		maxRow = qBandRowIndex(qb.MaxQAltM, qb.AtmosphereDepthM, ascentQBandRows)
+	}
+	lines := []string{v.theme.Primary.Render("ATMOSPHERE")}
+	for i := 0; i < ascentQBandRows; i++ {
+		switch {
+		case i == curRow && i == maxRow:
+			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandCraftGlyph, formatAltitude(qb.CurrentAltM)))
+		case i == curRow:
+			lines = append(lines, fmt.Sprintf("  %s %s", ascentQBandCraftGlyph, formatAltitude(qb.CurrentAltM)))
+		case i == maxRow:
+			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandMaxQGlyph, formatAltitude(qb.MaxQAltM)))
+		default:
+			lines = append(lines, "  "+ascentQBandTickGlyph)
+		}
+	}
+	lines = append(lines, fmt.Sprintf("  Q:     %.1f kPa", qb.CurrentQPa/1000))
+	if qb.HasMaxQ {
+		lines = append(lines, fmt.Sprintf("  max Q: %.1f kPa", qb.MaxQPa/1000))
+	}
+	return lines
 }
 
 // (launchOrbitSamples retired by ADR 0042 §3.) The chase-cam used to size

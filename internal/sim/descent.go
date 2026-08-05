@@ -101,19 +101,62 @@ type ImpactPrediction struct {
 // descent instrument exists to answer, and it re-derives from the live
 // state every frame so an active burn visibly walks the answer.
 func PredictImpact(c *spacecraft.Spacecraft, horizon time.Duration) (ImpactPrediction, bool) {
-	if c == nil {
+	fc, setupOK := forwardBallisticPath(c, horizon)
+	if !setupOK || !fc.ImpactFound {
 		return ImpactPrediction{}, false
+	}
+	return ImpactPrediction{
+		Point:        fc.Impact,
+		Path:         fc.Path,
+		TimeToImpact: fc.TimeToImpact,
+		SpeedMps:     fc.SpeedMps,
+	}, true
+}
+
+// ballisticForecast is forwardBallisticPath's result: the sampled path
+// plus, when the horizon actually finds one, ground contact. Shared by
+// PredictImpact (descent, ADR 0043 §3 first half) and PredictAscentPath
+// (ascent, §3 second half / issue #348, internal/sim/ascent.go) — see
+// forwardBallisticPath's doc comment for why the loop itself lives in
+// exactly one place.
+type ballisticForecast struct {
+	Path         []orbital.Vec3
+	Impact       orbital.Vec3
+	ImpactFound  bool
+	TimeToImpact time.Duration
+	SpeedMps     float64
+}
+
+// forwardBallisticPath is the one forward-propagation loop behind both
+// the descent and ascent halves of the surface view (ADR 0043 §3 / issue
+// #348): it walks the craft's current state forward via predictStep —
+// the repo's single propagator — until either ground contact or the
+// horizon runs out, and returns the full sampled path either way.
+// PredictImpact discards the path when no contact is found inside the
+// horizon; PredictAscentPath needs exactly that path (a climbing vessel,
+// or one that has already reached a stable-enough orbit, is the common
+// case where no contact is ever found) — this is what makes both
+// instrument sets agree on where this trajectory goes, instead of a
+// second propagator drifting apart from this one (the #66 lesson
+// documented at the top of this file).
+//
+// setupOK is false only for the degenerate-input cases PredictImpact has
+// always refused: a nil craft, missing primary radius/mu, a non-positive
+// horizon, or a craft state already at/under the surface.
+func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ballisticForecast, bool) {
+	if c == nil {
+		return ballisticForecast{}, false
 	}
 	primary := c.Primary
 	radius := primary.RadiusMeters()
 	mu := primary.GravitationalParameter()
 	total := horizon.Seconds()
 	if radius <= 0 || mu <= 0 || total <= 0 {
-		return ImpactPrediction{}, false
+		return ballisticForecast{}, false
 	}
 	state := c.State
 	if r := state.R.Norm(); r <= radius || math.IsNaN(r) {
-		return ImpactPrediction{}, false
+		return ballisticForecast{}, false
 	}
 	bc := c.EffectiveBallisticCoefficient()
 
@@ -127,7 +170,7 @@ func PredictImpact(c *spacecraft.Spacecraft, horizon time.Duration) (ImpactPredi
 		dt = total / float64(steps)
 	}
 	if steps < 1 {
-		return ImpactPrediction{}, false
+		return ballisticForecast{}, false
 	}
 	sampleEvery := steps / impactPathSamples
 	if sampleEvery < 1 {
@@ -148,9 +191,10 @@ func PredictImpact(c *spacecraft.Spacecraft, horizon time.Duration) (ImpactPredi
 				point = point.Scale(radius / n)
 			}
 			path = append(path, point)
-			return ImpactPrediction{
-				Point:        point,
+			return ballisticForecast{
 				Path:         path,
+				Impact:       point,
+				ImpactFound:  true,
 				TimeToImpact: time.Duration(elapsed * float64(time.Second)),
 				SpeedMps:     physics.AirRelativeVelocity(hit.R, hit.V, primary).Norm(),
 			}, true
@@ -160,7 +204,7 @@ func PredictImpact(c *spacecraft.Spacecraft, horizon time.Duration) (ImpactPredi
 			path = append(path, state.R)
 		}
 	}
-	return ImpactPrediction{}, false
+	return ballisticForecast{Path: path}, true
 }
 
 // refineSurfaceCrossing bisects surface contact inside (0, dt]: pre is

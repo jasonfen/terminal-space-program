@@ -118,6 +118,7 @@ func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 		// new vessel's launch.
 		w.LaunchT0 = w.Clock.SimTime
 		w.LaunchMaxQ = 0
+		w.LaunchMaxQAltM = 0
 		w.LaunchTrail = w.LaunchTrail[:0]
 		w.LaunchZoom = 0
 	case inSession && !newLanded:
@@ -164,6 +165,7 @@ func (w *World) releaseLaunchSession() {
 	w.LaunchSessionActive = false
 	w.LaunchT0 = time.Time{}
 	w.LaunchMaxQ = 0
+	w.LaunchMaxQAltM = 0
 	w.LaunchTrail = w.LaunchTrail[:0]
 	w.LaunchZoom = 0
 }
@@ -190,6 +192,7 @@ func (w *World) updateLaunchMaxQ() {
 	q := 0.5 * rho * vMag * vMag
 	if q > w.LaunchMaxQ {
 		w.LaunchMaxQ = q
+		w.LaunchMaxQAltM = alt
 	}
 }
 
@@ -247,6 +250,7 @@ func (w *World) routeToLaunchView() {
 	w.ViewMode = ViewLaunch
 	w.LaunchT0 = w.Clock.SimTime
 	w.LaunchMaxQ = 0
+	w.LaunchMaxQAltM = 0
 	w.LaunchTrail = w.LaunchTrail[:0]
 	w.LaunchZoom = 0
 }
