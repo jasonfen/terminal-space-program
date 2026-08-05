@@ -40,6 +40,12 @@ type OrbitView struct {
 	// move the camera. Per-frame center *tracking* of the focused object
 	// continues below — that is what Focus means — but the fit is written
 	// exactly once per event, then owned by the player.
+	//
+	// Render also diffs these against the incoming World state to tell a
+	// real Framing Event (one of these fields actually changed) apart from
+	// a bare resize (none of them changed, only !fitted is true) — Zoom
+	// Memory (ADR 0042) only restores/resets userZoom on the former; a
+	// resize refits baseScale but always keeps the multiplier.
 	lastSystemIdx int
 	lastFocus     sim.Focus
 	lastViewMode  sim.ViewMode
@@ -60,10 +66,25 @@ type OrbitView struct {
 	// `+`/`-` multiplier on top of it: the on-screen scale is
 	// baseScale × userZoom, re-applied every frame (v0.18.2 mechanism).
 	// baseScale only changes at a Framing Event, so on a steady focus
-	// manual zoom persists indefinitely; userZoom resets to 1.0 at the
-	// next Framing Event (fresh framing context, fresh zoom).
+	// manual zoom persists indefinitely. Per Zoom Memory (ADR 0042,
+	// amending ADR 0021's original "userZoom resets to 1.0 at every
+	// Framing Event" rule): a real Framing Event restores the multiplier
+	// this focus target last used (or 1.0 on a first visit), and a bare
+	// resize never touches userZoom at all — see zoomMemory below and the
+	// contextChanged guard in Render.
 	baseScale float64
 	userZoom  float64
+
+	// zoomMemory persists the manual zoom multiplier the player last set
+	// at each focus target visited this session (ADR 0042). Keyed by
+	// zoomMemoryKey — sim.Focus is already the comparable identity the
+	// Framing-Event guard above uses (lastFocus), extended with SystemIdx
+	// because Focus.BodyIdx is only unique within one system's Bodies
+	// slice (index 3 in Sol and index 3 in Lumen are different bodies).
+	// Session-only: never persisted to the save file, never bumps the
+	// save schema. Written by setUserZoom, read at each real Framing
+	// Event (not a bare resize) in Render.
+	zoomMemory map[zoomMemoryKey]float64
 
 	// burnFrozenCenter pins the canvas center for the duration of an
 	// active burn. Captured when ActiveBurn becomes non-nil, cleared
@@ -301,11 +322,36 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 // ZoomIn / ZoomOut are thin wrappers for App to call on +/-. They nudge the
 // manual-zoom multiplier (applied over the Framing-Event base scale in
 // Render): scale = baseScale × userZoom, so the player's zoom persists
-// indefinitely on a steady focus and resets only at the next Framing Event
-// (ADR 0021 A). Clamped to a wide but finite range so a held key can't drive
-// the scale to a degenerate value.
+// indefinitely on a steady focus and, per Zoom Memory (ADR 0042), is
+// restored rather than reset the next time the player returns to this
+// focus target. Clamped to a wide but finite range so a held key can't
+// drive the scale to a degenerate value.
 func (v *OrbitView) ZoomIn()  { v.setUserZoom(v.userZoom * 1.25) }
 func (v *OrbitView) ZoomOut() { v.setUserZoom(v.userZoom / 1.25) }
+
+// zoomMemoryKey identifies a focus target for Zoom Memory (ADR 0042).
+// sim.Focus is already the comparable identity Render's Framing-Event
+// guard uses (lastFocus) — bodies by index, the active craft by kind
+// alone (there is no per-craft field on Focus, so a dock/undock that
+// swaps which craft is active shares the one FocusCraft slot, same as
+// the Framing-Event guard already treats it), ghosts by owner+craft ID.
+// SystemIdx is added because Focus.BodyIdx is only unique within one
+// system's Bodies slice — body index 3 in Sol and body index 3 in Lumen
+// are different bodies and must not share a remembered zoom.
+type zoomMemoryKey struct {
+	systemIdx int
+	focus     sim.Focus
+}
+
+// zoomMemoryFor returns the multiplier the player last set at the given
+// focus target, or 1 (fresh fit) when the target has no recorded visit
+// this session — ADR 0042 "first visit fits fresh."
+func (v *OrbitView) zoomMemoryFor(systemIdx int, focus sim.Focus) float64 {
+	if z, ok := v.zoomMemory[zoomMemoryKey{systemIdx, focus}]; ok {
+		return z
+	}
+	return 1
+}
 
 func (v *OrbitView) setUserZoom(z float64) {
 	const minZoom, maxZoom = 1e-4, 1e4
@@ -316,6 +362,15 @@ func (v *OrbitView) setUserZoom(z float64) {
 		z = maxZoom
 	}
 	v.userZoom = z
+	// Zoom Memory (ADR 0042): record against the focus target Render most
+	// recently fit to, so returning to it later restores this value
+	// instead of the ADR 0021-era reset to 1×. lastSystemIdx/lastFocus are
+	// only written by Render's Framing-Event block, so this always keys
+	// against the currently-displayed target.
+	if v.zoomMemory == nil {
+		v.zoomMemory = make(map[zoomMemoryKey]float64)
+	}
+	v.zoomMemory[zoomMemoryKey{v.lastSystemIdx, v.lastFocus}] = z
 }
 
 // HitAt translates a screen-space mouse coordinate (col, row) into a
@@ -411,9 +466,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// target (body or craft) we still re-center every frame below; this
 	// path only fires when the framing *context* changes, not when the
 	// target moves.
+	//
+	// contextChanged distinguishes a real Framing Event from a bare
+	// resize: a resize leaves SystemIdx/Focus/ViewMode/craftHere all
+	// unchanged and only clears v.fitted. Zoom Memory (ADR 0042) restores
+	// or resets userZoom solely on contextChanged — a resize refits
+	// baseScale below but always keeps the player's current multiplier.
 	craftHere := w.CraftVisibleHere()
-	if v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus ||
-		v.lastViewMode != w.ViewMode || v.lastCraftHere != craftHere || !v.fitted {
+	contextChanged := v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus ||
+		v.lastViewMode != w.ViewMode || v.lastCraftHere != craftHere
+	if contextChanged || !v.fitted {
 		v.lastSystemIdx = w.SystemIdx
 		v.lastFocus = w.Focus
 		v.lastViewMode = w.ViewMode
@@ -435,7 +497,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 		v.baseScale = v.canvas.Scale()
-		v.userZoom = 1 // fresh framing context — drop any manual zoom
+		if contextChanged {
+			// Zoom Memory (ADR 0042): a real Framing Event restores the
+			// multiplier this focus target last used, or starts fresh at
+			// 1× on a first visit — amending ADR 0021's unconditional
+			// reset. A bare resize (contextChanged false) falls through
+			// this branch and leaves userZoom exactly as the player left
+			// it.
+			v.userZoom = v.zoomMemoryFor(w.SystemIdx, w.Focus)
+		}
 		// A Framing Event mid-burn re-frames once, then re-freezes: drop
 		// the frozen-center snapshot so the burn guard below re-captures
 		// it at the new focus center (ADR 0021 watch-point).
