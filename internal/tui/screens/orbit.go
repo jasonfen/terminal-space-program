@@ -86,6 +86,17 @@ type OrbitView struct {
 	// Event (not a bare resize) in Render.
 	zoomMemory map[zoomMemoryKey]float64
 
+	// panOffset (ADR 0042, CONTEXT.md "Pan") is the player's ↑↓←→ view
+	// offset from the tracked Focus, in world units. Render adds it to
+	// FocusPosition() every frame — so the camera keeps tracking a moving
+	// Focus, just displaced — and it is purely view state: it never
+	// touches Focus or Target. Like userZoom/zoomMemory above, it resets
+	// only on a real Framing Event (contextChanged) — a bare resize keeps
+	// it, same reasoning as Zoom Memory's resize carve-out: resize isn't a
+	// refocus. So `g` or any refocus snaps the view back onto the tracked
+	// object, but resizing the terminal does not.
+	panOffset orbital.Vec3
+
 	// burnFrozenCenter pins the canvas center for the duration of an
 	// active burn. Captured when ActiveBurn becomes non-nil, cleared
 	// when it returns to nil. v0.6.3 fix: focus-on-craft tracks the
@@ -373,6 +384,45 @@ func (v *OrbitView) setUserZoom(z float64) {
 	v.zoomMemory[zoomMemoryKey{v.lastSystemIdx, v.lastFocus}] = z
 }
 
+// panStepFraction is the fraction of the viewport's extent along an axis
+// that a single ↑↓←→ press slides panOffset by (ADR 0042). Expressed as a
+// screen-space fraction and converted to world units through the canvas's
+// current scale (baseScale × userZoom) each call, so a press feels like the
+// same-sized nudge on screen whether the player is zoomed to a body's
+// surface or the whole system — a fixed *world* step would vanish at high
+// zoom and fly off-screen at low zoom.
+const panStepFraction = 0.1
+
+// PanLeft / PanRight / PanUp / PanDown are thin wrappers for App to call on
+// the plain ↑↓←→ keys. They nudge panOffset — the Pan view-offset from
+// Focus (CONTEXT.md "Pan") — by panStepFraction of the viewport along the
+// canvas's current projection basis, so the step direction always matches
+// what's on screen even under a tilted or perifocal basis. Purely view
+// state: never touches Focus or Target, and Render zeroes panOffset again
+// at the next Framing Event.
+func (v *OrbitView) PanLeft()  { v.pan(-1, 0) }
+func (v *OrbitView) PanRight() { v.pan(1, 0) }
+func (v *OrbitView) PanUp()    { v.pan(0, 1) }
+func (v *OrbitView) PanDown()  { v.pan(0, -1) }
+
+// pan converts a unit (dx, dy) screen-space direction into a world-space
+// nudge along the canvas's current basis vectors and accumulates it onto
+// panOffset. dx/dy are ∈ {-1, 0, 1}; basis.Y already points screen-up (see
+// Canvas.Project), so PanUp adds +basis.Y and PanDown adds -basis.Y with no
+// extra sign flip needed.
+func (v *OrbitView) pan(dx, dy int) {
+	scale := v.canvas.Scale()
+	if scale <= 0 {
+		return
+	}
+	basis := v.canvas.Basis()
+	stepX := panStepFraction * float64(v.canvas.Cols()*2) / scale
+	stepY := panStepFraction * float64(v.canvas.Rows()*4) / scale
+	v.panOffset = v.panOffset.
+		Add(basis.X.Scale(float64(dx) * stepX)).
+		Add(basis.Y.Scale(float64(dy) * stepY))
+}
+
 // HitAt translates a screen-space mouse coordinate (col, row) into a
 // CellTag from the orbit canvas. The orbit screen renders title (1
 // row) + canvasPanel (rounded border = 1 row top, 1 col left)
@@ -505,6 +555,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// this branch and leaves userZoom exactly as the player left
 			// it.
 			v.userZoom = v.zoomMemoryFor(w.SystemIdx, w.Focus)
+			// Pan (ADR 0042): a real Framing Event snaps the view back onto
+			// the tracked object, same as it restores userZoom above. `g`
+			// (FocusReset) changes w.Focus, which is itself a Framing Event,
+			// so it needs no separate handling here. A bare resize
+			// (contextChanged false) is deliberately excluded — resizing
+			// the terminal isn't a refocus, so it keeps both the zoom
+			// multiplier and the pan offset exactly as the player left them.
+			v.panOffset = orbital.Vec3{}
 		}
 		// A Framing Event mid-burn re-frames once, then re-freezes: drop
 		// the frozen-center snapshot so the burn guard below re-captures
@@ -529,6 +587,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	} else if v.burnFrozenCenter != nil {
 		v.burnFrozenCenter = nil
 	}
+	// Pan (ADR 0042): displace the tracked center by the player's ↑↓←→
+	// offset. Applied after the burn-freeze resolution above (so panning
+	// still works while a burn holds the frozen center) and every frame
+	// regardless of Focus motion — this is what keeps center tracking
+	// "continuing, just displaced" rather than snapshotting the offset once.
+	center = center.Add(v.panOffset)
 	// Compose the player's manual `+`/`-` zoom over the Framing-Event base
 	// scale, every frame: scale = baseScale × userZoom (v0.18.2 mechanism,
 	// ADR 0021 A). baseScale is frozen between Framing Events, so on a

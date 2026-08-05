@@ -49,8 +49,18 @@ type Keymap struct {
 	NextBody   key.Binding
 	PrevBody   key.Binding
 	NextSystem key.Binding
-	WarpUp     key.Binding
-	WarpDown   key.Binding
+	// PanLeft / PanRight / PanUp / PanDown (ADR 0042): plain ↑↓←→ pan the
+	// OrbitView as a focus-relative offset (CONTEXT.md "Pan") — the camera
+	// keeps tracking Focus every frame, just displaced. `g` or any refocus
+	// clears the offset (see OrbitView.Render's Framing Event reset).
+	// Body-browse gave up its ←/→ aliases here so these keys are free; it
+	// lives on h/l alone (NextBody/PrevBody above), already bound there.
+	PanLeft  key.Binding
+	PanRight key.Binding
+	PanUp    key.Binding
+	PanDown  key.Binding
+	WarpUp   key.Binding
+	WarpDown key.Binding
 	// AutoWarp (v0.16 / ADR 0016) toggles Auto-Warp: warp to 30 s before
 	// the next burn, then drop to 1×. Selected Warp (WarpUp/WarpDown) is
 	// untouched; a manual warp keypress cancels Auto-Warp first.
@@ -275,8 +285,12 @@ func DefaultKeymap() Keymap {
 		Maneuver: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "maneuver")),
 		Missions: key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "missions (ladder)")),
 		Session:  key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "session roster (multiplayer)")),
-		NextBody: key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→/l", "next body")),
-		PrevBody: key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←/h", "prev body")),
+		NextBody: key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "next body")),
+		PrevBody: key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "prev body")),
+		PanLeft:  key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pan left")),
+		PanRight: key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "pan right")),
+		PanUp:    key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "pan up")),
+		PanDown:  key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "pan down")),
 		// v0.7.3: NextSystem moved s → tab to free `s` for AttitudeRetrograde.
 		NextSystem: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next system")),
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
