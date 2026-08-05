@@ -52,8 +52,29 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 		return
 	}
 	primaryPos := w.BodyPosition(c.Primary)
-	drawMarker(v.canvas, primaryPos.Add(posA), render.MarkerClosestApproach, render.MarkerNominal, "", widgets.CellTag{})
-	drawMarker(v.canvas, primaryPos.Add(posB), render.MarkerClosestApproach, render.MarkerNominal, "", widgets.CellTag{})
+	ownPos, targetPos := primaryPos.Add(posA), primaryPos.Add(posB)
+	// Inspect (ADR 0041 §3): the ✕ PAIR is one identity, not two — its
+	// meaning is the relationship "closest approach with <target>", which
+	// is why both ends share a ref and one chip. The pair anchors on the
+	// craft's own end, so the chip lands where the player is looking from.
+	caRef := InspectRef{Kind: InspectApproach}
+	caTag := widgets.CellTag{Owner: caRef.OwnerKey()}
+	if _, _, onCanvas := v.canvas.Project(ownPos); onCanvas {
+		// Not targetable: the ✕ exists BECAUSE something is already
+		// targeted, so committing it would be a no-op on the slot it
+		// describes.
+		v.addInspectable(caRef, inspectApproachName(w), ownPos, false)
+	}
+	drawMarker(v.canvas, ownPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
+	drawMarker(v.canvas, targetPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
+	if v.isInspected(caRef) {
+		// Flare BOTH ends: the pair is the entity, and lighting only one
+		// ✕ would hide the very thing the marker exists to show — which
+		// two points on which two orbits the encounter joins.
+		glyph := render.MarkerGlyph(render.MarkerClosestApproach)
+		v.canvas.SetCellOverlayColored(ownPos, glyph, render.ColorInspect)
+		v.canvas.SetCellOverlayColored(targetPos, glyph, render.ColorInspect)
+	}
 }
 
 // drawTargetPlaneNodes plots the map's ◇ Ascending / ◆ Descending Node

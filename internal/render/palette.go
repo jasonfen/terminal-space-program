@@ -53,6 +53,16 @@ var (
 	// signal link distinct from the slate live orbit, amber maneuver legs,
 	// and orchid SOI arcs.
 	ColorCommLink = lipgloss.Color("#34E2D0")
+	// ColorInspect is the Inspect flare (ADR 0041 §3 / #346): the ONE
+	// entity the player is currently inspecting redraws in this colour,
+	// over whatever colour it would otherwise wear, plus a bright ring at
+	// its position and a name chip beside it. Pure white is deliberate —
+	// it is the brightest thing the terminal has, which is what "flare"
+	// means here, and no standing map layer claims it (ColorTrajectory
+	// shares the hue but is only the unresolved-leg fallback). Safe to be
+	// the loudest colour on the map precisely because Inspect is
+	// on-demand and single: never standing ink, never two at once.
+	ColorInspect = lipgloss.Color("#FFFFFF")
 )
 
 // Orbital-marker type colours (ADR 0020). The unified marker convention

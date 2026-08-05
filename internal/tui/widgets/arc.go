@@ -215,6 +215,21 @@ func (c *Canvas) drawEllipseAdaptive(
 	bodyPxR int,
 	color lipgloss.Color,
 ) {
+	c.drawEllipseAdaptiveTagged(el, offset, minSpans, nearSpacingPx, farSpacingPx, bodyPos, bodyPxR, CellTag{Color: color})
+}
+
+// drawEllipseAdaptiveTagged is drawEllipseAdaptive carrying the full
+// CellTag (colour + Inspect Owner, ADR 0041 §3) onto every pixel of the
+// curve, so an orbit line is hit-testable back to the entity that owns it.
+func (c *Canvas) drawEllipseAdaptiveTagged(
+	el orbital.Elements,
+	offset orbital.Vec3,
+	minSpans int,
+	nearSpacingPx, farSpacingPx int,
+	bodyPos orbital.Vec3,
+	bodyPxR int,
+	tag CellTag,
+) {
 	if nearSpacingPx < 1 {
 		nearSpacingPx = 1
 	}
@@ -233,7 +248,6 @@ func (c *Canvas) drawEllipseAdaptive(
 	if c.scale > 0 {
 		behindThreshold = -0.5 / c.scale
 	}
-	tag := CellTag{Color: color}
 	// One dash phase for the whole curve: the cadence has to survive chord
 	// boundaries or a finely flattened curve inks solid (every chord would
 	// restart at phase 0).

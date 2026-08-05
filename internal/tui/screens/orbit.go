@@ -214,6 +214,22 @@ type OrbitView struct {
 	// path cheap; this keeps a real pass off the per-frame hot path.
 	soiPassCache         soiPassRenderCache
 	soiPassCacheComputes int
+
+	// inspectables is the set of identity-bearing entities THIS frame
+	// drew, in draw order — rebuilt from scratch at the top of every
+	// Render by the draw sites themselves (ADR 0041 §3; see
+	// orbit_inspect.go). Building it at the draw sites rather than from
+	// world state is what makes "if it isn't on screen, it isn't
+	// inspectable" true by construction instead of by a parallel
+	// visibility test that could drift from the renderer.
+	//
+	// inspectRef is the entity currently flaring, held ACROSS frames by
+	// identity (not by index into the slice above) so the highlight
+	// stays on the same vessel while the map redraws and the vessel
+	// moves. Transient screen state: cleared at every Framing Event,
+	// never persisted, never mirrored into the world.
+	inspectables []inspectable
+	inspectRef   InspectRef
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
@@ -563,6 +579,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// the terminal isn't a refocus, so it keeps both the zoom
 			// multiplier and the pan offset exactly as the player left them.
 			v.panOffset = orbital.Vec3{}
+			// Inspect (ADR 0041 §3) is bound to the frame the player is
+			// looking at, so a Framing Event ends it — refocusing or
+			// switching view is a change of subject, and carrying a
+			// highlight across it would leave a flare on something the
+			// player is no longer looking for.
+			v.InspectClear()
 		}
 		// A Framing Event mid-burn re-frames once, then re-freezes: drop
 		// the frozen-center snapshot so the burn guard below re-captures
@@ -571,6 +593,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	}
 
 	v.canvas.Clear()
+	// Inspect (ADR 0041 §3): the inspectable set is a property of the
+	// frame, so it is emptied here and refilled by the draw sites below.
+	v.resetInspectables()
 	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
 	// Burn-frozen camera: hold the center steady while a burn is live so
@@ -613,7 +638,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			continue
 		}
 		el := orbital.ElementsFromBody(b)
-		v.canvas.DrawEllipseClass(el, orbital.Vec3{}, 360, widgets.ClassScenery, orbital.Vec3{}, 0, render.ColorBodyOrbit)
+		// Inspect (ADR 0041 §3): a body's orbit line carries the body's
+		// own identity, so clicking the dotted track answers with the
+		// body — and inspecting the body flares its track. The body
+		// itself joins the inspectable set at its disk below, where its
+		// on-canvas test lives.
+		bodyRef := InspectRef{Kind: InspectBody, BodyID: b.ID}
+		v.canvas.DrawEllipseClassTagged(el, orbital.Vec3{}, 360, widgets.ClassScenery, orbital.Vec3{}, 0,
+			widgets.CellTag{Color: v.inspectLineColor(bodyRef, render.ColorBodyOrbit), Owner: bodyRef.OwnerKey()})
 	}
 
 	// Plot each body at its perceived-size disk. System primary (index 0)
@@ -673,7 +705,21 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		color := render.ColorFor(b)
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
-		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID}
+		// ADR 0041 §3 adds the Inspect Owner alongside it: BodyID keeps
+		// driving the existing click action (move the body Cursor),
+		// Owner additionally drives the identity highlight, so bodies
+		// integrate with Inspect instead of getting a second, parallel
+		// selection mechanism.
+		bodyRef := InspectRef{Kind: InspectBody, BodyID: b.ID}
+		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID, Owner: bodyRef.OwnerKey()}
+		// Only a body actually on the canvas is inspectable. The system
+		// primary is deliberately included in the cycle (it is a thing on
+		// the map with a name) but not targetable — SetTargetBody rejects
+		// index 0, and silently CLEARING the target would be a nastier
+		// surprise than a refusal.
+		if _, _, onCanvas := v.canvas.Project(pos); onCanvas {
+			v.addInspectable(bodyRef, inspectBodyName(b.EnglishName), pos, i > 0)
+		}
 		// v0.8.5.7+: compute view-aware sub-observer point per body
 		// per frame. Camera direction comes from the canvas's
 		// current ViewMode; body axis tilt + sim-time rotation
@@ -897,6 +943,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	for _, g := range w.Ghosts {
 		ghostColor := lipgloss.Color(render.ColorDim)
 		isTarget := ghostTargeted && g.Owner == tgtGhost.Owner && g.CraftID == tgtGhost.CraftID
+		// Inspect (ADR 0041 §3): ghosts are the entities the ADR's
+		// "whose line is whose" diagnosis is really about — every ghost
+		// draws in the same ColorDim, so two other players are
+		// indistinguishable by construction, and Inspect is the chosen
+		// answer instead of giving each a hue.
+		ghostRef := InspectRef{Kind: InspectGhost, Owner: g.Owner, CraftID: g.CraftID}
+		if _, _, onCanvas := v.canvas.Project(g.Pos); onCanvas {
+			v.addInspectable(ghostRef, inspectGhostName(g.Handle, g.Name), g.Pos, true)
+		}
 		gPrimaryIdx := -1
 		for i := range sys.Bodies {
 			if sys.Bodies[i].ID == g.PrimaryID {
@@ -918,7 +973,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				if isTarget {
 					orbitColor = render.ColorTarget
 				}
-				v.canvas.DrawEllipseClass(el, gPrimaryPos, 180, widgets.ClassReal, gPrimaryPos, gPxR, orbitColor)
+				v.canvas.DrawEllipseClassTagged(el, gPrimaryPos, 180, widgets.ClassReal, gPrimaryPos, gPxR,
+					widgets.CellTag{Color: v.inspectLineColor(ghostRef, orbitColor), Owner: ghostRef.OwnerKey()})
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
 					// ghost's own apsides, dimmed via MarkerCounterfactual
@@ -941,7 +997,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if isTarget {
 			ghostColor = render.ColorTarget
 		}
-		v.canvas.PlotColored(g.Pos, ghostColor)
+		ghostColor = v.inspectLineColor(ghostRef, ghostColor)
+		v.canvas.PlotColoredTagged(g.Pos, widgets.CellTag{Color: ghostColor, Owner: ghostRef.OwnerKey()})
 		if gl := []rune(g.Glyph); len(gl) > 0 {
 			v.canvas.SetCellOverlayColored(g.Pos, gl[0], ghostColor)
 		}
@@ -968,10 +1025,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// occlusion. Apo / peri markers + the craft chevron use the
 		// same check.
 		primaryPxR := BodyPixelRadius(c.Primary, false, scale, canvasReach)
+		// Inspect (ADR 0041 §3): your own vessel is in the cycle — "which
+		// of these is me" is a real question on a crowded map — but it is
+		// not targetable, since a vessel cannot be its own Target.
+		activeRef := InspectRef{Kind: InspectVessel, CraftID: c.ID}
 		if orbitVisible {
 			// Real class, bright (ADR 0041 §2): the active vessel's live
 			// orbit — solid, contiguous ink.
-			v.canvas.DrawEllipseClass(el, primaryPos, 360, widgets.ClassReal, primaryPos, primaryPxR, render.ColorCurrentOrbit)
+			v.canvas.DrawEllipseClassTagged(el, primaryPos, 360, widgets.ClassReal, primaryPos, primaryPxR,
+				widgets.CellTag{Color: v.inspectLineColor(activeRef, render.ColorCurrentOrbit), Owner: activeRef.OwnerKey()})
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 			// Unified single-glyph markers (ADR 0020): ▼ periapsis / ▲
@@ -985,6 +1047,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 		craftInertial := w.CraftInertial()
+		if c.ID != 0 {
+			// A craft with no stamped ID has no stable identity to hold a
+			// highlight on across frames; EnsureCraftIDs stamps every live
+			// craft at world construction and load, so this only skips a
+			// hand-built one.
+			if _, _, onCanvas := v.canvas.Project(craftInertial); onCanvas {
+				v.addInspectable(activeRef, c.Name, craftInertial, false)
+			}
+		}
 		// v0.8.3+: engine-firing flame trail behind the active craft
 		// when an ActiveBurn or main-engine ManualBurn is firing.
 		// flameStep = 5 / scale puts each step in a cell adjacent
@@ -1072,11 +1143,19 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				// glance, even with multiple craft sharing the view.
 				otherColor = render.ColorTarget
 			}
+			otherRef := InspectRef{Kind: InspectVessel, CraftID: other.ID}
+			if other.ID != 0 {
+				if _, _, onCanvas := v.canvas.Project(otherInertial); onCanvas {
+					v.addInspectable(otherRef, other.Name, otherInertial, true)
+				}
+			}
+			otherColor = v.inspectLineColor(otherRef, otherColor)
 			if otherOrbitVisible {
 				// Real class (ADR 0041 §2): another craft's orbit is solid
 				// like the active vessel's — the TARGET promotion above is
 				// a color change, not a denser pattern.
-				v.canvas.DrawEllipseClass(otherEl, otherPrimaryPos, 180, widgets.ClassReal, otherPrimaryPos, otherPxR, otherColor)
+				v.canvas.DrawEllipseClassTagged(otherEl, otherPrimaryPos, 180, widgets.ClassReal, otherPrimaryPos, otherPxR,
+					widgets.CellTag{Color: otherColor, Owner: otherRef.OwnerKey()})
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
 					// craft's own apsides, dimmed via MarkerCounterfactual
@@ -1095,7 +1174,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				}
 			}
 			if !v.canvas.IsBehindBody(otherInertial, otherPrimaryPos, otherPxR) {
-				v.canvas.PlotColored(otherInertial, otherColor)
+				v.canvas.PlotColoredTagged(otherInertial, widgets.CellTag{Color: otherColor, Owner: otherRef.OwnerKey()})
 				if other.Glyph != "" {
 					if g := []rune(other.Glyph); len(g) > 0 {
 						// Pin the glyph color (see active-craft note below)
@@ -1119,7 +1198,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			if c.Color != "" {
 				activeColor = lipgloss.Color(c.Color)
 			}
-			v.canvas.FillColoredDiskTagged(craftInertial, 1, widgets.CellTag{Color: activeColor, IsVessel: true})
+			activeColor = v.inspectLineColor(activeRef, activeColor)
+			v.canvas.FillColoredDiskTagged(craftInertial, 1,
+				widgets.CellTag{Color: activeColor, IsVessel: true, Owner: activeRef.OwnerKey()})
 			if g := []rune(c.Glyph); len(g) > 0 {
 				// Pin the glyph color so it stays the vessel's own color
 				// instead of flipping to the body's color when the marker
@@ -1176,6 +1257,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			viewLabel = fmt.Sprintf("view: tilted %g°", w.ViewTilt.Theta)
 		}
 	}
+	// Inspect flare (ADR 0041 §3), stamped after every map layer so the
+	// one entity the player asked about is never painted over. The
+	// entity's own ink was already promoted at its draw site above; this
+	// is the halo, and the only flare the line-less kinds (nodes, the
+	// closest-approach pair) get.
+	v.drawInspectFlare()
+
 	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, viewLabel, v.theme.Primary.GetForeground())
 	// v0.13: the "focus:" indicator moved to the title bar (renderTitleBar)
 	// — the canvas top-left corner is now home to the pinned VESSEL chip,
@@ -1205,6 +1293,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// Nodes chip can stack above it (navballReservedRows).
 	navballReserved := v.navballReservedRows(w, cCols, cRows)
 	canvasStr = v.composeChips(canvasStr, cCols, cRows, navballReserved, 1, 2, v.assembleChips(w))
+	// Inspect's name chip paints last — after the navball and every
+	// corner Chip — because it is the direct answer to a question the
+	// player just asked, and a covered answer is no answer. It is also
+	// the one chip that isn't corner-anchored: it sits beside the entity
+	// it names. Declutter doesn't suppress it: F2 hides STANDING overlays,
+	// and Inspect is on-demand by construction (nothing is inspected
+	// unless the player asked this second).
+	canvasStr = v.composeInspectChip(canvasStr, cCols, cRows)
 
 	canvasPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1505,7 +1601,7 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 // IsBehindBody before calling; maneuver markers do not.
 func drawMarker(canvas *widgets.Canvas, pos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
 	color := render.MarkerColor(t, state, base)
-	if tag.NodeIdx != 0 || tag.IsVessel || tag.BodyID != "" {
+	if tag.NodeIdx != 0 || tag.IsVessel || tag.BodyID != "" || tag.Owner != "" {
 		tag.Color = color
 		canvas.PlotColoredTagged(pos, tag)
 	}
@@ -1869,7 +1965,26 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		// resolves to the planted node. Maneuver markers are not
 		// occlusion-culled (a node behind the body still shows), so we
 		// don't gate on IsBehindBody here.
-		drawMarker(v.canvas, m.pos, render.MarkerManeuver, render.MarkerNominal, m.tag.Color, m.tag)
+		//
+		// ADR 0041 §3: the same pixel also carries the Inspect Owner, so
+		// a planted node can be inspected ("Node 2") as well as clicked
+		// open. NodeIdx keeps driving the click-to-edit action.
+		tag := m.tag
+		nodeRef := InspectRef{Kind: InspectNode, NodeIdx: tag.NodeIdx}
+		if tag.NodeIdx > 0 {
+			tag.Owner = nodeRef.OwnerKey()
+			if _, _, onCanvas := v.canvas.Project(m.pos); onCanvas {
+				// A node is a plan, not a place to aim at — the Target
+				// slot has no node kind, so Enter refuses rather than
+				// pretending.
+				v.addInspectable(nodeRef, inspectNodeName(tag.NodeIdx), m.pos, false)
+			}
+		}
+		markerColor := tag.Color
+		if v.isInspected(nodeRef) {
+			markerColor = render.ColorInspect
+		}
+		drawMarker(v.canvas, m.pos, render.MarkerManeuver, render.MarkerNominal, markerColor, tag)
 	}
 	v.plotPredictedLegs(w, data.legs)
 	// Snapshot the dashed legs so an imminent ignition can keep them visible
