@@ -257,6 +257,27 @@ type Keymap struct {
 	// vessel of interest first, then `V` to scope its chase-cam.
 	JumpToLaunchView key.Binding
 
+	// ProximityView (ADR 0043 / #348): toggling jump into and out of the
+	// target-centred close-range view. Press to enter, press again to
+	// return to the map exactly as it was left — a toggle, not another
+	// stop on the `v` cycle, because at close range the player wants to
+	// flip between "where am I in the orbit" and "where am I relative to
+	// them" repeatedly, and a cycle would make the trip back cost six
+	// presses. Refused (visibly, with a toast) unless the Target is a
+	// vessel or a remote player's ghost.
+	//
+	// Bound to `o`. Free on the orbit screen, and the last free lowercase
+	// letter whose SHIFT partner is inert: `O` opens the read-only session
+	// roster, which `Esc` closes with nothing changed. That is the same
+	// criterion the Inspect binding recorded when it passed over `c`, `u`
+	// and `y` — `C` plants a burn, `U` undocks, `Y` deploys, and `y` is
+	// additionally live on this very screen as the rendezvous-invite
+	// accept. The `o` / `i` pair also reads as a family: `i` looks closer
+	// at the body under the cursor, `o` looks closer at the vessel you're
+	// aimed at. Screen-local `o` bindings (porkchop options, VAB open)
+	// return before the global switch, so they never collide.
+	ProximityView key.Binding
+
 	// Declutter (v0.13+, ADR 0010): toggle the momentary "hide all
 	// overlays" view — suppresses every Chip and the navball to expose a
 	// clean orbit map. F2 matches the KSP "toggle UI" convention.
@@ -382,6 +403,7 @@ func DefaultKeymap() Keymap {
 		YawRight:                  key.NewBinding(key.WithKeys("shift+right"), key.WithHelp("shift+→", "yaw +5° (ViewTilted)")),
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
 		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
+		ProximityView:             key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "proximity view — close-range picture of your target (toggles)")),
 		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
 		Inspect:                   key.NewBinding(key.WithKeys("j"), key.WithHelp("j", "inspect: step identity highlight (esc exits)")),
 		InspectCommit:             key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "inspect: commit inspected entity as target")),

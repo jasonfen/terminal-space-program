@@ -70,6 +70,22 @@ const (
 	// for shipping this as a distinct ViewMode instead of extending
 	// ViewTilted.
 	ViewLaunch
+	// ViewProximity (ADR 0043) is the target-relative close-range view:
+	// the Target sits at the canvas centre in LVLH orientation (its
+	// orbital prograde screen-right, the primary screen-down) and the
+	// active vessel is drawn at its true relative position and scale.
+	// The one ViewMode that is NOT a pure projection of the world frame —
+	// it re-centres and re-orients on the Target — which is precisely why
+	// the world-frame views cannot substitute for it: at docking range
+	// both vessels sweep the canvas at orbital speed while the metres
+	// between them stay sub-pixel.
+	//
+	// Target-gated: reachable only while the Target is a vessel or a
+	// remote player's ghost (see World.ProximityAvailable). Entered and
+	// left by the jump key; CycleViewMode skips it when unavailable
+	// rather than parking the player in a dead view. Appended after
+	// ViewLaunch so ViewTilted stays the zero-value default.
+	ViewProximity
 )
 
 // String returns a short human label for the view mode.
@@ -89,17 +105,25 @@ func (m ViewMode) String() string {
 		return "orbit-flat"
 	case ViewLaunch:
 		return "launch"
+	case ViewProximity:
+		return "proximity"
 	}
 	return "?"
 }
 
 // AllViewModes enumerates the modes in canonical cycle order.
-// Tilted → Top → Right → Bottom → Left → OrbitFlat → Launch —
-// the v0.10.6+ tilt opens the cycle as the new zero-value default,
-// the four cardinal cameras follow (each rotates 90° around the
-// system), orbit-flat lands as punctuation, and the launch chase-cam
-// closes the lap before wrapping. ADR 0021 D removed the conditional
-// ViewTarget / ViewSOIPass slots — every mode is always selectable.
+// Tilted → Top → Right → Bottom → Left → OrbitFlat → Launch →
+// Proximity — the v0.10.6+ tilt opens the cycle as the new zero-value
+// default, the four cardinal cameras follow (each rotates 90° around the
+// system), orbit-flat lands as punctuation, and the two scene views
+// (launch chase-cam, then ADR 0043's close-range Proximity View) close
+// the lap before wrapping. ADR 0021 D removed the conditional ViewTarget
+// / ViewSOIPass slots; ViewProximity is skipped-not-hidden (CycleViewMode
+// steps over it without a vessel target) rather than reviving them.
+//
+// The values must stay contiguous 0..len-1 in this order: CycleViewMode
+// advances by modular arithmetic on the ViewMode value, not by index
+// lookup.
 var AllViewModes = [...]ViewMode{
 	ViewTilted,
 	ViewTop,
@@ -108,6 +132,7 @@ var AllViewModes = [...]ViewMode{
 	ViewLeft,
 	ViewOrbitFlat,
 	ViewLaunch,
+	ViewProximity,
 }
 
 // CycleViewMode advances ViewMode to the next mode in cycle order.
@@ -122,7 +147,22 @@ func (w *World) CycleViewMode() {
 	if w.ViewMode == ViewLaunch {
 		w.LaunchSessionActive = false
 	}
+	prev := w.ViewMode
 	w.ViewMode = (w.ViewMode + 1) % ViewMode(len(AllViewModes))
+	// Proximity View (ADR 0043) is target-gated: without a vessel or
+	// ghost Target there is nothing to centre the frame on, so the cycle
+	// steps over it rather than parking the player in a view that can
+	// only apologise. Skipping (not hiding) keeps the cycle's arithmetic
+	// unconditional — the slot exists whether or not it's reachable.
+	if w.ViewMode == ViewProximity && !w.ProximityAvailable() {
+		w.ViewMode = (w.ViewMode + 1) % ViewMode(len(AllViewModes))
+	}
+	if w.ViewMode == ViewProximity {
+		// Arriving via the cycle still records where to come back to, so
+		// a later jump-key press out of Proximity lands somewhere sane
+		// instead of the zero-value default.
+		w.ProxReturnView = prev
+	}
 }
 
 // SetViewModeLaunch (v0.11.4+, ADR 0004) is the manual-jump path
