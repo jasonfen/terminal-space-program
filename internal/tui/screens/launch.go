@@ -156,8 +156,15 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	}
 	title := v.theme.Title.Render(fmt.Sprintf("LAUNCH — %s", craftName))
 
+	// The descent half (ADR 0043 §3): one forecast per frame, shared by
+	// the scene (dashed arc + ground marker) and the corridor chip, so
+	// the picture and the numbers can never disagree about where this
+	// trajectory lands. Ballistic-from-now, so an active burn walks it
+	// live — see sim.PredictImpact.
+	corridor, descending := sim.DescentCorridorFor(craft, sim.DescentPredictHorizon)
+
 	if craft != nil && craft.Primary.MeanRadius > 0 {
-		v.renderScene(w, craft)
+		v.renderScene(w, craft, corridor, descending)
 	} else if craft == nil {
 		// v0.11.4+ (sub-scope 5): the end-flight path can leave the
 		// slate empty mid-session (the player removes the only
@@ -191,7 +198,26 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 		// STAGES / ATTITUDE / BURNS …) onto its own canvas — the side
 		// column is just the slim telemetry block. Canvas content sits 1
 		// col / 2 rows in (border + title), matching the orbit screen.
-		canvasStr = v.hudSource.composeChips(canvasStr, cCols, cRows, nbReserved, 1, 2, v.hudSource.assembleChips(w))
+		chips := v.hudSource.assembleChips(w)
+		// DESCENT CORRIDOR is the surface view's own chip — built here, not
+		// in assembleChips, because it's the launch/surface screen's
+		// instrument block and the orbit map has no ground line to read it
+		// against. Empty id (always-on, F2 declutter still clears it) for
+		// the same reason RENDEZVOUS and TIME LOCK are: it states a
+		// constraint — whether this descent can still be stopped — that
+		// nothing else on screen would say. chipPriorityForced for the
+		// same reason DOCKED carries it (#328): a corner that overflows
+		// must not silently swallow the one readout saying this descent
+		// can no longer be stopped — an overlap is recoverable, a missing
+		// alarm is not.
+		if descending && v.hudSource.chipEnabled("") {
+			chips = append(chips, builtChip{
+				corner:   cornerTopRight,
+				lines:    v.descentCorridorLines(corridor),
+				priority: chipPriorityForced,
+			})
+		}
+		canvasStr = v.hudSource.composeChips(canvasStr, cCols, cRows, nbReserved, 1, 2, chips)
 	}
 	canvasStr = overlayHUDStrip(canvasStr, v.composeHUDLine(w, craft))
 
@@ -329,7 +355,7 @@ func (v *LaunchView) renderNoActiveVesselMessage() {
 // local-up (radial from body centre). Depth axis points laterally —
 // useful for hemisphere culling. ViewTilt.Theta is suppressed inside
 // ViewLaunch per ADR-0002.
-func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
+func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, corridor sim.DescentCorridor, descending bool) {
 	body := craft.Primary
 	// craft.State.R is primary-relative (Earth-centred for a LEO craft,
 	// Moon-centred for a Luna-orbiting craft, etc.). The render layer
@@ -375,6 +401,15 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft) {
 	// the far arc is depth-culled behind it; drawn before the surface
 	// markers + rocket so those layer on top. v0.14+.
 	v.drawOrbitPath(craft, bodyCentre)
+
+	// Descent half (ADR 0043 §3): the dashed arc down to the ground and
+	// the impact point where it lands. Drawn after the orbit ellipse (a
+	// descent arc is the near-term detail of that same orbit and should
+	// win where they overlap) and before the surface markers + rocket, so
+	// the pad, the tower and the vessel still layer on top.
+	if descending {
+		v.drawDescentArc(bodyCentre, camFromBody, corridor)
+	}
 
 	// Pad marker at the active craft's launch site, depth-culled.
 	v.drawPadMarker(w, craft, bodyCentre, camFromBody)
@@ -626,6 +661,89 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 	if !v.canvas.IsBehindBody(apo, bodyCentre, primaryPxR) {
 		drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerNominal, "", widgets.CellTag{})
 	}
+}
+
+// drawDescentArc inks the predicted path down to the ground plus the
+// impact point where it lands (ADR 0043 §3 / issue #348).
+//
+// The arc is ClassPlanned — dashed — because it is a PLAN, not a live
+// orbit: the consequence of flying the current state without further
+// input (ADR 0041 §2's line-style vocabulary, PR #353). Colour is the
+// separate, semantic axis: planned-cyan normally, alert-red once the
+// burn margin says this descent can no longer be stopped, so the whole
+// line carries the alarm rather than only the four-character label in
+// the corridor chip.
+//
+// The impact marker is depth-culled by the same near-hemisphere test the
+// pad and tower use — a contact point on the far side of the body would
+// otherwise draw straight through the planet.
+func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim.DescentCorridor) {
+	if len(dc.Impact.Path) < 2 {
+		return
+	}
+	alarm := dc.Margin.State == sim.MarginInsufficient
+	arcColor := render.ColorPlannedNode
+	if alarm {
+		arcColor = render.ColorAlert
+	}
+	pts := make([]orbital.Vec3, len(dc.Impact.Path))
+	for i, p := range dc.Impact.Path {
+		pts[i] = bodyCentre.Add(p)
+	}
+	v.canvas.PlotPolylineClass(pts, arcColor, widgets.ClassPlanned)
+
+	if !isNearHemisphere(dc.Impact.Point, camFromBody) {
+		return
+	}
+	state := render.MarkerNominal
+	if alarm {
+		state = render.MarkerAlarm
+	}
+	drawMarker(v.canvas, bodyCentre.Add(dc.Impact.Point), render.MarkerImpact, state, "", widgets.CellTag{})
+}
+
+// descentCorridorLines renders the DESCENT CORRIDOR instrument block —
+// the four numbers issue #348 §3 asks for: altitude, descent rate, time
+// to impact, and the burn margin.
+//
+// The margin row is the alarm surface. It flips label AND colour
+// together (bare ratio → "TIGHT (thrust)" amber → "CAN'T STOP (thrust)"
+// red) rather than shading a number, because a state a player can miss
+// reads as no state at all. The parenthesised limiter says which
+// capability bound it, so the alarm names the fix instead of only the
+// fault.
+func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
+	return []string{
+		v.theme.Primary.Render("DESCENT CORRIDOR"),
+		fmt.Sprintf("  altitude:   %s", formatAltitude(dc.AltitudeM)),
+		fmt.Sprintf("  descent:    %.0f m/s", dc.DescentRateMps),
+		fmt.Sprintf("  impact in:  %s (%.0f m/s)",
+			compactDuration(dc.Impact.TimeToImpact), dc.Impact.SpeedMps),
+		fmt.Sprintf("  margin:     %s", v.marginLabel(dc.Margin)),
+	}
+}
+
+// marginLabel styles the burn-margin readout per its alarm state.
+func (v *LaunchView) marginLabel(m sim.BurnMargin) string {
+	switch m.State {
+	case sim.MarginOK:
+		return v.theme.Primary.Render(fmt.Sprintf("%.2f ×", m.Ratio))
+	case sim.MarginTight:
+		return v.theme.Warning.Render(fmt.Sprintf("%.2f × TIGHT (%s)", m.Ratio, m.Limiter))
+	case sim.MarginInsufficient:
+		return v.theme.Alert.Render(fmt.Sprintf("%.2f × CAN'T STOP (%s)", m.Ratio, m.Limiter))
+	}
+	return v.theme.Dim.Render("—")
+}
+
+// formatAltitude renders metres as m below 1 km and km above, matching
+// the DESCENT chip's existing altitude row so the two readouts agree
+// digit for digit when both are on screen.
+func formatAltitude(m float64) string {
+	if m >= 1000 {
+		return fmt.Sprintf("%.2f km", m/1000)
+	}
+	return fmt.Sprintf("%.0f m", m)
 }
 
 // (launchOrbitSamples retired by ADR 0042 §3.) The chase-cam used to size
