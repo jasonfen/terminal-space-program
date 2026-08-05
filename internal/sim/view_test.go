@@ -4,17 +4,16 @@ import "testing"
 
 // TestCycleViewModeWraps: starts at the zero-value (ViewTilted,
 // v0.10.6+) and cycles forward through Tilted → Top → Right →
-// Bottom → Left → OrbitFlat → Launch → Tilted in canonical order.
-// v0.11.0+ appends ViewLaunch to the cycle (NOT prepended) so
-// ViewTilted stays the zero-value default for freshly spawned
-// worlds. ADR 0043's ViewProximity sits after Launch but is skipped
-// here — this world has no vessel target, so the wrap is unchanged.
+// Bottom → Left → OrbitFlat → Tilted in canonical order — the six
+// map projections only. Issue #348 §4 (ADR 0043) removed ViewLaunch
+// and ViewProximity from this cycle entirely: both are toggling jump
+// keys now (`V`, `o`), so the wrap never reaches either of them.
 func TestCycleViewModeWraps(t *testing.T) {
 	w := mustWorld(t)
 	if w.ViewMode != ViewTilted {
 		t.Fatalf("default ViewMode = %v, want ViewTilted", w.ViewMode)
 	}
-	want := []ViewMode{ViewTop, ViewRight, ViewBottom, ViewLeft, ViewOrbitFlat, ViewLaunch, ViewTilted}
+	want := []ViewMode{ViewTop, ViewRight, ViewBottom, ViewLeft, ViewOrbitFlat, ViewTilted}
 	for i, expect := range want {
 		w.CycleViewMode()
 		if w.ViewMode != expect {

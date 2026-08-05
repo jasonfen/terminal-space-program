@@ -3,13 +3,16 @@
 // ViewLaunch is the chase-cam launch scene routed into automatically
 // when an active vessel transitions Landed false→true (Launchpad
 // spawn today; future Touchdown semantics will extend the trigger).
-// Leaving the chase cam is a manual `v` cycle — ADR 0021 D retired the
-// apoapsis-floor auto-release, the one camera change driven by ambient
-// sim state. (The ORBIT READY callout and the ViewTilted LaunchAnchor
-// keep their LaunchMissionFloorM gate; only the view restore went.)
-// A session still ends without a `v` press when the player switches
-// active onto a flying vessel — that restore answers the player's
-// switch, not ambient sim state.
+// Leaving the chase cam is the toggling `V` jump key (ToggleLaunchView,
+// issue #348 §4) — ADR 0021 D retired the apoapsis-floor auto-release,
+// the one camera change driven by ambient sim state, and #348 §4 later
+// took ViewLaunch out of the `v` projection cycle entirely, so `V` is
+// now the primary way out (CycleViewMode still works as a fallback
+// escape hatch — see its own doc comment). (The ORBIT READY callout and
+// the ViewTilted LaunchAnchor keep their LaunchMissionFloorM gate; only
+// the view restore went.) A session still ends without a `V` press when
+// the player switches active onto a flying vessel — that restore
+// answers the player's switch, not ambient sim state.
 //
 // This file owns the per-tick handler called from World.Tick and the
 // session-open/close helpers. Render-side (the chase-cam scene
@@ -37,8 +40,9 @@ import (
 // active-switch handler on pointer changes; samples the breadcrumb
 // trail while a session is open. There is no ambient release — ADR
 // 0021 D retired the apoapsis-floor auto-release, so the session ends
-// only on a manual `v` cycle (CycleViewMode) or a switch onto a
-// flying vessel (handleActiveCraftSwitch's end branch).
+// only on the `V` toggle (ToggleLaunchView), a manual `v` cycle
+// (CycleViewMode, issue #348 §4's fallback escape hatch), or a switch
+// onto a flying vessel (handleActiveCraftSwitch's end branch).
 func (w *World) tickLaunchView() {
 	active := w.ActiveCraft()
 
@@ -168,6 +172,46 @@ func (w *World) releaseLaunchSession() {
 	w.LaunchMaxQAltM = 0
 	w.LaunchTrail = w.LaunchTrail[:0]
 	w.LaunchZoom = 0
+}
+
+// ToggleLaunchView is the launch/surface jump key's whole behaviour
+// (issue #348 §4): press to enter a fresh chase-cam session framed for
+// the moment, press again to return to the map exactly as it was left.
+// Mirrors ToggleProximityView's shape (proximity.go): entered reports
+// which half fired; refusal is non-empty only when entry was refused —
+// leaving never refuses, you can always get back to the map.
+//
+// Entry opens a session exactly like the auto-route-on-liftoff path
+// (routeToLaunchView) — same altitude-derived scale, same fresh
+// T0/trail/MaxQ — so a manual jump and an auto-route land on an
+// identical session once you're in the view. Leaving reuses
+// releaseLaunchSession, whose LastLaunchReleaseEvent already surfaces
+// the "ORBIT READY — returning to X" toast on the next Tick (the same
+// plumbing the switch-triggered release already uses), so this toggle
+// only has to speak for entry and refusal.
+func (w *World) ToggleLaunchView() (entered bool, refusal string) {
+	if w.ViewMode == ViewLaunch {
+		w.releaseLaunchSession()
+		return false, ""
+	}
+	if w.ActiveCraft() == nil {
+		// Pre-#348 the one-way `V` jump allowed this (sub-scope 5): no
+		// active vessel wasn't a precondition, and the render path drew an
+		// explanatory empty-canvas message instead. The toggle refuses at
+		// the door instead — the same "a refused action tells you nothing"
+		// discipline ToggleProximityView already follows for its own
+		// target-gate. The empty-slate render path still exists and still
+		// matters: end-flight can empty the slate out from under an
+		// ALREADY-open session, and that case still has to render
+		// something (renderNoActiveVesselMessage, launch.go).
+		return false, "no vessel to fly"
+	}
+	// Entering answers the descent hint (issue #348 §4's chip) the same
+	// way ToggleProximityView answers the close-range hint — it stops
+	// asking until the descent ends and a fresh one begins.
+	w.launchHint.dismissed = true
+	w.routeToLaunchView()
+	return true, ""
 }
 
 // updateLaunchMaxQ ratchets World.LaunchMaxQ with the active craft's

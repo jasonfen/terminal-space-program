@@ -36,20 +36,19 @@ func parentBody(w *World, p bodies.CelestialBody) bodies.CelestialBody {
 }
 
 // TestViewModeCycleOrder pins ADR 0021 D: ViewTarget and ViewSOIPass left the
-// cycle, so `v` walks Tilted → Top → Right → Bottom → Left → OrbitFlat →
-// Launch and wraps — projections only, unconditionally selectable, no
-// world-state gates.
+// cycle, so `v` walks Tilted → Top → Right → Bottom → Left → OrbitFlat and
+// wraps — projections only, unconditionally selectable, no world-state
+// gates.
 //
-// ADR 0043 appends ViewProximity as an eighth slot. It does NOT revive the
-// conditional-slot mechanism the D decision removed: the slot always
-// exists, and the cycle merely steps over it when there is no vessel
-// target to centre on — which is the case here, so the walked order is
-// unchanged from the pre-0043 expectation below.
+// Issue #348 §4 (ADR 0043) took ViewLaunch and ViewProximity OUT of this
+// cycle entirely — they're toggling jump keys now (`V`, `o`), not cycle
+// stops — so unlike the pre-#348 expectation this walk never reaches
+// either of them, active SOI Pass or not.
 func TestViewModeCycleOrder(t *testing.T) {
 	w := mustWorld(t)
 	moonCoast(t, w) // an active pass must NOT add a view back into the cycle
 
-	want := []ViewMode{ViewTop, ViewRight, ViewBottom, ViewLeft, ViewOrbitFlat, ViewLaunch, ViewTilted}
+	want := []ViewMode{ViewTop, ViewRight, ViewBottom, ViewLeft, ViewOrbitFlat, ViewTilted}
 	w.ViewMode = ViewTilted
 	for i, m := range want {
 		w.CycleViewMode()
@@ -58,7 +57,10 @@ func TestViewModeCycleOrder(t *testing.T) {
 		}
 	}
 	if len(AllViewModes) != 8 {
-		t.Errorf("AllViewModes has %d modes, want 8 (projections + launch + proximity)", len(AllViewModes))
+		t.Errorf("AllViewModes has %d modes, want 8 (six projections + launch + proximity)", len(AllViewModes))
+	}
+	if len(ProjectionViewModes) != 6 {
+		t.Errorf("ProjectionViewModes has %d modes, want 6 (the `v`-cycle stops)", len(ProjectionViewModes))
 	}
 }
 

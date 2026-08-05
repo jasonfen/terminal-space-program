@@ -78,6 +78,14 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	add(settings.ChipCapture, cornerTopLeft, v.buildCaptureChip(w))
 	add(settings.ChipLaunch, cornerTopLeft, v.buildLaunchChip(w))
 	add(settings.ChipDescent, cornerTopLeft, v.buildDescentChip(w))
+	// DESCENDING (issue #348 §4): a one-line pointer at the launch/surface
+	// jump key, offered the moment the active vessel's trajectory is
+	// forecast to reach the ground — the map-screen mirror of the
+	// CLOSE RANGE hint below (same "teach the key once, then get out of
+	// the way" always-on + self-limiting treatment). Placed beside
+	// DESCENT/CHUTE — the other own-craft-state chips — rather than in
+	// the Target-oriented top-right stack.
+	add("", cornerTopLeft, v.buildLaunchHintChip(w))
 	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
 	add(settings.ChipAttitude, cornerTopLeft, v.buildAttitudeChip(w))
 	// SESSION moments (v0.27 S6 / ADR 0034): join/leave/sync events as
@@ -1212,6 +1220,23 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 		fmt.Sprintf("  fpa:        %s", fpaLabel),
 		fmt.Sprintf("  twr:        %s", twrLabel),
 		fmt.Sprintf("  sas:        %s", c.AttitudeMode.String()),
+	}
+}
+
+// buildLaunchHintChip tells the player the launch/surface view is worth
+// a look at the one moment it starts being useful — issue #348 §4's
+// mirror of buildProximityHintChip below. The gate is exactly
+// sim.DescentCorridorFor's own forecast (the once-per-crossing
+// discipline and its dismiss live in sim.World.LaunchHintActive), so
+// this hint always agrees with whatever the DESCENT CORRIDOR chip would
+// say once you actually jump into the surface view — it just says so
+// one screen early.
+func (v *OrbitView) buildLaunchHintChip(w *sim.World) []string {
+	if !w.LaunchHintActive() {
+		return nil
+	}
+	return []string{
+		v.theme.Primary.Render("DESCENDING") + " — [V] launch/surface view",
 	}
 }
 

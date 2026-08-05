@@ -230,25 +230,23 @@ func TestToggleProximityAlwaysLeaves(t *testing.T) {
 	}
 }
 
-// TestCycleViewModeSkipsUnavailableProximity: `v` steps over the slot
-// when there is no vessel target, and lands on it when there is.
-func TestCycleViewModeSkipsUnavailableProximity(t *testing.T) {
-	w := mustWorld(t)
-	w.ViewMode = ViewLaunch
-	w.CycleViewMode()
-	if w.ViewMode != ViewTilted {
-		t.Errorf("no target: cycle from launch → %s, want tilted (proximity skipped)", w.ViewMode)
-	}
+// TestCycleViewModeFromProximityAnchorsOnReturnView: issue #348 §4 took
+// ViewProximity out of the `v` cycle entirely — Proximity is a toggling
+// jump key (`o`) now, never a cycle stop, target availability or not.
+// Pressing `v` while inside it still has to produce ONE of the six
+// projections, so CycleViewMode anchors on ProxReturnView (the map the
+// `o` toggle would have returned to) and advances one step from there —
+// mirroring the equivalent Launch case in
+// TestManualCycleClearsSessionWithoutRestore.
+func TestCycleViewModeFromProximityAnchorsOnReturnView(t *testing.T) {
+	w := proximityPairWorld(t, orbital.Vec3{X: 1000}, orbital.Vec3{})
+	w.ViewMode = ViewProximity
+	w.ProxReturnView = ViewTop
 
-	w2 := proximityPairWorld(t, orbital.Vec3{X: 1000}, orbital.Vec3{})
-	w2.ViewMode = ViewLaunch
-	w2.CycleViewMode()
-	if w2.ViewMode != ViewProximity {
-		t.Errorf("vessel target: cycle from launch → %s, want proximity", w2.ViewMode)
-	}
-	// Arriving by cycle still records a return address for the jump key.
-	if w2.ProxReturnView != ViewLaunch {
-		t.Errorf("ProxReturnView = %s, want launch", w2.ProxReturnView)
+	w.CycleViewMode()
+
+	if w.ViewMode != ViewRight {
+		t.Errorf("ViewMode = %s, want right (one step past ProxReturnView=top)", w.ViewMode)
 	}
 }
 

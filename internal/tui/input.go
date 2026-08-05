@@ -249,12 +249,16 @@ type Keymap struct {
 	// AttitudeRadialIn.
 	EndFlight key.Binding
 
-	// JumpToLaunchView (v0.11.4+, ADR 0004): manual jump to
-	// ViewLaunch focused on the active vessel. Skips the lowercase
-	// `v` cycle (which rotates through orbit / top / sides /
-	// orbit-flat without touching ViewLaunch by design — auto-route
-	// owns the entry path). Player workflow: switch active to the
-	// vessel of interest first, then `V` to scope its chase-cam.
+	// JumpToLaunchView (v0.11.4+, ADR 0004; toggling since issue #348
+	// §4 / ADR 0043): toggling jump into and out of the launch/surface
+	// chase-cam view for the active vessel. Press to enter — a fresh
+	// altitude-derived Framing Event, same scale the auto-route entry
+	// computes — press again to return to the map exactly as it was
+	// left. A toggle, not another stop on the `v` cycle, for the same
+	// reason ProximityView below is one: cycling six projections to get
+	// back would cost too much for a view the player wants to flip in
+	// and out of repeatedly. Symmetric with `o`; the two can even stack
+	// (jumping to Proximity from inside Launch and back).
 	JumpToLaunchView key.Binding
 
 	// ProximityView (ADR 0043 / #348): toggling jump into and out of the
@@ -364,7 +368,7 @@ func DefaultKeymap() Keymap {
 		Save:            key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "quicksave")),
 		Load:            key.NewBinding(key.WithKeys("f9"), key.WithHelp("F9", "quickload")),
 		RefinePlan:      key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refine plan (re-Lambert arrival)")),
-		CycleView:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (tilted / top / right / bottom / left / orbit-flat / launch)")),
+		CycleView:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "cycle view (tilted / top / right / bottom / left / orbit-flat)")),
 
 		ThrottleFull:        key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "throttle 100%")),
 		ThrottleCut:         key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "throttle 0% / cut burn")),
@@ -402,7 +406,7 @@ func DefaultKeymap() Keymap {
 		YawLeft:                   key.NewBinding(key.WithKeys("shift+left"), key.WithHelp("shift+←", "yaw -5° (ViewTilted)")),
 		YawRight:                  key.NewBinding(key.WithKeys("shift+right"), key.WithHelp("shift+→", "yaw +5° (ViewTilted)")),
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
-		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "jump to launch view (active vessel)")),
+		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "launch/surface view — chase-cam on your active vessel (toggles)")),
 		ProximityView:             key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "proximity view — close-range picture of your target (toggles)")),
 		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
 		Inspect:                   key.NewBinding(key.WithKeys("j"), key.WithHelp("j", "inspect: step identity highlight (esc exits)")),
