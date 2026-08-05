@@ -1268,6 +1268,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// slate (sub-scope 5).
 			a.world.SetViewModeLaunch()
 			return a, nil
+		case key.Matches(m, a.keys.ProximityView):
+			// Proximity View (ADR 0043 / #348): toggle into and out of the
+			// target-centred close-range picture. Orbit screen only — it
+			// is a ViewMode of that screen's canvas, not a screen of its
+			// own. Every branch says something: a refused jump that
+			// silently did nothing would read as a broken key, which is
+			// exactly how the last one of those was reported.
+			if a.active == screenOrbit {
+				entered, refusal := a.world.ToggleProximityView()
+				switch {
+				case refusal != "":
+					a.toast("proximity view — " + refusal)
+				case entered:
+					a.toast(fmt.Sprintf("proximity view — %s centred; [o] returns to the map", a.world.TargetName()))
+				default:
+					a.toast("proximity view off — back on the map")
+				}
+			}
+			return a, nil
 		case key.Matches(m, a.keys.EndFlight):
 			// v0.11.4+ (ADR 0004): open the end-flight confirm prompt
 			// when the active vessel is Crashed. The y/n intercept at

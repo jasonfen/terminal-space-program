@@ -86,6 +86,23 @@ type OrbitView struct {
 	// Event (not a bare resize) in Render.
 	zoomMemory map[zoomMemoryKey]float64
 
+	// zoomSlot is the Zoom Memory slot currently on screen — the map's
+	// (system, focus) or Proximity View's (system, target). Written by
+	// whichever Framing-Event block ran; read by setUserZoom so a `+`/`-`
+	// press records against the thing the player is actually looking at.
+	zoomSlot zoomMemoryKey
+
+	// mapPanOffset / mapPanSaved park the map's Pan across a jump into
+	// Proximity View (ADR 0043). The jump key is a TOGGLE — press again
+	// and the map must come back exactly as it was left — but a ViewMode
+	// change is a Framing Event, and Framing Events clear the pan. Zoom
+	// survives the round trip on its own (Proximity keeps a separate Zoom
+	// Memory namespace, so the map's multiplier is simply restored from
+	// its own slot); pan has no memory map to restore from, so it is
+	// stashed here on the way in and put back on the way out.
+	mapPanOffset orbital.Vec3
+	mapPanSaved  bool
+
 	// panOffset (ADR 0042, CONTEXT.md "Pan") is the player's ↑↓←→ view
 	// offset from the tracked Focus, in world units. Render adds it to
 	// FocusPosition() every frame — so the camera keeps tracking a moving
@@ -365,16 +382,40 @@ func (v *OrbitView) ZoomOut() { v.setUserZoom(v.userZoom / 1.25) }
 // SystemIdx is added because Focus.BodyIdx is only unique within one
 // system's Bodies slice — body index 3 in Sol and body index 3 in Lumen
 // are different bodies and must not share a remembered zoom.
+//
+// Proximity View (ADR 0043) shares the map — the same OrbitView, the same
+// canvas, the same `+`/`-` keys — so it needs its own namespace in this
+// map or the two would overwrite each other's multiplier and the map
+// would come back from the jump at the wrong scale. Its camera is pinned
+// to the TARGET rather than the Focus, so the target is what it remembers
+// against: fly out to a partner, zoom the close-range picture the way you
+// like it, and coming back to that same partner restores it. The
+// proximity flag keeps the two namespaces disjoint even when a Focus and
+// a Target happen to be zero values of each other.
 type zoomMemoryKey struct {
 	systemIdx int
-	focus     sim.Focus
+	focus     sim.Focus  // the remembered slot on the map
+	target    sim.Target // the remembered slot in Proximity View
+	proximity bool
+}
+
+// mapZoomSlot / proximityZoomSlot name the Zoom Memory slot each view
+// remembers against. Kept as constructors rather than inline literals so
+// the "map keys on Focus, Proximity keys on Target" rule lives in exactly
+// one place.
+func mapZoomSlot(w *sim.World) zoomMemoryKey {
+	return zoomMemoryKey{systemIdx: w.SystemIdx, focus: w.Focus}
+}
+
+func proximityZoomSlot(w *sim.World) zoomMemoryKey {
+	return zoomMemoryKey{systemIdx: w.SystemIdx, target: w.Target, proximity: true}
 }
 
 // zoomMemoryFor returns the multiplier the player last set at the given
-// focus target, or 1 (fresh fit) when the target has no recorded visit
-// this session — ADR 0042 "first visit fits fresh."
-func (v *OrbitView) zoomMemoryFor(systemIdx int, focus sim.Focus) float64 {
-	if z, ok := v.zoomMemory[zoomMemoryKey{systemIdx, focus}]; ok {
+// slot, or 1 (fresh fit) when the slot has no recorded visit this
+// session — ADR 0042 "first visit fits fresh."
+func (v *OrbitView) zoomMemoryFor(slot zoomMemoryKey) float64 {
+	if z, ok := v.zoomMemory[slot]; ok {
 		return z
 	}
 	return 1
@@ -389,15 +430,15 @@ func (v *OrbitView) setUserZoom(z float64) {
 		z = maxZoom
 	}
 	v.userZoom = z
-	// Zoom Memory (ADR 0042): record against the focus target Render most
-	// recently fit to, so returning to it later restores this value
-	// instead of the ADR 0021-era reset to 1×. lastSystemIdx/lastFocus are
-	// only written by Render's Framing-Event block, so this always keys
-	// against the currently-displayed target.
+	// Zoom Memory (ADR 0042): record against the slot the last Framing
+	// Event fit to, so returning to it later restores this value instead
+	// of the ADR 0021-era reset to 1×. zoomSlot is written only by the
+	// Framing-Event blocks (map and Proximity), so this always keys
+	// against whatever is currently on screen.
 	if v.zoomMemory == nil {
 		v.zoomMemory = make(map[zoomMemoryKey]float64)
 	}
-	v.zoomMemory[zoomMemoryKey{v.lastSystemIdx, v.lastFocus}] = z
+	v.zoomMemory[v.zoomSlot] = z
 }
 
 // panStepFraction is the fraction of the viewport's extent along an axis
@@ -520,6 +561,15 @@ func (v *OrbitView) ProjectToOrbit(w *sim.World, screenCol, screenRow int) (time
 // Render composes the frame: canvas on the left, HUD on the right.
 // selectedIdx is the index of the cursor-selected body in system.Bodies.
 func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows int) string {
+	// Proximity View (ADR 0043) is a ViewMode, not a screen — same
+	// OrbitView, same chips, same navball, same flight keys — but the
+	// canvas holds a target-centred LVLH scene instead of the world-frame
+	// map, so it draws through its own body and rejoins the shared tail
+	// (navball / chips / title bar) in renderProximity.
+	if w.ViewMode == sim.ViewProximity {
+		return v.renderProximity(w, totalCols, totalRows)
+	}
+
 	sys := w.System()
 
 	// Framing Event resolution (ADR 0021 A): fit the canvas exactly once
@@ -541,11 +591,16 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	craftHere := w.CraftVisibleHere()
 	contextChanged := v.lastSystemIdx != w.SystemIdx || v.lastFocus != w.Focus ||
 		v.lastViewMode != w.ViewMode || v.lastCraftHere != craftHere
+	// The view we are arriving FROM, captured before the block below
+	// overwrites it: returning from a Proximity jump is the one Framing
+	// Event that restores pan instead of clearing it (ADR 0043).
+	arrivingFrom := v.lastViewMode
 	if contextChanged || !v.fitted {
 		v.lastSystemIdx = w.SystemIdx
 		v.lastFocus = w.Focus
 		v.lastViewMode = w.ViewMode
 		v.lastCraftHere = craftHere
+		v.zoomSlot = mapZoomSlot(w)
 		v.fitted = true
 		v.canvas.FitTo(w.FocusZoomRadius())
 		// ADR 0024: a body focused for surface viewing must be zoomed
@@ -570,7 +625,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// reset. A bare resize (contextChanged false) falls through
 			// this branch and leaves userZoom exactly as the player left
 			// it.
-			v.userZoom = v.zoomMemoryFor(w.SystemIdx, w.Focus)
+			v.userZoom = v.zoomMemoryFor(v.zoomSlot)
 			// Pan (ADR 0042): a real Framing Event snaps the view back onto
 			// the tracked object, same as it restores userZoom above. `g`
 			// (FocusReset) changes w.Focus, which is itself a Framing Event,
@@ -579,6 +634,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// the terminal isn't a refocus, so it keeps both the zoom
 			// multiplier and the pan offset exactly as the player left them.
 			v.panOffset = orbital.Vec3{}
+			// ADR 0043's one exception: coming back from a Proximity jump
+			// is a return, not a refocus. The toggle promises the map
+			// exactly as it was left, so the parked pan is restored rather
+			// than cleared. Consumed on use — a later genuine refocus
+			// clears the pan normally.
+			if arrivingFrom == sim.ViewProximity && v.mapPanSaved {
+				v.panOffset = v.mapPanOffset
+				v.mapPanSaved = false
+			}
 			// Inspect (ADR 0041 §3) is bound to the frame the player is
 			// looking at, so a Framing Event ends it — refocusing or
 			// switching view is a change of subject, and carrying a

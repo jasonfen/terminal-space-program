@@ -7,7 +7,8 @@ import "testing"
 // Bottom → Left → OrbitFlat → Launch → Tilted in canonical order.
 // v0.11.0+ appends ViewLaunch to the cycle (NOT prepended) so
 // ViewTilted stays the zero-value default for freshly spawned
-// worlds.
+// worlds. ADR 0043's ViewProximity sits after Launch but is skipped
+// here — this world has no vessel target, so the wrap is unchanged.
 func TestCycleViewModeWraps(t *testing.T) {
 	w := mustWorld(t)
 	if w.ViewMode != ViewTilted {

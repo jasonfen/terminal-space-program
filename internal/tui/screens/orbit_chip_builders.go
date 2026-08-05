@@ -58,6 +58,15 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 		}
 		chips = append(chips, builtChip{id: id, corner: corner, lines: lines, priority: priority})
 	}
+	// PROXIMITY (ADR 0043) is the close-range view's own instrument panel,
+	// so inside that view it sits directly under VESSEL, ahead of
+	// everything else in the top-left stack. Ordering is load-bearing:
+	// admitChipsByBudget drops later normal-priority chips first, so at
+	// 80×24 the readout the player is flying the last kilometres on wins
+	// the space over the transient chips behind it. Nil in every other
+	// ViewMode — on the map, the TARGET chip already carries these
+	// numbers and a second copy would be pure clutter.
+	add("", cornerTopLeft, v.buildProximityChip(w))
 	// The current goal sits directly under the pinned VESSEL chip — "who I am"
 	// then "what I'm doing" in the top-left status corner (ADR 0025 / Slice 5).
 	add(settings.ChipMissions, cornerTopLeft, v.buildMissionsChip(w))
@@ -123,6 +132,17 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	if lines := v.buildProjectedOrbitChip(w); lines != nil && v.chipEnabled(settings.ChipProjectedOrbit) {
 		chips = append(chips, builtChip{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: lines, leftOfPrev: true})
 	}
+	// CLOSE RANGE (ADR 0043): a one-line pointer at the Proximity View
+	// jump key, offered when an approach crosses inside the range at which
+	// the game already treats two vessels as flying together. It sits
+	// directly above TARGET because it is a fact ABOUT the target — the
+	// next thing to know after the range readout that triggered it — and
+	// always-on (empty id) for the same reason the RENDEZVOUS join prompt
+	// is: a chip that teaches a key must not be toggle-able into silence
+	// before it has been read once. Self-limiting rather than standing:
+	// sim's crossing state machine retires it the moment the player acts,
+	// and it never renders inside the view it advertises.
+	add("", cornerTopRight, v.buildProximityHintChip(w))
 	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
 	// SOI PASS sits beneath TARGET — the upcoming encounter of the live
 	// path, always-on and Target-independent (ADR 0019). De-dupes with

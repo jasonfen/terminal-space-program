@@ -478,7 +478,10 @@ _Avoid_: Scroll, Offset camera.
 Each focus target remembers the zoom multiplier the player last used on
 it; returning restores it, and a resize refits the base while keeping the
 multiplier. Amends the original ADR 0021 rule that reset manual zoom at
-every Framing Event.
+every Framing Event. **Proximity View** keeps a parallel set of slots
+keyed by Target rather than Focus (ADR 0043) — its camera is pinned to
+the Target, and separate slots are what let the jump out and back restore
+the map's own multiplier untouched.
 
 **Proximity View** (ADR 0043):
 The target-relative close-range ViewMode: the frame is pinned to the
@@ -486,8 +489,14 @@ Target in LVLH orientation (orbital prograde screen-right, the primary
 screen-down), showing both hulls at true meter scale, the predicted
 relative drift path, range rings, and the dock gate as a place on
 screen. The picture for the last kilometers that the world-frame
-OrbitView cannot hold steady. Entered and left by a toggling jump key;
-entry is a Framing Event fitted from current range.
+OrbitView cannot hold steady. Entered and left by a toggling jump key
+(`o`); entry is a Framing Event fitted from current range. Target-gated —
+only a Vessel or a remote player's ghost can be the centre, and the `v`
+cycle steps over the mode when the Target is anything else. It is a
+ViewMode, not a screen: chips, navball and every flight key behave
+exactly as they do on the map, and it keeps its own Zoom Memory slot
+(keyed by Target, not Focus) so the jump out and back leaves the map's
+zoom and pan untouched.
 _Avoid_: Docking view, RPO screen.
 
 **Camera Contract**:

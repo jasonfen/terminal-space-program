@@ -103,6 +103,21 @@ type World struct {
 	// preference, not game state).
 	ViewMode ViewMode
 
+	// ProxReturnView is the ViewMode the player jumped into Proximity
+	// View from (ADR 0043) — what the toggling jump key restores on the
+	// way back out, so the round trip lands the player on the same map
+	// they left. Deliberately its own field rather than sharing
+	// PrevViewMode with the ViewLaunch session: the two can be live at
+	// the same time (jump to Proximity from the chase-cam) and one slot
+	// would let the second entry clobber the first's return address.
+	// Per-session UI state; not persisted, same as ViewMode itself.
+	ProxReturnView ViewMode
+
+	// proxHint is the once-per-crossing state behind the Proximity View
+	// hint chip (ADR 0043) — see proximity.go. Session state; never
+	// persisted, and its zero value is the correct cold start.
+	proxHint proximityHint
+
 	// ViewTilt carries the polar tilt θ and yaw φ (degrees) that
 	// ViewTilted applies to the projection basis. v0.10.6+. Per-
 	// session UI state — not persisted. NewWorld seeds defaults via
@@ -835,6 +850,10 @@ func (w *World) Tick() {
 	// integrateOneCraft; this needs to see that). Cheap when no
 	// session is active and no Landed transition is in progress.
 	w.tickLaunchView()
+	// ADR 0043: step the Proximity View hint's crossing state machine
+	// last, on final post-integration positions, so the range it gates on
+	// is the one the TARGET chip is about to display.
+	w.updateProximityHint()
 }
 
 // DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.

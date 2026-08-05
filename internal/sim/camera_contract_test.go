@@ -39,6 +39,12 @@ func parentBody(w *World, p bodies.CelestialBody) bodies.CelestialBody {
 // cycle, so `v` walks Tilted → Top → Right → Bottom → Left → OrbitFlat →
 // Launch and wraps — projections only, unconditionally selectable, no
 // world-state gates.
+//
+// ADR 0043 appends ViewProximity as an eighth slot. It does NOT revive the
+// conditional-slot mechanism the D decision removed: the slot always
+// exists, and the cycle merely steps over it when there is no vessel
+// target to centre on — which is the case here, so the walked order is
+// unchanged from the pre-0043 expectation below.
 func TestViewModeCycleOrder(t *testing.T) {
 	w := mustWorld(t)
 	moonCoast(t, w) // an active pass must NOT add a view back into the cycle
@@ -51,8 +57,8 @@ func TestViewModeCycleOrder(t *testing.T) {
 			t.Fatalf("cycle step %d: got %s, want %s", i+1, w.ViewMode, m)
 		}
 	}
-	if len(AllViewModes) != 7 {
-		t.Errorf("AllViewModes has %d modes, want 7 (projections + launch only)", len(AllViewModes))
+	if len(AllViewModes) != 8 {
+		t.Errorf("AllViewModes has %d modes, want 8 (projections + launch + proximity)", len(AllViewModes))
 	}
 }
 
