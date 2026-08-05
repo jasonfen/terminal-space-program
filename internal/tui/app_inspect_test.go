@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"math"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -463,4 +465,161 @@ func findBodyCell(a *App) (col, row int, bodyID string, ok bool) {
 		}
 	}
 	return 0, 0, "", false
+}
+
+// coOrbitApp is the zoomed-in fixture the review's finding-3 probe used:
+// two vessels on the SAME circular orbit at opposite phase, camera locked
+// on the active one and zoomed in far enough that the sister's own marker
+// is off-canvas while the shared track still runs across the view.
+//
+// sisterApp (above) deliberately zooms OUT so both vessels stay on canvas.
+// That is the easy half of the contract, and it is the half that was
+// already covered — this is the half that was not, and it is also the more
+// common way to be flying: close in on your own trajectory with the other
+// vessel somewhere else in the orbit.
+func coOrbitApp(t *testing.T, zoomSteps int) (*App, *spacecraft.Spacecraft) {
+	t.Helper()
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: 200, Height: 60})
+	a.View()
+
+	active := a.world.ActiveCraft()
+	if active == nil {
+		t.Skip("no active vessel in the default world")
+	}
+	sister := *active
+	sister.Name = "Sister"
+	sister.ID = 0
+	// Opposite phase, on a slightly wider circle. Opposite phase is what
+	// puts the sister itself off-canvas; the 15 % radius offset keeps the
+	// two tracks DISTINCT curves, so "whose line is this?" has one right
+	// answer per pixel rather than two coincident ellipses overwriting
+	// each other.
+	const wider = 1.15
+	sister.State.R = active.State.R.Scale(-wider)
+	sister.State.V = active.State.V.Scale(-1 / math.Sqrt(wider))
+	a.world.Crafts = append(a.world.Crafts, &sister)
+	a.world.EnsureCraftIDs()
+	a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
+	a.View()
+	for i := 0; i < zoomSteps; i++ {
+		a.orbitView.ZoomIn()
+	}
+	a.View()
+	return a, &sister
+}
+
+// TestClickingAnOffCanvasVesselsOrbitLineStillInspects is the review
+// regression for finding 3.
+//
+// The App's "clicking someone else's track must not plant on yours" guard
+// runs through InspectByOwner, which used to search only the `[j]` cycle
+// set — and that set is gated on the ENTITY projecting on-canvas. Orbit
+// lines are tagged regardless, so an on-canvas line belonging to an
+// off-canvas vessel produced hit.Owner != "" with ownerHit == false: the
+// click fell straight through to the stage-a-burn branch, pausing the
+// clock and swapping to the maneuver screen, and no name chip ever
+// appeared. Owner resolution now indexes what was DRAWN (drawnOwners), so
+// both halves work: the line answers, and the planner stays shut.
+func TestClickingAnOffCanvasVesselsOrbitLineStillInspects(t *testing.T) {
+	a, sister := coOrbitApp(t, 6)
+	sisterWorld := a.world.BodyPosition(sister.Primary).Add(sister.State.R)
+	if a.orbitView.OnCanvas(sisterWorld) {
+		t.Skip("the sister did not end up off-canvas at this zoom")
+	}
+	want := screens.InspectRef{Kind: screens.InspectVessel, CraftID: sister.ID}
+	col, row, ok := findClickableOwnerCell(a, want.OwnerKey())
+	if !ok {
+		t.Skip("the sister's orbit line did not land on a clickable cell")
+	}
+
+	nodesBefore := len(a.world.ActiveCraft().Nodes)
+	orbit := a.active
+	pausedBefore := a.world.Clock.Paused
+	a.Update(tea.MouseMsg{X: col, Y: row, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+
+	if a.active != orbit {
+		t.Errorf("clicking an off-canvas vessel's orbit line left the map for %v", a.active)
+	}
+	if n := len(a.world.ActiveCraft().Nodes); n != nodesBefore {
+		t.Errorf("clicking an off-canvas vessel's orbit line planted a node (%d -> %d)", nodesBefore, n)
+	}
+	if a.world.Clock.Paused != pausedBefore {
+		t.Error("clicking an off-canvas vessel's orbit line paused the clock — it opened the planner")
+	}
+	ref, _, inspecting := a.orbitView.InspectedRef()
+	if !inspecting || ref != want {
+		t.Errorf("inspected %+v (inspecting=%v), want %+v — the click must still answer 'whose line is this?'", ref, inspecting, want)
+	}
+	if name := a.orbitView.InspectedName(); name != "Sister" {
+		t.Errorf("InspectedName = %q, want %q — an answer with no name is no answer", name, "Sister")
+	}
+}
+
+// TestOffCanvasInspectStillPaintsItsNameChip: resolving the owner is only
+// half the answer. The entity is off-frame, so its chip anchor clamps to
+// the edge nearest it rather than being suppressed — otherwise the player
+// gets a flared line and no name, which is the question left hanging.
+func TestOffCanvasInspectStillPaintsItsNameChip(t *testing.T) {
+	a, sister := coOrbitApp(t, 6)
+	sisterWorld := a.world.BodyPosition(sister.Primary).Add(sister.State.R)
+	if a.orbitView.OnCanvas(sisterWorld) {
+		t.Skip("the sister did not end up off-canvas at this zoom")
+	}
+	key := screens.InspectRef{Kind: screens.InspectVessel, CraftID: sister.ID}.OwnerKey()
+	if _, ok := a.orbitView.InspectByOwner(key); !ok {
+		t.Skip("the sister's track was not drawn this frame")
+	}
+	if !strings.Contains(a.View(), "Sister") {
+		t.Error("the inspected off-canvas vessel's name chip never rendered")
+	}
+}
+
+// TestOwnOrbitLineStillStagesABurnWhenZoomedIn: the other side of the same
+// change. Clicking YOUR OWN track is a place, not an identity question, and
+// it has always opened the planner there. That kept working before this fix
+// only by accident — the owner failed to resolve, so the click fell through
+// to the canvas branch. Now it resolves and is allowed through on purpose,
+// so the behaviour has to be pinned rather than left to luck.
+func TestOwnOrbitLineStillStagesABurnWhenZoomedIn(t *testing.T) {
+	a, _ := coOrbitApp(t, 6)
+	active := a.world.ActiveCraft()
+	key := screens.InspectRef{Kind: screens.InspectVessel, CraftID: active.ID}.OwnerKey()
+	col, row, ok := findClickableOwnerCell(a, key)
+	if !ok {
+		t.Skip("no unambiguous, click-reachable own-orbit cell on the canvas")
+	}
+	a.Update(tea.MouseMsg{X: col, Y: row, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if a.active != screenManeuver {
+		t.Errorf("clicking your own orbit line landed on %v, want the maneuver screen", a.active)
+	}
+}
+
+// findClickableOwnerCell is findOwnerCell restricted to cells a click can
+// actually reach: the chips and the navball composite OVER the canvas and
+// swallow their own hits before the map ever sees them, so a cell hiding
+// under one is not a test of the click router. The plain findOwnerCell is
+// fine for the wide-terminal fixtures above, where the chips leave most of
+// the map exposed; a zoomed-in fixture puts far more ink under the
+// top-left stack, which is exactly where an unfiltered scan lands first.
+func findClickableOwnerCell(a *App, owner string) (col, row int, ok bool) {
+	for r := 2; r < a.height-1; r++ {
+		for c := 1; c < a.width-1; c++ {
+			if _, hit := a.orbitView.HitNavballControl(c, r); hit {
+				continue
+			}
+			if _, hit := a.orbitView.HitChip(c, r); hit {
+				continue
+			}
+			h := a.orbitView.HitAt(c, r)
+			if h.Owner == owner && !h.OwnerTied &&
+				h.BodyID == "" && !h.IsVessel && h.NodeIdx == 0 {
+				return c, r, true
+			}
+		}
+	}
+	return 0, 0, false
 }

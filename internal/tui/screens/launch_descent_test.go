@@ -59,11 +59,20 @@ func descendingMoonCraft(t *testing.T, altM, vDownMps float64) *sim.World {
 // TestDescentCorridorLinesInstruments pins the four instruments issue
 // #348 §3 asks for — altitude, descent rate, time to impact, burn margin
 // — as exact rendered rows, so a formatting change has to be deliberate.
+//
+// Since the review's chip-dedup fix the block also carries v_horiz and
+// fpa, folded in from the DESCENT chip it now replaces on this screen
+// (see the dropChip call in launch.go). Both are pinned here for the same
+// reason the original four are: they are the rows a player reads while
+// deciding whether this is a landing or a crash.
 func TestDescentCorridorLinesInstruments(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
 	dc := sim.DescentCorridor{
-		AltitudeM:      12_400,
-		DescentRateMps: 182,
+		AltitudeM:          12_400,
+		DescentRateMps:     182,
+		HorizontalRateMps:  4,
+		FlightPathAngleDeg: -88,
+		HasFPA:             true,
 		Impact: sim.ImpactPrediction{
 			TimeToImpact: 64 * time.Second,
 			SpeedMps:     240,
@@ -76,6 +85,8 @@ func TestDescentCorridorLinesInstruments(t *testing.T) {
 		"DESCENT CORRIDOR",
 		"  altitude:   12.40 km",
 		"  descent:    182 m/s",
+		"  v_horiz:    4 m/s (surface-rel)",
+		"  fpa:        -88° (0 = horiz, −90 = straight down)",
 		"  impact in:  1m4s (240 m/s)",
 		"  margin:     1.50 ×",
 	}
@@ -87,6 +98,33 @@ func TestDescentCorridorLinesInstruments(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("row %d:\n got: %q\nwant: %q", i, got[i], want[i])
 		}
+	}
+}
+
+// TestDescentCorridorHorizontalRateAlarm: the folded v_horiz row keeps
+// the DESCENT chip's own alarm — crossing the ground faster sideways than
+// V_CRIT wrecks the vessel however gently the vertical rate has been
+// nulled, and none of the corridor's other numbers say so.
+func TestDescentCorridorHorizontalRateAlarm(t *testing.T) {
+	v := NewLaunchView(launchThemeForTest(), nil)
+	quiet := v.descentCorridorLines(sim.DescentCorridor{HorizontalRateMps: sim.CrashVCritMps - 1})
+	loud := v.descentCorridorLines(sim.DescentCorridor{HorizontalRateMps: sim.CrashVCritMps + 1})
+	if strings.Contains(quiet[3], "CRASH") {
+		t.Errorf("below V_CRIT raised the crash alarm: %q", quiet[3])
+	}
+	if !strings.Contains(loud[3], "CRASH on contact") {
+		t.Errorf("above V_CRIT did not raise the crash alarm: %q", loud[3])
+	}
+}
+
+// TestDescentCorridorFPAUndefinedBelowSpeedFloor: with no meaningful
+// surface-relative motion the angle is numerical dust, so the row says so
+// rather than printing a heading the pilot might steer by.
+func TestDescentCorridorFPAUndefinedBelowSpeedFloor(t *testing.T) {
+	v := NewLaunchView(launchThemeForTest(), nil)
+	got := v.descentCorridorLines(sim.DescentCorridor{})
+	if got[4] != "  fpa:        —" {
+		t.Errorf("fpa row without HasFPA = %q, want an em dash", got[4])
 	}
 }
 
@@ -231,5 +269,62 @@ func TestLaunchViewNoDescentInstrumentsOnAscent(t *testing.T) {
 	}
 	if n := v.canvas.CountOverlayColor(render.ColorMarkerImpact); n != 0 {
 		t.Errorf("climbing vehicle drew %d impact markers, want 0", n)
+	}
+}
+
+// TestSurfaceViewShowsOneDescentBlock is the review regression for the
+// chip duplication.
+//
+// The surface view assembles the shared chip set (which includes the
+// airless-body DESCENT chip) and then appends its own DESCENT CORRIDOR.
+// During a Moon descent both were live at once, in opposite corners,
+// reporting the same altitude to two decimals and the same rate with
+// OPPOSITE SIGNS — `v_vert: -40.0 m/s` on the left against `descent:
+// 40 m/s` on the right. The corridor wins (it forecasts ground contact
+// and says whether the stop is still flyable) and DESCENT stands down
+// while it is up.
+func TestSurfaceViewShowsOneDescentBlock(t *testing.T) {
+	w := descendingMoonCraft(t, 8_000, 40)
+	w.ViewMode = sim.ViewLaunch
+
+	hud := NewOrbitView(ghostTestTheme())
+	hud.Resize(200, 60)
+	hud.Render(w, 0, 200, 60)
+
+	v := NewLaunchView(launchThemeForTest(), hud)
+	v.Resize(200, 60)
+	out := stripANSI(v.Render(w, 200, 60))
+
+	if !strings.Contains(out, "DESCENT CORRIDOR") {
+		t.Fatal("precondition: the corridor block is not on screen for a Moon descent")
+	}
+	// Exactly one altitude row, and one rate row, across the whole frame.
+	if n := strings.Count(out, "altitude:"); n != 1 {
+		t.Errorf("frame carries %d `altitude:` rows, want 1 — the two descent blocks are duplicating", n)
+	}
+	if n := strings.Count(out, "v_vert:"); n != 0 {
+		t.Errorf("frame still carries %d `v_vert:` rows — the DESCENT chip did not stand down", n)
+	}
+	// The rows worth keeping came along rather than being dropped.
+	for _, row := range []string{"descent:", "v_horiz:", "fpa:", "impact in:", "margin:"} {
+		if !strings.Contains(out, row) {
+			t.Errorf("corridor block is missing the %q row", row)
+		}
+	}
+}
+
+// TestOrbitMapKeepsItsDescentChip: the substitution is the SURFACE view's
+// alone. The orbit map has no ground line and no corridor block, so
+// removing DESCENT there would delete the readout rather than replace it.
+func TestOrbitMapKeepsItsDescentChip(t *testing.T) {
+	w := descendingMoonCraft(t, 8_000, 40)
+	w.ViewMode = sim.ViewTilted
+
+	v := NewOrbitView(ghostTestTheme())
+	v.Resize(200, 60)
+	out := stripANSI(v.Render(w, 0, 200, 60))
+
+	if !strings.Contains(out, "v_vert:") {
+		t.Error("the orbit map lost its DESCENT chip — there is no corridor there to replace it")
 	}
 }

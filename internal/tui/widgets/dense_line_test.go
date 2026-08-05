@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"math"
 	"sort"
 	"testing"
 
@@ -203,5 +204,134 @@ func TestPlotDenseLineOffCanvasSkipped(t *testing.T) {
 	c.PlotDenseLineColored(orbital.Vec3{X: 1e6}, orbital.Vec3{X: 1.0001e6}, color, 1)
 	if n := len(taggedPixels(c, color)); n != 0 {
 		t.Errorf("off-canvas chord set %d pixels, want 0", n)
+	}
+}
+
+// nonFinitePoints enumerates the ways a world point can stop being a
+// point. Each is fed as the FAR endpoint of an otherwise ordinary chord
+// whose near endpoint sits dead centre on the canvas.
+var nonFinitePoints = []struct {
+	name string
+	p    orbital.Vec3
+}{
+	{"NaN x", orbital.Vec3{X: math.NaN()}},
+	{"NaN y", orbital.Vec3{Y: math.NaN()}},
+	{"+Inf x", orbital.Vec3{X: math.Inf(1)}},
+	{"-Inf y", orbital.Vec3{Y: math.Inf(-1)}},
+	{"NaN both", orbital.Vec3{X: math.NaN(), Y: math.NaN()}},
+}
+
+// TestNonFinitePointsDrawNothing is the review regression for the freeze
+// the ADR 0042 §3 float rewrite opened. Liang-Barsky cannot reject a NaN
+// endpoint on its own — every comparison against NaN is false, so all four
+// of clipSegmentToCanvas's return-false branches are skipped and it used to
+// report ok=true with NaN endpoints. The walkers then read segLenPx's 1e9
+// NaN clamp as a real clipped length and iterated a BILLION times: a single
+// PlotDensePolylineColored call measured at ~18 seconds, i.e. the whole TUI
+// wedged, not one dropped line.
+//
+// Asserted as "no ink" rather than "returns quickly": a wall-clock bound
+// would be a flaky way to state a correctness property, and zero pixels is
+// the honest requirement — a non-finite point has no place on the canvas.
+// (The loop bound follows: nothing can iterate a billion times and still
+// set no pixels.)
+func TestNonFinitePointsDrawNothing(t *testing.T) {
+	color := lipgloss.Color("#33AAFF")
+	centre := orbital.Vec3{}
+	for _, bad := range nonFinitePoints {
+		t.Run(bad.name, func(t *testing.T) {
+			for _, draw := range []struct {
+				name string
+				fn   func(c *Canvas)
+			}{
+				{"PlotDenseLineColored", func(c *Canvas) {
+					c.PlotDenseLineColored(centre, bad.p, color, 1)
+				}},
+				{"PlotDenseLineForcedColored", func(c *Canvas) {
+					c.PlotDenseLineForcedColored(centre, bad.p, color, 1)
+				}},
+				{"PlotDensePolylineColored", func(c *Canvas) {
+					c.PlotDensePolylineColored([]orbital.Vec3{centre, bad.p, centre}, color, 1)
+				}},
+				{"PlotPolylineClass/Planned", func(c *Canvas) {
+					c.PlotPolylineClass([]orbital.Vec3{centre, bad.p, centre}, color, ClassPlanned)
+				}},
+				{"PlotPolylineClass/Real", func(c *Canvas) {
+					c.PlotPolylineClass([]orbital.Vec3{centre, bad.p, centre}, color, ClassReal)
+				}},
+			} {
+				c := NewCanvas(60, 30)
+				c.SetScale(1)
+				c.Center(orbital.Vec3{})
+				c.Clear()
+				draw.fn(c)
+				if n := len(taggedPixels(c, color)); n != 0 {
+					t.Errorf("%s inked %d pixels for a %s endpoint, want 0", draw.name, n, bad.name)
+				}
+			}
+		})
+	}
+}
+
+// TestNonFiniteEndpointKeepsDashPhase: a bad sample must not silently
+// shift the cadence of the rest of the curve either. A non-finite chord
+// contributes no arc length, so the dots after it land exactly where they
+// would have with the bad point simply absent.
+func TestNonFiniteEndpointKeepsDashPhase(t *testing.T) {
+	color := lipgloss.Color("#33AAFF")
+	run := func(pts []orbital.Vec3) [][2]int {
+		c := NewCanvas(60, 30)
+		c.SetScale(1)
+		c.Center(orbital.Vec3{})
+		c.Clear()
+		c.PlotDensePolylineColored(pts, color, 3)
+		px := taggedPixels(c, color)
+		sort.Slice(px, func(i, j int) bool {
+			if px[i][0] != px[j][0] {
+				return px[i][0] < px[j][0]
+			}
+			return px[i][1] < px[j][1]
+		})
+		return px
+	}
+	clean := run([]orbital.Vec3{{X: -40}, {X: 40}})
+	// The same visible chord with a NaN excursion spliced into the middle:
+	// the NaN legs draw nothing and advance nothing, so what remains is the
+	// two half-chords at the same phase they had in `clean`.
+	spliced := run([]orbital.Vec3{{X: -40}, {X: math.NaN()}, {X: -40}, {X: 40}})
+	if len(clean) == 0 {
+		t.Fatal("precondition: the clean chord inked nothing")
+	}
+	if len(spliced) != len(clean) {
+		t.Fatalf("NaN excursion changed the dot count: %d vs %d", len(spliced), len(clean))
+	}
+	for i := range clean {
+		if spliced[i] != clean[i] {
+			t.Fatalf("dot %d moved to %v (want %v) — a NaN sample shifted the dash phase", i, spliced[i], clean[i])
+		}
+	}
+}
+
+// TestClipSegmentToCanvasRefusesNonFinite pins the guard at the level it
+// actually lives, so a future caller reaching for the clipper directly
+// inherits the same protection.
+func TestClipSegmentToCanvasRefusesNonFinite(t *testing.T) {
+	cases := [][4]float64{
+		{math.NaN(), 0, 10, 10},
+		{0, math.NaN(), 10, 10},
+		{0, 0, math.NaN(), 10},
+		{0, 0, 10, math.NaN()},
+		{math.Inf(1), 0, 10, 10},
+		{0, 0, math.Inf(-1), 10},
+	}
+	for _, c := range cases {
+		if _, _, _, _, ok := clipSegmentToCanvas(c[0], c[1], c[2], c[3], 120, 120); ok {
+			t.Errorf("clipSegmentToCanvas%v = ok, want refused", c)
+		}
+	}
+	// A merely enormous (but finite) coordinate still clips normally — the
+	// guard must not become a reason to drop a real off-screen chord.
+	if _, _, _, _, ok := clipSegmentToCanvas(60, 60, 1e18, 60, 120, 120); !ok {
+		t.Error("a huge finite endpoint was refused; only non-finite ones should be")
 	}
 }

@@ -277,18 +277,30 @@ func (w *World) NudgeLaunchZoom(dir int, currentAutoScale float64) {
 // trail, resets LaunchZoom to auto. Idempotent guard lives in the
 // caller (tickLaunchView checks !LaunchSessionActive).
 //
-// The `ViewMode != ViewLaunch` guard on the PrevViewMode capture
-// matters for save-load: persisted saves carry ViewMode but not
-// LaunchSessionActive, so a save taken mid-session reloads with
-// ViewMode=ViewLaunch and LaunchSessionActive=false. The first
-// post-load tick then re-fires this handler on the already-Landed
-// vessel; without the guard, PrevViewMode would capture ViewLaunch
-// and the switch-end release would later "restore" to ViewLaunch
-// (a no-op). Leaving PrevViewMode at its zero value (ViewTilted) on
-// this path is the correct fallback.
+// PrevViewMode is captured through baseProjection, so it always holds a
+// MAP PROJECTION — never ViewLaunch, never ViewProximity. Two reasons,
+// one old and one learned the hard way:
+//
+//   - Save-load (the original `ViewMode != ViewLaunch` guard): persisted
+//     saves carry ViewMode but not LaunchSessionActive, so a save taken
+//     mid-session reloads with ViewMode=ViewLaunch and
+//     LaunchSessionActive=false. The first post-load tick re-fires this
+//     handler on the already-Landed vessel; capturing ViewLaunch would
+//     make the switch-end release "restore" to ViewLaunch, a no-op.
+//
+//   - The stacked jump keys (issue #348 §4). ViewProximity records its own
+//     return address in ProxReturnView, which may legitimately be
+//     ViewLaunch — the two toggles are documented to stack. If entering
+//     Launch FROM Proximity also captured ViewProximity here, the two
+//     return addresses would point at each other and neither `V` nor `o`
+//     could reach the map again: V/o would ping-pong Launch↔Proximity
+//     forever, with the launch session released and T+ frozen at 0.
+//     baseProjection unwinds the stack to the projection underneath, so a
+//     jump out of Proximity into Launch still returns to the map the
+//     player actually came from.
 func (w *World) routeToLaunchView() {
 	if w.ViewMode != ViewLaunch {
-		w.PrevViewMode = w.ViewMode
+		w.PrevViewMode = w.baseProjection(w.ViewMode)
 	}
 	w.LaunchSessionActive = true
 	w.ViewMode = ViewLaunch

@@ -64,6 +64,25 @@ type builtChip struct {
 	priority int
 }
 
+// dropChip removes every chip carrying `id` from an assembled list. The
+// escape hatch for a screen that assembles the shared chip set but owns a
+// BETTER block for one of them — today only the surface view, whose
+// DESCENT CORRIDOR supersedes DESCENT while a descent is live (see the
+// call site in launch.go). Filtering the assembled slice rather than
+// teaching assembleChips about the caller keeps the shared builder free
+// of per-screen conditionals, and keeps the substitution stated where the
+// replacement block is built.
+func dropChip(chips []builtChip, id settings.Chip) []builtChip {
+	out := chips[:0]
+	for _, c := range chips {
+		if c.id == id {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // Priority tiers for admitChipsByBudget (#328/#334). Highest first:
 //
 //   - chipPriorityCore (100): unconditionally pinned core telemetry that

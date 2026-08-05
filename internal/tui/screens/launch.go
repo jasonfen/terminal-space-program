@@ -14,6 +14,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -207,6 +208,20 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 		// column is just the slim telemetry block. Canvas content sits 1
 		// col / 2 rows in (border + title), matching the orbit screen.
 		chips := v.hudSource.assembleChips(w)
+		// DESCENT and DESCENT CORRIDOR both answer "how is this landing
+		// going", and while the corridor is live they were both on screen
+		// — opposite corners, same altitude to two decimals, and the
+		// descent rate stated twice with opposite signs (`v_vert: -40.0
+		// m/s` against `descent: 40 m/s`). The corridor is the better
+		// block (it forecasts the ground contact and says whether the stop
+		// is still flyable), so it wins and DESCENT stands down here. Its
+		// two non-redundant rows moved into the corridor rather than being
+		// dropped — see sim.DescentCorridor's doc comment for which, and
+		// why `twr` and `sas` were not among them. The orbit map keeps its
+		// DESCENT chip untouched: there is no corridor there to replace it.
+		if descending {
+			chips = dropChip(chips, settings.ChipDescent)
+		}
 		// DESCENT CORRIDOR is the surface view's own chip — built here, not
 		// in assembleChips, because it's the launch/surface screen's
 		// instrument block and the orbit map has no ground line to read it
@@ -752,10 +767,28 @@ func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim
 // capability bound it, so the alarm names the fix instead of only the
 // fault.
 func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
+	// v_horiz and fpa are the two rows folded in from the DESCENT chip
+	// this block now replaces on this screen (see the dropChip call in
+	// Render, and sim.DescentCorridor's doc comment for why `twr` and
+	// `sas` weren't worth carrying over). v_horiz keeps its CRASH styling
+	// verbatim: crossing the ground fast enough sideways wrecks the vessel
+	// however gently the vertical rate has been nulled, and that is not
+	// something the four corridor numbers imply.
+	fpaLabel := "—"
+	if dc.HasFPA {
+		fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", nzero(dc.FlightPathAngleDeg, 0))
+	}
+	horizLabel := fmt.Sprintf("%.0f m/s (surface-rel)", dc.HorizontalRateMps)
+	if dc.HorizontalRateMps > sim.CrashVCritMps {
+		horizLabel = v.theme.Alert.Render(
+			fmt.Sprintf("%.0f m/s (> %.0f = CRASH on contact)", dc.HorizontalRateMps, sim.CrashVCritMps))
+	}
 	return []string{
 		v.theme.Primary.Render("DESCENT CORRIDOR"),
 		fmt.Sprintf("  altitude:   %s", formatAltitude(dc.AltitudeM)),
 		fmt.Sprintf("  descent:    %.0f m/s", dc.DescentRateMps),
+		fmt.Sprintf("  v_horiz:    %s", horizLabel),
+		fmt.Sprintf("  fpa:        %s", fpaLabel),
 		fmt.Sprintf("  impact in:  %s (%.0f m/s)",
 			compactDuration(dc.Impact.TimeToImpact), dc.Impact.SpeedMps),
 		fmt.Sprintf("  margin:     %s", v.marginLabel(dc.Margin)),

@@ -64,6 +64,12 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 		// targeted, so committing it would be a no-op on the slot it
 		// describes.
 		v.addInspectable(caRef, inspectApproachName(w), ownPos, false)
+	} else if _, _, onCanvas := v.canvas.Project(targetPos); onCanvas {
+		// Only the target's end of the pair made the canvas. Not a cycle
+		// stop (the pair anchors on the craft's end, which isn't visible),
+		// but the ✕ that IS drawn carries the owner tag, so a click on it
+		// has to resolve — anchored on the end the player can actually see.
+		v.registerDrawnOwner(caRef, inspectApproachName(w), targetPos, false)
 	}
 	drawMarker(v.canvas, ownPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
 	drawMarker(v.canvas, targetPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)

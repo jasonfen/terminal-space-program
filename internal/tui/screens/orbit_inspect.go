@@ -125,19 +125,53 @@ const inspectFlareRingPx = 3
 // sites rather than from world state.
 func (v *OrbitView) resetInspectables() {
 	v.inspectables = v.inspectables[:0]
+	clear(v.drawnOwners)
 }
 
-// addInspectable records an entity as inspectable at the point it is
-// drawn. Call order IS cycle order (see InspectNext): the map's own draw
-// order — scenery, then ghosts, then your vessel, then other local
-// vessels, then plan overlays — is already the codebase's deterministic
-// overlap-priority rule (ADR 0020 D), so Inspect steps in the same order
-// the renderer commits to rather than inventing a second one.
+// addInspectable records an entity as a stop on the `[j]` cycle at the
+// point it is drawn. Call order IS cycle order (see InspectNext): the
+// map's own draw order — scenery, then ghosts, then your vessel, then
+// other local vessels, then plan overlays — is already the codebase's
+// deterministic overlap-priority rule (ADR 0020 D), so Inspect steps in
+// the same order the renderer commits to rather than inventing a second
+// one.
 //
 // Off-canvas entities are the caller's filter: every call site gates on
-// the anchor projecting onto the canvas.
+// the anchor projecting onto the canvas, so stepping the cycle never
+// lands on something with nothing visible to flare. Adding to the cycle
+// also registers the owner (see registerDrawnOwner) — the cycle set is
+// always a subset of what inked.
 func (v *OrbitView) addInspectable(ref InspectRef, name string, pos orbital.Vec3, targetable bool) {
-	v.inspectables = append(v.inspectables, inspectable{ref: ref, name: name, pos: pos, targetable: targetable})
+	it := inspectable{ref: ref, name: name, pos: pos, targetable: targetable}
+	v.inspectables = append(v.inspectables, it)
+	v.registerOwner(it)
+}
+
+// registerDrawnOwner records an entity's identity against the ink it just
+// laid down, WITHOUT making it a `[j]` cycle stop. Line draw sites call
+// it: an entity whose own marker is off-canvas can still have a long arc
+// of its orbit crossing the view, and a click on that arc has to resolve
+// to it — both so the map can answer "whose line is this?" and so the
+// App's stage-a-burn fallthrough stays gated (clicking someone else's
+// track must never plant on yours). Gating this on the entity's marker
+// being on-canvas, the way the cycle is gated, is exactly what left that
+// guard open: the tag was on the pixel but nothing could resolve it.
+//
+// Idempotent per frame — the same entity is registered by both its line
+// and its marker, and the two agree.
+func (v *OrbitView) registerDrawnOwner(ref InspectRef, name string, pos orbital.Vec3, targetable bool) {
+	v.registerOwner(inspectable{ref: ref, name: name, pos: pos, targetable: targetable})
+}
+
+func (v *OrbitView) registerOwner(it inspectable) {
+	key := it.ref.OwnerKey()
+	if key == "" {
+		return
+	}
+	if v.drawnOwners == nil {
+		v.drawnOwners = make(map[string]inspectable)
+	}
+	v.drawnOwners[key] = it
 }
 
 // isInspected reports whether ref is the entity currently flaring. The
@@ -161,21 +195,25 @@ func (v *OrbitView) inspectLineColor(ref InspectRef, base lipgloss.Color) lipglo
 	return base
 }
 
-// inspected resolves the current highlight against the frame's
-// inspectable set. ok=false both when nothing is inspected and when the
-// inspected entity is no longer drawn — a ghost that went offline, a
-// vessel that panned off-canvas, a node that fired. The caller treats
+// inspected resolves the current highlight against everything the frame
+// DREW (drawnOwners), not just the `[j]` cycle stops. ok=false both when
+// nothing is inspected and when the inspected entity is no longer drawn at
+// all — a ghost that went offline, a node that fired. The caller treats
 // those identically: no flare, no chip.
+//
+// Resolving against the wider set is what lets a click on an off-canvas
+// vessel's on-canvas orbit line produce a visible answer: the line itself
+// already flares (inspectLineColor runs at its draw site) and the name
+// chip clamps to the edge nearest the entity (composeInspectChip).
 func (v *OrbitView) inspected() (inspectable, bool) {
 	if v.inspectRef.Kind == InspectNone {
 		return inspectable{}, false
 	}
-	for _, it := range v.inspectables {
-		if it.ref == v.inspectRef {
-			return it, true
-		}
+	it, ok := v.drawnOwners[v.inspectRef.OwnerKey()]
+	if !ok || it.ref != v.inspectRef {
+		return inspectable{}, false
 	}
-	return inspectable{}, false
+	return it, true
 }
 
 // InspectNext steps the highlight one place along the frame's inspectable
@@ -246,17 +284,21 @@ func (v *OrbitView) InspectedName() string {
 // so a click and a key press are indistinguishable downstream. ok=false
 // when the key belongs to nothing drawn this frame (a stale tag from a
 // previous frame's pixels).
+//
+// Resolves against drawnOwners rather than the `[j]` cycle set: a pixel
+// carrying an Owner tag is by definition ink this frame laid down, so the
+// click must resolve it even when the entity's own marker sits off-canvas
+// and it is therefore not a cycle stop.
 func (v *OrbitView) InspectByOwner(key string) (InspectRef, bool) {
 	if key == "" {
 		return InspectRef{}, false
 	}
-	for _, it := range v.inspectables {
-		if it.ref.OwnerKey() == key {
-			v.inspectRef = it.ref
-			return it.ref, true
-		}
+	it, ok := v.drawnOwners[key]
+	if !ok {
+		return InspectRef{}, false
 	}
-	return InspectRef{}, false
+	v.inspectRef = it.ref
+	return it.ref, true
 }
 
 // InspectableCount reports how many entities this frame offered to
@@ -289,15 +331,20 @@ func (v *OrbitView) drawInspectFlare() {
 // cell, clamped onto the canvas so an entity near an edge still gets a
 // fully-visible chip. Painted last (after the navball and the corner
 // Chips) so it is never the thing that gets covered.
+//
+// An OFF-canvas anchor clamps to the edge nearest the entity rather than
+// suppressing the chip. That case is reached by clicking the on-canvas
+// arc of an off-canvas vessel's orbit: the line flares at its draw site,
+// so the map has already said "this one" — withholding the name would
+// leave the player with a highlight and no answer, which is the exact
+// failure Inspect exists to fix. An edge-anchored chip also reads as
+// "it's off that way", which is true.
 func (v *OrbitView) composeInspectChip(canvasStr string, cCols, cRows int) string {
 	it, ok := v.inspected()
 	if !ok {
 		return canvasStr
 	}
-	px, py, onCanvas := v.canvas.Project(it.pos)
-	if !onCanvas {
-		return canvasStr
-	}
+	px, py := v.canvas.ProjectClamped(it.pos)
 	label := it.name
 	if label == "" {
 		return canvasStr

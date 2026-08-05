@@ -768,6 +768,11 @@ func (c *Canvas) walkPixelDashSegment(ax, ay, bx, by float64, tag CellTag, onPx,
 	if !(phase >= 0) { // NaN-safe
 		phase = 0
 	}
+	// A non-finite endpoint is not a point on this curve, so it neither inks
+	// nor advances the dash cadence — see finitePx and clipSegmentToCanvas.
+	if !finitePx(ax, ay) || !finitePx(bx, by) {
+		return phase
+	}
 	full := segLenPx(ax, ay, bx, by)
 	newPhase := math.Mod(phase+full, cycle)
 	cax, cay, cbx, cby, ok := clipSegmentToCanvas(ax, ay, bx, by, c.pxW, c.pxH)
@@ -837,6 +842,11 @@ func (c *Canvas) walkPixelSegment(ax, ay, bx, by float64, tag CellTag, step int,
 	if !(phase >= 0) { // NaN-safe
 		phase = 0
 	}
+	// A non-finite endpoint is not a point on this curve, so it neither inks
+	// nor advances the dot cadence — see finitePx and clipSegmentToCanvas.
+	if !finitePx(ax, ay) || !finitePx(bx, by) {
+		return phase
+	}
 	full := segLenPx(ax, ay, bx, by)
 	advanced := math.Mod(phase+full, stepF)
 	cax, cay, cbx, cby, ok := clipSegmentToCanvas(ax, ay, bx, by, c.pxW, c.pxH)
@@ -898,6 +908,17 @@ func segLenPx(ax, ay, bx, by float64) float64 {
 	return d
 }
 
+// finitePx reports whether a projected pixel coordinate pair is a real
+// point. The clamp in segLenPx keeps a merely ENORMOUS coordinate honest —
+// the segment still clips correctly and the visible run is still right —
+// but a NaN or ±Inf coordinate is not a point at all, and the only correct
+// thing to do with it is draw nothing. Callers use it to bail before the
+// arc-length walk, so a bad sample costs one comparison instead of the
+// clamp's worth of iterations.
+func finitePx(x, y float64) bool {
+	return !math.IsNaN(x) && !math.IsNaN(y) && !math.IsInf(x, 0) && !math.IsInf(y, 0)
+}
+
 // clipSegmentToCanvas clips the pixel segment [(ax,ay),(bx,by)] to the canvas
 // rectangle [0,w-1]×[0,h-1] via Liang-Barsky, returning the clipped endpoints
 // and ok=false when the segment lies wholly outside. Bounds the dense-line
@@ -905,7 +926,20 @@ func segLenPx(ax, ay, bx, by float64) float64 {
 // O(projected distance). Works in floats: an adaptively flattened arc hands
 // over raw projected coordinates, which are only rounded once inside the
 // canvas rectangle.
+//
+// A non-finite endpoint is refused outright. Liang-Barsky cannot reject one
+// on its own — every comparison against NaN is false, so all four
+// return-false branches are skipped and the routine reports ok=true with NaN
+// endpoints. The float rewrite (ADR 0042 §3) made that fatal rather than
+// merely wrong: the walkers then take segLenPx's 1e9 NaN clamp as a real
+// clipped length and iterate a billion times, which is a multi-second freeze
+// of the whole render loop rather than one dropped line. The pre-ADR-0042
+// callers rounded to int before clipping and so were bounded by accident;
+// this is where that bound now lives, on purpose.
 func clipSegmentToCanvas(ax, ay, bx, by float64, w, h int) (float64, float64, float64, float64, bool) {
+	if !finitePx(ax, ay) || !finitePx(bx, by) {
+		return 0, 0, 0, 0, false
+	}
 	x0, y0 := ax, ay
 	dx, dy := bx-ax, by-ay
 	maxX, maxY := float64(w-1), float64(h-1)
@@ -993,6 +1027,23 @@ func (c *Canvas) Project(w orbital.Vec3) (int, int, bool) {
 		return px, py, false
 	}
 	return px, py, true
+}
+
+// ProjectClamped is Project with the result pinned inside the canvas
+// rectangle instead of reported as off-canvas: an off-screen world point
+// comes back as the edge pixel nearest to it. For overlays that must stay
+// visible while still pointing at where their subject actually is — the
+// Inspect name chip on an entity whose orbit line crosses the view but
+// whose own marker does not. A non-finite projection (see finitePx) has
+// no nearest edge, so it clamps to the canvas centre.
+func (c *Canvas) ProjectClamped(w orbital.Vec3) (int, int) {
+	fx, fy := c.projectPx(w)
+	if !finitePx(fx, fy) {
+		return c.pxW / 2, c.pxH / 2
+	}
+	px := int(math.Round(math.Min(math.Max(fx, 0), float64(c.pxW-1))))
+	py := int(math.Round(math.Min(math.Max(fy, 0), float64(c.pxH-1))))
+	return px, py
 }
 
 // Unproject returns the world coord whose Project would land at the
