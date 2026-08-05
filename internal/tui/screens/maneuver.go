@@ -517,7 +517,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 
 	// Current orbit. Empty colour → uses Plot for back-compat with
 	// the existing white-on-default rendering of this canvas.
-	m.canvas.DrawEllipseOffsetOccluded(currentEl, orbital.Vec3{}, 360, 4, orbital.Vec3{}, primaryPxR, "")
+	m.canvas.DrawEllipseOffsetOccluded(currentEl, orbital.Vec3{}, 360, 3, orbital.Vec3{}, primaryPxR, "")
 
 	// v0.9.3 polish: target craft's orbit + current position when it
 	// shares the active craft's primary. The maneuver canvas centers

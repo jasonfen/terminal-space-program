@@ -481,7 +481,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			continue
 		}
 		el := orbital.ElementsFromBody(b)
-		v.canvas.DrawEllipseOffsetFarSideDashed(el, orbital.Vec3{}, 360, 6, orbital.Vec3{}, 0, render.ColorBodyOrbit)
+		v.canvas.DrawEllipseOffsetFarSideDashed(el, orbital.Vec3{}, 360, 5, orbital.Vec3{}, 0, render.ColorBodyOrbit)
 	}
 
 	// Plot each body at its perceived-size disk. System primary (index 0)
@@ -780,12 +780,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				gPrimaryPos := w.BodyPosition(gp)
 				gPxR := BodyPixelRadius(gp, false, scale, canvasReach)
 				orbitColor := lipgloss.Color(render.ColorDim)
-				stride := 5
+				spacingPx := 4
 				if isTarget {
 					orbitColor = render.ColorTarget
-					stride = 3
+					spacingPx = 3
 				}
-				v.canvas.DrawEllipseOffsetFarSideDashed(el, gPrimaryPos, 180, stride, gPrimaryPos, gPxR, orbitColor)
+				v.canvas.DrawEllipseOffsetFarSideDashed(el, gPrimaryPos, 180, spacingPx, gPrimaryPos, gPxR, orbitColor)
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
 					// ghost's own apsides, dimmed via MarkerCounterfactual
@@ -836,7 +836,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// same check.
 		primaryPxR := BodyPixelRadius(c.Primary, false, scale, canvasReach)
 		if orbitVisible {
-			v.canvas.DrawEllipseOffsetFarSideDashed(el, primaryPos, 360, 3, primaryPos, primaryPxR, render.ColorCurrentOrbit)
+			v.canvas.DrawEllipseOffsetFarSideDashed(el, primaryPos, 360, 2, primaryPos, primaryPxR, render.ColorCurrentOrbit)
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 			// Unified single-glyph markers (ADR 0020): ▼ periapsis / ▲
@@ -938,14 +938,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				otherColor = render.ColorTarget
 			}
 			if otherOrbitVisible {
-				// Target gets denser sampling (every 3rd vs every 5th
-				// for plain non-active craft) so its track reads as
-				// brighter / more prominent than peers.
-				stride := 5
+				// Target gets denser sampling (a dot every 3 px vs
+				// every 4 for plain non-active craft) so its track
+				// reads as brighter / more prominent than peers.
+				spacingPx := 4
 				if isTarget {
-					stride = 3
+					spacingPx = 3
 				}
-				v.canvas.DrawEllipseOffsetFarSideDashed(otherEl, otherPrimaryPos, 180, stride, otherPrimaryPos, otherPxR, otherColor)
+				v.canvas.DrawEllipseOffsetFarSideDashed(otherEl, otherPrimaryPos, 180, spacingPx, otherPrimaryPos, otherPxR, otherColor)
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
 					// craft's own apsides, dimmed via MarkerCounterfactual
@@ -1768,30 +1768,18 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 			continue
 		}
 		for _, seg := range leg.segs {
-			pts := w.SegmentDrawPoints(seg, homeID)
-			if seg.PrimaryID == homeID {
-				// Home transfer leg: plain stride-2 scattered dots, NOT a
-				// gap-filled line. It's drawn in the primary's inertial frame
-				// and aims at the encounter's FUTURE position, while the
-				// encounter arc is rebased to the body's current position
-				// (ADR 0021) — connecting it into a line reads as a stray line
-				// shooting past the encounter. Densify only the encounter arcs.
-				for i, p := range pts {
-					if i%2 == 0 {
-						continue
-					}
-					v.canvas.PlotColored(p, leg.color)
-				}
-				continue
-			}
-			// Foreign-SOI segment — zoom-constant gap-fill so the encounter
-			// stays a dense readable arc when zoomed in (ADR 0023 C).
-			if len(pts) == 1 {
-				v.canvas.PlotColored(pts[0], leg.color)
-			}
-			for i := 0; i+1 < len(pts); i++ {
-				v.canvas.PlotDenseLineColored(pts[i], pts[i+1], leg.color, 2)
-			}
+			// Every segment — home and foreign alike — inks as one
+			// phase-continuous polyline at a constant on-screen dot cadence
+			// (ADR 0023 C, generalised by ADR 0042 §3). The home transfer leg
+			// used to be scattered stride-2 dots on the theory that joining it
+			// up read as a stray line shooting past the encounter; that
+			// disconnect is really the inertial-leg-vs-rebased-arc gap at the
+			// SOI boundary (the leg aims at the body's FUTURE position, the
+			// encounter arc is rebased to its CURRENT one), and dotting the
+			// leg only hid it by making the leg unreadable when zoomed in.
+			// Fill stays within a segment, so an SOI transition is still never
+			// bridged.
+			v.canvas.PlotDensePolylineColored(w.SegmentDrawPoints(seg, homeID), leg.color, 2)
 		}
 	}
 }
@@ -1829,13 +1817,7 @@ func (v *OrbitView) plotArcLine(w *sim.World, line frozenArcLine) {
 		// — fill stays within a segment, so an SOI-transition boundary isn't
 		// bridged by a chord. step=2 matches the foreign-SOI leg cadence
 		// after the playtest density trim.
-		pts := w.SegmentDrawPoints(seg, line.anchor)
-		if len(pts) == 1 {
-			v.canvas.PlotColored(pts[0], line.color)
-		}
-		for i := 0; i+1 < len(pts); i++ {
-			v.canvas.PlotDenseLineColored(pts[i], pts[i+1], line.color, 2)
-		}
+		v.canvas.PlotDensePolylineColored(w.SegmentDrawPoints(seg, line.anchor), line.color, 2)
 	}
 }
 

@@ -465,15 +465,25 @@ const ringDotSpacingPx = 4
 // orthographic projection is the same circle under every view basis, so
 // like RingColoredOutline the ring draws in screen space rather than as
 // a tilted world-plane ellipse. Dots are spaced ~ringDotSpacingPx of
-// circumference apart; the sample count carries the same
-// 4×(pxW+pxH) cap as the other ring primitives so an extreme-zoom
-// radius can't lock the render loop (the visible arc just goes sparse).
+// circumference apart.
+//
+// ADR 0042 §3: the sweep is restricted to the angular window the canvas
+// subtends from the ring's centre (visibleAngleWindow), so the cost is
+// O(the visible arc) rather than O(the circumference). Previously the
+// full circle was sampled and the count capped at 4×(pxW+pxH), which
+// meant the dots thinned out as the player zoomed in — the ring
+// dissolved exactly when it mattered most. Now the commanded spacing
+// holds at any radius.
 func (c *Canvas) RingDottedColored(center orbital.Vec3, pxRadius int, color lipgloss.Color) {
 	if pxRadius < 1 {
 		return
 	}
-	cx, cy, _ := c.Project(center)
-	samples := int(math.Round(2 * math.Pi * float64(pxRadius) / ringDotSpacingPx))
+	cxF, cyF := c.projectPx(center)
+	start, span, ok := visibleAngleWindow(cxF, cyF, float64(pxRadius), c.pxW, c.pxH)
+	if !ok {
+		return
+	}
+	samples := int(math.Round(span * float64(pxRadius) / ringDotSpacingPx))
 	if samples < 8 {
 		samples = 8
 	}
@@ -486,9 +496,9 @@ func (c *Canvas) RingDottedColored(center orbital.Vec3, pxRadius int, color lipg
 	}
 	tag := CellTag{Color: color}
 	for i := 0; i < samples; i++ {
-		theta := 2 * math.Pi * float64(i) / float64(samples)
-		px := cx + int(math.Round(float64(pxRadius)*math.Cos(theta)))
-		py := cy + int(math.Round(float64(pxRadius)*math.Sin(theta)))
+		theta := start + span*float64(i)/float64(samples)
+		px := int(math.Round(cxF + float64(pxRadius)*math.Cos(theta)))
+		py := int(math.Round(cyF + float64(pxRadius)*math.Sin(theta)))
 		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
 			continue
 		}
@@ -616,130 +626,152 @@ func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 // The chord is exact under the affine projection, so no curve fidelity is
 // lost beyond the sampling already present.
 //
-// A chord longer than the canvas's shorter dimension is NOT bridged — those
-// samples straddle a fast periapsis arc or one sits well off-canvas (a
-// Hohmann transfer's off-screen apoapsis), where a straight fill would shoot
-// a line across the view. Such a pair falls back to the pre-gap-fill
-// behaviour: just the on-canvas endpoint dots, no connecting line.
+// ADR 0042 §3: a long chord is now CLIPPED AND BRIDGED, not refused. The old
+// rule dropped any chord longer than the canvas's shorter dimension back to
+// endpoint dots, on the theory that such a chord straddles a fast periapsis
+// arc and a straight fill would shoot a line across the view. That theory
+// held only because the curve upstream was sampled at a fixed count: once the
+// caller flattens adaptively (see arc.go), a long chord is long because the
+// view is zoomed in, and it IS the curve — refusing it is precisely what made
+// zooming in dissolve a trajectory into dust. Clipping keeps the cost O(the
+// visible run) however far off-canvas the far endpoint sits.
 func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
-	if step < 1 {
-		step = 1
-	}
-	ax, ay, aOK := c.Project(a)
-	bx, by, bOK := c.Project(b)
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
-	plotPx := func(px, py int) {
-		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
-			return
-		}
-		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = CellTag{Color: color}
-	}
-	if !aOK && !bOK {
-		// Both off-canvas and sharing an off-edge — the whole chord is
-		// off-screen. A pair straddling the canvas still draws its visible run.
-		if (ax < 0 && bx < 0) || (ax >= c.pxW && bx >= c.pxW) ||
-			(ay < 0 && by < 0) || (ay >= c.pxH && by >= c.pxH) {
-			return
-		}
-	}
-	dx, dy := bx-ax, by-ay
-	n := dx
-	if n < 0 {
-		n = -n
-	}
-	if ady := dy; ady < 0 {
-		if -ady > n {
-			n = -ady
-		}
-	} else if ady > n {
-		n = ady
-	}
-	maxFill := c.pxW
-	if c.pxH < maxFill {
-		maxFill = c.pxH
-	}
-	if n > maxFill {
-		// Too long to bridge — endpoint dots only, no shooting line.
-		plotPx(ax, ay)
-		plotPx(bx, by)
+	ax, ay := c.projectPx(a)
+	bx, by := c.projectPx(b)
+	c.walkPixelSegment(ax, ay, bx, by, CellTag{Color: color}, step, 0, 0, 0, 0)
+}
+
+// PlotDenseLineForcedColored draws a dotted line between world points a and b.
+// Kept as a distinct name for the CommNet relay sightline (C2-7), where the
+// chord IS the real straight path and must draw all the way toward its (often
+// off-screen) far endpoint — a Moon→Earth relay hop spans far more than the
+// canvas. Since ADR 0042 §3 replaced PlotDenseLineColored's long-chord refusal
+// with the same clipped bridging, the two behave identically; the separate
+// entry point survives so the call site keeps stating its intent.
+func (c *Canvas) PlotDenseLineForcedColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
+	c.PlotDenseLineColored(a, b, color, step)
+}
+
+// PlotDensePolylineColored inks a run of world points as one connected dotted
+// curve: every consecutive pair is bridged like PlotDenseLineColored, but the
+// dash phase carries ACROSS the joins, so the dot cadence is measured along
+// the whole polyline's on-screen arc length rather than restarting at each
+// sample. Without that, a densely sampled leg (or a finely flattened ellipse)
+// inks solid regardless of `step`, because every segment re-plots its own
+// start pixel. A single point plots as a dot.
+func (c *Canvas) PlotDensePolylineColored(pts []orbital.Vec3, color lipgloss.Color, step int) {
+	if len(pts) == 0 {
 		return
 	}
-	for i := 0; i <= n; i += step {
-		if n == 0 {
-			plotPx(ax, ay)
-			break
-		}
-		plotPx(
-			ax+int(math.Round(float64(dx)*float64(i)/float64(n))),
-			ay+int(math.Round(float64(dy)*float64(i)/float64(n))),
-		)
+	if len(pts) == 1 {
+		c.PlotColored(pts[0], color)
+		return
+	}
+	tag := CellTag{Color: color}
+	phase := 0.0
+	ax, ay := c.projectPx(pts[0])
+	for i := 1; i < len(pts); i++ {
+		bx, by := c.projectPx(pts[i])
+		phase = c.walkPixelSegment(ax, ay, bx, by, tag, step, phase, 0, 0, 0)
+		ax, ay = bx, by
 	}
 }
 
-// PlotDenseLineForcedColored draws a dotted line between world points a and b
-// like PlotDenseLineColored, but WITHOUT the "too long to bridge" guard: it
-// always connects the two points, clipping the segment to the canvas so a link
-// to a far off-screen endpoint draws its visible run with O(canvas) iteration
-// rather than O(projected distance). Use for a genuine straight sightline — a
-// CommNet relay link (C2-7) — where the chord IS the real path and must draw
-// all the way toward its (possibly off-screen) far endpoint, e.g. a Moon→Earth
-// relay hop. Orbit-arc chords keep the guarded variant, which refuses to bridge
-// a long chord because that chord is NOT a real straight path across the view.
-func (c *Canvas) PlotDenseLineForcedColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
+// walkPixelSegment inks the pixel segment (ax,ay)→(bx,by), clipped to the
+// canvas, placing a dot every `step` pixels of ON-SCREEN ARC LENGTH and
+// returning the phase to hand to the next segment of the same curve.
+// `phase` is how far past the last dot the curve already is, so a caller
+// that walks a flattened arc chord by chord gets one continuous cadence.
+// Arc length is therefore the parameter — which is both why the dot spacing
+// is zoom-invariant and what a future dashed / dotted line vocabulary needs.
+//
+// The phase is a float and advances by the FULL segment length, including
+// the part clipped away: sub-pixel chords (a finely flattened curve) still
+// accumulate toward the next dot instead of each plotting their own start
+// pixel and inking solid, and the pattern stays put as the view pans.
+//
+// exR > 0 excludes pixels within exR of (exCx, exCy) — the body-disk cut that
+// makes an occluded far-side arc read as passing behind the body. A zero-value
+// tag sets pixels without recording a colour (the untagged Plot path).
+func (c *Canvas) walkPixelSegment(ax, ay, bx, by float64, tag CellTag, step int, phase float64, exCx, exCy, exR float64) float64 {
 	if step < 1 {
 		step = 1
 	}
-	ax, ay, _ := c.Project(a)
-	bx, by, _ := c.Project(b)
+	stepF := float64(step)
+	if !(phase >= 0) { // NaN-safe
+		phase = 0
+	}
+	full := segLenPx(ax, ay, bx, by)
+	advanced := math.Mod(phase+full, stepF)
 	cax, cay, cbx, cby, ok := clipSegmentToCanvas(ax, ay, bx, by, c.pxW, c.pxH)
 	if !ok {
-		return // segment lies wholly off the canvas
+		return advanced
 	}
-	if c.pixelTags == nil {
+	tagged := tag != (CellTag{})
+	if tagged && c.pixelTags == nil {
 		c.pixelTags = make(map[[2]int]CellTag)
 	}
+	exR2 := exR * exR
 	plotPx := func(px, py int) {
 		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
 			return
 		}
+		if exR > 0 {
+			dx, dy := float64(px)-exCx, float64(py)-exCy
+			if dx*dx+dy*dy <= exR2 {
+				return
+			}
+		}
 		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = CellTag{Color: color}
+		if tagged {
+			c.pixelTags[[2]int{px, py}] = tag
+		}
+	}
+	// Length clipped off the a-end still counts toward the cadence, so the
+	// dot positions don't slide when the visible run changes.
+	lead := phase + segLenPx(ax, ay, cax, cay)
+	clipLen := segLenPx(cax, cay, cbx, cby)
+	if clipLen == 0 {
+		if math.Mod(lead, stepF) == 0 {
+			plotPx(int(math.Round(cax)), int(math.Round(cay)))
+		}
+		return advanced
 	}
 	dx, dy := cbx-cax, cby-cay
-	n := dx
-	if n < 0 {
-		n = -n
-	}
-	if ady := dy; ady < 0 {
-		if -ady > n {
-			n = -ady
+	for k := math.Ceil(lead / stepF); ; k++ {
+		s := k*stepF - lead
+		if s > clipLen {
+			break
 		}
-	} else if ady > n {
-		n = ady
+		f := s / clipLen
+		plotPx(int(math.Round(cax+dx*f)), int(math.Round(cay+dy*f)))
 	}
-	if n == 0 {
-		plotPx(cax, cay)
-		return
+	return advanced
+}
+
+// segLenPx is the on-screen length of a pixel segment — the arc-length unit
+// the dense-line cadence counts in, so a dot every `step` means every `step`
+// pixels of curve however the curve is oriented. Clamped so an
+// astronomically distant (or NaN) projected endpoint can't run away with the
+// loop.
+func segLenPx(ax, ay, bx, by float64) float64 {
+	d := math.Hypot(bx-ax, by-ay)
+	if !(d < 1e9) { // NaN-safe
+		return 1e9
 	}
-	for i := 0; i <= n; i += step {
-		plotPx(
-			cax+int(math.Round(float64(dx)*float64(i)/float64(n))),
-			cay+int(math.Round(float64(dy)*float64(i)/float64(n))),
-		)
-	}
+	return d
 }
 
 // clipSegmentToCanvas clips the pixel segment [(ax,ay),(bx,by)] to the canvas
-// rectangle [0,w-1]×[0,h-1] via Liang-Barsky, returning the clipped integer
-// endpoints and ok=false when the segment lies wholly outside. Bounds the
-// forced dense-line iteration so a link to a far off-screen endpoint costs
-// O(canvas), not O(projected distance).
-func clipSegmentToCanvas(ax, ay, bx, by, w, h int) (int, int, int, int, bool) {
-	x0, y0 := float64(ax), float64(ay)
-	dx, dy := float64(bx-ax), float64(by-ay)
+// rectangle [0,w-1]×[0,h-1] via Liang-Barsky, returning the clipped endpoints
+// and ok=false when the segment lies wholly outside. Bounds the dense-line
+// iteration so a chord toward a far off-screen endpoint costs O(canvas), not
+// O(projected distance). Works in floats: an adaptively flattened arc hands
+// over raw projected coordinates, which are only rounded once inside the
+// canvas rectangle.
+func clipSegmentToCanvas(ax, ay, bx, by float64, w, h int) (float64, float64, float64, float64, bool) {
+	x0, y0 := ax, ay
+	dx, dy := bx-ax, by-ay
 	maxX, maxY := float64(w-1), float64(h-1)
 	p := [4]float64{-dx, dx, -dy, dy}
 	q := [4]float64{x0, maxX - x0, y0, maxY - y0}
@@ -768,8 +800,7 @@ func clipSegmentToCanvas(ax, ay, bx, by, w, h int) (int, int, int, int, bool) {
 			}
 		}
 	}
-	return int(math.Round(x0 + u0*dx)), int(math.Round(y0 + u0*dy)),
-		int(math.Round(x0 + u1*dx)), int(math.Round(y0 + u1*dy)), true
+	return x0 + u0*dx, y0 + u0*dy, x0 + u1*dx, y0 + u1*dy, true
 }
 
 // Cols / Rows expose the configured terminal cell dimensions.
@@ -951,10 +982,10 @@ func (c *Canvas) IsBehindBody(samplePos, bodyPos orbital.Vec3, bodyPxR int) bool
 }
 
 // DrawEllipseOffsetFarSideDashed plots an ellipse with near-side
-// pixels rendered at nearStride (solid stride) and far-side pixels
-// rendered at nearStride*2 (visually dashed) in the same colour.
-// Pixels truly occluded by the body disk — far side AND inside the
-// body's projected pixel radius — are skipped entirely. v0.10.6+.
+// pixels rendered at nearSpacingPx and far-side pixels rendered at
+// nearSpacingPx*2 (visually dashed) in the same colour. Pixels truly
+// occluded by the body disk — far side AND inside the body's projected
+// pixel radius — are cut entirely. v0.10.6+.
 //
 // "Far side" is decided by the sign of (p − bodyPos) · DepthAxis()
 // against the canvas's active basis: negative depth is behind the
@@ -962,102 +993,56 @@ func (c *Canvas) IsBehindBody(samplePos, bodyPos orbital.Vec3, bodyPxR int) bool
 //
 // Same-hue stippling is the lossless equivalent of KSP's
 // dim-the-back-arc rendering — a terminal canvas can't do alpha,
-// so per-sample stride flips do the depth read instead. The
-// convention is documented in internal/render/palette.go; see
-// ColorBodyOrbit's doc comment for the standard.
+// so spacing flips do the depth read instead. The convention is
+// documented in internal/render/palette.go; see ColorBodyOrbit's doc
+// comment for the standard.
 //
 // Pass bodyPxR = 0 to skip the disk-occlusion check (suitable for
 // heliocentric body orbits, where the system primary's disk doesn't
 // meaningfully occlude at default zoom).
+//
+// ADR 0042 §3 changed what the two count arguments mean. The ellipse is
+// no longer a fixed loop of `samples` true-anomalies plotted every
+// `nearStride`th index — that scattered into dust the moment the player
+// zoomed in, because index stride is not a screen-space quantity. It is
+// now flattened adaptively (arc.go) and inked at a constant on-screen dot
+// spacing: `minSamples` is only a floor on the coarse pass, and
+// `nearSpacingPx` is the near-side dot spacing in canvas pixels.
 func (c *Canvas) DrawEllipseOffsetFarSideDashed(
 	el orbital.Elements,
 	offset orbital.Vec3,
-	samples int,
-	nearStride int,
+	minSamples int,
+	nearSpacingPx int,
 	bodyPos orbital.Vec3,
 	bodyPxR int,
 	color lipgloss.Color,
 ) {
-	if samples < 16 {
-		samples = 16
+	if nearSpacingPx < 1 {
+		nearSpacingPx = 1
 	}
-	if nearStride < 1 {
-		nearStride = 1
-	}
-	farStride := nearStride * 2
-	depthAxis := c.basis.DepthAxis()
-	for i := 0; i < samples; i++ {
-		nu := 2 * math.Pi * float64(i) / float64(samples)
-		p := offset.Add(orbital.PositionAtTrueAnomaly(el, nu))
-		rel := p.Sub(bodyPos)
-		depth := rel.X*depthAxis.X + rel.Y*depthAxis.Y + rel.Z*depthAxis.Z
-		if depth < 0 {
-			if bodyPxR > 0 {
-				spx, spy, ok := c.Project(p)
-				if ok {
-					bpx, bpy, _ := c.Project(bodyPos)
-					dx := spx - bpx
-					dy := spy - bpy
-					if dx*dx+dy*dy <= bodyPxR*bodyPxR {
-						continue
-					}
-				}
-			}
-			if i%farStride != 0 {
-				continue
-			}
-		} else {
-			if i%nearStride != 0 {
-				continue
-			}
-		}
-		if color == "" {
-			c.Plot(p)
-		} else {
-			c.PlotColored(p, color)
-		}
-	}
+	c.drawEllipseAdaptive(el, offset, minSamples, nearSpacingPx, nearSpacingPx*2, bodyPos, bodyPxR, color)
 }
 
-// DrawEllipseOffsetOccluded plots a dotted ellipse but skips any
-// sample IsBehindBody-occluded by the supplied (bodyPos, bodyPxR).
-// Same shape as DrawEllipseOffsetDotted; v0.6.4+ side-view variant.
-// Pass an untagged stride to keep the existing colour helpers; this
-// helper writes through PlotColored when `color` is non-empty,
-// otherwise plain Plot. v0.10.6 supersedes this on the orbit-trace
-// draw path with DrawEllipseOffsetFarSideDashed (renders the back
-// arc dashed instead of skipping); this helper is retained for
-// callers that want strict occlusion without far-side dashing.
+// DrawEllipseOffsetOccluded plots a dotted ellipse but cuts anything
+// IsBehindBody-occluded by the supplied (bodyPos, bodyPxR) — strict
+// occlusion with no far-side dashing, unlike
+// DrawEllipseOffsetFarSideDashed. v0.6.4+ side-view variant; writes
+// through the colour path when `color` is non-empty, otherwise plain
+// untagged pixels.
+//
+// As with its sibling, ADR 0042 §3 reinterprets the count arguments:
+// `minSamples` is a floor on the adaptive coarse pass and `spacingPx` is
+// the dot spacing in canvas pixels.
 func (c *Canvas) DrawEllipseOffsetOccluded(
 	el orbital.Elements,
 	offset orbital.Vec3,
-	samples int,
-	stride int,
+	minSamples int,
+	spacingPx int,
 	bodyPos orbital.Vec3,
 	bodyPxR int,
 	color lipgloss.Color,
 ) {
-	if samples < 16 {
-		samples = 16
-	}
-	if stride < 1 {
-		stride = 1
-	}
-	for i := 0; i < samples; i++ {
-		if i%stride != 0 {
-			continue
-		}
-		nu := 2 * math.Pi * float64(i) / float64(samples)
-		p := offset.Add(orbital.PositionAtTrueAnomaly(el, nu))
-		if c.IsBehindBody(p, bodyPos, bodyPxR) {
-			continue
-		}
-		if color == "" {
-			c.Plot(p)
-		} else {
-			c.PlotColored(p, color)
-		}
-	}
+	c.drawEllipseAdaptive(el, offset, minSamples, spacingPx, spacingPx, bodyPos, bodyPxR, color)
 }
 
 // Plot sets the pixel at the given world coord. No-op if off-canvas.
@@ -1185,6 +1170,12 @@ func (c *Canvas) PlotArrowTagged(center, velocity orbital.Vec3, size int, tag Ce
 
 // DrawEllipseDotted traces an ellipse defined by orbital elements. Dotted:
 // every `stride`th sample is plotted. stride=1 gives a solid curve.
+//
+// This and DrawEllipseOffsetDotted[Colored] keep the pre-ADR-0042 fixed-count
+// index-stride sampling and are no longer on any screen's draw path — the
+// trajectory renderers all go through the adaptive helpers above. Reach for
+// DrawEllipseOffsetFarSideDashed / DrawEllipseOffsetOccluded for anything the
+// player zooms.
 // Points are assumed to live in the system primary's inertial frame
 // (PositionAtTrueAnomaly output), which is correct for heliocentric
 // body orbits. For spacecraft orbiting a non-primary body, use

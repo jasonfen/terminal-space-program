@@ -100,11 +100,13 @@ func TestPlotDenseLineStepDashes(t *testing.T) {
 	}
 }
 
-// TestPlotDenseLineLongChordNotBridged: a chord longer than the canvas's
-// shorter dimension (here an on-canvas point to one far off-canvas — a
-// Hohmann transfer's off-screen apoapsis) is NOT bridged. Only the on-canvas
-// endpoint is dotted; no straight line shoots across the view (ADR 0023 C).
-func TestPlotDenseLineLongChordNotBridged(t *testing.T) {
+// TestPlotDenseLineLongChordClippedAndBridged: a chord longer than the
+// canvas (here an on-canvas point to one far off-canvas) is CLIPPED to the
+// viewport and its visible run drawn — ADR 0042 §3 replacing ADR 0023's
+// long-chord refusal, which used to drop such a pair back to endpoint dots
+// and so dissolved a zoomed-in trajectory into dust. Iteration stays bounded
+// by the canvas, not by the projected distance.
+func TestPlotDenseLineLongChordClippedAndBridged(t *testing.T) {
 	c := NewCanvas(60, 30) // pixel grid 120 × 120
 	c.SetScale(1)
 	c.Center(orbital.Vec3{})
@@ -116,12 +118,17 @@ func TestPlotDenseLineLongChordNotBridged(t *testing.T) {
 	c.PlotDenseLineColored(a, b, color, 1)
 
 	dots := taggedPixels(c, color)
-	if len(dots) != 1 {
-		t.Fatalf("long chord set %d pixels, want 1 (the on-canvas endpoint only — no shooting line)", len(dots))
-	}
 	cx, cy, _ := c.Project(a)
-	if dots[0][0] != cx || dots[0][1] != cy {
-		t.Errorf("plotted pixel %v, want the on-canvas endpoint (%d,%d)", dots[0], cx, cy)
+	if len(dots) < 50 {
+		t.Fatalf("long chord set %d pixels, want the visible run (~%d, centre→right edge)", len(dots), 120-cx)
+	}
+	for _, d := range dots {
+		if d[1] != cy {
+			t.Errorf("pixel %v off the y=%d line", d, cy)
+		}
+		if d[0] < cx || d[0] >= 120 {
+			t.Errorf("pixel %v outside the visible run [%d,119]", d, cx)
+		}
 	}
 }
 

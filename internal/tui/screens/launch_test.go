@@ -666,32 +666,11 @@ func TestLaunchViewLandedOrbitNotDrawn(t *testing.T) {
 	}
 }
 
-// launchOrbitSamples must scale the ellipse sample count up for the
-// magnified chase-cam view. The orbit map's fixed 360 leaves only ~5
-// dots on the visible arc of a low orbit (the orbit reads as just the
-// apoapsis marker); the count must grow with the projected orbit size
-// so the visible arc fills in, while clamping at both ends.
-func TestLaunchOrbitSamplesScalesWithProjectedSize(t *testing.T) {
-	// A tiny projected orbit keeps the map's baseline density.
-	if got := launchOrbitSamples(10); got != 360 {
-		t.Errorf("tiny orbit: got %d samples, want 360 baseline", got)
-	}
-	// A 200 km LEO at launch zoom projects apoapsis to ~790 px; the
-	// shipped 360 produced ~5 on-canvas cells. The count must be far
-	// higher so the arc reads as a line.
-	if got := launchOrbitSamples(790); got <= 360 {
-		t.Errorf("LEO apoapsis 790px: got %d samples, want >> 360", got)
-	}
-	// A huge (off-canvas-apoapsis) transfer ellipse must clamp so the
-	// per-frame sample loop can't blow up.
-	if got := launchOrbitSamples(5e5); got != 8000 {
-		t.Errorf("transfer apoapsis 500k px: got %d samples, want 8000 cap", got)
-	}
-	// Monotonic non-decreasing in projected size.
-	if launchOrbitSamples(2000) < launchOrbitSamples(790) {
-		t.Error("sample count should not decrease as projected orbit grows")
-	}
-}
+// (TestLaunchOrbitSamplesScalesWithProjectedSize retired with
+// launchOrbitSamples — ADR 0042 §3 folded the chase-cam's private sample
+// budget into the canvas's shared adaptive flattening. The behaviour it
+// guarded is now covered by TestLaunchViewOrbitRendersAsLine below plus
+// the widgets-level density tests in arc_test.go.)
 
 // End-to-end: the magnified chase-cam must paint a current-orbit ellipse
 // that reads as a dotted line, not just the apo/peri markers. Render a
