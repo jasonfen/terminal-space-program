@@ -20,6 +20,7 @@ func TestMarkerGlyph(t *testing.T) {
 		{MarkerManeuver, 'Δ'},
 		{MarkerSOIEntry, '▷'},
 		{MarkerSOIExit, '◁'},
+		{MarkerImpact, '⊗'},
 	}
 	for _, c := range cases {
 		if got := MarkerGlyph(c.t); got != c.want {
@@ -45,6 +46,7 @@ func TestMarkerColorByType(t *testing.T) {
 		{MarkerClosestApproach, ColorMarkerClosestApproach},
 		{MarkerSOIEntry, ColorMarkerSOIEntry},
 		{MarkerSOIExit, ColorMarkerSOIExit},
+		{MarkerImpact, ColorMarkerImpact},
 	}
 	for _, c := range cases {
 		if got := MarkerColor(c.t, MarkerNominal, ""); got != c.want {

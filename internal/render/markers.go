@@ -18,6 +18,12 @@ const (
 	MarkerManeuver // per-node colour exception — see MarkerColor
 	MarkerSOIEntry // SOI Pass arc crosses INTO the pass Body's SOI Ring (ADR 0021 C)
 	MarkerSOIExit  // SOI Pass arc crosses back OUT of the SOI Ring
+	// MarkerImpact is where the live trajectory meets the ground — the
+	// surface view's descent half (ADR 0043 §3 / issue #348). Distinct
+	// from MarkerPeriapsis: a periapsis is the low point of a conic that
+	// may never touch the surface, this is an actual contact point, and
+	// it moves live as a burn reshapes the trajectory.
+	MarkerImpact
 )
 
 // MarkerState modifies a marker's brightness/variant to convey what is
@@ -64,6 +70,8 @@ func MarkerGlyph(t MarkerType) rune {
 		return '▷'
 	case MarkerSOIExit:
 		return '◁'
+	case MarkerImpact:
+		return '⊗'
 	}
 	return '?'
 }
@@ -107,6 +115,8 @@ func markerTypeColor(t MarkerType, base lipgloss.Color) lipgloss.Color {
 		return ColorMarkerSOIEntry
 	case MarkerSOIExit:
 		return ColorMarkerSOIExit
+	case MarkerImpact:
+		return ColorMarkerImpact
 	case MarkerManeuver:
 		// Documented exception (ADR 0020): the maneuver marker's colour is
 		// the post-burn leg colour passed by the caller, not a fixed type

@@ -71,6 +71,7 @@ var (
 	ColorMarkerClosestApproach = lipgloss.Color("#FF5FAF") // hot pink — craft-to-craft closest approach ✕
 	ColorMarkerSOIEntry        = ColorForeignSOI           // orchid — SOI entry ▷ (shares the foreign-SOI arc hue it brackets, like Perilune shares the apsis amber)
 	ColorMarkerSOIExit         = ColorForeignSOI           // orchid — SOI exit ◁
+	ColorMarkerImpact          = lipgloss.Color("#FF8700") // orange — ground-contact point ⊗ (hotter than the apsis amber it sits near, cooler than the alert red MarkerAlarm promotes it to)
 )
 
 // maneuverSegmentPalette cycles through distinct colors per planted
