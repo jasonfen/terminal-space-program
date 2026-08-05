@@ -19,8 +19,9 @@ pause with `0`.
 To go somewhere — say, the Moon:
 
 1. Press `t` to pick a **target**. Keep tapping until the target readout shows
-   the Moon. (The `←` / `→` arrow keys move a separate map cursor used by the
-   body info screen and the porkchop plot — they don't set your travel target.)
+   the Moon. (`h` / `l` move a separate map cursor used by the body info
+   screen and the porkchop plot — they don't set your travel target. The
+   arrow keys instead **pan** the map — see below.)
 2. Press `H` to plan the trip. Because the Moon orbits the same planet you do,
    the planner works out two different ways to get there, plans the cheaper one,
    and flashes both fuel costs — something like
@@ -118,11 +119,12 @@ Dvorak, and free per-key remapping aren't supported yet.)
 
 | Key | Action |
 |---|---|
-| `→` / `l` | Move the map cursor to the next body. This cursor feeds the body info screen (`i`) and the porkchop plot (`P`) — it does **not** set your travel target. For that, use `t` / `T` |
-| `←` / `h` | Move the map cursor to the previous body |
+| `l` | Move the map cursor to the next body. This cursor feeds the body info screen (`i`) and the porkchop plot (`P`) — it does **not** set your travel target. For that, use `t` / `T` |
+| `h` | Move the map cursor to the previous body |
+| `↑` `↓` `←` `→` | Pan the map — slides the view off the tracked center without losing it: the camera keeps following your focus, just displaced. `g` or any refocus snaps it back |
 | `+` / `-` | Zoom in / out |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Also the way back from **spectating** a player's ghost (`v` on the `O` roster) — it returns the camera to your own vessel |
-| `g` | Reset the camera to the whole system |
+| `g` | Reset the camera to the whole system (also clears any pan) |
 | `v` | Cycle the view (tilted → top → right → bottom → left → flat → launch). Tilted is the default — a 3D-style perspective that shows orbits leaning in space. Views are projections only: the camera re-frames once when you change focus, view, or system, and otherwise stays exactly where you put it — to read an upcoming encounter, focus the body it passes (`f`) and the camera fits to its sphere of influence so the capture curve fills the canvas |
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (only in the tilted view) |
 | `shift+←` / `shift+→` | Yaw the 3D view left / right in 5° steps, wrapping all the way around (only in the tilted view) |

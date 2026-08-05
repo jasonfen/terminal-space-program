@@ -1017,6 +1017,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.selectedBody = (a.selectedBody - 1 + n) % n
 			}
 			return a, nil
+		case key.Matches(m, a.keys.PanLeft):
+			a.orbitView.PanLeft()
+			return a, nil
+		case key.Matches(m, a.keys.PanRight):
+			a.orbitView.PanRight()
+			return a, nil
+		case key.Matches(m, a.keys.PanUp):
+			a.orbitView.PanUp()
+			return a, nil
+		case key.Matches(m, a.keys.PanDown):
+			a.orbitView.PanDown()
+			return a, nil
 		case key.Matches(m, a.keys.ZoomIn):
 			if a.world.ViewMode == sim.ViewLaunch {
 				a.world.NudgeLaunchZoom(+1, a.launchView.CurrentScale(a.world))
