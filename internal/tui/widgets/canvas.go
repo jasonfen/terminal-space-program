@@ -174,6 +174,46 @@ type Canvas struct {
 	// untagged background cells. Cells absent from this map fall back to
 	// the pixelTag-derived color (terminal default when untagged).
 	cellOverlayColors map[[2]int]lipgloss.TerminalColor
+
+	// diskOffsetCache memoizes the (dx, dy) offsets inside a disk of a
+	// given pixel radius (#363): the "is this offset inside the
+	// circle" test is a pure function of pxRadius alone, so profiling
+	// showed FillTexturedDiskTagged re-deriving it with a nested loop
+	// + distance check on every one of the ~1000+ pixels of a focused
+	// body's disk, every 50ms tick, even after the per-pixel COLOR
+	// itself was cached — the offset shape doesn't depend on the body,
+	// its texture, or the camera, only on the radius. Keyed per
+	// Canvas (not a package-level cache) so no locking is needed —
+	// same single-goroutine-per-Canvas assumption pixelTags already
+	// makes.
+	diskOffsetCache map[int][]diskOffset
+}
+
+// diskOffset is one (dx, dy) pixel offset inside a disk's radius,
+// relative to the disk's projected screen center.
+type diskOffset struct{ dx, dy int }
+
+// diskOffsets returns the (dx, dy) offsets inside a disk of the given
+// pixel radius, computing (and caching) them once per distinct radius
+// this Canvas has ever drawn. See diskOffsetCache.
+func (c *Canvas) diskOffsets(pxRadius int) []diskOffset {
+	if c.diskOffsetCache == nil {
+		c.diskOffsetCache = make(map[int][]diskOffset)
+	}
+	if offs, ok := c.diskOffsetCache[pxRadius]; ok {
+		return offs
+	}
+	r2 := pxRadius * pxRadius
+	offs := make([]diskOffset, 0, 4*r2) // generous upper bound (circle ⊂ bounding square)
+	for dy := -pxRadius; dy <= pxRadius; dy++ {
+		for dx := -pxRadius; dx <= pxRadius; dx++ {
+			if dx*dx+dy*dy <= r2 {
+				offs = append(offs, diskOffset{dx, dy})
+			}
+		}
+	}
+	c.diskOffsetCache[pxRadius] = offs
+	return offs
 }
 
 // NewCanvas builds a canvas sized to fit cols × rows terminal cells.
@@ -366,22 +406,19 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 		pxRadius = 1
 	}
 	cx, cy, _ := c.Project(center)
-	r2 := pxRadius * pxRadius
 	if c.pixelTags == nil {
 		c.pixelTags = make(map[[2]int]CellTag)
 	}
-	for dy := -pxRadius; dy <= pxRadius; dy++ {
-		for dx := -pxRadius; dx <= pxRadius; dx++ {
-			if dx*dx+dy*dy > r2 {
-				continue
-			}
-			px, py := cx+dx, cy+dy
-			if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
-				continue
-			}
-			c.dc.Set(px, py)
-			c.pixelTags[[2]int{px, py}] = tag
+	// #363: every non-focused body on the canvas (every planet/moon
+	// that isn't the focused, textured one) paints through this path
+	// each frame too — same offset-mask win as FillTexturedDiskTagged.
+	for _, o := range c.diskOffsets(pxRadius) {
+		px, py := cx+o.dx, cy+o.dy
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			continue
 		}
+		c.dc.Set(px, py)
+		c.pixelTags[[2]int{px, py}] = tag
 	}
 }
 
@@ -416,24 +453,22 @@ func (c *Canvas) FillTexturedDiskTagged(center orbital.Vec3, pxRadius int, textu
 		pxRadius = 1
 	}
 	cx, cy, _ := c.Project(center)
-	r2 := pxRadius * pxRadius
 	if c.pixelTags == nil {
 		c.pixelTags = make(map[[2]int]CellTag)
 	}
-	for dy := -pxRadius; dy <= pxRadius; dy++ {
-		for dx := -pxRadius; dx <= pxRadius; dx++ {
-			if dx*dx+dy*dy > r2 {
-				continue
-			}
-			px, py := cx+dx, cy+dy
-			if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
-				continue
-			}
-			c.dc.Set(px, py)
-			t := tag
-			t.Color = texture(dx, dy)
-			c.pixelTags[[2]int{px, py}] = t
+	// #363: iterate the precomputed offset mask instead of a nested
+	// loop + per-pixel distance test — the mask is a pure function of
+	// pxRadius, recomputing it every frame was pure per-pixel overhead
+	// on top of the (now-cached) color lookup.
+	for _, o := range c.diskOffsets(pxRadius) {
+		px, py := cx+o.dx, cy+o.dy
+		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+			continue
 		}
+		c.dc.Set(px, py)
+		t := tag
+		t.Color = texture(o.dx, o.dy)
+		c.pixelTags[[2]int{px, py}] = t
 	}
 }
 

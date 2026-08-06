@@ -272,6 +272,19 @@ type OrbitView struct {
 	inspectables []inspectable
 	drawnOwners  map[string]inspectable
 	inspectRef   InspectRef
+
+	// diskRasterCache memoizes the per-pixel rasterized textured-disk
+	// grid, keyed per body, under the same ADR 0017 predict-on-change
+	// discipline as predictCache / soiPassCache above (#363). At idle
+	// this turns the per-tick per-pixel texture-closure evaluation
+	// (trig + feature-polygon tests) into a cache-key comparison plus a
+	// slice read; zoom, camera moves, focus switches, high warp, and
+	// lighting changes all move the quantized key and still force a
+	// real re-raster. diskRasterCacheHits / …Computes are test hooks.
+	// See orbit_disk_cache.go.
+	diskRasterCache         map[string]*diskRasterEntry
+	diskRasterCacheHits     int
+	diskRasterCacheComputes int
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
@@ -914,8 +927,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		}
 		if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
 			pxR := r
+			// #363: serve the cached raster grid on a quantized-key
+			// hit instead of re-evaluating tex per pixel every tick.
+			cached := v.texturedDiskRaster(b, pxR, subLat, subLon, upX, upY, light, tex)
 			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
-				return tex(dx, dy, pxR)
+				return cached(dx, dy, pxR)
 			}, bodyTag)
 		} else {
 			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
