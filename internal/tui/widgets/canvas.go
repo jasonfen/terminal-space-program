@@ -1601,6 +1601,32 @@ func (c *Canvas) String() string {
 		cellColor[key] = pickDominantColor(counts)
 	}
 	var b strings.Builder
+	// #364: run-length coalescing. Profiling (go test -cpuprofile on an
+	// idle-frame render benchmark) showed the per-CELL
+	// lipgloss.NewStyle().Foreground(fg).Render(string(ch)) call below
+	// was the single most expensive line in the whole render path —
+	// every one of a body disk's ~1000+ colored cells paid the full
+	// Style.Render() machinery (tab conversion, word-wrap, border,
+	// alignment, ansi/uniseg width scanning) independently, even though
+	// a filled disk is mostly long horizontal runs of the SAME color.
+	// Style.Render() is only ever called once per contiguous run of
+	// identically-styled cells now — same bytes out, far fewer calls.
+	var runBuf []rune
+	var runFg lipgloss.TerminalColor
+	var runStyled bool
+	flushRun := func() {
+		if len(runBuf) == 0 {
+			return
+		}
+		if runStyled {
+			b.WriteString(lipgloss.NewStyle().Foreground(runFg).Render(string(runBuf)))
+		} else {
+			for _, r := range runBuf {
+				b.WriteRune(r)
+			}
+		}
+		runBuf = runBuf[:0]
+	}
 	for i := 0; i < c.rows; i++ {
 		var line string
 		if i < len(rows) {
@@ -1627,12 +1653,14 @@ func (c *Canvas) String() string {
 			if oc, ok := c.cellOverlayColors[[2]int{x, i}]; ok {
 				fg, hasColor = oc, true
 			}
-			if hasColor && ch != ' ' {
-				b.WriteString(lipgloss.NewStyle().Foreground(fg).Render(string(ch)))
-			} else {
-				b.WriteRune(ch)
+			styled := hasColor && ch != ' '
+			if styled != runStyled || (styled && fg != runFg) {
+				flushRun()
+				runStyled, runFg = styled, fg
 			}
+			runBuf = append(runBuf, ch)
 		}
+		flushRun()
 		if i < c.rows-1 {
 			b.WriteByte('\n')
 		}
