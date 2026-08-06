@@ -186,8 +186,25 @@ type Canvas struct {
 	// Canvas (not a package-level cache) so no locking is needed —
 	// same single-goroutine-per-Canvas assumption pixelTags already
 	// makes.
+	//
+	// diskOffsetOrder is diskOffsetCache's LRU recency list (oldest
+	// first) — review finding: the map was unbounded, and pxRadius
+	// changes on every zoom step/refit, so a session that zoomed
+	// across radii 1..384 once retained ~1.22 GB of masks that will
+	// never be reused. Capped to diskOffsetCacheCap distinct radii,
+	// comfortably above the number of bodies simultaneously visible in
+	// any one system, so a single frame's radii always fit without
+	// thrashing.
 	diskOffsetCache map[int][]diskOffset
+	diskOffsetOrder []int
 }
+
+// diskOffsetCacheCap bounds diskOffsetCache to this many distinct
+// radii (LRU-evicted beyond it). Generous headroom over the largest
+// body count in any one system (Lumen's ~17) so ordinary frame-to-
+// frame drawing never evicts a radius it's about to reuse; a wide zoom
+// sweep still can't grow the cache without bound.
+const diskOffsetCacheCap = 32
 
 // diskOffset is one (dx, dy) pixel offset inside a disk's radius,
 // relative to the disk's projected screen center.
@@ -195,16 +212,21 @@ type diskOffset struct{ dx, dy int }
 
 // diskOffsets returns the (dx, dy) offsets inside a disk of the given
 // pixel radius, computing (and caching) them once per distinct radius
-// this Canvas has ever drawn. See diskOffsetCache.
+// this Canvas has recently drawn. See diskOffsetCache.
 func (c *Canvas) diskOffsets(pxRadius int) []diskOffset {
 	if c.diskOffsetCache == nil {
 		c.diskOffsetCache = make(map[int][]diskOffset)
 	}
 	if offs, ok := c.diskOffsetCache[pxRadius]; ok {
+		c.touchDiskOffsetRadius(pxRadius)
 		return offs
 	}
 	r2 := pxRadius * pxRadius
-	offs := make([]diskOffset, 0, 4*r2) // generous upper bound (circle ⊂ bounding square)
+	// Tighter capacity estimate than the old 4r² bounding-square guess
+	// (review finding: ~21% of that was permanently-wasted retained
+	// capacity) — π·r² is the disk's true area, +8 for rounding slack.
+	estimate := int(math.Pi*float64(r2)) + 8
+	offs := make([]diskOffset, 0, estimate)
 	for dy := -pxRadius; dy <= pxRadius; dy++ {
 		for dx := -pxRadius; dx <= pxRadius; dx++ {
 			if dx*dx+dy*dy <= r2 {
@@ -213,7 +235,46 @@ func (c *Canvas) diskOffsets(pxRadius int) []diskOffset {
 		}
 	}
 	c.diskOffsetCache[pxRadius] = offs
+	c.touchDiskOffsetRadius(pxRadius)
+	c.evictOldDiskOffsets()
 	return offs
+}
+
+// touchDiskOffsetRadius moves pxRadius to the most-recently-used end
+// of diskOffsetOrder (appending it if new). O(cap) worst case, which
+// is fine at diskOffsetCacheCap's small bound.
+func (c *Canvas) touchDiskOffsetRadius(pxRadius int) {
+	for i, r := range c.diskOffsetOrder {
+		if r == pxRadius {
+			c.diskOffsetOrder = append(c.diskOffsetOrder[:i], c.diskOffsetOrder[i+1:]...)
+			break
+		}
+	}
+	c.diskOffsetOrder = append(c.diskOffsetOrder, pxRadius)
+}
+
+// evictOldDiskOffsets drops the least-recently-used radii once
+// diskOffsetCache exceeds diskOffsetCacheCap.
+func (c *Canvas) evictOldDiskOffsets() {
+	for len(c.diskOffsetOrder) > diskOffsetCacheCap {
+		oldest := c.diskOffsetOrder[0]
+		c.diskOffsetOrder = c.diskOffsetOrder[1:]
+		delete(c.diskOffsetCache, oldest)
+	}
+}
+
+// DiskIntersectsCanvas reports whether a disk of the given pixel
+// radius centered at center could paint any on-canvas pixel — a cheap
+// screen-space bounding-box test callers use to skip disk-fill work
+// (and any per-body raster-cache allocation) entirely for a body
+// that's off-canvas this frame, rather than paying for a fill loop
+// that would clip away to nothing anyway (#363 review fix).
+func (c *Canvas) DiskIntersectsCanvas(center orbital.Vec3, pxRadius int) bool {
+	if pxRadius < 1 {
+		pxRadius = 1
+	}
+	cx, cy, _ := c.Project(center)
+	return cx+pxRadius >= 0 && cx-pxRadius < c.pxW && cy+pxRadius >= 0 && cy-pxRadius < c.pxH
 }
 
 // NewCanvas builds a canvas sized to fit cols × rows terminal cells.

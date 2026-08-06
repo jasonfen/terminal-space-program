@@ -42,7 +42,7 @@ func TestTexturedDiskRasterHitsOnIdenticalKey(t *testing.T) {
 		return lipgloss.Color("#123456")
 	})
 
-	c1 := v.texturedDiskRaster(body, r, subLat, subLon, upX, upY, light, tex)
+	c1 := v.texturedDiskRaster(0, body, r, subLat, subLon, upX, upY, light, tex)
 	for dy := -r; dy <= r; dy++ {
 		for dx := -r; dx <= r; dx++ {
 			if dx*dx+dy*dy > r*r {
@@ -60,7 +60,7 @@ func TestTexturedDiskRasterHitsOnIdenticalKey(t *testing.T) {
 	}
 
 	// Second call with an IDENTICAL key must not touch tex again.
-	c2 := v.texturedDiskRaster(body, r, subLat, subLon, upX, upY, light, tex)
+	c2 := v.texturedDiskRaster(0, body, r, subLat, subLon, upX, upY, light, tex)
 	for dy := -r; dy <= r; dy++ {
 		for dx := -r; dx <= r; dx++ {
 			if dx*dx+dy*dy > r*r {
@@ -89,13 +89,13 @@ func TestTexturedDiskRasterSubPixelDriftHits(t *testing.T) {
 	const r = 20
 	tex := render.BodyTexture(func(dx, dy, rr int) lipgloss.Color { return lipgloss.Color("#123456") })
 
-	v.texturedDiskRaster(body, r, 10.0, 20.0, 0, 1, nil, tex)
+	v.texturedDiskRaster(0, body, r, 10.0, 20.0, 0, 1, nil, tex)
 	if v.diskRasterCacheComputes != 1 {
 		t.Fatalf("first call: computes=%d, want 1", v.diskRasterCacheComputes)
 	}
 
 	const idleDriftDeg = 0.0002 // one warp-1x tick, per #363
-	v.texturedDiskRaster(body, r, 10.0, 20.0+idleDriftDeg, 0, 1, nil, tex)
+	v.texturedDiskRaster(0, body, r, 10.0, 20.0+idleDriftDeg, 0, 1, nil, tex)
 	if v.diskRasterCacheComputes != 1 || v.diskRasterCacheHits != 1 {
 		t.Errorf("idle-drift call: computes=%d hits=%d, want computes=1 hits=1 (sub-quantum drift must hit)", v.diskRasterCacheComputes, v.diskRasterCacheHits)
 	}
@@ -128,7 +128,7 @@ func TestTexturedDiskRasterBustsOnChange(t *testing.T) {
 	}
 
 	v := NewOrbitView(plainTheme())
-	v.texturedDiskRaster(body, 20, 10, 20, 0, 1, baseLight, tex) // seed the baseline entry
+	v.texturedDiskRaster(0, body, 20, 10, 20, 0, 1, baseLight, tex) // seed the baseline entry
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,13 +136,13 @@ func TestTexturedDiskRasterBustsOnChange(t *testing.T) {
 				return
 			}
 			before := v.diskRasterCacheComputes
-			v.texturedDiskRaster(body, tc.r, tc.subLat, tc.subLon, tc.upX, tc.upY, tc.light, tex)
+			v.texturedDiskRaster(0, body, tc.r, tc.subLat, tc.subLon, tc.upX, tc.upY, tc.light, tex)
 			if v.diskRasterCacheComputes != before+1 {
 				t.Errorf("%s: computes went %d -> %d, want a miss (bust)", tc.name, before, v.diskRasterCacheComputes)
 			}
 			// Restore the shared entry to baseline so the next case's
 			// diff is isolated to its own single changed input.
-			v.texturedDiskRaster(body, 20, 10, 20, 0, 1, baseLight, tex)
+			v.texturedDiskRaster(0, body, 20, 10, 20, 0, 1, baseLight, tex)
 		})
 	}
 }
@@ -157,13 +157,13 @@ func TestTexturedDiskRasterPerBodyIndependent(t *testing.T) {
 	bodyB.ID = "disktest-b"
 	tex := render.BodyTexture(func(dx, dy, rr int) lipgloss.Color { return lipgloss.Color("#123456") })
 
-	v.texturedDiskRaster(bodyA, 20, 10, 20, 0, 1, nil, tex)
-	v.texturedDiskRaster(bodyB, 20, 10, 20, 0, 1, nil, tex)
+	v.texturedDiskRaster(0, bodyA, 20, 10, 20, 0, 1, nil, tex)
+	v.texturedDiskRaster(0, bodyB, 20, 10, 20, 0, 1, nil, tex)
 	if v.diskRasterCacheComputes != 2 {
 		t.Fatalf("two distinct bodies: computes=%d, want 2", v.diskRasterCacheComputes)
 	}
-	v.texturedDiskRaster(bodyA, 20, 10, 20, 0, 1, nil, tex)
-	v.texturedDiskRaster(bodyB, 20, 10, 20, 0, 1, nil, tex)
+	v.texturedDiskRaster(0, bodyA, 20, 10, 20, 0, 1, nil, tex)
+	v.texturedDiskRaster(0, bodyB, 20, 10, 20, 0, 1, nil, tex)
 	if v.diskRasterCacheComputes != 2 || v.diskRasterCacheHits != 2 {
 		t.Fatalf("second pass over both bodies: computes=%d hits=%d, want computes=2 hits=2", v.diskRasterCacheComputes, v.diskRasterCacheHits)
 	}
@@ -223,5 +223,34 @@ func TestOrbitRenderDiskCacheBustsOnWarpRotation(t *testing.T) {
 	v.Render(w, 0, 120, 40)
 	if v.diskRasterCacheComputes == firstComputes {
 		t.Error("a full-day clock jump did not bust the raster cache — disk would render stale")
+	}
+}
+
+// TestOrbitRenderDiskCacheSkipsOffCanvasBodies is the review-mandated
+// heap-bound regression test for the other retained-heap cause: at the
+// default LEO-Earth start, most of Sol's bodies (Mercury, Venus, Mars,
+// the outer planets, the Sun itself) are off-canvas — before the
+// #363 review fix, every one of them still built and RETAINED a full
+// raster grid that painted nothing (measured ~70x the idle retained
+// heap). The raster cache must end up with far fewer entries than the
+// system's total body count — only the bodies that actually intersect
+// the canvas get one.
+func TestOrbitRenderDiskCacheSkipsOffCanvasBodies(t *testing.T) {
+	v := NewOrbitView(plainTheme())
+	v.Resize(120, 40)
+
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	totalBodies := len(w.System().Bodies)
+	if totalBodies < 2 {
+		t.Skip("system has too few bodies to distinguish on-canvas from off-canvas")
+	}
+
+	v.Render(w, 0, 120, 40)
+
+	if got := len(v.diskRasterCache); got >= totalBodies {
+		t.Errorf("diskRasterCache holds %d entries for a %d-body system — expected most off-canvas bodies (at default LEO zoom) to be skipped entirely, not cached empty", got, totalBodies)
 	}
 }

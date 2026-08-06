@@ -95,3 +95,65 @@ func TestFillTexturedDiskTaggedMatchesColoredShape(t *testing.T) {
 		}
 	}
 }
+
+// TestDiskOffsetCacheBoundedAcrossZoomSweep is the review-mandated
+// memory-bound regression test: pxRadius changes on every zoom
+// step/refit, and the offset cache used to be keyed on radius with no
+// eviction — a session that zoomed across a wide radius range once
+// retained a mask for every distinct radius it ever passed through
+// (measured ~1.22 GB retained sweeping 1..384). After the LRU cap, the
+// cache must never hold more than diskOffsetCacheCap distinct radii,
+// no matter how many distinct radii a session sweeps through.
+func TestDiskOffsetCacheBoundedAcrossZoomSweep(t *testing.T) {
+	c := NewCanvas(200, 60)
+	// Sweep every radius from 1 to 384 — far more distinct radii than
+	// diskOffsetCacheCap, standing in for a full zoom-in-then-out pass.
+	for r := 1; r <= 384; r++ {
+		c.diskOffsets(r)
+		if len(c.diskOffsetCache) > diskOffsetCacheCap {
+			t.Fatalf("after radius %d: diskOffsetCache holds %d entries, want <= %d (cap)", r, len(c.diskOffsetCache), diskOffsetCacheCap)
+		}
+		if len(c.diskOffsetOrder) > diskOffsetCacheCap {
+			t.Fatalf("after radius %d: diskOffsetOrder holds %d entries, want <= %d (cap)", r, len(c.diskOffsetOrder), diskOffsetCacheCap)
+		}
+	}
+	if got := len(c.diskOffsetCache); got != diskOffsetCacheCap {
+		t.Errorf("after a 384-radius sweep, diskOffsetCache = %d entries, want exactly the cap (%d) — the sweep should have filled and evicted, not stayed short", got, diskOffsetCacheCap)
+	}
+	// The most recently swept radii (nearest 384) must be the ones
+	// still resident — LRU eviction should have dropped the early,
+	// long-unused ones (nearest 1), not an arbitrary subset.
+	if _, ok := c.diskOffsetCache[384]; !ok {
+		t.Error("most-recently-used radius 384 was evicted — eviction isn't LRU")
+	}
+	if _, ok := c.diskOffsetCache[1]; ok {
+		t.Error("least-recently-used radius 1 is still resident after the sweep — eviction isn't LRU")
+	}
+}
+
+// TestDiskIntersectsCanvas checks the bounding-box viewport test used
+// to skip disk-fill work (and any per-body raster-cache allocation,
+// #363 review fix) for a body that's entirely off-canvas: a disk
+// dead-center is on-canvas, a disk far enough away that even its
+// radius can't reach the canvas is not, and a disk whose center is
+// off-canvas but whose edge still overlaps the canvas is correctly
+// reported as intersecting (the bounding-box test must not be a
+// center-point-only test).
+func TestDiskIntersectsCanvas(t *testing.T) {
+	c := NewCanvas(40, 20) // pxW=80, pxH=80
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+
+	if !c.DiskIntersectsCanvas(orbital.Vec3{}, 10) {
+		t.Error("a disk centered on-canvas should intersect")
+	}
+	if c.DiskIntersectsCanvas(orbital.Vec3{X: 10000}, 10) {
+		t.Error("a disk far off-canvas with a small radius should not intersect")
+	}
+	// Center just past the right edge (canvas half-width 40px), but
+	// with a radius large enough that the disk's LEFT edge still
+	// overlaps the canvas.
+	if !c.DiskIntersectsCanvas(orbital.Vec3{X: 45}, 20) {
+		t.Error("a disk whose center is off-canvas but whose edge overlaps should intersect")
+	}
+}

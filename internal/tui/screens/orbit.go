@@ -925,16 +925,27 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				}
 			}
 		}
-		if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
-			pxR := r
-			// #363: serve the cached raster grid on a quantized-key
-			// hit instead of re-evaluating tex per pixel every tick.
-			cached := v.texturedDiskRaster(b, pxR, subLat, subLon, upX, upY, light, tex)
-			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
-				return cached(dx, dy, pxR)
-			}, bodyTag)
-		} else {
-			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+		// #363 review fix: skip the disk fill (and any raster-cache
+		// allocation) entirely when the disk's screen-space bounding
+		// box doesn't intersect the canvas. At the default view most
+		// bodies in a system are off-canvas; before this check every
+		// one of them still built (and retained) a full raster grid
+		// that painted nothing — measured ~70x the idle retained heap
+		// at default zoom. FillTexturedDiskTagged/FillColoredDiskTagged
+		// already no-op per off-canvas pixel, so skipping the whole
+		// call draws identically (nothing) while skipping the setup.
+		if v.canvas.DiskIntersectsCanvas(pos, r) {
+			if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
+				pxR := r
+				// #363: serve the cached raster grid on a quantized-key
+				// hit instead of re-evaluating tex per pixel every tick.
+				cached := v.texturedDiskRaster(w.SystemIdx, b, pxR, subLat, subLon, upX, upY, light, tex)
+				v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
+					return cached(dx, dy, pxR)
+				}, bodyTag)
+			} else {
+				v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+			}
 		}
 		// v0.8.5.7+: stars get a faint two-ring corona halo so the
 		// disk reads as "this is a luminous body" instead of a

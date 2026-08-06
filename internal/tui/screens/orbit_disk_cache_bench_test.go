@@ -60,13 +60,13 @@ func BenchmarkBodyDiskRaster(b *testing.B) {
 		tag := widgets.CellTag{Color: lipgloss.Color(body.Color), BodyID: body.ID}
 		// Warm the cache once (the one real miss a frame-to-frame idle
 		// sequence pays) before timing the steady-state hit path.
-		warm := v.texturedDiskRaster(body, r, subLat, subLon, upX, upY, light, tex)
+		warm := v.texturedDiskRaster(0, body, r, subLat, subLon, upX, upY, light, tex)
 		canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
 			return warm(dx, dy, r)
 		}, tag)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			cached := v.texturedDiskRaster(body, r, subLat, subLon, upX, upY, light, tex)
+			cached := v.texturedDiskRaster(0, body, r, subLat, subLon, upX, upY, light, tex)
 			canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
 				return cached(dx, dy, r)
 			}, tag)

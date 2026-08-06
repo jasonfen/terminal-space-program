@@ -51,6 +51,7 @@ const diskRasterQuantEclipse = 1.0 / 512.0
 // quantum, per the derivation above), so a key hit can blit the cached
 // grid instead of re-running the texture closure.
 type diskRasterKey struct {
+	systemIdx int
 	bodyID    string
 	pxRadius  int
 	subLatQ   int64
@@ -83,16 +84,23 @@ type diskRasterEntry struct {
 // Bodies are cached independently (keyed by ID) rather than in one
 // single-slot cache, so a frame that textures more than one body (e.g.
 // the Sun plus the focused planet) doesn't thrash a shared slot.
-func (v *OrbitView) texturedDiskRaster(b bodies.CelestialBody, r int, subLat, subLon, upX, upY float64, light *render.SolarLight, tex render.BodyTexture) render.BodyTexture {
+// systemIdx rides along in the key (not just the map's b.ID key) because
+// user-overlay catalogs can reuse a body ID across systems (review
+// finding) — without it, switching systems could serve one system's
+// cached colors onto another system's body of the same ID. Including it
+// in diskRasterKey is enough: an equal-ID, different-systemIdx entry
+// simply compares unequal and is correctly treated as a miss.
+func (v *OrbitView) texturedDiskRaster(systemIdx int, b bodies.CelestialBody, r int, subLat, subLon, upX, upY float64, light *render.SolarLight, tex render.BodyTexture) render.BodyTexture {
 	if tex == nil {
 		return nil
 	}
 	key := diskRasterKey{
-		bodyID:   b.ID,
-		pxRadius: r,
-		subLatQ:  quantize(subLat, diskRasterQuantDeg),
-		subLonQ:  quantize(subLon, diskRasterQuantDeg),
-		upAngleQ: quantize(math.Atan2(upY, upX)*180.0/math.Pi, diskRasterQuantDeg),
+		systemIdx: systemIdx,
+		bodyID:    b.ID,
+		pxRadius:  r,
+		subLatQ:   quantize(subLat, diskRasterQuantDeg),
+		subLonQ:   quantize(subLon, diskRasterQuantDeg),
+		upAngleQ:  quantize(math.Atan2(upY, upX)*180.0/math.Pi, diskRasterQuantDeg),
 	}
 	if light != nil {
 		key.hasLight = true
@@ -109,6 +117,19 @@ func (v *OrbitView) texturedDiskRaster(b bodies.CelestialBody, r int, subLat, su
 	if entry, ok := v.diskRasterCache[b.ID]; ok && entry.key == key && entry.r == r {
 		v.diskRasterCacheHits++
 		grid := entry.grid
+		// Self-healing hit path (fix for a viewport-clip bug caught in
+		// review): FillTexturedDiskTagged never calls this closure for
+		// an off-canvas offset (it clips BEFORE calling texture()), so
+		// a grid built on one frame is only guaranteed complete for the
+		// offsets that were actually on-canvas THAT frame. A later
+		// identical-key frame — same body/radius/lighting, but panned
+		// or resized so a previously-clipped offset is now on-canvas —
+		// would otherwise read the zero value (lipgloss.Color(""))
+		// for that offset and paint an uncolored cell. Since an equal
+		// key guarantees identical colors regardless of when an offset
+		// is first requested, it's always correct to lazily fill any
+		// gap on the hit path too: the grid converges to the union of
+		// every window this key has ever drawn.
 		return func(dx, dy, rr int) lipgloss.Color {
 			idx := (dy+r)*side + (dx + r)
 			if idx < 0 || idx >= len(grid) {
@@ -116,7 +137,12 @@ func (v *OrbitView) texturedDiskRaster(b bodies.CelestialBody, r int, subLat, su
 				// always uses the same (r, mask) that built the grid.
 				return tex(dx, dy, rr)
 			}
-			return grid[idx]
+			if c := grid[idx]; c != "" {
+				return c
+			}
+			c := tex(dx, dy, rr)
+			grid[idx] = c
+			return c
 		}
 	}
 
