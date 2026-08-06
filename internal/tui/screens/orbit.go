@@ -272,6 +272,19 @@ type OrbitView struct {
 	inspectables []inspectable
 	drawnOwners  map[string]inspectable
 	inspectRef   InspectRef
+
+	// diskRasterCache memoizes the per-pixel rasterized textured-disk
+	// grid, keyed per body, under the same ADR 0017 predict-on-change
+	// discipline as predictCache / soiPassCache above (#363). At idle
+	// this turns the per-tick per-pixel texture-closure evaluation
+	// (trig + feature-polygon tests) into a cache-key comparison plus a
+	// slice read; zoom, camera moves, focus switches, high warp, and
+	// lighting changes all move the quantized key and still force a
+	// real re-raster. diskRasterCacheHits / …Computes are test hooks.
+	// See orbit_disk_cache.go.
+	diskRasterCache         map[string]*diskRasterEntry
+	diskRasterCacheHits     int
+	diskRasterCacheComputes int
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
@@ -912,13 +925,27 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				}
 			}
 		}
-		if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
-			pxR := r
-			v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
-				return tex(dx, dy, pxR)
-			}, bodyTag)
-		} else {
-			v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+		// #363 review fix: skip the disk fill (and any raster-cache
+		// allocation) entirely when the disk's screen-space bounding
+		// box doesn't intersect the canvas. At the default view most
+		// bodies in a system are off-canvas; before this check every
+		// one of them still built (and retained) a full raster grid
+		// that painted nothing — measured ~70x the idle retained heap
+		// at default zoom. FillTexturedDiskTagged/FillColoredDiskTagged
+		// already no-op per off-canvas pixel, so skipping the whole
+		// call draws identically (nothing) while skipping the setup.
+		if v.canvas.DiskIntersectsCanvas(pos, r) {
+			if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
+				pxR := r
+				// #363: serve the cached raster grid on a quantized-key
+				// hit instead of re-evaluating tex per pixel every tick.
+				cached := v.texturedDiskRaster(w.SystemIdx, b, pxR, subLat, subLon, upX, upY, light, tex)
+				v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
+					return cached(dx, dy, pxR)
+				}, bodyTag)
+			} else {
+				v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
+			}
 		}
 		// v0.8.5.7+: stars get a faint two-ring corona halo so the
 		// disk reads as "this is a luminous body" instead of a
