@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -171,5 +172,35 @@ func TestStringCoalescedMatchesReferenceAcrossPalette(t *testing.T) {
 				t.Errorf("r=%d color=%s: coalesced String() diverges from reference once un-batched\ngot (expanded): %q\nwant:           %q", r, color, expanded, want)
 			}
 		}
+	}
+}
+
+// TestStringCoalescedMatchesReferenceEveryCellDistinctColor is the
+// worst case for run-length coalescing: a textured disk whose texture
+// gives every single pixel a DIFFERENT color, so no two adjacent cells
+// ever share a run and the coalesced path degenerates to exactly the
+// old one-Style.Render()-per-cell behavior. Confirms the coalescing
+// loop's run-boundary bookkeeping is correct even when it never gets
+// to batch anything — a bug there could otherwise hide behind the
+// "long same-color run" scenes every other test in this file uses.
+func TestStringCoalescedMatchesReferenceEveryCellDistinctColor(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+
+	c := NewCanvas(30, 15)
+	c.SetScale(1)
+	c.Center(orbital.Vec3{})
+
+	const r = 10
+	c.FillTexturedDiskTagged(orbital.Vec3{}, r, func(dx, dy int) lipgloss.Color {
+		// A distinct color per (dx, dy) offset — no run is ever more
+		// than one cell wide.
+		return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X",
+			byte(dx+128), byte(dy+128), byte((dx*3+dy*7)+128)))
+	}, CellTag{})
+
+	got := c.String()
+	want := c.referenceString()
+	if expanded := expandRunsToPerChar(got); expanded != want {
+		t.Errorf("every-cell-distinct-color: coalesced String() diverges from reference once un-batched\ngot (expanded): %q\nwant:           %q", expanded, want)
 	}
 }

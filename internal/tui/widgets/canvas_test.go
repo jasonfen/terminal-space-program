@@ -200,8 +200,12 @@ func TestSetCellLabelColored(t *testing.T) {
 		t.Fatalf("could not derive an ANSI open code from lipgloss sample render %q", sample)
 	}
 	openCode := sample[:idx]
-	if !strings.Contains(colored, openCode) {
-		t.Errorf("colored label missing the primary foreground open code %q: %q", openCode, colored)
+	// Tightened (review follow-up): require the open code to sit
+	// directly against "view:" — not just appear SOMEWHERE in the
+	// output — restoring the original assertion's strength (that the
+	// label's own run is what's colored) while staying coalescing-safe.
+	if !strings.Contains(colored, openCode+"view:") {
+		t.Errorf("colored label's \"view:\" run missing the primary foreground open code %q: %q", openCode, colored)
 	}
 	if !strings.Contains(colored, "view:") || !strings.Contains(colored, "top") {
 		t.Errorf("colored label missing its text: %q", colored)
