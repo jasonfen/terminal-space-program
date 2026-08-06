@@ -182,12 +182,29 @@ func TestSetCellLabelColored(t *testing.T) {
 	if !strings.Contains(colored, "\x1b[") {
 		t.Error("colored label missing ANSI escape sequence")
 	}
-	// Compare against what lipgloss itself emits for this foreground, so
-	// the assertion holds regardless of the test env's color profile
-	// (truecolor vs ANSI256 downsample).
-	want := lipgloss.NewStyle().Foreground(fg).Render("v")
-	if !strings.Contains(colored, want) {
-		t.Errorf("colored label missing the primary foreground %q: %q", want, colored)
+	// Derive just the ANSI OPEN code lipgloss emits for this foreground
+	// from a one-glyph sample render, rather than comparing against a
+	// full single-glyph Render() output. #364's run-length coalescing
+	// wraps a whole contiguous run of identically-colored, non-space
+	// glyphs ("view:") in ONE Style.Render() call instead of one per
+	// glyph — same visible color, fewer escape sequences — so a
+	// substring check against a lone-"v" render no longer matches even
+	// though the color is correct. Slicing out just the open code
+	// (before the sample glyph) keeps the assertion correct regardless
+	// of coalescing, and still holds regardless of the test env's color
+	// profile (truecolor vs ANSI256 downsample) since it's derived from
+	// a real lipgloss render.
+	sample := lipgloss.NewStyle().Foreground(fg).Render("v")
+	idx := strings.IndexByte(sample, 'v')
+	if idx <= 0 {
+		t.Fatalf("could not derive an ANSI open code from lipgloss sample render %q", sample)
+	}
+	openCode := sample[:idx]
+	if !strings.Contains(colored, openCode) {
+		t.Errorf("colored label missing the primary foreground open code %q: %q", openCode, colored)
+	}
+	if !strings.Contains(colored, "view:") || !strings.Contains(colored, "top") {
+		t.Errorf("colored label missing its text: %q", colored)
 	}
 }
 
