@@ -94,11 +94,21 @@ func TestOrbitViewCurveCacheHitsAtIdleAndBustsOnCameraChange(t *testing.T) {
 // TestOrbitViewCurveCacheHitMatchesUncachedAfterPan is the same
 // cache-vs-ground-truth check orbit_disk_cache_pan_test.go runs for the
 // disk raster cache (TestOrbitRenderDiskCacheHitMatchesUncachedAfterPan),
-// applied to orbit-line geometry: a render that the curve cache
-// recomputed after a pan must be byte-identical to the same frame
-// rendered on a cache-dropped, never-panned-before OrbitView. Forces
-// ANSI color for the same sync.Once test-ordering reason documented
-// there.
+// applied to orbit-line geometry: a render that MAY be using warm curve-
+// cache entries after a pan must match the same frame rendered with the
+// cache forced empty. Forces ANSI color for the same sync.Once test-
+// ordering reason documented there.
+//
+// Review finding: an earlier version of this test replayed the identical
+// warm -> pan -> pan -> render sequence on BOTH v and the "reference"
+// freshV, so freshV's cache ended up exactly as warm as v's — the
+// comparison proved the render is deterministic run-to-run, not that it's
+// correct independent of what the cache did. The fix is
+// freshV.canvas.ResetCurveCache() immediately before the final render:
+// freshV still replays the same warm-up/pan sequence (so its camera
+// framing matches v's — reordering the pans ahead of the warm-up render
+// does NOT work, per ResetCurveCache's doc comment), but its cache is
+// forced empty for the one render actually under comparison.
 func TestOrbitViewCurveCacheHitMatchesUncachedAfterPan(t *testing.T) {
 	ambient := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
@@ -132,6 +142,11 @@ func TestOrbitViewCurveCacheHitMatchesUncachedAfterPan(t *testing.T) {
 	freshV.PanRight()
 	freshV.Render(freshW, 0, 120, 40)
 	freshV.PanDown()
+	// Force the reference's LAST render to be genuinely cache-free —
+	// otherwise freshV's cache is exactly as warm as v's at this point
+	// (both replayed the identical sequence) and this stops being a
+	// cached-vs-ground-truth check at all (review finding).
+	freshV.canvas.ResetCurveCache()
 	want := freshV.Render(freshW, 0, 120, 40)
 
 	if got != want {
@@ -140,4 +155,92 @@ func TestOrbitViewCurveCacheHitMatchesUncachedAfterPan(t *testing.T) {
 	if !containsANSI(want) {
 		t.Fatal("test setup broken: expected lipgloss.SetColorProfile(termenv.TrueColor) to produce ANSI-colored output")
 	}
+}
+
+// TestOrbitViewCurveCacheHitBoundedDeviationDuringLiveTicking is the #367
+// review's bounded-deviation regression test. A curve-cache HIT is
+// sub-pixel-equivalent to a fresh draw, not byte-identical (see
+// DrawEllipseClassCachedTagged's doc comment): the key quantizes its
+// inputs to stay within arcFlatTolerancePx of a fresh recompute, so during
+// LIVE ticking (physics actually advancing every frame, unlike the idle
+// benchmark's frozen clock) a hit can legitimately reuse geometry from up
+// to one quantum step earlier. That's bounded and non-accumulating —
+// review-measured live at 1x warp: 140/200 frames differ, max 9 of 4800
+// cells — but was previously undocumented and unguarded by any test. This
+// ticks a live world for 200 real steps, rendering the SAME world state
+// through a persistently-cached OrbitView and a reference OrbitView whose
+// curve cache is forced empty before every render, and asserts the
+// per-frame cell-diff count stays under a small cap: a future loosening of
+// the quantization tolerance (or an outright key bug re-widening the
+// staleness this cache exists to bound) shows up as a growing diff count
+// instead of silently passing.
+func TestOrbitViewCurveCacheHitBoundedDeviationDuringLiveTicking(t *testing.T) {
+	ambient := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
+
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	cachedV := NewOrbitView(plainTheme())
+	freshV := NewOrbitView(plainTheme())
+	cachedV.Render(w, 0, 120, 40) // warm both once, identically, before ticking
+	freshV.Render(w, 0, 120, 40)
+	freshV.canvas.ResetCurveCache()
+
+	const ticks = 200
+	// Review-measured worst case at 1x warp was 9 of 4800 cells in any one
+	// frame; capped with headroom so this test only fires on a real
+	// regression (a wider quantum, or a key that stops covering something
+	// it should), not on ordinary sub-pixel noise.
+	const maxDiffCellsPerFrame = 40
+
+	worst, framesDiffering := 0, 0
+	for i := 0; i < ticks; i++ {
+		w.Tick() // real physics step at whatever warp NewWorld defaults to
+		cachedFrame := cachedV.Render(w, 0, 120, 40)
+		freshFrame := freshV.Render(w, 0, 120, 40)
+		freshV.canvas.ResetCurveCache() // next tick's freshFrame is cache-free too
+
+		diff := diffCellCount(cachedFrame, freshFrame)
+		if diff > 0 {
+			framesDiffering++
+		}
+		if diff > worst {
+			worst = diff
+		}
+		if diff > maxDiffCellsPerFrame {
+			t.Errorf("tick %d: cached render differs from a cache-free reference in %d cells, want <= %d", i, diff, maxDiffCellsPerFrame)
+		}
+	}
+	t.Logf("%d/%d frames differed from the cache-free reference; worst-case per-frame diff %d cells (cap %d)", framesDiffering, ticks, worst, maxDiffCellsPerFrame)
+}
+
+// diffCellCount counts the styled-cell positions where a and b differ.
+// splitStyledCells (navball_panel.go) turns an ANSI-styled render string
+// into one entry per rendered glyph (its active style plus its rune), so
+// this counts glyphs that actually render differently — not raw bytes,
+// which would overcount on an ANSI escape sequence's length varying
+// between two colors with no visible difference in cell count.
+func diffCellCount(a, b string) int {
+	ca, cb := splitStyledCells(a), splitStyledCells(b)
+	n := len(ca)
+	if len(cb) < n {
+		n = len(cb)
+	}
+	diff := 0
+	for i := 0; i < n; i++ {
+		if ca[i] != cb[i] {
+			diff++
+		}
+	}
+	if len(ca) > n {
+		diff += len(ca) - n
+	}
+	if len(cb) > n {
+		diff += len(cb) - n
+	}
+	return diff
 }

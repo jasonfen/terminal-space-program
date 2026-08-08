@@ -193,15 +193,21 @@ func (c *Canvas) curveCacheKeyFor(el orbital.Elements, offset orbital.Vec3, minS
 // Only geometry is cached, not color: tag is applied fresh on every call,
 // hit or miss, so a color-only change (e.g. a target promotion) reuses the
 // cached geometry rather than needlessly busting it.
+//
+// A cache HIT is sub-pixel-equivalent to a fresh draw, not necessarily
+// byte-identical: the key quantizes its inputs to stay within
+// arcFlatTolerancePx of a fresh recompute (see curvePositionQuantum /
+// curveShapeQuantum), so during live ticking a hit can legitimately reuse
+// geometry from up to one quantum step earlier — bounded, non-accumulating
+// drift below what the renderer can express, not a correctness bug. A
+// genuine MISS (a new key) always recomputes exactly, which is why the
+// widgets-package tests assert byte-identical output there specifically.
 func (c *Canvas) DrawEllipseClassCachedTagged(curveID string, el orbital.Elements, offset orbital.Vec3, minSpans int, class LineClass, bodyPos orbital.Vec3, bodyPxR int, tag CellTag) {
 	if curveID == "" {
 		c.DrawEllipseClassTagged(el, offset, minSpans, class, bodyPos, bodyPxR, tag)
 		return
 	}
-	near, far := classRealNearSpacingPx, classRealFarSpacingPx
-	if class == ClassScenery {
-		near, far = classSceneryNearSpacingPx, classSceneryFarSpacingPx
-	}
+	near, far := classEllipseSpacings(class)
 	key := c.curveCacheKeyFor(el, offset, minSpans, near, far, bodyPos, bodyPxR)
 	if c.curveCache == nil {
 		c.curveCache = make(map[string]*curveCacheEntry)
@@ -270,4 +276,23 @@ func (c *Canvas) evictOldCurveCache() {
 // this to assert an idle re-render hits and a pan/zoom/focus change misses.
 func (c *Canvas) CurveCacheStats() (hits, computes int) {
 	return c.curveCacheHits, c.curveCacheComputes
+}
+
+// ResetCurveCache drops every cached curve entry, forcing the next draw of
+// each curve to recompute from scratch. Exported as a test hook: a
+// cache-vs-ground-truth comparison needs a way to force a genuinely
+// cache-free render on demand. screens/orbit_curve_cache_test.go's
+// TestOrbitViewCurveCacheHitMatchesUncachedAfterPan calls this on the
+// reference OrbitView's canvas immediately before the FINAL render under
+// comparison (not earlier) — the reference still has to replay the exact
+// same warm-up/pan sequence as the OrbitView under test so both land on the
+// same camera state (ADR 0021's Framing Event only re-fits on Focus/
+// ViewMode/System changes or a resize, so reordering the pans ahead of the
+// warm-up render would fit a different — and wrong — baseScale). Dropping
+// the cache only immediately before that last render isolates "did this
+// specific render use a cached entry" without disturbing the camera framing
+// both views need to share.
+func (c *Canvas) ResetCurveCache() {
+	c.curveCache = nil
+	c.curveCacheOrder = nil
 }

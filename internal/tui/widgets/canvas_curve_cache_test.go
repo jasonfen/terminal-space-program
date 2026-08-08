@@ -130,19 +130,6 @@ func TestDrawEllipseClassCachedTaggedEmptyCurveIDNeverCaches(t *testing.T) {
 	}
 }
 
-// curveScenario draws the test curve on a canvas configured by setup, and
-// returns both the rendered string and the canvas for further cache
-// introspection.
-func curveScenario(t *testing.T, curveID string, el orbital.Elements, setup func(c *Canvas)) (*Canvas, string) {
-	t.Helper()
-	c := newCurveCacheTestCanvas()
-	if setup != nil {
-		setup(c)
-	}
-	c.DrawEllipseClassCachedTagged(curveID, el, orbital.Vec3{}, 360, ClassReal, orbital.Vec3{}, 0, CellTag{Color: "#00FF00", Owner: "test"})
-	return c, c.String()
-}
-
 // TestDrawEllipseClassCachedTaggedBustsOnViewChange is the #367 stale-
 // frame regression guard directly called for by the issue: pan, zoom,
 // rebasis, and resize must all bust the geometry cache — #363's review
@@ -259,14 +246,34 @@ func TestDrawEllipseClassCachedTaggedToleratesSubPixelJitter(t *testing.T) {
 func TestDrawEllipseClassCachedTaggedBoundedAcrossManyCurveIDs(t *testing.T) {
 	c := newCurveCacheTestCanvas()
 	el := testEllipse()
-	for i := 0; i < curveCacheCap*3; i++ {
-		id := "curve-" + string(rune('A'+i%26)) + string(rune('0'+i/26))
+	curveIDAt := func(i int) string {
+		return "curve-" + string(rune('A'+i%26)) + string(rune('0'+i/26))
+	}
+	const n = curveCacheCap * 3
+	for i := 0; i < n; i++ {
+		id := curveIDAt(i)
 		c.DrawEllipseClassCachedTagged(id, el, orbital.Vec3{}, 360, ClassReal, orbital.Vec3{}, 0, CellTag{Color: "#00FF00", Owner: id})
 		if len(c.curveCache) > curveCacheCap {
 			t.Fatalf("after %d curveIDs: curveCache holds %d entries, want <= %d (cap)", i+1, len(c.curveCache), curveCacheCap)
 		}
 	}
 	if got := len(c.curveCache); got != curveCacheCap {
-		t.Errorf("after sweeping %d curveIDs, curveCache = %d entries, want exactly the cap (%d)", curveCacheCap*3, got, curveCacheCap)
+		t.Errorf("after sweeping %d curveIDs, curveCache = %d entries, want exactly the cap (%d)", n, got, curveCacheCap)
+	}
+	// Bound alone doesn't prove LRU — a no-op touchCurveCacheID would also
+	// pass the checks above (evictOldCurveCache still trims to the cap, it
+	// would just trim an arbitrary/insertion-order subset instead of the
+	// least-recently-used one). Mirrors diskOffsetCache's
+	// TestDiskOffsetCacheBoundedAcrossZoomSweep recency check (deleted
+	// alongside diskOffsetCache in this same PR): the most-recently-drawn
+	// curveID must still be resident, and the least-recently-drawn one
+	// must have been evicted.
+	mostRecent := curveIDAt(n - 1)
+	leastRecent := curveIDAt(0)
+	if _, ok := c.curveCache[mostRecent]; !ok {
+		t.Errorf("most-recently-drawn curveID %q was evicted — eviction isn't LRU", mostRecent)
+	}
+	if _, ok := c.curveCache[leastRecent]; ok {
+		t.Errorf("least-recently-drawn curveID %q is still resident after the sweep — eviction isn't LRU", leastRecent)
 	}
 }

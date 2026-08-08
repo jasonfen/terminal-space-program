@@ -97,11 +97,25 @@ func (c *Canvas) DrawEllipseClass(el orbital.Elements, offset orbital.Vec3, minS
 // anywhere on ANY drawn orbit resolves to the entity that owns it, with
 // no per-call-site hit-test code.
 func (c *Canvas) DrawEllipseClassTagged(el orbital.Elements, offset orbital.Vec3, minSpans int, class LineClass, bodyPos orbital.Vec3, bodyPxR int, tag CellTag) {
-	near, far := classRealNearSpacingPx, classRealFarSpacingPx
-	if class == ClassScenery {
-		near, far = classSceneryNearSpacingPx, classSceneryFarSpacingPx
-	}
+	near, far := classEllipseSpacings(class)
 	c.drawEllipseAdaptiveTagged(el, offset, minSpans, near, far, bodyPos, bodyPxR, tag)
+}
+
+// classEllipseSpacings maps a LineClass to the near/far dot-spacing pair an
+// ellipse drawer walks at (see the ink-pattern constants above). The single
+// call site both DrawEllipseClassTagged and the #367 curve-geometry cache's
+// DrawEllipseClassCachedTagged (canvas_curve_cache.go) go through — this
+// file is documented as the ONE place that states what solid/dashed/dotted
+// mean, and a second inline copy of the class->spacing mapping would be a
+// second place to keep in sync by hand. ClassPlanned falls back to Real's
+// spacing, matching DrawEllipseClassTagged's pre-existing documented
+// fallback (a caller passing it is a mistake to fix, not a state worth
+// panicking the render loop over).
+func classEllipseSpacings(class LineClass) (near, far int) {
+	if class == ClassScenery {
+		return classSceneryNearSpacingPx, classSceneryFarSpacingPx
+	}
+	return classRealNearSpacingPx, classRealFarSpacingPx
 }
 
 // PlotPolylineClass draws a run of world points as one connected curve at
