@@ -230,6 +230,25 @@ func (c *Canvas) drawEllipseAdaptiveTagged(
 	bodyPxR int,
 	tag CellTag,
 ) {
+	c.drawEllipseAdaptiveTaggedRecording(el, offset, minSpans, nearSpacingPx, farSpacingPx, bodyPos, bodyPxR, tag, nil)
+}
+
+// drawEllipseAdaptiveTaggedRecording is drawEllipseAdaptiveTagged with an
+// optional pixel recorder (#367): every pixel actually plotted is also
+// handed to record (nil ⇒ identical to drawEllipseAdaptiveTagged). The
+// curve-geometry cache (canvas_curve_cache.go) calls this directly on a
+// cache miss to capture the flattened+walked output for replay, so
+// caching costs nothing beyond the draw that already had to happen.
+func (c *Canvas) drawEllipseAdaptiveTaggedRecording(
+	el orbital.Elements,
+	offset orbital.Vec3,
+	minSpans int,
+	nearSpacingPx, farSpacingPx int,
+	bodyPos orbital.Vec3,
+	bodyPxR int,
+	tag CellTag,
+	record func(px, py int),
+) {
 	if nearSpacingPx < 1 {
 		nearSpacingPx = 1
 	}
@@ -257,10 +276,10 @@ func (c *Canvas) drawEllipseAdaptiveTagged(
 		depth := mid.X*depthAxis.X + mid.Y*depthAxis.Y + mid.Z*depthAxis.Z
 		if depth < behindThreshold {
 			farPhase = c.walkPixelSegment(ch.ax, ch.ay, ch.bx, ch.by, tag, farSpacingPx, farPhase,
-				bodyX, bodyY, float64(bodyPxR))
+				bodyX, bodyY, float64(bodyPxR), record)
 			return
 		}
-		nearPhase = c.walkPixelSegment(ch.ax, ch.ay, ch.bx, ch.by, tag, nearSpacingPx, nearPhase, 0, 0, 0)
+		nearPhase = c.walkPixelSegment(ch.ax, ch.ay, ch.bx, ch.by, tag, nearSpacingPx, nearPhase, 0, 0, 0, record)
 	})
 }
 

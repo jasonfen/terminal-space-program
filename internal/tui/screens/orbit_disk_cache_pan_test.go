@@ -164,8 +164,19 @@ func TestOrbitRenderDiskCacheHitMatchesUncachedAfterPan(t *testing.T) {
 	if got != want {
 		t.Errorf("cache-HIT render diverges from the cache-dropped reference after a pan\ngot:  %q\nwant: %q", got, want)
 	}
-	if !containsANSI(got) {
-		t.Fatal("test setup broken: expected CLICOLOR_FORCE=1 to produce ANSI-colored output")
+	// Vacuity guard: checks want (the cache-DROPPED ground truth), not got
+	// (the cache-hit render under test) — a review finding on the
+	// original version of this test (#367). Asserting on got makes the
+	// guard vacuous exactly when it matters: if the stale-frame bug this
+	// test exists to catch were present, got would plausibly be blank/
+	// colorless (the bug's own symptom), and a got != want failure above
+	// would never reach this line to notice the setup itself was broken.
+	// want comes from a path this test doesn't otherwise exercise
+	// (renderPanned on a fresh, never-hit OrbitView), so it fails loudly
+	// on its own if color forcing ever stops working, independent of
+	// whatever the cache under test does.
+	if !containsANSI(want) {
+		t.Fatal("test setup broken: expected lipgloss.SetColorProfile(termenv.TrueColor) to produce ANSI-colored output")
 	}
 }
 
