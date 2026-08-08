@@ -175,92 +175,17 @@ type Canvas struct {
 	// the pixelTag-derived color (terminal default when untagged).
 	cellOverlayColors map[[2]int]lipgloss.TerminalColor
 
-	// diskOffsetCache memoizes the (dx, dy) offsets inside a disk of a
-	// given pixel radius (#363): the "is this offset inside the
-	// circle" test is a pure function of pxRadius alone, so profiling
-	// showed FillTexturedDiskTagged re-deriving it with a nested loop
-	// + distance check on every one of the ~1000+ pixels of a focused
-	// body's disk, every 50ms tick, even after the per-pixel COLOR
-	// itself was cached — the offset shape doesn't depend on the body,
-	// its texture, or the camera, only on the radius. Keyed per
-	// Canvas (not a package-level cache) so no locking is needed —
-	// same single-goroutine-per-Canvas assumption pixelTags already
-	// makes.
-	//
-	// diskOffsetOrder is diskOffsetCache's LRU recency list (oldest
-	// first) — review finding: the map was unbounded, and pxRadius
-	// changes on every zoom step/refit, so a session that zoomed
-	// across radii 1..384 once retained ~1.22 GB of masks that will
-	// never be reused. Capped to diskOffsetCacheCap distinct radii,
-	// comfortably above the number of bodies simultaneously visible in
-	// any one system, so a single frame's radii always fit without
-	// thrashing.
-	diskOffsetCache map[int][]diskOffset
-	diskOffsetOrder []int
-}
-
-// diskOffsetCacheCap bounds diskOffsetCache to this many distinct
-// radii (LRU-evicted beyond it). Generous headroom over the largest
-// body count in any one system (Lumen's ~17) so ordinary frame-to-
-// frame drawing never evicts a radius it's about to reuse; a wide zoom
-// sweep still can't grow the cache without bound.
-const diskOffsetCacheCap = 32
-
-// diskOffset is one (dx, dy) pixel offset inside a disk's radius,
-// relative to the disk's projected screen center.
-type diskOffset struct{ dx, dy int }
-
-// diskOffsets returns the (dx, dy) offsets inside a disk of the given
-// pixel radius, computing (and caching) them once per distinct radius
-// this Canvas has recently drawn. See diskOffsetCache.
-func (c *Canvas) diskOffsets(pxRadius int) []diskOffset {
-	if c.diskOffsetCache == nil {
-		c.diskOffsetCache = make(map[int][]diskOffset)
-	}
-	if offs, ok := c.diskOffsetCache[pxRadius]; ok {
-		c.touchDiskOffsetRadius(pxRadius)
-		return offs
-	}
-	r2 := pxRadius * pxRadius
-	// Tighter capacity estimate than the old 4r² bounding-square guess
-	// (review finding: ~21% of that was permanently-wasted retained
-	// capacity) — π·r² is the disk's true area, +8 for rounding slack.
-	estimate := int(math.Pi*float64(r2)) + 8
-	offs := make([]diskOffset, 0, estimate)
-	for dy := -pxRadius; dy <= pxRadius; dy++ {
-		for dx := -pxRadius; dx <= pxRadius; dx++ {
-			if dx*dx+dy*dy <= r2 {
-				offs = append(offs, diskOffset{dx, dy})
-			}
-		}
-	}
-	c.diskOffsetCache[pxRadius] = offs
-	c.touchDiskOffsetRadius(pxRadius)
-	c.evictOldDiskOffsets()
-	return offs
-}
-
-// touchDiskOffsetRadius moves pxRadius to the most-recently-used end
-// of diskOffsetOrder (appending it if new). O(cap) worst case, which
-// is fine at diskOffsetCacheCap's small bound.
-func (c *Canvas) touchDiskOffsetRadius(pxRadius int) {
-	for i, r := range c.diskOffsetOrder {
-		if r == pxRadius {
-			c.diskOffsetOrder = append(c.diskOffsetOrder[:i], c.diskOffsetOrder[i+1:]...)
-			break
-		}
-	}
-	c.diskOffsetOrder = append(c.diskOffsetOrder, pxRadius)
-}
-
-// evictOldDiskOffsets drops the least-recently-used radii once
-// diskOffsetCache exceeds diskOffsetCacheCap.
-func (c *Canvas) evictOldDiskOffsets() {
-	for len(c.diskOffsetOrder) > diskOffsetCacheCap {
-		oldest := c.diskOffsetOrder[0]
-		c.diskOffsetOrder = c.diskOffsetOrder[1:]
-		delete(c.diskOffsetCache, oldest)
-	}
+	// curveCache memoizes a drawn orbit LINE's flattened+projected pixel
+	// list (#367), the same predict-on-change discipline diskRasterCache
+	// applies to a body's textured-disk pixels — see
+	// canvas_curve_cache.go for the key derivation and why it must cover
+	// the canvas's own view state, not just the curve's orbital elements.
+	// curveCacheOrder is its LRU recency list (oldest first).
+	// curveCacheHits / …Computes are test hooks.
+	curveCache         map[string]*curveCacheEntry
+	curveCacheOrder    []string
+	curveCacheHits     int
+	curveCacheComputes int
 }
 
 // DiskIntersectsCanvas reports whether a disk of the given pixel
@@ -470,16 +395,29 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 	if c.pixelTags == nil {
 		c.pixelTags = make(map[[2]int]CellTag)
 	}
-	// #363: every non-focused body on the canvas (every planet/moon
-	// that isn't the focused, textured one) paints through this path
-	// each frame too — same offset-mask win as FillTexturedDiskTagged.
-	for _, o := range c.diskOffsets(pxRadius) {
-		px, py := cx+o.dx, cy+o.dy
-		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
-			continue
+	// #363 introduced a per-radius offset-mask cache here (diskOffsetCache);
+	// #367 removed it after re-benchmarking with the curve-geometry cache
+	// (canvas_curve_cache.go) also in place: with the color-grid cache
+	// (diskRasterCache) and the off-canvas DiskIntersectsCanvas skip
+	// already doing the heavy lifting, the offset mask's own nested-loop
+	// re-derivation benchmarked within noise on BenchmarkOrbitViewRenderIdle
+	// (see the #367 PR body) — not worth the cache's own bookkeeping and
+	// retained memory (the LRU cap existed specifically to bound a real
+	// leak: an unbounded version measured ~1.22 GB retained after a
+	// radius-1..384 zoom sweep).
+	r2 := pxRadius * pxRadius
+	for dy := -pxRadius; dy <= pxRadius; dy++ {
+		for dx := -pxRadius; dx <= pxRadius; dx++ {
+			if dx*dx+dy*dy > r2 {
+				continue
+			}
+			px, py := cx+dx, cy+dy
+			if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+				continue
+			}
+			c.dc.Set(px, py)
+			c.pixelTags[[2]int{px, py}] = tag
 		}
-		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = tag
 	}
 }
 
@@ -517,19 +455,24 @@ func (c *Canvas) FillTexturedDiskTagged(center orbital.Vec3, pxRadius int, textu
 	if c.pixelTags == nil {
 		c.pixelTags = make(map[[2]int]CellTag)
 	}
-	// #363: iterate the precomputed offset mask instead of a nested
-	// loop + per-pixel distance test — the mask is a pure function of
-	// pxRadius, recomputing it every frame was pure per-pixel overhead
-	// on top of the (now-cached) color lookup.
-	for _, o := range c.diskOffsets(pxRadius) {
-		px, py := cx+o.dx, cy+o.dy
-		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
-			continue
+	// See FillColoredDiskTagged's comment: the #363 offset-mask cache
+	// this loop used to go through was removed in #367 after
+	// re-benchmarking within noise.
+	r2 := pxRadius * pxRadius
+	for dy := -pxRadius; dy <= pxRadius; dy++ {
+		for dx := -pxRadius; dx <= pxRadius; dx++ {
+			if dx*dx+dy*dy > r2 {
+				continue
+			}
+			px, py := cx+dx, cy+dy
+			if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+				continue
+			}
+			c.dc.Set(px, py)
+			t := tag
+			t.Color = texture(dx, dy)
+			c.pixelTags[[2]int{px, py}] = t
 		}
-		c.dc.Set(px, py)
-		t := tag
-		t.Color = texture(o.dx, o.dy)
-		c.pixelTags[[2]int{px, py}] = t
 	}
 }
 
@@ -765,7 +708,7 @@ func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
 	ax, ay := c.projectPx(a)
 	bx, by := c.projectPx(b)
-	c.walkPixelSegment(ax, ay, bx, by, CellTag{Color: color}, step, 0, 0, 0, 0)
+	c.walkPixelSegment(ax, ay, bx, by, CellTag{Color: color}, step, 0, 0, 0, 0, nil)
 }
 
 // PlotDenseLineForcedColored draws a dotted line between world points a and b.
@@ -806,7 +749,7 @@ func (c *Canvas) plotDensePolylineTagged(pts []orbital.Vec3, tag CellTag, step i
 	ax, ay := c.projectPx(pts[0])
 	for i := 1; i < len(pts); i++ {
 		bx, by := c.projectPx(pts[i])
-		phase = c.walkPixelSegment(ax, ay, bx, by, tag, step, phase, 0, 0, 0)
+		phase = c.walkPixelSegment(ax, ay, bx, by, tag, step, phase, 0, 0, 0, nil)
 		ax, ay = bx, by
 	}
 }
@@ -930,7 +873,13 @@ func (c *Canvas) walkPixelDashSegment(ax, ay, bx, by float64, tag CellTag, onPx,
 // exR > 0 excludes pixels within exR of (exCx, exCy) — the body-disk cut that
 // makes an occluded far-side arc read as passing behind the body. A zero-value
 // tag sets pixels without recording a colour (the untagged Plot path).
-func (c *Canvas) walkPixelSegment(ax, ay, bx, by float64, tag CellTag, step int, phase float64, exCx, exCy, exR float64) float64 {
+//
+// record, if non-nil, is called with every pixel actually plotted (after the
+// bounds and exR exclusion tests) — #367's curve-geometry cache uses this to
+// capture the exact set of pixels a miss produced, so a later cache hit can
+// replay them without re-flattening or re-walking anything. nil for every
+// caller that isn't building a cache entry.
+func (c *Canvas) walkPixelSegment(ax, ay, bx, by float64, tag CellTag, step int, phase float64, exCx, exCy, exR float64, record func(px, py int)) float64 {
 	if step < 1 {
 		step = 1
 	}
@@ -967,6 +916,9 @@ func (c *Canvas) walkPixelSegment(ax, ay, bx, by float64, tag CellTag, step int,
 		c.dc.Set(px, py)
 		if tagged {
 			c.pixelTags[[2]int{px, py}] = tag
+		}
+		if record != nil {
+			record(px, py)
 		}
 	}
 	// Length clipped off the a-end still counts toward the cadence, so the

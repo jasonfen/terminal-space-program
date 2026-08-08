@@ -756,7 +756,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// itself joins the inspectable set at its disk below, where its
 		// on-canvas test lives.
 		bodyRef := InspectRef{Kind: InspectBody, BodyID: b.ID}
-		v.canvas.DrawEllipseClassTagged(el, orbital.Vec3{}, 360, widgets.ClassScenery, orbital.Vec3{}, 0,
+		v.canvas.DrawEllipseClassCachedTagged(bodyRef.OwnerKey(), el, orbital.Vec3{}, 360, widgets.ClassScenery, orbital.Vec3{}, 0,
 			widgets.CellTag{Color: v.inspectLineColor(bodyRef, render.ColorBodyOrbit), Owner: bodyRef.OwnerKey()})
 		// The track is now tagged, so it can be clicked even when the body
 		// itself is off-canvas — register the owner here, separately from
@@ -1103,7 +1103,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				if isTarget {
 					orbitColor = render.ColorTarget
 				}
-				v.canvas.DrawEllipseClassTagged(el, gPrimaryPos, 180, widgets.ClassReal, gPrimaryPos, gPxR,
+				v.canvas.DrawEllipseClassCachedTagged(ghostRef.OwnerKey(), el, gPrimaryPos, 180, widgets.ClassReal, gPrimaryPos, gPxR,
 					widgets.CellTag{Color: v.inspectLineColor(ghostRef, orbitColor), Owner: ghostRef.OwnerKey()})
 				// Owner-only registration: a click on this track resolves
 				// to the ghost even when the ghost itself is off-canvas.
@@ -1165,7 +1165,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if orbitVisible {
 			// Real class, bright (ADR 0041 §2): the active vessel's live
 			// orbit — solid, contiguous ink.
-			v.canvas.DrawEllipseClassTagged(el, primaryPos, 360, widgets.ClassReal, primaryPos, primaryPxR,
+			v.canvas.DrawEllipseClassCachedTagged(activeRef.OwnerKey(), el, primaryPos, 360, widgets.ClassReal, primaryPos, primaryPxR,
 				widgets.CellTag{Color: v.inspectLineColor(activeRef, render.ColorCurrentOrbit), Owner: activeRef.OwnerKey()})
 			peri := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 			apo := primaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
@@ -1298,7 +1298,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				// Real class (ADR 0041 §2): another craft's orbit is solid
 				// like the active vessel's — the TARGET promotion above is
 				// a color change, not a denser pattern.
-				v.canvas.DrawEllipseClassTagged(otherEl, otherPrimaryPos, 180, widgets.ClassReal, otherPrimaryPos, otherPxR,
+				v.canvas.DrawEllipseClassCachedTagged(otherRef.OwnerKey(), otherEl, otherPrimaryPos, 180, widgets.ClassReal, otherPrimaryPos, otherPxR,
 					widgets.CellTag{Color: otherColor, Owner: otherRef.OwnerKey()})
 				if isTarget {
 					// Target's Ap/Pe (ADR 0020 / #346): the targeted
