@@ -27,14 +27,11 @@ import (
 // starting at cell-local pixel index `from` in (dy-major) order, with the
 // supplied tag. Cell-local index i maps to (dx, dy) = (i/4, i%4).
 func setCellPixels(c *Canvas, col, row, from, n int, tag CellTag) {
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	for i := from; i < from+n && i < 8; i++ {
 		dx, dy := i/4, i%4
 		px, py := col*2+dx, row*4+dy
 		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = tag
+		c.pixelTags.set(px, py, tag)
 	}
 }
 

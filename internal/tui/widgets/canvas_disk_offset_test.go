@@ -26,15 +26,15 @@ func TestFillTexturedDiskTaggedMatchesColoredShape(t *testing.T) {
 	}, CellTag{})
 	coloredCanvas.FillColoredDiskTagged(center, r, CellTag{Color: "#123456"})
 
-	if len(texturedCanvas.pixelTags) != len(coloredCanvas.pixelTags) {
+	if texturedCanvas.pixelTags.count() != coloredCanvas.pixelTags.count() {
 		t.Fatalf("textured disk painted %d pixels, colored disk painted %d — offset mask should agree",
-			len(texturedCanvas.pixelTags), len(coloredCanvas.pixelTags))
+			texturedCanvas.pixelTags.count(), coloredCanvas.pixelTags.count())
 	}
-	for k := range coloredCanvas.pixelTags {
-		if _, ok := texturedCanvas.pixelTags[k]; !ok {
-			t.Errorf("pixel %v painted by colored disk but not textured disk", k)
+	coloredCanvas.pixelTags.each(func(px, py int, _ CellTag) {
+		if _, ok := texturedCanvas.pixelTags.get(px, py); !ok {
+			t.Errorf("pixel (%d, %d) painted by colored disk but not textured disk", px, py)
 		}
-	}
+	})
 }
 
 // TestDiskIntersectsCanvas checks the bounding-box viewport test used

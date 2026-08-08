@@ -234,14 +234,15 @@ func (c *Canvas) DrawEllipseClassCachedTagged(curveID string, el orbital.Element
 // with no flattening, no trig, no clipping math.
 func (c *Canvas) blitCurvePoints(points []canvasPoint, tag CellTag) {
 	tagged := tag != (CellTag{})
-	if tagged && c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	for _, p := range points {
 		px, py := int(p.x), int(p.y)
 		c.dc.Set(px, py)
 		if tagged {
-			c.pixelTags[[2]int{px, py}] = tag
+			// #369: pixelTags.set is a dense-array index, not a map
+			// insert — see canvas_pixel_tags.go. This loop is exactly
+			// the cache-HIT replay path the #368 review measured at
+			// ~41 ns/point, almost entirely this one line's map write.
+			c.pixelTags.set(px, py, tag)
 		}
 	}
 }

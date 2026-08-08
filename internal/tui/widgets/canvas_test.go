@@ -287,7 +287,7 @@ func TestRingOutlineHugeRadiusDoesNotHang(t *testing.T) {
 	c.RingColoredOutline(orbital.Vec3{}, 1_000_000, lipgloss.Color("#FF0000"))
 	// If we get here, the cap held. Without it the test would never
 	// finish (or OOM the map). Sanity: at least one pixel got tagged.
-	if len(c.pixelTags) == 0 {
+	if c.pixelTags.count() == 0 {
 		t.Skip("ring entirely off-canvas — test setup issue, not a regression")
 	}
 }

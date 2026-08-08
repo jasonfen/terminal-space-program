@@ -107,9 +107,9 @@ func TestUntaggedClassDrawsStayUntagged(t *testing.T) {
 	c.DrawEllipseClass(circularElements(4_000_000), orbital.Vec3{}, 180, ClassScenery,
 		orbital.Vec3{}, 0, lipgloss.Color("#6E6E6E"))
 
-	for coord, tag := range c.pixelTags {
+	c.pixelTags.each(func(x, y int, tag CellTag) {
 		if tag.Owner != "" {
-			t.Fatalf("untagged DrawEllipseClass wrote an owner %q at %v", tag.Owner, coord)
+			t.Fatalf("untagged DrawEllipseClass wrote an owner %q at (%d, %d)", tag.Owner, x, y)
 		}
-	}
+	})
 }

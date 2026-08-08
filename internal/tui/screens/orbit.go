@@ -979,7 +979,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				e1, e2 := render.BodyRingBasisWorld(b)
 				oe1 := vec3FromRender(e1)
 				oe2 := vec3FromRender(e2)
-				for _, band := range bands {
+				for bandIdx, band := range bands {
 					// Fill each band by drawing concentric outlines
 					// at 1-pixel-screen-spacing radii. Cap per-band
 					// outline count so a deeply-zoomed ring system
@@ -996,7 +996,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					for i := 0; i < n; i++ {
 						t := (float64(i) + 0.5) / float64(n)
 						bandR := band.InnerR + t*(band.OuterR-band.InnerR)
-						v.canvas.RingTiltedOutline(pos, oe1, oe2, bandR, band.Color)
+						// #369: curveID is a stable per-outline cache
+						// identity (bodyID + band index + concentric
+						// index), NOT an Inspect owner key — ring bands
+						// aren't in the Inspect click-hit set, unlike
+						// the ellipse cache's four call sites which
+						// reuse bodyRef.OwnerKey() for exactly that
+						// reason.
+						curveID := fmt.Sprintf("ring:%s:%d:%d", b.ID, bandIdx, i)
+						v.canvas.RingTiltedOutlineCachedTagged(curveID, pos, oe1, oe2, bandR, widgets.CellTag{Color: band.Color})
 					}
 				}
 			}

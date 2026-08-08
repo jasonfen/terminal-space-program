@@ -64,22 +64,21 @@ func expandRunsToPerChar(s string) string {
 // against exactly the code path it replaced.
 func (c *Canvas) referenceString() string {
 	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
-	if len(c.pixelTags) == 0 && len(c.cellOverlays) == 0 {
+	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 {
 		return c.joinRows(rows)
 	}
 	cellColor := make(map[[2]int]lipgloss.Color)
 	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
-	for coord, tag := range c.pixelTags {
+	c.pixelTags.each(func(px, py int, tag CellTag) {
 		if tag.Color == "" {
-			continue
+			return
 		}
-		cellX, cellY := coord[0]/2, coord[1]/4
-		key := [2]int{cellX, cellY}
+		key := [2]int{px / 2, py / 4}
 		if cellCounts[key] == nil {
 			cellCounts[key] = make(map[lipgloss.Color]int)
 		}
 		cellCounts[key][tag.Color]++
-	}
+	})
 	for key, counts := range cellCounts {
 		cellColor[key] = pickDominantColor(counts)
 	}
