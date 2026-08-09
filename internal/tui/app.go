@@ -1935,8 +1935,12 @@ func (a *App) closeSavesToOrbit() {
 // boss-key intercept (finding 9) so the raw keycaps reach the field: a
 // QWERTZ player's letters aren't transposed and a literal backtick types
 // a backtick instead of opening the boss shell. The boss shell is always
-// capturing; the Saves browser only during name entry (Save-As/rename).
-// Extend here as future free-text surfaces (VAB, spawn, search) land.
+// capturing; the Saves browser only during name entry (Save-As/rename);
+// the Spawn screen only while its ALTITUDE typed-edit box is open (ADR
+// 0044 / S4 — review finding #5: this comment's own "extend here" note
+// was not followed when that box landed, so `` ` `` mid-digit swapped the
+// whole screen to the boss shell instead of typing a backtick nobody
+// wanted). Extend here as future free-text surfaces (VAB, search) land.
 func (a *App) capturingText() bool {
 	// The chat overlay is App-level, not a screen — checked before the
 	// per-screen switch so it can never be forgotten there (ADR 0035).
@@ -1950,6 +1954,8 @@ func (a *App) capturingText() bool {
 		return a.saves.CapturingText()
 	case screenSession:
 		return a.session.CapturingText()
+	case screenSpawn:
+		return a.spawn.CapturingText()
 	}
 	return false
 }

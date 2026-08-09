@@ -273,8 +273,11 @@ func TestClampToOrbitBand_RaisedNoteWording(t *testing.T) {
 	if got != band.FloorM {
 		t.Errorf("clamped = %.1f, want floor %.1f", got, band.FloorM)
 	}
-	want := fmt.Sprintf("raised from %s — %s's air reaches %s km",
-		commaKm(requested), earth.EnglishName, commaKm(earth.Atmosphere.CutoffAltitude))
+	// Review finding #3: the note states both ends, with units on every
+	// number — the CLI path has no other output telling the player where
+	// they actually landed.
+	want := fmt.Sprintf("raised from %s km to %s km — %s's air reaches %s km",
+		CommaKm(requested), CommaKm(band.FloorM), earth.EnglishName, CommaKm(earth.Atmosphere.CutoffAltitude))
 	if note != want {
 		t.Errorf("note = %q, want %q", note, want)
 	}
@@ -300,15 +303,18 @@ func TestClampToOrbitBand_RaisedNoteAtAirlessBodyCitesNoAir(t *testing.T) {
 	if strings.Contains(note, "air") {
 		t.Errorf("note = %q, must not claim an airless body has air", note)
 	}
-	want := fmt.Sprintf("raised from %s — %s km is as close as any orbit gets",
-		commaKm(requested), commaKm(OrbitFloorMarginM))
+	want := fmt.Sprintf("raised from %s km to %s km — %s km is as close as any orbit gets",
+		CommaKm(requested), CommaKm(OrbitFloorMarginM), CommaKm(OrbitFloorMarginM))
 	if note != want {
 		t.Errorf("note = %q, want %q", note, want)
 	}
 }
 
 // TestClampToOrbitBand_LoweredNoteWording checks the ceiling-side wording:
-// it cites the body's SOI ("grip"), not its (narrower) two-thirds ceiling.
+// it cites the body's SOI ("grip") AS AN ALTITUDE above b's surface (review
+// finding #1) — not the raw centre-distance physics.SOIRadius returns, and
+// not its (narrower) two-thirds ceiling — and states both ends with units
+// (review finding #3).
 func TestClampToOrbitBand_LoweredNoteWording(t *testing.T) {
 	systems := loadOrbitBandCatalog(t)
 	sys, moon := findBodyIn(t, systems, "Sol", "moon")
@@ -323,11 +329,19 @@ func TestClampToOrbitBand_LoweredNoteWording(t *testing.T) {
 	if got != band.CeilingM {
 		t.Errorf("clamped = %.1f, want ceiling %.1f", got, band.CeilingM)
 	}
-	soi := physics.SOIRadius(moon, earth)
-	want := fmt.Sprintf("lowered from %s — %s's grip reaches %s km",
-		commaKm(requested), moon.EnglishName, commaKm(soi))
+	soiAlt := physics.SOIRadius(moon, earth) - moon.RadiusMeters()
+	want := fmt.Sprintf("lowered from %s km to %s km — %s's grip reaches %s km",
+		CommaKm(requested), CommaKm(band.CeilingM), moon.EnglishName, CommaKm(soiAlt))
 	if note != want {
 		t.Errorf("note = %q, want %q", note, want)
+	}
+	// Guard against a regression back to the centre-distance reading: the
+	// centre-distance (~66,169 km) and the altitude (~64,432 km) are far
+	// enough apart at the Moon that citing the wrong one is directly
+	// observable.
+	centreKm := CommaKm(physics.SOIRadius(moon, earth))
+	if strings.Contains(note, centreKm) {
+		t.Errorf("note = %q, cites the SOI centre-distance %q rather than the altitude", note, centreKm)
 	}
 }
 

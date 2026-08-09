@@ -113,6 +113,50 @@ func TestSpawnFormPassesSelectedAntennaToSampler(t *testing.T) {
 	}
 }
 
+// TestClampAndCommsWarningBothRenderAtLowCeilingBody — review finding #2.
+// A body whose Orbit Band ceiling sits below the 500km Reset default opens
+// ALREADY clamped (Enceladus's ceiling is ~157km; Lumen's Mote is ~75km),
+// so the clamp note (↳) is non-empty from the very first render — before
+// this fix that permanently hid the comms warning (⚠), a standing fact
+// about the spawn, not feedback about a keypress. Both must render, on the
+// real first frame after Reset, at a REAL body (not the bare bandTestBodies
+// fixture, whose Orbit Band never clamps the 500km default).
+func TestClampAndCommsWarningBothRenderAtLowCeilingBody(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Sol", "enceladus")
+	// Coverage stub: degraded regardless of altitude, so the warning is
+	// live at whatever altitude Enceladus's ceiling clamps the 500km
+	// default down to.
+	degraded := func(bodyID string, altM, antennaRangeM float64) (float64, bool) { return 0.5, true }
+	s.Reset(sys.Bodies, "enceladus", nil, "", degraded)
+
+	// An uncrewed craft with an antenna, so bandWarning has something to
+	// say (crewed craft are never comms-gated).
+	selectCustom(s)
+	s.customStages = []spacecraft.Stage{{
+		Name: "Bus", CommandSource: spacecraft.CommandProbe,
+		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+	}}
+
+	if s.altNote == "" {
+		t.Fatalf("setup: Enceladus's Orbit Band did not clamp the 500km Reset default — test premise broken")
+	}
+
+	out := s.Render(80) // the very first render — no arrow keys, no re-focus
+	clampIdx := strings.Index(out, "↳")
+	warnIdx := strings.Index(out, "⚠")
+	if clampIdx < 0 {
+		t.Errorf("clamp note (↳) missing from the first render at a low-ceiling body:\n%s", out)
+	}
+	if warnIdx < 0 {
+		t.Errorf("comms warning (⚠) missing from the first render at a low-ceiling body — it must not be hidden behind the clamp note:\n%s", out)
+	}
+	if clampIdx >= 0 && warnIdx >= 0 && clampIdx > warnIdx {
+		t.Errorf("comms warning rendered BEFORE the clamp note; want clamp first:\n%s", out)
+	}
+}
+
 // setAltitude commits a typed altitude (km) via the real edit-box path
 // (ADR 0044 / S4) — HandleKey drives fieldIdx to ALTITUDE, opens the box,
 // types each digit, then commits, exercising the same state machine a

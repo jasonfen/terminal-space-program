@@ -171,7 +171,11 @@ func TestStartAltitudeClampNoteReportsRaise(t *testing.T) {
 	if note == "" {
 		t.Fatal("expected a clamp note for a below-floor Earth altitude, got empty")
 	}
-	want := "raised from 60 — Earth's air reaches 150 km"
+	// Review finding #3: the note states both ends with units — on the CLI
+	// path this note is the ONLY output telling the player where they
+	// actually launched, so "raised from 60" (no unit, no landed value) is
+	// not good enough.
+	want := "raised from 60 km to 175 km — Earth's air reaches 150 km"
 	if note != want {
 		t.Errorf("note = %q, want %q", note, want)
 	}
@@ -186,7 +190,7 @@ func TestStartAltitudeClampNoteReportsLower(t *testing.T) {
 	if note == "" {
 		t.Fatal("expected a clamp note for an above-ceiling Moon altitude, got empty")
 	}
-	if got, want := note[:len("lowered from 90,000")], "lowered from 90,000"; got != want {
+	if got, want := note[:len("lowered from 90,000 km to")], "lowered from 90,000 km to"; got != want {
 		t.Errorf("note = %q, want prefix %q", note, want)
 	}
 }

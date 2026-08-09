@@ -119,6 +119,32 @@ func TestSpawnCraftAtEmptyBandBodyErrorsWithoutMutatingSlate(t *testing.T) {
 	}
 }
 
+// TestSpawnCraftEmptyBandErrorHasNoRedundantPrefix — review finding #4:
+// the Empty-band error must be exactly noOrbitNote's sentence, with no
+// "spawn: " prefix layered on top of it. app.go wraps this error in its
+// own "spawn failed: %v", so a "spawn: " prefix here would render as the
+// doubled "spawn failed: spawn: Mars owns everything...".
+func TestSpawnCraftEmptyBandErrorHasNoRedundantPrefix(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sys, phobos := findBodyIn(t, w.Systems, "Sol", "phobos")
+
+	_, spawnErr := w.SpawnCraft(SpawnSpec{
+		LoadoutID:    spacecraft.LoadoutSaturnVID,
+		ParentBodyID: "phobos",
+		AltitudeM:    50_000,
+	})
+	if spawnErr == nil {
+		t.Fatalf("SpawnCraft at phobos succeeded, want an error")
+	}
+	want := noOrbitNote(sys, phobos)
+	if spawnErr.Error() != want {
+		t.Errorf("SpawnCraft error = %q, want exactly noOrbitNote's sentence %q (no spawn: prefix)", spawnErr.Error(), want)
+	}
+}
+
 // TestSpawnLaunchpadIgnoresOrbitBand — regression guard: the Orbit Band
 // clamp must live only in the orbit-placement branch. Phobos has an Empty
 // band (no legal orbit at all), but a launchpad spawn is a surface spawn

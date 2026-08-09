@@ -347,7 +347,12 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 	// Alongside return above and never reach this branch.
 	clampedAlt, note, ok := ClampToOrbitBand(w.System(), primary, alt)
 	if !ok {
-		return nil, fmt.Errorf("spawn: %s", note)
+		// Review finding #4: note is already a complete, body-naming sentence
+		// ("Mars owns everything outside Phobos's surface..."), not a terse
+		// identifier like the "spawn: design %q not found" errors above — a
+		// "spawn: " prefix here only doubles up with app.go's own "spawn
+		// failed: %v" wrapper, rendering "spawn failed: spawn: Mars owns...".
+		return nil, errors.New(note)
 	}
 	alt = clampedAlt
 	mu := primary.GravitationalParameter()

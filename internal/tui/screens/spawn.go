@@ -2,7 +2,6 @@ package screens
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -490,6 +489,15 @@ func (s *SpawnCraft) fieldOrder() []int {
 	return []int{0, 1, 2, 3, 4}
 }
 
+// CapturingText reports whether the ALTITUDE typed-edit box is currently
+// open — the free-text surface App.capturingText() (app.go) must query
+// (review finding #5) so the global boss-key intercept and keyboard-layout
+// normalization are bypassed while a digit is being typed here, the same
+// way they already are for the boss shell and the Saves browser's
+// name-entry field. Named/shaped to match SavesScreen.CapturingText and
+// SessionScreen.CapturingText.
+func (s *SpawnCraft) CapturingText() bool { return s.altEditing }
+
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
 //
@@ -741,11 +749,30 @@ func (s *SpawnCraft) setAltitude(altM float64) {
 }
 
 // altitudeEpsilonM is the float slack used when comparing the current
-// altitude against a candidate sim.OrbitStops value in stepAltitude — large
-// enough to absorb float round-trip noise, far smaller than
-// orbitDedupeToleranceM's 500m stop spacing so it never skips a real
-// neighbour.
-const altitudeEpsilonM = 1.0
+// altitude against a candidate sim.OrbitStops value in stepAltitude.
+//
+// Review finding #9: this used to be 1m — far finer than altKmLabel's
+// whole-kilometre display. At Lumen's Mote the synchronous stop sits at
+// 42.1387km but displays as "42 km"; a player who reads that and retypes
+// 42 lands at exactly 42.000km, 139m away from the real stop. With a 1m
+// epsilon that 139m gap reads as "not on the stop", so a `→` from there
+// crept forward to the real 42.1387km value — an invisible move that still
+// displays "42 km" and looks like the key did nothing. Raising the epsilon
+// to half a kilometre makes a re-typed *displayed* value count as being on
+// its stop, so stepping from it moves to the NEXT stop over instead of
+// re-discovering the one already shown.
+//
+// This intentionally equals orbitDedupeToleranceM (also 500m), the gap
+// dedupeSortedStops guarantees between any two adjacent kept stops (it
+// drops a candidate only when strictly closer than that to the one before
+// it, so the closest two real stops can ever legally sit is exactly
+// 500m apart). At that exact boundary, stepAltitude's strict "<"/">"
+// comparison against altM±epsilon can fail to see a real neighbour sitting
+// precisely 500m away and hold one stop further out instead — an extra
+// arrow press needed at a razor's-edge case, never a wrong destination or
+// a dead key. That failure mode is preferable to the 1m epsilon's "the key
+// visibly does nothing" bug this constant exists to fix.
+const altitudeEpsilonM = 500.0
 
 // stepAltitude moves to the next sim.OrbitStops entry in the given
 // direction (ADR 0044 §2): the nearest stop strictly beyond the current
@@ -799,6 +826,19 @@ func (s *SpawnCraft) beginAltEdit() {
 	s.altInput = ""
 }
 
+// maxAltInputDigits caps the typed ALTITUDE buffer (review finding #6).
+// Neptune's Orbit Ceiling — ⅔ of the way to its SOI (ADR 0044 §3) — is the
+// largest legal altitude anywhere in the shipped catalog (Sol, Lumen,
+// Alpha Centauri, Kepler-452, TRAPPIST-1 combined) at ~57,768,751 km, an
+// 8-digit number. 8 digits comfortably exceeds that (any 8-digit buffer
+// tops out at 99,999,999km, ~73% more headroom) without leaving room for a
+// held digit key to grow the "[%s_] km" line past the modal's width at 80
+// columns (an unbounded buffer did exactly that, and commitAltInput's
+// strconv.Atoi silently swallowed the resulting overflow). Capping the
+// buffer makes that overflow branch structurally unreachable rather than a
+// silent no-op — see commitAltInput's doc comment.
+const maxAltInputDigits = 8
+
 // handleAltInputKey drives the ALTITUDE edit box while it is open (ADR 0044
 // §1). Both of the ADR's invariants are enforced structurally by this
 // function's signature alone: every branch returns SpawnActionNone, so —
@@ -810,7 +850,10 @@ func (s *SpawnCraft) beginAltEdit() {
 // arrows, tab) is ignored outright rather than parsed — sub-kilometre
 // precision is deliberately not offered (25km is the smallest legal
 // altitude anywhere in the game, so tenths could never matter), and
-// non-digit input has no sane partial interpretation to fall back to.
+// non-digit input has no sane partial interpretation to fall back to. A
+// digit typed once the buffer already holds maxAltInputDigits characters
+// is ignored the same way a non-digit key is (review finding #6) — a held
+// key can no longer grow the buffer without bound.
 func (s *SpawnCraft) handleAltInputKey(key string) SpawnAction {
 	switch key {
 	case "esc":
@@ -827,7 +870,7 @@ func (s *SpawnCraft) handleAltInputKey(key string) SpawnAction {
 			s.altInput = s.altInput[:n-1]
 		}
 	default:
-		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' && len(s.altInput) < maxAltInputDigits {
 			s.altInput += key
 		}
 	}
@@ -840,7 +883,13 @@ func (s *SpawnCraft) handleAltInputKey(key string) SpawnAction {
 // target has a "no target" state (vab.go's setTarget), so the empty case
 // here just leaves altM untouched and closes the box. A malformed buffer
 // can't occur (handleAltInputKey only ever appends digits), so a parse
-// error is a no-op rather than a user-facing rejection.
+// error is a no-op rather than a user-facing rejection. The err branch
+// below is now structurally unreachable in practice (review finding #6):
+// handleAltInputKey caps the buffer at maxAltInputDigits, and an 8-digit
+// all-9s string ("99999999") parses cleanly into an int well under
+// strconv.Atoi's overflow range on every supported platform, so the
+// silent-discard case this comment used to describe as merely unlikely is
+// now ruled out by construction.
 func (s *SpawnCraft) commitAltInput() {
 	if s.altInput == "" {
 		return
@@ -855,8 +904,14 @@ func (s *SpawnCraft) commitAltInput() {
 // altKmLabel formats an altitude (metres) as the whole-kilometre label
 // every ALTITUDE state shows. Sub-kilometre precision is deliberately
 // never offered (ADR 0044 §1).
+//
+// Review finding #7: this used to format with a bare "%.0f", showing e.g.
+// "32097122 km" directly above a clamp note reading "32,097,122 km" (the
+// notes use sim.CommaKm's comma grouping) — two number formats on one
+// screen. Uses the same sim.CommaKm formatter as the notes rather than
+// growing a second, non-grouped implementation here.
 func altKmLabel(altM float64) string {
-	return fmt.Sprintf("%.0f km", math.Round(altM/1000))
+	return sim.CommaKm(altM) + " km"
 }
 
 // Render returns the modal form. Width is the terminal width.
@@ -1149,16 +1204,26 @@ func (s *SpawnCraft) altitudeValueLine(dimmed bool) string {
 	return val
 }
 
-// altitudeNoteLines renders the single feedback line under ALTITUDE (ADR
-// 0044 §4/§6). At most one of three things shows, never stacked — this is
-// the "the ↳ line replaces the vertical space the ⚠ line already occupies"
-// call from the ADR's scope-exclusion note: an Empty Orbit Band's ✕
-// explanation (from sim.ClampToOrbitBand's note, verbatim, word-wrapped to
-// width) wins outright since Enter is dead there and nothing else applies;
-// otherwise a clamp move (↳, also verbatim) wins over the comms band
-// warning (⚠) when both would be live, since a number that just moved is
-// more load-bearing than an advisory. Nothing renders while the edit box is
-// open — its own inline hint covers that state instead.
+// altitudeNoteLines renders the feedback line(s) under ALTITUDE (ADR 0044
+// §4/§6). An Empty Orbit Band's ✕ explanation (from sim.ClampToOrbitBand's
+// note, verbatim, word-wrapped to width) wins outright since Enter is dead
+// there and nothing else applies. Otherwise the clamp move (↳, also
+// verbatim) and the comms band warning (⚠) are independent facts about the
+// SAME number and both render when both are live, clamp first.
+//
+// Review finding #2: this used to let the clamp note win outright, on the
+// premise (the ADR's own scope-exclusion note) that "the ↳ line replaces
+// the vertical space the ⚠ line already occupies." That reasoning holds
+// for a TRANSIENT clamp — the player just typed or arrowed past an edge,
+// the note explains the bounce, and it will go quiet again once they move
+// off it. It does not hold for a body whose Orbit Band ceiling sits below
+// the 500km Reset default (Enceladus at 157km, Lumen's Mote at 75km): the
+// form opens ALREADY clamped, so altNote is non-empty from the very first
+// frame, and the comms warning — a standing property of the spawn, not
+// feedback about a keypress — never rendered at all unless the player
+// happened to nudge an arrow first. Showing both (one extra line, in the
+// already-tracked #373 form-height budget) means a comms-relevant spawn at
+// a low-ceiling body is never silently hidden behind a number.
 func (s *SpawnCraft) altitudeNoteLines(width int) []string {
 	if s.altEditing {
 		return nil
@@ -1176,13 +1241,14 @@ func (s *SpawnCraft) altitudeNoteLines(width int) []string {
 		}
 		return out
 	}
+	var out []string
 	if s.altNote != "" {
-		return []string{"    " + s.theme.Warning.Render("↳ "+s.altNote)}
+		out = append(out, "    "+s.theme.Warning.Render("↳ "+s.altNote))
 	}
 	if warn := s.bandWarning(); warn != "" {
-		return []string{"  " + s.theme.Warning.Render(warn)}
+		out = append(out, "  "+s.theme.Warning.Render(warn))
 	}
-	return nil
+	return out
 }
 
 // spawnCommsProfile derives the comms-relevant shape of a stage list the

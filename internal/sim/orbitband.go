@@ -232,10 +232,10 @@ func ClampToOrbitBand(sys bodies.System, b bodies.CelestialBody, altM float64) (
 		return altM, noOrbitNote(sys, b), false
 	}
 	if altM < band.FloorM {
-		return band.FloorM, raisedNote(b, altM), true
+		return band.FloorM, raisedNote(b, altM, band.FloorM), true
 	}
 	if band.HasCeiling && altM > band.CeilingM {
-		return band.CeilingM, loweredNote(sys, b, altM), true
+		return band.CeilingM, loweredNote(sys, b, altM, band.CeilingM), true
 	}
 	return altM, "", true
 }
@@ -243,10 +243,17 @@ func ClampToOrbitBand(sys bodies.System, b bodies.CelestialBody, altM float64) (
 // raisedNote explains an altitude raised to b's floor. A star's floor
 // is heat rather than air (ADR 0044 §3), so it cites the authored
 // stand-off instead of an atmosphere cutoff that doesn't exist.
-func raisedNote(b bodies.CelestialBody, fromM float64) string {
+//
+// Review finding #3: the note must state both ends — where the player
+// asked to spawn AND where they actually landed (toM, always the
+// floor here) — with units on every number. On the form the value line
+// above already shows the landed altitude, but on the CLI path
+// (--altitude) this note is the only output, so it must be
+// self-contained.
+func raisedNote(b bodies.CelestialBody, fromM, toM float64) string {
 	if b.BodyType == "Star" {
-		return fmt.Sprintf("raised from %s — %s's heat reaches %s km",
-			commaKm(fromM), b.EnglishName, commaKm(b.OrbitStandOffM()))
+		return fmt.Sprintf("raised from %s km to %s km — %s's heat reaches %s km",
+			CommaKm(fromM), CommaKm(toM), b.EnglishName, CommaKm(b.OrbitStandOffM()))
 	}
 	cutoff := 0.0
 	if b.Atmosphere != nil {
@@ -256,24 +263,42 @@ func raisedNote(b bodies.CelestialBody, fromM float64) string {
 		// Airless body: there is no air to cite, and "%s's air reaches
 		// 0 km" reads as a bug rather than a rule. The floor here is
 		// the flat OrbitFloorMarginM on its own, so say that instead.
-		return fmt.Sprintf("raised from %s — %s km is as close as any orbit gets",
-			commaKm(fromM), commaKm(OrbitFloorMarginM))
+		return fmt.Sprintf("raised from %s km to %s km — %s km is as close as any orbit gets",
+			CommaKm(fromM), CommaKm(toM), CommaKm(OrbitFloorMarginM))
 	}
-	return fmt.Sprintf("raised from %s — %s's air reaches %s km",
-		commaKm(fromM), b.EnglishName, commaKm(cutoff))
+	return fmt.Sprintf("raised from %s km to %s km — %s's air reaches %s km",
+		CommaKm(fromM), CommaKm(toM), b.EnglishName, CommaKm(cutoff))
 }
 
 // loweredNote explains an altitude lowered to b's ceiling, citing the
 // physical fact the ceiling is derived from: b's sphere of influence
 // (its gravitational "grip") against its actual parent, resolved the
 // same way OrbitBandFor resolves it.
-func loweredNote(sys bodies.System, b bodies.CelestialBody, fromM float64) string {
+//
+// Review finding #1: SOIRadius is measured from b's CENTRE, but every
+// other number this screen shows (floor, ceiling, the value line) is
+// an ALTITUDE above b's surface. Citing the raw centre-distance here
+// put a centre-distance next to a screen of altitudes — at Enceladus
+// the value line read "157 km" against a note claiming the grip
+// reaches "488 km", which do not reconcile because the ceiling is
+// actually ⅔·(488−252), not ⅔·488. Subtracting b.RadiusMeters() puts
+// this number in the same coordinate system as everything else on the
+// screen. This deliberately departs from ADR 0044 §4's illustrative
+// "the Moon's grip reaches 66,100 km" — that figure was a centre
+// distance, and the ADR's own §4 example numbers are already known to
+// be inconsistent with its §2 table. The formula (altitude, not
+// centre-distance) wins.
+//
+// Review finding #3: also states both ends (fromM/toM) with units —
+// see raisedNote's doc comment for why.
+func loweredNote(sys bodies.System, b bodies.CelestialBody, fromM, toM float64) string {
 	soi := 0.0
 	if parent := orbitBandParent(sys, b); parent != nil {
 		soi = physics.SOIRadius(b, *parent)
 	}
-	return fmt.Sprintf("lowered from %s — %s's grip reaches %s km",
-		commaKm(fromM), b.EnglishName, commaKm(soi))
+	soiAltM := soi - b.RadiusMeters()
+	return fmt.Sprintf("lowered from %s km to %s km — %s's grip reaches %s km",
+		CommaKm(fromM), CommaKm(toM), b.EnglishName, CommaKm(soiAltM))
 }
 
 // noOrbitNote explains an Empty band (ADR 0044 §6): no legal orbit
@@ -291,8 +316,19 @@ func noOrbitNote(sys bodies.System, b bodies.CelestialBody) string {
 
 // orbitBandParent resolves b's gravitational parent exactly as
 // OrbitBandFor does: sys.ParentOf(b), falling back to sys.Bodies[0]
-// (the pattern physics.FindPrimary already uses) so a planet with no
-// authored parentId still resolves against its star.
+// (the pattern physics.FindPrimary already uses).
+//
+// Review finding #8 (comment correction, no behaviour change):
+// System.ParentOf already returns Primary() for an empty ParentID, so
+// a planet with an unauthored parentId resolves against its star
+// through ParentOf itself, never through this fallback. The
+// sys.Bodies[0] fallback here only fires when ParentID is SET but
+// UNRESOLVABLE (points at a body that doesn't exist in sys) — the
+// case ParentOf deliberately signals with nil to mean "malformed
+// system". Silently deriving a ceiling against the star for a
+// malformed system is the safe reading and stays the behaviour; this
+// is the one case in the package where a data error is absorbed
+// rather than surfaced.
 func orbitBandParent(sys bodies.System, b bodies.CelestialBody) *bodies.CelestialBody {
 	parent := sys.ParentOf(b)
 	if parent == nil && len(sys.Bodies) > 0 {
@@ -302,10 +338,13 @@ func orbitBandParent(sys bodies.System, b bodies.CelestialBody) *bodies.Celestia
 	return parent
 }
 
-// commaKm formats a metres value as a comma-grouped whole-kilometre
+// CommaKm formats a metres value as a comma-grouped whole-kilometre
 // string ("66,100"), the number format ADR 0044 §4 uses in every
-// clamp note.
-func commaKm(m float64) string {
+// clamp note. Exported (review finding #7) so the spawn form's ALTITUDE
+// value line uses the identical formatter instead of growing a second,
+// non-grouped implementation (%.0f) that could show "32097122 km" on
+// the value line right above a note reading "32,097,122 km".
+func CommaKm(m float64) string {
 	km := int64(math.Round(m / 1000))
 	return commaInt(km)
 }

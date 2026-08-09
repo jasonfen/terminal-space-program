@@ -479,6 +479,79 @@ func TestAltitudeCommitSamplesCommsOnceNotPerKeystroke(t *testing.T) {
 	}
 }
 
+// TestAltKmLabelUsesCommaGrouping — review finding #7: the ALTITUDE value
+// line and the clamp notes beneath it must use the SAME number format.
+// sim.ClampToOrbitBand's notes comma-group ("32,097,122 km" via
+// sim.CommaKm); altKmLabel must match rather than showing the bare
+// "32097122 km" a %.0f format produces.
+func TestAltKmLabelUsesCommaGrouping(t *testing.T) {
+	got := altKmLabel(32_097_122_000) // Jupiter's Orbit Ceiling, in metres
+	want := "32,097,122 km"
+	if got != want {
+		t.Errorf("altKmLabel(32097122000) = %q, want %q", got, want)
+	}
+	// The common case must stay unchanged (no comma below 1000).
+	if got := altKmLabel(500_000); got != "500 km" {
+		t.Errorf("altKmLabel(500000) = %q, want %q", got, "500 km")
+	}
+}
+
+// TestAltitudeInputBufferCapped — review finding #6. A held digit key must
+// not grow altInput without bound (the "[%s_] km" line would blow past the
+// modal's width at 80 columns, and strconv.Atoi's overflow was silently
+// swallowed by commitAltInput). Past maxAltInputDigits, further digits are
+// ignored exactly like a non-digit key already is.
+func TestAltitudeInputBufferCapped(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	enterAltEdit(t, s)
+
+	for i := 0; i < maxAltInputDigits+5; i++ {
+		s.HandleKey("9")
+	}
+	if len(s.altInput) != maxAltInputDigits {
+		t.Fatalf("altInput = %q (len %d) after %d digit presses, want capped at %d digits",
+			s.altInput, len(s.altInput), maxAltInputDigits+5, maxAltInputDigits)
+	}
+
+	// The capped buffer must still parse and commit cleanly — no silent
+	// strconv.Atoi overflow swallowed on Enter.
+	s.HandleKey("enter")
+	wantKm, _ := strconv.Atoi(strings.Repeat("9", maxAltInputDigits))
+	if s.altM == 0 {
+		t.Fatalf("altM = 0 after committing a capped all-9s buffer, want a real (clamped) altitude")
+	}
+	_ = wantKm // the exact clamped value depends on Earth's ceiling; altM != 0 is the load-bearing check
+}
+
+// TestAltitudeRetypedDisplayedValueCountsAsOnStop — review finding #9. At
+// Lumen's Mote the synchronous Orbit Stop sits at 42.1387km but the whole-km
+// display rounds it to "42 km"; a player who reads that and retypes 42
+// lands at exactly 42.000km, 139m short of the real stop. Before the
+// epsilon fix, `→` from there crept forward to the real 42.1387km value —
+// still displayed as "42 km", so the keypress looked like a no-op. After
+// the fix the retyped value counts as being ON the stop, so `→` moves to
+// the NEXT stop out (Mote's stops are 25 / 42.139(sync) / 50 / 75.416km).
+func TestAltitudeRetypedDisplayedValueCountsAsOnStop(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Lumen", "mote")
+	s.Reset(sys.Bodies, "mote", nil, "", nil)
+
+	enterAltEdit(t, s)
+	typeDigits(s, 42) // the displayed rounding of the 42.1387km sync stop
+	s.HandleKey("enter")
+	if s.altM != 42_000 {
+		t.Fatalf("setup: altM = %v, want exactly 42000 (retyped, not the raw sync altitude)", s.altM)
+	}
+
+	s.fieldIdx = 3
+	s.HandleKey("right")
+	if s.altM < 49_000 {
+		t.Errorf("altM after -> from a retyped displayed-stop value = %v, want a real move to the next stop (~50000), not an invisible creep to the raw 42139 sync altitude", s.altM)
+	}
+}
+
 // TestAltitudeFieldRendersAt80Columns is a render smoke test at the repo's
 // mandated real terminal width (not a wide terminal) for the quiet state.
 func TestAltitudeFieldRendersAt80Columns(t *testing.T) {
