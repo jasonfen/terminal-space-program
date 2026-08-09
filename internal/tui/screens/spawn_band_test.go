@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -23,6 +24,14 @@ func bandStub(byAltKm map[int]float64) func(string, float64, float64) (float64, 
 	}
 }
 
+// bandTestBodies is a single bare body with no mass, radius or atmosphere —
+// deliberately minimal, these tests only care about comms-band wording, not
+// physics. Under ADR 0044's Orbit Band rules a body this bare floors at
+// exactly OrbitFloorMarginM (25km, an airless-body cutoff of 0) with no
+// ceiling (SOIRadius needs a SemimajorAxis this fixture doesn't set), so
+// every altitude these tests commit (500km, 5000km) sits comfortably
+// in-band — no sim.ClampToOrbitBand note fires, and the comms assertions
+// below still mean exactly what they meant before S4.
 func bandTestBodies() []bodies.CelestialBody {
 	return []bodies.CelestialBody{{ID: "earth", Name: "Earth"}}
 }
@@ -35,13 +44,13 @@ func TestSpawnFormFlagsDegradedBand(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	resetWithBand(s, bandStub(map[int]float64{5000: 0.61}))
 
-	setAltPreset(t, s, 5000)
+	setAltitude(t, s, 5000)
 	out := s.Render(80)
 	if !strings.Contains(out, "degraded comms band") || !strings.Contains(out, "relays advised") {
 		t.Errorf("a degraded preset must be flagged with the relay advice:\n%s", out)
 	}
 
-	setAltPreset(t, s, 500)
+	setAltitude(t, s, 500)
 	if out := s.Render(80); strings.Contains(out, "degraded comms band") {
 		t.Errorf("a full-coverage preset must not be flagged:\n%s", out)
 	}
@@ -50,7 +59,7 @@ func TestSpawnFormFlagsDegradedBand(t *testing.T) {
 func TestSpawnFormOutOfReachWording(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	resetWithBand(s, bandStub(map[int]float64{5000: 0}))
-	setAltPreset(t, s, 5000)
+	setAltitude(t, s, 5000)
 	out := s.Render(80)
 	if !strings.Contains(out, "out of network reach") {
 		t.Errorf("zero coverage is the out-of-range case, not the band:\n%s", out)
@@ -63,7 +72,7 @@ func TestSpawnFormOutOfReachWording(t *testing.T) {
 func TestSpawnFormNoBandWarningWithoutSampler(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset(bandTestBodies(), "earth", nil, "", nil)
-	setAltPreset(t, s, 5000)
+	setAltitude(t, s, 5000)
 	if out := s.Render(80); strings.Contains(out, "degraded comms band") {
 		t.Errorf("no sampler injected → no claim made:\n%s", out)
 	}
@@ -79,7 +88,7 @@ func TestSpawnFormCrewedLoadoutNeverWarned(t *testing.T) {
 	resetWithBand(s, bandStub(map[int]float64{5000: 0.5}))
 	selectCustom(s)
 	s.customStages = []spacecraft.Stage{{Name: "Pod", CommandSource: spacecraft.CommandCrewed}}
-	setAltPreset(t, s, 5000)
+	setAltitude(t, s, 5000)
 	if out := s.Render(80); strings.Contains(out, "degraded comms band") || strings.Contains(out, "out of network reach") {
 		t.Errorf("a crewed craft is never comms-gated — no warning applies:\n%s", out)
 	}
@@ -97,22 +106,27 @@ func TestSpawnFormPassesSelectedAntennaToSampler(t *testing.T) {
 		Name: "Bus", CommandSource: spacecraft.CommandProbe,
 		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
 	}}
-	setAltPreset(t, s, 5000)
+	setAltitude(t, s, 5000)
 	_ = s.Render(80)
 	if gotRange != spacecraft.AntennaRangeRelayCislunar {
 		t.Errorf("sampler must receive the selected stack's antenna range; got %g", gotRange)
 	}
 }
 
-// setAltPreset moves the altitude cursor to the preset with the given
-// km value.
-func setAltPreset(t *testing.T, s *SpawnCraft, km int) {
+// setAltitude commits a typed altitude (km) via the real edit-box path
+// (ADR 0044 / S4) — HandleKey drives fieldIdx to ALTITUDE, opens the box,
+// types each digit, then commits, exercising the same state machine a
+// player uses rather than poking a removed ladder index directly.
+func setAltitude(t *testing.T, s *SpawnCraft, km int) {
 	t.Helper()
-	for i, v := range altitudePresets {
-		if v == km {
-			s.altIdx = i
-			return
-		}
+	s.fieldIdx = 3
+	if got := s.HandleKey("enter"); got != SpawnActionNone {
+		t.Fatalf("opening the altitude box returned %v, want SpawnActionNone", got)
 	}
-	t.Fatalf("no %d km preset", km)
+	for _, d := range strconv.Itoa(km) {
+		s.HandleKey(string(d))
+	}
+	if got := s.HandleKey("enter"); got != SpawnActionNone {
+		t.Fatalf("committing the altitude box returned %v, want SpawnActionNone", got)
+	}
 }

@@ -1,0 +1,420 @@
+package screens
+
+import (
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
+)
+
+// ADR 0044 S4: the spawn form's ALTITUDE field is typed (not a ladder), with
+// an explicit edit-box state machine, arrow-stepping over sim.OrbitStops,
+// and clamp/no-orbit feedback rendered verbatim from sim.ClampToOrbitBand.
+
+// loadRealSystems loads the embedded catalog once — used by the tests that
+// need a real no-orbit body (Phobos) rather than a bare fixture.
+func loadRealSystems(t *testing.T) []bodies.System {
+	t.Helper()
+	systems, warnings, err := bodies.LoadAllWithWarnings()
+	if err != nil {
+		t.Fatalf("LoadAllWithWarnings: %v", err)
+	}
+	for _, w := range warnings {
+		t.Fatalf("unexpected catalog load warning: %v", w)
+	}
+	return systems
+}
+
+func findRealBody(t *testing.T, systems []bodies.System, sysName, id string) bodies.System {
+	t.Helper()
+	for _, sys := range systems {
+		if sys.Name != sysName {
+			continue
+		}
+		for _, b := range sys.Bodies {
+			if b.ID == id {
+				return sys
+			}
+		}
+	}
+	t.Fatalf("body %q not found in system %q", id, sysName)
+	return bodies.System{}
+}
+
+// enterAltEdit focuses ALTITUDE and opens the edit box, asserting the open
+// press never confirms/cancels the form.
+func enterAltEdit(t *testing.T, s *SpawnCraft) {
+	t.Helper()
+	s.fieldIdx = 3
+	if got := s.HandleKey("enter"); got != SpawnActionNone {
+		t.Fatalf("opening the altitude box returned %v, want SpawnActionNone", got)
+	}
+	if !s.altEditing {
+		t.Fatalf("HandleKey(enter) on a focused, non-empty-band ALTITUDE field did not open the edit box")
+	}
+}
+
+// typeDigits sends each rune of km as a separate keystroke, the way a
+// player types.
+func typeDigits(s *SpawnCraft, km int) {
+	for _, d := range strconv.Itoa(km) {
+		s.HandleKey(string(d))
+	}
+}
+
+// TestAltitudeNeverLaunchesHalfTyped is the first ADR-mandated invariant:
+// with the edit box open, mid-type, no key (including "enter" being routed
+// elsewhere or a stray key) can produce SpawnActionConfirm.
+func TestAltitudeNeverLaunchesHalfTyped(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	enterAltEdit(t, s)
+
+	for _, k := range []string{"4", "4", "0", "0"} {
+		if got := s.HandleKey(k); got != SpawnActionNone {
+			t.Fatalf("digit key %q returned %v while editing, want SpawnActionNone", k, got)
+		}
+	}
+	if s.altInput != "4400" {
+		t.Fatalf("altInput = %q, want \"4400\"", s.altInput)
+	}
+	// The committed altitude must NOT have moved yet — only Enter commits.
+	if s.altM != 500_000 {
+		t.Errorf("altM changed to %v before commit, want unchanged 500000 (500km default)", s.altM)
+	}
+}
+
+// TestAltitudeEscRevertsNotCancelsForm is the second ADR-mandated invariant:
+// Esc while editing discards the typed buffer and reopens nothing — it must
+// never cancel the whole form (SpawnActionCancel).
+func TestAltitudeEscRevertsNotCancelsForm(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	enterAltEdit(t, s)
+	typeDigits(s, 9999)
+
+	if got := s.HandleKey("esc"); got != SpawnActionNone {
+		t.Fatalf("Esc while editing returned %v, want SpawnActionNone (must not cancel the form)", got)
+	}
+	if s.altEditing {
+		t.Error("Esc did not close the edit box")
+	}
+	if s.altInput != "" {
+		t.Errorf("Esc left a stale input buffer %q", s.altInput)
+	}
+	if s.altM != 500_000 {
+		t.Errorf("Esc changed the committed altitude to %v, want unchanged 500000", s.altM)
+	}
+
+	// Plain Esc, NOT editing, still cancels the whole form as normal.
+	if got := s.HandleKey("esc"); got != SpawnActionCancel {
+		t.Errorf("Esc outside the edit box = %v, want SpawnActionCancel", got)
+	}
+}
+
+// TestAltitudeCommitClamps — a typed value below the floor is raised on
+// commit, and the note is sim.ClampToOrbitBand's sentence verbatim.
+func TestAltitudeCommitClamps(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Sol", "earth")
+	s.Reset(sys.Bodies, "earth", nil, "", nil)
+
+	enterAltEdit(t, s)
+	typeDigits(s, 60) // 60km — below Earth's 175km floor
+	if got := s.HandleKey("enter"); got != SpawnActionNone {
+		t.Fatalf("committing returned %v, want SpawnActionNone", got)
+	}
+	if s.altEditing {
+		t.Error("commit did not close the edit box")
+	}
+	if s.altM != 175_000 {
+		t.Errorf("altM = %v after commit, want 175000 (clamped to Earth's floor)", s.altM)
+	}
+	if !strings.Contains(s.altNote, "raised from 60") {
+		t.Errorf("altNote = %q, missing the raised-from-60 clamp sentence", s.altNote)
+	}
+	out := s.Render(80)
+	if !strings.Contains(out, "↳") || !strings.Contains(out, s.altNote) {
+		t.Errorf("rendered form does not show the clamp note verbatim:\n%s", out)
+	}
+}
+
+// TestAltitudeEmptyCommitReverts — committing an empty buffer reverts to the
+// prior value rather than clearing/erroring (there is no "no altitude"
+// state), mirroring vab.go's setTarget treating empty as its own accepted
+// case.
+func TestAltitudeEmptyCommitReverts(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	enterAltEdit(t, s)
+	typeDigits(s, 4400)
+	s.HandleKey("backspace")
+	s.HandleKey("backspace")
+	s.HandleKey("backspace")
+	s.HandleKey("backspace")
+	if s.altInput != "" {
+		t.Fatalf("setup: altInput = %q, want empty after 4 backspaces", s.altInput)
+	}
+	if got := s.HandleKey("enter"); got != SpawnActionNone {
+		t.Fatalf("committing empty returned %v, want SpawnActionNone", got)
+	}
+	if s.altM != 500_000 {
+		t.Errorf("empty commit changed altM to %v, want unchanged 500000 (prior value)", s.altM)
+	}
+	if s.altEditing {
+		t.Error("empty commit did not close the box")
+	}
+}
+
+// TestAltitudeOnlyDigitsAndBackspaceEditBuffer — letters, arrows, tab are
+// ignored while editing; they neither mutate the buffer nor escape the box.
+func TestAltitudeOnlyDigitsAndBackspaceEditBuffer(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	enterAltEdit(t, s)
+	typeDigits(s, 42)
+
+	for _, k := range []string{"a", "x", "left", "right", "tab", "shift+tab", "."} {
+		s.HandleKey(k)
+	}
+	if s.altInput != "42" {
+		t.Errorf("altInput = %q after non-digit keys, want unchanged \"42\"", s.altInput)
+	}
+	if !s.altEditing {
+		t.Error("a non-digit/non-enter/non-esc key closed the edit box")
+	}
+	if s.fieldIdx != 3 {
+		t.Error("tab moved focus while the edit box was open")
+	}
+}
+
+// TestAltitudeEnterFromOtherFieldsStillLaunches — Enter's field-3 takeover
+// (open the box / stay parked) is local to ALTITUDE; from every other field
+// Enter still confirms the form as before.
+func TestAltitudeEnterFromOtherFieldsStillLaunches(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	for _, idx := range []int{0, 1, 2, 4} {
+		s.fieldIdx = idx
+		if got := s.HandleKey("enter"); got != SpawnActionConfirm {
+			t.Errorf("fieldIdx=%d: Enter = %v, want SpawnActionConfirm", idx, got)
+		}
+	}
+}
+
+// TestAltitudeArrowsStepOrbitStops — outside the box, arrows walk
+// sim.OrbitStops rather than any hardcoded ladder, moving to the next real
+// stop even when the current value sits between two stops.
+func TestAltitudeArrowsStepOrbitStops(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Sol", "earth")
+	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	s.fieldIdx = 3
+
+	// Land squarely on a value between two stops (the default 500km is
+	// already there for Earth in practice, but force it to be sure).
+	enterAltEdit(t, s)
+	typeDigits(s, 4400)
+	s.HandleKey("enter")
+	before := s.altM
+
+	s.HandleKey("right")
+	if s.altM <= before {
+		t.Fatalf("right arrow did not move to a HIGHER stop: before=%v after=%v", before, s.altM)
+	}
+	afterUp := s.altM
+
+	s.HandleKey("left")
+	s.HandleKey("left")
+	if s.altM >= afterUp {
+		t.Fatalf("left arrow did not move to a LOWER stop: afterUp=%v after=%v", afterUp, s.altM)
+	}
+}
+
+// TestAltitudeArrowsClampAtEnds — stepping past either end of the Orbit
+// Stops holds at the end rather than wrapping (S4 design choice — see the
+// implementation report).
+func TestAltitudeArrowsClampAtEnds(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Sol", "earth")
+	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	s.fieldIdx = 3
+
+	for i := 0; i < 20; i++ {
+		s.HandleKey("left")
+	}
+	floor := s.altM
+	if s.HandleKey("left"); s.altM != floor {
+		t.Errorf("left arrow past the floor moved altM to %v, want holding at floor %v", s.altM, floor)
+	}
+
+	for i := 0; i < 20; i++ {
+		s.HandleKey("right")
+	}
+	ceiling := s.altM
+	if s.HandleKey("right"); s.altM != ceiling {
+		t.Errorf("right arrow past the ceiling moved altM to %v, want holding at ceiling %v", s.altM, ceiling)
+	}
+}
+
+// TestAltitudeFollowsParentAcrossChangeWhenLegal — a typed value survives a
+// PARENT BODY change untouched when the new body can hold it.
+func TestAltitudeFollowsParentAcrossChangeWhenLegal(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Sol", "earth")
+	// Also needs Mars in the parent list to cursor onto.
+	var marsIdx int = -1
+	for i, b := range sys.Bodies {
+		if b.ID == "mars" {
+			marsIdx = i
+		}
+	}
+	if marsIdx < 0 {
+		t.Fatal("setup: mars not found in Sol system")
+	}
+	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	enterAltEdit(t, s)
+	typeDigits(s, 300) // 300km — legal at Earth (floor 175) and at Mars (floor 125)
+	s.HandleKey("enter")
+	if s.altM != 300_000 {
+		t.Fatalf("setup: altM = %v, want 300000", s.altM)
+	}
+
+	s.fieldIdx = 2
+	for s.SelectedParentID() != "mars" {
+		s.HandleKey("right")
+	}
+	if s.altM != 300_000 {
+		t.Errorf("altM changed to %v across a parent change where 300km stays legal", s.altM)
+	}
+	if s.altNote != "" {
+		t.Errorf("altNote = %q, want empty (no clamp happened)", s.altNote)
+	}
+}
+
+// TestAltitudeReclampsOnParentChangeWhenIllegal — cursoring to a body that
+// can't hold the current altitude re-clamps it and reports why (ADR 0044 §4
+// "type 300 at Earth, cursor to a small moon, land on that moon's ceiling").
+func TestAltitudeReclampsOnParentChangeWhenIllegal(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Sol", "earth")
+	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	enterAltEdit(t, s)
+	typeDigits(s, 90000) // 90,000km — way above the Moon's ceiling
+	s.HandleKey("enter")
+
+	s.fieldIdx = 2
+	for s.SelectedParentID() != "moon" {
+		s.HandleKey("right")
+	}
+	if s.altM >= 90_000_000 {
+		t.Fatalf("altM = %v, expected a clamp down at the Moon", s.altM)
+	}
+	if s.altNote == "" {
+		t.Error("altNote empty after a cross-parent clamp — the move must be reported")
+	}
+	if !strings.Contains(s.altNote, "lowered from 90,000") && !strings.Contains(s.altNote, "lowered from 90000") {
+		t.Errorf("altNote = %q, missing the lowered-from-90000 wording", s.altNote)
+	}
+}
+
+// TestAltitudeNoOrbitBodyKeepsEnterDead — a body with an Empty Orbit Band
+// (Phobos) stays selectable as PARENT BODY, but Enter never confirms the
+// form while it's selected and POSITION is orbit — the sim would refuse the
+// spawn anyway.
+func TestAltitudeNoOrbitBodyKeepsEnterDead(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	systems := loadRealSystems(t)
+	sys := findRealBody(t, systems, "Sol", "phobos")
+	s.Reset(sys.Bodies, "phobos", nil, "", nil)
+
+	if !s.altBandEmpty {
+		t.Fatal("setup: Phobos should report an Empty Orbit Band")
+	}
+	if got := s.SelectedParentID(); got != "phobos" {
+		t.Fatalf("setup: parent = %q, want phobos", got)
+	}
+
+	for _, idx := range []int{0, 1, 2, 3, 4} {
+		s.fieldIdx = idx
+		if got := s.HandleKey("enter"); got == SpawnActionConfirm {
+			t.Errorf("fieldIdx=%d: Enter confirmed the form over an Empty Orbit Band", idx)
+		}
+	}
+	if s.altEditing {
+		t.Error("Enter opened the edit box over an Empty Orbit Band — there is nothing to edit")
+	}
+
+	out := s.Render(80)
+	if !strings.Contains(out, "✕") {
+		t.Errorf("rendered form missing the ✕ no-orbit marker:\n%s", out)
+	}
+	if !strings.Contains(out, "Mars owns everything outside Phobos's surface") {
+		t.Errorf("rendered form does not show sim.ClampToOrbitBand's no-orbit sentence verbatim:\n%s", out)
+	}
+	// PARENT BODY still shows Phobos — it must not be delisted.
+	if !strings.Contains(out, "Phobos") {
+		t.Error("Phobos must remain selectable in PARENT BODY even with no legal orbit")
+	}
+}
+
+// TestSelectedAltitudeMSignatureUnchanged — app.go:753 calls this with no
+// arguments; a signature change would be a silent break there.
+func TestSelectedAltitudeMSignatureUnchanged(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	var _ func() float64 = s.SelectedAltitudeM
+	if s.SelectedAltitudeM() != 500_000 {
+		t.Errorf("default SelectedAltitudeM = %v, want 500000 (500km)", s.SelectedAltitudeM())
+	}
+}
+
+// TestAltitudeCommitSamplesCommsOnceNotPerKeystroke — #221/ADR0044: sampling
+// costs ~400 connectivity solves, so it must run on commit, never per
+// keystroke while typing.
+func TestAltitudeCommitSamplesCommsOnceNotPerKeystroke(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	calls := 0
+	s.Reset(bandTestBodies(), "earth", nil, "", func(bodyID string, altM, antennaRangeM float64) (float64, bool) {
+		calls++
+		return 1.0, true
+	})
+
+	enterAltEdit(t, s)
+	typeDigits(s, 4400)
+	// Render repeatedly while editing — must never sample.
+	for i := 0; i < 5; i++ {
+		_ = s.Render(80)
+	}
+	if calls != 0 {
+		t.Fatalf("sampler called %d times while the edit box was open (mid-type), want 0", calls)
+	}
+
+	s.HandleKey("enter") // commit
+	_ = s.Render(80)
+	_ = s.Render(80)
+	_ = s.Render(80)
+	if calls != 1 {
+		t.Errorf("sampler called %d times across commit + repeated renders at the same altitude, want exactly 1 (memoized)", calls)
+	}
+}
+
+// TestAltitudeFieldRendersAt80Columns is a render smoke test at the repo's
+// mandated real terminal width (not a wide terminal) for the quiet state.
+func TestAltitudeFieldRendersAt80Columns(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	out := s.Render(80)
+	if !strings.Contains(out, "ALTITUDE") {
+		t.Error("ALTITUDE header missing from an 80-column render")
+	}
+	if !strings.Contains(out, "500 km") {
+		t.Errorf("default 500km value not rendered at 80 columns:\n%s", out)
+	}
+}

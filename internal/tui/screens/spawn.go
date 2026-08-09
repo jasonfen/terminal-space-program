@@ -2,6 +2,8 @@ package screens
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -24,9 +26,23 @@ type SpawnCraft struct {
 	posMode      spawnPosMode           // v0.9.2+: tri-state — orbit / alongside / launchpad
 	parentBodies []bodies.CelestialBody // populated by Reset
 	parentIdx    int
-	altIdx       int
-	latIdx       int // v0.9.2+: latitude preset cursor when posMode=launchpad
-	retrograde   bool
+
+	// ALTITUDE (ADR 0044 / S4): a typed number of whole kilometres, not a
+	// preset ladder. altM is the single source of truth — every operation
+	// that could change it (Reset's default, a committed typed value, an
+	// arrow-stepped sim.OrbitStops entry, a PARENT BODY change) routes
+	// through setAltitude, which is the only place this screen calls
+	// sim.ClampToOrbitBand. altNote / altBandEmpty are that call's last
+	// result, kept in lockstep with altM so Render never has to re-derive
+	// them.
+	altM         float64 // metres above the parent's mean radius
+	altEditing   bool    // the typed-edit box is open (§1 state machine)
+	altInput     string  // in-progress digits while altEditing
+	altNote      string  // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
+	altBandEmpty bool    // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
+
+	latIdx     int // v0.9.2+: latitude preset cursor when posMode=launchpad
+	retrograde bool
 
 	// v0.10.1+ stack configurator. loadoutIdx == len(LoadoutOrder)
 	// is the synthetic "Custom…" entry; when it's selected a STACK
@@ -93,8 +109,9 @@ type SpawnCraft struct {
 }
 
 type bandCacheKey struct {
-	parentIdx, altIdx int
-	antennaRangeM     float64
+	parentIdx     int
+	altM          float64 // ADR 0044 / S4: metres, not a ladder index
+	antennaRangeM float64
 }
 
 // stackFieldIdx is the form-field index of the STACK editor — only
@@ -110,12 +127,8 @@ const (
 	posLaunchpad                     // v0.9.2+ — surface co-rotating, altitude 0
 )
 
-// altitudePresets are the cycle values for the altitude field —
-// km above the parent's mean radius. Hand-picked across orders of
-// magnitude so the cycle covers LEO-style parking orbits, GEO-ish
-// transfer alts, and high-Earth / interplanetary capture orbits.
-var altitudePresets = []int{200, 500, 1000, 2000, 5000, 10000, 35786}
-
+// The ALTITUDE field (ADR 0044 / S4) is a typed number of whole
+// kilometres, not a preset ladder — see setAltitude / stepAltitude below.
 // The form's LATITUDE field cycles through the shared named-site list
 // sim.LaunchSites (v0.17: hoisted to internal/sim so the form and the
 // --launch-site CLI flag resolve the same set). Picking "Cape Canaveral"
@@ -149,7 +162,6 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 	s.systemScale = systemScale
 	s.showAll = false
 	s.posMode = posOrbit
-	s.altIdx = 1 // 500 km — matches the v0.8.1 sister-spawn default
 	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
 	s.retrograde = false
 	s.parentBodies = systemBodies
@@ -160,6 +172,12 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 			break
 		}
 	}
+	s.altEditing = false
+	s.altInput = ""
+	// setAltitude must run AFTER parentBodies/parentIdx are set (it clamps
+	// against the current parent) — 500km matches the v0.8.1 sister-spawn
+	// default and the pre-S4 ladder's default rung.
+	s.setAltitude(500_000)
 }
 
 // SpawnAction enumerates the form's outcomes.
@@ -411,13 +429,13 @@ func (s *SpawnCraft) SelectedParentID() string {
 	return s.parentBodies[s.parentIdx].ID
 }
 
-// SelectedAltitudeM returns the chosen altitude above the parent's
-// mean radius (m).
+// SelectedAltitudeM returns the chosen altitude above the parent's mean
+// radius (m) — already clamped into the current parent's Orbit Band (ADR
+// 0044 §4/§5) by setAltitude, the only place this screen runs that
+// arithmetic. Signature unchanged from the pre-S4 ladder so app.go's call
+// site needs no change.
 func (s *SpawnCraft) SelectedAltitudeM() float64 {
-	if s.altIdx < 0 || s.altIdx >= len(altitudePresets) {
-		return 500e3
-	}
-	return float64(altitudePresets[s.altIdx]) * 1000
+	return s.altM
 }
 
 // SelectedRetrograde reports whether the player picked retrograde.
@@ -467,7 +485,16 @@ func (s *SpawnCraft) fieldOrder() []int {
 
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
+//
+// ADR 0044 / S4: while the ALTITUDE typed-edit box is open, this function
+// hands off entirely to handleAltInputKey — a dedicated routine that can
+// only ever return SpawnActionNone, so a half-typed number can never launch
+// and Esc can never cancel the whole form out from under a box the player
+// meant to keep (see handleAltInputKey's doc comment for both invariants).
 func (s *SpawnCraft) HandleKey(key string) SpawnAction {
+	if s.altEditing {
+		return s.handleAltInputKey(key)
+	}
 	// Navigation follows fieldOrder (visual order). Locate the current
 	// field in it; if the focus is no longer reachable — e.g. the player
 	// cycled off Custom while parked on STACK — snap back to CRAFT TYPE so
@@ -488,6 +515,23 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	case "esc":
 		return SpawnActionCancel
 	case "enter":
+		// ADR 0044 §6: over an Empty Orbit Band (Phobos/Deimos) with
+		// POSITION on orbit, Enter is dead everywhere in the form — the sim
+		// would refuse the spawn, so the form must never confirm it. This
+		// guard is field-independent on purpose: the player could be
+		// focused on VESSEL TYPE or DIRECTION and still be parked on a
+		// no-orbit body.
+		if s.posMode == posOrbit && s.altBandEmpty {
+			return SpawnActionNone
+		}
+		// ADR 0044 §1: focused on ALTITUDE in orbit mode, Enter is the
+		// edit box's own key, not the form's launch key — every press here
+		// opens the box (there is no separate "now launch" state; to
+		// launch, Tab away to another field first).
+		if s.fieldIdx == 3 && s.posMode == posOrbit {
+			s.beginAltEdit()
+			return SpawnActionNone
+		}
 		return SpawnActionConfirm
 	case "tab", "down":
 		s.fieldIdx = order[(cur+1)%len(order)]
@@ -612,12 +656,19 @@ func (s *SpawnCraft) cycleField(step int) {
 	case 2:
 		if len(s.parentBodies) > 0 {
 			s.parentIdx = wrapIdx(s.parentIdx+step, len(s.parentBodies))
+			// ADR 0044 §4: the typed altitude follows the player across a
+			// parent change, re-clamped only when the new body can't hold
+			// it. setAltitude is idempotent when the value is already
+			// in-band, so this is a no-op (empty note) in the common case.
+			s.setAltitude(s.altM)
 		}
 	case 3:
 		if s.posMode == posLaunchpad {
 			s.latIdx = wrapIdx(s.latIdx+step, len(sim.LaunchSites))
 		} else {
-			s.altIdx = wrapIdx(s.altIdx+step, len(altitudePresets))
+			// ADR 0044 §2: arrows walk the body's derived Orbit Stops
+			// rather than a hardcoded ladder.
+			s.stepAltitude(step)
 		}
 	case 4:
 		s.retrograde = !s.retrograde
@@ -638,6 +689,155 @@ func wrapIdx(i, n int) int {
 		i += n
 	}
 	return i % n
+}
+
+// currentSystem reconstructs the bodies.System that sim.OrbitBandFor /
+// sim.OrbitStops / sim.ClampToOrbitBand need (ParentOf + a Bodies[0]
+// fallback for planets with no authored parentId) from the form's flat
+// parent list. parentBodies is exactly the systemBodies Reset received, so
+// this round-trips the same data those functions read — deliberately NOT a
+// second injected System reference through Reset, and NOT a re-derivation
+// of the band arithmetic itself, which stays in package sim.
+func (s *SpawnCraft) currentSystem() bodies.System {
+	return bodies.System{Bodies: s.parentBodies}
+}
+
+// setAltitude is the ONE place this screen calls sim.ClampToOrbitBand (ADR
+// 0044 §4/§5) — every altitude-affecting operation (Reset's 500km default,
+// a committed typed value, an arrow-stepped Orbit Stop, a PARENT BODY
+// change) routes through here, so altM / altNote / altBandEmpty can never
+// drift out of sync with each other or reimplement the sim's arithmetic. A
+// nil current parent (bare test fixtures with no body list) is a
+// pass-through: no clamp is possible without body data.
+func (s *SpawnCraft) setAltitude(altM float64) {
+	body := s.currentParent()
+	if body == nil {
+		s.altM = altM
+		s.altNote = ""
+		s.altBandEmpty = false
+		return
+	}
+	clamped, note, ok := sim.ClampToOrbitBand(s.currentSystem(), *body, altM)
+	s.altM = clamped
+	s.altNote = note
+	s.altBandEmpty = !ok
+}
+
+// altitudeEpsilonM is the float slack used when comparing the current
+// altitude against a candidate sim.OrbitStops value in stepAltitude — large
+// enough to absorb float round-trip noise, far smaller than
+// orbitDedupeToleranceM's 500m stop spacing so it never skips a real
+// neighbour.
+const altitudeEpsilonM = 1.0
+
+// stepAltitude moves to the next sim.OrbitStops entry in the given
+// direction (ADR 0044 §2): the nearest stop strictly beyond the current
+// altitude, so a typed in-between value (e.g. 4400km) steps to a real
+// neighbour rather than snapping to a ladder index. Stepping past either
+// end HOLDS at that end rather than wrapping — a deliberate S4 change from
+// the old seven-rung ladder, which did wrap: the Orbit Stops range now
+// spans floor-to-ceiling, which can be several orders of magnitude at a
+// single body, so wrapping from a high orbit straight down to the floor
+// (or vice versa) would be a far bigger and more disorienting jump than
+// the old ladder's wrap ever produced. An Empty band (no stops) leaves the
+// altitude untouched — there is nothing to step to.
+func (s *SpawnCraft) stepAltitude(dir int) {
+	body := s.currentParent()
+	if body == nil {
+		return
+	}
+	stops := sim.OrbitStops(s.currentSystem(), *body)
+	if len(stops) == 0 {
+		return
+	}
+	idx := 0
+	if dir > 0 {
+		idx = len(stops) - 1 // already at/above the top stop: hold
+		for i, v := range stops {
+			if v > s.altM+altitudeEpsilonM {
+				idx = i
+				break
+			}
+		}
+	} else {
+		idx = 0 // already at/below the bottom stop: hold
+		for i := len(stops) - 1; i >= 0; i-- {
+			if stops[i] < s.altM-altitudeEpsilonM {
+				idx = i
+				break
+			}
+		}
+	}
+	s.setAltitude(stops[idx])
+}
+
+// beginAltEdit opens the ALTITUDE typed-edit box (ADR 0044 §1) with an
+// empty buffer — the mockup's box always starts fresh ("[4400_] km" typed
+// from nothing, not "500" backspaced away first), and it keeps
+// commitAltInput's empty-buffer case unambiguous: an Enter with nothing
+// typed always means "leave it alone," never "I meant to keep editing the
+// old digits."
+func (s *SpawnCraft) beginAltEdit() {
+	s.altEditing = true
+	s.altInput = ""
+}
+
+// handleAltInputKey drives the ALTITUDE edit box while it is open (ADR 0044
+// §1). Both of the ADR's invariants are enforced structurally by this
+// function's signature alone: every branch returns SpawnActionNone, so —
+// (1) a half-typed number can never launch the form (there is no branch
+// that returns SpawnActionConfirm), and (2) Esc can never cancel the whole
+// form out from under the player (there is no branch that returns
+// SpawnActionCancel; Esc only discards the buffer and closes the box).
+// Only digits and backspace mutate the buffer; every other key (letters,
+// arrows, tab) is ignored outright rather than parsed — sub-kilometre
+// precision is deliberately not offered (25km is the smallest legal
+// altitude anywhere in the game, so tenths could never matter), and
+// non-digit input has no sane partial interpretation to fall back to.
+func (s *SpawnCraft) handleAltInputKey(key string) SpawnAction {
+	switch key {
+	case "esc":
+		s.altEditing = false
+		s.altInput = ""
+	case "enter":
+		s.commitAltInput()
+		s.altEditing = false
+		s.altInput = ""
+	case "backspace":
+		if n := len(s.altInput); n > 0 {
+			s.altInput = s.altInput[:n-1]
+		}
+	default:
+		if len(key) == 1 && key[0] >= '0' && key[0] <= '9' {
+			s.altInput += key
+		}
+	}
+	return SpawnActionNone
+}
+
+// commitAltInput parses the typed buffer into a new altitude (ADR 0044
+// §1). An empty buffer reverts to the prior value rather than clearing to
+// zero or erroring — there is no "no altitude" reading the way VAB's Σ Δv
+// target has a "no target" state (vab.go's setTarget), so the empty case
+// here just leaves altM untouched and closes the box. A malformed buffer
+// can't occur (handleAltInputKey only ever appends digits), so a parse
+// error is a no-op rather than a user-facing rejection.
+func (s *SpawnCraft) commitAltInput() {
+	if s.altInput == "" {
+		return
+	}
+	km, err := strconv.Atoi(s.altInput)
+	if err != nil {
+		return
+	}
+	s.setAltitude(float64(km) * 1000)
+}
+
+// altKmLabel formats an altitude (metres) as the whole-kilometre label
+// every ALTITUDE state shows. Sub-kilometre precision is deliberately
+// never offered (ADR 0044 §1).
+func altKmLabel(altM float64) string {
+	return fmt.Sprintf("%.0f km", math.Round(altM/1000))
 }
 
 // Render returns the modal form. Width is the terminal width.
@@ -835,10 +1035,9 @@ func (s *SpawnCraft) Render(width int) string {
 		lines = append(lines, "  "+s.fieldValueDimmed(3, siteLabel, false))
 	} else {
 		lines = append(lines, s.fieldHeader(3, "ALTITUDE"))
-		altLabel := fmt.Sprintf("%d km", altitudePresets[s.altIdx])
-		lines = append(lines, "  "+s.fieldValueDimmed(3, altLabel, dimAlt))
-		if warn := s.bandWarning(); warn != "" {
-			lines = append(lines, "  "+s.theme.Warning.Render(warn))
+		lines = append(lines, "  "+s.altitudeValueLine(dimAlt))
+		if !dimAlt {
+			lines = append(lines, s.altitudeNoteLines(width)...)
 		}
 	}
 
@@ -859,18 +1058,23 @@ func (s *SpawnCraft) Render(width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// bandWarning classifies the focused (parent, altitude) preset against
-// the sampled CommNet coverage (#221) FOR THE CRAFT BEING SPAWNED: a
-// crewed loadout is never comms-gated so it gets no warning at all, and
-// the sampler models the selected craft's own best antenna — a Relay-Tug
-// at the Moon links home and must not be warned off the exact spawn the
-// band pressure exists to motivate (v0.32 review finding). A preset in
-// the degraded band names the band AND the fix (relays); zero coverage
-// is the out-of-range case and must not advise a relay. Empty when the
-// sampler is absent, the position mode doesn't orbit, or coverage is
-// clean — the form never guesses.
+// bandWarning classifies the focused (parent, altitude) against the
+// sampled CommNet coverage (#221) FOR THE CRAFT BEING SPAWNED: a crewed
+// loadout is never comms-gated so it gets no warning at all, and the
+// sampler models the selected craft's own best antenna — a Relay-Tug at
+// the Moon links home and must not be warned off the exact spawn the band
+// pressure exists to motivate (v0.32 review finding). A value in the
+// degraded band names the band AND the fix (relays); zero coverage is the
+// out-of-range case and must not advise a relay. Empty when the sampler is
+// absent, the position mode doesn't orbit, the current parent has no legal
+// orbit altitude at all, or coverage is clean — the form never guesses.
+//
+// ADR 0044 / S4: the cache key is now altitude in metres (bandCacheKey),
+// not a ladder index — Render calls this only from altitudeNoteLines,
+// which returns before reaching here while the edit box is open, so
+// sampling (≈400 connectivity solves) runs on commit, never per keystroke.
 func (s *SpawnCraft) bandWarning() string {
-	if s.bandCoverage == nil || s.posMode != posOrbit {
+	if s.bandCoverage == nil || s.posMode != posOrbit || s.altBandEmpty {
 		return ""
 	}
 	if s.parentIdx < 0 || s.parentIdx >= len(s.parentBodies) {
@@ -880,7 +1084,7 @@ func (s *SpawnCraft) bandWarning() string {
 	if crewed {
 		return "" // crewed vessels are never comms-gated
 	}
-	key := bandCacheKey{parentIdx: s.parentIdx, altIdx: s.altIdx, antennaRangeM: antennaRangeM}
+	key := bandCacheKey{parentIdx: s.parentIdx, altM: s.altM, antennaRangeM: antennaRangeM}
 	cov, cached := s.bandCache[key]
 	if !cached {
 		c, ok := s.bandCoverage(s.parentBodies[s.parentIdx].ID, s.SelectedAltitudeM(), antennaRangeM)
@@ -897,6 +1101,65 @@ func (s *SpawnCraft) bandWarning() string {
 		return fmt.Sprintf("⚠ degraded comms band — ~%d%% coverage, relays advised", int(cov*100+0.5))
 	}
 	return ""
+}
+
+// altitudeValueLine renders field 3's value in orbit/alongside mode (ADR
+// 0044 §1/§6): the dimmed (ignored) label in alongside mode, the typed-edit
+// box while it's open, a "no orbit here" placeholder over an Empty Orbit
+// Band, or the normal focused/unfocused cycle-field display otherwise.
+func (s *SpawnCraft) altitudeValueLine(dimmed bool) string {
+	label := altKmLabel(s.altM)
+	if dimmed {
+		return s.fieldValueDimmed(3, label, true)
+	}
+	if s.altEditing {
+		return s.theme.Warning.Render(fmt.Sprintf("[%s_] km", s.altInput)) +
+			"  " + s.theme.Footer.Render("Enter keeps · Esc reverts")
+	}
+	if s.altBandEmpty {
+		return s.theme.Dim.Render("——  no orbit here")
+	}
+	val := s.fieldValue(3, label)
+	if s.fieldIdx == 3 {
+		val += "  " + s.theme.Footer.Render("Enter to edit")
+	}
+	return val
+}
+
+// altitudeNoteLines renders the single feedback line under ALTITUDE (ADR
+// 0044 §4/§6). At most one of three things shows, never stacked — this is
+// the "the ↳ line replaces the vertical space the ⚠ line already occupies"
+// call from the ADR's scope-exclusion note: an Empty Orbit Band's ✕
+// explanation (from sim.ClampToOrbitBand's note, verbatim, word-wrapped to
+// width) wins outright since Enter is dead there and nothing else applies;
+// otherwise a clamp move (↳, also verbatim) wins over the comms band
+// warning (⚠) when both would be live, since a number that just moved is
+// more load-bearing than an advisory. Nothing renders while the edit box is
+// open — its own inline hint covers that state instead.
+func (s *SpawnCraft) altitudeNoteLines(width int) []string {
+	if s.altEditing {
+		return nil
+	}
+	if s.altBandEmpty {
+		innerWidth := width - 6
+		wrapped := wrapText(s.altNote, innerWidth)
+		out := make([]string, 0, len(wrapped))
+		for i, ln := range wrapped {
+			text := "✕ " + ln
+			if i > 0 {
+				text = "  " + ln
+			}
+			out = append(out, "    "+s.theme.Alert.Render(text))
+		}
+		return out
+	}
+	if s.altNote != "" {
+		return []string{"    " + s.theme.Warning.Render("↳ "+s.altNote)}
+	}
+	if warn := s.bandWarning(); warn != "" {
+		return []string{"  " + s.theme.Warning.Render(warn)}
+	}
+	return nil
 }
 
 // spawnCommsProfile derives the comms-relevant shape of a stage list the
