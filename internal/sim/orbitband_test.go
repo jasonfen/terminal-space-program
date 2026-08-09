@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -274,6 +275,33 @@ func TestClampToOrbitBand_RaisedNoteWording(t *testing.T) {
 	}
 	want := fmt.Sprintf("raised from %s — %s's air reaches %s km",
 		commaKm(requested), earth.EnglishName, commaKm(earth.Atmosphere.CutoffAltitude))
+	if note != want {
+		t.Errorf("note = %q, want %q", note, want)
+	}
+}
+
+// TestClampToOrbitBand_RaisedNoteAtAirlessBodyCitesNoAir pins the airless
+// case, where the Earth-shaped wording would degenerate into "Moon's air
+// reaches 0 km" — a sentence that reads as a bug rather than as the rule.
+// An airless body's floor is the flat OrbitFloorMarginM on its own, so the
+// note must say that and must never claim the body has air.
+func TestClampToOrbitBand_RaisedNoteAtAirlessBodyCitesNoAir(t *testing.T) {
+	systems := loadOrbitBandCatalog(t)
+	sys, moon := findBodyIn(t, systems, "Sol", "moon")
+	if moon.Atmosphere != nil {
+		t.Fatalf("test premise broken: moon has an Atmosphere block")
+	}
+
+	const requested = 10_000.0 // 10 km — below the flat 25 km floor
+	_, note, ok := ClampToOrbitBand(sys, moon, requested)
+	if !ok {
+		t.Fatalf("ClampToOrbitBand(moon, 10km) ok=false, want true")
+	}
+	if strings.Contains(note, "air") {
+		t.Errorf("note = %q, must not claim an airless body has air", note)
+	}
+	want := fmt.Sprintf("raised from %s — %s km is as close as any orbit gets",
+		commaKm(requested), commaKm(OrbitFloorMarginM))
 	if note != want {
 		t.Errorf("note = %q, want %q", note, want)
 	}

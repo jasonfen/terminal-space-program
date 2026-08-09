@@ -252,6 +252,13 @@ func raisedNote(b bodies.CelestialBody, fromM float64) string {
 	if b.Atmosphere != nil {
 		cutoff = b.Atmosphere.CutoffAltitude
 	}
+	if cutoff <= 0 {
+		// Airless body: there is no air to cite, and "%s's air reaches
+		// 0 km" reads as a bug rather than a rule. The floor here is
+		// the flat OrbitFloorMarginM on its own, so say that instead.
+		return fmt.Sprintf("raised from %s — %s km is as close as any orbit gets",
+			commaKm(fromM), commaKm(OrbitFloorMarginM))
+	}
 	return fmt.Sprintf("raised from %s — %s's air reaches %s km",
 		commaKm(fromM), b.EnglishName, commaKm(cutoff))
 }
