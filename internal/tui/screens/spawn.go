@@ -38,6 +38,12 @@ type SpawnCraft struct {
 	altM         float64 // metres above the parent's mean radius
 	altEditing   bool    // the typed-edit box is open (§1 state machine)
 	altInput     string  // in-progress digits while altEditing
+	// altLeftBox arms the ADR's third mockup frame: the player has just
+	// stepped back out of the edit box, so the next Enter LAUNCHES rather
+	// than reopening it. Any other key clears it, so the arming can never
+	// outlive the moment — a player who tabs away and back gets "Enter to
+	// edit" again, and can never launch by an Enter they meant for the box.
+	altLeftBox bool
 	altNote      string  // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
 	altBandEmpty bool    // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
 
@@ -174,6 +180,7 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 	}
 	s.altEditing = false
 	s.altInput = ""
+	s.altLeftBox = false
 	// setAltitude must run AFTER parentBodies/parentIdx are set (it clamps
 	// against the current parent) — 500km matches the v0.8.1 sister-spawn
 	// default and the pre-S4 ladder's default rung.
@@ -511,6 +518,13 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	if !found {
 		s.fieldIdx, cur = order[0], 0
 	}
+	// Any key other than Enter disarms the just-left-the-box state, so the
+	// "Enter now launches" frame lasts exactly as long as the player's
+	// attention stayed on it — tab away, step an arrow, change the parent,
+	// and Enter goes back to opening the box.
+	if key != "enter" {
+		s.altLeftBox = false
+	}
 	switch key {
 	case "esc":
 		return SpawnActionCancel
@@ -524,11 +538,14 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 		if s.posMode == posOrbit && s.altBandEmpty {
 			return SpawnActionNone
 		}
-		// ADR 0044 §1: focused on ALTITUDE in orbit mode, Enter is the
-		// edit box's own key, not the form's launch key — every press here
-		// opens the box (there is no separate "now launch" state; to
-		// launch, Tab away to another field first).
-		if s.fieldIdx == 3 && s.posMode == posOrbit {
+		// ADR 0044 §1: focused on ALTITUDE in orbit mode, Enter is the edit
+		// box's own key rather than the form's launch key — you step into
+		// the box on purpose. Once you have stepped back out of it, the
+		// very next Enter launches (the ADR's third mockup frame), so the
+		// natural type-number-then-go gesture is Enter, digits, Enter,
+		// Enter. altLeftBox is cleared by literally any other key below, so
+		// this armed state cannot survive a change of mind.
+		if s.fieldIdx == 3 && s.posMode == posOrbit && !s.altLeftBox {
 			s.beginAltEdit()
 			return SpawnActionNone
 		}
@@ -799,10 +816,12 @@ func (s *SpawnCraft) handleAltInputKey(key string) SpawnAction {
 	case "esc":
 		s.altEditing = false
 		s.altInput = ""
+		s.altLeftBox = true
 	case "enter":
 		s.commitAltInput()
 		s.altEditing = false
 		s.altInput = ""
+		s.altLeftBox = true
 	case "backspace":
 		if n := len(s.altInput); n > 0 {
 			s.altInput = s.altInput[:n-1]
@@ -1121,7 +1140,11 @@ func (s *SpawnCraft) altitudeValueLine(dimmed bool) string {
 	}
 	val := s.fieldValue(3, label)
 	if s.fieldIdx == 3 {
-		val += "  " + s.theme.Footer.Render("Enter to edit")
+		hint := "Enter to edit"
+		if s.altLeftBox {
+			hint = "Enter now launches"
+		}
+		val += "  " + s.theme.Footer.Render(hint)
 	}
 	return val
 }

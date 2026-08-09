@@ -119,6 +119,11 @@ func TestSpawnFormPassesSelectedAntennaToSampler(t *testing.T) {
 // player uses rather than poking a removed ladder index directly.
 func setAltitude(t *testing.T, s *SpawnCraft, km int) {
 	t.Helper()
+	// Tab first, the way a player who has just committed one altitude gets
+	// back to the field: leaving the box arms "Enter now launches", and any
+	// non-Enter key disarms it. Without this a second setAltitude in the
+	// same test would launch the form instead of reopening the box.
+	s.HandleKey("tab")
 	s.fieldIdx = 3
 	if got := s.HandleKey("enter"); got != SpawnActionNone {
 		t.Fatalf("opening the altitude box returned %v, want SpawnActionNone", got)

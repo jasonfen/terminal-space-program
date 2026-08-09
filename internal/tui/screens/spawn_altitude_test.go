@@ -46,6 +46,9 @@ func findRealBody(t *testing.T, systems []bodies.System, sysName, id string) bod
 // press never confirms/cancels the form.
 func enterAltEdit(t *testing.T, s *SpawnCraft) {
 	t.Helper()
+	// Disarm any "Enter now launches" left over from a previous commit — a
+	// player returns to the field by moving focus, which is what clears it.
+	s.HandleKey("tab")
 	s.fieldIdx = 3
 	if got := s.HandleKey("enter"); got != SpawnActionNone {
 		t.Fatalf("opening the altitude box returned %v, want SpawnActionNone", got)
@@ -60,6 +63,77 @@ func enterAltEdit(t *testing.T, s *SpawnCraft) {
 func typeDigits(s *SpawnCraft, km int) {
 	for _, d := range strconv.Itoa(km) {
 		s.HandleKey(string(d))
+	}
+}
+
+// TestAltitudeEnterAfterCommitLaunches walks the ADR's three mockup frames
+// end to end: the quiet field opens the box on Enter, the box keeps the
+// number on Enter, and the very next Enter LAUNCHES rather than reopening.
+// That last frame is the whole "Enter now LAUNCHES" line in the mockup, and
+// it is what makes the natural gesture Enter-digits-Enter-Enter.
+func TestAltitudeEnterAfterCommitLaunches(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+
+	enterAltEdit(t, s) // frame 1 → 2
+	typeDigits(s, 4400)
+	if got := s.HandleKey("enter"); got != SpawnActionNone { // frame 2 → 3
+		t.Fatalf("committing the box returned %v, want SpawnActionNone", got)
+	}
+	if s.altM != 4_400_000 {
+		t.Fatalf("altM = %v after commit, want 4400000", s.altM)
+	}
+	if got := s.HandleKey("enter"); got != SpawnActionConfirm { // frame 3 launches
+		t.Fatalf("Enter after leaving the box returned %v, want SpawnActionConfirm", got)
+	}
+	if s.altEditing {
+		t.Error("the launching Enter reopened the edit box")
+	}
+}
+
+// TestAltitudeArmedLaunchDisarmsOnAnyOtherKey guards the armed state from
+// outliving the player's attention: after stepping back out of the box, any
+// key that is not Enter must return the field to "Enter to edit", so a
+// player who changes their mind cannot launch on an Enter they had queued
+// up for the box.
+func TestAltitudeArmedLaunchDisarmsOnAnyOtherKey(t *testing.T) {
+	for _, key := range []string{"tab", "shift+tab", "left", "right"} {
+		t.Run(key, func(t *testing.T) {
+			s := NewSpawnCraft(Theme{})
+			s.Reset(bandTestBodies(), "earth", nil, "", nil)
+			enterAltEdit(t, s)
+			typeDigits(s, 900)
+			s.HandleKey("enter") // leave the box — armed
+			s.HandleKey(key)     // ...and change our mind
+			s.fieldIdx = 3       // come back to ALTITUDE however we got away
+			if got := s.HandleKey("enter"); got != SpawnActionNone {
+				t.Fatalf("after %q, Enter returned %v, want the box to reopen (SpawnActionNone)", key, got)
+			}
+			if !s.altEditing {
+				t.Errorf("after %q, Enter did not reopen the edit box", key)
+			}
+		})
+	}
+}
+
+// TestAltitudeArmedHintTellsThePlayerEnterLaunches pins the mockup's own
+// hint text: the frame that launches must say so, or the state is invisible.
+func TestAltitudeArmedHintTellsThePlayerEnterLaunches(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.fieldIdx = 3
+	if out := s.Render(80); !strings.Contains(out, "Enter to edit") {
+		t.Fatalf("quiet focused ALTITUDE does not offer %q:\n%s", "Enter to edit", out)
+	}
+	enterAltEdit(t, s)
+	typeDigits(s, 900)
+	s.HandleKey("enter")
+	out := s.Render(80)
+	if !strings.Contains(out, "Enter now launches") {
+		t.Errorf("after leaving the box the hint does not say Enter launches:\n%s", out)
+	}
+	if strings.Contains(out, "Enter to edit") {
+		t.Errorf("after leaving the box the hint still offers to edit:\n%s", out)
 	}
 }
 
