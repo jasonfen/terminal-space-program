@@ -42,36 +42,15 @@ type StartScenario struct {
 // ApplyStartScenario reshapes the world's starting craft per s, replacing
 // the default LEO seed. It resolves the system + body, clears the default
 // slate, spawns a single craft from the scenario via SpawnCraft (so
-// launchpad co-rotation and ADR 0015 system binding come for free), and
-// leaves that craft active with the camera following it. Returns a
-// descriptive error (listing valid values) on an unknown system / body /
-// loadout, leaving the world untouched.
+// launchpad co-rotation, ADR 0015 system binding, and the ADR 0044 Orbit
+// Band clamp all come for free), and leaves that craft active with the
+// camera following it. Returns a descriptive error (listing valid values)
+// on an unknown system / body / loadout, leaving the world untouched.
 func (w *World) ApplyStartScenario(s StartScenario) error {
-	// 1. Resolve the system (default Sol / index 0).
-	sysIdx := 0
-	if s.SystemName != "" {
-		idx := -1
-		for i := range w.Systems {
-			if strings.EqualFold(w.Systems[i].Name, s.SystemName) {
-				idx = i
-				break
-			}
-		}
-		if idx < 0 {
-			return fmt.Errorf("unknown system %q (have: %s)", s.SystemName, strings.Join(SystemNames(w.Systems), ", "))
-		}
-		sysIdx = idx
-	}
-
-	// 2. Resolve the body within that system before mutating any state.
-	sys := w.Systems[sysIdx]
-	bodyID := s.BodyID
-	if bodyID == "" {
-		bodyID = defaultStartBodyID(sys)
-	}
-	b := sys.FindBody(bodyID)
-	if b == nil {
-		return fmt.Errorf("unknown body %q in system %q (have: %s)", s.BodyID, sys.Name, strings.Join(bodyNames(sys), ", "))
+	// 1-2. Resolve the system + body before mutating any state.
+	sysIdx, b, err := ResolveStartTarget(w.Systems, s)
+	if err != nil {
+		return err
 	}
 
 	// 3. Validate the loadout up front (SpawnCraft would silently fall back
@@ -117,6 +96,42 @@ func SystemNames(systems []bodies.System) []string {
 		names[i] = s.Name
 	}
 	return names
+}
+
+// ResolveStartTarget resolves the system index and parent body a
+// StartScenario would spawn at, without mutating a World or spawning
+// anything — the same resolution ApplyStartScenario's steps 1-2 perform,
+// factored out so the CLI (cmd/terminal-space-program) can look up the
+// same target ApplyStartScenario will use. This lets the CLI report an
+// ADR 0044 §5 Orbit Band clamp (via ClampToOrbitBand) before the TUI
+// takes the screen, without SpawnCraft itself needing to report back
+// through a wider signature. Returns the same descriptive error
+// ApplyStartScenario would return on an unknown system or body.
+func ResolveStartTarget(systems []bodies.System, s StartScenario) (sysIdx int, body bodies.CelestialBody, err error) {
+	if s.SystemName != "" {
+		idx := -1
+		for i := range systems {
+			if strings.EqualFold(systems[i].Name, s.SystemName) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return 0, bodies.CelestialBody{}, fmt.Errorf("unknown system %q (have: %s)", s.SystemName, strings.Join(SystemNames(systems), ", "))
+		}
+		sysIdx = idx
+	}
+
+	sys := systems[sysIdx]
+	bodyID := s.BodyID
+	if bodyID == "" {
+		bodyID = defaultStartBodyID(sys)
+	}
+	b := sys.FindBody(bodyID)
+	if b == nil {
+		return 0, bodies.CelestialBody{}, fmt.Errorf("unknown body %q in system %q (have: %s)", s.BodyID, sys.Name, strings.Join(bodyNames(sys), ", "))
+	}
+	return sysIdx, *b, nil
 }
 
 // bodyNames lists a system's body IDs (the canonical CLI tokens).

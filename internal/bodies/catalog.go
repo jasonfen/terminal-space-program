@@ -17,11 +17,13 @@ import (
 // JSON whitespace edits don't churn the hash. Only semantic catalog
 // changes (new bodies, mass / element edits) bump it.
 //
-// The body Texture spec (ADR 0024) is cosmetic, not semantic, so it is
-// zeroed in a hash-specific view before hashing — adding or editing a
-// texture must never reject an existing save. `json:"-"` can't be used
-// on the field itself because that would also block *loading* it; the
-// exclusion lives here, at the hash boundary.
+// The body Texture spec (ADR 0024) and OrbitStandOffKm (ADR 0044) are
+// cosmetic, not semantic, so both are zeroed in a hash-specific view
+// before hashing — adding or editing a texture, or authoring/tuning a
+// star's Orbit Floor stand-off, must never reject an existing save.
+// `json:"-"` can't be used on the fields themselves because that would
+// also block *loading* them; the exclusion lives here, at the hash
+// boundary.
 func CatalogHash() (string, error) {
 	systems, err := LoadAll()
 	if err != nil {
@@ -36,9 +38,10 @@ func CatalogHash() (string, error) {
 }
 
 // hashView returns a shallow copy of the loaded systems with every
-// body's cosmetic Texture zeroed, so CatalogHash tracks only semantic
-// catalog shape. The originals are untouched (the Bodies slices are
-// copied, not aliased) so the live catalog keeps its textures.
+// body's cosmetic Texture and OrbitStandOffKm zeroed, so CatalogHash
+// tracks only semantic catalog shape. The originals are untouched (the
+// Bodies slices are copied, not aliased) so the live catalog keeps its
+// textures and authored stand-offs.
 func hashView(systems []System) []System {
 	out := make([]System, len(systems))
 	for i, s := range systems {
@@ -46,6 +49,7 @@ func hashView(systems []System) []System {
 		copy(bodies, s.Bodies)
 		for j := range bodies {
 			bodies[j].Texture = nil
+			bodies[j].OrbitStandOffKm = 0
 		}
 		s.Bodies = bodies
 		out[i] = s

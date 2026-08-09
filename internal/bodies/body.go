@@ -108,6 +108,19 @@ type CelestialBody struct {
 	// engine consumes a non-nil block. Cosmetic, not semantic —
 	// deliberately excluded from CatalogHash (see catalog.go).
 	Texture *Texture `json:"texture,omitempty"`
+
+	// OrbitStandOffKm (ADR 0044) is the authored Orbit Floor for a
+	// star, in km above its surface. A star has no atmosphere, so the
+	// flat "CutoffAltitude + 25 km" floor rule that works for every
+	// other body would let you circularise just above the
+	// photosphere — its floor is heat, not air, and there is no
+	// derivable substitute. This is the one hand-maintained number in
+	// the Orbit Band design (see OrbitStandOffM below for the
+	// fallback used when it's left unset). Like Texture, it is
+	// cosmetic for hashing purposes — a spawn-form courtesy, not
+	// semantic catalog shape — and is deliberately excluded from
+	// CatalogHash (see catalog.go).
+	OrbitStandOffKm float64 `json:"orbitStandOffKm,omitempty"`
 }
 
 // Atmosphere is an exponential-density atmospheric model:
@@ -182,6 +195,26 @@ func (cb *CelestialBody) SideralRotationSeconds() float64 {
 // (days) to seconds. Returns 0 when no orbital period is known.
 func (cb *CelestialBody) SideralOrbitSeconds() float64 {
 	return cb.SideralOrbit * 86400.0
+}
+
+// OrbitStandOffM returns the star Orbit Floor stand-off (ADR 0044) in
+// metres. Non-star bodies return 0 — their floor comes from
+// Atmosphere.CutoffAltitude instead, computed elsewhere. A star with
+// an authored OrbitStandOffKm returns that value converted to metres;
+// an unauthored star (Alpha Centauri A/B/Proxima, Kepler-452,
+// TRAPPIST-1 as of ADR 0044 — none of these have a hand-tuned number
+// yet) falls back to 10x its mean radius, a stand-in order-of-magnitude
+// guess until each system's star is authored individually. 25 km above
+// a photosphere is never the right answer for any of them, authored or
+// not.
+func (cb *CelestialBody) OrbitStandOffM() float64 {
+	if cb.BodyType != "Star" {
+		return 0
+	}
+	if cb.OrbitStandOffKm > 0 {
+		return cb.OrbitStandOffKm * 1000.0
+	}
+	return 10 * cb.RadiusMeters()
 }
 
 // SurfaceColorHex returns the body's launch-view horizon-fill colour,

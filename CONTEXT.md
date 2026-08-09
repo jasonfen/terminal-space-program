@@ -258,6 +258,54 @@ launchpad option is skipped or shown as unavailable.
 _Avoid_: Launch flag, Launchable badge (static alternatives — rejected
 because they can't express body-dependent launch ability).
 
+**Orbit Band** — **Orbit Floor** / **Orbit Ceiling** (ADR 0044):
+The range of spawn altitudes a given body can actually hold. The **Orbit
+Floor** is `Atmosphere.CutoffAltitude + 25 km` — one flat rule, airless
+bodies simply having a cutoff of zero (Earth 175 km, Mars 125 km, the Moon
+25 km). The **Orbit Ceiling** is ⅔ of the way from the surface to the SOI
+boundary, computed via `physics.SOIRadius` against `System.ParentOf` with
+the star as fallback. A **star** has a floor but no ceiling — `SOIRadius`
+returns 0 for a system primary, and that zero *is* the no-ceiling signal —
+so stars instead carry an authored **stand-off** floor (heat, not air),
+hash-excluded from `CatalogHash` like **Texture**. Only Sol and Lumen are
+actually authored (10,000,000 km / 500,000 km); the ADR didn't cover the
+other five shipped systems' seven stars, so an unauthored star falls back
+to **10× its own mean radius** as a stand-in until someone authors it. A
+typed spawn altitude outside the band is **clamped and the move is
+stated, both ends, with units** (`raised from 60 km to 175 km — Earth's
+air reaches 150 km`) — the CLI `--altitude` path prints only this note, so
+it must be self-contained; an airless body reads `25 km is as close as any
+orbit gets` rather than the nonsensical "air reaches 0 km." Never refused,
+never moved silently. Where floor > ceiling the body has **no Orbit Band
+at all** and cannot be orbited — Phobos (SOI 7.2 km, inside its own 11.1 km
+surface) and Deimos; such a body stays in the PARENT BODY list so it can
+still be landed on.
+_Avoid_: Altitude presets / the altitude ladder (deleted in ADR 0044 —
+`altitudePresets` was one Earth-shaped list applied to every body), Minimum
+safe altitude (the floor is not a safety claim; an in-band orbit can still
+be a bad idea).
+
+**Orbit Stops** (ADR 0044):
+The per-body altitudes `←`/`→` walks in the spawn form once the altitude
+ladder is gone — **floor, up to two round interior waypoints, synchronous
+(when it lands inside the band), ceiling (when the body has one)** — up to
+five, derived from the body's own numbers rather than authored. The
+synchronous stop is genuinely derived, `a = (μT²/4π²)^⅓ − R` from the
+rotation period (a tidally-locked body uses its orbital period instead —
+same formula), which is why Earth's lands on 35793 km with nobody typing
+"GEO." The two interior waypoints are the nearest round `1 / 2 / 5 × 10ⁿ`
+kilometre altitude, snapped in log space, to the points ⅓ and ⅔ of the way
+(also in log space) from floor to ceiling — kept only if they land strictly
+inside the band. This rule was decided during implementation; it is *not*
+what the ADR's own §2 example table shows, which turned out to be
+hand-illustrated rather than reproducible from any formula (see the ADR's
+implementation-deviations amendment). Stops that fall outside the band or
+collide with another after clamping are dropped, so a body may offer fewer
+than five. Arrows for the neighbourhood; `Enter` opens the typed box for an
+exact figure.
+_Avoid_: Presets (they are computed per body, not a table), Rungs (the
+ladder metaphor belongs to the deleted `altitudePresets`).
+
 **System Filter** / **Show-All Toggle** (v0.24 / ADR 0031):
 The spawn-form mechanism that hides off-**Scale Class** craft by default
 (see **Scale Class**). The filter keys on Scale Class — `real` craft appear

@@ -21,6 +21,7 @@
       "color": "#FFE9A6",
       "isPlanet": false,
       "meanRadius": 695700,
+      "orbitStandOffKm": 10000000,
       "mass": { "massValue": 1.98892, "massExponent": 30 },
       "semimajorAxis": 0,
       "sideralOrbit": 0,

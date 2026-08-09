@@ -123,6 +123,14 @@ func main() {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
 		os.Exit(2)
 	}
+	// ADR 0044 S3: report an Orbit Band clamp before the TUI takes the
+	// screen — "--altitude 60km" at Earth prints the raise here, then
+	// ApplyStartScenario's SpawnCraft call applies the identical clamp.
+	// A scenario that names an unorbitable body (e.g. "--orbit phobos")
+	// prints nothing here; SpawnCraft's own error surfaces below instead.
+	if note := startAltitudeClampNote(systems, scenario); note != "" {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: altitude %s\n", note)
+	}
 
 	// --reset-fleet is a serve-time admin action: refuse it without
 	// --serve (and alongside a custom start scenario) before anything
