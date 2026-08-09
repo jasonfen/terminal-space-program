@@ -14,11 +14,11 @@ import (
 // aggregates.
 func ringDottedPixels(c *Canvas, color lipgloss.Color) [][2]int {
 	var px [][2]int
-	for coord, tag := range c.pixelTags {
+	c.pixelTags.each(func(x, y int, tag CellTag) {
 		if tag.Color == color {
-			px = append(px, coord)
+			px = append(px, [2]int{x, y})
 		}
-	}
+	})
 	return px
 }
 

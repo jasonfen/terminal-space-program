@@ -140,8 +140,9 @@ type Canvas struct {
 	basis      Basis        // world axes mapped to canvas X+/Y+ (v0.6.4+)
 	dc         drawille.Canvas
 
-	// pixelTags maps a pixel coord (px, py) → CellTag. Set by the
-	// *Colored* / *Tagged* draw helpers; plain Plot / FillDisk /
+	// pixelTags maps a pixel coord (px, py) → CellTag, backed by a dense
+	// grid rather than a map (#369 — see canvas_pixel_tags.go). Set by
+	// the *Colored* / *Tagged* draw helpers; plain Plot / FillDisk /
 	// RingOutline / DrawEllipse / PlotArrow leave pixels untagged.
 	//
 	// At String() time, each terminal cell picks its color from the
@@ -157,7 +158,7 @@ type Canvas struct {
 	// orbit lines, craft glyphs, and apo/peri markers near a body.
 	// Per-pixel tagging keeps body color confined to the body's own
 	// pixels.
-	pixelTags map[[2]int]CellTag
+	pixelTags pixelTagGrid
 
 	// cellOverlays maps a cell coord → a Unicode glyph that replaces
 	// the drawille-derived char at String() time. v0.5.12+ — used by
@@ -186,6 +187,15 @@ type Canvas struct {
 	curveCacheOrder    []string
 	curveCacheHits     int
 	curveCacheComputes int
+
+	// ringCache is curveCache's #369 sibling for RingTiltedOutlineTagged
+	// (tilted ring-band outlines — Saturn's C/B/A/F bands): same
+	// recorded-pixel replay discipline, same reasons, different draw
+	// primitive. See canvas_ring_cache.go.
+	ringCache         map[string]*ringCacheEntry
+	ringCacheOrder    []string
+	ringCacheHits     int
+	ringCacheComputes int
 }
 
 // DiskIntersectsCanvas reports whether a disk of the given pixel
@@ -212,7 +222,7 @@ func NewCanvas(cols, rows int) *Canvas {
 	if rows < 4 {
 		rows = 4
 	}
-	return &Canvas{
+	c := &Canvas{
 		cols:  cols,
 		rows:  rows,
 		pxW:   cols * 2,
@@ -221,6 +231,8 @@ func NewCanvas(cols, rows int) *Canvas {
 		basis: DefaultBasis(),
 		dc:    drawille.NewCanvas(),
 	}
+	c.pixelTags.ensureSize(c.pxW, c.pxH)
+	return c
 }
 
 // SetBasis swaps the projection basis. Called per-frame by render
@@ -245,13 +257,18 @@ func (c *Canvas) Resize(cols, rows int) {
 	}
 	c.cols, c.rows = cols, rows
 	c.pxW, c.pxH = cols*2, rows*4
+	// #369: the dense pixelTags grid is sized to pxW×pxH, unlike the map
+	// it replaced. ensureSize drops stale contents on an actual size
+	// change, which is safe here — see its doc comment — because every
+	// screen's Render calls Clear() before drawing again after a resize.
+	c.pixelTags.ensureSize(c.pxW, c.pxH)
 }
 
 // Clear wipes the drawille buffer, per-pixel color tags, and cell
 // overlays. Call at the start of every frame.
 func (c *Canvas) Clear() {
 	c.dc.Clear()
-	c.pixelTags = nil
+	c.pixelTags.clear()
 	c.cellOverlays = nil
 	c.cellOverlayColors = nil
 }
@@ -392,9 +409,6 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 		pxRadius = 1
 	}
 	cx, cy, _ := c.Project(center)
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	// #363 introduced a per-radius offset-mask cache here (diskOffsetCache);
 	// #367 removed it after re-benchmarking with the curve-geometry cache
 	// (canvas_curve_cache.go) also in place: with the color-grid cache
@@ -416,7 +430,7 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 				continue
 			}
 			c.dc.Set(px, py)
-			c.pixelTags[[2]int{px, py}] = tag
+			c.pixelTags.set(px, py, tag)
 		}
 	}
 }
@@ -452,9 +466,6 @@ func (c *Canvas) FillTexturedDiskTagged(center orbital.Vec3, pxRadius int, textu
 		pxRadius = 1
 	}
 	cx, cy, _ := c.Project(center)
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	// See FillColoredDiskTagged's comment: the #363 offset-mask cache
 	// this loop used to go through was removed in #367 after
 	// re-benchmarking within noise.
@@ -471,7 +482,7 @@ func (c *Canvas) FillTexturedDiskTagged(center orbital.Vec3, pxRadius int, textu
 			c.dc.Set(px, py)
 			t := tag
 			t.Color = texture(dx, dy)
-			c.pixelTags[[2]int{px, py}] = t
+			c.pixelTags.set(px, py, t)
 		}
 	}
 }
@@ -506,9 +517,6 @@ func (c *Canvas) RingColoredOutlineTagged(center orbital.Vec3, pxRadius int, tag
 	if samples > maxSamples {
 		samples = maxSamples
 	}
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	for i := 0; i < samples; i++ {
 		theta := 2 * math.Pi * float64(i) / float64(samples)
 		px := cx + int(math.Round(float64(pxRadius)*math.Cos(theta)))
@@ -517,7 +525,7 @@ func (c *Canvas) RingColoredOutlineTagged(center orbital.Vec3, pxRadius int, tag
 			continue
 		}
 		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = tag
+		c.pixelTags.set(px, py, tag)
 	}
 }
 
@@ -561,9 +569,6 @@ func (c *Canvas) RingDottedColored(center orbital.Vec3, pxRadius int, color lipg
 	if samples > maxSamples {
 		samples = maxSamples
 	}
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	tag := CellTag{Color: color}
 	for i := 0; i < samples; i++ {
 		theta := start + span*float64(i)/float64(samples)
@@ -573,30 +578,42 @@ func (c *Canvas) RingDottedColored(center orbital.Vec3, pxRadius int, color lipg
 			continue
 		}
 		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = tag
+		c.pixelTags.set(px, py, tag)
 	}
 }
 
-// RingTiltedOutline draws a ring of radius rMeters around center
-// in the plane spanned by basis vectors e1, e2 (both in world
-// inertial frame, both unit-length, mutually orthogonal). v0.8.5.7+
-// — for ringed bodies whose ring plane is perpendicular to a tilted
-// spin axis (Saturn 26.7°, Uranus 97.8°), this draws the ring as
-// the foreshortened ellipse the current canvas view sees rather
-// than as a screen-space circle.
+// RingTiltedOutlineTagged draws a ring of radius rMeters around center in
+// the plane spanned by basis vectors e1, e2 (both in world inertial
+// frame, both unit-length, mutually orthogonal), tagging every pixel it
+// sets with the full CellTag. v0.8.5.7+ — for ringed bodies whose ring
+// plane is perpendicular to a tilted spin axis (Saturn 26.7°, Uranus
+// 97.8°), this draws the ring as the foreshortened ellipse the current
+// canvas view sees rather than as a screen-space circle.
 //
 // The samples loop is identical in spirit to RingColoredOutlineTagged;
 // the only difference is that the per-sample world position is in
 // 3D and goes through Canvas.Project (which already accounts for
 // the canvas's view basis). Same 4×(pxW+pxH) cap on samples to keep
 // the inner loop bounded at extreme zoom.
-func (c *Canvas) RingTiltedOutline(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, color lipgloss.Color) {
-	c.RingTiltedOutlineTagged(center, e1, e2, rMeters, CellTag{Color: color})
+//
+// #369 review F3: the plain-color wrapper (RingTiltedOutline) was deleted
+// — every production call site went through the cache
+// (RingTiltedOutlineCachedTagged, canvas_ring_cache.go) once #369 landed,
+// leaving it with zero callers. This function stays: it's the uncached
+// ground truth the ring cache's tests compare against, and the recording
+// variant miss path (ringTiltedOutlineTaggedRecording) shares its body.
+func (c *Canvas) RingTiltedOutlineTagged(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, tag CellTag) {
+	c.ringTiltedOutlineTaggedRecording(center, e1, e2, rMeters, tag, nil)
 }
 
-// RingTiltedOutlineTagged is RingTiltedOutline with the full
-// CellTag preserved on every pixel set.
-func (c *Canvas) RingTiltedOutlineTagged(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, tag CellTag) {
+// ringTiltedOutlineTaggedRecording is RingTiltedOutlineTagged with an
+// optional pixel recorder (#369, mirroring drawEllipseAdaptiveTaggedRecording
+// from #367): every pixel actually plotted is also handed to record (nil ⇒
+// identical to RingTiltedOutlineTagged). The ring-geometry cache
+// (canvas_ring_cache.go) calls this directly on a cache miss to capture
+// the projected output for replay, so caching costs nothing beyond the
+// draw that already had to happen.
+func (c *Canvas) ringTiltedOutlineTaggedRecording(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, tag CellTag, record func(px, py int)) {
 	if rMeters <= 0 {
 		return
 	}
@@ -613,9 +630,13 @@ func (c *Canvas) RingTiltedOutlineTagged(center orbital.Vec3, e1, e2 orbital.Vec
 	if samples > maxSamples {
 		samples = maxSamples
 	}
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
+	// #369 review F1: gate the pixelTags write on tagged the same way
+	// walkPixelSegment/blitCurvePoints do — pixelTagGrid.set() is itself
+	// now a no-op for a zero tag (see its doc comment), so this isn't
+	// load-bearing for correctness, but it skips the call entirely rather
+	// than making it and immediately returning, and keeps this function
+	// consistent with the rest of the file's *Tagged draw helpers.
+	tagged := tag != (CellTag{})
 	for i := 0; i < samples; i++ {
 		theta := 2 * math.Pi * float64(i) / float64(samples)
 		cT, sT := math.Cos(theta), math.Sin(theta)
@@ -628,7 +649,18 @@ func (c *Canvas) RingTiltedOutlineTagged(center orbital.Vec3, e1, e2 orbital.Vec
 			continue
 		}
 		c.dc.Set(px, py)
-		c.pixelTags[[2]int{px, py}] = tag
+		if tagged {
+			c.pixelTags.set(px, py, tag)
+		}
+		// record fires regardless of tagged: it captures the DRAWN POINT
+		// for cache replay (canvas_ring_cache.go), not the tag — a cache
+		// hit re-applies whatever tag the replay call passes (possibly a
+		// different one, e.g. a color-only change), the same "geometry
+		// cached, color applied fresh" contract DrawEllipseClassCachedTagged
+		// documents.
+		if record != nil {
+			record(px, py)
+		}
 	}
 }
 
@@ -646,9 +678,6 @@ func (c *Canvas) FillProjectedSphere(center orbital.Vec3, radius float64, color 
 	cx, cy, _ := c.Project(center)
 	pxR := radius * c.scale
 	pxR2 := pxR * pxR
-	if c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	tag := CellTag{Color: color}
 	for py := 0; py < c.pxH; py++ {
 		dy := float64(py - cy)
@@ -662,7 +691,7 @@ func (c *Canvas) FillProjectedSphere(center orbital.Vec3, radius float64, color 
 				continue
 			}
 			c.dc.Set(px, py)
-			c.pixelTags[[2]int{px, py}] = tag
+			c.pixelTags.set(px, py, tag)
 		}
 	}
 }
@@ -681,10 +710,7 @@ func (c *Canvas) PlotColored(w orbital.Vec3, color lipgloss.Color) {
 func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 	if px, py, ok := c.Project(w); ok {
 		c.dc.Set(px, py)
-		if c.pixelTags == nil {
-			c.pixelTags = make(map[[2]int]CellTag)
-		}
-		c.pixelTags[[2]int{px, py}] = tag
+		c.pixelTags.set(px, py, tag)
 	}
 }
 
@@ -819,16 +845,13 @@ func (c *Canvas) walkPixelDashSegment(ax, ay, bx, by float64, tag CellTag, onPx,
 		return newPhase
 	}
 	tagged := tag != (CellTag{})
-	if tagged && c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	plotPx := func(px, py int) {
 		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
 			return
 		}
 		c.dc.Set(px, py)
 		if tagged {
-			c.pixelTags[[2]int{px, py}] = tag
+			c.pixelTags.set(px, py, tag)
 		}
 	}
 	// Length clipped off the a-end still counts toward the cycle position,
@@ -899,9 +922,6 @@ func (c *Canvas) walkPixelSegment(ax, ay, bx, by float64, tag CellTag, step int,
 		return advanced
 	}
 	tagged := tag != (CellTag{})
-	if tagged && c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	exR2 := exR * exR
 	plotPx := func(px, py int) {
 		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
@@ -915,7 +935,7 @@ func (c *Canvas) walkPixelSegment(ax, ay, bx, by float64, tag CellTag, step int,
 		}
 		c.dc.Set(px, py)
 		if tagged {
-			c.pixelTags[[2]int{px, py}] = tag
+			c.pixelTags.set(px, py, tag)
 		}
 		if record != nil {
 			record(px, py)
@@ -1163,7 +1183,7 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 	if col < 0 || col >= c.cols || row < 0 || row >= c.rows {
 		return CellTag{}
 	}
-	if len(c.pixelTags) == 0 {
+	if c.pixelTags.count() == 0 {
 		return CellTag{}
 	}
 	bodies := newHitCandidates[string]()
@@ -1173,7 +1193,7 @@ func (c *Canvas) HitAt(col, row int) CellTag {
 	pxStart, pyStart := col*2, row*4
 	for dx := 0; dx < 2; dx++ {
 		for dy := 0; dy < 4; dy++ {
-			tag, ok := c.pixelTags[[2]int{pxStart + dx, pyStart + dy}]
+			tag, ok := c.pixelTags.get(pxStart+dx, pyStart+dy)
 			if !ok {
 				continue
 			}
@@ -1436,16 +1456,13 @@ func (c *Canvas) PlotArrowTagged(center, velocity orbital.Vec3, size int, tag Ce
 		wingLen = 1
 	}
 	tagSet := tag != (CellTag{})
-	if tagSet && c.pixelTags == nil {
-		c.pixelTags = make(map[[2]int]CellTag)
-	}
 	setPixel := func(px, py int) {
 		if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
 			return
 		}
 		c.dc.Set(px, py)
 		if tagSet {
-			c.pixelTags[[2]int{px, py}] = tag
+			c.pixelTags.set(px, py, tag)
 		}
 	}
 	for t := 0; t <= wingLen; t++ {
@@ -1524,7 +1541,7 @@ func (c *Canvas) DrawEllipseOffsetDottedColored(el orbital.Elements, offset orbi
 // content (orbit lines, craft glyph) with the body's color.
 func (c *Canvas) String() string {
 	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
-	if len(c.pixelTags) == 0 && len(c.cellOverlays) == 0 {
+	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 {
 		return c.joinRows(rows)
 	}
 	// Aggregate tags per cell: for each tagged pixel, accumulate a
@@ -1538,17 +1555,16 @@ func (c *Canvas) String() string {
 	// surfaced.
 	cellColor := make(map[[2]int]lipgloss.Color)
 	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
-	for coord, tag := range c.pixelTags {
+	c.pixelTags.each(func(px, py int, tag CellTag) {
 		if tag.Color == "" {
-			continue
+			return
 		}
-		cellX, cellY := coord[0]/2, coord[1]/4
-		key := [2]int{cellX, cellY}
+		key := [2]int{px / 2, py / 4}
 		if cellCounts[key] == nil {
 			cellCounts[key] = make(map[lipgloss.Color]int)
 		}
 		cellCounts[key][tag.Color]++
-	}
+	})
 	for key, counts := range cellCounts {
 		cellColor[key] = pickDominantColor(counts)
 	}
@@ -1626,16 +1642,16 @@ func (c *Canvas) String() string {
 // ellipse lands on enough cells to read as a line, not just a marker").
 func (c *Canvas) CountColor(color lipgloss.Color) int {
 	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
-	for coord, tag := range c.pixelTags {
+	c.pixelTags.each(func(px, py int, tag CellTag) {
 		if tag.Color == "" {
-			continue
+			return
 		}
-		key := [2]int{coord[0] / 2, coord[1] / 4}
+		key := [2]int{px / 2, py / 4}
 		if cellCounts[key] == nil {
 			cellCounts[key] = make(map[lipgloss.Color]int)
 		}
 		cellCounts[key][tag.Color]++
-	}
+	})
 	n := 0
 	for _, counts := range cellCounts {
 		if pickDominantColor(counts) == color {

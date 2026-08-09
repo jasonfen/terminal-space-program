@@ -979,7 +979,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				e1, e2 := render.BodyRingBasisWorld(b)
 				oe1 := vec3FromRender(e1)
 				oe2 := vec3FromRender(e2)
-				for _, band := range bands {
+				// #369 review F5: curveIDs are stable strings, so mint
+				// them from a memoized table instead of fmt.Sprintf per
+				// outline per frame (up to ~140 outlines/frame measured
+				// at deep zoom) — see ringCurveIDsFor.
+				ringIDs := ringCurveIDsFor(b.ID, len(bands))
+				for bandIdx, band := range bands {
 					// Fill each band by drawing concentric outlines
 					// at 1-pixel-screen-spacing radii. Cap per-band
 					// outline count so a deeply-zoomed ring system
@@ -990,13 +995,20 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 						widthPx = 1
 					}
 					n := widthPx
-					if n > 64 {
-						n = 64
+					if n > ringOutlineCap {
+						n = ringOutlineCap
 					}
 					for i := 0; i < n; i++ {
 						t := (float64(i) + 0.5) / float64(n)
 						bandR := band.InnerR + t*(band.OuterR-band.InnerR)
-						v.canvas.RingTiltedOutline(pos, oe1, oe2, bandR, band.Color)
+						// #369: curveID is a stable per-outline cache
+						// identity (bodyID + band index + concentric
+						// index), NOT an Inspect owner key — ring bands
+						// aren't in the Inspect click-hit set, unlike
+						// the ellipse cache's four call sites which
+						// reuse bodyRef.OwnerKey() for exactly that
+						// reason.
+						v.canvas.RingTiltedOutlineCachedTagged(ringIDs[bandIdx][i], pos, oe1, oe2, bandR, widgets.CellTag{Color: band.Color})
 					}
 				}
 			}
@@ -1686,6 +1698,45 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 // shape; this is just a name-change hop.
 func vec3FromRender(v render.Vec3) orbital.Vec3 {
 	return orbital.Vec3{X: v.X, Y: v.Y, Z: v.Z}
+}
+
+// ringOutlineCap is the per-band concentric-outline cap the ring-band
+// draw loop uses (also ringCacheCap's derivation in
+// canvas_ring_cache.go — 4 Saturn bands × this cap is the exact worst
+// case for the ring cache's LRU bound, not an estimate).
+const ringOutlineCap = 64
+
+// ringCurveIDCache memoizes the #369 ring-cache identity strings
+// ("ring:<bodyID>:<bandIdx>:<outlineIdx>") per body (#369 review F5): the
+// ring-band draw loop below used to fmt.Sprintf a fresh string per
+// outline per frame — up to ~140 measured at deep zoom, all of them
+// redundant, since (bodyID, bandIdx, outlineIdx) → string is invariant
+// for the process's lifetime (BodyRingBands is a static compiled-in
+// table, never mutated at runtime). Rendering runs on Bubble Tea's single
+// Update/View goroutine, so this needs no locking.
+var ringCurveIDCache = map[string][][]string{}
+
+// ringCurveIDsFor returns bodyID's full curveID table — [bandIdx][i] —
+// computing and caching it the first time a given (bodyID, numBands)
+// shape is seen. Sized to ringOutlineCap columns regardless of how many
+// outlines the CURRENT frame actually draws (a shrunk zoom draws fewer
+// than ringOutlineCap outlines per band), so a later frame at a deeper
+// zoom always finds its string already computed rather than growing the
+// table repeatedly.
+func ringCurveIDsFor(bodyID string, numBands int) [][]string {
+	if table, ok := ringCurveIDCache[bodyID]; ok && len(table) == numBands {
+		return table
+	}
+	table := make([][]string, numBands)
+	for bandIdx := range table {
+		row := make([]string, ringOutlineCap)
+		for i := range row {
+			row[i] = fmt.Sprintf("ring:%s:%d:%d", bodyID, bandIdx, i)
+		}
+		table[bandIdx] = row
+	}
+	ringCurveIDCache[bodyID] = table
+	return table
 }
 
 // cameraDirForView maps a sim.ViewMode to the world-frame body-to-
