@@ -64,7 +64,7 @@ flags below.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--altitude VAL` | `500km` | Circular-orbit altitude above the body's mean radius. Unit-suffixed: `400km`, `400000m`, or a bare number read as kilometres. |
+| `--altitude VAL` | `500km` | Circular-orbit altitude above the body's mean radius. Unit-suffixed: `400km`, `400000m`, or a bare number read as kilometres. Clamped to the target body's legal orbit band (a floor a safe margin above its atmosphere, a ceiling before its gravity's grip runs out); an out-of-range value is moved into range and the move is printed before the game starts. |
 | `--inclination DEG` | `0` | Orbit inclination in degrees, relative to the body's equator. |
 | `--retrograde` | off | Spawn into a retrograde orbit. |
 
@@ -91,6 +91,9 @@ explicit `--lat`/`--lon` (and `--orbit BODY` to choose the body).
 - `--launch-site` can't be combined with `--lat`/`--lon`.
 - An unknown system, body, loadout, or launch site prints a clear error that
   lists the valid values, and exits non-zero.
+- A body with no legal orbit altitude at all (e.g. `--orbit phobos`) refuses
+  the start outright rather than silently substituting an orbit of its
+  parent — the error names the body that actually owns that space.
 - Body and loadout names are the catalog **IDs** — run the matching `--list-*`
   flag if a name is rejected (e.g. the Moon's ID is `moon`, Lumen's home planet
   is `kern`).
