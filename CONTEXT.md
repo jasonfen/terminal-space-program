@@ -258,6 +258,38 @@ launchpad option is skipped or shown as unavailable.
 _Avoid_: Launch flag, Launchable badge (static alternatives — rejected
 because they can't express body-dependent launch ability).
 
+**Orbit Band** — **Orbit Floor** / **Orbit Ceiling** (ADR 0044):
+The range of spawn altitudes a given body can actually hold. The **Orbit
+Floor** is `Atmosphere.CutoffAltitude + 25 km` — one flat rule, airless
+bodies simply having a cutoff of zero (Earth 175 km, Mars 125 km, the Moon
+25 km). The **Orbit Ceiling** is ⅔ of the way from the surface to the SOI
+boundary, computed via `physics.SOIRadius` against `System.ParentOf` with
+the star as fallback. A **star** has a floor but no ceiling — `SOIRadius`
+returns 0 for a system primary, and that zero *is* the no-ceiling signal —
+so stars instead carry an authored **stand-off** floor (heat, not air),
+hash-excluded from `CatalogHash` like **Texture**. A typed spawn altitude
+outside the band is **clamped and the move is stated** (`↳ raised from 60 —
+Earth's air reaches 150 km`), never refused and never moved silently. Where
+floor > ceiling the body has **no Orbit Band at all** and cannot be orbited
+— Phobos (SOI 7.2 km, inside its own 11.1 km surface) and Deimos; such a
+body stays in the PARENT BODY list so it can still be landed on.
+_Avoid_: Altitude presets / the altitude ladder (deleted in ADR 0044 —
+`altitudePresets` was one Earth-shaped list applied to every body), Minimum
+safe altitude (the floor is not a safety claim; an in-band orbit can still
+be a bad idea).
+
+**Orbit Stops** (ADR 0044):
+The five per-body altitudes `←`/`→` walks in the spawn form once the
+altitude ladder is gone — **floor, low, mid, synchronous, ceiling** —
+derived from the body's own numbers rather than authored. The synchronous
+stop is `a = (μT²/4π²)^⅓ − R` from the rotation period, which is why
+Earth's lands on 35793 km with nobody typing "GEO." Stops above the ceiling
+are dropped and post-clamp collisions deduped, so a body may offer fewer
+than five. Arrows for the neighbourhood; `Enter` opens the typed box for an
+exact figure.
+_Avoid_: Presets (they are computed per body, not a table), Rungs (the
+ladder metaphor belongs to the deleted `altitudePresets`).
+
 **System Filter** / **Show-All Toggle** (v0.24 / ADR 0031):
 The spawn-form mechanism that hides off-**Scale Class** craft by default
 (see **Scale Class**). The filter keys on Scale Class — `real` craft appear
