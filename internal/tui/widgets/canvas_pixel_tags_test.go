@@ -76,6 +76,82 @@ func TestPixelTagGridOverwriteDoesNotDoubleCountTouched(t *testing.T) {
 	}
 }
 
+// TestPixelTagGridZeroThenRealDoesNotDoubleCountTouched is the #369
+// review's F1 regression test: a ZERO-value write (CellTag{}, e.g.
+// FillProjectedSphere fed a body whose SurfaceColorHex() is "" —
+// alpha-centauri.json, trappist-1.json, and kepler-452.json all have
+// bodies like this) followed by a REAL write to the SAME pixel must
+// still land the pixel in touched/each() exactly once — the existing
+// overwrite test above only covers real-then-real. A zero write is a
+// true no-op (see set()'s doc comment for why), so this also covers the
+// reverse order (real-then-zero) and a zero-only write, which must never
+// appear as touched at all.
+//
+// Non-vacuousness (per the review's request): run with the zero-tag
+// no-op guard at the top of set() removed (so a zero tag flows through
+// internTag/tagIdx like any other value). "zero-then-real" still passed
+// under that sabotage — this implementation's touched-dedup flag is
+// tagIdx[idx]==0 (a presence bit, independent of the tag's CONTENT), not
+// "does the stored value read as zero" the way the review's original
+// finding described, so that specific double-touch shape doesn't
+// reproduce here. But "real-then-zero" and "zero-only" both failed
+// exactly as expected: without the guard, a later zero write clobbers a
+// real tag instead of no-opping (get(5,5) returned the zero tag, not the
+// real one), and a zero-only write registers as touched (count()==1
+// instead of 0) — both confirmed, then reverted. All three sub-tests
+// together pin the "zero is a true no-op regardless of order" contract
+// set()'s doc comment describes.
+func TestPixelTagGridZeroThenRealDoesNotDoubleCountTouched(t *testing.T) {
+	t.Run("zero-then-real", func(t *testing.T) {
+		var g pixelTagGrid
+		g.ensureSize(10, 10)
+
+		g.set(4, 4, CellTag{})                 // e.g. an empty SurfaceColorHex()
+		g.set(4, 4, CellTag{Color: "#ABCDEF"}) // a real overpaint (orbit path, marker, ...)
+
+		if got := g.count(); got != 1 {
+			t.Fatalf("count() = %d after a zero write then a real write to the same pixel, want 1", got)
+		}
+		if tag, ok := g.get(4, 4); !ok || tag.Color != "#ABCDEF" {
+			t.Errorf("get(4,4) = (%v, %v), want the real write's color #ABCDEF", tag, ok)
+		}
+		n := 0
+		g.each(func(px, py int, tag CellTag) { n++ })
+		if n != 1 {
+			t.Errorf("each() visited the pixel %d times, want 1 (zero-then-real should not double-count)", n)
+		}
+	})
+
+	t.Run("real-then-zero", func(t *testing.T) {
+		var g pixelTagGrid
+		g.ensureSize(10, 10)
+
+		g.set(5, 5, CellTag{Color: "#ABCDEF"})
+		g.set(5, 5, CellTag{}) // a later zero write must not erase or double-touch
+
+		if got := g.count(); got != 1 {
+			t.Fatalf("count() = %d after a real write then a zero write to the same pixel, want 1", got)
+		}
+		if tag, ok := g.get(5, 5); !ok || tag.Color != "#ABCDEF" {
+			t.Errorf("get(5,5) = (%v, %v), want the real tag to survive a later zero write", tag, ok)
+		}
+	})
+
+	t.Run("zero-only", func(t *testing.T) {
+		var g pixelTagGrid
+		g.ensureSize(10, 10)
+
+		g.set(6, 6, CellTag{})
+
+		if got := g.count(); got != 0 {
+			t.Errorf("count() = %d after a zero-only write, want 0 (never touched)", got)
+		}
+		if tag, ok := g.get(6, 6); ok || tag != (CellTag{}) {
+			t.Errorf("get(6,6) after a zero-only write = (%v, %v), want (CellTag{}, false)", tag, ok)
+		}
+	})
+}
+
 // TestPixelTagGridClearResetsTouchedOnly confirms clear() drops every
 // touched pixel back to CellTag{} and empties the touched list, without
 // needing (or performing) a full w×h sweep — get() on a cleared pixel

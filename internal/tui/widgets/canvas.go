@@ -582,25 +582,26 @@ func (c *Canvas) RingDottedColored(center orbital.Vec3, pxRadius int, color lipg
 	}
 }
 
-// RingTiltedOutline draws a ring of radius rMeters around center
-// in the plane spanned by basis vectors e1, e2 (both in world
-// inertial frame, both unit-length, mutually orthogonal). v0.8.5.7+
-// — for ringed bodies whose ring plane is perpendicular to a tilted
-// spin axis (Saturn 26.7°, Uranus 97.8°), this draws the ring as
-// the foreshortened ellipse the current canvas view sees rather
-// than as a screen-space circle.
+// RingTiltedOutlineTagged draws a ring of radius rMeters around center in
+// the plane spanned by basis vectors e1, e2 (both in world inertial
+// frame, both unit-length, mutually orthogonal), tagging every pixel it
+// sets with the full CellTag. v0.8.5.7+ — for ringed bodies whose ring
+// plane is perpendicular to a tilted spin axis (Saturn 26.7°, Uranus
+// 97.8°), this draws the ring as the foreshortened ellipse the current
+// canvas view sees rather than as a screen-space circle.
 //
 // The samples loop is identical in spirit to RingColoredOutlineTagged;
 // the only difference is that the per-sample world position is in
 // 3D and goes through Canvas.Project (which already accounts for
 // the canvas's view basis). Same 4×(pxW+pxH) cap on samples to keep
 // the inner loop bounded at extreme zoom.
-func (c *Canvas) RingTiltedOutline(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, color lipgloss.Color) {
-	c.RingTiltedOutlineTagged(center, e1, e2, rMeters, CellTag{Color: color})
-}
-
-// RingTiltedOutlineTagged is RingTiltedOutline with the full
-// CellTag preserved on every pixel set.
+//
+// #369 review F3: the plain-color wrapper (RingTiltedOutline) was deleted
+// — every production call site went through the cache
+// (RingTiltedOutlineCachedTagged, canvas_ring_cache.go) once #369 landed,
+// leaving it with zero callers. This function stays: it's the uncached
+// ground truth the ring cache's tests compare against, and the recording
+// variant miss path (ringTiltedOutlineTaggedRecording) shares its body.
 func (c *Canvas) RingTiltedOutlineTagged(center orbital.Vec3, e1, e2 orbital.Vec3, rMeters float64, tag CellTag) {
 	c.ringTiltedOutlineTaggedRecording(center, e1, e2, rMeters, tag, nil)
 }
@@ -629,6 +630,13 @@ func (c *Canvas) ringTiltedOutlineTaggedRecording(center orbital.Vec3, e1, e2 or
 	if samples > maxSamples {
 		samples = maxSamples
 	}
+	// #369 review F1: gate the pixelTags write on tagged the same way
+	// walkPixelSegment/blitCurvePoints do — pixelTagGrid.set() is itself
+	// now a no-op for a zero tag (see its doc comment), so this isn't
+	// load-bearing for correctness, but it skips the call entirely rather
+	// than making it and immediately returning, and keeps this function
+	// consistent with the rest of the file's *Tagged draw helpers.
+	tagged := tag != (CellTag{})
 	for i := 0; i < samples; i++ {
 		theta := 2 * math.Pi * float64(i) / float64(samples)
 		cT, sT := math.Cos(theta), math.Sin(theta)
@@ -641,7 +649,15 @@ func (c *Canvas) ringTiltedOutlineTaggedRecording(center orbital.Vec3, e1, e2 or
 			continue
 		}
 		c.dc.Set(px, py)
-		c.pixelTags.set(px, py, tag)
+		if tagged {
+			c.pixelTags.set(px, py, tag)
+		}
+		// record fires regardless of tagged: it captures the DRAWN POINT
+		// for cache replay (canvas_ring_cache.go), not the tag — a cache
+		// hit re-applies whatever tag the replay call passes (possibly a
+		// different one, e.g. a color-only change), the same "geometry
+		// cached, color applied fresh" contract DrawEllipseClassCachedTagged
+		// documents.
 		if record != nil {
 			record(px, py)
 		}

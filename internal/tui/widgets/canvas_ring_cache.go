@@ -45,12 +45,18 @@ type ringCacheEntry struct {
 }
 
 // ringCacheCap bounds ringCache the same LRU way curveCacheCap bounds
-// curveCache. Sized to the deterministic worst case rather than an
-// estimate: BodyRingBands' only ringed body today (Saturn) has 4 bands,
-// each capped at 64 concentric outlines (orbit.go's per-band `n`, capped
-// at 64) — 256 distinct curveIDs, all stable strings ("ring:saturn:B:i")
-// that don't churn the way vessel/ghost curveIDs can. A future second
-// ringed body would need this raised; 256 leaves headroom without it.
+// curveCache. Sized to the exact deterministic worst case, not an
+// estimate with headroom: BodyRingBands' only ringed body today (Saturn)
+// has 4 bands, each capped at 64 concentric outlines (orbit.go's
+// per-band `n`, capped at 64) — 4×64 = 256 distinct curveIDs is the most
+// that can EVER be live in one frame, arithmetically, not a guess.
+// Measured in practice the real number stays well under that (~140
+// outlines/frame at a deep-zoom scale of ≈2.4e-6, where most bands'
+// widthPx is still short of the 64 cap) — 256 is the ceiling, not the
+// typical case. curveIDs are stable strings ("ring:saturn:B:i") that
+// don't churn the way vessel/ghost curveIDs can, so nothing here grows
+// unbounded between frames either. A future second ringed body would
+// need this cap raised.
 const ringCacheCap = 256
 
 // ringCacheKey fingerprints everything a ring outline's projected pixel
