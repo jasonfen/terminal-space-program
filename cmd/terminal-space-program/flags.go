@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -88,6 +89,42 @@ func buildScenario(r rawFlags) (*sim.StartScenario, error) {
 	s.InclDeg = r.inclination
 	s.Retrograde = r.retrograde
 	return s, nil
+}
+
+// startAltitudeClampNote reports whether the CLI's orbital scenario s will
+// have its altitude moved by the target body's Orbit Band (ADR 0044 §5) —
+// the same clamp ApplyStartScenario's SpawnCraft call applies — so main can
+// print the move before the TUI takes the screen. Returns "" for a surface
+// scenario (the band never applies there); when the target can't be
+// resolved (ApplyStartScenario will surface that error itself once the app
+// actually starts); when the altitude is already in-band; and — on
+// purpose — for a body with no legal orbit altitude at all (e.g.
+// "--orbit phobos"). That last case is a refusal, not a move: SpawnCraft's
+// own error ("Mars owns everything outside Phobos's surface...") is the
+// single message it should produce, surfaced through the normal
+// tui.New/main error path rather than echoed here under a misleading
+// "altitude" prefix.
+//
+// This mirrors SpawnCraft's own default (unset/non-positive AltitudeM ->
+// sim.DefaultOrbitAltitudeM) so the reported note matches what actually
+// gets spawned, even when --altitude was never passed.
+func startAltitudeClampNote(systems []bodies.System, s *sim.StartScenario) string {
+	if s == nil || s.Surface {
+		return ""
+	}
+	sysIdx, body, err := sim.ResolveStartTarget(systems, *s)
+	if err != nil {
+		return ""
+	}
+	alt := s.AltitudeM
+	if alt <= 0 {
+		alt = sim.DefaultOrbitAltitudeM
+	}
+	_, note, ok := sim.ClampToOrbitBand(systems[sysIdx], body, alt)
+	if !ok {
+		return ""
+	}
+	return note
 }
 
 // parseDistanceM parses an altitude with an optional unit suffix: "400km",

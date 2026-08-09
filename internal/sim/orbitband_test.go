@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -248,6 +249,100 @@ func TestOrbitStops_NarrowBandOffersFewerThanFive(t *testing.T) {
 	}
 	if len(stops) == 0 {
 		t.Errorf("expected mote to offer at least floor+ceiling")
+	}
+}
+
+// TestClampToOrbitBand_RaisedNoteWording checks the exact player-facing
+// sentence ClampToOrbitBand returns when it raises an altitude to the
+// floor (ADR 0044 §4): what happened, where the number came from, and the
+// physical fact (Earth's atmosphere cutoff) behind the limit.
+func TestClampToOrbitBand_RaisedNoteWording(t *testing.T) {
+	systems := loadOrbitBandCatalog(t)
+	sys, earth := findBodyIn(t, systems, "Sol", "earth")
+	if earth.Atmosphere == nil {
+		t.Fatalf("test premise broken: earth has no Atmosphere block")
+	}
+
+	const requested = 60_000.0 // 60 km — below Earth's 175 km floor
+	band := OrbitBandFor(sys, earth)
+	got, note, ok := ClampToOrbitBand(sys, earth, requested)
+	if !ok {
+		t.Fatalf("ClampToOrbitBand(earth, 60km) ok=false, want true")
+	}
+	if got != band.FloorM {
+		t.Errorf("clamped = %.1f, want floor %.1f", got, band.FloorM)
+	}
+	want := fmt.Sprintf("raised from %s — %s's air reaches %s km",
+		commaKm(requested), earth.EnglishName, commaKm(earth.Atmosphere.CutoffAltitude))
+	if note != want {
+		t.Errorf("note = %q, want %q", note, want)
+	}
+}
+
+// TestClampToOrbitBand_LoweredNoteWording checks the ceiling-side wording:
+// it cites the body's SOI ("grip"), not its (narrower) two-thirds ceiling.
+func TestClampToOrbitBand_LoweredNoteWording(t *testing.T) {
+	systems := loadOrbitBandCatalog(t)
+	sys, moon := findBodyIn(t, systems, "Sol", "moon")
+	_, earth := findBodyIn(t, systems, "Sol", "earth")
+
+	const requested = 90_000_000.0 // 90,000 km — above the Moon's ceiling
+	band := OrbitBandFor(sys, moon)
+	got, note, ok := ClampToOrbitBand(sys, moon, requested)
+	if !ok {
+		t.Fatalf("ClampToOrbitBand(moon, 90000km) ok=false, want true")
+	}
+	if got != band.CeilingM {
+		t.Errorf("clamped = %.1f, want ceiling %.1f", got, band.CeilingM)
+	}
+	soi := physics.SOIRadius(moon, earth)
+	want := fmt.Sprintf("lowered from %s — %s's grip reaches %s km",
+		commaKm(requested), moon.EnglishName, commaKm(soi))
+	if note != want {
+		t.Errorf("note = %q, want %q", note, want)
+	}
+}
+
+// TestClampToOrbitBand_InBandNoteEmpty checks the quiet path: an altitude
+// already inside the band moves nothing and explains nothing.
+func TestClampToOrbitBand_InBandNoteEmpty(t *testing.T) {
+	systems := loadOrbitBandCatalog(t)
+	sys, earth := findBodyIn(t, systems, "Sol", "earth")
+
+	const requested = 400_000.0 // well inside Earth's band
+	got, note, ok := ClampToOrbitBand(sys, earth, requested)
+	if !ok {
+		t.Fatalf("ClampToOrbitBand(earth, 400km) ok=false, want true")
+	}
+	if got != requested {
+		t.Errorf("clamped = %.1f, want the untouched requested %.1f", got, requested)
+	}
+	if note != "" {
+		t.Errorf("note = %q, want empty (nothing moved)", note)
+	}
+}
+
+// TestClampToOrbitBand_NoOrbitNoteWording checks the Empty-band wording
+// (ADR 0044 §6): it names the body that actually owns the space (Phobos's
+// gravitational parent, Mars) and points at the launchpad. clampedM must
+// come back unchanged — callers must not use it to place a craft.
+func TestClampToOrbitBand_NoOrbitNoteWording(t *testing.T) {
+	systems := loadOrbitBandCatalog(t)
+	sys, phobos := findBodyIn(t, systems, "Sol", "phobos")
+	_, mars := findBodyIn(t, systems, "Sol", "mars")
+
+	const requested = 50_000.0
+	got, note, ok := ClampToOrbitBand(sys, phobos, requested)
+	if ok {
+		t.Fatalf("ClampToOrbitBand(phobos) ok=true, want false (Empty band)")
+	}
+	if got != requested {
+		t.Errorf("clampedM = %.1f, want the unchanged requested %.1f on a refused clamp", got, requested)
+	}
+	want := fmt.Sprintf("%s owns everything outside %s's surface — no orbit exists here; try the launchpad instead",
+		mars.EnglishName, phobos.EnglishName)
+	if note != want {
+		t.Errorf("note = %q, want %q", note, want)
 	}
 }
 

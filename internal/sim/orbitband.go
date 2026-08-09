@@ -1,8 +1,11 @@
 package sim
 
 import (
+	"fmt"
 	"math"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
@@ -52,11 +55,7 @@ type OrbitBand struct {
 func OrbitBandFor(sys bodies.System, b bodies.CelestialBody) OrbitBand {
 	band := OrbitBand{FloorM: floorFor(b)}
 
-	parent := sys.ParentOf(b)
-	if parent == nil && len(sys.Bodies) > 0 {
-		p := sys.Bodies[0]
-		parent = &p
-	}
+	parent := orbitBandParent(sys, b)
 	if parent == nil {
 		return band
 	}
@@ -211,4 +210,115 @@ func dedupeSortedStops(stops []float64) []float64 {
 		out = append(out, s)
 	}
 	return out
+}
+
+// ClampToOrbitBand moves altM into b's Orbit Band (ADR 0044 §4) and
+// returns the result. Both ends clamp and neither refuses — an
+// altitude below the floor is raised to it, above the ceiling
+// (when one exists) is lowered to it — except an Empty band (no
+// legal orbit altitude exists at b at all, e.g. Phobos), where
+// ok is false, note explains why, and clampedM is altM unchanged
+// (callers must not use it to place a craft).
+//
+// note is a one-line player-facing sentence naming what happened and
+// the physical fact behind the limit — empty when altM was already
+// in-band. This is the single place that arithmetic lives:
+// SpawnCraft calls it rather than reimplementing the clamp, so the
+// spawn form, the --altitude CLI flag and any future spawn path
+// clamp identically and report identically.
+func ClampToOrbitBand(sys bodies.System, b bodies.CelestialBody, altM float64) (clampedM float64, note string, ok bool) {
+	band := OrbitBandFor(sys, b)
+	if band.Empty {
+		return altM, noOrbitNote(sys, b), false
+	}
+	if altM < band.FloorM {
+		return band.FloorM, raisedNote(b, altM), true
+	}
+	if band.HasCeiling && altM > band.CeilingM {
+		return band.CeilingM, loweredNote(sys, b, altM), true
+	}
+	return altM, "", true
+}
+
+// raisedNote explains an altitude raised to b's floor. A star's floor
+// is heat rather than air (ADR 0044 §3), so it cites the authored
+// stand-off instead of an atmosphere cutoff that doesn't exist.
+func raisedNote(b bodies.CelestialBody, fromM float64) string {
+	if b.BodyType == "Star" {
+		return fmt.Sprintf("raised from %s — %s's heat reaches %s km",
+			commaKm(fromM), b.EnglishName, commaKm(b.OrbitStandOffM()))
+	}
+	cutoff := 0.0
+	if b.Atmosphere != nil {
+		cutoff = b.Atmosphere.CutoffAltitude
+	}
+	return fmt.Sprintf("raised from %s — %s's air reaches %s km",
+		commaKm(fromM), b.EnglishName, commaKm(cutoff))
+}
+
+// loweredNote explains an altitude lowered to b's ceiling, citing the
+// physical fact the ceiling is derived from: b's sphere of influence
+// (its gravitational "grip") against its actual parent, resolved the
+// same way OrbitBandFor resolves it.
+func loweredNote(sys bodies.System, b bodies.CelestialBody, fromM float64) string {
+	soi := 0.0
+	if parent := orbitBandParent(sys, b); parent != nil {
+		soi = physics.SOIRadius(b, *parent)
+	}
+	return fmt.Sprintf("lowered from %s — %s's grip reaches %s km",
+		commaKm(fromM), b.EnglishName, commaKm(soi))
+}
+
+// noOrbitNote explains an Empty band (ADR 0044 §6): no legal orbit
+// altitude exists at b at all. Names the body that actually owns the
+// space around b (its gravitational parent) and points at the
+// launchpad as the thing that does work here.
+func noOrbitNote(sys bodies.System, b bodies.CelestialBody) string {
+	owner := "its primary"
+	if parent := orbitBandParent(sys, b); parent != nil {
+		owner = parent.EnglishName
+	}
+	return fmt.Sprintf("%s owns everything outside %s's surface — no orbit exists here; try the launchpad instead",
+		owner, b.EnglishName)
+}
+
+// orbitBandParent resolves b's gravitational parent exactly as
+// OrbitBandFor does: sys.ParentOf(b), falling back to sys.Bodies[0]
+// (the pattern physics.FindPrimary already uses) so a planet with no
+// authored parentId still resolves against its star.
+func orbitBandParent(sys bodies.System, b bodies.CelestialBody) *bodies.CelestialBody {
+	parent := sys.ParentOf(b)
+	if parent == nil && len(sys.Bodies) > 0 {
+		p := sys.Bodies[0]
+		parent = &p
+	}
+	return parent
+}
+
+// commaKm formats a metres value as a comma-grouped whole-kilometre
+// string ("66,100"), the number format ADR 0044 §4 uses in every
+// clamp note.
+func commaKm(m float64) string {
+	km := int64(math.Round(m / 1000))
+	return commaInt(km)
+}
+
+// commaInt renders n with thousands separators ("-1,234,567").
+func commaInt(n int64) string {
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	s := strconv.FormatInt(n, 10)
+	var b strings.Builder
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(c)
+	}
+	if neg {
+		return "-" + b.String()
+	}
+	return b.String()
 }

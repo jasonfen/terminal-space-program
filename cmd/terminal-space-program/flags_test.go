@@ -3,7 +3,25 @@ package main
 import (
 	"math"
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
+
+// loadFlagsTestCatalog loads the embedded systems catalog once per call,
+// for tests that need real bodies to check the ADR 0044 §5 Orbit Band
+// clamp report.
+func loadFlagsTestCatalog(t *testing.T) []bodies.System {
+	t.Helper()
+	systems, warnings, err := bodies.LoadAllWithWarnings()
+	if err != nil {
+		t.Fatalf("LoadAllWithWarnings: %v", err)
+	}
+	for _, w := range warnings {
+		t.Fatalf("unexpected catalog load warning: %v", w)
+	}
+	return systems
+}
 
 func TestParseDistanceM(t *testing.T) {
 	cases := []struct {
@@ -140,5 +158,77 @@ func TestBuildScenarioUnknownSite(t *testing.T) {
 	_, err := buildScenario(rawFlags{launchSite: "Nowhere", set: map[string]bool{}})
 	if err == nil {
 		t.Error("unknown launch site should error")
+	}
+}
+
+// TestStartAltitudeClampNoteReportsRaise — "--altitude 60km" at Earth
+// (ADR 0044 §5) must report the same raise-to-the-floor SpawnCraft will
+// actually apply.
+func TestStartAltitudeClampNoteReportsRaise(t *testing.T) {
+	systems := loadFlagsTestCatalog(t)
+	s := &sim.StartScenario{BodyID: "earth", AltitudeM: 60_000}
+	note := startAltitudeClampNote(systems, s)
+	if note == "" {
+		t.Fatal("expected a clamp note for a below-floor Earth altitude, got empty")
+	}
+	want := "raised from 60 — Earth's air reaches 150 km"
+	if note != want {
+		t.Errorf("note = %q, want %q", note, want)
+	}
+}
+
+// TestStartAltitudeClampNoteReportsLower mirrors the ceiling side at the
+// Moon.
+func TestStartAltitudeClampNoteReportsLower(t *testing.T) {
+	systems := loadFlagsTestCatalog(t)
+	s := &sim.StartScenario{BodyID: "moon", AltitudeM: 90_000_000}
+	note := startAltitudeClampNote(systems, s)
+	if note == "" {
+		t.Fatal("expected a clamp note for an above-ceiling Moon altitude, got empty")
+	}
+	if got, want := note[:len("lowered from 90,000")], "lowered from 90,000"; got != want {
+		t.Errorf("note = %q, want prefix %q", note, want)
+	}
+}
+
+// TestStartAltitudeClampNoteEmptyForInBand — the common case: a
+// requested altitude already inside the band reports nothing.
+func TestStartAltitudeClampNoteEmptyForInBand(t *testing.T) {
+	systems := loadFlagsTestCatalog(t)
+	s := &sim.StartScenario{BodyID: "earth", AltitudeM: 400_000}
+	if note := startAltitudeClampNote(systems, s); note != "" {
+		t.Errorf("note = %q, want empty (in-band altitude)", note)
+	}
+}
+
+// TestStartAltitudeClampNoteEmptyForSurface — a surface (launchpad)
+// scenario never clamps; the helper must not even try to resolve a body
+// for it.
+func TestStartAltitudeClampNoteEmptyForSurface(t *testing.T) {
+	systems := loadFlagsTestCatalog(t)
+	s := &sim.StartScenario{BodyID: "earth", Surface: true}
+	if note := startAltitudeClampNote(systems, s); note != "" {
+		t.Errorf("note = %q, want empty (surface scenario)", note)
+	}
+}
+
+// TestStartAltitudeClampNoteEmptyForEmptyBand — "--orbit phobos" must not
+// print a garbled "altitude <note>" line here; SpawnCraft's own refusal
+// (surfaced through ApplyStartScenario -> tui.New -> main's normal error
+// path) is the single message this scenario should ever produce.
+func TestStartAltitudeClampNoteEmptyForEmptyBand(t *testing.T) {
+	systems := loadFlagsTestCatalog(t)
+	s := &sim.StartScenario{BodyID: "phobos", AltitudeM: 50_000}
+	if note := startAltitudeClampNote(systems, s); note != "" {
+		t.Errorf("note = %q, want empty (Empty band is a refusal, not a report-here move)", note)
+	}
+}
+
+// TestStartAltitudeClampNoteEmptyForNilScenario — the default-start path
+// (no scenario flags) must not panic or resolve anything.
+func TestStartAltitudeClampNoteEmptyForNilScenario(t *testing.T) {
+	systems := loadFlagsTestCatalog(t)
+	if note := startAltitudeClampNote(systems, nil); note != "" {
+		t.Errorf("note = %q, want empty (nil scenario)", note)
 	}
 }

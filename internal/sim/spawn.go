@@ -17,6 +17,13 @@ import (
 
 var errNoActiveCraftToCopy = errors.New("spawn: no active vessel to copy")
 
+// DefaultOrbitAltitudeM is the altitude an orbit-placement SpawnSpec gets
+// when AltitudeM is unset (<= 0). Exported so callers that need to predict
+// SpawnCraft's effective altitude before calling it — the CLI's Orbit Band
+// clamp report (ADR 0044 §5) — use the identical default rather than a
+// second hand-copied 500e3.
+const DefaultOrbitAltitudeM = 500e3
+
 // surfaceSpawnPosVel computes the **primary-relative** position and
 // velocity of a point on `primary`'s rotating surface at the given
 // (lat, lon). Uses the renderer's body-fixed coordinate system —
@@ -331,8 +338,18 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 
 	alt := spec.AltitudeM
 	if alt <= 0 {
-		alt = 500e3
+		alt = DefaultOrbitAltitudeM
 	}
+	// ADR 0044 S3: every orbit-placement spawn obeys the primary's Orbit
+	// Band — out-of-band altitudes are moved, never refused; a body with
+	// no legal orbit altitude at all (Phobos, Deimos) is refused outright
+	// rather than silently substituting somewhere else. Launchpad and
+	// Alongside return above and never reach this branch.
+	clampedAlt, note, ok := ClampToOrbitBand(w.System(), primary, alt)
+	if !ok {
+		return nil, fmt.Errorf("spawn: %s", note)
+	}
+	alt = clampedAlt
 	mu := primary.GravitationalParameter()
 	r := primary.RadiusMeters() + alt
 	v := math.Sqrt(mu / r)
