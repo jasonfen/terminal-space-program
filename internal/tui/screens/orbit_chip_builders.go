@@ -1306,6 +1306,16 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	if shouldShowLaunchHUD(c) {
 		return nil
 	}
+	// #375: a Landed craft carries no orbit (craftHasOrbit) — on an
+	// airless primary shouldShowLaunchHUD above never fires (no
+	// Atmosphere to gate ascent on), so without this the co-rotation
+	// pseudo-orbit would render here as a real ellipse. Swap in the
+	// facts that ARE true on the ground rather than leaving the chip
+	// blank — the same move buildLaunchChip already makes (incl. →
+	// launch lat) — since a chip that vanishes reads as broken.
+	if !craftHasOrbit(c) {
+		return v.buildLandedOrbitChip(c)
+	}
 	mu := c.Primary.GravitationalParameter()
 	frame := orbital.ReferenceFrameForPrimary(c.Primary)
 	el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
@@ -1318,8 +1328,8 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	st := orbital.Vec3State{R: c.State.R, V: c.State.V}
 	lines := []string{
 		v.theme.Primary.Render("ORBIT"),
-		chipRow("altitude:", fmt.Sprintf("%.1f km", c.Altitude()/1000)),
-		chipRow("Ap:", fmt.Sprintf("%.1f km", apoAlt/1000)),
+		chipRow("altitude:", formatChipKm(c.Altitude())),
+		chipRow("Ap:", formatChipKm(apoAlt)),
 	}
 	// On a circular orbit the apsides are not locatable points (#286), so
 	// the countdowns say "—" rather than the constant half-period the
@@ -1338,7 +1348,7 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	if s, ok := apsisTime(orbital.TimeToApoapsis(st, mu)); ok {
 		lines = append(lines, chipRow("t→Ap:", s))
 	}
-	lines = append(lines, chipRow("Pe:", fmt.Sprintf("%.1f km", periAlt/1000)))
+	lines = append(lines, chipRow("Pe:", formatChipKm(periAlt)))
 	if s, ok := apsisTime(orbital.TimeToPeriapsis(st, mu)); ok {
 		lines = append(lines, chipRow("t→Pe:", s))
 	}
@@ -1354,6 +1364,27 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
 	}
 	return lines
+}
+
+// buildLandedOrbitChip is buildOrbitMetricsChip's landed branch (#375).
+// A parked craft's (R, ω×R) co-rotation state resolves through
+// ElementsFromState to a valid-looking ellipse (apoapsis pinned at the
+// vessel, periapsis a few metres from the primary's centre, sign-
+// flipping at the display quantum tick to tick), so the chip must not
+// read elements at all while Landed. Instead it shows the facts that
+// ARE true on the ground — body, landed lat/lon, altitude (always 0),
+// and surface co-rotation speed (c.State.V IS ω×R for a Landed craft,
+// per integrateLanded) — the same swap buildLaunchChip already makes
+// (incl. → launch lat) rather than leaving the chip blank.
+func (v *OrbitView) buildLandedOrbitChip(c *spacecraft.Spacecraft) []string {
+	lat, lon := c.SurfaceLatLon()
+	return []string{
+		v.theme.Primary.Render("ORBIT"),
+		chipRow("body:", c.Primary.EnglishName),
+		chipRow("landed at:", fmt.Sprintf("%.1f°, %.1f°", lat, lon)),
+		chipRow("altitude:", "0.0 km"),
+		chipRow("co-rotation:", fmt.Sprintf("%.1f m/s", c.State.V.Norm())),
+	}
 }
 
 // buildDockGuestOrbitChip is the ORBIT chip's badged rider-view sibling
@@ -1387,8 +1418,8 @@ func (v *OrbitView) buildDockGuestOrbitChip(w *sim.World) []string {
 	}
 	lines := []string{
 		v.theme.Primary.Render(header),
-		chipRow("Ap:", fmt.Sprintf("%.1f km", apoAlt/1000)),
-		chipRow("Pe:", fmt.Sprintf("%.1f km", periAlt/1000)),
+		chipRow("Ap:", formatChipKm(apoAlt)),
+		chipRow("Pe:", formatChipKm(periAlt)),
 		chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)),
 	}
 	if periAlt < 0 {
@@ -1524,16 +1555,26 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			return nil
 		}
 		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("vessel:", tc.Name)}
-		tMu := tc.Primary.GravitationalParameter()
-		tFrame := orbital.ReferenceFrameForPrimary(tc.Primary)
-		tEl := orbital.ElementsFromStateInFrame(tc.State.R, tc.State.V, tMu, tFrame)
-		if tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0) {
-			tPrimaryR := tc.Primary.RadiusMeters()
-			lines = append(lines,
-				chipRow("Ap:", fmt.Sprintf("%.1f km", (tEl.Apoapsis()-tPrimaryR)/1000)),
-				chipRow("Pe:", fmt.Sprintf("%.1f km", (tEl.Periapsis()-tPrimaryR)/1000)),
-				chipRow("inclin.:", fmt.Sprintf("%.2f°", tEl.I*180/math.Pi)),
-			)
+		if craftHasOrbit(tc) {
+			tMu := tc.Primary.GravitationalParameter()
+			tFrame := orbital.ReferenceFrameForPrimary(tc.Primary)
+			tEl := orbital.ElementsFromStateInFrame(tc.State.R, tc.State.V, tMu, tFrame)
+			if tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0) {
+				tPrimaryR := tc.Primary.RadiusMeters()
+				lines = append(lines,
+					chipRow("Ap:", formatChipKm(tEl.Apoapsis()-tPrimaryR)),
+					chipRow("Pe:", formatChipKm(tEl.Periapsis()-tPrimaryR)),
+					chipRow("inclin.:", fmt.Sprintf("%.2f°", tEl.I*180/math.Pi)),
+				)
+			}
+		} else {
+			// #375: a landed target's (R, ω×R) co-rotation state is not an
+			// orbit — swap Ap/Pe/inclin. for its landing site rather than
+			// reading elements off the pseudo-orbit. Range / |v_rel| /
+			// closing below stay meaningful (relative-state math, not
+			// elements) so they're untouched.
+			tLat, tLon := tc.SurfaceLatLon()
+			lines = append(lines, chipRow("landed at:", fmt.Sprintf("%.1f°, %.1f°", tLat, tLon)))
 		}
 		var rRel, vRelVec orbital.Vec3
 		if tc.Primary.ID == c.Primary.ID {
@@ -1582,8 +1623,8 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		if gEl.A > 0 && !math.IsNaN(gEl.A) && !math.IsInf(gEl.A, 0) {
 			gPrimaryR := gPrimary.RadiusMeters()
 			lines = append(lines,
-				chipRow("Ap:", fmt.Sprintf("%.1f km", (gEl.Apoapsis()-gPrimaryR)/1000)),
-				chipRow("Pe:", fmt.Sprintf("%.1f km", (gEl.Periapsis()-gPrimaryR)/1000)),
+				chipRow("Ap:", formatChipKm(gEl.Apoapsis()-gPrimaryR)),
+				chipRow("Pe:", formatChipKm(gEl.Periapsis()-gPrimaryR)),
 				chipRow("inclin.:", fmt.Sprintf("%.2f°", gEl.I*180/math.Pi)),
 			)
 		}
@@ -1796,6 +1837,16 @@ func nzero(x float64, decimals int) float64 {
 		return 0
 	}
 	return x
+}
+
+// formatChipKm renders a metres reading as a one-decimal kilometre
+// string with nzero applied (#375), so an altitude/apsis that legitimately
+// sits at the display quantum — the co-rotation noise a near-zero orbit
+// carries, not just a Landed craft's pseudo-orbit — can't flip a "-0.0"
+// sign from one tick to the next. Shared by the ORBIT / TARGET chips'
+// altitude, Ap, and Pe rows.
+func formatChipKm(m float64) string {
+	return fmt.Sprintf("%.1f km", nzero(m/1000, 1))
 }
 
 // formatTCA renders a time-to-closest-approach with s / min / h bands.
