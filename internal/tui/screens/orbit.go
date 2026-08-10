@@ -783,7 +783,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// the HUD altitude readout. Skipped when the focus is unrelated
 	// (system view or a different body) so an unrelated zoom-in isn't
 	// surprisingly capped.
-	if c := w.ActiveCraft(); c != nil && c.Altitude() <= 0 {
+	if c := w.ActiveCraft(); c != nil && (c.Landed || c.Altitude() <= 0) {
 		focused := false
 		switch w.Focus.Kind {
 		case sim.FocusCraft:
