@@ -308,20 +308,39 @@ func TestDescentCorridorForGating(t *testing.T) {
 }
 
 // TestDescentCorridorAlarmsWhenItCannotStop: the end-to-end alarm. A
-// vessel falling fast with very little altitude left reports
-// MarginInsufficient — the state the surface view paints red.
+// vessel falling fast with very little altitude left, thrust or not,
+// integrates to MarginInsufficient via DeriveMarginState — the state the
+// surface view paints red. Issue #377 moved the corridor's Margin off
+// ComputeBurnMargin's frozen scalars, so this now drives the alarm chain
+// through PredictPoweredStop + DeriveMarginState directly rather than via
+// DescentCorridorFor (which no longer computes Margin at all — see its
+// doc comment).
 func TestDescentCorridorAlarmsWhenItCannotStop(t *testing.T) {
 	_, c := dropTestCraft(t, 500)
 	c.State.V = orbital.Vec3{X: -300} // 300 m/s straight down, 500 m to go
+	c.Thrust = 0                      // no engine at all: can't even begin a stop
+	c.Isp = 0
+
 	dc, ok := DescentCorridorFor(c, DescentPredictHorizon)
 	if !ok {
 		t.Fatal("corridor stood down for a 300 m/s descent 500 m up")
 	}
-	if dc.Margin.State != MarginInsufficient {
-		t.Errorf("Margin.State = %v (ratio %.3f), want MarginInsufficient",
-			dc.Margin.State, dc.Margin.Ratio)
-	}
 	if dc.Impact.TimeToImpact > 3*time.Second {
 		t.Errorf("TimeToImpact = %v, want under ~2 s at 300 m/s from 500 m", dc.Impact.TimeToImpact)
+	}
+
+	stop, stopOK := PredictPoweredStop(c, DescentPredictHorizon)
+	if !stopOK {
+		t.Fatal("PredictPoweredStop refused for a thrustless craft — want StopFuelLimited, not StopUndetermined")
+	}
+	if stop.Outcome != StopFuelLimited {
+		t.Errorf("Outcome = %v, want StopFuelLimited (no engine at all)", stop.Outcome)
+	}
+	margin := DeriveMarginState(stop, stopOK, dc.AltitudeM, BurnAtCue{}, false)
+	if margin.State != MarginInsufficient {
+		t.Errorf("Margin.State = %v, want MarginInsufficient", margin.State)
+	}
+	if margin.Limiter != LimitFuel {
+		t.Errorf("Limiter = %v, want fuel (no engine at all reads as the fuel side binding)", margin.Limiter)
 	}
 }
