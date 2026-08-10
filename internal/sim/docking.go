@@ -26,6 +26,13 @@ import (
 type localReArm struct {
 	idA, idB   uint64
 	releasedAt time.Time
+	// noticed records that checkDocking has already stamped
+	// World.LastLocalReArmRefusal for this latch (#372) — the local mirror
+	// of relay/dock.go's reArmNoticed. checkDocking re-scans every tick for
+	// as long as the pair sits inside both proximity gates, so without this
+	// flag the refusal chip would spam every frame the pair sits there
+	// instead of firing once for the life of the latch.
+	noticed bool
 }
 
 // Undock splits the craft at idx back into its DockedComponents,
@@ -477,6 +484,104 @@ func (w *World) isLocalReArmed(idA, idB uint64) bool {
 	return false
 }
 
+// raiseLocalReArmRefusal delivers the once-per-latch explanation for a pair
+// checkDocking just refused to re-fuse because of a live localReArm latch
+// (#372 part 3). Mirrors relay/dock.go's raiseReArmNotice one-shot
+// semantics: the latch record's own `noticed` flag makes this fire at most
+// once for the life of the latch, however many ticks the pair goes on
+// sitting inside both proximity gates. No-op if the named pair no longer
+// holds a latch (shouldn't happen — the caller just observed isLocalReArmed
+// true for the same pair) or has already been noticed.
+func (w *World) raiseLocalReArmRefusal(idA, idB uint64) {
+	for i := range w.localReArms {
+		r := &w.localReArms[i]
+		if !((r.idA == idA && r.idB == idB) || (r.idA == idB && r.idB == idA)) {
+			continue
+		}
+		if r.noticed {
+			return
+		}
+		r.noticed = true
+		aC, _, aOK := w.craftByID(r.idA)
+		bC, _, bOK := w.craftByID(r.idB)
+		if !aOK || !bOK {
+			return
+		}
+		// Name the ACTIVE vessel's partner when the active vessel is one of
+		// the two — the player pressing `c` wants to know who THEY are held
+		// off from. Neither party being active (e.g. two other craft in the
+		// same latched pair) falls back to naming b.
+		partner := bC
+		if ac := w.ActiveCraft(); ac != nil && ac.ID == bC.ID {
+			partner = aC
+		}
+		w.LastLocalReArmRefusal = &LocalReArmRefusalEvent{
+			When:        w.Clock.SimTime,
+			PartnerName: partner.Name,
+		}
+		return
+	}
+}
+
+// ReArmDocking clears the same-World re-arm latch(es) naming the active
+// vessel — the flight-view `c` key's whole behaviour (#372). It is the
+// explicit "yes, I meant it" a player presses instead of flying a 200 m
+// round trip or waiting out ReArmCeiling. Nothing else changes: local
+// docking stays automatic, so a pair already inside both proximity gates
+// fuses on the very next checkDocking pass once the latch is gone, exactly
+// as an un-latched approach would.
+//
+// When the Target slot holds a vessel, only the latch naming that EXACT
+// pair clears — a targeted "yes, re-arm with them," which also refuses
+// (ok=false) when that pair holds no latch even though some OTHER latch
+// exists. Otherwise every latch naming the active vessel clears, which
+// after an ordinary two-component undock is normally exactly one; a latch
+// between two other craft (neither the active vessel) is never touched.
+//
+// partners names every latch actually cleared (the partner craft's Name,
+// in w.localReArms order) for the caller's chip. ok is false when nothing
+// was cleared, so a press with no latch held can say so rather than no-op
+// silently (#372 acceptance) — a dead keypress reads as a broken key.
+//
+// Once cleared, the latch does not come back: pruneLocalReArms never
+// re-arms one, and only a fresh Undock appends a new entry.
+func (w *World) ReArmDocking() (partners []string, ok bool) {
+	c := w.ActiveCraft()
+	if c == nil || len(w.localReArms) == 0 {
+		return nil, false
+	}
+	var targetID uint64
+	haveTarget := w.Target.Kind == TargetCraft
+	if haveTarget {
+		targetID = w.Target.CraftID
+	}
+	kept := w.localReArms[:0]
+	for _, r := range w.localReArms {
+		var partnerID uint64
+		switch c.ID {
+		case r.idA:
+			partnerID = r.idB
+		case r.idB:
+			partnerID = r.idA
+		default:
+			kept = append(kept, r) // doesn't name the active vessel — untouched
+			continue
+		}
+		if haveTarget && partnerID != targetID {
+			kept = append(kept, r) // names the active vessel but not the aimed partner
+			continue
+		}
+		name := "partner"
+		if pc, _, ok := w.craftByID(partnerID); ok {
+			name = pc.Name
+		}
+		partners = append(partners, name)
+		// Not appended to kept — this is the clear.
+	}
+	w.localReArms = kept
+	return partners, len(partners) > 0
+}
+
 // checkDocking scans every craft pair in the same primary frame
 // for a docking-eligible encounter (proximity + relative velocity
 // below the gate). On a match, calls DockCrafts and returns —
@@ -545,8 +650,12 @@ func (w *World) checkDocking() (int, int, bool) {
 			}
 			// #343: a just-undocked (or otherwise latched) pair stays apart
 			// regardless of proximity — the local mirror of the cross-player
-			// re-arm-by-leaving latch.
+			// re-arm-by-leaving latch. #372: say so, once per latch, so the
+			// refusal isn't silent (relay/dock.go's raiseReArmNotice already
+			// does this cross-player; internal/sim had no channel to report
+			// a refusal upward at all until now).
 			if w.isLocalReArmed(a.ID, b.ID) {
+				w.raiseLocalReArmRefusal(a.ID, b.ID)
 				continue
 			}
 			w.DockCrafts(i, j)

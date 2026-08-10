@@ -64,11 +64,20 @@ type World struct {
 	// localReArms holds the same-World re-arm-by-leaving latches (#343)
 	// armed by Undock for every pair of components it just split apart —
 	// checkDocking refuses to re-fuse a latched pair until they clear
-	// ReArmDistM or ReArmCeiling of sim-time elapses. Transient — never
+	// ReArmDistM or ReArmCeiling of sim-time elapses, or the `c` re-arm key
+	// clears it explicitly (World.ReArmDocking, #372). Transient — never
 	// persisted (see docking.go's localReArm doc comment); a save/load
 	// simply drops any latch in flight, which the along-track separation
 	// push (#343) makes an acceptable trade against a save-schema bump.
 	localReArms []localReArm
+
+	// LastLocalReArmRefusal records the most recent same-World dock refused
+	// by a live localReArm latch, for HUD-side messaging (#372) — the local
+	// mirror of relay/dock.go's reArmNoticed/reArmNoticeTo. checkDocking
+	// stamps it at most once per latch (the latch record's own `noticed`
+	// flag makes it one chip for the life of the latch, not one per refused
+	// tick); app.go reads and clears it, same pattern as LastDockEvent.
+	LastLocalReArmRefusal *LocalReArmRefusalEvent
 
 	// LastLaunchReleaseEvent records the most recent ViewLaunch
 	// switch-end release so the App can surface an
@@ -863,6 +872,18 @@ func (w *World) Tick() {
 	// Issue #348 §4: the launch/surface view's own hint, same placement —
 	// DescentCorridorFor reads final post-integration positions too.
 	w.updateLaunchHint()
+}
+
+// LocalReArmRefusalEvent records the latest same-World dock a localReArm
+// latch (#343) held off, so app.go can chip WHY nothing happened rather than
+// leave #372's silent refusal in place. Same shape as DockEvent — App reads
+// and clears it once per fire.
+type LocalReArmRefusalEvent struct {
+	When time.Time
+	// PartnerName is the OTHER craft's name — the active vessel's partner
+	// when the active vessel is one of the two, else one of the pair
+	// (arbitrarily the second) when neither is active.
+	PartnerName string
 }
 
 // DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.

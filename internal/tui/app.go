@@ -319,6 +319,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastLaunchReleaseEvent = nil
 		}
+		// #372: a same-World dock checkDocking refused because of a live
+		// re-arm latch — say why, once per latch (LastLocalReArmRefusal is
+		// only ever stamped once for the life of a given latch; see
+		// raiseLocalReArmRefusal). Same flash surface, cleared after one fire.
+		if e := a.world.LastLocalReArmRefusal; e != nil {
+			a.statusMsg = fmt.Sprintf("docking held off — press %s to re-arm, or back %.0f m clear of %s",
+				a.keys.ReArmDock.Help().Key, sim.ReArmDistM, e.PartnerName)
+			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.world.LastLocalReArmRefusal = nil
+		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 
 	case tea.WindowSizeMsg:
@@ -1440,6 +1450,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.world.Undock(a.world.ActiveCraftIdx) {
 				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
+			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
+			return a, nil
+		case key.Matches(m, a.keys.ReArmDock):
+			// #372: the explicit "yes, I meant it" for a same-World docking
+			// pair a localReArm latch is holding apart — the way out that
+			// isn't a 200 m round trip or a 10-minute wait. Changes nothing
+			// else: local docking stays automatic, so a pair already inside
+			// both proximity gates fuses on the very next tick once the
+			// latch clears, exactly as an un-latched approach would.
+			if partners, ok := a.world.ReArmDocking(); ok {
+				a.statusMsg = "re-armed docking with " + strings.Join(partners, ", ")
+			} else {
+				// A press with no latch held must say so rather than no-op
+				// silently — a dead keypress reads as a broken key (v0.30
+				// lesson).
+				a.statusMsg = "docking: no re-arm latch held"
 			}
 			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil

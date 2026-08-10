@@ -129,6 +129,7 @@ var helpSections = []helpSection{
 		{"[ / ]", "cycle active vessel"},
 		{"1-9", "jump to vessel N (no-op when the slot is empty)"},
 		{"U", "undock the active composite (cross-player stack: release your partner's vessel — theirs comes back even if they're offline)"},
+		{"c", "re-arm docking — clear the local re-arm latch for the [t] target (or every latch naming the active vessel) so a just-undocked pair can dock again"},
 		{"Y", "deploy the top carried payload (keep flying the carrier)"},
 		{"D", "transpose: SM → firing core, LM → releasable nose payload"},
 		{"t / T", "cycle / clear the target"},

@@ -525,6 +525,33 @@ func TestProximityDockGateReady(t *testing.T) {
 	}
 }
 
+// TestProximityDockGateReadyFalseWhileLatched is the #372 acceptance
+// regression test: a same-World re-arm latch (#343) between the active
+// vessel and its Target must hold ProximityDockGateReady false even while
+// the pair sits inside BOTH raw gates — otherwise the ring lies green at
+// the exact moment checkDocking's own auto-fuse is refusing the pair.
+func TestProximityDockGateReadyFalseWhileLatched(t *testing.T) {
+	w := proximityPairWorld(t, orbital.Vec3{X: 10}, orbital.Vec3{})
+	active := w.ActiveCraft()
+	if w.Target.Kind != TargetCraft {
+		t.Fatal("precondition: proximityPairWorld did not leave a vessel targeted")
+	}
+	w.localReArms = append(w.localReArms, localReArm{idA: active.ID, idB: w.Target.CraftID})
+
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused a resolvable vessel target")
+	}
+	// Sanity: the RAW gates (range/velocity alone) are satisfied — the only
+	// thing standing between this pair and "ready" is the latch.
+	if st.RangeM >= DockingDistM || st.VRelMS >= DockingVMS {
+		t.Fatalf("test setup: pair not inside both raw gates (range=%.2f vRel=%.4f)", st.RangeM, st.VRelMS)
+	}
+	if w.ProximityDockGateReady(st) {
+		t.Fatal("ProximityDockGateReady = true for a latched pair inside both gates — the ring would show green while the dock is actually refused")
+	}
+}
+
 // setProximityRange moves the target vessel to sit exactly rangeM from
 // the active vessel along its current separation direction, leaving the
 // orbit otherwise untouched.

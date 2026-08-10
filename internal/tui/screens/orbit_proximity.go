@@ -418,29 +418,49 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 
 // drawProximityDockGate draws the 50 m dock-gate ring (sim.DockingDistM)
 // — the one ring whose COLOR carries state rather than just its
-// presence: dim while outside either gate, ColorTarget green exactly
-// when the pair sits inside BOTH DockingDistM and DockingVMS
-// (sim.ProximityDockGateReady — the same predicate checkDocking's
-// auto-fuse uses, so the ring's green threshold and the game's actual
-// "you are about to dock" threshold can never drift apart). This is
-// issue #348 §1's "DOCK READY becomes a place on screen."
+// presence: dim while outside either raw gate, amber (ColorWarning) when
+// inside BOTH DockingDistM and DockingVMS but a same-World re-arm latch
+// (#343) is holding the pair apart, and ColorTarget green exactly when
+// sim.ProximityDockGateReady reports the pair actually ready to fuse —
+// the same predicate checkDocking's auto-fuse uses (plus the latch,
+// #372), so the ring's green threshold and the game's actual "you are
+// about to dock" threshold can never drift apart. This is issue #348
+// §1's "DOCK READY becomes a place on screen."
 //
-// No separate DOCK READY text callout is added alongside it: the ready
-// state is inherently momentary (checkDocking auto-fuses the pair the
-// very next tick it holds true), so a chip would flicker on and off
-// faster than a player could read it — exactly the failure the hint
-// chip's hysteresis band exists to prevent elsewhere in this file. A
-// ring doesn't need that guard because it's a place, not a popup: it's
-// already there, faint, before the moment arrives, and it simply changes
-// colour when the moment does.
+// #372: before the latch was folded into ProximityDockGateReady, a
+// latched pair sitting inside both raw gates had nowhere to read that —
+// the ring either lied green (the #343 bug this amber state fixes) or,
+// worse, looked identical to "still too far to dock" (plain dim) once
+// the ready predicate was corrected to say false. Amber gives the
+// latched state its own place on screen, distinct from both: it also
+// carries the "there is something to learn here" cue that the `c`
+// re-arm key exists (issue #372 §2's "worth considering").
+//
+// No separate DOCK READY text callout is added alongside the green
+// state: the ready state is inherently momentary (checkDocking
+// auto-fuses the pair the very next tick it holds true), so a chip
+// would flicker on and off faster than a player could read it — exactly
+// the failure the hint chip's hysteresis band exists to prevent
+// elsewhere in this file. A ring doesn't need that guard because it's a
+// place, not a popup: it's already there, faint, before the moment
+// arrives, and it simply changes colour when the moment does. The amber
+// latched state has no such flicker risk — a latch persists for
+// ReArmDistM/ReArmCeiling's worth of time, not one tick.
 func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 	const gateRadius = sim.DockingDistM
 	if !v.proximityRingVisible(st, gateRadius) {
 		return
 	}
+	rawGatesOK := st.RangeM < sim.DockingDistM && st.VRelMS < sim.DockingVMS
 	color := render.ColorDim
-	if w.ProximityDockGateReady(st) {
+	switch {
+	case w.ProximityDockGateReady(st):
 		color = render.ColorTarget
+	case rawGatesOK:
+		// Inside both raw gates but not ready — held off by the #343
+		// re-arm latch (the only way ProximityDockGateReady can say false
+		// here; see its own doc comment).
+		color = render.ColorWarning
 	}
 	pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, gateRadius)
 	v.canvas.PlotPolylineClass(pts, color, widgets.ClassScenery)
