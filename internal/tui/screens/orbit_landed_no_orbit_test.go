@@ -74,6 +74,73 @@ func TestLandedActiveVesselDrawsNoEllipseOrApsisMarkers(t *testing.T) {
 	}
 }
 
+// TestLandedVesselKeepsGlyphAndInspectRegistration (#375 fix item 2):
+// suppressing the ellipse/apsis markers must not take the vessel itself
+// off the map — "Keep the glyph, the label, and inspect/click
+// registration — the vessel is still there, it just has no track."
+//
+// The active-vessel test above uses lat 10°/lon 0°, which IsBehindBody
+// occludes for the launch-anchored camera (confirmed by direct render:
+// no glyph in the output at that lat/lon) — a happy accident for the
+// ellipse-only test, but it means nothing exercises this half of the
+// fix, and a glyph assertion added there would be vacuous by
+// occlusion, not by a real guard. Lat 30°N is verified by direct render
+// (every longitude at 30°N, and 60°N, all render the glyph — the
+// anchor recenters on the vessel regardless of longitude) to be
+// camera-facing, so the glyph assertion below is meaningful, and the
+// ellipse/marker assertions repeated at the end of this test are the
+// non-vacuous witness at THIS SAME lat/lon (see sabotage results in the
+// PR description — reverting the craftHasOrbit guard at these
+// coordinates still fails the ellipse/marker checks, and blanking the
+// glyph draw still fails the glyph check).
+func TestLandedVesselKeepsGlyphAndInspectRegistration(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(80, 24)
+	w, c := spawnLandedOnMoon(t, 30, 0) // 30°N — camera-facing, verified above
+
+	out := v.Render(w, 0, 80, 24)
+
+	vesselGlyph := []rune(spacecraft.VesselGlyph)[0]
+	if !strings.ContainsRune(out, vesselGlyph) {
+		t.Errorf("landed vessel glyph missing from render at a camera-facing lat/lon:\n%s", out)
+	}
+
+	// "The label" + "inspect/click registration": addInspectable records
+	// both the [j]-cycle stop (with the name its flare chip would show)
+	// and the click-resolution entry (drawnOwners) in one call, so a
+	// vessel that vanished from either would vanish from both.
+	wantRef := InspectRef{Kind: InspectVessel, CraftID: c.ID}
+	found := false
+	for _, it := range v.inspectables {
+		if it.ref == wantRef {
+			found = true
+			if it.name != c.Name {
+				t.Errorf("inspect entry name = %q, want %q", it.name, c.Name)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("landed vessel not registered in the inspect/[j] cycle at a camera-facing lat/lon")
+	}
+	if _, ok := v.drawnOwners[wantRef.OwnerKey()]; !ok {
+		t.Errorf("landed vessel not registered for click resolution (drawnOwners) at a camera-facing lat/lon")
+	}
+
+	// Same guard as TestLandedActiveVesselDrawsNoEllipseOrApsisMarkers,
+	// repeated at THIS lat/lon: still no ellipse, still no apsis markers.
+	if got := v.canvas.CountColor(render.ColorCurrentOrbit); got != 0 {
+		t.Errorf("landed vessel at camera-facing lat/lon drew %d cell(s) of the current-orbit ellipse color, want 0", got)
+	}
+	apoColor := render.MarkerColor(render.MarkerApoapsis, render.MarkerNominal, "")
+	periColor := render.MarkerColor(render.MarkerPeriapsis, render.MarkerNominal, "")
+	if got := v.canvas.CountOverlayColor(apoColor); got != 0 {
+		t.Errorf("landed vessel at camera-facing lat/lon drew %d apoapsis marker(s), want 0", got)
+	}
+	if got := v.canvas.CountOverlayColor(periColor); got != 0 {
+		t.Errorf("landed vessel at camera-facing lat/lon drew %d periapsis marker(s), want 0", got)
+	}
+}
+
 // TestLandedOtherVesselDrawsNoEllipse (#375, site orbit.go:1283): a
 // second, non-active landed vessel on the same map must also draw no
 // track — "every other landed vessel on the map draws its own needle"
