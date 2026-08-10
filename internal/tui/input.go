@@ -150,6 +150,16 @@ type Keymap struct {
 	// into its docked components.
 	Undock key.Binding
 
+	// ReArmDock (#372): the flight-view "yes, I meant it" for a same-World
+	// docking pair held apart by the localReArm latch (ADR 0038 §5 amended)
+	// — clears the latch for the Target (when one is a vessel) or every
+	// latch naming the active vessel otherwise, so an ordinary post-undock
+	// re-dock doesn't cost a 200 m round trip or a 10-minute wait. Bound to
+	// `c` ("couple") — free in flight view; taken inside the VAB and
+	// maneuver screens, which is fine since those are separate key
+	// contexts that return before the global switch reaches this binding.
+	ReArmDock key.Binding
+
 	// Transpose (v0.12 / ADR 0009): one-shot Apollo transposition —
 	// reorder the pre-transposition [Descent, Ascent, SM, CM] stack so
 	// the SM is the firing core with the LM as a docked nose payload.
@@ -387,6 +397,7 @@ func DefaultKeymap() Keymap {
 		PrevCraft:           key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev vessel")),
 		CraftSlot:           key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to vessel N")),
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
+		ReArmDock:           key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "re-arm docking (clear the local re-arm latch)")),
 		Transpose:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "transpose (SM → firing core, LM → nose payload)")),
 		Deploy:              key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "deploy top payload (keep carrier)")),
 		TransferControl:     key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "transfer control of a cross-player stack")),

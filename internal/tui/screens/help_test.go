@@ -134,6 +134,18 @@ func TestHelpTruncatesToWidth(t *testing.T) {
 	}
 }
 
+// TestHelpDocumentsReArmDockKey (#372): the F1 overlay is the source of
+// truth for keybindings — the new re-arm docking key must be findable in
+// it, at a height tall enough to reach the VESSEL section without scrolling
+// past it in this check.
+func TestHelpDocumentsReArmDockKey(t *testing.T) {
+	h := NewHelp(chipTestTheme())
+	out := h.Render(120, 400, keylayout.QWERTY)
+	if !strings.Contains(out, "re-arm docking") {
+		t.Errorf("help overlay missing the re-arm docking (`c`) entry:\n%s", out)
+	}
+}
+
 // TestHelpTitleAndFooterAlwaysShown — chrome is sticky regardless of
 // scroll position, even on a short terminal.
 func TestHelpTitleAndFooterAlwaysShown(t *testing.T) {

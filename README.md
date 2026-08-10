@@ -58,6 +58,15 @@ downgrade safety net. Saves are flat, independent files under
 `~/.local/state/terminal-space-program/saves/` (`$XDG_STATE_HOME` if set) — no
 save-schema change, so existing saves load exactly as before.
 
+Recently introduced: undocking (or drifting back together afterward) holds
+a pair apart even once you settle back inside docking range, so a stray
+touch doesn't silently re-fuse two vessels you meant to keep apart — the
+dock-gate ring in Proximity View (`o`) shows amber rather than green while
+it's held. Clearing 100 m, or waiting it out, releases the hold the old
+way; pressing `c` says "yes, I meant it" and re-arms right where you are,
+naming who it cleared — the ordinary case of undocking and immediately
+wanting to dock again no longer costs a 200 m round trip.
+
 The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
 [NOTICE.md](NOTICE.md) for the full acknowledgments list.

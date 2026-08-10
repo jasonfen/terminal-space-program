@@ -234,13 +234,28 @@ func (w *World) ProximityHintActive() bool {
 }
 
 // ProximityDockGateReady reports whether the pair sits inside BOTH
-// docking gates right now — exactly checkDocking's own auto-fuse
-// predicate (DockingDistM / DockingVMS), reused rather than
+// docking gates right now AND isn't held apart by a same-World re-arm
+// latch (#343) — exactly checkDocking's own auto-fuse predicate
+// (DockingDistM / DockingVMS, PLUS isLocalReArmed), reused rather than
 // re-thresholded so the dock-gate ring's green state and the game's
 // actual "you are about to dock" moment can never drift apart (issue
 // #348 §1: "DOCK READY becomes a place on screen").
+//
+// #372: the latch #343 added to checkDocking had drifted out of this
+// predicate — a just-undocked pair sitting inside both gates read
+// "ready" here while checkDocking was actually refusing to fuse it.
+// Folding the same isLocalReArmed check in restores the invariant the
+// doc comment above already promised.
 func (w *World) ProximityDockGateReady(st ProximityState) bool {
-	return st.RangeM < DockingDistM && st.VRelMS < DockingVMS
+	if st.RangeM >= DockingDistM || st.VRelMS >= DockingVMS {
+		return false
+	}
+	if c := w.ActiveCraft(); c != nil && w.Target.Kind == TargetCraft {
+		if w.isLocalReArmed(c.ID, w.Target.CraftID) {
+			return false
+		}
+	}
+	return true
 }
 
 // ProximityDriftHorizonMin / ProximityDriftHorizonMax bound the no-burn

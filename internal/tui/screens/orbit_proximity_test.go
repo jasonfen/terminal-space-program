@@ -452,6 +452,116 @@ func TestProximityDockGateColorReady(t *testing.T) {
 	}
 }
 
+// proximityLatchedWorld docks two vessels (DockCrafts fuses regardless of
+// proximity) and immediately undocks them, arming a same-World re-arm latch
+// (#343) between the two restored craft, then places the partner at relPos
+// with matched velocity and targets it — the #372 scene: a latched pair
+// sitting inside both raw docking gates.
+func proximityLatchedWorld(t *testing.T, relPos orbital.Vec3) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("expected 2 vessels after spawn, got %d", len(w.Crafts))
+	}
+	w.DockCrafts(0, 1)
+	if len(w.Crafts) != 1 {
+		t.Fatalf("DockCrafts did not fuse the pair (slate has %d craft)", len(w.Crafts))
+	}
+	if !w.Undock(0) {
+		t.Fatalf("Undock refused on the freshly-fused composite")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("expected 2 vessels after undock, got %d", len(w.Crafts))
+	}
+	w.ActiveCraftIdx = 0
+	active := w.ActiveCraft()
+	w.Crafts[1].Primary = active.Primary
+	w.Crafts[1].State.R = active.State.R.Add(relPos)
+	w.Crafts[1].State.V = active.State.V
+	w.SetTargetCraft(1)
+	w.Focus = sim.Focus{Kind: sim.FocusCraft}
+	return w
+}
+
+// TestProximityDockGateColorLatched is the #372 acceptance test for the
+// ring: a same-World re-arm latch holds the pair apart even though they sit
+// inside both raw docking gates, and the ring must show a DISTINCT amber
+// (ColorWarning) — not the green of "about to dock" (compared against the
+// unlatched ready scene) and not plain dim indistinguishable from "not close
+// enough yet" (compared against the unlatched not-ready scene, the same
+// baseline TestProximityDockGateColorReady uses — the target glyph itself is
+// always drawn ColorTarget regardless of gate state, so green is compared as
+// a delta, not an absolute count).
+func TestProximityDockGateColorLatched(t *testing.T) {
+	latchedW := proximityLatchedWorld(t, orbital.Vec3{X: 30}) // inside DockingDistM, matched v
+	latchedV := newProximityTestView(t, 80, 24)
+	latchedW.ViewMode = sim.ViewProximity
+	latchedV.Render(latchedW, 0, 80, 24)
+	latchedSt, ok := latchedW.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused a resolvable vessel target")
+	}
+	if latchedW.ProximityDockGateReady(latchedSt) {
+		t.Fatal("precondition: latched pair reports ready — the latch isn't actually held")
+	}
+	if latchedSt.RangeM >= sim.DockingDistM || latchedSt.VRelMS >= sim.DockingVMS {
+		t.Fatalf("precondition: pair not inside both raw gates (range=%.2f vRel=%.4f)", latchedSt.RangeM, latchedSt.VRelMS)
+	}
+	if !latchedV.proximityRingVisible(latchedSt, sim.DockingDistM) {
+		t.Fatal("precondition: gate ring not visible in the latched scene")
+	}
+
+	readyW := proximityWorld(t, orbital.Vec3{X: 30}) // same geometry, no latch — actually ready
+	readyV := newProximityTestView(t, 80, 24)
+	readyW.ViewMode = sim.ViewProximity
+	readyV.Render(readyW, 0, 80, 24)
+	readySt, ok := readyW.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused a resolvable vessel target (ready case)")
+	}
+	if !readyW.ProximityDockGateReady(readySt) {
+		t.Fatal("precondition: unlatched ready case is not actually ready")
+	}
+
+	notReadyW := proximityWorld(t, orbital.Vec3{X: 100}) // outside DockingDistM, no latch
+	notReadyV := newProximityTestView(t, 80, 24)
+	notReadyW.ViewMode = sim.ViewProximity
+	notReadyV.Render(notReadyW, 0, 80, 24)
+	notReadySt, ok := notReadyW.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused a resolvable vessel target (not-ready case)")
+	}
+	if notReadyW.ProximityDockGateReady(notReadySt) {
+		t.Fatal("precondition: not-ready case is actually ready")
+	}
+
+	latchedGreen := latchedV.canvas.CountColor(render.ColorTarget)
+	readyGreen := readyV.canvas.CountColor(render.ColorTarget)
+	notReadyGreen := notReadyV.canvas.CountColor(render.ColorTarget)
+	if latchedGreen >= readyGreen {
+		t.Errorf("ColorTarget cells: latched=%d, ready=%d — the latched ring must not show as many green cells as the actually-ready one", latchedGreen, readyGreen)
+	}
+	if latchedGreen != notReadyGreen {
+		t.Errorf("ColorTarget cells: latched=%d, not-ready=%d — the latched ring adds no green over the glyph-only baseline", latchedGreen, notReadyGreen)
+	}
+
+	latchedAmber := latchedV.canvas.CountColor(render.ColorWarning)
+	readyAmber := readyV.canvas.CountColor(render.ColorWarning)
+	notReadyAmber := notReadyV.canvas.CountColor(render.ColorWarning)
+	if latchedAmber == 0 {
+		t.Error("no ColorWarning (amber) cells in a latched scene — the latched ring should render distinctly, not plain dim")
+	}
+	if readyAmber != 0 || notReadyAmber != 0 {
+		t.Errorf("ColorWarning cells leaked into an unlatched scene: ready=%d, not-ready=%d, want 0 in both", readyAmber, notReadyAmber)
+	}
+}
+
 // TestProximityDriftPathDrawsPlannedClass: the drift path reaches the
 // canvas as ClassPlanned (dashed) ink in render.ColorPlannedNode — the
 // end-to-end wiring check that drawProximityDriftPath actually calls
