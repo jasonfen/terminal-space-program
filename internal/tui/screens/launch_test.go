@@ -8,7 +8,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -355,6 +357,201 @@ func TestCraftInDifferentSOIDoesNotRender(t *testing.T) {
 	out := v.Render(w, 120, 40)
 	if strings.Contains(out, "Ω") {
 		t.Errorf("expected sister-in-Luna-SOI to be culled, got:\n%s", out)
+	}
+}
+
+// brakingDescentCraft builds a Luna descent scenario matching issue
+// #378's measured repro: 20 km altitude, 400 m/s surface-relative
+// horizontal speed, 40 m/s descent rate. R sits along body-frame X so
+// "horizontal" here is the Y axis; V's X component is the (radially
+// inward) descent rate and Y is the horizontal speed. attitudeRetro
+// selects which way the nose points — surface-retrograde (braking,
+// opposing the horizontal velocity) when true, surface-prograde
+// (opposing the braking, i.e. pointing with travel) when false — so
+// callers can flip attitude at a fixed velocity without touching
+// anything else.
+func brakingDescentCraft(t *testing.T, attitudeRetro bool) (*spacecraft.Spacecraft, bodies.CelestialBody) {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sys := w.System()
+	moon := sys.FindBody("Moon")
+	if moon == nil {
+		t.Fatal("setup: Moon not found in default system")
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("setup: NewWorld should produce an active craft")
+	}
+	c.Primary = *moon
+	c.Landed = false
+	c.Crashed = false
+	c.State.R = orbital.Vec3{X: moon.RadiusMeters() + 20_000}
+	c.State.V = orbital.Vec3{X: -40, Y: 400}
+	c.State.M = c.TotalMass()
+	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	if attitudeRetro {
+		c.CurrentAttitudeDir = vRel.Scale(-1.0 / vRel.Norm()) // surface-retrograde: braking
+	} else {
+		c.CurrentAttitudeDir = vRel.Scale(1.0 / vRel.Norm()) // surface-prograde
+	}
+	return c, *moon
+}
+
+// horizVelUnit returns the unit vector of the surface-relative
+// horizontal velocity component (the same quantity chaseHorizontalAxis
+// is now supposed to track), computed independently of
+// chaseHorizontalAxis so the test isn't just re-deriving the
+// production formula and comparing it to itself.
+func horizVelUnit(c *spacecraft.Spacecraft, localUp orbital.Vec3) orbital.Vec3 {
+	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	horiz := vRel.Sub(localUp.Scale(vRel.Dot(localUp)))
+	return horiz.Scale(1.0 / horiz.Norm())
+}
+
+// TestChaseHAxisAlignsWithHorizVelocityDuringBraking pins issue #378's
+// measurement, inverted: on a braking (surface-retrograde) descent,
+// the old attitude-derived axis measured hAxis·v̂_horiz = -1.000 exactly
+// (the scene mirrored, not skewed). The fixed axis must measure
+// strictly positive — screen-right is the way the vessel is going,
+// even while the nose points backwards to brake.
+func TestChaseHAxisAlignsWithHorizVelocityDuringBraking(t *testing.T) {
+	c, moon := brakingDescentCraft(t, true /* retrograde: braking */)
+	camFromBody := c.State.R
+	localUp := camFromBody.Scale(1.0 / camFromBody.Norm())
+
+	hAxis := chaseHorizontalAxis(c, moon, camFromBody, localUp)
+	vHat := horizVelUnit(c, localUp)
+
+	dot := hAxis.Dot(vHat)
+	if dot <= 0 {
+		t.Fatalf("braking descent: hAxis·v̂_horiz = %.4f (want > 0; the issue #378 "+
+			"measurement was exactly -1.000 — screen-right pointed against travel)", dot)
+	}
+	if dot < 0.999 {
+		t.Errorf("braking descent: hAxis·v̂_horiz = %.4f (want ~1.0 — hAxis should be "+
+			"the horizontal-velocity direction itself, not merely same-signed)", dot)
+	}
+}
+
+// TestChaseHAxisSenseStableAcrossAttitudeFlip: acceptance criterion —
+// switching the pilot's commanded attitude between surface-prograde and
+// surface-retrograde at a fixed velocity must not change which way the
+// camera's horizontal axis points. Attitude no longer has any say in
+// this axis; only velocity does.
+func TestChaseHAxisSenseStableAcrossAttitudeFlip(t *testing.T) {
+	cRetro, moon := brakingDescentCraft(t, true)
+	camFromBody := cRetro.State.R
+	localUp := camFromBody.Scale(1.0 / camFromBody.Norm())
+	hAxisRetro := chaseHorizontalAxis(cRetro, moon, camFromBody, localUp)
+
+	cPro, _ := brakingDescentCraft(t, false)
+	hAxisPro := chaseHorizontalAxis(cPro, moon, camFromBody, localUp)
+
+	if dot := hAxisRetro.Dot(hAxisPro); dot < 0.999 {
+		t.Errorf("chase axis changed when attitude flipped prograde<->retrograde at a "+
+			"fixed velocity: hAxisRetro·hAxisPro = %.4f (want ~1.0 — pointing the nose "+
+			"around must not mirror the world)", dot)
+	}
+}
+
+// TestChaseHAxisFallsBackToEastBelowSpeedFloor: acceptance criterion —
+// a pad-bound vessel (zero *surface-relative* velocity) must still get
+// surface-frame east, unchanged from before this fix. Uses the same
+// pad-spawn helper the vertical-climb regression test below relies on,
+// but asserts the floor directly on a Landed, unignited craft rather
+// than mid-ascent.
+//
+// Note: c.State.V (inertial) is NOT zero here — a landed craft
+// co-rotates with the body, so it carries the body's rotational
+// velocity at that latitude (~408 m/s at KSC's 28.6°N). It's the
+// *air-relative* velocity (physics.AirRelativeVelocity, what
+// chaseHorizontalAxis actually uses) that's ~0 for a vessel sitting
+// still on the ground — that's the quantity this test's floor check
+// is really about.
+func TestChaseHAxisFallsBackToEastBelowSpeedFloor(t *testing.T) {
+	_, c := spawnSaturnVOnPad(t)
+	if got := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm(); got > chaseHorizSpeedFloorMps {
+		t.Fatalf("setup: pad-bound craft should be at rest relative to the ground, "+
+			"got |v_rel|=%.6f m/s (>= floor %.2f)", got, chaseHorizSpeedFloorMps)
+	}
+
+	camFromBody := c.State.R
+	localUp := camFromBody.Scale(1.0 / camFromBody.Norm())
+	hAxis := chaseHorizontalAxis(c, c.Primary, camFromBody, localUp)
+
+	rR := render.Vec3{X: c.State.R.X, Y: c.State.R.Y, Z: c.State.R.Z}
+	eastR := render.BodyFrameEast(c.Primary, rR)
+	eastV := orbital.Vec3{X: eastR.X, Y: eastR.Y, Z: eastR.Z}
+	if dot := hAxis.Dot(eastV); dot < 0.999 {
+		t.Errorf("pad-bound vessel (V=0): hAxis·east = %.4f (want ~1.0 — a stationary "+
+			"vessel has no direction of travel, so the axis must fall back to "+
+			"surface-frame east, matching pre-fix behaviour)", dot)
+	}
+}
+
+// TestDescentArcAheadTrailBehindOnScreen — acceptance criterion: the
+// descent arc/impact point projects to screen-right (ahead, ok=true
+// side of centre) and a trail breadcrumb behind the vessel projects to
+// screen-left, using the real DescentCorridorFor forecast and the real
+// LaunchView.Render pipeline (not a hand-rolled projection), on the
+// same braking-descent scenario as the dot-product tests above.
+func TestDescentArcAheadTrailBehindOnScreen(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sys := w.System()
+	moon := sys.FindBody("Moon")
+	if moon == nil {
+		t.Fatal("setup: Moon not found in default system")
+	}
+	c := w.ActiveCraft()
+	c.Primary = *moon
+	c.Landed = false
+	c.Crashed = false
+	c.State.R = orbital.Vec3{X: moon.RadiusMeters() + 20_000}
+	c.State.V = orbital.Vec3{X: -40, Y: 400}
+	c.State.M = c.TotalMass()
+	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	c.CurrentAttitudeDir = vRel.Scale(-1.0 / vRel.Norm()) // braking: nose backwards
+
+	// A trail breadcrumb ~60s behind the current position (roughly
+	// along -V — good enough for a directional check over a short
+	// baseline), stored body-fixed the way maybeSampleLaunchTrail does.
+	pastWorld := c.State.R.Sub(c.State.V.Scale(60))
+	pastUnit := pastWorld.Scale(1.0 / pastWorld.Norm())
+	pastAlt := pastWorld.Norm() - moon.RadiusMeters()
+	pastLat, pastLon := render.WorldToBodyFixed(*moon, render.Vec3{X: pastUnit.X, Y: pastUnit.Y, Z: pastUnit.Z}, w.Clock.SimTime)
+	w.LaunchTrail = []sim.TrailPoint{{LatDeg: pastLat, LonDeg: pastLon, AltM: pastAlt, SampledAt: w.Clock.SimTime}}
+
+	corridor, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon)
+	if !descending {
+		t.Fatal("setup: expected the scenario to gate as descending")
+	}
+	if len(corridor.Impact.Path) < 2 {
+		t.Fatal("setup: expected a forecast impact path")
+	}
+
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	v.Render(w, 80, 24)
+
+	pxCenter := v.canvas.Cols()                               // canvas pxW = cols*2, so pxW/2 == cols
+	impactPx, _, _ := v.canvas.Project(corridor.Impact.Point) // body-relative; bodyCentre is the origin
+	if impactPx <= pxCenter {
+		t.Errorf("descent impact point projected at px=%d, canvas centre=%d — want strictly "+
+			"right of centre (ahead, in the direction of travel)", impactPx, pxCenter)
+	}
+
+	trailWorld := render.BodyFixedToWorld(*moon, pastLat, pastLon, w.Clock.SimTime)
+	trailPt := orbital.Vec3{X: trailWorld.X, Y: trailWorld.Y, Z: trailWorld.Z}.Scale(moon.RadiusMeters() + pastAlt)
+	trailPx, _, _ := v.canvas.Project(trailPt)
+	if trailPx >= pxCenter {
+		t.Errorf("trail breadcrumb projected at px=%d, canvas centre=%d — want strictly "+
+			"left of centre (behind, opposite the direction of travel)", trailPx, pxCenter)
 	}
 }
 

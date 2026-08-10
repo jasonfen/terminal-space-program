@@ -387,9 +387,9 @@ func (v *LaunchView) renderNoActiveVesselMessage() {
 // and active-vessel glyph into v.canvas. Caller guarantees craft is
 // non-nil and craft.Primary has a non-zero radius.
 //
-// Camera basis (per ADR-0002 + plan): X = h_axis (commanded-attitude
-// projected onto the local-horizontal plane, falling back to surface-
-// frame east when the commanded direction is near-vertical); Y =
+// Camera basis (per ADR-0002 + plan, amended by issue #378): X =
+// h_axis (surface-relative horizontal velocity, falling back to
+// surface-frame east when horizontal speed is near zero); Y =
 // local-up (radial from body centre). Depth axis points laterally —
 // useful for hemisphere culling. ViewTilt.Theta is suppressed inside
 // ViewLaunch per ADR-0002.
@@ -625,39 +625,57 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 const flameFrameMs = 100
 
 // chaseHorizontalAxis computes the projection-plane horizontal axis:
-// the commanded (CurrentAttitudeDir) projection onto the local-
-// horizontal plane when its magnitude is well-defined, falling back
-// to surface-frame east at the craft's surface point when the
-// attitude is near-vertical (rocket on the pad / just after liftoff).
+// the surface-relative velocity's horizontal component, normalised,
+// falling back to surface-frame east at the craft's surface point
+// when that horizontal speed is near zero (rocket on the pad / a pure
+// vertical climb or drop).
 //
-// Threshold: |horiz| > sin(~0.6°) ≈ 0.01. v0.11.0 shipped at 1e-9
-// which filtered only floating-point dust — but the integrator's
-// per-tick snap leaves CurrentAttitudeDir lagging localUp by the
-// rocket's per-tick rotation in inertial frame (ω·Δt at engine
-// ignition: 3.6e-6 rad at Earth's spin × 50 ms base step). That lag
-// is ~3600× above 1e-9, so `horiz` picked up the lag vector and
-// normalised it to a unit west-ish direction during pure vertical
-// climb, flipping the chase-cam east↔west until the player applied
-// pitch trim. v0.11.1 raises the floor above the warp-scaled lag
-// (≤ ~1e-4 rad at the 10× burn warp cap) but well below the
-// smallest meaningful pitch trim (one step = 5° = 0.087 rad) — the camera
-// orients east during vertical climb (intent), then swings to the
-// pitch direction as the player gravity-turns.
+// Issue #378: this used to derive X from CurrentAttitudeDir — the
+// *commanded* attitude — projected onto the local horizontal. That is
+// the same instruction as "align with travel" during an ascent's
+// gravity turn (nose and velocity point the same way), but on a
+// braking descent the pilot points surface-retrograde, so the old
+// rule pointed screen-right *against* travel: an exact -1.000 dot
+// product between the old axis and horizontal velocity, i.e. the
+// whole surface view mirrored rather than merely skewed. Orienting by
+// velocity instead gives one rule for both halves of the surface view
+// and makes screen-right "the way the vessel is going," always — the
+// nose can then draw pointing left during a braking burn instead of
+// the world flipping to keep it pointing right.
+//
+// Uses physics.AirRelativeVelocity (not the raw inertial V) to match
+// descentKinematics — the surface view is a ground-relative
+// instrument, and a fast-rotating primary would otherwise reintroduce
+// a smaller version of the same disagreement between the camera axis
+// and what the ground actually does underneath the craft.
+//
+// Speed floor: chaseHorizSpeedFloorMps. Below it the horizontal
+// velocity is noise (numerical residue at rest on the pad, or the
+// per-tick integrator wobble during a near-vertical climb — the same
+// class of noise v0.11.1's chaseHorizEpsilon threshold used to guard
+// against on the attitude vector) rather than a meaningful direction
+// of travel, so the axis falls back to surface-frame east.
 func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) orbital.Vec3 {
-	cmd := c.CurrentAttitudeDir
-	if cmd.Norm() > 0 {
-		horiz := cmd.Sub(localUp.Scale(cmd.Dot(localUp)))
-		if n := horiz.Norm(); n > chaseHorizEpsilon {
-			return horiz.Scale(1.0 / n)
-		}
+	vRel := physics.AirRelativeVelocity(camFromBody, c.State.V, body)
+	vVert := vRel.Dot(localUp)
+	horiz := vRel.Sub(localUp.Scale(vVert))
+	if n := horiz.Norm(); n > chaseHorizSpeedFloorMps {
+		return horiz.Scale(1.0 / n)
 	}
 	east := render.BodyFrameEast(body, render.Vec3{X: camFromBody.X, Y: camFromBody.Y, Z: camFromBody.Z})
 	return orbital.Vec3{X: east.X, Y: east.Y, Z: east.Z}
 }
 
-// chaseHorizEpsilon — sin(~0.6°). See chaseHorizontalAxis docstring
-// for the slew-lag vs. pitch-trim noise-floor derivation.
-const chaseHorizEpsilon = 0.01
+// chaseHorizSpeedFloorMps is the surface-relative horizontal speed
+// (m/s) below which chaseHorizontalAxis treats the direction of
+// travel as undefined and falls back to surface-frame east. Measured
+// (TestChaseHAxisStaysEastDuringVerticalClimb's scenario) at ~0.014
+// m/s of horizontal drift from per-tick integrator noise during a
+// vertical climb with zero pitch trim; set an order of magnitude
+// above that and below sim.fpaSpeedFloorMps's 1.0 m/s convention for
+// "is this vessel usefully moving" so a real, if gentle, sideways
+// drift still steers the camera.
+const chaseHorizSpeedFloorMps = 0.1
 
 // drawHorizonAndFill paints the body's projected silhouette below the
 // horizon with SurfaceColor. In the chase-cam basis (h_axis,
