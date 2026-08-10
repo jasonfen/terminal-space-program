@@ -804,29 +804,30 @@ func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
 	if dc.HasFPA {
 		fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", nzero(dc.FlightPathAngleDeg, 0))
 	}
-	// Every row's label + colon + padding occupies EXACTLY 14 cells
+	// Every row's label + colon + padding occupies EXACTLY 15 cells
 	// before the value starts, so the values line up in one column
-	// regardless of label length — matching every other row's own
-	// natural width (`fpa:` included) rather than widening the whole
-	// block to fit `stop margin:`, which is the one label that's already
-	// 14 cells at "  stop margin:" with nothing to spare: its value
-	// starts immediately after the colon, no separating space, so it
-	// lands in the same column as everything else. Literal spaces,
+	// regardless of label length. 14 (each label's own natural width)
+	// left `stop margin:` — itself exactly 14 — with no room for a
+	// separating space at all, so its value landed jammed against the
+	// colon while every other row had visible daylight after its own:
+	// arithmetically aligned, but reading as a missing-space bug rather
+	// than a deliberate layout. 15 gives every row, `stop margin:`
+	// included, at least one space of breathing room. Literal spaces,
 	// never %-Ns (ANSI bytes in a themed value would break that padding).
 	lines := []string{
 		v.theme.Primary.Render("DESCENT CORRIDOR"),
-		fmt.Sprintf("  altitude:   %s", formatAltitude(dc.AltitudeM)),
-		fmt.Sprintf("  descent:    %.0f m/s", dc.DescentRateMps),
-		fmt.Sprintf("  v_horiz:    %s", horizLabel),
-		fmt.Sprintf("  fpa:        %s", fpaLabel),
-		fmt.Sprintf("  impact in:  %s (%.0f m/s)",
+		fmt.Sprintf("  altitude:    %s", formatAltitude(dc.AltitudeM)),
+		fmt.Sprintf("  descent:     %.0f m/s", dc.DescentRateMps),
+		fmt.Sprintf("  v_horiz:     %s", horizLabel),
+		fmt.Sprintf("  fpa:         %s", fpaLabel),
+		fmt.Sprintf("  impact in:   %s (%.0f m/s)",
 			compactDuration(dc.Impact.TimeToImpact), dc.Impact.SpeedMps),
 	}
 	if dc.HasBurnAt {
-		lines = append(lines, fmt.Sprintf("  burn at:    %s — in %s",
+		lines = append(lines, fmt.Sprintf("  burn at:     %s — in %s",
 			formatAltitude(dc.BurnAt.AltitudeM), compactDuration(secondsToDuration(dc.BurnAt.InSec))))
 	}
-	lines = append(lines, fmt.Sprintf("  stop margin:%s", v.stopMarginLabel(dc)))
+	lines = append(lines, fmt.Sprintf("  stop margin: %s", v.stopMarginLabel(dc)))
 	return lines
 }
 

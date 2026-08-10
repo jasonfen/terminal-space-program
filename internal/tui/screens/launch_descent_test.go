@@ -63,10 +63,13 @@ func descendingMoonCraft(t *testing.T, altM, vDownMps float64) *sim.World {
 // `stop margin` — the 7-row block (Jason's call: `fpa` was folded out
 // once because issue #377's pinned mock only sketched the two new rows,
 // then restored — the mock wasn't an exhaustive spec of the whole
-// block). All seven rows share one label column (14 cells before the
-// value): `stop margin:` is itself exactly 14, so its value starts
-// immediately after the colon with no separating space, same column as
-// every other row's value.
+// block). All seven rows share one label column (15 cells before the
+// value) — 14 (each label's own natural width) left `stop margin:`,
+// itself exactly 14, with no room for a separating space at all, so its
+// value would land jammed against the colon while every other row had
+// daylight after its own: arithmetically aligned, but reading as a
+// missing-space bug. 15 gives every row a space of breathing room,
+// `stop margin:` included.
 func TestDescentCorridorLinesInstruments(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
 	dc := sim.DescentCorridor{
@@ -87,13 +90,13 @@ func TestDescentCorridorLinesInstruments(t *testing.T) {
 	}
 	want := []string{
 		"DESCENT CORRIDOR",
-		"  altitude:   12.40 km",
-		"  descent:    182 m/s",
-		"  v_horiz:    4 m/s (surface-rel)",
-		"  fpa:        -88° (0 = horiz, −90 = straight down)",
-		"  impact in:  1m4s (240 m/s)",
-		"  burn at:    8.00 km — in 48s",
-		"  stop margin:3.40 km up   (full thrust now)",
+		"  altitude:    12.40 km",
+		"  descent:     182 m/s",
+		"  v_horiz:     4 m/s (surface-rel)",
+		"  fpa:         -88° (0 = horiz, −90 = straight down)",
+		"  impact in:   1m4s (240 m/s)",
+		"  burn at:     8.00 km — in 48s",
+		"  stop margin: 3.40 km up   (full thrust now)",
 	}
 	got := v.descentCorridorLines(dc)
 	if len(got) != len(want) {
@@ -146,12 +149,12 @@ func TestDescentCorridorFPARow(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
 
 	withFPA := v.descentCorridorLines(sim.DescentCorridor{FlightPathAngleDeg: -88, HasFPA: true})
-	if withFPA[4] != "  fpa:        -88° (0 = horiz, −90 = straight down)" {
+	if withFPA[4] != "  fpa:         -88° (0 = horiz, −90 = straight down)" {
 		t.Errorf("fpa row with HasFPA = %q, want the legend", withFPA[4])
 	}
 
 	withoutFPA := v.descentCorridorLines(sim.DescentCorridor{})
-	if withoutFPA[4] != "  fpa:        —" {
+	if withoutFPA[4] != "  fpa:         —" {
 		t.Errorf("fpa row without HasFPA = %q, want an em dash", withoutFPA[4])
 	}
 }
