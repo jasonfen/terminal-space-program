@@ -13,6 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -56,15 +57,25 @@ func descendingMoonCraft(t *testing.T, altM, vDownMps float64) *sim.World {
 	return w
 }
 
-// TestDescentCorridorLinesInstruments pins the four instruments issue
-// #348 §3 asks for — altitude, descent rate, time to impact, burn margin
-// — as exact rendered rows, so a formatting change has to be deliberate.
+// TestDescentCorridorLinesInstruments pins the row layout as exact
+// rendered rows, so a formatting change has to be deliberate: altitude,
+// descent rate, v_horiz, fpa, time to impact, `burn at`, and
+// `stop margin` — the 7-row block (Jason's call: `fpa` was folded out
+// once because issue #377's pinned mock only sketched the two new rows,
+// then restored — the mock wasn't an exhaustive spec of the whole
+// block). All seven rows share one label column (15 cells before the
+// value) — 14 (each label's own natural width) left `stop margin:`,
+// itself exactly 14, with no room for a separating space at all, so its
+// value would land jammed against the colon while every other row had
+// daylight after its own: arithmetically aligned, but reading as a
+// missing-space bug. 15 gives every row a space of breathing room,
+// `stop margin:` included.
 //
-// Since the review's chip-dedup fix the block also carries v_horiz and
-// fpa, folded in from the DESCENT chip it now replaces on this screen
-// (see the dropChip call in launch.go). Both are pinned here for the same
-// reason the original four are: they are the rows a player reads while
-// deciding whether this is a landing or a crash.
+// The teaching parentheticals (`(surface-rel)`, the fpa unit legend,
+// `(full thrust now)`) are gone too — Jason's call: a legend printed
+// every frame forever is scaffolding a returning pilot doesn't need.
+// Parentheticals that carry a number or a state (impact speed, which
+// limiter bound a forecast) stayed; those are data, not description.
 func TestDescentCorridorLinesInstruments(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
 	dc := sim.DescentCorridor{
@@ -77,18 +88,21 @@ func TestDescentCorridorLinesInstruments(t *testing.T) {
 			TimeToImpact: 64 * time.Second,
 			SpeedMps:     240,
 		},
-		// a_net 1 vs a_req 0.5 → 2.00 on thrust; 30 m/s of Δv against a
-		// 20 m/s stop burn → 1.50 on fuel. Fuel binds, and 1.50 is OK.
-		Margin: sim.ComputeBurnMargin(2000, 1000, 1, 10, 100, 30),
+		Stop:      sim.PoweredStopPrediction{Outcome: sim.StopStopped, MarginM: 3_400},
+		StopOK:    true,
+		BurnAt:    sim.BurnAtCue{AltitudeM: 8_000, InSec: 48},
+		HasBurnAt: true,
+		Margin:    sim.BurnMargin{State: sim.MarginOK},
 	}
 	want := []string{
 		"DESCENT CORRIDOR",
-		"  altitude:   12.40 km",
-		"  descent:    182 m/s",
-		"  v_horiz:    4 m/s (surface-rel)",
-		"  fpa:        -88° (0 = horiz, −90 = straight down)",
-		"  impact in:  1m4s (240 m/s)",
-		"  margin:     1.50 ×",
+		"  altitude:    12.40 km",
+		"  descent:     182 m/s",
+		"  v_horiz:     4 m/s",
+		"  fpa:         -88°",
+		"  impact in:   1m4s (240 m/s)",
+		"  burn at:     8.00 km — in 48s",
+		"  stop margin: 3.40 km up",
 	}
 	got := v.descentCorridorLines(dc)
 	if len(got) != len(want) {
@@ -117,37 +131,106 @@ func TestDescentCorridorHorizontalRateAlarm(t *testing.T) {
 	}
 }
 
-// TestDescentCorridorFPAUndefinedBelowSpeedFloor: with no meaningful
-// surface-relative motion the angle is numerical dust, so the row says so
-// rather than printing a heading the pilot might steer by.
-func TestDescentCorridorFPAUndefinedBelowSpeedFloor(t *testing.T) {
+// TestDescentCorridorNoBurnAtRowWhenHasBurnAtFalse: `burn at` is the one
+// row in the pinned layout that's conditionally present (issue #377 §2:
+// it hides once the burn is under way, or when there's no future safe
+// start at all) — the row count itself has to shrink, not just show a
+// placeholder.
+func TestDescentCorridorNoBurnAtRowWhenHasBurnAtFalse(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
-	got := v.descentCorridorLines(sim.DescentCorridor{})
-	if got[4] != "  fpa:        —" {
-		t.Errorf("fpa row without HasFPA = %q, want an em dash", got[4])
+	got := v.descentCorridorLines(sim.DescentCorridor{HasBurnAt: false})
+	for _, row := range got {
+		if strings.Contains(row, "burn at:") {
+			t.Errorf("HasBurnAt=false still rendered a burn-at row: %q", row)
+		}
 	}
 }
 
-// TestDescentCorridorMarginAlarmLadder: the margin row is the alarm
-// surface, so each state must change the LABEL, not only a shade a
-// player can miss. Pins all three rungs plus the undefined case.
-func TestDescentCorridorMarginAlarmLadder(t *testing.T) {
+// TestDescentCorridorFPARow pins that `fpa` is present with its VALUE —
+// it was folded out of the block once already (issue #377's pinned mock
+// only sketched the two new rows), then restored on Jason's explicit
+// call, so nothing was asserting it existed. The row's teaching legend
+// (`0 = horiz, −90 = straight down`) was stripped in a later pass
+// (Jason: "people will learn and should know"), but the ROW — a bare
+// angle when defined, an em dash below the speed floor — must survive
+// that too; this test is what keeps a future "clean up the corridor"
+// pass from deleting the row along with its legend.
+func TestDescentCorridorFPARow(t *testing.T) {
+	v := NewLaunchView(launchThemeForTest(), nil)
+
+	withFPA := v.descentCorridorLines(sim.DescentCorridor{FlightPathAngleDeg: -88, HasFPA: true})
+	if withFPA[4] != "  fpa:         -88°" {
+		t.Errorf("fpa row with HasFPA = %q, want the bare angle", withFPA[4])
+	}
+
+	withoutFPA := v.descentCorridorLines(sim.DescentCorridor{})
+	if withoutFPA[4] != "  fpa:         —" {
+		t.Errorf("fpa row without HasFPA = %q, want an em dash", withoutFPA[4])
+	}
+}
+
+// TestStopMarginLabelAlarmLadder: `stop margin` is the alarm surface, so
+// each state must change the LABEL, not only a shade a player can miss.
+// Pins StopStopped (OK and TIGHT), StopCrashed, StopFuelLimited, and the
+// StopOK=false (refused/undetermined) case.
+//
+// The refused case is pinned as an ALARM label, not an em dash (PR #382
+// review finding 1): sim.DeriveMarginState maps !StopOK to
+// MarginInsufficient specifically so drawDescentArc's alarm
+// (dc.Margin.State == MarginInsufficient) paints the arc red for
+// exactly this state, and a quiet "—" row under a red arc is a refused
+// forecast reading as healthy in the corridor and alarming on the
+// canvas at the same time — see
+// TestDescentCorridorRefusedForecastReadsAsAlarmNotSilence for the
+// reachable end-to-end case this was caught from.
+func TestStopMarginLabelAlarmLadder(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
 	cases := []struct {
-		name   string
-		margin sim.BurnMargin
-		want   string
+		name string
+		dc   sim.DescentCorridor
+		want string
 	}{
-		// a_net 1 vs a_req 2 → 0.50 on thrust: cannot stop.
-		{"insufficient", sim.ComputeBurnMargin(2000, 1000, 1, 20, 100, 100), "0.50 × CAN'T STOP (thrust)"},
-		// 25 m/s of Δv against a 20 m/s stop burn → 1.25 on fuel.
-		{"tight", sim.ComputeBurnMargin(2000, 1000, 1, 10, 100, 25), "1.25 × TIGHT (fuel)"},
-		{"ok", sim.ComputeBurnMargin(2000, 1000, 1, 10, 100, 100), "2.00 ×"},
-		{"undefined", sim.BurnMargin{}, "—"},
+		{
+			"stopped, OK",
+			sim.DescentCorridor{
+				Stop: sim.PoweredStopPrediction{Outcome: sim.StopStopped, MarginM: 12_400}, StopOK: true,
+				Margin: sim.BurnMargin{State: sim.MarginOK},
+			},
+			"12.40 km up",
+		},
+		{
+			"stopped, TIGHT",
+			sim.DescentCorridor{
+				Stop: sim.PoweredStopPrediction{Outcome: sim.StopStopped, MarginM: 300}, StopOK: true,
+				Margin: sim.BurnMargin{State: sim.MarginTight},
+			},
+			"300 m up TIGHT",
+		},
+		{
+			"crashed",
+			sim.DescentCorridor{
+				Stop: sim.PoweredStopPrediction{Outcome: sim.StopCrashed, MarginM: -3_400, ImpactSpeedMps: 411}, StopOK: true,
+				Margin: sim.BurnMargin{State: sim.MarginInsufficient, Limiter: sim.LimitThrust},
+			},
+			"short by 3.40 km (impact 411 m/s) CAN'T STOP (thrust)",
+		},
+		{
+			"fuel-limited",
+			sim.DescentCorridor{
+				Stop: sim.PoweredStopPrediction{Outcome: sim.StopFuelLimited, MarginM: 5_000}, StopOK: true,
+				Margin: sim.BurnMargin{State: sim.MarginInsufficient, Limiter: sim.LimitFuel},
+			},
+			"fuel-limited at 5.00 km CAN'T STOP (fuel)",
+		},
+		{
+			"undetermined (refused)",
+			sim.DescentCorridor{StopOK: false, Margin: sim.BurnMargin{State: sim.MarginInsufficient, Limiter: sim.LimitThrust}},
+			"unresolved — CAN'T STOP (thrust)",
+		},
 	}
 	for _, c := range cases {
-		if got := v.marginLabel(c.margin); got != c.want {
-			t.Errorf("%s: margin label %q, want %q", c.name, got, c.want)
+		if got := v.stopMarginLabel(c.dc); got != c.want {
+			t.Errorf("%s: stop margin label %q, want %q", c.name, got, c.want)
 		}
 	}
 }
@@ -241,7 +324,7 @@ func TestLaunchViewDescentInstrumentsAt80x24(t *testing.T) {
 	w := descendingMoonCraft(t, 20_000, 120)
 
 	out := v.Render(w, 80, 24)
-	for _, want := range []string{"DESCENT CORRIDOR", "altitude:", "descent:", "impact in:", "margin:"} {
+	for _, want := range []string{"DESCENT CORRIDOR", "altitude:", "descent:", "impact in:", "stop margin:"} {
 		if !strings.Contains(stripANSI(out), want) {
 			t.Errorf("80×24 render is missing %q:\n%s", want, out)
 		}
@@ -305,8 +388,9 @@ func TestSurfaceViewShowsOneDescentBlock(t *testing.T) {
 	if n := strings.Count(out, "v_vert:"); n != 0 {
 		t.Errorf("frame still carries %d `v_vert:` rows — the DESCENT chip did not stand down", n)
 	}
-	// The rows worth keeping came along rather than being dropped.
-	for _, row := range []string{"descent:", "v_horiz:", "fpa:", "impact in:", "margin:"} {
+	// The rows worth keeping came along rather than being dropped —
+	// `fpa` included; it survived the #377 layout change (Jason's call).
+	for _, row := range []string{"descent:", "v_horiz:", "fpa:", "impact in:", "stop margin:"} {
 		if !strings.Contains(out, row) {
 			t.Errorf("corridor block is missing the %q row", row)
 		}
@@ -326,5 +410,106 @@ func TestOrbitMapKeepsItsDescentChip(t *testing.T) {
 
 	if !strings.Contains(out, "v_vert:") {
 		t.Error("the orbit map lost its DESCENT chip — there is no corridor there to replace it")
+	}
+}
+
+// TestBurnAtRowDisappearsOnceBurnStarts is issue #377's acceptance item
+// verbatim: "burn at disappears once the burn is under way; stop margin
+// does not." A comfortable descent shows a `burn at` cue pre-burn; the
+// instant ActiveBurn is set, the very next render drops that row while
+// `stop margin` keeps rendering.
+func TestBurnAtRowDisappearsOnceBurnStarts(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w := descendingMoonCraft(t, 20_000, 120)
+
+	before := stripANSI(v.Render(w, 200, 60))
+	if !strings.Contains(before, "burn at:") {
+		t.Fatal("precondition: expected a `burn at` row for a comfortably-stoppable descent")
+	}
+	if !strings.Contains(before, "stop margin:") {
+		t.Fatal("precondition: expected a `stop margin` row")
+	}
+
+	w.ActiveCraft().ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100}
+
+	after := stripANSI(v.Render(w, 200, 60))
+	if strings.Contains(after, "burn at:") {
+		t.Errorf("burn at row still rendered once ActiveBurn was set:\n%s", after)
+	}
+	if !strings.Contains(after, "stop margin:") {
+		t.Errorf("stop margin row disappeared once the burn started — it must stay live:\n%s", after)
+	}
+}
+
+// TestDescentCorridorRefusedForecastReadsAsAlarmNotSilence is PR #382
+// review finding 1's end-to-end regression: a REACHABLE refusal
+// (near-hover thrust — TWR barely above local g, an Isp-3000s engine so
+// mass loss over the search window stays negligible — 20 km up at a
+// mundane 50 m/s, confirmed via PredictPoweredStop directly to hit the
+// step cap: Outcome=StopUndetermined, ok=false) must not present as a
+// healthy corridor under a red arc. Both signals — the arc/impact-marker
+// alarm promotion (drawDescentArc, keyed off dc.Margin.State) and the
+// `stop margin` row text — have to agree that this is CAN'T STOP.
+func TestDescentCorridorRefusedForecastReadsAsAlarmNotSilence(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	for _, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			c.Primary = b
+		}
+	}
+	c.Landed, c.Crashed = false, false
+	c.Stages = nil
+	const altM = 20_000.0
+	r := c.Primary.RadiusMeters() + altM
+	gLocal := c.Primary.GravitationalParameter() / (r * r)
+	const massKg0 = 15_000.0
+	c.Thrust = (gLocal + 0.01) * massKg0 // TWR ~1% above local hover
+	c.Isp = 3_000                        // negligible mass loss over the 1800s search window
+	c.DryMass = massKg0 / 2
+	c.Fuel = massKg0 / 2
+	c.Monoprop = 0
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{X: -50}
+	c.State.M = c.TotalMass()
+
+	// Precondition: this really is the refusal case, not some other
+	// outcome that happens to also alarm.
+	if stop, ok := sim.PredictPoweredStop(c, sim.DescentPredictHorizon); ok {
+		t.Fatalf("setup: expected PredictPoweredStop to refuse (step cap), got ok=true Outcome=%v", stop.Outcome)
+	}
+
+	out := stripANSI(v.Render(w, 200, 60))
+
+	// The row: not a quiet em dash, and it reads CAN'T STOP in the
+	// alarm's own words.
+	var stopMarginRow string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "stop margin:") {
+			stopMarginRow = line
+			break
+		}
+	}
+	if stopMarginRow == "" {
+		t.Fatal("no `stop margin` row found in the render")
+	}
+	if strings.Contains(stopMarginRow, "stop margin:—") || strings.Contains(stopMarginRow, "stop margin: —") {
+		t.Errorf("refused forecast rendered a silent em dash: %q", stopMarginRow)
+	}
+	if !strings.Contains(stopMarginRow, "CAN'T STOP") {
+		t.Errorf("refused forecast row does not read CAN'T STOP: %q", stopMarginRow)
+	}
+
+	// The arc/impact-marker alarm: drawDescentArc paints alert-red
+	// exactly when dc.Margin.State == MarginInsufficient, which is what
+	// this refusal must map to (sim.DeriveMarginState).
+	if n := v.canvas.CountColor(render.ColorAlert); n == 0 {
+		t.Error("refused forecast did not promote the descent arc to alert-red")
 	}
 }

@@ -71,6 +71,12 @@ type LaunchView struct {
 	hAxisLatched   bool
 	hAxisValue     orbital.Vec3
 	hAxisWasLanded bool
+
+	// descentStopCache / descentStopCacheComputes: the predict-on-change
+	// cache for the descent corridor's integrated stop-burn forecast and
+	// "burn at" search (issue #377). See launch_descent_cache.go.
+	descentStopCache         descentStopRenderCache
+	descentStopCacheComputes int
 }
 
 // NewLaunchView constructs the chase-cam screen, paired with the
@@ -195,6 +201,19 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// trajectory lands. Ballistic-from-now, so an active burn walks it
 	// live — see sim.PredictImpact.
 	corridor, descending := sim.DescentCorridorFor(craft, sim.DescentPredictHorizon)
+	// The expensive half (issue #377): the integrated stop-burn forecast
+	// and "burn at" cue, CACHED (unlike the cheap half above, which is
+	// fine to redo every frame) — see cachedDescentStop's doc comment for
+	// why. Only merged in while actually descending; DescentCorridorFor's
+	// own gate already governs whether this block renders at all.
+	if descending {
+		stopDat := v.cachedDescentStop(w, craft)
+		corridor.Stop = stopDat.stop
+		corridor.StopOK = stopDat.stopOK
+		corridor.BurnAt = stopDat.burnAt
+		corridor.HasBurnAt = stopDat.hasBurnAt
+		corridor.Margin = sim.DeriveMarginState(stopDat.stop, stopDat.stopOK, corridor.AltitudeM, stopDat.burnAt, stopDat.hasBurnAt)
+	}
 	// The ascent half (ADR 0043 §3 / issue #348): the mirror-image gate —
 	// climbing, not falling — so exactly one of the two instrument sets is
 	// ever live for a given state (sim.AscentCueFor's doc comment; pinned
@@ -910,54 +929,116 @@ func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim
 	drawMarker(v.canvas, bodyCentre.Add(dc.Impact.Point), render.MarkerImpact, state, "", widgets.CellTag{})
 }
 
-// descentCorridorLines renders the DESCENT CORRIDOR instrument block —
-// the four numbers issue #348 §3 asks for: altitude, descent rate, time
-// to impact, and the burn margin.
+// descentCorridorLines renders the DESCENT CORRIDOR instrument block:
+// altitude, descent rate, v_horiz, fpa (the two velocity-shape readings
+// folded in from the DESCENT chip this block replaces on this screen —
+// see the dropChip call in Render), time to impact, then the two #377
+// decision rows below them — `burn at` (while a future start is safe and
+// the burn hasn't started) and `stop margin` (always, while descending).
+// `fpa` was folded OUT of this block once (issue #377's pinned mock only
+// sketched the two new rows), then restored — the mock wasn't an
+// exhaustive spec of the block, and Jason wants it kept.
 //
-// The margin row is the alarm surface. It flips label AND colour
-// together (bare ratio → "TIGHT (thrust)" amber → "CAN'T STOP (thrust)"
-// red) rather than shading a number, because a state a player can miss
-// reads as no state at all. The parenthesised limiter says which
-// capability bound it, so the alarm names the fix instead of only the
-// fault.
+// `stop margin` is the alarm surface — it flips label AND colour
+// together (a bare "X up" green → amber TIGHT → red CAN'T STOP), because
+// a state a player can miss reads as no state at all. The parenthesised
+// limiter on the alarm states says which capability bound it (thrust vs
+// fuel), so the alarm names the fix instead of only the fault.
 func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
-	// v_horiz and fpa are the two rows folded in from the DESCENT chip
-	// this block now replaces on this screen (see the dropChip call in
-	// Render, and sim.DescentCorridor's doc comment for why `twr` and
-	// `sas` weren't worth carrying over). v_horiz keeps its CRASH styling
-	// verbatim: crossing the ground fast enough sideways wrecks the vessel
-	// however gently the vertical rate has been nulled, and that is not
-	// something the four corridor numbers imply.
-	fpaLabel := "—"
-	if dc.HasFPA {
-		fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", nzero(dc.FlightPathAngleDeg, 0))
-	}
-	horizLabel := fmt.Sprintf("%.0f m/s (surface-rel)", dc.HorizontalRateMps)
+	// v_horiz keeps its CRASH styling verbatim: crossing the ground fast
+	// enough sideways wrecks the vessel however gently the vertical rate
+	// has been nulled, and that is not something the corridor's other
+	// numbers imply.
+	//
+	// Jason's call: strip the parentheticals that TEACH a returning pilot
+	// how to read a number (the `(surface-rel)` frame note, the
+	// `> N =` threshold lesson, the `(0 = horiz, −90 = straight down)`
+	// unit legend) — a legend printed every frame forever is scaffolding
+	// nobody needs after the first flight. Parentheticals that CARRY a
+	// number or a state (impact speed, which limiter bound a forecast)
+	// stay; those are data, not description. `CRASH on contact` is a
+	// standing warning, not a lesson, and survives on its own — this repo
+	// has a hard-won rule that transient feedback must not replace a
+	// standing warning.
+	horizLabel := fmt.Sprintf("%.0f m/s", dc.HorizontalRateMps)
 	if dc.HorizontalRateMps > sim.CrashVCritMps {
 		horizLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%.0f m/s (> %.0f = CRASH on contact)", dc.HorizontalRateMps, sim.CrashVCritMps))
+			fmt.Sprintf("%.0f m/s (CRASH on contact)", dc.HorizontalRateMps))
 	}
-	return []string{
+	fpaLabel := "—"
+	if dc.HasFPA {
+		fpaLabel = fmt.Sprintf("%.0f°", nzero(dc.FlightPathAngleDeg, 0))
+	}
+	// Every row's label + colon + padding occupies EXACTLY 15 cells
+	// before the value starts, so the values line up in one column
+	// regardless of label length. 14 (each label's own natural width)
+	// left `stop margin:` — itself exactly 14 — with no room for a
+	// separating space at all, so its value landed jammed against the
+	// colon while every other row had visible daylight after its own:
+	// arithmetically aligned, but reading as a missing-space bug rather
+	// than a deliberate layout. 15 gives every row, `stop margin:`
+	// included, at least one space of breathing room. Literal spaces,
+	// never %-Ns (ANSI bytes in a themed value would break that padding).
+	lines := []string{
 		v.theme.Primary.Render("DESCENT CORRIDOR"),
-		fmt.Sprintf("  altitude:   %s", formatAltitude(dc.AltitudeM)),
-		fmt.Sprintf("  descent:    %.0f m/s", dc.DescentRateMps),
-		fmt.Sprintf("  v_horiz:    %s", horizLabel),
-		fmt.Sprintf("  fpa:        %s", fpaLabel),
-		fmt.Sprintf("  impact in:  %s (%.0f m/s)",
+		fmt.Sprintf("  altitude:    %s", formatAltitude(dc.AltitudeM)),
+		fmt.Sprintf("  descent:     %.0f m/s", dc.DescentRateMps),
+		fmt.Sprintf("  v_horiz:     %s", horizLabel),
+		fmt.Sprintf("  fpa:         %s", fpaLabel),
+		fmt.Sprintf("  impact in:   %s (%.0f m/s)",
 			compactDuration(dc.Impact.TimeToImpact), dc.Impact.SpeedMps),
-		fmt.Sprintf("  margin:     %s", v.marginLabel(dc.Margin)),
 	}
+	if dc.HasBurnAt {
+		lines = append(lines, fmt.Sprintf("  burn at:     %s — in %s",
+			formatAltitude(dc.BurnAt.AltitudeM), compactDuration(secondsToDuration(dc.BurnAt.InSec))))
+	}
+	lines = append(lines, fmt.Sprintf("  stop margin: %s", v.stopMarginLabel(dc)))
+	return lines
 }
 
-// marginLabel styles the burn-margin readout per its alarm state.
-func (v *LaunchView) marginLabel(m sim.BurnMargin) string {
-	switch m.State {
-	case sim.MarginOK:
-		return v.theme.Primary.Render(fmt.Sprintf("%.2f ×", m.Ratio))
-	case sim.MarginTight:
-		return v.theme.Warning.Render(fmt.Sprintf("%.2f × TIGHT (%s)", m.Ratio, m.Limiter))
-	case sim.MarginInsufficient:
-		return v.theme.Alert.Render(fmt.Sprintf("%.2f × CAN'T STOP (%s)", m.Ratio, m.Limiter))
+// secondsToDuration converts a float64 seconds reading (sim.BurnAtCue /
+// sim.PoweredStopPrediction both use float64 seconds, not time.Duration,
+// since they're arithmetic results from an integration loop) into a
+// time.Duration for compactDuration.
+func secondsToDuration(s float64) time.Duration {
+	if s < 0 {
+		s = 0
+	}
+	return time.Duration(s * float64(time.Second))
+}
+
+// stopMarginLabel styles the `stop margin` row per PredictPoweredStop's
+// outcome and the derived alarm state (dc.Margin, from
+// sim.DeriveMarginState). Negative margin reads as "short by", never as
+// a negative altitude (issue #377 §3).
+//
+// !dc.StopOK (the integration hit its step cap without resolving) is
+// NOT rendered as a quiet em dash. sim.DeriveMarginState maps that case
+// to MarginInsufficient specifically so it reads as CAN'T STOP, and
+// drawDescentArc keys the arc/impact-marker alarm off exactly that
+// state — a dim "—" here while the arc paints alert-red would be a
+// refused forecast reading as a healthy one at a glance and an alarming
+// one on the ground, which is worse than either alone (review finding,
+// PR #382: a silent no-op reads as broken). The row states the same
+// refusal the arc is already painting, in the alarm's own words, rather
+// than softening the arc to match a blank row.
+func (v *LaunchView) stopMarginLabel(dc sim.DescentCorridor) string {
+	if !dc.StopOK {
+		return v.theme.Alert.Render(fmt.Sprintf("unresolved — CAN'T STOP (%s)", dc.Margin.Limiter))
+	}
+	switch dc.Stop.Outcome {
+	case sim.StopStopped:
+		label := fmt.Sprintf("%s up", formatAltitude(dc.Stop.MarginM))
+		if dc.Margin.State == sim.MarginTight {
+			return v.theme.Warning.Render(label + " TIGHT")
+		}
+		return v.theme.Primary.Render(label)
+	case sim.StopCrashed:
+		return v.theme.Alert.Render(fmt.Sprintf("short by %s (impact %.0f m/s) CAN'T STOP (%s)",
+			formatAltitude(-dc.Stop.MarginM), dc.Stop.ImpactSpeedMps, dc.Margin.Limiter))
+	case sim.StopFuelLimited:
+		return v.theme.Alert.Render(fmt.Sprintf("fuel-limited at %s CAN'T STOP (%s)",
+			formatAltitude(dc.Stop.MarginM), dc.Margin.Limiter))
 	}
 	return v.theme.Dim.Render("—")
 }

@@ -1,23 +1,33 @@
 // Package sim — the descent half of the surface view (issue #348 §3,
-// ADR 0043). Two pure forecasts the launch/surface screen renders:
-// where the current trajectory meets the ground (PredictImpact) and
-// whether the stack can still stop before it gets there
-// (DescentCorridorFor / ComputeBurnMargin).
+// ADR 0043). Pure forecasts the launch/surface screen renders: where
+// the current trajectory meets the ground (PredictImpact), whether a
+// full-throttle stop burn started now would arrest it in time
+// (PredictPoweredStop), and the latest moment that burn can still start
+// (PredictBurnAt) — DescentCorridorFor bundles the cheap, gate-defining
+// half of the block; the two powered forecasts are expensive enough
+// (issue #377) that callers are expected to cache them (ADR 0017; see
+// screens.LaunchView's descentStopCache).
 //
-// The forecast reuses the predictor's ONE propagator — predictStep,
+// PredictImpact reuses the predictor's ONE propagator — predictStep,
 // analytic Kepler where the arc is Kepler-eligible and drag-aware Verlet
 // everywhere else — so the drawn descent arc agrees with the orbit map's
-// dashed trajectory AND with the craft's actual flight. No second
-// propagator lives here (the #66 two-drift-sites lesson: when the same
-// curve is integrated at two sites they drift apart and only one of them
-// gets fixed).
+// dashed trajectory AND with the craft's actual flight. PredictPoweredStop
+// / PredictBurnAt integrate with physics.StepRK4 instead (thrust is a
+// non-conservative force Kepler propagation can't carry), but still
+// through exactly one accel closure (poweredStopAccel) shared by every
+// termination test inside them — the same #66 two-drift-sites rule this
+// file has always followed, just a second single site rather than a
+// second propagator layered on the first.
 //
-// Both forecasts are ballistic-from-now: they propagate the CURRENT
-// state without assuming any future thrust, exactly like the orbit map's
+// PredictImpact is ballistic-from-now: it propagates the CURRENT state
+// without assuming any future thrust, exactly like the orbit map's
 // projected orbit. That is what makes the impact marker live under a
 // burn — every tick the burn reshapes the state, and the next frame's
 // forecast is taken from the reshaped state, so the marker slides along
-// the ground as the player thrusts.
+// the ground as the player thrusts. PredictPoweredStop / PredictBurnAt
+// are the deliberate exception: they DO model a hypothetical future
+// burn (100% throttle, current stage only) because "can this still be
+// stopped" is unanswerable without it.
 
 package sim
 
@@ -125,6 +135,25 @@ type ballisticForecast struct {
 	ImpactFound  bool
 	TimeToImpact time.Duration
 	SpeedMps     float64
+
+	// samples parallels Path at the same cadence but carries the full
+	// (state, elapsed-seconds) pair rather than just the plotted
+	// position — PredictBurnAt's candidate start states (issue #377 §2).
+	// Unexported: PredictImpact never surfaces it, and nothing outside
+	// this file needs a burn-at candidate that isn't already resolved
+	// into a BurnAtCue. Reusing forwardBallisticPath's own walk means
+	// the "latest start" search costs zero extra propagation over what
+	// the dashed arc already computes — only extra bookkeeping.
+	samples []ballisticSample
+}
+
+// ballisticSample is one point on a ballistic-coast forecast, keeping
+// the full state (not just position) plus how far into the forecast it
+// sits. PredictBurnAt bisects over a slice of these instead of
+// re-propagating (issue #377 §2).
+type ballisticSample struct {
+	state      physics.StateVector
+	elapsedSec float64
 }
 
 // forwardBallisticPath is the one forward-propagation loop behind both
@@ -179,6 +208,8 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 
 	path := make([]orbital.Vec3, 0, impactPathSamples+2)
 	path = append(path, state.R)
+	samples := make([]ballisticSample, 0, impactPathSamples+2)
+	samples = append(samples, ballisticSample{state: state, elapsedSec: 0})
 	elapsed := 0.0
 	for i := 0; i < steps; i++ {
 		pre := state
@@ -197,14 +228,16 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 				ImpactFound:  true,
 				TimeToImpact: time.Duration(elapsed * float64(time.Second)),
 				SpeedMps:     physics.AirRelativeVelocity(hit.R, hit.V, primary).Norm(),
+				samples:      samples,
 			}, true
 		}
 		elapsed += dt
 		if (i+1)%sampleEvery == 0 {
 			path = append(path, state.R)
+			samples = append(samples, ballisticSample{state: state, elapsedSec: elapsed})
 		}
 	}
-	return ballisticForecast{Path: path}, true
+	return ballisticForecast{Path: path, samples: samples}, true
 }
 
 // refineSurfaceCrossing bisects surface contact inside (0, dt]: pre is
@@ -295,11 +328,23 @@ func (l MarginLimiter) String() string {
 //     part of every second is spent holding the vehicle up. The
 //     propellant ratio is RemainingDeltaV over that.
 //
-// Both are the idealised constant-mass, straight-down bound: no attitude
-// error, no throttle ramp, no mass shed mid-burn. That is deliberate —
-// an instrument that flatters the pilot is worse than none, and this one
-// errs optimistic only in the mass term (a real burn gets lighter, so a
-// little easier), which the TIGHT band exists to cover.
+// Both are the idealised constant-mass, straight-down, frozen-g bound:
+// no attitude error, no throttle ramp, no mass shed mid-burn, g_local
+// frozen at the instant evaluated, and v the VERTICAL descent rate only
+// (issue #377). That is NOT "optimistic only in the mass term" — ignoring
+// mass loss is the one place this model is conservative (a real burn
+// gets lighter, so a_net actually grows through the burn). The other two
+// idealisations run the other way: freezing g at the current altitude
+// overstates it by ~10-20% over a real descent (g grows as r shrinks),
+// and dropping the horizontal component entirely is the dangerous one —
+// a craft carrying serious downrange speed reads as comfortably OK here
+// while nowhere near actually being able to stop. DescentCorridorFor no
+// longer wires this into the corridor's Margin field for exactly that
+// reason: PredictPoweredStop integrates the real burn (mass loss, g(r),
+// the horizontal component, and drag) instead of hand-deriving
+// corrections for each. ComputeBurnMargin stays as a cheap, pure,
+// still-tested piece of arithmetic — just not the corridor's answer to
+// "can this still be stopped".
 type BurnMargin struct {
 	Ratio        float64
 	State        MarginState
@@ -312,6 +357,15 @@ type BurnMargin struct {
 
 // ComputeBurnMargin evaluates the margin from SI scalars. Pure, so the
 // arithmetic can be pinned exactly by tests without seeding a World.
+//
+// Superseded by PredictPoweredStop (issue #377) as the corridor's actual
+// margin — DescentCorridorFor no longer calls this at all (see its doc
+// comment). It is kept only as the frozen-scalar BASELINE
+// TestPredictPoweredStopLunaHorizontalRegression pins its "before"
+// number against — that regression is the evidence the whole slice
+// rests on, so the old arithmetic needs to keep existing and keep being
+// exactly this, not because anything should call it live again. Do not
+// wire this back into DescentCorridorFor or any other live code path.
 func ComputeBurnMargin(thrustN, massKg, gLocalMps2, descentRateMps, altitudeM, availDVMps float64) BurnMargin {
 	if massKg <= 0 || altitudeM <= 0 || descentRateMps <= 0 {
 		return BurnMargin{AvailDVMps: availDVMps}
@@ -354,6 +408,503 @@ func ComputeBurnMargin(thrustN, massKg, gLocalMps2, descentRateMps, altitudeM, a
 	return m
 }
 
+// stdGravityMps2 is standard gravity, used to convert Isp (seconds) to
+// exhaust velocity / mass-flow (Isp·g0). Duplicated locally rather than
+// imported from spacecraft — planner/finiteburn.go's stdGravity const
+// does the same, for the same reason (sim already imports spacecraft for
+// the *spacecraft.Spacecraft type, but the constant itself isn't
+// exported, and duplicating one float64 beats exporting it just for
+// this).
+const stdGravityMps2 = 9.80665
+
+// PoweredStopOutcome names which of PredictPoweredStop's termination
+// conditions the integration actually hit (issue #377 §1) — reported
+// instead of just a pass/fail so the corridor's alarm can say what
+// stopped the stop, not only that it didn't happen.
+type PoweredStopOutcome int
+
+const (
+	// StopUndetermined is the zero value: PredictPoweredStop refused
+	// (ok=false, the step cap was hit before any of the three real
+	// outcomes below resolved) — "don't know", not "can't".
+	StopUndetermined PoweredStopOutcome = iota
+	// StopStopped: surface-relative speed reached ~0 before the ground.
+	// MarginM is the altitude left, ≥ 0.
+	StopStopped
+	// StopCrashed: r crossed the surface before speed reached ~0.
+	// ImpactSpeedMps is the surface-relative speed at that crossing;
+	// MarginM is the altitude at which speed FINALLY would have reached
+	// ~0 had the ground not been there (found by letting the same
+	// integration run on past the crossing — no second propagator, no
+	// hand-derived correction, just not stopping early) — so it comes
+	// out ≤ 0, reading as "short by |MarginM|" rather than a negative
+	// altitude (issue #377 §3).
+	StopCrashed
+	// StopFuelLimited: the current (bottom, firing) stage's propellant
+	// ran out before either of the above. No auto-staging inside the
+	// forecast (issue #377 §1) — a stop that needs a decouple is
+	// reported as fuel-limited, not silently solved by staging for the
+	// pilot. MarginM is the altitude AT the instant fuel ran out
+	// (informational — "still this far up when the tank ran dry"), not
+	// a stopping-distance shortfall the way StopCrashed's is.
+	StopFuelLimited
+)
+
+func (o PoweredStopOutcome) String() string {
+	switch o {
+	case StopStopped:
+		return "stopped"
+	case StopCrashed:
+		return "crashed"
+	case StopFuelLimited:
+		return "fuel-limited"
+	}
+	return "undetermined"
+}
+
+// PoweredStopPrediction is PredictPoweredStop's result: what happened
+// when the current (or a candidate future) state was integrated forward
+// under a full-throttle, surface-relative-retrograde stop burn.
+type PoweredStopPrediction struct {
+	Outcome PoweredStopOutcome
+	// MarginM is signed altitude, metres: positive means the stop
+	// completed with that much altitude still in hand (StopStopped);
+	// non-positive means it didn't (StopCrashed — read as "short by
+	// |MarginM|", never as a negative altitude, per issue #377 §3).
+	// StopFuelLimited's MarginM is the altitude at the exhaustion
+	// instant instead (see StopFuelLimited's doc).
+	MarginM float64
+	// ImpactSpeedMps is the surface-relative speed at the ground
+	// crossing. Zero unless Outcome == StopCrashed.
+	ImpactSpeedMps float64
+	// ElapsedSec is the flight time from the integration's start to
+	// termination.
+	ElapsedSec float64
+	// DVUsedMps is the Δv the rocket-equation accounting actually spent
+	// reaching termination (bounded by the stage's available Δv).
+	DVUsedMps float64
+}
+
+// stopSubStepSeconds is PredictPoweredStop's RK4 sub-step. Finer than
+// forwardBallisticPath's impactSubStepCap (2 s): the accel closure here
+// captures mass/fuel at the START of each outer step and holds it fixed
+// across the step (the same per-step-snapshot trick
+// planner.SimulateFiniteBurn uses), so the step needs to be short enough
+// that a stage's mass doesn't change much within one — 1 s keeps that
+// error well under the modelling error everywhere else in this forecast.
+const stopSubStepSeconds = 1.0
+
+// stopMaxSubSteps bounds PredictPoweredStop's total integrator work, the
+// same discipline impactMaxSubSteps applies to the ballistic forecast:
+// hitting the cap coarsens dt (spreading it across `horizon`) rather than
+// silently truncating the search, and if that's still not enough the
+// forecast refuses (ok=false) instead of guessing. A 1.6 km/s stop is
+// ~800 s of flight at a typical lander's TWR (issue #377) — 2048 steps at
+// 1 s each covers that many times over before the horizon-driven
+// coarsening even engages.
+const stopMaxSubSteps = 2048
+
+// stopSpeedFloorMps is PredictPoweredStop's "stopped" tolerance. Exactly
+// zero is a target the discrete integrator will straddle rather than
+// land on, and it's also the direction singularity for the retrograde
+// thrust closure (a zero-length vRel has no direction to burn along) —
+// this is small enough to read as "stopped" against the speeds this
+// forecast deals in (hundreds to low thousands of m/s) while staying
+// comfortably clear of that singularity.
+const stopSpeedFloorMps = 0.5
+
+// stopAdaptiveShrinkFrac / stopAdaptiveMinDt bound the adaptive step
+// shrink documented at its call site in the integration loop: a step
+// removes at most this fraction of the current speed (at the craft's
+// unthrottled accel ceiling), and never shrinks the step below
+// stopAdaptiveMinDt seconds — without a floor, a craft sitting exactly
+// on the singularity (vRel == 0, no direction to burn along, aAvail
+// effectively infinite relative to a zero speedPre) would compute a
+// zero-length step and stall the loop instead of burning through steps
+// toward the sub-count cap.
+const (
+	stopAdaptiveShrinkFrac = 0.5
+	stopAdaptiveMinDt      = 0.01
+)
+
+// stopStepSizeSeconds picks one outer-loop sub-step for
+// predictPoweredStopFrom's integration: no larger than dt, capped
+// further so a step never outruns the current stage's remaining fuel
+// (fuelTimeLeftSec = fuelKg/mdot — mass bookkeeping already clamps
+// `burned` to what's left regardless, but a step WIDER than that would
+// still integrate full thrust, via poweredStopAccel, for longer than the
+// tank can actually sustain it: an impulse the mass side never paid
+// for), and, near the stop-speed floor, capped again so a step can't
+// remove more than stopAdaptiveShrinkFrac of the current speed (see
+// stopAdaptiveShrinkFrac's doc).
+//
+// The adaptive cap has its own floor, stopAdaptiveMinDt, so it can't
+// shrink to zero and stall the loop at the vRel==0 singularity — but
+// that floor must never be allowed to WIDEN the step back out past the
+// fuel cap. A prior version applied the floor unconditionally
+// (`stepDt = capDt` after raising capDt to the floor), so a step already
+// shortened to a few ms by an almost-exhausted tank could get stretched
+// back out to stopAdaptiveMinDt — up to 5x longer than the tank
+// sustains at the sizes involved. Numerically small (stopAdaptiveMinDt
+// is 10 ms) but wrong in kind, and the kind of wrong that stops being
+// negligible if the floor is ever raised. The `< stepDt` re-check below
+// is what keeps the floor-raise from ever widening the step past
+// whatever cap (dt or the fuel cap) was already in force.
+func stopStepSizeSeconds(dt, fuelTimeLeftSec, speedPre, aAvail float64) float64 {
+	stepDt := dt
+	if fuelTimeLeftSec < stepDt {
+		stepDt = fuelTimeLeftSec
+	}
+	if speedPre > 0 && aAvail > 0 {
+		if capDt := stopAdaptiveShrinkFrac * speedPre / aAvail; capDt < stepDt {
+			if capDt < stopAdaptiveMinDt {
+				capDt = stopAdaptiveMinDt
+			}
+			if capDt < stepDt {
+				stepDt = capDt
+			}
+		}
+	}
+	return stepDt
+}
+
+// poweredStopAccel is the ONE accel closure behind every termination
+// test inside PredictPoweredStop / PredictBurnAt (this file's own #66
+// rule, restated for the powered half): two-body gravity, drag exactly
+// as forwardBallisticPath applies it, plus thrust along surface-relative
+// retrograde at full magnitude thrustN/massKg (zero once thrustN or
+// massKg is non-positive — no fuel, no thrust). Surface-relative, not
+// inertial (issue #377 §1): the goal is zero speed OVER THE GROUND, so
+// this uses physics.AirRelativeVelocity, matching descentKinematics.
+func poweredStopAccel(r, v orbital.Vec3, mu float64, primary bodies.CelestialBody, bc, thrustN, massKg float64) orbital.Vec3 {
+	accel := physics.Accel(r, mu).Add(physics.DragAccel(r, v, primary, bc))
+	if thrustN <= 0 || massKg <= 0 {
+		return accel
+	}
+	vRel := physics.AirRelativeVelocity(r, v, primary)
+	n := vRel.Norm()
+	if n == 0 {
+		return accel
+	}
+	dir := vRel.Scale(-1 / n)
+	return accel.Add(dir.Scale(thrustN / massKg))
+}
+
+// bisectPoweredCrossing refines exactly when, within (0, dt], a powered
+// sub-step first satisfies `hit` — the same bisection trick
+// refineSurfaceCrossing uses on the ballistic forecast, adapted to an
+// arbitrary predicate so PredictPoweredStop can share it between the
+// ground-crossing test and the stop-speed test. pre is the state at the
+// start of the detecting step (known NOT to satisfy hit); propagating it
+// by dt is known TO satisfy hit. Every probe re-integrates from pre by a
+// trial offset via the SAME accelFn the outer loop used for this step —
+// one propagator, never a partial re-walk.
+func bisectPoweredCrossing(pre physics.StateVector, dt float64, accelFn func(r, v orbital.Vec3, t float64) orbital.Vec3, hit func(physics.StateVector) bool) (physics.StateVector, float64) {
+	lo, hi := 0.0, dt
+	state := physics.StepRK4(pre, hi, accelFn, 0)
+	for i := 0; i < surfaceRefineIters && hi-lo > surfaceRefineEpsilon; i++ {
+		mid := (lo + hi) / 2
+		s := physics.StepRK4(pre, mid, accelFn, 0)
+		if hit(s) {
+			hi, state = mid, s
+		} else {
+			lo = mid
+		}
+	}
+	return state, hi
+}
+
+// PredictPoweredStop integrates a full-throttle, current-stage-only,
+// surface-relative-retrograde stop burn forward from the craft's CURRENT
+// state (issue #377 §1) — physics.StepRK4 through poweredStopAccel, the
+// planner.SimulateFiniteBurn precedent for iterating a powered burn as a
+// forecast, applied here to "when do I stop" instead of "hit this target
+// apoapsis". ok=false only on the same degenerate inputs
+// forwardBallisticPath has always refused, or on the step-cap refusal
+// (StopUndetermined) documented on that constant.
+func PredictPoweredStop(c *spacecraft.Spacecraft, horizon time.Duration) (PoweredStopPrediction, bool) {
+	if c == nil {
+		return PoweredStopPrediction{}, false
+	}
+	return predictPoweredStopFrom(c.State, c, horizon)
+}
+
+// predictPoweredStopFrom is PredictPoweredStop generalised to an
+// arbitrary starting state so PredictBurnAt can ask "if I start the stop
+// burn from THIS point on the ballistic coast instead of right now, does
+// it still work" without a second implementation.
+func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration) (PoweredStopPrediction, bool) {
+	if c == nil {
+		return PoweredStopPrediction{}, false
+	}
+	primary := c.Primary
+	radius := primary.RadiusMeters()
+	mu := primary.GravitationalParameter()
+	total := horizon.Seconds()
+	if radius <= 0 || mu <= 0 || total <= 0 {
+		return PoweredStopPrediction{}, false
+	}
+	if r := state.R.Norm(); r <= radius || math.IsNaN(r) {
+		return PoweredStopPrediction{}, false
+	}
+	bc := c.EffectiveBallisticCoefficient()
+	thrustFull := c.Thrust
+	ispSec := c.Isp
+	massKg := c.TotalMass()
+	fuelKg := c.ActiveStageFuel()
+	if massKg <= 0 {
+		return PoweredStopPrediction{}, false
+	}
+	// No engine, no Isp, or the firing stage is already dry: the stop
+	// can't even begin. Fuel-limited from the first instant, current
+	// altitude reported as "where that happened" (issue #377 §1).
+	if thrustFull <= 0 || ispSec <= 0 || fuelKg <= 0 {
+		return PoweredStopPrediction{
+			Outcome: StopFuelLimited,
+			MarginM: state.R.Norm() - radius,
+		}, true
+	}
+	mdot := thrustFull / (ispSec * stdGravityMps2)
+
+	dt := stopSubStepSeconds
+	steps := int(math.Ceil(total / dt))
+	if steps > stopMaxSubSteps {
+		steps = stopMaxSubSteps
+		dt = total / float64(steps)
+	}
+	if steps < 1 {
+		return PoweredStopPrediction{}, false
+	}
+
+	var crossedGround bool
+	var impactSpeed float64
+	elapsed := 0.0
+	dvUsed := 0.0
+
+	for i := 0; i < steps; i++ {
+		speedPre := physics.AirRelativeVelocity(state.R, state.V, primary).Norm()
+		aAvail := thrustFull / massKg
+		stepDt := stopStepSizeSeconds(dt, fuelKg/mdot, speedPre, aAvail)
+		massSnap := massKg
+		accelFn := func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
+			return poweredStopAccel(r, v, mu, primary, bc, thrustFull, massSnap)
+		}
+		pre := state
+		state = physics.StepRK4(state, stepDt, accelFn, 0)
+		elapsed += stepDt
+		burned := mdot * stepDt
+		if burned > fuelKg {
+			burned = fuelKg
+		}
+		fuelKg -= burned
+		massKg -= burned
+		dvUsed += (thrustFull / massSnap) * stepDt
+
+		if !crossedGround && state.R.Norm() < radius {
+			crossedGround = true
+			hit, _ := bisectPoweredCrossing(pre, stepDt, accelFn, func(s physics.StateVector) bool {
+				return s.R.Norm() < radius
+			})
+			impactSpeed = physics.AirRelativeVelocity(hit.R, hit.V, primary).Norm()
+		}
+
+		vRel := physics.AirRelativeVelocity(state.R, state.V, primary)
+		if vRel.Norm() <= stopSpeedFloorMps {
+			stopState, tau := bisectPoweredCrossing(pre, stepDt, accelFn, func(s physics.StateVector) bool {
+				return physics.AirRelativeVelocity(s.R, s.V, primary).Norm() <= stopSpeedFloorMps
+			})
+			outcome := StopStopped
+			if crossedGround {
+				outcome = StopCrashed
+			}
+			return PoweredStopPrediction{
+				Outcome:        outcome,
+				MarginM:        stopState.R.Norm() - radius,
+				ImpactSpeedMps: impactSpeed,
+				ElapsedSec:     elapsed - stepDt + tau,
+				DVUsedMps:      dvUsed,
+			}, true
+		}
+
+		if fuelKg <= 1e-9 {
+			outcome := StopFuelLimited
+			if crossedGround {
+				// Ground already breached — that already dominates the
+				// verdict. What we can no longer do, having spent every
+				// last kilogram, is keep searching for the natural
+				// (below-ground) zero-speed point StopCrashed's MarginM
+				// documents; best effort is wherever the integration
+				// stands at this instant.
+				outcome = StopCrashed
+			}
+			return PoweredStopPrediction{
+				Outcome:        outcome,
+				MarginM:        state.R.Norm() - radius,
+				ImpactSpeedMps: impactSpeed,
+				ElapsedSec:     elapsed,
+				DVUsedMps:      dvUsed,
+			}, true
+		}
+	}
+	return PoweredStopPrediction{}, false
+}
+
+// BurnAtCue is the "burn at" row (issue #377 §2): the latest point on
+// the current ballistic coast from which starting a PredictPoweredStop
+// burn still lands with non-negative margin — the standard suicide-burn
+// boundary. AltitudeM / InSec describe that point.
+type BurnAtCue struct {
+	AltitudeM float64
+	InSec     float64
+}
+
+// burnAtRefineIters bounds PredictBurnAt's continuous refinement once
+// the coarse sample-index bisection has bracketed the crossing between
+// two adjacent forwardBallisticPath samples. Each iteration LERPs a
+// candidate state between the bracket's two ALREADY-COMPUTED samples —
+// "use those samples as candidate start states instead of
+// re-propagating" (issue #377 §2) — and spends one more
+// predictPoweredStopFrom call testing it.
+const burnAtRefineIters = 3
+
+// lerpBallisticSample linearly interpolates between two adjacent
+// ballistic samples. Not a re-propagation: over one sample interval
+// (a small fraction of the coast, per forwardBallisticPath's sampling)
+// the ballistic R/V curve is close enough to straight that a lerp is a
+// good candidate state to test, and PredictBurnAt's bisection only ever
+// needs a candidate to TEST — the final answer's precision comes from
+// how many bisection rounds ran, not from this interpolation being
+// exact.
+func lerpBallisticSample(a, b ballisticSample, frac float64) ballisticSample {
+	return ballisticSample{
+		state: physics.StateVector{
+			R: a.state.R.Add(b.state.R.Sub(a.state.R).Scale(frac)),
+			V: a.state.V.Add(b.state.V.Sub(a.state.V).Scale(frac)),
+			M: a.state.M,
+		},
+		elapsedSec: a.elapsedSec + (b.elapsedSec-a.elapsedSec)*frac,
+	}
+}
+
+// PredictBurnAt finds the latest safe stop-burn start on the craft's
+// current ballistic coast (issue #377 §2). Stop margin is monotone in
+// start time (start later, stop lower), so this bisects rather than
+// scanning: forwardBallisticPath already samples the whole coast to draw
+// the dashed arc, and those samples are the candidate start states here
+// too — no second propagator, no re-walking the coast from scratch.
+//
+// ok=false when there is no future safe start to cue: either the coast
+// never finds ground contact within horizon (forwardBallisticPath itself
+// refuses), or the CURRENT instant is already unsafe — the corridor's own
+// Margin.State (CAN'T STOP) already carries that alarm, and a "burn at:
+// Xs ago" row would only muddy it.
+func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, bool) {
+	if c == nil {
+		return BurnAtCue{}, false
+	}
+	fc, ok := forwardBallisticPath(c, horizon)
+	if !ok || len(fc.samples) < 2 {
+		return BurnAtCue{}, false
+	}
+	radius := c.Primary.RadiusMeters()
+
+	safeAt := func(s ballisticSample) bool {
+		remaining := horizon - time.Duration(s.elapsedSec*float64(time.Second))
+		if remaining <= 0 {
+			return false
+		}
+		pred, ok := predictPoweredStopFrom(s.state, c, remaining)
+		return ok && pred.Outcome == StopStopped && pred.MarginM >= 0
+	}
+
+	if !safeAt(fc.samples[0]) {
+		return BurnAtCue{}, false
+	}
+
+	loIdx, hiIdx := 0, len(fc.samples)-1
+	if safeAt(fc.samples[hiIdx]) {
+		// Even the very end of the sampled coast is still stoppable (a
+		// shallow / slow descent) — best effort: the latest candidate we
+		// actually have.
+		last := fc.samples[hiIdx]
+		return BurnAtCue{AltitudeM: last.state.R.Norm() - radius, InSec: last.elapsedSec}, true
+	}
+	for hiIdx-loIdx > 1 {
+		mid := (loIdx + hiIdx) / 2
+		if safeAt(fc.samples[mid]) {
+			loIdx = mid
+		} else {
+			hiIdx = mid
+		}
+	}
+
+	lo, hi := fc.samples[loIdx], fc.samples[hiIdx]
+	loFrac, hiFrac := 0.0, 1.0
+	for i := 0; i < burnAtRefineIters; i++ {
+		mid := (loFrac + hiFrac) / 2
+		if safeAt(lerpBallisticSample(lo, hi, mid)) {
+			loFrac = mid
+		} else {
+			hiFrac = mid
+		}
+	}
+	best := lerpBallisticSample(lo, hi, loFrac)
+	return BurnAtCue{AltitudeM: best.state.R.Norm() - radius, InSec: best.elapsedSec}, true
+}
+
+// marginTightAltitudeFrac is the fraction of CURRENT altitude below
+// which a StopStopped margin still reads TIGHT rather than OK — issue
+// #377 §4's suggested "~10% of current altitude".
+const marginTightAltitudeFrac = 0.10
+
+// burnAtImminentSec is how soon the "burn at" cue can be before a
+// StopStopped margin promotes to TIGHT on that grounds alone — issue
+// #377 §4's "or the start cue is inside a few seconds".
+const burnAtImminentSec = 5.0
+
+// DeriveMarginState maps a PredictPoweredStop result (plus, when
+// available, the PredictBurnAt cue) onto the OK / TIGHT / CAN'T STOP
+// alarm ladder the surface view's arc colour and alarm
+// (screens/launch.go) key off (issue #377 §4). Pure and cheap — no
+// integration here, so callers can call this every frame straight off a
+// CACHED Stop/BurnAt pair without re-triggering the expensive forecasts.
+//
+//   - StopUndetermined (stopOK false): the integration couldn't resolve
+//     within its step budget. Read as CAN'T STOP, not "unknown" — an
+//     instrument that flatters the pilot on "I don't know" is worse than
+//     none (BurnMargin's own doc comment makes the same call for its
+//     degenerate case).
+//   - StopCrashed / StopFuelLimited: CAN'T STOP from THIS stage, full
+//     stop. Limiter names which one bound it — thrust (ran into the
+//     ground before killing the speed) or fuel (ran dry first) — the
+//     terminal condition the integration actually hit, better evidence
+//     than a two-ratio comparison ever was.
+//   - StopStopped: OK, unless the margin is thin (< ~10% of current
+//     altitude) or the latest safe start is only seconds away, either of
+//     which promotes to TIGHT.
+func DeriveMarginState(stop PoweredStopPrediction, stopOK bool, currentAltitudeM float64, burnAt BurnAtCue, hasBurnAt bool) BurnMargin {
+	if !stopOK {
+		return BurnMargin{State: MarginInsufficient, Limiter: LimitThrust}
+	}
+	switch stop.Outcome {
+	case StopCrashed:
+		return BurnMargin{State: MarginInsufficient, Limiter: LimitThrust, ReqDVMps: stop.DVUsedMps}
+	case StopFuelLimited:
+		return BurnMargin{State: MarginInsufficient, Limiter: LimitFuel, ReqDVMps: stop.DVUsedMps}
+	case StopStopped:
+		tight := hasBurnAt && burnAt.InSec >= 0 && burnAt.InSec < burnAtImminentSec
+		if currentAltitudeM > 0 && stop.MarginM < currentAltitudeM*marginTightAltitudeFrac {
+			tight = true
+		}
+		state := MarginOK
+		if tight {
+			state = MarginTight
+		}
+		return BurnMargin{State: state, Limiter: LimitNone, ReqDVMps: stop.DVUsedMps}
+	}
+	return BurnMargin{State: MarginNone}
+}
+
 // descentRateFloorMps is the surface-relative descent rate below which
 // the corridor stands down. Above zero so a craft parked on a pad, or
 // one the pilot has already brought to a hover, doesn't flicker the
@@ -361,8 +912,8 @@ func ComputeBurnMargin(thrustN, massKg, gLocalMps2, descentRateMps, altitudeM, a
 const descentRateFloorMps = 0.1
 
 // DescentCorridor is the surface view's descent instrument block:
-// altitude, descent rate, time to impact, and the burn margin, plus the
-// impact forecast the arc and the ground marker are drawn from.
+// altitude, descent rate, time to impact, plus the impact forecast the
+// arc and the ground marker are drawn from.
 //
 // HorizontalRateMps / FlightPathAngleDeg are the two readings the older
 // airless-body DESCENT chip carried that the corridor's own four numbers
@@ -370,10 +921,22 @@ const descentRateFloorMps = 0.1
 // during a descent instead of two that disagree about sign conventions —
 // the corridor says `descent: 40 m/s` where DESCENT said `v_vert: -40.0
 // m/s`, and having both on screen at once was the duplication this
-// resolves. The chip's other two rows are genuinely redundant and did not
-// come along: `twr` asks "can I stop", which Margin answers better
-// (it accounts for the altitude and speed a bare thrust-to-weight can't),
-// and `sas` is the ATTITUDE chip's own row.
+// resolves. FlightPathAngleDeg / HasFPA still render as their own `fpa`
+// row alongside `burn at` / `stop margin` — issue #377's pinned mock
+// sketched only the two new rows, not the whole block, so dropping
+// `fpa` was read too literally the first time round.
+//
+// Stop / StopOK and BurnAt / HasBurnAt are DescentCorridorFor's OWN
+// fields but are NOT populated by it — they are the expensive half
+// (PredictPoweredStop / PredictBurnAt, issue #377) that callers are
+// expected to cache (ADR 0017) and merge in themselves. See
+// screens.LaunchView's descentStopCache / cachedDescentStop: it calls
+// DescentCorridorFor for the cheap gate + numbers, then separately (and
+// cached) fills these two fields plus Margin before handing the struct to
+// the renderer. Margin is still String()able / colour-drivable exactly as
+// before (MarginState / MarginLimiter survive unchanged) — only ITS
+// source changed, from ComputeBurnMargin's frozen scalars to
+// DeriveMarginState reading the integrated Stop/BurnAt result.
 type DescentCorridor struct {
 	AltitudeM      float64
 	DescentRateMps float64 // surface-relative, positive = falling
@@ -389,7 +952,22 @@ type DescentCorridor struct {
 	FlightPathAngleDeg float64
 	HasFPA             bool
 	Impact             ImpactPrediction
-	Margin             BurnMargin
+
+	// Stop / StopOK: PredictPoweredStop's result for the CURRENT state —
+	// not populated by DescentCorridorFor (see the type doc). StopOK
+	// false means the integration hit its step cap without resolving
+	// (refused, not a definite answer).
+	Stop   PoweredStopPrediction
+	StopOK bool
+	// BurnAt / HasBurnAt: PredictBurnAt's "latest safe start" cue — not
+	// populated by DescentCorridorFor (see the type doc). HasBurnAt is
+	// false both when no future start is safe (already past the point of
+	// no return — StopOK's own Margin.State already carries that alarm)
+	// and, by convention, once the burn is under way (issue #377: "burn
+	// at hides once the burn is under way").
+	BurnAt    BurnAtCue
+	HasBurnAt bool
+	Margin    BurnMargin
 }
 
 // fpaSpeedFloorMps is the surface-relative speed below which the flight
@@ -399,14 +977,26 @@ type DescentCorridor struct {
 // folded rows read identically to the ones they replace.
 const fpaSpeedFloorMps = 1.0
 
-// DescentCorridorFor builds the corridor for a craft, or reports
-// ok=false when the craft isn't in a descent worth instrumenting. The
-// gate is deliberately the FORECAST, not the phase: instruments appear
-// exactly when the current trajectory reaches the ground inside the
-// horizon while the craft is falling. That keeps them off an ascent
-// (climbing, so no descent rate) and off a stable parking orbit (falling
-// toward periapsis, but never reaching the surface), with no separate
-// phase predicate to drift out of step with the picture on the canvas.
+// DescentCorridorFor builds the CHEAP half of the corridor for a craft,
+// or reports ok=false when the craft isn't in a descent worth
+// instrumenting. The gate is deliberately the FORECAST, not the phase:
+// instruments appear exactly when the current trajectory reaches the
+// ground inside the horizon while the craft is falling. That keeps them
+// off an ascent (climbing, so no descent rate) and off a stable parking
+// orbit (falling toward periapsis, but never reaching the surface), with
+// no separate phase predicate to drift out of step with the picture on
+// the canvas.
+//
+// This does NOT compute Stop / BurnAt / Margin (issue #377): those need
+// PredictPoweredStop and PredictBurnAt, each up to ~1000 RK4 sub-steps
+// (and the burn-at search multiplies that ~8-10x), so running them here
+// would make this function exactly the kind of per-frame cost ADR 0017 /
+// #363 exist to keep off the render path. Callers that need the full
+// block (screens.LaunchView) call this for the cheap gate + numbers, then
+// separately — and CACHED — call PredictPoweredStop / PredictBurnAt /
+// DeriveMarginState and merge the result in. Callers that only need the
+// gate (sim.updateLaunchHint's `descending` check) pay nothing extra at
+// all: the returned Stop/BurnAt/Margin fields are simply left zero-valued.
 func DescentCorridorFor(c *spacecraft.Spacecraft, horizon time.Duration) (DescentCorridor, bool) {
 	k, ok := descentKinematics(c)
 	if !ok {
@@ -423,14 +1013,6 @@ func DescentCorridorFor(c *spacecraft.Spacecraft, horizon time.Duration) (Descen
 		FlightPathAngleDeg: k.fpaDeg,
 		HasFPA:             k.hasFPA,
 		Impact:             impact,
-		Margin: ComputeBurnMargin(
-			c.Thrust,
-			c.TotalMass(),
-			k.gLocal,
-			k.descentRate,
-			k.altM,
-			c.RemainingDeltaV(),
-		),
 	}, true
 }
 
