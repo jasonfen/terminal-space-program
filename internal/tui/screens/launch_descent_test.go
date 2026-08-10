@@ -70,6 +70,12 @@ func descendingMoonCraft(t *testing.T, altM, vDownMps float64) *sim.World {
 // daylight after its own: arithmetically aligned, but reading as a
 // missing-space bug. 15 gives every row a space of breathing room,
 // `stop margin:` included.
+//
+// The teaching parentheticals (`(surface-rel)`, the fpa unit legend,
+// `(full thrust now)`) are gone too — Jason's call: a legend printed
+// every frame forever is scaffolding a returning pilot doesn't need.
+// Parentheticals that carry a number or a state (impact speed, which
+// limiter bound a forecast) stayed; those are data, not description.
 func TestDescentCorridorLinesInstruments(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
 	dc := sim.DescentCorridor{
@@ -92,11 +98,11 @@ func TestDescentCorridorLinesInstruments(t *testing.T) {
 		"DESCENT CORRIDOR",
 		"  altitude:    12.40 km",
 		"  descent:     182 m/s",
-		"  v_horiz:     4 m/s (surface-rel)",
-		"  fpa:         -88° (0 = horiz, −90 = straight down)",
+		"  v_horiz:     4 m/s",
+		"  fpa:         -88°",
 		"  impact in:   1m4s (240 m/s)",
 		"  burn at:     8.00 km — in 48s",
-		"  stop margin: 3.40 km up   (full thrust now)",
+		"  stop margin: 3.40 km up",
 	}
 	got := v.descentCorridorLines(dc)
 	if len(got) != len(want) {
@@ -140,17 +146,21 @@ func TestDescentCorridorNoBurnAtRowWhenHasBurnAtFalse(t *testing.T) {
 	}
 }
 
-// TestDescentCorridorFPARow pins that `fpa` is present with its legend —
+// TestDescentCorridorFPARow pins that `fpa` is present with its VALUE —
 // it was folded out of the block once already (issue #377's pinned mock
 // only sketched the two new rows), then restored on Jason's explicit
-// call, so nothing was asserting it existed. Covers both HasFPA states:
-// the legend when defined, and the em dash below the speed floor.
+// call, so nothing was asserting it existed. The row's teaching legend
+// (`0 = horiz, −90 = straight down`) was stripped in a later pass
+// (Jason: "people will learn and should know"), but the ROW — a bare
+// angle when defined, an em dash below the speed floor — must survive
+// that too; this test is what keeps a future "clean up the corridor"
+// pass from deleting the row along with its legend.
 func TestDescentCorridorFPARow(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
 
 	withFPA := v.descentCorridorLines(sim.DescentCorridor{FlightPathAngleDeg: -88, HasFPA: true})
-	if withFPA[4] != "  fpa:         -88° (0 = horiz, −90 = straight down)" {
-		t.Errorf("fpa row with HasFPA = %q, want the legend", withFPA[4])
+	if withFPA[4] != "  fpa:         -88°" {
+		t.Errorf("fpa row with HasFPA = %q, want the bare angle", withFPA[4])
 	}
 
 	withoutFPA := v.descentCorridorLines(sim.DescentCorridor{})
@@ -186,7 +196,7 @@ func TestStopMarginLabelAlarmLadder(t *testing.T) {
 				Stop: sim.PoweredStopPrediction{Outcome: sim.StopStopped, MarginM: 12_400}, StopOK: true,
 				Margin: sim.BurnMargin{State: sim.MarginOK},
 			},
-			"12.40 km up   (full thrust now)",
+			"12.40 km up",
 		},
 		{
 			"stopped, TIGHT",
@@ -194,7 +204,7 @@ func TestStopMarginLabelAlarmLadder(t *testing.T) {
 				Stop: sim.PoweredStopPrediction{Outcome: sim.StopStopped, MarginM: 300}, StopOK: true,
 				Margin: sim.BurnMargin{State: sim.MarginTight},
 			},
-			"300 m up   (full thrust now) TIGHT",
+			"300 m up TIGHT",
 		},
 		{
 			"crashed",

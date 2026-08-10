@@ -795,14 +795,25 @@ func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
 	// enough sideways wrecks the vessel however gently the vertical rate
 	// has been nulled, and that is not something the corridor's other
 	// numbers imply.
-	horizLabel := fmt.Sprintf("%.0f m/s (surface-rel)", dc.HorizontalRateMps)
+	//
+	// Jason's call: strip the parentheticals that TEACH a returning pilot
+	// how to read a number (the `(surface-rel)` frame note, the
+	// `> N =` threshold lesson, the `(0 = horiz, −90 = straight down)`
+	// unit legend) — a legend printed every frame forever is scaffolding
+	// nobody needs after the first flight. Parentheticals that CARRY a
+	// number or a state (impact speed, which limiter bound a forecast)
+	// stay; those are data, not description. `CRASH on contact` is a
+	// standing warning, not a lesson, and survives on its own — this repo
+	// has a hard-won rule that transient feedback must not replace a
+	// standing warning.
+	horizLabel := fmt.Sprintf("%.0f m/s", dc.HorizontalRateMps)
 	if dc.HorizontalRateMps > sim.CrashVCritMps {
 		horizLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%.0f m/s (> %.0f = CRASH on contact)", dc.HorizontalRateMps, sim.CrashVCritMps))
+			fmt.Sprintf("%.0f m/s (CRASH on contact)", dc.HorizontalRateMps))
 	}
 	fpaLabel := "—"
 	if dc.HasFPA {
-		fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", nzero(dc.FlightPathAngleDeg, 0))
+		fpaLabel = fmt.Sprintf("%.0f°", nzero(dc.FlightPathAngleDeg, 0))
 	}
 	// Every row's label + colon + padding occupies EXACTLY 15 cells
 	// before the value starts, so the values line up in one column
@@ -863,7 +874,7 @@ func (v *LaunchView) stopMarginLabel(dc sim.DescentCorridor) string {
 	}
 	switch dc.Stop.Outcome {
 	case sim.StopStopped:
-		label := fmt.Sprintf("%s up   (full thrust now)", formatAltitude(dc.Stop.MarginM))
+		label := fmt.Sprintf("%s up", formatAltitude(dc.Stop.MarginM))
 		if dc.Margin.State == sim.MarginTight {
 			return v.theme.Warning.Render(label + " TIGHT")
 		}
