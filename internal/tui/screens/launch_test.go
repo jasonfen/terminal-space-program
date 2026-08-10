@@ -660,6 +660,73 @@ func TestChaseHAxisDoesNotFlipOnSignReversalOvershoot(t *testing.T) {
 	}
 }
 
+// TestChaseHAxisResetsOnLiftoffAfterTouchdownLatch — issue #380 review,
+// second round: the touchdown latch is right to hold WHILE a vessel
+// sits parked (the scene is static, nothing visibly moves), but wrong
+// once the SAME vessel relaunches. The early vertical climb's
+// horizontal speed stays under chaseHorizSpeedFloorMps for seconds, not
+// one tick (TestChaseHAxisStaysEastDuringVerticalClimb measures ~0.014
+// m/s there), so without an explicit reset the latch would hold the
+// heading from whenever the vessel touched down — an arbitrary
+// direction from a previous flight, unrelated to the new ascent — for
+// that whole window instead of the surface-frame-east a fresh pad spawn
+// shows.
+//
+// End-to-end sequence pinned here: land travelling in a distinct
+// non-east horizontal direction, confirm the latch holds through
+// touchdown itself (Landed false->true must NOT reset it — that would
+// reintroduce the touchdown mirroring this latch exists to prevent),
+// then lift off (Landed true->false) and confirm the still-near-zero
+// early-climb horizontal speed now renders surface-frame east rather
+// than the stale touchdown heading.
+func TestChaseHAxisResetsOnLiftoffAfterTouchdownLatch(t *testing.T) {
+	// Distinct, non-east horizontal direction: air-relative velocity
+	// along body-frame Z (east sits along Y here — see
+	// touchdownFlareCraft's doc comment). 5 m/s, comfortably above the
+	// floor, establishes a real latch while still descending.
+	c, moon, camFromBody, localUp := touchdownFlareCraft(t, 5.0)
+	v := NewLaunchView(launchThemeForTest(), NewOrbitView(launchThemeForTest()))
+
+	axisDescending := v.chaseHAxis(c, moon, camFromBody, localUp)
+	eastV := chaseSurfaceEastAxis(moon, camFromBody)
+	if dot := axisDescending.Dot(eastV); dot > 0.5 {
+		t.Fatalf("setup: descending axis should not already be east-ish (dot=%.4f) — "+
+			"the test needs a heading clearly distinguishable from the fallback", dot)
+	}
+
+	// Touchdown: Landed flips false -> true (applySurfaceArrival,
+	// internal/sim/lifecycle.go). Horizontal air-relative velocity
+	// nulls to co-rotating (~0), as a real soft landing leaves it.
+	c.Landed = true
+	setAirRelativeFlareVelocity(c, moon, 0, 0)
+	axisLanded := v.chaseHAxis(c, moon, camFromBody, localUp)
+	if dot := axisDescending.Dot(axisLanded); dot < 0.999 {
+		t.Errorf("axis moved across touchdown itself: descending·landed = %.4f "+
+			"(want ~1.0 — the latch must hold through landing, not reset there)", dot)
+	}
+
+	// Liftoff: Landed flips true -> false (StartManualBurn /
+	// planted-node ignition, internal/sim/maneuver.go). Horizontal
+	// speed during the early vertical climb is integrator noise, well
+	// under the floor — same order of magnitude as
+	// TestChaseHAxisStaysEastDuringVerticalClimb's ~0.014 m/s and a
+	// fresh pad spawn's early frames.
+	c.Landed = false
+	setAirRelativeFlareVelocity(c, moon, -2, 0.01)
+	axisAscending := v.chaseHAxis(c, moon, camFromBody, localUp)
+
+	if dot := axisAscending.Dot(eastV); dot < 0.999 {
+		t.Errorf("post-liftoff axis is not surface-frame east: dot(ascending,east) = %.4f "+
+			"(want ~1.0 — a relaunch should start from the same fallback a fresh pad "+
+			"spawn gets)", dot)
+	}
+	if dot := axisAscending.Dot(axisLanded); dot > 0.5 {
+		t.Errorf("post-liftoff axis still resembles the stale touchdown heading: "+
+			"dot(ascending,landed) = %.4f (want small — liftoff should have cleared "+
+			"the touchdown latch)", dot)
+	}
+}
+
 // During vertical climb (Radial+, no pitch trim), the chase-cam's
 // horizontal axis must remain body-frame east. v0.11.0 ships with
 // epsilon = 1e-9 in chaseHorizontalAxis, which is below the per-tick

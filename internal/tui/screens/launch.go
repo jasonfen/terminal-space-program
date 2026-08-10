@@ -52,9 +52,25 @@ type LaunchView struct {
 	// instead. chaseHAxis latches the last velocity-derived axis
 	// through that dead zone. Re-keyed on active-craft change (mirrors
 	// vzCraft) so switching vessels doesn't inherit a stale heading.
-	hAxisCraft   *spacecraft.Spacecraft
-	hAxisLatched bool
-	hAxisValue   orbital.Vec3
+	//
+	// hAxisWasLanded is the same craft's Landed value as of the
+	// previous chaseHAxis call, used to detect the true→false
+	// (liftoff) edge — a second #380-review-round finding: a
+	// touchdown-latched axis is otherwise still sitting on
+	// hAxisValue when the vessel relaunches, and the early vertical
+	// climb's horizontal speed (~0.01-0.1 m/s of integrator noise,
+	// TestChaseHAxisStaysEastDuringVerticalClimb) stays under the
+	// floor for seconds, not one tick — long enough for the stale
+	// touchdown heading (an arbitrary direction from a previous
+	// flight, possibly minutes earlier) to visibly hold instead of
+	// the surface-frame-east a fresh pad spawn would show. Clearing
+	// on false→true (touchdown itself) would reintroduce the
+	// touchdown-mirroring this latch exists to prevent, so the reset
+	// has to sit on the liftoff edge specifically, not on landing.
+	hAxisCraft     *spacecraft.Spacecraft
+	hAxisLatched   bool
+	hAxisValue     orbital.Vec3
+	hAxisWasLanded bool
 }
 
 // NewLaunchView constructs the chase-cam screen, paired with the
@@ -747,11 +763,34 @@ func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, ca
 // LaunchView (or a craft that's never had a valid velocity-derived
 // axis — the pad-spawn case the floor was originally for) has nothing
 // to latch, so it still falls back to surface-frame east.
+//
+// Second #380-review-round finding: holding the latch is right while a
+// vessel sits parked after touchdown (the scene is static; nothing
+// visibly moves), but wrong once the SAME vessel relaunches — the early
+// climb's horizontal speed stays under chaseHorizSpeedFloorMps for
+// seconds (TestChaseHAxisStaysEastDuringVerticalClimb measures ~0.014
+// m/s there, ~7x under the 0.1 m/s floor), long enough for a stale
+// touchdown heading from a previous flight to visibly hold instead of
+// the surface-frame-east a fresh pad spawn would show. Clearing the
+// latch belongs on LIFTOFF (Landed true→false), not on touchdown
+// (Landed false→true) — clearing on touchdown would snap the axis to
+// east at the exact instant of landing, reintroducing the mirroring
+// this latch exists to prevent. c.Landed flips false→true exactly at
+// ground contact (applySurfaceArrival, internal/sim/lifecycle.go) and
+// true→false exactly at engine ignition on a parked craft
+// (StartManualBurn / planted-node ignition, internal/sim/maneuver.go)
+// — so hAxisWasLanded tracks the previous call's Landed value per craft
+// and the latch clears only on the true→false edge.
 func (v *LaunchView) chaseHAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) orbital.Vec3 {
 	if v.hAxisCraft != c {
 		v.hAxisCraft = c
 		v.hAxisLatched = false
+	} else if v.hAxisWasLanded && !c.Landed {
+		// Liftoff: don't let a touchdown heading from a previous
+		// flight (or minutes-ago landing) bleed into the new ascent.
+		v.hAxisLatched = false
 	}
+	v.hAxisWasLanded = c.Landed
 	if axis, ok := chaseHorizVelocityAxis(c, body, camFromBody, localUp); ok {
 		v.hAxisValue = axis
 		v.hAxisLatched = true
