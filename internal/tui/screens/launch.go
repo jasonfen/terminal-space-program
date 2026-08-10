@@ -39,6 +39,22 @@ type LaunchView struct {
 	vzCraft *spacecraft.Spacecraft
 	vzAltM  float64
 	vzAtSim time.Time
+
+	// hAxisCraft/hAxisLatched/hAxisValue cache the chase-cam's
+	// horizontal axis across renders (issue #380 review, following
+	// #378). The axis is derived from surface-relative horizontal
+	// velocity, which crosses chaseHorizSpeedFloorMps on every
+	// touchdown — the pilot is deliberately nulling it there — and can
+	// even reverse sign on a braking overshoot. Recomputing from
+	// scratch at that crossing would snap to an unrelated
+	// surface-frame-east default, or flip 180°: the same whole-scene
+	// mirroring #378 removed from burn start, reappearing at touchdown
+	// instead. chaseHAxis latches the last velocity-derived axis
+	// through that dead zone. Re-keyed on active-craft change (mirrors
+	// vzCraft) so switching vessels doesn't inherit a stale heading.
+	hAxisCraft   *spacecraft.Spacecraft
+	hAxisLatched bool
+	hAxisValue   orbital.Vec3
 }
 
 // NewLaunchView constructs the chase-cam screen, paired with the
@@ -388,11 +404,12 @@ func (v *LaunchView) renderNoActiveVesselMessage() {
 // non-nil and craft.Primary has a non-zero radius.
 //
 // Camera basis (per ADR-0002 + plan, amended by issue #378): X =
-// h_axis (surface-relative horizontal velocity, falling back to
-// surface-frame east when horizontal speed is near zero); Y =
-// local-up (radial from body centre). Depth axis points laterally —
-// useful for hemisphere culling. ViewTilt.Theta is suppressed inside
-// ViewLaunch per ADR-0002.
+// h_axis (surface-relative horizontal velocity, latched through
+// touchdown/near-zero-speed dips per v.chaseHAxis, falling back to
+// surface-frame east only when nothing has latched yet); Y = local-up
+// (radial from body centre). Depth axis points laterally — useful for
+// hemisphere culling. ViewTilt.Theta is suppressed inside ViewLaunch
+// per ADR-0002.
 func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, corridor sim.DescentCorridor, descending bool, ascent sim.AscentCue, ascending bool) {
 	body := craft.Primary
 	// craft.State.R is primary-relative (Earth-centred for a LEO craft,
@@ -410,7 +427,7 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 	bodyCentre := orbital.Vec3{}
 	camWorld := camFromBody
 	localUp := camFromBody.Scale(1.0 / camDist)
-	hAxis := chaseHorizontalAxis(craft, body, camFromBody, localUp)
+	hAxis := v.chaseHAxis(craft, body, camFromBody, localUp)
 
 	basis := widgets.Basis{X: hAxis, Y: localUp}
 	v.canvas.SetBasis(basis)
@@ -624,11 +641,42 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 // speed up or slow down the visual pulse.
 const flameFrameMs = 100
 
-// chaseHorizontalAxis computes the projection-plane horizontal axis:
-// the surface-relative velocity's horizontal component, normalised,
-// falling back to surface-frame east at the craft's surface point
-// when that horizontal speed is near zero (rocket on the pad / a pure
-// vertical climb or drop).
+// chaseHorizVelocityAxis is chaseHorizontalAxis's raw half: the
+// surface-relative velocity's horizontal component, normalised, and
+// whether its magnitude clears chaseHorizSpeedFloorMps. ok=false means
+// "no meaningful direction of travel this frame" (rocket on the pad, a
+// pure vertical climb/drop, or a pilot flaring through zero horizontal
+// speed at touchdown) — the axis returned in that case is the zero
+// vector and callers must not use it directly.
+//
+// Split out from chaseHorizontalAxis so LaunchView.chaseHAxis can
+// latch on ok=true and hold through ok=false instead of recomputing a
+// fallback from scratch every frame (issue #380 review, following
+// #378's whole-scene-mirror fix — see chaseHAxis's doc comment).
+func chaseHorizVelocityAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) (orbital.Vec3, bool) {
+	vRel := physics.AirRelativeVelocity(camFromBody, c.State.V, body)
+	vVert := vRel.Dot(localUp)
+	horiz := vRel.Sub(localUp.Scale(vVert))
+	if n := horiz.Norm(); n > chaseHorizSpeedFloorMps {
+		return horiz.Scale(1.0 / n), true
+	}
+	return orbital.Vec3{}, false
+}
+
+// chaseSurfaceEastAxis returns the surface-frame-east unit vector at
+// camFromBody, as an orbital.Vec3. Small wrapper so both
+// chaseHorizontalAxis and LaunchView.chaseHAxis share the exact same
+// fallback computation.
+func chaseSurfaceEastAxis(body bodies.CelestialBody, camFromBody orbital.Vec3) orbital.Vec3 {
+	east := render.BodyFrameEast(body, render.Vec3{X: camFromBody.X, Y: camFromBody.Y, Z: camFromBody.Z})
+	return orbital.Vec3{X: east.X, Y: east.Y, Z: east.Z}
+}
+
+// chaseHorizontalAxis computes the projection-plane horizontal axis
+// STATELESSLY: the surface-relative velocity's horizontal component,
+// normalised, falling back to surface-frame east at the craft's
+// surface point when that horizontal speed is near zero (rocket on
+// the pad / a pure vertical climb or drop).
 //
 // Issue #378: this used to derive X from CurrentAttitudeDir — the
 // *commanded* attitude — projected onto the local horizontal. That is
@@ -655,15 +703,64 @@ const flameFrameMs = 100
 // class of noise v0.11.1's chaseHorizEpsilon threshold used to guard
 // against on the attitude vector) rather than a meaningful direction
 // of travel, so the axis falls back to surface-frame east.
+//
+// This stateless function is what the production scene used to call
+// directly. It's kept — unchanged in signature and behaviour — as the
+// building block chaseHorizVelocityAxis/chaseSurfaceEastAxis compose,
+// and as a plain reference implementation the dot-product tests pin
+// directly. The render path itself now goes through the stateful
+// LaunchView.chaseHAxis below, which adds latching so the fallback
+// here isn't reached mid-flight at every touchdown (issue #380
+// review).
 func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) orbital.Vec3 {
-	vRel := physics.AirRelativeVelocity(camFromBody, c.State.V, body)
-	vVert := vRel.Dot(localUp)
-	horiz := vRel.Sub(localUp.Scale(vVert))
-	if n := horiz.Norm(); n > chaseHorizSpeedFloorMps {
-		return horiz.Scale(1.0 / n)
+	if axis, ok := chaseHorizVelocityAxis(c, body, camFromBody, localUp); ok {
+		return axis
 	}
-	east := render.BodyFrameEast(body, render.Vec3{X: camFromBody.X, Y: camFromBody.Y, Z: camFromBody.Z})
-	return orbital.Vec3{X: east.X, Y: east.Y, Z: east.Z}
+	return chaseSurfaceEastAxis(body, camFromBody)
+}
+
+// chaseHAxis is renderScene's actual horizontal-axis call: a stateful,
+// per-LaunchView wrapper around chaseHorizVelocityAxis that latches the
+// last velocity-derived axis instead of recomputing a fallback from
+// scratch every frame (issue #380 review of #378).
+//
+// Why this matters: the axis is stateless-by-velocity, so |v_horiz|
+// crosses chaseHorizSpeedFloorMps exactly when a pilot deliberately
+// nulls horizontal speed for touchdown — the moment it costs the most
+// to get wrong. Recomputing surface-frame east at that crossing snaps
+// the whole scene (impact marker, pad, tower, trail, rocket lean) to
+// an unrelated direction; a braking overshoot that carries the
+// horizontal component through zero to the opposite sign would instead
+// flip the scene 180°. Either way it's the same whole-scene mirroring
+// #378 set out to remove, relocated from burn start to touchdown. The
+// old attitude-derived rule had its own version of this (the v0.11.0
+// east/west flip during vertical climb, "fixed" by raising an
+// epsilon) — raising thresholds doesn't close the class, latching
+// does.
+//
+// LaunchView owns this state, not the spacecraft: screens read from
+// the shared world and don't mutate it (see the package doc comment on
+// World/screens), and "which way the camera happens to be facing right
+// now" is a rendering concern, not simulation state. Mirrors vzCraft's
+// pattern: re-keyed on active-craft change so switching vessels can't
+// inherit a stale heading from a different craft, and a fresh
+// LaunchView (or a craft that's never had a valid velocity-derived
+// axis — the pad-spawn case the floor was originally for) has nothing
+// to latch, so it still falls back to surface-frame east.
+func (v *LaunchView) chaseHAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) orbital.Vec3 {
+	if v.hAxisCraft != c {
+		v.hAxisCraft = c
+		v.hAxisLatched = false
+	}
+	if axis, ok := chaseHorizVelocityAxis(c, body, camFromBody, localUp); ok {
+		v.hAxisValue = axis
+		v.hAxisLatched = true
+		return axis
+	}
+	if v.hAxisLatched {
+		return v.hAxisValue
+	}
+	return chaseSurfaceEastAxis(body, camFromBody)
 }
 
 // chaseHorizSpeedFloorMps is the surface-relative horizontal speed

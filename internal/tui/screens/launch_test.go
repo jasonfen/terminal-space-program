@@ -555,6 +555,111 @@ func TestDescentArcAheadTrailBehindOnScreen(t *testing.T) {
 	}
 }
 
+// setAirRelativeFlareVelocity sets c.State.V so that
+// physics.AirRelativeVelocity(c.State.R, c.State.V, moon) — the
+// quantity chaseHorizontalAxis/chaseHAxis actually consume — comes out
+// to exactly {X: radialMps, Z: horizZMps}. The Moon is tidally locked,
+// so a fixed body-frame position still co-rotates with it at a
+// non-trivial rate (~4.6 m/s at low lunar altitude); setting c.State.V
+// (inertial) directly, as an earlier version of these tests did, lets
+// that co-rotation term leak into the "horizontal" component and
+// silently invalidates a floor/sign-reversal test built around a
+// specific air-relative magnitude. Adding back the co-rotation term
+// (physics.AtmosphereOmega(moon).Cross(r)) cancels it out.
+func setAirRelativeFlareVelocity(c *spacecraft.Spacecraft, moon bodies.CelestialBody, radialMps, horizZMps float64) {
+	omegaCrossR := physics.AtmosphereOmega(moon).Cross(c.State.R)
+	c.State.V = orbital.Vec3{X: radialMps, Z: horizZMps}.Add(omegaCrossR)
+}
+
+// touchdownFlareCraft builds a low-altitude Moon craft with a
+// horizontal velocity component along body-frame Z — deliberately NOT
+// aligned with body-frame east (which sits along Y for a position on
+// the X axis; see render.BodyFrameEast) — so a latch test can tell
+// "held the prior axis" apart from "snapped to the east fallback" by
+// dot product instead of the two directions being coincidentally
+// close. horizZMps is the horizontal (Z) component of AIR-RELATIVE
+// velocity; the radial (X) component is a small fixed descent rate.
+func touchdownFlareCraft(t *testing.T, horizZMps float64) (*spacecraft.Spacecraft, bodies.CelestialBody, orbital.Vec3, orbital.Vec3) {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	sys := w.System()
+	moon := sys.FindBody("Moon")
+	if moon == nil {
+		t.Fatal("setup: Moon not found in default system")
+	}
+	c := w.ActiveCraft()
+	c.Primary = *moon
+	c.Landed = false
+	c.Crashed = false
+	c.State.R = orbital.Vec3{X: moon.RadiusMeters() + 500}
+	setAirRelativeFlareVelocity(c, *moon, -2, horizZMps)
+	c.State.M = c.TotalMass()
+	camFromBody := c.State.R
+	localUp := camFromBody.Scale(1.0 / camFromBody.Norm())
+	return c, *moon, camFromBody, localUp
+}
+
+// TestChaseHAxisLatchesThroughSpeedFloorAtTouchdown — issue #380 review
+// finding: chaseHorizontalAxis was stateless in horizontal velocity, so
+// the final flare before touchdown (the pilot deliberately nulling
+// horizontal speed) crosses chaseHorizSpeedFloorMps and would snap the
+// whole scene to an unrelated surface-frame-east default at exactly the
+// moment it costs the pilot most. LaunchView.chaseHAxis must instead
+// hold the last velocity-derived axis through that dip.
+func TestChaseHAxisLatchesThroughSpeedFloorAtTouchdown(t *testing.T) {
+	// 5 m/s horizontal — comfortably above chaseHorizSpeedFloorMps
+	// (0.1) — establishes a real latch.
+	c, moon, camFromBody, localUp := touchdownFlareCraft(t, 5.0)
+	v := NewLaunchView(launchThemeForTest(), NewOrbitView(launchThemeForTest()))
+	axisBefore := v.chaseHAxis(c, moon, camFromBody, localUp)
+
+	// Final flare: horizontal speed nulled to 0.01 m/s, well under the
+	// floor. Same craft pointer, same LaunchView — this is what
+	// consecutive frames during touchdown look like.
+	setAirRelativeFlareVelocity(c, moon, -2, 0.01)
+	axisAfter := v.chaseHAxis(c, moon, camFromBody, localUp)
+
+	if dot := axisBefore.Dot(axisAfter); dot < 0.999 {
+		t.Errorf("axis moved across the speed-floor dip at touchdown: "+
+			"before·after = %.4f (want ~1.0 — should hold, not recompute)", dot)
+	}
+
+	// Prove it didn't merely coincide with holding — check it did NOT
+	// snap to the (deliberately different) surface-frame-east fallback.
+	eastV := chaseSurfaceEastAxis(moon, camFromBody)
+	if dot := axisAfter.Dot(eastV); dot > 0.5 {
+		t.Errorf("axis after the dip aligned with surface-frame east (dot=%.4f) — "+
+			"looks like it snapped to the fallback instead of latching", dot)
+	}
+}
+
+// TestChaseHAxisDoesNotFlipOnSignReversalOvershoot — issue #380 review
+// finding: a braking overshoot that carries horizontal velocity through
+// zero to the opposite sign, while staying inside the
+// chaseHorizSpeedFloorMps dead zone the whole time, must not flip the
+// chase-cam 180°. The latch should hold across the sign change as long
+// as the magnitude never re-clears the floor.
+func TestChaseHAxisDoesNotFlipOnSignReversalOvershoot(t *testing.T) {
+	// +5 m/s horizontal (above floor) establishes the latch.
+	c, moon, camFromBody, localUp := touchdownFlareCraft(t, 5.0)
+	v := NewLaunchView(launchThemeForTest(), NewOrbitView(launchThemeForTest()))
+	axisBefore := v.chaseHAxis(c, moon, camFromBody, localUp)
+
+	// Overshoot: horizontal component reverses sign to -0.05 m/s —
+	// magnitude 0.05 < chaseHorizSpeedFloorMps (0.1), so this is still
+	// inside the dead zone despite crossing zero.
+	setAirRelativeFlareVelocity(c, moon, -2, -0.05)
+	axisAfter := v.chaseHAxis(c, moon, camFromBody, localUp)
+
+	if dot := axisBefore.Dot(axisAfter); dot < 0.999 {
+		t.Errorf("axis flipped across a sub-floor sign reversal: "+
+			"before·after = %.4f (want ~1.0, not ~-1.0)", dot)
+	}
+}
+
 // During vertical climb (Radial+, no pitch trim), the chase-cam's
 // horizontal axis must remain body-frame east. v0.11.0 ships with
 // epsilon = 1e-9 in chaseHorizontalAxis, which is below the per-tick
