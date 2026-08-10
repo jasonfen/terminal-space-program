@@ -357,6 +357,15 @@ type BurnMargin struct {
 
 // ComputeBurnMargin evaluates the margin from SI scalars. Pure, so the
 // arithmetic can be pinned exactly by tests without seeding a World.
+//
+// Superseded by PredictPoweredStop (issue #377) as the corridor's actual
+// margin — DescentCorridorFor no longer calls this at all (see its doc
+// comment). It is kept only as the frozen-scalar BASELINE
+// TestPredictPoweredStopLunaHorizontalRegression pins its "before"
+// number against — that regression is the evidence the whole slice
+// rests on, so the old arithmetic needs to keep existing and keep being
+// exactly this, not because anything should call it live again. Do not
+// wire this back into DescentCorridorFor or any other live code path.
 func ComputeBurnMargin(thrustN, massKg, gLocalMps2, descentRateMps, altitudeM, availDVMps float64) BurnMargin {
 	if massKg <= 0 || altitudeM <= 0 || descentRateMps <= 0 {
 		return BurnMargin{AvailDVMps: availDVMps}
@@ -518,6 +527,47 @@ const (
 	stopAdaptiveMinDt      = 0.01
 )
 
+// stopStepSizeSeconds picks one outer-loop sub-step for
+// predictPoweredStopFrom's integration: no larger than dt, capped
+// further so a step never outruns the current stage's remaining fuel
+// (fuelTimeLeftSec = fuelKg/mdot — mass bookkeeping already clamps
+// `burned` to what's left regardless, but a step WIDER than that would
+// still integrate full thrust, via poweredStopAccel, for longer than the
+// tank can actually sustain it: an impulse the mass side never paid
+// for), and, near the stop-speed floor, capped again so a step can't
+// remove more than stopAdaptiveShrinkFrac of the current speed (see
+// stopAdaptiveShrinkFrac's doc).
+//
+// The adaptive cap has its own floor, stopAdaptiveMinDt, so it can't
+// shrink to zero and stall the loop at the vRel==0 singularity — but
+// that floor must never be allowed to WIDEN the step back out past the
+// fuel cap. A prior version applied the floor unconditionally
+// (`stepDt = capDt` after raising capDt to the floor), so a step already
+// shortened to a few ms by an almost-exhausted tank could get stretched
+// back out to stopAdaptiveMinDt — up to 5x longer than the tank
+// sustains at the sizes involved. Numerically small (stopAdaptiveMinDt
+// is 10 ms) but wrong in kind, and the kind of wrong that stops being
+// negligible if the floor is ever raised. The `< stepDt` re-check below
+// is what keeps the floor-raise from ever widening the step past
+// whatever cap (dt or the fuel cap) was already in force.
+func stopStepSizeSeconds(dt, fuelTimeLeftSec, speedPre, aAvail float64) float64 {
+	stepDt := dt
+	if fuelTimeLeftSec < stepDt {
+		stepDt = fuelTimeLeftSec
+	}
+	if speedPre > 0 && aAvail > 0 {
+		if capDt := stopAdaptiveShrinkFrac * speedPre / aAvail; capDt < stepDt {
+			if capDt < stopAdaptiveMinDt {
+				capDt = stopAdaptiveMinDt
+			}
+			if capDt < stepDt {
+				stepDt = capDt
+			}
+		}
+	}
+	return stepDt
+}
+
 // poweredStopAccel is the ONE accel closure behind every termination
 // test inside PredictPoweredStop / PredictBurnAt (this file's own #66
 // rule, restated for the powered half): two-body gravity, drag exactly
@@ -632,38 +682,9 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 	dvUsed := 0.0
 
 	for i := 0; i < steps; i++ {
-		// Fuel exhausted exactly mid-step: shorten this step to the
-		// instant it runs dry rather than overrunning the tank — an
-		// algebraic result (mdot is constant while thrustFull is firing),
-		// not another bisection.
-		stepDt := dt
-		if ttx := fuelKg / mdot; ttx < stepDt {
-			stepDt = ttx
-		}
-		// Adaptive shrink as speed approaches the floor: a full-size step
-		// at a high-TWR craft's fixed 100% thrust can remove MORE than
-		// the entire remaining speed in one step, overshooting past
-		// stopSpeedFloorMps and out the other side — surface-relative
-		// speed picks back up (thrust now chasing a reversed, near-zero
-		// vRel) and the loop never lands inside the floor at all. Capping
-		// each step to at most stopAdaptiveShrinkFrac of the speed
-		// available to remove (at the craft's own accel ceiling,
-		// thrust/mass — an upper bound since some of it may go to
-		// redirection rather than pure deceleration, which only makes
-		// this cap more conservative) makes the steps shrink geometrically
-		// on approach instead of overshooting, the same way
-		// bisectPoweredCrossing narrows a bracket rather than jumping past
-		// it.
-		if speedPre := physics.AirRelativeVelocity(state.R, state.V, primary).Norm(); speedPre > 0 {
-			if aAvail := thrustFull / massKg; aAvail > 0 {
-				if capDt := stopAdaptiveShrinkFrac * speedPre / aAvail; capDt < stepDt {
-					if capDt < stopAdaptiveMinDt {
-						capDt = stopAdaptiveMinDt
-					}
-					stepDt = capDt
-				}
-			}
-		}
+		speedPre := physics.AirRelativeVelocity(state.R, state.V, primary).Norm()
+		aAvail := thrustFull / massKg
+		stepDt := stopStepSizeSeconds(dt, fuelKg/mdot, speedPre, aAvail)
 		massSnap := massKg
 		accelFn := func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 			return poweredStopAccel(r, v, mu, primary, bc, thrustFull, massSnap)
@@ -900,10 +921,10 @@ const descentRateFloorMps = 0.1
 // during a descent instead of two that disagree about sign conventions —
 // the corridor says `descent: 40 m/s` where DESCENT said `v_vert: -40.0
 // m/s`, and having both on screen at once was the duplication this
-// resolves. FlightPathAngleDeg / HasFPA are no longer rendered as their
-// own row (issue #377's pinned row layout drops `fpa` in favour of
-// `burn at` / `stop margin`) but stay on the struct — cheap to compute,
-// and descentKinematics still needs the intermediate value.
+// resolves. FlightPathAngleDeg / HasFPA still render as their own `fpa`
+// row alongside `burn at` / `stop margin` — issue #377's pinned mock
+// sketched only the two new rows, not the whole block, so dropping
+// `fpa` was read too literally the first time round.
 //
 // Stop / StopOK and BurnAt / HasBurnAt are DescentCorridorFor's OWN
 // fields but are NOT populated by it — they are the expensive half

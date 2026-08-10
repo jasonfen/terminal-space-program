@@ -357,3 +357,60 @@ func TestPredictBurnAtHiddenWhenAlreadyUnstoppable(t *testing.T) {
 		t.Error("PredictBurnAt returned a cue for an already-unstoppable descent, want ok=false")
 	}
 }
+
+// --- Step-size clamp (PR #382 review finding 2) -----------------------
+
+// TestStopStepSizeSecondsNeverExceedsFuelCap is the review's finding 2
+// regression: the adaptive-shrink floor (stopAdaptiveMinDt) must never
+// widen a step back out past the fuel-exhaustion cap
+// (fuelTimeLeftSec = fuelKg/mdot). The reviewer's own reproduction —
+// ttx = 0.002, and an adaptive cap that would compute to 0.001 before
+// the floor raises it to stopAdaptiveMinDt (0.01) — is pinned directly:
+// speedPre/aAvail is chosen so stopAdaptiveShrinkFrac*speedPre/aAvail =
+// 0.001 (below the 0.01 floor), with fuelTimeLeftSec tighter still at
+// 0.002. A step that size integrates full thrust (poweredStopAccel)
+// for 5x longer than the tank actually sustains it — mass bookkeeping
+// stays correct (burned is separately clamped to fuelKg in the caller),
+// but the IMPULSE the RK4 step applies would not be.
+func TestStopStepSizeSecondsNeverExceedsFuelCap(t *testing.T) {
+	const (
+		dt              = 1.0
+		fuelTimeLeftSec = 0.002 // ttx: the tank runs dry after 2 ms at full thrust
+		speedPre        = 0.002
+		aAvail          = 1.0 // stopAdaptiveShrinkFrac(0.5)*speedPre/aAvail = 0.001, below stopAdaptiveMinDt
+	)
+	got := stopStepSizeSeconds(dt, fuelTimeLeftSec, speedPre, aAvail)
+	if got > fuelTimeLeftSec {
+		t.Errorf("stopStepSizeSeconds = %v, want <= fuelTimeLeftSec (%v) — the adaptive floor widened the step past what the tank sustains",
+			got, fuelTimeLeftSec)
+	}
+	if got != fuelTimeLeftSec {
+		t.Errorf("stopStepSizeSeconds = %v, want exactly fuelTimeLeftSec (%v): the fuel cap is the tightest bound here", got, fuelTimeLeftSec)
+	}
+}
+
+// TestStopStepSizeSecondsAdaptiveShrinkStillWorks: the floor-raise fix
+// must not defeat the adaptive shrink's actual job — when fuel ISN'T the
+// binding constraint, a step near the stop-speed floor still shrinks
+// (down to stopAdaptiveMinDt when the raw computation would go smaller
+// still), so the loop keeps converging instead of overshooting.
+func TestStopStepSizeSecondsAdaptiveShrinkStillWorks(t *testing.T) {
+	const (
+		dt              = 1.0
+		fuelTimeLeftSec = 1000.0 // ample — not the binding constraint
+	)
+	// Raw adaptive computation (0.5*speedPre/aAvail) undershoots the
+	// floor: the floor must win, and nothing here should widen it back
+	// toward fuelTimeLeftSec or dt.
+	if got := stopStepSizeSeconds(dt, fuelTimeLeftSec, 0.0001, 1.0); got != stopAdaptiveMinDt {
+		t.Errorf("stopStepSizeSeconds = %v, want the floor %v (fuel is not binding here)", got, stopAdaptiveMinDt)
+	}
+	// Raw adaptive computation comfortably clears the floor: use it as-is.
+	if got, want := stopStepSizeSeconds(dt, fuelTimeLeftSec, 1.0, 1.0), 0.5; got != want {
+		t.Errorf("stopStepSizeSeconds = %v, want %v (plain adaptive shrink, no floor involved)", got, want)
+	}
+	// Neither cap engages: full dt.
+	if got := stopStepSizeSeconds(dt, fuelTimeLeftSec, 1000.0, 1.0); got != dt {
+		t.Errorf("stopStepSizeSeconds = %v, want dt (%v) — neither cap should have engaged", got, dt)
+	}
+}
