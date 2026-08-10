@@ -1599,7 +1599,17 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			chipRow("lead:", targetLeadLabel(leadDeg, leadOK)),
 		)
 		if tc.Primary.ID == c.Primary.ID {
-			lines = append(lines, v.closestApproachRows(w, c)...)
+			// #375 follow-up: closestApproachRows Kepler-propagates the
+			// target's (R, V) forward to find the encounter — feeding it a
+			// landed target's (R, ω×R) co-rotation state would propagate
+			// the very pseudo-orbit the rest of #375 suppresses (periapsis
+			// metres from the primary's centre) and print a TCA/CA pair for
+			// a phantom trajectory. Range/closing above stay meaningful for
+			// a landed target (relative-state math, not propagation) so
+			// only this predicted-encounter row group is gated.
+			if craftHasOrbit(tc) {
+				lines = append(lines, v.closestApproachRows(w, c)...)
+			}
 			if rangeM < 50 && vRel < 0.1 {
 				dockStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
 				lines = append(lines, "  "+dockStyle.Render("DOCK READY"))

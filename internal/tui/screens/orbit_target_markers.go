@@ -40,6 +40,15 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 	if c == nil || !w.TargetSharesActivePrimary() {
 		return
 	}
+	// #375 follow-up: mirrors the TARGET chip's closestApproachRows guard
+	// (orbit_chip_builders.go) — a landed target's (R, ω×R) state isn't an
+	// orbit, so propagating it here would plant the ✕ marker inside the
+	// body, the same needle-through-the-planet defect the rest of #375
+	// suppresses, just on a different glyph. ResolveTargetCraft is
+	// ok=false for a body/ghost target, so this is a no-op for those.
+	if tc, _, ok := w.ResolveTargetCraft(); ok && !craftHasOrbit(tc) {
+		return
+	}
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
 	if !ok {
 		return

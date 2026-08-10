@@ -2572,11 +2572,14 @@ const launchMissionFloorM = sim.LaunchMissionFloorM
 // primary's centre, sign-flipping at the display quantum every tick).
 // Nothing about the physics is wrong; a Landed craft simply isn't
 // orbiting, so every surface that would otherwise read its elements —
-// the map's ellipse + apsis markers, the ORBIT/TARGET chips — gates
-// on this instead of re-deriving "is this real" from Landed each time.
-// Ghosts (internal/relay/ghosts.go) never carry Landed=true (skipped
-// at the source), so this predicate only ever fires false for local
-// and target craft, never for a relayed ghost.
+// the map's ellipse + apsis markers, the ORBIT/TARGET chips, and the
+// TARGET chip's closest-approach TCA/CA prediction + ✕ marker (the
+// batched-review follow-up: NextClosestApproach(Positions) Kepler-
+// propagates the same pseudo-orbit if fed a landed target's state) —
+// gates on this instead of re-deriving "is this real" from Landed each
+// time. Ghosts (internal/relay/ghosts.go) never carry Landed=true
+// (skipped at the source), so this predicate only ever fires false for
+// local and target craft, never for a relayed ghost.
 func craftHasOrbit(c *spacecraft.Spacecraft) bool {
 	return c != nil && !c.Landed
 }

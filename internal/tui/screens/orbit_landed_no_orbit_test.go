@@ -295,6 +295,78 @@ func TestLandedVesselNeverPrintsNegativeZero(t *testing.T) {
 	}
 }
 
+// TestLandedTargetHasNoClosestApproachPrediction (#375 batched-review
+// follow-up): craftHasOrbit correctly gates the TARGET chip's Ap/Pe and
+// the map's ellipse/apsis markers, but closestApproachRows (the TCA/CA
+// chip rows) and drawClosestApproachMarker (the map's ✕ marker) both
+// feed the target's raw (R, V) straight into
+// planner.NextClosestApproach(Positions) — bypassing craftHasOrbit
+// entirely. For a landed target that Kepler-propagates the same
+// co-rotation pseudo-orbit the rest of #375 suppresses and reports a
+// TCA/CA pair (plus a ✕ on the map) for a phantom trajectory diving
+// through the body.
+//
+// Range/closing/|v_rel| stay meaningful for a landed target (plain
+// relative-state math, not propagation) so only the predicted-encounter
+// rows and marker are gated — the chip must not blank those either.
+//
+// Same primary as the active craft (Earth) and the same camera-facing
+// lat/lon pattern as TestLandedVesselKeepsGlyphAndInspectRegistration
+// (30°N) — a different-primary or occluded target would make the
+// marker assertion pass vacuously regardless of the guard, the same
+// trap TestLandedOtherVesselDrawsNoEllipse hit on the first pass.
+func TestLandedTargetHasNoClosestApproachPrediction(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(80, 24)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	active := w.ActiveCraft()
+	if active == nil {
+		t.Fatal("expected an active craft from NewWorld")
+	}
+	active.Landed = false
+
+	target, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    active.Primary.ID, // same primary as the active craft
+		Launchpad:       true,
+		Latitude:        30, // camera-facing, per TestLandedVesselKeepsGlyphAndInspectRegistration
+		LongitudeOffset: 0,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft(target): %v", err)
+	}
+	if !target.Landed {
+		t.Fatal("setup: target vessel should be Landed")
+	}
+	w.ActiveCraftIdx = 0 // restore the orbiting craft as active
+	w.SetTargetCraft(1)  // target the landed vessel
+
+	lines := v.buildTargetChip(w)
+	if lines == nil {
+		t.Fatal("TARGET chip returned nil for a landed target")
+	}
+	joined := strings.Join(lines, "\n")
+	for _, unwanted := range []string{"TCA:", "CA:"} {
+		if strings.Contains(joined, unwanted) {
+			t.Errorf("landed target's TARGET chip still shows %q (a propagated closest-approach prediction), want it suppressed:\n%s", unwanted, joined)
+		}
+	}
+	for _, want := range []string{"range:", "|v_rel|:", "closing:"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("landed target's TARGET chip lost %q — only the propagated CA/TCA prediction should be gated, not the whole row group:\n%s", want, joined)
+		}
+	}
+
+	v.Render(w, 0, 80, 24)
+	caColor := render.MarkerColor(render.MarkerClosestApproach, render.MarkerNominal, "")
+	if got := v.canvas.CountOverlayColor(caColor); got != 0 {
+		t.Errorf("landed target drew %d closest-approach ✕ marker(s), want 0 — the marker plots the same propagated pseudo-orbit as the chip rows", got)
+	}
+}
+
 // TestFormatChipKmSnapsNegativeZero locks the #375 item-6 fix: the km
 // formatter shared by the ORBIT/TARGET chips' altitude/Ap/Pe rows must
 // never print a "-0.0" for a magnitude that rounds to zero at its
