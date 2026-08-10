@@ -1161,7 +1161,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		el := orbital.ElementsFromState(c.State.R, c.State.V, muCraft)
 		primaryPos := w.BodyPosition(c.Primary)
 		scale := v.canvas.Scale()
-		orbitVisible := el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
+		// #375: a Landed craft's (R, ω×R) state resolves to a valid-
+		// looking degenerate ellipse (periapsis a few metres from the
+		// primary's centre) — craftHasOrbit excludes it so the map
+		// draws no needle through the body for a parked vessel.
+		orbitVisible := craftHasOrbit(c) && el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
 		// v0.6.4: in side views, the spacecraft orbit can pass behind
 		// the primary body. The canvas's IsBehindBody / occluded-
 		// ellipse helpers skip back-half samples that fall inside
@@ -1280,7 +1284,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			otherPxR := BodyPixelRadius(other.Primary, false, scale, canvasReach)
 			otherInertial := otherPrimaryPos.Add(other.State.R)
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
-			otherOrbitVisible := otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
+			// #375: same craftHasOrbit exclusion as the active vessel above
+			// — every other landed vessel on the map loses its needle too.
+			otherOrbitVisible := craftHasOrbit(other) && otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
 			isTarget := i == targetCraftIdx
 			otherColor := lipgloss.Color(render.ColorDim)
 			if other.Color != "" {
@@ -2556,6 +2562,27 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 // shouldShowLaunchHUD, ORBIT READY gate) keep their local name; the
 // JSON mirror at internal/missions/missions.json:40 is unchanged.
 const launchMissionFloorM = sim.LaunchMissionFloorM
+
+// craftHasOrbit is the single "does this vessel have a real orbit"
+// predicate (issue #375). integrateLanded (internal/sim/landed.go)
+// deliberately feeds a parked craft V = ω × R — surface co-rotation
+// velocity, correct physics for a future liftoff — but that state
+// happens to satisfy ElementsFromState as a valid-looking ellipse
+// (apoapsis pinned at the vessel, periapsis a few metres from the
+// primary's centre, sign-flipping at the display quantum every tick).
+// Nothing about the physics is wrong; a Landed craft simply isn't
+// orbiting, so every surface that would otherwise read its elements —
+// the map's ellipse + apsis markers, the ORBIT/TARGET chips, and the
+// TARGET chip's closest-approach TCA/CA prediction + ✕ marker (the
+// batched-review follow-up: NextClosestApproach(Positions) Kepler-
+// propagates the same pseudo-orbit if fed a landed target's state) —
+// gates on this instead of re-deriving "is this real" from Landed each
+// time. Ghosts (internal/relay/ghosts.go) never carry Landed=true
+// (skipped at the source), so this predicate only ever fires false for
+// local and target craft, never for a relayed ghost.
+func craftHasOrbit(c *spacecraft.Spacecraft) bool {
+	return c != nil && !c.Landed
+}
 
 // descentHUDAltitudeM is the altitude threshold (above the airless
 // primary's mean radius) below which the DESCENT block lights up.
