@@ -8,7 +8,7 @@ first.
 ## The one mechanic that matters
 
 When you press `Y` (Deploy), the top payload is released into the carrier's
-**exact current orbit** — same position, same velocity, plus a tiny 75 m / 0.15
+**exact current orbit**: same position, same velocity, plus a tiny 75 m / 0.15
 m/s nudge so it doesn't auto-redock. There is no separate "insertion orbit"
 handed to the satellite, and nothing spaces the satellites for you. Every comsat
 comes out wherever the carrier happens to be at the instant you deploy.
@@ -16,20 +16,20 @@ comes out wherever the carrier happens to be at the instant you deploy.
 Two consequences drive everything below:
 
 1. **The satellites never have to change orbit.** A comsat with ~130 m/s of its
-   own is fine — that budget is for final trim and station-keeping, not for
+   own is fine; that budget is for final trim and station-keeping, not for
    covering the gap between where you dropped it and where it belongs. If you
    find yourself wanting the comsats to cover a large orbit difference, you
    deployed from the wrong place. Bring the *carrier* to the final orbit first.
 2. **The carrier gets lighter at every drop.** Deploy recomputes the carrier's
    mass to exclude the released payload (dry mass + whatever fuel/monoprop that
    comsat carried) the moment you press `Y`. So each successive phasing burn
-   costs *less* propellant than the last — see [What it costs in
+   costs *less* propellant than the last; see [What it costs in
    fuel](#what-it-costs-in-fuel).
 
 ## Deploy from the target orbit, not a transfer orbit
 
 The recipe in one line: **put the carrier in the final circular orbit, then
-space the constellation by phasing the carrier — not the satellites.**
+space the constellation by phasing the carrier, not the satellites.**
 
 1. Circularize the *carrier* into the target orbit. Spend the carrier's delta-v
    here (a tug carries far more than any single comsat).
@@ -54,7 +54,7 @@ T_phase = T_target × (N ± 1) / N
 - `(N+1)` → keep periapsis at the deploy point, **raise apoapsis** (carrier
   slower; the already-deployed sats pull ahead). Preferred in a low orbit.
 - `(N−1)` → keep apoapsis at the deploy point, **lower periapsis** (carrier
-  faster). Avoid in a low orbit — you're dipping toward atmosphere/terrain.
+  faster). Avoid in a low orbit; you're dipping toward atmosphere/terrain.
 
 After one phasing revolution the carrier is back at the exact deploy point and
 the previous satellite has drifted `360°/N`. Re-circularize, deploy the next,
@@ -89,7 +89,7 @@ speed at the deploy point is:
 v_apsis = √( μ · (2/r − 1/a_phase) )
 ```
 
-You burn twice per slot — into the phasing orbit and back out — each of equal
+You burn twice per slot (into the phasing orbit and back out), each of equal
 magnitude (same apsis, same speed), so:
 
 ```
@@ -109,7 +109,7 @@ approximation (`ε = 1/(mN)`):
 
 ## What it costs in fuel
 
-The delta-v above is pure orbital mechanics — **mass-independent**. What it
+The delta-v above is pure orbital mechanics, **mass-independent**. What it
 *costs* in propellant follows the rocket equation against the carrier's current
 mass:
 
@@ -140,16 +140,16 @@ Six comsats (`N = 6`), 360°/6 = 60° apart, in an orbit where `v_c ≈ 2300 m/s
 | 4 | ×25/24 (1.042) | ~32 m/s     | ~0.32 km/s       | 20         |
 
 Going from `m = 1` to `m = 4` takes the carrier from spending most of a typical
-tug's budget to about a quarter of it — at the cost of 4× the warp time.
+tug's budget to about a quarter of it, at the cost of 4× the warp time.
 
 ## Flying it in-game
 
 The **ORBIT** chip and the **PROJECTED ORBIT** chip both show the orbital period
-(`2π√(a³/μ)`) under the time-to-apoapsis / time-to-periapsis lines — that's your
+(`2π√(a³/μ)`) under the time-to-apoapsis / time-to-periapsis lines; that's your
 tuning instrument. As of **v0.24.4** the period reads down to the second
 (`6h04m21s`) rather than rounding to the minute, so you can tune a phasing orbit
 to roughly 1-second precision. The placement error that leaves is
-`Δφ ≈ 360°·m·δ/T` per slot — a fraction of a degree for any sane `m`, well below
+`Δφ ≈ 360°·m·δ/T` per slot, a fraction of a degree for any sane `m`, well below
 what a comsat's own trim budget cares about.
 
 1. Circularize the carrier into the target orbit; note its period `T` on the
@@ -166,7 +166,7 @@ what a comsat's own trim budget cares about.
 
 - **There's a floor.** At high `m` the burn gets too small to plant cleanly and
   the total warp time balloons. When the per-burn delta-v drops near a comsat's
-  own ~130 m/s, stop fussing over carrier precision — deploy a little roughly and
+  own ~130 m/s, stop fussing over carrier precision; deploy a little roughly and
   let each comsat trim its own final position with its onboard budget.
 - **Coarse carrier + comsat cleanup** is usually the cheapest overall plan: a
   low-`m` (cheap, fast) carrier phasing that gets each sat *close*, finished off
@@ -174,8 +174,8 @@ what a comsat's own trim budget cares about.
   step the pulse down with `p` (0.1 → 0.01 → 0.001 m/s) to null its period to the
   second without overshooting.
 - **Need finer than a second?** Tune the **projected apoapsis** instead of the
-  period — it reads to 0.1 km, and at a typical comsat orbit ~1 km of apoapsis is
+  period; it reads to 0.1 km, and at a typical comsat orbit ~1 km of apoapsis is
   ~1 second of period (`dT/dr_apo = ¾·T/a`), so it's an even sharper lever. You'll
   rarely need it now that the period shows seconds.
-- There is currently **no automated constellation/phasing helper** — the whole
+- There is currently **no automated constellation/phasing helper**; the whole
   flow above is manual.
