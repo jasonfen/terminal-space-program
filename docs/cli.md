@@ -2,7 +2,7 @@
 
 `terminal-space-program` opens, by default, with a vessel in a 500 km low Earth
 orbit. The flags below let you boot straight into a different starting
-scenario — a system, a body to orbit or launch from, an orbit shape, a launch
+scenario: a system, a body to orbit or launch from, an orbit shape, a launch
 site, and a vessel. They only shape a **fresh** game; loading a save from the
 in-game menu restores that save unchanged.
 
@@ -42,7 +42,7 @@ terminal-space-program --list-launch-sites
 | `--version`, `-v` | Print the version + build commit. |
 | `--list-systems` | List the available star systems. |
 | `--list-bodies` | List bodies (their IDs). Honours `--system`; otherwise lists every system. |
-| `--list-loadouts` | List the merged catalog — every loadout with its resolved stages, then the parts catalog. Reflects your user overlay (see [Custom vehicles](#custom-vehicles)), so a modded loadout shows up here once it loads. |
+| `--list-loadouts` | List the merged catalog: every loadout with its resolved stages, then the parts catalog. Reflects your user overlay (see [Custom vehicles](#custom-vehicles)), so a modded loadout shows up here once it loads. |
 | `--list-launch-sites` | List the named launch sites. |
 
 ### Where to start
@@ -54,7 +54,7 @@ terminal-space-program --list-launch-sites
 | `--loadout NAME` | `S-IVB-1` | Vessel loadout ID (`Saturn-V`, `Apollo-Stack`, `Kern-Stack`, …; see `--list-loadouts`). |
 
 A vessel is bound for its lifetime to the system it spawns in, and the camera
-follows it — so `--system Lumen` drops you straight into Lumen with the flight
+follows it, so `--system Lumen` drops you straight into Lumen with the flight
 HUD live.
 
 ### Orbital placement
@@ -78,8 +78,8 @@ flags above.
 | Flag | Default | Meaning |
 |---|---|---|
 | `--launchpad` | off | Spawn on the surface instead of in orbit. On its own, uses the KSC default site. |
-| `--launch-site NAME` | — | A named site: `Equator`, `KSC`, `Baikonur`, `Plesetsk`, `North-Pole` (see `--list-launch-sites`). Implies `--launchpad`. |
-| `--lat DEG`, `--lon DEG` | `0`, `0` | Numeric surface site — degrees north and degrees east of the prime meridian. Implies `--launchpad`. |
+| `--launch-site NAME` | (none) | A named site: `Equator`, `KSC`, `Baikonur`, `Plesetsk`, `North-Pole` (see `--list-launch-sites`). Implies `--launchpad`. |
+| `--lat DEG`, `--lon DEG` | `0`, `0` | Numeric surface site, in degrees north and degrees east of the prime meridian. Implies `--launchpad`. |
 
 Named sites are Earth-oriented; to launch from a pad on another body, give an
 explicit `--lat`/`--lon` (and `--orbit BODY` to choose the body).
@@ -93,8 +93,8 @@ explicit `--lat`/`--lon` (and `--orbit BODY` to choose the body).
   lists the valid values, and exits non-zero.
 - A body with no legal orbit altitude at all (e.g. `--orbit phobos`) refuses
   the start outright rather than silently substituting an orbit of its
-  parent — the error names the body that actually owns that space.
-- Body and loadout names are the catalog **IDs** — run the matching `--list-*`
+  parent; the error names the body that actually owns that space.
+- Body and loadout names are the catalog **IDs**; run the matching `--list-*`
   flag if a name is rejected (e.g. the Moon's ID is `moon`, Lumen's home planet
   is `kern`).
 
@@ -107,6 +107,6 @@ add your own loadouts and parts, or override a built-in by reusing its `id`. A
 **part** is one atomic stage (engine + tank + structure fused); a **loadout** is
 an ordered list of part references (bottom stage first) plus optional
 `decouple_plan` / `scale_class`. Run `terminal-space-program --list-loadouts` to
-see the merged catalog and confirm your overlay loaded — a malformed file is
+see the merged catalog and confirm your overlay loaded; a malformed file is
 skipped with a warning to stderr and never fails the rest. The built-in catalog
 (the shape to copy) ships embedded in the binary under `internal/spacecraft/data/`.
