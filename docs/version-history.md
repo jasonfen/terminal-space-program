@@ -1,145 +1,571 @@
 # Version history
 
-Newest first. Per-version detail: [state-of-game.md](../designdocs/terminal-space-program/state-of-game.md).
+Newest first. One headline per release, then the concrete changes and the issues they closed.
 
----
+### v0.38.1
 
-**v0.38.1** — Two vessels you just undocked can dock again without a 200 m round trip, and the dock gate ring stops turning green while the game is refusing to dock (#372; PR `#383`, merge `66960e6`, tag `v0.38.1`). `SeparationPush` parks an undocked pair at 75 m — deliberately inside the 100 m `ReArmDistM` re-arm latch — so the *default* post-undock state was the latched state, and the natural move, nudging back in, was the one that silently failed: drift inside 50 m at under 0.1 m/s and nothing docked, nothing said why, and the only routes out were guessing "back away past 100 m" or waiting out the 10-minute `ReArmCeiling`, neither of which the game ever mentioned. A flight-view `c` ("couple") now clears the latch — for the aimed vessel if the target slot holds one, otherwise every latch naming the active vessel, which after an undock is normally exactly one — and changes nothing else: local docking stays automatic, so a pair already inside both gates fuses on the next tick and a pair still closing docks on arrival exactly as an un-latched approach would. The key is a "yes, I meant it", not a dock command; it names the partner in a chip, says so rather than no-opping silently when no latch is held, and a cleared latch stays cleared — `pruneLocalReArms` never re-arms it and only a fresh undock arms a new one. Backing past 100 m and the ceiling elapsing still work as before. Two supporting fixes travel with it. `ProximityDockGateReady` was range + v_rel only, so the ring went `ColorTarget` green at the exact moment the dock could not happen — breaking an invariant `orbit_proximity.go` states in its own words, that the ring's green threshold and the game's actual docking threshold can never drift apart; the latch is now folded into the predicate and the ring gains a third amber state, so latched reads as its own place on screen rather than as "not close enough yet". And the refusal itself was a bare `continue` in `checkDocking`, which had no channel to report upward at all — `internal/sim/docking.go` emitted no chips whatsoever — so `raiseLocalReArmRefusal` and a `World.LastLocalReArmRefusal` slot now carry it to the flash surface once per latch (mirroring `raiseReArmNotice`'s one-shot semantics cross-player; a per-tick chip inside the gate would spam every frame the pair sits there), worded to name the key and the partner. The cross-player latch in `relay/dock.go` is deliberately untouched — same-World only. ADR 0038 §5 is amended rather than quietly contradicted: distance was never the point, *silent* re-fusion was, and an explicit keypress is not silent. Display and input only: no physics change, no save break (`SchemaVersion` stays 9).
+Two vessels you just undocked can dock again without a 200 m round trip, and the dock gate ring no longer turns green while the game is refusing to dock (#372; PR `#383`, merge `66960e6`, tag `v0.38.1`).
 
-**v0.38.0** — A vessel parked on an airless body stops being described as an orbit, the map stops twitching when you zoom in on it, and the descent corridor tells you when to start braking and whether you'll actually stop (#375, #376, #377, #378; PRs `#379`–`#382`, merge `5ecf0b0`, tag `v0.38.0`). `V = ω × R` co-rotation velocity is correct physics for a parked craft, but nothing downstream knew it wasn't a real orbit: fed to `ElementsFromState` it produced a valid ellipse with periapsis metres from the body's centre and apoapsis exactly at the vessel, so altitude sign-flipped every tick on float noise (`0.0 km` ⇄ `-0.0 km`) while the map drew a dotted needle through the planet. A shared `craftHasOrbit` predicate now gates the map ellipse and apsis markers for every landed vessel, active or not — including, from the review round, the closest-approach TCA/CA rows and the `✕` encounter marker — the ORBIT chip swaps in surface facts (`buildLandedOrbitChip`) instead of blanking, the TARGET chip's Ap/Pe becomes a `landed at:` row, and `⚠ PERIAPSIS BELOW SURFACE` no longer fires on a parked lander; a new `formatChipKm` helper snaps any sub-quantum magnitude to zero so no readout can print `-0.0` (#375). The same signed-zero altitude was independently flipping the close-zoom camera's scale cap on and off every other frame — a 2.05× jump on roughly six of every ten idle frames once you got close enough to see the ground — because the cap gated on `Altitude() <= 0` rather than `Landed`; fixing the predicate also recovered the #363 disk-raster cache hit rate it had been busting (3/12 → 11/12 frames) (#376). The surface view's chase-cam horizontal axis used to be steered by commanded attitude, which reads fine on ascent (nose and velocity align through a gravity turn) and exactly backwards on a braking descent (nose points surface-retrograde, an exact `-1.000` against the direction of travel, mirroring the whole scene) — screen-right now derives from surface-relative horizontal velocity (`physics.AirRelativeVelocity`), latched through the near-zero-speed dip at touchdown and reset on the liftoff edge so a relaunch doesn't inherit a stale heading (#378). And the descent corridor's stop margin, previously three frozen scalars — vertical rate only, `g` and mass frozen at the current instant, most accurate in the last kilometre and least accurate during the braking burn itself — is now `sim.PredictPoweredStop`: a real full-throttle, surface-relative-retrograde integration to stopped / hit-ground / fuel-limited / step-cap, current stage only, with `sim.PredictBurnAt` bisecting the existing ballistic samples for the latest viable start. The corridor gains `burn at` (hides once the burn starts) and `stop margin` (stays live through it); the OK/TIGHT/CAN'T STOP alarm bands survive, re-derived from the integrated number; the old `ComputeBurnMargin` stays only as the regression baseline, its doc comment corrected (ignoring mass loss is conservative, not "optimistic only in the mass term") (#377). #377 and #378 are both recorded as amendments to ADR 0043, not silent rewrites. All four fixes are display-layer only: physics unchanged, no keybinding changes, no save break (`SchemaVersion` stays 9).
+- Cause: `SeparationPush` parks pairs at 75 m, inside the 100 m `ReArmDistM` latch, so re-docking silently failed.
+- New flight-view `c` ("couple") clears the latch for the aimed vessel (or all latches on the active one); docking stays automatic.
+- `ProximityDockGateReady` now includes the latch; the ring gains an amber "latched" state, never green while refused.
+- `checkDocking` refusals surface once per latch via `raiseLocalReArmRefusal` / `World.LastLocalReArmRefusal`.
+- Same-World only (`relay/dock.go` untouched); ADR 0038 §5 amended (a keypress is not silent re-fusion); no save break.
 
-**v0.37.0** — The spawn form's ALTITUDE field stops being a seven-rung ladder shaped like Earth and becomes a number you type, inside a floor and ceiling every body now actually has (ADR 0044, PR `#374`, merge `6c6f3a1`, tag `v0.37.0`). The old `altitudePresets` table — `200/500/1000/2000/5000/10000/35786`, one ladder applied identically at Earth, the Moon and Phobos — is deleted outright. `Enter` opens a digits-only edit box (`Enter` again commits, `Esc` reverts without cancelling the form, and only once you've stepped back out does `Enter` launch — a state machine corrected mid-cycle so the natural Enter/digits/Enter/Enter gesture matches the ADR's own "Enter now LAUNCHES" mockup frame); outside the box `←`/`→` walk a handful of Orbit Stops derived from the body's own numbers — floor, up to two round interior altitudes, synchronous (when it lands inside the band), ceiling — holding at either end instead of wrapping. Every body now carries an Orbit Band: floor = `Atmosphere.CutoffAltitude + 25 km` (Earth 175 km, down from the old 200 km bottom rung; airless bodies flat at 25 km), ceiling = two-thirds of the way from the surface to the sphere of influence against the body's actual gravitational parent (planets resolve against their star through the same `Bodies[0]` fallback `FindPrimary` uses). Stars have a floor but no ceiling — Sol and Lumen keep their authored stand-offs (10,000,000 km / 500,000 km); the seven stars across the other four shipped systems, which the ADR never authored a figure for, fall back to 10× mean radius until someone does. Phobos and Deimos have no legal orbit altitude at all — their SOI doesn't clear their own surface — so they stay selectable as PARENT BODY for landing and launchpad, but `Enter` goes dead with POSITION on `orbit` and says why. One rule lives in `World.SpawnCraft`/`sim.ClampToOrbitBand`, so the form and the `--altitude` CLI flag clamp and report identically; an out-of-band number is moved, never refused, and the move is stated with units on both ends — an airless body reads "25 km is as close as any orbit gets" rather than the nonsensical "air reaches 0 km" a first pass produced. No save break: the new star stand-off field is hash-excluded exactly like ADR 0024's `Texture`, and `CatalogHash` was verified byte-identical to `main`. The batch review, run once after all four slices, found nine player-visible defects and fixed all of them pre-merge: the ceiling note cited the SOI as a centre distance next to a screen of altitudes (Enceladus read a 157 km ceiling beside a "488 km" grip that didn't reconcile — same fact, wrong coordinate system); the clamp note was silently *replacing* rather than joining the CommNet band warning at any body whose ceiling sits below the form's 500 km default, so Enceladus and Lumen's Mote opened already clamped with a standing comms fact hidden behind transient feedback about a keypress that never happened; the boss key fired mid-keystroke because `capturingText()` was never extended for the new edit box, despite its own comment asking future surfaces to do exactly that; and a 1 m arrow-step epsilon — finer than the km-rounded display — stranded a re-typed value next to Lumen Mote's synchronous stop, making the arrow key look dead. One deviation from the ADR's own text is worth flagging here: its §2 example table illustrating the interior Orbit Stops was hand-picked, not derived from any formula; the shipped rule (the nearest round `1/2/5 × 10ⁿ` altitude log-spaced between floor and ceiling) was decided during implementation and is recorded as an ADR amendment. The form's pre-existing 47-line overflow on small terminals stays explicitly out of scope — filed as #373. No save break.
+### v0.38.0
 
-**v0.36.3** — The two residuals the #367 profile left behind: ring outlines and the cost of remembering what a pixel means (#369). Ring geometry — the SOI ring, Saturn's tilted bands — was the one hot symbol from the production profile the v0.36.2 curve cache deliberately didn't touch, being a different code path; it now gets the same recorded-pixel-replay treatment (`canvas_ring_cache.go`, keyed with the same camera-relative quantized discipline), and because the standard idle benchmark never has a ringed body on screen, the work shipped with its own Saturn-scene benchmark to measure against — −7.7% whole-frame there, −38% at the deep zoom where rings actually fill the view. The second residual was subtler: even on a cache *hit*, replaying a curve spent ~41 ns per point writing `pixelTags` — the map that remembers which entity owns each pixel so mouse clicks and `j`-stepping can answer "whose line is this" — and that map is now a dense grid of small indices into a per-frame table of distinct tags, cutting the write to ~6 ns. The review earned its keep on exactly that swap, twice. First it found a real rendering bug: the grid's already-written check trusted a documented invariant — "no writer ever stores a zero-value tag" — that turned out to be false, because the launch view's horizon fill writes whatever `SurfaceColorHex()` returns and every body in all three non-Sol systems ships that field empty; a zero-then-real write then double-counted the pixel and cells where markers overpaint the horizon resolved to the wrong dominant color. The invariant is now enforced rather than documented (a zero tag simply never lands, which is exactly what the old map's miss-returns-zero semantics meant anyway). Second, it priced the naive grid at 5.76 MB per canvas — times three canvases per seat, times every SSH seat, with the client controlling the terminal size — 69 MB measured for four seats where the map had cost nothing; the index+table redesign lands at 11 MB and pointer-free, so the GC never scans it. The redesign taught its own lesson en route: a linear-scan intern built on "a frame has a handful of distinct tags" was ~6% *slower* than main, because Inspect owner keys are near-unique per entity — dozens of distinct tags per real frame — and the synthetic benchmark that said otherwise was measuring its own assumption. Honest numbers, measured round-robin across precompiled binaries after the original sequential comparison proved to be partly session-load drift: default scene −2.2%, Saturn scene −7.7% versus pre-#369 main — the correctness fix and the memory bound deliberately gave back a point of the original headline. Iteration order over tagged pixels also became deterministic in the swap, which is a strict improvement: the last map-order dependency in hit-testing was the tie-break bug fixed back in v0.36.0. Display only: no physics change, no tick-rate change, no save break. Still open: the `--serve` unwatched-render throttle (#370).
+A vessel parked on an airless body stops being described as an orbit, the close-zoom map stops twitching, and the descent corridor says when to brake and whether you will stop (#375, #376, #377, #378; PRs `#379`–`#382`, merge `5ecf0b0`, tag `v0.38.0`).
 
-**v0.36.2** — The orbit lines stop being redrawn from trigonometry every frame, and the idle-CPU story that started at #363 closes out (#367). After v0.36.1 memoized the disk raster, the profile moved instead of shrinking to nothing: the dominant idle cost became orbit-line ellipse geometry — the arc-length-adaptive curve sampling v0.36.0 introduced, resampling and reprojecting every orbit every 50 ms even though an orbit at idle is as static as the disk was. The proof arrived from production before the fix did: the live server, running detached in a 200×50 tmux with **zero players connected**, sat at 55–72% of a core — the host seat rendering a large orbit view twenty times a second for nobody, the same per-frame sin/cos and projection cost multiplied by ~4× the cells of a normal terminal (an interim geometry shrink to 104×24 cut prod to ~21% while this landed). Curve geometry is now memoized per curve on the same predict-on-change pattern as the disk cache: the projected pixel run is recorded once and replayed until either the orbital elements or anything about the view — scale, basis, camera-relative position, canvas size — moves past a sub-pixel quantum, so pan, zoom, focus switches, burns and SOI transitions all bust it honestly (during thrust the elements outrun the quantum every tick and the cache simply goes transparent). Measured with a live-ticking world rather than a frozen benchmark clock: 97.6% hit rate at 1× warp, collapsing to ~0% above 100× where frames genuinely differ; whole-frame idle render −23% to −26% depending on baseline run, with the ellipse trig gone from the profile. The pre-merge review earned its keep again, this time mostly against the tests: the headline cached-vs-ground-truth pan test turned out to compare two identically-warmed caches — a determinism check that passed even with screen position deliberately removed from the key, the exact #363 bug class it existed to catch — and is now genuinely cold on the reference side and proven to fail against a sabotaged key; the review also measured that a cache hit is sub-pixel-equivalent rather than byte-identical to a fresh draw (single braille dots on curve edges, bounded, non-accumulating — the documented quantization tolerance doing its job), which the code now says out loud and a bounded-deviation test enforces. Alongside, the disk offset-mask cache from v0.36.1 is deleted — with the color-grid cache and off-canvas skip in place it benchmarked within noise, and removing it retires a pathological ~640 MB retention case outright. Display only: no physics change, no tick-rate change, no save break. Still open as follow-ups: ring-outline geometry and an unwatched-render throttle for the detached server seat.
+- #375: co-rotation velocity fed `ElementsFromState` a fake ellipse; `craftHasOrbit` now gates ellipse, apsides, TCA/CA and `✕` for landed vessels.
+- #375: ORBIT chip shows surface facts (`buildLandedOrbitChip`), TARGET gets `landed at:`, `formatChipKm` kills `-0.0 km`.
+- #376: close-zoom scale cap gated on `Altitude() <= 0` not `Landed`, flipping each frame; fix restored the #363 raster cache hit rate.
+- #378: surface chase-cam screen-right follows surface-relative velocity (`physics.AirRelativeVelocity`), so braking descents are not mirrored.
+- #377: stop margin is now `sim.PredictPoweredStop` + `sim.PredictBurnAt`; corridor gains `burn at` and live `stop margin`. #377/#378 amend ADR 0043.
 
-**v0.36.1** — The idle game stops burning a quarter of a core redrawing a planet that isn't changing (#363, #364). Sitting on the orbit screen at warp 1×, the sim held ~27% CPU while physics accounted for almost none of it — the menu screen, running the same 20 Hz tick loop, idled at 0.9%. The cost was the per-frame texture raster: every 50 ms the focused body's textured disk was re-rasterized per pixel — lat/lon projection, trig, feature-polygon tests — to produce a frame visually identical to the last. The disk raster is now memoized on the same predict-on-change pattern the orbit view already trusts (ADR 0017): the per-pixel color grid is cached against body, system, pixel radius, and sub-observer/light/screen-up angles quantized to 0.02° — coarse enough to hit on essentially every idle frame (idle drift is ~0.0002° per tick), fine enough that a one-quantum step stays sub-pixel even at a 300 px disk — so zoom, focus switches, lighting and high-warp rotation bust it honestly and rotation still animates. The pre-merge review earned its keep here twice. First it caught the cache serving pixels it had never computed: nothing in the key tracks *screen position*, so panning a zoomed-in disk was a guaranteed hit onto a grid whose newly-revealed band had been clipped off-canvas when it was built — 90 of 144 zoom/pan configurations rendered a visibly uncolored planet until the hit path learned to self-heal by lazily filling any pixel a previous window never drew (same key, same colors, so the fill is always valid). Then it measured the caches growing without bound — 28 MB of retained heap at 120×36 (81 MB at 200×60), most of it grids allocated for bodies entirely off-canvas and a radius-keyed offset mask with no eviction; off-canvas disks now skip allocation outright, the offset cache is LRU-capped, and retained heap is back at main's 0.4 MB. Frame assembly got the same treatment from the other end: `Canvas.String()` was paying lipgloss to style every colored cell individually — one escape pair per glyph, twenty times a second — and now coalesces each row into runs of identically-styled cells with one `Render` call per run, proven byte-identical to the old output by a regression test that un-batches the coalesced ANSI and compares. The honest numbers, measured with all three binaries running *simultaneously* after sequential sampling proved unreliable against ambient load drift: idle CPU 22.65% → 18.36% — real but modest, nowhere near the single digits #363 asked for, because the remaining cost is orbit-line ellipse geometry, not the raster. The benchmarks tell the sharper story: whole-frame render −35%, disk raster 394 µs → 87 µs and 1793 allocs → 1. Display only: no physics change, no tick-rate change, no save break.
+### v0.37.0
 
-**v0.36.0** — The map answers "whose line is whose," the camera stops fighting your hands, and the last 35 km of a rendezvous is finally flown by sight (ADR 0041, 0042, 0043 — #346, #347, #348, plus review batch #359/#362). Three strains, one arc. **Legibility:** the marker vocabulary ADR 0020 designed is now actually drawn — the `✕` closest-approach pair on your orbit and the target's, the target's own Ap `▲`/Pe `▼`, and `◇`/`◆` ascending/descending nodes against the target's plane, none of which had ever reached the map (the navball's `◇◆` turned out to be radial-direction markers wearing the same runes). Every line now declares what it *is* by style, not hue: SOLID is real (bright you, dim everyone else), DASHED is a plan (node legs, predictions, encounter arcs — the first genuine dash the renderer has had), DOTTED faint is scenery (body orbits, the SOI ring); color stays semantic — green is still and only your target — and is never identity. Identity is on-demand instead: `j` steps a bright flare with a name chip through everything drawn, a mouse click on any line or glyph answers the same question, and Enter commits the inspected thing as your Target, the same hover-then-commit contract the body cursor taught. **Camera:** every focus target now remembers the zoom you last used on it — resize refits the canvas but never eats your multiplier, amending ADR 0021's reset-to-1× rule that destroyed hand-tuned zoom on every `f`/`v`/resize — plain arrows pan as a focus-relative offset that clears on any refocus (body-browse lives on `h`/`l` alone now), and orbit curves are sampled by on-screen arc length instead of a fixed 360-dot loop, subdivided until flat and clipped instead of refused, so a curve reads as a curve at any zoom and the dash patterns hold their cadence from 1× to 100000×. The zoom floors deliberately stay: hull scale belongs to the dedicated close views, not the map. **Close range:** `o`, whenever your target is a vessel or ghost, toggles the new Proximity View — target-centered LVLH, screen-right your target's prograde, screen-down toward the primary, the NASA V-bar/R-bar picture where a steady approach *looks* steady — with an exactly-computed dashed drift path (both orbits propagated and differenced, the frame recomputed at each future sample), faint log range rings at 10 km/1 km/100 m, the 50 m dock gate as a ring that turns green when your relative speed is inside 0.1 m/s so DOCK READY becomes a place on screen, and inside a few hundred meters both craft render as their real composed silhouettes at true relative scale. The surface view grew its missing half: a live `⊗` impact point, a descent corridor block with altitude, descent rate, time-to-impact and a MARGIN row that names its limiter and goes red when remaining thrust cannot stop you (the arc and marker go red with it), plus ascent cues — nose-vs-prograde stubs that make the gravity turn visible on the vehicle, the predicted arc ahead, and an atmosphere band with your measured max-Q ratcheted onto it. `v` now cycles exactly the six map projections; Launch (`V`) and Proximity (`o`) are toggling jump keys that return you to the map exactly as you left it, each entry deriving its scale from the moment, with chips hinting the key when you're descending or closing on a target. The post-arc adversarial review fixed what thirteen parallel slices left in the seams before any of it shipped: a hit-test tie-break that had been randomizing on Go map iteration since the Inspect slice (~10% of clicks), a `V`-inside-Proximity path that corrupted both views' return addresses into a permanent ping-pong, an off-canvas-owner click that could still stage a burn on your own orbit, a NaN guard for the new float renderer, and one altitude readout rendered twice with opposite sign conventions. No save break.
+The spawn form's ALTITUDE field becomes a number you type, clamped to a floor and ceiling every body now actually has (ADR 0044, PR `#374`, merge `6c6f3a1`, tag `v0.37.0`).
 
-**v0.35.3** — The target panel finally says who is ahead (#287). Targeting another vessel gave you vessel / Ap / Pe / inclination / range / |v_rel| / closing / TCA / CA, and not one of those answered the first question of any rendezvous: *am I ahead of my target, or behind it?* Range and closing are both unsigned in the along-track term, so two coplanar craft 13,500 km apart both read `closing 0.00 m/s` while one chased the other. That sign is the entire decision — the trailing vessel lowers its orbit to catch up, and burning the wrong way makes the gap grow forever, which is exactly the trap the planner contract was written to keep you out of. In the live two-player session it could not be read off the HUD at all: the players puffed RCS to put a little eccentricity into a circular orbit, mostly so that `t→Ap` would *move* at all — on a perfectly circular orbit it printed a constant half-period regardless of where you were (#286, fixed in v0.32.4) — and then inferred the sign from the trend over several minutes. The TARGET chip now carries a **signed lead angle**: `lead: +82° (ahead)`, `-82° (behind)`, `0° (aligned)`. Positive means the target is ahead of you, and the word rides alongside the sign so nobody has to recall which way the convention points at the moment it matters. It is measured about the shared primary and projected into your own orbital plane, so it stays useful for non-coplanar pairs, and it reads `—` for body targets and across SOI boundaries rather than inventing a phase angle where none is defined. Display only: no physics, no planner behaviour, no save break. **Known limitation, measured while building this:** the TARGET chip is dropped entirely at 24 terminal rows — at *any* width, including the enforced 104×24 floor — so this readout, along with range/closing/TCA/CA, is invisible at the minimum supported height. That is a pre-existing corner-budget constraint this row merely inherits, not a regression — and at 24 rows it is the expected trade: there is not enough height for every chip, so the budget drops some. Give the terminal a few more rows and the panel comes back.
+- `altitudePresets` ladder deleted; `Enter` opens a digits edit box, `←`/`→` walk body-derived Orbit Stops, no wrap.
+- Orbit Band: floor = `Atmosphere.CutoffAltitude + 25 km`, ceiling = two-thirds of the way to the SOI; stars have floors only.
+- Phobos and Deimos have no legal orbit altitude; still selectable for landing/launchpad, but `Enter` goes dead on `orbit` with a reason.
+- One clamp rule (`World.SpawnCraft`/`sim.ClampToOrbitBand`) serves the form and `--altitude`; values are moved and reported, not refused.
+- Review fixed nine defects pre-merge (SOI as centre distance, hidden CommNet warning, `capturingText()` gap, 1 m arrow epsilon).
+- Interior-stop rule (`1/2/5 × 10ⁿ`) is an ADR amendment; star stand-off hash-excluded like ADR 0024; #373 (form overflow) out of scope.
 
-**v0.35.2** — Undocking a stack no longer undoes itself (#342, #343). Pressing `U` on a three-or-more component stack re-fused it on the very next tick, silently reversing the thing you just asked for. The split spread the restored components across a fixed *total* span, so the gap between neighbours shrank as the stack grew — 35 m at three components, 17.5 m at five — putting them inside both the 50 m proximity gate and the 0.1 m/s velocity gate that auto-dock watches, and `checkDocking` re-fused the composite before the next frame. Far easier to reach than "undock a 3-stack" makes it sound, because **a carrier already holds its payloads as components**: docking anything onto a comsat carrier that still has relays aboard starts at three, which is exactly how it was found — an S-IVB onto a loaded carrier. Components are now spaced by a fixed *adjacent* gap, a uniform 75 m and 0.15 m/s no matter how many come apart. The push itself changed too, and the investigation is worth recording because it landed the other way: a purely radial impulse is textbook-known to trace a closed relative ellipse that returns to where it started after one orbit, which would mean every undock quietly re-met its partner an orbit later. Measured against real two-body propagation, that **did not reproduce** — the push displaces position as well as velocity, and a radial position offset by itself leaves the two craft at different orbital radii, hence different periods, hence drifting apart for good. The pair was already safe, but by accident of the numbers rather than by anything the code intended; shrink the gap and the protection disappears with nothing to notice it going. Pushes are now **along-track**, changing semi-major axis on purpose so separation grows and never closes, with the measurement kept as a test that fails loudly if a future magnitude change removes it. The local undock path also gained the re-arm latch it never had — ADR 0038's was cross-player only — so nothing re-fuses while you are still setting the returned ship up. Not a v0.35 regression: reachable since the local split was written. No save break.
+### v0.36.3
 
-**v0.35.1** — The batch review's verdict on v0.35.0 (#326–#337). Ten fixes, and the worst of them is one this release exists for: **undocking could permanently brick a vessel.** ADR 0038's re-arm latch — "back away first, then you can dock again" — was built on a craft-ID guard that refuses on *either* endpoint, so one cooldown disabled docking for both craft against *everybody*, not just the pair that had just separated. Worse, entering the latch was written to disk (it rode the undock moment) while *leaving* it was not, so a latch that had already cleared in memory came back from disk on the next restart — and by then the partner had usually done the burn you undock in order to do, putting them in another SOI where the latch's only clearing condition, a live range reading, can never be met. The record then re-persisted itself on every subsequent save. End state: a vessel no one can dock with, surviving every restart, curable only by wiping the fleet — the exact failure the durable dock ledger was written to prevent, reopened by the thing built on top of it. And the refusal was **silent**: the auto-dock detector retried every tick and was refused every tick, with no chip, no toast, no log. Now the latch refuses only the pair it is about, its clearing persists like its arming, it carries a ten-minute sim-time ceiling so an unreachable partner can't hold it forever (which also means the bad records already out there retire themselves on upgrade), and being held off says so once: *"docking held off — back 100 m clear of bob before docking again."* Two more that only bit players the tests never modelled. **Undocking left you blind if you owned a second vessel** — the mutual-targeting step ran before the returned craft was adopted, and adoption reloads the target slot from the craft being adopted, so the aim survived only when the docked vessel was your *only* vessel, which is exactly what the test used; with two, the guest undocked with an empty target and their unrelated other vessel silently inherited the aim. And **the rider's DOCKED block was clipped off the bottom of an 80×24 terminal entirely** — chip stacking had no height budget at all, so the block naming `[J]` and `[U]` was pushed off-canvas by the very panels the same release had grown, leaving the absorbed player with no visible route out: #301, reintroduced by its own fix, on the most common terminal size. Chips are now admitted against a real per-corner budget, with DOCKED and a force-shown NODES ranked as un-droppable. Alongside: the block advertised `[u]` when the key is `U` and case matters, so the one always-visible instruction a passenger has did nothing when followed; the TIME LOCK chip stopped repeating what DOCKED already says; the camera's follow-the-stack behaviour stopped overriding the player every tick, which had silently killed `f`, `g`, Spectate and post-spawn framing for anyone riding along; the legacy handle repair stopped handing a third player's name to someone else and then telling them about the wrong rename; enrollment now checks handles against outstanding invites the way minting always did; the NODES force-show counts the vessel you're flying rather than the whole fleet; and a failed dock-ledger write is retried until it lands instead of being dropped. No save break.
+Ring outlines stop being recomputed every frame and remembering what a pixel means gets cheaper; the last residuals of the #367 profile (#369).
 
-**v0.35.0** — Both seats know they docked, the absorbed player rides along instead of staring at a map, and the ship you get back is safe to fly (ADR 0038, #301, #303, #304, #274, #289, #293). The first completed cross-player docks proved the fuse machinery and then exposed everything around it. **Half of every dock was experienced as a crash.** At the fuse the absorbed player's craft merges into the docker's stack and their whole flight view blanked to the system-wide map — with no chip to say why, a successful dock was indistinguishable at a glance from a disconnect. Both seats are now told, on every path; the guest's moment can't be raised at the fuse itself (that code runs against the *docker's* world), so it is carried as a durable notice and delivered on the guest's next tick, which means it also survives the server restarting in between. And the guest no longer watches a map: the flight view **follows the stack they are riding in** — orbit, burns, the world going by — with the vessel and orbit panels showing the stack's real flight data, badged with the owner's handle so nobody mistakes it for their own ship. A standing **DOCKED** block names the ride and the exits (`◇ riding in jason's stack` / `[J] request control` / `[u] ask to undock`), and when the pilot's seat is empty — their session gone, not merely away — the offer changes to `[J] take the stick (pilot's gone)` and grants immediately. Being docked stops feeling like a crash and starts feeling like being a passenger. **The ship handed back was neither where nor what it should be.** The returned craft came back wearing the *docker's* control state — 10% throttle, RCS, Target Retrograde, on a craft its pilot had left at 100%/main/prograde — so "ignite main and burn" was a silent no-op metres from a stack. Every undock now returns a known-inert vessel: throttle zero, main engine, no attitude hold, nothing running. Same invariant every time, so *undock = safe ship, set up and go* is a rule you can fly by. It was also materialising in the wrong place: the split computed the returned state in the docker's world and adoption appended it verbatim, with no propagation across the pair's subspace clock gap — about 7.6 km of error per second of skew at low-orbit speed. The docker read 5–7 km of instant separation while the guest-side truth was metres, and the pair silently **re-fused nine seconds after undocking**. The return is now Kepler-propagated across that gap and gets the same deliberate 75 m / 0.15 m/s push the local undock always had, placed outside both docking gates by design. Undocking further **disarms auto-dock with that partner until you back away past ~100 m** — back away first, then you can dock again — so nothing re-fuses while you are still setting the safed ship up, with no invisible timer to be surprised by. And you undock already **targeting each other**, because *am I clear?* is the first thing either pilot checks and it used to start blind. Separately, three papercuts with teeth. Repeated presses of the advisory keys used to *stack* nodes: every advisory is computed from your current orbit assuming it fires alone, so once the first fired, every node behind it executed its full quoted Δv on an orbit it was never computed for — automatically, with no re-validation. One player found four queued nodes mid-rendezvous, and only by opening the planner. `K` and `C` now **replace their own** unfired node rather than queueing behind it, and the NODES chip force-shows whenever more than one node is queued, so a stack can never again accumulate unseen. Enrollment now refuses handles that collide case-insensitively, instead of accepting `Gern` alongside `gern` and leaving the pair permanently unable to message each other; a roster that already carries a collision renames the later entrant deterministically at load (`gern` → `gern2`, keeping their own typed case) and tells **both** players the new name. And the server-restart key moves off `u`: a guest reaching for the flight view's `[U]` undock, with the roster still open, hit the host's restart verb instead — refused only because they lacked admin. No irreversible admin action may share a letter with a flight verb, so restart-to-adopt is now `F4`, with its confirmation prompt kept as the second line of defence rather than the first, and the roster carries a footer noting flight controls are inactive there. No save break, and no session-directory schema bump.
+- `canvas_ring_cache.go` replays recorded ring pixels (SOI ring, Saturn bands); new Saturn benchmark: −7.7% frame, −38% at deep zoom.
+- `pixelTags` is now a dense index grid into a per-frame tag table (~41 ns to ~6 ns per point on a hit); iteration is deterministic.
+- Review bug: the "no zero tag" invariant was false (horizon fill writes empty `SurfaceColorHex()` outside Sol); now enforced.
+- Review memory: naive grid cost 69 MB over four SSH seats, index+table is 11 MB pointer-free; a linear-scan intern was 6% slower.
+- Round-robin numbers: default scene −2.2%, Saturn −7.7% vs pre-#369 main. Display only. Still open: `--serve` render throttle (#370).
 
-**v0.34.0** — The rendezvous planner stops lying by omission, and the game calls a vessel a vessel (#277, #278, #281, #290, #318). Pressing `K` used to collapse six distinct planner failures into one shrug — "no useful nudge in range" — whether the geometry was already optimal, the burn was too big, or the two orbits were simply the wrong shape for a nudge to help at all. Each now names the gate that actually fired and, where one exists, the remedy: "orbits differ in shape — circularize [C] or plan a transfer [H] first", "nudge would exceed the burn ceiling — use the transfer planner [H/I/m]". That shape case is a new gate, and it exists because iterating `K` between mismatched orbits **diverges** — each burn improved closest approach slightly while making the next one worse, which is a trap you can only see after you have wasted the fuel. The planner also stops hiding what a plan commits you to: a recommendation now reports the speed you will arrive at, not just the distance ("CA 9 km, arriving ~540 m/s"). It is information, never a refusal — the doctrine here is that Δv is cheap and *waiting* is the real cost, so arriving hot is fine, but arriving hot by surprise is not. When a converging encounter sits beyond the commit window, or an engaged coast is flying a geometry that will never close, the game now says so in plain terms — "no encounter on current courses — make a phasing burn (wide prograde or radial) and watch the CA shrink" — instead of dead-ending, and the RENDEZVOUS chip carries a live trend row so you can watch closest approach shrink or grow across waypoints rather than inferring it. Separately, the game now says **vessel** wherever it used to say craft — the roster column, the spawn form, the help overlay, every refusal message — matching the name the docs have always used. Under the hood, a multiplayer test that asserted reconnection against a stopwatch and intermittently failed on loaded CI now waits on the actual event. No save break.
+### v0.36.2
 
-**v0.33.0** — The rendezvous keeps its clock all the way to contact, and a docked pair survives the server restarting under them (#275, #280, #302, #305, #307, #308, #309, #310, #311, #312, #313). The first completed cross-player dock exposed three failures at once. Reaching the committed encounter used to end the whole rendezvous, so the last 6 km — the part the shared clock was invented for — was flown at 1× between braking burns: ~32 real minutes of waiting. The agreement is now **demoted, not ended**, at that handoff; it runs on through the braking burns and gate creep and ends only on dock or an explicit cancel, with no distance tripwire, so swinging 100 km wide no longer silently drops the lock. Inside it the **initiator flies the clock** — the player who proposed the rendezvous warps the pair, the accepter takes the copilot seat and may brake it down or cancel out but never push it faster, and either side's burn holds the pair at the burn cap. Because a lock on your warp should never be a mystery, it is now standing text rather than a moment that scrolls away: the RENDEZVOUS chip names who you are flying with, your seat, the pair's rate, and what is holding it when it isn't you (`held: fenbot burning`), while a plain proximity couple gets a minimal TIME LOCK line — previously a 30-minute clamp was announced by a single 6-second chip. Transient couple/release chips now dedupe against that standing state, erasing a structural flap that produced 852 coupled/released moments in one session, and the Session roster gained live range plus the rule itself (`warps lock inside 35 km`), which until now existed only in the docs. Separately, the dock ledger became **durable**: cross-player dock state is written to disk and reconstructed on startup, so a server restart no longer destroys a docked composite — a real loss on 2026-08-02, when a release auto-adopted a new build and the craft existed only in a transient in-memory field. A craft owed to a player who isn't connected is parked as a **Parcel** and delivered, Kepler-propagated across the subspace gap, with a chip when they next connect; `[J]` refuses when there is nobody live to take the stick and says so, and inversely lets a guest reclaim a stack from an owner's empty seat. Undocking after a control transfer no longer hands each player the wrong vehicle, and an undock that refuses now explains itself instead of reading as a dead key. No player-save break; the multiplayer session directory migrates itself from v2 to v3.
+Orbit lines stop being redrawn from trigonometry every frame, closing the idle-CPU arc that started at #363 (#367).
 
-**v0.32.4** — Four readouts stop lying (#285, #286, #288, #295, #297). On a perfectly circular orbit `t→Ap`/`t→Pe` printed a constant half-period regardless of where you were — two craft 13,500 km apart both read `47m14s` indefinitely, and spawn presets produce exactly-circular orbits so a fresh spawn hit it immediately. Apoapsis is genuinely undefined at zero eccentricity, so the ORBIT chip now says `—` rather than a number that looks live; node scheduling is deliberately untouched, since on a circular orbit every point *is* apoapsis. The session roster stops presenting guesses with the confidence of measurements: LOCATION follows the craft a player is actually **flying** (the wire report gained an active-craft marker, and a craft switch now forces a re-report instead of waiting on the 5 s heartbeat) rather than a fixed slot — live, a pilot 577 km from their rendezvous partner at Earth was listed at the Sun all session — and the craft column shows `—` for a player the server has no live report for, instead of a confident `0 craft` that, minutes after a fleet-reset deploy, read as the reset having wiped everyone. Arming a rendezvous now names the vessel it acts through on both seats (`armed → gern (Relay Tug-1)`, `jason (Relay Tug-1) wants to rendezvous`), after a live wrong-vessel arm that was only catchable from the partner's screen as an implausible 4,498 km approach. And `K` refusals label themselves once. No save break.
+- After v0.36.1 the hot spot moved to ellipse geometry; the detached prod server (200×50 tmux, zero players) sat at 55–72% of a core.
+- Curve geometry memoized per curve, predict-on-change; any sub-pixel change in elements, scale, basis, offset or canvas size busts it.
+- Live-ticking measurement: 97.6% hit rate at 1× warp, ~0% above 100×; whole-frame idle render −23% to −26%.
+- Review: the cached-vs-truth pan test compared two warmed caches; now cold-referenced and proven to fail against a sabotaged key.
+- Disk offset-mask cache from v0.36.1 deleted (within noise, retired a ~640 MB retention case). Display only, no save break.
 
-**v0.32.3** — The rendezvous coast hands the ship back (#298, #299). Reaching the committed τ inside the 35 km couple *range* now releases the coast — drop to 1×, arrival chip, arm and driver cleared — regardless of the velocity term. The old release gate required both terms, and a transfer-orbit encounter always arrives fast (the live dock session's committed pass crossed 19.66 km at 594 m/s), so an engaged coast could never end at the encounter it flew you to: release needed ≤100 m/s, killing velocity needed a burn at closest approach, and burning needed the release. The velocity term keeps gating what it correctly gates — Proximity Co-Warp coupling — so slow arrivals couple exactly as before while fast arrivals are released-but-not-coupled until the pilot matches velocities. And the other half of that deadlock: manual engine ignition and RCS pulses now release the standing intent (arm and driver both), mirroring how the driver already yields to planted node burns — the coast can no longer warp against the pilot's own match burn, which in the same session destroyed a hand-built 26 km approach. No save break.
+### v0.36.1
 
-**v0.32.2** — `--serve --reset-fleet`: one-shot server-admin fleet reset at startup — every enrolled player's craft slate is wiped to the one default vessel a fresh enrollment receives (full tanks), all placed on the same Earth 500×500 km circular equatorial ring spaced evenly by phase (guaranteed ≥50 km apart, above the 42 km co-warp decouple gate), with every subspace clock aligned to one shared epoch so nobody needs a Sync; enrollment (handles, roles, invites) is untouched and each previous save is backed up byte-identical into the session directory's `backup/` subdir first. No save break.
+The idle game stops burning a quarter of a core redrawing a planet that is not changing (#363, #364).
 
-**v0.32.1** — Widens the proximity couple gate from 10 km to 35 km (#291), decouple hysteresis scaling with it to 42 km (same 1.2 ratio); the 100 / 120 m/s velocity terms are untouched. The 10 km radius was explicitly left as a playtest tunable, and the v0.32 live two-player playtest returned its verdict: a real rendezvous transiently passed ~14.9 km at its best approach and never coupled, leaving the engaged coast advancing encounter-to-encounter indefinitely — and the planning tool that is supposed to deliver a sub-gate closest approach can't reliably beat hundreds of km (#290), so the only routes inside 10 km were hand-flying or luck. Comparable games and real proximity operations begin the rendezvous/terminal phase at roughly 20–50 km; 35 km is the middle of that band. One retune moves both behaviors that share the constants: proximity co-warp couples at 35 km, and the rendezvous-warp τ handoff becomes reachable by the documented flow instead of only by hand-flying. No save break.
+- Orbit screen idled at ~27% CPU vs 0.9% on the menu; the cost was re-rasterizing the focused body's disk every 50 ms.
+- Disk raster memoized (ADR 0017 predict-on-change) on body, system, pixel radius and angles quantized to 0.02°; rotation still animates.
+- Review: screen position was missing from the key, so 90 of 144 zoom/pan configs showed an uncolored planet; hit path now self-heals.
+- Review: retained heap (28–81 MB) back to 0.4 MB; off-canvas disks skip allocation, offset cache LRU-capped.
+- `Canvas.String()` coalesces styled runs, byte-identical. Idle CPU 22.65% to 18.36%; disk raster 394 µs to 87 µs, 1793 allocs to 1.
 
-**v0.32.0** — Two players can finally *talk*: in-game chat (ADR 0035, #227–#229), and the CommNet stops being silent about why you're dark (#221, #231–#232). `~` opens a one-line input on the flight view — enter broadcasts to the session, a leading `@handle` sends a visibly-distinct private line, tab completes handles against the online roster (longest match wins, so a handle with spaces works; a typo'd, offline, or ambiguous handle *refuses to send* and keeps your draft rather than guessing). The sim keeps running while you type — pausing would push you behind the person you're coordinating with — and chat is deliberately a coordination tool, not a messaging system: lines live ~30 s as chips in their own corner, nothing is persisted, and it is **never CommNet-gated** (chat matters most during exactly the blackouts the comm model creates; the diegetic version was rejected, not deferred). Chat rides its own capped, TTL-pruned server ring beside the presence ring so message traffic can never evict "X joined" moments — and the input is App-level capture, so the v0.26 QWERTZ/backtick input bugs structurally can't return. Dock/undock/control-handover session moments also finally render chips (kinds 6/7/8 had no builder case since v0.28). On the CommNet side, the model was measured sound (#221) — the defect was silence: a disconnected probe's chip now says *why* — `no station in view — relay needed` vs `out of range — stronger antenna needed`, classified against the LIVE network (a dead relay beside you is not evidence a relay would help) — and the spawn form flags degraded-band altitude presets computed **per parent body** by sampling the production connectivity solve for the craft actually being spawned (crewed craft are never warned; a Relay-Tug at the Moon isn't warned off the constellation-building spawn the band exists to motivate). Earth degrades at 5,000–10,000 km; Kern, ten times smaller, is exactly inverted — which is why the label is sampled, never hardcoded. The batch adversarial review confirmed nine findings (four major) — dead-relay misadvice, antenna-blind warnings, space-containing handles unreachable by the game's own tab-completion, case-colliding handles routing DMs by enrollment order, cross-traffic ring eviction — all fixed pre-release (#272/#273; enrollment-side handle uniqueness follows as #274). No save break.
+### v0.36.0
 
-**v0.31.1** — Rendezvous Warp actually warps: the coast-rate deadlock and its defect cluster (#248–#253, review follow-ups #259–#261). The v0.31.0 tailnet playtest turned up six defects, all in the v0.29 Rendezvous Warp stack, with one root cause under most of them. Engaging a rendezvous seeds the coast to run fast — but mutual arms also *couple* the pair, and coupling clamps each player to the minimum over their partners' **reported** effective warp, which is the partner's own post-clamp rate and always at least a tick stale. Each side clamps to the other's current rate and then reports the clamped result, so two players who engage at 1× see 1×, clamp to 1×, and report 1× — forever. Min-wins can only ratchet *down*; there is no path up and no tie-breaker, so every shared coast ran in real time. (The "2h19m of real time at 1×" that v0.31.0's notes cite as evidence that real coasts are long was this bug, not a long coast.) An engaged coast is now **exempted from min-wins for the armed partner only** — both sides derive the rate independently and identically from the committed τ plus shared constants, resolving to the subspace step cap (1200× at the default step), while a proximity-coupled third player, the docked-as-guest clamp, burn caps, the hold, and the approach ramp all still bound it. Second structural fix: reaching the committed encounter used to clear the arm on the assumption the coupling "continues seamlessly as Proximity Co-Warp" — true only inside 10 km, and the playtest arrived at 5,605 km, decoupling the pair exactly when the real approach work began. A real rendezvous is ~10 maneuvers (kill relative velocity, burn toward, kill again), so the arm is now a **standing mutual intent**: τ demotes to a waypoint, the next one re-derives on arrival (earliest-future-τ wins between the two sides; a passive flyby is a legitimate waypoint), the pair stays rate-locked through the whole sequence, and the arm ends only on explicit cancel, on the proximity handoff at couple range, or when the partner no longer has a live session (a reprieved-away partner counts as live; a reaped one releases the survivor instead of holding them frozen forever). Around those two: warp keys *and* the auto-warp toggle now refuse during an engaged coast with a toast pointing at `/` instead of silently destroying the rendezvous for both players; the pre-couple window now says *why* a coast can't start — "you are 2m ahead — they must Sync to you" (direction-aware, since Sync is forward-only), "your Auto-Warp is running", or a dimmed, joinable-when-converged invite instead of a silently vanished one — rather than blaming the partner; the degrade watchdog scales its bar to the encounter (it fired symmetrically at a 0.18% deviation on that 5,605 km approach, thresholding a max-horizon prediction against a fixed 10 km) and re-baselines as the estimate converges; a partner who is Away now shows as a standing line on the rendezvous and docked chips for as long as it's true, not a 6-second chip an hour before you needed it; and waypoint re-derivation refuses a partner who left the shared SOI rather than Kepler-stepping their state around the wrong primary. Every fix landed behind an adversarial review that itself caught the direction-blind Sync advice, a canvas-corrupting width-2 glyph, the immortal-session arm, and a test file whose `_arm` filename suffix meant it had never compiled on any platform. No save break.
+The map answers "whose line is whose," the camera stops fighting your hands, and the last 35 km of a rendezvous is flown by sight (ADR 0041, 0042, 0043; #346, #347, #348, plus review batch #359/#362).
 
-**v0.31.0** — Commitment Reprieve: sessions that outlive their player, but only when someone is waiting on them (ADR 0036, #243). A guest's game runs *inside the server process*, driven by its own tick loop, so a client machine going to sleep does not stop it — the issue that started this cycle was filed on the opposite premise and carries a correction. With no idle timeout, nothing reaped the half-open connection either, so three things were wrong at once: the session kept running and warping unattended in a shared world, presence kept counting it online, and — because a key may hold only one live session — its owner was locked out of their own program behind a socket nobody was using. Observed in the playtest: a sleeping player's clock advanced from `+2s` to `+2h6m`. The obvious fix, a flat ten-minute reap, turns out to introduce a worse bug than the one it fixes. Co-Warp pins a coupled pair to the *slower* player's rate, so real coasts are long — the one flown in that same playtest ran **2h19m of real time at 1×** — and a flat timeout kills any in-flight shared coast the moment either side drops, trading "runs forever" for "strands your partner". So a session now keeps simulating past the timeout for as long as it carries a live **Commitment**: an Engaged **Rendezvous Warp** through to its committed Time of Closest Approach, or a **Docked-as-Guest** craft riding another player's Stack. Proximity Co-Warp deliberately doesn't count — it forms by itself whenever two players drift close and strands nobody when it lapses, whereas a Commitment is entered deliberately and leaves someone waiting if it dies. A Reprieve ends when its Commitment resolves, when it hits its cap, or when the player reconnects: a connection from the same key **takes over its own unattended session** rather than being told to disconnect it first, which is the lockout this whole cycle exists to prevent and which a Reprieve would otherwise make *worse*, since it would last as long as the coast. The Session screen gains **Away** — still simulating, nobody at the controls — because a reprieved session stayed `Online` for hours and told a partner their co-conspirator was there when the chair was empty. The player holding a Commitment with them gets a chip when they go quiet, naming what is being held up, and another when they come back; a session reaped while away reads as having timed out rather than left, so nobody is blamed for abandoning a coast they never touched. And a player who reconnects after hours away gets an account of the interval they missed — the elapsed sim-time plus a replay of the moments that fell while nobody was watching, which would otherwise have expired against a six-second chip TTL long before anyone could read them. Solo players are not covered: someone mid-burn with no Commitment is still reaped, since holding for them needs state that lives only on the World. No save break, no session-directory schema bump.
+- Legibility: ADR 0020's markers finally drawn (`✕`, target `▲`/`▼`, `◇`/`◆` nodes); SOLID = real, DASHED = plan, DOTTED = scenery.
+- Inspect: `j` steps a flare with a name chip through everything drawn, mouse click does the same, Enter commits as Target.
+- Camera: per-focus zoom memory (amends ADR 0021), arrows pan, `h`/`l` browse bodies, arc-length sampling keeps dashes at any zoom.
+- Proximity View (`o`): LVLH frame, exact dashed drift path, log range rings, 50 m dock gate ring green under 0.1 m/s, real silhouettes.
+- Surface view: `⊗` impact point, descent corridor with MARGIN, ascent cues, max-Q band; `v` cycles six projections, `V`/`o` toggle.
+- Review fixed a map-order hit-test tie-break, a `V`-in-Proximity ping-pong, off-canvas burn staging, a NaN guard, a double-signed altitude.
 
-**v0.30.2** — Fixes Rendezvous Warp coasts collapsing the moment either player warped hard (#244). Found in the first live two-player test of the v0.30 session screen. A rendezvous coast holds a pair rate-locked by clamping both to the slower player's warp — but the *coupling* that applies that clamp only holds while the two clocks sit within a two-minute window of each other, and warp climbs in ×10 steps. At 10000× a single tick advances 500 seconds of flight time; at 100000×, 5000 — both wider than the window itself. So selecting either top step carried you out of your own shared subspace in one tick, at which point the pair stopped counting as coupled, which released the very clamp that had been holding you together. The coast, its chip and the arm all vanished at once, and the two of you drifted apart without limit — an escape that removed its own brake. The slowest-wins clamp could never catch it: that clamp works from the partner's last *reported* rate, never fresher than the previous tick, so it cannot stop the tick that leaves in the first place. While you are armed or coasting, warp is now bounded so that a single tick can never advance more than half that window (1200× at the default step), leaving the clamp a full tick in which to act. In practice this costs nothing — a four-hour encounter still coasts in about twelve seconds of real time; the bug was never that the usable rate was too slow, only that choosing a faster one silently destroyed the rendezvous. Solo play is untouched: the bound exists to protect a shared clock and lifts entirely when there isn't one. No save break.
+### v0.35.3
 
-**v0.30.1** — Session screen: a real fixed-width table, and admin keys that say why they refuse. Both found in the first playtest of v0.30.0. **Alignment:** promoting a player visibly shifted that row's columns. The role / *you* / *docked* tags are styled, and the layout padded with `%-32s`, which counts the *invisible* ANSI escape bytes against the column budget — so only tagged rows lost their padding, and the roster went ragged the moment anything gained a tag. The roster and invites lists are now laid out in terminal cells (measured with `lipgloss.Width`, matching the Saves screen), with `PLAYER / LOCATION / CRAFT / TIME` and `CODE / HANDLE / AGE` headers, and over-long handles or codes are ellipsised into their column instead of pushing the rest of the row right. Your own row also no longer claims `(0 here)`: the ghost slate excludes the viewer by construction, so that annotation was always wrong pointed at yourself. **Feedback:** `[p]`, `[x]` and `[u]` are gated both by capability (host / admin / guest) and by which row the cursor is on, and every rejection path was a silent no-op — indistinguishable from a dead key. The first live use of v0.30.0 was a host pressing `[p]` with the cursor still on their own row, where it starts, and concluding promotion was broken. Each refusal now flashes the reason: *you can't promote yourself*, *no one to promote yet — invite a player first*, *only the host can promote or demote admins*, *you can't remove the host*, *only the host can remove an admin*, *only the host or an admin can restart the server*, and — when the craft picker or invites pane has focus instead of a player row — a pointer back to the roster. No behaviour change beyond the feedback and the layout: every key still refuses exactly what it refused before, and the server-side guardrails are untouched. Display only; no save break.
+The target panel finally says whether you are ahead of or behind your target (#287).
 
-**v0.30.0** — Session administration: delegated admins & in-band server lifecycle (#222–#226, #220). Since multiplayer shipped, the host has been the sole operator — the only player who could mint invites, remove players, or stop the server — and the only way to restart it (to adopt a new release, say) was an out-of-band ssh-and-kill by whoever owned the box. Worse, that sole-operator property was an *illusion*: authorization was presentation-only. Every player's session runs inside the server process with direct store access, so the sole thing stopping a guest from minting invites was that the Session screen hid the keys. This cycle makes administration real. Authorization is now a **capability enforced in the handler**, where the action happens, not in the UI — a forged intent from a guest is refused, not obeyed. The host can `p` **promote** an enrolled player to **admin**; admins mint (`i`) and revoke (`r`) invite codes and remove players (`x`) under **single-rooted escalation guardrails** — an admin can never promote anyone, remove another admin, remove the host, or remove themselves, so every admin traces back to the one host and no chain of promotions can outflank them. `u` **drains and restarts** the server in-band: every connected player is warned by a chip, drained with their progress persisted (the restarter's included), and reconnects a moment later, with the process exiting on a dedicated marker code the supervising service manager keys on. Where the host machine carries adopt tooling, the same key reads *restart to adopt vX.Y.Z* once a newer release is published — the game itself never fetches, verifies, or swaps a binary; it only restarts, and the supervisor does the rest. Installs without that tooling still get the version readout, pointed at the releases page, so the UI never offers an update it can't perform. Also fixes a targeting papercut: `t` on a player flying more than one craft in your system now expands a **craft picker** (glyph + name) instead of silently aiming at whichever came first, `v` and `w` honor the same selection, and the roster count reads `3 craft (1 here)` when some of theirs are landed or in another system. No local save break, and no session-directory schema bump — the admin role is additive on the persisted roster string.
+- Range and closing are unsigned along-track: two coplanar craft 13,500 km apart both read `closing 0.00 m/s`; the sign decides the burn.
+- Live two-player session had to infer the sign from `t→Ap` trends (after the constant-half-period bug #286, fixed in v0.32.4).
+- TARGET chip shows a signed lead angle: `lead: +82° (ahead)`, `-82° (behind)`, `0° (aligned)`, measured in your orbital plane.
+- Reads as a blank dash for body targets and across SOI boundaries. Display only, no save break.
+- Known limitation: the TARGET chip is dropped entirely at 24 rows (including the 104×24 floor); pre-existing, not a regression.
 
-**v0.29.1** — Fixes "NO SIGNAL on everything" after loading a save. The CommNet ground-station catalog is transient state — the embedded DSN ring plus any user overlay, deliberately never written into the save envelope — and while a fresh world loaded it, a world rehydrated from a save did not. With no stations in the graph there was nothing for a craft to reach: the near-home telemetry blanket never applied (it keys off a body that hosts a station) and no relay chain could terminate, so **every** unmanned craft read `⚠ NO SIGNAL` at any altitude, with any antenna, forever. Worse, command gating reads the same graph, so throttle, attitude, node planting and staging all silently refused on uncrewed vessels. It affected both paths that load a save — single-player *continue* and a multiplayer **reconnect** (a brand-new enrollee got a fresh world and so never saw it, which is why it hid for so long). Present since the DSN ring shipped in v0.22.0. No save break; existing saves are fixed simply by loading them under this version.
+### v0.35.2
 
-**v0.29.0** — Rendezvous Warp: cooperative rate-locked coast to a cross-subspace encounter (ADR 0034 addendum, PR #218). Proximity Co-Warp only helps once two players are already close; getting there in the first place meant coasting for real across many orbital periods, or Sync-warping to a partner's clock — which collapses Δt by fast-forwarding your own vessel around its orbit, destroying the very closest approach you were chasing. Rendezvous Warp is a second Co-Warp trigger aimed at an encounter instead of a clock: `w` on a player's `O` roster row arms toward your predicted closest approach (the existing K-nudge advisory's τ, or current-course CA as fallback); the target gets a persistent main-screen prompt and joins with `y`. Once both sides are armed the pair rate-locks (slowest wins) and coasts together — planted burns firing en route — arriving at the committed Time of Closest Approach at 1×, already Co-Warped, and sliding straight into Proximity Co-Warp for the final approach. τ is held for the whole coast; a partner's mid-course change doesn't re-target but raises a degrade-warning chip. Either side cancels with `/`. No local save-break, no sessiondir-schema bump — the arm/pending state is transient World state, and the rendezvous-intent is one additive wire message over the existing report/subscribe store.
+Undocking a stack no longer re-fuses itself on the next tick (#342, #343).
 
-**v0.28.0** — Contact: co-warp coupling, cross-player docking, in-UI hosting, spectate (ADR 0034). Grilled from the v0.27.0 tailnet playtest, this cycle closes the loop from "I can see another player's ghost" to "we're flying one stack together." Coming within 10 km and 100 m/s of relative velocity of a synced player now **couples** your time-warp to theirs (hysteresis releases at 12 km / 120 m/s so station-keeping at the boundary doesn't flap the clamp); other players' craft now draw as dim ghost **orbits**, not just points, on your map. Hosting moves in-game: `h` on the `O` session roster starts/stops the SSH listener without a restart or `--serve` — the App is now always wrapped in the reporting model, with `Server` nil until you opt in. Docking against a co-warped ghost fuses a real cross-player stack: the docker owns it, the other player rides as a `DockedComponent` — coupled, but always free to switch vessels or `U` undock their own piece — and `J` **transfers control** of the whole stack to the guest instantly (refused mid-burn). `v` **spectates** a player — one camera fit to their ghost's drawn orbit, then tracking it so you can watch their burns re-shape the ellipse; `f` returns you to your own craft. The session-directory schema bumps (v1→v2, typed migration) to carry the dock ledger and cross-player state; local `save.json` is untouched.
+- Cause: fixed total split span (35 m at three, 17.5 m at five) put neighbours inside the 50 m / 0.1 m/s auto-dock gates.
+- Easy to reach: a comsat carrier already holds relays as components, so one dock onto it makes three.
+- Components now separate by a fixed adjacent gap: 75 m and 0.15 m/s regardless of count.
+- #343's closed-ellipse premise did not reproduce: the push displaces position too, so pairs were safe by accident of magnitude.
+- Pushes are now along-track so separation grows for good, pinned by a test; local undock gains the re-arm latch ADR 0038 only gave cross-player.
 
-**v0.27.0** — Multiplayer over ssh: subspaces, ghosts, Sync (ADR 0034). Host a shared world straight from your own game: `--serve` starts an embedded SSH listener (wish, port 23234, `--serve-port` overrides) next to your in-process session — no separate server, no accounts. `terminal-space-program serve invite <handle>` mints a one-time code; a guest's first `ssh -p 23234 your-host` runs a **calibration card** (braille + color check) then the enroll flow (code → editable handle), and their ssh key becomes their identity from then on — reconnect just resumes. Each player gets their **own persistent space program** (a per-player save envelope in a server-side session directory; your local `save.json` is untouched, and guests can't touch your saves). Time is **per-player** ("subspaces"): everyone warps independently — the core loop's 12-day transfer waits stay yours to skip. Other players' craft render as dim **Kepler ghosts** evaluated at *your* clock (their last-reported orbit, honestly stale until their next report), gated to your active system. New players join at the **frontier** (the max time across all programs — you can never start in someone's past). The **`O` Session screen** lists every player with online state, last-known system, craft count, and signed time offset (`+2d4h ahead` / `-3h behind` / `in sync`); `t` targets a ghost for rendezvous planning (closest-approach, |v_rel|, and TGT nav modes all work against it), and `s` **Sync-warps** you forward to a player's time — the existing Auto-Warp driver chases their clock with every warp clamp honored (burn cap, SOI guard, node-approach ramp; planted burns en route fire, never skipped) and releases at 1× in the shared subspace. Hosts mint/revoke invites and remove players in-screen (or via the CLI); joins, leaves, and sync arrivals surface as transient canvas chips. Also new, for everyone: a **terminal size floor** — below 104×24 a resize prompt replaces rendering (the HUD used to wrap and scroll silently at 80×24). Proximity co-warp and cross-player docking are the next cycle (v0.28); native (non-ssh) clients are a later transport swap. No local save-schema change.
+### v0.35.1
 
-**v0.26.0** — Multi-save system: named saves, quicksave/autosave lanes (ADR 0033). The single fixed `save.json` slot becomes a `saves/` **directory** of flat, independent, nameable saves. **S1** adds the saves-directory API (`internal/save`): an envelope `Meta` header (name, saved-at, in-game date, active vessel, system), opaque filenames, header-only reads so the browser can list without hydrating a `World`, and reserved quicksave/autosave lanes that named saves can never collide with. **S2** wires the app to it: your old `save.json` auto-imports as a named save ("Imported YYYY-MM-DD") the first time you launch this version and is left in place untouched; `F5`/`F9` move to the quicksave lane (`F9` on an empty lane with no autosave to fall back on flashes "no quicksave yet — press F5 first" instead of erroring; if an autosave exists — e.g. right after a `quit → relaunch` — it instead points you at the Saves browser to resume it, without auto-loading it for you); quit-autosave writes into a rotating ring of 3. **S3** ships the unified **Saves screen**, reached from both `[Save Game]` and `[Load Game]` on the pause menu: `↑`/`↓` to move, `Enter` to load (confirms) or save/overwrite, `d` to delete (confirms), `r` to rename (named saves only), and a `＋ New save…` row prefilled with your active vessel + in-game day. The pause menu's old click-confirm gates on Save/Load are gone — both items now just open the screen, which owns its own confirms (Quit keeps its gate). **S4** adds a real-time periodic autosave (default 5 minutes) into the same ring, with an "Autosave interval" row in Settings cycling 0 (off) / 1 / 5 / 10 / 15 / 30 minutes — 0 only disables the periodic autosave, quit-autosave still fires. No save-schema bump — v9 saves load unchanged; the legacy `save.json` is imported automatically.
+Batch-review fixes for v0.35.0: undocking can no longer permanently brick a vessel, and riders get their exits back (#326–#337).
 
-**v0.25.0** — VAB reframe: in-place row editing, crack-open, Σ Δv target (ADR 0032). The VAB's editing model moves from browse-the-palette-and-add to the **maneuver-form idiom** applied to the vehicle rows. `←/→` (and `h`/`l`) now **swap the selected row's part within its kind** instead of switching columns — cycle engines on an engine row, tanks on a tank row; **`tab`/`shift+tab` is the only column switch** now (a deliberate keymap break one week after v0.24.0). The **engine row leads the stage's chemistry**: an engine swap can cross kerolox↔hydrolox and the tank rows then cycle the new chemistry, so a mismatch is one `←/→` per tank to repair (`a` adds still reject mismatches outright). An empty stage shows `engine —` / `tank —` **placeholder rows** that `←/→` fills in, so the VAB opens focused on the vehicle with the cursor already on a placeholder and the whole build loop runs with no palette trip. **`enter` cracks open** a shipped catalog part (S-IVB, Falcon booster, CSM, …) into its editable seed components — a new seed-only `vab_seed` catalog field that never affects the part's runtime stats — with a flash showing the honest Δv delta; two **bulk tanks** (100 t kerolox, 25 t hydrolox) make from-scratch heavy lifters practical. A `t` **Σ Δv target** (session-only) turns the stats strip into `current / target (delta)` and, with a tank row selected, hints the count that closes the gap or reports it unreachable. No save break — the design schema, catalog hash, and physics are untouched; catalog additions are additive and overlay-moddable.
+- ADR 0038 re-arm latch refused on either craft ID (blocked both vessels against everyone); now it refuses only the separated pair.
+- Latch arming persisted but clearing did not, so stale latches came back on restart; clearing now persists and a 10 min sim-time ceiling retires bad records.
+- Being held off is no longer silent: one chip, `docking held off, back 100 m clear of <partner> before docking again`.
+- Undock lost the guest's target when they owned a second vessel (mutual targeting ran before adoption); DOCKED block was clipped off 80x24 (#301 again), chips now obey a per-corner budget.
+- Also: `[u]` advertised for key `U`, camera follow no longer overrides `f`/`g`/Spectate, handle repair and enrollment fixes, dock-ledger writes retried. No save break.
 
-**v0.24.5** — Fine RCS pulse step for sub-second trim (`p`). RCS pulses were a fixed 0.1 m/s, which at a typical comsat orbit moves the period by ~1.3 s — too coarse to null an orbital period to the second now that the readout shows it. A new `p` key cycles the per-pulse Δv across **0.1 → 0.01 → 0.001 m/s**; the PROPELLANT chip shows the active step in RCS mode. It's modelled as a finer impulsive quantum, not a continuous throttle, so each tap stays an exact, predictable Δv — ideal for trimming a deployed comsat onto its slot with its own monoprop. No physics-model, save, or default-behaviour change (pulses stay 0.1 m/s until you press `p`).
+### v0.35.0
 
-**v0.24.4** — Seconds on the orbital-period readout. The **ORBIT** and **PROJECTED ORBIT** period rows now show seconds (`6h04m21s`) instead of rounding to the nearest minute, so a phasing orbit for an evenly-spaced comsat constellation can be tuned to ~1-second precision rather than the old ±30s — which, compounded over several phasing revolutions, is the difference between dropping a satellite on its slot and having to trim it afterward. The live time-to-apoapsis / time-to-periapsis countdowns keep their quieter minute-scale display. See the new **[constellation deployment guide](constellation-deploy.md)** for the phasing math this serves. Display only; no physics, save, or keybinding change.
+Both players now know when they dock, the absorbed player rides along in the stack, and the ship you get back on undock is safe to fly (ADR 0038, #301, #303, #304, #274, #289, #293).
 
-**v0.24.3** — Orbital-period readout on the orbit chips. The live **ORBIT** chip and the **PROJECTED ORBIT** chip now show the full orbital period (`2π√(a³/μ)`) right under the existing time-to-apoapsis / time-to-periapsis lines. It's the number you tune when spacing a comsat constellation — e.g. a resonant phasing orbit of `period × (N±1)/N` to lay N satellites 360°/N apart — and the projected-orbit period lets you converge a deployment burn onto a target period before firing. Display only; no physics, save, or keybinding change.
+- Dock chips on both seats, every path; the guest's notice is carried durably and delivered on their next tick, surviving server restarts.
+- Guest view follows the stack (owner's handle badged) with a standing DOCKED block: `[J] request control`, `[u] ask to undock`; an empty pilot seat grants control immediately.
+- Undock returns a known-inert vessel (throttle zero, main engine, no hold), Kepler-propagated across the subspace gap, with the 75 m / 0.15 m/s push; fixes a silent re-fuse nine seconds after separation.
+- Undock disarms auto-dock with that partner until ~100 m clear, and both craft come out targeting each other.
+- `K` and `C` replace their own unfired node instead of stacking; NODES chip force-shows with more than one node queued; case-insensitive handle collisions refused and repaired; server restart moves from `u` to `F4`. No save break.
 
-**v0.24.2** — CommNet home-telemetry blanket — fixes "NO SIGNAL in low Earth orbit" (ADR 0027 amendment). The 3 DSN stations sit at 35–40° latitude, but a 500 km orbit's horizon cone is only ~22°, so a low or equatorial orbit can't see *any* station — the planet occludes them all, and a freshly-launched probe read `NO SIGNAL` despite carrying an antenna. Now a controllable craft in a low orbit of a body that hosts ground stations (within 1.5× the body's radius of its centre — ~3,200 km altitude at Earth, ~300 km at the ~10×-smaller Kern) is connected regardless of line-of-sight, modelling the dense near-body ground network. Range, antennas, and far-orbit relay behaviour are unchanged; deep-space coverage still needs relays. No save break.
+### v0.34.0
 
-**v0.24.1** — Universal antenna + Kern DSN ring (ADR 0027 amendment). Every vessel now carries at least a basic telemetry antenna — **crewed pods included**, where it was previously omitted — so all craft appear on the **CommNet** under a uniform model. Crewed vessels are still never command-gated; for them the antenna is presence-only (they show as a non-forwarding node, the comms chip stays hidden). A second DSN ground-station ring lands on **Kern**, Lumen's home world (**Stdin / Stdout / Stderr**, ~120° apart, matching Earth's Goldstone / Madrid / Canberra) — so a probe launched in Lumen can finally reach the network instead of flying permanently out of contact. No save break.
+The rendezvous planner explains its refusals and reports arrival speed, and the game says "vessel" everywhere it said "craft" (#277, #278, #281, #290, #318).
 
-**v0.24.0** — In-game Vehicle Assembly Building + spawn-form fleet pass (ADRs 0029/0030/0031). A new `Esc → [Build (VAB)]` screen lets you compose fine **components** (engine / tank / command-core / antenna / structure) into stages, view a glyph-row vehicle schematic in a two-column layout, reorder / duplicate / quantity-adjust stages, and read a live Δv / TWR / mass panel; designs save as portable catalog fragments under `~/.config/terminal-space-program/designs/` and appear in the spawn form (`n`) alongside built-ins. The spawn form's CRAFT TYPE picker is now **grouped by category** (Launch Vehicles / Crewed Mission Stacks / Upper Stages / Landers & Capsules / Tugs & Relays / Satellites & Payloads), shows crewed/uncrewed tags, gates launchpad spawn on TWR ≥ 1 physics (no static flag), and **filters by scale class** — Sol shows the real fleet, Lumen shows a full in-universe fleet (`[f]` reveals all). A complete **Lumen fleet** ships: role-for-role counterparts of every Sol loadout with computing-theme names (Vector V, Raster Launch System, Packet 9, Buffer, Spool, Socket Lander, Token Pod, Nudge Tug, Thread Relay, Heartbeat Keeper, Uplink Relay, Relay Node, Endpoint Station, Scalar Probe, Node Carrier ×3, Scan Pack). No save break.
+- `K` names the gate that fired and the remedy (circularize `[C]`, plan a transfer `[H/I/m]`) instead of one generic shrug.
+- New shape-mismatch gate: iterating `K` between different-shaped orbits diverges, each burn making the next worse.
+- Recommendations report arrival speed (`CA 9 km, arriving ~540 m/s`) as information, not refusal; doctrine is Δv cheap, waiting costly.
+- Beyond-window or never-closing coasts get plain-words phasing advice; the RENDEZVOUS chip carries a live CA trend row.
+- Player-facing craft to vessel rename; a stopwatch-based multiplayer reconnection test now waits on the real event. No save break.
 
-**v0.23.0** — Deployable payloads (ADR 0028, PR #186). A new `Y` Deploy verb releases the top carried payload as its own craft while keeping the carrier active — distinct from Undock, which switches you to the released piece. `NosePayloadPlan` supports N stacked payloads so one launch can deploy a full constellation; five starter loadouts ship (Relay Comsat, Ground-Station Lander, Science Probe, Comsat Carrier ×3, Survey Pack). Soft-landing a relay-antenna craft auto-joins the CommNet graph as a player-deployed ground station with no extra step. No save break.
+### v0.33.0
 
-**v0.22.3** — CommNet relay-path rendering fix (PR #185). Long relay hops weren't drawn all the way to the destination. A new canvas primitive draws the beam without the too-long-chord guard, so the full relay chain renders at any zoom. No save break.
+Rendezvous warp keeps its clock all the way to contact, and a docked pair survives a server restart (#275, #280, #302, #305, #307, #308, #309, #310, #311, #312, #313).
 
-**v0.22.2** — CommNet range model: combinability + antenna tiers (PR #184). Replaced the flat 20,000 km cap with KSP-style combinability (`√(rangeₐ · range_b)`), so a powerful DSN station extends a weak probe's reach. Three tiers ship: direct-basic (LEO/geo), relay-cislunar (Moon and below), deep-space (Mars-class). No save break.
+- Reaching the committed encounter demotes the agreement instead of ending it; it ends only on dock or explicit cancel, no distance tripwire.
+- The initiator flies the clock; the accepter is copilot (brake or cancel, never push); either side's burn holds the pair at the burn cap.
+- Lock state is standing text on the RENDEZVOUS chip (partner, seat, rate, `held: fenbot burning`); proximity couples show a TIME LOCK line; chip flap (852 moments in one session) deduped.
+- Dock ledger is durable on disk; offline owners get a Parcel delivered, Kepler-propagated, on reconnect; `[J]` refuses with no live pilot and lets a guest reclaim an empty seat.
+- Undock after control transfer no longer swaps vehicles; refused undocks explain themselves. Session directory migrates v2 to v3, no player-save break.
 
-**v0.22.1** — CommNet ground-station self-occlusion fix. A floating-point normalization error caused DSN stations to flicker in and out of self-occlusion every tick, making nearby probes strobe NO SIGNAL. A small surface tolerance in the line-of-sight test fixes the flicker while leaving genuine coverage gaps unchanged. No save break.
+### v0.32.4
 
-**v0.22.0** — Data-driven parts/loadout catalog + CommNet (ADRs 0026/0027, PR #178). Every stage and loadout moved from Go literals to embedded JSON with user-overlay support; `--list-loadouts` reflects the merged catalog. CommNet adds per-stage command-source (crewed/probe) and antenna (direct/relay) attributes, a per-tick relay-graph, and command-gating ("NO SIGNAL") for unconnected probes. A comms chip and relay-path beam render on the orbit map; crewed vessels are never gated. No save break.
+Four readouts stop lying: circular-orbit apsis timers, roster location, roster craft count, and rendezvous arm labels (#285, #286, #288, #295, #297).
 
-**v0.21.0** — Missions: give the sandbox a purpose (ADR 0025, PRs #171–#177). A data-authored Objective→Mission→Program model ships with two objective families: instantaneous state predicates and semantic-action event matchers. An embedded tutorial→challenge ladder (orient → plan → fly → Luna → Mars) is opt-in from Settings and off by default. The missions screen shows a gated ladder; an in-flight checklist chip tracks the current step. Save v8→v9 (soft — old saves still load, mission progress resets).
+- `t→Ap`/`t→Pe` on an exactly circular orbit printed a constant half-period; the ORBIT chip now shows a blank marker instead (node scheduling untouched).
+- Roster LOCATION follows the craft a player is actually flying (wire report gained an active-craft marker; craft switch forces a re-report).
+- Craft column shows a blank for players with no live report rather than a confident `0 craft` that read as a wiped fleet.
+- Arming a rendezvous names the vessel on both seats (`armed → gern (Relay Tug-1)`); `K` refusals label themselves once. No save break.
 
-**v0.20.0** — Data-driven body textures (ADR 0024, PRs #167–#170). A generic JSON texture engine replaces every per-body Go shader function; all 17 Lumen and 12 Sol bodies are now authored as data using typed Feature Kinds (continents, craters, bands, spots, mask, star). Net −1215 lines; user-overlay systems can now include their own textures. No save break.
+### v0.32.3
 
-**v0.19.0** — Encounter readability (ADR 0023, PR #166). Planted-leg foreign-SOI arcs and in-SOI residence arcs are now sampled analytically from the encounter conic rather than propagated with fixed steps, so predicted paths read cleanly. No save break.
+The rendezvous coast actually hands the ship back at the encounter it flew you to (#298, #299).
 
-**v0.18.5** — QWERTZ keyboard-layout preset (ADR 0022, PR #165). A layout selector in `[Controls]` remaps the physical Y↔Z swap so QWERTZ users keep every binding under the same finger as QWERTY. Implemented as ingest-normalize + display-translate; the keymap stays authored in QWERTY. No save break.
+- Reaching committed τ inside the 35 km range releases the coast regardless of velocity; the old gate also needed ≤100 m/s, which transfer arrivals (594 m/s live) never meet.
+- Velocity term still gates Proximity Co-Warp coupling, so fast arrivals are released but not coupled until the pilot matches velocities.
+- Manual engine ignition and RCS pulses release the standing intent (arm and driver), so the coast can't warp against your own match burn.
 
-**v0.18.4** — Encounter-view ergonomics (PRs #162, #163). The dashed post-burn orbit, SOI-pass arc, and SOI ring are snapshotted on the last coasting frame and held steady while a burn fires, so the purple preview no longer vanishes at ignition. Yaw moved from `{`/`}` to `shift+←`/`shift+→` to match the tilt keys. No save break.
+### v0.32.2
 
-**v0.18.3** — Player-owned camera + Local-to-Body Arcs (ADR 0021, PRs #152–#160). Foreign-SOI predicted segments are now drawn body-relative and anchored to the encounter body's current position, collapsing a 47.8× SOI smear to 1.0×. The Camera Contract (fit once per Framing Event, never per frame) ships alongside SOI rings, entry/exit markers, in-SOI continuation, and a split-capture aim fix. No save break.
+New `--serve --reset-fleet` flag: one-shot server-admin fleet reset at startup.
 
-**v0.18.2** — Encounter-framing zoom fix (PR #146). The v0.18.1 encounter framing re-fit every frame, overwriting manual zoom on the next tick. Canvas scale is now `baseScale × userZoom` so auto-fit owns the base and `+`/`-` persist until the next Framing Event. No save break.
+- Every player's slate is wiped to the one default vessel with full tanks, placed on a shared Earth 500x500 km equatorial ring, spaced at least 50 km apart (above the 42 km decouple gate).
+- All subspace clocks aligned to one epoch so nobody needs a Sync; enrollment (handles, roles, invites) untouched.
+- Previous saves backed up byte-identical into the session directory's `backup/` subdir first. No save break.
 
-**v0.18.1** — Encounter-centered framing fix (PR #145). Focusing a body with an active SOI pass centered on the body's current position rather than the encounter arc, landing up to 169× too far away. All three framers now center on the predicted encounter and fit to the drawn arc's extent. No save break.
+### v0.32.1
 
-**v0.18.0** — Encounter view: SOI Pass prediction + unified markers (ADRs 0019/0020, PRs #138–#142). Unified single-glyph orbital markers (▲▼◇◆⊕✕Δ) replace the old FillDisk blobs; all craft become `➤` on the orbit map. A live SOI Pass prediction renders an always-on foreign-SOI arc, Perilune marker, and SOI PASS chip; a dual-arc counterfactual appears when a node is planted. No save break.
+Proximity couple gate widened from 10 km to 35 km, decouple hysteresis to 42 km (#291).
 
-**v0.17.3** — Coplanar planet→moon transfer fixes (ADR 0018, PR #131). The combined transfer now aims at an in-plane offset so the natural perilune lands at the Capture Orbit radius rather than the body's centre. Capture fires at the analytic hyperbolic perilune; a live TARGET readout shows approach data for body targets. No save break.
+- Live two-player playtest passed ~14.9 km at best approach and never coupled; the planner can't reliably beat hundreds of km (#290), so 10 km was reachable only by hand-flying or luck.
+- 35 km sits mid-band of where comparable games and real proximity ops start the terminal phase (20–50 km).
+- One retune covers both proximity co-warp and the rendezvous-warp τ handoff; the 100 / 120 m/s velocity terms are untouched. No save break.
 
-**v0.17.2** — SOI-entry prediction fidelity (ADR 0017, PR #128). Both SOI-aware propagators now default to interpolated body positions, bisection-refined crossing times, and a 120 s coast sub-step cap, eliminating the dashed-line wobble on lunar transfers. A predict-on-change cache keeps the dashed line off the per-frame render path. No save break.
+### v0.32.0
 
-**v0.17.1** — SOI-entry prediction diagnostics (PR #127). An env-gated harness quantifies prediction stability and accuracy across three reference transfers; no behaviour change.
+In-game chat arrives, and the CommNet tells you why you're dark (ADR 0035, #227–#229, #221, #231–#232).
 
-**v0.17** — Command-line scenarios (PR #125). `--system`, `--orbit`, `--altitude`, `--inclination`, `--launchpad`/`--launch-site`/`--lat`/`--lon`, `--loadout`, and `--list-*` discovery flags let you boot straight into any scenario without a save. No save-schema change.
+- `~` opens a one-line input: enter broadcasts, leading `@handle` sends a private line, tab completes against the online roster; unknown or offline handles refuse to send and keep your draft.
+- Sim keeps running while you type; lines live ~30 s as chips, nothing persisted, never CommNet-gated; chat has its own capped ring so it can't evict presence moments.
+- Dock/undock/control-handover session moments (kinds 6/7/8) finally render chips.
+- Disconnected probe chips say why (`no station in view: relay needed` vs `out of range: stronger antenna needed`), classified against the live network; spawn form flags degraded-band altitudes sampled per parent body.
+- Batch review confirmed nine findings, all fixed pre-release (#272/#273); enrollment-side handle uniqueness follows as #274. No save break.
 
-**v0.16.1** — Hygiene + correctness (PRs #122–#124). Two-sided guards on the Saturn V ascent test; F1 help gains the `[»Burn]` mouse row; `FlightPhase` vocabulary scaffolded. No save break.
+### v0.31.1
 
-**v0.16** — Auto-Warp + Vessels bound to a System (ADRs 0015/0016). `G` engages Auto-Warp, which runs at maximum permitted rate and ramps back to 1× exactly 30 sim-seconds before the next planted burn. Each Vessel is now bound to its own System at spawn so the Kern Stack flies Lumen while a Sol craft orbits in parallel. Save v7→v8.
+Rendezvous Warp coasts now actually run fast, and the arm survives arrival so the pair stays locked through the whole approach (#248–#253; review follow-ups #259–#261).
 
-**v0.15** — Lumen system + Scale Class (ADR 0014, PRs #104–#107). A 17-body KSP-stock-analog system at ~1/10 linear scale (~3.4 km/s to orbit) with a Scale Class hint on Systems and Loadouts. The Kern Stack (4-stage Apollo-analog) is the scale-matched vehicle for Lumen. Save break: delete your save file to start fresh.
+- Root cause: min-wins coupling clamped each side to the partner's stale reported rate, so two players engaging at 1× stayed at 1× forever; v0.31.0's "2h19m coast" was this bug.
+- Engaged coasts are now exempt from min-wins for the armed partner only; both sides derive the same rate from committed τ (cap 1200×), other clamps still apply.
+- The arm is a standing intent: reaching τ demotes it to a waypoint and re-derives the next one; ends only on cancel, proximity handoff, or a dead partner session.
+- Warp keys and Auto-Warp refuse during an engaged coast (toast points at `/`); pre-couple window explains why a coast can't start, direction-aware for Sync.
+- Degrade watchdog scales to the encounter; Away partner shows as a standing line on chips; review caught a width-2 glyph and a `_arm`-suffixed test file that never compiled. No save break.
 
-**v0.14** — Spawn-time docked composites (ADR 0011, PR #81). `NosePayloadPlan` splits a custom build at the Dock Seam and assembles a ready docked composite, so a CSM+LM spawns already in post-transposition shape. The `[d]` configurator key cycles the seam; a `csm-lm` module pick drops the Apollo stack pre-seamed. No save schema bump.
+### v0.31.0
 
-**v0.13** — HUD overlay refactor (ADR 0010). The tall block-stack HUD becomes a slim pinned core chip plus compact canvas-corner chips on a full-width orbit map; a Settings screen toggles chip visibility; `F2` declutters. Orbit metrics and the active-burn readout are always-on.
+Commitment Reprieve: a session whose player drops keeps simulating only while a partner is waiting on it (ADR 0036, #243).
 
-**v0.12** — Plane-aware transfers, Lander, parachutes (ADRs 0005–0008). Numbered craft slots; dual-strategy Hohmann (combined Lambert vs. split coplanar raise); analytic-Kepler predictor fidelity + Line-of-Nodes split rendezvous; 2-stage Lander with surface staging; parachutes with auto-deploy on dynamic pressure.
+- Guest games run inside the server process, so a sleeping client did not stop them; with no idle timeout the owner was locked out behind a dead socket.
+- A flat reap would strand co-warp partners mid-coast, so sessions outlive the timeout only while holding a Commitment: Engaged Rendezvous Warp or Docked-as-Guest.
+- Proximity Co-Warp does not count; a Reprieve ends when the Commitment resolves, hits its cap, or the player reconnects and takes over the unattended session.
+- Session screen gains Away; partners get chips on go-quiet and return; reconnecting players get a replay of moments missed. Solo players are still reaped. No save break.
 
-**v0.11** — Launch chase-cam + landed/crashed lifecycle (ADR 0004). `ViewLaunch` auto-routes on pad launch; `CanSoftLand` gates soft Touchdown vs. Crashed; `[E]` end-flight removes wreckage. Lander silhouette with landing legs, hypergolic flame, and per-stage launch sprites.
+### v0.30.2
 
-**v0.10** — Planner + maneuver tooling. Rate-limited attitude slew, true plane-match and inclination burns, multi-rev porkchop with short/long-branch picker, rendezvous advisory (`K`), and perspective-tilt orbit view.
+Rendezvous Warp coasts no longer collapse when either player picks a top warp step (#244).
 
-**v0.9** — The craft fleet grows up. Unified Target slot; KSP-style staging chain (`space`) with Saturn V; ground-launch primitives (launchpad spawn, surface SAS, pitch trim, LAUNCH HUD); rendezvous tooling (TCA/CA/DOCK READY, NavMode cycle `;`); `C` circularize; navball; solar lighting + eclipses.
+- Cause: at 10000× or 100000× one tick advanced further than the two-minute coupling window, so the pair decoupled and the slowest-wins clamp (a tick stale) could not catch it.
+- While armed or coasting, warp is bounded so one tick covers at most half the window (1200× at default step); a four-hour encounter still coasts in about twelve seconds.
+- Solo play untouched: the bound lifts when there is no shared clock. No save break.
 
-**v0.8** — Multi-craft polish. RCS/monopropellant, multi-craft slate with per-craft burns, craft types and spawn form, docking + undocking, atmospheric drag, sim-time planet rotation with view-aware projection, adaptive warp clamps, iterate-for-target finite burns.
+### v0.30.1
 
-**v0.7** — Modding + manual flight + textures. External system/theme overlays, manual-flight stick (throttle + attitude keys), inclination-change planner, textured Earth/Moon/Mars/Jupiter.
+Session screen rows stay aligned, and admin keys now say why they refuse.
 
-**v0.6** — Planner UX + missions. Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration, moon→parent escape planner, click-only mouse, mission scaffold.
+- Cause of ragged rows: `%-32s` padding counted invisible ANSI bytes on tagged rows; roster and invites now lay out in terminal cells via `lipgloss.Width` with headers and ellipsised overflow.
+- Your own row no longer claims `(0 here)`.
+- `[p]`, `[x]`, `[u]` flash a reason on every refusal (can't promote yourself, only the host can..., focus is on the wrong pane) instead of silently no-oping.
+- Display only; behaviour and server guardrails unchanged. No save break.
 
-**v0.5** — Moons + visuals. Body hierarchy, major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus), per-body color, vessel trail, HUD polish.
+### v0.30.0
 
-**v0.4** — Persistence. Versioned save/load envelope, mid-course refinement.
+Hosts can delegate admins, and the server can be restarted from inside the game (#222–#226, #220).
 
-**v0.3** — Transfers. Lambert solver, porkchop plot, auto-plant Hohmann transfers.
+- Authorization was presentation-only; it is now a capability enforced in the handler, so forged guest intents are refused.
+- `p` promotes to admin; admins mint (`i`) and revoke (`r`) invites and remove players (`x`) under single-rooted guardrails (no promoting, no removing host/admins/self).
+- `u` drains and restarts the server in-band with progress persisted; where adopt tooling exists it reads "restart to adopt vX.Y.Z", otherwise it points at the releases page.
+- `t` on a multi-craft player opens a craft picker (`v`/`w` honor it); roster reads `3 craft (1 here)`. No save or session-directory schema break.
 
-**v0.2** — Burns. Spacecraft, impulsive burns, finite-burn integrator.
+### v0.29.1
 
-**v0.1** — Foundation. Heliocentric viewer, Verlet integrator, body catalog.
+Fixes every uncrewed craft reading `⚠ NO SIGNAL` after loading a save.
+
+- Cause: the ground-station catalog is transient, and a world rehydrated from a save never rebuilt it, so no relay chain or home blanket could apply.
+- Command gating reads the same graph, so throttle, attitude, nodes, and staging silently refused on uncrewed vessels.
+- Hit both single-player continue and multiplayer reconnect; present since v0.22.0. Loading under this version fixes existing saves. No save break.
+
+### v0.29.0
+
+Rendezvous Warp: two players rate-lock and coast together to a predicted closest approach across subspaces (ADR 0034 addendum, PR #218).
+
+- `w` on a player's `O` roster row arms toward predicted CA (K-nudge τ or current-course CA); the target gets a persistent prompt and joins with `y`.
+- Once both armed, slowest wins, planted burns fire en route, and arrival at τ drops to 1× already Co-Warped for the Proximity handoff.
+- τ is held for the coast; a partner's mid-course change raises a degrade chip rather than re-targeting. Either side cancels with `/`.
+- Arm state is transient; one additive wire message. No save or session-directory schema break.
+
+### v0.28.0
+
+Contact cycle: proximity co-warp, cross-player docking, in-game hosting, and spectating (ADR 0034).
+
+- Within 10 km and 100 m/s of a synced player your warp couples to theirs (releases at 12 km / 120 m/s); other players' craft draw as ghost orbits.
+- `h` on the `O` roster starts/stops the SSH listener without `--serve`; `v` spectates a player, `f` returns to your craft.
+- Docking a co-warped ghost fuses a real stack: docker owns it, guest rides as a `DockedComponent` and can `U` undock; `J` transfers control (refused mid-burn).
+- Session-directory schema v1 to v2 with typed migration; local `save.json` untouched.
+
+### v0.27.0
+
+Multiplayer over ssh: host a shared world from your own game, with per-player time and ghost craft (ADR 0034).
+
+- `--serve` embeds a wish SSH listener on 23234; `serve invite <handle>` mints one-time codes; a guest's ssh key becomes their identity after a calibration card and enroll flow.
+- Each player has their own save envelope server-side; time is per-player (subspaces) and new players join at the frontier.
+- Ghost craft render as Kepler orbits at your clock; the `O` Session screen shows offsets, `t` targets a ghost, `s` Sync-warps forward honoring every warp clamp.
+- New terminal size floor: below 104×24 a resize prompt replaces rendering. No local save-schema change.
+
+### v0.26.0
+
+Multi-save system: a `saves/` directory of named saves plus quicksave and autosave lanes (ADR 0033).
+
+- `internal/save` gains a `Meta` header, opaque filenames, header-only listing, and reserved lanes that named saves cannot collide with.
+- Old `save.json` auto-imports as "Imported YYYY-MM-DD" and is left in place; `F5`/`F9` use the quicksave lane; quit-autosave rotates through a ring of 3.
+- Unified Saves screen from `[Save Game]` and `[Load Game]`: `Enter` load/save, `d` delete, `r` rename, `＋ New save…` row; old pause-menu click-confirms removed.
+- Periodic autosave (default 5 min) with a Settings row cycling 0/1/5/10/15/30. No save-schema bump.
+
+### v0.25.0
+
+VAB reframe: edit vehicle rows in place, crack open catalog parts, and chase a Σ Δv target (ADR 0032).
+
+- `←/→` (`h`/`l`) swap the selected row's part within its kind; `tab`/`shift+tab` is the only column switch (keymap break from v0.24.0).
+- The engine row leads stage chemistry; empty stages show engine and tank placeholder rows so the build loop needs no palette trip.
+- `enter` cracks a shipped part into seed components via a new seed-only `vab_seed` catalog field; two bulk tanks added.
+- `t` sets a session-only Σ Δv target shown as `current / target (delta)` with a tank-count hint. No save break.
+
+### v0.24.5
+
+New `p` key cycles RCS pulse size for sub-second orbital trim.
+
+- Pulse Δv steps 0.1 to 0.01 to 0.001 m/s; the PROPELLANT chip shows the active step in RCS mode.
+- Still an impulsive quantum, not a throttle; default stays 0.1 m/s. No physics or save change.
+
+### v0.24.4
+
+Orbital-period readouts now show seconds (`6h04m21s`) instead of rounding to the minute.
+
+- Lets a comsat phasing orbit be tuned to about 1 s rather than ±30 s; apoapsis/periapsis countdowns keep minute scale.
+- New constellation deployment guide (`constellation-deploy.md`) covers the phasing math. Display only.
+
+### v0.24.3
+
+The ORBIT and PROJECTED ORBIT chips now show the full orbital period.
+
+- Period is `2π√(a³/μ)`, shown under the apsis countdowns; the projected value lets you converge a deployment burn on a target period before firing.
+- Display only; no physics, save, or keybinding change.
+
+### v0.24.2
+
+Fixes `NO SIGNAL` in low Earth orbit with a CommNet home-telemetry blanket (ADR 0027 amendment).
+
+- Cause: DSN stations at 35–40° latitude are all occluded from a 500 km orbit whose horizon cone is about 22°.
+- A controllable craft within 1.5× body radius of a body hosting ground stations is connected regardless of line-of-sight (about 3,200 km at Earth, 300 km at Kern).
+- Range, antennas, and deep-space relay behaviour unchanged. No save break.
+
+### v0.24.1
+
+Every vessel carries a basic antenna, and Kern gets its own DSN ring (ADR 0027 amendment).
+
+- Crewed pods now appear on the CommNet as presence-only nodes; they are still never command-gated and the comms chip stays hidden.
+- Kern stations Stdin / Stdout / Stderr sit about 120° apart, so Lumen probes can finally reach the network. No save break.
+
+### v0.24.0
+
+In-game Vehicle Assembly Building plus a grouped, filtered spawn form and a full Lumen fleet (ADRs 0029/0030/0031).
+
+- `Esc → [Build (VAB)]` composes components into stages with a glyph schematic, reorder/duplicate/quantity, and live Δv / TWR / mass; designs save under `~/.config/terminal-space-program/designs/`.
+- Spawn form (`n`) groups craft by category, tags crewed/uncrewed, gates launchpad spawn on TWR ≥ 1, and filters by scale class (`[f]` reveals all).
+- Lumen fleet ships role-for-role counterparts of every Sol loadout with computing-theme names. No save break.
+
+### v0.23.0
+
+New `Y` Deploy verb releases the top carried payload as its own craft while you keep flying the carrier (ADR 0028, PR #186).
+
+- Distinct from Undock, which switches you to the released piece; `NosePayloadPlan` supports N stacked payloads for one-launch constellations.
+- Five starter loadouts (Relay Comsat, Ground-Station Lander, Science Probe, Comsat Carrier ×3, Survey Pack); soft-landing a relay auto-joins the CommNet as a ground station. No save break.
+
+### v0.22.3
+
+Long CommNet relay chains now draw all the way to the destination at any zoom (PR #185).
+
+- New canvas primitive draws the beam without the too-long-chord guard that truncated long hops.
+- No save break.
+
+### v0.22.2
+
+CommNet ranges now combine KSP-style, so a strong DSN station extends a weak probe's reach (PR #184).
+
+- Flat 20,000 km cap replaced by combinability: `√(rangeₐ · range_b)`.
+- Three antenna tiers: direct-basic (LEO/geo), relay-cislunar (Moon and below), deep-space (Mars-class).
+- No save break.
+
+### v0.22.1
+
+Probes near DSN stations no longer strobe NO SIGNAL every tick.
+
+- Cause: floating-point normalization error made ground stations flicker into self-occlusion.
+- Fix: small surface tolerance in the line-of-sight test; genuine coverage gaps unchanged. No save break.
+
+### v0.22.0
+
+Parts and loadouts are now data (JSON with user overlays), and probes need a comms link to take commands (ADRs 0026/0027, PR #178).
+
+- Every stage and loadout moved from Go literals to embedded JSON; `--list-loadouts` shows the merged catalog.
+- CommNet: per-stage command-source (crewed/probe) and antenna (direct/relay), per-tick relay graph, "NO SIGNAL" gating.
+- Comms chip and relay-path beam on the orbit map; crewed vessels are never gated. No save break.
+
+### v0.21.0
+
+Missions arrive: an opt-in tutorial-to-challenge ladder gives the sandbox a purpose (ADR 0025, PRs #171–#177).
+
+- Data-authored Objective→Mission→Program model; two objective families (state predicates, semantic-action events).
+- Embedded ladder (orient → plan → fly → Luna → Mars), enabled from Settings, off by default.
+- Missions screen shows the gated ladder; an in-flight checklist chip tracks the current step.
+- Save v8→v9 (soft: old saves load, mission progress resets).
+
+### v0.20.0
+
+Body textures are now authored as data, and user-overlay systems can ship their own (ADR 0024, PRs #167–#170).
+
+- Generic JSON texture engine with typed Feature Kinds (continents, craters, bands, spots, mask, star).
+- All 17 Lumen and 12 Sol bodies migrated; net −1215 lines. No save break.
+
+### v0.19.0
+
+Predicted encounter paths read cleanly instead of wobbling (ADR 0023, PR #166).
+
+- Planted-leg foreign-SOI arcs and in-SOI residence arcs sampled analytically from the encounter conic, not fixed steps.
+- No save break.
+
+### v0.18.5
+
+QWERTZ keyboards get a layout preset so every binding stays under the same finger (ADR 0022, PR #165).
+
+- Layout selector in `[Controls]` remaps the physical Y↔Z swap.
+- Implemented as ingest-normalize + display-translate; keymap stays authored in QWERTY. No save break.
+
+### v0.18.4
+
+The purple post-burn preview no longer vanishes at ignition, and yaw moves to the shift+arrow keys (PRs #162, #163).
+
+- Dashed orbit, SOI-pass arc, and SOI ring are snapshotted on the last coasting frame and held during the burn.
+- Yaw moved from `{`/`}` to `shift+←`/`shift+→` to match the tilt keys. No save break.
+
+### v0.18.3
+
+Encounter arcs now draw body-relative and the camera stops fighting you (ADR 0021, PRs #152–#160).
+
+- Foreign-SOI segments anchored to the encounter body's current position: 47.8× SOI smear collapses to 1.0×.
+- Camera Contract: fit once per Framing Event, never per frame.
+- Also ships SOI rings, entry/exit markers, in-SOI continuation, and a split-capture aim fix. No save break.
+
+### v0.18.2
+
+Manual zoom now sticks during encounter framing (PR #146).
+
+- v0.18.1's framing re-fit every frame, overwriting `+`/`-` on the next tick.
+- Canvas scale is now `baseScale × userZoom`; auto-fit owns the base until the next Framing Event. No save break.
+
+### v0.18.1
+
+Focusing a body with an active SOI pass now frames the encounter instead of landing up to 169× too far away (PR #145).
+
+- All three framers center on the predicted encounter and fit to the drawn arc's extent. No save break.
+
+### v0.18.0
+
+Live SOI Pass prediction and a unified marker set land on the orbit map (ADRs 0019/0020, PRs #138–#142).
+
+- Single-glyph markers (▲▼◇◆⊕✕Δ) replace the FillDisk blobs; all craft become `➤`.
+- Always-on foreign-SOI arc, Perilune marker, and SOI PASS chip; dual-arc counterfactual when a node is planted.
+- No save break.
+
+### v0.17.3
+
+Planet-to-moon transfers now arrive at the Capture Orbit radius instead of aiming at the body's centre (ADR 0018, PR #131).
+
+- Combined transfer aims at an in-plane offset; capture fires at the analytic hyperbolic perilune.
+- Live TARGET readout shows approach data for body targets. No save break.
+
+### v0.17.2
+
+The dashed line on lunar transfers stops wobbling (ADR 0017, PR #128).
+
+- Both SOI-aware propagators default to interpolated body positions, bisected crossing times, 120 s coast sub-step cap.
+- Predict-on-change cache keeps the dashed line off the per-frame render path. No save break.
+
+### v0.17.1
+
+Diagnostics only: an env-gated harness measures prediction stability across three reference transfers (PR #127).
+
+- No behaviour change.
+
+### v0.17
+
+Boot straight into any scenario from the command line, no save needed (PR #125).
+
+- `--system`, `--orbit`, `--altitude`, `--inclination`, `--launchpad`/`--launch-site`/`--lat`/`--lon`, `--loadout`.
+- `--list-*` discovery flags. No save-schema change.
+
+### v0.16.1
+
+Small hygiene and correctness pass (PRs #122–#124).
+
+- Two-sided guards on the Saturn V ascent test; F1 help gains the `[»Burn]` mouse row.
+- `FlightPhase` vocabulary scaffolded. No save break.
+
+### v0.16
+
+`G` Auto-Warp, and each vessel now lives in its own star system (ADRs 0015/0016).
+
+- Auto-Warp runs at the maximum permitted rate and drops to 1× exactly 30 sim-seconds before the next planted burn.
+- Vessels bind to a System at spawn: the Kern Stack flies Lumen while a Sol craft orbits in parallel.
+- Save v7→v8.
+
+### v0.15
+
+New Lumen system: a 17-body KSP-stock analog at roughly 1/10 scale (ADR 0014, PRs #104–#107).
+
+- About 3.4 km/s to orbit; Scale Class hint on Systems and Loadouts.
+- Kern Stack (4-stage Apollo-analog) is the scale-matched vehicle.
+- Save break: delete your save file to start fresh.
+
+### v0.14
+
+A CSM+LM can spawn already docked in post-transposition shape (ADR 0011, PR #81).
+
+- `NosePayloadPlan` splits a custom build at the Dock Seam and assembles the composite.
+- `[d]` in the configurator cycles the seam; the `csm-lm` module drops the Apollo stack pre-seamed. No save schema bump.
+
+### v0.13
+
+The HUD shrinks to a pinned core chip plus corner chips over a full-width orbit map (ADR 0010).
+
+- Settings screen toggles chip visibility; `F2` declutters.
+- Orbit metrics and the active-burn readout are always on.
+
+### v0.12
+
+Plane-aware transfers, a two-stage Lander, and parachutes (ADRs 0005–0008).
+
+- Numbered craft slots; dual-strategy Hohmann (combined Lambert vs. split coplanar raise).
+- Analytic-Kepler predictor fidelity; Line-of-Nodes split rendezvous.
+- Lander with surface staging; parachutes auto-deploy on dynamic pressure.
+
+### v0.11
+
+Launch chase-cam plus a proper landed/crashed lifecycle (ADR 0004).
+
+- `ViewLaunch` auto-routes on pad launch; `CanSoftLand` decides Touchdown vs. Crashed; `[E]` removes wreckage.
+- Lander silhouette with landing legs, hypergolic flame, per-stage launch sprites.
+
+### v0.10
+
+Planner and maneuver tooling round out.
+
+- Rate-limited attitude slew; true plane-match and inclination burns.
+- Multi-rev porkchop with short/long-branch picker; rendezvous advisory (`K`); perspective-tilt orbit view.
+
+### v0.9
+
+The fleet grows up: staging, ground launch, rendezvous tooling, navball.
+
+- Unified Target slot; KSP-style staging chain (`space`) with Saturn V.
+- Launchpad spawn, surface SAS, pitch trim, LAUNCH HUD.
+- TCA/CA/DOCK READY readouts, NavMode cycle `;`, `C` circularize.
+- Navball; solar lighting and eclipses.
+
+### v0.8
+
+Multi-craft polish: RCS, docking, drag, and a proper spawn form.
+
+- RCS/monopropellant; multi-craft slate with per-craft burns; craft types and spawn form.
+- Docking and undocking; atmospheric drag; sim-time planet rotation with view-aware projection.
+- Adaptive warp clamps; iterate-for-target finite burns.
+
+### v0.7
+
+Modding, manual flight, and textured planets.
+
+- External system/theme overlays; manual-flight stick (throttle + attitude keys).
+- Inclination-change planner; textured Earth/Moon/Mars/Jupiter.
+
+### v0.6
+
+Planner UX and the first mission scaffold.
+
+- Burn-at-next scheduler, projected-orbit HUD, finite-burn-aware iteration.
+- Moon→parent escape planner; click-only mouse.
+
+### v0.5
+
+Moons and visuals.
+
+- Body hierarchy with major moons (Luna, Phobos/Deimos, Galilean, Titan, Enceladus).
+- Per-body color, vessel trail, HUD polish.
+
+### v0.4
+
+Save and load arrive.
+
+- Versioned save/load envelope; mid-course refinement.
+
+### v0.3
+
+Interplanetary transfers.
+
+- Lambert solver, porkchop plot, auto-plant Hohmann transfers.
+
+### v0.2
+
+Burns.
+
+- Spacecraft, impulsive burns, finite-burn integrator.
+
+### v0.1
+
+Foundation.
+
+- Heliocentric viewer, Verlet integrator, body catalog.
