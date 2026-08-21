@@ -2,74 +2,65 @@
 
 # Terminal Space Program
 
-Terminal-native orbital-mechanics rocket simulator. A take on Kerbal Space
-Program that lives in your terminal, distributed as a single static Go binary.
-
-## Inspiration
-
-I love **Kerbal Space Program**, I love **TUI Applications**. I decided the two should be married for when I'm bored and have a terminal available.
-
-## The Game
+A Kerbal Space Program for your terminal: a real orbital-mechanics rocket
+simulator drawn in braille-canvas graphics, driven entirely from the keyboard,
+and shipped as a single static Go binary.
 
 <img align="right" width="250" src="media/orbit-rendering.gif" alt="Orbit rendering in the launch / landing chase-cam view">
 
-By default, you spawn in an Apollo-style SIV-B in a 500km circular orbit. Switch targets to Moon (press t to switch and T to clear). Plant a Hohmann transfer + inclination change (press H). Or, fly it all manually. See **[Controls & flight guide](docs/controls.md)** for a quick tour, a launch walkthrough, and the full list of keys.
+I love **Kerbal Space Program** and I love **TUI applications**, so I married
+the two for whenever I'm bored and have a terminal available.
 
-Plan transfers between planets and moons, fly your rocket off the pad and into orbit
-by hand, rendezvous and dock, stage away spent boosters, and bring a capsule
-home under parachute, all drawn with braille-canvas graphics and driven from
-the keyboard. No mouse required, no GUI, just a single binary in your terminal.
+Plan transfers between planets and moons, fly your rocket off the pad and into
+orbit by hand, rendezvous and dock, stage away spent boosters, and bring a
+capsule home under parachute. No mouse, no GUI.
 
-Under the hood it's a real orbital-mechanics sim: gravity, fuel, atmospheric drag, and timing all
-matter, the way they do in real life. Unlike KSP (without mods), the default game renders our solar system. Launches are hard, they take 7.5km/s for LEO - just like real life. The moon is inclined, the earth is tilted on its axis. To match the real solar systems, there are real life vessels with accurate loadouts of thrust.
+Under the hood it's a real sim: gravity, fuel, atmospheric drag, and timing all
+matter the way they do in real life. The default game renders our own solar
+system at full scale. Reaching low Earth orbit costs 7.5 km/s, the Moon's orbit
+is inclined, the Earth is tilted on its axis, and the shipped vessels are real
+rockets with accurate thrust and fuel loadouts.
 
-Recently introduced: a familiar 1/10th-scale system named Lumen; home to a familiar planet, Kernel, with two moons, Cursor and Glyph - and a nearby red planet, Rust. A Lumen-specific vessel is scaled to that environment. It's a little rough appearance-wise as no textures have ported over to that system, but vessels fly and hit familiar Delta-V marks for launch, Cursor (Mun) transfers, etc. From a default game launch press TAB to cycle through the available solar systems until you reach Lumen. Press F to cycle to the planet Kernel, then press N to spawn a vessel there.
+## Features
 
-Each vessel is bound for its lifetime to the system it spawns in: the simulator flies every vessel against its own system and the camera follows your *active* vessel's system, so a vessel parked in Sol keeps orbiting while you fly in Lumen (TAB stays a browse-only camera toggle). Adding Lumen also changed the body catalog, so the on-disk save format moved to v8; older saves auto-migrate on load.
+- **Patched-conic physics.** Symplectic integration in free flight, RK4 under
+  thrust with rocket-equation mass loss, sphere-of-influence handoffs, drag,
+  and surface contact.
+- **Five star systems.** Sol at full scale, plus **Lumen**, a familiar
+  1/10th-scale system (Kernel with its moons Cursor and Glyph, and the red
+  planet Rust) with its own scaled vessels, and three exoplanet systems.
+  `TAB` cycles systems; a vessel stays bound to the system it spawned in.
+- **Maneuver planning.** Plant and edit burn nodes, one-key Hohmann transfers
+  with inclination change (`H`), Lambert and porkchop solvers, and a live
+  projected post-burn orbit.
+- **Encounter preview.** When your trajectory enters a body's sphere of
+  influence the map draws the full arc (entry, perilune, exit) with an
+  always-on **SOI PASS** chip. `j` steps a highlight through every marker the
+  map drew and names it; `f` focuses the body so the capture curve fills the
+  canvas.
+- **Vehicle Assembly Building.** `Esc → [Build (VAB)]` composes engines,
+  tanks, command cores, antennas, and structure into stages with a live
+  **Δv / TWR / mass** readout. Crack open a shipped rocket to tweak it, set a
+  Σ Δv target, and your designs appear in the spawn form next to the built-in
+  fleet.
+- **Staging, docking, and payloads.** Player-managed decouple chains, docking
+  with a proximity view, nose payloads on dock seams, deployable comsats, and
+  a CommNet link model.
+- **Multiplayer over ssh.** Host from your own game; guests join from any
+  terminal, each with their own persistent program and independent time.
+- **Saves that stay out of the way.** Named saves, `F5`/`F9` quicksave, and
+  rotating autosaves, all flat files under
+  `~/.local/state/terminal-space-program/saves/`.
+- **Data, not code.** Star systems, vessels, and parts are JSON; drop files in
+  `~/.config/terminal-space-program/` to add or override any of them.
 
-When your live trajectory is heading into a body's sphere of influence, the orbit map draws the full encounter arc ahead of arrival (entry, perilune, and exit) with a Perilune `⊕` marker and an always-on **SOI PASS** chip showing the altitude and time to closest approach. No need to target the body first. Every orbital marker (apoapsis, periapsis, nodes, closest approach, maneuver nodes) is now a single colored glyph: shape is type, color is type, brightness is state (nominal / counterfactual / alarm). Press `j` to step a highlight through everything the map drew and name it, so color is free to mean state instead of identity. To read an encounter up close, press `f` to focus the body it passes. The camera fits to the body's sphere of influence so the capture curve fills the canvas, and from there the view is yours: `+`/`-` zoom is remembered per focus, so switching away and back returns you to the zoom you left it at.
+## Quick start
 
-Recently introduced: an in-game **Vehicle Assembly Building (VAB)**. From the
-main view press `Esc → [Build (VAB)]` to design your own rocket from fine
-parts: compose engines, fuel tanks, command cores, antennas, and structure
-into stages, stack the stages, mark dock seams for nose payloads, and watch a
-live **Δv / TWR / mass** readout as you build. Editing is in place,
-maneuver-form style: you open onto a stage, press `←/→` on its engine or tank
-row to swap that part within its kind (the engine leads the stage's chemistry),
-`+/-` to add more, and `enter` on a shipped catalog part (an S-IVB, a Falcon
-booster) to **crack it open** into editable components and tweak from there. Set
-a `t` **Σ Δv target** and a tank row will hint how many tanks close the gap.
-Save a design and it shows up in the spawn form (`n`) alongside the built-in
-vessels, so you design once and launch many. Designs are portable files under
-`~/.config/terminal-space-program/designs/` (KSP `.craft`-style); drop one into
-the sibling `loadouts/` overlay dir to share it as a mod. Multiple engines in a
-stage combine honestly (thrust adds, Isp is the thrust-weighted blend) and a
-stage holds a single fuel chemistry, so everything you build flies on the same
-honest physics as the shipped fleet.
-
-Recently introduced: a multi-save system. `Esc → [Save Game]` / `[Load Game]`
-opens one browser for every save: your named saves (create one with the
-`＋ New save…` row, or overwrite an existing one), plus the managed quicksave
-lane (`F5` to save, `F9` to instant-load, no confirm) and three rotating
-autosaves (a real-time interval, 5 minutes by default and tunable in Settings,
-plus one on quit). The old single `save.json` is auto-imported as a named save
-the first time you launch this version and is left in place, untouched, as a
-downgrade safety net. Saves are flat, independent files under
-`~/.local/state/terminal-space-program/saves/` (`$XDG_STATE_HOME` if set). No
-save-schema change, so existing saves load exactly as before.
-
-Recently introduced: undocking (or drifting back together afterward) holds
-a pair apart even once you settle back inside docking range, so a stray
-touch doesn't silently re-fuse two vessels you meant to keep apart. The
-dock-gate ring in Proximity View (`o`) shows amber rather than green while
-it's held. Clearing 100 m, or waiting it out, releases the hold the old
-way; pressing `c` says "yes, I meant it" and re-arms right where you are,
-naming who it cleared. The ordinary case of undocking and immediately
-wanting to dock again no longer costs a 200 m round trip.
-
-The visual foundation was lifted (with MIT attribution) from
-[furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
-[NOTICE.md](NOTICE.md) for the full acknowledgments list.
+You spawn in an Apollo-style **S-IVB** in a 500 km circular Earth orbit.
+Press `t` to target the Moon (`T` clears it), then `H` to plant a Hohmann
+transfer with inclination change, or fly it all by hand. `F1` shows every key
+in-game. See the **[controls & flight guide](docs/controls.md)** for a tour, a
+launch walkthrough, and the full key list.
 
 ## Install
 
@@ -88,9 +79,10 @@ scoop install terminal-space-program
 
 ### NixOS / Nixpkgs
 
-[terminal-space-program](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/te/terminal-space-program/package.nix) is on [nixpkgs unstable](https://search.nixos.org/packages?channel=unstable&query=terminal-space-program) and is scheduled to be included in the 26.11 stable release. Packaged and maintained by [@tomasriveral](https://github.com/tomasriveral), thank you!
+[terminal-space-program](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/te/terminal-space-program/package.nix) is on [nixpkgs unstable](https://search.nixos.org/packages?channel=unstable&query=terminal-space-program) and is scheduled for the 26.11 stable release. Packaged and maintained by [@tomasriveral](https://github.com/tomasriveral), thank you!
 
-To try it temporarily :
+To try it temporarily:
+
 ```bash
 # legacy command
 nix-shell -p terminal-space-program
@@ -99,10 +91,10 @@ nix-shell -p terminal-space-program
 nix run github:nixos/nixpkgs/nixpkgs-unstable#terminal-space-program
 ```
 
-For a permanent installation, add `pkgs.terminal-space-program` to `environment.systemPackages` or `home.packages` if you prefer using Home Manager.
+For a permanent installation, add `pkgs.terminal-space-program` to `environment.systemPackages`, or to `home.packages` if you use Home Manager.
 
-> [!Note]
-> For all nixpkgs specific issues (eg: outdated version, build failure, functionalities not working on nixpkgs), please [open an issue on nixpkgs](https://github.com/NixOS/nixpkgs/issues) and ping the package maintainer  @tomasriveral.
+> [!NOTE]
+> For nixpkgs-specific issues (outdated version, build failure, something not working on nixpkgs), please [open an issue on nixpkgs](https://github.com/NixOS/nixpkgs/issues) and ping the package maintainer @tomasriveral.
 
 ### Direct download
 
@@ -126,13 +118,13 @@ go build ./cmd/terminal-space-program
 ./terminal-space-program
 ```
 
-Requires Go 1.24 or newer.
+Requires Go 1.25 or newer.
 
 ## Command-line flags
 
 By default the game opens with a vessel in low Earth orbit. Flags let you jump
 straight to a different start: a system, a body to orbit or launch from, an
-orbit altitude and inclination, or a named launch site:
+orbit altitude and inclination, or a named launch site.
 
 ```bash
 terminal-space-program --orbit moon --altitude 100km          # 100 km lunar orbit
@@ -157,82 +149,24 @@ terminal-space-program serve invite dave       # mint a one-time invite code
 ssh -p 23234 your-host                         # guests join from any terminal
 ```
 
-You can also start hosting from inside a running game, with no restart, no
-`--serve`: open the `O` session roster and press `h` (press it again to stop,
-which drops guests but keeps everyone's progress).
+Guests enroll once with an invite code and get their own persistent space
+program on your machine. Everyone warps time independently; other players show
+as ghost orbits on your map, and the `O` session roster lets you target, sync
+to, spectate, or rendezvous-warp with them. Get close enough and your clocks
+couple, so you can dock across players, hand over control of a shared stack,
+and coordinate it all in the in-game chat (`~`).
 
-Running the session lives on that roster too. The host mints (`i`) and revokes
-(`r`) invite codes and removes players (`x`), and can share the load: `p`
-promotes a player to **admin**, who then handles invites and removals without
-being able to promote anyone else, remove another admin, or remove the host.
-`F4` restarts the server: everyone is warned, drained with their progress
-saved, and reconnects a moment later; on a box set up to self-update, the same
-key adopts a newer release when one is published. (Deliberately not a letter:
-no irreversible admin action shares a key with a flight verb.)
-
-Guests enroll once with the invite code (their ssh key becomes their identity)
-and get their own persistent space program on your machine. Everyone warps
-time **independently**: other players appear as dim "ghost" vessels, with their
-orbits drawn on your map, evaluated at *your* clock, and the `O` session
-roster shows who's ahead or behind. From that roster, `t` targets one of their
-vessels (with more than one in your system, it opens a picker so you aim at the
-right vessel), `s` sync-warps you forward to a player's time to fly formation,
-and `v` **spectates** a player,
-fitting the camera to their ghost orbit and following it so you can watch their
-burns play out. Warp clamps, planted burns, and SOI transitions are all honored
-en route.
-
-Closing the distance takes orbits of coasting, so warp there *together*:
-`w` on a player's roster row arms a **rendezvous warp** toward your predicted
-closest approach with them. They get a persistent prompt on their main screen
-(`y` joins), and from that moment your warps are rate-locked all
-the way to the encounter, planted burns firing en route. Either side cancels
-with `/`, and only with `/`: the manual warp keys and the auto-warp
-toggle (`G` / `[»Burn]`) are inert while the coast runs (it owns the
-rate), so a stray `.` or `G` can't tear the rendezvous down. If the encounter drifts off the committed approach mid-coast, a
-warning chip says so. You arrive at closest approach at 1×, already coupled,
-and slide straight into the final approach.
-
-**The agreement doesn't end there.** Arriving hands the vessel back so you can
-brake at closest approach, but the two of you stay time-locked through the
-whole terminal phase (the burns, the waiting, the last few hundred metres)
-so nobody has to sit at 1× while the other lines up. In that phase the player
-who *proposed* the rendezvous flies the pair's clock; whoever joined rides
-copilot, and can brake the pair (`,`) or release back to following (`.`) but
-never push it faster. Either side burning holds you both at the burn cap. The
-`RENDEZVOUS` block on the map always says whose clock you're on and what's
-holding it, so a warp key that does nothing always explains itself. It ends
-when you dock, or when either of you presses `/`. Flying 100 km wide to set up
-a better approach won't drop it.
-
-Proximity does the rest for players with no agreement: come within 35 km of a
-player you're synced with, closing slower than 100 m/s, and your time-warp
-**couples** to theirs, so neither can skip ahead during the approach. A
-`TIME LOCK` line says who and at what rate. The session roster's `RANGE` column
-shows how close you already are. Dock your vessel to theirs and you fly one
-shared stack: the guest can `U` undock their own component at any time, and
-the pilot can hand the whole stack over with `J` **transfer control** (refused
-if they aren't in the session; someone has to be there to take the stick).
-Nobody ever gets stuck: the pilot's `U` releases a partner's vessel even if
-they've disconnected, and it's waiting for them, safed, when they come back;
-and if the pilot is the one who's gone, the guest riding their stack can
-press `J` right back to take the stick themselves. An empty seat needs
-nobody's permission.
-
-Coordinate it all without leaving the sim: `~` opens **chat** on the flight
-view. Type and press enter to broadcast to the session; a leading `@handle`
-sends a private line (tab completes the handle against who's online; a typo
-refuses to send rather than broadcasting by accident). The sim keeps running
-while you type, `esc` bails, and messages ride the map as transient chips for
-~30 seconds. Chat is live coordination, not a message board: nothing is
-stored, and it never depends on your vessel's CommNet link.
+The **[multiplayer guide](docs/multiplayer.md)** covers hosting from inside a
+running game, admins, rendezvous warp and the terminal phase, cross-player
+docking, and chat.
 
 ## Custom vehicles
 
 Vehicle loadouts and stage parts are **data, not code**. Drop a `.json` file in
 `~/.config/terminal-space-program/loadouts/` (or under `$XDG_CONFIG_HOME`) to add
 your own loadouts and parts, or override a built-in by reusing its `id`. A loadout
-is an ordered list of part references; a part is one atomic stage. Run
+is an ordered list of part references; a part is one atomic stage. Designs saved
+from the VAB land in the sibling `designs/` directory in the same format. Run
 `terminal-space-program --list-loadouts` to see the merged catalog and confirm
 yours loaded; a malformed file is skipped with a warning, never failing the rest.
 See the [command-line reference](docs/cli.md#custom-vehicles) for the format.
@@ -241,15 +175,21 @@ See the [command-line reference](docs/cli.md#custom-vehicles) for the format.
 
 - **[Controls & flight guide](docs/controls.md)**: a quick tour, a launch
   walkthrough, and the full list of keys.
+- **[Multiplayer guide](docs/multiplayer.md)**: hosting, independent time,
+  rendezvous warp, cross-player docking, and chat.
 - **[Constellation deployment](docs/constellation-deploy.md)**: dropping an
   evenly-spaced ring of comsats from one carrier, and the phasing-orbit math
   that makes it cheap.
 - **[Command-line reference](docs/cli.md)**: every startup flag with examples.
 - **[Version history](docs/version-history.md)**: what landed in each release.
 
-## License
+## Credits and license
 
 MIT. See [LICENSE](LICENSE).
+
+The visual foundation was lifted (with MIT attribution) from
+[furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
+[NOTICE.md](NOTICE.md) for the full acknowledgments list.
 
 ## Star History
 
