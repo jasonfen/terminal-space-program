@@ -86,9 +86,9 @@ scoop bucket add jasonfen https://github.com/jasonfen/scoop-bucket
 scoop install terminal-space-program
 ```
 
-### Nixos / Nixpkgs
+### NixOS / Nixpkgs
 
-[terminal-space-program](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/te/terminal-space-program/package.nix) is on [nixpkgs unstable](https://search.nixos.org/packages?channel=unstable&query=terminal-space-program) and is scheduled to be included in the 26.11 stable release.
+[terminal-space-program](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/te/terminal-space-program/package.nix) is on [nixpkgs unstable](https://search.nixos.org/packages?channel=unstable&query=terminal-space-program) and is scheduled to be included in the 26.11 stable release. Packaged and maintained by [@tomasriveral](https://github.com/tomasriveral), thank you!
 
 To try it temporarily :
 ```bash
