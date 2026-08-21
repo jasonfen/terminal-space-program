@@ -86,6 +86,24 @@ scoop bucket add jasonfen https://github.com/jasonfen/scoop-bucket
 scoop install terminal-space-program
 ```
 
+### NixOS / Nixpkgs
+
+[terminal-space-program](https://github.com/NixOS/nixpkgs/blob/master/pkgs/by-name/te/terminal-space-program/package.nix) is on [nixpkgs unstable](https://search.nixos.org/packages?channel=unstable&query=terminal-space-program) and is scheduled to be included in the 26.11 stable release. Packaged and maintained by [@tomasriveral](https://github.com/tomasriveral), thank you!
+
+To try it temporarily :
+```bash
+# legacy command
+nix-shell -p terminal-space-program
+
+# flake command
+nix run github:nixos/nixpkgs/nixpkgs-unstable#terminal-space-program
+```
+
+For a permanent installation, add `pkgs.terminal-space-program` to `environment.systemPackages` or `home.packages` if you prefer using Home Manager.
+
+> [!Note]
+> For all nixpkgs specific issues (eg: outdated version, build failure, functionalities not working on nixpkgs), please [open an issue on nixpkgs](https://github.com/NixOS/nixpkgs/issues) and ping the package maintainer  @tomasriveral.
+
 ### Direct download
 
 ```bash
