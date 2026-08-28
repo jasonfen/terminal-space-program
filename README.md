@@ -193,10 +193,4 @@ The visual foundation was lifted (with MIT attribution) from
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=jasonfen%2Fterminal-space-program&type=date&legend=bottom-right">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&theme=dark&legend=bottom-right&sealed_token=dbwjcj7yk5KnzsyrH6GvpkZ9uYMbo-cqySjIk2qjHWcbz8FWAE3joeX41ruigOvYcuim7wL57pKOb3OLyvdIobXwjsULwza07zkUdQ13jeYLAF6M2qGxXykxRAoJcewhjzYYDGSDd3VaIzW8CKc2iv9Grg1Rz0-h3vkXpUPxhNfzGLar0_VyF4BnQfvj" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&legend=bottom-right&sealed_token=dbwjcj7yk5KnzsyrH6GvpkZ9uYMbo-cqySjIk2qjHWcbz8FWAE3joeX41ruigOvYcuim7wL57pKOb3OLyvdIobXwjsULwza07zkUdQ13jeYLAF6M2qGxXykxRAoJcewhjzYYDGSDd3VaIzW8CKc2iv9Grg1Rz0-h3vkXpUPxhNfzGLar0_VyF4BnQfvj" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&legend=bottom-right&sealed_token=dbwjcj7yk5KnzsyrH6GvpkZ9uYMbo-cqySjIk2qjHWcbz8FWAE3joeX41ruigOvYcuim7wL57pKOb3OLyvdIobXwjsULwza07zkUdQ13jeYLAF6M2qGxXykxRAoJcewhjzYYDGSDd3VaIzW8CKc2iv9Grg1Rz0-h3vkXpUPxhNfzGLar0_VyF4BnQfvj" />
- </picture>
-</a>
+[![Star History Chart](https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&legend=bottom-right&sealed_token=dbwjcj7yk5KnzsyrH6GvpkZ9uYMbo-cqySjIk2qjHWcbz8FWAE3joeX41ruigOvYcuim7wL57pKOb3OLyvdIobXwjsULwza07zkUdQ13jeYLAF6M2qGxXykxRAoJcewhjzYYDGSDd3VaIzW8CKc2iv9Grg1Rz0-h3vkXpUPxhNfzGLar0_VyF4BnQfvj)](https://www.star-history.com/?repos=jasonfen%2Fterminal-space-program&type=date&legend=bottom-right)
