@@ -8,13 +8,16 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
-// TestEngageRendezvousNoEncounterCoachesPhasingBurn — ADR 0039 S2 / #277:
-// a genuinely stalemated geometry (matched circular orbit, opposite
-// phase — zero relative drift, an encounter can never form on the
-// current courses, #276) must refuse Engage with the doctrine's own
-// phasing-burn remedy, not the old "plant a rendezvous nudge [K] first"
-// — which dead-ended into K's OWN refusal with no explanation on either
-// side.
+// TestEngageRendezvousNoEncounterCoachesPhasingBurn — PR #392 review
+// finding 1 supersedes ADR 0039 S2 / #277 for this refusal: a genuinely
+// stalemated geometry (matched circular orbit, opposite phase — zero
+// relative drift, an encounter can never form on the current courses,
+// #276) with NO rendezvous nudge planted must refuse Engage with #276's
+// own requested remedy, "plant a rendezvous nudge [K] first" — no
+// longer a dead end now that RendezvousCommit actually honors a planted
+// node (finding 1), so pointing at K is a real next step again instead
+// of the generic phasing-coach line ADR 0039 S2 substituted when it
+// wasn't.
 func TestEngageRendezvousNoEncounterCoachesPhasingBurn(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
@@ -45,10 +48,7 @@ func TestEngageRendezvousNoEncounterCoachesPhasingBurn(t *testing.T) {
 	if app.statusMsg == "" {
 		t.Fatal("Engage produced no status message")
 	}
-	if strings.Contains(app.statusMsg, "plant a rendezvous nudge") {
-		t.Errorf("refusal still points at K instead of coaching the phasing burn directly: %q", app.statusMsg)
-	}
-	if !strings.Contains(app.statusMsg, "make a phasing burn") {
-		t.Errorf("refusal %q missing the phasing-coach remedy", app.statusMsg)
+	if !strings.Contains(app.statusMsg, "plant a rendezvous nudge") {
+		t.Errorf("refusal %q missing the #276 remedy (plant a rendezvous nudge [K] first)", app.statusMsg)
 	}
 }

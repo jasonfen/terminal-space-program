@@ -6,6 +6,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -187,23 +188,50 @@ const rendezvousCommitHorizonSec = 4 * 3600.0
 
 // RendezvousCommit returns the encounter the initiator commits a
 // Rendezvous Warp to (v0.29 S2, ADR 0034 v0.29 addendum): the absolute
-// τ and its predicted approach against the current relative target,
-// found on the players' CURRENT courses — no burn assumed. ok=false
-// when no encounter can be found at all: no relative target,
+// τ and its predicted approach against the current relative target.
+// ok=false when no encounter can be found at all: no relative target,
 // cross-primary, or no approach inside the horizon — the App toasts
 // instead of arming.
 //
-// #276: this used to prefer the K-nudge advisory's post-burn encounter
-// on the theory that the initiator would go on to plant (K) and fly
-// that burn — but Engage never plants the nudge itself, so with two
-// craft on matched orbits (zero relative drift, no approach on the
-// current course) the advisory could still find a hypothetical nudge
-// and Engage would silently commit to ITS post-burn closest approach:
-// an encounter the player was never actually flying toward. Committing
-// only to the current-course search means a phantom advisory can no
-// longer bypass the "no real encounter" refusal below; a player who
-// wants the advisory's encounter must plant it with K first, then
-// Engage sees it via their new current course.
+// Two sources, tried in order:
+//
+//  1. A PLANTED rendezvous nudge (K). If the active craft is currently
+//     carrying an unfired ManeuverNode tagged AdvisoryKeyRendezvousNudge,
+//     the encounter is found on the course that node actually promises:
+//     forward-integrate to the node's own TriggerTime, apply its Δv
+//     (PostBurnState), Kepler-propagate the target to the same instant,
+//     then search from there. This is the real course the player is
+//     already committed to flying — the burn is queued and will fire on
+//     its own; Engage is just naming where it leads.
+//  2. Falls back to the CURRENT-course search (no burn assumed) when no
+//     such node is planted, or the node doesn't yield an encounter
+//     inside the horizon.
+//
+// ok=false from both means there is genuinely no encounter to commit to
+// yet: the App's refusal names the doctrine's actionable remedy, plant
+// a nudge with K first (see app.go's SessionCmdRendezvous handling).
+//
+// #276: this used to prefer the K-nudge ADVISORY's post-burn encounter
+// — the HUD preview, computed fresh every tick whether or not the
+// player ever presses K — on the theory that the initiator would go on
+// to plant and fly it. But Engage never plants the nudge itself, so
+// with two craft on matched orbits (zero relative drift, no approach on
+// the current course) the advisory could still preview a hypothetical
+// nudge and Engage would silently commit to ITS post-burn closest
+// approach: an encounter the player was never actually flying toward.
+// The fix restricted RendezvousCommit to the current-course search only
+// — closing that hole, but also making the refusal's own prescribed
+// remedy ("plant a nudge [K] first") a dead end: planting a node alone
+// doesn't touch active.State (only FIRING does), so the very next
+// Engage press hit the identical current-course refusal again with no
+// way out (PR #392 review, finding 1).
+//
+// The fix here is narrower than the pre-#276 behavior it replaces: it
+// doesn't resurrect the transient advisory preview, it honors an
+// ACTUALLY-PLANTED node — one the player pressed K to queue, which will
+// fire on its own whether or not Engage ever runs. Committing to that
+// course is not committing to a "hypothetical" burn; the burn is
+// already scheduled.
 // rendezvousGapNoteBar is the "far above the lock gate" bar for the
 // engage-time gap note (ADR 0039 S3, #281): a generous multiple of the
 // couple gate, not "just outside" it — a committed CA a little past
@@ -249,6 +277,18 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 		return time.Time{}, 0, false
 	}
 	mu := active.Primary.GravitationalParameter()
+
+	// Source 1: an actually-planted rendezvous nudge (finding 1). Tried
+	// first — a queued, self-firing burn is a more concrete commitment
+	// than the no-burn current course, so when both would yield an
+	// encounter the planted one wins.
+	if node, nok := plantedAdvisoryNode(active, AdvisoryKeyRendezvousNudge); nok {
+		if t, c, cok := w.rendezvousCommitFromPlantedNode(active, node, rT, vT, mu); cok {
+			return t, c, true
+		}
+	}
+
+	// Source 2: the current-course fallback (no burn assumed).
 	tCA, distCA, _, err := planner.NextClosestApproach(
 		orbital.Vec3State{R: active.State.R, V: active.State.V},
 		orbital.Vec3State{R: rT, V: vT},
@@ -257,6 +297,40 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 		return time.Time{}, 0, false
 	}
 	return w.Clock.SimTime.Add(time.Duration(tCA * float64(time.Second))), distCA, true
+}
+
+// rendezvousCommitFromPlantedNode computes the encounter a planted
+// rendezvous-nudge node actually leads to: forward-integrate the active
+// craft to the node's TriggerTime and apply its Δv (PostBurnState),
+// Kepler-propagate the target's CURRENT relative state (rT, vT) forward
+// by the same dt so both sides are compared at the same instant, then
+// search for a closest approach from there. ok=false when the node is
+// already past-due, PostBurnState lands in a different primary's frame
+// (an SOI crossing before the burn fires — the target's frame no longer
+// matches, so no meaningful comparison exists), the target's coast
+// doesn't admit a Kepler propagation (hyperbolic/degenerate — KeplerStep
+// returns ok=false), or no approach turns up inside the horizon.
+func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, node spacecraft.ManeuverNode, rT, vT orbital.Vec3, mu float64) (time.Time, float64, bool) {
+	dt := node.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+	if dt <= 0 {
+		return time.Time{}, 0, false
+	}
+	postState, primaryID := w.PostBurnState(node)
+	if primaryID != active.Primary.ID {
+		return time.Time{}, 0, false
+	}
+	targetState, ok := physics.KeplerStep(physics.StateVector{R: rT, V: vT}, mu, dt)
+	if !ok {
+		return time.Time{}, 0, false
+	}
+	tCA, distCA, _, err := planner.NextClosestApproach(
+		orbital.Vec3State{R: postState.R, V: postState.V},
+		orbital.Vec3State{R: targetState.R, V: targetState.V},
+		active.Primary, mu, rendezvousCommitHorizonSec)
+	if err != nil || tCA <= 0 {
+		return time.Time{}, 0, false
+	}
+	return node.TriggerTime.Add(time.Duration(tCA * float64(time.Second))), distCA, true
 }
 
 // rendezvousWaypointMinLead is the minimum forward distance a newly

@@ -97,6 +97,27 @@ func (w *World) replaceAdvisoryNode(c *spacecraft.Spacecraft, key string) {
 	c.Nodes = kept
 }
 
+// plantedAdvisoryNode returns c's currently-queued node carrying the
+// given AdvisoryKey, and ok=false when none is planted (key is empty,
+// c is nil, or no queued node matches). Companion to replaceAdvisoryNode
+// — that one strips a stale advisory node before a fresh plant; this one
+// lets a caller (RendezvousCommit, PR #392 review Finding 1) find and
+// honor one that's already sitting there. Same "every node in c.Nodes is
+// by definition unfired" invariant applies (see replaceAdvisoryNode):
+// once the node fires it's popped out of c.Nodes, so a hit here always
+// means "planted but not yet flown".
+func plantedAdvisoryNode(c *spacecraft.Spacecraft, key string) (spacecraft.ManeuverNode, bool) {
+	if key == "" || c == nil {
+		return spacecraft.ManeuverNode{}, false
+	}
+	for _, n := range c.Nodes {
+		if n.AdvisoryKey == key {
+			return n, true
+		}
+	}
+	return spacecraft.ManeuverNode{}, false
+}
+
 // nodeByID returns the planted node with stable ID nodeID on the craft
 // with stable ID craftID, and ok=false when either no longer resolves —
 // the craft was removed, the node was deleted or re-planted, or an id is

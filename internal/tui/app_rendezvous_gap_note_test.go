@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
@@ -35,6 +36,33 @@ func lagGhostWorld(a *App, angleDeg float64) {
 	}}
 }
 
+// gapGhostBeside mirrors ghostBesideActive (app_rendezvous_test.go,
+// #276's converging-geometry fixture) with a controllable lateral
+// offset: relR carries both the 50 km closing-axis offset and a
+// lateralOffsetM component the closing velocity never cancels, so the
+// resulting current-course closest approach lands near lateralOffsetM
+// itself rather than collapsing to ~0 on a head-on intercept. Lets the
+// two gap-note tests below dial the committed CA to opposite sides of
+// the far-CA bar (ADR 0039 S3, 3× the 35 km couple gate = 105 km)
+// without relying on a matched-orbit/zero-drift fixture that
+// RendezvousCommit (correctly, #276) always refuses with nothing
+// planted — PR #392 review finding 3.
+func gapGhostBeside(w *sim.World, owner string, craftID uint64, lateralOffsetM float64) sim.Ghost {
+	c := w.ActiveCraft()
+	relR := c.State.R.Add(orbital.Vec3{X: 50_000, Y: lateralOffsetM})
+	closingVel := c.State.V.Add(orbital.Vec3{X: -50})
+	return sim.Ghost{
+		Owner:     owner,
+		CraftID:   craftID,
+		Handle:    "gern",
+		Name:      "Aloft",
+		PrimaryID: c.Primary.ID,
+		Pos:       w.BodyPosition(c.Primary).Add(relR),
+		RelPos:    relR,
+		Vel:       closingVel,
+	}
+}
+
 // TestEngageRendezvousFarCAAddsGapNote — ADR 0039 S3 / #281: Engage on a
 // committed CA far above the 35 km lock gate adds one info line so
 // riding waypoints indefinitely is a visible choice, not a mystery.
@@ -50,12 +78,8 @@ func TestEngageRendezvousFarCAAddsGapNote(t *testing.T) {
 	if a.world.ActiveCraft() == nil {
 		t.Fatal("no active craft in a fresh world")
 	}
-	// -2° of co-orbital lag lands K's own recommended-nudge encounter
-	// (which RendezvousCommit prefers when available) around ~170 km —
-	// comfortably above the 3×-gate bar even though K itself calls the
-	// plant a "success". A K nudge landing outside the couple gate is
-	// exactly the case the gap note exists for.
-	lagGhostWorld(a, -2)
+	// 150 km lateral offset — comfortably above the 105 km far-CA bar.
+	a.world.Ghosts = []sim.Ghost{gapGhostBeside(a.world, "SHA256:gern", 7, 150_000)}
 
 	model, _ := a.applySessionCommand(screens.SessionCommand{
 		Kind: screens.SessionCmdRendezvous, Owner: "SHA256:gern", CraftID: 7, Handle: "gern",
@@ -65,8 +89,8 @@ func TestEngageRendezvousFarCAAddsGapNote(t *testing.T) {
 	if app.statusMsg == "" {
 		t.Fatal("Engage produced no status message")
 	}
-	if strings.Contains(app.statusMsg, "phasing burn") {
-		t.Skipf("Engage refused on this geometry (%q); not exercising the gap note", app.statusMsg)
+	if strings.Contains(app.statusMsg, "plant a rendezvous nudge") {
+		t.Fatalf("Engage refused on a genuinely converging current-course geometry (%q)", app.statusMsg)
 	}
 	if !strings.Contains(app.statusMsg, "a burn will be needed to close this") {
 		t.Errorf("armed status %q missing the far-CA gap note", app.statusMsg)
@@ -82,10 +106,9 @@ func TestEngageRendezvousCloseCANoGapNote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// -0.5° lands K's recommended nudge around ~43 km — just above the
-	// 35 km couple gate itself, but well under the far-CA bar this note
-	// exists for.
-	lagGhostWorld(a, -0.5)
+	// 60 km lateral offset — above the 35 km couple gate itself, but
+	// well under the 105 km far-CA bar this note exists for.
+	a.world.Ghosts = []sim.Ghost{gapGhostBeside(a.world, "SHA256:gern", 7, 60_000)}
 
 	model, _ := a.applySessionCommand(screens.SessionCommand{
 		Kind: screens.SessionCmdRendezvous, Owner: "SHA256:gern", CraftID: 7, Handle: "gern",
@@ -95,8 +118,8 @@ func TestEngageRendezvousCloseCANoGapNote(t *testing.T) {
 	if app.statusMsg == "" {
 		t.Fatal("Engage produced no status message")
 	}
-	if strings.Contains(app.statusMsg, "phasing burn") {
-		t.Skipf("Engage refused on this geometry (%q); not exercising the gap note", app.statusMsg)
+	if strings.Contains(app.statusMsg, "plant a rendezvous nudge") {
+		t.Fatalf("Engage refused on a genuinely converging current-course geometry (%q)", app.statusMsg)
 	}
 	if strings.Contains(app.statusMsg, "a burn will be needed to close this") {
 		t.Errorf("close-CA armed status wrongly carries the gap note: %q", app.statusMsg)

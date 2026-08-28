@@ -53,10 +53,13 @@ func TestRendezvousNudgeSuccessQuotesArrivalSpeed(t *testing.T) {
 		t.Fatal("K produced no status message")
 	}
 	if strings.Contains(a.statusMsg, "rendezvous: ") {
-		// A refusal, not a plant — the fixed small-lag geometry should
-		// always plant, but if planner tuning ever changes that, this is
-		// a clearer failure than a silent false-pass below.
-		t.Skipf("K refused on this geometry (%q); not exercising the success message", a.statusMsg)
+		// A refusal, not a plant — the fixed small-lag geometry is
+		// documented (below) as deterministic and always-plantable, so a
+		// refusal here means the geometry or planner tuning drifted, not
+		// that this test's precondition is merely "not exercised" (PR
+		// #392 review finding 3: a Skipf hedge here would report PASS
+		// while covering nothing).
+		t.Fatalf("K refused on the deterministic small-lag geometry (%q); expected a plant", a.statusMsg)
 	}
 	if !strings.Contains(a.statusMsg, "arriving ~") || !strings.Contains(a.statusMsg, "m/s") {
 		t.Errorf("success status %q missing the arrival-speed info row", a.statusMsg)

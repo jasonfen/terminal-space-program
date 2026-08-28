@@ -7,14 +7,16 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
-// TestEngageRendezvousSmallLagRefusesPhantomArm (#276): a small co-orbital
-// phase lag (same circular orbit, differing only by -0.5°) is the
-// geometry TestEngageRendezvousCloseCANoGapNote already documents as one
-// where the K-nudge advisory finds a real, plantable burn (~43 km
-// post-burn CA). But the player here has not pressed K — no burn has been
-// made, and matched orbits never close on their own. Engage must refuse
-// with the phasing-coach remedy, not silently arm toward the advisory's
-// unfired post-burn encounter.
+// TestEngageRendezvousSmallLagRefusesPhantomArm (#276, wording updated
+// for PR #392 review finding 1): a small co-orbital phase lag (same
+// circular orbit, differing only by -0.5°) is the geometry
+// TestEngageRendezvousCloseCANoGapNote already documents as one where
+// the K-nudge advisory finds a real, plantable burn (~43 km post-burn
+// CA). But the player here has not pressed K — no burn has been made
+// or planted, and matched orbits never close on their own. Engage must
+// refuse (pointing at K, #276's own remedy — now a real next step since
+// RendezvousCommit honors an actually-planted node), not silently arm
+// toward the advisory's unfired preview.
 func TestEngageRendezvousSmallLagRefusesPhantomArm(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
@@ -33,7 +35,7 @@ func TestEngageRendezvousSmallLagRefusesPhantomArm(t *testing.T) {
 	if app.statusMsg == "" {
 		t.Fatal("Engage produced no status message")
 	}
-	if !strings.Contains(app.statusMsg, "phasing burn") {
+	if !strings.Contains(app.statusMsg, "plant a rendezvous nudge") {
 		t.Errorf("Engage armed on a phantom encounter instead of refusing: %q", app.statusMsg)
 	}
 	if app.world.RendezvousArm != nil {

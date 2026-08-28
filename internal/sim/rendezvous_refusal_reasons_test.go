@@ -54,11 +54,15 @@ func TestRendezvousReasonToErr_S1DistinctReasons(t *testing.T) {
 // TestRendezvousReasonToErr_S2PhasingCoachBucket — ADR 0039 S2 / #277:
 // the four inner Lambert-lookahead dead ends share ONE remedy — none of
 // them found a real encounter to score, so K has nothing more specific
-// to say than "make a phasing burn". This is the SAME wording Engage's
-// own no-encounter refusal uses (rendezvousPhasingCoachMsg), so the two
-// refusal chains stop pointing at each other: before this, `w` said "use
-// K", and K said "no useful nudge in range" — a dead end with no
-// explanation on either side (#277).
+// to say than "make a phasing burn" (rendezvousPhasingCoachMsg). PR #392
+// review finding 1 later gave Engage's own refusal its wording back
+// ("plant a rendezvous nudge [K] first", #276) now that a plant-then-
+// Engage sequence actually arms once K finds something — so the two
+// refusal chains no longer share identical text, but they still don't
+// dead-end into each other: Engage points at K, and if K itself also
+// finds nothing (a true matched-orbit stalemate) K names this same
+// phasing-coach remedy instead of repeating Engage's line back
+// unchanged.
 func TestRendezvousReasonToErr_S2PhasingCoachBucket(t *testing.T) {
 	for _, reason := range []string{
 		"no lambert convergence", "degenerate axes", "horizon too short", "ca-verify failed",
