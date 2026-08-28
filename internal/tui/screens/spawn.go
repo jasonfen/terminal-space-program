@@ -34,17 +34,17 @@ type SpawnCraft struct {
 	// sim.ClampToOrbitBand. altNote / altBandEmpty are that call's last
 	// result, kept in lockstep with altM so Render never has to re-derive
 	// them.
-	altM         float64 // metres above the parent's mean radius
-	altEditing   bool    // the typed-edit box is open (§1 state machine)
-	altInput     string  // in-progress digits while altEditing
+	altM       float64 // metres above the parent's mean radius
+	altEditing bool    // the typed-edit box is open (§1 state machine)
+	altInput   string  // in-progress digits while altEditing
 	// altLeftBox arms the ADR's third mockup frame: the player has just
 	// stepped back out of the edit box, so the next Enter LAUNCHES rather
 	// than reopening it. Any other key clears it, so the arming can never
 	// outlive the moment — a player who tabs away and back gets "Enter to
 	// edit" again, and can never launch by an Enter they meant for the box.
-	altLeftBox bool
-	altNote      string  // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
-	altBandEmpty bool    // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
+	altLeftBox   bool
+	altNote      string // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
+	altBandEmpty bool   // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
 
 	latIdx     int // v0.9.2+: latitude preset cursor when posMode=launchpad
 	retrograde bool
@@ -1272,22 +1272,27 @@ func (s *SpawnCraft) altitudeNoteLines(width int) []string {
 // way vessel construction does: crewed if any stage carries a crewed
 // command source, the best stage antenna's rated range (zero → the caller
 // lets the sampler assume the EnsureCommandSource direct-basic backfill
-// every non-debris vessel receives), and relayClass (#283) — whether any
-// stage carries its own AntennaRelay hardware, i.e. this craft IS a relay
-// rather than merely a consumer of one.
+// every non-debris vessel receives), and relayClass (#283) — whether the
+// BUILT VESSEL, once resolved, actually forwards CommNet traffic.
+//
+// Review finding on #283/PR #390: relayClass used to be "any stage carries
+// AntennaRelay hardware," which diverges from what the vessel resolves to.
+// Spacecraft.SyncFields (internal/spacecraft/stage.go) picks the
+// longest-ranged antenna across the whole stack as THE vessel's antenna —
+// a custom loadout pairing a short relay antenna with a longer-ranged
+// Direct dish resolves to Direct, not Relay. And commnet.go's forwarding
+// gate additionally requires Controllable (a command source somewhere on
+// the stack), not just relay hardware. So relayClass now runs the exact
+// same resolution (via SyncFields, reused rather than re-derived) and the
+// exact same forwarding condition, so the form and CommNet can't drift
+// apart again: relayClass is true only when the resolved antenna is
+// AntennaRelay AND the vessel is Controllable — anything else (a
+// Direct-winning mixed loadout, or a relay antenna with no command source)
+// falls back to the ordinary ⚠ consumer warning.
 func spawnCommsProfile(stages []spacecraft.Stage) (crewed bool, antennaRangeM float64, relayClass bool) {
-	for _, st := range stages {
-		if st.CommandSource == spacecraft.CommandCrewed {
-			crewed = true
-		}
-		if st.AntennaKind != spacecraft.AntennaNone && st.AntennaRangeM > antennaRangeM {
-			antennaRangeM = st.AntennaRangeM
-		}
-		if st.AntennaKind == spacecraft.AntennaRelay {
-			relayClass = true
-		}
-	}
-	return crewed, antennaRangeM, relayClass
+	craft := spacecraft.Spacecraft{Stages: stages}
+	craft.SyncFields()
+	return craft.Crewed, craft.AntennaRangeM, craft.AntennaKind == spacecraft.AntennaRelay && craft.Controllable
 }
 
 // craftRow renders one selectable CRAFT TYPE row (a catalog loadout, the

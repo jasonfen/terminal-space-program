@@ -218,6 +218,94 @@ func TestSpawnFormRelayClassCrewedStillNeverWarned(t *testing.T) {
 	}
 }
 
+// Review finding on #283/PR #390: relayClass used to fire whenever ANY
+// stage carried AntennaRelay hardware, which diverges from what the built
+// vessel actually resolves to (Spacecraft.SyncFields picks the
+// longest-ranged antenna across the stack) and from what CommNet actually
+// forwards for (AntennaKind==AntennaRelay && Controllable — commnet.go).
+// These three multi-stage cases pin the corrected, resolution-mirroring
+// predicate; the single-stage tests above still pass unchanged because a
+// single stage can't produce the divergence.
+
+func TestSpawnFormMixedAntennaResolvesDirectNotRelay(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	resetWithBand(s, bandStub(map[int]float64{5000: 0.92}))
+	selectCustom(s)
+	// A relay antenna coexists with a longer-ranged Direct dish elsewhere on
+	// the stack. SyncFields resolves the vessel to the longest-ranged
+	// antenna — Direct wins — so this is an ordinary consumer craft, not a
+	// relay, even though relay hardware is present somewhere on it.
+	s.customStages = []spacecraft.Stage{
+		{
+			Name: "Relay Bus", CommandSource: spacecraft.CommandProbe,
+			AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+		},
+		{
+			Name: "Deep Dish", CommandSource: spacecraft.CommandNone,
+			AntennaKind: spacecraft.AntennaDirect, AntennaRangeM: spacecraft.AntennaRangeDeepSpace,
+		},
+	}
+	setAltitude(t, s, 5000)
+	out := s.Render(80)
+	if !strings.Contains(out, "⚠ degraded comms band") || !strings.Contains(out, "relays advised") {
+		t.Errorf("a mixed loadout that resolves to Direct must get the ordinary warning, not the relay-class reframe:\n%s", out)
+	}
+}
+
+func TestSpawnFormRelayAntennaWithoutCommandSourceIsNotRelayClass(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	resetWithBand(s, bandStub(map[int]float64{5000: 0.92}))
+	selectCustom(s)
+	// A relay antenna with no command source anywhere on the stack: the
+	// vessel is not Controllable, so CommNet would never forward through it
+	// (commnet.go: forwards iff AntennaKind==Relay && Controllable). The
+	// form must not reframe the warning for a "relay" that can't relay.
+	s.customStages = []spacecraft.Stage{
+		{
+			Name: "Dumb Relay Bus", CommandSource: spacecraft.CommandNone,
+			AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+		},
+		{
+			Name: "Tank", CommandSource: spacecraft.CommandNone,
+		},
+	}
+	setAltitude(t, s, 5000)
+	out := s.Render(80)
+	if !strings.Contains(out, "⚠ degraded comms band") || !strings.Contains(out, "relays advised") {
+		t.Errorf("a relay antenna with no command source is not Controllable and must keep the ordinary warning:\n%s", out)
+	}
+}
+
+func TestSpawnFormMultiStageGenuineRelayIsNeutral(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	resetWithBand(s, bandStub(map[int]float64{5000: 0.92}))
+	selectCustom(s)
+	// A genuine multi-stage relay: the relay antenna is also the
+	// longest-ranged one on the stack, and a probe core elsewhere makes the
+	// vessel Controllable. This resolves to Relay + Controllable, matching
+	// what CommNet forwards for, so the neutral reframe still applies.
+	s.customStages = []spacecraft.Stage{
+		{
+			Name:        "Relay Payload",
+			AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+		},
+		{
+			Name: "Probe Core", CommandSource: spacecraft.CommandProbe,
+		},
+	}
+	setAltitude(t, s, 5000)
+	out := s.Render(80)
+	if strings.Contains(out, "⚠") {
+		t.Errorf("a genuine multi-stage relay (resolves to relay, controllable) must not be warned off its own deployment:\n%s", out)
+	}
+	if strings.Contains(out, "relays advised") {
+		t.Errorf("\"relays advised\" is circular for a craft that IS the relay:\n%s", out)
+	}
+	if !strings.Contains(out, "~92%") {
+		t.Errorf("the coverage number is still useful and must survive the reframe:\n%s", out)
+	}
+}
+
 // setAltitude commits a typed altitude (km) via the real edit-box path
 // (ADR 0044 / S4) — HandleKey drives fieldIdx to ALTITUDE, opens the box,
 // types each digit, then commits, exercising the same state machine a
