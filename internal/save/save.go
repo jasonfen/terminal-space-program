@@ -52,7 +52,20 @@ import (
 // a Mission of ordered Objectives + campaign metadata. The v8→v9 migration
 // re-seeds: it drops the old single-predicate progress so the load path
 // reseeds the new ladder from the catalog; see migrateV8PayloadToV9.
-const SchemaVersion = 9
+// #294 review finding 6 bumps to v10 — Target.Kind's vocabulary
+// widened to include TargetGhost with the fix's fingerprint-preserving
+// GhostOwner field, and the shape those bytes decode to (a live,
+// resolvable-again ghost lock) is new: an older binary that doesn't know
+// TargetGhost would decode the unfamiliar Kind value into whatever its
+// own enum has at that ordinal (or, on ghost_owner: an unrecognised JSON
+// key it silently drops), reconstructing a target it can never resolve
+// and has no code path to explain to the player — exactly the class of
+// "old binary silently mangles new shape" the repo's schema-bump rule
+// exists to prevent. migrateV9PayloadToV10 is an identity transform (the
+// wire shape itself needs no migration — TargetGhost has round-tripped
+// working bytes since the fix landed); the version bump's only job is to
+// make an old binary refuse a v10 envelope instead.
+const SchemaVersion = 10
 
 // File is the on-disk envelope.
 //
@@ -360,6 +373,18 @@ type Node struct {
 	// instead of stacking behind it. Absent → "", the correct value for
 	// every node type that predates this field. No migration.
 	AdvisoryKey string `json:"advisory_key,omitempty"`
+	// TargetGhostOwner (#294 review finding 5, additive omitempty) mirrors
+	// spacecraft.ManeuverNode.TargetGhostOwner — the remote player's
+	// fingerprint a target-relative node was planted against. Used to be
+	// dropped unconditionally on save (DropGhostRef in CraftToWire) on the
+	// same now-reversed theory as Target.GhostOwner: the fingerprint IS
+	// meaningful within the session it was set in, and a reconnect that
+	// re-latches Craft.Target back onto the same ghost should re-latch a
+	// planted node's target too, instead of leaving the node's ref silently
+	// zeroed while the standing target lock recovers around it. Absent → "",
+	// harmless on every save predating this field (a local-craft or
+	// untargeted node's TargetGhostOwner was always "").
+	TargetGhostOwner string `json:"target_ghost_owner,omitempty"`
 }
 
 // DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.
@@ -423,6 +448,11 @@ type ActiveBurn struct {
 	// plane-change / BurnVector burn reloads with the direction intact.
 	PlaneChangeRad float64 `json:"plane_change_rad,omitempty"`
 	BurnDirUnit    Vec3    `json:"burn_dir_unit,omitempty"`
+	// TargetGhostOwner (#294 review finding 5, additive omitempty) mirrors
+	// the Node field above onto a running burn, for the same reason: a
+	// reconnect mid an in-flight target-relative finite burn should
+	// re-latch the burn's own ref, not just Craft.Target.
+	TargetGhostOwner string `json:"target_ghost_owner,omitempty"`
 }
 
 // Errors returned by Load.
@@ -556,6 +586,15 @@ func Load(path string) (*sim.World, error) {
 	// from the catalog. Payload-only, so it runs here on the wire payload.
 	if f.Version < 9 {
 		migrateV8PayloadToV9(&f.Payload)
+	}
+	// schema v10 (#294 review finding 6): Target.Kind's vocabulary
+	// widened to include TargetGhost; the payload shape itself needs no
+	// transform (see the SchemaVersion doc comment), so this is an
+	// identity pass — its only job is that Load's version gate above now
+	// refuses a pre-v10 binary reading a v10 envelope, matching the repo
+	// rule of bumping + migrating whenever persisted state shape changes.
+	if f.Version < 10 {
+		migrateV9PayloadToV10(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }

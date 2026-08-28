@@ -2437,7 +2437,26 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		if n.IsTargetRelative() {
 			// v0.28 S4: resolves a local craft ref or a remote ghost ref
 			// (owner + remote id) against the ghost slate.
-			rT, vT, _ = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+			var ok bool
+			rT, vT, ok = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+			if !ok {
+				// #294 review finding 5: a target-relative node whose bound
+				// target doesn't resolve at fire time must refuse to fire,
+				// not burn against nodeTargetRelState's zero-value fallback
+				// (DirectionUnitTarget's BurnTarget/AntiTarget cases degrade
+				// that to a direction aimed at, or away from, the primary's
+				// centre — a real Δv expenditure in a bogus direction, not a
+				// display glitch). Most reachable via a ghost-targeted node
+				// whose ref survived a save/load (#294) but hasn't re-latched
+				// yet. Leave the node queued (don't pop it, don't advance
+				// `fired`) so a later re-latch — or the player re-planting —
+				// can still fire it; break rather than continue so a stuck
+				// due node blocks the rest of this tick's dispatch exactly
+				// like the existing !IsResolved()/ActiveBurn-busy gates above,
+				// instead of silently skipping past it to a later node.
+				w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
+				break
+			}
 		}
 		if n.Duration == 0 {
 			// A BurnPlaneChange or BurnVector node degrades to impulsive
@@ -2507,7 +2526,20 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 	var rT, vT orbital.Vec3
 	if n.IsTargetRelative() {
 		// v0.28 S4: local craft ref or remote ghost ref (via ghost slate).
-		rT, vT, _ = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+		ok := false
+		rT, vT, ok = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+		// #294 review finding 5 (same shape as the navball marker guard
+		// below): an unresolved target-relative node has no direction to
+		// lead-compensate toward. rT=vT=0 doesn't necessarily give
+		// BurnDirectionForBurn a zero-norm result (BurnTarget's
+		// unit(0 − rA) is a perfectly valid-looking unit vector aimed at
+		// the primary's centre) — the dir.Norm()==0 check below can't
+		// catch it, so check ok explicitly rather than let the craft
+		// pre-emptively slew its nose toward the planet ahead of a burn
+		// that (per executeDueNodesFor) will refuse to fire anyway.
+		if !ok {
+			return orbital.Vec3{}, false
+		}
 	}
 	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)
 	if dir.Norm() == 0 {

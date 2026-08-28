@@ -87,6 +87,19 @@ type World struct {
 	// this was retired by ADR 0021 D).
 	LastLaunchReleaseEvent *LaunchReleaseEvent
 
+	// LastNodeTargetRefusal records the most recent due target-relative
+	// node (or in-flight active burn) that refused to fire because its
+	// bound target didn't resolve (#294 review finding 5) — same HUD-
+	// flash pattern as LastLocalReArmRefusal: app.go reads and clears it
+	// once per fire. Without this refusal, executeDueNodesFor would burn
+	// against nodeTargetRelState's zero-value fallback, which
+	// DirectionUnitTarget degrades to a direction aimed at (or away
+	// from) the primary's centre — a real, fuel-burning maneuver in a
+	// bogus direction, not a display glitch. Most reachable via a node
+	// planted against a ghost target whose ref survived a save/load
+	// (#294) but never re-latched.
+	LastNodeTargetRefusal *NodeTargetRefusalEvent
+
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
@@ -884,6 +897,16 @@ type LocalReArmRefusalEvent struct {
 	// when the active vessel is one of the two, else one of the pair
 	// (arbitrarily the second) when neither is active.
 	PartnerName string
+}
+
+// NodeTargetRefusalEvent records the latest target-relative node (or
+// active burn) that refused to fire for want of a resolvable target
+// (#294 review finding 5). CraftName lets the message identify which
+// vessel's plan is stalled when the player isn't currently flying it
+// (executeDueNodesFor walks every craft's own nodes independently).
+type NodeTargetRefusalEvent struct {
+	When      time.Time
+	CraftName string
 }
 
 // DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.
@@ -1699,12 +1722,27 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 		planeRad = c.ActiveBurn.PlaneChangeRad
 		burnDir = c.ActiveBurn.BurnDirUnit
 	}
+	var ok bool
 	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftID != 0 {
 		// v0.28 S4: resolves a local craft ref or a remote ghost ref
 		// (owner + remote id) against the ghost slate each tick.
-		rT, vT, _ = w.nodeTargetRelState(c.ActiveBurn.TargetGhostOwner, c.ActiveBurn.TargetCraftID, c.Primary)
+		rT, vT, ok = w.nodeTargetRelState(c.ActiveBurn.TargetGhostOwner, c.ActiveBurn.TargetCraftID, c.Primary)
 	} else {
-		rT, vT, _ = w.TargetStateRelativeToActivePrimary()
+		rT, vT, ok = w.TargetStateRelativeToActivePrimary()
+	}
+	// #294 review finding 4: a target-relative mode whose target doesn't
+	// resolve (most visibly: a TargetGhost ref persisted across a save/
+	// load with no live serve session to re-latch it, or one still
+	// mid-reconnect) must never command a direction derived from the
+	// zero-value (rT, vT) — DirectionUnitTarget's BurnTarget case
+	// degrades that to unit(0 − rA), pinning the nose at the primary's
+	// centre, and BurnAntiTarget to unit(rA), pointing straight away
+	// from it. Neither is a real "hold" — fall back to an orbit-frame
+	// hold (BurnPrograde) instead of silently aiming at (or away from)
+	// the planet. Non-target modes ignore (rT, vT) entirely, so this
+	// only changes behavior when the mode actually consumes them.
+	if !ok && spacecraft.IsTargetRelativeMode(mode) {
+		mode = spacecraft.BurnPrograde
 	}
 	return mode, rT, vT, planeRad, burnDir
 }

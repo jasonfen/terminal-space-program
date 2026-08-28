@@ -62,19 +62,43 @@ type reportingModel struct {
 	rzInviteHandle  string
 	rzDegraded      bool
 
+	// targetLockOwner / targetLockCraftID identify the specific ghost ref
+	// the watchdog below is tracking (#294 review finding 2) — retargeting
+	// to a different peer mid-grace must start a fresh watch rather than
+	// inherit the old ref's timer and (worst case) chip the wrong peer's
+	// name. A tick that finds w.Target pointing at a different ref than
+	// these (including the very first tick, when both are zero-valued —
+	// "session start" and "player just retargeted" are the same case)
+	// resets targetLockPendingSince and targetLockResolvedOnce below.
+	targetLockOwner   string
+	targetLockCraftID uint64
+
 	// targetLockPendingSince tracks the deferred re-latch of a craft/ghost
 	// target lock across a reconnect (#294): a ghost target now survives
 	// the per-player save round-trip (CraftToWire/CraftFromWire), so a
 	// session that comes up already aimed at one just needs the target
 	// owner's craft reports to resume before ResolveTargetGhost finds it
 	// again — the same tolerance an ordinary momentarily-stale ghost
-	// already has. Zero means "not waiting" (no ghost target, or it
-	// already resolved). Set the tick refreshSession first finds an
-	// unresolved ghost target; cleared on resolution, on the target
-	// changing to something else, or on giving up past
+	// already has. Zero means "not waiting" (no ghost target, the ref
+	// changed, or it already resolved). Set the tick reconcileTargetLock
+	// first finds the current ref unresolved; cleared on resolution, on
+	// the ref changing to something else, or on giving up past
 	// targetLockRelatchGrace (which also fires the loss chip).
 	targetLockPendingSince time.Time
-	targetLockHandle       string // display name captured when pending started
+
+	// targetLockResolvedOnce is set the first time the CURRENTLY TRACKED
+	// ref (targetLockOwner/targetLockCraftID) resolves. #294 review
+	// finding 1: once true, the grace-window watchdog retires permanently
+	// for this ref — a later resolve failure (the viewer browsing to
+	// another system, since relay.GhostsFor only emits ghosts for the
+	// VIEWED system, or the peer landing/transferring for a minute, both
+	// of which drop the ghost out of the slate through no fault of the
+	// lock) reverts to the pre-#294 tolerance: keep the lock, re-latch
+	// silently whenever it resolves again, never clear it and never chip
+	// a loss. Only a ref that has never resolved since it was (re)bound —
+	// freshly restored at session start, or freshly retargeted this
+	// session — runs the 45s countdown at all.
+	targetLockResolvedOnce bool
 }
 
 // localEventTTL matches the chip's on-screen life; pruning here just
@@ -380,44 +404,87 @@ func (m *reportingModel) handleOf(fp string) (string, bool) {
 // target lock across a reconnect (#294). Called every tick after
 // w.Ghosts is refreshed, so ResolveTargetGhost sees this tick's data.
 //
-//   - Target isn't a ghost (never was, changed since, or already cleared
-//     by an earlier tick's timeout): nothing pending, no-op.
-//   - Target is a ghost and resolves: either it never needed re-latching
-//     (ordinary play — the common case, exits immediately below) or the
-//     owner's reports just resumed. Either way clear the pending timer
-//     silently; the player already has the lock they expect, nothing to
-//     announce.
-//   - Target is a ghost, doesn't resolve, and this is the first tick that
-//     was true: start the timer.
-//   - Target is a ghost, still doesn't resolve, and the timer has run
-//     past targetLockRelatchGrace: give up — clear the target and chip
-//     the loss so the drop is legible instead of a silent dangling aim.
+// #294 review (findings 1 + 2) narrowed the scope from "every ghost
+// target, forever" to "a ref that has never resolved since it was
+// (re)bound": the pre-review version ran the 45s countdown on ANY
+// resolve failure, which meant a perfectly healthy established lock
+// got permanently cleared just because the viewer browsed to another
+// system for a minute (relay.GhostsFor only emits ghosts for the
+// VIEWED system) or the peer landed/transferred for a minute (both
+// drop the ghost out of the slate with nothing wrong with the lock).
+// targetLockResolvedOnce is the fix: it's sticky per ref, so the
+// watchdog only ever runs across the window between a ref being bound
+// and its first successful resolve — after that it's retired for good
+// and an unresolved tick just falls through as a no-op (the same
+// tolerance an ordinary momentarily-stale ghost already had before
+// #294 existed).
+//
+//   - Target isn't a ghost: nothing pending, reset tracking, no-op.
+//   - Target names a different ref than the one being tracked
+//     (including the very first tick, session start included, since
+//     the tracked ref starts zero-valued): fresh ref, fresh watch —
+//     never inherit another ref's timer, resolved-once state, or
+//     display handle (finding 2: a cached handle from the old ref
+//     would chip the WRONG peer's name).
+//   - Target resolves: mark this ref resolved-once and clear any
+//     pending timer — either it never needed re-latching (ordinary
+//     play, the common case) or the owner's reports just resumed.
+//     Silent either way; the player already has the lock they expect.
+//   - Target doesn't resolve and has already resolved once before:
+//     old-behavior tolerance (finding 1) — no timer, no clearing, no
+//     chip. Just wait for it to come back.
+//   - Target doesn't resolve and has never resolved since being bound,
+//     and this is the first such tick: start the timer.
+//   - Still unresolved past targetLockRelatchGrace: give up — clear the
+//     target and chip the loss (handle read now, at fire time, per
+//     finding 2 — never cached at timer-start) so the drop is legible
+//     instead of a silent dangling aim.
 func (m *reportingModel) reconcileTargetLock(w *sim.World, handles map[string]string, now time.Time) {
 	if w.Target.Kind != sim.TargetGhost {
+		m.resetTargetLockWatch()
+		return
+	}
+	if w.Target.GhostOwner != m.targetLockOwner || w.Target.CraftID != m.targetLockCraftID {
+		m.targetLockOwner, m.targetLockCraftID = w.Target.GhostOwner, w.Target.CraftID
+		m.targetLockPendingSince = time.Time{}
+		m.targetLockResolvedOnce = false
+	}
+	if _, _, ok := w.ResolveTargetGhost(); ok {
+		m.targetLockResolvedOnce = true
 		m.targetLockPendingSince = time.Time{}
 		return
 	}
-	if _, _, ok := w.ResolveTargetGhost(); ok {
-		m.targetLockPendingSince = time.Time{}
+	if m.targetLockResolvedOnce {
 		return
 	}
 	if m.targetLockPendingSince.IsZero() {
 		m.targetLockPendingSince = now
-		m.targetLockHandle = handles[w.Target.GhostOwner]
 		return
 	}
 	if now.Sub(m.targetLockPendingSince) <= targetLockRelatchGrace {
 		return
 	}
-	// Handle may be "" (the owner left the roster, or their handle
-	// wasn't cached yet when the timer started) — the chip builder
+	// Handle may be "" (the owner left the roster) — the chip builder
 	// renders a handle-less fallback line rather than showing a blank.
+	// Read now, not cached at timer-start (finding 2).
+	handle := handles[w.Target.GhostOwner]
 	w.ClearTarget()
 	m.localEvents = append(m.localEvents, sim.SessionEvent{
-		Kind: sim.SessionEventTargetLockLost, Handle: m.targetLockHandle, At: now,
+		Kind: sim.SessionEventTargetLockLost, Handle: handle, At: now,
 	})
+	m.resetTargetLockWatch()
+}
+
+// resetTargetLockWatch clears every field reconcileTargetLock uses to
+// track its current ref, so the next tick starts from a clean slate —
+// shared by "no ghost target", "gave up past grace", stopHosting
+// (#294 review finding 3: a stale hours-old timer must never survive
+// into the next hosting session and fire an instant false-loss chip on
+// its first tick), and defensively by startHosting.
+func (m *reportingModel) resetTargetLockWatch() {
+	m.targetLockOwner, m.targetLockCraftID = "", 0
 	m.targetLockPendingSince = time.Time{}
-	m.targetLockHandle = ""
+	m.targetLockResolvedOnce = false
 }
 
 // refreshSession rebuilds the world's ghost + session slates from the
@@ -664,6 +731,12 @@ func (m reportingModel) startHosting() (tea.Model, tea.Cmd) {
 	if m.srv != nil {
 		return m, nil
 	}
+	// #294 review finding 3: begin the target-lock watchdog fresh, same
+	// as stopHosting's reset below — defensive here since a value-typed
+	// m should already be zeroed on a first-ever [h], but guarantees a
+	// stale timer from any path can't survive into this session's first
+	// tick and fire an instant false "lost on reconnect" chip.
+	m.resetTargetLockWatch()
 	keyPath, err := DefaultHostKeyPath()
 	if err != nil {
 		m.app.Toast(fmt.Sprintf("can't host: %v", err))
@@ -741,6 +814,14 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	m.coWarp = nil
 	m.meta, m.metaAt = sessiondir.Meta{}, time.Time{}
 	m.localEvents = nil
+	// #294 review finding 3: stopHosting reset every other reporting
+	// field above but not the target-lock watchdog's — the model value
+	// is reused by the next startHosting, so a timer left running from
+	// this session (an hours-old targetLockPendingSince, or a stale
+	// targetLockOwner/CraftID) would fire an instant false "lost on
+	// reconnect" chip on the very first tick of the NEXT hosting
+	// session, for a target that session never even had.
+	m.resetTargetLockWatch()
 	m.app.Toast("hosting stopped")
 	return m, nil
 }

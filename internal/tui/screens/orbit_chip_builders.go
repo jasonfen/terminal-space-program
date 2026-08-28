@@ -1629,7 +1629,17 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		// sim-time). No DOCK READY: cross-player docking is v0.28.
 		g, gPrimary, ok := w.ResolveTargetGhost()
 		if !ok {
-			return nil
+			// #294 review finding 4: the lock survives an unresolved ghost
+			// (Kind stays TargetGhost so a later resolve re-latches it —
+			// see World.HasRelativeTarget / World.TargetName) — a bare
+			// "return nil" here reads as no target at all, indistinguishable
+			// from TargetNone. Show the pending state instead so the player
+			// can tell "still locked, just waiting" from "lost".
+			return []string{
+				v.theme.Primary.Render("TARGET"),
+				chipRow("ghost:", w.TargetName()),
+				chipRow("status:", "signal not yet resolved"),
+			}
 		}
 		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("ghost:", w.TargetName())}
 		gRel := g.Pos.Sub(w.BodyPosition(gPrimary))

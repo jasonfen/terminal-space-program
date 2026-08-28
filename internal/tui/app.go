@@ -329,6 +329,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastLocalReArmRefusal = nil
 		}
+		// #294 review finding 5: a due target-relative node (or in-flight
+		// burn) refused to fire because its bound target hasn't resolved —
+		// say so instead of leaving the stall silent. Same flash surface,
+		// cleared after one fire.
+		if e := a.world.LastNodeTargetRefusal; e != nil {
+			a.statusMsg = fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName)
+			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.world.LastNodeTargetRefusal = nil
+		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 
 	case tea.WindowSizeMsg:

@@ -20,10 +20,14 @@ import (
 
 // CraftToWire projects one live craft onto its serialisable form. It is
 // the exact per-craft body payloadFromWorld runs, so anything a save
-// carries a Parcel carries too. Ghost refs on nodes / the active burn are
-// dropped (their owner fingerprint is not persisted and their craft IDs
-// are remote), and a ghost Target normalises to no-target — both on
-// copies, so the live craft is untouched.
+// carries a Parcel carries too. Ghost refs on nodes, the active burn, and
+// the craft's Target all round-trip (#294 review finding 5 retired the
+// old drop-on-save behavior below the Nodes/ActiveBurn loops — see the
+// comment there and on Target below): the owner fingerprint IS meaningful
+// within the session it was set in, and a reconnect that re-latches
+// Craft.Target back onto a ghost should re-latch a planted node's or a
+// running burn's ref onto the same ghost too, not leave them silently
+// zeroed while the standing lock recovers around them.
 func CraftToWire(c *spacecraft.Spacecraft) Craft {
 	if c == nil {
 		return Craft{}
@@ -95,43 +99,56 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 		if !n.TriggerTime.IsZero() {
 			trigNano = n.TriggerTime.UnixNano()
 		}
-		// v0.28 S4: a node planted against a ghost (remote player's craft)
-		// drops its ghost ref on save — the owner fingerprint isn't
-		// persisted, and its TargetCraftID is a REMOTE id that would collide
-		// with a local id on load. DropGhostRef zeroes both while keeping the
-		// burn geometry. No-op for local / untargeted nodes. Mirrors the
-		// ghost-target normalisation below. n is a copy, so this doesn't
-		// mutate the live world.
-		n.DropGhostRef()
+		// #294 review finding 5: a node planted against a ghost (remote
+		// player's craft) used to drop its ghost ref unconditionally on
+		// save (DropGhostRef, v0.28 S4) — reasoned at the time that the
+		// owner fingerprint was session-local and the TargetCraftID a
+		// REMOTE id that could collide with a local id on load. That
+		// reasoning is exactly what #294 already overturned for
+		// Craft.Target (see below): the fingerprint round-trips fine
+		// within the session it was bound in, and TargetCraftID was
+		// never at risk of a local collision — ghost refs are only ever
+		// resolved by (owner, craftID) pair (World.ghostByRef), never by
+		// craftID alone, so a same-numbered LOCAL craft ID is never
+		// confused with one. Dropping the ref here left a stale-but-
+		// silent gap: Craft.Target re-latches onto the peer after a
+		// reconnect, but a node planted at that same target fires with
+		// TargetGhostOwner=="" and a now-locally-meaningless
+		// TargetCraftID — nodeTargetRelState's owner!="" branch never
+		// even runs, so it falls to the local craftByID branch and
+		// (almost always) fails to find a matching local craft, ok=false.
+		// See executeDueNodesFor below for the refuse-to-fire guard that
+		// makes that failure safe rather than a burn against a zero state.
 		wc.Nodes = append(wc.Nodes, Node{
-			ID:              n.ID,
-			TriggerTimeNano: trigNano,
-			Mode:            int(n.Mode),
-			DV:              n.DV,
-			DurationNano:    int64(n.Duration),
-			PrimaryID:       n.PrimaryID,
-			Event:           int(n.Event),
-			Throttle:        n.Throttle,
-			TargetCraftID:   n.TargetCraftID,
-			PlaneChangeRad:  n.PlaneChangeRad,
-			BurnDirUnit:     vec3From(n.BurnDirUnit),
-			AdvisoryKey:     n.AdvisoryKey,
+			ID:               n.ID,
+			TriggerTimeNano:  trigNano,
+			Mode:             int(n.Mode),
+			DV:               n.DV,
+			DurationNano:     int64(n.Duration),
+			PrimaryID:        n.PrimaryID,
+			Event:            int(n.Event),
+			Throttle:         n.Throttle,
+			TargetCraftID:    n.TargetCraftID,
+			PlaneChangeRad:   n.PlaneChangeRad,
+			BurnDirUnit:      vec3From(n.BurnDirUnit),
+			AdvisoryKey:      n.AdvisoryKey,
+			TargetGhostOwner: n.TargetGhostOwner,
 		})
 	}
 	if c.ActiveBurn != nil {
-		// v0.28 S4: drop a ghost ref on a running burn for the same reason as
-		// nodes above — the copy keeps the live burn intact.
+		// #294 review finding 5: preserve the running burn's ghost ref too,
+		// for the same reason as nodes above.
 		ab := *c.ActiveBurn
-		ab.DropGhostRef()
 		wc.ActiveBurn = &ActiveBurn{
-			Mode:           int(ab.Mode),
-			DVRemaining:    ab.DVRemaining,
-			EndTimeNano:    ab.EndTime.UnixNano(),
-			PrimaryID:      ab.PrimaryID,
-			Throttle:       ab.Throttle,
-			TargetCraftID:  ab.TargetCraftID,
-			PlaneChangeRad: ab.PlaneChangeRad,
-			BurnDirUnit:    vec3From(ab.BurnDirUnit),
+			Mode:             int(ab.Mode),
+			DVRemaining:      ab.DVRemaining,
+			EndTimeNano:      ab.EndTime.UnixNano(),
+			PrimaryID:        ab.PrimaryID,
+			Throttle:         ab.Throttle,
+			TargetCraftID:    ab.TargetCraftID,
+			PlaneChangeRad:   ab.PlaneChangeRad,
+			BurnDirUnit:      vec3From(ab.BurnDirUnit),
+			TargetGhostOwner: ab.TargetGhostOwner,
 		}
 	}
 	// v0.9.3 polish: per-craft Target. Skip serialising when the craft has
@@ -299,30 +316,32 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			trig = time.Unix(0, n.TriggerTimeNano).UTC()
 		}
 		c.Nodes = append(c.Nodes, sim.ManeuverNode{
-			ID:             n.ID,
-			TriggerTime:    trig,
-			Mode:           spacecraft.BurnMode(n.Mode),
-			DV:             n.DV,
-			Duration:       time.Duration(n.DurationNano),
-			PrimaryID:      n.PrimaryID,
-			Event:          sim.TriggerEvent(n.Event),
-			Throttle:       n.Throttle,
-			TargetCraftID:  n.TargetCraftID,
-			PlaneChangeRad: n.PlaneChangeRad,
-			BurnDirUnit:    vec3To(n.BurnDirUnit),
-			AdvisoryKey:    n.AdvisoryKey,
+			ID:               n.ID,
+			TriggerTime:      trig,
+			Mode:             spacecraft.BurnMode(n.Mode),
+			DV:               n.DV,
+			Duration:         time.Duration(n.DurationNano),
+			PrimaryID:        n.PrimaryID,
+			Event:            sim.TriggerEvent(n.Event),
+			Throttle:         n.Throttle,
+			TargetCraftID:    n.TargetCraftID,
+			PlaneChangeRad:   n.PlaneChangeRad,
+			BurnDirUnit:      vec3To(n.BurnDirUnit),
+			AdvisoryKey:      n.AdvisoryKey,
+			TargetGhostOwner: n.TargetGhostOwner, // #294 review finding 5
 		})
 	}
 	if wc.ActiveBurn != nil {
 		c.ActiveBurn = &sim.ActiveBurn{
-			Mode:           spacecraft.BurnMode(wc.ActiveBurn.Mode),
-			DVRemaining:    wc.ActiveBurn.DVRemaining,
-			EndTime:        time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
-			PrimaryID:      wc.ActiveBurn.PrimaryID,
-			Throttle:       wc.ActiveBurn.Throttle,
-			TargetCraftID:  wc.ActiveBurn.TargetCraftID,
-			PlaneChangeRad: wc.ActiveBurn.PlaneChangeRad,
-			BurnDirUnit:    vec3To(wc.ActiveBurn.BurnDirUnit),
+			Mode:             spacecraft.BurnMode(wc.ActiveBurn.Mode),
+			DVRemaining:      wc.ActiveBurn.DVRemaining,
+			EndTime:          time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
+			PrimaryID:        wc.ActiveBurn.PrimaryID,
+			Throttle:         wc.ActiveBurn.Throttle,
+			TargetCraftID:    wc.ActiveBurn.TargetCraftID,
+			PlaneChangeRad:   wc.ActiveBurn.PlaneChangeRad,
+			BurnDirUnit:      vec3To(wc.ActiveBurn.BurnDirUnit),
+			TargetGhostOwner: wc.ActiveBurn.TargetGhostOwner, // #294 review finding 5
 		}
 	}
 	// v0.9.3 polish: per-craft Target. Pre-polish saves omit the field; nil

@@ -241,8 +241,30 @@ func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
 // review follow-up). Every gate that used to spell Kind==TargetCraft
 // for "can I do target-relative work" goes through here so ghost
 // targets light up the same surfaces.
+//
+// #294 review finding 4: a ghost target must actually RESOLVE to count
+// here — a stale ref (owner never came back after a save/load outside
+// any live serve session, or hasn't re-latched yet post-reconnect) used
+// to read as relative-target-available just because Kind==TargetGhost,
+// which defeated every "stale NavTarget should never produce a zero-
+// direction SAS hold" guard downstream (ResolveAttitudeIntent,
+// CycleNavMode, reconcileNavMode): NavTarget stayed selectable/sticky
+// and the live SAS mode got set to a target-relative BurnMode that then
+// had nothing to aim at. The Kind itself is left untouched on
+// w.Target — this only changes what counts as "usable for nav right
+// now", so the stored lock is still there for reconcileTargetLock (or
+// simply the ghost reappearing) to re-latch onto later; TargetName /
+// TargetGhost-branch readers still see Kind==TargetGhost and can show
+// the pending state (see TargetName, orbit_chip_builders.go).
 func (w *World) HasRelativeTarget() bool {
-	return w.Target.Kind == TargetCraft || w.Target.Kind == TargetGhost
+	switch w.Target.Kind {
+	case TargetCraft:
+		return true
+	case TargetGhost:
+		_, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID)
+		return ok
+	}
+	return false
 }
 
 // ResolveTargetGhost resolves a ghost target to its slate entry and
@@ -517,6 +539,34 @@ func (w *World) TargetName() string {
 				return g.Handle + "'s " + g.Name
 			}
 			return g.Name
+		}
+		// #294 review finding 4: an unresolved ghost still HOLDS the lock
+		// (Kind stays TargetGhost — see HasRelativeTarget) — returning ""
+		// here made the TARGET chip vanish outright, indistinguishable
+		// from TargetNone / a cleared target. Show the pending state
+		// instead, using the roster handle when a live session has one
+		// (GhostOwnerHandle), so the player can tell "still locked, just
+		// waiting to resolve" from "not locked at all".
+		if h := w.GhostOwnerHandle(w.Target.GhostOwner); h != "" {
+			return h + "'s vessel (pending)"
+		}
+		return "pending target lock"
+	}
+	return ""
+}
+
+// GhostOwnerHandle resolves a ghost owner fingerprint to a display
+// handle via the live session roster (#294 review finding 4) — nil
+// w.Session (solo play, or a session whose roster hasn't refreshed yet)
+// or no matching row both return "". Same lookup shape as
+// DockOwnerOnline (session_info.go).
+func (w *World) GhostOwnerHandle(owner string) string {
+	if w.Session == nil || owner == "" {
+		return ""
+	}
+	for _, p := range w.Session.Players {
+		if p.Fingerprint == owner {
+			return p.Handle
 		}
 	}
 	return ""

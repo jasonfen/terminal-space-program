@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // ghostWorld builds a world with one live ghost targeted.
@@ -73,5 +74,60 @@ func TestGhostTargetMirroredToActiveCraft(t *testing.T) {
 	_ = orbital.Vec3{} // keep the import for the fixture
 	if w.ActiveCraft().Target.Kind != TargetGhost {
 		t.Error("ghost target not mirrored to the active craft")
+	}
+}
+
+// #294 review finding 4: a live target-relative SAS mode whose ghost
+// target stops resolving mid-session must not command a direction
+// derived from the zero-value (rT, vT) — attitudeContext falls back to
+// an orbit-frame hold (BurnPrograde) instead of feeding
+// BurnDirectionForBurn a target snapshot that doesn't exist. Without the
+// fallback, DirectionUnitTarget's BurnTarget case degrades to
+// unit(0 − rA): the nose gets pinned at the primary's centre — a live,
+// continuously-recomputed SAS command, not a one-time glitch.
+func TestAttitudeContextFallsBackWhenGhostUnresolved(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	// Ghost offset along the orbit-normal (R × V) — guaranteed
+	// perpendicular to both R and V for a non-degenerate orbit, so the
+	// resolved BurnTarget direction is unambiguously distinct from BOTH
+	// BurnPrograde (~V) and the old buggy "aim at primary centre" (~ -R)
+	// answer, ruling out a coincidental match hiding a real failure.
+	h := c.State.R.Cross(c.State.V)
+	offset := h.Scale(2e6 / h.Norm())
+	w.Ghosts = []Ghost{{
+		Owner: "SHA256:gern", CraftID: 42, Handle: "gern", Name: "Aloft",
+		PrimaryID: c.Primary.ID,
+		Pos:       w.BodyPosition(c.Primary).Add(c.State.R).Add(offset),
+		Vel:       c.State.V,
+	}}
+	w.SetTargetGhost("SHA256:gern", 42)
+	c.AttitudeMode = spacecraft.BurnTarget // "toward target" — target-relative
+
+	progradeDir := spacecraft.DirectionUnit(spacecraft.BurnPrograde, c.State.R, c.State.V)
+	rNorm := c.State.R.Norm()
+	badDir := c.State.R.Scale(-1 / rNorm) // the old buggy "aim at planet centre" answer
+
+	// Resolved: aims along the orbit normal (toward the ghost's offset),
+	// not at BurnPrograde or the planet-centre direction — proves the
+	// fixture actually exercises the target-relative branch.
+	dirResolved := w.commandedDirFor(c)
+	if dirResolved.Sub(progradeDir).Norm() < 1e-6 || dirResolved.Sub(badDir).Norm() < 1e-6 {
+		t.Fatalf("fixture didn't exercise a distinct BurnTarget direction: got %+v", dirResolved)
+	}
+
+	// Unresolved: must fall back to the orbit-frame hold (BurnPrograde),
+	// never the old unit(0 − rA) planet-centre pin.
+	w.Ghosts = nil
+	dirUnresolved := w.commandedDirFor(c)
+	if d := dirUnresolved.Sub(progradeDir).Norm(); d > 1e-9 {
+		t.Errorf("unresolved BurnTarget direction = %+v, want the BurnPrograde fallback %+v (diff %g)",
+			dirUnresolved, progradeDir, d)
+	}
+	if d := dirUnresolved.Sub(badDir).Norm(); d < 1e-6 {
+		t.Error("unresolved BurnTarget still aims at the primary's centre")
 	}
 }
