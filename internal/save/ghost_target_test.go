@@ -7,10 +7,18 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// Review follow-up: a ghost target (session-local by design) is
-// normalised to no-target on save — never a stuck Kind with a dropped
-// owner, and the persisted Kind vocabulary stays pre-v0.27.
-func TestGhostTargetNormalizedOnSave(t *testing.T) {
+// #294 fix: a ghost target now round-trips through save/load intact
+// (Kind, CraftID, and the owner fingerprint). It used to normalise to
+// no-target on save on the reasoning that the fingerprint was
+// session-local and would never resolve again — which was harmless in
+// single-player (nothing there ever sets a ghost target) but silently
+// dropped a guest's cross-player rendezvous lock on every reconnect
+// that round-trips through the per-player session payload, most
+// visibly the [u] restart-to-adopt flow. The fingerprint IS meaningful
+// within the session it was set in, so it now persists; the deferred
+// re-latch (reportingModel in internal/serve) is what actually
+// resolves it back to a live ghost once the owner's reports resume.
+func TestGhostTargetPersistsOnSave(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -28,10 +36,10 @@ func TestGhostTargetNormalizedOnSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Target.Kind != sim.TargetNone {
-		t.Errorf("loaded Target.Kind = %v, want TargetNone (ghost refs must not persist)", got.Target.Kind)
+	if got.Target.Kind != sim.TargetGhost || got.Target.GhostOwner != "SHA256:x" || got.Target.CraftID != 7 {
+		t.Errorf("loaded Target = %+v, want ghost target at (SHA256:x, 7)", got.Target)
 	}
-	if got.ActiveCraft().Target.Kind != sim.TargetNone {
-		t.Errorf("loaded craft Target.Kind = %v, want TargetNone", got.ActiveCraft().Target.Kind)
+	if ct := got.ActiveCraft().Target; ct.Kind != sim.TargetGhost || ct.GhostOwner != "SHA256:x" || ct.CraftID != 7 {
+		t.Errorf("loaded craft Target = %+v, want ghost target at (SHA256:x, 7)", ct)
 	}
 }

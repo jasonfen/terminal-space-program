@@ -61,11 +61,33 @@ type reportingModel struct {
 	rzInviteFrom    string // incoming invite's owner last tick ("" = none)
 	rzInviteHandle  string
 	rzDegraded      bool
+
+	// targetLockPendingSince tracks the deferred re-latch of a craft/ghost
+	// target lock across a reconnect (#294): a ghost target now survives
+	// the per-player save round-trip (CraftToWire/CraftFromWire), so a
+	// session that comes up already aimed at one just needs the target
+	// owner's craft reports to resume before ResolveTargetGhost finds it
+	// again — the same tolerance an ordinary momentarily-stale ghost
+	// already has. Zero means "not waiting" (no ghost target, or it
+	// already resolved). Set the tick refreshSession first finds an
+	// unresolved ghost target; cleared on resolution, on the target
+	// changing to something else, or on giving up past
+	// targetLockRelatchGrace (which also fires the loss chip).
+	targetLockPendingSince time.Time
+	targetLockHandle       string // display name captured when pending started
 }
 
 // localEventTTL matches the chip's on-screen life; pruning here just
 // keeps the slice from growing over a long session.
 const localEventTTL = 10 * time.Second
+
+// targetLockRelatchGrace bounds how long a reconnected session waits for
+// an unresolved craft/ghost target lock to come back before giving up and
+// telling the player (#294). Sized like defaultAwayAfter (60s, away.go):
+// long enough to cover the ordinary reconnect skew between two players
+// both dropped by the same [u] restart, short enough that a lock that
+// really is gone doesn't sit silently un-explained for minutes.
+const targetLockRelatchGrace = 45 * time.Second
 
 // restartExitCode is the dedicated marker the supervising service
 // manager keys on to tell an admin-requested restart from a crash
@@ -354,6 +376,50 @@ func (m *reportingModel) handleOf(fp string) (string, bool) {
 	return "", false
 }
 
+// reconcileTargetLock drives the deferred re-latch of a craft/ghost
+// target lock across a reconnect (#294). Called every tick after
+// w.Ghosts is refreshed, so ResolveTargetGhost sees this tick's data.
+//
+//   - Target isn't a ghost (never was, changed since, or already cleared
+//     by an earlier tick's timeout): nothing pending, no-op.
+//   - Target is a ghost and resolves: either it never needed re-latching
+//     (ordinary play — the common case, exits immediately below) or the
+//     owner's reports just resumed. Either way clear the pending timer
+//     silently; the player already has the lock they expect, nothing to
+//     announce.
+//   - Target is a ghost, doesn't resolve, and this is the first tick that
+//     was true: start the timer.
+//   - Target is a ghost, still doesn't resolve, and the timer has run
+//     past targetLockRelatchGrace: give up — clear the target and chip
+//     the loss so the drop is legible instead of a silent dangling aim.
+func (m *reportingModel) reconcileTargetLock(w *sim.World, handles map[string]string, now time.Time) {
+	if w.Target.Kind != sim.TargetGhost {
+		m.targetLockPendingSince = time.Time{}
+		return
+	}
+	if _, _, ok := w.ResolveTargetGhost(); ok {
+		m.targetLockPendingSince = time.Time{}
+		return
+	}
+	if m.targetLockPendingSince.IsZero() {
+		m.targetLockPendingSince = now
+		m.targetLockHandle = handles[w.Target.GhostOwner]
+		return
+	}
+	if now.Sub(m.targetLockPendingSince) <= targetLockRelatchGrace {
+		return
+	}
+	// Handle may be "" (the owner left the roster, or their handle
+	// wasn't cached yet when the timer started) — the chip builder
+	// renders a handle-less fallback line rather than showing a blank.
+	w.ClearTarget()
+	m.localEvents = append(m.localEvents, sim.SessionEvent{
+		Kind: sim.SessionEventTargetLockLost, Handle: m.targetLockHandle, At: now,
+	})
+	m.targetLockPendingSince = time.Time{}
+	m.targetLockHandle = ""
+}
+
 // refreshSession rebuilds the world's ghost + session slates from the
 // store, roster, and presence.
 func (m *reportingModel) refreshSession(now time.Time) {
@@ -372,6 +438,15 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// Ghosts (S5): everyone else's craft at this world's sim-time.
 	others := m.srv.relay.Snapshot(m.owner)
 	w.Ghosts = relay.GhostsFor(w, others, handles)
+
+	// Deferred re-latch of a craft/ghost target lock (#294). w.Target
+	// arrives here already TargetGhost if it was saved that way (the
+	// save package now persists it, see CraftToWire) — a reconnect right
+	// after a restart lands with the ghost slate still empty, same as
+	// this world's very first tick after connect. Nothing here forces
+	// resolution; it just watches ResolveTargetGhost each tick (now that
+	// w.Ghosts is fresh) and gives up after targetLockRelatchGrace.
+	m.reconcileTargetLock(w, handles, now)
 
 	// Co-warp (v0.28 S1, ADR 0034 §5): couple the viewer's active craft
 	// to any nearby same-subspace player and write the min-over-Effective

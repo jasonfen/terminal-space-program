@@ -155,6 +155,16 @@ const (
 	// while this player's own session ran unattended — local only, and
 	// the only event carrying Elapsed.
 	SessionEventResumed
+
+	// SessionEventTargetLockLost (#294): a craft/ghost target lock that
+	// survived a reconnect (persisted per §CraftToWire) never resolved —
+	// the target owner's craft reports never resumed within the grace
+	// window, or the referenced craft is genuinely gone. Local only: the
+	// deferred re-latch in internal/serve gives up and clears the target
+	// before firing this, so by the time it renders the player really is
+	// back at TargetNone, not merely waiting. Addressed at the player who
+	// had the lock; Handle names the peer it was aimed at.
+	SessionEventTargetLockLost
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

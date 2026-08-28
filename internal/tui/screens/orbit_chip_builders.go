@@ -291,6 +291,12 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 				row{text: "  they were riding in it and your seat was empty"})
 		case sim.SessionEventDockLost:
 			rows = append(rows, row{text: "⚠ dock with " + e.Handle + " ended — the stack no longer exists", alert: true})
+		case sim.SessionEventTargetLockLost:
+			msg := "⚠ target lock lost on reconnect"
+			if e.Handle != "" {
+				msg = "⚠ target lock on " + e.Handle + " lost on reconnect"
+			}
+			rows = append(rows, row{text: msg, alert: true})
 		case sim.SessionEventRendezvousDegraded:
 			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
 		case sim.SessionEventWentQuiet:

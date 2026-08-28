@@ -57,17 +57,20 @@ func TestNavTargetWorksAgainstGhost(t *testing.T) {
 	}
 }
 
-// Review follow-up: ghost targets are session-local — a save with a
-// ghost targeted round-trips to no target, never a stuck Kind.
-func TestGhostTargetNotPersisted(t *testing.T) {
+// #294 fix: a ghost target now persists through the save round trip
+// (save package's CraftToWire/CraftFromWire) instead of normalising to
+// no-target — the fingerprint is meaningful within the session it was
+// set in, and a reconnect that lands before it resolves again is
+// handled by the serve layer's deferred re-latch, not by dropping the
+// intent here. This test asserts the mirror invariant the save package
+// relies on: the active craft carries the ghost target so save sees
+// it. The round-trip itself is covered by save.TestGhostTargetPersistsOnSave.
+func TestGhostTargetMirroredToActiveCraft(t *testing.T) {
 	w := ghostWorld(t)
 	if w.Target.Kind != TargetGhost {
 		t.Fatal("fixture lost its ghost target")
 	}
 	_ = orbital.Vec3{} // keep the import for the fixture
-	// The save round-trip lives in the save package; here assert the
-	// mirror invariant it relies on: the active craft carries the
-	// ghost target (so save sees it) — save_test covers the drop.
 	if w.ActiveCraft().Target.Kind != TargetGhost {
 		t.Error("ghost target not mirrored to the active craft")
 	}

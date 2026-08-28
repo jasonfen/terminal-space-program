@@ -138,15 +138,26 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 	// no target so untargeted craft still write out the same minimal JSON
 	// they did pre-polish.
 	//
-	// Ghost targets (v0.27) are session-local — the owner fingerprint isn't
-	// persisted, so a saved ghost ref could never resolve again. Normalise
-	// to no-target instead of writing a permanently-stuck Kind (also keeps
-	// the persisted Kind vocabulary at its pre-v0.27 range — no schema bump).
-	if c.Target.Kind != spacecraft.TargetNone && c.Target.Kind != spacecraft.TargetGhost {
+	// Ghost targets (v0.27) used to be normalised to no-target here on the
+	// reasoning that they're session-local and the owner fingerprint was
+	// never persisted, so a saved ref could never resolve again. That
+	// silently dropped a guest's cross-player rendezvous lock across every
+	// reconnect that round-trips through the per-player session payload —
+	// most visibly the [u] restart-to-adopt flow (#294) — while a body
+	// target survived the same reconnect untouched. The fingerprint IS
+	// meaningful within the session it was set in: persist it, and let the
+	// ordinary "ghost not resolvable yet" tolerance every ghost-target
+	// consumer already has (ResolveTargetGhost / TargetState / HUD) do the
+	// re-latching once the owner's craft reports resume. A standalone save
+	// loaded outside that session (or in single-player, which never sets a
+	// ghost target) just carries a ref that never resolves — inert, same
+	// as any other stale target.
+	if c.Target.Kind != spacecraft.TargetNone {
 		wc.Target = &Target{
-			Kind:    int(c.Target.Kind),
-			BodyIdx: c.Target.BodyIdx,
-			CraftID: c.Target.CraftID,
+			Kind:       int(c.Target.Kind),
+			BodyIdx:    c.Target.BodyIdx,
+			CraftID:    c.Target.CraftID,
+			GhostOwner: c.Target.GhostOwner,
 		}
 	}
 	return wc
@@ -316,12 +327,16 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	}
 	// v0.9.3 polish: per-craft Target. Pre-polish saves omit the field; nil
 	// pointer leaves the craft's Target at zero (TargetNone) which is the
-	// fresh-craft default.
+	// fresh-craft default. GhostOwner (#294) round-trips a TargetGhost's
+	// remote-player fingerprint; absent on every save predating the fix,
+	// which decodes to "" — harmless since those saves never wrote
+	// Kind==TargetGhost in the first place (it was normalised away).
 	if wc.Target != nil {
 		c.Target = spacecraft.Target{
-			Kind:    spacecraft.TargetKind(wc.Target.Kind),
-			BodyIdx: wc.Target.BodyIdx,
-			CraftID: wc.Target.CraftID,
+			Kind:       spacecraft.TargetKind(wc.Target.Kind),
+			BodyIdx:    wc.Target.BodyIdx,
+			CraftID:    wc.Target.CraftID,
+			GhostOwner: wc.Target.GhostOwner,
 		}
 	}
 	return c, nil

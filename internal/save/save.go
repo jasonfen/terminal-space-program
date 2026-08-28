@@ -114,11 +114,20 @@ type Focus struct {
 // Spacecraft.ID. CraftIdx is the retired pre-v7 0-based slate index,
 // retained only to read v6 saves; migrateV6PayloadToV7 converts it to
 // CraftID. v7 saves write CraftID and leave CraftIdx zero.
+//
+// GhostOwner (#294 fix, additive/omitempty — no schema bump) carries a
+// TargetGhost's remote-player fingerprint. A ghost target used to
+// normalise to no-target on save (the owner fingerprint was never
+// wired onto this struct at all), which was invisible in single-player
+// but meant a guest's cross-player rendezvous lock silently vanished
+// on every reconnect that round-tripped through disk — most visibly
+// the [u] restart-to-adopt flow. See CraftToWire/CraftFromWire.
 type Target struct {
-	Kind     int    `json:"kind"`
-	BodyIdx  int    `json:"body_idx,omitempty"`
-	CraftIdx int    `json:"craft_idx,omitempty"` // pre-v7 (read-only for migration)
-	CraftID  uint64 `json:"craft_id,omitempty"`  // v7+ stable ID
+	Kind       int    `json:"kind"`
+	BodyIdx    int    `json:"body_idx,omitempty"`
+	CraftIdx   int    `json:"craft_idx,omitempty"` // pre-v7 (read-only for migration)
+	CraftID    uint64 `json:"craft_id,omitempty"`  // v7+ stable ID
+	GhostOwner string `json:"ghost_owner,omitempty"`
 }
 
 // Vec3 is the wire form of orbital.Vec3.
