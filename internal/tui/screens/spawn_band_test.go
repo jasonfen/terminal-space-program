@@ -131,12 +131,13 @@ func TestClampAndCommsWarningBothRenderAtLowCeilingBody(t *testing.T) {
 	degraded := func(bodyID string, altM, antennaRangeM float64) (float64, bool) { return 0.5, true }
 	s.Reset(sys.Bodies, "enceladus", nil, "", degraded)
 
-	// An uncrewed craft with an antenna, so bandWarning has something to
-	// say (crewed craft are never comms-gated).
+	// An uncrewed craft with a direct (non-relay) antenna, so bandWarning
+	// has something to say (crewed craft are never comms-gated) and #283's
+	// relay-class reframe doesn't swallow the ⚠ this test is checking for.
 	selectCustom(s)
 	s.customStages = []spacecraft.Stage{{
 		Name: "Bus", CommandSource: spacecraft.CommandProbe,
-		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+		AntennaKind: spacecraft.AntennaDirect, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
 	}}
 
 	if s.altNote == "" {
@@ -154,6 +155,66 @@ func TestClampAndCommsWarningBothRenderAtLowCeilingBody(t *testing.T) {
 	}
 	if clampIdx >= 0 && warnIdx >= 0 && clampIdx > warnIdx {
 		t.Errorf("comms warning rendered BEFORE the clamp note; want clamp first:\n%s", out)
+	}
+}
+
+// #283: a relay-class craft (one carrying its own AntennaRelay hardware) is
+// the fix for a degraded band, not a craft that should be warned off it —
+// the v0.32.0 antenna-aware fix already fixed the out-of-reach tier
+// (TestSpawnFormPassesSelectedAntennaToSampler above), but the degraded
+// tier still fired the ⚠ + "relays advised" for exactly this craft class.
+// The fix keeps the coverage number (still useful) but drops the warning
+// framing and the circular "relays advised" suffix for relay-class craft
+// only; an ordinary probe (direct antenna, or none) still gets the
+// original ⚠ wording unchanged.
+
+func TestSpawnFormRelayClassDegradedBandIsNeutral(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	resetWithBand(s, bandStub(map[int]float64{5000: 0.92}))
+	selectCustom(s)
+	s.customStages = []spacecraft.Stage{{
+		Name: "Bus", CommandSource: spacecraft.CommandProbe,
+		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+	}}
+	setAltitude(t, s, 5000)
+	out := s.Render(80)
+	if strings.Contains(out, "⚠") {
+		t.Errorf("a relay-class craft must not be warned off the deployment that fixes its own band:\n%s", out)
+	}
+	if strings.Contains(out, "relays advised") {
+		t.Errorf("\"relays advised\" is circular for a craft that IS the relay:\n%s", out)
+	}
+	if !strings.Contains(out, "~92%") {
+		t.Errorf("the coverage number is still useful and must survive the reframe:\n%s", out)
+	}
+}
+
+func TestSpawnFormNonRelayDegradedBandUnchanged(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	resetWithBand(s, bandStub(map[int]float64{5000: 0.92}))
+	selectCustom(s)
+	s.customStages = []spacecraft.Stage{{
+		Name: "Bus", CommandSource: spacecraft.CommandProbe,
+		AntennaKind: spacecraft.AntennaDirect, AntennaRangeM: 1e9,
+	}}
+	setAltitude(t, s, 5000)
+	out := s.Render(80)
+	if !strings.Contains(out, "⚠ degraded comms band") || !strings.Contains(out, "relays advised") {
+		t.Errorf("an ordinary (non-relay) probe below threshold must keep the original warning:\n%s", out)
+	}
+}
+
+func TestSpawnFormRelayClassCrewedStillNeverWarned(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	resetWithBand(s, bandStub(map[int]float64{5000: 0.92}))
+	selectCustom(s)
+	s.customStages = []spacecraft.Stage{{
+		Name: "Pod", CommandSource: spacecraft.CommandCrewed,
+		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
+	}}
+	setAltitude(t, s, 5000)
+	if out := s.Render(80); strings.Contains(out, "⚠") || strings.Contains(out, "coverage from here") {
+		t.Errorf("crewed suppression must still win outright, even for a relay-class craft:\n%s", out)
 	}
 }
 
