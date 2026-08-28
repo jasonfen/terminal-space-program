@@ -919,7 +919,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Maneuver):
-			if a.active == screenOrbit && a.world.CraftVisibleHere() {
+			if a.active == screenOrbit {
+				// #282 sweep: same CraftVisibleHere state-guard as the
+				// planning keys below — say why instead of doing
+				// nothing.
+				if !a.world.CraftVisibleHere() {
+					a.refuse("maneuver", "vessel not in this system")
+					return a, nil
+				}
 				// Pressing `m` opens for a NEW node — drop any
 				// click-to-edit state that may be lingering from a
 				// previous open.
@@ -1132,66 +1139,74 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// body cursor. TargetCraft is the v0.9.3 rendezvous-tooling
 			// surface and routes through `R` once that lands; here it
 			// flashes a redirect rather than silently no-opping. None →
-			// silent no-op (nothing aimed at).
-			if a.world.CraftVisibleHere() {
-				switch a.world.Target.Kind {
-				case sim.TargetBody:
-					_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
-					a.world.RecordAction(missions.ActionPlanTransfer) // ADR 0025 §7
-					// v0.12.x (ADR 0005): the intra-primary auto-plant is
-					// now a plane-aware dual-strategy solver (combined
-					// fused-Lambert vs split raise + apoapsis plane change)
-					// that plants the cheaper — so flash both candidate Δv
-					// totals and which was planted (supersedes the retired
-					// "match plane [I], circularize, then [H]" advisory).
-					// Non-intra-primary plants leave the comparison empty.
-					if cmp := a.world.LastTransfer.Format(); cmp != "" {
-						a.statusMsg = cmp
-						a.statusExpires = time.Now().Add(6 * time.Second)
-					}
-				case sim.TargetCraft:
-					a.statusMsg = "H targets bodies — for vessels, plan via [m]"
-					a.statusExpires = time.Now().Add(3 * time.Second)
+			// silent no-op (nothing aimed at) — that gap is deliberate,
+			// unrelated to #282: there is genuinely nothing to name
+			// when no target is aimed at.
+			if !a.world.CraftVisibleHere() {
+				// #282 sweep: same state-guard shape as K/E — say why.
+				a.refuse("transfer", "vessel not in this system")
+				return a, nil
+			}
+			switch a.world.Target.Kind {
+			case sim.TargetBody:
+				_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
+				a.world.RecordAction(missions.ActionPlanTransfer) // ADR 0025 §7
+				// v0.12.x (ADR 0005): the intra-primary auto-plant is
+				// now a plane-aware dual-strategy solver (combined
+				// fused-Lambert vs split raise + apoapsis plane change)
+				// that plants the cheaper — so flash both candidate Δv
+				// totals and which was planted (supersedes the retired
+				// "match plane [I], circularize, then [H]" advisory).
+				// Non-intra-primary plants leave the comparison empty.
+				if cmp := a.world.LastTransfer.Format(); cmp != "" {
+					a.statusMsg = cmp
+					a.statusExpires = time.Now().Add(6 * time.Second)
 				}
+			case sim.TargetCraft:
+				a.statusMsg = "H targets bodies — for vessels, plan via [m]"
+				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PlanIncl):
-			if a.world.CraftVisibleHere() {
-				// v0.9.0+: I consumes World.Target. TargetBody → full
-				// plane match to the body's orbit (v0.10.4: matches
-				// inclination AND the node line, so a following Hohmann
-				// departs coplanar); None → drop to the equatorial plane
-				// of the craft's primary (the equatorial inclination
-				// match shipped with v0.7.4); TargetCraft is deferred.
-				//
-				// Pre-v0.9 this block read App.selectedBody, the implicit
-				// body cursor driven by ←/→. selectedBody now drives only
-				// body-info / porkchop / SELECTED HUD pane.
-				var plan *planner.InclinationPlan
-				var err error
-				switch a.world.Target.Kind {
-				case sim.TargetBody:
-					plan, err = a.world.PlanPlaneMatch(a.world.Target.BodyIdx)
-				case sim.TargetCraft:
-					a.statusMsg = "I targets bodies — for vessels, plan via [m]"
-					a.statusExpires = time.Now().Add(3 * time.Second)
-					return a, nil
-				default:
-					plan, err = a.world.PlanInclinationChange(0)
-				}
-				if err != nil {
-					a.statusMsg = fmt.Sprintf("inclination: %v", err)
-				} else {
-					nodeLabel := "DN"
-					if plan.AtAN {
-						nodeLabel = "AN"
-					}
-					a.statusMsg = fmt.Sprintf("inclination plan — %.1f m/s at next %s",
-						plan.DV, nodeLabel)
-				}
-				a.statusExpires = time.Now().Add(3 * time.Second)
-				a.world.RecordAction(missions.ActionPlanIncl) // ADR 0025 §7
+			if !a.world.CraftVisibleHere() {
+				// #282 sweep: same state-guard shape as K/E — say why.
+				a.refuse("inclination", "vessel not in this system")
+				return a, nil
 			}
+			// v0.9.0+: I consumes World.Target. TargetBody → full
+			// plane match to the body's orbit (v0.10.4: matches
+			// inclination AND the node line, so a following Hohmann
+			// departs coplanar); None → drop to the equatorial plane
+			// of the craft's primary (the equatorial inclination
+			// match shipped with v0.7.4); TargetCraft is deferred.
+			//
+			// Pre-v0.9 this block read App.selectedBody, the implicit
+			// body cursor driven by ←/→. selectedBody now drives only
+			// body-info / porkchop / SELECTED HUD pane.
+			var plan *planner.InclinationPlan
+			var err error
+			switch a.world.Target.Kind {
+			case sim.TargetBody:
+				plan, err = a.world.PlanPlaneMatch(a.world.Target.BodyIdx)
+			case sim.TargetCraft:
+				a.statusMsg = "I targets bodies — for vessels, plan via [m]"
+				a.statusExpires = time.Now().Add(3 * time.Second)
+				return a, nil
+			default:
+				plan, err = a.world.PlanInclinationChange(0)
+			}
+			if err != nil {
+				a.statusMsg = fmt.Sprintf("inclination: %v", err)
+			} else {
+				nodeLabel := "DN"
+				if plan.AtAN {
+					nodeLabel = "AN"
+				}
+				a.statusMsg = fmt.Sprintf("inclination plan — %.1f m/s at next %s",
+					plan.DV, nodeLabel)
+			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
+			a.world.RecordAction(missions.ActionPlanIncl) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.PlanCircularize):
 			// v0.9.4+: `C` plants a prograde burn at next apoapsis sized
@@ -1200,17 +1215,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// in space) they press `C`, coast to apoapsis, the planted
 			// node fires, periapsis rises to match apoapsis, mission
 			// passes. Mirrors v0.7.4's `I` planter shape.
-			if a.world.CraftVisibleHere() {
-				plan, err := a.world.PlanCircularizeAtApoapsis()
-				if err != nil {
-					a.statusMsg = fmt.Sprintf("circularize: %v", err)
-				} else {
-					a.statusMsg = fmt.Sprintf("circularize @ apoapsis (%.0f km) → +%.0f m/s prograde",
-						plan.ApoAltM/1000, plan.DV)
-				}
-				a.statusExpires = time.Now().Add(3 * time.Second)
-				a.world.RecordAction(missions.ActionPlanCircularize) // ADR 0025 §7
+			if !a.world.CraftVisibleHere() {
+				// #282 sweep: same state-guard shape as K/E — say why.
+				a.refuse("circularize", "vessel not in this system")
+				return a, nil
 			}
+			plan, err := a.world.PlanCircularizeAtApoapsis()
+			if err != nil {
+				a.statusMsg = fmt.Sprintf("circularize: %v", err)
+			} else {
+				a.statusMsg = fmt.Sprintf("circularize @ apoapsis (%.0f km) → +%.0f m/s prograde",
+					plan.ApoAltM/1000, plan.DV)
+			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
+			a.world.RecordAction(missions.ActionPlanCircularize) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.PlanRendezvous):
 			// v0.10.2+: `K` plants the recommended single-burn nudge
@@ -1220,7 +1238,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// NextClosestApproach). Mirrors PlanCircularize shape; the
 			// HUD's TARGET block already shows the advisory's
 			// achievable-CA / Δv readouts when the gate passes.
-			if a.world.CraftVisibleHere() {
+			//
+			// #282: this used to silently no-op both off the orbit
+			// view and when the active vessel wasn't visible in the
+			// current system (browsing another system via CycleSystem)
+			// — a session host read the dead key as broken. Both
+			// guards now say why.
+			switch {
+			case a.active != screenOrbit:
+				a.refuse("rendezvous", "orbit view only")
+			case !a.world.CraftVisibleHere():
+				a.refuse("rendezvous", "vessel not in this system")
+			default:
 				adv, err := a.world.PlanRendezvousNudge()
 				if err != nil {
 					a.statusMsg = fmt.Sprintf("rendezvous: %v", err)
@@ -1239,9 +1268,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Porkchop):
-			if a.active == screenOrbit && a.world.CraftVisibleHere() && a.selectedBody > 0 {
-				a.porkchop.Load(a.world, a.selectedBody)
-				a.active = screenPorkchop
+			// #282 sweep: on the orbit screen this key was silently
+			// ignored without a visible target or a vessel to plan
+			// from — same state-guard shape as the K/E fix, so it gets
+			// the same one-phrase treatment.
+			if a.active == screenOrbit {
+				switch {
+				case !a.world.CraftVisibleHere():
+					a.refuse("porkchop", "vessel not in this system")
+				case a.selectedBody <= 0:
+					a.refuse("porkchop", "no body selected")
+				default:
+					a.porkchop.Load(a.world, a.selectedBody)
+					a.active = screenPorkchop
+				}
 			}
 			return a, nil
 		// v0.8.6: ClearNodes global binding retired — clear-all now
@@ -1324,23 +1364,33 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// when the active vessel is Crashed. The y/n intercept at
 			// the top of the KeyMsg branch handles commit / cancel
 			// once the prompt is open; this case is the open trigger.
-			// Silently ignored on a live vessel — the action is only
-			// meaningful on wreckage.
-			if c := a.world.ActiveCraft(); c != nil && c.Crashed {
+			// #282: a live vessel used to swallow this key with no
+			// feedback at all — a tester read that as the binding
+			// being broken or host-gated. Every branch now says
+			// something.
+			switch c := a.world.ActiveCraft(); {
+			case c == nil:
+				a.refuse("end flight", "no vessel")
+			case c.Crashed:
 				a.endFlightConfirm = true
+			default:
+				a.refuse("end flight", "vessel is not wreckage")
 			}
 			return a, nil
 		case key.Matches(m, a.keys.RefinePlan):
-			if a.world.CraftVisibleHere() {
-				corr, arr, err := a.world.RefinePlan()
-				if err != nil {
-					a.statusMsg = fmt.Sprintf("refine failed: %v", err)
-				} else {
-					a.statusMsg = fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr)
-				}
-				a.statusExpires = time.Now().Add(3 * time.Second)
-				a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
+			if !a.world.CraftVisibleHere() {
+				// #282 sweep: same state-guard shape as K/E — say why.
+				a.refuse("refine", "vessel not in this system")
+				return a, nil
 			}
+			corr, arr, err := a.world.RefinePlan()
+			if err != nil {
+				a.statusMsg = fmt.Sprintf("refine failed: %v", err)
+			} else {
+				a.statusMsg = fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr)
+			}
+			a.statusExpires = time.Now().Add(3 * time.Second)
+			a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
 			return a, nil
 
 		// v0.7.3+ manual flight controls. v0.7.3.2 split the engage
@@ -2545,6 +2595,20 @@ func (a *App) cycleLayout() {
 		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
 		a.statusExpires = time.Now().Add(3 * time.Second)
 	}
+}
+
+// refuse writes a one-phrase "<label>: <reason>" refusal to the HUD
+// footer — the standing fix for #282: a guarded key that can't act right
+// now must say why instead of doing nothing, the way the guest-settings
+// guard (errGuestSettings via flashStatus) and the existing rendezvous
+// ([K]) error path already do (see TestRendezvousRefusalLabelsOnce,
+// which pins that the label appears exactly once). Generalised into one
+// helper so every guarded key speaks with the same voice. label should
+// name the action ("end flight", "rendezvous"), not repeat itself in
+// reason.
+func (a *App) refuse(label, reason string) {
+	a.statusMsg = fmt.Sprintf("%s: %s", label, reason)
+	a.statusExpires = time.Now().Add(3 * time.Second)
 }
 
 // flashStatus writes a transient message to the HUD footer. The
