@@ -2202,10 +2202,11 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 	case screens.SessionCmdRendezvous:
 		// Rendezvous Warp initiate (v0.29 S2 / ADR 0034 v0.29 addendum):
 		// target the partner's ghost (the advisory + TARGET chip context),
-		// commit the encounter — the K-nudge advisory's post-burn τ+CA, or
-		// the current-course closest approach — and arm toward them. The
-		// coast starts only when they respond (mutual arm); the screen
-		// already gated same-subspace and ghost presence.
+		// commit the encounter — the current-course closest approach
+		// (#276: never the K-nudge advisory's unfired post-burn result) —
+		// and arm toward them. The coast starts only when they respond
+		// (mutual arm); the screen already gated same-subspace and ghost
+		// presence.
 		a.world.SetTargetGhost(cmd.Owner, cmd.CraftID)
 		tau, ca, ok := a.world.RendezvousCommit()
 		switch {

@@ -187,13 +187,23 @@ const rendezvousCommitHorizonSec = 4 * 3600.0
 
 // RendezvousCommit returns the encounter the initiator commits a
 // Rendezvous Warp to (v0.29 S2, ADR 0034 v0.29 addendum): the absolute
-// τ and its predicted approach against the current relative target.
-// Prefers the K-nudge advisory's post-burn encounter — the initiator is
-// expected to plant that burn and live through it en route — and falls
-// back to the current-course closest approach when the advisory has no
-// useful nudge (the encounter is already set up). ok=false when no
-// encounter can be found at all: no relative target, cross-primary, or
-// no approach inside the horizon — the App toasts instead of arming.
+// τ and its predicted approach against the current relative target,
+// found on the players' CURRENT courses — no burn assumed. ok=false
+// when no encounter can be found at all: no relative target,
+// cross-primary, or no approach inside the horizon — the App toasts
+// instead of arming.
+//
+// #276: this used to prefer the K-nudge advisory's post-burn encounter
+// on the theory that the initiator would go on to plant (K) and fly
+// that burn — but Engage never plants the nudge itself, so with two
+// craft on matched orbits (zero relative drift, no approach on the
+// current course) the advisory could still find a hypothetical nudge
+// and Engage would silently commit to ITS post-burn closest approach:
+// an encounter the player was never actually flying toward. Committing
+// only to the current-course search means a phantom advisory can no
+// longer bypass the "no real encounter" refusal below; a player who
+// wants the advisory's encounter must plant it with K first, then
+// Engage sees it via their new current course.
 // rendezvousGapNoteBar is the "far above the lock gate" bar for the
 // engage-time gap note (ADR 0039 S3, #281): a generous multiple of the
 // couple gate, not "just outside" it — a committed CA a little past
@@ -216,9 +226,6 @@ func (w *World) RendezvousNeedsBurnToClose(ca float64) bool {
 }
 
 func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
-	if adv, aok := w.RecommendedRendezvousBurn(); aok && adv.Ok {
-		return w.Clock.SimTime.Add(time.Duration(adv.TArrival * float64(time.Second))), adv.AchievableCA, true
-	}
 	active := w.ActiveCraft()
 	if active == nil || !w.HasRelativeTarget() {
 		return time.Time{}, 0, false
@@ -265,8 +272,10 @@ const rendezvousWaypointMinLead = 5 * time.Second
 // after the previous one passed (#252). Two paths, mirroring the Engage
 // commit:
 //   - the target slot still holds the armed partner's ghost → reuse
-//     RendezvousCommit verbatim, so a planted next nudge's post-burn
-//     encounter is honoured exactly like the first one was;
+//     RendezvousCommit verbatim, which is CURRENT-course-only (#276) — a
+//     nudge planted and FIRED mid-coast is honoured automatically once
+//     its burn has actually changed the craft's course; an unfired
+//     advisory nudge is not;
 //   - otherwise (player retargeted mid-coast, or the ghost slate is
 //     momentarily stale) → target-slot-independent fallback: the
 //     current-course closest approach against the partner's same-primary
