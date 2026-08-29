@@ -81,12 +81,38 @@ func TestEndFlightRefusesNoVessel(t *testing.T) {
 	}
 }
 
-// #282: [K] plan-rendezvous-nudge was the other named case — it silently
-// no-ops both off the orbit view and when the active vessel isn't visible
-// in the currently-viewed system (browsing another system via CycleSystem).
-// A session host read the dead key as broken during playtest. Both guards
-// must now say why.
-func TestPlanRendezvousRefusesOffOrbitView(t *testing.T) {
+// #282 review finding: [K] plan-rendezvous-nudge was originally fixed by
+// adding an `a.active != screenOrbit` guard alongside the (correct)
+// CraftVisibleHere() guard. That was wrong — on main, K carries no
+// `a.active == screenOrbit` check (unlike its sibling planning keys), and
+// the KeyMsg dispatcher only lets screenOrbit/screenBodyInfo/screenMissions
+// fall through to this switch (every other screen — Menu, Spawn, Settings,
+// Controls, VAB, Saves, Session, Maneuver, Help, Porkchop, Boss — early-
+// returns above it). So K has always worked from body-info and missions too;
+// the "orbit view only" refusal silently narrowed a working keybinding
+// instead of fixing a silent no-op. These tests pin that K still reaches
+// PlanRendezvousNudge (rather than being refused up front) from those two
+// screens — using a fresh world with no target, so the reachable code path
+// is proven by getting the domain error ("no vessel target") rather than
+// the screen-gate refusal.
+func TestPlanRendezvousReachesPlannerFromBodyInfo(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.active = screenBodyInfo
+
+	pressKey(a, 'K')
+
+	if a.statusMsg != "rendezvous: no vessel target" {
+		t.Errorf("statusMsg = %q, want %q (K must reach PlanRendezvousNudge from body-info, not be screen-gated)", a.statusMsg, "rendezvous: no vessel target")
+	}
+	if a.active != screenBodyInfo {
+		t.Errorf("active screen changed to %v", a.active)
+	}
+}
+
+func TestPlanRendezvousReachesPlannerFromMissions(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -95,12 +121,49 @@ func TestPlanRendezvousRefusesOffOrbitView(t *testing.T) {
 
 	pressKey(a, 'K')
 
-	if a.statusMsg != "rendezvous: orbit view only" {
-		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "rendezvous: orbit view only")
+	if a.statusMsg != "rendezvous: no vessel target" {
+		t.Errorf("statusMsg = %q, want %q (K must reach PlanRendezvousNudge from missions, not be screen-gated)", a.statusMsg, "rendezvous: no vessel target")
 	}
-	// The refusal must not have changed screens or acted on anything.
 	if a.active != screenMissions {
-		t.Errorf("active screen changed to %v on a refused [K]", a.active)
+		t.Errorf("active screen changed to %v", a.active)
+	}
+}
+
+// TestPlanRendezvousRefusesCraftNotVisibleFromBodyInfoAndMissions pins that
+// the legitimate #282 guard (CraftVisibleHere) still applies uniformly no
+// matter which of the three reachable screens (orbit/body-info/missions) K
+// is pressed from — that guard was always load-bearing, unlike the removed
+// screen gate.
+func TestPlanRendezvousRefusesCraftNotVisibleFromBodyInfoAndMissions(t *testing.T) {
+	cases := []struct {
+		name   string
+		screen screenID
+	}{
+		{"body-info", screenBodyInfo},
+		{"missions", screenMissions},
+	}
+	for _, tc := range cases {
+		screen := tc.screen
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := New(nil)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if len(a.world.Systems) < 2 {
+				t.Skip("need a second loaded system to browse away from the craft's own")
+			}
+			a.world.CycleSystem() // browse away from the active craft's bound system
+			if a.world.CraftVisibleHere() {
+				t.Fatal("test setup: craft is still visible after CycleSystem")
+			}
+			a.active = screen
+
+			pressKey(a, 'K')
+
+			if a.statusMsg != "rendezvous: vessel not in this system" {
+				t.Errorf("statusMsg = %q, want %q", a.statusMsg, "rendezvous: vessel not in this system")
+			}
+		})
 	}
 }
 
@@ -218,12 +281,20 @@ func TestPorkchopRefusesReasons(t *testing.T) {
 
 // TestRendezvousRefusalLabelsOnce (see app_rendezvous_refusal_test.go)
 // already pins that a K refusal must carry the "rendezvous:" label exactly
-// once. Sanity-check here that the new orbit-view / visibility guards obey
-// the same rule.
+// once. Sanity-check here that the surviving visibility guard obeys the
+// same rule when triggered from a non-orbit screen (missions), not just
+// from orbit.
 func TestPlanRendezvousRefusalLabelStillSingular(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	if len(a.world.Systems) < 2 {
+		t.Skip("need a second loaded system to browse away from the craft's own")
+	}
+	a.world.CycleSystem()
+	if a.world.CraftVisibleHere() {
+		t.Fatal("test setup: craft is still visible after CycleSystem")
 	}
 	a.active = screenMissions
 	pressKey(a, 'K')

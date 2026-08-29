@@ -1239,14 +1239,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// HUD's TARGET block already shows the advisory's
 			// achievable-CA / Δv readouts when the gate passes.
 			//
-			// #282: this used to silently no-op both off the orbit
-			// view and when the active vessel wasn't visible in the
-			// current system (browsing another system via CycleSystem)
-			// — a session host read the dead key as broken. Both
-			// guards now say why.
+			// #282: this used to silently no-op when the active vessel
+			// wasn't visible in the current system (browsing another
+			// system via CycleSystem) — a session host read the dead
+			// key as broken. That guard now says why.
+			//
+			// K is NOT screenOrbit-gated: on main the dispatcher above
+			// this switch early-returns for every screen except
+			// screenOrbit/screenBodyInfo/screenMissions, so those are
+			// the only three active values that ever reach this case —
+			// and K has always planted from all three (no
+			// `a.active == screenOrbit` guard, unlike its sibling
+			// planning keys). Adding one here would silently narrow a
+			// working keybinding rather than fix a silent no-op; see
+			// #282 review discussion.
 			switch {
-			case a.active != screenOrbit:
-				a.refuse("rendezvous", "orbit view only")
 			case !a.world.CraftVisibleHere():
 				a.refuse("rendezvous", "vessel not in this system")
 			default:
