@@ -34,17 +34,17 @@ type SpawnCraft struct {
 	// sim.ClampToOrbitBand. altNote / altBandEmpty are that call's last
 	// result, kept in lockstep with altM so Render never has to re-derive
 	// them.
-	altM         float64 // metres above the parent's mean radius
-	altEditing   bool    // the typed-edit box is open (§1 state machine)
-	altInput     string  // in-progress digits while altEditing
+	altM       float64 // metres above the parent's mean radius
+	altEditing bool    // the typed-edit box is open (§1 state machine)
+	altInput   string  // in-progress digits while altEditing
 	// altLeftBox arms the ADR's third mockup frame: the player has just
 	// stepped back out of the edit box, so the next Enter LAUNCHES rather
 	// than reopening it. Any other key clears it, so the arming can never
 	// outlive the moment — a player who tabs away and back gets "Enter to
 	// edit" again, and can never launch by an Enter they meant for the box.
-	altLeftBox bool
-	altNote      string  // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
-	altBandEmpty bool    // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
+	altLeftBox   bool
+	altNote      string // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
+	altBandEmpty bool   // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
 
 	latIdx     int // v0.9.2+: latitude preset cursor when posMode=launchpad
 	retrograde bool
@@ -1138,43 +1138,56 @@ func (s *SpawnCraft) Render(width int) string {
 // sampler models the selected craft's own best antenna — a Relay-Tug at
 // the Moon links home and must not be warned off the exact spawn the band
 // pressure exists to motivate (v0.32 review finding). A value in the
-// degraded band names the band AND the fix (relays); zero coverage is the
-// out-of-range case and must not advise a relay. Empty when the sampler is
-// absent, the position mode doesn't orbit, the current parent has no legal
-// orbit altitude at all, or coverage is clean — the form never guesses.
+// degraded band names the band AND the fix (relays) for an ordinary
+// probe; zero coverage is the out-of-range case and must not advise a
+// relay. #283: for a relay-class craft (one that itself carries
+// AntennaRelay hardware) the degraded tier is reframed as neutral
+// information — "relays advised" is circular when the craft being spawned
+// IS the relay, and the ⚠ warns the player off exactly the deployment
+// that fixes the gap. The coverage number stays; only the warning framing
+// and the fix-suffix go. Empty when the sampler is absent, the position
+// mode doesn't orbit, the current parent has no legal orbit altitude at
+// all, or coverage is clean — the form never guesses.
 //
 // ADR 0044 / S4: the cache key is now altitude in metres (bandCacheKey),
 // not a ladder index — Render calls this only from altitudeNoteLines,
 // which returns before reaching here while the edit box is open, so
 // sampling (≈400 connectivity solves) runs on commit, never per keystroke.
-func (s *SpawnCraft) bandWarning() string {
+//
+// Returns the line text plus whether it should render with warning
+// styling (⚠ lines) or neutral styling (the relay-class reframe).
+func (s *SpawnCraft) bandWarning() (text string, isWarning bool) {
 	if s.bandCoverage == nil || s.posMode != posOrbit || s.altBandEmpty {
-		return ""
+		return "", false
 	}
 	if s.parentIdx < 0 || s.parentIdx >= len(s.parentBodies) {
-		return ""
+		return "", false
 	}
-	crewed, antennaRangeM := spawnCommsProfile(s.selectedCraftStages())
+	crewed, antennaRangeM, relayClass := spawnCommsProfile(s.selectedCraftStages())
 	if crewed {
-		return "" // crewed vessels are never comms-gated
+		return "", false // crewed vessels are never comms-gated
 	}
 	key := bandCacheKey{parentIdx: s.parentIdx, altM: s.altM, antennaRangeM: antennaRangeM}
 	cov, cached := s.bandCache[key]
 	if !cached {
 		c, ok := s.bandCoverage(s.parentBodies[s.parentIdx].ID, s.SelectedAltitudeM(), antennaRangeM)
 		if !ok {
-			return ""
+			return "", false
 		}
 		cov = c
 		s.bandCache[key] = cov
 	}
 	switch {
 	case cov <= 0:
-		return "⚠ out of network reach — no signal at this body"
+		return "⚠ out of network reach — no signal at this body", true
 	case cov < sim.CommBandDegradedThreshold:
-		return fmt.Sprintf("⚠ degraded comms band — ~%d%% coverage, relays advised", int(cov*100+0.5))
+		pct := int(cov*100 + 0.5)
+		if relayClass {
+			return fmt.Sprintf("coverage from here: ~%d%%", pct), false
+		}
+		return fmt.Sprintf("⚠ degraded comms band — ~%d%% coverage, relays advised", pct), true
 	}
-	return ""
+	return "", false
 }
 
 // altitudeValueLine renders field 3's value in orbit/alongside mode (ADR
@@ -1245,27 +1258,41 @@ func (s *SpawnCraft) altitudeNoteLines(width int) []string {
 	if s.altNote != "" {
 		out = append(out, "    "+s.theme.Warning.Render("↳ "+s.altNote))
 	}
-	if warn := s.bandWarning(); warn != "" {
-		out = append(out, "  "+s.theme.Warning.Render(warn))
+	if warn, isWarning := s.bandWarning(); warn != "" {
+		style := s.theme.Warning
+		if !isWarning {
+			style = s.theme.Dim
+		}
+		out = append(out, "  "+style.Render(warn))
 	}
 	return out
 }
 
 // spawnCommsProfile derives the comms-relevant shape of a stage list the
 // way vessel construction does: crewed if any stage carries a crewed
-// command source, and the best stage antenna's rated range (zero → the
-// caller lets the sampler assume the EnsureCommandSource direct-basic
-// backfill every non-debris vessel receives).
-func spawnCommsProfile(stages []spacecraft.Stage) (crewed bool, antennaRangeM float64) {
-	for _, st := range stages {
-		if st.CommandSource == spacecraft.CommandCrewed {
-			crewed = true
-		}
-		if st.AntennaKind != spacecraft.AntennaNone && st.AntennaRangeM > antennaRangeM {
-			antennaRangeM = st.AntennaRangeM
-		}
-	}
-	return crewed, antennaRangeM
+// command source, the best stage antenna's rated range (zero → the caller
+// lets the sampler assume the EnsureCommandSource direct-basic backfill
+// every non-debris vessel receives), and relayClass (#283) — whether the
+// BUILT VESSEL, once resolved, actually forwards CommNet traffic.
+//
+// Review finding on #283/PR #390: relayClass used to be "any stage carries
+// AntennaRelay hardware," which diverges from what the vessel resolves to.
+// Spacecraft.SyncFields (internal/spacecraft/stage.go) picks the
+// longest-ranged antenna across the whole stack as THE vessel's antenna —
+// a custom loadout pairing a short relay antenna with a longer-ranged
+// Direct dish resolves to Direct, not Relay. And commnet.go's forwarding
+// gate additionally requires Controllable (a command source somewhere on
+// the stack), not just relay hardware. So relayClass now runs the exact
+// same resolution (via SyncFields, reused rather than re-derived) and the
+// exact same forwarding condition, so the form and CommNet can't drift
+// apart again: relayClass is true only when the resolved antenna is
+// AntennaRelay AND the vessel is Controllable — anything else (a
+// Direct-winning mixed loadout, or a relay antenna with no command source)
+// falls back to the ordinary ⚠ consumer warning.
+func spawnCommsProfile(stages []spacecraft.Stage) (crewed bool, antennaRangeM float64, relayClass bool) {
+	craft := spacecraft.Spacecraft{Stages: stages}
+	craft.SyncFields()
+	return craft.Crewed, craft.AntennaRangeM, craft.AntennaKind == spacecraft.AntennaRelay && craft.Controllable
 }
 
 // craftRow renders one selectable CRAFT TYPE row (a catalog loadout, the
