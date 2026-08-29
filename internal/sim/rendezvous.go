@@ -278,11 +278,17 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	}
 	mu := active.Primary.GravitationalParameter()
 
-	// Source 1: an actually-planted rendezvous nudge (finding 1). Tried
-	// first — a queued, self-firing burn is a more concrete commitment
-	// than the no-burn current course, so when both would yield an
-	// encounter the planted one wins.
-	if node, nok := plantedAdvisoryNode(active, AdvisoryKeyRendezvousNudge); nok {
+	// Source 1: an actually-planted rendezvous nudge (finding 1), but
+	// ONLY when it's still bound to the peer being engaged right now
+	// (PR #392 review, follow-up finding): a nudge planted against peer
+	// A must not be honored when w.Target has since moved to peer B —
+	// plantedAdvisoryNode's own TargetCraftID/TargetGhostOwner check
+	// enforces that, falling through to Source 2 on a mismatch exactly
+	// as if nothing were planted. Tried first when it does match — a
+	// queued, self-firing burn is a more concrete commitment than the
+	// no-burn current course, so when both would yield an encounter the
+	// planted one wins.
+	if node, nok := plantedAdvisoryNode(active, AdvisoryKeyRendezvousNudge, w.Target.CraftID, w.Target.GhostOwner); nok {
 		if t, c, cok := w.rendezvousCommitFromPlantedNode(active, node, rT, vT, mu); cok {
 			return t, c, true
 		}
