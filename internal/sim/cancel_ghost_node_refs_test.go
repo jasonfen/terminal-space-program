@@ -166,3 +166,58 @@ func TestCancelAllGhostRefsNoOpWithNothingBound(t *testing.T) {
 		t.Errorf("notice stamped despite nothing ghost-bound: %+v", w.LastNodeTargetRefusal)
 	}
 }
+
+// TestCancelGhostRefsKeepsNonTargetRelativeNodeStripsRef — a node or
+// in-flight burn whose MODE doesn't need the target (a plain prograde
+// circularize planted through the maneuver form while a peer happened to
+// be targeted — the form stamps the binding on every mode so an edited
+// advisory keeps its identity) must survive a ghost give-up and the
+// session-exit sweep alike: its burn is unaffected by the target
+// vanishing. Only the now-meaningless ref is stripped, with no
+// cancellation notice. Dropping it would delete a burn the player made
+// while merely LOOKING at a peer.
+func TestCancelGhostRefsKeepsNonTargetRelativeNodeStripsRef(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode: spacecraft.BurnPrograde, DV: 30, TriggerTime: now.Add(time.Hour),
+		TargetGhostOwner: "SHA256:gern", TargetCraftID: 987654,
+	}}
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode: spacecraft.BurnPrograde, DVRemaining: 100,
+		TargetGhostOwner: "SHA256:gern", TargetCraftID: 987654,
+	}
+
+	w.CancelGhostNodeRefs("SHA256:gern", 987654)
+
+	if len(c.Nodes) != 1 {
+		t.Fatalf("prograde node dropped; want kept with ref stripped: %+v", c.Nodes)
+	}
+	if n := c.Nodes[0]; n.TargetGhostOwner != "" || n.TargetCraftID != 0 || n.DV != 30 {
+		t.Errorf("node = %+v, want ref stripped and burn untouched", n)
+	}
+	if c.ActiveBurn == nil {
+		t.Fatal("prograde active burn aborted; want kept with ref stripped")
+	}
+	if c.ActiveBurn.TargetGhostOwner != "" || c.ActiveBurn.TargetCraftID != 0 || c.ActiveBurn.DVRemaining != 100 {
+		t.Errorf("active burn = %+v, want ref stripped and burn untouched", c.ActiveBurn)
+	}
+	if w.LastNodeTargetRefusal != nil {
+		t.Errorf("no cancellation notice expected for a stripped-only ref: %+v", w.LastNodeTargetRefusal)
+	}
+
+	// Same rule for the session-exit sweep.
+	c.Nodes[0].TargetGhostOwner, c.Nodes[0].TargetCraftID = "SHA256:gern", 987654
+	c.ActiveBurn.TargetGhostOwner, c.ActiveBurn.TargetCraftID = "SHA256:gern", 987654
+	w.CancelAllGhostRefs()
+	if len(c.Nodes) != 1 || c.Nodes[0].TargetGhostOwner != "" || c.Nodes[0].TargetCraftID != 0 {
+		t.Errorf("CancelAllGhostRefs: nodes = %+v, want prograde node kept with ref stripped", c.Nodes)
+	}
+	if c.ActiveBurn == nil || c.ActiveBurn.TargetGhostOwner != "" {
+		t.Errorf("CancelAllGhostRefs: active burn = %+v, want kept with ref stripped", c.ActiveBurn)
+	}
+	if w.LastNodeTargetRefusal != nil {
+		t.Errorf("CancelAllGhostRefs: no cancellation notice expected: %+v", w.LastNodeTargetRefusal)
+	}
+}

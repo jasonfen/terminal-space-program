@@ -117,7 +117,7 @@ const localEventTTL = 10 * time.Second
 // long enough to cover the ordinary reconnect skew between two players
 // both dropped by the same [u] restart, short enough that a lock that
 // really is gone doesn't sit silently un-explained for minutes.
-const targetLockRelatchGrace = 45 * time.Second
+const targetLockRelatchGrace = sim.GhostAbsentGrace
 
 // restartExitCode is the dedicated marker the supervising service
 // manager keys on to tell an admin-requested restart from a crash

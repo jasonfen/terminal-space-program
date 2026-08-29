@@ -364,7 +364,7 @@ func TestExecuteDueNodesCancelsGhostNodeAbsentOwner(t *testing.T) {
 // player's OWN session having just reconnected before refreshSession
 // ever primed w.Session (fixed at attach in internal/serve), and an
 // owner mid-reconnect must not cost a planted node. The node holds,
-// same as an ordinary pending-resolvable stall, for ghostNodeAbsentGrace
+// same as an ordinary pending-resolvable stall, for GhostAbsentGrace
 // (mirrors reportingModel.targetLockRelatchGrace).
 func TestExecuteDueNodesHoldsGhostNodeOwnerNotEnrolledWithinGrace(t *testing.T) {
 	w := mustWorld(t)
@@ -398,7 +398,7 @@ func TestExecuteDueNodesHoldsGhostNodeOwnerNotEnrolledWithinGrace(t *testing.T) 
 }
 
 // TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolledPastGrace — the
-// flip side: once ghostNodeAbsentGrace has genuinely elapsed with the
+// flip side: once GhostAbsentGrace has genuinely elapsed with the
 // owner still missing from the roster, the node is cancelled, same as
 // before this finding's fix (just deferred instead of instant).
 func TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolledPastGrace(t *testing.T) {
@@ -412,7 +412,7 @@ func TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolledPastGrace(t *testing.T) 
 		TriggerTime:      now,
 		TargetGhostOwner: "SHA256:gern",
 		TargetCraftID:    987654,
-		GhostAbsentSince: time.Now().Add(-(ghostNodeAbsentGrace + time.Second)),
+		GhostAbsentSince: time.Now().Add(-(GhostAbsentGrace + time.Second)),
 	}}
 	w.Ghosts = nil
 	w.Session = sessionWithOwner("SHA256:someone-else")
@@ -596,7 +596,7 @@ func TestExecuteDueNodesCancelNoticeFiresAfterPriorHoldLocalTarget(t *testing.T)
 // shape as the local-target case above, for a ghost ref: the node
 // holds (owner present, ghost unresolved) at least once, stamping
 // RefusalNoticed, then the owner drops out of the roster and
-// ghostNodeAbsentGrace expires. The cancel must still fire a notice —
+// GhostAbsentGrace expires. The cancel must still fire a notice —
 // not be swallowed by the RefusalNoticed flag the earlier hold set.
 func TestExecuteDueNodesCancelNoticeFiresAfterPriorHoldGhostTarget(t *testing.T) {
 	w := mustWorld(t)
@@ -620,7 +620,7 @@ func TestExecuteDueNodesCancelNoticeFiresAfterPriorHoldGhostTarget(t *testing.T)
 	w.LastNodeTargetRefusal = nil // simulate the HUD consuming the earlier hold flash
 
 	// The owner drops out of the roster and grace has already expired.
-	c.Nodes[0].GhostAbsentSince = time.Now().Add(-(ghostNodeAbsentGrace + time.Second))
+	c.Nodes[0].GhostAbsentSince = time.Now().Add(-(GhostAbsentGrace + time.Second))
 	w.Session = sessionWithOwner("SHA256:someone-else")
 
 	w.executeDueNodes()

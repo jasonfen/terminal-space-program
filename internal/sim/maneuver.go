@@ -2399,14 +2399,13 @@ func (w *World) DeleteNode(idx int) {
 	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)
 }
 
-// ghostNodeAbsentGrace mirrors reportingModel.targetLockRelatchGrace
-// (internal/serve/reporting.go, 45s) — the SAME wall-clock tolerance a
-// due ghost-ref node gets before executeDueNodesFor gives up on its
-// target owner being absent from the current session's roster (#294
-// second-round review finding 1). Duplicated rather than imported: sim
-// sits below serve in the dependency graph (physics → orbital →
-// planner/spacecraft → sim → tui/serve) and must never import upward.
-const ghostNodeAbsentGrace = 45 * time.Second
+// GhostAbsentGrace is the wall-clock tolerance a ghost ref gets before the
+// sim gives up on its owner being absent from the session roster: the
+// SAME value for a due ghost-ref node here (executeDueNodesFor) and for
+// the world's active target lock in reportingModel's watchdog
+// (internal/serve/reporting.go, which references this constant so the two
+// can't drift). #294.
+const GhostAbsentGrace = 45 * time.Second
 
 // executeDueNodes fires every craft's due nodes onto themselves.
 // Called from Tick after sim-time advances. Each craft's nodes are
@@ -2578,7 +2577,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 					if n.GhostAbsentSince.IsZero() {
 						n.GhostAbsentSince = now
 					}
-					if now.Sub(n.GhostAbsentSince) < ghostNodeAbsentGrace {
+					if now.Sub(n.GhostAbsentSince) < GhostAbsentGrace {
 						if !n.RefusalNoticed {
 							w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
 							n.RefusalNoticed = true
@@ -2689,36 +2688,7 @@ func (w *World) CancelGhostNodeRefs(owner string, craftID uint64) {
 	if owner == "" || craftID == 0 {
 		return
 	}
-	stamped := false
-	notice := func(craftName string) {
-		if stamped {
-			return
-		}
-		w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
-			When: w.Clock.SimTime, CraftName: craftName, Cancelled: true,
-		}
-		stamped = true
-	}
-	for _, c := range w.Crafts {
-		if c == nil {
-			continue
-		}
-		kept := c.Nodes[:0]
-		for _, n := range c.Nodes {
-			if n.TargetGhostOwner == owner && n.TargetCraftID == craftID {
-				notice(c.Name)
-				continue // dropped outright — see the node/burn split below
-			}
-			kept = append(kept, n)
-		}
-		c.Nodes = kept
-		if ab := c.ActiveBurn; ab != nil && ab.TargetGhostOwner == owner && ab.TargetCraftID == craftID {
-			// Abort outright (finding D) — a stripped-ref zombie burn can
-			// never resolve, thrust, or tear itself down again.
-			c.ActiveBurn = nil
-			notice(c.Name)
-		}
-	}
+	w.cancelGhostRefsMatching(func(o string, id uint64) bool { return o == owner && id == craftID })
 }
 
 // CancelAllGhostRefs cancels every planted node bound to ANY ghost
@@ -2742,6 +2712,24 @@ func (w *World) CancelGhostNodeRefs(owner string, craftID uint64) {
 // matching node/burn) so leaving with several ghost refs outstanding
 // still produces a single notice.
 func (w *World) CancelAllGhostRefs() {
+	w.cancelGhostRefsMatching(func(o string, _ uint64) bool { return o != "" })
+}
+
+// cancelGhostRefsMatching is the shared body of CancelGhostNodeRefs and
+// CancelAllGhostRefs. What happens to a matching ref depends on whether
+// the burn actually NEEDS the target:
+//   - a target-relative-MODE node (BurnTarget* — its direction is
+//     meaningless without the target state) is dropped outright, and an
+//     in-flight target-relative ActiveBurn is aborted; one cancellation
+//     notice per call.
+//   - a node/burn whose MODE is not target-relative (prograde, radial, …)
+//     merely CARRIED the binding — the maneuver form stamps it on every
+//     mode while a craft/ghost is targeted so an edited advisory keeps its
+//     identity, and PlanRendezvousNudge binds every axis — and its burn is
+//     unaffected by the target vanishing. It keeps the node/burn and only
+//     strips the now-meaningless ref, silently: dropping it would delete
+//     a planted circularize the player made while merely LOOKING at a peer.
+func (w *World) cancelGhostRefsMatching(match func(owner string, craftID uint64) bool) {
 	stamped := false
 	notice := func(craftName string) {
 		if stamped {
@@ -2758,16 +2746,23 @@ func (w *World) CancelAllGhostRefs() {
 		}
 		kept := c.Nodes[:0]
 		for _, n := range c.Nodes {
-			if n.TargetGhostOwner != "" {
-				notice(c.Name)
-				continue // dropped outright
+			if n.TargetGhostOwner != "" && match(n.TargetGhostOwner, n.TargetCraftID) {
+				if n.IsTargetRelative() {
+					notice(c.Name)
+					continue // dropped outright
+				}
+				n.TargetGhostOwner, n.TargetCraftID = "", 0
 			}
 			kept = append(kept, n)
 		}
 		c.Nodes = kept
-		if ab := c.ActiveBurn; ab != nil && ab.TargetGhostOwner != "" {
-			c.ActiveBurn = nil
-			notice(c.Name)
+		if ab := c.ActiveBurn; ab != nil && ab.TargetGhostOwner != "" && match(ab.TargetGhostOwner, ab.TargetCraftID) {
+			if spacecraft.IsTargetRelativeMode(ab.Mode) {
+				c.ActiveBurn = nil
+				notice(c.Name)
+			} else {
+				ab.TargetGhostOwner, ab.TargetCraftID = "", 0
+			}
 		}
 	}
 }
