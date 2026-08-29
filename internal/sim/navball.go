@@ -113,20 +113,31 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 	var eX orbital.Vec3
 	switch nav {
 	case NavTarget:
-		_, vT, ok := w.TargetStateRelativeToActivePrimary()
-		if !ok {
-			return NavballBasis{}, false
+		if _, vT, ok := w.TargetStateRelativeToActivePrimary(); ok {
+			// KSP convention: target-prograde = unit(v_active − v_target),
+			// the direction of motion relative to the target. The navball
+			// re-centres on that axis so when SAS holds target-prograde
+			// the marker sits at the disk centre.
+			dv := v.Sub(vT)
+			if n := dv.Norm(); n != 0 {
+				eX = dv.Scale(1 / n)
+				break
+			}
 		}
-		// KSP convention: target-prograde = unit(v_active − v_target),
-		// the direction of motion relative to the target. The navball
-		// re-centres on that axis so when SAS holds target-prograde
-		// the marker sits at the disk centre.
-		dv := v.Sub(vT)
-		n := dv.Norm()
-		if n == 0 {
-			return NavballBasis{}, false
-		}
-		eX = dv.Scale(1 / n)
+		// #294 review round 3 (finding H): a persisted NavTarget mode
+		// whose target-relative state doesn't resolve — most visibly a
+		// TargetGhost ref still mid re-latch after a reconnect, or one
+		// with no live session at all to re-latch it — used to blank the
+		// WHOLE navball (return ok=false here), not just the target-
+		// relative markers, for as long as the gap lasted: indefinitely,
+		// for a solo-loaded save. HasRelativeTarget() deliberately keeps
+		// NavMode at NavTarget through a resolve gap (see its doc), so
+		// this can't fall back to NavOrbit above — it has to fall back
+		// HERE, to the same orbit-frame prograde basis the default case
+		// below computes, so the ball is never simply blank. The
+		// degenerate dv.Norm()==0 case (target resolved, but with
+		// exactly matched velocity) falls through the same way.
+		fallthrough
 	default:
 		vN := v.Norm()
 		if vN == 0 {
@@ -266,7 +277,7 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 	if !ok {
 		return nil
 	}
-	rT, vT, _ := w.TargetStateRelativeToActivePrimary()
+	rT, vT, targetOK := w.TargetStateRelativeToActivePrimary()
 
 	// Per-mode glyph + color per intent. Only the radial pair
 	// re-skins per mode — prograde / retrograde / normal± keep their
@@ -277,10 +288,18 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 		glyph  rune
 		color  lipgloss.Color
 	}
+	// targetRelevant is when ResolveAttitudeIntent rebinds
+	// Prograde/Retrograde/RadialOut/RadialIn to a target-relative BurnMode
+	// (mirrors its own NavTarget case). HasRelativeTarget() is true
+	// whenever a craft/ghost target is BOUND, independent of whether it
+	// currently RESOLVES — a persisted TargetGhost ref mid re-latch after
+	// a reconnect, or one with nobody live to re-latch it, is bound but
+	// unresolved. targetOK is the resolve itself.
+	targetRelevant := w.NavMode == NavTarget && w.HasRelativeTarget()
 	radialOutGlyph := NavballGlyphRadialOut
 	radialInGlyph := NavballGlyphRadialIn
 	radialColor := render.ColorNavballMarkerRadial
-	if w.NavMode == NavTarget && w.HasRelativeTarget() {
+	if targetRelevant {
 		radialOutGlyph = NavballGlyphTarget
 		radialInGlyph = NavballGlyphAntiTarget
 		radialColor = render.ColorNavballMarkerTarget
@@ -296,6 +315,19 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 
 	out := make([]render.NavballMarker, 0, len(entries)+len(active.Nodes))
 	for _, e := range entries {
+		// Suppress the four target-relative cardinals when the target is
+		// bound but doesn't resolve — matching NavballBasis's own fallback
+		// to an orbit-prograde frame, and attitudeContext's resolve-ok
+		// guard (world.go). Without this, DirectionUnitTarget's BurnTarget
+		// case degrades (rT, vT)=(0, 0) to unit(0 − rA): a genuine unit
+		// vector pointing at the primary's centre, so the toward-target
+		// glyph would draw confidently there while SAS actually holds
+		// prograde.
+		if targetRelevant && !targetOK &&
+			(e.intent == IntentPrograde || e.intent == IntentRetrograde ||
+				e.intent == IntentRadialOut || e.intent == IntentRadialIn) {
+			continue
+		}
 		mode := w.ResolveAttitudeIntent(e.intent)
 		dir := active.BurnDirectionWithTarget(mode, rT, vT)
 		if dir.Norm() == 0 {

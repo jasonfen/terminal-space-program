@@ -117,10 +117,18 @@ func (w *World) ToggleManualBurn() {
 // it to the active craft. Setting throttle to 0 also stops the
 // active craft's in-flight manual burn so the "x = cut" muscle
 // memory works in one keypress; a normally-running planted burn keeps
-// running, but a STALLED planted burn (paused waiting for a stage,
-// producing no thrust) is aborted — that's the only way to abandon a
-// transfer the spent stage couldn't finish, and without it the dangling
-// burn would block StartManualBurn (v0.12.x pause-and-resume).
+// running, but a STALLED planted burn is aborted — either paused for
+// want of fuel (BurnStalled) or paused for want of a resolvable
+// target (a target-relative burn activeBurnTargetReady refuses to
+// thrust — #294 second-round review finding 3: before this, only fuel
+// exhaustion could ever tear a held burn down, so a craft/ghost target
+// that never came back — the peer landing, changing systems, or the
+// session ending mid-burn — left the player with NO way to abandon the
+// transfer short of staging it dry). Either stall is the only way to
+// abandon a transfer that can't finish, and without aborting it here
+// the dangling burn would block StartManualBurn (v0.12.x
+// pause-and-resume) and keep the craft's warp clamp pinned ≤10× for
+// good.
 func (w *World) SetThrottle(t float64) {
 	c := w.ActiveCraft()
 	if c == nil {
@@ -140,7 +148,7 @@ func (w *World) SetThrottle(t float64) {
 	c.Throttle = t
 	if t == 0 {
 		w.StopManualBurn()
-		if c.BurnStalled() {
+		if c.BurnStalled() || (c.ActiveBurn != nil && !w.activeBurnTargetReady(c)) {
 			c.ActiveBurn = nil
 		}
 	}
@@ -2391,6 +2399,14 @@ func (w *World) DeleteNode(idx int) {
 	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)
 }
 
+// GhostAbsentGrace is the wall-clock tolerance a ghost ref gets before the
+// sim gives up on its owner being absent from the session roster: the
+// SAME value for a due ghost-ref node here (executeDueNodesFor) and for
+// the world's active target lock in reportingModel's watchdog
+// (internal/serve/reporting.go, which references this constant so the two
+// can't drift). #294.
+const GhostAbsentGrace = 45 * time.Second
+
 // executeDueNodes fires every craft's due nodes onto themselves.
 // Called from Tick after sim-time advances. Each craft's nodes are
 // independent — a planted burn fires on the craft it was planted
@@ -2409,14 +2425,52 @@ func (w *World) executeDueNodes() {
 // Impulsive nodes (Duration==0) apply their Δv inline; finite nodes
 // start the craft's ActiveBurn. Both popped from the craft's own
 // Nodes slice. v0.8.1+.
+//
+// #294 review finding 2: a due target-relative node whose bound target
+// doesn't resolve used to always `break` — correct for a ghost ref that
+// might still re-latch (pending-resolvable), but wrong for a LOCAL
+// target craft removed from the slate for good (end-flight): that ref
+// can never come back, yet the unconditional break wedged the rest of
+// the queue behind an every-tick refusal flash forever. This walks the
+// queue with an explicit filter instead of the old fired-prefix count,
+// so a never-resolvable node can be dropped in place — freeing the
+// nodes behind it to fire this same tick — while a pending-resolvable
+// one still holds the queue exactly as before.
+//
+// #294 review round 3 sharpened both branches further:
+//
+//   - Finding F: a LOCAL ref used to treat ANY resolve failure as
+//     permanent, but nodeTargetRelState's own doc names a transient
+//     case — the target craft alive but briefly on a different primary
+//     mid-SOI-transfer. Existence (craftByID) and resolvability
+//     (nodeTargetRelState) are checked separately now: still-in-the-
+//     slate holds like a pending stall, gone-from-the-slate cancels.
+//   - Finding E: a GHOST ref used to hold forever with no give-up
+//     outside reconcileTargetLock's watchdog (internal/serve/
+//     reporting.go), which only ever tracks the world's ACTIVE
+//     target — a node bound to some OTHER ghost, or evaluated with no
+//     hosting session at all (a dock ledger Parcel, a standalone save),
+//     never got a give-up any other way. A simple fire-time presence
+//     rule (World.sessionKnowsOwner) subsumes that dependency: no
+//     session, or the owner isn't part of this one, cancels; owner
+//     present holds, same as before.
 func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
-	fired := 0
+	kept := c.Nodes[:0]
+	held := false
 	for _, n := range c.Nodes {
+		if held {
+			kept = append(kept, n)
+			continue
+		}
 		if !n.IsResolved() {
-			break
+			held = true
+			kept = append(kept, n)
+			continue
 		}
 		if n.BurnStart().After(w.Clock.SimTime) {
-			break
+			held = true
+			kept = append(kept, n)
+			continue
 		}
 		// A finite burn occupies the craft exclusively: only one
 		// ActiveBurn can integrate at a time. If one is already in
@@ -2427,7 +2481,9 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		// tick would overwrite c.ActiveBurn and its Δv would be popped
 		// and silently dropped (GH #88).
 		if c.ActiveBurn != nil {
-			break
+			held = true
+			kept = append(kept, n)
+			continue
 		}
 		// v0.9.3+: resolve target snapshot for target-relative nodes
 		// at fire time. Bound via n.TargetCraftID (captured at plant,
@@ -2437,7 +2493,124 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		if n.IsTargetRelative() {
 			// v0.28 S4: resolves a local craft ref or a remote ghost ref
 			// (owner + remote id) against the ghost slate.
-			rT, vT, _ = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+			var ok bool
+			rT, vT, ok = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+			if !ok {
+				// #294 review finding 5 / finding 2: a target-relative node
+				// whose bound target doesn't resolve at fire time must
+				// refuse to fire, not burn against nodeTargetRelState's
+				// zero-value fallback (DirectionUnitTarget's BurnTarget/
+				// AntiTarget cases degrade that to a direction aimed at, or
+				// away from, the primary's centre — a real Δv expenditure
+				// in a bogus direction, not a display glitch).
+				if n.TargetGhostOwner == "" {
+					// Local craft ref (finding F): distinguish EXISTENCE
+					// from RESOLVABILITY. A target craft still in the
+					// slate but on a different primary right now — mid-
+					// SOI-transfer, the exact case nodeTargetRelState's
+					// own doc names — is a transient stall, not a
+					// permanent loss: hold it exactly like an ordinary
+					// pending stall, and it may resolve on a later tick
+					// once both craft share a primary again.
+					if _, _, stillExists := w.craftByID(n.TargetCraftID); stillExists {
+						if !n.RefusalNoticed {
+							w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
+							n.RefusalNoticed = true
+						}
+						held = true
+						kept = append(kept, n)
+						continue
+					}
+					// Gone from the slate for good (end-flight): that ref
+					// can never come back — drop this ONE node, notice
+					// once, and keep dispatching the rest of the queue
+					// instead of wedging everything behind a burn that
+					// will never fire.
+					//
+					// #294 second-round review finding 5: this stamp must
+					// be UNCONDITIONAL, not gated behind !n.RefusalNoticed.
+					// A node that held earlier (the transient different-
+					// primary stall above, which DOES set RefusalNoticed to
+					// mute its own every-tick flash) already carries the
+					// flag by the time it reaches a cancel — gating the
+					// cancel notice on the same flag silently swallowed it,
+					// so the node vanished from the queue with no HUD flash
+					// at all. Cancellation is a one-time terminal event for
+					// this node (it's dropped right after), so there is no
+					// "once per stall" concern to protect here the way the
+					// hold branches have.
+					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+						When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
+					}
+					continue // dropped — not appended to kept
+				}
+				// Ghost ref, not (yet) resolved (finding E): give up right
+				// here when there is no session at all — reconcileTargetLock's
+				// watchdog can never reach this node (it only ever tracks the
+				// world's ACTIVE target), and with no session nothing will
+				// ever populate a roster for it to wait on (solo play, or a
+				// craft evaluated outside any hosting session, e.g. a dock
+				// ledger Parcel), so waiting here would just wedge the queue
+				// forever.
+				if w.Session == nil {
+					// Unconditional stamp — see finding 5's note above; a
+					// node held earlier under a live session (RefusalNoticed
+					// already true) must not go silent just because the
+					// session it was waiting on is now gone entirely.
+					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+						When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
+					}
+					continue // dropped — not appended to kept
+				}
+				// #294 second-round review finding 1: in a session, but this
+				// owner isn't (yet) a roster member. Most often the shape of
+				// THIS player's own session reconnecting — a guest's first
+				// tick after connect used to race sessionKnowsOwner against
+				// refreshSession priming w.Session (now fixed at attach, see
+				// withReporting in internal/serve/reporting.go) — or a
+				// roster snapshot momentarily lagging a restart. Give the
+				// SAME wall-clock tolerance reconcileTargetLock's watchdog
+				// gives the world's ACTIVE target before it gives up: an
+				// owner mid-reconnect must not cost a planted node.
+				if !w.sessionKnowsOwner(n.TargetGhostOwner) {
+					now := time.Now()
+					if n.GhostAbsentSince.IsZero() {
+						n.GhostAbsentSince = now
+					}
+					if now.Sub(n.GhostAbsentSince) < GhostAbsentGrace {
+						if !n.RefusalNoticed {
+							w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
+							n.RefusalNoticed = true
+						}
+						held = true
+						kept = append(kept, n)
+						continue
+					}
+					// Unconditional stamp (finding 5): this node has almost
+					// certainly held at least once already (RefusalNoticed
+					// set by the branch just above, every tick within
+					// grace) — gating the cancel on that same flag would
+					// silently drop the node the instant grace expired,
+					// with no notice at all.
+					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+						When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
+					}
+					continue // dropped — not appended to kept
+				}
+				// Owner present: an ordinary pending-resolvable ghost (landed,
+				// viewing a different system, hasn't reported yet) gets the
+				// tolerance it always had — hold silently, and clear any
+				// absence timer left over from an earlier stretch of the
+				// owner being away from the roster.
+				n.GhostAbsentSince = time.Time{}
+				if !n.RefusalNoticed {
+					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
+					n.RefusalNoticed = true
+				}
+				held = true
+				kept = append(kept, n)
+				continue
+			}
 		}
 		if n.Duration == 0 {
 			// A BurnPlaneChange or BurnVector node degrades to impulsive
@@ -2471,10 +2644,126 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		// soft-landing doesn't trip the ViewLaunch auto-route.
 		c.Landed = false
 		c.OnPad = false
-		fired++
+		// fired — not appended to kept.
 	}
-	if fired > 0 {
-		c.Nodes = c.Nodes[fired:]
+	c.Nodes = kept
+}
+
+// CancelGhostNodeRefs cancels every planted node — and aborts any
+// craft's in-flight ActiveBurn — matching (owner, craftID), across
+// every craft in the slate. Called by reportingModel.reconcileTargetLock
+// (internal/serve/reporting.go) the moment its give-up countdown gives
+// up on Craft.Target pointing at this same ref: the watchdog only ever
+// cleared Craft.Target itself, leaving a planted node's or the active
+// burn's own copy of the ref dangling — executeDueNodesFor would keep
+// re-finding a matching due node unresolved forever, wedging the rest
+// of the queue behind an endless refusal flash that not even
+// retargeting to someone else could clear (that only reset the
+// WATCHDOG's tracked ref, never the node's).
+//
+// A matching NODE is dropped from the queue outright — same shape as
+// executeDueNodesFor's own never-resolvable-local-ref branch, just
+// applied proactively instead of waiting for the node to come due.
+//
+// #294 review round 3 (finding D): a matching ActiveBurn used to have
+// only its ref stripped (owner="", craftID=0), keeping the burn "alive"
+// so its committed Δv wasn't discarded. That backfired: with the ref
+// gone, nodeTargetRelState refuses unconditionally for craftID==0 (it
+// can't tell "no target" from "target just cancelled"), so
+// activeBurnTargetReady never returns true again — the burn holds
+// forever, its EndTime pushed out every tick, burnExhausted never fires,
+// SetThrottle(0) can't abort it (only fuel exhaustion can), and the
+// stuck ActiveBurn wedges canKeplerStep's per-craft gate for the rest of
+// the session (warp stays clamped ≤10×). The target really is gone —
+// the give-up countdown just ran its full grace window — so there is no
+// later resolve to wait for. Abort the burn outright instead: tear it
+// down cleanly, same as any other "this can never fire" case, and let
+// the one-time notice say so. The remaining Δv is forfeit, same as a
+// player-initiated StopManualBurn mid-flight.
+//
+// Stamps LastNodeTargetRefusal once for the whole call (not once per
+// matching node/burn) so a give-up that touches several queued nodes
+// still produces a single notice.
+func (w *World) CancelGhostNodeRefs(owner string, craftID uint64) {
+	if owner == "" || craftID == 0 {
+		return
+	}
+	w.cancelGhostRefsMatching(func(o string, id uint64) bool { return o == owner && id == craftID })
+}
+
+// CancelAllGhostRefs cancels every planted node bound to ANY ghost
+// (TargetGhostOwner != "") — and aborts any craft's in-flight ghost-
+// ref ActiveBurn — across every craft in the slate, regardless of
+// which peer they name. #294 second-round review finding 3(ii): called
+// by reportingModel.stopHosting (internal/serve/reporting.go) the
+// moment a hosting session ends. Unlike CancelGhostNodeRefs (one
+// specific ref, called mid-session once its own give-up grace
+// expires), leaving the session entirely means NO ghost ref can ever
+// resolve again — there is no roster left to wait on, no watchdog left
+// running, nothing to re-latch to. Left alone, a ghost-bound
+// ActiveBurn would hold forever (activeBurnTargetReady never
+// re-resolves outside a session), wedging the craft's warp clamp for
+// good; a queued ghost-ref node would sit refused every tick it came
+// due. Same shape as executeDueNodesFor's own no-session branch, just
+// applied proactively to every ref at once instead of waiting for each
+// node to come due.
+//
+// Stamps LastNodeTargetRefusal once for the whole call (not once per
+// matching node/burn) so leaving with several ghost refs outstanding
+// still produces a single notice.
+func (w *World) CancelAllGhostRefs() {
+	w.cancelGhostRefsMatching(func(o string, _ uint64) bool { return o != "" })
+}
+
+// cancelGhostRefsMatching is the shared body of CancelGhostNodeRefs and
+// CancelAllGhostRefs. What happens to a matching ref depends on whether
+// the burn actually NEEDS the target:
+//   - a target-relative-MODE node (BurnTarget* — its direction is
+//     meaningless without the target state) is dropped outright, and an
+//     in-flight target-relative ActiveBurn is aborted; one cancellation
+//     notice per call.
+//   - a node/burn whose MODE is not target-relative (prograde, radial, …)
+//     merely CARRIED the binding — the maneuver form stamps it on every
+//     mode while a craft/ghost is targeted so an edited advisory keeps its
+//     identity, and PlanRendezvousNudge binds every axis — and its burn is
+//     unaffected by the target vanishing. It keeps the node/burn and only
+//     strips the now-meaningless ref, silently: dropping it would delete
+//     a planted circularize the player made while merely LOOKING at a peer.
+func (w *World) cancelGhostRefsMatching(match func(owner string, craftID uint64) bool) {
+	stamped := false
+	notice := func(craftName string) {
+		if stamped {
+			return
+		}
+		w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+			When: w.Clock.SimTime, CraftName: craftName, Cancelled: true,
+		}
+		stamped = true
+	}
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		kept := c.Nodes[:0]
+		for _, n := range c.Nodes {
+			if n.TargetGhostOwner != "" && match(n.TargetGhostOwner, n.TargetCraftID) {
+				if n.IsTargetRelative() {
+					notice(c.Name)
+					continue // dropped outright
+				}
+				n.TargetGhostOwner, n.TargetCraftID = "", 0
+			}
+			kept = append(kept, n)
+		}
+		c.Nodes = kept
+		if ab := c.ActiveBurn; ab != nil && ab.TargetGhostOwner != "" && match(ab.TargetGhostOwner, ab.TargetCraftID) {
+			if spacecraft.IsTargetRelativeMode(ab.Mode) {
+				c.ActiveBurn = nil
+				notice(c.Name)
+			} else {
+				ab.TargetGhostOwner, ab.TargetCraftID = "", 0
+			}
+		}
 	}
 }
 
@@ -2507,7 +2796,20 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 	var rT, vT orbital.Vec3
 	if n.IsTargetRelative() {
 		// v0.28 S4: local craft ref or remote ghost ref (via ghost slate).
-		rT, vT, _ = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+		ok := false
+		rT, vT, ok = w.nodeTargetRelState(n.TargetGhostOwner, n.TargetCraftID, c.Primary)
+		// #294 review finding 5 (same shape as the navball marker guard
+		// below): an unresolved target-relative node has no direction to
+		// lead-compensate toward. rT=vT=0 doesn't necessarily give
+		// BurnDirectionForBurn a zero-norm result (BurnTarget's
+		// unit(0 − rA) is a perfectly valid-looking unit vector aimed at
+		// the primary's centre) — the dir.Norm()==0 check below can't
+		// catch it, so check ok explicitly rather than let the craft
+		// pre-emptively slew its nose toward the planet ahead of a burn
+		// that (per executeDueNodesFor) will refuse to fire anyway.
+		if !ok {
+			return orbital.Vec3{}, false
+		}
 	}
 	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)
 	if dir.Norm() == 0 {

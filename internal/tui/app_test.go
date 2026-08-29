@@ -428,3 +428,241 @@ func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {
 		t.Errorf("`?` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
 	}
 }
+
+// TestClickToEditGhostBoundNodePreservesBinding — #294 review round 3
+// finding I. Click-to-edit on a reloaded ghost-targeted node used to
+// silently strip its binding: LoadNode correctly captured the node's
+// own target, but the app always followed it with bindManeuverTarget,
+// which only knew TargetCraft — for a TargetGhost (or, as here, a
+// LIVE target that no longer matches what the node was planted
+// against) it clobbered the freshly-loaded binding down to none. This
+// drives the exact production path (LoadNode, HandleKey's Enter →
+// commitCmd → BurnExecutedMsg, App.Update's re-plant) and asserts the
+// ghost ref survives both the FORM state and the REPLANTED node.
+func TestClickToEditGhostBoundNodePreservesBinding(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := a.world.ActiveCraft()
+	c.Nodes = append(c.Nodes, sim.ManeuverNode{
+		Mode:             spacecraft.BurnTargetPrograde,
+		DV:               42,
+		TriggerTime:      a.world.Clock.SimTime.Add(time.Hour),
+		PrimaryID:        c.Primary.ID,
+		TargetGhostOwner: "SHA256:peer",
+		TargetCraftID:    987654,
+	})
+
+	// The world's CURRENT live target is unrelated to the node being
+	// edited — e.g. the give-up countdown already cleared it, or the
+	// player simply hasn't retargeted since the node was planted.
+	// bindManeuverTarget must never be consulted for an edit.
+	a.world.ClearTarget()
+
+	// Click-to-edit: LoadNode captures the node's OWN binding.
+	a.maneuver.LoadNode(0, c.Nodes[0])
+
+	cmd, ok := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !ok || cmd == nil {
+		t.Fatal("Enter did not commit")
+	}
+	raw := cmd()
+	msg, ok := raw.(screens.BurnExecutedMsg)
+	if !ok {
+		t.Fatalf("commit produced %T, not BurnExecutedMsg", raw)
+	}
+	if msg.TargetCraftID != 987654 || msg.TargetGhostOwner != "SHA256:peer" {
+		t.Fatalf("edit dropped the ghost binding from the form: TargetCraftID=%d TargetGhostOwner=%q",
+			msg.TargetCraftID, msg.TargetGhostOwner)
+	}
+
+	// Apply the commit through the app, as the real Update loop would,
+	// and confirm the REPLANTED node still carries the ghost ref — not
+	// just the form's transient state.
+	a.Update(msg)
+	nodes := a.world.ActiveCraft().Nodes
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node after commit, got %d: %+v", len(nodes), nodes)
+	}
+	if nodes[0].TargetGhostOwner != "SHA256:peer" || nodes[0].TargetCraftID != 987654 {
+		t.Errorf("replanted node lost its ghost binding: %+v", nodes[0])
+	}
+}
+
+// TestClickToEditUntargetedNodeAfterGhostBoundLoadClearsBinding — #294
+// second-round review finding 2. The Maneuver screen is one long-lived
+// value reused across every plant/edit cycle (app.go): LoadNode used to
+// set hasTargetCraft/targetCraftID/targetGhostOwner ONLY inside its
+// `if id, ok := n.TargetCraftIDValue(); ok` branch, with no else. So
+// loading a ghost-bound node, leaving it (Esc, in the real flow), then
+// click-to-editing a later UNTARGETED node left the PRIOR node's
+// binding stamped on the form: it still offered target-relative modes,
+// and commitCmd would stamp the stale refs onto a node that was never
+// targeted.
+func TestClickToEditUntargetedNodeAfterGhostBoundLoadClearsBinding(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := a.world.ActiveCraft()
+	c.Nodes = append(c.Nodes,
+		sim.ManeuverNode{
+			Mode:             spacecraft.BurnTargetPrograde,
+			DV:               42,
+			TriggerTime:      a.world.Clock.SimTime.Add(time.Hour),
+			PrimaryID:        c.Primary.ID,
+			TargetGhostOwner: "SHA256:peer",
+			TargetCraftID:    987654,
+		},
+		sim.ManeuverNode{
+			Mode:        spacecraft.BurnPrograde,
+			DV:          10,
+			TriggerTime: a.world.Clock.SimTime.Add(2 * time.Hour),
+			PrimaryID:   c.Primary.ID,
+			// no target binding
+		},
+	)
+
+	// Open the ghost-bound node (as if clicked), leave it (Esc, in the
+	// real flow), then click-to-edit the SECOND, untargeted node.
+	a.maneuver.LoadNode(0, c.Nodes[0])
+	a.maneuver.LoadNode(1, c.Nodes[1])
+
+	// Cycle the mode field through every non-target-relative entry
+	// (AllBurnModes lists the body-frame six first, the four target-
+	// relative ones appended after). A clean binding must skip straight
+	// past the target-relative block and wrap back to the start; a
+	// binding leaked from node 0's earlier load lets it stop inside
+	// that block instead (advanceMode's own skip-when-untargeted gate).
+	nonTR := 0
+	for _, md := range spacecraft.AllBurnModes {
+		if !spacecraft.IsTargetRelativeMode(md) {
+			nonTR++
+		}
+	}
+	for i := 0; i < nonTR; i++ {
+		if _, done := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyRight}); done {
+			t.Fatalf("right press %d unexpectedly ended the form", i)
+		}
+	}
+
+	cmd, ok := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !ok || cmd == nil {
+		t.Fatal("Enter did not commit")
+	}
+	raw := cmd()
+	msg, ok := raw.(screens.BurnExecutedMsg)
+	if !ok {
+		t.Fatalf("commit produced %T, not BurnExecutedMsg", raw)
+	}
+	if spacecraft.IsTargetRelativeMode(msg.Mode) {
+		t.Errorf("mode cycling stopped on a target-relative mode (%v) for a node with no bound target — hasTargetCraft leaked from the earlier ghost-bound LoadNode", msg.Mode)
+	}
+	if msg.TargetCraftID != 0 || msg.TargetGhostOwner != "" {
+		t.Errorf("stale target binding leaked onto an untargeted node's commit: TargetCraftID=%d TargetGhostOwner=%q",
+			msg.TargetCraftID, msg.TargetGhostOwner)
+	}
+}
+
+// TestEditedAdvisoryNudgeKeepsIdentityAndAutoWarpHonorsIt — #294
+// second-round review finding 6. A K-planted rendezvous nudge
+// (PlanRendezvousNudge) stamps AdvisoryKey and a target binding even on
+// a plain velocity-frame mode (BurnPrograde here) — the binding records
+// what the nudge was computed against, not a direction dependency.
+// Before this fix, LoadNode faithfully loaded both, but commitCmd's
+// target-binding stamp was gated on IsTargetRelativeMode (which
+// BurnPrograde never is) and BurnExecutedMsg had no AdvisoryKey field
+// at all — so editing the nudge (here: changing its Δv, which shifts
+// the derived Duration and so BurnStart) silently re-planted it with
+// NEITHER. This drives the exact production path (LoadNode → Enter →
+// commitCmd → BurnExecutedMsg → App.Update's re-plant) and asserts the
+// edited node keeps its AdvisoryKey and target binding, and that
+// Auto-Warp Engage (which resolves by stable node ID, unaffected by
+// AdvisoryKey, but proves the re-plant produced a coherent, still-
+// eligible node) still finds and targets it.
+func TestEditedAdvisoryNudgeKeepsIdentityAndAutoWarpHonorsIt(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := a.world.ActiveCraft()
+	origTrigger := a.world.Clock.SimTime.Add(time.Hour)
+	c.Nodes = append(c.Nodes, sim.ManeuverNode{
+		Mode:             spacecraft.BurnPrograde, // velocity-frame axis, NOT target-relative
+		DV:               20,
+		TriggerTime:      origTrigger,
+		PrimaryID:        c.Primary.ID,
+		TargetCraftID:    c.ID, // stands in for the nudge's computed-against target
+		TargetGhostOwner: "",
+		AdvisoryKey:      sim.AdvisoryKeyRendezvousNudge,
+	})
+	origID := c.Nodes[0].ID
+	if origID == 0 {
+		// EnsureNodeIDs runs at world construction, not on manual
+		// slice appends — stamp one here so AutoWarp has an ID to match.
+		a.world.EnsureNodeIDs()
+		origID = c.Nodes[0].ID
+	}
+
+	// Click-to-edit, then change the Δv (the form's actual editable
+	// numeric field) — a real edit, not a no-op re-commit.
+	a.maneuver.LoadNode(0, c.Nodes[0])
+	// LoadNode focuses the mode field (0); tab twice to reach the Δv
+	// input (2), clear the loaded "20", and type a genuinely different
+	// value.
+	a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	for i := 0; i < 4; i++ {
+		a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "999" {
+		a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+
+	cmd2, ok2 := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !ok2 || cmd2 == nil {
+		t.Fatal("Enter did not commit")
+	}
+	raw := cmd2()
+	msg, ok := raw.(screens.BurnExecutedMsg)
+	if !ok {
+		t.Fatalf("commit produced %T, not BurnExecutedMsg", raw)
+	}
+	if msg.AdvisoryKey != sim.AdvisoryKeyRendezvousNudge {
+		t.Errorf("AdvisoryKey dropped by the edit: got %q, want %q", msg.AdvisoryKey, sim.AdvisoryKeyRendezvousNudge)
+	}
+	if msg.TargetCraftID != c.ID {
+		t.Errorf("target binding dropped by the edit on a non-target-relative mode: TargetCraftID=%d, want %d", msg.TargetCraftID, c.ID)
+	}
+
+	a.Update(msg)
+	nodes := a.world.ActiveCraft().Nodes
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node after commit, got %d: %+v", len(nodes), nodes)
+	}
+	edited := nodes[0]
+	if edited.AdvisoryKey != sim.AdvisoryKeyRendezvousNudge {
+		t.Errorf("replanted node lost its AdvisoryKey: %+v", edited)
+	}
+	if edited.TargetCraftID != c.ID {
+		t.Errorf("replanted node lost its target binding: %+v", edited)
+	}
+	if edited.ID != origID {
+		t.Fatalf("replanted node did not keep its stable ID: got %d, want %d", edited.ID, origID)
+	}
+	if edited.DV != 999 {
+		t.Fatalf("edit did not take — DV = %v, want 999 (setup sanity check)", edited.DV)
+	}
+
+	// Auto-Warp Engage must still find and target this exact node —
+	// the edit must not have produced anything soonestEligibleBurn
+	// can't resolve.
+	if !a.world.EngageAutoWarp() {
+		t.Fatal("EngageAutoWarp found no eligible burn after the edit")
+	}
+	if a.world.AutoWarp == nil || a.world.AutoWarp.CraftID != c.ID || a.world.AutoWarp.NodeID != origID {
+		t.Errorf("AutoWarp did not target the edited nudge: %+v (want CraftID=%d NodeID=%d)", a.world.AutoWarp, c.ID, origID)
+	}
+}
+

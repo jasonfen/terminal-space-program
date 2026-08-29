@@ -246,6 +246,17 @@ func (w *World) nodeTargetRelState(owner string, craftID uint64, primary bodies.
 	return tc.State.R, tc.State.V, true
 }
 
+// TargetRelState is the exported door onto nodeTargetRelState for
+// callers outside the sim package (internal/tui/screens's maneuver form,
+// #294 review round 3 finding I): resolves a captured (owner, craftID)
+// target-relative ref — local craft (owner=="") or remote ghost — to its
+// state in the given primary's relative frame, exactly as a planted
+// node or the active burn resolves its own bound target at fire time.
+// ok=false when the ref is empty or doesn't resolve.
+func (w *World) TargetRelState(owner string, craftID uint64, primary bodies.CelestialBody) (rT, vT orbital.Vec3, ok bool) {
+	return w.nodeTargetRelState(owner, craftID, primary)
+}
+
 // ghostByRef finds a ghost by owner + craft ID in the transient slate.
 func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
 	for _, g := range w.Ghosts {
@@ -261,8 +272,27 @@ func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
 // review follow-up). Every gate that used to spell Kind==TargetCraft
 // for "can I do target-relative work" goes through here so ghost
 // targets light up the same surfaces.
+//
+// #294 review finding 4 (round 2) REVERTED round 1's "a ghost target
+// must actually RESOLVE to count here": that version made a docker
+// flying NavTarget through ADR 0038 undock/proximity ops get demoted
+// to NavOrbit mid-op the instant the ghost slate went briefly empty
+// (reconcileNavMode runs off this every tick), even though the lock
+// itself was fine and about to re-latch — the comment on SetTargetGhost
+// ("ghost targets keep NavTarget valid") stopped being true. The
+// zero-direction-SAS-hold hazard round 1 was guarding against doesn't
+// need HasRelativeTarget's help: attitudeContext (world.go) already
+// falls back to an orbit-frame hold whenever a target-relative mode's
+// (rT, vT) resolve fails, independently of NavMode or this function —
+// see TestAttitudeContextFallsBackWhenGhostUnresolved. So Kind alone is
+// enough here again: a ghost target counts as relative whether or not
+// it currently resolves, exactly like a local craft target always has.
 func (w *World) HasRelativeTarget() bool {
-	return w.Target.Kind == TargetCraft || w.Target.Kind == TargetGhost
+	switch w.Target.Kind {
+	case TargetCraft, TargetGhost:
+		return true
+	}
+	return false
 }
 
 // ResolveTargetGhost resolves a ghost target to its slate entry and
@@ -537,6 +567,34 @@ func (w *World) TargetName() string {
 				return g.Handle + "'s " + g.Name
 			}
 			return g.Name
+		}
+		// #294 review finding 4: an unresolved ghost still HOLDS the lock
+		// (Kind stays TargetGhost — see HasRelativeTarget) — returning ""
+		// here made the TARGET chip vanish outright, indistinguishable
+		// from TargetNone / a cleared target. Show the pending state
+		// instead, using the roster handle when a live session has one
+		// (GhostOwnerHandle), so the player can tell "still locked, just
+		// waiting to resolve" from "not locked at all".
+		if h := w.GhostOwnerHandle(w.Target.GhostOwner); h != "" {
+			return h + "'s vessel (pending)"
+		}
+		return "pending target lock"
+	}
+	return ""
+}
+
+// GhostOwnerHandle resolves a ghost owner fingerprint to a display
+// handle via the live session roster (#294 review finding 4) — nil
+// w.Session (solo play, or a session whose roster hasn't refreshed yet)
+// or no matching row both return "". Same lookup shape as
+// DockOwnerOnline (session_info.go).
+func (w *World) GhostOwnerHandle(owner string) string {
+	if w.Session == nil || owner == "" {
+		return ""
+	}
+	for _, p := range w.Session.Players {
+		if p.Fingerprint == owner {
+			return p.Handle
 		}
 	}
 	return ""

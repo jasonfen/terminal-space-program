@@ -155,6 +155,16 @@ const (
 	// while this player's own session ran unattended — local only, and
 	// the only event carrying Elapsed.
 	SessionEventResumed
+
+	// SessionEventTargetLockLost (#294): a craft/ghost target lock that
+	// survived a reconnect (persisted per §CraftToWire) never resolved —
+	// the target owner's craft reports never resumed within the grace
+	// window, or the referenced craft is genuinely gone. Local only: the
+	// deferred re-latch in internal/serve gives up and clears the target
+	// before firing this, so by the time it renders the player really is
+	// back at TargetNone, not merely waiting. Addressed at the player who
+	// had the lock; Handle names the peer it was aimed at.
+	SessionEventTargetLockLost
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —
@@ -204,6 +214,33 @@ func (w *World) DockOwnerOnline() bool {
 	for _, p := range w.Session.Players {
 		if p.Fingerprint == w.DockGuest.OwnerFP {
 			return p.Online
+		}
+	}
+	return false
+}
+
+// sessionKnowsOwner reports whether owner is a member of the current
+// multiplayer session's roster — present regardless of online/away/
+// landed/other-system status, the same "enrollment slate" presence
+// reportingModel.reconcileTargetLock's give-up countdown keys off
+// (internal/serve/reporting.go). False when there is no session at all
+// (solo play, or a craft evaluated outside any hosting session — a dock
+// ledger Parcel, for instance) or the roster has no matching row (never
+// enrolled, or since removed).
+//
+// #294 review round 3 finding E: a persisted ghost-ref NODE that isn't
+// the world's ACTIVE target never gets a give-up from
+// reconcileTargetLock at all — that watchdog only ever tracks
+// w.Target. executeDueNodesFor uses this directly, at fire time, so a
+// node belonging to some OTHER ghost still gets a give-up rule of its
+// own instead of wedging the queue forever.
+func (w *World) sessionKnowsOwner(owner string) bool {
+	if w.Session == nil {
+		return false
+	}
+	for _, p := range w.Session.Players {
+		if p.Fingerprint == owner {
+			return true
 		}
 	}
 	return false

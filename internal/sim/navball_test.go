@@ -517,3 +517,144 @@ func TestNavballBasisTargetMissingFallsBackToOrbit(t *testing.T) {
 		t.Errorf("EX = %v, want orbit-mode prograde %v", basis.EX, progradeUnit)
 	}
 }
+
+// TestNavballBasisGhostTargetUnresolvedFallsBackToOrbit — #294 review
+// round 3 finding H. A persisted NavTarget mode whose ghost ref hasn't
+// (yet) re-latched — mid reconnect, or with no live session at all —
+// resolves via HasRelativeTarget() to TargetGhost (which deliberately
+// stays "relative" through a resolve gap; see HasRelativeTarget's own
+// doc), so nav never demotes to NavOrbit above. But
+// TargetStateRelativeToActivePrimary itself has nothing to show. The
+// basis must fall back to ordinary orbit-frame prograde here instead of
+// returning ok=false and blanking the WHOLE navball — not just the
+// target-relative markers — for as long as the gap lasts (indefinitely,
+// for a solo-loaded save).
+func TestNavballBasisGhostTargetUnresolvedFallsBackToOrbit(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavTarget
+	w.SetTargetGhost("SHA256:peer", 99)
+	w.Ghosts = nil // never latched — the reconnect / no-session case
+
+	basis, ok := w.NavballBasis()
+	if !ok {
+		t.Fatal("NavballBasis: ok=false for an unresolved ghost target — want the orbit-frame fallback")
+	}
+	c := w.ActiveCraft()
+	progradeUnit := c.State.V.Scale(1 / c.State.V.Norm())
+	if !vec3Eq(basis.EX, progradeUnit) {
+		t.Errorf("EX = %v, want orbit-mode prograde %v", basis.EX, progradeUnit)
+	}
+}
+
+// TestNavballBasisGhostTargetResolvesUsesTargetRelative — the flip
+// side of the fallback above: once the ghost resolves, the basis goes
+// back to target-relative prograde, proving the fallback is a hold, not
+// a permanent demotion to orbit mode.
+func TestNavballBasisGhostTargetResolvesUsesTargetRelative(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	w.NavMode = NavTarget
+	w.SetTargetGhost("SHA256:peer", 99)
+	// Ghost velocity (primary-relative, same frame as c.State.V here
+	// since they share a primary) deliberately set to 2x the active
+	// craft's own velocity, so target-relative dv = v - vT = -v: exactly
+	// retrograde, unmistakably different from plain orbit prograde.
+	w.Ghosts = []Ghost{{
+		Owner: "SHA256:peer", CraftID: 99, PrimaryID: c.Primary.ID,
+		Pos: w.BodyPosition(c.Primary).Add(c.State.R),
+		Vel: c.State.V.Scale(2),
+	}}
+
+	basis, ok := w.NavballBasis()
+	if !ok {
+		t.Fatal("NavballBasis: ok=false for a resolved ghost target")
+	}
+	progradeUnit := c.State.V.Scale(1 / c.State.V.Norm())
+	retrogradeUnit := progradeUnit.Scale(-1)
+	if !vec3Eq(basis.EX, retrogradeUnit) {
+		t.Errorf("EX = %v, want target-relative retrograde %v (not plain orbit prograde %v)", basis.EX, retrogradeUnit, progradeUnit)
+	}
+}
+
+// TestNavballMarkersUnresolvedGhostTargetSuppressesTargetRelative —
+// review finding following #294 review finding H and the node-marker /
+// nodeLeadActive resolve-ok guards from this same PR. NavballMarkers used
+// to discard TargetStateRelativeToActivePrimary's ok, so an unresolved
+// ghost target (bound via HasRelativeTarget — which deliberately stays
+// "relative" through a resolve gap — but with nothing in the ghost slate
+// to resolve against) fed zero (rT, vT) into BurnDirectionWithTarget. For
+// BurnTarget that degrades to unit(0 − rA): a genuine unit vector
+// pointing at the primary's centre, so the toward-target glyph drew
+// confidently there while SAS (attitudeContext, which DOES check ok) was
+// actually holding prograde — the glyph and the held attitude disagreed.
+// The four target-relative cardinals (prograde/retrograde/radial±) must
+// be suppressed entirely when the target doesn't resolve, matching
+// NavballBasis's own fallback; normal+/- are target-independent and must
+// still draw.
+func TestNavballMarkersUnresolvedGhostTargetSuppressesTargetRelative(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavTarget
+	w.SetTargetGhost("SHA256:peer", 99)
+	w.Ghosts = nil // never latched — the reconnect / no-session case
+
+	got := w.NavballMarkers()
+	if got == nil {
+		t.Fatal("NavballMarkers returned nil — want the orbit-fallback basis markers (normal+/-), not a blank navball")
+	}
+	byGlyph := map[rune]bool{}
+	for _, m := range got {
+		byGlyph[m.Glyph] = true
+	}
+	if byGlyph[NavballGlyphTarget] || byGlyph[NavballGlyphAntiTarget] {
+		t.Errorf("target glyph present despite an unresolved target: %+v", got)
+	}
+	if byGlyph[NavballGlyphPrograde] || byGlyph[NavballGlyphRetrograde] {
+		t.Errorf("prograde/retrograde marker present despite an unresolved target-relative NavMode: %+v", got)
+	}
+	if !byGlyph[NavballGlyphNormalPlus] || !byGlyph[NavballGlyphNormalMinus] {
+		t.Errorf("target-independent normal+/- markers missing: %+v", got)
+	}
+	if len(got) != 2 {
+		t.Errorf("marker count = %d, want 2 (normal+/- only): %+v", len(got), got)
+	}
+}
+
+// TestNavballMarkersGhostTargetResolvesKeepsTargetRelative — the flip
+// side: once the ghost resolves, the target-relative cardinals draw
+// normally, proving the suppression above is a hold, not a permanent
+// demotion.
+func TestNavballMarkersGhostTargetResolvesKeepsTargetRelative(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	w.NavMode = NavTarget
+	w.SetTargetGhost("SHA256:peer", 99)
+	w.Ghosts = []Ghost{{
+		Owner: "SHA256:peer", CraftID: 99, PrimaryID: c.Primary.ID,
+		Pos: w.BodyPosition(c.Primary).Add(c.State.R).Add(orbital.Vec3{X: 1e6}),
+		Vel: c.State.V.Scale(2),
+	}}
+
+	got := w.NavballMarkers()
+	byGlyph := map[rune]bool{}
+	for _, m := range got {
+		byGlyph[m.Glyph] = true
+	}
+	if !byGlyph[NavballGlyphTarget] || !byGlyph[NavballGlyphAntiTarget] {
+		t.Errorf("target/anti-target markers missing once the target resolves: %+v", got)
+	}
+	if len(got) != 6 {
+		t.Errorf("marker count = %d, want 6 (all six cardinals) once the target resolves: %+v", len(got), got)
+	}
+}

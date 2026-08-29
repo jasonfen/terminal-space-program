@@ -25,8 +25,13 @@ const (
 	TargetSite
 	// TargetGhost references another player's craft by owner
 	// fingerprint + craft ID (v0.27 S6, ADR 0034). Resolves against
-	// the world's transient ghost slate — a stale ref (owner gone,
-	// craft staged away) resolves to nothing, same as TargetNone.
+	// the world's transient ghost slate — an unresolved ref (owner
+	// gone, craft staged away, or not yet re-latched post-reconnect,
+	// #294) has no relative state to compute with (nav/burn consumers
+	// must check the resolve ok and degrade gracefully — see
+	// World.HasRelativeTarget), but the lock itself is NOT the same as
+	// TargetNone: Kind stays TargetGhost so a later resolve re-latches
+	// it, and TargetName reports a pending state rather than "".
 	TargetGhost
 )
 
@@ -41,8 +46,13 @@ type Target struct {
 	CraftID uint64 // when Kind==TargetCraft or TargetGhost — the target's stable Spacecraft.ID (ADR 0012)
 
 	// GhostOwner names the remote player (key fingerprint) when
-	// Kind==TargetGhost (v0.27 S6, ADR 0034). Session-local by
-	// nature: a save that carries a dangling ghost ref just resolves
-	// to nothing on load.
+	// Kind==TargetGhost (v0.27 S6, ADR 0034). The fingerprint is
+	// meaningful within the session it was set in: #294 preserves it
+	// across save/load (CraftToWire/CraftFromWire) instead of
+	// normalising the target away, so a guest's cross-player rendezvous
+	// lock survives a reconnect. A ref that never resolves against the
+	// live ghost slate (single-player, or a session whose target owner
+	// never came back) just carries a lock that stays pending — see
+	// World.HasRelativeTarget / World.TargetName.
 	GhostOwner string `json:"ghost_owner,omitempty"`
 }

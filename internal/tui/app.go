@@ -329,6 +329,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastLocalReArmRefusal = nil
 		}
+		// #294 review finding 5: a due target-relative node (or in-flight
+		// burn) refused to fire because its bound target hasn't resolved —
+		// say so instead of leaving the stall silent. Same flash surface,
+		// cleared after one fire. #294 review finding 2: a never-resolvable
+		// ref (local target craft gone for good, or a ghost ref the
+		// reconnect watchdog already gave up on) gets a distinct message —
+		// the node/burn is cancelled outright, not merely held pending a
+		// re-latch that will never come.
+		if e := a.world.LastNodeTargetRefusal; e != nil {
+			if e.Cancelled {
+				a.statusMsg = fmt.Sprintf("%s: node cancelled, target gone", e.CraftName)
+			} else {
+				a.statusMsg = fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName)
+			}
+			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.world.LastNodeTargetRefusal = nil
+		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 
 	case tea.WindowSizeMsg:
@@ -382,35 +399,42 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// uses. Event is forwarded so resolved-then-edited
 				// event-relative nodes keep their semantic label.
 				a.world.PlanNode(sim.ManeuverNode{
-					ID:            editedID,
-					TriggerTime:   m.TriggerTime,
-					Mode:          m.Mode,
-					DV:            m.DV,
-					Duration:      dur,
-					Event:         m.Event,
-					Throttle:      m.Throttle,
-					TargetCraftID: m.TargetCraftID,
+					ID:               editedID,
+					TriggerTime:      m.TriggerTime,
+					Mode:             m.Mode,
+					DV:               m.DV,
+					Duration:         dur,
+					Event:            m.Event,
+					Throttle:         m.Throttle,
+					TargetCraftID:    m.TargetCraftID,
+					TargetGhostOwner: m.TargetGhostOwner,
+					AdvisoryKey:      m.AdvisoryKey, // #294 second-round review finding 6
 				})
 			case m.Event != sim.TriggerAbsolute:
 				// v0.6.0: event-relative nodes go through PlanNode so
 				// the resolver can freeze TriggerTime against the live
 				// orbit on the next Tick.
 				a.world.PlanNode(sim.ManeuverNode{
-					ID:            editedID,
-					Mode:          m.Mode,
-					DV:            m.DV,
-					Duration:      dur,
-					Event:         m.Event,
-					Throttle:      m.Throttle,
-					TargetCraftID: m.TargetCraftID,
+					ID:               editedID,
+					Mode:             m.Mode,
+					DV:               m.DV,
+					Duration:         dur,
+					Event:            m.Event,
+					Throttle:         m.Throttle,
+					TargetCraftID:    m.TargetCraftID,
+					TargetGhostOwner: m.TargetGhostOwner,
+					AdvisoryKey:      m.AdvisoryKey, // #294 second-round review finding 6
 				})
 			case dur == 0:
 				// v0.9.3+: target-relative impulsive needs the bound
-				// target snapshot for direction resolution. Resolve by
-				// stable ID (ADR 0012).
+				// target snapshot for direction resolution. Resolve a
+				// local ref by stable ID (ADR 0012) or a remote ghost
+				// ref against the ghost slate (#294 review round 3
+				// finding I) via the same resolver a planted node's
+				// fire-time dispatch uses.
 				if m.TargetCraftID != 0 {
-					if tc, _, ok := a.world.CraftByID(m.TargetCraftID); ok && tc.Primary.ID == a.world.ActiveCraft().Primary.ID {
-						a.world.ActiveCraft().ApplyImpulsiveWithTarget(m.Mode, m.DV, tc.State.R, tc.State.V)
+					if rT, vT, ok := a.world.TargetRelState(m.TargetGhostOwner, m.TargetCraftID, a.world.ActiveCraft().Primary); ok {
+						a.world.ActiveCraft().ApplyImpulsiveWithTarget(m.Mode, m.DV, rT, vT)
 						break
 					}
 				}
@@ -421,11 +445,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					effThrottle = 1.0
 				}
 				a.world.ActiveCraft().ActiveBurn = &sim.ActiveBurn{
-					Mode:          m.Mode,
-					DVRemaining:   m.DV,
-					EndTime:       a.world.Clock.SimTime.Add(dur),
-					Throttle:      effThrottle,
-					TargetCraftID: m.TargetCraftID,
+					Mode:             m.Mode,
+					DVRemaining:      m.DV,
+					EndTime:          a.world.Clock.SimTime.Add(dur),
+					Throttle:         effThrottle,
+					TargetCraftID:    m.TargetCraftID,
+					TargetGhostOwner: m.TargetGhostOwner,
 				}
 			}
 		}
@@ -543,8 +568,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case hit.NodeIdx > 0:
 				idx := hit.NodeIdx - 1 // tags are 1-indexed; slice is 0-indexed
 				if idx >= 0 && idx < len(a.world.ActiveCraft().Nodes) {
+					// #294 review round 3 finding I: LoadNode already reads
+					// the node's OWN target binding (local or ghost) — do
+					// NOT follow it with bindManeuverTarget here, which
+					// reflects the CURRENT live World.Target and would
+					// clobber a ghost-bound node's lock the instant the
+					// live target isn't that exact same ghost (a common
+					// case right after a reconnect, before it re-latches).
+					// bindManeuverTarget is for the NEW-node flows only —
+					// see its own doc comment.
 					a.maneuver.LoadNode(idx, a.world.ActiveCraft().Nodes[idx])
-					a.bindManeuverTarget()
 					a.world.Clock.Paused = true
 					a.active = screenManeuver
 				}
@@ -2772,15 +2805,27 @@ func overlayBottomBorder(base, overlay string, border lipgloss.Style) string {
 }
 
 // bindManeuverTarget hands the current World.Target binding to the
-// maneuver form so the four target-relative burn modes and the
-// TriggerNextClosestApproach event are pickable + correctly captured
-// at plant. Bound at form-open time (not per-keypress), so a target
-// switch while the form is open doesn't silently retarget a planted
-// burn — the player closes + reopens to retarget. v0.9.3+.
+// maneuver form for a BRAND-NEW node (`m` on the orbit screen, or the
+// click-an-empty-canvas-point staging flow) so the four target-relative
+// burn modes and the TriggerNextClosestApproach event are pickable +
+// correctly captured at plant. Bound at form-open time (not per-
+// keypress), so a target switch while the form is open doesn't silently
+// retarget a planted burn — the player closes + reopens to retarget.
+//
+// NOT called after LoadNode (click-to-edit an existing node): that path
+// preserves the node's OWN stored binding instead — see LoadNode's and
+// the Maneuver struct's doc comments (#294 review round 3 finding I).
+//
+// v0.9.3+; ghost-aware since #294 review round 3 (previously only
+// TargetCraft was handled here, so opening a NEW node's form while
+// aimed at a ghost silently left it untargeted).
 func (a *App) bindManeuverTarget() {
-	if a.world.Target.Kind == sim.TargetCraft {
-		a.maneuver.SetTargetCraft(true, a.world.Target.CraftID)
-		return
+	switch a.world.Target.Kind {
+	case sim.TargetCraft:
+		a.maneuver.SetTargetCraft(true, "", a.world.Target.CraftID)
+	case sim.TargetGhost:
+		a.maneuver.SetTargetCraft(true, a.world.Target.GhostOwner, a.world.Target.CraftID)
+	default:
+		a.maneuver.SetTargetCraft(false, "", 0)
 	}
-	a.maneuver.SetTargetCraft(false, 0)
 }

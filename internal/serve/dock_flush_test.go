@@ -132,9 +132,17 @@ func TestGuestParkingSurvivesRestart(t *testing.T) {
 	}
 	w.ActiveCraft().ID = guestCraftID
 
-	app, err := tui.New(nil)
+	// #294 review finding 1: withReporting now primes the session (and so
+	// reconciles docking) once at attach, before this test's own explicit
+	// reconcileDocking call below — so app must carry the SAME world as w,
+	// or the priming call's reconcileDocking (running against a mismatched
+	// default world with no craft ID 21) would abandon the DockPending
+	// record outright (relay.DockLedger.reconcileGuest: RemoveCraftByID
+	// fails → "my craft is gone" → record dropped) before the test's own
+	// call ever runs.
+	app, err := tui.NewWithWorld(w)
 	if err != nil {
-		t.Fatalf("tui.New: %v", err)
+		t.Fatalf("tui.NewWithWorld: %v", err)
 	}
 	model := srv.withReporting(app, guestFP)
 	rm, ok := model.(reportingModel)

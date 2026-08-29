@@ -291,6 +291,12 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 				row{text: "  they were riding in it and your seat was empty"})
 		case sim.SessionEventDockLost:
 			rows = append(rows, row{text: "⚠ dock with " + e.Handle + " ended — the stack no longer exists", alert: true})
+		case sim.SessionEventTargetLockLost:
+			msg := "⚠ target lock lost on reconnect"
+			if e.Handle != "" {
+				msg = "⚠ target lock on " + e.Handle + " lost on reconnect"
+			}
+			rows = append(rows, row{text: msg, alert: true})
 		case sim.SessionEventRendezvousDegraded:
 			rows = append(rows, row{text: "⚠ rendezvous encounter degraded", alert: true})
 		case sim.SessionEventWentQuiet:
@@ -1623,7 +1629,17 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		// sim-time). No DOCK READY: cross-player docking is v0.28.
 		g, gPrimary, ok := w.ResolveTargetGhost()
 		if !ok {
-			return nil
+			// #294 review finding 4: the lock survives an unresolved ghost
+			// (Kind stays TargetGhost so a later resolve re-latches it —
+			// see World.HasRelativeTarget / World.TargetName) — a bare
+			// "return nil" here reads as no target at all, indistinguishable
+			// from TargetNone. Show the pending state instead so the player
+			// can tell "still locked, just waiting" from "lost".
+			return []string{
+				v.theme.Primary.Render("TARGET"),
+				chipRow("ghost:", w.TargetName()),
+				chipRow("status:", "signal not yet resolved"),
+			}
 		}
 		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("ghost:", w.TargetName())}
 		gRel := g.Pos.Sub(w.BodyPosition(gPrimary))
