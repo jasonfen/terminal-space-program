@@ -357,10 +357,16 @@ func TestExecuteDueNodesCancelsGhostNodeAbsentOwner(t *testing.T) {
 	}
 }
 
-// TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolled — same as above,
-// but WITH a hosting session whose roster simply doesn't include this
-// ref's owner (never enrolled, or since removed) — same give-up.
-func TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolled(t *testing.T) {
+// TestExecuteDueNodesHoldsGhostNodeOwnerNotEnrolledWithinGrace — #294
+// second-round review finding 1: a session that simply doesn't (yet)
+// list this ref's owner in its roster must NOT cancel the node on the
+// very first tick it notices — that is exactly the shape of this
+// player's OWN session having just reconnected before refreshSession
+// ever primed w.Session (fixed at attach in internal/serve), and an
+// owner mid-reconnect must not cost a planted node. The node holds,
+// same as an ordinary pending-resolvable stall, for ghostNodeAbsentGrace
+// (mirrors reportingModel.targetLockRelatchGrace).
+func TestExecuteDueNodesHoldsGhostNodeOwnerNotEnrolledWithinGrace(t *testing.T) {
 	w := mustWorld(t)
 	c := w.ActiveCraft()
 	now := w.Clock.SimTime
@@ -377,11 +383,78 @@ func TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolled(t *testing.T) {
 
 	w.executeDueNodes()
 
+	if len(c.Nodes) != 1 {
+		t.Fatalf("ghost-ref node for a not-(yet)-enrolled owner cancelled within grace: len(Nodes)=%d", len(c.Nodes))
+	}
+	if w.LastNodeTargetRefusal == nil {
+		t.Fatal("no hold notice stamped")
+	}
+	if w.LastNodeTargetRefusal.Cancelled {
+		t.Error("within-grace absence read as Cancelled — must be a pending hold, not a permanent drop")
+	}
+	if c.Nodes[0].GhostAbsentSince.IsZero() {
+		t.Error("GhostAbsentSince not stamped once the owner was first found absent")
+	}
+}
+
+// TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolledPastGrace — the
+// flip side: once ghostNodeAbsentGrace has genuinely elapsed with the
+// owner still missing from the roster, the node is cancelled, same as
+// before this finding's fix (just deferred instead of instant).
+func TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolledPastGrace(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:             spacecraft.BurnTarget,
+		DV:               100,
+		TriggerTime:      now,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+		GhostAbsentSince: time.Now().Add(-(ghostNodeAbsentGrace + time.Second)),
+	}}
+	w.Ghosts = nil
+	w.Session = sessionWithOwner("SHA256:someone-else")
+
+	w.executeDueNodes()
+
 	if len(c.Nodes) != 0 {
-		t.Fatalf("ghost-ref node for a not-enrolled owner not cancelled: len(Nodes)=%d", len(c.Nodes))
+		t.Fatalf("ghost-ref node past grace not cancelled: len(Nodes)=%d", len(c.Nodes))
 	}
 	if w.LastNodeTargetRefusal == nil || !w.LastNodeTargetRefusal.Cancelled {
 		t.Errorf("cancellation notice not stamped: %+v", w.LastNodeTargetRefusal)
+	}
+}
+
+// TestExecuteDueNodesGhostAbsenceTimerResetsOnceOwnerPresent — the
+// absence timer must not survive the owner becoming a roster member
+// again: a later, unrelated absence must start its own fresh grace
+// window rather than inherit an old one and cancel immediately.
+func TestExecuteDueNodesGhostAbsenceTimerResetsOnceOwnerPresent(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:             spacecraft.BurnTarget,
+		DV:               100,
+		TriggerTime:      now,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}}
+	w.Ghosts = nil
+	w.Session = sessionWithOwner("SHA256:someone-else")
+	w.executeDueNodes()
+	if c.Nodes[0].GhostAbsentSince.IsZero() {
+		t.Fatal("absence timer never stamped")
+	}
+
+	// Owner reappears in the roster (e.g. reconnects).
+	w.Session = sessionWithOwner("SHA256:gern")
+	w.executeDueNodes()
+	if !c.Nodes[0].GhostAbsentSince.IsZero() {
+		t.Error("absence timer not cleared once the owner was seen present")
 	}
 }
 
@@ -450,5 +523,112 @@ func TestExecuteDueNodesHoldsLocalTargetTransientlyOnDifferentPrimary(t *testing
 	w.executeDueNodes()
 	if len(c.Nodes) != 0 {
 		t.Errorf("node never fired once both craft shared a primary again: len(Nodes)=%d", len(c.Nodes))
+	}
+}
+
+// TestExecuteDueNodesCancelNoticeFiresAfterPriorHoldLocalTarget — #294
+// second-round review finding 5. Both cancel branches used to be
+// gated behind `if !n.RefusalNoticed`, but the HOLD branches set that
+// SAME flag and nothing ever clears it once a node moves from holding
+// to cancelling — so a node that held at least once (a transient
+// different-primary stall, here) and later becomes genuinely
+// unresolvable (its target leaves the slate for good) was dropped with
+// NO notice at all, silently. The cancel must fire unconditionally.
+func TestExecuteDueNodesCancelNoticeFiresAfterPriorHoldLocalTarget(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if len(w.Crafts) < 2 {
+		t.Fatalf("expected 2 crafts after spawn, got %d", len(w.Crafts))
+	}
+	w.ActiveCraftIdx = 0
+	sister := w.Crafts[1]
+	w.stampCraftID(sister)
+
+	var other bodies.CelestialBody
+	found := false
+	for _, b := range w.System().Bodies {
+		if b.ID != c.Primary.ID {
+			other = b
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("system has no second body to use as the sister's transient primary")
+	}
+	sister.Primary = other
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:          spacecraft.BurnTargetPrograde,
+		DV:            50,
+		TriggerTime:   now,
+		PrimaryID:     c.Primary.ID,
+		TargetCraftID: sister.ID,
+	}}
+
+	// First tick: transient stall — holds, stamps RefusalNoticed.
+	w.executeDueNodes()
+	if len(c.Nodes) != 1 || !c.Nodes[0].RefusalNoticed {
+		t.Fatalf("setup: expected the node to hold with RefusalNoticed set: %+v", c.Nodes)
+	}
+	w.LastNodeTargetRefusal = nil // simulate the HUD consuming the earlier hold flash
+
+	// The sister craft is now gone from the slate for good (end-flight)
+	// — a permanent loss, not a transient stall.
+	w.Crafts = []*spacecraft.Spacecraft{c}
+
+	w.executeDueNodes()
+
+	if len(c.Nodes) != 0 {
+		t.Fatalf("node not cancelled once its target left the slate for good: %+v", c.Nodes)
+	}
+	if w.LastNodeTargetRefusal == nil || !w.LastNodeTargetRefusal.Cancelled {
+		t.Errorf("cancel notice silently swallowed by the prior hold's RefusalNoticed flag: %+v", w.LastNodeTargetRefusal)
+	}
+}
+
+// TestExecuteDueNodesCancelNoticeFiresAfterPriorHoldGhostTarget — same
+// shape as the local-target case above, for a ghost ref: the node
+// holds (owner present, ghost unresolved) at least once, stamping
+// RefusalNoticed, then the owner drops out of the roster and
+// ghostNodeAbsentGrace expires. The cancel must still fire a notice —
+// not be swallowed by the RefusalNoticed flag the earlier hold set.
+func TestExecuteDueNodesCancelNoticeFiresAfterPriorHoldGhostTarget(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:             spacecraft.BurnTarget,
+		DV:               100,
+		TriggerTime:      now,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}}
+	w.Ghosts = nil
+	w.Session = sessionWithOwner("SHA256:gern") // owner present — ordinary pending hold
+
+	w.executeDueNodes()
+	if len(c.Nodes) != 1 || !c.Nodes[0].RefusalNoticed {
+		t.Fatalf("setup: expected the node to hold with RefusalNoticed set: %+v", c.Nodes)
+	}
+	w.LastNodeTargetRefusal = nil // simulate the HUD consuming the earlier hold flash
+
+	// The owner drops out of the roster and grace has already expired.
+	c.Nodes[0].GhostAbsentSince = time.Now().Add(-(ghostNodeAbsentGrace + time.Second))
+	w.Session = sessionWithOwner("SHA256:someone-else")
+
+	w.executeDueNodes()
+
+	if len(c.Nodes) != 0 {
+		t.Fatalf("node not cancelled past grace: %+v", c.Nodes)
+	}
+	if w.LastNodeTargetRefusal == nil || !w.LastNodeTargetRefusal.Cancelled {
+		t.Errorf("cancel notice silently swallowed by the prior hold's RefusalNoticed flag: %+v", w.LastNodeTargetRefusal)
 	}
 }

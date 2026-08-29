@@ -8,6 +8,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/relay"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
@@ -560,5 +561,51 @@ func TestTargetLockLatePromotionGovernedByPresenceNotTiming(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no loss chip fired for the late-promoted absent-owner ref")
+	}
+}
+
+// TestWithReportingPrimesSessionBeforeFirstTick — #294 second-round
+// review finding 1: a reconnecting guest's world used to see its first
+// TickMsg dispatched to m.inner.Update (World.Tick → executeDueNodes)
+// BEFORE refreshSession had ever run once, so w.Session was still nil
+// and World.sessionKnowsOwner reported false for every ghost-ref node —
+// a reconnecting guest's own due node could get cancelled outright on
+// the very first tick, with none of the grace targetLockRelatchGrace
+// gives the active target. withReporting now primes the session at
+// attach (mirrors startHosting), so a due ghost-ref node whose target
+// owner IS enrolled and present in the roster must survive the very
+// first tick, held exactly like an ordinary pending-resolvable stall.
+func TestWithReportingPrimesSessionBeforeFirstTick(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+	enrollDirect(t, srv, testPeerFP, "peer")
+
+	guestApp, err := srv.newGuestApp("SHA256:gern")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	w := guestApp.World()
+	c := w.ActiveCraft()
+	c.Nodes = []sim.ManeuverNode{{
+		Mode:             spacecraft.BurnTarget,
+		DV:               100,
+		TriggerTime:      w.Clock.SimTime, // due immediately
+		TargetGhostOwner: testPeerFP,
+		TargetCraftID:    987654,
+	}}
+
+	guest := srv.withReporting(guestApp, "SHA256:gern")
+	if w.Session == nil {
+		t.Fatal("withReporting did not prime w.Session before the first tick")
+	}
+
+	guest, _ = guest.Update(sim.TickMsg(time.Now()))
+	_ = guest
+
+	if len(c.Nodes) != 1 {
+		t.Fatalf("due ghost-ref node cancelled on reconnect's first tick: len(Nodes)=%d, nodes=%+v", len(c.Nodes), c.Nodes)
+	}
+	if w.LastNodeTargetRefusal != nil && w.LastNodeTargetRefusal.Cancelled {
+		t.Errorf("first-tick cancellation notice fired despite the target owner being enrolled and present: %+v", w.LastNodeTargetRefusal)
 	}
 }

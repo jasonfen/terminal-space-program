@@ -80,9 +80,9 @@ func (l *DockLedger) FullRecords() []DockSnapshot {
 			GuestOwner: r.GuestOwner, GuestHandle: r.GuestHandle,
 			GuestCraftID:    r.GuestCraftID,
 			Phase:           r.Phase,
-			GuestPayload:    craftToWire(r.guestPayload),
-			ReturnPayload:   craftToWire(r.returnPayload),
-			TransferPayload: craftToWire(r.transferPayload),
+			GuestPayload:    craftToWireTransfer(r.guestPayload),
+			ReturnPayload:   craftToWireSameOwner(r.returnPayload),
+			TransferPayload: craftToWireTransfer(r.transferPayload),
 			UndockAsk:       r.undockAsk,
 			UndockRefused:   r.undockRefused,
 			TransferTo:      r.transferTo,
@@ -138,22 +138,47 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 	}
 }
 
-// craftToWire / craftFromWire adapt one parked craft to and from the save
-// package's per-craft form. Both tolerate nil (no payload parked).
+// craftToWireTransfer / craftToWireSameOwner / craftFromWire adapt one
+// parked craft to and from the save package's per-craft form. Both
+// `craftToWire*` variants tolerate nil (no payload parked).
 //
-// #294 review finding 3: this is the parcel-bound path (GuestPayload /
-// ReturnPayload / TransferPayload above), delivered into a DIFFERENT
-// player's world — so it must go through save.CraftToWireForTransfer,
-// which sanitizes ghost refs, never the plain save.CraftToWire a
-// session save/reconnect uses. Keeping the two calls syntactically
-// distinct (one wrapper each, not a shared helper with a bool flag) is
-// deliberate: it's the whole point, so the two paths can't silently
-// drift back onto the same call.
-func craftToWire(c *spacecraft.Spacecraft) *save.Craft {
+// #294 review finding 3, corrected by the second-round review finding 4:
+// NOT every parked payload crosses into a different player's world.
+// GuestPayload (guest→docker: the guest's craft being fused into the
+// DOCKER's composite) and TransferPayload (old owner→new owner on a
+// control transfer, or the stack handed over on an empty-seat reclaim)
+// really do land in someone else's World — those go through
+// save.CraftToWireForTransfer, which sanitizes ghost refs (a Target or a
+// node/burn ref that pointed at a craft on the OTHER side's slate is
+// meaningless once the craft lands on this side's). ReturnPayload is
+// different: reconcileGuest always dispatches it back into the world of
+// the session matching r.GuestOwner — the SAME owner who originally
+// contributed the craft, whether via an abort (the guest's own pre-dock
+// craft, parked verbatim and handed straight back), an undock, or a
+// release (both split fresh off the composite). Sanitizing THAT payload
+// strips a Target and node/burn refs that stayed perfectly valid the
+// whole time — AdoptCraft only ever restamps the incoming craft's own
+// ID, so any local ref to a SISTER craft in the same (guest's) slate
+// survives the round trip untouched. ReturnPayload goes through the
+// plain save.CraftToWire a session save/reconnect uses instead.
+//
+// Keeping the two wrappers syntactically distinct (one call each, not a
+// shared helper with a bool flag) is deliberate: it's the whole point,
+// so the three payload paths can't silently drift back onto the same
+// call as this ages.
+func craftToWireTransfer(c *spacecraft.Spacecraft) *save.Craft {
 	if c == nil {
 		return nil
 	}
 	wc := save.CraftToWireForTransfer(c)
+	return &wc
+}
+
+func craftToWireSameOwner(c *spacecraft.Spacecraft) *save.Craft {
+	if c == nil {
+		return nil
+	}
+	wc := save.CraftToWire(c)
 	return &wc
 }
 

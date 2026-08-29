@@ -152,11 +152,24 @@ func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
 	if note, err := s.store.ConsumePendingNote(owner); err == nil && note != "" {
 		app.Toast(note)
 	}
-	return reportingModel{
+	m := reportingModel{
 		inner: app, app: app,
 		rep: relay.NewReporter(s.relay, owner),
 		srv: s, owner: owner,
 	}
+	// #294 review finding 1: prime w.Session here, before this model ever
+	// sees a tick — mirrors startHosting's own priming call below. Without
+	// this, a reconnecting guest's very first Update dispatches
+	// m.inner.Update(msg) (World.Tick → executeDueNodes) BEFORE any
+	// refreshSession has ever run, so w.Session is still nil and
+	// sessionKnowsOwner reports false for every ghost-ref node — a
+	// reconnecting guest's own due nodes could get cancelled on their very
+	// first tick, with none of the grace the active-target watchdog gives
+	// (targetLockRelatchGrace). Safe to call this early: everything it
+	// touches (ghosts, co-warp, session slate) is transient and either nil
+	// or freshly loaded at this point, never persisted.
+	m.refreshSession(time.Now())
+	return m
 }
 
 func (m reportingModel) Init() tea.Cmd { return m.inner.Init() }
@@ -817,6 +830,17 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	// Back to solo: clear the slates the wrapper had been feeding so the
 	// Session screen shows the [h]-start dead-end again.
 	w := m.app.World()
+	// #294 second-round review finding 3(ii): a ghost-ref planted node or
+	// in-flight ActiveBurn is unresolvable outside a hosting session — no
+	// roster to wait on, no watchdog left running, nothing left to
+	// re-latch to (the same "no session" rule executeDueNodesFor's own
+	// fire-time check applies). Left alone, a target-held ActiveBurn would
+	// wedge the craft's warp clamp ≤10× for the rest of solo play; a
+	// queued ghost-ref node would sit refused forever. Aborted here, once,
+	// with a single notice — same shape as CancelGhostNodeRefs, just
+	// applied to every outstanding ref instead of one specific ref whose
+	// own give-up grace expired.
+	w.CancelAllGhostRefs()
 	w.Session, w.Ghosts, w.SessionEvents, w.ChatLines = nil, nil, nil, nil
 	// Clear the multiplayer coupling slates too (v0.28 finding 2): the tick
 	// path that recomputes co-warp / docked-as-guest is gated on m.srv != nil,

@@ -124,3 +124,93 @@ func TestSeedFullDeliversSanitizedPayload(t *testing.T) {
 		t.Errorf("restored payload ActiveBurn still carries a ghost ref: %+v", ab)
 	}
 }
+
+// TestFullRecordsStripsGhostRefsFromTransferPayload — same shape as
+// TestFullRecordsStripsGhostRefsFromParkedPayload, for TransferPayload:
+// a control transfer (or an empty-seat reclaim, GrantReclaim) hands the
+// whole migrating stack to a DIFFERENT owner's world, so it must go
+// through the same sanitized wire form GuestPayload does (#294
+// second-round review finding 4 — this direction of the fix was
+// already correct; this test pins it against a future regression).
+func TestFullRecordsStripsGhostRefsFromTransferPayload(t *testing.T) {
+	ledger := NewDockLedger()
+	c := ghostBoundParkedCraft(t)
+	ledger.mu.Lock()
+	ledger.records[1] = &DockRecord{ID: 1, Owner: fpA, GuestOwner: fpB, transferPayload: c}
+	ledger.nextID = 2
+	ledger.mu.Unlock()
+
+	snaps := ledger.FullRecords()
+	if len(snaps) != 1 {
+		t.Fatalf("len(snaps) = %d, want 1", len(snaps))
+	}
+	tp := snaps[0].TransferPayload
+	if tp == nil {
+		t.Fatal("TransferPayload lost entirely")
+	}
+	if tp.Target != nil {
+		t.Errorf("transfer payload Target = %+v, want nil (ghost target dropped outright)", tp.Target)
+	}
+	if len(tp.Nodes) != 1 || tp.Nodes[0].TargetGhostOwner != "" || tp.Nodes[0].TargetCraftID != 0 {
+		t.Errorf("transfer payload node ref not stripped: %+v", tp.Nodes)
+	}
+	if tp.ActiveBurn == nil || tp.ActiveBurn.TargetGhostOwner != "" || tp.ActiveBurn.TargetCraftID != 0 {
+		t.Errorf("transfer payload ActiveBurn ref not stripped: %+v", tp.ActiveBurn)
+	}
+}
+
+// TestFullRecordsPreservesReturnPayloadRefs — #294 second-round review
+// finding 4. Unlike GuestPayload/TransferPayload, ReturnPayload never
+// crosses into a different player's world: reconcileGuest always
+// dispatches it back into the world of the session matching
+// r.GuestOwner — the SAME owner who originally contributed the craft,
+// whether via an abort-return (the guest's own pre-dock craft, parked
+// verbatim), an undock, or a release. Sanitizing it (the pre-fix
+// behaviour, sharing GuestPayload's CraftToWireForTransfer call) would
+// strip a Target and node/burn refs that stayed perfectly valid the
+// whole time — AdoptCraft only restamps the incoming craft's own ID, so
+// a local ref to a SISTER craft in the guest's own slate survives
+// untouched. FullRecords must round-trip ReturnPayload at full
+// fidelity via the plain save.CraftToWire instead.
+func TestFullRecordsPreservesReturnPayloadRefs(t *testing.T) {
+	ledger := NewDockLedger()
+	c := ghostBoundParkedCraft(t)
+	ledger.mu.Lock()
+	ledger.records[1] = &DockRecord{ID: 1, Owner: fpA, GuestOwner: fpB, returnPayload: c}
+	ledger.nextID = 2
+	ledger.mu.Unlock()
+
+	snaps := ledger.FullRecords()
+	if len(snaps) != 1 {
+		t.Fatalf("len(snaps) = %d, want 1", len(snaps))
+	}
+	rp := snaps[0].ReturnPayload
+	if rp == nil {
+		t.Fatal("ReturnPayload lost entirely")
+	}
+	if rp.Target == nil || rp.Target.Kind != int(spacecraft.TargetGhost) || rp.Target.GhostOwner != fpA {
+		t.Errorf("return payload lost its valid ghost Target: %+v", rp.Target)
+	}
+	if len(rp.Nodes) != 1 || rp.Nodes[0].TargetGhostOwner != fpA || rp.Nodes[0].TargetCraftID != 987654 {
+		t.Errorf("return payload node ref stripped, want preserved: %+v", rp.Nodes)
+	}
+	if rp.ActiveBurn == nil || rp.ActiveBurn.TargetGhostOwner != fpA || rp.ActiveBurn.TargetCraftID != 987654 {
+		t.Errorf("return payload ActiveBurn ref stripped, want preserved: %+v", rp.ActiveBurn)
+	}
+
+	// The restart round trip: rehydrating must still see the refs.
+	fresh := NewDockLedger()
+	fresh.SeedFull(snaps, loadedSystems(t))
+	fresh.mu.Lock()
+	rec := fresh.records[1]
+	fresh.mu.Unlock()
+	if rec == nil || rec.returnPayload == nil {
+		t.Fatal("returnPayload lost across the restart round trip")
+	}
+	if rec.returnPayload.Target.Kind != spacecraft.TargetGhost || rec.returnPayload.Target.GhostOwner != fpA {
+		t.Errorf("restored return payload lost its ghost Target: %+v", rec.returnPayload.Target)
+	}
+	if len(rec.returnPayload.Nodes) != 1 || rec.returnPayload.Nodes[0].TargetGhostOwner != fpA {
+		t.Errorf("restored return payload lost its node ref: %+v", rec.returnPayload.Nodes)
+	}
+}

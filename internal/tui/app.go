@@ -408,6 +408,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Throttle:         m.Throttle,
 					TargetCraftID:    m.TargetCraftID,
 					TargetGhostOwner: m.TargetGhostOwner,
+					AdvisoryKey:      m.AdvisoryKey, // #294 second-round review finding 6
 				})
 			case m.Event != sim.TriggerAbsolute:
 				// v0.6.0: event-relative nodes go through PlanNode so
@@ -422,6 +423,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Throttle:         m.Throttle,
 					TargetCraftID:    m.TargetCraftID,
 					TargetGhostOwner: m.TargetGhostOwner,
+					AdvisoryKey:      m.AdvisoryKey, // #294 second-round review finding 6
 				})
 			case dur == 0:
 				// v0.9.3+: target-relative impulsive needs the bound

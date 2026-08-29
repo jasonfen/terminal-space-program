@@ -83,6 +83,20 @@ type Maneuver struct {
 	hasTargetCraft   bool
 	targetCraftID    uint64
 	targetGhostOwner string
+
+	// advisoryKey (#294 second-round review finding 6) carries a loaded
+	// node's spacecraft.ManeuverNode.AdvisoryKey through the edit cycle,
+	// mirroring hasTargetCraft/targetCraftID/targetGhostOwner above.
+	// Without this, editing a planted K-nudge (or C-circularize) and
+	// committing re-planted it with NO AdvisoryKey at all — a later
+	// press of the same key could no longer find and replace it (#293's
+	// "replace, don't stack" ruling broke), and the edited node lost its
+	// advisory identity outright. Set unconditionally in LoadNode (so it
+	// correctly clears to "" for a non-advisory node too, same leak this
+	// struct's target-binding fields guard against — finding 2) and
+	// cleared in ResetEditing so a later NEW-node open never inherits a
+	// stale key from whatever was edited last.
+	advisoryKey string
 }
 
 // SetTargetCraft binds (or unbinds) the target — local craft (owner=="")
@@ -167,6 +181,18 @@ type BurnExecutedMsg struct {
 	// an (unresolvable) local ref — the binding survived LoadNode only
 	// to be dropped again at commit.
 	TargetGhostOwner string
+	// AdvisoryKey (#294 second-round review finding 6) mirrors
+	// ManeuverNode.AdvisoryKey through the edit cycle. Before this field
+	// existed, editing a planted single-keystroke advisory node (K's
+	// PlanRendezvousNudge / C's PlanCircularizeAtApoapsis) and committing
+	// re-planted it with no AdvisoryKey at all — the edited node lost its
+	// advisory identity, so a later press of the SAME key could no
+	// longer find and replace it (World.replaceAdvisoryNode matches on
+	// this field) and instead stacked a stale duplicate behind it,
+	// breaking #293's "replace, don't stack" ruling. Empty for every
+	// ordinary (non-advisory) node, same zero-value-omitempty
+	// convention as the field it mirrors.
+	AdvisoryKey string
 }
 
 // NodeDeleteMsg is emitted when the player presses ctrl+d in the
@@ -216,6 +242,12 @@ func NewManeuver(th Theme) *Maneuver {
 func (m *Maneuver) ResetEditing() {
 	m.editingIdx = -1
 	m.loadedTriggerTime = time.Time{}
+	// #294 second-round review finding 6: clear the advisory-key carry
+	// too — every path that opens a NEW node's form (LoadStaged, or
+	// bindManeuverTarget after the `m` quick-plant key) calls this
+	// first, and without clearing it here a stale key from whatever was
+	// last edited would leak onto the new, non-advisory node.
+	m.advisoryKey = ""
 }
 
 // LoadStaged opens the form for a NEW node staged at a specific
@@ -236,6 +268,11 @@ func (m *Maneuver) LoadStaged(triggerTime time.Time) {
 	m.dvInput.SetValue("100")
 	m.throttleInput.SetValue("100")
 	m.focus = 2 // Δv input — player typically wants to set magnitude first
+	// #294 second-round review finding 6: this is a NEW-node entry point
+	// (like ResetEditing, which this doesn't route through) — clear any
+	// advisory key carried over from whatever was last edited, or a
+	// staged plain-click plant would inherit a stale K/C identity.
+	m.advisoryKey = ""
 	m.applyFocus()
 }
 
@@ -283,7 +320,28 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 		m.hasTargetCraft = true
 		m.targetCraftID = id
 		m.targetGhostOwner = n.TargetGhostOwner
+	} else {
+		// #294 second-round review finding 2: the Maneuver screen is one
+		// long-lived value (app.go) reused across every plant/edit, so
+		// without this else-branch clear a PRIOR node's ghost/craft
+		// binding leaks onto a later untargeted node: open a ghost-bound
+		// node, Esc, then click-to-edit an untargeted one — the form
+		// would still offer target-relative modes and commitCmd would
+		// stamp the stale refs onto a node that was never bound to
+		// anything.
+		m.hasTargetCraft = false
+		m.targetCraftID = 0
+		m.targetGhostOwner = ""
 	}
+	// #294 second-round review finding 6: carry the node's own
+	// AdvisoryKey through the edit cycle too, unconditionally (not
+	// gated on the target binding above — a K-nudge's mode is often a
+	// plain velocity-frame axis, not one of the four target-relative
+	// modes, yet it still carries an AdvisoryKey). Assigning n.AdvisoryKey
+	// directly — rather than an if/else — both captures it for an
+	// advisory node and correctly clears it to "" for an ordinary one,
+	// the same leak class finding 2 fixed for the target-binding fields.
+	m.advisoryKey = n.AdvisoryKey
 	m.applyFocus()
 }
 
@@ -443,11 +501,27 @@ func (m *Maneuver) commitCmd() tea.Cmd {
 		EditingIdx:       m.editingIdx,
 		Throttle:         m.parsedThrottle(),
 		IterateForTarget: m.iterateForTarget,
+		// #294 second-round review finding 6: carry the advisory-key
+		// identity straight through — see AdvisoryKey's doc on
+		// BurnExecutedMsg for why an edited K/C node needs this to
+		// survive the re-plant.
+		AdvisoryKey: m.advisoryKey,
 	}
-	// v0.9.3+: capture the bound target craft for target-relative modes
-	// and the TriggerNextClosestApproach event. Bound by stable craft ID
+	// v0.9.3+: capture the bound target craft. Bound by stable craft ID
 	// since v0.14.x (ADR 0012); zero = no target.
-	if m.hasTargetCraft && (spacecraft.IsTargetRelativeMode(mode) || event == sim.TriggerNextClosestApproach) {
+	//
+	// #294 second-round review finding 6: attached for EVERY mode, not
+	// just the target-relative four (+ TriggerNextClosestApproach) —
+	// PlanRendezvousNudge's K plant binds TargetCraftID/TargetGhostOwner
+	// onto velocity-frame axis nodes too (BurnPrograde/Retrograde/
+	// RadialOut/RadialIn — axisLabelToBurnMode's cycle), recording which
+	// target the nudge was actually computed against even though those
+	// modes never read rT/vT for direction. Gating this on mode meant
+	// LoadNode would faithfully load the binding (LoadNode reads it
+	// unconditionally) only for commitCmd to silently drop it again on
+	// re-plant — editing one of those nudges quietly stripped state the
+	// ORIGINAL plant always carried, for no functional reason.
+	if m.hasTargetCraft {
 		msg.TargetCraftID = m.targetCraftID
 		msg.TargetGhostOwner = m.targetGhostOwner
 	}

@@ -179,6 +179,19 @@ type ManeuverNode struct {
 	// fires once per stall instead of every tick the node sits wedged at
 	// the front of the queue. Runtime-only; excluded from the wire form.
 	RefusalNoticed bool `json:"-"`
+	// GhostAbsentSince (#294 second-round review finding 1) is the
+	// wall-clock moment a due ghost-ref node first found its target
+	// owner absent from the current session's roster (in a session, but
+	// not a member of it — most often this player's OWN session having
+	// just reconnected, before the very first refreshSession primes
+	// World.Session). Lets executeDueNodesFor give the owner the same
+	// targetLockRelatchGrace tolerance reconcileTargetLock's active-target
+	// watchdog gives (internal/serve/reporting.go) before cancelling the
+	// node outright — an owner mid-reconnect must not cost a planted
+	// node. Reset to zero the moment the owner is seen present again.
+	// Runtime-only; excluded from the wire form (a reloaded node starts
+	// with no absence recorded).
+	GhostAbsentSince time.Time `json:"-"`
 }
 
 // TargetCraftIDValue returns the bound target craft's stable ID and

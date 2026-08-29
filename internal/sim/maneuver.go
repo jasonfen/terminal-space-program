@@ -117,10 +117,18 @@ func (w *World) ToggleManualBurn() {
 // it to the active craft. Setting throttle to 0 also stops the
 // active craft's in-flight manual burn so the "x = cut" muscle
 // memory works in one keypress; a normally-running planted burn keeps
-// running, but a STALLED planted burn (paused waiting for a stage,
-// producing no thrust) is aborted — that's the only way to abandon a
-// transfer the spent stage couldn't finish, and without it the dangling
-// burn would block StartManualBurn (v0.12.x pause-and-resume).
+// running, but a STALLED planted burn is aborted — either paused for
+// want of fuel (BurnStalled) or paused for want of a resolvable
+// target (a target-relative burn activeBurnTargetReady refuses to
+// thrust — #294 second-round review finding 3: before this, only fuel
+// exhaustion could ever tear a held burn down, so a craft/ghost target
+// that never came back — the peer landing, changing systems, or the
+// session ending mid-burn — left the player with NO way to abandon the
+// transfer short of staging it dry). Either stall is the only way to
+// abandon a transfer that can't finish, and without aborting it here
+// the dangling burn would block StartManualBurn (v0.12.x
+// pause-and-resume) and keep the craft's warp clamp pinned ≤10× for
+// good.
 func (w *World) SetThrottle(t float64) {
 	c := w.ActiveCraft()
 	if c == nil {
@@ -140,7 +148,7 @@ func (w *World) SetThrottle(t float64) {
 	c.Throttle = t
 	if t == 0 {
 		w.StopManualBurn()
-		if c.BurnStalled() {
+		if c.BurnStalled() || (c.ActiveBurn != nil && !w.activeBurnTargetReady(c)) {
 			c.ActiveBurn = nil
 		}
 	}
@@ -2391,6 +2399,15 @@ func (w *World) DeleteNode(idx int) {
 	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)
 }
 
+// ghostNodeAbsentGrace mirrors reportingModel.targetLockRelatchGrace
+// (internal/serve/reporting.go, 45s) — the SAME wall-clock tolerance a
+// due ghost-ref node gets before executeDueNodesFor gives up on its
+// target owner being absent from the current session's roster (#294
+// second-round review finding 1). Duplicated rather than imported: sim
+// sits below serve in the dependency graph (physics → orbital →
+// planner/spacecraft → sim → tui/serve) and must never import upward.
+const ghostNodeAbsentGrace = 45 * time.Second
+
 // executeDueNodes fires every craft's due nodes onto themselves.
 // Called from Tick after sim-time advances. Each craft's nodes are
 // independent — a planted burn fires on the craft it was planted
@@ -2510,32 +2527,83 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 					// once, and keep dispatching the rest of the queue
 					// instead of wedging everything behind a burn that
 					// will never fire.
-					if !n.RefusalNoticed {
-						w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
-							When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
-						}
+					//
+					// #294 second-round review finding 5: this stamp must
+					// be UNCONDITIONAL, not gated behind !n.RefusalNoticed.
+					// A node that held earlier (the transient different-
+					// primary stall above, which DOES set RefusalNoticed to
+					// mute its own every-tick flash) already carries the
+					// flag by the time it reaches a cancel — gating the
+					// cancel notice on the same flag silently swallowed it,
+					// so the node vanished from the queue with no HUD flash
+					// at all. Cancellation is a one-time terminal event for
+					// this node (it's dropped right after), so there is no
+					// "once per stall" concern to protect here the way the
+					// hold branches have.
+					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+						When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
 					}
 					continue // dropped — not appended to kept
 				}
 				// Ghost ref, not (yet) resolved (finding E): give up right
-				// here when there is no session at all, or this owner
-				// isn't part of it — reconcileTargetLock's watchdog can
-				// never reach this node (it only ever tracks the world's
-				// ACTIVE target), so nothing else ever will. An owner who
-				// IS a member of this session gets the ordinary pending-
-				// resolvable tolerance: leave the node queued (don't pop
-				// it) and hold the rest of the queue behind it exactly
-				// like the !IsResolved()/ActiveBurn-busy gates above —
-				// stamping the HUD flash only once per stall, not every
-				// tick.
-				if !w.sessionKnowsOwner(n.TargetGhostOwner) {
-					if !n.RefusalNoticed {
-						w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
-							When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
-						}
+				// here when there is no session at all — reconcileTargetLock's
+				// watchdog can never reach this node (it only ever tracks the
+				// world's ACTIVE target), and with no session nothing will
+				// ever populate a roster for it to wait on (solo play, or a
+				// craft evaluated outside any hosting session, e.g. a dock
+				// ledger Parcel), so waiting here would just wedge the queue
+				// forever.
+				if w.Session == nil {
+					// Unconditional stamp — see finding 5's note above; a
+					// node held earlier under a live session (RefusalNoticed
+					// already true) must not go silent just because the
+					// session it was waiting on is now gone entirely.
+					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+						When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
 					}
 					continue // dropped — not appended to kept
 				}
+				// #294 second-round review finding 1: in a session, but this
+				// owner isn't (yet) a roster member. Most often the shape of
+				// THIS player's own session reconnecting — a guest's first
+				// tick after connect used to race sessionKnowsOwner against
+				// refreshSession priming w.Session (now fixed at attach, see
+				// withReporting in internal/serve/reporting.go) — or a
+				// roster snapshot momentarily lagging a restart. Give the
+				// SAME wall-clock tolerance reconcileTargetLock's watchdog
+				// gives the world's ACTIVE target before it gives up: an
+				// owner mid-reconnect must not cost a planted node.
+				if !w.sessionKnowsOwner(n.TargetGhostOwner) {
+					now := time.Now()
+					if n.GhostAbsentSince.IsZero() {
+						n.GhostAbsentSince = now
+					}
+					if now.Sub(n.GhostAbsentSince) < ghostNodeAbsentGrace {
+						if !n.RefusalNoticed {
+							w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
+							n.RefusalNoticed = true
+						}
+						held = true
+						kept = append(kept, n)
+						continue
+					}
+					// Unconditional stamp (finding 5): this node has almost
+					// certainly held at least once already (RefusalNoticed
+					// set by the branch just above, every tick within
+					// grace) — gating the cancel on that same flag would
+					// silently drop the node the instant grace expired,
+					// with no notice at all.
+					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+						When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
+					}
+					continue // dropped — not appended to kept
+				}
+				// Owner present: an ordinary pending-resolvable ghost (landed,
+				// viewing a different system, hasn't reported yet) gets the
+				// tolerance it always had — hold silently, and clear any
+				// absence timer left over from an earlier stretch of the
+				// owner being away from the roster.
+				n.GhostAbsentSince = time.Time{}
 				if !n.RefusalNoticed {
 					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
 					n.RefusalNoticed = true
@@ -2647,6 +2715,57 @@ func (w *World) CancelGhostNodeRefs(owner string, craftID uint64) {
 		if ab := c.ActiveBurn; ab != nil && ab.TargetGhostOwner == owner && ab.TargetCraftID == craftID {
 			// Abort outright (finding D) — a stripped-ref zombie burn can
 			// never resolve, thrust, or tear itself down again.
+			c.ActiveBurn = nil
+			notice(c.Name)
+		}
+	}
+}
+
+// CancelAllGhostRefs cancels every planted node bound to ANY ghost
+// (TargetGhostOwner != "") — and aborts any craft's in-flight ghost-
+// ref ActiveBurn — across every craft in the slate, regardless of
+// which peer they name. #294 second-round review finding 3(ii): called
+// by reportingModel.stopHosting (internal/serve/reporting.go) the
+// moment a hosting session ends. Unlike CancelGhostNodeRefs (one
+// specific ref, called mid-session once its own give-up grace
+// expires), leaving the session entirely means NO ghost ref can ever
+// resolve again — there is no roster left to wait on, no watchdog left
+// running, nothing to re-latch to. Left alone, a ghost-bound
+// ActiveBurn would hold forever (activeBurnTargetReady never
+// re-resolves outside a session), wedging the craft's warp clamp for
+// good; a queued ghost-ref node would sit refused every tick it came
+// due. Same shape as executeDueNodesFor's own no-session branch, just
+// applied proactively to every ref at once instead of waiting for each
+// node to come due.
+//
+// Stamps LastNodeTargetRefusal once for the whole call (not once per
+// matching node/burn) so leaving with several ghost refs outstanding
+// still produces a single notice.
+func (w *World) CancelAllGhostRefs() {
+	stamped := false
+	notice := func(craftName string) {
+		if stamped {
+			return
+		}
+		w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+			When: w.Clock.SimTime, CraftName: craftName, Cancelled: true,
+		}
+		stamped = true
+	}
+	for _, c := range w.Crafts {
+		if c == nil {
+			continue
+		}
+		kept := c.Nodes[:0]
+		for _, n := range c.Nodes {
+			if n.TargetGhostOwner != "" {
+				notice(c.Name)
+				continue // dropped outright
+			}
+			kept = append(kept, n)
+		}
+		c.Nodes = kept
+		if ab := c.ActiveBurn; ab != nil && ab.TargetGhostOwner != "" {
 			c.ActiveBurn = nil
 			notice(c.Name)
 		}

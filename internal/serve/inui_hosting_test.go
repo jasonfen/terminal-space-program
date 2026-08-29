@@ -10,6 +10,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
@@ -65,6 +66,53 @@ func TestStopHostingClearsCoWarpAndDockGuest(t *testing.T) {
 	}
 	if got := w.EffectiveWarp(); got == 1 {
 		t.Errorf("warp still clamped to 1× after stopHosting — stale co-warp clamp persists")
+	}
+}
+
+// TestStopHostingAbortsGhostRefBurnAndNode — #294 second-round review
+// finding 3(ii): a ghost-ref planted node or in-flight ActiveBurn is
+// unresolvable once hosting stops — no roster left to wait on, no
+// watchdog left running. Left alone the ActiveBurn would hold forever
+// (activeBurnTargetReady never re-resolves outside a session), pinning
+// the craft's warp clamp for the rest of solo play. stopHosting must
+// abort it and cancel any other ghost-bound node, with a one-time
+// notice.
+func TestStopHostingAbortsGhostRefBurnAndNode(t *testing.T) {
+	srv := newOfflineServer(t)
+	app, err := tui.New(nil)
+	if err != nil {
+		t.Fatalf("tui.New: %v", err)
+	}
+	m := srv.HostModel(app)
+	w := app.World()
+	c := w.ActiveCraft()
+	c.ActiveBurn = &sim.ActiveBurn{
+		Mode: spacecraft.BurnTarget, DVRemaining: 100,
+		EndTime: w.Clock.SimTime.Add(time.Minute), PrimaryID: c.Primary.ID,
+		Throttle: 1, TargetGhostOwner: "SHA256:gern", TargetCraftID: 987654,
+	}
+	c.Nodes = []sim.ManeuverNode{{
+		Mode: spacecraft.BurnTarget, DV: 50, TriggerTime: w.Clock.SimTime.Add(time.Hour),
+		TargetGhostOwner: "SHA256:someone-else", TargetCraftID: 111,
+	}}
+
+	rm, ok := m.(reportingModel)
+	if !ok {
+		t.Fatalf("model is %T, not reportingModel", m)
+	}
+	stopped, _ := rm.stopHosting()
+	if _, ok := stopped.(reportingModel); !ok {
+		t.Fatalf("stopped model is %T", stopped)
+	}
+
+	if c.ActiveBurn != nil {
+		t.Errorf("stopHosting left a ghost-ref ActiveBurn in place: %+v", c.ActiveBurn)
+	}
+	if len(c.Nodes) != 0 {
+		t.Errorf("stopHosting left a ghost-ref node queued: %+v", c.Nodes)
+	}
+	if w.LastNodeTargetRefusal == nil || !w.LastNodeTargetRefusal.Cancelled {
+		t.Errorf("no cancellation notice stamped: %+v", w.LastNodeTargetRefusal)
 	}
 }
 

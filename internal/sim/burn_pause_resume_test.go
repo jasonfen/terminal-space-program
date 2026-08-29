@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -174,5 +175,74 @@ func TestThrottleCutLeavesRunningBurn(t *testing.T) {
 	w.SetThrottle(0)
 	if c.ActiveBurn == nil {
 		t.Errorf("throttle-cut cancelled a running planted burn — want it left running")
+	}
+}
+
+// TestThrottleCutAbortsTargetHeldBurn — #294 second-round review
+// finding 3(i): before this, only fuel exhaustion (BurnStalled) could
+// ever tear down a held burn — a target-relative burn held on an
+// unresolved craft/ghost ref (fuelled, but activeBurnTargetReady
+// refuses to thrust it) had NO player-facing escape at all. Throttle-
+// cut must abort that hold too, the same way it already aborts a
+// fuel-stalled one.
+func TestThrottleCutAbortsTargetHeldBurn(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:             spacecraft.BurnTarget,
+		DVRemaining:      100,
+		EndTime:          w.Clock.SimTime.Add(10 * time.Minute),
+		PrimaryID:        c.Primary.ID,
+		Throttle:         1,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}
+	w.Ghosts = nil // the ghost ref never resolves
+	w.Session = nil
+
+	if c.BurnStalled() {
+		t.Fatal("setup: burn must not be fuel-stalled — isolating the target-hold case")
+	}
+	if w.activeBurnTargetReady(c) {
+		t.Fatal("setup: burn should be held on its unresolved target")
+	}
+
+	w.SetThrottle(0)
+
+	if c.ActiveBurn != nil {
+		t.Errorf("throttle-cut left a target-held ActiveBurn in place — want it aborted: %+v", c.ActiveBurn)
+	}
+}
+
+// TestThrottleCutLeavesResolvedTargetBurnRunning — the flip side: a
+// target-relative burn whose target IS resolved is running normally,
+// not held, and throttle-cut must not touch it — same "only the held
+// state is cancellable" contract as TestThrottleCutLeavesRunningBurn.
+func TestThrottleCutLeavesResolvedTargetBurnRunning(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:             spacecraft.BurnTarget,
+		DVRemaining:      100,
+		EndTime:          w.Clock.SimTime.Add(10 * time.Minute),
+		PrimaryID:        c.Primary.ID,
+		Throttle:         1,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}
+	w.Ghosts = []Ghost{{
+		Owner: "SHA256:gern", CraftID: 987654, PrimaryID: c.Primary.ID,
+		Pos: w.BodyPosition(c.Primary).Add(c.State.R).Add(orbital.Vec3{X: 1e6}),
+	}}
+	w.Session = sessionWithOwner("SHA256:gern")
+
+	if !w.activeBurnTargetReady(c) {
+		t.Fatal("setup: burn's target should resolve")
+	}
+
+	w.SetThrottle(0)
+
+	if c.ActiveBurn == nil {
+		t.Error("throttle-cut aborted a running, resolved target-relative burn — want it left running")
 	}
 }
