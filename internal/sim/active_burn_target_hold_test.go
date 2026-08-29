@@ -104,3 +104,44 @@ func TestActiveBurnResumesOnceTargetResolves(t *testing.T) {
 		t.Errorf("DVRemaining did not fall after the target resolved: %.3f", c.ActiveBurn.DVRemaining)
 	}
 }
+
+// TestActiveBurnHeldNotExhaustedOnFinalTick — #294 review round 3
+// finding J. burnExhausted used to be evaluated without any knowledge
+// of the target-hold: a hold beginning in the burn's FINAL tick (the
+// ghost drops out of the slate exactly as SimTime reaches EndTime,
+// fuel still aboard, Δv still owed) read as "duration elapsed with fuel
+// to spare" — burnExhausted's own duration check — and tore the burn
+// down as exhausted, silently discarding the remaining committed Δv,
+// instead of holding it (pausing EndTime) the way an unresolved target
+// does on every OTHER tick. The hold must take precedence over
+// exhaustion-by-duration for the SAME tick it first applies.
+func TestActiveBurnHeldNotExhaustedOnFinalTick(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	// EndTime already at (or before) this tick's SimTime — the duration
+	// window has elapsed — while Δv is still owed and the firing stage
+	// still has fuel. Under the old ordering this reads as exhausted the
+	// instant the target-unresolved hold would otherwise begin.
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:             spacecraft.BurnTarget,
+		DVRemaining:      500,
+		EndTime:          w.Clock.SimTime,
+		PrimaryID:        c.Primary.ID,
+		Throttle:         1,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}
+	w.Ghosts = nil // the target is unresolved on exactly this tick
+
+	w.Tick()
+
+	if c.ActiveBurn == nil {
+		t.Fatal("burn torn down as exhausted on the hold's first tick — remaining Δv silently discarded")
+	}
+	if c.ActiveBurn.DVRemaining != 500 {
+		t.Errorf("DVRemaining changed while held: got %.3f, want 500 (no thrust while held)", c.ActiveBurn.DVRemaining)
+	}
+	if !c.ActiveBurn.EndTime.After(w.Clock.SimTime.Add(-time.Millisecond)) {
+		t.Errorf("EndTime not pushed out by the hold: %v vs SimTime %v", c.ActiveBurn.EndTime, w.Clock.SimTime)
+	}
+}

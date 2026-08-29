@@ -1895,16 +1895,33 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 
 // burnExhausted reports whether the active burn should be torn down:
 // either its Δv was delivered, or its duration window elapsed while the
-// firing stage still had fuel. v0.12.x: a dry firing stage with Δv still
-// owed is NOT exhausted — it is stalled, and the caller keeps the burn
-// alive (pausing its EndTime) so it resumes after the player stages. Only
-// the fuelled-but-timed-out case terminates on duration.
+// firing stage still had fuel AND a resolvable target. v0.12.x: a dry
+// firing stage with Δv still owed is NOT exhausted — it is stalled, and
+// the caller keeps the burn alive (pausing its EndTime) so it resumes
+// after the player stages. Only the fuelled-but-timed-out case
+// terminates on duration.
+//
+// #294 review round 3 (finding J): a held-for-target burn needs the same
+// precedence the fuel-stall check already had. Before this, the caller
+// (the ONE spot in Tick that both tears down on exhaustion AND pushes
+// EndTime for a hold) checked burnExhausted FIRST and activeBurnTargetReady
+// only in the else branch — so a hold beginning on the exact tick
+// SimTime crosses EndTime (fuel>0, DVRemaining>0, target drops out of
+// the slate that same tick) read as "duration elapsed with fuel to
+// spare," not "held," and tore the burn down with its remaining
+// committed Δv silently discarded. Checking activeBurnTargetReady here,
+// with the same "not exhausted" return the fuel-stall check uses, means
+// a held burn is never reaped as exhausted regardless of which check the
+// caller evaluates first.
 func (w *World) burnExhausted(c *spacecraft.Spacecraft) bool {
 	if c.ActiveBurn.DVRemaining <= 0 {
 		return true
 	}
 	if c.ActiveStageFuel() <= 0 {
 		return false // stalled, not exhausted — kept alive for staging
+	}
+	if !w.activeBurnTargetReady(c) {
+		return false // held for want of a resolvable target — not exhausted
 	}
 	return !w.Clock.SimTime.Before(c.ActiveBurn.EndTime)
 }

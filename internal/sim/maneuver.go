@@ -2420,6 +2420,24 @@ func (w *World) executeDueNodes() {
 // so a never-resolvable node can be dropped in place — freeing the
 // nodes behind it to fire this same tick — while a pending-resolvable
 // one still holds the queue exactly as before.
+//
+// #294 review round 3 sharpened both branches further:
+//
+//   - Finding F: a LOCAL ref used to treat ANY resolve failure as
+//     permanent, but nodeTargetRelState's own doc names a transient
+//     case — the target craft alive but briefly on a different primary
+//     mid-SOI-transfer. Existence (craftByID) and resolvability
+//     (nodeTargetRelState) are checked separately now: still-in-the-
+//     slate holds like a pending stall, gone-from-the-slate cancels.
+//   - Finding E: a GHOST ref used to hold forever with no give-up
+//     outside reconcileTargetLock's watchdog (internal/serve/
+//     reporting.go), which only ever tracks the world's ACTIVE
+//     target — a node bound to some OTHER ghost, or evaluated with no
+//     hosting session at all (a dock ledger Parcel, a standalone save),
+//     never got a give-up any other way. A simple fire-time presence
+//     rule (World.sessionKnowsOwner) subsumes that dependency: no
+//     session, or the owner isn't part of this one, cancels; owner
+//     present holds, same as before.
 func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 	kept := c.Nodes[:0]
 	held := false
@@ -2470,12 +2488,28 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				// away from, the primary's centre — a real Δv expenditure
 				// in a bogus direction, not a display glitch).
 				if n.TargetGhostOwner == "" {
-					// Local craft ref: never resolvable. A deleted local
-					// craft (end-flight) never comes back the way a ghost
-					// might re-latch — drop this ONE node, notice once,
-					// and keep dispatching the rest of the queue instead
-					// of wedging everything behind a burn that will never
-					// fire (finding 2, never-resolvable case (a)).
+					// Local craft ref (finding F): distinguish EXISTENCE
+					// from RESOLVABILITY. A target craft still in the
+					// slate but on a different primary right now — mid-
+					// SOI-transfer, the exact case nodeTargetRelState's
+					// own doc names — is a transient stall, not a
+					// permanent loss: hold it exactly like an ordinary
+					// pending stall, and it may resolve on a later tick
+					// once both craft share a primary again.
+					if _, _, stillExists := w.craftByID(n.TargetCraftID); stillExists {
+						if !n.RefusalNoticed {
+							w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
+							n.RefusalNoticed = true
+						}
+						held = true
+						kept = append(kept, n)
+						continue
+					}
+					// Gone from the slate for good (end-flight): that ref
+					// can never come back — drop this ONE node, notice
+					// once, and keep dispatching the rest of the queue
+					// instead of wedging everything behind a burn that
+					// will never fire.
 					if !n.RefusalNoticed {
 						w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
 							When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
@@ -2483,15 +2517,25 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 					}
 					continue // dropped — not appended to kept
 				}
-				// Ghost ref, not (yet) resolved: pending-resolvable —
-				// reconcileTargetLock's own watchdog owns the give-up
-				// call for this case (CancelGhostNodeRefs strips the ref
-				// once it does, which then falls into the local-ref
-				// branch above on a later tick). Until then, leave the
-				// node queued (don't pop it) and hold the rest of the
-				// queue behind it exactly like the !IsResolved()/
-				// ActiveBurn-busy gates above — but stamp the HUD flash
-				// only once per stall, not every tick (finding 2).
+				// Ghost ref, not (yet) resolved (finding E): give up right
+				// here when there is no session at all, or this owner
+				// isn't part of it — reconcileTargetLock's watchdog can
+				// never reach this node (it only ever tracks the world's
+				// ACTIVE target), so nothing else ever will. An owner who
+				// IS a member of this session gets the ordinary pending-
+				// resolvable tolerance: leave the node queued (don't pop
+				// it) and hold the rest of the queue behind it exactly
+				// like the !IsResolved()/ActiveBurn-busy gates above —
+				// stamping the HUD flash only once per stall, not every
+				// tick.
+				if !w.sessionKnowsOwner(n.TargetGhostOwner) {
+					if !n.RefusalNoticed {
+						w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+							When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true,
+						}
+					}
+					continue // dropped — not appended to kept
+				}
 				if !n.RefusalNoticed {
 					w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
 					n.RefusalNoticed = true
@@ -2538,27 +2582,37 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 	c.Nodes = kept
 }
 
-// CancelGhostNodeRefs cancels every planted node — and strips any
-// craft's in-flight ActiveBurn's ref — matching (owner, craftID),
-// across every craft in the slate. Called by
-// reportingModel.reconcileTargetLock (internal/serve/reporting.go) the
-// moment its 45s watchdog gives up on Craft.Target pointing at this
-// same ref (#294 review finding 2, never-resolvable case (b)): the
-// watchdog only ever cleared Craft.Target itself, leaving a planted
-// node's or the active burn's own copy of the ref dangling —
-// executeDueNodesFor would keep re-finding a matching due node
-// unresolved forever, wedging the rest of the queue behind an endless
-// refusal flash that not even retargeting to someone else could clear
-// (that only reset the WATCHDOG's tracked ref, never the node's).
+// CancelGhostNodeRefs cancels every planted node — and aborts any
+// craft's in-flight ActiveBurn — matching (owner, craftID), across
+// every craft in the slate. Called by reportingModel.reconcileTargetLock
+// (internal/serve/reporting.go) the moment its give-up countdown gives
+// up on Craft.Target pointing at this same ref: the watchdog only ever
+// cleared Craft.Target itself, leaving a planted node's or the active
+// burn's own copy of the ref dangling — executeDueNodesFor would keep
+// re-finding a matching due node unresolved forever, wedging the rest
+// of the queue behind an endless refusal flash that not even
+// retargeting to someone else could clear (that only reset the
+// WATCHDOG's tracked ref, never the node's).
 //
 // A matching NODE is dropped from the queue outright — same shape as
 // executeDueNodesFor's own never-resolvable-local-ref branch, just
-// applied proactively instead of waiting for the node to come due. A
-// matching ActiveBurn is NOT torn down: only its ref is stripped, since
-// the Δv already committed shouldn't be discarded. world.go's
-// activeBurnTargetReady (finding 1) already holds a target-relative
-// burn whose ref never resolves — stripping the ref (owner="",
-// craftID=0) just makes that hold permanent instead of merely pending.
+// applied proactively instead of waiting for the node to come due.
+//
+// #294 review round 3 (finding D): a matching ActiveBurn used to have
+// only its ref stripped (owner="", craftID=0), keeping the burn "alive"
+// so its committed Δv wasn't discarded. That backfired: with the ref
+// gone, nodeTargetRelState refuses unconditionally for craftID==0 (it
+// can't tell "no target" from "target just cancelled"), so
+// activeBurnTargetReady never returns true again — the burn holds
+// forever, its EndTime pushed out every tick, burnExhausted never fires,
+// SetThrottle(0) can't abort it (only fuel exhaustion can), and the
+// stuck ActiveBurn wedges canKeplerStep's per-craft gate for the rest of
+// the session (warp stays clamped ≤10×). The target really is gone —
+// the give-up countdown just ran its full grace window — so there is no
+// later resolve to wait for. Abort the burn outright instead: tear it
+// down cleanly, same as any other "this can never fire" case, and let
+// the one-time notice say so. The remaining Δv is forfeit, same as a
+// player-initiated StopManualBurn mid-flight.
 //
 // Stamps LastNodeTargetRefusal once for the whole call (not once per
 // matching node/burn) so a give-up that touches several queued nodes
@@ -2591,13 +2645,9 @@ func (w *World) CancelGhostNodeRefs(owner string, craftID uint64) {
 		}
 		c.Nodes = kept
 		if ab := c.ActiveBurn; ab != nil && ab.TargetGhostOwner == owner && ab.TargetCraftID == craftID {
-			// The burn itself is kept — only the ref is stripped. Unlike a
-			// queued node, an ActiveBurn already has Δv committed; dropping
-			// it outright would discard that. Stripping the ref instead
-			// makes world.go's activeBurnTargetReady (finding 1) hold it
-			// permanently rather than merely pending, the closest thing to
-			// "cancel" that doesn't throw away the in-flight state.
-			ab.DropGhostRef()
+			// Abort outright (finding D) — a stripped-ref zombie burn can
+			// never resolve, thrust, or tear itself down again.
+			c.ActiveBurn = nil
 			notice(c.Name)
 		}
 	}

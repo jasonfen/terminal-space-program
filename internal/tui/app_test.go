@@ -428,3 +428,64 @@ func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {
 		t.Errorf("`?` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
 	}
 }
+
+// TestClickToEditGhostBoundNodePreservesBinding — #294 review round 3
+// finding I. Click-to-edit on a reloaded ghost-targeted node used to
+// silently strip its binding: LoadNode correctly captured the node's
+// own target, but the app always followed it with bindManeuverTarget,
+// which only knew TargetCraft — for a TargetGhost (or, as here, a
+// LIVE target that no longer matches what the node was planted
+// against) it clobbered the freshly-loaded binding down to none. This
+// drives the exact production path (LoadNode, HandleKey's Enter →
+// commitCmd → BurnExecutedMsg, App.Update's re-plant) and asserts the
+// ghost ref survives both the FORM state and the REPLANTED node.
+func TestClickToEditGhostBoundNodePreservesBinding(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := a.world.ActiveCraft()
+	c.Nodes = append(c.Nodes, sim.ManeuverNode{
+		Mode:             spacecraft.BurnTargetPrograde,
+		DV:               42,
+		TriggerTime:      a.world.Clock.SimTime.Add(time.Hour),
+		PrimaryID:        c.Primary.ID,
+		TargetGhostOwner: "SHA256:peer",
+		TargetCraftID:    987654,
+	})
+
+	// The world's CURRENT live target is unrelated to the node being
+	// edited — e.g. the give-up countdown already cleared it, or the
+	// player simply hasn't retargeted since the node was planted.
+	// bindManeuverTarget must never be consulted for an edit.
+	a.world.ClearTarget()
+
+	// Click-to-edit: LoadNode captures the node's OWN binding.
+	a.maneuver.LoadNode(0, c.Nodes[0])
+
+	cmd, ok := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if !ok || cmd == nil {
+		t.Fatal("Enter did not commit")
+	}
+	raw := cmd()
+	msg, ok := raw.(screens.BurnExecutedMsg)
+	if !ok {
+		t.Fatalf("commit produced %T, not BurnExecutedMsg", raw)
+	}
+	if msg.TargetCraftID != 987654 || msg.TargetGhostOwner != "SHA256:peer" {
+		t.Fatalf("edit dropped the ghost binding from the form: TargetCraftID=%d TargetGhostOwner=%q",
+			msg.TargetCraftID, msg.TargetGhostOwner)
+	}
+
+	// Apply the commit through the app, as the real Update loop would,
+	// and confirm the REPLANTED node still carries the ghost ref — not
+	// just the form's transient state.
+	a.Update(msg)
+	nodes := a.world.ActiveCraft().Nodes
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node after commit, got %d: %+v", len(nodes), nodes)
+	}
+	if nodes[0].TargetGhostOwner != "SHA256:peer" || nodes[0].TargetCraftID != 987654 {
+		t.Errorf("replanted node lost its ghost binding: %+v", nodes[0])
+	}
+}

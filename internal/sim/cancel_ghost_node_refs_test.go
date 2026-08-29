@@ -42,11 +42,19 @@ func TestCancelGhostNodeRefsDropsMatchingNode(t *testing.T) {
 	}
 }
 
-// TestCancelGhostNodeRefsStripsActiveBurnRef — the ActiveBurn half: the
-// ref is stripped, not the burn torn down (the Δv already committed
-// shouldn't be discarded) — world.go's activeBurnTargetReady (finding 1)
-// then holds it permanently instead of merely pending.
-func TestCancelGhostNodeRefsStripsActiveBurnRef(t *testing.T) {
+// TestCancelGhostNodeRefsAbortsActiveBurn — #294 review round 3 finding
+// D: a matching ActiveBurn used to have only its ref stripped, keeping
+// the burn "alive" so its committed Δv wasn't discarded — but with the
+// ref gone (craftID==0), nodeTargetRelState refuses unconditionally, so
+// activeBurnTargetReady never returns true again: the burn holds
+// forever, its EndTime pushed out every tick, burnExhausted never
+// fires, and the zombie burn wedges canKeplerStep's per-craft gate
+// (warp stays clamped ≤10× for the rest of the session). The give-up
+// countdown already ran its full grace window by the time this is
+// called — there is no later resolve to wait for — so the burn is
+// aborted outright instead: torn down cleanly, remaining Δv forfeit,
+// same as any other "this can never fire" case.
+func TestCancelGhostNodeRefsAbortsActiveBurn(t *testing.T) {
 	w := mustWorld(t)
 	c := w.ActiveCraft()
 	c.ActiveBurn = &spacecraft.ActiveBurn{
@@ -57,14 +65,11 @@ func TestCancelGhostNodeRefsStripsActiveBurnRef(t *testing.T) {
 
 	w.CancelGhostNodeRefs("SHA256:gern", 987654)
 
-	if c.ActiveBurn == nil {
-		t.Fatal("ActiveBurn torn down — want it kept, ref stripped instead")
-	}
-	if c.ActiveBurn.TargetGhostOwner != "" || c.ActiveBurn.TargetCraftID != 0 {
-		t.Errorf("ghost ref not stripped: %+v", c.ActiveBurn)
+	if c.ActiveBurn != nil {
+		t.Fatalf("ActiveBurn kept alive with a stripped ref — want it aborted outright: %+v", c.ActiveBurn)
 	}
 	if w.LastNodeTargetRefusal == nil || !w.LastNodeTargetRefusal.Cancelled {
-		t.Errorf("cancellation notice not stamped for the active-burn strip: %+v", w.LastNodeTargetRefusal)
+		t.Errorf("cancellation notice not stamped for the active-burn abort: %+v", w.LastNodeTargetRefusal)
 	}
 }
 

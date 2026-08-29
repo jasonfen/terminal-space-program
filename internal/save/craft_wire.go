@@ -181,34 +181,43 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 }
 
 // CraftToWireForTransfer projects one live craft onto its serialisable
-// form exactly like CraftToWire, then strips every ghost ref (Target,
-// planted nodes, the active burn) before returning it. #294 review
-// finding 3: a ghost ref is a (owner fingerprint, remote craft ID) pair
-// meaningful only within the player's OWN world — relay.GhostsFor never
-// emits a player's own craft as a ghost to itself, so the pair can never
-// resolve anywhere else. CraftToWire round-tripping it is correct for a
-// session save/reconnect, which stays within that same world. It is
-// wrong for the dock ledger's parcel/return/transfer payloads (ADR
-// 0040, internal/relay/dock_persist.go): those are delivered into a
-// DIFFERENT player's world, where the ref can never resolve and — worse
-// — can alias the RECIPIENT's own fingerprint (a guest craft carrying a
-// node targeted at the HOST's ghost, transferred into the host's own
-// world, now holds the host's own fingerprint as a "remote" ref). Local
-// craft refs (TargetGhostOwner == "") are untouched — those are a
-// different craft in the SAME world and resolve or refuse exactly as
-// any local ref already does.
+// form exactly like CraftToWire, then strips every target-relative ref
+// (Target, planted nodes, the active burn) before returning it — both
+// ghost refs AND local craft refs. #294 review finding 3: a ghost ref is
+// a (owner fingerprint, remote craft ID) pair meaningful only within the
+// player's OWN world — relay.GhostsFor never emits a player's own craft
+// as a ghost to itself, so the pair can never resolve anywhere else.
+// CraftToWire round-tripping it is correct for a session save/
+// reconnect, which stays within that same world. It is wrong for the
+// dock ledger's parcel/return/transfer payloads (ADR 0040, internal/
+// relay/dock_persist.go): those are delivered into a DIFFERENT player's
+// world, where the ref can never resolve and — worse — can alias the
+// RECIPIENT's own fingerprint (a guest craft carrying a node targeted at
+// the HOST's ghost, transferred into the host's own world, now holds
+// the host's own fingerprint as a "remote" ref).
+//
+// #294 review round 3 (finding G): a LOCAL ref (TargetGhostOwner=="")
+// is just as unsafe here, for a different reason — w.AdoptCraft remaps
+// only the transferred craft's OWN id, not the TargetCraftID a node or
+// the active burn on it points at. A node targeting the sender's SISTER
+// craft (a different local craft in the sender's own world) transfers
+// with that sender-local id intact, and in the recipient's world that
+// same numeric id belongs to whatever unrelated vessel happens to hold
+// it — the node then resolves against, and fires at, a craft the player
+// never chose. Both kinds of ref are equally meaningless once the craft
+// leaves the world it was planned in, so both are stripped.
 func CraftToWireForTransfer(c *spacecraft.Spacecraft) Craft {
 	wc := CraftToWire(c)
-	if wc.Target != nil && wc.Target.Kind == int(spacecraft.TargetGhost) {
+	if wc.Target != nil && (wc.Target.Kind == int(spacecraft.TargetGhost) || wc.Target.Kind == int(spacecraft.TargetCraft)) {
 		wc.Target = nil
 	}
 	for i := range wc.Nodes {
-		if wc.Nodes[i].TargetGhostOwner != "" {
+		if wc.Nodes[i].TargetCraftID != 0 {
 			wc.Nodes[i].TargetGhostOwner = ""
 			wc.Nodes[i].TargetCraftID = 0
 		}
 	}
-	if wc.ActiveBurn != nil && wc.ActiveBurn.TargetGhostOwner != "" {
+	if wc.ActiveBurn != nil && wc.ActiveBurn.TargetCraftID != 0 {
 		wc.ActiveBurn.TargetGhostOwner = ""
 		wc.ActiveBurn.TargetCraftID = 0
 	}
@@ -377,6 +386,26 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			PlaneChangeRad:   wc.ActiveBurn.PlaneChangeRad,
 			BurnDirUnit:      vec3To(wc.ActiveBurn.BurnDirUnit),
 			TargetGhostOwner: wc.ActiveBurn.TargetGhostOwner, // #294 review finding 5
+		}
+		// #294 review round 3 (finding D): defensive load-time teardown for
+		// an ActiveBurn that is target-relative in Mode but carries no
+		// target at all (TargetCraftID==0, ownerless). This is exactly the
+		// shape a pre-round-3 give-up used to leave behind (it stripped the
+		// ref but kept the burn "alive") — and, independently, exactly the
+		// shape a v9 save (schema < 10, before CraftToWire started
+		// preserving ghost refs) carries for a craft that was saved
+		// mid-ghost-burn: the old wire form dropped the ref unconditionally
+		// while keeping the burn. migrateV9PayloadToV10 is an identity
+		// transform, so that shape reaches here unchanged on load. Either
+		// way, nodeTargetRelState refuses unconditionally for craftID==0,
+		// so a target-relative burn with no ref can never resolve, never
+		// thrust, and never tear itself down (burnExhausted's fuel-present-
+		// but-EndTime-never-reached hold is permanent) — a zombie burn that
+		// wedges canKeplerStep's per-craft gate and clamps warp ≤10× for
+		// the rest of the session. Tear it down here instead of letting it
+		// load in that state.
+		if spacecraft.IsTargetRelativeMode(c.ActiveBurn.Mode) && c.ActiveBurn.TargetCraftID == 0 {
+			c.ActiveBurn = nil
 		}
 	}
 	// v0.9.3 polish: per-craft Target. Pre-polish saves omit the field; nil

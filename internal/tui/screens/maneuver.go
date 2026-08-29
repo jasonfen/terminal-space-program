@@ -54,30 +54,52 @@ type Maneuver struct {
 	editingIdx        int
 	loadedTriggerTime time.Time
 
-	// hasTargetCraft + targetCraftID carry the World.Target binding
-	// at form-open time, so the four target-relative burn modes and
-	// the TriggerNextClosestApproach event can resolve their
-	// direction / trigger against the captured target. Bound at open
-	// (not at every keypress) so a target switch while the form is
-	// open doesn't silently retarget a planted burn — the player
-	// closes + reopens the form to retarget. v0.9.3+; bound by stable
-	// craft ID since v0.14.x (ADR 0012).
-	hasTargetCraft bool
-	targetCraftID  uint64
+	// hasTargetCraft + targetCraftID + targetGhostOwner carry the bound
+	// target for the form's four target-relative burn modes and the
+	// TriggerNextClosestApproach event to resolve their direction /
+	// trigger against — local craft (targetGhostOwner=="") or a remote
+	// player's ghost (targetGhostOwner!="", v0.28 S4 / ADR 0034).
+	//
+	// Two different callers bind this, with two different intents
+	// (#294 review round 3 finding I):
+	//
+	//   - LoadNode (click-to-edit an existing planted node) reads the
+	//     node's OWN stored binding — preserving it is the point of
+	//     opening the form on an already-target-bound node, so a
+	//     reloaded ghost-bound node doesn't lose its lock just because
+	//     it's being edited.
+	//   - bindManeuverTarget (app.go, called for a brand-NEW node —
+	//     `m` on the orbit screen, or the click-an-empty-canvas-point
+	//     staging flow) reads the CURRENT World.Target instead, since a
+	//     new node has no binding of its own yet to preserve.
+	//
+	// Neither is re-read per keypress: a target switch while the form
+	// is open doesn't silently retarget a planted burn, and — for the
+	// edit case — the only way to point an already-bound node at a
+	// DIFFERENT target is to close the form, retarget, then reopen for
+	// a fresh (now new-node-shaped) bind. v0.9.3+; bound by stable
+	// craft ID since v0.14.x (ADR 0012); ghost-owner-aware since #294
+	// review round 3.
+	hasTargetCraft   bool
+	targetCraftID    uint64
+	targetGhostOwner string
 }
 
-// SetTargetCraft binds (or unbinds) the target craft (by stable ID) the
-// form's planted burn will be aimed at. Called by the app when opening
-// the form so the four target-relative burn modes and the
-// TriggerNextClosestApproach event can resolve at plant + fire time.
-// Pass ok=false to clear (no craft target set / target is a body).
-// v0.9.3+; binds by ID since v0.14.x (ADR 0012).
-func (m *Maneuver) SetTargetCraft(ok bool, id uint64) {
+// SetTargetCraft binds (or unbinds) the target — local craft (owner=="")
+// or remote ghost (owner!="") — the form's planted burn will be aimed
+// at. Called by the app when opening the form for a NEW node so the
+// four target-relative burn modes and the TriggerNextClosestApproach
+// event can resolve at plant + fire time. Pass ok=false to clear (no
+// target set / target is a body). v0.9.3+; binds by ID since v0.14.x
+// (ADR 0012); ghost-owner-aware since #294 review round 3 (finding I).
+func (m *Maneuver) SetTargetCraft(ok bool, owner string, id uint64) {
 	m.hasTargetCraft = ok
 	if ok {
 		m.targetCraftID = id
+		m.targetGhostOwner = owner
 	} else {
 		m.targetCraftID = 0
+		m.targetGhostOwner = ""
 	}
 	// If the currently-selected mode or trigger requires a target
 	// and we no longer have one, snap to safe defaults so the form
@@ -137,6 +159,14 @@ type BurnExecutedMsg struct {
 	// the app passes it straight through. Only populated for target-
 	// relative modes / TriggerNextClosestApproach event.
 	TargetCraftID uint64
+	// TargetGhostOwner (#294 review round 3 finding I) mirrors
+	// ManeuverNode.TargetGhostOwner: non-empty when TargetCraftID names a
+	// REMOTE player's craft rather than a local one. Without this the
+	// form had no way to tell the app a bound target was a ghost, so
+	// committing an edit on a ghost-bound node silently re-planted it as
+	// an (unresolvable) local ref — the binding survived LoadNode only
+	// to be dropped again at commit.
+	TargetGhostOwner string
 }
 
 // NodeDeleteMsg is emitted when the player presses ctrl+d in the
@@ -239,13 +269,20 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 	m.editingIdx = idx
 	m.loadedTriggerTime = n.TriggerTime
 	// v0.9.3+: preserve the node's stored target binding through the
-	// edit cycle so re-planting doesn't drop it. Caller (app) is
-	// expected to follow up with SetTargetCraft to reflect the
-	// CURRENT World.Target if the node's binding is stale, but the
-	// default-load behaviour preserves the original target.
+	// edit cycle so re-planting doesn't drop it — this is authoritative
+	// for the edit flow; unlike the new-node flow, the app does NOT
+	// follow this call with bindManeuverTarget (#294 review round 3
+	// finding I: bindManeuverTarget only knew TargetCraft, so it used to
+	// unconditionally clobber whatever this just loaded the instant the
+	// live World.Target was a ghost, or None, or anything else — most
+	// visibly stripping a reloaded ghost-bound node's lock the moment
+	// the player clicked it to edit, even though nothing about the node
+	// itself had changed). Ghost owner rides along with the ID so a
+	// remote ref survives the edit cycle too, not just a local one.
 	if id, ok := n.TargetCraftIDValue(); ok {
 		m.hasTargetCraft = true
 		m.targetCraftID = id
+		m.targetGhostOwner = n.TargetGhostOwner
 	}
 	m.applyFocus()
 }
@@ -412,6 +449,7 @@ func (m *Maneuver) commitCmd() tea.Cmd {
 	// since v0.14.x (ADR 0012); zero = no target.
 	if m.hasTargetCraft && (spacecraft.IsTargetRelativeMode(mode) || event == sim.TriggerNextClosestApproach) {
 		msg.TargetCraftID = m.targetCraftID
+		msg.TargetGhostOwner = m.targetGhostOwner
 	}
 	return func() tea.Msg { return msg }
 }

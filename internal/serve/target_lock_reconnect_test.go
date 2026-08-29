@@ -28,6 +28,14 @@ import (
 //     after targetLockRelatchGrace and fires a legible
 //     SessionEventTargetLockLost chip.
 //
+// #294 review round 3 replaced the original give-up trigger ("any
+// resolve failure", rounds 1+2's fix: "any resolve failure on a ref
+// eligible from session-start timing") with a PRESENCE rule: the
+// countdown runs only when the ref's owner is ABSENT from this
+// session's roster — not a timing inference at all. See
+// reconcileTargetLock's doc comment in reporting.go for the full
+// reasoning.
+//
 // These tests exercise reconcileTargetLock directly, with synthetic
 // timestamps, so the grace window doesn't have to be slept through.
 
@@ -60,12 +68,13 @@ func TestTargetLockResolvesImmediatelyNoOp(t *testing.T) {
 	}
 }
 
-// The deferred re-latch: a ghost target that lands unresolved (the
-// reconnect case — reports haven't arrived yet) starts a pending timer
-// instead of dropping immediately, and once the owner's report resumes
-// the lock is restored silently — no chip, because the player ends up
-// exactly where they started.
-func TestTargetLockRelatchesSilentlyWhenReportResumes(t *testing.T) {
+// The presence rule's core case: an owner who IS a member of this
+// session (present in the roster `handles` derives from) never starts
+// the give-up countdown at all, no matter how long their ghost stays
+// unresolved — it just waits and re-latches silently once their report
+// resumes, exactly the pre-#294 tolerance an ordinary momentarily-stale
+// ghost always had.
+func TestTargetLockPresentOwnerNeverCountsDownAndReLatches(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -84,20 +93,17 @@ func TestTargetLockRelatchesSilentlyWhenReportResumes(t *testing.T) {
 	if w.Target.Kind != sim.TargetGhost {
 		t.Fatalf("target cleared on the very first unresolved tick: %+v", w.Target)
 	}
-	if m.targetLockPendingSince.IsZero() {
-		t.Fatalf("pending timer did not start for an unresolved ghost target")
+	if !m.targetLockPendingSince.IsZero() {
+		t.Fatalf("countdown started for a present owner: %v", m.targetLockPendingSince)
 	}
 
-	// The peer's report resumes a few seconds later — well inside the
-	// grace window — and the ghost slate now carries their craft.
+	// The peer's report resumes a few seconds later, and the ghost slate
+	// now carries their craft.
 	w.Ghosts = []sim.Ghost{{Owner: testPeerFP, CraftID: 99, PrimaryID: c.Primary.ID}}
 	m.reconcileTargetLock(w, handles, now.Add(5*time.Second))
 
 	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != testPeerFP || w.Target.CraftID != 99 {
 		t.Errorf("target lock not restored once the report resumed: %+v", w.Target)
-	}
-	if !m.targetLockPendingSince.IsZero() {
-		t.Errorf("pending timer not cleared after a successful re-latch")
 	}
 	for _, e := range m.localEvents {
 		if e.Kind == sim.SessionEventTargetLockLost {
@@ -106,10 +112,76 @@ func TestTargetLockRelatchesSilentlyWhenReportResumes(t *testing.T) {
 	}
 }
 
-// Legibility: a ghost target that never resolves within
-// targetLockRelatchGrace is dropped for good and the player is told —
-// not left with a silently dangling aim.
-func TestTargetLockLostChipAfterGraceWindow(t *testing.T) {
+// Finding A's literal motivating case: the peer is present (enrolled in
+// this session) but their craft is Landed — relay.GhostsFor (internal/
+// relay/ghosts.go) filters Landed craft out of the ghost slate
+// entirely, so the ghost never resolves even though nothing is wrong
+// with the lock. The presence rule must survive this indefinitely, not
+// merely for one grace window.
+func TestTargetLockLandedPeerSurvivesAndReLatches(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	w.SetTargetGhost(testPeerFP, 99)
+	w.Ghosts = []sim.Ghost{{Owner: testPeerFP, CraftID: 99, PrimaryID: c.Primary.ID}}
+
+	m := &reportingModel{owner: "SHA256:self"}
+	handles := map[string]string{testPeerFP: "peer"}
+	now := time.Now()
+
+	// Resolve once — an established lock, same as ordinary live play.
+	m.reconcileTargetLock(w, handles, now)
+	if !m.targetLockResolvedOnce {
+		t.Fatalf("ref never marked resolved-once")
+	}
+
+	// The peer lands. GhostsFor filters Landed craft out of the slate —
+	// reproduce that shape directly rather than asserting against
+	// GhostsFor's internals.
+	reports := []relay.CraftReport{{
+		Owner: testPeerFP, SubspaceTime: w.Clock.SimTime,
+		Crafts: []relay.CraftState{{ID: 99, Landed: true, System: w.System().Name, Primary: c.Primary.ID}},
+	}}
+	w.Ghosts = relay.GhostsFor(w, reports, handles)
+	if len(w.Ghosts) != 0 {
+		t.Fatalf("test setup: a Landed craft still produced a ghost: %+v", w.Ghosts)
+	}
+
+	// Reset resolved-once so this run exercises the PRESENCE path on its
+	// own merits, not the (already-covered) resolved-once tolerance.
+	m.targetLockResolvedOnce = false
+	for i := 1; i <= 10; i++ {
+		m.reconcileTargetLock(w, handles, now.Add(time.Duration(i)*targetLockRelatchGrace))
+	}
+
+	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != testPeerFP || w.Target.CraftID != 99 {
+		t.Fatalf("lock cleared for a landed but PRESENT peer: %+v", w.Target)
+	}
+	if !m.targetLockPendingSince.IsZero() {
+		t.Errorf("countdown started for a present (landed) peer: %v", m.targetLockPendingSince)
+	}
+	for _, e := range m.localEvents {
+		if e.Kind == sim.SessionEventTargetLockLost {
+			t.Fatalf("false loss chip fired for a landed but present peer: %+v", e)
+		}
+	}
+
+	// The peer lifts off again — the ghost re-latches normally.
+	w.Ghosts = []sim.Ghost{{Owner: testPeerFP, CraftID: 99, PrimaryID: c.Primary.ID}}
+	m.reconcileTargetLock(w, handles, now.Add(11*targetLockRelatchGrace))
+	if !m.targetLockResolvedOnce {
+		t.Errorf("ref not marked resolved-once again after re-latching")
+	}
+}
+
+// Legibility: a ghost target whose owner is genuinely ABSENT from this
+// session (never enrolled here — a standalone save loaded outside the
+// session it was bound in, or since removed from the roster) is dropped
+// for good after targetLockRelatchGrace and the player is told — not
+// left with a silently dangling aim.
+func TestTargetLockAbsentOwnerGivesUpAfterGraceWindow(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -117,10 +189,13 @@ func TestTargetLockLostChipAfterGraceWindow(t *testing.T) {
 	w.SetTargetGhost(testPeerFP, 99)
 
 	m := &reportingModel{owner: "SHA256:self"}
-	handles := map[string]string{testPeerFP: "peer"}
+	handles := map[string]string{} // testPeerFP is not a member of this session
 	now := time.Now()
 
 	m.reconcileTargetLock(w, handles, now) // starts the pending timer
+	if m.targetLockPendingSince.IsZero() {
+		t.Fatalf("countdown never started for an absent owner")
+	}
 
 	// Still inside the grace window: keep waiting, no chip yet.
 	m.reconcileTargetLock(w, handles, now.Add(targetLockRelatchGrace/2))
@@ -133,7 +208,7 @@ func TestTargetLockLostChipAfterGraceWindow(t *testing.T) {
 		}
 	}
 
-	// Past grace, still unresolved: give up and say so.
+	// Past grace, still unresolved and still absent: give up and say so.
 	m.reconcileTargetLock(w, handles, now.Add(targetLockRelatchGrace+time.Second))
 
 	if w.Target.Kind != sim.TargetNone {
@@ -147,9 +222,6 @@ func TestTargetLockLostChipAfterGraceWindow(t *testing.T) {
 	}
 	if lost == nil {
 		t.Fatalf("no target-lock-lost chip fired; events=%+v", m.localEvents)
-	}
-	if lost.Handle != "peer" {
-		t.Errorf("loss chip Handle = %q, want %q", lost.Handle, "peer")
 	}
 	if !m.targetLockPendingSince.IsZero() {
 		t.Errorf("pending timer not cleared after giving up")
@@ -192,11 +264,12 @@ func TestTargetLockSurvivesSaveLoadAndReLatchesThroughReportingModel(t *testing.
 	}
 
 	// Bob's report hasn't reached the relay store yet — Alice's session
-	// comes up before Bob's does.
+	// comes up before Bob's does. Bob is still enrolled (present) the
+	// whole time, so this must never start a countdown.
 	m := srv.withReporting(reloaded, fpA)
 	m = tick(m)
 	if w2.Target.Kind != sim.TargetGhost {
-		t.Fatalf("target dropped on the very first tick, before the grace window: %+v", w2.Target)
+		t.Fatalf("target dropped on the very first tick: %+v", w2.Target)
 	}
 
 	// Bob's report now arrives.
@@ -226,13 +299,12 @@ func TestTargetLockSurvivesSaveLoadAndReLatchesThroughReportingModel(t *testing.
 
 // #294 review finding 1: the pre-review watchdog ran its 45s countdown on
 // EVERY resolve failure, not just a ref that had never resolved since it
-// was bound. relay.GhostsFor only emits ghosts for the viewer's VIEWED
-// system and skips Landed craft, so a player browsing another system for
-// a minute, or whose peer lands/transfers briefly, would get a perfectly
-// healthy lock silently and permanently cleared. Once a ref has resolved
-// once, the watchdog must retire for it for good — a later resolve
-// failure reverts to the old (pre-#294) tolerance: keep the lock, re-latch
-// silently whenever it resolves again, never clear it, never chip a loss.
+// was bound. Once a ref has resolved once, the watchdog must retire for
+// it for good — a later resolve failure reverts to the old (pre-#294)
+// tolerance: keep the lock, re-latch silently whenever it resolves
+// again, never clear it, never chip a loss. This holds independently of
+// presence — even an ABSENT owner's already-established lock never
+// expires.
 func TestTargetLockEstablishedLockNeverExpiresAfterResolvingOnce(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -243,7 +315,7 @@ func TestTargetLockEstablishedLockNeverExpiresAfterResolvingOnce(t *testing.T) {
 	w.Ghosts = []sim.Ghost{{Owner: testPeerFP, CraftID: 99, PrimaryID: c.Primary.ID}}
 
 	m := &reportingModel{owner: "SHA256:self"}
-	handles := map[string]string{testPeerFP: "peer"}
+	handles := map[string]string{} // absent — resolved-once must still win over presence
 	now := time.Now()
 
 	// Ordinary play: resolves on the very first tick, same as any live
@@ -254,9 +326,7 @@ func TestTargetLockEstablishedLockNeverExpiresAfterResolvingOnce(t *testing.T) {
 	}
 
 	// The ghost now drops out of the slate for reasons that have nothing
-	// to do with the lock — standing in for "browsing another system" /
-	// "peer landed for a minute" with the blunt instrument of an empty
-	// w.Ghosts, held for far longer than targetLockRelatchGrace.
+	// to do with the lock, held for far longer than targetLockRelatchGrace.
 	w.Ghosts = nil
 	for i := 1; i <= 10; i++ {
 		m.reconcileTargetLock(w, handles, now.Add(time.Duration(i)*targetLockRelatchGrace))
@@ -277,21 +347,11 @@ func TestTargetLockEstablishedLockNeverExpiresAfterResolvingOnce(t *testing.T) {
 
 // #294 review finding 2: the pending timer used to key only on
 // Kind==TargetGhost, not WHICH ghost — retargeting to a different peer
-// mid-grace inherited the old timer (and, pre-fix, a handle cached at
+// mid-grace inherited the old timer (and a handle cached at
 // timer-start), clearing the new lock early and naming the wrong peer.
-// The fix (round 1) keyed the watch on (GhostOwner, CraftID): a retarget
-// starts fresh tracking for the new ref rather than inheriting the old
-// one's near-expired timer or cached handle.
-//
-// #294 review finding 4 (round 2) narrowed this further: a retarget is a
-// LIVE SetTargetGhost call, and round 2 scopes the give-up countdown to
-// refs restored at session start only (targetLockEligible) — so B here
-// no longer gets "its own grace window" the way round 1 asserted; it
-// gets no countdown at all and must never chip a loss, no matter how
-// long it stays unresolved. What both rounds agree on: retargeting must
-// never inherit A's state (timer, handle, or eligibility) and must never
-// chip immediately on the switch itself.
-func TestTargetLockRetargetMidGraceResetsTimerAndHandle(t *testing.T) {
+// The fix keys the watch on (GhostOwner, CraftID): a retarget starts
+// fresh tracking — and its own full grace window — for the new ref.
+func TestTargetLockRetargetMidGraceResetsTimer(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -299,23 +359,17 @@ func TestTargetLockRetargetMidGraceResetsTimerAndHandle(t *testing.T) {
 	const fpA, fpB = "SHA256:peer-a", "SHA256:peer-b"
 	w.SetTargetGhost(fpA, 1)
 	m := &reportingModel{owner: "SHA256:self"}
-	handles := map[string]string{fpA: "alice", fpB: "bob"}
+	handles := map[string]string{} // both absent — both are countdown cases
 	now := time.Now()
 
-	// A is this session's very first ref (restored, in the reconnect
-	// sense this fixture stands in for) — eligible, its watchdog starts.
 	m.reconcileTargetLock(w, handles, now)
 	if m.targetLockPendingSince.IsZero() {
 		t.Fatalf("watchdog for A never started")
 	}
-	if !m.targetLockEligible {
-		t.Fatalf("A (this session's first ref) not marked eligible")
-	}
 	retargetAt := now.Add(targetLockRelatchGrace - time.Second) // deep into A's own grace
 	m.reconcileTargetLock(w, handles, retargetAt)
 
-	// Player retargets to B before A either resolved or timed out — an
-	// ordinary in-session target switch, not a reconnect.
+	// Player retargets to B before A either resolved or timed out.
 	w.SetTargetGhost(fpB, 2)
 	m.reconcileTargetLock(w, handles, retargetAt)
 	if m.targetLockOwner != fpB || m.targetLockCraftID != 2 {
@@ -324,8 +378,12 @@ func TestTargetLockRetargetMidGraceResetsTimerAndHandle(t *testing.T) {
 	if w.Target.Kind != sim.TargetGhost {
 		t.Fatalf("retargeting itself cleared the target: %+v", w.Target)
 	}
-	if m.targetLockEligible {
-		t.Fatalf("B (a LIVE retarget, not a restored ref) wrongly marked eligible for the countdown")
+
+	// A's timer had ~1s left. If B inherited it, this tick (2s later)
+	// would already have given up.
+	m.reconcileTargetLock(w, handles, retargetAt.Add(2*time.Second))
+	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != fpB {
+		t.Fatalf("B cleared almost immediately — inherited A's near-expired timer: %+v", w.Target)
 	}
 	for _, e := range m.localEvents {
 		if e.Kind == sim.SessionEventTargetLockLost {
@@ -333,20 +391,10 @@ func TestTargetLockRetargetMidGraceResetsTimerAndHandle(t *testing.T) {
 		}
 	}
 
-	// B never gets a countdown at all (finding 4 round 2) — it just waits,
-	// silently, no matter how far past what would have been A's grace
-	// window. No pending timer, no chip, target stays locked on B.
-	m.reconcileTargetLock(w, handles, retargetAt.Add(5*targetLockRelatchGrace))
-	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != fpB || w.Target.CraftID != 2 {
-		t.Errorf("B cleared despite being a live (ineligible) ref: %+v", w.Target)
-	}
-	if !m.targetLockPendingSince.IsZero() {
-		t.Errorf("countdown started for a live retarget: %v", m.targetLockPendingSince)
-	}
-	for _, e := range m.localEvents {
-		if e.Kind == sim.SessionEventTargetLockLost {
-			t.Errorf("loss chip fired for a live retarget that should never get a countdown: %+v", e)
-		}
+	// B gets its OWN full grace window measured from the retarget moment.
+	m.reconcileTargetLock(w, handles, retargetAt.Add(targetLockRelatchGrace+time.Second))
+	if w.Target.Kind != sim.TargetNone {
+		t.Errorf("B not given its own full grace window: %+v", w.Target)
 	}
 }
 
@@ -406,20 +454,17 @@ func TestStopHostingResetsTargetLockWatch(t *testing.T) {
 	}
 }
 
-// #294 review finding 4 (round 2): ADR 0038 undock handback
-// (relay/dock.go's SetTargetGhost calls at the docker's release/undock
-// paths) aims the docker at the guest's departing craft before the
-// guest's own next CraftReport can possibly have landed in w.Ghosts —
-// a brand-new ref with an empty ghost slate, which used to be
-// indistinguishable from "restored across a reconnect" and so started
-// the very same 45s give-up countdown. A slow or disconnecting guest
-// then cost the host a false "lost on reconnect" chip though no
-// reconnect ever happened. Fixed two ways: (a) HasRelativeTarget no
-// longer requires a resolve (internal/sim/target.go), so NavTarget
-// survives the momentary gap; (b) the countdown is scoped to refs
-// restored at session start only (targetLockEligible), so a live
-// SetTargetGhost — undock handback included — never starts it at all.
-func TestUndockHandbackLiveSetTargetGhostNeverStartsCountdown(t *testing.T) {
+// #294 review finding 4 / round 3: ADR 0038 undock handback (relay/
+// dock.go's SetTargetGhost calls at the docker's release/undock paths)
+// aims the docker at the guest's departing craft before the guest's own
+// next CraftReport can possibly have landed in w.Ghosts — a brand-new
+// ref with an empty ghost slate. The guest is always a PRESENT member
+// of this session (they have to be, to have had a stack to undock from
+// in the first place), so the presence rule alone — with no notion of
+// "session's first tick" needed — keeps this from ever starting a
+// countdown, closing the false "lost on reconnect" chip a slow or
+// disconnecting guest used to cost the host.
+func TestUndockHandbackPresentGuestNeverStartsCountdown(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -430,12 +475,8 @@ func TestUndockHandbackLiveSetTargetGhostNeverStartsCountdown(t *testing.T) {
 	w.NavMode = sim.NavTarget
 
 	m := &reportingModel{owner: "SHA256:self"}
-	handles := map[string]string{testPeerFP: "guest"}
+	handles := map[string]string{testPeerFP: "guest"} // the guest is enrolled — present
 	now := time.Now()
-
-	// This session has already ticked at least once before the undock —
-	// the undock's fresh ref is emphatically NOT this session's first.
-	m.reconcileTargetLock(w, handles, now)
 
 	// Undock handback: SetTargetGhost fires with an EMPTY ghost slate —
 	// the guest's departing craft hasn't reported in yet.
@@ -444,21 +485,16 @@ func TestUndockHandbackLiveSetTargetGhostNeverStartsCountdown(t *testing.T) {
 		t.Fatalf("NavTarget demoted to NavOrbit by a momentarily-unresolved fresh ghost ref: %v", w.NavMode)
 	}
 
-	// The next tick's reconcileTargetLock call (ghost slate still empty)
-	// must not start a countdown for this fresh LIVE ref.
-	m.reconcileTargetLock(w, handles, now.Add(time.Second))
+	m.reconcileTargetLock(w, handles, now)
 	if !m.targetLockPendingSince.IsZero() {
 		t.Fatalf("countdown started for a live undock-handback ref: %v", m.targetLockPendingSince)
-	}
-	if m.targetLockEligible {
-		t.Fatalf("undock-handback ref wrongly marked eligible for the give-up countdown")
 	}
 
 	// Even well past what would have been the grace window, still no
 	// chip and the lock is still standing, waiting.
 	m.reconcileTargetLock(w, handles, now.Add(2*targetLockRelatchGrace))
 	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != testPeerFP || w.Target.CraftID != 99 {
-		t.Fatalf("undock-handback lock cleared despite no reconnect ever happening: %+v", w.Target)
+		t.Fatalf("undock-handback lock cleared despite the guest being present the whole time: %+v", w.Target)
 	}
 	for _, e := range m.localEvents {
 		if e.Kind == sim.SessionEventTargetLockLost {
@@ -475,5 +511,54 @@ func TestUndockHandbackLiveSetTargetGhostNeverStartsCountdown(t *testing.T) {
 	}
 	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != testPeerFP || w.Target.CraftID != 99 {
 		t.Errorf("lock lost by the time the guest's report resolved: %+v", w.Target)
+	}
+}
+
+// #294 review finding B (round 3 redesign): the original round 1/2
+// "eligibility" scheme inferred whether a ref deserved a countdown from
+// SESSION TIMING (was it Craft.Target's value on this hosting session's
+// very first tick?) rather than from anything about the ref itself. A
+// per-craft ghost target promoted to w.Target LATER — a vessel switch
+// (SetActiveCraftIdx) or an F9 quickload swapping a.world without
+// resetting the reportingModel — read as a live retarget under that
+// scheme and pended silently forever, resurrecting the original #294
+// legibility gap. The presence rule fixes this because it has no notion
+// of "session's first tick" at all: it applies whenever the ref is the
+// active target, however long this session has already been running.
+func TestTargetLockLatePromotionGovernedByPresenceNotTiming(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	m := &reportingModel{owner: "SHA256:self"}
+	handles := map[string]string{} // the eventual ghost owner is never enrolled — absent
+	now := time.Now()
+
+	// The session has already ticked many times under no target at all —
+	// standing in for the time elapsed before a vessel switch or
+	// quickload brings a ghost-targeted craft to the front.
+	for i := 0; i < 20; i++ {
+		m.reconcileTargetLock(w, handles, now.Add(time.Duration(i)*time.Second))
+	}
+
+	promoteAt := now.Add(30 * time.Second)
+	w.SetTargetGhost(testPeerFP, 99)
+	m.reconcileTargetLock(w, handles, promoteAt)
+	if m.targetLockPendingSince.IsZero() {
+		t.Fatalf("late-promoted ref with an absent owner never started a countdown")
+	}
+
+	m.reconcileTargetLock(w, handles, promoteAt.Add(targetLockRelatchGrace+time.Second))
+	if w.Target.Kind != sim.TargetNone {
+		t.Errorf("late-promoted ref with an absent owner never gave up: %+v", w.Target)
+	}
+	found := false
+	for _, e := range m.localEvents {
+		if e.Kind == sim.SessionEventTargetLockLost {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no loss chip fired for the late-promoted absent-owner ref")
 	}
 }

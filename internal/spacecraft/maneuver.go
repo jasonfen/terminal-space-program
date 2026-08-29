@@ -209,19 +209,6 @@ func (n ManeuverNode) TargetGhostRef() (owner string, craftID uint64, ok bool) {
 	return n.TargetGhostOwner, n.TargetCraftID, true
 }
 
-// DropGhostRef clears a ghost target ref (owner + the remote craft id).
-// Called on save so a session-local ghost binding never persists and a
-// remote id can't be reloaded as a local one — the burn geometry
-// (mode / Δv / direction) is untouched. No-op for local-craft or
-// untargeted nodes. v0.28 S4.
-func (n *ManeuverNode) DropGhostRef() {
-	if n.TargetGhostOwner == "" {
-		return
-	}
-	n.TargetGhostOwner = ""
-	n.TargetCraftID = 0
-}
-
 // IsTargetRelative reports whether this node's burn mode requires a
 // target craft state to resolve direction. v0.9.3+.
 func (n ManeuverNode) IsTargetRelative() bool {
@@ -332,18 +319,6 @@ func (b ActiveBurn) TargetCraftIDValue() (uint64, bool) {
 		return 0, false
 	}
 	return b.TargetCraftID, true
-}
-
-// DropGhostRef clears a ghost target ref (owner + the remote craft id)
-// from a running burn, mirroring ManeuverNode.DropGhostRef so a save
-// mid-burn against a ghost never persists a session-local remote id.
-// No-op for local-craft or untargeted burns. v0.28 S4.
-func (b *ActiveBurn) DropGhostRef() {
-	if b.TargetGhostOwner == "" {
-		return
-	}
-	b.TargetGhostOwner = ""
-	b.TargetCraftID = 0
 }
 
 // BurnStalled reports whether a planted burn is paused waiting for the

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -117,6 +118,14 @@ func TestSortNodesOrdersByBurnStart(t *testing.T) {
 	}
 }
 
+// sessionWithOwner stubs a minimal hosted-session slate naming owner as
+// a roster member — the presence a ghost-ref node needs to HOLD rather
+// than cancel at fire time (#294 review round 3 finding E,
+// World.sessionKnowsOwner).
+func sessionWithOwner(owner string) *SessionInfo {
+	return &SessionInfo{Players: []SessionPlayer{{Fingerprint: owner}}}
+}
+
 // TestExecuteDueNodesRefusesUnresolvedTargetRelativeImpulsive — #294
 // review finding 5. A due impulsive target-relative node whose bound
 // ghost ref doesn't resolve (survived a save/load without a live
@@ -126,7 +135,10 @@ func TestSortNodesOrdersByBurnStart(t *testing.T) {
 // BurnTarget/AntiTarget cases degrade that to a direction aimed at, or
 // away from, the primary's centre — real Δv spent in a bogus
 // direction). The node must stay queued (not popped) and
-// LastNodeTargetRefusal must fire so the player is told.
+// LastNodeTargetRefusal must fire so the player is told. The ghost's
+// owner is present in the session (round 3 finding E) — an absent
+// owner is a cancel, not a hold; see
+// TestExecuteDueNodesCancelsGhostNodeAbsentOwner below.
 func TestExecuteDueNodesRefusesUnresolvedTargetRelativeImpulsive(t *testing.T) {
 	w := mustWorld(t)
 	c := w.ActiveCraft()
@@ -141,6 +153,7 @@ func TestExecuteDueNodesRefusesUnresolvedTargetRelativeImpulsive(t *testing.T) {
 		TargetCraftID:    987654,
 	}}
 	w.Ghosts = nil // the ghost ref never resolves
+	w.Session = sessionWithOwner("SHA256:gern")
 
 	w.executeDueNodes()
 
@@ -175,6 +188,7 @@ func TestExecuteDueNodesRefusesUnresolvedTargetRelativeFinite(t *testing.T) {
 		TargetCraftID:    987654,
 	}}
 	w.Ghosts = nil
+	w.Session = sessionWithOwner("SHA256:gern")
 
 	w.executeDueNodes()
 
@@ -205,6 +219,7 @@ func TestExecuteDueNodesFiresOnceGhostResolves(t *testing.T) {
 		TargetCraftID:    987654,
 	}}
 	w.Ghosts = nil
+	w.Session = sessionWithOwner("SHA256:gern")
 	w.executeDueNodes()
 	if len(c.Nodes) != 1 {
 		t.Fatalf("node fired/dropped despite an unresolved target: len=%d", len(c.Nodes))
@@ -293,6 +308,7 @@ func TestExecuteDueNodesRefusalStampedOncePerStall(t *testing.T) {
 		TargetCraftID:    987654,
 	}}
 	w.Ghosts = nil
+	w.Session = sessionWithOwner("SHA256:gern")
 
 	w.executeDueNodes()
 	if w.LastNodeTargetRefusal == nil {
@@ -306,5 +322,133 @@ func TestExecuteDueNodesRefusalStampedOncePerStall(t *testing.T) {
 	}
 	if len(c.Nodes) != 1 {
 		t.Fatalf("node dropped or fired despite staying unresolved: len(Nodes)=%d", len(c.Nodes))
+	}
+}
+
+// TestExecuteDueNodesCancelsGhostNodeAbsentOwner — #294 review round 3
+// finding E: reconcileTargetLock's give-up countdown (internal/serve/
+// reporting.go) only ever tracks the world's ACTIVE target — a planted
+// node bound to some OTHER ghost, or evaluated with no hosting session
+// at all (a dock ledger Parcel, a standalone save), never gets a give-up
+// any other way. The fire-time presence rule (World.sessionKnowsOwner)
+// must cancel it outright instead of wedging the queue forever.
+func TestExecuteDueNodesCancelsGhostNodeAbsentOwner(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:             spacecraft.BurnTarget,
+		DV:               100,
+		TriggerTime:      now,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}}
+	w.Ghosts = nil
+	w.Session = nil // no hosting session at all — evaluated outside one
+
+	w.executeDueNodes()
+
+	if len(c.Nodes) != 0 {
+		t.Fatalf("ghost-ref node with no session not cancelled: len(Nodes)=%d, nodes=%+v", len(c.Nodes), c.Nodes)
+	}
+	if w.LastNodeTargetRefusal == nil || !w.LastNodeTargetRefusal.Cancelled {
+		t.Errorf("cancellation notice not stamped: %+v", w.LastNodeTargetRefusal)
+	}
+}
+
+// TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolled — same as above,
+// but WITH a hosting session whose roster simply doesn't include this
+// ref's owner (never enrolled, or since removed) — same give-up.
+func TestExecuteDueNodesCancelsGhostNodeOwnerNotEnrolled(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:             spacecraft.BurnTarget,
+		DV:               100,
+		TriggerTime:      now,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}}
+	w.Ghosts = nil
+	w.Session = sessionWithOwner("SHA256:someone-else")
+
+	w.executeDueNodes()
+
+	if len(c.Nodes) != 0 {
+		t.Fatalf("ghost-ref node for a not-enrolled owner not cancelled: len(Nodes)=%d", len(c.Nodes))
+	}
+	if w.LastNodeTargetRefusal == nil || !w.LastNodeTargetRefusal.Cancelled {
+		t.Errorf("cancellation notice not stamped: %+v", w.LastNodeTargetRefusal)
+	}
+}
+
+// TestExecuteDueNodesHoldsLocalTargetTransientlyOnDifferentPrimary —
+// #294 review round 3 finding F: nodeTargetRelState's own doc names a
+// transient case for a LOCAL target ref — the target craft alive but
+// briefly on a DIFFERENT primary than this node's own frame, mid SOI-
+// transfer. That must HOLD, exactly like a pending-resolvable ghost
+// stall — not be treated as permanently gone the way
+// TestExecuteDueNodesDropsNeverResolvableLocalTarget's genuinely-absent
+// (end-of-flight) case correctly is.
+func TestExecuteDueNodesHoldsLocalTargetTransientlyOnDifferentPrimary(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if len(w.Crafts) < 2 {
+		t.Fatalf("expected 2 crafts after spawn, got %d", len(w.Crafts))
+	}
+	w.ActiveCraftIdx = 0
+	sister := w.Crafts[1]
+	w.stampCraftID(sister)
+
+	// Any OTHER body in the system stands in for "mid-SOI-transfer,
+	// briefly on a different primary than the node's own frame."
+	var other bodies.CelestialBody
+	found := false
+	for _, b := range w.System().Bodies {
+		if b.ID != c.Primary.ID {
+			other = b
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("system has no second body to use as the sister's transient primary")
+	}
+	sister.Primary = other
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:          spacecraft.BurnTargetPrograde,
+		DV:            50,
+		TriggerTime:   now,
+		PrimaryID:     c.Primary.ID,
+		TargetCraftID: sister.ID,
+	}}
+
+	w.executeDueNodes()
+
+	if len(c.Nodes) != 1 {
+		t.Fatalf("transiently-unresolvable local target node dropped instead of held: len(Nodes)=%d", len(c.Nodes))
+	}
+	if w.LastNodeTargetRefusal == nil {
+		t.Fatal("no stall notice stamped")
+	}
+	if w.LastNodeTargetRefusal.Cancelled {
+		t.Error("transient hold read as Cancelled — must be a pending stall, not a permanent drop")
+	}
+
+	// The sister rebases back onto the shared primary — the node fires
+	// normally on the next tick, proving the hold is a pause.
+	sister.Primary = c.Primary
+	w.executeDueNodes()
+	if len(c.Nodes) != 0 {
+		t.Errorf("node never fired once both craft shared a primary again: len(Nodes)=%d", len(c.Nodes))
 	}
 }

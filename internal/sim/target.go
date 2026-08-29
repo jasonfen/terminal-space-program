@@ -226,6 +226,17 @@ func (w *World) nodeTargetRelState(owner string, craftID uint64, primary bodies.
 	return tc.State.R, tc.State.V, true
 }
 
+// TargetRelState is the exported door onto nodeTargetRelState for
+// callers outside the sim package (internal/tui/screens's maneuver form,
+// #294 review round 3 finding I): resolves a captured (owner, craftID)
+// target-relative ref — local craft (owner=="") or remote ghost — to its
+// state in the given primary's relative frame, exactly as a planted
+// node or the active burn resolves its own bound target at fire time.
+// ok=false when the ref is empty or doesn't resolve.
+func (w *World) TargetRelState(owner string, craftID uint64, primary bodies.CelestialBody) (rT, vT orbital.Vec3, ok bool) {
+	return w.nodeTargetRelState(owner, craftID, primary)
+}
+
 // ghostByRef finds a ghost by owner + craft ID in the transient slate.
 func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
 	for _, g := range w.Ghosts {

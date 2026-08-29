@@ -218,3 +218,30 @@ func (w *World) DockOwnerOnline() bool {
 	}
 	return false
 }
+
+// sessionKnowsOwner reports whether owner is a member of the current
+// multiplayer session's roster — present regardless of online/away/
+// landed/other-system status, the same "enrollment slate" presence
+// reportingModel.reconcileTargetLock's give-up countdown keys off
+// (internal/serve/reporting.go). False when there is no session at all
+// (solo play, or a craft evaluated outside any hosting session — a dock
+// ledger Parcel, for instance) or the roster has no matching row (never
+// enrolled, or since removed).
+//
+// #294 review round 3 finding E: a persisted ghost-ref NODE that isn't
+// the world's ACTIVE target never gets a give-up from
+// reconcileTargetLock at all — that watchdog only ever tracks
+// w.Target. executeDueNodesFor uses this directly, at fire time, so a
+// node belonging to some OTHER ghost still gets a give-up rule of its
+// own instead of wedging the queue forever.
+func (w *World) sessionKnowsOwner(owner string) bool {
+	if w.Session == nil {
+		return false
+	}
+	for _, p := range w.Session.Players {
+		if p.Fingerprint == owner {
+			return true
+		}
+	}
+	return false
+}

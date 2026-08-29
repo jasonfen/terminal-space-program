@@ -95,15 +95,24 @@ func TestCraftToWireForTransferStripsGhostRefs(t *testing.T) {
 	}
 }
 
-// TestCraftToWireForTransferLeavesLocalRefsAlone — a LOCAL craft ref
-// (no ghost owner) is a different craft in the SAME world; the
-// transfer sanitizer must not touch it.
-func TestCraftToWireForTransferLeavesLocalRefsAlone(t *testing.T) {
+// TestCraftToWireForTransferStripsLocalRefsToo — #294 review round 3
+// finding G. A LOCAL craft ref (no ghost owner) is just as unsafe to
+// carry across a dock-ledger transfer as a ghost ref, for a different
+// reason: w.AdoptCraft remaps only the TRANSFERRED craft's own id, not
+// the TargetCraftID a node (or the active burn) on it points at. A node
+// planted against the sender's SISTER craft transfers with that
+// sender-local id intact, and in the recipient's world the same numeric
+// id belongs to whatever unrelated vessel happens to hold it — the
+// node then fires at a craft the player never chose. The sanitizer must
+// strip local refs (Target, nodes, active burn) exactly like ghost
+// refs, leaving the burn geometry (Δv, mode) untouched.
+func TestCraftToWireForTransferStripsLocalRefsToo(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	c := w.ActiveCraft()
+	c.Target = spacecraft.Target{Kind: spacecraft.TargetCraft, CraftID: 12345}
 	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
 		Mode:          spacecraft.BurnTargetPrograde,
 		DV:            10,
@@ -111,10 +120,65 @@ func TestCraftToWireForTransferLeavesLocalRefsAlone(t *testing.T) {
 		PrimaryID:     c.Primary.ID,
 		TargetCraftID: 12345, // local ref, no ghost owner
 	})
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:          spacecraft.BurnTargetPrograde,
+		DVRemaining:   20,
+		EndTime:       w.Clock.SimTime.Add(30 * time.Second),
+		PrimaryID:     c.Primary.ID,
+		Throttle:      1,
+		TargetCraftID: 12345, // local ref
+	}
 
 	wc := CraftToWireForTransfer(c)
 
-	if len(wc.Nodes) != 1 || wc.Nodes[0].TargetCraftID != 12345 {
-		t.Errorf("local node ref touched by the ghost sanitizer: %+v", wc.Nodes)
+	if wc.Target != nil {
+		t.Errorf("transfer wire Target = %+v, want nil (local target dropped too)", wc.Target)
+	}
+	if len(wc.Nodes) != 1 {
+		t.Fatalf("transfer wire lost the node itself, not just its ref: %+v", wc.Nodes)
+	}
+	if wc.Nodes[0].TargetCraftID != 0 || wc.Nodes[0].TargetGhostOwner != "" {
+		t.Errorf("local node ref survived the transfer sanitizer: %+v", wc.Nodes[0])
+	}
+	if wc.Nodes[0].DV != 10 || wc.Nodes[0].Mode != int(spacecraft.BurnTargetPrograde) {
+		t.Errorf("transfer wire node lost its burn geometry: %+v", wc.Nodes[0])
+	}
+	if wc.ActiveBurn == nil {
+		t.Fatal("transfer wire lost the active burn itself, not just its ref")
+	}
+	if wc.ActiveBurn.TargetCraftID != 0 || wc.ActiveBurn.TargetGhostOwner != "" {
+		t.Errorf("local ActiveBurn ref survived the transfer sanitizer: %+v", wc.ActiveBurn)
+	}
+	if wc.ActiveBurn.DVRemaining != 20 {
+		t.Errorf("transfer wire ActiveBurn lost its DVRemaining: %+v", wc.ActiveBurn)
+	}
+}
+
+// TestCraftToWireForTransferLeavesUntargetedFieldsAlone — the
+// sanitizer must be surgical: a craft carrying no target-relative refs
+// at all round-trips through the transfer path exactly like the plain
+// session path, and an untargeted node's non-target fields are
+// untouched.
+func TestCraftToWireForTransferLeavesUntargetedFieldsAlone(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Target = spacecraft.Target{Kind: spacecraft.TargetBody, BodyIdx: 1}
+	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+		Mode:        spacecraft.BurnPrograde,
+		DV:          10,
+		TriggerTime: w.Clock.SimTime.Add(time.Minute),
+		PrimaryID:   c.Primary.ID,
+	})
+
+	wc := CraftToWireForTransfer(c)
+
+	if wc.Target == nil || wc.Target.Kind != int(spacecraft.TargetBody) || wc.Target.BodyIdx != 1 {
+		t.Errorf("untargeted-relative body target dropped by the transfer sanitizer: %+v", wc.Target)
+	}
+	if len(wc.Nodes) != 1 || wc.Nodes[0].DV != 10 || wc.Nodes[0].Mode != int(spacecraft.BurnPrograde) {
+		t.Errorf("non-target node altered by the transfer sanitizer: %+v", wc.Nodes)
 	}
 }
