@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.38.2
+
+Rendezvous Engage only commits to an encounter you can actually reach, guarded keys say why they refuse, a Relay-Tug is no longer warned off its own mission, and a craft target lock survives a server-restart reconnect (#276, #282, #283, #294; PRs `#390`–`#393`, merges `a448372`/`8c03115`/`d1e9426`/`29ec37c`, tag `v0.38.2`).
+
+- #276: `RendezvousCommit` searches current courses only, or an actually-planted `[K]` nudge (post-burn state, target-relative axes included, bound to the same peer); a refusal restores the prior target.
+- #282: shared `App.refuse` gives one-phrase status refusals to the `E`/`K`/`H`/`I`/`C`/`R`/`m`/`P` state guards; `K` still reaches from body-info and missions.
+- #283: the spawn form resolves the vessel through `SyncFields`; a genuine relay (relay antenna, controllable) gets a neutral `coverage from here: ~N%` line instead of `⚠ … relays advised`.
+- #294: ghost target/node/burn refs persist across reconnect (save schema 9→10); serve-side re-latch with a 45 s presence-gated give-up and a "target lock lost" chip; an unresolved target holds a burn (throttle cut aborts it) and never aims at the planet's centre; cross-owner dock parcels strip refs.
+- Six review rounds fixed ~40 findings pre-merge. Older binaries refuse v10 saves; this build still loads v1–v9.
+
 ### v0.38.1
 
 Two vessels you just undocked can dock again without a 200 m round trip, and the dock gate ring no longer turns green while the game is refusing to dock (#372; PR `#383`, merge `66960e6`, tag `v0.38.1`).
