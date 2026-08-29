@@ -1602,11 +1602,26 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// the effective BC the moment the chute fires so the canopy drag
 	// engages for the remaining sub-steps of the tick the deploy fires on.
 	bc := c.EffectiveBallisticCoefficient()
+	// Resolve the active burn's target-relative readiness ONCE per craft
+	// per tick (performance finding, following the v0.36.x idle-CPU work):
+	// activeBurnTargetReady runs a ghost-slate scan plus
+	// nodeTargetRelState → BodyPositionAt (SolveKepler, up to 32 Newton
+	// iterations, recursing per parent body) at w.Clock.SimTime, which is
+	// CONSTANT across this call's whole sub-step loop (nSteps is capped at
+	// 1024) — the loop advances a local `clock`/`dt` for body-position
+	// lookups, never w.Clock.SimTime itself. Pre-fix this ran fresh inside
+	// thrustingAt every sub-step, plus twice more below (burnExhausted and
+	// the EndTime-pause check) — pure added load on exactly the loop the
+	// v0.36.x idle-CPU work optimized. Hoisted the same way `bc` is.
+	burnReady := true
+	if c.ActiveBurn != nil {
+		burnReady = w.activeBurnTargetReady(c)
+	}
 	for i := 0; i < nSteps; i++ {
 		if maybeDeployParachute(c) {
 			bc = c.EffectiveBallisticCoefficient()
 		}
-		if w.thrustingAt(c, tickStart, dt, i) {
+		if w.thrustingAt(c, tickStart, dt, i, burnReady) {
 			w.stepThrust(c, mu, dt)
 		} else {
 			// v0.8.4: drag closure binds the craft's current primary
@@ -1661,9 +1676,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// an Apollo TLI the S-IVB can't finish alone — carries across staging
 	// instead of silently cancelling.
 	if c.ActiveBurn != nil {
-		if w.burnExhausted(c) {
+		if w.burnExhausted(c, burnReady) {
 			c.ActiveBurn = nil
-		} else if c.ActiveStageFuel() <= 0 || !w.activeBurnTargetReady(c) {
+		} else if c.ActiveStageFuel() <= 0 || !burnReady {
 			// #294 review finding 1: an unresolved target-relative burn is
 			// held exactly like a fuel-stalled one — its EndTime is pushed
 			// out by this tick's span so the duration window pauses rather
@@ -1687,7 +1702,14 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 // Either ActiveBurn (planted finite burn) or ManualBurn (v0.7.3+ player-
 // held flight) qualifies; both share the same RK4 thrust path. Fuel
 // must be positive in either case.
-func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt float64, i int) bool {
+//
+// burnReady is the caller's ALREADY-RESOLVED activeBurnTargetReady(c) for
+// this tick (performance finding: the per-craft caller hoists that
+// resolve once, before the sub-step loop, since the answer — a ghost-
+// slate scan plus a Kepler body-position solve — can't change within one
+// call's worth of sub-steps at the constant w.Clock.SimTime). Ignored
+// for a non-target-relative burn or a ManualBurn.
+func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt float64, i int, burnReady bool) bool {
 	if c.ActiveStageFuel() <= 0 {
 		return false
 	}
@@ -1701,7 +1723,7 @@ func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt fl
 		// Δv in a direction nobody commanded. Checked here (not just in
 		// the post-loop EndTime-pause below) so no RK4 sub-step this tick
 		// ever fires while held.
-		if !w.activeBurnTargetReady(c) {
+		if !burnReady {
 			return false
 		}
 		subStart := tickStart.Add(time.Duration(float64(i) * dt * float64(time.Second)))
@@ -1913,14 +1935,19 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 // with the same "not exhausted" return the fuel-stall check uses, means
 // a held burn is never reaped as exhausted regardless of which check the
 // caller evaluates first.
-func (w *World) burnExhausted(c *spacecraft.Spacecraft) bool {
+//
+// burnReady is the caller's already-resolved activeBurnTargetReady(c) for
+// this tick (performance finding — see thrustingAt's doc: hoisted once
+// per craft per tick rather than re-resolved here on top of the
+// sub-step loop's own calls).
+func (w *World) burnExhausted(c *spacecraft.Spacecraft, burnReady bool) bool {
 	if c.ActiveBurn.DVRemaining <= 0 {
 		return true
 	}
 	if c.ActiveStageFuel() <= 0 {
 		return false // stalled, not exhausted — kept alive for staging
 	}
-	if !w.activeBurnTargetReady(c) {
+	if !burnReady {
 		return false // held for want of a resolvable target — not exhausted
 	}
 	return !w.Clock.SimTime.Before(c.ActiveBurn.EndTime)

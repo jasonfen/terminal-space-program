@@ -659,8 +659,20 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			sim.PlaceAcrossSubspaceGap(r.transferPayload, dt)
 			r.reclaimAtNano = 0
 		}
-		w.AdoptCraft(r.transferPayload, true)
-		r.CompositeID = r.transferPayload.ID
+		// Cross-owner delivery (review finding on this transfer path,
+		// following #294 review finding 3 / finding G): this composite is
+		// landing in a DIFFERENT player's World, live, with no wire
+		// round-trip to sanitize it the way a restart-persisted handover
+		// does via save.CraftToWireForTransfer. w.AdoptCraft only remaps
+		// the craft's OWN id, not the local/ghost refs a planted node or
+		// the active burn carries against a SISTER craft in the sending
+		// world — craft IDs are dense per-World small ints, so that ref
+		// can silently resolve against an unrelated craft on this side
+		// and fire a real burn at it. Strip with the exact same logic
+		// the persistence path uses, so the two can't drift.
+		payload := spacecraft.StripCrossOwnerTargetRefs(r.transferPayload)
+		w.AdoptCraft(payload, true)
+		r.CompositeID = payload.ID
 		r.transferPayload = nil
 		*chips = append(*chips, DockChip{Kind: sim.SessionEventTransfer, Handle: r.GuestHandle})
 		return false

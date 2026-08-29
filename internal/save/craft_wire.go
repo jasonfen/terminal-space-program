@@ -206,22 +206,13 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 // it — the node then resolves against, and fires at, a craft the player
 // never chose. Both kinds of ref are equally meaningless once the craft
 // leaves the world it was planned in, so both are stripped.
+//
+// The stripping itself is spacecraft.StripCrossOwnerTargetRefs — shared with
+// the live (no-restart) dock-ledger delivery path in internal/relay, so the
+// persisted and live paths can't drift apart on which refs count as
+// target-relative.
 func CraftToWireForTransfer(c *spacecraft.Spacecraft) Craft {
-	wc := CraftToWire(c)
-	if wc.Target != nil && (wc.Target.Kind == int(spacecraft.TargetGhost) || wc.Target.Kind == int(spacecraft.TargetCraft)) {
-		wc.Target = nil
-	}
-	for i := range wc.Nodes {
-		if wc.Nodes[i].TargetCraftID != 0 {
-			wc.Nodes[i].TargetGhostOwner = ""
-			wc.Nodes[i].TargetCraftID = 0
-		}
-	}
-	if wc.ActiveBurn != nil && wc.ActiveBurn.TargetCraftID != 0 {
-		wc.ActiveBurn.TargetGhostOwner = ""
-		wc.ActiveBurn.TargetCraftID = 0
-	}
-	return wc
+	return CraftToWire(spacecraft.StripCrossOwnerTargetRefs(c))
 }
 
 // CraftFromWire rehydrates one wire craft against the loaded systems. It
