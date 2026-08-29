@@ -56,8 +56,15 @@ func TestTargetGhostResolution(t *testing.T) {
 	if w.Target.Kind != TargetGhost {
 		t.Errorf("stale ghost target lost its Kind: %+v, want it to stay TargetGhost for later re-latch", w.Target)
 	}
-	if w.HasRelativeTarget() {
-		t.Error("HasRelativeTarget true for an unresolved ghost — nav paths would compute a zero-value direction")
+	// #294 review finding 4 (round 2): HasRelativeTarget went back to
+	// Kind-only — a ghost target counts as relative whether or not it
+	// currently resolves (round 1's resolve requirement demoted a docker
+	// off NavTarget mid-proximity-ops the instant the ghost slate briefly
+	// emptied). The zero-direction hazard round 1 guarded against is
+	// covered independently by attitudeContext's own fallback — see
+	// TestAttitudeContextFallsBackWhenGhostUnresolved.
+	if !w.HasRelativeTarget() {
+		t.Error("HasRelativeTarget false for an unresolved ghost — NavTarget/rendezvous surfaces would wrongly hide")
 	}
 }
 

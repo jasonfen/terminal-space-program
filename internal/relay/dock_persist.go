@@ -140,11 +140,20 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 
 // craftToWire / craftFromWire adapt one parked craft to and from the save
 // package's per-craft form. Both tolerate nil (no payload parked).
+//
+// #294 review finding 3: this is the parcel-bound path (GuestPayload /
+// ReturnPayload / TransferPayload above), delivered into a DIFFERENT
+// player's world — so it must go through save.CraftToWireForTransfer,
+// which sanitizes ghost refs, never the plain save.CraftToWire a
+// session save/reconnect uses. Keeping the two calls syntactically
+// distinct (one wrapper each, not a shared helper with a bool flag) is
+// deliberate: it's the whole point, so the two paths can't silently
+// drift back onto the same call.
 func craftToWire(c *spacecraft.Spacecraft) *save.Craft {
 	if c == nil {
 		return nil
 	}
-	wc := save.CraftToWire(c)
+	wc := save.CraftToWireForTransfer(c)
 	return &wc
 }
 

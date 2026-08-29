@@ -172,6 +172,13 @@ type ManeuverNode struct {
 	// precedent as ID / TargetCraftID / PlaneChangeRad / BurnDirUnit —
 	// no save-schema migration needed.
 	AdvisoryKey string `json:",omitempty"`
+	// RefusalNoticed (#294 review finding 2) mirrors ActiveBurn's field of
+	// the same name: marks that World has already stamped
+	// LastNodeTargetRefusal for this node refusing to fire (target-
+	// relative, due, bound target not yet resolved) — so the HUD flash
+	// fires once per stall instead of every tick the node sits wedged at
+	// the front of the queue. Runtime-only; excluded from the wire form.
+	RefusalNoticed bool `json:"-"`
 }
 
 // TargetCraftIDValue returns the bound target craft's stable ID and
@@ -305,6 +312,16 @@ type ActiveBurn struct {
 	// in-flight burn so the attitude/thrust path resolves the fixed
 	// BurnVector direction each tick. Zero for non-BurnVector burns.
 	BurnDirUnit orbital.Vec3 `json:",omitempty"`
+	// RefusalNoticed (#294 review finding 1) marks that World has already
+	// stamped LastNodeTargetRefusal for the CURRENT stretch of this burn
+	// being held for want of a resolvable target — so the HUD flash fires
+	// once per stall, not every tick the burn stays held. Reset to false
+	// the moment the target resolves again, so a later stall (the ref
+	// going stale, then coming back, then going stale again) gets its own
+	// fresh notice. Runtime-only session state, deliberately excluded
+	// from the wire form (no save/load meaning — a reloaded burn starts
+	// unnoticed).
+	RefusalNoticed bool `json:"-"`
 }
 
 // TargetCraftIDValue mirrors ManeuverNode.TargetCraftIDValue — returns

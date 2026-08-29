@@ -332,9 +332,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// #294 review finding 5: a due target-relative node (or in-flight
 		// burn) refused to fire because its bound target hasn't resolved —
 		// say so instead of leaving the stall silent. Same flash surface,
-		// cleared after one fire.
+		// cleared after one fire. #294 review finding 2: a never-resolvable
+		// ref (local target craft gone for good, or a ghost ref the
+		// reconnect watchdog already gave up on) gets a distinct message —
+		// the node/burn is cancelled outright, not merely held pending a
+		// re-latch that will never come.
 		if e := a.world.LastNodeTargetRefusal; e != nil {
-			a.statusMsg = fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName)
+			if e.Cancelled {
+				a.statusMsg = fmt.Sprintf("%s: node cancelled, target gone", e.CraftName)
+			} else {
+				a.statusMsg = fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName)
+			}
 			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastNodeTargetRefusal = nil
 		}

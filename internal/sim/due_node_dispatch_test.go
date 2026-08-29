@@ -220,3 +220,91 @@ func TestExecuteDueNodesFiresOnceGhostResolves(t *testing.T) {
 		t.Errorf("node did not fire once its target resolved: len(Nodes)=%d", len(c.Nodes))
 	}
 }
+
+// TestExecuteDueNodesDropsNeverResolvableLocalTarget — #294 review
+// finding 2, never-resolvable case (a): a node bound to a LOCAL craft
+// (no TargetGhostOwner) whose target was removed from the slate (e.g.
+// end-flight) can never come back the way a ghost might re-latch. The
+// old unconditional `break` wedged the queue behind it forever with an
+// every-tick refusal flash; it must instead be dropped in place with a
+// one-time cancellation notice.
+func TestExecuteDueNodesDropsNeverResolvableLocalTarget(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:          spacecraft.BurnTargetPrograde,
+		DV:            50,
+		TriggerTime:   now,
+		TargetCraftID: 424242, // no TargetGhostOwner — local ref to a craft that isn't in the slate
+	}}
+
+	w.executeDueNodes()
+
+	if len(c.Nodes) != 0 {
+		t.Fatalf("never-resolvable local-target node not dropped: len(Nodes)=%d, nodes=%+v", len(c.Nodes), c.Nodes)
+	}
+	if w.LastNodeTargetRefusal == nil {
+		t.Fatal("no cancellation notice stamped")
+	}
+	if !w.LastNodeTargetRefusal.Cancelled {
+		t.Error("notice not marked Cancelled — a never-resolvable drop must read differently than a pending hold")
+	}
+}
+
+// TestExecuteDueNodesNeverResolvableUnblocksQueue — dropping a never-
+// resolvable node must free the rest of the queue to dispatch on the
+// SAME tick, not wait for the next one. Pre-fix, the unconditional
+// break meant an ordinary due node behind a doomed one never fired
+// either.
+func TestExecuteDueNodesNeverResolvableUnblocksQueue(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{
+		{Mode: spacecraft.BurnTargetPrograde, DV: 50, TriggerTime: now.Add(-2 * time.Second), TargetCraftID: 424242},
+		{Mode: spacecraft.BurnPrograde, DV: 10, TriggerTime: now.Add(-time.Second)},
+	}
+	sortNodes(c.Nodes)
+
+	w.executeDueNodes()
+
+	if len(c.Nodes) != 0 {
+		t.Fatalf("ordinary node behind the dropped one did not fire: len(Nodes)=%d, nodes=%+v", len(c.Nodes), c.Nodes)
+	}
+}
+
+// TestExecuteDueNodesRefusalStampedOncePerStall — #294 review finding 2:
+// the HUD flash for a pending-resolvable (ghost) refusal must fire once
+// per stall, not every tick the node sits wedged at the front of the
+// queue.
+func TestExecuteDueNodesRefusalStampedOncePerStall(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	now := w.Clock.SimTime
+
+	c.Nodes = []spacecraft.ManeuverNode{{
+		Mode:             spacecraft.BurnTarget,
+		DV:               100,
+		TriggerTime:      now,
+		TargetGhostOwner: "SHA256:gern",
+		TargetCraftID:    987654,
+	}}
+	w.Ghosts = nil
+
+	w.executeDueNodes()
+	if w.LastNodeTargetRefusal == nil {
+		t.Fatal("first stall did not stamp a refusal")
+	}
+	w.LastNodeTargetRefusal = nil // simulate app.go consuming + clearing the flash
+
+	w.executeDueNodes() // same node, still unresolved — same stall
+	if w.LastNodeTargetRefusal != nil {
+		t.Errorf("refusal restamped for the SAME stall — want once, not every tick: %+v", w.LastNodeTargetRefusal)
+	}
+	if len(c.Nodes) != 1 {
+		t.Fatalf("node dropped or fired despite staying unresolved: len(Nodes)=%d", len(c.Nodes))
+	}
+}

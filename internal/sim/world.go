@@ -907,6 +907,14 @@ type LocalReArmRefusalEvent struct {
 type NodeTargetRefusalEvent struct {
 	When      time.Time
 	CraftName string
+	// Cancelled marks a NEVER-resolvable refusal (#294 review finding 2):
+	// a due node's LOCAL target craft is gone from the slate for good
+	// (end-flight), or a node's/burn's ghost ref matched one
+	// reconcileTargetLock's watchdog already gave up on — as opposed to
+	// an ordinary pending-resolvable stall that might still re-latch.
+	// The HUD message differs ("node cancelled" vs "burn held off") so
+	// the player knows whether to keep waiting or replan.
+	Cancelled bool
 }
 
 // DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.
@@ -1655,7 +1663,12 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	if c.ActiveBurn != nil {
 		if w.burnExhausted(c) {
 			c.ActiveBurn = nil
-		} else if c.ActiveStageFuel() <= 0 {
+		} else if c.ActiveStageFuel() <= 0 || !w.activeBurnTargetReady(c) {
+			// #294 review finding 1: an unresolved target-relative burn is
+			// held exactly like a fuel-stalled one — its EndTime is pushed
+			// out by this tick's span so the duration window pauses rather
+			// than timing out (and getting torn down as "exhausted") while
+			// nobody ever thrust.
 			c.ActiveBurn.EndTime = c.ActiveBurn.EndTime.Add(simDelta)
 		}
 	}
@@ -1682,10 +1695,48 @@ func (w *World) thrustingAt(c *spacecraft.Spacecraft, tickStart time.Time, dt fl
 		if c.ActiveBurn.DVRemaining <= 0 {
 			return false
 		}
+		// #294 review finding 1: a continuing target-relative burn whose
+		// bound target doesn't resolve must hold — not thrust along
+		// attitudeContext's BurnPrograde fallback, which would spend real
+		// Δv in a direction nobody commanded. Checked here (not just in
+		// the post-loop EndTime-pause below) so no RK4 sub-step this tick
+		// ever fires while held.
+		if !w.activeBurnTargetReady(c) {
+			return false
+		}
 		subStart := tickStart.Add(time.Duration(float64(i) * dt * float64(time.Second)))
 		return subStart.Before(c.ActiveBurn.EndTime)
 	}
 	return c.ManualBurn != nil
+}
+
+// activeBurnTargetReady reports whether c's in-flight ActiveBurn is safe
+// to thrust: true for every non-target-relative burn, and for a target-
+// relative burn only once its bound target (local craft ref or remote
+// ghost ref) actually resolves. #294 review finding 1: a restored
+// in-flight target-relative burn whose ghost never re-latches used to
+// slip through unnoticed — attitudeContext degraded the MODE to
+// BurnPrograde on an unresolved target, but nothing stopped stepThrust
+// from thrusting (and debiting DVRemaining) along that fallback
+// direction, a real fuel expenditure in a direction nobody commanded.
+// HOLD instead: no thrust, no dv burned, until the ref resolves.
+// Stamps LastNodeTargetRefusal once per stall (RefusalNoticed), not
+// every tick, and clears the flag the moment the target resolves so a
+// later stall gets its own fresh notice.
+func (w *World) activeBurnTargetReady(c *spacecraft.Spacecraft) bool {
+	ab := c.ActiveBurn
+	if ab == nil || !spacecraft.IsTargetRelativeMode(ab.Mode) {
+		return true
+	}
+	if _, _, ok := w.nodeTargetRelState(ab.TargetGhostOwner, ab.TargetCraftID, c.Primary); ok {
+		ab.RefusalNoticed = false
+		return true
+	}
+	if !ab.RefusalNoticed {
+		w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{When: w.Clock.SimTime, CraftName: c.Name}
+		ab.RefusalNoticed = true
+	}
+	return false
 }
 
 // stepThrust advances one RK4 sub-step with engine thrust, debits the

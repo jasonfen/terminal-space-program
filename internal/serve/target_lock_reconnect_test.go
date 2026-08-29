@@ -279,9 +279,18 @@ func TestTargetLockEstablishedLockNeverExpiresAfterResolvingOnce(t *testing.T) {
 // Kind==TargetGhost, not WHICH ghost — retargeting to a different peer
 // mid-grace inherited the old timer (and, pre-fix, a handle cached at
 // timer-start), clearing the new lock early and naming the wrong peer.
-// The fix keys the watch on (GhostOwner, CraftID): a retarget starts a
-// fresh grace window for the new ref, and the loss chip's handle is read
-// at fire time rather than cached when the timer started.
+// The fix (round 1) keyed the watch on (GhostOwner, CraftID): a retarget
+// starts fresh tracking for the new ref rather than inheriting the old
+// one's near-expired timer or cached handle.
+//
+// #294 review finding 4 (round 2) narrowed this further: a retarget is a
+// LIVE SetTargetGhost call, and round 2 scopes the give-up countdown to
+// refs restored at session start only (targetLockEligible) — so B here
+// no longer gets "its own grace window" the way round 1 asserted; it
+// gets no countdown at all and must never chip a loss, no matter how
+// long it stays unresolved. What both rounds agree on: retargeting must
+// never inherit A's state (timer, handle, or eligibility) and must never
+// chip immediately on the switch itself.
 func TestTargetLockRetargetMidGraceResetsTimerAndHandle(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -293,10 +302,14 @@ func TestTargetLockRetargetMidGraceResetsTimerAndHandle(t *testing.T) {
 	handles := map[string]string{fpA: "alice", fpB: "bob"}
 	now := time.Now()
 
-	// A never resolves — its watchdog timer starts.
+	// A is this session's very first ref (restored, in the reconnect
+	// sense this fixture stands in for) — eligible, its watchdog starts.
 	m.reconcileTargetLock(w, handles, now)
 	if m.targetLockPendingSince.IsZero() {
 		t.Fatalf("watchdog for A never started")
+	}
+	if !m.targetLockEligible {
+		t.Fatalf("A (this session's first ref) not marked eligible")
 	}
 	retargetAt := now.Add(targetLockRelatchGrace - time.Second) // deep into A's own grace
 	m.reconcileTargetLock(w, handles, retargetAt)
@@ -311,36 +324,29 @@ func TestTargetLockRetargetMidGraceResetsTimerAndHandle(t *testing.T) {
 	if w.Target.Kind != sim.TargetGhost {
 		t.Fatalf("retargeting itself cleared the target: %+v", w.Target)
 	}
+	if m.targetLockEligible {
+		t.Fatalf("B (a LIVE retarget, not a restored ref) wrongly marked eligible for the countdown")
+	}
 	for _, e := range m.localEvents {
 		if e.Kind == sim.SessionEventTargetLockLost {
 			t.Fatalf("loss chip fired immediately on retarget — inherited A's near-expired timer: %+v", e)
 		}
 	}
 
-	// B gets its own full grace window measured from the retarget point,
-	// not from whatever was left of A's.
-	m.reconcileTargetLock(w, handles, retargetAt.Add(targetLockRelatchGrace/2))
-	if w.Target.Kind != sim.TargetGhost {
-		t.Fatalf("B cleared before its OWN grace window elapsed: %+v", w.Target)
+	// B never gets a countdown at all (finding 4 round 2) — it just waits,
+	// silently, no matter how far past what would have been A's grace
+	// window. No pending timer, no chip, target stays locked on B.
+	m.reconcileTargetLock(w, handles, retargetAt.Add(5*targetLockRelatchGrace))
+	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != fpB || w.Target.CraftID != 2 {
+		t.Errorf("B cleared despite being a live (ineligible) ref: %+v", w.Target)
 	}
-
-	// Past B's own grace: give up, and the chip must name B ("bob") —
-	// read at fire time — never the stale "alice" from A's timer.
-	m.reconcileTargetLock(w, handles, retargetAt.Add(targetLockRelatchGrace+time.Second))
-	if w.Target.Kind != sim.TargetNone {
-		t.Errorf("target not cleared after B's grace elapsed: %+v", w.Target)
+	if !m.targetLockPendingSince.IsZero() {
+		t.Errorf("countdown started for a live retarget: %v", m.targetLockPendingSince)
 	}
-	var lost *sim.SessionEvent
-	for i, e := range m.localEvents {
+	for _, e := range m.localEvents {
 		if e.Kind == sim.SessionEventTargetLockLost {
-			lost = &m.localEvents[i]
+			t.Errorf("loss chip fired for a live retarget that should never get a countdown: %+v", e)
 		}
-	}
-	if lost == nil {
-		t.Fatalf("no loss chip fired for B; events=%+v", m.localEvents)
-	}
-	if lost.Handle != "bob" {
-		t.Errorf("loss chip named %q, want %q (the CURRENT ref, not the superseded one)", lost.Handle, "bob")
 	}
 }
 
@@ -397,5 +403,77 @@ func TestStopHostingResetsTargetLockWatch(t *testing.T) {
 		if e.Kind == sim.SessionEventTargetLockLost {
 			t.Errorf("false target-lock-lost chip fired on next session's first tick: %+v", e)
 		}
+	}
+}
+
+// #294 review finding 4 (round 2): ADR 0038 undock handback
+// (relay/dock.go's SetTargetGhost calls at the docker's release/undock
+// paths) aims the docker at the guest's departing craft before the
+// guest's own next CraftReport can possibly have landed in w.Ghosts —
+// a brand-new ref with an empty ghost slate, which used to be
+// indistinguishable from "restored across a reconnect" and so started
+// the very same 45s give-up countdown. A slow or disconnecting guest
+// then cost the host a false "lost on reconnect" chip though no
+// reconnect ever happened. Fixed two ways: (a) HasRelativeTarget no
+// longer requires a resolve (internal/sim/target.go), so NavTarget
+// survives the momentary gap; (b) the countdown is scoped to refs
+// restored at session start only (targetLockEligible), so a live
+// SetTargetGhost — undock handback included — never starts it at all.
+func TestUndockHandbackLiveSetTargetGhostNeverStartsCountdown(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	// The docker was already flying NavTarget before undock — e.g. from
+	// an earlier live rendezvous lock this same session.
+	w.NavMode = sim.NavTarget
+
+	m := &reportingModel{owner: "SHA256:self"}
+	handles := map[string]string{testPeerFP: "guest"}
+	now := time.Now()
+
+	// This session has already ticked at least once before the undock —
+	// the undock's fresh ref is emphatically NOT this session's first.
+	m.reconcileTargetLock(w, handles, now)
+
+	// Undock handback: SetTargetGhost fires with an EMPTY ghost slate —
+	// the guest's departing craft hasn't reported in yet.
+	w.SetTargetGhost(testPeerFP, 99)
+	if w.NavMode != sim.NavTarget {
+		t.Fatalf("NavTarget demoted to NavOrbit by a momentarily-unresolved fresh ghost ref: %v", w.NavMode)
+	}
+
+	// The next tick's reconcileTargetLock call (ghost slate still empty)
+	// must not start a countdown for this fresh LIVE ref.
+	m.reconcileTargetLock(w, handles, now.Add(time.Second))
+	if !m.targetLockPendingSince.IsZero() {
+		t.Fatalf("countdown started for a live undock-handback ref: %v", m.targetLockPendingSince)
+	}
+	if m.targetLockEligible {
+		t.Fatalf("undock-handback ref wrongly marked eligible for the give-up countdown")
+	}
+
+	// Even well past what would have been the grace window, still no
+	// chip and the lock is still standing, waiting.
+	m.reconcileTargetLock(w, handles, now.Add(2*targetLockRelatchGrace))
+	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != testPeerFP || w.Target.CraftID != 99 {
+		t.Fatalf("undock-handback lock cleared despite no reconnect ever happening: %+v", w.Target)
+	}
+	for _, e := range m.localEvents {
+		if e.Kind == sim.SessionEventTargetLockLost {
+			t.Fatalf("false 'lost on reconnect' chip fired for a live undock handback: %+v", e)
+		}
+	}
+
+	// The guest's report finally lands: resolves normally, like any
+	// ordinary live target.
+	w.Ghosts = []sim.Ghost{{Owner: testPeerFP, CraftID: 99, PrimaryID: c.Primary.ID}}
+	m.reconcileTargetLock(w, handles, now.Add(2*targetLockRelatchGrace+time.Second))
+	if !m.targetLockResolvedOnce {
+		t.Errorf("ref never marked resolved-once after the guest's report landed")
+	}
+	if w.Target.Kind != sim.TargetGhost || w.Target.GhostOwner != testPeerFP || w.Target.CraftID != 99 {
+		t.Errorf("lock lost by the time the guest's report resolved: %+v", w.Target)
 	}
 }

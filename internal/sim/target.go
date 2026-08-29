@@ -242,27 +242,24 @@ func (w *World) ghostByRef(owner string, craftID uint64) (Ghost, bool) {
 // for "can I do target-relative work" goes through here so ghost
 // targets light up the same surfaces.
 //
-// #294 review finding 4: a ghost target must actually RESOLVE to count
-// here — a stale ref (owner never came back after a save/load outside
-// any live serve session, or hasn't re-latched yet post-reconnect) used
-// to read as relative-target-available just because Kind==TargetGhost,
-// which defeated every "stale NavTarget should never produce a zero-
-// direction SAS hold" guard downstream (ResolveAttitudeIntent,
-// CycleNavMode, reconcileNavMode): NavTarget stayed selectable/sticky
-// and the live SAS mode got set to a target-relative BurnMode that then
-// had nothing to aim at. The Kind itself is left untouched on
-// w.Target — this only changes what counts as "usable for nav right
-// now", so the stored lock is still there for reconcileTargetLock (or
-// simply the ghost reappearing) to re-latch onto later; TargetName /
-// TargetGhost-branch readers still see Kind==TargetGhost and can show
-// the pending state (see TargetName, orbit_chip_builders.go).
+// #294 review finding 4 (round 2) REVERTED round 1's "a ghost target
+// must actually RESOLVE to count here": that version made a docker
+// flying NavTarget through ADR 0038 undock/proximity ops get demoted
+// to NavOrbit mid-op the instant the ghost slate went briefly empty
+// (reconcileNavMode runs off this every tick), even though the lock
+// itself was fine and about to re-latch — the comment on SetTargetGhost
+// ("ghost targets keep NavTarget valid") stopped being true. The
+// zero-direction-SAS-hold hazard round 1 was guarding against doesn't
+// need HasRelativeTarget's help: attitudeContext (world.go) already
+// falls back to an orbit-frame hold whenever a target-relative mode's
+// (rT, vT) resolve fails, independently of NavMode or this function —
+// see TestAttitudeContextFallsBackWhenGhostUnresolved. So Kind alone is
+// enough here again: a ghost target counts as relative whether or not
+// it currently resolves, exactly like a local craft target always has.
 func (w *World) HasRelativeTarget() bool {
 	switch w.Target.Kind {
-	case TargetCraft:
+	case TargetCraft, TargetGhost:
 		return true
-	case TargetGhost:
-		_, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID)
-		return ok
 	}
 	return false
 }

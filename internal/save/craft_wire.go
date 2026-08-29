@@ -180,6 +180,41 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 	return wc
 }
 
+// CraftToWireForTransfer projects one live craft onto its serialisable
+// form exactly like CraftToWire, then strips every ghost ref (Target,
+// planted nodes, the active burn) before returning it. #294 review
+// finding 3: a ghost ref is a (owner fingerprint, remote craft ID) pair
+// meaningful only within the player's OWN world — relay.GhostsFor never
+// emits a player's own craft as a ghost to itself, so the pair can never
+// resolve anywhere else. CraftToWire round-tripping it is correct for a
+// session save/reconnect, which stays within that same world. It is
+// wrong for the dock ledger's parcel/return/transfer payloads (ADR
+// 0040, internal/relay/dock_persist.go): those are delivered into a
+// DIFFERENT player's world, where the ref can never resolve and — worse
+// — can alias the RECIPIENT's own fingerprint (a guest craft carrying a
+// node targeted at the HOST's ghost, transferred into the host's own
+// world, now holds the host's own fingerprint as a "remote" ref). Local
+// craft refs (TargetGhostOwner == "") are untouched — those are a
+// different craft in the SAME world and resolve or refuse exactly as
+// any local ref already does.
+func CraftToWireForTransfer(c *spacecraft.Spacecraft) Craft {
+	wc := CraftToWire(c)
+	if wc.Target != nil && wc.Target.Kind == int(spacecraft.TargetGhost) {
+		wc.Target = nil
+	}
+	for i := range wc.Nodes {
+		if wc.Nodes[i].TargetGhostOwner != "" {
+			wc.Nodes[i].TargetGhostOwner = ""
+			wc.Nodes[i].TargetCraftID = 0
+		}
+	}
+	if wc.ActiveBurn != nil && wc.ActiveBurn.TargetGhostOwner != "" {
+		wc.ActiveBurn.TargetGhostOwner = ""
+		wc.ActiveBurn.TargetCraftID = 0
+	}
+	return wc
+}
+
 // CraftFromWire rehydrates one wire craft against the loaded systems. It
 // is the exact per-craft body worldFromPayload runs, including every
 // backfill older envelopes rely on (RCS loadout, single-stage migration,
