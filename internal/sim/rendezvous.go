@@ -289,6 +289,29 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	}
 
 	// Source 2: the current-course fallback (no burn assumed).
+	return w.rendezvousCommitCurrentCourse(active, rT, vT, mu)
+}
+
+// rendezvousCommitCurrentCourse searches for a closest approach on the
+// CURRENT, no-burn courses only (#276) — active.State as-is against the
+// target's rT/vT snapshot, nothing forward-integrated or Δv-applied.
+//
+// This is its own function (PR #392 review, finding 2) because it has
+// two distinct callers with two distinct contracts: RendezvousCommit's
+// own Source 2 fallback (Engage may prefer a planted-but-unfired nudge
+// first, then fall back to this), and rendezvousNextWaypoint's mid-coast
+// re-derivation, which must NEVER prefer an unfired node — a standing
+// waypoint/τ that re-derives itself off a node that might be deleted,
+// refused, or superseded before it ever fires would coast the pair
+// toward an encounter that can evaporate out from under them. Before
+// this split, rendezvousNextWaypoint called RendezvousCommit itself,
+// which was safe only as long as RendezvousCommit had no planted-node
+// preference of its own — finding 1 added that preference, silently
+// breaking rendezvousNextWaypoint's own pinned "honors a nudge only once
+// FIRED" comment. Extracting the current-course search keeps that
+// invariant true by construction: rendezvousNextWaypoint's mid-coast
+// path calls THIS, never RendezvousCommit.
+func (w *World) rendezvousCommitCurrentCourse(active *spacecraft.Spacecraft, rT, vT orbital.Vec3, mu float64) (time.Time, float64, bool) {
 	tCA, distCA, _, err := planner.NextClosestApproach(
 		orbital.Vec3State{R: active.State.R, V: active.State.V},
 		orbital.Vec3State{R: rT, V: vT},
@@ -300,27 +323,33 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 }
 
 // rendezvousCommitFromPlantedNode computes the encounter a planted
-// rendezvous-nudge node actually leads to: forward-integrate the active
-// craft to the node's TriggerTime and apply its Δv (PostBurnState),
-// Kepler-propagate the target's CURRENT relative state (rT, vT) forward
-// by the same dt so both sides are compared at the same instant, then
-// search for a closest approach from there. ok=false when the node is
-// already past-due, PostBurnState lands in a different primary's frame
-// (an SOI crossing before the burn fires — the target's frame no longer
-// matches, so no meaningful comparison exists), the target's coast
-// doesn't admit a Kepler propagation (hyperbolic/degenerate — KeplerStep
-// returns ok=false), or no approach turns up inside the horizon.
+// rendezvous-nudge node actually leads to: Kepler-propagate the target's
+// CURRENT relative state (rT, vT) forward to the node's TriggerTime
+// first, then forward-integrate the active craft to the same instant and
+// apply its Δv in the node's direction mode — resolving target-relative
+// axes (BurnTargetPrograde/Retrograde, PR #392 review finding 1) against
+// that SAME propagated target state, not the target's state now, so the
+// direction and the closest-approach search below share one consistent
+// snapshot. ok=false when the node is already past-due, the target's
+// coast doesn't admit a Kepler propagation (hyperbolic/degenerate —
+// KeplerStep returns ok=false), the post-burn state lands in a different
+// primary's frame (an SOI crossing before the burn fires — the target's
+// frame no longer matches, so no meaningful comparison exists), the
+// node's direction can't be resolved (a target-relative axis with a
+// degenerate relative state — postBurnStateWithTarget's own ok=false;
+// this is "skip the planted-node path", never "commit an unburned
+// coast"), or no approach turns up inside the horizon.
 func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, node spacecraft.ManeuverNode, rT, vT orbital.Vec3, mu float64) (time.Time, float64, bool) {
 	dt := node.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 	if dt <= 0 {
 		return time.Time{}, 0, false
 	}
-	postState, primaryID := w.PostBurnState(node)
-	if primaryID != active.Primary.ID {
+	targetState, tok := physics.KeplerStep(physics.StateVector{R: rT, V: vT}, mu, dt)
+	if !tok {
 		return time.Time{}, 0, false
 	}
-	targetState, ok := physics.KeplerStep(physics.StateVector{R: rT, V: vT}, mu, dt)
-	if !ok {
+	postState, primaryID, pok := w.postBurnStateWithTarget(node, targetState.R, targetState.V)
+	if !pok || primaryID != active.Primary.ID {
 		return time.Time{}, 0, false
 	}
 	tCA, distCA, _, err := planner.NextClosestApproach(
@@ -343,13 +372,17 @@ func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, n
 const rendezvousWaypointMinLead = 5 * time.Second
 
 // rendezvousNextWaypoint derives the standing intent's next waypoint
-// after the previous one passed (#252). Two paths, mirroring the Engage
-// commit:
-//   - the target slot still holds the armed partner's ghost → reuse
-//     RendezvousCommit verbatim, which is CURRENT-course-only (#276) — a
-//     nudge planted and FIRED mid-coast is honoured automatically once
-//     its burn has actually changed the craft's course; an unfired
-//     advisory nudge is not;
+// after the previous one passed (#252). Two paths:
+//   - the target slot still holds the armed partner's ghost → call
+//     rendezvousCommitCurrentCourse directly (PR #392 review, finding 2
+//     — NOT RendezvousCommit, which since finding 1 prefers a planted-
+//     but-unfired rendezvous nudge). This path must stay CURRENT-
+//     course-only (#276): a nudge planted and FIRED mid-coast is
+//     honoured automatically once its burn has actually changed the
+//     craft's course; an unfired advisory nudge is not — delete the
+//     node, or let it get refused at ignition, and a waypoint derived
+//     from its hypothetical post-burn course would coast the pair
+//     toward an encounter that will never occur;
 //   - otherwise (player retargeted mid-coast, or the ghost slate is
 //     momentarily stale) → target-slot-independent fallback: the
 //     current-course closest approach against the partner's same-primary
@@ -362,12 +395,19 @@ const rendezvousWaypointMinLead = 5 * time.Second
 // only when no future approach can be found at all this tick.
 func (w *World) rendezvousNextWaypoint(partner *CoWarpPeer) (tau time.Time, ca float64, ok bool) {
 	floor := w.Clock.SimTime.Add(rendezvousWaypointMinLead)
-	if w.Target.Kind == TargetGhost && w.Target.GhostOwner == partner.Owner {
-		if t, c, cok := w.RendezvousCommit(); cok && t.After(floor) {
-			return t, c, true
+	active := w.ActiveCraft()
+	if w.Target.Kind == TargetGhost && w.Target.GhostOwner == partner.Owner && active != nil {
+		if primary, pok := w.rendezvousTargetPrimary(); pok && primary.ID == active.Primary.ID {
+			if rT, vT, rok := w.TargetStateRelativeToActivePrimary(); rok {
+				mu := active.Primary.GravitationalParameter()
+				if mu > 0 {
+					if t, c, cok := w.rendezvousCommitCurrentCourse(active, rT, vT, mu); cok && t.After(floor) {
+						return t, c, true
+					}
+				}
+			}
 		}
 	}
-	active := w.ActiveCraft()
 	if active == nil || active.Landed || active.Crashed {
 		return time.Time{}, 0, false
 	}

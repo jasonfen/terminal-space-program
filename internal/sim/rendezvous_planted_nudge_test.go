@@ -1,6 +1,13 @@
 package sim
 
-import "testing"
+import (
+	"math"
+	"testing"
+	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+)
 
 // TestRendezvousCommitHonorsPlantedNudge (PR #392 review, finding 1):
 // the #276 fix's own prescribed remedy — refuse, then "plant a nudge
@@ -90,4 +97,118 @@ func TestRendezvousCommitPlantedNudgeIgnoredWhenPastDue(t *testing.T) {
 	if _, _, ok := w.RendezvousCommit(); ok {
 		t.Error("RendezvousCommit committed via a past-due planted node instead of falling back")
 	}
+}
+
+// TestPostBurnStateWithTarget_TargetRelativeAxisAppliesBurn (PR #392
+// review, finding 1, root cause): PostBurnState resolves a planted
+// node's direction via spacecraft.NodeBurnDirection, which falls
+// through to DirectionUnit for every mode it doesn't special-case —
+// and DirectionUnit returns the ZERO vector for the four target-
+// relative modes (thrust.go ~287-290), since they need target state
+// DirectionUnit doesn't have. So a BurnTargetPrograde/Retrograde
+// planted node used to silently commit with NO applied Δv. This pins
+// the fix at the lowest level, independent of whether a resulting
+// encounter converges within the search horizon: the post-burn
+// velocity must differ from the plain coast velocity by exactly the
+// node's DV.
+func TestPostBurnStateWithTarget_TargetRelativeAxisAppliesBurn(t *testing.T) {
+	w := rendezvousSmallLagWorld(t)
+	c := w.ActiveCraft()
+
+	rT, vT, rok := w.TargetStateRelativeToActivePrimary()
+	if !rok {
+		t.Fatal("TargetStateRelativeToActivePrimary: not ok")
+	}
+	mu := c.Primary.GravitationalParameter()
+
+	node := spacecraft.ManeuverNode{
+		Mode:        spacecraft.BurnTargetRetrograde,
+		DV:          5.0,
+		Event:       spacecraft.TriggerAbsolute,
+		TriggerTime: w.Clock.SimTime.Add(60 * time.Second),
+		PrimaryID:   c.Primary.ID,
+	}
+	dt := node.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+
+	// Same propagation rendezvousCommitFromPlantedNode performs: the
+	// target's relative state Kepler-propagated forward to the node's
+	// TriggerTime, and the craft's own coast (no-burn) state at the
+	// same instant as a baseline to diff against.
+	targetState, tok := physics.KeplerStep(physics.StateVector{R: rT, V: vT}, mu, dt)
+	if !tok {
+		t.Fatal("KeplerStep on target state: not ok")
+	}
+	coastState, _ := w.propagateCraftWithPrimary(dt)
+
+	postState, primaryID, ok := w.postBurnStateWithTarget(node, targetState.R, targetState.V)
+	if !ok {
+		t.Fatal("postBurnStateWithTarget: expected ok=true — this fixture's rotated " +
+			"co-orbital geometry has nonzero relative velocity, so BurnTargetRetrograde's " +
+			"direction is not degenerate")
+	}
+	if primaryID != c.Primary.ID {
+		t.Errorf("primaryID = %q, want %q", primaryID, c.Primary.ID)
+	}
+	delta := postState.V.Sub(coastState.V).Norm()
+	if math.Abs(delta-node.DV) > 1e-6 {
+		t.Errorf("|post-burn V - coast V| = %.9f, want %.9f (== node.DV) — "+
+			"a target-relative axis must resolve a real burn direction, not silently "+
+			"apply zero Δv (finding 1)", delta, node.DV)
+	}
+}
+
+// TestRendezvousCommitHonorsPlantedNudge_BothAxisFamilies (PR #392
+// review, finding 1): the existing TestRendezvousCommitHonorsPlantedNudge
+// only covers whatever axis PlanRendezvousNudge's own advisory happens
+// to pick for the fixture — it could land on a velocity-frame axis
+// (prograde/retrograde/normal/radial) or a target-relative one
+// (BurnTargetPrograde/Retrograde) depending on the Lambert scan, and
+// only the former exercised PostBurnState's working path before this
+// fix. This test hand-plants BOTH families directly (bypassing the
+// advisory's own axis choice) with the same Δv magnitude, so both a
+// velocity-frame axis and a target-relative axis are pinned committing
+// successfully via RendezvousCommit's planted-node path.
+func TestRendezvousCommitHonorsPlantedNudge_BothAxisFamilies(t *testing.T) {
+	const dv = 20.0 // m/s — enough to break the matched-orbit symmetry within the 4h horizon
+
+	plant := func(t *testing.T, w *World, mode spacecraft.BurnMode) {
+		t.Helper()
+		c := w.ActiveCraft()
+		node := ManeuverNode{
+			Mode:          mode,
+			DV:            dv,
+			Event:         spacecraft.TriggerAbsolute,
+			TriggerTime:   w.Clock.SimTime.Add(rendezvousBurnLeadMin),
+			PrimaryID:     c.Primary.ID,
+			Throttle:      1.0,
+			TargetCraftID: w.Target.CraftID,
+			AdvisoryKey:   AdvisoryKeyRendezvousNudge,
+		}
+		w.PlanNode(node)
+	}
+
+	t.Run("target-relative axis", func(t *testing.T) {
+		w := rendezvousSmallLagWorld(t)
+		plant(t, w, spacecraft.BurnTargetRetrograde)
+		tau, ca, ok := w.RendezvousCommit()
+		if !ok {
+			t.Fatal("RendezvousCommit refused a planted BurnTargetRetrograde nudge — " +
+				"finding 1: target-relative axes must resolve a real post-burn course")
+		}
+		if !tau.After(w.Clock.SimTime) || ca <= 0 {
+			t.Errorf("tau=%v ca=%.3f — expected a future τ with positive CA", tau, ca)
+		}
+	})
+
+	t.Run("velocity-frame axis", func(t *testing.T) {
+		w := rendezvousSmallLagWorld(t)
+		plant(t, w, spacecraft.BurnPrograde)
+		tau, ca, ok := w.RendezvousCommit()
+		if !ok {
+			t.Fatal("RendezvousCommit refused a planted BurnPrograde nudge")
+		}
+		if !tau.After(w.Clock.SimTime) || ca <= 0 {
+			t.Errorf("tau=%v ca=%.3f — expected a future τ with positive CA", tau, ca)
+		}
+	})
 }
