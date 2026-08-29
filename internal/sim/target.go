@@ -72,6 +72,26 @@ func (w *World) ClearTarget() {
 	w.reconcileNavMode()
 }
 
+// RestoreTarget resets Target and NavMode directly to a previously
+// captured pair, bypassing the individual Set*/Clear setters'
+// validation — the caller already knows this was a valid live state (it
+// read it straight off the World a moment earlier). Mirrors the
+// restored Target onto the active craft the same way every other
+// setter does, so the per-craft binding stays consistent.
+//
+// Added for PR #392 review finding 2: SessionCmdRendezvous
+// (app.go) calls SetTargetGhost before RendezvousCommit to give the
+// commit search something to aim at, but a refusal must not leave that
+// switch behind — the player's previous target (mid-transfer TargetBody
+// Moon, say) would otherwise be silently replaced, and the stale ghost
+// ref would persist into the next save, even though the game said no to
+// the rendezvous itself.
+func (w *World) RestoreTarget(t Target, nav NavMode) {
+	w.Target = t
+	w.mirrorTargetToActiveCraft()
+	w.NavMode = nav
+}
+
 // mirrorTargetToActiveCraft writes w.Target onto the active craft's
 // per-craft Target field so the binding survives an active-craft
 // switch (v0.9.3 polish). Maintains the invariant

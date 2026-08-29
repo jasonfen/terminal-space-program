@@ -2580,6 +2580,65 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 	return state, primaryID
 }
 
+// postBurnStateWithTarget is PostBurnState extended with the target's
+// relative state at the node's trigger time, so a target-relative node
+// (BurnTargetPrograde / BurnTargetRetrograde, the axes K's rendezvous
+// advisory can pick — planner/rendezvous_recommend.go ~349,
+// axisLabelToBurnMode in rendezvous.go) resolves a real burn direction
+// instead of silently applying zero Δv.
+//
+// PostBurnState alone can't do this: it resolves direction via
+// spacecraft.NodeBurnDirection, which falls through to DirectionUnit for
+// every mode it doesn't special-case — and DirectionUnit returns the
+// zero vector for the four target-relative modes (thrust.go ~287-290),
+// since they need target state DirectionUnit doesn't have. Without a
+// target snapshot, a target-relative planted node used to commit as an
+// unburned coast (PR #392 review, finding 1).
+//
+// Callers pass rT, vT already resolved in the SAME frame and at the SAME
+// instant as the returned state — rendezvousCommitFromPlantedNode Kepler-
+// propagates the target's current relative state forward by the node's
+// own dt before calling this, so both sides of the direction resolution
+// (state.R/V from propagateCraftWithPrimary, rT/vT from KeplerStep) are
+// evaluated at the node's TriggerTime.
+//
+// ok=false when the active craft is nil, or when the node is
+// target-relative and the resolved direction is degenerate (identical
+// relative velocity for Target Prograde/Retrograde, identical relative
+// position for Target/AntiTarget — DirectionUnitTarget's own zero-vector
+// convention). That is "the direction cannot be resolved", not "no burn
+// needed" — callers must treat ok=false as a reason to skip this course
+// entirely rather than commit to an unburned one.
+func (w *World) postBurnStateWithTarget(n ManeuverNode, rT, vT orbital.Vec3) (physics.StateVector, string, bool) {
+	if w.ActiveCraft() == nil {
+		return physics.StateVector{}, "", false
+	}
+	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+	var state physics.StateVector
+	var primaryID string
+	if dt <= 0 {
+		state = w.ActiveCraft().State
+		primaryID = w.ActiveCraft().Primary.ID
+	} else {
+		var primary bodies.CelestialBody
+		state, primary = w.propagateCraftWithPrimary(dt)
+		primaryID = primary.ID
+	}
+	var dir orbital.Vec3
+	if n.IsTargetRelative() {
+		dir = spacecraft.DirectionUnitTarget(n.Mode, state.R, state.V, rT, vT)
+		if dir.Norm() == 0 {
+			return physics.StateVector{}, "", false
+		}
+	} else {
+		dir = spacecraft.NodeBurnDirection(n, state.R, state.V)
+	}
+	if dir.Norm() != 0 && n.DV != 0 {
+		state.V = state.V.Add(dir.Scale(n.DV))
+	}
+	return state, primaryID, true
+}
+
 // CapturePreview describes the post-arrival orbit at the last
 // inter-primary node in the active craft's planted chain. v0.8.2.x:
 // surfaces the capture-orbit inclination prominently so the player

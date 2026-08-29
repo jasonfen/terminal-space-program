@@ -13,10 +13,17 @@ import (
 )
 
 // ghostBesideActive plants a ghost 50 km from the active craft in the
-// same primary, resolvable by the target/rendezvous machinery.
+// same primary, resolvable by the target/rendezvous machinery. The
+// velocity carries a small closing component (#276: a ghost placed with
+// the active craft's exact velocity is a matched-orbit/zero-drift
+// geometry — RendezvousCommit now correctly refuses that on the current
+// course, since no real burn was made) so a genuine current-course
+// closest approach exists within RendezvousCommit's horizon for these
+// arm/naming tests to exercise.
 func ghostBesideActive(w *sim.World, owner string, craftID uint64) sim.Ghost {
 	c := w.ActiveCraft()
 	relR := c.State.R.Add(orbital.Vec3{X: 50_000})
+	closingVel := c.State.V.Add(orbital.Vec3{X: -50})
 	return sim.Ghost{
 		Owner:     owner,
 		CraftID:   craftID,
@@ -25,7 +32,7 @@ func ghostBesideActive(w *sim.World, owner string, craftID uint64) sim.Ghost {
 		PrimaryID: c.Primary.ID,
 		Pos:       w.BodyPosition(c.Primary).Add(relR),
 		RelPos:    relR,
-		Vel:       c.State.V,
+		Vel:       closingVel,
 	}
 }
 

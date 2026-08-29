@@ -2259,20 +2259,32 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 	case screens.SessionCmdRendezvous:
 		// Rendezvous Warp initiate (v0.29 S2 / ADR 0034 v0.29 addendum):
 		// target the partner's ghost (the advisory + TARGET chip context),
-		// commit the encounter — the K-nudge advisory's post-burn τ+CA, or
-		// the current-course closest approach — and arm toward them. The
-		// coast starts only when they respond (mutual arm); the screen
-		// already gated same-subspace and ghost presence.
+		// commit the encounter — a planted rendezvous-nudge node's
+		// post-burn course when one exists, else the current-course
+		// closest approach (#276: never the K-nudge ADVISORY's unfired
+		// preview) — and arm toward them. The coast starts only when they
+		// respond (mutual arm); the screen already gated same-subspace and
+		// ghost presence.
+		//
+		// PR #392 review finding 2: SetTargetGhost runs before the commit
+		// gate, so a refusal below must not leave the switch behind —
+		// capture the prior target/NavMode and restore them on !ok. Without
+		// this a refused Engage silently stole whatever the player was
+		// targeting before (mid-transfer TargetBody Moon, say), flipped
+		// NavMode along with it, and left the stale ghost ref to persist
+		// into the next save.
+		prevTarget, prevNav := a.world.Target, a.world.NavMode
 		a.world.SetTargetGhost(cmd.Owner, cmd.CraftID)
 		tau, ca, ok := a.world.RendezvousCommit()
 		switch {
 		case !ok:
-			// ADR 0039 S2 / #277: name the doctrine's own remedy instead of
-			// pointing at K — K's own refusal for this same "no real
-			// encounter" situation used to say the opposite ("no useful
-			// nudge in range"), so the two refusals dead-ended into each
-			// other with no way out. Both sides now coach the same burn.
-			a.statusMsg = fmt.Sprintf("no encounter with %s on current courses — make a phasing burn (wide prograde or radial) and watch the CA shrink", cmd.Handle)
+			a.world.RestoreTarget(prevTarget, prevNav)
+			// #276's own remedy, restored (finding 1): RendezvousCommit now
+			// honors an actually-planted rendezvous nudge, so "plant a
+			// nudge [K] first" is a real next step again, not the dead end
+			// ADR 0039 S2 papered over by pointing at the doctrine's
+			// generic phasing-coach line instead.
+			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
 		// The seat is fixed here (ADR 0037 §2): proposing the rendezvous
 		// makes you pilot-in-command of the pair's time once the terminal
 		// phase begins.

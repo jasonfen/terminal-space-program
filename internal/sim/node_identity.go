@@ -97,6 +97,42 @@ func (w *World) replaceAdvisoryNode(c *spacecraft.Spacecraft, key string) {
 	c.Nodes = kept
 }
 
+// plantedAdvisoryNode returns c's currently-queued node carrying the
+// given AdvisoryKey AND whose own target binding (TargetCraftID +
+// TargetGhostOwner) matches targetCraftID/targetGhostOwner, and
+// ok=false when none is planted (key is empty, c is nil, or no queued
+// node matches both the key and the binding). Companion to
+// replaceAdvisoryNode — that one strips a stale advisory node before a
+// fresh plant; this one lets a caller (RendezvousCommit, PR #392
+// review Finding 1) find and honor one that's already sitting there.
+// Same "every node in c.Nodes is by definition unfired" invariant
+// applies (see replaceAdvisoryNode): once the node fires it's popped
+// out of c.Nodes, so a hit here always means "planted but not yet
+// flown".
+//
+// The binding check (PR #392 review, finding — engage-toward-stale-
+// nudge) matters because PlanRendezvousNudge stamps TargetCraftID/
+// TargetGhostOwner at plant time so a later target switch doesn't
+// retarget the burn (rendezvous.go ~606-611): a node planted against
+// peer A must not be picked up here when the caller is now engaging
+// peer B, or the commit path would feed B's target state into a node
+// whose Δv/direction was computed for A — a phantom co-warp toward a
+// course that will never be flown. A binding mismatch is treated
+// exactly like "nothing planted": the caller falls through to its
+// current-course path (and its refusal, if the current course doesn't
+// converge either).
+func plantedAdvisoryNode(c *spacecraft.Spacecraft, key string, targetCraftID uint64, targetGhostOwner string) (spacecraft.ManeuverNode, bool) {
+	if key == "" || c == nil {
+		return spacecraft.ManeuverNode{}, false
+	}
+	for _, n := range c.Nodes {
+		if n.AdvisoryKey == key && n.TargetCraftID == targetCraftID && n.TargetGhostOwner == targetGhostOwner {
+			return n, true
+		}
+	}
+	return spacecraft.ManeuverNode{}, false
+}
+
 // nodeByID returns the planted node with stable ID nodeID on the craft
 // with stable ID craftID, and ok=false when either no longer resolves —
 // the craft was removed, the node was deleted or re-planted, or an id is
