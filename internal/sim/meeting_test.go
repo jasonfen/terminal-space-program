@@ -12,7 +12,15 @@ import (
 // TestPlanMeetingBurn_PlantsOneNode — the happy path for the sim-layer
 // planter: MeetingTheirOrbit on a near-matched-orbit two-craft world
 // (rendezvousSmallLagWorld, the same fixture family K's own nudge
-// tests use) plants exactly one BurnVector node on the ACTIVE craft.
+// tests use) plants exactly one node on the ACTIVE craft.
+//
+// Review finding 2: the node plants as BurnPrograde/BurnRetrograde, not
+// BurnVector — a fixed inertial BurnVector direction solved "now" is no
+// longer tangential by the time the node actually fires (leadBuffer
+// later); BurnPrograde/Retrograde re-derive the tangential direction at
+// fire time from the craft's actual (r, v) instead (see
+// PlanMeetingBurn's own doc comment). BurnDirUnit stays zero — it's
+// populated only for BurnVector nodes (ManeuverNode's own doc comment).
 func TestPlanMeetingBurn_PlantsOneNode(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
@@ -47,8 +55,8 @@ func TestPlanMeetingBurn_PlantsOneNode(t *testing.T) {
 		t.Fatalf("expected 1 node planted, got %d", len(c.Nodes))
 	}
 	n := c.Nodes[0]
-	if n.Mode != spacecraft.BurnVector {
-		t.Errorf("Mode = %v, want BurnVector", n.Mode)
+	if n.Mode != spacecraft.BurnPrograde && n.Mode != spacecraft.BurnRetrograde {
+		t.Errorf("Mode = %v, want BurnPrograde or BurnRetrograde", n.Mode)
 	}
 	if n.AdvisoryKey != AdvisoryKeyMeetingBurn {
 		t.Errorf("AdvisoryKey = %q, want %q", n.AdvisoryKey, AdvisoryKeyMeetingBurn)
@@ -56,8 +64,11 @@ func TestPlanMeetingBurn_PlantsOneNode(t *testing.T) {
 	if math.Abs(n.DV-plan.DV) > 1e-6 {
 		t.Errorf("node DV = %.3f, want %.3f (plan.DV)", n.DV, plan.DV)
 	}
-	if n.BurnDirUnit.Norm() == 0 {
-		t.Errorf("BurnDirUnit is zero — expected the ladder row's burn direction")
+	if n.BurnDirUnit.Norm() != 0 {
+		t.Errorf("BurnDirUnit = %+v, want zero — populated only for BurnVector nodes, and this node is Prograde/Retrograde", n.BurnDirUnit)
+	}
+	if n.MeetingArrivalSec <= 0 {
+		t.Errorf("MeetingArrivalSec = %.1f, want > 0", n.MeetingArrivalSec)
 	}
 	if !n.TriggerTime.After(w.Clock.SimTime) {
 		t.Errorf("TriggerTime not in the future")

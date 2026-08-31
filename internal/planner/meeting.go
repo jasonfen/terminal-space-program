@@ -83,6 +83,10 @@ type MeetingBurnOption struct {
 	// (unburned) holder out to TArrival — not read off the closed-form
 	// solve directly — so a derivation bug shows up as a nonzero
 	// AchievableCA rather than being silently trusted away.
+	// meetingLadderCore gates Ok on this being within
+	// meetingAchievableCATolFrac of r0mag — a row whose own propagated
+	// check doesn't land close is never Ok=true (see that constant's
+	// doc comment).
 	AchievableCA float64 // m, separation at the propagated meeting time
 	ArrivalSpeed float64 // m/s, |v_rel| at that same instant
 }
@@ -111,6 +115,29 @@ var meetingCandidateLaps = []int{2, 3, 5, 10, 20}
 // explicitly narrows scope to coplanar (#398 "out of scope: the plane
 // rung").
 const meetingPlaneTolDeg = 1.0
+
+// meetingAchievableCATolFrac gates Ok on the row's own AchievableCA
+// (review finding: "Ok never consults AchievableCA"). meetingLadderCore
+// models the holder as sweeping at a uniform angular rate to derive t0
+// — exact for a circular holder, a first-order approximation for an
+// eccentric one (see meetingLadderCore's doc comment) — so a row can
+// pass every other gate (r0 in [holderPeri, holderApo], periapsis
+// safety, affordability) while the burn it actually prices misses the
+// holder by a large fraction of the orbit. AchievableCA is already the
+// row's own propagate-and-check number (both craft advanced via
+// physics.KeplerStep to TArrival); this constant is what turns that
+// number into a gate instead of a display-only field.
+//
+// 1% of r0mag is generous next to the near-machine-precision residual
+// a genuinely circular holder produces (TestRecommendMeetingLadder_
+// TheirOrbit_PhaseOffsetConverges asserts <5 km on a 6.87e6 m orbit,
+// several orders of magnitude under this bound) but far tighter than
+// the miss an eccentric holder's uniform-sweep approximation actually
+// produces: measured on a perigee 6771 km / apogee 12000 km orbit
+// (e≈0.28) with two co-orbital craft 1/6 period apart, every row's
+// AchievableCA came out ≈6,563,744 m against r0mag≈6.77e6 m — 97% of
+// r0mag, not a rounding error.
+const meetingAchievableCATolFrac = 0.01
 
 var (
 	// ErrMeetingPlaneMismatch: the two orbital planes differ by more
@@ -209,12 +236,46 @@ func RecommendMeetingLadder(
 		if crossingSearchHorizon <= 0 {
 			return MeetingLadder{}, errMeetingInvalidInput
 		}
-		if _, _, _, err := NextClosestApproach(stateA, stateB, primary, mu, crossingSearchHorizon); err != nil {
+		tCA, _, _, err := NextClosestApproach(stateA, stateB, primary, mu, crossingSearchHorizon)
+		if err != nil {
 			return MeetingLadder{}, ErrMeetingNoCrossing
 		}
-		rows, err := meetingLadderCore(stateA, stateB, primary, mu, moverRemainingDV)
+		// Finding 3 (review): this used to run meetingLadderCore on
+		// stateA/stateB exactly as MeetingTheirOrbit does — the anchor
+		// search above was an existence check only, never fed into the
+		// solve, so the two Places produced byte-identical ladders.
+		//
+		// Anchor properly: Kepler-propagate BOTH craft forward (unburned)
+		// to the natural crossing instant tCA found above, then run the
+		// SAME tangential-return solve anchored THERE instead of at
+		// "now" — mover and holder are already close at tCA (that's what
+		// makes it a crossing), so the correction Δv this produces is
+		// typically small, matching the doc comment's "cheapest when a
+		// close approach already exists." Genuinely different math from
+		// MeetingTheirOrbit whenever tCA isn't ~0 (mover's position at
+		// the crossing instant differs from its position now), which is
+		// the ordinary case.
+		moverAtTCA, mok := physics.KeplerStep(physics.StateVector{R: stateA.R, V: stateA.V}, mu, tCA)
+		holderAtTCA, hok := physics.KeplerStep(physics.StateVector{R: stateB.R, V: stateB.V}, mu, tCA)
+		if !mok || !hok {
+			return MeetingLadder{}, ErrMeetingNoCrossing
+		}
+		rows, err := meetingLadderCore(
+			orbital.Vec3State{R: moverAtTCA.R, V: moverAtTCA.V},
+			orbital.Vec3State{R: holderAtTCA.R, V: holderAtTCA.V},
+			primary, mu, moverRemainingDV)
 		if err != nil {
 			return MeetingLadder{}, err
+		}
+		// meetingLadderCore's TArrival is relative to the epoch of the
+		// states it was given — here, tCA, not "now". Re-anchor to "now"
+		// (add tCA back) so MeetingBurnOption.TArrival keeps its
+		// documented "seconds from now" meaning for every Place, not
+		// just the two that solve directly off stateA/stateB.
+		for i := range rows {
+			if rows[i].TArrival > 0 {
+				rows[i].TArrival += tCA
+			}
 		}
 		return MeetingLadder{Place: place, MoverIsA: true, Rows: rows}, nil
 	}
@@ -353,9 +414,10 @@ func meetingLadderCore(moverState, holderState orbital.Vec3State, primary bodies
 		mRaw := (float64(n)*pMoverOrig - t0) / pHolder
 		mFloor := math.Floor(mRaw)
 		var best MeetingBurnOption
+		var bestSafeFlag, bestAchievableFlag bool
 		bestFound := false
-		var bestSafe MeetingBurnOption
-		bestSafeFound := false
+		var bestGood MeetingBurnOption
+		bestGoodFound := false
 		for _, m := range [...]float64{mFloor, mFloor + 1} {
 			if m < 0 {
 				continue
@@ -389,12 +451,14 @@ func meetingLadderCore(moverState, holderState orbital.Vec3State, primary bodies
 				ArrivalSpeed: vRelAtT.Norm(),
 			}
 			safe := orbitSafetyGate(r0, v0, r0, newV, primary, mu)
+			achievable := cand.AchievableCA <= meetingAchievableCATolFrac*r0mag
 
 			if !bestFound || cand.DV < best.DV {
 				best, bestFound = cand, true
+				bestSafeFlag, bestAchievableFlag = safe, achievable
 			}
-			if safe && (!bestSafeFound || cand.DV < bestSafe.DV) {
-				bestSafe, bestSafeFound = cand, true
+			if safe && achievable && (!bestGoodFound || cand.DV < bestGood.DV) {
+				bestGood, bestGoodFound = cand, true
 			}
 		}
 		if !bestFound {
@@ -403,15 +467,27 @@ func meetingLadderCore(moverState, holderState orbital.Vec3State, primary bodies
 		}
 
 		chosen := best
-		chosenSafe := bestSafeFound
-		if bestSafeFound {
-			chosen = bestSafe
+		chosenSafe := bestSafeFlag
+		chosenAchievable := bestAchievableFlag
+		if bestGoodFound {
+			chosen = bestGood
+			chosenSafe, chosenAchievable = true, true
 		}
 
 		affordable := moverRemainingDV < 0 || chosen.DV <= moverRemainingDV
 		switch {
 		case !chosenSafe:
 			chosen.Reason = "burn drops periapsis unsafely"
+		case !chosenAchievable:
+			// The row's own propagate-and-check (AchievableCA) landed
+			// outside meetingAchievableCATolFrac of r0mag — the
+			// uniform-angular-rate holder model (see this function's
+			// doc comment) doesn't hold for this geometry, so the
+			// solved burn doesn't actually deliver a meeting. Same
+			// reason text as the "no bracket converged at all" case
+			// above: both mean "this lap count has no usable meeting
+			// solution", just discovered at a different stage.
+			chosen.Reason = "no meeting solution"
 		case !affordable:
 			chosen.Reason = "unaffordable"
 		default:

@@ -18,17 +18,136 @@ import (
 
 // TestRendezvousCommitWithPlan_MeetingNode_ArrivalBeyondHorizon is the
 // #400 acceptance test: "Engage commits to a planted Meeting Planner
-// node's arrival 8h out." Plants a real Meeting Burn via PlanMeetingBurn
-// (so BurnDirUnit/DV/TriggerTime all come from the actual solver), then
-// overrides the node's MeetingArrivalSec to exactly 8h — well past
-// rendezvousCommitHorizonSec (4h) — for a deterministic scenario
-// regardless of which lap row the small-lag fixture happens to solve.
-// RendezvousCommitWithPlan must commit to TriggerTime+8h directly: if it
+// node's arrival [well] out [past the 4h horizon]." Plants a real
+// Meeting Burn via PlanMeetingBurn, picking the LARGEST-lap Ok row on
+// the small-lag fixture: more laps means a smaller Δv spread over more
+// holder periods (ADR 0045 §2's own wait-vs-Δv ladder), so on a ~90 min
+// LEO period even the smallest such fixture's highest lap count
+// (meetingCandidateLaps' own 20) naturally waits tens of hours — no
+// need to force the scenario by hand.
+//
+// Review finding 2 (this test previously overwrote MeetingArrivalSec by
+// hand to exactly 8h, so nothing pinned the field's NATURAL value — a
+// vacuous test the reviewer flagged specifically): this version reads
+// MeetingArrivalSec straight off the planted node and asserts
+// RendezvousCommitWithPlan commits to TriggerTime + that natural value,
+// with a non-vacuous precondition guard that it is actually beyond the
+// 4h horizon (so the test still exercises the "beyond horizon" property
+// it's named for, without hand-editing the field under test).
+//
+// RendezvousCommitWithPlan must commit to that arrival directly: if it
 // instead ran rendezvousCommitFromPlantedNode's horizon-bounded search
-// (the trim-nudge sibling's behaviour), an encounter 8h out — double the
-// 4h window — could never be found, and the commit would refuse.
+// (the trim-nudge sibling's behaviour), an encounter well past the 4h
+// window could never be found, and the commit would refuse.
 func TestRendezvousCommitWithPlan_MeetingNode_ArrivalBeyondHorizon(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
+	c := w.ActiveCraft()
+
+	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	if err != nil {
+		t.Fatalf("RecommendMeetingLadder err: %v", err)
+	}
+	// Pick the LARGEST-lap Ok row (rows are appended in meetingCandidateLaps'
+	// own ascending order, so the last Ok row is the largest), not the
+	// first — the whole point is a wait that clears the 4h horizon.
+	var pick int
+	found := false
+	for _, row := range ladder.Rows {
+		if row.Ok {
+			pick, found = row.Laps, true
+		}
+	}
+	if !found {
+		t.Fatalf("expected at least one Ok row: %+v", ladder.Rows)
+	}
+	if _, err := w.PlanMeetingBurn(planner.MeetingTheirOrbit, pick); err != nil {
+		t.Fatalf("PlanMeetingBurn err: %v", err)
+	}
+	if len(c.Nodes) != 1 {
+		t.Fatalf("expected 1 planted node, got %d", len(c.Nodes))
+	}
+	node := c.Nodes[0]
+
+	// Non-vacuous precondition: the NATURAL MeetingArrivalSec this specific
+	// lap row solved to must already exceed rendezvousCommitHorizonSec, or
+	// this test isn't exercising the "beyond horizon" property it claims to.
+	if node.MeetingArrivalSec <= rendezvousCommitHorizonSec {
+		t.Fatalf("setup: node.MeetingArrivalSec = %.1f s, want > %.1f s (the 4h horizon) — laps=%d didn't naturally wait long enough to stress the bound",
+			node.MeetingArrivalSec, rendezvousCommitHorizonSec, pick)
+	}
+	wantTau := node.TriggerTime.Add(time.Duration(node.MeetingArrivalSec * float64(time.Second)))
+
+	plan, ok := w.RendezvousCommitWithPlan()
+	if !ok {
+		t.Fatal("RendezvousCommitWithPlan: ok=false, want true (structural gates all pass)")
+	}
+	if plan.Tau.IsZero() {
+		t.Fatal("plan.Tau is zero — the planted Meeting Burn node was not honored")
+	}
+	if diff := plan.Tau.Sub(wantTau); diff < -time.Second || diff > time.Second {
+		t.Errorf("plan.Tau = %v, want %v (node.TriggerTime + its own MeetingArrivalSec) — got a difference of %v; "+
+			"a horizon-bounded search would have refused entirely rather than land near this", plan.Tau, wantTau, diff)
+	}
+	if plan.CommittedCA <= 0 {
+		t.Errorf("plan.CommittedCA = %.3f, want > 0", plan.CommittedCA)
+	}
+	if plan.MeetingPlaceLabel != planner.MeetingTheirOrbit.String() {
+		t.Errorf("plan.MeetingPlaceLabel = %q, want %q", plan.MeetingPlaceLabel, planner.MeetingTheirOrbit.String())
+	}
+	if plan.MeetingLaps != pick {
+		t.Errorf("plan.MeetingLaps = %d, want %d", plan.MeetingLaps, pick)
+	}
+}
+
+// rendezvousPhaseLagWorld mirrors rendezvousSmallLagWorld (rendezvous_test.go)
+// but takes the lag angle as a parameter — the small-lag fixture's fixed
+// -0.5° is too close to co-orbital for Finding 2's bug to show measurably
+// (a tangential burn frozen at "now" is still nearly tangential a few tens
+// of seconds later at a nearly-identical point on a nearly-matched orbit).
+func rendezvousPhaseLagWorld(t *testing.T, angle float64) *World {
+	t.Helper()
+	w := rendezvousTwoCraftWorld(t)
+	active := w.Crafts[0]
+	target := w.Crafts[1]
+	h := active.State.R.Cross(active.State.V)
+	axis := h.Unit()
+	target.State.R = rotateAboutAxis(active.State.R, axis, angle)
+	target.State.V = rotateAboutAxis(active.State.V, axis, angle)
+	target.Primary = active.Primary
+	return w
+}
+
+// TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach is
+// review Finding 2's own regression test, reproducing the reviewer's
+// exact measured scenario: rendezvousTwoCraftWorld with a 30° phase lag.
+//
+// Before the fix, PlanMeetingBurn solved the burn tangentially at the
+// craft's position NOW but planted it as a BurnVector node — a FROZEN
+// inertial direction (spacecraft.NodeBurnDirection) — that fires
+// leadBuffer later at a different point on the orbit, where the frozen
+// direction is no longer tangential; MeetingArrivalSec was then
+// re-anchored by subtracting leadBuffer from the "solved at now" row's
+// TArrival, which doesn't land on the resulting closest approach either.
+// Measured on this exact fixture: the row/commit reported
+// AchievableCA/CommittedCA = 0.0 m, but propagating the planted node
+// exactly as rendezvousCommitFromPlantedMeetingNode does gave 974.9 m at
+// the committed τ, with the TRUE minimum separation of 46.3 m occurring
+// ten seconds later — a burn advertised as a meeting that actually
+// misses by very roughly a kilometer at the wrong instant.
+//
+// After the fix (BurnPrograde/Retrograde re-derived at fire time, solved
+// from the state at TriggerTime — see PlanMeetingBurn's own doc
+// comment), the committed plan's CommittedCA must be small AND must sit
+// at the actual local-minimum separation — verified here by an
+// independent fine-grained scan around the committed arrival using the
+// SAME post-burn state rendezvousCommitFromPlantedMeetingNode derives,
+// so this test cannot pass merely because the solver's own prediction
+// agrees with itself (the self-consistency trap the planner package's
+// own TestMeetingLadder_IterateSelfConsistent doc comment warns about —
+// this scan uses the node's ACTUAL fire-time direction, not the
+// solver's stored one).
+func TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach(t *testing.T) {
+	w := rendezvousPhaseLagWorld(t, -30*math.Pi/180)
 	c := w.ActiveCraft()
 
 	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
@@ -52,32 +171,65 @@ func TestRendezvousCommitWithPlan_MeetingNode_ArrivalBeyondHorizon(t *testing.T)
 	if len(c.Nodes) != 1 {
 		t.Fatalf("expected 1 planted node, got %d", len(c.Nodes))
 	}
-
-	// Override to an 8h wait, deterministic and well past the 4h horizon
-	// regardless of what lap row the solver actually picked above.
-	const eightHours = 8 * 3600.0
-	c.Nodes[0].MeetingArrivalSec = eightHours
-	wantTau := c.Nodes[0].TriggerTime.Add(time.Duration(eightHours * float64(time.Second)))
+	node := c.Nodes[0]
 
 	plan, ok := w.RendezvousCommitWithPlan()
-	if !ok {
-		t.Fatal("RendezvousCommitWithPlan: ok=false, want true (structural gates all pass)")
+	if !ok || plan.Tau.IsZero() {
+		t.Fatalf("RendezvousCommitWithPlan: ok=%v Tau=%v, want a committed plan", ok, plan.Tau)
 	}
-	if plan.Tau.IsZero() {
-		t.Fatal("plan.Tau is zero — the planted Meeting Burn node was not honored")
+
+	// Independent scan: rebuild the SAME post-burn state
+	// rendezvousCommitFromPlantedMeetingNode itself derives (target
+	// Kepler-propagated to TriggerTime, then the node's OWN direction
+	// mode applied via postBurnStateWithTarget — BurnPrograde/Retrograde
+	// re-resolved at that state, not a stored vector), then sweep a
+	// ±60 s window around the node's own MeetingArrivalSec looking for
+	// the TRUE local-minimum separation.
+	rT, vT, tok := w.TargetStateRelativeToActivePrimary()
+	if !tok {
+		t.Fatal("TargetStateRelativeToActivePrimary: ok=false")
 	}
-	if diff := plan.Tau.Sub(wantTau); diff < -time.Second || diff > time.Second {
-		t.Errorf("plan.Tau = %v, want %v (node.TriggerTime + 8h) — got a difference of %v; "+
-			"a horizon-bounded search would have refused entirely (8h > 4h) rather than land near this", plan.Tau, wantTau, diff)
+	mu := c.Primary.GravitationalParameter()
+	dt := node.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+	targetAtTrigger, tok2 := physics.KeplerStep(physics.StateVector{R: rT, V: vT}, mu, dt)
+	if !tok2 {
+		t.Fatal("KeplerStep (target to TriggerTime) failed")
 	}
-	if plan.CommittedCA <= 0 {
-		t.Errorf("plan.CommittedCA = %.3f, want > 0", plan.CommittedCA)
+	postState, _, pok := w.postBurnStateWithTarget(node, targetAtTrigger.R, targetAtTrigger.V)
+	if !pok {
+		t.Fatal("postBurnStateWithTarget failed")
 	}
-	if plan.MeetingPlaceLabel != planner.MeetingTheirOrbit.String() {
-		t.Errorf("plan.MeetingPlaceLabel = %q, want %q", plan.MeetingPlaceLabel, planner.MeetingTheirOrbit.String())
+	trueMin := math.Inf(1)
+	trueMinOffset := 0.0
+	for offset := -60.0; offset <= 60.0; offset += 1.0 {
+		tArr := node.MeetingArrivalSec + offset
+		if tArr <= 0 {
+			continue
+		}
+		moverArr, mok := physics.KeplerStep(postState, mu, tArr)
+		holderArr, hok := physics.KeplerStep(targetAtTrigger, mu, tArr)
+		if !mok || !hok {
+			continue
+		}
+		if d := moverArr.R.Sub(holderArr.R).Norm(); d < trueMin {
+			trueMin, trueMinOffset = d, offset
+		}
 	}
-	if plan.MeetingLaps != pick {
-		t.Errorf("plan.MeetingLaps = %d, want %d", plan.MeetingLaps, pick)
+	if math.IsInf(trueMin, 1) {
+		t.Fatal("scan: no offset produced a valid Kepler propagation")
+	}
+
+	const smallCAM = 5_000.0 // 5 km — same "small" family as the planner's own calibration bound
+	if plan.CommittedCA > smallCAM {
+		t.Errorf("plan.CommittedCA = %.1f m, want small (<%.0f m) — a mismatched frozen burn direction would report the honest large miss instead", plan.CommittedCA, smallCAM)
+	}
+	if trueMin > smallCAM {
+		t.Errorf("independently-scanned true minimum = %.1f m at offset %.1fs from the committed arrival, want small (<%.0f m)", trueMin, trueMinOffset, smallCAM)
+	}
+	if math.Abs(trueMinOffset) > 5 {
+		t.Errorf("true minimum occurs %.1fs from the committed arrival, want within a few seconds — "+
+			"the committed τ should already sit at the actual closest approach, not miss it by a fixed offset "+
+			"(finding 2's bug landed the true minimum 10s after the reported one)", trueMinOffset)
 	}
 }
 
