@@ -185,11 +185,15 @@ type ManeuverNode struct {
 	// window bounds a search, not a plan").
 	//
 	// MeetingArrivalSec is seconds from THIS NODE'S OWN TriggerTime to the
-	// meeting instant (planner.MeetingBurnOption.TArrival, which is
-	// measured from plant time, re-anchored here by subtracting the same
-	// lead buffer already folded into TriggerTime) so the absolute arrival
-	// is recovered as TriggerTime.Add(MeetingArrivalSec) with no extra
-	// state. MeetingPlaceLabel is planner.MeetingPlace.String() ("their
+	// meeting instant, so the absolute arrival is recovered as
+	// TriggerTime.Add(MeetingArrivalSec) with no extra state. It is
+	// planner.MeetingBurnOption.TArrival from a ladder row solved AT the
+	// (Kepler-propagated) state the craft will actually be in at
+	// TriggerTime — not the row solved at plant time re-anchored by
+	// subtracting the lead buffer (the plant-time row's own TArrival
+	// isn't relative to TriggerTime; PlanMeetingBurn re-solves the whole
+	// ladder from the TriggerTime state instead, see its own doc
+	// comment). MeetingPlaceLabel is planner.MeetingPlace.String() ("their
 	// orbit" / "your orbit" / "the crossing") — a plain string, not the
 	// planner.MeetingPlace enum itself, again because spacecraft cannot
 	// import planner (sibling packages, ADR — see axisLabelToBurnMode's

@@ -488,10 +488,10 @@ func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, n
 //
 // ok=false for the same reasons as the sibling (past-due node, a
 // degenerate Kepler step, an SOI crossing before the burn fires, an
-// unresolvable direction), plus a node with no MeetingArrivalSec — either
-// a non-Meeting-Burn node reaching this by construction error, or one
-// whose row.TArrival didn't clear the lead buffer at plant time (see
-// PlanMeetingBurn) — treated as "no plan info", not zero wait.
+// unresolvable direction), plus a node with no MeetingArrivalSec — a
+// non-Meeting-Burn node reaching this by construction error, or a node
+// planted before ADR 0045 S7 added the field — treated as "no plan
+// info", not zero wait.
 func (w *World) rendezvousCommitFromPlantedMeetingNode(active *spacecraft.Spacecraft, node spacecraft.ManeuverNode, rT, vT orbital.Vec3, mu float64) (time.Time, float64, bool) {
 	if node.MeetingArrivalSec <= 0 {
 		return time.Time{}, 0, false
