@@ -647,3 +647,84 @@ func TestRendezvousChipUnplannedRendersAt80x24(t *testing.T) {
 		}
 	}
 }
+
+// TestRendezvousChipInviteZeroTauNoFabricatedEncounter is finding 2
+// (batch review): refreshRendezvousInvite now surfaces a zero-τ invite
+// for ADR 0045 S7's "agreed, no plan yet" state (#400) — before this
+// fix the invite's τ/CA rows rendered unconditionally, and
+// compactDuration clamps a negative duration to zero, so a zero-τ
+// invite showed a fabricated "τ in: 0s / CA: 0 m": an imminent
+// zero-metre encounter that was never computed, to the one player
+// deciding whether to accept.
+func TestRendezvousChipInviteZeroTauNoFabricatedEncounter(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.RendezvousInvite = &sim.RendezvousInvite{
+		Owner: "SHA256:guest", Handle: "gern",
+		Tau: time.Time{}, CA: 0,
+	}
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	if strings.Contains(joined, "τ in:") {
+		t.Errorf("zero-τ invite fabricated a τ row:\n%s", joined)
+	}
+	if strings.Contains(joined, "CA:") {
+		t.Errorf("zero-τ invite fabricated a CA row:\n%s", joined)
+	}
+	for _, want := range []string{"gern wants to rendezvous", "[y] join"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("zero-τ invite chip missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+// TestRendezvousChipInviteBlockedZeroTauNoFabricatedEncounter is finding
+// 2's Blocked-variant twin (the same rows at :525-526 in the original
+// finding) — a subspace-diverged peer's zero-τ invite must not fabricate
+// an encounter either.
+func TestRendezvousChipInviteBlockedZeroTauNoFabricatedEncounter(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.RendezvousInvite = &sim.RendezvousInvite{
+		Owner: "SHA256:guest", Handle: "gern",
+		Tau: time.Time{}, CA: 0,
+		Blocked: true, AheadBy: -3 * time.Minute,
+	}
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	if strings.Contains(joined, "τ in:") {
+		t.Errorf("blocked zero-τ invite fabricated a τ row:\n%s", joined)
+	}
+	if strings.Contains(joined, "CA:") {
+		t.Errorf("blocked zero-τ invite fabricated a CA row:\n%s", joined)
+	}
+	if !strings.Contains(joined, "gern wants to rendezvous") {
+		t.Errorf("blocked zero-τ invite chip missing attribution:\n%s", joined)
+	}
+}
+
+// TestRendezvousChipInviteZeroTauRendersAt80x24 pins the zero-τ invite's
+// rendering at the narrow floor, same pattern as
+// TestRendezvousChipUnplannedRendersAt80x24.
+func TestRendezvousChipInviteZeroTauRendersAt80x24(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.RendezvousInvite = &sim.RendezvousInvite{
+		Owner: "SHA256:guest", Handle: "gern",
+		Tau: time.Time{}, CA: 0,
+	}
+	lines := v.buildRendezvousChip(w)
+	if lines == nil {
+		t.Fatal("zero-tau invite chip rendered nil")
+	}
+	assertChipCellWidthConsistent(t, "zero-tau invite chip", lines)
+
+	out := v.composeChips(blankCanvas(80, 24), 80, 24, 0, 0, 0,
+		[]builtChip{{corner: cornerBottomLeft, lines: lines}})
+	if !strings.Contains(out, "gern wants to rendezvous") {
+		t.Errorf("invite line missing from the 80×24 composited canvas:\n%s", out)
+	}
+	for _, row := range strings.Split(out, "\n") {
+		if w := lenRunes(row); w != 80 {
+			t.Errorf("composited row width = %d, want 80 (narrow-terminal overflow): %q", w, row)
+		}
+	}
+}

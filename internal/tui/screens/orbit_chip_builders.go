@@ -522,9 +522,8 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			lines := []string{
 				v.theme.Primary.Render("RENDEZVOUS"),
 				v.theme.Dim.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous — " + gap),
-				chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
-				chipRow("CA:", formatRangeM(inv.CA)),
 			}
+			lines = append(lines, rendezvousInviteEncounterLines(inv, now)...)
 			if line := rendezvousMeetingLine(inv.MeetingPlaceLabel, inv.MeetingLaps); line != "" {
 				lines = append(lines, line)
 			}
@@ -533,9 +532,8 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		lines := []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			v.theme.Warning.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous"),
-			chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
-			chipRow("CA:", formatRangeM(inv.CA)),
 		}
+		lines = append(lines, rendezvousInviteEncounterLines(inv, now)...)
 		if line := rendezvousMeetingLine(inv.MeetingPlaceLabel, inv.MeetingLaps); line != "" {
 			lines = append(lines, line)
 		}
@@ -555,6 +553,24 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 // after — see SetRendezvousMeeting). "" (render nothing) whenever the
 // commit's source wasn't a planted Meeting Burn node — including the
 // whole agreed-no-plan state, which never had one.
+// rendezvousInviteEncounterLines renders the invite's τ/CA rows — nil
+// (render nothing) when inv.Tau is zero (finding 2, batch review):
+// refreshRendezvousInvite now surfaces a zero-τ invite for ADR 0045 S7's
+// "agreed, no plan yet" state (#400), and compactDuration clamps a
+// negative duration to zero, so rendering these rows unconditionally
+// showed a fabricated "τ in: 0s / CA: 0 m" — an imminent zero-metre
+// encounter that was never computed — to the player deciding whether to
+// accept.
+func rendezvousInviteEncounterLines(inv *sim.RendezvousInvite, now time.Time) []string {
+	if inv.Tau.IsZero() {
+		return nil
+	}
+	return []string{
+		chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
+		chipRow("CA:", formatRangeM(inv.CA)),
+	}
+}
+
 func rendezvousMeetingLine(placeLabel string, laps int) string {
 	if placeLabel == "" {
 		return ""

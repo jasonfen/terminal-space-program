@@ -491,6 +491,7 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	w.RendezvousPaced = false
 	w.RendezvousPaceWarp = 0
 	w.RendezvousPartnerAway = false
+	w.RendezvousMutualUnplanned = false
 	arm := w.RendezvousArm
 	if arm == nil {
 		if w.rendezvousWarpEngaged() {
@@ -645,17 +646,32 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 		}
 		if arm.Tau.IsZero() {
 			// ADR 0045 S7 (#400): mutual, but no committed encounter yet —
-			// there is nothing for the driver to chase. The pair is still
-			// coupled (ComputeCoWarp's `armed` branch couples on the arm
-			// alone, unconditional on Tau) and rides ordinary min-wins
-			// until a plan lands and Engage is pressed again (see
-			// EngageRendezvousWarpAs's "replaces any prior arm" doc — a
-			// planted Meeting Burn plus a fresh Engage promotes the arm out
-			// of this state). Deliberately narrower than ADR 0037 §2's
-			// full seat-governed "initiator flies the clock" for the
-			// planned/terminal phase — a documented scope decision for
-			// #400, not an oversight; see the PR description.
-			return
+			// there is nothing for the driver to chase YET. The pair is
+			// still coupled (ComputeCoWarp's `armed` branch couples on the
+			// arm alone, unconditional on Tau) and rides ordinary min-wins
+			// until a plan lands.
+			//
+			// Finding 1 (batch review): nothing on the ACCEPTER's side ever
+			// writes to this arm's Tau once it's set — PlanMeetingBurn only
+			// ever touches the arm-holder's own RendezvousArm, and
+			// refreshRendezvousInvite never surfaces a fresh invite while
+			// w.RendezvousArm is non-nil (an accepter has one from the
+			// moment they join). So when the INITIATOR plants a Meeting
+			// Burn and re-Engages — the ordinary "K then Engage" flow the
+			// chip itself prompts for — their own arm.Tau updates and
+			// relays, but the accepter's zero Tau would sit stuck forever
+			// with no other path back short of a manual cancel or
+			// re-arming as initiator (which breaks the ADR 0037 seat
+			// split). Adopt the partner's committed waypoint here, exactly
+			// like the min-τ block above (same min-lead floor), so it
+			// reaches the accepter before the driver has ever engaged —
+			// then fall through to start the coast on it.
+			if partner.RendezvousTau.IsZero() || !partner.RendezvousTau.After(w.Clock.SimTime.Add(rendezvousWaypointMinLead)) {
+				return
+			}
+			arm.Tau, arm.CommittedCA = partner.RendezvousTau, partner.RendezvousCA
+			arm.MeetingPlaceLabel, arm.MeetingLaps = partner.RendezvousMeetingPlace, partner.RendezvousMeetingLaps
+			arm.degradeBaseSet = false // a new waypoint means a new baseline (#251 interaction)
 		}
 		handle := partner.Handle
 		if handle == "" {
@@ -745,6 +761,23 @@ func (w *World) holdRendezvousLeader(partner *CoWarpPeer) {
 	ahead := w.Clock.SimTime.Sub(partner.SubspaceTime).Seconds()
 	if partner.Paused && ahead >= 0 {
 		w.RendezvousHold = true
+		return
+	}
+	// Finding 3 (batch review): relay reports are always at least one
+	// tick stale, so `ahead` is positive on essentially every coasting
+	// tick even when nothing is genuinely diverging — and
+	// rendezvousPaceMaxWarp's ramp is "active" (returns a ceiling below
+	// subspaceStepCap()) for ANY ahead > 0, however small. Reporting
+	// Paced for a sliver that small stood up the "coasting Nx — paced to
+	// X" line during completely ordinary coasting, a regression against
+	// #395's intent (replace a flickering readout with a steady HONEST
+	// one, not an always-on one). Below rendezvousWaypointMinLead this
+	// reads as measurement staleness, not a genuine divergence worth
+	// reporting — the same "too fresh to act on" judgment the τ-adoption
+	// code above makes about a relayed waypoint — so the ceiling isn't
+	// applied at all below it, leaving the ordinary subspace-step cap in
+	// charge and RendezvousPaced false.
+	if ahead <= rendezvousWaypointMinLead.Seconds() {
 		return
 	}
 	if warp, active := w.rendezvousPaceMaxWarp(ahead); active {
