@@ -224,8 +224,9 @@ func RecommendMeetingLadder(
 // meetingCoplanar reports whether stateA/stateB's orbital planes agree
 // within meetingPlaneTolDeg. Degenerate (zero angular-momentum) states
 // are treated as coplanar — no false refusal on a state the caller
-// couldn't have derived a plane from anyway; the downstream Lambert
-// solve will fail on its own merits for a truly degenerate input.
+// couldn't have derived a plane from anyway; meetingLadderCore's own
+// input guards (r0mag/v0mag/pHolder/nHmag checks) fail such a state on
+// its own merits downstream.
 func meetingCoplanar(stateA, stateB orbital.Vec3State) bool {
 	hA := stateA.R.Cross(stateA.V)
 	hB := stateB.R.Cross(stateB.V)

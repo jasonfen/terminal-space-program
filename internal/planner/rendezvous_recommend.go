@@ -130,19 +130,18 @@ type RendezvousAdvisory struct {
 // primaries, already DOCK READY) live in the sim layer; the planner
 // is not exercised on those paths.
 //
-// ADR 0045 §2 / #398: the ADR 0039 S1 Shape-Match Gate ("Step 0": a
-// |Δe| > 0.05 refusal ahead of Step 1, tagged Reason="orbit shape
-// mismatch") is REMOVED. It existed only to stop this function's own
-// single-axis projection (Step 2) from diverging on a shape-mismatched
-// chaser/target pair (#290 — two "successful" nudges walked the
-// chaser from CA 577 km to 1,110 km). The Meeting Planner
-// (planner.RecommendMeetingLadder, meeting.go) now answers that case
-// with a genuine two-point solve instead of a lossy axis projection,
-// so the failure mode the gate guarded against no longer exists for a
-// mismatched pair — see meeting.go's TestMeetingLadder_
-// IterateDoesNotDiverge for the anti-divergence proof this removal
-// was conditioned on. K's Nudge now runs three gates (Improvement
-// Floor, Nudge Ceiling, Orbit-Safety Gate), not four.
+// ADR 0045 §2 / #398 explored removing the Step 0 shape-mismatch gate
+// on the theory that the Meeting Planner (planner.RecommendMeetingLadder,
+// meeting.go) now covers a shape-mismatched pair with a genuine solve
+// instead of a lossy axis projection. That removal did NOT ship (PR
+// #405 review): the test meant to justify it compared the solver's own
+// predicted closest approach against a "flight" propagated with the
+// SAME analytic (Kepler) model used to produce that prediction, so the
+// two could not disagree by construction — it demonstrates the solver
+// is internally self-consistent, not that repeated Meeting Planner use
+// avoids the live-integrator divergence #290 measured. Step 0 stays
+// until a test actually flies the burn under the real integrator
+// (Verlet/RK4, SOI handling) and measures the achieved separation.
 func RecommendRendezvousNudge(
 	stateA, stateB orbital.Vec3State,
 	primary bodies.CelestialBody,
@@ -154,6 +153,38 @@ func RecommendRendezvousNudge(
 
 	if mu <= 0 || horizon <= 0 {
 		out.Reason = "horizon too short"
+		return out
+	}
+
+	// Step 0 (ADR 0039 S1 / #290): orbit-shape mismatch gate. K's nudge is
+	// a single-axis velocity push on the chaser's EXISTING orbit, not a
+	// re-shape — it works by refining a position offset between two
+	// already-similar orbits. When the chaser and target eccentricities
+	// have drifted apart, the axis projection doesn't converge toward
+	// rendezvous, it walks the chaser further from the target's shape:
+	// #290's live sequence spent 275 m/s across two "successful" nudges
+	// to end up FARTHER away (CA 577 km → 1,110 km) after the first nudge
+	// itself pushed the chaser's shape away from the target's. Refuse
+	// before spending any Lambert work and point at the tools built for
+	// shape changes (circularize [C], transfer [H]) rather than offering
+	// another diverging position-only burn.
+	//
+	// ADR 0045 §2 / #398 tried to remove this gate on the theory that the
+	// Meeting Planner (meeting.go) now covers the shape-mismatch case
+	// with a genuine solve instead of a lossy axis projection. That
+	// removal is REVERTED (PR #405 review): the test written to justify
+	// it (meeting.go's TestMeetingLadder_IterateSelfConsistent) checks
+	// the solver's own predicted CA against a "flight" propagated with
+	// the SAME analytic model the solver used to predict it — prediction
+	// and flight are the same equations run twice, so they cannot
+	// disagree, and #290's divergence was only ever measured against the
+	// live integrator (Verlet/RK4, SOI handling), not the closed form.
+	// This gate stays until a test actually measures flown separation
+	// under the real integrator.
+	eccA := orbital.ElementsFromState(stateA.R, stateA.V, mu).E
+	eccB := orbital.ElementsFromState(stateB.R, stateB.V, mu).E
+	if math.Abs(eccA-eccB) > shapeMismatchEccDelta {
+		out.Reason = "orbit shape mismatch"
 		return out
 	}
 
@@ -315,6 +346,20 @@ func RecommendRendezvousNudge(
 // H / I / m planners. Const, not a knob — the player intent is
 // "small nudge to refine an already-close intercept."
 const maxNudgeDV = 300.0 // m/s
+
+// shapeMismatchEccDelta is the eccentricity-difference threshold above
+// which chaser and target are considered shape-mismatched (ADR 0039 S1).
+// Eccentricity is already a dimensionless, scale-free shape measure, so
+// one constant works across every body scale (real vs stripped-back).
+// Calibrated to sit clear of the ordinary near-matched case a nudge is
+// built for (#278's repro — 551×499.8 km vs 500×500 km LEO — is an
+// e-delta of a few thousandths at real-body scale) while still catching
+// a genuinely diverged shape (#290's post-nudge chaser reached e≈0.01–
+// 0.02 after just one bad plant, climbing fast under iteration). Tuned
+// conservatively wide rather than tight: a missed mismatch still falls
+// through to the burn-too-large / periapsis-safety gates below, but a
+// false trigger would refuse K inside its actual working domain.
+const shapeMismatchEccDelta = 0.05
 
 var allAxisLabels = []AxisLabel{
 	AxisPrograde,

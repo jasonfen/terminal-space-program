@@ -104,6 +104,7 @@ func rendezvousGeometryNotUseful(err error) bool {
 	return errors.Is(err, ErrRendezvousNoImprovement) ||
 		errors.Is(err, ErrRendezvousBurnTooLarge) ||
 		errors.Is(err, ErrRendezvousUnsafePeriapsis) ||
+		errors.Is(err, ErrRendezvousShapeMismatch) ||
 		errors.Is(err, ErrRendezvousNoEncounter)
 }
 

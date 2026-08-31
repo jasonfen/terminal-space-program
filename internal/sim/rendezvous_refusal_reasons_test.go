@@ -9,24 +9,21 @@ import (
 // existed, PlanRendezvousNudge collapsed every non-"docked" planner Reason
 // into the single ErrRendezvousNoImprovement ("no useful nudge in range"),
 // so a genuinely actionable "burn too large" refusal read identically to
-// "no improvement available" (geometry is already optimal). rendezvous-
-// ReasonToErr gives each of those a DISTINCT sentinel with its own remedy
-// text. The four inner Lambert-failure tags ("no lambert convergence",
-// "degenerate axes", "horizon too short", "ca-verify failed") are covered
-// separately, by TestRendezvousReasonToErr_S2PhasingCoachBucket below —
-// they share the ADR 0039 §2 phasing-coach wording (ErrRendezvousNoEncounter),
-// not this slice's ErrRendezvousNoImprovement.
-//
-// "orbit shape mismatch" is no longer a case here (ADR 0045 §2 / #398
-// removed the Shape-Match Gate this reason used to name — see
-// planner.RecommendRendezvousNudge's doc comment); a reason string the
-// planner can no longer produce has no mapping test of its own.
+// "no improvement available" (geometry is already optimal) and to a
+// mismatched-shape refusal. rendezvousReasonToErr gives each of those a
+// DISTINCT sentinel with its own remedy text. The four inner Lambert-
+// failure tags ("no lambert convergence", "degenerate axes", "horizon too
+// short", "ca-verify failed") are covered separately, by
+// TestRendezvousReasonToErr_S2PhasingCoachBucket below — they share the
+// ADR 0039 §2 phasing-coach wording (ErrRendezvousNoEncounter), not this
+// slice's ErrRendezvousNoImprovement.
 func TestRendezvousReasonToErr_S1DistinctReasons(t *testing.T) {
 	cases := []struct {
 		reason string
 		want   error
 	}{
 		{"docked", ErrRendezvousAlreadyDocked},
+		{"orbit shape mismatch", ErrRendezvousShapeMismatch},
 		{"burn too large — use H/I/m", ErrRendezvousBurnTooLarge},
 		{"burn drops periapsis unsafely", ErrRendezvousUnsafePeriapsis},
 		{"no improvement available", ErrRendezvousNoImprovement},
@@ -38,10 +35,10 @@ func TestRendezvousReasonToErr_S1DistinctReasons(t *testing.T) {
 		}
 	}
 
-	// The distinct reasons must not all collapse onto the SAME
+	// The four distinct reasons must not all collapse onto the SAME
 	// error as each other (that was the #278 bug) — check pairwise
 	// inequality among the ones this slice separates.
-	distinct := []error{ErrRendezvousBurnTooLarge, ErrRendezvousUnsafePeriapsis, ErrRendezvousNoImprovement}
+	distinct := []error{ErrRendezvousShapeMismatch, ErrRendezvousBurnTooLarge, ErrRendezvousUnsafePeriapsis, ErrRendezvousNoImprovement}
 	for i := range distinct {
 		for j := range distinct {
 			if i == j {

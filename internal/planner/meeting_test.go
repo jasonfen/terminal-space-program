@@ -54,10 +54,14 @@ func TestRecommendMeetingLadder_TheirOrbit_PhaseOffsetConverges(t *testing.T) {
 			continue
 		}
 		sawOk = true
-		// "small" — a few km at most, at 500 km altitude — the
-		// tolerance a Verlet-vs-Lambert (analytic) mismatch could
-		// plausibly introduce, not the km-scale gap a wrong-direction
-		// or wrong-frame bug would leave.
+		// "small" — a generous few-km bound at 500 km altitude. In
+		// practice AchievableCA lands near machine-precision (both the
+		// row's Δv solve and its AchievableCA verification use the same
+		// closed-form KeplerStep propagation, so there is no
+		// Verlet/analytic model mismatch to produce residual here — see
+		// meetingLadderCore's doc comment); this bound exists to catch
+		// a wrong-direction or wrong-frame bug (km-scale), not to size
+		// an expected numerical tolerance.
 		if row.AchievableCA > 5_000 {
 			t.Errorf("laps=%d: AchievableCA=%.0f m, want small (<5 km)", row.Laps, row.AchievableCA)
 		}
@@ -315,12 +319,14 @@ func TestRecommendMeetingLadder_ShapeMismatchNowYieldsPlan(t *testing.T) {
 }
 
 // meetingApplyBurn advances (moverState, holderState) forward by
-// row.TArrival, applying row's burn to mover at t=0 first — the same
-// KeplerStep propagation meetingLadderCore's own "propagate and check"
-// uses (and what the live game actually flies for a multi-hour/day
-// coast: warp-locked physics runs one KeplerStep per tick, not looped
-// Verlet — internal/physics/kepler_step.go). Used to chain repeated
-// Meeting Planner calls in TestMeetingLadder_IterateDoesNotDiverge.
+// row.TArrival, applying row's burn to mover at t=0 first — via
+// physics.KeplerStep, the SAME analytic (closed-form) two-body
+// propagation meetingLadderCore itself uses to derive
+// row.AchievableCA. This is NOT an independent check against a
+// numerical integrator (Verlet/RK4) or the live game's actual coast —
+// see TestMeetingLadder_IterateSelfConsistent's doc comment for what
+// that limits this helper to proving. Used to chain repeated Meeting
+// Planner calls in that test.
 func meetingApplyBurn(moverState orbital.Vec3State, row MeetingBurnOption, holderState orbital.Vec3State, mu float64) (orbital.Vec3State, orbital.Vec3State) {
 	burned := orbital.Vec3State{R: moverState.R, V: moverState.V.Add(row.BurnDir.Scale(row.DV))}
 	mSV, mok := physics.KeplerStep(physics.StateVector{R: burned.R, V: burned.V}, mu, row.TArrival)
@@ -331,33 +337,29 @@ func meetingApplyBurn(moverState orbital.Vec3State, row MeetingBurnOption, holde
 	return orbital.Vec3State{R: mSV.R, V: mSV.V}, orbital.Vec3State{R: hSV.R, V: hSV.V}
 }
 
-// TestMeetingLadder_IterateDoesNotDiverge — the central risk this
-// slice must retire before the Shape-Match Gate can safely come out
-// (#398 task brief): repeatedly opening the Meeting Planner "the way a
-// pilot mashing the key would" on the #290 mismatch geometry (a
-// sharply eccentric chaser against a circular target — exactly what
-// the gate used to refuse, and exactly what K's OWN single-axis-
-// projection nudge diverged on when iterated: #290's live sequence
-// spent 275 m/s across two "successful" nudges to end up FARTHER away,
-// CA 577 km → 1,110 km) must NOT reproduce that divergence.
+// TestMeetingLadder_IterateSelfConsistent repeatedly opens the Meeting
+// Planner "the way a pilot mashing the key would" on the #290 mismatch
+// geometry (a sharply eccentric chaser against a circular target),
+// takes the cheapest Ok row each time, applies it via meetingApplyBurn,
+// and re-opens the ladder from the resulting state. It asserts the
+// solver's own predicted AchievableCA stays small across every
+// iteration.
 //
-// Each iteration: ask the ladder, take its cheapest Ok row, fly it
-// (apply the burn + propagate both craft to the row's own arrival
-// time — independent Verlet integration, not the Lambert closed
-// form), then immediately re-open the ladder from the resulting
-// states, as a pilot re-pressing the key at the meeting point would.
-// The recorded sequence is each iteration's ACHIEVED closest approach
-// (AchievableCA) — what the pilot would actually see at that meeting
-// point, not a hypothetical.
-//
-// Unlike K's single-axis Nudge (Step 2's lossy projection onto one of
-// eight fixed axes is what let #290 walk the chaser's shape further
-// from the target's), the Meeting Planner solves a genuine two-point
-// Lambert boundary-value problem every time: it doesn't accumulate the
-// kind of directional error the projection did, so there is no
-// mechanism here for repeated use to drift the geometry apart the way
-// #290 measured.
-func TestMeetingLadder_IterateDoesNotDiverge(t *testing.T) {
+// SCOPE, READ CAREFULLY: this is a SELF-CONSISTENCY check on the
+// analytic model, not a live-integrator anti-divergence proof.
+// meetingApplyBurn propagates with physics.KeplerStep — the exact same
+// closed-form two-body model meetingLadderCore itself uses internally
+// to compute AchievableCA. Prediction and "flight" are the same
+// equations evaluated twice, so a mismatch between them is structurally
+// impossible; the near-zero CA sequence this test records shows the
+// solver doesn't contradict itself between calls, NOT that flying the
+// plan under the real integrator (Verlet/RK4, SOI handling — what
+// #290's own 577 km → 1,110 km divergence was actually measured
+// against) would converge. #398's Shape-Match Gate removal was
+// reverted (PR #405 review) specifically because this test cannot
+// stand in for that missing live-integrator proof; that proof is a
+// separate follow-up slice.
+func TestMeetingLadder_IterateSelfConsistent(t *testing.T) {
 	r := 6.771e6
 	mu := muEarth
 	primary := bodies.CelestialBody{}
@@ -389,17 +391,21 @@ func TestMeetingLadder_IterateDoesNotDiverge(t *testing.T) {
 		chaser, target = meetingApplyBurn(chaser, best, target, mu)
 	}
 
-	t.Logf("CA sequence across %d iterations: %v", iterations, cas)
+	t.Logf("CA sequence across %d iterations (self-consistency, analytic model only): %v", iterations, cas)
 
-	// Anti-divergence: no iteration's achieved CA may exceed a fixed,
-	// small absolute bound. #290's OWN divergence reached 1,110 km
-	// after starting at 577 km — two orders of magnitude above
-	// anything a correctly-solved Lambert meeting burn should leave
-	// (residual is Verlet-integration noise, not geometry error).
-	const divergenceBoundM = 50_000.0 // 50 km — generous vs. expected ~m-scale residuals, tight vs. #290's 1,110 km
+	// Self-consistency bound, not an anti-divergence proof (see the
+	// test's own doc comment): every iteration's solver-predicted
+	// AchievableCA should stay near the closed-form's own residual
+	// noise floor, since meetingApplyBurn flies each burn with the
+	// exact model the solver used to predict it. A bound this loose
+	// (50 km, vs. the ~µm residuals actually observed) exists only to
+	// catch a gross logic error in the iterate/re-solve loop itself
+	// (e.g. feeding the wrong state into the next call) — it says
+	// nothing about live-integrator behavior.
+	const selfConsistencyBoundM = 50_000.0 // 50 km
 	for i, ca := range cas {
-		if ca > divergenceBoundM {
-			t.Errorf("iteration %d: AchievableCA=%.0f m exceeds the anti-divergence bound (%.0f m) — sequence: %v", i, ca, divergenceBoundM, cas)
+		if ca > selfConsistencyBoundM {
+			t.Errorf("iteration %d: AchievableCA=%.0f m exceeds the self-consistency bound (%.0f m) — sequence: %v", i, ca, selfConsistencyBoundM, cas)
 		}
 	}
 }
