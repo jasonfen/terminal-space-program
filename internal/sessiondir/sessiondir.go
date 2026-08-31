@@ -860,16 +860,39 @@ func (s *Store) HasPayload(fingerprint string) bool {
 }
 
 // LatestSimTime scans every persisted player payload for the maximum
-// stored subspace time — offline players hold the frontier (v0.27 S4,
-// ADR 0034: you can never start in someone's past, online or not).
-// ok is false when no payload parses. Unreadable files are skipped:
-// frontier is a floor, not an integrity check.
+// stored subspace time. It backs --reset-fleet's epoch
+// (internal/serve/resetfleet.go), which wants every clock aligned
+// forward to the furthest-advanced payload. It is NOT where a new
+// player joins — see EarliestSimTime for that (ADR 0034 §7 amendment
+// / ADR 0045 S3). ok is false when no payload parses. Unreadable
+// files are skipped: this scan is a floor, not an integrity check.
 func (s *Store) LatestSimTime() (time.Time, bool) {
+	return s.scanSimTime(func(t, best time.Time) bool { return t.After(best) })
+}
+
+// EarliestSimTime scans every persisted player payload for the
+// minimum stored subspace time — the furthest-behind stored payload,
+// which is where a new player joins when nobody is live (ADR 0034 §7
+// amendment / ADR 0045 S3, closing #247/#396). A lid-open session
+// that ran unattended and persisted a payload days ahead must not be
+// able to keep pulling new joiners forward after its owner
+// disconnects; the furthest-behind payload is the safe (recoverable
+// via forward-only Sync) choice instead. ok is false when no payload
+// parses.
+func (s *Store) EarliestSimTime() (time.Time, bool) {
+	return s.scanSimTime(func(t, best time.Time) bool { return t.Before(best) })
+}
+
+// scanSimTime walks every persisted player payload and folds their
+// stored subspace times with better, which reports whether candidate
+// t improves on the running best. Unreadable or unparsable files are
+// skipped.
+func (s *Store) scanSimTime(better func(t, best time.Time) bool) (time.Time, bool) {
 	entries, err := os.ReadDir(filepath.Join(s.dir, "players"))
 	if err != nil {
 		return time.Time{}, false
 	}
-	var max time.Time
+	var best time.Time
 	found := false
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
@@ -888,10 +911,10 @@ func (s *Store) LatestSimTime() (time.Time, bool) {
 			continue
 		}
 		t := time.Unix(0, probe.Payload.SimTimeNano).UTC()
-		if !found || t.After(max) {
-			max = t
+		if !found || better(t, best) {
+			best = t
 			found = true
 		}
 	}
-	return max, found
+	return best, found
 }

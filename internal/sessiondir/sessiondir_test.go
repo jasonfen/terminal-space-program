@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -374,6 +375,49 @@ func TestPlayerPayloadRoundTrip(t *testing.T) {
 	}
 	if len(got.Crafts) > 0 && got.Crafts[0].ID != w.Crafts[0].ID {
 		t.Errorf("craft ID %d, want %d", got.Crafts[0].ID, w.Crafts[0].ID)
+	}
+}
+
+// EarliestSimTime is the minimum stored subspace time, the mirror of
+// LatestSimTime's maximum — LatestSimTime backs --reset-fleet's
+// epoch, EarliestSimTime backs a new player's join point when nobody
+// is live (ADR 0034 §7 amendment / ADR 0045 S3, closing #247/#396).
+func TestEarliestSimTime(t *testing.T) {
+	s := openStore(t)
+	if _, ok := s.EarliestSimTime(); ok {
+		t.Fatal("empty store claims an earliest sim time")
+	}
+
+	wAhead, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	wAhead.Clock.SimTime = wAhead.Clock.SimTime.Add(30 * 24 * time.Hour)
+	if err := s.SavePlayer("SHA256:ahead", wAhead); err != nil {
+		t.Fatalf("SavePlayer: %v", err)
+	}
+
+	wBehind, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	behind := wBehind.Clock.SimTime.Add(5 * 24 * time.Hour)
+	wBehind.Clock.SimTime = behind
+	if err := s.SavePlayer("SHA256:behind", wBehind); err != nil {
+		t.Fatalf("SavePlayer: %v", err)
+	}
+
+	got, ok := s.EarliestSimTime()
+	if !ok {
+		t.Fatal("no earliest sim time with two payloads stored")
+	}
+	if !got.Equal(behind) {
+		t.Errorf("EarliestSimTime = %v, want the furthest-behind payload %v", got, behind)
+	}
+
+	// LatestSimTime still reports the max — the two must not converge.
+	if latest, ok := s.LatestSimTime(); !ok || !latest.Equal(wAhead.Clock.SimTime) {
+		t.Errorf("LatestSimTime = %v/%v, want the furthest-ahead payload %v", latest, ok, wAhead.Clock.SimTime)
 	}
 }
 

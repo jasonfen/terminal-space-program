@@ -31,12 +31,24 @@ func newOfflineServer(t *testing.T) *Server {
 	return srv
 }
 
-// A new player joins at the frontier: the max subspace time across
-// live reports and persisted payloads, never their past.
-func TestJoinAtFrontier(t *testing.T) {
+// A new player joins at the earliest LIVE clock, not the frontier
+// (ADR 0034 §7 amendment / ADR 0045 S3, closing #247/#396): with two
+// players online at different subspace times, the far-ahead one must
+// not pull a rookie forward. Sync is forward-only, so joining behind
+// the group is recoverable and joining ahead of it is a permanent
+// trap — the opposite of the old "you can never start in someone's
+// past" rule this replaces.
+func TestJoinAtEarliestLiveClock(t *testing.T) {
 	srv := newOfflineServer(t)
 
-	// A live session 10 days ahead holds the frontier.
+	wBehind, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	behind := wBehind.Clock.SimTime.Add(6 * 24 * time.Hour)
+	wBehind.Clock.SimTime = behind
+	relay.NewReporter(srv.relay, "SHA256:closer").Tick(wBehind, time.Now())
+
 	wAhead, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -49,23 +61,34 @@ func TestJoinAtFrontier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newGuestApp: %v", err)
 	}
-	if got := app.World().Clock.SimTime; !got.Equal(ahead) {
-		t.Errorf("new player joined at %v, want frontier %v", got, ahead)
+	if got := app.World().Clock.SimTime; !got.Equal(behind) {
+		t.Errorf("new player joined at %v, want earliest live %v", got, behind)
 	}
 }
 
-// Persisted payloads hold the frontier even when nobody is online —
-// an offline veteran's stored time still floors a new join.
-func TestJoinAtFrontierFromStoredPayload(t *testing.T) {
+// A stored (offline) payload far ahead of the live group must not
+// pull a new joiner forward: while anyone is live, offline payloads
+// are ignored entirely for the join point, however far ahead they
+// are. This is the trap #247/#396 exists to close — a lid-open
+// session that warped for days and persisted on disconnect must not
+// keep dropping newcomers into a time nobody is actually at.
+func TestJoinIgnoresStoredPayloadAhead(t *testing.T) {
 	srv := newOfflineServer(t)
 
-	wVet, err := sim.NewWorld()
+	wLive, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	ahead := wVet.Clock.SimTime.Add(30 * 24 * time.Hour)
-	wVet.Clock.SimTime = ahead
-	if err := srv.store.SavePlayer("SHA256:offline-vet", wVet); err != nil {
+	live := wLive.Clock.SimTime.Add(6 * 24 * time.Hour)
+	wLive.Clock.SimTime = live
+	relay.NewReporter(srv.relay, "SHA256:present").Tick(wLive, time.Now())
+
+	wOfflineVet, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	wOfflineVet.Clock.SimTime = wOfflineVet.Clock.SimTime.Add(30 * 24 * time.Hour)
+	if err := srv.store.SavePlayer("SHA256:offline-vet", wOfflineVet); err != nil {
 		t.Fatalf("SavePlayer: %v", err)
 	}
 
@@ -73,8 +96,44 @@ func TestJoinAtFrontierFromStoredPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newGuestApp: %v", err)
 	}
-	if got := app.World().Clock.SimTime; !got.Equal(ahead) {
-		t.Errorf("new player joined at %v, want stored frontier %v", got, ahead)
+	if got := app.World().Clock.SimTime; !got.Equal(live) {
+		t.Errorf("new player joined at %v, want the live player's time %v (stored payload must not pull forward)", got, live)
+	}
+}
+
+// With nobody online, a new player joins alongside the
+// furthest-BEHIND stored payload, not the furthest-ahead one — the
+// minimum, mirroring joinTime's live-session rule onto the offline
+// fallback so an unattended session that ran far ahead can't keep
+// springing the ADR 0034 §7 trap after its owner has disconnected.
+func TestJoinAtFurthestBehindStoredPayloadWhenEmpty(t *testing.T) {
+	srv := newOfflineServer(t)
+
+	wBehind, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	behind := wBehind.Clock.SimTime.Add(5 * 24 * time.Hour)
+	wBehind.Clock.SimTime = behind
+	if err := srv.store.SavePlayer("SHA256:behind-vet", wBehind); err != nil {
+		t.Fatalf("SavePlayer: %v", err)
+	}
+
+	wAhead, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	wAhead.Clock.SimTime = wAhead.Clock.SimTime.Add(30 * 24 * time.Hour)
+	if err := srv.store.SavePlayer("SHA256:ahead-vet", wAhead); err != nil {
+		t.Fatalf("SavePlayer: %v", err)
+	}
+
+	app, err := srv.newGuestApp("SHA256:rookie")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	if got := app.World().Clock.SimTime; !got.Equal(behind) {
+		t.Errorf("new player joined at %v, want furthest-behind stored payload %v", got, behind)
 	}
 }
 

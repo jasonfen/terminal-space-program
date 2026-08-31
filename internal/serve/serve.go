@@ -421,12 +421,12 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	// commits the enrollment.
 	ctx := sess.Context()
 	onEnroll := func(handle string) {
-		// Re-apply the frontier at the COMMIT (review follow-up): the
+		// Re-apply the join time at the COMMIT (review follow-up): the
 		// connect-time sample goes stale while the player sits in the
 		// card/code/handle prompts and other subspaces advance. The
 		// game's tick loop hasn't started yet, so the relabel is safe.
-		if f, ok := s.frontier(); ok && f.After(app.World().Clock.SimTime) {
-			app.World().Clock.SimTime = f
+		if j, ok := s.joinTime(); ok && j.After(app.World().Clock.SimTime) {
+			app.World().Clock.SimTime = j
 		}
 		s.presence.markOnline(fp)
 		s.presence.event(sim.SessionEventJoin, fp, handle, "")
@@ -451,14 +451,18 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 		if app, err = tui.New(nil); err != nil {
 			return nil, err
 		}
-		// Join at the frontier (v0.27 S4, ADR 0034): a NEW player's
-		// clock starts at the max subspace time across live sessions
-		// and persisted payloads — you can never start in someone's
-		// past. Craft state vectors are time-local, so relabelling
-		// "now" is safe. Reconnects (the branch above) keep their own
-		// stored time instead.
-		if f, ok := s.frontier(); ok && f.After(app.World().Clock.SimTime) {
-			app.World().Clock.SimTime = f
+		// Join at the earliest live clock (ADR 0034 §7 amendment /
+		// ADR 0045 S3, closing #247/#396): a NEW player's clock starts
+		// alongside the furthest-behind player actually online, or —
+		// with nobody online — the furthest-behind persisted payload.
+		// Sync is forward-only, so joining behind the group is
+		// recoverable and joining ahead of it is a permanent trap;
+		// this is the deliberate inverse of frontier(), which stays a
+		// max and backs --reset-fleet's epoch instead. Craft state
+		// vectors are time-local, so relabelling "now" is safe.
+		// Reconnects (the branch above) keep their own stored time.
+		if j, ok := s.joinTime(); ok && j.After(app.World().Clock.SimTime) {
+			app.World().Clock.SimTime = j
 		}
 	default:
 		return nil, err
@@ -470,7 +474,10 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 }
 
 // frontier combines the live store's max subspace time with the
-// persisted payloads' — offline players hold the frontier too.
+// persisted payloads' — offline players hold the frontier too. This
+// is the epoch --reset-fleet aligns every clock forward to
+// (ResetFleet, resetfleet.go); it is NOT where a new player joins —
+// see joinTime for that.
 func (s *Server) frontier() (time.Time, bool) {
 	live, okLive := s.relay.Frontier()
 	stored, okStored := s.store.LatestSimTime()
@@ -486,6 +493,27 @@ func (s *Server) frontier() (time.Time, bool) {
 		return stored, true
 	}
 	return time.Time{}, false
+}
+
+// joinTime is where a NEW player's clock starts (ADR 0034 §7
+// amendment / ADR 0045 S3, closing #247/#396): the earliest subspace
+// time among live sessions, or — with nobody online — the
+// furthest-behind persisted payload. Deliberately NOT frontier()
+// inverted-and-merged: while anyone is live, offline payloads are
+// ignored entirely, even ones further behind than the live group, so
+// the rule stays "join with whoever is actually playing." Only the
+// empty-server case falls back to stored payloads at all, and even
+// then it's the minimum, not the maximum — a lid-open session that
+// warped for days and persisted on disconnect must not keep pulling
+// new joiners forward after its owner has left. ok is false only when
+// there are no live sessions AND no persisted payloads at all (i.e.
+// a genuinely empty server), in which case the caller's fresh default
+// clock stands.
+func (s *Server) joinTime() (time.Time, bool) {
+	if live, ok := s.relay.Earliest(); ok {
+		return live, true
+	}
+	return s.store.EarliestSimTime()
 }
 
 // persistMiddleware writes the final per-player payload after the

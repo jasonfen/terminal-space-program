@@ -129,6 +129,40 @@ func TestFrontierUnderDivergence(t *testing.T) {
 	}
 }
 
+// Earliest under divergence: the mirror of Frontier, and the two
+// must not converge on the same value — Frontier backs
+// --reset-fleet's epoch, Earliest backs a new player's join point
+// (ADR 0034 §7 amendment / ADR 0045 S3, closing #247/#396). A viewer
+// ahead of it sees it hold, not move: the whole point is that the
+// laggard, not the leader, sets where newcomers land.
+func TestEarliestUnderDivergence(t *testing.T) {
+	store := NewStore()
+	if _, ok := store.Earliest(); ok {
+		t.Fatal("empty store claims an earliest")
+	}
+	wA, wB := newWorld(t), newWorld(t)
+	// A warps 10 days ahead; B stays put — subspaces diverge.
+	wA.Clock.SimTime = wA.Clock.SimTime.Add(10 * 24 * time.Hour)
+	NewReporter(store, "SHA256:alice").Tick(wA, time.Now())
+	NewReporter(store, "SHA256:bob").Tick(wB, time.Now())
+
+	e, ok := store.Earliest()
+	if !ok {
+		t.Fatal("no earliest with two reports stored")
+	}
+	if !e.Equal(wB.Clock.SimTime) {
+		t.Errorf("earliest = %v, want bob's %v (min of subspaces)", e, wB.Clock.SimTime)
+	}
+	if !e.Before(wA.Clock.SimTime) {
+		t.Error("earliest not behind the leader")
+	}
+
+	// Frontier still reports the max — the two must not converge.
+	if f, ok := store.Frontier(); !ok || !f.Equal(wA.Clock.SimTime) {
+		t.Errorf("Frontier = %v/%v, want alice's %v", f, ok, wA.Clock.SimTime)
+	}
+}
+
 // Concurrent report/subscribe/snapshot is race-clean (the -race run
 // is the assertion; the counts just keep the compiler honest).
 func TestConcurrentReportSubscribe(t *testing.T) {

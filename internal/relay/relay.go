@@ -168,9 +168,12 @@ func (s *Store) Snapshot(excludeOwner string) []CraftReport {
 	return out
 }
 
-// Frontier is the maximum subspace time across every stored report —
-// where a new player joins (you can never start in someone's past,
-// ADR 0034). ok is false while the store is empty.
+// Frontier is the maximum subspace time across every stored report.
+// It backs --reset-fleet's epoch (internal/serve/resetfleet.go),
+// which wants every clock aligned forward to the furthest-advanced
+// session. It is NOT where a new player joins — see Earliest for
+// that (ADR 0034 §7 amendment / ADR 0045 S3). ok is false while the
+// store is empty.
 func (s *Store) Frontier() (time.Time, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -183,6 +186,27 @@ func (s *Store) Frontier() (time.Time, bool) {
 		}
 	}
 	return max, ok
+}
+
+// Earliest is the minimum subspace time across every stored (i.e.
+// live) report — where a new player joins (ADR 0034 §7 amendment /
+// ADR 0045 S3, closing #247/#396): joining behind the group is
+// recoverable with Sync, which is forward-only, so joining ahead of
+// anyone actually playing is the trap to avoid, not joining behind.
+// ok is false while the store is empty; the caller falls back to the
+// furthest-behind persisted payload (sessiondir.Store.EarliestSimTime).
+func (s *Store) Earliest() (time.Time, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var min time.Time
+	ok := false
+	for _, r := range s.reports {
+		if !ok || r.SubspaceTime.Before(min) {
+			min = r.SubspaceTime
+			ok = true
+		}
+	}
+	return min, ok
 }
 
 // Subscribe returns a channel of future reports and a cancel func.
