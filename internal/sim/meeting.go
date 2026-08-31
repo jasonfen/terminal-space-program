@@ -27,10 +27,17 @@ import (
 var (
 	ErrMeetingPlaneMismatch = transferError("your planes differ — match theirs [I] first")
 	ErrMeetingNoCrossing    = transferError("no natural encounter to meet at — try \"their orbit\" or \"your orbit\"")
-	ErrMeetingSizeMismatch  = transferError("orbits differ too much in size for this Meeting Place — plan a transfer [H] first")
-	ErrMeetingUnaffordable  = transferError("meeting burn exceeds remaining Δv budget")
-	ErrMeetingNoSolution    = transferError("no meeting solution on this lap count")
-	ErrMeetingNoSuchLap     = transferError("no such lap count on the ladder")
+	// ErrMeetingCrossingNotImplemented: "the crossing" has no working
+	// solver (review round 2 revert — see planner.
+	// ErrMeetingCrossingNotImplemented's doc comment for why PR #412's
+	// attempt was pulled rather than fixed forward). RecommendMeetingLadder
+	// and PlanMeetingBurn both refuse before computing or planting
+	// anything for this Place.
+	ErrMeetingCrossingNotImplemented = transferError("\"the crossing\" isn't implemented yet — try \"their orbit\" or \"your orbit\"")
+	ErrMeetingSizeMismatch           = transferError("orbits differ too much in size for this Meeting Place — plan a transfer [H] first")
+	ErrMeetingUnaffordable           = transferError("meeting burn exceeds remaining Δv budget")
+	ErrMeetingNoSolution             = transferError("no meeting solution on this lap count")
+	ErrMeetingNoSuchLap              = transferError("no such lap count on the ladder")
 )
 
 // meetingStructuralErr maps a structural (whole-ladder) error from
@@ -45,6 +52,8 @@ func meetingStructuralErr(err error) error {
 		return ErrMeetingPlaneMismatch
 	case errors.Is(err, planner.ErrMeetingNoCrossing):
 		return ErrMeetingNoCrossing
+	case errors.Is(err, planner.ErrMeetingCrossingNotImplemented):
+		return ErrMeetingCrossingNotImplemented
 	case errors.Is(err, planner.ErrMeetingSizeMismatch):
 		return ErrMeetingSizeMismatch
 	default:
@@ -77,9 +86,11 @@ func meetingRowReasonToErr(reason string) error {
 // active craft, a bound relative target (craft or ghost), same
 // primary. The search horizon passed to the planner is
 // rendezvousCommitHorizonSec — ADR 0045 S1's single flat 4h window,
-// used here ONLY for MeetingCrossing's natural-encounter anchor
-// search, never as a private constant (see
-// planner.RecommendMeetingLadder's own doc comment).
+// used here ONLY for MeetingCrossing's existence check (does a natural
+// crossing exist at all — see planner.ErrMeetingCrossingNotImplemented,
+// this Place always refuses regardless of the answer), never as a
+// private constant (see planner.RecommendMeetingLadder's own doc
+// comment).
 func (w *World) RecommendMeetingLadder(place planner.MeetingPlace) (planner.MeetingLadder, error) {
 	active := w.ActiveCraft()
 	if active == nil {
@@ -117,7 +128,10 @@ func (w *World) RecommendMeetingLadder(place planner.MeetingPlace) (planner.Meet
 
 // meetingMoverRemainingDV resolves whose Δv budget gates a ladder's
 // affordability column: the active craft burns for MeetingTheirOrbit
-// and MeetingCrossing; the TARGET burns for MeetingYourOrbit. A local
+// (MeetingCrossing never reaches an affordability check — it always
+// refuses structurally, see planner.ErrMeetingCrossingNotImplemented —
+// but takes the same branch here since it isn't MeetingYourOrbit); the
+// TARGET burns for MeetingYourOrbit. A local
 // craft target's budget is directly readable; a remote ghost's is not
 // (this player's session has no visibility into another player's
 // Spacecraft.Stages) — planner.RecommendMeetingLadder's own
@@ -139,8 +153,9 @@ func (w *World) meetingMoverRemainingDV(place planner.MeetingPlace, active *spac
 
 // MeetingPlan is PlanMeetingBurn's result: the chosen Lap Ladder row
 // plus which craft it applies to. ForActive=true means the node was
-// actually planted on the active craft (MeetingTheirOrbit /
-// MeetingCrossing); ForActive=false means the row describes a burn
+// actually planted on the active craft (MeetingTheirOrbit — the only
+// Place that currently reaches a plant; MeetingCrossing always refuses
+// before getting here); ForActive=false means the row describes a burn
 // for the PARTNER (MeetingYourOrbit) — nothing is planted here, since
 // this session has no authority to queue a node on another player's
 // (or another local craft's) Nodes slate. S6/S7 own how that gets

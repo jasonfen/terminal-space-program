@@ -17,13 +17,20 @@ import (
 type MeetingPlace int
 
 const (
-	// MeetingCrossing — "the crossing": neither orbit is presumed to
-	// need reshaping. The active craft (A) is the mover; the anchor
-	// point is wherever the two CURRENT, unburned courses already come
+	// MeetingCrossing — "the crossing": NOT YET IMPLEMENTED. Intended to
+	// anchor at wherever the two CURRENT, unburned courses already come
 	// closest within the shared search horizon (the same one the
 	// TARGET chip / Engage use, ADR 0045 S1) — "an existing
-	// intersection." Cheapest when a close approach already exists;
-	// refuses when none does (nothing to be cheap about).
+	// intersection" — cheapest when a close approach already exists.
+	// PR #412 tried to build this (Kepler-propagate both craft to the
+	// crossing instant tCA, then solve there) and shipped it broken:
+	// the returned burn is only correct AT tCA, but the caller always
+	// plants the node to fire at "soon" (TriggerTime = now + a slew
+	// lead), not at tCA, so the planted burn routinely missed by
+	// megametres (review round 2). Reverted rather than fixed forward —
+	// see ErrMeetingCrossingNotImplemented. RecommendMeetingLadder
+	// always refuses for this Place; "their orbit" / "your orbit" are
+	// the two working Places.
 	MeetingCrossing MeetingPlace = iota
 	// MeetingTheirOrbit — "their orbit": the target holds, the active
 	// craft (A) is the mover and burns to arrive wherever the target's
@@ -128,7 +135,7 @@ const meetingPlaneTolDeg = 1.0
 // physics.KeplerStep to TArrival); this constant is what turns that
 // number into a gate instead of a display-only field.
 //
-// 1% of r0mag is generous next to the near-machine-precision residual
+// 0.1% of r0mag is generous next to the near-machine-precision residual
 // a genuinely circular holder produces (TestRecommendMeetingLadder_
 // TheirOrbit_PhaseOffsetConverges asserts <5 km on a 6.87e6 m orbit,
 // several orders of magnitude under this bound) but far tighter than
@@ -137,7 +144,23 @@ const meetingPlaneTolDeg = 1.0
 // (e≈0.28) with two co-orbital craft 1/6 period apart, every row's
 // AchievableCA came out ≈6,563,744 m against r0mag≈6.77e6 m — 97% of
 // r0mag, not a rounding error.
-const meetingAchievableCATolFrac = 0.01
+//
+// Was 1% (review finding, LOW): that admitted Ok=true rows whose own
+// propagated AchievableCA ran into the tens of kilometres — measured
+// (500 km LEO calibration radius, r0mag≈6.871e6 m, a mildly eccentric
+// holder e in [0.002, 0.01] a small fraction of a period ahead of the
+// mover) Ok=true rows at 12,717 / 14,959 / 26,142 / 49,422 m, all under
+// the old 1% (≈68,710 m) bound. Since Ok is what an Engage commit
+// treats as "this is a meeting" (MeetingArrivalSec/AchievableCA flow
+// straight through PlanMeetingBurn to the planted node), a tens-of-km
+// miss shouldn't read as one. 0.1% (≈6,871 m at that same radius)
+// clears every one of those four measured values while still passing
+// every row this package's own tests expect to succeed — none of them
+// exercise an eccentric HOLDER on a geometry meant to stay Ok=true
+// (the only eccentric-holder case, TestRecommendMeetingLadder_
+// EccentricHolder_UnachievableRefused, expects total refusal at a
+// ~97%-of-r0mag miss, far outside either bound).
+const meetingAchievableCATolFrac = 0.001
 
 var (
 	// ErrMeetingPlaneMismatch: the two orbital planes differ by more
@@ -153,6 +176,30 @@ var (
 	// The caller's remedy is to pick "their orbit" or "your orbit"
 	// instead, which don't depend on one already existing.
 	ErrMeetingNoCrossing = errors.New("meeting: no natural encounter within the search horizon — try \"their orbit\" or \"your orbit\"")
+	// ErrMeetingCrossingNotImplemented: MeetingCrossing found a natural
+	// crossing (NextClosestApproach converged within
+	// crossingSearchHorizon — see ErrMeetingNoCrossing for when it
+	// doesn't) but this build has no solver for it. PR #412 tried to
+	// anchor meetingLadderCore's tangential solve at the crossing
+	// instant tCA (Kepler-propagate both craft there, then solve as if
+	// "now" were tCA); the row it returned was only correct for a burn
+	// executed AT tCA, but internal/sim.PlanMeetingBurn always plants
+	// the resulting node to fire at TriggerTime = now + a slew lead —
+	// not at tCA — so the planted burn described a course correction
+	// for a position/velocity the mover was never at when the node
+	// actually fired. Measured (review round 2, two-craft LEO fixture,
+	// four configs): advertised AchievableCA in the 15,000-26,000 m
+	// range while the burn actually planted (propagated the same way
+	// Engage does, via rendezvousCommitFromPlantedMeetingNode) missed
+	// by 1.4-16 million metres. Reverted rather than fixed forward — a
+	// correct version needs TriggerTime itself to mean "fire at the
+	// crossing", which is a bigger change than this patch makes. Until
+	// that lands, "the crossing" refuses outright rather than silently
+	// falling back to duplicating MeetingTheirOrbit (the pre-#412
+	// behavior a previous review flagged as an inert decoy) — a picker
+	// walking here sees a plain refusal, never a plantable row that
+	// lies about where it lands.
+	ErrMeetingCrossingNotImplemented = errors.New("meeting: \"the crossing\" isn't implemented yet — try \"their orbit\" or \"your orbit\"")
 	// ErrMeetingSizeMismatch: the mover's current orbital radius never
 	// falls within the holder's own [periapsis, apoapsis] band, so
 	// there is no point on the holder's UNCHANGED orbit the tangential
@@ -181,14 +228,17 @@ var (
 // resolves cross-primary conversion before calling in
 // (TargetStateRelativeToActivePrimary).
 //
-// crossingSearchHorizon bounds ONLY the MeetingCrossing anchor search
-// (NextClosestApproach on the current, unburned courses) — this must
-// be the same flat search horizon every other rendezvous surface uses
-// (ADR 0045 S1 / #394, the sim layer's rendezvousCommitHorizonSec),
-// never a private constant. It does not bound the ladder's own
-// arrival times, which are driven by lap count and can run well past
-// it — that is the entire point of this tool (ADR 0045 §2: "the 4h
-// window bounds a search, not a plan").
+// crossingSearchHorizon bounds ONLY the MeetingCrossing existence check
+// (NextClosestApproach on the current, unburned courses, used solely
+// to tell ErrMeetingNoCrossing apart from ErrMeetingCrossingNotImplemented
+// — MeetingCrossing has no working solver yet, see that sentinel's doc
+// comment) — this must be the same flat search horizon every other
+// rendezvous surface uses (ADR 0045 S1 / #394, the sim layer's
+// rendezvousCommitHorizonSec), never a private constant. It does not
+// bound the ladder's own arrival times for the two working Places,
+// which are driven by lap count and can run well past it — that is the
+// entire point of this tool (ADR 0045 §2: "the 4h window bounds a
+// search, not a plan").
 //
 // moverRemainingDV is the mover's Spacecraft.RemainingDeltaV() (ADR
 // 0045 §2's affordability check). A NEGATIVE value means unknown
@@ -200,11 +250,12 @@ var (
 // on that (every priced row unaffordable), not treat it as "unknown,
 // let everything through".
 //
-// Returns a non-nil error only for structural refusals (bad input,
-// non-coplanar geometry, MeetingCrossing with nothing to anchor on).
-// Per-row gate failures (unaffordable, unsafe periapsis, no meeting
-// solution for a given lap count) are reported IN the ladder's Rows,
-// Ok=false — visible, not hidden (ADR 0045 §2).
+// Returns a non-nil error for structural refusals: bad input,
+// non-coplanar geometry, or MeetingCrossing (always — see
+// ErrMeetingCrossingNotImplemented, this Place has no working solver).
+// Per-row gate failures on the two working Places (unaffordable, unsafe
+// periapsis, no meeting solution for a given lap count) are reported IN
+// the ladder's Rows, Ok=false — visible, not hidden (ADR 0045 §2).
 func RecommendMeetingLadder(
 	stateA, stateB orbital.Vec3State,
 	primary bodies.CelestialBody,
@@ -233,51 +284,27 @@ func RecommendMeetingLadder(
 		}
 		return MeetingLadder{Place: place, MoverIsA: false, Rows: rows}, nil
 	case MeetingCrossing:
+		// Regression revert (review round 2): PR #412 replaced this
+		// existence-check-only refusal with an attempt to Kepler-
+		// propagate both craft to the crossing instant tCA and solve
+		// there. That attempt is gone — see ErrMeetingCrossingNotImplemented's
+		// doc comment for the measured failure and why this wasn't
+		// fixed forward. The existence check stays (it's cheap, and it
+		// lets the refusal distinguish "no natural crossing exists" from
+		// "one exists but this build can't solve it") but its result is
+		// never fed into meetingLadderCore — there is no solve to feed
+		// it into. This intentionally reproduces this Place's pre-#412
+		// behavior MINUS the decoy: instead of silently running
+		// MeetingTheirOrbit's solve and calling it "the crossing" (a
+		// previous review's own "MeetingCrossing is inert" finding),
+		// it refuses outright and says so.
 		if crossingSearchHorizon <= 0 {
 			return MeetingLadder{}, errMeetingInvalidInput
 		}
-		tCA, _, _, err := NextClosestApproach(stateA, stateB, primary, mu, crossingSearchHorizon)
-		if err != nil {
+		if _, _, _, err := NextClosestApproach(stateA, stateB, primary, mu, crossingSearchHorizon); err != nil {
 			return MeetingLadder{}, ErrMeetingNoCrossing
 		}
-		// Finding 3 (review): this used to run meetingLadderCore on
-		// stateA/stateB exactly as MeetingTheirOrbit does — the anchor
-		// search above was an existence check only, never fed into the
-		// solve, so the two Places produced byte-identical ladders.
-		//
-		// Anchor properly: Kepler-propagate BOTH craft forward (unburned)
-		// to the natural crossing instant tCA found above, then run the
-		// SAME tangential-return solve anchored THERE instead of at
-		// "now" — mover and holder are already close at tCA (that's what
-		// makes it a crossing), so the correction Δv this produces is
-		// typically small, matching the doc comment's "cheapest when a
-		// close approach already exists." Genuinely different math from
-		// MeetingTheirOrbit whenever tCA isn't ~0 (mover's position at
-		// the crossing instant differs from its position now), which is
-		// the ordinary case.
-		moverAtTCA, mok := physics.KeplerStep(physics.StateVector{R: stateA.R, V: stateA.V}, mu, tCA)
-		holderAtTCA, hok := physics.KeplerStep(physics.StateVector{R: stateB.R, V: stateB.V}, mu, tCA)
-		if !mok || !hok {
-			return MeetingLadder{}, ErrMeetingNoCrossing
-		}
-		rows, err := meetingLadderCore(
-			orbital.Vec3State{R: moverAtTCA.R, V: moverAtTCA.V},
-			orbital.Vec3State{R: holderAtTCA.R, V: holderAtTCA.V},
-			primary, mu, moverRemainingDV)
-		if err != nil {
-			return MeetingLadder{}, err
-		}
-		// meetingLadderCore's TArrival is relative to the epoch of the
-		// states it was given — here, tCA, not "now". Re-anchor to "now"
-		// (add tCA back) so MeetingBurnOption.TArrival keeps its
-		// documented "seconds from now" meaning for every Place, not
-		// just the two that solve directly off stateA/stateB.
-		for i := range rows {
-			if rows[i].TArrival > 0 {
-				rows[i].TArrival += tCA
-			}
-		}
-		return MeetingLadder{Place: place, MoverIsA: true, Rows: rows}, nil
+		return MeetingLadder{}, ErrMeetingCrossingNotImplemented
 	}
 	return MeetingLadder{}, errMeetingInvalidInput
 }
