@@ -292,12 +292,34 @@ type World struct {
 	RendezvousInvite *RendezvousInvite
 
 	// RendezvousHold freezes the viewer's effective warp while the shared
-	// coast runs and the armed partner is paused or behind-diverged
-	// (v0.29 review): the coast leader waits instead of sailing to τ
-	// alone and blowing the subspace tolerance. Set each tick by
-	// DriveRendezvousWarp, read by clampedWarp — a member of the
-	// Effective-≤-Selected clamp family. Transient, serve-written.
+	// coast runs and the armed partner is GENUINELY PAUSED (their clock
+	// stopped, ahead >= 0) — v0.29 review, narrowed by #395 (ADR 0045
+	// S2): a leader who has merely pulled ahead of a live, un-paused
+	// partner is no longer an outright freeze here, see RendezvousPaced.
+	// A hard freeze for a stopped partner is still correct — there is no
+	// rate to pace to. Set each tick by DriveRendezvousWarp, read by
+	// clampedWarp — a member of the Effective-≤-Selected clamp family.
+	// Transient, serve-written.
 	RendezvousHold bool
+
+	// RendezvousPaced / RendezvousPaceWarp (#395, ADR 0045 S2) replace
+	// the old drift branch of RendezvousHold: instead of freezing the
+	// leader outright the instant it pulls ahead of the partner's
+	// reported subspace time, the leader's ceiling glides continuously
+	// down to 0 as the gap grows toward rendezvousPaceCeilingSec — full
+	// rate at zero gap, paced back as the gap widens, deliberately short
+	// of coWarpSubspaceToleranceSec so there is deadband before
+	// sameSubspace would release the pair (Part 3). Fixes #279: the old
+	// binary hold at the SAME constant the couple gate used produced
+	// negative feedback with no deadband — sprint to the wall, freeze to
+	// 0, repeat every relay-report cycle. RendezvousPaced is true
+	// whenever the ramp is actively capping (ahead > 0); RendezvousPaceWarp
+	// is the ceiling clampedWarp applies while it's set — meaningless
+	// otherwise. Set each tick by DriveRendezvousWarp (holdRendezvousLeader),
+	// read by clampedWarp and the RENDEZVOUS chip. Transient, serve-written
+	// like RendezvousHold.
+	RendezvousPaced    bool
+	RendezvousPaceWarp float64
 
 	// RendezvousPartnerAway mirrors the armed partner's live Away state
 	// (#253, ADR 0036): their session still flies — a Commitment Reprieve
@@ -1257,6 +1279,14 @@ func (w *World) clampedWarp() float64 {
 	// restores exactly the state the player had.
 	if w.RendezvousHold {
 		return 0
+	}
+	// #395 (ADR 0045 S2): the leader's ceiling glides down as it pulls
+	// ahead of the partner's reported subspace time, rather than
+	// freezing outright at the boundary (that was the #279 bang-bang —
+	// see RendezvousPaced's doc). Only ever reduces; every clamp below
+	// still applies on top of it.
+	if w.RendezvousPaced && selected > w.RendezvousPaceWarp {
+		selected = w.RendezvousPaceWarp
 	}
 	// ADR 0037 §2: inside a rendezvous agreement's TERMINAL phase the
 	// pair's rate is the initiator's selection. The copilot's own selection

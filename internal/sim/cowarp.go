@@ -61,6 +61,18 @@ const (
 	// Tunable.
 	coWarpSubspaceToleranceSec = 120.0
 
+	// rendezvousPaceCeilingSec is the sim-time gap (leader ahead of the
+	// partner's reported subspace time) at which the paced ramp
+	// (holdRendezvousLeader / clampedWarp's RendezvousPaced clamp)
+	// reaches 0 — #395, ADR 0045 S2, closing #279. Deliberately LESS than
+	// coWarpSubspaceToleranceSec so a deadband exists between "paced to a
+	// stop" and "sameSubspace would release the pair" (Part 3): the old
+	// hold tripped at the exact same constant the couple gate used, so
+	// the leader crossed the release threshold in the same tick it froze,
+	// and the resulting sprint/freeze/sprint cycle bang-banged in lockstep
+	// with the relay report cadence. 90 s leaves a 30 s margin. Tunable.
+	rendezvousPaceCeilingSec = 90.0
+
 	// coWarpStepSafety is how many ticks of the same-subspace window a
 	// coupled player must leave in hand (#244). The min-warp clamp is
 	// derived from the partner's relayed report, so it is never fresher

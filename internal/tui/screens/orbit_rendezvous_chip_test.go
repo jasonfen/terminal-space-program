@@ -433,3 +433,151 @@ func TestSessionEventsChipRendezvousKinds(t *testing.T) {
 		}
 	}
 }
+
+// #395 (ADR 0045 S2, closing #279): the old code flickered between
+// "coasting with X" and "⏸ holding — waiting for X" every relay report
+// while the leader bang-banged between the subspace step cap and a dead
+// freeze. RendezvousHold is now reserved for a genuinely stopped partner;
+// a live partner the leader has merely pulled ahead of gets a steady
+// paced line instead, naming the rate and who it's paced to.
+func TestRendezvousChipPacedLine(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 900)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+	w.RendezvousPaced = true
+	w.RendezvousPaceWarp = 200
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	for _, want := range []string{"coasting 200x", "paced to gern"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("paced chip missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "holding") {
+		t.Errorf("paced chip still shows the hard-hold line for a live partner:\n%s", joined)
+	}
+}
+
+// A genuinely stopped partner (RendezvousHold) must still surface the old
+// hard-hold line, not the paced one — there is no rate to pace to when
+// the partner's clock has stopped.
+func TestRendezvousChipHoldStillAppliesForGenuinePause(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 900)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+	w.RendezvousHold = true
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	if !strings.Contains(joined, "holding — waiting for gern") {
+		t.Errorf("hold state not surfaced on the chip:\n%s", joined)
+	}
+	if strings.Contains(joined, "paced to") {
+		t.Errorf("hold chip also shows a paced line — the two must be mutually exclusive:\n%s", joined)
+	}
+}
+
+// If both flags were ever set at once (they shouldn't be — the sim sets
+// them mutually exclusively, see holdRendezvousLeader), the hard hold
+// must win: it is the stronger, more urgent claim ("nothing to pace to").
+func TestRendezvousChipHoldWinsOverPaced(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 900)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+	w.RendezvousHold = true
+	w.RendezvousPaced = true
+	w.RendezvousPaceWarp = 200
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	if !strings.Contains(joined, "holding — waiting for gern") {
+		t.Errorf("hold did not win over paced:\n%s", joined)
+	}
+	if strings.Contains(joined, "paced to") {
+		t.Errorf("paced line rendered alongside a genuine hold:\n%s", joined)
+	}
+}
+
+// The terminal (approach) phase carries its own standing line at the
+// same code site (orbit_chip_builders.go:582 pre-#395) — same split
+// applies there.
+func TestRendezvousChipApproachPhasePacedLine(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := approachChipWorld(t, sim.RendezvousSeatCopilot)
+	w.RendezvousPaced = true
+	w.RendezvousPaceWarp = 50
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	if !strings.Contains(joined, "paced to gern") {
+		t.Errorf("approach-phase paced line missing:\n%s", joined)
+	}
+	if strings.Contains(joined, "holding") {
+		t.Errorf("approach-phase paced chip still shows the hard-hold line:\n%s", joined)
+	}
+}
+
+func TestRendezvousChipApproachPhaseHoldLine(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := approachChipWorld(t, sim.RendezvousSeatCopilot)
+	w.RendezvousHold = true
+
+	joined := strings.Join(v.buildRendezvousChip(w), "\n")
+	if !strings.Contains(joined, "holding — waiting for gern") {
+		t.Errorf("approach-phase hold line missing:\n%s", joined)
+	}
+}
+
+// The known trap (v0.35 lesson): chip content must be exercised at the
+// production --serve tmux width, 80×24, not a wide dev terminal. Render
+// the paced RENDEZVOUS chip through the real corner compositor at 80×24
+// and confirm every line still measures the same in terminal cells as it
+// splices into the canvas (the #253 💤 width-2-glyph trap) — the paced
+// line is new text on this path and must not silently break either
+// check the way an ANSI-unaware %-Ns pad would.
+func TestRendezvousChipPacedRendersAt80x24(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	tau := w.Clock.SimTime.Add(2 * time.Hour)
+	w.EngageRendezvousWarp("SHA256:guest", "gern", tau, 900)
+	w.AutoWarp = &sim.AutoWarpTarget{
+		T: tau, Rendezvous: true,
+		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
+	}
+	w.RendezvousPaced = true
+	w.RendezvousPaceWarp = 200
+
+	lines := v.buildRendezvousChip(w)
+	assertChipCellWidthConsistent(t, "paced rendezvous chip", lines)
+
+	out := v.composeChips(blankCanvas(80, 24), 80, 24, 0, 0, 0,
+		[]builtChip{{corner: cornerBottomLeft, lines: lines}})
+	if !strings.Contains(out, "coasting 200x") {
+		t.Errorf("paced line missing from the 80×24 composited canvas:\n%s", out)
+	}
+	for _, row := range strings.Split(out, "\n") {
+		if w := lenRunes(row); w != 80 {
+			t.Errorf("composited row width = %d, want 80 (narrow-terminal overflow): %q", w, row)
+		}
+	}
+}
+
+func lenRunes(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
+}

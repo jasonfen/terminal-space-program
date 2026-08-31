@@ -76,9 +76,12 @@ func TestRendezvousArrivalWindowNoCancel(t *testing.T) {
 	}
 }
 
-// Hold-the-leader: a paused partner (or a divergence with the viewer
-// ahead) freezes the viewer's effective warp instead of cancelling the
-// encounter; the behind side keeps coasting to close the gap.
+// Hold-the-leader: a paused partner freezes the viewer's effective warp
+// instead of cancelling the encounter; a divergence with the viewer ahead
+// against a LIVE partner paces it back instead (#395, ADR 0045 S2 —
+// RendezvousHold narrowed to the genuine-pause case only, closing #279's
+// bang-bang between the old hold and the couple gate). Either way the
+// behind side keeps coasting to close the gap.
 func TestRendezvousHoldOnPausedOrDivergedPartner(t *testing.T) {
 	w, primary, st := anchorWorld(t)
 	tau := st.Add(72 * time.Hour)
@@ -112,18 +115,30 @@ func TestRendezvousHoldOnPausedOrDivergedPartner(t *testing.T) {
 		t.Error("hold survived the partner's unpause")
 	}
 
-	// Viewer diverged AHEAD past the tolerance → hold (wait for them).
+	// Viewer diverged AHEAD past the pace ceiling, partner still LIVE
+	// (not paused) → paced, not held (#395): a live partner has a rate to
+	// pace to, so this is no longer the outright freeze — it just glides
+	// to the same 0 an ahead gap this wide would ramp to anyway.
 	peer.SubspaceTime = st.Add(-10 * time.Minute)
 	w.DriveRendezvousWarp([]CoWarpPeer{peer})
-	if !w.RendezvousHold {
-		t.Error("no hold while ahead-diverged — the leader would sail to τ alone")
+	if w.RendezvousHold {
+		t.Error("hard hold while ahead-diverged against a LIVE partner — that's now RendezvousPaced")
+	}
+	if !w.RendezvousPaced {
+		t.Error("no pacing while ahead-diverged — the leader would sail to τ alone")
+	}
+	if w.EffectiveWarp() != 0 {
+		t.Errorf("EffectiveWarp = %v while paced this far past the ceiling, want 0", w.EffectiveWarp())
 	}
 
-	// Viewer BEHIND → no hold: it must keep coasting to catch up.
+	// Viewer BEHIND → no hold, no pacing: it must keep coasting to catch up.
 	peer.SubspaceTime = st.Add(10 * time.Minute)
 	w.DriveRendezvousWarp([]CoWarpPeer{peer})
 	if w.RendezvousHold {
 		t.Error("hold set while behind — the laggard could never catch up")
+	}
+	if w.RendezvousPaced {
+		t.Error("paced while behind — the laggard could never catch up")
 	}
 }
 
