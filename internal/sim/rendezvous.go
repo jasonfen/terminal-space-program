@@ -260,10 +260,64 @@ func (w *World) RendezvousNeedsBurnToClose(ca float64) bool {
 	return ca >= rendezvousGapNoteBar
 }
 
-func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
+// RendezvousPlan is RendezvousCommitWithPlan's result (ADR 0045 S7,
+// #400): everything Engage needs to form the agreement — the same τ/CA
+// RendezvousCommit returns, plus the Meeting Place + lap count when the
+// commit's source was a planted Meeting Burn node. MeetingPlaceLabel is
+// "" whenever the source was the trim-rung nudge or the current-course
+// search — neither has a Place to name. A zero Tau (Tau.IsZero()) means
+// "agreed, no plan yet": Engage no longer refuses on this (see
+// RendezvousCommitWithPlan's doc comment) — it commits the agreement
+// with nothing to chase.
+type RendezvousPlan struct {
+	Tau               time.Time
+	CommittedCA       float64
+	MeetingPlaceLabel string
+	MeetingLaps       int
+}
+
+// RendezvousCommitWithPlan is RendezvousCommit's meeting-aware sibling
+// (ADR 0045 S7, #400): the SAME structural gates and the SAME two
+// (now three) search sources, but it never refuses on "no encounter
+// found" — only on a genuinely structural failure (no active craft, no
+// resolvable relative target, cross-primary). ok=false means Engage
+// itself has nothing to act on at all; ok=true with a zero-Tau Plan means
+// the agreement forms with no committed encounter — neither a planted
+// node nor the 4h current-course search found one — which used to be
+// Engage's outright refusal ("no closable encounter... plant a nudge [K]
+// first") and is now the "agreed, no plan yet" state instead: the whole
+// point of this slice is that Engage stops meaning "we found an
+// encounter" and starts meaning "we are going to meet".
+//
+// Kept alongside RendezvousCommit (which now just delegates here and
+// folds a zero-Tau Plan back into its own ok=false) rather than replacing
+// it — changing RendezvousCommit's 3-value signature would touch every
+// existing call site for no behavioural gain outside Engage itself.
+//
+// Three sources, tried in this order:
+//
+//  1. A PLANTED rendezvous nudge (K's trim rung) — unchanged from
+//     RendezvousCommit's old Source 1, see rendezvousCommitFromPlantedNode.
+//  2. A PLANTED Meeting Burn node (K's meeting rung / the picker's Enter,
+//     PlanMeetingBurn) — new in this slice. Tried second, after the trim
+//     rung: the two AdvisoryKeys never collide (K plants exactly one of
+//     them per press, PlanRendezvousOrOpenMeeting's whole point), so in
+//     practice at most one of Source 1/2 ever has anything to find: this
+//     ordering is precedence for the rare case both somehow exist, not a
+//     load-bearing choice. See rendezvousCommitFromPlantedMeetingNode for
+//     why this source does NOT re-search within the 4h horizon the way
+//     Source 1 does.
+//  3. The current-course fallback (no burn assumed) — unchanged from
+//     RendezvousCommit's old Source 2, see rendezvousCommitCurrentCourse.
+//     Still bounded by rendezvousCommitHorizonSec: this is a SEARCH, not
+//     a plan.
+//
+// ok=true with a zero Tau when none of the three sources found anything —
+// the agreed-no-plan state.
+func (w *World) RendezvousCommitWithPlan() (RendezvousPlan, bool) {
 	active := w.ActiveCraft()
 	if active == nil || !w.HasRelativeTarget() {
-		return time.Time{}, 0, false
+		return RendezvousPlan{}, false
 	}
 	// Shared-primary gate (#261): the fallback below Kepler-propagates the
 	// target's state around the ACTIVE craft's primary. For a target
@@ -277,11 +331,11 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	// search and, when that too is empty, to idle-and-retry with the
 	// degrade warning up (armedPartnerLacksLocalCraft).
 	if primary, pok := w.rendezvousTargetPrimary(); !pok || primary.ID != active.Primary.ID {
-		return time.Time{}, 0, false
+		return RendezvousPlan{}, false
 	}
 	rT, vT, rok := w.TargetStateRelativeToActivePrimary()
 	if !rok {
-		return time.Time{}, 0, false
+		return RendezvousPlan{}, false
 	}
 	mu := active.Primary.GravitationalParameter()
 
@@ -297,12 +351,51 @@ func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
 	// planted one wins.
 	if node, nok := plantedAdvisoryNode(active, AdvisoryKeyRendezvousNudge, w.Target.CraftID, w.Target.GhostOwner); nok {
 		if t, c, cok := w.rendezvousCommitFromPlantedNode(active, node, rT, vT, mu); cok {
-			return t, c, true
+			return RendezvousPlan{Tau: t, CommittedCA: c}, true
 		}
 	}
 
-	// Source 2: the current-course fallback (no burn assumed).
-	return w.rendezvousCommitCurrentCourse(active, rT, vT, mu)
+	// Source 2: a planted Meeting Burn node (ADR 0045 S7, #400).
+	if node, nok := plantedAdvisoryNode(active, AdvisoryKeyMeetingBurn, w.Target.CraftID, w.Target.GhostOwner); nok {
+		if t, c, cok := w.rendezvousCommitFromPlantedMeetingNode(active, node, rT, vT, mu); cok {
+			return RendezvousPlan{
+				Tau: t, CommittedCA: c,
+				MeetingPlaceLabel: node.MeetingPlaceLabel,
+				MeetingLaps:       node.MeetingLaps,
+			}, true
+		}
+	}
+
+	// Source 3: the current-course fallback (no burn assumed). Its own
+	// ok=false is no longer Engage's refusal — it's the agreed-no-plan
+	// state (zero-value Plan), still reported as RendezvousCommitWithPlan
+	// ok=true since every structural gate above already passed.
+	if t, c, cok := w.rendezvousCommitCurrentCourse(active, rT, vT, mu); cok {
+		return RendezvousPlan{Tau: t, CommittedCA: c}, true
+	}
+	return RendezvousPlan{}, true
+}
+
+// RendezvousCommit returns the encounter the initiator commits a
+// Rendezvous Warp to (v0.29 S2, ADR 0034 v0.29 addendum): the absolute
+// τ and its predicted approach against the current relative target.
+// ok=false when no encounter can be found at all: no relative target,
+// cross-primary, or no approach inside the horizon.
+//
+// ADR 0045 S7 (#400): this signature and its "nothing found ⇒ ok=false"
+// behaviour are UNCHANGED — every pre-existing caller keeps working
+// exactly as before. Delegates to RendezvousCommitWithPlan above, which
+// folds a zero-Tau Plan (the new "agreed, no plan yet" outcome) back into
+// ok=false here. Engage itself (app.go's SessionCmdRendezvous handling)
+// calls RendezvousCommitWithPlan directly, since it now DOES act on the
+// zero-Tau case instead of refusing — see that function's doc comment
+// for the full source list and the behavioural change.
+func (w *World) RendezvousCommit() (tau time.Time, ca float64, ok bool) {
+	plan, pok := w.RendezvousCommitWithPlan()
+	if !pok || plan.Tau.IsZero() {
+		return time.Time{}, 0, false
+	}
+	return plan.Tau, plan.CommittedCA, true
 }
 
 // rendezvousCommitCurrentCourse searches for a closest approach on the
@@ -373,6 +466,56 @@ func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, n
 		return time.Time{}, 0, false
 	}
 	return node.TriggerTime.Add(time.Duration(tCA * float64(time.Second))), distCA, true
+}
+
+// rendezvousCommitFromPlantedMeetingNode computes the encounter a planted
+// Meeting Burn node (AdvisoryKeyMeetingBurn) actually leads to — the
+// meeting-aware sibling of rendezvousCommitFromPlantedNode just above,
+// called only from RendezvousCommitWithPlan's Source 2 (ADR 0045 S7,
+// #400). Shares its sibling's first two steps (Kepler-propagate the
+// target's current relative state to the node's TriggerTime, then apply
+// the node's burn against that same propagated snapshot via
+// postBurnStateWithTarget) but then DIVERGES: instead of running
+// NextClosestApproach over rendezvousCommitHorizonSec, it propagates BOTH
+// the post-burn mover and the (unburned) holder straight to
+// node.MeetingArrivalSec past TriggerTime — no SEARCH. The Meeting
+// Planner's tangential solve (planner.meetingLadderCore) already aimed
+// this exact burn at this exact instant; re-searching within the 4h
+// window the way the trim-rung sibling does would miss any wait longer
+// than that window entirely, which is the ordinary case for more than a
+// couple of laps (ADR 0045 §5 — "the 4h window bounds a search, not a
+// plan").
+//
+// ok=false for the same reasons as the sibling (past-due node, a
+// degenerate Kepler step, an SOI crossing before the burn fires, an
+// unresolvable direction), plus a node with no MeetingArrivalSec — either
+// a non-Meeting-Burn node reaching this by construction error, or one
+// whose row.TArrival didn't clear the lead buffer at plant time (see
+// PlanMeetingBurn) — treated as "no plan info", not zero wait.
+func (w *World) rendezvousCommitFromPlantedMeetingNode(active *spacecraft.Spacecraft, node spacecraft.ManeuverNode, rT, vT orbital.Vec3, mu float64) (time.Time, float64, bool) {
+	if node.MeetingArrivalSec <= 0 {
+		return time.Time{}, 0, false
+	}
+	dt := node.TriggerTime.Sub(w.Clock.SimTime).Seconds()
+	if dt <= 0 {
+		return time.Time{}, 0, false
+	}
+	targetState, tok := physics.KeplerStep(physics.StateVector{R: rT, V: vT}, mu, dt)
+	if !tok {
+		return time.Time{}, 0, false
+	}
+	postState, primaryID, pok := w.postBurnStateWithTarget(node, targetState.R, targetState.V)
+	if !pok || primaryID != active.Primary.ID {
+		return time.Time{}, 0, false
+	}
+	moverArr, mok := physics.KeplerStep(postState, mu, node.MeetingArrivalSec)
+	holderArr, hok := physics.KeplerStep(targetState, mu, node.MeetingArrivalSec)
+	if !mok || !hok {
+		return time.Time{}, 0, false
+	}
+	arrival := node.TriggerTime.Add(time.Duration(node.MeetingArrivalSec * float64(time.Second)))
+	dist := moverArr.R.Sub(holderArr.R).Norm()
+	return arrival, dist, true
 }
 
 // rendezvousWaypointMinLead is the minimum forward distance a newly

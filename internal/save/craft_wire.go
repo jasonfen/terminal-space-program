@@ -120,19 +120,22 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 		// See executeDueNodesFor below for the refuse-to-fire guard that
 		// makes that failure safe rather than a burn against a zero state.
 		wc.Nodes = append(wc.Nodes, Node{
-			ID:               n.ID,
-			TriggerTimeNano:  trigNano,
-			Mode:             int(n.Mode),
-			DV:               n.DV,
-			DurationNano:     int64(n.Duration),
-			PrimaryID:        n.PrimaryID,
-			Event:            int(n.Event),
-			Throttle:         n.Throttle,
-			TargetCraftID:    n.TargetCraftID,
-			PlaneChangeRad:   n.PlaneChangeRad,
-			BurnDirUnit:      vec3From(n.BurnDirUnit),
-			AdvisoryKey:      n.AdvisoryKey,
-			TargetGhostOwner: n.TargetGhostOwner,
+			ID:                n.ID,
+			TriggerTimeNano:   trigNano,
+			Mode:              int(n.Mode),
+			DV:                n.DV,
+			DurationNano:      int64(n.Duration),
+			PrimaryID:         n.PrimaryID,
+			Event:             int(n.Event),
+			Throttle:          n.Throttle,
+			TargetCraftID:     n.TargetCraftID,
+			PlaneChangeRad:    n.PlaneChangeRad,
+			BurnDirUnit:       vec3From(n.BurnDirUnit),
+			AdvisoryKey:       n.AdvisoryKey,
+			TargetGhostOwner:  n.TargetGhostOwner,
+			MeetingArrivalSec: n.MeetingArrivalSec,
+			MeetingPlaceLabel: n.MeetingPlaceLabel,
+			MeetingLaps:       n.MeetingLaps,
 		})
 	}
 	if c.ActiveBurn != nil {
@@ -351,19 +354,22 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			trig = time.Unix(0, n.TriggerTimeNano).UTC()
 		}
 		c.Nodes = append(c.Nodes, sim.ManeuverNode{
-			ID:               n.ID,
-			TriggerTime:      trig,
-			Mode:             spacecraft.BurnMode(n.Mode),
-			DV:               n.DV,
-			Duration:         time.Duration(n.DurationNano),
-			PrimaryID:        n.PrimaryID,
-			Event:            sim.TriggerEvent(n.Event),
-			Throttle:         n.Throttle,
-			TargetCraftID:    n.TargetCraftID,
-			PlaneChangeRad:   n.PlaneChangeRad,
-			BurnDirUnit:      vec3To(n.BurnDirUnit),
-			AdvisoryKey:      n.AdvisoryKey,
-			TargetGhostOwner: n.TargetGhostOwner, // #294 review finding 5
+			ID:                n.ID,
+			TriggerTime:       trig,
+			Mode:              spacecraft.BurnMode(n.Mode),
+			DV:                n.DV,
+			Duration:          time.Duration(n.DurationNano),
+			PrimaryID:         n.PrimaryID,
+			Event:             sim.TriggerEvent(n.Event),
+			Throttle:          n.Throttle,
+			TargetCraftID:     n.TargetCraftID,
+			PlaneChangeRad:    n.PlaneChangeRad,
+			BurnDirUnit:       vec3To(n.BurnDirUnit),
+			AdvisoryKey:       n.AdvisoryKey,
+			TargetGhostOwner:  n.TargetGhostOwner, // #294 review finding 5
+			MeetingArrivalSec: n.MeetingArrivalSec,
+			MeetingPlaceLabel: n.MeetingPlaceLabel,
+			MeetingLaps:       n.MeetingLaps,
 		})
 	}
 	if wc.ActiveBurn != nil {

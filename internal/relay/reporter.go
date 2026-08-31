@@ -41,12 +41,20 @@ type Reporter struct {
 	lastWall     time.Time
 	lastKeys     []craftKey
 	lastEffWarp  float64
-	lastRzTarget string    // last-reported Rendezvous Warp target (v0.29 S1) — a change forces a report
-	lastRzTau    time.Time // last-reported committed τ — a re-commit toward the SAME partner must also propagate promptly (v0.29 review)
-	lastPaused   bool      // last-reported pause state — the partner's hold-the-leader keys on it (v0.29 review)
-	lastRzRate   float64   // last-reported seat rate (ADR 0037 §2) — the partner clamps to it, so a change must not wait for the heartbeat
-	lastRzSeat   bool      // last-reported initiator seat — cheap, and a re-arm can flip it
-	lastActiveID uint64    // last-reported active craft (#288) — a switch moves no orbit, so nothing else would trigger a report
+	lastRzTarget string // last-reported Rendezvous Warp target (v0.29 S1) — a change forces a report
+	// lastRzTau is the last-reported committed τ — a re-commit toward the
+	// SAME partner must also propagate promptly (v0.29 review).
+	lastRzTau time.Time
+	// lastRzMeetingPlace is the last-reported Meeting Place label (ADR
+	// 0045 S7, #400) — a plant-then-re-Engage that happens to land the
+	// SAME τ (unlikely, but not provably impossible: two different
+	// Meeting Places can coincide on arrival time) must still propagate
+	// promptly, not wait for the heartbeat.
+	lastRzMeetingPlace string
+	lastPaused         bool    // last-reported pause state — the partner's hold-the-leader keys on it (v0.29 review)
+	lastRzRate         float64 // last-reported seat rate (ADR 0037 §2) — the partner clamps to it, so a change must not wait for the heartbeat
+	lastRzSeat         bool    // last-reported initiator seat — cheap, and a re-arm can flip it
+	lastActiveID       uint64  // last-reported active craft (#288) — a switch moves no orbit, so nothing else would trigger a report
 }
 
 // effWarpRelTol is the relative change in Effective warp that forces a
@@ -85,10 +93,14 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	var rzTarget string
 	var rzTau time.Time
 	var rzCA float64
+	var rzMeetingPlace string
+	var rzMeetingLaps int
 	if w.RendezvousArm != nil {
 		rzTarget = w.RendezvousArm.TargetOwner
 		rzTau = w.RendezvousArm.Tau
 		rzCA = w.RendezvousArm.CommittedCA
+		rzMeetingPlace = w.RendezvousArm.MeetingPlaceLabel
+		rzMeetingLaps = w.RendezvousArm.MeetingLaps
 	}
 	// Seat + rate (ADR 0037 §2): in the terminal phase the partner's clock
 	// is a function of this number, so it has to travel as promptly as the
@@ -110,7 +122,7 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	due := r.lastWall.IsZero() || now.Sub(r.lastWall) >= Heartbeat ||
 		r.lastRzTarget != rzTarget || !r.lastRzTau.Equal(rzTau) || r.lastPaused != paused ||
 		r.lastActiveID != activeID ||
-		r.lastRzRate != rzRate || r.lastRzSeat != rzSeat
+		r.lastRzRate != rzRate || r.lastRzSeat != rzSeat || r.lastRzMeetingPlace != rzMeetingPlace
 	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
 		return
 	}
@@ -119,6 +131,7 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	r.lastEffWarp = effWarp
 	r.lastRzTarget = rzTarget
 	r.lastRzTau = rzTau
+	r.lastRzMeetingPlace = rzMeetingPlace
 	r.lastPaused = paused
 	r.lastActiveID = activeID
 	r.lastRzRate, r.lastRzSeat = rzRate, rzSeat
@@ -131,6 +144,9 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		RendezvousTarget: rzTarget,
 		RendezvousTau:    rzTau,
 		RendezvousCA:     rzCA,
+
+		RendezvousMeetingPlace: rzMeetingPlace,
+		RendezvousMeetingLaps:  rzMeetingLaps,
 
 		RendezvousInitiator: rzSeat,
 		RendezvousRate:      rzRate,

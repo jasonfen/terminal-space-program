@@ -429,6 +429,8 @@ func (v *OrbitView) buildChatChip(w *sim.World) []string {
 func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 	now := w.Clock.SimTime
 	switch {
+	case w.RendezvousUnplanned():
+		return v.rendezvousUnplannedLines(w)
 	case w.RendezvousApproachPhase():
 		return v.rendezvousApproachLines(w)
 	case w.RendezvousWarpEngaged():
@@ -440,6 +442,9 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		}
 		if arm := w.RendezvousArm; arm != nil {
 			lines = append(lines, chipRow("committed:", formatRangeM(arm.CommittedCA)))
+			if line := rendezvousMeetingLine(arm.MeetingPlaceLabel, arm.MeetingLaps); line != "" {
+				lines = append(lines, line)
+			}
 			// ADR 0039 S3 / #281: the trend across waypoint re-derivations —
 			// distinct from the degrade warning below, which compares
 			// against a baseline that re-bases every waypoint and so can
@@ -492,13 +497,16 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			// Own the wait instead of blaming them or advising a Sync.
 			status = v.theme.Warning.Render("  your Auto-Warp is running — coast starts when it releases")
 		}
-		return []string{
+		lines := []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			status,
 			chipRow("τ in:", compactDuration(arm.Tau.Sub(now))),
 			chipRow("CA:", formatRangeM(arm.CommittedCA)),
-			v.theme.Dim.Render("  [/] cancel"),
 		}
+		if line := rendezvousMeetingLine(arm.MeetingPlaceLabel, arm.MeetingLaps); line != "" {
+			lines = append(lines, line)
+		}
+		return append(lines, v.theme.Dim.Render("  [/] cancel"))
 	case w.RendezvousInvite != nil:
 		inv := w.RendezvousInvite
 		if inv.Blocked {
@@ -511,25 +519,78 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			if inv.AheadBy > 0 {
 				gap = "subspace gap, they must Sync to you"
 			}
-			return []string{
+			lines := []string{
 				v.theme.Primary.Render("RENDEZVOUS"),
 				v.theme.Dim.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous — " + gap),
 				chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 				chipRow("CA:", formatRangeM(inv.CA)),
 			}
+			if line := rendezvousMeetingLine(inv.MeetingPlaceLabel, inv.MeetingLaps); line != "" {
+				lines = append(lines, line)
+			}
+			return lines
 		}
-		return []string{
+		lines := []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			v.theme.Warning.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous"),
 			chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 			chipRow("CA:", formatRangeM(inv.CA)),
-			// Name the seat at the moment it is taken (ADR 0037 §2): roles
-			// are fixed at invite time, so this prompt is the only place the
-			// asymmetry is a choice rather than a later surprise.
-			v.theme.Warning.Render("  [y] join as copilot — " + inv.Handle + " sets the pair's warp"),
 		}
+		if line := rendezvousMeetingLine(inv.MeetingPlaceLabel, inv.MeetingLaps); line != "" {
+			lines = append(lines, line)
+		}
+		// Name the seat at the moment it is taken (ADR 0037 §2): roles
+		// are fixed at invite time, so this prompt is the only place the
+		// asymmetry is a choice rather than a later surprise.
+		return append(lines, v.theme.Warning.Render("  [y] join as copilot — "+inv.Handle+" sets the pair's warp"))
 	}
 	return nil
+}
+
+// rendezvousMeetingLine renders the Meeting Place + lap count row (ADR
+// 0045 S7, #400) — agreement state named on both sides' RENDEZVOUS chip,
+// carried verbatim from whichever side committed it (RendezvousArm.
+// MeetingPlaceLabel on the initiator, RendezvousInvite.MeetingPlaceLabel
+// on the accepter before joining, RendezvousArm.MeetingPlaceLabel again
+// after — see SetRendezvousMeeting). "" (render nothing) whenever the
+// commit's source wasn't a planted Meeting Burn node — including the
+// whole agreed-no-plan state, which never had one.
+func rendezvousMeetingLine(placeLabel string, laps int) string {
+	if placeLabel == "" {
+		return ""
+	}
+	return chipRow("meeting:", fmt.Sprintf("%s — %d laps", placeLabel, laps))
+}
+
+// rendezvousUnplannedLines is the RENDEZVOUS chip's fifth state (ADR
+// 0045 S7, #400): Engaged, but neither a planted node nor the 4h
+// current-course search found an encounter to commit to at Engage
+// time — "we are going to meet", agreed, with nothing planned yet.
+// Distinct from rendezvousApproachLines: that state is a demotion FROM a
+// real coast; this agreement never had one to demote from, so it never
+// sets Approach and never renders the seat/rate rows that assume it.
+//
+// Two sub-states once mutual (w.RendezvousMutualUnplanned): the
+// initiator is told to plan (K, then Engage again to commit it — see
+// EngageRendezvousWarpAs's "replaces any prior arm"), the accepter is
+// told they're holding for the initiator's call — ADR 0037's "they do
+// not vote" applies here too. Before mutual, the line is the same
+// "waiting for them to join" every other pre-coast state uses.
+func (v *OrbitView) rendezvousUnplannedLines(w *sim.World) []string {
+	arm := w.RendezvousArm
+	lines := []string{
+		v.theme.Primary.Render("RENDEZVOUS"),
+		"  agreed with " + arm.Handle + CraftTag(arm.CraftName),
+	}
+	switch {
+	case w.RendezvousMutualUnplanned && arm.Initiator:
+		lines = append(lines, v.theme.Dim.Render("  no plan yet — pick a Meeting Place [K], then Engage to commit"))
+	case w.RendezvousMutualUnplanned:
+		lines = append(lines, v.theme.Dim.Render("  no plan yet — holding for "+arm.Handle+"'s call"))
+	default:
+		lines = append(lines, v.theme.Warning.Render("  waiting for them to join"))
+	}
+	return append(lines, v.theme.Dim.Render("  [/] cancel"))
 }
 
 // rendezvousTrendLines renders the CA trend row (ADR 0039 S3 / #281):

@@ -358,6 +358,16 @@ type World struct {
 	RendezvousDegraded  bool
 	RendezvousApproachM float64
 
+	// RendezvousMutualUnplanned mirrors whether the partner has Engaged
+	// back while the standing agreement has no plan yet (ADR 0045 S7,
+	// #400 — Tau.IsZero(), see RendezvousUnplanned): the RENDEZVOUS chip's
+	// unplanned state uses this to say "mutual, holding for a plan"
+	// instead of "waiting for them to join" once they have. Set each tick
+	// by DriveRendezvousWarp; false whenever the arm has a real plan (Tau
+	// non-zero), is in the terminal phase (Approach), or doesn't exist.
+	// Transient, serve-written like RendezvousHold.
+	RendezvousMutualUnplanned bool
+
 	// Session and SessionEvents are the multiplayer roster slate and
 	// recent join/leave/sync moments (v0.27 S6) — same contract as
 	// Ghosts: serve-layer written, screen read, transient, nil/empty
