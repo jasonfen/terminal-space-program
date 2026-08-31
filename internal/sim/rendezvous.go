@@ -34,6 +34,13 @@ var (
 	// reads identically to "rendezvous is impossible" or "the geometry is
 	// already optimal". Wording for the burn-too-large case is #278's own
 	// proposed text verbatim.
+	//
+	// ADR 0045 §2 / #398 proposed retiring ErrRendezvousShapeMismatch
+	// alongside the planner-side gate it names, on the theory that the
+	// Meeting Planner (meeting.go) now covers a shape-mismatched pair.
+	// That removal did not ship (PR #405 review — see
+	// RecommendRendezvousNudge's doc comment for why); this sentinel and
+	// the gate behind it stay.
 	ErrRendezvousShapeMismatch   = transferError("orbits differ in shape — circularize [C] or plan a transfer [H] first")
 	ErrRendezvousBurnTooLarge    = transferError("nudge would exceed the burn ceiling — use the transfer planner [H/I/m]")
 	ErrRendezvousUnsafePeriapsis = transferError("nudge would drop periapsis unsafely — plan a transfer instead [H/I/m]")

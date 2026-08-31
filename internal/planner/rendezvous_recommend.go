@@ -129,6 +129,19 @@ type RendezvousAdvisory struct {
 // Caller-side gates (no target, target == active, different
 // primaries, already DOCK READY) live in the sim layer; the planner
 // is not exercised on those paths.
+//
+// ADR 0045 §2 / #398 explored removing the Step 0 shape-mismatch gate
+// on the theory that the Meeting Planner (planner.RecommendMeetingLadder,
+// meeting.go) now covers a shape-mismatched pair with a genuine solve
+// instead of a lossy axis projection. That removal did NOT ship (PR
+// #405 review): the test meant to justify it compared the solver's own
+// predicted closest approach against a "flight" propagated with the
+// SAME analytic (Kepler) model used to produce that prediction, so the
+// two could not disagree by construction — it demonstrates the solver
+// is internally self-consistent, not that repeated Meeting Planner use
+// avoids the live-integrator divergence #290 measured. Step 0 stays
+// until a test actually flies the burn under the real integrator
+// (Verlet/RK4, SOI handling) and measures the achieved separation.
 func RecommendRendezvousNudge(
 	stateA, stateB orbital.Vec3State,
 	primary bodies.CelestialBody,
@@ -155,6 +168,19 @@ func RecommendRendezvousNudge(
 	// before spending any Lambert work and point at the tools built for
 	// shape changes (circularize [C], transfer [H]) rather than offering
 	// another diverging position-only burn.
+	//
+	// ADR 0045 §2 / #398 tried to remove this gate on the theory that the
+	// Meeting Planner (meeting.go) now covers the shape-mismatch case
+	// with a genuine solve instead of a lossy axis projection. That
+	// removal is REVERTED (PR #405 review): the test written to justify
+	// it (meeting.go's TestMeetingLadder_IterateSelfConsistent) checks
+	// the solver's own predicted CA against a "flight" propagated with
+	// the SAME analytic model the solver used to predict it — prediction
+	// and flight are the same equations run twice, so they cannot
+	// disagree, and #290's divergence was only ever measured against the
+	// live integrator (Verlet/RK4, SOI handling), not the closed form.
+	// This gate stays until a test actually measures flown separation
+	// under the real integrator.
 	eccA := orbital.ElementsFromState(stateA.R, stateA.V, mu).E
 	eccB := orbital.ElementsFromState(stateB.R, stateB.V, mu).E
 	if math.Abs(eccA-eccB) > shapeMismatchEccDelta {
@@ -290,11 +316,7 @@ func RecommendRendezvousNudge(
 	// primary (tests) only the relative-drop check fires. Without
 	// this gate, a K-plant has been observed deorbiting the chaser
 	// to a 25 km periapsis while ostensibly improving CA.
-	prePeri := orbital.ElementsFromState(stateA.R, stateA.V, mu).Periapsis()
-	postPeri := orbital.ElementsFromState(perturbed.R, perturbed.V, mu).Periapsis()
-	periSurfaceFloor := primary.RadiusMeters() + 50_000.0
-	periDropLimit := prePeri - 100_000.0
-	if (primary.RadiusMeters() > 0 && postPeri < periSurfaceFloor) || postPeri < periDropLimit {
+	if !orbitSafetyGate(stateA.R, stateA.V, perturbed.R, perturbed.V, primary, mu) {
 		out.AchievableCA = caStar
 		out.TArrival = tStar
 		out.DV = bestProj
