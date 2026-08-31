@@ -493,16 +493,17 @@ func (w *World) computeRendezvousAdvisory(active *spacecraft.Spacecraft, targetP
 		}, true
 	}
 
-	// Horizon mirrors v0.9.3 NextClosestApproach defaults: ~2× the
-	// longer orbital period, capped so the predictor's grid stays
-	// dense.
-	horizon := rendezvousHorizonSeconds(stateA, stateB, mu)
-	_, currentCA, _, err := planner.NextClosestApproach(stateA, stateB, targetPrimary, mu, horizon)
+	// Horizon: the same 4 h window every other rendezvous surface
+	// (TARGET chip TCA, Rendezvous Warp commit) searches, so K scores
+	// against the encounter the pilot can actually see (ADR 0045 S1,
+	// #394). Was previously its own period-scaled window that
+	// disagreed with the other two surfaces.
+	_, currentCA, _, err := planner.NextClosestApproach(stateA, stateB, targetPrimary, mu, rendezvousCommitHorizonSec)
 	if err != nil {
 		return planner.RendezvousAdvisory{}, false
 	}
 
-	advisory := planner.RecommendRendezvousNudge(stateA, stateB, targetPrimary, mu, horizon, currentCA)
+	advisory := planner.RecommendRendezvousNudge(stateA, stateB, targetPrimary, mu, rendezvousCommitHorizonSec, currentCA)
 	if !advisory.Ok {
 		// no-improvement / Lambert-divergence / degenerate-axes:
 		// caller surfaces advisory.Reason in the HUD; bool=true here
@@ -512,39 +513,6 @@ func (w *World) computeRendezvousAdvisory(active *spacecraft.Spacecraft, targetP
 		return advisory, true
 	}
 	return advisory, true
-}
-
-// rendezvousHorizonSeconds picks a horizon for the closest-approach
-// search. ~2× the larger of the two craft's orbital periods is
-// enough to find the first encounter for any practical co-orbital
-// scenario; capped at 2 hours so the predictor's grid stays sparse
-// at deep-space distances.
-func rendezvousHorizonSeconds(stateA, stateB orbital.Vec3State, mu float64) float64 {
-	period := func(s orbital.Vec3State) float64 {
-		r := s.R.Norm()
-		v := s.V.Norm()
-		// Vis-viva: a = 1 / (2/r - v²/μ).
-		denom := 2/r - v*v/mu
-		if denom <= 0 {
-			return math.Inf(1)
-		}
-		a := 1 / denom
-		return 2 * math.Pi * math.Sqrt(a*a*a/mu)
-	}
-	pA := period(stateA)
-	pB := period(stateB)
-	p := math.Max(pA, pB)
-	if math.IsInf(p, 0) || p <= 0 {
-		return 7200 // 2-hour fallback
-	}
-	horizon := 2 * p
-	if horizon > 7200 {
-		horizon = 7200
-	}
-	if horizon < 600 {
-		horizon = 600
-	}
-	return horizon
 }
 
 // PlanRendezvousNudge plants the recommended single-burn nudge as a
