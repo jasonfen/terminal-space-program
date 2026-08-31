@@ -198,19 +198,36 @@ func (s *Store) Frontier() (time.Time, bool) {
 	return max, ok
 }
 
-// Earliest is the minimum subspace time across every stored (i.e.
-// live) report — where a new player joins (ADR 0034 §7 amendment /
-// ADR 0045 S3, closing #247/#396): joining behind the group is
-// recoverable with Sync, which is forward-only, so joining ahead of
-// anyone actually playing is the trap to avoid, not joining behind.
-// ok is false while the store is empty; the caller falls back to the
-// furthest-behind persisted payload (sessiondir.Store.EarliestSimTime).
-func (s *Store) Earliest() (time.Time, bool) {
+// Earliest is the minimum subspace time across every stored report
+// whose owner satisfies live — where a new player joins (ADR 0034 §7
+// amendment / ADR 0045 S3, closing #247/#396): joining behind the
+// group is recoverable with Sync, which is forward-only, so joining
+// ahead of anyone actually playing is the trap to avoid, not joining
+// behind.
+//
+// Report never evicts on disconnect, so the store keeps every
+// owner's last report indefinitely; Frontier's max-fold tolerates
+// that (a stale entry can't raise a maximum live players have
+// already passed), but a min-fold is dominated by it — a player who
+// played briefly and left would permanently drag every new joiner to
+// their stale clock. live is the caller's liveness check, so a
+// departed owner's lingering report is excluded from the fold; the
+// store itself tracks no notion of "live" (ADR 0034: it stores and
+// relays, nothing else — that bookkeeping belongs to whoever tracks
+// sessions, e.g. serve's presence).
+//
+// ok is false when no report satisfies live; the caller falls back
+// to the furthest-behind persisted payload
+// (sessiondir.Store.EarliestSimTime).
+func (s *Store) Earliest(live func(owner string) bool) (time.Time, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var min time.Time
 	ok := false
-	for _, r := range s.reports {
+	for owner, r := range s.reports {
+		if !live(owner) {
+			continue
+		}
 		if !ok || r.SubspaceTime.Before(min) {
 			min = r.SubspaceTime
 			ok = true
