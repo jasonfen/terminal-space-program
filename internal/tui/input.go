@@ -85,7 +85,7 @@ type Keymap struct {
 	// in a later cleanup.
 	ClearNodes   key.Binding
 	PlanTransfer key.Binding
-	PlanIncl     key.Binding // v0.7.4+: plane rotation toward selected body's inclination (or equatorial when none).
+	PlanIncl     key.Binding // v0.7.4+: plane rotation toward selected body's inclination (or equatorial when none); ADR 0045 S4 (#397) added a vessel-target mode that matches a craft/ghost's actual plane (RAAN included) instead of a scalar tilt.
 	// PlanCircularize (v0.9.4+) plants a prograde burn at the active
 	// craft's next apoapsis sized to circularise the orbit there. The
 	// "single keystroke for the natural last step of an ascent"
@@ -371,7 +371,7 @@ func DefaultKeymap() Keymap {
 		SpawnCraft:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "spawn vessel (sister copy of active)")),
 		ClearNodes:      key.NewBinding(), // v0.8.6: dropped — see ClearNodes field comment.
 		PlanTransfer:    key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant transfer to selected body (plane-aware)")),
-		PlanIncl:        key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant inclination match (selected body / equatorial)")),
+		PlanIncl:        key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant plane match (body / vessel / equatorial)")),
 		PlanCircularize: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "plant circularize burn at next apoapsis")),
 		PlanRendezvous:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "plant rendezvous nudge to target vessel")),
 		Porkchop:        key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot for selected body")),

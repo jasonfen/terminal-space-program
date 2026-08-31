@@ -1211,7 +1211,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// inclination AND the node line, so a following Hohmann
 			// departs coplanar); None → drop to the equatorial plane
 			// of the craft's primary (the equatorial inclination
-			// match shipped with v0.7.4); TargetCraft is deferred.
+			// match shipped with v0.7.4); TargetCraft/TargetGhost
+			// (ADR 0045 S4, #397) → match the OTHER VESSEL's plane
+			// (relative angular momentum rT × vT gives the node line
+			// and rotation angle), not a scalar tilt number — two
+			// vessels can share an inclination magnitude and still sit
+			// in different planes (different RAAN), which the old
+			// scalar match could never fix.
 			//
 			// Pre-v0.9 this block read App.selectedBody, the implicit
 			// body cursor driven by ←/→. selectedBody now drives only
@@ -1221,10 +1227,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch a.world.Target.Kind {
 			case sim.TargetBody:
 				plan, err = a.world.PlanPlaneMatch(a.world.Target.BodyIdx)
-			case sim.TargetCraft:
-				a.statusMsg = "I targets bodies — for vessels, plan via [m]"
-				a.statusExpires = time.Now().Add(3 * time.Second)
-				return a, nil
+			case sim.TargetCraft, sim.TargetGhost:
+				plan, err = a.world.PlanVesselPlaneMatch()
 			default:
 				plan, err = a.world.PlanInclinationChange(0)
 			}
