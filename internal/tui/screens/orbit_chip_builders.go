@@ -553,6 +553,13 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 // after — see SetRendezvousMeeting). "" (render nothing) whenever the
 // commit's source wasn't a planted Meeting Burn node — including the
 // whole agreed-no-plan state, which never had one.
+func rendezvousMeetingLine(placeLabel string, laps int) string {
+	if placeLabel == "" {
+		return ""
+	}
+	return chipRow("meeting:", fmt.Sprintf("%s — %d laps", placeLabel, laps))
+}
+
 // rendezvousInviteEncounterLines renders the invite's τ/CA rows — nil
 // (render nothing) when inv.Tau is zero (finding 2, batch review):
 // refreshRendezvousInvite now surfaces a zero-τ invite for ADR 0045 S7's
@@ -569,13 +576,6 @@ func rendezvousInviteEncounterLines(inv *sim.RendezvousInvite, now time.Time) []
 		chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
 		chipRow("CA:", formatRangeM(inv.CA)),
 	}
-}
-
-func rendezvousMeetingLine(placeLabel string, laps int) string {
-	if placeLabel == "" {
-		return ""
-	}
-	return chipRow("meeting:", fmt.Sprintf("%s — %d laps", placeLabel, laps))
 }
 
 // rendezvousUnplannedLines is the RENDEZVOUS chip's fifth state (ADR

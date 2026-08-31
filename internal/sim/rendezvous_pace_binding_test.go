@@ -97,6 +97,38 @@ func TestHoldRendezvousLeader_LargeAheadPaces(t *testing.T) {
 	}
 }
 
+// TestHoldRendezvousLeader_DeadbandScalesWithPartnerEffWarp is the
+// finding-1 regression guard (#412 review, auto_warp.go:780): the flat
+// rendezvousWaypointMinLead deadband is inert at any real coast warp —
+// see rendezvous_pace_deadband_test.go's harness for the full mechanism.
+// This pins the boundary directly: at partner.EffWarp = 100, an `ahead`
+// of 400 sim-seconds (100x the OLD flat 5s deadband, and comfortably
+// past rendezvousPaceCeilingSec=90 on its own) is pure plausible
+// staleness — Heartbeat(5s wall) * EffWarp(100) = 500s — and must not
+// pace; one second past the scaled deadband must.
+func TestHoldRendezvousLeader_DeadbandScalesWithPartnerEffWarp(t *testing.T) {
+	w := pacedLeaderWorld(t)
+	partner := &CoWarpPeer{
+		Owner: harnessOwnerB, Handle: "bob", EffWarp: 100,
+		SubspaceTime: w.Clock.SimTime.Add(-400 * time.Second),
+	}
+	w.RendezvousHold, w.RendezvousPaced, w.RendezvousPaceWarp = false, false, 0
+	w.holdRendezvousLeader(partner)
+	if w.RendezvousPaced {
+		t.Errorf("RendezvousPaced = true for 400s ahead at partner.EffWarp=100 (deadband=%v) — "+
+			"that's within one relay.Heartbeat of plausible staleness at this warp, not genuine divergence",
+			rendezvousPaceHeartbeatSec*partner.EffWarp)
+	}
+
+	deadband := rendezvousPaceHeartbeatSec * partner.EffWarp // 500
+	partner.SubspaceTime = w.Clock.SimTime.Add(-time.Duration(deadband+1) * time.Second)
+	w.RendezvousHold, w.RendezvousPaced, w.RendezvousPaceWarp = false, false, 0
+	w.holdRendezvousLeader(partner)
+	if !w.RendezvousPaced {
+		t.Errorf("RendezvousPaced = false one second past the scaled deadband (%v) — want true", deadband)
+	}
+}
+
 // TestHoldRendezvousLeader_AtCeilingHoldsToZero: ahead beyond the ceiling
 // still reports Paced (with PaceWarp effectively 0, the old freeze) —
 // unaffected by the finding 3 fix, since 0 is always < any unpaced rate.
