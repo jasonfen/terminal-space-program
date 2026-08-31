@@ -1103,6 +1103,127 @@ func (w *World) PlanPlaneMatch(targetIdx int) (*planner.InclinationPlan, error) 
 	}, nil
 }
 
+// PlanVesselPlaneMatch plants a single BurnPlaneChange node that
+// rotates the active craft's orbital plane to coincide with the
+// orbital plane of the bound VESSEL target — a local craft
+// (TargetCraft) or a remote player's ghost (TargetGhost) — same
+// primary only. ADR 0045 §4 (#397): completes the plane rung `[I]`
+// was missing for rendezvous. PlanInclinationChange takes a scalar
+// inclination magnitude and PlanPlaneMatch(bodyIdx) reads a body's
+// catalog orbit; neither can express "match THAT VESSEL's plane" —
+// two vessels can read the same inclination magnitude and still sit
+// in completely different planes (different RAAN), and until this
+// slice there was no vessel-relative plane match anywhere in the
+// game.
+//
+// Mirrors PlanPlaneMatch's geometry exactly, with one substitution:
+// the target's own relative angular momentum (rT × vT, in the active
+// craft's primary-relative frame) stands in for a body's catalog-
+// derived orbit normal (orbital.OrbitNormalWorld). This is the same
+// substitution TargetPlaneNodePositions already makes for the map's
+// ◇/◆ node markers — see that function's comment for why reusing
+// TimeToNodeCrossing this way is valid. No equatorial/ecliptic
+// rotation is needed here (unlike the scalar PlanInclinationChange):
+// c.State.R/V and (rT, vT) are already expressed in the same
+// primary-relative Cartesian frame by TargetStateRelativeToActivePrimary,
+// and comparing two orbit normals directly is frame-invariant as long
+// as both come from that same base frame — see CLAUDE.md's frame
+// boundary note (internal/orbital/frame.go).
+//
+// Errors:
+//   - errNoCraftForTransfer: no active craft.
+//   - ErrRendezvousNoTarget: no craft/ghost target bound, or the bound
+//     ref doesn't resolve (stale craft ID / vanished ghost).
+//   - ErrRendezvousDifferentPrimaries: target orbits a different
+//     primary than the active craft (same-primary only, per #397).
+//   - errPlaneMatchDegenerateTarget: the target's relative state has
+//     no defined orbital plane (rT × vT == 0).
+//   - planner.ErrInclinationNoOp: the two orbits are already coplanar
+//     (or TimeToNodeCrossing finds no crossing within its own
+//     equatorial tolerance) — nothing to do.
+//
+// v0.39+ / #397.
+func (w *World) PlanVesselPlaneMatch() (*planner.InclinationPlan, error) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return nil, errNoCraftForTransfer
+	}
+	if !w.HasRelativeTarget() {
+		return nil, ErrRendezvousNoTarget
+	}
+	targetPrimary, ok := w.rendezvousTargetPrimary()
+	if !ok {
+		return nil, ErrRendezvousNoTarget
+	}
+	if targetPrimary.EnglishName != c.Primary.EnglishName {
+		return nil, ErrRendezvousDifferentPrimaries
+	}
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		return nil, ErrRendezvousNoTarget
+	}
+	nTarget := rT.Cross(vT)
+	if nTarget.Norm() == 0 {
+		return nil, errPlaneMatchDegenerateTarget
+	}
+	nTargetHat := nTarget.Unit()
+	primary := c.Primary
+	mu := primary.GravitationalParameter()
+
+	// Time to the next crossing of the target's plane — an AN/DN
+	// crossing in a frame whose Z axis is the target's relative orbit
+	// normal. Identical shape to PlanPlaneMatch's body-target case.
+	planeFrame := orbital.FrameFromNormal(nTarget)
+	stateTF := orbital.Vec3State{
+		R: planeFrame.FromWorld(c.State.R),
+		V: planeFrame.FromWorld(c.State.V),
+	}
+	tAN := orbital.TimeToNodeCrossing(stateTF, mu, true)
+	tDN := orbital.TimeToNodeCrossing(stateTF, mu, false)
+	dt := -1.0
+	atAN := false
+	if tAN >= 0 && (tDN < 0 || tAN <= tDN) {
+		dt, atAN = tAN, true
+	} else if tDN >= 0 {
+		dt, atAN = tDN, false
+	}
+	if dt < 0 {
+		// No crossing — the craft is already coplanar with the target.
+		return nil, planner.ErrInclinationNoOp
+	}
+
+	// Propagate to the crossing and derive the burn geometrically. At
+	// the crossing the radial axis lies along the two planes' mutual
+	// node line, so a rotation of the craft's orbit normal about r̂
+	// onto the target normal aligns the planes exactly.
+	post := w.propagateCraft(dt)
+	rHat := post.R.Unit()
+	hHat := post.R.Cross(post.V).Unit()
+	theta := math.Atan2(hHat.Cross(nTargetHat).Dot(rHat), hHat.Dot(nTargetHat))
+	vHor := post.V.Sub(rHat.Scale(post.V.Dot(rHat)))
+	dv := 2 * vHor.Norm() * math.Sin(math.Abs(theta)/2)
+	if dv == 0 {
+		return nil, planner.ErrInclinationNoOp
+	}
+	now := w.Clock.SimTime
+	w.PlanNode(ManeuverNode{
+		TriggerTime:    now.Add(time.Duration(dt * float64(time.Second))),
+		Mode:           spacecraft.BurnPlaneChange,
+		DV:             dv,
+		Duration:       c.BurnTimeForDV(dv),
+		PrimaryID:      primary.ID,
+		PlaneChangeRad: theta,
+	})
+	return &planner.InclinationPlan{
+		PrimaryID:      primary.ID,
+		DV:             dv,
+		OffsetTime:     time.Duration(dt * float64(time.Second)),
+		NormalSign:     int(math.Copysign(1, theta)),
+		PlaneChangeRad: theta,
+		AtAN:           atAN,
+	}, nil
+}
+
 // CircularizePlan summarises a planted circularize-at-apoapsis node
 // for the caller's status flash. v0.9.4+.
 type CircularizePlan struct {
@@ -2355,6 +2476,14 @@ var (
 	errNoCraftForTransfer    = transferError("no vessel to plan transfer for")
 	errNoRefineTarget        = transferError("no pending transfer to refine")
 	errSamePrimaryUseHohmann = transferError("target shares vessel's primary — use [H] auto-Hohmann instead of porkchop")
+
+	// errPlaneMatchDegenerateTarget: PlanVesselPlaneMatch (ADR 0045 S4,
+	// #397) can't derive a target plane from a degenerate relative
+	// state (rT × vT == 0 — the target sits exactly radial from, or
+	// coincident with, the active craft). Distinct from
+	// planner.ErrInclinationNoOp, which means the two planes ARE
+	// well-defined and already coincide.
+	errPlaneMatchDegenerateTarget = transferError("target's relative orbit is degenerate — no plane to match")
 
 	// PlanCircularizeAtApoapsis errors. Exported so app.go's status
 	// flash can switch on them with errors.Is. v0.9.4+.

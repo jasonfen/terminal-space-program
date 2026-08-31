@@ -99,7 +99,7 @@ var helpSections = []helpSection{
 		{"ctrl+d", "delete the node being edited (in planner)"},
 		{"c / C", "clear ALL planned nodes for the active vessel (in planner)"},
 		{"H", "plant transfer to [t] target body (plane-aware)"},
-		{"I", "plant inclination match ([t] target / equatorial)"},
+		{"I", "plant plane match ([t] target body / vessel / equatorial)"},
 		{"C", "plant circularize burn at next apoapsis"},
 		{"K", "plant rendezvous nudge to the target vessel"},
 		{"R", "refine plan (re-Lambert the arrival)"},
