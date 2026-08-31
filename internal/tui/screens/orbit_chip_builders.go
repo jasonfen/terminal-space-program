@@ -43,6 +43,17 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	if lines := v.buildVesselChip(w); lines != nil {
 		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityCore})
 	}
+	// MEETING PLAN (ADR 0045 S6, #399): the picker holds keyboard focus
+	// while open (app.go's key intercept claims ←/→/↑/↓/Enter/Esc before
+	// they can reach camera pan or anything else), so unlike every other
+	// chip it bypasses chipEnabled — a modal the player just summoned with
+	// K must not silently vanish under F2 declutter while it's still
+	// eating their keystrokes. chipPriorityForced (not Core) keeps it
+	// below VESSEL/ORBIT in a genuine overflow, but never dropped for
+	// space like an ordinary contextual chip.
+	if lines := v.buildMeetingPickerChip(); lines != nil {
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityForced})
+	}
 	add := func(id settings.Chip, corner chipCorner, lines []string) {
 		if lines == nil || !v.chipEnabled(id) {
 			return

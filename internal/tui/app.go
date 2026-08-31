@@ -761,6 +761,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+		// Meeting Planner picker (ADR 0045 S6, #399): a walkable chip on
+		// the orbit map, not a screen — a.active never changes while it's
+		// open, so this can't be handled by any of the a.active==screenXxx
+		// blocks below. Sits above the flight-key switch (which owns
+		// PanLeft/Right/Up/Down on the very same physical keys) for the
+		// same reason endFlightConfirm does: a new interactive surface
+		// that forgets to claim its keys here bleeds into flight controls
+		// — exactly the trap ADR 0044's review caught (#399's own second
+		// named trap).
+		if a.orbitView.MeetingPickerOpen() {
+			return a.handleMeetingPickerKey(m)
+		}
 		// v0.7.3.3+: Esc on the orbit (home) view opens the splash
 		// menu. The menu owns the save / load / quit dispatch from
 		// then on; every other key is dropped so accidental presses
@@ -1290,25 +1302,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// planning keys). Adding one here would silently narrow a
 			// working keybinding rather than fix a silent no-op; see
 			// #282 review discussion.
+			//
+			// ADR 0045 S6 (#399): K became modal — a close, near-matched
+			// pair still plants directly (unchanged from v0.10.2); a
+			// phase-mismatched pair opens the Meeting Planner picker
+			// instead of refusing. See handlePlanRendezvousKey.
 			switch {
 			case !a.world.CraftVisibleHere():
 				a.refuse("rendezvous", "vessel not in this system")
 			default:
-				adv, err := a.world.PlanRendezvousNudge()
-				if err != nil {
-					a.statusMsg = fmt.Sprintf("rendezvous: %v", err)
-				} else {
-					// ADR 0039 S1: arrival speed rides along as a plain info
-					// row — no gate, no judgment, it just sizes the
-					// hand-flown part of the job (#290 found this invisible
-					// at plan time: a "successful" plant that in fact
-					// arrived 4.6 m/s under the lock gate, with nothing on
-					// screen warning the player before they committed).
-					a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs, arriving ~%.0f m/s",
-						adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival, adv.ArrivalSpeed)
-				}
-				a.statusExpires = time.Now().Add(3 * time.Second)
-				a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
+				a.handlePlanRendezvousKey()
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Porkchop):
@@ -2068,6 +2071,17 @@ func (a *App) capturingText() bool {
 	if a.chatOpen {
 		return true
 	}
+	// The Meeting Planner picker (ADR 0045 S6, #399) is a chip on the
+	// orbit map, not a screen — a.active stays screenOrbit (or
+	// screenBodyInfo/screenMissions, K's other two reachable screens)
+	// while it's open, so it can't be reached via the per-screen switch
+	// below either. Checked here, same as chatOpen, per this func's own
+	// "extend here" note — ADR 0044's review caught exactly this kind of
+	// omission (a new interactive surface never added here let the boss
+	// key fire mid-edit).
+	if a.orbitView.MeetingPickerOpen() {
+		return true
+	}
 	switch a.active {
 	case screenBoss:
 		return true
@@ -2678,6 +2692,113 @@ func (a *App) flashStatus(op string, err error) {
 		a.statusMsg = fmt.Sprintf("%s ok — %s", op, filepath.Join(dir, save.QuicksaveID))
 	}
 	a.statusExpires = time.Now().Add(3 * time.Second)
+}
+
+// handlePlanRendezvousKey is K's modal body (ADR 0045 S6, #399), called
+// once the CraftVisibleHere gate has already passed. Delegates the actual
+// decision to World.PlanRendezvousOrOpenMeeting: a close, near-matched
+// pair plants directly (unchanged v0.10.2 behavior); a phase-mismatched
+// pair opens the Meeting Planner picker instead of refusing; a plane
+// mismatch or a structural gate (no target, different primaries, already
+// docked) refuses outright, naming the remedy.
+func (a *App) handlePlanRendezvousKey() {
+	out, err := a.world.PlanRendezvousOrOpenMeeting()
+	if err != nil {
+		a.statusMsg = fmt.Sprintf("rendezvous: %v", err)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		return
+	}
+	switch {
+	case out.Planted != nil:
+		adv := out.Planted
+		// ADR 0039 S1: arrival speed rides along as a plain info row — no
+		// gate, no judgment, it just sizes the hand-flown part of the job
+		// (#290 found this invisible at plan time: a "successful" plant
+		// that in fact arrived 4.6 m/s under the lock gate, with nothing
+		// on screen warning the player before they committed).
+		a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs, arriving ~%.0f m/s",
+			adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival, adv.ArrivalSpeed)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
+	case out.OpenPicker:
+		// The picker is a chip on the orbit MAP (ADR 0045 §2) — switch
+		// there if K was pressed from body-info/missions (both of which
+		// also reach this case, #282) so the chip the player just
+		// summoned is actually visible.
+		a.active = screenOrbit
+		a.orbitView.OpenMeetingPicker(out.Place, out.Ladder, out.LadderErr)
+		a.statusMsg = "meeting plan: too far apart to nudge — walk the Lap Ladder [←→↑↓], Enter to plant, Esc to cancel"
+		a.statusExpires = time.Now().Add(3 * time.Second)
+	}
+}
+
+// handleMeetingPickerKey routes every keypress while the Meeting Planner
+// picker (ADR 0045 S6, #399) is open. Mirrors the chat/end-flight-confirm
+// discipline in the caller: switch and return unconditionally so nothing
+// leaks to camera pan or flight controls while the picker holds input.
+func (a *App) handleMeetingPickerKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(m, a.keys.PanLeft):
+		a.orbitView.MeetingPickerLeft()
+		a.refreshMeetingPickerLadder()
+	case key.Matches(m, a.keys.PanRight):
+		a.orbitView.MeetingPickerRight()
+		a.refreshMeetingPickerLadder()
+	case key.Matches(m, a.keys.PanUp):
+		a.orbitView.MeetingPickerUp()
+	case key.Matches(m, a.keys.PanDown):
+		a.orbitView.MeetingPickerDown()
+	case m.Type == tea.KeyEnter:
+		a.planMeetingPickerSelection()
+	case key.Matches(m, a.keys.Back):
+		a.orbitView.CloseMeetingPicker()
+	}
+	return a, nil
+}
+
+// refreshMeetingPickerLadder recomputes the ladder for the picker's
+// (just-changed) Place against the live World and pushes it back in.
+// MeetingPickerLeft/Right themselves only walk the Place cycle — they
+// can't call World (the picker's navigation state is intentionally
+// World-free, see orbit_meeting_picker.go) — so the App does the
+// recompute here, the same "App drives World, screen renders" split
+// every other form on this screen follows.
+func (a *App) refreshMeetingPickerLadder() {
+	place := a.orbitView.MeetingPickerPlace()
+	ladder, err := a.world.RecommendMeetingLadder(place)
+	a.orbitView.SetMeetingPickerLadder(place, ladder, err)
+}
+
+// planMeetingPickerSelection is Enter's action: plant the highlighted Lap
+// Ladder row. An unaffordable / unsafe / structurally-refused row keeps
+// the picker OPEN with the refusal flashed — a bad row must not eject the
+// player back to flight controls, since the whole point of showing
+// unaffordable rows (ADR 0045 §2) is to let them pick a different one
+// instead. Esc is still the only "give up" exit.
+func (a *App) planMeetingPickerSelection() {
+	laps, ok := a.orbitView.MeetingPickerSelectedLaps()
+	if !ok {
+		return // structurally-refused Place (#407): no row to plant.
+	}
+	place := a.orbitView.MeetingPickerPlace()
+	plan, err := a.world.PlanMeetingBurn(place, laps)
+	if err != nil {
+		a.statusMsg = fmt.Sprintf("meeting: %v", err)
+		a.statusExpires = time.Now().Add(3 * time.Second)
+		return
+	}
+	if plan.ForActive {
+		a.statusMsg = fmt.Sprintf("meeting burn planted: %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
+			plan.DV, plan.AchievableCA, plan.ArrivalSpeed)
+		a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
+	} else {
+		// MeetingYourOrbit: the PARTNER is the mover. #399 out of scope —
+		// carrying this plan to them over the wire is a later slice.
+		a.statusMsg = fmt.Sprintf("meeting plan (their burn): %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
+			plan.DV, plan.AchievableCA, plan.ArrivalSpeed)
+	}
+	a.statusExpires = time.Now().Add(3 * time.Second)
+	a.orbitView.CloseMeetingPicker()
 }
 
 // finiteBurnDuration returns the sim-time duration needed to deliver dv
