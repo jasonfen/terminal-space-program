@@ -189,9 +189,9 @@ func (v *OrbitView) buildMeetingPickerChip() []string {
 		wait := formatDurationShort(row.TArrival)
 		var body string
 		if row.Ok {
-			body = fmt.Sprintf("%s %d laps   %-8s %5.0f m/s", marker, row.Laps, wait, row.DV)
+			body = fmt.Sprintf("%s %2d laps   %-8s %5.0f m/s", marker, row.Laps, wait, row.DV)
 		} else {
-			body = fmt.Sprintf("%s %d laps   %-8s (%s)", marker, row.Laps, wait, row.Reason)
+			body = fmt.Sprintf("%s %2d laps   %-8s (%s)", marker, row.Laps, wait, row.Reason)
 		}
 		if i == mp.rowIdx {
 			lines = append(lines, v.theme.Primary.Render(body))

@@ -287,3 +287,44 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 		t.Errorf("golden 80×24 render missing expected chip content:\n%s", out)
 	}
 }
+
+// TestMeetingPickerChip_LadderColumnsAlign pins the ladder's internal
+// column alignment, which nothing else in this file covers: the block
+// is rectangular because padChipBlock pads every line to the widest,
+// and assertChipCellWidthConsistent only checks ANSI/glyph width
+// accounting — so a ragged column INSIDE the block is invisible to
+// both. The lap count is the field that varies in width (2 vs 10 vs
+// 20), and an unwidthed "%d laps" shifts every following column on the
+// two-digit rows. The fixture deliberately spans both.
+func TestMeetingPickerChip_LadderColumnsAlign(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
+
+	lapsAt, dvAt := -1, -1
+	rows := 0
+	for _, l := range v.buildMeetingPickerChip() {
+		i := strings.Index(l, " laps")
+		if i < 0 {
+			continue
+		}
+		rows++
+		if lapsAt < 0 {
+			lapsAt = i
+		} else if i != lapsAt {
+			t.Errorf("ladder row %q: %q column starts at %d, want %d (ragged lap field)", l, " laps", i, lapsAt)
+		}
+		// Δv column, skipped for refusal rows which carry no m/s.
+		j := strings.Index(l, "m/s")
+		if j < 0 {
+			continue
+		}
+		if dvAt < 0 {
+			dvAt = j
+		} else if j != dvAt {
+			t.Errorf("ladder row %q: %q column starts at %d, want %d (ragged Δv field)", l, "m/s", j, dvAt)
+		}
+	}
+	if rows < 4 {
+		t.Fatalf("test setup broken: only %d ladder rows found; the fixture must span one- and two-digit lap counts", rows)
+	}
+}
