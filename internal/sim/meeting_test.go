@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -207,6 +208,84 @@ func TestPlanMeetingBurn_UnaffordableRefusal(t *testing.T) {
 	_, err = w.PlanMeetingBurn(planner.MeetingTheirOrbit, pick)
 	if !errors.Is(err, ErrMeetingUnaffordable) {
 		t.Fatalf("err = %v, want ErrMeetingUnaffordable", err)
+	}
+}
+
+// rendezvousCrossingFixtureWorld reproduces the review round-2
+// regression's fixture shape: the sister craft (target) rotated -10°
+// off the active craft's matched circular orbit, with its velocity
+// scaled ×0.99 so the pair isn't exactly co-orbital. This geometry has
+// a natural crossing within the search horizon (NextClosestApproach
+// converges to a real tCA) — before the revert, that's exactly the
+// case MeetingCrossing would have anchored its (broken) solve on.
+func rendezvousCrossingFixtureWorld(t *testing.T) *World {
+	t.Helper()
+	w := rendezvousTwoCraftWorld(t)
+	active := w.Crafts[0]
+	target := w.Crafts[1]
+	h := active.State.R.Cross(active.State.V)
+	axis := h.Unit()
+	angle := -10 * math.Pi / 180
+	target.State.R = rotateAboutAxis(active.State.R, axis, angle)
+	target.State.V = rotateAboutAxis(active.State.V, axis, angle).Scale(0.99)
+	target.Primary = active.Primary
+	return w
+}
+
+// TestPlanMeetingBurn_Crossing_RefusesRatherThanMisplants is the
+// review round-2 regression test for both HIGH findings at once: on a
+// fixture where a natural crossing genuinely exists (verified below via
+// the same NextClosestApproach the planner's own existence check uses),
+// PlanMeetingBurn(MeetingCrossing, ...) must refuse — never plant a
+// node whose advertised numbers (MeetingArrivalSec/DV/BurnDir) disagree
+// with what actually happens when that node fires.
+//
+// Before the revert, PR #412's crossing-anchor implementation planted
+// here successfully: it Kepler-propagated both craft to tCA and solved
+// the tangential burn AT that instant, but the node itself always fires
+// at TriggerTime = now + a slew lead (not at tCA), and the prograde/
+// retrograde direction was picked by dotting the tCA-anchored BurnDir
+// against the mover's velocity at TriggerTime — two different epochs.
+// On this fixture that produced a planted node whose advertised
+// AchievableCA (tens of km) bore no relation to the actual miss
+// (independently re-derived here via rendezvousCommitFromPlantedMeetingNode,
+// the same function Engage's commit path uses) — megametres off. This
+// test would have failed loudly against that implementation (PlanMeetingBurn
+// returning nil error, or returning one but still having queued a
+// node); it passes now because MeetingCrossing refuses before any of
+// that machinery runs.
+func TestPlanMeetingBurn_Crossing_RefusesRatherThanMisplants(t *testing.T) {
+	w := rendezvousCrossingFixtureWorld(t)
+	c := w.ActiveCraft()
+
+	// Non-vacuous precondition: a natural crossing must actually exist
+	// here (tCA > 0, within the horizon), or this fixture doesn't
+	// exercise the "a crossing exists but is unsolved" path — it would
+	// only prove the (uninteresting) ErrMeetingNoCrossing branch.
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		t.Fatalf("setup: TargetStateRelativeToActivePrimary ok=false")
+	}
+	mu := c.Primary.GravitationalParameter()
+	tCA, _, _, err := planner.NextClosestApproach(
+		orbital.Vec3State{R: c.State.R, V: c.State.V},
+		orbital.Vec3State{R: rT, V: vT},
+		c.Primary, mu, rendezvousCommitHorizonSec)
+	if err != nil || tCA <= 0 {
+		t.Fatalf("setup: NextClosestApproach tCA=%.1f err=%v, want a real positive crossing time", tCA, err)
+	}
+
+	for _, laps := range []int{2, 3, 5, 10, 20} {
+		plan, err := w.PlanMeetingBurn(planner.MeetingCrossing, laps)
+		if !errors.Is(err, ErrMeetingCrossingNotImplemented) {
+			t.Errorf("laps=%d: err = %v, want ErrMeetingCrossingNotImplemented", laps, err)
+		}
+		if plan != nil {
+			t.Errorf("laps=%d: plan = %+v, want nil", laps, plan)
+		}
+	}
+	if len(c.Nodes) != 0 {
+		t.Fatalf("expected zero nodes planted, got %d: %+v", len(c.Nodes), c.Nodes)
 	}
 }
 

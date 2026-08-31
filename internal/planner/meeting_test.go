@@ -77,6 +77,63 @@ func TestRecommendMeetingLadder_TheirOrbit_PhaseOffsetConverges(t *testing.T) {
 	}
 }
 
+// TestRecommendMeetingLadder_TensOfKm_NotOk — review finding (LOW):
+// meetingAchievableCATolFrac at its old 1% let Ok=true rows through
+// whose own propagated AchievableCA ran into the tens of kilometres —
+// not a rounding error, but not "an encounter" either, and Ok flows
+// straight through PlanMeetingBurn into the node an Engage commits to.
+//
+// Reproduces the reviewer's measured scenario: a mildly eccentric
+// holder (e in roughly [0.002, 0.01], built the same way as
+// TestRecommendMeetingLadder_EccentricHolder_UnachievableRefused's own
+// fixture family — a co-orbital pair offset by a small fraction of a
+// period) a small fraction of a period ahead of the mover, at the 500 km
+// LEO calibration radius (r0mag≈6.871e6 m). At the old 1% bound
+// (≈68,710 m) every row here reported Ok=true with AchievableCA in
+// 12,717-49,422 m; this asserts those specific measured geometries are
+// no longer Ok=true at meetingAchievableCATolFrac's current (tighter)
+// value.
+func TestRecommendMeetingLadder_TensOfKm_NotOk(t *testing.T) {
+	r := meetingCalibrationRadius
+	mu := muEarth
+
+	cases := []struct {
+		k     float64
+		fracP float64
+	}{
+		{1.005, 1.0 / 64},
+		{1.008, 1.0 / 64},
+		{1.01, 1.0 / 64},
+		{1.01, 1.0 / 128},
+	}
+	for _, c := range cases {
+		target := eccentricStateAtRadius(r, 0, c.k, mu)
+		period := orbitalPeriod(physics.StateVector{R: target.R, V: target.V}, mu)
+		svB, ok := physics.KeplerStep(physics.StateVector{R: target.R, V: target.V}, mu, period*c.fracP)
+		if !ok {
+			t.Fatalf("setup: KeplerStep failed for k=%.3f fracP=%.5f", c.k, c.fracP)
+		}
+		chaser := orbital.Vec3State{R: svB.R, V: svB.V}
+
+		ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
+		if err != nil {
+			t.Fatalf("k=%.3f fracP=%.5f: err: %v", c.k, c.fracP, err)
+		}
+		for _, row := range ladder.Rows {
+			if row.AchievableCA <= 0 {
+				continue // convergence-failure row, not a pricing row
+			}
+			if row.AchievableCA < 10_000 {
+				continue // below the reviewer's flagged tens-of-km range — not what this test targets
+			}
+			if row.Ok {
+				t.Errorf("k=%.3f fracP=%.5f laps=%d: Ok=true with AchievableCA=%.0f m (tens of km) — must not read as a meeting",
+					c.k, c.fracP, row.Laps, row.AchievableCA)
+			}
+		}
+	}
+}
+
 // TestRecommendMeetingLadder_EccentricHolder_UnachievableRefused —
 // review Finding 1: "Ok never consults AchievableCA." meetingLadderCore's
 // t0 derivation sweeps the holder at a uniform angular rate, exact only
@@ -313,99 +370,55 @@ func TestRecommendMeetingLadder_NonCoplanarRefused(t *testing.T) {
 	}
 }
 
-// TestRecommendMeetingLadder_Crossing_NoEncounterRefused — MeetingCrossing
-// with a degenerate/invalid input (mu<=0 via a zero-search-horizon
-// guard here — see errMeetingInvalidInput path) never silently
-// succeeds. The "no natural encounter" path is exercised for real via
-// a cross-primary style non-convergent NextClosestApproach input.
-func TestRecommendMeetingLadder_Crossing_HappyPath(t *testing.T) {
+// TestRecommendMeetingLadder_Crossing_AlwaysRefuses — review round 2
+// regression revert: PR #412's attempt to anchor meetingLadderCore's
+// solve at the natural crossing instant (tCA) produced rows whose
+// DV/BurnDir were only correct for a burn executed AT tCA, while
+// internal/sim.PlanMeetingBurn always plants the resulting node to
+// fire at TriggerTime = now + a slew lead — not at tCA. The two times
+// coincide only by chance, so the planted burn routinely missed by
+// megametres (see ErrMeetingCrossingNotImplemented's doc comment for
+// the measured numbers, and internal/sim/meeting_test.go for the
+// sim-layer regression test against the actual plant path). Reverted
+// rather than fixed forward: MeetingCrossing now refuses
+// unconditionally — ErrMeetingNoCrossing when no natural crossing
+// exists within the search horizon, ErrMeetingCrossingNotImplemented
+// when one does but there is still no solver for it. Neither path ever
+// returns a ladder with rows.
+//
+// This fixture (a small phase offset on matched circular orbits) is
+// exactly the case that used to legitimately produce a plantable
+// MeetingCrossing row (the natural crossing is ~"now" there) — the
+// case a partial fix could most easily miss.
+func TestRecommendMeetingLadder_Crossing_AlwaysRefuses(t *testing.T) {
 	r := meetingCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
-	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, mu) // small offset — NextClosestApproach converges
+	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, mu) // small offset — NextClosestApproach converges, a natural crossing exists
 
 	ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingCrossing, 4*3600, -1)
-	if err != nil {
-		t.Fatalf("err: %v", err)
+	if !errors.Is(err, ErrMeetingCrossingNotImplemented) {
+		t.Fatalf("err = %v, want ErrMeetingCrossingNotImplemented (a natural crossing exists here, so this must be the not-implemented refusal, not ErrMeetingNoCrossing)", err)
 	}
-	if !ladder.MoverIsA {
-		t.Fatalf("MeetingCrossing must burn the active craft: MoverIsA=false")
-	}
-	sawOk := false
-	for _, row := range ladder.Rows {
-		if row.Ok {
-			sawOk = true
-		}
-	}
-	if !sawOk {
-		t.Fatalf("expected at least one Ok row: %+v", ladder.Rows)
+	if len(ladder.Rows) != 0 {
+		t.Fatalf("expected zero rows on a structural refusal, got %d: %+v", len(ladder.Rows), ladder.Rows)
 	}
 }
 
-// TestRecommendMeetingLadder_Crossing_DiffersFromTheirOrbit — review
-// Finding 3: "MeetingCrossing is inert." Before the fix, the anchor
-// search (NextClosestApproach) ran as an existence check only and was
-// never fed into the solve — meetingLadderCore always ran on
-// stateA/stateB exactly as MeetingTheirOrbit does, so the two Places
-// produced byte-identical ladders (TestRecommendMeetingLadder_Crossing_
-// HappyPath's own matched-circular fixture doesn't catch this: for
-// perfectly phase-locked circular orbits the natural crossing IS "now",
-// so the two Places legitimately coincide there).
-//
-// This fixture avoids that degeneracy: two craft on the SAME mildly
-// eccentric orbit (so meetingLadderCore's own r0-reachability gate
-// stays satisfied at any anchor instant — both always sit within their
-// shared [periapsis, apoapsis] band) but offset by 1/8 orbital PERIOD
-// in time (via Kepler-propagation, not a periapsis-direction rotation —
-// a rotated-periapsis fixture keeps the natural crossing pinned at each
-// shared periapsis pass, i.e. still at t≈0, for reasons worked out
-// against NextClosestApproach directly before writing this test). The
-// natural crossing here sits measurably later than "now" (verified
-// below), so if MeetingCrossing anchors there while MeetingTheirOrbit
-// anchors at "now", their rows must differ.
-func TestRecommendMeetingLadder_Crossing_DiffersFromTheirOrbit(t *testing.T) {
+// TestRecommendMeetingLadder_Crossing_InvalidHorizonRefused — the input
+// guard ahead of the existence check: a non-positive
+// crossingSearchHorizon is a caller bug (this must always be
+// rendezvousCommitHorizonSec, per this function's own doc comment), not
+// something MeetingCrossing should try to interpret as "no crossing".
+func TestRecommendMeetingLadder_Crossing_InvalidHorizonRefused(t *testing.T) {
 	r := meetingCalibrationRadius
 	mu := muEarth
-	k := 1.02 // mild eccentricity (e≈0.04) — keeps meetingLadderCore's holder-sweep model close enough to exact that Finding 1's AchievableCA gate isn't the thing under test here
-	target := eccentricStateAtRadius(r, 0, k, mu)
-	period := orbitalPeriod(physics.StateVector{R: target.R, V: target.V}, mu)
-	svB, ok := physics.KeplerStep(physics.StateVector{R: target.R, V: target.V}, mu, period/8)
-	if !ok {
-		t.Fatalf("setup: KeplerStep failed advancing the co-orbital partner by P/8")
-	}
-	chaser := orbital.Vec3State{R: svB.R, V: svB.V}
+	target := circularStateAtRadius(r, 0, mu)
+	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, mu)
 
-	// Non-vacuous precondition: the natural crossing must sit measurably
-	// later than "now", or this fixture doesn't stress the bug either.
-	tCA, _, _, err := NextClosestApproach(chaser, target, bodies.CelestialBody{}, mu, 4*3600)
-	if err != nil {
-		t.Fatalf("setup: NextClosestApproach err: %v", err)
-	}
-	if tCA < 60 {
-		t.Fatalf("setup: tCA = %.1f s, want > 60 s — this fixture must anchor somewhere other than \"now\" to test the fix", tCA)
-	}
-
-	crossing, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingCrossing, 4*3600, -1)
-	if err != nil {
-		t.Fatalf("crossing err: %v", err)
-	}
-	theirs, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
-	if err != nil {
-		t.Fatalf("their orbit err: %v", err)
-	}
-	if len(crossing.Rows) != len(theirs.Rows) {
-		t.Fatalf("row count mismatch: crossing=%d theirs=%d", len(crossing.Rows), len(theirs.Rows))
-	}
-	identical := true
-	for i := range crossing.Rows {
-		if crossing.Rows[i].DV != theirs.Rows[i].DV || crossing.Rows[i].TArrival != theirs.Rows[i].TArrival {
-			identical = false
-			break
-		}
-	}
-	if identical {
-		t.Errorf("MeetingCrossing produced a byte-identical ladder to MeetingTheirOrbit (tCA=%.1f s from now) — "+
-			"the crossing anchor isn't being fed into the solve: crossing=%+v theirs=%+v", tCA, crossing.Rows, theirs.Rows)
+	_, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingCrossing, 0, -1)
+	if !errors.Is(err, errMeetingInvalidInput) {
+		t.Fatalf("err = %v, want errMeetingInvalidInput", err)
 	}
 }
 
