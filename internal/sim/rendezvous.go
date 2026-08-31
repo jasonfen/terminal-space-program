@@ -26,15 +26,20 @@ var (
 	ErrRendezvousNoImprovement      = transferError("no useful nudge in range")
 	ErrRendezvousNoCraft            = transferError("no active vessel")
 
-	// ErrRendezvousShapeMismatch / ErrRendezvousBurnTooLarge /
-	// ErrRendezvousUnsafePeriapsis (ADR 0039 S1, #278): distinct refusal
-	// reasons that used to all collapse into ErrRendezvousNoImprovement.
-	// Each names the actual planner gate that fired and, where one
-	// exists, the remedy — so "the nudge would be expensive" no longer
-	// reads identically to "rendezvous is impossible" or "the geometry is
-	// already optimal". Wording for the burn-too-large case is #278's own
-	// proposed text verbatim.
-	ErrRendezvousShapeMismatch   = transferError("orbits differ in shape — circularize [C] or plan a transfer [H] first")
+	// ErrRendezvousBurnTooLarge / ErrRendezvousUnsafePeriapsis (ADR 0039
+	// S1, #278): distinct refusal reasons that used to all collapse into
+	// ErrRendezvousNoImprovement. Each names the actual planner gate
+	// that fired and, where one exists, the remedy — so "the nudge would
+	// be expensive" no longer reads identically to "rendezvous is
+	// impossible" or "the geometry is already optimal". Wording for the
+	// burn-too-large case is #278's own proposed text verbatim.
+	//
+	// ErrRendezvousShapeMismatch (the third member of this trio) is
+	// RETIRED by ADR 0045 §2 / #398: the Shape-Match Gate it named is
+	// gone from RecommendRendezvousNudge (see that function's own doc
+	// comment) — the Meeting Planner answers a shape-mismatched pair
+	// with a real plan instead. K's Nudge now returns three distinct
+	// refusal reasons here, not four.
 	ErrRendezvousBurnTooLarge    = transferError("nudge would exceed the burn ceiling — use the transfer planner [H/I/m]")
 	ErrRendezvousUnsafePeriapsis = transferError("nudge would drop periapsis unsafely — plan a transfer instead [H/I/m]")
 
@@ -73,8 +78,6 @@ func rendezvousReasonToErr(reason string) error {
 	switch reason {
 	case "docked":
 		return ErrRendezvousAlreadyDocked
-	case "orbit shape mismatch":
-		return ErrRendezvousShapeMismatch
 	case "burn too large — use H/I/m":
 		return ErrRendezvousBurnTooLarge
 	case "burn drops periapsis unsafely":

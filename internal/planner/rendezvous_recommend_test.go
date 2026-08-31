@@ -241,25 +241,31 @@ func eccentricStateAtRadius(r, phaseRad, k, mu float64) orbital.Vec3State {
 	return orbital.Vec3State{R: s.R, V: s.V.Scale(k)}
 }
 
-// TestRecommendRendezvousNudge_ShapeMismatch — ADR 0039 S1 / #290: a
-// chaser on a sharply eccentric orbit (e≈0.69) against a circular target
-// at the same periapsis radius is exactly the shape iterated K-nudges
-// drifted into live (567×408 km chaser vs a ~500×500 km target) — CA
-// *worsened* after the burn because a single-axis nudge cannot correct
-// an orbit-shape mismatch, only a position offset. The gate must refuse
-// before ever running the Lambert lookahead, with a reason distinct from
-// every existing tag so the HUD can point at C/H instead of retrying K.
-func TestRecommendRendezvousNudge_ShapeMismatch(t *testing.T) {
+// TestRecommendRendezvousNudge_ShapeMismatchGateRemoved — ADR 0045 §2 /
+// #398: the ADR 0039 S1 Shape-Match Gate is gone. This is #290's own
+// mismatch fixture (a chaser on a sharply eccentric orbit, e≈0.69,
+// against a circular target at the same periapsis radius — the shape
+// iterated K-nudges drifted into live, 567×408 km chaser vs a
+// ~500×500 km target) — it used to refuse outright with
+// Reason="orbit shape mismatch" before ever running the Lambert
+// lookahead. That reason string no longer exists in this function at
+// all (RecommendRendezvousNudge's own doc comment records the
+// removal); this pins it structurally rather than relying on a
+// negative assertion alone. K may still legitimately refuse this
+// specific geometry for an ordinary downstream reason (burn too
+// large, no improvement) — the doctrine's answer for a badly
+// mismatched pair is the Meeting Planner, not K succeeding here (see
+// TestRecommendMeetingLadder_ShapeMismatchNowYieldsPlan in
+// meeting_test.go, which proves THAT tool now yields a real plan for
+// this exact fixture).
+func TestRecommendRendezvousNudge_ShapeMismatchGateRemoved(t *testing.T) {
 	r := 6.771e6
 	target := circularStateAtRadius(r, 0, muEarth)
 	chaser := eccentricStateAtRadius(r, -0.5*math.Pi/180, 1.3, muEarth) // e≈0.69
 
 	adv := RecommendRendezvousNudge(chaser, target, bodies.CelestialBody{}, muEarth, 6000, 1_000_000)
-	if adv.Ok {
-		t.Fatalf("expected Ok=false for a shape-mismatched chaser/target pair, got DV=%.1f axis=%s", adv.DV, adv.Axis)
-	}
-	if adv.Reason != "orbit shape mismatch" {
-		t.Errorf("Reason = %q, want \"orbit shape mismatch\"", adv.Reason)
+	if adv.Reason == "orbit shape mismatch" {
+		t.Fatalf("the Shape-Match Gate should be removed, but Reason=%q fired", adv.Reason)
 	}
 }
 
@@ -301,15 +307,15 @@ func TestRecommendRendezvousNudge_ArrivalSpeedPopulated(t *testing.T) {
 	}
 }
 
-// TestRecommendRendezvousNudge_NearMatchedShapePasses — a small
-// eccentricity delta (e≈0.01, well under the mismatch threshold) must
-// NOT trip the new gate: this is K's actual working domain — a small
-// phase/altitude offset between near-identical orbits (#278's repro:
-// 551×499.8 km vs 500×500 km, e-delta of a few thousandths at LEO
-// scale) — and the existing burn-too-large / periapsis-safety gates
-// downstream already cover it appropriately depending on geometry. This
-// guards the threshold isn't so wide it swallows K's real domain.
-func TestRecommendRendezvousNudge_NearMatchedShapePasses(t *testing.T) {
+// TestRecommendRendezvousNudge_NearMatchedShapeStillPlants — #278's
+// repro (551×499.8 km vs 500×500 km, e-delta of a few thousandths at
+// LEO scale — K's actual working domain) must still plant cleanly now
+// that the Shape-Match Gate (which never blocked this near-matched case
+// even when it existed) is gone. Superseded assertion: this used to
+// guard the removed gate's threshold wasn't so wide it swallowed K's
+// real domain; now it simply pins that K's ordinary near-matched path
+// is unaffected by the gate's removal.
+func TestRecommendRendezvousNudge_NearMatchedShapeStillPlants(t *testing.T) {
 	r := 6.771e6
 	target := circularStateAtRadius(r, 0, muEarth)
 	chaser := eccentricStateAtRadius(r, -0.5*math.Pi/180, 1.005, muEarth) // e≈0.01
@@ -320,7 +326,7 @@ func TestRecommendRendezvousNudge_NearMatchedShapePasses(t *testing.T) {
 	}
 
 	adv := RecommendRendezvousNudge(chaser, target, bodies.CelestialBody{}, muEarth, 6000, currentCA)
-	if adv.Reason == "orbit shape mismatch" {
-		t.Errorf("near-matched shapes (e-delta≈0.01) tripped the mismatch gate; got DV=%.1f", adv.DV)
+	if !adv.Ok {
+		t.Fatalf("expected Ok=true for K's ordinary near-matched-shape domain, got Reason=%q", adv.Reason)
 	}
 }

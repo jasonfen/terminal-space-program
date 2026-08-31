@@ -62,6 +62,10 @@ func (w *World) EnsureNodeIDs() {
 const (
 	AdvisoryKeyRendezvousNudge = "rendezvous-nudge"
 	AdvisoryKeyCircularize     = "circularize"
+	// AdvisoryKeyMeetingBurn (ADR 0045 S5, #398) tags the single node a
+	// Meeting Planner Lap Ladder row plants (PlanMeetingBurn) — same
+	// "replace, don't stack" treatment as K's own advisory node.
+	AdvisoryKeyMeetingBurn = "meeting-burn"
 )
 
 // replaceAdvisoryNode removes every node on c whose AdvisoryKey matches
