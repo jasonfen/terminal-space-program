@@ -47,6 +47,7 @@ func TestJoinAtEarliestLiveClock(t *testing.T) {
 	}
 	behind := wBehind.Clock.SimTime.Add(6 * 24 * time.Hour)
 	wBehind.Clock.SimTime = behind
+	srv.presence.markOnline("SHA256:closer")
 	relay.NewReporter(srv.relay, "SHA256:closer").Tick(wBehind, time.Now())
 
 	wAhead, err := sim.NewWorld()
@@ -55,6 +56,7 @@ func TestJoinAtEarliestLiveClock(t *testing.T) {
 	}
 	ahead := wAhead.Clock.SimTime.Add(10 * 24 * time.Hour)
 	wAhead.Clock.SimTime = ahead
+	srv.presence.markOnline("SHA256:veteran")
 	relay.NewReporter(srv.relay, "SHA256:veteran").Tick(wAhead, time.Now())
 
 	app, err := srv.newGuestApp("SHA256:rookie")
@@ -81,6 +83,7 @@ func TestJoinIgnoresStoredPayloadAhead(t *testing.T) {
 	}
 	live := wLive.Clock.SimTime.Add(6 * 24 * time.Hour)
 	wLive.Clock.SimTime = live
+	srv.presence.markOnline("SHA256:present")
 	relay.NewReporter(srv.relay, "SHA256:present").Tick(wLive, time.Now())
 
 	wOfflineVet, err := sim.NewWorld()
@@ -98,6 +101,55 @@ func TestJoinIgnoresStoredPayloadAhead(t *testing.T) {
 	}
 	if got := app.World().Clock.SimTime; !got.Equal(live) {
 		t.Errorf("new player joined at %v, want the live player's time %v (stored payload must not pull forward)", got, live)
+	}
+}
+
+// A departed player's stale report must not out-vote the live group:
+// Report never evicts on disconnect, so the store keeps alice's old
+// entry indefinitely, and a naive min-fold over "everything stored"
+// would let it dominate forever (a min, unlike Frontier's max, is
+// dragged DOWN by a stale straggler, not merely outweighed). Alice
+// plays briefly and disconnects; Bob and Carol are still online, ten
+// days ahead of her. Dave joining now must land with Bob and Carol,
+// not get pulled ten days behind everyone actually playing.
+func TestJoinIgnoresStaleDisconnectedReport(t *testing.T) {
+	srv := newOfflineServer(t)
+
+	wAlice, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	srv.presence.markOnline("SHA256:alice")
+	relay.NewReporter(srv.relay, "SHA256:alice").Tick(wAlice, time.Now())
+	srv.presence.markOffline("SHA256:alice") // alice disconnects; her report lingers in the store
+
+	wBob, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	bobTime := wBob.Clock.SimTime.Add(10 * 24 * time.Hour)
+	wBob.Clock.SimTime = bobTime
+	srv.presence.markOnline("SHA256:bob")
+	relay.NewReporter(srv.relay, "SHA256:bob").Tick(wBob, time.Now())
+
+	wCarol, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	carolTime := wCarol.Clock.SimTime.Add(11 * 24 * time.Hour)
+	wCarol.Clock.SimTime = carolTime
+	srv.presence.markOnline("SHA256:carol")
+	relay.NewReporter(srv.relay, "SHA256:carol").Tick(wCarol, time.Now())
+
+	app, err := srv.newGuestApp("SHA256:dave")
+	if err != nil {
+		t.Fatalf("newGuestApp: %v", err)
+	}
+	if got := app.World().Clock.SimTime; !got.Equal(bobTime) {
+		t.Errorf("dave joined at %v, want bob's live %v (alice's stale disconnected report must not win the min)", got, bobTime)
+	}
+	if got := app.World().Clock.SimTime; got.Equal(wAlice.Clock.SimTime) {
+		t.Error("dave joined at alice's stale disconnected clock — ten days behind the live group")
 	}
 }
 

@@ -510,7 +510,7 @@ func (s *Server) frontier() (time.Time, bool) {
 // a genuinely empty server), in which case the caller's fresh default
 // clock stands.
 func (s *Server) joinTime() (time.Time, bool) {
-	if live, ok := s.relay.Earliest(); ok {
+	if live, ok := s.relay.Earliest(s.presence.isOnline); ok {
 		return live, true
 	}
 	return s.store.EarliestSimTime()

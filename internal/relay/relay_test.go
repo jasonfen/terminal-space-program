@@ -129,6 +129,11 @@ func TestFrontierUnderDivergence(t *testing.T) {
 	}
 }
 
+// allLive is the liveness predicate for tests where every stored
+// report is meant to count — Earliest's own liveness gating isn't
+// under test.
+func allLive(string) bool { return true }
+
 // Earliest under divergence: the mirror of Frontier, and the two
 // must not converge on the same value — Frontier backs
 // --reset-fleet's epoch, Earliest backs a new player's join point
@@ -137,7 +142,7 @@ func TestFrontierUnderDivergence(t *testing.T) {
 // laggard, not the leader, sets where newcomers land.
 func TestEarliestUnderDivergence(t *testing.T) {
 	store := NewStore()
-	if _, ok := store.Earliest(); ok {
+	if _, ok := store.Earliest(allLive); ok {
 		t.Fatal("empty store claims an earliest")
 	}
 	wA, wB := newWorld(t), newWorld(t)
@@ -146,7 +151,7 @@ func TestEarliestUnderDivergence(t *testing.T) {
 	NewReporter(store, "SHA256:alice").Tick(wA, time.Now())
 	NewReporter(store, "SHA256:bob").Tick(wB, time.Now())
 
-	e, ok := store.Earliest()
+	e, ok := store.Earliest(allLive)
 	if !ok {
 		t.Fatal("no earliest with two reports stored")
 	}
@@ -160,6 +165,39 @@ func TestEarliestUnderDivergence(t *testing.T) {
 	// Frontier still reports the max — the two must not converge.
 	if f, ok := store.Frontier(); !ok || !f.Equal(wA.Clock.SimTime) {
 		t.Errorf("Frontier = %v/%v, want alice's %v", f, ok, wA.Clock.SimTime)
+	}
+}
+
+// A report whose owner the caller's live predicate rejects is
+// excluded from Earliest's fold entirely — not merely outweighed.
+// Report never evicts on disconnect (nothing in the store deletes a
+// stale entry), so without this exclusion a departed player's old
+// report would dominate every live player's min forever: alice
+// reports a time ten days behind bob and carol, then "disconnects"
+// (the test's live predicate marks her false); Earliest must land on
+// the earliest LIVE time (bob's), not alice's stale one.
+func TestEarliestExcludesReportsLiveRejects(t *testing.T) {
+	store := NewStore()
+	wAlice, wBob, wCarol := newWorld(t), newWorld(t), newWorld(t)
+	wBob.Clock.SimTime = wBob.Clock.SimTime.Add(10 * 24 * time.Hour)
+	wCarol.Clock.SimTime = wCarol.Clock.SimTime.Add(11 * 24 * time.Hour)
+	NewReporter(store, "SHA256:alice").Tick(wAlice, time.Now())
+	NewReporter(store, "SHA256:bob").Tick(wBob, time.Now())
+	NewReporter(store, "SHA256:carol").Tick(wCarol, time.Now())
+
+	live := func(owner string) bool { return owner != "SHA256:alice" }
+	e, ok := store.Earliest(live)
+	if !ok {
+		t.Fatal("no earliest with two live reports stored")
+	}
+	if !e.Equal(wBob.Clock.SimTime) {
+		t.Errorf("earliest = %v, want bob's live %v, not alice's stale %v", e, wBob.Clock.SimTime, wAlice.Clock.SimTime)
+	}
+
+	// Nobody live at all → ok=false, same as an empty store from the
+	// caller's point of view.
+	if _, ok := store.Earliest(func(string) bool { return false }); ok {
+		t.Error("Earliest with no live owners should report ok=false")
 	}
 }
 
