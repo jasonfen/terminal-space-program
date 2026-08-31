@@ -439,8 +439,8 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		if w.RendezvousApproachM > 0 {
 			lines = append(lines, chipRow("approach:", formatRangeM(w.RendezvousApproachM)))
 		}
-		if w.RendezvousHold {
-			lines = append(lines, "  "+v.theme.Warning.Render("⏸ holding — waiting for "+aw.RendezvousHandle))
+		if line := v.rendezvousHoldOrPaceLine(w, aw.RendezvousHandle); line != "" {
+			lines = append(lines, line)
 		}
 		// Standing away line (#253): the partner's session flies on under
 		// the Commitment Reprieve with nobody at the controls. State-driven
@@ -578,8 +578,8 @@ func (v *OrbitView) rendezvousApproachLines(w *sim.World) []string {
 	if held := rendezvousHoldLabel(w.RendezvousRateHold(), handle); held != "" {
 		lines = append(lines, chipRow("held:", held))
 	}
-	if w.RendezvousHold {
-		lines = append(lines, "  "+v.theme.Warning.Render("⏸ holding — waiting for "+handle))
+	if line := v.rendezvousHoldOrPaceLine(w, handle); line != "" {
+		lines = append(lines, line)
 	}
 	// Standing away line (#253) — same reasoning as on the coasting state:
 	// Away lasts hours, the went-quiet moment lasts six seconds. "z" stays
@@ -588,6 +588,31 @@ func (v *OrbitView) rendezvousApproachLines(w *sim.World) []string {
 		lines = append(lines, "  "+v.theme.Warning.Render("z "+handle+" is away — their session is still flying"))
 	}
 	return append(lines, v.theme.Dim.Render("  [/] cancel"))
+}
+
+// rendezvousHoldOrPaceLine is the RENDEZVOUS chip's standing line for a
+// leader that has pulled ahead of its partner (#395, ADR 0045 S2, closing
+// #279). Two mutually exclusive world states, two distinct lines:
+//   - w.RendezvousHold (a genuinely stopped partner): the old "⏸ holding"
+//     line, unchanged. A rate you cannot explain is a bug (v0.30 lesson),
+//     but a partner who is literally paused explains itself.
+//   - w.RendezvousPaced (a live partner, the leader is being paced back
+//     instead of frozen at the boundary): a steady line naming the
+//     current rate and who it's paced to, replacing the old flicker
+//     between "coasting with X" and "⏸ holding" every report cycle — the
+//     #279 bug was exactly that pair alternating in lockstep with the
+//     relay report cadence.
+//
+// Empty when neither applies — the ordinary case, full rate, nothing to
+// explain.
+func (v *OrbitView) rendezvousHoldOrPaceLine(w *sim.World, handle string) string {
+	switch {
+	case w.RendezvousHold:
+		return "  " + v.theme.Warning.Render("⏸ holding — waiting for "+handle)
+	case w.RendezvousPaced:
+		return "  " + v.theme.Warning.Render("coasting "+WarpLabel(w.EffectiveWarp())+" — paced to "+handle)
+	}
+	return ""
 }
 
 // rendezvousHoldLabel names what is holding the pair's rate when it isn't

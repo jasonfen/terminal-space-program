@@ -432,6 +432,8 @@ func (w *World) DriveRendezvousWarp(peers []CoWarpPeer) {
 
 func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	w.RendezvousHold = false
+	w.RendezvousPaced = false
+	w.RendezvousPaceWarp = 0
 	w.RendezvousPartnerAway = false
 	arm := w.RendezvousArm
 	if arm == nil {
@@ -633,19 +635,65 @@ func (w *World) driveRendezvousApproach(arm *RendezvousArm, partner *CoWarpPeer,
 	w.holdRendezvousLeader(partner)
 }
 
-// holdRendezvousLeader raises the hold flag when the engaged coast's
-// viewer must wait for its partner (v0.29 review): a paused partner
-// (frozen clock) or a divergence with the viewer ahead must not let the
-// leader sail on alone. The leader freezes (clampedWarp reads the flag);
-// the one behind coasts on and closes the gap; the pair re-locks inside
-// the tolerance. Deadlock-free because only the AHEAD side ever holds.
-// Applies to every engaged coasting tick — pre-τ and the past-τ idle
-// alike (#252 review, finding 2).
+// holdRendezvousLeader paces (or, for a genuinely stopped partner,
+// freezes) the engaged coast's viewer when it must wait for its partner
+// (v0.29 review, repaced by #395 / ADR 0045 S2, closing #279): a paused
+// partner (frozen clock) or a divergence with the viewer ahead must not
+// let the leader sail on alone. The one behind coasts on and closes the
+// gap; the pair re-locks. Deadlock-free because only the AHEAD side ever
+// holds or paces. Applies to every engaged coasting tick — pre-τ and the
+// past-τ idle alike (#252 review, finding 2).
+//
+// Two distinct cases, deliberately not collapsed into one flag (#395):
+//   - partner.Paused && ahead >= 0: there is no rate to pace to — a
+//     stopped clock has none — so this is still the old hard freeze
+//     (RendezvousHold), and the chip still says "holding".
+//   - ahead > 0 against a LIVE partner: the old code froze here too, at
+//     exactly coWarpSubspaceToleranceSec — the same constant the couple
+//     gate itself uses — so the leader crossed the release threshold in
+//     the tick it froze, the laggard caught up, the hold cleared, and the
+//     leader sprinted straight back to the wall: negative feedback with
+//     no deadband, bang-banging in lockstep with the relay report
+//     cadence. Now the leader's ceiling glides continuously down to 0 as
+//     ahead grows toward rendezvousPaceCeilingSec instead (full rate at
+//     zero gap), which is short of coWarpSubspaceToleranceSec on purpose
+//     (Part 3's deadband) — the pair settles on whatever rate keeps the
+//     gap roughly constant instead of oscillating between the extremes.
 func (w *World) holdRendezvousLeader(partner *CoWarpPeer) {
 	ahead := w.Clock.SimTime.Sub(partner.SubspaceTime).Seconds()
-	if (partner.Paused && ahead >= 0) || ahead > coWarpSubspaceToleranceSec {
+	if partner.Paused && ahead >= 0 {
 		w.RendezvousHold = true
+		return
 	}
+	if warp, active := w.rendezvousPaceMaxWarp(ahead); active {
+		w.RendezvousPaced = true
+		w.RendezvousPaceWarp = warp
+	}
+}
+
+// rendezvousPaceMaxWarp is the paced ramp itself (#395, ADR 0045 S2, in
+// the same clamp family as clampedWarp's node/Auto-Warp approach terms):
+// as `ahead` — the leader's lead over the partner's reported subspace
+// time — grows from 0 toward rendezvousPaceCeilingSec, the ceiling glides
+// continuously from the ordinary subspace step cap (full rate) down to 0.
+// ahead <= 0 (leader behind or level with the partner) returns inactive —
+// there is nothing to pace back from. Anchoring the top of the ramp at
+// the step cap rather than a fresh constant keeps "full rate at zero gap"
+// literally true: the ramp starts exactly where the unpaced ceiling
+// already was, so there is no discontinuity the instant ahead ticks past
+// 0.
+func (w *World) rendezvousPaceMaxWarp(ahead float64) (warp float64, active bool) {
+	if ahead <= 0 {
+		return 0, false
+	}
+	if ahead >= rendezvousPaceCeilingSec {
+		return 0, true
+	}
+	top := w.subspaceStepCap()
+	if top <= 0 {
+		top = WarpFactors[len(WarpFactors)-1]
+	}
+	return top * (rendezvousPaceCeilingSec - ahead) / rendezvousPaceCeilingSec, true
 }
 
 // resolveRendezvousWaypoint decides what reaching the committed τ means
