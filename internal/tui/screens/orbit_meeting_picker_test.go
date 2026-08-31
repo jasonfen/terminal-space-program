@@ -263,10 +263,22 @@ func TestMeetingPickerChip_Render80x24(t *testing.T) {
 	}
 }
 
-// meetingPickerGoldenRender pins the exact chip block at 80×24 with a
-// plain (no-ANSI) theme, so a future accidental layout change shows up
-// as a diff here instead of only being caught by the content/width
-// checks above.
+// TestMeetingPickerChip_Render80x24_Golden pins the chip block
+// line-for-line at 80×24 under the plain (no-ANSI) test theme, so an
+// accidental layout change shows up here as a diff.
+//
+// It earns the name "golden" only because it compares whole lines. An
+// earlier version of this test was three strings.Contains calls over a
+// two-row, single-digit-lap fixture, which could not have caught the
+// ragged-column bug that shipped in this file (an unwidthed "%d laps"
+// shifted every column right on two-digit rows). The fixture below
+// therefore spans one- and two-digit lap counts and includes a refusal
+// row, which are the shapes that actually vary the layout.
+//
+// Alignment specifically is pinned by TestMeetingPickerChip_LadderColumnsAlign,
+// which asserts the property rather than the bytes; this test catches
+// everything else, including changes that keep columns aligned but move
+// them.
 func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := meetingPickerRenderWorld(t)
@@ -275,16 +287,29 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 		MoverIsA: true,
 		Rows: []planner.MeetingBurnOption{
 			{Laps: 2, Ok: true, DV: 696.6, TArrival: 15587, ArrivalSpeed: 12.5},
-			{Laps: 5, Ok: true, DV: 331.6, TArrival: 32592, ArrivalSpeed: 6.3},
+			{Laps: 5, Ok: false, Reason: "unaffordable", TArrival: 32592},
+			{Laps: 20, Ok: true, DV: 91.8, TArrival: 117614, ArrivalSpeed: 2.0},
 		},
 	}
 	v.OpenMeetingPicker(planner.MeetingTheirOrbit, ladder, nil)
 
-	out := v.Render(w, 0, 80, 24)
-	if !strings.Contains(out, "MEETING PLAN") ||
-		!strings.Contains(out, "697 m/s") ||
-		!strings.Contains(out, "332 m/s") {
-		t.Errorf("golden 80×24 render missing expected chip content:\n%s", out)
+	want := strings.Join([]string{
+		"MEETING PLAN",
+		"  \u2190 their orbit \u2192",
+		">  2 laps   4h19m      697 m/s",
+		"   5 laps   9h03m    (unaffordable)",
+		"  20 laps   32h40m      92 m/s",
+		"  arriving ~12 m/s",
+	}, "\n")
+
+	got := strings.Join(v.buildMeetingPickerChip(), "\n")
+	if got != want {
+		t.Errorf("chip block changed.\ngot:\n%s\n\nwant:\n%s", got, want)
+	}
+
+	// The block must also survive an actual 80x24 page render.
+	if out := v.Render(w, 0, 80, 24); !strings.Contains(out, "MEETING PLAN") {
+		t.Errorf("chip missing from an 80x24 page render:\n%s", out)
 	}
 }
 
