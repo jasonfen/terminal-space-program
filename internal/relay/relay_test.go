@@ -201,6 +201,27 @@ func TestEarliestExcludesReportsLiveRejects(t *testing.T) {
 	}
 }
 
+// TestEarliestNilLiveTreatsEveryoneAsLive is a regression guard for the
+// batch review (finding 2, internal/relay/relay.go:222): a nil live
+// callback used to panic on the first call. Earliest substitutes a
+// default that reports every owner live, matching the pre-callback
+// behaviour (Frontier-style, no exclusion).
+func TestEarliestNilLiveTreatsEveryoneAsLive(t *testing.T) {
+	store := NewStore()
+	wAlice, wBob := newWorld(t), newWorld(t)
+	wBob.Clock.SimTime = wBob.Clock.SimTime.Add(10 * 24 * time.Hour)
+	NewReporter(store, "SHA256:alice").Tick(wAlice, time.Now())
+	NewReporter(store, "SHA256:bob").Tick(wBob, time.Now())
+
+	e, ok := store.Earliest(nil)
+	if !ok {
+		t.Fatal("Earliest(nil) should still find a minimum across both reports")
+	}
+	if !e.Equal(wAlice.Clock.SimTime) {
+		t.Errorf("Earliest(nil) = %v, want alice's %v (nil live must not exclude anyone)", e, wAlice.Clock.SimTime)
+	}
+}
+
 // Concurrent report/subscribe/snapshot is race-clean (the -race run
 // is the assertion; the counts just keep the compiler honest).
 func TestConcurrentReportSubscribe(t *testing.T) {

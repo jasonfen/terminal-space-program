@@ -219,7 +219,18 @@ func (s *Store) Frontier() (time.Time, bool) {
 // ok is false when no report satisfies live; the caller falls back
 // to the furthest-behind persisted payload
 // (sessiondir.Store.EarliestSimTime).
+//
+// live is called once per stored report WHILE s.mu is held (RLock) —
+// it must not touch the store (no Report/Snapshot/Earliest/Frontier
+// call back in, directly or transitively), or a liveness source that
+// itself reads the relay store deadlocks. The only production caller
+// (Server.isOnline) locks presence.mu instead, a separate lock, so
+// this is safe today; a nil live would panic, so one is substituted
+// silently.
 func (s *Store) Earliest(live func(owner string) bool) (time.Time, bool) {
+	if live == nil {
+		live = func(string) bool { return true }
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var min time.Time
