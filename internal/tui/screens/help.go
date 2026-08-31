@@ -76,7 +76,7 @@ var helpSections = []helpSection{
 		{"t", "target their ghost vessel — 2+ vessels opens a picker ([esc] backs out)"},
 		{"v", "spectate — fit + camera-follow their ghost's orbit ([f] to return)"},
 		{"s", "sync-warp forward to a player ahead of you (forward only)"},
-		{"w", "rendezvous warp — arm a rate-locked coast to your encounter with them"},
+		{"w", "rendezvous warp — agree to meet them; commits to an encounter when one's found, otherwise arms with no plan yet"},
 		{"RANGE column", "live distance to them; warps lock inside 35 km at under 100 m/s closing"},
 		{"h", "start / stop hosting — accept ssh guests (stop confirms, drops guests)"},
 		{"i / r / x", "host + admins: mint invite / revoke code / remove player"},

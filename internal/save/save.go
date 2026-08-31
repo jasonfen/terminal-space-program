@@ -385,6 +385,17 @@ type Node struct {
 	// harmless on every save predating this field (a local-craft or
 	// untargeted node's TargetGhostOwner was always "").
 	TargetGhostOwner string `json:"target_ghost_owner,omitempty"`
+	// MeetingArrivalSec / MeetingPlaceLabel / MeetingLaps (ADR 0045 S7,
+	// #400, additive omitempty) mirror spacecraft.ManeuverNode's fields of
+	// the same name — the Meeting Planner plan a planted Meeting Burn
+	// node carries, so a reloaded save's node still lets Engage commit to
+	// the plan's own arrival (RendezvousCommitWithPlan's Source 2)
+	// instead of losing it. Absent → the zero value, correct for every
+	// node type that predates this field (including every non-Meeting-
+	// Burn node). No migration.
+	MeetingArrivalSec float64 `json:"meeting_arrival_sec,omitempty"`
+	MeetingPlaceLabel string  `json:"meeting_place_label,omitempty"`
+	MeetingLaps       int     `json:"meeting_laps,omitempty"`
 }
 
 // DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.

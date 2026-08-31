@@ -202,18 +202,36 @@ func (w *World) PlanMeetingBurn(place planner.MeetingPlace, laps int) (*MeetingP
 	// would fire against an orbit it was never computed for.
 	w.replaceAdvisoryNode(active, AdvisoryKeyMeetingBurn)
 
+	// ADR 0045 S7 (#400): carry the plan's own arrival onto the node so a
+	// later Engage can commit to it directly (see ManeuverNode's own doc
+	// comment). row.TArrival is measured from PLANT time (now); the node
+	// actually fires leadBuffer later, so the offset stored is
+	// re-anchored to TriggerTime. A row whose TArrival doesn't clear the
+	// lead buffer (never expected off meetingCandidateLaps' shortest lap,
+	// but not proven impossible) leaves MeetingArrivalSec at its zero
+	// value — rendezvousCommitFromPlantedMeetingNode treats that as "no
+	// plan info", falling back to the current-course search exactly like
+	// a node that predates this field.
+	var arrivalSec float64
+	if a := row.TArrival - leadBuffer.Seconds(); a > 0 {
+		arrivalSec = a
+	}
+
 	node := ManeuverNode{
-		Mode:             spacecraft.BurnVector,
-		DV:               row.DV,
-		Duration:         active.BurnTimeForDV(row.DV),
-		Event:            spacecraft.TriggerAbsolute,
-		TriggerTime:      w.Clock.SimTime.Add(leadBuffer),
-		PrimaryID:        active.Primary.ID,
-		Throttle:         1.0,
-		TargetCraftID:    w.Target.CraftID,
-		TargetGhostOwner: w.Target.GhostOwner,
-		AdvisoryKey:      AdvisoryKeyMeetingBurn,
-		BurnDirUnit:      row.BurnDir,
+		Mode:              spacecraft.BurnVector,
+		DV:                row.DV,
+		Duration:          active.BurnTimeForDV(row.DV),
+		Event:             spacecraft.TriggerAbsolute,
+		TriggerTime:       w.Clock.SimTime.Add(leadBuffer),
+		PrimaryID:         active.Primary.ID,
+		Throttle:          1.0,
+		TargetCraftID:     w.Target.CraftID,
+		TargetGhostOwner:  w.Target.GhostOwner,
+		AdvisoryKey:       AdvisoryKeyMeetingBurn,
+		BurnDirUnit:       row.BurnDir,
+		MeetingArrivalSec: arrivalSec,
+		MeetingPlaceLabel: place.String(),
+		MeetingLaps:       laps,
 	}
 	w.PlanNode(node)
 	return &MeetingPlan{MeetingBurnOption: row, ForActive: true}, nil

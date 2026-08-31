@@ -1027,8 +1027,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the moment the seat is taken — it is the only point where the
 			// asymmetry is a choice rather than a surprise.
 			if a.world.EngageRendezvousWarpAs(inv.Owner, inv.Handle, inv.Tau, inv.CA, false) {
-				a.toast(fmt.Sprintf("rendezvous with %s — coasting together; you fly copilot ([,] brakes the pair, [/] cancels)%s",
-					inv.Handle, rendezvousGapNoteSuffix(a.world, inv.CA)))
+				// ADR 0045 S7 (#400): adopt the initiator's Meeting Place
+				// verbatim, same as Tau/CA above — the accepter has no code
+				// path that can change it (see RendezvousArm's doc comment).
+				a.world.SetRendezvousMeeting(inv.MeetingPlaceLabel, inv.MeetingLaps)
+				if inv.Tau.IsZero() {
+					a.toast(fmt.Sprintf("rendezvous agreed with %s — no plan yet; you fly copilot ([,] brakes the pair, [/] cancels)", inv.Handle))
+				} else {
+					a.toast(fmt.Sprintf("rendezvous with %s — coasting together; you fly copilot ([,] brakes the pair, [/] cancels)%s",
+						inv.Handle, rendezvousGapNoteSuffix(a.world, inv.CA)))
+				}
 			} else {
 				a.toast(fmt.Sprintf("can't join %s — the encounter time has passed", inv.Handle))
 			}
@@ -2062,7 +2070,7 @@ func (a *App) closeSavesToOrbit() {
 // capturing; the Saves browser only during name entry (Save-As/rename);
 // the Spawn screen only while its ALTITUDE typed-edit box is open (ADR
 // 0044 / S4 — review finding #5: this comment's own "extend here" note
-// was not followed when that box landed, so `` ` `` mid-digit swapped the
+// was not followed when that box landed, so “ ` “ mid-digit swapped the
 // whole screen to the boss shell instead of typing a backtick nobody
 // wanted). Extend here as future free-text surfaces (VAB, search) land.
 func (a *App) capturingText() bool {
@@ -2308,43 +2316,54 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit
 	case screens.SessionCmdRendezvous:
-		// Rendezvous Warp initiate (v0.29 S2 / ADR 0034 v0.29 addendum):
-		// target the partner's ghost (the advisory + TARGET chip context),
-		// commit the encounter — a planted rendezvous-nudge node's
-		// post-burn course when one exists, else the current-course
-		// closest approach (#276: never the K-nudge ADVISORY's unfired
-		// preview) — and arm toward them. The coast starts only when they
-		// respond (mutual arm); the screen already gated same-subspace and
-		// ghost presence.
+		// Rendezvous Warp initiate (v0.29 S2 / ADR 0034 v0.29 addendum;
+		// ADR 0045 S7, #400: Engage IS the agreement now). Target the
+		// partner's ghost (the advisory + TARGET chip context), commit
+		// whatever encounter is available — a planted Meeting Burn node's
+		// own arrival, a planted trim-rung nudge's post-burn course, else
+		// the current-course closest approach (#276: never the K-nudge
+		// ADVISORY's unfired preview) — and arm toward them regardless of
+		// whether anything was found. The coast starts only when they
+		// respond (mutual arm), and only once there IS a plan; the screen
+		// already gated same-subspace and ghost presence.
 		//
-		// PR #392 review finding 2: SetTargetGhost runs before the commit
-		// gate, so a refusal below must not leave the switch behind —
-		// capture the prior target/NavMode and restore them on !ok. Without
-		// this a refused Engage silently stole whatever the player was
-		// targeting before (mid-transfer TargetBody Moon, say), flipped
-		// NavMode along with it, and left the stale ghost ref to persist
-		// into the next save.
+		// PR #392 review finding 2: SetTargetGhost runs before the commit,
+		// so a refusal below must not leave the switch behind — capture
+		// the prior target/NavMode and restore them on !ok. Without this a
+		// refused Engage silently stole whatever the player was targeting
+		// before (mid-transfer TargetBody Moon, say), flipped NavMode
+		// along with it, and left the stale ghost ref to persist into the
+		// next save. ADR 0045 S7 narrows when !ok can even fire: only the
+		// genuinely structural gates (no target resolvable, cross-primary)
+		// refuse now — "no encounter found" no longer does.
 		prevTarget, prevNav := a.world.Target, a.world.NavMode
 		a.world.SetTargetGhost(cmd.Owner, cmd.CraftID)
-		tau, ca, ok := a.world.RendezvousCommit()
+		plan, ok := a.world.RendezvousCommitWithPlan()
 		switch {
 		case !ok:
 			a.world.RestoreTarget(prevTarget, prevNav)
-			// #276's own remedy, restored (finding 1): RendezvousCommit now
-			// honors an actually-planted rendezvous nudge, so "plant a
-			// nudge [K] first" is a real next step again, not the dead end
-			// ADR 0039 S2 papered over by pointing at the doctrine's
-			// generic phasing-coach line instead.
-			a.statusMsg = fmt.Sprintf("no closable encounter with %s — plant a rendezvous nudge [K] first", cmd.Handle)
+			a.statusMsg = fmt.Sprintf("can't rendezvous with %s — no reported position", cmd.Handle)
 		// The seat is fixed here (ADR 0037 §2): proposing the rendezvous
 		// makes you pilot-in-command of the pair's time once the terminal
 		// phase begins.
-		case a.world.EngageRendezvousWarpAs(cmd.Owner, cmd.Handle, tau, ca, true):
+		case a.world.EngageRendezvousWarpAs(cmd.Owner, cmd.Handle, plan.Tau, plan.CommittedCA, true):
+			// Meeting Place (ADR 0045 S7, #400): stamped after Engage
+			// succeeds, so a re-Engage that plants nothing new (plan has no
+			// Place) clears whatever the PREVIOUS arm carried — the arm was
+			// just replaced wholesale above, so this keeps the two in sync
+			// rather than accidentally carrying stale Place text forward.
+			a.world.SetRendezvousMeeting(plan.MeetingPlaceLabel, plan.MeetingLaps)
 			// Name the acting craft (#295): arming acts on whatever slot is
 			// active, and a player who cycled it earlier has no other way to
 			// catch a wrong-vessel arm before the invitation goes out.
-			a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join%s",
-				cmd.Handle, screens.CraftTag(a.world.RendezvousArm.CraftName), rendezvousGapNoteSuffix(a.world, ca))
+			craftTag := screens.CraftTag(a.world.RendezvousArm.CraftName)
+			if plan.Tau.IsZero() {
+				a.statusMsg = fmt.Sprintf("rendezvous agreed with %s%s — no plan yet, waiting for them to join",
+					cmd.Handle, craftTag)
+			} else {
+				a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join%s",
+					cmd.Handle, craftTag, rendezvousGapNoteSuffix(a.world, plan.CommittedCA))
+			}
 		default:
 			a.statusMsg = fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle)
 		}

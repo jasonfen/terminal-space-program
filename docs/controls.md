@@ -242,7 +242,7 @@ docking, chat) are in [multiplayer.md](multiplayer.md). The keys:
 | `t` | roster | Target a player's vessel (expands to a picker when they have several in your system; `esc` backs out) |
 | `v` | roster | Spectate: fit the camera to their ghost orbit and follow it. `f` returns to your own vessel |
 | `s` | roster | Sync-warp forward to a player's time (forward only; a player behind you syncs to you) |
-| `w` | roster | Arm a rendezvous warp toward your predicted closest approach; they answer `y` on their main screen |
+| `w` | roster | Agree to a rendezvous warp with them — commits to an encounter when one's found (a planted node's own arrival, or the current course inside 4 h), otherwise arms with no plan yet; they answer `y` on their main screen |
 | `y` | flight view | Accept a rendezvous warp |
 | `/` | flight view | Cancel a rendezvous warp (either side) |
 | `h` | roster | Host: start hosting from single-player in place, or stop hosting (drops guests, keeps progress) |

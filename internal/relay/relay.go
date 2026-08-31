@@ -70,6 +70,16 @@ type CraftReport struct {
 	RendezvousTau    time.Time `json:"rendezvous_tau,omitempty"`
 	RendezvousCA     float64   `json:"rendezvous_ca,omitempty"` // committed predicted approach at τ (m) — the responder's adopted baseline
 
+	// RendezvousMeetingPlace / RendezvousMeetingLaps (ADR 0045 S7, #400)
+	// carry the reporter's chosen Meeting Place + lap count alongside
+	// RendezvousTau/CA, when their commit came from a planted Meeting
+	// Burn node — agreement state the accepter's chip names (and cannot
+	// change; see sim.RendezvousArm's doc comment). Empty/zero otherwise,
+	// including the whole "agreed, no plan yet" state (RendezvousTau the
+	// zero time), which by definition never had one.
+	RendezvousMeetingPlace string `json:"rendezvous_meeting_place,omitempty"`
+	RendezvousMeetingLaps  int    `json:"rendezvous_meeting_laps,omitempty"`
+
 	// RendezvousInitiator / RendezvousRate / RendezvousBurning carry the
 	// reporter's SEAT and its contribution to the pair's rate in a
 	// rendezvous agreement's terminal phase (ADR 0037 §2). The initiator

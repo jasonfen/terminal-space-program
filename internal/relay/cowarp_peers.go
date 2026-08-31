@@ -87,6 +87,8 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			p.ArmedTowardViewer = true
 			p.RendezvousTau = rep.RendezvousTau
 			p.RendezvousCA = rep.RendezvousCA
+			p.RendezvousMeetingPlace = rep.RendezvousMeetingPlace
+			p.RendezvousMeetingLaps = rep.RendezvousMeetingLaps
 			// Seat + published rate (ADR 0037 §2). Gated with the arm on
 			// purpose: a dead session's frozen report must not keep clamping
 			// the survivor's clock any more than it keeps their arm alive.

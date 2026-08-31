@@ -175,8 +175,16 @@ func (w *World) EngageRendezvousWarp(partner, handle string, tau time.Time, comm
 // plain EngageRendezvousWarp wrapper above does. Roles are fixed here, at
 // invite time, and relayed, so neither side can drift into disagreeing
 // about who flies the clock.
+//
+// ADR 0045 S7 (#400): a zero tau (time.Time{}) is now accepted — the
+// "agreed, no plan yet" state (see RendezvousUnplanned) — and skips the
+// forward-only gate entirely; only a NON-zero tau still has to clear it.
+// A real, once-committed tau can never legitimately be the zero time (the
+// sim clock starts at J2000, millennia after year 1), so the two cases
+// can't collide. This is additive: every existing caller already passes
+// a real future tau and sees no behavioural change.
 func (w *World) EngageRendezvousWarpAs(partner, handle string, tau time.Time, committedCA float64, initiator bool) bool {
-	if !tau.After(w.Clock.SimTime) {
+	if !tau.IsZero() && !tau.After(w.Clock.SimTime) {
 		return false
 	}
 	// The acting craft is captured here for the same reason the handle is
@@ -194,6 +202,25 @@ func (w *World) EngageRendezvousWarpAs(partner, handle string, tau time.Time, co
 		BrakeIdx:  rendezvousFollowing,
 	}
 	return true
+}
+
+// SetRendezvousMeeting stamps the Meeting Place + lap count onto the
+// CURRENT arm (ADR 0045 S7, #400): called right after a successful
+// EngageRendezvousWarpAs when the commit's source was a planted Meeting
+// Burn node (RendezvousCommitWithPlan's Source 2, or the invite's own
+// carried fields on the accepter's join), so the initiator's choice
+// becomes visible agreement state on both sides' RENDEZVOUS chip. A
+// separate call rather than extra EngageRendezvousWarpAs parameters —
+// that function's 5-argument signature has dozens of existing call
+// sites (production and test) that pass no Meeting Place at all; this
+// keeps it additive. No-op when there is no live arm (defensive; both
+// call sites always Engage first in the same sequence).
+func (w *World) SetRendezvousMeeting(placeLabel string, laps int) {
+	if w.RendezvousArm == nil {
+		return
+	}
+	w.RendezvousArm.MeetingPlaceLabel = placeLabel
+	w.RendezvousArm.MeetingLaps = laps
 }
 
 // rendezvousFollowing is RendezvousArm.BrakeIdx's "no brake" value — the
@@ -236,6 +263,24 @@ func (w *World) rendezvousApproachPhase() bool {
 // semantics both fork on it.
 func (w *World) RendezvousApproachPhase() bool { return w.rendezvousApproachPhase() }
 
+// rendezvousUnplanned reports whether the standing agreement has no
+// committed encounter yet (ADR 0045 S7, #400): Engaged, but at commit
+// time neither a planted node nor the 4h current-course search found
+// anything (RendezvousCommitWithPlan's zero-Tau result) — "we are going
+// to meet", agreed, with nothing to chase. Distinct from
+// rendezvousApproachPhase: that state is a DEMOTION from a real coast;
+// this one never had a coast to demote from, and Approach is never set
+// for it.
+func (w *World) rendezvousUnplanned() bool {
+	arm := w.RendezvousArm
+	return arm != nil && !arm.Approach && arm.Tau.IsZero()
+}
+
+// RendezvousUnplanned is the exported form for the tui — the RENDEZVOUS
+// chip's fifth state forks on it, ahead of RendezvousApproachPhase /
+// RendezvousWarpEngaged in the switch (buildRendezvousChip).
+func (w *World) RendezvousUnplanned() bool { return w.rendezvousUnplanned() }
+
 // rendezvousRateGoverned reports whether the agreement itself is setting
 // the pair's rate — the shared coast pre-τ (τ-derived on both sides) or
 // the initiator's clock in the terminal phase (ADR 0037 §2). Either way
@@ -267,8 +312,15 @@ type RendezvousInvite struct {
 	Owner     string    // partner fingerprint — EngageRendezvousWarp's target on respond
 	Handle    string    // display name for the prompt/chip
 	CraftName string    // the vessel the initiator armed (#295) — empty when their report carries no marker
-	Tau       time.Time // the initiator's committed encounter sim-time
+	Tau       time.Time // the initiator's committed encounter sim-time — zero means the initiator Engaged with no plan yet (ADR 0045 S7, #400)
 	CA        float64   // m — the initiator's committed predicted approach
+
+	// MeetingPlaceLabel / MeetingLaps (ADR 0045 S7, #400) carry the
+	// initiator's chosen Meeting Place alongside Tau/CA, when their
+	// commit came from a planted Meeting Burn node. Empty when it didn't
+	// — including whenever Tau is zero, which by definition never had one.
+	MeetingPlaceLabel string
+	MeetingLaps       int
 
 	// Blocked marks an invite from a subspace-diverged peer (#250): the
 	// intent is live, but the coast could never start across the gap, so
@@ -284,10 +336,12 @@ type RendezvousInvite struct {
 
 // refreshRendezvousInvite rebuilds the invite slate from this tick's
 // peer set (v0.29 S2). At most one invite surfaces: the first armed
-// peer with a still-future τ, and only while the viewer has no outgoing
-// arm — once mutually armed (or armed elsewhere) there is nothing to
-// respond to. A past-τ arm is dropped here rather than surfaced, since
-// Engage would refuse it (forward-only).
+// peer with a still-future τ (or ADR 0045 S7/#400: a zero τ — "agreed,
+// no plan yet" never expires this way, see the IsZero exemption below),
+// and only while the viewer has no outgoing arm — once mutually armed
+// (or armed elsewhere) there is nothing to respond to. A past-τ arm is
+// dropped here rather than surfaced, since Engage would refuse it
+// (forward-only).
 //
 // A subspace-diverged peer's arm is kept but Blocked (#250) rather than
 // dropped: Engage would succeed yet the coast could never start, so the
@@ -302,13 +356,14 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 	var blocked *RendezvousInvite
 	for i := range peers {
 		p := &peers[i]
-		if !p.ArmedTowardViewer || !p.RendezvousTau.After(w.Clock.SimTime) {
+		if !p.ArmedTowardViewer || (!p.RendezvousTau.IsZero() && !p.RendezvousTau.After(w.Clock.SimTime)) {
 			continue
 		}
 		if sameSubspace(w.Clock.SimTime, p.SubspaceTime) {
 			w.RendezvousInvite = &RendezvousInvite{
 				Owner: p.Owner, Handle: p.Handle, CraftName: p.ActiveCraftName,
 				Tau: p.RendezvousTau, CA: p.RendezvousCA,
+				MeetingPlaceLabel: p.RendezvousMeetingPlace, MeetingLaps: p.RendezvousMeetingLaps,
 			}
 			return
 		}
@@ -316,6 +371,7 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 			blocked = &RendezvousInvite{
 				Owner: p.Owner, Handle: p.Handle, CraftName: p.ActiveCraftName,
 				Tau: p.RendezvousTau, CA: p.RendezvousCA,
+				MeetingPlaceLabel: p.RendezvousMeetingPlace, MeetingLaps: p.RendezvousMeetingLaps,
 				Blocked: true, AheadBy: w.Clock.SimTime.Sub(p.SubspaceTime),
 			}
 		}
@@ -447,8 +503,12 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	// so holding it would freeze the state machine (stuck "waiting" chip,
 	// all future invites suppressed). A DEMOTED arm is exempt (ADR 0037 §1):
 	// its τ is deliberately in the past — the handoff happened there — and
-	// the terminal phase it now stands for has no time bound at all.
-	if !w.rendezvousWarpEngaged() && !arm.Approach && !arm.Tau.After(w.Clock.SimTime) {
+	// the terminal phase it now stands for has no time bound at all. An
+	// UNPLANNED arm is exempt too (ADR 0045 S7, #400): its zero Tau is
+	// never "After" anything, so without this it would expire on the very
+	// next tick after Engage — the whole point of the "agreed, no plan
+	// yet" state is that it has no time bound either, same as Approach.
+	if !w.rendezvousWarpEngaged() && !arm.Approach && !arm.Tau.IsZero() && !arm.Tau.After(w.Clock.SimTime) {
 		w.RendezvousArm = nil
 		return
 	}
@@ -497,6 +557,14 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 	// mirroring after that return would blank the away line in precisely
 	// its motivating scenario (#253).
 	w.RendezvousPartnerAway = partner != nil && partner.Away
+	// Mutual-but-unplanned (ADR 0045 S7, #400): the RENDEZVOUS chip's
+	// unplanned state needs to tell "agreed, still waiting for them to
+	// join back" from "mutual, holding for a plan" apart — refreshRendezvous-
+	// Wait can't answer that here (its own catch-all always reports
+	// RendezvousWaitPartner while no coast is running, mutual or not; see
+	// its doc comment), so this is derived fresh from the SAME partner
+	// match just above rather than overloading that classifier.
+	w.RendezvousMutualUnplanned = arm.Tau.IsZero() && partner != nil
 	// Terminal phase (ADR 0037 §1): the agreement is demoted, not ended —
 	// no driver, no waypoints, no τ. All that is left to drive is its
 	// lifetime (retract / dropout grace) and the leader hold that keeps the
@@ -573,6 +641,20 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 			return
 		}
 		if !sameSubspace(w.Clock.SimTime, partner.SubspaceTime) {
+			return
+		}
+		if arm.Tau.IsZero() {
+			// ADR 0045 S7 (#400): mutual, but no committed encounter yet —
+			// there is nothing for the driver to chase. The pair is still
+			// coupled (ComputeCoWarp's `armed` branch couples on the arm
+			// alone, unconditional on Tau) and rides ordinary min-wins
+			// until a plan lands and Engage is pressed again (see
+			// EngageRendezvousWarpAs's "replaces any prior arm" doc — a
+			// planted Meeting Burn plus a fresh Engage promotes the arm out
+			// of this state). Deliberately narrower than ADR 0037 §2's
+			// full seat-governed "initiator flies the clock" for the
+			// planned/terminal phase — a documented scope decision for
+			// #400, not an oversight; see the PR description.
 			return
 		}
 		handle := partner.Handle

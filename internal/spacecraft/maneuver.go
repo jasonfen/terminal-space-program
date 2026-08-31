@@ -172,6 +172,36 @@ type ManeuverNode struct {
 	// precedent as ID / TargetCraftID / PlaneChangeRad / BurnDirUnit —
 	// no save-schema migration needed.
 	AdvisoryKey string `json:",omitempty"`
+	// MeetingArrivalSec / MeetingPlaceLabel / MeetingLaps (ADR 0045 S7,
+	// #400) are set only on a planted Meeting Burn (AdvisoryKey ==
+	// "meeting-burn", internal/sim's AdvisoryKeyMeetingBurn — spacecraft
+	// can't reference that constant, it lives in the sim package one layer
+	// up) — the sim layer's own copy of the Meeting Planner row it
+	// plants, carried on the node so a LATER Engage press can commit to
+	// the plan's own arrival directly (rendezvousCommitFromPlantedMeetingNode)
+	// instead of re-searching within the 4h horizon rendezvousCommitFromPlantedNode
+	// (the plain trim-nudge sibling) still does: a multi-lap meeting can
+	// land its arrival well past that window (ADR 0045 §5 — "the 4h
+	// window bounds a search, not a plan").
+	//
+	// MeetingArrivalSec is seconds from THIS NODE'S OWN TriggerTime to the
+	// meeting instant (planner.MeetingBurnOption.TArrival, which is
+	// measured from plant time, re-anchored here by subtracting the same
+	// lead buffer already folded into TriggerTime) so the absolute arrival
+	// is recovered as TriggerTime.Add(MeetingArrivalSec) with no extra
+	// state. MeetingPlaceLabel is planner.MeetingPlace.String() ("their
+	// orbit" / "your orbit" / "the crossing") — a plain string, not the
+	// planner.MeetingPlace enum itself, again because spacecraft cannot
+	// import planner (sibling packages, ADR — see axisLabelToBurnMode's
+	// doc comment in internal/sim/rendezvous.go for the mirror-image
+	// constraint). MeetingLaps is the chosen Lap Ladder row's lap count.
+	//
+	// All three are zero for every node but a planted Meeting Burn.
+	// Additive, same zero-value-omitempty precedent as PlaneChangeRad /
+	// BurnDirUnit / AdvisoryKey above — no save-schema migration.
+	MeetingArrivalSec float64 `json:",omitempty"`
+	MeetingPlaceLabel string  `json:",omitempty"`
+	MeetingLaps       int     `json:",omitempty"`
 	// RefusalNoticed (#294 review finding 2) mirrors ActiveBurn's field of
 	// the same name: marks that World has already stamped
 	// LastNodeTargetRefusal for this node refusing to fire (target-

@@ -8,17 +8,17 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
-// TestEngageRendezvousNoEncounterCoachesPhasingBurn — PR #392 review
-// finding 1 supersedes ADR 0039 S2 / #277 for this refusal: a genuinely
-// stalemated geometry (matched circular orbit, opposite phase — zero
-// relative drift, an encounter can never form on the current courses,
-// #276) with NO rendezvous nudge planted must refuse Engage with #276's
-// own requested remedy, "plant a rendezvous nudge [K] first" — no
-// longer a dead end now that RendezvousCommit actually honors a planted
-// node (finding 1), so pointing at K is a real next step again instead
-// of the generic phasing-coach line ADR 0039 S2 substituted when it
-// wasn't.
-func TestEngageRendezvousNoEncounterCoachesPhasingBurn(t *testing.T) {
+// TestEngageRendezvousNoEncounterFormsUnplannedAgreement (ADR 0045 S7,
+// #400 — supersedes the PR #392 review finding 1 contract this test used
+// to pin, where Engage refused outright on a stalemated geometry) — a
+// genuinely stalemated geometry (matched circular orbit, opposite phase —
+// zero relative drift, an encounter can never form on the current
+// courses, #276) with NO rendezvous nudge planted must now SUCCEED:
+// Engage stops meaning "we found an encounter" and starts meaning "we
+// are going to meet" (ADR 0045 §5). The agreement forms with no
+// committed τ — RendezvousArm is set, RendezvousUnplanned() is true, and
+// the status message names the new state rather than refusing.
+func TestEngageRendezvousNoEncounterFormsUnplannedAgreement(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -48,7 +48,16 @@ func TestEngageRendezvousNoEncounterCoachesPhasingBurn(t *testing.T) {
 	if app.statusMsg == "" {
 		t.Fatal("Engage produced no status message")
 	}
-	if !strings.Contains(app.statusMsg, "plant a rendezvous nudge") {
-		t.Errorf("refusal %q missing the #276 remedy (plant a rendezvous nudge [K] first)", app.statusMsg)
+	if !strings.Contains(app.statusMsg, "no plan yet") {
+		t.Errorf("status %q missing the agreed-no-plan wording", app.statusMsg)
+	}
+	if app.world.RendezvousArm == nil {
+		t.Fatal("Engage did not form an agreement (ADR 0045 S7, #400: it should have — no encounter is no longer a refusal)")
+	}
+	if !app.world.RendezvousArm.Tau.IsZero() {
+		t.Errorf("Tau = %v, want zero (no encounter was found to commit to)", app.world.RendezvousArm.Tau)
+	}
+	if !app.world.RendezvousUnplanned() {
+		t.Error("RendezvousUnplanned() = false, want true")
 	}
 }
