@@ -25,6 +25,7 @@ more explanation. Multiplayer has its own guide in
   - [Saves](#saves-esc--save-game--load-game)
   - [Maneuver planner (`m`)](#maneuver-planner-m)
   - [Porkchop plot (`P`)](#porkchop-plot-p)
+  - [Meeting Planner (`K`)](#meeting-planner-k)
   - [Vehicle Assembly Building](#vehicle-assembly-building-esc--build-vab)
 
 ## Quick tour
@@ -183,7 +184,7 @@ does not affect your travel target.
 | `H` | Plan a transfer to your target. To a moon of your current planet it works out two routes and plans the cheaper, showing both costs. To another planet it plans a Hohmann transfer. To a moon's parent planet it plans an escape |
 | `I` | Plan a burn to match your target's orbital tilt (or to level out to the equator with no target) |
 | `C` | Plan a circularising burn at the top of your orbit; pairs with the ORBIT READY cue on launch. Refused if the top of your orbit is inside the atmosphere or you're on an escape trajectory |
-| `K` | Plan a small nudge to close in on a target vessel, using the closest-approach numbers in the target readout. Needs a vessel target sharing your planet, and only fires when there's an improvement to be had |
+| `K` | Close in on a target vessel. Close and near-matched → plants a small nudge directly, using the closest-approach numbers in the target readout. Too far apart in phase → opens the [Meeting Planner](#meeting-planner-k) instead of refusing. Your planes differ → names `I` instead of planting anything. Needs a vessel target sharing your planet |
 | `P` | [Porkchop plot](#porkchop-plot-p) for the body under the map cursor (not your `t` target). Other planets only; moon targets point you back to `H` |
 | `R` | Refine the plan: recompute the transfer from where you are now and update the arrival |
 
@@ -350,6 +351,27 @@ whole schedule, not just the burn in front of you.
 
 The cursor opens on the cheapest cell. A `·` marks cells where no transfer was
 found; `Enter` does nothing there.
+
+### Meeting Planner (`K`)
+
+A chip on the map, not a separate screen — it opens when `K`'s small nudge
+isn't enough to close on your target (too far apart in phase) but your
+planes already match. Pick where to meet: on their orbit, on yours, or at
+the natural crossing of your current courses; then pick a lap count on the
+**Lap Ladder** for that Meeting Place — more laps, less Δv, longer wait.
+Unaffordable or unsafe rows still show, dimmed, with the reason, rather than
+being hidden.
+
+| Key | Action |
+|---|---|
+| `←` / `→` | Walk the Meeting Place: their orbit / your orbit / the crossing |
+| `↑` / `↓` | Walk the Lap Ladder |
+| `Enter` | Plant the highlighted row's burn |
+| `Esc` | Close without planting |
+
+"Meet on your orbit" computes a plan for your *target*, not you — since this
+session has no way to plant a node on someone else's vessel, planting there
+is a later slice; the row still shows what that burn would cost.
 
 ### Vehicle Assembly Building (`Esc → [Build (VAB)]`)
 

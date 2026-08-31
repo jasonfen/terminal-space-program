@@ -285,6 +285,16 @@ type OrbitView struct {
 	diskRasterCache         map[string]*diskRasterEntry
 	diskRasterCacheHits     int
 	diskRasterCacheComputes int
+
+	// meetingPicker holds the Meeting Planner picker's UI navigation state
+	// (ADR 0045 S6, #399): a walkable chip on the orbit map, not a
+	// separate screen, so it lives here alongside the other interactive-
+	// but-not-screen-swapping state (declutter, chipRects) rather than as
+	// a tui.App-owned form like Spawn/Saves/Session. tui.App owns every
+	// call into World (RecommendMeetingLadder / PlanMeetingBurn) — this
+	// struct is pure navigation, never touches World itself. See
+	// orbit_meeting_picker.go.
+	meetingPicker meetingPickerState
 }
 
 // navballSubObserverDeadbandDeg is the great-circle angle the nose
