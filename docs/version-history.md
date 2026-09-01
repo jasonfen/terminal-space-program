@@ -2,6 +2,20 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.39.0
+
+Rendezvous becomes a plan you agree to rather than a nudge you repeat: `K` opens a Meeting Planner instead of refusing, `[I]` matches another vessel's plane, and Engage now means "we are going to meet" (#394-#400; PRs `#401`-`#405`, `#408`-`#412`, `#414`-`#415`, `#419`; tag `v0.39.0`).
+
+- #394: one flat 4 h search horizon everywhere; `rendezvousHorizonSeconds` deleted, so `K` scores the same encounter the TARGET chip shows. Closes #290.
+- #395: an engaged leader is *paced* toward its partner instead of frozen. Measured over 300 ticks: hold transitions 180 to 0, ticks stuck at dead 0x 30% to 0%. Closes #279.
+- #396: a new player joins at the earliest **live** clock, not the frontier, so a long-departed session can't strand them in the past. `--reset-fleet` still uses the max. Closes #247.
+- #397: `[I]` learns a vessel mode, deriving the burn from the target's own angular momentum; post-burn normals agree within 0.5 degrees.
+- #398: the Meeting Planner: a Meeting Place (their orbit / your orbit) over a Lap Ladder of laps / wait / cost, planting one node.
+- #399: `K` is modal, opening the picker on a phase mismatch instead of dead-ending; a plane mismatch is named, never silently fixed.
+- #400: Engage forms the agreement before any plan exists, carries the Meeting Place on the wire, and commits to a planted plan's own arrival however far out. Closes #277.
+- Two review rounds fixed 16 findings. The second round's two high-severity findings were both introduced by the first round's fixes.
+- **The Meeting Planner covers same-size, near-circular pairs.** Different-sized orbits (#407), an eccentric holder (#413), and "the crossing" (#416) all refuse rather than mis-solve. ADR 0039's Shape-Match Gate is therefore **retained**; its removal is #406. No save-schema change.
+
 ### v0.38.2
 
 Rendezvous Engage only commits to an encounter you can actually reach, guarded keys say why they refuse, a Relay-Tug is no longer warned off its own mission, and a craft target lock survives a server-restart reconnect (#276, #282, #283, #294; PRs `#390`–`#393`, merges `a448372`/`8c03115`/`d1e9426`/`29ec37c`, tag `v0.38.2`).
