@@ -25,7 +25,7 @@ func TestNewFromLoadoutResolvedGolden(t *testing.T) {
 		DryMass: 130000, FuelMass: 2160000, FuelCapacity: 2160000, Thrust: 35100000, Isp: 263,
 		MonopropMass: mono, MonopropCap: cap, RCSThrust: thr, RCSIsp: isp,
 		BallisticCoefficient: 8e-6, LaunchSpriteRowsPx: 24, LaunchSpriteWidthPx: 5,
-		LaunchSpriteColor: "#F5EFE0", FuelType: FuelTypeKerolox,
+		LaunchSpriteColor: "#F0EAD6", FuelType: FuelTypeKerolox, // #424 / ADR 0048 §4: widened colour spread
 	}
 	if !reflect.DeepEqual(sv.Stages[0], wantSIC) {
 		t.Errorf("Saturn-V S-IC resolution drift:\n want %+v\n  got %+v", wantSIC, sv.Stages[0])

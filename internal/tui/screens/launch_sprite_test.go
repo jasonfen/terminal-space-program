@@ -11,8 +11,10 @@ import (
 )
 
 // TestComposeLaunchSprite_VerticalClimbSingleStage is the tracer:
-// one stage with LaunchSpriteRowsPx = 4 emits a 2-wide × 4-tall
-// rectangle of braille sub-pixels (8 pixels), all with positive
+// one stage with LaunchSpriteRowsPx = 4 and no authored width emits a
+// minRenderedStageWidthPx-wide × 4-tall rectangle of braille
+// sub-pixels — the unset-width fallback (defaultSpriteWidthPx = 2)
+// still floors to the #424 rendering minimum, all with positive
 // screen.Y offset (stack extends UP from the vessel anchor at
 // vertical climb).
 func TestComposeLaunchSprite_VerticalClimbSingleStage(t *testing.T) {
@@ -27,8 +29,8 @@ func TestComposeLaunchSprite_VerticalClimbSingleStage(t *testing.T) {
 	}
 	pixels := ComposeLaunchSprite([]spacecraft.Stage{stage}, cmd, basis, 1.0)
 
-	if got, want := len(pixels), 4*defaultSpriteWidthPx; got != want {
-		t.Fatalf("got %d pixels, want %d (rows %d × width %d)", got, want, 4, defaultSpriteWidthPx)
+	if got, want := len(pixels), 4*minRenderedStageWidthPx; got != want {
+		t.Fatalf("got %d pixels, want %d (rows %d × width %d)", got, want, 4, minRenderedStageWidthPx)
 	}
 	for i, p := range pixels {
 		if string(p.Color) != "#FFD93D" {
@@ -42,7 +44,10 @@ func TestComposeLaunchSprite_VerticalClimbSingleStage(t *testing.T) {
 
 // TestComposeLaunchSprite_MultiStageStacksBottomToTop verifies the
 // Stages[0]=bottom convention: every pixel from the bottom stage
-// sits at lower screen.Y than every pixel from the top stage.
+// sits at lower screen.Y than every pixel from the top stage. Two
+// rendered stages also means one boundary, so the #424 stage
+// separator row fires (both stages < taperThreshold, so no taper);
+// its pixels are neither stage's colour and are counted separately.
 func TestComposeLaunchSprite_MultiStageStacksBottomToTop(t *testing.T) {
 	bottom := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#FF0000"}
 	top := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#00FF00"}
@@ -53,12 +58,16 @@ func TestComposeLaunchSprite_MultiStageStacksBottomToTop(t *testing.T) {
 	}
 	pixels := ComposeLaunchSprite([]spacecraft.Stage{bottom, top}, cmd, basis, 1.0)
 
-	if got, want := len(pixels), 2*4*defaultSpriteWidthPx; got != want {
-		t.Fatalf("got %d pixels, want %d", got, want)
+	// 4 rows × floored width 4 per stage, plus one 4-wide separator row.
+	wantBody := 4 * minRenderedStageWidthPx
+	wantSep := minRenderedStageWidthPx
+	if got, want := len(pixels), 2*wantBody+wantSep; got != want {
+		t.Fatalf("got %d pixels, want %d (2×%d body + %d separator)", got, want, wantBody, wantSep)
 	}
 
 	maxBottomY := -1e18
 	minTopY := 1e18
+	var sepN int
 	for _, p := range pixels {
 		y := p.OffsetWorld.Dot(basis.Y)
 		switch string(p.Color) {
@@ -70,12 +79,17 @@ func TestComposeLaunchSprite_MultiStageStacksBottomToTop(t *testing.T) {
 			if y < minTopY {
 				minTopY = y
 			}
+		case string(stageSeparatorColor()):
+			sepN++
 		default:
 			t.Errorf("unexpected color %q on pixel", string(p.Color))
 		}
 	}
 	if !(minTopY > maxBottomY) {
 		t.Errorf("top-stage pixels must be above bottom-stage pixels; maxBottomY=%v minTopY=%v", maxBottomY, minTopY)
+	}
+	if sepN != wantSep {
+		t.Errorf("separator pixel count = %d, want %d", sepN, wantSep)
 	}
 }
 
@@ -146,12 +160,12 @@ func TestComposeLaunchSprite_Col0LeftOfCol1(t *testing.T) {
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	pixels := ComposeLaunchSprite([]spacecraft.Stage{stage}, cmd, basis, 1.0)
-	if got := len(pixels); got != defaultSpriteWidthPx {
-		t.Fatalf("got %d pixels for 1 row, want %d", got, defaultSpriteWidthPx)
+	if got := len(pixels); got != minRenderedStageWidthPx {
+		t.Fatalf("got %d pixels for 1 row, want %d", got, minRenderedStageWidthPx)
 	}
 	// Pixels should span the screen.X range symmetrically: minX
 	// must be negative (col 0 is left of centre), maxX positive
-	// (col defaultSpriteWidthPx-1 is right of centre).
+	// (col minRenderedStageWidthPx-1 is right of centre).
 	minX, maxX := 1e18, -1e18
 	for _, p := range pixels {
 		x := p.OffsetWorld.Dot(basis.X)
@@ -205,8 +219,8 @@ func TestComposeLaunchSprite_NoSpriteReturnsNil(t *testing.T) {
 // TestComposeFlame_MidThrottleEmitsMidLength (v0.11.5-followup):
 // throttle 0.5 falls in the middle bin and emits 3 cone-tapered
 // sub-pixel rows. With no bell the top width defaults to the stage
-// width (defaultSpriteWidthPx = 2) tapering to max(1, 2/2) = 1 at the
-// tip, so the cone is 2 + 2 + 1 = 5 pixels.
+// width — floored to minRenderedStageWidthPx (#424) — tapering to
+// max(1, 4/2) = 2 at the tip, so the cone is 4 + 3 + 2 = 9 pixels.
 func TestComposeFlame_MidThrottleEmitsMidLength(t *testing.T) {
 	stage := spacecraft.Stage{LaunchSpriteRowsPx: 4}
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
@@ -215,8 +229,8 @@ func TestComposeFlame_MidThrottleEmitsMidLength(t *testing.T) {
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	pixels := ComposeFlame([]spacecraft.Stage{stage}, cmd, basis, 1.0, 0.5, 0, 0)
-	if got, want := len(pixels), 5; got != want {
-		t.Fatalf("got %d pixels, want %d (mid bin = 3-row cone tapering 2→2→1)", got, want)
+	if got, want := len(pixels), 9; got != want {
+		t.Fatalf("got %d pixels, want %d (mid bin = 3-row cone tapering 4→3→2)", got, want)
 	}
 	for i, p := range pixels {
 		if y := p.OffsetWorld.Dot(basis.Y); y >= 0 {
@@ -257,9 +271,13 @@ func TestComposeFlameTwoColourCore(t *testing.T) {
 		t.Error("wide flame should keep fuel-coloured edges")
 	}
 
-	// Narrow flame: no bell, stage width 2 → every row ≤ 2 wide → no core.
-	narrow := spacecraft.Stage{LaunchSpriteRowsPx: 4, LaunchSpriteWidthPx: 2, Thrust: 1e6, FuelType: spacecraft.FuelTypeKerolox}
-	for _, p := range ComposeFlame([]spacecraft.Stage{narrow}, cmd, basis, 1.0, 1.0, 0, 0) {
+	// Narrow flame: an explicit narrow bellWidth (2) bypasses the
+	// stage-width fallback so every row stays ≤ 2 wide → no core.
+	// (Since #424 floors the un-belled fallback to
+	// minRenderedStageWidthPx = 4, a real stage can no longer produce
+	// a narrow flame this way — bellWidth stays the one path in.)
+	narrow := spacecraft.Stage{LaunchSpriteRowsPx: 4, Thrust: 1e6, FuelType: spacecraft.FuelTypeKerolox}
+	for _, p := range ComposeFlame([]spacecraft.Stage{narrow}, cmd, basis, 1.0, 1.0, 0, 2) {
 		if string(p.Color) == string(flameCoreColor) {
 			t.Errorf("narrow flame (width ≤ 2) should have no hot core")
 		}
@@ -311,11 +329,12 @@ func TestComposeFlame_FrameSwapShiftsPixels(t *testing.T) {
 
 // TestComposeLaunchSpriteUsesPerStageWidth verifies sub-scope 1 of
 // v0.11.5 silhouette polish: each stage paints a rectangle at its own
-// Stage.LaunchSpriteWidthPx width. A 4-wide stage emits 4 pixels per
-// row; a 2-wide stage emits 2 per row; a mixed-width stack composes
-// both honestly.
+// Stage.LaunchSpriteWidthPx width. A 6-wide stage emits 6 pixels per
+// row; a 2-wide stage emits 2 per row — but #424 floors the rendered
+// width at minRenderedStageWidthPx (4), so the 2-wide stage actually
+// composes at 4; a mixed-width stack composes both honestly.
 func TestComposeLaunchSpriteUsesPerStageWidth(t *testing.T) {
-	wide := spacecraft.Stage{LaunchSpriteRowsPx: 2, LaunchSpriteWidthPx: 4, Color: "#FF0000"}
+	wide := spacecraft.Stage{LaunchSpriteRowsPx: 2, LaunchSpriteWidthPx: 6, Color: "#FF0000"}
 	narrow := spacecraft.Stage{LaunchSpriteRowsPx: 2, LaunchSpriteWidthPx: 2, Color: "#00FF00"}
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
 	basis := widgets.Basis{
@@ -332,33 +351,40 @@ func TestComposeLaunchSpriteUsesPerStageWidth(t *testing.T) {
 			narrowN++
 		}
 	}
-	if got, want := wideN, 2*4; got != want {
-		t.Errorf("wide stage pixels = %d, want %d (2 rows × 4 wide)", got, want)
+	if got, want := wideN, 2*6; got != want {
+		t.Errorf("wide stage pixels = %d, want %d (2 rows × 6 wide)", got, want)
 	}
-	if got, want := narrowN, 2*2; got != want {
-		t.Errorf("narrow stage pixels = %d, want %d (2 rows × 2 wide)", got, want)
+	if got, want := narrowN, 2*minRenderedStageWidthPx; got != want {
+		t.Errorf("narrow stage pixels = %d, want %d (2 rows × floored width %d)", got, want, minRenderedStageWidthPx)
 	}
 }
 
 // TestInterStageTaperFiresAboveThreshold (v0.11.5 sub-scope 2):
 // two stages both ≥ taperThreshold rows with different widths produce
 // a synthetic 1-row band at width round((lower + upper) / 2) in the
-// lower stage's colour, sitting between the stage bodies in the stack.
+// lower stage's colour, sitting between the stage bodies in the
+// stack. Widths (6, 4) are both above the #424 rendering floor
+// (minRenderedStageWidthPx = 4) so the taper math this test exercises
+// stays independent of that floor; the boundary also grows the #424
+// stage-separator row (its own, non-lower-coloured pixel), which
+// sits ABOVE the taper.
 func TestInterStageTaperFiresAboveThreshold(t *testing.T) {
-	lower := spacecraft.Stage{LaunchSpriteRowsPx: 10, LaunchSpriteWidthPx: 4, Color: "#FF0000"}
-	upper := spacecraft.Stage{LaunchSpriteRowsPx: 10, LaunchSpriteWidthPx: 2, Color: "#00FF00"}
+	lower := spacecraft.Stage{LaunchSpriteRowsPx: 10, LaunchSpriteWidthPx: 6, Color: "#FF0000"}
+	upper := spacecraft.Stage{LaunchSpriteRowsPx: 10, LaunchSpriteWidthPx: 4, Color: "#00FF00"}
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
 	basis := widgets.Basis{
 		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	pixels := ComposeLaunchSprite([]spacecraft.Stage{lower, upper}, cmd, basis, 1.0)
-	// Expected counts: lower body = 10×4 = 40, upper body = 10×2 = 20,
-	// taper row = round((4+2)/2) = 3 pixels in lower colour.
-	const wantTaper = 3
-	wantTotal := 10*4 + 10*2 + wantTaper
+	// Expected counts: lower body = 10×6 = 60, upper body = 10×4 = 40,
+	// taper row = round((6+4)/2) = 5 pixels in lower colour, separator
+	// row = max(6,4) = 6 pixels in the #424 separator colour.
+	const wantTaper = 5
+	const wantSep = 6
+	wantTotal := 10*6 + 10*4 + wantTaper + wantSep
 	if got := len(pixels); got != wantTotal {
-		t.Fatalf("got %d total pixels, want %d (40 lower + 20 upper + %d taper)", got, wantTotal, wantTaper)
+		t.Fatalf("got %d total pixels, want %d (60 lower + 40 upper + %d taper + %d separator)", got, wantTotal, wantTaper, wantSep)
 	}
 	// Count lower-colour pixels and find the highest-y lower pixel —
 	// that should be a taper-row pixel sitting above the lower body's
@@ -373,11 +399,12 @@ func TestInterStageTaperFiresAboveThreshold(t *testing.T) {
 			}
 		}
 	}
-	if got, want := lowerN, 10*4+wantTaper; got != want {
+	if got, want := lowerN, 10*6+wantTaper; got != want {
 		t.Errorf("lower-colour pixels = %d, want %d (body + taper)", got, want)
 	}
 	// Lower body's top row is at y = 9; taper row at y = 10. So the
-	// max lower-colour y should be at index 10 (the taper row).
+	// max lower-colour y should be at index 10 (the taper row) — the
+	// separator (y = 11, a different colour) doesn't count here.
 	if !(maxLowerY > 9.5) {
 		t.Errorf("taper must sit ABOVE the lower stage body; maxLowerY=%v, expect > 9.5", maxLowerY)
 	}
@@ -385,19 +412,23 @@ func TestInterStageTaperFiresAboveThreshold(t *testing.T) {
 
 // TestInterStageTaperSuppressedBelowThreshold (v0.11.5 sub-scope 2):
 // when one or both stages fall below taperThreshold rows the boundary
-// hard-steps — no synthetic row is inserted.
+// hard-steps — no synthetic taper row is inserted. The #424 stage
+// separator is a SEPARATE, unconditional feature (see
+// TestComposeLaunchSprite_SeparatorAtEachBoundary) and still fires
+// here regardless of the taper threshold.
 func TestInterStageTaperSuppressedBelowThreshold(t *testing.T) {
 	lower := spacecraft.Stage{LaunchSpriteRowsPx: 5, LaunchSpriteWidthPx: 4, Color: "#FF0000"} // 5 < threshold 6
-	upper := spacecraft.Stage{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 2, Color: "#00FF00"}
+	upper := spacecraft.Stage{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 5, Color: "#00FF00"}
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
 	basis := widgets.Basis{
 		X: orbital.Vec3{X: 1, Y: 0, Z: 0},
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	pixels := ComposeLaunchSprite([]spacecraft.Stage{lower, upper}, cmd, basis, 1.0)
-	want := 5*4 + 6*2 // no taper row
+	wantSep := 5 // max(lower width 4, upper width 5)
+	want := 5*4 + 6*5 + wantSep
 	if got := len(pixels); got != want {
-		t.Errorf("got %d pixels, want %d (no taper when lower < threshold)", got, want)
+		t.Errorf("got %d pixels, want %d (no taper when lower < threshold, but the separator still fires)", got, want)
 	}
 }
 
@@ -426,11 +457,13 @@ func TestInterStageTaperColourIsLowerStage(t *testing.T) {
 }
 
 // TestEngineBellFlaresBottomStage (v0.12 Slice 4): a thrust-bearing
-// width-2 bottom stage (mouth = 4) emits a 3-row tapered bell flaring
-// from the throat (stage width 2, nearest the body) out to the mouth
-// (width 4, at the nozzle exit), all in the stage's colour, sitting
-// below the stage base. The multi-row taper replaced the v0.11.5
-// single-row flare.
+// bottom stage emits a 3-row tapered bell flaring from the throat
+// (nearest the body) out to the mouth (at the nozzle exit), all in
+// the stage's colour, sitting below the stage base. The multi-row
+// taper replaced the v0.11.5 single-row flare. Stage width is
+// authored at 2, but #424 floors every resolved stage width at
+// minRenderedStageWidthPx (4) — bell geometry goes through that same
+// resolver, so the throat here is 4, not 2 (see stageSpriteWidthPx).
 func TestEngineBellFlaresBottomStage(t *testing.T) {
 	stage := spacecraft.Stage{
 		LaunchSpriteRowsPx:  6,
@@ -438,8 +471,8 @@ func TestEngineBellFlaresBottomStage(t *testing.T) {
 		Color:               "#FF0000",
 		Thrust:              1e6,
 	}
-	if got, want := EngineBellWidth([]spacecraft.Stage{stage}), 4; got != want {
-		t.Errorf("EngineBellWidth = %d, want %d", got, want)
+	if got, want := EngineBellWidth([]spacecraft.Stage{stage}), 6; got != want {
+		t.Errorf("EngineBellWidth = %d, want %d (floored throat 4 + bellExtraWidth 2)", got, want)
 	}
 	if got, want := EngineBellRows([]spacecraft.Stage{stage}), 3; got != want {
 		t.Errorf("EngineBellRows = %d, want %d (mouth-throat ≥ 2 ⇒ tapered)", got, want)
@@ -450,9 +483,9 @@ func TestEngineBellFlaresBottomStage(t *testing.T) {
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	bell := ComposeEngineBell([]spacecraft.Stage{stage}, cmd, basis, 1.0)
-	// 3 rows: widths 2 + 3 + 4 = 9 pixels.
-	if got, want := len(bell), 9; got != want {
-		t.Fatalf("bell pixel count = %d, want %d (3 rows: 2+3+4)", got, want)
+	// 3 rows: widths 4 + 5 + 6 = 15 pixels.
+	if got, want := len(bell), 15; got != want {
+		t.Fatalf("bell pixel count = %d, want %d (3 rows: 4+5+6)", got, want)
 	}
 	// Bucket by row (y = rowAbove in this basis) → width per row.
 	widthByRow := map[int]int{}
@@ -468,8 +501,8 @@ func TestEngineBellFlaresBottomStage(t *testing.T) {
 	}
 	// Throat (y=-1, nearest the body) is narrowest; mouth (y=-3, nozzle
 	// exit) is widest — a real bell flares toward the exit.
-	if widthByRow[-1] != 2 || widthByRow[-2] != 3 || widthByRow[-3] != 4 {
-		t.Errorf("taper widths by row = %v, want {-1:2, -2:3, -3:4}", widthByRow)
+	if widthByRow[-1] != 4 || widthByRow[-2] != 5 || widthByRow[-3] != 6 {
+		t.Errorf("taper widths by row = %v, want {-1:4, -2:5, -3:6}", widthByRow)
 	}
 }
 
@@ -514,7 +547,13 @@ func TestEngineBellSuppressedNoThrust(t *testing.T) {
 
 // TestFlameColorMatchesFuelType (v0.11.5 sub-scope 4): each FuelType
 // value maps to its catalog-locked palette hex; the bottom stage's
-// FuelType drives every flame pixel's colour.
+// FuelType drives every EDGE flame pixel's colour. Since #424 floors
+// the un-belled fallback width to minRenderedStageWidthPx (4), the
+// flame's wider rows are now wide enough to resolve a two-colour
+// core (v0.12 Slice 4) — flameCoreColor pixels are expected and
+// skipped here; TestComposeFlameTwoColourCore covers the core/edge
+// split itself, this test only needs every non-core pixel to carry
+// the fuel tint.
 func TestFlameColorMatchesFuelType(t *testing.T) {
 	cases := []struct {
 		fuel string
@@ -537,11 +576,19 @@ func TestFlameColorMatchesFuelType(t *testing.T) {
 			t.Errorf("fuel=%q: expected flame pixels, got none", c.fuel)
 			continue
 		}
+		edgeSeen := false
 		for _, p := range pixels {
+			if string(p.Color) == string(flameCoreColor) {
+				continue
+			}
+			edgeSeen = true
 			if string(p.Color) != c.want {
 				t.Errorf("fuel=%q: pixel colour = %q, want %q", c.fuel, string(p.Color), c.want)
 				break
 			}
+		}
+		if !edgeSeen {
+			t.Errorf("fuel=%q: every pixel was core-coloured, no edge pixel to check", c.fuel)
 		}
 	}
 }
@@ -549,6 +596,8 @@ func TestFlameColorMatchesFuelType(t *testing.T) {
 // TestFlameFallsBackToWarningOnUnsetFuelType (v0.11.5 sub-scope 4):
 // stages without a FuelType (pre-v0.11.5 saves, RCS-tug, custom
 // stacks) keep amber `render.ColorWarning` flame — no regression.
+// Core pixels (see TestFlameColorMatchesFuelType) are skipped the
+// same way.
 func TestFlameFallsBackToWarningOnUnsetFuelType(t *testing.T) {
 	stage := spacecraft.Stage{LaunchSpriteRowsPx: 4} // FuelType unset
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
@@ -560,11 +609,19 @@ func TestFlameFallsBackToWarningOnUnsetFuelType(t *testing.T) {
 	if len(pixels) == 0 {
 		t.Fatal("expected flame pixels, got none")
 	}
+	edgeSeen := false
 	for _, p := range pixels {
+		if p.Color == flameCoreColor {
+			continue
+		}
+		edgeSeen = true
 		if p.Color != render.ColorWarning {
 			t.Errorf("unset FuelType: pixel colour = %q, want render.ColorWarning %q", string(p.Color), string(render.ColorWarning))
 			break
 		}
+	}
+	if !edgeSeen {
+		t.Error("every pixel was core-coloured, no edge pixel to check")
 	}
 }
 
@@ -881,11 +938,17 @@ func TestEngineBellInheritsLaunchSpriteColor(t *testing.T) {
 	}
 }
 
-// TestComposeLaunchSpriteDefaultsToTwoWhenWidthZero verifies the
-// pre-v0.11.5 behaviour fallback: a stage with LaunchSpriteWidthPx == 0
-// renders at defaultSpriteWidthPx (= 2), so un-catalogued and pre-
-// v0.11.5 saves keep their original 2-wide rectangle.
-func TestComposeLaunchSpriteDefaultsToTwoWhenWidthZero(t *testing.T) {
+// TestComposeLaunchSpriteWidthZeroFallsBackThenFloors verifies BOTH
+// generations of the width-resolution fallback stack: a stage with
+// LaunchSpriteWidthPx == 0 falls back to defaultSpriteWidthPx (= 2,
+// the pre-v0.11.5 universal width — un-catalogued and pre-v0.11.5
+// saves), which #424 then floors to minRenderedStageWidthPx (4) like
+// every other rendered width. Renamed from
+// …DefaultsToTwoWhenWidthZero, which is no longer literally true.
+func TestComposeLaunchSpriteWidthZeroFallsBackThenFloors(t *testing.T) {
+	if defaultSpriteWidthPx >= minRenderedStageWidthPx {
+		t.Fatalf("precondition: defaultSpriteWidthPx (%d) must be below minRenderedStageWidthPx (%d) for this test to prove the floor fires", defaultSpriteWidthPx, minRenderedStageWidthPx)
+	}
 	stage := spacecraft.Stage{LaunchSpriteRowsPx: 3, Color: "#FFD93D"} // width unset = 0
 	cmd := orbital.Vec3{X: 0, Y: 0, Z: 1}
 	basis := widgets.Basis{
@@ -893,8 +956,8 @@ func TestComposeLaunchSpriteDefaultsToTwoWhenWidthZero(t *testing.T) {
 		Y: orbital.Vec3{X: 0, Y: 0, Z: 1},
 	}
 	pixels := ComposeLaunchSprite([]spacecraft.Stage{stage}, cmd, basis, 1.0)
-	if got, want := len(pixels), 3*defaultSpriteWidthPx; got != want {
-		t.Errorf("got %d pixels, want %d (3 rows × default %d wide)", got, want, defaultSpriteWidthPx)
+	if got, want := len(pixels), 3*minRenderedStageWidthPx; got != want {
+		t.Errorf("got %d pixels, want %d (3 rows × floored width %d)", got, want, minRenderedStageWidthPx)
 	}
 }
 
@@ -940,9 +1003,11 @@ func TestComposeCanopy_SitsAboveStack(t *testing.T) {
 	if minCanopyY <= maxBodyY {
 		t.Errorf("canopy bottom (%.2f) should sit above the body top (%.2f)", minCanopyY, maxBodyY)
 	}
-	// Canopy spans wider than the 3-wide top stage body (±1 sub-pixel).
+	// Canopy spans wider than the top stage body — authored width 3,
+	// floored to minRenderedStageWidthPx (4) by #424 — by a
+	// comfortable margin either way, so this bound holds regardless.
 	if span := maxCanopyX - minCanopyX; span <= 2.0 {
-		t.Errorf("canopy width span %.2f should exceed the 3-wide stage body (2 sub-pixels)", span)
+		t.Errorf("canopy width span %.2f should exceed the top stage body (2 sub-pixels)", span)
 	}
 }
 

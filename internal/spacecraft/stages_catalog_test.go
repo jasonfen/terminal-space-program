@@ -32,7 +32,7 @@ func TestBuildStageGoldenByteIdentical(t *testing.T) {
 		BallisticCoefficient: 6.25e-5,
 		LaunchSpriteRowsPx:   12,
 		LaunchSpriteWidthPx:  3,
-		LaunchSpriteColor:    "#D8D8D8",
+		LaunchSpriteColor:    "#8C9096", // #424 / ADR 0048 §4: widened Saturn V colour spread
 		FuelType:             FuelTypeHydrolox,
 	}
 	if got, ok := BuildStage(StageModuleSIVBID); !ok || !reflect.DeepEqual(got, wantSIVB) {
@@ -111,14 +111,22 @@ func TestBuildStageCarriesFuelType(t *testing.T) {
 // CSM split into SM (silver service module) + CM (pale cone).
 func TestApolloStackSilhouetteIsUnifiedPalette(t *testing.T) {
 	apollo := Loadouts[LoadoutApolloStackID]
+	// #424 / ADR 0048 §4: the pre-fix palette was four shades of
+	// near-white ~13-20 luminance levels apart — indistinguishable on
+	// a terminal (0.299R+0.587G+0.114B computed < 20 apart at every
+	// boundary). Widened so every adjacent pair clears ~20 levels
+	// while staying "white rocket" in spirit: warm ivory booster,
+	// cool light grey sustainer, mid grey interstage/transfer stage,
+	// dark gold LM descent, pale silver LM ascent, cool grey service
+	// module, warm ivory command module cone.
 	want := map[string]string{
-		"S-IC":    "#F5EFE0",
-		"S-II":    "#E8E8E8",
-		"S-IVB":   "#D8D8D8",
-		"Descent": "#D4C088", // v0.12 Slice 2: LM split — descent keeps the gold foil
-		"Ascent":  "#C8C8B0", // pale metal band above the descent
-		"SM":      "#C8C8D0", // bare aluminium service module
-		"CM":      "#D8D8E0", // pale command-module cone
+		"S-IC":    "#F0EAD6",
+		"S-II":    "#C7D1D9",
+		"S-IVB":   "#8C9096",
+		"Descent": "#8A6B3D", // v0.12 Slice 2: LM split — descent keeps the gold foil
+		"Ascent":  "#D8D4C0", // pale metal band above the descent
+		"SM":      "#A8ACC0", // bare aluminium service module
+		"CM":      "#EDE6D6", // pale command-module cone
 	}
 	for _, s := range apollo.Stages {
 		w, ok := want[s.Name]

@@ -696,6 +696,87 @@ func (c *Canvas) FillProjectedSphere(center orbital.Vec3, radius float64, color 
 	}
 }
 
+// HorizonBand is one solid-colour strip in a Canvas.FillHorizonBands
+// gradient: Rows sub-pixel rows painted in Color, working outward
+// from the horizon edge. v0.40 / issue #424.
+type HorizonBand struct {
+	Color lipgloss.Color
+	Rows  int
+}
+
+// FillHorizonBands paints a LIMITED horizon strip in place of
+// FillProjectedSphere's unbroken disk flood (v0.40 / issue #424, ADR
+// 0048 §4). The old flood painted the WHOLE silhouette below the
+// horizon one flat shade all the way to the far canvas edge — no
+// horizon line, no scale reference (the UX review's dump at 104×24:
+// "ten unbroken rows of identical... blocks"). This walks the SAME
+// near-flat sphere edge FillProjectedSphere uses (locally flat
+// because planet radius ≫ chase-cam distance) but only paints a
+// bounded run of rows out from that edge on each side: `ground` bands
+// work DOWN from the edge (into the body — a lit apron right at the
+// horizon, a dimmer band beneath it), `sky` bands work UP from the
+// edge (away from the body — a horizon glow fading toward open
+// space). Anything past the given bands is left untouched (terminal
+// background) — that's what turns a flood into a readable STRIP: a
+// player judges scale against the visible ground/sky edge instead of
+// an undifferentiated colour field.
+//
+// Ground bands stay clipped to the sphere's own silhouette (dy² ≤
+// pxR²) so the strip still narrows correctly as the visible arc
+// curves at altitude, matching FillProjectedSphere's existing
+// curvature behaviour. Sky bands have no silhouette to clip against —
+// they paint into open space — so only the canvas bounds gate them;
+// callers shrink the row counts themselves as altitude grows (the ADR's
+// "thins with altitude").
+func (c *Canvas) FillHorizonBands(center orbital.Vec3, radius float64, ground, sky []HorizonBand) {
+	if radius <= 0 {
+		return
+	}
+	cx, cy, _ := c.Project(center)
+	pxR := radius * c.scale
+	pxR2 := pxR * pxR
+	for px := 0; px < c.pxW; px++ {
+		dx := float64(px - cx)
+		dx2 := dx * dx
+		if dx2 > pxR2 {
+			continue // this column never reaches the sphere's edge
+		}
+		edge := float64(cy) - math.Sqrt(pxR2-dx2) // topmost "ground" row here
+
+		row := edge
+		for _, band := range ground {
+			tag := CellTag{Color: band.Color}
+			for i := 0; i < band.Rows; i++ {
+				py := int(math.Round(row))
+				row++
+				if py < 0 || py >= c.pxH {
+					continue
+				}
+				dy := float64(py) - float64(cy)
+				if dy*dy > pxR2 {
+					continue
+				}
+				c.dc.Set(px, py)
+				c.pixelTags.set(px, py, tag)
+			}
+		}
+
+		row = edge - 1
+		for _, band := range sky {
+			tag := CellTag{Color: band.Color}
+			for i := 0; i < band.Rows; i++ {
+				py := int(math.Round(row))
+				row--
+				if py < 0 || py >= c.pxH {
+					continue
+				}
+				c.dc.Set(px, py)
+				c.pixelTags.set(px, py, tag)
+			}
+		}
+	}
+}
+
 // PlotColored sets a single pixel and tags it with the given color.
 // Used by callers that want a tagged dot (e.g. v0.6.1 maneuver-leg
 // preview). v0.6.4+: routed through PlotColoredTagged so tagged
@@ -1082,11 +1163,13 @@ func (c *Canvas) ZoomBy(factor float64) {
 	}
 }
 
-// Project converts a world-frame inertial Vec3 to integer pixel coords.
-// Y is flipped so increasing world-Y visually points up. Returns the
-// pixel location and ok=false if the point is off-canvas.
-func (c *Canvas) Project(w orbital.Vec3) (int, int, bool) {
-	rel := w.Sub(c.centerW)
+// projectRel converts an ALREADY-relative (world-minus-centre) vector to
+// integer pixel coordinates — the shared tail of Project and
+// PlotColoredAnchored. Project computes rel = w.Sub(c.centerW) and hands
+// it here; PlotColoredAnchored computes its own relative vector WITHOUT
+// ever forming an absolute world point (anchor.Add(offset)) first — see
+// that method's doc comment for why the distinction matters.
+func (c *Canvas) projectRel(rel orbital.Vec3) (int, int, bool) {
 	relX := rel.X*c.basis.X.X + rel.Y*c.basis.X.Y + rel.Z*c.basis.X.Z
 	relY := rel.X*c.basis.Y.X + rel.Y*c.basis.Y.Y + rel.Z*c.basis.Y.Z
 	px := int(math.Round(relX*c.scale)) + c.pxW/2
@@ -1095,6 +1178,187 @@ func (c *Canvas) Project(w orbital.Vec3) (int, int, bool) {
 		return px, py, false
 	}
 	return px, py, true
+}
+
+// Project converts a world-frame inertial Vec3 to integer pixel coords.
+// Y is flipped so increasing world-Y visually points up. Returns the
+// pixel location and ok=false if the point is off-canvas.
+func (c *Canvas) Project(w orbital.Vec3) (int, int, bool) {
+	return c.projectRel(w.Sub(c.centerW))
+}
+
+// PlotColoredAnchored plots a pixel at anchor+offset — e.g. a launch
+// sprite pixel, where `anchor` is the vessel's world position and
+// `offset` is the sprite's small (metre-scale) sub-pixel displacement
+// from it. Numerically DIFFERENT from
+// `PlotColored(anchor.Add(offset), color)`, and deliberately so (#424
+// follow-up): that call forms an absolute world point by adding a tiny
+// offset (~1.5 m) onto a large-magnitude world coordinate (a body-
+// relative launch anchor is ~10^6 m), then Project immediately subtracts
+// the SAME large coordinate back off via w.Sub(c.centerW). IEEE754
+// float64 addition-then-subtraction of a large value does not always
+// recover a small operand bit-for-bit — the residual noise is only
+// ~10^-10 m, negligible for most offsets, but when the offset's exact
+// projected value lands precisely on a X.5 sub-pixel tie (the sprite's
+// width-axis offsets are literally half-integer multiples of
+// vesselSubPixelM for even xPx — see stackDirScreen/emitRect in
+// launch_sprite.go), that noise is enough to flip which side of the tie
+// math.Round lands on, independently per row (each row's full 3D offset
+// differs, so the residual differs) — reproducing the exact "half-lit
+// column that changes pattern every row" aliasing #424 reported, even
+// with the vessel standing bit-exact vertical (angle-off-vertical =
+// 0.000000°, confirmed by TestRealLaunchView_SIC_ColumnsAreSolid before
+// this fix). Computing `anchor.Sub(c.centerW).Add(offset)` instead never
+// forms that absolute point: when anchor == c.centerW (the common case —
+// the active vessel's own sprite, anchored at the same point the canvas
+// is centred on) the subtraction is EXACTLY the zero vector per IEEE754
+// (a-a==0 for any finite a, no rounding possible), so the projected
+// value is `offset` untouched — exact, no tie-flipping. For a passive
+// vessel anchored elsewhere, anchor and c.centerW are both body-relative
+// (similar magnitude), so their subtraction is well-conditioned (nearby
+// same-magnitude values subtract cleanly), and the noise is bounded by
+// that ONE subtraction rather than compounding through an add-then-
+// re-subtract round trip per pixel.
+func (c *Canvas) PlotColoredAnchored(anchor, offset orbital.Vec3, color lipgloss.Color) {
+	rel := anchor.Sub(c.centerW).Add(offset)
+	if px, py, ok := c.projectRelBiased(rel); ok {
+		c.dc.Set(px, py)
+		c.pixelTags.set(px, py, CellTag{Color: color})
+	}
+}
+
+// ProjectAnchored is PlotColoredAnchored's read-only twin: the same
+// numerically-stable anchor+offset projection, without plotting.
+// Callers that need to know WHERE an anchored sprite pixel would land
+// (tests verifying column solidity against the real render path,
+// future hit-testing) use this instead of reconstructing
+// `Project(anchor.Add(offset))`, which reintroduces the precision
+// round trip PlotColoredAnchored's doc comment describes.
+func (c *Canvas) ProjectAnchored(anchor, offset orbital.Vec3) (int, int, bool) {
+	return c.projectRelBiased(anchor.Sub(c.centerW).Add(offset))
+}
+
+// tieBreakBias (#424 follow-up) is added before rounding in
+// projectRelBiased so a value that lands almost exactly on a X.5
+// sub-pixel tie resolves the SAME way every time, regardless of which
+// side of the tie a few ULPs of floating-point noise happen to land on.
+// That noise is real and unavoidable: a launch sprite's per-pixel
+// OffsetWorld is composed as `basis.X.Scale(a).Add(basis.Y.Scale(b))`
+// and later decomposed back via a dot product against basis.X/basis.Y —
+// exact only if basis.X and basis.Y are orthonormal to full float64
+// precision, which a chase-cam basis DERIVED from real-world velocity /
+// radial vectors is not (residual cross-terms measured at 10⁻¹⁶–10⁻¹⁵,
+// growing slightly with the offset's magnitude along the OTHER basis
+// axis — a taller sprite row has more of this leakage). Two rows of the
+// same stage share the identical intended sub-pixel column (their
+// width-axis offset is the same xPx·pxSize), but when that shared value
+// is EXACTLY a half-integer number of sub-pixels (routine — see
+// emitRect in launch_sprite.go, where an even sprite width or a
+// non-integer vesselSubPixelM stride both produce this), the decode
+// noise is enough to flip math.Round's outcome independently per row —
+// reproducing #424's "half-lit column that changes pattern every row"
+// even with the stack axis bit-exact vertical. tieBreakBias (10⁻⁹) is
+// four to five orders of magnitude larger than the measured noise but
+// nine orders of magnitude smaller than one sub-pixel, so it cannot
+// move any position that ISN'T already within a hair of an exact tie.
+const tieBreakBias = 1e-9
+
+// projectRelBiased is projectRel with tieBreakBias applied before
+// rounding — see tieBreakBias's doc comment. Used only by the anchored
+// sprite-plotting path (PlotColoredAnchored / ProjectAnchored); Project
+// and everything built on it keep the plain, unbiased rounding so this
+// fix's blast radius stays inside the launch sprite it was written for.
+func (c *Canvas) projectRelBiased(rel orbital.Vec3) (int, int, bool) {
+	relX := rel.X*c.basis.X.X + rel.Y*c.basis.X.Y + rel.Z*c.basis.X.Z
+	relY := rel.X*c.basis.Y.X + rel.Y*c.basis.Y.Y + rel.Z*c.basis.Y.Z
+	px := int(math.Floor(relX*c.scale+0.5+tieBreakBias)) + c.pxW/2
+	py := c.pxH/2 - int(math.Floor(relY*c.scale+0.5+tieBreakBias))
+	if px < 0 || px >= c.pxW || py < 0 || py >= c.pxH {
+		return px, py, false
+	}
+	return px, py, true
+}
+
+// pixelEdge converts a basis-relative (world-minus-centre, already
+// dotted against one basis axis) coordinate to an integer sub-pixel
+// boundary index, applying the same tieBreakBias-guarded rounding
+// projectRelBiased uses. FillRectAnchored calls this on BOTH edges of
+// BOTH axes of every tile it fills — critically, two tiles that share a
+// real-world boundary (adjacent launch-sprite samples, spaced exactly
+// wM/hM apart by construction) compute that shared boundary by calling
+// pixelEdge on the SAME real-world coordinate, so they get the IDENTICAL
+// pixel index and tile with no gap and no overlap. Rounding each tile's
+// own half-width independently instead (centre ± round(halfWidthPx))
+// would NOT have this property: two separate roundings of two
+// expressions that are mathematically but not bit-for-bit equal can
+// disagree by a pixel, which is exactly the kind of gap this function
+// exists to rule out.
+func pixelEdge(rel, scale float64) int {
+	return int(math.Floor(rel*scale + 0.5 + tieBreakBias))
+}
+
+// FillRectAnchored fills a solid wM×hM (world metres) rectangle centred
+// at anchor+centerOffset, computed directly in the canvas's OWN
+// sub-pixel space at the CURRENT zoom — every sub-pixel the rectangle
+// covers gets lit, not just the ones a fixed-stride sample happens to
+// land on (#424 follow-up). The launch sprite plots one SpritePixel
+// sample per vesselSubPixelM (1.5 m) step; at the pad the chase-cam's
+// actual sub-pixel pitch is FINER than that stride, so plotting each
+// sample as a single point left every other sub-pixel row dark — a
+// periodic "half-lit stripe" distinct from (and found after fixing) the
+// column-tie-flipping bug PlotColoredAnchored/tieBreakBias fixed.
+// Filling each sample as its own full wM×hM tile instead reconstructs
+// the stage's true solid rectangle: adjacent samples are spaced exactly
+// wM/hM apart by construction (emitRect steps col and rowAbove by
+// exactly 1 unit = 1×pxSize), so their tiles EXACTLY ABUT via
+// pixelEdge's shared-boundary property, at any zoom — whether the
+// canvas pitch is coarser or finer than the sample stride.
+//
+// Y is flipped like Project: increasing world-Y (relY, hence increasing
+// centerOffset along basis.Y) moves the tile UP the screen (smaller py).
+// A tile is floored at 1 pixel in each dimension so a sample can never
+// vanish at a zoom where wM/hM would otherwise round to 0 sub-pixels.
+func (c *Canvas) FillRectAnchored(anchor, centerOffset orbital.Vec3, wM, hM float64, color lipgloss.Color) {
+	rel := anchor.Sub(c.centerW).Add(centerOffset)
+	relX := rel.X*c.basis.X.X + rel.Y*c.basis.X.Y + rel.Z*c.basis.X.Z
+	relY := rel.X*c.basis.Y.X + rel.Y*c.basis.Y.Y + rel.Z*c.basis.Y.Z
+
+	pxLeft := pixelEdge(relX-wM/2, c.scale) + c.pxW/2
+	pxRight := pixelEdge(relX+wM/2, c.scale) + c.pxW/2
+	if pxRight <= pxLeft {
+		pxRight = pxLeft + 1
+	}
+	// relY+hM/2 is the TOP of the tile (larger world-Y); Project maps
+	// larger relY to SMALLER py, so the top edge gives the smaller py.
+	pyTop := c.pxH/2 - pixelEdge(relY+hM/2, c.scale)
+	pyBottom := c.pxH/2 - pixelEdge(relY-hM/2, c.scale)
+	if pyBottom <= pyTop {
+		pyBottom = pyTop + 1
+	}
+
+	tag := CellTag{Color: color}
+	for py := pyTop; py < pyBottom; py++ {
+		if py < 0 || py >= c.pxH {
+			continue
+		}
+		for px := pxLeft; px < pxRight; px++ {
+			if px < 0 || px >= c.pxW {
+				continue
+			}
+			c.dc.Set(px, py)
+			c.pixelTags.set(px, py, tag)
+		}
+	}
+}
+
+// SubPixelSet reports whether the raw braille dot at sub-pixel (px, py)
+// is lit — a direct read of the underlying drawille bitmap, bypassing
+// String()'s per-cell color aggregation. Exists for tests that need to
+// confirm actual rendered dot state (not just "what would Project
+// compute"), e.g. verifying a launch sprite's columns are genuinely
+// solid in the canvas that was actually drawn to.
+func (c *Canvas) SubPixelSet(px, py int) bool {
+	return c.dc.Get(px, py)
 }
 
 // ProjectClamped is Project with the result pinned inside the canvas
