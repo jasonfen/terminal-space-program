@@ -305,9 +305,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// so warp can't accelerate it.
 		a.maybeAutosave(time.Time(m))
 		// v0.8.3+: surface docking events as a status flash. Cleared
-		// here so a single fusion only flashes once.
+		// here so a single fusion only flashes once. #421 / ADR 0048 §2:
+		// same voice Undock already uses ("undocked into N components") —
+		// verb, what, the number that matters — rather than the old bare
+		// "composite: <name>", so an auto-fuse (the "alongside active"
+		// spawn case chief among them) never welds two vessels together
+		// in total silence.
 		if e := a.world.LastDockEvent; e != nil {
-			a.statusMsg = fmt.Sprintf("● DOCKED — composite: %s", e.CompositeName)
+			a.statusMsg = fmt.Sprintf("docked with %s — now 1 vessel, %d components", e.PartnerName, e.ComponentCount)
 			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastDockEvent = nil
 		}
