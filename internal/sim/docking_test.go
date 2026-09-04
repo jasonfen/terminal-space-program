@@ -56,6 +56,55 @@ func TestDockingFusesCloseSlowCraft(t *testing.T) {
 	}
 }
 
+// TestDockingAutoFuseStampsPartnerNameAndComponentCount (#421): a
+// proximity auto-fuse must record the folded-in partner's name and the
+// resulting composite's total Docked Component count on LastDockEvent —
+// app.go's flash reads both to announce the fusion in the same voice
+// Undock already uses ("docked with <partner> — now 1 vessel, N
+// components"). Captured inside DockCrafts (before the drop slot is
+// gone), not reconstructed by the caller afterward.
+func TestDockingAutoFuseStampsPartnerNameAndComponentCount(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+
+	a := w.Crafts[0]
+	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	v := math.Sqrt(earth.GravitationalParameter() / a.State.R.Norm())
+	a.State.V = orbital.Vec3{Y: v}
+
+	// Named distinctly from the default active craft (w.Crafts[0] is
+	// itself named "S-IVB-1" by its default loadout) so PartnerName
+	// below can't pass by coincidentally matching the WRONG craft.
+	b := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	b.Name = "Tug-1"
+	b.Primary = *earth
+	b.State = physics.StateVector{
+		R: a.State.R.Add(orbital.Vec3{X: 10}),
+		V: a.State.V,
+		M: b.TotalMass(),
+	}
+	w.Crafts = append(w.Crafts, b)
+
+	if w.LastDockEvent != nil {
+		t.Fatal("precondition: LastDockEvent already set before any dock")
+	}
+	if _, _, ok := w.checkDocking(); !ok {
+		t.Fatal("expected docking match, got none")
+	}
+	if w.LastDockEvent == nil {
+		t.Fatal("checkDocking fused the pair but did not stamp LastDockEvent")
+	}
+	if w.LastDockEvent.PartnerName != "Tug-1" {
+		t.Errorf("LastDockEvent.PartnerName = %q, want %q", w.LastDockEvent.PartnerName, "Tug-1")
+	}
+	if w.LastDockEvent.ComponentCount != 2 {
+		t.Errorf("LastDockEvent.ComponentCount = %d, want 2 (two plain craft fused)", w.LastDockEvent.ComponentCount)
+	}
+	if w.LastDockEvent.CompositeName == "" {
+		t.Error("LastDockEvent.CompositeName is empty")
+	}
+}
+
 // TestDockingSkipsFarApart: craft beyond DockingDistM mustn't fuse.
 func TestDockingSkipsFarApart(t *testing.T) {
 	w, _ := NewWorld()

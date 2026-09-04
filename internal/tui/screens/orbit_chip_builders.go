@@ -1058,6 +1058,45 @@ func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
 	return v.missionChipLinesCompact(flash, flashing, w.ActiveMission())
 }
 
+// attitudeHoldLabel names the ATTITUDE chip's hold: row in whichever
+// frame the nav: row above it is actually reading against (#421). A
+// held BurnMode is fixed in its own frame at the moment it's set
+// (BurnPrograde always means orbit-frame prograde, never target-frame —
+// see BurnDirectionWithTarget), and while EngineRCS is active a w/s/a/d
+// pulse never touches AttitudeMode at all (internal/sim/rcs.go: "RCS is
+// a 6-axis translation tool"), so a player who cycles nav: to TARGET and
+// starts pulsing toward the other vessel keeps seeing whatever the SAS
+// was last explicitly set to hold — commonly the plain orbit-frame
+// "Prograde" from before the switch, disagreeing with the nav: row right
+// above it (six-lane UX review, 2026-09-02).
+//
+// This remaps the four base axis-equivalent orbit-frame modes
+// (Prograde / Retrograde / RadialOut / RadialIn) onto their
+// NavTarget-vocabulary counterparts — mirroring ResolveAttitudeIntent's
+// own (intent, NavMode) → BurnMode mapping in reverse — whenever
+// NavMode is NavTarget and a relative target actually resolves, so the
+// two rows can never name different frames. Already-Target-relative
+// modes, NormalPlus/Minus (no target-frame counterpart:
+// ResolveAttitudeIntent leaves them orbit-frame under NavTarget too),
+// and every non-axis mode (Surface*, PlaneChange, Vector) pass through
+// unchanged. Display-only — never mutates the craft's actual held
+// AttitudeMode or its physical nose direction.
+func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
+	if w.NavMode == sim.NavTarget && w.HasRelativeTarget() {
+		switch mode {
+		case spacecraft.BurnPrograde:
+			mode = spacecraft.BurnTargetPrograde
+		case spacecraft.BurnRetrograde:
+			mode = spacecraft.BurnTargetRetrograde
+		case spacecraft.BurnRadialOut:
+			mode = spacecraft.BurnTarget
+		case spacecraft.BurnRadialIn:
+			mode = spacecraft.BurnAntiTarget
+		}
+	}
+	return mode.String()
+}
+
 // buildAttitudeChip surfaces the held attitude / nav mode / engine mode /
 // manual-burn state. Always relevant for a visible craft (the old block
 // dropped the hold row during ascent to save column height; a corner chip
@@ -1075,7 +1114,7 @@ func (v *OrbitView) buildAttitudeChip(w *sim.World) []string {
 	return []string{
 		v.theme.Primary.Render("ATTITUDE"),
 		fmt.Sprintf("  nav:     %s", w.NavMode),
-		fmt.Sprintf("  hold:    %s", c.AttitudeMode.String()),
+		fmt.Sprintf("  hold:    %s", attitudeHoldLabel(w, c.AttitudeMode)),
 		fmt.Sprintf("  engine:  %s", c.EngineMode.String()),
 		fmt.Sprintf("  manual:  %s", manualState),
 	}

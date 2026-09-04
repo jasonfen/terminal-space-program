@@ -679,6 +679,12 @@ func (w *World) checkDocking() (int, int, bool) {
 //
 // ActiveCraftIdx is adjusted so the player keeps flying the
 // composite (the active partner's slate position).
+//
+// #421: also stashes World.LastDockEvent (partner name + resulting
+// component count included) for the HUD's auto-fuse announcement.
+// Captured here, before fuseComposite drops the partner's slot, because
+// by the time a caller further up (World.Tick) could look for it the
+// slate has already changed shape and the dropped identity is gone.
 func (w *World) DockCrafts(idxA, idxB int) {
 	if idxA == idxB {
 		return
@@ -696,7 +702,26 @@ func (w *World) DockCrafts(idxA, idxB int) {
 	if idxB == w.ActiveCraftIdx {
 		lead, drop = idxB, idxA
 	}
-	w.fuseComposite(lead, drop)
+	partnerName := ""
+	if c := w.Crafts[drop]; c != nil {
+		partnerName = c.Name
+	}
+	composite, newLead, ok := w.fuseComposite(lead, drop)
+	if !ok || composite == nil {
+		return
+	}
+	var when time.Time
+	if w.Clock != nil {
+		when = w.Clock.SimTime
+	}
+	w.LastDockEvent = &DockEvent{
+		When:           when,
+		CraftIdx:       newLead,
+		PartnerIdx:     drop,
+		CompositeName:  composite.Name,
+		PartnerName:    partnerName,
+		ComponentCount: len(composite.DockedComponents),
+	}
 }
 
 // fuseComposite fuses the craft at dropIdx into the craft at leadIdx,

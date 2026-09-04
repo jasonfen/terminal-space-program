@@ -882,15 +882,12 @@ func (w *World) Tick() {
 		// + node dispatch so two craft converging under a planted
 		// rendezvous burn can fuse on the same tick the maneuver
 		// completes. The result (success / which partners) is
-		// stashed on World.LastDockEvent for the HUD flash.
-		if a, b, ok := w.checkDocking(); ok {
-			w.LastDockEvent = &DockEvent{
-				When:          w.Clock.SimTime,
-				CraftIdx:      a,
-				PartnerIdx:    b,
-				CompositeName: w.ActiveCraft().Name,
-			}
-		}
+		// stashed on World.LastDockEvent for the HUD flash — DockCrafts
+		// populates it directly (#421) rather than this caller
+		// reconstructing it here, since by this point the slate has
+		// already changed shape and the dropped partner's identity is
+		// gone.
+		w.checkDocking()
 	}
 	// Mission eval runs every tick — even with an empty slate — so the event
 	// sink is drained each tick regardless of crafts (ADR 0025 §6). It
@@ -955,6 +952,16 @@ type DockEvent struct {
 	CraftIdx      int    // active partner's index (becomes the composite slot)
 	PartnerIdx    int    // index of the partner that was removed
 	CompositeName string // name of the resulting composite craft
+	// PartnerName / ComponentCount (#421) name the identity that just got
+	// folded in and the resulting composite's total Docked Component count,
+	// so app.go can announce an auto-fuse in the same voice Undock already
+	// uses ("docked with S-IVB-1 — now 1 vessel, 2 components") instead of
+	// the bare "composite: <name>" the flash carried before. Captured in
+	// DockCrafts (before the drop slot is gone) rather than re-derived
+	// here — by the time World.Tick reads LastDockEvent back the slate has
+	// already changed shape.
+	PartnerName    string
+	ComponentCount int
 }
 
 // evaluateMissions steps each mission against the live craft state.
