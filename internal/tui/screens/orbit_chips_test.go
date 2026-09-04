@@ -744,6 +744,36 @@ func TestOrbitMetricsShowsDirectionIndicator(t *testing.T) {
 	}
 }
 
+// TestOrbitMetricsChipShowsEccentricity — #426 (CONTEXT.md Chip entry): the
+// full-form ORBIT chip always carries an `e:` row so the three
+// eccentricity-graded challenge rungs have a number on the HUD to check
+// against. Full form only; the Compact Form stays the Ap/Pe strip.
+func TestOrbitMetricsChipShowsEccentricity(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+
+	joined := strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	if !strings.Contains(joined, chipRow("e:", "")) {
+		t.Fatalf("ORBIT chip missing the e: row at the shared label column:\n%s", joined)
+	}
+
+	// Compact Form stays the Ap/Pe strip — no e: row. (Matching on the
+	// chipRow-prefixed "  e:" rather than bare "e:" so this doesn't
+	// false-positive on "Pe:", which also contains the substring "e:".)
+	compact := strings.Join(v.buildOrbitMetricsChipCompact(w), "\n")
+	if strings.Contains(compact, "  e:") {
+		t.Errorf("Compact Form should not carry the e: row:\n%s", compact)
+	}
+}
+
 // TestProjectedOrbitIsSeparateChip — issue #63 follow-up: the projected
 // post-burn orbit is its own PROJECTED ORBIT chip stacked beneath the
 // always-on ORBIT chip, so planting a node shows the current and
@@ -1107,7 +1137,9 @@ func realisticChipSet(burning bool) []builtChip {
 			lines:   []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1", "    Press [G] to auto-warp to the burn."},
 			compact: []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1"}},
 		{corner: cornerTopRight, priority: chipPriorityCore,
-			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  t→Ap:      47m", "  Pe:        498.2 km", "  t→Pe:      12m", "  period:    1h34m28s", "  inclin.:   0.00°", "  direction: prograde"},
+			// #426: the Full form grew an `e:` row (eccentricity, always-on,
+			// full form only — the Compact Form stays the Ap/Pe strip below).
+			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  t→Ap:      47m", "  Pe:        498.2 km", "  t→Pe:      12m", "  period:    1h34m28s", "  inclin.:   0.00°", "  direction: prograde", "  e:         0.0004"},
 			compact: []string{"ORBIT", "  Ap: 500.0 km  Pe: 498.2 km"}},
 		{id: settings.ChipTarget, corner: cornerTopRight,
 			lines:   []string{"TARGET", "  body:     Moon", "  Δi:       19.44°", "  range:    371639 km", "  TCA:      4.72h"},

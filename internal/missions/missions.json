@@ -266,7 +266,7 @@
       "objectives": [
         {
           "name": "Circular orbit at 800 km",
-          "description": "Fly your carrier into a near-circular orbit at ~800 km altitude.",
+          "description": "Fly your carrier into a near-circular orbit at ~800 km altitude (e ≤ 0.05).",
           "kind": "circularize",
           "params": {
             "primary_id": "earth",

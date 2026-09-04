@@ -1665,6 +1665,11 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	lines = append(lines, chipRow("period:", formatPeriod(period)))
 	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
 	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
+	// #426 (CONTEXT.md Chip entry): eccentricity, always-on, Full form only —
+	// the three eccentricity-graded challenge rungs (chal-high-orbit et al.)
+	// have a number on the HUD to check against instead of grading a value
+	// the chip never showed. The Compact Form stays the Ap/Pe strip.
+	lines = append(lines, chipRow("e:", fmt.Sprintf("%.4f", el.E)))
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
 	}
