@@ -89,6 +89,9 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 		)
 	}
 
-	footer := b.theme.Footer.Render("[esc] back  [←/→] prev/next body  [q] quit")
+	// h/l are the keys that actually step the body cursor here
+	// (Keymap.PrevBody / NextBody). ←/→ pan the map behind this panel and
+	// q is radial+, so neither belongs in this footer (#423).
+	footer := b.theme.Footer.Render("[esc] back  [h/l] prev/next body")
 	return strings.Join(sections, "\n") + "\n\n" + footer
 }
