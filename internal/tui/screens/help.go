@@ -39,8 +39,13 @@ var helpSections = []helpSection{
 		{"F1", "toggle this help"},
 		{"esc", "back / close (or save/load/build/settings/controls/quit menu on home)"},
 		{"F5 / F9", "quicksave / quickload"},
-		{"q", "quit (confirm + autosave)"},
 		{"ctrl+c", "quit immediately"},
+	}},
+	// `q` quits only inside the pause menu — in flight it is radial+
+	// (Keymap.AttitudeRadialOut), so it gets a menu-scoped section of its
+	// own rather than a line in GENERAL (#423).
+	{"PAUSE MENU (esc from the map)", [][2]string{
+		{"q", "quit (confirm + autosave) — menu only; in flight q is radial+"},
 	}},
 	{"SAVES (menu → Save / Load Game)", [][2]string{
 		{"↑ / ↓", "move the save cursor"},
@@ -57,8 +62,8 @@ var helpSections = []helpSection{
 		{"V", "launch / surface view — chase-cam on your active vessel (press again to return)"},
 		{"o", "proximity view — close-range picture of your target vessel (press again to return)"},
 		{"↑ ↓ ← →", "pan the view — displaces the tracked center; [g] or any refocus clears it"},
-		{"shift+↑ / ↓", "tilt the 3D view up / down (tilted view only)"},
-		{"shift+← / →", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
+		{"shift+↑ / shift+↓", "tilt the 3D view up / down (tilted view only)"},
+		{"shift+← / shift+→", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
 		{"F2", "declutter — hide chips + navball (core column stays)"},
 	}},
 	{"NAVIGATION", [][2]string{
@@ -121,13 +126,13 @@ var helpSections = []helpSection{
 		{"a / d", "attitude normal+ / normal- (rcs: pulse-fire)"},
 		{"q / e", "attitude radial+ / radial- (rcs: pulse-fire)"},
 		{"W / S", "attitude surface prograde / retrograde (locks to ground)"},
-		{"< / >", "pitch trim ±5° east off the active mode"},
+		{"< / >", "pitch trim 5° west / east off the active mode"},
 		{"?", "reset pitch trim to 0"},
 		{"b", "engage / cut the manual burn (main engine)"},
 		{"r", "engine: main / rcs"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
 		{"k", "SAS model: slew / instant"},
-		{";", "NavMode cycle: Orbit → Surface → Target"},
+		{";", "NavMode cycle: Orbit → Surface → Target (skips Target when none is set)"},
 	}},
 	{"VESSEL", [][2]string{
 		{"n", "open spawn form (loadout / position / parent / altitude / dir)"},
@@ -140,6 +145,7 @@ var helpSections = []helpSection{
 		{"D", "transpose: SM → firing core, LM → releasable nose payload"},
 		{"t / T", "cycle / clear the target"},
 		{"space", "decouple bottom stage (bare chute capsule: arm the chute)"},
+		{"E", "end flight — clear a crashed vessel from the slate (y/n confirm)"},
 	}},
 	{"VEHICLE ASSEMBLY (VAB)", [][2]string{
 		{"esc → b", "open the VAB from the pause menu (Build)"},
@@ -298,4 +304,69 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// helpTokenConnectors are the words-between-keys used in a row's left
+// column ("z / x", "esc → b"). HelpKeyTokens splits on these rather than
+// on bare whitespace so a connector is never mistaken for a key, while the
+// pan row ("↑ ↓ ← →") still yields four separate arrow tokens.
+var helpTokenConnectors = []string{" / ", " → "}
+
+// HelpKeyTokens returns every key token the overlay names in its left
+// column, split out of the compound rows ("z / x" → "z", "x"; "↑ ↓ ← →" →
+// four arrows). The keymap-coverage test in package tui reads it to prove
+// the overlay still names every binding in DefaultKeymap, so helpSections
+// itself can stay unexported. Tokens are the QWERTY spellings authored in
+// helpSections, before any keylayout.DisplayToken translation.
+func HelpKeyTokens() map[string]bool {
+	tokens := map[string]bool{}
+	for _, s := range helpSections {
+		for _, r := range s.rows {
+			for _, tok := range splitHelpToken(r[0]) {
+				tokens[tok] = true
+			}
+		}
+	}
+	return tokens
+}
+
+// splitHelpToken breaks one left-column cell into the individual keys it
+// names. A cell that is itself a key ("/") is returned whole.
+func splitHelpToken(cell string) []string {
+	cell = strings.TrimSpace(cell)
+	if cell == "" {
+		return nil
+	}
+	pieces := []string{cell}
+	for _, sep := range helpTokenConnectors {
+		var next []string
+		for _, p := range pieces {
+			next = append(next, strings.Split(p, sep)...)
+		}
+		pieces = next
+	}
+	var out []string
+	for _, p := range pieces {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// A space-separated run of short glyphs is a key list ("↑ ↓ ← →");
+		// anything with a word in it is one label ("click body").
+		if fields := strings.Fields(p); len(fields) > 1 && allShort(fields) {
+			out = append(out, fields...)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func allShort(fields []string) bool {
+	for _, f := range fields {
+		if len([]rune(f)) > 3 {
+			return false
+		}
+	}
+	return true
 }
