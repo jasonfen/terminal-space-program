@@ -420,14 +420,14 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 // — the one ring whose COLOR carries state rather than just its
 // presence, in four states:
 //
-//  1. dim — outside the distance gate (or inside it but not yet closing
-//     fast enough to matter, see #4).
-//  2. render.ColorAlert (red, #421) — inside DockingDistM but the
-//     closing rate is over DockingVMS: the readout's own "too fast"
-//     warning (proximityClosingGateSuffix), given a place on the ring
-//     rather than only a chip suffix a player might not be reading.
-//     Distinct from the #343 amber latch below — over-speed is
-//     something the PILOT can fix by braking; a latch is not.
+//  1. dim — outside the distance gate.
+//  2. render.ColorAlert (red, #421) — inside DockingDistM but |v_rel| is
+//     at or over DockingVMS: the SAME (RangeM, VRelMS) predicate
+//     checkDocking's auto-fuse itself refuses on (proximityOverSpeed),
+//     given a place on the ring rather than only a chip row a player
+//     might not be reading. Distinct from the #343 amber latch below —
+//     over-speed is something the PILOT can fix by braking; a latch is
+//     not.
 //  3. amber (ColorWarning) — inside BOTH DockingDistM and DockingVMS but
 //     a same-World re-arm latch (#343) is holding the pair apart.
 //  4. ColorTarget (green) — exactly when sim.ProximityDockGateReady
@@ -446,13 +446,17 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 // carries the "there is something to learn here" cue that the `c`
 // re-arm key exists (issue #372 §2's "worth considering").
 //
-// #421: the over-speed state (2) keys off ClosingMS — the same number
-// the closing: row shows — rather than the raw |v_rel| the latch branch
-// (3) and ProximityDockGateReady use, so the ring's red state and the
-// readout's "(need < …)" suffix can never disagree about when they fire
-// (ClosingMS <= |v_rel| always, so this is strictly narrower than "the
-// raw velocity gate failed" — a fast lateral pass that isn't actually
-// closing the range doesn't light it up).
+// #421 (revised): the over-speed state (2) originally keyed off
+// ClosingMS (the closing: row's own number) rather than the raw
+// |v_rel| checkDocking's gate actually uses. That was a narrower — and
+// wrong — proxy: a pair sliding past laterally at |v_rel| 0.50 m/s while
+// closing at only 0.05 m/s sits inside the distance gate, never docks
+// (checkDocking refuses on the full |v_rel|), yet the ring stayed dim
+// and no row said why — exactly the silent failure #421 exists to fix,
+// just on the other axis. proximityOverSpeed now matches checkDocking's
+// own (RangeM, VRelMS) predicate exactly, so the ring can't disagree
+// with the game's actual refusal for ANY approach geometry, not only a
+// head-on one.
 //
 // No separate DOCK READY text callout is added alongside the green
 // state: the ready state is inherently momentary (checkDocking
@@ -464,7 +468,7 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 // arrives, and it simply changes colour when the moment does. The amber
 // latched state has no such flicker risk — a latch persists for
 // ReArmDistM/ReArmCeiling's worth of time, not one tick; the red
-// over-speed state is exactly as continuous as the closing rate itself.
+// over-speed state is exactly as continuous as |v_rel| itself.
 func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 	const gateRadius = sim.DockingDistM
 	if !v.proximityRingVisible(st, gateRadius) {
@@ -480,10 +484,10 @@ func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 		// re-arm latch (the only way ProximityDockGateReady can say false
 		// here; see its own doc comment).
 		color = render.ColorWarning
-	case proximityClosingTooFast(st):
-		// Inside the distance gate, but the closing rate alone already
-		// exceeds DockingVMS — the readout's own gate, given a place on
-		// the ring (#421).
+	case proximityOverSpeed(st):
+		// Inside the distance gate, but |v_rel| alone already meets or
+		// exceeds DockingVMS — the exact predicate checkDocking's
+		// auto-fuse refuses on, given a place on the ring (#421).
 		color = render.ColorAlert
 	}
 	pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, gateRadius)
@@ -754,25 +758,36 @@ func clampInt(x, lo, hi int) int {
 	return x
 }
 
-// proximityClosingTooFast reports whether the pair sits inside the
-// distance gate (sim.DockingDistM) but the CLOSING RATE alone already
-// exceeds the velocity gate (sim.DockingVMS) — issue #421: the failure
-// mode a textbook approach can hit with zero on-screen explanation
-// (checkDocking refuses the auto-fuse on the exact same threshold, just
-// checking the full |v_rel| rather than its closing component; see the
-// doc comment on drawProximityDockGate for why the narrower ClosingMS
-// read is deliberate here).
-func proximityClosingTooFast(st sim.ProximityState) bool {
-	return st.RangeM < sim.DockingDistM && st.ClosingMS >= sim.DockingVMS
+// proximityOverSpeed reports whether the pair sits inside the distance
+// gate (sim.DockingDistM) with |v_rel| at or over the velocity gate
+// (sim.DockingVMS) — the EXACT predicate checkDocking's auto-fuse
+// refuses on (see its dv.Norm() > DockingVMS check), not a narrower
+// proxy. issue #421 (revised): an earlier version of this keyed off the
+// CLOSING RATE (the radial component of v_rel) instead, which meant a
+// pair sliding past laterally — closing 0.05 m/s but |v_rel| 0.50 m/s —
+// sat inside the distance gate, never docked, and got no ring colour and
+// no readout suffix at all: the exact silent failure #421 exists to fix,
+// just missed on the lateral axis. Matching checkDocking's own
+// (RangeM, VRelMS) predicate exactly means the ring and the readout can
+// never disagree with the game's actual refusal, for any approach
+// geometry.
+func proximityOverSpeed(st sim.ProximityState) bool {
+	return st.RangeM < sim.DockingDistM && st.VRelMS >= sim.DockingVMS
 }
 
-// proximityClosingGateSuffix returns the "(need < 0.10)" reminder for
-// the closing: row exactly when proximityClosingTooFast holds, empty
-// otherwise — so the plain rate stands alone the rest of the time.
-// Reads sim.DockingVMS live rather than hard-coding it, so the readout
-// can never drift from the gate checkDocking actually enforces.
-func proximityClosingGateSuffix(st sim.ProximityState) string {
-	if !proximityClosingTooFast(st) {
+// proximityOverSpeedSuffix returns the "(need < 0.10)" reminder for the
+// |v_rel|: row exactly when proximityOverSpeed holds, empty otherwise —
+// so the plain number stands alone the rest of the time. Reads
+// sim.DockingVMS live rather than hard-coding it, so the readout can
+// never drift from the gate checkDocking actually enforces.
+//
+// Deliberately NOT also applied to the closing: row: |v_rel| is the
+// number literally being compared against DockingVMS, but closing can
+// read well under 0.10 while docking still fails (the lateral-pass
+// case above) — tagging closing: with the same reminder there would
+// misname the reason the gate is holding.
+func proximityOverSpeedSuffix(st sim.ProximityState) string {
+	if !proximityOverSpeed(st) {
 		return ""
 	}
 	return fmt.Sprintf("  (need < %.2f)", sim.DockingVMS)
@@ -803,15 +818,15 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	// a row of its own, because every row this chip spends is a row
 	// admitChipsByBudget takes off the chip below it at 80×24.
 	//
-	// #421: closing: carries the gate itself ("+0.96 m/s (need < 0.10)")
+	// #421: |v_rel|: carries the gate itself ("0.50 m/s (need < 0.10)")
 	// exactly when the pair is inside the distance gate but over the
-	// velocity gate — the failure a textbook approach can hit with no
-	// other on-screen explanation.
+	// velocity gate — the failure a textbook (or a lateral-pass) approach
+	// can hit with no other on-screen explanation.
 	return []string{
 		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
 		chipRow("range:", formatRangeM(st.RangeM)),
-		chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", st.VRelMS)),
-		chipRow("closing:", fmt.Sprintf("%+.2f m/s", st.ClosingMS)+proximityClosingGateSuffix(st)),
+		chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", st.VRelMS)+proximityOverSpeedSuffix(st)),
+		chipRow("closing:", fmt.Sprintf("%+.2f m/s", st.ClosingMS)),
 	}
 }
 
@@ -823,13 +838,12 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 // get out" row rather than dropping it: a chip that can't show the view
 // it opened for must still leave a way out, shrunk or not.
 //
-// #421: the one exception to "closing drops in Compact Form" is the same
+// #421: the one exception to "|v_rel| drops in Compact Form" is the same
 // gate the full chip carries — when the pair is inside the distance gate
-// but over the closing-rate gate, that row survives the shrink too. A
-// pilot at the Playable Floor is exactly as capable of blowing the
-// approach as one at Design Size, and Graceful Shrink's own contract
-// (CONTEXT.md) is "shrinks before it vanishes," not "safety-critical
-// rows vanish first."
+// but over the velocity gate, that row survives the shrink too. A pilot
+// at the Playable Floor is exactly as capable of blowing the approach as
+// one at Design Size, and Graceful Shrink's own contract (CONTEXT.md) is
+// "shrinks before it vanishes," not "safety-critical rows vanish first."
 func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	if w.ViewMode != sim.ViewProximity {
 		return nil
@@ -845,8 +859,8 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
 		chipRow("range:", formatRangeM(st.RangeM)),
 	}
-	if suffix := proximityClosingGateSuffix(st); suffix != "" {
-		lines = append(lines, chipRow("closing:", fmt.Sprintf("%+.2f m/s", st.ClosingMS)+suffix))
+	if suffix := proximityOverSpeedSuffix(st); suffix != "" {
+		lines = append(lines, chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", st.VRelMS)+suffix))
 	}
 	return lines
 }

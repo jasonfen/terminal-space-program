@@ -577,82 +577,117 @@ func TestProximityDockGateColorLatched(t *testing.T) {
 }
 
 // proximityOverspeedWorld builds the pair with relPos inside the distance
-// gate but a purely-radial closing rate of closingMS toward the target —
-// the #421 scene: "closing: +0.96 m/s" counting down inside 50 m with no
-// dock. Perturbs only the target's (Crafts[1]) velocity so the active
-// vessel's velocity used elsewhere in a scene stays the plain matched-orbit
-// baseline proximityWorld already sets up.
-func proximityOverspeedWorld(t *testing.T, relPos orbital.Vec3, closingMS float64) *sim.World {
+// gate, a closing rate of closingMS toward the target, and a total
+// |v_rel| of vRelMS — closingMS and vRelMS can differ (a lateral pass:
+// low closing rate, high |v_rel|), which is exactly the #421 scene the
+// gate keys on. Derivation: with dir = unit(relPos) and perp orthogonal
+// to it (Z, since every relPos used here is pure-X), setting
+// relV = closingMS*dir + lateral*perp with
+// lateral = sqrt(max(vRelMS^2 - closingMS^2, 0)) gives EXACTLY
+// ClosingMS == closingMS and VRelMS == vRelMS in the resolved
+// ProximityState (ClosingMS is the component of relV along dir; VRelMS
+// is |relV|). Perturbs only the target's (Crafts[1]) velocity so the
+// active vessel's velocity used elsewhere in a scene stays the plain
+// matched-orbit baseline proximityWorld already sets up.
+func proximityOverspeedWorld(t *testing.T, relPos orbital.Vec3, closingMS, vRelMS float64) *sim.World {
 	t.Helper()
 	w := proximityWorld(t, relPos)
 	active := w.ActiveCraft()
 	dir := relPos.Scale(1 / relPos.Norm())
-	w.Crafts[1].State.V = active.State.V.Sub(dir.Scale(closingMS))
+	perp := orbital.Vec3{Z: 1}
+	lateralSq := vRelMS*vRelMS - closingMS*closingMS
+	if lateralSq < 0 {
+		lateralSq = 0
+	}
+	lateral := math.Sqrt(lateralSq)
+	relV := dir.Scale(closingMS).Add(perp.Scale(lateral))
+	w.Crafts[1].State.V = active.State.V.Sub(relV)
 	return w
 }
 
-// TestProximityClosingGateReadoutSuffix (#421): the closing: row must
-// carry the "(need < 0.10)" gate reminder exactly when the pair sits
-// inside the distance gate but the closing rate alone already exceeds
-// sim.DockingVMS — the failure a textbook approach can hit ("closing:
-// +0.96 m/s" counting down to 2 m with zero explanation) — and must NOT
-// carry it once ready to dock, once truly out of range, or while merely
-// receding.
-func TestProximityClosingGateReadoutSuffix(t *testing.T) {
-	overspeedW := proximityOverspeedWorld(t, orbital.Vec3{X: 30}, 0.96) // inside 50 m, closing 0.96 m/s > 0.10 m/s
-	overspeedV := newProximityTestView(t, 80, 24)
-	overspeedW.ViewMode = sim.ViewProximity
-	chip := overspeedV.buildProximityChip(overspeedW)
+// TestProximityOverSpeedReadoutSuffix (#421, revised): the |v_rel|: row
+// must carry the "(need < 0.10)" gate reminder exactly when the pair
+// sits inside the distance gate but |v_rel| alone already meets or
+// exceeds sim.DockingVMS — including the LATERAL-PASS case the gate
+// originally missed (closing only 0.05 m/s, but |v_rel| 0.50 m/s: the
+// pair is sliding past, not closing, yet checkDocking still refuses on
+// the raw |v_rel| and the readout must say so) — and must NOT carry it
+// once ready to dock or once truly out of range. The closing: row never
+// carries the suffix: closing can read well under 0.10 in the very
+// scene the gate is firing, and tagging it there would misname why
+// docking is failing.
+func TestProximityOverSpeedReadoutSuffix(t *testing.T) {
+	headOnW := proximityOverspeedWorld(t, orbital.Vec3{X: 30}, 0.96, 0.96) // inside 50 m, head-on 0.96 m/s
+	headOnV := newProximityTestView(t, 80, 24)
+	headOnW.ViewMode = sim.ViewProximity
+	chip := headOnV.buildProximityChip(headOnW)
 	if len(chip) < 4 {
 		t.Fatalf("buildProximityChip returned %d rows, want at least 4", len(chip))
 	}
-	closingRow := chip[3]
-	if !strings.Contains(closingRow, "need < 0.10") {
-		t.Errorf("closing row = %q, want it to carry the gate reminder (need < %.2f)", closingRow, sim.DockingVMS)
+	vRelRow, closingRow := chip[2], chip[3]
+	if !strings.Contains(vRelRow, "need < 0.10") {
+		t.Errorf("|v_rel| row = %q, want it to carry the gate reminder (need < %.2f)", vRelRow, sim.DockingVMS)
 	}
-	if !strings.Contains(closingRow, "+0.96") {
-		t.Errorf("closing row = %q, want the plain rate to still read +0.96 m/s", closingRow)
+	if !strings.Contains(vRelRow, "0.96") {
+		t.Errorf("|v_rel| row = %q, want the plain magnitude to still read 0.96 m/s", vRelRow)
+	}
+	if strings.Contains(closingRow, "need <") {
+		t.Errorf("closing row = %q, must never carry the gate reminder", closingRow)
 	}
 
-	readyW := proximityWorld(t, orbital.Vec3{X: 30}) // inside 50 m, matched v — actually ready, no gate to reminds about
+	lateralW := proximityOverspeedWorld(t, orbital.Vec3{X: 30}, 0.05, 0.50) // lateral pass: closing slow, |v_rel| fast
+	lateralV := newProximityTestView(t, 80, 24)
+	lateralW.ViewMode = sim.ViewProximity
+	lateralChip := lateralV.buildProximityChip(lateralW)
+	if len(lateralChip) < 4 {
+		t.Fatalf("buildProximityChip (lateral) returned %d rows, want at least 4", len(lateralChip))
+	}
+	if !strings.Contains(lateralChip[2], "need < 0.10") {
+		t.Errorf("lateral-pass |v_rel| row = %q, want it to carry the gate reminder even though closing is slow", lateralChip[2])
+	}
+	if strings.Contains(lateralChip[3], "need <") {
+		t.Errorf("lateral-pass closing row = %q, must not carry the reminder (closing rate itself is under the limit)", lateralChip[3])
+	}
+
+	readyW := proximityWorld(t, orbital.Vec3{X: 30}) // inside 50 m, matched v — actually ready, no gate to remind about
 	readyV := newProximityTestView(t, 80, 24)
 	readyW.ViewMode = sim.ViewProximity
 	readyChip := readyV.buildProximityChip(readyW)
 	if len(readyChip) < 4 {
 		t.Fatalf("buildProximityChip (ready) returned %d rows, want at least 4", len(readyChip))
 	}
-	if strings.Contains(readyChip[3], "need <") {
-		t.Errorf("ready-case closing row = %q, must not carry the gate reminder", readyChip[3])
+	if strings.Contains(readyChip[2], "need <") {
+		t.Errorf("ready-case |v_rel| row = %q, must not carry the gate reminder", readyChip[2])
 	}
 
-	farW := proximityOverspeedWorld(t, orbital.Vec3{X: 100}, 0.96) // outside 50 m even though closing fast
+	farW := proximityOverspeedWorld(t, orbital.Vec3{X: 100}, 0.96, 0.96) // outside 50 m even though fast
 	farV := newProximityTestView(t, 80, 24)
 	farW.ViewMode = sim.ViewProximity
 	farChip := farV.buildProximityChip(farW)
 	if len(farChip) < 4 {
 		t.Fatalf("buildProximityChip (far) returned %d rows, want at least 4", len(farChip))
 	}
-	if strings.Contains(farChip[3], "need <") {
-		t.Errorf("out-of-range closing row = %q, must not carry the gate reminder", farChip[3])
+	if strings.Contains(farChip[2], "need <") {
+		t.Errorf("out-of-range |v_rel| row = %q, must not carry the gate reminder", farChip[2])
 	}
 }
 
-// TestProximityClosingGateSurvivesCompactForm (#421): the Compact Form
-// normally drops the closing: row entirely (ADR 0046 / #422), but the
+// TestProximityOverSpeedSurvivesCompactForm (#421): the Compact Form
+// normally drops the |v_rel|: row entirely (ADR 0046 / #422), but the
 // over-speed gate reminder is safety-critical the same way the amber
 // re-arm latch on the ring is — Graceful Shrink's contract is "shrinks
 // before it vanishes," not "the warning vanishes first." When the gate
 // isn't firing, Compact stays at its usual 2 rows (name + range only).
-func TestProximityClosingGateSurvivesCompactForm(t *testing.T) {
-	overspeedW := proximityOverspeedWorld(t, orbital.Vec3{X: 30}, 0.96)
+func TestProximityOverSpeedSurvivesCompactForm(t *testing.T) {
+	overspeedW := proximityOverspeedWorld(t, orbital.Vec3{X: 30}, 0.05, 0.50) // lateral pass
 	overspeedV := newProximityTestView(t, 80, 24)
 	overspeedW.ViewMode = sim.ViewProximity
 	compact := overspeedV.buildProximityChipCompact(overspeedW)
 	if len(compact) != 3 {
-		t.Fatalf("Compact Form over the gate returned %d rows, want 3 (name, range, closing)", len(compact))
+		t.Fatalf("Compact Form over the gate returned %d rows, want 3 (name, range, |v_rel|)", len(compact))
 	}
-	if !strings.Contains(compact[2], "need < 0.10") || !strings.Contains(compact[2], "+0.96") {
-		t.Errorf("Compact closing row = %q, want the same gate-suffixed row the full chip carries", compact[2])
+	if !strings.Contains(compact[2], "need < 0.10") || !strings.Contains(compact[2], "0.50") {
+		t.Errorf("Compact |v_rel| row = %q, want the same gate-suffixed row the full chip carries", compact[2])
 	}
 
 	readyW := proximityWorld(t, orbital.Vec3{X: 30})
@@ -665,13 +700,16 @@ func TestProximityClosingGateSurvivesCompactForm(t *testing.T) {
 }
 
 // TestProximityDockGateColorOverspeed (#421) is the acceptance test for
-// the ring's third state: inside the distance gate but closing too fast
-// must render a DISTINCT colour (render.ColorAlert) from ready (green),
-// latched (amber), and plain dim (out of range / not yet closing) — so
-// "you're miles out" and "you're 2 m away but too fast" stop rendering
-// identically (the issue's own #348 finding).
+// the ring's third state: inside the distance gate but |v_rel| over the
+// limit must render a DISTINCT colour (render.ColorAlert) from ready
+// (green), latched (amber), and plain dim (out of range) — so "you're
+// miles out" and "you're 2 m away but too fast" stop rendering
+// identically (the issue's own #348 finding). Uses the lateral-pass
+// geometry (closing slow, |v_rel| fast) specifically, since that is the
+// case the ring's ORIGINAL (ClosingMS-keyed) implementation missed
+// entirely.
 func TestProximityDockGateColorOverspeed(t *testing.T) {
-	overspeedW := proximityOverspeedWorld(t, orbital.Vec3{X: 30}, 0.96)
+	overspeedW := proximityOverspeedWorld(t, orbital.Vec3{X: 30}, 0.05, 0.50)
 	overspeedV := newProximityTestView(t, 80, 24)
 	overspeedW.ViewMode = sim.ViewProximity
 	overspeedV.Render(overspeedW, 0, 80, 24)
@@ -685,8 +723,11 @@ func TestProximityDockGateColorOverspeed(t *testing.T) {
 	if overspeedSt.RangeM >= sim.DockingDistM {
 		t.Fatalf("precondition: overspeed case outside the distance gate (range=%.2f)", overspeedSt.RangeM)
 	}
-	if overspeedSt.ClosingMS < sim.DockingVMS {
-		t.Fatalf("precondition: overspeed case not actually over the closing-rate gate (closing=%.4f)", overspeedSt.ClosingMS)
+	if overspeedSt.VRelMS < sim.DockingVMS {
+		t.Fatalf("precondition: overspeed case not actually over the velocity gate (|v_rel|=%.4f)", overspeedSt.VRelMS)
+	}
+	if overspeedSt.ClosingMS >= sim.DockingVMS {
+		t.Fatalf("precondition: overspeed case is closing fast too (closing=%.4f) — not the lateral-pass scene this test wants", overspeedSt.ClosingMS)
 	}
 	if !overspeedV.proximityRingVisible(overspeedSt, sim.DockingDistM) {
 		t.Fatal("precondition: gate ring not visible in the overspeed scene")
