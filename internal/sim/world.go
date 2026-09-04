@@ -1206,6 +1206,48 @@ func (w *World) ActiveMission() *missions.Mission {
 	return nil
 }
 
+// LadderSendoff returns the one-line "complete" message the player surface
+// (ladder screen active-card slot + MISSION chip) shows once a whole
+// Program's rungs are all Passed, and whether it should offer a one-key
+// switch to the Challenge ladder (#426 item F, decision 9). Only fires when
+// there's no other active rung to show — ActiveMission() nil — so a
+// still-in-progress Challenge rung always takes precedence over a completed
+// Flight School's sendoff; the Challenge ladder's own completion sendoff
+// takes precedence over Flight School's (finishing everything beats
+// finishing just the tutorial). Purely derived from Mission.Status; no new
+// persisted state.
+func (w *World) LadderSendoff() (text string, offerChallenges bool, ok bool) {
+	if w.ActiveMission() != nil {
+		return "", false, false
+	}
+	if w.programComplete(missions.ProgramChallenge) {
+		return "CHALLENGE LADDER COMPLETE", false, true
+	}
+	if w.programComplete(missions.ProgramTutorial) {
+		return "FLIGHT SCHOOL COMPLETE", !w.MissionProgramEnabled(missions.ProgramChallenge), true
+	}
+	return "", false, false
+}
+
+// programComplete reports whether every mission tagged with the given
+// Program has Passed. False when the catalog carries no mission for that
+// Program at all (nothing to be "complete"). Independent of whether the
+// Program is currently enabled — a player who finished Flight School and
+// then switched it off in Settings should still see it as complete.
+func (w *World) programComplete(program string) bool {
+	any := false
+	for i := range w.Missions {
+		if w.Missions[i].Program != program {
+			continue
+		}
+		any = true
+		if w.Missions[i].Status != missions.Passed {
+			return false
+		}
+	}
+	return any
+}
+
 // nextFiniteBurnTrigger returns the BurnStart sim-time of the soonest
 // pending finite-burn node (Duration > 0), or the zero time if no
 // finite-burn node is queued. v0.5.14+: BurnStart is TriggerTime -
