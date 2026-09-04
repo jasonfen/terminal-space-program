@@ -193,6 +193,35 @@ func TestBuildMissionsChipReadsLiveRelayCountFromWorld(t *testing.T) {
 	}
 }
 
+// TestBuildMissionsChipShowsSendoff — #426 item F: once every Flight
+// School rung has Passed and nothing else is active, the chip shows the
+// Sendoff line (World.LadderSendoff) instead of going blank, with the
+// Challenge-ladder offer when challenges are off.
+func TestBuildMissionsChipShowsSendoff(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Missions = []missions.Mission{
+		{ID: "t1", Name: "Orientation", Program: missions.ProgramTutorial, Status: missions.Passed},
+	}
+	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
+
+	full := strings.Join(v.buildMissionsChip(w), "\n")
+	if !strings.Contains(full, "FLIGHT SCHOOL COMPLETE") {
+		t.Errorf("full-form chip missing the Sendoff line:\n%s", full)
+	}
+	if !strings.Contains(full, "[2] turn on the Challenge ladder") {
+		t.Errorf("full-form chip missing the Challenge-ladder offer (challenges are off):\n%s", full)
+	}
+
+	compact := strings.Join(v.buildMissionsChipCompact(w), "\n")
+	if !strings.Contains(compact, "FLIGHT SCHOOL COMPLETE") {
+		t.Errorf("compact-form chip missing the Sendoff line:\n%s", compact)
+	}
+}
+
 // TestMissionChipHintWrapsInsteadOfWideningTheBox (ADR 0046 / #422): a
 // long tutorial hint ("Warp to your burn ([G]) or fire manually ([b])…",
 // 87 columns in the 2026-09-02 UX review's gameplay-flow-progression-09

@@ -944,7 +944,27 @@ func (v *OrbitView) anyActiveBurn(w *sim.World) bool {
 // a failed mission isn't safety-critical the way a live burn is).
 func (v *OrbitView) buildMissionsChip(w *sim.World) []string {
 	flash, flashing := w.MissionFailFlash()
+	if !flashing {
+		if text, offer, ok := w.LadderSendoff(); ok {
+			return v.sendoffChipLines(text, offer)
+		}
+	}
 	return v.missionChipLines(flash, flashing, w.ActiveMission(), w.ConnectedRelayCount())
+}
+
+// sendoffChipLines renders the MISSION chip's whole-Program-complete state
+// (#426 item F, decision 9) — the same one line the ladder screen's
+// active-card slot shows, plus the Challenge-ladder offer when
+// World.LadderSendoff says to carry it.
+func (v *OrbitView) sendoffChipLines(text string, offerChallenges bool) []string {
+	lines := []string{
+		v.theme.Primary.Render("MISSION"),
+		"  " + text,
+	}
+	if offerChallenges {
+		lines = append(lines, v.theme.Dim.Render("  [2] turn on the Challenge ladder"))
+	}
+	return lines
 }
 
 // missionChipLines is the pure content selector behind buildMissionsChip,
@@ -1065,6 +1085,11 @@ func (v *OrbitView) missionChipLinesCompact(flash string, flashing bool, m *miss
 
 func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
 	flash, flashing := w.MissionFailFlash()
+	if !flashing {
+		if text, offer, ok := w.LadderSendoff(); ok {
+			return v.sendoffChipLines(text, offer) // already 2-3 lines, same as Full
+		}
+	}
 	return v.missionChipLinesCompact(flash, flashing, w.ActiveMission(), w.ConnectedRelayCount())
 }
 
