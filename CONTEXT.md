@@ -617,6 +617,39 @@ on the OrbitView. Updates live as the player edits the Node.
 _Avoid_: Predictor (that's the internal package name, not the player-facing
 artifact), Preview Orbit, Predicted Orbit.
 
+**Plan Cursor** (grilled 2026-09-04, #428):
+The highlighted row of the planner's PLANNED NODES list, moved with
+↑/↓. The Projected Orbit is always the orbit after the Node under the
+Plan Cursor; Enter loads that Node for editing (the header says which),
+ctrl+d deletes it. The list ends with a blank **new-node row**: with the
+cursor there the panel projects the form's **Draft** (the not-yet-planted
+values in the fields) and is labelled as such. A Draft is never shown as
+if it were a planted Node. Clearing every Node is ctrl+k only; `c` in
+the planner refuses and points at ctrl+k, so the letter that re-arms
+docking on the map can't destroy a plan one screen later.
+_Avoid_: Selected node (Selection is the map Cursor), Active node (the
+one that is firing), Edit mode (bare).
+
+**Over-budget Node**:
+A planted Maneuver Node whose Δv exceeds the Vessel's remaining Δv
+budget. It plants anyway (planning a burn you can't yet afford is
+legitimate: you may refuel, stage or dock a tug), but its row in every
+Node list carries an alert-coloured marker with the shortfall ("⚠
+exceeds budget by 1521 m/s") and planting it raises an Event Flash. An
+Objective that credits "plant a transfer" must not credit an
+Over-budget Node.
+_Avoid_: Invalid node, Unaffordable (as a refusal: the game warns, it
+does not refuse).
+
+**Quick Plans**:
+The block in the planner listing the one-key planners (`H` transfer,
+`I` plane match, `C` circularize, `K` rendezvous, `P` porkchop, `R`
+refine) that are legal right now, each dimmed with its reason when its
+precondition isn't met ("[K] rendezvous — needs a vessel target").
+Pressing the key inside the planner does exactly what it does on the
+map. The planner is the one screen that knows every way to plan a Burn.
+_Avoid_: Auto-planners (bare), Shortcuts, Macros.
+
 **Burn Mode**:
 The direction selector for a Maneuver Node or Manual Burn. Two families:
 
@@ -2632,11 +2665,63 @@ but a fixed instrument.
 _Avoid_: Widget, card, badge, HUD block, panel (reserve panel for the
 Navball).
 
+**Playable Floor** / **Design Size** (grilled 2026-09-04, #422):
+Two terminal sizes with different contracts. The **Playable Floor** is
+the hard gate below which the game refuses to render at all and shows
+the "terminal too small" screen instead (104×24 today; the width is set
+by the widest fixed element the orbit screen composes). The **Design
+Size** is the size every screen is laid out, reviewed and golden-tested
+at, and the size the README and the too-small screen tell players to
+use (140×40). A screen that looks wrong *at or above* the Design Size
+is a bug; between the Floor and the Design Size the contract is
+**Graceful Shrink**, not fidelity. A UX review run at the Floor measures
+the shrink contract, not the game.
+_Avoid_: Minimum size (ambiguous between the two), 80×24 (below the
+Floor; it only ever shows the gate), "the prod tmux size" (the `--serve`
+host happens to sit at the Floor, but the Floor is a rendering gate,
+not a player target).
+
+**Graceful Shrink** / **Compact Form**:
+The contract for Chips between the Playable Floor and the Design Size:
+a Chip **shrinks before it vanishes and never overlaps**. Every Chip
+has a **Compact Form** (its title plus one or two key rows: the Orbit
+Chip becomes an Ap/Pe strip) that it collapses to, lowest priority
+first, when its side of the Canvas runs out of rows. Each *side* (left,
+right) is one column, so a top-corner stack and a bottom-corner stack
+can never collide; the Navball keeps its rows. Only when every Chip on
+a side is already Compact and the column still overflows does a Chip
+drop, and then a one-row **Hidden Stub** ("▸ +2 hidden") stands where it
+was, so a missing readout is never silent. A numeric field that must be
+cut is cut on the right, never on the left (a left-clipped number reads
+as a different, plausible number). The title bar is deliberately outside
+this contract: it clips from the right below the Design Size and is not
+budgeted.
+_Avoid_: Drop / hide for space (the pre-#422 behaviour, where a
+critical Chip clamped onto the canvas painted over its neighbour),
+Collapse (bare; say Compact Form), Responsive.
+
 **Declutter**:
 The momentary "hide all overlays" action (F2) that clears every Chip and
 the Navball to expose a clean orbit view. Transient and unsaved — it does
 not change the persisted Settings, and it never hides the **HUD** column.
 _Avoid_: Hide UI, clean mode, F2 mode, toggle overlays.
+
+**Announcement** — **Event Flash** / **Standing Alert** (grilled 2026-09-04, #421/#427):
+How the game tells the player something happened, in two tiers by
+whether it is still true. An **Event Flash** is the transient line in
+the bottom border (a few seconds, then gone) for things that are over
+the moment they happen: a Burn fired or finished, a Stage dropped, a
+dock or undock, a save. Refusals ("undock: nothing is docked") are Event
+Flashes too; every Flash goes through one helper in one voice: verb,
+what, and the number that matters ("node 1 burned — 3054 m/s, 2
+remaining"). A **Standing Alert** is an alert-coloured Chip that
+persists for as long as its state does: VESSEL DESTROYED (naming the
+exits, `E` end flight / `F9` quickload), no CommNet signal. A Flash must
+never be the only notice of a state that persists (the ADR 0044 lesson:
+transient feedback does not replace a standing warning).
+_Avoid_: Toast, notification, status message (bare), banner (say
+Standing Alert), log (there is no event history; a missed Flash is
+missed).
 
 **Settings screen**:
 The menu-reached screen where the player toggles each toggleable Chip's
