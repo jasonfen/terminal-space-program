@@ -1982,6 +1982,14 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.controls.Reset()
 		a.active = screenControls
 		return a, nil
+	case screens.MenuActionHelp:
+		// #425: the menu's own real pointer to the keybinding list.
+		// Mirrors exactly what F1/? do — reset scroll so it always
+		// opens at the top, no guest restriction (help is read-only,
+		// unlike Settings/Controls which write the host's settings.json).
+		a.help.ResetScroll()
+		a.active = screenHelp
+		return a, nil
 	case screens.MenuActionVAB:
 		// Open the Vehicle Assembly builder with the live component catalog
 		// (embedded + user overlay). Reversible, so no confirm gate.

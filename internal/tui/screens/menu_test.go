@@ -17,6 +17,10 @@ func TestMenuHandleKey(t *testing.T) {
 		{"S", MenuActionSave},
 		{"l", MenuActionLoad},
 		{"L", MenuActionLoad},
+		{"c", MenuActionControls},
+		{"C", MenuActionControls},
+		{"h", MenuActionHelp},
+		{"H", MenuActionHelp},
 		{"q", MenuActionQuit},
 		{"Q", MenuActionQuit},
 		{"esc", MenuActionCancel},
@@ -85,6 +89,54 @@ func TestMenuButtonRowsMatchRenderedLines(t *testing.T) {
 	if m.noBtn.row >= len(lines) || !strings.Contains(lines[m.noBtn.row], "[No]") {
 		t.Errorf("confirm No: row %d = %q, expected [No]", m.noBtn.row,
 			lines[min(m.noBtn.row, len(lines)-1)])
+	}
+}
+
+// TestMenuControlsRowRenamedAndHelpRowAdded (#425): the [Controls] row
+// (which sounded like the keybinding list but was only the QWERTY/QWERTZ
+// picker) is now labelled "[Keyboard layout]" on the same `c` key/action,
+// and a new "[Help (F1)]" row opens the actual keybinding list.
+func TestMenuControlsRowRenamedAndHelpRowAdded(t *testing.T) {
+	th := Theme{
+		Primary: lipgloss.NewStyle(),
+		Title:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		Footer:  lipgloss.NewStyle(),
+	}
+	m := NewMenu(th)
+	out := m.Render(80)
+
+	if strings.Contains(out, "[Controls]") {
+		t.Error("menu still shows the old [Controls] label")
+	}
+	if !strings.Contains(out, "[Keyboard layout]") {
+		t.Errorf("menu missing [Keyboard layout] row:\n%s", out)
+	}
+	if !strings.Contains(out, "[Help (F1)]") {
+		t.Errorf("menu missing [Help (F1)] row:\n%s", out)
+	}
+
+	lines := strings.Split(out, "\n")
+	if m.controlsBtn.row >= len(lines) || !strings.Contains(lines[m.controlsBtn.row], "[Keyboard layout]") {
+		t.Errorf("controlsBtn row %d doesn't contain [Keyboard layout]: %q", m.controlsBtn.row, lines[min(m.controlsBtn.row, len(lines)-1)])
+	}
+	if m.helpBtn.row >= len(lines) || !strings.Contains(lines[m.helpBtn.row], "[Help (F1)]") {
+		t.Errorf("helpBtn row %d doesn't contain [Help (F1)]: %q", m.helpBtn.row, lines[min(m.helpBtn.row, len(lines)-1)])
+	}
+
+	// Both mouse click and key letter must fire the same action.
+	if got := m.HandleKey("h"); got != MenuActionHelp {
+		t.Errorf("HandleKey(h) = %v, want MenuActionHelp", got)
+	}
+	m.Reset()
+	m.Render(80) // repopulate button ranges after Reset cleared them
+	col := (m.helpBtn.colStart + m.helpBtn.colEnd) / 2
+	if got := m.HandleClick(col, m.helpBtn.row); got != MenuActionHelp {
+		t.Errorf("HandleClick(helpBtn) = %v, want MenuActionHelp", got)
+	}
+	col = (m.controlsBtn.colStart + m.controlsBtn.colEnd) / 2
+	if got := m.HandleClick(col, m.controlsBtn.row); got != MenuActionControls {
+		t.Errorf("HandleClick(controlsBtn) = %v, want MenuActionControls (same action, renamed label)", got)
 	}
 }
 

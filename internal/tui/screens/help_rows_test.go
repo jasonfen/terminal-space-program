@@ -78,3 +78,37 @@ func TestHelpDocumentsEndFlight(t *testing.T) {
 		t.Errorf("`E` row does not describe ending the flight of a crashed vessel: %q", desc)
 	}
 }
+
+// TestHelpSectionOrder (#425): "how do I fly" (camera, warp, manual
+// flight) used to sit six PgDn presses down, behind SAVES and the 13-row
+// MULTIPLAYER section. Pins the grilled 2026-09-04 order so a future edit
+// can't silently drift it back.
+func TestHelpSectionOrder(t *testing.T) {
+	want := []string{
+		"GENERAL",
+		"PAUSE MENU (esc from the map)",
+		"CAMERA & VIEW",
+		"TIME & WARP",
+		"MANUAL FLIGHT",
+		"NAVIGATION",
+		"PLAN BURNS",
+		"MEETING PLANNER (map chip, opens from K)",
+		"VESSEL",
+		"VEHICLE ASSEMBLY (VAB)",
+		"SAVES (menu → Save / Load Game)",
+		"MULTIPLAYER (session screen — open with O)",
+		"MOUSE",
+	}
+	var got []string
+	for _, s := range helpSections {
+		got = append(got, s.header)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("section count = %d, want %d\ngot:  %v\nwant: %v", len(got), len(want), got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("section %d: got %q, want %q\nfull order: %v", i, got[i], want[i], got)
+		}
+	}
+}

@@ -209,6 +209,27 @@ func TestVABOpensFromMenuAndCloses(t *testing.T) {
 	}
 }
 
+// TestMenuHelpRowOpensHelpOverlay (#425): the pause menu's new
+// "[Help (F1)]" row opens the same F1 overlay, resetting scroll to the
+// top like F1/? do.
+func TestMenuHelpRowOpensHelpOverlay(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.menu.Reset()
+	a.active = screenMenu
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if a.active != screenHelp {
+		t.Fatalf("after menu `h`, active = %v, want screenHelp", a.active)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.active != screenOrbit {
+		t.Errorf("after esc from help (opened via menu), active = %v, want screenOrbit", a.active)
+	}
+}
+
 // Clicking the target ± buttons holds BurnTarget / BurnAntiTarget.
 func TestDispatchNavballControlTarget(t *testing.T) {
 	a, err := New(nil)
