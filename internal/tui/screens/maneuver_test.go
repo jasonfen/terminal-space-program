@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -259,6 +260,88 @@ func TestManeuverQuickPlansBlockListsAllSix(t *testing.T) {
 	}
 	if !strings.Contains(out, "no body selected") {
 		t.Errorf("P's no-body-selected reason missing:\n%s", out)
+	}
+}
+
+// TestManeuverShowsMissionReminderDuringTutorial — #426: the issue's own
+// evidence was that the instruction for the step you're on lived on the
+// screen you just left (the mission chip), and the planner's footer never
+// named it. While a Flight School rung is active, the planner now carries
+// one dim "MISSION ▸ <step>" line.
+func TestManeuverShowsMissionReminderDuringTutorial(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Missions = []missions.Mission{{
+		ID:      "tut-orient",
+		Name:    "Flight School: Orientation",
+		Program: missions.ProgramTutorial,
+		Objectives: []missions.Objective{
+			{Kind: missions.KindEvent, Name: "Change your view", Params: missions.Params{Action: missions.ActionCycleView}},
+		},
+	}}
+	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
+	m := NewManeuver(Theme{})
+	out := m.Render(w, 120, 40, 0)
+	if !strings.Contains(out, "MISSION ▸ Change your view") {
+		t.Errorf("planner missing the MISSION reminder line during a tutorial rung:\n%s", out)
+	}
+}
+
+// TestManeuverOmitsMissionReminderForChallenges — a challenge-program active
+// mission gets no reminder line; this on-ramp is Flight School's alone.
+func TestManeuverOmitsMissionReminderForChallenges(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Missions = []missions.Mission{{
+		ID:      "chal-high-orbit",
+		Name:    "Make a 1000 km Orbit",
+		Program: missions.ProgramChallenge,
+		Objectives: []missions.Objective{
+			{Kind: missions.KindCircularize, Name: "Circular orbit at 1000 km"},
+		},
+	}}
+	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramChallenge: true})
+	m := NewManeuver(Theme{})
+	out := m.Render(w, 120, 40, 0)
+	if strings.Contains(out, "MISSION ▸") {
+		t.Errorf("planner should not show a MISSION reminder for a challenge rung:\n%s", out)
+	}
+}
+
+// TestManeuverMissionReminderEllipsizesLikeEveryOtherRow — the reminder is
+// truncated by the same ansi.Truncate pass every other panel row gets
+// (formPanelWidth), never left to widen the panel: a long objective label
+// gets cut with an ellipsis at a narrow render, same as the QUICK PLANS
+// reason text TestManeuverEllipsizesNarrowRows already pins.
+func TestManeuverMissionReminderEllipsizesLikeEveryOtherRow(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	longLabel := "This is a deliberately very long objective label meant to test truncation behaviour"
+	w.Missions = []missions.Mission{{
+		ID:      "tut-launch",
+		Name:    "Flight School: Off the Pad",
+		Program: missions.ProgramTutorial,
+		Objectives: []missions.Objective{
+			{Kind: missions.KindEvent, Name: longLabel, Params: missions.Params{Action: missions.ActionSpawnCraft}},
+		},
+	}}
+	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
+	m := NewManeuver(Theme{})
+
+	narrow := m.Render(w, 104, 24, 0)
+	if strings.Contains(narrow, longLabel) {
+		t.Errorf("MISSION reminder's full long label survived un-ellipsized at 104 cols (panel width %d):\n%s", formPanelWidth(104), narrow)
+	}
+
+	wide := m.Render(w, 260, 40, 0)
+	if !strings.Contains(wide, longLabel) {
+		t.Errorf("MISSION reminder missing at a wide (260-col) render, where it should fit unellipsized:\n%s", wide)
 	}
 }
 
