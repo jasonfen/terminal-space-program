@@ -89,10 +89,11 @@ func TestQuickloadKeySwapsWorld(t *testing.T) {
 	if a.world.Clock.WarpIdx != 0 {
 		t.Errorf("WarpIdx = %d, want 0 (the quicksaved state)", a.world.Clock.WarpIdx)
 	}
-	// Settings default both program toggles off — a fresh Load yields the
-	// nil "all enabled" map, so a reapplied (non-nil, empty) set is the
-	// proof the toggles were pushed onto the loaded world.
-	if a.world.MissionProgramEnabled(missions.ProgramTutorial) {
+	// Settings default Challenges off (Tutorial defaults ON since #425, so
+	// it can no longer serve as this proof) — a fresh Load yields the nil
+	// "all enabled" map, so a reapplied (non-nil, Challenges-false) set is
+	// the proof the toggles were pushed onto the loaded world.
+	if a.world.MissionProgramEnabled(missions.ProgramChallenge) {
 		t.Error("mission-program toggles not re-applied after quickload")
 	}
 	if a.active != screenOrbit {

@@ -110,13 +110,22 @@ type Settings struct {
 	// and unknown keys from a newer build are tolerated and ignored.
 	ChipVisibility map[Chip]bool `json:"chips,omitempty"`
 
-	// TutorialEnabled / ChallengesEnabled gate the two built-in mission
-	// programs (ADR 0025 §2 / v0.21 Slice 7). Both default false — a fresh
-	// sandbox shows no missions, chip, or evaluation until the player opts in
-	// via the Settings screen. The tui maps these to the set of enabled
-	// program names it pushes down to the World evaluator. omitempty keeps the
-	// default-off state costing zero bytes on disk (an absent field is off).
-	TutorialEnabled   bool `json:"tutorialEnabled,omitempty"`
+	// TutorialEnabled gates the built-in Flight School program (ADR 0025 §2
+	// / v0.21 Slice 7). On unless switched off (grilled 2026-09-04, #425):
+	// a nil pointer — an absent field, true for both a fresh install and
+	// every pre-#425 install, since omitempty on the old plain-bool field
+	// dropped `false` and there was never an on-disk way to tell "never
+	// decided" from "chose off" — reads as on. A legacy on-disk
+	// `"tutorialEnabled": true` also still reads as on. Only an explicit
+	// stored `false`, set via SetTutorialEnabled(false) from the Settings
+	// screen, silences it, and that choice persists across restarts.
+	// Read through TutorialOn(), never dereference directly.
+	TutorialEnabled *bool `json:"tutorialEnabled,omitempty"`
+
+	// ChallengesEnabled gates the Challenge ladder program. Stays opt-in:
+	// the zero value (false) is off, and a fresh sandbox shows no
+	// challenges until the player opts in via the Settings screen.
+	// omitempty keeps the default-off state costing zero bytes on disk.
 	ChallengesEnabled bool `json:"challengesEnabled,omitempty"`
 
 	// KeyboardLayout names the player's physical keyboard layout (ADR 0022),
@@ -223,4 +232,24 @@ func (s *Settings) SetChip(c Chip, enabled bool) {
 		s.ChipVisibility = make(map[Chip]bool, len(AllChips))
 	}
 	s.ChipVisibility[c] = enabled
+}
+
+// TutorialOn reports whether Flight School should run. Absent from disk
+// (nil pointer) means on — covering both a fresh install and any install
+// from before #425, which never had a way to record "never decided"
+// separately from "chose off". Only an explicit stored false silences it.
+func (s Settings) TutorialOn() bool {
+	if s.TutorialEnabled == nil {
+		return true
+	}
+	return *s.TutorialEnabled
+}
+
+// SetTutorialEnabled records an explicit on/off choice for Flight
+// School, persisted verbatim (never reset back to nil) so the choice
+// survives restarts. A fresh pointer per call, mirroring
+// SetAutosaveIntervalMin, so copies of Settings never alias.
+func (s *Settings) SetTutorialEnabled(on bool) {
+	v := on
+	s.TutorialEnabled = &v
 }

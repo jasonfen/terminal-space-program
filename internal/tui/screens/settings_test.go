@@ -18,12 +18,14 @@ func TestSettingsRenderListsEveryChip(t *testing.T) {
 			t.Errorf("Render is missing chip %q (label %q)", c, c.Label())
 		}
 	}
-	// Default: every chip on (checked); the two gameplay toggles default off.
-	if got := strings.Count(out, "[x]"); got != len(settings.AllChips) {
-		t.Errorf("checked-box count = %d, want %d (all chips on, gameplay off)", got, len(settings.AllChips))
+	// Default: every chip on (checked), plus Tutorial (on unless switched
+	// off, #425); only Challenge ladder defaults off.
+	wantChecked := len(settings.AllChips) + 1
+	if got := strings.Count(out, "[x]"); got != wantChecked {
+		t.Errorf("checked-box count = %d, want %d (all chips + Tutorial on)", got, wantChecked)
 	}
-	if got := strings.Count(out, "[ ]"); got != gameplayRows {
-		t.Errorf("empty-box count = %d, want %d (off-by-default gameplay toggles)", got, gameplayRows)
+	if got := strings.Count(out, "[ ]"); got != gameplayRows-1 {
+		t.Errorf("empty-box count = %d, want %d (only Challenge ladder off by default)", got, gameplayRows-1)
 	}
 	// Both gameplay toggle rows are listed.
 	for _, label := range []string{"Tutorial", "Challenge ladder"} {
@@ -39,11 +41,12 @@ func TestSettingsRenderReflectsDisabled(t *testing.T) {
 	prefs := settings.Default()
 	prefs.SetChip(settings.ChipTarget, false)
 	out := s.Render(prefs, 80, 0)
-	// One disabled chip + the two off-by-default gameplay toggles = 3 empty.
-	if got, want := strings.Count(out, "[ ]"), 1+gameplayRows; got != want {
+	// One disabled chip + the one off-by-default gameplay toggle (Challenge
+	// ladder; Tutorial defaults on, #425) = 2 empty.
+	if got, want := strings.Count(out, "[ ]"), 1+(gameplayRows-1); got != want {
 		t.Errorf("empty-box count = %d, want %d (disabled chip + off gameplay toggles):\n%s", got, want, out)
 	}
-	if got, want := strings.Count(out, "[x]"), len(settings.AllChips)-1; got != want {
+	if got, want := strings.Count(out, "[x]"), len(settings.AllChips)-1+1; got != want {
 		t.Errorf("checked-box count = %d, want %d", got, want)
 	}
 }

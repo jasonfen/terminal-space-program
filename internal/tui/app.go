@@ -229,8 +229,9 @@ func New(scenario *sim.StartScenario) (*App, error) {
 	// screen, so they're dropped here on the rehydrating load.
 	prefs, _ := settings.Load()
 	orbitView.SetSettings(prefs)
-	// Gate the seeded mission programs by the persisted toggles (both default
-	// off — a fresh sandbox shows no missions until opted in). v0.21 Slice 7.
+	// Gate the seeded mission programs by the persisted toggles: Flight
+	// School is on unless explicitly switched off (#425), the Challenge
+	// ladder stays opt-in. v0.21 Slice 7.
 	w.SetEnabledMissionPrograms(enabledProgramsFromSettings(prefs))
 	return &App{
 		world:      w,
@@ -2583,11 +2584,11 @@ func (a *App) toggleChip(c settings.Chip) {
 // enabledProgramsFromSettings maps the persisted Tutorial/Challenges toggles
 // to the set of active mission-program names the World evaluator gates on
 // (ADR 0025 §2 / v0.21 Slice 7). Always returns a non-nil map so the World's
-// nil-default ("all enabled") is overridden — missions stay off until the
-// player opts in.
+// nil-default ("all enabled") is overridden. Flight School is on unless
+// explicitly switched off (#425); the Challenge ladder stays opt-in.
 func enabledProgramsFromSettings(s settings.Settings) map[string]bool {
 	enabled := map[string]bool{}
-	if s.TutorialEnabled {
+	if s.TutorialOn() {
 		enabled[missions.ProgramTutorial] = true
 	}
 	if s.ChallengesEnabled {
@@ -2599,11 +2600,12 @@ func enabledProgramsFromSettings(s settings.Settings) map[string]bool {
 // toggleMissionProgram flips one gameplay program toggle (tutorial when true,
 // challenges when false), re-pushes the active-program set to the World, and
 // persists settings.json — mirroring toggleChip's persist-on-change. v0.21
-// Slice 7 (ADR 0025 §2).
+// Slice 7 (ADR 0025 §2). Flipping tutorial always records an explicit choice
+// (SetTutorialEnabled), which is the only thing that can silence it (#425).
 func (a *App) toggleMissionProgram(tutorial bool) {
 	s := a.orbitView.Settings()
 	if tutorial {
-		s.TutorialEnabled = !s.TutorialEnabled
+		s.SetTutorialEnabled(!s.TutorialOn())
 	} else {
 		s.ChallengesEnabled = !s.ChallengesEnabled
 	}

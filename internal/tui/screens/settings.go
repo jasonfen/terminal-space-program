@@ -167,18 +167,19 @@ func (s *SettingsScreen) settingsBody(prefs settings.Settings) (lines []widgets.
 		add(marker+text, false, i)
 	}
 
-	// Gameplay section: the two built-in mission programs, off by default —
-	// the player opts in here (ADR 0025 §2 / v0.21 Slice 7).
+	// Gameplay section: the two built-in mission programs (ADR 0025 §2 /
+	// v0.21 Slice 7). Flight School (Tutorial) is on unless switched off
+	// here (#425); the Challenge ladder stays opt-in.
 	add("", false, -1)
 	add(s.theme.Dim.Render("─── gameplay ───"), true, -1)
 	add("", false, -1)
-	add(s.theme.Dim.Render("  Built-in missions. Off by default; opt in to fly them."), false, -1)
+	add(s.theme.Dim.Render("  Flight School is on by default. Challenge ladder is opt-in."), false, -1)
 	add("", false, -1)
 	gameplay := []struct {
 		label string
 		on    bool
 	}{
-		{"Tutorial", prefs.TutorialEnabled},
+		{"Tutorial", prefs.TutorialOn()},
 		{"Challenge ladder", prefs.ChallengesEnabled},
 	}
 	for j, g := range gameplay {
