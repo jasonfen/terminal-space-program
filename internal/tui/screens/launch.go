@@ -635,38 +635,48 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 	if craft.ChuteState == spacecraft.ChuteDeployed {
 		canopy = ComposeCanopy(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
 	}
-	// Plot each pixel as a braille sub-cell dot via PlotColored.
-	// No SetCellOverlay glyph: braille dots are direction-agnostic,
-	// so a tilted rocket renders smoothly at any pitch — the
-	// gravity-turn smear the v0.11.3 ASCII first-cut produced is
-	// gone. ClearCellOverlay after each plot removes the LUT's
-	// body-fixed overlay glyphs in cells the rocket occupies, so
-	// the braille dots show through at the pad (otherwise the
-	// LUT's SetCellOverlay `║ ╤ █` would mask the rocket).
+	// Plot each pixel as a braille sub-cell dot via PlotColoredAnchored
+	// (#424 follow-up), NOT PlotColored(anchorWorld.Add(p.OffsetWorld),
+	// ...): the latter forms an absolute world point by adding a small
+	// sprite offset onto the vessel's large-magnitude world anchor, then
+	// Project immediately subtracts that same anchor back off — an
+	// IEEE754 round trip that doesn't always recover the offset
+	// bit-for-bit, and when the offset's exact value lands on a sub-pixel
+	// rounding tie (it does, routinely — see PlotColoredAnchored's doc
+	// comment), the residual noise flips math.Round's outcome
+	// independently per row, reproducing the exact "half-lit column"
+	// aliasing #424 reported even with the stack axis bit-exact
+	// vertical. PlotColoredAnchored keeps the anchor and offset separate
+	// through to projection, avoiding the round trip entirely.
+	//
+	// No SetCellOverlay glyph: braille dots are direction-agnostic, so a
+	// tilted rocket renders smoothly at any pitch — the gravity-turn
+	// smear the v0.11.3 ASCII first-cut produced is gone. ClearCellOverlay
+	// after each plot removes the LUT's body-fixed overlay glyphs in
+	// cells the rocket occupies, so the braille dots show through at the
+	// pad (otherwise the LUT's SetCellOverlay `║ ╤ █` would mask the
+	// rocket) — cell-granularity, so the anchor round-trip's ~10⁻¹⁰ m
+	// noise can never shift it to the wrong cell; no need to route it
+	// through the anchored path too.
 	for _, p := range sprite {
-		world := anchorWorld.Add(p.OffsetWorld)
-		v.canvas.PlotColored(world, p.Color)
-		v.canvas.ClearCellOverlay(world)
+		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range bell {
-		world := anchorWorld.Add(p.OffsetWorld)
-		v.canvas.PlotColored(world, p.Color)
-		v.canvas.ClearCellOverlay(world)
+		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range legs {
-		world := anchorWorld.Add(p.OffsetWorld)
-		v.canvas.PlotColored(world, p.Color)
-		v.canvas.ClearCellOverlay(world)
+		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range flame {
-		world := anchorWorld.Add(p.OffsetWorld)
-		v.canvas.PlotColored(world, p.Color)
-		v.canvas.ClearCellOverlay(world)
+		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range canopy {
-		world := anchorWorld.Add(p.OffsetWorld)
-		v.canvas.PlotColored(world, p.Color)
-		v.canvas.ClearCellOverlay(world)
+		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	return true
 }
