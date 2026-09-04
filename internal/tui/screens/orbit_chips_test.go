@@ -146,20 +146,16 @@ func TestComposeChipsClipsOversizeChipWithoutPanic(t *testing.T) {
 	}
 }
 
-// TestComposeChipsBudgetProtectsCriticalChipFromOverflow (#328/#334):
-// composeChips had NO height bound on the top-left stack at all —
-// topLeftRow grew past cRows with nothing to stop it, and
-// overlayStyledBlock silently drops any row outside [0, cRows). A
-// high-priority chip appended late (the real DOCKED block, in
-// assembleChips' order) absorbed all the accumulated overflow from the
-// filler chips ahead of it and vanished with no signal anything was
-// lost — TestComposeChipsClipsOversizeChipWithoutPanic above only
-// checks the row COUNT survives, which passes even on total content
-// loss. Reproduces the #328 report's numbers: an 80x24 terminal's
-// canvas is 21 rows; three filler chips (mirroring VESSEL/MISSION/
-// SESSION/TIME LOCK) consume all 21 rows between them, and a critical
-// chip appended after them must still render in full rather than being
-// silently dropped or clipped.
+// TestComposeChipsBudgetProtectsCriticalChipFromOverflow (#328/#334,
+// reworked for #422/ADR 0046): a high-priority chip appended late in a
+// corner's stack (the real DOCKED block, in assembleChips' order) must
+// never be silently lost or truncated to overflow. Under the Graceful
+// Shrink contract this is achieved by sacrificing the lower-priority
+// fillers ahead of it (dropped behind a Hidden Stub, latest-added first)
+// rather than by ever touching the critical chip: reproduces the #328
+// report's numbers — an 80x24 terminal's canvas is 21 rows, and three
+// filler chips (mirroring VESSEL/MISSION/SESSION/TIME LOCK — VESSEL
+// itself is Core, the rest Normal) consume all 21 rows between them.
 func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const cCols, cRows = 78, 21 // an 80x24 terminal's canvas (totalRows-3)
@@ -187,18 +183,24 @@ func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
 	if !strings.Contains(out, "riding in bob's stack") || !strings.Contains(out, "[U] ask to undock") {
 		t.Errorf("critical chip rendered but truncated — its own content was clipped:\n%s", out)
 	}
+	if !strings.Contains(out, "hidden") {
+		t.Errorf("fillers dropped for space but no Hidden Stub says so:\n%s", out)
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
 }
 
-// TestComposeChipsBudgetClampsBottomRightAgainstNavball (#334): at
-// 80x24, navballReservedRows(w, cCols, 21) returns navballPanelH+1 = 20,
-// so bottomRightRow = cRows-1-navballReserved = 0 — a force-shown NODES
-// chip (4 content lines, block height 6) placed there lands at
-// atRow = 0-6+1 = -5, and overlayStyledBlock drops every row outside
-// [0, cRows), leaving only the block's bottom border on canvas row 0.
-// A force-shown (critical-priority) chip that cannot fit above the
-// navball must still render in full rather than vanish upward off the
-// canvas.
-func TestComposeChipsBudgetClampsBottomRightAgainstNavball(t *testing.T) {
+// TestComposeChipsBudgetDropsBehindStubAboveNavball (#334, reworked for
+// #422/ADR 0046): at 80x24 with the navball showing,
+// navballReservedRows(w, cCols, 21) returns navballPanelH+1 = 20, leaving
+// the whole right side exactly ONE spare row (chipStubHeight) — the real
+// geometry at the Playable Floor whenever the navball renders (19 rows)
+// alongside the label row. A lone chip needs at least 3 rows (its own
+// border alone), so it can never fit there even fully Compact — the old
+// "clamp it onto the canvas, accept the overlap" last resort is exactly
+// the bug #422 reports (a force-shown NODES chip painting over the Core
+// ORBIT chip during a burn). The new contract drops it behind a one-row
+// Hidden Stub instead: never present, never overlapping, never silent.
+func TestComposeChipsBudgetDropsBehindStubAboveNavball(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const cCols, cRows = 78, 21
 	const navballReserved = navballPanelH + 1 // == 20, matches navballReservedRows at this size
@@ -209,20 +211,25 @@ func TestComposeChipsBudgetClampsBottomRightAgainstNavball(t *testing.T) {
 		}, priority: chipPriorityForced},
 	}
 	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
-	if !strings.Contains(out, "NODES") || !strings.Contains(out, "▸ #1 prograde 42 m/s") {
-		t.Fatalf("force-shown NODES chip lost above the navball reservation:\n%s", out)
+	if strings.Contains(out, "▸ #1 prograde 42 m/s") {
+		t.Fatalf("force-shown NODES chip rendered despite not fitting above the navball reservation — it should have dropped behind a stub instead:\n%s", out)
+	}
+	if !strings.Contains(out, "hidden") {
+		t.Errorf("NODES dropped for space but no Hidden Stub says so:\n%s", out)
+	}
+	if len(v.chipRects) != 0 {
+		t.Errorf("dropped chip left a clickable rect: %+v", v.chipRects)
 	}
 }
 
-// TestComposeChipsClampsTwoCriticalChipsThatTogetherOverflow exercises the
-// last-resort clamp directly (admitChipsByBudget's drop-lower-priority
-// pass never runs here — both chips are chipPriorityForced, so both are
-// admitted unconditionally, and their combined height exceeds the
-// corner's entire budget). composeChips must still keep the SECOND
-// critical chip fully on-canvas by pulling it back up to overlap the
-// first, rather than let it run off the bottom edge and have
-// overlayStyledBlock silently drop the overflow rows.
-func TestComposeChipsClampsTwoCriticalChipsThatTogetherOverflow(t *testing.T) {
+// TestComposeChipsDropsLowerPriorityBeforeHigher exercises the new drop
+// order directly: two chips together exceed their side's entire budget
+// (both start Full, neither has a Compact Form to shrink into), so the
+// LOWER-priority one (SECOND, Forced) must drop behind a Hidden Stub
+// while the HIGHER-priority one (FIRST, Core) stays fully on-canvas —
+// replacing the pre-#422 "clamp the second one on top of the first,
+// accept the overlap" behaviour (ADR 0046).
+func TestComposeChipsDropsLowerPriorityBeforeHigher(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const cCols, cRows = 40, 10 // small on purpose: two 8-row blocks won't both fit
 
@@ -234,9 +241,16 @@ func TestComposeChipsClampsTwoCriticalChipsThatTogetherOverflow(t *testing.T) {
 	if got := strings.Count(out, "\n") + 1; got != cRows {
 		t.Fatalf("output row count = %d, want %d (canvas height preserved)", got, cRows)
 	}
-	if !strings.Contains(out, "SECOND") || !strings.Contains(out, "j") {
-		t.Errorf("second critical chip lost/truncated when it couldn't fit below the first:\n%s", out)
+	if !strings.Contains(out, "FIRST") || !strings.Contains(out, "e") {
+		t.Errorf("higher-priority FIRST chip lost or truncated:\n%s", out)
 	}
+	if strings.Contains(out, "SECOND") || strings.Contains(out, "j") {
+		t.Errorf("lower-priority SECOND chip should have dropped, not rendered/overlapped:\n%s", out)
+	}
+	if !strings.Contains(out, "hidden") {
+		t.Errorf("SECOND dropped for space but no Hidden Stub says so:\n%s", out)
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
 }
 
 func TestChipEnabledRespectsSettingsAndDeclutter(t *testing.T) {
@@ -1005,4 +1019,194 @@ func TestLosingTheCraftRefits(t *testing.T) {
 	if v.baseScale >= craftScale {
 		t.Errorf("post-loss fit %v is not zoomed out relative to the craft fit %v", v.baseScale, craftScale)
 	}
+}
+
+// ---------------------------------------------------------------------
+// ADR 0046 / #422: Graceful Shrink — one column per side, Compact Form
+// before drop, numbers clip right-only.
+// ---------------------------------------------------------------------
+
+// assertNoChipRectOverlaps fails the test if any two recorded chip
+// rectangles share a cell. This is the core invariant of the Graceful
+// Shrink contract: whatever a side's chips resolve to (Full, Compact, or
+// a mix), the placed rectangles must never intersect — the pre-#422 bug
+// was exactly two chips (or a chip and its own neighbour) painting into
+// the same cells.
+func assertNoChipRectOverlaps(t *testing.T, rects []chipRect) {
+	t.Helper()
+	overlaps := func(a, b chipRect) bool {
+		return a.colStart <= b.colEnd && b.colStart <= a.colEnd &&
+			a.rowStart <= b.rowEnd && b.rowStart <= a.rowEnd
+	}
+	for i := 0; i < len(rects); i++ {
+		for j := i + 1; j < len(rects); j++ {
+			if overlaps(rects[i], rects[j]) {
+				t.Errorf("chip rects overlap: %+v and %+v", rects[i], rects[j])
+			}
+		}
+	}
+}
+
+// realisticChipSet builds a chip list shaped like a real flight frame —
+// VESSEL/ORBIT Core, a couple of Normal top-left transients, TARGET
+// Normal, STAGES/CHAT bottom-left, NODES bottom-right (Forced while
+// burning) — each with the same kind of Compact Form real builders now
+// provide (title + 1-2 rows), sized close to the dumps in the 2026-09-02
+// UX review (visual-clarity-04/16/20.txt) that motivated ADR 0046.
+func realisticChipSet(burning bool) []builtChip {
+	nodesPriority := chipPriorityNormal
+	nodesLines := []string{
+		"NODES", "  ▸ #1 T+15219s Prograde 3054 m/s", "  fin 109s", "  (+3 more → [m])",
+	}
+	nodesCompact := []string{"NODES", "  ▸ #1 Prograde 3054 m/s"}
+	if burning {
+		nodesPriority = chipPriorityForced
+		nodesLines = []string{
+			"NODES", "  ● vessel 1 (active) — Retrograde, Δv 23626 m/s, T-87s",
+			"  ▸ #1 T+15219s  Prograde  3054 m/s", "  fin 109s", "  (+3 more → [m])",
+		}
+		nodesCompact = []string{"NODES", "  ● Retrograde Δv 23626 m/s"}
+	}
+	return []builtChip{
+		{corner: cornerTopLeft, priority: chipPriorityCore,
+			lines:   []string{"VESSEL", "  S-IVB-1", "  primary:   Earth", "  velocity:  7.50 km/s", "PROPELLANT", "  fuel:      89% (35775 kg)", "  mass:      47495 kg", "  Δv budget: 5777 m/s", "  throttle:  100%"},
+			compact: []string{"VESSEL  S-IVB-1", "  fuel: 89% (35775 kg)  Δv: 5777 m/s"}},
+		{id: settings.ChipFrameTransition, corner: cornerTopLeft,
+			lines: []string{"FRAME TRANSITION", "  Earth → Moon", "  at T+5d4h  (node #3)"}},
+		{id: settings.ChipMissions, corner: cornerTopLeft,
+			lines:   []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1", "    Press [G] to auto-warp to the burn."},
+			compact: []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1"}},
+		{corner: cornerTopRight, priority: chipPriorityCore,
+			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  t→Ap:      47m", "  Pe:        498.2 km", "  t→Pe:      12m", "  period:    1h34m28s", "  inclin.:   0.00°", "  direction: prograde"},
+			compact: []string{"ORBIT", "  Ap: 500.0 km  Pe: 498.2 km"}},
+		{id: settings.ChipTarget, corner: cornerTopRight,
+			lines:   []string{"TARGET", "  body:     Moon", "  Δi:       19.44°", "  range:    371639 km", "  TCA:      4.72h"},
+			compact: []string{"TARGET  Moon", "  range: 371639 km"}},
+		{id: settings.ChipStages, corner: cornerBottomLeft,
+			lines:   []string{"STAGES", "  ●●●", "  ▸ S-IC (1/3)"},
+			compact: []string{"STAGES  ●●●"}},
+		{id: "", corner: cornerBottomLeft, lines: []string{"◇ bob joined"}},
+		{id: settings.ChipNodes, corner: cornerBottomRight, priority: nodesPriority,
+			lines: nodesLines, compact: nodesCompact},
+	}
+}
+
+// canvasDimsFor mirrors the real orbit screen's canvas sizing (border +
+// title consume 2 cols / 3 rows) for a given terminal size, so tests
+// exercise the same cCols/cRows the app actually renders at.
+func canvasDimsFor(termW, termH int) (cCols, cRows int) {
+	return termW - 2, termH - 3
+}
+
+// TestGracefulShrinkNoOverlapAtCoreSizes (test requirement (b)): with a
+// realistic chip set and the navball showing, no two admitted chip rects
+// ever overlap at the Playable Floor (104×24), an intermediate size
+// (120×36), or the Design Size (140×40, ADR 0046).
+func TestGracefulShrinkNoOverlapAtCoreSizes(t *testing.T) {
+	for _, sz := range []struct{ w, h int }{{104, 24}, {120, 36}, {140, 40}} {
+		t.Run(fmt.Sprintf("%dx%d", sz.w, sz.h), func(t *testing.T) {
+			v := NewOrbitView(chipTestTheme())
+			cCols, cRows := canvasDimsFor(sz.w, sz.h)
+			navballReserved := navballPanelH + 1
+			v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 1, 2, realisticChipSet(true))
+			assertNoChipRectOverlaps(t, v.chipRects)
+		})
+	}
+}
+
+// TestGracefulShrinkReproducesForcedNodesVsOrbitCollision (test
+// requirement (a)): reproduces visual-clarity-04.txt — a force-shown
+// (burning) NODES chip stacking bottom-right above a navball that
+// dominates the canvas, alongside the Core ORBIT chip top-right. Before
+// #422 this NODES chip clamped onto the canvas at row 0 and painted over
+// ORBIT's border (composeChips' old last-resort clamp); the fix is that
+// neither the ORBIT rect nor the NODES rect (whichever survive Compact/
+// drop) may ever overlap.
+func TestGracefulShrinkReproducesForcedNodesVsOrbitCollision(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const termW, termH = 104, 25 // canvas rows = 22, matching the dump's geometry
+	cCols, cRows := canvasDimsFor(termW, termH)
+	navballReserved := navballPanelH + 1
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 1, 2, realisticChipSet(true))
+	assertNoChipRectOverlaps(t, v.chipRects)
+}
+
+// TestGracefulShrinkReproducesStagesVsProximityCollision (test
+// requirement (a)): reproduces visual-clarity-16.txt — in proximity
+// view, the bottom-left STAGES stack (growing up) and a top-left chip
+// (growing down) shared no budget under the old per-corner scheme, so
+// STAGES could paint over the earlier chip's leading digits (`10661 km`
+// read `661 km`). One shared left-side budget must keep them apart.
+func TestGracefulShrinkReproducesStagesVsProximityCollision(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	cCols, cRows := canvasDimsFor(104, 24)
+	chips := []builtChip{
+		{corner: cornerTopLeft, priority: chipPriorityCore,
+			lines:   []string{"VESSEL", "  Saturn V-2", "  primary:   Earth", "  velocity:  0.41 km/s", "PROPELLANT", "  fuel:      100% (2160000 kg)", "  mass:      2901847 kg", "  Δv budget: 3518 m/s", "  throttle:  100%"},
+			compact: []string{"VESSEL  Saturn V-2", "  fuel: 100%  Δv: 3518 m/s"}},
+		{id: "", corner: cornerTopLeft,
+			lines:   []string{"PROXIMITY  Saturn V-1", "  range:    10661 km", "  |v_rel|:  5518.77 m/s", "  closing:  +3639.71 m/s"},
+			compact: []string{"PROXIMITY  Saturn V-1", "  range: 10661 km"}},
+		{id: settings.ChipStages, corner: cornerBottomLeft,
+			lines:   []string{"STAGES", "  ●●●", "  ▸ S-IC (1/3)"},
+			compact: []string{"STAGES  ●●●"}},
+	}
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 1, 2, chips)
+	assertNoChipRectOverlaps(t, v.chipRects)
+}
+
+// TestLayoutChipsBySideCompactsBeforeDropping (test requirement (c),
+// shrink half): a side that overflows in Full form but fits once its
+// Normal-priority chip shrinks to Compact must land on Compact, not
+// drop — the chip's Compact-only content renders and its Full-only
+// content does not, and no Hidden Stub appears.
+func TestLayoutChipsBySideCompactsBeforeDropping(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 40, 12
+	chips := []builtChip{
+		{corner: cornerTopLeft, priority: chipPriorityCore, lines: []string{"CORE", "core-a", "core-b", "core-c"}},
+		{corner: cornerTopLeft, lines: []string{"WIDE", "full-only-row-1", "full-only-row-2", "full-only-row-3"},
+			compact: []string{"WIDE", "compact-row"}},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if !strings.Contains(out, "compact-row") {
+		t.Errorf("expected the Normal chip to shrink to Compact and render its compact row:\n%s", out)
+	}
+	if strings.Contains(out, "full-only-row-1") {
+		t.Errorf("chip rendered Full when Compact alone already fit the budget:\n%s", out)
+	}
+	if strings.Contains(out, "hidden") {
+		t.Errorf("a chip dropped even though shrinking to Compact was enough to fit:\n%s", out)
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
+}
+
+// TestLayoutChipsBySideDropsOnlyAfterEverythingIsCompact (test
+// requirement (c), drop half): when a side still overflows after every
+// chip on it is Compact, the lowest-priority chip drops behind a Hidden
+// Stub — never before every chip has already shrunk.
+func TestLayoutChipsBySideDropsOnlyAfterEverythingIsCompact(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 40, 8 // budget = cRows-1 = 7: too tight even fully Compact
+	chips := []builtChip{
+		{corner: cornerTopLeft, priority: chipPriorityCore, lines: []string{"CORE", "core-a", "core-b"},
+			compact: []string{"CORE", "core-compact"}},
+		{corner: cornerTopLeft, lines: []string{"WIDE", "full-a", "full-b"},
+			compact: []string{"WIDE", "wide-compact"}},
+	}
+	forms, stubs := layoutChipsBySide(chips, cRows, 0)
+	if forms[0] != chipFormCompact && forms[0] != chipFormFull {
+		t.Fatalf("higher-priority CORE chip dropped before the lower-priority chip: forms=%v", forms)
+	}
+	if forms[1] != chipFormHidden {
+		t.Fatalf("lower-priority WIDE chip should have dropped once the side was fully Compact and still overflowing: forms=%v", forms)
+	}
+	if stubs[sideLeft] == 0 {
+		t.Errorf("a chip dropped but no Hidden Stub was reserved for its side")
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if !strings.Contains(out, "hidden") {
+		t.Errorf("dropped chip's stub text missing from the composed frame:\n%s", out)
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
 }

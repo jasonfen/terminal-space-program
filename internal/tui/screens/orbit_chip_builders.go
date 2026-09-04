@@ -41,7 +41,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// must not be able to hide fuel/Δv mid-burn. v0.13 playtest move:
 	// VESSEL/PROPELLANT left the right-hand column to live on the canvas.
 	if lines := v.buildVesselChip(w); lines != nil {
-		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityCore})
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, compact: v.buildVesselChipCompact(w), priority: chipPriorityCore})
 	}
 	// MEETING PLAN (ADR 0045 S6, #399): the picker holds keyboard focus
 	// while open (app.go's key intercept claims ←/→/↑/↓/Enter/Esc before
@@ -52,7 +52,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// below VESSEL/ORBIT in a genuine overflow, but never dropped for
 	// space like an ordinary contextual chip.
 	if lines := v.buildMeetingPickerChip(); lines != nil {
-		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityForced})
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityForced, neverShrink: true})
 	}
 	add := func(id settings.Chip, corner chipCorner, lines []string) {
 		if lines == nil || !v.chipEnabled(id) {
@@ -60,27 +60,40 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 		}
 		chips = append(chips, builtChip{id: id, corner: corner, lines: lines})
 	}
-	// addPriority is add's twin for the handful of chips that must never
-	// be silently dropped by admitChipsByBudget when a corner overflows
-	// (#328/#334) — see the chipPriority* doc comment in orbit_chips.go.
-	addPriority := func(id settings.Chip, corner chipCorner, lines []string, priority int) {
+	// addC is add's twin for chips with a real Compact Form (ADR 0046):
+	// title plus one or two key rows, built by a matching *Compact
+	// builder. compact may be nil for a chip whose full form is already
+	// chip-sized — layoutChipsBySide treats a nil compact as "full IS
+	// compact" (nothing further to give, still a candidate to drop).
+	addC := func(id settings.Chip, corner chipCorner, lines, compact []string) {
 		if lines == nil || !v.chipEnabled(id) {
 			return
 		}
-		chips = append(chips, builtChip{id: id, corner: corner, lines: lines, priority: priority})
+		chips = append(chips, builtChip{id: id, corner: corner, lines: lines, compact: compact})
+	}
+	// addPriority is add's twin for the handful of chips that must never
+	// be silently dropped whole by layoutChipsBySide until every Normal
+	// chip on their side has already shrunk to Compact — see the
+	// chipPriority* doc comment in orbit_chips.go.
+	addPriority := func(id settings.Chip, corner chipCorner, lines, compact []string, priority int) {
+		if lines == nil || !v.chipEnabled(id) {
+			return
+		}
+		chips = append(chips, builtChip{id: id, corner: corner, lines: lines, compact: compact, priority: priority})
 	}
 	// PROXIMITY (ADR 0043) is the close-range view's own instrument panel,
 	// so inside that view it sits directly under VESSEL, ahead of
 	// everything else in the top-left stack. Ordering is load-bearing:
-	// admitChipsByBudget drops later normal-priority chips first, so at
-	// 80×24 the readout the player is flying the last kilometres on wins
-	// the space over the transient chips behind it. Nil in every other
-	// ViewMode — on the map, the TARGET chip already carries these
-	// numbers and a second copy would be pure clutter.
-	add("", cornerTopLeft, v.buildProximityChip(w))
+	// layoutChipsBySide shrinks/drops LATER normal-priority chips first
+	// (ADR 0046), so at the Floor the readout the player is flying the
+	// last kilometres on wins the space over the transient chips behind
+	// it. Nil in every other ViewMode — on the map, the TARGET chip
+	// already carries these numbers and a second copy would be pure
+	// clutter.
+	addC("", cornerTopLeft, v.buildProximityChip(w), v.buildProximityChipCompact(w))
 	// The current goal sits directly under the pinned VESSEL chip — "who I am"
 	// then "what I'm doing" in the top-left status corner (ADR 0025 / Slice 5).
-	add(settings.ChipMissions, cornerTopLeft, v.buildMissionsChip(w))
+	addC(settings.ChipMissions, cornerTopLeft, v.buildMissionsChip(w), v.buildMissionsChipCompact(w))
 	// Top-left transient stack (stacking order = listed order, downward).
 	// The in-flight ● BURNS readout used to live here; v0.16 folds it into
 	// the bottom-right NODES chip (a live burn is the firing head of the
@@ -125,7 +138,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// undock once absorbed into another player's stack, so it carries
 	// chipPriorityForced — admitChipsByBudget must never silently drop it
 	// for space the way it dropped every ordinary chip ahead of it.
-	addPriority("", cornerTopLeft, v.buildDockGuestChip(w), chipPriorityForced)
+	addPriority("", cornerTopLeft, v.buildDockGuestChip(w), v.buildDockGuestChipCompact(w), chipPriorityForced)
 	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
 	// vessel-state readouts. Force-shown while a just-blocked command is
 	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
@@ -141,7 +154,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// the current orbit (apo/peri/incl) is never user-hideable from the
 	// Settings screen, mirroring the always-on ● BURNS readout — both are
 	// too load-bearing to toggle off. F2 declutter still clears them.
-	addPriority("", cornerTopRight, v.buildOrbitMetricsChip(w), chipPriorityCore)
+	addPriority("", cornerTopRight, v.buildOrbitMetricsChip(w), v.buildOrbitMetricsChipCompact(w), chipPriorityCore)
 	// PROJECTED ORBIT sits to the LEFT of the always-on ORBIT readout (issue
 	// #63 follow-up) so current + projected show together during a burn
 	// without growing the top-right column's height — leaving vertical room
@@ -149,7 +162,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// load-bearing live ORBIT beside it. leftOfPrev falls back to normal
 	// stacking when ORBIT is suppressed (e.g. ascent), so it's never orphaned.
 	if lines := v.buildProjectedOrbitChip(w); lines != nil && v.chipEnabled(settings.ChipProjectedOrbit) {
-		chips = append(chips, builtChip{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: lines, leftOfPrev: true})
+		chips = append(chips, builtChip{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: lines, compact: v.buildProjectedOrbitChipCompact(w), leftOfPrev: true})
 	}
 	// CLOSE RANGE (ADR 0043): a one-line pointer at the Proximity View
 	// jump key, offered when an approach crosses inside the range at which
@@ -162,13 +175,13 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// sim's crossing state machine retires it the moment the player acts,
 	// and it never renders inside the view it advertises.
 	add("", cornerTopRight, v.buildProximityHintChip(w))
-	add(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w))
+	addC(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w), v.buildTargetChipCompact(w))
 	// SOI PASS sits beneath TARGET — the upcoming encounter of the live
 	// path, always-on and Target-independent (ADR 0019). De-dupes with
 	// TARGET inside the builder when they name the same body.
 	add(settings.ChipSOIPass, cornerTopRight, v.buildSOIPassChip(w))
 	// Remaining fixed corners.
-	add(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w))
+	addC(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w), v.buildStagesChipCompact(w))
 	// CHAT stacks under STAGES, its own corner slot away from the
 	// session moments (ADR 0035 §2). Always-on like SESSION — a
 	// coordination line must not be togglable into silence.
@@ -201,7 +214,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 			if forced {
 				priority = chipPriorityForced
 			}
-			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines, priority: priority})
+			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines, compact: v.buildNodesChipCompact(w), priority: priority})
 		}
 	}
 	return chips
@@ -867,6 +880,33 @@ func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
 	return lines
 }
 
+// buildDockGuestChipCompact is DOCKED's Compact Form (ADR 0046 / #422):
+// the ride plus a single combined exits row, dropping the OwnerAway
+// line. DOCKED is chipPriorityForced — the rider's only surviving route
+// to [J]/[U] once absorbed into another player's stack (#328) — so even
+// its Compact Form must keep both exit keys legible, just on one row
+// instead of two.
+func (v *OrbitView) buildDockGuestChipCompact(w *sim.World) []string {
+	dg := w.DockGuest
+	if dg == nil {
+		return nil
+	}
+	handle := dg.OwnerHandle
+	if handle == "" {
+		handle = "their"
+	}
+	if w.DockOwnerOnline() {
+		return []string{
+			v.theme.Primary.Render("DOCKED") + "  " + v.theme.Dim.Render("riding in "+handle+"'s stack"),
+			v.theme.Dim.Render("  [J] control · [U] undock"),
+		}
+	}
+	return []string{
+		v.theme.Primary.Render("DOCKED") + "  " + v.theme.Dim.Render("riding in "+handle+"'s stack"),
+		v.theme.Warning.Render("  [J] take the stick (pilot's gone)"),
+	}
+}
+
 // anyActiveBurn reports whether any craft in the slate has an in-flight
 // finite/planted burn (ActiveBurn). Drives the NODES chip force-show
 // (v0.16) so a live burn is never hidden by the toggle or declutter.
@@ -898,6 +938,37 @@ func (v *OrbitView) buildMissionsChip(w *sim.World) []string {
 // forms are unit-testable without a live World. A live flash takes precedence
 // over the active mission — the mission that just failed is more urgent to
 // surface than the next one in the ladder.
+// missionChipWrapWidth caps the MISSION chip's width (ADR 0046 / #422):
+// the tutorial hint text used to size the chip to its longest line — 87
+// columns for "Warp to your burn ([G]) or fire manually ([b])…" — wide
+// enough to overdraw the navball box beside it at 120 columns
+// (2026-09-02 UX review, gameplay-flow-progression-09.txt). The hint now
+// wraps to this width instead of setting the box width.
+const missionChipWrapWidth = 40
+
+// wrapChipText greedily word-wraps s to at most width visible columns
+// per line, never splitting a word. A single word longer than width is
+// left whole on its own line rather than hard-cut (chip text is short
+// English sentences, not data that needs mid-word breaks).
+func wrapChipText(s string, width int) []string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return nil
+	}
+	var out []string
+	line := words[0]
+	for _, wd := range words[1:] {
+		if lipgloss.Width(line)+1+lipgloss.Width(wd) > width {
+			out = append(out, line)
+			line = wd
+			continue
+		}
+		line += " " + wd
+	}
+	out = append(out, line)
+	return out
+}
+
 func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mission) []string {
 	if flashing {
 		return []string{
@@ -922,11 +993,55 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 	}
 	// Tutorial steps surface their instruction ("Press [v] …") in-flight so the
 	// player learns the control without opening the missions screen (Slice 7
-	// playtest feedback). Challenge steps stay the clean one-liner.
+	// playtest feedback). Challenge steps stay the clean one-liner. Wrapped
+	// to missionChipWrapWidth (ADR 0046) rather than left to set the box's
+	// width — a single long hint used to overdraw whatever sat beside it.
 	if m.Program == missions.ProgramTutorial && obj.Description != "" {
-		lines = append(lines, v.theme.Dim.Render("    "+obj.Description))
+		for _, row := range wrapChipText(obj.Description, missionChipWrapWidth) {
+			lines = append(lines, v.theme.Dim.Render("    "+row))
+		}
 	}
 	return lines
+}
+
+// missionChipLinesCompact is MISSION's Compact Form (ADR 0046 / #422):
+// the same header + objective row as the full form, plus the tutorial
+// hint condensed to its FIRST wrapped line only (with a trailing "…"
+// when the hint needed more than one) — "objective + key hint wrapped to
+// ≤ 40 cols", not the hint's full multi-line text.
+func (v *OrbitView) missionChipLinesCompact(flash string, flashing bool, m *missions.Mission) []string {
+	if flashing {
+		return v.missionChipLines(flash, flashing, m) // already 2 lines
+	}
+	if m == nil {
+		return nil
+	}
+	header := v.theme.Primary.Render("MISSION") + "  " + m.Name
+	obj, ok := m.CurrentObjective()
+	if !ok {
+		return []string{header}
+	}
+	passed, total := m.Progress()
+	lines := []string{
+		header,
+		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, obj.Label(), passed, total),
+	}
+	if m.Program == missions.ProgramTutorial && obj.Description != "" {
+		wrapped := wrapChipText(obj.Description, missionChipWrapWidth)
+		if len(wrapped) > 0 {
+			row := wrapped[0]
+			if len(wrapped) > 1 {
+				row += "…"
+			}
+			lines = append(lines, v.theme.Dim.Render("    "+row))
+		}
+	}
+	return lines
+}
+
+func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
+	flash, flashing := w.MissionFailFlash()
+	return v.missionChipLinesCompact(flash, flashing, w.ActiveMission())
 }
 
 // buildAttitudeChip surfaces the held attitude / nav mode / engine mode /
@@ -1485,6 +1600,80 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	return lines
 }
 
+// buildOrbitMetricsChipCompact is ORBIT's Compact Form (ADR 0046 / #422,
+// CONTEXT.md "Graceful Shrink": "the Orbit Chip becomes an Ap/Pe strip"):
+// the two numbers a pilot needs even at a glance — apoapsis and
+// periapsis altitude — on one row, dropping altitude, the apsis-time
+// countdowns, period, inclination and direction. The below-surface
+// warning survives: a periapsis inside the primary is exactly the kind
+// of fact that must not vanish when the chip shrinks. Mirrors
+// buildOrbitMetricsChip's branch order (dock-guest badge, then Landed,
+// then a live orbit) so the Compact Form always agrees with the Full
+// form about WHICH case is showing.
+func (v *OrbitView) buildOrbitMetricsChipCompact(w *sim.World) []string {
+	if !w.CraftVisibleHere() {
+		return v.buildDockGuestOrbitChipCompact(w)
+	}
+	c := w.ActiveCraft()
+	if c == nil || shouldShowLaunchHUD(c) {
+		return nil
+	}
+	if !craftHasOrbit(c) {
+		lat, lon := c.SurfaceLatLon()
+		return []string{
+			v.theme.Primary.Render("ORBIT"),
+			chipRow("landed at:", fmt.Sprintf("%.1f°, %.1f°", lat, lon)),
+		}
+	}
+	mu := c.Primary.GravitationalParameter()
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
+	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
+		return nil
+	}
+	primaryR := c.Primary.RadiusMeters()
+	apoAlt := el.Apoapsis() - primaryR
+	periAlt := el.Periapsis() - primaryR
+	lines := []string{
+		v.theme.Primary.Render("ORBIT"),
+		fmt.Sprintf("  Ap: %s  Pe: %s", formatChipKm(apoAlt), formatChipKm(periAlt)),
+	}
+	if periAlt < 0 {
+		lines = append(lines, "  "+v.theme.Alert.Render("⚠ BELOW SURFACE"))
+	}
+	return lines
+}
+
+// buildDockGuestOrbitChipCompact is buildOrbitMetricsChipCompact's rider-
+// view sibling, mirroring buildDockGuestOrbitChip's derivation.
+func (v *OrbitView) buildDockGuestOrbitChipCompact(w *sim.World) []string {
+	g, primary, ok := w.DockGuestStackGhost()
+	if !ok {
+		return nil
+	}
+	mu := primary.GravitationalParameter()
+	frame := orbital.ReferenceFrameForPrimary(*primary)
+	el := orbital.ElementsFromStateInFrame(g.RelPos, g.Vel, mu, frame)
+	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
+		return nil
+	}
+	primaryR := primary.RadiusMeters()
+	apoAlt := el.Apoapsis() - primaryR
+	periAlt := el.Periapsis() - primaryR
+	header := "ORBIT"
+	if w.DockGuest.OwnerHandle != "" {
+		header = "ORBIT — " + w.DockGuest.OwnerHandle + "'s stack"
+	}
+	lines := []string{
+		v.theme.Primary.Render(header),
+		fmt.Sprintf("  Ap: %s  Pe: %s", formatChipKm(apoAlt), formatChipKm(periAlt)),
+	}
+	if periAlt < 0 {
+		lines = append(lines, "  "+v.theme.Alert.Render("⚠ BELOW SURFACE"))
+	}
+	return lines
+}
+
 // buildLandedOrbitChip is buildOrbitMetricsChip's landed branch (#375).
 // A parked craft's (R, ω×R) co-rotation state resolves through
 // ElementsFromState to a valid-looking ellipse (apoapsis pinned at the
@@ -1601,6 +1790,39 @@ func (v *OrbitView) buildProjectedOrbitChip(w *sim.World) []string {
 		}
 	}
 	return lines
+}
+
+// buildProjectedOrbitChipCompact is PROJECTED ORBIT's Compact Form (ADR
+// 0046 / #422): an Ap/Pe strip like ORBIT's, matching its "escape" branch
+// down to the eccentricity too (the one number a degenerate transfer
+// still needs). This chip is a normal layoutChipsBySide budget
+// participant like any other (it no longer bypasses the budget for free
+// — see the leftOfPrev comment on builtChip): when its usual anchor, the
+// Core ORBIT chip, itself drops for space, PROJECTED ORBIT falls back to
+// ordinary stacking in composeChips and must fit the side's budget on its
+// own rather than overrun into the navball.
+func (v *OrbitView) buildProjectedOrbitChipCompact(w *sim.World) []string {
+	if !w.CraftVisibleHere() || w.ActiveCraft() == nil {
+		return nil
+	}
+	state, primary, ok := w.PredictedFinalOrbit()
+	if !ok {
+		return nil
+	}
+	mu := primary.GravitationalParameter()
+	frame := orbital.ReferenceFrameForPrimary(primary)
+	ro := orbital.OrbitReadoutInFrame(state.R, state.V, mu, frame)
+	primaryR := primary.RadiusMeters()
+	if ro.Hyperbolic {
+		return []string{
+			v.theme.Primary.Render("PROJECTED ORBIT"),
+			fmt.Sprintf("  %s  Pe: %.1f km  e: %.2f", v.theme.Warning.Render("escape"), (ro.PeriMeters-primaryR)/1000, ro.Eccentricity),
+		}
+	}
+	return []string{
+		v.theme.Primary.Render("PROJECTED ORBIT") + "  " + primary.EnglishName,
+		fmt.Sprintf("  Ap: %.1f km  Pe: %.1f km", (ro.ApoMeters-primaryR)/1000, (ro.PeriMeters-primaryR)/1000),
+	}
 }
 
 // buildTargetChip surfaces the unified Target slot — a body (name, Δi,
@@ -1788,6 +2010,66 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		)
 		if gPrimary.ID == c.Primary.ID {
 			lines = append(lines, v.closestApproachRows(w, c)...)
+		}
+		return lines
+	}
+	return nil
+}
+
+// buildTargetChipCompact is TARGET's Compact Form (ADR 0046 / #422,
+// CONTEXT.md "Graceful Shrink": "the Target Chip becomes name + range"):
+// one row naming what's targeted, one row with its range — dropping Δi/
+// Ap/Pe/inclination, |v_rel|/closing/lead, the approach prediction, and
+// DOCK READY. Mirrors buildTargetChip's branch order (body / craft /
+// ghost, including the ghost's "not yet resolved" pending state) so the
+// two forms always agree about WHICH branch is showing; the range math
+// in each branch is the same computation buildTargetChip performs, kept
+// inline here rather than factored out since each branch's relative-
+// state derivation differs by only a couple of lines.
+func (v *OrbitView) buildTargetChipCompact(w *sim.World) []string {
+	c := w.ActiveCraft()
+	if c == nil || w.Target.Kind == sim.TargetNone {
+		return nil
+	}
+	switch w.Target.Kind {
+	case sim.TargetBody:
+		sysT := w.System()
+		if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sysT.Bodies) {
+			return nil
+		}
+		b := sysT.Bodies[w.Target.BodyIdx]
+		nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
+		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
+		return []string{
+			v.theme.Primary.Render("TARGET") + "  " + nameStyle.Render(b.EnglishName),
+			chipRow("range:", formatRangeM(rangeM)),
+		}
+	case sim.TargetCraft:
+		tc, _, ok := w.ResolveTargetCraft()
+		if !ok {
+			return nil
+		}
+		var rRel orbital.Vec3
+		if tc.Primary.ID == c.Primary.ID {
+			rRel = tc.State.R.Sub(c.State.R)
+		} else {
+			rRel = w.BodyPosition(tc.Primary).Add(tc.State.R).Sub(w.CraftInertial())
+		}
+		return []string{
+			v.theme.Primary.Render("TARGET") + "  " + tc.Name,
+			chipRow("range:", formatRangeM(rRel.Norm())),
+		}
+	case sim.TargetGhost:
+		if _, _, ok := w.ResolveTargetGhost(); !ok {
+			return []string{
+				v.theme.Primary.Render("TARGET") + "  " + w.TargetName(),
+				chipRow("status:", "not yet resolved"),
+			}
+		}
+		lines := []string{v.theme.Primary.Render("TARGET") + "  " + w.TargetName()}
+		if rT, _, ok := w.TargetStateRelativeToActivePrimary(); ok {
+			rangeM := rT.Sub(c.State.R).Norm()
+			lines = append(lines, chipRow("range:", formatRangeM(rangeM)))
 		}
 		return lines
 	}

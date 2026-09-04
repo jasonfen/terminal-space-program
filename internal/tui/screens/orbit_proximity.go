@@ -762,6 +762,30 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	}
 }
 
+// buildProximityChipCompact is PROXIMITY's Compact Form (ADR 0046 /
+// #422): name plus range only, dropping |v_rel| and closing — the single
+// number "how far" is the one a pilot still needs even once this chip has
+// shrunk (the map's TARGET chip carries the fuller relative-motion
+// picture whenever it has room). The refusal branch keeps its "how to
+// get out" row rather than dropping it: a chip that can't show the view
+// it opened for must still leave a way out, shrunk or not.
+func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
+	if w.ViewMode != sim.ViewProximity {
+		return nil
+	}
+	st, ok := w.ProximityState()
+	if !ok {
+		return []string{
+			v.theme.Primary.Render("PROXIMITY") + "  " + w.ProximityRefusal(),
+			"  [t] target a vessel · [o] back to the map",
+		}
+	}
+	return []string{
+		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
+		chipRow("range:", formatRangeM(st.RangeM)),
+	}
+}
+
 // buildProximityHintChip tells the player the view exists at the one
 // moment it starts being useful — crossing inside the range at which the
 // game already considers two vessels to be flying together. The

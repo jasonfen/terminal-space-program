@@ -227,7 +227,14 @@ func TestProximityRendersAt80x24(t *testing.T) {
 			t.Errorf("row %d is %d cols wide, want ≤ 80", i+1, width)
 		}
 	}
-	for _, want := range []string{"PROXIMITY", "range:", "|v_rel|:", "closing:", "view: proximity", "+V", "Earth"} {
+	// ADR 0046 (#422): at 80×24 the left side may not have room for every
+	// chip competing with PROXIMITY (VESSEL, MISSION, ATTITUDE), so
+	// PROXIMITY itself may shrink to its Compact Form (name + range,
+	// dropping |v_rel|/closing) under Graceful Shrink — that's the point
+	// of this test suite's namesake ADR, not a regression. What must
+	// still hold: the chip itself (and its one load-bearing number,
+	// range) is never silently lost.
+	for _, want := range []string{"PROXIMITY", "range:", "view: proximity", "+V", "Earth"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("frame is missing %q\n%s", want, out)
 		}
@@ -310,14 +317,21 @@ func TestProximityNoTargetShowsRefusal(t *testing.T) {
 
 // TestProximityHintChipOnApproach: the hint appears on the map once the
 // approach crosses inside the band, names the key, and is gone inside the
-// view it advertises.
+// view it advertises. Rendered at the Design Size (ADR 0046): this test is
+// about the hint's own content-selection logic (ProximityHintActive's
+// crossing state machine), not chip layout — at the Playable Floor with
+// the navball showing and a craft TARGET's full readout also competing for
+// the same one spare row, EVERY right-side chip legitimately collapses to
+// a Hidden Stub under Graceful Shrink (see TestLayoutChipsBySide* in
+// orbit_chips_test.go for that contract), which would sabotage this test
+// for a reason that has nothing to do with what it's checking.
 func TestProximityHintChipOnApproach(t *testing.T) {
 	w := proximityWorld(t, orbital.Vec3{X: 5_000})
-	v := newProximityTestView(t, 80, 24)
+	v := newProximityTestView(t, DesignWidth, DesignHeight)
 	w.ViewMode = sim.ViewTilted
 	w.Tick() // steps the crossing state machine
 
-	out := v.Render(w, 0, 80, 24)
+	out := v.Render(w, 0, DesignWidth, DesignHeight)
 	if !strings.Contains(out, "CLOSE RANGE") {
 		t.Errorf("no hint chip at 5 km\n%s", out)
 	}
@@ -325,7 +339,7 @@ func TestProximityHintChipOnApproach(t *testing.T) {
 	if entered, refusal := w.ToggleProximityView(); !entered {
 		t.Fatalf("enter refused: %q", refusal)
 	}
-	out = v.Render(w, 0, 80, 24)
+	out = v.Render(w, 0, DesignWidth, DesignHeight)
 	if strings.Contains(out, "CLOSE RANGE") {
 		t.Errorf("hint chip still on screen inside Proximity View\n%s", out)
 	}
