@@ -180,7 +180,7 @@ does not affect your travel target.
 
 | Key | Action |
 |---|---|
-| `t` / `T` | Pick / clear your target (other vessels nearby → bodies in the system → none) |
+| `t` / `T` | Pick / clear your target. `t` cycles nearest-first: the moons of whatever you're currently orbiting, then other vessels, then the rest of the system's bodies outward (each followed by its own moons), then none. Your own primary is never offered — from LEO the first press is the Moon; from lunar orbit it's Earth. `T` clears (no reverse cycle) |
 | `l` / `h` | Move the map cursor to the next / previous body |
 
 ### Planning burns
