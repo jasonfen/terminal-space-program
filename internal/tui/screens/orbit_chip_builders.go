@@ -944,7 +944,7 @@ func (v *OrbitView) anyActiveBurn(w *sim.World) bool {
 // a failed mission isn't safety-critical the way a live burn is).
 func (v *OrbitView) buildMissionsChip(w *sim.World) []string {
 	flash, flashing := w.MissionFailFlash()
-	return v.missionChipLines(flash, flashing, w.ActiveMission())
+	return v.missionChipLines(flash, flashing, w.ActiveMission(), w.ConnectedRelayCount())
 }
 
 // missionChipLines is the pure content selector behind buildMissionsChip,
@@ -983,7 +983,7 @@ func wrapChipText(s string, width int) []string {
 	return out
 }
 
-func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mission) []string {
+func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mission, relayCount int) []string {
 	if flashing {
 		return []string{
 			v.theme.Alert.Render("MISSION"),
@@ -1005,6 +1005,13 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 		header,
 		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, obj.Label(), passed, total),
 	}
+	// #426: a relay_coverage objective's raw progress ("0/1" — one countable
+	// deploy-and-verify goal) doesn't tell the player how close the live
+	// count is to the target, so it gets its own live row alongside the
+	// generic N/M one.
+	if obj.Kind == missions.KindRelayCoverage {
+		lines = append(lines, fmt.Sprintf("  relays online %d/%d", relayCount, obj.Params.MinRelays))
+	}
 	// Tutorial steps surface their instruction ("Press [v] …") in-flight so the
 	// player learns the control without opening the missions screen (Slice 7
 	// playtest feedback). Challenge steps stay the clean one-liner. Wrapped
@@ -1023,9 +1030,9 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 // hint condensed to its FIRST wrapped line only (with a trailing "…"
 // when the hint needed more than one) — "objective + key hint wrapped to
 // ≤ 40 cols", not the hint's full multi-line text.
-func (v *OrbitView) missionChipLinesCompact(flash string, flashing bool, m *missions.Mission) []string {
+func (v *OrbitView) missionChipLinesCompact(flash string, flashing bool, m *missions.Mission, relayCount int) []string {
 	if flashing {
-		return v.missionChipLines(flash, flashing, m) // already 2 lines
+		return v.missionChipLines(flash, flashing, m, relayCount) // already 2 lines
 	}
 	if m == nil {
 		return nil
@@ -1039,6 +1046,9 @@ func (v *OrbitView) missionChipLinesCompact(flash string, flashing bool, m *miss
 	lines := []string{
 		header,
 		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, obj.Label(), passed, total),
+	}
+	if obj.Kind == missions.KindRelayCoverage {
+		lines = append(lines, fmt.Sprintf("  relays online %d/%d", relayCount, obj.Params.MinRelays))
 	}
 	if m.Program == missions.ProgramTutorial && obj.Description != "" {
 		wrapped := wrapChipText(obj.Description, missionChipWrapWidth)
@@ -1055,7 +1065,7 @@ func (v *OrbitView) missionChipLinesCompact(flash string, flashing bool, m *miss
 
 func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
 	flash, flashing := w.MissionFailFlash()
-	return v.missionChipLinesCompact(flash, flashing, w.ActiveMission())
+	return v.missionChipLinesCompact(flash, flashing, w.ActiveMission(), w.ConnectedRelayCount())
 }
 
 // attitudeHoldLabel names the ATTITUDE chip's hold: row in whichever
