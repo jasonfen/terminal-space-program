@@ -315,16 +315,29 @@ it in save mode (with a `＋ New save…` row), `[Load Game]` in load mode.
 |---|---|
 | `Tab` / `Shift+Tab` | Move between fields (direction → when → Δv → throttle → refine) |
 | `←` / `→` | Change the field you're on (direction / when / refine) |
+| `↑` / `↓` | Move the **Plan Cursor** through PLANNED NODES (independent of `Tab`) |
 | `Space` | Toggle the refine option when you're on that field |
 | digits / backspace | Type a Δv or throttle value |
-| `Enter` | Lock in the burn |
+| `Enter` | Cursor on a node you haven't loaded yet: load it for editing. Otherwise: lock in the burn |
 | `Esc` | Cancel and go back |
-| `Ctrl+D` | Delete the burn you're editing (nothing happens when creating a new one) |
-| `c` / `C` | Clear every planned burn for this vessel |
+| `Ctrl+D` | Delete the node under the Plan Cursor |
+| `Ctrl+K` | Clear every planned burn for this vessel |
+| `c` | Refuses — clear-all is `Ctrl+K` now, not this key |
+| `H` `I` `C` `K` `P` `R` | Run that one-key planner (see [Planning burns](#planning-burns)) right here, then return to the map. Only fires when a text field (Δv / throttle) doesn't have focus |
 
-The panel lists all the burns you've planned for the current vessel
-(direction, Δv, countdown) with the one you're editing marked, so you see your
-whole schedule, not just the burn in front of you.
+The **Plan Cursor** is the highlighted row in PLANNED NODES: `↑`/`↓` move it,
+the header names which node it's on ("BURN PLAN — node 2 of 3"), and
+PROJECTED ORBIT always shows the orbit *after that node* — never a leftover
+draft from an earlier edit. The list ends in a blank **+ new node** row; with
+the cursor there, PROJECTED ORBIT shows the form's own draft instead, labelled
+as such. A node whose Δv is more than the vessel can currently afford still
+plants — you may be about to refuel, stage, or dock a tug — but its row (and
+the map's NODES chip) carries a `⚠ exceeds budget by …` marker so it never
+comes as a surprise.
+
+Below PLANNED NODES, **QUICK PLANS** lists the same six one-key planners as
+the map; whichever ones aren't legal right now (no target, no vessel target,
+no planted transfer, …) are dimmed with the reason instead of hidden.
 
 - The Δv you enter sets the burn's length automatically; vessels with no
   engine fall back to an instant nudge.
@@ -337,6 +350,8 @@ whole schedule, not just the burn in front of you.
   of the same size would have put you. Leave it off for short burns; turn it
   on for low-thrust vessels or big burns.
 - The preview updates the resulting orbit as you edit.
+- The Δv budget line shows what the whole plan leaves you, not just what the
+  vessel has: `Δv budget: 6129 m/s (2217 after plan)`.
 
 ### Porkchop plot (`P`)
 

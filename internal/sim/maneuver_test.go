@@ -1668,6 +1668,34 @@ func TestPlanTransferAtRejectsBadInputs(t *testing.T) {
 // TestRefinePlanErrorsWithoutArrival: RefinePlan with no pending
 // arrival node (fresh world, no transfer planted) returns an error
 // and doesn't mutate Nodes.
+// TestHasRefinablePlan — the planner's QUICK PLANS [R] precondition
+// (#428 / ADR 0047) must agree with RefinePlan's own gate: false with
+// no arrival node planted, true once one exists with time left before
+// TriggerTime.
+func TestHasRefinablePlan(t *testing.T) {
+	w := mustWorld(t)
+	if w.HasRefinablePlan() {
+		t.Error("HasRefinablePlan on empty-plan world: want false")
+	}
+	sys := w.System()
+	marsIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+			break
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in loaded Sol system")
+	}
+	if _, err := w.PlanTransferAt(marsIdx, 0, 260, TransferOptions{}); err != nil {
+		t.Fatalf("PlanTransferAt: %v", err)
+	}
+	if !w.HasRefinablePlan() {
+		t.Error("HasRefinablePlan after a planted transfer: want true")
+	}
+}
+
 func TestRefinePlanErrorsWithoutArrival(t *testing.T) {
 	w := mustWorld(t)
 	before := len(w.ActiveCraft().Nodes)

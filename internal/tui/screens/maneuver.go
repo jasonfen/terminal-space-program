@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -97,6 +98,39 @@ type Maneuver struct {
 	// cleared in ResetEditing so a later NEW-node open never inherits a
 	// stale key from whatever was edited last.
 	advisoryKey string
+
+	// cursorIdx is the Plan Cursor (ADR 0047 / #428): the row ↑/↓ move
+	// through PLANNED NODES, independent of the Tab-cycled form-field
+	// focus above (↑/↓ were unused inside the form before this). A
+	// value in [0, len(Nodes)-1] names a planted node; len(Nodes) itself
+	// names the blank new-node row at the list's end. Negative is the
+	// "unset" sentinel ResetEditing/LoadStaged write for a brand-new-
+	// node open — cursorRow resolves it (and any now-out-of-range value)
+	// to the new-node row given the live node count. LoadNode sets this
+	// to the loaded index directly, so the mouse click-to-edit path and
+	// keyboard Enter-to-load path always agree on where the cursor is.
+	cursorIdx int
+}
+
+// cursorRow resolves the Plan Cursor to a concrete row index in [0, n]
+// given the current planted-node count n (n itself names the new-node
+// row). Handles both the negative "unset" sentinel and an out-of-range
+// value (the node count shrank under the cursor via some other path)
+// by falling back to the new-node row.
+func (m *Maneuver) cursorRow(n int) int {
+	if m.cursorIdx < 0 || m.cursorIdx > n {
+		return n
+	}
+	return m.cursorIdx
+}
+
+// TextFieldFocused reports whether the Δv or throttle text input
+// currently owns keystrokes. The app uses this to gate the QUICK PLANS
+// letter bindings (H/I/C/K/P/R) inside the planner (ADR 0047 §4): they
+// fire only when no text-entry field has focus, so typing a Δv value
+// never gets hijacked into planting a burn.
+func (m *Maneuver) TextFieldFocused() bool {
+	return m.focus == 2 || m.focus == 3
 }
 
 // SetTargetCraft binds (or unbinds) the target — local craft (owner=="")
@@ -248,6 +282,11 @@ func (m *Maneuver) ResetEditing() {
 	// first, and without clearing it here a stale key from whatever was
 	// last edited would leak onto the new, non-advisory node.
 	m.advisoryKey = ""
+	// Plan Cursor (ADR 0047 / #428): a NEW-node open starts on the
+	// blank new-node row. -1 is the "unset" sentinel cursorRow resolves
+	// against the live node count at Render/HandleKey time, since this
+	// method doesn't know the count itself.
+	m.cursorIdx = -1
 }
 
 // LoadStaged opens the form for a NEW node staged at a specific
@@ -273,6 +312,9 @@ func (m *Maneuver) LoadStaged(triggerTime time.Time) {
 	// advisory key carried over from whatever was last edited, or a
 	// staged plain-click plant would inherit a stale K/C identity.
 	m.advisoryKey = ""
+	// Plan Cursor (ADR 0047 / #428): same "new-node row" default as
+	// ResetEditing — see cursorIdx's doc comment.
+	m.cursorIdx = -1
 	m.applyFocus()
 }
 
@@ -342,6 +384,11 @@ func (m *Maneuver) LoadNode(idx int, n sim.ManeuverNode) {
 	// advisory node and correctly clears it to "" for an ordinary one,
 	// the same leak class finding 2 fixed for the target-binding fields.
 	m.advisoryKey = n.AdvisoryKey
+	// Plan Cursor (ADR 0047 / #428): keep the keyboard cursor and the
+	// mouse click-to-edit path in agreement about which row is loaded —
+	// a click on a node's map glyph moves the cursor to it exactly as
+	// pressing Enter on that row would.
+	m.cursorIdx = idx
 	m.applyFocus()
 }
 
@@ -386,39 +433,56 @@ func (m *Maneuver) Resize(cols, rows int) {
 }
 
 // HandleKey routes planner-local keys. Returns (cmd, done) where done=true
-// means the app should exit the maneuver screen (commit or cancel).
+// means the app should exit the maneuver screen (commit or cancel). nodes
+// is the active craft's planted-node slice (empty/nil when there's no
+// active craft) — needed to bound the Plan Cursor and to load the node it
+// points at on Enter (ADR 0047 / #428).
 //
 // Key bindings:
 //
 //	tab / shift+tab        — cycle focus across mode / fire-at / Δv fields
 //	←/→ (mode focused)     — cycle direction modes
 //	←/→ (fire-at focused)  — cycle trigger events (Absolute / NextPeri / NextApo / NextAN / NextDN)
-//	enter                  — commit burn → emits BurnExecutedMsg with rocket-equation duration
+//	↑/↓                    — move the Plan Cursor through PLANNED NODES
+//	enter                  — Plan Cursor on an unloaded planted node: load it for editing.
+//	                          Otherwise: commit the form → BurnExecutedMsg with rocket-equation duration
 //	esc                    — cancel → plain exit (app handles)
-//	ctrl+d                 — delete the planted node being edited (no-op when creating new)
-//	c / C (or ctrl+k)      — clear ALL planted nodes for the active craft
+//	ctrl+d                 — delete the node under the Plan Cursor (no-op on the new-node row)
+//	ctrl+k                 — clear ALL planted nodes for the active craft (`c`/`C` no longer do this — see app.go)
 //	digits/backspace       — forwarded to focused text input
-func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+func (m *Maneuver) HandleKey(msg tea.KeyMsg, nodes []sim.ManeuverNode) (tea.Cmd, bool) {
 	const focusFields = 5 // mode / fireAt / dv / throttle / iterate
+	n := len(nodes)
 	switch msg.String() {
+	case "up":
+		if cur := m.cursorRow(n); cur > 0 {
+			m.cursorIdx = cur - 1
+		} else {
+			m.cursorIdx = 0
+		}
+		return nil, false
+	case "down":
+		if cur := m.cursorRow(n); cur < n {
+			m.cursorIdx = cur + 1
+		}
+		return nil, false
 	case "ctrl+d":
-		// v0.8.6+: per-node delete. Only meaningful while editing
-		// an existing node — creating-new sessions have no node to
-		// delete yet. App receives NodeDeleteMsg and routes to
-		// World.DeleteNode(idx).
-		if m.editingIdx < 0 {
+		// Plan Cursor delete (ADR 0047 / #428): deletes the node under
+		// the cursor, not whatever happens to be loaded for editing —
+		// the pre-#428 editingIdx-only gate is why this key used to sit
+		// silent on the footer whenever nothing had been mouse-loaded.
+		// No-op on the blank new-node row — nothing planted there yet.
+		cur := m.cursorRow(n)
+		if cur >= n {
 			return nil, false
 		}
-		idx := m.editingIdx
-		return func() tea.Msg { return NodeDeleteMsg{EditingIdx: idx} }, true
-	case "c", "C", "ctrl+k":
+		return func() tea.Msg { return NodeDeleteMsg{EditingIdx: cur} }, true
+	case "ctrl+k":
 		// Clear ALL nodes for the active craft, then close the form.
-		// v0.10.1+: `c` / `C` is the memorable primary binding (the
-		// dv/throttle inputs are numeric, so a letter never collides
-		// with field editing); `ctrl+k` stays as a back-compat alias
-		// for existing muscle memory. Replaces the v0.8.5-and-earlier
-		// `N` global keybinding (retired in v0.8.6 for the case-
-		// collision reason noted on input.go ClearNodes).
+		// ADR 0047 / #428: this is now the ONLY clear-all binding — `c`
+		// (mapped to ReArmDock on the map) and `C` (PlanCircularize)
+		// are handled one level up in app.go before HandleKey is even
+		// called, so this switch never sees either letter.
 		return func() tea.Msg { return NodeClearAllMsg{} }, true
 	case "tab":
 		m.focus = (m.focus + 1) % focusFields
@@ -461,6 +525,16 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 	case "enter":
+		// Plan Cursor (ADR 0047 / #428): Enter on a planted node the
+		// cursor hasn't loaded yet LOADS it for editing instead of
+		// committing — mirrors the mouse click-to-edit path exactly
+		// (LoadNode), so ↑/↓ + Enter is now a full keyboard equivalent
+		// of clicking a node's map glyph. Once loaded (cur == editingIdx)
+		// — or on the blank new-node row — Enter commits as before.
+		if cur := m.cursorRow(n); cur < n && cur != m.editingIdx {
+			m.LoadNode(cur, nodes[cur])
+			return nil, false
+		}
 		// dv drives both the BurnExecutedMsg's Δv field AND its derived
 		// Duration via the rocket equation. Zero-thrust craft return
 		// Duration = 0 from BurnTimeForDV, falling back to the legacy
@@ -596,8 +670,12 @@ func (m *Maneuver) parsedDV() float64 {
 	return dv
 }
 
-// Render composes the preview canvas + form panel.
-func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
+// Render composes the preview canvas + form panel. selectedBody is the
+// App's body cursor (from the orbit/porkchop selection, not World state)
+// — threaded through so the QUICK PLANS block can dim [P] with "no body
+// selected" the same way app.go's own porkchop guard does (ADR 0047 /
+// #428).
+func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 	if w.ActiveCraft() == nil {
 		return "no vessel"
 	}
@@ -729,25 +807,37 @@ func (m *Maneuver) Render(w *sim.World, cols, rows int) string {
 
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
-	form := m.renderForm(w, dv, shadowState, shadowPrimary, shadowMu)
+	panelWidth := formPanelWidth(cols)
+	form := m.renderForm(w, dv, shadowState, shadowPrimary, shadowMu, selectedBody, panelWidth)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, "  ", form)
 
-	footer := m.theme.Footer.Render(
-		"[tab] field  [←/→] cycle  [enter] commit  [esc] cancel  [ctrl+d] del node  [c] clear all",
-	)
+	// #428 mechanical fix: the footer is one full-width row (not part
+	// of the two-column canvas/form split renderForm ellipsizes), and
+	// it's long enough on its own to overflow a narrow terminal — the
+	// exact hard-clip symptom this issue exists to remove, just on a
+	// different line. Ellipsize it against `cols` directly.
+	footer := m.theme.Footer.Render(ansi.Truncate(
+		"[tab] field  [←/→] cycle  [↑/↓] cursor  [enter] commit/load  [esc] cancel  [ctrl+d] del node  [ctrl+k] clear all",
+		cols, "…",
+	))
+	// Plan Cursor (ADR 0047 / #428): the title bar names the node under
+	// the cursor, same as the form's own "BURN PLAN" header — see
+	// renderForm's identical switch for why cur/editingIdx can diverge
+	// (browsing a different node than the one loaded in the form).
+	nNodes := len(c.Nodes)
+	cur := m.cursorRow(nNodes)
 	title := "maneuver planner"
-	if m.editingIdx >= 0 {
-		// v0.6.4 click-to-edit: surface the editing target so the
-		// player knows Enter will replace this node, not duplicate.
-		// Node display index is 1-based to match user expectations
-		// (auto-plant labels nodes "departure" / "arrival" — for
-		// hand-edits we just show the slice position).
-		title = fmt.Sprintf("maneuver planner — editing node %d", m.editingIdx+1)
+	switch {
+	case cur < nNodes && cur == m.editingIdx:
+		title = fmt.Sprintf("maneuver planner — editing node %d of %d", cur+1, nNodes)
+	case cur < nNodes:
+		title = fmt.Sprintf("maneuver planner — node %d of %d", cur+1, nNodes)
 	}
+	title = ansi.Truncate(title, cols, "…")
 	return m.theme.Title.Render(title) + "\n" + body + "\n" + footer
 }
 
-func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, shadowPrimary bodies.CelestialBody, mu float64) string {
+func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, shadowPrimary bodies.CelestialBody, mu float64, selectedBody, panelWidth int) string {
 	c := w.ActiveCraft()
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	budget := c.RemainingDeltaV()
@@ -801,18 +891,25 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 			dur.Seconds(), c.Thrust/1000, c.Isp)
 	}
 
-	// v0.6.4 click-to-edit: surface the editing target inline in
-	// the form so the player sees "Enter replaces this node" at the
-	// field they're about to commit. Title-row variants ride above
-	// this and may wrap or get cropped by some renderers; the
-	// form-panel header is the unambiguous spot. Warning style
-	// (orange/yellow) for visual distinction from a fresh-plan
-	// Primary-style header.
+	// Plan Cursor (ADR 0047 / #428): the header names the node under the
+	// cursor, e.g. "BURN PLAN — node 2 of 3" — and, when that node is
+	// ALSO the one loaded in the form (cur == editingIdx), calls out
+	// that Enter replaces it in place rather than duplicating it. cur
+	// and editingIdx can diverge: ↑/↓ browsing a different node than
+	// whatever's still loaded in the form fields shows the plain
+	// "node N of M" form (no "editing"), same as never having loaded
+	// anything. Warning style is reserved for the actively-loaded case
+	// — visual distinction from a fresh-plan / just-browsing header.
+	nNodes := len(c.Nodes)
+	cur := m.cursorRow(nNodes)
 	headerStyle := m.theme.Primary
 	header := "BURN PLAN"
-	if m.editingIdx >= 0 {
+	switch {
+	case cur < nNodes && cur == m.editingIdx:
 		headerStyle = m.theme.Warning
-		header = fmt.Sprintf("BURN PLAN — editing node %d", m.editingIdx+1)
+		header = fmt.Sprintf("BURN PLAN — editing node %d of %d", cur+1, nNodes)
+	case cur < nNodes:
+		header = fmt.Sprintf("BURN PLAN — node %d of %d", cur+1, nNodes)
 	}
 	// Iterate-for-target line. Highlights when focused; toggle via
 	// space or ←/→. v0.8.6 (b).
@@ -826,6 +923,19 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		iterateLabel = m.theme.Dim.Render(iterateLabel)
 	}
 
+	// Budget line (#428 mechanical fix): show what the plan LEAVES, not
+	// just what the vessel has — "6129 m/s (2217 after plan)" — so the
+	// player doesn't have to add the PLANNED NODES column by hand to
+	// see if the plan on the board is affordable.
+	var planTotal float64
+	for _, n := range c.Nodes {
+		planTotal += n.DV
+	}
+	budgetLine := fmt.Sprintf("  Δv budget: %.0f m/s", budget)
+	if len(c.Nodes) > 0 {
+		budgetLine += fmt.Sprintf(" (%.0f after plan)", budget-planTotal)
+	}
+
 	lines := []string{
 		headerStyle.Render(header),
 		"  mode:     " + modeLabel,
@@ -835,57 +945,132 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		"  iterate:  " + iterateLabel,
 		"  → " + burnDescr,
 		"",
-		"  Δv budget remaining: " + fmt.Sprintf("%.0f m/s", budget),
+		budgetLine,
 		fmt.Sprintf("  thrust: %.0f N  Isp: %.0f s", c.Thrust, c.Isp),
 	}
 
-	// PLANNED NODES (v0.10.1+): list every node currently planted on
-	// the active craft so the planner shows the full schedule, not
-	// just the one being created/edited. The node under edit
-	// (editingIdx) is called out so Enter-replaces-this is obvious.
+	// PLANNED NODES (v0.10.1+; Plan Cursor since ADR 0047 / #428): list
+	// every node currently planted on the active craft so the planner
+	// shows the full schedule, not just the one being created/edited.
 	// Resolved nodes show a T± countdown; event-relative nodes that
-	// haven't frozen a trigger yet show the event name instead.
+	// haven't frozen a trigger yet show the event name instead. Rows
+	// render at normal (unstyled) foreground — Theme.Dim used to mark
+	// every row as if the whole list were disabled, which is why the
+	// actual subject of the screen read as inert chrome (#428 finding).
+	// The list always ends in a blank new-node row so the Plan Cursor
+	// has somewhere to land for "start a fresh plant."
 	lines = append(lines, "")
-	if len(c.Nodes) == 0 {
-		lines = append(lines, m.theme.Dim.Render("PLANNED NODES (none) — [enter] plants one"))
+	nodesHeader := "PLANNED NODES"
+	if nNodes > 0 {
+		nodesHeader = fmt.Sprintf("PLANNED NODES (%d)", nNodes)
+	}
+	lines = append(lines, m.theme.Primary.Render(nodesHeader))
+	const maxList = 8
+	shown := nNodes
+	if shown > maxList {
+		shown = maxList
+	}
+	for i := 0; i < shown; i++ {
+		n := c.Nodes[i]
+		when := n.Event.String()
+		if !n.TriggerTime.IsZero() {
+			when = formatCountdown(n.TriggerTime.Sub(w.Clock.SimTime))
+		}
+		row := fmt.Sprintf("%d. %-10s %6.0f m/s  %s", i+1, n.Mode.String(), n.DV, when)
+		// Over-budget Node (ADR 0047 §2 / #428): a planted node whose Δv
+		// exceeds the vessel's current remaining budget plants anyway —
+		// warn and allow, never refuse — but every list carrying it
+		// shows the shortfall so the player isn't surprised later. Same
+		// wording as the on-map NODES chip (orbit_chips.go).
+		if over := n.DV - budget; over > 0 {
+			row += "  " + m.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", over))
+		}
+		switch {
+		case i == m.editingIdx:
+			row = m.theme.Warning.Render("▸ " + row + "  ← editing")
+		case i == cur:
+			row = m.theme.Primary.Render("▸ " + row)
+		default:
+			row = "  " + row
+		}
+		lines = append(lines, row)
+	}
+	if nNodes > maxList {
+		lines = append(lines, m.theme.Dim.Render(fmt.Sprintf("  … +%d more", nNodes-maxList)))
+	}
+	newRow := "+ new node"
+	if cur == nNodes {
+		newRow = m.theme.Primary.Render("▸ " + newRow)
 	} else {
-		lines = append(lines, m.theme.Primary.Render(
-			fmt.Sprintf("PLANNED NODES (%d)  —  [c] clears all", len(c.Nodes))))
-		const maxList = 8
-		for i, n := range c.Nodes {
-			if i >= maxList {
-				lines = append(lines, m.theme.Dim.Render(
-					fmt.Sprintf("  … +%d more", len(c.Nodes)-maxList)))
-				break
-			}
-			when := n.Event.String()
-			if !n.TriggerTime.IsZero() {
-				when = formatCountdown(n.TriggerTime.Sub(w.Clock.SimTime))
-			}
-			row := fmt.Sprintf("  %d. %-10s %6.0f m/s  %s",
-				i+1, n.Mode.String(), n.DV, when)
-			if i == m.editingIdx {
-				row = m.theme.Warning.Render(row + "  ← editing")
-			} else {
-				row = m.theme.Dim.Render(row)
-			}
+		newRow = m.theme.Dim.Render("  " + newRow)
+	}
+	lines = append(lines, newRow)
+
+	// QUICK PLANS (ADR 0047 §4 / #428): the one-key planners, legal
+	// right now or dimmed with the reason when a precondition isn't
+	// met. Pressing the key inside the planner does exactly what it
+	// does on the map (app.go intercepts H/I/C/K/P/R before this
+	// screen's own HandleKey sees them) — this block only renders the
+	// same guards those handlers already apply.
+	lines = append(lines, "", m.theme.Primary.Render("QUICK PLANS"))
+	for _, q := range quickPlanRows(w, selectedBody) {
+		row := fmt.Sprintf("  [%s] %s", q.key, q.label)
+		if q.ok {
 			lines = append(lines, row)
+		} else {
+			lines = append(lines, m.theme.Dim.Render(row+" — "+q.reason))
 		}
 	}
 
-	// v0.6.1: PROJECTED ORBIT readout — apo / peri / AN / DN of the
-	// orbit produced by the current (mode, dv) pair. Updates live as
-	// the player tweaks the form, so they can see the headline orbit
-	// shape change without leaving the planner. Only shown when dv > 0
-	// — at zero Δv the projected orbit equals the live orbit, which
-	// the VESSEL block on the orbit screen already displays.
-	if dv > 0 {
-		frame := orbital.ReferenceFrameForPrimary(shadowPrimary)
-		ro := orbital.OrbitReadoutInFrame(shadow.R, shadow.V, mu, frame)
-		primaryR := shadowPrimary.RadiusMeters()
-		lines = append(lines, "", m.theme.Primary.Render("PROJECTED ORBIT"))
-		if shadowPrimary.ID != c.Primary.ID {
-			lines = append(lines, fmt.Sprintf("  primary:       %s", shadowPrimary.EnglishName))
+	// PROJECTED ORBIT (Plan Cursor, ADR 0047 §1 / #428): always the
+	// orbit AFTER the node under the cursor, never a leftover draft
+	// masquerading as the plan — the #428 finding was a form's
+	// abandoned 100 m/s draft projecting next to an unrelated real
+	// three-burn plan and reading as its result.
+	//
+	// Two sources, chosen by where the cursor sits:
+	//   - cursor on the blank new-node row, OR on a planted node that
+	//     IS loaded into the form (cur == editingIdx): project the
+	//     form's Draft (the shadow/mu the caller already computed from
+	//     live field values) — explicitly labelled "(this draft)" only
+	//     for the genuinely-new-node case, since a Draft must never be
+	//     shown as if it were a planted node.
+	//   - cursor on a planted node NOT loaded into the form: project
+	//     that node's own REAL committed state via PredictedLegs, which
+	//     chains every prior node's burn instead of pretending the
+	//     current form values apply to it.
+	browsingUnloaded := cur < nNodes && cur != m.editingIdx
+	poLabel := "PROJECTED ORBIT"
+	poState, poPrimary := shadow, shadowPrimary
+	poMu := mu
+	poResolved := dv > 0
+	if browsingUnloaded {
+		poResolved = false
+		for _, leg := range w.PredictedLegs() {
+			if leg.NodeIndex == cur {
+				poState, poPrimary = leg.State, leg.Primary
+				poMu = poPrimary.GravitationalParameter()
+				poResolved = true
+				break
+			}
+		}
+	} else if m.editingIdx < 0 {
+		poLabel = "PROJECTED ORBIT (this draft)"
+	}
+	switch {
+	case browsingUnloaded && !poResolved:
+		lines = append(lines, "", m.theme.Primary.Render(poLabel),
+			m.theme.Dim.Render("  pending — event not yet resolved"))
+	case poResolved:
+		// v0.6.1: apo / peri / AN / DN of the projected orbit. Updates
+		// live as the player tweaks the form (draft case), or reflects
+		// the real planted node (browsing case).
+		frame := orbital.ReferenceFrameForPrimary(poPrimary)
+		ro := orbital.OrbitReadoutInFrame(poState.R, poState.V, poMu, frame)
+		primaryR := poPrimary.RadiusMeters()
+		lines = append(lines, "", m.theme.Primary.Render(poLabel))
+		if poPrimary.ID != c.Primary.ID {
+			lines = append(lines, fmt.Sprintf("  primary:       %s", poPrimary.EnglishName))
 		}
 		if ro.Hyperbolic {
 			lines = append(lines,
@@ -910,7 +1095,131 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 			}
 		}
 	}
+
+	// #428 mechanical fix: ellipsize rather than let the terminal
+	// hard-clip a line mid-word at narrow widths. ANSI-aware so styled
+	// rows (over-budget markers, the cursor highlight, …) keep their
+	// colour codes intact instead of getting cut mid-escape.
+	for i, l := range lines {
+		lines[i] = ansi.Truncate(l, panelWidth, "…")
+	}
 	return strings.Join(lines, "\n")
+}
+
+// quickPlanRow describes one row of the planner's QUICK PLANS block
+// (ADR 0047 §4 / #428).
+type quickPlanRow struct {
+	key    string
+	label  string
+	ok     bool
+	reason string
+}
+
+// quickPlanRows computes the legality (and, when illegal, the reason)
+// of each one-key planner using the SAME guards their app.go handlers
+// apply — CraftVisibleHere, World.Target, ResolveTargetCraft,
+// HasRefinablePlan — so a row's dimmed reason never drifts from what
+// actually happens when the key is pressed. selectedBody is the App's
+// body cursor (not World state), needed for [P]'s "no body selected"
+// guard.
+func quickPlanRows(w *sim.World, selectedBody int) []quickPlanRow {
+	visible := w.CraftVisibleHere()
+	rows := make([]quickPlanRow, 0, 6)
+
+	h := quickPlanRow{key: "H", label: "transfer to target body"}
+	switch {
+	case !visible:
+		h.reason = "vessel not in this system"
+	case w.Target.Kind == sim.TargetNone:
+		h.reason = "no target — press t to aim at a body"
+	case w.Target.Kind != sim.TargetBody:
+		h.reason = "targets bodies only — try [m] for a vessel"
+	default:
+		h.ok = true
+	}
+	rows = append(rows, h)
+
+	pm := quickPlanRow{key: "I", label: "plane match"}
+	if visible {
+		pm.ok = true
+	} else {
+		pm.reason = "vessel not in this system"
+	}
+	rows = append(rows, pm)
+
+	circ := quickPlanRow{key: "C", label: "circularize at apoapsis"}
+	if visible {
+		circ.ok = true
+	} else {
+		circ.reason = "vessel not in this system"
+	}
+	rows = append(rows, circ)
+
+	k := quickPlanRow{key: "K", label: "close on target vessel"}
+	_, _, hasCraftTarget := w.ResolveTargetCraft()
+	switch {
+	case !visible:
+		k.reason = "vessel not in this system"
+	case !hasCraftTarget:
+		k.reason = "needs a vessel target"
+	default:
+		k.ok = true
+	}
+	rows = append(rows, k)
+
+	p := quickPlanRow{key: "P", label: "porkchop plot"}
+	switch {
+	case !visible:
+		p.reason = "vessel not in this system"
+	case selectedBody <= 0:
+		p.reason = "no body selected"
+	default:
+		p.ok = true
+	}
+	rows = append(rows, p)
+
+	r := quickPlanRow{key: "R", label: "refine plan"}
+	switch {
+	case !visible:
+		r.reason = "vessel not in this system"
+	case !w.HasRefinablePlan():
+		r.reason = "no planted transfer"
+	default:
+		r.ok = true
+	}
+	rows = append(rows, r)
+
+	return rows
+}
+
+// formPanelWidth mirrors Resize's canvasCols split so the form panel's
+// own ellipsize width (#428 mechanical fix) matches what's actually
+// left over once the canvas box and the gap between them are laid out.
+// The canvas box itself is wider on screen than canvasCols alone: the
+// HUDBox style (theme.go) wraps it in a rounded border (1 col each
+// side) AND Padding(0, 1) (1 more col each side) — 4 columns of
+// overhead easy to undercount, which is exactly what the first version
+// of this function did (subtracting only a bare 2), silently
+// overflowing the terminal width it was supposed to fit inside and
+// reproducing the review's own hard-clip bug one level up (the pty
+// wrapping the combined row instead of the panel getting an ellipsis
+// at all). Render() then joins canvasPanel, a literal "  " 2-col gap,
+// and the form with lipgloss.JoinHorizontal — hence the extra -2 below.
+func formPanelWidth(cols int) int {
+	canvasCols := cols * 6 / 10
+	if canvasCols < 20 {
+		canvasCols = 20
+	}
+	if canvasCols > 80 {
+		canvasCols = 80
+	}
+	const canvasBoxOverhead = 4 // HUDBox: 2 border cols + 2 padding cols
+	const joinGap = 2           // Render's literal "  " between canvas and form
+	w := cols - canvasCols - canvasBoxOverhead - joinGap
+	if w < 10 {
+		w = 10 // floor so a row always has room to show something plus "…"
+	}
+	return w
 }
 
 // formatCountdown renders a relative duration as "T+1d3h", "T+14m32s",

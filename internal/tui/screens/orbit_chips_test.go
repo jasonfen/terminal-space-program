@@ -366,6 +366,36 @@ func TestBuildNodesChipSummary(t *testing.T) {
 	}
 }
 
+// TestBuildNodesChipMarksOverBudgetNode — ADR 0047 §2 / #428: the
+// NODES chip's next-node line carries the same Over-budget Node marker
+// as the planner's own PLANNED NODES list, so a plan that can't be
+// afforded is visible without opening [m].
+func TestBuildNodesChipMarksOverBudgetNode(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	budget := c.RemainingDeltaV()
+	c.Nodes = []spacecraft.ManeuverNode{
+		{Mode: spacecraft.BurnPrograde, DV: budget + 1521, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute)},
+	}
+	joined := strings.Join(v.buildNodesChip(w), "\n")
+	if !strings.Contains(joined, "exceeds budget by 1521 m/s") {
+		t.Errorf("NODES chip missing over-budget marker:\n%s", joined)
+	}
+
+	// An affordable node must NOT carry the marker.
+	c.Nodes = []spacecraft.ManeuverNode{
+		{Mode: spacecraft.BurnPrograde, DV: 10, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute)},
+	}
+	joined = strings.Join(v.buildNodesChip(w), "\n")
+	if strings.Contains(joined, "exceeds budget") {
+		t.Errorf("affordable node wrongly marked over-budget:\n%s", joined)
+	}
+}
+
 // TestWorstCaseFrameDoesNotOverflow is the regression that motivated the
 // v0.13 cycle: with a target set, an Apollo stack launching from the pad,
 // and planted nodes, the old tall HUD column rendered taller than the

@@ -599,6 +599,12 @@ func (v *OrbitView) buildNodesChip(w *sim.World) []string {
 			line = fmt.Sprintf("  %s %s T%+.0fs  %s  %.0f m/s",
 				hudNodeMarker, label, dt, n.Mode.String(), n.DV)
 		}
+		// Over-budget Node (ADR 0047 §2 / #428): same shortfall wording
+		// as the planner's PLANNED NODES list, so the plan's
+		// affordability is visible without opening [m].
+		if over := n.DV - nc.RemainingDeltaV(); over > 0 {
+			line += "  " + v.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", over))
+		}
 		lines = append(lines, line, "  "+kind)
 		// #333: the overflow count is nc's OWN remaining queue, not the
 		// fleet-wide total — mixing in another craft's nodes here would
