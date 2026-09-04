@@ -686,6 +686,31 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	return lines
 }
 
+// buildVesselDestroyedChip is the VESSEL DESTROYED Standing Alert (#427 /
+// ADR 0048 decision 1): renders only while the active craft is Crashed,
+// naming both exits — [E] end flight (removes the wreckage) and [F9]
+// quickload (the fastest way back to a flying vessel). Already
+// chip-sized (title + one row), so it carries no separate Compact Form —
+// layoutChipsBySide treats a nil compact as "full IS compact".
+//
+// Callers append it OUTSIDE the assembleChips add/addC/addPriority
+// helpers (like the live-burn NODES chip) so it bypasses chipEnabled —
+// and therefore both the Settings toggle (moot: there is nothing to
+// toggle here) and F2 Declutter — entirely. A destroyed vessel with no
+// other on-screen notice is precisely the case a Standing Alert exists
+// for: CONTEXT.md's own rule is "a Flash must never be the only notice
+// of a state that persists."
+func (v *OrbitView) buildVesselDestroyedChip(w *sim.World) []string {
+	c := w.ActiveCraft()
+	if c == nil || !c.Crashed || !w.CraftVisibleHere() {
+		return nil
+	}
+	return []string{
+		v.theme.Alert.Render("VESSEL DESTROYED"),
+		"  [E] end flight  [F9] quickload",
+	}
+}
+
 // buildVesselChipCompact is VESSEL's Compact Form (ADR 0046 / #422): name
 // plus the two figures a pilot needs at a glance mid-emergency — fuel and
 // Δv budget — dropping mass, throttle, monoprop and RCS Δv. Mirrors

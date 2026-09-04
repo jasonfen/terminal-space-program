@@ -43,6 +43,20 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	if lines := v.buildVesselChip(w); lines != nil {
 		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, compact: v.buildVesselChipCompact(w), priority: chipPriorityCore})
 	}
+	// VESSEL DESTROYED (#427 / ADR 0048): the game's first Standing
+	// Alert — an alert-coloured chip that persists for as long as the
+	// active craft's Crashed state holds, not a transient Event Flash.
+	// Pre-#427 a crash's entire notice was the VESSEL chip's name gaining
+	// a dim "[CR] " prefix (crashedVesselNameLabel) while every other
+	// readout kept reading as if pre-launch — the review's own finding.
+	// Bypasses chipEnabled entirely (no Settings id — there's nothing to
+	// toggle, the exits are non-optional) and survives F2 declutter the
+	// same way the live-burn NODES chip does, because a destroyed vessel
+	// with no visible way out is exactly the "safety/continuity fact the
+	// player has no other way to see" chipPriorityForced exists for.
+	if lines := v.buildVesselDestroyedChip(w); lines != nil {
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityForced})
+	}
 	// MEETING PLAN (ADR 0045 S6, #399): the picker holds keyboard focus
 	// while open (app.go's key intercept claims ←/→/↑/↓/Enter/Esc before
 	// they can reach camera pan or anything else), so unlike every other
