@@ -224,6 +224,41 @@ type Params struct {
 	// MinRelays is the number of connected relay-antenna craft
 	// KindRelayCoverage requires (ADR 0027). v0.23+.
 	MinRelays int `json:"min_relays,omitempty"`
+
+	// The following four fields are optional gates on a KindEvent
+	// objective's Action match (#426, Flight School content). All are
+	// checked only in the same tick the Action itself matched — none of
+	// them substitute for the Action match, they narrow it — so a
+	// misconfigured gate with no Action can never pass. Added to teach
+	// controls precisely rather than crediting the first press: the UX
+	// review found that "aim for the Moon" credited the first `t` press
+	// (landing on Mercury), and "plant a transfer" credited an unflyable,
+	// unaffordable plan.
+
+	// RequireTargetBodyID, when set, requires the EvalContext's currently-
+	// bound Target to be a body with this catalog ID at the moment the
+	// Action fired (e.g. "moon" for tut-orient's target-cycle step and
+	// tut-plan's transfer-plant step).
+	RequireTargetBodyID string `json:"require_target_body_id,omitempty"`
+
+	// RequireTargetCraft, when true, requires the EvalContext's currently-
+	// bound Target to be a craft (any craft) at the moment the Action
+	// fired — tut-dock's "target it" step.
+	RequireTargetCraft bool `json:"require_target_craft,omitempty"`
+
+	// RequireBudgetOK, when true, requires that none of the active craft's
+	// currently-planted nodes are an Over-budget Node (ADR 0047 §2) at the
+	// moment the Action fired — tut-plan's "plant a transfer you can
+	// actually afford" step. An over-budget plant still plants (ADR 0047
+	// warn-and-allow); it just earns no credit here.
+	RequireBudgetOK bool `json:"require_budget_ok,omitempty"`
+
+	// RequireSpawnLocation, when set, gates a spawn_craft Action match on
+	// where the newly-spawned (and now active) craft ended up: "pad"
+	// requires OnPad true (tut-launch's "spawn on the launchpad"), "orbit"
+	// requires OnPad false (tut-dock's "spawn a partner in orbit"). Empty
+	// imposes no constraint.
+	RequireSpawnLocation string `json:"require_spawn_location,omitempty"`
 }
 
 // Objective is the atomic pass/fail predicate (the pre-v0.21 Mission).
@@ -319,6 +354,30 @@ type EvalContext struct {
 	// slate currently do. Read by the coverage objectives.
 	ActiveConnected     bool
 	ConnectedRelayCount int
+
+	// The following four fields back the KindEvent Require* gates (#426,
+	// Flight School content). All are snapshotted from World.Target /
+	// ActiveCraft at eval time — the same tick a gated Action fired, since
+	// nothing moves the target or re-plants a node between the UI action and
+	// the next mission-eval tick.
+
+	// TargetBodyID is the catalog ID of the body currently bound as
+	// World.Target, or "" when the bound Target isn't a body (none, a craft,
+	// or a site). Read by RequireTargetBodyID.
+	TargetBodyID string
+	// TargetIsCraft is whether World.Target is currently bound to a craft
+	// (any craft, resolved or not — unlike HasTargetCraft above, which also
+	// requires the target to resolve to a live relative state for the
+	// Rendezvous kind). Read by RequireTargetCraft.
+	TargetIsCraft bool
+	// HasOverBudgetNode is whether ANY node currently planted on the active
+	// craft is an Over-budget Node (ADR 0047 §2, via ManeuverNode.OverBudget
+	// — the missions package doesn't import spacecraft, so this is computed
+	// by the caller). Read by RequireBudgetOK.
+	HasOverBudgetNode bool
+	// OnPad is the active craft's OnPad flag (true between a launchpad spawn
+	// and first liftoff). Read by RequireSpawnLocation.
+	OnPad bool
 }
 
 // Evaluate steps the objective one tick and returns the new status.
@@ -401,20 +460,46 @@ func evalEstablishContact(p Params, ctx EvalContext) Status {
 
 // evalEvent: pass when the objective's Action appears in the since-last-tick
 // action sink (ctx.RecentActions) — i.e. the player triggered that semantic
-// gameplay verb during this tick window. Because the sim drains the sink each
-// tick and Mission ordering only evaluates an objective while it is active, a
-// match here means the action fired while the objective was InProgress. A
-// missing Action param is inert (never matches). v0.21+ (ADR 0025 §6).
+// gameplay verb during this tick window — AND every optional Require* gate
+// the objective declares is also satisfied at that same moment (#426). Because
+// the sim drains the sink each tick and Mission ordering only evaluates an
+// objective while it is active, a match here means the action fired while the
+// objective was InProgress. A missing Action param is inert (never matches).
+// v0.21+ (ADR 0025 §6); Require* gates added #426.
 func evalEvent(p Params, ctx EvalContext) Status {
 	if p.Action == "" {
 		return InProgress
 	}
+	matched := false
 	for _, a := range ctx.RecentActions {
 		if a == p.Action {
-			return Passed
+			matched = true
+			break
 		}
 	}
-	return InProgress
+	if !matched {
+		return InProgress
+	}
+	if p.RequireTargetBodyID != "" && ctx.TargetBodyID != p.RequireTargetBodyID {
+		return InProgress
+	}
+	if p.RequireTargetCraft && !ctx.TargetIsCraft {
+		return InProgress
+	}
+	if p.RequireBudgetOK && ctx.HasOverBudgetNode {
+		return InProgress
+	}
+	switch p.RequireSpawnLocation {
+	case "pad":
+		if !ctx.OnPad {
+			return InProgress
+		}
+	case "orbit":
+		if ctx.OnPad {
+			return InProgress
+		}
+	}
+	return Passed
 }
 
 // failOnTriggered reports whether any of the objective's declared fail

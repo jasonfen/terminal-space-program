@@ -885,9 +885,11 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 	n := nc.Nodes[ni]
 	// Over-budget Node (ADR 0047 §2 / #428): same shortfall wording as
 	// the planner list, on both the full and Compact forms of the chip.
+	// The predicate itself lives on ManeuverNode.OverBudget (#426) so this
+	// chip and the tut-plan mission objective share one formula.
 	over := ""
-	if o := n.DV - nc.RemainingDeltaV(); o > 0 {
-		over = "  " + v.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", o))
+	if shortfall, isOver := n.OverBudget(nc); isOver {
+		over = "  " + v.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", shortfall))
 	}
 	label := fmt.Sprintf("#%d", ni+1)
 	if len(w.Crafts) > 1 {

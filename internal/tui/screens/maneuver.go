@@ -981,9 +981,10 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		// exceeds the vessel's current remaining budget plants anyway —
 		// warn and allow, never refuse — but every list carrying it
 		// shows the shortfall so the player isn't surprised later. Same
-		// wording as the on-map NODES chip (orbit_chips.go).
-		if over := n.DV - budget; over > 0 {
-			row += "  " + m.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", over))
+		// wording as the on-map NODES chip (orbit_chips.go); the predicate
+		// itself lives on ManeuverNode.OverBudget (#426) so no list forks it.
+		if shortfall, isOver := n.OverBudget(c); isOver {
+			row += "  " + m.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", shortfall))
 		}
 		switch {
 		case i == m.editingIdx:

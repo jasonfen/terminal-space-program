@@ -314,6 +314,25 @@ func (n ManeuverNode) BurnEnd() time.Time {
 	return n.TriggerTime.Add(n.Duration / 2)
 }
 
+// OverBudget reports whether this node's planned Δv exceeds c's currently
+// remaining Δv (ADR 0047 §2's Over-budget Node), and the shortfall in m/s
+// (0 when within budget). An over-budget node plants anyway — refuelling,
+// staging, or docking a tug can all legitimately need more than the craft's
+// current fuel state supports — this just flags it. The ONE predicate shared
+// by the NODES/planner-list marker (internal/tui/screens/orbit_chips.go,
+// nextQueuedNodeLine) and the tut-plan Flight School objective (#426); do
+// not fork this formula, extend it here.
+func (n ManeuverNode) OverBudget(c *Spacecraft) (shortfallMs float64, over bool) {
+	if c == nil {
+		return 0, false
+	}
+	shortfall := n.DV - c.RemainingDeltaV()
+	if shortfall > 0 {
+		return shortfall, true
+	}
+	return 0, false
+}
+
 // ActiveBurn is the runtime state of an in-progress finite burn. Set
 // by the dispatcher when a node with Duration>0 fires; cleared when
 // DVRemaining hits zero or SimTime passes EndTime. v0.8.1+: lives on
