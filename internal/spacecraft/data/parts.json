@@ -15,7 +15,7 @@
       "ballistic_coeff": 0.000008,
       "launch_sprite_rows_px": 24,
       "launch_sprite_width_px": 5,
-      "launch_sprite_color": "#F5EFE0",
+      "launch_sprite_color": "#F0EAD6",
       "fuel_type": "kerolox"
     },
     {
@@ -33,7 +33,7 @@
       "ballistic_coeff": 0.000025,
       "launch_sprite_rows_px": 20,
       "launch_sprite_width_px": 4,
-      "launch_sprite_color": "#E8E8E8",
+      "launch_sprite_color": "#C7D1D9",
       "fuel_type": "hydrolox"
     },
     {
@@ -51,7 +51,7 @@
       "ballistic_coeff": 0.0000625,
       "launch_sprite_rows_px": 12,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#D8D8D8",
+      "launch_sprite_color": "#8C9096",
       "fuel_type": "hydrolox"
     },
     {
@@ -173,7 +173,7 @@
       "isp_s": 311,
       "launch_sprite_rows_px": 5,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#D4C088",
+      "launch_sprite_color": "#8A6B3D",
       "launch_sprite_has_legs": true,
       "fuel_type": "hypergolic",
       "can_soft_land": true
@@ -191,7 +191,7 @@
       "isp_s": 311,
       "launch_sprite_rows_px": 3,
       "launch_sprite_width_px": 2,
-      "launch_sprite_color": "#C8C8B0",
+      "launch_sprite_color": "#D8D4C0",
       "fuel_type": "hypergolic",
       "can_soft_land": true
     },
@@ -240,7 +240,7 @@
       "dry_mass_kg": 5900,
       "launch_sprite_rows_px": 6,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#D8D8E0",
+      "launch_sprite_color": "#EDE6D6",
       "has_parachute": true
     },
     {
@@ -341,7 +341,7 @@
       "isp_s": 311,
       "launch_sprite_rows_px": 5,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#D4C088",
+      "launch_sprite_color": "#8A6B3D",
       "launch_sprite_has_legs": true,
       "fuel_type": "hypergolic",
       "can_soft_land": true
@@ -359,7 +359,7 @@
       "isp_s": 311,
       "launch_sprite_rows_px": 3,
       "launch_sprite_width_px": 2,
-      "launch_sprite_color": "#C8C8B0",
+      "launch_sprite_color": "#D8D4C0",
       "fuel_type": "hypergolic",
       "can_soft_land": true
     },
@@ -375,7 +375,7 @@
       "isp_s": 314,
       "launch_sprite_rows_px": 6,
       "launch_sprite_width_px": 2,
-      "launch_sprite_color": "#C8C8D0",
+      "launch_sprite_color": "#A8ACC0",
       "fuel_type": "hypergolic"
     },
     {
@@ -391,7 +391,7 @@
       "ballistic_coeff": 0.000007,
       "launch_sprite_rows_px": 14,
       "launch_sprite_width_px": 4,
-      "launch_sprite_color": "#D8E6F0",
+      "launch_sprite_color": "#DCEAF5",
       "fuel_type": "kerolox"
     },
     {
@@ -407,7 +407,7 @@
       "ballistic_coeff": 0.000025,
       "launch_sprite_rows_px": 10,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#C8E0F0",
+      "launch_sprite_color": "#7C96AC",
       "fuel_type": "hydrolox"
     },
     {
@@ -438,7 +438,7 @@
       "ballistic_coeff": 0.00005,
       "launch_sprite_rows_px": 6,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#C8C8D0",
+      "launch_sprite_color": "#E8E4D4",
       "has_parachute": true
     },
     {
@@ -589,7 +589,7 @@
       "ballistic_coeff": 0.000007,
       "launch_sprite_rows_px": 16,
       "launch_sprite_width_px": 4,
-      "launch_sprite_color": "#D8E6F0",
+      "launch_sprite_color": "#E2EEF7",
       "fuel_type": "kerolox"
     },
     {
@@ -606,7 +606,7 @@
       "ballistic_coeff": 0.000025,
       "launch_sprite_rows_px": 12,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#C8E0F0",
+      "launch_sprite_color": "#9AB4C8",
       "fuel_type": "hydrolox"
     },
     {
@@ -623,7 +623,7 @@
       "ballistic_coeff": 0.000007,
       "launch_sprite_rows_px": 18,
       "launch_sprite_width_px": 4,
-      "launch_sprite_color": "#D0D8E0",
+      "launch_sprite_color": "#E4E9EE",
       "fuel_type": "solid"
     },
     {
@@ -640,7 +640,7 @@
       "ballistic_coeff": 0.000025,
       "launch_sprite_rows_px": 14,
       "launch_sprite_width_px": 4,
-      "launch_sprite_color": "#B8CCE0",
+      "launch_sprite_color": "#8CA0B4",
       "fuel_type": "hydrolox"
     },
     {
@@ -690,7 +690,7 @@
       "ballistic_coeff": 0.0000625,
       "launch_sprite_rows_px": 8,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#C0D8E8",
+      "launch_sprite_color": "#5E7488",
       "fuel_type": "hydrolox"
     },
     {
@@ -707,7 +707,7 @@
       "ballistic_coeff": 0.0000625,
       "launch_sprite_rows_px": 7,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#B8D0E0",
+      "launch_sprite_color": "#57697A",
       "fuel_type": "hydrolox"
     },
     {
@@ -724,7 +724,7 @@
       "ballistic_coeff": 0.00005,
       "launch_sprite_rows_px": 5,
       "launch_sprite_width_px": 3,
-      "launch_sprite_color": "#A8D8C8",
+      "launch_sprite_color": "#5FA890",
       "launch_sprite_has_legs": true,
       "fuel_type": "hypergolic",
       "can_soft_land": true
@@ -743,7 +743,7 @@
       "ballistic_coeff": 0.00005,
       "launch_sprite_rows_px": 3,
       "launch_sprite_width_px": 2,
-      "launch_sprite_color": "#B0E0D0",
+      "launch_sprite_color": "#D8F0E4",
       "fuel_type": "hypergolic",
       "can_soft_land": true
     },
