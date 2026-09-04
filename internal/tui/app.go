@@ -356,6 +356,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case screens.BurnExecutedMsg:
+		overBudget, overBy := false, 0.0
 		if a.world.ActiveCraft() != nil {
 			// v0.8.6 (b): if the form's iterate-for-target toggle was
 			// on, refine the commanded Δv via World.IterateBurnDV so
@@ -368,6 +369,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if refined, err := a.world.IterateBurnDV(m.Mode, m.DV); err == nil {
 					m.DV = refined
 				}
+			}
+			// Over-budget Node (ADR 0047 §2 / #428): warn and allow —
+			// planning a burn you can't yet afford is legitimate (you
+			// may refuel, stage, or dock a tug before it fires), so this
+			// never blocks the plant. Computed against the CURRENT
+			// remaining budget, before anything below mutates fuel —
+			// a scheduled PlanNode doesn't touch mass at all, and an
+			// impulsive/ActiveBurn plant hasn't started consuming it
+			// yet either, so this read is stable regardless of which
+			// branch fires next.
+			if budget := a.world.ActiveCraft().RemainingDeltaV(); m.DV > budget {
+				overBudget, overBy = true, m.DV-budget
 			}
 			// v0.6.5: derive burn duration from Δv using the rocket
 			// equation against the live craft state, so the planner UX
@@ -453,19 +466,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					TargetGhostOwner: m.TargetGhostOwner,
 				}
 			}
+			if overBudget {
+				// Same statusExpires flash mechanism as every other
+				// planner outcome — ADR 0047 §2 deliberately reuses
+				// this rather than introducing a new announcement
+				// helper (that's a later issue's scope).
+				a.statusMsg = fmt.Sprintf("plan exceeds Δv budget by %.0f m/s", overBy)
+				a.statusExpires = time.Now().Add(4 * time.Second)
+			}
 		}
-		a.maneuver.ResetEditing()
-		a.world.Clock.Paused = false
-		a.active = screenOrbit
+		a.closeManeuverToOrbit()
 		return a, nil
 
 	case screens.NodeDeleteMsg:
 		// v0.8.6+: per-node delete from the maneuver form. Form
-		// dispatched ctrl+d while editing a planted node.
+		// dispatched ctrl+d for the node under the Plan Cursor (ADR 0047).
 		a.world.DeleteNode(m.EditingIdx)
-		a.maneuver.ResetEditing()
-		a.world.Clock.Paused = false
-		a.active = screenOrbit
+		a.closeManeuverToOrbit()
 		return a, nil
 
 	case screens.NodeClearAllMsg:
@@ -473,9 +490,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// retired N global keybinding.
 		a.world.ClearNodes()
 		a.world.RecordAction(missions.ActionClearNodes) // ADR 0025 §7
-		a.maneuver.ResetEditing()
-		a.world.Clock.Paused = false
-		a.active = screenOrbit
+		a.closeManeuverToOrbit()
 		return a, nil
 
 	case tea.MouseMsg:
@@ -892,12 +907,59 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// clean up.
 		if a.active == screenManeuver {
 			if key.Matches(m, a.keys.Back) {
-				a.maneuver.ResetEditing()
-				a.world.Clock.Paused = false
-				a.active = screenOrbit
+				a.closeManeuverToOrbit()
 				return a, nil
 			}
-			cmd, done := a.maneuver.HandleKey(m)
+			// ADR 0047 §3 / #428: clear-all moved off plain letters
+			// entirely. `c` maps to ReArmDock on the map — a docking
+			// action with nothing to do with a burn plan one screen
+			// later — so inside the planner it just points at the real
+			// binding instead of either clearing the plan or silently
+			// doing the map's re-arm.
+			if !a.maneuver.TextFieldFocused() && m.String() == "c" {
+				a.refuse("clear all", "is ctrl+k")
+				return a, nil
+			}
+			// QUICK PLANS (ADR 0047 §4 / #428): H/I/C/K/P/R do exactly
+			// what they do on the map, then leave the planner — gated
+			// off whenever the Δv/throttle text field has focus so
+			// typing a number is never hijacked into planting a burn.
+			if !a.maneuver.TextFieldFocused() {
+				switch {
+				case key.Matches(m, a.keys.PlanTransfer):
+					a.doPlanTransfer()
+					a.closeManeuverToOrbit()
+					return a, nil
+				case key.Matches(m, a.keys.PlanIncl):
+					a.doPlanPlaneMatch()
+					a.closeManeuverToOrbit()
+					return a, nil
+				case key.Matches(m, a.keys.PlanCircularize):
+					a.doPlanCircularize()
+					a.closeManeuverToOrbit()
+					return a, nil
+				case key.Matches(m, a.keys.PlanRendezvous):
+					// handlePlanRendezvousKey may itself route to the
+					// Meeting Planner picker (a.active = screenOrbit
+					// with the picker armed) — closeManeuverToOrbit
+					// after it is still correct: same target screen,
+					// and it clears the planner's own edit/cursor state.
+					a.doPlanRendezvous()
+					a.closeManeuverToOrbit()
+					return a, nil
+				case key.Matches(m, a.keys.Porkchop):
+					if a.doOpenPorkchop() {
+						a.maneuver.ResetEditing()
+						a.world.Clock.Paused = false
+					}
+					return a, nil
+				case key.Matches(m, a.keys.RefinePlan):
+					a.doRefinePlan()
+					a.closeManeuverToOrbit()
+					return a, nil
+				}
+			}
+			cmd, done := a.maneuver.HandleKey(m, a.activeCraftNodes())
 			if done {
 				return a, cmd
 			}
@@ -1191,79 +1253,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// v0.9.0+: H consumes World.Target instead of the implicit
 			// body cursor. TargetCraft is the v0.9.3 rendezvous-tooling
 			// surface and routes through `R` once that lands; here it
-			// flashes a redirect rather than silently no-opping. None →
-			// silent no-op (nothing aimed at) — that gap is deliberate,
-			// unrelated to #282: there is genuinely nothing to name
-			// when no target is aimed at.
-			if !a.world.CraftVisibleHere() {
-				// #282 sweep: same state-guard shape as K/E — say why.
-				a.refuse("transfer", "vessel not in this system")
-				return a, nil
-			}
-			switch a.world.Target.Kind {
-			case sim.TargetBody:
-				_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
-				a.world.RecordAction(missions.ActionPlanTransfer) // ADR 0025 §7
-				// v0.12.x (ADR 0005): the intra-primary auto-plant is
-				// now a plane-aware dual-strategy solver (combined
-				// fused-Lambert vs split raise + apoapsis plane change)
-				// that plants the cheaper — so flash both candidate Δv
-				// totals and which was planted (supersedes the retired
-				// "match plane [I], circularize, then [H]" advisory).
-				// Non-intra-primary plants leave the comparison empty.
-				if cmp := a.world.LastTransfer.Format(); cmp != "" {
-					a.statusMsg = cmp
-					a.statusExpires = time.Now().Add(6 * time.Second)
-				}
-			case sim.TargetCraft:
-				a.statusMsg = "H targets bodies — for vessels, plan via [m]"
-				a.statusExpires = time.Now().Add(3 * time.Second)
-			}
+			// flashes a redirect rather than silently no-opping. #428
+			// mechanical fix: TargetNone now refuses out loud too
+			// (doPlanTransfer) instead of the old deliberate silence.
+			a.doPlanTransfer()
 			return a, nil
 		case key.Matches(m, a.keys.PlanIncl):
-			if !a.world.CraftVisibleHere() {
-				// #282 sweep: same state-guard shape as K/E — say why.
-				a.refuse("inclination", "vessel not in this system")
-				return a, nil
-			}
-			// v0.9.0+: I consumes World.Target. TargetBody → full
-			// plane match to the body's orbit (v0.10.4: matches
-			// inclination AND the node line, so a following Hohmann
-			// departs coplanar); None → drop to the equatorial plane
-			// of the craft's primary (the equatorial inclination
-			// match shipped with v0.7.4); TargetCraft/TargetGhost
-			// (ADR 0045 S4, #397) → match the OTHER VESSEL's plane
-			// (relative angular momentum rT × vT gives the node line
-			// and rotation angle), not a scalar tilt number — two
-			// vessels can share an inclination magnitude and still sit
-			// in different planes (different RAAN), which the old
-			// scalar match could never fix.
+			// v0.9.0+: I consumes World.Target — see doPlanPlaneMatch
+			// for the full TargetBody / TargetCraft / None breakdown.
 			//
 			// Pre-v0.9 this block read App.selectedBody, the implicit
 			// body cursor driven by ←/→. selectedBody now drives only
 			// body-info / porkchop / SELECTED HUD pane.
-			var plan *planner.InclinationPlan
-			var err error
-			switch a.world.Target.Kind {
-			case sim.TargetBody:
-				plan, err = a.world.PlanPlaneMatch(a.world.Target.BodyIdx)
-			case sim.TargetCraft, sim.TargetGhost:
-				plan, err = a.world.PlanVesselPlaneMatch()
-			default:
-				plan, err = a.world.PlanInclinationChange(0)
-			}
-			if err != nil {
-				a.statusMsg = fmt.Sprintf("inclination: %v", err)
-			} else {
-				nodeLabel := "DN"
-				if plan.AtAN {
-					nodeLabel = "AN"
-				}
-				a.statusMsg = fmt.Sprintf("inclination plan — %.1f m/s at next %s",
-					plan.DV, nodeLabel)
-			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
-			a.world.RecordAction(missions.ActionPlanIncl) // ADR 0025 §7
+			a.doPlanPlaneMatch()
 			return a, nil
 		case key.Matches(m, a.keys.PlanCircularize):
 			// v0.9.4+: `C` plants a prograde burn at next apoapsis sized
@@ -1272,20 +1274,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// in space) they press `C`, coast to apoapsis, the planted
 			// node fires, periapsis rises to match apoapsis, mission
 			// passes. Mirrors v0.7.4's `I` planter shape.
-			if !a.world.CraftVisibleHere() {
-				// #282 sweep: same state-guard shape as K/E — say why.
-				a.refuse("circularize", "vessel not in this system")
-				return a, nil
-			}
-			plan, err := a.world.PlanCircularizeAtApoapsis()
-			if err != nil {
-				a.statusMsg = fmt.Sprintf("circularize: %v", err)
-			} else {
-				a.statusMsg = fmt.Sprintf("circularize @ apoapsis (%.0f km) → +%.0f m/s prograde",
-					plan.ApoAltM/1000, plan.DV)
-			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
-			a.world.RecordAction(missions.ActionPlanCircularize) // ADR 0025 §7
+			a.doPlanCircularize()
 			return a, nil
 		case key.Matches(m, a.keys.PlanRendezvous):
 			// v0.10.2+: `K` plants the recommended single-burn nudge
@@ -1314,13 +1303,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ADR 0045 S6 (#399): K became modal — a close, near-matched
 			// pair still plants directly (unchanged from v0.10.2); a
 			// phase-mismatched pair opens the Meeting Planner picker
-			// instead of refusing. See handlePlanRendezvousKey.
-			switch {
-			case !a.world.CraftVisibleHere():
-				a.refuse("rendezvous", "vessel not in this system")
-			default:
-				a.handlePlanRendezvousKey()
-			}
+			// instead of refusing. See doPlanRendezvous / handlePlanRendezvousKey.
+			a.doPlanRendezvous()
 			return a, nil
 		case key.Matches(m, a.keys.Porkchop):
 			// #282 sweep: on the orbit screen this key was silently
@@ -1328,15 +1312,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// from — same state-guard shape as the K/E fix, so it gets
 			// the same one-phrase treatment.
 			if a.active == screenOrbit {
-				switch {
-				case !a.world.CraftVisibleHere():
-					a.refuse("porkchop", "vessel not in this system")
-				case a.selectedBody <= 0:
-					a.refuse("porkchop", "no body selected")
-				default:
-					a.porkchop.Load(a.world, a.selectedBody)
-					a.active = screenPorkchop
-				}
+				a.doOpenPorkchop()
 			}
 			return a, nil
 		// v0.8.6: ClearNodes global binding retired — clear-all now
@@ -1433,19 +1409,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.RefinePlan):
-			if !a.world.CraftVisibleHere() {
-				// #282 sweep: same state-guard shape as K/E — say why.
-				a.refuse("refine", "vessel not in this system")
-				return a, nil
-			}
-			corr, arr, err := a.world.RefinePlan()
-			if err != nil {
-				a.statusMsg = fmt.Sprintf("refine failed: %v", err)
-			} else {
-				a.statusMsg = fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr)
-			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
-			a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
+			a.doRefinePlan()
 			return a, nil
 
 		// v0.7.3+ manual flight controls. v0.7.3.2 split the engage
@@ -2854,17 +2818,17 @@ func (a *App) View() string {
 	case screenBodyInfo:
 		base = a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
 	case screenManeuver:
-		base = a.maneuver.Render(a.world, a.width, a.height)
+		base = a.maneuver.Render(a.world, a.width, a.height, a.selectedBody)
 	case screenPorkchop:
 		base = a.porkchop.Render(a.world, a.width, a.height)
 	case screenMenu:
 		base = a.menu.Render(a.width)
 	case screenSpawn:
-		base = a.spawn.Render(a.width)
+		base = a.spawn.Render(a.width, a.height)
 	case screenMissions:
 		base = a.missions.Render(a.world, a.width)
 	case screenSettings:
-		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width)
+		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width, a.height)
 	case screenControls:
 		base = a.controls.Render(a.layout, a.width)
 	case screenVAB:
@@ -2972,4 +2936,181 @@ func (a *App) bindManeuverTarget() {
 	default:
 		a.maneuver.SetTargetCraft(false, "", 0)
 	}
+}
+
+// closeManeuverToOrbit resets the maneuver form's click-to-edit / Plan
+// Cursor state, resumes the clock, and returns to the map — the common
+// "leave the planner" tail shared by the form's own commit/delete/
+// clear-all/cancel paths and the QUICK PLANS dispatch (ADR 0047 §4 /
+// #428).
+func (a *App) closeManeuverToOrbit() {
+	a.maneuver.ResetEditing()
+	a.world.Clock.Paused = false
+	a.active = screenOrbit
+}
+
+// activeCraftNodes returns the active craft's planted-node slice, or an
+// empty slice when there's no active craft — the Plan Cursor (ADR 0047 /
+// #428) needs the live node count/contents on every keypress, not just
+// at Render time.
+func (a *App) activeCraftNodes() []sim.ManeuverNode {
+	if c := a.world.ActiveCraft(); c != nil {
+		return c.Nodes
+	}
+	return nil
+}
+
+// doPlanTransfer executes `H`: plant a transfer to World.Target. Shared
+// by the map binding and the planner's QUICK PLANS block (ADR 0047 §4 /
+// #428), which routes H to this exact method so pressing it inside the
+// planner "does exactly what it does on the map."
+func (a *App) doPlanTransfer() {
+	if !a.world.CraftVisibleHere() {
+		// #282 sweep: same state-guard shape as K/E — say why.
+		a.refuse("transfer", "vessel not in this system")
+		return
+	}
+	switch a.world.Target.Kind {
+	case sim.TargetBody:
+		_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
+		a.world.RecordAction(missions.ActionPlanTransfer) // ADR 0025 §7
+		// v0.12.x (ADR 0005): the intra-primary auto-plant is
+		// now a plane-aware dual-strategy solver (combined
+		// fused-Lambert vs split raise + apoapsis plane change)
+		// that plants the cheaper — so flash both candidate Δv
+		// totals and which was planted (supersedes the retired
+		// "match plane [I], circularize, then [H]" advisory).
+		// Non-intra-primary plants leave the comparison empty.
+		if cmp := a.world.LastTransfer.Format(); cmp != "" {
+			a.statusMsg = cmp
+			a.statusExpires = time.Now().Add(6 * time.Second)
+		}
+	case sim.TargetCraft:
+		a.statusMsg = "H targets bodies — for vessels, plan via [m]"
+		a.statusExpires = time.Now().Add(3 * time.Second)
+	default:
+		// #428 mechanical fix: this used to be a deliberate silent
+		// no-op (there was "genuinely nothing to name" for TargetNone)
+		// — the UX review found that indistinguishable from a broken
+		// keybinding. Refuse out loud like every sibling guard does.
+		a.refuse("transfer", "no target — press t to aim at a body")
+	}
+}
+
+// doPlanPlaneMatch executes `I`: plant a plane-match burn. See
+// doPlanTransfer's doc for why this exists as a standalone method.
+func (a *App) doPlanPlaneMatch() {
+	if !a.world.CraftVisibleHere() {
+		// #282 sweep: same state-guard shape as K/E — say why.
+		a.refuse("inclination", "vessel not in this system")
+		return
+	}
+	// v0.9.0+: I consumes World.Target. TargetBody → full
+	// plane match to the body's orbit (v0.10.4: matches
+	// inclination AND the node line, so a following Hohmann
+	// departs coplanar); None → drop to the equatorial plane
+	// of the craft's primary (the equatorial inclination
+	// match shipped with v0.7.4); TargetCraft/TargetGhost
+	// (ADR 0045 S4, #397) → match the OTHER VESSEL's plane
+	// (relative angular momentum rT × vT gives the node line
+	// and rotation angle), not a scalar tilt number — two
+	// vessels can share an inclination magnitude and still sit
+	// in different planes (different RAAN), which the old
+	// scalar match could never fix.
+	var plan *planner.InclinationPlan
+	var err error
+	switch a.world.Target.Kind {
+	case sim.TargetBody:
+		plan, err = a.world.PlanPlaneMatch(a.world.Target.BodyIdx)
+	case sim.TargetCraft, sim.TargetGhost:
+		plan, err = a.world.PlanVesselPlaneMatch()
+	default:
+		plan, err = a.world.PlanInclinationChange(0)
+	}
+	if err != nil {
+		a.statusMsg = fmt.Sprintf("inclination: %v", err)
+	} else {
+		nodeLabel := "DN"
+		if plan.AtAN {
+			nodeLabel = "AN"
+		}
+		a.statusMsg = fmt.Sprintf("inclination plan — %.1f m/s at next %s",
+			plan.DV, nodeLabel)
+	}
+	a.statusExpires = time.Now().Add(3 * time.Second)
+	a.world.RecordAction(missions.ActionPlanIncl) // ADR 0025 §7
+}
+
+// doPlanCircularize executes `C`: plant a circularizing burn at next
+// apoapsis. See doPlanTransfer's doc for why this exists as a
+// standalone method.
+func (a *App) doPlanCircularize() {
+	if !a.world.CraftVisibleHere() {
+		// #282 sweep: same state-guard shape as K/E — say why.
+		a.refuse("circularize", "vessel not in this system")
+		return
+	}
+	plan, err := a.world.PlanCircularizeAtApoapsis()
+	if err != nil {
+		a.statusMsg = fmt.Sprintf("circularize: %v", err)
+	} else {
+		a.statusMsg = fmt.Sprintf("circularize @ apoapsis (%.0f km) → +%.0f m/s prograde",
+			plan.ApoAltM/1000, plan.DV)
+	}
+	a.statusExpires = time.Now().Add(3 * time.Second)
+	a.world.RecordAction(missions.ActionPlanCircularize) // ADR 0025 §7
+}
+
+// doPlanRendezvous executes `K`: plant the recommended nudge toward the
+// target vessel, or open the Meeting Planner picker. See
+// doPlanTransfer's doc for why this exists as a standalone method.
+func (a *App) doPlanRendezvous() {
+	switch {
+	case !a.world.CraftVisibleHere():
+		a.refuse("rendezvous", "vessel not in this system")
+	default:
+		a.handlePlanRendezvousKey()
+	}
+}
+
+// doOpenPorkchop executes `P`: open the porkchop plot for the selected
+// body. Returns true when it actually opened (so callers know whether
+// to also tear down whatever screen they were leaving). See
+// doPlanTransfer's doc for why this exists as a standalone method.
+func (a *App) doOpenPorkchop() bool {
+	switch {
+	case !a.world.CraftVisibleHere():
+		// #282 sweep: on the orbit screen this key was silently
+		// ignored without a visible target or a vessel to plan
+		// from — same state-guard shape as the K/E fix, so it gets
+		// the same one-phrase treatment.
+		a.refuse("porkchop", "vessel not in this system")
+		return false
+	case a.selectedBody <= 0:
+		a.refuse("porkchop", "no body selected")
+		return false
+	default:
+		a.porkchop.Load(a.world, a.selectedBody)
+		a.active = screenPorkchop
+		return true
+	}
+}
+
+// doRefinePlan executes `R`: re-Lambert the pending arrival and plant a
+// mid-course correction. See doPlanTransfer's doc for why this exists
+// as a standalone method.
+func (a *App) doRefinePlan() {
+	if !a.world.CraftVisibleHere() {
+		// #282 sweep: same state-guard shape as K/E — say why.
+		a.refuse("refine", "vessel not in this system")
+		return
+	}
+	corr, arr, err := a.world.RefinePlan()
+	if err != nil {
+		a.statusMsg = fmt.Sprintf("refine failed: %v", err)
+	} else {
+		a.statusMsg = fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr)
+	}
+	a.statusExpires = time.Now().Add(3 * time.Second)
+	a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
 }

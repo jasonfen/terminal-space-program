@@ -629,6 +629,26 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	return &plan, nil
 }
 
+// HasRefinablePlan reports whether RefinePlan has a pending arrival
+// node to work with — the same "latest arrival node with time left on
+// the clock" search RefinePlan itself does, but read-only. Used by the
+// maneuver planner's QUICK PLANS block (#428 / ADR 0047) to dim `[R]`
+// with a reason up front instead of letting the player discover the
+// identical "no planted transfer" refusal only after pressing it.
+func (w *World) HasRefinablePlan() bool {
+	if w.ActiveCraft() == nil {
+		return false
+	}
+	now := w.Clock.SimTime
+	for i := len(w.ActiveCraft().Nodes) - 1; i >= 0; i-- {
+		n := w.ActiveCraft().Nodes[i]
+		if n.PrimaryID != "" && n.PrimaryID != w.ActiveCraft().Primary.ID {
+			return n.TriggerTime.Sub(now).Seconds() > 0
+		}
+	}
+	return false
+}
+
 // RefinePlan re-runs a heliocentric Lambert from the craft's current
 // state to the destination body at the pending arrival node's
 // TriggerTime, plants a mid-course correction burn at the current

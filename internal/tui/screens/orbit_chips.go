@@ -825,7 +825,7 @@ func (v *OrbitView) buildNodesChip(w *sim.World) []string {
 		if n.Duration > 0 {
 			kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
 		}
-		lines = append(lines, nextQueuedNodeLine(w, nc, nci, ni), "  "+kind)
+		lines = append(lines, v.nextQueuedNodeLine(w, nc, nci, ni), "  "+kind)
 		// #333: the overflow count is nc's OWN remaining queue, not the
 		// fleet-wide total — mixing in another craft's nodes here would
 		// describe a different vessel's queue as if it were stale on
@@ -856,19 +856,25 @@ func nextQueuedNode(w *sim.World) (nc *spacecraft.Spacecraft, nci, ni int, ok bo
 // nextQueuedNodeLine formats nextQueuedNode's pick as one row: the click-
 // affordance marker, a per-craft label when the fleet has more than one
 // vessel, the node's event/countdown, its mode, and its Δv.
-func nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, nci, ni int) string {
+func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, nci, ni int) string {
 	n := nc.Nodes[ni]
+	// Over-budget Node (ADR 0047 §2 / #428): same shortfall wording as
+	// the planner list, on both the full and Compact forms of the chip.
+	over := ""
+	if o := n.DV - nc.RemainingDeltaV(); o > 0 {
+		over = "  " + v.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", o))
+	}
 	label := fmt.Sprintf("#%d", ni+1)
 	if len(w.Crafts) > 1 {
 		label = fmt.Sprintf("c%d#%d", nci+1, ni+1)
 	}
 	if !n.IsResolved() {
 		return fmt.Sprintf("  %s %s %s  %s  %.0f m/s",
-			hudNodeMarker, label, n.Event.String(), n.Mode.String(), n.DV)
+			hudNodeMarker, label, n.Event.String(), n.Mode.String(), n.DV) + over
 	}
 	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 	return fmt.Sprintf("  %s %s T%+.0fs  %s  %.0f m/s",
-		hudNodeMarker, label, dt, n.Mode.String(), n.DV)
+		hudNodeMarker, label, dt, n.Mode.String(), n.DV) + over
 }
 
 // buildNodesChipCompact is NODES' Compact Form (ADR 0046 / #422): the
@@ -887,7 +893,7 @@ func (v *OrbitView) buildNodesChipCompact(w *sim.World) []string {
 		lines = append(lines, burnLines[0]) // firing head only, drop a STALLED sub-row
 	}
 	if nc, nci, ni, ok := nextQueuedNode(w); ok {
-		lines = append(lines, nextQueuedNodeLine(w, nc, nci, ni))
+		lines = append(lines, v.nextQueuedNodeLine(w, nc, nci, ni))
 	}
 	return lines
 }

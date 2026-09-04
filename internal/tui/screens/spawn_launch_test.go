@@ -177,7 +177,7 @@ func TestFilterToggleResnapsLaunchpad(t *testing.T) {
 func TestRenderShowsCrewTags(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, "", nil)
-	out := s.Render(120)
+	out := s.Render(120, 0)
 	if !strings.Contains(out, "crewed") {
 		t.Error("render missing a 'crewed' tag (e.g. Apollo Stack)")
 	}

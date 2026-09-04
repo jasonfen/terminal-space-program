@@ -126,7 +126,7 @@ func TestCustomCyclingStillReachesCustomAndDesigns(t *testing.T) {
 // ADR 0031 / S8).
 func TestRenderShowsCategoryHeaders(t *testing.T) {
 	s := formShowAll()
-	out := s.Render(100)
+	out := s.Render(100, 0)
 	for _, g := range s.groupedLoadouts() {
 		if !strings.Contains(out, g.label) {
 			t.Errorf("render missing category header %q", g.label)

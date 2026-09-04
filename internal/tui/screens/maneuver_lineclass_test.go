@@ -37,10 +37,10 @@ func TestManeuverShadowTrajectoryDrawsWithPlannedClass(t *testing.T) {
 
 	m := NewManeuver(Theme{})
 	m.dvInput.SetValue("0")
-	before := countBraille(m.Render(w, 120, 40))
+	before := countBraille(m.Render(w, 120, 40, 0))
 
 	m.dvInput.SetValue("400") // a clear raise, separating the shadow from the current orbit
-	after := countBraille(m.Render(w, 120, 40))
+	after := countBraille(m.Render(w, 120, 40, 0))
 
 	if after <= before {
 		t.Errorf("raising the planned Δv added no shadow-trajectory ink (%d→%d) — Planned-class call site not firing", before, after)
@@ -55,7 +55,7 @@ func TestManeuverShadowTrajectoryDrawsWithPlannedClass(t *testing.T) {
 func TestManeuverTargetOrbitStaysGreenRealClass(t *testing.T) {
 	w := targetMarkerWorld(t)
 	m := NewManeuver(Theme{})
-	m.Render(w, 120, 40)
+	m.Render(w, 120, 40, 0)
 
 	if n := m.canvas.CountColor(render.ColorTarget); n == 0 {
 		t.Error("target craft's orbit inked no TARGET-colour cells on the maneuver canvas")

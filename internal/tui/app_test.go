@@ -463,7 +463,7 @@ func TestClickToEditGhostBoundNodePreservesBinding(t *testing.T) {
 	// Click-to-edit: LoadNode captures the node's OWN binding.
 	a.maneuver.LoadNode(0, c.Nodes[0])
 
-	cmd, ok := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd, ok := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter}, c.Nodes)
 	if !ok || cmd == nil {
 		t.Fatal("Enter did not commit")
 	}
@@ -542,12 +542,12 @@ func TestClickToEditUntargetedNodeAfterGhostBoundLoadClearsBinding(t *testing.T)
 		}
 	}
 	for i := 0; i < nonTR; i++ {
-		if _, done := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyRight}); done {
+		if _, done := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyRight}, c.Nodes); done {
 			t.Fatalf("right press %d unexpectedly ended the form", i)
 		}
 	}
 
-	cmd, ok := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd, ok := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter}, c.Nodes)
 	if !ok || cmd == nil {
 		t.Fatal("Enter did not commit")
 	}
@@ -611,16 +611,16 @@ func TestEditedAdvisoryNudgeKeepsIdentityAndAutoWarpHonorsIt(t *testing.T) {
 	// LoadNode focuses the mode field (0); tab twice to reach the Δv
 	// input (2), clear the loaded "20", and type a genuinely different
 	// value.
-	a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
-	a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyTab})
+	a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyTab}, c.Nodes)
+	a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyTab}, c.Nodes)
 	for i := 0; i < 4; i++ {
-		a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+		a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyBackspace}, c.Nodes)
 	}
 	for _, r := range "999" {
-		a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}, c.Nodes)
 	}
 
-	cmd2, ok2 := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	cmd2, ok2 := a.maneuver.HandleKey(tea.KeyMsg{Type: tea.KeyEnter}, c.Nodes)
 	if !ok2 || cmd2 == nil {
 		t.Fatal("Enter did not commit")
 	}

@@ -122,13 +122,13 @@ func TestAltitudeArmedHintTellsThePlayerEnterLaunches(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset(bandTestBodies(), "earth", nil, "", nil)
 	s.fieldIdx = 3
-	if out := s.Render(80); !strings.Contains(out, "Enter to edit") {
+	if out := s.Render(80, 0); !strings.Contains(out, "Enter to edit") {
 		t.Fatalf("quiet focused ALTITUDE does not offer %q:\n%s", "Enter to edit", out)
 	}
 	enterAltEdit(t, s)
 	typeDigits(s, 900)
 	s.HandleKey("enter")
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "Enter now launches") {
 		t.Errorf("after leaving the box the hint does not say Enter launches:\n%s", out)
 	}
@@ -209,7 +209,7 @@ func TestAltitudeCommitClamps(t *testing.T) {
 	if !strings.Contains(s.altNote, "raised from 60") {
 		t.Errorf("altNote = %q, missing the raised-from-60 clamp sentence", s.altNote)
 	}
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "↳") || !strings.Contains(out, s.altNote) {
 		t.Errorf("rendered form does not show the clamp note verbatim:\n%s", out)
 	}
@@ -425,7 +425,7 @@ func TestAltitudeNoOrbitBodyKeepsEnterDead(t *testing.T) {
 		t.Error("Enter opened the edit box over an Empty Orbit Band — there is nothing to edit")
 	}
 
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "✕") {
 		t.Errorf("rendered form missing the ✕ no-orbit marker:\n%s", out)
 	}
@@ -464,16 +464,16 @@ func TestAltitudeCommitSamplesCommsOnceNotPerKeystroke(t *testing.T) {
 	typeDigits(s, 4400)
 	// Render repeatedly while editing — must never sample.
 	for i := 0; i < 5; i++ {
-		_ = s.Render(80)
+		_ = s.Render(80, 0)
 	}
 	if calls != 0 {
 		t.Fatalf("sampler called %d times while the edit box was open (mid-type), want 0", calls)
 	}
 
 	s.HandleKey("enter") // commit
-	_ = s.Render(80)
-	_ = s.Render(80)
-	_ = s.Render(80)
+	_ = s.Render(80, 0)
+	_ = s.Render(80, 0)
+	_ = s.Render(80, 0)
 	if calls != 1 {
 		t.Errorf("sampler called %d times across commit + repeated renders at the same altitude, want exactly 1 (memoized)", calls)
 	}
@@ -557,7 +557,7 @@ func TestAltitudeRetypedDisplayedValueCountsAsOnStop(t *testing.T) {
 func TestAltitudeFieldRendersAt80Columns(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset(bandTestBodies(), "earth", nil, "", nil)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "ALTITUDE") {
 		t.Error("ALTITUDE header missing from an 80-column render")
 	}
