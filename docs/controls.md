@@ -134,12 +134,12 @@ Dvorak, and free per-key remapping aren't supported yet.
 |---|---|
 | `Esc` | Back; on the main view, open the save / load / build / settings / controls / quit menu |
 | `Ctrl+C` | Quit immediately |
-| `F1` | Toggle the help overlay (scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`) |
+| `F1` or `?` | Toggle the help overlay (scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`). `?` opens the same overlay as `F1` everywhere `F1` does |
 | `F2` | Declutter: hide the corner chips and the navball for a clean look at the orbit. Press again to restore. The telemetry column stays |
 | `` ` `` | **Boss key**: instantly swap the screen for a convincing fake developer shell. Type `exit`, `logout`, or `Ctrl+D` to come back where you left off. Left out of the `F1` overlay on purpose |
 | `Tab` | Switch star system (Sol first, then alphabetical: Alpha Centauri, Kepler-452, Lumen, TRAPPIST-1). A camera toggle only; vessels stay in the system they spawned in |
 | `i` | Body info screen for the body under the map cursor |
-| `M` | Mission ladder: program and objective progress, the active mission's checklist, and locked rungs with what unlocks them. Same as the `[Missions]` button. Missions are **off by default**; enable the Tutorial or Challenge ladder in `[Menu]` → Settings |
+| `M` | Mission ladder: program and objective progress, the active mission's checklist, and locked rungs with what unlocks them. Same as the `[Missions]` button. Flight School (the tutorial) is **on unless switched off**; the Challenge ladder stays opt-in — enable it in `[Menu]` → Settings |
 | `O` | Session roster (multiplayer). See [Multiplayer](#multiplayer) |
 
 ### Time
@@ -223,7 +223,7 @@ does not affect your travel target.
 | `q` / `e` | Point radial+ / radial- (away from / toward the body) |
 | `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
 | `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
-| `?` | Clear the manual tip (pitch trim back to 0) |
+| `\|` | Clear the manual tip (pitch trim back to 0) |
 | `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
