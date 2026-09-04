@@ -210,7 +210,7 @@ func TestSpawnListsSavedDesigns(t *testing.T) {
 	if s.SelectedLoadoutID() != "" {
 		t.Errorf("a design row must blank SelectedLoadoutID, got %q", s.SelectedLoadoutID())
 	}
-	if !strings.Contains(s.Render(80), "Mun Hopper") {
+	if !strings.Contains(s.Render(80, 0), "Mun Hopper") {
 		t.Error("rendered CRAFT TYPE list does not show the saved design")
 	}
 }
@@ -246,7 +246,7 @@ func TestSpawnDockSeamFromCSMLMModule(t *testing.T) {
 	if len(plan) != 1 || plan[0] != 2 {
 		t.Errorf("SelectedNosePayloadPlan = %v, want [2] (the LM as nose payload)", plan)
 	}
-	if !strings.Contains(s.Render(80), "dock seam") {
+	if !strings.Contains(s.Render(80, 0), "dock seam") {
 		t.Error("rendered stack does not show the dock seam divider")
 	}
 }
@@ -297,11 +297,11 @@ func TestSpawnRenderShowsStackEditor(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset(nil, "", nil, "", nil)
 
-	if strings.Contains(s.Render(80), "STACK (bottom → top)") {
+	if strings.Contains(s.Render(80, 0), "STACK (bottom → top)") {
 		t.Error("STACK editor rendered for a non-custom loadout")
 	}
 	selectCustom(s)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "Custom…") {
 		t.Error("Custom row missing from CRAFT TYPE list")
 	}
@@ -311,7 +311,7 @@ func TestSpawnRenderShowsStackEditor(t *testing.T) {
 	s.fieldIdx = stackFieldIdx
 	s.HandleKey("a")
 	picked := s.SelectedCustomStages()[0].Name
-	if !strings.Contains(s.Render(80), picked) {
+	if !strings.Contains(s.Render(80, 0), picked) {
 		t.Errorf("rendered stack does not list the added part %q", picked)
 	}
 }

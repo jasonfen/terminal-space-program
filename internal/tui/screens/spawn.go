@@ -8,6 +8,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
 // SpawnCraft is the modal form opened by `n` on the orbit screen.
@@ -914,57 +915,153 @@ func altKmLabel(altM float64) string {
 	return sim.CommaKm(altM) + " km"
 }
 
-// Render returns the modal form. Width is the terminal width.
-func (s *SpawnCraft) Render(width int) string {
-	var lines []string
+// craftTypeRowBudget caps how many CRAFT TYPE rows (including category
+// headers) the windowed catalog list shows around the cursor (#373 / ADR
+// 0046's Consequences section: "about 8 rows around the cursor"). Render
+// shrinks this further when the terminal is too short to give the rest of
+// the form (POSITION/PARENT BODY/ALTITUDE/DIRECTION, the footer) room —
+// see craftTypeRowsFor.
+const craftTypeRowBudget = 8
+
+// craftTypeLines flattens the CRAFT TYPE catalog — category headers (ADR
+// 0031 / S8), the "Custom & Designs" group, the synthetic Custom entry,
+// and any saved designs — into widgets.WindowLines suitable for
+// widgets.Window, plus the line index the cursor (loadoutIdx) sits on.
+// This is exactly the content the pre-#373 Render loop emitted inline;
+// factoring it out is what lets Render window it instead of emitting
+// every line.
+func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine int) {
+	idx := 0
+	for _, g := range s.groupedLoadouts() {
+		lines = append(lines, widgets.WindowLine{Text: "  " + s.theme.Primary.Render(g.label), IsHeader: true})
+		for _, id := range g.ids {
+			l := spacecraft.Loadouts[id]
+			row := fmt.Sprintf("%s %s  %s  %s  — %s",
+				l.Glyph, l.Name, crewTag(l), l.Role, propulsionSummary(l))
+			if idx == s.loadoutIdx {
+				cursorLine = len(lines)
+			}
+			lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, row)})
+			idx++
+		}
+	}
+	// Trailing "Custom & Designs" group — never filtered (ADR 0031). idx is now
+	// visibleCatalogCount(), so the Custom row lands on the Custom index.
+	lines = append(lines, widgets.WindowLine{Text: "  " + s.theme.Primary.Render("Custom & Designs"), IsHeader: true})
+	if idx == s.loadoutIdx {
+		cursorLine = len(lines)
+	}
+	lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, "✎ Custom…  build-your-own  — assemble a stage stack")})
+	idx++
+	for _, d := range s.designs {
+		if idx == s.loadoutIdx {
+			cursorLine = len(lines)
+		}
+		lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx,
+			fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts)))})
+		idx++
+	}
+	return lines, cursorLine
+}
+
+// craftTypeRowsFor picks the CRAFT TYPE window's row budget for a given
+// terminal height: craftTypeRowBudget when there's room, shrunk to
+// whatever's left after fixedLines (every other line Render emits — the
+// title, VESSEL TYPE header, POSITION/PARENT BODY/ALTITUDE/DIRECTION, the
+// footer, and the STACK editor when Custom is selected) so the rest of the
+// form is never pushed off screen by the catalog window itself. height<=0
+// means "no budget" (tests, and any caller with nothing to fit into) —
+// the catalog renders unwindowed, matching the pre-#373 behavior. Never
+// drops below 1 so the cursor's own row always renders.
+func craftTypeRowsFor(height, fixedLines int) int {
+	if height <= 0 {
+		return 0 // widgets.Window treats <=0 as "show everything"
+	}
+	avail := height - fixedLines
+	if avail > craftTypeRowBudget {
+		avail = craftTypeRowBudget
+	}
+	if avail < 1 {
+		avail = 1
+	}
+	return avail
+}
+
+// Render returns the modal form. width is the terminal width; height is
+// the terminal height (#373 / ADR 0046) — Render windows the CRAFT TYPE
+// catalog to fit height, keeping POSITION/PARENT BODY/ALTITUDE/DIRECTION,
+// the title, the "[f] show all" hint, and the footer on screen. height<=0
+// disables the windowing clamp (shows the whole catalog) — handy for
+// tests and any caller with no height budget.
+func (s *SpawnCraft) Render(width, height int) string {
+	var head []string
 
 	const titleText = "terminal-space-program — spawn vessel"
-	lines = append(lines, s.theme.Title.Render(titleText))
-	lines = append(lines, "")
+	head = append(head, s.theme.Title.Render(titleText))
+	head = append(head, "")
 
-	// Field 0: craft type — catalog loadouts grouped under category headers
-	// (ADR 0031 / S8), then a trailing "Custom & Designs" group with the
-	// synthetic "Custom…" entry and any saved VAB designs. Headers are
-	// non-selectable; the cursor (loadoutIdx) walks only the selectable rows,
-	// which follow groupedLoadouts()'s flattened order — so `idx` below tracks
-	// the running selectable index and the catalog rows end exactly at
-	// visibleCatalogCount() (the Custom index — the filtered count, not
-	// len(LoadoutOrder)), keeping IsCustomSelected / IsDesignSelected in step.
-	lines = append(lines, s.fieldHeader(0, "VESSEL TYPE"))
-	// ADR 0031 / S10: the scale-class system filter note + [f] hint.
+	// Field 0: craft type header + the ADR 0031 / S10 system-filter note.
+	// The catalog rows themselves (category headers, loadouts, Custom &
+	// Designs) are windowed below via craftTypeLines/widgets.Window rather
+	// than emitted inline — see craftTypeRowsFor's doc comment.
+	head = append(head, s.fieldHeader(0, "VESSEL TYPE"))
 	if s.showAll {
-		lines = append(lines, "  "+s.theme.Dim.Render(
+		head = append(head, "  "+s.theme.Dim.Render(
 			"showing all systems' vessels — [f] filter to this system"))
 	} else if hidden := len(spacecraft.LoadoutOrder) - s.visibleCatalogCount(); hidden > 0 {
 		noun := "vessels"
 		if hidden == 1 {
 			noun = "vessel"
 		}
-		lines = append(lines, "  "+s.theme.Dim.Render(fmt.Sprintf(
+		head = append(head, "  "+s.theme.Dim.Render(fmt.Sprintf(
 			"%d %s from other systems hidden — [f] show all", hidden, noun)))
 	}
-	lines = append(lines, "")
-	idx := 0
-	for _, g := range s.groupedLoadouts() {
-		lines = append(lines, "  "+s.theme.Primary.Render(g.label))
-		for _, id := range g.ids {
-			l := spacecraft.Loadouts[id]
-			row := fmt.Sprintf("%s %s  %s  %s  — %s",
-				l.Glyph, l.Name, crewTag(l), l.Role, propulsionSummary(l))
-			lines = append(lines, s.craftRow(idx, row))
-			idx++
+	head = append(head, "")
+
+	var lines []string
+	lines = append(lines, head...)
+
+	tail := s.renderTail(width)
+
+	catalogLines, cursorLine := s.craftTypeLines()
+	budget := craftTypeRowsFor(height, len(head)+len(tail))
+	rendered := widgets.Window(catalogLines, cursorLine, budget)
+	// Safety net: widgets.Window's pinned header + "N more" markers add up
+	// to 3 lines on top of budget (documented on Window), which
+	// craftTypeRowsFor's estimate doesn't account for — a terminal with
+	// almost no room to spare after the fixed head+tail chrome can still
+	// overflow height by that much. Drop marker/pin lines first (cheapest
+	// to lose) before ever touching a content row, so the cursor's own row
+	// is the last thing trimmed — see the loop below.
+	if height > 0 {
+		if over := len(head) + len(rendered) + len(tail) - height; over > 0 {
+			trimmed := rendered[:0]
+			dropped := 0
+			for _, r := range rendered {
+				if dropped < over && r.Kind != widgets.LineContent {
+					dropped++
+					continue
+				}
+				trimmed = append(trimmed, r)
+			}
+			rendered = trimmed
 		}
 	}
-	// Trailing "Custom & Designs" group — never filtered (ADR 0031). idx is now
-	// visibleCatalogCount(), so the Custom row lands on the Custom index.
-	lines = append(lines, "  "+s.theme.Primary.Render("Custom & Designs"))
-	lines = append(lines, s.craftRow(idx, "✎ Custom…  build-your-own  — assemble a stage stack"))
-	idx++
-	for _, d := range s.designs {
-		lines = append(lines, s.craftRow(idx,
-			fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts))))
-		idx++
+	for _, r := range rendered {
+		lines = append(lines, r.Text)
 	}
+	lines = append(lines, tail...)
+
+	return strings.Join(lines, "\n")
+}
+
+// renderTail renders everything Render shows AFTER the (possibly
+// windowed) CRAFT TYPE catalog: the STACK editor when Custom is selected,
+// POSITION, PARENT BODY, ALTITUDE/LAUNCH SITE, DIRECTION, and the footer.
+// Factored out of Render so craftTypeRowsFor can measure its length before
+// the catalog window is sized (#373).
+func (s *SpawnCraft) renderTail(width int) []string {
+	var lines []string
 
 	// v0.10.1+ STACK editor — only when Custom is selected. Shows the
 	// working stack bottom→top, the catalog part-picker, and the
@@ -1129,7 +1226,7 @@ func (s *SpawnCraft) Render(width int) string {
 	lines = append(lines, s.theme.Footer.Render(
 		"[tab] field  [←/→] cycle  [f] system filter  [enter] spawn  [esc] cancel"))
 
-	return strings.Join(lines, "\n")
+	return lines
 }
 
 // bandWarning classifies the focused (parent, altitude) against the
