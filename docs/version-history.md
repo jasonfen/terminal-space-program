@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.40.0
+
+The screen stops lying about space and the planner stops lying about your plan: chips shrink before they vanish, forms keep their cursor on screen, and the maneuver planner gets a Plan Cursor (UX review 2026-09-02, phase 1; #373, #422, #423, #428; PRs `#434`-`#437`; tag `v0.40.0`).
+
+- #423: the F1 overlay no longer lists `q` as quit (it is radial+ in flight), gains the missing `E` row, fixes the `< / >` and `;` rows, and the body-info footer names `h`/`l` instead of two dead keys. A keymap-coverage test pins every `DefaultKeymap` binding to an overlay row.
+- #373: a reusable windowed list keeps the spawn form's CRAFT TYPE cursor, category header and footer on screen at any height (the form is 46-52 rows, taller than any playable terminal); Settings uses the same widget; the VAB footer wraps instead of truncating `[s] save` / `[o] open`.
+- #428: PLANNED NODES is a Plan Cursor (`↑`/`↓`, Enter loads, ctrl+d deletes) and PROJECTED ORBIT always projects the cursor node, never a stale draft; an over-budget node plants with a `⚠ exceeds budget by …` marker; clear-all is ctrl+k only; a QUICK PLANS block lists and fires the one-key planners; `H` with no target refuses out loud; the budget line reads `(N after plan)`.
+- #422: two named terminal sizes, Playable Floor 104×24 (the gate) and Design Size 140×40 (what the game is laid out for; named in the README, the controls guide and the too-small screen). Below the Design Size chips follow Graceful Shrink: Compact Form before drop, one column per side so stacks never overlap, a `▸ +N hidden` stub where a chip does drop, numbers clipped on the right only. Replaces the clamp that painted a force-shown NODES chip over the ORBIT chip.
+- ADR 0046-0048 record the decisions; 104×24 is explicitly out of scope for fidelity. No save-schema change.
+
 ### v0.39.0
 
 Rendezvous becomes a plan you agree to rather than a nudge you repeat: `K` opens a Meeting Planner instead of refusing, `[I]` matches another vessel's plane, and Engage now means "we are going to meet" (#394-#400; PRs `#401`-`#405`, `#408`-`#412`, `#414`-`#415`, `#419`; tag `v0.39.0`).
