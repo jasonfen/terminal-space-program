@@ -635,47 +635,47 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 	if craft.ChuteState == spacecraft.ChuteDeployed {
 		canopy = ComposeCanopy(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
 	}
-	// Plot each pixel as a braille sub-cell dot via PlotColoredAnchored
-	// (#424 follow-up), NOT PlotColored(anchorWorld.Add(p.OffsetWorld),
-	// ...): the latter forms an absolute world point by adding a small
-	// sprite offset onto the vessel's large-magnitude world anchor, then
-	// Project immediately subtracts that same anchor back off — an
-	// IEEE754 round trip that doesn't always recover the offset
-	// bit-for-bit, and when the offset's exact value lands on a sub-pixel
-	// rounding tie (it does, routinely — see PlotColoredAnchored's doc
-	// comment), the residual noise flips math.Round's outcome
-	// independently per row, reproducing the exact "half-lit column"
-	// aliasing #424 reported even with the stack axis bit-exact
-	// vertical. PlotColoredAnchored keeps the anchor and offset separate
-	// through to projection, avoiding the round trip entirely.
+	// Fill each sample as its own vesselSubPixelM x vesselSubPixelM tile
+	// via FillRectAnchored (#424 second follow-up), NOT a single plotted
+	// point (PlotColoredAnchored): ComposeLaunchSprite emits one sample
+	// per vesselSubPixelM (1.5 m) step, but the chase-cam's actual
+	// sub-pixel PITCH at a given zoom has no fixed relationship to that
+	// stride — on the pad the pitch is FINER than 1.5 m, so plotting one
+	// point per sample left every other sub-pixel row dark (a periodic
+	// "half-lit stripe", distinct from the column-tie-flipping bug
+	// PlotColoredAnchored/tieBreakBias fixed first). Adjacent samples are
+	// spaced exactly vesselSubPixelM apart by construction (emitRect
+	// steps col/rowAbove by exactly 1 unit), so filling each as its own
+	// full-stride tile reconstructs the stage's true solid rectangle at
+	// ANY zoom — see FillRectAnchored's doc comment for why adjacent
+	// tiles are guaranteed to abut with no gap and no overlap.
 	//
 	// No SetCellOverlay glyph: braille dots are direction-agnostic, so a
 	// tilted rocket renders smoothly at any pitch — the gravity-turn
 	// smear the v0.11.3 ASCII first-cut produced is gone. ClearCellOverlay
-	// after each plot removes the LUT's body-fixed overlay glyphs in
+	// after each fill removes the LUT's body-fixed overlay glyphs in
 	// cells the rocket occupies, so the braille dots show through at the
 	// pad (otherwise the LUT's SetCellOverlay `║ ╤ █` would mask the
-	// rocket) — cell-granularity, so the anchor round-trip's ~10⁻¹⁰ m
-	// noise can never shift it to the wrong cell; no need to route it
-	// through the anchored path too.
+	// rocket) — cell-granularity, so per-sample floating-point noise can
+	// never shift it to the wrong cell.
 	for _, p := range sprite {
-		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.FillRectAnchored(anchorWorld, p.OffsetWorld, vesselSubPixelM, vesselSubPixelM, p.Color)
 		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range bell {
-		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.FillRectAnchored(anchorWorld, p.OffsetWorld, vesselSubPixelM, vesselSubPixelM, p.Color)
 		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range legs {
-		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.FillRectAnchored(anchorWorld, p.OffsetWorld, vesselSubPixelM, vesselSubPixelM, p.Color)
 		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range flame {
-		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.FillRectAnchored(anchorWorld, p.OffsetWorld, vesselSubPixelM, vesselSubPixelM, p.Color)
 		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	for _, p := range canopy {
-		v.canvas.PlotColoredAnchored(anchorWorld, p.OffsetWorld, p.Color)
+		v.canvas.FillRectAnchored(anchorWorld, p.OffsetWorld, vesselSubPixelM, vesselSubPixelM, p.Color)
 		v.canvas.ClearCellOverlay(anchorWorld.Add(p.OffsetWorld))
 	}
 	return true

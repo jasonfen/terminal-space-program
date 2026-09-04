@@ -1279,6 +1279,78 @@ func (c *Canvas) projectRelBiased(rel orbital.Vec3) (int, int, bool) {
 	return px, py, true
 }
 
+// pixelEdge converts a basis-relative (world-minus-centre, already
+// dotted against one basis axis) coordinate to an integer sub-pixel
+// boundary index, applying the same tieBreakBias-guarded rounding
+// projectRelBiased uses. FillRectAnchored calls this on BOTH edges of
+// BOTH axes of every tile it fills — critically, two tiles that share a
+// real-world boundary (adjacent launch-sprite samples, spaced exactly
+// wM/hM apart by construction) compute that shared boundary by calling
+// pixelEdge on the SAME real-world coordinate, so they get the IDENTICAL
+// pixel index and tile with no gap and no overlap. Rounding each tile's
+// own half-width independently instead (centre ± round(halfWidthPx))
+// would NOT have this property: two separate roundings of two
+// expressions that are mathematically but not bit-for-bit equal can
+// disagree by a pixel, which is exactly the kind of gap this function
+// exists to rule out.
+func pixelEdge(rel, scale float64) int {
+	return int(math.Floor(rel*scale + 0.5 + tieBreakBias))
+}
+
+// FillRectAnchored fills a solid wM×hM (world metres) rectangle centred
+// at anchor+centerOffset, computed directly in the canvas's OWN
+// sub-pixel space at the CURRENT zoom — every sub-pixel the rectangle
+// covers gets lit, not just the ones a fixed-stride sample happens to
+// land on (#424 follow-up). The launch sprite plots one SpritePixel
+// sample per vesselSubPixelM (1.5 m) step; at the pad the chase-cam's
+// actual sub-pixel pitch is FINER than that stride, so plotting each
+// sample as a single point left every other sub-pixel row dark — a
+// periodic "half-lit stripe" distinct from (and found after fixing) the
+// column-tie-flipping bug PlotColoredAnchored/tieBreakBias fixed.
+// Filling each sample as its own full wM×hM tile instead reconstructs
+// the stage's true solid rectangle: adjacent samples are spaced exactly
+// wM/hM apart by construction (emitRect steps col and rowAbove by
+// exactly 1 unit = 1×pxSize), so their tiles EXACTLY ABUT via
+// pixelEdge's shared-boundary property, at any zoom — whether the
+// canvas pitch is coarser or finer than the sample stride.
+//
+// Y is flipped like Project: increasing world-Y (relY, hence increasing
+// centerOffset along basis.Y) moves the tile UP the screen (smaller py).
+// A tile is floored at 1 pixel in each dimension so a sample can never
+// vanish at a zoom where wM/hM would otherwise round to 0 sub-pixels.
+func (c *Canvas) FillRectAnchored(anchor, centerOffset orbital.Vec3, wM, hM float64, color lipgloss.Color) {
+	rel := anchor.Sub(c.centerW).Add(centerOffset)
+	relX := rel.X*c.basis.X.X + rel.Y*c.basis.X.Y + rel.Z*c.basis.X.Z
+	relY := rel.X*c.basis.Y.X + rel.Y*c.basis.Y.Y + rel.Z*c.basis.Y.Z
+
+	pxLeft := pixelEdge(relX-wM/2, c.scale) + c.pxW/2
+	pxRight := pixelEdge(relX+wM/2, c.scale) + c.pxW/2
+	if pxRight <= pxLeft {
+		pxRight = pxLeft + 1
+	}
+	// relY+hM/2 is the TOP of the tile (larger world-Y); Project maps
+	// larger relY to SMALLER py, so the top edge gives the smaller py.
+	pyTop := c.pxH/2 - pixelEdge(relY+hM/2, c.scale)
+	pyBottom := c.pxH/2 - pixelEdge(relY-hM/2, c.scale)
+	if pyBottom <= pyTop {
+		pyBottom = pyTop + 1
+	}
+
+	tag := CellTag{Color: color}
+	for py := pyTop; py < pyBottom; py++ {
+		if py < 0 || py >= c.pxH {
+			continue
+		}
+		for px := pxLeft; px < pxRight; px++ {
+			if px < 0 || px >= c.pxW {
+				continue
+			}
+			c.dc.Set(px, py)
+			c.pixelTags.set(px, py, tag)
+		}
+	}
+}
+
 // SubPixelSet reports whether the raw braille dot at sub-pixel (px, py)
 // is lit — a direct read of the underlying drawille bitmap, bypassing
 // String()'s per-cell color aggregation. Exists for tests that need to
