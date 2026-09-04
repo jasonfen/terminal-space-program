@@ -342,7 +342,10 @@ func DefaultKeymap() Keymap {
 		// kept with no keys so the struct field stays stable; remove
 		// in v0.8 cleanup.
 		QuitAsk:  key.NewBinding(),
-		Help:     key.NewBinding(key.WithKeys("f1"), key.WithHelp("F1", "help")),
+		// #425: `?` is the reflex key everyone tries first, so it opens
+		// the same overlay as F1 everywhere F1 does. Help text stays
+		// "F1" — the overlay itself is what teaches the `?` alias.
+		Help:     key.NewBinding(key.WithKeys("f1", "?"), key.WithHelp("F1", "help")),
 		BodyInfo: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "body info")),
 		Maneuver: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "maneuver")),
 		Missions: key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "missions (ladder)")),
@@ -410,7 +413,9 @@ func DefaultKeymap() Keymap {
 		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
 		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +5° east")),
 		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -5° west")),
-		PitchTrimReset:            key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "reset pitch trim")),
+		// #425: moved off `?` (now the Help alias below) to `|` — "vertical
+		// bar = straight up" is the mnemonic Jason gave for the reset.
+		PitchTrimReset: key.NewBinding(key.WithKeys("|"), key.WithHelp("|", "reset pitch trim")),
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
 		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),

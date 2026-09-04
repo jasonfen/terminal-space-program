@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -355,6 +356,33 @@ const hudNodeMarker = "▸"
 // a recognisable shape; below that, hide the orbit and let the
 // vessel chevron / node markers carry the visual.
 const minOrbitPixels = 6.0
+
+// hintStripText is the Hint Strip (grilled 2026-09-04, #425;
+// CONTEXT.md §"Hint Strip"): the orbit map's fixed legend, painted on
+// the canvas's last row to the right of the "view:" label. Content is
+// fixed — it never rotates, is never phase-gated by Flight School, and
+// never disappears once Flight School is passed or switched off;
+// step-by-step instruction is the Mission chip's job, not this row's.
+const hintStripText = "[F1] help · [t] target · [m] plan · [n] new vessel · [./,] warp · [tab] system"
+
+// hintStripGap is the blank column count between the end of the
+// "view:"-style label and the start of the Hint Strip, so the strip can
+// never visually run into the label even at its longest form
+// ("view: tilted 30°/anchor").
+const hintStripGap = 2
+
+// paintHintStrip stamps the Hint Strip onto the canvas's last row,
+// starting hintStripGap columns after labelRunes (the rune-length of the
+// left-hand label already painted at column 0 on that row) — so it can
+// never overwrite that label. Shared by the map (Render, above) and the
+// Proximity View (orbit_proximity.go's proximityLabel), which paint the
+// same last canvas row with a different left-hand label. Below the
+// Design Size (140×40) it clips on the right via SetCellLabelColored's
+// own out-of-bounds skip — the strip is a legend, not a numeric field,
+// so right-clipping is safe (CONTEXT.md).
+func (v *OrbitView) paintHintStrip(labelRunes int) {
+	v.canvas.SetCellLabelColored(labelRunes+hintStripGap, v.canvas.Rows()-1, hintStripText, v.theme.Dim.GetForeground())
+}
 
 // NewOrbitView constructs the screen with an initially-small canvas; a
 // Resize call from the root model sizes it to the terminal.
@@ -1407,7 +1435,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// so the indicator stays attached to the view it describes (was a
 	// HUD line under FOCUS until v0.7.4 — see orbit.go's renderHUD).
 	// v0.9.6-polish moved it left so it no longer sits under the
-	// bottom-right navball panel.
+	// bottom-right navball panel. It's immediately followed on the same
+	// row by the Hint Strip (paintHintStrip, below).
 	viewLabel := "view: " + w.ViewMode.String()
 	if w.ViewMode == sim.ViewTilted {
 		// v0.10.6+: surface θ in degrees when the player has nudged it
@@ -1437,6 +1466,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.drawInspectFlare()
 
 	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, viewLabel, v.theme.Primary.GetForeground())
+	v.paintHintStrip(utf8.RuneCountInString(viewLabel))
 	// v0.13: the "focus:" indicator moved to the title bar (renderTitleBar)
 	// — the canvas top-left corner is now home to the pinned VESSEL chip,
 	// and "focus: <craft>" was redundant with the chip's vessel name.

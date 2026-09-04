@@ -43,6 +43,10 @@ var unadvertised = map[string]string{
 var unadvertisedAlias = map[string]string{
 	"ZoomIn:=":  "unshifted alias of + on US layouts",
 	"ZoomOut:_": "shifted alias of -",
+	// #425: `?` is the reflex key everyone tries first, so it opens Help
+	// too, but the overlay teaches F1 as the canonical key — the alias
+	// stays undocumented on the row itself.
+	"Help:?": "reflex alias of F1 (#425); the overlay advertises F1 as the canonical key",
 	// CraftSlot binds the nine digits individually; the overlay
 	// advertises them collectively on one "1-9" row.
 	"CraftSlot:1": "covered by the 1-9 row", "CraftSlot:2": "covered by the 1-9 row",

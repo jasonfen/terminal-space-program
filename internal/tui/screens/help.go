@@ -34,10 +34,17 @@ type helpSection struct {
 // helpSections groups every binding into logical sections (player-facing,
 // so no internal version tags). Keep each description short enough to read
 // at ~80 columns; longer rows are ANSI-truncated with an ellipsis.
+//
+// Section ORDER (grilled 2026-09-04, #425): GENERAL, PAUSE MENU,
+// CAMERA & VIEW, TIME & WARP, MANUAL FLIGHT, NAVIGATION, PLAN BURNS,
+// MEETING PLANNER, VESSEL, VEHICLE ASSEMBLY (VAB), SAVES, MULTIPLAYER,
+// MOUSE — puts "how do I fly" (camera, warp, manual flight) right after
+// GENERAL / PAUSE MENU instead of six PgDn presses down behind SAVES and
+// the 13-row MULTIPLAYER section (issue #425 evidence).
 var helpSections = []helpSection{
 	{"GENERAL", [][2]string{
 		{"F1", "toggle this help"},
-		{"esc", "back / close (or save/load/build/settings/controls/quit menu on home)"},
+		{"esc", "back / close (or save/load/build/settings/keyboard layout/help/quit menu on home)"},
 		{"F5 / F9", "quicksave / quickload"},
 		{"ctrl+c", "quit immediately"},
 	}},
@@ -46,13 +53,6 @@ var helpSections = []helpSection{
 	// own rather than a line in GENERAL (#423).
 	{"PAUSE MENU (esc from the map)", [][2]string{
 		{"q", "quit (confirm + autosave) — menu only; in flight q is radial+"},
-	}},
-	{"SAVES (menu → Save / Load Game)", [][2]string{
-		{"↑ / ↓", "move the save cursor"},
-		{"enter", "load-mode: load (confirms) · save-mode: new save / overwrite"},
-		{"d", "delete the highlighted save (confirms)"},
-		{"r", "rename a named save (quicksave / autosaves can't be renamed)"},
-		{"esc", "back to the map"},
 	}},
 	{"CAMERA & VIEW", [][2]string{
 		{"f / F", "cycle camera focus forward / back (system → bodies → vessels; exits spectate)"},
@@ -66,6 +66,30 @@ var helpSections = []helpSection{
 		{"shift+← / shift+→", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
 		{"F2", "declutter — hide chips + navball (core column stays)"},
 	}},
+	{"TIME & WARP", [][2]string{
+		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},
+		{",", "warp down (inert during a rendezvous coast — [/] cancels)"},
+		{"G", "auto-warp to 30 s before the next burn, then 1× (inert during a rendezvous coast)"},
+		{"y", "join a pending rendezvous warp — you fly copilot, they set the pair's warp"},
+		{". / ,", "as rendezvous copilot: release toward following / brake the pair down"},
+		{"/", "cancel warp — drop to 1× (also cancels auto-warp / rendezvous warp)"},
+		{"0", "pause / resume"},
+	}},
+	{"MANUAL FLIGHT", [][2]string{
+		{"z / x", "throttle full / cut"},
+		{"Z / X", "throttle +10% / -10%"},
+		{"w / s", "attitude prograde / retrograde (rcs: pulse-fire)"},
+		{"a / d", "attitude normal+ / normal- (rcs: pulse-fire)"},
+		{"q / e", "attitude radial+ / radial- (rcs: pulse-fire)"},
+		{"W / S", "attitude surface prograde / retrograde (locks to ground)"},
+		{"< / >", "pitch trim 5° west / east off the active mode"},
+		{"|", "reset pitch trim to 0"},
+		{"b", "engage / cut the manual burn (main engine)"},
+		{"r", "engine: main / rcs"},
+		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
+		{"k", "SAS model: slew / instant"},
+		{";", "NavMode cycle: Orbit → Surface → Target (skips Target when none is set)"},
+	}},
 	{"NAVIGATION", [][2]string{
 		{"l", "move the body cursor next (info / porkchop — not [t] target)"},
 		{"h", "move the body cursor previous"},
@@ -75,28 +99,6 @@ var helpSections = []helpSection{
 		{"enter", "inspect: make the highlighted thing your target (esc exits)"},
 		{"M", "missions ladder (program / objective progress)"},
 		{"O", "session roster (multiplayer: players, Δt, invites, sync-to)"},
-	}},
-	{"MULTIPLAYER (session screen — open with O)", [][2]string{
-		{"~", "chat (flight view): type + enter broadcasts; @handle DMs, tab completes; esc bails"},
-		{"t", "target their ghost vessel — 2+ vessels opens a picker ([esc] backs out)"},
-		{"v", "spectate — fit + camera-follow their ghost's orbit ([f] to return)"},
-		{"s", "sync-warp forward to a player ahead of you (forward only)"},
-		{"w", "rendezvous warp — agree to meet them; commits to an encounter when one's found, otherwise arms with no plan yet"},
-		{"RANGE column", "live distance to them; warps lock inside 35 km at under 100 m/s closing"},
-		{"h", "start / stop hosting — accept ssh guests (stop confirms, drops guests)"},
-		{"i / r / x", "host + admins: mint invite / revoke code / remove player"},
-		{"p", "host only: promote the selected player to admin / demote them"},
-		{"F4", "host + admins: restart the server (drains guests, they reconnect)"},
-		{"J", "hand a cross-player stack to the guest (refused if they aren't in the session); from the guest seat, take the stick back when the pilot has gone (map)"},
-	}},
-	{"TIME & WARP", [][2]string{
-		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},
-		{",", "warp down (inert during a rendezvous coast — [/] cancels)"},
-		{"G", "auto-warp to 30 s before the next burn, then 1× (inert during a rendezvous coast)"},
-		{"y", "join a pending rendezvous warp — you fly copilot, they set the pair's warp"},
-		{". / ,", "as rendezvous copilot: release toward following / brake the pair down"},
-		{"/", "cancel warp — drop to 1× (also cancels auto-warp / rendezvous warp)"},
-		{"0", "pause / resume"},
 	}},
 	{"PLAN BURNS", [][2]string{
 		{"m", "open the maneuver planner"},
@@ -120,21 +122,6 @@ var helpSections = []helpSection{
 		{"↑ / ↓", "walk the Lap Ladder"},
 		{"enter", "plant the highlighted row's burn"},
 		{"esc", "close without planting"},
-	}},
-	{"MANUAL FLIGHT", [][2]string{
-		{"z / x", "throttle full / cut"},
-		{"Z / X", "throttle +10% / -10%"},
-		{"w / s", "attitude prograde / retrograde (rcs: pulse-fire)"},
-		{"a / d", "attitude normal+ / normal- (rcs: pulse-fire)"},
-		{"q / e", "attitude radial+ / radial- (rcs: pulse-fire)"},
-		{"W / S", "attitude surface prograde / retrograde (locks to ground)"},
-		{"< / >", "pitch trim 5° west / east off the active mode"},
-		{"?", "reset pitch trim to 0"},
-		{"b", "engage / cut the manual burn (main engine)"},
-		{"r", "engine: main / rcs"},
-		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
-		{"k", "SAS model: slew / instant"},
-		{";", "NavMode cycle: Orbit → Surface → Target (skips Target when none is set)"},
 	}},
 	{"VESSEL", [][2]string{
 		{"n", "open spawn form (loadout / position / parent / altitude / dir)"},
@@ -165,6 +152,26 @@ var helpSections = []helpSection{
 		{"c", "toggle fused decouple (stage drops with the group below)"},
 		{"t", "set a Σ Δv target (a tank row then hints the count to reach it)"},
 		{"s / o", "save the design (name it) / open a saved design"},
+	}},
+	{"SAVES (menu → Save / Load Game)", [][2]string{
+		{"↑ / ↓", "move the save cursor"},
+		{"enter", "load-mode: load (confirms) · save-mode: new save / overwrite"},
+		{"d", "delete the highlighted save (confirms)"},
+		{"r", "rename a named save (quicksave / autosaves can't be renamed)"},
+		{"esc", "back to the map"},
+	}},
+	{"MULTIPLAYER (session screen — open with O)", [][2]string{
+		{"~", "chat (flight view): type + enter broadcasts; @handle DMs, tab completes; esc bails"},
+		{"t", "target their ghost vessel — 2+ vessels opens a picker ([esc] backs out)"},
+		{"v", "spectate — fit + camera-follow their ghost's orbit ([f] to return)"},
+		{"s", "sync-warp forward to a player ahead of you (forward only)"},
+		{"w", "rendezvous warp — agree to meet them; commits to an encounter when one's found, otherwise arms with no plan yet"},
+		{"RANGE column", "live distance to them; warps lock inside 35 km at under 100 m/s closing"},
+		{"h", "start / stop hosting — accept ssh guests (stop confirms, drops guests)"},
+		{"i / r / x", "host + admins: mint invite / revoke code / remove player"},
+		{"p", "host only: promote the selected player to admin / demote them"},
+		{"F4", "host + admins: restart the server (drains guests, they reconnect)"},
+		{"J", "hand a cross-player stack to the guest (refused if they aren't in the session); from the guest seat, take the stick back when the pilot has gone (map)"},
 	}},
 	{"MOUSE", [][2]string{
 		{"click body", "focus that body"},

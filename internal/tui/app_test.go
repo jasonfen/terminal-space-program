@@ -209,6 +209,27 @@ func TestVABOpensFromMenuAndCloses(t *testing.T) {
 	}
 }
 
+// TestMenuHelpRowOpensHelpOverlay (#425): the pause menu's new
+// "[Help (F1)]" row opens the same F1 overlay, resetting scroll to the
+// top like F1/? do.
+func TestMenuHelpRowOpensHelpOverlay(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.menu.Reset()
+	a.active = screenMenu
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if a.active != screenHelp {
+		t.Fatalf("after menu `h`, active = %v, want screenHelp", a.active)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.active != screenOrbit {
+		t.Errorf("after esc from help (opened via menu), active = %v, want screenOrbit", a.active)
+	}
+}
+
 // Clicking the target ± buttons holds BurnTarget / BurnAntiTarget.
 func TestDispatchNavballControlTarget(t *testing.T) {
 	a, err := New(nil)
@@ -396,15 +417,17 @@ func TestYawKeysNudgePhi(t *testing.T) {
 	}
 }
 
-// TestHelpOnF1AndTrimResetOnQuestion locks the v0.16 keybinding move:
-// Help opens on F1 (not `?`), and `?` now resets pitch trim.
-func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {
+// TestQuestionMarkOpensHelpPitchTrimResetOnPipe locks the #425 keybinding
+// move: `?` — the reflex key everyone tries first — now opens the same
+// help overlay F1 does, and does NOT touch pitch trim. Pitch-trim reset
+// moved to `|` ("vertical bar = straight up").
+func TestQuestionMarkOpensHelpPitchTrimResetOnPipe(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
-	// F1 toggles the help overlay.
+	// F1 still toggles the help overlay.
 	a.Update(tea.KeyMsg{Type: tea.KeyF1})
 	if a.active != screenHelp {
 		t.Errorf("F1 did not open help (active=%v)", a.active)
@@ -414,18 +437,31 @@ func TestHelpOnF1AndTrimResetOnQuestion(t *testing.T) {
 		t.Error("second F1 did not close help")
 	}
 
-	// `?` resets pitch trim and does NOT open help.
+	// `?` opens help too, and must NOT touch pitch trim.
 	c := a.world.ActiveCraft()
 	if c == nil {
 		t.Fatal("expected an active craft")
 	}
 	c.PitchTrim = 0.3
 	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if a.active != screenHelp {
+		t.Error("`?` did not open help")
+	}
+	if c.PitchTrim != 0.3 {
+		t.Errorf("`?` touched pitch trim (PitchTrim=%v), want untouched 0.3", c.PitchTrim)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	if a.active == screenHelp {
-		t.Error("`?` opened help; it should reset pitch trim now")
+		t.Error("second `?` did not close help")
+	}
+
+	// `|` resets pitch trim and does NOT open help.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'|'}})
+	if a.active == screenHelp {
+		t.Error("`|` opened help; it should reset pitch trim instead")
 	}
 	if c.PitchTrim != 0 {
-		t.Errorf("`?` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
+		t.Errorf("`|` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
 	}
 }
 

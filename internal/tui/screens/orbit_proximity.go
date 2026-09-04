@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -148,6 +149,11 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 		label += " — " + st.TargetName + "   →+V prograde  ↓" + proximityPrimaryName(w)
 	}
 	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, label, v.theme.Primary.GetForeground())
+	// The Proximity View shares the map's last canvas row for its own
+	// label, so it carries the same Hint Strip (#425), right of whatever
+	// this row's label ended up being (the fixed "view: proximity" form,
+	// or the longer sceneOK form with target name + axis legend).
+	v.paintHintStrip(utf8.RuneCountInString(label))
 
 	canvasStr := v.canvas.String()
 

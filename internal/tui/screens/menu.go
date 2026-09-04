@@ -30,6 +30,7 @@ type Menu struct {
 	vabBtn      buttonRange
 	settingsBtn buttonRange
 	controlsBtn buttonRange
+	helpBtn     buttonRange // #425: "Help (F1)" row, opens the F1 overlay
 	quitBtn     buttonRange
 	yesBtn      buttonRange
 	noBtn       buttonRange
@@ -68,6 +69,7 @@ func (m *Menu) Reset() {
 	m.vabBtn.set = false
 	m.settingsBtn.set = false
 	m.controlsBtn.set = false
+	m.helpBtn.set = false
 	m.quitBtn.set = false
 	m.yesBtn.set = false
 	m.noBtn.set = false
@@ -86,7 +88,8 @@ const (
 	MenuActionLoad
 	MenuActionVAB      // v0.24 / ADR 0029: open the Vehicle Assembly (VAB) screen
 	MenuActionSettings // v0.13: open the per-Chip visibility screen
-	MenuActionControls // ADR 0022: open the keyboard-layout / controls screen
+	MenuActionControls // ADR 0022: open the keyboard-layout screen (labelled "[Keyboard layout]" on the row, #425)
+	MenuActionHelp     // #425: open the F1 help overlay — a real pointer, not just the Controls row's parenthetical
 	MenuActionQuit
 )
 
@@ -109,6 +112,8 @@ func (m *Menu) HandleKey(s string) MenuAction {
 			return MenuActionSettings
 		case "c", "C":
 			return MenuActionControls
+		case "h", "H":
+			return MenuActionHelp
 		case "q", "Q":
 			return MenuActionQuit
 		case "esc":
@@ -157,6 +162,8 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 			return MenuActionSettings
 		case m.controlsBtn.Hit(col, row):
 			return MenuActionControls
+		case m.helpBtn.Hit(col, row):
+			return MenuActionHelp
 		case m.saveBtn.Hit(col, row):
 			// v0.26 (ADR 0033 §F): Save / Load open the Saves screen —
 			// reversible like VAB / Settings, so no click-confirm gate;
@@ -220,6 +227,7 @@ func (m *Menu) Render(width int) string {
 	m.vabBtn.set = false
 	m.settingsBtn.set = false
 	m.controlsBtn.set = false
+	m.helpBtn.set = false
 	m.quitBtn.set = false
 	m.yesBtn.set = false
 	m.noBtn.set = false
@@ -257,7 +265,13 @@ func (m *Menu) renderList(rowOffset int) []string {
 		{"l", "[Load Game]", &m.loadBtn},
 		{"b", "[Build (VAB)]", &m.vabBtn},
 		{"t", "[Settings]", &m.settingsBtn},
-		{"c", "[Controls]", &m.controlsBtn},
+		// #425: renamed from "[Controls]" — that label read like the
+		// keybinding list, but it's only the QWERTY/QWERTZ picker.
+		{"c", "[Keyboard layout]", &m.controlsBtn},
+		// #425: a real pointer to the F1 overlay, the actual keybinding
+		// list — previously the menu's only mention of it was a
+		// parenthetical inside the Controls screen's own prose.
+		{"h", "[Help (F1)]", &m.helpBtn},
 		{"q", "[Quit]", &m.quitBtn},
 	}
 	for i, r := range rows {
@@ -281,7 +295,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/b/t/c/q"))
+	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/b/t/c/h/q"))
 	return lines
 }
 

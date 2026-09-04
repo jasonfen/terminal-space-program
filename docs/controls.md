@@ -19,21 +19,21 @@ behind a one-row `▸ +N hidden` marker rather than overlap each other.
 - [Keyboard layout](#keyboard-layout): QWERTZ support
 - [Keybindings](#keybindings)
   - [Global](#global)
-  - [Time](#time)
   - [Camera and views](#camera-and-views)
+  - [Time](#time)
+  - [Manual flight](#manual-flight)
   - [Targets and the map cursor](#targets-and-the-map-cursor)
   - [Planning burns](#planning-burns)
   - [Vessels, staging, and docking](#vessels-staging-and-docking)
-  - [Manual flight](#manual-flight)
   - [Multiplayer](#multiplayer)
   - [Mouse](#mouse)
 - [Screens](#screens)
   - [Spawn form (`n`)](#spawn-form-n)
-  - [Saves](#saves-esc--save-game--load-game)
   - [Maneuver planner (`m`)](#maneuver-planner-m)
   - [Porkchop plot (`P`)](#porkchop-plot-p)
   - [Meeting Planner (`K`)](#meeting-planner-k)
   - [Vehicle Assembly Building](#vehicle-assembly-building-esc--build-vab)
+  - [Saves](#saves-esc--save-game--load-game)
 
 ## Quick tour
 
@@ -120,7 +120,7 @@ readout shows you why before you watch it fall back.
 ## Keyboard layout
 
 The keys below are written for **QWERTY**. If you play on a **QWERTZ** keyboard
-(where the physical `Y` and `Z` keys are swapped), open `Esc → [Controls]` and
+(where the physical `Y` and `Z` keys are swapped), open `Esc → [Keyboard layout]` and
 switch the layout to QWERTZ. Every binding then stays under the same finger as
 on QWERTY, and the in-game help overlay (`F1`) relabels itself to match your
 keycaps. The choice is saved to your config and applies to every game. AZERTY,
@@ -134,26 +134,13 @@ Dvorak, and free per-key remapping aren't supported yet.
 |---|---|
 | `Esc` | Back; on the main view, open the save / load / build / settings / controls / quit menu |
 | `Ctrl+C` | Quit immediately |
-| `F1` | Toggle the help overlay (scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`) |
+| `F1` or `?` | Toggle the help overlay (scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`). `?` opens the same overlay as `F1` everywhere `F1` does |
 | `F2` | Declutter: hide the corner chips and the navball for a clean look at the orbit. Press again to restore. The telemetry column stays |
 | `` ` `` | **Boss key**: instantly swap the screen for a convincing fake developer shell. Type `exit`, `logout`, or `Ctrl+D` to come back where you left off. Left out of the `F1` overlay on purpose |
 | `Tab` | Switch star system (Sol first, then alphabetical: Alpha Centauri, Kepler-452, Lumen, TRAPPIST-1). A camera toggle only; vessels stay in the system they spawned in |
 | `i` | Body info screen for the body under the map cursor |
-| `M` | Mission ladder: program and objective progress, the active mission's checklist, and locked rungs with what unlocks them. Same as the `[Missions]` button. Missions are **off by default**; enable the Tutorial or Challenge ladder in `[Menu]` → Settings |
+| `M` | Mission ladder: program and objective progress, the active mission's checklist, and locked rungs with what unlocks them. Same as the `[Missions]` button. Flight School (the tutorial) is **on unless switched off**; the Challenge ladder stays opt-in — enable it in `[Menu]` → Settings |
 | `O` | Session roster (multiplayer). See [Multiplayer](#multiplayer) |
-
-### Time
-
-| Key | Action |
-|---|---|
-| `0` | Pause / resume |
-| `.` / `,` | Speed time up / down, to 100,000×. Eases off automatically around a burn |
-| `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. `.` / `,` or the `[»Burn]` button cancels it |
-| `/` | Cancel warp: straight back to 1× from any level, and cancel auto-warp or a rendezvous warp if one is running |
-
-During a multiplayer rendezvous warp the manual warp keys and `G` are inert
-and `/` is the only cancel; in the terminal phase `,` and `.` become the
-copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 
 ### Camera and views
 
@@ -171,6 +158,44 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
 | `Enter` | While inspecting: make the highlighted thing your target and clear the highlight. Works on vessels and other players, not just bodies. Things that can't be a target say so |
 
+### Time
+
+| Key | Action |
+|---|---|
+| `0` | Pause / resume |
+| `.` / `,` | Speed time up / down, to 100,000×. Eases off automatically around a burn |
+| `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. `.` / `,` or the `[»Burn]` button cancels it |
+| `/` | Cancel warp: straight back to 1× from any level, and cancel auto-warp or a rendezvous warp if one is running |
+
+During a multiplayer rendezvous warp the manual warp keys and `G` are inert
+and `/` is the only cancel; in the terminal phase `,` and `.` become the
+copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
+
+### Manual flight
+
+| Key | Action |
+|---|---|
+| `z` / `x` | Throttle to full / cut to zero |
+| `Z` / `X` | Throttle up / down 10% |
+| `b` | Light / cut the main engine (needs throttle above zero) |
+| `w` / `s` | Point prograde / retrograde (with / against your motion) |
+| `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |
+| `q` / `e` | Point radial+ / radial- (away from / toward the body) |
+| `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
+| `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
+| `\|` | Clear the manual tip (pitch trim back to 0) |
+| `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
+| `k` | Steering style: smooth turning (default) or instant snap |
+| `r` | Switch between the main engine and RCS thrusters |
+| `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) |
+
+The pointing keys only aim the vessel; `b` is what fires the engine. In RCS
+mode those same keys also fire one small thruster pulse per press (hold for a
+steady stream). Each pulse is 0.1 m/s by default; `p` steps it down for fine
+work like nulling an orbital period to the second (see the
+[constellation deployment guide](constellation-deploy.md)). The readouts show
+which engine is armed, the pulse size, RCS fuel, and how much Δv it's worth.
+
 ### Targets and the map cursor
 
 Two different things point at bodies. The **target** (`t` / `T`) is what you
@@ -180,7 +205,7 @@ does not affect your travel target.
 
 | Key | Action |
 |---|---|
-| `t` / `T` | Pick / clear your target (other vessels nearby → bodies in the system → none) |
+| `t` / `T` | Pick / clear your target. `t` cycles nearest-first: the moons of whatever you're currently orbiting, then other vessels, then the rest of the system's bodies outward (each followed by its own moons), then none. Your own primary is never offered — from LEO the first press is the Moon; from lunar orbit it's Earth. `T` clears (no reverse cycle) |
 | `l` / `h` | Move the map cursor to the next / previous body |
 
 ### Planning burns
@@ -210,31 +235,6 @@ does not affect your travel target.
 | `J` | Transfer control of a cross-player docked stack to the guest riding in it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
 | `E` | End the flight: remove a crashed vessel after a `y` / `n` confirm |
 | `F5` / `F9` | Quicksave / quickload to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
-
-### Manual flight
-
-| Key | Action |
-|---|---|
-| `z` / `x` | Throttle to full / cut to zero |
-| `Z` / `X` | Throttle up / down 10% |
-| `b` | Light / cut the main engine (needs throttle above zero) |
-| `w` / `s` | Point prograde / retrograde (with / against your motion) |
-| `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |
-| `q` / `e` | Point radial+ / radial- (away from / toward the body) |
-| `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
-| `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
-| `?` | Clear the manual tip (pitch trim back to 0) |
-| `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
-| `k` | Steering style: smooth turning (default) or instant snap |
-| `r` | Switch between the main engine and RCS thrusters |
-| `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) |
-
-The pointing keys only aim the vessel; `b` is what fires the engine. In RCS
-mode those same keys also fire one small thruster pulse per press (hold for a
-steady stream). Each pulse is 0.1 m/s by default; `p` steps it down for fine
-work like nulling an orbital period to the second (see the
-[constellation deployment guide](constellation-deploy.md)). The readouts show
-which engine is armed, the pulse size, RCS fuel, and how much Δv it's worth.
 
 ### Multiplayer
 
@@ -267,8 +267,8 @@ Click only; no dragging, no scroll-to-zoom.
 | Click | Action |
 |---|---|
 | `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`). Shows `[■Burn]` while running, dimmed with no burn planned |
-| `[Menu]` (top-right) | Save / load / settings / controls / quit menu |
-| `[Missions]` (top-right) | Mission ladder (same as `M`). Off by default; enable a program in `[Menu]` → Settings |
+| `[Menu]` (top-right) | Save / load / build / settings / keyboard layout / help / quit menu |
+| `[Missions]` (top-right) | Mission ladder (same as `M`). Flight School is on unless switched off; the Challenge ladder stays opt-in — enable it in `[Menu]` → Settings |
 | A body | Follow it with the camera, and inspect it |
 | A vessel | Follow it with the camera, and inspect it |
 | A planned burn | Open the planner for that burn (fire time kept), and inspect it |
@@ -300,21 +300,6 @@ and direction.
   range with a line saying by how much and why.
 - A body too small to hold any orbit (Phobos, Deimos) still lists as a place
   to land, not to orbit: `Enter` is dead there while POSITION is `orbit`.
-
-### Saves (`Esc → [Save Game]` / `[Load Game]`)
-
-One browser for every save: your named saves plus the managed quicksave
-(`F5`) and the three rotating autosaves, newest first, with when it was
-saved, the in-game date, and the vessel you were flying. `[Save Game]` opens
-it in save mode (with a `＋ New save…` row), `[Load Game]` in load mode.
-
-| Key | Action |
-|---|---|
-| `↑` / `↓` | Move the save cursor (click a row to select it; click again to activate) |
-| `Enter` | Load mode: load the save (asks first). Save mode: `＋ New save…` prompts for a name (prefilled with vessel + in-game day); an existing named save asks to overwrite |
-| `d` | Delete the highlighted save (asks first; works on quicksave and autosaves too) |
-| `r` | Rename a named save. Quicksave and autosave slots are managed and can't be renamed or overwritten by hand |
-| `Esc` | Back |
 
 ### Maneuver planner (`m`)
 
@@ -445,3 +430,18 @@ Designs are stored as portable files under
 `$XDG_CONFIG_HOME/terminal-space-program/designs/` (typically
 `~/.config/terminal-space-program/designs/`); copy one into the sibling
 `loadouts/` overlay dir to share it as a mod.
+
+### Saves (`Esc → [Save Game]` / `[Load Game]`)
+
+One browser for every save: your named saves plus the managed quicksave
+(`F5`) and the three rotating autosaves, newest first, with when it was
+saved, the in-game date, and the vessel you were flying. `[Save Game]` opens
+it in save mode (with a `＋ New save…` row), `[Load Game]` in load mode.
+
+| Key | Action |
+|---|---|
+| `↑` / `↓` | Move the save cursor (click a row to select it; click again to activate) |
+| `Enter` | Load mode: load the save (asks first). Save mode: `＋ New save…` prompts for a name (prefilled with vessel + in-game day); an existing named save asks to overwrite |
+| `d` | Delete the highlighted save (asks first; works on quicksave and autosaves too) |
+| `r` | Rename a named save. Quicksave and autosave slots are managed and can't be renamed or overwritten by hand |
+| `Esc` | Back |

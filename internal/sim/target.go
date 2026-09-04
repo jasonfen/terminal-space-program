@@ -106,18 +106,21 @@ func (w *World) mirrorTargetToActiveCraft() {
 	}
 }
 
-// CycleTarget advances Target through non-active sibling crafts →
-// system bodies (non-root) → None → repeat. Forward=false steps
-// backwards through the same cycle. No-op when no targetable entry
-// exists.
+// CycleTarget advances Target through the nearest-first order
+// targetCycle builds → None → repeat. Forward=false steps backwards
+// through the same cycle; nothing in the tui binds it (#425: no reverse
+// cycle — there's no free obvious key, and `T` already clears). No-op
+// when no targetable entry exists.
 //
-// Cycle order: every non-active craft in the slate first (the small
-// set the player most often wants to target after spawning a sister
-// craft), then bodies in the current system (idx 1 .. n-1, skipping
-// the system primary which has no orbital radius), then TargetNone,
-// then repeat. Sibling-frame restriction is intentionally not
-// enforced on the craft branch so the player can pre-select a target
-// before transferring into its frame.
+// Cycle order (grilled 2026-09-04, #425; CONTEXT.md §"Target Cycle"):
+// none, then the moons of the active Vessel's CURRENT primary, then
+// other Vessels in slate order, then the remaining Bodies outward in
+// catalog order with their own moons right after each — the active
+// Vessel's own primary is skipped entirely (never a useful aim). From
+// LEO the first press is the Moon; from lunar orbit it's Earth.
+// Sibling-frame restriction is intentionally not enforced on the craft
+// branch so the player can pre-select a target before transferring into
+// its frame.
 func (w *World) CycleTarget(forward bool) {
 	cycle := w.targetCycle()
 	if len(cycle) == 0 {
@@ -141,11 +144,58 @@ func (w *World) CycleTarget(forward bool) {
 }
 
 // targetCycle enumerates the valid target slots for the current
-// system + craft slate, in cycle order. Rebuilt each call so a
-// freshly spawned craft or a system swap participates without
+// system + craft slate, in nearest-first cycle order (grilled
+// 2026-09-04, #425; CONTEXT.md §"Target Cycle"): none, then the moons
+// of the active Vessel's current primary, then other Vessels (existing
+// slate order), then the remaining bodies outward in catalog order with
+// their own moons appended right after each. The active Vessel's own
+// primary never appears — it has no orbital radius relative to itself,
+// so it was never a useful aim. Rebuilt each call so a freshly spawned
+// craft, a system swap, or an SOI transition participates without
 // requiring a cache invalidation.
 func (w *World) targetCycle() []Target {
 	cycle := []Target{{Kind: TargetNone}}
+	sys := w.System()
+	if len(sys.Bodies) == 0 {
+		return cycle
+	}
+
+	activePrimaryIdx := -1
+	if ac := w.ActiveCraft(); ac != nil {
+		activePrimaryIdx, _ = bodyIndexByID(&sys, ac.Primary.ID)
+	}
+
+	// isChildOf reports whether body bi's gravitational parent is body
+	// pi, honouring System.ParentOf's convention that an empty ParentID
+	// means "orbits the system primary" (index 0) rather than literally
+	// matching an empty string.
+	isChildOf := func(bi, pi int) bool {
+		b := sys.Bodies[bi]
+		if b.ParentID != "" {
+			return sys.Bodies[pi].ID == b.ParentID
+		}
+		return pi == 0
+	}
+
+	added := make(map[int]bool, len(sys.Bodies))
+
+	// 1. Moons of the active Vessel's CURRENT primary — nearest first,
+	// in catalog order. Never includes the primary itself (index
+	// activePrimaryIdx) or the system primary (index 0, which has no
+	// orbital radius and is never a valid target).
+	if activePrimaryIdx >= 0 {
+		for i := range sys.Bodies {
+			if i == 0 || i == activePrimaryIdx {
+				continue
+			}
+			if isChildOf(i, activePrimaryIdx) {
+				cycle = append(cycle, Target{Kind: TargetBody, BodyIdx: i})
+				added[i] = true
+			}
+		}
+	}
+
+	// 2. Other Vessels, existing slate order.
 	for i, c := range w.Crafts {
 		if c == nil || i == w.ActiveCraftIdx {
 			continue
@@ -153,10 +203,80 @@ func (w *World) targetCycle() []Target {
 		w.stampCraftID(c)
 		cycle = append(cycle, Target{Kind: TargetCraft, CraftID: c.ID})
 	}
-	for i := 1; i < len(w.System().Bodies); i++ {
-		cycle = append(cycle, Target{Kind: TargetBody, BodyIdx: i})
+
+	// 3. Remaining bodies OUTWARD from wherever the active Vessel
+	// actually is, each immediately followed by its own moons — even
+	// though the catalog itself lists every moon after every top-level
+	// body, not interleaved.
+	//
+	// "Outward" is anchored, not a fixed global start: it begins at the
+	// top-level ancestor of the active primary (that's the primary
+	// itself when it's already top-level — LEO's Earth — or the parent
+	// it orbits when it's a moon — lunar orbit's Earth again, one level
+	// up), then walks the rest of the top-level bodies in catalog order,
+	// wrapping around to catch anything "behind" (closer to the system
+	// primary) last. Without this anchor, "from lunar orbit it is
+	// Earth" (CONTEXT.md) would be impossible — a fixed catalog-order
+	// walk starting at Mercury would visit Mercury and Venus before
+	// Earth even though both are farther from where the player actually
+	// is. When the active primary IS the top-level anchor (LEO), that
+	// anchor is the skipped own-primary, so the walk starts right after
+	// it instead of at it.
+	var topLevel []int
+	for i := 1; i < len(sys.Bodies); i++ {
+		if sys.Bodies[i].ParentID == "" {
+			topLevel = append(topLevel, i)
+		}
+	}
+	startPos := 0
+	if activePrimaryIdx > 0 {
+		anchorIdx := activePrimaryIdx
+		for sys.Bodies[anchorIdx].ParentID != "" {
+			pid, ok := bodyIndexByID(&sys, sys.Bodies[anchorIdx].ParentID)
+			if !ok {
+				break
+			}
+			anchorIdx = pid
+		}
+		for pos, idx := range topLevel {
+			if idx != anchorIdx {
+				continue
+			}
+			startPos = pos
+			if anchorIdx == activePrimaryIdx && len(topLevel) > 0 {
+				startPos = (pos + 1) % len(topLevel)
+			}
+			break
+		}
+	}
+	for k := 0; k < len(topLevel); k++ {
+		i := topLevel[(startPos+k)%len(topLevel)]
+		if i != activePrimaryIdx && !added[i] {
+			cycle = append(cycle, Target{Kind: TargetBody, BodyIdx: i})
+			added[i] = true
+		}
+		for j := range sys.Bodies {
+			if j == activePrimaryIdx || added[j] {
+				continue
+			}
+			if isChildOf(j, i) {
+				cycle = append(cycle, Target{Kind: TargetBody, BodyIdx: j})
+				added[j] = true
+			}
+		}
 	}
 	return cycle
+}
+
+// bodyIndexByID returns the index of the body with the given catalog ID
+// in sys.Bodies, or ok=false if none matches.
+func bodyIndexByID(sys *bodies.System, id string) (int, bool) {
+	for i, b := range sys.Bodies {
+		if b.ID == id {
+			return i, true
+		}
+	}
+	return -1, false
 }
 
 // TargetState resolves the current target to its inertial state in

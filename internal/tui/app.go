@@ -229,8 +229,9 @@ func New(scenario *sim.StartScenario) (*App, error) {
 	// screen, so they're dropped here on the rehydrating load.
 	prefs, _ := settings.Load()
 	orbitView.SetSettings(prefs)
-	// Gate the seeded mission programs by the persisted toggles (both default
-	// off — a fresh sandbox shows no missions until opted in). v0.21 Slice 7.
+	// Gate the seeded mission programs by the persisted toggles: Flight
+	// School is on unless explicitly switched off (#425), the Challenge
+	// ladder stays opt-in. v0.21 Slice 7.
 	w.SetEnabledMissionPrograms(enabledProgramsFromSettings(prefs))
 	return &App{
 		world:      w,
@@ -1981,6 +1982,14 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.controls.Reset()
 		a.active = screenControls
 		return a, nil
+	case screens.MenuActionHelp:
+		// #425: the menu's own real pointer to the keybinding list.
+		// Mirrors exactly what F1/? do — reset scroll so it always
+		// opens at the top, no guest restriction (help is read-only,
+		// unlike Settings/Controls which write the host's settings.json).
+		a.help.ResetScroll()
+		a.active = screenHelp
+		return a, nil
 	case screens.MenuActionVAB:
 		// Open the Vehicle Assembly builder with the live component catalog
 		// (embedded + user overlay). Reversible, so no confirm gate.
@@ -2583,11 +2592,11 @@ func (a *App) toggleChip(c settings.Chip) {
 // enabledProgramsFromSettings maps the persisted Tutorial/Challenges toggles
 // to the set of active mission-program names the World evaluator gates on
 // (ADR 0025 §2 / v0.21 Slice 7). Always returns a non-nil map so the World's
-// nil-default ("all enabled") is overridden — missions stay off until the
-// player opts in.
+// nil-default ("all enabled") is overridden. Flight School is on unless
+// explicitly switched off (#425); the Challenge ladder stays opt-in.
 func enabledProgramsFromSettings(s settings.Settings) map[string]bool {
 	enabled := map[string]bool{}
-	if s.TutorialEnabled {
+	if s.TutorialOn() {
 		enabled[missions.ProgramTutorial] = true
 	}
 	if s.ChallengesEnabled {
@@ -2599,11 +2608,12 @@ func enabledProgramsFromSettings(s settings.Settings) map[string]bool {
 // toggleMissionProgram flips one gameplay program toggle (tutorial when true,
 // challenges when false), re-pushes the active-program set to the World, and
 // persists settings.json — mirroring toggleChip's persist-on-change. v0.21
-// Slice 7 (ADR 0025 §2).
+// Slice 7 (ADR 0025 §2). Flipping tutorial always records an explicit choice
+// (SetTutorialEnabled), which is the only thing that can silence it (#425).
 func (a *App) toggleMissionProgram(tutorial bool) {
 	s := a.orbitView.Settings()
 	if tutorial {
-		s.TutorialEnabled = !s.TutorialEnabled
+		s.SetTutorialEnabled(!s.TutorialOn())
 	} else {
 		s.ChallengesEnabled = !s.ChallengesEnabled
 	}

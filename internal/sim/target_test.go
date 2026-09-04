@@ -68,71 +68,177 @@ func TestSetTargetCraftRejectsActiveAndOutOfRange(t *testing.T) {
 	}
 }
 
-// CycleTarget walks: None → (no sibling crafts in NewWorld's solo
-// slate) → body 1 → … → body n-1 → None. Verify forward pass lands
-// at every non-root body in order before wrapping.
-func TestCycleTargetForwardWalksBodiesThenNone(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	nBodies := len(w.System().Bodies)
-	if nBodies < 2 {
-		t.Skip("system with too few bodies for a meaningful cycle")
-	}
-	// Start from None.
-	w.ClearTarget()
-	for i := 1; i < nBodies; i++ {
-		w.CycleTarget(true)
-		if w.Target.Kind != TargetBody || w.Target.BodyIdx != i {
-			t.Errorf("step body %d: got %+v, want {TargetBody, %d}", i, w.Target, i)
+// bodyIdxForTest resolves a body ID to its index within w's current
+// system, failing the test if the catalog doesn't carry it.
+func bodyIdxForTest(t *testing.T, w *World, id string) int {
+	t.Helper()
+	sys := w.System()
+	for i, b := range sys.Bodies {
+		if b.ID == id {
+			return i
 		}
 	}
-	// One more cycle wraps back to None (NewWorld spawns a single
-	// craft, so the slate has no sibling craft to insert before
-	// wrapping).
-	w.CycleTarget(true)
-	if w.Target.Kind != TargetNone {
-		t.Errorf("after wrap: got %+v, want TargetNone", w.Target)
-	}
+	t.Fatalf("body %q not found in current system", id)
+	return -1
 }
 
-func TestCycleTargetBackwardFromNoneLandsOnLastEntry(t *testing.T) {
+// TestTargetCycleFromLEOMoonFirstThenOtherVessel pins the nearest-first
+// order (grilled 2026-09-04, #425; CONTEXT.md §"Target Cycle") from the
+// most common starting point: LEO, Earth primary. With one other vessel
+// in the slate, the first `t` press must be the Moon (Earth's only moon
+// — nearest first) and the second must be the other vessel, since
+// moons-of-primary precede other Vessels in the order.
+func TestTargetCycleFromLEOMoonFirstThenOtherVessel(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	w.ClearTarget()
-	w.CycleTarget(false)
-	// Backward from None lands on the last entry of the cycle.
-	// NewWorld has a single craft, so the last entry is the highest-
-	// index body.
-	nBodies := len(w.System().Bodies)
-	if w.Target.Kind != TargetBody || w.Target.BodyIdx != nBodies-1 {
-		t.Errorf("backward from None: got %+v, want {TargetBody, %d}", w.Target, nBodies-1)
+	c := w.ActiveCraft()
+	if c == nil || c.Primary.ID != "earth" {
+		t.Fatalf("expected the starter craft's primary to be earth, got %+v", c)
 	}
-}
+	moonIdx := bodyIdxForTest(t, w, "moon")
 
-// CycleTarget should include every non-active craft in the slate
-// AND visit them BEFORE any system body (the small list comes first
-// so spawn-then-target lands in one keypress on Sol's 19-body
-// catalog). Spawn an alongside sister craft and assert the very
-// first cycle from None is a TargetCraft entry.
-func TestCycleTargetIncludesSiblingCrafts(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
 	if _, err := w.SpawnCraft(SpawnSpec{Alongside: true}); err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
-	// SpawnCraft makes the new craft active — original at idx 0,
-	// new at idx 1, ActiveCraftIdx==1. First forward cycle from None
-	// must land on TargetCraft idx 0 (crafts before bodies).
+	// SpawnCraft makes the new craft active (idx 1); switch back to the
+	// original LEO craft (idx 0) so its own primary (Earth) governs the
+	// cycle, with the spawned craft as the "other vessel".
+	w.SetActiveCraftIdx(0)
+	w.ClearTarget()
+
+	w.CycleTarget(true)
+	if w.Target.Kind != TargetBody || w.Target.BodyIdx != moonIdx {
+		t.Errorf("first `t` from LEO: got %+v, want the Moon (idx %d)", w.Target, moonIdx)
+	}
+	w.CycleTarget(true)
+	if w.Target.Kind != TargetCraft || w.Target.CraftID != w.Crafts[1].ID {
+		t.Errorf("second `t` from LEO: got %+v, want the other vessel (ID %d)", w.Target, w.Crafts[1].ID)
+	}
+}
+
+// TestTargetCycleFromLunarOrbitFirstIsEarth: from lunar orbit (primary =
+// the Moon), Earth has no other moons, so the first press skips straight
+// to the "remaining bodies" section — and since Earth is the Moon's own
+// parent and a top-level body, it's the very first entry there.
+func TestTargetCycleFromLunarOrbitFirstIsEarth(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.Primary = bodyForTest(t, w, "moon")
+	earthIdx := bodyIdxForTest(t, w, "earth")
+
 	w.ClearTarget()
 	w.CycleTarget(true)
-	if w.Target.Kind != TargetCraft || w.Target.CraftID != w.Crafts[0].ID {
-		t.Errorf("first CycleTarget after spawn: got %+v, want craft idx 0 (ID %d; crafts must come before bodies)", w.Target, w.Crafts[0].ID)
+	if w.Target.Kind != TargetBody || w.Target.BodyIdx != earthIdx {
+		t.Errorf("first `t` from lunar orbit: got %+v, want Earth (idx %d)", w.Target, earthIdx)
+	}
+}
+
+// TestTargetCycleNeverTargetsOwnPrimary: the active Vessel's own primary
+// must never appear anywhere in the cycle — from lunar orbit, the Moon
+// itself is skipped entirely.
+func TestTargetCycleNeverTargetsOwnPrimary(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.Primary = bodyForTest(t, w, "moon")
+	moonIdx := bodyIdxForTest(t, w, "moon")
+
+	w.ClearTarget()
+	seen := map[Target]bool{{Kind: TargetNone}: true}
+	for i := 0; i < len(w.System().Bodies)+len(w.Crafts)+2; i++ {
+		w.CycleTarget(true)
+		if seen[w.Target] {
+			break // wrapped back to an already-seen entry
+		}
+		seen[w.Target] = true
+		if w.Target.Kind == TargetBody && w.Target.BodyIdx == moonIdx {
+			t.Fatalf("own primary (the Moon) appeared in the cycle: %+v", w.Target)
+		}
+	}
+}
+
+// TestTargetCycleLumenSystemMoonsFirst: the rule holds outside Sol too.
+// Kern (Lumen system) carries two moons, cursor and glyph; from a craft
+// parked in orbit of Kern itself, the first two `t` presses must be
+// those moons (nearest first), exactly as the Moon is first from Earth
+// orbit in Sol.
+func TestTargetCycleLumenSystemMoonsFirst(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	lumenIdx := -1
+	for i, sys := range w.Systems {
+		if sys.FindBody("kern") != nil {
+			lumenIdx = i
+		}
+	}
+	if lumenIdx < 0 {
+		t.Skip("no system carries kern (Lumen catalog absent)")
+	}
+	w.SystemIdx = lumenIdx
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.SystemIdx = lumenIdx
+	c.Primary = bodyForTest(t, w, "kern")
+
+	cursorIdx := bodyIdxForTest(t, w, "cursor")
+	glyphIdx := bodyIdxForTest(t, w, "glyph")
+
+	w.ClearTarget()
+	w.CycleTarget(true)
+	if w.Target.Kind != TargetBody || w.Target.BodyIdx != cursorIdx {
+		t.Errorf("first `t` from Kern orbit: got %+v, want cursor (idx %d)", w.Target, cursorIdx)
+	}
+	w.CycleTarget(true)
+	if w.Target.Kind != TargetBody || w.Target.BodyIdx != glyphIdx {
+		t.Errorf("second `t` from Kern orbit: got %+v, want glyph (idx %d)", w.Target, glyphIdx)
+	}
+}
+
+// TestTargetCycleSurvivesPrimaryChange: the bound Target itself must
+// never jump when the active Vessel's primary changes (an SOI
+// transition) — only the CYCLE ORDER re-derives. CycleTarget finds the
+// current index by matching the Target value, not a stored index, so a
+// bound Target that's still present in the (re-ordered) cycle stays put.
+func TestTargetCycleSurvivesPrimaryChange(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	marsIdx := bodyIdxForTest(t, w, "mars")
+	w.SetTargetBody(marsIdx)
+	before := w.Target
+
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.Primary = bodyForTest(t, w, "moon") // simulate an SOI transition
+
+	if w.Target != before {
+		t.Errorf("Target changed on primary change alone: got %+v, want unchanged %+v", w.Target, before)
+	}
+	// A subsequent cycle should still find it by value and step from
+	// there, not treat it as vanished.
+	w.CycleTarget(true)
+	if w.Target == before {
+		t.Errorf("CycleTarget did not advance past the pre-existing bound target")
 	}
 }
 

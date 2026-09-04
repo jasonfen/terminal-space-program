@@ -152,21 +152,53 @@ func TestKeyboardLayoutRoundTrips(t *testing.T) {
 	}
 }
 
-func TestMissionProgramsDefaultOff(t *testing.T) {
-	// A fresh sandbox shows no missions until the player opts in (v0.21 Slice 7).
+func TestTutorialDefaultsOnChallengesDefaultOff(t *testing.T) {
+	// Flight School is on unless switched off; the Challenge ladder stays
+	// opt-in (grilled 2026-09-04, #425).
 	s := Default()
-	if s.TutorialEnabled || s.ChallengesEnabled {
-		t.Errorf("mission programs should default OFF, got tutorial=%v challenges=%v",
-			s.TutorialEnabled, s.ChallengesEnabled)
+	if !s.TutorialOn() {
+		t.Error("Tutorial should default ON (never-decided reads as on)")
+	}
+	if s.ChallengesEnabled {
+		t.Error("Challenges should default OFF")
 	}
 }
 
-func TestMissionProgramTogglesRoundTrip(t *testing.T) {
+func TestLoadMissingFileYieldsTutorialOn(t *testing.T) {
+	// An absent settings.json — the fresh-install case — must read as
+	// Flight School on, not just Default() in memory.
+	withConfigRoot(t, "")
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if !got.TutorialOn() {
+		t.Error("Load() with no file: Tutorial should read ON")
+	}
+}
+
+func TestLegacyTutorialEnabledTrueStillOn(t *testing.T) {
+	// A pre-#425 on-disk file that explicitly recorded true (possible if
+	// hand-edited, or from a build where the field briefly round-tripped
+	// true) must still read on under the new pointer representation.
+	withConfigRoot(t, `{"tutorialEnabled": true}`)
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if !got.TutorialOn() {
+		t.Error("legacy tutorialEnabled:true should still read ON")
+	}
+}
+
+func TestExplicitTutorialOffPersistsAcrossRestart(t *testing.T) {
+	// The ONLY thing that silences Flight School: an explicit off chosen
+	// in the Settings screen, and it must survive a reload.
 	withConfigRoot(t, "")
 
 	s := Default()
-	s.TutorialEnabled = true // enable one, leave the other off
-	s.SetChip(ChipNodes, false)
+	s.SetTutorialEnabled(false)
+	s.SetChip(ChipNodes, false) // co-persisted, mirrors prior test's shape
 	if err := Save(s); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -174,14 +206,31 @@ func TestMissionProgramTogglesRoundTrip(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Fatalf("warnings = %v, want none", warnings)
 	}
-	if !got.TutorialEnabled {
-		t.Error("TutorialEnabled lost across round-trip")
+	if got.TutorialOn() {
+		t.Error("explicit Tutorial off did not persist across round-trip")
 	}
 	if got.ChallengesEnabled {
 		t.Error("ChallengesEnabled flipped on across round-trip")
 	}
 	if got.ChipEnabled(ChipNodes) {
 		t.Error("chip override lost when mission toggle co-persisted")
+	}
+}
+
+func TestExplicitTutorialOnRoundTrips(t *testing.T) {
+	withConfigRoot(t, "")
+
+	s := Default()
+	s.SetTutorialEnabled(true)
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if !got.TutorialOn() {
+		t.Error("explicit Tutorial on lost across round-trip")
 	}
 }
 
