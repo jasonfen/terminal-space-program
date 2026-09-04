@@ -62,6 +62,11 @@ transfer with inclination change, or fly it all by hand. `F1` shows every key
 in-game. See the **[controls & flight guide](docs/controls.md)** for a tour, a
 launch walkthrough, and the full key list.
 
+**Terminal size:** the game is designed for a 140×40 terminal. It runs down
+to a hard floor of 104×24 — below that it shows a "terminal too small"
+screen — but between the two, HUD chips shrink to a compact form and, at
+worst, collapse behind a `▸ +N hidden` marker rather than overlap.
+
 ## Install
 
 ### Homebrew (macOS / Linux)

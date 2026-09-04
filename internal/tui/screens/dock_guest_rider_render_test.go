@@ -111,9 +111,18 @@ func TestDockGuestRenderAt80x24IncludesDockedBlock(t *testing.T) {
 	out := v.Render(w, 0, 80, 24)
 	t.Logf("=== DockGuest render at 80x24 ===\n%s", out)
 
-	for _, want := range []string{"DOCKED", "riding in bob's stack", "[J] request control", "[U] ask to undock"} {
+	// ADR 0046 (#422): DOCKED is chipPriorityForced, so at this size it
+	// may shrink to its Compact Form ("[J] control · [U] undock" on one
+	// row) rather than the Full Form's two separate key rows — either is
+	// fine, since Graceful Shrink never drops it whole; what must never
+	// happen again is the #328 silent clip. Accept either wording as
+	// long as both exit keys are legible somewhere in the frame.
+	for _, want := range []string{"DOCKED", "riding in bob's stack"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("80x24 render missing %q — the rider's only route to [J]/[U] was clipped off-canvas", want)
 		}
+	}
+	if !strings.Contains(out, "[J]") || !strings.Contains(out, "[U]") {
+		t.Errorf("80x24 render missing the [J]/[U] exit keys entirely:\n%s", out)
 	}
 }

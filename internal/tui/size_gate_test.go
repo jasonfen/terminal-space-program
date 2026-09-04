@@ -35,6 +35,12 @@ func TestSizeGateEnterExit(t *testing.T) {
 	if !strings.Contains(out, "104×24") {
 		t.Errorf("gate prompt should name the required floor, got:\n%s", out)
 	}
+	// ADR 0046 / #422: the too-small screen also names the Design Size —
+	// the size the game is actually laid out and reviewed at, distinct
+	// from the bare render-or-refuse floor above.
+	if !strings.Contains(out, "140×40") {
+		t.Errorf("gate prompt should name the Design Size (140×40), got:\n%s", out)
+	}
 
 	// One row under: gated too.
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: screens.MinTerminalHeight - 1})

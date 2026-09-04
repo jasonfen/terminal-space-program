@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -123,5 +125,52 @@ func TestBuildMissionsChipReadsWorld(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(chip, "\n"), "Reach Orbit") {
 		t.Errorf("chip did not read the active mission name:\n%s", strings.Join(chip, "\n"))
+	}
+}
+
+// TestMissionChipHintWrapsInsteadOfWideningTheBox (ADR 0046 / #422): a
+// long tutorial hint ("Warp to your burn ([G]) or fire manually ([b])…",
+// 87 columns in the 2026-09-02 UX review's gameplay-flow-progression-09
+// dump) used to size the whole chip to its longest line and overdraw the
+// navball beside it at 120 columns. The hint must wrap at
+// missionChipWrapWidth instead of setting the box's width, in both the
+// Full form and the Compact Form.
+func TestMissionChipHintWrapsInsteadOfWideningTheBox(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	longHint := "Warp to your burn ([G]) or fire it manually ([b]) once the countdown reaches zero and the node is armed."
+	m := &missions.Mission{
+		ID:      "tut",
+		Name:    "Flight School",
+		Program: missions.ProgramTutorial,
+		Objectives: []missions.Objective{{
+			Kind:        missions.KindEvent,
+			Name:        "Plan a Burn",
+			Description: longHint,
+		}},
+	}
+
+	full := v.missionChipLines("", false, m)
+	for _, l := range full {
+		if w := lipgloss.Width(l); w > missionChipWrapWidth+4 { // +4 for the "    " hint indent
+			t.Errorf("full-form line exceeds the wrap width (%d): %q (%d cols)", missionChipWrapWidth, l, w)
+		}
+	}
+	if len(full) < 3 {
+		t.Fatalf("full form should wrap the long hint across multiple rows, got %d lines:\n%s", len(full), strings.Join(full, "\n"))
+	}
+
+	compact := v.missionChipLinesCompact("", false, m)
+	for _, l := range compact {
+		if w := lipgloss.Width(l); w > missionChipWrapWidth+4 {
+			t.Errorf("compact-form line exceeds the wrap width (%d): %q (%d cols)", missionChipWrapWidth, l, w)
+		}
+	}
+	// Compact keeps objective + ONE wrapped hint line, not the hint's full
+	// multi-line text.
+	if len(compact) != 3 {
+		t.Errorf("compact form = %d lines, want 3 (header + objective + one hint row):\n%s", len(compact), strings.Join(compact, "\n"))
+	}
+	if !strings.Contains(compact[len(compact)-1], "…") {
+		t.Errorf("compact hint row should end with an ellipsis when the hint needed more than one wrapped line:\n%s", strings.Join(compact, "\n"))
 	}
 }

@@ -5,6 +5,13 @@ How to fly the thing, then every key grouped by what it does. The in-game
 more explanation. Multiplayer has its own guide in
 [multiplayer.md](multiplayer.md).
 
+**Terminal size:** the game is designed for a 140×40 terminal — that's the
+size every screen is laid out and reviewed at. It runs down to a hard floor
+of 104×24 (below that it refuses to render and shows a "terminal too small"
+screen instead); between the floor and the design size, HUD chips shrink to
+a compact form and, if a side of the screen still can't fit, collapse
+behind a one-row `▸ +N hidden` marker rather than overlap each other.
+
 **Contents**
 
 - [Quick tour](#quick-tour): your first trip to the Moon

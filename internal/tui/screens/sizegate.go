@@ -11,9 +11,28 @@ import (
 // scrolls the terminal. Height 24 keeps the canvas + HUD readable and
 // matches the classic terminal minimum. Shared by local play and ssh
 // sessions — the gate in App.View replaces rendering below this floor.
+//
+// This is the **Playable Floor** (CONTEXT.md "HUD & overlays" / ADR
+// 0046): the hard render gate, unchanged by #422. It is distinct from
+// the **Design Size** below, the size every screen is actually laid out
+// and golden-tested at — a screen looking wrong AT OR ABOVE the Design
+// Size is a bug, while between the two the contract is Graceful Shrink
+// (see orbit_chips.go's layoutChipsBySide).
 const (
 	MinTerminalWidth  = 104
 	MinTerminalHeight = 24
+)
+
+// DesignWidth / DesignHeight are the **Design Size** (ADR 0046, #422):
+// the size every screen is laid out, reviewed, and golden-tested at, and
+// the size README.md / docs/controls.md and the too-small screen below
+// tell players to use. Anything wrong at or above this size is a bug;
+// below it down to the Playable Floor, chips are expected to shrink
+// (Compact Form) and, at worst, drop behind a Hidden Stub rather than
+// overlap — see CONTEXT.md's "Graceful Shrink" / "Compact Form" entries.
+const (
+	DesignWidth  = 140
+	DesignHeight = 40
 )
 
 // RenderSizeGate is the blocking too-small screen. Deliberately
@@ -25,6 +44,7 @@ func RenderSizeGate(w, h int) string {
 		"TERMINAL TOO SMALL",
 		"",
 		fmt.Sprintf("now %d×%d — need at least %d×%d", w, h, MinTerminalWidth, MinTerminalHeight),
+		fmt.Sprintf("designed for %d×%d — chips compact gracefully below it", DesignWidth, DesignHeight),
 		"",
 		"resize the window to keep flying",
 	}
