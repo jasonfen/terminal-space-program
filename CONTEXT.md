@@ -577,7 +577,16 @@ stores its own Target (`TargetNone` / `TargetBody` / `TargetCraft` /
 `TargetSite`), so per-Vessel target binding persists across active-Vessel
 switches. `TargetNone` is the zero value and means consumers fall back to
 their kind-less defaults.
-_Avoid_: Aim, Lock, Selection.
+
+**Target Cycle** (grilled 2026-09-04, #425): the order `t` walks. **Nearest
+first**: none, then the moons of the Vessel's current Primary, then other
+Vessels, then the remaining Bodies outward in catalog order with their
+moons after them; the Vessel's own Primary is skipped (it is never a
+useful aim). From LEO the first press is the Moon; from lunar orbit it is
+Earth. The order re-derives when the Primary changes, but the bound
+Target itself never jumps on an SOI change. There is no reverse cycle.
+_Avoid_: Aim, Lock, Selection, Catalog order (the pre-#425 cycle, which
+put Mercury first from LEO and made the Moon the ninth press).
 
 **NavMode**:
 The orientation the navball displays directions in. Three values:
@@ -2429,8 +2438,15 @@ carries a `Program` tag (**tutorial**, **challenge**) plus `Requires` /
 `Unlocks` edges to other Missions, so the tutorial and any campaign are
 both gated Mission chains. `Requires` gates *evaluation*, not just display:
 a Mission whose prerequisites haven't Passed is skipped by the evaluator,
-so a later rung can't latch out of order. Each Program is opt-in — off by
-default, toggled in Settings.
+so a later rung can't latch out of order. Each Program is toggled in
+Settings. **Flight School** (the tutorial Program's player-facing name)
+is **on unless switched off** (grilled 2026-09-04, #425): a player who has
+never made a choice about it, on a fresh install *or* an existing one,
+sees it; only an explicit off in Settings silences it, and that choice
+persists. The **Challenge ladder** stays opt-in. The tutorial is meant to
+advertise itself as a feature, not wait to be found.
+_Avoid_: Default-off tutorial, "enable the tutorial" (it is already on),
+Campaign (see Named save).
 
 **Action**:
 A semantic gameplay verb the player triggers (e.g. `open_maneuver`,
@@ -2443,15 +2459,42 @@ bindings are excluded.
 
 **Player surface**:
 The missions screen (`M`, or the `[Missions]` button) is a gated **ladder**
-— the active Mission as a checklist card on top, locked rungs shown with
-what unlocks them, completed / failed rungs marked. An in-flight
+— the active Mission as a checklist card on top, then the remaining rungs
+as **two headed lists**, FLIGHT SCHOOL and CHALLENGES, each with its own
+N/M count (grilled 2026-09-04, #426; one interleaved list before). An
+**available rung** (unlocked, not yet the active one) reads bright; a
+**locked rung** reads dim with what unlocks it; completed / failed rungs
+are marked. The active rung is always the first unlocked one; choosing or
+abandoning a rung is deferred (needs persisted state). An in-flight
 **checklist chip** (ADR 0010) shows the active Mission's current Objective
 plus N/M progress, flashes a Failed Mission for ~4 s before advancing, and
-surfaces the step's instruction inline for tutorial Missions.
+surfaces the step's instruction inline for tutorial Missions; a countable
+Objective (relay coverage) shows its live count there ("relays online
+1/3"). When both Programs are off, the screen offers the one-key toggles
+rather than pointing at Settings.
 _Avoid_: Quest, Achievement; and don't swap the two core terms — the
 inversion is load-bearing (an Objective is one predicate; a Mission bundles
 several ordered Objectives). The pre-v0.21 naming, where a single predicate
 was itself called a "Mission," is retired.
+
+**Flight School** (grilled 2026-09-04, #426):
+The tutorial Program as the player meets it: five rungs, in order
+*Orientation* (cycle the view; bind the **Moon** as Target, not just any
+Target), *Plan a Burn* (open the planner; plant a transfer **to the Moon
+that the Vessel can afford**, the ADR 0047 consequence: an over-budget
+plan is allowed but earns no credit), *Fly It* (warp to or fire the burn,
+climb above 700 km), *Off the Pad* (spawn on the launchpad, throttle up,
+stage, pitch east above 10 km, plan and fly the circularising burn), and
+*Meet & Dock* (spawn a partner in orbit, target it, plant the meeting
+burn, dock). Each rung's Objectives carry the instruction as text, one
+step per Objective; that is the tutorial teaching, not the instrument
+coaching ADR 0048 ruled out. Passing the last rung shows a **Sendoff**
+("Flight School complete") that offers the Challenge ladder with one
+key; the challenge ladder's last rung gets a Sendoff without the offer.
+No VAB rung (no build Action exists yet).
+_Avoid_: Tutorial (fine as the Program tag; Flight School is what the
+player sees), Onboarding (the wider #425 story: Hint Strip, `?`, menu),
+Ascent coach (rejected in ADR 0048).
 
 ### View & projection
 
@@ -2651,7 +2694,9 @@ are now [[#hud--overlays|Chips]]).
 A compact (2–4 row) overlay composited onto a corner of the **Canvas**
 carrying one contextual readout — Target, Stages, Nodes, Launch, Capture.
 Most Chips render only when their Setting is enabled, they are contextually
-relevant, and Declutter is off. The current **Orbit** metrics (apo/peri/incl)
+relevant, and Declutter is off. The current **Orbit** metrics (apo/peri/incl,
+and from #426 the eccentricity `e:` row in the full form only, so the
+eccentricity-graded challenge rungs have a number to check against)
 are **always-on** (non-toggleable) — a player must never be able to hide them
 from the **Settings screen** — though they still vanish under Declutter. The
 **Nodes** Chip carries any in-flight **Burn** as its firing head (the active
@@ -2724,6 +2769,21 @@ transient feedback does not replace a standing warning).
 _Avoid_: Toast, notification, status message (bare), banner (say
 Standing Alert), log (there is no event history; a missed Flash is
 missed).
+
+**Hint Strip** (grilled 2026-09-04, #425):
+The one dim row of key hints on the bottom row of the orbit map, to the
+right of the `view:` label: `[F1] help · [t] target · [m] plan · [n] new
+vessel · [./,] warp · [tab] system`. It is the map's *legend*, not a
+coach: fixed content, always shown, never rotates, never phase-gated,
+and it does not go away when Flight School is passed or switched off.
+Step-by-step instruction is the **Mission** chip's job. Sits on the last
+canvas row, so it never collides with an **Event Flash** (which rides the
+border row below it). Clips on the right below the **Design Size**; it is
+not a numeric field, so right-clipping is safe. `?` opens the same help
+overlay as F1 everywhere F1 does.
+_Avoid_: Footer (the pre-v0.13 cheat-sheet row, which was removed),
+Cheat sheet, Key bar, Rotating hints (rejected: a moving row that
+duplicates the Mission chip).
 
 **Settings screen**:
 The menu-reached screen where the player toggles each toggleable Chip's
