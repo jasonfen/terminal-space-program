@@ -123,6 +123,114 @@ func TestTickPassesLandAtBody(t *testing.T) {
 	}
 }
 
+// TestMissionEvalContextTargetBodyID — #426: TargetBodyID resolves the
+// bound World.Target body by catalog ID (not the raw body-slice index) so
+// the missions package can gate an event objective on "aimed at the Moon"
+// without duplicating the sys.Bodies[idx] lookup.
+func TestMissionEvalContextTargetBodyID(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	moonIdx := findBodyIdx(t, w, "moon")
+	w.Target = spacecraft.Target{Kind: spacecraft.TargetBody, BodyIdx: moonIdx}
+	if got := w.missionEvalContext().TargetBodyID; got != "moon" {
+		t.Errorf("TargetBodyID with Moon bound: got %q, want %q", got, "moon")
+	}
+
+	mercuryIdx := findBodyIdx(t, w, "mercury")
+	w.Target = spacecraft.Target{Kind: spacecraft.TargetBody, BodyIdx: mercuryIdx}
+	if got := w.missionEvalContext().TargetBodyID; got != "mercury" {
+		t.Errorf("TargetBodyID with Mercury bound: got %q, want %q", got, "mercury")
+	}
+
+	// No target bound at all: empty.
+	w.Target = spacecraft.Target{}
+	if got := w.missionEvalContext().TargetBodyID; got != "" {
+		t.Errorf("TargetBodyID with no target: got %q, want empty", got)
+	}
+}
+
+// TestMissionEvalContextTargetIsCraft — TargetIsCraft reflects whether the
+// bound Target is a craft, independent of whether it resolves to a relative
+// state (unlike HasTargetCraft, which also requires resolution).
+func TestMissionEvalContextTargetIsCraft(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if w.missionEvalContext().TargetIsCraft {
+		t.Error("TargetIsCraft should start false with no target")
+	}
+	moonIdx := findBodyIdx(t, w, "moon")
+	w.Target = spacecraft.Target{Kind: spacecraft.TargetBody, BodyIdx: moonIdx}
+	if w.missionEvalContext().TargetIsCraft {
+		t.Error("TargetIsCraft should be false when a body is targeted")
+	}
+	active := w.ActiveCraft()
+	twin := *active
+	twin.ID = active.ID + 1000
+	w.Crafts = append(w.Crafts, &twin)
+	w.Target = spacecraft.Target{Kind: spacecraft.TargetCraft, CraftID: twin.ID}
+	if !w.missionEvalContext().TargetIsCraft {
+		t.Error("TargetIsCraft should be true when a craft is targeted")
+	}
+}
+
+// TestMissionEvalContextHasOverBudgetNode — #426: true when ANY node on the
+// active craft exceeds its remaining Δv budget (ADR 0047 §2), false when the
+// queue is empty or every node is affordable. Uses the SAME
+// ManeuverNode.OverBudget predicate the NODES/planner chips use.
+func TestMissionEvalContextHasOverBudgetNode(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if w.missionEvalContext().HasOverBudgetNode {
+		t.Error("empty node queue should not be flagged over-budget")
+	}
+	c.Nodes = []spacecraft.ManeuverNode{{DV: 10}}
+	if w.missionEvalContext().HasOverBudgetNode {
+		t.Error("an affordable node should not be flagged over-budget")
+	}
+	c.Nodes = []spacecraft.ManeuverNode{{DV: c.RemainingDeltaV() + 1521}}
+	if !w.missionEvalContext().HasOverBudgetNode {
+		t.Error("an over-budget node should be flagged")
+	}
+}
+
+// TestMissionEvalContextOnPad — #426: OnPad mirrors the active craft's own
+// OnPad flag, feeding the tut-launch / tut-dock spawn-location gates.
+func TestMissionEvalContextOnPad(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.OnPad = true
+	if !w.missionEvalContext().OnPad {
+		t.Error("OnPad true on the active craft should propagate")
+	}
+	c.OnPad = false
+	if w.missionEvalContext().OnPad {
+		t.Error("OnPad false on the active craft should propagate")
+	}
+}
+
+// findBodyIdx returns the index into w.System().Bodies of the body with the
+// given catalog ID, failing the test if it's not found.
+func findBodyIdx(t *testing.T, w *World, id string) int {
+	t.Helper()
+	for i, b := range w.System().Bodies {
+		if b.ID == id {
+			return i
+		}
+	}
+	t.Fatalf("no body with id %q in the loaded system", id)
+	return -1
+}
+
 // TestStageActiveLatchesStagedFlag — decoupling a stage latches the
 // session staged flag the outcome context reads.
 func TestStageActiveLatchesStagedFlag(t *testing.T) {
