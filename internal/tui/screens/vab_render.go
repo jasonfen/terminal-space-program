@@ -254,10 +254,20 @@ func (v *VAB) renderBuild(width int) string {
 		foot = append(foot, "", v.theme.Warning.Render(v.flash))
 	}
 	foot = append(foot, v.theme.Dim.Render(strings.Repeat("─", clampI(width, 40, 100))))
-	foot = append(foot, v.theme.Footer.Render(
-		"[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"))
-	foot = append(foot, v.theme.Footer.Render(
-		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open  [esc] back"))
+	// #373: these two key-hint rows used to be single un-wrapped strings —
+	// at 104 columns the second row (132 chars) ran off the right edge and
+	// was cut off mid-token, hiding "[s] save" / "[o] open" entirely (the
+	// only on-screen way to learn how to keep a build). wrapFooterHints
+	// wraps to as many rows as width needs instead, keeping each "[key]
+	// hint" pair whole rather than splitting it across lines.
+	for _, ln := range wrapFooterHints(
+		"[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove", width) {
+		foot = append(foot, v.theme.Footer.Render(ln))
+	}
+	for _, ln := range wrapFooterHints(
+		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open  [esc] back", width) {
+		foot = append(foot, v.theme.Footer.Render(ln))
+	}
 
 	return strings.Join(head, "\n") + "\n\n" + body + "\n" + strings.Join(foot, "\n")
 }
@@ -573,6 +583,37 @@ func wrapText(s string, w int) []string {
 		default:
 			lines = append(lines, cur)
 			cur = word
+		}
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
+// wrapFooterHints word-wraps a footer key-hint row ("[key] description  [key]
+// description  …", hints separated by two spaces) to a column width,
+// returning the lines. Unlike wrapText, the wrap unit is a whole hint —
+// "[s] save", not "[s]" and "save" separately — so a hint's key and its
+// description can never land on different lines. #373: the VAB's second
+// footer row (132 chars) used to be emitted as one un-wrapped string and got
+// cut off mid-token at 104 columns, hiding "[s] save" / "[o] open" outright.
+func wrapFooterHints(s string, w int) []string {
+	if strings.TrimSpace(s) == "" || w <= 0 {
+		return nil
+	}
+	hints := strings.Split(s, "  ")
+	var lines []string
+	var cur string
+	for _, h := range hints {
+		switch {
+		case cur == "":
+			cur = h
+		case lipgloss.Width(cur)+2+lipgloss.Width(h) <= w:
+			cur += "  " + h
+		default:
+			lines = append(lines, cur)
+			cur = h
 		}
 	}
 	if cur != "" {

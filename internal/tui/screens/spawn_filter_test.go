@@ -141,5 +141,5 @@ func TestEmptyFilterDegradesGracefully(t *testing.T) {
 	if s.SelectedLoadoutID() != "" {
 		t.Errorf("no catalog craft selected, SelectedLoadoutID = %q, want empty", s.SelectedLoadoutID())
 	}
-	_ = s.Render(80) // must not panic
+	_ = s.Render(80, 0) // must not panic
 }

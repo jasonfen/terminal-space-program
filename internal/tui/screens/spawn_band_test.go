@@ -45,13 +45,13 @@ func TestSpawnFormFlagsDegradedBand(t *testing.T) {
 	resetWithBand(s, bandStub(map[int]float64{5000: 0.61}))
 
 	setAltitude(t, s, 5000)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "degraded comms band") || !strings.Contains(out, "relays advised") {
 		t.Errorf("a degraded preset must be flagged with the relay advice:\n%s", out)
 	}
 
 	setAltitude(t, s, 500)
-	if out := s.Render(80); strings.Contains(out, "degraded comms band") {
+	if out := s.Render(80, 0); strings.Contains(out, "degraded comms band") {
 		t.Errorf("a full-coverage preset must not be flagged:\n%s", out)
 	}
 }
@@ -60,7 +60,7 @@ func TestSpawnFormOutOfReachWording(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	resetWithBand(s, bandStub(map[int]float64{5000: 0}))
 	setAltitude(t, s, 5000)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "out of network reach") {
 		t.Errorf("zero coverage is the out-of-range case, not the band:\n%s", out)
 	}
@@ -73,7 +73,7 @@ func TestSpawnFormNoBandWarningWithoutSampler(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset(bandTestBodies(), "earth", nil, "", nil)
 	setAltitude(t, s, 5000)
-	if out := s.Render(80); strings.Contains(out, "degraded comms band") {
+	if out := s.Render(80, 0); strings.Contains(out, "degraded comms band") {
 		t.Errorf("no sampler injected → no claim made:\n%s", out)
 	}
 }
@@ -89,7 +89,7 @@ func TestSpawnFormCrewedLoadoutNeverWarned(t *testing.T) {
 	selectCustom(s)
 	s.customStages = []spacecraft.Stage{{Name: "Pod", CommandSource: spacecraft.CommandCrewed}}
 	setAltitude(t, s, 5000)
-	if out := s.Render(80); strings.Contains(out, "degraded comms band") || strings.Contains(out, "out of network reach") {
+	if out := s.Render(80, 0); strings.Contains(out, "degraded comms band") || strings.Contains(out, "out of network reach") {
 		t.Errorf("a crewed craft is never comms-gated — no warning applies:\n%s", out)
 	}
 }
@@ -107,7 +107,7 @@ func TestSpawnFormPassesSelectedAntennaToSampler(t *testing.T) {
 		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
 	}}
 	setAltitude(t, s, 5000)
-	_ = s.Render(80)
+	_ = s.Render(80, 0)
 	if gotRange != spacecraft.AntennaRangeRelayCislunar {
 		t.Errorf("sampler must receive the selected stack's antenna range; got %g", gotRange)
 	}
@@ -144,7 +144,7 @@ func TestClampAndCommsWarningBothRenderAtLowCeilingBody(t *testing.T) {
 		t.Fatalf("setup: Enceladus's Orbit Band did not clamp the 500km Reset default — test premise broken")
 	}
 
-	out := s.Render(80) // the very first render — no arrow keys, no re-focus
+	out := s.Render(80, 0) // the very first render — no arrow keys, no re-focus
 	clampIdx := strings.Index(out, "↳")
 	warnIdx := strings.Index(out, "⚠")
 	if clampIdx < 0 {
@@ -177,7 +177,7 @@ func TestSpawnFormRelayClassDegradedBandIsNeutral(t *testing.T) {
 		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
 	}}
 	setAltitude(t, s, 5000)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if strings.Contains(out, "⚠") {
 		t.Errorf("a relay-class craft must not be warned off the deployment that fixes its own band:\n%s", out)
 	}
@@ -198,7 +198,7 @@ func TestSpawnFormNonRelayDegradedBandUnchanged(t *testing.T) {
 		AntennaKind: spacecraft.AntennaDirect, AntennaRangeM: 1e9,
 	}}
 	setAltitude(t, s, 5000)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "⚠ degraded comms band") || !strings.Contains(out, "relays advised") {
 		t.Errorf("an ordinary (non-relay) probe below threshold must keep the original warning:\n%s", out)
 	}
@@ -213,7 +213,7 @@ func TestSpawnFormRelayClassCrewedStillNeverWarned(t *testing.T) {
 		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar,
 	}}
 	setAltitude(t, s, 5000)
-	if out := s.Render(80); strings.Contains(out, "⚠") || strings.Contains(out, "coverage from here") {
+	if out := s.Render(80, 0); strings.Contains(out, "⚠") || strings.Contains(out, "coverage from here") {
 		t.Errorf("crewed suppression must still win outright, even for a relay-class craft:\n%s", out)
 	}
 }
@@ -246,7 +246,7 @@ func TestSpawnFormMixedAntennaResolvesDirectNotRelay(t *testing.T) {
 		},
 	}
 	setAltitude(t, s, 5000)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "⚠ degraded comms band") || !strings.Contains(out, "relays advised") {
 		t.Errorf("a mixed loadout that resolves to Direct must get the ordinary warning, not the relay-class reframe:\n%s", out)
 	}
@@ -270,7 +270,7 @@ func TestSpawnFormRelayAntennaWithoutCommandSourceIsNotRelayClass(t *testing.T) 
 		},
 	}
 	setAltitude(t, s, 5000)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if !strings.Contains(out, "⚠ degraded comms band") || !strings.Contains(out, "relays advised") {
 		t.Errorf("a relay antenna with no command source is not Controllable and must keep the ordinary warning:\n%s", out)
 	}
@@ -294,7 +294,7 @@ func TestSpawnFormMultiStageGenuineRelayIsNeutral(t *testing.T) {
 		},
 	}
 	setAltitude(t, s, 5000)
-	out := s.Render(80)
+	out := s.Render(80, 0)
 	if strings.Contains(out, "⚠") {
 		t.Errorf("a genuine multi-stage relay (resolves to relay, controllable) must not be warned off its own deployment:\n%s", out)
 	}

@@ -12,7 +12,7 @@ import (
 // nothing in the canonical list is silently unlisted.
 func TestSettingsRenderListsEveryChip(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
-	out := s.Render(settings.Default(), 80)
+	out := s.Render(settings.Default(), 80, 0)
 	for _, c := range settings.AllChips {
 		if !strings.Contains(out, c.Label()) {
 			t.Errorf("Render is missing chip %q (label %q)", c, c.Label())
@@ -38,7 +38,7 @@ func TestSettingsRenderReflectsDisabled(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
 	prefs := settings.Default()
 	prefs.SetChip(settings.ChipTarget, false)
-	out := s.Render(prefs, 80)
+	out := s.Render(prefs, 80, 0)
 	// One disabled chip + the two off-by-default gameplay toggles = 3 empty.
 	if got, want := strings.Count(out, "[ ]"), 1+gameplayRows; got != want {
 		t.Errorf("empty-box count = %d, want %d (disabled chip + off gameplay toggles):\n%s", got, want, out)
@@ -116,7 +116,7 @@ func TestSettingsAutosaveIntervalRow(t *testing.T) {
 func TestSettingsRenderShowsAutosaveInterval(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
 
-	out := s.Render(settings.Default(), 80)
+	out := s.Render(settings.Default(), 80, 0)
 	if !strings.Contains(out, "Autosave interval") {
 		t.Errorf("Render is missing the autosave-interval row:\n%s", out)
 	}
@@ -126,7 +126,7 @@ func TestSettingsRenderShowsAutosaveInterval(t *testing.T) {
 
 	prefs := settings.Default()
 	prefs.SetAutosaveIntervalMin(0)
-	out = s.Render(prefs, 80)
+	out = s.Render(prefs, 80, 0)
 	if !strings.Contains(out, "off") {
 		t.Errorf("Render with interval 0 is missing %q:\n%s", "off", out)
 	}
@@ -137,7 +137,7 @@ func TestSettingsRenderShowsAutosaveInterval(t *testing.T) {
 func TestSettingsClickAutosaveRow(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
 	const width = 80
-	out := s.Render(settings.Default(), width)
+	out := s.Render(settings.Default(), width, 0)
 	lines := strings.Split(out, "\n")
 
 	row := -1
@@ -184,7 +184,7 @@ func TestSettingsReset(t *testing.T) {
 func TestSettingsHandleClick(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
 	const width = 80
-	out := s.Render(settings.Default(), width)
+	out := s.Render(settings.Default(), width, 0)
 	lines := strings.Split(out, "\n")
 
 	// Find the rendered row of the third chip by its label, then click it.

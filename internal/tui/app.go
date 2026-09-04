@@ -2860,11 +2860,11 @@ func (a *App) View() string {
 	case screenMenu:
 		base = a.menu.Render(a.width)
 	case screenSpawn:
-		base = a.spawn.Render(a.width)
+		base = a.spawn.Render(a.width, a.height)
 	case screenMissions:
 		base = a.missions.Render(a.world, a.width)
 	case screenSettings:
-		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width)
+		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width, a.height)
 	case screenControls:
 		base = a.controls.Render(a.layout, a.width)
 	case screenVAB:
