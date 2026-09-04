@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -482,8 +483,8 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 
 	v.canvas.Center(camWorld)
 
-	// Horizon curve + SurfaceColor flood-fill below.
-	v.drawHorizonAndFill(body, bodyCentre)
+	// Horizon band + two-step sky above (v0.40 / #424).
+	v.drawHorizonAndFill(body, bodyCentre, altitudeM)
 
 	// Current-orbit ellipse, rendered exactly as the orbit-map screens
 	// do (same DrawEllipseClass Real-class path + apo/peri markers).
@@ -832,17 +833,133 @@ func (v *LaunchView) chaseHAxis(c *spacecraft.Spacecraft, body bodies.CelestialB
 // drift still steers the camera.
 const chaseHorizSpeedFloorMps = 0.1
 
-// drawHorizonAndFill paints the body's projected silhouette below the
-// horizon with SurfaceColor. In the chase-cam basis (h_axis,
-// local_up), the body sphere projects orthographically to a circle of
-// radius bodyRadius centred at the body's projected position — its
-// upper edge IS the horizon (naturally flat at low altitude, naturally
-// curved at altitude, because the canvas window slices a chord of a
-// large circle). Uses Canvas.FillProjectedSphere so work is bounded by
-// canvas size, not sphere size (planet radius * scale can be millions
-// of cells at low zoom).
-func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbital.Vec3) {
-	v.canvas.FillProjectedSphere(bodyPos, body.RadiusMeters(), lipgloss.Color(body.SurfaceColorHex()))
+// Horizon-band geometry (issue #424 / ADR 0048 §4). In sub-pixel rows
+// (canvasCellPxH = 4 rows/cell): groundApronRows is a thin, brightened
+// strip right at the horizon (structure/lit ground); groundDimRows is
+// a couple of dimmed rows beneath it. Everything past that stays
+// terminal background — the fix for "ten unbroken rows of green" was
+// to draw LESS, not a different flat colour.
+const (
+	groundApronRows = canvasCellPxH / 2 // half a cell: a thin lit line at the horizon
+	groundDimRows   = canvasCellPxH * 2 // two full cells: "a couple of dim rows"
+)
+
+// Sky-band geometry. Two steps, both shrinking to zero as the vessel
+// climbs past the body's atmosphere (drawHorizonAndFill scales these
+// by altitude/CutoffAltitude) — "thins with altitude" per the ADR.
+// skyGlowRows is the haze-tinted band right at the horizon;
+// skyDeepRows is a darker band further up before space goes to pure
+// black.
+const (
+	skyGlowRows = canvasCellPxH     // one cell of haze tint at the horizon
+	skyDeepRows = canvasCellPxH * 2 // two cells fading toward space
+)
+
+// groundApronLightenFrac / groundDimDarkenFrac / skyDeepDarkenFrac
+// (0..1) are how far each band's colour blends toward white/black
+// from the body's single authored SurfaceColor / atmosphere haze
+// colour — deriving a small gradient from one hex per body rather
+// than hand-authoring a band palette for every body in the catalog.
+const (
+	groundApronLightenFrac = 0.35
+	groundDimDarkenFrac    = 0.45
+	skyDeepDarkenFrac      = 0.55
+)
+
+// drawHorizonAndFill paints a horizon band (ground below, sky above)
+// instead of the old unbroken SurfaceColor disk fill. In the chase-cam
+// basis (h_axis, local_up) the body sphere projects orthographically
+// to a circle of radius bodyRadius centred at the body's projected
+// position — its upper edge IS the horizon (naturally flat at low
+// altitude, naturally curved at altitude, because the canvas window
+// slices a chord of a large circle). Canvas.FillHorizonBands walks
+// that same edge but only paints a bounded run of rows outward from
+// it on each side, so work stays bounded by canvas size (not sphere
+// size) exactly like the FillProjectedSphere precedent it replaces.
+//
+// Ground is always drawn (every body has a SurfaceColor). Sky only
+// draws for bodies with an Atmosphere — an airless body (the Moon)
+// stays pure black above the horizon at any altitude, which is
+// physically correct and needs no special case. altitudeM scales the
+// sky bands down to nothing by the atmosphere's CutoffAltitude.
+func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbital.Vec3, altitudeM float64) {
+	surface := body.SurfaceColorHex()
+	ground := []widgets.HorizonBand{
+		{Color: lightenHex(surface, groundApronLightenFrac), Rows: groundApronRows},
+		{Color: darkenHex(surface, groundDimDarkenFrac), Rows: groundDimRows},
+	}
+
+	var sky []widgets.HorizonBand
+	if atmo := body.Atmosphere; atmo != nil {
+		frac := 1.0
+		if atmo.CutoffAltitude > 0 {
+			frac = 1.0 - altitudeM/atmo.CutoffAltitude
+		}
+		if frac > 0 {
+			if frac > 1 {
+				frac = 1
+			}
+			haze := atmo.Color
+			if haze == "" {
+				haze = body.Color
+			}
+			glowRows := int(math.Round(float64(skyGlowRows) * frac))
+			deepRows := int(math.Round(float64(skyDeepRows) * frac))
+			if glowRows > 0 {
+				sky = append(sky, widgets.HorizonBand{Color: lipgloss.Color(haze), Rows: glowRows})
+			}
+			if deepRows > 0 {
+				sky = append(sky, widgets.HorizonBand{Color: darkenHex(haze, skyDeepDarkenFrac), Rows: deepRows})
+			}
+		}
+	}
+
+	v.canvas.FillHorizonBands(bodyPos, body.RadiusMeters(), ground, sky)
+}
+
+// lightenHex / darkenHex blend a "#RRGGBB" colour toward white / black
+// by frac (0..1) — deriving the horizon-band palette from a body's
+// single authored SurfaceColor / atmosphere haze colour (issue #424).
+// Malformed input (wrong length, non-hex digits) returns it unchanged:
+// this is cosmetic-only and never worth a panic over catalog data.
+func lightenHex(hex string, frac float64) lipgloss.Color {
+	return blendHex(hex, 255, 255, 255, frac)
+}
+
+func darkenHex(hex string, frac float64) lipgloss.Color {
+	return blendHex(hex, 0, 0, 0, frac)
+}
+
+func blendHex(hex string, tr, tg, tb int, frac float64) lipgloss.Color {
+	r, g, b, ok := parseHexColor(hex)
+	if !ok {
+		return lipgloss.Color(hex)
+	}
+	mix := func(c, t int) int {
+		v := int(math.Round(float64(c) + (float64(t)-float64(c))*frac))
+		if v < 0 {
+			v = 0
+		}
+		if v > 255 {
+			v = 255
+		}
+		return v
+	}
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", mix(r, tr), mix(g, tg), mix(b, tb)))
+}
+
+func parseHexColor(hex string) (r, g, b int, ok bool) {
+	hex = strings.TrimPrefix(hex, "#")
+	if len(hex) != 6 {
+		return 0, 0, 0, false
+	}
+	rv, err1 := strconv.ParseInt(hex[0:2], 16, 32)
+	gv, err2 := strconv.ParseInt(hex[2:4], 16, 32)
+	bv, err3 := strconv.ParseInt(hex[4:6], 16, 32)
+	if err1 != nil || err2 != nil || err3 != nil {
+		return 0, 0, 0, false
+	}
+	return int(rv), int(gv), int(bv), true
 }
 
 // drawOrbitPath plots the active craft's live Keplerian ellipse into
@@ -1242,6 +1359,16 @@ const vesselSubPixelM = 1.5
 // (left-column, right-column). A zero rune ('\x00') means "no glyph
 // at this cell" — used to draw a sparse outline at the crown row
 // (the swing-arm sits in the right column only).
+// launchTowerColor (issue #424 / ADR 0048 §4) is the mobile-launcher
+// silhouette's colour — a cool structural slate distinct in HUE (not
+// just brightness) from every vehicle body tone, so the tower reads
+// as its own thing rather than blending into "dim grey" wherever a
+// stage happens to render dim too. Deliberately its own constant
+// rather than reusing render.ColorDim (kept for the trail / distant-
+// craft fallback dot, and now for the stage separator row — see
+// stageSeparatorColor in launch_sprite.go).
+const launchTowerColor = lipgloss.Color("#6E7C8C")
+
 var lutSprite = [][2]rune{
 	{'╤', 0},
 	{'║', '╤'},
@@ -1313,7 +1440,7 @@ func (v *LaunchView) drawLaunchTower(w *sim.World, craft *spacecraft.Spacecraft,
 				continue
 			}
 			cellWorld := bodyPos.Add(cellFromBody)
-			v.canvas.PlotColored(cellWorld, render.ColorDim)
+			v.canvas.PlotColored(cellWorld, launchTowerColor)
 			v.canvas.SetCellOverlay(cellWorld, glyph)
 		}
 	}

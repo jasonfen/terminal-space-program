@@ -696,6 +696,87 @@ func (c *Canvas) FillProjectedSphere(center orbital.Vec3, radius float64, color 
 	}
 }
 
+// HorizonBand is one solid-colour strip in a Canvas.FillHorizonBands
+// gradient: Rows sub-pixel rows painted in Color, working outward
+// from the horizon edge. v0.40 / issue #424.
+type HorizonBand struct {
+	Color lipgloss.Color
+	Rows  int
+}
+
+// FillHorizonBands paints a LIMITED horizon strip in place of
+// FillProjectedSphere's unbroken disk flood (v0.40 / issue #424, ADR
+// 0048 §4). The old flood painted the WHOLE silhouette below the
+// horizon one flat shade all the way to the far canvas edge — no
+// horizon line, no scale reference (the UX review's dump at 104×24:
+// "ten unbroken rows of identical... blocks"). This walks the SAME
+// near-flat sphere edge FillProjectedSphere uses (locally flat
+// because planet radius ≫ chase-cam distance) but only paints a
+// bounded run of rows out from that edge on each side: `ground` bands
+// work DOWN from the edge (into the body — a lit apron right at the
+// horizon, a dimmer band beneath it), `sky` bands work UP from the
+// edge (away from the body — a horizon glow fading toward open
+// space). Anything past the given bands is left untouched (terminal
+// background) — that's what turns a flood into a readable STRIP: a
+// player judges scale against the visible ground/sky edge instead of
+// an undifferentiated colour field.
+//
+// Ground bands stay clipped to the sphere's own silhouette (dy² ≤
+// pxR²) so the strip still narrows correctly as the visible arc
+// curves at altitude, matching FillProjectedSphere's existing
+// curvature behaviour. Sky bands have no silhouette to clip against —
+// they paint into open space — so only the canvas bounds gate them;
+// callers shrink the row counts themselves as altitude grows (the ADR's
+// "thins with altitude").
+func (c *Canvas) FillHorizonBands(center orbital.Vec3, radius float64, ground, sky []HorizonBand) {
+	if radius <= 0 {
+		return
+	}
+	cx, cy, _ := c.Project(center)
+	pxR := radius * c.scale
+	pxR2 := pxR * pxR
+	for px := 0; px < c.pxW; px++ {
+		dx := float64(px - cx)
+		dx2 := dx * dx
+		if dx2 > pxR2 {
+			continue // this column never reaches the sphere's edge
+		}
+		edge := float64(cy) - math.Sqrt(pxR2-dx2) // topmost "ground" row here
+
+		row := edge
+		for _, band := range ground {
+			tag := CellTag{Color: band.Color}
+			for i := 0; i < band.Rows; i++ {
+				py := int(math.Round(row))
+				row++
+				if py < 0 || py >= c.pxH {
+					continue
+				}
+				dy := float64(py) - float64(cy)
+				if dy*dy > pxR2 {
+					continue
+				}
+				c.dc.Set(px, py)
+				c.pixelTags.set(px, py, tag)
+			}
+		}
+
+		row = edge - 1
+		for _, band := range sky {
+			tag := CellTag{Color: band.Color}
+			for i := 0; i < band.Rows; i++ {
+				py := int(math.Round(row))
+				row--
+				if py < 0 || py >= c.pxH {
+					continue
+				}
+				c.dc.Set(px, py)
+				c.pixelTags.set(px, py, tag)
+			}
+		}
+	}
+}
+
 // PlotColored sets a single pixel and tags it with the given color.
 // Used by callers that want a tagged dot (e.g. v0.6.1 maneuver-leg
 // preview). v0.6.4+: routed through PlotColoredTagged so tagged

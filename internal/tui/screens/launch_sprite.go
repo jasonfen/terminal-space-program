@@ -72,13 +72,31 @@ func flameCoreWidth(w int) int {
 	return (w + 1) / 3
 }
 
+// minRenderedStageWidthPx (issue #424 / ADR 0048 §4) floors every
+// resolved stage width at 4 sub-pixel columns (2 terminal cells).
+// Below that a stage's rectangle was 1-2 sub-pixel columns wide —
+// even snapped vertical (see snapNearVertical) a rectangle that thin
+// reads as a scatter of dots rather than a block once braille packs
+// it 2-per-cell. This is the single resolver every geometry function
+// in this file goes through (body rect, bell throat, taper, legs,
+// composedStackMaxWidth), so a stage that renders 4-wide has its
+// bell/taper/legs sized off that SAME 4-wide throat — not a phantom
+// narrower "as authored" width that would make the ornamentation
+// visually disagree with the body it's attached to.
+const minRenderedStageWidthPx = 4
+
 // stageSpriteWidthPx resolves the width a stage should render at, with
-// the unset-zero fallback to defaultSpriteWidthPx baked in. v0.11.5+.
+// the unset-zero fallback to defaultSpriteWidthPx baked in (v0.11.5+),
+// then floored to minRenderedStageWidthPx (v0.40 / #424).
 func stageSpriteWidthPx(s spacecraft.Stage) int {
-	if s.LaunchSpriteWidthPx <= 0 {
-		return defaultSpriteWidthPx
+	w := s.LaunchSpriteWidthPx
+	if w <= 0 {
+		w = defaultSpriteWidthPx
 	}
-	return s.LaunchSpriteWidthPx
+	if w < minRenderedStageWidthPx {
+		w = minRenderedStageWidthPx
+	}
+	return w
 }
 
 // stageSpriteColor resolves the silhouette colour for a stage:
@@ -323,6 +341,23 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 			emitRect(rowOffset, 1, taperWidth, color)
 			rowOffset++
 		}
+		// Stage separator (issue #424 / ADR 0048 §4): an UNCONDITIONAL
+		// 1-row dark band at every boundary between two rendered
+		// stages, wide enough to cap both. Unlike the taper above
+		// (gated on taperThreshold, shape-only, painted in the lower
+		// stage's own colour) this exists purely to keep the stack
+		// reading as segmented when colour doesn't carry it — the
+		// Saturn V's four near-white stages were the review's second
+		// finding. Sits right at the seam, after any taper flare.
+		if i+1 < len(stages) && separatorRowBetween(s, stages[i+1]) > 0 {
+			upWidth := stageSpriteWidthPx(stages[i+1])
+			sepWidth := width
+			if upWidth > sepWidth {
+				sepWidth = upWidth
+			}
+			emitRect(rowOffset, 1, sepWidth, stageSeparatorColor())
+			rowOffset++
+		}
 	}
 	if len(pixels) == 0 {
 		return nil
@@ -361,10 +396,41 @@ func taperRowBetween(lower, upper spacecraft.Stage) int {
 	return 0
 }
 
+// stageSeparatorColor (issue #424 / ADR 0048 §4) is the dark boundary
+// line ComposeLaunchSprite paints between every pair of adjacent
+// rendered stages. Reuses render.ColorDim — already the tower/pad
+// "this is inert structure" vocabulary (see drawLaunchTower's former
+// use, now launchTowerColor) — rather than inventing a near-black
+// tone that could round to the terminal's own background under
+// 256-colour quantization and vanish outright. A function, not a
+// cached package var: render.ColorDim is itself a live theme setting
+// (applyUIOverrides can reassign it after this package's vars have
+// already initialized), so caching its value at init time would
+// freeze the separator at the DEFAULT dim colour even when the
+// player's theme overrides "dim" — read it fresh on every call, same
+// as every other render.ColorDim call site in this file.
+func stageSeparatorColor() lipgloss.Color {
+	return render.ColorDim
+}
+
+// separatorRowBetween returns 1 whenever `upper` is itself a rendered
+// stage (LaunchSpriteRowsPx > 0), else 0. Unlike taperRowBetween this
+// is unconditional — every boundary between two drawn stages gets a
+// separator regardless of height — so it's a distinct predicate, not
+// a threshold variant of the taper rule. Shared by ComposeLaunchSprite
+// (emits the row) and composedStackRows (needs only the height) so
+// the two can't drift, same discipline as taperRowBetween.
+func separatorRowBetween(lower, upper spacecraft.Stage) int {
+	if upper.LaunchSpriteRowsPx > 0 {
+		return 1
+	}
+	return 0
+}
+
 // composedStackRows returns the total sub-pixel height of the composed
-// launch sprite, including inter-stage taper rows — mirrors the
-// rowOffset accumulation in ComposeLaunchSprite so ComposeCanopy can
-// anchor itself just above the top stage.
+// launch sprite, including inter-stage taper AND separator rows —
+// mirrors the rowOffset accumulation in ComposeLaunchSprite so
+// ComposeCanopy can anchor itself just above the top stage.
 func composedStackRows(stages []spacecraft.Stage) int {
 	rows := 0
 	for i, s := range stages {
@@ -374,6 +440,7 @@ func composedStackRows(stages []spacecraft.Stage) int {
 		rows += s.LaunchSpriteRowsPx
 		if i+1 < len(stages) {
 			rows += taperRowBetween(s, stages[i+1])
+			rows += separatorRowBetween(s, stages[i+1])
 		}
 	}
 	return rows
@@ -594,10 +661,53 @@ func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widget
 	return pixels
 }
 
+// nearVerticalSnapDeg (issue #424 / ADR 0048 §4) is the angular
+// tolerance, in degrees off screen-vertical, within which the stack
+// axis snaps to EXACTLY vertical instead of the raw projected
+// direction. A vessel standing "vertical" on the pad is almost never
+// perfectly aligned to the canvas basis — physics jitter and
+// floating-point noise tip CurrentAttitudeDir a fraction of a degree
+// off true. Left unsnapped, that fraction bleeds a small
+// row-dependent horizontal term into every pixel's screen.X
+// (screenSX = rowAbove·pxSize·stackX in emitRect below): row 0 and
+// row 20 land at very slightly different fractional columns, and
+// because Canvas.Project rounds each plotted pixel independently,
+// rows a few sub-pixels apart can round to DIFFERENT absolute
+// columns — the "scattered, half-filled... changes pattern every
+// row" TV-static read #424 reported. Snapping removes the
+// row-dependent term entirely: with stackX forced to 0, screenSX
+// becomes a pure function of the column index and every row's pixel
+// in a given column lands on the identical fractional coordinate, so
+// it rounds identically too. "A couple of degrees" per the ADR.
+const nearVerticalSnapDeg = 2.5
+
+// snapNearVertical returns (0, sign(y)) when the unit vector (x, y)
+// sits within nearVerticalSnapDeg of the screen-vertical axis in
+// EITHER direction (nose up or, degenerately, nose down), else
+// returns (x, y) unchanged. Direction-agnostic by construction: any
+// attitude outside the snap cone renders exactly as before — the
+// original continuous braille sub-pixel rasteriser, untouched — so a
+// vehicle mid gravity-turn keeps smoothly leaning rather than
+// suddenly popping between a "vertical" and a "tilted" renderer (ADR
+// 0048 explicitly rejected a two-renderer split for this reason).
+func snapNearVertical(x, y float64) (float64, float64) {
+	angleDeg := math.Atan2(math.Abs(x), math.Abs(y)) * 180 / math.Pi
+	if angleDeg > nearVerticalSnapDeg {
+		return x, y
+	}
+	if y < 0 {
+		return 0, -1
+	}
+	return 0, 1
+}
+
 // stackDirScreen returns the unit-vector projection of cmdWorld into
 // the chase-cam basis's (X, Y) screen plane. Falls back to (0, 1) —
 // pure vertical stacking — when the projection magnitude is below
-// 1e-9 (cmd parallel to the depth axis, or zero).
+// 1e-9 (cmd parallel to the depth axis, or zero). Near-vertical
+// results are snapped to exactly vertical (see snapNearVertical /
+// nearVerticalSnapDeg) so a standing rocket's stage columns render
+// solid instead of aliasing (#424).
 func stackDirScreen(cmdWorld orbital.Vec3, basis widgets.Basis) (x, y float64) {
 	x = cmdWorld.Dot(basis.X)
 	y = cmdWorld.Dot(basis.Y)
@@ -605,5 +715,5 @@ func stackDirScreen(cmdWorld orbital.Vec3, basis widgets.Basis) (x, y float64) {
 	if mag < 1e-9 {
 		return 0, 1
 	}
-	return x / mag, y / mag
+	return snapNearVertical(x/mag, y/mag)
 }
