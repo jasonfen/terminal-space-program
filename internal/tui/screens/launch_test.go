@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -182,6 +183,102 @@ func TestLaunchViewRenderTitle(t *testing.T) {
 	// is the keybinding reference) and its row given to the scene.
 	if strings.Contains(out, "[?]help") {
 		t.Errorf("expected no keybind footer after its removal, got:\n%s", out)
+	}
+}
+
+// TestLaunchViewTitleShowsWarpRate — #427 / ADR 0048 §3: the launch view's
+// title bar used to hold only "LAUNCH — <vessel>", so the warp keys
+// (`.`/`,`) stayed live with nothing on screen to show for it. The title
+// must now carry the same warp field the map title bar's clock chip
+// shows (warpRateText), and it must track a live warp change made while
+// the launch view is up — not just whatever the default was at spawn.
+func TestLaunchViewTitleShowsWarpRate(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	v.Resize(140, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	out := v.Render(w, 140, 40)
+	if !strings.Contains(out, "warp 1x") {
+		t.Errorf("expected the default 'warp 1x' in the launch title, got:\n%s", out)
+	}
+
+	// Drive the same warp-up key the pad leaves live (`.`), then confirm
+	// the title's warp field actually moved — not just present once.
+	for i := 0; i < 3; i++ {
+		w.Clock.WarpUp()
+	}
+	out = v.Render(w, 140, 40)
+	got := w.Clock.Warp()
+	if got <= 1 {
+		t.Fatalf("WarpUp x3 left Clock.Warp() = %v, want > 1", got)
+	}
+	wantSubstr := fmt.Sprintf("warp %.0fx", got)
+	if !strings.Contains(out, wantSubstr) {
+		t.Errorf("launch title didn't track the live warp change: want %q in:\n%s", wantSubstr, out)
+	}
+	if strings.Contains(out, "warp 1x") {
+		t.Errorf("launch title still showed the stale 'warp 1x' after WarpUp:\n%s", out)
+	}
+}
+
+// TestLaunchHUDLineShowsIgnitionHintOnPad — #427 / ADR 0048 §3: the pad's
+// call to action. While Landed with the engine off, the status-area line
+// (bottom border, normally T+/v_z/downrange/Q) becomes the ignite/stage/
+// throttle hint instead — the review's own finding was that nothing on
+// screen told a first-time player to press `b`. The moment the engine
+// lights, the line reverts to real telemetry.
+func TestLaunchHUDLineShowsIgnitionHintOnPad(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	v.Resize(140, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if !c.Landed {
+		t.Fatal("setup: spawned pad craft is not Landed")
+	}
+
+	hud := v.composeHUDLine(w, c)
+	const want = "[b] ignite · [space] stage · [z/x] throttle"
+	if !strings.Contains(hud, want) {
+		t.Errorf("composeHUDLine on the pad = %q, want it to contain %q", hud, want)
+	}
+	if strings.Contains(hud, "T+") {
+		t.Errorf("pad HUD line still showed the zeroed T+/v_z/downrange telemetry: %q", hud)
+	}
+
+	// Full Render must carry the hint too (through overlayHUDStrip).
+	out := v.Render(w, 140, 40)
+	if !strings.Contains(out, want) {
+		t.Errorf("full Render on the pad missing the ignition hint:\n%s", out)
+	}
+
+	// Ignite: the hint must disappear, replaced by real telemetry.
+	w.ToggleManualBurn()
+	if c.ManualBurn == nil {
+		t.Fatal("setup: ToggleManualBurn did not arm ManualBurn")
+	}
+	hud = v.composeHUDLine(w, c)
+	if strings.Contains(hud, "ignite") {
+		t.Errorf("ignition hint lingered after ignition: %q", hud)
+	}
+	if !strings.Contains(hud, "T+") {
+		t.Errorf("post-ignition HUD line lost the T+ telemetry: %q", hud)
 	}
 }
 

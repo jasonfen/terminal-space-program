@@ -193,7 +193,24 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	if craft != nil {
 		craftName = craft.Name
 	}
-	title := v.theme.Title.Render(fmt.Sprintf("LAUNCH — %s", craftName))
+	// #427 / ADR 0048 §3: carry the warp rate into the launch title bar,
+	// right-aligned the same way the map title bar's clock chip sits —
+	// warpRateText is the exact field renderTitleBar uses, so the number
+	// can never drift between the two screens. Pre-#427 this title held
+	// only the vessel name, so `.`/`,` kept warping with no on-screen
+	// change at all (one reviewer lost ten sim-days tapping `.` on the
+	// pad before noticing on the map).
+	titleLeft := fmt.Sprintf("LAUNCH — %s", craftName)
+	titleRight := warpRateText(w)
+	titlePad := totalCols - lipgloss.Width(titleLeft) - lipgloss.Width(titleRight)
+	if titlePad < 1 {
+		titlePad = 1
+	}
+	titleRightRendered := v.theme.Dim.Render(titleRight)
+	if w.AutoWarpEngaged() {
+		titleRightRendered = v.theme.Primary.Render(titleRight)
+	}
+	title := v.theme.Title.Render(titleLeft) + strings.Repeat(" ", titlePad) + titleRightRendered
 
 	// The descent half (ADR 0043 §3): one forecast per frame, shared by
 	// the scene (dashed arc + ground marker) and the corridor chip, so
@@ -1391,6 +1408,18 @@ func (v *LaunchView) drawTrail(w *sim.World, body bodies.CelestialBody, bodyPos,
 func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) string {
 	if c == nil {
 		return ""
+	}
+	// #427 / ADR 0048 §3: the pad's call to action. Landed with the
+	// engine off is exactly the silent state the review found — no
+	// ignite prompt, no mention of `b`, no countdown, no throttle cue
+	// anywhere. Replaces the T+/v_z/downrange/Q line rather than sitting
+	// beside it: pre-ignition every one of those numbers reads a flat
+	// zero (TestFormatLaunchHUDPadIdle), so the line was noise standing
+	// in the way of the one thing that actually matters here. The
+	// moment ignition clears Landed (StartManualBurn, synchronously —
+	// no tick delay) this line reverts to the real telemetry.
+	if c.Landed && c.ManualBurn == nil && c.ActiveBurn == nil {
+		return v.theme.Primary.Render("[b] ignite · [space] stage · [z/x] throttle")
 	}
 	tPlus := time.Duration(0)
 	if w.LaunchSessionActive && !w.LaunchT0.IsZero() {

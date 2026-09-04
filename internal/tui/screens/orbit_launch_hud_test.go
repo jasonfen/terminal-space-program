@@ -260,3 +260,75 @@ func TestLaunchChipSteadyOnPad(t *testing.T) {
 		t.Errorf("LAUNCH chip on the pad lost twr/sas rows:\n%s", strings.Join(lines, "\n"))
 	}
 }
+
+// TestLaunchChipEngineLitIndicator — #427 / ADR 0048 §3: the launch HUD
+// had no engine-lit state at all (the review's own finding: after
+// pressing z then b there was no way to tell from the screen whether the
+// engine fired). The twr: row now carries an ignition indicator that
+// reads "off" before ignition and "LIT" once the engine is actually
+// producing thrust (a live ManualBurn or ActiveBurn) — not the
+// throttle: setting, which sits at its loadout default whether or not
+// anything is burning.
+func TestLaunchChipEngineLitIndicator(t *testing.T) {
+	v := NewOrbitView(Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle(),
+	})
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+
+	// Pre-ignition: engine reads off even though throttle is at its
+	// loadout default (100%) — the point of the fix is that ignition, not
+	// throttle setting, is what "LIT" answers.
+	lines := v.buildLaunchChip(w)
+	twrRow := ""
+	for _, l := range lines {
+		if strings.Contains(l, "twr:") {
+			twrRow = l
+			break
+		}
+	}
+	if twrRow == "" {
+		t.Fatalf("no twr: row in LAUNCH chip:\n%s", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(twrRow, "engine:") || !strings.Contains(twrRow, "off") {
+		t.Errorf("pre-ignition twr: row should show the engine off, got %q", twrRow)
+	}
+	if strings.Contains(twrRow, "LIT") {
+		t.Errorf("pre-ignition twr: row already reads LIT: %q", twrRow)
+	}
+
+	// Ignite (mirrors the `b` key: ToggleManualBurn) — the same row must
+	// now read LIT.
+	w.ToggleManualBurn()
+	if c.ManualBurn == nil {
+		t.Fatal("setup: ToggleManualBurn did not arm ManualBurn")
+	}
+	lines = v.buildLaunchChip(w)
+	twrRow = ""
+	for _, l := range lines {
+		if strings.Contains(l, "twr:") {
+			twrRow = l
+			break
+		}
+	}
+	if !strings.Contains(twrRow, "LIT") {
+		t.Errorf("after ignition the twr: row should read LIT, got %q", twrRow)
+	}
+}
