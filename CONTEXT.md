@@ -2657,7 +2657,9 @@ from the **Settings screen** — though they still vanish under Declutter. The
 **Nodes** Chip carries any in-flight **Burn** as its firing head (the active
 ● Burns readout was folded in here, v0.16); while a Burn is live it
 **force-shows** — overriding both its Setting toggle *and* Declutter — so a
-live Burn (safety-critical) can never be hidden. With nothing burning the
+live Burn (safety-critical) can never be hidden at or above the **Design
+Size** (below it, Graceful Shrink may stub it; ruled out of scope
+2026-09-04). With nothing burning the
 Nodes Chip honours its toggle and Declutter like any other. The **HUD** core
 Chip and a live-Burn Nodes Chip are the only overlays that survive Declutter.
 Distinct from the larger **Navball** panel, which is also a canvas overlay
