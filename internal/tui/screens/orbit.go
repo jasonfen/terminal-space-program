@@ -1499,6 +1499,30 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 // right-aligned `[Menu]` and `[Missions]` clickable buttons. Stores
 // the cell ranges of each button so HitMenuButton / HitMissionsButton
 // can map subsequent clicks back to a screen action. v0.7.4+.
+// warpRateText renders the live warp readout — the exact field the map
+// title bar's clock chip carries (v0.10.3+ / ADR 0016), factored out so
+// the launch view's title bar (#427 / ADR 0048 §3) can show the same
+// number rather than hiding it: pre-#427 LAUNCH — <vessel> dropped warp
+// entirely, so `.`/`,` kept working on the pad with nothing on screen to
+// show for it (one reviewer warped ten sim-days by idly tapping `.`).
+// While Auto-Warp is engaged this morphs to "AUTO →<effective>x
+// <time-to-target>"; otherwise "warp <requested>x", or
+// "warp <requested>x→<effective>x" when the integrator clamps the
+// requested rate (e.g. ≤10x during a burn) so the player sees the actual
+// propagation speed. Does not include the "T+<date>" prefix the map
+// title bar prepends — callers that want it add their own.
+func warpRateText(w *sim.World) string {
+	if secs, ok := w.AutoWarpSecondsToTarget(); ok {
+		dur := time.Duration(secs * float64(time.Second))
+		return fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), compactDuration(dur))
+	}
+	reqWarp := w.Clock.Warp()
+	if eff := w.EffectiveWarp(); eff < reqWarp {
+		return fmt.Sprintf("warp %.0fx→%.0fx", reqWarp, eff)
+	}
+	return fmt.Sprintf("warp %.0fx", reqWarp)
+}
+
 func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols int) string {
 	left := fmt.Sprintf("terminal-space-program — %s — %s", version.Version, systemName)
 	// v0.13: the "focus:" readout moved here from the canvas top-left
@@ -1517,23 +1541,12 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	// Warp shows the effective rate when the integrator clamps it
 	// (e.g. ≤10x during burns) so the player sees the actual
 	// propagation speed, not the requested one.
-	clockChip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  "
 	// v0.16 / ADR 0016: while Auto-Warp is engaged the warp readout morphs
 	// to AUTO → <effective>x  <time-to-target> so the player sees the
 	// driver and the live rate, not the untouched Selected Warp. The chip
 	// stays emoji-free (single-width runes only) so the rune-counted
 	// button hit-tests below stay aligned.
-	if secs, ok := w.AutoWarpSecondsToTarget(); ok {
-		dur := time.Duration(secs * float64(time.Second))
-		clockChip += fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), compactDuration(dur))
-	} else {
-		reqWarp := w.Clock.Warp()
-		if eff := w.EffectiveWarp(); eff < reqWarp {
-			clockChip += fmt.Sprintf("warp %.0fx→%.0fx", reqWarp, eff)
-		} else {
-			clockChip += fmt.Sprintf("warp %.0fx", reqWarp)
-		}
-	}
+	clockChip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  " + warpRateText(w)
 	clockChipRendered := v.theme.Dim.Render(clockChip)
 	if w.AutoWarpEngaged() {
 		clockChipRendered = v.theme.Primary.Render(clockChip)

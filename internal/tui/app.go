@@ -312,16 +312,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// spawn case chief among them) never welds two vessels together
 		// in total silence.
 		if e := a.world.LastDockEvent; e != nil {
-			a.statusMsg = fmt.Sprintf("docked with %s — now 1 vessel, %d components", e.PartnerName, e.ComponentCount)
-			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.flash(fmt.Sprintf("docked with %s — now 1 vessel, %d components", e.PartnerName, e.ComponentCount))
 			a.world.LastDockEvent = nil
 		}
 		// v0.11.0+: ViewLaunch switch-end release toast (ADR 0021 D
 		// retired the apoapsis-floor auto-release). Same flash
 		// surface as docking; cleared after one fire.
 		if e := a.world.LastLaunchReleaseEvent; e != nil {
-			a.statusMsg = fmt.Sprintf("ORBIT READY — returning to %s", e.PrevView)
-			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.flash(fmt.Sprintf("ORBIT READY — returning to %s", e.PrevView))
 			a.world.LastLaunchReleaseEvent = nil
 		}
 		// #372: a same-World dock checkDocking refused because of a live
@@ -329,9 +327,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// only ever stamped once for the life of a given latch; see
 		// raiseLocalReArmRefusal). Same flash surface, cleared after one fire.
 		if e := a.world.LastLocalReArmRefusal; e != nil {
-			a.statusMsg = fmt.Sprintf("docking held off — press %s to re-arm, or back %.0f m clear of %s",
-				a.keys.ReArmDock.Help().Key, sim.ReArmDistM, e.PartnerName)
-			a.statusExpires = time.Now().Add(4 * time.Second)
+			a.flash(fmt.Sprintf("docking held off — press %s to re-arm, or back %.0f m clear of %s",
+				a.keys.ReArmDock.Help().Key, sim.ReArmDistM, e.PartnerName))
 			a.world.LastLocalReArmRefusal = nil
 		}
 		// #294 review finding 5: a due target-relative node (or in-flight
@@ -344,11 +341,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// re-latch that will never come.
 		if e := a.world.LastNodeTargetRefusal; e != nil {
 			if e.Cancelled {
-				a.statusMsg = fmt.Sprintf("%s: node cancelled, target gone", e.CraftName)
+				a.flash(fmt.Sprintf("%s: node cancelled, target gone", e.CraftName))
 			} else {
-				a.statusMsg = fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName)
+				a.flash(fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName))
 			}
-			a.statusExpires = time.Now().Add(4 * time.Second)
 			a.world.LastNodeTargetRefusal = nil
 		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
@@ -472,12 +468,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if overBudget {
-				// Same statusExpires flash mechanism as every other
-				// planner outcome — ADR 0047 §2 deliberately reuses
-				// this rather than introducing a new announcement
-				// helper (that's a later issue's scope).
-				a.statusMsg = fmt.Sprintf("plan exceeds Δv budget by %.0f m/s", overBy)
-				a.statusExpires = time.Now().Add(4 * time.Second)
+				// Same flash mechanism as every other planner outcome
+				// (ADR 0048 §1 — the one announcement helper).
+				a.flash(fmt.Sprintf("plan exceeds Δv budget by %.0f m/s", overBy))
 			}
 		}
 		a.closeManeuverToOrbit()
@@ -772,8 +765,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch s {
 			case "y", "Y":
 				if a.world.EndFlightActive() {
-					a.statusMsg = "● END FLIGHT — wreckage removed"
-					a.statusExpires = time.Now().Add(3 * time.Second)
+					a.flash("● END FLIGHT — wreckage removed")
 				}
 				a.endFlightConfirm = false
 			case "n", "N", "esc":
@@ -815,8 +807,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// so the player can add parts instead of silently
 				// getting a round-robin default.
 				if a.spawn.CustomStackEmpty() {
-					a.statusMsg = "custom stack is empty — add a part with [a]"
-					a.statusExpires = time.Now().Add(3 * time.Second)
+					a.flash("custom stack is empty — add a part with [a]")
 					return a, nil
 				}
 				spec := sim.SpawnSpec{
@@ -833,13 +824,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					LongitudeOffset: a.spawn.SelectedLongitudeEastDeg(),
 				}
 				if c, err := a.world.SpawnCraft(spec); err == nil {
-					a.statusMsg = fmt.Sprintf("spawned vessel %d (%s)", a.world.ActiveCraftIdx+1, c.Name)
-					a.statusExpires = time.Now().Add(3 * time.Second)
+					a.flash(fmt.Sprintf("spawned vessel %d (%s)", a.world.ActiveCraftIdx+1, c.Name))
 				} else {
 					// Surface the failure instead of silently returning to
 					// orbit — a swallowed error reads as "nothing happens".
-					a.statusMsg = fmt.Sprintf("spawn failed: %v", err)
-					a.statusExpires = time.Now().Add(3 * time.Second)
+					a.flash(fmt.Sprintf("spawn failed: %v", err))
 				}
 				a.active = screenOrbit
 			case screens.SpawnActionCancel:
@@ -1467,11 +1456,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.CycleRCSPulseScale()
 			if c := a.world.ActiveCraft(); c != nil {
 				if c.EngineMode == spacecraft.EngineRCS {
-					a.statusMsg = fmt.Sprintf("rcs pulse %g m/s", c.RCSPulseDV())
+					a.flash(fmt.Sprintf("rcs pulse %g m/s", c.RCSPulseDV()))
 				} else {
-					a.statusMsg = fmt.Sprintf("rcs pulse %g m/s (press r for rcs)", c.RCSPulseDV())
+					a.flash(fmt.Sprintf("rcs pulse %g m/s (press r for rcs)", c.RCSPulseDV()))
 				}
-				a.statusExpires = time.Now().Add(3 * time.Second)
 			}
 			return a, nil
 		case key.Matches(m, a.keys.NextCraft):
@@ -1506,12 +1494,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// GuestReleaseRefusal says so and names the two-step.
 			if active := a.world.ActiveCraft(); sim.StackHasGuest(active) {
 				if reason := a.world.GuestReleaseRefusal(a.world.ActiveCraftIdx); reason != "" {
-					a.statusMsg = reason
-					a.statusExpires = time.Now().Add(3 * time.Second)
+					a.flash(reason)
 					return a, nil
 				}
-				a.statusMsg = "releasing your partner's vessel…"
-				a.statusExpires = time.Now().Add(3 * time.Second)
+				a.flash("releasing your partner's vessel…")
 				return a, func() tea.Msg { return ReleaseGuestMsg{} }
 			}
 			// #308: say why when it refuses. The key is bound and the stack is
@@ -1520,12 +1506,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// on. UndockRefusal is exhaustive over Undock's false paths, so
 			// there is no third branch that falls through in silence.
 			if reason := a.world.UndockRefusal(a.world.ActiveCraftIdx); reason != "" {
-				a.statusMsg = reason
+				a.flash(reason)
 			} else if a.world.Undock(a.world.ActiveCraftIdx) {
-				a.statusMsg = fmt.Sprintf("undocked into %d components", len(a.world.Crafts))
+				a.flash(fmt.Sprintf("undocked into %d components", len(a.world.Crafts)))
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
 			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.ReArmDock):
 			// #372: the explicit "yes, I meant it" for a same-World docking
@@ -1535,14 +1520,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// both proximity gates fuses on the very next tick once the
 			// latch clears, exactly as an un-latched approach would.
 			if partners, ok := a.world.ReArmDocking(); ok {
-				a.statusMsg = "re-armed docking with " + strings.Join(partners, ", ")
+				a.flash("re-armed docking with " + strings.Join(partners, ", "))
 			} else {
 				// A press with no latch held must say so rather than no-op
 				// silently — a dead keypress reads as a broken key (v0.30
 				// lesson).
-				a.statusMsg = "docking: no re-arm latch held"
+				a.flash("docking: no re-arm latch held")
 			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.TransferControl):
 			// v0.28 S5, ADR 0034 §6: hand a cross-player stack I own to the
@@ -1559,19 +1543,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if active := a.world.ActiveCraft(); active != nil && sim.StackHasGuest(active) {
 				return a, func() tea.Msg { return TransferControlMsg{} }
 			}
-			a.statusMsg = "transfer: not flying a cross-player stack"
-			a.statusExpires = time.Now().Add(3 * time.Second)
+			a.flash("transfer: not flying a cross-player stack")
 			return a, nil
 		case key.Matches(m, a.keys.Deploy):
 			// v0.23 / ADR 0028: release the top carried payload, keep flying the
 			// carrier (drop-and-continue). World.Deploy self-records the deploy
 			// action (so any caller emits it) — no second RecordAction here.
 			if a.world.Deploy(a.world.ActiveCraftIdx) {
-				a.statusMsg = fmt.Sprintf("deployed payload — %d vessels on the slate", len(a.world.Crafts))
+				a.flash(fmt.Sprintf("deployed payload — %d vessels on the slate", len(a.world.Crafts)))
 			} else {
-				a.statusMsg = "deploy: no payload to release (carrier carries no docked payload)"
+				a.flash("deploy: no payload to release (carrier carries no docked payload)")
 			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.Transpose):
 			// v0.12 / ADR 0009: one-shot Apollo transposition. Reorders
@@ -1580,13 +1562,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch err := a.world.Transpose(a.world.ActiveCraftIdx); {
 			case err == nil:
 				a.world.RecordAction(missions.ActionTranspose) // ADR 0025 §7
-				a.statusMsg = "transposed: SM is firing core — press U to release the LM"
+				a.flash("transposed: SM is firing core — press U to release the LM")
 			case errors.Is(err, sim.ErrTransposeNotReady):
-				a.statusMsg = "transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)"
+				a.flash("transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)")
 			default:
-				a.statusMsg = fmt.Sprintf("transpose failed: %v", err)
+				a.flash(fmt.Sprintf("transpose failed: %v", err))
 			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.CycleTarget):
 			a.world.CycleTarget(true)
@@ -1599,13 +1580,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.CycleNavMode):
 			nav := a.world.CycleNavMode()
 			a.world.RecordAction(missions.ActionCycleNavMode) // ADR 0025 §7
-			a.statusMsg = fmt.Sprintf("nav: %s", nav)
-			a.statusExpires = time.Now().Add(2 * time.Second)
+			a.flash(fmt.Sprintf("nav: %s", nav))
 			return a, nil
 		case key.Matches(m, a.keys.ToggleInstantSAS):
 			a.world.ToggleInstantSAS()
-			a.statusMsg = fmt.Sprintf("SAS: %s", sasModeLabel(a.world.InstantSAS))
-			a.statusExpires = time.Now().Add(2 * time.Second)
+			a.flash(fmt.Sprintf("SAS: %s", sasModeLabel(a.world.InstantSAS)))
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeSurfacePrograde):
 			a.handleAttitudeKey(spacecraft.BurnSurfacePrograde)
@@ -1633,12 +1612,35 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Inside the maneuver form, space is the iterate-toggle
 			// (v0.8.6.3) — that path doesn't reach here because the
 			// maneuver form intercepts keys before app.update.
-			_, jettIdx, err := a.world.StageActive(a.world.ActiveCraftIdx)
+			//
+			// #427 / ADR 0048: name the DROPPED STAGE in the Event Flash,
+			// not the jettisoned wreckage craft's disambiguated slate name
+			// (nextCraftName always appends "-N", so "S-IC" would read
+			// "S-IC-1", "S-IC-2", ... across a playthrough — the loadout's
+			// bare stage name is stable and matches the issue's own
+			// example, "dropped S-IC — 2 stages left"). Captured before
+			// the call since StageActive reslices Stages out from under
+			// the pre-drop bottom entry.
+			droppedName := ""
+			if c := a.world.ActiveCraft(); c != nil && len(c.Stages) > 0 {
+				droppedName = c.Stages[0].Name
+			}
+			_, _, err := a.world.StageActive(a.world.ActiveCraftIdx)
 			switch {
 			case err == nil:
 				a.world.RecordAction(missions.ActionStage) // ADR 0025 §7
-				name := a.world.Crafts[jettIdx].Name
-				a.statusMsg = fmt.Sprintf("staged: %s jettisoned", name)
+				// The number that matters is how many stages remain to
+				// fly, not the jettisoned craft's rename (the review's
+				// "renames the vessel with no message" finding).
+				remaining := 0
+				if c := a.world.ActiveCraft(); c != nil {
+					remaining = len(c.Stages)
+				}
+				stageWord := "stages"
+				if remaining == 1 {
+					stageWord = "stage"
+				}
+				a.flash(fmt.Sprintf("dropped %s — %d %s left", droppedName, remaining, stageWord))
 				// v0.12 / ADR 0009: surface the transposition hint the
 				// moment a stage drop leaves the Apollo stack in the
 				// pre-transposition shape [Descent, Ascent, SM, CM] — the
@@ -1646,7 +1648,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// (or stage once more to drop the LM for a manual flip).
 				// Without this the wrong-engine state is silent.
 				if sim.TransposeReady(a.world.ActiveCraft()) {
-					a.statusMsg = "TRANSPOSE READY — press D to flip (SM → firing core; LM becomes nose payload)"
+					a.flash("TRANSPOSE READY — press D to flip (SM → firing core; LM becomes nose payload)")
 				}
 			case errors.Is(err, sim.ErrStageOnlyOne):
 				// v0.12 Slice 3 (ADR 0008): once the vessel is reduced to
@@ -1655,14 +1657,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// action," no new keybinding. Falls through to the normal
 				// no-op flash when there's no stowed chute to arm.
 				if c := a.world.ActiveCraft(); c != nil && c.ArmParachute() {
-					a.statusMsg = "parachute ARMED — auto-deploys in atmosphere"
+					a.flash("parachute ARMED — auto-deploys in atmosphere")
 				} else {
-					a.statusMsg = "stage: cannot drop the only remaining stage"
+					a.flash("stage: cannot drop the only remaining stage")
 				}
 			default:
-				a.statusMsg = fmt.Sprintf("stage failed: %v", err)
+				a.flash(fmt.Sprintf("stage failed: %v", err))
 			}
-			a.statusExpires = time.Now().Add(3 * time.Second)
 			return a, nil
 		case key.Matches(m, a.keys.TiltUp), key.Matches(m, a.keys.TiltDown):
 			// v0.10.6+: nudge ViewTilted's polar tilt θ ±5°. No-op when
@@ -1677,8 +1678,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delta = -sim.ViewTiltThetaStep
 			}
 			theta := a.world.NudgeViewTiltTheta(delta)
-			a.statusMsg = fmt.Sprintf("view: tilted %g°", theta)
-			a.statusExpires = time.Now().Add(1500 * time.Millisecond)
+			a.flash(fmt.Sprintf("view: tilted %g°", theta))
 			return a, nil
 		case key.Matches(m, a.keys.YawLeft), key.Matches(m, a.keys.YawRight):
 			// ADR 0021 G: nudge ViewTilted's yaw φ ±5°, wrapping at
@@ -1694,8 +1694,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delta = -sim.ViewTiltPhiStep
 			}
 			phi := a.world.NudgeViewTiltPhi(delta)
-			a.statusMsg = fmt.Sprintf("view: yaw %g°", phi)
-			a.statusExpires = time.Now().Add(1500 * time.Millisecond)
+			a.flash(fmt.Sprintf("view: yaw %g°", phi))
 			return a, nil
 		}
 	}
@@ -1898,8 +1897,7 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 	switch ctrl {
 	case screens.NavballControlMode:
 		nav := a.world.CycleNavMode()
-		a.statusMsg = fmt.Sprintf("nav: %s", nav)
-		a.statusExpires = time.Now().Add(2 * time.Second)
+		a.flash(fmt.Sprintf("nav: %s", nav))
 	case screens.NavballControlPrograde:
 		a.handleAttitudeIntent(sim.IntentPrograde)
 	case screens.NavballControlRetrograde:
@@ -1918,12 +1916,10 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 		if a.world.RCSActive() {
 			state = "on"
 		}
-		a.statusMsg = fmt.Sprintf("RCS: %s", state)
-		a.statusExpires = time.Now().Add(2 * time.Second)
+		a.flash(fmt.Sprintf("RCS: %s", state))
 	case screens.NavballControlSAS:
 		a.world.ToggleInstantSAS()
-		a.statusMsg = fmt.Sprintf("SAS: %s", sasModeLabel(a.world.InstantSAS))
-		a.statusExpires = time.Now().Add(2 * time.Second)
+		a.flash(fmt.Sprintf("SAS: %s", sasModeLabel(a.world.InstantSAS)))
 	case screens.NavballControlTargetPlus:
 		a.handleAttitudeKey(spacecraft.BurnTarget)
 	case screens.NavballControlTargetMinus:
@@ -2261,8 +2257,7 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		a.active = screenOrbit
 	case screens.SessionCmdTargetGhost:
 		a.world.SetTargetGhost(cmd.Owner, cmd.CraftID)
-		a.statusMsg = fmt.Sprintf("target: %s's vessel", cmd.Handle)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("target: %s's vessel", cmd.Handle))
 		a.active = screenOrbit
 	case screens.SessionCmdSpectate:
 		// Spectate (v0.28 S6 / ADR 0034): camera-follow a remote player's
@@ -2270,19 +2265,17 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		// alike. Fits once to the ghost's drawn orbit extent (Framing Event)
 		// then tracks it; [f]/[g] return to own-craft framing.
 		a.world.SpectateGhost(cmd.Owner, cmd.CraftID)
-		a.statusMsg = fmt.Sprintf("spectating %s — [f] to return", cmd.Handle)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("spectating %s — [f] to return", cmd.Handle))
 		a.active = screenOrbit
 	case screens.SessionCmdSync:
 		// Sync-to (v0.27 S7 / ADR 0034): Auto-Warp to the player's
 		// subspace time. The screen already refused backward targets;
 		// this guard covers a slate that moved between frames.
 		if a.world.EngageSyncWarp(cmd.Time, cmd.Owner, cmd.Handle) {
-			a.statusMsg = fmt.Sprintf("syncing to %s — auto-warp engaged", cmd.Handle)
+			a.flash(fmt.Sprintf("syncing to %s — auto-warp engaged", cmd.Handle))
 		} else {
-			a.statusMsg = fmt.Sprintf("can't sync — %s is no longer ahead", cmd.Handle)
+			a.flash(fmt.Sprintf("can't sync — %s is no longer ahead", cmd.Handle))
 		}
-		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit
 	case screens.SessionCmdRendezvous:
 		// Rendezvous Warp initiate (v0.29 S2 / ADR 0034 v0.29 addendum;
@@ -2311,7 +2304,7 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		switch {
 		case !ok:
 			a.world.RestoreTarget(prevTarget, prevNav)
-			a.statusMsg = fmt.Sprintf("can't rendezvous with %s — no reported position", cmd.Handle)
+			a.flash(fmt.Sprintf("can't rendezvous with %s — no reported position", cmd.Handle))
 		// The seat is fixed here (ADR 0037 §2): proposing the rendezvous
 		// makes you pilot-in-command of the pair's time once the terminal
 		// phase begins.
@@ -2327,20 +2320,18 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 			// catch a wrong-vessel arm before the invitation goes out.
 			craftTag := screens.CraftTag(a.world.RendezvousArm.CraftName)
 			if plan.Tau.IsZero() {
-				a.statusMsg = fmt.Sprintf("rendezvous agreed with %s%s — no plan yet, waiting for them to join",
-					cmd.Handle, craftTag)
+				a.flash(fmt.Sprintf("rendezvous agreed with %s%s — no plan yet, waiting for them to join",
+					cmd.Handle, craftTag))
 			} else {
-				a.statusMsg = fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join%s",
-					cmd.Handle, craftTag, rendezvousGapNoteSuffix(a.world, plan.CommittedCA))
+				a.flash(fmt.Sprintf("rendezvous armed toward %s%s — waiting for them to join%s",
+					cmd.Handle, craftTag, rendezvousGapNoteSuffix(a.world, plan.CommittedCA)))
 			}
 		default:
-			a.statusMsg = fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle)
+			a.flash(fmt.Sprintf("can't arm rendezvous with %s — encounter is in the past", cmd.Handle))
 		}
-		a.statusExpires = time.Now().Add(3 * time.Second)
 		a.active = screenOrbit
 	case screens.SessionCmdToast:
-		a.statusMsg = cmd.Message
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(cmd.Message)
 	case screens.SessionCmdStartHost:
 		// In-UI hosting (v0.28 S3 / ADR 0034). Host-only by
 		// construction: a guest session carries a guestSave sink, so it
@@ -2557,9 +2548,14 @@ func (a *App) commitInspect() {
 	a.toast(fmt.Sprintf("target: %s", name))
 }
 
+// toast is the pre-#427 name for flash, kept as a thin alias — it has
+// ~30 call sites in this file plus the exported Toast below, which
+// internal/serve calls across the App boundary to surface hosting/
+// dock/reporting outcomes. Both now share flash's one voice and one
+// lifetime (ADR 0048) rather than carrying a second copy of the same
+// two-line body.
 func (a *App) toast(msg string) {
-	a.statusMsg = msg
-	a.statusExpires = time.Now().Add(3 * time.Second)
+	a.flash(msg)
 }
 
 // Toast flashes msg in the HUD footer — the exported door for the
@@ -2580,8 +2576,7 @@ func (a *App) toggleChip(c settings.Chip) {
 	s.SetChip(c, !s.ChipEnabled(c))
 	a.orbitView.SetSettings(s)
 	if err := settings.Save(s); err != nil {
-		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("settings save failed: %v", err))
 	}
 }
 
@@ -2615,8 +2610,7 @@ func (a *App) toggleMissionProgram(tutorial bool) {
 	a.orbitView.SetSettings(s)
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(s))
 	if err := settings.Save(s); err != nil {
-		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("settings save failed: %v", err))
 	}
 }
 
@@ -2632,8 +2626,7 @@ func (a *App) cycleAutosaveInterval() {
 	s.SetAutosaveIntervalMin(settings.NextAutosaveIntervalMin(s.AutosaveIntervalMinutes()))
 	a.orbitView.SetSettings(s)
 	if err := settings.Save(s); err != nil {
-		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("settings save failed: %v", err))
 	}
 }
 
@@ -2650,9 +2643,29 @@ func (a *App) cycleLayout() {
 	s.KeyboardLayout = string(a.layout)
 	a.orbitView.SetSettings(s)
 	if err := settings.Save(s); err != nil {
-		a.statusMsg = fmt.Sprintf("settings save failed: %v", err)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("settings save failed: %v", err))
 	}
+}
+
+// flashLifetime is the one lifetime every Event Flash lives for (ADR
+// 0048 decision 1). Pre-#427 call sites disagreed — 1.5s / 2s / 3s / 4s
+// / 6s depending on which corner of app.go set statusExpires — with no
+// single owner. flash below is now that owner.
+const flashLifetime = 3 * time.Second
+
+// flash writes one Event Flash to the HUD footer: the transient border
+// line for something that is already over the moment it happens (a burn
+// fired, a stage dropped, a refusal) as opposed to a Standing Alert,
+// which persists while its state still holds (see standingAlert /
+// VESSEL DESTROYED). Every call site in this file goes through flash so
+// the voice and the lifetime can't drift call site to call site (ADR
+// 0048): one verb, what happened, and the number that matters —
+// "node 1 burned — 3054 m/s, 2 remaining", "dropped S-IC — 2 stages
+// left". text is the finished line; callers format their own message
+// (fmt.Sprintf or a literal) and hand it here.
+func (a *App) flash(text string) {
+	a.statusMsg = text
+	a.statusExpires = time.Now().Add(flashLifetime)
 }
 
 // refuse writes a one-phrase "<label>: <reason>" refusal to the HUD
@@ -2663,10 +2676,10 @@ func (a *App) cycleLayout() {
 // which pins that the label appears exactly once). Generalised into one
 // helper so every guarded key speaks with the same voice. label should
 // name the action ("end flight", "rendezvous"), not repeat itself in
-// reason.
+// reason. Refusals are Event Flashes too (ADR 0048), so this is a thin
+// wrapper over flash.
 func (a *App) refuse(label, reason string) {
-	a.statusMsg = fmt.Sprintf("%s: %s", label, reason)
-	a.statusExpires = time.Now().Add(3 * time.Second)
+	a.flash(fmt.Sprintf("%s: %s", label, reason))
 }
 
 // flashStatus writes a transient message to the HUD footer. The
@@ -2674,12 +2687,11 @@ func (a *App) refuse(label, reason string) {
 // (v0.26 / ADR 0033 §D).
 func (a *App) flashStatus(op string, err error) {
 	if err != nil {
-		a.statusMsg = fmt.Sprintf("%s failed: %v", op, err)
-	} else {
-		dir, _ := save.SavesDir()
-		a.statusMsg = fmt.Sprintf("%s ok — %s", op, filepath.Join(dir, save.QuicksaveID))
+		a.flash(fmt.Sprintf("%s failed: %v", op, err))
+		return
 	}
-	a.statusExpires = time.Now().Add(3 * time.Second)
+	dir, _ := save.SavesDir()
+	a.flash(fmt.Sprintf("%s ok — %s", op, filepath.Join(dir, save.QuicksaveID)))
 }
 
 // handlePlanRendezvousKey is K's modal body (ADR 0045 S6, #399), called
@@ -2692,8 +2704,7 @@ func (a *App) flashStatus(op string, err error) {
 func (a *App) handlePlanRendezvousKey() {
 	out, err := a.world.PlanRendezvousOrOpenMeeting()
 	if err != nil {
-		a.statusMsg = fmt.Sprintf("rendezvous: %v", err)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("rendezvous: %v", err))
 		return
 	}
 	switch {
@@ -2704,9 +2715,8 @@ func (a *App) handlePlanRendezvousKey() {
 		// (#290 found this invisible at plan time: a "successful" plant
 		// that in fact arrived 4.6 m/s under the lock gate, with nothing
 		// on screen warning the player before they committed).
-		a.statusMsg = fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs, arriving ~%.0f m/s",
-			adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival, adv.ArrivalSpeed)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs, arriving ~%.0f m/s",
+			adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival, adv.ArrivalSpeed))
 		a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
 	case out.OpenPicker:
 		// The picker is a chip on the orbit MAP (ADR 0045 §2) — switch
@@ -2715,8 +2725,7 @@ func (a *App) handlePlanRendezvousKey() {
 		// summoned is actually visible.
 		a.active = screenOrbit
 		a.orbitView.OpenMeetingPicker(out.Place, out.Ladder, out.LadderErr)
-		a.statusMsg = "meeting plan: too far apart to nudge — walk the Lap Ladder [←→↑↓], Enter to plant, Esc to cancel"
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash("meeting plan: too far apart to nudge — walk the Lap Ladder [←→↑↓], Enter to plant, Esc to cancel")
 	}
 }
 
@@ -2771,21 +2780,19 @@ func (a *App) planMeetingPickerSelection() {
 	place := a.orbitView.MeetingPickerPlace()
 	plan, err := a.world.PlanMeetingBurn(place, laps)
 	if err != nil {
-		a.statusMsg = fmt.Sprintf("meeting: %v", err)
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash(fmt.Sprintf("meeting: %v", err))
 		return
 	}
 	if plan.ForActive {
-		a.statusMsg = fmt.Sprintf("meeting burn planted: %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
-			plan.DV, plan.AchievableCA, plan.ArrivalSpeed)
+		a.flash(fmt.Sprintf("meeting burn planted: %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
+			plan.DV, plan.AchievableCA, plan.ArrivalSpeed))
 		a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
 	} else {
 		// MeetingYourOrbit: the PARTNER is the mover. #399 out of scope —
 		// carrying this plan to them over the wire is a later slice.
-		a.statusMsg = fmt.Sprintf("meeting plan (their burn): %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
-			plan.DV, plan.AchievableCA, plan.ArrivalSpeed)
+		a.flash(fmt.Sprintf("meeting plan (their burn): %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
+			plan.DV, plan.AchievableCA, plan.ArrivalSpeed))
 	}
-	a.statusExpires = time.Now().Add(3 * time.Second)
 	a.orbitView.CloseMeetingPicker()
 }
 
@@ -2987,12 +2994,10 @@ func (a *App) doPlanTransfer() {
 		// "match plane [I], circularize, then [H]" advisory).
 		// Non-intra-primary plants leave the comparison empty.
 		if cmp := a.world.LastTransfer.Format(); cmp != "" {
-			a.statusMsg = cmp
-			a.statusExpires = time.Now().Add(6 * time.Second)
+			a.flash(cmp)
 		}
 	case sim.TargetCraft:
-		a.statusMsg = "H targets bodies — for vessels, plan via [m]"
-		a.statusExpires = time.Now().Add(3 * time.Second)
+		a.flash("H targets bodies — for vessels, plan via [m]")
 	default:
 		// #428 mechanical fix: this used to be a deliberate silent
 		// no-op (there was "genuinely nothing to name" for TargetNone)
@@ -3033,16 +3038,15 @@ func (a *App) doPlanPlaneMatch() {
 		plan, err = a.world.PlanInclinationChange(0)
 	}
 	if err != nil {
-		a.statusMsg = fmt.Sprintf("inclination: %v", err)
+		a.flash(fmt.Sprintf("inclination: %v", err))
 	} else {
 		nodeLabel := "DN"
 		if plan.AtAN {
 			nodeLabel = "AN"
 		}
-		a.statusMsg = fmt.Sprintf("inclination plan — %.1f m/s at next %s",
-			plan.DV, nodeLabel)
+		a.flash(fmt.Sprintf("inclination plan — %.1f m/s at next %s",
+			plan.DV, nodeLabel))
 	}
-	a.statusExpires = time.Now().Add(3 * time.Second)
 	a.world.RecordAction(missions.ActionPlanIncl) // ADR 0025 §7
 }
 
@@ -3057,12 +3061,11 @@ func (a *App) doPlanCircularize() {
 	}
 	plan, err := a.world.PlanCircularizeAtApoapsis()
 	if err != nil {
-		a.statusMsg = fmt.Sprintf("circularize: %v", err)
+		a.flash(fmt.Sprintf("circularize: %v", err))
 	} else {
-		a.statusMsg = fmt.Sprintf("circularize @ apoapsis (%.0f km) → +%.0f m/s prograde",
-			plan.ApoAltM/1000, plan.DV)
+		a.flash(fmt.Sprintf("circularize @ apoapsis (%.0f km) → +%.0f m/s prograde",
+			plan.ApoAltM/1000, plan.DV))
 	}
-	a.statusExpires = time.Now().Add(3 * time.Second)
 	a.world.RecordAction(missions.ActionPlanCircularize) // ADR 0025 §7
 }
 
@@ -3112,10 +3115,9 @@ func (a *App) doRefinePlan() {
 	}
 	corr, arr, err := a.world.RefinePlan()
 	if err != nil {
-		a.statusMsg = fmt.Sprintf("refine failed: %v", err)
+		a.flash(fmt.Sprintf("refine failed: %v", err))
 	} else {
-		a.statusMsg = fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr)
+		a.flash(fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr))
 	}
-	a.statusExpires = time.Now().Add(3 * time.Second)
 	a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
 }

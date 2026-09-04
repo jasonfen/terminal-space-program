@@ -43,6 +43,20 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	if lines := v.buildVesselChip(w); lines != nil {
 		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, compact: v.buildVesselChipCompact(w), priority: chipPriorityCore})
 	}
+	// VESSEL DESTROYED (#427 / ADR 0048): the game's first Standing
+	// Alert — an alert-coloured chip that persists for as long as the
+	// active craft's Crashed state holds, not a transient Event Flash.
+	// Pre-#427 a crash's entire notice was the VESSEL chip's name gaining
+	// a dim "[CR] " prefix (crashedVesselNameLabel) while every other
+	// readout kept reading as if pre-launch — the review's own finding.
+	// Bypasses chipEnabled entirely (no Settings id — there's nothing to
+	// toggle, the exits are non-optional) and survives F2 declutter the
+	// same way the live-burn NODES chip does, because a destroyed vessel
+	// with no visible way out is exactly the "safety/continuity fact the
+	// player has no other way to see" chipPriorityForced exists for.
+	if lines := v.buildVesselDestroyedChip(w); lines != nil {
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityForced})
+	}
 	// MEETING PLAN (ADR 0045 S6, #399): the picker holds keyboard focus
 	// while open (app.go's key intercept claims ←/→/↑/↓/Enter/Esc before
 	// they can reach camera pan or anything else), so unlike every other
@@ -1308,6 +1322,24 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 			twrLabel = v.theme.Alert.Render(twrLabel + " (will not lift)")
 		}
 	}
+	// #427 / ADR 0048 §3: an ignition indicator beside twr:. The launch
+	// view had no engine-lit state at all — ATTITUDE (the map's own
+	// engine:/manual: rows) uses assembleChips' plain `add`, so it has no
+	// Compact Form and drops outright, silently, the instant the SURFACE
+	// + VESSEL stack (already ~20 rows during ascent) overflows the
+	// top-left column's Graceful Shrink budget — exactly the case the
+	// review captured (gameplay-system-workflows-09.txt: SURFACE/VESSEL/
+	// STAGES/SOI PASS on screen, ATTITUDE nowhere). Folding the readout
+	// into SURFACE instead of trying to keep ATTITUDE alive guarantees it
+	// shows for as long as the ascent HUD itself does (same shouldShowLaunchHUD
+	// gate at the top of this function). Lit iff the engine is actually
+	// producing thrust right now — a manual burn or a firing maneuver
+	// node — not the `throttle:` setting on the VESSEL chip, which stays
+	// at its loadout default whether or not anything is burning.
+	engineLabel := v.theme.Dim.Render("○ off")
+	if c.ActiveBurn != nil || c.ManualBurn != nil {
+		engineLabel = v.theme.Primary.Render("● LIT")
+	}
 	altAGL := c.Altitude()
 	altLabel := fmt.Sprintf("%.0f m", nzero(altAGL, 0))
 	if altAGL >= 1000 {
@@ -1334,7 +1366,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
 		fmt.Sprintf("  fpa:        %s", fpaLabel),
 		fmt.Sprintf("  fpa_orbit:  %s", fpaOrbitLabel),
-		fmt.Sprintf("  twr:        %s", twrLabel),
+		fmt.Sprintf("  twr:        %s  engine: %s", twrLabel, engineLabel),
 		fmt.Sprintf("  sas:        %s", sasLabel),
 		fmt.Sprintf("  trim:       %s", trimLabel),
 	}
