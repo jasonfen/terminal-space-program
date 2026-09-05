@@ -6,14 +6,13 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 )
 
-// #426 item F, decision 5: the missions ladder screen offers one-key
-// enables ("[1] turn on Flight School" / "[2] turn on the Challenge
-// ladder") wired through the SAME toggleMissionProgram Settings uses, not a
-// new path. The keys are enable-only: the offer row is shown only while a
-// program is off, so a digit pressed while it is already on must not switch
-// it off (the F1 row promises "turn on"). These pin that pressing 1/2 on
-// screenMissions flips the persisted Settings toggle on, re-pushes the
-// enabled-program set to World, and is a no-op once on.
+// #426 item F, decision 5, plus the opt-out Jason asked for on
+// 2026-09-04: the missions ladder screen carries a one-key row per program
+// ("[1] turn on Flight School" while off, "[1] turn off Flight School"
+// while on; same for "[2]" and the Challenge ladder) wired through the SAME
+// toggleMissionProgram Settings uses, not a new path. These pin that the
+// digit flips the persisted Settings toggle in BOTH directions and re-pushes
+// the enabled-program set to World, so M, 1, esc is a real opt-out.
 
 func withProgramsOff(t *testing.T) *App {
 	t.Helper()
@@ -30,11 +29,10 @@ func withProgramsOff(t *testing.T) *App {
 	return a
 }
 
-func TestMissionsScreenDigitOneTurnsOnTutorial(t *testing.T) {
+func TestMissionsScreenDigitOneTogglesTutorialBothWays(t *testing.T) {
 	a := withProgramsOff(t)
 
 	pressKey(a, '1')
-
 	if !a.orbitView.Settings().TutorialOn() {
 		t.Fatalf("TutorialOn still false after pressing 1 on the missions screen")
 	}
@@ -45,18 +43,23 @@ func TestMissionsScreenDigitOneTurnsOnTutorial(t *testing.T) {
 		t.Errorf("active screen changed to %v, want to stay on screenMissions", a.active)
 	}
 
-	// Enable-only: a second press must not switch it back off.
+	// The opt-out: a second press switches it off, and World follows.
 	pressKey(a, '1')
-	if !a.orbitView.Settings().TutorialOn() {
-		t.Fatalf("pressing 1 while Flight School is on switched it off; the key is enable-only")
+	if a.orbitView.Settings().TutorialOn() {
+		t.Fatalf("pressing 1 while Flight School is on did not switch it off; M, 1, esc must be a real opt-out")
+	}
+	if a.world.MissionProgramEnabled(missions.ProgramTutorial) {
+		t.Errorf("World still runs the tutorial after the persisted toggle went off")
+	}
+	if a.orbitView.Settings().TutorialEnabled == nil {
+		t.Errorf("opt-out must be recorded as an explicit false, not reset to absent (absent means on)")
 	}
 }
 
-func TestMissionsScreenDigitTwoTurnsOnChallenges(t *testing.T) {
+func TestMissionsScreenDigitTwoTogglesChallengesBothWays(t *testing.T) {
 	a := withProgramsOff(t)
 
 	pressKey(a, '2')
-
 	if !a.orbitView.Settings().ChallengesEnabled {
 		t.Fatalf("ChallengesEnabled still false after pressing 2 on the missions screen")
 	}
@@ -65,8 +68,8 @@ func TestMissionsScreenDigitTwoTurnsOnChallenges(t *testing.T) {
 	}
 
 	pressKey(a, '2')
-	if !a.orbitView.Settings().ChallengesEnabled {
-		t.Fatalf("pressing 2 while the Challenge ladder is on switched it off; the key is enable-only")
+	if a.orbitView.Settings().ChallengesEnabled {
+		t.Fatalf("pressing 2 while the Challenge ladder is on did not switch it off")
 	}
 }
 

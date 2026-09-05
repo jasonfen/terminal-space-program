@@ -199,6 +199,14 @@ func TestMissionsRenderOffProgramShowsToggleOffer(t *testing.T) {
 	if !strings.Contains(out, "[2] turn on the Challenge ladder") {
 		t.Errorf("challenges-off should still show its toggle offer:\n%s", out)
 	}
+	// The on program carries the opposite row under its list, so the key
+	// always does what the row says (the fast opt-out from Flight School).
+	if !strings.Contains(out, "[1] turn off Flight School") {
+		t.Errorf("tutorial-on should offer the turn-off row under its list:\n%s", out)
+	}
+	if strings.Contains(out, "[1] turn on Flight School") {
+		t.Errorf("tutorial-on must not also show the turn-on row:\n%s", out)
+	}
 }
 
 // TestMissionsRenderLockedRungHasLockGlyphAndAvailableIsBright — #426 item

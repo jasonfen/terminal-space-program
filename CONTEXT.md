@@ -2470,8 +2470,14 @@ abandoning a rung is deferred (needs persisted state). An in-flight
 plus N/M progress, flashes a Failed Mission for ~4 s before advancing, and
 surfaces the step's instruction inline for tutorial Missions; a countable
 Objective (relay coverage) shows its live count there ("relays online
-1/3"). When both Programs are off, the screen offers the one-key toggles
-rather than pointing at Settings.
+1/3"). Each Program's list carries a one-key row that says what it does:
+"turn on" in place of the list while the Program is off, "turn off" under
+the list while it is on. That "turn off" row is the **Opt-out**: a player
+who would rather fly unguided switches Flight School off in three presses
+(M, 1, esc), and it persists exactly as the Settings toggle does; the
+first rung's text points at it. Nothing on the screen points at Settings.
+_Avoid_: Dismiss (the chip has no dismiss key of its own), Skip tutorial
+(there is no skip; off is off until switched back on).
 _Avoid_: Quest, Achievement; and don't swap the two core terms — the
 inversion is load-bearing (an Objective is one predicate; a Mission bundles
 several ordered Objectives). The pre-v0.21 naming, where a single predicate
