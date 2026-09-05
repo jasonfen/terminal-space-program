@@ -43,7 +43,7 @@ type helpSection struct {
 // the 13-row MULTIPLAYER section (issue #425 evidence).
 var helpSections = []helpSection{
 	{"GENERAL", [][2]string{
-		{"F1", "toggle this help"},
+		{"F1 / ?", "toggle this help"},
 		{"esc", "back / close (or save/load/build/settings/keyboard layout/help/quit menu on home)"},
 		{"F5 / F9", "quicksave / quickload"},
 		{"ctrl+c", "quit immediately"},
@@ -152,6 +152,10 @@ var helpSections = []helpSection{
 		{"c", "toggle fused decouple (stage drops with the group below)"},
 		{"t", "set a Σ Δv target (a tank row then hints the count to reach it)"},
 		{"s / o", "save the design (name it) / open a saved design"},
+	}},
+	{"MISSIONS (ladder screen — open with M)", [][2]string{
+		{"1", "turn on Flight School (shown when it's off)"},
+		{"2", "turn on the Challenge ladder (shown when it's off)"},
 	}},
 	{"SAVES (menu → Save / Load Game)", [][2]string{
 		{"↑ / ↓", "move the save cursor"},

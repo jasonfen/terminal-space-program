@@ -983,6 +983,32 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+		// Missions ladder: `1`/`2` turn on Flight School / the Challenge
+		// ladder when the empty-state or per-program offer row is showing
+		// (#426 item F, decision 5) — wired through the same
+		// toggleMissionProgram the Settings screen uses, not a new path.
+		// Sits before the generic switch (like the Porkchop/Help blocks
+		// above) so these raw digits don't also fall through to the
+		// switch's CraftSlot case, which — per the comment on the K case
+		// below — reaches screenMissions same as screenOrbit.
+		// Enable-only: the offer row is shown only while a program is off,
+		// so a digit pressed while it is already on is a stray key, not a
+		// request to switch it off (the F1 row promises "turn on"). Off is
+		// the Settings screen's job.
+		if a.active == screenMissions {
+			switch m.String() {
+			case "1":
+				if !a.orbitView.Settings().TutorialOn() {
+					a.toggleMissionProgram(true)
+				}
+				return a, nil
+			case "2":
+				if !a.orbitView.Settings().ChallengesEnabled {
+					a.toggleMissionProgram(false)
+				}
+				return a, nil
+			}
+		}
 		switch {
 		case key.Matches(m, a.keys.Help):
 			if a.active == screenHelp {

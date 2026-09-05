@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
@@ -981,9 +982,10 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		// exceeds the vessel's current remaining budget plants anyway —
 		// warn and allow, never refuse — but every list carrying it
 		// shows the shortfall so the player isn't surprised later. Same
-		// wording as the on-map NODES chip (orbit_chips.go).
-		if over := n.DV - budget; over > 0 {
-			row += "  " + m.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", over))
+		// wording as the on-map NODES chip (orbit_chips.go); the predicate
+		// itself lives on ManeuverNode.OverBudget (#426) so no list forks it.
+		if shortfall, isOver := n.OverBudget(c); isOver {
+			row += "  " + m.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", shortfall))
 		}
 		switch {
 		case i == m.editingIdx:
@@ -1005,6 +1007,19 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		newRow = m.theme.Dim.Render("  " + newRow)
 	}
 	lines = append(lines, newRow)
+
+	// MISSION reminder (#426): the #426 issue's own evidence was that the
+	// instruction for the step the player is on lived on the screen they
+	// just left — the planner's footer never mentioned H/I/C/K/P/R at all.
+	// One dim line names the active Flight School step here too, without
+	// widening the panel (the ansi.Truncate pass below still clips it to
+	// panelWidth like every other row). Challenge rungs show nothing —
+	// this is Flight School's on-ramp, not a general reminder surface.
+	if am := w.ActiveMission(); am != nil && am.Program == missions.ProgramTutorial {
+		if obj, ok := am.CurrentObjective(); ok {
+			lines = append(lines, "", m.theme.Dim.Render("MISSION ▸ "+obj.Label()))
+		}
+	}
 
 	// QUICK PLANS (ADR 0047 §4 / #428): the one-key planners, legal
 	// right now or dimmed with the reason when a precondition isn't

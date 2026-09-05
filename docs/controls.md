@@ -33,6 +33,7 @@ behind a one-row `▸ +N hidden` marker rather than overlap each other.
   - [Porkchop plot (`P`)](#porkchop-plot-p)
   - [Meeting Planner (`K`)](#meeting-planner-k)
   - [Vehicle Assembly Building](#vehicle-assembly-building-esc--build-vab)
+  - [Missions ladder (`M`)](#missions-ladder-m)
   - [Saves](#saves-esc--save-game--load-game)
 
 ## Quick tour
@@ -430,6 +431,20 @@ Designs are stored as portable files under
 `$XDG_CONFIG_HOME/terminal-space-program/designs/` (typically
 `~/.config/terminal-space-program/designs/`); copy one into the sibling
 `loadouts/` overlay dir to share it as a mod.
+
+### Missions ladder (`M`)
+
+The active mission (if any) shows as a checklist card on top; below it, two
+headed lists — **Flight School** and **Challenges** — each with their own
+progress count. A locked rung is dimmed with what unlocks it; an available
+rung reads bright; completed and failed rungs are marked. A program that's
+switched off shows a one-key toggle in place of its list.
+
+| Key | Action |
+|---|---|
+| `1` | Turn on Flight School (shown only while it's off) |
+| `2` | Turn on the Challenge ladder (shown only while it's off) |
+| `Esc` | Back to the map |
 
 ### Saves (`Esc → [Save Game]` / `[Load Game]`)
 

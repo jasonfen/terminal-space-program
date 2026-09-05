@@ -88,3 +88,29 @@ func TestEmbeddedCatalogIntegrity(t *testing.T) {
 		}
 	}
 }
+
+// TestCatalogHasNoCrossProgramRequiresEdge — #426: the two Programs toggle
+// independently (a player can run Flight School without the Challenge
+// ladder, or vice versa), so a challenge rung must never require a tutorial
+// rung (or the reverse) — that would silently strand it behind a Program
+// the player switched off. chal-dock in particular used to require
+// chal-luna-return; it's now a root rung specifically because Flight
+// School teaches docking itself.
+func TestCatalogHasNoCrossProgramRequiresEdge(t *testing.T) {
+	cat, err := DefaultCatalog()
+	if err != nil {
+		t.Fatalf("DefaultCatalog: %v", err)
+	}
+	programByID := make(map[string]string, len(cat.Missions))
+	for _, m := range cat.Missions {
+		programByID[m.ID] = m.Program
+	}
+	for _, m := range cat.Missions {
+		for _, req := range m.Requires {
+			if reqProgram := programByID[req]; reqProgram != "" && reqProgram != m.Program {
+				t.Errorf("mission %q (program %q) requires %q (program %q) — a mission must never require one from a different program",
+					m.ID, m.Program, req, reqProgram)
+			}
+		}
+	}
+}

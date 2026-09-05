@@ -13,10 +13,10 @@
           "params": { "action": "cycle_view" }
         },
         {
-          "name": "Pick a target",
-          "description": "Press [t] to cycle the target slot — aim for the Moon. [T] clears it.",
+          "name": "Aim for the Moon",
+          "description": "Press [t] to cycle the target slot until TARGET reads Moon. [T] clears it.",
           "kind": "event",
-          "params": { "action": "cycle_target" }
+          "params": { "action": "cycle_target", "require_target_body_id": "moon" }
         }
       ]
     },
@@ -34,10 +34,14 @@
           "params": { "action": "open_maneuver" }
         },
         {
-          "name": "Plant a transfer",
-          "description": "With the Moon targeted, press [H] to plant a transfer burn toward it.",
+          "name": "Plant a transfer to the Moon",
+          "description": "With the Moon targeted, press [H] to plant a transfer you can afford.",
           "kind": "event",
-          "params": { "action": "plan_transfer" }
+          "params": {
+            "action": "plan_transfer",
+            "require_target_body_id": "moon",
+            "require_budget_ok": true
+          }
         }
       ]
     },
@@ -53,6 +57,84 @@
           "description": "Warp to your burn ([G]) or fire manually ([b]) and raise your altitude past 700 km.",
           "kind": "reach_altitude",
           "params": { "primary_id": "earth", "min_altitude_m": 700000 }
+        }
+      ]
+    },
+    {
+      "id": "tut-launch",
+      "name": "Flight School: Off the Pad",
+      "description": "Launch a Saturn V from the pad and fly it to orbit.",
+      "program": "tutorial",
+      "requires": ["tut-fly"],
+      "objectives": [
+        {
+          "name": "Spawn on the pad",
+          "description": "Press [n], pick Saturn V, and set position to launchpad.",
+          "kind": "event",
+          "params": { "action": "spawn_craft", "require_spawn_location": "pad" }
+        },
+        {
+          "name": "Throttle up",
+          "description": "Press [z] to throttle up to 100%.",
+          "kind": "event",
+          "params": { "action": "throttle_full" }
+        },
+        {
+          "name": "Stage to lift off",
+          "description": "Press [space] to drop the clamps and light the engine.",
+          "kind": "event",
+          "params": { "action": "stage" }
+        },
+        {
+          "name": "Pitch east",
+          "description": "Above 10 km, pitch east with [W] and hold it through the turn.",
+          "kind": "reach_altitude",
+          "params": { "primary_id": "earth", "min_altitude_m": 10000 }
+        },
+        {
+          "name": "Plan the circularising burn",
+          "description": "At ORBIT READY, press [C] to plant the circularising burn.",
+          "kind": "event",
+          "params": { "action": "plan_circularize" }
+        },
+        {
+          "name": "Fly the burn and make orbit",
+          "description": "Warp to the node or fire it manually — settle into orbit.",
+          "kind": "circularize_from_pad",
+          "params": { "primary_id": "earth", "min_periapsis_alt_m": 200000 }
+        }
+      ]
+    },
+    {
+      "id": "tut-dock",
+      "name": "Flight School: Meet & Dock",
+      "description": "Rendezvous with a partner vessel and dock.",
+      "program": "tutorial",
+      "requires": ["tut-launch"],
+      "objectives": [
+        {
+          "name": "Spawn a partner in orbit",
+          "description": "Press [n] to spawn a second vessel in orbit to rendezvous with.",
+          "kind": "event",
+          "params": { "action": "spawn_craft", "require_spawn_location": "orbit" }
+        },
+        {
+          "name": "Target it",
+          "description": "Press [t] to cycle the target slot until TARGET shows the other vessel.",
+          "kind": "event",
+          "params": { "action": "cycle_target", "require_target_craft": true }
+        },
+        {
+          "name": "Plant the meeting burn",
+          "description": "Press [K] to plant a burn toward it.",
+          "kind": "event",
+          "params": { "action": "plan_rendezvous" }
+        },
+        {
+          "name": "Close in and dock",
+          "description": "Match up and dock the two vessels.",
+          "kind": "dock",
+          "params": {}
         }
       ]
     },
@@ -131,7 +213,6 @@
       "name": "Rendezvous & Dock",
       "description": "Bring two vessels together and dock them.",
       "program": "challenge",
-      "requires": ["chal-luna-return"],
       "objectives": [
         {
           "name": "Spawn a partner",
@@ -152,7 +233,7 @@
       "name": "Mars Flyby",
       "description": "Leave Earth's neighbourhood — fly past Mars.",
       "program": "challenge",
-      "requires": ["chal-dock"],
+      "requires": ["chal-luna-capture"],
       "objectives": [
         {
           "name": "Enter Mars' SOI",
@@ -185,7 +266,7 @@
       "objectives": [
         {
           "name": "Circular orbit at 800 km",
-          "description": "Fly your carrier into a near-circular orbit at ~800 km altitude.",
+          "description": "Fly your carrier into a near-circular orbit at ~800 km altitude (e ≤ 0.05).",
           "kind": "circularize",
           "params": {
             "primary_id": "earth",

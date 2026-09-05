@@ -1108,16 +1108,17 @@ func (w *World) missionEvalContext() missions.EvalContext {
 		HasTarget:      w.Target.Kind != spacecraft.TargetNone,
 		Staged:         w.stagedThisSession,
 		RecentActions:  w.recentActions,
+		// #426: gates for the Flight School event-objective Require* fields.
+		TargetBodyID:      w.boundTargetBodyID(),
+		TargetIsCraft:     w.Target.Kind == spacecraft.TargetCraft,
+		HasOverBudgetNode: activeCraftHasOverBudgetNode(c),
+		OnPad:             c.OnPad,
 	}
 	// v0.23 / ADR 0027: project the CommNet graph down for coverage
 	// objectives (the missions package never imports sim).
 	if w.CommGraph != nil {
 		ctx.ActiveConnected = w.CommGraph.HasConnection(c.ID)
-		for _, oc := range w.Crafts {
-			if oc != nil && oc.AntennaKind == spacecraft.AntennaRelay && w.CommGraph.HasConnection(oc.ID) {
-				ctx.ConnectedRelayCount++
-			}
-		}
+		ctx.ConnectedRelayCount = w.ConnectedRelayCount()
 	}
 	// Target-craft relative state (rendezvous), against the player's
 	// current target slot in the active craft's frame. Only when a craft
@@ -1130,6 +1131,58 @@ func (w *World) missionEvalContext() missions.EvalContext {
 		}
 	}
 	return ctx
+}
+
+// boundTargetBodyID resolves World.Target to a catalog body ID when it's
+// bound to a body, or "" otherwise (no target, a craft, a site, or a stale
+// out-of-range index). #426: the missions package can't do this lookup
+// itself (Target lives on spacecraft/sim, not missions), so World does it
+// once here for the event-objective RequireTargetBodyID gate.
+func (w *World) boundTargetBodyID() string {
+	if w.Target.Kind != spacecraft.TargetBody {
+		return ""
+	}
+	sys := w.System()
+	if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sys.Bodies) {
+		return ""
+	}
+	return sys.Bodies[w.Target.BodyIdx].ID
+}
+
+// activeCraftHasOverBudgetNode reports whether ANY node currently planted on
+// c is an Over-budget Node (ADR 0047 §2, via ManeuverNode.OverBudget) — the
+// signal #426's RequireBudgetOK event-objective gate reads. Shares the exact
+// predicate the NODES chip and planner list mark with, rather than forking
+// it a third time.
+func activeCraftHasOverBudgetNode(c *spacecraft.Spacecraft) bool {
+	if c == nil {
+		return false
+	}
+	for _, n := range c.Nodes {
+		if _, over := n.OverBudget(c); over {
+			return true
+		}
+	}
+	return false
+}
+
+// ConnectedRelayCount returns how many relay-antenna craft in the slate
+// currently reach a ground station, via the cached CommGraph (v0.23 / ADR
+// 0027). Factored out of missionEvalContext (which feeds the
+// relay_coverage evaluator) so the MISSION chip's live "relays online N/3"
+// row (#426) reads the exact same count rather than re-deriving it. Returns
+// 0 before the first CommGraph build.
+func (w *World) ConnectedRelayCount() int {
+	if w.CommGraph == nil {
+		return 0
+	}
+	n := 0
+	for _, oc := range w.Crafts {
+		if oc != nil && oc.AntennaKind == spacecraft.AntennaRelay && w.CommGraph.HasConnection(oc.ID) {
+			n++
+		}
+	}
+	return n
 }
 
 // ActiveMission returns the first in-progress mission whose requirements are
@@ -1151,6 +1204,48 @@ func (w *World) ActiveMission() *missions.Mission {
 		}
 	}
 	return nil
+}
+
+// LadderSendoff returns the one-line "complete" message the player surface
+// (ladder screen active-card slot + MISSION chip) shows once a whole
+// Program's rungs are all Passed, and whether it should offer a one-key
+// switch to the Challenge ladder (#426 item F, decision 9). Only fires when
+// there's no other active rung to show — ActiveMission() nil — so a
+// still-in-progress Challenge rung always takes precedence over a completed
+// Flight School's sendoff; the Challenge ladder's own completion sendoff
+// takes precedence over Flight School's (finishing everything beats
+// finishing just the tutorial). Purely derived from Mission.Status; no new
+// persisted state.
+func (w *World) LadderSendoff() (text string, offerChallenges bool, ok bool) {
+	if w.ActiveMission() != nil {
+		return "", false, false
+	}
+	if w.programComplete(missions.ProgramChallenge) {
+		return "CHALLENGE LADDER COMPLETE", false, true
+	}
+	if w.programComplete(missions.ProgramTutorial) {
+		return "FLIGHT SCHOOL COMPLETE", !w.MissionProgramEnabled(missions.ProgramChallenge), true
+	}
+	return "", false, false
+}
+
+// programComplete reports whether every mission tagged with the given
+// Program has Passed. False when the catalog carries no mission for that
+// Program at all (nothing to be "complete"). Independent of whether the
+// Program is currently enabled — a player who finished Flight School and
+// then switched it off in Settings should still see it as complete.
+func (w *World) programComplete(program string) bool {
+	any := false
+	for i := range w.Missions {
+		if w.Missions[i].Program != program {
+			continue
+		}
+		any = true
+		if w.Missions[i].Status != missions.Passed {
+			return false
+		}
+	}
+	return any
 }
 
 // nextFiniteBurnTrigger returns the BurnStart sim-time of the soonest
