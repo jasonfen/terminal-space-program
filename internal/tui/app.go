@@ -991,13 +991,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// above) so these raw digits don't also fall through to the
 		// switch's CraftSlot case, which — per the comment on the K case
 		// below — reaches screenMissions same as screenOrbit.
+		// Enable-only: the offer row is shown only while a program is off,
+		// so a digit pressed while it is already on is a stray key, not a
+		// request to switch it off (the F1 row promises "turn on"). Off is
+		// the Settings screen's job.
 		if a.active == screenMissions {
 			switch m.String() {
 			case "1":
-				a.toggleMissionProgram(true)
+				if !a.orbitView.Settings().TutorialOn() {
+					a.toggleMissionProgram(true)
+				}
 				return a, nil
 			case "2":
-				a.toggleMissionProgram(false)
+				if !a.orbitView.Settings().ChallengesEnabled {
+					a.toggleMissionProgram(false)
+				}
 				return a, nil
 			}
 		}

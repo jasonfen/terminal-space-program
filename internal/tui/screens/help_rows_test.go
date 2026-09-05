@@ -95,6 +95,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		"MEETING PLANNER (map chip, opens from K)",
 		"VESSEL",
 		"VEHICLE ASSEMBLY (VAB)",
+		"MISSIONS (ladder screen — open with M)", // #426, screen-scoped, after VAB
 		"SAVES (menu → Save / Load Game)",
 		"MULTIPLAYER (session screen — open with O)",
 		"MOUSE",
