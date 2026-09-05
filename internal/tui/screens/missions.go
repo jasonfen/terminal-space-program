@@ -204,9 +204,13 @@ func programMissions(ms []missions.Mission, program string) []missions.Mission {
 // they got), then either the classified rung list (the active rung, if any
 // of these missions owns it, is skipped — the card above already shows it)
 // or, when the program is off, one dim offer row naming its one-key toggle
-// (#426 item F, decision 5). heading is the section's all-caps label
-// ("FLIGHT SCHOOL"); label is the lower-case name used in the offer row's
-// "[N] turn on <label>" text; key is that digit ("1" or "2").
+// (#426 item F, decision 5). When the program is on, the same key is
+// offered as "[N] turn off <label>" under its list, so a player who wants
+// to play unguided can opt out of Flight School in three presses (M, 1,
+// esc) instead of a trip through Settings (Jason, 2026-09-04). heading is
+// the section's all-caps label ("FLIGHT SCHOOL"); label is the lower-case
+// name used in the offer row's "[N] turn on/off <label>" text; key is that
+// digit ("1" or "2").
 func (m *Missions) programSection(heading, label, key string, ms []missions.Mission, enabled bool, activeID string) string {
 	var b strings.Builder
 	passed := 0
@@ -229,6 +233,8 @@ func (m *Missions) programSection(heading, label, key string, ms []missions.Miss
 		b.WriteString(m.ladderRowLine(r))
 		b.WriteByte('\n')
 	}
+	b.WriteString(m.theme.Dim.Render(fmt.Sprintf("  [%s] turn off %s", key, label)))
+	b.WriteByte('\n')
 	return b.String()
 }
 

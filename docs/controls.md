@@ -437,13 +437,16 @@ Designs are stored as portable files under
 The active mission (if any) shows as a checklist card on top; below it, two
 headed lists — **Flight School** and **Challenges** — each with their own
 progress count. A locked rung is dimmed with what unlocks it; an available
-rung reads bright; completed and failed rungs are marked. A program that's
-switched off shows a one-key toggle in place of its list.
+rung reads bright; completed and failed rungs are marked. Each program
+carries a one-key row: `turn on` in place of its list while it's off,
+`turn off` under its list while it's on. Flight School is on by default;
+if you'd rather fly unguided, `M`, `1`, `Esc` switches it off for good
+(the same toggle lives in Settings).
 
 | Key | Action |
 |---|---|
-| `1` | Turn on Flight School (shown only while it's off) |
-| `2` | Turn on the Challenge ladder (shown only while it's off) |
+| `1` | Turn Flight School on / off |
+| `2` | Turn the Challenge ladder on / off |
 | `Esc` | Back to the map |
 
 ### Saves (`Esc → [Save Game]` / `[Load Game]`)

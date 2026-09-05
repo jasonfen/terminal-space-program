@@ -154,8 +154,8 @@ var helpSections = []helpSection{
 		{"s / o", "save the design (name it) / open a saved design"},
 	}},
 	{"MISSIONS (ladder screen — open with M)", [][2]string{
-		{"1", "turn on Flight School (shown when it's off)"},
-		{"2", "turn on the Challenge ladder (shown when it's off)"},
+		{"1", "turn Flight School on / off (the row under its list says which)"},
+		{"2", "turn the Challenge ladder on / off"},
 	}},
 	{"SAVES (menu → Save / Load Game)", [][2]string{
 		{"↑ / ↓", "move the save cursor"},

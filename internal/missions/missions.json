@@ -8,7 +8,7 @@
       "objectives": [
         {
           "name": "Change your view",
-          "description": "Press [v] to cycle the camera view.",
+          "description": "Press [v] to cycle the camera view. Rather fly solo? [M] then [1] turns Flight School off.",
           "kind": "event",
           "params": { "action": "cycle_view" }
         },

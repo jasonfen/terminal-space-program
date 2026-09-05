@@ -991,21 +991,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// above) so these raw digits don't also fall through to the
 		// switch's CraftSlot case, which — per the comment on the K case
 		// below — reaches screenMissions same as screenOrbit.
-		// Enable-only: the offer row is shown only while a program is off,
-		// so a digit pressed while it is already on is a stray key, not a
-		// request to switch it off (the F1 row promises "turn on"). Off is
-		// the Settings screen's job.
+		// A true toggle: the ladder shows "[N] turn on" while a program is
+		// off and "[N] turn off" while it is on, so the key always does
+		// what the row beside it says. The off direction is the fast opt-out
+		// from Flight School (M, 1, esc) for a player who wants to fly
+		// unguided; it persists like the Settings toggle.
 		if a.active == screenMissions {
 			switch m.String() {
 			case "1":
-				if !a.orbitView.Settings().TutorialOn() {
-					a.toggleMissionProgram(true)
-				}
+				a.toggleMissionProgram(true)
 				return a, nil
 			case "2":
-				if !a.orbitView.Settings().ChallengesEnabled {
-					a.toggleMissionProgram(false)
-				}
+				a.toggleMissionProgram(false)
 				return a, nil
 			}
 		}
