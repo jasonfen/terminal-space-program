@@ -67,6 +67,12 @@ to a hard floor of 104×24 — below that it shows a "terminal too small"
 screen — but between the two, HUD chips shrink to a compact form and, at
 worst, collapse behind a `▸ +N hidden` marker rather than overlap.
 
+**New to the game?** Flight School is on by default: a five-rung ladder
+that starts with the camera and the planner, then walks you through a
+pad launch to orbit and a rendezvous-and-dock, one objective at a time.
+Press `M` to see the ladder and your progress on it. Don't want it? `M`,
+`1`, `Esc` turns it off in three presses.
+
 ## Install
 
 ### Homebrew (macOS / Linux)
