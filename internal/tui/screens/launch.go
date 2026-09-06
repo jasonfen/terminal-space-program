@@ -201,16 +201,38 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// only the vessel name, so `.`/`,` kept warping with no on-screen
 	// change at all (one reviewer lost ten sim-days tapping `.` on the
 	// pad before noticing on the map).
+	//
+	// The `[»Burn]` Auto-Warp-to-next-burn button (orbit.go's
+	// renderTitleBar, v0.16 / ADR 0016) never got its launch-view
+	// counterpart: a player who lifts off auto-routes straight into this
+	// screen (ViewLaunch auto-route) and can coast for real minutes with
+	// no visible way to warp to the node they just planted with `C` — the
+	// button that answers exactly that is one screen away. `G` already
+	// works here (App's key switch isn't screen-gated), so this is a
+	// rendering-only parity fix, same color rules as orbit.go: Warning
+	// while engaged, dimmed when no burn is eligible, Primary otherwise.
 	titleLeft := fmt.Sprintf("LAUNCH — %s", craftName)
-	titleRight := warpRateText(w)
+	burnLabel := "[»Burn]"
+	if w.AutoWarpEngaged() {
+		burnLabel = "[■Burn]"
+	}
+	titleRight := warpRateText(w) + "  " + burnLabel
 	titlePad := totalCols - lipgloss.Width(titleLeft) - lipgloss.Width(titleRight)
 	if titlePad < 1 {
 		titlePad = 1
 	}
-	titleRightRendered := v.theme.Dim.Render(titleRight)
+	warpRendered := v.theme.Dim.Render(warpRateText(w))
 	if w.AutoWarpEngaged() {
-		titleRightRendered = v.theme.Primary.Render(titleRight)
+		warpRendered = v.theme.Primary.Render(warpRateText(w))
 	}
+	burnRendered := v.theme.Primary.Render(burnLabel)
+	switch {
+	case w.AutoWarpEngaged():
+		burnRendered = v.theme.Warning.Render(burnLabel)
+	case !w.AutoWarpEligible():
+		burnRendered = v.theme.Dim.Render(burnLabel)
+	}
+	titleRightRendered := warpRendered + "  " + burnRendered
 	title := v.theme.Title.Render(titleLeft) + strings.Repeat(" ", titlePad) + titleRightRendered
 
 	// The descent half (ADR 0043 §3): one forecast per frame, shared by
