@@ -113,6 +113,18 @@ func (w *World) ToggleManualBurn() {
 	w.StartManualBurn()
 }
 
+// throttleZeroEpsilon floors a near-zero throttle to exactly 0 before
+// SetThrottle's cut check. AdjustThrottle reaches 0% by repeated ±0.1
+// float additions (the `X`/`Z` -10%/+10% keys); ten of those from 1.0
+// lands on 1.3878e-16, not exactly 0.0 (binary floating point can't
+// represent 0.1 exactly), so the exact-equality cut check below used
+// to silently miss it — the throttle row rounds to a display "0%" but
+// ManualBurn never clears, leaving the engine "on" (anyCraftThrusting)
+// and warp pinned to the 10× burn cap with nothing on screen to say
+// why. Found live: player reported warp stuck at 10× well outside the
+// atmosphere despite reading 0% throttle.
+const throttleZeroEpsilon = 1e-9
+
 // SetThrottle clamps the requested throttle to [0, 1] and applies
 // it to the active craft. Setting throttle to 0 also stops the
 // active craft's in-flight manual burn so the "x = cut" muscle
@@ -137,7 +149,7 @@ func (w *World) SetThrottle(t float64) {
 	if !w.canCommand(c) { // ADR 0027: no new throttle command without a connection
 		return
 	}
-	if t < 0 {
+	if t < throttleZeroEpsilon {
 		t = 0
 	} else if t > 1 {
 		t = 1

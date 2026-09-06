@@ -2317,6 +2317,37 @@ func TestSetThrottleZeroStopsManualBurn(t *testing.T) {
 	}
 }
 
+// TestAdjustThrottleTenStepsDownStopsManualBurn: reaching 0% via ten
+// repeated -10% presses (the `X` key, AdjustThrottle(-0.1) each time)
+// must clear ManualBurn exactly like a direct SetThrottle(0)/`x` cut,
+// even though the accumulated float lands on ~1.39e-16, not exactly
+// 0.0 (0.1 has no exact binary representation). Before the
+// throttleZeroEpsilon floor, SetThrottle's exact `t == 0` check missed
+// this residual: the throttle row rounded to a displayed 0% while
+// ManualBurn stayed set, pinning EffectiveWarp at the 10× burn cap
+// with nothing on screen explaining why. Found live-playtesting.
+func TestAdjustThrottleTenStepsDownStopsManualBurn(t *testing.T) {
+	w, _ := NewWorld()
+	w.ActiveCraft().Throttle = 1.0
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
+	w.StartManualBurn()
+	if w.ActiveCraft().ManualBurn == nil {
+		t.Fatal("setup: ManualBurn should be set")
+	}
+	for i := 0; i < 10; i++ {
+		w.AdjustThrottle(-0.1)
+	}
+	if got := w.ActiveCraft().Throttle; got != 0 {
+		t.Errorf("Craft.Throttle = %v, want exactly 0", got)
+	}
+	if w.ActiveCraft().ManualBurn != nil {
+		t.Error("ten -10% steps to 0% should stop the manual burn, same as a direct cut")
+	}
+	if w.anyCraftThrusting() {
+		t.Error("warp should not stay pinned to the burn cap once throttle reads 0%")
+	}
+}
+
 // TestAdjustThrottleClampsToRange: ±10 % steps must clamp to [0, 1]
 // regardless of the requested delta, preserving the throttle invariant.
 func TestAdjustThrottleClampsToRange(t *testing.T) {
