@@ -225,6 +225,45 @@ func TestLaunchViewTitleShowsWarpRate(t *testing.T) {
 	}
 }
 
+// TestLaunchViewTitleShowsBurnButton — a player who lifts off auto-routes
+// into this screen (ViewLaunch auto-route) and can coast for real minutes
+// with no visible way to warp to a planted node: the `[»Burn]` Auto-Warp
+// button existed only in orbit.go's title bar, one screen away. `G` (and
+// the click-equivalent on the map) already worked here since App's key
+// switch isn't screen-gated — this was a missing readout, not a missing
+// control. Mirrors auto_warp_titlebar_test.go's coverage for the map.
+func TestLaunchViewTitleShowsBurnButton(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	v.Resize(140, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	idle := v.Render(w, 140, 40)
+	if !strings.Contains(idle, "[»Burn]") {
+		t.Errorf("launch title missing [»Burn] button with no burn planted, got:\n%s", idle)
+	}
+
+	w.PlanNode(sim.ManeuverNode{TriggerTime: w.Clock.SimTime.Add(2 * time.Hour), DV: 10, Mode: spacecraft.BurnPrograde})
+	eligible := v.Render(w, 140, 40)
+	if !strings.Contains(eligible, "[»Burn]") {
+		t.Errorf("launch title missing [»Burn] button with an eligible burn planted, got:\n%s", eligible)
+	}
+
+	if !w.EngageAutoWarp() {
+		t.Fatal("EngageAutoWarp failed with an eligible burn planted")
+	}
+	engaged := v.Render(w, 140, 40)
+	if !strings.Contains(engaged, "[■Burn]") {
+		t.Errorf("launch title missing [■Burn] label once Auto-Warp engaged, got:\n%s", engaged)
+	}
+	if strings.Contains(engaged, "[»Burn]") {
+		t.Errorf("launch title still showed idle [»Burn] once Auto-Warp engaged:\n%s", engaged)
+	}
+}
+
 // TestLaunchHUDLineShowsIgnitionHintOnPad — #427 / ADR 0048 §3: the pad's
 // call to action. While Landed with the engine off, the status-area line
 // (bottom border, normally T+/v_z/downrange/Q) becomes the ignite/stage/
