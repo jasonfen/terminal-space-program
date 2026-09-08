@@ -276,6 +276,31 @@ func TestChatTildeInertDuringEndFlightConfirm(t *testing.T) {
 	}
 }
 
+// TestChatTildeInertDuringQuickloadConfirm (item-3 UX batch review
+// finding 1): the same hole TestChatTildeInertDuringEndFlightConfirm
+// pins for [E] existed for the new F9 confirm — ~ opened chat OVER the
+// armed prompt, hiding it, and the prompt survived the chat round-trip
+// to fire on whatever key closed chat. ~ must not open chat; it falls
+// through to quickloadConfirm's own intercept instead, which — unlike
+// endFlightConfirm's y/n/esc-only clear — cancels on ANY non-"y" key
+// (by design: it can never get stuck armed via the keyboard), so the
+// world must be left untouched.
+func TestChatTildeInertDuringQuickloadConfirm(t *testing.T) {
+	a := newChatApp(t)
+	a.quickloadConfirm = true
+	old := a.world
+	chatPress(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'~'}})
+	if a.capturingText() {
+		t.Fatalf("~ must not open chat over an armed quickload confirm")
+	}
+	if a.quickloadConfirm {
+		t.Fatalf("~ should have fallen through and cancelled quickloadConfirm, same as any other non-y key")
+	}
+	if a.world != old {
+		t.Fatalf("~ must never itself trigger the quickload")
+	}
+}
+
 func TestRestoreChatDraft(t *testing.T) {
 	a := newChatApp(t)
 	a.RestoreChatDraft("@gern hold")

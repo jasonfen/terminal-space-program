@@ -640,6 +640,15 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		b.WriteString(title + "\n\n")
 		b.WriteString("  Not in a multiplayer session.\n\n")
 		b.WriteString(s.theme.Dim.Render("  [h] start hosting — accept ssh guests on this machine; invite them with serve invite.") + "\n\n")
+		// item-3 UX batch (features finding 13): half of multiplayer —
+		// being a guest — had no in-game description at all. Name the
+		// actual connect step so a guest isn't left with only a CLI
+		// phrase and no context for where the invite code comes from.
+		// Two short lines rather than one long one — this screen has no
+		// wrap helper and the hosting line above already sets the
+		// precedent for clipping at low widths.
+		b.WriteString(s.theme.Dim.Render("  Joining someone else's session: connect with `ssh -p 23234 <their host>`,") + "\n")
+		b.WriteString(s.theme.Dim.Render("  then enroll with the invite code they gave you from `serve invite`.") + "\n\n")
 		b.WriteString(s.theme.Footer.Render("  [h] start hosting   [esc] close"))
 		return b.String()
 	}

@@ -153,7 +153,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	// label, so it carries the same Hint Strip (#425), right of whatever
 	// this row's label ended up being (the fixed "view: proximity" form,
 	// or the longer sceneOK form with target name + axis legend).
-	v.paintHintStrip(utf8.RuneCountInString(label))
+	v.paintHintStrip(utf8.RuneCountInString(label), hintStripText)
 
 	canvasStr := v.canvas.String()
 

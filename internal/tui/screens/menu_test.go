@@ -21,8 +21,6 @@ func TestMenuHandleKey(t *testing.T) {
 		{"C", MenuActionControls},
 		{"h", MenuActionHelp},
 		{"H", MenuActionHelp},
-		{"q", MenuActionQuit},
-		{"Q", MenuActionQuit},
 		{"esc", MenuActionCancel},
 		{"x", MenuActionNone},
 		{"", MenuActionNone},
@@ -237,5 +235,31 @@ func TestMenuKeyboardConfirmStillWorks(t *testing.T) {
 	}
 	if m.mode != menuModeList {
 		t.Errorf("mode after n: got %v, want menuModeList", m.mode)
+	}
+}
+
+// TestMenuKeyboardQuitArmsConfirm (item-3 UX batch, controls findings
+// 8/21): typing "q"/"Q" in the list state used to fire MenuActionQuit
+// immediately — disagreeing with the [Quit] click, which always went
+// through the confirm gate. Both paths must now agree.
+func TestMenuKeyboardQuitArmsConfirm(t *testing.T) {
+	m := NewMenu(Theme{})
+
+	for _, key := range []string{"q", "Q"} {
+		m.Reset()
+		if got := m.HandleKey(key); got != MenuActionNone {
+			t.Errorf("HandleKey(%q) = %v, want MenuActionNone (confirm gate)", key, got)
+		}
+		if m.mode != menuModeConfirmQuit {
+			t.Errorf("mode after HandleKey(%q) = %v, want menuModeConfirmQuit", key, m.mode)
+		}
+	}
+
+	// y still commits from the keyboard-armed confirm, same as the
+	// click-armed one already covered above.
+	m.Reset()
+	m.HandleKey("q")
+	if got := m.HandleKey("y"); got != MenuActionQuit {
+		t.Errorf("HandleKey(y) after keyboard q: got %v, want MenuActionQuit", got)
 	}
 }

@@ -95,9 +95,11 @@ const (
 
 // HandleKey maps a raw key string to a MenuAction. Lower- and
 // upper-case both match. The keyboard path skips the click-only
-// confirm gate when in the list state — typing "s" still saves
-// immediately, matching v0.7.3.3 muscle memory. In a confirm state
-// the keys narrow to y / n / enter / esc.
+// confirm gate for the reversible rows — typing "s" still saves
+// immediately, matching v0.7.3.3 muscle memory. "q" is the exception
+// (item-3 UX batch): it arms the same confirm the [Quit] click uses,
+// since quit is the one list-state action that isn't reversible. In a
+// confirm state the keys narrow to y / n / enter / esc.
 func (m *Menu) HandleKey(s string) MenuAction {
 	switch m.mode {
 	case menuModeList:
@@ -115,7 +117,14 @@ func (m *Menu) HandleKey(s string) MenuAction {
 		case "h", "H":
 			return MenuActionHelp
 		case "q", "Q":
-			return MenuActionQuit
+			// item-3 UX batch (controls findings 8/21): route the
+			// keyboard path through the same confirm the [Quit] click
+			// already uses instead of quitting instantly — the two
+			// paths to the single most destructive action must agree,
+			// and the F1 overlay already describes the key as "quit
+			// (confirm + autosave)".
+			m.mode = menuModeConfirmQuit
+			return MenuActionNone
 		case "esc":
 			return MenuActionCancel
 		}

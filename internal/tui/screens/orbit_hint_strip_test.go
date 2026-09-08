@@ -200,3 +200,41 @@ func TestHintStripWithForcedNodesChipAndCraftNotVisibleHere(t *testing.T) {
 		t.Logf("Playable Floor: confirmed known collision between the forced bottom-right NODES chip and the Hint Strip's tail when CraftVisibleHere()==false (out of #425's decided scope; see impl-notes/425.md)")
 	}
 }
+
+// TestHintStripSwapsForInspect (item-3 UX batch, features finding 14):
+// Inspect flared a name chip with no on-screen word for what Enter or
+// Esc do while it's live. The generic Hint Strip must swap to the
+// inspect-specific one for the duration of the highlight, and swap
+// back once it clears.
+func TestHintStripSwapsForInspect(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(140, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.Focus = sim.Focus{Kind: sim.FocusCraft}
+
+	out := stripANSI(v.Render(w, 0, 140, 40))
+	if !strings.Contains(out, hintStripText) {
+		t.Fatalf("expected the generic Hint Strip before Inspect is armed:\n%s", out)
+	}
+
+	v.InspectNext()
+	if !v.Inspecting() {
+		t.Fatal("InspectNext did not arm the highlight on a frame with an inspectable craft")
+	}
+	out = stripANSI(v.Render(w, 0, 140, 40))
+	if !strings.Contains(out, inspectHintStripText) {
+		t.Errorf("expected the inspect Hint Strip (%q) while Inspecting:\n%s", inspectHintStripText, out)
+	}
+	if strings.Contains(out, hintStripText) {
+		t.Errorf("generic Hint Strip should not also be present while Inspecting:\n%s", out)
+	}
+
+	v.InspectClear()
+	out = stripANSI(v.Render(w, 0, 140, 40))
+	if !strings.Contains(out, hintStripText) {
+		t.Errorf("expected the generic Hint Strip back after InspectClear:\n%s", out)
+	}
+}

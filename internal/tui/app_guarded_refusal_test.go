@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
 func pressKey(a *App, r rune) (tea.Model, tea.Cmd) {
@@ -104,8 +106,8 @@ func TestPlanRendezvousReachesPlannerFromBodyInfo(t *testing.T) {
 
 	pressKey(a, 'K')
 
-	if a.statusMsg != "rendezvous: no vessel target" {
-		t.Errorf("statusMsg = %q, want %q (K must reach PlanRendezvousNudge from body-info, not be screen-gated)", a.statusMsg, "rendezvous: no vessel target")
+	if a.statusMsg != "rendezvous: no vessel target — [t] to target it" {
+		t.Errorf("statusMsg = %q, want %q (K must reach PlanRendezvousNudge from body-info, not be screen-gated)", a.statusMsg, "rendezvous: no vessel target — [t] to target it")
 	}
 	if a.active != screenBodyInfo {
 		t.Errorf("active screen changed to %v", a.active)
@@ -121,8 +123,8 @@ func TestPlanRendezvousReachesPlannerFromMissions(t *testing.T) {
 
 	pressKey(a, 'K')
 
-	if a.statusMsg != "rendezvous: no vessel target" {
-		t.Errorf("statusMsg = %q, want %q (K must reach PlanRendezvousNudge from missions, not be screen-gated)", a.statusMsg, "rendezvous: no vessel target")
+	if a.statusMsg != "rendezvous: no vessel target — [t] to target it" {
+		t.Errorf("statusMsg = %q, want %q (K must reach PlanRendezvousNudge from missions, not be screen-gated)", a.statusMsg, "rendezvous: no vessel target — [t] to target it")
 	}
 	if a.active != screenMissions {
 		t.Errorf("active screen changed to %v", a.active)
@@ -300,5 +302,114 @@ func TestPlanRendezvousRefusalLabelStillSingular(t *testing.T) {
 	pressKey(a, 'K')
 	if n := strings.Count(a.statusMsg, "rendezvous:"); n != 1 {
 		t.Errorf("status %q carries the rendezvous label %d times, want exactly 1", a.statusMsg, n)
+	}
+}
+
+// item-3 UX batch (controls finding 10): [G] auto-warp
+// used to no-op silently when no burn was eligible. It must now refuse
+// out loud like every sibling guard.
+func TestAutoWarpRefusesNoEligibleBurn(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if a.world.AutoWarpEligible() {
+		t.Skip("fresh world unexpectedly has an eligible burn")
+	}
+
+	pressKey(a, 'G')
+
+	if a.statusMsg != "auto-warp: no burn planned to warp to" {
+		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "auto-warp: no burn planned to warp to")
+	}
+	if a.world.AutoWarpEngaged() {
+		t.Fatal("[G] engaged Auto-Warp with no eligible burn")
+	}
+}
+
+// item-3 UX batch (controls finding 10): a number key for an empty
+// vessel slot used to no-op silently. A fresh world has exactly one
+// craft at slot 1, so slot 2 must refuse.
+func TestCraftSlotRefusesEmptySlot(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if len(a.world.Crafts) != 1 {
+		t.Skip("fresh world does not have exactly one craft")
+	}
+
+	pressKey(a, '2')
+
+	if a.statusMsg != "vessel: no vessel in slot 2" {
+		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "vessel: no vessel in slot 2")
+	}
+}
+
+// TestCraftSlotJumpsOccupiedSlot is the control: the existing happy
+// path (slot 1, which always exists) must still work unchanged.
+func TestCraftSlotJumpsOccupiedSlot(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	pressKey(a, '1')
+
+	if a.statusMsg != "" {
+		t.Errorf("statusMsg = %q, want no refusal for an occupied slot", a.statusMsg)
+	}
+}
+
+// item-3 UX batch (controls findings 6 / 10): shift+↑/↓/←/→ (tilt /
+// yaw) used to no-op silently outside the tilted view — the review
+// found that indistinguishable from a broken modifier key, since
+// plain ↑ pans in every view. Table-driven since the fix is identical
+// for all four.
+func TestTiltAndYawRefuseOutsideTiltedView(t *testing.T) {
+	cases := []struct {
+		name string
+		key  tea.KeyType
+		want string
+	}{
+		{"TiltUp", tea.KeyShiftUp, "tilt: only in the tilted view — [v] cycles"},
+		{"TiltDown", tea.KeyShiftDown, "tilt: only in the tilted view — [v] cycles"},
+		{"YawLeft", tea.KeyShiftLeft, "yaw: only in the tilted view — [v] cycles"},
+		{"YawRight", tea.KeyShiftRight, "yaw: only in the tilted view — [v] cycles"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := New(nil)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			// A fresh world defaults to ViewTilted (see
+			// TestYawKeysNudgePhi) — force a non-tilted view so this
+			// exercises the refusal path, not the nudge path.
+			a.world.ViewMode = sim.ViewTop
+
+			a.Update(tea.KeyMsg{Type: tc.key})
+
+			if a.statusMsg != tc.want {
+				t.Errorf("statusMsg = %q, want %q", a.statusMsg, tc.want)
+			}
+		})
+	}
+}
+
+// TestTiltWorksInTiltedView is the control: the existing happy path
+// (tilt nudges θ while ViewTilted is active) must still work unchanged
+// by the outside-the-view refusal fix.
+func TestTiltWorksInTiltedView(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.world.ViewMode = sim.ViewTilted
+
+	a.Update(tea.KeyMsg{Type: tea.KeyShiftUp})
+
+	if !strings.HasPrefix(a.statusMsg, "view: tilted") {
+		t.Errorf("statusMsg = %q, want a %q-prefixed tilt readout", a.statusMsg, "view: tilted")
 	}
 }

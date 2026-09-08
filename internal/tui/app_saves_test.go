@@ -10,6 +10,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/save"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
 // testStateDirs isolates both the saves directory (XDG_STATE_HOME) and
@@ -67,10 +68,11 @@ func TestQuicksaveKeyWritesLane(t *testing.T) {
 	}
 }
 
-// TestQuickloadKeySwapsWorld — F9 loads the quicksave lane instantly
-// (no confirm, ADR 0033 §H), replacing the world and re-applying the
-// player's mission-program toggles (the v0.21 Slice 7 behaviour the
-// rewire must preserve).
+// TestQuickloadKeySwapsWorld — F9 arms a y/n confirm (item-3 UX batch;
+// reverses ADR 0033 §H's "F9 stays instant" — see that ADR's
+// Amendments section), and y/Y then replaces the world and re-applies
+// the player's mission-program toggles (the v0.21 Slice 7 behaviour
+// the rewire must preserve).
 func TestQuickloadKeySwapsWorld(t *testing.T) {
 	testStateDirs(t)
 	a, err := New(nil)
@@ -83,8 +85,19 @@ func TestQuickloadKeySwapsWorld(t *testing.T) {
 	a.world.Clock.WarpIdx = 4 // diverge so the swap is observable
 
 	a.Update(tea.KeyMsg{Type: tea.KeyF9})
+	if a.world != old {
+		t.Fatal("F9 replaced the world before the y/n confirm was answered")
+	}
+	if !a.quickloadConfirm {
+		t.Fatal("F9 with a quicksave present did not arm quickloadConfirm")
+	}
+
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if a.quickloadConfirm {
+		t.Error("quickloadConfirm still armed after y")
+	}
 	if a.world == old {
-		t.Fatal("F9 did not replace the world")
+		t.Fatal("F9 did not replace the world after confirming")
 	}
 	if a.world.Clock.WarpIdx != 0 {
 		t.Errorf("WarpIdx = %d, want 0 (the quicksaved state)", a.world.Clock.WarpIdx)
@@ -104,9 +117,63 @@ func TestQuickloadKeySwapsWorld(t *testing.T) {
 	}
 }
 
-// TestQuickloadEmptyLane — F9 before any F5 flashes a clear "no
-// quicksave" message via flashStatus (not a raw file-not-found error)
-// and leaves the live world untouched.
+// TestQuickloadConfirmCancels — n/N/Esc during the F9 confirm cancels
+// without touching the world, the same shape as endFlightConfirm's
+// cancel path.
+func TestQuickloadConfirmCancels(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyF5})
+	old := a.world
+
+	a.Update(tea.KeyMsg{Type: tea.KeyF9})
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+	if a.quickloadConfirm {
+		t.Error("quickloadConfirm still armed after n")
+	}
+	if a.world != old {
+		t.Fatal("F9 replaced the world despite a cancelled confirm")
+	}
+}
+
+// TestQuickloadGuestSkipsConfirm (item-3 UX batch review finding 2): a
+// session guest's F9 can never succeed — their program autosaves
+// server-side, so the local Saves surface is disabled (errGuestSaves).
+// a.quicksaveExists() only reads the LOCAL saves dir though, so a
+// guest who once played solo on this machine still has a stale local
+// quicksave.json lying around; that must not arm the destructive-
+// sounding y/n prompt for a load that will only refuse.
+func TestQuickloadGuestSkipsConfirm(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyF5}) // stale solo quicksave on disk
+	a.guestSave = func(*sim.World) error { return nil }
+	old := a.world
+
+	a.Update(tea.KeyMsg{Type: tea.KeyF9})
+
+	if a.quickloadConfirm {
+		t.Fatal("F9 armed the quickload confirm for a guest, who can never actually load locally")
+	}
+	if a.world != old {
+		t.Fatal("F9 replaced the world for a guest")
+	}
+	if !strings.Contains(a.statusMsg, "no local saves in a session") {
+		t.Errorf("statusMsg = %q, want the guest refusal", a.statusMsg)
+	}
+}
+
+// TestQuickloadEmptyLane — F9 before any F5 skips the confirm (there is
+// nothing to discard) and flashes a clear "no quicksave" message via
+// flashStatus (not a raw file-not-found error), leaving the live world
+// untouched.
 func TestQuickloadEmptyLane(t *testing.T) {
 	testStateDirs(t)
 	a, err := New(nil)
