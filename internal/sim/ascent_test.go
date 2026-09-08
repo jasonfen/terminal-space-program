@@ -220,6 +220,62 @@ func TestAscentQBandForSeededAnalyticQ(t *testing.T) {
 	}
 }
 
+// TestAscentQBandForStandsDownOncePeriapsisClearsAtmosphere (#449): a
+// vessel that circularized into a stable orbit fully above the
+// atmosphere still swings a nonzero radial (climb) rate on every
+// periapsis→apoapsis half, purely from orbital mechanics — nothing to
+// do with the atmosphere. Before the fix, that made the ATMOSPHERE chip
+// (HasQBand) flicker back on once per orbit forever, long after the
+// vessel could ever see the atmosphere again. Gating on periapsis
+// altitude instead of the instantaneous climb rate fixes it, without
+// touching the still-correct "climbed clear, showing the past-the-top
+// band" case for an orbit whose periapsis is still inside the
+// atmosphere (a real re-entry is coming next orbit).
+func TestAscentQBandForStandsDownOncePeriapsisClearsAtmosphere(t *testing.T) {
+	w, c := ascendTestCraft(t, "earth", 218_000, 50)
+	mu := c.Primary.GravitationalParameter()
+	R := c.Primary.RadiusMeters()
+	atm := c.Primary.Atmosphere
+
+	// orbitAt builds a Kepler orbit with periapsis/apoapsis altitudes
+	// rp/ra, evaluated at true anomaly nu (radians) — nu = 90° sits on
+	// the climbing half, where the radial rate is at its largest
+	// nonzero value for a given eccentricity.
+	orbitAt := func(rpAltM, raAltM, nu float64) {
+		rp := R + rpAltM
+		ra := R + raAltM
+		a := (rp + ra) / 2
+		e := (ra - rp) / (ra + rp)
+		p := a * (1 - e*e)
+		rMag := p / (1 + e*math.Cos(nu))
+		rHat := orbital.Vec3{X: math.Cos(nu), Y: math.Sin(nu)}
+		c.State.R = rHat.Scale(rMag)
+		h := math.Sqrt(mu * p)
+		vr := (mu / h) * e * math.Sin(nu)
+		vt := (mu / h) * (1 + e*math.Cos(nu))
+		thetaHat := orbital.Vec3{X: -math.Sin(nu), Y: math.Cos(nu)}
+		c.State.V = rHat.Scale(vr).Add(thetaHat.Scale(vt))
+	}
+
+	// Stable orbit, periapsis (210km) and apoapsis (226km) both clear of
+	// the 150km cutoff: the reported bug. Must stand down for good.
+	orbitAt(210_000, 226_000, math.Pi/2)
+	if alt := c.Altitude(); alt <= atm.CutoffAltitude {
+		t.Fatalf("test setup: altitude %.0fm should be above the %.0fm cutoff", alt, atm.CutoffAltitude)
+	}
+	if qb, ok := AscentQBandFor(w, c); ok {
+		t.Errorf("stable orbit above the atmosphere: AscentQBandFor ok=true (HasMaxQ=%v), want false — must not flicker back on every orbit", qb.HasMaxQ)
+	}
+
+	// Still-elliptical orbit whose periapsis (100km) sits INSIDE the
+	// 150km cutoff: a real re-entry is coming next orbit, so the chip
+	// staying live on the climbing half is still the correct call.
+	orbitAt(100_000, 226_000, math.Pi/2)
+	if _, ok := AscentQBandFor(w, c); !ok {
+		t.Error("periapsis still inside the atmosphere: AscentQBandFor ok=false, want true (re-entry is still coming)")
+	}
+}
+
 // TestAscentCueForGatingMatrix is the ascent mirror of
 // TestDescentCorridorForGating: it stands up for a climbing vessel and
 // stands down for a falling, coasting, or landed one — and, critically,
