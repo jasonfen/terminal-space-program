@@ -1870,10 +1870,17 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			// (PlannedDV), not DVRemaining — which is ~0 by now, the
 			// number a "delivered" figure would read but not "the number
 			// that matters" the ADR's voice calls for. len(c.Nodes) is
-			// this craft's own remaining queue: executeDueNodesFor already
-			// ran earlier this tick and stripped the fired node out.
-			// Per-craft — integrateOneCraft runs once per craft in the
-			// slate, so a non-active craft's burn finishing still flashes.
+			// this craft's own remaining queue AS OF THE START of this
+			// tick's dispatch: Tick() runs integrateOneCraft (here) for
+			// every craft BEFORE executeDueNodes fires this tick's due
+			// nodes (#447 review finding 9 — a prior version of this
+			// comment had the order backwards), so a node that ignites
+			// later in this same tick is still counted here as
+			// "remaining". That undercounts "remaining" by one in the
+			// same-tick chained-burn case, but never overcounts, and the
+			// figure is display-only. Per-craft — integrateOneCraft runs
+			// once per craft in the slate, so a non-active craft's burn
+			// finishing still flashes.
 			// Appended, not assigned (review finding 1): integrateOneCraft
 			// runs once per craft per tick, so two crafts' burns exhausting
 			// the same tick must both survive to app.go.

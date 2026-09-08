@@ -356,27 +356,36 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// crafts can ignite (or exhaust) in the same tick, and both must
 		// reach the player, not just whichever stashed last. Drained (read
 		// then cleared) in full every TickMsg, fired-events before
-		// finished-events (review finding 3's "pick one consistent order")
-		// — one a.flash() call per event, in queue order. KNOWN
-		// LIMITATION: statusMsg is a single-slot display with one shared
-		// TTL, so if more than one event lands in the same tick (e.g. one
-		// craft's burn exhausts the instant another's ignites), only the
-		// LAST a.flash() call's text is actually visible on screen — every
-		// event still reaches a.flash() in order, so none is silently
-		// dropped from processing, but a same-tick collision is a real
-		// visual coin-flip until statusMsg itself grows a queue. That's out
-		// of scope here (no new UI machinery beyond draining the slices).
-		if len(a.world.PendingBurnFiredEvents) > 0 {
-			for _, e := range a.world.PendingBurnFiredEvents {
-				a.flash(fmt.Sprintf("%s: node %d firing — %.0f m/s", e.CraftName, e.NodeIndex+1, e.DV))
-			}
-			a.world.PendingBurnFiredEvents = nil
+		// finished-events, joined into ONE a.flash() call (review finding
+		// 6): statusMsg is a single-slot display with one shared TTL, so
+		// separate flash() calls in the same tick left only the last one
+		// visible — a real coin-flip, not hypothetical: a single craft
+		// with two nodes queued back-to-back collides on ~every chained
+		// burn, since Tick() runs integrateOneCraft (finish) before
+		// executeDueNodes (fire) each tick. Joining costs nothing (two
+		// messages run ~90 chars, well inside the 140-col design floor)
+		// and means no event is ever silently unseen.
+		var burnMsgs []string
+		for _, e := range a.world.PendingBurnFiredEvents {
+			burnMsgs = append(burnMsgs, fmt.Sprintf("%s: node %d firing — %.0f m/s", e.CraftName, e.NodeIndex+1, e.DV))
 		}
-		if len(a.world.PendingBurnFinishedEvents) > 0 {
-			for _, e := range a.world.PendingBurnFinishedEvents {
-				a.flash(fmt.Sprintf("%s: node %d burned — %.0f m/s, %d remaining", e.CraftName, e.NodeIndex+1, e.DV, e.NodesRemaining))
+		a.world.PendingBurnFiredEvents = nil
+		for _, e := range a.world.PendingBurnFinishedEvents {
+			if e.DV == 0 {
+				// #447 review finding 8: a pre-PR save loaded mid-burn
+				// decodes ActiveBurn.PlannedDV as its zero value (the
+				// field didn't exist yet), so DV reads 0 here — not
+				// "burned 0 m/s" (a false statement about a burn that
+				// just delivered real Δv) but simply an unknown figure.
+				// Drop the clause rather than print a fabricated number.
+				burnMsgs = append(burnMsgs, fmt.Sprintf("%s: node %d burned — %d remaining", e.CraftName, e.NodeIndex+1, e.NodesRemaining))
+			} else {
+				burnMsgs = append(burnMsgs, fmt.Sprintf("%s: node %d burned — %.0f m/s, %d remaining", e.CraftName, e.NodeIndex+1, e.DV, e.NodesRemaining))
 			}
-			a.world.PendingBurnFinishedEvents = nil
+		}
+		a.world.PendingBurnFinishedEvents = nil
+		if len(burnMsgs) > 0 {
+			a.flash(strings.Join(burnMsgs, " · "))
 		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 

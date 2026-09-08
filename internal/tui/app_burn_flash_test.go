@@ -65,18 +65,15 @@ func TestBurnFinishedEventFlashesAndClears(t *testing.T) {
 	}
 }
 
-// TestTwoBurnFiredEventsSameTickBothFlash — code-review finding 1's
+// TestTwoBurnFiredEventsSameTickBothVisible — code-review finding 1's
 // app.go-side repro: two crafts igniting the same tick must both reach
-// a.flash(), not just whichever landed last in the queue. statusMsg is a
-// single-slot display (code-review finding 3), so only the LAST flash
-// call's text is visible by the time TickMsg returns — that's the known,
-// documented limitation — but this test pins that the visible text is
-// whichever event was queued last, not silently the first one dropped
-// from processing entirely (i.e. every event actually reaches a.flash();
-// the test would fail differently — statusMsg landing on neither
-// craft's name — if an event were dropped rather than merely
-// overwritten on screen).
-func TestTwoBurnFiredEventsSameTickBothFlash(t *testing.T) {
+// the player, not just whichever landed last in the queue. Review
+// finding 6: rather than separate a.flash() calls overwriting each
+// other on the single-slot status line (the original fix's documented
+// but avoidable limitation), same-tick messages are joined into one
+// flash call — so both events are genuinely visible at once, not a
+// last-write-wins coin-flip.
+func TestTwoBurnFiredEventsSameTickBothVisible(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -87,22 +84,21 @@ func TestTwoBurnFiredEventsSameTickBothFlash(t *testing.T) {
 	}
 	tickAt(a, time.Now())
 
-	const want = "Craft-B: node 1 firing — 222 m/s"
+	const want = "Craft-A: node 1 firing — 111 m/s · Craft-B: node 1 firing — 222 m/s"
 	if a.statusMsg != want {
-		t.Errorf("statusMsg = %q, want %q (last-queued event visible after the drain)", a.statusMsg, want)
+		t.Errorf("statusMsg = %q, want %q (both events joined into one visible flash)", a.statusMsg, want)
 	}
 	if len(a.world.PendingBurnFiredEvents) != 0 {
 		t.Error("PendingBurnFiredEvents was not cleared after flashing")
 	}
 }
 
-// TestBurnFiredAndFinishedSameTickOrder — code-review finding 3: a fire
-// event and a finish event (different bursts) landing in the same tick
-// must not silently lose the fire event to the finish event overwriting
-// it (or vice versa) without at least one being visible in the
-// documented, consistent order (fired before finished). This pins that
-// order: finished (drained second) wins the single status slot.
-func TestBurnFiredAndFinishedSameTickOrder(t *testing.T) {
+// TestBurnFiredAndFinishedSameTickBothVisible — code-review finding 3: a
+// fire event and a finish event (different bursts) landing in the same
+// tick must not silently lose one to the other overwriting it. Review
+// finding 6's join means both are visible, in the drain's fired-before-
+// finished order, rather than only the last-drained one surviving.
+func TestBurnFiredAndFinishedSameTickBothVisible(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -115,11 +111,32 @@ func TestBurnFiredAndFinishedSameTickOrder(t *testing.T) {
 	}
 	tickAt(a, time.Now())
 
-	const want = "Craft-A: node 1 burned — 111 m/s, 0 remaining"
+	const want = "Craft-B: node 1 firing — 500 m/s · Craft-A: node 1 burned — 111 m/s, 0 remaining"
 	if a.statusMsg != want {
-		t.Errorf("statusMsg = %q, want %q (finished flashes after fired, so it's the one left visible)", a.statusMsg, want)
+		t.Errorf("statusMsg = %q, want %q (fired then finished, both visible)", a.statusMsg, want)
 	}
 	if len(a.world.PendingBurnFiredEvents) != 0 || len(a.world.PendingBurnFinishedEvents) != 0 {
 		t.Error("pending burn event slices were not both cleared after flashing")
+	}
+}
+
+// TestBurnFinishedZeroDVDropsFigureInsteadOfLying — #447 review finding
+// 8: a pre-PR save loaded mid-burn decodes ActiveBurn.PlannedDV as its
+// zero value, so a BurnFinishedEvent with DV==0 must not print "burned
+// — 0 m/s" (a false statement about a burn that really delivered Δv) —
+// drop the whole "— N m/s" clause instead.
+func TestBurnFinishedZeroDVDropsFigureInsteadOfLying(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.world.PendingBurnFinishedEvents = []sim.BurnFinishedEvent{
+		{When: a.world.Clock.SimTime, CraftName: "S-IVB-1", NodeIndex: 0, DV: 0, NodesRemaining: 1},
+	}
+	tickAt(a, time.Now())
+
+	const want = "S-IVB-1: node 1 burned — 1 remaining"
+	if a.statusMsg != want {
+		t.Errorf("statusMsg = %q, want %q (no fabricated 0 m/s figure)", a.statusMsg, want)
 	}
 }

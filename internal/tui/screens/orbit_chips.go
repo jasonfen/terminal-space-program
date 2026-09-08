@@ -929,6 +929,16 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 	// out of Nodes into ActiveBurn and this row is replaced by
 	// activeBurnLines' "burning, Ns left" row instead — see there for the
 	// counts-to-BurnEnd half of this same head row.
+	// #447 review finding 7: this node can be genuinely overdue-but-held
+	// because THIS craft's engine is already firing a different, earlier
+	// node (nc.ActiveBurn != nil) — the GH #88 same-craft hold in
+	// executeDueNodesFor. A raw dt clamped to 0 there reads "ignition in
+	// 0s" for the entire preceding burn, which says imminent when the
+	// truth is "once the current burn ends". Say that instead.
+	if nc.ActiveBurn != nil {
+		return fmt.Sprintf("  %s %s ignition after burn  %s  %.0f m/s",
+			hudNodeMarker, label, n.Mode.String(), n.DV) + over
+	}
 	// Code-review finding 4: BurnStart can be at or past SimTime — paused
 	// right at the boundary, or held past due for want of a resolvable
 	// target — without the node having fired yet (it's still in c.Nodes,

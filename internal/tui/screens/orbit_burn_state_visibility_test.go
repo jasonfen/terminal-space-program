@@ -379,6 +379,41 @@ func TestNodesChipHeadRowClampsOverdueIgnitionToZero(t *testing.T) {
 	}
 }
 
+// TestNodesChipHeadRowSaysAfterBurnWhenHeldBehindLiveBurn — #447 review
+// finding 7: a queued node can be genuinely overdue-but-held because
+// THIS craft's engine is already firing a different, earlier node (the
+// GH #88 same-craft hold). The old "ignition in 0s" (from the finding-4
+// clamp) said imminent for the whole preceding burn's duration; it
+// should say "ignition after burn" instead while nc.ActiveBurn != nil.
+func TestNodesChipHeadRowSaysAfterBurnWhenHeldBehindLiveBurn(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 3054,
+		EndTime:     w.Clock.SimTime.Add(40 * time.Second),
+	}
+	// Overdue (BurnStart already passed) but can't fire — the craft's
+	// engine is busy with ActiveBurn above.
+	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+		DV:          500,
+		Mode:        spacecraft.BurnPrograde,
+		TriggerTime: w.Clock.SimTime.Add(-10 * time.Second),
+	})
+
+	out := strings.Join(v.buildNodesChip(w), "\n")
+	if !strings.Contains(out, "ignition after burn") {
+		t.Errorf("held-behind-live-burn node should read 'ignition after burn':\n%s", out)
+	}
+	if strings.Contains(out, "ignition in 0s") {
+		t.Errorf("held-behind-live-burn node should not read the imminent 'ignition in 0s':\n%s", out)
+	}
+}
+
 // plainThemeColored gives Primary/Warning/Dim distinguishable ANSI
 // colors (unlike chipTestTheme's no-op styles) so tests can assert an
 // actual color switch, not just presence of text.
