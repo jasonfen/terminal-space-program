@@ -697,7 +697,12 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 // for "is this craft actually thrusting right now".
 func (v *OrbitView) throttleRow(c *spacecraft.Spacecraft) string {
 	base := fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100)
-	if c.ActiveBurn == nil && c.ManualBurn == nil {
+	// Code-review finding 5: reuse sim.StackMidBurn's exact "is this craft
+	// actively thrusting" predicate (ActiveBurn != nil || ManualBurn !=
+	// nil) rather than an inline copy, so this row's notion of thrusting
+	// can't silently drift from the rest of the codebase's (it already
+	// gates Transfer Control refusal, ADR 0034 addendum).
+	if !sim.StackMidBurn(c) {
 		return base + v.theme.Dim.Render(" (idle)")
 	}
 	return base + v.theme.Warning.Render(" ● FIRING")
@@ -924,7 +929,16 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 	// out of Nodes into ActiveBurn and this row is replaced by
 	// activeBurnLines' "burning, Ns left" row instead — see there for the
 	// counts-to-BurnEnd half of this same head row.
+	// Code-review finding 4: BurnStart can be at or past SimTime — paused
+	// right at the boundary, or held past due for want of a resolvable
+	// target — without the node having fired yet (it's still in c.Nodes,
+	// or it's simply not this tick's turn in executeDueNodesFor's walk).
+	// A raw negative dt read as a nonsensical "ignition in -47s"; clamp
+	// to 0 so an overdue-but-not-fired node reads as imminent instead.
 	dt := n.BurnStart().Sub(w.Clock.SimTime).Seconds()
+	if dt < 0 {
+		dt = 0
+	}
 	return fmt.Sprintf("  %s %s ignition in %.0fs  %s  %.0f m/s",
 		hudNodeMarker, label, dt, n.Mode.String(), n.DV) + over
 }

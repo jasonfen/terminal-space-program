@@ -352,14 +352,31 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// gap the ADR named ("a burn fires and finishes with no notice").
 		// Per-craft (executeDueNodesFor / integrateOneCraft run once per
 		// craft in the slate), so these fire regardless of which vessel is
-		// active. Same flash surface, cleared after one fire.
-		if e := a.world.LastBurnFiredEvent; e != nil {
-			a.flash(fmt.Sprintf("%s: node %d firing — %.0f m/s", e.CraftName, e.NodeIndex+1, e.DV))
-			a.world.LastBurnFiredEvent = nil
+		// active. Slices, not single pointers (review finding 1): two
+		// crafts can ignite (or exhaust) in the same tick, and both must
+		// reach the player, not just whichever stashed last. Drained (read
+		// then cleared) in full every TickMsg, fired-events before
+		// finished-events (review finding 3's "pick one consistent order")
+		// — one a.flash() call per event, in queue order. KNOWN
+		// LIMITATION: statusMsg is a single-slot display with one shared
+		// TTL, so if more than one event lands in the same tick (e.g. one
+		// craft's burn exhausts the instant another's ignites), only the
+		// LAST a.flash() call's text is actually visible on screen — every
+		// event still reaches a.flash() in order, so none is silently
+		// dropped from processing, but a same-tick collision is a real
+		// visual coin-flip until statusMsg itself grows a queue. That's out
+		// of scope here (no new UI machinery beyond draining the slices).
+		if len(a.world.PendingBurnFiredEvents) > 0 {
+			for _, e := range a.world.PendingBurnFiredEvents {
+				a.flash(fmt.Sprintf("%s: node %d firing — %.0f m/s", e.CraftName, e.NodeIndex+1, e.DV))
+			}
+			a.world.PendingBurnFiredEvents = nil
 		}
-		if e := a.world.LastBurnFinishedEvent; e != nil {
-			a.flash(fmt.Sprintf("%s: node %d burned — %.0f m/s, %d remaining", e.CraftName, e.NodeIndex+1, e.DV, e.NodesRemaining))
-			a.world.LastBurnFinishedEvent = nil
+		if len(a.world.PendingBurnFinishedEvents) > 0 {
+			for _, e := range a.world.PendingBurnFinishedEvents {
+				a.flash(fmt.Sprintf("%s: node %d burned — %.0f m/s, %d remaining", e.CraftName, e.NodeIndex+1, e.DV, e.NodesRemaining))
+			}
+			a.world.PendingBurnFinishedEvents = nil
 		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 

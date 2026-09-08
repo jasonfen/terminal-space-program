@@ -347,6 +347,38 @@ func TestNodesChipHeadRowCountsToIgnitionThenBurnEnd(t *testing.T) {
 	}
 }
 
+// TestNodesChipHeadRowClampsOverdueIgnitionToZero — code-review finding
+// 4: a node whose BurnStart has already passed but which hasn't fired
+// yet (paused right at the boundary, or held past due) must not print a
+// raw negative duration ("ignition in -47s"); it clamps to "ignition in
+// 0s".
+func TestNodesChipHeadRowClampsOverdueIgnitionToZero(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+
+	// BurnStart = TriggerTime - Duration/2 = now - 12s - 36s = now - 48s:
+	// 48s past due, still queued (not fired — this test doesn't tick the
+	// world at all).
+	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+		DV:          3054,
+		Mode:        spacecraft.BurnPrograde,
+		Duration:    72 * time.Second,
+		TriggerTime: w.Clock.SimTime.Add(-12 * time.Second),
+	})
+
+	out := strings.Join(v.buildNodesChip(w), "\n")
+	if !strings.Contains(out, "ignition in 0s") {
+		t.Errorf("overdue-but-unfired head row should clamp to 'ignition in 0s':\n%s", out)
+	}
+	if strings.Contains(out, "ignition in -") {
+		t.Errorf("head row printed a raw negative duration:\n%s", out)
+	}
+}
+
 // plainThemeColored gives Primary/Warning/Dim distinguishable ANSI
 // colors (unlike chipTestTheme's no-op styles) so tests can assert an
 // actual color switch, not just presence of text.

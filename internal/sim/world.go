@@ -100,20 +100,24 @@ type World struct {
 	// (#294) but never re-latched.
 	LastNodeTargetRefusal *NodeTargetRefusalEvent
 
-	// LastBurnFiredEvent records the most recent planted finite burn to
-	// ignite (ADR 0048 / decision 4: burn state was otherwise invisible —
-	// a node fired and finished in total silence). Stamped by
+	// PendingBurnFiredEvents queues every planted finite burn that ignited
+	// THIS tick (ADR 0048 / decision 4: burn state was otherwise invisible
+	// — a node fired and finished in total silence). Stamped by
 	// executeDueNodesFor at the same site that sets Craft.ActiveBurn, per
-	// craft (not just the active one), so a burn igniting on a vessel the
-	// player isn't currently flying still flashes. app.go reads and
-	// clears it, same one-shot pattern as LastDockEvent.
-	LastBurnFiredEvent *BurnFiredEvent
+	// craft (not just the active one) — a slice, not a single pointer,
+	// because executeDueNodes walks every craft in the slate in one tick,
+	// and two crafts igniting the same tick must both flash rather than
+	// the second silently clobbering the first's stash. app.go drains
+	// (flashes each, in order) and clears the whole slice every TickMsg —
+	// same one-shot-per-event contract as LastDockEvent, just N-wide.
+	PendingBurnFiredEvents []BurnFiredEvent
 
-	// LastBurnFinishedEvent records the most recent finite burn to
-	// exhaust (ADR 0048 / decision 4), stamped by integrateOneCraft right
-	// before it nils Craft.ActiveBurn on the exhausted branch. Same
-	// per-craft, one-shot, app.go-cleared pattern as LastBurnFiredEvent.
-	LastBurnFinishedEvent *BurnFinishedEvent
+	// PendingBurnFinishedEvents queues every finite burn that exhausted
+	// THIS tick (ADR 0048 / decision 4), stamped by integrateOneCraft
+	// right before it nils Craft.ActiveBurn on the exhausted branch. Same
+	// per-tick, per-craft, app.go-drained contract as
+	// PendingBurnFiredEvents.
+	PendingBurnFinishedEvents []BurnFinishedEvent
 
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
@@ -1862,7 +1866,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	if c.ActiveBurn != nil {
 		if w.burnExhausted(c, burnReady) {
 			// ADR 0048 / decision 4: the matching finish half of
-			// LastBurnFiredEvent. DV is the node's original planned Δv
+			// PendingBurnFiredEvents. DV is the node's original planned Δv
 			// (PlannedDV), not DVRemaining — which is ~0 by now, the
 			// number a "delivered" figure would read but not "the number
 			// that matters" the ADR's voice calls for. len(c.Nodes) is
@@ -1870,13 +1874,16 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			// ran earlier this tick and stripped the fired node out.
 			// Per-craft — integrateOneCraft runs once per craft in the
 			// slate, so a non-active craft's burn finishing still flashes.
-			w.LastBurnFinishedEvent = &BurnFinishedEvent{
+			// Appended, not assigned (review finding 1): integrateOneCraft
+			// runs once per craft per tick, so two crafts' burns exhausting
+			// the same tick must both survive to app.go.
+			w.PendingBurnFinishedEvents = append(w.PendingBurnFinishedEvents, BurnFinishedEvent{
 				When:           w.Clock.SimTime,
 				CraftName:      c.Name,
 				NodeIndex:      c.ActiveBurn.NodeIndex,
 				DV:             c.ActiveBurn.PlannedDV,
 				NodesRemaining: len(c.Nodes),
-			}
+			})
 			c.ActiveBurn = nil
 		} else if c.ActiveStageFuel() <= 0 || !burnReady {
 			// #294 review finding 1: an unresolved target-relative burn is

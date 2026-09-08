@@ -2618,7 +2618,18 @@ func (w *World) executeDueNodes() {
 func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 	kept := c.Nodes[:0]
 	held := false
-	for _, n := range c.Nodes {
+	// idx is this node's true 0-based ordinal in the ORIGINAL c.Nodes
+	// slice — used by the BurnFiredEvent stash below (review finding 2).
+	// len(kept) undercounts whenever an earlier node in this same call
+	// fired IMPULSIVELY: an impulsive fire is never appended to kept
+	// either (same as a finite fire), so it silently vanished from a
+	// len(kept)-derived count too. idx is safe to read here even though
+	// kept shares c.Nodes' backing array and mutates it in place: a
+	// filter-in-place only ever writes to indices < the current read
+	// cursor (len(kept) <= idx always), so arr[idx] itself is never
+	// touched by an earlier iteration's compaction before this line reads
+	// it via range.
+	for idx, n := range c.Nodes {
 		if held {
 			kept = append(kept, n)
 			continue
@@ -2795,22 +2806,20 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				PlaneChangeRad:   n.PlaneChangeRad,
 				BurnDirUnit:      n.BurnDirUnit,
 				PlannedDV:        n.DV,
-				NodeIndex:        len(kept),
+				NodeIndex:        idx,
 			}
 			// ADR 0048 / decision 4: burn state was otherwise invisible — a
-			// node fired and finished in total silence. len(kept) is this
-			// node's 0-based ordinal within c.Nodes at fire time: every
-			// node ahead of it in the walk either already fired earlier in
-			// this same call (and so was never appended to kept) or this
-			// is the first due node, so kept holds exactly the nodes still
-			// queued ahead of it. Per-craft, not just the active craft —
-			// executeDueNodesFor runs once per craft in the slate.
-			w.LastBurnFiredEvent = &BurnFiredEvent{
+			// node fired and finished in total silence. Appended, not
+			// assigned (review finding 1): executeDueNodes walks every
+			// craft's own queue in the same tick, so two crafts igniting
+			// this tick must both survive to app.go rather than the second
+			// overwriting the first's single stashed pointer.
+			w.PendingBurnFiredEvents = append(w.PendingBurnFiredEvents, BurnFiredEvent{
 				When:      w.Clock.SimTime,
 				CraftName: c.Name,
-				NodeIndex: len(kept),
+				NodeIndex: idx,
 				DV:        n.DV,
-			}
+			})
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.
 		// Symmetric with StartManualBurn; not strictly common
