@@ -152,6 +152,8 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			PlaneChangeRad:   ab.PlaneChangeRad,
 			BurnDirUnit:      vec3From(ab.BurnDirUnit),
 			TargetGhostOwner: ab.TargetGhostOwner,
+			PlannedDV:        ab.PlannedDV,
+			NodeIndex:        ab.NodeIndex,
 		}
 	}
 	// v0.9.3 polish: per-craft Target. Skip serialising when the craft has
@@ -383,6 +385,20 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			PlaneChangeRad:   wc.ActiveBurn.PlaneChangeRad,
 			BurnDirUnit:      vec3To(wc.ActiveBurn.BurnDirUnit),
 			TargetGhostOwner: wc.ActiveBurn.TargetGhostOwner, // #294 review finding 5
+			PlannedDV:        wc.ActiveBurn.PlannedDV,
+			NodeIndex:        wc.ActiveBurn.NodeIndex,
+		}
+		// #447 review finding 8: a save written before PlannedDV existed
+		// decodes it as the zero value, and app.go's burn-finished flash
+		// would otherwise print "burned — 0 m/s" for a burn that really
+		// delivered thousands of m/s. DVRemaining at save time is the
+		// closest available estimate of what's left to deliver — not
+		// exact (some Δv may already have been spent before the save),
+		// but far closer than a bare, wrong zero. app.go additionally
+		// drops the "— N m/s" clause entirely if this still comes back 0
+		// (an unfired burn saved at the instant of ignition).
+		if c.ActiveBurn.PlannedDV == 0 {
+			c.ActiveBurn.PlannedDV = c.ActiveBurn.DVRemaining
 		}
 		// #294 review round 3 (finding D): defensive load-time teardown for
 		// an ActiveBurn that is target-relative in Mode but carries no

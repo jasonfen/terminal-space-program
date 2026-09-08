@@ -670,7 +670,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	lines = append(lines,
 		fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
 		fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
-		fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
+		v.throttleRow(c),
 	)
 	if c.MonopropCapacity > 0 {
 		lines = append(lines,
@@ -684,6 +684,28 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		}
 	}
 	return lines
+}
+
+// throttleRow renders VESSEL's "throttle:" row (decision 1, grilled
+// 2026-09-06: "the throttle row carries the engine state, both ways").
+// The number itself is always the throttle *setting*
+// (c.EffectiveThrottle()), never gated — only the trailing suffix names
+// whether an engine is actually lit: "(idle)" in Dim while neither
+// ActiveBurn nor ManualBurn is live on this craft, "● FIRING" in Warning
+// the instant either is. Mirrors the same live/idle gate
+// PredictedFinalOrbit (internal/sim/maneuver.go) and buildTargetChip use
+// for "is this craft actually thrusting right now".
+func (v *OrbitView) throttleRow(c *spacecraft.Spacecraft) string {
+	base := fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100)
+	// Code-review finding 5: reuse sim.StackMidBurn's exact "is this craft
+	// actively thrusting" predicate (ActiveBurn != nil || ManualBurn !=
+	// nil) rather than an inline copy, so this row's notion of thrusting
+	// can't silently drift from the rest of the codebase's (it already
+	// gates Transfer Control refusal, ADR 0034 addendum).
+	if !sim.StackMidBurn(c) {
+		return base + v.theme.Dim.Render(" (idle)")
+	}
+	return base + v.theme.Warning.Render(" ● FIRING")
 }
 
 // buildVesselDestroyedChip is the VESSEL DESTROYED Standing Alert (#427 /
@@ -899,8 +921,35 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 		return fmt.Sprintf("  %s %s %s  %s  %.0f m/s",
 			hudNodeMarker, label, n.Event.String(), n.Mode.String(), n.DV) + over
 	}
-	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
-	return fmt.Sprintf("  %s %s T%+.0fs  %s  %.0f m/s",
+	// decision 7 (grilled 2026-09-06): the head row counts to BurnStart
+	// (ignition), not TriggerTime (the burn's midpoint) — a 72s finite
+	// burn used to read "T-66s" when ignition was really only 30s away.
+	// "ignition in Ns" says what the number actually answers: when does
+	// the engine light. Once this node's burn is actually live it moves
+	// out of Nodes into ActiveBurn and this row is replaced by
+	// activeBurnLines' "burning, Ns left" row instead — see there for the
+	// counts-to-BurnEnd half of this same head row.
+	// #447 review finding 7: this node can be genuinely overdue-but-held
+	// because THIS craft's engine is already firing a different, earlier
+	// node (nc.ActiveBurn != nil) — the GH #88 same-craft hold in
+	// executeDueNodesFor. A raw dt clamped to 0 there reads "ignition in
+	// 0s" for the entire preceding burn, which says imminent when the
+	// truth is "once the current burn ends". Say that instead.
+	if nc.ActiveBurn != nil {
+		return fmt.Sprintf("  %s %s ignition after burn  %s  %.0f m/s",
+			hudNodeMarker, label, n.Mode.String(), n.DV) + over
+	}
+	// Code-review finding 4: BurnStart can be at or past SimTime — paused
+	// right at the boundary, or held past due for want of a resolvable
+	// target — without the node having fired yet (it's still in c.Nodes,
+	// or it's simply not this tick's turn in executeDueNodesFor's walk).
+	// A raw negative dt read as a nonsensical "ignition in -47s"; clamp
+	// to 0 so an overdue-but-not-fired node reads as imminent instead.
+	dt := n.BurnStart().Sub(w.Clock.SimTime).Seconds()
+	if dt < 0 {
+		dt = 0
+	}
+	return fmt.Sprintf("  %s %s ignition in %.0fs  %s  %.0f m/s",
 		hudNodeMarker, label, dt, n.Mode.String(), n.DV) + over
 }
 

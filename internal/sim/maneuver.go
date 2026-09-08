@@ -119,7 +119,7 @@ func (w *World) ToggleManualBurn() {
 // lands on 1.3878e-16, not exactly 0.0 (binary floating point can't
 // represent 0.1 exactly), so the exact-equality cut check below used
 // to silently miss it — the throttle row rounds to a display "0%" but
-// ManualBurn never clears, leaving the engine "on" (anyCraftThrusting)
+// ManualBurn never clears, leaving the engine "on" (AnyCraftThrusting)
 // and warp pinned to the 10× burn cap with nothing on screen to say
 // why. Found live: player reported warp stuck at 10× well outside the
 // atmosphere despite reading 0% throttle.
@@ -2618,7 +2618,18 @@ func (w *World) executeDueNodes() {
 func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 	kept := c.Nodes[:0]
 	held := false
-	for _, n := range c.Nodes {
+	// idx is this node's true 0-based ordinal in the ORIGINAL c.Nodes
+	// slice — used by the BurnFiredEvent stash below (review finding 2).
+	// len(kept) undercounts whenever an earlier node in this same call
+	// fired IMPULSIVELY: an impulsive fire is never appended to kept
+	// either (same as a finite fire), so it silently vanished from a
+	// len(kept)-derived count too. idx is safe to read here even though
+	// kept shares c.Nodes' backing array and mutates it in place: a
+	// filter-in-place only ever writes to indices < the current read
+	// cursor (len(kept) <= idx always), so arr[idx] itself is never
+	// touched by an earlier iteration's compaction before this line reads
+	// it via range.
+	for idx, n := range c.Nodes {
 		if held {
 			kept = append(kept, n)
 			continue
@@ -2794,7 +2805,21 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				TargetGhostOwner: n.TargetGhostOwner, // v0.28 S4: carry the ghost ref onto the running burn
 				PlaneChangeRad:   n.PlaneChangeRad,
 				BurnDirUnit:      n.BurnDirUnit,
+				PlannedDV:        n.DV,
+				NodeIndex:        idx,
 			}
+			// ADR 0048 / decision 4: burn state was otherwise invisible — a
+			// node fired and finished in total silence. Appended, not
+			// assigned (review finding 1): executeDueNodes walks every
+			// craft's own queue in the same tick, so two crafts igniting
+			// this tick must both survive to app.go rather than the second
+			// overwriting the first's single stashed pointer.
+			w.PendingBurnFiredEvents = append(w.PendingBurnFiredEvents, BurnFiredEvent{
+				When:      w.Clock.SimTime,
+				CraftName: c.Name,
+				NodeIndex: idx,
+				DV:        n.DV,
+			})
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.
 		// Symmetric with StartManualBurn; not strictly common

@@ -464,6 +464,22 @@ type ActiveBurn struct {
 	// reconnect mid an in-flight target-relative finite burn should
 	// re-latch the burn's own ref, not just Craft.Target.
 	TargetGhostOwner string `json:"target_ghost_owner,omitempty"`
+	// PlannedDV (ADR 0048, additive omitempty) mirrors the spacecraft
+	// field: the firing node's original Δv, kept for the burn-finished
+	// Event Flash's wording. Absent (zero) on a save written before this
+	// field existed — CraftFromWire falls back to DVRemaining in that
+	// case (#447 review finding 8: a bare zero here would otherwise read
+	// as "node 1 burned — 0 m/s", a false statement about a burn that
+	// just delivered real Δv, not merely a less precise one), and
+	// app.go's flash drops the "— N m/s" clause entirely if even that
+	// fallback comes back 0. No migration needed either way.
+	PlannedDV float64 `json:"planned_dv,omitempty"`
+	// NodeIndex (ADR 0048, additive omitempty) mirrors the spacecraft
+	// field: the firing node's 0-based ordinal, for the "node #N" wording
+	// on the finish flash. Absent (zero) on an older save reads as "node
+	// 1" — a guess, not a migration hazard; nothing downstream trusts
+	// this index for anything but display text.
+	NodeIndex int `json:"node_index,omitempty"`
 }
 
 // Errors returned by Load.

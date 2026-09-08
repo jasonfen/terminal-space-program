@@ -1233,8 +1233,15 @@ func (v *OrbitView) activeBurnLines(w *sim.World) []string {
 				v.theme.Warning.Render("    ⚠ STALLED — stage to resume (x to cancel)"),
 			)
 		} else {
+			// decision 7 (grilled 2026-09-06): `remaining` already counts
+			// down to ab.EndTime, which the fire site sets to n.BurnEnd() —
+			// this was always "seconds to BurnEnd", the wording just used
+			// to call it T-Ns the same way the pre-ignition head row did.
+			// "burning, Ns left" makes the two head-row states read as one
+			// continuous countdown (ignition → burning) instead of two
+			// unrelated-looking T-fields.
 			lines = append(lines,
-				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %.0f m/s, T-%.0fs",
+				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %.0f m/s, burning, %.0fs left",
 					tag, ab.Mode.String(), ab.DVRemaining, remaining)),
 			)
 		}
@@ -1987,7 +1994,17 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		// transfer actually passes the target rather than eyeballing the
 		// dashed curve. Perilune altitude when the path enters the SOI
 		// (negative ⇒ surface impact), else the flyby miss distance.
-		if ap, ok := w.PredictedTargetApproach(); ok {
+		// decision 3 (grilled 2026-09-06): "the TARGET chip says it is
+		// recomputing during your own burn" — while c has a live
+		// ActiveBurn, the predicted-encounter row group (perilune/
+		// approach + TCA) is stale every integrator step the same way
+		// the projected-orbit chip is (PredictedFinalOrbit's own
+		// ActiveBurn gate, internal/sim/maneuver.go); the range/Δi rows
+		// above stay live since they read the craft's current state
+		// directly, not a chained prediction.
+		if c.ActiveBurn != nil {
+			lines = append(lines, chipRow("encounter:", v.theme.Dim.Render("recomputing…")))
+		} else if ap, ok := w.PredictedTargetApproach(); ok {
 			if ap.EntersSOI {
 				alt := ap.Dist - b.RadiusMeters()
 				if alt <= 0 {
@@ -2059,7 +2076,16 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			// a phantom trajectory. Range/closing above stay meaningful for
 			// a landed target (relative-state math, not propagation) so
 			// only this predicted-encounter row group is gated.
-			if craftHasOrbit(tc) {
+			//
+			// decision 3 (grilled 2026-09-06): a live ActiveBurn on the
+			// active craft gets the same "recomputing…" swap the body-target
+			// branch above uses, for the same reason — closestApproachRows
+			// propagates from a state that's being rewritten every
+			// integrator step mid-burn.
+			switch {
+			case c.ActiveBurn != nil:
+				lines = append(lines, chipRow("encounter:", v.theme.Dim.Render("recomputing…")))
+			case craftHasOrbit(tc):
 				lines = append(lines, v.closestApproachRows(w, c)...)
 			}
 			if rangeM < 50 && vRel < 0.1 {
