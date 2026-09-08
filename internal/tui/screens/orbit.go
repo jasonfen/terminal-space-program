@@ -1458,6 +1458,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			viewLabel = fmt.Sprintf("view: tilted %g°", w.ViewTilt.Theta)
 		}
 	}
+	// decision 6 (grilled 2026-09-06): "declutter is named in two places
+	// while it is on" — appended after every other conditional above so
+	// it always trails whatever the label already says (e.g. "view:
+	// tilted 30°/anchor · declutter"). Gone the instant F2 clears
+	// v.declutter.
+	if v.declutter {
+		viewLabel += " · declutter"
+	}
 	// Inspect flare (ADR 0041 §3), stamped after every map layer so the
 	// one entity the player asked about is never painted over. The
 	// entity's own ink was already promoted at its draw site above; this
@@ -1506,7 +1514,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 
 	canvasPanel := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(v.theme.Primary.GetForeground()).
+		BorderForeground(v.canvasBorderColor(w)).
 		Render(canvasStr)
 
 	craftChip := ""
@@ -1522,6 +1530,45 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// transient status / confirm lines ride the canvas bottom border.
 	out := title + "\n" + canvasPanel
 	return out
+}
+
+// canvasBorderColor picks the map canvas border's foreground (decision 2,
+// grilled 2026-09-06: "the whole screen says an engine is lit"): Warning
+// while any craft in the slate is thrusting (AnyCraftThrusting — the same
+// predicate the 10x burn-warp cap uses), Primary otherwise. Shared with
+// LaunchView's wrapBorder call so the pad canvas gets the same cue.
+func (v *OrbitView) canvasBorderColor(w *sim.World) lipgloss.TerminalColor {
+	if w.AnyCraftThrusting() {
+		return v.theme.Warning.GetForeground()
+	}
+	return v.theme.Primary.GetForeground()
+}
+
+// burnBadgeText is the title bar's `● BURN` badge (decision 2): rendered
+// in Warning beside the warp readout while any craft in the slate is
+// thrusting, empty otherwise. Returns both the plain (unstyled, for width
+// math) and rendered forms, prefixed with the two-space gap that
+// separates it from whatever sits to its left — an empty plain form
+// carries no gap, so it costs nothing in either width sum when idle.
+func (v *OrbitView) burnBadgeText(w *sim.World) (plain, rendered string) {
+	if !w.AnyCraftThrusting() {
+		return "", ""
+	}
+	const badge = "  ● BURN"
+	return badge, v.theme.Warning.Render(badge)
+}
+
+// declutterTagText is the title bar's `[F2 declutter]` tag (decision 6,
+// grilled 2026-09-06: "Declutter is named in two places while it is on"):
+// Dim, beside the warp readout, visible only while v.declutter is true —
+// gone the instant F2 is pressed again. Same plain/rendered-pair shape as
+// burnBadgeText, for the same reason.
+func (v *OrbitView) declutterTagText() (plain, rendered string) {
+	if !v.declutter {
+		return "", ""
+	}
+	const tag = "  [F2 declutter]"
+	return tag, v.theme.Dim.Render(tag)
 }
 
 // renderTitleBar composes the orbit-screen title row: the existing
@@ -1588,6 +1635,13 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 		pauseChipRendered = "  " + v.theme.Warning.Render("PAUSED")
 	}
 
+	// decisions 2 / 6 (grilled 2026-09-06): the `● BURN` engine-lit badge
+	// and the `[F2 declutter]` tag, both beside the warp/clock readout.
+	// Either or both can be empty; the plain forms carry their own
+	// leading gap so an empty one costs nothing in the width sums below.
+	burnBadgePlain, burnBadgeRendered := v.burnBadgeText(w)
+	declutterPlain, declutterRendered := v.declutterTagText()
+
 	// v0.16 / ADR 0016: the [»Burn] Auto-Warp button. [■Burn] highlighted
 	// while engaged, dimmed when no burn is eligible. The » / ■ runes are
 	// East-Asian *ambiguous* width, so the column math below measures
@@ -1599,7 +1653,7 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 		burnLabel = "[■Burn]"
 	}
 
-	rightPlain := clockChip + pauseChipPlain + clockGap + burnLabel + gap + menuLabel + gap + missionsLabel
+	rightPlain := clockChip + pauseChipPlain + burnBadgePlain + declutterPlain + clockGap + burnLabel + gap + menuLabel + gap + missionsLabel
 
 	// Compute the absolute column where the right group starts so the
 	// hit-test ranges match what the player sees on screen.
@@ -1610,7 +1664,7 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 		pad = 1
 	}
 	rightStart := leftWidth + pad
-	buttonsStart := rightStart + lipgloss.Width(clockChip+pauseChipPlain+clockGap)
+	buttonsStart := rightStart + lipgloss.Width(clockChip+pauseChipPlain+burnBadgePlain+declutterPlain+clockGap)
 
 	v.burnColStart = buttonsStart
 	v.burnColEnd = v.burnColStart + lipgloss.Width(burnLabel)
@@ -1631,6 +1685,8 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 		strings.Repeat(" ", pad) +
 		clockChipRendered +
 		pauseChipRendered +
+		burnBadgeRendered +
+		declutterRendered +
 		clockGap +
 		burnRendered +
 		gap +

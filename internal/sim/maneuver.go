@@ -119,7 +119,7 @@ func (w *World) ToggleManualBurn() {
 // lands on 1.3878e-16, not exactly 0.0 (binary floating point can't
 // represent 0.1 exactly), so the exact-equality cut check below used
 // to silently miss it — the throttle row rounds to a display "0%" but
-// ManualBurn never clears, leaving the engine "on" (anyCraftThrusting)
+// ManualBurn never clears, leaving the engine "on" (AnyCraftThrusting)
 // and warp pinned to the 10× burn cap with nothing on screen to say
 // why. Found live: player reported warp stuck at 10× well outside the
 // atmosphere despite reading 0% throttle.
@@ -2794,6 +2794,22 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				TargetGhostOwner: n.TargetGhostOwner, // v0.28 S4: carry the ghost ref onto the running burn
 				PlaneChangeRad:   n.PlaneChangeRad,
 				BurnDirUnit:      n.BurnDirUnit,
+				PlannedDV:        n.DV,
+				NodeIndex:        len(kept),
+			}
+			// ADR 0048 / decision 4: burn state was otherwise invisible — a
+			// node fired and finished in total silence. len(kept) is this
+			// node's 0-based ordinal within c.Nodes at fire time: every
+			// node ahead of it in the walk either already fired earlier in
+			// this same call (and so was never appended to kept) or this
+			// is the first due node, so kept holds exactly the nodes still
+			// queued ahead of it. Per-craft, not just the active craft —
+			// executeDueNodesFor runs once per craft in the slate.
+			w.LastBurnFiredEvent = &BurnFiredEvent{
+				When:      w.Clock.SimTime,
+				CraftName: c.Name,
+				NodeIndex: len(kept),
+				DV:        n.DV,
 			}
 		}
 		// v0.9.2+: planted-burn ignition releases a Landed craft.

@@ -348,6 +348,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.world.LastNodeTargetRefusal = nil
 		}
+		// ADR 0048 / decision 4: burn fired / finished Event Flashes — the
+		// gap the ADR named ("a burn fires and finishes with no notice").
+		// Per-craft (executeDueNodesFor / integrateOneCraft run once per
+		// craft in the slate), so these fire regardless of which vessel is
+		// active. Same flash surface, cleared after one fire.
+		if e := a.world.LastBurnFiredEvent; e != nil {
+			a.flash(fmt.Sprintf("%s: node %d firing — %.0f m/s", e.CraftName, e.NodeIndex+1, e.DV))
+			a.world.LastBurnFiredEvent = nil
+		}
+		if e := a.world.LastBurnFinishedEvent; e != nil {
+			a.flash(fmt.Sprintf("%s: node %d burned — %.0f m/s, %d remaining", e.CraftName, e.NodeIndex+1, e.DV, e.NodesRemaining))
+			a.world.LastBurnFinishedEvent = nil
+		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 
 	case tea.WindowSizeMsg:

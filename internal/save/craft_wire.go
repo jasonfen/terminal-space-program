@@ -152,6 +152,8 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			PlaneChangeRad:   ab.PlaneChangeRad,
 			BurnDirUnit:      vec3From(ab.BurnDirUnit),
 			TargetGhostOwner: ab.TargetGhostOwner,
+			PlannedDV:        ab.PlannedDV,
+			NodeIndex:        ab.NodeIndex,
 		}
 	}
 	// v0.9.3 polish: per-craft Target. Skip serialising when the craft has
@@ -383,6 +385,8 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			PlaneChangeRad:   wc.ActiveBurn.PlaneChangeRad,
 			BurnDirUnit:      vec3To(wc.ActiveBurn.BurnDirUnit),
 			TargetGhostOwner: wc.ActiveBurn.TargetGhostOwner, // #294 review finding 5
+			PlannedDV:        wc.ActiveBurn.PlannedDV,
+			NodeIndex:        wc.ActiveBurn.NodeIndex,
 		}
 		// #294 review round 3 (finding D): defensive load-time teardown for
 		// an ActiveBurn that is target-relative in Mode but carries no

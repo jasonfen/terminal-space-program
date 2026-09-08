@@ -375,6 +375,20 @@ type ActiveBurn struct {
 	// from the wire form (no save/load meaning — a reloaded burn starts
 	// unnoticed).
 	RefusalNoticed bool `json:"-"`
+	// PlannedDV (ADR 0048 / decision 4, additive omitempty) is the firing
+	// node's original n.DV, captured at ignition. DVRemaining decrements
+	// as the burn integrates, so by teardown it no longer names "the
+	// number that matters" for the finish announcement — PlannedDV lets
+	// the fired and finished Event Flashes report the same Δv figure,
+	// matching ADR 0048's example ("node 1 burned — 3054 m/s, ...").
+	PlannedDV float64 `json:"planned_dv,omitempty"`
+	// NodeIndex (ADR 0048 / decision 4, additive omitempty) is the firing
+	// node's 0-based ordinal within its craft's Nodes slice at ignition —
+	// the same "node #N" convention FrameTransition.NodeIndex uses.
+	// executeDueNodesFor already strips a fired node out of c.Nodes, so
+	// by teardown there's no other way to recover which node this was;
+	// captured here so the finish Event Flash can still say "node 1".
+	NodeIndex int `json:"node_index,omitempty"`
 }
 
 // TargetCraftIDValue mirrors ManeuverNode.TargetCraftIDValue — returns

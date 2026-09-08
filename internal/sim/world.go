@@ -100,6 +100,21 @@ type World struct {
 	// (#294) but never re-latched.
 	LastNodeTargetRefusal *NodeTargetRefusalEvent
 
+	// LastBurnFiredEvent records the most recent planted finite burn to
+	// ignite (ADR 0048 / decision 4: burn state was otherwise invisible —
+	// a node fired and finished in total silence). Stamped by
+	// executeDueNodesFor at the same site that sets Craft.ActiveBurn, per
+	// craft (not just the active one), so a burn igniting on a vessel the
+	// player isn't currently flying still flashes. app.go reads and
+	// clears it, same one-shot pattern as LastDockEvent.
+	LastBurnFiredEvent *BurnFiredEvent
+
+	// LastBurnFinishedEvent records the most recent finite burn to
+	// exhaust (ADR 0048 / decision 4), stamped by integrateOneCraft right
+	// before it nils Craft.ActiveBurn on the exhausted branch. Same
+	// per-craft, one-shot, app.go-cleared pattern as LastBurnFiredEvent.
+	LastBurnFinishedEvent *BurnFinishedEvent
+
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
@@ -946,6 +961,33 @@ type NodeTargetRefusalEvent struct {
 	Cancelled bool
 }
 
+// BurnFiredEvent records a planted finite burn's ignition for the Event
+// Flash app.go raises (ADR 0048 / decision 4). NodeIndex is the fired
+// node's 0-based ordinal within its craft's Nodes slice at fire time
+// (matches the "node #N" convention used elsewhere, e.g.
+// FrameTransition.NodeIndex), so the message can say "node 1 firing".
+type BurnFiredEvent struct {
+	When      time.Time
+	CraftName string
+	NodeIndex int
+	DV        float64
+}
+
+// BurnFinishedEvent records a finite burn's exhaustion for the matching
+// Event Flash (ADR 0048 / decision 4). DV is the node's original planned
+// Δv (ActiveBurn.PlannedDV), the same figure BurnFiredEvent reported at
+// ignition — not DVRemaining, which reads ~0 by the time the burn tears
+// down. NodesRemaining is the craft's own queued-node count immediately
+// after this burn's node was stripped from Nodes, for the "N remaining"
+// half of the wording.
+type BurnFinishedEvent struct {
+	When           time.Time
+	CraftName      string
+	NodeIndex      int
+	DV             float64
+	NodesRemaining int
+}
+
 // DockEvent records the latest fuse for HUD-side messaging. v0.8.3+.
 type DockEvent struct {
 	When          time.Time
@@ -1453,7 +1495,7 @@ func (w *World) clampedWarp() float64 {
 	// blast past the EndTime in a single tick. Walking all crafts
 	// (not just the active one) catches a planted burn firing on a
 	// non-active craft while the player is flying another.
-	if w.anyCraftThrusting() && selected > burnWarpCap {
+	if w.AnyCraftThrusting() && selected > burnWarpCap {
 		selected = burnWarpCap
 	}
 	// v0.8.6.x+: throttle-change clamp. A throttle adjust at high
@@ -1598,11 +1640,11 @@ func (w *World) recentlyChangedThrottle(window time.Duration) bool {
 	return false
 }
 
-// anyCraftThrusting reports whether any craft in the slate is
+// AnyCraftThrusting reports whether any craft in the slate is
 // currently firing — either a planted finite burn or a held manual
 // burn. Used by clampedWarp to apply the 10× burn cap regardless of
 // which craft owns the burn. v0.8.1+.
-func (w *World) anyCraftThrusting() bool {
+func (w *World) AnyCraftThrusting() bool {
 	for _, c := range w.Crafts {
 		if c == nil {
 			continue
@@ -1819,6 +1861,22 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// instead of silently cancelling.
 	if c.ActiveBurn != nil {
 		if w.burnExhausted(c, burnReady) {
+			// ADR 0048 / decision 4: the matching finish half of
+			// LastBurnFiredEvent. DV is the node's original planned Δv
+			// (PlannedDV), not DVRemaining — which is ~0 by now, the
+			// number a "delivered" figure would read but not "the number
+			// that matters" the ADR's voice calls for. len(c.Nodes) is
+			// this craft's own remaining queue: executeDueNodesFor already
+			// ran earlier this tick and stripped the fired node out.
+			// Per-craft — integrateOneCraft runs once per craft in the
+			// slate, so a non-active craft's burn finishing still flashes.
+			w.LastBurnFinishedEvent = &BurnFinishedEvent{
+				When:           w.Clock.SimTime,
+				CraftName:      c.Name,
+				NodeIndex:      c.ActiveBurn.NodeIndex,
+				DV:             c.ActiveBurn.PlannedDV,
+				NodesRemaining: len(c.Nodes),
+			}
 			c.ActiveBurn = nil
 		} else if c.ActiveStageFuel() <= 0 || !burnReady {
 			// #294 review finding 1: an unresolved target-relative burn is

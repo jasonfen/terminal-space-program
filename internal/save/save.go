@@ -464,6 +464,16 @@ type ActiveBurn struct {
 	// reconnect mid an in-flight target-relative finite burn should
 	// re-latch the burn's own ref, not just Craft.Target.
 	TargetGhostOwner string `json:"target_ghost_owner,omitempty"`
+	// PlannedDV (ADR 0048, additive omitempty) mirrors the spacecraft
+	// field: the firing node's original Δv, kept for the burn-finished
+	// Event Flash's wording. Absent on older saves — a reloaded burn
+	// mid-flight just loses the exact figure on its finish flash, no
+	// migration needed.
+	PlannedDV float64 `json:"planned_dv,omitempty"`
+	// NodeIndex (ADR 0048, additive omitempty) mirrors the spacecraft
+	// field: the firing node's 0-based ordinal, for the "node #N" wording
+	// on the finish flash.
+	NodeIndex int `json:"node_index,omitempty"`
 }
 
 // Errors returned by Load.

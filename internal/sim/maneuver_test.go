@@ -2343,7 +2343,7 @@ func TestAdjustThrottleTenStepsDownStopsManualBurn(t *testing.T) {
 	if w.ActiveCraft().ManualBurn != nil {
 		t.Error("ten -10% steps to 0% should stop the manual burn, same as a direct cut")
 	}
-	if w.anyCraftThrusting() {
+	if w.AnyCraftThrusting() {
 		t.Error("warp should not stay pinned to the burn cap once throttle reads 0%")
 	}
 }

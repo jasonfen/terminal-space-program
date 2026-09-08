@@ -670,7 +670,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	lines = append(lines,
 		fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
 		fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
-		fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100),
+		v.throttleRow(c),
 	)
 	if c.MonopropCapacity > 0 {
 		lines = append(lines,
@@ -684,6 +684,23 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		}
 	}
 	return lines
+}
+
+// throttleRow renders VESSEL's "throttle:" row (decision 1, grilled
+// 2026-09-06: "the throttle row carries the engine state, both ways").
+// The number itself is always the throttle *setting*
+// (c.EffectiveThrottle()), never gated — only the trailing suffix names
+// whether an engine is actually lit: "(idle)" in Dim while neither
+// ActiveBurn nor ManualBurn is live on this craft, "● FIRING" in Warning
+// the instant either is. Mirrors the same live/idle gate
+// PredictedFinalOrbit (internal/sim/maneuver.go) and buildTargetChip use
+// for "is this craft actually thrusting right now".
+func (v *OrbitView) throttleRow(c *spacecraft.Spacecraft) string {
+	base := fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100)
+	if c.ActiveBurn == nil && c.ManualBurn == nil {
+		return base + v.theme.Dim.Render(" (idle)")
+	}
+	return base + v.theme.Warning.Render(" ● FIRING")
 }
 
 // buildVesselDestroyedChip is the VESSEL DESTROYED Standing Alert (#427 /
@@ -899,8 +916,16 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 		return fmt.Sprintf("  %s %s %s  %s  %.0f m/s",
 			hudNodeMarker, label, n.Event.String(), n.Mode.String(), n.DV) + over
 	}
-	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
-	return fmt.Sprintf("  %s %s T%+.0fs  %s  %.0f m/s",
+	// decision 7 (grilled 2026-09-06): the head row counts to BurnStart
+	// (ignition), not TriggerTime (the burn's midpoint) — a 72s finite
+	// burn used to read "T-66s" when ignition was really only 30s away.
+	// "ignition in Ns" says what the number actually answers: when does
+	// the engine light. Once this node's burn is actually live it moves
+	// out of Nodes into ActiveBurn and this row is replaced by
+	// activeBurnLines' "burning, Ns left" row instead — see there for the
+	// counts-to-BurnEnd half of this same head row.
+	dt := n.BurnStart().Sub(w.Clock.SimTime).Seconds()
+	return fmt.Sprintf("  %s %s ignition in %.0fs  %s  %.0f m/s",
 		hudNodeMarker, label, dt, n.Mode.String(), n.DV) + over
 }
 

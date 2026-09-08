@@ -171,7 +171,7 @@ func (w *World) rendezvousSeatRate() (float64, bool) {
 			rate = b
 		}
 	}
-	burning := w.anyCraftThrusting()
+	burning := w.AnyCraftThrusting()
 	if burning && rate > burnWarpCap {
 		rate = burnWarpCap
 	}

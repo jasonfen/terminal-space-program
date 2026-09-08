@@ -2757,7 +2757,26 @@ Collapse (bare; say Compact Form), Responsive.
 The momentary "hide all overlays" action (F2) that clears every Chip and
 the Navball to expose a clean orbit view. Transient and unsaved — it does
 not change the persisted Settings, and it never hides the **HUD** column.
+Named twice on screen while it's on (grilled 2026-09-06): the canvas
+footer's view label gets a trailing `· declutter`, and the title bar
+carries a Dim `[F2 declutter]` tag beside the warp readout — both gone
+the instant F2 clears it. The Launch View shares the same state and gets
+the same title-bar tag.
 _Avoid_: Hide UI, clean mode, F2 mode, toggle overlays.
+
+**Engine-lit cue** (grilled 2026-09-06, "burn state is invisible"):
+The set of always-visible signals that an engine is actually producing
+thrust right now, as opposed to merely set to some throttle. Three parts,
+all gated on live thrust (`AnyCraftThrusting`: a live `ActiveBurn` or
+`ManualBurn` on any craft in the slate) and never on the throttle
+*setting*: the **HUD** chip's `throttle:` row carries a trailing `(idle)`
+(Dim) or `● FIRING` (Warning) suffix; the map canvas border (and the
+Launch View's pad canvas border) switches from Primary to Warning; and
+the title bar (both screens) carries a `● BURN` badge in Warning beside
+the warp readout. All three clear the tick thrust stops.
+_Avoid_: "engine on"/"engine off" (ambiguous with the throttle setting),
+LIT (that's the Launch pad's separate pre-ignition `twr:` row indicator,
+ADR 0048 §3, not this cue).
 
 **Announcement** — **Event Flash** / **Standing Alert** (grilled 2026-09-04, #421/#427):
 How the game tells the player something happened, in two tiers by
