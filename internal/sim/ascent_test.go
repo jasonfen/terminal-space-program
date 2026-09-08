@@ -220,6 +220,130 @@ func TestAscentQBandForSeededAnalyticQ(t *testing.T) {
 	}
 }
 
+// TestAscentQBandForStandsDownOncePeriapsisClearsAtmosphere (#449): a
+// vessel that circularized into a stable orbit fully above the
+// atmosphere still swings a nonzero radial (climb) rate on every
+// periapsis→apoapsis half, purely from orbital mechanics — nothing to
+// do with the atmosphere. Before the fix, that made the ATMOSPHERE chip
+// (HasQBand) flicker back on once per orbit forever, long after the
+// vessel could ever see the atmosphere again. Gating on periapsis
+// altitude instead of the instantaneous climb rate fixes it, without
+// touching the still-correct "climbed clear, showing the past-the-top
+// band" case for an orbit whose periapsis is still inside the
+// atmosphere (a real re-entry is coming next orbit).
+func TestAscentQBandForStandsDownOncePeriapsisClearsAtmosphere(t *testing.T) {
+	w, c := ascendTestCraft(t, "earth", 218_000, 50)
+	mu := c.Primary.GravitationalParameter()
+	R := c.Primary.RadiusMeters()
+	atm := c.Primary.Atmosphere
+
+	// orbitAt builds a Kepler orbit with periapsis/apoapsis altitudes
+	// rp/ra, evaluated at true anomaly nu (radians) — nu = 90° sits on
+	// the climbing half, where the radial rate is at its largest
+	// nonzero value for a given eccentricity.
+	orbitAt := func(rpAltM, raAltM, nu float64) {
+		rp := R + rpAltM
+		ra := R + raAltM
+		a := (rp + ra) / 2
+		e := (ra - rp) / (ra + rp)
+		p := a * (1 - e*e)
+		rMag := p / (1 + e*math.Cos(nu))
+		rHat := orbital.Vec3{X: math.Cos(nu), Y: math.Sin(nu)}
+		c.State.R = rHat.Scale(rMag)
+		h := math.Sqrt(mu * p)
+		vr := (mu / h) * e * math.Sin(nu)
+		vt := (mu / h) * (1 + e*math.Cos(nu))
+		thetaHat := orbital.Vec3{X: -math.Sin(nu), Y: math.Cos(nu)}
+		c.State.V = rHat.Scale(vr).Add(thetaHat.Scale(vt))
+	}
+
+	// Stable orbit, periapsis (210km) and apoapsis (226km) both clear of
+	// the 150km cutoff: the reported bug. Must stand down for good.
+	orbitAt(210_000, 226_000, math.Pi/2)
+	if alt := c.Altitude(); alt <= atm.CutoffAltitude {
+		t.Fatalf("test setup: altitude %.0fm should be above the %.0fm cutoff", alt, atm.CutoffAltitude)
+	}
+	// Pin the test's own premise: nu=90 must actually be on the climbing
+	// half (climb rate above the floor), or this test would keep passing
+	// even if it stopped exercising the reported symptom.
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	if climbRate := vRel.Dot(rHat); climbRate < climbRateFloorMps {
+		t.Fatalf("test setup: climb rate %.3f m/s at nu=90°, want above the %.1f m/s floor (this orbitAt call must land on the climbing half)", climbRate, climbRateFloorMps)
+	}
+	if qb, ok := AscentQBandFor(w, c); ok {
+		t.Errorf("stable orbit above the atmosphere: AscentQBandFor ok=true (HasMaxQ=%v), want false — must not flicker back on every orbit", qb.HasMaxQ)
+	}
+	// End to end: the player-visible path is AscentCueFor -> HasQBand,
+	// not AscentQBandFor directly. AscentCueFor's own `ok` still stands
+	// up here (its climb-rate gate is a deliberately separate, still-
+	// open follow-up — see AscentQBandFor's doc comment) — this pins
+	// that HasQBand specifically is what the fix reaches.
+	if cue, ok := AscentCueFor(w, c, AscentPredictHorizon); !ok || cue.HasQBand {
+		t.Errorf("AscentCueFor(stable orbit above atmosphere) = (HasQBand=%v, ok=%v), want (false, true)", cue.HasQBand, ok)
+	}
+
+	// Still-elliptical orbit whose periapsis (100km) sits INSIDE the
+	// 150km cutoff: a real re-entry is coming next orbit, so the chip
+	// staying live on the climbing half is still the correct call.
+	orbitAt(100_000, 226_000, math.Pi/2)
+	if _, ok := AscentQBandFor(w, c); !ok {
+		t.Error("periapsis still inside the atmosphere: AscentQBandFor ok=false, want true (re-entry is still coming)")
+	}
+}
+
+// TestAscentQBandForHyperbolicDepartureStandsDownByAltitude (#449
+// review finding 3): an outbound hyperbola (or an SOI-exiting orbit)
+// can have a "periapsis" — Elements.Periapsis() on a hyperbolic orbit
+// is still well-defined, the closest approach of the unbound path —
+// that sits INSIDE the atmosphere's cutoff even though the vessel is
+// headed away for good and will never come back down through it. Gating
+// on periapsis alone (as the first version of this fix did) kept the
+// chip live all the way to SOI exit for that shape. This mirrors
+// shouldShowLaunchHUD's existing el.E>=1||el.A<=0 split: go by current
+// altitude instead of periapsis once the orbit is hyperbolic/degenerate.
+func TestAscentQBandForHyperbolicDepartureStandsDownByAltitude(t *testing.T) {
+	w, c := ascendTestCraft(t, "earth", 400_000, 50)
+	mu := c.Primary.GravitationalParameter()
+	R := c.Primary.RadiusMeters()
+	atm := c.Primary.Atmosphere
+
+	// A hyperbolic departure with periapsis (100km) INSIDE the
+	// atmosphere, vinf = 3 km/s outbound, evaluated near periapsis
+	// where the vessel is still climbing fast.
+	rp := R + 100_000.0
+	vinf := 3_000.0
+	eps := vinf * vinf / 2
+	a := -mu / (2 * eps)
+	e := 1 - rp/a
+	nu := math.Pi / 6 // still inbound-to-outbound climb, well short of asymptote
+	p := a * (1 - e*e)
+	rMag := p / (1 + e*math.Cos(nu))
+	rHat := orbital.Vec3{X: math.Cos(nu), Y: math.Sin(nu)}
+	c.State.R = rHat.Scale(rMag)
+	h := math.Sqrt(mu * p)
+	vr := (mu / h) * e * math.Sin(nu)
+	vt := (mu / h) * (1 + e*math.Cos(nu))
+	thetaHat := orbital.Vec3{X: -math.Sin(nu), Y: math.Cos(nu)}
+	c.State.V = rHat.Scale(vr).Add(thetaHat.Scale(vt))
+
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	if el.E < 1 {
+		t.Fatalf("test setup: e=%.4f, want a hyperbolic (e>=1) orbit", el.E)
+	}
+	if alt := c.Altitude(); alt < atm.CutoffAltitude {
+		t.Fatalf("test setup: altitude %.0fm should already be above the %.0fm cutoff", alt, atm.CutoffAltitude)
+	}
+	periAltM := el.Periapsis() - R
+	if periAltM >= atm.CutoffAltitude {
+		t.Fatalf("test setup: periapsis altitude %.0fm should be INSIDE the %.0fm cutoff (that's the case this test targets)", periAltM, atm.CutoffAltitude)
+	}
+
+	if _, ok := AscentQBandFor(w, c); ok {
+		t.Error("hyperbolic departure, high above the atmosphere, periapsis inside it: AscentQBandFor ok=true, want false (no re-entry is coming — it's a departure, not a launch)")
+	}
+}
+
 // TestAscentCueForGatingMatrix is the ascent mirror of
 // TestDescentCorridorForGating: it stands up for a climbing vessel and
 // stands down for a falling, coasting, or landed one — and, critically,
