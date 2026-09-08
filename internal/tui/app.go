@@ -169,14 +169,17 @@ type App struct {
 	// confirmation has no meaning across a save / load boundary).
 	endFlightConfirm bool
 
-	// quickloadConfirm (item-3 UX batch, #447-adjacent — reverses ADR
-	// 0033 §H) gates F9 quickload behind the same y/n confirm the Saves
+	// quickloadConfirm (item-3 UX batch, PR #448 — reverses ADR 0033
+	// §H) gates F9 quickload behind the same y/n confirm the Saves
 	// browser's Load already uses. §H kept F9 instant on the theory
 	// that the quicksave lane is zero-risk; the review found the
 	// opposite in practice with a one-slot quicksave lane — a fat-
 	// finger discards everything since the last F5 with no undo.
-	// Mirrors endFlightConfirm's shape exactly (see its Update/Render
-	// call sites).
+	// Modeled on endFlightConfirm's shape (see its Update/Render call
+	// sites) but not identical: it clears on ANY non-"y" key rather
+	// than only y/n/esc, so it can never get stuck armed via the
+	// keyboard — and needs the same "~ must not hide an armed prompt"
+	// guard endFlightConfirm has (see the chat-open check above).
 	quickloadConfirm bool
 
 	// Chat input overlay (ADR 0035 S3). App-level rather than a screen
@@ -791,8 +794,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// while the END FLIGHT confirm is armed — the ~ falls through to
 		// the confirm's swallow-everything intercept below, instead of
 		// opening an overlay that hides an armed destructive prompt
-		// (v0.32 review finding).
-		if a.active == screenOrbit && !a.endFlightConfirm && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
+		// (v0.32 review finding). item-3 UX batch review: quickloadConfirm
+		// gets the identical guard — the same hole would let ~ hide the F9
+		// prompt behind the chat band, where it survives the round-trip
+		// and fires on whatever key closes chat.
+		if a.active == screenOrbit && !a.endFlightConfirm && !a.quickloadConfirm && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
 			if a.world.Session == nil {
 				// Solo: say so — a dead key reads as broken (v0.30 lesson).
 				a.toast("chat is multiplayer — host or join a session [O]")
@@ -1414,10 +1420,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// item-3 UX batch (reverses ADR 0033 §H): arm the same y/n
 			// confirm the Saves browser's Load already uses instead of
 			// loading instantly — but only when there's actually a
-			// quicksave to discard-into; an empty lane surfaces straight
-			// to doLoad's own "no quicksave" / "resume autosave" message,
-			// since confirming a load that can only fail teaches nothing.
-			if !a.quicksaveExists() {
+			// quicksave to discard-into. A guest is checked first
+			// (review finding 2): a.quicksaveExists() only reads the
+			// LOCAL saves dir, which can be stale from a prior solo
+			// session on this same machine even though a guest's F9
+			// can never succeed (doLoad's errGuestSaves); the menu's
+			// own Load path already orders the guest check first for
+			// the same reason. An empty local lane (solo, no F5 yet)
+			// surfaces straight to doLoad's own "no quicksave" /
+			// "resume autosave" message — confirming a load that can
+			// only fail teaches nothing.
+			if a.guestSave != nil || !a.quicksaveExists() {
 				a.flashStatus("load", a.doLoad())
 				return a, nil
 			}
@@ -2859,13 +2872,13 @@ func (a *App) flashStatus(op string, err error) {
 func (a *App) handlePlanRendezvousKey() {
 	out, err := a.world.PlanRendezvousOrOpenMeeting()
 	if err != nil {
-		if errors.Is(err, sim.ErrRendezvousNoTarget) {
-			// item-3 UX batch (features finding 13): the refusal named
-			// the missing precondition but not the action that supplies
-			// it — append the one clause the review found missing.
-			a.flash("rendezvous: no vessel target — [t] to target it")
-			return
-		}
+		// item-3 UX batch (features finding 17): the refusal used to
+		// name the missing precondition but not the action that
+		// supplies it. Review finding 3 moved the "[t] to target it"
+		// clause onto sim.ErrRendezvousNoTarget itself (rendezvous.go)
+		// instead of special-casing it here, so [I] plane-match gets
+		// the same fix for free rather than the two sibling keys
+		// disagreeing on whether the refusal names it.
 		a.flash(fmt.Sprintf("rendezvous: %v", err))
 		return
 	}

@@ -20,7 +20,11 @@ import (
 // `circularize:` and `save:`, so a prefix here rendered twice
 // ("rendezvous: rendezvous: no vessel target") on every K refusal.
 var (
-	ErrRendezvousNoTarget           = transferError("no vessel target")
+	// item-3 UX batch review finding 3: the "how do I fix this" clause
+	// lives on the sentinel itself (not a special case at one call
+	// site) so every caller — [K] rendezvous, [I] plane-match, the
+	// Meeting Planner's structural refusal — names the fix for free.
+	ErrRendezvousNoTarget           = transferError("no vessel target — [t] to target it")
 	ErrRendezvousDifferentPrimaries = transferError("target around a different primary")
 	ErrRendezvousAlreadyDocked      = transferError("already in DOCK READY range")
 	ErrRendezvousNoImprovement      = transferError("no useful nudge in range")

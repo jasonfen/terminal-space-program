@@ -10,6 +10,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/save"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
 // testStateDirs isolates both the saves directory (XDG_STATE_HOME) and
@@ -136,6 +137,36 @@ func TestQuickloadConfirmCancels(t *testing.T) {
 	}
 	if a.world != old {
 		t.Fatal("F9 replaced the world despite a cancelled confirm")
+	}
+}
+
+// TestQuickloadGuestSkipsConfirm (item-3 UX batch review finding 2): a
+// session guest's F9 can never succeed — their program autosaves
+// server-side, so the local Saves surface is disabled (errGuestSaves).
+// a.quicksaveExists() only reads the LOCAL saves dir though, so a
+// guest who once played solo on this machine still has a stale local
+// quicksave.json lying around; that must not arm the destructive-
+// sounding y/n prompt for a load that will only refuse.
+func TestQuickloadGuestSkipsConfirm(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyF5}) // stale solo quicksave on disk
+	a.guestSave = func(*sim.World) error { return nil }
+	old := a.world
+
+	a.Update(tea.KeyMsg{Type: tea.KeyF9})
+
+	if a.quickloadConfirm {
+		t.Fatal("F9 armed the quickload confirm for a guest, who can never actually load locally")
+	}
+	if a.world != old {
+		t.Fatal("F9 replaced the world for a guest")
+	}
+	if !strings.Contains(a.statusMsg, "no local saves in a session") {
+		t.Errorf("statusMsg = %q, want the guest refusal", a.statusMsg)
 	}
 }
 

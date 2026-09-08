@@ -305,7 +305,7 @@ func TestPlanRendezvousRefusalLabelStillSingular(t *testing.T) {
 	}
 }
 
-// item-3 UX batch (controls finding 10 / #447-adjacent): [G] auto-warp
+// item-3 UX batch (controls finding 10): [G] auto-warp
 // used to no-op silently when no burn was eligible. It must now refuse
 // out loud like every sibling guard.
 func TestAutoWarpRefusesNoEligibleBurn(t *testing.T) {
