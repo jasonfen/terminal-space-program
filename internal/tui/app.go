@@ -169,6 +169,16 @@ type App struct {
 	// confirmation has no meaning across a save / load boundary).
 	endFlightConfirm bool
 
+	// quickloadConfirm (item-3 UX batch, #447-adjacent — reverses ADR
+	// 0033 §H) gates F9 quickload behind the same y/n confirm the Saves
+	// browser's Load already uses. §H kept F9 instant on the theory
+	// that the quicksave lane is zero-risk; the review found the
+	// opposite in practice with a one-slot quicksave lane — a fat-
+	// finger discards everything since the last F5 with no undo.
+	// Mirrors endFlightConfirm's shape exactly (see its Update/Render
+	// call sites).
+	quickloadConfirm bool
+
 	// Chat input overlay (ADR 0035 S3). App-level rather than a screen
 	// so the capturingText obligation is one unconditional check — not
 	// another arm of the per-screen switch a future screen could forget.
@@ -813,6 +823,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+		// quickloadConfirm intercept (item-3 UX batch): same shape as
+		// endFlightConfirm above — y/Y commits the F9 quickload, every
+		// other key (including n/N/esc) cancels and is swallowed so a
+		// stray flight key doesn't slip through mid-confirm.
+		if a.quickloadConfirm {
+			s := m.String()
+			a.quickloadConfirm = false
+			if s == "y" || s == "Y" {
+				a.flashStatus("load", a.doLoad())
+			}
+			return a, nil
+		}
 		// Meeting Planner picker (ADR 0045 S6, #399): a walkable chip on
 		// the orbit map, not a screen — a.active never changes while it's
 		// open, so this can't be handled by any of the a.active==screenXxx
@@ -1207,8 +1229,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.Clock.WarpDown()
 			return a, nil
 		case key.Matches(m, a.keys.AutoWarp):
-			// Toggle Auto-Warp to the globally-soonest burn. A no-op when
-			// no burn is eligible (engage returns false silently).
+			// Toggle Auto-Warp to the globally-soonest burn.
+			//
+			// item-3 UX batch: pressing G with nothing eligible used to
+			// no-op silently — AutoWarpEligible() already drives the
+			// Launch View button's dimmed state (#445), but the raw key
+			// had no equivalent. Check it up front and say why instead
+			// of falling into toggleAutoWarpBurn, whose true/false
+			// return is ambiguous between "just disengaged" and "engage
+			// failed" (see ToggleAutoWarp's doc).
+			if !a.world.AutoWarpEngaged() && !a.world.AutoWarpEligible() {
+				a.refuse("auto-warp", "no burn planned to warp to")
+				return a, nil
+			}
 			if a.toggleAutoWarpBurn() {
 				a.world.RecordAction(missions.ActionAutoWarp) // ADR 0025 §7
 			}
@@ -1378,7 +1411,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.flashStatus("save", a.doSave())
 			return a, nil
 		case key.Matches(m, a.keys.Load):
-			a.flashStatus("load", a.doLoad())
+			// item-3 UX batch (reverses ADR 0033 §H): arm the same y/n
+			// confirm the Saves browser's Load already uses instead of
+			// loading instantly — but only when there's actually a
+			// quicksave to discard-into; an empty lane surfaces straight
+			// to doLoad's own "no quicksave" / "resume autosave" message,
+			// since confirming a load that can only fail teaches nothing.
+			if !a.quicksaveExists() {
+				a.flashStatus("load", a.doLoad())
+				return a, nil
+			}
+			a.quickloadConfirm = true
 			return a, nil
 		case key.Matches(m, a.keys.CycleView):
 			a.world.CycleViewMode()
@@ -1534,9 +1577,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.CraftSlot):
 			// v0.12.0+: number-row 1..9 jumps to craft index 0..8.
 			// The binding only matches single digits '1'..'9', so the
-			// first byte of the key string is the digit; no-op when no
-			// craft occupies that slot (SwitchToCraftIdx bounds-checks).
-			a.world.SwitchToCraftIdx(int(m.String()[0]-'0') - 1)
+			// first byte of the key string is the digit.
+			//
+			// item-3 UX batch: an empty-slot digit used to swallow the
+			// key with no feedback — say why. Checked directly against
+			// len(Crafts) rather than SwitchToCraftIdx's bool return,
+			// which is false for the *already on that slot* case too
+			// (a harmless redundant press, not a "no vessel there" —
+			// refusing that would be a wrong message, not just a
+			// missing one).
+			digit := int(m.String()[0] - '0')
+			idx := digit - 1
+			if idx >= len(a.world.Crafts) {
+				a.refuse("vessel", fmt.Sprintf("no vessel in slot %d", digit))
+				return a, nil
+			}
+			a.world.SwitchToCraftIdx(idx)
 			return a, nil
 		case key.Matches(m, a.keys.Undock):
 			// v0.28 S5: while docked-as-guest (one of my craft rides in
@@ -1729,11 +1785,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.TiltUp), key.Matches(m, a.keys.TiltDown):
-			// v0.10.6+: nudge ViewTilted's polar tilt θ ±5°. No-op when
-			// the active projection isn't ViewTilted — keep the binding
-			// silent on cardinals / orbit-flat so a stray shift+arrow
-			// while in ViewTop doesn't blast a misleading flash.
+			// v0.10.6+: nudge ViewTilted's polar tilt θ ±5°.
+			//
+			// item-3 UX batch: outside ViewTilted this used to no-op
+			// silently, on the theory that a stray shift+arrow in
+			// ViewTop shouldn't blast a misleading flash — but the
+			// review found the opposite: plain ↑ pans in every view, so
+			// the silence on shift+↑ reads as "the modifier is broken",
+			// not "not now". Refuse out loud like every sibling guard.
 			if a.world.ViewMode != sim.ViewTilted {
+				a.refuse("tilt", "only in the tilted view — [v] cycles")
 				return a, nil
 			}
 			delta := sim.ViewTiltThetaStep
@@ -1746,10 +1807,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.YawLeft), key.Matches(m, a.keys.YawRight):
 			// ADR 0021 G: nudge ViewTilted's yaw φ ±5°, wrapping at
 			// 360° (no clamp — yaw is a full turn around the orbit).
-			// Same gating as the tilt keys: silent outside ViewTilted
-			// so a stray brace in a cardinal view doesn't flash a
-			// misleading toast.
+			//
+			// item-3 UX batch: same fix as the tilt keys above — refuse
+			// out loud outside ViewTilted instead of the old silent
+			// no-op.
 			if a.world.ViewMode != sim.ViewTilted {
+				a.refuse("yaw", "only in the tilted view — [v] cycles")
 				return a, nil
 			}
 			delta := sim.ViewTiltPhiStep
@@ -1783,10 +1846,14 @@ var errGuestSaves = errors.New("no local saves in a session — your program aut
 // follow-up; per-guest settings are a later cycle).
 var errGuestSettings = errors.New("settings belong to the host in a session")
 
-// doLoad replaces the live world with the quicksave lane — F9 stays
-// instant, no confirm (ADR 0033 §H). An empty lane (no F5 yet) is
-// surfaced as a clear "no quicksave" message rather than a raw
-// file-not-found; failures leave the existing world untouched.
+// doLoad replaces the live world with the quicksave lane. F9 used to
+// stay instant with no confirm (ADR 0033 §H); the item-3 UX batch
+// reversed that (see the App.quickloadConfirm doc and the ADR's
+// Amendments section) — this func is now only reached after that
+// confirm, or when the lane is empty and there's nothing to discard.
+// An empty lane (no F5 yet) is surfaced as a clear "no quicksave"
+// message rather than a raw file-not-found; failures leave the
+// existing world untouched.
 //
 // When there is no quicksave but an autosave IS on disk (the common
 // quit → relaunch → F9 case, whose quit state landed in the autosave
@@ -1819,6 +1886,22 @@ func (a *App) hasResumableAutosave() bool {
 	}
 	for _, in := range infos {
 		if in.Lane == save.LaneAutosave && !in.Unreadable {
+			return true
+		}
+	}
+	return false
+}
+
+// quicksaveExists reports whether the quicksave lane holds a readable
+// entry — gates whether F9 arms quickloadConfirm (item-3 UX batch) or
+// falls straight through to doLoad's own empty-lane message.
+func (a *App) quicksaveExists() bool {
+	infos, err := save.List()
+	if err != nil {
+		return false
+	}
+	for _, in := range infos {
+		if in.Lane == save.LaneQuicksave && !in.Unreadable {
 			return true
 		}
 	}
@@ -2776,6 +2859,13 @@ func (a *App) flashStatus(op string, err error) {
 func (a *App) handlePlanRendezvousKey() {
 	out, err := a.world.PlanRendezvousOrOpenMeeting()
 	if err != nil {
+		if errors.Is(err, sim.ErrRendezvousNoTarget) {
+			// item-3 UX batch (features finding 13): the refusal named
+			// the missing precondition but not the action that supplies
+			// it — append the one clause the review found missing.
+			a.flash("rendezvous: no vessel target — [t] to target it")
+			return
+		}
 		a.flash(fmt.Sprintf("rendezvous: %v", err))
 		return
 	}
@@ -2952,6 +3042,12 @@ func (a *App) View() string {
 		}
 		prompt := fmt.Sprintf("END FLIGHT — remove %s? [y/n]", name)
 		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
+	}
+	// quickloadConfirm rides the same band (item-3 UX batch): takes the
+	// same precedence as the end-flight prompt above, for the same
+	// reason — an armed confirm is the actionable state.
+	if a.quickloadConfirm {
+		base = overlayBottomBorder(base, a.theme.Alert.Render("F9 — discard everything since your last quicksave? [y/n]"), border)
 	}
 	// Chat input (ADR 0035 S3) rides the same band and wins it while
 	// open — it is the live actionable state. A concurrent toast (a DM

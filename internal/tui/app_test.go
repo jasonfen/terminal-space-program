@@ -405,15 +405,18 @@ func TestYawKeysNudgePhi(t *testing.T) {
 		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "view: yaw 355°")
 	}
 
-	// Outside ViewTilted the keys are a silent no-op.
+	// Outside ViewTilted the keys refuse out loud instead of silently
+	// no-opping (item-3 UX batch, controls findings 6/10 — see
+	// TestTiltAndYawRefuseOutsideTiltedView for the dedicated coverage;
+	// this just pins that Phi itself still doesn't mutate).
 	a.world.ViewMode = sim.ViewTop
 	a.statusMsg = ""
 	a.Update(tea.KeyMsg{Type: tea.KeyShiftRight})
 	if a.world.ViewTilt.Phi != 355 {
 		t.Errorf("shift+→ in ViewTop mutated Phi to %v, want 355 (no-op)", a.world.ViewTilt.Phi)
 	}
-	if a.statusMsg != "" {
-		t.Errorf("shift+→ in ViewTop flashed %q, want silence", a.statusMsg)
+	if a.statusMsg != "yaw: only in the tilted view — [v] cycles" {
+		t.Errorf("statusMsg = %q, want the refusal", a.statusMsg)
 	}
 }
 

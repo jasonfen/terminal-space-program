@@ -371,8 +371,16 @@ const hintStripText = "[F1] help · [t] target · [m] plan · [n] new vessel · 
 // ("view: tilted 30°/anchor").
 const hintStripGap = 2
 
-// paintHintStrip stamps the Hint Strip onto the canvas's last row,
-// starting hintStripGap columns after labelRunes (the rune-length of the
+// inspectHintStripText replaces the Hint Strip while Inspect is live
+// (item-3 UX batch, features finding 14): the hover→commit contract's
+// commit half — Enter targets, Esc exits — was otherwise invisible
+// unless the player already knew F1. It's still fixed text, painted in
+// the same row the generic strip uses, just swapped for the duration
+// of the highlight.
+const inspectHintStripText = "[enter] target · [esc] exit inspect"
+
+// paintHintStrip stamps text onto the canvas's last row, starting
+// hintStripGap columns after labelRunes (the rune-length of the
 // left-hand label already painted at column 0 on that row) — so it can
 // never overwrite that label. Shared by the map (Render, above) and the
 // Proximity View (orbit_proximity.go's proximityLabel), which paint the
@@ -380,8 +388,8 @@ const hintStripGap = 2
 // Design Size (140×40) it clips on the right via SetCellLabelColored's
 // own out-of-bounds skip — the strip is a legend, not a numeric field,
 // so right-clipping is safe (CONTEXT.md).
-func (v *OrbitView) paintHintStrip(labelRunes int) {
-	v.canvas.SetCellLabelColored(labelRunes+hintStripGap, v.canvas.Rows()-1, hintStripText, v.theme.Dim.GetForeground())
+func (v *OrbitView) paintHintStrip(labelRunes int, text string) {
+	v.canvas.SetCellLabelColored(labelRunes+hintStripGap, v.canvas.Rows()-1, text, v.theme.Dim.GetForeground())
 }
 
 // NewOrbitView constructs the screen with an initially-small canvas; a
@@ -1474,7 +1482,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.drawInspectFlare()
 
 	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, viewLabel, v.theme.Primary.GetForeground())
-	v.paintHintStrip(utf8.RuneCountInString(viewLabel))
+	strip := hintStripText
+	if v.Inspecting() {
+		strip = inspectHintStripText
+	}
+	v.paintHintStrip(utf8.RuneCountInString(viewLabel), strip)
 	// v0.13: the "focus:" indicator moved to the title bar (renderTitleBar)
 	// — the canvas top-left corner is now home to the pinned VESSEL chip,
 	// and "focus: <craft>" was redundant with the chip's vessel name.

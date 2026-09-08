@@ -119,6 +119,25 @@ func TestSessionScreenSinglePlayer(t *testing.T) {
 	}
 }
 
+// TestSessionScreenExplainsJoining (item-3 UX batch, features finding
+// 13): the no-session screen explained hosting but not joining — half
+// of multiplayer had no in-game description at all. It must now name
+// the guest connect step (ssh + invite code), not just the CLI phrase.
+func TestSessionScreenExplainsJoining(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	out := s.Render(w, 120)
+	if !strings.Contains(out, "ssh -p 23234") {
+		t.Errorf("joining explainer missing the ssh connect step:\n%s", out)
+	}
+	if !strings.Contains(out, "invite code") {
+		t.Errorf("joining explainer missing where the invite code comes from:\n%s", out)
+	}
+}
+
 func key(s string) tea.KeyMsg {
 	switch s {
 	case "enter":
