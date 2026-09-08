@@ -156,23 +156,33 @@ type AscentQBand struct {
 	HasMaxQ bool
 }
 
-// AscentQBandFor builds the Q-band instrument for a craft, or ok=false
-// when the primary has no atmosphere at all — issue #348 §3's gate ("Q
-// band only on bodies WITH atmosphere"). Independent of whether the
-// vessel is CURRENTLY inside the atmosphere: a vessel that has already
-// climbed clear of the cutoff still has a meaningful band (it reads
-// "past the top", clamped by qBandRowIndex) carrying the max-Q mark from
-// the climb through it — but only until periapsis itself clears the
-// atmosphere (#449 fix). That comment's "climbed clear" picture assumed
-// a one-pass climb-to-orbit; it didn't account for AscentCueFor's
-// climb-rate gate being orbital-mechanics-blind. Once in a stable orbit,
-// the surface-relative radial rate swings positive on every periapsis→
-// apoapsis half regardless of altitude, so without this check the chip
-// (and the whole ascent-cue bundle it gates, via AscentCueFor's shared
-// `ok`) would flicker back on once per orbit forever, long after the
-// vessel will ever see the atmosphere again. A periapsis still inside
-// the atmosphere means a real re-entry is coming next orbit, so the
-// chip staying live is still correct there.
+// AscentQBandFor builds the Q-band instrument for a craft. ok is false
+// when the primary has no atmosphere at all (issue #348 §3's gate — "Q
+// band only on bodies WITH atmosphere"), or once the vessel is done
+// with the atmosphere for good (#449 fix, see below).
+//
+// "Done for good" mirrors shouldShowLaunchHUD's own hyperbolic-vs-
+// elliptical split (orbit.go), for the same reason: a stable elliptical
+// orbit's periapsis tells you whether the atmosphere is coming back
+// (periapsis inside it: yes, next orbit; periapsis clear: never again),
+// but a hyperbolic/degenerate state's "periapsis" can describe a
+// departure or approach far from the body, where the honest signal is
+// current altitude instead — see shouldShowLaunchHUD's comment for why.
+//
+// Why this check exists at all: the original design (issue #348 §3)
+// kept the band visible "past the top" once a vessel climbed clear of
+// the cutoff, so the max-Q mark from the climb survived on screen. That
+// picture assumed a one-pass climb-to-orbit; it didn't account for the
+// climb-rate signal AscentCueFor's OWN gate uses being orbital-
+// mechanics-blind (tracked separately as a follow-up, #449): a stable
+// orbit's surface-relative radial rate swings positive on every
+// periapsis→apoapsis half regardless of altitude, so without a check
+// here the Q band specifically would flicker back on once per orbit,
+// forever, long after the atmosphere could ever matter again. This
+// fixes the Q band / ATMOSPHERE chip only — AscentCueFor's own `ok`
+// still gates the ascent arc and nose/prograde stubs on raw climb rate,
+// so those two keep cycling once per orbit in a stable orbit; see the
+// follow-up issue for that.
 func AscentQBandFor(w *World, c *spacecraft.Spacecraft) (AscentQBand, bool) {
 	if w == nil || c == nil || c.Primary.Atmosphere == nil {
 		return AscentQBand{}, false
@@ -180,8 +190,17 @@ func AscentQBandFor(w *World, c *spacecraft.Spacecraft) (AscentQBand, bool) {
 	atm := c.Primary.Atmosphere
 	if mu := c.Primary.GravitationalParameter(); mu > 0 {
 		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-		periapsisAltM := el.Periapsis() - c.Primary.RadiusMeters()
-		if periapsisAltM >= atm.CutoffAltitude {
+		var doneForGood bool
+		if el.E >= 1 || el.A <= 0 {
+			// Hyperbolic/degenerate: "periapsis" can describe a distant
+			// departure or approach, so go by current altitude instead
+			// (shouldShowLaunchHUD's exact reasoning).
+			doneForGood = c.Altitude() >= atm.CutoffAltitude
+		} else {
+			periapsisAltM := el.Periapsis() - c.Primary.RadiusMeters()
+			doneForGood = periapsisAltM >= atm.CutoffAltitude
+		}
+		if doneForGood {
 			return AscentQBand{}, false
 		}
 	}
