@@ -945,6 +945,32 @@ _Avoid_: On the pad (loses generality — Landed is a runtime state,
 not a place; soft-landed Vessels are Landed too), Parked, Surface
 Park, Grounded.
 
+**Heading Trim** (grilled 2026-09-09, ADR 0049; resolves #453):
+The player's control over which way an ascent goes. A commanded launch
+heading, default 090° (due east), nudged ±5° per tap with `{` / `}` on
+the pad or mid-ascent, the same idiom as pitch trim; `|` resets both
+trims. Persisted on the Vessel. Thrust is rotated about local up to the
+commanded heading before pitch trim tilts it, so pitch always tilts in
+the heading's vertical plane. Heading away from east harvests less of
+the surface co-rotation velocity, which is the only Δv cost. Shown on
+the SURFACE chip as `heading: 090°`.
+_Avoid_: Yaw trim (yaw is the camera control in the tilted view),
+launch azimuth (as a player-facing label; the row says `heading:`),
+Locked.
+
+**Inclination Floor** (grilled 2026-09-09, ADR 0049):
+The lowest inclination reachable from a pad: |launch latitude|. Any
+inclination at or above it, prograde or retrograde, is reachable by
+choosing a **Heading Trim**; due east gives the floor itself. The
+SURFACE chip's Landed `incl:` row shows the inclination the commanded
+heading yields with the floor as a tag, `incl: 28.6° (min 28.6°)`, and
+never says "locked", since nothing is. With a Target set the chip adds
+`Δincl:`, the plane angle an ascent lit *now* would leave to the
+Target's plane, which sweeps with the Primary's rotation so pad warp
+visibly changes it.
+_Avoid_: Launch lat (the old row label), locked, minimum inclination
+(say Inclination Floor).
+
 **OnPad**:
 A flag on a Vessel that's *currently* sitting at its original
 Launchpad spawn awaiting first ignition. Set true by a **Launchpad**
@@ -2814,6 +2840,25 @@ overlay as F1 everywhere F1 does.
 _Avoid_: Footer (the pre-v0.13 cheat-sheet row, which was removed),
 Cheat sheet, Key bar, Rotating hints (rejected: a moving row that
 duplicates the Mission chip).
+
+**Readout Contract** (grilled 2026-09-09, ADR 0049):
+The one way every number on a flight surface reads, so no two panels
+disagree on the arithmetic. Four rules. Durations are two adjacent
+units (`45s`, `2m07s`, `4h43m`, `3d05h`), signed the launch way: `T-`
+until an event, `T+` since it; only `period:` keeps seconds, only the
+mission stopwatch is a clock. Distances, altitudes and masses climb an
+SI ladder at four significant figures (`m`, `km`, `Mm`, `Gm`, then
+`AU`; `kg` then `t`; thrust in `kN`), the rung always printed. Off the
+ladder, four significant figures and at most two decimals (`5519 m/s`,
+`0.12 m/s`, `28.60°`), steering angles integer (`090°`). Labels are one
+short word; the only codes are `fpa`, `Q`, `TCA`, `TWR`, `Ap`/`Pe` and
+`Δv`/`Δincl`, each explained in the F1 glossary. A sub-surface
+periapsis keeps its signed depth and turns the row Warning. `Δv:` reads
+stage / vehicle.
+_Avoid_: Units setting (there is none; the contract is not a
+preference), `alt` suffix, `budget`, raw seconds, decimal hours,
+thousands separators, variable-name labels (`v_vert`, `t_to_apo`),
+`|v_rel|`, `sas`.
 
 **Settings screen**:
 The menu-reached screen where the player toggles each toggleable Chip's
