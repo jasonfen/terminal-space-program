@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -478,6 +479,21 @@ func dimMarkerTheme() Theme {
 // the cursor row's own highlight (Primary/Warning) and the new-node
 // row's hint are allowed to differ.
 func TestManeuverPlannedNodeRowsNotDimmed(t *testing.T) {
+	// go test's stdout is not a TTY, so termenv's lazy env detection
+	// (cached process-wide via sync.Once) settles on the colorless
+	// Ascii profile the first time anything asks, which makes every
+	// theme's Render a no-op regardless of what color it was given:
+	// dimMarkerTheme's Dim style would never emit the escape code this
+	// test looks for. SetColorProfile bypasses that detection outright.
+	// Same idiom as TestOrbitChipSubSurfacePeriapsisIsWarningColoured /
+	// TestOrbitRenderDiskCacheHitMatchesUncachedAfterPan: read the
+	// process's ambient profile first and restore exactly that in
+	// t.Cleanup, so every test that runs after this one sees the same
+	// color output it would have without this test existing.
+	ambient := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
+
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -489,13 +505,27 @@ func TestManeuverPlannedNodeRowsNotDimmed(t *testing.T) {
 	)
 	m := NewManeuver(dimMarkerTheme())
 	m.ResetEditing()
-	// Move the cursor to node 0, then node 1's row is neither the
-	// cursor row nor loaded — the plain case this test targets.
+	// cursorIdx starts unset (-1), which cursorRow resolves to the
+	// blank new-node row (index == len(nodes) == 2). One "up" lands the
+	// cursor on node index 1 (the 55.00 m/s row); a second "up" moves
+	// it on to node index 0, leaving node index 1's row neither the
+	// cursor row (Primary-styled) nor loaded into the form
+	// (editingIdx == -1), the plain case this test targets.
+	m.HandleKey(keyMsg("up"), c.Nodes)
 	m.HandleKey(keyMsg("up"), c.Nodes)
 	out := m.Render(w, 120, 40, 0)
+	// readout.DeltaV's <100 rule renders 55 as "55.00 m/s", not "55 m/s".
+	var found bool
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(stripANSI(line), "55 m/s") && strings.Contains(line, "\x1b[38;5;240m") {
+		if !strings.Contains(stripANSI(line), "55.00 m/s") {
+			continue
+		}
+		found = true
+		if strings.Contains(line, "\x1b[38;5;240m") {
 			t.Errorf("PLANNED NODES row still Dim-styled: %q", line)
 		}
+	}
+	if !found {
+		t.Fatal("test setup broken: no PLANNED NODES row contains \"55.00 m/s\"")
 	}
 }

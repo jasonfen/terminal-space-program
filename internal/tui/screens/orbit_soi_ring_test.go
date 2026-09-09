@@ -2,12 +2,31 @@ package screens
 
 import (
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+)
+
+// The chip row this test guards is embedded mid-line in a full-screen
+// canvas render (box-drawing and braille glyphs precede it on the same
+// line), so these can't anchor to line-start: they instead pin the
+// two halves of F4's regression directly:
+//   - staleEntryLabelRE matches the old bug's label: the sign glued
+//     onto "entry:" itself ("T-entry:") rather than the value.
+//   - signedEntryRowRE requires "entry:" to be followed by a value
+//     that carries its OWN signed T-/T+ countdown prefix, false for
+//     the old bug's unsigned value ("entry:   4d02h") regardless of
+//     which label precedes it.
+//
+// strings.Contains(out, "entry:") alone passes both regressions, which
+// is what made the original assertion vacuous.
+var (
+	staleEntryLabelRE = regexp.MustCompile(`T[-+]entry:`)
+	signedEntryRowRE  = regexp.MustCompile(`entry:\s+T[-+]`)
 )
 
 // The ring assertions key on the exact cell colour drawSOIRing paints —
@@ -136,8 +155,12 @@ func TestSOIPassChipShowsEntryTime(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	setupMoonCoast(t, w)
-	if out := v.Render(w, 0, 200, 60); !strings.Contains(out, "entry:") {
-		t.Errorf("no-node SOI PASS chip missing the entry row")
+	out := v.Render(w, 0, 200, 60)
+	if staleEntryLabelRE.MatchString(out) {
+		t.Errorf("no-node SOI PASS chip's entry row still labels the sign onto \"entry:\" itself (F4 regression):\n%s", out)
+	}
+	if !signedEntryRowRE.MatchString(out) {
+		t.Errorf("no-node SOI PASS chip missing a signed entry: row (T-/T+):\n%s", out)
 	}
 
 	// Dual-arc form: transfer planted, craft still at LEO.
@@ -147,11 +170,14 @@ func TestSOIPassChipShowsEntryTime(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	plantMoonTransferAtLEO(t, w2)
-	out := v2.Render(w2, 0, 200, 60)
-	if !strings.Contains(out, "planned") {
-		t.Fatalf("precondition: dual-arc chip missing its planned row:\n%s", out)
+	out2 := v2.Render(w2, 0, 200, 60)
+	if !strings.Contains(out2, "planned") {
+		t.Fatalf("precondition: dual-arc chip missing its planned row:\n%s", out2)
 	}
-	if !strings.Contains(out, "entry:") {
-		t.Errorf("dual-arc SOI PASS chip missing the planned entry row")
+	if staleEntryLabelRE.MatchString(out2) {
+		t.Errorf("dual-arc SOI PASS chip's entry row still labels the sign onto \"entry:\" itself (F4 regression):\n%s", out2)
+	}
+	if !signedEntryRowRE.MatchString(out2) {
+		t.Errorf("dual-arc SOI PASS chip missing a signed planned entry: row (T-/T+):\n%s", out2)
 	}
 }

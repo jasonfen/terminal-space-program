@@ -175,8 +175,14 @@ func TestOrbitChipSubSurfacePeriapsisIsWarningColoured(t *testing.T) {
 	if !strings.Contains(stripANSI(peLine), "-") {
 		t.Fatalf("setup broken: Pe row does not read as sub-surface (no signed depth): %q", peLine)
 	}
-	if peLine == stripANSI(peLine) {
-		t.Errorf("sub-surface Pe row carries no colour escape codes at all (want Warning): %q", peLine)
+	// plainThemeColored's Warning style is Foreground(Color("3")), which
+	// termenv.ANSI renders as the literal SGR sequence "\x1b[33m", pinned
+	// specifically rather than "carries some colour at all", so swapping
+	// in a different style (e.g. Dim, "\x1b[90m") still fails this check
+	// instead of passing as "some style was applied".
+	const wantWarningPrefix = "\x1b[33m"
+	if !strings.HasPrefix(peLine, wantWarningPrefix) {
+		t.Errorf("sub-surface Pe row not wrapped in Warning (%q): %q", wantWarningPrefix, peLine)
 	}
 	if apLine != stripANSI(apLine) {
 		t.Errorf("Ap row (not sub-surface) unexpectedly carries colour codes, colouring is not targeted: %q", apLine)

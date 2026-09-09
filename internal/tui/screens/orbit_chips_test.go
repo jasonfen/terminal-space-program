@@ -1183,7 +1183,10 @@ func realisticChipSet(burning bool) []builtChip {
 			lines:   []string{"VESSEL", "  S-IVB-1", "  primary:   Earth", "  velocity:  7.50 km/s", "PROPELLANT", "  fuel:      89% (35.77 t)", "  mass:      47.49 t", "  Δv:        5777 m/s", "  throttle:  100%"},
 			compact: []string{"VESSEL  S-IVB-1", "  fuel: 89% (35.77 t)  Δv: 5777 m/s"}},
 		{id: settings.ChipFrameTransition, corner: cornerTopLeft,
-			lines: []string{"FRAME TRANSITION", "  Earth → Moon", "  at T+5d4h  (node #3)"}},
+			// A future frame transition renders T- (readout.Countdown's
+			// sign convention, decision 2): "T+5d4h" here pinned the
+			// exact inversion this PR exists to remove (F13).
+			lines: []string{"FRAME TRANSITION", "  Earth → Moon", "  at T-5d04h  (node #3)"}},
 		{id: settings.ChipMissions, corner: cornerTopLeft,
 			lines:   []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1", "    Press [G] to auto-warp to the burn."},
 			compact: []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1"}},

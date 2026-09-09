@@ -99,7 +99,12 @@ func TestDistance(t *testing.T) {
 		{"1000 m crosses into km", 1000, "1.000 km"},
 		{"km rung, 1 decimal (contract example)", 500000, "500.0 km"},
 		{"km rung another contract example", 438900, "438.9 km"},
-		{"just under the km->Mm rollover, no bump", 999940, "999.9 km"},
+		// Pre-extension this sat just under the old km->Mm rollover at
+		// 1000 km; the extended km rung below now runs to 9999 km, so
+		// this is nowhere near a boundary any more, kept as a plain
+		// 4-sig-fig rounding check (999.94 rounds down to 999.9, not up
+		// to a false 1000.0).
+		{"km rung, 4 sig figs rounds down (no false rollover)", 999940, "999.9 km"},
 
 		// Extended km rung (gate review addendum, maintainer overrule of
 		// the original F1-adjacent ruling): decision 3's own worked

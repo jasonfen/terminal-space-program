@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -53,6 +54,18 @@ import (
 // idiom any future raw-seconds readout could copy. Both files are
 // reverted to main (verified: `git diff origin/main` on both is empty);
 // the honest fix is this visible, named exemption instead.
+//
+// isIspException used to key off the LINE's text (`.Isp` or `Isp `
+// appearing anywhere on it, comment included), which a second review
+// pass found trivially spoofable: `fmt.Sprintf("... %.0fs", a) // Isp`
+// passes regardless of what `a` actually is, since a trailing comment
+// is not a safe key: anyone can write one. Re-keyed to an explicit
+// file:line allowlist (ispExceptionLines) of the real Isp sites, with
+// the old text check kept only as a second, AND'd guard against a
+// stale entry: if code moves and the allowlisted line number no
+// longer actually prints Isp, the exception no longer applies and the
+// line fails loudly instead of silently exempting whatever now sits
+// there.
 //
 // Scope widened to all of internal/tui (F11, gate review): the guard used
 // to scan only its own package directory, and app.go's rendezvous-nudge
@@ -115,7 +128,7 @@ func TestReadoutDialectGuard(t *testing.T) {
 				if !strings.Contains(line, p) {
 					continue
 				}
-				if isIspException(p, line) {
+				if isIspException(p, path, i+1, line) {
 					continue
 				}
 				t.Errorf("%s:%d: found old-dialect pattern %q, route this readout through internal/tui/readout instead", path, i+1, p)
@@ -124,13 +137,41 @@ func TestReadoutDialectGuard(t *testing.T) {
 	}
 }
 
-// isIspException reports whether a `%.0fs` hit is specific impulse (Isp),
-// not a raw-seconds duration reading: exempted by checking for the field
-// or word the line actually prints, not by narrowing the `%.0fs` pattern
-// itself (gate review F3 rejected pattern-narrowing as indistinguishable
-// from the same bypass idiom it was called out for). All three current
-// Isp sites either pass a `.Isp` struct field as the format argument on
-// the same line, or spell "Isp" directly in the format string.
-func isIspException(pattern, line string) bool {
-	return pattern == `%.0fs` && (strings.Contains(line, ".Isp") || strings.Contains(line, "Isp "))
+// ispExceptionLines is the exhaustive allowlist of source lines where
+// `%.0fs` is specific impulse, keyed "basename.go:line", not a
+// trailing comment, which any line could carry regardless of what it
+// prints. Four real sites as of this PR: vab_render.go's stage header
+// and spawn.go's two per-stage engine summaries pass a `.Isp` struct
+// field as the format argument on the same line; spawn.go's scale-hint
+// summary spells "Isp" directly in the format string. Update this map,
+// not isIspException, when a real Isp call site moves or a new one is
+// added.
+var ispExceptionLines = map[string]bool{
+	"vab_render.go:493": true,
+	"spawn.go:1098":     true,
+	"spawn.go:1118":     true,
+	"spawn.go:1488":     true,
+}
+
+// isIspException reports whether a `%.0fs` hit at path:lineNo is
+// specific impulse (Isp), not a raw-seconds duration reading. Keyed by
+// file:line against ispExceptionLines (gate review: a trailing `//
+// Isp` comment is spoofable, a line number naming a specific,
+// reviewed call site is not), then double-checked against the line's
+// own code (comment stripped) for the field or word an Isp line
+// actually prints, so a stale allowlist entry (code moved, a
+// different line now sits at that number) fails loudly instead of
+// silently exempting whatever is there now.
+func isIspException(pattern, path string, lineNo int, line string) bool {
+	if pattern != `%.0fs` {
+		return false
+	}
+	if !ispExceptionLines[filepath.Base(path)+":"+strconv.Itoa(lineNo)] {
+		return false
+	}
+	code := line
+	if i := strings.Index(code, "//"); i >= 0 {
+		code = code[:i]
+	}
+	return strings.Contains(code, ".Isp") || strings.Contains(code, "Isp ")
 }

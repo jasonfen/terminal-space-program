@@ -290,14 +290,16 @@ func distanceRungIndex(av float64) int {
 
 // formatLadder renders a signed value through a unit ladder, picking the
 // rung by magnitude and then re-checking for a rounding-induced rollover
-// into the next rung up (a value that rounds to 1000 or more in its
-// candidate unit is re-expressed one rung higher, e.g. 999,950 m prints
-// "1.000 Mm" rather than "1000.0 km"). meterRungZeroDecimals forces the
-// bottom rung (index 0, meters or kilograms) to whole-number precision:
-// the concrete examples in the ADR for sub-1000 low-rung values ("912
-// m", "999 kg") are 0-decimal, not the 4-significant-figure decimal
-// count the rest of the ladder uses: a below-the-decimal-point reading
-// at the finest unit carries no information a flight computer needs.
+// into the next rung up (a value that rounds up to or past its rung's own
+// promoteAt is re-expressed one rung higher, e.g. 9,999,600 m rounds to
+// 10000 km at the extended km rung's own boundary and promotes: "10.00 Mm"
+// rather than "10000 km", see distanceRungs' promoteAt comment). The
+// `idx == 0` branch below forces the bottom rung (meters or kilograms) to
+// whole-number precision: the concrete examples in the ADR for sub-1000
+// low-rung values ("912 m", "999 kg") are 0-decimal, not the
+// 4-significant-figure decimal count the rest of the ladder uses: a
+// below-the-decimal-point reading at the finest unit carries no
+// information a flight computer needs.
 func formatLadder(signed float64, rungs []ladderRung, startIdx int, maxDecimals int) string {
 	av := math.Abs(signed)
 	idx := startIdx
