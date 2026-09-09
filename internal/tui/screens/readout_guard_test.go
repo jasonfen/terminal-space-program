@@ -26,6 +26,15 @@ import (
 // (the launch strip's off-ladder distance), and `%.1f°` (orbital and
 // geographic angles bypassing readout.Angle's 4-significant-figure rule).
 //
+// Two more were added at stage A3b's render-and-read pass, found only by
+// rendering real captures and reading every row rather than by grepping
+// for the ADR's own named examples: `%.1fs` (the ATTITUDE chip's
+// `manual:` row — a raw-seconds-with-a-decimal duration one digit finer
+// than the first five patterns' `%.0fs`, so it slipped through both
+// passes) and `%.0f N` (the maneuver planner's `thrust:`/`Isp:` summary
+// row printing raw Newtons two lines below its own `burnDescr` line's
+// correctly-converted `at 1023 kN` for the same c.Thrust value).
+//
 // Deliberately does NOT scan _test.go files (a pinned test string, or a
 // %g-style assertion helper, isn't a player-facing readout) and does NOT
 // include `(locked)`: PR B (the heading-trim / #453 amendment) owns the
@@ -42,6 +51,8 @@ func TestReadoutDialectGuard(t *testing.T) {
 		`t→`,
 		`downrange %.`,
 		`%.1f°`,
+		`%.1fs`,
+		`%.0f N`,
 	}
 
 	dir := "."

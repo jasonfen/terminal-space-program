@@ -1155,8 +1155,8 @@ func (v *OrbitView) buildAttitudeChip(w *sim.World) []string {
 	}
 	manualState := "idle"
 	if c.ManualBurn != nil {
-		elapsed := w.Clock.SimTime.Sub(c.ManualBurn.StartTime).Seconds()
-		manualState = fmt.Sprintf(v.theme.Warning.Render("● firing T+%.1fs"), elapsed)
+		elapsed := w.Clock.SimTime.Sub(c.ManualBurn.StartTime)
+		manualState = v.theme.Warning.Render("● firing " + readout.Countdown(-elapsed))
 	}
 	return []string{
 		v.theme.Primary.Render("ATTITUDE"),
@@ -1298,7 +1298,7 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 	}
 	lines := []string{
 		v.theme.Primary.Render("CAPTURE PREVIEW"),
-		fmt.Sprintf("  primary:    %s", cap.Primary.EnglishName),
+		chipRow("primary:", cap.Primary.EnglishName),
 	}
 	if cap.Approximate {
 		dirLabel := v.theme.Warning.Render("prograde")
@@ -1306,8 +1306,8 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 			dirLabel = v.theme.Alert.Render("retrograde")
 		}
 		lines = append(lines,
-			fmt.Sprintf("  %s     %s relative", readout.LabelArrival, readout.Speed(cap.ApproachSpeed)),
-			fmt.Sprintf("  direction:  %s capture predicted", dirLabel),
+			chipRow(readout.LabelArrival, readout.Speed(cap.ApproachSpeed)+" relative"),
+			chipRow("direction:", dirLabel+" capture predicted"),
 			v.theme.Dim.Render("  (intercept too central for orbit-element preview)"),
 		)
 		return lines
@@ -1323,15 +1323,15 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 	case incDeg > 30:
 		incLabel = v.theme.Warning.Render(incLabel)
 	}
-	lines = append(lines, fmt.Sprintf("  %s    %s", readout.LabelIncl, incLabel))
+	lines = append(lines, chipRow(readout.LabelIncl, incLabel))
 	if !cap.Hyperbolic {
 		capPeAlt := cap.PeriapsisM - primaryR
-		capPeRow := fmt.Sprintf("  %s         %s", readout.LabelPe, readout.Distance(capPeAlt))
+		capPeRow := chipRow(readout.LabelPe, readout.Distance(capPeAlt))
 		if capPeAlt < 0 {
 			capPeRow = v.theme.Warning.Render(capPeRow)
 		}
 		lines = append(lines,
-			fmt.Sprintf("  %s         %s", readout.LabelAp, readout.Distance(cap.ApoapsisM-primaryR)),
+			chipRow(readout.LabelAp, readout.Distance(cap.ApoapsisM-primaryR)),
 			capPeRow,
 		)
 	}

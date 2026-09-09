@@ -953,7 +953,15 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		"  → " + burnDescr,
 		"",
 		budgetLine,
-		fmt.Sprintf("  thrust: %.0f N  Isp: %.0f s", c.Thrust, c.Isp),
+		// Isp is deliberately left as a bare "%.0f s": specific impulse
+		// is measured in seconds as its unit, not a duration readout, so
+		// the contract does not reach it (same reasoning as burnDescr's
+		// Isp above). Thrust routes through readout.Thrust (decision 3:
+		// "kN everywhere") — this row used to print raw Newtons
+		// ("1023000 N") a few lines below burnDescr's own correctly-
+		// converted "at 1023 kN", two dialects for the same c.Thrust
+		// value on one screen.
+		fmt.Sprintf("  thrust: %s  Isp: %.0f s", readout.Thrust(c.Thrust), c.Isp),
 	}
 
 	// PLANNED NODES (v0.10.1+; Plan Cursor since ADR 0047 / #428): list
