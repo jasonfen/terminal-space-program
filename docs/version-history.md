@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.41.1
+
+Two fixes from flying the tagged v0.41.0 build: the engine-lit cue moves off the whole screen onto the VESSEL chip, and Launch View's Auto-Warp button actually does something when you click it (#456; PRs `#455`-`#457`; tag `v0.41.1`).
+
+- #455: v0.41.0's "the whole screen says an engine is lit" cue (a canvas-border color swap plus a title-bar `● BURN` badge) read as too loud in play. Moved onto the VESSEL chip's header instead — the one chip already shared across the orbit map, the Launch View chase-cam, and a landed vessel — sitting next to the throttle row's own `(idle)`/`● FIRING` state. The border and title-bar badge are gone; both canvases are back to a plain border.
+- #456: clicking Launch View's `[»Burn]` button navigated to the Missions screen instead of toggling Auto-Warp. Launch View draws its own title bar with its own burn button but never gave it a click target — the mouse handler was reading the orbit map's title-bar button positions instead, left over from whenever the map was last on screen. Launch View now tracks its own button position; clicking the NODES chip on that screen (which was already working) still works too.
+
 ### v0.41.0
 
 Burn state stops hiding, the controls stop lying about being careful, and two chase-cam HUD chips stop cycling forever once you've cleared the atmosphere: the throttle row says whether the engine is lit, the whole screen borders red during a burn, a burn fires and finishes with an Event Flash, silent no-ops on `G`/digit vessel slots/tilt-yaw refuse out loud instead, `q` and `F9` both arm a confirm before discarding anything, and the ATMOSPHERE chip plus the ascent arc/attitude stubs finally stand down for good once an orbit's periapsis clears the atmosphere (2026-09-06 grill; item 3 of the ranked UX-review cycle; #427, #445, #446, #449, #451; PRs `#445`-`#448`, `#450`, `#452`; tag `v0.41.0`).
