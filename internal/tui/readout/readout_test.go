@@ -83,8 +83,8 @@ func TestCountdown(t *testing.T) {
 }
 
 // --- Distance: SI ladder, m / km / Mm / Gm / AU, 4 sig figs (meters
-// stay whole numbers — see notes). ADR decision 3, action-plan decisions
-// 3 and 4. ---
+// stay whole numbers, see notes below). ADR decision 3, action-plan
+// decisions 3 and 4. ---
 
 func TestDistance(t *testing.T) {
 	cases := []struct {
@@ -159,9 +159,13 @@ func TestThrust(t *testing.T) {
 }
 
 // --- Speed / DeltaV: off-ladder, 4 sig figs capped at 2 decimals, always
-// m/s. ADR decision 4, action-plan decision 12. The 40.0 vs 40.00 case is
-// flagged ambiguity #1: we implement the stated rule, not the ADR's own
-// example. ---
+// m/s. ADR decision 4, action-plan decision 12. Speed uses the rule at
+// every magnitude, including the 40.00 m/s case (adjudicated at the gate
+// review: the ADR's own 22.50/28.60 examples are 2-decimal at two
+// integer digits, so its lone "40.0 m/s" is a pre-contract transcription,
+// not a contract output). DeltaV instead goes integer at |v| >= 100
+// (also adjudicated at the gate review), so the two deliberately diverge
+// in the 100-999.9 m/s band. ---
 
 func TestSpeed(t *testing.T) {
 	cases := []struct {
@@ -170,9 +174,9 @@ func TestSpeed(t *testing.T) {
 		want string
 	}{
 		{"contract example, integer at 4 digits", 5519, "5519 m/s"},
-		{"AMBIGUITY 1: rule gives 40.00, ADR's own example prints 40.0", 40.0, "40.00 m/s"},
+		{"the 4-sig-fig rule at every magnitude, including 40", 40.0, "40.00 m/s"},
 		{"contract example, 2 decimals below 1", 0.12, "0.12 m/s"},
-		{"AMBIGUITY 2 probe: rule gives 1 decimal in the 100s, not integer", 550, "550.0 m/s"},
+		{"stays decimal in the 100s, unlike DeltaV", 550, "550.0 m/s"},
 		{"negative speed rounds toward zero sign correctly", -0.001, "0.00 m/s"},
 	}
 	for _, c := range cases {
@@ -190,8 +194,12 @@ func TestDeltaV(t *testing.T) {
 		mps  float64
 		want string
 	}{
-		{"contract example below 100, 2 decimals", 22.5, "22.50 m/s"},
 		{"large budget, integer", 5519, "5519 m/s"},
+		{"integer in the 100s, unlike Speed", 550, "550 m/s"},
+		{"just below the integer crossing, 2 decimals", 99.9, "99.90 m/s"},
+		{"at the integer crossing", 100, "100 m/s"},
+		{"contract example below 100, 2 decimals", 22.5, "22.50 m/s"},
+		{"contract example well below 100", 0.12, "0.12 m/s"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -203,8 +211,20 @@ func TestDeltaV(t *testing.T) {
 }
 
 func TestDeltaVPair(t *testing.T) {
-	if got := DeltaVPair(3518, 9412); got != "3518 / 9412 m/s" {
-		t.Errorf("DeltaVPair(3518, 9412) = %q, want %q", got, "3518 / 9412 m/s")
+	cases := []struct {
+		name           string
+		stage, vehicle float64
+		want           string
+	}{
+		{"contract example, both in the integer band", 3518, 9412, "3518 / 9412 m/s"},
+		{"stage below 100, vehicle above", 45.5, 3200, "45.50 / 3200 m/s"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := DeltaVPair(c.stage, c.vehicle); got != c.want {
+				t.Errorf("DeltaVPair(%v, %v) = %q, want %q", c.stage, c.vehicle, got, c.want)
+			}
+		})
 	}
 }
 
@@ -231,9 +251,13 @@ func TestAngle(t *testing.T) {
 	}
 }
 
-// --- SteeringAngle / Heading: integer steering angles. ADR decision 4. ---
+// --- TrimAngle / FPA / Heading: integer steering angles. ADR decision 4.
+// Split at the gate review after checking the current renderers: pitch
+// trim (orbit_chip_builders.go:1392) is "%+.1f°" today, explicit sign;
+// fpa (orbit_chip_builders.go:1398, :1555; launch.go:1173) is "%.0f°",
+// no plus. TrimAngle keeps the explicit sign, FPA does not. ---
 
-func TestSteeringAngle(t *testing.T) {
+func TestTrimAngle(t *testing.T) {
 	cases := []struct {
 		name string
 		deg  float64
@@ -246,8 +270,27 @@ func TestSteeringAngle(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := SteeringAngle(c.deg); got != c.want {
-				t.Errorf("SteeringAngle(%v) = %q, want %q", c.deg, got, c.want)
+			if got := TrimAngle(c.deg); got != c.want {
+				t.Errorf("TrimAngle(%v) = %q, want %q", c.deg, got, c.want)
+			}
+		})
+	}
+}
+
+func TestFPA(t *testing.T) {
+	cases := []struct {
+		name string
+		deg  float64
+		want string
+	}{
+		{"positive fpa, no plus sign (unlike TrimAngle)", 45, "45°"},
+		{"contract example, negative", -10, "-10°"},
+		{"zero, no plus sign", 0, "0°"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := FPA(c.deg); got != c.want {
+				t.Errorf("FPA(%v) = %q, want %q", c.deg, got, c.want)
 			}
 		})
 	}

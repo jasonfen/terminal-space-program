@@ -27,27 +27,27 @@ import (
 // ---
 
 const (
-	LabelVert      = "vert:"       // v_vert -> vert: (the m/s already says speed)
-	LabelHoriz     = "horiz:"      // v_horiz -> horiz:
-	LabelFPA       = "fpa:"        // unchanged code; the ascent flight-path angle
-	LabelOrbitFPA  = "orbit fpa:"  // fpa_orbit -> orbit fpa:
-	LabelQ         = "Q:"          // unchanged code; dynamic pressure
-	LabelTWR       = "TWR:"        // twr -> TWR:
-	LabelHold      = "hold:"       // sas -> hold: (matches the ATTITUDE panel's word)
-	LabelAp        = "Ap:"         // ap -> Ap:
-	LabelPe        = "Pe:"         // pe -> Pe:
-	LabelApo       = "apo:"        // t_to_apo -> apo: (value is a T- countdown)
-	LabelBurn      = "burn:"       // t_burn -> burn:
-	LabelIncl      = "incl:"       // inclin. -> incl:
-	LabelDeltaIncl = "Δincl:"      // Δi -> Δincl:
-	LabelApproach  = "approach:"   // Proximity View's CA: -> approach:
-	LabelTCA       = "TCA:"        // unchanged code
-	LabelRelSpeed  = "rel speed:"  // |v_rel| -> rel speed:
-	LabelArrival   = "arrival:"    // capture chip's "approach: N m/s relative" -> arrival:
-	LabelImpact    = "impact:"     // impact in: -> impact:
-	LabelAltitude  = "altitude:"   // unchanged label, now rides the SI ladder
-	LabelPeriod    = "period:"     // unchanged label; the one duration that keeps seconds
-	LabelDeltaV    = "Δv:"         // Δv budget -> Δv: <stage> / <vehicle> m/s
+	LabelVert      = "vert:"      // v_vert -> vert: (the m/s already says speed)
+	LabelHoriz     = "horiz:"     // v_horiz -> horiz:
+	LabelFPA       = "fpa:"       // unchanged code; the ascent flight-path angle
+	LabelOrbitFPA  = "orbit fpa:" // fpa_orbit -> orbit fpa:
+	LabelQ         = "Q:"         // unchanged code; dynamic pressure
+	LabelTWR       = "TWR:"       // twr -> TWR:
+	LabelHold      = "hold:"      // sas -> hold: (matches the ATTITUDE panel's word)
+	LabelAp        = "Ap:"        // ap -> Ap:
+	LabelPe        = "Pe:"        // pe -> Pe:
+	LabelApo       = "apo:"       // t_to_apo -> apo: (value is a T- countdown)
+	LabelBurn      = "burn:"      // t_burn -> burn:
+	LabelIncl      = "incl:"      // inclin. -> incl:
+	LabelDeltaIncl = "Δincl:"     // Δi -> Δincl:
+	LabelApproach  = "approach:"  // Proximity View's CA: -> approach:
+	LabelTCA       = "TCA:"       // unchanged code
+	LabelRelSpeed  = "rel speed:" // |v_rel| -> rel speed:
+	LabelArrival   = "arrival:"   // capture chip's "approach: N m/s relative" -> arrival:
+	LabelImpact    = "impact:"    // impact in: -> impact:
+	LabelAltitude  = "altitude:"  // unchanged label, now rides the SI ladder
+	LabelPeriod    = "period:"    // unchanged label; the one duration that keeps seconds
+	LabelDeltaV    = "Δv:"        // Δv budget -> Δv: <stage> / <vehicle> m/s
 )
 
 // auThreshold is the existing 0.1 AU distance-ladder boundary, reused
@@ -214,7 +214,7 @@ func distanceRungIndex(av float64) int {
 // bottom rung (index 0, meters or kilograms) to whole-number precision:
 // the concrete examples in the ADR for sub-1000 low-rung values ("912
 // m", "999 kg") are 0-decimal, not the 4-significant-figure decimal
-// count the rest of the ladder uses — a below-the-decimal-point reading
+// count the rest of the ladder uses: a below-the-decimal-point reading
 // at the finest unit carries no information a flight computer needs.
 func formatLadder(signed float64, rungs []ladderRung, startIdx int, maxDecimals int) string {
 	av := math.Abs(signed)
@@ -289,60 +289,79 @@ func formatMps(mps float64) string {
 	return fmt.Sprintf("%.*f", dec, Nzero(mps, dec))
 }
 
+// formatDeltaVMps is DeltaV's per-number formatter, shared with
+// DeltaVPair so both halves of a stage/vehicle row use the same rule.
+func formatDeltaVMps(mps float64) string {
+	if math.Abs(mps) >= 100 {
+		return fmt.Sprintf("%.0f", Nzero(mps, 0))
+	}
+	return formatMps(mps)
+}
+
 // Speed renders a speed in m/s at 4 significant figures, capped at 2
-// decimals: "5519 m/s", "0.12 m/s". Speeds never ride the SI ladder;
-// they stay in m/s at every magnitude the game reaches.
+// decimals, at every magnitude: "5519 m/s", "40.00 m/s", "0.12 m/s".
+// Speeds never ride the SI ladder; they stay in m/s at every magnitude
+// the game reaches.
 //
-// NOTE (flagged ambiguity #1, see impl-notes/item4-A1-readout-pkg.md):
-// the ADR's own worked example prints "40.0 m/s" (3 significant
-// figures) where this rule's 2-int-digit case yields "40.00 m/s" (4
-// significant figures, 2 decimals). This function implements the
-// stated rule, not the example; TestSpeed pins "40.00 m/s".
+// Adjudicated (gate review, see impl-notes/item4-A1-readout-pkg.md):
+// decision 12's own worked examples (`22.50 m/s`, `28.60°`) are 2-decimal
+// at two integer digits, so the ADR's lone `40.0 m/s` is a transcription
+// of a pre-contract readout, not a contract output. `Speed` implements
+// the stated rule at every magnitude, unlike `DeltaV` below, which the
+// same decision 12 sentence pins to an integer at and above 100 m/s.
 func Speed(mps float64) string {
 	return formatMps(mps) + " m/s"
 }
 
-// DeltaV renders a Δv figure in m/s using the same rule as Speed.
+// DeltaV renders a Δv figure in m/s. Decision 12: "Δv keeps its integer
+// m/s at every magnitude the game reaches (22.50 m/s only below 100)",
+// so DeltaV is a whole number at |v| >= 100 and falls back to the
+// 4-sig-fig / 2-decimal-cap helper below it: "5519 m/s", "550 m/s",
+// "99.90 m/s", "22.50 m/s", "0.12 m/s".
 //
-// NOTE (flagged ambiguity #2, see impl-notes/item4-A1-readout-pkg.md):
-// decision 12 says "Δv keeps its integer m/s at every magnitude the
-// game reaches (22.50 m/s only below 100)", which read literally means
-// Δv is an integer everywhere except below 100 m/s. We instead read
-// this as "Δv uses the same 4-sig-fig/2-decimal-cap helper as Speed",
-// which does yield an integer at and above 1000 (5519 -> "5519 m/s")
-// and 2 decimals below 100 (0.12 -> "0.12 m/s", 22.5 -> "22.50 m/s"),
-// matching every example the ADR actually gives. It diverges from the
-// literal prose in the 100-999.9 m/s band, where this rule gives 1
-// decimal (550 -> "550.0 m/s") rather than an integer; no ADR example
-// falls in that band to confirm either reading. TestDeltaV and TestSpeed
-// pin the reading we implemented.
+// Adjudicated (gate review): this deliberately differs from Speed in the
+// 100-999.9 m/s band, where Speed keeps one decimal (e.g. "550.0 m/s")
+// and DeltaV does not ("550 m/s"). The VESSEL chip's stage Δv sits in
+// that band constantly on a late stage; an integer there removes the
+// jittering tenths digit the contract exists to remove.
 func DeltaV(mps float64) string {
-	return formatMps(mps) + " m/s"
+	return formatDeltaVMps(mps) + " m/s"
 }
 
 // DeltaVPair renders the two-number Δv row (action-plan decision 7): the
 // active stage's remaining Δv, then the whole remaining stack's total,
-// sharing one trailing unit: "3518 / 9412 m/s". A single-stage vessel
-// should call DeltaV instead for the one-number form ("3518 m/s").
+// sharing one trailing unit: "3518 / 9412 m/s". Both numbers use
+// DeltaV's integer-at-100-and-above rule. A single-stage vessel should
+// call DeltaV instead for the one-number form ("3518 m/s").
 func DeltaVPair(stageMps, vehicleMps float64) string {
-	return formatMps(stageMps) + " / " + formatMps(vehicleMps) + " m/s"
+	return formatDeltaVMps(stageMps) + " / " + formatDeltaVMps(vehicleMps) + " m/s"
 }
 
 // Angle renders an orbital angle in degrees at 4 significant figures,
 // capped at 2 decimals: "28.60°", "0.00°". Used for inclination, Δincl,
-// and any other orbital-element angle; distinct from SteeringAngle,
-// which is for the integer pad/ascent controls.
+// and any other orbital-element angle; distinct from TrimAngle and FPA,
+// which are the integer pad/ascent controls.
 func Angle(deg float64) string {
 	dec := precision2(math.Abs(deg))
 	return fmt.Sprintf("%.*f°", dec, Nzero(deg, dec))
 }
 
-// SteeringAngle renders a signed, whole-degree steering readout: pitch
-// trim and the ascent flight-path angle ("fpa:"), e.g. "-10°", "+12°".
-// Distinct from Angle (orbital elements, 2 decimals) and from Heading
-// (unsigned, zero-padded compass bearing).
-func SteeringAngle(deg float64) string {
-	return fmt.Sprintf("%+.0f°", Nzero(math.Round(deg), 0))
+// TrimAngle renders a signed, whole-degree pitch-trim readout with an
+// explicit sign on positive values and zero, matching the existing
+// PitchTrim formatter's "%+.1f°" convention (orbit_chip_builders.go:1392)
+// at decision 12's integer precision: "+12°", "-10°", "+0°". Distinct
+// from FPA, whose existing formatters print no plus sign.
+func TrimAngle(deg float64) string {
+	return fmt.Sprintf("%+.0f°", Nzero(deg, 0))
+}
+
+// FPA renders a whole-degree flight-path-angle readout with a minus sign
+// only, no explicit plus: "45°", "-10°", "0°". Matches today's fpa
+// formatters (orbit_chip_builders.go:1398, :1555; launch.go:1173), which
+// use "%.0f°" with nzero applied and never a "+". Distinct from
+// TrimAngle, which does carry an explicit sign.
+func FPA(deg float64) string {
+	return fmt.Sprintf("%.0f°", Nzero(deg, 0))
 }
 
 // Heading renders a compass heading as a zero-padded, unsigned
