@@ -38,9 +38,11 @@ type helpSection struct {
 // Section ORDER (grilled 2026-09-04, #425): GENERAL, PAUSE MENU,
 // CAMERA & VIEW, TIME & WARP, MANUAL FLIGHT, NAVIGATION, PLAN BURNS,
 // MEETING PLANNER, VESSEL, VEHICLE ASSEMBLY (VAB), SAVES, MULTIPLAYER,
-// MOUSE — puts "how do I fly" (camera, warp, manual flight) right after
-// GENERAL / PAUSE MENU instead of six PgDn presses down behind SAVES and
-// the 13-row MULTIPLAYER section (issue #425 evidence).
+// MOUSE, READOUT GLOSSARY: puts "how do I fly" (camera, warp, manual
+// flight) right after GENERAL / PAUSE MENU instead of six PgDn presses
+// down behind SAVES and the 13-row MULTIPLAYER section (issue #425
+// evidence). READOUT GLOSSARY sits last: a lookup appendix for the codes
+// on the HUD, not a "how do I fly" section (ADR 0049 stage A3a).
 var helpSections = []helpSection{
 	{"GENERAL", [][2]string{
 		{"F1 / ?", "toggle this help"},
@@ -185,6 +187,19 @@ var helpSections = []helpSection{
 		{"click empty", "open the planner at the projected orbit point"},
 		{"click HUD", "open body info"},
 		{"[»Burn]", "toggle auto-warp to the next burn (same as G, inert during a rendezvous coast); [■Burn] while running, dimmed when none planned"},
+	}},
+	// ADR 0049 (Readout Contract) decision 6: labels are one short word,
+	// but six codes survive on the HUD, so each gets a line here rather
+	// than being spelled out on every chip. Order matches the ADR and
+	// CONTEXT.md's Readout Contract entry.
+	{"READOUT GLOSSARY", [][2]string{
+		{"fpa", "flight path angle: velocity above / below the local horizontal"},
+		{"Q", "dynamic pressure: aerodynamic stress on the airframe, in kPa"},
+		{"TCA", "time of closest approach, in a rendezvous or flyby"},
+		{"TWR", "thrust to weight ratio: engines' thrust over vessel weight"},
+		{"Ap / Pe", "apoapsis / periapsis: height above the surface, like every altitude in the game"},
+		{"Δv / Δincl", "delta-v / relative inclination to a target's orbital plane"},
+		{"T- / T+", "countdown convention: T- counts down to an event, T+ counts up since it"},
 	}},
 }
 

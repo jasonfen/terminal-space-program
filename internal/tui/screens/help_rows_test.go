@@ -99,6 +99,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		"SAVES (menu → Save / Load Game)",
 		"MULTIPLAYER (session screen — open with O)",
 		"MOUSE",
+		"READOUT GLOSSARY",
 	}
 	var got []string
 	for _, s := range helpSections {
@@ -112,4 +113,46 @@ func TestHelpSectionOrder(t *testing.T) {
 			t.Errorf("section %d: got %q, want %q\nfull order: %v", i, got[i], want[i], got)
 		}
 	}
+}
+
+// TestHelpGlossaryBlockContent (ADR 0049 stage A3a): the six codes that
+// survive the readout contract each get a one-line explanation, plus the
+// two facts the contract otherwise strips off every panel: apsides are
+// already height above the surface, and countdowns read T- until an
+// event, T+ since it.
+func TestHelpGlossaryBlockContent(t *testing.T) {
+	cases := []struct {
+		token, want string
+	}{
+		{"fpa", "flight path angle"},
+		{"Q", "dynamic pressure"},
+		{"TCA", "closest approach"},
+		{"TWR", "thrust to weight"},
+		{"Ap / Pe", "height above the surface"},
+		{"Δv / Δincl", "delta-v"},
+		{"Δv / Δincl", "relative inclination"},
+		{"T- / T+", "T- counts down"},
+		{"T- / T+", "T+ counts up"},
+	}
+	for _, c := range cases {
+		_, desc := helpRow(t, c.token)
+		if !strings.Contains(strings.ToLower(desc), strings.ToLower(c.want)) {
+			t.Errorf("glossary row %q = %q, want it to mention %q", c.token, desc, c.want)
+		}
+	}
+}
+
+// TestHelpGlossarySection (ADR 0049 stage A3a): the glossary rows live
+// together under their own header, not scattered across other sections.
+func TestHelpGlossarySection(t *testing.T) {
+	for _, s := range helpSections {
+		if s.header != "READOUT GLOSSARY" {
+			continue
+		}
+		if len(s.rows) < 7 {
+			t.Errorf("READOUT GLOSSARY has %d rows, want at least 7 (six codes + T-/T+)", len(s.rows))
+		}
+		return
+	}
+	t.Fatal("no READOUT GLOSSARY section in helpSections")
 }
