@@ -606,10 +606,17 @@ func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
 // Orbit shape (apo/peri/incl) lives in the top-right Orbit-metrics chip,
 // attitude in the Attitude chip. Returns a "(in Sol — [tab])" hint when no
 // craft is visible here; nil only when there's no active craft at all.
+// Header carries vesselBurnBadge's whole-slate `● BURN` badge — the one
+// place that cue lives now (see its own doc comment).
 func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	if !w.CraftVisibleHere() {
 		if w.ActiveCraft() != nil {
-			return []string{v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)")}
+			// #455 review finding 2: AnyCraftThrusting is slate-wide and
+			// system-blind, same as the 10x burn-warp cap — a craft
+			// burning in a system the camera isn't currently showing
+			// must still badge here, or a player who tabs away mid-burn
+			// loses every on-screen trace of why warp just clamped.
+			return []string{v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)") + v.vesselBurnBadge(w)}
 		}
 		// #310: an empty slate used to render nothing at all. The camera
 		// meanwhile fell through to the system origin, so the player was left
@@ -656,7 +663,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	}
 	c := w.ActiveCraft()
 	lines := []string{
-		v.theme.Primary.Render("VESSEL"),
+		v.theme.Primary.Render("VESSEL") + v.vesselBurnBadge(w),
 		"  " + crashedVesselNameLabel(v.theme, c),
 		"  primary:   " + c.Primary.EnglishName,
 		fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
@@ -708,6 +715,26 @@ func (v *OrbitView) throttleRow(c *spacecraft.Spacecraft) string {
 	return base + v.theme.Warning.Render(" ● FIRING")
 }
 
+// vesselBurnBadge is the VESSEL chip header's `● BURN` badge (decision
+// 2, grilled 2026-09-06: "the whole screen says an engine is lit").
+// Originally a canvas-border color swap plus a title-bar badge — a
+// live playtest found that whole-screen treatment too loud, so it now
+// lives here instead: on the one chip that's already universal across
+// the map, the launch/chase-cam view (shared via LaunchView.hudSource),
+// and a landed vessel, and that already carries the active craft's own
+// engine state (throttleRow's "(idle)"/"● FIRING"). Gated on
+// AnyCraftThrusting (the whole-slate predicate the 10x burn-warp cap
+// also uses), not just the active craft, so it still answers "why is
+// warp capped" even when the burning craft isn't the one on screen.
+// Returns "" (no leading gap, so it costs nothing appended to a plain
+// string) when nothing in the slate is thrusting.
+func (v *OrbitView) vesselBurnBadge(w *sim.World) string {
+	if !w.AnyCraftThrusting() {
+		return ""
+	}
+	return v.theme.Warning.Render("  ● BURN")
+}
+
 // buildVesselDestroyedChip is the VESSEL DESTROYED Standing Alert (#427 /
 // ADR 0048 decision 1): renders only while the active craft is Crashed,
 // naming both exits — [E] end flight (removes the wreckage) and [F9]
@@ -750,7 +777,7 @@ func (v *OrbitView) buildVesselChipCompact(w *sim.World) []string {
 		fuelStr = fmt.Sprintf("%.0f%% (%.0f kg)", pct, kg)
 	}
 	return []string{
-		v.theme.Primary.Render("VESSEL") + "  " + crashedVesselNameLabel(v.theme, c),
+		v.theme.Primary.Render("VESSEL") + v.vesselBurnBadge(w) + "  " + crashedVesselNameLabel(v.theme, c),
 		fmt.Sprintf("  fuel: %s  Δv: %.0f m/s", fuelStr, c.RemainingDeltaV()),
 	}
 }

@@ -16,7 +16,12 @@ import (
 // triage/action-plan.md): decisions 1, 2, 3, 6, 7. Decision 4 (the burn
 // fired/finished Event Flash) is a sim-level hook and gets its own tests
 // alongside LastDockEvent/LastNodeTargetRefusal's pattern in
-// internal/sim. Decision 5 is confirmed no-change.
+// internal/sim. Decision 5 is confirmed no-change. Decision 2's original
+// implementation (canvas-border color swap + title-bar badge) was
+// revised after live playtesting found the whole-screen treatment too
+// loud — the `● BURN` cue now lives on the VESSEL chip instead
+// (vesselBurnBadge, orbit_chips.go); see this file's TestVesselChip*
+// tests, not a border/title-bar test.
 
 // TestThrottleRowIdleVsFiring — decision 1: the VESSEL chip's throttle
 // row always shows the throttle SETTING, suffixed with "(idle)" (Dim)
@@ -56,11 +61,17 @@ func TestThrottleRowIdleVsFiring(t *testing.T) {
 	}
 }
 
-// TestEngineLitBorderAndBadge — decision 2: while any craft in the slate
-// is thrusting, the map canvas border switches from Primary to Warning,
-// and the title bar carries a "● BURN" badge — both clear the instant
-// nothing is thrusting.
-func TestEngineLitBorderAndBadge(t *testing.T) {
+// TestVesselChipBurnBadge — decision 2 (grilled 2026-09-06, revised on
+// live playtest feedback): while any craft in the slate is thrusting,
+// the VESSEL chip's header carries a "● BURN" badge — clearing the
+// instant nothing is thrusting. Originally a canvas-border color swap
+// plus a title-bar badge; that whole-screen treatment read as too loud
+// in play, so the cue now lives on the one chip instead. Also locks in
+// that the removed locations (border color, title bar) stay gone, and
+// that the Compact Form (ADR 0046 / #422) carries the same badge as the
+// full form — #455 review finding 3, since nothing else in the suite
+// exercises buildVesselChipCompact with a burn on.
+func TestVesselChipBurnBadge(t *testing.T) {
 	v := NewOrbitView(plainThemeColored())
 	v.Resize(140, 40)
 	w, err := sim.NewWorld()
@@ -69,38 +80,51 @@ func TestEngineLitBorderAndBadge(t *testing.T) {
 	}
 	c := w.ActiveCraft()
 
-	if got, want := v.canvasBorderColor(w), v.theme.Primary.GetForeground(); got != want {
-		t.Errorf("idle border color = %v, want Primary %v", got, want)
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	if strings.Contains(out, "BURN") {
+		t.Errorf("idle VESSEL chip should not carry a BURN badge:\n%s", out)
+	}
+	compactOut := strings.Join(v.buildVesselChipCompact(w), "\n")
+	if strings.Contains(compactOut, "BURN") {
+		t.Errorf("idle VESSEL chip (Compact Form) should not carry a BURN badge:\n%s", compactOut)
 	}
 	title := v.renderTitleBar("Sol", w, 140)
 	if strings.Contains(title, "BURN") {
-		t.Errorf("idle title bar should not carry a BURN badge:\n%s", title)
+		t.Errorf("title bar should never carry a BURN badge (moved to the VESSEL chip):\n%s", title)
 	}
 
 	c.ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * time.Second)}
-	if got, want := v.canvasBorderColor(w), v.theme.Warning.GetForeground(); got != want {
-		t.Errorf("firing border color = %v, want Warning %v", got, want)
+	out = strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(out, "BURN") {
+		t.Errorf("firing VESSEL chip missing the BURN badge:\n%s", out)
 	}
-	title = v.renderTitleBar("Sol", w, 140)
-	if !strings.Contains(title, "BURN") {
-		t.Errorf("firing title bar missing the BURN badge:\n%s", title)
-	}
-
-	c.ActiveBurn = nil
-	if got, want := v.canvasBorderColor(w), v.theme.Primary.GetForeground(); got != want {
-		t.Errorf("border color did not clear when thrust stopped: got %v, want Primary %v", got, want)
+	compactOut = strings.Join(v.buildVesselChipCompact(w), "\n")
+	if !strings.Contains(compactOut, "BURN") {
+		t.Errorf("firing VESSEL chip (Compact Form) missing the BURN badge:\n%s", compactOut)
 	}
 	title = v.renderTitleBar("Sol", w, 140)
 	if strings.Contains(title, "BURN") {
-		t.Errorf("BURN badge did not clear when thrust stopped:\n%s", title)
+		t.Errorf("title bar picked up a BURN badge, want it only on the VESSEL chip:\n%s", title)
+	}
+
+	c.ActiveBurn = nil
+	compactOut = strings.Join(v.buildVesselChipCompact(w), "\n")
+	if strings.Contains(compactOut, "BURN") {
+		t.Errorf("BURN badge (Compact Form) did not clear when thrust stopped:\n%s", compactOut)
+	}
+	out = strings.Join(v.buildVesselChip(w), "\n")
+	if strings.Contains(out, "BURN") {
+		t.Errorf("BURN badge did not clear when thrust stopped:\n%s", out)
 	}
 }
 
-// TestEngineLitBorderNonActiveCraft — decision 2's "the whole screen"
-// framing: AnyCraftThrusting walks the whole slate, so a burn on a
-// non-active craft still lights the border/badge while the player flies
-// a different vessel.
-func TestEngineLitBorderNonActiveCraft(t *testing.T) {
+// TestVesselChipBurnBadgeNonActiveCraft — decision 2's "the whole
+// screen" framing survives the move: AnyCraftThrusting walks the whole
+// slate, so a burn on a non-active craft still badges the VESSEL chip
+// (of whichever craft you're currently flying) — the player needs to
+// know why warp is capped even when the burning craft isn't the one on
+// screen.
+func TestVesselChipBurnBadgeNonActiveCraft(t *testing.T) {
 	v := NewOrbitView(plainThemeColored())
 	v.Resize(140, 40)
 	w, err := sim.NewWorld()
@@ -113,14 +137,51 @@ func TestEngineLitBorderNonActiveCraft(t *testing.T) {
 	w.ActiveCraftIdx = 0
 	w.Crafts[1].ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * time.Second)}
 
-	if got, want := v.canvasBorderColor(w), v.theme.Warning.GetForeground(); got != want {
-		t.Errorf("border should light for a non-active craft's burn: got %v, want Warning %v", got, want)
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(out, "BURN") {
+		t.Errorf("VESSEL chip should badge for a non-active craft's burn:\n%s", out)
 	}
 }
 
-// TestLaunchViewEngineLitBorderAndBadge — decision 2's Launch View parity:
-// the pad canvas shares the same border tint and title badge as the map.
-func TestLaunchViewEngineLitBorderAndBadge(t *testing.T) {
+// TestVesselChipBurnBadgeOtherSystem — #455 review finding 2:
+// AnyCraftThrusting is slate-wide AND system-blind, same as the 10x
+// burn-warp cap, so the badge must still show on the "(in Sol — [tab]
+// to switch)" early-return branch (camera tabbed away from the active
+// craft's own system) — otherwise a player watching a friend in
+// another system while their own craft executes a planted node loses
+// every on-screen trace of why warp just clamped to 10x.
+func TestVesselChipBurnBadgeOtherSystem(t *testing.T) {
+	v := NewOrbitView(plainThemeColored())
+	v.Resize(140, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * time.Second)}
+
+	if len(w.Systems) < 2 {
+		t.Skip("need a second loaded system to browse away from the craft's own")
+	}
+	w.CycleSystem()
+	if w.CraftVisibleHere() {
+		t.Fatal("test setup: craft is still visible after CycleSystem")
+	}
+
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(out, "(in Sol — [tab] to switch)") {
+		t.Fatalf("test setup: expected the other-system placeholder line:\n%s", out)
+	}
+	if !strings.Contains(out, "BURN") {
+		t.Errorf("VESSEL chip should still badge for a burning craft in a system the camera isn't showing:\n%s", out)
+	}
+}
+
+// TestLaunchViewVesselChipBurnBadge — decision 2's Launch View parity,
+// via the shared hudSource: the pad canvas's VESSEL chip carries the
+// same badge the map does, since LaunchView composites its side HUD
+// chips from the same OrbitView.
+func TestLaunchViewVesselChipBurnBadge(t *testing.T) {
 	orbitV := NewOrbitView(plainThemeColored())
 	lv := NewLaunchView(plainThemeColored(), orbitV)
 	w, err := sim.NewWorld()
@@ -140,14 +201,14 @@ func TestLaunchViewEngineLitBorderAndBadge(t *testing.T) {
 
 	out := lv.Render(w, 140, 40)
 	if strings.Contains(out, "BURN") {
-		t.Errorf("idle launch title should not carry a BURN badge:\n%s", firstLine(out))
+		t.Errorf("idle launch view should not carry a BURN badge:\n%s", out)
 	}
 
 	c.Landed = false
 	c.ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * time.Second)}
 	out = lv.Render(w, 140, 40)
 	if !strings.Contains(out, "BURN") {
-		t.Errorf("firing launch title missing the BURN badge:\n%s", firstLine(out))
+		t.Errorf("firing launch view missing the BURN badge:\n%s", out)
 	}
 }
 
