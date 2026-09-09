@@ -559,6 +559,41 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch a.active {
 		case screenOrbit:
+			// #456 fix: while ViewLaunch is showing, the Menu/Missions/
+			// Burn title-bar buttons and the navball controls below all
+			// read OrbitView state that LaunchView.Render never touches
+			// — the map's own last-actual-render layout, frozen and
+			// unrelated to what's on screen right now. A click on THIS
+			// screen's [»Burn] button used to fall through to those
+			// stale map coordinates and could land inside e.g. the
+			// map's [Missions] range instead. Route to LaunchView's own
+			// hit-test (added alongside this fix) first.
+			//
+			// Chips are the one exception (#457 review finding 1):
+			// LaunchView.Render composites its chips through the SAME
+			// shared OrbitView (v.hudSource.composeChips), which
+			// rewrites v.chipRects in absolute screen coordinates every
+			// frame regardless of which screen called it — so
+			// a.orbitView.HitChip is live and correct here, not stale,
+			// and the NODES chip's click-to-maneuver-screen route
+			// already worked on Launch View before this fix. Falling
+			// through to it (but no further — HitNavballControl / HitAt
+			// / the vessel-node-body switch below ARE stale) preserves
+			// that instead of silently regressing it.
+			if a.world.ViewMode == sim.ViewLaunch {
+				if a.launchView.HitBurnButton(m.X, m.Y) {
+					a.toggleAutoWarpBurn()
+					return a, nil
+				}
+				if id, ok := a.orbitView.HitChip(m.X, m.Y); ok {
+					if id == settings.ChipNodes {
+						a.world.Clock.Paused = true
+						a.active = screenManeuver
+					}
+					return a, nil
+				}
+				return a, nil
+			}
 			// v0.7.4+: title-bar [Menu] / [Missions] buttons take
 			// priority over canvas / HUD hits, since they sit at
 			// row 0 above the body region.
