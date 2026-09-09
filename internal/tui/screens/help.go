@@ -38,7 +38,7 @@ type helpSection struct {
 // Section ORDER (grilled 2026-09-04, #425): GENERAL, PAUSE MENU,
 // CAMERA & VIEW, TIME & WARP, MANUAL FLIGHT, NAVIGATION, PLAN BURNS,
 // MEETING PLANNER, VESSEL, VEHICLE ASSEMBLY (VAB), SAVES, MULTIPLAYER,
-// MOUSE, READOUT GLOSSARY — puts "how do I fly" (camera, warp, manual
+// MOUSE, READOUT GLOSSARY: puts "how do I fly" (camera, warp, manual
 // flight) right after GENERAL / PAUSE MENU instead of six PgDn presses
 // down behind SAVES and the 13-row MULTIPLAYER section (issue #425
 // evidence). READOUT GLOSSARY sits last: a lookup appendix for the codes
@@ -197,7 +197,7 @@ var helpSections = []helpSection{
 		{"Q", "dynamic pressure: aerodynamic stress on the airframe, in kPa"},
 		{"TCA", "time of closest approach, in a rendezvous or flyby"},
 		{"TWR", "thrust to weight ratio: engines' thrust over vessel weight"},
-		{"Ap / Pe", "apoapsis / periapsis: already height above the surface, so there's no separate alt row anywhere"},
+		{"Ap / Pe", "apoapsis / periapsis: height above the surface, like every altitude in the game"},
 		{"Δv / Δincl", "delta-v / relative inclination to a target's orbital plane"},
 		{"T- / T+", "countdown convention: T- counts down to an event, T+ counts up since it"},
 	}},

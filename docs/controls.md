@@ -291,7 +291,7 @@ overlay carries, so you can look one up without leaving the game.
 | `Q` | Dynamic pressure: aerodynamic stress on the airframe, in kPa |
 | `TCA` | Time of closest approach, in a rendezvous or flyby |
 | `TWR` | Thrust to weight ratio: engines' thrust over vessel weight |
-| `Ap` / `Pe` | Apoapsis / periapsis: already height above the surface, so there's no separate `alt` row anywhere |
+| `Ap` / `Pe` | Apoapsis / periapsis: height above the surface, like every altitude in the game |
 | `Δv` / `Δincl` | Delta-v / relative inclination to a target's orbital plane |
 | `T-` / `T+` | Countdown convention: `T-` counts down to an event, `T+` counts up since it |
 
