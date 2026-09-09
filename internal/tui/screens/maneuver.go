@@ -889,8 +889,13 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	// the engine-on time the App will plant.
 	burnDescr := "impulsive"
 	if dur > 0 {
-		burnDescr = fmt.Sprintf("finite burn — %.1fs at %.0f kN, Isp %.0f s",
-			dur.Seconds(), c.Thrust/1000, c.Isp)
+		// Isp is deliberately left as a bare "%.0f s": specific impulse is
+		// measured in seconds as its unit, not a duration readout, so the
+		// contract (which governs time-to/countdown/period readouts) does
+		// not reach it. Do not "fix" this to readout.Duration on a later
+		// sweep.
+		burnDescr = fmt.Sprintf("finite burn — %s at %s, Isp %.0f s",
+			readout.Duration(dur), readout.Thrust(c.Thrust), c.Isp)
 	}
 
 	// Plan Cursor (ADR 0047 / #428): the header names the node under the
@@ -978,7 +983,12 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		if !n.TriggerTime.IsZero() {
 			when = readout.Countdown(n.TriggerTime.Sub(w.Clock.SimTime))
 		}
-		row := fmt.Sprintf("%d. %-10s %6.0f m/s  %s", i+1, n.Mode.String(), n.DV, when)
+		// readout.DeltaV's whole "N m/s" string is right-aligned as one
+		// unit via a plain %Ns pad rather than split apart: both the
+		// digits and " m/s" are ASCII, so a byte-counted pad is safe here
+		// (unlike a column that can carry a styled/multibyte value, where
+		// lipgloss.Width would be required instead).
+		row := fmt.Sprintf("%d. %-10s %10s  %s", i+1, n.Mode.String(), readout.DeltaV(n.DV), when)
 		// Over-budget Node (ADR 0047 §2 / #428): a planted node whose Δv
 		// exceeds the vessel's current remaining budget plants anyway —
 		// warn and allow, never refuse — but every list carrying it

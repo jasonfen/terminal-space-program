@@ -1241,7 +1241,7 @@ func (v *OrbitView) activeBurnLines(w *sim.World) []string {
 		}
 		if c.BurnStalled() {
 			lines = append(lines,
-				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %.0f m/s", tag, ab.Mode.String(), ab.DVRemaining)),
+				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %s", tag, ab.Mode.String(), readout.DeltaV(ab.DVRemaining))),
 				v.theme.Warning.Render("    ⚠ STALLED — stage to resume (x to cancel)"),
 			)
 		} else {

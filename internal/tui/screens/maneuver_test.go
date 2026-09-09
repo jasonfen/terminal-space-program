@@ -84,7 +84,7 @@ func TestManeuverRendersPlannedNodes(t *testing.T) {
 	if !strings.Contains(out, "PLANNED NODES (2)") {
 		t.Error("node-count header missing / wrong with 2 nodes planted")
 	}
-	if !strings.Contains(out, "120 m/s") || !strings.Contains(out, "45 m/s") {
+	if !strings.Contains(out, "120 m/s") || !strings.Contains(out, "45.00 m/s") {
 		t.Errorf("planned-node Δv values not listed:\n%s", out)
 	}
 }
