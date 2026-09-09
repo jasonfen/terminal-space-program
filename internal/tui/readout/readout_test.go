@@ -1,6 +1,7 @@
 package readout
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -95,16 +96,38 @@ func TestDistance(t *testing.T) {
 		{"zero", 0, "0 m"},
 		{"sub-1km stays in meters, whole number", 912, "912 m"},
 		{"pad altitude zero", 0, "0 m"},
+		{"1000 m crosses into km", 1000, "1.000 km"},
 		{"km rung, 1 decimal (contract example)", 500000, "500.0 km"},
 		{"km rung another contract example", 438900, "438.9 km"},
 		{"just under the km->Mm rollover, no bump", 999940, "999.9 km"},
-		{"999,950 m rounds up across the rung into Mm", 999950, "1.000 Mm"},
+
+		// Extended km rung (gate review addendum, maintainer overrule of
+		// the original F1-adjacent ruling): decision 3's own worked
+		// examples only ALL hold at once if km runs a full extra decade,
+		// to 9999 km, before promoting to Mm. `2590 km` is decision 3's
+		// own example, verbatim. The Mm rung's own bottom is therefore
+		// 10 Mm, not 1 Mm: a value never renders as "5.000 Mm" because km
+		// already covers everything below 10 Mm. Deliberate, not a gap.
+		{"decision 3's own example, verbatim: 4 digits stay in km", 2590000, "2590 km"},
+		{"4-digit km reading, no promotion (was the old bug's own case)", 1200000, "1200 km"},
+		{"at the new boundary: 9999 km is the last value that stays km", 9999000, "9999 km"},
+		{"just past 9999 km rounds up and must still promote to Mm", 9999600, "10.00 Mm"},
+		{"exactly 10 Mm: the Mm rung's own bottom, km covers everything below it", 1e7, "10.00 Mm"},
 		{"Mm rung, 2 decimals (Ap contract example)", 35790000, "35.79 Mm"},
+		{"decision 3's own Mm example, verbatim", 10660000, "10.66 Mm"},
 		{"just below the 0.1 AU threshold stays Gm", bodies.AU/10 - 1, "14.96 Gm"},
 		{"at the 0.1 AU threshold switches to AU", bodies.AU / 10, "0.100 AU"},
 		{"well above threshold, AU rung 3 decimals", bodies.AU * 8.727, "8.727 AU"},
 		{"negative distance keeps signed depth (sub-surface Pe)", -120000, "-120.0 km"},
 		{"negative meters", -0.4, "0 m"}, // sub-metre noise nzero-snaps to +0
+
+		// F1 (gate review, item4-A-review.md): the decimal count must come
+		// from the ROUNDED value, not the pre-rounding one, or an
+		// intra-rung decade crossing prints one significant figure too
+		// many (9.9996 rounding to "10.000 km" instead of "10.00 km").
+		{"F1: one integer digit rounds up to two, decimals must drop 3->2", 9999.6, "10.00 km"},
+		{"F1: two integer digits round up to three, decimals must drop 2->1", 99996, "100.0 km"},
+		{"F1: same crossing one rung up (Mm), now past the extended km boundary", 99.996e6, "100.0 Mm"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -128,6 +151,7 @@ func TestMass(t *testing.T) {
 		{"contract example, 4 digits", 2160000, "2160 t"},
 		{"contract example, 2 decimals", 12950, "12.95 t"},
 		{"contract example, another 4-digit reading", 2928000, "2928 t"},
+		{"F1: rounds up across the top rung, no rung to promote into", 999999, "1000 t"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -148,6 +172,7 @@ func TestThrust(t *testing.T) {
 	}{
 		{"contract example", 1023000, "1023 kN"},
 		{"small thrust still kN", 500, "0.500 kN"},
+		{"F1: rounds up a decade, decimals must drop", 999960, "1000 kN"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -170,6 +195,7 @@ func TestPressure(t *testing.T) {
 		{"zero on the pad", 0, "0.000 kPa"},
 		{"typical max-Q figure", 23100, "23.10 kPa"},
 		{"four-digit kPa", 1023000, "1023 kPa"},
+		{"F1: rounds up a decade, decimals must drop", 999960, "1000 kPa"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -200,6 +226,8 @@ func TestSpeed(t *testing.T) {
 		{"contract example, 2 decimals below 1", 0.12, "0.12 m/s"},
 		{"stays decimal in the 100s, unlike DeltaV", 550, "550.0 m/s"},
 		{"negative speed rounds toward zero sign correctly", -0.001, "0.00 m/s"},
+		{"F1: two integer digits round up to three, decimals must drop", 99.996, "100.0 m/s"},
+		{"F1: three integer digits round up to four, decimals must drop", 999.96, "1000 m/s"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -246,6 +274,7 @@ func TestDeltaV(t *testing.T) {
 		{"at the integer crossing", 100, "100 m/s"},
 		{"contract example below 100, 2 decimals", 22.5, "22.50 m/s"},
 		{"contract example well below 100", 0.12, "0.12 m/s"},
+		{"F1: rounds up across DeltaV's own 100 m/s integer threshold", 99.996, "100 m/s"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -287,6 +316,7 @@ func TestAngle(t *testing.T) {
 		{"contract example, zero", 0, "0.00°"},
 		{"contract example, delta-incl", 31.2, "31.20°"},
 		{"negative zero snaps positive", -0.001, "0.00°"},
+		{"F1: two integer digits round up to three, decimals must drop", 99.996, "100.0°"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -378,6 +408,12 @@ func TestNzero(t *testing.T) {
 		{"exact zero stays zero", 0, 2, 0},
 		{"value that rounds to zero at 0 decimals", -0.4, 0, 0},
 		{"value that does not round to zero", -0.6, 0, -0.6},
+		// F2 (gate review): math.Round always rounds an exact tie away
+		// from zero, but fmt's own %.*f rounds ties to even, so at
+		// exactly -0.5 the two disagreed and Nzero let the value through
+		// unsnapped, which fmt then printed as "-0" anyway.
+		{"F2: exact tie at -0.5 must snap (fmt rounds it to even, -0)", -0.5, 0, 0},
+		{"F2: exact tie at -2.5 must NOT snap (fmt rounds it to -2, non-zero)", -2.5, 0, -2.5},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -385,5 +421,69 @@ func TestNzero(t *testing.T) {
 				t.Errorf("Nzero(%v, %d) = %v, want %v", c.x, c.decimals, got, c.want)
 			}
 		})
+	}
+}
+
+// TestDistanceF2ExactTieDoesNotLeakNegativeZero pins the end-to-end
+// symptom the gate review demonstrated: Distance(-0.5) used to print
+// "-0 m" (Nzero didn't snap it, then fmt's own tie-to-even rounding
+// produced the "-0" the whole Nzero mechanism exists to prevent).
+func TestDistanceF2ExactTieDoesNotLeakNegativeZero(t *testing.T) {
+	if got := Distance(-0.5); got != "0 m" {
+		t.Errorf("Distance(-0.5) = %q, want \"0 m\" (no negative-zero leak)", got)
+	}
+}
+
+// TestFormattersAreTotalOverInfAndNaN pins F8 (gate review, item4-A-review.md):
+// intDigits divided by ten until the value dropped below ten, and ±Inf
+// never does, so Distance/Speed/Angle/Mass/Thrust all hung forever on an
+// infinite input before this fix. A hang inside a Bubble Tea View() call
+// freezes the whole TUI with no panic and no log line — worse than any
+// wrong string this package could print. "Not reachable from a checked
+// call site today" is a property of the call sites, not of the package,
+// which is the one choke point every future flight readout routes
+// through, so a formatter must be total over its input type.
+//
+// Each case runs the call on its own goroutine behind a timeout rather
+// than just asserting the returned string, so a regression that
+// reintroduces the loop fails as a timeout, not as a suite that never
+// finishes (which would look like an unrelated CI hang, not a pinned
+// test failure).
+func TestFormattersAreTotalOverInfAndNaN(t *testing.T) {
+	inputs := []struct {
+		name string
+		v    float64
+	}{
+		{"+Inf", math.Inf(1)},
+		{"-Inf", math.Inf(-1)},
+		{"NaN", math.NaN()},
+	}
+	formatters := []struct {
+		name string
+		fn   func(float64) string
+	}{
+		{"Distance", Distance},
+		{"Speed", Speed},
+		{"Angle", Angle},
+		{"Mass", Mass},
+		{"Thrust", Thrust},
+		{"Pressure", Pressure},
+		{"DeltaV", DeltaV},
+	}
+	for _, f := range formatters {
+		for _, in := range inputs {
+			t.Run(f.name+"/"+in.name, func(t *testing.T) {
+				done := make(chan string, 1)
+				go func() { done <- f.fn(in.v) }()
+				select {
+				case got := <-done:
+					if got == "" {
+						t.Errorf("%s(%s) returned an empty string", f.name, in.name)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatalf("%s(%s) did not return within 2s: intDigits likely regressed to an unbounded loop", f.name, in.name)
+				}
+			})
+		}
 	}
 }
