@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -107,4 +108,54 @@ func TestLaunchViewIgnoresStaleMapMissionsHit(t *testing.T) {
 	if a.active != before {
 		t.Errorf("a click on the map's stale [Missions] column changed the screen while Launch View was showing: %v -> %v", before, a.active)
 	}
+}
+
+// TestLaunchViewNodesChipClickStillOpensManeuverScreen (#457 review
+// finding 1): unlike the title-bar buttons and the navball, LaunchView
+// composites its chips through the SAME shared OrbitView
+// (hudSource.composeChips), which rewrites chipRects in absolute
+// screen coordinates every frame regardless of which screen called
+// it — so a.orbitView.HitChip is live and correct on Launch View, not
+// stale, and clicking the NODES chip already routed to the maneuver
+// screen before the #456 fix. An earlier version of that fix swallowed
+// every non-burn click unconditionally, silently regressing this. It
+// must keep working.
+func TestLaunchViewNodesChipClickStillOpensManeuverScreen(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+
+	a.world.PlanNode(sim.ManeuverNode{
+		DV:          10,
+		Mode:        spacecraft.BurnPrograde,
+		TriggerTime: a.world.Clock.SimTime.Add(2 * time.Hour),
+	})
+	a.world.ViewMode = sim.ViewLaunch
+	a.View() // Launch View writes chipRects through the shared OrbitView
+
+	col, row, ok := findChipHitCell(a, settings.ChipNodes)
+	if !ok {
+		t.Fatal("test setup: NODES chip not found on Launch View with a node planted")
+	}
+
+	a.Update(tea.MouseMsg{X: col, Y: row, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+
+	if a.active != screenManeuver {
+		t.Errorf("clicking the NODES chip on Launch View did not open the maneuver screen: active = %v", a.active)
+	}
+}
+
+// findChipHitCell scans the whole frame for a cell where HitChip
+// reports the given chip id.
+func findChipHitCell(a *App, want settings.Chip) (col, row int, ok bool) {
+	for r := 0; r < a.height; r++ {
+		for c := 0; c < a.width; c++ {
+			if id, hit := a.orbitView.HitChip(c, r); hit && id == want {
+				return c, r, true
+			}
+		}
+	}
+	return 0, 0, false
 }
