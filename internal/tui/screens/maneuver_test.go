@@ -89,6 +89,33 @@ func TestManeuverRendersPlannedNodes(t *testing.T) {
 	}
 }
 
+// TestManeuverPlannedNodeRowShowsTMinusForFutureNode pins F12 (gate
+// review): the one deliberate behaviour change in this PR. The PLANNED
+// NODES row used to route through a local formatCountdown that spelled
+// a future node "T+1h0m0s" (time-until as a positive offset); it now
+// routes through readout.Countdown, whose launch convention flips that
+// sign, so the same future node reads "T-1h" instead. Nothing else in
+// the suite pinned this sign, which is exactly how a countdown running
+// the wrong direction could ship unnoticed.
+func TestManeuverPlannedNodeRowShowsTMinusForFutureNode(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Nodes = append(c.Nodes,
+		spacecraft.ManeuverNode{DV: 120, TriggerTime: w.Clock.SimTime.Add(time.Hour)},
+	)
+	m := NewManeuver(Theme{})
+	out := m.Render(w, 120, 40, 0)
+	if !strings.Contains(out, "T-1h") {
+		t.Errorf("future planted node should read T- (countdown, not elapsed):\n%s", out)
+	}
+	if strings.Contains(out, "T+1h") {
+		t.Errorf("future planted node read T+ (the pre-fix, backwards sign):\n%s", out)
+	}
+}
+
 // TestPlanCursorNavigatesAndLoadsOnEnter — ADR 0047 §1 / #428: ↑/↓ move
 // the Plan Cursor through PLANNED NODES (bounded to [0, len(Nodes)],
 // the last row being the blank new-node row); Enter on an unloaded

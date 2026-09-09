@@ -866,6 +866,76 @@ func TestBuildVesselChipCoreOnly(t *testing.T) {
 	}
 }
 
+// TestBuildVesselChipMassesRideTheLadder pins F7 (gate review): masses
+// were never migrated to readout.Mass, so a Saturn V's fuel/mass/
+// monoprop rows still printed raw kilograms ("2901847 kg") straight
+// through decision 3's contract, the exact number the ADR's own Context
+// section names as one of the original findings. A spawned Saturn V's
+// fuel and total mass are both well past the 1000 kg kg->t rung, so a
+// surviving raw-kg reading fails this immediately.
+func TestBuildVesselChipMassesRideTheLadder(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	for _, want := range []string{"fuel:      100% (2160 t)", "mass:      2902 t", "monoprop:  11.85 t"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("VESSEL chip missing %q (masses should ride the kg/t ladder):\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, " kg") {
+		t.Errorf("VESSEL chip still prints a raw kilogram reading:\n%s", out)
+	}
+}
+
+// TestBuildVesselChipDeltaVPairShowsStageOverVehicle pins F12 (gate
+// review): decision 7's "stage / vehicle" two-number Δv row had no
+// call-site test: only readout's own DeltaVPair unit tests covered the
+// string shape, not that a real multi-stage vessel's VESSEL chip (full
+// and Compact Form) actually reaches it instead of printing the active
+// stage's Δv alone. A spawned Saturn V has three stages, so its active
+// stage's remaining Δv and the whole stack's total are provably
+// different numbers, sharing one trailing unit.
+func TestBuildVesselChipDeltaVPairShowsStageOverVehicle(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	c := w.ActiveCraft()
+	if len(c.Stages) <= 1 {
+		t.Fatalf("test setup broken: Saturn V should spawn with more than one stage, got %d", len(c.Stages))
+	}
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(out, "Δv:        3518 / 18872 m/s") {
+		t.Errorf("VESSEL chip missing the stage/vehicle Δv pair:\n%s", out)
+	}
+	compact := strings.Join(v.buildVesselChipCompact(w), "\n")
+	if !strings.Contains(compact, "Δv: 3518 / 18872 m/s") {
+		t.Errorf("VESSEL chip (Compact Form) missing the stage/vehicle Δv pair:\n%s", compact)
+	}
+}
+
 // TestBuildNodesChipMergesActiveBurn — the NODES chip carries an in-flight
 // burn as its firing head above the planted-node summary (v0.16), and
 // shows the firing head alone when a burn is live with no upcoming nodes.
@@ -1110,8 +1180,8 @@ func realisticChipSet(burning bool) []builtChip {
 	}
 	return []builtChip{
 		{corner: cornerTopLeft, priority: chipPriorityCore,
-			lines:   []string{"VESSEL", "  S-IVB-1", "  primary:   Earth", "  velocity:  7.50 km/s", "PROPELLANT", "  fuel:      89% (35775 kg)", "  mass:      47495 kg", "  Δv budget: 5777 m/s", "  throttle:  100%"},
-			compact: []string{"VESSEL  S-IVB-1", "  fuel: 89% (35775 kg)  Δv: 5777 m/s"}},
+			lines:   []string{"VESSEL", "  S-IVB-1", "  primary:   Earth", "  velocity:  7.50 km/s", "PROPELLANT", "  fuel:      89% (35.77 t)", "  mass:      47.49 t", "  Δv:        5777 m/s", "  throttle:  100%"},
+			compact: []string{"VESSEL  S-IVB-1", "  fuel: 89% (35.77 t)  Δv: 5777 m/s"}},
 		{id: settings.ChipFrameTransition, corner: cornerTopLeft,
 			lines: []string{"FRAME TRANSITION", "  Earth → Moon", "  at T+5d4h  (node #3)"}},
 		{id: settings.ChipMissions, corner: cornerTopLeft,
@@ -1120,11 +1190,11 @@ func realisticChipSet(burning bool) []builtChip {
 		{corner: cornerTopRight, priority: chipPriorityCore,
 			// #426: the Full form grew an `e:` row (eccentricity, always-on,
 			// full form only — the Compact Form stays the Ap/Pe strip below).
-			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  apo:       T-47m", "  Pe:        498.2 km", "  peri:      T-12m", "  period:    1h34m28s", "  inclin.:   0.00°", "  direction: prograde", "  e:         0.0004"},
+			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  apo:       T-47m", "  Pe:        498.2 km", "  peri:      T-12m", "  period:    1h34m28s", "  incl:      0.00°", "  direction: prograde", "  e:         0.0004"},
 			compact: []string{"ORBIT", "  Ap: 500.0 km  Pe: 498.2 km"}},
 		{id: settings.ChipTarget, corner: cornerTopRight,
-			lines:   []string{"TARGET", "  body:     Moon", "  Δi:       19.44°", "  range:    371639 km", "  TCA:      4.72h"},
-			compact: []string{"TARGET  Moon", "  range: 371639 km"}},
+			lines:   []string{"TARGET", "  body:     Moon", "  Δincl:    19.44°", "  range:    371.6 Mm", "  TCA:      T-4h43m"},
+			compact: []string{"TARGET  Moon", "  range: 371.6 Mm"}},
 		{id: settings.ChipStages, corner: cornerBottomLeft,
 			lines:   []string{"STAGES", "  ●●●", "  ▸ S-IC (1/3)"},
 			compact: []string{"STAGES  ●●●"}},

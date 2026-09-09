@@ -2386,19 +2386,19 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 		if arc.plOK {
 			lines = append(lines, chipRow("planned:", periValue(arc.planned)))
 			if arc.planned.HasEntryTime {
-				lines = append(lines, chipRow("  T-entry:", readout.Duration(time.Duration(arc.planned.TimeToEntry*float64(time.Second)))))
+				lines = append(lines, chipRow("  "+readout.LabelEntry, readout.Countdown(time.Duration(arc.planned.TimeToEntry*float64(time.Second)))))
 			}
-			lines = append(lines, chipRow("  T-peri:", readout.Duration(time.Duration(arc.planned.TimeToPerilune*float64(time.Second)))))
+			lines = append(lines, chipRow("  "+readout.LabelPeri, readout.Countdown(time.Duration(arc.planned.TimeToPerilune*float64(time.Second)))))
 		}
 		if arc.cfOK {
 			lines = append(lines, chipRow("no-burn:", periValue(arc.counterfactual)))
 		}
 		return lines
 	}
-	// Single live pass (no node planted). T-entry is the predicted SOI-entry
+	// Single live pass (no node planted). entry: is the predicted SOI-entry
 	// clock — the ring crossing the Entry glyph marks (ADR 0021 C).
 	if arc.counterfactual.HasEntryTime {
-		lines = append(lines, chipRow("T-entry:", readout.Duration(time.Duration(arc.counterfactual.TimeToEntry*float64(time.Second)))))
+		lines = append(lines, chipRow(readout.LabelEntry, readout.Countdown(time.Duration(arc.counterfactual.TimeToEntry*float64(time.Second)))))
 	}
 	lines = append(lines,
 		chipRow("perilune:", periValue(arc.counterfactual)),

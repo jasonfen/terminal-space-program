@@ -682,18 +682,18 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		v.theme.Primary.Render("PROPELLANT"),
 	}
 	if pct, kg, ok := activeStageFuel(c); ok {
-		lines = append(lines, fmt.Sprintf("  fuel:      %.0f%% (%.0f kg)", pct, kg))
+		lines = append(lines, fmt.Sprintf("  fuel:      %.0f%% (%s)", pct, readout.Mass(kg)))
 	} else {
-		lines = append(lines, fmt.Sprintf("  fuel:      %.0f kg", c.Fuel))
+		lines = append(lines, fmt.Sprintf("  fuel:      %s", readout.Mass(c.Fuel)))
 	}
 	lines = append(lines,
-		fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
+		fmt.Sprintf("  mass:      %s", readout.Mass(c.TotalMass())),
 		fmt.Sprintf("  %s        %s", readout.LabelDeltaV, deltaVReadout(c)),
 		v.throttleRow(c),
 	)
 	if c.MonopropCapacity > 0 {
 		lines = append(lines,
-			fmt.Sprintf("  monoprop:  %.0f kg", c.Monoprop),
+			fmt.Sprintf("  monoprop:  %s", readout.Mass(c.Monoprop)),
 			fmt.Sprintf("  rcs Δv:    %s", readout.DeltaV(c.RCSDeltaV())),
 		)
 		// In RCS mode, surface the per-pulse step so the player can see
@@ -784,9 +784,9 @@ func (v *OrbitView) buildVesselChipCompact(w *sim.World) []string {
 		return nil
 	}
 	c := w.ActiveCraft()
-	fuelStr := fmt.Sprintf("%.0f kg", c.Fuel)
+	fuelStr := readout.Mass(c.Fuel)
 	if pct, kg, ok := activeStageFuel(c); ok {
-		fuelStr = fmt.Sprintf("%.0f%% (%.0f kg)", pct, kg)
+		fuelStr = fmt.Sprintf("%.0f%% (%s)", pct, readout.Mass(kg))
 	}
 	return []string{
 		v.theme.Primary.Render("VESSEL") + v.vesselBurnBadge(w) + "  " + crashedVesselNameLabel(v.theme, c),

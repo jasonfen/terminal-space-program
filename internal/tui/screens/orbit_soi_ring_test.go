@@ -136,8 +136,8 @@ func TestSOIPassChipShowsEntryTime(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	setupMoonCoast(t, w)
-	if out := v.Render(w, 0, 200, 60); !strings.Contains(out, "T-entry:") {
-		t.Errorf("no-node SOI PASS chip missing the T-entry row")
+	if out := v.Render(w, 0, 200, 60); !strings.Contains(out, "entry:") {
+		t.Errorf("no-node SOI PASS chip missing the entry row")
 	}
 
 	// Dual-arc form: transfer planted, craft still at LEO.
@@ -151,7 +151,7 @@ func TestSOIPassChipShowsEntryTime(t *testing.T) {
 	if !strings.Contains(out, "planned") {
 		t.Fatalf("precondition: dual-arc chip missing its planned row:\n%s", out)
 	}
-	if !strings.Contains(out, "T-entry:") {
-		t.Errorf("dual-arc SOI PASS chip missing the planned T-entry row")
+	if !strings.Contains(out, "entry:") {
+		t.Errorf("dual-arc SOI PASS chip missing the planned entry row")
 	}
 }

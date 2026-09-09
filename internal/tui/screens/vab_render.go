@@ -490,7 +490,7 @@ func (v *VAB) stageHeaderLine(i int, stats spacecraft.VehicleStats, sel, cursorO
 	st := v.resolveStage(v.stages[i])
 	eng := "no engine"
 	if st.Thrust > 0 {
-		eng = fmt.Sprintf("%.0fkN@%.0f", st.Thrust/1000, st.Isp) + "s"
+		eng = fmt.Sprintf("%.0fkN@%.0fs", st.Thrust/1000, st.Isp)
 	}
 	chem := "—"
 	if v.stages[i].isCatalog() {

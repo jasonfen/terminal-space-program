@@ -1095,7 +1095,7 @@ func (s *SpawnCraft) renderTail(width int) []string {
 				default:
 					tag = "mid"
 				}
-				eng := fmt.Sprintf("%.0fkN @ %.0f", st.Thrust/1000, st.Isp) + "s"
+				eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
 				if st.Thrust == 0 {
 					eng = "RCS-only"
 				}
@@ -1115,7 +1115,7 @@ func (s *SpawnCraft) renderTail(width int) []string {
 			name := m.Name
 			eng := "RCS-only"
 			if len(stages) > 0 && stages[0].Thrust > 0 {
-				eng = fmt.Sprintf("%.0fkN @ %.0f", stages[0].Thrust/1000, stages[0].Isp) + "s"
+				eng = fmt.Sprintf("%.0fkN @ %.0fs", stages[0].Thrust/1000, stages[0].Isp)
 			}
 			if len(stages) > 1 {
 				name = fmt.Sprintf("%s (%d-stage)", m.Name, len(stages))
@@ -1485,8 +1485,8 @@ func propulsionSummary(l spacecraft.Loadout) string {
 	if bottomThrust == 0 {
 		summary = fmt.Sprintf("dry %.0fkg%s, RCS-only", dry, stageNote)
 	} else {
-		summary = fmt.Sprintf("dry %.0fkg, fuel %.0fkg%s, %.0fkN @ Isp %.0f",
-			dry, fuel, stageNote, bottomThrust/1000, bottomIsp) + "s"
+		summary = fmt.Sprintf("dry %.0fkg, fuel %.0fkg%s, %.0fkN @ Isp %.0fs",
+			dry, fuel, stageNote, bottomThrust/1000, bottomIsp)
 	}
 	return summary + " · " + scaleHint(l.Scale())
 }

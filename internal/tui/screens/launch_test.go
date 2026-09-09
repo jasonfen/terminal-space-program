@@ -63,12 +63,25 @@ func spawnSaturnVOnPad(t *testing.T) (*sim.World, *spacecraft.Spacecraft) {
 }
 
 // formatLaunchHUD renders the LaunchView readout strip overlaid on
-// the bottom braille row of the chase-cam canvas. Format re-pinned for
-// ADR 0049 stage A2's gate-review follow-up: `vert`/`downrange`/`Q:`
-// route through internal/tui/readout like every other flight readout
-// (v_z was a third spelling of vert:'s own quantity; the elapsed T+
-// clock is now the standard two-unit Duration form, not a second
-// HH:MM:SS clock face beside the title bar's).
+// the bottom braille row of the chase-cam canvas. Format re-pinned twice
+// for ADR 0049 stage A2's gate-review follow-ups:
+//
+//   - F9 (second gate review): decision 1's "title-bar mission stopwatch
+//     (T+ 00:00:02)" carve-out names a stopwatch that does not exist on
+//     the title bar (it prints a calendar date); the launch strip was
+//     the only HH:MM:SS clock on main, so the ADR named the right object
+//     and mislocated it. The first A2 pass removed this clock reading
+//     that mislocation as license to drop it, leaving the game with NO
+//     clock-style readout, which decision 1 explicitly did not want.
+//     T+ HH:MM:SS is restored verbatim.
+//   - F14 (second gate review): vert/downrange gain the colon Q: already
+//     had (decision 6), and the "(max ...)" parenthetical drops its
+//     repeated unit per decision 6's own worked example
+//     ("Q: 0.0 kPa (max 0.0)", not "(max 0.0 kPa)").
+//
+// vert/downrange/Q: themselves still route through internal/tui/readout
+// like every other flight readout (v_z was a third spelling of vert:'s
+// own quantity).
 func TestFormatLaunchHUDTracerBullet(t *testing.T) {
 	got := formatLaunchHUD(
 		2*time.Minute+34*time.Second,
@@ -77,7 +90,7 @@ func TestFormatLaunchHUDTracerBullet(t *testing.T) {
 		18_345.0,
 		24_500.0,
 	)
-	want := "T+2m34s  vert 120.0 m/s | downrange 15.40 km  Q: 18.34 kPa (max 24.50 kPa)"
+	want := "T+ 00:02:34  vert: 120.0 m/s | downrange: 15.40 km  Q: 18.34 kPa (max 24.50)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
@@ -87,7 +100,7 @@ func TestFormatLaunchHUDTracerBullet(t *testing.T) {
 // downrange/Q all zero.
 func TestFormatLaunchHUDPadIdle(t *testing.T) {
 	got := formatLaunchHUD(0, 0, 0, 0, 0)
-	want := "T+0s  vert 0.00 m/s | downrange 0 m  Q: 0.000 kPa (max 0.000 kPa)"
+	want := "T+ 00:00:00  vert: 0.00 m/s | downrange: 0 m  Q: 0.000 kPa (max 0.000)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
@@ -97,7 +110,7 @@ func TestFormatLaunchHUDPadIdle(t *testing.T) {
 // the hour boundary rolls cleanly past HH.
 func TestFormatLaunchHUDDescentAcrossHourBoundary(t *testing.T) {
 	got := formatLaunchHUD(time.Hour+9*time.Minute+5*time.Second, -42.0, 300_000, 0, 500)
-	want := "T+1h09m  vert -42.00 m/s | downrange 300.0 km  Q: 0.000 kPa (max 0.500 kPa)"
+	want := "T+ 01:09:05  vert: -42.00 m/s | downrange: 300.0 km  Q: 0.000 kPa (max 0.500)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}

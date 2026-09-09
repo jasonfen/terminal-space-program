@@ -177,14 +177,34 @@ func formatLaunchHUD(tPlus time.Duration, vZ, downrangeM, qPa, qMaxPa float64) s
 	if tPlus < 0 {
 		tPlus = 0
 	}
+	// F9 (gate review addendum): decision 1 carves out "the title-bar
+	// mission stopwatch (T+ 00:00:02)" as the game's one clock-style
+	// readout, but no such title-bar stopwatch exists: the title bar
+	// prints a calendar date (orbit.go's clockChip), never HH:MM:SS.
+	// This launch strip was the only HH:MM:SS clock on main; the ADR
+	// named the right object and mislocated it. Removing this clock (as
+	// the first A2 pass did, reading "a distinct clock from the title-bar
+	// stopwatch" as license to drop it rather than to keep it) left the
+	// game with no clock-style readout at all, which decision 1
+	// explicitly did not want. Restored verbatim; every other field on
+	// this line stays on the two-unit/SI-ladder contract.
+	secs := int(tPlus.Seconds())
+	h := secs / 3600
+	m := (secs / 60) % 60
+	s := secs % 60
+	// F14 (gate review): colons throughout (vert:/downrange:, matching
+	// Q:'s own rename-table colon), and the "(max ...)" parenthetical
+	// drops its repeated unit per decision 6's own worked example
+	// ("Q: 0.0 kPa (max 0.0)", not "(max 0.0 kPa)").
+	qMaxNum, _, _ := strings.Cut(readout.Pressure(qMaxPa), " ")
 	return fmt.Sprintf(
-		"T+%s  vert %s | downrange %s  %s %s (max %s)",
-		readout.Duration(tPlus),
+		"T+ %02d:%02d:%02d  vert: %s | downrange: %s  %s %s (max %s)",
+		h, m, s,
 		readout.Speed(vZ),
 		readout.Distance(downrangeM),
 		readout.LabelQ,
 		readout.Pressure(qPa),
-		readout.Pressure(qMaxPa),
+		qMaxNum,
 	)
 }
 

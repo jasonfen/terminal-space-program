@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,28 @@ import (
 // %g-style assertion helper, isn't a player-facing readout) and does NOT
 // include `(locked)`: PR B (the heading-trim / #453 amendment) owns the
 // pad row and that string is meant to survive this PR.
+//
+// Isp (specific impulse) is explicitly exempted from the `%.0fs` pattern,
+// by name, via isIspException below, not by narrowing the pattern itself
+// (gate review F3): specific impulse is measured in seconds as its own
+// unit, not a duration readout this contract governs, but an earlier
+// pass "fixed" the two sites that print it glued to a kN thrust figure
+// (spawn.go's part-picker summaries, vab_render.go's stage header) by
+// rewriting `"%.0fkN @ %.0fs"` as `"%.0fkN @ %.0f" + "s"`, byte-identical
+// output, whose only effect was hiding the field from this exact grep.
+// That is a worse problem than the one it dodged: a documented bypass
+// idiom any future raw-seconds readout could copy. Both files are
+// reverted to main (verified: `git diff origin/main` on both is empty);
+// the honest fix is this visible, named exemption instead.
+//
+// Scope widened to all of internal/tui (F11, gate review): the guard used
+// to scan only its own package directory, and app.go's rendezvous-nudge
+// flash carried the exact T+/T- inversion decision 2 exists to remove,
+// undetected for the whole PR because it lived one directory up. Walks
+// internal/tui recursively rather than just internal/tui/screens, and
+// explicitly skips internal/tui/readout: that package IS the contract's
+// implementation, so its own format verbs (e.g. Thrust's "%.0f kN") are
+// not player-facing dialect survivors, they're the fix.
 func TestReadoutDialectGuard(t *testing.T) {
 	patterns := []string{
 		`%.0fs`,
@@ -55,36 +78,59 @@ func TestReadoutDialectGuard(t *testing.T) {
 		`%.0f N`,
 	}
 
-	dir := "."
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("ReadDir(%q): %v", dir, err)
-	}
-
+	root := ".." // internal/tui: this test's own working directory is internal/tui/screens
 	var srcFiles []string
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		srcFiles = append(srcFiles, name)
+		if d.IsDir() {
+			if d.Name() == "readout" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		srcFiles = append(srcFiles, path)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WalkDir(%q): %v", root, err)
 	}
 	if len(srcFiles) == 0 {
-		t.Fatal("no non-test .go files found in internal/tui/screens, guard scope is empty, check the working directory")
+		t.Fatal("no non-test .go files found under internal/tui, guard scope is empty, check the working directory")
 	}
 
-	for _, name := range srcFiles {
-		path := filepath.Join(dir, name)
+	for _, path := range srcFiles {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("ReadFile(%q): %v", path, err)
 		}
-		content := string(data)
-		for _, p := range patterns {
-			if strings.Contains(content, p) {
-				lineNo := 1 + strings.Count(content[:strings.Index(content, p)], "\n")
-				t.Errorf("%s:%d: found old-dialect pattern %q, route this readout through internal/tui/readout instead", name, lineNo, p)
+		lines := strings.Split(string(data), "\n")
+		for i, line := range lines {
+			for _, p := range patterns {
+				if !strings.Contains(line, p) {
+					continue
+				}
+				if isIspException(p, line) {
+					continue
+				}
+				t.Errorf("%s:%d: found old-dialect pattern %q, route this readout through internal/tui/readout instead", path, i+1, p)
 			}
 		}
 	}
+}
+
+// isIspException reports whether a `%.0fs` hit is specific impulse (Isp),
+// not a raw-seconds duration reading: exempted by checking for the field
+// or word the line actually prints, not by narrowing the `%.0fs` pattern
+// itself (gate review F3 rejected pattern-narrowing as indistinguishable
+// from the same bypass idiom it was called out for). All three current
+// Isp sites either pass a `.Isp` struct field as the format argument on
+// the same line, or spell "Isp" directly in the format string.
+func isIspException(pattern, line string) bool {
+	return pattern == `%.0fs` && (strings.Contains(line, ".Isp") || strings.Contains(line, "Isp "))
 }

@@ -385,8 +385,15 @@ func TestSurfaceViewShowsOneDescentBlock(t *testing.T) {
 	if n := strings.Count(out, "altitude:"); n != 1 {
 		t.Errorf("frame carries %d `altitude:` rows, want 1 — the two descent blocks are duplicating", n)
 	}
-	if n := strings.Count(out, "vert:"); n != 0 {
-		t.Errorf("frame still carries %d `vert:` rows: the DESCENT chip did not stand down", n)
+	// F9/F14 (gate review): the launch strip's own always-on bottom-row
+	// clock line legitimately carries one "vert:" reading of its own now
+	// (restored HH:MM:SS clock, colon added to match Q:'s), a third,
+	// distinct surface from the DESCENT chip / DESCENT CORRIDOR pair this
+	// test is actually about. Exactly 1 still catches the original bug
+	// (DESCENT failing to stand down would make it 2, one per corner
+	// chip, on top of the strip's own reading).
+	if n := strings.Count(out, "vert:"); n != 1 {
+		t.Errorf("frame carries %d `vert:` rows, want 1 (the launch strip's own): the DESCENT chip did not stand down", n)
 	}
 	// The rows worth keeping came along rather than being dropped —
 	// `fpa` included; it survived the #377 layout change (Jason's call).
