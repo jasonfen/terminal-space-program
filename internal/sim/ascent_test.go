@@ -347,11 +347,6 @@ func TestAscentQBandForHyperbolicDepartureStandsDownByAltitude(t *testing.T) {
 	}
 }
 
-// TestAscentCueForGatingMatrix is the ascent mirror of
-// TestDescentCorridorForGating: it stands up for a climbing vessel and
-// stands down for a falling, coasting, or landed one — and, critically,
-// AscentCueFor and DescentCorridorFor are never both true for the same
-// state, so the surface view can't stack the two instrument blocks.
 // TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere (#451,
 // follow-up to #449): the ascent arc and nose/prograde attitude stubs
 // share AscentQBandFor's exact bug — AscentCueFor's own gate was raw
@@ -418,6 +413,11 @@ func TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere(t *testing.T) {
 	}
 }
 
+// TestAscentCueForGatingMatrix is the ascent mirror of
+// TestDescentCorridorForGating: it stands up for a climbing vessel and
+// stands down for a falling, coasting, or landed one — and, critically,
+// AscentCueFor and DescentCorridorFor are never both true for the same
+// state, so the surface view can't stack the two instrument blocks.
 func TestAscentCueForGatingMatrix(t *testing.T) {
 	w, c := ascendTestCraft(t, "earth", 1_000, 50)
 	c.CurrentAttitudeDir = orbital.Vec3{X: 1}

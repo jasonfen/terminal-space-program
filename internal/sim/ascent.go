@@ -14,9 +14,16 @@
 //     marked on it — see AscentQBand's doc comment for why "measured so
 //     far" rather than a forecast eventual peak.
 //
-// AscentCueFor gates all three behind one climbing predicate — the
-// mirror image of DescentCorridorFor's falling gate — so the surface
-// view can never show the ascent cues and the descent corridor at once.
+// AscentCueFor gates all three behind climbing PLUS "not done with the
+// atmosphere for good" (#451) — the near-mirror of DescentCorridorFor's
+// falling-plus-no-impact-forecast gate — so the surface view can never
+// show the ascent cues and the descent corridor at once. Not an exact
+// mirror: the two halves stand down on different thresholds (ascent on
+// periapsis vs. the atmosphere cutoff, descent on "no ground contact
+// inside its forecast horizon"), so a low elliptical orbit can show the
+// ascent bundle for its whole climbing half while the descent corridor
+// only lights on the last stretch before periapsis. See
+// atmosphereClearedForGood's doc comment.
 package sim
 
 import (
@@ -33,8 +40,12 @@ import (
 // enough to the sprite to stay legible on the chase-cam canvas — not a
 // full orbital-period lookahead. A craft still governed by atmosphere or
 // gravity typically resolves (apoapsis, or a fall back to ground) well
-// inside 10 minutes; one that reaches a stable orbit inside the horizon
-// just draws a partial arc of it (PredictAscentPath's no-impact branch).
+// inside 10 minutes; one still climbing toward a stable orbit inside the
+// horizon just draws a partial arc of it (PredictAscentPath's no-impact
+// branch) — once that orbit's periapsis actually clears the atmosphere
+// for good, AscentCueFor's own gate stops asking for the arc at all
+// (#451), so this horizon only matters while there's still a real
+// atmosphere pass ahead (or on an airless body, which has no such gate).
 const AscentPredictHorizon = 10 * time.Minute
 
 // climbRateFloorMps is the ascent mirror of descentRateFloorMps
@@ -161,7 +172,9 @@ type AscentQBand struct {
 // atmosphere pass is ever coming again. False (never "cleared") for an
 // airless primary, since there's no atmosphere to clear in the first
 // place; that half of the ascent story is scoped out of this check
-// on purpose (#451 is about the atmosphere specifically).
+// on purpose (#451 is about the atmosphere specifically — #454 tracks
+// the airless-body equivalent, which needs a different "done for
+// good" test: periapsis above the surface, not the atmosphere).
 //
 // Mirrors shouldShowLaunchHUD's own hyperbolic-vs-elliptical split
 // (orbit.go): a stable elliptical orbit's periapsis tells you whether
@@ -240,11 +253,10 @@ type AscentCue struct {
 // by construction — climbRate ≥ floor forces the descent gate's
 // descentRate (= −climbRate) below its own floor, and vice versa.
 // Nothing here needs to consult DescentCorridorFor's result to avoid
-// stacking on top of it. DescentCorridorFor itself doesn't need the
-// atmosphereClearedForGood check below: it already requires a forward
-// impact forecast to succeed (PredictImpact within its horizon), which
-// a stable orbit's periapsis-above-ground never produces — #451
-// confirmed it, so only this ascent half needed the fix.
+// stacking on top of it. DescentCorridorFor needs no equivalent check
+// of its own: its gate is a forward impact forecast (PredictImpact
+// within its horizon), and a periapsis-above-ground orbit never
+// produces one, so only this ascent half needed the #451 fix below.
 //
 // #451: raw climb rate is orbital-mechanics-blind the same way
 // AscentQBandFor's was (#449) — a stable orbit's radial rate swings
@@ -253,7 +265,10 @@ type AscentCue struct {
 // stubs, Q band) up once per orbit forever above the atmosphere.
 // atmosphereClearedForGood adds the same periapsis/altitude check
 // AscentQBandFor uses; it's a no-op for an airless primary (no
-// atmosphere to clear), so this doesn't touch Moon-style ascents.
+// atmosphere to clear), so a stable lunar orbit still has this exact
+// symptom — tracked separately as #454, since it needs a different
+// "done for good" test (periapsis above the surface, not the
+// atmosphere) rather than growing this fix.
 func AscentCueFor(w *World, c *spacecraft.Spacecraft, horizon time.Duration) (AscentCue, bool) {
 	if c == nil || c.Landed || c.Crashed {
 		return AscentCue{}, false
