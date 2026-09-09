@@ -14,9 +14,16 @@
 //     marked on it — see AscentQBand's doc comment for why "measured so
 //     far" rather than a forecast eventual peak.
 //
-// AscentCueFor gates all three behind one climbing predicate — the
-// mirror image of DescentCorridorFor's falling gate — so the surface
-// view can never show the ascent cues and the descent corridor at once.
+// AscentCueFor gates all three behind climbing PLUS "not done with the
+// atmosphere for good" (#451) — the near-mirror of DescentCorridorFor's
+// falling-plus-no-impact-forecast gate — so the surface view can never
+// show the ascent cues and the descent corridor at once. Not an exact
+// mirror: the two halves stand down on different thresholds (ascent on
+// periapsis vs. the atmosphere cutoff, descent on "no ground contact
+// inside its forecast horizon"), so a low elliptical orbit can show the
+// ascent bundle for its whole climbing half while the descent corridor
+// only lights on the last stretch before periapsis. See
+// atmosphereClearedForGood's doc comment.
 package sim
 
 import (
@@ -33,8 +40,12 @@ import (
 // enough to the sprite to stay legible on the chase-cam canvas — not a
 // full orbital-period lookahead. A craft still governed by atmosphere or
 // gravity typically resolves (apoapsis, or a fall back to ground) well
-// inside 10 minutes; one that reaches a stable orbit inside the horizon
-// just draws a partial arc of it (PredictAscentPath's no-impact branch).
+// inside 10 minutes; one still climbing toward a stable orbit inside the
+// horizon just draws a partial arc of it (PredictAscentPath's no-impact
+// branch) — once that orbit's periapsis actually clears the atmosphere
+// for good, AscentCueFor's own gate stops asking for the arc at all
+// (#451), so this horizon only matters while there's still a real
+// atmosphere pass ahead (or on an airless body, which has no such gate).
 const AscentPredictHorizon = 10 * time.Minute
 
 // climbRateFloorMps is the ascent mirror of descentRateFloorMps
@@ -156,54 +167,61 @@ type AscentQBand struct {
 	HasMaxQ bool
 }
 
+// atmosphereClearedForGood reports whether c's primary carries an
+// atmosphere AND c's current orbit has cleared it for good — no
+// atmosphere pass is ever coming again. False (never "cleared") for an
+// airless primary, since there's no atmosphere to clear in the first
+// place; that half of the ascent story is scoped out of this check
+// on purpose (#451 is about the atmosphere specifically — #454 tracks
+// the airless-body equivalent, which needs a different "done for
+// good" test: periapsis above the surface, not the atmosphere).
+//
+// Mirrors shouldShowLaunchHUD's own hyperbolic-vs-elliptical split
+// (orbit.go): a stable elliptical orbit's periapsis tells you whether
+// the atmosphere is coming back (periapsis inside it: yes, next orbit;
+// periapsis clear: never again), but a hyperbolic/degenerate state's
+// "periapsis" can describe a departure or approach far from the body,
+// where the honest signal is current altitude instead.
+//
+// Backs both AscentQBandFor (#449) and AscentCueFor's own gate (#451):
+// the original ascent-cue design (issue #348 §3) keyed everything off
+// instantaneous climb rate, which is orbital-mechanics-blind — a
+// stable orbit's surface-relative radial rate swings positive on every
+// periapsis→apoapsis half regardless of altitude, so without this
+// check the whole bundle (Q band AND the ascent arc / nose-prograde
+// stubs) would flicker back on once per orbit, forever, long after the
+// atmosphere could ever matter again.
+func atmosphereClearedForGood(c *spacecraft.Spacecraft) bool {
+	atm := c.Primary.Atmosphere
+	if atm == nil {
+		return false
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu <= 0 {
+		return false
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	if el.E >= 1 || el.A <= 0 {
+		// Hyperbolic/degenerate: go by current altitude instead of
+		// periapsis (shouldShowLaunchHUD's exact reasoning).
+		return c.Altitude() >= atm.CutoffAltitude
+	}
+	periapsisAltM := el.Periapsis() - c.Primary.RadiusMeters()
+	return periapsisAltM >= atm.CutoffAltitude
+}
+
 // AscentQBandFor builds the Q-band instrument for a craft. ok is false
 // when the primary has no atmosphere at all (issue #348 §3's gate — "Q
-// band only on bodies WITH atmosphere"), or once the vessel is done
-// with the atmosphere for good (#449 fix, see below).
-//
-// "Done for good" mirrors shouldShowLaunchHUD's own hyperbolic-vs-
-// elliptical split (orbit.go), for the same reason: a stable elliptical
-// orbit's periapsis tells you whether the atmosphere is coming back
-// (periapsis inside it: yes, next orbit; periapsis clear: never again),
-// but a hyperbolic/degenerate state's "periapsis" can describe a
-// departure or approach far from the body, where the honest signal is
-// current altitude instead — see shouldShowLaunchHUD's comment for why.
-//
-// Why this check exists at all: the original design (issue #348 §3)
-// kept the band visible "past the top" once a vessel climbed clear of
-// the cutoff, so the max-Q mark from the climb survived on screen. That
-// picture assumed a one-pass climb-to-orbit; it didn't account for the
-// climb-rate signal AscentCueFor's OWN gate uses being orbital-
-// mechanics-blind (tracked separately as a follow-up, #449): a stable
-// orbit's surface-relative radial rate swings positive on every
-// periapsis→apoapsis half regardless of altitude, so without a check
-// here the Q band specifically would flicker back on once per orbit,
-// forever, long after the atmosphere could ever matter again. This
-// fixes the Q band / ATMOSPHERE chip only — AscentCueFor's own `ok`
-// still gates the ascent arc and nose/prograde stubs on raw climb rate,
-// so those two keep cycling once per orbit in a stable orbit; see the
-// follow-up issue for that.
+// band only on bodies WITH atmosphere"), or once atmosphereClearedForGood
+// (#449 fix).
 func AscentQBandFor(w *World, c *spacecraft.Spacecraft) (AscentQBand, bool) {
 	if w == nil || c == nil || c.Primary.Atmosphere == nil {
 		return AscentQBand{}, false
 	}
-	atm := c.Primary.Atmosphere
-	if mu := c.Primary.GravitationalParameter(); mu > 0 {
-		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-		var doneForGood bool
-		if el.E >= 1 || el.A <= 0 {
-			// Hyperbolic/degenerate: "periapsis" can describe a distant
-			// departure or approach, so go by current altitude instead
-			// (shouldShowLaunchHUD's exact reasoning).
-			doneForGood = c.Altitude() >= atm.CutoffAltitude
-		} else {
-			periapsisAltM := el.Periapsis() - c.Primary.RadiusMeters()
-			doneForGood = periapsisAltM >= atm.CutoffAltitude
-		}
-		if doneForGood {
-			return AscentQBand{}, false
-		}
+	if atmosphereClearedForGood(c) {
+		return AscentQBand{}, false
 	}
+	atm := c.Primary.Atmosphere
 	return AscentQBand{
 		AtmosphereDepthM: atm.CutoffAltitude,
 		CurrentAltM:      c.Altitude(),
@@ -235,7 +253,22 @@ type AscentCue struct {
 // by construction — climbRate ≥ floor forces the descent gate's
 // descentRate (= −climbRate) below its own floor, and vice versa.
 // Nothing here needs to consult DescentCorridorFor's result to avoid
-// stacking on top of it.
+// stacking on top of it. DescentCorridorFor needs no equivalent check
+// of its own: its gate is a forward impact forecast (PredictImpact
+// within its horizon), and a periapsis-above-ground orbit never
+// produces one, so only this ascent half needed the #451 fix below.
+//
+// #451: raw climb rate is orbital-mechanics-blind the same way
+// AscentQBandFor's was (#449) — a stable orbit's radial rate swings
+// positive on every periapsis→apoapsis half regardless of altitude, so
+// climbRate alone would keep waking the whole bundle (arc, attitude
+// stubs, Q band) up once per orbit forever above the atmosphere.
+// atmosphereClearedForGood adds the same periapsis/altitude check
+// AscentQBandFor uses; it's a no-op for an airless primary (no
+// atmosphere to clear), so a stable lunar orbit still has this exact
+// symptom — tracked separately as #454, since it needs a different
+// "done for good" test (periapsis above the surface, not the
+// atmosphere) rather than growing this fix.
 func AscentCueFor(w *World, c *spacecraft.Spacecraft, horizon time.Duration) (AscentCue, bool) {
 	if c == nil || c.Landed || c.Crashed {
 		return AscentCue{}, false
@@ -253,6 +286,9 @@ func AscentCueFor(w *World, c *spacecraft.Spacecraft, horizon time.Duration) (As
 	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
 	climbRate := vRel.Dot(rHat)
 	if !(climbRate >= climbRateFloorMps) {
+		return AscentCue{}, false
+	}
+	if atmosphereClearedForGood(c) {
 		return AscentCue{}, false
 	}
 

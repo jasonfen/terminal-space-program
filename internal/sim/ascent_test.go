@@ -275,12 +275,15 @@ func TestAscentQBandForStandsDownOncePeriapsisClearsAtmosphere(t *testing.T) {
 		t.Errorf("stable orbit above the atmosphere: AscentQBandFor ok=true (HasMaxQ=%v), want false — must not flicker back on every orbit", qb.HasMaxQ)
 	}
 	// End to end: the player-visible path is AscentCueFor -> HasQBand,
-	// not AscentQBandFor directly. AscentCueFor's own `ok` still stands
-	// up here (its climb-rate gate is a deliberately separate, still-
-	// open follow-up — see AscentQBandFor's doc comment) — this pins
-	// that HasQBand specifically is what the fix reaches.
-	if cue, ok := AscentCueFor(w, c, AscentPredictHorizon); !ok || cue.HasQBand {
-		t.Errorf("AscentCueFor(stable orbit above atmosphere) = (HasQBand=%v, ok=%v), want (false, true)", cue.HasQBand, ok)
+	// not AscentQBandFor directly. #451 later gave AscentCueFor's own
+	// `ok` the same atmosphereClearedForGood check, so the whole bundle
+	// now stands down here too — see
+	// TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere for that
+	// fix's own dedicated coverage. This just pins that AscentQBandFor's
+	// fix reaches HasQBand through the real call path, not only when
+	// called directly.
+	if cue, ok := AscentCueFor(w, c, AscentPredictHorizon); ok || cue.HasQBand {
+		t.Errorf("AscentCueFor(stable orbit above atmosphere) = (HasQBand=%v, ok=%v), want (false, false)", cue.HasQBand, ok)
 	}
 
 	// Still-elliptical orbit whose periapsis (100km) sits INSIDE the
@@ -341,6 +344,72 @@ func TestAscentQBandForHyperbolicDepartureStandsDownByAltitude(t *testing.T) {
 
 	if _, ok := AscentQBandFor(w, c); ok {
 		t.Error("hyperbolic departure, high above the atmosphere, periapsis inside it: AscentQBandFor ok=true, want false (no re-entry is coming — it's a departure, not a launch)")
+	}
+}
+
+// TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere (#451,
+// follow-up to #449): the ascent arc and nose/prograde attitude stubs
+// share AscentQBandFor's exact bug — AscentCueFor's own gate was raw
+// climb rate, orbital-mechanics-blind, so a stable orbit fully above
+// the atmosphere still flickered the whole bundle back on once per
+// orbit. atmosphereClearedForGood now backs this gate too.
+func TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere(t *testing.T) {
+	w, c := ascendTestCraft(t, "earth", 218_000, 50)
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	mu := c.Primary.GravitationalParameter()
+	R := c.Primary.RadiusMeters()
+	atm := c.Primary.Atmosphere
+
+	orbitAt := func(rpAltM, raAltM, nu float64) {
+		rp := R + rpAltM
+		ra := R + raAltM
+		a := (rp + ra) / 2
+		e := (ra - rp) / (ra + rp)
+		p := a * (1 - e*e)
+		rMag := p / (1 + e*math.Cos(nu))
+		rHat := orbital.Vec3{X: math.Cos(nu), Y: math.Sin(nu)}
+		c.State.R = rHat.Scale(rMag)
+		h := math.Sqrt(mu * p)
+		vr := (mu / h) * e * math.Sin(nu)
+		vt := (mu / h) * (1 + e*math.Cos(nu))
+		thetaHat := orbital.Vec3{X: -math.Sin(nu), Y: math.Cos(nu)}
+		c.State.V = rHat.Scale(vr).Add(thetaHat.Scale(vt))
+	}
+
+	// Stable orbit, periapsis (210km) and apoapsis (226km) both clear of
+	// the 150km cutoff, evaluated on the climbing half (nu=90°) — the
+	// exact shape the #449 reviewer used to find this bundle still
+	// waking up.
+	orbitAt(210_000, 226_000, math.Pi/2)
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	if climbRate := vRel.Dot(rHat); climbRate < climbRateFloorMps {
+		t.Fatalf("test setup: climb rate %.3f m/s at nu=90°, want above the %.1f m/s floor", climbRate, climbRateFloorMps)
+	}
+	if alt := c.Altitude(); alt <= atm.CutoffAltitude {
+		t.Fatalf("test setup: altitude %.0fm should be above the %.0fm cutoff", alt, atm.CutoffAltitude)
+	}
+	if cue, ok := AscentCueFor(w, c, AscentPredictHorizon); ok {
+		t.Errorf("stable orbit above the atmosphere: AscentCueFor ok=true (arc len=%d, HasAttitude=%v), want false — the arc/attitude stubs must not flicker back on every orbit", len(cue.Arc.Path), cue.HasAttitude)
+	}
+
+	// The sign-mirror falling half of the SAME orbit: DescentCorridorFor
+	// was checked and found to already stand down correctly here — it
+	// requires PredictImpact to find actual ground contact within its
+	// horizon, which a periapsis-above-ground orbit never produces. So
+	// only the ascending half needed this fix; this pins that claim
+	// rather than leaving it as an unverified comment.
+	orbitAt(210_000, 226_000, -math.Pi/2)
+	if _, ok := DescentCorridorFor(c, DescentPredictHorizon); ok {
+		t.Error("stable orbit above the atmosphere, falling half: DescentCorridorFor ok=true, want false (no impact is ever coming — already gated by PredictImpact's horizon)")
+	}
+
+	// Still-elliptical orbit whose periapsis (100km) sits INSIDE the
+	// 150km cutoff: a real re-entry is coming next orbit, so the bundle
+	// staying live on the climbing half is still the correct call.
+	orbitAt(100_000, 226_000, math.Pi/2)
+	if _, ok := AscentCueFor(w, c, AscentPredictHorizon); !ok {
+		t.Error("periapsis still inside the atmosphere: AscentCueFor ok=false, want true (re-entry is still coming)")
 	}
 }
 
