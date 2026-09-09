@@ -67,7 +67,10 @@ func TestThrottleRowIdleVsFiring(t *testing.T) {
 // instant nothing is thrusting. Originally a canvas-border color swap
 // plus a title-bar badge; that whole-screen treatment read as too loud
 // in play, so the cue now lives on the one chip instead. Also locks in
-// that the removed locations (border color, title bar) stay gone.
+// that the removed locations (border color, title bar) stay gone, and
+// that the Compact Form (ADR 0046 / #422) carries the same badge as the
+// full form — #455 review finding 3, since nothing else in the suite
+// exercises buildVesselChipCompact with a burn on.
 func TestVesselChipBurnBadge(t *testing.T) {
 	v := NewOrbitView(plainThemeColored())
 	v.Resize(140, 40)
@@ -81,6 +84,10 @@ func TestVesselChipBurnBadge(t *testing.T) {
 	if strings.Contains(out, "BURN") {
 		t.Errorf("idle VESSEL chip should not carry a BURN badge:\n%s", out)
 	}
+	compactOut := strings.Join(v.buildVesselChipCompact(w), "\n")
+	if strings.Contains(compactOut, "BURN") {
+		t.Errorf("idle VESSEL chip (Compact Form) should not carry a BURN badge:\n%s", compactOut)
+	}
 	title := v.renderTitleBar("Sol", w, 140)
 	if strings.Contains(title, "BURN") {
 		t.Errorf("title bar should never carry a BURN badge (moved to the VESSEL chip):\n%s", title)
@@ -91,12 +98,20 @@ func TestVesselChipBurnBadge(t *testing.T) {
 	if !strings.Contains(out, "BURN") {
 		t.Errorf("firing VESSEL chip missing the BURN badge:\n%s", out)
 	}
+	compactOut = strings.Join(v.buildVesselChipCompact(w), "\n")
+	if !strings.Contains(compactOut, "BURN") {
+		t.Errorf("firing VESSEL chip (Compact Form) missing the BURN badge:\n%s", compactOut)
+	}
 	title = v.renderTitleBar("Sol", w, 140)
 	if strings.Contains(title, "BURN") {
 		t.Errorf("title bar picked up a BURN badge, want it only on the VESSEL chip:\n%s", title)
 	}
 
 	c.ActiveBurn = nil
+	compactOut = strings.Join(v.buildVesselChipCompact(w), "\n")
+	if strings.Contains(compactOut, "BURN") {
+		t.Errorf("BURN badge (Compact Form) did not clear when thrust stopped:\n%s", compactOut)
+	}
 	out = strings.Join(v.buildVesselChip(w), "\n")
 	if strings.Contains(out, "BURN") {
 		t.Errorf("BURN badge did not clear when thrust stopped:\n%s", out)
@@ -125,6 +140,40 @@ func TestVesselChipBurnBadgeNonActiveCraft(t *testing.T) {
 	out := strings.Join(v.buildVesselChip(w), "\n")
 	if !strings.Contains(out, "BURN") {
 		t.Errorf("VESSEL chip should badge for a non-active craft's burn:\n%s", out)
+	}
+}
+
+// TestVesselChipBurnBadgeOtherSystem — #455 review finding 2:
+// AnyCraftThrusting is slate-wide AND system-blind, same as the 10x
+// burn-warp cap, so the badge must still show on the "(in Sol — [tab]
+// to switch)" early-return branch (camera tabbed away from the active
+// craft's own system) — otherwise a player watching a friend in
+// another system while their own craft executes a planted node loses
+// every on-screen trace of why warp just clamped to 10x.
+func TestVesselChipBurnBadgeOtherSystem(t *testing.T) {
+	v := NewOrbitView(plainThemeColored())
+	v.Resize(140, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100, EndTime: w.Clock.SimTime.Add(60 * time.Second)}
+
+	if len(w.Systems) < 2 {
+		t.Skip("need a second loaded system to browse away from the craft's own")
+	}
+	w.CycleSystem()
+	if w.CraftVisibleHere() {
+		t.Fatal("test setup: craft is still visible after CycleSystem")
+	}
+
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(out, "(in Sol — [tab] to switch)") {
+		t.Fatalf("test setup: expected the other-system placeholder line:\n%s", out)
+	}
+	if !strings.Contains(out, "BURN") {
+		t.Errorf("VESSEL chip should still badge for a burning craft in a system the camera isn't showing:\n%s", out)
 	}
 }
 

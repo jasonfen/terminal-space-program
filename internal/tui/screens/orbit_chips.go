@@ -611,7 +611,12 @@ func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
 func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	if !w.CraftVisibleHere() {
 		if w.ActiveCraft() != nil {
-			return []string{v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)")}
+			// #455 review finding 2: AnyCraftThrusting is slate-wide and
+			// system-blind, same as the 10x burn-warp cap — a craft
+			// burning in a system the camera isn't currently showing
+			// must still badge here, or a player who tabs away mid-burn
+			// loses every on-screen trace of why warp just clamped.
+			return []string{v.theme.Dim.Render("VESSEL (in Sol — [tab] to switch)") + v.vesselBurnBadge(w)}
 		}
 		// #310: an empty slate used to render nothing at all. The camera
 		// meanwhile fell through to the system origin, so the player was left
