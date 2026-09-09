@@ -216,19 +216,19 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	if w.AutoWarpEngaged() {
 		burnLabel = "[■Burn]"
 	}
-	// decisions 2 / 6 (grilled 2026-09-06): the same `● BURN` engine-lit
-	// badge and `[F2 declutter]` tag the orbit map's title bar carries,
-	// via v.hudSource (the shared OrbitView) so a player above the
-	// atmosphere firing an engine, or flying decluttered, gets the same
-	// cues here. Nil-safe: hudSource is only ever nil in a bare test
-	// fixture that doesn't wire one up.
-	burnBadgePlain, burnBadgeRendered := "", ""
+	// decision 6 (grilled 2026-09-06): the same `[F2 declutter]` tag the
+	// orbit map's title bar carries, via v.hudSource (the shared
+	// OrbitView) so a player flying decluttered gets the same cue here.
+	// Nil-safe: hudSource is only ever nil in a bare test fixture that
+	// doesn't wire one up. Decision 2's `● BURN` badge used to ride here
+	// too; it now lives on the VESSEL chip instead (vesselBurnBadge),
+	// which this screen already shares with the map via hudSource's
+	// side-HUD chips — no separate wiring needed here.
 	declutterPlain, declutterRendered := "", ""
 	if v.hudSource != nil {
-		burnBadgePlain, burnBadgeRendered = v.hudSource.burnBadgeText(w)
 		declutterPlain, declutterRendered = v.hudSource.declutterTagText()
 	}
-	titleRight := warpRateText(w) + burnBadgePlain + declutterPlain + "  " + burnLabel
+	titleRight := warpRateText(w) + declutterPlain + "  " + burnLabel
 	titlePad := totalCols - lipgloss.Width(titleLeft) - lipgloss.Width(titleRight)
 	if titlePad < 1 {
 		titlePad = 1
@@ -244,7 +244,7 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	case !w.AutoWarpEligible():
 		burnRendered = v.theme.Dim.Render(burnLabel)
 	}
-	titleRightRendered := warpRendered + burnBadgeRendered + declutterRendered + "  " + burnRendered
+	titleRightRendered := warpRendered + declutterRendered + "  " + burnRendered
 	title := v.theme.Title.Render(titleLeft) + strings.Repeat(" ", titlePad) + titleRightRendered
 
 	// The descent half (ADR 0043 §3): one forecast per frame, shared by
@@ -369,15 +369,7 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// the side HUD off the right of the terminal. Manual borders
 	// give us exact control: use lipgloss.Width per line for the
 	// pad math, which strips ANSI before measuring.
-	// decision 2 (grilled 2026-09-06): the same engine-lit border tint the
-	// orbit map carries — Warning while any craft in the slate is
-	// thrusting, Primary otherwise. hudSource nil-check mirrors the title
-	// bar above.
-	borderFg := v.theme.Primary.GetForeground()
-	if v.hudSource != nil {
-		borderFg = v.hudSource.canvasBorderColor(w)
-	}
-	canvasPanel := wrapBorder(canvasStr, v.canvas.Cols(), borderFg)
+	canvasPanel := wrapBorder(canvasStr, v.canvas.Cols(), v.theme.Primary.GetForeground())
 
 	// v0.13 playtest move: the launch-relevant readouts (VESSEL core,
 	// LAUNCH, STAGES, ATTITUDE) are all canvas Chips now, composited above,
