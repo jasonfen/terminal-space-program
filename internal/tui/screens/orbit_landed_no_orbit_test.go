@@ -214,7 +214,7 @@ func TestOrbitChipShowsSurfaceFactsWhenLanded(t *testing.T) {
 			t.Errorf("landed ORBIT chip missing %q:\n%s", want, joined)
 		}
 	}
-	for _, unwanted := range []string{"Ap:", "Pe:", "period:", "t→Ap:", "t→Pe:", "PERIAPSIS BELOW SURFACE"} {
+	for _, unwanted := range []string{"Ap:", "Pe:", "period:", "apo:", "peri:", "PERIAPSIS BELOW SURFACE"} {
 		if strings.Contains(joined, unwanted) {
 			t.Errorf("landed ORBIT chip still shows orbital readout %q, want it suppressed:\n%s", unwanted, joined)
 		}

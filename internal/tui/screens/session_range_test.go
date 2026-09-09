@@ -42,7 +42,7 @@ func TestSessionRosterShowsRangeAndTheLockRule(t *testing.T) {
 		t.Errorf("a player with no range rendered as a zero distance:\n%s", out)
 	}
 	// The rule itself, in the numbers the sim actually gates on.
-	if !strings.Contains(out, "35 km") || !strings.Contains(out, "100 m/s") {
+	if !strings.Contains(out, "35.00 km") || !strings.Contains(out, "100.0 m/s") {
 		t.Errorf("roster never states the warp-lock rule:\n%s", out)
 	}
 }

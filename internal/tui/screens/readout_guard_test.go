@@ -10,10 +10,21 @@ import (
 // TestReadoutDialectGuard is the ADR 0049 stage A2 guard: it greps this
 // package's own non-test source for survivors of the pre-contract number
 // dialect the internal/tui/readout package (stage A1) replaces, and fails
-// on any hit. The five patterns come straight off the ADR's own before
-// examples: `%.0fs` / `%.2fh` (raw-seconds and decimal-hour durations),
-// `km alt` (the dropped `alt` suffix), `_vert` (the v_vert/v_horiz
-// underscore labels) and `|v_rel|` (the absolute-value-bars label).
+// on any hit. The first five patterns come straight off the ADR's own
+// before examples: `%.0fs` / `%.2fh` (raw-seconds and decimal-hour
+// durations), `km alt` (the dropped `alt` suffix), `_vert` (the
+// v_vert/v_horiz underscore labels) and `|v_rel|` (the absolute-value-bars
+// label).
+//
+// The next five were added on gate review, once the audit went against
+// the rename table and the tree rather than the first pass's own report:
+// the ADR's own list was blind to them, so they lived on past the first
+// five going to zero. `v_z` (the launch strip's third spelling of vert:'s
+// quantity), `Δi:` (the un-renamed sibling of Δincl:), `t→` (the ORBIT
+// chip's apo:/peri: countdowns spelled with an arrow instead of the
+// signed T- convention every other countdown uses), a bare `downrange %.`
+// (the launch strip's off-ladder distance), and `%.1f°` (orbital and
+// geographic angles bypassing readout.Angle's 4-significant-figure rule).
 //
 // Deliberately does NOT scan _test.go files (a pinned test string, or a
 // %g-style assertion helper, isn't a player-facing readout) and does NOT
@@ -26,6 +37,11 @@ func TestReadoutDialectGuard(t *testing.T) {
 		`km alt`,
 		`_vert`,
 		`|v_rel|`,
+		`v_z`,
+		`Δi:`,
+		`t→`,
+		`downrange %.`,
+		`%.1f°`,
 	}
 
 	dir := "."

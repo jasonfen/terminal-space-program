@@ -1120,7 +1120,7 @@ func realisticChipSet(burning bool) []builtChip {
 		{corner: cornerTopRight, priority: chipPriorityCore,
 			// #426: the Full form grew an `e:` row (eccentricity, always-on,
 			// full form only — the Compact Form stays the Ap/Pe strip below).
-			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  t→Ap:      47m", "  Pe:        498.2 km", "  t→Pe:      12m", "  period:    1h34m28s", "  inclin.:   0.00°", "  direction: prograde", "  e:         0.0004"},
+			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  apo:       T-47m", "  Pe:        498.2 km", "  peri:      T-12m", "  period:    1h34m28s", "  inclin.:   0.00°", "  direction: prograde", "  e:         0.0004"},
 			compact: []string{"ORBIT", "  Ap: 500.0 km  Pe: 498.2 km"}},
 		{id: settings.ChipTarget, corner: cornerTopRight,
 			lines:   []string{"TARGET", "  body:     Moon", "  Δi:       19.44°", "  range:    371639 km", "  TCA:      4.72h"},

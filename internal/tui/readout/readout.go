@@ -15,6 +15,7 @@ package readout
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -27,16 +28,22 @@ import (
 // ---
 
 const (
-	LabelVert      = "vert:"      // v_vert -> vert: (the m/s already says speed)
-	LabelHoriz     = "horiz:"     // v_horiz -> horiz:
-	LabelFPA       = "fpa:"       // unchanged code; the ascent flight-path angle
-	LabelOrbitFPA  = "orbit fpa:" // fpa_orbit -> orbit fpa:
-	LabelQ         = "Q:"         // unchanged code; dynamic pressure
-	LabelTWR       = "TWR:"       // twr -> TWR:
-	LabelHold      = "hold:"      // sas -> hold: (matches the ATTITUDE panel's word)
-	LabelAp        = "Ap:"        // ap -> Ap:
-	LabelPe        = "Pe:"        // pe -> Pe:
-	LabelApo       = "apo:"       // t_to_apo -> apo: (value is a T- countdown)
+	LabelVert     = "vert:"      // v_vert -> vert: (the m/s already says speed)
+	LabelHoriz    = "horiz:"     // v_horiz -> horiz:
+	LabelFPA      = "fpa:"       // unchanged code; the ascent flight-path angle
+	LabelOrbitFPA = "orbit fpa:" // fpa_orbit -> orbit fpa:
+	LabelQ        = "Q:"         // unchanged code; dynamic pressure
+	LabelTWR      = "TWR:"       // twr -> TWR:
+	LabelHold     = "hold:"      // sas -> hold: (matches the ATTITUDE panel's word)
+	LabelAp       = "Ap:"        // ap -> Ap:
+	LabelPe       = "Pe:"        // pe -> Pe:
+	LabelApo      = "apo:"       // t_to_apo -> apo: (value is a T- countdown)
+	// LabelPeri is apo:'s obvious sibling for the ORBIT chip's t→Pe: row.
+	// Not in the action-plan's own rename table (built from review
+	// findings that never flagged this ORBIT-chip-only row), added on
+	// gate review: leaving it as t→Pe: kept two dialects for one
+	// quantity, apo:/peri: on SURFACE and t→Ap:/t→Pe: on ORBIT.
+	LabelPeri      = "peri:"
 	LabelBurn      = "burn:"      // t_burn -> burn:
 	LabelIncl      = "incl:"      // inclin. -> incl:
 	LabelDeltaIncl = "Δincl:"     // Δi -> Δincl:
@@ -274,6 +281,16 @@ func Thrust(n float64) string {
 	return fmt.Sprintf("%.*f kN", dec, Nzero(n/1000, dec))
 }
 
+// Pressure renders a dynamic pressure in pascals as kPa, always (never
+// raw Pa or a ladder), at 4 significant figures: mirrors Thrust, the
+// other single-unit off-ladder reading. Input in pascals so callers
+// (Q on the ATMOSPHERE chip and the launch strip) pass the SI value they
+// already compute, not a pre-divided kPa figure.
+func Pressure(pa float64) string {
+	dec := sigDecimals(math.Abs(pa)/1000, 3)
+	return fmt.Sprintf("%.*f kPa", dec, Nzero(pa/1000, dec))
+}
+
 // --- Off-ladder precision: speed, Δv, orbital angles (ADR decision 4;
 // action-plan decision 12) ---
 
@@ -311,6 +328,19 @@ func formatDeltaVMps(mps float64) string {
 // same decision 12 sentence pins to an integer at and above 100 m/s.
 func Speed(mps float64) string {
 	return formatMps(mps) + " m/s"
+}
+
+// SignedSpeed renders a relative rate (closing, approach) at Speed's same
+// 4-sig-fig / 2-decimal-cap precision, but with an explicit sign on
+// positive values and zero, matching the closing:/rate-style rows that
+// need "toward" versus "away" legible without a separate word: "+3640
+// m/s", "-12.34 m/s", "+0.00 m/s".
+func SignedSpeed(mps float64) string {
+	s := Speed(mps)
+	if strings.HasPrefix(s, "-") {
+		return s
+	}
+	return "+" + s
 }
 
 // DeltaV renders a Δv figure in m/s. Decision 12: "Δv keeps its integer

@@ -158,6 +158,28 @@ func TestThrust(t *testing.T) {
 	}
 }
 
+// TestPressure pins the ATMOSPHERE chip's / launch strip's Q reading:
+// always kPa (never raw Pa), 4 significant figures, mirroring Thrust's
+// own single-unit off-ladder shape. Input is pascals.
+func TestPressure(t *testing.T) {
+	cases := []struct {
+		name string
+		pa   float64
+		want string
+	}{
+		{"zero on the pad", 0, "0.000 kPa"},
+		{"typical max-Q figure", 23100, "23.10 kPa"},
+		{"four-digit kPa", 1023000, "1023 kPa"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Pressure(c.pa); got != c.want {
+				t.Errorf("Pressure(%v) = %q, want %q", c.pa, got, c.want)
+			}
+		})
+	}
+}
+
 // --- Speed / DeltaV: off-ladder, 4 sig figs capped at 2 decimals, always
 // m/s. ADR decision 4, action-plan decision 12. Speed uses the rule at
 // every magnitude, including the 40.00 m/s case (adjudicated at the gate
@@ -183,6 +205,30 @@ func TestSpeed(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if got := Speed(c.mps); got != c.want {
 				t.Errorf("Speed(%v) = %q, want %q", c.mps, got, c.want)
+			}
+		})
+	}
+}
+
+// TestSignedSpeed pins the closing:/rate-style rows added in ADR 0049
+// stage A2's gate-review follow-up: same precision as Speed, but always
+// signed, including at exactly zero and at a negative value that Nzero
+// snaps to zero (the pre-snap sign must not survive as a bare "-0.00").
+func TestSignedSpeed(t *testing.T) {
+	cases := []struct {
+		name string
+		mps  float64
+		want string
+	}{
+		{"positive gets an explicit +", 3640, "+3640 m/s"},
+		{"negative keeps its own sign", -12.34, "-12.34 m/s"},
+		{"exact zero reads +0.00", 0, "+0.00 m/s"},
+		{"a negative that snaps to zero still reads +0.00, not -0.00", -0.001, "+0.00 m/s"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := SignedSpeed(c.mps); got != c.want {
+				t.Errorf("SignedSpeed(%v) = %q, want %q", c.mps, got, c.want)
 			}
 		})
 	}

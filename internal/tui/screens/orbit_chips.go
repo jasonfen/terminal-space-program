@@ -539,15 +539,26 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 }
 
 // navballReservedRows reports how many bottom rows the navball panel
-// occupies on the canvas this frame (0 when it isn't shown), so the
-// bottom-right Nodes chip can stack above it. Mirrors the gate in
-// composeNavballOverlay; the +1 matches the one-row bottom lift there.
+// occupies on the canvas this frame, so the bottom-right Nodes chip can
+// stack above it. Mirrors the gate in composeNavballOverlay; the +1
+// matches the one-row bottom lift there.
+//
+// The floor is 1, never 0: row cRows-1 carries the Hint Strip
+// (paintHintStrip), painted unconditionally regardless of navball state,
+// and bottomLeftRow already stays off that row unconditionally (cRows-2,
+// "above the view: label"). Before this fix bottom-right chips had no
+// equivalent floor whenever the navball itself was absent
+// (!CraftVisibleHere, a too-small canvas, or no sub-observer), so a wide
+// enough NODES chip in exactly that state could paint over the Hint
+// Strip's tail: a real Design Size (140x40) collision the ADR 0049 stage
+// A2 gate review measured (the node row's own contract-mandated widening
+// was what tipped it over the edge; see impl-notes/item4-A2-migration.md).
 func (v *OrbitView) navballReservedRows(w *sim.World, cCols, cRows int) int {
 	if !w.CraftVisibleHere() || cCols < navballPanelW+2 || cRows < navballPanelH+2 {
-		return 0
+		return 1
 	}
 	if _, _, ok := w.NavballSubObserver(); !ok {
-		return 0
+		return 1
 	}
 	return navballPanelH + 1
 }
@@ -647,7 +658,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 				lines = append(lines,
 					"  "+name,
 					"  primary:   "+primary.EnglishName,
-					fmt.Sprintf("  velocity:  %.2f km/s", g.Vel.Norm()/1000),
+					fmt.Sprintf("  velocity:  %s", readout.Speed(g.Vel.Norm())),
 				)
 			}
 			// #330: [U], matching the actual uppercase Undock binding —
@@ -667,7 +678,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		v.theme.Primary.Render("VESSEL") + v.vesselBurnBadge(w),
 		"  " + crashedVesselNameLabel(v.theme, c),
 		"  primary:   " + c.Primary.EnglishName,
-		fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+		fmt.Sprintf("  velocity:  %s", readout.Speed(c.OrbitalSpeed())),
 		v.theme.Primary.Render("PROPELLANT"),
 	}
 	if pct, kg, ok := activeStageFuel(c); ok {
@@ -683,7 +694,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 	if c.MonopropCapacity > 0 {
 		lines = append(lines,
 			fmt.Sprintf("  monoprop:  %.0f kg", c.Monoprop),
-			fmt.Sprintf("  rcs Δv:    %.0f m/s", c.RCSDeltaV()),
+			fmt.Sprintf("  rcs Δv:    %s", readout.DeltaV(c.RCSDeltaV())),
 		)
 		// In RCS mode, surface the per-pulse step so the player can see
 		// the fine-trim level the `p` key cycles. v0.24.5+.

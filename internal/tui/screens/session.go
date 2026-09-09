@@ -801,8 +801,8 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	// Quoted from the sim's own gate constants so the sentence can never
 	// drift from the behaviour it describes.
 	b.WriteString(s.theme.Dim.Render(fmt.Sprintf(
-		"\n  warps lock together inside %.0f km when you're closing slower than %.0f m/s",
-		sim.CoWarpCoupleRangeM/1000, sim.CoWarpCoupleSpeedMs)) + "\n")
+		"\n  warps lock together inside %s when you're closing slower than %s",
+		readout.Distance(sim.CoWarpCoupleRangeM), readout.Speed(sim.CoWarpCoupleSpeedMs))) + "\n")
 
 	b.WriteString("\n")
 	if s.confirmRemove {

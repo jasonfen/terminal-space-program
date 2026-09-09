@@ -225,11 +225,11 @@ func TestOrbitMetricsChipShowsTimeToApsides(t *testing.T) {
 	if strings.Contains(out, "SURFACE") {
 		t.Fatalf("expected the ORBIT chip, not SURFACE, for an orbit clear of the atmosphere.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "t→Ap:") {
-		t.Errorf("expected a t→Ap row in the ORBIT chip.\nrender:\n%s", out)
+	if !strings.Contains(out, "apo:") {
+		t.Errorf("expected an apo row in the ORBIT chip.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "t→Pe:") {
-		t.Errorf("expected a t→Pe row in the ORBIT chip.\nrender:\n%s", out)
+	if !strings.Contains(out, "peri:") {
+		t.Errorf("expected a peri row in the ORBIT chip.\nrender:\n%s", out)
 	}
 	// The orbital period sits alongside the apsis-time readouts so a
 	// comsat placement can be tuned to a target period (e.g. synchronous).

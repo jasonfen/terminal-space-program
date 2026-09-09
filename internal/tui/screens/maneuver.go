@@ -1115,8 +1115,8 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 				lines = append(lines, m.theme.Dim.Render("  AN/DN:         equatorial (undefined)"))
 			} else {
 				lines = append(lines,
-					fmt.Sprintf("  new AN angle:  %.1f°", normalizeManeuverDeg(ro.AscNode*180/math.Pi)),
-					fmt.Sprintf("  new DN angle:  %.1f°", normalizeManeuverDeg(ro.DescNode*180/math.Pi)),
+					fmt.Sprintf("  new AN angle:  %s", readout.Angle(normalizeManeuverDeg(ro.AscNode*180/math.Pi))),
+					fmt.Sprintf("  new DN angle:  %s", readout.Angle(normalizeManeuverDeg(ro.DescNode*180/math.Pi))),
 				)
 			}
 		}

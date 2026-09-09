@@ -35,7 +35,7 @@ type LaunchView struct {
 	hudSource *OrbitView // reused for the side-HUD chrome (v0.11.0+)
 
 	// lastVZSample caches the previous tick's altitude + sim-time so
-	// the HUD can compute v_z (m/s) as a finite difference rather than
+	// the HUD can compute vert (m/s) as a finite difference rather than
 	// requiring a sim-side velocity decomposition. Re-keyed on active-
 	// craft change so a vessel switch can't bleed a stale baseline.
 	vzCraft *spacecraft.Spacecraft
@@ -160,24 +160,31 @@ func launchAutoScale(altitudeM float64, rows int) float64 {
 // formatLaunchHUD renders the v0.11 Slice 1 launch-readout strip
 // overlaid on the chase-cam canvas's bottom braille row. Format:
 //
-//	T+ HH:MM:SS  v_z ±XXX m/s | downrange X.X km  Q XX.X kPa (max YY.Y)
+//	T+4m19s  vert 12.30 m/s | downrange 15.40 km  Q: 18.30 kPa (max 24.50 kPa)
+//
+// tPlus is elapsed time since THIS ascent's liftoff (w.LaunchT0), a
+// distinct clock from the title-bar mission stopwatch (which counts
+// sim-time since the whole flight began), not the same readout twice.
+// Decision 1's "only clock-style readout" carve-out is that stopwatch's
+// HH:MM:SS clock face specifically; every other elapsed reading,
+// including this one, uses the standard two-unit Duration form instead
+// of a second clock face. The sign is still "T+" (decision 2: T+ means
+// since the event) because liftoff has already happened by the time this
+// line renders at all.
 //
 // Inputs in SI units: vZ m/s, downrangeM m, q / qMaxPa Pa.
 func formatLaunchHUD(tPlus time.Duration, vZ, downrangeM, qPa, qMaxPa float64) string {
-	secs := int(tPlus.Seconds())
-	if secs < 0 {
-		secs = 0
+	if tPlus < 0 {
+		tPlus = 0
 	}
-	h := secs / 3600
-	m := (secs / 60) % 60
-	s := secs % 60
 	return fmt.Sprintf(
-		"T+ %02d:%02d:%02d  v_z %+d m/s | downrange %.1f km  Q %.1f kPa (max %.1f)",
-		h, m, s,
-		int(vZ),
-		downrangeM/1000.0,
-		qPa/1000.0,
-		qMaxPa/1000.0,
+		"T+%s  vert %s | downrange %s  %s %s (max %s)",
+		readout.Duration(tPlus),
+		readout.Speed(vZ),
+		readout.Distance(downrangeM),
+		readout.LabelQ,
+		readout.Pressure(qPa),
+		readout.Pressure(qMaxPa),
 	)
 }
 
@@ -1368,9 +1375,9 @@ func (v *LaunchView) ascentQBandLines(qb sim.AscentQBand) []string {
 			lines = append(lines, "  "+ascentQBandTickGlyph)
 		}
 	}
-	lines = append(lines, fmt.Sprintf("  Q:     %.1f kPa", qb.CurrentQPa/1000))
+	lines = append(lines, fmt.Sprintf("  %s     %s", readout.LabelQ, readout.Pressure(qb.CurrentQPa)))
 	if qb.HasMaxQ {
-		lines = append(lines, fmt.Sprintf("  max Q: %.1f kPa", qb.MaxQPa/1000))
+		lines = append(lines, fmt.Sprintf("  max %s %s", readout.LabelQ, readout.Pressure(qb.MaxQPa)))
 	}
 	return lines
 }
@@ -1599,7 +1606,7 @@ func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) stri
 	// #427 / ADR 0048 §3: the pad's call to action. Landed with the
 	// engine off is exactly the silent state the review found — no
 	// ignite prompt, no mention of `b`, no countdown, no throttle cue
-	// anywhere. Replaces the T+/v_z/downrange/Q line rather than sitting
+	// anywhere. Replaces the T+/vert/downrange/Q line rather than sitting
 	// beside it: pre-ignition every one of those numbers reads a flat
 	// zero (TestFormatLaunchHUDPadIdle), so the line was noise standing
 	// in the way of the one thing that actually matters here. The

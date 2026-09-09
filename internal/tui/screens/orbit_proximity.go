@@ -833,7 +833,7 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
 		chipRow("range:", readout.Distance(st.RangeM)),
 		chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+proximityOverSpeedSuffix(st)),
-		chipRow("closing:", fmt.Sprintf("%+.2f m/s", st.ClosingMS)),
+		chipRow("closing:", readout.SignedSpeed(st.ClosingMS)),
 	}
 }
 

@@ -62,14 +62,14 @@ func TestOrbitChipApsisTimesDegenerateOnCircularOrbit(t *testing.T) {
 	for _, nu := range []float64{0, math.Pi / 2} {
 		period := placeOnConic(w, r, r, nu)
 		out := v.Render(w, 0, 200, 60)
-		for _, label := range []string{"t→Ap:", "t→Pe:"} {
+		for _, label := range []string{"apo:", "peri:"} {
 			val := apsisRow(t, out, label)
 			if val != "—" {
 				t.Errorf("circular orbit at ν=%.2f: %s %q, want \"—\" (apsides are undefined at e=0)",
 					nu, label, val)
 			}
 		}
-		seen = append(seen, apsisRow(t, out, "t→Ap:"))
+		seen = append(seen, apsisRow(t, out, "apo:"))
 		_ = period
 	}
 	if len(seen) == 2 && seen[0] != seen[1] {
@@ -92,9 +92,9 @@ func TestOrbitChipApsisTimesLiveOnSlightlyEccentricOrbit(t *testing.T) {
 	rPeri, rApo := primaryR+500.0e3, primaryR+500.4e3
 
 	placeOnConic(w, rPeri, rApo, 0)
-	atPeri := apsisRow(t, v.Render(w, 0, 200, 60), "t→Ap:")
+	atPeri := apsisRow(t, v.Render(w, 0, 200, 60), "apo:")
 	placeOnConic(w, rPeri, rApo, math.Pi/2)
-	quarterOn := apsisRow(t, v.Render(w, 0, 200, 60), "t→Ap:")
+	quarterOn := apsisRow(t, v.Render(w, 0, 200, 60), "apo:")
 
 	if strings.Contains(atPeri, "—") || strings.Contains(quarterOn, "—") {
 		t.Fatalf("0.4 km of apsis separation read as degenerate: %q / %q", atPeri, quarterOn)
