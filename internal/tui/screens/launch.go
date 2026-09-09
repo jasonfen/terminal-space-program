@@ -78,6 +78,17 @@ type LaunchView struct {
 	// "burn at" search (issue #377). See launch_descent_cache.go.
 	descentStopCache         descentStopRenderCache
 	descentStopCacheComputes int
+
+	// burnColStart/burnColEnd track this screen's OWN [»Burn] button
+	// (#456 fix): PR #445 added the button's rendering here but never
+	// gave the click a hit-test of its own, so app.go's mouse dispatch
+	// fell through to the shared OrbitView's burnColStart/menuColStart/
+	// missionsColStart — fields this screen never writes, left stale at
+	// whatever the map's last actual render computed for ITS entirely
+	// different title layout. A click on this screen's visually-correct
+	// [»Burn] button could land inside the map's stale [Missions] range
+	// instead. See Render's title-bar block for where these are set.
+	burnColStart, burnColEnd int
 }
 
 // NewLaunchView constructs the chase-cam screen, paired with the
@@ -246,6 +257,12 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	}
 	titleRightRendered := warpRendered + declutterRendered + "  " + burnRendered
 	title := v.theme.Title.Render(titleLeft) + strings.Repeat(" ", titlePad) + titleRightRendered
+
+	// #456 fix: this screen's own [»Burn] hit-test, computed from the
+	// exact same pieces the render above just used — burnLabel sits
+	// last in titleRight, so its start column is everything before it.
+	v.burnColStart = lipgloss.Width(titleLeft) + titlePad + lipgloss.Width(titleRight) - lipgloss.Width(burnLabel)
+	v.burnColEnd = v.burnColStart + lipgloss.Width(burnLabel)
 
 	// The descent half (ADR 0043 §3): one forecast per frame, shared by
 	// the scene (dashed arc + ground marker) and the corridor chip, so
@@ -462,6 +479,14 @@ func visibleWidth(lines []string) int {
 		}
 	}
 	return w
+}
+
+// HitBurnButton reports whether (col, row) lands on this screen's own
+// [»Burn] button (#456 fix). Row-0 only, mirroring OrbitView's
+// HitBurnButton — this screen's title bar is the only row-0 content it
+// draws, so the same convention applies.
+func (v *LaunchView) HitBurnButton(col, row int) bool {
+	return row == 0 && col >= v.burnColStart && col < v.burnColEnd
 }
 
 // renderNoActiveVesselMessage stamps a centered "no active vessel"

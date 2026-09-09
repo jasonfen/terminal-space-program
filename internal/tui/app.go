@@ -559,6 +559,23 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch a.active {
 		case screenOrbit:
+			// #456 fix: while ViewLaunch is showing, every hit-test
+			// below this point (Menu/Missions/Burn buttons, the navball,
+			// chips, HitAt) reads OrbitView state that LaunchView.Render
+			// never touches — the map's own last-actual-render layout,
+			// frozen and unrelated to what's on screen right now. A
+			// click on THIS screen's [»Burn] button used to fall through
+			// to those stale map coordinates and could land inside e.g.
+			// the map's [Missions] range instead. Route to LaunchView's
+			// own hit-test (added alongside this fix) and swallow every
+			// other click here — none of the map-specific hits below are
+			// meaningful against a screen they were never computed for.
+			if a.world.ViewMode == sim.ViewLaunch {
+				if a.launchView.HitBurnButton(m.X, m.Y) {
+					a.toggleAutoWarpBurn()
+				}
+				return a, nil
+			}
 			// v0.7.4+: title-bar [Menu] / [Missions] buttons take
 			// priority over canvas / HUD hits, since they sit at
 			// row 0 above the body region.
