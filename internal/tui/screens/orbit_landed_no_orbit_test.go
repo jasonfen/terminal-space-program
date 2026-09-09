@@ -223,7 +223,7 @@ func TestOrbitChipShowsSurfaceFactsWhenLanded(t *testing.T) {
 
 // TestTargetChipLandedTargetShowsNoApPe (#375, site
 // orbit_chip_builders.go:1533): a landed TARGET keeps range / closing /
-// |v_rel| (still meaningful relative-state math) but swaps its Ap/Pe/
+// rel speed (still meaningful relative-state math) but swaps its Ap/Pe/
 // inclin. for the landing site, since those numbers came from the same
 // co-rotation pseudo-orbit as the ORBIT chip's.
 func TestTargetChipLandedTargetShowsNoApPe(t *testing.T) {
@@ -260,12 +260,12 @@ func TestTargetChipLandedTargetShowsNoApPe(t *testing.T) {
 		t.Fatal("TARGET chip returned nil for a landed target")
 	}
 	joined := strings.Join(lines, "\n")
-	for _, unwanted := range []string{"Ap:", "Pe:", "inclin.:"} {
+	for _, unwanted := range []string{"Ap:", "Pe:", "incl:"} {
 		if strings.Contains(joined, unwanted) {
 			t.Errorf("landed target's TARGET chip still shows %q, want it swapped for landing site:\n%s", unwanted, joined)
 		}
 	}
-	for _, want := range []string{"landed at:", "range:", "|v_rel|:", "closing:"} {
+	for _, want := range []string{"landed at:", "range:", "rel speed:", "closing:"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("landed target's TARGET chip missing %q:\n%s", want, joined)
 		}
@@ -306,7 +306,7 @@ func TestLandedVesselNeverPrintsNegativeZero(t *testing.T) {
 // TCA/CA pair (plus a ✕ on the map) for a phantom trajectory diving
 // through the body.
 //
-// Range/closing/|v_rel| stay meaningful for a landed target (plain
+// Range/closing/rel speed stay meaningful for a landed target (plain
 // relative-state math, not propagation) so only the predicted-encounter
 // rows and marker are gated — the chip must not blank those either.
 //
@@ -354,7 +354,7 @@ func TestLandedTargetHasNoClosestApproachPrediction(t *testing.T) {
 			t.Errorf("landed target's TARGET chip still shows %q (a propagated closest-approach prediction), want it suppressed:\n%s", unwanted, joined)
 		}
 	}
-	for _, want := range []string{"range:", "|v_rel|:", "closing:"} {
+	for _, want := range []string{"range:", "rel speed:", "closing:"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("landed target's TARGET chip lost %q — only the propagated CA/TCA prediction should be gated, not the whole row group:\n%s", want, joined)
 		}
@@ -367,25 +367,10 @@ func TestLandedTargetHasNoClosestApproachPrediction(t *testing.T) {
 	}
 }
 
-// TestFormatChipKmSnapsNegativeZero locks the #375 item-6 fix: the km
-// formatter shared by the ORBIT/TARGET chips' altitude/Ap/Pe rows must
-// never print a "-0.0" for a magnitude that rounds to zero at its
-// display precision, even where the underlying number is legitimately
-// noise-level rather than exactly zero — nzero is already proven for
-// v_vert; formatChipKm is the same treatment for km readouts.
-func TestFormatChipKmSnapsNegativeZero(t *testing.T) {
-	cases := []struct {
-		m    float64
-		want string
-	}{
-		{-3, "0.0 km"},              // noise-level negative -> snapped
-		{3, "0.0 km"},               // noise-level positive -> unaffected either way
-		{-1_737_393.6, "-1737.4 km"}, // real negative value stays negative
-		{1500, "1.5 km"},
-	}
-	for _, c := range cases {
-		if got := formatChipKm(c.m); got != c.want {
-			t.Errorf("formatChipKm(%g) = %q, want %q", c.m, got, c.want)
-		}
-	}
-}
+// The #375 item-6 fix this used to pin (TestFormatChipKmSnapsNegativeZero,
+// pre-ADR-0049: the km formatter shared by the ORBIT/TARGET chips'
+// altitude/Ap/Pe rows must never print a "-0.0" for a magnitude that
+// rounds to zero at its display precision) now lives on internal/tui/
+// readout's own TestDistance: formatChipKm is deleted, every screens/
+// call site routes through readout.Distance instead, which snaps the
+// same way at whichever ladder rung a value lands on (ADR 0049 stage A2).

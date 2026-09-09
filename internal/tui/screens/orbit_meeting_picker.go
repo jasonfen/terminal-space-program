@@ -2,8 +2,10 @@ package screens
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/planner"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // This file is the Meeting Planner picker's UI half (ADR 0045 S6, #399):
@@ -186,7 +188,7 @@ func (v *OrbitView) buildMeetingPickerChip() []string {
 		if i == mp.rowIdx {
 			marker = ">"
 		}
-		wait := formatDurationShort(row.TArrival)
+		wait := readout.Duration(time.Duration(row.TArrival * float64(time.Second)))
 		var body string
 		if row.Ok {
 			body = fmt.Sprintf("%s %2d laps   %-8s %5.0f m/s", marker, row.Laps, wait, row.DV)

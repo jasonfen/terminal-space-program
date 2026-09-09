@@ -64,8 +64,8 @@ func TestSessionScreenRows(t *testing.T) {
 
 	for _, want := range []string{
 		"jason", "(host, you)",
-		"gern", "Sol/moon", "1 vessel", "+2d4h ahead",
-		"dave", "Lumen/lumen", "3 vessels", "-3h0m behind",
+		"gern", "Sol/moon", "1 vessel", "+2d04h ahead",
+		"dave", "Lumen/lumen", "3 vessels", "-3h00m behind",
 		"pat", "—", // never reported
 	} {
 		if !strings.Contains(out, want) {

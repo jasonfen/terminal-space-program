@@ -12,87 +12,14 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestFormatAltKmThresholds exercises the three-band formatter the
-// LAUNCH HUD's ap / pe rows render through. Bands chosen so altitude
-// reads naturally on the pad (`+0 m`), in mid-ascent (`+12.3 km`),
-// and once orbit lifts out to body-radius scale (`+1234 km`).
-// v0.9.4+.
-func TestFormatAltKmThresholds(t *testing.T) {
-	cases := []struct {
-		altM float64
-		want string
-	}{
-		{0, "+0 m"},
-		{0.5, "+0 m"},
-		{12, "+12 m"},
-		{1500, "+1.5 km"},
-		{50_000, "+50.0 km"},
-		{200_000, "+200.0 km"},
-		{1_500_000, "+1500 km"},
-		{-2_840_000, "-2840 km"},
-		{-100, "-100 m"},
-	}
-	for _, c := range cases {
-		got := formatAltKm(c.altM)
-		if got != c.want {
-			t.Errorf("formatAltKm(%g) = %q, want %q", c.altM, got, c.want)
-		}
-	}
-}
-
-// TestFormatDurationShortBands exercises the three duration bands:
-// seconds (`12s`), minutes (`3m45s`), and hours (`1h22m`). Used by
-// the LAUNCH HUD's t_to_apo row. v0.9.4+.
-func TestFormatDurationShortBands(t *testing.T) {
-	cases := []struct {
-		sec  float64
-		want string
-	}{
-		{0, "0s"},
-		{12, "12s"},
-		{59.4, "59s"},
-		{60, "1m00s"},
-		{225, "3m45s"},
-		{3599, "59m59s"},
-		{3600, "1h00m"},
-		{4920, "1h22m"},
-	}
-	for _, c := range cases {
-		got := formatDurationShort(c.sec)
-		if got != c.want {
-			t.Errorf("formatDurationShort(%g) = %q, want %q", c.sec, got, c.want)
-		}
-	}
-}
-
-// TestFormatPeriodKeepsSeconds exercises the period formatter that the
-// ORBIT and PROJECTED ORBIT chips render through. Unlike
-// formatDurationShort, it keeps seconds in the hour band so a resonant /
-// phasing orbit can be tuned to better than the ±30s the minute-rounded
-// readout allowed. The 21861s case is the worked example: a 5h47m target
-// raised by 21/20 to a 6h04m21s phasing period for a 4-sat constellation.
-func TestFormatPeriodKeepsSeconds(t *testing.T) {
-	cases := []struct {
-		sec  float64
-		want string
-	}{
-		{0, "0s"},
-		{12, "12s"},
-		{60, "1m00s"},
-		{225, "3m45s"},
-		{3599, "59m59s"},
-		{3600, "1h00m00s"},
-		{4920, "1h22m00s"},
-		{20820, "5h47m00s"},
-		{21861, "6h04m21s"},
-	}
-	for _, c := range cases {
-		got := formatPeriod(c.sec)
-		if got != c.want {
-			t.Errorf("formatPeriod(%g) = %q, want %q", c.sec, got, c.want)
-		}
-	}
-}
+// The three-band altitude formatter this used to pin
+// (TestFormatAltKmThresholds, pre-ADR-0049), the duration-band coverage
+// (TestFormatDurationShortBands), and the period formatter
+// (TestFormatPeriodKeepsSeconds) all now live on internal/tui/readout's
+// own TestDistance / TestDuration / TestCountdown / TestPeriod:
+// formatAltKm, formatDurationShort and formatPeriod are deleted, every
+// screens/ call site routes through readout.Distance / readout.Duration /
+// readout.Countdown / readout.Period instead (ADR 0049 stage A2).
 
 // TestLaunchMissionProgressMatchesCircularizeFromPad — when the world
 // has an in-flight circularize_from_pad mission for the active
@@ -200,8 +127,8 @@ func TestLaunchHUDRendersOrbitReadyOnApAboveFloor(t *testing.T) {
 			"sub-orbital arc with apo above 200km floor; rendered output:\n%s",
 			out)
 	}
-	if !strings.Contains(out, "ap:") {
-		t.Errorf("expected LAUNCH HUD to surface live ap row")
+	if !strings.Contains(out, "Ap:") {
+		t.Errorf("expected LAUNCH HUD to surface live Ap row")
 	}
 	if !strings.Contains(out, "Δv→circ") {
 		t.Errorf("expected LAUNCH HUD to surface Δv→circ row")
@@ -211,7 +138,7 @@ func TestLaunchHUDRendersOrbitReadyOnApAboveFloor(t *testing.T) {
 // TestLaunchChipSteadyOnPad: a Landed craft sits at the apoapsis of its
 // co-rotation pseudo-orbit, so apoAlt hovers at exactly 0 and the
 // apoAlt>0 / rApo>primaryR gates would flip on numerical noise tick-to-
-// tick — flashing ap / t_to_apo / Δv→circ between a value and "—". On the
+// tick, flashing Ap / apo / Δv→circ between a value and "—". On the
 // pad those predictions are suppressed to a steady "—" (no real orbit
 // yet); TWR / SAS still render. Regression for the launchpad flicker.
 func TestLaunchChipSteadyOnPad(t *testing.T) {
@@ -249,22 +176,22 @@ func TestLaunchChipSteadyOnPad(t *testing.T) {
 		return ""
 	}
 	lines := v.buildLaunchChip(w)
-	for _, prefix := range []string{"ap:", "t_to_apo:", "Δv→circ:"} {
+	for _, prefix := range []string{"Ap:", "apo:", "Δv→circ:"} {
 		got := row(lines, prefix)
 		if !strings.HasSuffix(got, "—") {
 			t.Errorf("on the pad, %q row should be a steady em-dash; got %q", prefix, got)
 		}
 	}
 	// The pad-relevant rows must still be present.
-	if row(lines, "twr:") == "" || row(lines, "sas:") == "" {
-		t.Errorf("LAUNCH chip on the pad lost twr/sas rows:\n%s", strings.Join(lines, "\n"))
+	if row(lines, "TWR:") == "" || row(lines, "hold:") == "" {
+		t.Errorf("LAUNCH chip on the pad lost TWR/hold rows:\n%s", strings.Join(lines, "\n"))
 	}
 }
 
 // TestLaunchChipEngineLitIndicator — #427 / ADR 0048 §3: the launch HUD
 // had no engine-lit state at all (the review's own finding: after
 // pressing z then b there was no way to tell from the screen whether the
-// engine fired). The twr: row now carries an ignition indicator that
+// engine fired). The TWR: row now carries an ignition indicator that
 // reads "off" before ignition and "LIT" once the engine is actually
 // producing thrust (a live ManualBurn or ActiveBurn) — not the
 // throttle: setting, which sits at its loadout default whether or not
@@ -299,19 +226,19 @@ func TestLaunchChipEngineLitIndicator(t *testing.T) {
 	lines := v.buildLaunchChip(w)
 	twrRow := ""
 	for _, l := range lines {
-		if strings.Contains(l, "twr:") {
+		if strings.Contains(l, "TWR:") {
 			twrRow = l
 			break
 		}
 	}
 	if twrRow == "" {
-		t.Fatalf("no twr: row in LAUNCH chip:\n%s", strings.Join(lines, "\n"))
+		t.Fatalf("no TWR: row in LAUNCH chip:\n%s", strings.Join(lines, "\n"))
 	}
 	if !strings.Contains(twrRow, "engine:") || !strings.Contains(twrRow, "off") {
-		t.Errorf("pre-ignition twr: row should show the engine off, got %q", twrRow)
+		t.Errorf("pre-ignition TWR: row should show the engine off, got %q", twrRow)
 	}
 	if strings.Contains(twrRow, "LIT") {
-		t.Errorf("pre-ignition twr: row already reads LIT: %q", twrRow)
+		t.Errorf("pre-ignition TWR: row already reads LIT: %q", twrRow)
 	}
 
 	// Ignite (mirrors the `b` key: ToggleManualBurn) — the same row must
@@ -323,12 +250,12 @@ func TestLaunchChipEngineLitIndicator(t *testing.T) {
 	lines = v.buildLaunchChip(w)
 	twrRow = ""
 	for _, l := range lines {
-		if strings.Contains(l, "twr:") {
+		if strings.Contains(l, "TWR:") {
 			twrRow = l
 			break
 		}
 	}
 	if !strings.Contains(twrRow, "LIT") {
-		t.Errorf("after ignition the twr: row should read LIT, got %q", twrRow)
+		t.Errorf("after ignition the TWR: row should read LIT, got %q", twrRow)
 	}
 }

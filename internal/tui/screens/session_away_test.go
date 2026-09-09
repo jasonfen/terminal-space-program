@@ -108,7 +108,7 @@ func TestResumeChipReportsWhatItLeftOut(t *testing.T) {
 		{Kind: sim.SessionEventResumed, Elapsed: 2 * time.Hour, Detail: "+7 earlier", At: time.Now()},
 	}
 	joined := strings.Join(v.buildSessionEventsChip(w), "\n")
-	if !strings.Contains(joined, "resumed — 2h0m ran while you were away (+7 earlier)") {
+	if !strings.Contains(joined, "resumed — 2h00m ran while you were away (+7 earlier)") {
 		t.Errorf("truncation went unannounced:\n%s", joined)
 	}
 }

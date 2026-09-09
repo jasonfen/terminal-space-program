@@ -161,13 +161,15 @@ func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	if !strings.Contains(out, "SURFACE") {
 		t.Fatal("expected SURFACE (launch/ascent) chip during ascent")
 	}
-	if !strings.Contains(out, "  ap:") || !strings.Contains(out, "  sas:") {
-		t.Errorf("expected SURFACE ap/sas rows during ascent.\nrender:\n%s", out)
+	if !strings.Contains(out, "  Ap:") || !strings.Contains(out, "  hold:") {
+		t.Errorf("expected SURFACE Ap/hold rows during ascent.\nrender:\n%s", out)
 	}
-	// The Orbit-metrics chip (its rows use the "apoapsis:" prefix) is
-	// suppressed during ascent — the SURFACE chip already carries ap/pe.
-	if strings.Contains(out, "Ap:") {
-		t.Errorf("expected Orbit-metrics chip suppressed during ascent (LAUNCH carries ap/pe).\nrender:\n%s", out)
+	// The Orbit-metrics chip is suppressed during ascent: the SURFACE
+	// chip already carries Ap/Pe. Both chips now share the "Ap:" label
+	// (ADR 0049 decision 6), so check for a row only the Orbit-metrics
+	// chip prints ("period:") rather than the ambiguous "Ap:" substring.
+	if strings.Contains(out, "period:") {
+		t.Errorf("expected Orbit-metrics chip suppressed during ascent (LAUNCH carries Ap/Pe).\nrender:\n%s", out)
 	}
 
 	// Circularise into a stable 300 km orbit → LAUNCH vanishes, the

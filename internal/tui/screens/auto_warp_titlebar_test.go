@@ -113,21 +113,7 @@ func TestTitleChipMorphsToAutoWhenEngaged(t *testing.T) {
 	}
 }
 
-// TestCompactDuration — two-unit, prefix-free formatting for the chip.
-func TestCompactDuration(t *testing.T) {
-	cases := []struct {
-		d    time.Duration
-		want string
-	}{
-		{50 * time.Second, "50s"},
-		{5*time.Minute + 30*time.Second, "5m30s"},
-		{3*time.Hour + 12*time.Minute, "3h12m"},
-		{2*24*time.Hour + 4*time.Hour, "2d4h"},
-		{-time.Second, "0s"},
-	}
-	for _, c := range cases {
-		if got := compactDuration(c.d); got != c.want {
-			t.Errorf("compactDuration(%v) = %q, want %q", c.d, got, c.want)
-		}
-	}
-}
+// The two-unit, prefix-free duration formatting this used to pin
+// (TestCompactDuration, pre-ADR-0049) now lives on internal/tui/readout's
+// own TestDuration: compactDuration is deleted, every screens/ call site
+// routes through readout.Duration instead (ADR 0049 stage A2).

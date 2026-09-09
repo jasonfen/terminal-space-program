@@ -40,7 +40,7 @@ func TestRendezvousChipInvitePrompt(t *testing.T) {
 		Tau: w.Clock.SimTime.Add(2 * time.Hour), CA: 900,
 	}
 	joined := strings.Join(v.buildRendezvousChip(w), "\n")
-	for _, want := range []string{"RENDEZVOUS", "gern wants to rendezvous", "[y] join", "2h0m", "900 m"} {
+	for _, want := range []string{"RENDEZVOUS", "gern wants to rendezvous", "[y] join", "2h00m", "900 m"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("invite prompt missing %q:\n%s", want, joined)
 		}
@@ -78,7 +78,7 @@ func TestRendezvousChipArmedSubspaceGap(t *testing.T) {
 	// Viewer ahead: Sync (forward-only) can't reach the partner behind —
 	// the partner must come forward.
 	joined := strings.Join(v.buildRendezvousChip(w), "\n")
-	for _, want := range []string{"cannot couple", "you are 2m0s ahead of gern", "they must Sync to you"} {
+	for _, want := range []string{"cannot couple", "you are 2m00s ahead of gern", "they must Sync to you"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("gap chip missing %q:\n%s", want, joined)
 		}
@@ -94,7 +94,7 @@ func TestRendezvousChipArmedSubspaceGap(t *testing.T) {
 	// viewer is the one who can Sync forward.
 	w.RendezvousWait.AheadBy = -2 * time.Minute
 	joined = strings.Join(v.buildRendezvousChip(w), "\n")
-	for _, want := range []string{"gern is 2m0s ahead of you", "Sync to rejoin"} {
+	for _, want := range []string{"gern is 2m00s ahead of you", "Sync to rejoin"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("partner-ahead gap chip missing %q:\n%s", want, joined)
 		}
@@ -189,7 +189,7 @@ func TestRendezvousChipCoastingAndDegraded(t *testing.T) {
 	w.RendezvousApproachM = 1200
 
 	joined := strings.Join(v.buildRendezvousChip(w), "\n")
-	for _, want := range []string{"RENDEZVOUS", "gern", "committed", "900 m", "1.20 km", "[/] cancel"} {
+	for _, want := range []string{"RENDEZVOUS", "gern", "committed", "900 m", "1.200 km", "[/] cancel"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("coasting chip missing %q:\n%s", want, joined)
 		}
@@ -652,7 +652,7 @@ func TestRendezvousChipUnplannedRendersAt80x24(t *testing.T) {
 // (batch review): refreshRendezvousInvite now surfaces a zero-τ invite
 // for ADR 0045 S7's "agreed, no plan yet" state (#400) — before this
 // fix the invite's τ/CA rows rendered unconditionally, and
-// compactDuration clamps a negative duration to zero, so a zero-τ
+// a negative duration was clamped to zero, so a zero-τ
 // invite showed a fabricated "τ in: 0s / CA: 0 m": an imminent
 // zero-metre encounter that was never computed, to the one player
 // deciding whether to accept.

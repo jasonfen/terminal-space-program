@@ -458,33 +458,14 @@ func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
 	}
 }
 
+// The negative-zero-snap coverage this used to pin (TestNzeroSnapsNegativeZero,
+// pre-ADR-0049) now lives on internal/tui/readout's own TestNzero: the
+// local `nzero` helper is deleted, every screens/ formatter routes through
+// readout.Nzero instead (ADR 0049 stage A2).
+
 // TestDeclutterHidesChipsKeepsColumn: F2 declutter suppresses every Chip
 // (here the always-relevant ATTITUDE chip) while the slim HUD column —
 // which it must never hide (CONTEXT.md §Declutter) — keeps rendering.
-func TestNzeroSnapsNegativeZero(t *testing.T) {
-	cases := []struct {
-		x        float64
-		decimals int
-		want     float64
-	}{
-		{-0.3, 0, 0},    // rounds to 0 at %.0f → snapped to +0
-		{0.3, 0, 0},     // also rounds to 0 → +0 (sign already fine)
-		{-0.04, 1, 0},   // rounds to 0.0 at %.1f → +0
-		{-0.6, 0, -0.6}, // rounds to -1 → untouched
-		{12.3, 1, 12.3}, // non-zero → untouched
-	}
-	for _, c := range cases {
-		got := nzero(c.x, c.decimals)
-		if got != c.want {
-			t.Errorf("nzero(%g, %d) = %g, want %g", c.x, c.decimals, got, c.want)
-		}
-		// The snapped value must never format with a negative sign at 0.
-		if c.want == 0 && fmt.Sprintf("%+.*f", c.decimals, got)[0] == '-' {
-			t.Errorf("nzero(%g, %d) still formats as negative zero", c.x, c.decimals)
-		}
-	}
-}
-
 func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
@@ -875,7 +856,7 @@ func TestBuildVesselChipCoreOnly(t *testing.T) {
 	if !strings.Contains(out, "VESSEL") || !strings.Contains(out, "PROPELLANT") {
 		t.Errorf("vessel chip missing core headers:\n%s", out)
 	}
-	if !strings.Contains(out, "velocity") || !strings.Contains(out, "Δv budget") {
+	if !strings.Contains(out, "velocity") || !strings.Contains(out, "Δv:") {
 		t.Errorf("vessel chip missing core telemetry rows:\n%s", out)
 	}
 	// Orbit shape lives in the Orbit-metrics chip — the vessel chip must
@@ -913,11 +894,11 @@ func TestBuildNodesChipMergesActiveBurn(t *testing.T) {
 	if !strings.Contains(joined, "120 m/s") {
 		t.Errorf("firing burn missing from merged chip:\n%s", joined)
 	}
-	if !strings.Contains(joined, "80 m/s") {
+	if !strings.Contains(joined, "80.00 m/s") {
 		t.Errorf("planted node missing from merged chip:\n%s", joined)
 	}
 	// Firing head must come before the planted node.
-	if strings.Index(joined, "120 m/s") > strings.Index(joined, "80 m/s") {
+	if strings.Index(joined, "120 m/s") > strings.Index(joined, "80.00 m/s") {
 		t.Errorf("firing burn should head the chip, above planted nodes:\n%s", joined)
 	}
 
@@ -1204,10 +1185,10 @@ func TestGracefulShrinkReproducesStagesVsProximityCollision(t *testing.T) {
 	cCols, cRows := canvasDimsFor(104, 24)
 	chips := []builtChip{
 		{corner: cornerTopLeft, priority: chipPriorityCore,
-			lines:   []string{"VESSEL", "  Saturn V-2", "  primary:   Earth", "  velocity:  0.41 km/s", "PROPELLANT", "  fuel:      100% (2160000 kg)", "  mass:      2901847 kg", "  Δv budget: 3518 m/s", "  throttle:  100%"},
+			lines:   []string{"VESSEL", "  Saturn V-2", "  primary:   Earth", "  velocity:  0.41 km/s", "PROPELLANT", "  fuel:      100% (2160000 kg)", "  mass:      2901847 kg", "  Δv:        3518 m/s", "  throttle:  100%"},
 			compact: []string{"VESSEL  Saturn V-2", "  fuel: 100%  Δv: 3518 m/s"}},
 		{id: "", corner: cornerTopLeft,
-			lines:   []string{"PROXIMITY  Saturn V-1", "  range:    10661 km", "  |v_rel|:  5518.77 m/s", "  closing:  +3639.71 m/s"},
+			lines:   []string{"PROXIMITY  Saturn V-1", "  range:    10661 km", "  rel speed: 5518.77 m/s", "  closing:  +3639.71 m/s"},
 			compact: []string{"PROXIMITY  Saturn V-1", "  range: 10661 km"}},
 		{id: settings.ChipStages, corner: cornerBottomLeft,
 			lines:   []string{"STAGES", "  ●●●", "  ▸ S-IC (1/3)"},

@@ -210,8 +210,15 @@ func TestManeuverOverBudgetNodeMarked(t *testing.T) {
 }
 
 // TestManeuverBudgetLineShowsAfterPlan — #428 mechanical fix: the
-// budget line reads "Δv budget: X m/s (Y after plan)" once anything
-// is planted, not just the pre-plan total.
+// budget line reads "Δv: X m/s (Y after plan)" (ADR 0049 decision 7
+// dropped "budget" from the label) once anything is planted, not just
+// the pre-plan total. Rendered at 140 cols (Design Size, CONTEXT.md)
+// rather than a narrower width: the multi-stage default craft's Δv row
+// is now a stage/vehicle pair ("6129 / 9412 m/s"), several columns wider
+// than the pre-ADR-0049 single figure, and a narrower panel truncates
+// the "(after plan)" suffix off the row before it ever reaches this
+// assertion: a real column-budget fact about the wider row, not
+// something this test should paper over by picking a size that hides it.
 func TestManeuverBudgetLineShowsAfterPlan(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -223,13 +230,13 @@ func TestManeuverBudgetLineShowsAfterPlan(t *testing.T) {
 		Mode: spacecraft.BurnPrograde, DV: 100, TriggerTime: w.Clock.SimTime.Add(time.Hour),
 	})
 	m := NewManeuver(Theme{})
-	out := m.Render(w, 120, 40, 0)
+	out := m.Render(w, 140, 40, 0)
 	want := "after plan"
 	if !strings.Contains(out, want) {
 		t.Errorf("budget line missing %q:\n%s", want, out)
 	}
-	if strings.Contains(out, "Δv budget remaining:") {
-		t.Error("old \"Δv budget remaining:\" wording still present")
+	if strings.Contains(out, "Δv budget:") {
+		t.Error("old \"Δv budget:\" wording still present")
 	}
 	_ = budget
 }

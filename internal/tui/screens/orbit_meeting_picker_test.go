@@ -298,7 +298,7 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 		"  \u2190 their orbit \u2192",
 		">  2 laps   4h19m      697 m/s",
 		"   5 laps   9h03m    (unaffordable)",
-		"  20 laps   32h40m      92 m/s",
+		"  20 laps   1d08h       92 m/s",
 		"  arriving ~12 m/s",
 	}, "\n")
 

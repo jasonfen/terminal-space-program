@@ -17,6 +17,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // This file holds the chip builders transplanted from renderHUD's
@@ -353,7 +354,7 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			// S6). Sim-time, not wall clock: what matters is how far their
 			// craft flew, which under warp bears no relation to how long
 			// their laptop was shut.
-			resumed := "◇ resumed — " + compactDuration(e.Elapsed) + " ran while you were away"
+			resumed := "◇ resumed — " + readout.Duration(e.Elapsed) + " ran while you were away"
 			if e.Detail != "" {
 				// The replay is bounded so it cannot bury the orbit view; say
 				// so rather than truncating in silence.
@@ -462,13 +463,17 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		return v.rendezvousApproachLines(w)
 	case w.RendezvousWarpEngaged():
 		aw := w.AutoWarp
+		tauIn := aw.T.Sub(now)
+		if tauIn < 0 {
+			tauIn = 0
+		}
 		lines := []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			"  coasting with " + aw.RendezvousHandle + " to the encounter",
-			chipRow("τ in:", compactDuration(aw.T.Sub(now))),
+			chipRow("τ in:", readout.Duration(tauIn)),
 		}
 		if arm := w.RendezvousArm; arm != nil {
-			lines = append(lines, chipRow("committed:", formatRangeM(arm.CommittedCA)))
+			lines = append(lines, chipRow("committed:", readout.Distance(arm.CommittedCA)))
 			if line := rendezvousMeetingLine(arm.MeetingPlaceLabel, arm.MeetingLaps); line != "" {
 				lines = append(lines, line)
 			}
@@ -480,7 +485,7 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			lines = append(lines, rendezvousTrendLines(*arm, v.theme)...)
 		}
 		if w.RendezvousApproachM > 0 {
-			lines = append(lines, chipRow("approach:", formatRangeM(w.RendezvousApproachM)))
+			lines = append(lines, chipRow("approach:", readout.Distance(w.RendezvousApproachM)))
 		}
 		if line := v.rendezvousHoldOrPaceLine(w, aw.RendezvousHandle); line != "" {
 			lines = append(lines, line)
@@ -511,10 +516,10 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			// a gap the viewer (or the partner) warped open — name who is
 			// ahead and the actual fix instead. Sync is forward-only, so
 			// the fix depends on direction: the laggard comes forward.
-			who := "you are " + compactDuration(wt.AheadBy) + " ahead of " + arm.Handle
+			who := "you are " + readout.Duration(wt.AheadBy) + " ahead of " + arm.Handle
 			fix := "they must Sync to you"
 			if wt.AheadBy < 0 {
-				who = arm.Handle + " is " + compactDuration(-wt.AheadBy) + " ahead of you"
+				who = arm.Handle + " is " + readout.Duration(-wt.AheadBy) + " ahead of you"
 				fix = "Sync to rejoin"
 			}
 			status = v.theme.Alert.Render("  cannot couple — " + who + " — " + fix)
@@ -524,11 +529,15 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			// Own the wait instead of blaming them or advising a Sync.
 			status = v.theme.Warning.Render("  your Auto-Warp is running — coast starts when it releases")
 		}
+		armTauIn := arm.Tau.Sub(now)
+		if armTauIn < 0 {
+			armTauIn = 0
+		}
 		lines := []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			status,
-			chipRow("τ in:", compactDuration(arm.Tau.Sub(now))),
-			chipRow("CA:", formatRangeM(arm.CommittedCA)),
+			chipRow("τ in:", readout.Duration(armTauIn)),
+			chipRow("CA:", readout.Distance(arm.CommittedCA)),
 		}
 		if line := rendezvousMeetingLine(arm.MeetingPlaceLabel, arm.MeetingLaps); line != "" {
 			lines = append(lines, line)
@@ -590,18 +599,21 @@ func rendezvousMeetingLine(placeLabel string, laps int) string {
 // rendezvousInviteEncounterLines renders the invite's τ/CA rows — nil
 // (render nothing) when inv.Tau is zero (finding 2, batch review):
 // refreshRendezvousInvite now surfaces a zero-τ invite for ADR 0045 S7's
-// "agreed, no plan yet" state (#400), and compactDuration clamps a
-// negative duration to zero, so rendering these rows unconditionally
-// showed a fabricated "τ in: 0s / CA: 0 m" — an imminent zero-metre
-// encounter that was never computed — to the player deciding whether to
-// accept.
+// "agreed, no plan yet" state (#400); a negative duration is clamped to
+// zero here so rendering these rows unconditionally doesn't fabricate a
+// "τ in: 0s / CA: 0 m": an imminent zero-metre encounter that was never
+// computed, to the player deciding whether to accept.
 func rendezvousInviteEncounterLines(inv *sim.RendezvousInvite, now time.Time) []string {
 	if inv.Tau.IsZero() {
 		return nil
 	}
+	invTauIn := inv.Tau.Sub(now)
+	if invTauIn < 0 {
+		invTauIn = 0
+	}
 	return []string{
-		chipRow("τ in:", compactDuration(inv.Tau.Sub(now))),
-		chipRow("CA:", formatRangeM(inv.CA)),
+		chipRow("τ in:", readout.Duration(invTauIn)),
+		chipRow("CA:", readout.Distance(inv.CA)),
 	}
 }
 
@@ -649,10 +661,10 @@ func rendezvousTrendLines(arm sim.RendezvousArm, theme Theme) []string {
 	}
 	switch {
 	case arm.CommittedCA < arm.PrevCommittedCA:
-		return []string{theme.Dim.Render("  CA " + formatRangeM(arm.CommittedCA) + " ↘ shrinking")}
+		return []string{theme.Dim.Render("  CA " + readout.Distance(arm.CommittedCA) + " ↘ shrinking")}
 	case arm.CommittedCA > arm.PrevCommittedCA:
 		return []string{
-			theme.Alert.Render("  ⚠ CA growing each pass (" + formatRangeM(arm.PrevCommittedCA) + " → " + formatRangeM(arm.CommittedCA) + ")"),
+			theme.Alert.Render("  ⚠ CA growing each pass (" + readout.Distance(arm.PrevCommittedCA) + " → " + readout.Distance(arm.CommittedCA) + ")"),
 			theme.Alert.Render("    — phasing direction is wrong"),
 		}
 	}
@@ -1241,8 +1253,8 @@ func (v *OrbitView) activeBurnLines(w *sim.World) []string {
 			// continuous countdown (ignition → burning) instead of two
 			// unrelated-looking T-fields.
 			lines = append(lines,
-				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %.0f m/s, burning, %.0fs left",
-					tag, ab.Mode.String(), ab.DVRemaining, remaining)),
+				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %s, burning, %s left",
+					tag, ab.Mode.String(), readout.DeltaV(ab.DVRemaining), readout.Duration(time.Duration(remaining*float64(time.Second))))),
 			)
 		}
 	}
@@ -1267,7 +1279,7 @@ func (v *OrbitView) buildFrameTransitionChip(w *sim.World) []string {
 	dur := ft.When.Sub(w.Clock.SimTime)
 	when := v.theme.Warning.Render("now")
 	if dur > 0 {
-		when = formatCountdown(dur)
+		when = readout.Countdown(dur)
 	}
 	return []string{
 		v.theme.Primary.Render("FRAME TRANSITION"),
@@ -1294,7 +1306,7 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 			dirLabel = v.theme.Alert.Render("retrograde")
 		}
 		lines = append(lines,
-			fmt.Sprintf("  approach:   %.0f m/s relative", cap.ApproachSpeed),
+			fmt.Sprintf("  %s     %s relative", readout.LabelArrival, readout.Speed(cap.ApproachSpeed)),
 			fmt.Sprintf("  direction:  %s capture predicted", dirLabel),
 			v.theme.Dim.Render("  (intercept too central for orbit-element preview)"),
 		)
@@ -1311,11 +1323,16 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 	case incDeg > 30:
 		incLabel = v.theme.Warning.Render(incLabel)
 	}
-	lines = append(lines, fmt.Sprintf("  inclin.:    %s", incLabel))
+	lines = append(lines, fmt.Sprintf("  %s    %s", readout.LabelIncl, incLabel))
 	if !cap.Hyperbolic {
+		capPeAlt := cap.PeriapsisM - primaryR
+		capPeRow := fmt.Sprintf("  %s         %s", readout.LabelPe, readout.Distance(capPeAlt))
+		if capPeAlt < 0 {
+			capPeRow = v.theme.Warning.Render(capPeRow)
+		}
 		lines = append(lines,
-			fmt.Sprintf("  Ap:         %.0f km alt", (cap.ApoapsisM-primaryR)/1000),
-			fmt.Sprintf("  Pe:         %.0f km alt", (cap.PeriapsisM-primaryR)/1000),
+			fmt.Sprintf("  %s         %s", readout.LabelAp, readout.Distance(cap.ApoapsisM-primaryR)),
+			capPeRow,
 		)
 	}
 	return lines
@@ -1383,33 +1400,30 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		engineLabel = v.theme.Primary.Render("● LIT")
 	}
 	altAGL := c.Altitude()
-	altLabel := fmt.Sprintf("%.0f m", nzero(altAGL, 0))
-	if altAGL >= 1000 {
-		altLabel = fmt.Sprintf("%.2f km", altAGL/1000)
-	}
+	altLabel := readout.Distance(altAGL)
 	sasLabel := c.AttitudeMode.String()
 	trimDeg := c.PitchTrim * 180 / math.Pi
-	trimLabel := fmt.Sprintf("%+.1f°", nzero(trimDeg, 1))
+	trimLabel := readout.TrimAngle(trimDeg)
 	if math.Abs(trimDeg) > 0.05 {
 		trimLabel = v.theme.Warning.Render(trimLabel)
 	}
 	fpaLabel := "—"
 	if hasFPA {
-		fpaLabel = fmt.Sprintf("%.0f° (90 = up, 0 = horiz)", nzero(fpaDeg, 0))
+		fpaLabel = readout.FPA(fpaDeg) + " (90 = up, 0 = horiz)"
 	}
 	fpaOrbitLabel := "—"
 	if hasFPAOrbit {
-		fpaOrbitLabel = fmt.Sprintf("%.0f° (inertial)", nzero(fpaOrbitDeg, 0))
+		fpaOrbitLabel = readout.FPA(fpaOrbitDeg) + " (inertial)"
 	}
 	lines := []string{
 		v.theme.Primary.Render("SURFACE"),
-		fmt.Sprintf("  altitude:   %s", altLabel),
-		fmt.Sprintf("  v_vert:     %.1f m/s", nzero(vVert, 1)),
-		fmt.Sprintf("  v_horiz:    %.0f m/s (surface-rel)", vHoriz),
-		fmt.Sprintf("  fpa:        %s", fpaLabel),
-		fmt.Sprintf("  fpa_orbit:  %s", fpaOrbitLabel),
-		fmt.Sprintf("  twr:        %s  engine: %s", twrLabel, engineLabel),
-		fmt.Sprintf("  sas:        %s", sasLabel),
+		fmt.Sprintf("  %s   %s", readout.LabelAltitude, altLabel),
+		fmt.Sprintf("  %s       %s", readout.LabelVert, readout.Speed(vVert)),
+		fmt.Sprintf("  %s      %s (surface-rel)", readout.LabelHoriz, readout.Speed(vHoriz)),
+		fmt.Sprintf("  %s        %s", readout.LabelFPA, fpaLabel),
+		fmt.Sprintf("  %s  %s", readout.LabelOrbitFPA, fpaOrbitLabel),
+		fmt.Sprintf("  %s        %s  engine: %s", readout.LabelTWR, twrLabel, engineLabel),
+		fmt.Sprintf("  %s       %s", readout.LabelHold, sasLabel),
 		fmt.Sprintf("  trim:       %s", trimLabel),
 	}
 	mu := c.Primary.GravitationalParameter()
@@ -1426,11 +1440,14 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		apoFinite = true
 	}
 	inclLabel := "—"
-	inclRowLabel := "incl.:      "
+	inclRowLabel := "incl:       "
 	if !math.IsNaN(el.I) && !math.IsInf(el.I, 0) {
-		inclLabel = fmt.Sprintf("%.2f°", el.I*180/math.Pi)
+		inclLabel = readout.Angle(el.I * 180 / math.Pi)
 	}
 	if c.Landed {
+		// #453 pad-honesty half deferred to PR B (ADR 0049 amendment,
+		// decisions 9-10): the heading/incl-floor readout and the
+		// "(locked)" removal land with ApplyHeadingTrim, not this stage.
 		inclRowLabel = "launch lat: "
 		inclLabel = fmt.Sprintf("%.1f° (locked)", c.LaunchLatDeg)
 	}
@@ -1445,8 +1462,8 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	// suppress these predictions until the craft actually lifts off; the
 	// pad cares about TWR / launch-lat / SAS, which render regardless.
 	if apoFinite && !c.Landed {
-		apLabel = formatAltKm(apoAlt)
-		peLabel = formatAltKm(periAlt)
+		apLabel = readout.Distance(apoAlt)
+		peLabel = readout.Distance(periAlt)
 		now := w.Clock.SimTime
 		if v.ascentTrendCraft == c && !v.ascentTrendTime.IsZero() {
 			dt := now.Sub(v.ascentTrendTime).Seconds()
@@ -1468,7 +1485,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		if apoAlt > 0 {
 			ttaSec := orbital.TimeToApoapsis(orbital.Vec3State{R: c.State.R, V: c.State.V}, mu)
 			if ttaSec > 0 {
-				ttaLabel = formatDurationShort(ttaSec)
+				ttaLabel = readout.Countdown(time.Duration(ttaSec * float64(time.Second)))
 			}
 		}
 		rApo := el.Apoapsis()
@@ -1477,7 +1494,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 			vCircAtApo := math.Sqrt(mu / rApo)
 			dvCirc = vCircAtApo - vAtApo
 			if dvCirc > 0 {
-				dvCircLabel = fmt.Sprintf("%.0f m/s (impulsive)", dvCirc)
+				dvCircLabel = readout.DeltaV(dvCirc) + " (impulsive)"
 			}
 		}
 	} else {
@@ -1489,15 +1506,20 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 			thrust = c.Thrust
 		}
 		tBurnSec := dvCirc * c.TotalMass() / thrust
-		tBurnLabel = formatDurationShort(tBurnSec)
+		tBurnLabel = readout.Duration(time.Duration(tBurnSec * float64(time.Second)))
+	}
+	apRow := fmt.Sprintf("  %s         %s%s", readout.LabelAp, apLabel, trendLabel)
+	peRow := fmt.Sprintf("  %s         %s", readout.LabelPe, peLabel)
+	if apoFinite && !c.Landed && periAlt < 0 {
+		peRow = v.theme.Warning.Render(peRow)
 	}
 	lines = append(lines,
-		fmt.Sprintf("  ap:         %s%s", apLabel, trendLabel),
-		fmt.Sprintf("  pe:         %s", peLabel),
+		apRow,
+		peRow,
 		fmt.Sprintf("  %s%s", inclRowLabel, inclLabel),
-		fmt.Sprintf("  t_to_apo:   %s", ttaLabel),
+		fmt.Sprintf("  %s        %s", readout.LabelApo, ttaLabel),
 		fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
-		fmt.Sprintf("  t_burn:     %s", tBurnLabel),
+		fmt.Sprintf("  %s       %s", readout.LabelBurn, tBurnLabel),
 	)
 	if apoFinite && !c.Landed && apoAlt > launchMissionFloorM {
 		orbitStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
@@ -1512,7 +1534,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 }
 
 // buildDescentChip is the airless-body terminal-approach cluster
-// (altitude / v_vert / v_horiz / fpa / twr / sas). Returns nil unless the
+// (altitude / vert / horiz / fpa / TWR / hold). Returns nil unless the
 // craft is in a powered descent. Mutually exclusive with the LAUNCH chip
 // via the same Atmosphere gate the originals used.
 func (v *OrbitView) buildDescentChip(w *sim.World) []string {
@@ -1546,27 +1568,24 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 			twrLabel = v.theme.Alert.Render(twrLabel + " (can't hover)")
 		}
 	}
-	altLabel := fmt.Sprintf("%.0f m", nzero(altAGL, 0))
-	if altAGL >= 1000 {
-		altLabel = fmt.Sprintf("%.2f km", altAGL/1000)
-	}
+	altLabel := readout.Distance(altAGL)
 	fpaLabel := "—"
 	if hasFPA {
-		fpaLabel = fmt.Sprintf("%.0f° (0 = horiz, −90 = straight down)", nzero(fpaDeg, 0))
+		fpaLabel = readout.FPA(fpaDeg) + " (0 = horiz, -90 = straight down)"
 	}
-	vHorizLabel := fmt.Sprintf("%.0f m/s (surface-rel)", vHoriz)
+	vHorizLabel := readout.Speed(vHoriz) + " (surface-rel)"
 	if vHoriz > sim.CrashVCritMps {
 		vHorizLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%.0f m/s (> %.0f = CRASH on contact)", vHoriz, sim.CrashVCritMps))
+			fmt.Sprintf("%s (> %s = CRASH on contact)", readout.Speed(vHoriz), readout.Speed(sim.CrashVCritMps)))
 	}
 	return []string{
 		v.theme.Primary.Render("DESCENT"),
-		fmt.Sprintf("  altitude:   %s", altLabel),
-		fmt.Sprintf("  v_vert:     %.1f m/s", nzero(vVert, 1)),
-		fmt.Sprintf("  v_horiz:    %s", vHorizLabel),
-		fmt.Sprintf("  fpa:        %s", fpaLabel),
-		fmt.Sprintf("  twr:        %s", twrLabel),
-		fmt.Sprintf("  sas:        %s", c.AttitudeMode.String()),
+		fmt.Sprintf("  %s   %s", readout.LabelAltitude, altLabel),
+		fmt.Sprintf("  %s       %s", readout.LabelVert, readout.Speed(vVert)),
+		fmt.Sprintf("  %s      %s", readout.LabelHoriz, vHorizLabel),
+		fmt.Sprintf("  %s        %s", readout.LabelFPA, fpaLabel),
+		fmt.Sprintf("  %s        %s", readout.LabelTWR, twrLabel),
+		fmt.Sprintf("  %s       %s", readout.LabelHold, c.AttitudeMode.String()),
 	}
 }
 
@@ -1610,10 +1629,10 @@ func (v *OrbitView) buildChuteChip(w *sim.World) []string {
 		rHat := c.State.R.Scale(1 / rNorm)
 		descentRate = -(vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z)
 	}
-	rateLabel := fmt.Sprintf("%.1f m/s", descentRate)
+	rateLabel := readout.Speed(descentRate)
 	if vRel.Norm() >= sim.CrashVCritMps {
 		rateLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%.1f m/s (|v_rel| > %.0f = CRASH on contact)", descentRate, sim.CrashVCritMps))
+			fmt.Sprintf("%s (rel speed > %s = CRASH on contact)", readout.Speed(descentRate), readout.Speed(sim.CrashVCritMps)))
 	}
 	lines := []string{
 		v.theme.Primary.Render("CHUTE"),
@@ -1675,14 +1694,16 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	st := orbital.Vec3State{R: c.State.R, V: c.State.V}
 	lines := []string{
 		v.theme.Primary.Render("ORBIT"),
-		chipRow("altitude:", formatChipKm(c.Altitude())),
-		chipRow("Ap:", formatChipKm(apoAlt)),
+		chipRow(readout.LabelAltitude, readout.Distance(c.Altitude())),
+		chipRow(readout.LabelAp, readout.Distance(apoAlt)),
 	}
 	// On a circular orbit the apsides are not locatable points (#286), so
 	// the countdowns say "—" rather than the constant half-period the
 	// underlying helpers fall back to. A frozen number that looks live is
 	// worse than an honest blank: players read it as phase information and
-	// tried to time rendezvous off two craft that both showed P/2.
+	// tried to time rendezvous off two craft that both showed P/2. Duration
+	// is unsigned here (t→Ap:/t→Pe: already carry the "to" direction in the
+	// label glyph, so a T- prefix on top would be redundant).
 	apsisTime := func(secs float64) (string, bool) {
 		if !orbital.ApsisDefined(el.E) {
 			return "—", true
@@ -1690,12 +1711,16 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 		if secs < 0 {
 			return "", false
 		}
-		return formatDurationShort(secs), true
+		return readout.Duration(time.Duration(secs * float64(time.Second))), true
 	}
 	if s, ok := apsisTime(orbital.TimeToApoapsis(st, mu)); ok {
 		lines = append(lines, chipRow("t→Ap:", s))
 	}
-	lines = append(lines, chipRow("Pe:", formatChipKm(periAlt)))
+	peRow := chipRow(readout.LabelPe, readout.Distance(periAlt))
+	if periAlt < 0 {
+		peRow = v.theme.Warning.Render(peRow)
+	}
+	lines = append(lines, peRow)
 	if s, ok := apsisTime(orbital.TimeToPeriapsis(st, mu)); ok {
 		lines = append(lines, chipRow("t→Pe:", s))
 	}
@@ -1704,8 +1729,8 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	// synchronous period for steady ground coverage). a > 0 and e < 1 are
 	// guaranteed above, so the period is finite.
 	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
-	lines = append(lines, chipRow("period:", formatPeriod(period)))
-	lines = append(lines, chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)))
+	lines = append(lines, chipRow(readout.LabelPeriod, readout.Period(time.Duration(period*float64(time.Second)))))
+	lines = append(lines, chipRow(readout.LabelIncl, readout.Angle(el.I*180/math.Pi)))
 	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
 	// #426 (CONTEXT.md Chip entry): eccentricity, always-on, Full form only —
 	// the three eccentricity-graded challenge rungs (chal-high-orbit et al.)
@@ -1752,9 +1777,13 @@ func (v *OrbitView) buildOrbitMetricsChipCompact(w *sim.World) []string {
 	primaryR := c.Primary.RadiusMeters()
 	apoAlt := el.Apoapsis() - primaryR
 	periAlt := el.Periapsis() - primaryR
+	pePart := fmt.Sprintf("Pe: %s", readout.Distance(periAlt))
+	if periAlt < 0 {
+		pePart = v.theme.Warning.Render(pePart)
+	}
 	lines := []string{
 		v.theme.Primary.Render("ORBIT"),
-		fmt.Sprintf("  Ap: %s  Pe: %s", formatChipKm(apoAlt), formatChipKm(periAlt)),
+		fmt.Sprintf("  Ap: %s  %s", readout.Distance(apoAlt), pePart),
 	}
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ BELOW SURFACE"))
@@ -1782,9 +1811,13 @@ func (v *OrbitView) buildDockGuestOrbitChipCompact(w *sim.World) []string {
 	if w.DockGuest.OwnerHandle != "" {
 		header = "ORBIT — " + w.DockGuest.OwnerHandle + "'s stack"
 	}
+	pePart := fmt.Sprintf("Pe: %s", readout.Distance(periAlt))
+	if periAlt < 0 {
+		pePart = v.theme.Warning.Render(pePart)
+	}
 	lines := []string{
 		v.theme.Primary.Render(header),
-		fmt.Sprintf("  Ap: %s  Pe: %s", formatChipKm(apoAlt), formatChipKm(periAlt)),
+		fmt.Sprintf("  Ap: %s  %s", readout.Distance(apoAlt), pePart),
 	}
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ BELOW SURFACE"))
@@ -1808,8 +1841,8 @@ func (v *OrbitView) buildLandedOrbitChip(c *spacecraft.Spacecraft) []string {
 		v.theme.Primary.Render("ORBIT"),
 		chipRow("body:", c.Primary.EnglishName),
 		chipRow("landed at:", fmt.Sprintf("%.1f°, %.1f°", lat, lon)),
-		chipRow("altitude:", "0.0 km"),
-		chipRow("co-rotation:", fmt.Sprintf("%.1f m/s", c.State.V.Norm())),
+		chipRow(readout.LabelAltitude, readout.Distance(0)),
+		chipRow("co-rotation:", readout.Speed(c.State.V.Norm())),
 	}
 }
 
@@ -1842,11 +1875,15 @@ func (v *OrbitView) buildDockGuestOrbitChip(w *sim.World) []string {
 	if w.DockGuest.OwnerHandle != "" {
 		header = "ORBIT — " + w.DockGuest.OwnerHandle + "'s stack"
 	}
+	dgPeRow := chipRow(readout.LabelPe, readout.Distance(periAlt))
+	if periAlt < 0 {
+		dgPeRow = v.theme.Warning.Render(dgPeRow)
+	}
 	lines := []string{
 		v.theme.Primary.Render(header),
-		chipRow("Ap:", formatChipKm(apoAlt)),
-		chipRow("Pe:", formatChipKm(periAlt)),
-		chipRow("inclin.:", fmt.Sprintf("%.2f°", el.I*180/math.Pi)),
+		chipRow(readout.LabelAp, readout.Distance(apoAlt)),
+		dgPeRow,
+		chipRow(readout.LabelIncl, readout.Angle(el.I*180/math.Pi)),
 	}
 	if periAlt < 0 {
 		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
@@ -1879,9 +1916,14 @@ func (v *OrbitView) buildProjectedOrbitChip(w *sim.World) []string {
 		fmt.Sprintf("  primary:   %s", primary.EnglishName),
 	}
 	if ro.Hyperbolic {
+		hypPeAlt := ro.PeriMeters - primaryR
+		hypPeLine := fmt.Sprintf("  Pe:        %s", readout.Distance(hypPeAlt))
+		if hypPeAlt < 0 {
+			hypPeLine = v.theme.Warning.Render(hypPeLine)
+		}
 		lines = append(lines,
 			"  "+v.theme.Warning.Render("hyperbolic — escape"),
-			fmt.Sprintf("  Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+			hypPeLine,
 			fmt.Sprintf("  e:         %.3f", ro.Eccentricity),
 		)
 	} else {
@@ -1890,11 +1932,16 @@ func (v *OrbitView) buildProjectedOrbitChip(w *sim.World) []string {
 		// insertion burn to a target period.
 		projA := (ro.ApoMeters + ro.PeriMeters) / 2
 		projPeriod := 2 * math.Pi * math.Sqrt(projA*projA*projA/mu)
+		projPeAlt := ro.PeriMeters - primaryR
+		projPeLine := fmt.Sprintf("  Pe:        %s", readout.Distance(projPeAlt))
+		if projPeAlt < 0 {
+			projPeLine = v.theme.Warning.Render(projPeLine)
+		}
 		lines = append(lines,
-			fmt.Sprintf("  Ap:        %.1f km alt", (ro.ApoMeters-primaryR)/1000),
-			fmt.Sprintf("  Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
-			fmt.Sprintf("  period:    %s", formatPeriod(projPeriod)),
-			fmt.Sprintf("  inclin.:   %.2f°", ro.Inclination*180/math.Pi),
+			fmt.Sprintf("  Ap:        %s", readout.Distance(ro.ApoMeters-primaryR)),
+			projPeLine,
+			fmt.Sprintf("  period:    %s", readout.Period(time.Duration(projPeriod*float64(time.Second)))),
+			fmt.Sprintf("  incl:      %s", readout.Angle(ro.Inclination*180/math.Pi)),
 			fmt.Sprintf("  direction: %s", v.orbitDirectionLabel(ro.Inclination)),
 		)
 		const equatorialTol = 1e-3
@@ -1944,7 +1991,7 @@ func (v *OrbitView) buildProjectedOrbitChipCompact(w *sim.World) []string {
 }
 
 // buildTargetChip surfaces the unified Target slot — a body (name, Δi,
-// range) or a craft (name/role, orbit shape, range, |v_rel|, closing,
+// range) or a craft (name/role, orbit shape, range, rel speed, closing,
 // closest-approach, rendezvous advisory, DOCK READY). Returns nil when no
 // target is set. Transplanted from renderHUD's TARGET block.
 func (v *OrbitView) buildTargetChip(w *sim.World) []string {
@@ -1988,7 +2035,7 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			lines = append(lines, chipRow("Δi:", diLabel))
 		}
 		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
-		lines = append(lines, chipRow("range:", formatRangeM(rangeM)))
+		lines = append(lines, chipRow("range:", readout.Distance(rangeM)))
 		// Predicted closest approach along the projected orbit — updates live
 		// as the player hand-flies a correction, so they can judge where the
 		// transfer actually passes the target rather than eyeballing the
@@ -2013,9 +2060,9 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 					lines = append(lines, chipRow("perilune:", fmt.Sprintf("%.0f km", alt/1000)))
 				}
 			} else {
-				lines = append(lines, chipRow("approach:", formatRangeM(ap.Dist)))
+				lines = append(lines, chipRow("approach:", readout.Distance(ap.Dist)))
 			}
-			lines = append(lines, chipRow("TCA:", formatTCA(ap.TCA)))
+			lines = append(lines, chipRow(readout.LabelTCA, readout.Countdown(time.Duration(ap.TCA*float64(time.Second)))))
 		}
 		return lines
 	case sim.TargetCraft:
@@ -2030,16 +2077,21 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			tEl := orbital.ElementsFromStateInFrame(tc.State.R, tc.State.V, tMu, tFrame)
 			if tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0) {
 				tPrimaryR := tc.Primary.RadiusMeters()
+				tPeriAlt := tEl.Periapsis() - tPrimaryR
+				tPeRow := chipRow(readout.LabelPe, readout.Distance(tPeriAlt))
+				if tPeriAlt < 0 {
+					tPeRow = v.theme.Warning.Render(tPeRow)
+				}
 				lines = append(lines,
-					chipRow("Ap:", formatChipKm(tEl.Apoapsis()-tPrimaryR)),
-					chipRow("Pe:", formatChipKm(tEl.Periapsis()-tPrimaryR)),
-					chipRow("inclin.:", fmt.Sprintf("%.2f°", tEl.I*180/math.Pi)),
+					chipRow(readout.LabelAp, readout.Distance(tEl.Apoapsis()-tPrimaryR)),
+					tPeRow,
+					chipRow(readout.LabelIncl, readout.Angle(tEl.I*180/math.Pi)),
 				)
 			}
 		} else {
 			// #375: a landed target's (R, ω×R) co-rotation state is not an
 			// orbit — swap Ap/Pe/inclin. for its landing site rather than
-			// reading elements off the pseudo-orbit. Range / |v_rel| /
+			// reading elements off the pseudo-orbit. Range / rel speed /
 			// closing below stay meaningful (relative-state math, not
 			// elements) so they're untouched.
 			tLat, tLon := tc.SurfaceLatLon()
@@ -2062,8 +2114,8 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		}
 		leadDeg, leadOK := w.TargetLeadAngleDeg()
 		lines = append(lines,
-			chipRow("range:", formatRangeM(rangeM)),
-			chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", vRel)),
+			chipRow("range:", readout.Distance(rangeM)),
+			chipRow(readout.LabelRelSpeed, readout.Speed(vRel)),
 			chipRow("closing:", fmt.Sprintf("%+.2f m/s", closing)),
 			chipRow("lead:", targetLeadLabel(leadDeg, leadOK)),
 		)
@@ -2096,7 +2148,7 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		return lines
 	case sim.TargetGhost:
 		// v0.27 review follow-up: a remote player's craft. Same rows as
-		// a local craft target — orbit, range, |v_rel|, closing, CA/TCA
+		// a local craft target: orbit, range, rel speed, closing, CA/TCA
 		// — resolved from the ghost slate (already at this world's
 		// sim-time). No DOCK READY: cross-player docking is v0.28.
 		g, gPrimary, ok := w.ResolveTargetGhost()
@@ -2120,10 +2172,15 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		gEl := orbital.ElementsFromStateInFrame(gRel, g.Vel, gMu, gFrame)
 		if gEl.A > 0 && !math.IsNaN(gEl.A) && !math.IsInf(gEl.A, 0) {
 			gPrimaryR := gPrimary.RadiusMeters()
+			gPeriAlt := gEl.Periapsis() - gPrimaryR
+			gPeRow := chipRow(readout.LabelPe, readout.Distance(gPeriAlt))
+			if gPeriAlt < 0 {
+				gPeRow = v.theme.Warning.Render(gPeRow)
+			}
 			lines = append(lines,
-				chipRow("Ap:", formatChipKm(gEl.Apoapsis()-gPrimaryR)),
-				chipRow("Pe:", formatChipKm(gEl.Periapsis()-gPrimaryR)),
-				chipRow("inclin.:", fmt.Sprintf("%.2f°", gEl.I*180/math.Pi)),
+				chipRow(readout.LabelAp, readout.Distance(gEl.Apoapsis()-gPrimaryR)),
+				gPeRow,
+				chipRow(readout.LabelIncl, readout.Angle(gEl.I*180/math.Pi)),
 			)
 		}
 		rT, vT, ok := w.TargetStateRelativeToActivePrimary()
@@ -2140,8 +2197,8 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		}
 		leadDeg, leadOK := w.TargetLeadAngleDeg()
 		lines = append(lines,
-			chipRow("range:", formatRangeM(rangeM)),
-			chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", vRel)),
+			chipRow("range:", readout.Distance(rangeM)),
+			chipRow(readout.LabelRelSpeed, readout.Speed(vRel)),
 			chipRow("closing:", fmt.Sprintf("%+.2f m/s", closing)),
 			chipRow("lead:", targetLeadLabel(leadDeg, leadOK)),
 		)
@@ -2156,7 +2213,7 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 // buildTargetChipCompact is TARGET's Compact Form (ADR 0046 / #422,
 // CONTEXT.md "Graceful Shrink": "the Target Chip becomes name + range"):
 // one row naming what's targeted, one row with its range — dropping Δi/
-// Ap/Pe/inclination, |v_rel|/closing/lead, the approach prediction, and
+// Ap/Pe/inclination, rel speed/closing/lead, the approach prediction, and
 // DOCK READY. Mirrors buildTargetChip's branch order (body / craft /
 // ghost, including the ghost's "not yet resolved" pending state) so the
 // two forms always agree about WHICH branch is showing; the range math
@@ -2179,7 +2236,7 @@ func (v *OrbitView) buildTargetChipCompact(w *sim.World) []string {
 		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
 		return []string{
 			v.theme.Primary.Render("TARGET") + "  " + nameStyle.Render(b.EnglishName),
-			chipRow("range:", formatRangeM(rangeM)),
+			chipRow("range:", readout.Distance(rangeM)),
 		}
 	case sim.TargetCraft:
 		tc, _, ok := w.ResolveTargetCraft()
@@ -2194,7 +2251,7 @@ func (v *OrbitView) buildTargetChipCompact(w *sim.World) []string {
 		}
 		return []string{
 			v.theme.Primary.Render("TARGET") + "  " + tc.Name,
-			chipRow("range:", formatRangeM(rRel.Norm())),
+			chipRow("range:", readout.Distance(rRel.Norm())),
 		}
 	case sim.TargetGhost:
 		if _, _, ok := w.ResolveTargetGhost(); !ok {
@@ -2206,7 +2263,7 @@ func (v *OrbitView) buildTargetChipCompact(w *sim.World) []string {
 		lines := []string{v.theme.Primary.Render("TARGET") + "  " + w.TargetName()}
 		if rT, _, ok := w.TargetStateRelativeToActivePrimary(); ok {
 			rangeM := rT.Sub(c.State.R).Norm()
-			lines = append(lines, chipRow("range:", formatRangeM(rangeM)))
+			lines = append(lines, chipRow("range:", readout.Distance(rangeM)))
 		}
 		return lines
 	}
@@ -2254,8 +2311,8 @@ func (v *OrbitView) closestApproachRows(w *sim.World, c *spacecraft.Spacecraft) 
 		return nil
 	}
 	return []string{
-		chipRow("TCA:", formatTCA(tCA)),
-		chipRow("CA:", formatRangeM(distCA)),
+		chipRow(readout.LabelTCA, readout.Countdown(time.Duration(tCA*float64(time.Second)))),
+		chipRow(readout.LabelApproach, readout.Distance(distCA)),
 	}
 }
 
@@ -2315,9 +2372,9 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 		if arc.plOK {
 			lines = append(lines, chipRow("planned:", periValue(arc.planned)))
 			if arc.planned.HasEntryTime {
-				lines = append(lines, chipRow("  T-entry:", formatTCA(arc.planned.TimeToEntry)))
+				lines = append(lines, chipRow("  T-entry:", readout.Duration(time.Duration(arc.planned.TimeToEntry*float64(time.Second)))))
 			}
-			lines = append(lines, chipRow("  T-peri:", formatTCA(arc.planned.TimeToPerilune)))
+			lines = append(lines, chipRow("  T-peri:", readout.Duration(time.Duration(arc.planned.TimeToPerilune*float64(time.Second)))))
 		}
 		if arc.cfOK {
 			lines = append(lines, chipRow("no-burn:", periValue(arc.counterfactual)))
@@ -2327,11 +2384,11 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 	// Single live pass (no node planted). T-entry is the predicted SOI-entry
 	// clock — the ring crossing the Entry glyph marks (ADR 0021 C).
 	if arc.counterfactual.HasEntryTime {
-		lines = append(lines, chipRow("T-entry:", formatTCA(arc.counterfactual.TimeToEntry)))
+		lines = append(lines, chipRow("T-entry:", readout.Duration(time.Duration(arc.counterfactual.TimeToEntry*float64(time.Second)))))
 	}
 	lines = append(lines,
 		chipRow("perilune:", periValue(arc.counterfactual)),
-		chipRow("TCA:", formatTCA(arc.counterfactual.TimeToPerilune)))
+		chipRow(readout.LabelTCA, readout.Countdown(time.Duration(arc.counterfactual.TimeToPerilune*float64(time.Second)))))
 	return lines
 }
 
@@ -2340,11 +2397,6 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 // corner. The buildOrbitMetricsChip rows are hand-padded to this column.
 const chipValueCol = 13
 
-// chipRow formats a "  label   value" telemetry row with the value pinned
-// to chipValueCol regardless of label width — so a chip's values share one
-// column instead of drifting per label. Padding is measured in display
-// cells (lipgloss.Width), so multibyte labels like "Δi:" and styled values
-// align correctly where byte-counted %-Ns padding would not.
 // orbitDirectionLabel renders the prograde/retrograde orbit-direction
 // readout for an equatorial-frame inclination (radians). i > 90° means
 // the orbit runs retrograde — against the primary's spin. This is the
@@ -2360,6 +2412,14 @@ func (v *OrbitView) orbitDirectionLabel(incRad float64) string {
 	return "prograde"
 }
 
+// chipRow formats a "  label   value" telemetry row with the value pinned
+// to chipValueCol regardless of label width, so a chip's values share one
+// column instead of drifting per label. Padding is measured in display
+// cells (lipgloss.Width), so multibyte labels like "Δi:" and styled values
+// align correctly where byte-counted %-Ns padding would not. Distance /
+// duration / speed / angle formatting lives in internal/tui/readout (ADR
+// 0049); this helper only lays the label and an already-formatted value
+// out in one column.
 func chipRow(label, value string) string {
 	prefix := "  " + label
 	pad := chipValueCol - lipgloss.Width(prefix)
@@ -2367,54 +2427,4 @@ func chipRow(label, value string) string {
 		pad = 1
 	}
 	return prefix + strings.Repeat(" ", pad) + value
-}
-
-// formatRangeM renders a distance with AU / km / m bands matching the
-// thresholds the TARGET block used inline.
-func formatRangeM(rangeM float64) string {
-	switch {
-	case rangeM > bodies.AU/10:
-		return fmt.Sprintf("%.3f AU", rangeM/bodies.AU)
-	case rangeM > 1e6:
-		return fmt.Sprintf("%.0f km", rangeM/1000)
-	case rangeM > 1000:
-		return fmt.Sprintf("%.2f km", rangeM/1000)
-	default:
-		return fmt.Sprintf("%.0f m", rangeM)
-	}
-}
-
-// nzero snaps a value whose magnitude rounds to zero at `decimals` places
-// to +0, so a quantity that jitters across zero (v_vert / fpa / altitude
-// on the pad, where the co-rotation state carries sub-unit noise) doesn't
-// flicker a "-0" / "-0.0" sign each frame. Only the sign of an
-// already-zero display changes; non-zero values pass through untouched.
-func nzero(x float64, decimals int) float64 {
-	scale := math.Pow(10, float64(decimals))
-	if math.Round(x*scale) == 0 {
-		return 0
-	}
-	return x
-}
-
-// formatChipKm renders a metres reading as a one-decimal kilometre
-// string with nzero applied (#375), so an altitude/apsis that legitimately
-// sits at the display quantum — the co-rotation noise a near-zero orbit
-// carries, not just a Landed craft's pseudo-orbit — can't flip a "-0.0"
-// sign from one tick to the next. Shared by the ORBIT / TARGET chips'
-// altitude, Ap, and Pe rows.
-func formatChipKm(m float64) string {
-	return fmt.Sprintf("%.1f km", nzero(m/1000, 1))
-}
-
-// formatTCA renders a time-to-closest-approach with s / min / h bands.
-func formatTCA(sec float64) string {
-	switch {
-	case sec >= 3600:
-		return fmt.Sprintf("%.2fh", sec/3600)
-	case sec >= 60:
-		return fmt.Sprintf("%.1fmin", sec/60)
-	default:
-		return fmt.Sprintf("%.0fs", sec)
-	}
 }
