@@ -145,22 +145,32 @@ func TestHintStripClipsRightBelowDesignSize(t *testing.T) {
 }
 
 // TestHintStripWithForcedNodesChipAndCraftNotVisibleHere probes the one
-// collision path composeChips' own bottom-right stacking leaves open:
-// navballReservedRows returns 0 whenever CraftVisibleHere() is false
-// (camera tabbed to a different system than the active craft), so the
-// NODES chip's forced (2+ queued nodes) bottom-right block's bottom row
-// can land on the canvas's very last row too — the same row the Hint
-// Strip paints on the right-hand side. This is NOT one of the two
+// collision path composeChips' own bottom-right stacking used to leave
+// open: navballReservedRows returned 0 whenever CraftVisibleHere() was
+// false (camera tabbed to a different system than the active craft), so
+// the NODES chip's forced (2+ queued nodes) bottom-right block's bottom
+// row could land on the canvas's very last row too, the same row the
+// Hint Strip paints on the right-hand side. This was NOT one of the two
 // collisions #425 requires proving absent (navball, bottom-left chip);
-// it's a corner the decision doesn't cover. Measured, not assumed:
-//   - 140×40 (Design Size): no collision — the Nodes chip stays narrow
-//     and hard-right, short of where the Hint Strip's 78-rune text ends.
-//   - 104×24 (Playable Floor): DOES collide — the chip's left border
-//     overwrites the Hint Strip's tail. Documented here and in
-//     impl-notes/425.md as a known, deliberately out-of-scope edge case
-//     (requires both a queued 2+-node vessel AND the camera tabbed away
-//     to a different system while it's queued) rather than silently
-//     asserted away.
+// it's a corner the decision doesn't cover. Measured, not assumed, and
+// re-measured after ADR 0049 (readout contract, stage A2): the node row's
+// duration and Δv render two-unit / 2-decimal-below-100 ("ignition in
+// 1m00s", "42.00 m/s" vs the pre-contract "60s"/"42 m/s"), a few columns
+// wider on exactly this kind of small-value node, which was enough to
+// newly close the Design Size gap #425 had measured as clear.
+//
+// Fixed on the same gate review that found it, in navballReservedRows
+// (orbit_chips.go): the bottom-right corner's stacking cursor had no
+// floor reservation for row cRows-1 (the Hint Strip's own row) whenever
+// the navball itself was absent (!CraftVisibleHere, this test's own
+// setup); bottomLeftRow already stayed off that row unconditionally,
+// bottomRightRow didn't. The floor is now 1 row in every navball-absent
+// branch, so a bottom-right chip can never paint onto the Hint Strip's
+// row regardless of how wide its own contents get. 140×40 (Design Size)
+// is asserted as a hard requirement below; 104×24 (Playable Floor, below
+// the Design Size floor, #425's own known-and-accepted edge case) is
+// logged rather than asserted since a guarantee there was never required,
+// though the same fix happens to clear it too.
 func TestHintStripWithForcedNodesChipAndCraftNotVisibleHere(t *testing.T) {
 	render := func(sz struct{ w, h int }) string {
 		v := NewOrbitView(chipTestTheme())
@@ -192,12 +202,12 @@ func TestHintStripWithForcedNodesChipAndCraftNotVisibleHere(t *testing.T) {
 	}
 
 	if out := render(struct{ w, h int }{140, 40}); !strings.Contains(out, hintStripText) {
-		t.Errorf("Design Size: Hint Strip was overwritten by the forced bottom-right NODES chip with CraftVisibleHere()==false, expected no collision here:\n%s", out)
+		t.Errorf("Design Size: Hint Strip overwritten by the forced bottom-right NODES chip with CraftVisibleHere()==false; navballReservedRows should now floor at 1 row regardless:\n%s", out)
 	}
 	if out := render(struct{ w, h int }{104, 24}); strings.Contains(out, hintStripText) {
-		t.Logf("Playable Floor: Hint Strip stayed intact against the forced NODES chip — better than the last measurement, not a failure")
+		t.Logf("Playable Floor: Hint Strip stayed intact against the forced NODES chip too, not required below Design Size, but the same fix clears it")
 	} else {
-		t.Logf("Playable Floor: confirmed known collision between the forced bottom-right NODES chip and the Hint Strip's tail when CraftVisibleHere()==false (out of #425's decided scope; see impl-notes/425.md)")
+		t.Logf("Playable Floor: still collides, as before (out of #425's decided scope, below the Design Size floor; see impl-notes/425.md)")
 	}
 }
 

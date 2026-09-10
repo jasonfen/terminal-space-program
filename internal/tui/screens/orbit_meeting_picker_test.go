@@ -63,7 +63,7 @@ func TestMeetingPickerChip_Content(t *testing.T) {
 	// The Δv figures render verbatim from the ladder — not the ADR
 	// mockup's illustrative numbers (630/250/60) and not hardcoded here
 	// beyond what meetingPickerTestLadder itself declares.
-	for _, want := range []string{"697 m/s", "509 m/s", "177 m/s", "92 m/s"} {
+	for _, want := range []string{"697 m/s", "509 m/s", "177 m/s", "91.80 m/s"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("chip missing Δv %q:\n%s", want, joined)
 		}
@@ -298,8 +298,8 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 		"  \u2190 their orbit \u2192",
 		">  2 laps   4h19m      697 m/s",
 		"   5 laps   9h03m    (unaffordable)",
-		"  20 laps   32h40m      92 m/s",
-		"  arriving ~12 m/s",
+		"  20 laps   1d08h    91.80 m/s",
+		"  arriving ~12.50 m/s",
 	}, "\n")
 
 	got := strings.Join(v.buildMeetingPickerChip(), "\n")

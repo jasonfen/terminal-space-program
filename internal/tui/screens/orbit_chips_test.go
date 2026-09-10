@@ -458,33 +458,14 @@ func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
 	}
 }
 
+// The negative-zero-snap coverage this used to pin (TestNzeroSnapsNegativeZero,
+// pre-ADR-0049) now lives on internal/tui/readout's own TestNzero: the
+// local `nzero` helper is deleted, every screens/ formatter routes through
+// readout.Nzero instead (ADR 0049 stage A2).
+
 // TestDeclutterHidesChipsKeepsColumn: F2 declutter suppresses every Chip
 // (here the always-relevant ATTITUDE chip) while the slim HUD column —
 // which it must never hide (CONTEXT.md §Declutter) — keeps rendering.
-func TestNzeroSnapsNegativeZero(t *testing.T) {
-	cases := []struct {
-		x        float64
-		decimals int
-		want     float64
-	}{
-		{-0.3, 0, 0},    // rounds to 0 at %.0f → snapped to +0
-		{0.3, 0, 0},     // also rounds to 0 → +0 (sign already fine)
-		{-0.04, 1, 0},   // rounds to 0.0 at %.1f → +0
-		{-0.6, 0, -0.6}, // rounds to -1 → untouched
-		{12.3, 1, 12.3}, // non-zero → untouched
-	}
-	for _, c := range cases {
-		got := nzero(c.x, c.decimals)
-		if got != c.want {
-			t.Errorf("nzero(%g, %d) = %g, want %g", c.x, c.decimals, got, c.want)
-		}
-		// The snapped value must never format with a negative sign at 0.
-		if c.want == 0 && fmt.Sprintf("%+.*f", c.decimals, got)[0] == '-' {
-			t.Errorf("nzero(%g, %d) still formats as negative zero", c.x, c.decimals)
-		}
-	}
-}
-
 func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
@@ -875,13 +856,83 @@ func TestBuildVesselChipCoreOnly(t *testing.T) {
 	if !strings.Contains(out, "VESSEL") || !strings.Contains(out, "PROPELLANT") {
 		t.Errorf("vessel chip missing core headers:\n%s", out)
 	}
-	if !strings.Contains(out, "velocity") || !strings.Contains(out, "Δv budget") {
+	if !strings.Contains(out, "velocity") || !strings.Contains(out, "Δv:") {
 		t.Errorf("vessel chip missing core telemetry rows:\n%s", out)
 	}
 	// Orbit shape lives in the Orbit-metrics chip — the vessel chip must
 	// not carry apoapsis/periapsis rows.
 	if strings.Contains(out, "apoapsis") || strings.Contains(out, "periapsis") {
 		t.Errorf("vessel chip still carries orbit-shape rows (should be a separate chip):\n%s", out)
+	}
+}
+
+// TestBuildVesselChipMassesRideTheLadder pins F7 (gate review): masses
+// were never migrated to readout.Mass, so a Saturn V's fuel/mass/
+// monoprop rows still printed raw kilograms ("2901847 kg") straight
+// through decision 3's contract, the exact number the ADR's own Context
+// section names as one of the original findings. A spawned Saturn V's
+// fuel and total mass are both well past the 1000 kg kg->t rung, so a
+// surviving raw-kg reading fails this immediately.
+func TestBuildVesselChipMassesRideTheLadder(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	for _, want := range []string{"fuel:      100% (2160 t)", "mass:      2902 t", "monoprop:  11.85 t"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("VESSEL chip missing %q (masses should ride the kg/t ladder):\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, " kg") {
+		t.Errorf("VESSEL chip still prints a raw kilogram reading:\n%s", out)
+	}
+}
+
+// TestBuildVesselChipDeltaVPairShowsStageOverVehicle pins F12 (gate
+// review): decision 7's "stage / vehicle" two-number Δv row had no
+// call-site test: only readout's own DeltaVPair unit tests covered the
+// string shape, not that a real multi-stage vessel's VESSEL chip (full
+// and Compact Form) actually reaches it instead of printing the active
+// stage's Δv alone. A spawned Saturn V has three stages, so its active
+// stage's remaining Δv and the whole stack's total are provably
+// different numbers, sharing one trailing unit.
+func TestBuildVesselChipDeltaVPairShowsStageOverVehicle(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	c := w.ActiveCraft()
+	if len(c.Stages) <= 1 {
+		t.Fatalf("test setup broken: Saturn V should spawn with more than one stage, got %d", len(c.Stages))
+	}
+	out := strings.Join(v.buildVesselChip(w), "\n")
+	if !strings.Contains(out, "Δv:        3518 / 18872 m/s") {
+		t.Errorf("VESSEL chip missing the stage/vehicle Δv pair:\n%s", out)
+	}
+	compact := strings.Join(v.buildVesselChipCompact(w), "\n")
+	if !strings.Contains(compact, "Δv: 3518 / 18872 m/s") {
+		t.Errorf("VESSEL chip (Compact Form) missing the stage/vehicle Δv pair:\n%s", compact)
 	}
 }
 
@@ -913,11 +964,11 @@ func TestBuildNodesChipMergesActiveBurn(t *testing.T) {
 	if !strings.Contains(joined, "120 m/s") {
 		t.Errorf("firing burn missing from merged chip:\n%s", joined)
 	}
-	if !strings.Contains(joined, "80 m/s") {
+	if !strings.Contains(joined, "80.00 m/s") {
 		t.Errorf("planted node missing from merged chip:\n%s", joined)
 	}
 	// Firing head must come before the planted node.
-	if strings.Index(joined, "120 m/s") > strings.Index(joined, "80 m/s") {
+	if strings.Index(joined, "120 m/s") > strings.Index(joined, "80.00 m/s") {
 		t.Errorf("firing burn should head the chip, above planted nodes:\n%s", joined)
 	}
 
@@ -1129,21 +1180,24 @@ func realisticChipSet(burning bool) []builtChip {
 	}
 	return []builtChip{
 		{corner: cornerTopLeft, priority: chipPriorityCore,
-			lines:   []string{"VESSEL", "  S-IVB-1", "  primary:   Earth", "  velocity:  7.50 km/s", "PROPELLANT", "  fuel:      89% (35775 kg)", "  mass:      47495 kg", "  Δv budget: 5777 m/s", "  throttle:  100%"},
-			compact: []string{"VESSEL  S-IVB-1", "  fuel: 89% (35775 kg)  Δv: 5777 m/s"}},
+			lines:   []string{"VESSEL", "  S-IVB-1", "  primary:   Earth", "  velocity:  7.50 km/s", "PROPELLANT", "  fuel:      89% (35.77 t)", "  mass:      47.49 t", "  Δv:        5777 m/s", "  throttle:  100%"},
+			compact: []string{"VESSEL  S-IVB-1", "  fuel: 89% (35.77 t)  Δv: 5777 m/s"}},
 		{id: settings.ChipFrameTransition, corner: cornerTopLeft,
-			lines: []string{"FRAME TRANSITION", "  Earth → Moon", "  at T+5d4h  (node #3)"}},
+			// A future frame transition renders T- (readout.Countdown's
+			// sign convention, decision 2): "T+5d4h" here pinned the
+			// exact inversion this PR exists to remove (F13).
+			lines: []string{"FRAME TRANSITION", "  Earth → Moon", "  at T-5d04h  (node #3)"}},
 		{id: settings.ChipMissions, corner: cornerTopLeft,
 			lines:   []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1", "    Press [G] to auto-warp to the burn."},
 			compact: []string{"MISSION  Flight School: Plan a Burn", "  ▸ Warp to the node  0/1"}},
 		{corner: cornerTopRight, priority: chipPriorityCore,
 			// #426: the Full form grew an `e:` row (eccentricity, always-on,
 			// full form only — the Compact Form stays the Ap/Pe strip below).
-			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  t→Ap:      47m", "  Pe:        498.2 km", "  t→Pe:      12m", "  period:    1h34m28s", "  inclin.:   0.00°", "  direction: prograde", "  e:         0.0004"},
+			lines:   []string{"ORBIT", "  altitude:  500.0 km", "  Ap:        500.0 km", "  apo:       T-47m", "  Pe:        498.2 km", "  peri:      T-12m", "  period:    1h34m28s", "  incl:      0.00°", "  direction: prograde", "  e:         0.0004"},
 			compact: []string{"ORBIT", "  Ap: 500.0 km  Pe: 498.2 km"}},
 		{id: settings.ChipTarget, corner: cornerTopRight,
-			lines:   []string{"TARGET", "  body:     Moon", "  Δi:       19.44°", "  range:    371639 km", "  TCA:      4.72h"},
-			compact: []string{"TARGET  Moon", "  range: 371639 km"}},
+			lines:   []string{"TARGET", "  body:     Moon", "  Δincl:    19.44°", "  range:    371.6 Mm", "  TCA:      T-4h43m"},
+			compact: []string{"TARGET  Moon", "  range: 371.6 Mm"}},
 		{id: settings.ChipStages, corner: cornerBottomLeft,
 			lines:   []string{"STAGES", "  ●●●", "  ▸ S-IC (1/3)"},
 			compact: []string{"STAGES  ●●●"}},
@@ -1204,10 +1258,10 @@ func TestGracefulShrinkReproducesStagesVsProximityCollision(t *testing.T) {
 	cCols, cRows := canvasDimsFor(104, 24)
 	chips := []builtChip{
 		{corner: cornerTopLeft, priority: chipPriorityCore,
-			lines:   []string{"VESSEL", "  Saturn V-2", "  primary:   Earth", "  velocity:  0.41 km/s", "PROPELLANT", "  fuel:      100% (2160000 kg)", "  mass:      2901847 kg", "  Δv budget: 3518 m/s", "  throttle:  100%"},
+			lines:   []string{"VESSEL", "  Saturn V-2", "  primary:   Earth", "  velocity:  0.41 km/s", "PROPELLANT", "  fuel:      100% (2160000 kg)", "  mass:      2901847 kg", "  Δv:        3518 m/s", "  throttle:  100%"},
 			compact: []string{"VESSEL  Saturn V-2", "  fuel: 100%  Δv: 3518 m/s"}},
 		{id: "", corner: cornerTopLeft,
-			lines:   []string{"PROXIMITY  Saturn V-1", "  range:    10661 km", "  |v_rel|:  5518.77 m/s", "  closing:  +3639.71 m/s"},
+			lines:   []string{"PROXIMITY  Saturn V-1", "  range:    10661 km", "  rel speed: 5518.77 m/s", "  closing:  +3639.71 m/s"},
 			compact: []string{"PROXIMITY  Saturn V-1", "  range: 10661 km"}},
 		{id: settings.ChipStages, corner: cornerBottomLeft,
 			lines:   []string{"STAGES", "  ●●●", "  ▸ S-IC (1/3)"},

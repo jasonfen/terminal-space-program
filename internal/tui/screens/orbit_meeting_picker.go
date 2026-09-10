@@ -2,8 +2,11 @@ package screens
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/planner"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // This file is the Meeting Planner picker's UI half (ADR 0045 S6, #399):
@@ -186,10 +189,16 @@ func (v *OrbitView) buildMeetingPickerChip() []string {
 		if i == mp.rowIdx {
 			marker = ">"
 		}
-		wait := formatDurationShort(row.TArrival)
+		wait := readout.Duration(time.Duration(row.TArrival * float64(time.Second)))
 		var body string
 		if row.Ok {
-			body = fmt.Sprintf("%s %2d laps   %-8s %5.0f m/s", marker, row.Laps, wait, row.DV)
+			// readout.DeltaV returns "N m/s" as one string; split the
+			// number back out and right-align it to a fixed field so the
+			// "m/s" column stays aligned across rows regardless of how
+			// many digits the contract's own precision rule gives a
+			// particular row's figure (TestMeetingPickerChip_LadderColumnsAlign).
+			dvNum, dvUnit, _ := strings.Cut(readout.DeltaV(row.DV), " ")
+			body = fmt.Sprintf("%s %2d laps   %-8s %5s %s", marker, row.Laps, wait, dvNum, dvUnit)
 		} else {
 			body = fmt.Sprintf("%s %2d laps   %-8s (%s)", marker, row.Laps, wait, row.Reason)
 		}
@@ -202,7 +211,7 @@ func (v *OrbitView) buildMeetingPickerChip() []string {
 		}
 	}
 	if sel, ok := mp.selectedRow(); ok && sel.Ok {
-		lines = append(lines, fmt.Sprintf("  arriving ~%.0f m/s", sel.ArrivalSpeed))
+		lines = append(lines, fmt.Sprintf("  arriving ~%s", readout.Speed(sel.ArrivalSpeed)))
 	}
 	return lines
 }

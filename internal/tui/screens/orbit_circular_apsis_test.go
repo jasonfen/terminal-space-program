@@ -6,7 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // placeOnConic puts the active craft on the coplanar conic with the given
@@ -62,14 +66,14 @@ func TestOrbitChipApsisTimesDegenerateOnCircularOrbit(t *testing.T) {
 	for _, nu := range []float64{0, math.Pi / 2} {
 		period := placeOnConic(w, r, r, nu)
 		out := v.Render(w, 0, 200, 60)
-		for _, label := range []string{"t→Ap:", "t→Pe:"} {
+		for _, label := range []string{"apo:", "peri:"} {
 			val := apsisRow(t, out, label)
 			if val != "—" {
 				t.Errorf("circular orbit at ν=%.2f: %s %q, want \"—\" (apsides are undefined at e=0)",
 					nu, label, val)
 			}
 		}
-		seen = append(seen, apsisRow(t, out, "t→Ap:"))
+		seen = append(seen, apsisRow(t, out, "apo:"))
 		_ = period
 	}
 	if len(seen) == 2 && seen[0] != seen[1] {
@@ -92,14 +96,95 @@ func TestOrbitChipApsisTimesLiveOnSlightlyEccentricOrbit(t *testing.T) {
 	rPeri, rApo := primaryR+500.0e3, primaryR+500.4e3
 
 	placeOnConic(w, rPeri, rApo, 0)
-	atPeri := apsisRow(t, v.Render(w, 0, 200, 60), "t→Ap:")
+	atPeri := apsisRow(t, v.Render(w, 0, 200, 60), "apo:")
 	placeOnConic(w, rPeri, rApo, math.Pi/2)
-	quarterOn := apsisRow(t, v.Render(w, 0, 200, 60), "t→Ap:")
+	quarterOn := apsisRow(t, v.Render(w, 0, 200, 60), "apo:")
 
 	if strings.Contains(atPeri, "—") || strings.Contains(quarterOn, "—") {
 		t.Fatalf("0.4 km of apsis separation read as degenerate: %q / %q", atPeri, quarterOn)
 	}
 	if atPeri == quarterOn {
 		t.Errorf("t→Ap frozen at %q across a quarter orbit — the timer is not tracking position", atPeri)
+	}
+}
+
+// TestOrbitChipSubSurfacePeriapsisIsWarningColoured pins F12 (gate
+// review): decision 5's "a sub-surface periapsis keeps its signed depth;
+// the row turns Warning" had no call-site test anywhere in the suite
+// (readout's own tests cover the string content, not which theme style a
+// real chip applies to it). No extra word or glyph marks the row per the
+// ADR, so the ONLY observable difference is the colour: this uses
+// plainThemeColored (distinguishable ANSI per style, unlike
+// chipTestTheme's no-op styles) and checks the RAW (non-ANSI-stripped)
+// output: the Pe: row must carry escape codes, and the Ap: row (not
+// sub-surface, the control) must not, proving the colouring is targeted
+// rather than a blanket style leaking onto every row.
+func TestOrbitChipSubSurfacePeriapsisIsWarningColoured(t *testing.T) {
+	// go test's stdout is not a TTY, so termenv's lazy env detection
+	// (cached process-wide via sync.Once) settles on the colorless
+	// Ascii profile the first time anything asks, which makes every
+	// theme's Render a no-op regardless of what color it was given.
+	// SetColorProfile bypasses that detection outright. Same idiom as
+	// TestOrbitRenderDiskCacheHitMatchesUncachedAfterPan: read the
+	// process's ambient profile first (lazily triggering detection if
+	// nothing has yet) and restore exactly that in t.Cleanup, so every
+	// test that runs after this one sees the same color output it
+	// would have without this test existing.
+	ambient := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
+
+	v := NewOrbitView(plainThemeColored())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	// Switch to the Moon: an atmosphered primary's shouldShowLaunchHUD
+	// gate reads "periapsis below the atmosphere cutoff" as still
+	// ascending, at ANY true anomaly, and hands the row to the LAUNCH/
+	// SURFACE chip instead (exactly what decision 5 also covers there),
+	// but not what this test means to exercise. An airless body has no
+	// such gate, so a sub-surface periapsis reaches the plain ORBIT chip.
+	for _, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			c.Primary = b
+			break
+		}
+	}
+	primaryR := c.Primary.RadiusMeters()
+	// Periapsis 50 km below the surface (an impactor / de-orbit
+	// trajectory), apoapsis 500 km above it, so Ap: stays a normal
+	// reading and only Pe: should carry the Warning colour.
+	placeOnConic(w, primaryR-50e3, primaryR+500e3, math.Pi)
+
+	lines := v.buildOrbitMetricsChip(w)
+	var apLine, peLine string
+	for _, l := range lines {
+		switch {
+		case strings.Contains(stripANSI(l), readout.LabelAp):
+			apLine = l
+		case strings.Contains(stripANSI(l), readout.LabelPe):
+			peLine = l
+		}
+	}
+	if apLine == "" || peLine == "" {
+		t.Fatalf("could not find both Ap: and Pe: rows in ORBIT chip:\n%s", strings.Join(lines, "\n"))
+	}
+	if !strings.Contains(stripANSI(peLine), "-") {
+		t.Fatalf("setup broken: Pe row does not read as sub-surface (no signed depth): %q", peLine)
+	}
+	// plainThemeColored's Warning style is Foreground(Color("3")), which
+	// termenv.ANSI renders as the literal SGR sequence "\x1b[33m", pinned
+	// specifically rather than "carries some colour at all", so swapping
+	// in a different style (e.g. Dim, "\x1b[90m") still fails this check
+	// instead of passing as "some style was applied".
+	const wantWarningPrefix = "\x1b[33m"
+	if !strings.HasPrefix(peLine, wantWarningPrefix) {
+		t.Errorf("sub-surface Pe row not wrapped in Warning (%q): %q", wantWarningPrefix, peLine)
+	}
+	if apLine != stripANSI(apLine) {
+		t.Errorf("Ap row (not sub-surface) unexpectedly carries colour codes, colouring is not targeted: %q", apLine)
 	}
 }

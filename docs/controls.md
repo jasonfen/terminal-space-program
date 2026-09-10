@@ -27,6 +27,7 @@ behind a one-row `▸ +N hidden` marker rather than overlap each other.
   - [Vessels, staging, and docking](#vessels-staging-and-docking)
   - [Multiplayer](#multiplayer)
   - [Mouse](#mouse)
+- [Readout glossary](#readout-glossary)
 - [Screens](#screens)
   - [Spawn form (`n`)](#spawn-form-n)
   - [Maneuver planner (`m`)](#maneuver-planner-m)
@@ -277,6 +278,22 @@ Click only; no dragging, no scroll-to-zoom.
 | Empty space | Open the planner with a new burn at the nearest point on your orbit |
 | A readout panel | Open body info |
 | A porkchop cell | Move the cursor there (then `Enter` to plan it) |
+
+## Readout glossary
+
+Labels on the HUD are one plain word each, but a handful of codes are
+short enough to earn their keep. This is the same block the in-game `F1`
+overlay carries, so you can look one up without leaving the game.
+
+| Code | Meaning |
+|---|---|
+| `fpa` | Flight path angle: velocity above / below the local horizontal |
+| `Q` | Dynamic pressure: aerodynamic stress on the airframe, in kPa |
+| `TCA` | Time of closest approach, in a rendezvous or flyby |
+| `TWR` | Thrust to weight ratio: engines' thrust over vessel weight |
+| `Ap` / `Pe` | Apoapsis / periapsis: height above the surface, like every altitude in the game |
+| `Δv` / `Δincl` | Delta-v / relative inclination to a target's orbital plane |
+| `T-` / `T+` | Countdown convention: `T-` counts down to an event, `T+` counts up since it |
 
 ## Screens
 

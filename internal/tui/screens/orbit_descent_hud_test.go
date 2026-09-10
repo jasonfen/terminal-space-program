@@ -176,7 +176,7 @@ func TestShouldShowDescentHUDAtmospheric(t *testing.T) {
 // HUD into the playtest-report scenario: standalone Lander at 5 km
 // Moon altitude with residual orbital lateral velocity (1.5 km/s,
 // vastly above CrashVCritMps = 10). The rendered output must
-// surface the DESCENT header, the v_horiz row, and the CRASH-on-
+// surface the DESCENT header, the horiz row, and the CRASH-on-
 // contact alert so the failure mode is legible before touchdown.
 func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	w, err := sim.NewWorld()
@@ -195,17 +195,17 @@ func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	if !strings.Contains(out, "DESCENT") {
 		t.Errorf("expected DESCENT section header in render; got:\n%s", out)
 	}
-	if !strings.Contains(out, "v_vert:") {
-		t.Errorf("expected v_vert row")
+	if !strings.Contains(out, "vert:") {
+		t.Errorf("expected vert row")
 	}
-	if !strings.Contains(out, "v_horiz:") {
-		t.Errorf("expected v_horiz row")
+	if !strings.Contains(out, "horiz:") {
+		t.Errorf("expected horiz row")
 	}
 	if !strings.Contains(out, "fpa:") {
 		t.Errorf("expected fpa row")
 	}
 	if !strings.Contains(out, "CRASH on contact") {
-		t.Errorf("expected v_horiz CRASH-on-contact alert for 1.5 km/s lateral; got:\n%s", out)
+		t.Errorf("expected horiz CRASH-on-contact alert for 1.5 km/s lateral; got:\n%s", out)
 	}
 }
 

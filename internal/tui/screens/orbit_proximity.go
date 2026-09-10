@@ -12,6 +12,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -254,7 +255,7 @@ func proximityPrimaryName(w *sim.World) string {
 const proximityDriftHorizonFloorMps = 0.01
 
 // proximityDriftHorizonFor picks how far ahead the no-burn drift path
-// looks: enough time, at the CURRENT |v_rel|, to cross roughly the
+// looks: enough time, at the CURRENT rel speed, to cross roughly the
 // radius the Framing Event fitted — so a tight zoom (close range, small
 // frame) gets a proportionally short forecast and a wide one gets a
 // longer one, instead of a fixed window that either vanishes into a dot
@@ -323,7 +324,7 @@ func (v *OrbitView) drawProximityDriftPath(w *sim.World, st sim.ProximityState) 
 // for: 10 km, 1 km, 100 m — a coarse decade ladder a pilot can eyeball
 // distance against without reading the range chip. The 50 m dock gate
 // (sim.DockingDistM) is drawn separately by drawProximityDockGate: it
-// isn't a fourth entry here because its colour is gated on |v_rel| too,
+// isn't a fourth entry here because its colour is gated on rel speed too,
 // not radius alone.
 var proximityRingRadii = []float64{10_000, 1_000, 100}
 
@@ -417,7 +418,7 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 		v.canvas.PlotPolylineClass(pts, render.ColorDim, widgets.ClassScenery)
 		labelPt := st.TargetWorld.Add(st.Frame.AlongTrack.Scale(r))
 		if col, row, onCanvas := v.canvasCell(labelPt); onCanvas {
-			v.canvas.SetCellLabelColored(col, row, formatRangeM(r), dim)
+			v.canvas.SetCellLabelColored(col, row, readout.Distance(r), dim)
 		}
 	}
 }
@@ -427,7 +428,7 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 // presence, in four states:
 //
 //  1. dim — outside the distance gate.
-//  2. render.ColorAlert (red, #421) — inside DockingDistM but |v_rel| is
+//  2. render.ColorAlert (red, #421): inside DockingDistM but rel speed is
 //     at or over DockingVMS: the SAME (RangeM, VRelMS) predicate
 //     checkDocking's auto-fuse itself refuses on (proximityOverSpeed),
 //     given a place on the ring rather than only a chip row a player
@@ -454,10 +455,10 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 //
 // #421 (revised): the over-speed state (2) originally keyed off
 // ClosingMS (the closing: row's own number) rather than the raw
-// |v_rel| checkDocking's gate actually uses. That was a narrower — and
-// wrong — proxy: a pair sliding past laterally at |v_rel| 0.50 m/s while
+// rel speed checkDocking's gate actually uses. That was a narrower, and
+// wrong, proxy: a pair sliding past laterally at rel speed 0.50 m/s while
 // closing at only 0.05 m/s sits inside the distance gate, never docks
-// (checkDocking refuses on the full |v_rel|), yet the ring stayed dim
+// (checkDocking refuses on the full rel speed), yet the ring stayed dim
 // and no row said why — exactly the silent failure #421 exists to fix,
 // just on the other axis. proximityOverSpeed now matches checkDocking's
 // own (RangeM, VRelMS) predicate exactly, so the ring can't disagree
@@ -474,7 +475,7 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 // arrives, and it simply changes colour when the moment does. The amber
 // latched state has no such flicker risk — a latch persists for
 // ReArmDistM/ReArmCeiling's worth of time, not one tick; the red
-// over-speed state is exactly as continuous as |v_rel| itself.
+// over-speed state is exactly as continuous as rel speed itself.
 func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 	const gateRadius = sim.DockingDistM
 	if !v.proximityRingVisible(st, gateRadius) {
@@ -491,7 +492,7 @@ func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 		// here; see its own doc comment).
 		color = render.ColorWarning
 	case proximityOverSpeed(st):
-		// Inside the distance gate, but |v_rel| alone already meets or
+		// Inside the distance gate, but rel speed alone already meets or
 		// exceeds DockingVMS — the exact predicate checkDocking's
 		// auto-fuse refuses on, given a place on the ring (#421).
 		color = render.ColorAlert
@@ -765,12 +766,12 @@ func clampInt(x, lo, hi int) int {
 }
 
 // proximityOverSpeed reports whether the pair sits inside the distance
-// gate (sim.DockingDistM) with |v_rel| at or over the velocity gate
+// gate (sim.DockingDistM) with rel speed at or over the velocity gate
 // (sim.DockingVMS) — the EXACT predicate checkDocking's auto-fuse
 // refuses on (see its dv.Norm() > DockingVMS check), not a narrower
 // proxy. issue #421 (revised): an earlier version of this keyed off the
 // CLOSING RATE (the radial component of v_rel) instead, which meant a
-// pair sliding past laterally — closing 0.05 m/s but |v_rel| 0.50 m/s —
+// pair sliding past laterally: closing 0.05 m/s but rel speed 0.50 m/s,
 // sat inside the distance gate, never docked, and got no ring colour and
 // no readout suffix at all: the exact silent failure #421 exists to fix,
 // just missed on the lateral axis. Matching checkDocking's own
@@ -782,12 +783,12 @@ func proximityOverSpeed(st sim.ProximityState) bool {
 }
 
 // proximityOverSpeedSuffix returns the "(need < 0.10)" reminder for the
-// |v_rel|: row exactly when proximityOverSpeed holds, empty otherwise —
+// rel speed: row exactly when proximityOverSpeed holds, empty otherwise,
 // so the plain number stands alone the rest of the time. Reads
 // sim.DockingVMS live rather than hard-coding it, so the readout can
 // never drift from the gate checkDocking actually enforces.
 //
-// Deliberately NOT also applied to the closing: row: |v_rel| is the
+// Deliberately NOT also applied to the closing: row: rel speed is the
 // number literally being compared against DockingVMS, but closing can
 // read well under 0.10 while docking still fails (the lateral-pass
 // case above) — tagging closing: with the same reminder there would
@@ -824,27 +825,27 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	// a row of its own, because every row this chip spends is a row
 	// admitChipsByBudget takes off the chip below it at 80×24.
 	//
-	// #421: |v_rel|: carries the gate itself ("0.50 m/s (need < 0.10)")
+	// #421: rel speed: carries the gate itself ("0.50 m/s (need < 0.10)")
 	// exactly when the pair is inside the distance gate but over the
 	// velocity gate — the failure a textbook (or a lateral-pass) approach
 	// can hit with no other on-screen explanation.
 	return []string{
 		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
-		chipRow("range:", formatRangeM(st.RangeM)),
-		chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", st.VRelMS)+proximityOverSpeedSuffix(st)),
-		chipRow("closing:", fmt.Sprintf("%+.2f m/s", st.ClosingMS)),
+		chipRow("range:", readout.Distance(st.RangeM)),
+		chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+proximityOverSpeedSuffix(st)),
+		chipRow("closing:", readout.SignedSpeed(st.ClosingMS)),
 	}
 }
 
 // buildProximityChipCompact is PROXIMITY's Compact Form (ADR 0046 /
-// #422): name plus range only, dropping |v_rel| and closing — the single
+// #422): name plus range only, dropping rel speed and closing, the single
 // number "how far" is the one a pilot still needs even once this chip has
 // shrunk (the map's TARGET chip carries the fuller relative-motion
 // picture whenever it has room). The refusal branch keeps its "how to
 // get out" row rather than dropping it: a chip that can't show the view
 // it opened for must still leave a way out, shrunk or not.
 //
-// #421: the one exception to "|v_rel| drops in Compact Form" is the same
+// #421: the one exception to "rel speed drops in Compact Form" is the same
 // gate the full chip carries — when the pair is inside the distance gate
 // but over the velocity gate, that row survives the shrink too. A pilot
 // at the Playable Floor is exactly as capable of blowing the approach as
@@ -863,10 +864,10 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	}
 	lines := []string{
 		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
-		chipRow("range:", formatRangeM(st.RangeM)),
+		chipRow("range:", readout.Distance(st.RangeM)),
 	}
 	if suffix := proximityOverSpeedSuffix(st); suffix != "" {
-		lines = append(lines, chipRow("|v_rel|:", fmt.Sprintf("%.2f m/s", st.VRelMS)+suffix))
+		lines = append(lines, chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+suffix))
 	}
 	return lines
 }

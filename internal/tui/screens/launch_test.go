@@ -63,9 +63,25 @@ func spawnSaturnVOnPad(t *testing.T) (*sim.World, *spacecraft.Spacecraft) {
 }
 
 // formatLaunchHUD renders the LaunchView readout strip overlaid on
-// the bottom braille row of the chase-cam canvas. Format locked by
-// v0.11 Slice 1: `T+ HH:MM:SS  v_z ±XXX m/s | downrange X.X km
-// Q XX.X kPa (max YY.Y)`.
+// the bottom braille row of the chase-cam canvas. Format re-pinned twice
+// for ADR 0049 stage A2's gate-review follow-ups:
+//
+//   - F9 (second gate review): decision 1's "title-bar mission stopwatch
+//     (T+ 00:00:02)" carve-out names a stopwatch that does not exist on
+//     the title bar (it prints a calendar date); the launch strip was
+//     the only HH:MM:SS clock on main, so the ADR named the right object
+//     and mislocated it. The first A2 pass removed this clock reading
+//     that mislocation as license to drop it, leaving the game with NO
+//     clock-style readout, which decision 1 explicitly did not want.
+//     T+ HH:MM:SS is restored verbatim.
+//   - F14 (second gate review): vert/downrange gain the colon Q: already
+//     had (decision 6), and the "(max ...)" parenthetical drops its
+//     repeated unit per decision 6's own worked example
+//     ("Q: 0.0 kPa (max 0.0)", not "(max 0.0 kPa)").
+//
+// vert/downrange/Q: themselves still route through internal/tui/readout
+// like every other flight readout (v_z was a third spelling of vert:'s
+// own quantity).
 func TestFormatLaunchHUDTracerBullet(t *testing.T) {
 	got := formatLaunchHUD(
 		2*time.Minute+34*time.Second,
@@ -74,27 +90,27 @@ func TestFormatLaunchHUDTracerBullet(t *testing.T) {
 		18_345.0,
 		24_500.0,
 	)
-	want := "T+ 00:02:34  v_z +120 m/s | downrange 15.4 km  Q 18.3 kPa (max 24.5)"
+	want := "T+ 00:02:34  vert: 120.0 m/s | downrange: 15.40 km  Q: 18.34 kPa (max 24.50)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 }
 
-// At T+0 with the rocket still on the pad: T+ zeros, v_z reads 0,
+// At T+0 with the rocket still on the pad: T+ zeros, vert reads 0,
 // downrange/Q all zero.
 func TestFormatLaunchHUDPadIdle(t *testing.T) {
 	got := formatLaunchHUD(0, 0, 0, 0, 0)
-	want := "T+ 00:00:00  v_z +0 m/s | downrange 0.0 km  Q 0.0 kPa (max 0.0)"
+	want := "T+ 00:00:00  vert: 0.00 m/s | downrange: 0 m  Q: 0.000 kPa (max 0.000)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 }
 
-// Negative v_z (apex passed, falling back) renders signed; T+ above
+// Negative vert (apex passed, falling back) renders signed; T+ above
 // the hour boundary rolls cleanly past HH.
 func TestFormatLaunchHUDDescentAcrossHourBoundary(t *testing.T) {
 	got := formatLaunchHUD(time.Hour+9*time.Minute+5*time.Second, -42.0, 300_000, 0, 500)
-	want := "T+ 01:09:05  v_z -42 m/s | downrange 300.0 km  Q 0.0 kPa (max 0.5)"
+	want := "T+ 01:09:05  vert: -42.00 m/s | downrange: 300.0 km  Q: 0.000 kPa (max 0.500)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
@@ -266,7 +282,7 @@ func TestLaunchViewTitleShowsBurnButton(t *testing.T) {
 
 // TestLaunchHUDLineShowsIgnitionHintOnPad — #427 / ADR 0048 §3: the pad's
 // call to action. While Landed with the engine off, the status-area line
-// (bottom border, normally T+/v_z/downrange/Q) becomes the ignite/stage/
+// (bottom border, normally T+/vert/downrange/Q) becomes the ignite/stage/
 // throttle hint instead — the review's own finding was that nothing on
 // screen told a first-time player to press `b`. The moment the engine
 // lights, the line reverts to real telemetry.
@@ -298,7 +314,7 @@ func TestLaunchHUDLineShowsIgnitionHintOnPad(t *testing.T) {
 		t.Errorf("composeHUDLine on the pad = %q, want it to contain %q", hud, want)
 	}
 	if strings.Contains(hud, "T+") {
-		t.Errorf("pad HUD line still showed the zeroed T+/v_z/downrange telemetry: %q", hud)
+		t.Errorf("pad HUD line still showed the zeroed T+/vert/downrange telemetry: %q", hud)
 	}
 
 	// Full Render must carry the hint too (through overlayHUDStrip).

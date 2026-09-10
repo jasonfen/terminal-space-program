@@ -18,6 +18,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
@@ -1579,7 +1580,7 @@ func (v *OrbitView) declutterTagText() (plain, rendered string) {
 func warpRateText(w *sim.World) string {
 	if secs, ok := w.AutoWarpSecondsToTarget(); ok {
 		dur := time.Duration(secs * float64(time.Second))
-		return fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), compactDuration(dur))
+		return fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), readout.Duration(dur))
 	}
 	reqWarp := w.Clock.Warp()
 	if eff := w.EffectiveWarp(); eff < reqWarp {
@@ -1687,29 +1688,6 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	return rendered
 }
 
-// compactDuration renders a positive duration as a two-unit chip
-// ("2d4h", "3h12m", "5m30s", "28s") for the Auto-Warp HUD readout —
-// the prefix-free sibling of formatCountdown. v0.16 / ADR 0016.
-func compactDuration(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	totalSecs := int64(d.Seconds())
-	days := totalSecs / 86400
-	hours := (totalSecs % 86400) / 3600
-	mins := (totalSecs % 3600) / 60
-	secs := totalSecs % 60
-	switch {
-	case days > 0:
-		return fmt.Sprintf("%dd%dh", days, hours)
-	case hours > 0:
-		return fmt.Sprintf("%dh%dm", hours, mins)
-	case mins > 0:
-		return fmt.Sprintf("%dm%ds", mins, secs)
-	default:
-		return fmt.Sprintf("%ds", secs)
-	}
-}
 
 // HitMenuButton reports whether a click at (col, row) lands on the
 // title bar's `[Menu]` button. Title bar lives on row 0 of the
@@ -2603,7 +2581,7 @@ func crashedVesselNameLabel(th Theme, c *spacecraft.Spacecraft) string {
 
 // shouldShowLaunchHUD returns true when the active craft is in
 // "ascent" mode — defined v0.9.4+ as "periapsis below the
-// circularize-from-pad mission floor" (200 km altitude). Visible
+// circularize-from-pad mission floor" (200 km, altitude). Visible
 // for the whole pad → coast → circularise journey, vanishing only
 // once the mission-floor periapsis is achieved (= LEO is captured).
 // v0.9.2+ originally hid the HUD as soon as periapsis cleared the
@@ -2689,12 +2667,12 @@ func craftHasOrbit(c *spacecraft.Spacecraft) bool {
 // 50 km gives the player a full warp-10× tick worth of warning at
 // orbital-class lateral speeds before reaching the surface; smaller
 // values would let an impactor approach pass the surface inside one
-// readout-update without giving the v_horiz row time to register.
+// readout-update without giving the horiz row time to register.
 const descentHUDAltitudeM = 50_000.0
 
 // shouldShowDescentHUD returns true when the active craft is in
 // surface-proximity flight on an airless body — the regime where
-// the v_vert / v_horiz split (not the scalar orbital velocity) is
+// the vert / horiz split (not the scalar orbital velocity) is
 // what determines whether the next surface contact is a soft
 // touchdown or a high-|V| Crashed. Counterpart to shouldShowLaunchHUD
 // for airless bodies; the two are mutually exclusive via the
@@ -2706,7 +2684,7 @@ const descentHUDAltitudeM = 50_000.0
 // craft with ~1 km/s residual orbital lateral velocity at 5–10 km
 // altitude reads "low and slow" by altitude alone but flips to
 // Crashed (|V| ≫ CrashVCritMps) on the next surface contact. The
-// new block surfaces v_vert / v_horiz / fpa / twr so the lateral
+// new block surfaces vert / horiz / fpa / TWR so the lateral
 // component is legible while there's still room to bleed it.
 //
 // Trigger: airless primary AND (current altitude < descentHUDAltitudeM
@@ -2864,63 +2842,6 @@ func deriveFlightPhase(c *spacecraft.Spacecraft) FlightPhase {
 	return PhaseCoast // near-circular parking / cruise orbit
 }
 
-// formatAltKm renders an altitude in metres as a signed kilometre
-// string with a sign that's friendly to ascent flight ("−2.8 km"
-// reads better than "−2840 m" for sub-orbital periapsis). Used by
-// the LAUNCH HUD's ap / pe rows. v0.9.4+.
-func formatAltKm(altM float64) string {
-	km := altM / 1000
-	switch {
-	case math.Abs(km) >= 1000:
-		return fmt.Sprintf("%+.0f km", km)
-	case math.Abs(km) >= 1:
-		return fmt.Sprintf("%+.1f km", km)
-	default:
-		return fmt.Sprintf("%+.0f m", altM)
-	}
-}
-
-// formatDurationShort renders seconds as a short human label —
-// "12s" / "3m45s" / "1h22m". Used by the LAUNCH HUD's t_to_apo
-// row and the rendezvous TCA readout (v0.9.3 patterns kept
-// consistent across both ascent and rendezvous flows). v0.9.4+.
-func formatDurationShort(sec float64) string {
-	if sec < 60 {
-		return fmt.Sprintf("%.0fs", sec)
-	}
-	if sec < 3600 {
-		m := int(sec) / 60
-		s := int(sec) % 60
-		return fmt.Sprintf("%dm%02ds", m, s)
-	}
-	h := int(sec) / 3600
-	m := (int(sec) % 3600) / 60
-	return fmt.Sprintf("%dh%02dm", h, m)
-}
-
-// formatPeriod renders an orbital period keeping seconds at every scale —
-// "45s" / "3m45s" / "6h04m21s". It differs from formatDurationShort only in
-// the hour band, where the latter drops seconds to keep live countdowns
-// (t→Ap / t→Pe / TCA) from ticking a noisy seconds digit. The period is a
-// near-static readout the player tunes a resonant / phasing orbit against,
-// and minute rounding there is ±30s — which over m revolutions amplifies to
-// ±360°·m·δ/T of placement error per slot. Seconds make the period the sharp
-// tuning lever the use case needs. v0.24.4+.
-func formatPeriod(sec float64) string {
-	if sec < 60 {
-		return fmt.Sprintf("%.0fs", sec)
-	}
-	if sec < 3600 {
-		m := int(sec) / 60
-		s := int(sec) % 60
-		return fmt.Sprintf("%dm%02ds", m, s)
-	}
-	h := int(sec) / 3600
-	m := (int(sec) % 3600) / 60
-	s := int(sec) % 60
-	return fmt.Sprintf("%dh%02dm%02ds", h, m, s)
-}
-
 // launchMissionProgress returns the pe-altitude-vs-mission-floor
 // row for the LAUNCH HUD when the active craft is flying a
 // circularize_from_pad mission for its current primary. Empty
@@ -2948,7 +2869,7 @@ func launchMissionProgress(w *sim.World, c *spacecraft.Spacecraft, periAltM floa
 				target = launchMissionFloorM
 			}
 			return fmt.Sprintf("mission:    pe %s / %s target",
-				formatAltKm(periAltM), formatAltKm(target))
+				readout.Distance(periAltM), readout.Distance(target))
 		}
 	}
 	return ""

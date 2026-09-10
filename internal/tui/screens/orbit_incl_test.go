@@ -91,7 +91,7 @@ func TestRelativeInclinationVariesOverSiderealDay(t *testing.T) {
 		return v.Render(w, 0, 200, 80)
 	}
 
-	diRe := regexp.MustCompile(`Δi:\s+([0-9]+\.[0-9]+)°`)
+	diRe := regexp.MustCompile(`Δincl:\s+([0-9]+\.[0-9]+)°`)
 	extract := func(out string) (float64, bool) {
 		m := diRe.FindStringSubmatch(out)
 		if m == nil {
@@ -107,8 +107,8 @@ func TestRelativeInclinationVariesOverSiderealDay(t *testing.T) {
 	samples := make([]float64, 0, 5)
 	for _, hours := range []int{0, 6, 12, 18, 24} {
 		out := rerender(t0.Add(time.Duration(hours) * time.Hour))
-		if !strings.Contains(out, "Δi:") {
-			t.Fatalf("h=%d: Δi row missing from HUD output:\n%s", hours, out)
+		if !strings.Contains(out, "Δincl:") {
+			t.Fatalf("h=%d: Δincl row missing from HUD output:\n%s", hours, out)
 		}
 		v, ok := extract(out)
 		if !ok {

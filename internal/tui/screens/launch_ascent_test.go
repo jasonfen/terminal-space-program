@@ -211,8 +211,8 @@ func TestAscentQBandLinesMarksCurrentAndMaxQ(t *testing.T) {
 		// 1234.5 Pa → 1.2 kPa
 		t.Errorf("Q row = %q, want the current Q value in kPa", got[len(got)-2])
 	}
-	if !strings.Contains(got[len(got)-1], "45.7") {
-		// 45678 Pa → 45.7 kPa
+	if !strings.Contains(got[len(got)-1], "45.68") {
+		// 45678 Pa → 45.68 kPa (readout.Pressure: 4 significant figures)
 		t.Errorf("max Q row = %q, want the max Q value in kPa", got[len(got)-1])
 	}
 }

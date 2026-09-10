@@ -152,3 +152,16 @@ func TestHelpKeyTokensSplitsCompoundRows(t *testing.T) {
 	sort.Strings(got)
 	t.Logf("%d tokens: %s", len(got), strings.Join(got, " "))
 }
+
+// TestHelpGlossaryCoversReadoutCodes (ADR 0049 stage A3a): the six codes
+// that survive the readout contract, fpa, Q, TCA, TWR, Ap/Pe, Δv/Δincl,
+// must each have a line in the F1 glossary block, so a player who hits
+// one on a HUD panel can look it up without leaving the game.
+func TestHelpGlossaryCoversReadoutCodes(t *testing.T) {
+	tokens := screens.HelpKeyTokens()
+	for _, code := range []string{"fpa", "Q", "TCA", "TWR", "Ap", "Pe", "Δv", "Δincl"} {
+		if !tokens[code] {
+			t.Errorf("F1 glossary missing a line naming %q (ADR 0049 readout contract)", code)
+		}
+	}
+}

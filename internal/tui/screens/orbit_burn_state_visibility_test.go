@@ -271,7 +271,7 @@ func TestTargetChipCraftRecomputesDuringOwnBurn(t *testing.T) {
 	if strings.Contains(out, "TCA:") {
 		t.Errorf("mid-burn craft-target chip still carries a stale TCA: row:\n%s", out)
 	}
-	if !strings.Contains(out, "|v_rel|:") || !strings.Contains(out, "closing:") || !strings.Contains(out, "lead:") {
+	if !strings.Contains(out, "rel speed:") || !strings.Contains(out, "closing:") || !strings.Contains(out, "lead:") {
 		t.Errorf("mid-burn craft-target chip lost its live relative-state rows:\n%s", out)
 	}
 }
@@ -400,8 +400,8 @@ func TestNodesChipHeadRowCountsToIgnitionThenBurnEnd(t *testing.T) {
 		EndTime:     w.Clock.SimTime.Add(61 * time.Second),
 	}
 	out = strings.Join(v.buildNodesChip(w), "\n")
-	if !strings.Contains(out, "burning, 61s left") {
-		t.Errorf("live-burn head row should read 'burning, 61s left' (BurnEnd):\n%s", out)
+	if !strings.Contains(out, "burning, 1m01s left") {
+		t.Errorf("live-burn head row should read 'burning, 1m01s left' (BurnEnd):\n%s", out)
 	}
 	if strings.Contains(out, "T-61s") {
 		t.Errorf("live-burn head row still uses the old T-Ns wording:\n%s", out)

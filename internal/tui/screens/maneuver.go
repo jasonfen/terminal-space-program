@@ -19,6 +19,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -848,7 +849,7 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 
 	warn := ""
 	if dv > budget {
-		warn = m.theme.Alert.Render(fmt.Sprintf(" [EXCEEDS BUDGET by %.0f m/s]", dv-budget))
+		warn = m.theme.Alert.Render(fmt.Sprintf(" [EXCEEDS BUDGET by %s]", readout.DeltaV(dv-budget)))
 	}
 
 	// Mode line — highlight if focused, otherwise dim.
@@ -869,7 +870,7 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	fireAt := sim.AllTriggerEvents[m.fireAtIdx]
 	fireAtLabel := fireAt.String()
 	if !m.loadedTriggerTime.IsZero() {
-		countdown := formatCountdown(m.loadedTriggerTime.Sub(w.Clock.SimTime))
+		countdown := readout.Countdown(m.loadedTriggerTime.Sub(w.Clock.SimTime))
 		if fireAt == sim.TriggerAbsolute {
 			fireAtLabel = countdown
 		} else {
@@ -888,8 +889,13 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	// the engine-on time the App will plant.
 	burnDescr := "impulsive"
 	if dur > 0 {
-		burnDescr = fmt.Sprintf("finite burn — %.1fs at %.0f kN, Isp %.0f s",
-			dur.Seconds(), c.Thrust/1000, c.Isp)
+		// Isp is deliberately left as a bare "%.0f s": specific impulse is
+		// measured in seconds as its unit, not a duration readout, so the
+		// contract (which governs time-to/countdown/period readouts) does
+		// not reach it. Do not "fix" this to readout.Duration on a later
+		// sweep.
+		burnDescr = fmt.Sprintf("finite burn — %s at %s, Isp %.0f s",
+			readout.Duration(dur), readout.Thrust(c.Thrust), c.Isp)
 	}
 
 	// Plan Cursor (ADR 0047 / #428): the header names the node under the
@@ -932,9 +938,9 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	for _, n := range c.Nodes {
 		planTotal += n.DV
 	}
-	budgetLine := fmt.Sprintf("  Δv budget: %.0f m/s", budget)
+	budgetLine := fmt.Sprintf("  %s        %s", readout.LabelDeltaV, deltaVReadout(c))
 	if len(c.Nodes) > 0 {
-		budgetLine += fmt.Sprintf(" (%.0f after plan)", budget-planTotal)
+		budgetLine += fmt.Sprintf(" (%s after plan)", readout.DeltaV(budget-planTotal))
 	}
 
 	lines := []string{
@@ -947,7 +953,15 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		"  → " + burnDescr,
 		"",
 		budgetLine,
-		fmt.Sprintf("  thrust: %.0f N  Isp: %.0f s", c.Thrust, c.Isp),
+		// Isp is deliberately left as a bare "%.0f s": specific impulse
+		// is measured in seconds as its unit, not a duration readout, so
+		// the contract does not reach it (same reasoning as burnDescr's
+		// Isp above). Thrust routes through readout.Thrust (decision 3:
+		// "kN everywhere") — this row used to print raw Newtons
+		// ("1023000 N") a few lines below burnDescr's own correctly-
+		// converted "at 1023 kN", two dialects for the same c.Thrust
+		// value on one screen.
+		fmt.Sprintf("  thrust: %s  Isp: %.0f s", readout.Thrust(c.Thrust), c.Isp),
 	}
 
 	// PLANNED NODES (v0.10.1+; Plan Cursor since ADR 0047 / #428): list
@@ -975,9 +989,14 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		n := c.Nodes[i]
 		when := n.Event.String()
 		if !n.TriggerTime.IsZero() {
-			when = formatCountdown(n.TriggerTime.Sub(w.Clock.SimTime))
+			when = readout.Countdown(n.TriggerTime.Sub(w.Clock.SimTime))
 		}
-		row := fmt.Sprintf("%d. %-10s %6.0f m/s  %s", i+1, n.Mode.String(), n.DV, when)
+		// readout.DeltaV's whole "N m/s" string is right-aligned as one
+		// unit via a plain %Ns pad rather than split apart: both the
+		// digits and " m/s" are ASCII, so a byte-counted pad is safe here
+		// (unlike a column that can carry a styled/multibyte value, where
+		// lipgloss.Width would be required instead).
+		row := fmt.Sprintf("%d. %-10s %10s  %s", i+1, n.Mode.String(), readout.DeltaV(n.DV), when)
 		// Over-budget Node (ADR 0047 §2 / #428): a planted node whose Δv
 		// exceeds the vessel's current remaining budget plants anyway —
 		// warn and allow, never refuse — but every list carrying it
@@ -985,7 +1004,7 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		// wording as the on-map NODES chip (orbit_chips.go); the predicate
 		// itself lives on ManeuverNode.OverBudget (#426) so no list forks it.
 		if shortfall, isOver := n.OverBudget(c); isOver {
-			row += "  " + m.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", shortfall))
+			row += "  " + m.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %s", readout.DeltaV(shortfall)))
 		}
 		switch {
 		case i == m.editingIdx:
@@ -1088,24 +1107,34 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 			lines = append(lines, fmt.Sprintf("  primary:       %s", poPrimary.EnglishName))
 		}
 		if ro.Hyperbolic {
+			hypPeAlt := ro.PeriMeters - primaryR
+			hypPeLine := fmt.Sprintf("  new Pe:        %s", readout.Distance(hypPeAlt))
+			if hypPeAlt < 0 {
+				hypPeLine = m.theme.Warning.Render(hypPeLine)
+			}
 			lines = append(lines,
 				"  "+m.theme.Warning.Render("hyperbolic — escape trajectory"),
-				fmt.Sprintf("  new Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
+				hypPeLine,
 				fmt.Sprintf("  e:             %.3f", ro.Eccentricity),
 			)
 		} else {
+			newPeAlt := ro.PeriMeters - primaryR
+			newPeLine := fmt.Sprintf("  new Pe:        %s", readout.Distance(newPeAlt))
+			if newPeAlt < 0 {
+				newPeLine = m.theme.Warning.Render(newPeLine)
+			}
 			lines = append(lines,
-				fmt.Sprintf("  new Ap:        %.1f km alt", (ro.ApoMeters-primaryR)/1000),
-				fmt.Sprintf("  new Pe:        %.1f km alt", (ro.PeriMeters-primaryR)/1000),
-				fmt.Sprintf("  new inclin.:   %.2f°", ro.Inclination*180/math.Pi),
+				fmt.Sprintf("  new Ap:        %s", readout.Distance(ro.ApoMeters-primaryR)),
+				newPeLine,
+				fmt.Sprintf("  new %s      %s", readout.LabelIncl, readout.Angle(ro.Inclination*180/math.Pi)),
 			)
 			const equatorialTol = 1e-3
 			if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
 				lines = append(lines, m.theme.Dim.Render("  AN/DN:         equatorial (undefined)"))
 			} else {
 				lines = append(lines,
-					fmt.Sprintf("  new AN angle:  %.1f°", normalizeManeuverDeg(ro.AscNode*180/math.Pi)),
-					fmt.Sprintf("  new DN angle:  %.1f°", normalizeManeuverDeg(ro.DescNode*180/math.Pi)),
+					fmt.Sprintf("  new AN angle:  %s", readout.Angle(normalizeManeuverDeg(ro.AscNode*180/math.Pi))),
+					fmt.Sprintf("  new DN angle:  %s", readout.Angle(normalizeManeuverDeg(ro.DescNode*180/math.Pi))),
 				)
 			}
 		}
@@ -1235,22 +1264,6 @@ func formPanelWidth(cols int) int {
 		w = 10 // floor so a row always has room to show something plus "…"
 	}
 	return w
-}
-
-// formatCountdown renders a relative duration as "T+1d3h", "T+14m32s",
-// or "T-5s" (past, in case the node is overdue). v0.6.4 click-to-
-// edit uses this to qualify the fire-at label so the player sees
-// when the loaded burn is scheduled. Two-component precision keeps
-// the line short — "1d3h" not "1d3h45m12s".
-func formatCountdown(d time.Duration) string {
-	prefix := "T+"
-	if d < 0 {
-		d = -d
-		prefix = "T-"
-	}
-	// compactDuration (orbit.go) owns the two-unit decomposition; this
-	// just signs it. v0.16 dedup — was a verbatim copy of that switch.
-	return prefix + compactDuration(d)
 }
 
 // normalizeManeuverDeg wraps an angle in degrees into [0, 360). Local

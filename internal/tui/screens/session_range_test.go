@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // ADR 0037 §5: nothing in the game named the lock-arming neighbourhood —
@@ -31,7 +32,7 @@ func TestSessionRosterShowsRangeAndTheLockRule(t *testing.T) {
 	if !strings.Contains(out, "RANGE") {
 		t.Errorf("roster has no RANGE column:\n%s", out)
 	}
-	if !strings.Contains(out, formatRangeM(12_400)) {
+	if !strings.Contains(out, readout.Distance(12_400)) {
 		t.Errorf("roster does not show the live range to gern:\n%s", out)
 	}
 	// A player with no measurable range reads blank, not "0 m" — the same
@@ -41,7 +42,7 @@ func TestSessionRosterShowsRangeAndTheLockRule(t *testing.T) {
 		t.Errorf("a player with no range rendered as a zero distance:\n%s", out)
 	}
 	// The rule itself, in the numbers the sim actually gates on.
-	if !strings.Contains(out, "35 km") || !strings.Contains(out, "100 m/s") {
+	if !strings.Contains(out, "35.00 km") || !strings.Contains(out, "100.0 m/s") {
 		t.Errorf("roster never states the warp-lock rule:\n%s", out)
 	}
 }

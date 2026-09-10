@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // SessionScreen is the multiplayer roster (v0.27 S6, ADR 0034): one
@@ -735,7 +736,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		// LOCATION columns' honesty about missing reports (#297).
 		rangeCell := "—"
 		if p.HasRange && p.Fingerprint != info.Self {
-			rangeCell = formatRangeM(p.RangeM)
+			rangeCell = readout.Distance(p.RangeM)
 			if p.RangeM <= sim.CoWarpCoupleRangeM {
 				rangeCell = s.theme.Primary.Render(rangeCell)
 			}
@@ -792,7 +793,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 			b.WriteString("  " + padStyled(marker, 2) +
 				padStyled(truncWidth(inv.Code, colInviteCode), colInviteCode) + " " +
 				padStyled(truncWidth(inv.Handle, colInviteHandle), colInviteHandle) + " " +
-				s.theme.Dim.Render(compactDuration(inv.Age)+" old") + "\n")
+				s.theme.Dim.Render(readout.Duration(inv.Age)+" old") + "\n")
 		}
 	}
 
@@ -800,8 +801,8 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	// Quoted from the sim's own gate constants so the sentence can never
 	// drift from the behaviour it describes.
 	b.WriteString(s.theme.Dim.Render(fmt.Sprintf(
-		"\n  warps lock together inside %.0f km when you're closing slower than %.0f m/s",
-		sim.CoWarpCoupleRangeM/1000, sim.CoWarpCoupleSpeedMs)) + "\n")
+		"\n  warps lock together inside %s when you're closing slower than %s",
+		readout.Distance(sim.CoWarpCoupleRangeM), readout.Speed(sim.CoWarpCoupleSpeedMs))) + "\n")
 
 	b.WriteString("\n")
 	if s.confirmRemove {
@@ -867,7 +868,7 @@ func formatDeltaT(p sim.SessionPlayer, isSelf bool) string {
 		return "in sync"
 	}
 	if d > 0 {
-		return "+" + compactDuration(d) + " ahead"
+		return "+" + readout.Duration(d) + " ahead"
 	}
-	return "-" + compactDuration(-d) + " behind"
+	return "-" + readout.Duration(-d) + " behind"
 }

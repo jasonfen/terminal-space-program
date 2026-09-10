@@ -18,6 +18,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -34,7 +35,7 @@ type LaunchView struct {
 	hudSource *OrbitView // reused for the side-HUD chrome (v0.11.0+)
 
 	// lastVZSample caches the previous tick's altitude + sim-time so
-	// the HUD can compute v_z (m/s) as a finite difference rather than
+	// the HUD can compute vert (m/s) as a finite difference rather than
 	// requiring a sim-side velocity decomposition. Re-keyed on active-
 	// craft change so a vessel switch can't bleed a stale baseline.
 	vzCraft *spacecraft.Spacecraft
@@ -159,24 +160,51 @@ func launchAutoScale(altitudeM float64, rows int) float64 {
 // formatLaunchHUD renders the v0.11 Slice 1 launch-readout strip
 // overlaid on the chase-cam canvas's bottom braille row. Format:
 //
-//	T+ HH:MM:SS  v_z ±XXX m/s | downrange X.X km  Q XX.X kPa (max YY.Y)
+//	T+4m19s  vert 12.30 m/s | downrange 15.40 km  Q: 18.30 kPa (max 24.50 kPa)
+//
+// tPlus is elapsed time since THIS ascent's liftoff (w.LaunchT0), a
+// distinct clock from the title-bar mission stopwatch (which counts
+// sim-time since the whole flight began), not the same readout twice.
+// Decision 1's "only clock-style readout" carve-out is that stopwatch's
+// HH:MM:SS clock face specifically; every other elapsed reading,
+// including this one, uses the standard two-unit Duration form instead
+// of a second clock face. The sign is still "T+" (decision 2: T+ means
+// since the event) because liftoff has already happened by the time this
+// line renders at all.
 //
 // Inputs in SI units: vZ m/s, downrangeM m, q / qMaxPa Pa.
 func formatLaunchHUD(tPlus time.Duration, vZ, downrangeM, qPa, qMaxPa float64) string {
-	secs := int(tPlus.Seconds())
-	if secs < 0 {
-		secs = 0
+	if tPlus < 0 {
+		tPlus = 0
 	}
+	// F9 (gate review addendum): decision 1 carves out "the title-bar
+	// mission stopwatch (T+ 00:00:02)" as the game's one clock-style
+	// readout, but no such title-bar stopwatch exists: the title bar
+	// prints a calendar date (orbit.go's clockChip), never HH:MM:SS.
+	// This launch strip was the only HH:MM:SS clock on main; the ADR
+	// named the right object and mislocated it. Removing this clock (as
+	// the first A2 pass did, reading "a distinct clock from the title-bar
+	// stopwatch" as license to drop it rather than to keep it) left the
+	// game with no clock-style readout at all, which decision 1
+	// explicitly did not want. Restored verbatim; every other field on
+	// this line stays on the two-unit/SI-ladder contract.
+	secs := int(tPlus.Seconds())
 	h := secs / 3600
 	m := (secs / 60) % 60
 	s := secs % 60
+	// F14 (gate review): colons throughout (vert:/downrange:, matching
+	// Q:'s own rename-table colon), and the "(max ...)" parenthetical
+	// drops its repeated unit per decision 6's own worked example
+	// ("Q: 0.0 kPa (max 0.0)", not "(max 0.0 kPa)").
+	qMaxNum, _, _ := strings.Cut(readout.Pressure(qMaxPa), " ")
 	return fmt.Sprintf(
-		"T+ %02d:%02d:%02d  v_z %+d m/s | downrange %.1f km  Q %.1f kPa (max %.1f)",
+		"T+ %02d:%02d:%02d  vert: %s | downrange: %s  %s %s (max %s)",
 		h, m, s,
-		int(vZ),
-		downrangeM/1000.0,
-		qPa/1000.0,
-		qMaxPa/1000.0,
+		readout.Speed(vZ),
+		readout.Distance(downrangeM),
+		readout.LabelQ,
+		readout.Pressure(qPa),
+		qMaxNum,
 	)
 }
 
@@ -331,7 +359,7 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 		// DESCENT and DESCENT CORRIDOR both answer "how is this landing
 		// going", and while the corridor is live they were both on screen
 		// — opposite corners, same altitude to two decimals, and the
-		// descent rate stated twice with opposite signs (`v_vert: -40.0
+		// descent rate stated twice with opposite signs (`vert: -40.0
 		// m/s` against `descent: 40 m/s`). The corridor is the better
 		// block (it forecasts the ground contact and says whether the stop
 		// is still flyable), so it wins and DESCENT stands down here. Its
@@ -846,7 +874,7 @@ func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, ca
 // last velocity-derived axis instead of recomputing a fallback from
 // scratch every frame (issue #380 review of #378).
 //
-// Why this matters: the axis is stateless-by-velocity, so |v_horiz|
+// Why this matters: the axis is stateless-by-velocity, so horizontal speed
 // crosses chaseHorizSpeedFloorMps exactly when a pilot deliberately
 // nulls horizontal speed for touchdown — the moment it costs the most
 // to get wrong. Recomputing surface-frame east at that crossing snaps
@@ -1133,7 +1161,7 @@ func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim
 }
 
 // descentCorridorLines renders the DESCENT CORRIDOR instrument block:
-// altitude, descent rate, v_horiz, fpa (the two velocity-shape readings
+// altitude, descent rate, horiz, fpa (the two velocity-shape readings
 // folded in from the DESCENT chip this block replaces on this screen —
 // see the dropChip call in Render), time to impact, then the two #377
 // decision rows below them — `burn at` (while a future start is safe and
@@ -1163,14 +1191,14 @@ func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
 	// standing warning, not a lesson, and survives on its own — this repo
 	// has a hard-won rule that transient feedback must not replace a
 	// standing warning.
-	horizLabel := fmt.Sprintf("%.0f m/s", dc.HorizontalRateMps)
+	horizLabel := readout.Speed(dc.HorizontalRateMps)
 	if dc.HorizontalRateMps > sim.CrashVCritMps {
 		horizLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%.0f m/s (CRASH on contact)", dc.HorizontalRateMps))
+			fmt.Sprintf("%s (CRASH on contact)", readout.Speed(dc.HorizontalRateMps)))
 	}
 	fpaLabel := "—"
 	if dc.HasFPA {
-		fpaLabel = fmt.Sprintf("%.0f°", nzero(dc.FlightPathAngleDeg, 0))
+		fpaLabel = readout.FPA(dc.FlightPathAngleDeg)
 	}
 	// Every row's label + colon + padding occupies EXACTLY 15 cells
 	// before the value starts, so the values line up in one column
@@ -1184,16 +1212,16 @@ func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
 	// never %-Ns (ANSI bytes in a themed value would break that padding).
 	lines := []string{
 		v.theme.Primary.Render("DESCENT CORRIDOR"),
-		fmt.Sprintf("  altitude:    %s", formatAltitude(dc.AltitudeM)),
-		fmt.Sprintf("  descent:     %.0f m/s", dc.DescentRateMps),
-		fmt.Sprintf("  v_horiz:     %s", horizLabel),
-		fmt.Sprintf("  fpa:         %s", fpaLabel),
-		fmt.Sprintf("  impact in:   %s (%.0f m/s)",
-			compactDuration(dc.Impact.TimeToImpact), dc.Impact.SpeedMps),
+		fmt.Sprintf("  altitude:    %s", readout.Distance(dc.AltitudeM)),
+		fmt.Sprintf("  descent:     %s", readout.Speed(dc.DescentRateMps)),
+		fmt.Sprintf("  %s       %s", readout.LabelHoriz, horizLabel),
+		fmt.Sprintf("  %s         %s", readout.LabelFPA, fpaLabel),
+		fmt.Sprintf("  %s      %s (%s)", readout.LabelImpact,
+			readout.Countdown(dc.Impact.TimeToImpact), readout.Speed(dc.Impact.SpeedMps)),
 	}
 	if dc.HasBurnAt {
-		lines = append(lines, fmt.Sprintf("  burn at:     %s — in %s",
-			formatAltitude(dc.BurnAt.AltitudeM), compactDuration(secondsToDuration(dc.BurnAt.InSec))))
+		lines = append(lines, fmt.Sprintf("  burn at:     %s (in %s)",
+			readout.Distance(dc.BurnAt.AltitudeM), readout.Duration(secondsToDuration(dc.BurnAt.InSec))))
 	}
 	lines = append(lines, fmt.Sprintf("  stop margin: %s", v.stopMarginLabel(dc)))
 	return lines
@@ -1202,7 +1230,7 @@ func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
 // secondsToDuration converts a float64 seconds reading (sim.BurnAtCue /
 // sim.PoweredStopPrediction both use float64 seconds, not time.Duration,
 // since they're arithmetic results from an integration loop) into a
-// time.Duration for compactDuration.
+// time.Duration for the readout package's duration formatters.
 func secondsToDuration(s float64) time.Duration {
 	if s < 0 {
 		s = 0
@@ -1231,29 +1259,19 @@ func (v *LaunchView) stopMarginLabel(dc sim.DescentCorridor) string {
 	}
 	switch dc.Stop.Outcome {
 	case sim.StopStopped:
-		label := fmt.Sprintf("%s up", formatAltitude(dc.Stop.MarginM))
+		label := fmt.Sprintf("%s up", readout.Distance(dc.Stop.MarginM))
 		if dc.Margin.State == sim.MarginTight {
 			return v.theme.Warning.Render(label + " TIGHT")
 		}
 		return v.theme.Primary.Render(label)
 	case sim.StopCrashed:
-		return v.theme.Alert.Render(fmt.Sprintf("short by %s (impact %.0f m/s) CAN'T STOP (%s)",
-			formatAltitude(-dc.Stop.MarginM), dc.Stop.ImpactSpeedMps, dc.Margin.Limiter))
+		return v.theme.Alert.Render(fmt.Sprintf("short by %s (impact %s) CAN'T STOP (%s)",
+			readout.Distance(-dc.Stop.MarginM), readout.Speed(dc.Stop.ImpactSpeedMps), dc.Margin.Limiter))
 	case sim.StopFuelLimited:
 		return v.theme.Alert.Render(fmt.Sprintf("fuel-limited at %s CAN'T STOP (%s)",
-			formatAltitude(dc.Stop.MarginM), dc.Margin.Limiter))
+			readout.Distance(dc.Stop.MarginM), dc.Margin.Limiter))
 	}
 	return v.theme.Dim.Render("—")
-}
-
-// formatAltitude renders metres as m below 1 km and km above, matching
-// the DESCENT chip's existing altitude row so the two readouts agree
-// digit for digit when both are on screen.
-func formatAltitude(m float64) string {
-	if m >= 1000 {
-		return fmt.Sprintf("%.2f km", m/1000)
-	}
-	return fmt.Sprintf("%.0f m", m)
 }
 
 // drawAscentArc inks the predicted path ahead of a climbing vessel (ADR
@@ -1368,18 +1386,18 @@ func (v *LaunchView) ascentQBandLines(qb sim.AscentQBand) []string {
 	for i := 0; i < ascentQBandRows; i++ {
 		switch {
 		case i == curRow && i == maxRow:
-			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandCraftGlyph, formatAltitude(qb.CurrentAltM)))
+			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)))
 		case i == curRow:
-			lines = append(lines, fmt.Sprintf("  %s %s", ascentQBandCraftGlyph, formatAltitude(qb.CurrentAltM)))
+			lines = append(lines, fmt.Sprintf("  %s %s", ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)))
 		case i == maxRow:
-			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandMaxQGlyph, formatAltitude(qb.MaxQAltM)))
+			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandMaxQGlyph, readout.Distance(qb.MaxQAltM)))
 		default:
 			lines = append(lines, "  "+ascentQBandTickGlyph)
 		}
 	}
-	lines = append(lines, fmt.Sprintf("  Q:     %.1f kPa", qb.CurrentQPa/1000))
+	lines = append(lines, fmt.Sprintf("  %s     %s", readout.LabelQ, readout.Pressure(qb.CurrentQPa)))
 	if qb.HasMaxQ {
-		lines = append(lines, fmt.Sprintf("  max Q: %.1f kPa", qb.MaxQPa/1000))
+		lines = append(lines, fmt.Sprintf("  max %s %s", readout.LabelQ, readout.Pressure(qb.MaxQPa)))
 	}
 	return lines
 }
@@ -1608,7 +1626,7 @@ func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) stri
 	// #427 / ADR 0048 §3: the pad's call to action. Landed with the
 	// engine off is exactly the silent state the review found — no
 	// ignite prompt, no mention of `b`, no countdown, no throttle cue
-	// anywhere. Replaces the T+/v_z/downrange/Q line rather than sitting
+	// anywhere. Replaces the T+/vert/downrange/Q line rather than sitting
 	// beside it: pre-ignition every one of those numbers reads a flat
 	// zero (TestFormatLaunchHUDPadIdle), so the line was noise standing
 	// in the way of the one thing that actually matters here. The
@@ -1677,7 +1695,7 @@ func greatCircleDistanceM(body bodies.CelestialBody, lat0Deg, lon0Deg float64, c
 	return body.RadiusMeters() * c2
 }
 
-// dynamicPressurePa returns 0.5·ρ·|v_rel|² for the active craft using
+// dynamicPressurePa returns 0.5·ρ·rel speed squared for the active craft using
 // the body's atmosphere and the craft's air-relative velocity (same
 // v_rel = v − ω × r the drag integrator uses, so a launchpad-co-
 // rotating craft reads Q = 0 not the inertial-speed phantom). Returns

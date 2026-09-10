@@ -9,6 +9,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // This file implements the v0.13 (ADR 0010) HUD split: the orbit screen's
@@ -538,15 +539,26 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 }
 
 // navballReservedRows reports how many bottom rows the navball panel
-// occupies on the canvas this frame (0 when it isn't shown), so the
-// bottom-right Nodes chip can stack above it. Mirrors the gate in
-// composeNavballOverlay; the +1 matches the one-row bottom lift there.
+// occupies on the canvas this frame, so the bottom-right Nodes chip can
+// stack above it. Mirrors the gate in composeNavballOverlay; the +1
+// matches the one-row bottom lift there.
+//
+// The floor is 1, never 0: row cRows-1 carries the Hint Strip
+// (paintHintStrip), painted unconditionally regardless of navball state,
+// and bottomLeftRow already stays off that row unconditionally (cRows-2,
+// "above the view: label"). Before this fix bottom-right chips had no
+// equivalent floor whenever the navball itself was absent
+// (!CraftVisibleHere, a too-small canvas, or no sub-observer), so a wide
+// enough NODES chip in exactly that state could paint over the Hint
+// Strip's tail: a real Design Size (140x40) collision the ADR 0049 stage
+// A2 gate review measured (the node row's own contract-mandated widening
+// was what tipped it over the edge; see impl-notes/item4-A2-migration.md).
 func (v *OrbitView) navballReservedRows(w *sim.World, cCols, cRows int) int {
 	if !w.CraftVisibleHere() || cCols < navballPanelW+2 || cRows < navballPanelH+2 {
-		return 0
+		return 1
 	}
 	if _, _, ok := w.NavballSubObserver(); !ok {
-		return 0
+		return 1
 	}
 	return navballPanelH + 1
 }
@@ -646,7 +658,7 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 				lines = append(lines,
 					"  "+name,
 					"  primary:   "+primary.EnglishName,
-					fmt.Sprintf("  velocity:  %.2f km/s", g.Vel.Norm()/1000),
+					fmt.Sprintf("  velocity:  %s", readout.Speed(g.Vel.Norm())),
 				)
 			}
 			// #330: [U], matching the actual uppercase Undock binding —
@@ -666,23 +678,23 @@ func (v *OrbitView) buildVesselChip(w *sim.World) []string {
 		v.theme.Primary.Render("VESSEL") + v.vesselBurnBadge(w),
 		"  " + crashedVesselNameLabel(v.theme, c),
 		"  primary:   " + c.Primary.EnglishName,
-		fmt.Sprintf("  velocity:  %.2f km/s", c.OrbitalSpeed()/1000),
+		fmt.Sprintf("  velocity:  %s", readout.Speed(c.OrbitalSpeed())),
 		v.theme.Primary.Render("PROPELLANT"),
 	}
 	if pct, kg, ok := activeStageFuel(c); ok {
-		lines = append(lines, fmt.Sprintf("  fuel:      %.0f%% (%.0f kg)", pct, kg))
+		lines = append(lines, fmt.Sprintf("  fuel:      %.0f%% (%s)", pct, readout.Mass(kg)))
 	} else {
-		lines = append(lines, fmt.Sprintf("  fuel:      %.0f kg", c.Fuel))
+		lines = append(lines, fmt.Sprintf("  fuel:      %s", readout.Mass(c.Fuel)))
 	}
 	lines = append(lines,
-		fmt.Sprintf("  mass:      %.0f kg", c.TotalMass()),
-		fmt.Sprintf("  Δv budget: %.0f m/s", c.RemainingDeltaV()),
+		fmt.Sprintf("  mass:      %s", readout.Mass(c.TotalMass())),
+		fmt.Sprintf("  %s        %s", readout.LabelDeltaV, deltaVReadout(c)),
 		v.throttleRow(c),
 	)
 	if c.MonopropCapacity > 0 {
 		lines = append(lines,
-			fmt.Sprintf("  monoprop:  %.0f kg", c.Monoprop),
-			fmt.Sprintf("  rcs Δv:    %.0f m/s", c.RCSDeltaV()),
+			fmt.Sprintf("  monoprop:  %s", readout.Mass(c.Monoprop)),
+			fmt.Sprintf("  rcs Δv:    %s", readout.DeltaV(c.RCSDeltaV())),
 		)
 		// In RCS mode, surface the per-pulse step so the player can see
 		// the fine-trim level the `p` key cycles. v0.24.5+.
@@ -772,14 +784,28 @@ func (v *OrbitView) buildVesselChipCompact(w *sim.World) []string {
 		return nil
 	}
 	c := w.ActiveCraft()
-	fuelStr := fmt.Sprintf("%.0f kg", c.Fuel)
+	fuelStr := readout.Mass(c.Fuel)
 	if pct, kg, ok := activeStageFuel(c); ok {
-		fuelStr = fmt.Sprintf("%.0f%% (%.0f kg)", pct, kg)
+		fuelStr = fmt.Sprintf("%.0f%% (%s)", pct, readout.Mass(kg))
 	}
 	return []string{
 		v.theme.Primary.Render("VESSEL") + v.vesselBurnBadge(w) + "  " + crashedVesselNameLabel(v.theme, c),
-		fmt.Sprintf("  fuel: %s  Δv: %.0f m/s", fuelStr, c.RemainingDeltaV()),
+		fmt.Sprintf("  fuel: %s  %s %s", fuelStr, readout.LabelDeltaV, deltaVReadout(c)),
 	}
+}
+
+// deltaVReadout renders the VESSEL chip's Δv row per ADR 0049 decision 7:
+// the active stage's remaining Δv, then the whole remaining stack's total
+// (spacecraft.StackStats over the stages still attached), sharing one
+// trailing unit ("3518 / 9412 m/s"). A single-stage vessel prints one
+// number instead ("3518 m/s"); there is no separate vehicle total to name.
+func deltaVReadout(c *spacecraft.Spacecraft) string {
+	stage := c.RemainingDeltaV()
+	if len(c.Stages) <= 1 {
+		return readout.DeltaV(stage)
+	}
+	vehicle := spacecraft.StackStats(c.Stages).TotalDV
+	return readout.DeltaVPair(stage, vehicle)
 }
 
 // stagePips renders one glyph per stage — ● firing/fueled, ○ dry — the
@@ -897,7 +923,7 @@ func (v *OrbitView) buildNodesChip(w *sim.World) []string {
 		n := nc.Nodes[ni]
 		kind := "imp"
 		if n.Duration > 0 {
-			kind = fmt.Sprintf("fin %.0fs", n.Duration.Seconds())
+			kind = "burn " + readout.Duration(n.Duration)
 		}
 		lines = append(lines, v.nextQueuedNodeLine(w, nc, nci, ni), "  "+kind)
 		// #333: the overflow count is nc's OWN remaining queue, not the
@@ -938,15 +964,15 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 	// chip and the tut-plan mission objective share one formula.
 	over := ""
 	if shortfall, isOver := n.OverBudget(nc); isOver {
-		over = "  " + v.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %.0f m/s", shortfall))
+		over = "  " + v.theme.Alert.Render(fmt.Sprintf("⚠ exceeds budget by %s", readout.DeltaV(shortfall)))
 	}
 	label := fmt.Sprintf("#%d", ni+1)
 	if len(w.Crafts) > 1 {
 		label = fmt.Sprintf("c%d#%d", nci+1, ni+1)
 	}
 	if !n.IsResolved() {
-		return fmt.Sprintf("  %s %s %s  %s  %.0f m/s",
-			hudNodeMarker, label, n.Event.String(), n.Mode.String(), n.DV) + over
+		return fmt.Sprintf("  %s %s %s  %s  %s",
+			hudNodeMarker, label, n.Event.String(), n.Mode.String(), readout.DeltaV(n.DV)) + over
 	}
 	// decision 7 (grilled 2026-09-06): the head row counts to BurnStart
 	// (ignition), not TriggerTime (the burn's midpoint) — a 72s finite
@@ -963,8 +989,8 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 	// 0s" for the entire preceding burn, which says imminent when the
 	// truth is "once the current burn ends". Say that instead.
 	if nc.ActiveBurn != nil {
-		return fmt.Sprintf("  %s %s ignition after burn  %s  %.0f m/s",
-			hudNodeMarker, label, n.Mode.String(), n.DV) + over
+		return fmt.Sprintf("  %s %s ignition after burn  %s  %s",
+			hudNodeMarker, label, n.Mode.String(), readout.DeltaV(n.DV)) + over
 	}
 	// Code-review finding 4: BurnStart can be at or past SimTime — paused
 	// right at the boundary, or held past due for want of a resolvable
@@ -972,12 +998,12 @@ func (v *OrbitView) nextQueuedNodeLine(w *sim.World, nc *spacecraft.Spacecraft, 
 	// or it's simply not this tick's turn in executeDueNodesFor's walk).
 	// A raw negative dt read as a nonsensical "ignition in -47s"; clamp
 	// to 0 so an overdue-but-not-fired node reads as imminent instead.
-	dt := n.BurnStart().Sub(w.Clock.SimTime).Seconds()
+	dt := n.BurnStart().Sub(w.Clock.SimTime)
 	if dt < 0 {
 		dt = 0
 	}
-	return fmt.Sprintf("  %s %s ignition in %.0fs  %s  %.0f m/s",
-		hudNodeMarker, label, dt, n.Mode.String(), n.DV) + over
+	return fmt.Sprintf("  %s %s ignition in %s  %s  %s",
+		hudNodeMarker, label, readout.Duration(dt), n.Mode.String(), readout.DeltaV(n.DV)) + over
 }
 
 // buildNodesChipCompact is NODES' Compact Form (ADR 0046 / #422): the

@@ -19,6 +19,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
@@ -2925,8 +2926,16 @@ func (a *App) handlePlanRendezvousKey() {
 		// (#290 found this invisible at plan time: a "successful" plant
 		// that in fact arrived 4.6 m/s under the lock gate, with nothing
 		// on screen warning the player before they committed).
-		a.flash(fmt.Sprintf("rendezvous nudge: %.1f m/s %s → CA %.0f m @ T+%.0fs, arriving ~%.0f m/s",
-			adv.DV, adv.Axis, adv.AchievableCA, adv.TArrival, adv.ArrivalSpeed))
+		// F11 (gate review, item4-A-review.md): TArrival is time-to-CA from
+		// now after the burn, a future event; the old raw-seconds format
+		// hardcoded a "T+" prefix on it, the exact inversion decision 2
+		// exists to remove (T- means until, T+ means since), surviving
+		// only because this flash lives one directory up from the guard.
+		// readout.Countdown supplies its own signed prefix, so the
+		// literal "T+" is gone from the format string entirely.
+		a.flash(fmt.Sprintf("rendezvous nudge: %s %s → CA %s @ %s, arriving ~%s",
+			readout.DeltaV(adv.DV), adv.Axis, readout.Distance(adv.AchievableCA),
+			readout.Countdown(time.Duration(adv.TArrival*float64(time.Second))), readout.Speed(adv.ArrivalSpeed)))
 		a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
 	case out.OpenPicker:
 		// The picker is a chip on the orbit MAP (ADR 0045 §2) — switch

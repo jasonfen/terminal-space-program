@@ -59,7 +59,7 @@ func descendingMoonCraft(t *testing.T, altM, vDownMps float64) *sim.World {
 
 // TestDescentCorridorLinesInstruments pins the row layout as exact
 // rendered rows, so a formatting change has to be deliberate: altitude,
-// descent rate, v_horiz, fpa, time to impact, `burn at`, and
+// descent rate, horiz, fpa, time to impact, `burn at`, and
 // `stop margin` — the 7-row block (Jason's call: `fpa` was folded out
 // once because issue #377's pinned mock only sketched the two new rows,
 // then restored — the mock wasn't an exhaustive spec of the whole
@@ -97,12 +97,12 @@ func TestDescentCorridorLinesInstruments(t *testing.T) {
 	want := []string{
 		"DESCENT CORRIDOR",
 		"  altitude:    12.40 km",
-		"  descent:     182 m/s",
-		"  v_horiz:     4 m/s",
+		"  descent:     182.0 m/s",
+		"  horiz:       4.00 m/s",
 		"  fpa:         -88°",
-		"  impact in:   1m4s (240 m/s)",
-		"  burn at:     8.00 km — in 48s",
-		"  stop margin: 3.40 km up",
+		"  impact:      T-1m04s (240.0 m/s)",
+		"  burn at:     8.000 km (in 48s)",
+		"  stop margin: 3.400 km up",
 	}
 	got := v.descentCorridorLines(dc)
 	if len(got) != len(want) {
@@ -115,7 +115,7 @@ func TestDescentCorridorLinesInstruments(t *testing.T) {
 	}
 }
 
-// TestDescentCorridorHorizontalRateAlarm: the folded v_horiz row keeps
+// TestDescentCorridorHorizontalRateAlarm: the folded horiz row keeps
 // the DESCENT chip's own alarm — crossing the ground faster sideways than
 // V_CRIT wrecks the vessel however gently the vertical rate has been
 // nulled, and none of the corridor's other numbers say so.
@@ -212,7 +212,7 @@ func TestStopMarginLabelAlarmLadder(t *testing.T) {
 				Stop: sim.PoweredStopPrediction{Outcome: sim.StopCrashed, MarginM: -3_400, ImpactSpeedMps: 411}, StopOK: true,
 				Margin: sim.BurnMargin{State: sim.MarginInsufficient, Limiter: sim.LimitThrust},
 			},
-			"short by 3.40 km (impact 411 m/s) CAN'T STOP (thrust)",
+			"short by 3.400 km (impact 411.0 m/s) CAN'T STOP (thrust)",
 		},
 		{
 			"fuel-limited",
@@ -220,7 +220,7 @@ func TestStopMarginLabelAlarmLadder(t *testing.T) {
 				Stop: sim.PoweredStopPrediction{Outcome: sim.StopFuelLimited, MarginM: 5_000}, StopOK: true,
 				Margin: sim.BurnMargin{State: sim.MarginInsufficient, Limiter: sim.LimitFuel},
 			},
-			"fuel-limited at 5.00 km CAN'T STOP (fuel)",
+			"fuel-limited at 5.000 km CAN'T STOP (fuel)",
 		},
 		{
 			"undetermined (refused)",
@@ -324,7 +324,7 @@ func TestLaunchViewDescentInstrumentsAt80x24(t *testing.T) {
 	w := descendingMoonCraft(t, 20_000, 120)
 
 	out := v.Render(w, 80, 24)
-	for _, want := range []string{"DESCENT CORRIDOR", "altitude:", "descent:", "impact in:", "stop margin:"} {
+	for _, want := range []string{"DESCENT CORRIDOR", "altitude:", "descent:", "impact:", "stop margin:"} {
 		if !strings.Contains(stripANSI(out), want) {
 			t.Errorf("80×24 render is missing %q:\n%s", want, out)
 		}
@@ -385,12 +385,19 @@ func TestSurfaceViewShowsOneDescentBlock(t *testing.T) {
 	if n := strings.Count(out, "altitude:"); n != 1 {
 		t.Errorf("frame carries %d `altitude:` rows, want 1 — the two descent blocks are duplicating", n)
 	}
-	if n := strings.Count(out, "v_vert:"); n != 0 {
-		t.Errorf("frame still carries %d `v_vert:` rows — the DESCENT chip did not stand down", n)
+	// F9/F14 (gate review): the launch strip's own always-on bottom-row
+	// clock line legitimately carries one "vert:" reading of its own now
+	// (restored HH:MM:SS clock, colon added to match Q:'s), a third,
+	// distinct surface from the DESCENT chip / DESCENT CORRIDOR pair this
+	// test is actually about. Exactly 1 still catches the original bug
+	// (DESCENT failing to stand down would make it 2, one per corner
+	// chip, on top of the strip's own reading).
+	if n := strings.Count(out, "vert:"); n != 1 {
+		t.Errorf("frame carries %d `vert:` rows, want 1 (the launch strip's own): the DESCENT chip did not stand down", n)
 	}
 	// The rows worth keeping came along rather than being dropped —
 	// `fpa` included; it survived the #377 layout change (Jason's call).
-	for _, row := range []string{"descent:", "v_horiz:", "fpa:", "impact in:", "stop margin:"} {
+	for _, row := range []string{"descent:", "horiz:", "fpa:", "impact:", "stop margin:"} {
 		if !strings.Contains(out, row) {
 			t.Errorf("corridor block is missing the %q row", row)
 		}
@@ -408,7 +415,7 @@ func TestOrbitMapKeepsItsDescentChip(t *testing.T) {
 	v.Resize(200, 60)
 	out := stripANSI(v.Render(w, 0, 200, 60))
 
-	if !strings.Contains(out, "v_vert:") {
+	if !strings.Contains(out, "vert:") {
 		t.Error("the orbit map lost its DESCENT chip — there is no corridor there to replace it")
 	}
 }

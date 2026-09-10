@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -84,8 +85,35 @@ func TestManeuverRendersPlannedNodes(t *testing.T) {
 	if !strings.Contains(out, "PLANNED NODES (2)") {
 		t.Error("node-count header missing / wrong with 2 nodes planted")
 	}
-	if !strings.Contains(out, "120 m/s") || !strings.Contains(out, "45 m/s") {
+	if !strings.Contains(out, "120 m/s") || !strings.Contains(out, "45.00 m/s") {
 		t.Errorf("planned-node Δv values not listed:\n%s", out)
+	}
+}
+
+// TestManeuverPlannedNodeRowShowsTMinusForFutureNode pins F12 (gate
+// review): the one deliberate behaviour change in this PR. The PLANNED
+// NODES row used to route through a local formatCountdown that spelled
+// a future node "T+1h0m0s" (time-until as a positive offset); it now
+// routes through readout.Countdown, whose launch convention flips that
+// sign, so the same future node reads "T-1h" instead. Nothing else in
+// the suite pinned this sign, which is exactly how a countdown running
+// the wrong direction could ship unnoticed.
+func TestManeuverPlannedNodeRowShowsTMinusForFutureNode(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Nodes = append(c.Nodes,
+		spacecraft.ManeuverNode{DV: 120, TriggerTime: w.Clock.SimTime.Add(time.Hour)},
+	)
+	m := NewManeuver(Theme{})
+	out := m.Render(w, 120, 40, 0)
+	if !strings.Contains(out, "T-1h") {
+		t.Errorf("future planted node should read T- (countdown, not elapsed):\n%s", out)
+	}
+	if strings.Contains(out, "T+1h") {
+		t.Errorf("future planted node read T+ (the pre-fix, backwards sign):\n%s", out)
 	}
 }
 
@@ -210,8 +238,15 @@ func TestManeuverOverBudgetNodeMarked(t *testing.T) {
 }
 
 // TestManeuverBudgetLineShowsAfterPlan — #428 mechanical fix: the
-// budget line reads "Δv budget: X m/s (Y after plan)" once anything
-// is planted, not just the pre-plan total.
+// budget line reads "Δv: X m/s (Y after plan)" (ADR 0049 decision 7
+// dropped "budget" from the label) once anything is planted, not just
+// the pre-plan total. Rendered at 140 cols (Design Size, CONTEXT.md)
+// rather than a narrower width: the multi-stage default craft's Δv row
+// is now a stage/vehicle pair ("6129 / 9412 m/s"), several columns wider
+// than the pre-ADR-0049 single figure, and a narrower panel truncates
+// the "(after plan)" suffix off the row before it ever reaches this
+// assertion: a real column-budget fact about the wider row, not
+// something this test should paper over by picking a size that hides it.
 func TestManeuverBudgetLineShowsAfterPlan(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -223,13 +258,13 @@ func TestManeuverBudgetLineShowsAfterPlan(t *testing.T) {
 		Mode: spacecraft.BurnPrograde, DV: 100, TriggerTime: w.Clock.SimTime.Add(time.Hour),
 	})
 	m := NewManeuver(Theme{})
-	out := m.Render(w, 120, 40, 0)
+	out := m.Render(w, 140, 40, 0)
 	want := "after plan"
 	if !strings.Contains(out, want) {
 		t.Errorf("budget line missing %q:\n%s", want, out)
 	}
-	if strings.Contains(out, "Δv budget remaining:") {
-		t.Error("old \"Δv budget remaining:\" wording still present")
+	if strings.Contains(out, "Δv budget:") {
+		t.Error("old \"Δv budget:\" wording still present")
 	}
 	_ = budget
 }
@@ -444,6 +479,21 @@ func dimMarkerTheme() Theme {
 // the cursor row's own highlight (Primary/Warning) and the new-node
 // row's hint are allowed to differ.
 func TestManeuverPlannedNodeRowsNotDimmed(t *testing.T) {
+	// go test's stdout is not a TTY, so termenv's lazy env detection
+	// (cached process-wide via sync.Once) settles on the colorless
+	// Ascii profile the first time anything asks, which makes every
+	// theme's Render a no-op regardless of what color it was given:
+	// dimMarkerTheme's Dim style would never emit the escape code this
+	// test looks for. SetColorProfile bypasses that detection outright.
+	// Same idiom as TestOrbitChipSubSurfacePeriapsisIsWarningColoured /
+	// TestOrbitRenderDiskCacheHitMatchesUncachedAfterPan: read the
+	// process's ambient profile first and restore exactly that in
+	// t.Cleanup, so every test that runs after this one sees the same
+	// color output it would have without this test existing.
+	ambient := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
+
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -455,13 +505,27 @@ func TestManeuverPlannedNodeRowsNotDimmed(t *testing.T) {
 	)
 	m := NewManeuver(dimMarkerTheme())
 	m.ResetEditing()
-	// Move the cursor to node 0, then node 1's row is neither the
-	// cursor row nor loaded — the plain case this test targets.
+	// cursorIdx starts unset (-1), which cursorRow resolves to the
+	// blank new-node row (index == len(nodes) == 2). One "up" lands the
+	// cursor on node index 1 (the 55.00 m/s row); a second "up" moves
+	// it on to node index 0, leaving node index 1's row neither the
+	// cursor row (Primary-styled) nor loaded into the form
+	// (editingIdx == -1), the plain case this test targets.
+	m.HandleKey(keyMsg("up"), c.Nodes)
 	m.HandleKey(keyMsg("up"), c.Nodes)
 	out := m.Render(w, 120, 40, 0)
+	// readout.DeltaV's <100 rule renders 55 as "55.00 m/s", not "55 m/s".
+	var found bool
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(stripANSI(line), "55 m/s") && strings.Contains(line, "\x1b[38;5;240m") {
+		if !strings.Contains(stripANSI(line), "55.00 m/s") {
+			continue
+		}
+		found = true
+		if strings.Contains(line, "\x1b[38;5;240m") {
 			t.Errorf("PLANNED NODES row still Dim-styled: %q", line)
 		}
+	}
+	if !found {
+		t.Fatal("test setup broken: no PLANNED NODES row contains \"55.00 m/s\"")
 	}
 }
