@@ -362,3 +362,120 @@ func TestDirectionUnitTargetFallsThroughToBaseModes(t *testing.T) {
 		t.Errorf("non-target fallthrough: got %+v, want %+v", got, want)
 	}
 }
+
+// TestHeadingInclinationDegMatchesIdentity: B2's HUD entry point
+// (HeadingInclinationDeg) pins the exact same closed-form identity
+// TestApplyHeadingTrimInclinationIdentity pins for ApplyHeadingTrim
+// itself: cos(i) = sin(beta)*cos(phi), the 28.6° pad, the same four
+// headings. "got" is independent of the closed form the same way,
+// derived from HeadingOrbitNormal's h vector dotted with spinAxis, not
+// a re-derivation of sin(beta)*cos(phi) from the implementation's own
+// components. This is the entry point ADR 0049 decision 9/10's pad
+// `incl:` row (and the item4-B captures at 090°/270°) route through, so
+// it is pinned separately from the ApplyHeadingTrim-level identity test
+// even though both ultimately rest on the same rotation.
+func TestHeadingInclinationDegMatchesIdentity(t *testing.T) {
+	const padLatDeg = 28.6
+	phi := padLatDeg * math.Pi / 180
+	const radius = 6.371e6
+	r := orbital.Vec3{X: math.Cos(phi) * radius, Z: math.Sin(phi) * radius}
+	spinAxis := orbital.Vec3{Z: 1}
+
+	cases := []struct {
+		name       string
+		headingDeg float64
+	}{
+		{"due east: the inclination floor", 90},
+		{"due north: polar", 0},
+		{"due south: polar", 180},
+		{"due west (retrograde of due east, the item4-B 270° capture)", 270},
+	}
+	const tolDeg = 1e-9
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			beta := c.headingDeg * math.Pi / 180
+			wantIDeg := math.Acos(math.Sin(beta)*math.Cos(phi)) * 180 / math.Pi
+			offset := beta - math.Pi/2
+
+			gotIDeg, ok := HeadingInclinationDeg(r, spinAxis, offset)
+			if !ok {
+				t.Fatalf("heading %.0f°: HeadingInclinationDeg reported degenerate, want a value", c.headingDeg)
+			}
+			if math.Abs(gotIDeg-wantIDeg) > tolDeg {
+				t.Errorf("heading %.0f° from a %.1f° pad: HeadingInclinationDeg = %.10f°, want %.10f° (cos i = sin(%.0f°)·cos(%.1f°))",
+					c.headingDeg, padLatDeg, gotIDeg, wantIDeg, c.headingDeg, padLatDeg)
+			}
+		})
+	}
+}
+
+// TestHeadingInclinationDegPoleIsDegenerate mirrors
+// ApplyHeadingTrim's pole guard: at a pole, localHorizonFrame can't
+// define east, so both HeadingOrbitNormal and HeadingInclinationDeg
+// report ok=false rather than a misleading number.
+func TestHeadingInclinationDegPoleIsDegenerate(t *testing.T) {
+	pole := orbital.Vec3{Z: 6.371e6}
+	spinAxis := orbital.Vec3{Z: 1}
+	if _, ok := HeadingInclinationDeg(pole, spinAxis, math.Pi/4); ok {
+		t.Error("expected HeadingInclinationDeg to report degenerate at a pole")
+	}
+	if _, ok := HeadingOrbitNormal(pole, spinAxis, math.Pi/4); ok {
+		t.Error("expected HeadingOrbitNormal to report degenerate at a pole")
+	}
+}
+
+// TestHeadingInclinationDegZeroSpinAxisIsDegenerate: a primary with
+// no defined rotation axis (zero SpinAxis, e.g. a non-rotating body
+// passed with the zero vector) has no equatorial reference to measure
+// inclination against.
+func TestHeadingInclinationDegZeroSpinAxisIsDegenerate(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	if _, ok := HeadingInclinationDeg(r, orbital.Vec3{}, math.Pi/4); ok {
+		t.Error("expected HeadingInclinationDeg to report degenerate at a zero spin axis")
+	}
+}
+
+// TestHeadingInclinationDegCapturePair pins the exact 090°/270° pair
+// the item4-B captures read: 090° (due east, offset 0) at the pad
+// floor, 270° (due west, retrograde of due east) at its complement.
+//
+// This is NOT the sign-swap sabotage witness, checked and rejected as
+// one. A north/south rotation-direction sign flip in ApplyHeadingTrim
+// (theta := headingOffsetRad instead of -headingOffsetRad, the exact
+// bug B1's own sabotage round 2 tried) leaves this pair unchanged:
+// offset=0 short-circuits ApplyHeadingTrim entirely (headingOffsetRad
+// == 0 returns dir unmodified, no rotation math runs at all), and
+// offset=+-pi is its own negation (sin(180°) == sin(-180°) == 0, so
+// the rotation matrix a sign flip produces at 270° is identical either
+// way): confirmed empirically by applying that exact sabotage and
+// re-running this test, it stayed green. That sign risk is real but
+// lives entirely inside ApplyHeadingTrim, which B1's own
+// TestApplyHeadingTrimNorthOffsetTiltsToNorth /
+// ...SouthOffsetTiltsToSouth already catch (both went red under the
+// same sabotage). The {/} KEY-HANDLER sign, which key adds to
+// HeadingTrim and which subtracts, is a different risk one layer up,
+// in internal/tui/app.go, and is proven by
+// TestHeadingTrimKeysNudgeTowardCorrectCompassDirection in that
+// package (sabotaged by swapping the two case bodies; see that test's
+// doc comment).
+func TestHeadingInclinationDegCapturePair(t *testing.T) {
+	const padLatDeg = 28.6
+	phi := padLatDeg * math.Pi / 180
+	const radius = 6.371e6
+	r := orbital.Vec3{X: math.Cos(phi) * radius, Z: math.Sin(phi) * radius}
+	spinAxis := orbital.Vec3{Z: 1}
+
+	eastOffset := 0.0     // 090°, the floor.
+	westOffset := math.Pi // 270°, retrograde of 090°.
+	east, ok1 := HeadingInclinationDeg(r, spinAxis, eastOffset)
+	west, ok2 := HeadingInclinationDeg(r, spinAxis, westOffset)
+	if !ok1 || !ok2 {
+		t.Fatalf("setup: expected both headings non-degenerate, got ok=%v/%v", ok1, ok2)
+	}
+	if math.Abs(east-28.6) > 0.05 {
+		t.Errorf("090° inclination = %.4f°, want ≈28.6° (the pad floor)", east)
+	}
+	if math.Abs(west-151.4) > 0.05 {
+		t.Errorf("270° inclination = %.4f°, want ≈151.4° (retrograde of the floor)", west)
+	}
+}

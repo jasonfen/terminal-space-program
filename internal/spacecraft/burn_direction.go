@@ -251,6 +251,72 @@ func ApplyHeadingTrim(dir, r, spinAxis orbital.Vec3, headingOffsetRad float64) o
 	return east.Scale(eNew).Add(up.Scale(u)).Add(north.Scale(nNew))
 }
 
+// HeadingOrbitNormal returns the (unnormalised) orbital-plane normal
+// (the specific angular momentum direction r × v) an ascent launched
+// NOW from position r at the given commanded-heading offset (the same
+// offset-from-due-east ApplyHeadingTrim consumes) would produce. It
+// does not consult a Spacecraft's actual State.V: a Landed craft's real
+// velocity is always the due-east surface co-rotation velocity
+// regardless of HeadingTrim (ApplyHeadingTrim only rotates a *burn*
+// direction, never the pre-ignition landed state), so a caller that
+// wants "the plane this pad's commanded heading would leave" must ask
+// this function rather than read the state vector directly.
+//
+// Used for two HUD entry points (ADR 0049 decisions 9-11): the pad's
+// `incl:` row (via HeadingInclinationDeg below) and `Δincl:` (dotting
+// the returned normal against a target's own orbit normal). ok is
+// false at the same degenerate cases ApplyHeadingTrim no-ops on (zero
+// r, a pole, or a resulting h that collapses to zero).
+//
+// v0.42+ (ADR 0049 decisions 9-11).
+func HeadingOrbitNormal(r, spinAxis orbital.Vec3, headingOffsetRad float64) (orbital.Vec3, bool) {
+	east, _, _, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		return orbital.Vec3{}, false
+	}
+	dir := ApplyHeadingTrim(east, r, spinAxis, headingOffsetRad)
+	h := r.Cross(dir)
+	if h.Norm() == 0 {
+		return orbital.Vec3{}, false
+	}
+	return h, true
+}
+
+// HeadingInclinationDeg returns the inclination (degrees, unfolded over
+// the full 0-180 range: 090° reads the pad's floor, 270° reads its
+// retrograde complement) that an ascent launched now from r at the
+// given commanded-heading offset would reach, measured against
+// spinAxis the same general way internal/orbital.ElementsFromState
+// derives inclination from a state vector (acos of the angular
+// momentum's angle to the reference axis), not a re-derivation of the
+// closed form cos(i) = sin(beta)*cos(phi) from its own components. See
+// TestHeadingInclinationDegMatchesIdentity, which pins this function
+// against that closed form independently.
+//
+// ok is false wherever HeadingOrbitNormal is (pole / zero r) or where
+// spinAxis itself is undefined (a primary with no defined rotation
+// axis); the caller (the pad's `incl:` row) should fall back to "—"
+// rather than print a misleading number.
+//
+// v0.42+ (ADR 0049 decisions 9-10).
+func HeadingInclinationDeg(r, spinAxis orbital.Vec3, headingOffsetRad float64) (float64, bool) {
+	h, ok := HeadingOrbitNormal(r, spinAxis, headingOffsetRad)
+	if !ok {
+		return 0, false
+	}
+	axisNorm := spinAxis.Norm()
+	if axisNorm == 0 {
+		return 0, false
+	}
+	cosI := h.Dot(spinAxis) / (h.Norm() * axisNorm)
+	if cosI > 1 {
+		cosI = 1
+	} else if cosI < -1 {
+		cosI = -1
+	}
+	return math.Acos(cosI) * 180 / math.Pi, true
+}
+
 // PitchTrimStepRad is the per-keypress pitch trim adjustment in
 // radians. v0.16: 5° (= π/36) — finer control for the gravity turn.
 // History: v0.9.2 shipped at 5°, v0.9.2.1 bumped to 10° because a

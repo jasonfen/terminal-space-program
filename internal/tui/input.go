@@ -224,6 +224,15 @@ type Keymap struct {
 	PitchTrimWest  key.Binding
 	PitchTrimReset key.Binding
 
+	// HeadingTrimNorth / HeadingTrimSouth (v0.42+, ADR 0049 decision
+	// 9): nudge the commanded launch heading ±5° from due east, toward
+	// north (`{`) or south (`}`), the same idiom, step size, and
+	// key-repeat ramp as PitchTrimEast/West above. Sit on the `[`/`]`
+	// keycaps the way `<`/`>` sit on `,`/`.`. PitchTrimReset (`|`) now
+	// resets both trims (widened, not a new binding, see its comment).
+	HeadingTrimNorth key.Binding
+	HeadingTrimSouth key.Binding
+
 	// ToggleInstantSAS (v0.10.0+): flip the manual-flight attitude
 	// model between rate-limited slew (MANUAL, the v0.10 default) and
 	// the legacy instantaneous "magic SAS" snap (AUTO). This is the
@@ -413,9 +422,12 @@ func DefaultKeymap() Keymap {
 		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
 		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +5° east")),
 		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -5° west")),
+		HeadingTrimNorth:          key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "heading trim -5° (toward north)")),
+		HeadingTrimSouth:          key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "heading trim +5° (toward south)")),
 		// #425: moved off `?` (now the Help alias below) to `|` — "vertical
 		// bar = straight up" is the mnemonic Jason gave for the reset.
-		PitchTrimReset: key.NewBinding(key.WithKeys("|"), key.WithHelp("|", "reset pitch trim")),
+		// ADR 0049 decision 9 widened it to reset heading trim too.
+		PitchTrimReset: key.NewBinding(key.WithKeys("|"), key.WithHelp("|", "reset pitch + heading trim")),
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
 		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
 		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),

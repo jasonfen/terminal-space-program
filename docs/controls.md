@@ -185,7 +185,8 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `q` / `e` | Point radial+ / radial- (away from / toward the body) |
 | `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
 | `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
-| `\|` | Clear the manual tip (pitch trim back to 0) |
+| `{` / `}` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent |
+| `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
 | `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
@@ -294,6 +295,7 @@ overlay carries, so you can look one up without leaving the game.
 | `Ap` / `Pe` | Apoapsis / periapsis: height above the surface, like every altitude in the game |
 | `Δv` / `Δincl` | Delta-v / relative inclination to a target's orbital plane |
 | `T-` / `T+` | Countdown convention: `T-` counts down to an event, `T+` counts up since it |
+| `incl (min N°)` | On the pad: the inclination your commanded heading yields, and the Inclination Floor (your launch latitude, unsigned) it can't go below |
 
 ## Screens
 

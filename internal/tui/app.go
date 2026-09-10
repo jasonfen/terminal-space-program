@@ -1770,9 +1770,29 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				c.PitchTrim -= spacecraft.PitchTrimStepRad
 			}
 			return a, nil
+		case key.Matches(m, a.keys.HeadingTrimNorth):
+			// ADR 0049 decision 9: offsetRad IS the desired bearing shift
+			// away from due east (see ApplyHeadingTrim's doc comment):
+			// increasing bearing sweeps east(090°) -> south(180°) ->
+			// west(270°) -> north(360°=0°), so nudging TOWARD north from
+			// due east means DECREASING the offset. Swapping this sign
+			// with HeadingTrimSouth's is exactly the risk
+			// TestHeadingTrimKeysNudgeTowardCorrectCompassDirection
+			// sabotage-proves in app_test.go.
+			if c := a.world.ActiveCraft(); c != nil {
+				c.HeadingTrim -= spacecraft.HeadingTrimStepRad
+			}
+			return a, nil
+		case key.Matches(m, a.keys.HeadingTrimSouth):
+			if c := a.world.ActiveCraft(); c != nil {
+				c.HeadingTrim += spacecraft.HeadingTrimStepRad
+			}
+			return a, nil
 		case key.Matches(m, a.keys.PitchTrimReset):
+			// ADR 0049 decision 9 widened this to reset both trims.
 			if c := a.world.ActiveCraft(); c != nil {
 				c.PitchTrim = 0
+				c.HeadingTrim = 0
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Stage):

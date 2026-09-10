@@ -85,7 +85,8 @@ var helpSections = []helpSection{
 		{"q / e", "attitude radial+ / radial- (rcs: pulse-fire)"},
 		{"W / S", "attitude surface prograde / retrograde (locks to ground)"},
 		{"< / >", "pitch trim 5° west / east off the active mode"},
-		{"|", "reset pitch trim to 0"},
+		{"{ / }", "heading trim 5° toward north / south off due east, on the pad or mid-ascent"},
+		{"|", "reset pitch trim and heading trim to 0"},
 		{"b", "engage / cut the manual burn (main engine)"},
 		{"r", "engine: main / rcs"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
@@ -200,6 +201,7 @@ var helpSections = []helpSection{
 		{"Ap / Pe", "apoapsis / periapsis: height above the surface, like every altitude in the game"},
 		{"Δv / Δincl", "delta-v / relative inclination to a target's orbital plane"},
 		{"T- / T+", "countdown convention: T- counts down to an event, T+ counts up since it"},
+		{"incl (min N°)", "on the pad: the inclination your commanded heading yields, and the Inclination Floor (|launch latitude|) it can't go below"},
 	}},
 }
 
