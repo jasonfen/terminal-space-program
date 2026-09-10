@@ -187,6 +187,46 @@ func TestThrustAccelFnAddsThrustOnTopOfGravity(t *testing.T) {
 	}
 }
 
+// TestThrustAccelFnAtWithTargetAgreesWithBurnDirectionOnHeadingTrim
+// pins item4-B review finding 3: ThrustAccelFnAtWithTarget (the
+// InstantSAS per-sub-step thrust-direction closure World.stepThrust
+// selects whenever w.InstantSAS is on) must apply HeadingTrim the same
+// way BurnDirectionWithTarget does (the navball / pad readout / MANUAL
+// slew path all resolve through BurnDirectionWithTarget), not silently
+// drop it. Before the fix this closure captured pitchTrim only, so
+// under AUTO the engine thrust ignored a nonzero commanded heading
+// entirely while every readout claimed the vessel was steering to it
+// (the review reproduced a 60° divergence at HeadingTrim = +90°).
+func TestThrustAccelFnAtWithTargetAgreesWithBurnDirectionOnHeadingTrim(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	mu := earth.GravitationalParameter()
+	sc.HeadingTrim = math.Pi / 2 // commanded bearing 180° (due south).
+
+	want := sc.BurnDirection(BurnSurfacePrograde)
+	if want.Norm() == 0 {
+		t.Fatal("setup: BurnDirection returned the zero vector, test can't distinguish anything")
+	}
+	want = want.Scale(1 / want.Norm())
+
+	accelFn := sc.ThrustAccelFnAtWithTarget(BurnSurfacePrograde, mu, 1.0, orbital.Vec3{}, orbital.Vec3{})
+	gotAccel := accelFn(sc.State.R, sc.State.V, 0)
+
+	rMag := sc.State.R.Norm()
+	gFactor := -mu / (rMag * rMag * rMag)
+	gravity := orbital.Vec3{X: sc.State.R.X * gFactor, Y: sc.State.R.Y * gFactor, Z: sc.State.R.Z * gFactor}
+	thrustAccel := gotAccel.Sub(gravity)
+	if thrustAccel.Norm() == 0 {
+		t.Fatal("setup: ThrustAccelFnAtWithTarget produced no thrust component")
+	}
+	got := thrustAccel.Scale(1 / thrustAccel.Norm())
+
+	if got.Sub(want).Norm() > 1e-6 {
+		t.Errorf("ThrustAccelFnAtWithTarget direction = %+v, want BurnDirectionWithTarget's %+v", got, want)
+	}
+}
+
 // TestThrustAccelFnNoThrustWhenFuelEmpty: with Fuel=0, the closure must
 // return pure gravity even though Thrust is configured. v0.9.4+:
 // drains Stages[0] (the firing stage) instead of zeroing the summed

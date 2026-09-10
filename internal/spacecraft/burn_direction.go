@@ -16,13 +16,14 @@ import (
 //     surface velocity) returns the zero vector; the caller
 //     interprets that as "no defined direction" — the burn is a
 //     no-op until the craft is moving relative to the ground.
-//   - HeadingTrim (v0.42+) — the player-commanded launch azimuth,
-//     applied first as a rotation about local up so a non-default
-//     heading redirects which vertical plane the mode's natural
-//     direction (and PitchTrim below) lands in.
 //   - PitchTrim (v0.9.2+) — a player-set ± rotation about the
-//     local-north axis applied on top of the mode's natural
-//     direction, for ascent gravity-turn manual flight.
+//     local-north axis applied to the mode's natural direction, for
+//     ascent gravity-turn manual flight.
+//   - HeadingTrim (v0.42+): the player-commanded absolute launch
+//     bearing, applied AFTER pitch (v0.42.1: corrected from the
+//     original heading-first order, item4-B review finding 1) as a
+//     re-aim of the pitched direction's horizontal component onto the
+//     commanded bearing, preserving the elevation pitch produced.
 //
 // Live-craft call sites (RCS pulse, manual burn, ActiveBurn fire)
 // use this method instead of the bare DirectionUnit so surface
@@ -74,18 +75,27 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 	default:
 		dir = DirectionUnit(mode, s.State.R, s.State.V)
 	}
-	// Heading before pitch (ADR 0049 decision 8/9): heading rotates the
-	// horizontal component of dir about local up onto the commanded
-	// heading first, so pitch trim's rotation about local north then
-	// tilts within THAT heading's vertical plane rather than always
-	// within the due-east one. Swapping this order silently pins every
-	// ascent back to due-east steering regardless of the commanded
-	// heading — a later refactor must preserve it.
-	if s.HeadingTrim != 0 {
-		dir = ApplyHeadingTrim(dir, s.State.R, spinAxis, s.HeadingTrim)
-	}
+	// Pitch before heading (item4-B review round 1, findings 1-2;
+	// corrects ADR 0049 decision 8's own prose, which says the reverse
+	// and is wrong: a docs fix lands separately). ApplyPitchTrim always
+	// tilts within the mode's own east-up plane, about local north, so
+	// applying it FIRST is what actually delivers the ADR's stated
+	// intent ("pitch tilts in the commanded heading's vertical plane"):
+	// heading then re-aims the whole tilted vector's horizontal
+	// component onto the commanded absolute bearing, preserving the
+	// elevation pitch just produced. Heading-before-pitch was silently
+	// a no-op for every hold whose natural direction starts purely
+	// vertical (BurnRadialOut, the pad's own default hold): rotating a
+	// vertical vector about local up does nothing, so the heading pass
+	// vanished and pitch alone determined the (always-due-east)
+	// bearing regardless of the commanded heading. See
+	// TestBurnDirectionRadialOutPitchThenHeadingSteersVertical and
+	// TestBurnDirectionAppliesPitchBeforeHeading.
 	if s.PitchTrim != 0 {
 		dir = ApplyPitchTrim(dir, s.State.R, spinAxis, s.PitchTrim)
+	}
+	if s.HeadingTrim != 0 {
+		dir = ApplyHeadingTrim(dir, s.State.R, spinAxis, s.HeadingTrim)
 	}
 	return dir
 }
@@ -202,29 +212,52 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 	return east.Scale(eNew).Add(up.Scale(uNew)).Add(north.Scale(n))
 }
 
-// ApplyHeadingTrim rotates dir about the local-up axis at position r
-// by headingOffsetRad (radians, the commanded heading's offset from
-// due east — positive offsets rotate toward south/west, negative
-// toward north; see the derivation below). Sibling of ApplyPitchTrim:
-// where pitch tilts a direction's vertical component, heading swings
-// its horizontal component around to a different compass bearing
-// without touching the up component. Public so tests can exercise the
-// rotation math directly.
+// ApplyHeadingTrim sets the horizontal component of dir to lie on the
+// commanded ABSOLUTE compass bearing (HeadingTrimDueEastRad +
+// headingOffsetRad), preserving dir's vertical (up) component and its
+// horizontal magnitude exactly, so dir's elevation above (or below) the
+// local horizon is unchanged. Sibling of ApplyPitchTrim: where pitch
+// tilts a direction's vertical component, heading re-aims its
+// horizontal component at a fixed compass bearing. Public so tests can
+// exercise the rotation math directly.
+//
+// This is a STEER-TO-AND-HOLD operation, not a relative rotation
+// (item4-B review finding 4, maintainer ruling): a vessel already
+// flying the commanded bearing converges and holds rather than being
+// pushed further off course by a standing offset every tick, matching
+// ADR 0049 decision 9's own words ("the commanded heading") as an
+// absolute bearing, unlike PitchTrim's relative angle-of-attack
+// semantic. Earlier versions of this function rotated dir by
+// headingOffsetRad relative to whatever bearing dir already had; that
+// is wrong whenever dir isn't already due east (e.g. BurnSurfacePrograde
+// flying some other bearing), since it keeps adding the same offset
+// every call instead of converging.
 //
 // Bearing convention (matching the pad's compass display): 000° =
 // north, 090° = east, 180° = south, 270° = west, measured clockwise
 // looking down on the body from above its spin axis. A direction at
 // bearing β decomposes in the (east, north) plane as
-// sinβ·east + cosβ·north. Starting from due east (β=090°, offset 0)
-// and rotating by -offsetRad in the (east, north) plane lands exactly
-// on sin(090°+offsetRad)·east + cos(090°+offsetRad)·north, i.e. on
-// the bearing 090°+offsetRad — so offsetRad IS the desired bearing
-// shift away from due east.
+// sinβ·east + cosβ·north; this function replaces dir's (east, north)
+// components with that decomposition at β = HeadingTrimDueEastRad +
+// headingOffsetRad, scaled to dir's own horizontal magnitude, leaving
+// the up component untouched. HeadingTrim itself keeps storing a
+// signed offset from due east, not the absolute bearing (B1's
+// zero-value deviation, see HeadingTrimDueEastRad's own doc comment);
+// only this function's interpretation of that offset changed, not the
+// stored representation or the save schema.
+//
+// If dir has (near) zero horizontal magnitude, there is no bearing to
+// aim at: a BurnRadialOut hold with zero pitch trim points straight up,
+// and straight up has no compass heading, so this is a clean no-op
+// rather than a meaningless (or, for a formula that normalised the
+// horizontal component first, divide-by-zero) direction.
 //
 // At the poles (where east/north are undefined) the rotation is a
 // no-op, the same guard ApplyPitchTrim uses via localHorizonFrame.
 //
-// v0.42+ (ADR 0049 decision 8, #453).
+// v0.42+ (ADR 0049 decision 8, #453). v0.42.1: switched from a
+// relative rotation to this absolute steer-and-hold (item4-B review
+// finding 4).
 func ApplyHeadingTrim(dir, r, spinAxis orbital.Vec3, headingOffsetRad float64) orbital.Vec3 {
 	if headingOffsetRad == 0 {
 		return dir
@@ -239,17 +272,22 @@ func ApplyHeadingTrim(dir, r, spinAxis orbital.Vec3, headingOffsetRad float64) o
 	u := dir.X*up.X + dir.Y*up.Y + dir.Z*up.Z
 	n := dir.X*north.X + dir.Y*north.Y + dir.Z*north.Z
 
-	// Rotate (e, n) about the up axis by -headingOffsetRad (see the
-	// doc comment for the sign derivation): the horizontal component
-	// swings onto the commanded bearing while the up component is
-	// left untouched.
-	theta := -headingOffsetRad
-	cosA, sinA := math.Cos(theta), math.Sin(theta)
-	eNew := e*cosA - n*sinA
-	nNew := e*sinA + n*cosA
+	horizMag := math.Sqrt(e*e + n*n)
+	if horizMag < headingTrimHorizEpsilon {
+		return dir
+	}
+
+	beta := HeadingTrimDueEastRad + headingOffsetRad
+	eNew := horizMag * math.Sin(beta)
+	nNew := horizMag * math.Cos(beta)
 
 	return east.Scale(eNew).Add(up.Scale(u)).Add(north.Scale(nNew))
 }
+
+// headingTrimHorizEpsilon is the horizontal-magnitude floor below
+// which ApplyHeadingTrim treats dir as having no defined bearing (see
+// its doc comment) rather than aiming at one.
+const headingTrimHorizEpsilon = 1e-9
 
 // HeadingOrbitNormal returns the (unnormalised) orbital-plane normal
 // (the specific angular momentum direction r × v) an ascent launched

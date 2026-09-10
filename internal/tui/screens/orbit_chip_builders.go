@@ -1469,10 +1469,17 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		if deg, ok := spacecraft.HeadingInclinationDeg(c.State.R, spinAxis, c.HeadingTrim); ok {
 			padInclLabel = readout.Angle(deg)
 		}
-		floorLabel := readout.Angle(math.Abs(c.LaunchLatDeg))
+		// Inclination Floor = |current surface latitude|, not the spawn
+		// latitude (item4-B review finding 6): SurfaceLatLon prefers
+		// LandedLatDeg over LaunchLatDeg once the craft has soft-landed
+		// somewhere other than where it launched, so a vessel sitting at
+		// 5°N after flying from a 28.6° pad reads a 5° floor, not a
+		// stale 28.6° one above its own incl: value.
+		floorLat, _ := c.SurfaceLatLon()
+		floorLabel := readout.Angle(math.Abs(floorLat))
 		inclBlockRows = []string{
-			chipRow("heading:", headingLabel),
-			chipRow(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")"),
+			chipRowAt("heading:", headingLabel, launchChipValueCol),
+			chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
 		}
 		// Δincl (decision 11): only while a body target is set, a
 		// craft target's Δincl isn't offered here either (buildTargetChip
@@ -1490,7 +1497,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 					if di > 30 {
 						diLabel = v.theme.Warning.Render(diLabel)
 					}
-					inclBlockRows = append(inclBlockRows, chipRow(readout.LabelDeltaIncl, diLabel))
+					inclBlockRows = append(inclBlockRows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
 				}
 			}
 		}
@@ -1499,7 +1506,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 		if !math.IsNaN(el.I) && !math.IsInf(el.I, 0) {
 			inclLabel = readout.Angle(el.I * 180 / math.Pi)
 		}
-		inclBlockRows = []string{fmt.Sprintf("  %s%s", "incl:       ", inclLabel)}
+		inclBlockRows = []string{chipRowAt(readout.LabelIncl, inclLabel, launchChipValueCol)}
 	}
 	apLabel, peLabel, ttaLabel, dvCircLabel, tBurnLabel := "—", "—", "—", "—", "—"
 	trendLabel := ""
@@ -2512,6 +2519,15 @@ func (v *OrbitView) orbitDirectionLabel(incRad float64) string {
 	return "prograde"
 }
 
+// launchChipValueCol is buildLaunchChip's own value column, one wider
+// than chipValueCol: every hand-formatted row in that chip (altitude:/
+// vert:/horiz:/fpa:/orbit fpa:/TWR:/hold:/trim:/Ap:/Pe:/apo:/Δv→circ:/
+// burn:) lands its value at column 14, not chipValueCol's 13 (item4-B
+// review finding 5: the pad's heading:/incl:/Δincl: rows used plain
+// chipRow and sat one column left of every sibling row in the same
+// chip).
+const launchChipValueCol = 14
+
 // chipRow formats a "  label   value" telemetry row with the value pinned
 // to chipValueCol regardless of label width, so a chip's values share one
 // column instead of drifting per label. Padding is measured in display
@@ -2521,8 +2537,15 @@ func (v *OrbitView) orbitDirectionLabel(incRad float64) string {
 // 0049); this helper only lays the label and an already-formatted value
 // out in one column.
 func chipRow(label, value string) string {
+	return chipRowAt(label, value, chipValueCol)
+}
+
+// chipRowAt is chipRow with an explicit value column, for a chip like
+// buildLaunchChip's SURFACE whose hand-formatted rows already sit at a
+// different column (launchChipValueCol) than the shared chipValueCol.
+func chipRowAt(label, value string, col int) string {
 	prefix := "  " + label
-	pad := chipValueCol - lipgloss.Width(prefix)
+	pad := col - lipgloss.Width(prefix)
 	if pad < 1 {
 		pad = 1
 	}

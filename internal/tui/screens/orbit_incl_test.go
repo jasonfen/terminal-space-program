@@ -14,6 +14,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // TestRelativeInclinationVariesOverSiderealDay — the v0.11.4 Δi fix
@@ -377,5 +378,118 @@ func TestAirborneHeadingRejoinsTrimRowInclReverts(t *testing.T) {
 		if strings.HasPrefix(strings.TrimLeft(l, " "), "heading:") {
 			t.Errorf("expected no standalone 'heading:' row once airborne, found: %q", l)
 		}
+	}
+}
+
+// TestLaunchChipPadRowsAlignToColumn14 pins item4-B review finding 5:
+// the pad's heading:/incl:/Δincl: rows must land their values at the
+// same display column every other SURFACE row uses. Checked
+// structurally, comparing where each row's value actually starts
+// (accounting for each label's own display width via lipgloss.Width)
+// against the pre-existing Pe: row's own column, rather than
+// hardcoding degree values, so this survives unrelated numeric
+// changes to the captured inclination/Δincl figures.
+func TestLaunchChipPadRowsAlignToColumn14(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(200, 80)
+	w, _ := spawnLandedOnEarthAt28p6(t)
+
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" || b.ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx <= 0 {
+		t.Fatalf("moon not found in default system")
+	}
+	w.SetTargetBody(moonIdx)
+
+	lines := v.buildLaunchChip(w)
+
+	rowFor := func(label string) string {
+		t.Helper()
+		for _, l := range lines {
+			if strings.HasPrefix(l, "  "+label) {
+				return l
+			}
+		}
+		t.Fatalf("no row found with label %q in:\n%s", label, strings.Join(lines, "\n"))
+		return ""
+	}
+	valueColumn := func(row, label string) int {
+		t.Helper()
+		prefix := "  " + label
+		if !strings.HasPrefix(row, prefix) {
+			t.Fatalf("row %q does not start with prefix %q", row, prefix)
+		}
+		rest := row[len(prefix):]
+		spaces := 0
+		for _, r := range rest {
+			if r != ' ' {
+				break
+			}
+			spaces++
+		}
+		return lipgloss.Width(prefix) + spaces
+	}
+
+	peRow := rowFor("Pe:")
+	wantCol := valueColumn(peRow, "Pe:")
+	if wantCol != launchChipValueCol {
+		t.Fatalf("setup: Pe: row's own value column = %d, want %d (launchChipValueCol)", wantCol, launchChipValueCol)
+	}
+
+	for _, label := range []string{"heading:", readout.LabelIncl, readout.LabelDeltaIncl} {
+		row := rowFor(label)
+		gotCol := valueColumn(row, label)
+		if gotCol != wantCol {
+			t.Errorf("%s row's value column = %d, want %d (matching Pe:'s column): row=%q", label, gotCol, wantCol, row)
+		}
+	}
+}
+
+// TestInclinationFloorUsesCurrentSurfaceLatNotLaunchLat pins item4-B
+// review finding 6: the pad's "(min N°)" Inclination Floor must read
+// the vessel's CURRENT surface latitude (SurfaceLatLon, which prefers
+// LandedLatDeg once a soft landing has set it) rather than the
+// spawn-only LaunchLatDeg. A vessel that flew from the 28.6° pad and
+// soft-landed at 5°N must read a 5° floor, not a stale 28.6° one sitting
+// above its own incl: value (the review's own reproduction: "incl:
+// 5.00° (min 28.61°)", nonsense since incl: can never be below its own
+// floor).
+func TestInclinationFloorUsesCurrentSurfaceLatNotLaunchLat(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(200, 80)
+	w, c := spawnLandedOnEarthAt28p6(t)
+
+	// Simulate a soft landing away from the launch pad: LandedLatDeg
+	// set (SurfaceLatLon then prefers it over LaunchLatDeg per its own
+	// doc comment), State.R repositioned to match so incl: itself also
+	// reads the new position rather than the old one.
+	const landedLat = 5.0
+	const landedLon = 0.0
+	c.LandedLatDeg = landedLat
+	c.LandedLonDeg = landedLon
+	radius := c.Primary.RadiusMeters()
+	dir := render.BodyFixedToWorld(c.Primary, landedLat, landedLon, w.Clock.SimTime)
+	c.State.R = orbital.Vec3{X: radius * dir.X, Y: radius * dir.Y, Z: radius * dir.Z}
+
+	lines := v.buildLaunchChip(w)
+	joined := strings.Join(lines, "\n")
+	inclRe := regexp.MustCompile(`incl:\s+[0-9.]+°\s+\(min ([0-9.]+)°\)`)
+	m := inclRe.FindStringSubmatch(joined)
+	if m == nil {
+		t.Fatalf("expected an 'incl: ... (min N°)' row:\n%s", joined)
+	}
+	floor, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("could not parse floor: %v", err)
+	}
+	if math.Abs(floor-landedLat) > 0.01 {
+		t.Errorf("floor = %.2f°, want %.2f° (the current surface latitude, not the %.2f° launch latitude)",
+			floor, landedLat, sim.DefaultLaunchpadLatitude)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
 // testEarth synthesises a minimal Earth-like body for tests that
@@ -241,17 +242,26 @@ func TestBurnDirectionAppliesPitchTrim(t *testing.T) {
 	}
 }
 
-// TestBurnDirectionAppliesHeadingBeforePitch pins the ADR 0049 decision
-// 8/9 ordering at the BurnDirectionWithTarget call site: HeadingTrim
-// rotates the natural direction about local up BEFORE PitchTrim rotates
-// about local north. The two orders give numerically different results
-// once the natural direction already has both a radial and a horizontal
-// component (an ascending BurnSurfacePrograde burn does, once the craft
-// is climbing and moving east) and both trims are nonzero, so this test
-// would catch the two calls being swapped in BurnDirectionWithTarget —
-// exactly the silent regression the ADR warns a later refactor could
-// introduce.
-func TestBurnDirectionAppliesHeadingBeforePitch(t *testing.T) {
+// TestBurnDirectionAppliesPitchBeforeHeading pins the corrected
+// ordering at the BurnDirectionWithTarget call site (item4-B review
+// round 1, findings 1-2, overriding ADR 0049 decision 8's own prose,
+// which said heading-before-pitch and was wrong): PitchTrim rotates
+// the natural direction about local north BEFORE HeadingTrim re-aims
+// the horizontal component about local up. The two orders give
+// numerically different results once the natural direction already has
+// both a radial and a horizontal component (an ascending
+// BurnSurfacePrograde burn does, once the craft is climbing and moving
+// east) and both trims are nonzero, so this test would catch the two
+// calls being swapped in BurnDirectionWithTarget. This inverts and
+// renames the pre-review test of the same shape
+// (TestBurnDirectionAppliesHeadingBeforePitch), which pinned the wrong
+// order; see TestBurnDirectionRadialOutPitchThenHeadingSteersVertical
+// for the vertical-hold case that order alone left completely blind to
+// the bug (a purely-vertical natural direction makes the two orders
+// indistinguishable, since ApplyHeadingTrim-then-ApplyPitchTrim and
+// ApplyPitchTrim-then-ApplyHeadingTrim both touch a horizontal
+// component only one of them ever introduces).
+func TestBurnDirectionAppliesPitchBeforeHeading(t *testing.T) {
 	earth := testEarth()
 	r := orbital.Vec3{X: earth.RadiusMeters()}
 	v := orbital.Vec3{X: 100, Y: 8000} // climbing (radial) and moving east (surface-relative).
@@ -271,13 +281,65 @@ func TestBurnDirectionAppliesHeadingBeforePitch(t *testing.T) {
 	headingFirst := ApplyPitchTrim(ApplyHeadingTrim(natural, r, spinAxis, s.HeadingTrim), r, spinAxis, s.PitchTrim)
 	pitchFirst := ApplyHeadingTrim(ApplyPitchTrim(natural, r, spinAxis, s.PitchTrim), r, spinAxis, s.HeadingTrim)
 
-	if math.Abs(got.X-headingFirst.X) > 1e-9 || math.Abs(got.Y-headingFirst.Y) > 1e-9 || math.Abs(got.Z-headingFirst.Z) > 1e-9 {
-		t.Errorf("BurnDirection = %+v, want heading-before-pitch composition %+v", got, headingFirst)
+	if math.Abs(got.X-pitchFirst.X) > 1e-9 || math.Abs(got.Y-pitchFirst.Y) > 1e-9 || math.Abs(got.Z-pitchFirst.Z) > 1e-9 {
+		t.Errorf("BurnDirection = %+v, want pitch-before-heading composition %+v", got, pitchFirst)
 	}
 	// Sanity: confirm this input actually distinguishes the two orders,
 	// so the assertion above is a real guard and not a coincidence.
 	if math.Abs(headingFirst.X-pitchFirst.X) < 1e-6 && math.Abs(headingFirst.Y-pitchFirst.Y) < 1e-6 && math.Abs(headingFirst.Z-pitchFirst.Z) < 1e-6 {
 		t.Fatalf("test setup doesn't distinguish order: heading-first %+v ~= pitch-first %+v", headingFirst, pitchFirst)
+	}
+}
+
+// TestBurnDirectionRadialOutPitchThenHeadingSteersVertical is the
+// vertical-hold case item4-B review finding 1 says every pre-existing
+// test sat on the wrong side of: BurnRadialOut's natural direction is
+// purely vertical (r̂, zero horizontal component), so the ORDER used
+// to matter not at all under the shipped heading-before-pitch code
+// (rotating a vertical vector about local up is an identity, so the
+// heading pass silently vanished and pitch alone, about local north,
+// always produced a due-east-plane tilt regardless of the commanded
+// heading). Radial+ with PitchTrim=+10° and HeadingTrim=-90°
+// (commanded bearing 000°, due north) must produce a thrust bearing of
+// 000° at ~80° elevation, not 090°, the exact reproduction the review
+// used.
+func TestBurnDirectionRadialOutPitchThenHeadingSteersVertical(t *testing.T) {
+	earth := testEarth()
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	s := &Spacecraft{Primary: earth}
+	s.State.R = r
+	// DirectionUnit's BurnRadialOut branch ignores V's direction (it
+	// only uses r̂) but bails to the zero vector whenever V.Norm()==0,
+	// so V must be nonzero even though its direction is irrelevant here.
+	s.State.V = orbital.Vec3{Y: 1}
+	s.PitchTrim = 10 * math.Pi / 180
+	s.HeadingTrim = -math.Pi / 2 // commanded bearing 000° (due north).
+
+	spinAxis := orbital.Vec3{Z: 1}
+	east, up, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		t.Fatal("setup: expected a defined local horizon frame")
+	}
+
+	got := s.BurnDirection(BurnRadialOut)
+
+	e := got.X*east.X + got.Y*east.Y + got.Z*east.Z
+	u := got.X*up.X + got.Y*up.Y + got.Z*up.Z
+	n := got.X*north.X + got.Y*north.Y + got.Z*north.Z
+
+	bearingDeg := math.Atan2(e, n) * 180 / math.Pi
+	if bearingDeg < 0 {
+		bearingDeg += 360
+	}
+	horizMag := math.Sqrt(e*e + n*n)
+	elevDeg := math.Atan2(u, horizMag) * 180 / math.Pi
+
+	if math.Abs(bearingDeg-0) > 1e-6 {
+		t.Errorf("bearing = %.6f°, want 000° (due north); the shipped heading-before-pitch order would instead read 090° here (heading pass vanished on a vertical hold)", bearingDeg)
+	}
+	const wantElevDeg float64 = 80 // 90° (straight up) minus the 10° pitch trim.
+	if math.Abs(elevDeg-wantElevDeg) > 1e-6 {
+		t.Errorf("elevation = %.6f°, want %.0f°", elevDeg, wantElevDeg)
 	}
 }
 
@@ -477,5 +539,103 @@ func TestHeadingInclinationDegCapturePair(t *testing.T) {
 	}
 	if math.Abs(west-151.4) > 0.05 {
 		t.Errorf("270° inclination = %.4f°, want ≈151.4° (retrograde of the floor)", west)
+	}
+}
+
+// TestApplyHeadingTrimVerticalDirectionNoOpNoNaN pins the still-
+// degenerate case item4-B review finding 4 calls out explicitly: a
+// direction with zero horizontal magnitude (BurnRadialOut with zero
+// pitch trim, pointing straight up) has no compass bearing to aim at.
+// ApplyHeadingTrim must leave it untouched, with no NaN or Inf leaking
+// out, rather than trying to compute a meaningless azimuth. Checked at
+// a nonzero heading offset so a naive implementation that normalises
+// the horizontal component before scaling (dividing by a zero
+// magnitude) would be caught here.
+func TestApplyHeadingTrimVerticalDirectionNoOpNoNaN(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	up := orbital.Vec3{X: 1} // radial+, purely vertical at this position.
+	got := ApplyHeadingTrim(up, r, orbital.Vec3{Z: 1}, math.Pi/2)
+	if got != up {
+		t.Errorf("vertical direction altered by heading trim: got %+v, want unchanged %+v", got, up)
+	}
+	if math.IsNaN(got.X) || math.IsNaN(got.Y) || math.IsNaN(got.Z) {
+		t.Fatalf("heading trim on a vertical direction produced NaN: %+v", got)
+	}
+	if math.IsInf(got.X, 0) || math.IsInf(got.Y, 0) || math.IsInf(got.Z, 0) {
+		t.Fatalf("heading trim on a vertical direction produced Inf: %+v", got)
+	}
+}
+
+// TestApplyHeadingTrimConvergesAndHoldsAtCommandedBearing pins item4-B
+// review finding 4 (maintainer ruling): HeadingTrim commands an
+// ABSOLUTE bearing, so a direction already ON that bearing must be
+// left unchanged (converged, not pushed further off by a standing
+// offset). Direct unit-level check at the ApplyHeadingTrim layer,
+// complementing TestBurnSurfaceProgradeHeadingConvergesAndHolds below,
+// which drives the same claim through the full BurnSurfacePrograde
+// mode.
+func TestApplyHeadingTrimConvergesAndHoldsAtCommandedBearing(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	spinAxis := orbital.Vec3{Z: 1}
+	east, _, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		t.Fatal("setup: expected a defined local horizon frame")
+	}
+
+	const bearingDeg = 120.0
+	betaRad := bearingDeg * math.Pi / 180
+	dirAtBearing := east.Scale(math.Sin(betaRad)).Add(north.Scale(math.Cos(betaRad)))
+	offset := betaRad - HeadingTrimDueEastRad // commanded bearing 120°.
+
+	got := ApplyHeadingTrim(dirAtBearing, r, spinAxis, offset)
+	if got.Sub(dirAtBearing).Norm() > 1e-9 {
+		t.Errorf("direction already at the commanded bearing was moved: got %+v, want unchanged %+v", got, dirAtBearing)
+	}
+}
+
+// TestBurnSurfaceProgradeHeadingConvergesAndHolds is the full-mode
+// reproduction of item4-B review finding 4's own probe: a vessel
+// already flying surface-prograde at bearing 120° with HeadingTrim
+// commanding 120° (offset +30°) must hold at 120°, not be pushed to
+// 150° by treating the offset as a standing relative rotation applied
+// on top of the already-120°-bearing natural direction. The review's
+// own reproduction (against the shipped relative-rotation
+// ApplyHeadingTrim) read bearing=150.00 here; this test's sabotage
+// below reproduces that exact number against the OLD algorithm before
+// confirming the new one holds at 120.
+func TestBurnSurfaceProgradeHeadingConvergesAndHolds(t *testing.T) {
+	earth := testEarth()
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	omegaR := render.BodySpinOmegaWorld(earth)
+	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
+	axisR := render.BodyRotationAxisWorld(earth)
+	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
+	east, _, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		t.Fatal("setup: expected a defined local horizon frame")
+	}
+
+	const bearingDeg = 120.0
+	const speed = 1000.0
+	betaRad := bearingDeg * math.Pi / 180
+	vSurfDir := east.Scale(math.Sin(betaRad)).Add(north.Scale(math.Cos(betaRad)))
+	vSurf := vSurfDir.Scale(speed)
+	v := vSurf.Add(omega.Cross(r)) // so that V - ω×R == vSurf exactly, bearing 120°.
+
+	s := &Spacecraft{Primary: earth}
+	s.State.R = r
+	s.State.V = v
+	s.HeadingTrim = 30 * math.Pi / 180 // commanded bearing 120° (offset +30°).
+
+	dir := s.BurnDirection(BurnSurfacePrograde)
+	e := dir.X*east.X + dir.Y*east.Y + dir.Z*east.Z
+	n := dir.X*north.X + dir.Y*north.Y + dir.Z*north.Z
+	gotBearing := math.Atan2(e, n) * 180 / math.Pi
+	if gotBearing < 0 {
+		gotBearing += 360
+	}
+
+	if math.Abs(gotBearing-120) > 1e-6 {
+		t.Errorf("bearing = %.6f°, want 120° (converged and held); a relative-offset implementation would instead read 150° here", gotBearing)
 	}
 }
