@@ -2,6 +2,18 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.42.0
+
+Every number on the flight surfaces now speaks one dialect. Durations, distances, masses, countdowns and labels all route through a single formatter instead of the nine that had drifted apart (ADR 0049 decisions 1-7 and 12; the readout half of #453; PR `#458`; tag `v0.42.0`).
+
+- The 2026-09-02 UX review found seven dialects of number on screen at once. Durations appeared as `1h34m28s`, `4.72h`, `T+366773s`, `00:00:02` and `fin 109s`, from five separate formatters. Six-digit ranges and masses printed unseparated (`371639 km`, `2160000 kg`). The `alt` suffix appeared on exactly one panel. Labels were written as variable names (`v_vert`, `t_to_apo`) or as maths (`|v_rel|`). A below-surface periapsis printed as a plain negative with nothing to mark it. `Δv budget` meant the current stage and never said so.
+- **Durations** read two adjacent units and truncate rather than round, so a countdown never claims more time than there is: `45s`, `2m07s`, `4h43m`, `3d05h`. `period:` is the one exception and keeps its seconds, because that is the number a resonant or phasing orbit is tuned against.
+- **Countdowns use the launch convention**: `T-` counts down to an event, `T+` counts up since it. This is a real behaviour change. The old formatter printed `T+` for a node in the *future*, the exact inverse of the mission clock sitting on the same screen.
+- **Distances climb an SI ladder** at four significant figures: metres below 1 km, then km to 9999 km, Mm to 999.9 Mm, Gm, then AU. The rung is always printed, so a unit change is never silent. Masses go kg then t, thrust is kN everywhere, and the `alt` suffix is gone because every apsis and altitude in the game was already a height above the surface. The F1 help overlay says so once, in a new readout glossary that also explains the six codes that survived (`fpa`, `Q`, `TCA`, `TWR`, `Ap`/`Pe`, `Δv`/`Δincl`).
+- **A below-surface periapsis keeps its signed depth and turns Warning-coloured**, label and value together, on every panel that prints one. On an ascent it is the distance still to climb through zero; on a de-orbit it is how committed the descent is. Replacing it with a word would have thrown that away.
+- **`Δv budget` became `Δv: <stage> / <vehicle> m/s`**, so a Saturn V finally says whether the whole stack can reach orbit rather than only what the lit stage has left.
+- Fixed along the way: every formatter hung forever on an infinite input, which would have frozen the interface with no error; four significant figures was quietly five at each decade boundary; and the CAPTURE PREVIEW chip's rows had been misaligned by a column or two, which no string assertion can see.
+
 ### v0.41.1
 
 Two fixes from flying the tagged v0.41.0 build: the engine-lit cue moves off the whole screen onto the VESSEL chip, and Launch View's Auto-Warp button actually does something when you click it (#456; PRs `#455`-`#457`; tag `v0.41.1`).
