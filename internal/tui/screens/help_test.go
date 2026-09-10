@@ -54,7 +54,11 @@ func TestHelpRelabelsForQWERTZ(t *testing.T) {
 // top window but visible after scrolling to the end (the reported bug).
 func TestHelpScrollsToLastSection(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	const w, ht = 100, 20
+	// ht bumped 20->22 when ADR 0049 decision 9 added two rows (MANUAL
+	// FLIGHT's `{ / }`, READOUT GLOSSARY's `incl (min N°)`): the
+	// glossary row pushed MOUSE's "click HUD" out of a 20-row
+	// bottom-aligned window once End-scrolled.
+	const w, ht = 100, 22
 
 	top := h.Render(w, ht, keylayout.QWERTY)
 	if !strings.Contains(top, "keybindings") {

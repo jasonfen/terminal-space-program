@@ -7,6 +7,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
 // testEarth synthesises a minimal Earth-like body for tests that
@@ -55,6 +56,126 @@ func TestApplyPitchTrimSmallEastBoost(t *testing.T) {
 	}
 	if math.Abs(got.Y-wantY) > 1e-9 {
 		t.Errorf("5° east trim: Y = %.6f, want %.6f", got.Y, wantY)
+	}
+}
+
+// TestApplyHeadingTrimZeroIsNoop — zero offset (commanded heading ==
+// due east) returns dir unchanged.
+func TestApplyHeadingTrimZeroIsNoop(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	dir := orbital.Vec3{Y: 1}
+	got := ApplyHeadingTrim(dir, r, orbital.Vec3{Z: 1}, 0)
+	if got != dir {
+		t.Errorf("zero heading offset altered dir: got %+v, want %+v", got, dir)
+	}
+}
+
+// TestApplyHeadingTrimPoleIsNoop pins the pole no-op ApplyHeadingTrim
+// inherits from the shared localHorizonFrame helper: at the pole (r
+// parallel to spinAxis) east is undefined, so the rotation silently
+// no-ops rather than dividing by zero, exactly like ApplyPitchTrim's
+// own pole guard.
+func TestApplyHeadingTrimPoleIsNoop(t *testing.T) {
+	r := orbital.Vec3{Z: 6.371e6} // north pole, parallel to spinAxis.
+	dir := orbital.Vec3{X: 1}
+	got := ApplyHeadingTrim(dir, r, orbital.Vec3{Z: 1}, math.Pi/2)
+	if got != dir {
+		t.Errorf("pole heading trim altered dir: got %+v, want unchanged %+v", got, dir)
+	}
+}
+
+// TestApplyHeadingTrimNorthOffsetTiltsToNorth and its south mirror below
+// pin ApplyHeadingTrim's actual rotation direction, the same way
+// TestApplyPitchTrimEastTiltsRadialEast pins ApplyPitchTrim's. The
+// inclination identity alone cannot: h_z = r×dir only picks up dir's
+// EASTWARD component (sin β), so cos i = sin β · cos φ is provably
+// insensitive to whether the north/south component rotates the right
+// way — heading 000° and 180° both land on i = 90° by that formula
+// regardless of which one a sign error swapped. At the equator on +X,
+// this frame's north resolves to +Z (matching
+// TestApplyPitchTrimEastTiltsRadialEast's frame); commanding due north
+// (offset -90° from east) must rotate the natural east direction (+Y)
+// onto exactly +Z, not -Z.
+func TestApplyHeadingTrimNorthOffsetTiltsToNorth(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	east := orbital.Vec3{Y: 1}
+	got := ApplyHeadingTrim(east, r, orbital.Vec3{Z: 1}, -math.Pi/2) // commanded heading 000° (due north).
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y) > 1e-9 || math.Abs(got.Z-1) > 1e-9 {
+		t.Errorf("heading 000° (offset -90° from due east): got %+v, want (0, 0, 1) (local north)", got)
+	}
+}
+
+// TestApplyHeadingTrimSouthOffsetTiltsToSouth is the mirror: due south
+// (offset +90°) must rotate east onto -Z, not +Z.
+func TestApplyHeadingTrimSouthOffsetTiltsToSouth(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	east := orbital.Vec3{Y: 1}
+	got := ApplyHeadingTrim(east, r, orbital.Vec3{Z: 1}, math.Pi/2) // commanded heading 180° (due south).
+	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y) > 1e-9 || math.Abs(got.Z+1) > 1e-9 {
+		t.Errorf("heading 180° (offset +90° from due east): got %+v, want (0, 0, -1) (local south)", got)
+	}
+}
+
+// TestApplyHeadingTrimInclinationIdentity pins ApplyHeadingTrim against
+// the closed-form launch-azimuth identity cos(i) = sin(beta)*cos(phi):
+// the inclination an ascent launched at compass bearing beta (000° =
+// north, 090° = east, 180° = south, 270° = west) from geographic
+// latitude phi reaches, given it harvests the planet's due-east
+// surface-rotation velocity rotated onto the commanded heading. This
+// is the identity ADR 0049 decision 8 and CONTEXT.md's Inclination
+// Floor entry both cite; the 28.6° pad and the four headings (three
+// plus the 270°/retrograde case) are the ADR's own worked examples.
+//
+// Expected inclinations are computed from the formula alone (sin/cos
+// of beta and phi), independent of ApplyHeadingTrim. "got" is derived
+// the same general way internal/orbital.ElementsFromState computes
+// inclination from a state vector — cross r with the rotated
+// direction and read the specific angular momentum's angle to the
+// spin axis, h_z/|h| — rather than re-deriving sin(beta)*cos(phi) from
+// the implementation's own components, which would prove nothing.
+func TestApplyHeadingTrimInclinationIdentity(t *testing.T) {
+	const padLatDeg = 28.6 // ADR 0049 decision 9/10's worked "28.6° pad" example.
+	phi := padLatDeg * math.Pi / 180
+	const radius = 6.371e6
+	// On the pad's meridian (longitude 0, spinAxis = Z): up = r̂ =
+	// (cos φ, 0, sin φ), so east = spinAxis × up resolves to exactly
+	// (0, 1, 0) at any latitude on this meridian — the natural
+	// due-east surface-rotation direction ApplyHeadingTrim rotates
+	// away from.
+	r := orbital.Vec3{X: math.Cos(phi) * radius, Z: math.Sin(phi) * radius}
+	spinAxis := orbital.Vec3{Z: 1}
+	east := orbital.Vec3{Y: 1}
+
+	cases := []struct {
+		name       string
+		headingDeg float64 // commanded compass bearing (β).
+	}{
+		{"due east: the inclination floor", 90},
+		{"due north: polar", 0},
+		{"due south: polar", 180},
+		{"due west (retrograde of due east)", 270},
+	}
+	const tolDeg = 1e-9
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			beta := c.headingDeg * math.Pi / 180
+			wantIDeg := math.Acos(math.Sin(beta)*math.Cos(phi)) * 180 / math.Pi
+
+			offset := beta - math.Pi/2 // ApplyHeadingTrim's offset-from-due-east parameter.
+			dir := ApplyHeadingTrim(east, r, spinAxis, offset)
+
+			h := r.Cross(dir)
+			hNorm := h.Norm()
+			if hNorm == 0 {
+				t.Fatalf("degenerate angular momentum for heading %.0f°: dir=%+v", c.headingDeg, dir)
+			}
+			gotIDeg := math.Acos(h.Z/hNorm) * 180 / math.Pi
+
+			if math.Abs(gotIDeg-wantIDeg) > tolDeg {
+				t.Errorf("heading %.0f° from a %.1f° pad: inclination = %.10f°, want %.10f° (cos i = sin(%.0f°)·cos(%.1f°), tolerance %.0e°)",
+					c.headingDeg, padLatDeg, gotIDeg, wantIDeg, c.headingDeg, padLatDeg, tolDeg)
+			}
+		})
 	}
 }
 
@@ -118,6 +239,107 @@ func TestBurnDirectionAppliesPitchTrim(t *testing.T) {
 	want := ApplyPitchTrim(orbital.Vec3{X: 1}, r, orbital.Vec3{Z: 1}, 5*math.Pi/180)
 	if math.Abs(got.X-want.X) > 1e-9 || math.Abs(got.Y-want.Y) > 1e-9 || math.Abs(got.Z-want.Z) > 1e-9 {
 		t.Errorf("pitch trim on radial+: got %+v, want %+v", got, want)
+	}
+}
+
+// TestBurnDirectionAppliesPitchBeforeHeading pins the corrected
+// ordering at the BurnDirectionWithTarget call site (item4-B review
+// round 1, findings 1-2, overriding ADR 0049 decision 8's own prose,
+// which said heading-before-pitch and was wrong): PitchTrim rotates
+// the natural direction about local north BEFORE HeadingTrim re-aims
+// the horizontal component about local up. The two orders give
+// numerically different results once the natural direction already has
+// both a radial and a horizontal component (an ascending
+// BurnSurfacePrograde burn does, once the craft is climbing and moving
+// east) and both trims are nonzero, so this test would catch the two
+// calls being swapped in BurnDirectionWithTarget. This inverts and
+// renames the pre-review test of the same shape
+// (TestBurnDirectionAppliesHeadingBeforePitch), which pinned the wrong
+// order; see TestBurnDirectionRadialOutPitchThenHeadingSteersVertical
+// for the vertical-hold case that order alone left completely blind to
+// the bug (a purely-vertical natural direction makes the two orders
+// indistinguishable, since ApplyHeadingTrim-then-ApplyPitchTrim and
+// ApplyPitchTrim-then-ApplyHeadingTrim both touch a horizontal
+// component only one of them ever introduces).
+func TestBurnDirectionAppliesPitchBeforeHeading(t *testing.T) {
+	earth := testEarth()
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	v := orbital.Vec3{X: 100, Y: 8000} // climbing (radial) and moving east (surface-relative).
+	s := &Spacecraft{Primary: earth}
+	s.State.R = r
+	s.State.V = v
+	s.HeadingTrim = math.Pi // 180° offset from due east: commanded bearing 270° (west).
+	s.PitchTrim = 10 * math.Pi / 180
+
+	spinAxis := orbital.Vec3{Z: 1}
+	omega := physics.AtmosphereOmega(earth)
+	vSurf := v.Sub(omega.Cross(r))
+	natural := vSurf.Scale(1 / vSurf.Norm())
+
+	got := s.BurnDirection(BurnSurfacePrograde)
+
+	headingFirst := ApplyPitchTrim(ApplyHeadingTrim(natural, r, spinAxis, s.HeadingTrim), r, spinAxis, s.PitchTrim)
+	pitchFirst := ApplyHeadingTrim(ApplyPitchTrim(natural, r, spinAxis, s.PitchTrim), r, spinAxis, s.HeadingTrim)
+
+	if math.Abs(got.X-pitchFirst.X) > 1e-9 || math.Abs(got.Y-pitchFirst.Y) > 1e-9 || math.Abs(got.Z-pitchFirst.Z) > 1e-9 {
+		t.Errorf("BurnDirection = %+v, want pitch-before-heading composition %+v", got, pitchFirst)
+	}
+	// Sanity: confirm this input actually distinguishes the two orders,
+	// so the assertion above is a real guard and not a coincidence.
+	if math.Abs(headingFirst.X-pitchFirst.X) < 1e-6 && math.Abs(headingFirst.Y-pitchFirst.Y) < 1e-6 && math.Abs(headingFirst.Z-pitchFirst.Z) < 1e-6 {
+		t.Fatalf("test setup doesn't distinguish order: heading-first %+v ~= pitch-first %+v", headingFirst, pitchFirst)
+	}
+}
+
+// TestBurnDirectionRadialOutPitchThenHeadingSteersVertical is the
+// vertical-hold case item4-B review finding 1 says every pre-existing
+// test sat on the wrong side of: BurnRadialOut's natural direction is
+// purely vertical (r̂, zero horizontal component), so the ORDER used
+// to matter not at all under the shipped heading-before-pitch code
+// (rotating a vertical vector about local up is an identity, so the
+// heading pass silently vanished and pitch alone, about local north,
+// always produced a due-east-plane tilt regardless of the commanded
+// heading). Radial+ with PitchTrim=+10° and HeadingTrim=-90°
+// (commanded bearing 000°, due north) must produce a thrust bearing of
+// 000° at ~80° elevation, not 090°, the exact reproduction the review
+// used.
+func TestBurnDirectionRadialOutPitchThenHeadingSteersVertical(t *testing.T) {
+	earth := testEarth()
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	s := &Spacecraft{Primary: earth}
+	s.State.R = r
+	// DirectionUnit's BurnRadialOut branch ignores V's direction (it
+	// only uses r̂) but bails to the zero vector whenever V.Norm()==0,
+	// so V must be nonzero even though its direction is irrelevant here.
+	s.State.V = orbital.Vec3{Y: 1}
+	s.PitchTrim = 10 * math.Pi / 180
+	s.HeadingTrim = -math.Pi / 2 // commanded bearing 000° (due north).
+
+	spinAxis := orbital.Vec3{Z: 1}
+	east, up, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		t.Fatal("setup: expected a defined local horizon frame")
+	}
+
+	got := s.BurnDirection(BurnRadialOut)
+
+	e := got.X*east.X + got.Y*east.Y + got.Z*east.Z
+	u := got.X*up.X + got.Y*up.Y + got.Z*up.Z
+	n := got.X*north.X + got.Y*north.Y + got.Z*north.Z
+
+	bearingDeg := math.Atan2(e, n) * 180 / math.Pi
+	if bearingDeg < 0 {
+		bearingDeg += 360
+	}
+	horizMag := math.Sqrt(e*e + n*n)
+	elevDeg := math.Atan2(u, horizMag) * 180 / math.Pi
+
+	if math.Abs(bearingDeg-0) > 1e-6 {
+		t.Errorf("bearing = %.6f°, want 000° (due north); the shipped heading-before-pitch order would instead read 090° here (heading pass vanished on a vertical hold)", bearingDeg)
+	}
+	const wantElevDeg float64 = 80 // 90° (straight up) minus the 10° pitch trim.
+	if math.Abs(elevDeg-wantElevDeg) > 1e-6 {
+		t.Errorf("elevation = %.6f°, want %.0f°", elevDeg, wantElevDeg)
 	}
 }
 
@@ -200,5 +422,220 @@ func TestDirectionUnitTargetFallsThroughToBaseModes(t *testing.T) {
 	want := DirectionUnit(BurnPrograde, rA, vA)
 	if got != want {
 		t.Errorf("non-target fallthrough: got %+v, want %+v", got, want)
+	}
+}
+
+// TestHeadingInclinationDegMatchesIdentity: B2's HUD entry point
+// (HeadingInclinationDeg) pins the exact same closed-form identity
+// TestApplyHeadingTrimInclinationIdentity pins for ApplyHeadingTrim
+// itself: cos(i) = sin(beta)*cos(phi), the 28.6° pad, the same four
+// headings. "got" is independent of the closed form the same way,
+// derived from HeadingOrbitNormal's h vector dotted with spinAxis, not
+// a re-derivation of sin(beta)*cos(phi) from the implementation's own
+// components. This is the entry point ADR 0049 decision 9/10's pad
+// `incl:` row (and the item4-B captures at 090°/270°) route through, so
+// it is pinned separately from the ApplyHeadingTrim-level identity test
+// even though both ultimately rest on the same rotation.
+func TestHeadingInclinationDegMatchesIdentity(t *testing.T) {
+	const padLatDeg = 28.6
+	phi := padLatDeg * math.Pi / 180
+	const radius = 6.371e6
+	r := orbital.Vec3{X: math.Cos(phi) * radius, Z: math.Sin(phi) * radius}
+	spinAxis := orbital.Vec3{Z: 1}
+
+	cases := []struct {
+		name       string
+		headingDeg float64
+	}{
+		{"due east: the inclination floor", 90},
+		{"due north: polar", 0},
+		{"due south: polar", 180},
+		{"due west (retrograde of due east, the item4-B 270° capture)", 270},
+	}
+	const tolDeg = 1e-9
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			beta := c.headingDeg * math.Pi / 180
+			wantIDeg := math.Acos(math.Sin(beta)*math.Cos(phi)) * 180 / math.Pi
+			offset := beta - math.Pi/2
+
+			gotIDeg, ok := HeadingInclinationDeg(r, spinAxis, offset)
+			if !ok {
+				t.Fatalf("heading %.0f°: HeadingInclinationDeg reported degenerate, want a value", c.headingDeg)
+			}
+			if math.Abs(gotIDeg-wantIDeg) > tolDeg {
+				t.Errorf("heading %.0f° from a %.1f° pad: HeadingInclinationDeg = %.10f°, want %.10f° (cos i = sin(%.0f°)·cos(%.1f°))",
+					c.headingDeg, padLatDeg, gotIDeg, wantIDeg, c.headingDeg, padLatDeg)
+			}
+		})
+	}
+}
+
+// TestHeadingInclinationDegPoleIsDegenerate mirrors
+// ApplyHeadingTrim's pole guard: at a pole, localHorizonFrame can't
+// define east, so both HeadingOrbitNormal and HeadingInclinationDeg
+// report ok=false rather than a misleading number.
+func TestHeadingInclinationDegPoleIsDegenerate(t *testing.T) {
+	pole := orbital.Vec3{Z: 6.371e6}
+	spinAxis := orbital.Vec3{Z: 1}
+	if _, ok := HeadingInclinationDeg(pole, spinAxis, math.Pi/4); ok {
+		t.Error("expected HeadingInclinationDeg to report degenerate at a pole")
+	}
+	if _, ok := HeadingOrbitNormal(pole, spinAxis, math.Pi/4); ok {
+		t.Error("expected HeadingOrbitNormal to report degenerate at a pole")
+	}
+}
+
+// TestHeadingInclinationDegZeroSpinAxisIsDegenerate: a primary with
+// no defined rotation axis (zero SpinAxis, e.g. a non-rotating body
+// passed with the zero vector) has no equatorial reference to measure
+// inclination against.
+func TestHeadingInclinationDegZeroSpinAxisIsDegenerate(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	if _, ok := HeadingInclinationDeg(r, orbital.Vec3{}, math.Pi/4); ok {
+		t.Error("expected HeadingInclinationDeg to report degenerate at a zero spin axis")
+	}
+}
+
+// TestHeadingInclinationDegCapturePair pins the exact 090°/270° pair
+// the item4-B captures read: 090° (due east, offset 0) at the pad
+// floor, 270° (due west, retrograde of due east) at its complement.
+//
+// This is NOT the sign-swap sabotage witness, checked and rejected as
+// one. A north/south rotation-direction sign flip in ApplyHeadingTrim
+// (theta := headingOffsetRad instead of -headingOffsetRad, the exact
+// bug B1's own sabotage round 2 tried) leaves this pair unchanged:
+// offset=0 short-circuits ApplyHeadingTrim entirely (headingOffsetRad
+// == 0 returns dir unmodified, no rotation math runs at all), and
+// offset=+-pi is its own negation (sin(180°) == sin(-180°) == 0, so
+// the rotation matrix a sign flip produces at 270° is identical either
+// way): confirmed empirically by applying that exact sabotage and
+// re-running this test, it stayed green. That sign risk is real but
+// lives entirely inside ApplyHeadingTrim, which B1's own
+// TestApplyHeadingTrimNorthOffsetTiltsToNorth /
+// ...SouthOffsetTiltsToSouth already catch (both went red under the
+// same sabotage). The {/} KEY-HANDLER sign, which key adds to
+// HeadingTrim and which subtracts, is a different risk one layer up,
+// in internal/tui/app.go, and is proven by
+// TestHeadingTrimKeysNudgeTowardCorrectCompassDirection in that
+// package (sabotaged by swapping the two case bodies; see that test's
+// doc comment).
+func TestHeadingInclinationDegCapturePair(t *testing.T) {
+	const padLatDeg = 28.6
+	phi := padLatDeg * math.Pi / 180
+	const radius = 6.371e6
+	r := orbital.Vec3{X: math.Cos(phi) * radius, Z: math.Sin(phi) * radius}
+	spinAxis := orbital.Vec3{Z: 1}
+
+	eastOffset := 0.0     // 090°, the floor.
+	westOffset := math.Pi // 270°, retrograde of 090°.
+	east, ok1 := HeadingInclinationDeg(r, spinAxis, eastOffset)
+	west, ok2 := HeadingInclinationDeg(r, spinAxis, westOffset)
+	if !ok1 || !ok2 {
+		t.Fatalf("setup: expected both headings non-degenerate, got ok=%v/%v", ok1, ok2)
+	}
+	if math.Abs(east-28.6) > 0.05 {
+		t.Errorf("090° inclination = %.4f°, want ≈28.6° (the pad floor)", east)
+	}
+	if math.Abs(west-151.4) > 0.05 {
+		t.Errorf("270° inclination = %.4f°, want ≈151.4° (retrograde of the floor)", west)
+	}
+}
+
+// TestApplyHeadingTrimVerticalDirectionNoOpNoNaN pins the still-
+// degenerate case item4-B review finding 4 calls out explicitly: a
+// direction with zero horizontal magnitude (BurnRadialOut with zero
+// pitch trim, pointing straight up) has no compass bearing to aim at.
+// ApplyHeadingTrim must leave it untouched, with no NaN or Inf leaking
+// out, rather than trying to compute a meaningless azimuth. Checked at
+// a nonzero heading offset so a naive implementation that normalises
+// the horizontal component before scaling (dividing by a zero
+// magnitude) would be caught here.
+func TestApplyHeadingTrimVerticalDirectionNoOpNoNaN(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	up := orbital.Vec3{X: 1} // radial+, purely vertical at this position.
+	got := ApplyHeadingTrim(up, r, orbital.Vec3{Z: 1}, math.Pi/2)
+	if got != up {
+		t.Errorf("vertical direction altered by heading trim: got %+v, want unchanged %+v", got, up)
+	}
+	if math.IsNaN(got.X) || math.IsNaN(got.Y) || math.IsNaN(got.Z) {
+		t.Fatalf("heading trim on a vertical direction produced NaN: %+v", got)
+	}
+	if math.IsInf(got.X, 0) || math.IsInf(got.Y, 0) || math.IsInf(got.Z, 0) {
+		t.Fatalf("heading trim on a vertical direction produced Inf: %+v", got)
+	}
+}
+
+// TestApplyHeadingTrimConvergesAndHoldsAtCommandedBearing pins item4-B
+// review finding 4 (maintainer ruling): HeadingTrim commands an
+// ABSOLUTE bearing, so a direction already ON that bearing must be
+// left unchanged (converged, not pushed further off by a standing
+// offset). Direct unit-level check at the ApplyHeadingTrim layer,
+// complementing TestBurnSurfaceProgradeHeadingConvergesAndHolds below,
+// which drives the same claim through the full BurnSurfacePrograde
+// mode.
+func TestApplyHeadingTrimConvergesAndHoldsAtCommandedBearing(t *testing.T) {
+	r := orbital.Vec3{X: 6.371e6}
+	spinAxis := orbital.Vec3{Z: 1}
+	east, _, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		t.Fatal("setup: expected a defined local horizon frame")
+	}
+
+	const bearingDeg = 120.0
+	betaRad := bearingDeg * math.Pi / 180
+	dirAtBearing := east.Scale(math.Sin(betaRad)).Add(north.Scale(math.Cos(betaRad)))
+	offset := betaRad - HeadingTrimDueEastRad // commanded bearing 120°.
+
+	got := ApplyHeadingTrim(dirAtBearing, r, spinAxis, offset)
+	if got.Sub(dirAtBearing).Norm() > 1e-9 {
+		t.Errorf("direction already at the commanded bearing was moved: got %+v, want unchanged %+v", got, dirAtBearing)
+	}
+}
+
+// TestBurnSurfaceProgradeHeadingConvergesAndHolds is the full-mode
+// reproduction of item4-B review finding 4's own probe: a vessel
+// already flying surface-prograde at bearing 120° with HeadingTrim
+// commanding 120° (offset +30°) must hold at 120°, not be pushed to
+// 150° by treating the offset as a standing relative rotation applied
+// on top of the already-120°-bearing natural direction. The review's
+// own reproduction (against the shipped relative-rotation
+// ApplyHeadingTrim) read bearing=150.00 here; this test's sabotage
+// below reproduces that exact number against the OLD algorithm before
+// confirming the new one holds at 120.
+func TestBurnSurfaceProgradeHeadingConvergesAndHolds(t *testing.T) {
+	earth := testEarth()
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	omegaR := render.BodySpinOmegaWorld(earth)
+	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
+	axisR := render.BodyRotationAxisWorld(earth)
+	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
+	east, _, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		t.Fatal("setup: expected a defined local horizon frame")
+	}
+
+	const bearingDeg = 120.0
+	const speed = 1000.0
+	betaRad := bearingDeg * math.Pi / 180
+	vSurfDir := east.Scale(math.Sin(betaRad)).Add(north.Scale(math.Cos(betaRad)))
+	vSurf := vSurfDir.Scale(speed)
+	v := vSurf.Add(omega.Cross(r)) // so that V - ω×R == vSurf exactly, bearing 120°.
+
+	s := &Spacecraft{Primary: earth}
+	s.State.R = r
+	s.State.V = v
+	s.HeadingTrim = 30 * math.Pi / 180 // commanded bearing 120° (offset +30°).
+
+	dir := s.BurnDirection(BurnSurfacePrograde)
+	e := dir.X*east.X + dir.Y*east.Y + dir.Z*east.Z
+	n := dir.X*north.X + dir.Y*north.Y + dir.Z*north.Z
+	gotBearing := math.Atan2(e, n) * 180 / math.Pi
+	if gotBearing < 0 {
+		gotBearing += 360
+	}
+
+	if math.Abs(gotBearing-120) > 1e-6 {
+		t.Errorf("bearing = %.6f°, want 120° (converged and held); a relative-offset implementation would instead read 150° here", gotBearing)
 	}
 }

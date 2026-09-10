@@ -631,11 +631,20 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 	// fixed for the burn — the v0.9.2 plan didn't commit live trim
 	// adjustments mid-burn (they only feed through to the next burn
 	// engagement). v0.9.3+: target snapshot likewise captured here.
+	// v0.42.1: heading trim captured alongside pitch trim (item4-B
+	// review finding 3): this closure used to apply pitchTrim only, so
+	// under InstantSAS (World.stepThrust selects this path whenever
+	// w.InstantSAS is on) the engine thrust silently ignored
+	// HeadingTrim entirely while the pad readout and navball, both
+	// reading BurnDirectionWithTarget, showed the commanded heading.
+	// Applied in the same pitch-then-heading order
+	// BurnDirectionWithTarget uses, so the two paths agree.
 	omegaR := render.BodySpinOmegaWorld(s.Primary)
 	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
 	axisR := render.BodyRotationAxisWorld(s.Primary)
 	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
 	pitchTrim := s.PitchTrim
+	headingTrim := s.HeadingTrim
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
 		if thrust == 0 || mass == 0 {
@@ -660,6 +669,9 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 		}
 		if pitchTrim != 0 {
 			dir = ApplyPitchTrim(dir, r, spinAxis, pitchTrim)
+		}
+		if headingTrim != 0 {
+			dir = ApplyHeadingTrim(dir, r, spinAxis, headingTrim)
 		}
 		if dir.Norm() == 0 {
 			return gravity

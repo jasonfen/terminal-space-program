@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
@@ -465,6 +467,98 @@ func TestQuestionMarkOpensHelpPitchTrimResetOnPipe(t *testing.T) {
 	}
 	if c.PitchTrim != 0 {
 		t.Errorf("`|` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
+	}
+}
+
+// TestHeadingTrimKeysNudgeTowardCorrectCompassDirection pins ADR 0049
+// decision 9's `{` -> north / `}` -> south direction against the exact
+// literal absolute-heading readout the pad's `heading:` row shows:
+// from due east (090°, HeadingTrim==0), `{` reads "085°" and `}` reads
+// "095°". This is the sign the item4-B1-heading-physics.md impl notes
+// flagged as invisible to an inclination-only test (000°/180° both
+// read i=90° regardless of which one a sign bug points at): the risk
+// lives one layer up from that physics, in which case body app.go's
+// HeadingTrimNorth/HeadingTrimSouth switch on. offsetRad IS the
+// bearing shift away from due east (ApplyHeadingTrim's own doc
+// comment), so toward-north means DECREASING HeadingTrim and
+// toward-south means INCREASING it.
+//
+// Sabotage-checked: swapping the two case bodies (HeadingTrimNorth
+// doing += and HeadingTrimSouth doing -=) was applied by hand and
+// this test went red, both literals came out swapped ("095°" for `{`,
+// "085°" for `}`), confirming the test isn't vacuous to that bug.
+// Reverted before committing.
+func TestHeadingTrimKeysNudgeTowardCorrectCompassDirection(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c, err := a.world.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if a.world.ActiveCraft() != c {
+		t.Fatal("setup: SpawnCraft should have made the new vessel active")
+	}
+	if c.HeadingTrim != 0 {
+		t.Fatalf("setup: fresh vessel should start at zero heading trim, got %v", c.HeadingTrim)
+	}
+
+	headingLabel := func() string {
+		deg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+		return readout.Heading(deg)
+	}
+
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'{'}})
+	if c.HeadingTrim >= 0 {
+		t.Errorf("after `{`: HeadingTrim = %v, want negative (nudged toward north)", c.HeadingTrim)
+	}
+	if got := headingLabel(); got != "085°" {
+		t.Errorf("after `{`: heading readout = %q, want %q", got, "085°")
+	}
+
+	// `|` resets both trims (ADR 0049 decision 9 widened it), back to
+	// due east before the south-ward tap.
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'|'}})
+	if c.HeadingTrim != 0 {
+		t.Fatalf("`|` did not reset heading trim (HeadingTrim=%v)", c.HeadingTrim)
+	}
+
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'}'}})
+	if c.HeadingTrim <= 0 {
+		t.Errorf("after `}`: HeadingTrim = %v, want positive (nudged toward south)", c.HeadingTrim)
+	}
+	if got := headingLabel(); got != "095°" {
+		t.Errorf("after `}`: heading readout = %q, want %q", got, "095°")
+	}
+}
+
+// TestPitchTrimResetAlsoResetsHeadingTrim locks ADR 0049 decision 9's
+// widening of the existing `|` binding: it must zero HeadingTrim
+// alongside PitchTrim, not just the one it always reset.
+func TestPitchTrimResetAlsoResetsHeadingTrim(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := a.world.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.PitchTrim = 0.2
+	c.HeadingTrim = 0.3
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'|'}})
+	if c.PitchTrim != 0 {
+		t.Errorf("`|` did not reset pitch trim (PitchTrim=%v)", c.PitchTrim)
+	}
+	if c.HeadingTrim != 0 {
+		t.Errorf("`|` did not reset heading trim (HeadingTrim=%v)", c.HeadingTrim)
 	}
 }
 
