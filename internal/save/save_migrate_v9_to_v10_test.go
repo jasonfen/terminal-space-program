@@ -65,14 +65,15 @@ func TestMigrateV9PayloadToV10IsIdentity(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionBumpedToV10 pins the version number itself (#294
-// review finding 6) — a regression here means someone widened
-// Target.Kind's vocabulary again (or otherwise changed persisted shape)
-// without bumping, defeating the whole point of the migration file
-// alongside it.
+// TestSchemaVersionBumpedToV10 pinned SchemaVersion == 10 at the time of
+// the #294 finding-6 bump. ADR 0049 decision 8 (#453) has since bumped
+// again to v11 (Craft.HeadingTrim; see save_migrate_v10_to_v11.go and
+// TestSchemaVersionBumpedToV11), so this pin now asserts "at least 10" —
+// still true, and it keeps the finding-6 history readable without
+// re-litigating whether that bump happened.
 func TestSchemaVersionBumpedToV10(t *testing.T) {
-	if SchemaVersion != 10 {
-		t.Errorf("SchemaVersion = %d, want 10", SchemaVersion)
+	if SchemaVersion < 10 {
+		t.Errorf("SchemaVersion = %d, want >= 10", SchemaVersion)
 	}
 }
 

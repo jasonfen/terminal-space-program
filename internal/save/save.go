@@ -65,7 +65,16 @@ import (
 // wire shape itself needs no migration — TargetGhost has round-tripped
 // working bytes since the fix landed); the version bump's only job is to
 // make an old binary refuse a v10 envelope instead.
-const SchemaVersion = 10
+// ADR 0049 decision 8 (#453) bumps to v11 — Craft gains HeadingTrim, the
+// player-commanded launch heading PitchTrim previously had no way to
+// express (pitch trim only ever rotated about local north, so every
+// ascent was pinned due east). HeadingTrim stores a signed offset from
+// due east (zero = no trim, PitchTrim's own shape), so the due-east
+// default is Go's zero value and migrateV10PayloadToV11 is an identity
+// pass — an old save's ascent behaviour is unchanged on load with no
+// field transform needed, the same shape migrateV9PayloadToV10 used for
+// the prior bump.
+const SchemaVersion = 11
 
 // File is the on-disk envelope.
 //
@@ -218,6 +227,16 @@ type Craft struct {
 	// omitempty so legacy saves with no trim load with PitchTrim=0
 	// (= no trim, the v0.9.2-pre behaviour).
 	PitchTrim float64 `json:"pitch_trim,omitempty"`
+
+	// HeadingTrim (v0.42+, schema v10 -> v11, ADR 0049 decision 8):
+	// signed heading offset in radians from due east (PitchTrim's own
+	// "zero means no trim" shape, not an absolute bearing — see
+	// spacecraft.Spacecraft.HeadingTrim's doc comment). omitempty so
+	// legacy saves (and any pre-v11 save, which carries no such key
+	// at all) load with HeadingTrim=0, which under this shape already
+	// IS the ADR's due-east default — no migration transform needed,
+	// same precedent as PitchTrim's own omitempty comment above.
+	HeadingTrim float64 `json:"heading_trim,omitempty"`
 
 	// CurrentAttitudeDir (v0.10.0+, schema v6 additive): the craft's
 	// physical nose unit vector. Slew makes attitude load-bearing —
@@ -622,6 +641,14 @@ func Load(path string) (*sim.World, error) {
 	// rule of bumping + migrating whenever persisted state shape changes.
 	if f.Version < 10 {
 		migrateV9PayloadToV10(&f.Payload)
+	}
+	// schema v11 (ADR 0049 decision 8, #453): Craft gains HeadingTrim, a
+	// signed offset from due east. Pre-v11 saves have no such key, which
+	// decodes to the same zero (= due east, no trim) the offset shape
+	// already defaults to, so this is an identity pass — see
+	// migrateV10PayloadToV11's package comment.
+	if f.Version < 11 {
+		migrateV10PayloadToV11(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }

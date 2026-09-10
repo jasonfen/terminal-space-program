@@ -15,14 +15,17 @@ import (
 // survive a save/load round-trip so a reloaded save's node still carries
 // what RendezvousCommitWithPlan needs to commit to its arrival directly.
 // Additive zero-value-omitempty, same precedent as AdvisoryKey
-// (TestRoundtripAdvisoryKey) and BurnDirUnit: no schema bump — an
-// ordinary node with none of these set round-trips as the zero value,
-// and save.SchemaVersion is asserted unchanged from the value this test
-// was written against (10) so a bump elsewhere doesn't silently make
-// this test's own claim stale.
+// (TestRoundtripAdvisoryKey) and BurnDirUnit: no schema bump for THIS
+// feature — an ordinary node with none of these set round-trips as the
+// zero value, and save.SchemaVersion is asserted unchanged from the
+// value this test was written against so a bump elsewhere doesn't
+// silently make this test's own claim stale. Updated 10 -> 11: ADR 0049
+// decision 8 (#453) bumped SchemaVersion for an unrelated reason
+// (Craft.HeadingTrim), confirmed here to still hold no bump was needed
+// for the meeting-burn fields themselves.
 func TestRoundtripMeetingBurnFields(t *testing.T) {
-	if save.SchemaVersion != 10 {
-		t.Fatalf("save.SchemaVersion = %d, want 10 — ADR 0045 S7 (#400) claims no schema bump was needed; if one landed since, update this pin and confirm the claim still holds", save.SchemaVersion)
+	if save.SchemaVersion != 11 {
+		t.Fatalf("save.SchemaVersion = %d, want 11 — ADR 0045 S7 (#400) claims no schema bump was needed for meeting-burn fields; if one landed since for THAT reason, update this pin and confirm the claim still holds", save.SchemaVersion)
 	}
 
 	w, err := sim.NewWorld()
