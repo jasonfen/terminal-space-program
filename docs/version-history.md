@@ -2,6 +2,18 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.43.0
+
+You can aim a launch now. `{` and `}` swing the commanded heading five degrees at a time, on the pad or on the way up, and the pad tells you the inclination that heading actually reaches instead of claiming your latitude is locked (ADR 0049 decisions 8-11; closes #453; PR `#459`; tag `v0.43.0`; save schema 10 to 11).
+
+- Every ascent used to come out due east, so every orbit ended at `i = |latitude|`. Pitch trim only rotates about local north, so there was no way to aim, and the SURFACE chip said `launch lat: 28.6° (locked)`. That was honest about a limitation rather than stating a fact: latitude is a floor, not a value.
+- **The commanded heading is an absolute bearing.** `heading: 120°` means steer to 120 and hold there. The nose slews at the usual 15 degrees per second and thrust follows the attitude, so nothing snaps and the orbit bends only as the engine pushes it. `|` reset pitch trim before and now resets both.
+- **The pad shows two rows and `(locked)` is gone**: `heading: 090°` and `incl: 28.61° (min 28.61°)`, the inclination that heading yields from this pad, with your latitude as the floor. Aim west and it reads `incl: 151.4°`, a genuine retrograde orbit. An equatorial pad reads `(min 0.00°)`. Nothing is ever locked.
+- **Warping on the pad finally changes something you can see.** With a target set, a `Δincl:` row shows the plane angle an ascent lit right now would leave to the target's plane, ticking as you warp. Find the window by warping and watching it fall. A `window: T-Nh` solver that does the search for you is filed as a follow-up.
+- Once you are flying, `heading:` moves up beside `trim:` and `incl:` goes back to your live orbital element, so you watch the real number climb toward the one the pad predicted.
+- Fixed along the way: the TARGET chip's `Δincl` row was heading-blind while landed and always read due east.
+- Two errors in the ADR itself were caught in review. Its stated trim ordering made heading a complete no-op on the pad, since rotating a vertical vector about vertical does nothing, and every existing test missed it by sitting on the same side of that boundary. Its retrograde example paired a due-south heading with a westward inclination.
+
 ### v0.42.0
 
 Every number on the flight surfaces now speaks one dialect. Durations, distances, masses, countdowns and labels all route through a single formatter instead of the nine that had drifted apart (ADR 0049 decisions 1-7 and 12; the readout half of #453; PR `#458`; tag `v0.42.0`).
