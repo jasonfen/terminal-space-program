@@ -949,11 +949,12 @@ Park, Grounded.
 The player's control over which way an ascent goes. A commanded launch
 heading, default 090° (due east), nudged ±5° per tap with `{` / `}` on
 the pad or mid-ascent, the same idiom as pitch trim; `|` resets both
-trims. Persisted on the Vessel. Thrust is rotated about local up to the
-commanded heading before pitch trim tilts it, so pitch always tilts in
-the heading's vertical plane. Heading away from east harvests less of
-the surface co-rotation velocity, which is the only Δv cost. Shown on
-the SURFACE chip as `heading: 090°`.
+trims. Persisted on the Vessel. Pitch trim tilts thrust first, then
+thrust is rotated about local up onto the commanded heading, so pitch
+always tilts in the heading's vertical plane; the reverse order is a
+no-op on any vertical-start hold, including the pad's default. Heading
+away from east harvests less of the surface co-rotation velocity, which
+is the only Δv cost. Shown on the SURFACE chip as `heading: 090°`.
 _Avoid_: Yaw trim (yaw is the camera control in the tilted view),
 launch azimuth (as a player-facing label; the row says `heading:`),
 Locked.
