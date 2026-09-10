@@ -16,6 +16,10 @@ import (
 //     surface velocity) returns the zero vector; the caller
 //     interprets that as "no defined direction" — the burn is a
 //     no-op until the craft is moving relative to the ground.
+//   - HeadingTrim (v0.42+) — the player-commanded launch azimuth,
+//     applied first as a rotation about local up so a non-default
+//     heading redirects which vertical plane the mode's natural
+//     direction (and PitchTrim below) lands in.
 //   - PitchTrim (v0.9.2+) — a player-set ± rotation about the
 //     local-north axis applied on top of the mode's natural
 //     direction, for ascent gravity-turn manual flight.
@@ -70,6 +74,16 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 	default:
 		dir = DirectionUnit(mode, s.State.R, s.State.V)
 	}
+	// Heading before pitch (ADR 0049 decision 8/9): heading rotates the
+	// horizontal component of dir about local up onto the commanded
+	// heading first, so pitch trim's rotation about local north then
+	// tilts within THAT heading's vertical plane rather than always
+	// within the due-east one. Swapping this order silently pins every
+	// ascent back to due-east steering regardless of the commanded
+	// heading — a later refactor must preserve it.
+	if s.HeadingTrim != 0 {
+		dir = ApplyHeadingTrim(dir, s.State.R, spinAxis, s.HeadingTrim)
+	}
 	if s.PitchTrim != 0 {
 		dir = ApplyPitchTrim(dir, s.State.R, spinAxis, s.PitchTrim)
 	}
@@ -107,10 +121,10 @@ func (s *Spacecraft) BurnDirectionForBurn(mode BurnMode, rT, vT orbital.Vec3, pl
 	return s.BurnDirectionPlaneAware(mode, rT, vT, planeRad)
 }
 
-// ApplyPitchTrim rotates dir about the local-north axis at position
-// r by pitchRad (radians, positive = east). Used by BurnDirection to
-// fold the player's pitch-trim setting into any burn mode's natural
-// direction. Public so tests can exercise the rotation math directly.
+// localHorizonFrame builds the (east, up, north) local frame at
+// position r on a body spinning about spinAxis. Shared by
+// ApplyPitchTrim and ApplyHeadingTrim so the two trims always agree on
+// which way is east.
 //
 // Frame:
 //
@@ -118,26 +132,20 @@ func (s *Spacecraft) BurnDirectionForBurn(mode BurnMode, rT, vT orbital.Vec3, pl
 //	east  = unit(spinAxis × up)         (local east on the body)
 //	north = up × east                   (right-handed local frame)
 //
-// Rotation about north tilts the thrust vector east (+pitch) or west
-// (-pitch) without changing the heading component. At the poles
-// (where east is undefined) the rotation is a no-op.
+// ok is false at r == 0 (no defined position) or at a pole (where
+// spinAxis × up vanishes and east is undefined) — callers no-op the
+// trim in that case rather than divide by zero.
 //
 // spinAxis is the body's true spin axis in world coordinates (tilted
 // per AxialTilt + AxialAzimuth, matching render.BodyRotationAxisWorld).
 // Pass orbital.Vec3{Z: 1} for an un-tilted body to get the legacy
 // pre-v0.9.4 behaviour.
-//
-// v0.9.2+. v0.9.4+: spin-axis param so the trim's east axis matches
-// the launchpad spawn frame on tilted bodies (Earth: 23.5°).
-func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec3 {
-	if pitchRad == 0 {
-		return dir
-	}
+func localHorizonFrame(r, spinAxis orbital.Vec3) (east, up, north orbital.Vec3, ok bool) {
 	rN := r.Norm()
 	if rN == 0 {
-		return dir
+		return orbital.Vec3{}, orbital.Vec3{}, orbital.Vec3{}, false
 	}
-	up := r.Scale(1 / rN)
+	up = r.Scale(1 / rN)
 	// east = spinAxis × up, normalised. Falls back to the Z-aligned
 	// approximation if the caller passed a zero spin axis (e.g. a
 	// body with no rotation period).
@@ -145,16 +153,40 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 	if axis.Norm() == 0 {
 		axis = orbital.Vec3{Z: 1}
 	}
-	east := axis.Cross(up)
+	east = axis.Cross(up)
 	eN := east.Norm()
 	if eN == 0 {
-		// Pole — no defined east. Return dir unchanged so the trim
-		// silently no-ops at high latitudes; the player won't be
-		// trimming a launch from the pole anyway.
-		return dir
+		// Pole — no defined east.
+		return orbital.Vec3{}, orbital.Vec3{}, orbital.Vec3{}, false
 	}
 	east = east.Scale(1 / eN)
-	north := up.Cross(east)
+	north = up.Cross(east)
+	return east, up, north, true
+}
+
+// ApplyPitchTrim rotates dir about the local-north axis at position
+// r by pitchRad (radians, positive = east). Used by BurnDirection to
+// fold the player's pitch-trim setting into any burn mode's natural
+// direction. Public so tests can exercise the rotation math directly.
+//
+// Rotation about north tilts the thrust vector east (+pitch) or west
+// (-pitch) without changing the heading component. At the poles
+// (where east is undefined) the rotation is a no-op — see
+// localHorizonFrame.
+//
+// v0.9.2+. v0.9.4+: spin-axis param so the trim's east axis matches
+// the launchpad spawn frame on tilted bodies (Earth: 23.5°).
+func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec3 {
+	if pitchRad == 0 {
+		return dir
+	}
+	east, up, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		// No defined east (zero position, or a pole): the trim
+		// silently no-ops rather than divide by zero. The player
+		// won't be trimming a launch from the pole anyway.
+		return dir
+	}
 
 	// Decompose dir into the (east, up, north) local frame.
 	e := dir.X*east.X + dir.Y*east.Y + dir.Z*east.Z
@@ -170,6 +202,55 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 	return east.Scale(eNew).Add(up.Scale(uNew)).Add(north.Scale(n))
 }
 
+// ApplyHeadingTrim rotates dir about the local-up axis at position r
+// by headingOffsetRad (radians, the commanded heading's offset from
+// due east — positive offsets rotate toward south/west, negative
+// toward north; see the derivation below). Sibling of ApplyPitchTrim:
+// where pitch tilts a direction's vertical component, heading swings
+// its horizontal component around to a different compass bearing
+// without touching the up component. Public so tests can exercise the
+// rotation math directly.
+//
+// Bearing convention (matching the pad's compass display): 000° =
+// north, 090° = east, 180° = south, 270° = west, measured clockwise
+// looking down on the body from above its spin axis. A direction at
+// bearing β decomposes in the (east, north) plane as
+// sinβ·east + cosβ·north. Starting from due east (β=090°, offset 0)
+// and rotating by -offsetRad in the (east, north) plane lands exactly
+// on sin(090°+offsetRad)·east + cos(090°+offsetRad)·north, i.e. on
+// the bearing 090°+offsetRad — so offsetRad IS the desired bearing
+// shift away from due east.
+//
+// At the poles (where east/north are undefined) the rotation is a
+// no-op, the same guard ApplyPitchTrim uses via localHorizonFrame.
+//
+// v0.42+ (ADR 0049 decision 8, #453).
+func ApplyHeadingTrim(dir, r, spinAxis orbital.Vec3, headingOffsetRad float64) orbital.Vec3 {
+	if headingOffsetRad == 0 {
+		return dir
+	}
+	east, up, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		return dir
+	}
+
+	// Decompose dir into the (east, up, north) local frame.
+	e := dir.X*east.X + dir.Y*east.Y + dir.Z*east.Z
+	u := dir.X*up.X + dir.Y*up.Y + dir.Z*up.Z
+	n := dir.X*north.X + dir.Y*north.Y + dir.Z*north.Z
+
+	// Rotate (e, n) about the up axis by -headingOffsetRad (see the
+	// doc comment for the sign derivation): the horizontal component
+	// swings onto the commanded bearing while the up component is
+	// left untouched.
+	theta := -headingOffsetRad
+	cosA, sinA := math.Cos(theta), math.Sin(theta)
+	eNew := e*cosA - n*sinA
+	nNew := e*sinA + n*cosA
+
+	return east.Scale(eNew).Add(up.Scale(u)).Add(north.Scale(nNew))
+}
+
 // PitchTrimStepRad is the per-keypress pitch trim adjustment in
 // radians. v0.16: 5° (= π/36) — finer control for the gravity turn.
 // History: v0.9.2 shipped at 5°, v0.9.2.1 bumped to 10° because a
@@ -178,3 +259,19 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 // Lumen vehicles steer better with finer granularity, and held `>`
 // ramps continuously at the terminal key-repeat rate for big pitch-overs).
 const PitchTrimStepRad = math.Pi / 36
+
+// HeadingTrimDueEastRad is the absolute compass bearing (000°=north,
+// 090°=east, 180°=south, 270°=west) that a zero Spacecraft.HeadingTrim
+// offset resolves to: due east. It is NOT the field's default value —
+// HeadingTrim stores a signed offset from this bearing (zero = no
+// trim, PitchTrim's own shape), so a fresh vessel needs no explicit
+// initialisation. This constant exists for code that needs the
+// resulting absolute bearing, i.e. HeadingTrimDueEastRad +
+// Spacecraft.HeadingTrim (ADR 0049 decision 8).
+const HeadingTrimDueEastRad = math.Pi / 2
+
+// HeadingTrimStepRad is the per-keypress heading trim adjustment in
+// radians, 5° (= π/36) — the same step size and idiom as
+// PitchTrimStepRad (ADR 0049 decision 8/9: "`{` / `}` nudge the
+// commanded heading ±5°... with the pitch-trim idiom").
+const HeadingTrimStepRad = math.Pi / 36

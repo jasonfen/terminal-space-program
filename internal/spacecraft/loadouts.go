@@ -402,6 +402,8 @@ func NewFromLoadoutValue(l Loadout) *Spacecraft {
 		Stages:               stages,
 		DecouplePlan:         plan,
 		SlewRateDegPerSec:    l.SlewRateDegPerSec,
+		// HeadingTrim intentionally omitted: its zero value already is
+		// the ADR 0049 due-east default (see the field's doc comment).
 	}
 	EnsureCommandSource(c)
 	c.SyncFields()
@@ -573,6 +575,8 @@ func NewFromStages(stages []Stage) *Spacecraft {
 		Throttle:             1.0,
 		BallisticCoefficient: DefaultBallisticCoefficient,
 		Stages:               cp,
+		// HeadingTrim intentionally omitted: its zero value already is
+		// the ADR 0049 due-east default (see the field's doc comment).
 	}
 	EnsureCommandSource(c)
 	c.SyncFields()

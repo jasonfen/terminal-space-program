@@ -288,6 +288,28 @@ type Spacecraft struct {
 	// the player's trim setting.
 	PitchTrim float64
 
+	// HeadingTrim (v0.42+, ADR 0049 decision 8, #453) is a signed
+	// heading offset in radians from due east, the same "offset
+	// from natural, zero means no trim" shape as PitchTrim above
+	// (not an absolute compass bearing) — so the zero value every
+	// &Spacecraft{} literal already gets for free is exactly the
+	// due-east default the ADR specifies, with no per-constructor
+	// initialisation required. The player-facing commanded heading
+	// (000°=north, 090°=east, 180°=south, 270°=west) is
+	// HeadingTrimDueEastRad + HeadingTrim; see ApplyHeadingTrim.
+	// Every ascent used to be pinned due east because PitchTrim only
+	// ever rotated about local north, so the reachable inclination
+	// floor (|launch latitude|) was the only orbit a player could
+	// reach. Nudged +/-5 degrees via the heading-trim keys (the
+	// PitchTrim idiom), applied to BurnDirection BEFORE PitchTrim so
+	// pitch tilts within the commanded heading's vertical plane
+	// rather than always the due-east one. Persists in saves (schema
+	// v10 to v11; pre-v11 saves have no such key at all, and decode
+	// to the same due-east-default zero value migrateV10PayloadToV11
+	// writes explicitly) so a paused-mid-ascent session restores the
+	// player's heading.
+	HeadingTrim float64
+
 	// Stages (v0.9.1+) is the source of truth for dry mass /
 	// propellant / engine numbers. Stages[0] is the BOTTOM stage
 	// (the currently-firing engine + the next to be jettisoned by
