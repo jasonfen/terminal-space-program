@@ -1463,44 +1463,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	// entirely, nothing on the pad is ever locked.
 	var inclBlockRows []string
 	if c.Landed {
-		spinAxisR := render.BodyRotationAxisWorld(c.Primary)
-		spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
-		padInclLabel := "—"
-		if deg, ok := spacecraft.HeadingInclinationDeg(c.State.R, spinAxis, c.HeadingTrim); ok {
-			padInclLabel = readout.Angle(deg)
-		}
-		// Inclination Floor = |current surface latitude|, not the spawn
-		// latitude (item4-B review finding 6): SurfaceLatLon prefers
-		// LandedLatDeg over LaunchLatDeg once the craft has soft-landed
-		// somewhere other than where it launched, so a vessel sitting at
-		// 5°N after flying from a 28.6° pad reads a 5° floor, not a
-		// stale 28.6° one above its own incl: value.
-		floorLat, _ := c.SurfaceLatLon()
-		floorLabel := readout.Angle(math.Abs(floorLat))
-		inclBlockRows = []string{
-			chipRowAt("heading:", headingLabel, launchChipValueCol),
-			chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
-		}
-		// Δincl (decision 11): only while a body target is set, a
-		// craft target's Δincl isn't offered here either (buildTargetChip
-		// itself only computes it for sim.TargetBody), and the plane
-		// angle a pad launch would leave is only meaningful against
-		// another body's fixed orbital plane.
-		if w.Target.Kind == sim.TargetBody {
-			sysT := w.System()
-			if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) {
-				b := sysT.Bodies[w.Target.BodyIdx]
-				nCraft := craftOrbitNormalForRelativeIncl(c)
-				nTarget := orbital.OrbitNormalWorld(b)
-				if di, ok := relativePlaneAngleDeg(nCraft, nTarget); ok {
-					diLabel := readout.Angle(di)
-					if di > 30 {
-						diLabel = v.theme.Warning.Render(diLabel)
-					}
-					inclBlockRows = append(inclBlockRows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
-				}
-			}
-		}
+		inclBlockRows = v.landedInclHeadingRows(w, c)
 	} else {
 		inclLabel := "—"
 		if !math.IsNaN(el.I) && !math.IsInf(el.I, 0) {
@@ -1589,10 +1552,70 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	return lines
 }
 
+// landedInclHeadingRows builds the heading:/incl:/Δincl: block for a
+// Landed craft (ADR 0050 decision 9, ex-decisions-9-11's inclBlockRows).
+// Shared by buildLaunchChip's SURFACE chip (atmospheric pads, the
+// original home of this block) and buildDescentChip's DESCENT chip while
+// Landed (airless pads, #454): shouldShowLaunchHUD returns false the
+// moment Primary.Atmosphere == nil, so an airless pad (Luna, Glyph, any
+// of the 45 bodies with no atmosphere) got buildDescentChip instead and
+// no heading/inclination readout at all, however long the player warped.
+// This function moves the existing rows onto that second surface; it
+// changes no number and does not decide whether the LAUNCH HUD itself
+// should ever appear on the Moon (a separate question #454's own body
+// says this isn't the place to answer).
+func (v *OrbitView) landedInclHeadingRows(w *sim.World, c *spacecraft.Spacecraft) []string {
+	headingAbsDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+	headingLabel := readout.Heading(headingAbsDeg)
+	spinAxisR := render.BodyRotationAxisWorld(c.Primary)
+	spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
+	padInclLabel := "—"
+	if deg, ok := spacecraft.HeadingInclinationDeg(c.State.R, spinAxis, c.HeadingTrim); ok {
+		padInclLabel = readout.Angle(deg)
+	}
+	// Inclination Floor = |current surface latitude|, not the spawn
+	// latitude (item4-B review finding 6): SurfaceLatLon prefers
+	// LandedLatDeg over LaunchLatDeg once the craft has soft-landed
+	// somewhere other than where it launched, so a vessel sitting at
+	// 5°N after flying from a 28.6° pad reads a 5° floor, not a
+	// stale 28.6° one above its own incl: value.
+	floorLat, _ := c.SurfaceLatLon()
+	floorLabel := readout.Angle(math.Abs(floorLat))
+	rows := []string{
+		chipRowAt("heading:", headingLabel, launchChipValueCol),
+		chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
+	}
+	// Δincl: only while a body target is set, a craft target's Δincl
+	// isn't offered here either (buildTargetChip itself only computes it
+	// for sim.TargetBody), and the plane angle a pad launch would leave
+	// is only meaningful against another body's fixed orbital plane.
+	if w.Target.Kind == sim.TargetBody {
+		sysT := w.System()
+		if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) {
+			b := sysT.Bodies[w.Target.BodyIdx]
+			nCraft := craftOrbitNormalForRelativeIncl(c)
+			nTarget := orbital.OrbitNormalWorld(b)
+			if di, ok := relativePlaneAngleDeg(nCraft, nTarget); ok {
+				diLabel := readout.Angle(di)
+				if di > 30 {
+					diLabel = v.theme.Warning.Render(diLabel)
+				}
+				rows = append(rows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
+			}
+		}
+	}
+	return rows
+}
+
 // buildDescentChip is the airless-body terminal-approach cluster
-// (altitude / vert / horiz / fpa / TWR / hold). Returns nil unless the
-// craft is in a powered descent. Mutually exclusive with the LAUNCH chip
-// via the same Atmosphere gate the originals used.
+// (altitude / vert / horiz / fpa / TWR / hold), plus, while Landed, the
+// same heading:/incl:/Δincl: block the atmospheric SURFACE chip shows
+// (ADR 0050 decision 9, #454): there was previously no pad readout at
+// all on an airless world (shouldShowLaunchHUD requires an atmosphere),
+// so a Luna pad showed none of this however long the player warped.
+// Otherwise returns nil unless the craft is in a powered descent.
+// Mutually exclusive with the LAUNCH chip via the same Atmosphere gate
+// the originals used.
 func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 	c := w.ActiveCraft()
 	if c == nil || !shouldShowDescentHUD(c) {
@@ -1634,7 +1657,7 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 		vHorizLabel = v.theme.Alert.Render(
 			fmt.Sprintf("%s (> %s = CRASH on contact)", readout.Speed(vHoriz), readout.Speed(sim.CrashVCritMps)))
 	}
-	return []string{
+	lines := []string{
 		v.theme.Primary.Render("DESCENT"),
 		fmt.Sprintf("  %s   %s", readout.LabelAltitude, altLabel),
 		fmt.Sprintf("  %s       %s", readout.LabelVert, readout.Speed(vVert)),
@@ -1643,6 +1666,10 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 		fmt.Sprintf("  %s        %s", readout.LabelTWR, twrLabel),
 		fmt.Sprintf("  %s       %s", readout.LabelHold, c.AttitudeMode.String()),
 	}
+	if c.Landed {
+		lines = append(lines, v.landedInclHeadingRows(w, c)...)
+	}
+	return lines
 }
 
 // buildLaunchHintChip tells the player the launch/surface view is worth

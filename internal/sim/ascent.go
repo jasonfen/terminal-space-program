@@ -14,16 +14,17 @@
 //     marked on it — see AscentQBand's doc comment for why "measured so
 //     far" rather than a forecast eventual peak.
 //
-// AscentCueFor gates all three behind climbing PLUS "not done with the
-// atmosphere for good" (#451) — the near-mirror of DescentCorridorFor's
-// falling-plus-no-impact-forecast gate — so the surface view can never
-// show the ascent cues and the descent corridor at once. Not an exact
-// mirror: the two halves stand down on different thresholds (ascent on
-// periapsis vs. the atmosphere cutoff, descent on "no ground contact
-// inside its forecast horizon"), so a low elliptical orbit can show the
-// ascent bundle for its whole climbing half while the descent corridor
-// only lights on the last stretch before periapsis. See
-// atmosphereClearedForGood's doc comment.
+// AscentCueFor gates all three behind climbing PLUS "not finished for
+// good" (#451 on an atmospheric primary, #454 on an airless one), the
+// near-mirror of DescentCorridorFor's falling-plus-no-impact-forecast
+// gate, so the surface view can never show the ascent cues and the
+// descent corridor at once. Not an exact mirror: the two halves stand
+// down on different thresholds (ascent on periapsis vs. the atmosphere
+// cutoff or the surface, descent on "no ground contact inside its
+// forecast horizon"), so a low elliptical orbit can show the ascent
+// bundle for its whole climbing half while the descent corridor only
+// lights on the last stretch before periapsis. See
+// ascentFinishedForGood's doc comment.
 package sim
 
 import (
@@ -167,58 +168,74 @@ type AscentQBand struct {
 	HasMaxQ bool
 }
 
-// atmosphereClearedForGood reports whether c's primary carries an
-// atmosphere AND c's current orbit has cleared it for good — no
-// atmosphere pass is ever coming again. False (never "cleared") for an
-// airless primary, since there's no atmosphere to clear in the first
-// place; that half of the ascent story is scoped out of this check
-// on purpose (#451 is about the atmosphere specifically — #454 tracks
-// the airless-body equivalent, which needs a different "done for
-// good" test: periapsis above the surface, not the atmosphere).
+// ascentFinishedForGood reports whether c's ascent has cleared, for
+// good, the hazard its primary actually carries: an atmosphere pass when
+// the primary has one, or the bare surface when it doesn't. Either way,
+// "cleared" means no repeat of the hazard is ever coming again from the
+// current orbit.
+//
+// Named atmosphereClearedForGood until #454's second half: that version
+// returned false unconditionally for an airless primary (Atmosphere ==
+// nil), since there is no atmosphere to clear, and by construction never
+// latched on the Moon or any other airless body: the ascent arc and
+// nose/prograde attitude stubs kept waking up on every single
+// periapsis-to-apoapsis half of a stable lunar orbit, forever, the exact
+// #451 bug this function itself was written to fix on Earth. The airless
+// equivalent of "an atmosphere pass is never coming again" is "periapsis
+// is above the surface", the same physical boundary PredictImpact
+// (descent.go) already tests when it asks whether a ballistic coast ever
+// reaches the ground, so the two cases now share one function with one
+// threshold: the atmosphere's cutoff altitude when there is an
+// atmosphere, the surface (0) when there isn't.
 //
 // Mirrors shouldShowLaunchHUD's own hyperbolic-vs-elliptical split
 // (orbit.go): a stable elliptical orbit's periapsis tells you whether
-// the atmosphere is coming back (periapsis inside it: yes, next orbit;
-// periapsis clear: never again), but a hyperbolic/degenerate state's
-// "periapsis" can describe a departure or approach far from the body,
-// where the honest signal is current altitude instead.
+// the hazard is coming back (periapsis inside the threshold: yes, next
+// orbit; periapsis clear: never again), but a hyperbolic/degenerate
+// state's "periapsis" can describe a departure or approach far from the
+// body, where the honest signal is current altitude instead.
 //
-// Backs both AscentQBandFor (#449) and AscentCueFor's own gate (#451):
-// the original ascent-cue design (issue #348 §3) keyed everything off
-// instantaneous climb rate, which is orbital-mechanics-blind — a
+// Backs both AscentQBandFor (#449, atmospheric bodies only, see its own
+// gate) and AscentCueFor's own gate (#451 on Earth, #454 airless): the
+// original ascent-cue design (issue #348 §3) keyed everything off
+// instantaneous climb rate, which is orbital-mechanics-blind, and a
 // stable orbit's surface-relative radial rate swings positive on every
-// periapsis→apoapsis half regardless of altitude, so without this
-// check the whole bundle (Q band AND the ascent arc / nose-prograde
-// stubs) would flicker back on once per orbit, forever, long after the
-// atmosphere could ever matter again.
-func atmosphereClearedForGood(c *spacecraft.Spacecraft) bool {
-	atm := c.Primary.Atmosphere
-	if atm == nil {
-		return false
-	}
+// periapsis→apoapsis half regardless of altitude, so without this check
+// the whole bundle (Q band AND the ascent arc / nose-prograde stubs)
+// would flicker back on once per orbit, forever, long after the hazard
+// could ever matter again.
+func ascentFinishedForGood(c *spacecraft.Spacecraft) bool {
 	mu := c.Primary.GravitationalParameter()
 	if mu <= 0 {
 		return false
+	}
+	// The altitude past which the hazard can never recur: the
+	// atmosphere's own cutoff when there is one, the bare surface
+	// otherwise (#454's airless branch).
+	clearAltM := 0.0
+	if atm := c.Primary.Atmosphere; atm != nil {
+		clearAltM = atm.CutoffAltitude
 	}
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	if el.E >= 1 || el.A <= 0 {
 		// Hyperbolic/degenerate: go by current altitude instead of
 		// periapsis (shouldShowLaunchHUD's exact reasoning).
-		return c.Altitude() >= atm.CutoffAltitude
+		return c.Altitude() >= clearAltM
 	}
 	periapsisAltM := el.Periapsis() - c.Primary.RadiusMeters()
-	return periapsisAltM >= atm.CutoffAltitude
+	return periapsisAltM >= clearAltM
 }
 
 // AscentQBandFor builds the Q-band instrument for a craft. ok is false
-// when the primary has no atmosphere at all (issue #348 §3's gate — "Q
-// band only on bodies WITH atmosphere"), or once atmosphereClearedForGood
-// (#449 fix).
+// when the primary has no atmosphere at all (issue #348 §3's gate, "Q
+// band only on bodies WITH atmosphere", so ascentFinishedForGood's
+// airless branch never actually gets reached from here), or once
+// ascentFinishedForGood (#449 fix).
 func AscentQBandFor(w *World, c *spacecraft.Spacecraft) (AscentQBand, bool) {
 	if w == nil || c == nil || c.Primary.Atmosphere == nil {
 		return AscentQBand{}, false
 	}
-	if atmosphereClearedForGood(c) {
+	if ascentFinishedForGood(c) {
 		return AscentQBand{}, false
 	}
 	atm := c.Primary.Atmosphere
@@ -258,17 +275,14 @@ type AscentCue struct {
 // within its horizon), and a periapsis-above-ground orbit never
 // produces one, so only this ascent half needed the #451 fix below.
 //
-// #451: raw climb rate is orbital-mechanics-blind the same way
-// AscentQBandFor's was (#449) — a stable orbit's radial rate swings
-// positive on every periapsis→apoapsis half regardless of altitude, so
-// climbRate alone would keep waking the whole bundle (arc, attitude
-// stubs, Q band) up once per orbit forever above the atmosphere.
-// atmosphereClearedForGood adds the same periapsis/altitude check
-// AscentQBandFor uses; it's a no-op for an airless primary (no
-// atmosphere to clear), so a stable lunar orbit still has this exact
-// symptom — tracked separately as #454, since it needs a different
-// "done for good" test (periapsis above the surface, not the
-// atmosphere) rather than growing this fix.
+// #451 (atmospheric) / #454 (airless): raw climb rate is orbital-
+// mechanics-blind the same way AscentQBandFor's was (#449), and a stable
+// orbit's radial rate swings positive on every periapsis→apoapsis half
+// regardless of altitude, so climbRate alone would keep waking the whole
+// bundle (arc, attitude stubs, Q band) up once per orbit forever, above
+// the atmosphere on Earth or above the bare surface on the Moon.
+// ascentFinishedForGood covers both: the atmosphere's cutoff altitude
+// when the primary has one, the surface (0) when it doesn't.
 func AscentCueFor(w *World, c *spacecraft.Spacecraft, horizon time.Duration) (AscentCue, bool) {
 	if c == nil || c.Landed || c.Crashed {
 		return AscentCue{}, false
@@ -288,7 +302,7 @@ func AscentCueFor(w *World, c *spacecraft.Spacecraft, horizon time.Duration) (As
 	if !(climbRate >= climbRateFloorMps) {
 		return AscentCue{}, false
 	}
-	if atmosphereClearedForGood(c) {
+	if ascentFinishedForGood(c) {
 		return AscentCue{}, false
 	}
 

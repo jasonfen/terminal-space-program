@@ -276,7 +276,8 @@ func TestAscentQBandForStandsDownOncePeriapsisClearsAtmosphere(t *testing.T) {
 	}
 	// End to end: the player-visible path is AscentCueFor -> HasQBand,
 	// not AscentQBandFor directly. #451 later gave AscentCueFor's own
-	// `ok` the same atmosphereClearedForGood check, so the whole bundle
+	// `ok` the same ascentFinishedForGood check (then named
+	// atmosphereClearedForGood), so the whole bundle
 	// now stands down here too — see
 	// TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere for that
 	// fix's own dedicated coverage. This just pins that AscentQBandFor's
@@ -352,7 +353,8 @@ func TestAscentQBandForHyperbolicDepartureStandsDownByAltitude(t *testing.T) {
 // share AscentQBandFor's exact bug — AscentCueFor's own gate was raw
 // climb rate, orbital-mechanics-blind, so a stable orbit fully above
 // the atmosphere still flickered the whole bundle back on once per
-// orbit. atmosphereClearedForGood now backs this gate too.
+// orbit. ascentFinishedForGood (then named atmosphereClearedForGood)
+// now backs this gate too.
 func TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere(t *testing.T) {
 	w, c := ascendTestCraft(t, "earth", 218_000, 50)
 	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
@@ -458,6 +460,72 @@ func TestAscentCueForGatingMatrix(t *testing.T) {
 	c.Landed = true
 	assertGates("landed", false, false)
 	c.Landed = false
+}
+
+// TestAscentCueForStandsDownOnceLunarPeriapsisClearsSurface (#454, second
+// half): the airless mirror of TestAscentCueForStandsDownOncePeriapsisClearsAtmosphere.
+// atmosphereClearedForGood returns false unconditionally for an airless
+// primary (Atmosphere == nil), by design: there's no atmosphere to
+// clear, so AscentCueFor's gate never latches for a vessel in a stable
+// lunar orbit, and the ascent arc/attitude stubs wake up on every single
+// periapsis-to-apoapsis half, forever, exactly like the pre-#451 bug this
+// mirrors on Earth. Samples BOTH halves of one full orbit: nu=+90°
+// (climbing, where the bug fires) and nu=-90° (falling, where the raw
+// climb-rate gate already stands down on its own, sabotage-proofing this
+// test against a "passes because it never left the falling half" trap.
+//
+// Sabotage proof: run against the unfixed atmosphereClearedForGood
+// (Atmosphere==nil short-circuit to false, no periapsis-above-surface
+// branch), the climbing-half assertion below (`ok == false`) fails with
+// the gate never latches on an airless primary. The falling-half
+// assertion passes even unfixed (climb rate alone already stands it
+// down there), which is exactly why sampling only one phase would have
+// let this regression through silently.
+func TestAscentCueForStandsDownOnceLunarPeriapsisClearsSurface(t *testing.T) {
+	w, c := ascendTestCraft(t, "moon", 210_000, 50)
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	mu := c.Primary.GravitationalParameter()
+	R := c.Primary.RadiusMeters()
+
+	orbitAt := func(rpAltM, raAltM, nu float64) {
+		rp := R + rpAltM
+		ra := R + raAltM
+		a := (rp + ra) / 2
+		e := (ra - rp) / (ra + rp)
+		p := a * (1 - e*e)
+		rMag := p / (1 + e*math.Cos(nu))
+		rHat := orbital.Vec3{X: math.Cos(nu), Y: math.Sin(nu)}
+		c.State.R = rHat.Scale(rMag)
+		h := math.Sqrt(mu * p)
+		vr := (mu / h) * e * math.Sin(nu)
+		vt := (mu / h) * (1 + e*math.Cos(nu))
+		thetaHat := orbital.Vec3{X: -math.Sin(nu), Y: math.Cos(nu)}
+		c.State.V = rHat.Scale(vr).Add(thetaHat.Scale(vt))
+	}
+
+	// Stable 210x226 km lunar orbit (the ADR's own worked example),
+	// periapsis and apoapsis both clear of the surface. Climbing half
+	// (nu=90°) first.
+	orbitAt(210_000, 226_000, math.Pi/2)
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	vRel := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	if climbRate := vRel.Dot(rHat); climbRate < climbRateFloorMps {
+		t.Fatalf("test setup: climb rate %.3f m/s at nu=90°, want above the %.1f m/s floor (this orbitAt call must land on the climbing half)", climbRate, climbRateFloorMps)
+	}
+	if periAltM := orbital.ElementsFromState(c.State.R, c.State.V, mu).Periapsis() - R; periAltM < 0 {
+		t.Fatalf("test setup: periapsis altitude %.0fm should be above the surface (0m)", periAltM)
+	}
+	if _, ok := AscentCueFor(w, c, AscentPredictHorizon); ok {
+		t.Errorf("stable lunar orbit, climbing half: AscentCueFor ok=true, want false (the arc/attitude stubs must not flicker back on every orbit around an airless body)")
+	}
+
+	// Falling half (nu=-90°) of the same orbit: already stands down via
+	// the raw climb-rate gate even unfixed, which is why sampling only
+	// the climbing half above would be a vacuous proof on its own.
+	orbitAt(210_000, 226_000, -math.Pi/2)
+	if _, ok := AscentCueFor(w, c, AscentPredictHorizon); ok {
+		t.Errorf("stable lunar orbit, falling half: AscentCueFor ok=true, want false")
+	}
 }
 
 // TestAscentCueForAirlessBodyHasCuesButNoQBand: the nose/prograde markers
