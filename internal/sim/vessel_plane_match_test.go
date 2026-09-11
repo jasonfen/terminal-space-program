@@ -220,25 +220,31 @@ func TestPlanVesselPlaneMatchRefusals(t *testing.T) {
 	})
 }
 
-// TestActiveLandedVesselAlreadyRefusesPlaneMatchIndependentOfPole is
+// TestActiveLandedVesselAtPoleRefusesPlaneMatchAndDrawsNoMarkers is
 // review r1 F3's follow-up check: does PlanVesselPlaneMatch, or the
 // map's ◇/◆ node markers (TargetPlaneNodePositions), consume the
 // ACTIVE vessel's own landed normal the same fragile way
 // spacecraft.HeadingOrbitNormal did (the bug F3 fixed on the pad's own
-// depart:/Δincl: rows)? Verified empirically, not assumed: no. Both
-// route the active craft's raw (Landed, co-rotation) state through
-// orbital.TimeToNodeCrossing before either function ever computes a
-// plane normal, and TimeToNodeCrossing already finds no node crossing
-// for that state: a probe run during this fix confirmed the identical
-// refusal for a craft landed exactly at the pole, one metre off it, and
-// at an ordinary 28.6° pad, so the refusal comes from the Landed
-// pseudo-orbit's degenerate elements (the #375 shape, periapsis metres
-// from the primary's centre), not from pole proximity. hHat's
-// unguarded .Unit() in PlanVesselPlaneMatch is therefore unreachable
-// for a Landed active craft: dt < 0 returns ErrInclinationNoOp first.
-// Pinned so a future change that starts letting a Landed active craft
-// reach that computation doesn't silently reopen this class of bug.
-func TestActiveLandedVesselAlreadyRefusesPlaneMatchIndependentOfPole(t *testing.T) {
+// depart:/Δincl: rows)? Measured (round 2 review, R2-F2, correcting an
+// earlier version of this comment that claimed a pole-independent
+// mechanism): no, but only at the pole, and not for the reason
+// previously stated here. PlanVesselPlaneMatch returns
+// ErrInclinationNoOp for a Landed active craft at all three latitudes
+// checked (pole, one metre off it, an ordinary 28.6° pad), that part
+// holds everywhere, but the ◇/◆ markers do NOT stay withheld off the
+// pole: TargetPlaneNodePositions draws them (AN/DN both true) one metre
+// off the pole and at 28.6°, so orbital.TimeToNodeCrossing does find a
+// crossing for the Landed pseudo-orbit away from the pole, contradicting
+// the "no node crossing" claim this comment used to make. The refusal
+// this test actually pins is the pole case only: at lat 90 the near-zero
+// angular momentum of the landed co-rotation pseudo-orbit degenerates
+// the crossing search itself, and separately (unmeasured here) whatever
+// PlanVesselPlaneMatch checks after the crossing search still refuses
+// at every latitude. Pinned so a future change that starts drawing
+// markers or planning a burn for a Landed active craft AT THE POLE
+// specifically doesn't silently reopen this class of bug; it says
+// nothing about the mechanism off the pole.
+func TestActiveLandedVesselAtPoleRefusesPlaneMatchAndDrawsNoMarkers(t *testing.T) {
 	poleWorld := func(t *testing.T) *World {
 		t.Helper()
 		w := mustWorld(t)

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -224,5 +227,71 @@ func TestLaunchChipShowsDeltaInclAgainstVesselTarget(t *testing.T) {
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "Δincl:") {
 		t.Fatalf("expected a 'Δincl:' row on the pad chip when targeting a same-primary vessel, got none:\n%s", joined)
+	}
+}
+
+// TestDeltaInclRowWarningColouredPastThreshold: round 2 review R2-F3.
+// deltaInclLabel (the shared helper behind the pad's Δincl row and the
+// TARGET chip's) colours the value Warning past 30 degrees, but every
+// existing Δincl test uses chipTestTheme's no-op styles or a value that
+// never crosses the threshold, so neutralising that colouring left every
+// Δincl test green. Mirrors TestDepartRowNeverWarningColoured's idiom
+// (plainThemeColored + the color profile forced to ANSI, since go
+// test's non-TTY stdout otherwise makes every Render a no-op regardless
+// of style) but asserts the opposite: unlike depart:, which the ADR
+// says never takes Warning, Δincl: is meant to warn past 30 degrees.
+// Uses the same KSC-active / Baikonur-latitude-landed-target fixture as
+// TestLaunchChipTagsDeltaInclDueEastForLandedVesselTarget, whose Δincl
+// value (~70.6 degrees) sits well past the threshold.
+func TestDeltaInclRowWarningColouredPastThreshold(t *testing.T) {
+	ambient := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI)
+	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
+
+	v := NewOrbitView(plainThemeColored())
+	v.Resize(200, 80)
+	w, ksc := spawnLandedOnEarthAt28p6(t)
+	if _, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        45.9645, // Baikonur's latitude.
+		LongitudeOffset: 63.3052,
+	}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	w.ActiveCraftIdx = 1 // back to the KSC pad craft.
+	if w.ActiveCraft() != ksc {
+		t.Fatalf("setup: expected the active craft to be the KSC pad craft")
+	}
+	w.SetTargetCraft(2) // the Baikonur-latitude landed target.
+	if w.Target.Kind != sim.TargetCraft {
+		t.Fatalf("setup: expected TargetCraft, got %v", w.Target.Kind)
+	}
+
+	lines := v.buildLaunchChip(w)
+	var diLine string
+	for _, l := range lines {
+		if strings.Contains(stripANSI(l), "Δincl:") {
+			diLine = l
+		}
+	}
+	if diLine == "" {
+		t.Fatalf("expected a Δincl: row; got:\n%s", strings.Join(lines, "\n"))
+	}
+	diRe := regexp.MustCompile(`Δincl:\s+([0-9]+\.[0-9]+)°`)
+	m := diRe.FindStringSubmatch(stripANSI(diLine))
+	if m == nil {
+		t.Fatalf("could not parse a Δincl value out of %q", diLine)
+	}
+	value, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("could not parse Δincl value %q: %v", m[1], err)
+	}
+	if value < 30 {
+		t.Fatalf("setup: expected a Δincl value past the 30 degree Warning threshold this test means to probe, got %.2f", value)
+	}
+	if diLine == stripANSI(diLine) {
+		t.Errorf("Δincl: row carries no colour codes despite a value (%.2f°) past the Warning threshold: %q", value, diLine)
 	}
 }

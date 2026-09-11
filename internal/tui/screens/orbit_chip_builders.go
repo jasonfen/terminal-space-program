@@ -1135,21 +1135,24 @@ func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
 // button already uses (navModeLabel) so the two never disagree on
 // screen.
 //
-// A mode that is itself frame-locked names its own frame, never the
-// current nav frame: Surface Prograde/Retrograde always tag SURF, and
-// every target-relative mode (Target/AntiTarget/Target Prograde/Target
-// Retrograde, whether held directly or produced by the remap above)
-// always tags TGT. Naming the nav frame instead for these would read
-// as a straight self-contradiction on screen ("Surface Prograde
-// (ORBIT)" claims two different frames for the same hold in one row).
-// Every frame-agnostic mode (Prograde, Retrograde, RadialOut/In,
-// NormalPlus/Minus, PlaneChange, Vector) has no frame of its own to
-// lose, so it keeps naming whichever frame the row is actually being
-// read against, including the NavTarget-without-a-relative-target
-// fallback to ORBIT above.
+// The tag names the frame of the HELD MODE, never the current NavMode
+// (round 2 review, R2-F1, correcting an earlier version of this
+// function that tagged frame-agnostic modes with whatever nav: showed).
+// No held BurnMode actually reads NavMode: internal/spacecraft never
+// consults it, and the nose direction is
+// BurnDirectionWithTarget(AttitudeMode, rT, vT) with no nav argument at
+// all (internal/sim/navball.go). So Surface Prograde/Retrograde always
+// tag SURF, every target-relative mode (Target/AntiTarget/Target
+// Prograde/Target Retrograde, whether held directly or produced by the
+// remap above) always tags TGT, and every other mode (Prograde,
+// Retrograde, RadialOut/In, NormalPlus/Minus, PlaneChange, Vector) is
+// orbit-frame by construction and always tags ORBIT, whatever NavMode
+// says. Tagging any of these with the current nav frame instead would
+// assert a frame the hold does not have: a held Prograde is orbit-frame
+// prograde under nav:SURFACE too (the nose does not move), and there is
+// no surface-frame equivalent of Normal+/- at all.
 func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
-	frame := w.NavMode
-	if frame == sim.NavTarget && w.HasRelativeTarget() {
+	if w.NavMode == sim.NavTarget && w.HasRelativeTarget() {
 		switch mode {
 		case spacecraft.BurnPrograde:
 			mode = spacecraft.BurnTargetPrograde
@@ -1160,9 +1163,8 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 		case spacecraft.BurnRadialIn:
 			mode = spacecraft.BurnAntiTarget
 		}
-	} else if frame == sim.NavTarget {
-		frame = sim.NavOrbit
 	}
+	frame := sim.NavOrbit
 	switch mode {
 	case spacecraft.BurnSurfacePrograde, spacecraft.BurnSurfaceRetrograde:
 		frame = sim.NavSurface
