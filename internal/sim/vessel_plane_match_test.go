@@ -178,6 +178,29 @@ func TestPlanVesselPlaneMatchRefusals(t *testing.T) {
 		}
 	})
 
+	t.Run("target landed at the pole (ADR 0050 decision 8)", func(t *testing.T) {
+		// The pre-decision-8 guard was an exact `nTarget.Norm() == 0`
+		// test, which a real pole never trips: floating-point residue in
+		// the lat/lon-to-Cartesian conversion leaves |rT x vT| ~= 3e-7,
+		// not exactly zero, at the shipped North Pole preset. Unguarded,
+		// PlanVesselPlaneMatch plants a burn out of that noise (the ADR
+		// measured 8127..13099 m/s across a day with no period) instead
+		// of refusing the way it already does for the exact-zero case
+		// above.
+		w := mustWorld(t)
+		if _, err := w.SpawnCraft(SpawnSpec{
+			Launchpad: true,
+			Latitude:  90,
+		}); err != nil {
+			t.Fatalf("SpawnCraft: %v", err)
+		}
+		w.ActiveCraftIdx = 0
+		w.SetTargetCraft(1)
+		if _, err := w.PlanVesselPlaneMatch(); !errors.Is(err, errPlaneMatchDegenerateTarget) {
+			t.Errorf("err = %v, want errPlaneMatchDegenerateTarget (a landed-at-the-pole target has no trustworthy plane)", err)
+		}
+	})
+
 	t.Run("degenerate target relative state", func(t *testing.T) {
 		w := mustWorld(t)
 		active := w.ActiveCraft()

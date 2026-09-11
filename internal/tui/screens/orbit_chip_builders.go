@@ -1585,23 +1585,41 @@ func (v *OrbitView) landedInclHeadingRows(w *sim.World, c *spacecraft.Spacecraft
 		chipRowAt("heading:", headingLabel, launchChipValueCol),
 		chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
 	}
-	// Δincl: only while a body target is set, a craft target's Δincl
-	// isn't offered here either (buildTargetChip itself only computes it
-	// for sim.TargetBody), and the plane angle a pad launch would leave
-	// is only meaningful against another body's fixed orbital plane.
-	if w.Target.Kind == sim.TargetBody {
+	// Δincl: against a body target (its fixed catalog orbital plane) or
+	// a vessel target (ADR 0050 decision 6, ungating the sim.TargetBody-
+	// only restriction ADR 0049 shipped: a vessel in a stable orbit has
+	// a perfectly good fixed plane too, and matching one from the pad is
+	// the canonical launch-window problem PlanVesselPlaneMatch, the `I`
+	// key, already solves). Vessel targets route through
+	// World.TargetPlaneNormal, which folds in the same-primary gate
+	// (decision 6's amendment: a lunar orbiter targeted from a KSC pad
+	// reads a fast-looking wobble that mixes its own lap with Luna's own
+	// motion round Earth; TargetSharesActivePrimary already refuses this
+	// case for `I` and the node markers) and the pole guard (decision
+	// 8).
+	var nTarget orbital.Vec3
+	haveTarget := false
+	switch w.Target.Kind {
+	case sim.TargetBody:
 		sysT := w.System()
 		if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) {
-			b := sysT.Bodies[w.Target.BodyIdx]
-			nCraft := craftOrbitNormalForRelativeIncl(c)
-			nTarget := orbital.OrbitNormalWorld(b)
-			if di, ok := relativePlaneAngleDeg(nCraft, nTarget); ok {
-				diLabel := readout.Angle(di)
-				if di > 30 {
-					diLabel = v.theme.Warning.Render(diLabel)
-				}
-				rows = append(rows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
+			nTarget = orbital.OrbitNormalWorld(sysT.Bodies[w.Target.BodyIdx])
+			haveTarget = true
+		}
+	case sim.TargetCraft, sim.TargetGhost:
+		if n, ok := w.TargetPlaneNormal(); ok {
+			nTarget = n
+			haveTarget = true
+		}
+	}
+	if haveTarget {
+		nCraft := craftOrbitNormalForRelativeIncl(c)
+		if di, ok := relativePlaneAngleDeg(nCraft, nTarget); ok {
+			diLabel := readout.Angle(di)
+			if di > 30 {
+				diLabel = v.theme.Warning.Render(diLabel)
 			}
+			rows = append(rows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
 		}
 	}
 	return rows
@@ -2231,6 +2249,27 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			tLat, tLon := tc.SurfaceLatLon()
 			lines = append(lines, chipRow("landed at:", readout.Angle(tLat)+", "+readout.Angle(tLon)))
 		}
+		// Δincl: against this vessel's plane (ADR 0050 decisions 6-8).
+		// TargetPlaneNormal folds in the same-primary gate (a vessel
+		// orbiting a different primary reads no figure at all rather
+		// than a fast-looking wobble, see its own doc comment) and the
+		// pole guard. A landed target's normal is its co-rotation r × v,
+		// which is exactly the due-east launch plane (decision 7), so
+		// the row says so; an orbiting target's normal is its live
+		// orbital-plane normal and carries no tag.
+		if nTarget, ok := w.TargetPlaneNormal(); ok {
+			nCraft := craftOrbitNormalForRelativeIncl(c)
+			if di, ok := relativePlaneAngleDeg(nCraft, nTarget); ok {
+				diLabel := readout.Angle(di)
+				if di > 30 {
+					diLabel = v.theme.Warning.Render(diLabel)
+				}
+				if !craftHasOrbit(tc) {
+					diLabel += " (due east)"
+				}
+				lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
+			}
+		}
 		var rRel, vRelVec orbital.Vec3
 		if tc.Primary.ID == c.Primary.ID {
 			rRel = tc.State.R.Sub(c.State.R)
@@ -2316,6 +2355,20 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 				gPeRow,
 				chipRow(readout.LabelIncl, readout.Angle(gEl.I*180/math.Pi)),
 			)
+		}
+		// Δincl: against this ghost's plane (ADR 0050 decisions 6, 8). A
+		// ghost is always evaluated as if it kept coasting (sim/ghost.go,
+		// "physics never sees it"), never Landed, so no "(due east)" tag
+		// applies here: decision 7 is TargetCraft-only.
+		if nTarget, ok := w.TargetPlaneNormal(); ok {
+			nCraft := craftOrbitNormalForRelativeIncl(c)
+			if di, ok := relativePlaneAngleDeg(nCraft, nTarget); ok {
+				diLabel := readout.Angle(di)
+				if di > 30 {
+					diLabel = v.theme.Warning.Render(diLabel)
+				}
+				lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
+			}
 		}
 		rT, vT, ok := w.TargetStateRelativeToActivePrimary()
 		if !ok {

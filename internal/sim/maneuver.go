@@ -1194,8 +1194,13 @@ func (w *World) PlanVesselPlaneMatch() (*planner.InclinationPlan, error) {
 	if !ok {
 		return nil, ErrRendezvousNoTarget
 	}
-	nTarget := rT.Cross(vT)
-	if nTarget.Norm() == 0 {
+	// ADR 0050 decision 8: targetPlaneNormalRelativeTo applies the
+	// shared pole guard (a relative threshold, not an exact Norm() == 0
+	// test) so a target landed at a pole refuses here the same way the
+	// chip withholds its Δincl row and TargetPlaneNodePositions draws no
+	// markers.
+	nTarget, ok := targetPlaneNormalRelativeTo(c.Primary, rT, vT)
+	if !ok {
 		return nil, errPlaneMatchDegenerateTarget
 	}
 	nTargetHat := nTarget.Unit()

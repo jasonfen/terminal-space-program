@@ -5,6 +5,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -610,6 +611,55 @@ func (w *World) TargetSharesActivePrimary() bool {
 	}
 }
 
+// targetPlaneNormalRelativeTo is the shared pole guard for a target's
+// orbital-plane normal (ADR 0050 decision 8): TargetPlaneNodePositions,
+// PlanVesselPlaneMatch and the TARGET/pad chips' Δincl rows (via
+// TargetPlaneNormal below) all derive a target's plane from rT × vT and
+// used to guard it with an exact `Norm() == 0` test, which a real pole
+// never trips: see orbital.PlaneNormalOK's doc comment for the
+// shipped North Pole preset's 3.2e-7 residue. primary is the active
+// craft's primary (rT, vT are already expressed relative to it by
+// TargetStateRelativeToActivePrimary), whose spin rate and radius set
+// the guard's scale.
+func targetPlaneNormalRelativeTo(primary bodies.CelestialBody, rT, vT orbital.Vec3) (orbital.Vec3, bool) {
+	n := rT.Cross(vT)
+	omegaR := render.BodySpinOmegaWorld(primary)
+	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
+	if !orbital.PlaneNormalOK(n, omega.Norm(), primary.RadiusMeters()) {
+		return orbital.Vec3{}, false
+	}
+	return n, true
+}
+
+// TargetPlaneNormal returns the active craft's bound target's pole-
+// guarded orbital-plane normal (ADR 0050 decisions 6-8): rT × vT in the
+// active primary's frame. Folds in the same-primary gate
+// (TargetSharesActivePrimary) so a vessel orbiting a different primary
+// reads no figure at all rather than the fast-looking wobble that mixes
+// its own lap with its primary's motion round the active primary (the
+// `I` key and the node markers already refuse this case), and the
+// pole guard, so the figure withholds at a pole the same way the
+// planner refuses and the node markers draw nothing.
+//
+// A landed target's relative state is its true co-rotation velocity
+// (ω × r, integrateLanded's actual physics, not a special case), so
+// the normal returned here IS the due-east launch plane for a landed
+// target (decision 7) and the live orbital-plane normal for an
+// orbiting one, with no branching needed between the two. ok is false
+// with no bound craft/ghost target, a target on a different primary, or
+// a pole-degenerate normal.
+func (w *World) TargetPlaneNormal() (orbital.Vec3, bool) {
+	c := w.ActiveCraft()
+	if c == nil || !w.TargetSharesActivePrimary() {
+		return orbital.Vec3{}, false
+	}
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		return orbital.Vec3{}, false
+	}
+	return targetPlaneNormalRelativeTo(c.Primary, rT, vT)
+}
+
 // TargetPlaneNodePositions locates the active craft's crossings of its
 // bound target's orbital plane — an Ascending / Descending Node pair
 // measured against the TARGET's plane, unlike orbital.TimeToNodeCrossing's
@@ -642,8 +692,12 @@ func (w *World) TargetPlaneNodePositions() (anPos, dnPos orbital.Vec3, hasAN, ha
 	if !ok {
 		return orbital.Vec3{}, orbital.Vec3{}, false, false
 	}
-	nTarget := rT.Cross(vT)
-	if nTarget.Norm() == 0 {
+	// ADR 0050 decision 8: shared pole guard (relative to the primary's
+	// own spin rate and radius), not an exact Norm() == 0 test: see
+	// targetPlaneNormalRelativeTo / orbital.PlaneNormalOK's doc comments.
+	var nTarget orbital.Vec3
+	nTarget, ok = targetPlaneNormalRelativeTo(c.Primary, rT, vT)
+	if !ok {
 		return orbital.Vec3{}, orbital.Vec3{}, false, false
 	}
 	mu := c.Primary.GravitationalParameter()

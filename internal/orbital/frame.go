@@ -43,6 +43,24 @@ func (a Vec3) Unit() Vec3 {
 	return a.Scale(1 / n)
 }
 
+// PlaneNormalOK reports whether n (an orbital-plane normal, r × v) is
+// far enough from a pole passage to trust as a plane direction, given
+// the primary it was computed against: its spin rate omega (rad/s) and
+// radius R (m). ADR 0050 decision 8: every guard on this quantity used
+// to be an exact `n.Norm() == 0` test, which a real pole never trips:
+// floating-point residue leaves a vessel at the shipped North Pole
+// preset with |n| ~= 3.2e-7, not zero, so an unguarded Δincl wandered
+// 63.20°..88.47° with no period and the planner planned 8127..13099
+// m/s out of that noise. The threshold scales with the primary's own
+// dynamics rather than testing against an absolute epsilon: it trips
+// within 6e-8 degrees of the pole (about 6mm on Earth) and does not
+// trip at 89.99999 degrees or a vessel one metre from the pole, which
+// keeps an honest, real, sweeping figure there.
+func PlaneNormalOK(n Vec3, omega, radiusMeters float64) bool {
+	threshold := 1e-9 * omega * radiusMeters * radiusMeters
+	return n.Norm() >= threshold
+}
+
 // Rotate rotates v about axis by theta radians (right-hand rule),
 // via Rodrigues' formula:
 //
