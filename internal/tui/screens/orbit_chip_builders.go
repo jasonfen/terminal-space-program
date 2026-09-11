@@ -1585,6 +1585,24 @@ func (v *OrbitView) landedInclHeadingRows(w *sim.World, c *spacecraft.Spacecraft
 		chipRowAt("heading:", headingLabel, launchChipValueCol),
 		chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
 	}
+	// depart: the angle between the plane this pad's commanded heading
+	// would reach and the plane the world beneath it travels in (ADR
+	// 0050 decisions 1-5), directly under incl:. Hidden where it can
+	// never move (decision 3): departRowHidden's eps is also
+	// departSwing's own input, so the two calls share one angle.
+	if refNormal, ok := departReferenceNormal(c.Primary); ok {
+		if eps, hidden := departRowHidden(spinAxis, refNormal); !hidden {
+			if padNormal, ok := spacecraft.HeadingOrbitNormal(c.State.R, spinAxis, c.HeadingTrim); ok {
+				deg, degOK := unfoldedPlaneAngleDeg(padNormal, refNormal)
+				i, iOK := unfoldedPlaneAngleDeg(padNormal, spinAxis)
+				if degOK && iOK {
+					_, _, best := departSwing(i, eps)
+					departLabel := readout.Angle(deg) + " (best " + readout.Angle(best) + ")"
+					rows = append(rows, chipRowAt(readout.LabelDepart, departLabel, launchChipValueCol))
+				}
+			}
+		}
+	}
 	// Δincl: against a body target (its fixed catalog orbital plane) or
 	// a vessel target (ADR 0050 decision 6, ungating the sim.TargetBody-
 	// only restriction ADR 0049 shipped: a vessel in a stable orbit has
@@ -1836,6 +1854,21 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
 	lines = append(lines, chipRow(readout.LabelPeriod, readout.Period(time.Duration(period*float64(time.Second)))))
 	lines = append(lines, chipRow(readout.LabelIncl, readout.Angle(el.I*180/math.Pi)))
+	// depart:, directly under incl: (ADR 0050 decisions 1-5). The live
+	// orbit's own plane is fixed under two-body coast, so unlike the
+	// pad's row this carries no (best N°): the lowest value reachable
+	// by waiting is the value already on screen (decision 4). Hidden
+	// where it can never move (decision 3), same predicate as the pad.
+	if refNormal, ok := departReferenceNormal(c.Primary); ok {
+		spinAxisR := render.BodyRotationAxisWorld(c.Primary)
+		spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
+		if _, hidden := departRowHidden(spinAxis, refNormal); !hidden {
+			nCraft := craftOrbitNormalForRelativeIncl(c)
+			if deg, ok := unfoldedPlaneAngleDeg(nCraft, refNormal); ok {
+				lines = append(lines, chipRow(readout.LabelDepart, readout.Angle(deg)))
+			}
+		}
+	}
 	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
 	// #426 (CONTEXT.md Chip entry): eccentricity, always-on, Full form only —
 	// the three eccentricity-graded challenge rungs (chal-high-orbit et al.)
@@ -2150,6 +2183,82 @@ func relativePlaneAngleDeg(nCraft, nTarget orbital.Vec3) (float64, bool) {
 	}
 	ang := math.Acos(cos) * 180 / math.Pi
 	return math.Min(ang, 180-ang), true
+}
+
+// unfoldedPlaneAngleDeg is the plane angle between two normals over
+// the full [0, 180] range, unlike relativePlaneAngleDeg's fold to
+// [0, 90]. ADR 0050 decision 1: the `depart:` row is an inclination
+// like `incl:`, not a coplanarity test, so a normal nearly antiparallel
+// to the reference reads close to 180°, not close to 0° (the ADR's own
+// exoplanet pads read 61°..118°, which relativePlaneAngleDeg could
+// never produce). ok is false when either normal is degenerate (zero
+// vector).
+func unfoldedPlaneAngleDeg(a, b orbital.Vec3) (float64, bool) {
+	if a.Norm() == 0 || b.Norm() == 0 {
+		return 0, false
+	}
+	cos := a.Dot(b) / (a.Norm() * b.Norm())
+	if cos > 1 {
+		cos = 1
+	} else if cos < -1 {
+		cos = -1
+	}
+	return math.Acos(cos) * 180 / math.Pi, true
+}
+
+// departReferenceNormal is ADR 0050 decision 2's reference plane for
+// the `depart:` row: the orbital-plane normal of the world the craft
+// is standing on or orbiting, i.e. primary's own orbit around ITS
+// primary (orbital.OrbitNormalWorld(primary)), in world/ecliptic axes.
+// Not the ecliptic itself: on a moon this is the moon's own orbit
+// around its planet, which is the plane a departure to that planet (or
+// beyond) actually wants. ok is false for a primary with no orbit (a
+// system star): decision 2 says the normal is zero, so no row.
+func departReferenceNormal(primary bodies.CelestialBody) (orbital.Vec3, bool) {
+	ref := orbital.OrbitNormalWorld(primary)
+	if ref.Norm() == 0 {
+		return orbital.Vec3{}, false
+	}
+	return ref, true
+}
+
+// departRowHidden reports whether the `depart:` row can ever move for
+// primary (ADR 0050 decision 3), and the angle eps that decides it: a
+// pad's launch-plane normal precesses about primary's own spin axis as
+// the pad rotates under warp, so if the reference normal sits on that
+// axis (or its antipode) the angle to it is fixed no matter the
+// heading or the hour. eps = unfoldedPlaneAngleDeg(spin axis,
+// reference normal); the row is hidden when eps folds (parallel or
+// antiparallel treated alike) to under 0.005 degrees. eps is also
+// departSwing's own input, since the swing amplitude is set by exactly
+// this angle.
+func departRowHidden(spinAxis, refNormal orbital.Vec3) (eps float64, hidden bool) {
+	eps, ok := unfoldedPlaneAngleDeg(spinAxis, refNormal)
+	if !ok {
+		return 0, true
+	}
+	folded := math.Min(eps, 180-eps)
+	return eps, folded < 0.005
+}
+
+// departSwing returns the pad's `depart:` bounds (ADR 0050 decision 4):
+// as the pad rotates under warp, a launch at inclination padIncl (the
+// existing incl: row, fixed against the spin axis) reaches a departure
+// angle that sweeps from low up to high, because the launch-plane
+// normal precesses about the spin axis at (angular) radius padIncl
+// while the reference normal sits eps away from that same axis. best
+// is the low end: the closest a wait can bring the departure angle,
+// mirroring the Inclination Floor idiom directly above it. Verified
+// against the ADR's own table (both the closed form here and a
+// 3600-sample sweep over a full rotation) before this function was
+// written; see the ADR 0050 progress log, Slice 3.
+func departSwing(padIncl, eps float64) (low, high, best float64) {
+	low = math.Abs(padIncl - eps)
+	high = padIncl + eps
+	if high > 180 {
+		high = 360 - high
+	}
+	return low, high, low
 }
 
 // buildTargetChip surfaces the unified Target slot — a body (name, Δi,

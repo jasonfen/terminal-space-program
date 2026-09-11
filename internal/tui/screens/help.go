@@ -190,9 +190,11 @@ var helpSections = []helpSection{
 		{"[»Burn]", "toggle auto-warp to the next burn (same as G, inert during a rendezvous coast); [■Burn] while running, dimmed when none planned"},
 	}},
 	// ADR 0049 (Readout Contract) decision 6: labels are one short word,
-	// but six codes survive on the HUD, so each gets a line here rather
-	// than being spelled out on every chip. Order matches the ADR and
-	// CONTEXT.md's Readout Contract entry.
+	// but five codes survive on the HUD (CA:, e:, τ, the AN/DN angle,
+	// rcs; corrected by the ADR 0050 audit from an earlier "six" here),
+	// so each gets a line here rather than being spelled out on every
+	// chip. Order matches the ADR and CONTEXT.md's Readout Contract
+	// entry.
 	{"READOUT GLOSSARY", [][2]string{
 		{"fpa", "flight path angle: velocity above / below the local horizontal"},
 		{"Q", "dynamic pressure: aerodynamic stress on the airframe, in kPa"},
@@ -202,6 +204,7 @@ var helpSections = []helpSection{
 		{"Δv / Δincl", "delta-v / relative inclination to a target's orbital plane"},
 		{"T- / T+", "countdown convention: T- counts down to an event, T+ counts up since it"},
 		{"incl (min N°)", "on the pad: the inclination your commanded heading yields, and the Inclination Floor (|launch latitude|) it can't go below"},
+		{"depart", "the angle between the orbit you'd reach and the plane the world beneath you travels in: the plane you leave along"},
 	}},
 }
 

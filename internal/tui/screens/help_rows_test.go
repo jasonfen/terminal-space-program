@@ -144,13 +144,17 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 
 // TestHelpGlossarySection (ADR 0049 stage A3a): the glossary rows live
 // together under their own header, not scattered across other sections.
+// ADR 0050 decision 5 made this the ninth entry (`depart`), tightened
+// from the original loose "at least 7" bound to an exact count so a
+// stray addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
 	for _, s := range helpSections {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		if len(s.rows) < 7 {
-			t.Errorf("READOUT GLOSSARY has %d rows, want at least 7 (six codes + T-/T+)", len(s.rows))
+		const want = 9
+		if len(s.rows) != want {
+			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}
 		return
 	}

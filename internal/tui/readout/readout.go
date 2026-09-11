@@ -53,6 +53,10 @@ const (
 	LabelBurn      = "burn:"      // t_burn -> burn:
 	LabelIncl      = "incl:"      // inclin. -> incl:
 	LabelDeltaIncl = "Δincl:"     // Δi -> Δincl:
+	// LabelDepart is ADR 0050 decision 5's `depart:` row: the angle
+	// between the orbit a launch would reach (or, in flight, the live
+	// orbit) and the plane the world beneath the player travels in.
+	LabelDepart = "depart:"
 	LabelApproach  = "approach:"  // Proximity View's CA: -> approach:
 	LabelTCA       = "TCA:"       // unchanged code
 	LabelRelSpeed  = "rel speed:" // |v_rel| -> rel speed:
