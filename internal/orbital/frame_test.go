@@ -47,6 +47,24 @@ func TestPlaneNormalOKTripsNearPoleNotFarFromIt(t *testing.T) {
 	}
 }
 
+// TestPlaneNormalOKRejectsZeroNormalAtZeroOmega pins review r1 F5: with
+// omega == 0 the threshold (1e-9 * omega * R^2) is itself exactly 0, so
+// the old `n.Norm() >= threshold` comparison let an exact-zero normal
+// through as "trustworthy" (PlanVesselPlaneMatch then calls .Unit() on
+// it). No shipped body has zero spin (all 52 catalog bodies either spin
+// or fall back to their orbital period when tidally locked), so this is
+// reachable only via a user overlay body with no rotation and no
+// tidallyLocked flag. `>` closes it while still accepting a real,
+// non-degenerate normal at the same omega.
+func TestPlaneNormalOKRejectsZeroNormalAtZeroOmega(t *testing.T) {
+	if got := PlaneNormalOK(Vec3{}, 0, 6.371e6); got {
+		t.Error("PlaneNormalOK(zero normal, omega=0) = true, want false (no plane, no matter the primary's spin)")
+	}
+	if got := PlaneNormalOK(Vec3{X: 1, Y: 2, Z: 3}, 0, 6.371e6); !got {
+		t.Error("PlaneNormalOK(real normal, omega=0) = false, want true (a genuine plane shouldn't be refused just because the primary doesn't spin)")
+	}
+}
+
 func TestInertialPlanetCentricRoundTrip(t *testing.T) {
 	primary := Vec3{X: 1.5e11, Y: 2.3e10, Z: -4.7e9}
 	cases := []Vec3{

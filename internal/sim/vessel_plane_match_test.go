@@ -219,3 +219,54 @@ func TestPlanVesselPlaneMatchRefusals(t *testing.T) {
 		}
 	})
 }
+
+// TestActiveLandedVesselAlreadyRefusesPlaneMatchIndependentOfPole is
+// review r1 F3's follow-up check: does PlanVesselPlaneMatch, or the
+// map's ◇/◆ node markers (TargetPlaneNodePositions), consume the
+// ACTIVE vessel's own landed normal the same fragile way
+// spacecraft.HeadingOrbitNormal did (the bug F3 fixed on the pad's own
+// depart:/Δincl: rows)? Verified empirically, not assumed: no. Both
+// route the active craft's raw (Landed, co-rotation) state through
+// orbital.TimeToNodeCrossing before either function ever computes a
+// plane normal, and TimeToNodeCrossing already finds no node crossing
+// for that state: a probe run during this fix confirmed the identical
+// refusal for a craft landed exactly at the pole, one metre off it, and
+// at an ordinary 28.6° pad, so the refusal comes from the Landed
+// pseudo-orbit's degenerate elements (the #375 shape, periapsis metres
+// from the primary's centre), not from pole proximity. hHat's
+// unguarded .Unit() in PlanVesselPlaneMatch is therefore unreachable
+// for a Landed active craft: dt < 0 returns ErrInclinationNoOp first.
+// Pinned so a future change that starts letting a Landed active craft
+// reach that computation doesn't silently reopen this class of bug.
+func TestActiveLandedVesselAlreadyRefusesPlaneMatchIndependentOfPole(t *testing.T) {
+	poleWorld := func(t *testing.T) *World {
+		t.Helper()
+		w := mustWorld(t)
+		if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 400e3, Inclination: 45}); err != nil {
+			t.Fatalf("SpawnCraft (orbiter): %v", err)
+		}
+		if _, err := w.SpawnCraft(SpawnSpec{Launchpad: true, Latitude: 90}); err != nil {
+			t.Fatalf("SpawnCraft (pole): %v", err)
+		}
+		w.ActiveCraftIdx = 2 // the pole-landed craft.
+		w.SetTargetCraft(1) // the orbiting craft.
+		if w.Target.Kind != TargetCraft {
+			t.Fatalf("setup: expected TargetCraft, got %v", w.Target.Kind)
+		}
+		return w
+	}
+
+	t.Run("PlanVesselPlaneMatch refuses", func(t *testing.T) {
+		w := poleWorld(t)
+		if plan, err := w.PlanVesselPlaneMatch(); err == nil {
+			t.Errorf("PlanVesselPlaneMatch() = (%+v, nil), want a refusal for an active vessel landed at the pole", plan)
+		}
+	})
+
+	t.Run("TargetPlaneNodePositions draws no markers", func(t *testing.T) {
+		w := poleWorld(t)
+		if _, _, hasAN, hasDN := w.TargetPlaneNodePositions(); hasAN || hasDN {
+			t.Error("expected no node markers for an active vessel landed at the pole")
+		}
+	})
+}

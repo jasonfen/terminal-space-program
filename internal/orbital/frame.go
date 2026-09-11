@@ -58,7 +58,11 @@ func (a Vec3) Unit() Vec3 {
 // keeps an honest, real, sweeping figure there.
 func PlaneNormalOK(n Vec3, omega, radiusMeters float64) bool {
 	threshold := 1e-9 * omega * radiusMeters * radiusMeters
-	return n.Norm() >= threshold
+	// review r1 F5: `>`, not `>=`: at omega == 0 the threshold is itself
+	// exactly 0, and `>=` let an exact-zero normal through as "trustworthy"
+	// (PlanVesselPlaneMatch then calls .Unit() on it). Latent today: no
+	// shipped body has zero spin.
+	return n.Norm() > threshold
 }
 
 // Rotate rotates v about axis by theta radians (right-hand rule),

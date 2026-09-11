@@ -205,6 +205,31 @@ func TestOrbitChipShowsBareDepartRow(t *testing.T) {
 	}
 }
 
+// TestOrbitChipDepartRowReadsPastNinetyForRetrogradeOrbit is
+// TestLandedPadDepartRowReadsPastNinetyForRetrogradeHeading's ORBIT-chip
+// sibling (review r1 F6): a retrograde LEO's depart: row must also stay
+// unfolded past 90° rather than folding into Δincl's [0, 90] range. The
+// reviewer measured `depart: 156.6°` for a retrograde 500 km LEO.
+func TestOrbitChipDepartRowReadsPastNinetyForRetrogradeOrbit(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 500e3, Retrograde: true}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	joined := strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	value, _, hasBest := extractDepart(t, joined)
+	if hasBest {
+		t.Errorf("expected ORBIT's depart: row to carry no '(best N°)' suffix; got:\n%s", joined)
+	}
+	if value <= 90 {
+		t.Errorf("depart value %.2f°, want > 90° for a retrograde orbit (folding to [0,90] would read this under 90°)", value)
+	}
+}
+
 // TestUnfoldedPlaneAngleDegDoesNotFoldPastNinety pins ADR 0050 decision
 // 1: depart: is an inclination like incl:, not a coplanarity test like
 // Δincl:, so an obtuse angle between the two normals must read past
@@ -354,6 +379,30 @@ func TestDepartSwingMatchesADRTable(t *testing.T) {
 				t.Errorf("best = %.2f, want %.2f", best, c.wantBest)
 			}
 		})
+	}
+}
+
+// TestLandedPadDepartRowReadsPastNinetyForRetrogradeHeading pins review
+// r1 F6: the pad's depart: row must stay unfolded over [0, 180]
+// (decision 1, unfoldedPlaneAngleDeg), never folded to [0, 90] the way
+// Δincl's coplanarity test is. Every existing depart fixture launches
+// within a few tens of degrees of due east, so a fold bug at this call
+// site left every existing depart test green (the review's own
+// sabotage ledger, case "i"). A KSC pad commanded to heading 270°
+// (due west, HeadingTrim = +180°) reaches a retrograde orbit and must
+// read a depart value past 90°: the reviewer measured `depart: 157.9°
+// (best 128.0°)` at this exact heading.
+func TestLandedPadDepartRowReadsPastNinetyForRetrogradeHeading(t *testing.T) {
+	w, c := spawnLandedOnEarthAt28p6(t)
+	c.HeadingTrim = math.Pi // command heading 270° (due west).
+	v := NewOrbitView(chipTestTheme())
+	joined := strings.Join(v.landedInclHeadingRows(w, c), "\n")
+	value, _, hasBest := extractDepart(t, joined)
+	if !hasBest {
+		t.Fatalf("expected the pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
+	}
+	if value <= 90 {
+		t.Errorf("depart value %.2f°, want > 90° for a retrograde (westward) launch heading (folding to [0,90] would read this under 90°)", value)
 	}
 }
 

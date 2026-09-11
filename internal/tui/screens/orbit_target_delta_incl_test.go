@@ -157,6 +157,50 @@ func TestBuildTargetChipNoDeltaInclForVesselLandedAtPole(t *testing.T) {
 	}
 }
 
+// TestLaunchChipTagsDeltaInclDueEastForLandedVesselTarget pins review r1
+// F2: the pad's own Δincl row (landedInclHeadingRows, shared by the
+// SURFACE and DESCENT chips) and the full TARGET chip's TargetCraft
+// branch both compute Δincl against a landed vessel target's due-east
+// launch plane (decision 7), but only the TARGET chip tagged it
+// "(due east)": see TestBuildTargetChipTagsDeltaInclDueEastForLandedVesselTarget
+// above. At 140x40 the compact TARGET chip carries no Δincl at all, so
+// the untagged pad row was the only figure the player ever saw. Active
+// craft is the KSC pad (28.6083°N); target is a second landed vessel at
+// a different site (Baikonur's latitude), so the two aren't trivially
+// coplanar.
+func TestLaunchChipTagsDeltaInclDueEastForLandedVesselTarget(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(200, 80)
+	w, ksc := spawnLandedOnEarthAt28p6(t)
+	if _, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        45.9645, // Baikonur's latitude.
+		LongitudeOffset: 63.3052,
+	}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if len(w.Crafts) != 3 {
+		t.Fatalf("setup: expected 3 crafts (seed LEO, KSC pad, Baikonur pad), got %d", len(w.Crafts))
+	}
+	w.ActiveCraftIdx = 1 // back to the KSC pad craft.
+	if w.ActiveCraft() != ksc {
+		t.Fatalf("setup: expected the active craft to be the KSC pad craft")
+	}
+	w.SetTargetCraft(2) // the Baikonur-latitude landed target.
+	if w.Target.Kind != sim.TargetCraft {
+		t.Fatalf("setup: expected TargetCraft, got %v", w.Target.Kind)
+	}
+
+	lines := v.buildLaunchChip(w)
+	joined := strings.Join(lines, "\n")
+	diRe := regexp.MustCompile(`Δincl:\s+([0-9]+\.[0-9]+)°\s+\(due east\)`)
+	if diRe.FindStringSubmatch(joined) == nil {
+		t.Fatalf("expected a pad 'Δincl: N° (due east)' row for the landed vessel target, got:\n%s", joined)
+	}
+}
+
 // TestLaunchChipShowsDeltaInclAgainstVesselTarget pins ADR 0050
 // decision 6: today Δincl: on the pad is gated on sim.TargetBody only,
 // so targeting a vessel prints nothing even though the vessel has a
