@@ -125,3 +125,55 @@ func TestAttitudeHoldLabelNoRelativeTargetStaysOrbitFrame(t *testing.T) {
 		t.Errorf("hold row = %q, want the frame tag to fall back to ORBIT too (nothing to actually read TGT against)", row)
 	}
 }
+
+// TestAttitudeHoldLabelSurfaceModeAlwaysTagsSurf: a surface-framed mode
+// (Surface Prograde/Retrograde) is frame-locked at the moment it's set,
+// unlike Prograde/Retrograde/Radial which read whatever frame nav: is
+// currently in. So its tag names its own frame, not the current nav
+// frame, whatever nav: happens to be showing. Fixes the self-
+// contradiction of a row reading "Surface Prograde (ORBIT)".
+func TestAttitudeHoldLabelSurfaceModeAlwaysTagsSurf(t *testing.T) {
+	cases := []struct {
+		name string
+		nav  sim.NavMode
+	}{
+		{"under NavOrbit", sim.NavOrbit},
+		{"under NavTarget", sim.NavTarget},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := proximityWorld(t, orbital.Vec3{X: 1_000})
+			w.NavMode = tc.nav
+			c := w.ActiveCraft()
+			c.AttitudeMode = spacecraft.BurnSurfacePrograde
+
+			v := newProximityTestView(t, 80, 24)
+			row := holdRow(t, v.buildAttitudeChip(w))
+			if !strings.Contains(row, "(SURF)") {
+				t.Errorf("hold row = %q, want a surface-framed mode to always tag (SURF), regardless of nav:", row)
+			}
+		})
+	}
+}
+
+// TestAttitudeHoldLabelTargetModeAlwaysTagsTgt: a target-relative mode
+// (already Target Prograde/Retrograde/Target/Anti-Target, whether held
+// directly or produced by the #421 remap above) is likewise frame-
+// locked to TARGET; it must keep tagging TGT even if the player then
+// cycles nav: away to SURFACE, rather than following the current nav
+// frame like the frame-agnostic modes do.
+func TestAttitudeHoldLabelTargetModeAlwaysTagsTgt(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 1_000})
+	w.NavMode = sim.NavSurface
+	c := w.ActiveCraft()
+	c.AttitudeMode = spacecraft.BurnTargetPrograde
+
+	v := newProximityTestView(t, 80, 24)
+	row := holdRow(t, v.buildAttitudeChip(w))
+	if !strings.Contains(row, "(TGT)") {
+		t.Errorf("hold row = %q, want a target-relative mode to always tag (TGT), regardless of nav:", row)
+	}
+	if strings.Contains(row, "(SURF)") {
+		t.Errorf("hold row = %q, must not follow nav:SURFACE for a frame-locked target mode", row)
+	}
+}

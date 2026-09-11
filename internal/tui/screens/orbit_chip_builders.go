@@ -1133,13 +1133,20 @@ func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
 // orbit, or target in its readout"): every hold: row, not just this
 // one, must name its frame using the same three words the navball
 // button already uses (navModeLabel) so the two never disagree on
-// screen. The frame tag tracks the same NavTarget-without-a-relative-
-// target fallback as the mode remap above (falls back to ORBIT rather
-// than claiming TGT with nothing to actually read against); a
-// surface-framed mode (Surface Prograde/Retrograde) held under a
-// different NavMode still gets tagged with the current nav frame, not
-// forced to SURF, since the tag names the frame the row is being read
-// in, not the frame the mode itself was set in.
+// screen.
+//
+// A mode that is itself frame-locked names its own frame, never the
+// current nav frame: Surface Prograde/Retrograde always tag SURF, and
+// every target-relative mode (Target/AntiTarget/Target Prograde/Target
+// Retrograde, whether held directly or produced by the remap above)
+// always tags TGT. Naming the nav frame instead for these would read
+// as a straight self-contradiction on screen ("Surface Prograde
+// (ORBIT)" claims two different frames for the same hold in one row).
+// Every frame-agnostic mode (Prograde, Retrograde, RadialOut/In,
+// NormalPlus/Minus, PlaneChange, Vector) has no frame of its own to
+// lose, so it keeps naming whichever frame the row is actually being
+// read against, including the NavTarget-without-a-relative-target
+// fallback to ORBIT above.
 func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 	frame := w.NavMode
 	if frame == sim.NavTarget && w.HasRelativeTarget() {
@@ -1155,6 +1162,12 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 		}
 	} else if frame == sim.NavTarget {
 		frame = sim.NavOrbit
+	}
+	switch mode {
+	case spacecraft.BurnSurfacePrograde, spacecraft.BurnSurfaceRetrograde:
+		frame = sim.NavSurface
+	case spacecraft.BurnTarget, spacecraft.BurnAntiTarget, spacecraft.BurnTargetPrograde, spacecraft.BurnTargetRetrograde:
+		frame = sim.NavTarget
 	}
 	return fmt.Sprintf("%s (%s)", mode.String(), navModeLabel(frame))
 }
