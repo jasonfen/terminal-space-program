@@ -1128,8 +1128,21 @@ func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
 // and every non-axis mode (Surface*, PlaneChange, Vector) pass through
 // unchanged. Display-only — never mutates the craft's actual held
 // AttitudeMode or its physical nose direction.
+//
+// The maintainer's own follow-up ("hold should also denote surface,
+// orbit, or target in its readout"): every hold: row, not just this
+// one, must name its frame using the same three words the navball
+// button already uses (navModeLabel) so the two never disagree on
+// screen. The frame tag tracks the same NavTarget-without-a-relative-
+// target fallback as the mode remap above (falls back to ORBIT rather
+// than claiming TGT with nothing to actually read against); a
+// surface-framed mode (Surface Prograde/Retrograde) held under a
+// different NavMode still gets tagged with the current nav frame, not
+// forced to SURF, since the tag names the frame the row is being read
+// in, not the frame the mode itself was set in.
 func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
-	if w.NavMode == sim.NavTarget && w.HasRelativeTarget() {
+	frame := w.NavMode
+	if frame == sim.NavTarget && w.HasRelativeTarget() {
 		switch mode {
 		case spacecraft.BurnPrograde:
 			mode = spacecraft.BurnTargetPrograde
@@ -1140,8 +1153,10 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 		case spacecraft.BurnRadialIn:
 			mode = spacecraft.BurnAntiTarget
 		}
+	} else if frame == sim.NavTarget {
+		frame = sim.NavOrbit
 	}
-	return mode.String()
+	return fmt.Sprintf("%s (%s)", mode.String(), navModeLabel(frame))
 }
 
 // buildAttitudeChip surfaces the held attitude / nav mode / engine mode /
@@ -1401,7 +1416,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	}
 	altAGL := c.Altitude()
 	altLabel := readout.Distance(altAGL)
-	sasLabel := c.AttitudeMode.String()
+	sasLabel := attitudeHoldLabel(w, c.AttitudeMode)
 	trimDeg := c.PitchTrim * 180 / math.Pi
 	trimLabel := readout.TrimAngle(trimDeg)
 	if math.Abs(trimDeg) > 0.05 {
@@ -1717,7 +1732,7 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 		fmt.Sprintf("  %s      %s", readout.LabelHoriz, vHorizLabel),
 		fmt.Sprintf("  %s        %s", readout.LabelFPA, fpaLabel),
 		fmt.Sprintf("  %s        %s", readout.LabelTWR, twrLabel),
-		fmt.Sprintf("  %s       %s", readout.LabelHold, c.AttitudeMode.String()),
+		fmt.Sprintf("  %s       %s", readout.LabelHold, attitudeHoldLabel(w, c.AttitudeMode)),
 	}
 	if c.Landed {
 		lines = append(lines, v.landedInclHeadingRows(w, c)...)

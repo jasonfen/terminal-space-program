@@ -188,6 +188,57 @@ func TestLaunchChipSteadyOnPad(t *testing.T) {
 	}
 }
 
+// TestLaunchChipHoldNamesFrame: the SURFACE chip's hold: row is one of
+// the two rows that stay on screen when ATTITUDE folds into the
+// "+N hidden" stub (the ADR 0050 review's F1 finding: on the pad at
+// 140x40 with a target set, ATTITUDE hides and hold: is the only
+// attitude readout left, with no frame in it). It must name its frame
+// through the same attitudeHoldLabel helper the ATTITUDE chip uses, not
+// a bare AttitudeMode.String().
+func TestLaunchChipHoldNamesFrame(t *testing.T) {
+	v := NewOrbitView(Theme{
+		Primary: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(),
+		Alert:   lipgloss.NewStyle(),
+		Dim:     lipgloss.NewStyle(),
+		HUDBox:  lipgloss.NewStyle(),
+	})
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{
+		LoadoutID:       spacecraft.LoadoutSaturnVID,
+		ParentBodyID:    "earth",
+		Launchpad:       true,
+		Latitude:        sim.DefaultLaunchpadLatitude,
+		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if !c.Landed || !shouldShowLaunchHUD(c) {
+		t.Fatalf("setup: want a Landed craft with the LAUNCH chip up (landed=%v, show=%v)", c.Landed, shouldShowLaunchHUD(c))
+	}
+	w.NavMode = sim.NavOrbit
+	c.AttitudeMode = spacecraft.BurnPrograde
+
+	row := func(lines []string, prefix string) string {
+		for _, l := range lines {
+			if s := strings.TrimSpace(l); strings.HasPrefix(s, prefix) {
+				return s
+			}
+		}
+		return ""
+	}
+	lines := v.buildLaunchChip(w)
+	holdLine := row(lines, "hold:")
+	if !strings.Contains(holdLine, "(ORBIT)") {
+		t.Errorf("SURFACE hold row = %q, want it to name the ORBIT frame like the navball button does", holdLine)
+	}
+}
+
 // TestLaunchChipEngineLitIndicator — #427 / ADR 0048 §3: the launch HUD
 // had no engine-lit state at all (the review's own finding: after
 // pressing z then b there was no way to tell from the screen whether the

@@ -33,6 +33,9 @@ func TestAttitudeHoldLabelOrbitModeUnaffected(t *testing.T) {
 	if !strings.Contains(row, "Prograde") || strings.Contains(row, "Target") {
 		t.Errorf("hold row = %q, want plain %q under NavOrbit", row, "Prograde")
 	}
+	if !strings.Contains(row, "(ORBIT)") {
+		t.Errorf("hold row = %q, want it to name the ORBIT frame like the navball button does", row)
+	}
 }
 
 // TestAttitudeHoldLabelNamesTargetFrame is the #421 acceptance test: the
@@ -70,6 +73,9 @@ func TestAttitudeHoldLabelNamesTargetFrame(t *testing.T) {
 			if tc.mustNot != "" && strings.Contains(row, tc.mustNot) {
 				t.Errorf("hold row = %q, must not contain the stale orbital label %q", row, tc.mustNot)
 			}
+			if !strings.Contains(row, "(TGT)") {
+				t.Errorf("hold row = %q, want it to name the TGT frame like the navball button does", row)
+			}
 		})
 	}
 }
@@ -88,6 +94,9 @@ func TestAttitudeHoldLabelNormalHasNoTargetCounterpart(t *testing.T) {
 	row := holdRow(t, v.buildAttitudeChip(w))
 	if !strings.Contains(row, "Normal+") {
 		t.Errorf("hold row = %q, want it to stay %q (no target-relative counterpart)", row, "Normal+")
+	}
+	if !strings.Contains(row, "(TGT)") {
+		t.Errorf("hold row = %q, want it to still name the TGT frame the row is read in, even though Normal+ itself doesn't remap", row)
 	}
 }
 
@@ -111,5 +120,8 @@ func TestAttitudeHoldLabelNoRelativeTargetStaysOrbitFrame(t *testing.T) {
 	}
 	if !strings.Contains(row, "Prograde") {
 		t.Errorf("hold row = %q, want it to fall back to plain %q", row, "Prograde")
+	}
+	if !strings.Contains(row, "(ORBIT)") || strings.Contains(row, "(TGT)") {
+		t.Errorf("hold row = %q, want the frame tag to fall back to ORBIT too (nothing to actually read TGT against)", row)
 	}
 }

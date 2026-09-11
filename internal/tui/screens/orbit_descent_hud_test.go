@@ -209,6 +209,37 @@ func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	}
 }
 
+// TestDescentChipHoldNamesFrame: the DESCENT chip's hold: row is the
+// airless-body twin of the SURFACE chip's; it must name its frame
+// through the same attitudeHoldLabel helper rather than a bare
+// AttitudeMode.String() (ADR 0050 review F1: hold: should denote
+// surface, orbit, or target).
+func TestDescentChipHoldNamesFrame(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := placeLanderOnMoon(t, w, 5_000, 0, 100, 0)
+	if !shouldShowDescentHUD(c) {
+		t.Fatalf("predicate gate didn't fire; can't drive render path")
+	}
+	w.NavMode = sim.NavOrbit
+	c.AttitudeMode = spacecraft.BurnPrograde
+
+	view := NewOrbitView(descentHUDTheme())
+	view.Resize(200, 60)
+	lines := view.buildDescentChip(w)
+	var holdLine string
+	for _, l := range lines {
+		if s := strings.TrimSpace(l); strings.HasPrefix(s, "hold:") {
+			holdLine = s
+		}
+	}
+	if !strings.Contains(holdLine, "(ORBIT)") {
+		t.Errorf("DESCENT hold row = %q, want it to name the ORBIT frame like the navball button does", holdLine)
+	}
+}
+
 // TestDescentHUDQuietAtHighStableOrbit — verifies the rendered HUD
 // does NOT emit a DESCENT section when the craft is in a stable
 // high orbit (predicate returns false). Pins the symmetric case to
