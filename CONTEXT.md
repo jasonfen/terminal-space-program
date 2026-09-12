@@ -596,6 +596,14 @@ The orientation the navball displays directions in. Three values:
 Unlike Focus and Target, NavMode lives on `World`, not on the Vessel — it's
 a known scope cap (each Vessel does not yet remember its own NavMode across
 active-Vessel switches); revisit if that asymmetry starts to bite.
+
+**Every `hold:` row (ATTITUDE, SURFACE, DESCENT chips) names the frame
+it holds in** (ADR 0050) — `Prograde (ORBIT)`, `Radial+ (SURF)`,
+`Target+ (TGT)` — read off the **held mode**, never the live NavMode,
+so it can't contradict itself: a frame-locked mode (Surface* modes,
+Target*/AntiTarget) always tags its own frame even when NavMode itself
+reads differently, while a frame-agnostic mode (Prograde, Retrograde,
+RadialOut/In, NormalPlus/Minus) tags the current NavMode.
 _Avoid_: Navball mode, Nav frame.
 
 ### Maneuver & thrust
@@ -954,23 +962,64 @@ thrust is rotated about local up onto the commanded heading, so pitch
 always tilts in the heading's vertical plane; the reverse order is a
 no-op on any vertical-start hold, including the pad's default. Heading
 away from east harvests less of the surface co-rotation velocity, which
-is the only Δv cost. Shown on the SURFACE chip as `heading: 090°`.
+is the only Δv cost. Shown as `heading: 090°` on the SURFACE chip
+(atmospheric pads) and, identically, on the DESCENT chip while Landed
+on an airless body, which has no SURFACE chip at all (ADR 0050
+decision 9 — Luna, Glyph and every other airless world previously
+showed no heading/inclination information at all while Landed).
 _Avoid_: Yaw trim (yaw is the camera control in the tilted view),
 launch azimuth (as a player-facing label; the row says `heading:`),
 Locked.
 
-**Inclination Floor** (grilled 2026-09-09, ADR 0049):
+**Inclination Floor** (grilled 2026-09-09, ADR 0049; extended by ADR
+0050):
 The lowest inclination reachable from a pad: |launch latitude|. Any
 inclination at or above it, prograde or retrograde, is reachable by
 choosing a **Heading Trim**; due east gives the floor itself. The
-SURFACE chip's Landed `incl:` row shows the inclination the commanded
-heading yields with the floor as a tag, `incl: 28.6° (min 28.6°)`, and
-never says "locked", since nothing is. With a Target set the chip adds
-`Δincl:`, the plane angle an ascent lit *now* would leave to the
-Target's plane, which sweeps with the Primary's rotation so pad warp
-visibly changes it.
+Landed `incl:` row (SURFACE chip on an atmospheric pad, DESCENT chip
+on an airless one) shows the inclination the commanded heading yields
+with the floor as a tag, `incl: 28.6° (min 28.6°)`, and never says
+"locked", since nothing is. With a Target set the chip adds `Δincl:`,
+the plane angle an ascent lit *now* would leave to the Target's plane,
+which sweeps with the Primary's rotation so pad warp visibly changes
+it — unchanged on the pad, and in the full TARGET chip in flight.
+
+**`Δincl:` reads against a targeted vessel as well as a body** (ADR
+0050 decision 6): withheld unless the target shares the Active
+Vessel's Primary (`TargetSharesActivePrimary` — a vessel target in a
+different SOI would otherwise mix its own orbit with its Primary's
+motion, reading as a fast-opening window that isn't one), and withheld
+at a pole on either end, own vessel or target (`orbital.PlaneNormalOK`,
+a *relative* `|r×v|` threshold rather than the old exact-zero test — a
+real pole is never exactly zero, so the old guards let a shipped North
+Pole preset through as floating-point noise). A **landed** vessel
+target has no orbit to measure, so the figure is its due-east launch
+plane (`r×v` for its co-rotation state) and is tagged as one:
+`Δincl: 53.59° (due east)`.
 _Avoid_: Launch lat (the old row label), locked, minimum inclination
 (say Inclination Floor).
+
+**Depart** (grilled 2026-09-10, ADR 0050):
+The `depart:` row, alongside every `incl:` row — the Landed pad
+(SURFACE and DESCENT chips) and the ORBIT chip in flight: the angle
+between the orbit you'd reach (or are in) and the plane the world
+beneath you travels in, e.g. Luna's own orbit around Earth for a Luna
+pad, the ecliptic for an Earth pad (Earth's orbital inclination to the
+ecliptic is ~0.00005°, so the two agree there). This is the plane a
+departure actually wants — leaving Luna for Earth wants Luna's orbit
+plane, leaving Earth for Mars wants the ecliptic — not the ecliptic
+everywhere, which is frozen on every moon. On the pad it carries
+`(best N°)`, the lowest value reachable by waiting, mirroring the
+**Inclination Floor**'s `(min N°)` sitting directly above it; in
+orbit the suffix is dropped, since an orbital plane is fixed under
+two-body coast so the value on screen is already the best one.
+**Hidden** where the world's spin axis and its own orbital-plane
+normal sit within 0.005° of each other, so the row can't move: frozen
+on Kern, Cursor, Shell and Pipe; alive on Earth, Mars, Mercury, Luna,
+Glyph, Ember, Rust and Daemon. Ninth F1 READOUT GLOSSARY entry.
+_Avoid_: Ecliptic (the reference is the *local* world's own orbital
+plane, not always the ecliptic — false on a moon), Departure angle
+(bare).
 
 **OnPad**:
 A flag on a Vessel that's *currently* sitting at its original
@@ -2853,8 +2902,11 @@ SI ladder at four significant figures (`m`, `km`, `Mm`, `Gm`, then
 ladder, four significant figures and at most two decimals (`5519 m/s`,
 `0.12 m/s`, `28.60°`), steering angles integer (`090°`). Labels are one
 short word; the only codes are `fpa`, `Q`, `TCA`, `TWR`, `Ap`/`Pe` and
-`Δv`/`Δincl`, each explained in the F1 glossary. A sub-surface
-periapsis keeps its signed depth and turns the row Warning. `Δv:` reads
+`Δv`/`Δincl`, each explained in the F1 glossary. Five further bare
+codes survive elsewhere on the HUD with no glossary line of their own —
+`CA:`, `e:`, `τ`, the AN/DN angle, `rcs` — a count corrected from an
+earlier claim of six by the ADR 0050 audit. A sub-surface periapsis
+keeps its signed depth and turns the row Warning. `Δv:` reads
 stage / vehicle.
 _Avoid_: Units setting (there is none; the contract is not a
 preference), `alt` suffix, `budget`, raw seconds, decimal hours,
