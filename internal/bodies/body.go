@@ -82,11 +82,17 @@ type CelestialBody struct {
 	// derives sub-observer longitude from orbital phase. v0.8.5+.
 	TidallyLocked bool `json:"tidallyLocked,omitempty"`
 
-	// AxialTilt is the body's obliquity (rotation-axis angle from
-	// the orbital-plane normal), in degrees. Drives view-aware
-	// texture projection (v0.8.5.7+) — ViewTop on a tilted body
-	// reveals polar regions; Uranus's 97° tilt makes it roll
-	// pole-on along its orbit.
+	// AxialTilt is the angle, in degrees, between the body's spin axis
+	// and the world's up (world +Z, the ecliptic pole), NOT the normal
+	// of the body's own orbital plane: orbital.BodyEquatorialFrame and
+	// render.BodyRotationAxisWorld both build the axis as
+	// (sin t·cos a, sin t·sin a, cos t) from world +Z, with a =
+	// AxialAzimuth. For a planet on a near-ecliptic orbit the two
+	// readings agree; for a moon they differ by up to the moon's
+	// orbital inclination (ADR 0050 decision 10: the code is
+	// authoritative). Drives view-aware texture projection
+	// (v0.8.5.7+): ViewTop on a tilted body reveals polar regions;
+	// Uranus's 97° tilt makes it roll pole-on along its orbit.
 	AxialTilt float64 `json:"axialTilt,omitempty"`
 
 	// AxialAzimuth is the body's spin-axis azimuth in the world

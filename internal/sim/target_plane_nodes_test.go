@@ -86,6 +86,25 @@ func TestTargetPlaneNodePositions_Coplanar(t *testing.T) {
 	}
 }
 
+// TestTargetPlaneNodePositions_LandedAtPole_NotMeaningful pins ADR 0050
+// decision 8: a target landed at a pole (the shipped North Pole preset)
+// has |rT x vT| ~= 3e-7, not exactly zero, so the pre-decision-8 exact
+// `Norm() == 0` guard let it through and drew a node-marker pair off
+// pure floating-point noise. Reuse the same shared guard
+// PlanVesselPlaneMatch refuses on (vessel_plane_match_test.go's "target
+// landed at the pole" case).
+func TestTargetPlaneNodePositions_LandedAtPole_NotMeaningful(t *testing.T) {
+	w := mustWorld(t)
+	if _, err := w.SpawnCraft(SpawnSpec{Launchpad: true, Latitude: 90}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	w.ActiveCraftIdx = 0
+	w.SetTargetCraft(1)
+	if _, _, hasAN, hasDN := w.TargetPlaneNodePositions(); hasAN || hasDN {
+		t.Error("expected no node markers against a target landed at the pole")
+	}
+}
+
 // TestTargetPlaneNodePositions_DifferentPrimaries_NotMeaningful mirrors
 // TargetLeadAngleDeg's cross-SOI refusal: a target orbiting a different
 // primary has no shared plane to measure a line of nodes against.

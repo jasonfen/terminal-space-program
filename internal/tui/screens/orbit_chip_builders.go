@@ -1128,6 +1128,29 @@ func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
 // and every non-axis mode (Surface*, PlaneChange, Vector) pass through
 // unchanged. Display-only — never mutates the craft's actual held
 // AttitudeMode or its physical nose direction.
+//
+// The maintainer's own follow-up ("hold should also denote surface,
+// orbit, or target in its readout"): every hold: row, not just this
+// one, must name its frame using the same three words the navball
+// button already uses (navModeLabel) so the two never disagree on
+// screen.
+//
+// The tag names the frame of the HELD MODE, never the current NavMode
+// (round 2 review, R2-F1, correcting an earlier version of this
+// function that tagged frame-agnostic modes with whatever nav: showed).
+// No held BurnMode actually reads NavMode: internal/spacecraft never
+// consults it, and the nose direction is
+// BurnDirectionWithTarget(AttitudeMode, rT, vT) with no nav argument at
+// all (internal/sim/navball.go). So Surface Prograde/Retrograde always
+// tag SURF, every target-relative mode (Target/AntiTarget/Target
+// Prograde/Target Retrograde, whether held directly or produced by the
+// remap above) always tags TGT, and every other mode (Prograde,
+// Retrograde, RadialOut/In, NormalPlus/Minus, PlaneChange, Vector) is
+// orbit-frame by construction and always tags ORBIT, whatever NavMode
+// says. Tagging any of these with the current nav frame instead would
+// assert a frame the hold does not have: a held Prograde is orbit-frame
+// prograde under nav:SURFACE too (the nose does not move), and there is
+// no surface-frame equivalent of Normal+/- at all.
 func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 	if w.NavMode == sim.NavTarget && w.HasRelativeTarget() {
 		switch mode {
@@ -1141,7 +1164,14 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 			mode = spacecraft.BurnAntiTarget
 		}
 	}
-	return mode.String()
+	frame := sim.NavOrbit
+	switch mode {
+	case spacecraft.BurnSurfacePrograde, spacecraft.BurnSurfaceRetrograde:
+		frame = sim.NavSurface
+	case spacecraft.BurnTarget, spacecraft.BurnAntiTarget, spacecraft.BurnTargetPrograde, spacecraft.BurnTargetRetrograde:
+		frame = sim.NavTarget
+	}
+	return fmt.Sprintf("%s (%s)", mode.String(), navModeLabel(frame))
 }
 
 // buildAttitudeChip surfaces the held attitude / nav mode / engine mode /
@@ -1401,7 +1431,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	}
 	altAGL := c.Altitude()
 	altLabel := readout.Distance(altAGL)
-	sasLabel := c.AttitudeMode.String()
+	sasLabel := attitudeHoldLabel(w, c.AttitudeMode)
 	trimDeg := c.PitchTrim * 180 / math.Pi
 	trimLabel := readout.TrimAngle(trimDeg)
 	if math.Abs(trimDeg) > 0.05 {
@@ -1463,44 +1493,7 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	// entirely, nothing on the pad is ever locked.
 	var inclBlockRows []string
 	if c.Landed {
-		spinAxisR := render.BodyRotationAxisWorld(c.Primary)
-		spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
-		padInclLabel := "—"
-		if deg, ok := spacecraft.HeadingInclinationDeg(c.State.R, spinAxis, c.HeadingTrim); ok {
-			padInclLabel = readout.Angle(deg)
-		}
-		// Inclination Floor = |current surface latitude|, not the spawn
-		// latitude (item4-B review finding 6): SurfaceLatLon prefers
-		// LandedLatDeg over LaunchLatDeg once the craft has soft-landed
-		// somewhere other than where it launched, so a vessel sitting at
-		// 5°N after flying from a 28.6° pad reads a 5° floor, not a
-		// stale 28.6° one above its own incl: value.
-		floorLat, _ := c.SurfaceLatLon()
-		floorLabel := readout.Angle(math.Abs(floorLat))
-		inclBlockRows = []string{
-			chipRowAt("heading:", headingLabel, launchChipValueCol),
-			chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
-		}
-		// Δincl (decision 11): only while a body target is set, a
-		// craft target's Δincl isn't offered here either (buildTargetChip
-		// itself only computes it for sim.TargetBody), and the plane
-		// angle a pad launch would leave is only meaningful against
-		// another body's fixed orbital plane.
-		if w.Target.Kind == sim.TargetBody {
-			sysT := w.System()
-			if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) {
-				b := sysT.Bodies[w.Target.BodyIdx]
-				nCraft := craftOrbitNormalForRelativeIncl(c)
-				nTarget := orbital.OrbitNormalWorld(b)
-				if di, ok := relativePlaneAngleDeg(nCraft, nTarget); ok {
-					diLabel := readout.Angle(di)
-					if di > 30 {
-						diLabel = v.theme.Warning.Render(diLabel)
-					}
-					inclBlockRows = append(inclBlockRows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
-				}
-			}
-		}
+		inclBlockRows = v.landedInclHeadingRows(w, c)
 	} else {
 		inclLabel := "—"
 		if !math.IsNaN(el.I) && !math.IsInf(el.I, 0) {
@@ -1589,10 +1582,123 @@ func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
 	return lines
 }
 
+// landedInclHeadingRows builds the heading:/incl:/Δincl: block for a
+// Landed craft (ADR 0050 decision 9, ex-decisions-9-11's inclBlockRows).
+// Shared by buildLaunchChip's SURFACE chip (atmospheric pads, the
+// original home of this block) and buildDescentChip's DESCENT chip while
+// Landed (airless pads, #454): shouldShowLaunchHUD returns false the
+// moment Primary.Atmosphere == nil, so an airless pad (Luna, Glyph, any
+// of the 45 bodies with no atmosphere) got buildDescentChip instead and
+// no heading/inclination readout at all, however long the player warped.
+// This function moves the existing rows onto that second surface; it
+// changes no number and does not decide whether the LAUNCH HUD itself
+// should ever appear on the Moon (a separate question #454's own body
+// says this isn't the place to answer).
+func (v *OrbitView) landedInclHeadingRows(w *sim.World, c *spacecraft.Spacecraft) []string {
+	headingAbsDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+	headingLabel := readout.Heading(headingAbsDeg)
+	spinAxisR := render.BodyRotationAxisWorld(c.Primary)
+	spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
+	padInclLabel := "—"
+	if deg, ok := spacecraft.HeadingInclinationDeg(c.State.R, spinAxis, c.HeadingTrim); ok {
+		padInclLabel = readout.Angle(deg)
+	}
+	// Inclination Floor = |current surface latitude|, not the spawn
+	// latitude (item4-B review finding 6): SurfaceLatLon prefers
+	// LandedLatDeg over LaunchLatDeg once the craft has soft-landed
+	// somewhere other than where it launched, so a vessel sitting at
+	// 5°N after flying from a 28.6° pad reads a 5° floor, not a
+	// stale 28.6° one above its own incl: value.
+	floorLat, _ := c.SurfaceLatLon()
+	floorLabel := readout.Angle(math.Abs(floorLat))
+	rows := []string{
+		chipRowAt("heading:", headingLabel, launchChipValueCol),
+		chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
+	}
+	// depart: the angle between the plane this pad's commanded heading
+	// would reach and the plane the world beneath it travels in (ADR
+	// 0050 decisions 1-5), directly under incl:. Hidden where it can
+	// never move (decision 3): departRowHidden's eps is also
+	// departSwing's own input, so the two calls share one angle. Also
+	// withheld at a pole (review r1 F3, landedPlaneNormalOK): the pad's
+	// own co-rotation normal is pole-degenerate there, and
+	// HeadingOrbitNormal's exact Norm() == 0 guard lets floating-point
+	// residue through as a real plane, wandering tens of degrees an hour
+	// with no period.
+	if landedPlaneNormalOK(c) {
+		if refNormal, ok := departReferenceNormal(c.Primary); ok {
+			if eps, hidden := departRowHidden(spinAxis, refNormal); !hidden {
+				if padNormal, ok := spacecraft.HeadingOrbitNormal(c.State.R, spinAxis, c.HeadingTrim); ok {
+					deg, degOK := unfoldedPlaneAngleDeg(padNormal, refNormal)
+					i, iOK := unfoldedPlaneAngleDeg(padNormal, spinAxis)
+					if degOK && iOK {
+						_, _, best := departSwing(i, eps)
+						departLabel := readout.Angle(deg) + " (best " + readout.Angle(best) + ")"
+						rows = append(rows, chipRowAt(readout.LabelDepart, departLabel, launchChipValueCol))
+					}
+				}
+			}
+		}
+	}
+	// Δincl: against a body target (its fixed catalog orbital plane) or
+	// a vessel target (ADR 0050 decision 6, ungating the sim.TargetBody-
+	// only restriction ADR 0049 shipped: a vessel in a stable orbit has
+	// a perfectly good fixed plane too, and matching one from the pad is
+	// the canonical launch-window problem PlanVesselPlaneMatch, the `I`
+	// key, already solves). Vessel targets route through
+	// World.TargetPlaneNormal, which folds in the same-primary gate
+	// (decision 6's amendment: a lunar orbiter targeted from a KSC pad
+	// reads a fast-looking wobble that mixes its own lap with Luna's own
+	// motion round Earth; TargetSharesActivePrimary already refuses this
+	// case for `I` and the node markers) and the pole guard (decision
+	// 8).
+	var nTarget orbital.Vec3
+	haveTarget := false
+	dueEast := false
+	switch w.Target.Kind {
+	case sim.TargetBody:
+		sysT := w.System()
+		if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) {
+			nTarget = orbital.OrbitNormalWorld(sysT.Bodies[w.Target.BodyIdx])
+			haveTarget = true
+		}
+	case sim.TargetCraft:
+		if n, ok := w.TargetPlaneNormal(); ok {
+			nTarget = n
+			haveTarget = true
+			// (due east) tag (decision 7, review r1 F2): shares
+			// deltaInclLabel with buildTargetChip's TargetCraft branch
+			// so the pad row and the TARGET chip cannot disagree about
+			// whether a landed vessel target's plane assumes due east.
+			if tc, _, ok := w.ResolveTargetCraft(); ok {
+				dueEast = !craftHasOrbit(tc)
+			}
+		}
+	case sim.TargetGhost:
+		if n, ok := w.TargetPlaneNormal(); ok {
+			nTarget = n
+			haveTarget = true
+		}
+	}
+	if haveTarget {
+		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
+			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, dueEast); ok {
+				rows = append(rows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
+			}
+		}
+	}
+	return rows
+}
+
 // buildDescentChip is the airless-body terminal-approach cluster
-// (altitude / vert / horiz / fpa / TWR / hold). Returns nil unless the
-// craft is in a powered descent. Mutually exclusive with the LAUNCH chip
-// via the same Atmosphere gate the originals used.
+// (altitude / vert / horiz / fpa / TWR / hold), plus, while Landed, the
+// same heading:/incl:/Δincl: block the atmospheric SURFACE chip shows
+// (ADR 0050 decision 9, #454): there was previously no pad readout at
+// all on an airless world (shouldShowLaunchHUD requires an atmosphere),
+// so a Luna pad showed none of this however long the player warped.
+// Otherwise returns nil unless the craft is in a powered descent.
+// Mutually exclusive with the LAUNCH chip via the same Atmosphere gate
+// the originals used.
 func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 	c := w.ActiveCraft()
 	if c == nil || !shouldShowDescentHUD(c) {
@@ -1634,15 +1740,19 @@ func (v *OrbitView) buildDescentChip(w *sim.World) []string {
 		vHorizLabel = v.theme.Alert.Render(
 			fmt.Sprintf("%s (> %s = CRASH on contact)", readout.Speed(vHoriz), readout.Speed(sim.CrashVCritMps)))
 	}
-	return []string{
+	lines := []string{
 		v.theme.Primary.Render("DESCENT"),
 		fmt.Sprintf("  %s   %s", readout.LabelAltitude, altLabel),
 		fmt.Sprintf("  %s       %s", readout.LabelVert, readout.Speed(vVert)),
 		fmt.Sprintf("  %s      %s", readout.LabelHoriz, vHorizLabel),
 		fmt.Sprintf("  %s        %s", readout.LabelFPA, fpaLabel),
 		fmt.Sprintf("  %s        %s", readout.LabelTWR, twrLabel),
-		fmt.Sprintf("  %s       %s", readout.LabelHold, c.AttitudeMode.String()),
+		fmt.Sprintf("  %s       %s", readout.LabelHold, attitudeHoldLabel(w, c.AttitudeMode)),
 	}
+	if c.Landed {
+		lines = append(lines, v.landedInclHeadingRows(w, c)...)
+	}
+	return lines
 }
 
 // buildLaunchHintChip tells the player the launch/surface view is worth
@@ -1791,6 +1901,26 @@ func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
 	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
 	lines = append(lines, chipRow(readout.LabelPeriod, readout.Period(time.Duration(period*float64(time.Second)))))
 	lines = append(lines, chipRow(readout.LabelIncl, readout.Angle(el.I*180/math.Pi)))
+	// depart:, directly under incl: (ADR 0050 decisions 1-5). The live
+	// orbit's own plane is fixed under two-body coast, so unlike the
+	// pad's row this carries no (best N°): the lowest value reachable
+	// by waiting is the value already on screen (decision 4). Hidden
+	// where it can never move (decision 3), same predicate as the pad.
+	if refNormal, ok := departReferenceNormal(c.Primary); ok {
+		spinAxisR := render.BodyRotationAxisWorld(c.Primary)
+		spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
+		if _, hidden := departRowHidden(spinAxis, refNormal); !hidden {
+			// craftHasOrbit already returned early above for a Landed
+			// craft (buildLandedOrbitChip), so this is always a real
+			// in-flight orbit: craftOrbitNormalForRelativeIncl's pole
+			// guard (review r1 F3) never trips here.
+			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
+				if deg, ok := unfoldedPlaneAngleDeg(nCraft, refNormal); ok {
+					lines = append(lines, chipRow(readout.LabelDepart, readout.Angle(deg)))
+				}
+			}
+		}
+	}
 	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
 	// #426 (CONTEXT.md Chip entry): eccentricity, always-on, Full form only —
 	// the three eccentricity-graded challenge rungs (chal-high-orbit et al.)
@@ -2060,31 +2190,90 @@ func (v *OrbitView) buildProjectedOrbitChipCompact(w *sim.World) []string {
 	}
 }
 
+// landedPlaneNormalOK reports whether the ACTIVE vessel's own landed
+// state defines a trustworthy orbital plane (ADR 0050 decision 8,
+// extended by review r1 F3: the original guard only covered a TARGET's
+// normal). While Landed, c.State.V IS the true co-rotation velocity
+// (see craftOrbitNormalForRelativeIncl's own comment), so r x v here is
+// exactly the same magnitude quantity a landed TARGET's rT x vT is
+// (sim.targetPlaneNormalRelativeTo), not spacecraft.HeadingOrbitNormal's
+// heading-rotated output, which crosses r against a unit direction
+// rather than the actual co-rotation velocity and so has a different
+// scale. Always true for a craft that isn't Landed (nothing here
+// applies to a real orbit). Shared by both the depart: row (which reads
+// spacecraft.HeadingOrbitNormal directly, not this function) and
+// craftOrbitNormalForRelativeIncl's Δincl normal below, so the two rows
+// withhold together at a pole instead of independently drifting.
+func landedPlaneNormalOK(c *spacecraft.Spacecraft) bool {
+	if !c.Landed {
+		return true
+	}
+	n := c.State.R.Cross(c.State.V)
+	omegaR := render.BodySpinOmegaWorld(c.Primary)
+	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
+	return orbital.PlaneNormalOK(n, omega.Norm(), c.Primary.RadiusMeters())
+}
+
 // craftOrbitNormalForRelativeIncl returns the orbital-plane normal used
-// to compute a Δincl plane angle to a target. While Landed there is no
-// real orbit yet: the craft's actual State.V is always the due-east
-// surface co-rotation velocity regardless of the commanded Heading Trim
-// (ApplyHeadingTrim only rotates a *burn* direction, never the
-// pre-ignition landed state), so reading c.State.R.Cross(c.State.V)
-// directly would silently assume due-east even after the player has
-// trimmed away from it. Route through spacecraft.HeadingOrbitNormal
-// instead, which derives the plane an ascent lit NOW at the commanded
-// heading would leave (ADR 0049 decision 11); it ticks live as the
-// player warps on the pad because the pad's position (hence the local
-// horizon frame) sweeps with the primary's rotation. Once airborne the
-// real state vector is authoritative again: c.State.V then reflects
-// whatever plane the craft actually flew into.
+// to compute a Δincl plane angle to a target, and whether it is
+// trustworthy. While Landed there is no real orbit yet: the craft's
+// actual State.V is always the due-east surface co-rotation velocity
+// regardless of the commanded Heading Trim (ApplyHeadingTrim only
+// rotates a *burn* direction, never the pre-ignition landed state), so
+// reading c.State.R.Cross(c.State.V) directly would silently assume
+// due-east even after the player has trimmed away from it. Route
+// through spacecraft.HeadingOrbitNormal instead, which derives the
+// plane an ascent lit NOW at the commanded heading would leave (ADR
+// 0049 decision 11); it ticks live as the player warps on the pad
+// because the pad's position (hence the local horizon frame) sweeps
+// with the primary's rotation. Once airborne the real state vector is
+// authoritative again: c.State.V then reflects whatever plane the
+// craft actually flew into.
+//
+// ok is false when Landed at a pole (review r1 F3, landedPlaneNormalOK):
+// HeadingOrbitNormal's own guard is an exact Norm() == 0 test that a
+// real pole's floating-point residue never trips, which is why an
+// unguarded Δincl wandered at the shipped North Pole preset.
 //
 // v0.42+ (ADR 0049 decisions 10-11).
-func craftOrbitNormalForRelativeIncl(c *spacecraft.Spacecraft) orbital.Vec3 {
+func craftOrbitNormalForRelativeIncl(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 	if c.Landed {
+		if !landedPlaneNormalOK(c) {
+			return orbital.Vec3{}, false
+		}
 		spinAxisR := render.BodyRotationAxisWorld(c.Primary)
 		spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
 		if h, ok := spacecraft.HeadingOrbitNormal(c.State.R, spinAxis, c.HeadingTrim); ok {
-			return h
+			return h, true
 		}
+		return orbital.Vec3{}, false
 	}
-	return c.State.R.Cross(c.State.V)
+	return c.State.R.Cross(c.State.V), true
+}
+
+// deltaInclLabel renders a Δincl value the same way at every call site
+// (review r1 F2): styled Warning past 30°, and tagged "(due east)" when
+// dueEast is true: a landed vessel target's plane is its co-rotation
+// state, which equals the due-east launch plane at every latitude
+// (decision 7), not a real orbit, so the row says so. Before this, the
+// TARGET chip's TargetCraft branch tagged it and the pad's
+// landedInclHeadingRows didn't, so a player who only ever sees the
+// compact TARGET chip at 140x40 (no Δincl at all) saw an untagged
+// figure on the pad with no way to know it assumed due east. ok is
+// false when the two normals don't define an angle (relativePlaneAngleDeg).
+func (v *OrbitView) deltaInclLabel(nCraft, nTarget orbital.Vec3, dueEast bool) (string, bool) {
+	di, ok := relativePlaneAngleDeg(nCraft, nTarget)
+	if !ok {
+		return "", false
+	}
+	label := readout.Angle(di)
+	if di > 30 {
+		label = v.theme.Warning.Render(label)
+	}
+	if dueEast {
+		label += " (due east)"
+	}
+	return label, true
 }
 
 // relativePlaneAngleDeg is the plane angle between two orbital-plane
@@ -2105,6 +2294,82 @@ func relativePlaneAngleDeg(nCraft, nTarget orbital.Vec3) (float64, bool) {
 	}
 	ang := math.Acos(cos) * 180 / math.Pi
 	return math.Min(ang, 180-ang), true
+}
+
+// unfoldedPlaneAngleDeg is the plane angle between two normals over
+// the full [0, 180] range, unlike relativePlaneAngleDeg's fold to
+// [0, 90]. ADR 0050 decision 1: the `depart:` row is an inclination
+// like `incl:`, not a coplanarity test, so a normal nearly antiparallel
+// to the reference reads close to 180°, not close to 0° (the ADR's own
+// exoplanet pads read 61°..118°, which relativePlaneAngleDeg could
+// never produce). ok is false when either normal is degenerate (zero
+// vector).
+func unfoldedPlaneAngleDeg(a, b orbital.Vec3) (float64, bool) {
+	if a.Norm() == 0 || b.Norm() == 0 {
+		return 0, false
+	}
+	cos := a.Dot(b) / (a.Norm() * b.Norm())
+	if cos > 1 {
+		cos = 1
+	} else if cos < -1 {
+		cos = -1
+	}
+	return math.Acos(cos) * 180 / math.Pi, true
+}
+
+// departReferenceNormal is ADR 0050 decision 2's reference plane for
+// the `depart:` row: the orbital-plane normal of the world the craft
+// is standing on or orbiting, i.e. primary's own orbit around ITS
+// primary (orbital.OrbitNormalWorld(primary)), in world/ecliptic axes.
+// Not the ecliptic itself: on a moon this is the moon's own orbit
+// around its planet, which is the plane a departure to that planet (or
+// beyond) actually wants. ok is false for a primary with no orbit (a
+// system star): decision 2 says the normal is zero, so no row.
+func departReferenceNormal(primary bodies.CelestialBody) (orbital.Vec3, bool) {
+	ref := orbital.OrbitNormalWorld(primary)
+	if ref.Norm() == 0 {
+		return orbital.Vec3{}, false
+	}
+	return ref, true
+}
+
+// departRowHidden reports whether the `depart:` row can ever move for
+// primary (ADR 0050 decision 3), and the angle eps that decides it: a
+// pad's launch-plane normal precesses about primary's own spin axis as
+// the pad rotates under warp, so if the reference normal sits on that
+// axis (or its antipode) the angle to it is fixed no matter the
+// heading or the hour. eps = unfoldedPlaneAngleDeg(spin axis,
+// reference normal); the row is hidden when eps folds (parallel or
+// antiparallel treated alike) to under 0.005 degrees. eps is also
+// departSwing's own input, since the swing amplitude is set by exactly
+// this angle.
+func departRowHidden(spinAxis, refNormal orbital.Vec3) (eps float64, hidden bool) {
+	eps, ok := unfoldedPlaneAngleDeg(spinAxis, refNormal)
+	if !ok {
+		return 0, true
+	}
+	folded := math.Min(eps, 180-eps)
+	return eps, folded < 0.005
+}
+
+// departSwing returns the pad's `depart:` bounds (ADR 0050 decision 4):
+// as the pad rotates under warp, a launch at inclination padIncl (the
+// existing incl: row, fixed against the spin axis) reaches a departure
+// angle that sweeps from low up to high, because the launch-plane
+// normal precesses about the spin axis at (angular) radius padIncl
+// while the reference normal sits eps away from that same axis. best
+// is the low end: the closest a wait can bring the departure angle,
+// mirroring the Inclination Floor idiom directly above it. Verified
+// against the ADR's own table (both the closed form here and a
+// 3600-sample sweep over a full rotation) before this function was
+// written; see the ADR 0050 progress log, Slice 3.
+func departSwing(padIncl, eps float64) (low, high, best float64) {
+	low = math.Abs(padIncl - eps)
+	high = padIncl + eps
+	if high > 180 {
+		high = 360 - high
+	}
+	return low, high, low
 }
 
 // buildTargetChip surfaces the unified Target slot — a body (name, Δi,
@@ -2132,14 +2397,15 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 		frame := orbital.ReferenceFrameForPrimary(c.Primary)
 		ro := orbital.OrbitReadoutInFrame(c.State.R, c.State.V, mu, frame)
 		if !ro.Hyperbolic {
-			nCraft := craftOrbitNormalForRelativeIncl(c)
-			nTarget := orbital.OrbitNormalWorld(b)
-			di, _ := relativePlaneAngleDeg(nCraft, nTarget)
-			diLabel := readout.Angle(di)
-			if di > 30 {
-				diLabel = v.theme.Warning.Render(diLabel)
+			// review r1 F3: craftOrbitNormalForRelativeIncl's ok is now
+			// honored (was discarded before, which could print a
+			// meaningless "0.00°" for a craft landed at a pole).
+			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
+				nTarget := orbital.OrbitNormalWorld(b)
+				if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, false); ok {
+					lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
+				}
 			}
-			lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
 		}
 		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
 		lines = append(lines, chipRow("range:", readout.Distance(rangeM)))
@@ -2203,6 +2469,21 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 			// elements) so they're untouched.
 			tLat, tLon := tc.SurfaceLatLon()
 			lines = append(lines, chipRow("landed at:", readout.Angle(tLat)+", "+readout.Angle(tLon)))
+		}
+		// Δincl: against this vessel's plane (ADR 0050 decisions 6-8).
+		// TargetPlaneNormal folds in the same-primary gate (a vessel
+		// orbiting a different primary reads no figure at all rather
+		// than a fast-looking wobble, see its own doc comment) and the
+		// pole guard. A landed target's normal is its co-rotation r × v,
+		// which is exactly the due-east launch plane (decision 7), so
+		// the row says so; an orbiting target's normal is its live
+		// orbital-plane normal and carries no tag.
+		if nTarget, ok := w.TargetPlaneNormal(); ok {
+			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
+				if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, !craftHasOrbit(tc)); ok {
+					lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
+				}
+			}
 		}
 		var rRel, vRelVec orbital.Vec3
 		if tc.Primary.ID == c.Primary.ID {
@@ -2289,6 +2570,17 @@ func (v *OrbitView) buildTargetChip(w *sim.World) []string {
 				gPeRow,
 				chipRow(readout.LabelIncl, readout.Angle(gEl.I*180/math.Pi)),
 			)
+		}
+		// Δincl: against this ghost's plane (ADR 0050 decisions 6, 8). A
+		// ghost is always evaluated as if it kept coasting (sim/ghost.go,
+		// "physics never sees it"), never Landed, so no "(due east)" tag
+		// applies here: decision 7 is TargetCraft-only.
+		if nTarget, ok := w.TargetPlaneNormal(); ok {
+			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
+				if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, false); ok {
+					lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
+				}
+			}
 		}
 		rT, vT, ok := w.TargetStateRelativeToActivePrimary()
 		if !ok {

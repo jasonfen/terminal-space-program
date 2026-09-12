@@ -6,6 +6,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
 // TestProgradeAtLEORaisesApoapsis: plan §C17 accept criterion. Starting
@@ -224,6 +225,61 @@ func TestThrustAccelFnAtWithTargetAgreesWithBurnDirectionOnHeadingTrim(t *testin
 
 	if got.Sub(want).Norm() > 1e-6 {
 		t.Errorf("ThrustAccelFnAtWithTarget direction = %+v, want BurnDirectionWithTarget's %+v", got, want)
+	}
+}
+
+// TestThrustAccelFnAtWithTargetAppliesPitchBeforeHeading is the ADR
+// 0049 guard test owed to the InstantSAS thrust closure (ADR 0050
+// slice 2's "Owed" item): ThrustAccelFnAtWithTarget applies PitchTrim
+// then HeadingTrim (thrust.go, the closure's own two `if` blocks just
+// before the final dir.Norm() == 0 check), which is the correct order
+// BurnDirection's sibling site already guards
+// (TestBurnDirectionAppliesPitchBeforeHeading in
+// burn_direction_test.go), but reversing that order here failed
+// nothing in the whole suite before this test existed:
+// TestThrustAccelFnAtWithTargetAgreesWithBurnDirectionOnHeadingTrim
+// next door sets HeadingTrim only (PitchTrim stays zero), so it can't
+// distinguish an order that only diverges when both trims are nonzero.
+// Uses the same climbing-and-eastward state and 180°-from-east heading
+// offset TestBurnDirectionAppliesPitchBeforeHeading proved order-
+// sensitive, and includes the same sanity check that the two
+// compositions actually differ for this input (not a coincidence).
+func TestThrustAccelFnAtWithTargetAppliesPitchBeforeHeading(t *testing.T) {
+	earth := testEarth()
+	sc := NewInLEO(earth)
+	sc.HeadingTrim = math.Pi // 180° offset from due east: commanded bearing 270° (west).
+	sc.PitchTrim = 10 * math.Pi / 180
+	mu := earth.GravitationalParameter()
+
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	v := orbital.Vec3{X: 100, Y: 8000} // climbing (radial) and moving east (surface-relative).
+
+	spinAxisR := render.BodyRotationAxisWorld(earth)
+	spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
+	omegaR := render.BodySpinOmegaWorld(earth)
+	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
+	vSurf := v.Sub(omega.Cross(r))
+	natural := vSurf.Scale(1 / vSurf.Norm())
+
+	pitchFirst := ApplyHeadingTrim(ApplyPitchTrim(natural, r, spinAxis, sc.PitchTrim), r, spinAxis, sc.HeadingTrim)
+	headingFirst := ApplyPitchTrim(ApplyHeadingTrim(natural, r, spinAxis, sc.HeadingTrim), r, spinAxis, sc.PitchTrim)
+	if pitchFirst.Sub(headingFirst).Norm() < 1e-6 {
+		t.Fatalf("test setup doesn't distinguish order: pitch-first %+v ~= heading-first %+v", pitchFirst, headingFirst)
+	}
+
+	accelFn := sc.ThrustAccelFnAtWithTarget(BurnSurfacePrograde, mu, 1.0, orbital.Vec3{}, orbital.Vec3{})
+	gotAccel := accelFn(r, v, 0)
+	rMag := r.Norm()
+	gFactor := -mu / (rMag * rMag * rMag)
+	gravity := orbital.Vec3{X: r.X * gFactor, Y: r.Y * gFactor, Z: r.Z * gFactor}
+	thrustAccel := gotAccel.Sub(gravity)
+	if thrustAccel.Norm() == 0 {
+		t.Fatal("setup: ThrustAccelFnAtWithTarget produced no thrust component")
+	}
+	got := thrustAccel.Scale(1 / thrustAccel.Norm())
+
+	if got.Sub(pitchFirst).Norm() > 1e-6 {
+		t.Errorf("ThrustAccelFnAtWithTarget direction = %+v, want pitch-before-heading composition %+v (heading-first would give %+v)", got, pitchFirst, headingFirst)
 	}
 }
 

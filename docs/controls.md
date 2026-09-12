@@ -296,6 +296,7 @@ overlay carries, so you can look one up without leaving the game.
 | `Δv` / `Δincl` | Delta-v / relative inclination to a target's orbital plane |
 | `T-` / `T+` | Countdown convention: `T-` counts down to an event, `T+` counts up since it |
 | `incl (min N°)` | On the pad: the inclination your commanded heading yields, and the Inclination Floor (your launch latitude, unsigned) it can't go below |
+| `depart` | The angle between the orbit you'd reach and the plane the world beneath you travels in: the plane you leave along |
 
 ## Screens
 

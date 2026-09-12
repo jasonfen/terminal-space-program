@@ -9,6 +9,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // spawnLandedOnMoon spawns a Saturn V landed on the Moon — an airless
@@ -260,8 +261,13 @@ func TestTargetChipLandedTargetShowsNoApPe(t *testing.T) {
 		t.Fatal("TARGET chip returned nil for a landed target")
 	}
 	joined := strings.Join(lines, "\n")
+	// ADR 0050 decision 7 adds a "Δincl:" row for a landed target, which
+	// contains "incl:" as a substring, so strip it out before checking
+	// that the un-prefixed elements-derived "incl:" row (the one #375
+	// swapped for "landed at:") hasn't come back.
+	strippedOfDeltaIncl := strings.ReplaceAll(joined, readout.LabelDeltaIncl, "")
 	for _, unwanted := range []string{"Ap:", "Pe:", "incl:"} {
-		if strings.Contains(joined, unwanted) {
+		if strings.Contains(strippedOfDeltaIncl, unwanted) {
 			t.Errorf("landed target's TARGET chip still shows %q, want it swapped for landing site:\n%s", unwanted, joined)
 		}
 	}

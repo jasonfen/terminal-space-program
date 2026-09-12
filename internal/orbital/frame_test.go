@@ -7,6 +7,64 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
 
+// TestPlaneNormalOKTripsNearPoleNotFarFromIt pins ADR 0050 decision 8:
+// the guard is relative to the primary's own scale (omega, R), not an
+// exact |n| == 0 test, which a real pole never trips (floating-point
+// residue leaves a landed vessel a few metres from a pole with a
+// normal of magnitude ~1e-7, not zero). n = r × v for a co-rotating
+// vessel at colatitude theta (angle from the spin axis) has magnitude
+// omega * R^2 * sin(theta), so the cases below are built directly from
+// that closed form rather than from the game's own spawn/landed code
+// (which this package sits below), at Earth-like omega/R.
+func TestPlaneNormalOKTripsNearPoleNotFarFromIt(t *testing.T) {
+	const omega = 7.292115855e-5     // rad/s, Earth's sidereal spin rate.
+	const radius = 6.371e6           // m, Earth's mean radius.
+	spinAxis := Vec3{Z: 1}
+	normalAtColatitude := func(thetaRad float64) Vec3 {
+		r := Vec3{X: radius * math.Sin(thetaRad), Z: radius * math.Cos(thetaRad)}
+		v := spinAxis.Scale(omega).Cross(r) // omega x r, co-rotation velocity.
+		return r.Cross(v)
+	}
+	cases := []struct {
+		name      string
+		thetaDeg  float64
+		wantOK    bool // true = trustworthy plane, false = degenerate (withhold)
+	}{
+		{"exact pole", 0, false},
+		{"well within the trip radius (colatitude 1e-10 rad)", 1e-10 * 180 / math.Pi, false},
+		{"89.99999 degrees latitude (0.00001 degrees colatitude) must NOT trip", 0.00001, true},
+		{"one metre from the pole must NOT trip", (1.0 / radius) * 180 / math.Pi, true},
+		{"45 degrees latitude, ordinary case", 45, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			n := normalAtColatitude(c.thetaDeg * math.Pi / 180)
+			got := PlaneNormalOK(n, omega, radius)
+			if got != c.wantOK {
+				t.Errorf("PlaneNormalOK(|n|=%.3e) at colatitude %.10f deg = %v, want %v", n.Norm(), c.thetaDeg, got, c.wantOK)
+			}
+		})
+	}
+}
+
+// TestPlaneNormalOKRejectsZeroNormalAtZeroOmega pins review r1 F5: with
+// omega == 0 the threshold (1e-9 * omega * R^2) is itself exactly 0, so
+// the old `n.Norm() >= threshold` comparison let an exact-zero normal
+// through as "trustworthy" (PlanVesselPlaneMatch then calls .Unit() on
+// it). No shipped body has zero spin (all 52 catalog bodies either spin
+// or fall back to their orbital period when tidally locked), so this is
+// reachable only via a user overlay body with no rotation and no
+// tidallyLocked flag. `>` closes it while still accepting a real,
+// non-degenerate normal at the same omega.
+func TestPlaneNormalOKRejectsZeroNormalAtZeroOmega(t *testing.T) {
+	if got := PlaneNormalOK(Vec3{}, 0, 6.371e6); got {
+		t.Error("PlaneNormalOK(zero normal, omega=0) = true, want false (no plane, no matter the primary's spin)")
+	}
+	if got := PlaneNormalOK(Vec3{X: 1, Y: 2, Z: 3}, 0, 6.371e6); !got {
+		t.Error("PlaneNormalOK(real normal, omega=0) = false, want true (a genuine plane shouldn't be refused just because the primary doesn't spin)")
+	}
+}
+
 func TestInertialPlanetCentricRoundTrip(t *testing.T) {
 	primary := Vec3{X: 1.5e11, Y: 2.3e10, Z: -4.7e9}
 	cases := []Vec3{

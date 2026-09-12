@@ -33,6 +33,9 @@ func TestAttitudeHoldLabelOrbitModeUnaffected(t *testing.T) {
 	if !strings.Contains(row, "Prograde") || strings.Contains(row, "Target") {
 		t.Errorf("hold row = %q, want plain %q under NavOrbit", row, "Prograde")
 	}
+	if !strings.Contains(row, "(ORBIT)") {
+		t.Errorf("hold row = %q, want it to name the ORBIT frame like the navball button does", row)
+	}
 }
 
 // TestAttitudeHoldLabelNamesTargetFrame is the #421 acceptance test: the
@@ -70,14 +73,23 @@ func TestAttitudeHoldLabelNamesTargetFrame(t *testing.T) {
 			if tc.mustNot != "" && strings.Contains(row, tc.mustNot) {
 				t.Errorf("hold row = %q, must not contain the stale orbital label %q", row, tc.mustNot)
 			}
+			if !strings.Contains(row, "(TGT)") {
+				t.Errorf("hold row = %q, want it to name the TGT frame like the navball button does", row)
+			}
 		})
 	}
 }
 
 // TestAttitudeHoldLabelNormalHasNoTargetCounterpart: NormalPlus/Minus
-// have no target-relative equivalent — ResolveAttitudeIntent itself
+// have no target-relative equivalent: ResolveAttitudeIntent itself
 // leaves them orbit-frame under NavTarget too, so the display must match
 // rather than inventing a label that no keypress could ever produce.
+// The frame assertion was flipped in round 2 (R2-F1): Normal+ is
+// orbit-frame by construction (no held BurnMode reads NavMode; the nose
+// is BurnDirectionWithTarget(AttitudeMode, ...) with no nav argument),
+// so it tags ORBIT here too, not the current nav:TARGET, the same as
+// it would under nav:SURFACE, since there is no surface- or
+// target-frame equivalent of orbit normal at all.
 func TestAttitudeHoldLabelNormalHasNoTargetCounterpart(t *testing.T) {
 	w := proximityWorld(t, orbital.Vec3{X: 1_000})
 	w.NavMode = sim.NavTarget
@@ -88,6 +100,12 @@ func TestAttitudeHoldLabelNormalHasNoTargetCounterpart(t *testing.T) {
 	row := holdRow(t, v.buildAttitudeChip(w))
 	if !strings.Contains(row, "Normal+") {
 		t.Errorf("hold row = %q, want it to stay %q (no target-relative counterpart)", row, "Normal+")
+	}
+	if !strings.Contains(row, "(ORBIT)") {
+		t.Errorf("hold row = %q, want it to tag its own ORBIT frame, not the current nav:TARGET frame", row)
+	}
+	if strings.Contains(row, "(TGT)") {
+		t.Errorf("hold row = %q, must not claim a target frame Normal+ never actually holds", row)
 	}
 }
 
@@ -111,5 +129,103 @@ func TestAttitudeHoldLabelNoRelativeTargetStaysOrbitFrame(t *testing.T) {
 	}
 	if !strings.Contains(row, "Prograde") {
 		t.Errorf("hold row = %q, want it to fall back to plain %q", row, "Prograde")
+	}
+	if !strings.Contains(row, "(ORBIT)") || strings.Contains(row, "(TGT)") {
+		t.Errorf("hold row = %q, want the frame tag to fall back to ORBIT too (nothing to actually read TGT against)", row)
+	}
+}
+
+// TestAttitudeHoldLabelSurfaceModeAlwaysTagsSurf: a surface-framed mode
+// (Surface Prograde/Retrograde) is frame-locked at the moment it's set,
+// unlike Prograde/Retrograde/Radial which read whatever frame nav: is
+// currently in. So its tag names its own frame, not the current nav
+// frame, whatever nav: happens to be showing. Fixes the self-
+// contradiction of a row reading "Surface Prograde (ORBIT)".
+func TestAttitudeHoldLabelSurfaceModeAlwaysTagsSurf(t *testing.T) {
+	cases := []struct {
+		name string
+		nav  sim.NavMode
+	}{
+		{"under NavOrbit", sim.NavOrbit},
+		{"under NavTarget", sim.NavTarget},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := proximityWorld(t, orbital.Vec3{X: 1_000})
+			w.NavMode = tc.nav
+			c := w.ActiveCraft()
+			c.AttitudeMode = spacecraft.BurnSurfacePrograde
+
+			v := newProximityTestView(t, 80, 24)
+			row := holdRow(t, v.buildAttitudeChip(w))
+			if !strings.Contains(row, "(SURF)") {
+				t.Errorf("hold row = %q, want a surface-framed mode to always tag (SURF), regardless of nav:", row)
+			}
+		})
+	}
+}
+
+// TestAttitudeHoldLabelTargetModeAlwaysTagsTgt: a target-relative mode
+// (already Target Prograde/Retrograde/Target/Anti-Target, whether held
+// directly or produced by the #421 remap above) is likewise frame-
+// locked to TARGET; it must keep tagging TGT even if the player then
+// cycles nav: away to SURFACE, rather than following the current nav
+// frame like the frame-agnostic modes do.
+func TestAttitudeHoldLabelTargetModeAlwaysTagsTgt(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 1_000})
+	w.NavMode = sim.NavSurface
+	c := w.ActiveCraft()
+	c.AttitudeMode = spacecraft.BurnTargetPrograde
+
+	v := newProximityTestView(t, 80, 24)
+	row := holdRow(t, v.buildAttitudeChip(w))
+	if !strings.Contains(row, "(TGT)") {
+		t.Errorf("hold row = %q, want a target-relative mode to always tag (TGT), regardless of nav:", row)
+	}
+	if strings.Contains(row, "(SURF)") {
+		t.Errorf("hold row = %q, must not follow nav:SURFACE for a frame-locked target mode", row)
+	}
+}
+
+// TestAttitudeHoldLabelBaseModesAlwaysTagOrbit: round 2 review R2-F1, no
+// held BurnMode reads NavMode at all (internal/spacecraft never consults
+// it; the nose is BurnDirectionWithTarget(AttitudeMode, ...)), so a base
+// mode (Prograde/Retrograde/RadialOut/RadialIn/NormalPlus/NormalMinus) is
+// orbit-frame in every nav mode, not just NavOrbit. Tagging it with the
+// current nav frame prints a false claim: "Prograde (SURF)" under
+// nav:SURFACE, or "Normal+ (SURF)" on the pad, when the nose is holding
+// plain orbit-frame prograde / orbit normal the whole time (there is no
+// surface-frame normal in the game). Reproduced live: KSC pad (nav
+// SURFACE by default), press `a` -> `hold: Normal+ (SURF)`; in flight,
+// `w` then `;` -> `hold: Prograde (SURF)` while the nose still holds
+// orbit-frame prograde.
+func TestAttitudeHoldLabelBaseModesAlwaysTagOrbit(t *testing.T) {
+	cases := []struct {
+		name string
+		mode spacecraft.BurnMode
+	}{
+		{"Prograde", spacecraft.BurnPrograde},
+		{"Retrograde", spacecraft.BurnRetrograde},
+		{"RadialOut", spacecraft.BurnRadialOut},
+		{"RadialIn", spacecraft.BurnRadialIn},
+		{"NormalPlus", spacecraft.BurnNormalPlus},
+		{"NormalMinus", spacecraft.BurnNormalMinus},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := proximityWorld(t, orbital.Vec3{X: 1_000})
+			w.NavMode = sim.NavSurface
+			c := w.ActiveCraft()
+			c.AttitudeMode = tc.mode
+
+			v := newProximityTestView(t, 80, 24)
+			row := holdRow(t, v.buildAttitudeChip(w))
+			if !strings.Contains(row, "(ORBIT)") {
+				t.Errorf("hold row = %q, want a base mode to tag (ORBIT) even under nav:SURFACE (the nose has no surface-frame equivalent for this mode)", row)
+			}
+			if strings.Contains(row, "(SURF)") {
+				t.Errorf("hold row = %q, must not claim SURF for a mode the nose never rebinds to surface frame", row)
+			}
+		})
 	}
 }
