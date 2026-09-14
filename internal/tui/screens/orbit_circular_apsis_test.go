@@ -44,6 +44,21 @@ func apsisRow(t *testing.T, out, label string) string {
 	return m[1]
 }
 
+// navigationApCell pulls NAVIGATION's whole Ap: cell (altitude, plus an
+// optional trend glyph and T- countdown, all on one cell since ADR 0051
+// decision 10 folds the retired ORBIT chip's separate apo: row into it)
+// out of a render: everything from "Ap:" up to the next two-space gap
+// before the row's second label ("Pe:").
+func navigationApCell(t *testing.T, out string) string {
+	t.Helper()
+	re := regexp.MustCompile(`Ap:\s*(.+?)\s{2,}Pe:`)
+	m := re.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no Ap: cell in the render:\n%s", out)
+	}
+	return strings.TrimSpace(m[1])
+}
+
 // #286: on a perfectly circular orbit every point is at the same radius,
 // so there is no apoapsis or periapsis to count down to. The readout used
 // to print exactly half a period, frozen — a number that looks live and
@@ -61,23 +76,24 @@ func TestOrbitChipApsisTimesDegenerateOnCircularOrbit(t *testing.T) {
 	r := w.ActiveCraft().Primary.RadiusMeters() + 500e3
 
 	// Two craft positions a quarter turn apart on the SAME circular orbit —
-	// the live symptom was both reading an identical, unmoving P/2.
+	// the live symptom was both reading an identical, unmoving P/2. ADR
+	// 0051 folds the countdown onto NAVIGATION's Ap: cell (decision 10);
+	// the regression is now "no T- countdown appears" rather than a
+	// separate apo:/peri: row reading a literal dash.
 	var seen []string
 	for _, nu := range []float64{0, math.Pi / 2} {
 		period := placeOnConic(w, r, r, nu)
 		out := v.Render(w, 0, 200, 60)
-		for _, label := range []string{"apo:", "peri:"} {
-			val := apsisRow(t, out, label)
-			if val != "—" {
-				t.Errorf("circular orbit at ν=%.2f: %s %q, want \"—\" (apsides are undefined at e=0)",
-					nu, label, val)
-			}
+		cell := navigationApCell(t, out)
+		if strings.Contains(cell, "T-") || strings.Contains(cell, "T+") {
+			t.Errorf("circular orbit at ν=%.2f: Ap cell %q carries a countdown, want none (apsides are undefined at e=0)",
+				nu, cell)
 		}
-		seen = append(seen, apsisRow(t, out, "apo:"))
+		seen = append(seen, cell)
 		_ = period
 	}
 	if len(seen) == 2 && seen[0] != seen[1] {
-		t.Errorf("t→Ap differed between two points on the same circular orbit: %q vs %q", seen[0], seen[1])
+		t.Errorf("Ap cell differed between two points on the same circular orbit (only the altitude should print, and it's the same radius): %q vs %q", seen[0], seen[1])
 	}
 }
 
@@ -96,15 +112,18 @@ func TestOrbitChipApsisTimesLiveOnSlightlyEccentricOrbit(t *testing.T) {
 	rPeri, rApo := primaryR+500.0e3, primaryR+500.4e3
 
 	placeOnConic(w, rPeri, rApo, 0)
-	atPeri := apsisRow(t, v.Render(w, 0, 200, 60), "apo:")
+	atPeri := navigationApCell(t, v.Render(w, 0, 200, 60))
 	placeOnConic(w, rPeri, rApo, math.Pi/2)
-	quarterOn := apsisRow(t, v.Render(w, 0, 200, 60), "apo:")
+	quarterOn := navigationApCell(t, v.Render(w, 0, 200, 60))
 
-	if strings.Contains(atPeri, "—") || strings.Contains(quarterOn, "—") {
-		t.Fatalf("0.4 km of apsis separation read as degenerate: %q / %q", atPeri, quarterOn)
+	if !strings.Contains(atPeri, "T-") && !strings.Contains(atPeri, "T+") {
+		t.Fatalf("0.4 km of apsis separation read as degenerate (no countdown on the Ap cell): %q", atPeri)
+	}
+	if !strings.Contains(quarterOn, "T-") && !strings.Contains(quarterOn, "T+") {
+		t.Fatalf("0.4 km of apsis separation read as degenerate (no countdown on the Ap cell): %q", quarterOn)
 	}
 	if atPeri == quarterOn {
-		t.Errorf("t→Ap frozen at %q across a quarter orbit — the timer is not tracking position", atPeri)
+		t.Errorf("Ap cell frozen at %q across a quarter orbit — the countdown is not tracking position", atPeri)
 	}
 }
 

@@ -34,16 +34,62 @@ import (
 // Target readout stacked beneath it; Stages is bottom-left and Nodes is
 // bottom-right (above the navball). Declutter is honoured inside
 // chipEnabled, so a decluttered frame returns no chips.
+// navigationBoxesInOrder appends the eight ADR 0051 instrument boxes at
+// Core priority (never dropped by layoutChipsBySide's shrink/drop until
+// every Normal chip on their side has already gone), in the ruled left
+// order (ENGINE, PROPELLANT, GUIDANCE, COMMS, STAGES, MISSION) and right
+// order (NAVIGATION, TARGET). Gated only on chipEnabled("") — F2
+// declutter, matching every other always-on chip — because Settings
+// per-box ids and F2's lit-engine exception are slice 2b's (decision 16
+// is not fully wired yet; for 2a, F2 hides all eight together like any
+// other declutterable chip, with no exception).
+func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []builtChip {
+	if !v.chipEnabled("") {
+		return chips
+	}
+	// The Proximity View (ADR 0043) is its own close-range instrument
+	// panel (buildProximityChip), not one of the two views ADR 0051's
+	// "one layout, both views" decision 3 covers (the orbit map and the
+	// LAUNCH/surface view) — it never coexisted with the pre-ADR-0051
+	// VESSEL/MISSIONS core chips at small canvases either. Suppressing
+	// the eight boxes here keeps the Proximity View's own budget intact
+	// instead of the much larger new box set evicting it via the
+	// stacker at a narrow terminal.
+	if w.ViewMode == sim.ViewProximity {
+		return chips
+	}
+	left := []func(*sim.World) []string{
+		v.buildEngineBox, v.buildPropellantBox, v.buildGuidanceBox,
+		v.buildCommsBox, v.buildStagesBox, v.buildMissionBox,
+	}
+	for i, build := range left {
+		c := builtChip{corner: cornerTopLeft, lines: build(w), priority: chipPriorityCore}
+		if i == 0 {
+			// ENGINE folded in the retired NODES chip's node row
+			// (decision 1); keep its click routing alive by reusing
+			// ChipNodes' id purely for HitChip resolution (app.go opens
+			// the maneuver screen on a click matching this id) — not for
+			// visibility gating, which stays on the group's plain
+			// chipEnabled("") above. Settings per-box ids are slice 2b's.
+			c.id = settings.ChipNodes
+		}
+		chips = append(chips, c)
+	}
+	right := []func(*sim.World) []string{v.buildNavigationBox, v.buildTargetBox}
+	for _, build := range right {
+		chips = append(chips, builtChip{corner: cornerTopRight, lines: build(w), priority: chipPriorityCore})
+	}
+	return chips
+}
+
 func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	var chips []builtChip
-	// Pinned core telemetry — top of the top-left stack. Unlike every
-	// other chip it is always rendered: never settings-toggled (core
-	// telemetry is fixed, ADR 0010) and never hidden by declutter — F2
-	// must not be able to hide fuel/Δv mid-burn. v0.13 playtest move:
-	// VESSEL/PROPELLANT left the right-hand column to live on the canvas.
-	if lines := v.buildVesselChip(w); lines != nil {
-		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, compact: v.buildVesselChipCompact(w), priority: chipPriorityCore})
-	}
+	// The eight fixed instrument boxes (ADR 0051), first in the left and
+	// right stacks respectively — decision 2's "boxes never move" reads
+	// most simply as a fixed prefix of each column, with notices (below)
+	// layering after them until slice 3 moves every notice into its own
+	// bay.
+	chips = v.navigationBoxesInOrder(w, chips)
 	// VESSEL DESTROYED (#427 / ADR 0048): the game's first Standing
 	// Alert — an alert-coloured chip that persists for as long as the
 	// active craft's Crashed state holds, not a transient Event Flash.
@@ -106,27 +152,18 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// already carries these numbers and a second copy would be pure
 	// clutter.
 	addC("", cornerTopLeft, v.buildProximityChip(w), v.buildProximityChipCompact(w))
-	// The current goal sits directly under the pinned VESSEL chip — "who I am"
-	// then "what I'm doing" in the top-left status corner (ADR 0025 / Slice 5).
-	addC(settings.ChipMissions, cornerTopLeft, v.buildMissionsChip(w), v.buildMissionsChipCompact(w))
 	// Top-left transient stack (stacking order = listed order, downward).
 	// The in-flight ● BURNS readout used to live here; v0.16 folds it into
-	// the bottom-right NODES chip (a live burn is the firing head of the
-	// burn schedule). See the force-show path below.
+	// ENGINE's node row (ADR 0051 decision 1).
 	add(settings.ChipFrameTransition, cornerTopLeft, v.buildFrameTransitionChip(w))
 	add(settings.ChipCapture, cornerTopLeft, v.buildCaptureChip(w))
-	add(settings.ChipLaunch, cornerTopLeft, v.buildLaunchChip(w))
-	add(settings.ChipDescent, cornerTopLeft, v.buildDescentChip(w))
 	// DESCENDING (issue #348 §4): a one-line pointer at the launch/surface
 	// jump key, offered the moment the active vessel's trajectory is
 	// forecast to reach the ground — the map-screen mirror of the
 	// CLOSE RANGE hint below (same "teach the key once, then get out of
-	// the way" always-on + self-limiting treatment). Placed beside
-	// DESCENT/CHUTE — the other own-craft-state chips — rather than in
-	// the Target-oriented top-right stack.
+	// the way" always-on + self-limiting treatment).
 	add("", cornerTopLeft, v.buildLaunchHintChip(w))
 	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
-	add(settings.ChipAttitude, cornerTopLeft, v.buildAttitudeChip(w))
 	// SESSION moments (v0.27 S6 / ADR 0034): join/leave/sync events as
 	// a transient top-left chip. Always-on when events are fresh (empty
 	// id — moments are too short-lived to warrant a Settings toggle);
@@ -154,31 +191,6 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// chipPriorityForced — admitChipsByBudget must never silently drop it
 	// for space the way it dropped every ordinary chip ahead of it.
 	addPriority("", cornerTopLeft, v.buildDockGuestChip(w), v.buildDockGuestChipCompact(w), chipPriorityForced)
-	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
-	// vessel-state readouts. Force-shown while a just-blocked command is
-	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
-	// NO SIGNAL reason for a refused command is never hidden; otherwise it
-	// honours the toggle like any chip.
-	if lines := v.buildCommsChip(w); lines != nil {
-		if _, flashing := w.CommBlockedFlash(); flashing || v.chipEnabled(settings.ChipComms) {
-			chips = append(chips, builtChip{id: settings.ChipComms, corner: cornerTopLeft, lines: lines})
-		}
-	}
-	// Top-right stack: Orbit metrics on top, the Target readout beneath it
-	// (append order = top-to-bottom). Orbit metrics is always-on (empty id):
-	// the current orbit (apo/peri/incl) is never user-hideable from the
-	// Settings screen, mirroring the always-on ● BURNS readout — both are
-	// too load-bearing to toggle off. F2 declutter still clears them.
-	addPriority("", cornerTopRight, v.buildOrbitMetricsChip(w), v.buildOrbitMetricsChipCompact(w), chipPriorityCore)
-	// PROJECTED ORBIT sits to the LEFT of the always-on ORBIT readout (issue
-	// #63 follow-up) so current + projected show together during a burn
-	// without growing the top-right column's height — leaving vertical room
-	// for TARGET to clear the bottom-right NODES chip. Toggleable, unlike the
-	// load-bearing live ORBIT beside it. leftOfPrev falls back to normal
-	// stacking when ORBIT is suppressed (e.g. ascent), so it's never orphaned.
-	if lines := v.buildProjectedOrbitChip(w); lines != nil && v.chipEnabled(settings.ChipProjectedOrbit) {
-		chips = append(chips, builtChip{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: lines, compact: v.buildProjectedOrbitChipCompact(w), leftOfPrev: true})
-	}
 	// CLOSE RANGE (ADR 0043): a one-line pointer at the Proximity View
 	// jump key, offered when an approach crosses inside the range at which
 	// the game already treats two vessels as flying together. It sits
@@ -190,48 +202,14 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// sim's crossing state machine retires it the moment the player acts,
 	// and it never renders inside the view it advertises.
 	add("", cornerTopRight, v.buildProximityHintChip(w))
-	addC(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w), v.buildTargetChipCompact(w))
-	// SOI PASS sits beneath TARGET — the upcoming encounter of the live
-	// path, always-on and Target-independent (ADR 0019). De-dupes with
-	// TARGET inside the builder when they name the same body.
+	// SOI PASS — the upcoming encounter of the live path, always-on and
+	// Target-independent (ADR 0019). De-dupes with TARGET inside the
+	// builder when they name the same body.
 	add(settings.ChipSOIPass, cornerTopRight, v.buildSOIPassChip(w))
-	// Remaining fixed corners.
-	addC(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w), v.buildStagesChipCompact(w))
-	// CHAT stacks under STAGES, its own corner slot away from the
-	// session moments (ADR 0035 §2). Always-on like SESSION — a
-	// coordination line must not be togglable into silence.
+	// CHAT stacks bottom-left, its own corner slot away from the session
+	// moments (ADR 0035 §2). Always-on like SESSION — a coordination
+	// line must not be togglable into silence.
 	add("", cornerBottomLeft, v.buildChatChip(w))
-	// NODES (bottom-right) now also carries any in-flight burn as its
-	// firing head (v0.16). A live burn is safety-critical, so when one is
-	// in flight the chip force-shows — bypassing both the ChipNodes
-	// Settings toggle and F2 declutter — so it can never be hidden.
-	// #293 extends the same force-show rationale to the staleness
-	// hazard: once more than one node is queued on the ACTIVE craft,
-	// every node behind the first was computed against an orbit that no
-	// longer exists once the first one fires, so the count must be
-	// visible the same way a live burn is. #333: this is strictly
-	// per-craft (activeCraftQueuedNodes), not the old fleet-wide sum — a
-	// different craft's queue firing doesn't stale the one this player
-	// is watching, so a small constellation with one node per vessel no
-	// longer force-shows a chip the player explicitly decluttered. With
-	// ≤1 node queued on the active craft and nothing burning, the chip
-	// honours the toggle + declutter like any chip.
-	if lines := v.buildNodesChip(w); lines != nil {
-		forced := v.anyActiveBurn(w) || activeCraftQueuedNodes(w) > 1
-		if forced || v.chipEnabled(settings.ChipNodes) {
-			// #334: only a genuinely FORCED render (bypassing the toggle)
-			// gets chipPriorityForced's "never drop for space, clamp
-			// instead" guarantee. A merely toggle-enabled NODES chip is a
-			// normal-priority chip like any other — if it can't fit, the
-			// player's own toggle choice is what loses, not a silent
-			// safety-critical readout.
-			priority := chipPriorityNormal
-			if forced {
-				priority = chipPriorityForced
-			}
-			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines, compact: v.buildNodesChipCompact(w), priority: priority})
-		}
-	}
 	return chips
 }
 

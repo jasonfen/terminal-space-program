@@ -315,33 +315,33 @@ func TestProximityNoTargetShowsRefusal(t *testing.T) {
 	}
 }
 
-// TestProximityHintChipOnApproach: the hint appears on the map once the
-// approach crosses inside the band, names the key, and is gone inside the
-// view it advertises. Rendered at the Design Size (ADR 0046): this test is
-// about the hint's own content-selection logic (ProximityHintActive's
-// crossing state machine), not chip layout — at the Playable Floor with
-// the navball showing and a craft TARGET's full readout also competing for
-// the same one spare row, EVERY right-side chip legitimately collapses to
-// a Hidden Stub under Graceful Shrink (see TestLayoutChipsBySide* in
-// orbit_chips_test.go for that contract), which would sabotage this test
-// for a reason that has nothing to do with what it's checking.
+// TestProximityHintChipOnApproach: the hint appears once the approach
+// crosses inside the band, names the key, and is gone inside the view it
+// advertises. This test is about the hint's own content-selection logic
+// (ProximityHintActive's crossing state machine), not chip layout, so it
+// calls buildProximityHintChip directly rather than through a full
+// Render — ADR 0051's eight instrument boxes now fully occupy the right
+// column's budget (NAVIGATION 10 + TARGET 7 = 17 of 17) even at the
+// Design Size, so a notice like this hint has no row left to win in a
+// real render until slice 3 moves notices into their own bay (out of
+// the corner budget entirely, per the ADR's own proposed build slicing).
+// Checking the builder directly keeps this test about the crossing
+// state machine, not that still-pending budget move.
 func TestProximityHintChipOnApproach(t *testing.T) {
 	w := proximityWorld(t, orbital.Vec3{X: 5_000})
 	v := newProximityTestView(t, DesignWidth, DesignHeight)
 	w.ViewMode = sim.ViewTilted
 	w.Tick() // steps the crossing state machine
 
-	out := v.Render(w, 0, DesignWidth, DesignHeight)
-	if !strings.Contains(out, "CLOSE RANGE") {
-		t.Errorf("no hint chip at 5 km\n%s", out)
+	if lines := v.buildProximityHintChip(w); lines == nil {
+		t.Error("no hint chip at 5 km")
 	}
 
 	if entered, refusal := w.ToggleProximityView(); !entered {
 		t.Fatalf("enter refused: %q", refusal)
 	}
-	out = v.Render(w, 0, DesignWidth, DesignHeight)
-	if strings.Contains(out, "CLOSE RANGE") {
-		t.Errorf("hint chip still on screen inside Proximity View\n%s", out)
+	if lines := v.buildProximityHintChip(w); lines != nil {
+		t.Errorf("hint chip still active inside Proximity View: %v", lines)
 	}
 }
 

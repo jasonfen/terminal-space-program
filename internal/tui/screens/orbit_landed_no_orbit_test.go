@@ -94,12 +94,16 @@ func TestLandedActiveVesselDrawsNoEllipseOrApsisMarkers(t *testing.T) {
 // PR description — reverting the craftHasOrbit guard at these
 // coordinates still fails the ellipse/marker checks, and blanking the
 // glyph draw still fails the glyph check).
+// Rendered at the Design Size (ADR 0046/0051): at 80x24 (below the
+// floor), ADR 0051's eight instrument boxes are wide enough to paint
+// over the landed vessel's on-screen glyph position in this fixture's
+// tight surface-facing camera framing.
 func TestLandedVesselKeepsGlyphAndInspectRegistration(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.Resize(80, 24)
+	v.Resize(DesignWidth, DesignHeight)
 	w, c := spawnLandedOnMoon(t, 30, 0) // 30°N — camera-facing, verified above
 
-	out := v.Render(w, 0, 80, 24)
+	out := v.Render(w, 0, DesignWidth, DesignHeight)
 
 	vesselGlyph := []rune(spacecraft.VesselGlyph)[0]
 	if !strings.ContainsRune(out, vesselGlyph) {

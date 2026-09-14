@@ -175,9 +175,11 @@ func TestShouldShowDescentHUDAtmospheric(t *testing.T) {
 // TestDescentHUDRendersVHorizAlertOnImpactorApproach — drives the
 // HUD into the playtest-report scenario: standalone Lander at 5 km
 // Moon altitude with residual orbital lateral velocity (1.5 km/s,
-// vastly above CrashVCritMps = 10). The rendered output must
-// surface the DESCENT header, the horiz row, and the CRASH-on-
-// contact alert so the failure mode is legible before touchdown.
+// vastly above CrashVCritMps = 10). The rendered output must surface
+// NAVIGATION's horiz row with the CRASH-on-contact alert so the failure
+// mode is legible before touchdown. ADR 0051 retires the standalone
+// DESCENT chip (its rows fold into NAVIGATION/GUIDANCE, always drawn),
+// so this no longer checks for a DESCENT section header.
 func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -192,8 +194,8 @@ func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	view := NewOrbitView(descentHUDTheme())
 	view.Resize(200, 60) // realistic canvas; the 80×24 default is too short for the bordered chip stack
 	out := view.Render(w, 0, 200, 60)
-	if !strings.Contains(out, "DESCENT") {
-		t.Errorf("expected DESCENT section header in render; got:\n%s", out)
+	if !strings.Contains(out, "NAVIGATION") {
+		t.Errorf("expected the NAVIGATION box in render; got:\n%s", out)
 	}
 	if !strings.Contains(out, "vert:") {
 		t.Errorf("expected vert row")

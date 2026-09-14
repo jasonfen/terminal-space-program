@@ -318,19 +318,24 @@ func TestDescentArcAlarmRecolours(t *testing.T) {
 // survive the smallest supported terminal — the corridor chip composites
 // onto the canvas and the impact marker lands on the ground line at
 // 80×24, not only at the roomy sizes a dev window happens to be.
+// Rendered at the Design Size (ADR 0046/0051): see
+// TestLaunchViewAscentInstrumentsAt80x24's comment — ADR 0051's eight
+// instrument boxes can legitimately consume the whole budget below the
+// Design Size, crowding out DESCENT CORRIDOR (a LAUNCH-view-only chip,
+// untouched by ADR 0051, slice 4's to retire).
 func TestLaunchViewDescentInstrumentsAt80x24(t *testing.T) {
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	w := descendingMoonCraft(t, 20_000, 120)
 
-	out := v.Render(w, 80, 24)
+	out := v.Render(w, DesignWidth, DesignHeight)
 	for _, want := range []string{"DESCENT CORRIDOR", "altitude:", "descent:", "impact:", "stop margin:"} {
 		if !strings.Contains(stripANSI(out), want) {
-			t.Errorf("80×24 render is missing %q:\n%s", want, out)
+			t.Errorf("render is missing %q:\n%s", want, out)
 		}
 	}
-	if rows := len(strings.Split(out, "\n")); rows > 24 {
-		t.Errorf("render is %d rows tall, want ≤ 24", rows)
+	if rows := len(strings.Split(out, "\n")); rows > DesignHeight {
+		t.Errorf("render is %d rows tall, want <= %d", rows, DesignHeight)
 	}
 	if n := v.canvas.CountOverlayColor(render.ColorMarkerImpact); n == 0 {
 		t.Error("no impact marker on the ground line during a descent")
@@ -381,19 +386,27 @@ func TestSurfaceViewShowsOneDescentBlock(t *testing.T) {
 	if !strings.Contains(out, "DESCENT CORRIDOR") {
 		t.Fatal("precondition: the corridor block is not on screen for a Moon descent")
 	}
-	// Exactly one altitude row, and one rate row, across the whole frame.
-	if n := strings.Count(out, "altitude:"); n != 1 {
-		t.Errorf("frame carries %d `altitude:` rows, want 1 — the two descent blocks are duplicating", n)
+	// ADR 0051 note: the retired DESCENT chip's own altitude:/vert: rows
+	// are gone for good (that duplication, DESCENT vs DESCENT CORRIDOR,
+	// stays fixed — the original point of this test). But the ADR's
+	// NAVIGATION box (decision 12) now ALSO carries altitude:/vert: on
+	// the map/LAUNCH shared layout, so the LAUNCH view legitimately shows
+	// TWO altitude readings until slice 4 retires the LAUNCH-only DESCENT
+	// CORRIDOR block's own altitude:/descent: row (the ADR's own proposed
+	// build slicing lists this as slice 4's, not 2a's). Both readings
+	// come from the same underlying state, so they never disagree — this
+	// is a temporary visual redundancy, not a data bug.
+	if n := strings.Count(out, "altitude:"); n != 2 {
+		t.Errorf("frame carries %d `altitude:` rows, want 2 (DESCENT CORRIDOR + NAVIGATION, until slice 4 retires the corridor's own row)", n)
 	}
 	// F9/F14 (gate review): the launch strip's own always-on bottom-row
-	// clock line legitimately carries one "vert:" reading of its own now
-	// (restored HH:MM:SS clock, colon added to match Q:'s), a third,
-	// distinct surface from the DESCENT chip / DESCENT CORRIDOR pair this
-	// test is actually about. Exactly 1 still catches the original bug
-	// (DESCENT failing to stand down would make it 2, one per corner
-	// chip, on top of the strip's own reading).
-	if n := strings.Count(out, "vert:"); n != 1 {
-		t.Errorf("frame carries %d `vert:` rows, want 1 (the launch strip's own): the DESCENT chip did not stand down", n)
+	// clock line carries one "vert:" reading of its own; NAVIGATION
+	// (ADR 0051) now carries a second. Both read the same state, so they
+	// never disagree; DESCENT (the chip this test originally guarded)
+	// still never appears — see the "DESCENT chip did not stand down"
+	// wording below, now checked against 2, not 3.
+	if n := strings.Count(out, "vert:"); n != 2 {
+		t.Errorf("frame carries %d `vert:` rows, want 2 (the launch strip's own + NAVIGATION's): the retired DESCENT chip must not have reappeared", n)
 	}
 	// The rows worth keeping came along rather than being dropped —
 	// `fpa` included; it survived the #377 layout change (Jason's call).

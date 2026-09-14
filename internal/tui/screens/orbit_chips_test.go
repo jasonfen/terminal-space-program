@@ -464,8 +464,12 @@ func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
 // readout.Nzero instead (ADR 0049 stage A2).
 
 // TestDeclutterHidesChipsKeepsColumn: F2 declutter suppresses every Chip
-// (here the always-relevant ATTITUDE chip) while the slim HUD column —
-// which it must never hide (CONTEXT.md §Declutter) — keeps rendering.
+// (here the eight ADR 0051 instrument boxes, e.g. GUIDANCE, which folded
+// in the retired ATTITUDE chip's nav:/hold: rows). 2a gates all eight
+// boxes on plain declutter (Settings per-box ids and F2's lit-engine
+// exception are slice 2b's, decision 16), so unlike the pre-ADR-0051
+// pinned VESSEL chip, F2 now hides EVERY instrument box together,
+// including ENGINE/PROPELLANT — that exception lands with 2b.
 func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
@@ -474,36 +478,38 @@ func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	out := v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "ATTITUDE") {
-		t.Fatalf("expected ATTITUDE chip with declutter off:\n%s", out)
+	if !strings.Contains(out, "GUIDANCE") {
+		t.Fatalf("expected GUIDANCE box with declutter off:\n%s", out)
 	}
-	if !strings.Contains(out, "VESSEL") {
-		t.Fatalf("expected VESSEL slim column with declutter off")
+	if !strings.Contains(out, "ENGINE") {
+		t.Fatalf("expected ENGINE box with declutter off")
 	}
 
 	v.SetDeclutter(true)
 	out = v.Render(w, 0, 120, 40)
-	if strings.Contains(out, "ATTITUDE") {
-		t.Errorf("declutter on: ATTITUDE chip should be hidden:\n%s", out)
+	if strings.Contains(out, "GUIDANCE") {
+		t.Errorf("declutter on: GUIDANCE box should be hidden:\n%s", out)
 	}
-	if !strings.Contains(out, "VESSEL") {
-		t.Errorf("declutter on: slim HUD column must still render (never hidden):\n%s", out)
+	if strings.Contains(out, "ENGINE") {
+		t.Errorf("declutter on (2a): ENGINE box should be hidden too — the lit-engine exception (decision 16) is slice 2b's, not wired yet:\n%s", out)
 	}
 
 	v.SetDeclutter(false)
 	out = v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "ATTITUDE") {
-		t.Errorf("declutter off again: ATTITUDE chip should return:\n%s", out)
+	if !strings.Contains(out, "GUIDANCE") {
+		t.Errorf("declutter off again: GUIDANCE box should return:\n%s", out)
 	}
 }
 
-// TestOrbitMetricsAlwaysOnAndLiveBurnForceShows: the ORBIT-metrics readout
-// is non-toggleable (renders with every Chip disabled) but F2 declutter
-// still clears it. A live burn now folds into the NODES chip and
-// force-shows — it renders even with every Chip disabled AND survives F2
-// declutter (v0.16: a live burn is safety-critical and can't be hidden).
-// Only the pinned VESSEL core also survives declutter.
-func TestOrbitMetricsAlwaysOnAndLiveBurnForceShows(t *testing.T) {
+// TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn: the NAVIGATION box is
+// non-toggleable in 2a (no Settings id exists for it yet — decision 16's
+// per-box ids are slice 2b's) so it renders with every Settings chip
+// disabled. A live burn shows on ENGINE's node row (folded in from the
+// retired NODES chip). 2a does not yet implement decision 16's
+// lit-engine declutter exception (slice 2b), so F2 hides ENGINE (and the
+// live-burn readout on it) along with everything else — a documented
+// interim gap, not the final contract.
+func TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
 	w, err := sim.NewWorld()
@@ -511,8 +517,8 @@ func TestOrbitMetricsAlwaysOnAndLiveBurnForceShows(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 
-	// Disable every toggleable Chip (incl. ChipNodes); the always-on
-	// ORBIT readout must persist.
+	// Disable every toggleable Chip; the instrument boxes have no
+	// Settings id yet (2b's job) so they must persist regardless.
 	s := settings.Default()
 	for _, c := range settings.AllChips {
 		s.SetChip(c, false)
@@ -520,12 +526,12 @@ func TestOrbitMetricsAlwaysOnAndLiveBurnForceShows(t *testing.T) {
 	v.SetSettings(s)
 
 	out := v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "ORBIT") {
-		t.Errorf("ORBIT metrics must render with all chips disabled (non-toggleable):\n%s", out)
+	if !strings.Contains(out, "NAVIGATION") {
+		t.Errorf("NAVIGATION must render with all chips disabled (no Settings id yet):\n%s", out)
 	}
 
-	// Light an active burn → the firing head force-shows inside NODES even
-	// with ChipNodes (and every other chip) disabled.
+	// Light an active burn → the firing head force-shows on ENGINE's node
+	// row even with every Settings chip disabled.
 	c := w.ActiveCraft()
 	if c == nil {
 		t.Fatal("expected an active craft")
@@ -536,57 +542,40 @@ func TestOrbitMetricsAlwaysOnAndLiveBurnForceShows(t *testing.T) {
 		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
 	}
 	out = v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "NODES") || !strings.Contains(out, "120 m/s") {
-		t.Errorf("a live burn must force-show in the NODES chip with all chips disabled:\n%s", out)
+	if !strings.Contains(out, "ENGINE") || !strings.Contains(out, "120 m/s") {
+		t.Errorf("a live burn must show on ENGINE's node row with all chips disabled:\n%s", out)
 	}
 
-	// F2 declutter clears ORBIT metrics, but the live burn force-shows
-	// through it; the pinned VESSEL core also survives.
+	// F2 declutter clears every instrument box, ENGINE included — the
+	// lit-engine exception (decision 16) is slice 2b's, not this slice's.
 	v.SetDeclutter(true)
 	out = v.Render(w, 0, 120, 40)
-	if strings.Contains(out, "ORBIT") {
-		t.Errorf("declutter must hide the ORBIT metrics chip:\n%s", out)
-	}
-	if !strings.Contains(out, "120 m/s") {
-		t.Errorf("a live burn must survive declutter (force-shown, safety-critical):\n%s", out)
-	}
-	if !strings.Contains(out, "VESSEL") {
-		t.Errorf("pinned VESSEL core must survive declutter")
+	if strings.Contains(out, "NAVIGATION") || strings.Contains(out, "ENGINE") {
+		t.Errorf("declutter (2a) must hide every instrument box uniformly, including ENGINE mid-burn:\n%s", out)
 	}
 
-	// Cut the burn → with every chip disabled the NODES chip (no nodes
-	// planted) returns to hidden.
+	// Cut the burn, declutter off again → ENGINE's node row returns to a
+	// dash.
 	c.ActiveBurn = nil
+	v.SetDeclutter(false)
 	out = v.Render(w, 0, 120, 40)
 	if strings.Contains(out, "120 m/s") {
 		t.Errorf("burn readout lingered after the burn ended:\n%s", out)
 	}
 }
 
-// TestNodesChipForceShowsWhenMultipleNodesQueued — #293: staleness is
-// exactly "more than one node queued" (every node after the first fires
-// against an orbit it was never computed for), so 2+ queued nodes
-// force-show the NODES chip past the ChipNodes toggle AND F2 declutter —
-// extending the existing live-burn force-show rationale rather than
-// adding a second, differently-gated one. A single queued node must NOT
-// force-show; it still honours the toggle/declutter like any chip.
-func TestNodesChipForceShowsWhenMultipleNodesQueued(t *testing.T) {
+// TestEngineNodeRowOverflowCountWhenMultipleNodesQueued — #293's
+// staleness rationale, now on ENGINE's node row (the retired NODES chip
+// folded in here, ADR 0051 decision 1): every node after the first fires
+// against an orbit it was never computed for, so 2+ queued nodes on the
+// active craft carry the "(+N more → [m])" overflow annotation; a single
+// queued node does not.
+func TestEngineNodeRowOverflowCountWhenMultipleNodesQueued(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.Resize(120, 40)
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-
-	// Disable every toggleable Chip (incl. ChipNodes) and declutter, same
-	// setup as the live-burn force-show test.
-	s := settings.Default()
-	for _, chipID := range settings.AllChips {
-		s.SetChip(chipID, false)
-	}
-	v.SetSettings(s)
-	v.SetDeclutter(true)
-
 	c := w.ActiveCraft()
 	if c == nil {
 		t.Fatal("expected an active craft")
@@ -594,17 +583,17 @@ func TestNodesChipForceShowsWhenMultipleNodesQueued(t *testing.T) {
 	c.Nodes = []spacecraft.ManeuverNode{
 		{Mode: spacecraft.BurnPrograde, DV: 42, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
 	}
-	out := v.Render(w, 0, 120, 40)
-	if strings.Contains(out, "NODES") {
-		t.Errorf("a single queued node must not force-show past the toggle/declutter:\n%s", out)
+	lines := v.buildEngineBox(w)
+	if strings.Contains(lines[3], "more") {
+		t.Errorf("a single queued node must not carry an overflow count:\n%s", lines[3])
 	}
 
 	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
 		Mode: spacecraft.BurnRetrograde, DV: 7, TriggerTime: w.Clock.SimTime.Add(2 * time.Minute),
 	})
-	out = v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "NODES") {
-		t.Errorf("2+ queued nodes must force-show the NODES chip past the toggle/declutter:\n%s", out)
+	lines = v.buildEngineBox(w)
+	if !strings.Contains(lines[3], "+1 more") {
+		t.Errorf("2 queued nodes must show a +1 more overflow count on ENGINE's node row:\n%s", lines[3])
 	}
 }
 
@@ -799,10 +788,13 @@ func TestProjectedOrbitIsSeparateChip(t *testing.T) {
 		t.Errorf("the projected chip must show the resulting orbital period:\n%s", proj)
 	}
 
-	// End to end: both headers appear in a rendered frame.
+	// End to end: ADR 0051 retires the PROJECTED ORBIT chip from
+	// assembleChips (its content — the plan arrows and the plan: row's
+	// world/node-angle text — moves to slice 3, not this slice); the live
+	// orbit now renders on NAVIGATION instead of the retired ORBIT chip.
 	out := v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "ORBIT") || !strings.Contains(out, "PROJECTED ORBIT") {
-		t.Errorf("a rendered frame with a planted node must show both ORBIT and PROJECTED ORBIT:\n%s", out)
+	if !strings.Contains(out, "NAVIGATION") {
+		t.Errorf("a rendered frame with a planted node must still show NAVIGATION's live orbit:\n%s", out)
 	}
 }
 

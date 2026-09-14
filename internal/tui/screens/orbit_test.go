@@ -122,13 +122,14 @@ func TestCanvasFullWidthAndVesselChip(t *testing.T) {
 	}
 }
 
-// TestAscentSuppressesOrbitMetricsChip: in ascent (shouldShowLaunchHUD
-// true) the LAUNCH chip carries ap/pe, so the top-right Orbit-metrics
-// chip is suppressed (no "apoapsis:" row); once the craft circularises
-// above the atmosphere the LAUNCH chip vanishes and the Orbit-metrics
-// chip shows the live apoapsis/periapsis. v0.13 (ADR 0010) — the chip
-// successor to the old phase-collapse behaviour.
-func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
+// TestNavigationBoxShowsApPeInAscentAndOrbit: ADR 0051 retires the
+// SURFACE/ORBIT chip split (and its suppression logic) in favour of one
+// NAVIGATION box whose Ap:/Pe:/period: cells read the live orbit in
+// EVERY phase (decision 2: rows never come or go). A sub-orbital ascent
+// arc and a stable circular orbit are both real ellipses, so both must
+// show real Ap/Pe/period figures on the same NAVIGATION box, not a
+// SURFACE-vs-ORBIT-vs-suppressed split.
+func TestNavigationBoxShowsApPeInAscentAndOrbit(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
@@ -158,41 +159,37 @@ func TestAscentSuppressesOrbitMetricsChip(t *testing.T) {
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
 
 	out := v.Render(w, 0, 200, 60)
-	if !strings.Contains(out, "SURFACE") {
-		t.Fatal("expected SURFACE (launch/ascent) chip during ascent")
+	if !strings.Contains(out, "NAVIGATION") || !strings.Contains(out, "GUIDANCE") {
+		t.Fatalf("expected the NAVIGATION and GUIDANCE boxes on screen during ascent.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "  Ap:") || !strings.Contains(out, "  hold:") {
-		t.Errorf("expected SURFACE Ap/hold rows during ascent.\nrender:\n%s", out)
+	if !strings.Contains(out, "Ap:") || !strings.Contains(out, "hold:") {
+		t.Errorf("expected NAVIGATION's Ap: row and GUIDANCE's hold: row during ascent.\nrender:\n%s", out)
 	}
-	// The Orbit-metrics chip is suppressed during ascent: the SURFACE
-	// chip already carries Ap/Pe. Both chips now share the "Ap:" label
-	// (ADR 0049 decision 6), so check for a row only the Orbit-metrics
-	// chip prints ("period:") rather than the ambiguous "Ap:" substring.
-	if strings.Contains(out, "period:") {
-		t.Errorf("expected Orbit-metrics chip suppressed during ascent (LAUNCH carries Ap/Pe).\nrender:\n%s", out)
+	if !strings.Contains(out, "period:") {
+		t.Errorf("expected NAVIGATION's period: row during a sub-orbital ascent too (decision 2: rows never come or go).\nrender:\n%s", out)
 	}
 
-	// Circularise into a stable 300 km orbit → LAUNCH vanishes, the
-	// Orbit-metrics chip takes over with the live apoapsis.
+	// Circularise into a stable 300 km orbit: the same NAVIGATION box,
+	// same rows, now reading a stable ellipse instead of a sub-orbital
+	// one (decision 2: nothing about the box itself changes with phase).
 	rCirc := primaryR + 300e3
 	vCirc := math.Sqrt(mu / rCirc)
 	c.State.R.X, c.State.R.Y, c.State.R.Z = rCirc, 0, 0
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vCirc, 0
 
 	out = v.Render(w, 0, 200, 60)
-	if strings.Contains(out, "SURFACE") {
-		t.Errorf("expected SURFACE chip to vanish once periapsis clears the atmosphere.\nrender:\n%s", out)
-	}
 	if !strings.Contains(out, "Ap:") {
-		t.Errorf("expected Orbit-metrics chip apoapsis row in stable orbit.\nrender:\n%s", out)
+		t.Errorf("expected NAVIGATION's apoapsis row in stable orbit.\nrender:\n%s", out)
 	}
 }
 
-// TestOrbitMetricsChipShowsTimeToApsides: the live ORBIT chip carries a
-// t→apo / t→peri readout alongside the apoapsis/periapsis altitudes. At
-// periapsis of an eccentric orbit both times are in the future (apo ≈
-// half a period out, peri ≈ a full period out), so both rows render.
-func TestOrbitMetricsChipShowsTimeToApsides(t *testing.T) {
+// TestNavigationBoxShowsApCountdownAndPeriod: NAVIGATION's Ap: cell
+// carries a T- countdown to apoapsis alongside the altitude (folded onto
+// one cell, decision 10/12 — the retired ORBIT chip's separate apo:/
+// peri: rows are gone, readout.LabelApo/LabelPeri no longer print).
+// period: sits alongside it so a comsat placement can be tuned to a
+// target period.
+func TestNavigationBoxShowsApCountdownAndPeriod(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
@@ -222,19 +219,16 @@ func TestOrbitMetricsChipShowsTimeToApsides(t *testing.T) {
 	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
 
 	out := v.Render(w, 0, 200, 60)
-	if strings.Contains(out, "SURFACE") {
-		t.Fatalf("expected the ORBIT chip, not SURFACE, for an orbit clear of the atmosphere.\nrender:\n%s", out)
+	if !strings.Contains(out, "Ap:") {
+		t.Fatalf("expected NAVIGATION's Ap: cell.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "apo:") {
-		t.Errorf("expected an apo row in the ORBIT chip.\nrender:\n%s", out)
+	if !strings.Contains(out, "T-") {
+		t.Errorf("expected a T- countdown folded onto the Ap: cell.\nrender:\n%s", out)
 	}
-	if !strings.Contains(out, "peri:") {
-		t.Errorf("expected a peri row in the ORBIT chip.\nrender:\n%s", out)
-	}
-	// The orbital period sits alongside the apsis-time readouts so a
-	// comsat placement can be tuned to a target period (e.g. synchronous).
+	// The orbital period sits alongside the apsis readouts so a comsat
+	// placement can be tuned to a target period (e.g. synchronous).
 	if !strings.Contains(out, "period:") {
-		t.Errorf("expected a period row in the ORBIT chip.\nrender:\n%s", out)
+		t.Errorf("expected NAVIGATION's period: row.\nrender:\n%s", out)
 	}
 }
 
