@@ -2747,17 +2747,16 @@ func shouldShowDescentHUD(c *spacecraft.Spacecraft) bool {
 	return false
 }
 
-// isAirlessAscent reports whether the active craft is climbing away from
+// isSubOrbitalClimb reports whether the active craft is climbing away from
 // its primary with periapsis still below the surface (ADR 0051 decision
-// 10, correction C4: "periapsis below the surface and climbing"). Unlike
-// shouldShowLaunchHUD, it carries no atmosphere test of its own: it is
-// deliberately body-agnostic, so it reads exactly the same for an Earth
-// ascent as for a Moon ascent (evaluated alone, an Earth ascent also has
-// periapsis deep below the surface while climbing, and this predicate
-// returns true for it too). Slice 2 is what pairs it with the airless
-// (Atmosphere == nil) gate at its call site to close #454's gap: today
-// shouldShowLaunchHUD's atmosphere test forces deriveFlightPhase to read
-// PhaseDescent for every airless ascent (audit C74), so no predicate
+// 10, correction C4: "periapsis below the surface and climbing"). Renamed
+// from isAirlessAscent (slice 2): that name was wrong on its own terms,
+// since the predicate carries no atmosphere test of its own and reads an
+// Earth ascent exactly the same as a Moon ascent (deliberately: it is
+// body-agnostic by design, not by omission). Slice 2 pairs it with the
+// airless (Atmosphere == nil) gate at its call site to close #454's gap:
+// today shouldShowLaunchHUD's atmosphere test forces deriveFlightPhase to
+// read PhaseDescent for every airless ascent (audit C74), so no predicate
 // answers "is this an ascent" correctly on an airless world.
 //
 // "Climbing" is vUp >= 0 (not strictly > 0), matching deriveFlightPhase's
@@ -2778,9 +2777,9 @@ func shouldShowDescentHUD(c *spacecraft.Spacecraft) bool {
 // a defensible default (don't panic, don't special-case) is enough for
 // this slice; slice 2 revisits it if a real consumer needs otherwise.
 //
-// No consumer yet (ADR 0051 slice 1 groundwork): deriveFlightPhase and
-// shouldShowLaunchHUD are unchanged.
-func isAirlessAscent(c *spacecraft.Spacecraft) bool {
+// No consumer yet (carried from ADR 0051 slice 1 groundwork, renamed in
+// slice 2): deriveFlightPhase and shouldShowLaunchHUD are unchanged.
+func isSubOrbitalClimb(c *spacecraft.Spacecraft) bool {
 	if c == nil || c.Landed {
 		return false
 	}
