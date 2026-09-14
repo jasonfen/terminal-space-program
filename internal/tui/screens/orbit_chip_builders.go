@@ -2859,6 +2859,7 @@ func chipRowAt(label, value string, col int) string {
 const (
 	boxValueCol  = 13
 	boxValue2Col = 37
+	boxValue3Col = 62
 )
 
 // chipRow2 formats a row carrying two labelled quantities (ADR 0051
@@ -2880,4 +2881,22 @@ func chipRow2(label1, value1, label2, value2 string) string {
 		pad = 1
 	}
 	return prefix + strings.Repeat(" ", pad) + value2
+}
+
+// chipRow3 is chipRow2 extended to a third labelled quantity, for the
+// three-per-row TARGET cells (decision 11: range/closing/rel,
+// Ap/Pe/incl) and NAVIGATION's depart:/e:/dir: row (decision 14). label3
+// == "" drops the third cell, matching chipRow2's own empty-label
+// convention.
+func chipRow3(label1, value1, label2, value2, label3, value3 string) string {
+	row := chipRow2(label1, value1, label2, value2)
+	if label3 == "" {
+		return row
+	}
+	prefix := row + "  " + label3
+	pad := boxValue3Col - lipgloss.Width(prefix)
+	if pad < 1 {
+		pad = 1
+	}
+	return prefix + strings.Repeat(" ", pad) + value3
 }

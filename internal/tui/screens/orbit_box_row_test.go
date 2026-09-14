@@ -38,8 +38,8 @@ func TestChipRow2AlignsSecondLabelAcrossVaryingFirstValues(t *testing.T) {
 // whose first cells have equal DISPLAY width but different BYTE length
 // land their second label at the exact same column.
 func TestChipRow2SecondLabelColumnIsDisplayWidthAware(t *testing.T) {
-	asciiRow := chipRow2("ee:", "12", "mode:", "main")   // "ee:" = 3 bytes, 3 cells
-	deltaRow := chipRow2("Δv:", "12", "mode:", "main")   // "Δv:" = 4 bytes, 3 cells
+	asciiRow := chipRow2("ee:", "12", "mode:", "main") // "ee:" = 3 bytes, 3 cells
+	deltaRow := chipRow2("Δv:", "12", "mode:", "main") // "Δv:" = 4 bytes, 3 cells
 	asciiCol := strings.Index(asciiRow, "mode:")
 	deltaCol := strings.Index(deltaRow, "mode:")
 	if asciiCol < 0 || deltaCol < 0 {
