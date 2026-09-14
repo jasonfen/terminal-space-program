@@ -3,6 +3,8 @@
 // render frame (a 1.6 km/s stop is ~800 integrator sub-steps, and the
 // burn-at search multiplies that by roughly another order of magnitude).
 // Mirrors orbit_predict_cache_test.go / orbit_soipass_test.go's shape.
+// The cache itself lives on the shared *OrbitView* (ADR 0051 slice 1),
+// reached here via LaunchView's hudSource pointer.
 
 package screens
 
@@ -23,8 +25,8 @@ func TestDescentStopCacheHoldsAcrossIdleFrames(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		v.Render(w, 200, 60)
 	}
-	if v.descentStopCacheComputes != 1 {
-		t.Errorf("descentStopCacheComputes = %d after 5 idle renders, want 1 (predict-on-change cache)", v.descentStopCacheComputes)
+	if v.hudSource.descentStopCacheComputes != 1 {
+		t.Errorf("descentStopCacheComputes = %d after 5 idle renders, want 1 (predict-on-change cache)", v.hudSource.descentStopCacheComputes)
 	}
 }
 
@@ -43,28 +45,28 @@ func TestDescentStopCacheBustsOnSabotagedKey(t *testing.T) {
 	w := descendingMoonCraft(t, 20_000, 120)
 
 	v.Render(w, 200, 60)
-	if v.descentStopCacheComputes != 1 {
-		t.Fatalf("setup: descentStopCacheComputes = %d after first render, want 1", v.descentStopCacheComputes)
+	if v.hudSource.descentStopCacheComputes != 1 {
+		t.Fatalf("setup: descentStopCacheComputes = %d after first render, want 1", v.hudSource.descentStopCacheComputes)
 	}
-	if !v.descentStopCache.has {
+	if !v.hudSource.descentStopCache.has {
 		t.Fatal("setup: cache did not populate on the first render")
 	}
 
 	// Sabotage: corrupt the stored key's clock bucket so it can no
 	// longer match a freshly-built key, WITHOUT touching the craft or the
 	// world clock at all.
-	v.descentStopCache.key.clockBucket = -1
+	v.hudSource.descentStopCache.key.clockBucket = -1
 
 	v.Render(w, 200, 60)
-	if v.descentStopCacheComputes != 2 {
-		t.Errorf("descentStopCacheComputes = %d after a sabotaged-key render, want 2 (the cache must have missed)", v.descentStopCacheComputes)
+	if v.hudSource.descentStopCacheComputes != 2 {
+		t.Errorf("descentStopCacheComputes = %d after a sabotaged-key render, want 2 (the cache must have missed)", v.hudSource.descentStopCacheComputes)
 	}
 
 	// And confirm the cache is genuinely usable again afterwards — the
 	// sabotage was a one-off corruption, not a permanent break.
 	v.Render(w, 200, 60)
-	if v.descentStopCacheComputes != 2 {
-		t.Errorf("descentStopCacheComputes = %d after re-rendering post-sabotage, want 2 (should hit again)", v.descentStopCacheComputes)
+	if v.hudSource.descentStopCacheComputes != 2 {
+		t.Errorf("descentStopCacheComputes = %d after re-rendering post-sabotage, want 2 (should hit again)", v.hudSource.descentStopCacheComputes)
 	}
 }
 
@@ -78,15 +80,15 @@ func TestDescentStopCacheBustsOnBurnStart(t *testing.T) {
 	w := descendingMoonCraft(t, 20_000, 120)
 
 	v.Render(w, 200, 60)
-	if v.descentStopCacheComputes != 1 {
-		t.Fatalf("setup: descentStopCacheComputes = %d, want 1", v.descentStopCacheComputes)
+	if v.hudSource.descentStopCacheComputes != 1 {
+		t.Fatalf("setup: descentStopCacheComputes = %d, want 1", v.hudSource.descentStopCacheComputes)
 	}
 
 	c := w.ActiveCraft()
 	c.ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100}
 
 	v.Render(w, 200, 60)
-	if v.descentStopCacheComputes != 2 {
-		t.Errorf("descentStopCacheComputes = %d after ActiveBurn was set, want 2 (midBurn must bust the key)", v.descentStopCacheComputes)
+	if v.hudSource.descentStopCacheComputes != 2 {
+		t.Errorf("descentStopCacheComputes = %d after ActiveBurn was set, want 2 (midBurn must bust the key)", v.hudSource.descentStopCacheComputes)
 	}
 }

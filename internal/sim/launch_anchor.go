@@ -1,14 +1,24 @@
 // Package sim — launch-anchor for ViewTilted (v0.10.7+).
 //
 // While the active craft is in the "launch band" (apoapsis altitude
-// ≤ LaunchMissionFloorM), re-anchor ViewTilted's yaw φ to the craft's
-// local-vertical so the rocket rides straight up the screen and the
-// planet rotates behind it (chase-plane orientation on launch).
+// ≤ the current primary's Orbit Floor, ADR 0044), re-anchor ViewTilted's
+// yaw φ to the craft's local-vertical so the rocket rides straight up the
+// screen and the planet rotates behind it (chase-plane orientation on
+// launch).
 //
 // Predicate is the inverse of the ORBIT READY callout: anchor active
-// while apoapsis altitude is finite and ≤ 200 km. Releases at the
-// exact moment the player sees "ORBIT READY — coast to ap, press C
-// to plant circularise." Atmosphere-agnostic — works on Moon too.
+// while apoapsis altitude is finite and at or below the world's Orbit
+// Floor (OrbitFloorForCraft, ADR 0051 decision 10, re-grill Q7: 175 km
+// on Earth, 25 km on any airless world, per-body elsewhere). Releases at
+// the exact moment the player sees "ORBIT READY, coast to ap, press C
+// to plant circularise." Atmosphere-agnostic (works on Moon too). Prior
+// to ADR 0051 this compared against the flat LaunchMissionFloorM
+// (200 km everywhere); ADR 0051 slice 1 switched this one gate to the
+// per-world floor, so the ViewTilted anchor now releases at 175 km on
+// Earth, not 200 km. LaunchMissionFloorM itself is unchanged (still a
+// live constant, still 200 km) and its other call site (the SURFACE
+// `mission:` target fallback, orbit.go's launchMissionProgress) is left
+// alone; slice 2 retires that one.
 //
 // On the launchpad the predicate fires naturally: a Landed craft
 // co-rotates with the body (V = ω × R, so V ≈ 465 m/s at Earth's
@@ -59,7 +69,7 @@ const LaunchMissionFloorM = 200_000.0
 //
 // Returns (0, false) when the craft is nil, μ is zero, or the
 // apoapsis predicate fails (hyperbolic / degenerate / apoAlt above
-// the launch-mission floor).
+// the current primary's Orbit Floor, ADR 0051 slice 1).
 func LaunchAnchorPhi(c *spacecraft.Spacecraft, el orbital.Elements, ok bool) (phi float64, active bool) {
 	if c == nil {
 		return 0, false
@@ -77,7 +87,7 @@ func LaunchAnchorPhi(c *spacecraft.Spacecraft, el orbital.Elements, ok bool) (ph
 		return 0, false
 	}
 	apoAlt := pe.Apoapsis() - c.Primary.RadiusMeters()
-	if apoAlt > LaunchMissionFloorM {
+	if apoAlt > OrbitFloorForCraft(c) {
 		return 0, false
 	}
 

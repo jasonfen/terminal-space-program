@@ -15,6 +15,12 @@ import (
 // View, recomputing only when the key changes, with a …Computes counter
 // tests can assert against.
 //
+// The cache lives on the shared *OrbitView* (ADR 0051 decision 12's build
+// note; ADR 0051 slice 1), not on *LaunchView*: slice 2's NAVIGATION
+// builder reads the same forecast from the map, and both views must share
+// one cache rather than each maintaining (and separately computing) their
+// own. LaunchView reaches it through its hudSource pointer.
+//
 // A 1.6 km/s stop is ~800 s of integrated flight, and PredictBurnAt's
 // bisection multiplies that by roughly another order of magnitude
 // (issue #377 §5) — running both every render frame would reproduce the
@@ -119,7 +125,10 @@ func descentStopKeyFor(c *spacecraft.Spacecraft, t time.Time) descentStopRenderK
 // descentStopKeyFor's key changes (ADR 0017 predict-on-change). Callers
 // must already have established the craft is descending
 // (sim.DescentCorridorFor's own gate) — this does not re-check.
-func (v *LaunchView) cachedDescentStop(w *sim.World, c *spacecraft.Spacecraft) descentStopRenderData {
+//
+// Receiver is *OrbitView* (ADR 0051 slice 1 groundwork) so the map and
+// LaunchView share one cache instead of each computing their own.
+func (v *OrbitView) cachedDescentStop(w *sim.World, c *spacecraft.Spacecraft) descentStopRenderData {
 	key := descentStopKeyFor(c, w.Clock.SimTime)
 	if v.descentStopCache.has && v.descentStopCache.key == key {
 		return v.descentStopCache.dat

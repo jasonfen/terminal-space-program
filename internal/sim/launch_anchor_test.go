@@ -12,10 +12,10 @@ import (
 
 // TestLaunchAnchorActivates — Saturn V parked on Earth's launchpad.
 // The predicate should fire (a landed craft's body-co-rotation gives
-// a bound "orbit" with apoapsis at the surface, well below the 200 km
-// floor). Phi should match atan2(-R.X, R.Y) and track local-vertical
-// as the body rotates under the pad (verified by advancing simTime
-// 6 h and re-integrating the landed bypass).
+// a bound "orbit" with apoapsis at the surface, well below Earth's
+// 175 km Orbit Floor). Phi should match atan2(-R.X, R.Y) and track
+// local-vertical as the body rotates under the pad (verified by
+// advancing simTime 6 h and re-integrating the landed bypass).
 func TestLaunchAnchorActivates(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -38,7 +38,7 @@ func TestLaunchAnchorActivates(t *testing.T) {
 	// so the caller passes the zero-Elements / false branch.
 	phi, active := LaunchAnchorPhi(c, orbital.Elements{}, false)
 	if !active {
-		t.Fatalf("anchor should be active on the pad (apoAlt ≈ 0 ≤ %v km)", LaunchMissionFloorM/1000)
+		t.Fatalf("anchor should be active on the pad (apoAlt ≈ 0 ≤ %v km)", OrbitFloorForCraft(c)/1000)
 	}
 	wantPhi := math.Atan2(-c.State.R.X, c.State.R.Y)
 	if math.Abs(phi-wantPhi) > 1e-9 {
@@ -68,10 +68,15 @@ func TestLaunchAnchorActivates(t *testing.T) {
 }
 
 // TestLaunchAnchorReleasesAtOrbitReady — synthesize a craft with a
-// circular orbit straddling the 200 km apoapsis floor. Below the
-// floor the anchor stays active; above it the predicate releases
-// and Phi returns (0, false), matching the exact moment the ORBIT
-// READY callout fires.
+// circular orbit straddling Earth's Orbit Floor (ADR 0044: atmosphere
+// cutoff 150 km + OrbitFloorMarginM 25 km = 175 km). Below the floor the
+// anchor stays active; above it the predicate releases and Phi returns
+// (0, false), matching the exact moment the ORBIT READY callout fires.
+//
+// ADR 0051 slice 1 switched this gate from the flat LaunchMissionFloorM
+// (200 km) to OrbitFloorForCraft (per-world; 175 km on Earth). This test
+// used to pin the boundary at 199/201 km and is rewritten here to pin it
+// at 174/176 km, the ADR's own stated visible side effect.
 func TestLaunchAnchorReleasesAtOrbitReady(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -97,21 +102,26 @@ func TestLaunchAnchorReleasesAtOrbitReady(t *testing.T) {
 		return c
 	}
 
-	// 199 km circular orbit → apoAlt ≈ 199 km ≤ 200 km → active.
-	cBelow := craftAt(199_000)
+	wantFloor := 175_000.0
+	if got := OrbitFloorForCraft(craftAt(0)); got != wantFloor {
+		t.Fatalf("setup: Earth Orbit Floor = %.0f m, want %.0f m", got, wantFloor)
+	}
+
+	// 174 km circular orbit → apoAlt ≈ 174 km ≤ 175 km floor → active.
+	cBelow := craftAt(174_000)
 	elBelow := orbital.ElementsFromState(cBelow.State.R, cBelow.State.V, mu)
 	_, active := LaunchAnchorPhi(cBelow, elBelow, true)
 	if !active {
-		t.Errorf("199 km orbit: anchor should be active (apoAlt = %.1f km)",
+		t.Errorf("174 km orbit: anchor should be active (apoAlt = %.1f km)",
 			(elBelow.Apoapsis()-primaryR)/1000)
 	}
 
-	// 201 km circular orbit → apoAlt ≈ 201 km > 200 km → released.
-	cAbove := craftAt(201_000)
+	// 176 km circular orbit → apoAlt ≈ 176 km > 175 km floor → released.
+	cAbove := craftAt(176_000)
 	elAbove := orbital.ElementsFromState(cAbove.State.R, cAbove.State.V, mu)
 	phi, active := LaunchAnchorPhi(cAbove, elAbove, true)
 	if active {
-		t.Errorf("201 km orbit: anchor should release (apoAlt = %.1f km)",
+		t.Errorf("176 km orbit: anchor should release (apoAlt = %.1f km)",
 			(elAbove.Apoapsis()-primaryR)/1000)
 	}
 	if phi != 0 {

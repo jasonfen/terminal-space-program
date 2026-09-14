@@ -1215,3 +1215,19 @@ func TestLaunchViewOrbitRendersAsLine(t *testing.T) {
 		t.Errorf("orbit rendered on only %d cells; expected a dotted line (>=40), not just the apsis markers", cells)
 	}
 }
+
+// TestLaunchViewRendersDescentWithNilHud (ADR 0051 slice 1 fix-up): a
+// bare test fixture with no OrbitView (NewLaunchView(th, nil), the same
+// nil hudSource pattern the tests above use to isolate the canvas) must
+// not panic when it renders a descending vessel. Render's descending
+// branch reaches v.hudSource.cachedDescentStop; without a guard that is
+// a nil pointer dereference the moment a test (or, later, a screen) hits
+// this path with no hud wired up. Production always passes a real
+// OrbitView (app.go), so this never fires today, but slices 2 and 4 add
+// tests that render a descending vessel through fixtures like this one.
+func TestLaunchViewRendersDescentWithNilHud(t *testing.T) {
+	w := descendingMoonCraft(t, 20_000, 120)
+	th := launchThemeForTest()
+	v := NewLaunchView(th, nil)
+	v.Render(w, 200, 60)
+}

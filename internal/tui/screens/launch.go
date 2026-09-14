@@ -74,12 +74,6 @@ type LaunchView struct {
 	hAxisValue     orbital.Vec3
 	hAxisWasLanded bool
 
-	// descentStopCache / descentStopCacheComputes: the predict-on-change
-	// cache for the descent corridor's integrated stop-burn forecast and
-	// "burn at" search (issue #377). See launch_descent_cache.go.
-	descentStopCache         descentStopRenderCache
-	descentStopCacheComputes int
-
 	// burnColStart/burnColEnd track this screen's OWN [»Burn] button
 	// (#456 fix): PR #445 added the button's rendering here but never
 	// gave the click a hit-test of its own, so app.go's mouse dispatch
@@ -302,9 +296,14 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// and "burn at" cue, CACHED (unlike the cheap half above, which is
 	// fine to redo every frame) — see cachedDescentStop's doc comment for
 	// why. Only merged in while actually descending; DescentCorridorFor's
-	// own gate already governs whether this block renders at all.
-	if descending {
-		stopDat := v.cachedDescentStop(w, craft)
+	// own gate already governs whether this block renders at all. The
+	// cache now lives on the shared OrbitView (v.hudSource), which a bare
+	// test fixture can leave nil (see the other v.hudSource != nil guards
+	// in this file); with no hud there is nowhere to keep the forecast,
+	// so the corridor's stop fields stay at their zero value, same as if
+	// nothing had been computed yet.
+	if descending && v.hudSource != nil {
+		stopDat := v.hudSource.cachedDescentStop(w, craft)
 		corridor.Stop = stopDat.stop
 		corridor.StopOK = stopDat.stopOK
 		corridor.BurnAt = stopDat.burnAt
