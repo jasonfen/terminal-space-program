@@ -1543,9 +1543,19 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		BorderForeground(v.theme.Primary.GetForeground()).
 		Render(canvasStr)
 
+	// ADR 0051 decision 6: the map title always names the active vessel
+	// (retiring the VESSEL box), whatever the camera is looking at — the
+	// pre-ADR-0051 title showed a bare "VESSEL n/m" index only with more
+	// than one craft in the slate, and said nothing at all about which
+	// vessel with exactly one, or with the camera on a body. `focus:`
+	// (appended by renderTitleBar) still names what the CAMERA follows,
+	// which can differ from the active vessel.
 	craftChip := ""
 	if n := len(w.Crafts); n > 1 {
 		craftChip = fmt.Sprintf(" — VESSEL %d/%d", w.ActiveCraftIdx+1, n)
+	}
+	if c := w.ActiveCraft(); c != nil {
+		craftChip += " — " + c.Name
 	}
 	title := v.renderTitleBar(sys.Name+craftChip, w, totalCols)
 
