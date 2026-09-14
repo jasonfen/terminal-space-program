@@ -296,8 +296,13 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// and "burn at" cue, CACHED (unlike the cheap half above, which is
 	// fine to redo every frame) — see cachedDescentStop's doc comment for
 	// why. Only merged in while actually descending; DescentCorridorFor's
-	// own gate already governs whether this block renders at all.
-	if descending {
+	// own gate already governs whether this block renders at all. The
+	// cache now lives on the shared OrbitView (v.hudSource), which a bare
+	// test fixture can leave nil (see the other v.hudSource != nil guards
+	// in this file); with no hud there is nowhere to keep the forecast,
+	// so the corridor's stop fields stay at their zero value, same as if
+	// nothing had been computed yet.
+	if descending && v.hudSource != nil {
 		stopDat := v.hudSource.cachedDescentStop(w, craft)
 		corridor.Stop = stopDat.stop
 		corridor.StopOK = stopDat.stopOK
