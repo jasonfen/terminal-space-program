@@ -2843,3 +2843,41 @@ func chipRowAt(label, value string, col int) string {
 	}
 	return prefix + strings.Repeat(" ", pad) + value
 }
+
+// boxValueCol / boxValue2Col are the instrument boxes' own value columns
+// (ADR 0051 decision 4, "two quantities per row"): every box built by
+// chipRow2 pins its first cell's value to boxValueCol (matching the
+// existing chipValueCol convention) and its second cell's LABEL to
+// boxValue2Col, wide enough that the longest first cell measured across
+// the ADR's own mocks ("Δv:        7502 / 12014 m/s", "incl:      28.61°
+// (min 28.61°)") still leaves at least a couple of columns of daylight
+// before the second label starts. There is no golden file pinning an
+// exact width (ADR 0051's own text calls most of its box widths
+// "estimated"), so these are a build judgment call, not a scraped
+// measurement — the contract that matters is "one column per box,
+// wherever the first cell is short or long", which chipRow2 enforces.
+const (
+	boxValueCol  = 13
+	boxValue2Col = 37
+)
+
+// chipRow2 formats a row carrying two labelled quantities (ADR 0051
+// decision 4). The first value is pinned to boxValueCol; the second
+// label is pinned to boxValue2Col, both measured in display cells
+// (lipgloss.Width, never byte-counted %-Ns padding) so multibyte labels
+// and already-styled (ANSI-wrapped) values still line up. label2 == ""
+// means this row has nothing in its second cell (a dash row with no
+// sibling quantity, e.g. ENGINE's bare "node:  —"): the row then reads
+// exactly as chipRowAt's single-value form, with no trailing padding.
+func chipRow2(label1, value1, label2, value2 string) string {
+	row := chipRowAt(label1, value1, boxValueCol)
+	if label2 == "" {
+		return row
+	}
+	prefix := row + "  " + label2
+	pad := boxValue2Col - lipgloss.Width(prefix)
+	if pad < 1 {
+		pad = 1
+	}
+	return prefix + strings.Repeat(" ", pad) + value2
+}
