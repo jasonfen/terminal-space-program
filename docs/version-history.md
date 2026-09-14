@@ -2,6 +2,18 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.44.0
+
+You can find a launch window against another vessel now, and the game tells you whether waiting on the pad is worth it (ADR 0050; closes #454; PRs `#462`, `#463`; tag `v0.44.0`).
+
+- **`Δincl:` reads against a targeted vessel**, not only a body, on the pad and in the full TARGET chip. Target a vessel in orbit and warp: the angle opens and closes as the world turns under the pad. It is withheld when the target orbits a different world, and at a pole, where floating-point noise used to leak through and `I` would plan 8 to 13 km/s. A target landed on the surface reads the due-east launch plane and says so: `Δincl: 53.59° (due east)`.
+- **A new `depart:` row** on the pad and in the ORBIT chip: the angle between your orbit and the plane the world beneath you travels in. On the pad it carries `(best N°)`, the lowest value waiting a rotation can reach. From KSC it sweeps `5.17°..52.05°`; from a Luna pad `23.46°..33.75°`. It is hidden on worlds where it cannot move, and has its own line in the F1 readout glossary.
+- **Airless pads get a readout.** Standing on Luna, Glyph or any other world without an atmosphere, the pad now shows `heading:`, `incl:` and, with a target set, `Δincl:`. Before this only the 7 worlds with an atmosphere had one.
+- **A stable orbit around an airless world stops re-waking the ascent cues.** The ascent arc and nose-prograde stubs used to return once per orbit; "done climbing" now means periapsis above the surface when there is no atmosphere to clear.
+- **`hold:` names the frame it holds in**, everywhere it appears: `Surface Prograde (SURF)`, `Prograde (ORBIT)`, `Target+ (TGT)`.
+- The ViewTilted launch camera now lets go at the world's Orbit Floor (atmosphere top plus 25 km, 25 km on an airless world) instead of a flat 200 km, so 175 km on Earth. This is groundwork for the instrument layout rework in ADR 0051, which is otherwise not in this release.
+- Flown on the build before tagging: the vessel window swept `26.38°..80.19°` against a 51.6° target from KSC, inside its predicted envelope, and no ascent cue reappeared across eleven samples of a stable lunar orbit.
+
 ### v0.43.0
 
 You can aim a launch now. `{` and `}` swing the commanded heading five degrees at a time, on the pad or on the way up, and the pad tells you the inclination that heading actually reaches instead of claiming your latitude is locked (ADR 0049 decisions 8-11; closes #453; PR `#459`; tag `v0.43.0`; save schema 10 to 11).
