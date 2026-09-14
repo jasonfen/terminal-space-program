@@ -9,6 +9,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // OrbitFloorMarginM is the fixed safety margin (ADR 0044 §3) added
@@ -72,6 +73,31 @@ func OrbitBandFor(sys bodies.System, b bodies.CelestialBody) OrbitBand {
 		band.Empty = true
 	}
 	return band
+}
+
+// OrbitFloorForCraft returns c's current primary's Orbit Floor (ADR 0044):
+// the atmosphere cutoff altitude plus OrbitFloorMarginM, exactly
+// OrbitFloorMarginM on an airless world, or a star's own authored
+// stand-off. This is the gate helper ADR 0051 decision 10 (re-grill Q7)
+// needs in two places: the ViewTilted launch-anchor gate (this slice,
+// launch_anchor.go) and, later, the ORBIT READY chip gate (slice 2, not
+// wired here): both currently read the flat sim.LaunchMissionFloorM
+// (200 km on every world), which this helper replaces one call site at a
+// time. Lives in package sim (not screens) so sim's own launch-anchor
+// gate can call it directly and screens can call it downward without
+// creating an upward import from sim into tui.
+//
+// Only the floor, not the full OrbitBand: a floor doesn't depend on the
+// body's gravitational parent (floorFor takes no System), so callers that
+// only need the gate threshold don't have to thread a bodies.System
+// through just to resolve a ceiling they don't use. Returns 0 for a nil
+// craft (callers that could be nil already guard for that before needing
+// a real number, e.g. LaunchAnchorPhi's own `c == nil` check).
+func OrbitFloorForCraft(c *spacecraft.Spacecraft) float64 {
+	if c == nil {
+		return 0
+	}
+	return floorFor(c.Primary)
 }
 
 // floorFor returns the Orbit Floor for b, ignoring any ceiling.

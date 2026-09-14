@@ -248,6 +248,19 @@ type OrbitView struct {
 	soiPassCache         soiPassRenderCache
 	soiPassCacheComputes int
 
+	// descentStopCache / descentStopCacheComputes: the predict-on-change
+	// cache for the descent corridor's integrated stop-burn forecast and
+	// "burn at" search (issue #377), following the same discipline as
+	// predictCache / soiPassCache above. Moved here from LaunchView (ADR
+	// 0051 decision 12's build note: "the powered-stop forecast cache must
+	// move to the shared view so both views read one cache") so slice 2's
+	// NAVIGATION builder (which both the map and LaunchView draw from)
+	// can read it too; LaunchView keeps reading it via its hudSource
+	// pointer, so nothing visible changes in this slice. See
+	// launch_descent_cache.go for the receiver.
+	descentStopCache         descentStopRenderCache
+	descentStopCacheComputes int
+
 	// inspectables is the set of identity-bearing entities THIS frame
 	// drew, in draw order — rebuilt from scratch at the top of every
 	// Render by the draw sites themselves (ADR 0041 §3; see
@@ -2732,6 +2745,59 @@ func shouldShowDescentHUD(c *spacecraft.Spacecraft) bool {
 		}
 	}
 	return false
+}
+
+// isAirlessAscent reports whether the active craft is climbing away from
+// its primary with periapsis still below the surface (ADR 0051 decision
+// 10, correction C4: "periapsis below the surface and climbing"). Unlike
+// shouldShowLaunchHUD, it carries no atmosphere test of its own: it is
+// deliberately body-agnostic, so it reads exactly the same for an Earth
+// ascent as for a Moon ascent (evaluated alone, an Earth ascent also has
+// periapsis deep below the surface while climbing, and this predicate
+// returns true for it too). Slice 2 is what pairs it with the airless
+// (Atmosphere == nil) gate at its call site to close #454's gap: today
+// shouldShowLaunchHUD's atmosphere test forces deriveFlightPhase to read
+// PhaseDescent for every airless ascent (audit C74), so no predicate
+// answers "is this an ascent" correctly on an airless world.
+//
+// "Climbing" is vUp >= 0 (not strictly > 0), matching deriveFlightPhase's
+// own ascent branch: at the exact instant of apoapsis on a low ellipse
+// (vUp == 0) the craft hasn't started descending yet, and C4's "it is the
+// same situation" throughout the climb includes that peak. A stable
+// circular orbit has vUp == 0 at every point, so the periapsis-below-
+// surface test (not the vUp test) is what correctly reads that case
+// false. A Landed vessel is never ascending regardless of its state
+// vector (co-rotation velocity can otherwise look like a valid orbit,
+// issue #375, see craftHasOrbit above).
+//
+// Hyperbolic/degenerate states (E >= 1 or A <= 0) are handled by the same
+// Periapsis() formula (a(1-e), which is also the correct periapsis
+// distance for a hyperbola) rather than a special-cased branch: no
+// atmosphere-based altitude clamp is available here the way
+// shouldShowLaunchHUD has one, and this predicate has no consumer yet, so
+// a defensible default (don't panic, don't special-case) is enough for
+// this slice; slice 2 revisits it if a real consumer needs otherwise.
+//
+// No consumer yet (ADR 0051 slice 1 groundwork): deriveFlightPhase and
+// shouldShowLaunchHUD are unchanged.
+func isAirlessAscent(c *spacecraft.Spacecraft) bool {
+	if c == nil || c.Landed {
+		return false
+	}
+	var vUp float64
+	if r := c.State.R; r.Norm() > 0 {
+		vUp = c.State.V.Dot(r.Unit())
+	}
+	if vUp < 0 {
+		return false
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu == 0 {
+		return false
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	periAlt := el.Periapsis() - c.Primary.RadiusMeters()
+	return periAlt < 0
 }
 
 // FlightPhase is a coarse classification of where a vessel is in its
