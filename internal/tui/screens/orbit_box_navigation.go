@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -82,6 +84,16 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	departV, eV, dirV := v.navigationDepartECells(w, c)
 	impactCell, stopCell := v.navigationImpactStopCells(w, c)
 
+	// plan: row + the → annotations on Ap/Pe/incl/period (ADR 0051 slice
+	// 3 item 4, re-grill Q1/Q3): both driven off the same
+	// PredictedFinalOrbit call, so the row and the arrows can never
+	// disagree about whether a plan exists.
+	predState, predPrimary, predOK := w.PredictedFinalOrbit()
+	if predOK {
+		apCell, peCell, inclCell, periodCell = v.appendPlanArrows(predState, predPrimary, apCell, peCell, inclCell, periodCell)
+	}
+	planRow := v.navigationPlanRow(c, predState, predPrimary, predOK)
+
 	// horiz: carries the same CRASH-on-contact alert the retired DESCENT
 	// chip's horiz: row did: a sideways speed the vertical-rate check
 	// alone says nothing about, and the one that turns a nulled descent
@@ -107,7 +119,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 		chipRow2(navigationCols, readout.LabelIncl, inclCell, readout.LabelPeriod, periodCell),
 		chipRow3(navigationCols, readout.LabelDepart, departV, "e:", eV, "dir:", dirV),
 		chipRow2(navigationCols, readout.LabelImpact, impactCell, "stop:", stopCell),
-		chipRowAt("plan:", "—", boxValueCol),
+		planRow,
 	}
 }
 
@@ -330,6 +342,100 @@ func (v *OrbitView) navigationImpactStopCells(w *sim.World, c *spacecraft.Spacec
 	impactV = fmt.Sprintf("%s (%s)", readout.Countdown(corridor.Impact.TimeToImpact), readout.Speed(corridor.Impact.SpeedMps))
 	stopV = v.navigationStopCell(corridor)
 	return impactV, stopV
+}
+
+// planElementsInPrimaryFrame converts PredictedFinalOrbit's raw
+// state/primary into orbital elements using the SAME per-body reference
+// frame convention every other NAVIGATION cell reads its own live
+// elements in (craftLiveElements, navigationDockGuestBox): body-bound
+// orbits in the primary's own equatorial frame, heliocentric ones
+// ecliptic-relative (internal/orbital/frame.go). AN/DN and the plan's
+// own inclination are only meaningful measured in that same frame.
+func planElementsInPrimaryFrame(state physics.StateVector, primary bodies.CelestialBody) orbital.Elements {
+	mu := primary.GravitationalParameter()
+	frame := orbital.ReferenceFrameForPrimary(primary)
+	return orbital.ElementsFromStateInFrame(state.R, state.V, mu, frame)
+}
+
+// appendPlanArrows (ADR 0051 slice 3 item 4, re-grill Q1/Q3): once a
+// burn is planted, Ap:/Pe:/incl:/period: each gain a trailing "→
+// becomes" annotation naming PredictedFinalOrbit's own value in that
+// cell's own units. → means only "becomes", never a trend (re-grill
+// Q3): the Ap cell's own ↑/↓ trend glyph (navigationApPeCells) and its
+// T- countdown are untouched and sit BEFORE the arrow, exactly re-grill
+// Q3's own measured example ("Ap: 300.7 km T-3m29s → 860.4 km"). Ap/Pe/
+// period stay unannotated for a plan that resolves hyperbolic (an
+// escaping or high-energy-flyby final orbit, el.E >= 1): there is no
+// final apoapsis, periapsis, or period to name, only a shape. incl:
+// still gets its arrow there: orientation is well-defined even
+// hyperbolic.
+func (v *OrbitView) appendPlanArrows(state physics.StateVector, primary bodies.CelestialBody, apCell, peCell, inclCell, periodCell string) (string, string, string, string) {
+	el := planElementsInPrimaryFrame(state, primary)
+	if math.IsNaN(el.I) {
+		return apCell, peCell, inclCell, periodCell
+	}
+	inclCell += " → " + readout.Angle(el.I*180/math.Pi)
+	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
+		return apCell, peCell, inclCell, periodCell
+	}
+	primaryR := primary.RadiusMeters()
+	mu := primary.GravitationalParameter()
+	apCell += " → " + readout.Distance(el.Apoapsis()-primaryR)
+	peCell += " → " + readout.Distance(el.Periapsis()-primaryR)
+	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
+	periodCell += " → " + readout.Period(secondsToDuration(period))
+	return apCell, peCell, inclCell, periodCell
+}
+
+// navigationPlanEquatorialToleranceDeg: an orbit within this many
+// degrees of the reference plane (0° or 180°, a retrograde-equatorial
+// orbit) has no well-defined ascending/descending node to name: the
+// orbit IS the reference plane, so re-grill Q1's "equatorial" word
+// replaces the angles rather than printing a numerically-unstable
+// near-arbitrary AN/DN pair.
+const navigationPlanEquatorialToleranceDeg = 0.05
+
+// navigationPlanRow builds NAVIGATION's permanent tenth row (re-grill
+// Q1, decision 15): "plan: —" with no plan; otherwise the world the
+// planned numbers are measured from, then either the node angles or,
+// for an equatorial plan, the word "equatorial" in their place.
+// Precedence (checked in this order, matching the three named forms):
+// a plan that ends at a DIFFERENT primary than the craft's current one
+// is always "<world> encounter", regardless of whether that arrival
+// resolves elliptical or hyperbolic (a flyby is still an encounter); a
+// plan that stays at the SAME primary but resolves hyperbolic is
+// "<world> escape" with no angles at all; otherwise it is "<world>
+// orbit" with angles. "Earth orbit" / "Earth escape" wording is the
+// orchestrator's own assumption (told to Jason), implemented as stated.
+func (v *OrbitView) navigationPlanRow(c *spacecraft.Spacecraft, state physics.StateVector, primary bodies.CelestialBody, ok bool) string {
+	if !ok {
+		return chipRowAt("plan:", "—", boxValueCol)
+	}
+	el := planElementsInPrimaryFrame(state, primary)
+	encounter := primary.ID != c.Primary.ID
+	hyperbolic := math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1
+
+	var value string
+	switch {
+	case encounter:
+		value = primary.EnglishName + " encounter"
+	case hyperbolic:
+		return chipRowAt("plan:", primary.EnglishName+" escape", boxValueCol)
+	default:
+		value = primary.EnglishName + " orbit"
+	}
+	if math.IsNaN(el.I) || math.IsNaN(el.Omega) {
+		return chipRowAt("plan:", value, boxValueCol)
+	}
+	incDeg := el.I * 180 / math.Pi
+	if incDeg < navigationPlanEquatorialToleranceDeg || incDeg > 180-navigationPlanEquatorialToleranceDeg {
+		value += "  equatorial"
+	} else {
+		anDeg := math.Mod(el.Omega*180/math.Pi+360, 360)
+		dnDeg := math.Mod(anDeg+180, 360)
+		value += fmt.Sprintf("  AN %s  DN %s", readout.Angle(anDeg), readout.Angle(dnDeg))
+	}
+	return chipRowAt("plan:", value, boxValueCol)
 }
 
 // navigationStopCell renders the stop: cell's number+colour per outcome

@@ -169,126 +169,109 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// layering after them until slice 3 moves every notice into its own
 	// bay.
 	chips = v.navigationBoxesInOrder(w, chips)
-	// VESSEL DESTROYED (#427 / ADR 0048): the game's first Standing
-	// Alert — an alert-coloured chip that persists for as long as the
-	// active craft's Crashed state holds, not a transient Event Flash.
-	// Pre-#427 a crash's entire notice was the VESSEL chip's name gaining
-	// a dim "[CR] " prefix (crashedVesselNameLabel) while every other
-	// readout kept reading as if pre-launch — the review's own finding.
-	// Bypasses chipEnabled entirely (no Settings id — there's nothing to
-	// toggle, the exits are non-optional) and survives F2 declutter the
-	// same way the live-burn NODES chip does, because a destroyed vessel
-	// with no visible way out is exactly the "safety/continuity fact the
-	// player has no other way to see" chipPriorityForced exists for.
-	if lines := v.buildVesselDestroyedChip(w); lines != nil {
-		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityForced})
-	}
-	// MEETING PLAN (ADR 0045 S6, #399): the picker holds keyboard focus
-	// while open (app.go's key intercept claims ←/→/↑/↓/Enter/Esc before
-	// they can reach camera pan or anything else), so unlike every other
-	// chip it bypasses chipEnabled — a modal the player just summoned with
-	// K must not silently vanish under F2 declutter while it's still
-	// eating their keystrokes. chipPriorityForced (not Core) keeps it
-	// below VESSEL/ORBIT in a genuine overflow, but never dropped for
-	// space like an ordinary contextual chip.
-	if lines := v.buildMeetingPickerChip(); lines != nil {
-		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, priority: chipPriorityForced, neverShrink: true})
-	}
-	add := func(id settings.Chip, corner chipCorner, lines []string) {
-		if lines == nil || !v.chipEnabled(id) {
-			return
-		}
-		chips = append(chips, builtChip{id: id, corner: corner, lines: lines})
-	}
-	// addC is add's twin for chips with a real Compact Form (ADR 0046):
-	// title plus one or two key rows, built by a matching *Compact
-	// builder. compact may be nil for a chip whose full form is already
-	// chip-sized — layoutChipsBySide treats a nil compact as "full IS
-	// compact" (nothing further to give, still a candidate to drop).
-	addC := func(id settings.Chip, corner chipCorner, lines, compact []string) {
-		if lines == nil || !v.chipEnabled(id) {
-			return
-		}
-		chips = append(chips, builtChip{id: id, corner: corner, lines: lines, compact: compact})
-	}
-	// addPriority is add's twin for the handful of chips that must never
-	// be silently dropped whole by layoutChipsBySide until every Normal
-	// chip on their side has already shrunk to Compact — see the
-	// chipPriority* doc comment in orbit_chips.go.
-	addPriority := func(id settings.Chip, corner chipCorner, lines, compact []string, priority int) {
-		if lines == nil || !v.chipEnabled(id) {
-			return
-		}
-		chips = append(chips, builtChip{id: id, corner: corner, lines: lines, compact: compact, priority: priority})
-	}
 	// PROXIMITY (ADR 0043) is the close-range view's own instrument panel,
-	// so inside that view it sits directly under VESSEL, ahead of
-	// everything else in the top-left stack. Ordering is load-bearing:
-	// layoutChipsBySide shrinks/drops LATER normal-priority chips first
-	// (ADR 0046), so at the Floor the readout the player is flying the
-	// last kilometres on wins the space over the transient chips behind
-	// it. Nil in every other ViewMode — on the map, the TARGET chip
-	// already carries these numbers and a second copy would be pure
-	// clutter.
-	addC("", cornerTopLeft, v.buildProximityChip(w), v.buildProximityChipCompact(w))
-	// Top-left transient stack (stacking order = listed order, downward).
-	// The in-flight ● BURNS readout used to live here; v0.16 folds it into
-	// ENGINE's node row (ADR 0051 decision 1).
-	add(settings.ChipFrameTransition, cornerTopLeft, v.buildFrameTransitionChip(w))
-	add(settings.ChipCapture, cornerTopLeft, v.buildCaptureChip(w))
-	// DESCENDING (issue #348 §4): a one-line pointer at the launch/surface
-	// jump key, offered the moment the active vessel's trajectory is
-	// forecast to reach the ground — the map-screen mirror of the
-	// CLOSE RANGE hint below (same "teach the key once, then get out of
-	// the way" always-on + self-limiting treatment).
-	add("", cornerTopLeft, v.buildLaunchHintChip(w))
-	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
-	// SESSION moments (v0.27 S6 / ADR 0034): join/leave/sync events as
-	// a transient top-left chip. Always-on when events are fresh (empty
-	// id — moments are too short-lived to warrant a Settings toggle);
+	// not a notice: it replaces the map's box stack while the Proximity
+	// View is up, so it stays in cornerTopLeft under the ordinary
+	// Graceful Shrink budget (ADR 0046), with its own Compact Form. Nil
+	// in every other ViewMode.
+	if lines := v.buildProximityChip(w); lines != nil && v.chipEnabled("") {
+		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, compact: v.buildProximityChipCompact(w)})
+	}
+
+	// Every pop-up notice lives in the bay now (ADR 0051 slice 3 item 2,
+	// re-grill Q5): cornerBay is exempt from the side budgets
+	// layoutChipsBySide enforces, and composeChips clamps its own height
+	// and width against whatever the eight boxes and the navball are
+	// using this frame (ruling 1), so notices can never move a box, and
+	// a box can never move because a notice appeared or left.
+	//
+	// Bay append order is oldest-first (composeChips stacks the LAST
+	// entry at the bottom and folds from index 0 upward when the bay
+	// overflows (see layoutBayFold). Ordered here least-critical-first,
+	// most-critical-last: transient, self-refreshing readouts (the live
+	// path's next few moments) fold before session/coordination lines,
+	// which fold before the two things a player must never lose access
+	// to mid-interaction (DOCKED's only route to [J]/[U], and the
+	// keyboard-focus-holding RENDEZVOUS PLAN picker): those two go last
+	// so a genuine overflow always empties the transient end of the bay
+	// first.
+	add := func(id settings.Chip, lines []string) {
+		if lines == nil || !v.chipEnabled(id) {
+			return
+		}
+		chips = append(chips, builtChip{id: id, corner: cornerBay, lines: lines})
+	}
+	// FRAME TRANSITION / CAPTURE PREVIEW / SOI PASS: the live path's next
+	// SOI crossing and (if the last planted node changes primary) the
+	// arrival preview at it. All three Target-independent (SOI PASS
+	// de-dupes with TARGET inside its own builder when they name the same
+	// body).
+	add(settings.ChipFrameTransition, v.buildFrameTransitionChip(w))
+	add(settings.ChipCapture, v.buildCaptureChip(w))
+	add(settings.ChipSOIPass, v.buildSOIPassChip(w))
+	add(settings.ChipChute, v.buildChuteChip(w))
+	// CLOSE RANGE (ADR 0043): a one-line pointer at the Proximity View
+	// jump key, offered when an approach crosses inside the range at
+	// which the game already treats two vessels as flying together.
+	// Self-limiting rather than standing: sim's crossing state machine
+	// retires it the moment the player acts, and it never renders inside
+	// the view it advertises.
+	add("", v.buildProximityHintChip(w))
+	// SESSION moments (v0.27 S6 / ADR 0034): join/leave/sync events as a
+	// transient notice. Always-on when events are fresh (empty id:
+	// moments are too short-lived to warrant a Settings toggle);
 	// declutter still clears it via the empty-id path.
-	add("", cornerTopLeft, v.buildSessionEventsChip(w))
+	add("", v.buildSessionEventsChip(w))
+	// CHAT: a coordination line must not be togglable into silence
+	// (ADR 0035 §2).
+	add("", v.buildChatChip(w))
 	// RENDEZVOUS (v0.29 S2): the persistent Rendezvous Warp surface —
-	// join prompt / armed-waiting / coasting readout. Always-on while
-	// the state machine is live (empty id): the join prompt is the
-	// anti-overlook affordance and the coast readout carries the cancel
-	// key; F2 declutter still clears it like SESSION.
-	add("", cornerTopLeft, v.buildRendezvousChip(w))
+	// join prompt / armed-waiting / coasting readout. Always-on while the
+	// state machine is live (empty id); F2 declutter still clears it.
+	add("", v.buildRendezvousChip(w))
 	// TIME LOCK (ADR 0037 §3): the minimal standing line for a plain
 	// proximity lock — no agreement, so nothing else on screen would say
-	// the player's warp is being held. Always-on for the same reason
-	// RENDEZVOUS is: it explains a constraint the player can't otherwise
-	// see. Nil inside an agreement, where the chip above says it better.
-	add("", cornerTopLeft, v.buildTimeLockChip(w))
+	// the player's warp is being held. Nil inside an agreement, where the
+	// chip above says it better.
+	add("", v.buildTimeLockChip(w))
+	// NO VESSEL / empty slate (#310, recovered ADR 0051 slice 3 item 3):
+	// with no active craft, every one of the eight boxes reads a bare
+	// dash row (decision 2) with no explanation. Bypasses chipEnabled
+	// entirely for the same reason VESSEL DESTROYED does: the only key
+	// that gets the player flying again ([n], or [U] for a docked guest)
+	// must survive F2 declutter.
+	if lines := v.buildEmptySlateChip(w); lines != nil {
+		chips = append(chips, builtChip{corner: cornerBay, lines: lines})
+	}
+	// VESSEL DESTROYED (#427 / ADR 0048): the game's first Standing
+	// Alert: persists for as long as the active craft's Crashed state
+	// holds, not a transient Event Flash. Bypasses chipEnabled entirely
+	// (no Settings id, nothing to toggle) and survives F2 declutter: a
+	// destroyed vessel with no visible way out is exactly the "safety/
+	// continuity fact the player has no other way to see" CONTEXT.md's
+	// Standing Alert rule exists for.
+	if lines := v.buildVesselDestroyedChip(w); lines != nil {
+		chips = append(chips, builtChip{corner: cornerBay, lines: lines})
+	}
 	// DOCKED (ADR 0038 S4): the rider-view standing block — unconditional
 	// while one of this player's craft rides in another player's stack
 	// (names the ride + the exits), with #253's owner-away line folded in
-	// as an extra row rather than a second surface. Always-on like
-	// RENDEZVOUS (empty id); F2 declutter still clears it. #328: this is
-	// the rider's only surviving route to [J] request control / [U]
-	// undock once absorbed into another player's stack, so it carries
-	// chipPriorityForced — admitChipsByBudget must never silently drop it
-	// for space the way it dropped every ordinary chip ahead of it.
-	addPriority("", cornerTopLeft, v.buildDockGuestChip(w), v.buildDockGuestChipCompact(w), chipPriorityForced)
-	// CLOSE RANGE (ADR 0043): a one-line pointer at the Proximity View
-	// jump key, offered when an approach crosses inside the range at which
-	// the game already treats two vessels as flying together. It sits
-	// directly above TARGET because it is a fact ABOUT the target — the
-	// next thing to know after the range readout that triggered it — and
-	// always-on (empty id) for the same reason the RENDEZVOUS join prompt
-	// is: a chip that teaches a key must not be toggle-able into silence
-	// before it has been read once. Self-limiting rather than standing:
-	// sim's crossing state machine retires it the moment the player acts,
-	// and it never renders inside the view it advertises.
-	add("", cornerTopRight, v.buildProximityHintChip(w))
-	// SOI PASS, the upcoming encounter of the live path, always-on and
-	// Target-independent (ADR 0019). De-dupes with TARGET inside the
-	// builder when they name the same body.
-	add(settings.ChipSOIPass, cornerTopRight, v.buildSOIPassChip(w))
-	// CHAT stacks bottom-left, its own corner slot away from the session
-	// moments (ADR 0035 §2). Always-on like SESSION, a coordination
-	// line must not be togglable into silence.
-	add("", cornerBottomLeft, v.buildChatChip(w))
+	// as an extra row. Always-on (empty id); F2 declutter still clears
+	// it. #328: this is the rider's only surviving route to [J] request
+	// control / [U] undock once absorbed into another player's stack, so
+	// it goes near the end of the bay's fold order.
+	add("", v.buildDockGuestChip(w))
+	// RENDEZVOUS PLAN (ADR 0045 S6, #399; renamed from MEETING PLAN,
+	// slice 3 ruling 2): the picker holds keyboard focus while open
+	// (app.go's key intercept claims ←/→/↑/↓/Enter/Esc before they can
+	// reach camera pan or anything else), so unlike every other chip it
+	// bypasses chipEnabled: a modal the player just summoned with K must
+	// not silently vanish under F2 declutter while it's still eating
+	// their keystrokes. Last in append order: the bay's fold order
+	// (oldest-first) means it is the very last thing ever folded away.
+	if lines := v.buildMeetingPickerChip(); lines != nil {
+		chips = append(chips, builtChip{corner: cornerBay, lines: lines})
+	}
 	return chips
 }
 
@@ -696,7 +679,7 @@ func (v *OrbitView) rendezvousUnplannedLines(w *sim.World) []string {
 	}
 	switch {
 	case w.RendezvousMutualUnplanned && arm.Initiator:
-		lines = append(lines, v.theme.Dim.Render("  no plan yet — pick a Meeting Place [K], then Engage to commit"))
+		lines = append(lines, v.theme.Dim.Render("  no plan yet, pick a Rendezvous [K], then Engage to commit"))
 	case w.RendezvousMutualUnplanned:
 		lines = append(lines, v.theme.Dim.Render("  no plan yet — holding for "+arm.Handle+"'s call"))
 	default:
@@ -1277,23 +1260,6 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 		)
 	}
 	return lines
-}
-
-// buildLaunchHintChip tells the player the launch/surface view is worth
-// a look at the one moment it starts being useful — issue #348 §4's
-// mirror of buildProximityHintChip below. The gate is exactly
-// sim.DescentCorridorFor's own forecast (the once-per-crossing
-// discipline and its dismiss live in sim.World.LaunchHintActive), so
-// this hint always agrees with whatever the DESCENT CORRIDOR chip would
-// say once you actually jump into the surface view — it just says so
-// one screen early.
-func (v *OrbitView) buildLaunchHintChip(w *sim.World) []string {
-	if !w.LaunchHintActive() {
-		return nil
-	}
-	return []string{
-		v.theme.Primary.Render("DESCENDING") + " — [V] launch/surface view",
-	}
 }
 
 // buildChuteChip surfaces the parachute deploy state + surface-relative

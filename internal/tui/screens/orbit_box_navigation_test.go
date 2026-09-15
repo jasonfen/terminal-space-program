@@ -10,10 +10,224 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
+
+// inclinedCircularEarthOrbitCraft parks the active craft in a circular
+// Earth orbit of the given inclination, positioned exactly at its own
+// ascending node. R/V are composed directly in Earth's OWN equatorial
+// frame (orbital.ReferenceFrameForPrimary), then rotated to world
+// coordinates via BodyFrame.ToWorld, not laid out along the raw
+// world X/Y/Z axes, which sit at Earth's axial tilt relative to its
+// equatorial frame and would give neither the intended inclination nor
+// Ω = 0 once craftLiveElements/navigationPlanRow read them back in
+// that same body frame. Built this way, the resulting orbit's own
+// longitude of ascending node is exactly 0° by construction, so the
+// plan: row tests below can assert AN/DN exactly, not just "some
+// angle".
+func inclinedCircularEarthOrbitCraft(t *testing.T, incDeg, altM float64) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	for _, b := range w.System().Bodies {
+		if b.ID == "earth" {
+			c.Primary = b
+		}
+	}
+	c.Landed = false
+	c.Crashed = false
+	r := c.Primary.RadiusMeters() + altM
+	mu := c.Primary.GravitationalParameter()
+	speed := math.Sqrt(mu / r)
+	inc := incDeg * math.Pi / 180
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	rFrame := orbital.Vec3{X: r}
+	vFrame := orbital.Vec3{Y: speed * math.Cos(inc), Z: speed * math.Sin(inc)}
+	c.State.R = frame.ToWorld(rFrame)
+	c.State.V = frame.ToWorld(vFrame)
+	c.State.M = c.TotalMass()
+	return w
+}
+
+// plantProgradeNode gives c a single resolved prograde node, dv m/s,
+// firing an hour from now in world w's clock. primaryID mirrors
+// ManeuverNode.PrimaryID (empty = the craft's current primary at plant
+// time, matching an ordinary same-primary burn; a real body id like
+// "moon" mirrors what an arrival-burn node from a transfer plant
+// carries, forcing PredictedFinalOrbit's own frame-rebase path so the
+// plan: row's encounter branch can be tested without a full Lambert
+// solve).
+func plantProgradeNode(w *sim.World, c *spacecraft.Spacecraft, dv float64, primaryID string) {
+	c.Nodes = []spacecraft.ManeuverNode{{
+		TriggerTime: w.Clock.SimTime.Add(time.Hour),
+		Mode:        spacecraft.BurnPrograde,
+		DV:          dv,
+		PrimaryID:   primaryID,
+	}}
+}
+
+// TestNavigationPlanRowDashWithNoPlan is the tracer bullet: no nodes at
+// all, plan: reads a bare dash (unchanged from
+// TestNavigationPlanRowIsPermanentDash: kept as its own vertical-slice
+// proof that the new plan-row machinery doesn't fire without a plan).
+func TestNavigationPlanRowDashWithNoPlan(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
+	lines := v.buildNavigationBox(w)
+	planRow := lines[7]
+	if !strings.Contains(planRow, "plan:") || !strings.Contains(planRow, "—") {
+		t.Errorf("plan row with no nodes = %q, want plan: —", planRow)
+	}
+}
+
+// TestNavigationPlanRowShowsOrbitWithNodeAngles (re-grill Q1): a plan
+// that stays around the current world reads "plan: Earth orbit  AN
+// ...  DN ...". The fixture starts exactly at its own ascending node
+// (inclinedCircularEarthOrbitCraft), so Ω = 0° and AN/DN must read
+// exactly "0.0°"/"180.0°".
+func TestNavigationPlanRowShowsOrbitWithNodeAngles(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
+	c := w.ActiveCraft()
+	plantProgradeNode(w, c, 50, "") // small burn: stays bound around Earth
+
+	planRow := v.buildNavigationBox(w)[7]
+	for _, want := range []string{"plan:", "Earth orbit", "AN 0.00°", "DN 180.0°"} {
+		if !strings.Contains(planRow, want) {
+			t.Errorf("plan row = %q, missing %q", planRow, want)
+		}
+	}
+}
+
+// TestNavigationPlanRowShowsEquatorial (re-grill Q1): an equatorial plan
+// with no nodes carries the word "equatorial" in place of the angles.
+func TestNavigationPlanRowShowsEquatorial(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := inclinedCircularEarthOrbitCraft(t, 0, 500e3)
+	c := w.ActiveCraft()
+	plantProgradeNode(w, c, 50, "")
+
+	planRow := v.buildNavigationBox(w)[7]
+	if !strings.Contains(planRow, "Earth orbit") || !strings.Contains(planRow, "equatorial") {
+		t.Errorf("equatorial plan row = %q, want \"Earth orbit\" and \"equatorial\"", planRow)
+	}
+	if strings.Contains(planRow, "AN ") || strings.Contains(planRow, "DN ") {
+		t.Errorf("equatorial plan row = %q, must not also print AN/DN angles", planRow)
+	}
+}
+
+// TestNavigationPlanRowShowsEncounter (re-grill Q1): a transfer that
+// ends at another world reads "plan: Moon encounter  AN ...  DN ...",
+// regardless of whether the arrival state PredictedFinalOrbit computes
+// resolves elliptical or hyperbolic relative to the Moon: arriving
+// AT another world always wins the "encounter" wording (a flyby is
+// still an encounter).
+func TestNavigationPlanRowShowsEncounter(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := inclinedCircularEarthOrbitCraft(t, 10, 500e3)
+	c := w.ActiveCraft()
+	plantProgradeNode(w, c, 3100, "moon") // ~Trans-Lunar-Injection-sized burn, planted in Moon's frame
+
+	planRow := v.buildNavigationBox(w)[7]
+	if !strings.Contains(planRow, "Moon encounter") {
+		t.Errorf("plan row = %q, want \"Moon encounter\"", planRow)
+	}
+	if strings.Contains(planRow, "Earth") {
+		t.Errorf("plan row = %q, must not still name Earth once the plan ends at the Moon", planRow)
+	}
+}
+
+// TestNavigationPlanRowShowsEscape (re-grill Q1): a plan that stays at
+// the current world but resolves hyperbolic reads "plan: Earth escape"
+// with no angles at all.
+func TestNavigationPlanRowShowsEscape(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := inclinedCircularEarthOrbitCraft(t, 10, 500e3)
+	c := w.ActiveCraft()
+	plantProgradeNode(w, c, 20000, "") // far above local escape velocity
+
+	planRow := v.buildNavigationBox(w)[7]
+	if !strings.Contains(planRow, "plan:") || !strings.Contains(planRow, "Earth escape") {
+		t.Errorf("plan row = %q, want \"plan: Earth escape\"", planRow)
+	}
+	if strings.Contains(planRow, "AN ") || strings.Contains(planRow, "DN ") || strings.Contains(planRow, "orbit") {
+		t.Errorf("plan row = %q, an escaping plan must not carry angles or the word \"orbit\"", planRow)
+	}
+}
+
+// TestNavigationArrowsAnnotateApPeInclPeriod (re-grill Q3): once a plan
+// exists, Ap:/Pe:/incl:/period: each gain a trailing "→ becomes"
+// value naming PredictedFinalOrbit's own numbers, never a trend, the
+// Ap cell's own ↑/↓ (tested separately) is untouched.
+func TestNavigationArrowsAnnotateApPeInclPeriod(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
+	c := w.ActiveCraft()
+	plantProgradeNode(w, c, 50, "")
+
+	lines := v.buildNavigationBox(w)
+	apPeRow, inclPeriodRow := lines[3], lines[4]
+	for _, row := range []string{apPeRow, inclPeriodRow} {
+		if !strings.Contains(row, "→") {
+			t.Errorf("row %q missing the plan → annotation", row)
+		}
+	}
+}
+
+// TestNavigationArrowsOmitApPeriodWhenEscaping: an escaping plan has no
+// final apoapsis or period to name, so Ap:/Pe:/period: stay
+// unannotated, but incl: still gets its arrow (orientation is
+// well-defined even hyperbolic).
+func TestNavigationArrowsOmitApPeriodWhenEscaping(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := inclinedCircularEarthOrbitCraft(t, 10, 500e3)
+	c := w.ActiveCraft()
+	plantProgradeNode(w, c, 20000, "")
+
+	lines := v.buildNavigationBox(w)
+	apPeRow, inclPeriodRow := lines[3], lines[4]
+	if strings.Contains(apPeRow, "→") {
+		t.Errorf("Ap/Pe row = %q, an escaping plan must not annotate Ap/Pe", apPeRow)
+	}
+	if !strings.Contains(inclPeriodRow, "→") {
+		t.Errorf("incl/period row = %q, incl: should still get its arrow while escaping", inclPeriodRow)
+	}
+}
+
+// TestNavigationBoxWidthAtDesignSizeWithPlan confirms the plan: row
+// doesn't blow NAVIGATION's column budget at the Design Size (140x40):
+// every one of its rows must stay under the ADR's own measured 73-cell
+// ascent ceiling (re-grill Q1), and ENGINE's own node: row (rendered in
+// the SAME frame, the left column) must still read intact, not
+// clobbered by a NAVIGATION overrun.
+func TestNavigationBoxWidthAtDesignSizeWithPlan(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	v.Resize(DesignWidth, DesignHeight)
+	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
+	c := w.ActiveCraft()
+	plantProgradeNode(w, c, 3100, "moon")
+
+	navLines := v.buildNavigationBox(w)
+	for i, l := range navLines {
+		if width := lipgloss.Width(l); width > 73 {
+			t.Errorf("NAVIGATION row %d width %d exceeds the measured 73-cell ceiling: %q", i, width, l)
+		}
+	}
+	engineLines := v.buildEngineBox(w)
+	joined := strings.Join(engineLines, "\n")
+	if !strings.Contains(joined, "node:") {
+		t.Errorf("ENGINE's node: row missing/clobbered once NAVIGATION carries a wide plan:\n%s", joined)
+	}
+}
 
 // dockGuestStackGhostWorld (orbit_chips_test.go) is reused here: a World
 // with no local craft, docked as a guest in "bob"'s stack, whose ghost
@@ -144,6 +358,62 @@ func TestNavigationPlanRowIsPermanentDash(t *testing.T) {
 	planRow := lines[7]
 	if !strings.Contains(planRow, "plan:") || !strings.Contains(planRow, "—") {
 		t.Errorf("plan row = %q, want plan: — (slice 3 fills the contents)", planRow)
+	}
+}
+
+// subOrbitalClimbCraft parks the world's active craft on Earth in a
+// sub-orbital climbing arc (positive radial velocity, periapsis below
+// the surface, the impactor shape isSubOrbitalClimb requires) with its
+// apoapsis at exactly apoAltM. Mirrors
+// TestLaunchHUDRendersOrbitReadyOnApAboveFloor's own construction
+// (orbit_launch_hud_test.go), parameterised on apoapsis so the ORBIT
+// READY threshold pair below can probe either side of Earth's Orbit
+// Floor exactly.
+func subOrbitalClimbCraft(t *testing.T, apoAltM float64) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("setup: NewWorld should produce an active craft")
+	}
+	c.Landed = false
+	c.Throttle = 0
+	mu := c.Primary.GravitationalParameter()
+	primaryR := c.Primary.RadiusMeters()
+	rApo := primaryR + apoAltM
+	rPeri := primaryR - 100e3 // sub-surface periapsis: the impactor shape
+	a := (rPeri + rApo) / 2
+	vAtPeri := math.Sqrt(mu * (2/rPeri - 1/a))
+	c.State.R = orbital.Vec3{X: rPeri}
+	c.State.V = orbital.Vec3{Y: vAtPeri}
+	c.State.M = c.TotalMass()
+	return w
+}
+
+// TestNavigationOrbitReadyThresholdOnEarth (ADR 0051 slice 3 item 4):
+// permanent version of the orchestrator's own throwaway proof (see the
+// slice 3 vault log). Earth's Orbit Floor is its atmosphere cutoff
+// (150 km) + OrbitFloorMarginM (25 km) = 175 km (re-grill Q7's own
+// stated value), so the badge must light at 185 km apoapsis and stay
+// dark at 165 km. Both bracket the retired flat 200 km
+// LaunchMissionFloorM this replaced (re-grill Q7): sabotage-checked by
+// forcing the gate to a literal 200e3 (185 km failed to light, matching
+// the old flat floor exactly) before restoring the real
+// sim.OrbitFloorForCraft(c) call.
+func TestNavigationOrbitReadyThresholdOnEarth(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+
+	lit := subOrbitalClimbCraft(t, 185e3)
+	if out := strings.Join(v.buildNavigationBox(lit), "\n"); !strings.Contains(out, "ORBIT READY") {
+		t.Errorf("Ap 185 km (above Earth's 175 km Orbit Floor) did not light ORBIT READY:\n%s", out)
+	}
+
+	dark := subOrbitalClimbCraft(t, 165e3)
+	if out := strings.Join(v.buildNavigationBox(dark), "\n"); strings.Contains(out, "ORBIT READY") {
+		t.Errorf("Ap 165 km (below Earth's 175 km Orbit Floor) lit ORBIT READY:\n%s", out)
 	}
 }
 

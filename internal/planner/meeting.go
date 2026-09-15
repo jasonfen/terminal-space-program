@@ -211,7 +211,7 @@ var (
 	// a natural follow-on, not required for #398's acceptance criteria
 	// (all of which use matched or near-matched orbit sizes). [H]/[m]
 	// remain the tools for a genuine size mismatch.
-	ErrMeetingSizeMismatch = errors.New("meeting: orbits differ too much in size for this Meeting Place — plan a transfer [H] first")
+	ErrMeetingSizeMismatch = errors.New("radius outside target's apsides: plan a transfer [H] first")
 	// errMeetingInvalidInput: non-positive mu or search horizon —
 	// mirrors RecommendRendezvousNudge's "horizon too short" input
 	// guard.

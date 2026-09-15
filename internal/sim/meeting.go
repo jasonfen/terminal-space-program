@@ -34,7 +34,7 @@ var (
 	// and PlanMeetingBurn both refuse before computing or planting
 	// anything for this Place.
 	ErrMeetingCrossingNotImplemented = transferError("\"the crossing\" isn't implemented yet — try \"their orbit\" or \"your orbit\"")
-	ErrMeetingSizeMismatch           = transferError("orbits differ too much in size for this Meeting Place — plan a transfer [H] first")
+	ErrMeetingSizeMismatch           = transferError("radius outside target's apsides: plan a transfer [H] first")
 	ErrMeetingUnaffordable           = transferError("meeting burn exceeds remaining Δv budget")
 	ErrMeetingNoSolution             = transferError("no meeting solution on this lap count")
 	ErrMeetingNoSuchLap              = transferError("no such lap count on the ladder")

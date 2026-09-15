@@ -37,7 +37,7 @@ type helpSection struct {
 //
 // Section ORDER (grilled 2026-09-04, #425): GENERAL, PAUSE MENU,
 // CAMERA & VIEW, TIME & WARP, MANUAL FLIGHT, NAVIGATION, PLAN BURNS,
-// MEETING PLANNER, VESSEL, VEHICLE ASSEMBLY (VAB), SAVES, MULTIPLAYER,
+// RENDEZVOUS PLANNER, VESSEL, VEHICLE ASSEMBLY (VAB), SAVES, MULTIPLAYER,
 // MOUSE, READOUT GLOSSARY: puts "how do I fly" (camera, warp, manual
 // flight) right after GENERAL / PAUSE MENU instead of six PgDn presses
 // down behind SAVES and the 13-row MULTIPLAYER section (issue #425
@@ -113,15 +113,15 @@ var helpSections = []helpSection{
 		{"H", "plant transfer to [t] target body (plane-aware); also works inside the planner (QUICK PLANS)"},
 		{"I", "plant plane match ([t] target body / vessel / equatorial); also works inside the planner"},
 		{"C", "plant circularize burn at next apoapsis; also works inside the planner"},
-		{"K", "close on target vessel: plant nudge, or open the Meeting Planner if too far in phase; also works inside the planner"},
+		{"K", "close on target vessel: plant nudge, or open the Rendezvous Planner if too far in phase; also works inside the planner"},
 		{"R", "refine plan (re-Lambert the arrival); also works inside the planner"},
 		{"P", "porkchop plot for the body under the cursor; also works inside the planner"},
 		{"o", "porkchop: transfer options (nRev / direction / branch)"},
 		{"n / r / b", "porkchop options: cycle nRev / retrograde / short-vs-long"},
 		{"click cell", "porkchop: select a (dep, tof) cell — enter plants it"},
 	}},
-	{"MEETING PLANNER (map chip, opens from K)", [][2]string{
-		{"← / →", "walk the Meeting Place: their orbit / your orbit / the crossing"},
+	{"RENDEZVOUS PLANNER (map chip, opens from K)", [][2]string{
+		{"← / →", "walk the Rendezvous: their orbit / your orbit / the crossing"},
 		{"↑ / ↓", "walk the Lap Ladder"},
 		{"enter", "plant the highlighted row's burn"},
 		{"esc", "close without planting"},

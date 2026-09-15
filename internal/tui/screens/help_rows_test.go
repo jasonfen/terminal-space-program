@@ -92,7 +92,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		"MANUAL FLIGHT",
 		"NAVIGATION",
 		"PLAN BURNS",
-		"MEETING PLANNER (map chip, opens from K)",
+		"RENDEZVOUS PLANNER (map chip, opens from K)",
 		"VESSEL",
 		"VEHICLE ASSEMBLY (VAB)",
 		"MISSIONS (ladder screen — open with M)", // #426, screen-scoped, after VAB
