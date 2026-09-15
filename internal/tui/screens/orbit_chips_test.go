@@ -863,10 +863,11 @@ func TestPropellantBoxDeltaVPairShowsStageOverVehicle(t *testing.T) {
 // same reason, not fixed by this slice.)
 
 // (TestDockGuestVesselChipShowsBadgedFlightData retired (ADR 0038 S4
-// part 3): same gap as TestEmptySlateSaysSo above, no live instrument
-// box badges a DockGuest stack's ghost-reported flight data (name,
-// primary, velocity) the way the retired VESSEL chip did. Flagged, not
-// fixed, by this cleanup.)
+// part 3): ported to TestDockGuestNavigationBoxShowsBadgedFlightData in
+// orbit_box_navigation_test.go (slice 2b, item 3). NAVIGATION now
+// badges the DockGuest stack's ghost-reported primary and speed, the
+// quantities the retired VESSEL chip carried under decision 6's
+// removal table.)
 
 // dockGuestStackGhostWorld builds a World with no local craft, docked as a
 // guest in "bob"'s stack, whose ghost carries a real 500 km circular orbit
@@ -896,11 +897,11 @@ func dockGuestStackGhostWorld(t *testing.T) *sim.World {
 }
 
 // (TestDockGuestOrbitChipShowsBadgedShape retired (ADR 0038 S4 part 3):
-// same gap as TestDockGuestVesselChipShowsBadgedFlightData above, no
-// live instrument box renders the DockGuest stack's ghost-reported orbit
-// shape while riding as a guest (!CraftVisibleHere); buildNavigationBox
-// only ever reads w.ActiveCraft(), with no ghost fallback. Flagged, not
-// fixed, by this cleanup. dockGuestStackGhostWorld itself stays live,
+// ported to TestDockGuestNavigationBoxShowsBadgedShape in
+// orbit_box_navigation_test.go (slice 2b, item 3). buildNavigationBox
+// now falls back to navigationDockGuestBox, which renders the
+// DockGuest stack's ghost-reported orbit shape while riding as a guest
+// (w.ActiveCraft() == nil). dockGuestStackGhostWorld itself stays live,
 // dock_guest_rider_render_test.go's own tests still use it.)
 
 // TestLosingTheCraftRefits (#310): losing every craft is a framing change even

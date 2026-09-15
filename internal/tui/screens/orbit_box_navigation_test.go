@@ -15,6 +15,59 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
+// dockGuestStackGhostWorld (orbit_chips_test.go) is reused here: a World
+// with no local craft, docked as a guest in "bob"'s stack, whose ghost
+// carries a real 500 km circular orbit around Earth (ADR 0038 S4 part
+// 3).
+
+// TestDockGuestNavigationBoxShowsBadgedFlightData (ADR 0038 S4 part 3,
+// ported from the retired VESSEL chip's TestDockGuestVesselChipShowsBadgedFlightData):
+// once the stack's ghost report has landed, NAVIGATION upgrades from a
+// bare no-craft dash box to the stack's real flight data (primary and
+// speed), badged with the owner's handle so the numbers never read as
+// this player's own ship.
+func TestDockGuestNavigationBoxShowsBadgedFlightData(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := dockGuestStackGhostWorld(t)
+
+	out := strings.Join(v.buildNavigationBox(w), "\n")
+	for _, want := range []string{"bob", "Earth", "speed:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("badged NAVIGATION box missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestDockGuestNavigationBoxShowsBadgedShape (ADR 0038 S4 part 3, ported
+// from the retired ORBIT chip's TestDockGuestOrbitChipShowsBadgedShape):
+// NAVIGATION's Ap:/Pe: cells must render the ghost's orbit shape while
+// riding as a guest with a live ghost report, badged with the owner's
+// handle; with no DockGuest and no craft at all, the ordinary all-dash
+// no-craft box still applies (no stack to badge).
+func TestDockGuestNavigationBoxShowsBadgedShape(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := dockGuestStackGhostWorld(t)
+
+	out := strings.Join(v.buildNavigationBox(w), "\n")
+	for _, want := range []string{"bob", "Ap:", "Pe:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("badged NAVIGATION box missing %q:\n%s", want, out)
+		}
+	}
+
+	// Solo, no craft at all, no DockGuest: dash cells, no stack to badge.
+	w2, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w2.Crafts = nil
+	w2.ActiveCraftIdx = 0
+	out2 := strings.Join(v.buildNavigationBox(w2), "\n")
+	if strings.Contains(out2, "bob") {
+		t.Errorf("NAVIGATION box badged with no DockGuest set:\n%s", out2)
+	}
+}
+
 // TestNavigationTitleShowsLandedSite: decision 9, the landed site rides
 // the title, 0 rows.
 func TestNavigationTitleShowsLandedSite(t *testing.T) {
@@ -158,7 +211,7 @@ func fastLowMoonDescentCraft(t *testing.T, altM, vDownMps, vHorizMps float64) *s
 // circular orbit has plenty of horizontal speed (well past
 // sim.CrashVCritMps) but is nowhere near the ground and the descent
 // corridor is not live for it. The horiz: cell must not carry the
-// CRASH-on-contact alert here — sabotage-first proof that this test
+// CRASH-on-contact alert here: sabotage-first proof that this test
 // goes RED against the unfixed behaviour (an unconditional
 // vHoriz > sim.CrashVCritMps check with no descent gate).
 func TestNavigationHorizNoCrashAlertInStableOrbit(t *testing.T) {

@@ -40,6 +40,21 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	c := w.ActiveCraft()
 	title := v.navigationTitle(w, c)
 	if c == nil {
+		// ADR 0038 S4 part 3 ("badged panels"), ported from the retired
+		// ORBIT/VESSEL chips (audit: TestDockGuestOrbitChipShowsBadgedShape,
+		// TestDockGuestVesselChipShowsBadgedFlightData): while riding as a
+		// guest in another player's stack, this player's own Crafts slate
+		// is empty, so there is nothing for w.ActiveCraft() to return,
+		// exactly when there IS an orbit worth showing: the stack's. The
+		// ghost report carries a state vector (RelPos/Vel) but no
+		// fuel/mass/TWR/Δv (never reported over the wire), so only the
+		// rows NAVIGATION already owns from the retired VESSEL box
+		// (primary, speed) and the retired ORBIT box (Ap/Pe/incl/period)
+		// have anything to show; the rest stay dash, same as the no-craft
+		// case below.
+		if lines, ok := v.navigationDockGuestBox(w); ok {
+			return lines
+		}
 		return []string{
 			title,
 			chipRow2(navigationCols, readout.LabelAltitude, "—", readout.LabelVert, "—"),
@@ -94,6 +109,54 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 		chipRow2(navigationCols, readout.LabelImpact, impactCell, "stop:", stopCell),
 		chipRowAt("plan:", "—", boxValueCol),
 	}
+}
+
+// navigationDockGuestBox is buildNavigationBox's rider-view sibling (ADR
+// 0038 S4 part 3, ported from the retired buildDockGuestOrbitChip and
+// buildVesselChip's badged branch): while riding as a guest with no
+// local craft, derives whatever NAVIGATION's rows can show from the
+// stack owner's ghost report: primary and speed (the retired VESSEL
+// box's identity fields, decision 6's removal table) and the orbit
+// shape Ap/Pe/incl/period (the retired ORBIT chip's own badged
+// sibling), headered with the owner's handle so the numbers are never
+// mistaken for this player's own ship. ok=false with no DockGuest, no
+// ghost report yet, or a degenerate/hyperbolic resolved orbit, in which
+// case the caller falls back to the ordinary all-dash no-craft box.
+func (v *OrbitView) navigationDockGuestBox(w *sim.World) ([]string, bool) {
+	g, primary, ok := w.DockGuestStackGhost()
+	if !ok {
+		return nil, false
+	}
+	mu := primary.GravitationalParameter()
+	frame := orbital.ReferenceFrameForPrimary(*primary)
+	el := orbital.ElementsFromStateInFrame(g.RelPos, g.Vel, mu, frame)
+	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
+		return nil, false
+	}
+	primaryR := primary.RadiusMeters()
+	apoAlt, periAlt := el.Apoapsis()-primaryR, el.Periapsis()-primaryR
+
+	title := v.theme.Primary.Render("NAVIGATION") + "  " + primary.EnglishName
+	if w.DockGuest.OwnerHandle != "" {
+		title += "  " + v.theme.Warning.Render(w.DockGuest.OwnerHandle+"'s stack")
+	}
+
+	peCell := readout.Distance(periAlt)
+	if periAlt < 0 {
+		peCell = v.theme.Warning.Render(peCell)
+	}
+	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
+
+	return []string{
+		title,
+		chipRow2(navigationCols, readout.LabelAltitude, "—", readout.LabelVert, "—"),
+		chipRow2(navigationCols, readout.LabelHoriz, "—", "speed:", readout.Speed(g.Vel.Norm())),
+		chipRow2(navigationCols, readout.LabelAp, readout.Distance(apoAlt), readout.LabelPe, peCell),
+		chipRow2(navigationCols, readout.LabelIncl, readout.Angle(el.I*180/math.Pi), readout.LabelPeriod, readout.Period(secondsToDuration(period))),
+		chipRow3(navigationCols, readout.LabelDepart, "—", "e:", "—", "dir:", "—"),
+		chipRow2(navigationCols, readout.LabelImpact, "—", "stop:", "—"),
+		chipRowAt("plan:", "—", boxValueCol),
+	}, true
 }
 
 // navigationTitle composes NAVIGATION's title: the primary, then at most
