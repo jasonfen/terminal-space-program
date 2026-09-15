@@ -1,5 +1,5 @@
 // ADR 0051 slice 2a: the ENGINE box's node-row precedence (decision 12,
-// re-grill Q2/Q4) is the load-bearing logic in this box — a live burn
+// re-grill Q2/Q4) is the load-bearing logic in this box, a live burn
 // must outrank a braking start, which must outrank a queued node, which
 // must outrank a dash. Each test below sabotage-checks one rung of that
 // order rather than only asserting the happy path, per the "prove a
@@ -18,7 +18,7 @@ import (
 )
 
 // TestEngineBoxNodeRowDashWithNoCraftActivity: the pad, no node, no burn,
-// not descending — the row reads a bare dash rather than vanishing
+// not descending, the row reads a bare dash rather than vanishing
 // (decision 2, every row always present).
 func TestEngineBoxNodeRowDashWithNoCraftActivity(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
@@ -58,7 +58,7 @@ func TestEngineBoxNodeRowQueuedNode(t *testing.T) {
 	}
 }
 
-// TestEngineBoxNodeRowOverBudgetIsBareGlyph: re-grill Q4 — an over-budget
+// TestEngineBoxNodeRowOverBudgetIsBareGlyph: re-grill Q4, an over-budget
 // queued node shows only the alarm glyph, never the words "exceeds
 // budget". Sabotage-first: a naive port of the retired nextQueuedNodeLine
 // would still print "exceeds budget by", so this fails against that
@@ -118,7 +118,7 @@ func TestEngineBoxNodeRowLiveBurnOutranksQueuedNode(t *testing.T) {
 
 // TestEngineBoxNodeRowBrakingStartOutranksQueuedNode: while descending
 // with a safe braking start available and a (later) node also queued,
-// the braking start wins — the descent alarm's forced priority (decision
+// the braking start wins, the descent alarm's forced priority (decision
 // 12) must not be pre-empted by an unrelated queued node.
 func TestEngineBoxNodeRowBrakingStartOutranksQueuedNode(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
@@ -137,7 +137,39 @@ func TestEngineBoxNodeRowBrakingStartOutranksQueuedNode(t *testing.T) {
 	}
 }
 
-// TestEngineBoxTWRWillNotLiftJudgesMax: decision 13b — the verdict judges
+// TestEngineBoxNodeRowOverflowCount: engineQueuedNodeLine appends a Dim
+// "(+N more → [m])" count when the active craft has more than one node
+// queued, with no count at all for a single queued node. Sabotage-first
+// (see this test's own red proof in the slice 2a fixes log): removing
+// the `len(c.Nodes) > 1` count branch leaves this red.
+func TestEngineBoxNodeRowOverflowCount(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+
+	// One queued node: no overflow count at all.
+	c.Nodes = []spacecraft.ManeuverNode{
+		{DV: 100, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute), Mode: spacecraft.BurnPrograde},
+	}
+	lines := v.buildEngineBox(w)
+	if strings.Contains(lines[3], "more") {
+		t.Errorf("node row with a single queued node = %q, should not carry an overflow count", lines[3])
+	}
+
+	// Two queued nodes: "(+1 more → [m])".
+	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
+		DV: 80, TriggerTime: w.Clock.SimTime.Add(30 * time.Minute), Mode: spacecraft.BurnPrograde,
+	})
+	lines = v.buildEngineBox(w)
+	if !strings.Contains(lines[3], "(+1 more → [m])") {
+		t.Errorf("node row with two queued nodes = %q, want the overflow count (+1 more → [m])", lines[3])
+	}
+}
+
+// TestEngineBoxTWRWillNotLiftJudgesMax: decision 13b, the verdict judges
 // the MAXIMUM-throttle figure, not the current one. A craft idling at 0%
 // throttle with a max TWR comfortably above 1 must NOT read "will not
 // lift", even though its CURRENT TWR is exactly zero.

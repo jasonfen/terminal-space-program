@@ -1,6 +1,6 @@
 // ADR 0051 slice 2a, decision 9 rule C: TARGET's encounter half must
 // withhold for a Landed or Crashed ACTIVE craft, using `!Landed &&
-// !Crashed` — not the old craftHasOrbit, which the audit found true for
+// !Crashed`, not the old craftHasOrbit, which the audit found true for
 // co-rotation wreckage (C32). This is the box's load-bearing rule.
 
 package screens
@@ -12,7 +12,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// TestTargetBoxNoTargetIsAllDashes: decision 2/11 — with no target, the
+// TestTargetBoxNoTargetIsAllDashes: decision 2/11, with no target, the
 // title and every cell read a dash rather than the box vanishing.
 func TestTargetBoxNoTargetIsAllDashes(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
@@ -37,7 +37,7 @@ func TestTargetBoxNoTargetIsAllDashes(t *testing.T) {
 
 // TestTargetBoxRuleCWithholdsEncounterHalfWhenCrashed: a Crashed active
 // craft (co-rotation wreckage, audit C32) must not show a closing/rel/
-// lead/TCA/approach reading — craftHasOrbit reads true for this state,
+// lead/TCA/approach reading, craftHasOrbit reads true for this state,
 // so this test would pass vacuously under the OLD predicate; it only
 // passes because rule C explicitly checks Crashed.
 func TestTargetBoxRuleCWithholdsEncounterHalfWhenCrashed(t *testing.T) {
@@ -58,7 +58,7 @@ func TestTargetBoxRuleCWithholdsEncounterHalfWhenCrashed(t *testing.T) {
 	}
 	// A real vessel target with a non-zero relative state, so the
 	// encounter cells would print REAL numbers if rule C didn't withhold
-	// them — without this, the row reads a dash for the unrelated reason
+	// them, without this, the row reads a dash for the unrelated reason
 	// that nothing is targeted at all, and the test proves nothing.
 	targetCopy := *c
 	targetCopy.ID = c.ID + 1
@@ -84,7 +84,7 @@ func TestTargetBoxRuleCWithholdsEncounterHalfWhenCrashed(t *testing.T) {
 }
 
 // TestTargetBoxOwnOrbitalShapeSurvivesWhileLanded: rule C withholds the
-// ENCOUNTER half only — the target's own Ap/Pe/incl/Δincl describe the
+// ENCOUNTER half only, the target's own Ap/Pe/incl/Δincl describe the
 // target, not the active craft's trajectory, and must still show while
 // the active craft is Landed.
 func TestTargetBoxOwnOrbitalShapeSurvivesWhileLanded(t *testing.T) {

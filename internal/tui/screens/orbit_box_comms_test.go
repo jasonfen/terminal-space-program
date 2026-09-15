@@ -1,5 +1,5 @@
 // ADR 0051 slice 2a, re-grill Q9: COMMS' crewed-vs-gated distinction is
-// the load-bearing rule — a crewed vessel's disconnect must never read
+// the load-bearing rule, a crewed vessel's disconnect must never read
 // as an alarm, since the link doesn't command-gate it (yet).
 
 package screens
@@ -13,7 +13,7 @@ import (
 )
 
 // TestCommsBoxCrewedDisconnectHasNoAlarm: a crewed, disconnected vessel
-// reads "no signal" with no ⚠ and no classified reason — evaluated as
+// reads "no signal" with no ⚠ and no classified reason, evaluated as
 // today's gated code would, an Apollo Stack on the Moon pad used to read
 // "⚠ NO SIGNAL" in the Alert colour for a gate that doesn't apply to it
 // (re-grill's own measured alternative, P-20/P-22).
@@ -45,7 +45,7 @@ func TestCommsBoxUncrewedDisconnectIsAlarmed(t *testing.T) {
 }
 
 // TestCommsBoxCrewedConnectedReadsOrdinary: a connected crewed vessel
-// reads DIRECT/CONNECTED exactly like any other vessel — no special
+// reads DIRECT/CONNECTED exactly like any other vessel, no special
 // wording (Forward constraint: "do not bake the crewed-never-gated rule
 // into the COMMS box's wording").
 func TestCommsBoxCrewedConnectedReadsOrdinary(t *testing.T) {

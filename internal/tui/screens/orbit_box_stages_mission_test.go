@@ -9,7 +9,7 @@ import (
 )
 
 // TestStagesBoxRendersSingleStageVessel: decision 5 amends the retired
-// buildStagesChip's "nil for len(Stages) <= 1" — every vessel gets a
+// buildStagesChip's "nil for len(Stages) <= 1", every vessel gets a
 // STAGES box now, single-stage vehicles included.
 func TestStagesBoxRendersSingleStageVessel(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
@@ -28,7 +28,7 @@ func TestStagesBoxRendersSingleStageVessel(t *testing.T) {
 	}
 }
 
-// TestMissionBoxDashWhenNothingToReport: decision 2 — MISSION never
+// TestMissionBoxDashWhenNothingToReport: decision 2, MISSION never
 // vanishes; with no active mission and no ladder sendoff, it reads a
 // dash rather than dropping (the retired buildMissionsChip returned nil
 // here).

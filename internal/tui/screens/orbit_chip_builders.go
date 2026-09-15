@@ -38,8 +38,8 @@ import (
 // Core priority (never dropped by layoutChipsBySide's shrink/drop until
 // every Normal chip on their side has already gone), in the ruled left
 // order (ENGINE, PROPELLANT, GUIDANCE, COMMS, STAGES, MISSION) and right
-// order (NAVIGATION, TARGET). Gated only on chipEnabled("") — F2
-// declutter, matching every other always-on chip — because Settings
+// order (NAVIGATION, TARGET). Gated only on chipEnabled(""), F2
+// declutter, matching every other always-on chip, because Settings
 // per-box ids and F2's lit-engine exception are slice 2b's (decision 16
 // is not fully wired yet; for 2a, F2 hides all eight together like any
 // other declutterable chip, with no exception).
@@ -50,7 +50,7 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 	// The Proximity View (ADR 0043) is its own close-range instrument
 	// panel (buildProximityChip), not one of the two views ADR 0051's
 	// "one layout, both views" decision 3 covers (the orbit map and the
-	// LAUNCH/surface view) — it never coexisted with the pre-ADR-0051
+	// LAUNCH/surface view), it never coexisted with the pre-ADR-0051
 	// VESSEL/MISSIONS core chips at small canvases either. Suppressing
 	// the eight boxes here keeps the Proximity View's own budget intact
 	// instead of the much larger new box set evicting it via the
@@ -68,7 +68,7 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 			// ENGINE folded in the retired NODES chip's node row
 			// (decision 1); keep its click routing alive by reusing
 			// ChipNodes' id purely for HitChip resolution (app.go opens
-			// the maneuver screen on a click matching this id) — not for
+			// the maneuver screen on a click matching this id), not for
 			// visibility gating, which stays on the group's plain
 			// chipEnabled("") above. Settings per-box ids are slice 2b's.
 			c.id = settings.ChipNodes
@@ -85,7 +85,7 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	var chips []builtChip
 	// The eight fixed instrument boxes (ADR 0051), first in the left and
-	// right stacks respectively — decision 2's "boxes never move" reads
+	// right stacks respectively, decision 2's "boxes never move" reads
 	// most simply as a fixed prefix of each column, with notices (below)
 	// layering after them until slice 3 moves every notice into its own
 	// bay.
@@ -202,12 +202,12 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// sim's crossing state machine retires it the moment the player acts,
 	// and it never renders inside the view it advertises.
 	add("", cornerTopRight, v.buildProximityHintChip(w))
-	// SOI PASS — the upcoming encounter of the live path, always-on and
+	// SOI PASS, the upcoming encounter of the live path, always-on and
 	// Target-independent (ADR 0019). De-dupes with TARGET inside the
 	// builder when they name the same body.
 	add(settings.ChipSOIPass, cornerTopRight, v.buildSOIPassChip(w))
 	// CHAT stacks bottom-left, its own corner slot away from the session
-	// moments (ADR 0035 §2). Always-on like SESSION — a coordination
+	// moments (ADR 0035 §2). Always-on like SESSION, a coordination
 	// line must not be togglable into silence.
 	add("", cornerBottomLeft, v.buildChatChip(w))
 	return chips

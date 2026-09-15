@@ -13,7 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// TestNavigationTitleShowsLandedSite: decision 9 — the landed site rides
+// TestNavigationTitleShowsLandedSite: decision 9, the landed site rides
 // the title, 0 rows.
 func TestNavigationTitleShowsLandedSite(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
@@ -30,7 +30,7 @@ func TestNavigationTitleShowsLandedSite(t *testing.T) {
 }
 
 // TestNavigationTitleDescentAlarmUsesShortForm: re-grill Q2's amendment
-// (open item 2) — the title's alarm form must be the short "⚠ NO STOP",
+// (open item 2), the title's alarm form must be the short "⚠ NO STOP",
 // never the longer "CAN'T STOP (thrust)"/"CAN'T STOP (fuel)" the first
 // draft used. A crashed-outcome stop forecast is an unstoppable case.
 func TestNavigationTitleDescentAlarmUsesShortForm(t *testing.T) {
@@ -56,7 +56,7 @@ func TestNavigationTitleDescentAlarmUsesShortForm(t *testing.T) {
 	}
 }
 
-// TestNavigationImpactStopDashOutsideDescent: decision 2 — the row is
+// TestNavigationImpactStopDashOutsideDescent: decision 2, the row is
 // always present, dash when there's nothing to forecast.
 func TestNavigationImpactStopDashOutsideDescent(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
@@ -71,8 +71,8 @@ func TestNavigationImpactStopDashOutsideDescent(t *testing.T) {
 	}
 }
 
-// TestNavigationDepartDashWhenFrozen: C1 — a world whose sweep is frozen
-// (departRowHidden) reads depart: — rather than the row disappearing.
+// TestNavigationDepartDashWhenFrozen: C1, a world whose sweep is frozen
+// (departRowHidden) reads depart:, rather than the row disappearing.
 // Kern's spin is slow enough to trip departRowHidden's epsilon; this
 // test only asserts the DASH behaviour where the underlying helper
 // already reports hidden, not the specific body.

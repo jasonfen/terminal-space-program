@@ -1,5 +1,5 @@
 // ADR 0051 slice 2a: PROPELLANT's Δv→circ cell is the load-bearing rule
-// here — C4 says it must show on an AIRLESS ascent too (closing #454),
+// here, C4 says it must show on an AIRLESS ascent too (closing #454),
 // gated on isSubOrbitalClimb alone, with no atmosphere test at the call
 // site. That's exactly the gap the retired buildDescentChip left open.
 
@@ -31,12 +31,12 @@ func TestPropellantBoxDeltaVToCircOnAirlessAscent(t *testing.T) {
 	c.Primary = *moonBody
 	c.Landed = false
 	// A shallow ellipse (periapsis 2 km below the surface, apoapsis 25 km
-	// above it), craft placed just past periapsis and climbing out — a
+	// above it), craft placed just past periapsis and climbing out, a
 	// REAL orbit with non-zero angular momentum, matching the
 	// isSubOrbitalClimb "climb after a deorbit hop" fixture (a purely
 	// radial straight-up velocity is degenerate: zero angular momentum
 	// reads as e=1, which craftLiveElements correctly refuses as "no
-	// figure worth reading" — that would test a fixture bug, not this
+	// figure worth reading": that would test a fixture bug, not this
 	// box).
 	mu := moonBody.GravitationalParameter()
 	rp := moonBody.RadiusMeters() - 2_000
@@ -92,7 +92,7 @@ func TestPropellantBoxDeltaVToCircDashInStableOrbit(t *testing.T) {
 	}
 }
 
-// TestPropellantBoxMonopropDashWithNoRCSTank: decision 2 — a craft with
+// TestPropellantBoxMonopropDashWithNoRCSTank: decision 2, a craft with
 // no monoprop capacity shows the row with dashes, rather than the
 // retired buildVesselChip's behaviour of dropping the row outright.
 func TestPropellantBoxMonopropDashWithNoRCSTank(t *testing.T) {

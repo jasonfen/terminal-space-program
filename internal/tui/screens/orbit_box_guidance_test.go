@@ -1,5 +1,5 @@
 // ADR 0051 slice 2a: GUIDANCE's L7 fix (review side lead) is the
-// load-bearing behaviour here — fpa: and orbit fpa: must agree about
+// load-bearing behaviour here, fpa: and orbit fpa: must agree about
 // whether Landed means "nothing to show", not silently disagree because
 // they threshold two different velocities.
 
@@ -14,8 +14,9 @@ import (
 
 // TestGuidanceBoxFPACellsAgreeWhileLanded is L7's regression: pre-fix,
 // a landed craft's inertial co-rotation speed clears the fpa floor even
-// though its surface-relative speed sits at zero, producing "fpa: —
-// orbit fpa: 0°" side by side (P3-11). Both cells must dash together.
+// though its surface-relative speed sits at zero, producing a dashed
+// fpa: cell beside a populated "orbit fpa: 0°" (P3-11). Both cells must
+// dash together.
 func TestGuidanceBoxFPACellsAgreeWhileLanded(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	w, err := sim.NewWorld()
@@ -35,7 +36,7 @@ func TestGuidanceBoxFPACellsAgreeWhileLanded(t *testing.T) {
 	}
 }
 
-// TestGuidanceBoxHoldAndNavAlwaysPresent: decision 2 — every row always
+// TestGuidanceBoxHoldAndNavAlwaysPresent: decision 2, every row always
 // present, even with no active craft.
 func TestGuidanceBoxHoldAndNavAlwaysPresent(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())

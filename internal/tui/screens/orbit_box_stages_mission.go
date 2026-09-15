@@ -6,11 +6,11 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// orbit_box_stages_mission.go — the STAGES and MISSION instrument boxes
+// orbit_box_stages_mission.go, the STAGES and MISSION instrument boxes
 // (ADR 0051 decisions 1, 5, 5b, 10 of the re-grill / decision 14 here,
 // slice 2a). Both sit at the bottom of the left stack in the ruled
 // order: STAGES directly under COMMS, MISSION last (sized to its step,
-// re-grill Q10) so a rung change never moves anything below it — nothing
+// re-grill Q10) so a rung change never moves anything below it, nothing
 // does, it's the last box.
 
 // buildStagesBox summarises the active craft's stage chain as one
@@ -41,8 +41,8 @@ func (v *OrbitView) buildStagesBox(w *sim.World) []string {
 // its own step rather than padded to a fixed height (re-grill Q10):
 // nothing sits below it, so a rung change (3 to 7 rows) moves nothing
 // else on screen. Reuses the retired-chip-era sendoffChipLines/
-// missionChipLines content selectors verbatim (their branching — fail
-// flash, ladder sendoff, active objective — is unaffected by the box
+// missionChipLines content selectors verbatim (their branching, fail
+// flash, ladder sendoff, active objective, is unaffected by the box
 // migration); the only change is the fallback for "nothing to report",
 // which the old chip signalled by returning nil (dropping the chip
 // entirely) and this box instead prints as a dash line (decision 2).
