@@ -133,6 +133,15 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 		{"Δv / Δincl", "relative inclination"},
 		{"T- / T+", "T- counts down"},
 		{"T- / T+", "T+ counts up"},
+		{"Ap ↑ / ↓", "climbing"},
+		{"Ap ↑ / ↓", "falling"},
+		{"→", "becomes"},
+		{"⚠ (node)", "Δv budget"},
+		{"plan", "planned burn's numbers are measured from"},
+		{"dir", "prograde or retrograde"},
+		{"speed", "inertial speed"},
+		{"(max N)", "full throttle"},
+		{"● ORBIT READY [C]", "orbit floor"},
 	}
 	for _, c := range cases {
 		_, desc := helpRow(t, c.token)
@@ -144,7 +153,10 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 
 // TestHelpGlossarySection (ADR 0049 stage A3a): the glossary rows live
 // together under their own header, not scattered across other sections.
-// ADR 0050 decision 5 made this the ninth entry (`depart`), tightened
+// ADR 0050 decision 5 made this the ninth entry (`depart`); ADR 0051
+// slice 2b added eight more, one per new symbol/word the instrument
+// boxes introduced (the Ap trend arrow and → share one line with the
+// node ⚠, plan/dir/speed, (max N), and ORBIT READY), for 17. Tightened
 // from the original loose "at least 7" bound to an exact count so a
 // stray addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -152,7 +164,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 9
+		const want = 17
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}
