@@ -1056,6 +1056,111 @@ func TestLosingTheCraftRefits(t *testing.T) {
 // a mix), the placed rectangles must never intersect — the pre-#422 bug
 // was exactly two chips (or a chip and its own neighbour) painting into
 // the same cells.
+// TestComposeChipsBayStacksAboveHintStrip (ADR 0051 slice 3 item 1
+// prototype, re-grill Q5): a bay chip anchors to cornerBay, stacking
+// upward from the row above the Hint Strip (cRows-1) rather than either
+// side's ordinary corner cursor. One bay chip's bottom border must land on
+// cRows-2 (one row clear of the Hint Strip), not on the bottom-left/
+// bottom-right cursor rows used by the side stacks.
+func TestComposeChipsBayStacksAboveHintStrip(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 60, 20
+	chips := []builtChip{
+		{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon"}},
+	}
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if len(v.chipRects) != 1 {
+		t.Fatalf("recorded %d rects, want 1", len(v.chipRects))
+	}
+	r := v.chipRects[0]
+	if r.rowEnd != cRows-2 {
+		t.Errorf("bay chip bottom row = %d, want %d (one row above the Hint Strip)", r.rowEnd, cRows-2)
+	}
+}
+
+// TestComposeChipsBayNewestAtBottom (re-grill Q5): with several bay chips
+// present in one frame, the LAST one appended to the chip list (the
+// convention assembleChips' append order gives "most recently surfaced")
+// lands at the bottom of the bay stack — closest to the Hint Strip —
+// with earlier ones stacked above it.
+func TestComposeChipsBayNewestAtBottom(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 80, 24
+	chips := []builtChip{
+		{corner: cornerBay, lines: []string{"FRAME TRANSITION", "  Earth -> Moon", "  at T-8d17h"}},
+		{corner: cornerBay, lines: []string{"CAPTURE PREVIEW", "  primary: Moon", "  arrival: 1593 m/s"}},
+		{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km"}},
+	}
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if len(v.chipRects) != 3 {
+		t.Fatalf("recorded %d rects, want 3", len(v.chipRects))
+	}
+	frame, capture, soi := v.chipRects[0], v.chipRects[1], v.chipRects[2]
+	if soi.rowEnd != cRows-2 {
+		t.Errorf("newest (SOI PASS) bottom row = %d, want %d", soi.rowEnd, cRows-2)
+	}
+	if !(capture.rowEnd < soi.rowStart) {
+		t.Errorf("CAPTURE PREVIEW (rows %d-%d) does not stack above SOI PASS (rows %d-%d)",
+			capture.rowStart, capture.rowEnd, soi.rowStart, soi.rowEnd)
+	}
+	if !(frame.rowEnd < capture.rowStart) {
+		t.Errorf("FRAME TRANSITION (rows %d-%d) does not stack above CAPTURE PREVIEW (rows %d-%d)",
+			frame.rowStart, frame.rowEnd, capture.rowStart, capture.rowEnd)
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
+}
+
+// TestComposeChipsBayCentredBetweenLeftStackAndNavball (re-grill Q5): the
+// bay sits centred in the gap between the left corner stack's right edge
+// and the navball's left edge, not flush to either side.
+func TestComposeChipsBayCentredBetweenLeftStackAndNavball(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 140, 38
+	const navballReserved = navballPanelH + 1
+	leftEdge := 0
+	chips := []builtChip{
+		{corner: cornerTopLeft, lines: []string{"ENGINE", "  a", "  b"}, priority: chipPriorityCore},
+		{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon"}},
+	}
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
+	if len(v.chipRects) != 2 {
+		t.Fatalf("recorded %d rects, want 2", len(v.chipRects))
+	}
+	leftEdge = v.chipRects[0].colEnd + 1
+	bay := v.chipRects[1]
+	navballLeft := cCols - navballPanelW
+	if bay.colStart <= leftEdge {
+		t.Errorf("bay colStart %d does not clear the left stack's right edge %d", bay.colStart, leftEdge)
+	}
+	if bay.colEnd >= navballLeft {
+		t.Errorf("bay colEnd %d does not clear the navball's left edge %d", bay.colEnd, navballLeft)
+	}
+	gapLeft := bay.colStart - leftEdge
+	gapRight := navballLeft - bay.colEnd
+	if diff := gapLeft - gapRight; diff < -1 || diff > 1 {
+		t.Errorf("bay not centred: gap left=%d gap right=%d (leftEdge=%d navballLeft=%d bay=%d-%d)",
+			gapLeft, gapRight, leftEdge, navballLeft, bay.colStart, bay.colEnd)
+	}
+}
+
+// TestComposeChipsBayExemptFromSideBudget (re-grill Q5, "exempt from the
+// side budgets"): a bay chip must still render Full even when the left
+// side's ordinary budget is far too small to hold it — the bay draws from
+// its own row range (above the Hint Strip), never the side budgets
+// layoutChipsBySide enforces.
+func TestComposeChipsBayExemptFromSideBudget(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 40, 6 // tiny: the left side has almost no budget at all
+	chips := []builtChip{
+		{corner: cornerTopLeft, lines: []string{"ENGINE", "a", "b", "c"}, priority: chipPriorityCore},
+		{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km"}},
+	}
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+	if !strings.Contains(out, "SOI PASS") || !strings.Contains(out, "planned: 616.9 km") {
+		t.Errorf("bay chip shrank or dropped under side-budget pressure, but the bay is exempt from it:\n%s", out)
+	}
+}
+
 func assertNoChipRectOverlaps(t *testing.T, rects []chipRect) {
 	t.Helper()
 	overlaps := func(a, b chipRect) bool {

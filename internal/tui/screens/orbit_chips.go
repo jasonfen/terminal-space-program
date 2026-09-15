@@ -34,6 +34,13 @@ const (
 	cornerTopRight
 	cornerBottomLeft
 	cornerBottomRight
+	// cornerBay is the notice bay (ADR 0051 slice 3, re-grill Q5): a
+	// bottom-middle stack centred between the left corner stack and the
+	// navball, exempt from both sides' shared budgets (see
+	// layoutChipsBySide). Every pop-up notice moves here in slice 3 item
+	// 2; this prototype (item 1) carries just enough of the mechanism to
+	// measure it before the overflow rule is built.
+	cornerBay
 )
 
 // chipSide groups the four corners into the two shared-budget columns
@@ -285,8 +292,11 @@ func layoutChipsBySide(chips []builtChip, cRows, navballReserved int) (forms []c
 	var leftIdx, rightIdx []int
 	for i, c := range chips {
 		forms[i] = chipFormFull
-		if c.neverShrink || len(c.lines) == 0 {
-			continue // exempt / no footprint: never shrinks or drops
+		if c.neverShrink || len(c.lines) == 0 || c.corner == cornerBay {
+			// exempt / no footprint / bay chip: never shrinks or drops.
+			// The bay draws from its own row range above the Hint Strip
+			// (composeChips), never either side's shared budget.
+			continue
 		}
 		// leftOfPrev chips (PROJECTED ORBIT) usually ride for free beside
 		// their anchor and cost the corner nothing — but that's only true
@@ -419,6 +429,23 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	// can sit beside it (same top row, immediately to its left).
 	lastTRStartRow, lastTRCol, haveTR := 0, 0, false
 
+	// leftStackMaxCol tracks the rightmost column any top-left/bottom-left
+	// chip has reached this frame, so the bay (cornerBay) can centre
+	// itself in the gap between the left stack and the navball rather
+	// than at a fixed column (re-grill Q5: "centred between the left
+	// stack and the navball"). Updated by place() below.
+	leftStackMaxCol := 0
+	// bay collects cornerBay chips instead of placing them inline, so
+	// they can be laid out after every other corner has claimed its
+	// space this frame (leftStackMaxCol is only final once the left
+	// stack is done) and so the whole bay can be centred as one block
+	// rather than chip-by-chip.
+	type bayEntry struct {
+		id    settings.Chip
+		lines []string
+	}
+	var bay []bayEntry
+
 	// place lays out one block (bordered chip content, or a bare one-row
 	// Hidden Stub when bordered is false) at its corner's stacking cursor,
 	// advancing that cursor, splicing it onto the canvas, and recording
@@ -452,6 +479,9 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		case cornerTopLeft:
 			atRow, atCol = topLeftRow, 0
 			topLeftRow += bh + chipGap
+			if right := atCol + bw; right > leftStackMaxCol {
+				leftStackMaxCol = right
+			}
 		case cornerTopRight:
 			if leftOfPrev && haveTR {
 				// Sit beside the previous top-right chip rather than below it.
@@ -468,6 +498,9 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		case cornerBottomLeft:
 			atRow, atCol = bottomLeftRow-bh+1, 0
 			bottomLeftRow -= bh + chipGap
+			if right := atCol + bw; right > leftStackMaxCol {
+				leftStackMaxCol = right
+			}
 		case cornerBottomRight:
 			atRow, atCol = bottomRightRow-bh+1, cCols-bw
 			bottomRightRow -= bh + chipGap
@@ -489,6 +522,15 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	}
 
 	for i, chip := range chips {
+		if chip.corner == cornerBay {
+			// Deferred: laid out as a block below, once every other
+			// corner has finished claiming space this frame.
+			if len(chip.lines) == 0 {
+				continue
+			}
+			bay = append(bay, bayEntry{id: chip.id, lines: chip.lines})
+			continue
+		}
 		switch forms[i] {
 		case chipFormHidden:
 			continue
@@ -500,6 +542,61 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 			place(chip.id, chip.corner, cl, chip.leftOfPrev, true)
 		default:
 			place(chip.id, chip.corner, chip.lines, chip.leftOfPrev, true)
+		}
+	}
+
+	// The bay (cornerBay, re-grill Q5): stacks upward from the row above
+	// the Hint Strip, newest at the bottom, centred between the left
+	// stack's right edge (leftStackMaxCol) and the navball's left edge
+	// (or the canvas edge when the navball isn't showing this frame).
+	// "Newest" follows assembleChips' append order: the last chip
+	// appended this frame is the one that most recently became relevant,
+	// so it anchors the bottom of the stack and earlier ones stack above
+	// it — walk bay in reverse.
+	if len(bay) > 0 {
+		navballLeft := cCols
+		if navballReserved > chipStubHeight {
+			navballLeft = cCols - navballPanelW
+		}
+		bayRow := cRows - 2 // one row above the Hint Strip on cRows-1
+		rects := make([]*chipRect, len(bay))
+		// Walk newest (last appended) first so it claims the bottom row,
+		// but record each rect at its ORIGINAL index so chipRects comes
+		// back in the same chip order every other corner uses (callers,
+		// and tests, rely on that order to identify a chip).
+		for i := len(bay) - 1; i >= 0; i-- {
+			padded, w := padChipBlock(bay[i].lines)
+			if len(padded) == 0 || w == 0 {
+				continue
+			}
+			block := wrapBorder(strings.Join(padded, "\n"), w, v.theme.Primary.GetForeground())
+			bw, bh := w+2, len(padded)+2
+			centre := (leftStackMaxCol + navballLeft) / 2
+			atCol := centre - bw/2
+			if atCol < leftStackMaxCol {
+				atCol = leftStackMaxCol
+			}
+			if atCol+bw > navballLeft {
+				atCol = navballLeft - bw
+			}
+			if atCol < 0 {
+				atCol = 0
+			}
+			atRow := bayRow - bh + 1
+			lines = overlayStyledBlock(lines, block, atRow, atCol, cCols)
+			rects[i] = &chipRect{
+				id:       bay[i].id,
+				colStart: atCol + screenColOffset,
+				colEnd:   atCol + bw - 1 + screenColOffset,
+				rowStart: atRow + screenRowOffset,
+				rowEnd:   atRow + bh - 1 + screenRowOffset,
+			}
+			bayRow -= bh + chipGap
+		}
+		for _, r := range rects {
+			if r != nil {
+				v.chipRects = append(v.chipRects, *r)
+			}
 		}
 	}
 
