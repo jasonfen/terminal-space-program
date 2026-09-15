@@ -97,7 +97,7 @@ func TestDockGuestRenderLooksRight(t *testing.T) {
 // ADR 0051 note: the original #328 fixture (VESSEL + MISSION + SESSION +
 // TIME LOCK ahead of DOCKED) is now six much larger Core-priority
 // instrument boxes ahead of DOCKED (ENGINE/PROPELLANT/GUIDANCE/COMMS/
-// STAGES/MISSION) — even a Design Size floor (ADR 0046) doesn't cover
+// STAGES/MISSION), even a Design Size floor (ADR 0046) doesn't cover
 // 80x24, and Core priority is a STRONGER never-drop guarantee than
 // DOCKED's own Forced priority, so at this narrow a canvas the boxes can
 // legitimately consume the whole left stack before DOCKED gets a look
@@ -106,7 +106,7 @@ func TestDockGuestRenderLooksRight(t *testing.T) {
 // itself rather than a below-floor budget fight ADR 0051 didn't create
 // but does make worse. Flagged in the slice 2a report: a rider on a
 // genuinely narrow terminal can still lose their only exit route to the
-// new box set — worth the maintainer's attention, not silently accepted.
+// new box set, worth the maintainer's attention, not silently accepted.
 func TestDockGuestRenderIncludesDockedBlock(t *testing.T) {
 	v := NewOrbitView(riderViewTheme())
 	v.Resize(DesignWidth, DesignHeight)
@@ -116,12 +116,12 @@ func TestDockGuestRenderIncludesDockedBlock(t *testing.T) {
 		{Fingerprint: w.DockGuest.OwnerFP, Handle: w.DockGuest.OwnerHandle, Online: true},
 	}}
 	// MISSION is sized to its own step (ADR 0051 decision 14, re-grill
-	// Q10) — Flight School's Orientation rung is the tallest (7 rows),
+	// Q10), Flight School's Orientation rung is the tallest (7 rows),
 	// leaving only 4 of the left column's 36 rows spare even at the
 	// Design Size (the ADR's own measured budget, R-40a). Turning Flight
-	// School off drops MISSION to 3 rows (`MISSION —`), matching the
+	// School off drops MISSION to 3 rows (`MISSION ,`), matching the
 	// ADR's own "28 of 36" measurement (R-40c) and leaving the DOCKED
-	// block room to prove the #328 invariant this test actually checks —
+	// block room to prove the #328 invariant this test actually checks,
 	// stacking the tallest MISSION rung on top of that invariant is a
 	// coincidence of the default World's tutorial spawn, not something
 	// this test needs to also stress.

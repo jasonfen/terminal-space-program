@@ -56,16 +56,21 @@ func TestLaunchChipWithholdsDepartAndDeltaInclAtPole(t *testing.T) {
 	v.Resize(200, 80)
 	w := poleGuardWorld(t, 90)
 
-	lines := v.buildLaunchChip(w)
-	joined := strings.Join(lines, "\n")
-	if strings.Contains(joined, "depart:") {
-		t.Errorf("expected no depart: row for a vessel landed at the pole, got:\n%s", joined)
+	// depart:/incl: are NAVIGATION's now (decision 1); ADR 0051 decision
+	// 2 means the LABEL is always present (every row always drawn),
+	// withholding now means a dash VALUE, not a missing row.
+	navJoined := strings.Join(v.buildNavigationBox(w), "\n")
+	if regexp.MustCompile(`depart:\s+[0-9]`).MatchString(navJoined) {
+		t.Errorf("expected a dash in the depart: cell for a vessel landed at the pole, got:\n%s", navJoined)
 	}
-	if strings.Contains(joined, "Δincl:") {
-		t.Errorf("expected no Δincl: row for a vessel landed at the pole, got:\n%s", joined)
+	if !regexp.MustCompile(`\bincl:\s+90\.\d\d°`).MatchString(navJoined) {
+		t.Errorf("expected incl: ~90.00° at the pole (every launch there is polar), got:\n%s", navJoined)
 	}
-	if !regexp.MustCompile(`\bincl:\s+90\.\d\d°`).MatchString(joined) {
-		t.Errorf("expected incl: ~90.00° at the pole (every launch there is polar), got:\n%s", joined)
+
+	// Δincl: is TARGET's only home now (decision 9's relocation table).
+	targetJoined := strings.Join(v.buildTargetBox(w), "\n")
+	if regexp.MustCompile(`Δincl:\s+[0-9]`).MatchString(targetJoined) {
+		t.Errorf("expected a dash in the Δincl: cell for a vessel landed at the pole, got:\n%s", targetJoined)
 	}
 }
 
@@ -80,12 +85,12 @@ func TestLaunchChipShowsDepartAndDeltaInclOneMetreOffPole(t *testing.T) {
 	colatDeg := (1.0 / earthRadiusM) * 180 / math.Pi
 	w := poleGuardWorld(t, 90-colatDeg)
 
-	lines := v.buildLaunchChip(w)
-	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "depart:") {
-		t.Errorf("expected a depart: row one metre off the pole, got:\n%s", joined)
+	navJoined := strings.Join(v.buildNavigationBox(w), "\n")
+	if !regexp.MustCompile(`depart:\s+[0-9]`).MatchString(navJoined) {
+		t.Errorf("expected a real depart: value one metre off the pole, got:\n%s", navJoined)
 	}
-	if !strings.Contains(joined, "Δincl:") {
-		t.Errorf("expected a Δincl: row one metre off the pole, got:\n%s", joined)
+	targetJoined := strings.Join(v.buildTargetBox(w), "\n")
+	if !regexp.MustCompile(`Δincl:\s+[0-9]`).MatchString(targetJoined) {
+		t.Errorf("expected a real Δincl: value one metre off the pole, got:\n%s", targetJoined)
 	}
 }

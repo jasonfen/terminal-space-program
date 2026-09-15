@@ -200,7 +200,7 @@ func TestHintStripWithForcedNodesChipAndCraftNotVisibleHere(t *testing.T) {
 		// row (decision 1), and ENGINE reads the ACTIVE craft directly
 		// with no CraftVisibleHere gate at all, so it renders the
 		// active craft's own queued nodes regardless of which system
-		// the camera is viewing — a stronger, simpler guarantee than
+		// the camera is viewing, a stronger, simpler guarantee than
 		// the old per-fleet force-show exception this test pinned.
 		if !strings.Contains(out, "ENGINE") {
 			t.Fatalf("expected the ENGINE box (with the active craft's node row) in this setup at %dx%d:\n%s", sz.w, sz.h, out)

@@ -320,7 +320,7 @@ func TestProximityNoTargetShowsRefusal(t *testing.T) {
 // advertises. This test is about the hint's own content-selection logic
 // (ProximityHintActive's crossing state machine), not chip layout, so it
 // calls buildProximityHintChip directly rather than through a full
-// Render — ADR 0051's eight instrument boxes now fully occupy the right
+// Render, ADR 0051's eight instrument boxes now fully occupy the right
 // column's budget (NAVIGATION 10 + TARGET 7 = 17 of 17) even at the
 // Design Size, so a notice like this hint has no row left to win in a
 // real render until slice 3 moves notices into their own bay (out of

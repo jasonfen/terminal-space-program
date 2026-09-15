@@ -237,7 +237,7 @@ func meetingPickerRenderWorld(t *testing.T) *sim.World {
 //
 // ADR 0051 REGRESSION, flagged rather than silently worked around: the
 // eight instrument boxes are Core priority (never dropped, no Compact
-// Form of their own — that gap is real, not yet built) and at 80x24
+// Form of their own, that gap is real, not yet built) and at 80x24
 // they now consume enough of the left column that MEETING PLAN's
 // neverShrink body can render PAST the canvas's bottom edge, where it is
 // silently clipped exactly like the pre-#328 DOCKED bug (only the title
@@ -248,7 +248,7 @@ func meetingPickerRenderWorld(t *testing.T) *sim.World {
 // Compact Forms for the eight boxes (ADR 0046's "the stacker folds
 // instruments as today" below the floor implies they should have one)
 // or a stacker change that lets a neverShrink modal evict Core content
-// below the floor — flagged for the maintainer, not fixed here.
+// below the floor, flagged for the maintainer, not fixed here.
 func TestMeetingPickerChip_Render80x24(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(DesignWidth, DesignHeight)

@@ -24,7 +24,7 @@ func TestOrbitViewRendersGhosts(t *testing.T) {
 	// ADR 0051 note: the default fixture's tiny 500 km LEO orbit renders
 	// as a small loop close to Earth's disk, right where the widened
 	// ENGINE/PROPELLANT/GUIDANCE boxes now extend at a 120 or even
-	// 140-column canvas — the ghost (placed on the opposite side of
+	// 140-column canvas, the ghost (placed on the opposite side of
 	// that same tiny loop) ends up under a box rather than on open map.
 	// A roomier canvas (matching the scale other post-ADR-0051 render
 	// tests already use, e.g. TestDockGuestRenderLooksRight) leaves the

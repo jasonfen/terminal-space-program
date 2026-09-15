@@ -14,7 +14,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
-	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // TestRelativeInclinationVariesOverSiderealDay — the v0.11.4 Δi fix
@@ -233,68 +232,18 @@ func spawnLandedOnEarthAt28p6(t *testing.T) (*sim.World, *spacecraft.Spacecraft)
 	return w, c
 }
 
-// TestLandedPadNoDeltaInclWithoutTarget: decision 11's third row is
-// conditional on a target being set; buildLaunchChip must not print
-// Δincl at all when Target.Kind == TargetNone (distinct from the
-// TARGET chip, which simply doesn't render in that case; the SURFACE
-// chip stays up either way and just drops the one row).
-func TestLandedPadNoDeltaInclWithoutTarget(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	v.Resize(200, 80)
-	w, _ := spawnLandedOnEarthAt28p6(t)
-	if w.Target.Kind != sim.TargetNone {
-		t.Fatalf("setup: expected no target, got %v", w.Target.Kind)
-	}
-
-	lines := v.buildLaunchChip(w)
-	joined := strings.Join(lines, "\n")
-	if strings.Contains(joined, "Δincl:") {
-		t.Errorf("expected no Δincl row on the pad without a target set:\n%s", joined)
-	}
-}
-
-// TestLandedPadShowsDeltaInclWithTarget: decision 11, while Landed
-// with a body target set, the SURFACE chip's third row is Δincl, the
-// plane angle a commanded-heading ascent lit now would leave to the
-// target's plane. Distinguishes this row from the TARGET chip's own
-// (pre-existing) Δincl by reading buildLaunchChip's lines directly
-// rather than the whole composited HUD.
-func TestLandedPadShowsDeltaInclWithTarget(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	v.Resize(200, 80)
-	w, _ := spawnLandedOnEarthAt28p6(t)
-
-	sys := w.System()
-	moonIdx := -1
-	for i, b := range sys.Bodies {
-		if b.EnglishName == "Moon" || b.ID == "moon" {
-			moonIdx = i
-			break
-		}
-	}
-	if moonIdx <= 0 {
-		t.Fatalf("moon not found in default system")
-	}
-	w.SetTargetBody(moonIdx)
-
-	lines := v.buildLaunchChip(w)
-	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "Δincl:") {
-		t.Fatalf("expected a Δincl row on the pad with a target set:\n%s", joined)
-	}
-}
-
-// TestLandedPadDeltaInclTicksWithCommandedHeading proves the pad's
-// Δincl row is actually reading the COMMANDED heading rather than
-// silently pinned to the due-east co-rotation state (the exact bug
-// #453 filed against the old 'launch lat: (locked)' row, one level
-// up): a nonzero HeadingTrim must change the value versus the
-// due-east baseline. This is the "prove the instrument returns a
-// positive before trusting a negative" check: without it, a
-// regression back to c.State.R.Cross(c.State.V) (which is
-// heading-blind while Landed) would pass every other test in this
-// file silently.
-func TestLandedPadDeltaInclTicksWithCommandedHeading(t *testing.T) {
+// TestTargetDeltaInclTicksWithCommandedHeading proves TARGET's Δincl
+// cell for a Landed craft actually reads the COMMANDED heading rather
+// than silently pinning to the due-east co-rotation state (the exact
+// bug #453 filed against the old 'launch lat: (locked)' row, one level
+// up): a nonzero HeadingTrim must change the value versus the due-east
+// baseline. This is the "prove the instrument returns a positive
+// before trusting a negative" check: without it, a regression back to
+// c.State.R.Cross(c.State.V) (which is heading-blind while Landed)
+// would pass silently. ADR 0051 decision 9 moved this cell off the pad
+// entirely (the SURFACE chip's own Δincl retired) onto TARGET's own
+// Δincl:, which is the one place the value still lives.
+func TestTargetDeltaInclTicksWithCommandedHeading(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(200, 80)
 	w, c := spawnLandedOnEarthAt28p6(t)
@@ -314,11 +263,11 @@ func TestLandedPadDeltaInclTicksWithCommandedHeading(t *testing.T) {
 
 	diRe := regexp.MustCompile(`Δincl:\s+([0-9.]+)°`)
 	extract := func() float64 {
-		lines := v.buildLaunchChip(w)
+		lines := v.buildTargetBox(w)
 		joined := strings.Join(lines, "\n")
 		m := diRe.FindStringSubmatch(joined)
 		if m == nil {
-			t.Fatalf("Δincl row missing:\n%s", joined)
+			t.Fatalf("Δincl cell missing:\n%s", joined)
 		}
 		f, err := strconv.ParseFloat(m[1], 64)
 		if err != nil {
@@ -344,10 +293,11 @@ func TestLandedPadDeltaInclTicksWithCommandedHeading(t *testing.T) {
 }
 
 // TestAirborneHeadingRejoinsTrimRowInclReverts pins decision 10: once
-// airborne, the pad's dedicated heading:/incl: rows are gone; heading
-// rejoins the trim: row instead, and incl: goes back to being the
-// live orbital element (no '(min ...)' floor tag; that concept is
-// pad-only).
+// airborne, GUIDANCE's heading: rejoins the trim: row (no separate pad
+// row), and NAVIGATION's incl: goes back to being the live orbital
+// element (no '(min ...)' floor tag; that concept is pad-only). Split
+// across the two boxes decision 13 puts these rows in, where the
+// retired SURFACE chip combined them in one place.
 func TestAirborneHeadingRejoinsTrimRowInclReverts(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(200, 80)
@@ -355,104 +305,33 @@ func TestAirborneHeadingRejoinsTrimRowInclReverts(t *testing.T) {
 	c.HeadingTrim = 5 * math.Pi / 180 // +5°, matches a single `}` tap
 	c.Landed = false                  // simulate liftoff without re-deriving ascent state
 	// A non-degenerate velocity so ElementsFromStateInFrame yields a
-	// finite inclination rather than NaN/Inf (buildLaunchChip's "—"
-	// fallback would make the row-presence assertions vacuous).
+	// finite inclination rather than NaN/Inf (NAVIGATION's "—" fallback
+	// would make the row-presence assertions vacuous).
 	c.State.V = orbital.Vec3{Y: 7800}
 
-	lines := v.buildLaunchChip(w)
-	joined := strings.Join(lines, "\n")
-	if strings.Contains(joined, "(min") {
-		t.Errorf("expected the Inclination Floor tag to disappear once airborne:\n%s", joined)
+	navLines := v.buildNavigationBox(w)
+	navJoined := strings.Join(navLines, "\n")
+	if strings.Contains(navJoined, "(min") {
+		t.Errorf("expected the Inclination Floor tag to disappear once airborne:\n%s", navJoined)
 	}
-	trimHeadingRe := regexp.MustCompile(`trim:\s+\S+\s+heading:\s+(\d+°)`)
-	m := trimHeadingRe.FindStringSubmatch(joined)
+
+	guidanceLines := v.buildGuidanceBox(w)
+	guidanceJoined := strings.Join(guidanceLines, "\n")
+	// ADR 0051's own decision 4 mock puts heading: before trim: on
+	// GUIDANCE's shared row ("heading:   090°  trim:   +0°"), the
+	// reverse of the retired SURFACE chip's "trim: ...  heading: ...".
+	headingTrimRe := regexp.MustCompile(`heading:\s+(\d+°)\s+trim:\s+\S+`)
+	m := headingTrimRe.FindStringSubmatch(guidanceJoined)
 	if m == nil {
-		t.Fatalf("expected heading: to ride beside trim: once airborne:\n%s", joined)
+		t.Fatalf("expected heading: to ride beside trim: once airborne:\n%s", guidanceJoined)
 	}
 	if m[1] != "095°" {
 		t.Errorf("airborne heading readout = %q, want %q (+5° from due east)", m[1], "095°")
 	}
-	// The pad's own dedicated "heading:" row (chipRow's own prefix, "  heading:")
-	// must not additionally appear on its own line once airborne.
-	for _, l := range lines {
-		if strings.HasPrefix(strings.TrimLeft(l, " "), "heading:") {
-			t.Errorf("expected no standalone 'heading:' row once airborne, found: %q", l)
-		}
-	}
-}
-
-// TestLaunchChipPadRowsAlignToColumn14 pins item4-B review finding 5:
-// the pad's heading:/incl:/Δincl: rows must land their values at the
-// same display column every other SURFACE row uses. Checked
-// structurally, comparing where each row's value actually starts
-// (accounting for each label's own display width via lipgloss.Width)
-// against the pre-existing Pe: row's own column, rather than
-// hardcoding degree values, so this survives unrelated numeric
-// changes to the captured inclination/Δincl figures.
-func TestLaunchChipPadRowsAlignToColumn14(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	v.Resize(200, 80)
-	w, _ := spawnLandedOnEarthAt28p6(t)
-
-	sys := w.System()
-	moonIdx := -1
-	for i, b := range sys.Bodies {
-		if b.EnglishName == "Moon" || b.ID == "moon" {
-			moonIdx = i
-			break
-		}
-	}
-	if moonIdx <= 0 {
-		t.Fatalf("moon not found in default system")
-	}
-	w.SetTargetBody(moonIdx)
-
-	lines := v.buildLaunchChip(w)
-
-	rowFor := func(label string) string {
-		t.Helper()
-		for _, l := range lines {
-			if strings.HasPrefix(l, "  "+label) {
-				return l
-			}
-		}
-		t.Fatalf("no row found with label %q in:\n%s", label, strings.Join(lines, "\n"))
-		return ""
-	}
-	valueColumn := func(row, label string) int {
-		t.Helper()
-		prefix := "  " + label
-		if !strings.HasPrefix(row, prefix) {
-			t.Fatalf("row %q does not start with prefix %q", row, prefix)
-		}
-		rest := row[len(prefix):]
-		spaces := 0
-		for _, r := range rest {
-			if r != ' ' {
-				break
-			}
-			spaces++
-		}
-		return lipgloss.Width(prefix) + spaces
-	}
-
-	peRow := rowFor("Pe:")
-	wantCol := valueColumn(peRow, "Pe:")
-	if wantCol != launchChipValueCol {
-		t.Fatalf("setup: Pe: row's own value column = %d, want %d (launchChipValueCol)", wantCol, launchChipValueCol)
-	}
-
-	for _, label := range []string{"heading:", readout.LabelIncl, readout.LabelDeltaIncl} {
-		row := rowFor(label)
-		gotCol := valueColumn(row, label)
-		if gotCol != wantCol {
-			t.Errorf("%s row's value column = %d, want %d (matching Pe:'s column): row=%q", label, gotCol, wantCol, row)
-		}
-	}
 }
 
 // TestInclinationFloorUsesCurrentSurfaceLatNotLaunchLat pins item4-B
-// review finding 6: the pad's "(min N°)" Inclination Floor must read
+// review finding 6: NAVIGATION's "(min N°)" Inclination Floor must read
 // the vessel's CURRENT surface latitude (SurfaceLatLon, which prefers
 // LandedLatDeg once a soft landing has set it) rather than the
 // spawn-only LaunchLatDeg. A vessel that flew from the 28.6° pad and
@@ -477,7 +356,7 @@ func TestInclinationFloorUsesCurrentSurfaceLatNotLaunchLat(t *testing.T) {
 	dir := render.BodyFixedToWorld(c.Primary, landedLat, landedLon, w.Clock.SimTime)
 	c.State.R = orbital.Vec3{X: radius * dir.X, Y: radius * dir.Y, Z: radius * dir.Z}
 
-	lines := v.buildLaunchChip(w)
+	lines := v.buildNavigationBox(w)
 	joined := strings.Join(lines, "\n")
 	inclRe := regexp.MustCompile(`incl:\s+[0-9.]+°\s+\(min ([0-9.]+)°\)`)
 	m := inclRe.FindStringSubmatch(joined)

@@ -236,8 +236,8 @@ func TestAscentQBandLinesOmitsMaxQBeforeMeasured(t *testing.T) {
 // only at roomy dev-window sizes.
 // Rendered at the Design Size (ADR 0046/0051): ADR 0051's eight
 // instrument boxes are much larger than the VESSEL/ATTITUDE/etc. chips
-// they replace and are never dropped (Core priority), so at 80x24 —
-// below the Design Size in both dimensions — they can legitimately
+// they replace and are never dropped (Core priority), so at 80x24,
+// below the Design Size in both dimensions, they can legitimately
 // consume the whole budget before ATMOSPHERE (a LAUNCH-view-only chip,
 // untouched by ADR 0051, slice 4's to retire) gets a look in. 140x40 is
 // the one canvas the Design Size floor actually guarantees room at.

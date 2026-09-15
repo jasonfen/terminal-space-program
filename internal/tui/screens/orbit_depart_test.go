@@ -55,9 +55,9 @@ func extractDepart(t *testing.T, joined string) (value float64, best float64, ha
 // progress log): closed form and a 3600-sample sweep over a full
 // rotation agree to two decimals with the ADR's own numbers.
 func TestLandedPadShowsDepartRowWithEarthSwingAndBest(t *testing.T) {
-	w, c := spawnLandedOnEarthAt28p6(t)
+	w, _ := spawnLandedOnEarthAt28p6(t)
 	v := NewOrbitView(chipTestTheme())
-	rows := v.landedInclHeadingRows(w, c)
+	rows := v.buildNavigationBox(w)
 	joined := strings.Join(rows, "\n")
 	value, best, hasBest := extractDepart(t, joined)
 	if !hasBest {
@@ -80,7 +80,7 @@ func TestLandedPadShowsDepartRowWithEarthSwingAndBest(t *testing.T) {
 func TestAirlessPadShowsDepartRowWithLunaSwingAndBest(t *testing.T) {
 	w, _ := spawnLandedOnMoon(t, sim.DefaultLaunchpadLatitude, sim.DefaultLaunchpadLongitudeEast)
 	v := NewOrbitView(chipTestTheme())
-	rows := v.buildDescentChip(w)
+	rows := v.buildNavigationBox(w)
 	joined := strings.Join(rows, "\n")
 	value, best, hasBest := extractDepart(t, joined)
 	if !hasBest {
@@ -117,7 +117,7 @@ func TestLandedPadShowsDepartRowWithMarsSwingAndBest(t *testing.T) {
 		t.Fatalf("setup: expected craft primary = mars, got %q", c.Primary.ID)
 	}
 	v := NewOrbitView(chipTestTheme())
-	joined := strings.Join(v.landedInclHeadingRows(w, c), "\n")
+	joined := strings.Join(v.buildNavigationBox(w), "\n")
 	value, best, hasBest := extractDepart(t, joined)
 	if !hasBest {
 		t.Fatalf("expected the Mars pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
@@ -162,7 +162,7 @@ func TestAirlessPadShowsDepartRowWithGlyphSwingAndBest(t *testing.T) {
 		t.Fatalf("setup: expected Glyph to be airless; got %+v", c.Primary.Atmosphere)
 	}
 	v := NewOrbitView(chipTestTheme())
-	joined := strings.Join(v.buildDescentChip(w), "\n")
+	joined := strings.Join(v.buildNavigationBox(w), "\n")
 	value, best, hasBest := extractDepart(t, joined)
 	if !hasBest {
 		t.Fatalf("expected the Glyph pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
@@ -188,7 +188,7 @@ func TestOrbitChipShowsBareDepartRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	joined := strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	joined := strings.Join(v.buildNavigationBox(w), "\n")
 	if !strings.Contains(joined, readout.LabelIncl) {
 		t.Fatalf("setup: ORBIT chip missing incl: row:\n%s", joined)
 	}
@@ -220,7 +220,7 @@ func TestOrbitChipDepartRowReadsPastNinetyForRetrogradeOrbit(t *testing.T) {
 	if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 500e3, Retrograde: true}); err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
-	joined := strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	joined := strings.Join(v.buildNavigationBox(w), "\n")
 	value, _, hasBest := extractDepart(t, joined)
 	if hasBest {
 		t.Errorf("expected ORBIT's depart: row to carry no '(best N°)' suffix; got:\n%s", joined)
@@ -289,7 +289,7 @@ func TestDepartRowNeverWarningColoured(t *testing.T) {
 	for h := 0; h < 24; h++ {
 		at := t0.Add(time.Duration(h) * time.Hour)
 		place(at)
-		val, _, _ := extractDepart(t, stripANSI(strings.Join(v.landedInclHeadingRows(w, c), "\n")))
+		val, _, _ := extractDepart(t, stripANSI(strings.Join(v.buildNavigationBox(w), "\n")))
 		if val > best {
 			best = val
 			bestAt = at
@@ -297,7 +297,7 @@ func TestDepartRowNeverWarningColoured(t *testing.T) {
 	}
 	place(bestAt)
 
-	rows := v.landedInclHeadingRows(w, c)
+	rows := v.buildNavigationBox(w)
 	var departLine string
 	for _, l := range rows {
 		if strings.Contains(stripANSI(l), "depart:") {
@@ -396,7 +396,7 @@ func TestLandedPadDepartRowReadsPastNinetyForRetrogradeHeading(t *testing.T) {
 	w, c := spawnLandedOnEarthAt28p6(t)
 	c.HeadingTrim = math.Pi // command heading 270° (due west).
 	v := NewOrbitView(chipTestTheme())
-	joined := strings.Join(v.landedInclHeadingRows(w, c), "\n")
+	joined := strings.Join(v.buildNavigationBox(w), "\n")
 	value, _, hasBest := extractDepart(t, joined)
 	if !hasBest {
 		t.Fatalf("expected the pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
@@ -453,9 +453,11 @@ func TestFrozenPadHasNoDepartRowOnKern(t *testing.T) {
 		t.Fatalf("setup: expected craft primary = kern, got %q", c.Primary.ID)
 	}
 	v := NewOrbitView(chipTestTheme())
-	rows := v.landedInclHeadingRows(w, c)
+	rows := v.buildNavigationBox(w)
 	joined := strings.Join(rows, "\n")
-	if strings.Contains(joined, "depart:") {
-		t.Errorf("expected no depart: row on a frozen Kern pad (eps==0); got:\n%s", joined)
+	// ADR 0051 correction C1: "hide the depart: row" becomes "the
+	// depart: cell reads," (decision 2: every row always drawn).
+	if regexp.MustCompile(`depart:\s+[0-9]`).MatchString(joined) {
+		t.Errorf("expected a dash in the depart: cell on a frozen Kern pad (eps==0); got:\n%s", joined)
 	}
 }

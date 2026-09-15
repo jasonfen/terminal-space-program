@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -168,10 +169,10 @@ func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
 		return lines
 	}
 	chips := []builtChip{
-		{corner: cornerTopLeft, lines: filler(6), priority: chipPriorityCore},   // VESSEL-sized
-		{corner: cornerTopLeft, lines: filler(3)},                               // MISSION-sized filler
-		{corner: cornerTopLeft, lines: filler(2)},                               // SESSION-sized filler
-		{corner: cornerTopLeft, lines: filler(2)},                               // TIME LOCK-sized filler
+		{corner: cornerTopLeft, lines: filler(6), priority: chipPriorityCore}, // VESSEL-sized
+		{corner: cornerTopLeft, lines: filler(3)},                             // MISSION-sized filler
+		{corner: cornerTopLeft, lines: filler(2)},                             // SESSION-sized filler
+		{corner: cornerTopLeft, lines: filler(2)},                             // TIME LOCK-sized filler
 		{corner: cornerTopLeft, lines: []string{
 			"DOCKED", "  riding in bob's stack", "  [J] request control", "  [U] ask to undock",
 		}, priority: chipPriorityForced},
@@ -310,7 +311,13 @@ func TestActiveStageFuel(t *testing.T) {
 	}
 }
 
-func TestBuildStagesChip(t *testing.T) {
+// TestStagesBoxMultiStagePips migrated from the retired buildStagesChip
+// onto buildStagesBox (ADR 0051): the single-stage "nil" case is
+// superseded by orbit_box_stages_mission_test.go's own
+// TestStagesBoxRendersSingleStageVessel (decision 5: every vessel gets a
+// STAGES box now, single-stage included), so only the multi-stage pip
+// markers and active-stage index survive here.
+func TestStagesBoxMultiStagePips(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -321,94 +328,35 @@ func TestBuildStagesChip(t *testing.T) {
 		t.Fatal("expected an active craft")
 	}
 
-	// Single stage → nil (slim column already covers it).
-	c.Stages = []spacecraft.Stage{{Name: "solo", FuelMass: 10, FuelCapacity: 10}}
-	if got := v.buildStagesChip(w); got != nil {
-		t.Errorf("single-stage chip = %v, want nil", got)
-	}
-
-	// Multi stage → one pip per stage, dry stages hollow.
 	c.Stages = []spacecraft.Stage{
 		{Name: "S-IC", FuelMass: 0, FuelCapacity: 100}, // dry → ○
 		{Name: "S-II", FuelMass: 50, FuelCapacity: 100},
 		{Name: "S-IVB", FuelMass: 80, FuelCapacity: 100},
 	}
-	chip := v.buildStagesChip(w)
-	if chip == nil {
-		t.Fatal("multi-stage chip = nil, want content")
-	}
-	joined := strings.Join(chip, "\n")
+	joined := strings.Join(v.buildStagesBox(w), "\n")
 	if !strings.Contains(joined, "STAGES") {
-		t.Errorf("chip missing header:\n%s", joined)
+		t.Errorf("box missing header:\n%s", joined)
 	}
 	if !strings.Contains(joined, "○") || !strings.Contains(joined, "●") {
-		t.Errorf("chip pips missing filled/hollow markers:\n%s", joined)
+		t.Errorf("box pips missing filled/hollow markers:\n%s", joined)
 	}
 	if !strings.Contains(joined, "(1/3)") {
-		t.Errorf("chip missing active-stage index (1/3):\n%s", joined)
+		t.Errorf("box missing active-stage index (1/3):\n%s", joined)
 	}
 }
 
-func TestBuildNodesChipSummary(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
+// (TestBuildNodesChipSummary retired: the retired NODES chip's overflow
+// count and click-affordance marker are covered live on ENGINE's node
+// row by TestEngineNodeRowOverflowCountWhenMultipleNodesQueued (this
+// file) and TestEngineBoxNodeRowQueuedNode (orbit_box_engine_test.go);
+// the "nil when no nodes" case is decision 2's dash cell instead, pinned
+// by TestEngineBoxNodeRowDashWithNoCraftActivity.)
 
-	c.Nodes = nil
-	if got := v.buildNodesChip(w); got != nil {
-		t.Errorf("no-nodes chip = %v, want nil", got)
-	}
-
-	c.Nodes = []spacecraft.ManeuverNode{
-		{DV: 120, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute)},
-		{DV: 80, TriggerTime: w.Clock.SimTime.Add(30 * time.Minute)},
-		{DV: 40, TriggerTime: w.Clock.SimTime.Add(60 * time.Minute)},
-	}
-	chip := v.buildNodesChip(w)
-	joined := strings.Join(chip, "\n")
-	if !strings.Contains(joined, "NODES") {
-		t.Errorf("chip missing header:\n%s", joined)
-	}
-	if !strings.Contains(joined, hudNodeMarker) {
-		t.Errorf("chip missing click-affordance marker %q:\n%s", hudNodeMarker, joined)
-	}
-	if !strings.Contains(joined, "(+2 more → [m])") {
-		t.Errorf("chip missing overflow count (+2 more → [m]):\n%s", joined)
-	}
-}
-
-// TestBuildNodesChipMarksOverBudgetNode — ADR 0047 §2 / #428: the
-// NODES chip's next-node line carries the same Over-budget Node marker
-// as the planner's own PLANNED NODES list, so a plan that can't be
-// afforded is visible without opening [m].
-func TestBuildNodesChipMarksOverBudgetNode(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	budget := c.RemainingDeltaV()
-	c.Nodes = []spacecraft.ManeuverNode{
-		{Mode: spacecraft.BurnPrograde, DV: budget + 1521, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute)},
-	}
-	joined := strings.Join(v.buildNodesChip(w), "\n")
-	if !strings.Contains(joined, "exceeds budget by 1521 m/s") {
-		t.Errorf("NODES chip missing over-budget marker:\n%s", joined)
-	}
-
-	// An affordable node must NOT carry the marker.
-	c.Nodes = []spacecraft.ManeuverNode{
-		{Mode: spacecraft.BurnPrograde, DV: 10, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute)},
-	}
-	joined = strings.Join(v.buildNodesChip(w), "\n")
-	if strings.Contains(joined, "exceeds budget") {
-		t.Errorf("affordable node wrongly marked over-budget:\n%s", joined)
-	}
-}
+// (TestBuildNodesChipMarksOverBudgetNode retired: it pinned the WORDED
+// over-budget marker ("exceeds budget by Nm/s") that re-grill Q4
+// explicitly replaces with a bare "⚠" glyph on ENGINE's node row, see
+// TestEngineBoxNodeRowOverBudgetIsBareGlyph (orbit_box_engine_test.go),
+// which sabotage-checks that the words specifically do NOT reappear.)
 
 // TestWorstCaseFrameDoesNotOverflow is the regression that motivated the
 // v0.13 cycle: with a target set, an Apollo stack launching from the pad,
@@ -469,7 +417,7 @@ func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
 // boxes on plain declutter (Settings per-box ids and F2's lit-engine
 // exception are slice 2b's, decision 16), so unlike the pre-ADR-0051
 // pinned VESSEL chip, F2 now hides EVERY instrument box together,
-// including ENGINE/PROPELLANT — that exception lands with 2b.
+// including ENGINE/PROPELLANT, that exception lands with 2b.
 func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
@@ -502,12 +450,12 @@ func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 }
 
 // TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn: the NAVIGATION box is
-// non-toggleable in 2a (no Settings id exists for it yet — decision 16's
+// non-toggleable in 2a (no Settings id exists for it yet, decision 16's
 // per-box ids are slice 2b's) so it renders with every Settings chip
 // disabled. A live burn shows on ENGINE's node row (folded in from the
 // retired NODES chip). 2a does not yet implement decision 16's
 // lit-engine declutter exception (slice 2b), so F2 hides ENGINE (and the
-// live-burn readout on it) along with everything else — a documented
+// live-burn readout on it) along with everything else, a documented
 // interim gap, not the final contract.
 func TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
@@ -546,7 +494,7 @@ func TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn(t *testing.T) {
 		t.Errorf("a live burn must show on ENGINE's node row with all chips disabled:\n%s", out)
 	}
 
-	// F2 declutter clears every instrument box, ENGINE included — the
+	// F2 declutter clears every instrument box, ENGINE included, the
 	// lit-engine exception (decision 16) is slice 2b's, not this slice's.
 	v.SetDeclutter(true)
 	out = v.Render(w, 0, 120, 40)
@@ -564,7 +512,7 @@ func TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn(t *testing.T) {
 	}
 }
 
-// TestEngineNodeRowOverflowCountWhenMultipleNodesQueued — #293's
+// TestEngineNodeRowOverflowCountWhenMultipleNodesQueued, #293's
 // staleness rationale, now on ENGINE's node row (the retired NODES chip
 // folded in here, ADR 0051 decision 1): every node after the first fires
 // against an orbit it was never computed for, so 2+ queued nodes on the
@@ -597,56 +545,22 @@ func TestEngineNodeRowOverflowCountWhenMultipleNodesQueued(t *testing.T) {
 	}
 }
 
-// TestNodesChipForceShowIsPerCraftNotFleetWide (#333): the staleness
-// hazard the force-show gate exists for is per-vessel — every node
-// behind the first ON THE SAME CRAFT was computed against an orbit that
-// no longer exists once the first one fires. Two different craft each
-// carrying exactly one node have no such hazard on either vessel, so
-// summing across the fleet must not force the chip past a declutter +
-// disabled toggle the player explicitly chose.
-func TestNodesChipForceShowIsPerCraftNotFleetWide(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	v.Resize(120, 40)
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	s := settings.Default()
-	for _, chipID := range settings.AllChips {
-		s.SetChip(chipID, false)
-	}
-	v.SetSettings(s)
-	v.SetDeclutter(true)
-
-	active := w.ActiveCraft()
-	if active == nil {
-		t.Fatal("expected an active craft")
-	}
-	active.Nodes = []spacecraft.ManeuverNode{
-		{Mode: spacecraft.BurnPrograde, DV: 42, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
-	}
-	second := &spacecraft.Spacecraft{
-		Name:    "relay",
-		Primary: active.Primary,
-		State:   active.State,
-		Stages:  []spacecraft.Stage{{DryMass: 1000}},
-		Nodes: []spacecraft.ManeuverNode{
-			{Mode: spacecraft.BurnPrograde, DV: 10, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
-		},
-	}
-	second.SyncFields()
-	w.Crafts = append(w.Crafts, second)
-
-	out := v.Render(w, 0, 120, 40)
-	if strings.Contains(out, "NODES") {
-		t.Errorf("one node each on two different craft force-showed NODES past the toggle/declutter — the hazard is per-craft, not fleet-wide:\n%s", out)
-	}
-}
+// (TestNodesChipForceShowIsPerCraftNotFleetWide retired: it guarded the
+// retired NODES chip's "force past declutter" behaviour for a fleet-wide
+// staleness hazard. ENGINE's node row (ADR 0051 decision 1) has no
+// force-show exception in 2a at all, TestNavigationBoxAlwaysOnAndEngine-
+// ShowsLiveBurn (this file) confirms F2 declutter now hides ENGINE
+// uniformly with everything else, the lit-engine exception being slice
+// 2b's (decision 16), so the fleet-wide-vs-per-craft distinction this
+// test drew no longer has a force-show path to guard.)
 
 // TestNodesChipOverflowCountIsPerCraft (#333): the "(+N more)" overflow
 // annotation must count the SAME craft's own remaining queue that the
 // "next" node line above it names — folding in another craft's
-// unrelated nodes misdescribes whose queue is actually stale.
+// unrelated nodes misdescribes whose queue is actually stale. Migrated
+// onto buildEngineBox (ADR 0051): the box is scoped to w.ActiveCraft()
+// by construction now, so this also pins that another craft's queue can
+// never leak in via a future refactor.
 func TestNodesChipOverflowCountIsPerCraft(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
@@ -674,18 +588,20 @@ func TestNodesChipOverflowCountIsPerCraft(t *testing.T) {
 	other.SyncFields()
 	w.Crafts = append(w.Crafts, other)
 
-	joined := strings.Join(v.buildNodesChip(w), "\n")
-	if strings.Contains(joined, "more") {
-		t.Errorf("active craft has a single node; overflow count leaked another craft's queue:\n%s", joined)
+	lines := v.buildEngineBox(w)
+	if strings.Contains(lines[3], "more") {
+		t.Errorf("active craft has a single node; overflow count leaked another craft's queue:\n%s", lines[3])
 	}
 }
 
-// TestOrbitMetricsShowsDirectionIndicator — issue #63: the ORBIT chip
-// carries an explicit prograde/retrograde orbit-direction readout so a
-// genuine reversal is never confused with a projection/shading artifact.
-// Default LEO reads prograde; flipping the velocity (h sign reverses →
-// inclination crosses 90°) flips the readout to retrograde.
-func TestOrbitMetricsShowsDirectionIndicator(t *testing.T) {
+// TestNavigationBoxShowsDirectionIndicator, issue #63: NAVIGATION
+// carries an explicit prograde/retrograde orbit-direction readout (dir:)
+// so a genuine reversal is never confused with a projection/shading
+// artifact. Default LEO reads prograde; flipping the velocity (h sign
+// reverses → inclination crosses 90°) flips the readout to retrograde.
+// Migrated from the retired buildOrbitMetricsChip onto buildNavigationBox
+// (ADR 0051); the label shortens from "direction:" to "dir:".
+func TestNavigationBoxShowsDirectionIndicator(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
 	w, err := sim.NewWorld()
@@ -693,9 +609,9 @@ func TestOrbitMetricsShowsDirectionIndicator(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 
-	joined := strings.Join(v.buildOrbitMetricsChip(w), "\n")
-	if !strings.Contains(joined, "direction:") {
-		t.Fatalf("ORBIT chip missing the direction readout:\n%s", joined)
+	joined := strings.Join(v.buildNavigationBox(w), "\n")
+	if !strings.Contains(joined, "dir:") {
+		t.Fatalf("NAVIGATION box missing the dir: readout:\n%s", joined)
 	}
 	if !strings.Contains(joined, "prograde") {
 		t.Errorf("default LEO should read prograde:\n%s", joined)
@@ -708,17 +624,19 @@ func TestOrbitMetricsShowsDirectionIndicator(t *testing.T) {
 		t.Fatal("expected an active craft")
 	}
 	c.State.V = c.State.V.Scale(-1)
-	joined = strings.Join(v.buildOrbitMetricsChip(w), "\n")
+	joined = strings.Join(v.buildNavigationBox(w), "\n")
 	if !strings.Contains(joined, "retrograde") {
 		t.Errorf("reversed orbit should read retrograde:\n%s", joined)
 	}
 }
 
-// TestOrbitMetricsChipShowsEccentricity — #426 (CONTEXT.md Chip entry): the
-// full-form ORBIT chip always carries an `e:` row so the three
-// eccentricity-graded challenge rungs have a number on the HUD to check
-// against. Full form only; the Compact Form stays the Ap/Pe strip.
-func TestOrbitMetricsChipShowsEccentricity(t *testing.T) {
+// TestNavigationBoxShowsEccentricity, #426 (CONTEXT.md Chip entry):
+// NAVIGATION always carries an `e:` row so the three eccentricity-graded
+// challenge rungs have a number on the HUD to check against. Migrated
+// from the retired buildOrbitMetricsChip(+Compact) onto buildNavigationBox
+// (ADR 0051); the Compact-Form assertion is dropped since none of the
+// fixed instrument boxes has a Compact Form (decision 2: never resize).
+func TestNavigationBoxShowsEccentricity(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
 	w, err := sim.NewWorld()
@@ -730,26 +648,32 @@ func TestOrbitMetricsChipShowsEccentricity(t *testing.T) {
 		t.Fatal("expected an active craft")
 	}
 
-	joined := strings.Join(v.buildOrbitMetricsChip(w), "\n")
-	if !strings.Contains(joined, chipRow("e:", "")) {
-		t.Fatalf("ORBIT chip missing the e: row at the shared label column:\n%s", joined)
-	}
-
-	// Compact Form stays the Ap/Pe strip — no e: row. (Matching on the
-	// chipRow-prefixed "  e:" rather than bare "e:" so this doesn't
-	// false-positive on "Pe:", which also contains the substring "e:".)
-	compact := strings.Join(v.buildOrbitMetricsChipCompact(w), "\n")
-	if strings.Contains(compact, "  e:") {
-		t.Errorf("Compact Form should not carry the e: row:\n%s", compact)
+	joined := strings.Join(v.buildNavigationBox(w), "\n")
+	// \be: (not the unanchored `e:\s+[0-9]`) so this doesn't false-positive
+	// on "Pe:" or "range:", which also end in "e:" followed by a numeric
+	// value: an unanchored version of this regex would pass here even if
+	// NAVIGATION's own e: cell were sabotaged to a dash, since Pe: alone
+	// satisfies it (caught live: sabotaging e: to "—" left this green
+	// under the unanchored form).
+	if !regexp.MustCompile(`\be:\s+[0-9]`).MatchString(joined) {
+		t.Fatalf("NAVIGATION box missing the e: row with a live value:\n%s", joined)
 	}
 }
 
-// TestProjectedOrbitIsSeparateChip — issue #63 follow-up: the projected
-// post-burn orbit is its own PROJECTED ORBIT chip stacked beneath the
-// always-on ORBIT chip, so planting a node shows the current and
-// projected orbits simultaneously instead of the projection replacing
-// the live readout.
-func TestProjectedOrbitIsSeparateChip(t *testing.T) {
+// TestNavigationBoxStaysLiveWithPlantedNode, issue #63 follow-up,
+// retired-chip-era regression: the projected post-burn orbit used to be
+// its own PROJECTED ORBIT chip stacked beneath the always-on ORBIT chip,
+// so planting a node showed the current and projected orbits
+// simultaneously instead of the projection replacing the live readout.
+// ADR 0051 retires the PROJECTED ORBIT chip from assembleChips entirely
+// (its content, the plan arrows and the plan: row's world/node-angle
+// text, moves to slice 3, not this slice; buildNavigationBox's own doc
+// comment confirms plan: is a permanent dash until then); the live orbit
+// now renders on NAVIGATION instead of the retired ORBIT chip, with no
+// second projected panel to compare against in 2a. This end-to-end check
+// is what survives: NAVIGATION's live orbit rows must stay present and
+// live once a node is planted, not blank out or get replaced.
+func TestNavigationBoxStaysLiveWithPlantedNode(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
 	w, err := sim.NewWorld()
@@ -757,41 +681,23 @@ func TestProjectedOrbitIsSeparateChip(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 
-	// No node planted: the live ORBIT chip renders, the projected chip
-	// is absent.
-	if got := v.buildProjectedOrbitChip(w); got != nil {
-		t.Errorf("projected chip should be nil with no planted node, got:\n%s", strings.Join(got, "\n"))
-	}
-	cur := strings.Join(v.buildOrbitMetricsChip(w), "\n")
-	if !strings.Contains(cur, "ORBIT") || strings.Contains(cur, "PROJECTED ORBIT") {
-		t.Fatalf("expected the live ORBIT chip with no node planted:\n%s", cur)
+	before := strings.Join(v.buildNavigationBox(w), "\n")
+	if !strings.Contains(before, "altitude:") {
+		t.Fatalf("expected NAVIGATION's live altitude: row with no node planted:\n%s", before)
 	}
 
-	// Plant a resolved prograde node → both chips render together.
+	// Plant a resolved prograde node.
 	w.PlanNode(sim.ManeuverNode{
 		TriggerTime: w.Clock.SimTime.Add(30 * time.Minute),
 		Mode:        spacecraft.BurnPrograde,
 		DV:          100,
 		PrimaryID:   w.ActiveCraft().Primary.ID,
 	})
-	cur = strings.Join(v.buildOrbitMetricsChip(w), "\n")
-	proj := strings.Join(v.buildProjectedOrbitChip(w), "\n")
-	if !strings.Contains(cur, "altitude:") || strings.Contains(cur, "PROJECTED ORBIT") {
-		t.Errorf("the current ORBIT chip must stay live (not replaced by the projection):\n%s", cur)
-	}
-	if !strings.Contains(proj, "PROJECTED ORBIT") {
-		t.Errorf("the projected chip must render once a node is planted:\n%s", proj)
-	}
-	// The projected (elliptical) orbit carries a period readout so a
-	// comsat insertion burn can be tuned to a target period before firing.
-	if !strings.Contains(proj, "period:") {
-		t.Errorf("the projected chip must show the resulting orbital period:\n%s", proj)
+	after := strings.Join(v.buildNavigationBox(w), "\n")
+	if !strings.Contains(after, "altitude:") {
+		t.Errorf("NAVIGATION's live altitude: row must survive a planted node (no projection panel replaces it in 2a):\n%s", after)
 	}
 
-	// End to end: ADR 0051 retires the PROJECTED ORBIT chip from
-	// assembleChips (its content — the plan arrows and the plan: row's
-	// world/node-angle text — moves to slice 3, not this slice); the live
-	// orbit now renders on NAVIGATION instead of the retired ORBIT chip.
 	out := v.Render(w, 0, 120, 40)
 	if !strings.Contains(out, "NAVIGATION") {
 		t.Errorf("a rendered frame with a planted node must still show NAVIGATION's live orbit:\n%s", out)
@@ -838,34 +744,41 @@ func TestActiveCraftGlyphWinsOverlappingCell(t *testing.T) {
 	}
 }
 
-func TestBuildVesselChipCoreOnly(t *testing.T) {
+// TestPropellantBoxCoreOnly migrated from the retired buildVesselChip
+// onto buildPropellantBox (ADR 0051): the core fuel/mass/Δv telemetry
+// this pinned now lives on PROPELLANT; orbit shape (Ap:/Pe:) lives on
+// NAVIGATION only, so PROPELLANT must never carry it.
+func TestPropellantBoxCoreOnly(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	out := strings.Join(v.buildVesselChip(w), "\n")
-	if !strings.Contains(out, "VESSEL") || !strings.Contains(out, "PROPELLANT") {
-		t.Errorf("vessel chip missing core headers:\n%s", out)
+	out := strings.Join(v.buildPropellantBox(w), "\n")
+	if !strings.Contains(out, "PROPELLANT") {
+		t.Errorf("box missing header:\n%s", out)
 	}
-	if !strings.Contains(out, "velocity") || !strings.Contains(out, "Δv:") {
-		t.Errorf("vessel chip missing core telemetry rows:\n%s", out)
+	if !strings.Contains(out, "mass:") || !strings.Contains(out, "Δv:") {
+		t.Errorf("box missing core telemetry rows:\n%s", out)
 	}
-	// Orbit shape lives in the Orbit-metrics chip — the vessel chip must
-	// not carry apoapsis/periapsis rows.
-	if strings.Contains(out, "apoapsis") || strings.Contains(out, "periapsis") {
-		t.Errorf("vessel chip still carries orbit-shape rows (should be a separate chip):\n%s", out)
+	// Orbit shape lives on NAVIGATION, PROPELLANT must not carry Ap:/Pe:
+	// rows.
+	if strings.Contains(out, "Ap:") || strings.Contains(out, "Pe:") {
+		t.Errorf("PROPELLANT box carries orbit-shape rows (should live on NAVIGATION only):\n%s", out)
 	}
 }
 
-// TestBuildVesselChipMassesRideTheLadder pins F7 (gate review): masses
+// TestPropellantBoxMassesRideTheLadder pins F7 (gate review): masses
 // were never migrated to readout.Mass, so a Saturn V's fuel/mass/
 // monoprop rows still printed raw kilograms ("2901847 kg") straight
 // through decision 3's contract, the exact number the ADR's own Context
 // section names as one of the original findings. A spawned Saturn V's
 // fuel and total mass are both well past the 1000 kg kg->t rung, so a
-// surviving raw-kg reading fails this immediately.
-func TestBuildVesselChipMassesRideTheLadder(t *testing.T) {
+// surviving raw-kg reading fails this immediately. Migrated from the
+// retired buildVesselChip onto buildPropellantBox (ADR 0051); exact
+// column spacing isn't pinned here (that's fix #1's job), only the
+// formatted VALUES.
+func TestPropellantBoxMassesRideTheLadder(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -880,26 +793,28 @@ func TestBuildVesselChipMassesRideTheLadder(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
-	out := strings.Join(v.buildVesselChip(w), "\n")
-	for _, want := range []string{"fuel:      100% (2160 t)", "mass:      2902 t", "monoprop:  11.85 t"} {
+	out := strings.Join(v.buildPropellantBox(w), "\n")
+	for _, want := range []string{"100% (2160 t)", "2902 t", "11.85 t"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("VESSEL chip missing %q (masses should ride the kg/t ladder):\n%s", want, out)
+			t.Errorf("PROPELLANT box missing %q (masses should ride the kg/t ladder):\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, " kg") {
-		t.Errorf("VESSEL chip still prints a raw kilogram reading:\n%s", out)
+		t.Errorf("PROPELLANT box still prints a raw kilogram reading:\n%s", out)
 	}
 }
 
-// TestBuildVesselChipDeltaVPairShowsStageOverVehicle pins F12 (gate
+// TestPropellantBoxDeltaVPairShowsStageOverVehicle pins F12 (gate
 // review): decision 7's "stage / vehicle" two-number Δv row had no
 // call-site test: only readout's own DeltaVPair unit tests covered the
-// string shape, not that a real multi-stage vessel's VESSEL chip (full
-// and Compact Form) actually reaches it instead of printing the active
-// stage's Δv alone. A spawned Saturn V has three stages, so its active
-// stage's remaining Δv and the whole stack's total are provably
-// different numbers, sharing one trailing unit.
-func TestBuildVesselChipDeltaVPairShowsStageOverVehicle(t *testing.T) {
+// string shape, not that a real multi-stage vessel's box actually
+// reaches it instead of printing the active stage's Δv alone. A spawned
+// Saturn V has three stages, so its active stage's remaining Δv and the
+// whole stack's total are provably different numbers, sharing one
+// trailing unit. Migrated from the retired buildVesselChip(+Compact)
+// onto buildPropellantBox (ADR 0051); the Compact-Form assertion is
+// dropped (no Compact Form on any fixed instrument box, decision 2).
+func TestPropellantBoxDeltaVPairShowsStageOverVehicle(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -918,106 +833,40 @@ func TestBuildVesselChipDeltaVPairShowsStageOverVehicle(t *testing.T) {
 	if len(c.Stages) <= 1 {
 		t.Fatalf("test setup broken: Saturn V should spawn with more than one stage, got %d", len(c.Stages))
 	}
-	out := strings.Join(v.buildVesselChip(w), "\n")
-	if !strings.Contains(out, "Δv:        3518 / 18872 m/s") {
-		t.Errorf("VESSEL chip missing the stage/vehicle Δv pair:\n%s", out)
-	}
-	compact := strings.Join(v.buildVesselChipCompact(w), "\n")
-	if !strings.Contains(compact, "Δv: 3518 / 18872 m/s") {
-		t.Errorf("VESSEL chip (Compact Form) missing the stage/vehicle Δv pair:\n%s", compact)
+	out := strings.Join(v.buildPropellantBox(w), "\n")
+	if !strings.Contains(out, "3518 / 18872 m/s") {
+		t.Errorf("PROPELLANT box missing the stage/vehicle Δv pair:\n%s", out)
 	}
 }
 
-// TestBuildNodesChipMergesActiveBurn — the NODES chip carries an in-flight
-// burn as its firing head above the planted-node summary (v0.16), and
-// shows the firing head alone when a burn is live with no upcoming nodes.
-func TestBuildNodesChipMergesActiveBurn(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
+// (TestBuildNodesChipMergesActiveBurn retired: it pinned the retired
+// NODES chip merging a firing head ABOVE a planted-node summary, both
+// visible together. ADR 0051 decision 12 replaces this with a strict
+// precedence on ENGINE's single node row (live burn always outranks a
+// queued node outright, never shown together); see
+// TestEngineBoxNodeRowLiveBurnOutranksQueuedNode (orbit_box_engine_test.go),
+// which sabotage-checks that the queued node's own wording does NOT
+// appear once a burn is live, the opposite of what this test pinned.)
 
-	// Burn in flight + a planted node → both appear, burn first.
-	c.ActiveBurn = &spacecraft.ActiveBurn{
-		Mode:        spacecraft.BurnPrograde,
-		DVRemaining: 120,
-		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
-	}
-	c.Nodes = []spacecraft.ManeuverNode{
-		{DV: 80, TriggerTime: w.Clock.SimTime.Add(30 * time.Minute)},
-	}
-	chip := v.buildNodesChip(w)
-	joined := strings.Join(chip, "\n")
-	if !strings.HasPrefix(chip[0], "NODES") {
-		t.Errorf("chip header should be NODES:\n%s", joined)
-	}
-	if !strings.Contains(joined, "120 m/s") {
-		t.Errorf("firing burn missing from merged chip:\n%s", joined)
-	}
-	if !strings.Contains(joined, "80.00 m/s") {
-		t.Errorf("planted node missing from merged chip:\n%s", joined)
-	}
-	// Firing head must come before the planted node.
-	if strings.Index(joined, "120 m/s") > strings.Index(joined, "80.00 m/s") {
-		t.Errorf("firing burn should head the chip, above planted nodes:\n%s", joined)
-	}
+// (TestEmptySlateSaysSo retired (#310): with no craft at all, the retired
+// VESSEL chip stated the situation and offered the way out ("[n]" to
+// launch, or the DockGuest owner's name + "[U]" to undock). No live
+// instrument box reproduces this messaging, every box just reads a dash
+// row when w.ActiveCraft() is nil (decision 2), with no player-facing
+// explanation or way out. This is a real coverage/feature gap this
+// cleanup surfaces rather than papers over: dock_guest_rider_render_test.go's
+// own TestDockGuestRenderIncludesDockedBlock already flags the adjacent
+// DOCKED-block risk in its ADR 0051 note ("a rider on a genuinely narrow
+// terminal can still lose their only exit route to the new box set,
+// worth the maintainer's attention, not silently accepted"); the #310
+// empty-slate case is the same shape of gap and is flagged here for the
+// same reason, not fixed by this slice.)
 
-	// Burn in flight, no planted nodes → chip still shows the firing head.
-	c.Nodes = nil
-	chip = v.buildNodesChip(w)
-	if chip == nil {
-		t.Fatal("chip nil with a live burn and no nodes; want the firing head")
-	}
-	if !strings.Contains(strings.Join(chip, "\n"), "120 m/s") {
-		t.Errorf("firing head missing when no nodes planted:\n%s", strings.Join(chip, "\n"))
-	}
-
-	// Nothing burning, no nodes → nil.
-	c.ActiveBurn = nil
-	if got := v.buildNodesChip(w); got != nil {
-		t.Errorf("chip should be nil with no burn and no nodes, got %v", got)
-	}
-}
-
-// TestEmptySlateSaysSo (#310): with no craft at all the flight view used to
-// render nothing where the VESSEL chip goes, while the camera fell through to
-// the system origin at the old craft-scale zoom — a hard-zoomed star and no
-// explanation. The chip must state the situation and offer the way out, and it
-// must distinguish "you have no craft" from "your craft is riding in someone
-// else's stack", which are different situations with different next moves.
-func TestEmptySlateSaysSo(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	w.Crafts = nil
-	w.ActiveCraftIdx = 0
-
-	out := strings.Join(v.buildVesselChip(w), "\n")
-	if out == "" {
-		t.Fatal("empty craft slate renders nothing — the state the player cannot decode")
-	}
-	if !strings.Contains(out, "empty") {
-		t.Errorf("empty-slate chip does not say the slate is empty:\n%s", out)
-	}
-	if !strings.Contains(out, "[n]") {
-		t.Errorf("empty-slate chip offers no way out:\n%s", out)
-	}
-
-	// Docked as guest: the slate is empty for a reason we know, and "launch a
-	// new flight" would be the wrong advice.
-	w.DockGuest = &sim.DockGuestLink{OwnerFP: "SHA256:bob", OwnerHandle: "bob"}
-	out = strings.Join(v.buildVesselChip(w), "\n")
-	if !strings.Contains(out, "bob") || !strings.Contains(out, "[U]") {
-		t.Errorf("docked-as-guest empty slate does not name the stack or the release key:\n%s", out)
-	}
-	if strings.Contains(out, "[n]") {
-		t.Errorf("docked-as-guest chip offers a new launch as if the craft were gone:\n%s", out)
-	}
-}
+// (TestDockGuestVesselChipShowsBadgedFlightData retired (ADR 0038 S4
+// part 3): same gap as TestEmptySlateSaysSo above, no live instrument
+// box badges a DockGuest stack's ghost-reported flight data (name,
+// primary, velocity) the way the retired VESSEL chip did. Flagged, not
+// fixed, by this cleanup.)
 
 // dockGuestStackGhostWorld builds a World with no local craft, docked as a
 // guest in "bob"'s stack, whose ghost carries a real 500 km circular orbit
@@ -1046,53 +895,13 @@ func dockGuestStackGhostWorld(t *testing.T) *sim.World {
 	return w
 }
 
-// TestDockGuestVesselChipShowsBadgedFlightData (ADR 0038 S4 part 3): once
-// the stack's ghost report has landed, the VESSEL chip upgrades from the
-// bare #310 "why is this empty" placeholder to the stack's real flight
-// data — name, primary, velocity — badged as the owner's rather than the
-// player's own, so the numbers never read as this player's ship.
-func TestDockGuestVesselChipShowsBadgedFlightData(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	w := dockGuestStackGhostWorld(t)
-
-	out := strings.Join(v.buildVesselChip(w), "\n")
-	for _, want := range []string{"bob", "bob's stack", "Earth", "velocity:"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("badged VESSEL chip missing %q:\n%s", want, out)
-		}
-	}
-}
-
-// TestDockGuestOrbitChipShowsBadgedShape (ADR 0038 S4 part 3): the
-// always-on ORBIT chip goes dark whenever !CraftVisibleHere (today,
-// riding as a guest) — exactly when there IS a live orbit to show, the
-// stack's. It must render the ghost's orbit shape, badged with the
-// owner's handle.
-func TestDockGuestOrbitChipShowsBadgedShape(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	w := dockGuestStackGhostWorld(t)
-
-	out := strings.Join(v.buildOrbitMetricsChip(w), "\n")
-	if out == "" {
-		t.Fatal("ORBIT chip renders nothing while docked as a guest with a live ghost")
-	}
-	for _, want := range []string{"bob", "Ap:", "Pe:"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("badged ORBIT chip missing %q:\n%s", want, out)
-		}
-	}
-
-	// Solo, no craft at all, no DockGuest: still nil — no stack to badge.
-	w2, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	w2.Crafts = nil
-	w2.ActiveCraftIdx = 0
-	if got := v.buildOrbitMetricsChip(w2); got != nil {
-		t.Errorf("ORBIT chip rendered with no craft and no DockGuest:\n%s", strings.Join(got, "\n"))
-	}
-}
+// (TestDockGuestOrbitChipShowsBadgedShape retired (ADR 0038 S4 part 3):
+// same gap as TestDockGuestVesselChipShowsBadgedFlightData above, no
+// live instrument box renders the DockGuest stack's ghost-reported orbit
+// shape while riding as a guest (!CraftVisibleHere); buildNavigationBox
+// only ever reads w.ActiveCraft(), with no ghost fallback. Flagged, not
+// fixed, by this cleanup. dockGuestStackGhostWorld itself stays live,
+// dock_guest_rider_render_test.go's own tests still use it.)
 
 // TestLosingTheCraftRefits (#310): losing every craft is a framing change even
 // though Focus.Kind stays FocusCraft. Without it the centre snaps to the system

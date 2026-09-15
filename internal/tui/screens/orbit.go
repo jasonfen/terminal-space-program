@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
-	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
@@ -1544,7 +1543,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		Render(canvasStr)
 
 	// ADR 0051 decision 6: the map title always names the active vessel
-	// (retiring the VESSEL box), whatever the camera is looking at — the
+	// (retiring the VESSEL box), whatever the camera is looking at, the
 	// pre-ADR-0051 title showed a bare "VESSEL n/m" index only with more
 	// than one craft in the slate, and said nothing at all about which
 	// vessel with exactly one, or with the camera on a body. `focus:`
@@ -2585,23 +2584,6 @@ func (v *OrbitView) ComposeNavballOverlay(w *sim.World, canvasStr string, cCols,
 	return v.composeNavballOverlay(w, canvasStr, cCols, cRows, false)
 }
 
-// crashedVesselNameLabel decorates a Crashed vessel name with a
-// `[CR]` ASCII prefix dimmed by the theme. Live vessels render
-// without the prefix. The marker is plain ASCII rather than a
-// glyph because the v0.11.4 catalog sweep doesn't audit
-// emoji/Unicode support in the render palette — the safer choice
-// when adding a status indicator that may appear on any terminal.
-// v0.11.4+ (ADR 0004).
-func crashedVesselNameLabel(th Theme, c *spacecraft.Spacecraft) string {
-	if c == nil || !c.Crashed {
-		if c != nil {
-			return c.Name
-		}
-		return ""
-	}
-	return th.Dim.Render("[CR] ") + c.Name
-}
-
 // shouldShowLaunchHUD returns true when the active craft is in
 // "ascent" mode — defined v0.9.4+ as "periapsis below the
 // circularize-from-pad mission floor" (200 km, altitude). Visible
@@ -2654,15 +2636,6 @@ func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
 	// + progress row above; this is only the show/hide gate.
 	return periAlt < c.Primary.Atmosphere.CutoffAltitude
 }
-
-// launchMissionFloorM is the package-local alias for the canonical
-// sim.LaunchMissionFloorM (200 km). Pre-v0.10.7 this lived here as a
-// package-private const; v0.10.7 hoisted it into sim so the launch-
-// anchor predicate can read it without crossing the screens→sim layer
-// boundary. The original orbit.go callsites (LAUNCH HUD block,
-// shouldShowLaunchHUD, ORBIT READY gate) keep their local name; the
-// JSON mirror at internal/missions/missions.json:40 is unchanged.
-const launchMissionFloorM = sim.LaunchMissionFloorM
 
 // craftHasOrbit is the single "does this vessel have a real orbit"
 // predicate (issue #375). integrateLanded (internal/sim/landed.go)
@@ -2915,39 +2888,6 @@ func deriveFlightPhase(c *spacecraft.Spacecraft) FlightPhase {
 		return PhaseTransfer // outbound — climbing toward apoapsis
 	}
 	return PhaseCoast // near-circular parking / cruise orbit
-}
-
-// launchMissionProgress returns the pe-altitude-vs-mission-floor
-// row for the LAUNCH HUD when the active craft is flying a
-// circularize_from_pad mission for its current primary. Empty
-// string when no such mission is in flight. v0.9.4+.
-func launchMissionProgress(w *sim.World, c *spacecraft.Spacecraft, periAltM float64) string {
-	for _, m := range w.Missions {
-		// Only a still-active mission shows a live progress row; skip both
-		// Passed and (v0.21 ADR 0025 §5) Failed — a failed mission must not
-		// keep rendering as if in flight.
-		if m.Status != missions.InProgress {
-			continue
-		}
-		for _, o := range m.Objectives {
-			if o.Kind != missions.KindCircularizeFromPad {
-				continue
-			}
-			if o.Status == missions.Passed {
-				continue
-			}
-			if o.Params.PrimaryID != c.Primary.ID {
-				continue
-			}
-			target := o.Params.MinPeriapsisAltM
-			if target <= 0 {
-				target = launchMissionFloorM
-			}
-			return fmt.Sprintf("mission:    pe %s / %s target",
-				readout.Distance(periAltM), readout.Distance(target))
-		}
-	}
-	return ""
 }
 
 // normalizeDeg wraps an angle in degrees into [0, 360).

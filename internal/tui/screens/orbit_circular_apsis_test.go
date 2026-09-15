@@ -178,21 +178,28 @@ func TestOrbitChipSubSurfacePeriapsisIsWarningColoured(t *testing.T) {
 	// reading and only Pe: should carry the Warning colour.
 	placeOnConic(w, primaryR-50e3, primaryR+500e3, math.Pi)
 
-	lines := v.buildOrbitMetricsChip(w)
-	var apLine, peLine string
+	// ADR 0051 puts Ap: and Pe: on the SAME row now (chipRow2), not
+	// separate lines, so the targeted-colouring check splits one row at
+	// the (always plain-text) "Pe:" label instead of comparing two rows.
+	lines := v.buildNavigationBox(w)
+	var apPeRow string
 	for _, l := range lines {
-		switch {
-		case strings.Contains(stripANSI(l), readout.LabelAp):
-			apLine = l
-		case strings.Contains(stripANSI(l), readout.LabelPe):
-			peLine = l
+		stripped := stripANSI(l)
+		if strings.Contains(stripped, readout.LabelAp) && strings.Contains(stripped, readout.LabelPe) {
+			apPeRow = l
+			break
 		}
 	}
-	if apLine == "" || peLine == "" {
-		t.Fatalf("could not find both Ap: and Pe: rows in ORBIT chip:\n%s", strings.Join(lines, "\n"))
+	if apPeRow == "" {
+		t.Fatalf("could not find the Ap:/Pe: row in NAVIGATION:\n%s", strings.Join(lines, "\n"))
 	}
-	if !strings.Contains(stripANSI(peLine), "-") {
-		t.Fatalf("setup broken: Pe row does not read as sub-surface (no signed depth): %q", peLine)
+	peIdx := strings.Index(apPeRow, "Pe:")
+	if peIdx < 0 {
+		t.Fatalf("could not locate the plain-text 'Pe:' label in row: %q", apPeRow)
+	}
+	apPortion, pePortion := apPeRow[:peIdx], apPeRow[peIdx:]
+	if !strings.Contains(stripANSI(pePortion), "-") {
+		t.Fatalf("setup broken: Pe cell does not read as sub-surface (no signed depth): %q", pePortion)
 	}
 	// plainThemeColored's Warning style is Foreground(Color("3")), which
 	// termenv.ANSI renders as the literal SGR sequence "\x1b[33m", pinned
@@ -200,10 +207,10 @@ func TestOrbitChipSubSurfacePeriapsisIsWarningColoured(t *testing.T) {
 	// in a different style (e.g. Dim, "\x1b[90m") still fails this check
 	// instead of passing as "some style was applied".
 	const wantWarningPrefix = "\x1b[33m"
-	if !strings.HasPrefix(peLine, wantWarningPrefix) {
-		t.Errorf("sub-surface Pe row not wrapped in Warning (%q): %q", wantWarningPrefix, peLine)
+	if !strings.Contains(pePortion, wantWarningPrefix) {
+		t.Errorf("sub-surface Pe cell not wrapped in Warning (%q): %q", wantWarningPrefix, pePortion)
 	}
-	if apLine != stripANSI(apLine) {
-		t.Errorf("Ap row (not sub-surface) unexpectedly carries colour codes, colouring is not targeted: %q", apLine)
+	if apPortion != stripANSI(apPortion) {
+		t.Errorf("Ap cell (not sub-surface) unexpectedly carries colour codes, colouring is not targeted: %q", apPortion)
 	}
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // TestMapTitleNamesActiveVesselEvenWithCameraOnABody: the drafter's
-// premise that the name "is already in the title bar" was half wrong —
+// premise that the name "is already in the title bar" was half wrong,
 // with the camera on a body, the pre-ADR-0051 title showed the focus
 // name but never the vessel's, so a player who tabbed the camera to the
 // Moon had no on-screen answer to "what am I flying". Camera focus is

@@ -2,6 +2,7 @@ package screens
 
 import (
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +78,7 @@ func leadTestWorld(t *testing.T, deltaDeg float64) *sim.World {
 func TestBuildTargetChipShowsLeadAhead(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := leadTestWorld(t, 82)
-	lines := v.buildTargetChip(w)
+	lines := v.buildTargetBox(w)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "lead:") {
 		t.Fatalf("TARGET chip missing lead: row:\n%s", joined)
@@ -90,7 +91,7 @@ func TestBuildTargetChipShowsLeadAhead(t *testing.T) {
 func TestBuildTargetChipShowsLeadBehind(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := leadTestWorld(t, -82)
-	lines := v.buildTargetChip(w)
+	lines := v.buildTargetBox(w)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "-82° (behind)") {
 		t.Errorf("TARGET chip lead row = %q, want a line containing \"-82° (behind)\"", joined)
@@ -113,7 +114,7 @@ func TestBuildTargetChipLeadDashesAcrossPrimaries(t *testing.T) {
 			break
 		}
 	}
-	lines := v.buildTargetChip(w)
+	lines := v.buildTargetBox(w)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "lead:") {
 		t.Fatalf("TARGET chip missing lead: row:\n%s", joined)
@@ -132,10 +133,12 @@ func TestBuildTargetChipBodyTargetHasNoLeadRow(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	w.SetTargetBody(1)
-	lines := v.buildTargetChip(w)
+	lines := v.buildTargetBox(w)
 	joined := strings.Join(lines, "\n")
-	if strings.Contains(joined, "lead:") {
-		t.Errorf("body TARGET chip should not have a lead: row:\n%s", joined)
+	// ADR 0051 decision 2: the lead: LABEL is always present now (every
+	// cell always drawn); a body target must just leave it a dash.
+	if regexp.MustCompile(`lead:\s+[+-]?[0-9]`).MatchString(joined) {
+		t.Errorf("body TARGET box should have a dash in the lead: cell:\n%s", joined)
 	}
 }
 
@@ -185,7 +188,7 @@ func TestTargetChipLeadRowFitsNarrowTerminal(t *testing.T) {
 func TestTargetChipLeadRowComposesAtNarrowWidth(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := leadTestWorld(t, 82)
-	lines := v.buildTargetChip(w)
+	lines := v.buildTargetBox(w)
 	assertChipCellWidthConsistent(t, "TARGET (ahead)", lines)
 
 	const cols, rows = 80, 24
@@ -210,6 +213,6 @@ func TestTargetChipLeadRowComposesAtNarrowWidth(t *testing.T) {
 			break
 		}
 	}
-	dashLines := v.buildTargetChip(w)
+	dashLines := v.buildTargetBox(w)
 	assertChipCellWidthConsistent(t, "TARGET (dashed)", dashLines)
 }

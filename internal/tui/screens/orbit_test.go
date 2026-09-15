@@ -94,11 +94,13 @@ func TestOrbitViewRendersWithNoActiveVessel(t *testing.T) {
 // off-screen. Below the threshold (v0.10.3+: half-column < 24 cols)
 // the blocks fall back to stacked rendering. v0.7.5+ height-saving
 // change; threshold bumped in v0.10.3+ to avoid content wrap.
-// TestCanvasFullWidthAndVesselChip: v0.13 playtest move — VESSEL/PROPELLANT
-// left the right-hand column to become a pinned canvas chip, so the canvas
-// spans the full terminal width (less its 2-col border) and the vessel chip
-// carries the core telemetry.
-func TestCanvasFullWidthAndVesselChip(t *testing.T) {
+// TestCanvasFullWidthAndCoreTelemetryBoxes: v0.13 playtest move, core
+// telemetry left the right-hand column to become pinned canvas chips, so
+// the canvas spans the full terminal width (less its 2-col border). ADR
+// 0051 retires the single VESSEL chip (its identity content moves to the
+// title bar / instrument boxes); the core telemetry it used to carry
+// (fuel, mass, Δv) is PROPELLANT's now, and engine state is ENGINE's.
+func TestCanvasFullWidthAndCoreTelemetryBoxes(t *testing.T) {
 	v := NewOrbitView(Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
@@ -116,9 +118,13 @@ func TestCanvasFullWidthAndVesselChip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	chip := strings.Join(v.buildVesselChip(w), "\n")
-	if !strings.Contains(chip, "VESSEL") || !strings.Contains(chip, "PROPELLANT") {
-		t.Errorf("vessel chip missing VESSEL/PROPELLANT:\n%s", chip)
+	engine := strings.Join(v.buildEngineBox(w), "\n")
+	if !strings.Contains(engine, "ENGINE") {
+		t.Errorf("ENGINE box missing its title:\n%s", engine)
+	}
+	propellant := strings.Join(v.buildPropellantBox(w), "\n")
+	if !strings.Contains(propellant, "PROPELLANT") {
+		t.Errorf("PROPELLANT box missing its title:\n%s", propellant)
 	}
 }
 
@@ -185,7 +191,7 @@ func TestNavigationBoxShowsApPeInAscentAndOrbit(t *testing.T) {
 
 // TestNavigationBoxShowsApCountdownAndPeriod: NAVIGATION's Ap: cell
 // carries a T- countdown to apoapsis alongside the altitude (folded onto
-// one cell, decision 10/12 — the retired ORBIT chip's separate apo:/
+// one cell, decision 10/12, the retired ORBIT chip's separate apo:/
 // peri: rows are gone, readout.LabelApo/LabelPeri no longer print).
 // period: sits alongside it so a comsat placement can be tuned to a
 // target period.
