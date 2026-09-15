@@ -234,6 +234,15 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// the player's warp is being held. Nil inside an agreement, where the
 	// chip above says it better.
 	add("", v.buildTimeLockChip(w))
+	// NO VESSEL / empty slate (#310, recovered ADR 0051 slice 3 item 3):
+	// with no active craft, every one of the eight boxes reads a bare
+	// dash row (decision 2) with no explanation. Bypasses chipEnabled
+	// entirely for the same reason VESSEL DESTROYED does: the only key
+	// that gets the player flying again ([n], or [U] for a docked guest)
+	// must survive F2 declutter.
+	if lines := v.buildEmptySlateChip(w); lines != nil {
+		chips = append(chips, builtChip{corner: cornerBay, lines: lines})
+	}
 	// VESSEL DESTROYED (#427 / ADR 0048): the game's first Standing
 	// Alert: persists for as long as the active craft's Crashed state
 	// holds, not a transient Event Flash. Bypasses chipEnabled entirely

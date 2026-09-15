@@ -885,6 +885,31 @@ func (v *OrbitView) vesselBurnBadge(w *sim.World) string {
 	return v.theme.Warning.Render("  ● BURN")
 }
 
+// buildEmptySlateChip recovers #310's retired VESSEL-chip messaging (see
+// git log -S TestEmptySlateSaysSo: the ADR 0051 box consolidation
+// removed the chip carrying it, leaving every box read a bare dash row
+// with no explanation and no way out). Renders only while there is no
+// active craft at all: a docked-as-guest slate is a known, explained
+// situation ("launch a new flight" would be the wrong advice there), a
+// genuinely empty slate is not.
+func (v *OrbitView) buildEmptySlateChip(w *sim.World) []string {
+	if w.ActiveCraft() != nil {
+		return nil
+	}
+	if dg := w.DockGuest; dg != nil {
+		return []string{
+			v.theme.Primary.Render("VESSEL"),
+			"  " + v.theme.Warning.Render("docked in "+dg.OwnerHandle+"'s stack"),
+			v.theme.Dim.Render("  [U] release it"),
+		}
+	}
+	return []string{
+		v.theme.Primary.Render("NO VESSEL"),
+		"  " + v.theme.Warning.Render("your vessel slate is empty"),
+		v.theme.Dim.Render("  [n] launch a new flight"),
+	}
+}
+
 // buildVesselDestroyedChip is the VESSEL DESTROYED Standing Alert (#427 /
 // ADR 0048 decision 1): renders only while the active craft is Crashed,
 // naming both exits — [E] end flight (removes the wreckage) and [F9]
