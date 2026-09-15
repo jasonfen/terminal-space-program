@@ -101,7 +101,7 @@
           "name": "Fly the burn and make orbit",
           "description": "Warp to the node or fire it manually — settle into orbit.",
           "kind": "circularize_from_pad",
-          "params": { "primary_id": "earth", "min_periapsis_alt_m": 200000 }
+          "params": { "primary_id": "earth" }
         }
       ]
     },
