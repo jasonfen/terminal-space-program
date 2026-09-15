@@ -7,9 +7,11 @@
 package screens
 
 import (
+	"math"
 	"strings"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -89,5 +91,101 @@ func TestNavigationPlanRowIsPermanentDash(t *testing.T) {
 	planRow := lines[7]
 	if !strings.Contains(planRow, "plan:") || !strings.Contains(planRow, "—") {
 		t.Errorf("plan row = %q, want plan: — (slice 3 fills the contents)", planRow)
+	}
+}
+
+// circularEarthOrbitCraft parks the world's active craft in a stable
+// circular orbit around Earth at altM, velocity purely horizontal
+// (perpendicular to the radius): no vertical rate, so the descent
+// corridor never goes live for it. Used to prove the horiz: cell's
+// CRASH-on-contact alert is gated on a live descent (item 1, C3), not
+// on raw horizontal speed alone.
+func circularEarthOrbitCraft(t *testing.T, altM float64) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("setup: NewWorld should produce an active craft")
+	}
+	for _, b := range w.System().Bodies {
+		if b.ID == "earth" {
+			c.Primary = b
+		}
+	}
+	c.Landed = false
+	c.Crashed = false
+	r := c.Primary.RadiusMeters() + altM
+	mu := c.Primary.GravitationalParameter()
+	circV := math.Sqrt(mu / r)
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: circV}
+	c.State.M = c.TotalMass()
+	return w
+}
+
+// fastLowMoonDescentCraft parks the world's active craft on a genuine
+// powered/ballistic descent toward the Moon with a fast HORIZONTAL
+// component (unlike descendingMoonCraft's purely radial fall): low
+// altitude, falling, and moving sideways well past sim.CrashVCritMps,
+// so the descent corridor is live and the horiz: alert must still fire.
+func fastLowMoonDescentCraft(t *testing.T, altM, vDownMps, vHorizMps float64) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("setup: NewWorld should produce an active craft")
+	}
+	for _, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			c.Primary = b
+		}
+	}
+	c.Landed = false
+	c.Crashed = false
+	c.State.R = orbital.Vec3{X: c.Primary.RadiusMeters() + altM}
+	c.State.V = orbital.Vec3{X: -vDownMps, Y: vHorizMps}
+	c.State.M = c.TotalMass()
+	return w
+}
+
+// TestNavigationHorizNoCrashAlertInStableOrbit: item 1, C3. A 500 km
+// circular orbit has plenty of horizontal speed (well past
+// sim.CrashVCritMps) but is nowhere near the ground and the descent
+// corridor is not live for it. The horiz: cell must not carry the
+// CRASH-on-contact alert here — sabotage-first proof that this test
+// goes RED against the unfixed behaviour (an unconditional
+// vHoriz > sim.CrashVCritMps check with no descent gate).
+func TestNavigationHorizNoCrashAlertInStableOrbit(t *testing.T) {
+	w := circularEarthOrbitCraft(t, 500_000)
+	v := NewOrbitView(launchThemeForTest())
+	lines := v.buildNavigationBox(w)
+	horizRow := lines[2]
+	if strings.Contains(horizRow, "CRASH") {
+		t.Errorf("horiz row in a stable 500 km orbit = %q, want no CRASH alert (C3: gate on the live descent corridor, matching impact:/stop:)", horizRow)
+	}
+}
+
+// TestNavigationHorizCrashAlertDuringFastLowDescent: item 1's "not
+// simply deleted" half. A genuine fast, low descent with real
+// horizontal speed must keep the CRASH-on-contact alert once the
+// descent corridor is live.
+func TestNavigationHorizCrashAlertDuringFastLowDescent(t *testing.T) {
+	w := fastLowMoonDescentCraft(t, 5_000, 50, 500)
+	c := w.ActiveCraft()
+	_, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon)
+	if !descending {
+		t.Skip("setup: this fixture's descent corridor isn't live, can't exercise the gate")
+	}
+	v := NewOrbitView(launchThemeForTest())
+	lines := v.buildNavigationBox(w)
+	horizRow := lines[2]
+	if !strings.Contains(horizRow, "CRASH") {
+		t.Errorf("horiz row during a fast low descent (500 m/s horizontal) = %q, want the CRASH-on-contact alert kept", horizRow)
 	}
 }

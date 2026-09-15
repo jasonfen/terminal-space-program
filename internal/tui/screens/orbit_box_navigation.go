@@ -72,9 +72,15 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	// alone says nothing about, and the one that turns a nulled descent
 	// rate into a smear across the ground. Matches descentCorridorLines'
 	// simplified wording (no threshold parenthetical) for consistency,
-	// the same row now renders in both views (decision 3).
+	// the same row now renders in both views (decision 3). Gated on the
+	// same live-descent-corridor condition as the impact:/stop: row
+	// (C3): the retired DESCENT chip only ever rendered near the
+	// ground, so this alert never used to fire in a stable orbit; the
+	// unification onto an always-present row needs the same gate to
+	// avoid a false alert on ordinary orbital speed.
+	_, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon)
 	horizLabel := readout.Speed(vHoriz)
-	if vHoriz > sim.CrashVCritMps {
+	if descending && vHoriz > sim.CrashVCritMps {
 		horizLabel = v.theme.Alert.Render(readout.Speed(vHoriz) + " (CRASH on contact)")
 	}
 

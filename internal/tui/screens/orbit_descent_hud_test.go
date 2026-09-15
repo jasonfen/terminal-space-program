@@ -174,22 +174,36 @@ func TestShouldShowDescentHUDAtmospheric(t *testing.T) {
 
 // TestDescentHUDRendersVHorizAlertOnImpactorApproach — drives the
 // HUD into the playtest-report scenario: standalone Lander at 5 km
-// Moon altitude with residual orbital lateral velocity (1.5 km/s,
-// vastly above CrashVCritMps = 10). The rendered output must surface
-// NAVIGATION's horiz row with the CRASH-on-contact alert so the failure
-// mode is legible before touchdown. ADR 0051 retires the standalone
-// DESCENT chip (its rows fold into NAVIGATION/GUIDANCE, always drawn),
-// so this no longer checks for a DESCENT section header.
+// Moon altitude, falling (10 m/s down) with residual orbital lateral
+// velocity (1.5 km/s, vastly above CrashVCritMps = 10). The rendered
+// output must surface NAVIGATION's horiz row with the CRASH-on-contact
+// alert so the failure mode is legible before touchdown. ADR 0051
+// retires the standalone DESCENT chip (its rows fold into
+// NAVIGATION/GUIDANCE, always drawn), so this no longer checks for a
+// DESCENT section header.
+//
+// Item 1 (slice 2b, C3) gates this alert on the same live-descent-
+// corridor condition as NAVIGATION's impact:/stop: row, to stop a
+// stable, high orbit from reading a false CRASH just for having fast
+// horizontal speed. The original fixture here had exactly zero
+// vertical velocity (the apoapsis of a slightly sub-circular orbit),
+// which is momentarily NOT a live descent corridor by that gate's own
+// definition (descentRateFloorMps); a small downward nudge makes this
+// fixture a genuine, currently-falling approach, matching what the
+// scenario's own name and comment describe.
 func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	c := placeLanderOnMoon(t, w, 5_000, 0, 1500, 0)
+	c := placeLanderOnMoon(t, w, 5_000, -10, 1500, 0)
 	// Sanity: the predicate must fire for this state, otherwise the
 	// render assertion below would be vacuously satisfied.
 	if !shouldShowDescentHUD(c) {
 		t.Fatalf("predicate gate didn't fire for 5 km / 1.5 km/s lateral; can't drive render path")
+	}
+	if _, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); !descending {
+		t.Fatalf("setup: the descent corridor must be live for this fixture, or the CRASH alert assertion below is vacuous under item 1's C3 gate")
 	}
 	view := NewOrbitView(descentHUDTheme())
 	view.Resize(200, 60) // realistic canvas; the 80×24 default is too short for the bordered chip stack
