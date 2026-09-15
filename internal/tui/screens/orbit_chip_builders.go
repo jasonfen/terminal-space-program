@@ -28,25 +28,70 @@ import (
 // Arithmetic and labels mirror the originals so the readouts are
 // unchanged; only the placement (canvas corner vs. tall column) differs.
 
-// assembleChips gathers every relevant + enabled Chip for the current
-// world state, in composite order. Top-left holds the pinned VESSEL core
-// plus the phase-transient stack; top-right holds Orbit metrics with the
-// Target readout stacked beneath it; Stages is bottom-left and Nodes is
-// bottom-right (above the navball). Declutter is honoured inside
-// chipEnabled, so a decluttered frame returns no chips.
+// Declared maximum content-line height (title included, borders not) for
+// each of the eight ADR 0051 instrument boxes, decision 16 / build open
+// item 3: a box Settings switches off leaves this many blank rows in its
+// slot rather than dropping, so nothing below it in the column ever
+// moves, even on the one box (MISSION) whose live height varies. The
+// other seven are already fixed-height by decision 2 ("every row always
+// present"), so their declared max is simply their one true height,
+// pinned here rather than left to be discovered by a future shrink.
+// MISSION alone varies at render time (3 to 7 rows, sized to its Flight
+// School step); 7 is its measured widest rung (the ADR's own budget
+// table).
+const (
+	engineBoxMaxLines     = 4
+	propellantBoxMaxLines = 4
+	guidanceBoxMaxLines   = 4
+	navigationBoxMaxLines = 8
+	commsBoxMaxLines      = 2
+	targetBoxMaxLines     = 5
+	stagesBoxMaxLines     = 1
+	missionBoxMaxLines    = 7
+)
+
+// blankInstrumentBoxLines renders a Settings-hidden box's slot: its bare
+// title (no live badge: there's nothing live to badge) followed by
+// blank rows out to maxLines, so the box's declared maximum height is
+// what the layout ever reserves for it, whether it's showing content or
+// not (decision 16).
+func blankInstrumentBoxLines(theme Theme, name string, maxLines int) []string {
+	lines := make([]string, maxLines)
+	lines[0] = theme.Primary.Render(name)
+	return lines
+}
+
+// engineLit reports whether c currently has a live burn under way: the
+// ADR 0010 condition decision 16 carries forward: fuel and a live burn
+// are never hidden by F2 Declutter, so ENGINE and PROPELLANT are the two
+// boxes exempted from the group hide while this is true. Scoped to the
+// ACTIVE craft (not the whole slate, unlike AnyCraftThrusting/the 10x
+// burn-warp cap): ENGINE/PROPELLANT show the active craft's own
+// throttle and fuel, so the exemption should track whether THAT craft's
+// numbers are live, not whether some other craft off-screen is burning.
+func engineLit(c *spacecraft.Spacecraft) bool {
+	return c != nil && (c.ActiveBurn != nil || c.ManualBurn != nil)
+}
+
 // navigationBoxesInOrder appends the eight ADR 0051 instrument boxes at
 // Core priority (never dropped by layoutChipsBySide's shrink/drop until
 // every Normal chip on their side has already gone), in the ruled left
 // order (ENGINE, PROPELLANT, GUIDANCE, COMMS, STAGES, MISSION) and right
-// order (NAVIGATION, TARGET). Gated only on chipEnabled(""), F2
-// declutter, matching every other always-on chip, because Settings
-// per-box ids and F2's lit-engine exception are slice 2b's (decision 16
-// is not fully wired yet; for 2a, F2 hides all eight together like any
-// other declutterable chip, with no exception).
+// order (NAVIGATION, TARGET).
+//
+// Two independent gates, per decision 16:
+//   - F2 Declutter hides all eight together (a momentary "clean map"
+//     gesture: the chip is dropped outright, not blanked, so the
+//     column genuinely shortens while it's on), except ENGINE and
+//     PROPELLANT stay through it while engineLit is true.
+//   - Settings can switch any box off individually (a standing
+//     preference): rather than dropping, that box's slot renders
+//     blankInstrumentBoxLines at its declared max height, so the boxes
+//     below it in the column never move. A box can be both: Declutter
+//     hides it outright even if Settings would otherwise blank it, and
+//     the two exempt boxes still respect their OWN Settings choice
+//     (blank vs. live) while surviving Declutter.
 func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []builtChip {
-	if !v.chipEnabled("") {
-		return chips
-	}
 	// The Proximity View (ADR 0043) is its own close-range instrument
 	// panel (buildProximityChip), not one of the two views ADR 0051's
 	// "one layout, both views" decision 3 covers (the orbit map and the
@@ -58,26 +103,60 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 	if w.ViewMode == sim.ViewProximity {
 		return chips
 	}
-	left := []func(*sim.World) []string{
-		v.buildEngineBox, v.buildPropellantBox, v.buildGuidanceBox,
-		v.buildCommsBox, v.buildStagesBox, v.buildMissionBox,
+	lit := engineLit(w.ActiveCraft())
+	type boxDef struct {
+		id       settings.Chip
+		build    func(*sim.World) []string
+		name     string
+		maxLines int
+		exempt   bool // stays through F2 Declutter while lit
 	}
-	for i, build := range left {
-		c := builtChip{corner: cornerTopLeft, lines: build(w), priority: chipPriorityCore}
+	left := []boxDef{
+		{settings.ChipEngine, v.buildEngineBox, "ENGINE", engineBoxMaxLines, true},
+		{settings.ChipPropellant, v.buildPropellantBox, "PROPELLANT", propellantBoxMaxLines, true},
+		{settings.ChipGuidance, v.buildGuidanceBox, "GUIDANCE", guidanceBoxMaxLines, false},
+		{settings.ChipComms, v.buildCommsBox, "COMMS", commsBoxMaxLines, false},
+		{settings.ChipStages, v.buildStagesBox, "STAGES", stagesBoxMaxLines, false},
+		{settings.ChipMissions, v.buildMissionBox, "MISSION", missionBoxMaxLines, false},
+	}
+	for i, b := range left {
+		if v.declutter && !(b.exempt && lit) {
+			continue
+		}
+		var lines []string
+		if v.settings.ChipEnabled(b.id) {
+			lines = b.build(w)
+		} else {
+			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
+		}
+		c := builtChip{id: b.id, corner: cornerTopLeft, lines: lines, priority: chipPriorityCore}
 		if i == 0 {
 			// ENGINE folded in the retired NODES chip's node row
 			// (decision 1); keep its click routing alive by reusing
 			// ChipNodes' id purely for HitChip resolution (app.go opens
-			// the maneuver screen on a click matching this id), not for
-			// visibility gating, which stays on the group's plain
-			// chipEnabled("") above. Settings per-box ids are slice 2b's.
+			// the maneuver screen on a click matching this id): this
+			// overrides the b.id set above, which is only ChipEngine's
+			// own Settings-visibility lookup done explicitly two lines
+			// up, not a value HitChip ever needs to see.
 			c.id = settings.ChipNodes
 		}
 		chips = append(chips, c)
 	}
-	right := []func(*sim.World) []string{v.buildNavigationBox, v.buildTargetBox}
-	for _, build := range right {
-		chips = append(chips, builtChip{corner: cornerTopRight, lines: build(w), priority: chipPriorityCore})
+	rightBoxes := []boxDef{
+		{settings.ChipNavigation, v.buildNavigationBox, "NAVIGATION", navigationBoxMaxLines, false},
+		{settings.ChipTarget, v.buildTargetBox, "TARGET", targetBoxMaxLines, false},
+	}
+	for _, b := range rightBoxes {
+		if v.declutter {
+			continue
+		}
+		var lines []string
+		if v.settings.ChipEnabled(b.id) {
+			lines = b.build(w)
+		} else {
+			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
+		}
+		chips = append(chips, builtChip{id: b.id, corner: cornerTopRight, lines: lines, priority: chipPriorityCore})
 	}
 	return chips
 }

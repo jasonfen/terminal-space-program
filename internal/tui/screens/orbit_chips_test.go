@@ -110,7 +110,7 @@ func TestComposeChipsLeftOfPrevSharesRowBand(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	chips := []builtChip{
 		{id: "", corner: cornerTopRight, lines: []string{"ORBIT", "  a", "  b"}},
-		{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: []string{"PROJECTED", "  c"}, leftOfPrev: true},
+		{id: settings.Chip("projectedOrbit"), corner: cornerTopRight, lines: []string{"PROJECTED", "  c"}, leftOfPrev: true},
 		{id: settings.ChipTarget, corner: cornerTopRight, lines: []string{"TARGET", "  d", "  e"}},
 	}
 	v.composeChips(blankCanvas(80, 24), 80, 24, 0, 0, 0, chips)
@@ -141,7 +141,7 @@ func TestComposeChipsClipsOversizeChipWithoutPanic(t *testing.T) {
 		tall[i] = "row"
 	}
 	out := v.composeChips(blankCanvas(40, 20), 40, 20, 0, 0, 0,
-		[]builtChip{{id: settings.ChipLaunch, corner: cornerTopLeft, lines: tall}})
+		[]builtChip{{id: settings.Chip("launch"), corner: cornerTopLeft, lines: tall}})
 	if got := strings.Count(out, "\n") + 1; got != 20 {
 		t.Errorf("output row count = %d, want 20 (canvas height preserved)", got)
 	}
@@ -449,14 +449,14 @@ func TestDeclutterHidesChipsKeepsColumn(t *testing.T) {
 	}
 }
 
-// TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn: the NAVIGATION box is
-// non-toggleable in 2a (no Settings id exists for it yet, decision 16's
-// per-box ids are slice 2b's) so it renders with every Settings chip
-// disabled. A live burn shows on ENGINE's node row (folded in from the
-// retired NODES chip). 2a does not yet implement decision 16's
-// lit-engine declutter exception (slice 2b), so F2 hides ENGINE (and the
-// live-burn readout on it) along with everything else, a documented
-// interim gap, not the final contract.
+// TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn: the NAVIGATION box
+// renders normally by default, and a live burn shows on ENGINE's node
+// row (folded in from the retired NODES chip). Slice 2b wires decision
+// 16's lit-engine declutter exception fully: with NO burn running, F2
+// hides every instrument box uniformly, ENGINE included; with a live
+// burn, F2 still hides NAVIGATION (and the rest) but ENGINE keeps
+// showing the burn (see TestF2WithLiveBurnKeepsEngineAndPropellant for
+// the dedicated proof, including PROPELLANT).
 func TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
@@ -465,21 +465,12 @@ func TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 
-	// Disable every toggleable Chip; the instrument boxes have no
-	// Settings id yet (2b's job) so they must persist regardless.
-	s := settings.Default()
-	for _, c := range settings.AllChips {
-		s.SetChip(c, false)
-	}
-	v.SetSettings(s)
-
 	out := v.Render(w, 0, 120, 40)
 	if !strings.Contains(out, "NAVIGATION") {
-		t.Errorf("NAVIGATION must render with all chips disabled (no Settings id yet):\n%s", out)
+		t.Errorf("NAVIGATION must render by default:\n%s", out)
 	}
 
-	// Light an active burn → the firing head force-shows on ENGINE's node
-	// row even with every Settings chip disabled.
+	// Light an active burn → the firing head shows on ENGINE's node row.
 	c := w.ActiveCraft()
 	if c == nil {
 		t.Fatal("expected an active craft")
@@ -491,25 +482,145 @@ func TestNavigationBoxAlwaysOnAndEngineShowsLiveBurn(t *testing.T) {
 	}
 	out = v.Render(w, 0, 120, 40)
 	if !strings.Contains(out, "ENGINE") || !strings.Contains(out, "120 m/s") {
-		t.Errorf("a live burn must show on ENGINE's node row with all chips disabled:\n%s", out)
+		t.Errorf("a live burn must show on ENGINE's node row:\n%s", out)
 	}
 
-	// F2 declutter clears every instrument box, ENGINE included, the
-	// lit-engine exception (decision 16) is slice 2b's, not this slice's.
+	// F2 declutter with a live burn still running: ENGINE is exempt
+	// (decision 16) and keeps showing the burn; NAVIGATION (not exempt)
+	// is hidden along with the rest.
 	v.SetDeclutter(true)
 	out = v.Render(w, 0, 120, 40)
-	if strings.Contains(out, "NAVIGATION") || strings.Contains(out, "ENGINE") {
-		t.Errorf("declutter (2a) must hide every instrument box uniformly, including ENGINE mid-burn:\n%s", out)
+	if strings.Contains(out, "NAVIGATION") {
+		t.Errorf("declutter with a live burn must still hide NAVIGATION:\n%s", out)
+	}
+	if !strings.Contains(out, "ENGINE") || !strings.Contains(out, "120 m/s") {
+		t.Errorf("declutter with a live burn must keep ENGINE's burn readout (decision 16 lit-engine exception):\n%s", out)
 	}
 
-	// Cut the burn, declutter off again → ENGINE's node row returns to a
-	// dash.
+	// Cut the burn: the exemption lapses, so F2 now hides ENGINE too.
 	c.ActiveBurn = nil
+	out = v.Render(w, 0, 120, 40)
+	if strings.Contains(out, "ENGINE") {
+		t.Errorf("declutter with no burn running must hide ENGINE like every other box:\n%s", out)
+	}
+
+	// Declutter off again → ENGINE's node row is back to a dash, no
+	// stale readout.
 	v.SetDeclutter(false)
 	out = v.Render(w, 0, 120, 40)
 	if strings.Contains(out, "120 m/s") {
 		t.Errorf("burn readout lingered after the burn ended:\n%s", out)
 	}
+}
+
+// TestF2WithEngineOffHidesEveryBox (decision 16, item 6): with no craft
+// thrusting, F2 Declutter hides all eight instrument boxes uniformly,
+// ENGINE and PROPELLANT included: the lit-engine exception must not
+// fire when nothing is lit.
+func TestF2WithEngineOffHidesEveryBox(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.ActiveBurn = nil
+	c.ManualBurn = nil
+
+	v.SetDeclutter(true)
+	out := v.Render(w, 0, 120, 40)
+	for _, name := range []string{"ENGINE", "PROPELLANT", "GUIDANCE", "NAVIGATION", "COMMS", "TARGET", "STAGES", "MISSION"} {
+		if strings.Contains(out, name) {
+			t.Errorf("F2 with the engine off must hide %s along with every other box:\n%s", name, out)
+		}
+	}
+}
+
+// TestF2WithLiveBurnKeepsEngineAndPropellant (decision 16, item 6): with
+// a live burn running, F2 Declutter still hides the other six boxes but
+// keeps ENGINE and PROPELLANT on screen (ADR 0010's fuel/live-burn rule).
+func TestF2WithLiveBurnKeepsEngineAndPropellant(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(120, 40)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		t.Fatal("expected an active craft")
+	}
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 500,
+		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
+	}
+
+	v.SetDeclutter(true)
+	out := v.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "ENGINE") {
+		t.Errorf("F2 with a live burn must keep ENGINE:\n%s", out)
+	}
+	if !strings.Contains(out, "PROPELLANT") {
+		t.Errorf("F2 with a live burn must keep PROPELLANT:\n%s", out)
+	}
+	for _, name := range []string{"GUIDANCE", "NAVIGATION", "COMMS", "TARGET", "STAGES", "MISSION"} {
+		if strings.Contains(out, name) {
+			t.Errorf("F2 with a live burn must still hide %s (only ENGINE/PROPELLANT are exempt):\n%s", name, out)
+		}
+	}
+}
+
+// TestSettingsHiddenCommsLeavesStagesRowUnchanged (decision 16, item 6):
+// switching COMMS off in Settings must blank its slot in place, not
+// close the column up: STAGES (the next box down) stays on the exact
+// same screen row it occupies when COMMS is shown.
+func TestSettingsHiddenCommsLeavesStagesRowUnchanged(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+
+	shown := NewOrbitView(chipTestTheme())
+	shown.Resize(120, 40)
+	shown.Render(w, 0, 120, 40)
+	stagesRowShown, ok := chipRowStart(shown, settings.ChipStages)
+	if !ok {
+		t.Fatal("setup: STAGES chip not found with COMMS shown")
+	}
+
+	hidden := NewOrbitView(chipTestTheme())
+	hidden.Resize(120, 40)
+	s := settings.Default()
+	s.SetChip(settings.ChipComms, false)
+	hidden.SetSettings(s)
+	out := hidden.Render(w, 0, 120, 40)
+	if !strings.Contains(out, "COMMS") {
+		t.Fatalf("setup: a Settings-hidden COMMS must still render its bare title (blanked in place, not dropped):\n%s", out)
+	}
+	stagesRowHidden, ok := chipRowStart(hidden, settings.ChipStages)
+	if !ok {
+		t.Fatal("STAGES chip not found with COMMS Settings-hidden")
+	}
+
+	if stagesRowHidden != stagesRowShown {
+		t.Errorf("STAGES row moved from %d to %d when COMMS was Settings-hidden, want unchanged (decision 16: blank in place, not drop)", stagesRowShown, stagesRowHidden)
+	}
+}
+
+// chipRowStart returns the top screen row of the chip with the given id,
+// from the most recent Render's recorded chipRects.
+func chipRowStart(v *OrbitView, id settings.Chip) (int, bool) {
+	for _, r := range v.chipRects {
+		if r.id == id {
+			return r.rowStart, true
+		}
+	}
+	return 0, false
 }
 
 // TestEngineNodeRowOverflowCountWhenMultipleNodesQueued, #293's
