@@ -273,8 +273,8 @@ func (v *OrbitView) targetGhostCells(w *sim.World, c *spacecraft.Spacecraft) (st
 // via closestApproachHorizonSec), returned as bare (TCA, approach)
 // values instead of pre-formatted rows, so the flattened box can place
 // them in its own two-per-row cells. Gated on rule C by the caller
-// before these values are used; "—" for either when the prediction
-// isn't available.
+// before these values are used: each reads the dash placeholder when
+// the prediction isn't available.
 func (v *OrbitView) closestApproachCells(w *sim.World, c *spacecraft.Spacecraft) (tcaV, approachV string) {
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
 	if !ok {

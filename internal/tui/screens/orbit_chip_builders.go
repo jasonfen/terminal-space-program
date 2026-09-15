@@ -1671,9 +1671,9 @@ var (
 // second LABEL at the same screen column, which is what makes a box's
 // second cells read as one column rather than drifting per row. label2
 // == "" means this row has nothing in its second cell (a dash row with
-// no sibling quantity, e.g. ENGINE's bare "node:  —"): the row then
-// reads exactly as chipRowAt's single-value form, with no trailing
-// padding.
+// no sibling quantity, e.g. ENGINE's bare node: row with only a dash
+// value): the row then reads exactly as chipRowAt's single-value form,
+// with no trailing padding.
 func chipRow2(cols boxCols, label1, value1, label2, value2 string) string {
 	row := chipRowAt(label1, value1, boxValueCol)
 	if label2 == "" {
