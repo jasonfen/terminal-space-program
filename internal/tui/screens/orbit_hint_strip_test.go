@@ -195,17 +195,24 @@ func TestHintStripWithForcedNodesChipAndCraftNotVisibleHere(t *testing.T) {
 		}
 		c.SystemIdx = w.SystemIdx + 1 // parked in a different system than the camera
 		out := stripANSI(v.Render(w, 0, sz.w, sz.h))
-		if !strings.Contains(out, "NODES") {
-			t.Fatalf("expected the force-shown NODES chip in this setup at %dx%d:\n%s", sz.w, sz.h, out)
+		// ADR 0051 retires the fleet-wide NODES chip's force-show past
+		// declutter/toggle: its content folds into ENGINE's own node
+		// row (decision 1), and ENGINE reads the ACTIVE craft directly
+		// with no CraftVisibleHere gate at all, so it renders the
+		// active craft's own queued nodes regardless of which system
+		// the camera is viewing, a stronger, simpler guarantee than
+		// the old per-fleet force-show exception this test pinned.
+		if !strings.Contains(out, "ENGINE") {
+			t.Fatalf("expected the ENGINE box (with the active craft's node row) in this setup at %dx%d:\n%s", sz.w, sz.h, out)
 		}
 		return out
 	}
 
 	if out := render(struct{ w, h int }{140, 40}); !strings.Contains(out, hintStripText) {
-		t.Errorf("Design Size: Hint Strip overwritten by the forced bottom-right NODES chip with CraftVisibleHere()==false; navballReservedRows should now floor at 1 row regardless:\n%s", out)
+		t.Errorf("Design Size: Hint Strip overwritten by the bottom-right TARGET box with CraftVisibleHere()==false; navballReservedRows should now floor at 1 row regardless:\n%s", out)
 	}
 	if out := render(struct{ w, h int }{104, 24}); strings.Contains(out, hintStripText) {
-		t.Logf("Playable Floor: Hint Strip stayed intact against the forced NODES chip too, not required below Design Size, but the same fix clears it")
+		t.Logf("Playable Floor: Hint Strip stayed intact against the box set too, not required below Design Size, but the same fix clears it")
 	} else {
 		t.Logf("Playable Floor: still collides, as before (out of #425's decided scope, below the Design Size floor; see impl-notes/425.md)")
 	}

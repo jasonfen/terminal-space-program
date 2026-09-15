@@ -174,26 +174,42 @@ func TestShouldShowDescentHUDAtmospheric(t *testing.T) {
 
 // TestDescentHUDRendersVHorizAlertOnImpactorApproach — drives the
 // HUD into the playtest-report scenario: standalone Lander at 5 km
-// Moon altitude with residual orbital lateral velocity (1.5 km/s,
-// vastly above CrashVCritMps = 10). The rendered output must
-// surface the DESCENT header, the horiz row, and the CRASH-on-
-// contact alert so the failure mode is legible before touchdown.
+// Moon altitude, falling (10 m/s down) with residual orbital lateral
+// velocity (1.5 km/s, vastly above CrashVCritMps = 10). The rendered
+// output must surface NAVIGATION's horiz row with the CRASH-on-contact
+// alert so the failure mode is legible before touchdown. ADR 0051
+// retires the standalone DESCENT chip (its rows fold into
+// NAVIGATION/GUIDANCE, always drawn), so this no longer checks for a
+// DESCENT section header.
+//
+// Item 1 (slice 2b, C3) gates this alert on the same live-descent-
+// corridor condition as NAVIGATION's impact:/stop: row, to stop a
+// stable, high orbit from reading a false CRASH just for having fast
+// horizontal speed. The original fixture here had exactly zero
+// vertical velocity (the apoapsis of a slightly sub-circular orbit),
+// which is momentarily NOT a live descent corridor by that gate's own
+// definition (descentRateFloorMps); a small downward nudge makes this
+// fixture a genuine, currently-falling approach, matching what the
+// scenario's own name and comment describe.
 func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	c := placeLanderOnMoon(t, w, 5_000, 0, 1500, 0)
+	c := placeLanderOnMoon(t, w, 5_000, -10, 1500, 0)
 	// Sanity: the predicate must fire for this state, otherwise the
 	// render assertion below would be vacuously satisfied.
 	if !shouldShowDescentHUD(c) {
 		t.Fatalf("predicate gate didn't fire for 5 km / 1.5 km/s lateral; can't drive render path")
 	}
+	if _, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); !descending {
+		t.Fatalf("setup: the descent corridor must be live for this fixture, or the CRASH alert assertion below is vacuous under item 1's C3 gate")
+	}
 	view := NewOrbitView(descentHUDTheme())
 	view.Resize(200, 60) // realistic canvas; the 80×24 default is too short for the bordered chip stack
 	out := view.Render(w, 0, 200, 60)
-	if !strings.Contains(out, "DESCENT") {
-		t.Errorf("expected DESCENT section header in render; got:\n%s", out)
+	if !strings.Contains(out, "NAVIGATION") {
+		t.Errorf("expected the NAVIGATION box in render; got:\n%s", out)
 	}
 	if !strings.Contains(out, "vert:") {
 		t.Errorf("expected vert row")
@@ -209,36 +225,12 @@ func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	}
 }
 
-// TestDescentChipHoldNamesFrame: the DESCENT chip's hold: row is the
-// airless-body twin of the SURFACE chip's; it must name its frame
-// through the same attitudeHoldLabel helper rather than a bare
-// AttitudeMode.String() (ADR 0050 review F1: hold: should denote
-// surface, orbit, or target).
-func TestDescentChipHoldNamesFrame(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := placeLanderOnMoon(t, w, 5_000, 0, 100, 0)
-	if !shouldShowDescentHUD(c) {
-		t.Fatalf("predicate gate didn't fire; can't drive render path")
-	}
-	w.NavMode = sim.NavOrbit
-	c.AttitudeMode = spacecraft.BurnPrograde
-
-	view := NewOrbitView(descentHUDTheme())
-	view.Resize(200, 60)
-	lines := view.buildDescentChip(w)
-	var holdLine string
-	for _, l := range lines {
-		if s := strings.TrimSpace(l); strings.HasPrefix(s, "hold:") {
-			holdLine = s
-		}
-	}
-	if !strings.Contains(holdLine, "(ORBIT)") {
-		t.Errorf("DESCENT hold row = %q, want it to name the ORBIT frame like the navball button does", holdLine)
-	}
-}
+// (TestDescentChipHoldNamesFrame retired: the DESCENT chip's own hold:
+// row is gone under ADR 0051, GUIDANCE carries hold: for every craft
+// regardless of Landed/flying state now, and the exact frame-naming
+// behaviour this test pinned is already covered live by
+// orbit_attitude_chip_test.go's TestAttitudeHoldLabel* suite, migrated
+// onto buildGuidanceBox.)
 
 // TestDescentHUDQuietAtHighStableOrbit — verifies the rendered HUD
 // does NOT emit a DESCENT section when the craft is in a stable

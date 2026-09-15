@@ -394,3 +394,71 @@ func TestCircularizeFromPadRejectsHyperbolic(t *testing.T) {
 		t.Errorf("hyperbolic with floor: got %v, want InProgress", got)
 	}
 }
+
+// TestCircularizeFromPadFallsBackToOrbitFloorWhenParamAbsent (ADR 0051
+// re-grill Q7, build open item 4): with no MinPeriapsisAltM authored in
+// content, the objective must pass at the eval-time world's real Orbit
+// Floor (ctx.PrimaryOrbitFloorM), not at zero altitude. 180 km clears
+// Earth's 175 km floor.
+func TestCircularizeFromPadFallsBackToOrbitFloorWhenParamAbsent(t *testing.T) {
+	o := Objective{
+		Kind:   KindCircularizeFromPad,
+		Params: Params{PrimaryID: "earth"}, // MinPeriapsisAltM intentionally absent
+	}
+	ctx := EvalContext{
+		PrimaryID:          "earth",
+		PrimaryRadiusM:     earthRadius,
+		PrimaryMu:          earthMu,
+		PrimaryOrbitFloorM: 175_000,
+		State:              circularState(earthRadius, earthMu, 180e3),
+	}
+	if got := o.Evaluate(ctx); got != Passed {
+		t.Errorf("180 km periapsis, 175 km Orbit Floor, no authored param: got %v, want Passed", got)
+	}
+}
+
+// TestCircularizeFromPadFallsBackToOrbitFloorBelowIt is the previous
+// test's negative half: 150 km stays below Earth's 175 km Orbit Floor,
+// so the objective must stay in progress, proving the fallback is a
+// real gate and not always-pass.
+func TestCircularizeFromPadFallsBackToOrbitFloorBelowIt(t *testing.T) {
+	o := Objective{
+		Kind:   KindCircularizeFromPad,
+		Params: Params{PrimaryID: "earth"},
+	}
+	ctx := EvalContext{
+		PrimaryID:          "earth",
+		PrimaryRadiusM:     earthRadius,
+		PrimaryMu:          earthMu,
+		PrimaryOrbitFloorM: 175_000,
+		State:              circularState(earthRadius, earthMu, 150e3),
+	}
+	if got := o.Evaluate(ctx); got != InProgress {
+		t.Errorf("150 km periapsis, 175 km Orbit Floor, no authored param: got %v, want InProgress", got)
+	}
+}
+
+// TestCircularizeFromPadAuthoredParamStillWins: when content DOES
+// author a MinPeriapsisAltM, it still takes precedence over
+// ctx.PrimaryOrbitFloorM (the fallback only fires when the param is
+// absent or zero): legacy/future content that wants a stricter or
+// looser floor than the world's Orbit Floor keeps working.
+func TestCircularizeFromPadAuthoredParamStillWins(t *testing.T) {
+	o := Objective{
+		Kind: KindCircularizeFromPad,
+		Params: Params{
+			PrimaryID:        "earth",
+			MinPeriapsisAltM: 300_000, // stricter than the world's floor
+		},
+	}
+	ctx := EvalContext{
+		PrimaryID:          "earth",
+		PrimaryRadiusM:     earthRadius,
+		PrimaryMu:          earthMu,
+		PrimaryOrbitFloorM: 175_000,
+		State:              circularState(earthRadius, earthMu, 200e3), // clears the world floor, not the authored one
+	}
+	if got := o.Evaluate(ctx); got != InProgress {
+		t.Errorf("200 km periapsis against an authored 300 km floor: got %v, want InProgress", got)
+	}
+}

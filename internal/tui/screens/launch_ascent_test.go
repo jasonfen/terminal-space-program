@@ -234,17 +234,24 @@ func TestAscentQBandLinesOmitsMaxQBeforeMeasured(t *testing.T) {
 // the smallest supported terminal — the ATMOSPHERE chip composites onto
 // the canvas and the attitude stubs land near the sprite at 80×24, not
 // only at roomy dev-window sizes.
+// Rendered at the Design Size (ADR 0046/0051): ADR 0051's eight
+// instrument boxes are much larger than the VESSEL/ATTITUDE/etc. chips
+// they replace and are never dropped (Core priority), so at 80x24,
+// below the Design Size in both dimensions, they can legitimately
+// consume the whole budget before ATMOSPHERE (a LAUNCH-view-only chip,
+// untouched by ADR 0051, slice 4's to retire) gets a look in. 140x40 is
+// the one canvas the Design Size floor actually guarantees room at.
 func TestLaunchViewAscentInstrumentsAt80x24(t *testing.T) {
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	w := ascendingCraftWorld(t, "earth", 20_000, 300, orbital.Vec3{X: 1})
 
-	out := v.Render(w, 80, 24)
+	out := v.Render(w, DesignWidth, DesignHeight)
 	if !strings.Contains(stripANSI(out), "ATMOSPHERE") {
-		t.Errorf("80×24 ascending render is missing the ATMOSPHERE chip:\n%s", out)
+		t.Errorf("ascending render is missing the ATMOSPHERE chip:\n%s", out)
 	}
-	if rows := len(strings.Split(out, "\n")); rows > 24 {
-		t.Errorf("render is %d rows tall, want ≤ 24", rows)
+	if rows := len(strings.Split(out, "\n")); rows > DesignHeight {
+		t.Errorf("render is %d rows tall, want <= %d", rows, DesignHeight)
 	}
 	if n := v.canvas.CountColor(render.ColorNavballMarkerNoseFront); n == 0 {
 		t.Error("no nose-direction marker drawn during ascent")

@@ -79,13 +79,14 @@ func OrbitBandFor(sys bodies.System, b bodies.CelestialBody) OrbitBand {
 // the atmosphere cutoff altitude plus OrbitFloorMarginM, exactly
 // OrbitFloorMarginM on an airless world, or a star's own authored
 // stand-off. This is the gate helper ADR 0051 decision 10 (re-grill Q7)
-// needs in two places: the ViewTilted launch-anchor gate (this slice,
-// launch_anchor.go) and, later, the ORBIT READY chip gate (slice 2, not
-// wired here): both currently read the flat sim.LaunchMissionFloorM
-// (200 km on every world), which this helper replaces one call site at a
-// time. Lives in package sim (not screens) so sim's own launch-anchor
-// gate can call it directly and screens can call it downward without
-// creating an upward import from sim into tui.
+// needs everywhere the old flat 200 km LaunchMissionFloorM used to gate:
+// the ViewTilted launch-anchor (launch_anchor.go), the ORBIT READY badge
+// on NAVIGATION's title (screens.buildNavigationBox), and the Flight
+// School circularize_from_pad objective's default periapsis floor
+// (missions.EvalContext.PrimaryOrbitFloorM, slice 2b). Lives in package
+// sim (not screens) so sim's own launch-anchor gate can call it
+// directly and screens can call it downward without creating an
+// upward import from sim into tui.
 //
 // Only the floor, not the full OrbitBand: a floor doesn't depend on the
 // body's gravitational parent (floorFor takes no System), so callers that

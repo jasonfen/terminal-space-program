@@ -12,18 +12,15 @@
 // on Earth, 25 km on any airless world, per-body elsewhere). Releases at
 // the exact moment the player sees "ORBIT READY, coast to ap, press C
 // to plant circularise." Atmosphere-agnostic (works on Moon too). Prior
-// to ADR 0051 this compared against the flat LaunchMissionFloorM
-// (200 km everywhere); ADR 0051 slice 1 switched this one gate to the
-// per-world floor, so the ViewTilted anchor now releases at 175 km on
-// Earth, not 200 km. LaunchMissionFloorM itself is unchanged (still a
-// live constant, still 200 km) and its other call site (the SURFACE
-// `mission:` target fallback, orbit.go's launchMissionProgress) is left
-// alone; slice 2 retires that one.
+// to ADR 0051 this compared against the flat 200 km LaunchMissionFloorM
+// on every world; slice 1 switched this gate to the per-world floor, and
+// slice 2b retired the constant itself once its last other caller (the
+// SURFACE `mission:` target fallback) was retired along with it.
 //
 // On the launchpad the predicate fires naturally: a Landed craft
 // co-rotates with the body (V = ω × R, so V ≈ 465 m/s at Earth's
 // equator), giving a bound "orbit" with apoapsis right at the surface
-// (apoAlt ≈ 0 ≤ 200 km).
+// (apoAlt ≈ 0, well below any world's floor).
 //
 // The anchor itself is render-computed-on-read: World.ViewTilt.Phi
 // stays at the player's value (currently always 0; player-φ controls
@@ -40,14 +37,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
-
-// LaunchMissionFloorM is the apoapsis altitude (m) at which the
-// launch-anchor releases. Same value as the saturn-v-pad-to-leo
-// mission floor and the ORBIT READY callout's gate — single source
-// of truth lives here. Mirrors internal/missions/missions.json:40.
-// orbit.go's LAUNCH HUD vanish-gate (`shouldShowLaunchHUD`) reads
-// this same constant via a sim import.
-const LaunchMissionFloorM = 200_000.0
 
 // LaunchAnchorPhi returns the chase-plane yaw φ (radians) that aligns
 // the craft's local-vertical with screen-up under the v0.10.6

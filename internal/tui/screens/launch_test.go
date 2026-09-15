@@ -378,11 +378,14 @@ func TestLaunchSpriteNoFlamePreIgnition(t *testing.T) {
 // unique to the launch-tower sprite (not used by horizon / pad marker /
 // trail / vessel glyph), so its presence in the rendered string is
 // proof the tower draws. Pre-impl this fails because no LUT exists.
+// Rendered at the Design Size (ADR 0046/0051): at 120 columns (below the
+// 140-column Design Size floor), ADR 0051's eight instrument boxes are
+// wide enough to paint over the pad scene where the tower sprite draws.
 func TestLaunchTowerRendersAtPad(t *testing.T) {
 	w, _ := spawnSaturnVOnPad(t)
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
-	out := v.Render(w, 120, 40)
+	out := v.Render(w, DesignWidth, DesignHeight)
 	if !strings.Contains(out, "╤") {
 		t.Errorf("expected LUT crown glyph '╤' in render at pad, got:\n%s", out)
 	}

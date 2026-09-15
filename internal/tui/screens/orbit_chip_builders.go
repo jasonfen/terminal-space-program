@@ -28,22 +28,147 @@ import (
 // Arithmetic and labels mirror the originals so the readouts are
 // unchanged; only the placement (canvas corner vs. tall column) differs.
 
-// assembleChips gathers every relevant + enabled Chip for the current
-// world state, in composite order. Top-left holds the pinned VESSEL core
-// plus the phase-transient stack; top-right holds Orbit metrics with the
-// Target readout stacked beneath it; Stages is bottom-left and Nodes is
-// bottom-right (above the navball). Declutter is honoured inside
-// chipEnabled, so a decluttered frame returns no chips.
+// Declared maximum content-line height (title included, borders not) for
+// each of the eight ADR 0051 instrument boxes, decision 16 / build open
+// item 3: a box Settings switches off leaves this many blank rows in its
+// slot rather than dropping, so nothing below it in the column ever
+// moves, even on the one box (MISSION) whose live height varies. The
+// other seven are already fixed-height by decision 2 ("every row always
+// present"), so their declared max is simply their one true height,
+// pinned here rather than left to be discovered by a future shrink.
+// MISSION alone varies at render time (3 to 7 rows, sized to its Flight
+// School step); 7 is its measured widest rung (the ADR's own budget
+// table).
+const (
+	engineBoxMaxLines     = 4
+	propellantBoxMaxLines = 4
+	guidanceBoxMaxLines   = 4
+	navigationBoxMaxLines = 8
+	commsBoxMaxLines      = 2
+	targetBoxMaxLines     = 5
+	stagesBoxMaxLines     = 1
+	missionBoxMaxLines    = 7
+)
+
+// blankInstrumentBoxLines renders a Settings-hidden box's slot: its bare
+// title (no live badge: there's nothing live to badge) followed by
+// blank rows out to maxLines, so the box's declared maximum height is
+// what the layout ever reserves for it, whether it's showing content or
+// not (decision 16).
+func blankInstrumentBoxLines(theme Theme, name string, maxLines int) []string {
+	lines := make([]string, maxLines)
+	lines[0] = theme.Primary.Render(name)
+	return lines
+}
+
+// engineLit reports whether c currently has a live burn under way: the
+// ADR 0010 condition decision 16 carries forward: fuel and a live burn
+// are never hidden by F2 Declutter, so ENGINE and PROPELLANT are the two
+// boxes exempted from the group hide while this is true. Scoped to the
+// ACTIVE craft (not the whole slate, unlike AnyCraftThrusting/the 10x
+// burn-warp cap): ENGINE/PROPELLANT show the active craft's own
+// throttle and fuel, so the exemption should track whether THAT craft's
+// numbers are live, not whether some other craft off-screen is burning.
+func engineLit(c *spacecraft.Spacecraft) bool {
+	return c != nil && (c.ActiveBurn != nil || c.ManualBurn != nil)
+}
+
+// navigationBoxesInOrder appends the eight ADR 0051 instrument boxes at
+// Core priority (never dropped by layoutChipsBySide's shrink/drop until
+// every Normal chip on their side has already gone), in the ruled left
+// order (ENGINE, PROPELLANT, GUIDANCE, COMMS, STAGES, MISSION) and right
+// order (NAVIGATION, TARGET).
+//
+// Two independent gates, per decision 16:
+//   - F2 Declutter hides all eight together (a momentary "clean map"
+//     gesture: the chip is dropped outright, not blanked, so the
+//     column genuinely shortens while it's on), except ENGINE and
+//     PROPELLANT stay through it while engineLit is true.
+//   - Settings can switch any box off individually (a standing
+//     preference): rather than dropping, that box's slot renders
+//     blankInstrumentBoxLines at its declared max height, so the boxes
+//     below it in the column never move. A box can be both: Declutter
+//     hides it outright even if Settings would otherwise blank it, and
+//     the two exempt boxes still respect their OWN Settings choice
+//     (blank vs. live) while surviving Declutter.
+func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []builtChip {
+	// The Proximity View (ADR 0043) is its own close-range instrument
+	// panel (buildProximityChip), not one of the two views ADR 0051's
+	// "one layout, both views" decision 3 covers (the orbit map and the
+	// LAUNCH/surface view), it never coexisted with the pre-ADR-0051
+	// VESSEL/MISSIONS core chips at small canvases either. Suppressing
+	// the eight boxes here keeps the Proximity View's own budget intact
+	// instead of the much larger new box set evicting it via the
+	// stacker at a narrow terminal.
+	if w.ViewMode == sim.ViewProximity {
+		return chips
+	}
+	lit := engineLit(w.ActiveCraft())
+	type boxDef struct {
+		id       settings.Chip
+		build    func(*sim.World) []string
+		name     string
+		maxLines int
+		exempt   bool // stays through F2 Declutter while lit
+	}
+	left := []boxDef{
+		{settings.ChipEngine, v.buildEngineBox, "ENGINE", engineBoxMaxLines, true},
+		{settings.ChipPropellant, v.buildPropellantBox, "PROPELLANT", propellantBoxMaxLines, true},
+		{settings.ChipGuidance, v.buildGuidanceBox, "GUIDANCE", guidanceBoxMaxLines, false},
+		{settings.ChipComms, v.buildCommsBox, "COMMS", commsBoxMaxLines, false},
+		{settings.ChipStages, v.buildStagesBox, "STAGES", stagesBoxMaxLines, false},
+		{settings.ChipMissions, v.buildMissionBox, "MISSION", missionBoxMaxLines, false},
+	}
+	for i, b := range left {
+		if v.declutter && !(b.exempt && lit) {
+			continue
+		}
+		var lines []string
+		if v.settings.ChipEnabled(b.id) {
+			lines = b.build(w)
+		} else {
+			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
+		}
+		c := builtChip{id: b.id, corner: cornerTopLeft, lines: lines, priority: chipPriorityCore}
+		if i == 0 {
+			// ENGINE folded in the retired NODES chip's node row
+			// (decision 1); keep its click routing alive by reusing
+			// ChipNodes' id purely for HitChip resolution (app.go opens
+			// the maneuver screen on a click matching this id): this
+			// overrides the b.id set above, which is only ChipEngine's
+			// own Settings-visibility lookup done explicitly two lines
+			// up, not a value HitChip ever needs to see.
+			c.id = settings.ChipNodes
+		}
+		chips = append(chips, c)
+	}
+	rightBoxes := []boxDef{
+		{settings.ChipNavigation, v.buildNavigationBox, "NAVIGATION", navigationBoxMaxLines, false},
+		{settings.ChipTarget, v.buildTargetBox, "TARGET", targetBoxMaxLines, false},
+	}
+	for _, b := range rightBoxes {
+		if v.declutter {
+			continue
+		}
+		var lines []string
+		if v.settings.ChipEnabled(b.id) {
+			lines = b.build(w)
+		} else {
+			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
+		}
+		chips = append(chips, builtChip{id: b.id, corner: cornerTopRight, lines: lines, priority: chipPriorityCore})
+	}
+	return chips
+}
+
 func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	var chips []builtChip
-	// Pinned core telemetry — top of the top-left stack. Unlike every
-	// other chip it is always rendered: never settings-toggled (core
-	// telemetry is fixed, ADR 0010) and never hidden by declutter — F2
-	// must not be able to hide fuel/Δv mid-burn. v0.13 playtest move:
-	// VESSEL/PROPELLANT left the right-hand column to live on the canvas.
-	if lines := v.buildVesselChip(w); lines != nil {
-		chips = append(chips, builtChip{corner: cornerTopLeft, lines: lines, compact: v.buildVesselChipCompact(w), priority: chipPriorityCore})
-	}
+	// The eight fixed instrument boxes (ADR 0051), first in the left and
+	// right stacks respectively, decision 2's "boxes never move" reads
+	// most simply as a fixed prefix of each column, with notices (below)
+	// layering after them until slice 3 moves every notice into its own
+	// bay.
+	chips = v.navigationBoxesInOrder(w, chips)
 	// VESSEL DESTROYED (#427 / ADR 0048): the game's first Standing
 	// Alert — an alert-coloured chip that persists for as long as the
 	// active craft's Crashed state holds, not a transient Event Flash.
@@ -106,27 +231,18 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// already carries these numbers and a second copy would be pure
 	// clutter.
 	addC("", cornerTopLeft, v.buildProximityChip(w), v.buildProximityChipCompact(w))
-	// The current goal sits directly under the pinned VESSEL chip — "who I am"
-	// then "what I'm doing" in the top-left status corner (ADR 0025 / Slice 5).
-	addC(settings.ChipMissions, cornerTopLeft, v.buildMissionsChip(w), v.buildMissionsChipCompact(w))
 	// Top-left transient stack (stacking order = listed order, downward).
 	// The in-flight ● BURNS readout used to live here; v0.16 folds it into
-	// the bottom-right NODES chip (a live burn is the firing head of the
-	// burn schedule). See the force-show path below.
+	// ENGINE's node row (ADR 0051 decision 1).
 	add(settings.ChipFrameTransition, cornerTopLeft, v.buildFrameTransitionChip(w))
 	add(settings.ChipCapture, cornerTopLeft, v.buildCaptureChip(w))
-	add(settings.ChipLaunch, cornerTopLeft, v.buildLaunchChip(w))
-	add(settings.ChipDescent, cornerTopLeft, v.buildDescentChip(w))
 	// DESCENDING (issue #348 §4): a one-line pointer at the launch/surface
 	// jump key, offered the moment the active vessel's trajectory is
 	// forecast to reach the ground — the map-screen mirror of the
 	// CLOSE RANGE hint below (same "teach the key once, then get out of
-	// the way" always-on + self-limiting treatment). Placed beside
-	// DESCENT/CHUTE — the other own-craft-state chips — rather than in
-	// the Target-oriented top-right stack.
+	// the way" always-on + self-limiting treatment).
 	add("", cornerTopLeft, v.buildLaunchHintChip(w))
 	add(settings.ChipChute, cornerTopLeft, v.buildChuteChip(w))
-	add(settings.ChipAttitude, cornerTopLeft, v.buildAttitudeChip(w))
 	// SESSION moments (v0.27 S6 / ADR 0034): join/leave/sync events as
 	// a transient top-left chip. Always-on when events are fresh (empty
 	// id — moments are too short-lived to warrant a Settings toggle);
@@ -154,31 +270,6 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// chipPriorityForced — admitChipsByBudget must never silently drop it
 	// for space the way it dropped every ordinary chip ahead of it.
 	addPriority("", cornerTopLeft, v.buildDockGuestChip(w), v.buildDockGuestChipCompact(w), chipPriorityForced)
-	// COMMS link status for the active probe (ADR 0027 / C2-7), beneath the
-	// vessel-state readouts. Force-shown while a just-blocked command is
-	// flashing (CommBlockedFlash) — bypassing the toggle + declutter — so the
-	// NO SIGNAL reason for a refused command is never hidden; otherwise it
-	// honours the toggle like any chip.
-	if lines := v.buildCommsChip(w); lines != nil {
-		if _, flashing := w.CommBlockedFlash(); flashing || v.chipEnabled(settings.ChipComms) {
-			chips = append(chips, builtChip{id: settings.ChipComms, corner: cornerTopLeft, lines: lines})
-		}
-	}
-	// Top-right stack: Orbit metrics on top, the Target readout beneath it
-	// (append order = top-to-bottom). Orbit metrics is always-on (empty id):
-	// the current orbit (apo/peri/incl) is never user-hideable from the
-	// Settings screen, mirroring the always-on ● BURNS readout — both are
-	// too load-bearing to toggle off. F2 declutter still clears them.
-	addPriority("", cornerTopRight, v.buildOrbitMetricsChip(w), v.buildOrbitMetricsChipCompact(w), chipPriorityCore)
-	// PROJECTED ORBIT sits to the LEFT of the always-on ORBIT readout (issue
-	// #63 follow-up) so current + projected show together during a burn
-	// without growing the top-right column's height — leaving vertical room
-	// for TARGET to clear the bottom-right NODES chip. Toggleable, unlike the
-	// load-bearing live ORBIT beside it. leftOfPrev falls back to normal
-	// stacking when ORBIT is suppressed (e.g. ascent), so it's never orphaned.
-	if lines := v.buildProjectedOrbitChip(w); lines != nil && v.chipEnabled(settings.ChipProjectedOrbit) {
-		chips = append(chips, builtChip{id: settings.ChipProjectedOrbit, corner: cornerTopRight, lines: lines, compact: v.buildProjectedOrbitChipCompact(w), leftOfPrev: true})
-	}
 	// CLOSE RANGE (ADR 0043): a one-line pointer at the Proximity View
 	// jump key, offered when an approach crosses inside the range at which
 	// the game already treats two vessels as flying together. It sits
@@ -190,48 +281,14 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// sim's crossing state machine retires it the moment the player acts,
 	// and it never renders inside the view it advertises.
 	add("", cornerTopRight, v.buildProximityHintChip(w))
-	addC(settings.ChipTarget, cornerTopRight, v.buildTargetChip(w), v.buildTargetChipCompact(w))
-	// SOI PASS sits beneath TARGET — the upcoming encounter of the live
-	// path, always-on and Target-independent (ADR 0019). De-dupes with
-	// TARGET inside the builder when they name the same body.
+	// SOI PASS, the upcoming encounter of the live path, always-on and
+	// Target-independent (ADR 0019). De-dupes with TARGET inside the
+	// builder when they name the same body.
 	add(settings.ChipSOIPass, cornerTopRight, v.buildSOIPassChip(w))
-	// Remaining fixed corners.
-	addC(settings.ChipStages, cornerBottomLeft, v.buildStagesChip(w), v.buildStagesChipCompact(w))
-	// CHAT stacks under STAGES, its own corner slot away from the
-	// session moments (ADR 0035 §2). Always-on like SESSION — a
-	// coordination line must not be togglable into silence.
+	// CHAT stacks bottom-left, its own corner slot away from the session
+	// moments (ADR 0035 §2). Always-on like SESSION, a coordination
+	// line must not be togglable into silence.
 	add("", cornerBottomLeft, v.buildChatChip(w))
-	// NODES (bottom-right) now also carries any in-flight burn as its
-	// firing head (v0.16). A live burn is safety-critical, so when one is
-	// in flight the chip force-shows — bypassing both the ChipNodes
-	// Settings toggle and F2 declutter — so it can never be hidden.
-	// #293 extends the same force-show rationale to the staleness
-	// hazard: once more than one node is queued on the ACTIVE craft,
-	// every node behind the first was computed against an orbit that no
-	// longer exists once the first one fires, so the count must be
-	// visible the same way a live burn is. #333: this is strictly
-	// per-craft (activeCraftQueuedNodes), not the old fleet-wide sum — a
-	// different craft's queue firing doesn't stale the one this player
-	// is watching, so a small constellation with one node per vessel no
-	// longer force-shows a chip the player explicitly decluttered. With
-	// ≤1 node queued on the active craft and nothing burning, the chip
-	// honours the toggle + declutter like any chip.
-	if lines := v.buildNodesChip(w); lines != nil {
-		forced := v.anyActiveBurn(w) || activeCraftQueuedNodes(w) > 1
-		if forced || v.chipEnabled(settings.ChipNodes) {
-			// #334: only a genuinely FORCED render (bypassing the toggle)
-			// gets chipPriorityForced's "never drop for space, clamp
-			// instead" guarantee. A merely toggle-enabled NODES chip is a
-			// normal-priority chip like any other — if it can't fit, the
-			// player's own toggle choice is what loses, not a silent
-			// safety-critical readout.
-			priority := chipPriorityNormal
-			if forced {
-				priority = chipPriorityForced
-			}
-			chips = append(chips, builtChip{id: settings.ChipNodes, corner: cornerBottomRight, lines: lines, compact: v.buildNodesChipCompact(w), priority: priority})
-		}
-	}
 	return chips
 }
 
@@ -933,37 +990,6 @@ func (v *OrbitView) buildDockGuestChipCompact(w *sim.World) []string {
 	}
 }
 
-// anyActiveBurn reports whether any craft in the slate has an in-flight
-// finite/planted burn (ActiveBurn). Drives the NODES chip force-show
-// (v0.16) so a live burn is never hidden by the toggle or declutter.
-func (v *OrbitView) anyActiveBurn(w *sim.World) bool {
-	for _, c := range w.Crafts {
-		if c != nil && c.ActiveBurn != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// buildMissionsChip is the in-flight mission checklist chip (ADR 0025
-// §"Player surface" / Slice 5). A one-liner: the active mission's name plus
-// its current objective and N/M progress, so the player always sees "what
-// now" without opening the missions screen (which carries the full ladder +
-// hint text). On a mission failure it flashes "✗ <name> failed: <reason>" for
-// a few wall-clock seconds (World.MissionFailFlash) before advancing to the
-// next mission. Returns nil when no mission is active and nothing is flashing.
-// Honours the Settings toggle + F2 declutter like any chip (no force-show —
-// a failed mission isn't safety-critical the way a live burn is).
-func (v *OrbitView) buildMissionsChip(w *sim.World) []string {
-	flash, flashing := w.MissionFailFlash()
-	if !flashing {
-		if text, offer, ok := w.LadderSendoff(); ok {
-			return v.sendoffChipLines(text, offer)
-		}
-	}
-	return v.missionChipLines(flash, flashing, w.ActiveMission(), w.ConnectedRelayCount())
-}
-
 // sendoffChipLines renders the MISSION chip's whole-Program-complete state
 // (#426 item F, decision 9) — the same one line the ladder screen's
 // active-card slot shows, plus the Challenge-ladder offer when
@@ -1057,54 +1083,6 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 	return lines
 }
 
-// missionChipLinesCompact is MISSION's Compact Form (ADR 0046 / #422):
-// the same header + objective row as the full form, plus the tutorial
-// hint condensed to its FIRST wrapped line only (with a trailing "…"
-// when the hint needed more than one) — "objective + key hint wrapped to
-// ≤ 40 cols", not the hint's full multi-line text.
-func (v *OrbitView) missionChipLinesCompact(flash string, flashing bool, m *missions.Mission, relayCount int) []string {
-	if flashing {
-		return v.missionChipLines(flash, flashing, m, relayCount) // already 2 lines
-	}
-	if m == nil {
-		return nil
-	}
-	header := v.theme.Primary.Render("MISSION") + "  " + m.Name
-	obj, ok := m.CurrentObjective()
-	if !ok {
-		return []string{header}
-	}
-	passed, total := m.Progress()
-	lines := []string{
-		header,
-		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, obj.Label(), passed, total),
-	}
-	if obj.Kind == missions.KindRelayCoverage {
-		lines = append(lines, fmt.Sprintf("  relays online %d/%d", relayCount, obj.Params.MinRelays))
-	}
-	if m.Program == missions.ProgramTutorial && obj.Description != "" {
-		wrapped := wrapChipText(obj.Description, missionChipWrapWidth)
-		if len(wrapped) > 0 {
-			row := wrapped[0]
-			if len(wrapped) > 1 {
-				row += "…"
-			}
-			lines = append(lines, v.theme.Dim.Render("    "+row))
-		}
-	}
-	return lines
-}
-
-func (v *OrbitView) buildMissionsChipCompact(w *sim.World) []string {
-	flash, flashing := w.MissionFailFlash()
-	if !flashing {
-		if text, offer, ok := w.LadderSendoff(); ok {
-			return v.sendoffChipLines(text, offer) // already 2-3 lines, same as Full
-		}
-	}
-	return v.missionChipLinesCompact(flash, flashing, w.ActiveMission(), w.ConnectedRelayCount())
-}
-
 // attitudeHoldLabel names the ATTITUDE chip's hold: row in whichever
 // frame the nav: row above it is actually reading against (#421). A
 // held BurnMode is fixed in its own frame at the moment it's set
@@ -1174,29 +1152,6 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 	return fmt.Sprintf("%s (%s)", mode.String(), navModeLabel(frame))
 }
 
-// buildAttitudeChip surfaces the held attitude / nav mode / engine mode /
-// manual-burn state. Always relevant for a visible craft (the old block
-// dropped the hold row during ascent to save column height; a corner chip
-// doesn't compete for that height, so it shows the full set).
-func (v *OrbitView) buildAttitudeChip(w *sim.World) []string {
-	c := w.ActiveCraft()
-	if c == nil || !w.CraftVisibleHere() {
-		return nil
-	}
-	manualState := "idle"
-	if c.ManualBurn != nil {
-		elapsed := w.Clock.SimTime.Sub(c.ManualBurn.StartTime)
-		manualState = v.theme.Warning.Render("● firing " + readout.Countdown(-elapsed))
-	}
-	return []string{
-		v.theme.Primary.Render("ATTITUDE"),
-		fmt.Sprintf("  nav:     %s", w.NavMode),
-		fmt.Sprintf("  hold:    %s", attitudeHoldLabel(w, c.AttitudeMode)),
-		fmt.Sprintf("  engine:  %s", c.EngineMode.String()),
-		fmt.Sprintf("  manual:  %s", manualState),
-	}
-}
-
 // buildCommsChip surfaces the active probe's CommNet link state (ADR 0027 /
 // C2-7): DIRECT (linked straight to a ground station), CONNECTED via N hops
 // (through relays), or NO SIGNAL. Hidden for a crewed vessel — it is never
@@ -1245,50 +1200,6 @@ func (v *OrbitView) commsChipLines(hops int, connected bool, reason sim.CommDisc
 		v.theme.Primary.Render("COMMS"),
 		"  " + status,
 	}
-}
-
-// activeBurnLines renders the in-flight burn entries across the whole
-// craft slate — mode, Δv remaining, and a T-countdown (or a STALLED
-// warning) — each as a ● firing line in the warning style so it reads as
-// safety-critical. Returns nil when nothing is burning. v0.16 folds this
-// into buildNodesChip as the firing head of the burn schedule (it was the
-// standalone ● BURNS chip); walking all crafts still means a burn on a
-// non-active vessel can't sneak by.
-func (v *OrbitView) activeBurnLines(w *sim.World) []string {
-	var lines []string
-	for i, c := range w.Crafts {
-		if c == nil || c.ActiveBurn == nil {
-			continue
-		}
-		ab := c.ActiveBurn
-		remaining := ab.EndTime.Sub(w.Clock.SimTime).Seconds()
-		if remaining < 0 {
-			remaining = 0
-		}
-		tag := fmt.Sprintf("vessel %d", i+1)
-		if i == w.ActiveCraftIdx {
-			tag += " (active)"
-		}
-		if c.BurnStalled() {
-			lines = append(lines,
-				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %s", tag, ab.Mode.String(), readout.DeltaV(ab.DVRemaining))),
-				v.theme.Warning.Render("    ⚠ STALLED — stage to resume (x to cancel)"),
-			)
-		} else {
-			// decision 7 (grilled 2026-09-06): `remaining` already counts
-			// down to ab.EndTime, which the fire site sets to n.BurnEnd() —
-			// this was always "seconds to BurnEnd", the wording just used
-			// to call it T-Ns the same way the pre-ignition head row did.
-			// "burning, Ns left" makes the two head-row states read as one
-			// continuous countdown (ignition → burning) instead of two
-			// unrelated-looking T-fields.
-			lines = append(lines,
-				v.theme.Warning.Render(fmt.Sprintf("  ● %s — %s, Δv %s, burning, %s left",
-					tag, ab.Mode.String(), readout.DeltaV(ab.DVRemaining), readout.Duration(time.Duration(remaining*float64(time.Second))))),
-			)
-		}
-	}
-	return lines
 }
 
 // buildFrameTransitionChip surfaces the next SOI / frame transition implied
@@ -1368,393 +1279,6 @@ func (v *OrbitView) buildCaptureChip(w *sim.World) []string {
 	return lines
 }
 
-// buildLaunchChip is the ascent instrument cluster (altitude / vertical &
-// horizontal velocity / flight-path angle / TWR / SAS / trim plus the live
-// ap/pe/Δv→circ prediction). Returns nil when the craft isn't ascending.
-// Transplanted verbatim from renderHUD's LAUNCH block; the ascent-trend
-// cache (v.ascentTrend*) is mutated here exactly as before.
-func (v *OrbitView) buildLaunchChip(w *sim.World) []string {
-	c := w.ActiveCraft()
-	if c == nil || !shouldShowLaunchHUD(c) {
-		return nil
-	}
-	omegaRender := render.BodySpinOmegaWorld(c.Primary)
-	omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
-	vRel := c.State.V.Sub(omega.Cross(c.State.R))
-	rNorm := c.State.R.Norm()
-	var vVert, vHoriz, fpaDeg, fpaOrbitDeg float64
-	hasFPA := false
-	hasFPAOrbit := false
-	if rNorm > 0 {
-		rHat := c.State.R.Scale(1 / rNorm)
-		vVert = vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z
-		vHorizVec := vRel.Sub(rHat.Scale(vVert))
-		vHoriz = vHorizVec.Norm()
-		if vRel.Norm() > 1.0 {
-			fpaDeg = math.Atan2(vVert, vHoriz) * 180 / math.Pi
-			hasFPA = true
-		}
-		vOrbit := c.State.V
-		if vOrbit.Norm() > 1.0 {
-			vVertOrbit := vOrbit.X*rHat.X + vOrbit.Y*rHat.Y + vOrbit.Z*rHat.Z
-			vHorizOrbit := vOrbit.Sub(rHat.Scale(vVertOrbit)).Norm()
-			fpaOrbitDeg = math.Atan2(vVertOrbit, vHorizOrbit) * 180 / math.Pi
-			hasFPAOrbit = true
-		}
-	}
-	twrLabel := "—"
-	if c.Thrust > 0 && c.TotalMass() > 0 {
-		gSurface := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
-		twr := c.Thrust * c.EffectiveThrottle() / (c.TotalMass() * gSurface)
-		twrLabel = fmt.Sprintf("%.2f", twr)
-		if twr < 1.0 {
-			twrLabel = v.theme.Alert.Render(twrLabel + " (will not lift)")
-		}
-	}
-	// #427 / ADR 0048 §3: an ignition indicator beside twr:. The launch
-	// view had no engine-lit state at all — ATTITUDE (the map's own
-	// engine:/manual: rows) uses assembleChips' plain `add`, so it has no
-	// Compact Form and drops outright, silently, the instant the SURFACE
-	// + VESSEL stack (already ~20 rows during ascent) overflows the
-	// top-left column's Graceful Shrink budget — exactly the case the
-	// review captured (gameplay-system-workflows-09.txt: SURFACE/VESSEL/
-	// STAGES/SOI PASS on screen, ATTITUDE nowhere). Folding the readout
-	// into SURFACE instead of trying to keep ATTITUDE alive guarantees it
-	// shows for as long as the ascent HUD itself does (same shouldShowLaunchHUD
-	// gate at the top of this function). Lit iff the engine is actually
-	// producing thrust right now — a manual burn or a firing maneuver
-	// node — not the `throttle:` setting on the VESSEL chip, which stays
-	// at its loadout default whether or not anything is burning.
-	engineLabel := v.theme.Dim.Render("○ off")
-	if c.ActiveBurn != nil || c.ManualBurn != nil {
-		engineLabel = v.theme.Primary.Render("● LIT")
-	}
-	altAGL := c.Altitude()
-	altLabel := readout.Distance(altAGL)
-	sasLabel := attitudeHoldLabel(w, c.AttitudeMode)
-	trimDeg := c.PitchTrim * 180 / math.Pi
-	trimLabel := readout.TrimAngle(trimDeg)
-	if math.Abs(trimDeg) > 0.05 {
-		trimLabel = v.theme.Warning.Render(trimLabel)
-	}
-	fpaLabel := "—"
-	if hasFPA {
-		fpaLabel = readout.FPA(fpaDeg) + " (90 = up, 0 = horiz)"
-	}
-	fpaOrbitLabel := "—"
-	if hasFPAOrbit {
-		fpaOrbitLabel = readout.FPA(fpaOrbitDeg) + " (inertial)"
-	}
-	// Commanded heading (ADR 0049 decisions 9-10). HeadingTrim is a
-	// signed offset from due east, not an absolute bearing (B1's
-	// deviation, see internal/spacecraft/burn_direction.go's
-	// HeadingTrimDueEastRad doc comment), so the player-facing absolute
-	// heading the HUD shows is always HeadingTrimDueEastRad +
-	// HeadingTrim, converted to degrees and normalised by readout.Heading.
-	headingAbsDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
-	headingLabel := readout.Heading(headingAbsDeg)
-	// While Landed, heading gets its own dedicated pad row below
-	// (decision 9) instead of riding beside trim: once airborne it
-	// rejoins the trim row (decision 10, "heading: stays on the chip
-	// beside trim:").
-	trimRow := fmt.Sprintf("  trim:       %s", trimLabel)
-	if !c.Landed {
-		trimRow = fmt.Sprintf("  trim:       %s  heading: %s", trimLabel, headingLabel)
-	}
-	lines := []string{
-		v.theme.Primary.Render("SURFACE"),
-		fmt.Sprintf("  %s   %s", readout.LabelAltitude, altLabel),
-		fmt.Sprintf("  %s       %s", readout.LabelVert, readout.Speed(vVert)),
-		fmt.Sprintf("  %s      %s (surface-rel)", readout.LabelHoriz, readout.Speed(vHoriz)),
-		fmt.Sprintf("  %s        %s", readout.LabelFPA, fpaLabel),
-		fmt.Sprintf("  %s  %s", readout.LabelOrbitFPA, fpaOrbitLabel),
-		fmt.Sprintf("  %s        %s  engine: %s", readout.LabelTWR, twrLabel, engineLabel),
-		fmt.Sprintf("  %s       %s", readout.LabelHold, sasLabel),
-		trimRow,
-	}
-	mu := c.Primary.GravitationalParameter()
-	primaryR := c.Primary.RadiusMeters()
-	frame := orbital.ReferenceFrameForPrimary(c.Primary)
-	el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
-	var (
-		apoAlt, periAlt float64
-		apoFinite       bool
-	)
-	if !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.A > 0 && el.E < 1 {
-		apoAlt = el.Apoapsis() - primaryR
-		periAlt = el.Periapsis() - primaryR
-		apoFinite = true
-	}
-	// inclBlockRows is the "incl:" region of the SURFACE chip. Airborne
-	// it is the live orbital element (decision 10, "once airborne...
-	// incl: reverts to the live orbital element"); Landed it becomes
-	// the two-row heading/floor readout, plus a third Δincl row when a
-	// body target is set (decisions 9-11); "(locked)" is gone
-	// entirely, nothing on the pad is ever locked.
-	var inclBlockRows []string
-	if c.Landed {
-		inclBlockRows = v.landedInclHeadingRows(w, c)
-	} else {
-		inclLabel := "—"
-		if !math.IsNaN(el.I) && !math.IsInf(el.I, 0) {
-			inclLabel = readout.Angle(el.I * 180 / math.Pi)
-		}
-		inclBlockRows = []string{chipRowAt(readout.LabelIncl, inclLabel, launchChipValueCol)}
-	}
-	apLabel, peLabel, ttaLabel, dvCircLabel, tBurnLabel := "—", "—", "—", "—", "—"
-	trendLabel := ""
-	var dvCirc float64
-	// While Landed the craft sits at the apoapsis of its co-rotation
-	// pseudo-orbit (apoapsis ≈ the launch radius), so apoAlt and rApo hover
-	// at exactly zero and the apoAlt>0 / rApo>primaryR gates flip on
-	// numerical noise tick-to-tick — flashing ap / t_to_apo / Δv→circ
-	// between a value and "—". The pad pseudo-orbit isn't a real orbit, so
-	// suppress these predictions until the craft actually lifts off; the
-	// pad cares about TWR / launch-lat / SAS, which render regardless.
-	if apoFinite && !c.Landed {
-		apLabel = readout.Distance(apoAlt)
-		peLabel = readout.Distance(periAlt)
-		now := w.Clock.SimTime
-		if v.ascentTrendCraft == c && !v.ascentTrendTime.IsZero() {
-			dt := now.Sub(v.ascentTrendTime).Seconds()
-			if dt > 1e-6 {
-				rate := (el.Apoapsis() - v.ascentTrendApoM) / dt
-				switch {
-				case rate > 1.0:
-					trendLabel = " (climbing)"
-				case rate < -1.0:
-					trendLabel = " (falling)"
-				default:
-					trendLabel = " (steady)"
-				}
-			}
-		}
-		v.ascentTrendCraft = c
-		v.ascentTrendApoM = el.Apoapsis()
-		v.ascentTrendTime = now
-		if apoAlt > 0 {
-			ttaSec := orbital.TimeToApoapsis(orbital.Vec3State{R: c.State.R, V: c.State.V}, mu)
-			if ttaSec > 0 {
-				ttaLabel = readout.Countdown(time.Duration(ttaSec * float64(time.Second)))
-			}
-		}
-		rApo := el.Apoapsis()
-		if rApo > primaryR && el.A > 0 {
-			vAtApo := math.Sqrt(mu * (2/rApo - 1/el.A))
-			vCircAtApo := math.Sqrt(mu / rApo)
-			dvCirc = vCircAtApo - vAtApo
-			if dvCirc > 0 {
-				dvCircLabel = readout.DeltaV(dvCirc) + " (impulsive)"
-			}
-		}
-	} else {
-		v.ascentTrendCraft = nil
-	}
-	if dvCirc > 0 && c.Thrust > 0 && c.TotalMass() > 0 {
-		thrust := c.Thrust * c.EffectiveThrottle()
-		if thrust <= 0 {
-			thrust = c.Thrust
-		}
-		tBurnSec := dvCirc * c.TotalMass() / thrust
-		tBurnLabel = readout.Duration(time.Duration(tBurnSec * float64(time.Second)))
-	}
-	apRow := fmt.Sprintf("  %s         %s%s", readout.LabelAp, apLabel, trendLabel)
-	peRow := fmt.Sprintf("  %s         %s", readout.LabelPe, peLabel)
-	if apoFinite && !c.Landed && periAlt < 0 {
-		peRow = v.theme.Warning.Render(peRow)
-	}
-	lines = append(lines, apRow, peRow)
-	lines = append(lines, inclBlockRows...)
-	lines = append(lines,
-		fmt.Sprintf("  %s        %s", readout.LabelApo, ttaLabel),
-		fmt.Sprintf("  Δv→circ:    %s", dvCircLabel),
-		fmt.Sprintf("  %s       %s", readout.LabelBurn, tBurnLabel),
-	)
-	if apoFinite && !c.Landed && apoAlt > launchMissionFloorM {
-		orbitStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
-		lines = append(lines, "  "+orbitStyle.Render("● ORBIT READY — coast to ap, press C to plant circularise"))
-	}
-	if apoFinite && !c.Landed {
-		if progress := launchMissionProgress(w, c, periAlt); progress != "" {
-			lines = append(lines, "  "+progress)
-		}
-	}
-	return lines
-}
-
-// landedInclHeadingRows builds the heading:/incl:/Δincl: block for a
-// Landed craft (ADR 0050 decision 9, ex-decisions-9-11's inclBlockRows).
-// Shared by buildLaunchChip's SURFACE chip (atmospheric pads, the
-// original home of this block) and buildDescentChip's DESCENT chip while
-// Landed (airless pads, #454): shouldShowLaunchHUD returns false the
-// moment Primary.Atmosphere == nil, so an airless pad (Luna, Glyph, any
-// of the 45 bodies with no atmosphere) got buildDescentChip instead and
-// no heading/inclination readout at all, however long the player warped.
-// This function moves the existing rows onto that second surface; it
-// changes no number and does not decide whether the LAUNCH HUD itself
-// should ever appear on the Moon (a separate question #454's own body
-// says this isn't the place to answer).
-func (v *OrbitView) landedInclHeadingRows(w *sim.World, c *spacecraft.Spacecraft) []string {
-	headingAbsDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
-	headingLabel := readout.Heading(headingAbsDeg)
-	spinAxisR := render.BodyRotationAxisWorld(c.Primary)
-	spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
-	padInclLabel := "—"
-	if deg, ok := spacecraft.HeadingInclinationDeg(c.State.R, spinAxis, c.HeadingTrim); ok {
-		padInclLabel = readout.Angle(deg)
-	}
-	// Inclination Floor = |current surface latitude|, not the spawn
-	// latitude (item4-B review finding 6): SurfaceLatLon prefers
-	// LandedLatDeg over LaunchLatDeg once the craft has soft-landed
-	// somewhere other than where it launched, so a vessel sitting at
-	// 5°N after flying from a 28.6° pad reads a 5° floor, not a
-	// stale 28.6° one above its own incl: value.
-	floorLat, _ := c.SurfaceLatLon()
-	floorLabel := readout.Angle(math.Abs(floorLat))
-	rows := []string{
-		chipRowAt("heading:", headingLabel, launchChipValueCol),
-		chipRowAt(readout.LabelIncl, padInclLabel+" (min "+floorLabel+")", launchChipValueCol),
-	}
-	// depart: the angle between the plane this pad's commanded heading
-	// would reach and the plane the world beneath it travels in (ADR
-	// 0050 decisions 1-5), directly under incl:. Hidden where it can
-	// never move (decision 3): departRowHidden's eps is also
-	// departSwing's own input, so the two calls share one angle. Also
-	// withheld at a pole (review r1 F3, landedPlaneNormalOK): the pad's
-	// own co-rotation normal is pole-degenerate there, and
-	// HeadingOrbitNormal's exact Norm() == 0 guard lets floating-point
-	// residue through as a real plane, wandering tens of degrees an hour
-	// with no period.
-	if landedPlaneNormalOK(c) {
-		if refNormal, ok := departReferenceNormal(c.Primary); ok {
-			if eps, hidden := departRowHidden(spinAxis, refNormal); !hidden {
-				if padNormal, ok := spacecraft.HeadingOrbitNormal(c.State.R, spinAxis, c.HeadingTrim); ok {
-					deg, degOK := unfoldedPlaneAngleDeg(padNormal, refNormal)
-					i, iOK := unfoldedPlaneAngleDeg(padNormal, spinAxis)
-					if degOK && iOK {
-						_, _, best := departSwing(i, eps)
-						departLabel := readout.Angle(deg) + " (best " + readout.Angle(best) + ")"
-						rows = append(rows, chipRowAt(readout.LabelDepart, departLabel, launchChipValueCol))
-					}
-				}
-			}
-		}
-	}
-	// Δincl: against a body target (its fixed catalog orbital plane) or
-	// a vessel target (ADR 0050 decision 6, ungating the sim.TargetBody-
-	// only restriction ADR 0049 shipped: a vessel in a stable orbit has
-	// a perfectly good fixed plane too, and matching one from the pad is
-	// the canonical launch-window problem PlanVesselPlaneMatch, the `I`
-	// key, already solves). Vessel targets route through
-	// World.TargetPlaneNormal, which folds in the same-primary gate
-	// (decision 6's amendment: a lunar orbiter targeted from a KSC pad
-	// reads a fast-looking wobble that mixes its own lap with Luna's own
-	// motion round Earth; TargetSharesActivePrimary already refuses this
-	// case for `I` and the node markers) and the pole guard (decision
-	// 8).
-	var nTarget orbital.Vec3
-	haveTarget := false
-	dueEast := false
-	switch w.Target.Kind {
-	case sim.TargetBody:
-		sysT := w.System()
-		if w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sysT.Bodies) {
-			nTarget = orbital.OrbitNormalWorld(sysT.Bodies[w.Target.BodyIdx])
-			haveTarget = true
-		}
-	case sim.TargetCraft:
-		if n, ok := w.TargetPlaneNormal(); ok {
-			nTarget = n
-			haveTarget = true
-			// (due east) tag (decision 7, review r1 F2): shares
-			// deltaInclLabel with buildTargetChip's TargetCraft branch
-			// so the pad row and the TARGET chip cannot disagree about
-			// whether a landed vessel target's plane assumes due east.
-			if tc, _, ok := w.ResolveTargetCraft(); ok {
-				dueEast = !craftHasOrbit(tc)
-			}
-		}
-	case sim.TargetGhost:
-		if n, ok := w.TargetPlaneNormal(); ok {
-			nTarget = n
-			haveTarget = true
-		}
-	}
-	if haveTarget {
-		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, dueEast); ok {
-				rows = append(rows, chipRowAt(readout.LabelDeltaIncl, diLabel, launchChipValueCol))
-			}
-		}
-	}
-	return rows
-}
-
-// buildDescentChip is the airless-body terminal-approach cluster
-// (altitude / vert / horiz / fpa / TWR / hold), plus, while Landed, the
-// same heading:/incl:/Δincl: block the atmospheric SURFACE chip shows
-// (ADR 0050 decision 9, #454): there was previously no pad readout at
-// all on an airless world (shouldShowLaunchHUD requires an atmosphere),
-// so a Luna pad showed none of this however long the player warped.
-// Otherwise returns nil unless the craft is in a powered descent.
-// Mutually exclusive with the LAUNCH chip via the same Atmosphere gate
-// the originals used.
-func (v *OrbitView) buildDescentChip(w *sim.World) []string {
-	c := w.ActiveCraft()
-	if c == nil || !shouldShowDescentHUD(c) {
-		return nil
-	}
-	altAGL := c.Altitude()
-	omegaRender := render.BodySpinOmegaWorld(c.Primary)
-	omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
-	vRel := c.State.V.Sub(omega.Cross(c.State.R))
-	rNorm := c.State.R.Norm()
-	var vVert, vHoriz, fpaDeg float64
-	hasFPA := false
-	if rNorm > 0 {
-		rHat := c.State.R.Scale(1 / rNorm)
-		vVert = vRel.X*rHat.X + vRel.Y*rHat.Y + vRel.Z*rHat.Z
-		vHorizVec := vRel.Sub(rHat.Scale(vVert))
-		vHoriz = vHorizVec.Norm()
-		if vRel.Norm() > 1.0 {
-			fpaDeg = math.Atan2(vVert, vHoriz) * 180 / math.Pi
-			hasFPA = true
-		}
-	}
-	twrLabel := "—"
-	if c.Thrust > 0 && c.TotalMass() > 0 {
-		gSurface := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
-		twr := c.Thrust * c.EffectiveThrottle() / (c.TotalMass() * gSurface)
-		twrLabel = fmt.Sprintf("%.2f", twr)
-		if twr < 1.0 {
-			twrLabel = v.theme.Alert.Render(twrLabel + " (can't hover)")
-		}
-	}
-	altLabel := readout.Distance(altAGL)
-	fpaLabel := "—"
-	if hasFPA {
-		fpaLabel = readout.FPA(fpaDeg) + " (0 = horiz, -90 = straight down)"
-	}
-	vHorizLabel := readout.Speed(vHoriz) + " (surface-rel)"
-	if vHoriz > sim.CrashVCritMps {
-		vHorizLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%s (> %s = CRASH on contact)", readout.Speed(vHoriz), readout.Speed(sim.CrashVCritMps)))
-	}
-	lines := []string{
-		v.theme.Primary.Render("DESCENT"),
-		fmt.Sprintf("  %s   %s", readout.LabelAltitude, altLabel),
-		fmt.Sprintf("  %s       %s", readout.LabelVert, readout.Speed(vVert)),
-		fmt.Sprintf("  %s      %s", readout.LabelHoriz, vHorizLabel),
-		fmt.Sprintf("  %s        %s", readout.LabelFPA, fpaLabel),
-		fmt.Sprintf("  %s        %s", readout.LabelTWR, twrLabel),
-		fmt.Sprintf("  %s       %s", readout.LabelHold, attitudeHoldLabel(w, c.AttitudeMode)),
-	}
-	if c.Landed {
-		lines = append(lines, v.landedInclHeadingRows(w, c)...)
-	}
-	return lines
-}
-
 // buildLaunchHintChip tells the player the launch/surface view is worth
 // a look at the one moment it starts being useful — issue #348 §4's
 // mirror of buildProximityHintChip below. The gate is exactly
@@ -1809,385 +1333,6 @@ func (v *OrbitView) buildChuteChip(w *sim.World) []string {
 		lines = append(lines, v.theme.Dim.Render("  [space] arms the chute on a bare capsule"))
 	}
 	return lines
-}
-
-// buildOrbitMetricsChip is the always-on top-right ORBIT readout: the
-// live current orbit shape (altitude / apo / peri / their T- countdowns /
-// inclination / direction). Suppressed during ascent — the LAUNCH chip
-// already carries ap/pe there — and for degenerate / hyperbolic states.
-// The projected post-burn orbit is a SEPARATE chip
-// (buildProjectedOrbitChip, issue #63 follow-up) so the player sees the
-// current and projected orbits side by side while planning a burn,
-// instead of the live orbit being replaced by the projection.
-func (v *OrbitView) buildOrbitMetricsChip(w *sim.World) []string {
-	if !w.CraftVisibleHere() {
-		// ADR 0038 S4 part 3 ("badged panels"): riding in another player's
-		// stack is the commonest reason CraftVisibleHere is false with no
-		// active craft — and it's exactly when there IS a live orbit to
-		// show, the stack's. buildDockGuestOrbitChip returns nil for every
-		// other !CraftVisibleHere case (no DockGuest, or no ghost report
-		// yet), so the ORBIT chip's existing silence is unchanged there.
-		return v.buildDockGuestOrbitChip(w)
-	}
-	c := w.ActiveCraft()
-	if c == nil {
-		return nil
-	}
-	// Live current orbit shape. Suppressed during ascent (LAUNCH chip
-	// carries ap/pe) and for degenerate/hyperbolic states.
-	if shouldShowLaunchHUD(c) {
-		return nil
-	}
-	// #375: a Landed craft carries no orbit (craftHasOrbit) — on an
-	// airless primary shouldShowLaunchHUD above never fires (no
-	// Atmosphere to gate ascent on), so without this the co-rotation
-	// pseudo-orbit would render here as a real ellipse. Swap in the
-	// facts that ARE true on the ground rather than leaving the chip
-	// blank — the same move buildLaunchChip already makes (incl. →
-	// launch lat) — since a chip that vanishes reads as broken.
-	if !craftHasOrbit(c) {
-		return v.buildLandedOrbitChip(c)
-	}
-	mu := c.Primary.GravitationalParameter()
-	frame := orbital.ReferenceFrameForPrimary(c.Primary)
-	el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
-	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
-		return nil
-	}
-	primaryR := c.Primary.RadiusMeters()
-	apoAlt := el.Apoapsis() - primaryR
-	periAlt := el.Periapsis() - primaryR
-	st := orbital.Vec3State{R: c.State.R, V: c.State.V}
-	lines := []string{
-		v.theme.Primary.Render("ORBIT"),
-		chipRow(readout.LabelAltitude, readout.Distance(c.Altitude())),
-		chipRow(readout.LabelAp, readout.Distance(apoAlt)),
-	}
-	// On a circular orbit the apsides are not locatable points (#286), so
-	// the countdowns say "—" rather than the constant half-period the
-	// underlying helpers fall back to. A frozen number that looks live is
-	// worse than an honest blank: players read it as phase information and
-	// tried to time rendezvous off two craft that both showed P/2. Signed
-	// through readout.Countdown (gate-review follow-up: this row used to
-	// be labelled with an arrow glyph and an unsigned value, a second
-	// dialect for the exact same signed-countdown quantity the SURFACE
-	// chip's apo: row already used). The "—" case is returned before
-	// Countdown ever sees it, so a circular orbit still reads a bare
-	// blank: never "T-" glued onto the dash.
-	apsisTime := func(secs float64) (string, bool) {
-		if !orbital.ApsisDefined(el.E) {
-			return "—", true
-		}
-		if secs < 0 {
-			return "", false
-		}
-		return readout.Countdown(time.Duration(secs * float64(time.Second))), true
-	}
-	if s, ok := apsisTime(orbital.TimeToApoapsis(st, mu)); ok {
-		lines = append(lines, chipRow(readout.LabelApo, s))
-	}
-	peRow := chipRow(readout.LabelPe, readout.Distance(periAlt))
-	if periAlt < 0 {
-		peRow = v.theme.Warning.Render(peRow)
-	}
-	lines = append(lines, peRow)
-	if s, ok := apsisTime(orbital.TimeToPeriapsis(st, mu)); ok {
-		lines = append(lines, chipRow(readout.LabelPeri, s))
-	}
-	// Full orbital period, alongside the apsis-time readouts — the number
-	// a comsat placement is tuned to (e.g. a synchronous or semi-
-	// synchronous period for steady ground coverage). a > 0 and e < 1 are
-	// guaranteed above, so the period is finite.
-	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
-	lines = append(lines, chipRow(readout.LabelPeriod, readout.Period(time.Duration(period*float64(time.Second)))))
-	lines = append(lines, chipRow(readout.LabelIncl, readout.Angle(el.I*180/math.Pi)))
-	// depart:, directly under incl: (ADR 0050 decisions 1-5). The live
-	// orbit's own plane is fixed under two-body coast, so unlike the
-	// pad's row this carries no (best N°): the lowest value reachable
-	// by waiting is the value already on screen (decision 4). Hidden
-	// where it can never move (decision 3), same predicate as the pad.
-	if refNormal, ok := departReferenceNormal(c.Primary); ok {
-		spinAxisR := render.BodyRotationAxisWorld(c.Primary)
-		spinAxis := orbital.Vec3{X: spinAxisR.X, Y: spinAxisR.Y, Z: spinAxisR.Z}
-		if _, hidden := departRowHidden(spinAxis, refNormal); !hidden {
-			// craftHasOrbit already returned early above for a Landed
-			// craft (buildLandedOrbitChip), so this is always a real
-			// in-flight orbit: craftOrbitNormalForRelativeIncl's pole
-			// guard (review r1 F3) never trips here.
-			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-				if deg, ok := unfoldedPlaneAngleDeg(nCraft, refNormal); ok {
-					lines = append(lines, chipRow(readout.LabelDepart, readout.Angle(deg)))
-				}
-			}
-		}
-	}
-	lines = append(lines, chipRow("direction:", v.orbitDirectionLabel(el.I)))
-	// #426 (CONTEXT.md Chip entry): eccentricity, always-on, Full form only —
-	// the three eccentricity-graded challenge rungs (chal-high-orbit et al.)
-	// have a number on the HUD to check against instead of grading a value
-	// the chip never showed. The Compact Form stays the Ap/Pe strip.
-	lines = append(lines, chipRow("e:", fmt.Sprintf("%.4f", el.E)))
-	if periAlt < 0 {
-		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
-	}
-	return lines
-}
-
-// buildOrbitMetricsChipCompact is ORBIT's Compact Form (ADR 0046 / #422,
-// CONTEXT.md "Graceful Shrink": "the Orbit Chip becomes an Ap/Pe strip"):
-// the two numbers a pilot needs even at a glance — apoapsis and
-// periapsis altitude — on one row, dropping altitude, the apsis-time
-// countdowns, period, inclination and direction. The below-surface
-// warning survives: a periapsis inside the primary is exactly the kind
-// of fact that must not vanish when the chip shrinks. Mirrors
-// buildOrbitMetricsChip's branch order (dock-guest badge, then Landed,
-// then a live orbit) so the Compact Form always agrees with the Full
-// form about WHICH case is showing.
-func (v *OrbitView) buildOrbitMetricsChipCompact(w *sim.World) []string {
-	if !w.CraftVisibleHere() {
-		return v.buildDockGuestOrbitChipCompact(w)
-	}
-	c := w.ActiveCraft()
-	if c == nil || shouldShowLaunchHUD(c) {
-		return nil
-	}
-	if !craftHasOrbit(c) {
-		lat, lon := c.SurfaceLatLon()
-		return []string{
-			v.theme.Primary.Render("ORBIT"),
-			chipRow("landed at:", readout.Angle(lat)+", "+readout.Angle(lon)),
-		}
-	}
-	mu := c.Primary.GravitationalParameter()
-	frame := orbital.ReferenceFrameForPrimary(c.Primary)
-	el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
-	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
-		return nil
-	}
-	primaryR := c.Primary.RadiusMeters()
-	apoAlt := el.Apoapsis() - primaryR
-	periAlt := el.Periapsis() - primaryR
-	pePart := fmt.Sprintf("Pe: %s", readout.Distance(periAlt))
-	if periAlt < 0 {
-		pePart = v.theme.Warning.Render(pePart)
-	}
-	lines := []string{
-		v.theme.Primary.Render("ORBIT"),
-		fmt.Sprintf("  Ap: %s  %s", readout.Distance(apoAlt), pePart),
-	}
-	if periAlt < 0 {
-		lines = append(lines, "  "+v.theme.Alert.Render("⚠ BELOW SURFACE"))
-	}
-	return lines
-}
-
-// buildDockGuestOrbitChipCompact is buildOrbitMetricsChipCompact's rider-
-// view sibling, mirroring buildDockGuestOrbitChip's derivation.
-func (v *OrbitView) buildDockGuestOrbitChipCompact(w *sim.World) []string {
-	g, primary, ok := w.DockGuestStackGhost()
-	if !ok {
-		return nil
-	}
-	mu := primary.GravitationalParameter()
-	frame := orbital.ReferenceFrameForPrimary(*primary)
-	el := orbital.ElementsFromStateInFrame(g.RelPos, g.Vel, mu, frame)
-	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
-		return nil
-	}
-	primaryR := primary.RadiusMeters()
-	apoAlt := el.Apoapsis() - primaryR
-	periAlt := el.Periapsis() - primaryR
-	header := "ORBIT"
-	if w.DockGuest.OwnerHandle != "" {
-		header = "ORBIT — " + w.DockGuest.OwnerHandle + "'s stack"
-	}
-	pePart := fmt.Sprintf("Pe: %s", readout.Distance(periAlt))
-	if periAlt < 0 {
-		pePart = v.theme.Warning.Render(pePart)
-	}
-	lines := []string{
-		v.theme.Primary.Render(header),
-		fmt.Sprintf("  Ap: %s  %s", readout.Distance(apoAlt), pePart),
-	}
-	if periAlt < 0 {
-		lines = append(lines, "  "+v.theme.Alert.Render("⚠ BELOW SURFACE"))
-	}
-	return lines
-}
-
-// buildLandedOrbitChip is buildOrbitMetricsChip's landed branch (#375).
-// A parked craft's (R, ω×R) co-rotation state resolves through
-// ElementsFromState to a valid-looking ellipse (apoapsis pinned at the
-// vessel, periapsis a few metres from the primary's centre, sign-
-// flipping at the display quantum tick to tick), so the chip must not
-// read elements at all while Landed. Instead it shows the facts that
-// ARE true on the ground — body, landed lat/lon, altitude (always 0),
-// and surface co-rotation speed (c.State.V IS ω×R for a Landed craft,
-// per integrateLanded) — the same swap buildLaunchChip already makes
-// (incl. → launch lat) rather than leaving the chip blank.
-func (v *OrbitView) buildLandedOrbitChip(c *spacecraft.Spacecraft) []string {
-	lat, lon := c.SurfaceLatLon()
-	return []string{
-		v.theme.Primary.Render("ORBIT"),
-		chipRow("body:", c.Primary.EnglishName),
-		chipRow("landed at:", readout.Angle(lat)+", "+readout.Angle(lon)),
-		chipRow(readout.LabelAltitude, readout.Distance(0)),
-		chipRow("co-rotation:", readout.Speed(c.State.V.Norm())),
-	}
-}
-
-// buildDockGuestOrbitChip is the ORBIT chip's badged rider-view sibling
-// (ADR 0038 S4 part 3): while riding in another player's stack, the
-// guest's own Crafts slate is empty, so the live-craft ORBIT readout above
-// has nothing to draw — exactly when there IS an orbit worth showing, the
-// stack's. Mirrors buildOrbitMetricsChip's own-craft element derivation
-// (same ElementsFromStateInFrame call) but reads the ghost's
-// primary-relative state instead of a local craft's, and headers with the
-// owner's handle so the numbers are never mistaken for the player's own
-// ship. Returns nil with no DockGuest, no ghost report yet, or a
-// degenerate/hyperbolic resolved orbit — the caller (buildOrbitMetricsChip)
-// falls through to its existing silent nil in all of those.
-func (v *OrbitView) buildDockGuestOrbitChip(w *sim.World) []string {
-	g, primary, ok := w.DockGuestStackGhost()
-	if !ok {
-		return nil
-	}
-	mu := primary.GravitationalParameter()
-	frame := orbital.ReferenceFrameForPrimary(*primary)
-	el := orbital.ElementsFromStateInFrame(g.RelPos, g.Vel, mu, frame)
-	if math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.A <= 0 || el.E >= 1 {
-		return nil
-	}
-	primaryR := primary.RadiusMeters()
-	apoAlt := el.Apoapsis() - primaryR
-	periAlt := el.Periapsis() - primaryR
-	header := "ORBIT"
-	if w.DockGuest.OwnerHandle != "" {
-		header = "ORBIT — " + w.DockGuest.OwnerHandle + "'s stack"
-	}
-	dgPeRow := chipRow(readout.LabelPe, readout.Distance(periAlt))
-	if periAlt < 0 {
-		dgPeRow = v.theme.Warning.Render(dgPeRow)
-	}
-	lines := []string{
-		v.theme.Primary.Render(header),
-		chipRow(readout.LabelAp, readout.Distance(apoAlt)),
-		dgPeRow,
-		chipRow(readout.LabelIncl, readout.Angle(el.I*180/math.Pi)),
-	}
-	if periAlt < 0 {
-		lines = append(lines, "  "+v.theme.Alert.Render("⚠ PERIAPSIS BELOW SURFACE"))
-	}
-	return lines
-}
-
-// buildProjectedOrbitChip is the PROJECTED ORBIT readout — the projected
-// post-burn orbit once resolved nodes (or a live burn) are planted,
-// expressed in the primary's reference frame. Returns nil when no
-// projection is available, so it surfaces only while a burn is
-// planned/in flight, stacked beneath the always-on ORBIT chip. Split out
-// of buildOrbitMetricsChip (issue #63 follow-up) so the current and
-// projected orbits show simultaneously rather than the projection
-// replacing the live readout.
-func (v *OrbitView) buildProjectedOrbitChip(w *sim.World) []string {
-	if !w.CraftVisibleHere() || w.ActiveCraft() == nil {
-		return nil
-	}
-	state, primary, ok := w.PredictedFinalOrbit()
-	if !ok {
-		return nil
-	}
-	mu := primary.GravitationalParameter()
-	frame := orbital.ReferenceFrameForPrimary(primary)
-	ro := orbital.OrbitReadoutInFrame(state.R, state.V, mu, frame)
-	primaryR := primary.RadiusMeters()
-	lines := []string{
-		v.theme.Primary.Render("PROJECTED ORBIT"),
-		fmt.Sprintf("  primary:   %s", primary.EnglishName),
-	}
-	if ro.Hyperbolic {
-		hypPeAlt := ro.PeriMeters - primaryR
-		hypPeLine := fmt.Sprintf("  Pe:        %s", readout.Distance(hypPeAlt))
-		if hypPeAlt < 0 {
-			hypPeLine = v.theme.Warning.Render(hypPeLine)
-		}
-		lines = append(lines,
-			"  "+v.theme.Warning.Render("hyperbolic — escape"),
-			hypPeLine,
-			fmt.Sprintf("  e:         %.3f", ro.Eccentricity),
-		)
-	} else {
-		// Elliptical: a = (apo + peri)/2 from the apsis radii, so the
-		// resulting period is shown alongside Ap/Pe for tuning a comsat
-		// insertion burn to a target period.
-		projA := (ro.ApoMeters + ro.PeriMeters) / 2
-		projPeriod := 2 * math.Pi * math.Sqrt(projA*projA*projA/mu)
-		projPeAlt := ro.PeriMeters - primaryR
-		projPeLine := fmt.Sprintf("  Pe:        %s", readout.Distance(projPeAlt))
-		if projPeAlt < 0 {
-			projPeLine = v.theme.Warning.Render(projPeLine)
-		}
-		lines = append(lines,
-			fmt.Sprintf("  Ap:        %s", readout.Distance(ro.ApoMeters-primaryR)),
-			projPeLine,
-			fmt.Sprintf("  period:    %s", readout.Period(time.Duration(projPeriod*float64(time.Second)))),
-			fmt.Sprintf("  incl:      %s", readout.Angle(ro.Inclination*180/math.Pi)),
-			fmt.Sprintf("  direction: %s", v.orbitDirectionLabel(ro.Inclination)),
-		)
-		const equatorialTol = 1e-3
-		if ro.Inclination < equatorialTol || math.Abs(ro.Inclination-math.Pi) < equatorialTol {
-			lines = append(lines, v.theme.Dim.Render("  AN/DN:     equatorial"))
-		} else {
-			lines = append(lines,
-				fmt.Sprintf("  AN angle:  %s", readout.Angle(normalizeDeg(ro.AscNode*180/math.Pi))),
-				fmt.Sprintf("  DN angle:  %s", readout.Angle(normalizeDeg(ro.DescNode*180/math.Pi))),
-			)
-		}
-	}
-	return lines
-}
-
-// buildProjectedOrbitChipCompact is PROJECTED ORBIT's Compact Form (ADR
-// 0046 / #422): an Ap/Pe strip like ORBIT's, matching its "escape" branch
-// down to the eccentricity too (the one number a degenerate transfer
-// still needs). This chip is a normal layoutChipsBySide budget
-// participant like any other (it no longer bypasses the budget for free
-// — see the leftOfPrev comment on builtChip): when its usual anchor, the
-// Core ORBIT chip, itself drops for space, PROJECTED ORBIT falls back to
-// ordinary stacking in composeChips and must fit the side's budget on its
-// own rather than overrun into the navball.
-func (v *OrbitView) buildProjectedOrbitChipCompact(w *sim.World) []string {
-	if !w.CraftVisibleHere() || w.ActiveCraft() == nil {
-		return nil
-	}
-	state, primary, ok := w.PredictedFinalOrbit()
-	if !ok {
-		return nil
-	}
-	mu := primary.GravitationalParameter()
-	frame := orbital.ReferenceFrameForPrimary(primary)
-	ro := orbital.OrbitReadoutInFrame(state.R, state.V, mu, frame)
-	primaryR := primary.RadiusMeters()
-	if ro.Hyperbolic {
-		compactPeAlt := ro.PeriMeters - primaryR
-		compactPePart := fmt.Sprintf("Pe: %s", readout.Distance(compactPeAlt))
-		if compactPeAlt < 0 {
-			compactPePart = v.theme.Warning.Render(compactPePart)
-		}
-		return []string{
-			v.theme.Primary.Render("PROJECTED ORBIT"),
-			fmt.Sprintf("  %s  %s  e: %.2f", v.theme.Warning.Render("escape"), compactPePart, ro.Eccentricity),
-		}
-	}
-	compactPeAlt := ro.PeriMeters - primaryR
-	compactPePart := fmt.Sprintf("Pe: %s", readout.Distance(compactPeAlt))
-	if compactPeAlt < 0 {
-		compactPePart = v.theme.Warning.Render(compactPePart)
-	}
-	return []string{
-		v.theme.Primary.Render("PROJECTED ORBIT") + "  " + primary.EnglishName,
-		fmt.Sprintf("  Ap: %s  %s", readout.Distance(ro.ApoMeters-primaryR), compactPePart),
-	}
 }
 
 // landedPlaneNormalOK reports whether the ACTIVE vessel's own landed
@@ -2372,303 +1517,6 @@ func departSwing(padIncl, eps float64) (low, high, best float64) {
 	return low, high, low
 }
 
-// buildTargetChip surfaces the unified Target slot — a body (name, Δi,
-// range) or a craft (name/role, orbit shape, range, rel speed, closing,
-// closest-approach, rendezvous advisory, DOCK READY). Returns nil when no
-// target is set. Transplanted from renderHUD's TARGET block.
-func (v *OrbitView) buildTargetChip(w *sim.World) []string {
-	c := w.ActiveCraft()
-	if c == nil || w.Target.Kind == sim.TargetNone {
-		return nil
-	}
-	switch w.Target.Kind {
-	case sim.TargetBody:
-		sysT := w.System()
-		if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sysT.Bodies) {
-			return nil
-		}
-		b := sysT.Bodies[w.Target.BodyIdx]
-		nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
-		lines := []string{
-			v.theme.Primary.Render("TARGET"),
-			chipRow("body:", nameStyle.Render(b.EnglishName)),
-		}
-		mu := c.Primary.GravitationalParameter()
-		frame := orbital.ReferenceFrameForPrimary(c.Primary)
-		ro := orbital.OrbitReadoutInFrame(c.State.R, c.State.V, mu, frame)
-		if !ro.Hyperbolic {
-			// review r1 F3: craftOrbitNormalForRelativeIncl's ok is now
-			// honored (was discarded before, which could print a
-			// meaningless "0.00°" for a craft landed at a pole).
-			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-				nTarget := orbital.OrbitNormalWorld(b)
-				if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, false); ok {
-					lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
-				}
-			}
-		}
-		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
-		lines = append(lines, chipRow("range:", readout.Distance(rangeM)))
-		// Predicted closest approach along the projected orbit — updates live
-		// as the player hand-flies a correction, so they can judge where the
-		// transfer actually passes the target rather than eyeballing the
-		// dashed curve. Perilune altitude when the path enters the SOI
-		// (negative ⇒ surface impact), else the flyby miss distance.
-		// decision 3 (grilled 2026-09-06): "the TARGET chip says it is
-		// recomputing during your own burn" — while c has a live
-		// ActiveBurn, the predicted-encounter row group (perilune/
-		// approach + TCA) is stale every integrator step the same way
-		// the projected-orbit chip is (PredictedFinalOrbit's own
-		// ActiveBurn gate, internal/sim/maneuver.go); the range/Δi rows
-		// above stay live since they read the craft's current state
-		// directly, not a chained prediction.
-		if c.ActiveBurn != nil {
-			lines = append(lines, chipRow("encounter:", v.theme.Dim.Render("recomputing…")))
-		} else if ap, ok := w.PredictedTargetApproach(); ok {
-			if ap.EntersSOI {
-				alt := ap.Dist - b.RadiusMeters()
-				if alt <= 0 {
-					lines = append(lines, chipRow("perilune:", v.theme.Warning.Render("IMPACT")))
-				} else {
-					lines = append(lines, chipRow("perilune:", readout.Distance(alt)))
-				}
-			} else {
-				lines = append(lines, chipRow("approach:", readout.Distance(ap.Dist)))
-			}
-			lines = append(lines, chipRow(readout.LabelTCA, readout.Countdown(time.Duration(ap.TCA*float64(time.Second)))))
-		}
-		return lines
-	case sim.TargetCraft:
-		tc, _, ok := w.ResolveTargetCraft()
-		if !ok {
-			return nil
-		}
-		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("vessel:", tc.Name)}
-		if craftHasOrbit(tc) {
-			tMu := tc.Primary.GravitationalParameter()
-			tFrame := orbital.ReferenceFrameForPrimary(tc.Primary)
-			tEl := orbital.ElementsFromStateInFrame(tc.State.R, tc.State.V, tMu, tFrame)
-			if tEl.A > 0 && !math.IsNaN(tEl.A) && !math.IsInf(tEl.A, 0) {
-				tPrimaryR := tc.Primary.RadiusMeters()
-				tPeriAlt := tEl.Periapsis() - tPrimaryR
-				tPeRow := chipRow(readout.LabelPe, readout.Distance(tPeriAlt))
-				if tPeriAlt < 0 {
-					tPeRow = v.theme.Warning.Render(tPeRow)
-				}
-				lines = append(lines,
-					chipRow(readout.LabelAp, readout.Distance(tEl.Apoapsis()-tPrimaryR)),
-					tPeRow,
-					chipRow(readout.LabelIncl, readout.Angle(tEl.I*180/math.Pi)),
-				)
-			}
-		} else {
-			// #375: a landed target's (R, ω×R) co-rotation state is not an
-			// orbit — swap Ap/Pe/inclin. for its landing site rather than
-			// reading elements off the pseudo-orbit. Range / rel speed /
-			// closing below stay meaningful (relative-state math, not
-			// elements) so they're untouched.
-			tLat, tLon := tc.SurfaceLatLon()
-			lines = append(lines, chipRow("landed at:", readout.Angle(tLat)+", "+readout.Angle(tLon)))
-		}
-		// Δincl: against this vessel's plane (ADR 0050 decisions 6-8).
-		// TargetPlaneNormal folds in the same-primary gate (a vessel
-		// orbiting a different primary reads no figure at all rather
-		// than a fast-looking wobble, see its own doc comment) and the
-		// pole guard. A landed target's normal is its co-rotation r × v,
-		// which is exactly the due-east launch plane (decision 7), so
-		// the row says so; an orbiting target's normal is its live
-		// orbital-plane normal and carries no tag.
-		if nTarget, ok := w.TargetPlaneNormal(); ok {
-			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-				if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, !craftHasOrbit(tc)); ok {
-					lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
-				}
-			}
-		}
-		var rRel, vRelVec orbital.Vec3
-		if tc.Primary.ID == c.Primary.ID {
-			rRel = tc.State.R.Sub(c.State.R)
-			vRelVec = tc.State.V.Sub(c.State.V)
-		} else {
-			tcInertial := w.BodyPosition(tc.Primary).Add(tc.State.R)
-			rRel = tcInertial.Sub(w.CraftInertial())
-			vRelVec = w.CraftInertialVelocity(tc).Sub(w.CraftInertialVelocity(c))
-		}
-		rangeM := rRel.Norm()
-		vRel := vRelVec.Norm()
-		var closing float64
-		if rangeM > 0 {
-			closing = -rRel.Dot(vRelVec) / rangeM
-		}
-		leadDeg, leadOK := w.TargetLeadAngleDeg()
-		lines = append(lines,
-			chipRow("range:", readout.Distance(rangeM)),
-			chipRow(readout.LabelRelSpeed, readout.Speed(vRel)),
-			chipRow("closing:", readout.SignedSpeed(closing)),
-			chipRow("lead:", targetLeadLabel(leadDeg, leadOK)),
-		)
-		if tc.Primary.ID == c.Primary.ID {
-			// #375 follow-up: closestApproachRows Kepler-propagates the
-			// target's (R, V) forward to find the encounter — feeding it a
-			// landed target's (R, ω×R) co-rotation state would propagate
-			// the very pseudo-orbit the rest of #375 suppresses (periapsis
-			// metres from the primary's centre) and print a TCA/CA pair for
-			// a phantom trajectory. Range/closing above stay meaningful for
-			// a landed target (relative-state math, not propagation) so
-			// only this predicted-encounter row group is gated.
-			//
-			// decision 3 (grilled 2026-09-06): a live ActiveBurn on the
-			// active craft gets the same "recomputing…" swap the body-target
-			// branch above uses, for the same reason — closestApproachRows
-			// propagates from a state that's being rewritten every
-			// integrator step mid-burn.
-			switch {
-			case c.ActiveBurn != nil:
-				lines = append(lines, chipRow("encounter:", v.theme.Dim.Render("recomputing…")))
-			case craftHasOrbit(tc):
-				lines = append(lines, v.closestApproachRows(w, c)...)
-			}
-			if rangeM < 50 && vRel < 0.1 {
-				dockStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
-				lines = append(lines, "  "+dockStyle.Render("DOCK READY"))
-			}
-		}
-		return lines
-	case sim.TargetGhost:
-		// v0.27 review follow-up: a remote player's craft. Same rows as
-		// a local craft target: orbit, range, rel speed, closing, CA/TCA
-		// — resolved from the ghost slate (already at this world's
-		// sim-time). No DOCK READY: cross-player docking is v0.28.
-		g, gPrimary, ok := w.ResolveTargetGhost()
-		if !ok {
-			// #294 review finding 4: the lock survives an unresolved ghost
-			// (Kind stays TargetGhost so a later resolve re-latches it —
-			// see World.HasRelativeTarget / World.TargetName) — a bare
-			// "return nil" here reads as no target at all, indistinguishable
-			// from TargetNone. Show the pending state instead so the player
-			// can tell "still locked, just waiting" from "lost".
-			return []string{
-				v.theme.Primary.Render("TARGET"),
-				chipRow("ghost:", w.TargetName()),
-				chipRow("status:", "signal not yet resolved"),
-			}
-		}
-		lines := []string{v.theme.Primary.Render("TARGET"), chipRow("ghost:", w.TargetName())}
-		gRel := g.Pos.Sub(w.BodyPosition(gPrimary))
-		gMu := gPrimary.GravitationalParameter()
-		gFrame := orbital.ReferenceFrameForPrimary(gPrimary)
-		gEl := orbital.ElementsFromStateInFrame(gRel, g.Vel, gMu, gFrame)
-		if gEl.A > 0 && !math.IsNaN(gEl.A) && !math.IsInf(gEl.A, 0) {
-			gPrimaryR := gPrimary.RadiusMeters()
-			gPeriAlt := gEl.Periapsis() - gPrimaryR
-			gPeRow := chipRow(readout.LabelPe, readout.Distance(gPeriAlt))
-			if gPeriAlt < 0 {
-				gPeRow = v.theme.Warning.Render(gPeRow)
-			}
-			lines = append(lines,
-				chipRow(readout.LabelAp, readout.Distance(gEl.Apoapsis()-gPrimaryR)),
-				gPeRow,
-				chipRow(readout.LabelIncl, readout.Angle(gEl.I*180/math.Pi)),
-			)
-		}
-		// Δincl: against this ghost's plane (ADR 0050 decisions 6, 8). A
-		// ghost is always evaluated as if it kept coasting (sim/ghost.go,
-		// "physics never sees it"), never Landed, so no "(due east)" tag
-		// applies here: decision 7 is TargetCraft-only.
-		if nTarget, ok := w.TargetPlaneNormal(); ok {
-			if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-				if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, false); ok {
-					lines = append(lines, chipRow(readout.LabelDeltaIncl, diLabel))
-				}
-			}
-		}
-		rT, vT, ok := w.TargetStateRelativeToActivePrimary()
-		if !ok {
-			return lines
-		}
-		rRel := rT.Sub(c.State.R)
-		vRelVec := vT.Sub(c.State.V)
-		rangeM := rRel.Norm()
-		vRel := vRelVec.Norm()
-		var closing float64
-		if rangeM > 0 {
-			closing = -rRel.Dot(vRelVec) / rangeM
-		}
-		leadDeg, leadOK := w.TargetLeadAngleDeg()
-		lines = append(lines,
-			chipRow("range:", readout.Distance(rangeM)),
-			chipRow(readout.LabelRelSpeed, readout.Speed(vRel)),
-			chipRow("closing:", readout.SignedSpeed(closing)),
-			chipRow("lead:", targetLeadLabel(leadDeg, leadOK)),
-		)
-		if gPrimary.ID == c.Primary.ID {
-			lines = append(lines, v.closestApproachRows(w, c)...)
-		}
-		return lines
-	}
-	return nil
-}
-
-// buildTargetChipCompact is TARGET's Compact Form (ADR 0046 / #422,
-// CONTEXT.md "Graceful Shrink": "the Target Chip becomes name + range"):
-// one row naming what's targeted, one row with its range — dropping Δi/
-// Ap/Pe/inclination, rel speed/closing/lead, the approach prediction, and
-// DOCK READY. Mirrors buildTargetChip's branch order (body / craft /
-// ghost, including the ghost's "not yet resolved" pending state) so the
-// two forms always agree about WHICH branch is showing; the range math
-// in each branch is the same computation buildTargetChip performs, kept
-// inline here rather than factored out since each branch's relative-
-// state derivation differs by only a couple of lines.
-func (v *OrbitView) buildTargetChipCompact(w *sim.World) []string {
-	c := w.ActiveCraft()
-	if c == nil || w.Target.Kind == sim.TargetNone {
-		return nil
-	}
-	switch w.Target.Kind {
-	case sim.TargetBody:
-		sysT := w.System()
-		if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sysT.Bodies) {
-			return nil
-		}
-		b := sysT.Bodies[w.Target.BodyIdx]
-		nameStyle := lipgloss.NewStyle().Foreground(render.ColorFor(b)).Bold(true)
-		rangeM := w.BodyPosition(b).Sub(w.CraftInertial()).Norm()
-		return []string{
-			v.theme.Primary.Render("TARGET") + "  " + nameStyle.Render(b.EnglishName),
-			chipRow("range:", readout.Distance(rangeM)),
-		}
-	case sim.TargetCraft:
-		tc, _, ok := w.ResolveTargetCraft()
-		if !ok {
-			return nil
-		}
-		var rRel orbital.Vec3
-		if tc.Primary.ID == c.Primary.ID {
-			rRel = tc.State.R.Sub(c.State.R)
-		} else {
-			rRel = w.BodyPosition(tc.Primary).Add(tc.State.R).Sub(w.CraftInertial())
-		}
-		return []string{
-			v.theme.Primary.Render("TARGET") + "  " + tc.Name,
-			chipRow("range:", readout.Distance(rRel.Norm())),
-		}
-	case sim.TargetGhost:
-		if _, _, ok := w.ResolveTargetGhost(); !ok {
-			return []string{
-				v.theme.Primary.Render("TARGET") + "  " + w.TargetName(),
-				chipRow("status:", "not yet resolved"),
-			}
-		}
-		lines := []string{v.theme.Primary.Render("TARGET") + "  " + w.TargetName()}
-		if rT, _, ok := w.TargetStateRelativeToActivePrimary(); ok {
-			rangeM := rT.Sub(c.State.R).Norm()
-			lines = append(lines, chipRow("range:", readout.Distance(rangeM)))
-		}
-		return lines
-	}
-	return nil
-}
-
 // targetLeadLabel renders World.TargetLeadAngleDeg's reading as a chip
 // value (#287): phasing direction is the first decision of any
 // rendezvous, and a bare signed number is exactly the kind of thing
@@ -2842,4 +1690,109 @@ func chipRowAt(label, value string, col int) string {
 		pad = 1
 	}
 	return prefix + strings.Repeat(" ", pad) + value
+}
+
+// boxValueCol is value1's column (ADR 0051 decision 4, "two quantities
+// per row"), matching the existing chipValueCol convention, shared by
+// every box (chipRowAt's own convention, unaffected by this fix).
+const boxValueCol = 13
+
+// boxCols is one instrument box's column layout for its OWN chipRow2/
+// chipRow3 calls: where the second (and third) cell's LABEL is pinned,
+// and how far that cell's own value sits after its label. Fix note (the
+// alignment bug this replaces): chipRow2/chipRow3 used to share ONE
+// column set across all eight boxes, sized to the single widest first
+// value anywhere on the HUD, every box inherited that width even when
+// its own values were much shorter (TARGET's "371.6 Mm" paid for
+// PROPELLANT's "3518 / 18872 m/s"), which is what pushed the TARGET/
+// NAVIGATION boxes wide enough to eat into the launch view's canvas and
+// hide the LUT crown glyph (TestLaunchTowerRendersAtPad). Per box
+// instead (re-grill: "per-box column sized to fit that box's widest
+// first value"): label2/label3 are pinned to a column sized for THAT
+// box's own typical first/second cell width, with at least one column
+// of daylight; an unusually wide value for that box still pushes the
+// next label right by at least one space (chipCellAt's own clamp)
+// rather than colliding, it just isn't the box's normal-case column.
+type boxCols struct {
+	label2, gap2 int
+	label3, gap3 int // chipRow3 only; zero when a box never uses chipRow3
+}
+
+var (
+	// ENGINE: value1 is the throttle row ("100% idle" .. "100% ● FIRING
+	// 59m59s", ~20 cells); label2 is always "mode:" (5).
+	engineCols = boxCols{label2: 35, gap2: 7}
+	// PROPELLANT: value1's widest row is the Δv pair ("18872 / 99999
+	// m/s", ~18 cells); label2's widest text is "Δv→circ:" (8).
+	propellantCols = boxCols{label2: 33, gap2: 10}
+	// GUIDANCE: value1's widest row is hold: ("Target Prograde
+	// (TARGET)", ~24 cells, the common target-relative case. The rarer
+	// "Surface Retrograde (SURFACE)" pushes nav: right rather than
+	// colliding); label2's widest text is "orbit fpa:" (10).
+	guidanceCols = boxCols{label2: 39, gap2: 12}
+	// NAVIGATION: value1's widest common row is incl:/depart: ("28.61°
+	// (min 28.61°)", ~20 cells); label2's widest text is "period:" (7).
+	// label3 (the depart:/e:/dir: row only) follows e:'s own fixed-width
+	// value (%.4f, always 6 cells) after label2's cell.
+	navigationCols = boxCols{label2: 35, gap2: 9, label3: 52, gap3: 6}
+	// TARGET: value1's widest common row is range:/Ap: (short distances,
+	// ~10 cells); label2's widest text is "approach:" (9). label3
+	// follows closing:'s own widest common value ("+3639.71 m/s", ~12
+	// cells) after label2's cell.
+	targetCols = boxCols{label2: 25, gap2: 11, label3: 50, gap3: 7}
+)
+
+// chipRow2 formats a row carrying two labelled quantities (ADR 0051
+// decision 4): the first cell via chipRowAt (value1 pinned to
+// boxValueCol), the second via chipCellAt (label2 pinned to cols'
+// label2, value2 pinned cols.gap2 cells after it), so two rows in the
+// same box whose first values differ wildly in width still start their
+// second LABEL at the same screen column, which is what makes a box's
+// second cells read as one column rather than drifting per row. label2
+// == "" means this row has nothing in its second cell (a dash row with
+// no sibling quantity, e.g. ENGINE's bare node: row with only a dash
+// value): the row then reads exactly as chipRowAt's single-value form,
+// with no trailing padding.
+func chipRow2(cols boxCols, label1, value1, label2, value2 string) string {
+	row := chipRowAt(label1, value1, boxValueCol)
+	if label2 == "" {
+		return row
+	}
+	return chipCellAt(row, label2, value2, cols.label2, cols.gap2)
+}
+
+// chipRow3 is chipRow2 extended to a third labelled quantity, for the
+// three-per-row TARGET cells (decision 11: range/closing/rel,
+// Ap/Pe/incl) and NAVIGATION's depart:/e:/dir: row (decision 14). label3
+// == "" drops the third cell, matching chipRow2's own empty-label
+// convention.
+func chipRow3(cols boxCols, label1, value1, label2, value2, label3, value3 string) string {
+	row := chipRow2(cols, label1, value1, label2, value2)
+	if label3 == "" {
+		return row
+	}
+	return chipCellAt(row, label3, value3, cols.label3, cols.gap3)
+}
+
+// chipCellAt appends one labelled quantity onto an already-formatted
+// row: the LABEL is pinned to startCol, measured in display cells
+// (lipgloss.Width, never byte-counted %-Ns padding, so multibyte labels
+// and already-styled/ANSI-wrapped row content still line up); a row
+// already wider than startCol (an unusually long earlier cell) still
+// gets pushed right by at least one space rather than colliding with
+// what came before. The VALUE is then pinned valueGap cells after the
+// label's own start, not a separately fixed absolute column, so every
+// row sharing this cell's label column and gap also shares the value's
+// column, whatever that particular row's label text happens to be.
+func chipCellAt(row, label, value string, startCol, valueGap int) string {
+	pad := startCol - lipgloss.Width(row)
+	if pad < 1 {
+		pad = 1
+	}
+	row += strings.Repeat(" ", pad) + label
+	valPad := valueGap - lipgloss.Width(label)
+	if valPad < 1 {
+		valPad = 1
+	}
+	return row + strings.Repeat(" ", valPad) + value
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
-	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
@@ -355,20 +354,13 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 		// column is just the slim telemetry block. Canvas content sits 1
 		// col / 2 rows in (border + title), matching the orbit screen.
 		chips := v.hudSource.assembleChips(w)
-		// DESCENT and DESCENT CORRIDOR both answer "how is this landing
-		// going", and while the corridor is live they were both on screen
-		// — opposite corners, same altitude to two decimals, and the
-		// descent rate stated twice with opposite signs (`vert: -40.0
-		// m/s` against `descent: 40 m/s`). The corridor is the better
-		// block (it forecasts the ground contact and says whether the stop
-		// is still flyable), so it wins and DESCENT stands down here. Its
-		// two non-redundant rows moved into the corridor rather than being
-		// dropped — see sim.DescentCorridor's doc comment for which, and
-		// why `twr` and `sas` were not among them. The orbit map keeps its
-		// DESCENT chip untouched: there is no corridor there to replace it.
-		if descending {
-			chips = dropChip(chips, settings.ChipDescent)
-		}
+		// ADR 0051 retires the standalone DESCENT chip (its altitude/
+		// vert/horiz/fpa rows fold into NAVIGATION/GUIDANCE, always
+		// drawn) and with it the drop that used to stand it down here in
+		// favour of DESCENT CORRIDOR: there is nothing left in
+		// assembleChips' output for that id, so the drop is gone rather
+		// than kept as a no-op.
+		//
 		// DESCENT CORRIDOR is the surface view's own chip — built here, not
 		// in assembleChips, because it's the launch/surface screen's
 		// instrument block and the orbit map has no ground line to read it

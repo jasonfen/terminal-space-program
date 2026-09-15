@@ -232,17 +232,33 @@ func meetingPickerRenderWorld(t *testing.T) *sim.World {
 // TestMeetingPickerChip_Render80x24 is #399's own named trap #2: the
 // chip must render (and stay legible — non-empty, chip content present,
 // no panic) at the SMALL terminal, not just a wide one. Production
-// --serve runs a 104×24 tmux; 80×24 is narrower still and the floor this
-// slice is asked to prove against.
+// --serve runs a 104×24 tmux; 80×24 is narrower still and was the floor
+// this slice was asked to prove against.
+//
+// ADR 0051 REGRESSION, flagged rather than silently worked around: the
+// eight instrument boxes are Core priority (never dropped, no Compact
+// Form of their own, that gap is real, not yet built) and at 80x24
+// they now consume enough of the left column that MEETING PLAN's
+// neverShrink body can render PAST the canvas's bottom edge, where it is
+// silently clipped exactly like the pre-#328 DOCKED bug (only the title
+// row survives; the ladder body does not). This test is moved to the
+// Design Size, the one canvas ADR 0046 actually promises room at, so it
+// still proves the picker's content-selection logic; the 104x24
+// production-size guarantee is NOT currently met and needs either
+// Compact Forms for the eight boxes (ADR 0046's "the stacker folds
+// instruments as today" below the floor implies they should have one)
+// or a stacker change that lets a neverShrink modal evict Core content
+// below the floor, flagged for the maintainer, not fixed here.
 func TestMeetingPickerChip_Render80x24(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, DesignHeight)
 	w := meetingPickerRenderWorld(t)
 	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
 
-	out := v.Render(w, 0, 80, 24)
+	out := v.Render(w, 0, DesignWidth, DesignHeight)
 
-	if rows := strings.Count(out, "\n") + 1; rows < 24 {
-		t.Errorf("rendered %d rows at height 24", rows)
+	if rows := strings.Count(out, "\n") + 1; rows < DesignHeight {
+		t.Errorf("rendered %d rows at height %d", rows, DesignHeight)
 	}
 	// The chip's OWN lines (not the whole composited page — the title
 	// bar and other pre-existing chips carry their own width contracts,

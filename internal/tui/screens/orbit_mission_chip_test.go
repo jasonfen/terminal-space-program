@@ -105,10 +105,11 @@ func TestMissionChipLinesNilWhenIdle(t *testing.T) {
 	}
 }
 
-// TestBuildMissionsChipReadsWorld confirms the builder pulls the active
+// TestBuildMissionBoxReadsWorld confirms the builder pulls the active
 // mission out of the World (the no-flash path) — the wiring missionChipLines
-// can't cover on its own.
-func TestBuildMissionsChipReadsWorld(t *testing.T) {
+// can't cover on its own. Migrated from the retired buildMissionsChip onto
+// buildMissionBox (ADR 0051).
+func TestBuildMissionBoxReadsWorld(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -121,21 +122,24 @@ func TestBuildMissionsChipReadsWorld(t *testing.T) {
 			{Kind: missions.KindOrbitInsertion, Name: "make orbit"},
 		},
 	}}
-	chip := v.buildMissionsChip(w)
+	chip := v.buildMissionBox(w)
 	if chip == nil {
-		t.Fatal("buildMissionsChip = nil with an active mission")
+		t.Fatal("buildMissionBox = nil with an active mission")
 	}
 	if !strings.Contains(strings.Join(chip, "\n"), "Reach Orbit") {
-		t.Errorf("chip did not read the active mission name:\n%s", strings.Join(chip, "\n"))
+		t.Errorf("box did not read the active mission name:\n%s", strings.Join(chip, "\n"))
 	}
 }
 
 // TestMissionChipShowsLiveRelayCount — #426 (CONTEXT.md Player surface entry):
 // while a relay_coverage objective is the current one, the chip carries a
-// live "relays online N/3" row alongside the generic progress line, in both
-// the Full and Compact forms. World.ConnectedRelayCount() is the same count
-// the evaluator itself uses (evalRelayCoverage via missionEvalContext) — not
-// re-derived here.
+// live "relays online N/3" row alongside the generic progress line.
+// World.ConnectedRelayCount() is the same count the evaluator itself uses
+// (evalRelayCoverage via missionEvalContext), not re-derived here. The
+// Compact-Form half of this test is dropped (ADR 0051): missionChipLines'
+// only Compact-Form caller, buildMissionsChipCompact, is retired along
+// with the rest of the old chip set, MISSION (buildMissionBox) has no
+// Compact Form at all now (decision 2, never resize).
 func TestMissionChipShowsLiveRelayCount(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	m := &missions.Mission{
@@ -152,10 +156,6 @@ func TestMissionChipShowsLiveRelayCount(t *testing.T) {
 	if !strings.Contains(full, "relays online 1/3") {
 		t.Errorf("full-form chip missing live relay count:\n%s", full)
 	}
-	compact := strings.Join(v.missionChipLinesCompact("", false, m, 1), "\n")
-	if !strings.Contains(compact, "relays online 1/3") {
-		t.Errorf("compact-form chip missing live relay count:\n%s", compact)
-	}
 
 	// A non-relay-coverage objective never carries the row, regardless of
 	// what relayCount is passed.
@@ -168,10 +168,11 @@ func TestMissionChipShowsLiveRelayCount(t *testing.T) {
 	}
 }
 
-// TestBuildMissionsChipReadsLiveRelayCountFromWorld is the wiring test:
-// buildMissionsChip pulls the count from World.ConnectedRelayCount() rather
-// than a caller-supplied value.
-func TestBuildMissionsChipReadsLiveRelayCountFromWorld(t *testing.T) {
+// TestBuildMissionBoxReadsLiveRelayCountFromWorld is the wiring test:
+// buildMissionBox pulls the count from World.ConnectedRelayCount() rather
+// than a caller-supplied value. Migrated from the retired buildMissionsChip
+// (ADR 0051).
+func TestBuildMissionBoxReadsLiveRelayCountFromWorld(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -187,17 +188,20 @@ func TestBuildMissionsChipReadsLiveRelayCountFromWorld(t *testing.T) {
 		}},
 	}}
 	// No CommGraph built yet (no Tick run) → ConnectedRelayCount is 0.
-	chip := strings.Join(v.buildMissionsChip(w), "\n")
+	chip := strings.Join(v.buildMissionBox(w), "\n")
 	if !strings.Contains(chip, "relays online 0/3") {
-		t.Errorf("chip should read World.ConnectedRelayCount() (0 before any Tick):\n%s", chip)
+		t.Errorf("box should read World.ConnectedRelayCount() (0 before any Tick):\n%s", chip)
 	}
 }
 
-// TestBuildMissionsChipShowsSendoff — #426 item F: once every Flight
-// School rung has Passed and nothing else is active, the chip shows the
+// TestBuildMissionBoxShowsSendoff, #426 item F: once every Flight
+// School rung has Passed and nothing else is active, the box shows the
 // Sendoff line (World.LadderSendoff) instead of going blank, with the
-// Challenge-ladder offer when challenges are off.
-func TestBuildMissionsChipShowsSendoff(t *testing.T) {
+// Challenge-ladder offer when challenges are off. Migrated from the
+// retired buildMissionsChip(+Compact) onto buildMissionBox (ADR 0051):
+// this box has no Compact Form (decision 2, never resize), so the
+// Compact-form assertion is dropped.
+func TestBuildMissionBoxShowsSendoff(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -208,17 +212,12 @@ func TestBuildMissionsChipShowsSendoff(t *testing.T) {
 	}
 	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
 
-	full := strings.Join(v.buildMissionsChip(w), "\n")
+	full := strings.Join(v.buildMissionBox(w), "\n")
 	if !strings.Contains(full, "FLIGHT SCHOOL COMPLETE") {
-		t.Errorf("full-form chip missing the Sendoff line:\n%s", full)
+		t.Errorf("box missing the Sendoff line:\n%s", full)
 	}
 	if !strings.Contains(full, "[2] turn on the Challenge ladder") {
-		t.Errorf("full-form chip missing the Challenge-ladder offer (challenges are off):\n%s", full)
-	}
-
-	compact := strings.Join(v.buildMissionsChipCompact(w), "\n")
-	if !strings.Contains(compact, "FLIGHT SCHOOL COMPLETE") {
-		t.Errorf("compact-form chip missing the Sendoff line:\n%s", compact)
+		t.Errorf("box missing the Challenge-ladder offer (challenges are off):\n%s", full)
 	}
 }
 
@@ -227,8 +226,11 @@ func TestBuildMissionsChipShowsSendoff(t *testing.T) {
 // 87 columns in the 2026-09-02 UX review's gameplay-flow-progression-09
 // dump) used to size the whole chip to its longest line and overdraw the
 // navball beside it at 120 columns. The hint must wrap at
-// missionChipWrapWidth instead of setting the box's width, in both the
-// Full form and the Compact Form.
+// missionChipWrapWidth instead of setting the box's width. The Compact-
+// Form half of this test is dropped (ADR 0051): missionChipLinesCompact
+// (and its only caller, the retired buildMissionsChipCompact) is gone,
+// MISSION (buildMissionBox) has no Compact Form at all now (decision 2,
+// never resize).
 func TestMissionChipHintWrapsInsteadOfWideningTheBox(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	longHint := "Warp to your burn ([G]) or fire it manually ([b]) once the countdown reaches zero and the node is armed."
@@ -251,20 +253,5 @@ func TestMissionChipHintWrapsInsteadOfWideningTheBox(t *testing.T) {
 	}
 	if len(full) < 3 {
 		t.Fatalf("full form should wrap the long hint across multiple rows, got %d lines:\n%s", len(full), strings.Join(full, "\n"))
-	}
-
-	compact := v.missionChipLinesCompact("", false, m, 0)
-	for _, l := range compact {
-		if w := lipgloss.Width(l); w > missionChipWrapWidth+4 {
-			t.Errorf("compact-form line exceeds the wrap width (%d): %q (%d cols)", missionChipWrapWidth, l, w)
-		}
-	}
-	// Compact keeps objective + ONE wrapped hint line, not the hint's full
-	// multi-line text.
-	if len(compact) != 3 {
-		t.Errorf("compact form = %d lines, want 3 (header + objective + one hint row):\n%s", len(compact), strings.Join(compact, "\n"))
-	}
-	if !strings.Contains(compact[len(compact)-1], "…") {
-		t.Errorf("compact hint row should end with an ellipsis when the hint needed more than one wrapped line:\n%s", strings.Join(compact, "\n"))
 	}
 }

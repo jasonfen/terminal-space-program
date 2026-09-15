@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
-	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // spawnLandedOnMoon spawns a Saturn V landed on the Moon — an airless
@@ -94,12 +94,16 @@ func TestLandedActiveVesselDrawsNoEllipseOrApsisMarkers(t *testing.T) {
 // PR description — reverting the craftHasOrbit guard at these
 // coordinates still fails the ellipse/marker checks, and blanking the
 // glyph draw still fails the glyph check).
+// Rendered at the Design Size (ADR 0046/0051): at 80x24 (below the
+// floor), ADR 0051's eight instrument boxes are wide enough to paint
+// over the landed vessel's on-screen glyph position in this fixture's
+// tight surface-facing camera framing.
 func TestLandedVesselKeepsGlyphAndInspectRegistration(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.Resize(80, 24)
+	v.Resize(DesignWidth, DesignHeight)
 	w, c := spawnLandedOnMoon(t, 30, 0) // 30°N — camera-facing, verified above
 
-	out := v.Render(w, 0, 80, 24)
+	out := v.Render(w, 0, DesignWidth, DesignHeight)
 
 	vesselGlyph := []rune(spacecraft.VesselGlyph)[0]
 	if !strings.ContainsRune(out, vesselGlyph) {
@@ -194,31 +198,35 @@ func TestLandedOtherVesselDrawsNoEllipse(t *testing.T) {
 	}
 }
 
-// TestOrbitChipShowsSurfaceFactsWhenLanded (#375, site
-// orbit_chip_builders.go:1300 / buildOrbitMetricsChip): the ORBIT chip
-// for a Landed vessel on an airless body must not vanish (a chip that
+// TestNavigationBoxShowsSurfaceFactsWhenLanded (#375, migrated from the
+// retired ORBIT chip / buildLandedOrbitChip onto NAVIGATION): a Landed
+// vessel on an airless body must not have its box vanish (a box that
 // disappears reads as broken) and must not show Ap/Pe/period computed
 // from the co-rotation pseudo-orbit — it shows the facts that ARE true
-// on the ground instead.
-func TestOrbitChipShowsSurfaceFactsWhenLanded(t *testing.T) {
+// on the ground instead. ADR 0051 decision 9 moves "body:"/"landed at:"
+// onto NAVIGATION's own title (primary + "landed lat, lon") and renames
+// "co-rotation:" to "speed:" (13d) rather than keeping them as rows, so
+// this checks the title and the speed: cell instead of those labels.
+func TestNavigationBoxShowsSurfaceFactsWhenLanded(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(80, 24)
 	w, _ := spawnLandedOnMoon(t, 10, 0)
 
-	lines := v.buildOrbitMetricsChip(w)
+	lines := v.buildNavigationBox(w)
 	if lines == nil {
-		t.Fatal("ORBIT chip vanished for a landed vessel, want surface facts instead")
+		t.Fatal("NAVIGATION vanished for a landed vessel, want surface facts instead")
 	}
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"body:", "Moon", "landed at:", "altitude:", "co-rotation:"} {
+	if !strings.Contains(lines[0], "Moon") || !strings.Contains(lines[0], "landed") {
+		t.Errorf("NAVIGATION title missing the primary/landed-site badge: %q", lines[0])
+	}
+	for _, want := range []string{"altitude:", "speed:"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("landed ORBIT chip missing %q:\n%s", want, joined)
+			t.Errorf("landed NAVIGATION box missing %q:\n%s", want, joined)
 		}
 	}
-	for _, unwanted := range []string{"Ap:", "Pe:", "period:", "apo:", "peri:", "PERIAPSIS BELOW SURFACE"} {
-		if strings.Contains(joined, unwanted) {
-			t.Errorf("landed ORBIT chip still shows orbital readout %q, want it suppressed:\n%s", unwanted, joined)
-		}
+	if regexp.MustCompile(`\bAp:\s+[0-9]`).MatchString(joined) || regexp.MustCompile(`\bPe:\s+[0-9-]`).MatchString(joined) || regexp.MustCompile(`period:\s+[0-9]`).MatchString(joined) {
+		t.Errorf("landed NAVIGATION box still shows an orbital readout value, want dash cells instead:\n%s", joined)
 	}
 }
 
@@ -256,24 +264,24 @@ func TestTargetChipLandedTargetShowsNoApPe(t *testing.T) {
 	w.ActiveCraftIdx = 0 // restore the orbiting craft as active
 	w.SetTargetCraft(1)  // target the landed vessel
 
-	lines := v.buildTargetChip(w)
+	lines := v.buildTargetBox(w)
 	if lines == nil {
-		t.Fatal("TARGET chip returned nil for a landed target")
+		t.Fatal("TARGET box returned nil for a landed target")
 	}
 	joined := strings.Join(lines, "\n")
-	// ADR 0050 decision 7 adds a "Δincl:" row for a landed target, which
-	// contains "incl:" as a substring, so strip it out before checking
-	// that the un-prefixed elements-derived "incl:" row (the one #375
-	// swapped for "landed at:") hasn't come back.
-	strippedOfDeltaIncl := strings.ReplaceAll(joined, readout.LabelDeltaIncl, "")
-	for _, unwanted := range []string{"Ap:", "Pe:", "incl:"} {
-		if strings.Contains(strippedOfDeltaIncl, unwanted) {
-			t.Errorf("landed target's TARGET chip still shows %q, want it swapped for landing site:\n%s", unwanted, joined)
-		}
+	// ADR 0051's flattened TARGET box has no "landed at:" cell to swap
+	// in (the retired chip's own row for this branch, not reproduced,
+	// its fixed 10-cell schema has no slot for it); Ap:/Pe:/incl: simply
+	// dash for a landed target instead.
+	// [^Δ]incl:, not \bincl:, so this doesn't false-match inside "Δincl:"
+	// (Δ isn't a Go regexp \w character, so \b alone sits on both sides
+	// of it), Δincl legitimately carries a real due-east value here.
+	if regexp.MustCompile(`\bAp:\s+[0-9]`).MatchString(joined) || regexp.MustCompile(`\bPe:\s+[0-9-]`).MatchString(joined) || regexp.MustCompile(`[^Δ]incl:\s+[0-9]`).MatchString(joined) {
+		t.Errorf("landed target's TARGET box still shows a real Ap/Pe/incl value, want dash cells:\n%s", joined)
 	}
-	for _, want := range []string{"landed at:", "range:", "rel speed:", "closing:"} {
+	for _, want := range []string{"range:", "rel", "closing:"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("landed target's TARGET chip missing %q:\n%s", want, joined)
+			t.Errorf("landed target's TARGET box missing %q:\n%s", want, joined)
 		}
 	}
 }
@@ -291,10 +299,10 @@ func TestLandedVesselNeverPrintsNegativeZero(t *testing.T) {
 
 	for i := 0; i < 200; i++ {
 		w.Tick()
-		lines := v.buildOrbitMetricsChip(w)
+		lines := v.buildNavigationBox(w)
 		for _, l := range lines {
 			if strings.Contains(l, "-0.0") || strings.Contains(l, "-0 ") {
-				t.Fatalf("tick %d: landed ORBIT chip printed a negative zero: %q\nfull chip:\n%s",
+				t.Fatalf("tick %d: landed NAVIGATION box printed a negative zero: %q\nfull box:\n%s",
 					i, l, strings.Join(lines, "\n"))
 			}
 		}
@@ -350,19 +358,17 @@ func TestLandedTargetHasNoClosestApproachPrediction(t *testing.T) {
 	w.ActiveCraftIdx = 0 // restore the orbiting craft as active
 	w.SetTargetCraft(1)  // target the landed vessel
 
-	lines := v.buildTargetChip(w)
+	lines := v.buildTargetBox(w)
 	if lines == nil {
-		t.Fatal("TARGET chip returned nil for a landed target")
+		t.Fatal("TARGET box returned nil for a landed target")
 	}
 	joined := strings.Join(lines, "\n")
-	for _, unwanted := range []string{"TCA:", "CA:"} {
-		if strings.Contains(joined, unwanted) {
-			t.Errorf("landed target's TARGET chip still shows %q (a propagated closest-approach prediction), want it suppressed:\n%s", unwanted, joined)
-		}
+	if regexp.MustCompile(`\bTCA:\s+[0-9T]`).MatchString(joined) || regexp.MustCompile(`\bapproach:\s+[0-9]`).MatchString(joined) {
+		t.Errorf("landed target's TARGET box still shows a real TCA/approach value (a propagated closest-approach prediction), want dash cells:\n%s", joined)
 	}
-	for _, want := range []string{"range:", "rel speed:", "closing:"} {
+	for _, want := range []string{"range:", "rel", "closing:"} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("landed target's TARGET chip lost %q — only the propagated CA/TCA prediction should be gated, not the whole row group:\n%s", want, joined)
+			t.Errorf("landed target's TARGET box lost %q — only the propagated TCA/approach prediction should be gated, not the whole cell group:\n%s", want, joined)
 		}
 	}
 

@@ -195,6 +195,14 @@ var helpSections = []helpSection{
 	// so each gets a line here rather than being spelled out on every
 	// chip. Order matches the ADR and CONTEXT.md's Readout Contract
 	// entry.
+	//
+	// ADR 0051 slice 2b adds eight more entries, one per new symbol or
+	// word the eight instrument boxes introduced: the Ap trend arrow
+	// and the → "becomes" rule share one line (re-grill Q3), the node
+	// row's ⚠ (re-grill Q4), plan/dir/speed (decisions 15/14/13d), the
+	// (max N) full-throttle wording (decision 13b/C5), and ORBIT
+	// READY's cue (decision 10, re-grill Q7: no floor number, by
+	// rule).
 	{"READOUT GLOSSARY", [][2]string{
 		{"fpa", "flight path angle: velocity above / below the local horizontal"},
 		{"Q", "dynamic pressure: aerodynamic stress on the airframe, in kPa"},
@@ -205,6 +213,14 @@ var helpSections = []helpSection{
 		{"T- / T+", "countdown convention: T- counts down to an event, T+ counts up since it"},
 		{"incl (min N°)", "on the pad: the inclination your commanded heading yields, and the Inclination Floor (|launch latitude|) it can't go below"},
 		{"depart", "the angle between the orbit you'd reach and the plane the world beneath you travels in: the plane you leave along"},
+		{"Ap ↑ / ↓", "apoapsis trend: climbing / falling; no glyph while it's steady"},
+		{"→", "becomes: between a current value and a planned or resulting one, wherever it appears"},
+		{"⚠ (node)", "on a planned burn: it exceeds the stage's Δv budget"},
+		{"plan", "the world the planned burn's numbers are measured from, plus its node angles"},
+		{"dir", "prograde or retrograde: which way the orbit runs"},
+		{"speed", "inertial speed, alongside vert: and horiz:"},
+		{"(max N)", "the same figure at full throttle, when it differs from the current one"},
+		{"● ORBIT READY [C]", "apoapsis has cleared this world's orbit floor: press [C] to plant the circularising burn"},
 	}},
 }
 

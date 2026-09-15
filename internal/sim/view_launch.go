@@ -9,8 +9,9 @@
 // took ViewLaunch out of the `v` projection cycle entirely, so `V` is
 // now the primary way out (CycleViewMode still works as a fallback
 // escape hatch — see its own doc comment). (The ORBIT READY callout and
-// the ViewTilted LaunchAnchor keep their LaunchMissionFloorM gate; only
-// the view restore went.) A session still ends without a `V` press when
+// the ViewTilted LaunchAnchor keep their own Orbit Floor gate,
+// OrbitFloorForCraft, ADR 0051 decision 10; only the view restore
+// went.) A session still ends without a `V` press when
 // the player switches active onto a flying vessel — that restore
 // answers the player's switch, not ambient sim state.
 //

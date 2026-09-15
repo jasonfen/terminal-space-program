@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -21,66 +20,13 @@ import (
 // screens/ call site routes through readout.Distance / readout.Duration /
 // readout.Countdown / readout.Period instead (ADR 0049 stage A2).
 
-// TestLaunchMissionProgressMatchesCircularizeFromPad — when the world
-// has an in-flight circularize_from_pad mission for the active
-// craft's primary, the progress line shows current pe / target.
-// v0.9.4+.
-func TestLaunchMissionProgressMatchesCircularizeFromPad(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	if c == nil {
-		t.Fatal("expected active craft from NewWorld")
-	}
-	// Inject an in-flight circularize_from_pad mission for the craft's primary
-	// (the embedded ladder no longer ships one — it can't verify a pad launch
-	// — so this exercises the launch-HUD path directly).
-	w.Missions = []missions.Mission{{
-		ID: "pad",
-		Objectives: []missions.Objective{{
-			Kind:   missions.KindCircularizeFromPad,
-			Params: missions.Params{PrimaryID: c.Primary.ID, MinPeriapsisAltM: 200_000},
-		}},
-	}}
-	got := launchMissionProgress(w, c, 130_000)
-	if got == "" {
-		t.Fatal("expected non-empty progress for active circularize_from_pad mission")
-	}
-	if !strings.Contains(got, "200") {
-		t.Errorf("progress %q should reference the 200 km mission floor", got)
-	}
-	if !strings.Contains(got, "130") {
-		t.Errorf("progress %q should reference the current pe altitude", got)
-	}
-}
-
-// TestLaunchMissionProgressEmptyWithoutMission — with the bundled
-// circularize_from_pad mission marked Passed, the helper returns ""
-// so the LAUNCH HUD doesn't emit a stray row. v0.9.4+.
-func TestLaunchMissionProgressEmptyWithoutMission(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	if c == nil {
-		t.Fatal("expected active craft from NewWorld")
-	}
-	// A Passed circularize_from_pad mission yields no launch-HUD row.
-	w.Missions = []missions.Mission{{
-		ID:     "pad",
-		Status: missions.Passed,
-		Objectives: []missions.Objective{{
-			Kind:   missions.KindCircularizeFromPad,
-			Params: missions.Params{PrimaryID: c.Primary.ID, MinPeriapsisAltM: 200_000},
-		}},
-	}}
-	if got := launchMissionProgress(w, c, 130_000); got != "" {
-		t.Errorf("progress with no in-flight mission = %q, want \"\"", got)
-	}
-}
+// (launchMissionProgress, the circularize_from_pad-specific "pe / target"
+// progress line the retired SURFACE chip used to append, is deleted along
+// with buildLaunchChip: it had no other caller, and no ADR 0051 box
+// reproduces it, the MISSION box's own objective/description display is
+// a different thing. This is a real dropped feature, not covered by any
+// live code path today; flagged in the slice 2a progress log rather than
+// silently carried as a dead-code test.)
 
 // TestLaunchHUDRendersOrbitReadyOnApAboveFloor — drives the LAUNCH
 // HUD directly by mutating the active craft's state into an
@@ -175,27 +121,39 @@ func TestLaunchChipSteadyOnPad(t *testing.T) {
 		}
 		return ""
 	}
-	lines := v.buildLaunchChip(w)
-	for _, prefix := range []string{"Ap:", "apo:", "Δv→circ:"} {
-		got := row(lines, prefix)
-		if !strings.HasSuffix(got, "—") {
-			t.Errorf("on the pad, %q row should be a steady em-dash; got %q", prefix, got)
-		}
+	// Ap:/Δv→circ: split across NAVIGATION and PROPELLANT now (decision 1);
+	// "apo:" retired for good (folded onto the Ap: cell itself, decision
+	// 10) so there's no separate row to check.
+	navRow := row(v.buildNavigationBox(w), "Ap:")
+	if !strings.HasSuffix(navRow, "—") {
+		t.Errorf("on the pad, NAVIGATION's Ap: row should be a steady em-dash; got %q", navRow)
 	}
-	// The pad-relevant rows must still be present.
-	if row(lines, "TWR:") == "" || row(lines, "hold:") == "" {
-		t.Errorf("LAUNCH chip on the pad lost TWR/hold rows:\n%s", strings.Join(lines, "\n"))
+	propRow := row(v.buildPropellantBox(w), "Δv:")
+	if !strings.Contains(propRow, "Δv→circ:") || !strings.HasSuffix(strings.TrimSpace(propRow), "—") {
+		t.Errorf("on the pad, PROPELLANT's Δv→circ: cell should be a steady em-dash; got %q", propRow)
+	}
+	// TWR:/hold: are now permanent rows on ENGINE/GUIDANCE (decision 2:
+	// every box, every row, always drawn), always present by
+	// construction, but confirm they're not somehow blank on the pad.
+	engineRow := row(v.buildEngineBox(w), "TWR:")
+	if engineRow == "" {
+		t.Errorf("ENGINE lost its TWR: row on the pad")
+	}
+	guidanceRow := row(v.buildGuidanceBox(w), "hold:")
+	if guidanceRow == "" {
+		t.Errorf("GUIDANCE lost its hold: row on the pad")
 	}
 }
 
-// TestLaunchChipHoldNamesFrame: the SURFACE chip's hold: row is one of
-// the two rows that stay on screen when ATTITUDE folds into the
-// "+N hidden" stub (the ADR 0050 review's F1 finding: on the pad at
-// 140x40 with a target set, ATTITUDE hides and hold: is the only
-// attitude readout left, with no frame in it). It must name its frame
-// through the same attitudeHoldLabel helper the ATTITUDE chip uses, not
-// a bare AttitudeMode.String().
-func TestLaunchChipHoldNamesFrame(t *testing.T) {
+// TestEngineBoxThrottleRowShowsLitIndicator, #427 / ADR 0048 §3: the
+// HUD had no engine-lit state at all (the review's own finding: after
+// pressing z then b there was no way to tell from the screen whether the
+// engine fired). ADR 0051 decision 1 moves this onto ENGINE's own
+// throttle: row, which now carries the ignition indicator directly
+// ("idle" before ignition, "● FIRING" once the engine is actually
+// producing thrust, a live ManualBurn or ActiveBurn) instead of a
+// separate "engine:" tag riding on the TWR: row.
+func TestEngineBoxThrottleRowShowsLitIndicator(t *testing.T) {
 	v := NewOrbitView(Theme{
 		Primary: lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
@@ -218,95 +176,37 @@ func TestLaunchChipHoldNamesFrame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
-	if !c.Landed || !shouldShowLaunchHUD(c) {
-		t.Fatalf("setup: want a Landed craft with the LAUNCH chip up (landed=%v, show=%v)", c.Landed, shouldShowLaunchHUD(c))
-	}
-	w.NavMode = sim.NavOrbit
-	c.AttitudeMode = spacecraft.BurnPrograde
 
-	row := func(lines []string, prefix string) string {
-		for _, l := range lines {
-			if s := strings.TrimSpace(l); strings.HasPrefix(s, prefix) {
-				return s
+	// Pre-ignition: throttle: reads idle even though the setting is at
+	// its loadout default (100%), the point of the fix is that
+	// ignition, not throttle setting, is what "firing" answers.
+	throttleRow := func() string {
+		for _, l := range v.buildEngineBox(w) {
+			if strings.Contains(l, "throttle:") {
+				return l
 			}
 		}
 		return ""
 	}
-	lines := v.buildLaunchChip(w)
-	holdLine := row(lines, "hold:")
-	if !strings.Contains(holdLine, "(ORBIT)") {
-		t.Errorf("SURFACE hold row = %q, want it to name the ORBIT frame like the navball button does", holdLine)
+	row := throttleRow()
+	if row == "" {
+		t.Fatalf("no throttle: row in ENGINE box")
 	}
-}
-
-// TestLaunchChipEngineLitIndicator — #427 / ADR 0048 §3: the launch HUD
-// had no engine-lit state at all (the review's own finding: after
-// pressing z then b there was no way to tell from the screen whether the
-// engine fired). The TWR: row now carries an ignition indicator that
-// reads "off" before ignition and "LIT" once the engine is actually
-// producing thrust (a live ManualBurn or ActiveBurn) — not the
-// throttle: setting, which sits at its loadout default whether or not
-// anything is burning.
-func TestLaunchChipEngineLitIndicator(t *testing.T) {
-	v := NewOrbitView(Theme{
-		Primary: lipgloss.NewStyle(),
-		Warning: lipgloss.NewStyle(),
-		Alert:   lipgloss.NewStyle(),
-		Dim:     lipgloss.NewStyle(),
-		HUDBox:  lipgloss.NewStyle(),
-	})
-	v.Resize(120, 40)
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
+	if !strings.Contains(row, "idle") {
+		t.Errorf("pre-ignition throttle: row should read idle, got %q", row)
 	}
-	c, err := w.SpawnCraft(sim.SpawnSpec{
-		LoadoutID:       spacecraft.LoadoutSaturnVID,
-		ParentBodyID:    "earth",
-		Launchpad:       true,
-		Latitude:        sim.DefaultLaunchpadLatitude,
-		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-
-	// Pre-ignition: engine reads off even though throttle is at its
-	// loadout default (100%) — the point of the fix is that ignition, not
-	// throttle setting, is what "LIT" answers.
-	lines := v.buildLaunchChip(w)
-	twrRow := ""
-	for _, l := range lines {
-		if strings.Contains(l, "TWR:") {
-			twrRow = l
-			break
-		}
-	}
-	if twrRow == "" {
-		t.Fatalf("no TWR: row in LAUNCH chip:\n%s", strings.Join(lines, "\n"))
-	}
-	if !strings.Contains(twrRow, "engine:") || !strings.Contains(twrRow, "off") {
-		t.Errorf("pre-ignition TWR: row should show the engine off, got %q", twrRow)
-	}
-	if strings.Contains(twrRow, "LIT") {
-		t.Errorf("pre-ignition TWR: row already reads LIT: %q", twrRow)
+	if strings.Contains(row, "FIRING") {
+		t.Errorf("pre-ignition throttle: row already reads FIRING: %q", row)
 	}
 
 	// Ignite (mirrors the `b` key: ToggleManualBurn) — the same row must
-	// now read LIT.
+	// now read FIRING.
 	w.ToggleManualBurn()
 	if c.ManualBurn == nil {
 		t.Fatal("setup: ToggleManualBurn did not arm ManualBurn")
 	}
-	lines = v.buildLaunchChip(w)
-	twrRow = ""
-	for _, l := range lines {
-		if strings.Contains(l, "TWR:") {
-			twrRow = l
-			break
-		}
-	}
-	if !strings.Contains(twrRow, "LIT") {
-		t.Errorf("after ignition the TWR: row should read LIT, got %q", twrRow)
+	row = throttleRow()
+	if !strings.Contains(row, "FIRING") {
+		t.Errorf("after ignition the throttle: row should read FIRING, got %q", row)
 	}
 }

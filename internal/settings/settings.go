@@ -26,66 +26,86 @@ import "time"
 type Chip string
 
 const (
-	ChipTarget          Chip = "target"
-	ChipStages          Chip = "stages"
-	ChipNodes           Chip = "nodes"
-	ChipLaunch          Chip = "launch"
-	ChipDescent         Chip = "descent"
+	// The eight ADR 0051 instrument-box ids, in the boxes' own ruled
+	// order (decision 1: left ENGINE/PROPELLANT/GUIDANCE/COMMS/STAGES/
+	// MISSION, right NAVIGATION/TARGET). ChipTarget, ChipStages and
+	// ChipMissions predate the ADR and are re-pointed here to name the
+	// boxes that absorbed their old chips, rather than adding synonyms;
+	// ChipComms likewise, unchanged in spelling since COMMS was already
+	// its own chip. ChipEngine, ChipPropellant, ChipGuidance and
+	// ChipNavigation are new: the four boxes that had no single
+	// predecessor chip to re-point.
+	ChipEngine     Chip = "engine"
+	ChipPropellant Chip = "propellant"
+	ChipGuidance   Chip = "guidance"
+	ChipNavigation Chip = "navigation"
+	ChipComms      Chip = "comms" // v0.23 (ADR 0027): CommNet link status; re-pointed to the COMMS box
+	ChipTarget     Chip = "target"
+	ChipStages     Chip = "stages"
+	ChipMissions   Chip = "missions" // v0.21 (ADR 0025): re-pointed to the MISSION box
+
+	// ChipNodes no longer names a Settings-toggleable chip (the NODES
+	// box retired into ENGINE's node row, decision 1) but the constant
+	// stays: orbit_chip_builders.go still stamps it onto ENGINE's
+	// builtChip purely so app.go's click routing can recognise "the
+	// player clicked the node row" and open the maneuver planner, a
+	// HitChip lookup that has nothing to do with visibility. Deliberately
+	// absent from AllChips/chipLabels below: ChipEngine is the box's
+	// real visibility id now.
+	ChipNodes Chip = "nodes"
+
+	// Notice ids (ADR 0051 decision 7 / the notice bay): untouched by
+	// this ADR, still their own Settings toggles.
 	ChipChute           Chip = "chute"
 	ChipCapture         Chip = "capture"
 	ChipFrameTransition Chip = "frameTransition"
-	ChipAttitude        Chip = "attitude"
-	ChipProjectedOrbit  Chip = "projectedOrbit"
 	ChipSOIPass         Chip = "soiPass"
-	ChipMissions        Chip = "missions" // v0.21 (ADR 0025): in-flight mission checklist
-	ChipComms           Chip = "comms"    // v0.23 (ADR 0027): CommNet link status
 )
 
-// Note: the Orbit-metrics readout and the active-burn (BURNS) readout are
-// deliberately NOT Chips here. Both are always-on (non-toggleable) — a
-// player should never be able to permanently hide their current orbit or
-// a live burn from the Settings screen. They remain F2-Declutter-hideable
-// (the momentary clean-map gesture), but only the pinned VESSEL/PROPELLANT
-// core chip survives Declutter. See orbit_chip_builders.go (the empty-id
-// always-on path) and CONTEXT.md §"HUD & overlays".
+// Note: the eight ADR 0051 instrument boxes are NOT toggleable off the
+// same way a notice is: a player can switch one off in Settings (its
+// slot goes blank rather than closing up, decision 16), but F2 Declutter
+// hides all eight together regardless of individual Settings choices,
+// except ENGINE and PROPELLANT, which stay through Declutter while an
+// engine is lit (ADR 0010's fuel/live-burn-never-hidden rule, decision
+// 16). See orbit_chip_builders.go (navigationBoxesInOrder) and
+// CONTEXT.md §"HUD & overlays".
 
 // AllChips is the canonical, display-ordered list of toggle-able Chips.
 // The Settings screen (slice 3) iterates this — never the underlying map,
 // whose iteration order is unspecified — so toggles render in a stable
 // order. Append-only: order is part of the UI contract.
 var AllChips = []Chip{
+	ChipEngine,
+	ChipPropellant,
+	ChipGuidance,
+	ChipNavigation,
+	ChipComms,
 	ChipTarget,
 	ChipStages,
-	ChipNodes,
-	ChipLaunch,
-	ChipDescent,
+	ChipMissions,
 	ChipChute,
 	ChipCapture,
 	ChipFrameTransition,
-	ChipAttitude,
-	ChipProjectedOrbit,
 	ChipSOIPass,
-	ChipMissions,
-	ChipComms,
 }
 
 // chipLabels maps each Chip to the human-readable name the Settings
 // screen shows. Kept here so the player-facing chip vocabulary lives in
 // one place next to the identifiers.
 var chipLabels = map[Chip]string{
+	ChipEngine:          "Engine",
+	ChipPropellant:      "Propellant",
+	ChipGuidance:        "Guidance",
+	ChipNavigation:      "Navigation",
+	ChipComms:           "Comms",
 	ChipTarget:          "Target",
 	ChipStages:          "Stages",
-	ChipNodes:           "Maneuver nodes",
-	ChipLaunch:          "Surface",
-	ChipDescent:         "Descent",
+	ChipMissions:        "Mission checklist",
 	ChipChute:           "Chute",
 	ChipCapture:         "Capture preview",
 	ChipFrameTransition: "Frame transition",
-	ChipAttitude:        "Attitude",
-	ChipProjectedOrbit:  "Projected orbit",
 	ChipSOIPass:         "SOI pass",
-	ChipMissions:        "Mission checklist",
-	ChipComms:           "Comms link",
 }
 
 // Label returns the display name for c, falling back to the raw key for

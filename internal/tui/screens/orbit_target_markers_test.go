@@ -9,7 +9,6 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
-	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -314,16 +313,14 @@ func TestClosestApproachMarkerRendersAtNarrowCanvas(t *testing.T) {
 	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
 	v.Resize(80, 24)
 	w := closestApproachTestWorld(t)
-	// ADR 0046 (#422): VESSEL now has a Compact Form, so at 80×24 there is
-	// enough shared left-side budget for MISSION and ATTITUDE to both
-	// render in full where before ATTITUDE alone was silently dropped for
-	// space — a Graceful Shrink improvement, but ATTITUDE's box happens to
-	// land where this fixture's ✕ marker draws. This test is about marker
-	// glyph rendering at a narrow canvas, not chip crowding, so turn the
-	// unrelated ATTITUDE chip off to isolate what it actually checks.
-	s := settings.Default()
-	s.SetChip(settings.ChipAttitude, false)
-	v.SetSettings(s)
+	// This test is about marker glyph rendering at a narrow canvas, not
+	// chip crowding: ADR 0051's eight instrument boxes (replacing the old
+	// VESSEL/ATTITUDE/etc. chips) happen to land where this fixture's ✕
+	// marker draws at 80x24, below the Design Size where they're allowed
+	// to compact/drop. 2a has no per-box Settings id yet (slice 2b), so
+	// declutter is the only lever available to clear every chip and
+	// isolate what this test actually checks.
+	v.SetDeclutter(true)
 
 	out := v.Render(w, 0, 80, 24)
 	caGlyph := render.MarkerGlyph(render.MarkerClosestApproach)

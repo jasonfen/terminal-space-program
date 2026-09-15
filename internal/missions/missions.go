@@ -195,7 +195,10 @@ type Params struct {
 	// bound (e < 1) and clear the floor — eccentricity / specific
 	// altitude shape is unconstrained, so a 100 × 300 km elliptical
 	// LEO counts the same as a 200 × 200 km circular one.
-	// v0.9.2+.
+	// v0.9.2+. When absent or zero, evalCircularizeFromPad falls back
+	// to the eval-time world's real Orbit Floor instead (ADR 0051
+	// re-grill Q7, build open item 4): content should normally leave
+	// this unset so the objective always matches the current world.
 	MinPeriapsisAltM float64 `json:"min_periapsis_alt_m,omitempty"`
 
 	// MinAltitudeM is the minimum altitude above the primary's mean
@@ -301,6 +304,17 @@ type EvalContext struct {
 	PrimaryMu      float64             // craft primary's GM
 	State          physics.StateVector // craft state in primary frame
 	SimTime        time.Time           // current sim time
+
+	// PrimaryOrbitFloorM is the craft's current primary's Orbit Floor
+	// (ADR 0044, sim.OrbitFloorForCraft), projected down the same way
+	// the CommNet snapshot below is: the missions package never imports
+	// sim, so the sim-side caller resolves the real per-world number
+	// and hands it down. CircularizeFromPad reads this when its own
+	// Params.MinPeriapsisAltM is absent or zero (ADR 0051 re-grill Q7,
+	// build open item 4): the Flight School "make orbit" objective no
+	// longer carries a hand-authored 200 km that can disagree with the
+	// ORBIT READY cue's own per-world threshold.
+	PrimaryOrbitFloorM float64
 
 	// v0.21 (ADR 0025) surface/landing state. Landed is the ADR 0004
 	// surface-contact flag; SurfaceLatDeg/LonDeg are the craft's
@@ -686,11 +700,17 @@ func evalSOIFlyby(p Params, ctx EvalContext) Status {
 
 // evalCircularizeFromPad: pass when the craft is in the right
 // primary's frame on a bound orbit (e < 1) with periapsis above
-// PrimaryRadiusM + MinPeriapsisAltM. Looser than Circularize —
+// PrimaryRadiusM + the periapsis floor. Looser than Circularize:
 // no eccentricity / altitude-tolerance constraint, just a
 // periapsis floor. The "from pad" framing is informational;
 // the predicate doesn't gate on initial conditions, only on the
 // achieved orbit. v0.9.2+.
+//
+// The floor is p.MinPeriapsisAltM when the content author set one;
+// when it's absent or zero (ADR 0051 re-grill Q7, build open item 4),
+// it falls back to ctx.PrimaryOrbitFloorM, the current world's real
+// Orbit Floor, so the tutorial's "make orbit" step and the ORBIT READY
+// cue never disagree about what counts as orbit.
 func evalCircularizeFromPad(p Params, ctx EvalContext) Status {
 	if ctx.PrimaryID != p.PrimaryID {
 		return InProgress
@@ -705,8 +725,12 @@ func evalCircularizeFromPad(p Params, ctx EvalContext) Status {
 	if el.E >= 1 {
 		return InProgress
 	}
+	floor := p.MinPeriapsisAltM
+	if floor <= 0 {
+		floor = ctx.PrimaryOrbitFloorM
+	}
 	periapsis := el.Periapsis()
-	if periapsis < ctx.PrimaryRadiusM+p.MinPeriapsisAltM {
+	if periapsis < ctx.PrimaryRadiusM+floor {
 		return InProgress
 	}
 	return Passed

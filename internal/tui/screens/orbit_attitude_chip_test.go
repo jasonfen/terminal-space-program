@@ -9,14 +9,15 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// holdRow returns the ATTITUDE chip's "  hold:    ..." row, or "" if the
-// chip has fewer than 3 rows (title, nav, hold).
+// holdRow returns the GUIDANCE box's "  hold: ...  nav: ..." row (ADR
+// 0051 decision 1: the retired ATTITUDE chip's nav:/hold: rows folded
+// into GUIDANCE, row index 1, title, hold/nav, heading/trim, fpa).
 func holdRow(t *testing.T, chip []string) string {
 	t.Helper()
-	if len(chip) < 3 {
-		t.Fatalf("buildAttitudeChip returned %d rows, want at least 3 (title, nav, hold)", len(chip))
+	if len(chip) < 2 {
+		t.Fatalf("buildGuidanceBox returned %d rows, want at least 2 (title, hold/nav)", len(chip))
 	}
-	return chip[2]
+	return chip[1]
 }
 
 // TestAttitudeHoldLabelOrbitModeUnaffected: the baseline — NavOrbit with a
@@ -29,7 +30,7 @@ func TestAttitudeHoldLabelOrbitModeUnaffected(t *testing.T) {
 	c.AttitudeMode = spacecraft.BurnPrograde
 
 	v := newProximityTestView(t, 80, 24)
-	row := holdRow(t, v.buildAttitudeChip(w))
+	row := holdRow(t, v.buildGuidanceBox(w))
 	if !strings.Contains(row, "Prograde") || strings.Contains(row, "Target") {
 		t.Errorf("hold row = %q, want plain %q under NavOrbit", row, "Prograde")
 	}
@@ -66,7 +67,7 @@ func TestAttitudeHoldLabelNamesTargetFrame(t *testing.T) {
 			c.AttitudeMode = tc.stale
 
 			v := newProximityTestView(t, 80, 24)
-			row := holdRow(t, v.buildAttitudeChip(w))
+			row := holdRow(t, v.buildGuidanceBox(w))
 			if !strings.Contains(row, tc.want) {
 				t.Errorf("hold row = %q, want it to contain %q under nav:TARGET", row, tc.want)
 			}
@@ -97,7 +98,7 @@ func TestAttitudeHoldLabelNormalHasNoTargetCounterpart(t *testing.T) {
 	c.AttitudeMode = spacecraft.BurnNormalPlus
 
 	v := newProximityTestView(t, 80, 24)
-	row := holdRow(t, v.buildAttitudeChip(w))
+	row := holdRow(t, v.buildGuidanceBox(w))
 	if !strings.Contains(row, "Normal+") {
 		t.Errorf("hold row = %q, want it to stay %q (no target-relative counterpart)", row, "Normal+")
 	}
@@ -123,7 +124,7 @@ func TestAttitudeHoldLabelNoRelativeTargetStaysOrbitFrame(t *testing.T) {
 	c.AttitudeMode = spacecraft.BurnPrograde
 
 	v := newProximityTestView(t, 80, 24)
-	row := holdRow(t, v.buildAttitudeChip(w))
+	row := holdRow(t, v.buildGuidanceBox(w))
 	if strings.Contains(row, "Target") {
 		t.Errorf("hold row = %q, must not claim a target frame with no relative target bound", row)
 	}
@@ -157,7 +158,7 @@ func TestAttitudeHoldLabelSurfaceModeAlwaysTagsSurf(t *testing.T) {
 			c.AttitudeMode = spacecraft.BurnSurfacePrograde
 
 			v := newProximityTestView(t, 80, 24)
-			row := holdRow(t, v.buildAttitudeChip(w))
+			row := holdRow(t, v.buildGuidanceBox(w))
 			if !strings.Contains(row, "(SURF)") {
 				t.Errorf("hold row = %q, want a surface-framed mode to always tag (SURF), regardless of nav:", row)
 			}
@@ -178,7 +179,7 @@ func TestAttitudeHoldLabelTargetModeAlwaysTagsTgt(t *testing.T) {
 	c.AttitudeMode = spacecraft.BurnTargetPrograde
 
 	v := newProximityTestView(t, 80, 24)
-	row := holdRow(t, v.buildAttitudeChip(w))
+	row := holdRow(t, v.buildGuidanceBox(w))
 	if !strings.Contains(row, "(TGT)") {
 		t.Errorf("hold row = %q, want a target-relative mode to always tag (TGT), regardless of nav:", row)
 	}
@@ -219,7 +220,7 @@ func TestAttitudeHoldLabelBaseModesAlwaysTagOrbit(t *testing.T) {
 			c.AttitudeMode = tc.mode
 
 			v := newProximityTestView(t, 80, 24)
-			row := holdRow(t, v.buildAttitudeChip(w))
+			row := holdRow(t, v.buildGuidanceBox(w))
 			if !strings.Contains(row, "(ORBIT)") {
 				t.Errorf("hold row = %q, want a base mode to tag (ORBIT) even under nav:SURFACE (the nose has no surface-frame equivalent for this mode)", row)
 			}

@@ -87,6 +87,35 @@ func TestLoadToleratesUnknownKeys(t *testing.T) {
 	}
 }
 
+// TestLoadToleratesRetiredChipIDs (ADR 0051 slice 2b, decision 16): a
+// settings.json written by a build before this ADR can name any of the
+// five chip ids this ADR retired from AllChips (attitude, launch,
+// descent, projectedOrbit, nodes: the standalone chips that folded
+// into the eight instrument boxes). Loading it must not warn or fail,
+// and every still-live chip named alongside them must still apply.
+// Distinct from TestLoadToleratesUnknownKeys above (a hypothetical
+// future/unknown key): this one pins the SPECIFIC ids a real older
+// install could have on disk today.
+func TestLoadToleratesRetiredChipIDs(t *testing.T) {
+	withConfigRoot(t, `{"chips":{"attitude":false,"launch":false,"descent":false,"projectedOrbit":false,"nodes":false,"stages":false}}`)
+
+	s, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none — retired chip ids are tolerated like any unknown key", warnings)
+	}
+	if s.ChipEnabled(ChipStages) {
+		t.Errorf("ChipStages enabled, want disabled (explicitly set false alongside the retired ids)")
+	}
+	for _, c := range AllChips {
+		if c == ChipStages {
+			continue
+		}
+		if !s.ChipEnabled(c) {
+			t.Errorf("chip %q disabled by a retired-id file, want visible default", c)
+		}
+	}
+}
+
 func TestLoadMalformedWarnsAndDefaults(t *testing.T) {
 	withConfigRoot(t, `{not valid json`)
 
@@ -357,7 +386,7 @@ func TestSaveIsIdempotent(t *testing.T) {
 	withConfigRoot(t, "")
 
 	s := Default()
-	s.SetChip(ChipLaunch, false)
+	s.SetChip(ChipEngine, false)
 	if err := Save(s); err != nil {
 		t.Fatalf("first Save: %v", err)
 	}
