@@ -10,14 +10,14 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
-// orbit_box_propellant.go — the PROPELLANT instrument box (ADR 0051
+// orbit_box_propellant.go, the PROPELLANT instrument box (ADR 0051
 // decision 1, slice 2a): fuel with mass, Δv with Δv→circ and its burn
 // time, monoprop with RCS Δv. Replaces buildVesselChip's fuel/mass/Δv/
 // monoprop rows and buildLaunchChip's Δv→circ/burn: rows.
 //
 // Every row is always present (decision 2): with no active craft, or no
-// monoprop capacity, the cell reads a dash rather than the row dropping
-// — a change from the retired buildVesselChip, which omitted the
+// monoprop capacity, the cell reads a dash rather than the row dropping,
+// a change from the retired buildVesselChip, which omitted the
 // monoprop row outright for a craft with no RCS tank.
 func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 	title := v.theme.Primary.Render("PROPELLANT")
@@ -25,9 +25,9 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 	if c == nil {
 		return []string{
 			title,
-			chipRow2("fuel:", "—", "mass:", "—"),
-			chipRow2(readout.LabelDeltaV, "—", "Δv→circ:", "—"),
-			chipRow2("monoprop:", "—", "rcs Δv:", "—"),
+			chipRow2(propellantCols, "fuel:", "—", "mass:", "—"),
+			chipRow2(propellantCols, readout.LabelDeltaV, "—", "Δv→circ:", "—"),
+			chipRow2(propellantCols, "monoprop:", "—", "rcs Δv:", "—"),
 		}
 	}
 	fuelLabel := readout.Mass(c.Fuel)
@@ -41,21 +41,21 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 	}
 	return []string{
 		title,
-		chipRow2("fuel:", fuelLabel, "mass:", readout.Mass(c.TotalMass())),
-		chipRow2(readout.LabelDeltaV, deltaVReadout(c), "Δv→circ:", v.deltaVToCircLabel(c)),
-		chipRow2("monoprop:", monopropLabel, "rcs Δv:", rcsLabel),
+		chipRow2(propellantCols, "fuel:", fuelLabel, "mass:", readout.Mass(c.TotalMass())),
+		chipRow2(propellantCols, readout.LabelDeltaV, deltaVReadout(c), "Δv→circ:", v.deltaVToCircLabel(c)),
+		chipRow2(propellantCols, "monoprop:", monopropLabel, "rcs Δv:", rcsLabel),
 	}
 }
 
 // deltaVToCircLabel renders PROPELLANT's Δv→circ cell: the Δv a
 // circularisation burn at apoapsis would cost, plus its burn time AT
-// MAXIMUM THRUST (C5 — "at full" is gone; "max" is the one word for a
+// MAXIMUM THRUST (C5, "at full" is gone; "max" is the one word for a
 // full-throttle figure everywhere on the instruments, 13b). Dash outside
 // a sub-orbital climb (isSubOrbitalClimb, C4): the same rows serve an
 // air or airless ascent, and closing #454's gap is exactly using this
 // body-agnostic predicate here INSTEAD of the old atmosphere-gated
 // buildLaunchChip/buildDescentChip split. A circular orbit's periapsis
-// sits above the surface, so isSubOrbitalClimb is already false there —
+// sits above the surface, so isSubOrbitalClimb is already false there,
 // no separate "is this circular" check is needed.
 func (v *OrbitView) deltaVToCircLabel(c *spacecraft.Spacecraft) string {
 	if !isSubOrbitalClimb(c) {

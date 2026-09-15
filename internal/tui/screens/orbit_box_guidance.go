@@ -11,7 +11,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
-// orbit_box_guidance.go — the GUIDANCE instrument box (ADR 0051
+// orbit_box_guidance.go, the GUIDANCE instrument box (ADR 0051
 // decision 1, decision 13c, slice 2a): hold with nav, heading with trim,
 // fpa with orbit fpa. Replaces buildAttitudeChip's nav:/hold: rows and
 // buildLaunchChip/buildDescentChip's heading:/trim:/fpa:/orbit fpa: rows.
@@ -19,20 +19,20 @@ import (
 // L7 fix (review side lead, folded into this slice per the ADR's own
 // recommendation): fpa: and "orbit fpa:" used to gate on two DIFFERENT
 // velocities' thresholds (surface-relative vs inertial), so a Landed
-// craft could read "fpa: —  orbit fpa: 0°" side by side — the inertial
-// co-rotation speed clears the 1 m/s floor even while the surface-
-// relative speed sits at zero. Both cells now dash together while
-// Landed, one threshold in the sense that matters: neither fpa concept
-// means anything standing still.
+// craft could read a dashed fpa: cell beside a populated "orbit
+// fpa: 0°", the inertial co-rotation speed clears the 1 m/s floor even
+// while the surface-relative speed sits at zero. Both cells now dash
+// together while Landed, one threshold in the sense that matters:
+// neither fpa concept means anything standing still.
 func (v *OrbitView) buildGuidanceBox(w *sim.World) []string {
 	title := v.theme.Primary.Render("GUIDANCE")
 	c := w.ActiveCraft()
 	if c == nil {
 		return []string{
 			title,
-			chipRow2(readout.LabelHold, "—", "nav:", "—"),
-			chipRow2("heading:", "—", "trim:", "—"),
-			chipRow2(readout.LabelFPA, "—", readout.LabelOrbitFPA, "—"),
+			chipRow2(guidanceCols, readout.LabelHold, "—", "nav:", "—"),
+			chipRow2(guidanceCols, "heading:", "—", "trim:", "—"),
+			chipRow2(guidanceCols, readout.LabelFPA, "—", readout.LabelOrbitFPA, "—"),
 		}
 	}
 	holdLabel := attitudeHoldLabel(w, c.AttitudeMode)
@@ -50,9 +50,9 @@ func (v *OrbitView) buildGuidanceBox(w *sim.World) []string {
 
 	return []string{
 		title,
-		chipRow2(readout.LabelHold, holdLabel, "nav:", navLabel),
-		chipRow2("heading:", headingLabel, "trim:", trimLabel),
-		chipRow2(readout.LabelFPA, fpaLabel, readout.LabelOrbitFPA, orbitFPALabel),
+		chipRow2(guidanceCols, readout.LabelHold, holdLabel, "nav:", navLabel),
+		chipRow2(guidanceCols, "heading:", headingLabel, "trim:", trimLabel),
+		chipRow2(guidanceCols, readout.LabelFPA, fpaLabel, readout.LabelOrbitFPA, orbitFPALabel),
 	}
 }
 
@@ -67,7 +67,7 @@ const guidanceFPASpeedFloorMps = 1.0
 // surface-relative flight-path angle and the inertial one, both dashed
 // together while Landed (L7 fix, see this file's doc comment) and each
 // individually dashed below its own 1 m/s speed floor (guidanceFPASpeedFloorMps)
-// otherwise — below that floor the angle is numerical noise, not a
+// otherwise, below that floor the angle is numerical noise, not a
 // heading, the same rule the retired DESCENT/SURFACE chips used.
 func (v *OrbitView) guidanceFPALabels(c *spacecraft.Spacecraft) (fpaLabel, orbitFPALabel string) {
 	if c.Landed {

@@ -14,16 +14,16 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
-// orbit_box_target.go — the TARGET instrument box (ADR 0051 decision 11,
+// orbit_box_target.go, the TARGET instrument box (ADR 0051 decision 11,
 // slice 2a): vessel-shaped, always, four rows / ten cells (range,
 // closing, rel; the target's Ap, Pe, incl; Δincl, lead; TCA, approach),
 // dashes for a body target or no target. Replaces buildTargetChip's
-// three separate branches (body/vessel/ghost) and its Compact Form —
+// three separate branches (body/vessel/ghost) and its Compact Form,
 // this box never compacts (decision 2 at the Design Size); below it the
 // stacker drops the whole box like any over-budget chip.
 //
-// Rule C (decision 9, C6): the whole encounter half — closing, rel,
-// lead, TCA, approach — reads dash for any ACTIVE craft that is Landed
+// Rule C (decision 9, C6): the whole encounter half, closing, rel,
+// lead, TCA, approach, reads dash for any ACTIVE craft that is Landed
 // or Crashed, regardless of what's targeted. `!Landed && !Crashed`, not
 // the old craftHasOrbit (which reads true for co-rotation wreckage,
 // audit C32). The target's own orbital shape (Ap/Pe/incl, Δincl) is
@@ -68,18 +68,18 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 	title := v.theme.Primary.Render("TARGET") + "  " + name + titleBadge
 	return []string{
 		title,
-		chipRow3("range:", cells.rangeV, "closing:", cells.closingV, "rel", cells.relV),
-		chipRow3(readout.LabelAp, cells.apV, readout.LabelPe, cells.peV, "incl:", cells.inclV),
-		chipRow2(readout.LabelDeltaIncl, cells.deltaInclV, "lead:", cells.leadV),
-		chipRow2(readout.LabelTCA, cells.tcaV, "approach:", cells.approachV),
+		chipRow3(targetCols, "range:", cells.rangeV, "closing:", cells.closingV, "rel", cells.relV),
+		chipRow3(targetCols, readout.LabelAp, cells.apV, readout.LabelPe, cells.peV, "incl:", cells.inclV),
+		chipRow2(targetCols, readout.LabelDeltaIncl, cells.deltaInclV, "lead:", cells.leadV),
+		chipRow2(targetCols, readout.LabelTCA, cells.tcaV, "approach:", cells.approachV),
 	}
 }
 
 // targetBodyCells is TARGET's body-target branch: range and Δincl
 // against the body's fixed catalog plane, plus the predicted approach
 // (or impact) and TCA along the projected orbit. closing/rel speed are
-// not computed for a body target (decision 11: "fills the cells that do
-// not apply with —") — the pre-ADR-0051 body branch never derived them
+// not computed for a body target (decision 11: cells that do not apply
+// get a dash cell), the pre-ADR-0051 body branch never derived them
 // either.
 func (v *OrbitView) targetBodyCells(w *sim.World, c *spacecraft.Spacecraft) (string, targetBoxCells) {
 	cells := dashTargetBoxCells()
@@ -106,7 +106,7 @@ func (v *OrbitView) targetBodyCells(w *sim.World, c *spacecraft.Spacecraft) (str
 	cells.rangeV = readout.Distance(rangeM)
 
 	// The target's own orbital shape (decision 11: Ap/Pe/incl describe
-	// WHATEVER is targeted, not only a vessel) — a body's is its fixed
+	// WHATEVER is targeted, not only a vessel), a body's is its fixed
 	// catalog ellipse around its own gravitational parent, not a live
 	// state-vector propagation the way a craft's is.
 	if parent := sysT.ParentOf(b); parent != nil {
@@ -218,7 +218,7 @@ func (v *OrbitView) targetGhostCells(w *sim.World, c *spacecraft.Spacecraft) (st
 	cells := dashTargetBoxCells()
 	g, gPrimary, ok := w.ResolveTargetGhost()
 	if !ok {
-		// #294: the lock survives an unresolved ghost — show the pending
+		// #294: the lock survives an unresolved ghost, show the pending
 		// state via the name rather than reading as no target at all.
 		return w.TargetName() + " (not yet resolved)", cells
 	}

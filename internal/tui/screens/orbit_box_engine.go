@@ -8,7 +8,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
-// orbit_box_engine.go — the ENGINE instrument box (ADR 0051 decision 1,
+// orbit_box_engine.go, the ENGINE instrument box (ADR 0051 decision 1,
 // slice 2a): throttle with the lit state and elapsed time, mode, TWR
 // (current with the max-throttle figure, decision 13b), and the node row
 // with its three-way precedence (decision 12, re-grill Q2/Q4): a live
@@ -17,7 +17,7 @@ import (
 // rows and buildLaunchChip/buildDescentChip's twr:/engine: rows, and
 // folds in the live-burn head buildNodesChip used to carry
 // (activeBurnLines) plus its queued-node line (nextQueuedNodeLine) for
-// the ACTIVE craft only — a per-vessel instrument box has no reason to
+// the ACTIVE craft only, a per-vessel instrument box has no reason to
 // show a different vessel's queue the way the old fleet-wide NODES chip
 // did.
 //
@@ -29,14 +29,14 @@ func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 	if c == nil {
 		return []string{
 			title,
-			chipRow2("throttle:", "—", "mode:", "—"),
+			chipRow2(engineCols, "throttle:", "—", "mode:", "—"),
 			v.engineTWRCell(nil),
 			v.engineNodeLine(w, nil),
 		}
 	}
 	return []string{
 		title,
-		chipRow2("throttle:", v.engineThrottleLabel(w, c), "mode:", c.EngineMode.String()),
+		chipRow2(engineCols, "throttle:", v.engineThrottleLabel(w, c), "mode:", c.EngineMode.String()),
 		v.engineTWRCell(c),
 		v.engineNodeLine(w, c),
 	}
@@ -70,7 +70,7 @@ func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) 
 
 // engineTWRCell renders the TWR row (decision 13b): the current-throttle
 // figure, with the max-throttle figure alongside it, and "(will not
-// lift)" only when even full throttle can't clear 1.0 — the verdict
+// lift)" only when even full throttle can't clear 1.0: the verdict
 // judges the maximum, not the current setting. Whether the "(max N)"
 // suffix still prints once the throttle is already at maximum is not
 // ruled by the ADR (decision 13b's open note); this build choice omits
@@ -128,10 +128,10 @@ func (v *OrbitView) engineNodeLine(w *sim.World, c *spacecraft.Spacecraft) strin
 
 // engineBurnLine is engineNodeLine's live-burn branch: the active
 // craft's OWN ActiveBurn (a manual burn with no node carries no entry
-// here — the throttle row already says it's firing). Adapted from the
+// here, the throttle row already says it's firing). Adapted from the
 // retired activeBurnLines/buildNodesChip, dropping the "vessel N" tag
 // (this box is already scoped to the active craft, so it would be
-// redundant) — ok is false when nothing is burning.
+// redundant), ok is false when nothing is burning.
 func (v *OrbitView) engineBurnLine(w *sim.World, c *spacecraft.Spacecraft) (string, bool) {
 	if c == nil || c.ActiveBurn == nil {
 		return "", false
@@ -155,7 +155,7 @@ func (v *OrbitView) engineBurnLine(w *sim.World, c *spacecraft.Spacecraft) (stri
 // two changes for this box: no per-craft label (always this vessel's own
 // node, so "#1" is unambiguous without a "c%d#%d" prefix) and the
 // over-budget suffix shortens to a bare "⚠" in the Alert colour
-// (re-grill Q4) instead of "exceeds budget by <Δv>" — the words move to
+// (re-grill Q4) instead of "exceeds budget by <Δv>", the words move to
 // the F1 glossary and stay in the planner's own list (slice 2b / #maneuver.go).
 func (v *OrbitView) engineQueuedNodeLine(w *sim.World, c *spacecraft.Spacecraft) string {
 	n := c.Nodes[0]

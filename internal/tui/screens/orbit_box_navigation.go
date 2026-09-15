@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// orbit_box_navigation.go — the NAVIGATION instrument box (ADR 0051
+// orbit_box_navigation.go, the NAVIGATION instrument box (ADR 0051
 // decisions 1, 9, 10, 12, 14, 15, slice 2a): altitude/vert, horiz/speed,
 // Ap/Pe, incl/period, depart/e/dir, impact/stop, and the permanent
 // plan: row. Ten total lines (title + 7 rows + 2 borders = 10, matching
@@ -24,7 +24,7 @@ import (
 // the map, decision 12).
 //
 // NOT in this slice (2a): the plan: row's contents and the plan arrows
-// (→ annotations on Ap/Pe/incl/period) — both slice 3, per the ADR's own
+// (→ annotations on Ap/Pe/incl/period), both slice 3, per the ADR's own
 // proposed build slicing (item 3, "the bay and the annotation"). Here
 // plan: always reads a permanent dash.
 //
@@ -32,8 +32,8 @@ import (
 // by construction: a craft cannot be both climbing and falling, and
 // Landed excludes both): the landed site while Landed (decision 9),
 // ORBIT READY while sub-orbital-climbing above the world's Orbit Floor
-// (decision 10, re-grill Q6/Q7 — no floor number shown), and the
-// descent alarm while the corridor is live (decision 12, re-grill Q2 —
+// (decision 10, re-grill Q6/Q7, no floor number shown), and the
+// descent alarm while the corridor is live (decision 12, re-grill Q2,
 // shortened to one consistent form per the amendment's open item 2:
 // "⚠ TIGHT" or "⚠ NO STOP", never the longer "CAN'T STOP (thrust)").
 func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
@@ -42,12 +42,12 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	if c == nil {
 		return []string{
 			title,
-			chipRow2(readout.LabelAltitude, "—", readout.LabelVert, "—"),
-			chipRow2(readout.LabelHoriz, "—", "speed:", "—"),
-			chipRow2(readout.LabelAp, "—", readout.LabelPe, "—"),
-			chipRow2(readout.LabelIncl, "—", readout.LabelPeriod, "—"),
-			chipRow3(readout.LabelDepart, "—", "e:", "—", "dir:", "—"),
-			chipRow2(readout.LabelImpact, "—", "stop:", "—"),
+			chipRow2(navigationCols, readout.LabelAltitude, "—", readout.LabelVert, "—"),
+			chipRow2(navigationCols, readout.LabelHoriz, "—", "speed:", "—"),
+			chipRow2(navigationCols, readout.LabelAp, "—", readout.LabelPe, "—"),
+			chipRow2(navigationCols, readout.LabelIncl, "—", readout.LabelPeriod, "—"),
+			chipRow3(navigationCols, readout.LabelDepart, "—", "e:", "—", "dir:", "—"),
+			chipRow2(navigationCols, readout.LabelImpact, "—", "stop:", "—"),
 			chipRowAt("plan:", "—", boxValueCol),
 		}
 	}
@@ -71,7 +71,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	// chip's horiz: row did: a sideways speed the vertical-rate check
 	// alone says nothing about, and the one that turns a nulled descent
 	// rate into a smear across the ground. Matches descentCorridorLines'
-	// simplified wording (no threshold parenthetical) for consistency —
+	// simplified wording (no threshold parenthetical) for consistency,
 	// the same row now renders in both views (decision 3).
 	horizLabel := readout.Speed(vHoriz)
 	if vHoriz > sim.CrashVCritMps {
@@ -80,12 +80,12 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 
 	return []string{
 		title,
-		chipRow2(readout.LabelAltitude, readout.Distance(c.Altitude()), readout.LabelVert, readout.Speed(vVert)),
-		chipRow2(readout.LabelHoriz, horizLabel, "speed:", readout.Speed(c.OrbitalSpeed())),
-		chipRow2(readout.LabelAp, apCell, readout.LabelPe, peCell),
-		chipRow2(readout.LabelIncl, inclCell, readout.LabelPeriod, periodCell),
-		chipRow3(readout.LabelDepart, departV, "e:", eV, "dir:", dirV),
-		chipRow2(readout.LabelImpact, impactCell, "stop:", stopCell),
+		chipRow2(navigationCols, readout.LabelAltitude, readout.Distance(c.Altitude()), readout.LabelVert, readout.Speed(vVert)),
+		chipRow2(navigationCols, readout.LabelHoriz, horizLabel, "speed:", readout.Speed(c.OrbitalSpeed())),
+		chipRow2(navigationCols, readout.LabelAp, apCell, readout.LabelPe, peCell),
+		chipRow2(navigationCols, readout.LabelIncl, inclCell, readout.LabelPeriod, periodCell),
+		chipRow3(navigationCols, readout.LabelDepart, departV, "e:", eV, "dir:", dirV),
+		chipRow2(navigationCols, readout.LabelImpact, impactCell, "stop:", stopCell),
 		chipRowAt("plan:", "—", boxValueCol),
 	}
 }
@@ -127,7 +127,7 @@ func (v *OrbitView) navigationTitle(w *sim.World, c *spacecraft.Spacecraft) stri
 // of two SHORT forms (re-grill Q2's amendment, open item 2): "⚠ TIGHT"
 // (Warning colour) when the margin is tight but stoppable, "⚠ NO STOP"
 // (Alert colour) for every unstoppable outcome (crashed, fuel-limited,
-// or the integration refusing to resolve at all) — one consistent short
+// or the integration refusing to resolve at all), one consistent short
 // form rather than a label that changes with the limiter, since the
 // limiter and the number both survive on the stop: cell itself (Q2).
 // ok is false when the corridor isn't currently alarming (comfortable
@@ -214,7 +214,7 @@ func (v *OrbitView) navigationInclPeriodCells(w *sim.World, c *spacecraft.Spacec
 
 // navigationDepartECells: depart: carries the pad's launch-window angle
 // while Landed (with its "(best N°)" suffix), or the live orbit's own
-// departure-plane angle once airborne — dash where the sweep is frozen
+// departure-plane angle once airborne, dash where the sweep is frozen
 // (C1) or the reference plane/normal isn't resolvable. e:/dir: are the
 // live orbit's eccentricity and prograde/retrograde direction, dash
 // while Landed or with no valid orbit (they have no pad-window
@@ -290,7 +290,7 @@ func (v *OrbitView) navigationStopCell(dc sim.DescentCorridor) string {
 // depart: VALUES (not pre-formatted rows): NAVIGATION needs to place
 // them in its own two/three-per-row cells rather than as their own
 // dedicated rows the way the retired SURFACE/DESCENT chips did. Δincl:
-// is deliberately NOT reproduced here — decision 9's relocation table
+// is deliberately NOT reproduced here, decision 9's relocation table
 // moves it to TARGET's own Δincl: cell only, ending the pad duplicate
 // (F11).
 func (v *OrbitView) landedInclValue(c *spacecraft.Spacecraft) string {

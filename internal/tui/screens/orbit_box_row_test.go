@@ -12,20 +12,39 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// testRowCols is a generous, box-agnostic column set for these
+// mechanism-level tests (they exercise chipRow2/chipRow3 directly, not
+// any specific instrument box's own calibrated boxCols), sized wide
+// enough to fit every literal used in this file without triggering the
+// overflow-push clamp.
+var testRowCols = boxCols{label2: 34, gap2: 10, label3: 52, gap3: 6}
+
 // TestChipRow2AlignsSecondLabelAcrossVaryingFirstValues: the whole point
 // of a fixed second-label column is that two rows with very different
-// first-value widths still start their second label at the same screen
-// column. A %-Ns byte-padded implementation would already pass this for
-// ASCII, so this alone isn't the sabotage proof (see the multibyte test
-// below) — but it is the basic contract this helper exists for.
+// first-value widths still start their second label at the SAME screen
+// column, so a box's second cells read as one vertical column of labels
+// rather than drifting per row. This is the actual regression the
+// coordinator found in the live captures (label2 following "row + two
+// spaces" instead of a fixed column): sabotage-checked below by
+// reverting to that shape and confirming this goes red.
 func TestChipRow2AlignsSecondLabelAcrossVaryingFirstValues(t *testing.T) {
-	short := chipRow2("TWR:", "1.23", "", "")
-	long := chipRow2("Δv:", "7502 / 12014 m/s", "Δv→circ:", "7502 m/s  9m45s")
-	if strings.Contains(short, "mode:") {
-		t.Fatalf("short row should not carry a second cell: %q", short)
+	short := chipRow2(testRowCols, "TWR:", "1.23", "mode:", "main")
+	long := chipRow2(testRowCols, "Δv:", "7502 / 12014 m/s", "Δv→circ:", "7502 m/s  9m45s")
+	shortCol := strings.Index(short, "mode:")
+	longCol := strings.Index(long, "Δv→circ:")
+	if shortCol < 0 || longCol < 0 {
+		t.Fatalf("second label missing: short=%q long=%q", short, long)
 	}
-	if !strings.Contains(long, "Δv→circ:") {
-		t.Fatalf("long row should carry its second cell: %q", long)
+	shortColW := lipgloss.Width(short[:shortCol])
+	longColW := lipgloss.Width(long[:longCol])
+	if shortColW != longColW {
+		t.Errorf("second label lands at different columns depending on the first value's width: %q (col %d) vs %q (col %d) — the second label must be pinned to a fixed column, not follow the first value plus two spaces",
+			short, shortColW, long, longColW)
+	}
+
+	noSecond := chipRow2(testRowCols, "TWR:", "1.23", "", "")
+	if strings.Contains(noSecond, "mode:") {
+		t.Fatalf("row with no second cell should not carry one: %q", noSecond)
 	}
 }
 
@@ -38,8 +57,8 @@ func TestChipRow2AlignsSecondLabelAcrossVaryingFirstValues(t *testing.T) {
 // whose first cells have equal DISPLAY width but different BYTE length
 // land their second label at the exact same column.
 func TestChipRow2SecondLabelColumnIsDisplayWidthAware(t *testing.T) {
-	asciiRow := chipRow2("ee:", "12", "mode:", "main") // "ee:" = 3 bytes, 3 cells
-	deltaRow := chipRow2("Δv:", "12", "mode:", "main") // "Δv:" = 4 bytes, 3 cells
+	asciiRow := chipRow2(testRowCols, "ee:", "12", "mode:", "main") // "ee:" = 3 bytes, 3 cells
+	deltaRow := chipRow2(testRowCols, "Δv:", "12", "mode:", "main") // "Δv:" = 4 bytes, 3 cells
 	asciiCol := strings.Index(asciiRow, "mode:")
 	deltaCol := strings.Index(deltaRow, "mode:")
 	if asciiCol < 0 || deltaCol < 0 {
@@ -56,12 +75,33 @@ func TestChipRow2SecondLabelColumnIsDisplayWidthAware(t *testing.T) {
 	}
 }
 
+// TestChipRow3AlignsThirdLabelAcrossVaryingFirstAndSecondValues: the
+// same fixed-column guarantee chipRow2 gives its second cell must hold
+// for chipRow3's third cell too, regardless of how wide the first OR
+// second cells are in a given row (TARGET's range/closing/rel and
+// Ap/Pe/incl rows, NAVIGATION's depart/e/dir row).
+func TestChipRow3AlignsThirdLabelAcrossVaryingFirstAndSecondValues(t *testing.T) {
+	short := chipRow3(testRowCols, "Pe:", "—", "lead:", "—", "dir:", "prograde")
+	long := chipRow3(testRowCols, "depart:", "49.42° (best 5.17°)", "e:", "0.9973", "dir:", "retrograde")
+	shortCol := strings.Index(short, "dir:")
+	longCol := strings.Index(long, "dir:")
+	if shortCol < 0 || longCol < 0 {
+		t.Fatalf("third label missing: short=%q long=%q", short, long)
+	}
+	shortColW := lipgloss.Width(short[:shortCol])
+	longColW := lipgloss.Width(long[:longCol])
+	if shortColW != longColW {
+		t.Errorf("third label lands at different columns depending on the first/second values' width: %q (col %d) vs %q (col %d)",
+			short, shortColW, long, longColW)
+	}
+}
+
 // TestChipRow2EmptyLabelReturnsSingleCell: a dash-only row (no second
-// quantity) renders exactly like chipRowAt's single-value form — no
+// quantity) renders exactly like chipRowAt's single-value form, no
 // trailing padding or stray second column, since most NAVIGATION rows on
 // the pad are single dashes today and must not gain visible width.
 func TestChipRow2EmptyLabelReturnsSingleCell(t *testing.T) {
-	got := chipRow2("Ap:", "—", "", "")
+	got := chipRow2(testRowCols, "Ap:", "—", "", "")
 	want := chipRowAt("Ap:", "—", boxValueCol)
 	if got != want {
 		t.Errorf("chipRow2 with empty label2 = %q, want %q (chipRowAt's own form)", got, want)
