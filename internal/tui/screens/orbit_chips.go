@@ -89,18 +89,6 @@ type builtChip struct {
 	// `lines` as its own Compact Form: shrinking it is a no-op, and it goes
 	// straight from full to dropped if its side still doesn't fit.
 	compact []string
-	// leftOfPrev places this chip on the same top row as the previously
-	// placed chip in the same (top-right) corner, immediately to its left,
-	// instead of stacking below it — so two chips share a row band rather
-	// than growing the column's height, WHEN that previous chip actually
-	// got admitted this frame. Used for PROJECTED ORBIT beside the ORBIT
-	// chip. Honoured only for cornerTopRight; falls back to ordinary
-	// stacking when there's no admitted prior top-right chip to sit
-	// beside (e.g. ORBIT itself dropped for space under Graceful Shrink)
-	// — see composeChips' haveTR branch. Because that fallback can happen,
-	// layoutChipsBySide still budgets a leftOfPrev chip like any other
-	// (ADR 0046): it is NOT exempt from the side's shared budget.
-	leftOfPrev bool
 	// neverShrink exempts a chip from layoutChipsBySide's budget entirely
 	// (always Full, never Compact, never dropped) while it still stacks
 	// normally (unlike leftOfPrev, it doesn't ride beside another chip).
@@ -119,6 +107,14 @@ type builtChip struct {
 	// chip competes on equal footing and only chipPriorityCore/
 	// chipPriorityForced chips are called out explicitly.
 	priority int
+}
+
+// bayEntry is one notice queued for the bay (cornerBay), collected by
+// composeChips' main placement loop and laid out as a block afterward by
+// layoutBayFold / the bay section below; see their doc comments.
+type bayEntry struct {
+	id    settings.Chip
+	lines []string
 }
 
 // Priority tiers for layoutChipsBySide (#328/#334, reworked for #422 /
@@ -241,9 +237,8 @@ func (c builtChip) blockHeight(form chipForm) int {
 // "Graceful Shrink" / "Compact Form"): decide, per SIDE (left = top-left ∪
 // bottom-left, right = top-right ∪ bottom-right — see chipSide), which
 // chips render Full, which shrink to Compact, and which drop with a
-// Hidden Stub in their place. leftOfPrev chips and chips with no content
-// never participate — they either ride free beside another chip or have
-// no footprint to budget.
+// Hidden Stub in their place. Chips with no content never participate:
+// they have no footprint to budget.
 //
 // The three-phase contract, applied independently to each side:
 //
@@ -298,18 +293,6 @@ func layoutChipsBySide(chips []builtChip, cRows, navballReserved int) (forms []c
 			// (composeChips), never either side's shared budget.
 			continue
 		}
-		// leftOfPrev chips (PROJECTED ORBIT) usually ride for free beside
-		// their anchor and cost the corner nothing — but that's only true
-		// AT RENDER TIME, when the anchor (ORBIT) is actually admitted.
-		// Under Graceful Shrink the anchor can itself compact or drop, in
-		// which case composeChips falls back to placing this chip via
-		// ordinary stacking (see its leftOfPrev/haveTR branch) — and it
-		// must then fit the side's budget like anything else, or it can
-		// run unbudgeted into the navball exactly like the pre-#422 bug
-		// this ADR fixes. So it's budgeted here pessimistically (as if it
-		// always stacks normally): a small, safe overestimate on the
-		// common "anchor admitted" path, in exchange for never overrunning
-		// on the "anchor dropped" path.
 		if c.corner.side() == sideRight {
 			rightIdx = append(rightIdx, i)
 		} else {
@@ -425,10 +408,6 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	bottomLeftRow := cRows - 2 // above the "view:" label on row cRows-1
 	bottomRightRow := cRows - 1 - navballReserved
 
-	// Remember the last normally-placed top-right chip so a leftOfPrev chip
-	// can sit beside it (same top row, immediately to its left).
-	lastTRStartRow, lastTRCol, haveTR := 0, 0, false
-
 	// leftStackMaxCol tracks the rightmost column any top-left/bottom-left
 	// chip has reached this frame, so the bay (cornerBay) can centre
 	// itself in the gap between the left stack and the navball rather
@@ -440,10 +419,6 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	// space this frame (leftStackMaxCol is only final once the left
 	// stack is done) and so the whole bay can be centred as one block
 	// rather than chip-by-chip.
-	type bayEntry struct {
-		id    settings.Chip
-		lines []string
-	}
 	var bay []bayEntry
 
 	// place lays out one block (bordered chip content, or a bare one-row
@@ -451,7 +426,7 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	// advancing that cursor, splicing it onto the canvas, and recording
 	// its screen rect (skipped for a stub — it isn't a real chip a click
 	// can route to).
-	place := func(id settings.Chip, corner chipCorner, chipLines []string, leftOfPrev, bordered bool) {
+	place := func(id settings.Chip, corner chipCorner, chipLines []string, bordered bool) {
 		var block string
 		var bw, bh int
 		if bordered {
@@ -483,18 +458,8 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 				leftStackMaxCol = right
 			}
 		case cornerTopRight:
-			if leftOfPrev && haveTR {
-				// Sit beside the previous top-right chip rather than below it.
-				atRow, atCol = lastTRStartRow, lastTRCol-bw
-				if bottom := atRow + bh + chipGap; bottom > topRightRow {
-					topRightRow = bottom
-				}
-				lastTRCol = atCol // a further leftOfPrev chip chains leftward
-			} else {
-				atRow, atCol = topRightRow, cCols-bw
-				topRightRow += bh + chipGap
-				lastTRStartRow, lastTRCol, haveTR = atRow, atCol, true
-			}
+			atRow, atCol = topRightRow, cCols-bw
+			topRightRow += bh + chipGap
 		case cornerBottomLeft:
 			atRow, atCol = bottomLeftRow-bh+1, 0
 			bottomLeftRow -= bh + chipGap
@@ -539,33 +504,60 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 			if cl == nil {
 				cl = chip.lines
 			}
-			place(chip.id, chip.corner, cl, chip.leftOfPrev, true)
+			place(chip.id, chip.corner, cl, true)
 		default:
-			place(chip.id, chip.corner, chip.lines, chip.leftOfPrev, true)
+			place(chip.id, chip.corner, chip.lines, true)
 		}
 	}
 
-	// The bay (cornerBay, re-grill Q5): stacks upward from the row above
-	// the Hint Strip, newest at the bottom, centred between the left
-	// stack's right edge (leftStackMaxCol) and the navball's left edge
-	// (or the canvas edge when the navball isn't showing this frame).
-	// "Newest" follows assembleChips' append order: the last chip
-	// appended this frame is the one that most recently became relevant,
-	// so it anchors the bottom of the stack and earlier ones stack above
-	// it — walk bay in reverse.
+	// The bay (cornerBay, re-grill Q5 + slice 3 ruling 1): stacks upward
+	// from the row above the Hint Strip, newest at the bottom, centred
+	// between the left stack's right edge (leftStackMaxCol) and the
+	// navball's left edge (or the canvas edge when the navball isn't
+	// showing this frame). Both its height AND width are clamped against
+	// every box on both sides for the rows it occupies (see
+	// layoutBayChips's doc comment for why the right-side boxes
+	// (NAVIGATION/TARGET) are the real constraint the item 1 measurement
+	// found, not the left stack.
 	if len(bay) > 0 {
 		navballLeft := cCols
 		if navballReserved > chipStubHeight {
 			navballLeft = cCols - navballPanelW
 		}
-		bayRow := cRows - 2 // one row above the Hint Strip on cRows-1
+		bayTop := topLeftRow
+		if topRightRow > bayTop {
+			bayTop = topRightRow
+		}
+		bayBottom := cRows - 2 // one row above the Hint Strip on cRows-1
+		// The fold-and-wrap "stacker" (ruling 1 / ruling 2) is a Design
+		// Size (140x40) contract, exactly like layoutChipsBySide's own
+		// Graceful Shrink budgets: AT OR ABOVE it, nothing may ever
+		// overlap a box. BELOW it, down to the Playable Floor, the bay
+		// is exempt from the stacker (re-grill Q5) and may paint over a
+		// box, same as the boxes' own budget already tolerates between
+		// the Playable Floor and the Design Size. bayBudget/wrapWidth
+		// effectively unbounded reproduces the old unclamped, unwrapped
+		// bay exactly.
+		bayBudget := bayBottom - bayTop + 1
+		wrapWidth := navballLeft - leftStackMaxCol - 2
+		if cCols < DesignWidth || cRows < DesignHeight {
+			bayBudget = 1 << 30
+			wrapWidth = 1 << 30
+		}
+		visible, foldedCount := layoutBayFold(bay, bayBudget, wrapWidth)
+
+		bayRow := bayBottom
 		rects := make([]*chipRect, len(bay))
 		// Walk newest (last appended) first so it claims the bottom row,
 		// but record each rect at its ORIGINAL index so chipRects comes
 		// back in the same chip order every other corner uses (callers,
 		// and tests, rely on that order to identify a chip).
 		for i := len(bay) - 1; i >= 0; i-- {
-			padded, w := padChipBlock(bay[i].lines)
+			if !visible[i] {
+				continue
+			}
+			wrapped := wrapBayLines(bay[i].lines, wrapWidth)
+			padded, w := padChipBlock(wrapped)
 			if len(padded) == 0 || w == 0 {
 				continue
 			}
@@ -598,6 +590,28 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 				v.chipRects = append(v.chipRects, *r)
 			}
 		}
+		// The fold indicator (ruling 1): a bare one-row "▸ +N more" line
+		// at the top of the visible bay stack, summarising every notice
+		// that didn't fit: same Hidden-Stub shape as the side budgets'
+		// "▸ +N hidden", but bay-specific wording ("more", not "hidden":
+		// these will come back on their own once a newer notice clears,
+		// where a side-budget drop is permanent for the frame it's on).
+		if foldedCount > 0 && bayRow >= bayTop {
+			text := v.theme.Dim.Render(fmt.Sprintf("▸ +%d more", foldedCount))
+			bw := lipgloss.Width(text)
+			centre := (leftStackMaxCol + navballLeft) / 2
+			atCol := centre - bw/2
+			if atCol < leftStackMaxCol {
+				atCol = leftStackMaxCol
+			}
+			if atCol+bw > navballLeft {
+				atCol = navballLeft - bw
+			}
+			if atCol < 0 {
+				atCol = 0
+			}
+			lines = overlayStyledBlock(lines, text, bayRow, atCol, cCols)
+		}
 	}
 
 	// Hidden Stubs (ADR 0046 §2): one per side that had a drop, rendered
@@ -607,13 +621,155 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	// natural anchor even when every chip that actually dropped lived in
 	// the bottom stack.
 	if n := stubs[sideLeft]; n > 0 {
-		place("", cornerTopLeft, []string{v.theme.Dim.Render(fmt.Sprintf("▸ +%d hidden", n))}, false, false)
+		place("", cornerTopLeft, []string{v.theme.Dim.Render(fmt.Sprintf("▸ +%d hidden", n))}, false)
 	}
 	if n := stubs[sideRight]; n > 0 {
-		place("", cornerTopRight, []string{v.theme.Dim.Render(fmt.Sprintf("▸ +%d hidden", n))}, false, false)
+		place("", cornerTopRight, []string{v.theme.Dim.Render(fmt.Sprintf("▸ +%d hidden", n))}, false)
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// layoutBayFold (ADR 0051 slice 3 ruling 1) decides which bay entries
+// render this frame given a row budget already clamped against every
+// instrument box on both sides (composeChips computes that budget as
+// bayBottom-bayTop+1, where bayTop is the lower of the left and right
+// stacks' own final cursors, see its call site). Each entry's height is
+// measured AFTER wrapping its lines to wrapWidth (ruling 2: "any line
+// wider than the bay's columns wraps"), since wrapping can make an entry
+// taller before it's ever decided whether it fits.
+//
+// If everything fits, nothing folds. Otherwise entries fold OLDEST FIRST
+// (index 0 upward, assembleChips' append order, "newest last" by the
+// same convention composeChips' placement already uses) until the
+// remaining visible entries plus one row for the "▸ +N more" indicator
+// fit the budget. This is deliberately stateless: every frame recomputes
+// from whatever's actually present, so a notice that cleared on its own
+// (SESSION's TTL, a chip builder returning nil) simply isn't in `bay`
+// next frame and everything after it shifts back down without any
+// "unfold" bookkeeping: re-grill's "the folded notice returns when a
+// newer one clears" falls out of recomputing from scratch, not a special
+// case.
+func layoutBayFold(bay []bayEntry, budget, wrapWidth int) (visible []bool, folded int) {
+	if budget < 0 {
+		budget = 0
+	}
+	heights := make([]int, len(bay))
+	for i, e := range bay {
+		heights[i] = len(wrapBayLines(e.lines, wrapWidth)) + 2
+	}
+	visible = make([]bool, len(bay))
+	for i := range visible {
+		visible[i] = true
+	}
+	total := func() int {
+		h, any := 0, false
+		for i := range bay {
+			if visible[i] {
+				h += heights[i]
+			} else {
+				any = true
+			}
+		}
+		if any {
+			h++ // the "▸ +N more" row
+		}
+		return h
+	}
+	for i := 0; i < len(bay) && total() > budget; i++ {
+		if visible[i] {
+			visible[i] = false
+			folded++
+		}
+	}
+	if folded > 0 && total() > budget {
+		// Even the one-row fold indicator doesn't fit this budget (an
+		// extreme-narrow-canvas edge case): show nothing at all rather
+		// than paint a stub that itself overruns the clamp.
+		for i := range visible {
+			visible[i] = false
+		}
+		folded = 0
+	}
+	return visible, folded
+}
+
+// wrapBayLines word-wraps every line in lines to at most maxWidth cells
+// (ruling 2: "any line wider than the bay's columns wraps, so the picker
+// grows taller rather than wider"). Operates cell-by-cell via
+// splitStyledCells, so ANSI styling on any line survives the split:
+// each cell splitStyledCells returns already carries its own complete
+// SGR wrapper, so concatenating any contiguous subset back together is
+// always safe (the same property overlayStyledBlock's splice relies on).
+func wrapBayLines(lines []string, maxWidth int) []string {
+	if maxWidth < 1 {
+		maxWidth = 1
+	}
+	var out []string
+	for _, l := range lines {
+		out = append(out, wrapBayLine(l, maxWidth)...)
+	}
+	return out
+}
+
+// cellIsBlank reports whether a splitStyledCells cell's own rendered
+// character is a plain space, regardless of any SGR wrapper around it.
+func cellIsBlank(cell string) bool {
+	const sgrReset = "\x1b[0m"
+	if strings.HasSuffix(cell, sgrReset) {
+		cell = cell[:len(cell)-len(sgrReset)]
+	}
+	return cell == " "
+}
+
+// wrapBayLine wraps one line to at most maxWidth cells, breaking on the
+// last blank cell at or before the limit when one exists (never mid-word
+// unless a single word alone exceeds maxWidth). Continuation lines repeat
+// the original line's own leading indent (its run of leading blank
+// cells, capped so it never eats the whole budget) so a wrapped notice
+// still reads as one paragraph. Returns the line unchanged, as a single-
+// element slice, when it already fits.
+func wrapBayLine(line string, maxWidth int) []string {
+	cells := splitStyledCells(line)
+	if len(cells) <= maxWidth {
+		return []string{line}
+	}
+	indent := 0
+	for indent < len(cells) && indent < maxWidth-1 && cellIsBlank(cells[indent]) {
+		indent++
+	}
+	indentStr := strings.Repeat(" ", indent)
+	var out []string
+	i := 0
+	for i < len(cells) {
+		avail := maxWidth
+		prefix := ""
+		if len(out) > 0 {
+			prefix = indentStr
+			avail -= indent
+			if avail < 1 {
+				avail = 1
+			}
+		}
+		if len(cells)-i <= avail {
+			out = append(out, prefix+strings.Join(cells[i:], ""))
+			break
+		}
+		end := i + avail
+		brk := end
+		for brk > i && !cellIsBlank(cells[brk]) {
+			brk--
+		}
+		if brk == i {
+			brk = end // no blank to break on: hard-break
+		}
+		out = append(out, prefix+strings.Join(cells[i:brk], ""))
+		i = brk
+		for i < len(cells) && cellIsBlank(cells[i]) {
+			i++
+		}
+	}
+	return out
 }
 
 // navballReservedRows reports how many bottom rows the navball panel

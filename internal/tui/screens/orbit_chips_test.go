@@ -100,40 +100,6 @@ func TestComposeChipsPlacesAndRoutes(t *testing.T) {
 	}
 }
 
-// TestComposeChipsLeftOfPrevSharesRowBand: a leftOfPrev top-right chip
-// (PROJECTED ORBIT) sits on the same top row as the previously placed
-// top-right chip (ORBIT), immediately to its left — not stacked below it —
-// so the column stays short and a following TARGET chip drops below both
-// without overlapping. Regression for the right-column overflow that buried
-// TARGET under NODES.
-func TestComposeChipsLeftOfPrevSharesRowBand(t *testing.T) {
-	v := NewOrbitView(chipTestTheme())
-	chips := []builtChip{
-		{id: "", corner: cornerTopRight, lines: []string{"ORBIT", "  a", "  b"}},
-		{id: settings.Chip("projectedOrbit"), corner: cornerTopRight, lines: []string{"PROJECTED", "  c"}, leftOfPrev: true},
-		{id: settings.ChipTarget, corner: cornerTopRight, lines: []string{"TARGET", "  d", "  e"}},
-	}
-	v.composeChips(blankCanvas(80, 24), 80, 24, 0, 0, 0, chips)
-	if len(v.chipRects) != 3 {
-		t.Fatalf("recorded %d rects, want 3", len(v.chipRects))
-	}
-	orbit, proj, target := v.chipRects[0], v.chipRects[1], v.chipRects[2]
-	if proj.rowStart != orbit.rowStart {
-		t.Errorf("projected rowStart %d != orbit rowStart %d — not side by side", proj.rowStart, orbit.rowStart)
-	}
-	if proj.colEnd >= orbit.colStart {
-		t.Errorf("projected (cols %d–%d) is not left of orbit (cols %d–%d)",
-			proj.colStart, proj.colEnd, orbit.colStart, orbit.colEnd)
-	}
-	maxBottom := orbit.rowEnd
-	if proj.rowEnd > maxBottom {
-		maxBottom = proj.rowEnd
-	}
-	if target.rowStart <= maxBottom {
-		t.Errorf("target rowStart %d not below the orbit/projected band bottom %d", target.rowStart, maxBottom)
-	}
-}
-
 func TestComposeChipsClipsOversizeChipWithoutPanic(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	tall := make([]string, 50) // taller than the 20-row canvas
@@ -1159,6 +1125,122 @@ func TestComposeChipsBayExemptFromSideBudget(t *testing.T) {
 	if !strings.Contains(out, "SOI PASS") || !strings.Contains(out, "planned: 616.9 km") {
 		t.Errorf("bay chip shrank or dropped under side-budget pressure, but the bay is exempt from it:\n%s", out)
 	}
+}
+
+// TestComposeChipsBayNoticeDoesNotMoveBoxes (ADR 0051 slice 3 item 2): a
+// notice appearing or leaving must never shift where an instrument box
+// renders: the eight boxes are a fixed prefix of each column, and the
+// whole point of moving every notice into its own bay (cornerBay) rather
+// than a side corner is that a box's position no longer depends on
+// whether any notice happens to be up this frame. Every left- and
+// right-side box's screen rect must be byte-identical whether or not a
+// bay notice is present.
+func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 140, 40
+	boxes := []builtChip{
+		{id: settings.ChipEngine, corner: cornerTopLeft, lines: []string{"ENGINE", "  a", "  b"}, priority: chipPriorityCore},
+		{id: settings.ChipNavigation, corner: cornerTopRight, lines: []string{"NAVIGATION", "  c", "  d"}, priority: chipPriorityCore},
+	}
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, boxes)
+	before := append([]chipRect{}, v.chipRects...)
+
+	withNotice := append([]builtChip{
+		{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km"}},
+	}, boxes...)
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, withNotice)
+	after := v.chipRects
+
+	if len(before) != 2 || len(after) != 3 {
+		t.Fatalf("rect counts = %d before, %d after, want 2 and 3", len(before), len(after))
+	}
+	for i, name := range []string{"ENGINE", "NAVIGATION"} {
+		if before[i] != after[i] {
+			t.Errorf("%s box moved when a bay notice appeared: before=%+v after=%+v", name, before[i], after[i])
+		}
+	}
+}
+
+// bayFoldTestChips builds the fixture TestComposeChipsBayFoldsOldest* and
+// TestComposeChipsBayFoldedNoticeReturns share: a short top-left chip, a
+// tall top-right chip standing in for TARGET/NAVIGATION (17 content rows,
+// 19 with its border, the exact shape that clobbered TARGET in the item 1
+// measurement, re-grill Q5 / slice 3 ruling 1), and up to four bay chips
+// sized like the real notices (FRAME TRANSITION 5, CAPTURE PREVIEW 7, SOI
+// PASS 7, a fourth 4-row notice). At cRows=40 this leaves the bay a budget
+// of exactly 20 rows (38 - 19 + 1), one short of the 23 all four would
+// need with their own fold line, so showing all four must fold exactly the
+// oldest (FRAME TRANSITION) into one line.
+func bayFoldTestChips(includeFourth bool) (cCols, cRows int, chips []builtChip) {
+	cCols, cRows = 140, 40
+	rightLines := []string{"TARGET"}
+	for i := 0; i < 16; i++ {
+		rightLines = append(rightLines, fmt.Sprintf("  row%d", i))
+	}
+	chips = []builtChip{
+		{corner: cornerTopLeft, lines: []string{"ENGINE", "  a"}, priority: chipPriorityCore},
+		{corner: cornerTopRight, lines: rightLines, priority: chipPriorityCore},
+		{corner: cornerBay, lines: []string{"FRAME TRANSITION", "  Earth -> Moon", "  at T-8d17h"}},
+		{corner: cornerBay, lines: []string{"CAPTURE PREVIEW", "  primary: Moon", "  arrival: 1593 m/s", "  direction: retrograde", "  extra row"}},
+		{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km", "  entry: T-7d22h", "  extra row"}},
+	}
+	if includeFourth {
+		chips = append(chips, builtChip{corner: cornerBay, lines: []string{"SESSION", "  bob joined"}})
+	}
+	return cCols, cRows, chips
+}
+
+// TestComposeChipsBayFoldsOldestWhenOverflowing (ADR 0051 slice 3 ruling
+// 1): four bay notices don't all fit the bay's budget once the budget is
+// clamped against the right-side box's own rows (the collision item 1
+// actually measured: FRAME TRANSITION painting over TARGET's Ap/Pe/incl
+// row). The bay must show the three newest in full, fold the oldest
+// (FRAME TRANSITION) into a single "▸ +1 more" line, and leave the
+// right-side box's rows untouched.
+func TestComposeChipsBayFoldsOldestWhenOverflowing(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	cCols, cRows, chips := bayFoldTestChips(true)
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+
+	if strings.Contains(out, "Earth -> Moon") {
+		t.Errorf("FRAME TRANSITION (oldest) rendered in full, want it folded:\n%s", out)
+	}
+	if !strings.Contains(out, "+1 more") {
+		t.Errorf("no fold indicator for the dropped oldest notice:\n%s", out)
+	}
+	for _, want := range []string{"CAPTURE PREVIEW", "SOI PASS", "SESSION", "bob joined"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("newer notice %q missing, should stay visible:\n%s", want, out)
+		}
+	}
+	// TARGET's own rows must be untouched: every row TARGET printed
+	// stays exactly as it wrote it, character for character.
+	for i := 0; i < 16; i++ {
+		want := fmt.Sprintf("row%d", i)
+		if !strings.Contains(out, want) {
+			t.Errorf("right-side box row %q clobbered by the bay:\n%s", want, out)
+		}
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
+}
+
+// TestComposeChipsBayFoldedNoticeReturnsWhenNewerClears (ruling 1): the
+// fold is recomputed fresh every frame from whatever's actually present:
+// so once the notice that caused the overflow (the fourth, SESSION) is
+// gone, the previously-folded oldest (FRAME TRANSITION) is back in full
+// with no fold line at all.
+func TestComposeChipsBayFoldedNoticeReturnsWhenNewerClears(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	cCols, cRows, chips := bayFoldTestChips(false) // SESSION cleared
+	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
+
+	if strings.Contains(out, "+1 more") || strings.Contains(out, "+2 more") {
+		t.Errorf("fold indicator present after the overflowing notice cleared:\n%s", out)
+	}
+	if !strings.Contains(out, "Earth -> Moon") {
+		t.Errorf("FRAME TRANSITION did not return once SESSION cleared:\n%s", out)
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
 }
 
 func assertNoChipRectOverlaps(t *testing.T, rects []chipRect) {
