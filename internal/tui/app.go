@@ -2964,7 +2964,7 @@ func (a *App) handlePlanRendezvousKey() {
 		// summoned is actually visible.
 		a.active = screenOrbit
 		a.orbitView.OpenMeetingPicker(out.Place, out.Ladder, out.LadderErr)
-		a.flash("meeting plan: too far apart to nudge — walk the Lap Ladder [←→↑↓], Enter to plant, Esc to cancel")
+		a.flash("rendezvous plan: too far apart to nudge, walk the Lap Ladder [←→↑↓], Enter to plant, Esc to cancel")
 	}
 }
 
@@ -3029,7 +3029,7 @@ func (a *App) planMeetingPickerSelection() {
 	} else {
 		// MeetingYourOrbit: the PARTNER is the mover. #399 out of scope —
 		// carrying this plan to them over the wire is a later slice.
-		a.flash(fmt.Sprintf("meeting plan (their burn): %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
+		a.flash(fmt.Sprintf("rendezvous plan (their burn): %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
 			plan.DV, plan.AchievableCA, plan.ArrivalSpeed))
 	}
 	a.orbitView.CloseMeetingPicker()

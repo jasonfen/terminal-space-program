@@ -670,7 +670,7 @@ func (v *OrbitView) rendezvousUnplannedLines(w *sim.World) []string {
 	}
 	switch {
 	case w.RendezvousMutualUnplanned && arm.Initiator:
-		lines = append(lines, v.theme.Dim.Render("  no plan yet — pick a Meeting Place [K], then Engage to commit"))
+		lines = append(lines, v.theme.Dim.Render("  no plan yet, pick a Rendezvous [K], then Engage to commit"))
 	case w.RendezvousMutualUnplanned:
 		lines = append(lines, v.theme.Dim.Render("  no plan yet — holding for "+arm.Handle+"'s call"))
 	default:

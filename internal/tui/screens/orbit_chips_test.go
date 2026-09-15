@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -1159,6 +1160,62 @@ func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
 			t.Errorf("%s box moved when a bay notice appeared: before=%+v after=%+v", name, before[i], after[i])
 		}
 	}
+}
+
+// TestComposeChipsBayWrapsWidePickerLine (ADR 0051 slice 3 ruling 2): the
+// RENDEZVOUS PLAN picker's size-mismatch refusal line ("radius outside
+// target's apsides: plan a transfer [H] first") is, together with its
+// title and place row, wide enough that the whole chip (85 columns
+// unwrapped, per the item 1 measurement of the old wording) does not fit
+// the bay's ~63-column gap at 140x40. It must now wrap instead of
+// spilling into the left stack: every placed rect stays within
+// [leftStackMaxCol, navballLeft], and it must not overlap the right-side
+// box standing in for MISSION/TARGET.
+func TestComposeChipsBayWrapsWidePickerLine(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	const cCols, cRows = 140, 40
+	v.OpenMeetingPicker(planner.MeetingTheirOrbit, planner.MeetingLadder{}, sim.ErrMeetingSizeMismatch)
+	pickerLines := v.buildMeetingPickerChip()
+	if pickerLines == nil {
+		t.Fatal("setup: picker chip nil while open")
+	}
+
+	// Realistic box width (matching ENGINE's ~48 measured columns, item
+	// 1's own numbers): a generous fake gap would let the picker fit
+	// unwrapped and prove nothing about the clamp actually engaging.
+	leftBox := builtChip{corner: cornerTopLeft, lines: []string{
+		"ENGINE",
+		"  throttle:  100% idle             mode:  main",
+	}, priority: chipPriorityCore}
+	chips := []builtChip{leftBox, {corner: cornerBay, lines: pickerLines}}
+	const navballReserved = navballPanelH + 1 // navball showing, as at 140x40 in real play
+	navballLeft := cCols - navballPanelW
+
+	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
+	if len(v.chipRects) != 2 {
+		t.Fatalf("recorded %d rects, want 2", len(v.chipRects))
+	}
+	left, picker := v.chipRects[0], v.chipRects[1]
+	width := picker.colEnd - picker.colStart + 1
+	t.Logf("picker rect: %+v (width %d, height %d)", picker, width, picker.rowEnd-picker.rowStart+1)
+	// The real invariant ("nothing ever covers an instrument box") is a
+	// true 2D check, not a column-band comparison against a box that may
+	// not even share the picker's rows; assertNoChipRectOverlaps below
+	// is what actually proves that. These two are the geometry ruling 2
+	// specifically constrains: the picker's own rect must stay inside
+	// [left stack's right edge, navball's left edge], and it must
+	// actually be narrower than its old unwrapped 85 columns, or the
+	// wrap never engaged at all.
+	if picker.colStart < left.colEnd+1 {
+		t.Errorf("picker colStart %d is left of the left stack's own edge %d", picker.colStart, left.colEnd+1)
+	}
+	if picker.colEnd >= navballLeft {
+		t.Errorf("picker colEnd %d reaches the navball's left edge %d", picker.colEnd, navballLeft)
+	}
+	if width >= 70 {
+		t.Errorf("picker width %d did not shrink from its old unwrapped 85 columns, the wrap did not engage", width)
+	}
+	assertNoChipRectOverlaps(t, v.chipRects)
 }
 
 // bayFoldTestChips builds the fixture TestComposeChipsBayFoldsOldest* and
