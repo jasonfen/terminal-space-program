@@ -177,7 +177,7 @@ func (v *OrbitView) buildMeetingPickerChip() []string {
 		return nil
 	}
 	lines := []string{
-		v.theme.Primary.Render("MEETING PLAN"),
+		v.theme.Primary.Render("RENDEZVOUS PLAN"),
 		fmt.Sprintf("  ← %s →", mp.place.String()),
 	}
 	if mp.ladderErr != nil {

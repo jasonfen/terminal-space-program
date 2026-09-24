@@ -105,7 +105,7 @@ func TestPlanRendezvousKey_NearMatched_PlantsDirect_NoPicker(t *testing.T) {
 	if len(c.Nodes) != 1 {
 		t.Fatalf("expected 1 node planted directly, got %d (statusMsg=%q)", len(c.Nodes), a.statusMsg)
 	}
-	if strings.Contains(a.statusMsg, "meeting plan") {
+	if strings.Contains(a.statusMsg, "rendezvous plan") {
 		t.Errorf("statusMsg reads like a picker open, want a direct-plant message: %q", a.statusMsg)
 	}
 }

@@ -50,7 +50,7 @@ func TestMeetingPickerChip_Content(t *testing.T) {
 
 	joined := strings.Join(v.buildMeetingPickerChip(), "\n")
 	for _, want := range []string{
-		"MEETING PLAN",
+		"RENDEZVOUS PLAN",
 		"their orbit",
 		"2 laps", "3 laps", "5 laps", "10 laps", "20 laps",
 		"unaffordable",
@@ -271,8 +271,8 @@ func TestMeetingPickerChip_Render80x24(t *testing.T) {
 			t.Errorf("meeting picker chip line implausibly wide (%d cols) at 80×24: %q", w, line)
 		}
 	}
-	if !strings.Contains(out, "MEETING PLAN") {
-		t.Errorf("MEETING PLAN chip missing from an 80×24 render:\n%s", out)
+	if !strings.Contains(out, "RENDEZVOUS PLAN") {
+		t.Errorf("RENDEZVOUS PLAN chip missing from an 80×24 render:\n%s", out)
 	}
 	if !strings.Contains(out, "their orbit") {
 		t.Errorf("Meeting Place missing from an 80×24 render:\n%s", out)
@@ -310,7 +310,7 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 	v.OpenMeetingPicker(planner.MeetingTheirOrbit, ladder, nil)
 
 	want := strings.Join([]string{
-		"MEETING PLAN",
+		"RENDEZVOUS PLAN",
 		"  \u2190 their orbit \u2192",
 		">  2 laps   4h19m      697 m/s",
 		"   5 laps   9h03m    (unaffordable)",
@@ -324,7 +324,7 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 	}
 
 	// The block must also survive an actual 80x24 page render.
-	if out := v.Render(w, 0, 80, 24); !strings.Contains(out, "MEETING PLAN") {
+	if out := v.Render(w, 0, 80, 24); !strings.Contains(out, "RENDEZVOUS PLAN") {
 		t.Errorf("chip missing from an 80x24 page render:\n%s", out)
 	}
 }
