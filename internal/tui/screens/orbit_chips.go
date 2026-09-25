@@ -416,28 +416,23 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	bottomLeftRow := cRows - 2 // above the "view:" label on row cRows-1
 	bottomRightRow := cRows - 1 - navballReserved
 
-	// leftStackMaxCol tracks the rightmost column any top-left/bottom-left
-	// chip has reached this frame, so the bay (cornerBay) can centre
-	// itself in the gap between the left stack and the navball rather
-	// than at a fixed column (re-grill Q5: "centred between the left
-	// stack and the navball"). Updated by place() below.
-	leftStackMaxCol := 0
 	// leftFootprints records the right edge and bottom row of every
-	// top-left/bottom-left chip placed this frame, in placement order,
-	// so the bay's own clamp (below) can tell which left boxes actually
-	// reach into ITS column span rather than assuming the widest box
-	// anywhere in the left stack does (review finding 2, second half,
-	// 2026-09-25): GUIDANCE (60 wide) sits well above the bay's row band
-	// and its own bottom row is well clear of the bay before the bay
-	// ever starts, so it must not shrink the bay's budget just because
-	// it happens to be wider than MISSION, the box the bay actually
-	// sits beside under decision 10's fixed order.
+	// top-left/bottom-left chip placed this frame, in placement order, so
+	// the bay (cornerBay) can centre itself in the gap between the left
+	// stack and the navball (re-grill Q5) using only the box it actually
+	// sits beside, rather than the widest box anywhere in the left stack
+	// (review finding 2, second half, 2026-09-25): GUIDANCE (60 wide)
+	// sits well above the bay's row band and its own bottom row is well
+	// clear of the bay before the bay ever starts, so it must not shrink
+	// the bay's budget just because it happens to be wider than MISSION,
+	// the box the bay actually sits beside under decision 10's fixed
+	// order. Updated by place() below.
 	var leftFootprints []leftChipFootprint
 	// bay collects cornerBay chips instead of placing them inline, so
 	// they can be laid out after every other corner has claimed its
-	// space this frame (leftStackMaxCol is only final once the left
-	// stack is done) and so the whole bay can be centred as one block
-	// rather than chip-by-chip.
+	// space this frame (leftFootprints is only final once the left stack
+	// is done) and so the whole bay can be centred as one block rather
+	// than chip-by-chip.
 	var bay []bayEntry
 
 	// place lays out one block (bordered chip content, or a bare one-row
@@ -473,9 +468,6 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		case cornerTopLeft:
 			atRow, atCol = topLeftRow, 0
 			topLeftRow += bh + chipGap
-			if right := atCol + bw; right > leftStackMaxCol {
-				leftStackMaxCol = right
-			}
 			leftFootprints = append(leftFootprints, leftChipFootprint{rightCol: atCol + bw, bottomRow: atRow + bh - 1})
 		case cornerTopRight:
 			atRow, atCol = topRightRow, cCols-bw
@@ -483,9 +475,6 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		case cornerBottomLeft:
 			atRow, atCol = bottomLeftRow-bh+1, 0
 			bottomLeftRow -= bh + chipGap
-			if right := atCol + bw; right > leftStackMaxCol {
-				leftStackMaxCol = right
-			}
 			leftFootprints = append(leftFootprints, leftChipFootprint{rightCol: atCol + bw, bottomRow: atRow + bh - 1})
 		case cornerBottomRight:
 			atRow, atCol = bottomRightRow-bh+1, cCols-bw
