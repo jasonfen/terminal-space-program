@@ -177,78 +177,130 @@ func TestQBandRowIndexEdgesAndClamp(t *testing.T) {
 	}
 }
 
-// TestAscentQBandLinesMarksCurrentAndMaxQ pins the ATMOSPHERE chip's
-// rendered rows: the vessel's current band carries the craft glyph, the
-// peak-Q band carries the max-Q glyph, and every other row is a bare
-// tick — so a formatting change has to be deliberate, matching the
-// descent corridor's own instrument-lines test.
-func TestAscentQBandLinesMarksCurrentAndMaxQ(t *testing.T) {
+// canvasCellRuneAt returns the single rune at (row, col) of a rendered
+// canvas string (ANSI stripped first), for tests that need to read a
+// specific screen cell rather than search a whole line.
+func canvasCellRuneAt(t *testing.T, canvasStr string, row, col int) rune {
+	t.Helper()
+	lines := strings.Split(stripANSI(canvasStr), "\n")
+	if row < 0 || row >= len(lines) {
+		t.Fatalf("row %d out of range (canvas has %d rows)", row, len(lines))
+	}
+	runes := []rune(lines[row])
+	if col < 0 || col >= len(runes) {
+		t.Fatalf("col %d out of range (row %d has %d cols)", col, row, len(runes))
+	}
+	return runes[col]
+}
+
+// TestDrawAscentAirScaleMarksCurrentAndMaxQ (ADR 0051 slice 4 item 3, the
+// retired ATMOSPHERE box's own line-based test ported to the canvas):
+// the vessel's current band carries the craft glyph, the peak-Q band
+// carries the max-Q glyph, the top and bottom bands carry their edge
+// glyphs, and every other row stays a bare tick.
+func TestDrawAscentAirScaleMarksCurrentAndMaxQ(t *testing.T) {
 	v := NewLaunchView(launchThemeForTest(), nil)
+	v.Resize(120, 40)
+	v.canvas.Clear()
 	qb := sim.AscentQBand{
 		AtmosphereDepthM: 150_000,
-		CurrentAltM:      125_000, // row 1 of 6 (top-adjacent band)
+		CurrentAltM:      125_000,
 		CurrentQPa:       1234.5,
-		MaxQAltM:         25_000, // row 4 of 6
+		MaxQAltM:         25_000,
 		MaxQPa:           45_678,
 		HasMaxQ:          true,
 	}
-	got := v.ascentQBandLines(qb)
-	if len(got) != ascentQBandRows+3 { // header + rows + Q + max Q
-		t.Fatalf("got %d lines, want %d:\n%v", len(got), ascentQBandRows+3, got)
-	}
-	if !strings.Contains(got[0], "ATMOSPHERE") {
-		t.Errorf("line 0 = %q, want the ATMOSPHERE header", got[0])
-	}
-	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, ascentQBandRows)
-	maxRow := qBandRowIndex(qb.MaxQAltM, qb.AtmosphereDepthM, ascentQBandRows)
-	if !strings.Contains(got[1+curRow], ascentQBandCraftGlyph) {
-		t.Errorf("current-altitude row %d = %q, want the craft glyph %q", curRow, got[1+curRow], ascentQBandCraftGlyph)
-	}
-	if !strings.Contains(got[1+maxRow], ascentQBandMaxQGlyph) {
-		t.Errorf("max-Q row %d = %q, want the max-Q glyph %q", maxRow, got[1+maxRow], ascentQBandMaxQGlyph)
-	}
-	if !strings.Contains(got[len(got)-2], "1.2") {
-		// 1234.5 Pa → 1.2 kPa
-		t.Errorf("Q row = %q, want the current Q value in kPa", got[len(got)-2])
-	}
-	if !strings.Contains(got[len(got)-1], "45.68") {
-		// 45678 Pa → 45.68 kPa (readout.Pressure: 4 significant figures)
-		t.Errorf("max Q row = %q, want the max Q value in kPa", got[len(got)-1])
-	}
-}
+	const col, topRow = 50, 1
+	v.drawAscentAirScale(qb, col, topRow)
+	out := v.canvas.String()
 
-// TestAscentQBandLinesOmitsMaxQBeforeMeasured: a fresh session that
-// hasn't ratcheted a peak yet must not fabricate one at the ground.
-func TestAscentQBandLinesOmitsMaxQBeforeMeasured(t *testing.T) {
-	v := NewLaunchView(launchThemeForTest(), nil)
-	qb := sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: 1_000, CurrentQPa: 10, HasMaxQ: false}
-	got := v.ascentQBandLines(qb)
-	for _, line := range got {
-		if strings.Contains(line, ascentQBandMaxQGlyph) || strings.Contains(line, "max Q") {
-			t.Errorf("line %q mentions max Q before any peak was measured", line)
+	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, airScaleRows)
+	maxRow := qBandRowIndex(qb.MaxQAltM, qb.AtmosphereDepthM, airScaleRows)
+	if curRow == maxRow {
+		t.Fatalf("setup: current row and max-Q row coincide (%d); pick inputs that separate them", curRow)
+	}
+	if got := canvasCellRuneAt(t, out, topRow+curRow, col); string(got) != ascentQBandCraftGlyph {
+		t.Errorf("current-altitude row %d, col %d = %q, want the craft glyph %q", curRow, col, string(got), ascentQBandCraftGlyph)
+	}
+	if got := canvasCellRuneAt(t, out, topRow+maxRow, col); string(got) != ascentQBandMaxQGlyph {
+		t.Errorf("max-Q row %d, col %d = %q, want the max-Q glyph %q", maxRow, col, string(got), ascentQBandMaxQGlyph)
+	}
+	if got := canvasCellRuneAt(t, out, topRow, col); got != '┬' {
+		t.Errorf("top row, col %d = %q, want the top-of-air glyph ┬", col, string(got))
+	}
+	if got := canvasCellRuneAt(t, out, topRow+airScaleRows-1, col); got != '┴' {
+		t.Errorf("bottom row, col %d = %q, want the ground glyph ┴", col, string(got))
+	}
+	for i := 1; i < airScaleRows-1; i++ {
+		if i == curRow || i == maxRow {
+			continue
+		}
+		if got := canvasCellRuneAt(t, out, topRow+i, col); string(got) != ascentQBandTickGlyph {
+			t.Errorf("row %d, col %d = %q, want the bare tick %q", i, col, string(got), ascentQBandTickGlyph)
 		}
 	}
 }
 
+// TestDrawAscentAirScaleOmitsMaxQBeforeMeasured: a fresh session that
+// hasn't ratcheted a peak yet must not fabricate one at the ground.
+func TestDrawAscentAirScaleOmitsMaxQBeforeMeasured(t *testing.T) {
+	v := NewLaunchView(launchThemeForTest(), nil)
+	v.Resize(120, 40)
+	v.canvas.Clear()
+	qb := sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: 1_000, CurrentQPa: 10, HasMaxQ: false}
+	v.drawAscentAirScale(qb, 50, 1)
+	out := v.canvas.String()
+	if strings.Contains(stripANSI(out), ascentQBandMaxQGlyph) {
+		t.Errorf("scale mentions max Q before any peak was measured:\n%s", out)
+	}
+}
+
+// TestDrawAscentAirScaleTracksAltitude (ADR 0051 slice 4 item 3): a
+// higher current altitude must put the craft glyph on a LOWER row index
+// (row 0 is the top of the air), so the marker climbs the scale as the
+// vessel climbs. Proven red first by inverting qBandRowIndex's fraction
+// (see the item's vault log for the sabotage transcript).
+func TestDrawAscentAirScaleTracksAltitude(t *testing.T) {
+	rowFor := func(altM float64) int {
+		v := NewLaunchView(launchThemeForTest(), nil)
+		v.Resize(120, 40)
+		v.canvas.Clear()
+		v.drawAscentAirScale(sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: altM}, 50, 1)
+		out := v.canvas.String()
+		for i := 0; i < airScaleRows; i++ {
+			if canvasCellRuneAt(t, out, 1+i, 50) == []rune(ascentQBandCraftGlyph)[0] {
+				return i
+			}
+		}
+		t.Fatalf("craft glyph not found on the scale for altitude %.0f", altM)
+		return -1
+	}
+	low := rowFor(20_000)
+	high := rowFor(100_000)
+	if high >= low {
+		t.Errorf("100 km put the marker on row %d, want a row above 20 km's row %d (lower index = higher on screen)", high, low)
+	}
+}
+
 // TestLaunchViewAscentInstrumentsAt80x24: the ascent half has to survive
-// the smallest supported terminal — the ATMOSPHERE chip composites onto
-// the canvas and the attitude stubs land near the sprite at 80×24, not
-// only at roomy dev-window sizes.
+// the smallest supported terminal: the attitude stubs land near the
+// sprite at 80×24, not only at roomy dev-window sizes.
 // Rendered at the Design Size (ADR 0046/0051): ADR 0051's eight
 // instrument boxes are much larger than the VESSEL/ATTITUDE/etc. chips
-// they replace and are never dropped (Core priority), so at 80x24,
-// below the Design Size in both dimensions, they can legitimately
-// consume the whole budget before ATMOSPHERE (a LAUNCH-view-only chip,
-// untouched by ADR 0051, slice 4's to retire) gets a look in. 140x40 is
-// the one canvas the Design Size floor actually guarantees room at.
+// they replace and are never dropped (Core priority). ADR 0051 slice 4
+// item 1 retires the ATMOSPHERE box outright (decision 8 draws the same
+// reading into the horizon picture instead, item 3), so this no longer
+// checks for it as text; item 3 is what re-adds an ascent-only assertion
+// for the picture-drawn air scale. 140x40 is the one canvas the Design
+// Size floor actually guarantees room at.
 func TestLaunchViewAscentInstrumentsAt80x24(t *testing.T) {
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	w := ascendingCraftWorld(t, "earth", 20_000, 300, orbital.Vec3{X: 1})
 
 	out := v.Render(w, DesignWidth, DesignHeight)
-	if !strings.Contains(stripANSI(out), "ATMOSPHERE") {
-		t.Errorf("ascending render is missing the ATMOSPHERE chip:\n%s", out)
+	if strings.Contains(stripANSI(out), "ATMOSPHERE") {
+		t.Errorf("ascending render still shows the retired ATMOSPHERE box:\n%s", out)
 	}
 	if rows := len(strings.Split(out, "\n")); rows > DesignHeight {
 		t.Errorf("render is %d rows tall, want <= %d", rows, DesignHeight)
@@ -289,5 +341,133 @@ func TestLaunchViewNoAscentInstrumentsOnDescentOrCoast(t *testing.T) {
 	}
 	if strings.Contains(coastOut, "DESCENT CORRIDOR") {
 		t.Errorf("coasting vehicle rendered the DESCENT CORRIDOR chip:\n%s", coastOut)
+	}
+}
+
+// TestLaunchViewShowsTargetDuringEarthAscent (ADR 0051 slice 4 item 1):
+// the LAUNCH view used to append its own DESCENT CORRIDOR and ATMOSPHERE
+// boxes on top of the shared chips assembleChips already returns. During
+// an Earth ascent with the navball actually showing (NavballSubObserver
+// resolving, as it does the instant a real craft has a defined attitude)
+// and a target set, the extra ATMOSPHERE box pushed the right column's
+// budget (NAVIGATION 10 + TARGET 7 = 17 of 17, no slack) over the edge;
+// the drop phase then took the stub's own row from TARGET too (Core
+// tier, but still droppable when the stub itself doesn't fit), hiding
+// both behind "▸ +2 hidden"
+// (ux-reviews/20260913-readout-overlap/adr0051-slice2b/04-burn-map.txt).
+// Retiring both appends must bring TARGET back at the Design Size.
+func TestLaunchViewShowsTargetDuringEarthAscent(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w, c := spawnSaturnVOnPad(t)
+	c.Landed = false
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 20_000)
+	c.State.V = rHat.Scale(300)
+	c.State.M = c.TotalMass()
+
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" || b.ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx <= 0 {
+		t.Fatalf("moon not found in default system")
+	}
+	w.SetTargetBody(moonIdx)
+	if _, _, ok := w.NavballSubObserver(); !ok {
+		t.Fatal("setup: expected the navball to resolve so its rows are reserved, matching the real overflow")
+	}
+
+	out := stripANSI(v.Render(w, DesignWidth, DesignHeight))
+	if !strings.Contains(out, "TARGET") {
+		t.Errorf("LAUNCH view during an Earth ascent with a target set is missing the TARGET box:\n%s", out)
+	}
+	if strings.Contains(out, "hidden") {
+		t.Errorf("LAUNCH view during an Earth ascent shows a hidden-chip stub:\n%s", out)
+	}
+}
+
+// TestLaunchViewAirScaleDoesNotHideTarget (ADR 0051 slice 4 item 3): the
+// air scale paints directly onto the canvas before composeChips runs,
+// entirely outside its side-budget accounting, so it must not cost the
+// right column any budget the way the retired ATMOSPHERE box did (item
+// 1's own regression, reproduced with the identical setup here). TARGET
+// must stay visible, and the scale's own top/bottom edges must appear.
+func TestLaunchViewAirScaleDoesNotHideTarget(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w, c := spawnSaturnVOnPad(t)
+	c.Landed = false
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 20_000)
+	c.State.V = rHat.Scale(300)
+	c.State.M = c.TotalMass()
+
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" || b.ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx <= 0 {
+		t.Fatalf("moon not found in default system")
+	}
+	w.SetTargetBody(moonIdx)
+	if _, _, ok := w.NavballSubObserver(); !ok {
+		t.Fatal("setup: expected the navball to resolve so its rows are reserved")
+	}
+
+	out := stripANSI(v.Render(w, DesignWidth, DesignHeight))
+	if !strings.Contains(out, "TARGET") {
+		t.Errorf("air scale cost TARGET its box:\n%s", out)
+	}
+	if strings.Contains(out, "hidden") {
+		t.Errorf("air scale triggered a hidden-chip stub:\n%s", out)
+	}
+	if !strings.Contains(out, "┬") || !strings.Contains(out, "┴") {
+		t.Errorf("air scale did not draw its top/bottom edges:\n%s", out)
+	}
+}
+
+// TestAirScaleColumnBoundClearsNavigationAndTarget (ADR 0051 slice 4
+// item 3): the bound must sit strictly left of BOTH boxes' left edges,
+// whichever is wider this frame, with at least one column of clearance
+// (the ADR audit's own "one column clear").
+func TestAirScaleColumnBoundClearsNavigationAndTarget(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w, c := spawnSaturnVOnPad(t)
+	c.Landed = false
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 20_000)
+	c.State.V = rHat.Scale(300)
+	c.State.M = c.TotalMass()
+	v.Resize(DesignWidth, DesignHeight)
+
+	cCols := v.canvas.Cols()
+	bound := v.airScaleColumnBound(w, cCols)
+
+	navLines := v.hudSource.buildNavigationBox(w)
+	_, navW := padChipBlock(navLines)
+	navLeftEdge := cCols - (navW + 2)
+
+	targetLines := v.hudSource.buildTargetBox(w)
+	_, targetW := padChipBlock(targetLines)
+	targetLeftEdge := cCols - (targetW + 2)
+
+	if bound >= navLeftEdge {
+		t.Errorf("bound %d does not clear NAVIGATION's left edge %d (width %d)", bound, navLeftEdge, navW+2)
+	}
+	if bound >= targetLeftEdge {
+		t.Errorf("bound %d does not clear TARGET's left edge %d (width %d)", bound, targetLeftEdge, targetW+2)
 	}
 }

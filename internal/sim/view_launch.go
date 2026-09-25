@@ -207,10 +207,6 @@ func (w *World) ToggleLaunchView() (entered bool, refusal string) {
 		// something (renderNoActiveVesselMessage, launch.go).
 		return false, "no vessel to fly"
 	}
-	// Entering answers the descent hint (issue #348 §4's chip) the same
-	// way ToggleProximityView answers the close-range hint — it stops
-	// asking until the descent ends and a fresh one begins.
-	w.launchHint.dismissed = true
 	w.routeToLaunchView()
 	return true, ""
 }

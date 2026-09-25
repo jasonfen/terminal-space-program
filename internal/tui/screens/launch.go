@@ -33,14 +33,6 @@ type LaunchView struct {
 	theme     Theme
 	hudSource *OrbitView // reused for the side-HUD chrome (v0.11.0+)
 
-	// lastVZSample caches the previous tick's altitude + sim-time so
-	// the HUD can compute vert (m/s) as a finite difference rather than
-	// requiring a sim-side velocity decomposition. Re-keyed on active-
-	// craft change so a vessel switch can't bleed a stale baseline.
-	vzCraft *spacecraft.Spacecraft
-	vzAltM  float64
-	vzAtSim time.Time
-
 	// hAxisCraft/hAxisLatched/hAxisValue cache the chase-cam's
 	// horizontal axis across renders (issue #380 review, following
 	// #378). The axis is derived from surface-relative horizontal
@@ -51,8 +43,8 @@ type LaunchView struct {
 	// surface-frame-east default, or flip 180°: the same whole-scene
 	// mirroring #378 removed from burn start, reappearing at touchdown
 	// instead. chaseHAxis latches the last velocity-derived axis
-	// through that dead zone. Re-keyed on active-craft change (mirrors
-	// vzCraft) so switching vessels doesn't inherit a stale heading.
+	// through that dead zone. Re-keyed on active-craft change so
+	// switching vessels doesn't inherit a stale heading.
 	//
 	// hAxisWasLanded is the same craft's Landed value as of the
 	// previous chaseHAxis call, used to detect the true→false
@@ -165,8 +157,17 @@ func launchAutoScale(altitudeM float64, rows int) float64 {
 // since the event) because liftoff has already happened by the time this
 // line renders at all.
 //
-// Inputs in SI units: vZ m/s, downrangeM m, q / qMaxPa Pa.
-func formatLaunchHUD(tPlus time.Duration, vZ, downrangeM, qPa, qMaxPa float64) string {
+// ADR 0051 slice 4 item 2: `vert:` is retired from this strip (decision
+// 3, "one derivation": NAVIGATION's own vert: row, shared by both
+// views, is the only one left) and the strip gains the ORBIT READY cue
+// (decision 3's worked mock; the cue only while it applies, decision
+// 10). orbitReadyBadge is the pre-rendered badge string (already styled
+// by the caller, which has the theme) or "" when the cue does not apply
+// this frame, so formatLaunchHUD stays a pure, plain-string-testable
+// formatter with no theme dependency of its own.
+//
+// Inputs in SI units: downrangeM m, q / qMaxPa Pa.
+func formatLaunchHUD(tPlus time.Duration, downrangeM, qPa, qMaxPa float64, orbitReadyBadge string) string {
 	if tPlus < 0 {
 		tPlus = 0
 	}
@@ -185,20 +186,23 @@ func formatLaunchHUD(tPlus time.Duration, vZ, downrangeM, qPa, qMaxPa float64) s
 	h := secs / 3600
 	m := (secs / 60) % 60
 	s := secs % 60
-	// F14 (gate review): colons throughout (vert:/downrange:, matching
-	// Q:'s own rename-table colon), and the "(max ...)" parenthetical
-	// drops its repeated unit per decision 6's own worked example
-	// ("Q: 0.0 kPa (max 0.0)", not "(max 0.0 kPa)").
+	// F14 (gate review): colons throughout (downrange:, matching Q:'s own
+	// rename-table colon), and the "(max ...)" parenthetical drops its
+	// repeated unit per decision 6's own worked example ("Q: 0.0 kPa
+	// (max 0.0)", not "(max 0.0 kPa)").
 	qMaxNum, _, _ := strings.Cut(readout.Pressure(qMaxPa), " ")
-	return fmt.Sprintf(
-		"T+ %02d:%02d:%02d  vert: %s | downrange: %s  %s %s (max %s)",
+	line := fmt.Sprintf(
+		"T+ %02d:%02d:%02d  downrange: %s  %s %s (max %s)",
 		h, m, s,
-		readout.Speed(vZ),
 		readout.Distance(downrangeM),
 		readout.LabelQ,
 		readout.Pressure(qPa),
 		qMaxNum,
 	)
+	if orbitReadyBadge != "" {
+		line += "  " + orbitReadyBadge
+	}
+	return line
 }
 
 // isNearHemisphere reports whether a body-relative point lies on the
@@ -361,39 +365,18 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 		// assembleChips' output for that id, so the drop is gone rather
 		// than kept as a no-op.
 		//
-		// DESCENT CORRIDOR is the surface view's own chip — built here, not
-		// in assembleChips, because it's the launch/surface screen's
-		// instrument block and the orbit map has no ground line to read it
-		// against. Empty id (always-on, F2 declutter still clears it) for
-		// the same reason RENDEZVOUS and TIME LOCK are: it states a
-		// constraint — whether this descent can still be stopped — that
-		// nothing else on screen would say. chipPriorityForced for the
-		// same reason DOCKED carries it (#328): a corner that overflows
-		// must not silently swallow the one readout saying this descent
-		// can no longer be stopped — an overlap is recoverable, a missing
-		// alarm is not.
-		if descending && v.hudSource.chipEnabled("") {
-			chips = append(chips, builtChip{
-				corner:   cornerTopRight,
-				lines:    v.descentCorridorLines(corridor),
-				priority: chipPriorityForced,
-			})
-		}
-		// ATMOSPHERE is the ascent half's own chip (issue #348 §3),
-		// mirroring DESCENT CORRIDOR's placement and empty-id treatment —
-		// same corner, same "always-on while the gate holds, F2 still
-		// clears it" rule. Unlike the corridor's stop-margin alarm, nothing
-		// here is safety-critical (there's no "can this still be stopped"
-		// question during an ascent), so it competes for space at normal
-		// priority instead of chipPriorityForced. Gated additionally on
-		// HasQBand — an airless-body ascent gets the nose/prograde markers
-		// and the arc but has no atmosphere to chart.
-		if ascending && ascent.HasQBand && v.hudSource.chipEnabled("") {
-			chips = append(chips, builtChip{
-				corner: cornerTopRight,
-				lines:  v.ascentQBandLines(ascent.QBand),
-			})
-		}
+		// ADR 0051 slice 4 item 1 retires the LAUNCH view's own two
+		// appends here: DESCENT CORRIDOR (decision 12 already put its
+		// impact:/stop: numbers and the title alarm on NAVIGATION, shared
+		// by both views) and ATMOSPHERE as a box (decision 8 draws the
+		// same air-column reading into the horizon picture instead, item
+		// 3). Appending either on top of assembleChips' own Core-tier
+		// NAVIGATION + TARGET boxes could push the right column's exact
+		// 17-of-17 budget over the edge, so the drop phase then took
+		// TARGET's row along with the append's own, surfacing a
+		// "▸ +N hidden" stub with TARGET missing entirely during an
+		// ordinary Earth ascent
+		// (ux-reviews/20260913-readout-overlap/adr0051-slice2b/04-burn-map.txt).
 		canvasStr = v.hudSource.composeChips(canvasStr, cCols, cRows, nbReserved, 1, 2, chips)
 	}
 	canvasStr = overlayHUDStrip(canvasStr, v.composeHUDLine(w, craft))
@@ -602,6 +585,18 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 		v.drawDescentArc(bodyCentre, camFromBody, corridor)
 	} else if ascending {
 		v.drawAscentArc(bodyCentre, ascent.Arc)
+	}
+
+	// The air scale (ADR 0051 decision 8, slice 4 item 3): only on
+	// worlds with an atmosphere, only while still below its top, exactly
+	// ascent.HasQBand's own gate, the same one the retired
+	// ATMOSPHERE box used (an airless-body ascent gets the arc and the
+	// attitude markers but has no air column to chart). Drawn onto the
+	// canvas here, before composeChips runs, so a box painted afterward
+	// always wins any column it happens to share.
+	if ascending && ascent.HasQBand {
+		col := v.airScaleColumnBound(w, v.canvas.Cols())
+		v.drawAscentAirScale(ascent.QBand, col, 1)
 	}
 
 	// Pad marker at the active craft's launch site, depth-culled.
@@ -882,9 +877,9 @@ func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, ca
 // LaunchView owns this state, not the spacecraft: screens read from
 // the shared world and don't mutate it (see the package doc comment on
 // World/screens), and "which way the camera happens to be facing right
-// now" is a rendering concern, not simulation state. Mirrors vzCraft's
-// pattern: re-keyed on active-craft change so switching vessels can't
-// inherit a stale heading from a different craft, and a fresh
+// now" is a rendering concern, not simulation state. Re-keyed on
+// active-craft change so switching vessels can't inherit a stale
+// heading from a different craft, and a fresh
 // LaunchView (or a craft that's never had a valid velocity-derived
 // axis — the pad-spawn case the floor was originally for) has nothing
 // to latch, so it still falls back to surface-frame east.
@@ -1151,73 +1146,6 @@ func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim
 	drawMarker(v.canvas, bodyCentre.Add(dc.Impact.Point), render.MarkerImpact, state, "", widgets.CellTag{})
 }
 
-// descentCorridorLines renders the DESCENT CORRIDOR instrument block:
-// altitude, descent rate, horiz, fpa (the two velocity-shape readings
-// folded in from the DESCENT chip this block replaces on this screen —
-// see the dropChip call in Render), time to impact, then the two #377
-// decision rows below them — `burn at` (while a future start is safe and
-// the burn hasn't started) and `stop margin` (always, while descending).
-// `fpa` was folded OUT of this block once (issue #377's pinned mock only
-// sketched the two new rows), then restored — the mock wasn't an
-// exhaustive spec of the block, and Jason wants it kept.
-//
-// `stop margin` is the alarm surface — it flips label AND colour
-// together (a bare "X up" green → amber TIGHT → red CAN'T STOP), because
-// a state a player can miss reads as no state at all. The parenthesised
-// limiter on the alarm states says which capability bound it (thrust vs
-// fuel), so the alarm names the fix instead of only the fault.
-func (v *LaunchView) descentCorridorLines(dc sim.DescentCorridor) []string {
-	// v_horiz keeps its CRASH styling verbatim: crossing the ground fast
-	// enough sideways wrecks the vessel however gently the vertical rate
-	// has been nulled, and that is not something the corridor's other
-	// numbers imply.
-	//
-	// Jason's call: strip the parentheticals that TEACH a returning pilot
-	// how to read a number (the `(surface-rel)` frame note, the
-	// `> N =` threshold lesson, the `(0 = horiz, −90 = straight down)`
-	// unit legend) — a legend printed every frame forever is scaffolding
-	// nobody needs after the first flight. Parentheticals that CARRY a
-	// number or a state (impact speed, which limiter bound a forecast)
-	// stay; those are data, not description. `CRASH on contact` is a
-	// standing warning, not a lesson, and survives on its own — this repo
-	// has a hard-won rule that transient feedback must not replace a
-	// standing warning.
-	horizLabel := readout.Speed(dc.HorizontalRateMps)
-	if dc.HorizontalRateMps > sim.CrashVCritMps {
-		horizLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%s (CRASH on contact)", readout.Speed(dc.HorizontalRateMps)))
-	}
-	fpaLabel := "—"
-	if dc.HasFPA {
-		fpaLabel = readout.FPA(dc.FlightPathAngleDeg)
-	}
-	// Every row's label + colon + padding occupies EXACTLY 15 cells
-	// before the value starts, so the values line up in one column
-	// regardless of label length. 14 (each label's own natural width)
-	// left `stop margin:` — itself exactly 14 — with no room for a
-	// separating space at all, so its value landed jammed against the
-	// colon while every other row had visible daylight after its own:
-	// arithmetically aligned, but reading as a missing-space bug rather
-	// than a deliberate layout. 15 gives every row, `stop margin:`
-	// included, at least one space of breathing room. Literal spaces,
-	// never %-Ns (ANSI bytes in a themed value would break that padding).
-	lines := []string{
-		v.theme.Primary.Render("DESCENT CORRIDOR"),
-		fmt.Sprintf("  altitude:    %s", readout.Distance(dc.AltitudeM)),
-		fmt.Sprintf("  descent:     %s", readout.Speed(dc.DescentRateMps)),
-		fmt.Sprintf("  %s       %s", readout.LabelHoriz, horizLabel),
-		fmt.Sprintf("  %s         %s", readout.LabelFPA, fpaLabel),
-		fmt.Sprintf("  %s      %s (%s)", readout.LabelImpact,
-			readout.Countdown(dc.Impact.TimeToImpact), readout.Speed(dc.Impact.SpeedMps)),
-	}
-	if dc.HasBurnAt {
-		lines = append(lines, fmt.Sprintf("  burn at:     %s (in %s)",
-			readout.Distance(dc.BurnAt.AltitudeM), readout.Duration(secondsToDuration(dc.BurnAt.InSec))))
-	}
-	lines = append(lines, fmt.Sprintf("  stop margin: %s", v.stopMarginLabel(dc)))
-	return lines
-}
-
 // secondsToDuration converts a float64 seconds reading (sim.BurnAtCue /
 // sim.PoweredStopPrediction both use float64 seconds, not time.Duration,
 // since they're arithmetic results from an integration loop) into a
@@ -1227,42 +1155,6 @@ func secondsToDuration(s float64) time.Duration {
 		s = 0
 	}
 	return time.Duration(s * float64(time.Second))
-}
-
-// stopMarginLabel styles the `stop margin` row per PredictPoweredStop's
-// outcome and the derived alarm state (dc.Margin, from
-// sim.DeriveMarginState). Negative margin reads as "short by", never as
-// a negative altitude (issue #377 §3).
-//
-// !dc.StopOK (the integration hit its step cap without resolving) is
-// NOT rendered as a quiet em dash. sim.DeriveMarginState maps that case
-// to MarginInsufficient specifically so it reads as CAN'T STOP, and
-// drawDescentArc keys the arc/impact-marker alarm off exactly that
-// state — a dim "—" here while the arc paints alert-red would be a
-// refused forecast reading as a healthy one at a glance and an alarming
-// one on the ground, which is worse than either alone (review finding,
-// PR #382: a silent no-op reads as broken). The row states the same
-// refusal the arc is already painting, in the alarm's own words, rather
-// than softening the arc to match a blank row.
-func (v *LaunchView) stopMarginLabel(dc sim.DescentCorridor) string {
-	if !dc.StopOK {
-		return v.theme.Alert.Render(fmt.Sprintf("unresolved — CAN'T STOP (%s)", dc.Margin.Limiter))
-	}
-	switch dc.Stop.Outcome {
-	case sim.StopStopped:
-		label := fmt.Sprintf("%s up", readout.Distance(dc.Stop.MarginM))
-		if dc.Margin.State == sim.MarginTight {
-			return v.theme.Warning.Render(label + " TIGHT")
-		}
-		return v.theme.Primary.Render(label)
-	case sim.StopCrashed:
-		return v.theme.Alert.Render(fmt.Sprintf("short by %s (impact %s) CAN'T STOP (%s)",
-			readout.Distance(-dc.Stop.MarginM), readout.Speed(dc.Stop.ImpactSpeedMps), dc.Margin.Limiter))
-	case sim.StopFuelLimited:
-		return v.theme.Alert.Render(fmt.Sprintf("fuel-limited at %s CAN'T STOP (%s)",
-			readout.Distance(dc.Stop.MarginM), dc.Margin.Limiter))
-	}
-	return v.theme.Dim.Render("—")
 }
 
 // drawAscentArc inks the predicted path ahead of a climbing vessel (ADR
@@ -1315,20 +1207,19 @@ func (v *LaunchView) drawAscentAttitudeMarkers(vec sim.AttitudeVectors, anchorWo
 	v.canvas.PlotDenseLineColored(anchorWorld, anchorWorld.Add(vec.ProgradeDir.Scale(step)), render.ColorNavballMarkerPrograde, 1)
 }
 
-// ascentQBandRows is the number of altitude bands the ATMOSPHERE chip's
-// vertical scale divides the atmosphere into — top row is the cutoff
-// altitude (the top of the modelled atmosphere), bottom row is the
-// ground. Six is enough to place the current-altitude and max-Q marks
-// distinctly without making the chip taller than the DESCENT CORRIDOR
-// chip it never coexists with.
-const ascentQBandRows = 6
+// airScaleRows is the number of altitude bands the air scale divides the
+// atmosphere into (ADR 0051 decision 8, slice 4 item 3). The retired
+// ATMOSPHERE box used 6 (all it had room for); drawn into the picture
+// instead of a box there is no such ceiling, so this matches the ADR
+// audit's own historical measurement of the in-picture ladder (P-11,
+// P-14: "a 16-row scale") for the same reason: enough rows to place the
+// current-altitude and max-Q marks distinctly with headroom to spare.
+const airScaleRows = 16
 
-// Glyphs for the ATMOSPHERE chip's vertical scale: the vessel's current
-// band, the band the peak-Q-so-far was measured in, and a bare tick for
-// every other band. Single-cell, no wide/combining runes — the chip's
-// padChipBlock right-pads by rune count, and a double-width glyph here
-// would throw that off (the same "no %-Ns padding" trap the launch HUD
-// strip already documents for byte-vs-rune widths).
+// Glyphs for the air scale: the vessel's current band, the band the
+// peak-Q-so-far was measured in, and a bare tick for every other band.
+// Single-cell, no wide/combining runes (SetCellLabel writes one rune per
+// cell, so a double-width glyph here would land half in the next cell).
 const (
 	ascentQBandCraftGlyph = "▶"
 	ascentQBandMaxQGlyph  = "✕"
@@ -1360,37 +1251,81 @@ func qBandRowIndex(altM, cutoffM float64, rows int) int {
 	return idx
 }
 
-// ascentQBandLines renders the ATMOSPHERE chip: a vertical scale from the
-// atmosphere's outer edge down to the ground, the vessel's current
-// position on it, and the altitude of the peak dynamic pressure measured
-// so far this session. See sim.AscentQBand's doc comment for why the mark
-// is "the peak measured so far" rather than a forecast eventual peak —
-// the ballistic-from-now ascent arc has no future thrust program to
-// integrate a real forecast from.
-func (v *LaunchView) ascentQBandLines(qb sim.AscentQBand) []string {
-	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, ascentQBandRows)
-	maxRow := -1
-	if qb.HasMaxQ {
-		maxRow = qBandRowIndex(qb.MaxQAltM, qb.AtmosphereDepthM, ascentQBandRows)
+// airScaleColumnBound returns the canvas column the air scale's own
+// marker column must sit at or left of, so it never touches NAVIGATION
+// or TARGET (ADR 0051 decision 8, item 3: "must not paint over the
+// instrument boxes"). Each of those two boxes is independently
+// right-aligned by composeChips (cornerTopRight, atCol = cCols-bw), and
+// their widths vary by phase (NAVIGATION 51 to 73 columns; TARGET a
+// steadier ~60), so the bound is measured fresh every frame against
+// whichever is currently widest rather than a fixed historical column
+// (the ADR audit's own "column 78" was measured against one 58-wide
+// case, not the 71-to-73-wide range decision 15's plan: row can reach).
+// Returns cCols-1 (effectively "no constraint") when hudSource is nil,
+// since there is then nothing to measure against and nothing to protect
+// (composeChips itself never runs).
+func (v *LaunchView) airScaleColumnBound(w *sim.World, cCols int) int {
+	if v.hudSource == nil {
+		return cCols - 1
 	}
-	lines := []string{v.theme.Primary.Render("ATMOSPHERE")}
-	for i := 0; i < ascentQBandRows; i++ {
-		switch {
-		case i == curRow && i == maxRow:
-			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)))
-		case i == curRow:
-			lines = append(lines, fmt.Sprintf("  %s %s", ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)))
-		case i == maxRow:
-			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandMaxQGlyph, readout.Distance(qb.MaxQAltM)))
-		default:
-			lines = append(lines, "  "+ascentQBandTickGlyph)
+	widest := 0
+	for _, lines := range [][]string{v.hudSource.buildNavigationBox(w), v.hudSource.buildTargetBox(w)} {
+		_, contentW := padChipBlock(lines)
+		if bw := contentW + 2; bw > widest { // +2: the border padChipBlock's caller wraps every chip in
+			widest = bw
 		}
 	}
-	lines = append(lines, fmt.Sprintf("  %s     %s", readout.LabelQ, readout.Pressure(qb.CurrentQPa)))
-	if qb.HasMaxQ {
-		lines = append(lines, fmt.Sprintf("  max %s %s", readout.LabelQ, readout.Pressure(qb.MaxQPa)))
+	bound := cCols - widest - 1 // one column of clearance, matching the ADR's own "one column clear"
+	if bound < 1 {
+		bound = 1
 	}
-	return lines
+	return bound
+}
+
+// drawAscentAirScale paints the atmosphere ladder directly into the
+// horizon picture (ADR 0051 decision 8, slice 4 item 3), replacing the
+// retired ATMOSPHERE box: a vertical scale along the right edge of the
+// picture from the top of the air down to the ground, the vessel's own
+// glyph tracking its current altitude, and a mark at the peak-Q altitude
+// measured so far this session. Reuses qBandRowIndex's altitude-to-row
+// mapping verbatim (the retired box's own row math), so a given altitude
+// lands on the same row whether or not the box ever existed. See
+// sim.AscentQBand's doc comment for why the mark is "the peak measured
+// so far" rather than a forecast eventual peak.
+//
+// markerCol is the scale's own column (ticks/glyphs); labels are written
+// to its left via SetCellLabel, ending one cell before markerCol so the
+// text never collides with the marker itself. topRow is the screen row
+// the scale's first (highest-altitude) band starts at.
+func (v *LaunchView) drawAscentAirScale(qb sim.AscentQBand, markerCol, topRow int) {
+	if markerCol < 0 {
+		return
+	}
+	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, airScaleRows)
+	maxRow := -1
+	if qb.HasMaxQ {
+		maxRow = qBandRowIndex(qb.MaxQAltM, qb.AtmosphereDepthM, airScaleRows)
+	}
+	for i := 0; i < airScaleRows; i++ {
+		row := topRow + i
+		glyph, label := ascentQBandTickGlyph, ""
+		switch {
+		case i == curRow && i == maxRow:
+			glyph, label = ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)+" (max Q) "
+		case i == curRow:
+			glyph, label = ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)+" "
+		case i == maxRow:
+			glyph, label = ascentQBandMaxQGlyph, readout.Distance(qb.MaxQAltM)+" (max Q) "
+		case i == 0:
+			glyph, label = "┬", readout.Distance(qb.AtmosphereDepthM)+" "
+		case i == airScaleRows-1:
+			glyph, label = "┴", "0 m "
+		}
+		if label != "" {
+			v.canvas.SetCellLabel(markerCol-lipgloss.Width(label), row, label)
+		}
+		v.canvas.SetCellLabel(markerCol, row, glyph)
+	}
 }
 
 // (launchOrbitSamples retired by ADR 0042 §3.) The chase-cam used to size
@@ -1630,32 +1565,26 @@ func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) stri
 	if w.LaunchSessionActive && !w.LaunchT0.IsZero() {
 		tPlus = w.Clock.SimTime.Sub(w.LaunchT0)
 	}
-	vZ := v.sampleVerticalSpeed(c, w.Clock.SimTime)
 	downrange := greatCircleDistanceM(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, c, w.Clock.SimTime)
 	q := dynamicPressurePa(c)
-	return formatLaunchHUD(tPlus, vZ, downrange, q, w.LaunchMaxQ)
+	return formatLaunchHUD(tPlus, downrange, q, w.LaunchMaxQ, v.launchOrbitReadyBadge(c))
 }
 
-// sampleVerticalSpeed returns a finite-difference altitude rate (m/s)
-// for the active craft. Re-baselined on craft change so a vessel
-// switch doesn't bleed a stale altitude into the readout. The first
-// call after a re-baseline returns 0 m/s.
-func (v *LaunchView) sampleVerticalSpeed(c *spacecraft.Spacecraft, simTime time.Time) float64 {
-	alt := c.Altitude()
-	if v.vzCraft != c || v.vzAtSim.IsZero() {
-		v.vzCraft = c
-		v.vzAltM = alt
-		v.vzAtSim = simTime
-		return 0
+// launchOrbitReadyBadge (ADR 0051 slice 4 item 2, re-grill Q6): the same
+// gate as NAVIGATION's title badge (isSubOrbitalClimb + apoapsis above
+// sim.OrbitFloorForCraft), rendered in the identical style, so the map
+// and the LAUNCH strip can never disagree about when the cue lights.
+// Returns "" while the cue does not apply this frame.
+func (v *LaunchView) launchOrbitReadyBadge(c *spacecraft.Spacecraft) string {
+	if c == nil || !isSubOrbitalClimb(c) {
+		return ""
 	}
-	dt := simTime.Sub(v.vzAtSim).Seconds()
-	if dt <= 0 {
-		return 0
+	_, apoAltM, _, ok := craftLiveElements(c)
+	if !ok || apoAltM <= sim.OrbitFloorForCraft(c) {
+		return ""
 	}
-	dv := (alt - v.vzAltM) / dt
-	v.vzAltM = alt
-	v.vzAtSim = simTime
-	return dv
+	orbitReadyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
+	return orbitReadyStyle.Render("● ORBIT READY [C]")
 }
 
 // greatCircleDistanceM returns the great-circle distance over the
