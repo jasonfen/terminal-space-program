@@ -995,8 +995,9 @@ const fpaSpeedFloorMps = 1.0
 // block (screens.LaunchView) call this for the cheap gate + numbers, then
 // separately — and CACHED — call PredictPoweredStop / PredictBurnAt /
 // DeriveMarginState and merge the result in. Callers that only need the
-// gate (sim.updateLaunchHint's `descending` check) pay nothing extra at
-// all: the returned Stop/BurnAt/Margin fields are simply left zero-valued.
+// gate (the `descending` bool alone, e.g. NAVIGATION's title alarm gate)
+// pay nothing extra at all: the returned Stop/BurnAt/Margin fields are
+// simply left zero-valued.
 func DescentCorridorFor(c *spacecraft.Spacecraft, horizon time.Duration) (DescentCorridor, bool) {
 	k, ok := descentKinematics(c)
 	if !ok {

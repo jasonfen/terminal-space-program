@@ -396,8 +396,8 @@ func (v *OrbitView) appendPlanArrows(state physics.StateVector, primary bodies.C
 const navigationPlanEquatorialToleranceDeg = 0.05
 
 // navigationPlanRow builds NAVIGATION's permanent tenth row (re-grill
-// Q1, decision 15): "plan: —" with no plan; otherwise the world the
-// planned numbers are measured from, then either the node angles or,
+// Q1, decision 15): a bare dash cell with no plan; otherwise the world
+// the planned numbers are measured from, then either the node angles or,
 // for an equatorial plan, the word "equatorial" in their place.
 // Precedence (checked in this order, matching the three named forms):
 // a plan that ends at a DIFFERENT primary than the craft's current one

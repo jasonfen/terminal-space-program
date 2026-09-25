@@ -159,12 +159,6 @@ type World struct {
 	// persisted, and its zero value is the correct cold start.
 	proxHint proximityHint
 
-	// launchHint is the once-per-crossing state behind the launch/surface
-	// view's own hint chip (issue #348 §4) — see launch_hint.go. Session
-	// state; never persisted, and its zero value is the correct cold
-	// start.
-	launchHint launchHint
-
 	// ViewTilt carries the polar tilt θ and yaw φ (degrees) that
 	// ViewTilted applies to the projection basis. v0.10.6+. Per-
 	// session UI state — not persisted. NewWorld seeds defaults via
@@ -930,9 +924,6 @@ func (w *World) Tick() {
 	// last, on final post-integration positions, so the range it gates on
 	// is the one the TARGET chip is about to display.
 	w.updateProximityHint()
-	// Issue #348 §4: the launch/surface view's own hint, same placement —
-	// DescentCorridorFor reads final post-integration positions too.
-	w.updateLaunchHint()
 }
 
 // LocalReArmRefusalEvent records the latest same-World dock a localReArm
