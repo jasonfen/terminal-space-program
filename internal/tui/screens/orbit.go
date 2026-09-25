@@ -179,6 +179,11 @@ type OrbitView struct {
 	ascentTrendCraft *spacecraft.Spacecraft
 	ascentTrendApoM  float64
 	ascentTrendTime  time.Time
+	// ascentTrendLast is the trend glyph decided for ascentTrendTime,
+	// returned as-is by a repeat sample at that same instant instead of
+	// being recomputed against dt=0 (review finding 3, 2026-09-25; see
+	// navigationApPeCells' doc comment).
+	ascentTrendLast string
 
 	// navSub* is a sticky copy of the navball sub-observer (nose
 	// direction) point. SAS holding an attitude leaves the resolved

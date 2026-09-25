@@ -138,10 +138,14 @@ func TestEngineBoxNodeRowBrakingStartOutranksQueuedNode(t *testing.T) {
 }
 
 // TestEngineBoxNodeRowOverflowCount: engineQueuedNodeLine appends a Dim
-// "(+N more → [m])" count when the active craft has more than one node
-// queued, with no count at all for a single queued node. Sabotage-first
-// (see this test's own red proof in the slice 2a fixes log): removing
-// the `len(c.Nodes) > 1` count branch leaves this red.
+// "+N [m]" count when the active craft has more than one node queued,
+// with no count at all for a single queued node. The short form (review
+// finding 1, 2026-09-25) replaced "(+N more → [m])", which pushed this
+// row wide enough to overlap NAVIGATION at 138 columns; see
+// TestEngineNavigationNoOverlapWithQueuedNodes for that composed-frame
+// proof. Sabotage-first (see this test's own red proof in the slice 2a
+// fixes log): removing the `len(c.Nodes) > 1` count branch leaves this
+// red.
 func TestEngineBoxNodeRowOverflowCount(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	w, err := sim.NewWorld()
@@ -155,17 +159,17 @@ func TestEngineBoxNodeRowOverflowCount(t *testing.T) {
 		{DV: 100, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute), Mode: spacecraft.BurnPrograde},
 	}
 	lines := v.buildEngineBox(w)
-	if strings.Contains(lines[3], "more") {
+	if strings.Contains(lines[3], "[m]") {
 		t.Errorf("node row with a single queued node = %q, should not carry an overflow count", lines[3])
 	}
 
-	// Two queued nodes: "(+1 more → [m])".
+	// Two queued nodes: "+1 [m]".
 	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
 		DV: 80, TriggerTime: w.Clock.SimTime.Add(30 * time.Minute), Mode: spacecraft.BurnPrograde,
 	})
 	lines = v.buildEngineBox(w)
-	if !strings.Contains(lines[3], "(+1 more → [m])") {
-		t.Errorf("node row with two queued nodes = %q, want the overflow count (+1 more → [m])", lines[3])
+	if !strings.Contains(lines[3], "+1 [m]") {
+		t.Errorf("node row with two queued nodes = %q, want the overflow count +1 [m]", lines[3])
 	}
 }
 
@@ -187,5 +191,77 @@ func TestEngineBoxTWRWillNotLiftJudgesMax(t *testing.T) {
 	}
 	if !strings.Contains(lines[2], "0.00") {
 		t.Errorf("TWR row = %q, want the current (zero) TWR figure shown", lines[2])
+	}
+}
+
+// TestEngineNavigationNoOverlapWithQueuedNodes is finding 1 of the
+// slices 2-4 review (adr0051-review-slices2to4-20260925.md): ENGINE's
+// node row with two or more queued nodes grew wide enough
+// (72 cells, box 74) to paint under NAVIGATION (68 wide in any coast),
+// even though the composed frame is only 138 columns. Composed at the
+// real Render path (not the separate buildEngineBox/buildNavigationBox
+// calls TestNavigationBoxWidthAtDesignSizeWithPlan used, which never
+// actually overlay the two boxes), so this is a positive control for the
+// real overflow, not just the two builders' own outputs.
+func TestEngineNavigationNoOverlapWithQueuedNodes(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	v.Resize(DesignWidth, DesignHeight)
+	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
+	c := w.ActiveCraft()
+	c.Nodes = []spacecraft.ManeuverNode{
+		{DV: 3100, TriggerTime: w.Clock.SimTime.Add(time.Hour), Mode: spacecraft.BurnPrograde},
+		{DV: 80, TriggerTime: w.Clock.SimTime.Add(2 * time.Hour), Mode: spacecraft.BurnPrograde},
+		{DV: 60, TriggerTime: w.Clock.SimTime.Add(3 * time.Hour), Mode: spacecraft.BurnPrograde},
+	}
+
+	out := v.Render(w, 0, DesignWidth, DesignHeight)
+	assertNoChipRectOverlaps(t, v.chipRects)
+
+	engineLines := v.buildEngineBox(w)
+	nodeLine := engineLines[3]
+	if !strings.Contains(nodeLine, "[m]") {
+		t.Fatalf("setup: expected ENGINE's node row to carry the overflow indicator: %q", nodeLine)
+	}
+	if !strings.HasSuffix(strings.TrimRight(nodeLine, " "), ")") && !strings.HasSuffix(strings.TrimRight(nodeLine, " "), "]") {
+		t.Errorf("ENGINE node row does not end cleanly: %q", nodeLine)
+	}
+	_ = out
+}
+
+// TestEngineThrottleLabelClockDirectionConsistent (review finding 5,
+// 2026-09-25): under the identical "● FIRING" glyph, a manual burn's
+// throttle cell counted UP (T+, elapsed since ignition) while a node
+// (ActiveBurn) burn's counted DOWN (T-, remaining), with nothing on the
+// cell saying which convention applied. The node row (engineBurnLine)
+// already prints "N left" for a node burn, so the throttle cell drops
+// its own clock there rather than showing a second, oppositely-signed
+// one; a manual burn, which has no node row to carry that information,
+// keeps its elapsed T+.
+func TestEngineThrottleLabelClockDirectionConsistent(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+
+	c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime.Add(-90 * time.Second)}
+	label := v.engineThrottleLabel(w, c)
+	if !strings.Contains(label, "T+") {
+		t.Errorf("manual burn throttle label = %q, want an elapsed T+ clock", label)
+	}
+	c.ManualBurn = nil
+
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 100,
+		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
+	}
+	label = v.engineThrottleLabel(w, c)
+	if strings.Contains(label, "T+") || strings.Contains(label, "T-") {
+		t.Errorf("node burn throttle label = %q, want no clock at all (the node row already carries the remaining time)", label)
+	}
+	if !strings.Contains(label, "FIRING") {
+		t.Errorf("node burn throttle label = %q, want it to still read FIRING", label)
 	}
 }

@@ -168,6 +168,14 @@ type chipRect struct {
 	rowStart, rowEnd int
 }
 
+// leftChipFootprint is one top-left/bottom-left chip's placed rectangle,
+// reduced to just what the bay's clamp needs: how far right it reached
+// and how far down it went. See leftFootprints' doc comment in
+// composeChips.
+type leftChipFootprint struct {
+	rightCol, bottomRow int
+}
+
 // chipGap is the blank-row spacing between stacked chips in the same
 // corner. Each chip now carries its own single-cell border, which already
 // separates adjacent panels, so no extra blank row is needed between them.
@@ -408,17 +416,23 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	bottomLeftRow := cRows - 2 // above the "view:" label on row cRows-1
 	bottomRightRow := cRows - 1 - navballReserved
 
-	// leftStackMaxCol tracks the rightmost column any top-left/bottom-left
-	// chip has reached this frame, so the bay (cornerBay) can centre
-	// itself in the gap between the left stack and the navball rather
-	// than at a fixed column (re-grill Q5: "centred between the left
-	// stack and the navball"). Updated by place() below.
-	leftStackMaxCol := 0
+	// leftFootprints records the right edge and bottom row of every
+	// top-left/bottom-left chip placed this frame, in placement order, so
+	// the bay (cornerBay) can centre itself in the gap between the left
+	// stack and the navball (re-grill Q5) using only the box it actually
+	// sits beside, rather than the widest box anywhere in the left stack
+	// (review finding 2, second half, 2026-09-25): GUIDANCE (60 wide)
+	// sits well above the bay's row band and its own bottom row is well
+	// clear of the bay before the bay ever starts, so it must not shrink
+	// the bay's budget just because it happens to be wider than MISSION,
+	// the box the bay actually sits beside under decision 10's fixed
+	// order. Updated by place() below.
+	var leftFootprints []leftChipFootprint
 	// bay collects cornerBay chips instead of placing them inline, so
 	// they can be laid out after every other corner has claimed its
-	// space this frame (leftStackMaxCol is only final once the left
-	// stack is done) and so the whole bay can be centred as one block
-	// rather than chip-by-chip.
+	// space this frame (leftFootprints is only final once the left stack
+	// is done) and so the whole bay can be centred as one block rather
+	// than chip-by-chip.
 	var bay []bayEntry
 
 	// place lays out one block (bordered chip content, or a bare one-row
@@ -454,18 +468,14 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		case cornerTopLeft:
 			atRow, atCol = topLeftRow, 0
 			topLeftRow += bh + chipGap
-			if right := atCol + bw; right > leftStackMaxCol {
-				leftStackMaxCol = right
-			}
+			leftFootprints = append(leftFootprints, leftChipFootprint{rightCol: atCol + bw, bottomRow: atRow + bh - 1})
 		case cornerTopRight:
 			atRow, atCol = topRightRow, cCols-bw
 			topRightRow += bh + chipGap
 		case cornerBottomLeft:
 			atRow, atCol = bottomLeftRow-bh+1, 0
 			bottomLeftRow -= bh + chipGap
-			if right := atCol + bw; right > leftStackMaxCol {
-				leftStackMaxCol = right
-			}
+			leftFootprints = append(leftFootprints, leftChipFootprint{rightCol: atCol + bw, bottomRow: atRow + bh - 1})
 		case cornerBottomRight:
 			atRow, atCol = bottomRightRow-bh+1, cCols-bw
 			bottomRightRow -= bh + chipGap
@@ -512,21 +522,41 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 
 	// The bay (cornerBay, re-grill Q5 + slice 3 ruling 1): stacks upward
 	// from the row above the Hint Strip, newest at the bottom, centred
-	// between the left stack's right edge (leftStackMaxCol) and the
-	// navball's left edge (or the canvas edge when the navball isn't
-	// showing this frame). Both its height AND width are clamped against
-	// every box on both sides for the rows it occupies (see
-	// layoutBayChips's doc comment for why the right-side boxes
-	// (NAVIGATION/TARGET) are the real constraint the item 1 measurement
-	// found, not the left stack.
+	// between the left stack's right edge beside the bay's own row band
+	// (bayLeftBound, below) and the navball's left edge (or the canvas
+	// edge when the navball isn't showing this frame). Both its height
+	// AND width are clamped against every box on both sides for the rows
+	// it occupies (see layoutBayChips's doc comment for why the
+	// right-side boxes (NAVIGATION/TARGET) are the real constraint the
+	// item 1 measurement found, not the left stack).
 	if len(bay) > 0 {
 		navballLeft := cCols
 		if navballReserved > chipStubHeight {
 			navballLeft = cCols - navballPanelW
 		}
-		bayTop := topLeftRow
-		if topRightRow > bayTop {
-			bayTop = topRightRow
+		// bayLeftBound is the right edge of the left-stack box the bay
+		// actually sits beside: the LAST top-left/bottom-left chip
+		// placed this frame (MISSION, under decision 10's fixed order),
+		// not leftStackMaxCol's widest-box-anywhere (usually GUIDANCE,
+		// wider but rows above the bay entirely). bayTop starts at
+		// topRightRow (NAVIGATION/TARGET's own bottom) rather than
+		// leftStackMaxCol's row cursor, since the left stack's columns
+		// don't reach the bay's span; it only widens (moves later) for
+		// an earlier left box that both reaches past bayLeftBound in
+		// columns AND ends below topRightRow in rows, i.e. actually
+		// intersects the bay's rectangle (review finding 2, second
+		// half, 2026-09-25: the previous version always took the left
+		// stack's own bottom, 32 at 140x40 with Flight School on,
+		// leaving only 4 rows of the ADR's 17-row bay budget).
+		bayLeftBound := 0
+		if n := len(leftFootprints); n > 0 {
+			bayLeftBound = leftFootprints[n-1].rightCol
+		}
+		bayTop := topRightRow
+		for _, f := range leftFootprints {
+			if f.rightCol > bayLeftBound && f.bottomRow > bayTop {
+				bayTop = f.bottomRow
+			}
 		}
 		bayBottom := cRows - 2 // one row above the Hint Strip on cRows-1
 		// The fold-and-wrap "stacker" (ruling 1 / ruling 2) is a Design
@@ -539,8 +569,15 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		// effectively unbounded reproduces the old unclamped, unwrapped
 		// bay exactly.
 		bayBudget := bayBottom - bayTop + 1
-		wrapWidth := navballLeft - leftStackMaxCol - 2
-		if cCols < DesignWidth || cRows < DesignHeight {
+		wrapWidth := navballLeft - bayLeftBound - 2
+		// cCols/cRows are CANVAS dimensions (totalCols-2 by totalRows-3,
+		// Resize above), not the terminal's own DesignWidth/DesignHeight
+		// (140x40): at the Design Size the canvas is 138x37, so this
+		// comparison against 140x40 was true at every size up to 141x42
+		// and the bay was unclamped and unwrapped in production (review
+		// finding 2, 2026-09-25). Compare against the canvas-equivalent
+		// floor instead.
+		if cCols < DesignWidth-2 || cRows < DesignHeight-3 {
 			bayBudget = 1 << 30
 			wrapWidth = 1 << 30
 		}
@@ -563,10 +600,10 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 			}
 			block := wrapBorder(strings.Join(padded, "\n"), w, v.theme.Primary.GetForeground())
 			bw, bh := w+2, len(padded)+2
-			centre := (leftStackMaxCol + navballLeft) / 2
+			centre := (bayLeftBound + navballLeft) / 2
 			atCol := centre - bw/2
-			if atCol < leftStackMaxCol {
-				atCol = leftStackMaxCol
+			if atCol < bayLeftBound {
+				atCol = bayLeftBound
 			}
 			if atCol+bw > navballLeft {
 				atCol = navballLeft - bw
@@ -599,10 +636,10 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 		if foldedCount > 0 && bayRow >= bayTop {
 			text := v.theme.Dim.Render(fmt.Sprintf("▸ +%d more", foldedCount))
 			bw := lipgloss.Width(text)
-			centre := (leftStackMaxCol + navballLeft) / 2
+			centre := (bayLeftBound + navballLeft) / 2
 			atCol := centre - bw/2
-			if atCol < leftStackMaxCol {
-				atCol = leftStackMaxCol
+			if atCol < bayLeftBound {
+				atCol = bayLeftBound
 			}
 			if atCol+bw > navballLeft {
 				atCol = navballLeft - bw

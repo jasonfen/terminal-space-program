@@ -596,7 +596,7 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 	// always wins any column it happens to share.
 	if ascending && ascent.HasQBand {
 		col := v.airScaleColumnBound(w, v.canvas.Cols())
-		v.drawAscentAirScale(ascent.QBand, col, 1)
+		v.drawAscentAirScale(ascent.QBand, col, 1, v.airScaleLabelLeftBound(w))
 	}
 
 	// Pad marker at the active craft's launch site, depth-culled.
@@ -1282,6 +1282,31 @@ func (v *LaunchView) airScaleColumnBound(w *sim.World, cCols int) int {
 	return bound
 }
 
+// airScaleLabelLeftBound returns the leftmost column an air-scale label
+// may start at without reaching into the left stack's own boxes (review
+// finding 4, 2026-09-25). airScaleColumnBound above only ever cleared
+// NAVIGATION and TARGET on the right; nothing cleared PROPELLANT or
+// GUIDANCE on the left, so a 17-cell max-Q label ("10.00 km (max Q) ")
+// starting close to a narrow marker column could begin well inside one
+// of them. Measured the same way as the right bound: the widest of
+// ENGINE, PROPELLANT and GUIDANCE (the boxes whose rows the scale's
+// upper bands actually share at the Design Size), plus one column of
+// clearance. Returns 0 (no constraint) when hudSource is nil, matching
+// airScaleColumnBound's own nil-safety.
+func (v *LaunchView) airScaleLabelLeftBound(w *sim.World) int {
+	if v.hudSource == nil {
+		return 0
+	}
+	widest := 0
+	for _, lines := range [][]string{v.hudSource.buildEngineBox(w), v.hudSource.buildPropellantBox(w), v.hudSource.buildGuidanceBox(w)} {
+		_, contentW := padChipBlock(lines)
+		if bw := contentW + 2; bw > widest {
+			widest = bw
+		}
+	}
+	return widest + 1
+}
+
 // drawAscentAirScale paints the atmosphere ladder directly into the
 // horizon picture (ADR 0051 decision 8, slice 4 item 3), replacing the
 // retired ATMOSPHERE box: a vertical scale along the right edge of the
@@ -1297,7 +1322,7 @@ func (v *LaunchView) airScaleColumnBound(w *sim.World, cCols int) int {
 // to its left via SetCellLabel, ending one cell before markerCol so the
 // text never collides with the marker itself. topRow is the screen row
 // the scale's first (highest-altitude) band starts at.
-func (v *LaunchView) drawAscentAirScale(qb sim.AscentQBand, markerCol, topRow int) {
+func (v *LaunchView) drawAscentAirScale(qb sim.AscentQBand, markerCol, topRow, leftBound int) {
 	if markerCol < 0 {
 		return
 	}
@@ -1322,10 +1347,34 @@ func (v *LaunchView) drawAscentAirScale(qb sim.AscentQBand, markerCol, topRow in
 			glyph, label = "┴", "0 m "
 		}
 		if label != "" {
+			label = fitAirScaleLabel(label, markerCol, leftBound)
+		}
+		if label != "" {
 			v.canvas.SetCellLabel(markerCol-lipgloss.Width(label), row, label)
 		}
 		v.canvas.SetCellLabel(markerCol, row, glyph)
 	}
+}
+
+// fitAirScaleLabel shortens or drops an air-scale row label that would
+// otherwise start left of leftBound, reaching into the left instrument
+// stack (review finding 4, 2026-09-25). The max-Q glyph on the scale
+// itself already marks the row, so the altitude figure is the first
+// thing to give up (it lives in the F1 glossary instead); the label
+// drops entirely if even the bare "(max Q) " marker does not fit.
+// leftBound == 0 means no constraint (hudSource is nil, nothing to
+// protect), matching airScaleLabelLeftBound's own nil-safety.
+func fitAirScaleLabel(label string, markerCol, leftBound int) string {
+	if leftBound <= 0 || markerCol-lipgloss.Width(label) >= leftBound {
+		return label
+	}
+	if strings.Contains(label, "(max Q)") {
+		const short = "(max Q) "
+		if markerCol-lipgloss.Width(short) >= leftBound {
+			return short
+		}
+	}
+	return ""
 }
 
 // (launchOrbitSamples retired by ADR 0042 §3.) The chase-cam used to size

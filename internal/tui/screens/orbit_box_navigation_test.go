@@ -207,14 +207,22 @@ func TestNavigationArrowsOmitApPeriodWhenEscaping(t *testing.T) {
 // doesn't blow NAVIGATION's column budget at the Design Size (140x40):
 // every one of its rows must stay under the ADR's own measured 73-cell
 // ascent ceiling (re-grill Q1), and ENGINE's own node: row (rendered in
-// the SAME frame, the left column) must still read intact, not
-// clobbered by a NAVIGATION overrun.
+// the SAME COMPOSED FRAME, not a separate buildEngineBox call that
+// NAVIGATION can never touch) must still read intact and not overlap
+// NAVIGATION's rect, including when two or more nodes are queued (review
+// finding 1, 2026-09-25: the previous version of this test planted
+// exactly one node, so the overflow-count case that actually overlapped
+// was never exercised here).
 func TestNavigationBoxWidthAtDesignSizeWithPlan(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	v.Resize(DesignWidth, DesignHeight)
 	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
 	c := w.ActiveCraft()
 	plantProgradeNode(w, c, 3100, "moon")
+	c.Nodes = append(c.Nodes,
+		spacecraft.ManeuverNode{DV: 80, TriggerTime: w.Clock.SimTime.Add(2 * time.Hour), Mode: spacecraft.BurnPrograde},
+		spacecraft.ManeuverNode{DV: 60, TriggerTime: w.Clock.SimTime.Add(3 * time.Hour), Mode: spacecraft.BurnPrograde},
+	)
 
 	navLines := v.buildNavigationBox(w)
 	for i, l := range navLines {
@@ -222,10 +230,11 @@ func TestNavigationBoxWidthAtDesignSizeWithPlan(t *testing.T) {
 			t.Errorf("NAVIGATION row %d width %d exceeds the measured 73-cell ceiling: %q", i, width, l)
 		}
 	}
-	engineLines := v.buildEngineBox(w)
-	joined := strings.Join(engineLines, "\n")
-	if !strings.Contains(joined, "node:") {
-		t.Errorf("ENGINE's node: row missing/clobbered once NAVIGATION carries a wide plan:\n%s", joined)
+
+	out := v.Render(w, 0, DesignWidth, DesignHeight)
+	assertNoChipRectOverlaps(t, v.chipRects)
+	if !strings.Contains(out, "node:") {
+		t.Errorf("ENGINE's node: row missing/clobbered once NAVIGATION carries a wide plan:\n%s", out)
 	}
 }
 

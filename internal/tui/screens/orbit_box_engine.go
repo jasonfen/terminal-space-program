@@ -48,6 +48,15 @@ func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 // how long it has been firing. Mirrors the pre-ADR-0051 throttleRow/
 // buildLaunchChip elapsed logic, now unified onto one row instead of
 // split across VESSEL's "(idle)"/"● FIRING" and SURFACE's "● LIT".
+//
+// Only a manual burn carries a clock here (T+, elapsed since ignition):
+// a node (ActiveBurn) burn used to print T- (time remaining) instead,
+// the opposite direction under the identical "● FIRING" glyph with no
+// label saying which convention applied (review finding 5, 2026-09-25).
+// A node burn's own remaining time already reads on the node row
+// (engineBurnLine's "... left"), so this cell drops its clock there
+// rather than showing a second, oppositely-signed one; a manual burn has
+// no node row to carry that information, so it keeps its own.
 func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) string {
 	base := fmt.Sprintf("%.0f%%", c.EffectiveThrottle()*100)
 	if !sim.StackMidBurn(c) {
@@ -55,15 +64,8 @@ func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) 
 	}
 	firing := v.theme.Warning.Render("● FIRING")
 	elapsed := ""
-	switch {
-	case c.ManualBurn != nil:
+	if c.ManualBurn != nil {
 		elapsed = " " + readout.Countdown(-(w.Clock.SimTime.Sub(c.ManualBurn.StartTime)))
-	case c.ActiveBurn != nil:
-		remaining := c.ActiveBurn.EndTime.Sub(w.Clock.SimTime)
-		if remaining < 0 {
-			remaining = 0
-		}
-		elapsed = " " + readout.Countdown(remaining)
 	}
 	return base + " " + firing + elapsed
 }
@@ -157,6 +159,15 @@ func (v *OrbitView) engineBurnLine(w *sim.World, c *spacecraft.Spacecraft) (stri
 // over-budget suffix shortens to a bare "⚠" in the Alert colour
 // (re-grill Q4) instead of "exceeds budget by <Δv>", the words move to
 // the F1 glossary and stay in the planner's own list (slice 2b / #maneuver.go).
+//
+// The overflow count itself is the short "+N [m]" form (review finding
+// 1, 2026-09-25), not "(+N more → [m])": at two or more queued nodes the
+// longer form pushed this row to 72 cells, wide enough that ENGINE's box
+// (74 with its border) overlapped NAVIGATION's own widest coast row (68)
+// inside the 138-column canvas. The short form still names the count and
+// still points at [m] for the full queue; it costs 9 fewer cells, enough
+// to clear NAVIGATION in every measured phase (68 in a coast, up to 73 in
+// an ascent with a plan).
 func (v *OrbitView) engineQueuedNodeLine(w *sim.World, c *spacecraft.Spacecraft) string {
 	n := c.Nodes[0]
 	over := ""
@@ -165,7 +176,7 @@ func (v *OrbitView) engineQueuedNodeLine(w *sim.World, c *spacecraft.Spacecraft)
 	}
 	count := ""
 	if len(c.Nodes) > 1 {
-		count = v.theme.Dim.Render(fmt.Sprintf("  (+%d more → [m])", len(c.Nodes)-1))
+		count = v.theme.Dim.Render(fmt.Sprintf("  +%d [m]", len(c.Nodes)-1))
 	}
 	if !n.IsResolved() {
 		return fmt.Sprintf("%s #1 %s  %s  %s", hudNodeMarker, n.Event.String(), n.Mode.String(), readout.DeltaV(n.DV)) + over + count

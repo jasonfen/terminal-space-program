@@ -235,6 +235,19 @@ func navigationDescentAlarm(dc sim.DescentCorridor) (string, bool) {
 // altitude, Warning-coloured when negative (sub-surface). Both dash
 // together outside a real orbit (Landed, or a degenerate/hyperbolic
 // state).
+//
+// The sampler is idempotent per sim instant (review finding 3,
+// 2026-09-25): a repeat call at the SAME w.Clock.SimTime reuses the
+// trend already decided for that instant (v.ascentTrendLast) instead of
+// recomputing against dt=0, which would silently erase it. This matters
+// because the LAUNCH view builds NAVIGATION twice in one frame
+// (airScaleColumnBound measures it, composeChips builds it for real);
+// without idempotency the second, DISPLAYED build always sees dt=0
+// against the timestamp the first, discarded build just wrote, so the
+// arrow never reaches the screen during an Earth ascent even while
+// apoapsis is genuinely climbing. Any caller that samples more than once
+// at one instant (today: the LAUNCH view; potentially a future one) gets
+// the correct, shared answer instead of racing itself.
 func (v *OrbitView) navigationApPeCells(w *sim.World, c *spacecraft.Spacecraft) (apCell, peCell string) {
 	el, apoAltM, periAltM, ok := craftLiveElements(c)
 	if !ok {
@@ -242,8 +255,12 @@ func (v *OrbitView) navigationApPeCells(w *sim.World, c *spacecraft.Spacecraft) 
 	}
 	mu := c.Primary.GravitationalParameter()
 	now := w.Clock.SimTime
-	trend := ""
-	if v.ascentTrendCraft == c && !v.ascentTrendTime.IsZero() {
+	sameInstant := v.ascentTrendCraft == c && !v.ascentTrendTime.IsZero() && now.Equal(v.ascentTrendTime)
+	var trend string
+	switch {
+	case sameInstant:
+		trend = v.ascentTrendLast
+	case v.ascentTrendCraft == c && !v.ascentTrendTime.IsZero():
 		dt := now.Sub(v.ascentTrendTime).Seconds()
 		if dt > 1e-6 {
 			rate := (el.Apoapsis() - v.ascentTrendApoM) / dt
@@ -255,9 +272,12 @@ func (v *OrbitView) navigationApPeCells(w *sim.World, c *spacecraft.Spacecraft) 
 			}
 		}
 	}
-	v.ascentTrendCraft = c
-	v.ascentTrendApoM = el.Apoapsis()
-	v.ascentTrendTime = now
+	if !sameInstant {
+		v.ascentTrendCraft = c
+		v.ascentTrendApoM = el.Apoapsis()
+		v.ascentTrendTime = now
+		v.ascentTrendLast = trend
+	}
 
 	apCell = readout.Distance(apoAltM) + trend
 	if orbital.ApsisDefined(el.E) {

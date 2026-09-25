@@ -10,10 +10,12 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -211,7 +213,7 @@ func TestDrawAscentAirScaleMarksCurrentAndMaxQ(t *testing.T) {
 		HasMaxQ:          true,
 	}
 	const col, topRow = 50, 1
-	v.drawAscentAirScale(qb, col, topRow)
+	v.drawAscentAirScale(qb, col, topRow, 0)
 	out := v.canvas.String()
 
 	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, airScaleRows)
@@ -248,7 +250,7 @@ func TestDrawAscentAirScaleOmitsMaxQBeforeMeasured(t *testing.T) {
 	v.Resize(120, 40)
 	v.canvas.Clear()
 	qb := sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: 1_000, CurrentQPa: 10, HasMaxQ: false}
-	v.drawAscentAirScale(qb, 50, 1)
+	v.drawAscentAirScale(qb, 50, 1, 0)
 	out := v.canvas.String()
 	if strings.Contains(stripANSI(out), ascentQBandMaxQGlyph) {
 		t.Errorf("scale mentions max Q before any peak was measured:\n%s", out)
@@ -265,7 +267,7 @@ func TestDrawAscentAirScaleTracksAltitude(t *testing.T) {
 		v := NewLaunchView(launchThemeForTest(), nil)
 		v.Resize(120, 40)
 		v.canvas.Clear()
-		v.drawAscentAirScale(sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: altM}, 50, 1)
+		v.drawAscentAirScale(sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: altM}, 50, 1, 0)
 		out := v.canvas.String()
 		for i := 0; i < airScaleRows; i++ {
 			if canvasCellRuneAt(t, out, 1+i, 50) == []rune(ascentQBandCraftGlyph)[0] {
@@ -469,5 +471,145 @@ func TestAirScaleColumnBoundClearsNavigationAndTarget(t *testing.T) {
 	}
 	if bound >= targetLeftEdge {
 		t.Errorf("bound %d does not clear TARGET's left edge %d (width %d)", bound, targetLeftEdge, targetW+2)
+	}
+
+	// The left side (review finding 4, 2026-09-25): this test's own name
+	// claims both boxes, but until now only ever measured the right;
+	// nothing checked that a label could clear PROPELLANT/GUIDANCE on the
+	// left, which is exactly the side the defect painted over.
+	leftBound := v.airScaleLabelLeftBound(w)
+
+	engineLines := v.hudSource.buildEngineBox(w)
+	_, engineW := padChipBlock(engineLines)
+	engineRightEdge := engineW + 2
+
+	propLines := v.hudSource.buildPropellantBox(w)
+	_, propW := padChipBlock(propLines)
+	propRightEdge := propW + 2
+
+	guidanceLines := v.hudSource.buildGuidanceBox(w)
+	_, guidanceW := padChipBlock(guidanceLines)
+	guidanceRightEdge := guidanceW + 2
+
+	if leftBound <= engineRightEdge {
+		t.Errorf("label left bound %d does not clear ENGINE's right edge %d (width %d)", leftBound, engineRightEdge, engineW+2)
+	}
+	if leftBound <= propRightEdge {
+		t.Errorf("label left bound %d does not clear PROPELLANT's right edge %d (width %d)", leftBound, propRightEdge, propW+2)
+	}
+	if leftBound <= guidanceRightEdge {
+		t.Errorf("label left bound %d does not clear GUIDANCE's right edge %d (width %d)", leftBound, guidanceRightEdge, guidanceW+2)
+	}
+}
+
+// ascentTrendFixture returns a Saturn V pad-spawned craft moved to a 20
+// km ascent, 300 m/s straight up (satisfies AscentCueFor's climb-rate
+// gate, no orbital-element requirement of its own) PLUS a 7000 m/s
+// tangential component, so the state carries real, nonzero angular
+// momentum and craftLiveElements/Apoapsis is actually defined and
+// movable (a purely radial velocity, TestAirScaleColumnBoundClearsNavigationAndTarget's
+// own fixture, is a degenerate zero-angular-momentum trajectory whose
+// apoapsis reads "-" and never trends).
+func ascentTrendFixture(t *testing.T) (*sim.World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, c := spawnSaturnVOnPad(t)
+	c.Landed = false
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	tHat := rHat.Cross(orbital.Vec3{Z: 1}).Unit()
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 20_000)
+	c.State.V = rHat.Scale(300).Add(tHat.Scale(7000))
+	c.State.M = c.TotalMass()
+	return w, c
+}
+
+// TestLaunchViewApTrendArrowAgreesWithMap (review finding 3, 2026-09-25):
+// airScaleColumnBound (launch.go) measures NAVIGATION's width by calling
+// v.hudSource.buildNavigationBox a second time per frame purely to
+// measure it, and that call mutates the trend sampler
+// (navigationApPeCells' v.ascentTrendCraft/ApoM/Time, orbit_box_navigation.go).
+// composeChips then builds NAVIGATION again for real in the same frame,
+// with dt = 0 against the measurement call's just-written timestamp, so
+// the arrow the pilot actually sees is always empty during an Earth
+// ascent even while apoapsis is genuinely climbing. The map builds
+// NAVIGATION once per frame and is unaffected.
+//
+// Two frames one second apart with the velocity scaled 1.05 (mirrors the
+// review's own probe R2) through two independent OrbitView/LaunchView
+// pairs so each pipeline gets its own honest two-frame history: the
+// map's build is the positive control (it must show the arrow, or the
+// fixture itself is broken), and the LAUNCH view's real rendered output
+// must show the same arrow for the same climbing instant.
+func TestLaunchViewApTrendArrowAgreesWithMap(t *testing.T) {
+	th := launchThemeForTest()
+
+	// Map pipeline: one buildNavigationBox call per frame.
+	mapHUD := NewOrbitView(th)
+	wMap, cMap := ascentTrendFixture(t)
+	mapHUD.buildNavigationBox(wMap) // frame 1, establishes the baseline
+	wMap.Clock.SimTime = wMap.Clock.SimTime.Add(time.Second)
+	cMap.State.V = cMap.State.V.Scale(1.05)
+	mapOut := strings.Join(mapHUD.buildNavigationBox(wMap), "\n") // frame 2
+	if !strings.Contains(mapOut, "↑") {
+		t.Fatalf("setup: the map's own NAVIGATION box shows no climbing trend arrow for a growing apoapsis:\n%s", mapOut)
+	}
+
+	// LAUNCH pipeline: same two frames, through the real Render path,
+	// which builds NAVIGATION twice internally each frame.
+	launchHUD := NewOrbitView(th)
+	v := NewLaunchView(th, launchHUD)
+	wLaunch, cLaunch := ascentTrendFixture(t)
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(wLaunch, DesignWidth, DesignHeight) // frame 1, establishes the baseline
+	wLaunch.Clock.SimTime = wLaunch.Clock.SimTime.Add(time.Second)
+	cLaunch.State.V = cLaunch.State.V.Scale(1.05)
+	launchOut := v.Render(wLaunch, DesignWidth, DesignHeight) // frame 2
+
+	if !strings.Contains(launchOut, "↑") {
+		t.Errorf("LAUNCH view shows no climbing trend arrow even though the map shows one for the same instant")
+	}
+}
+
+// TestDrawAscentAirScaleLabelClearsLeftStack (review finding 4,
+// 2026-09-25): airScaleColumnBound only ever cleared NAVIGATION and
+// TARGET on the right; nothing clears PROPELLANT or GUIDANCE on the
+// left, so a 17-cell max-Q label ("10.00 km (max Q) ") starting close to
+// a narrow marker column can begin well inside the left stack's own
+// boxes. The label must not paint left of leftBound; when the full label
+// does not fit, it shortens to the bare "(max Q) " marker (the glyph
+// already says max Q; the altitude number is in the F1 glossary) rather
+// than spilling over.
+func TestDrawAscentAirScaleLabelClearsLeftStack(t *testing.T) {
+	v := NewLaunchView(launchThemeForTest(), nil)
+	v.Resize(120, 40)
+	v.canvas.Clear()
+	qb := sim.AscentQBand{
+		AtmosphereDepthM: 150_000,
+		CurrentAltM:      10_000,
+		MaxQAltM:         10_000, // current == max-Q row: the worst-case combined label
+		HasMaxQ:          true,
+	}
+	const markerCol = 60  // close enough to leftBound that the full 17-cell label would cross it
+	const leftBound = 50
+	v.drawAscentAirScale(qb, markerCol, 1, leftBound)
+
+	isBlank := func(r rune) bool { return r == ' ' || r == '⠀' }
+
+	row := 1 + qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, airScaleRows)
+	if got := canvasCellRuneAt(t, v.canvas.String(), row, leftBound-1); !isBlank(got) {
+		t.Errorf("column %d (one left of leftBound %d) = %q, want blank: the label reached past the left bound", leftBound-1, leftBound, string(got))
+	}
+	// The shortened marker itself must still be present between the
+	// bound and the marker column, or the fix dropped the label
+	// entirely instead of shortening it.
+	found := false
+	for c := leftBound; c < markerCol; c++ {
+		if !isBlank(canvasCellRuneAt(t, v.canvas.String(), row, c)) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("no label text at all between leftBound and markerCol, want the shortened (max Q) marker")
 	}
 }
